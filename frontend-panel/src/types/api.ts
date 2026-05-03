@@ -1,5 +1,8 @@
 // Re-export generated types for convenience
-import type { components } from "@/services/api.generated";
+import type {
+	operations as ApiOperations,
+	components,
+} from "@/services/api.generated";
 
 export type { operations, paths } from "@/services/api.generated";
 
@@ -204,6 +207,13 @@ export type BatchResult = components["schemas"]["BatchResult"];
 export type ChunkUploadResponse = components["schemas"]["ChunkUploadResponse"];
 export type CompletedPart = components["schemas"]["CompletedPartReq"];
 export type InitUploadResponse = components["schemas"]["InitUploadResponse"];
+export type RecoverableUploadPart =
+	components["schemas"]["RecoverableUploadPartResponse"];
+export type RecoverableUploadSession = NonNullable<
+	NonNullable<
+		ApiOperations["list_recoverable_upload_sessions"]["responses"][200]["content"]
+	>["application/json"]["data"]
+>[number];
 export type UploadMode = components["schemas"]["UploadMode"];
 export type UploadProgressResponse =
 	components["schemas"]["UploadProgressResponse"];

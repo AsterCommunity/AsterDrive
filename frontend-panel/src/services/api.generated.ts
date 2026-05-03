@@ -1129,6 +1129,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/files/upload/sessions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["list_recoverable_upload_sessions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/files/upload/{upload_id}": {
         parameters: {
             query?: never;
@@ -2115,6 +2131,22 @@ export interface paths {
         get?: never;
         put?: never;
         post: operations["init_team_chunked_upload"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/teams/{team_id}/files/upload/sessions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["list_team_recoverable_upload_sessions"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -4127,6 +4159,11 @@ export interface components {
         PurgedCountResponse: {
             /** Format: int32 */
             purged: number;
+        };
+        RecoverableUploadPartResponse: {
+            etag: string;
+            /** Format: int32 */
+            part_number: number;
         };
         RedeemRemoteEnrollmentReq: {
             token: string;
@@ -9971,6 +10008,59 @@ export interface operations {
             };
         };
     };
+    list_recoverable_upload_sessions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Recoverable upload sessions */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        code: components["schemas"]["ErrorCode"];
+                        data?: {
+                            /** Format: int64 */
+                            chunk_size: number;
+                            chunks_on_disk: number[];
+                            completed_parts: components["schemas"]["RecoverableUploadPartResponse"][];
+                            /** Format: date-time */
+                            expires_at: string;
+                            filename: string;
+                            /** Format: int64 */
+                            folder_id?: number | null;
+                            mode: components["schemas"]["UploadMode"];
+                            /** Format: int32 */
+                            received_count: number;
+                            status: components["schemas"]["UploadSessionStatus"];
+                            /** Format: int32 */
+                            total_chunks: number;
+                            /** Format: int64 */
+                            total_size: number;
+                            /** Format: date-time */
+                            updated_at: string;
+                            upload_id: string;
+                        }[];
+                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        msg: string;
+                    };
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     get_upload_progress: {
         parameters: {
             query?: never;
@@ -14196,6 +14286,69 @@ export interface operations {
                             total_chunks?: number | null;
                             upload_id?: string | null;
                         };
+                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        msg: string;
+                    };
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    list_team_recoverable_upload_sessions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Team ID */
+                team_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Team recoverable upload sessions */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        code: components["schemas"]["ErrorCode"];
+                        data?: {
+                            /** Format: int64 */
+                            chunk_size: number;
+                            chunks_on_disk: number[];
+                            completed_parts: components["schemas"]["RecoverableUploadPartResponse"][];
+                            /** Format: date-time */
+                            expires_at: string;
+                            filename: string;
+                            /** Format: int64 */
+                            folder_id?: number | null;
+                            mode: components["schemas"]["UploadMode"];
+                            /** Format: int32 */
+                            received_count: number;
+                            status: components["schemas"]["UploadSessionStatus"];
+                            /** Format: int32 */
+                            total_chunks: number;
+                            /** Format: int64 */
+                            total_size: number;
+                            /** Format: date-time */
+                            updated_at: string;
+                            upload_id: string;
+                        }[];
                         error?: null | components["schemas"]["ApiErrorInfo"];
                         msg: string;
                     };

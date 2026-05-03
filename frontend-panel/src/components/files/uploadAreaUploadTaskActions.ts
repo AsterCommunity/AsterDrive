@@ -227,7 +227,12 @@ export async function cancelUploadTask(
 	}
 
 	if (task.status === "pending_file") {
-		if (task.uploadId) removeSession(task.uploadId);
+		if (task.uploadId) {
+			try {
+				await uploadService.cancelUpload(task.uploadId);
+			} catch {}
+			removeSession(task.uploadId);
+		}
 		setTasks((prev) => prev.filter((item) => item.id !== taskId));
 		return;
 	}

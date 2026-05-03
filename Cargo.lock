@@ -589,7 +589,7 @@ dependencies = [
 
 [[package]]
 name = "aster_drive"
-version = "0.0.1-alpha.26"
+version = "0.1.0-beta.1"
 dependencies = [
  "actix-governor",
  "actix-multipart",

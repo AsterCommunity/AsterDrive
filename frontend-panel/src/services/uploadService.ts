@@ -10,6 +10,7 @@ import type {
 	CompletedPart,
 	FileInfo,
 	InitUploadResponse,
+	RecoverableUploadSession,
 	UploadProgressResponse,
 } from "@/types/api";
 import { type ApiResponse, ErrorCode } from "@/types/api-helpers";
@@ -20,6 +21,7 @@ export type {
 	ChunkUploadResponse,
 	CompletedPart,
 	InitUploadResponse,
+	RecoverableUploadSession,
 	UploadProgressResponse,
 };
 
@@ -191,6 +193,11 @@ export function createUploadService(workspace: Workspace = PERSONAL_WORKSPACE) {
 		getProgress: (uploadId: string) =>
 			api.get<UploadProgressResponse>(
 				buildUploadPath(workspace, `/files/upload/${uploadId}`),
+			),
+
+		listRecoverableSessions: () =>
+			api.get<RecoverableUploadSession[]>(
+				buildUploadPath(workspace, "/files/upload/sessions"),
 			),
 
 		presignParts: (uploadId: string, partNumbers: number[]) =>

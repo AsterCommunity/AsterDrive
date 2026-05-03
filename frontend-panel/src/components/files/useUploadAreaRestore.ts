@@ -13,7 +13,11 @@ import {
 } from "@/lib/uploadPersistence";
 import type { Workspace } from "@/lib/workspace";
 import { workspaceKey } from "@/lib/workspace";
-import type { CompletedPart } from "@/services/uploadService";
+import type {
+	CompletedPart,
+	RecoverableUploadSession,
+	UploadProgressResponse,
+} from "@/services/uploadService";
 import { uploadService } from "@/services/uploadService";
 import {
 	createTaskId,
@@ -36,6 +40,113 @@ interface UseUploadAreaRestoreOptions {
 	workspace: Workspace;
 }
 
+interface RestoreCandidate {
+	progress: UploadProgressResponse;
+	session: ResumableSession;
+}
+
+function recoverableSessionMode(
+	mode: RecoverableUploadSession["mode"],
+): NonNullable<ResumableSession["mode"]> | null {
+	if (
+		mode === "chunked" ||
+		mode === "presigned" ||
+		mode === "presigned_multipart"
+	) {
+		return mode;
+	}
+	return null;
+}
+
+function mergeCompletedParts(
+	serverParts: CompletedPart[] = [],
+	localParts: CompletedPart[] = [],
+) {
+	const parts = new Map<number, CompletedPart>();
+	for (const part of serverParts) {
+		parts.set(part.part_number, part);
+	}
+	for (const part of localParts) {
+		parts.set(part.part_number, part);
+	}
+	return [...parts.values()].sort(
+		(left, right) => left.part_number - right.part_number,
+	);
+}
+
+function parseTimestamp(value: string) {
+	const parsed = Date.parse(value);
+	return Number.isFinite(parsed) ? parsed : Date.now();
+}
+
+function serverSessionBaseFolderName(
+	session: RecoverableUploadSession,
+	t: UploadAreaManagerTranslationFn,
+) {
+	return (session.folder_id ?? null) === null
+		? t("files:root")
+		: t("files:upload_target_folder", { id: session.folder_id });
+}
+
+function serverSessionToLocalSession({
+	localSession,
+	serverSession,
+	t,
+	workspace,
+}: {
+	localSession?: ResumableSession;
+	serverSession: RecoverableUploadSession;
+	t: UploadAreaManagerTranslationFn;
+	workspace: Workspace;
+}): ResumableSession | null {
+	const mode = recoverableSessionMode(serverSession.mode);
+	if (!mode) return null;
+
+	return {
+		uploadId: serverSession.upload_id,
+		filename: serverSession.filename,
+		totalSize: serverSession.total_size,
+		totalChunks: serverSession.total_chunks,
+		chunkSize: serverSession.chunk_size,
+		baseFolderId: serverSession.folder_id ?? null,
+		baseFolderName:
+			localSession?.baseFolderName ??
+			serverSessionBaseFolderName(serverSession, t),
+		relativePath: localSession?.relativePath ?? null,
+		savedAt: localSession?.savedAt ?? parseTimestamp(serverSession.updated_at),
+		workspace,
+		mode,
+		completedParts: mergeCompletedParts(
+			serverSession.completed_parts,
+			localSession?.completedParts,
+		),
+	};
+}
+
+function serverSessionToProgress(
+	session: RecoverableUploadSession,
+): UploadProgressResponse {
+	return {
+		upload_id: session.upload_id,
+		status: session.status,
+		received_count: session.received_count,
+		chunks_on_disk: session.chunks_on_disk,
+		chunk_size: session.chunk_size,
+		total_chunks: session.total_chunks,
+		filename: session.filename,
+	};
+}
+
+function restoredCompletedCount(
+	mode: UploadMode,
+	progress: UploadProgressResponse,
+) {
+	if (mode === "presigned_multipart") {
+		return progress.chunks_on_disk.length;
+	}
+	return progress.received_count;
+}
+
 export function useUploadAreaRestore({
 	restoredWorkspaceKeysRef,
 	resumeCompletionTask,
@@ -51,8 +162,12 @@ export function useUploadAreaRestore({
 		}
 		restoredWorkspaceKeysRef.current.add(currentWorkspaceKey);
 
-		const sessions = loadSessions(workspace);
-		if (sessions.length === 0) return;
+		const localSessions = loadSessions(workspace);
+		const localSessionsById = new Map(
+			localSessions.map((session) => [session.uploadId, session]),
+		);
+		const candidates: RestoreCandidate[] = [];
+		const restoredServerUploadIds = new Set<string>();
 
 		const ghostTasks: UploadTask[] = [];
 		const completionTasks: Array<{
@@ -60,8 +175,40 @@ export function useUploadAreaRestore({
 			parts?: CompletedPart[];
 		}> = [];
 
+		try {
+			const serverSessions = await uploadService.listRecoverableSessions();
+			for (const serverSession of serverSessions) {
+				restoredServerUploadIds.add(serverSession.upload_id);
+				const session = serverSessionToLocalSession({
+					localSession: localSessionsById.get(serverSession.upload_id),
+					serverSession,
+					t,
+					workspace,
+				});
+				if (!session) {
+					logger.warn(
+						"skipping recoverable upload session with unsupported mode",
+						{
+							mode: serverSession.mode,
+							uploadId: serverSession.upload_id,
+						},
+					);
+					continue;
+				}
+				candidates.push({
+					progress: serverSessionToProgress(serverSession),
+					session,
+				});
+			}
+		} catch (error) {
+			logger.warn("failed to list recoverable upload sessions", error);
+		}
+
+		const localOnlySessions = localSessions.filter(
+			(session) => !restoredServerUploadIds.has(session.uploadId),
+		);
 		const progressResults = await mapAllSettledWithConcurrency(
-			sessions,
+			localOnlySessions,
 			RESTORE_PROGRESS_CONCURRENCY,
 			async (session) => {
 				try {
@@ -85,7 +232,12 @@ export function useUploadAreaRestore({
 				continue;
 			}
 
-			const { progress, session } = result.value;
+			candidates.push(result.value);
+		}
+
+		if (candidates.length === 0) return;
+
+		for (const { progress, session } of candidates) {
 			if (!progress?.status) {
 				if (process.env.NODE_ENV === "development") {
 					logger.warn(
@@ -99,8 +251,9 @@ export function useUploadAreaRestore({
 				continue;
 			}
 
-			const mode = (session.mode ?? "chunked") as UploadMode;
+			const mode = session.mode ?? "chunked";
 			const plan = getResumePlan(mode, progress.status);
+			const completedChunks = restoredCompletedCount(mode, progress);
 			if (plan === "restart") {
 				removeSession(session.uploadId);
 				if (progress.status === "failed") {
@@ -117,7 +270,7 @@ export function useUploadAreaRestore({
 						error: t("files:upload_failed"),
 						uploadId: null,
 						totalChunks: session.totalChunks,
-						completedChunks: progress.received_count,
+						completedChunks,
 					});
 				}
 				continue;
@@ -137,7 +290,7 @@ export function useUploadAreaRestore({
 				uploadId: session.uploadId,
 				totalChunks: session.totalChunks,
 				completedChunks:
-					plan === "upload" ? progress.received_count : session.totalChunks,
+					plan === "upload" ? completedChunks : session.totalChunks,
 			};
 			ghostTasks.push(task);
 			if (plan === "complete") {

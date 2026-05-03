@@ -59,6 +59,7 @@ use utoipa::{Modify, OpenApi};
         crate::api::routes::files::upload::upload_chunk,
         crate::api::routes::files::upload::complete_upload,
         crate::api::routes::files::upload::presign_parts,
+        crate::api::routes::files::upload::list_recoverable_upload_sessions,
         crate::api::routes::files::upload::get_upload_progress,
         crate::api::routes::files::upload::cancel_upload,
 
@@ -177,6 +178,7 @@ use utoipa::{Modify, OpenApi};
         crate::api::routes::files::upload::team_upload_chunk,
         crate::api::routes::files::upload::team_complete_upload,
         crate::api::routes::files::upload::team_presign_parts,
+        crate::api::routes::files::upload::team_list_recoverable_upload_sessions,
         crate::api::routes::files::upload::team_get_upload_progress,
         crate::api::routes::files::upload::team_cancel_upload,
         crate::api::routes::files::mutations::team_create_empty,

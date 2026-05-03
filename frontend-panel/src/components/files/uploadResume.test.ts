@@ -4,7 +4,6 @@ import {
 	getProcessingProgress,
 	getResumePlan,
 	S3_PROCESSING_PROGRESS,
-	type UploadMode,
 } from "@/components/files/uploadResume";
 import type { UploadSessionStatus } from "@/types/api";
 
@@ -25,7 +24,7 @@ describe("uploadResume", () => {
 		expect(getResumePlan("presigned_multipart", "failed")).toBe("restart");
 	});
 
-	it("never resumes direct or single-request presigned uploads", () => {
+	it("maps direct and single-request presigned statuses conservatively", () => {
 		const statuses: UploadSessionStatus[] = [
 			"uploading",
 			"assembling",
@@ -34,11 +33,14 @@ describe("uploadResume", () => {
 			"presigned",
 		];
 
-		for (const mode of ["direct", "presigned"] satisfies UploadMode[]) {
-			for (const status of statuses) {
-				expect(getResumePlan(mode, status)).toBe("restart");
-			}
+		for (const status of statuses) {
+			expect(getResumePlan("direct", status)).toBe("restart");
 		}
+		expect(getResumePlan("presigned", "presigned")).toBe("complete");
+		expect(getResumePlan("presigned", "assembling")).toBe("complete");
+		expect(getResumePlan("presigned", "completed")).toBe("complete");
+		expect(getResumePlan("presigned", "uploading")).toBe("restart");
+		expect(getResumePlan("presigned", "failed")).toBe("restart");
 	});
 
 	it("uses chunk processing progress only for chunked assembly", () => {

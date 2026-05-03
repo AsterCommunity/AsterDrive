@@ -26,8 +26,14 @@ pub use complete::{
 };
 pub use init::{init_upload, init_upload_for_team};
 pub use lifecycle::{cancel_upload, cancel_upload_for_team, cleanup_expired};
-pub use progress::{get_progress, get_progress_for_team, presign_parts, presign_parts_for_team};
-pub use responses::{ChunkUploadResponse, InitUploadResponse, UploadProgressResponse};
+pub use progress::{
+    get_progress, get_progress_for_team, list_recoverable_sessions,
+    list_recoverable_sessions_for_team, presign_parts, presign_parts_for_team,
+};
+pub use responses::{
+    ChunkUploadResponse, InitUploadResponse, RecoverableUploadSessionResponse,
+    UploadProgressResponse,
+};
 
 #[derive(Clone, Copy)]
 pub(crate) struct UploadInScopeParams<'a> {

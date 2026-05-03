@@ -3,14 +3,16 @@
 use std::collections::HashMap;
 
 use crate::api::constants::HOUR_SECS;
-use crate::db::repository::upload_session_part_repo;
+use crate::db::repository::{upload_session_part_repo, upload_session_repo};
 use crate::entities::upload_session;
 use crate::errors::{Result, validation_error_with_subcode};
 use crate::runtime::PrimaryAppState;
-use crate::services::upload_service::responses::UploadProgressResponse;
+use crate::services::upload_service::responses::{
+    RecoverableUploadPartResponse, RecoverableUploadSessionResponse, UploadProgressResponse,
+};
 use crate::services::upload_service::scope::{load_upload_session, personal_scope, team_scope};
-use crate::services::workspace_storage_service::resolve_policy_upload_transport;
-use crate::types::UploadSessionStatus;
+use crate::services::workspace_storage_service::{self, resolve_policy_upload_transport};
+use crate::types::{UploadMode, UploadSessionStatus};
 use crate::utils::paths;
 
 /// 查询上传进度
@@ -80,6 +82,62 @@ fn is_relay_multipart_policy(policy: &crate::entities::storage_policy::Model) ->
     resolve_policy_upload_transport(policy).uses_relay_multipart_tracking()
 }
 
+fn recoverable_mode_for_session(session: &upload_session::Model) -> UploadMode {
+    if session.status == UploadSessionStatus::Presigned {
+        if session.s3_multipart_id.is_some() {
+            return UploadMode::PresignedMultipart;
+        }
+        return UploadMode::Presigned;
+    }
+    UploadMode::Chunked
+}
+
+async fn recoverable_session_response(
+    state: &PrimaryAppState,
+    session: upload_session::Model,
+) -> Result<RecoverableUploadSessionResponse> {
+    let mode = recoverable_mode_for_session(&session);
+    let progress = get_progress_impl(state, session.clone()).await?;
+    let completed_parts = upload_session_part_repo::list_by_upload(&state.db, &session.id)
+        .await?
+        .into_iter()
+        .map(|part| RecoverableUploadPartResponse {
+            part_number: part.part_number,
+            etag: part.etag,
+        })
+        .collect();
+
+    Ok(RecoverableUploadSessionResponse {
+        upload_id: session.id,
+        mode,
+        status: progress.status,
+        filename: progress.filename,
+        total_size: session.total_size,
+        chunk_size: progress.chunk_size,
+        total_chunks: progress.total_chunks,
+        received_count: progress.received_count,
+        folder_id: session.folder_id,
+        chunks_on_disk: progress.chunks_on_disk,
+        completed_parts,
+        expires_at: session.expires_at,
+        updated_at: session.updated_at,
+    })
+}
+
+async fn list_recoverable_sessions_impl(
+    state: &PrimaryAppState,
+    user_id: i64,
+    team_id: Option<i64>,
+) -> Result<Vec<RecoverableUploadSessionResponse>> {
+    let sessions =
+        upload_session_repo::find_recoverable_by_owner(&state.db, user_id, team_id).await?;
+    let mut recoverable = Vec::with_capacity(sessions.len());
+    for session in sessions {
+        recoverable.push(recoverable_session_response(state, session).await?);
+    }
+    Ok(recoverable)
+}
+
 pub async fn get_progress(
     state: &PrimaryAppState,
     upload_id: &str,
@@ -87,6 +145,13 @@ pub async fn get_progress(
 ) -> Result<UploadProgressResponse> {
     let session = load_upload_session(state, personal_scope(user_id), upload_id).await?;
     get_progress_impl(state, session).await
+}
+
+pub async fn list_recoverable_sessions(
+    state: &PrimaryAppState,
+    user_id: i64,
+) -> Result<Vec<RecoverableUploadSessionResponse>> {
+    list_recoverable_sessions_impl(state, user_id, None).await
 }
 
 pub async fn get_progress_for_team(
@@ -97,6 +162,15 @@ pub async fn get_progress_for_team(
 ) -> Result<UploadProgressResponse> {
     let session = load_upload_session(state, team_scope(team_id, user_id), upload_id).await?;
     get_progress_impl(state, session).await
+}
+
+pub async fn list_recoverable_sessions_for_team(
+    state: &PrimaryAppState,
+    team_id: i64,
+    user_id: i64,
+) -> Result<Vec<RecoverableUploadSessionResponse>> {
+    workspace_storage_service::require_team_access(state, team_id, user_id).await?;
+    list_recoverable_sessions_impl(state, user_id, Some(team_id)).await
 }
 
 /// 为 multipart presigned 上传批量生成 per-part presigned PUT URL

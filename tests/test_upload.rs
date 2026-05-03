@@ -670,6 +670,50 @@ async fn test_chunked_upload_flow() {
 }
 
 #[actix_web::test]
+async fn test_recoverable_upload_sessions_endpoint_lists_active_sessions() {
+    let state = common::setup().await;
+    let app = create_test_app!(state);
+    let (token, _) = register_and_login!(app);
+
+    let total_size = TEST_CHUNK_SIZE + 1;
+    let req = test::TestRequest::post()
+        .uri("/api/v1/files/upload/init")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({
+            "filename": "recoverable.bin",
+            "total_size": total_size
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 201);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(body["data"]["mode"], "chunked");
+    let upload_id = body["data"]["upload_id"].as_str().unwrap().to_string();
+
+    let req = test::TestRequest::get()
+        .uri("/api/v1/files/upload/sessions")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+    let body: Value = test::read_body_json(resp).await;
+    let sessions = body["data"].as_array().unwrap();
+    assert_eq!(sessions.len(), 1);
+    assert_eq!(sessions[0]["upload_id"], upload_id);
+    assert_eq!(sessions[0]["mode"], "chunked");
+    assert_eq!(sessions[0]["status"], "uploading");
+    assert_eq!(sessions[0]["filename"], "recoverable.bin");
+    assert_eq!(
+        sessions[0]["total_size"].as_i64().unwrap(),
+        total_size as i64
+    );
+    assert_eq!(sessions[0]["folder_id"], Value::Null);
+    assert_eq!(sessions[0]["chunks_on_disk"].as_array().unwrap().len(), 0);
+}
+
+#[actix_web::test]
 async fn test_init_upload_validates_filename_and_total_size() {
     let state = common::setup().await;
     let app = create_test_app!(state);

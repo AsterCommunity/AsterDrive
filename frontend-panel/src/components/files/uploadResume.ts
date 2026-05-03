@@ -27,6 +27,17 @@ export function getResumePlan(
 		return "restart";
 	}
 
+	if (mode === "presigned") {
+		if (
+			status === "presigned" ||
+			status === "assembling" ||
+			status === "completed"
+		) {
+			return "complete";
+		}
+		return "restart";
+	}
+
 	return "restart";
 }
 

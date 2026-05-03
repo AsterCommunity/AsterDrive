@@ -6,6 +6,7 @@ const cancelUpload = vi.fn();
 const completeUpload = vi.fn();
 const getProgress = vi.fn();
 const initUpload = vi.fn();
+const listRecoverableSessions = vi.fn();
 const loadSessions = vi.fn(() => []);
 const presignedUpload = vi.fn();
 const presignParts = vi.fn();
@@ -122,6 +123,7 @@ vi.mock("@/services/uploadService", () => ({
 		completeUpload,
 		getProgress,
 		initUpload,
+		listRecoverableSessions,
 		presignParts,
 		presignedUpload,
 		uploadChunk,
@@ -193,6 +195,8 @@ describe("UploadArea", () => {
 		completeUpload.mockReset();
 		getProgress.mockReset();
 		initUpload.mockReset();
+		listRecoverableSessions.mockReset();
+		listRecoverableSessions.mockResolvedValue([]);
 		loadSessions.mockReset();
 		loadSessions.mockReturnValue([]);
 		presignedUpload.mockReset();
@@ -345,6 +349,37 @@ describe("UploadArea", () => {
 			expect(refresh).toHaveBeenCalledTimes(1);
 			expect(refreshUser).toHaveBeenCalledTimes(1);
 		});
+	});
+
+	it("restores recoverable sessions listed by the backend", async () => {
+		listRecoverableSessions.mockResolvedValue([
+			{
+				upload_id: "server-upload",
+				mode: "chunked",
+				status: "uploading",
+				filename: "server.bin",
+				total_size: 10,
+				chunk_size: 5,
+				total_chunks: 2,
+				received_count: 1,
+				folder_id: 42,
+				chunks_on_disk: [0],
+				completed_parts: [],
+				expires_at: new Date(Date.now() + 60_000).toISOString(),
+				updated_at: new Date().toISOString(),
+			},
+		]);
+
+		const { UploadArea } = await import("@/components/files/UploadArea");
+		render(
+			<UploadArea>
+				<div>content</div>
+			</UploadArea>,
+		);
+
+		await screen.findByText("server.bin:Chunked:files:upload_pending_file");
+		expect(listRecoverableSessions).toHaveBeenCalledTimes(1);
+		expect(getProgress).not.toHaveBeenCalled();
 	});
 
 	it("handles chunked uploads and persists resumable sessions", async () => {

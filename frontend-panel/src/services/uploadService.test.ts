@@ -113,6 +113,7 @@ describe("uploadService", () => {
 		});
 		uploadService.cancelUpload("upload-1");
 		uploadService.getProgress("upload-1");
+		uploadService.listRecoverableSessions();
 		uploadService.presignParts("upload-1", [1, 2, 3]);
 
 		expect(mockState.post).toHaveBeenNthCalledWith(1, "/files/upload/init", {
@@ -123,6 +124,7 @@ describe("uploadService", () => {
 		});
 		expect(mockState.delete).toHaveBeenCalledWith("/files/upload/upload-1");
 		expect(mockState.get).toHaveBeenCalledWith("/files/upload/upload-1");
+		expect(mockState.get).toHaveBeenCalledWith("/files/upload/sessions");
 		expect(mockState.post).toHaveBeenNthCalledWith(
 			2,
 			"/files/upload/upload-1/presign-parts",
@@ -143,6 +145,7 @@ describe("uploadService", () => {
 		});
 		teamUploadService.cancelUpload("upload-2");
 		teamUploadService.getProgress("upload-2");
+		teamUploadService.listRecoverableSessions();
 		teamUploadService.presignParts("upload-2", [1]);
 
 		expect(mockState.post).toHaveBeenCalledWith("/teams/8/files/upload/init", {
@@ -154,6 +157,9 @@ describe("uploadService", () => {
 		);
 		expect(mockState.get).toHaveBeenCalledWith(
 			"/teams/8/files/upload/upload-2",
+		);
+		expect(mockState.get).toHaveBeenCalledWith(
+			"/teams/8/files/upload/sessions",
 		);
 		expect(mockState.post).toHaveBeenCalledWith(
 			"/teams/8/files/upload/upload-2/presign-parts",

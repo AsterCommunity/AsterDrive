@@ -22,7 +22,7 @@ pub use self::mutations::{
 pub use self::upload::{
     ChunkPath, CompleteUploadReq, CompletedPartReq, FileQuery, InitUploadReq, PresignPartsReq,
     UploadIdPath, cancel_upload, complete_upload, get_upload_progress, init_chunked_upload,
-    presign_parts, upload, upload_chunk,
+    list_recoverable_upload_sessions, presign_parts, upload, upload_chunk,
 };
 pub use self::versions::{delete_version, list_versions, restore_version};
 // DTO types that need explicit import (not re-exported from submodules)
@@ -38,7 +38,7 @@ pub(crate) use self::mutations::{
 };
 pub(crate) use self::upload::{
     team_cancel_upload, team_complete_upload, team_get_upload_progress, team_init_chunked_upload,
-    team_presign_parts, team_upload, team_upload_chunk,
+    team_list_recoverable_upload_sessions, team_presign_parts, team_upload, team_upload_chunk,
 };
 pub(crate) use self::versions::{team_delete_version, team_list_versions, team_restore_version};
 
@@ -52,6 +52,10 @@ pub fn routes(rl: &RateLimitConfig) -> impl actix_web::dev::HttpServiceFactory +
         .route("/new", web::post().to(create_empty))
         // chunked upload routes (before /{id} to avoid conflicts)
         .route("/upload/init", web::post().to(init_chunked_upload))
+        .route(
+            "/upload/sessions",
+            web::get().to(list_recoverable_upload_sessions),
+        )
         .route(
             "/upload/{upload_id}/{chunk_number}",
             web::put().to(upload_chunk),
@@ -93,6 +97,10 @@ pub fn team_routes() -> actix_web::Scope {
     web::scope("/files")
         .route("/upload", web::post().to(team_upload))
         .route("/upload/init", web::post().to(team_init_chunked_upload))
+        .route(
+            "/upload/sessions",
+            web::get().to(team_list_recoverable_upload_sessions),
+        )
         .route(
             "/upload/{upload_id}/{chunk_number}",
             web::put().to(team_upload_chunk),

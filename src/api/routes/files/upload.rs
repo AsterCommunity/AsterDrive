@@ -88,6 +88,25 @@ pub async fn init_chunked_upload(
 }
 
 #[api_docs_macros::path(
+    get,
+    path = "/api/v1/files/upload/sessions",
+    tag = "files",
+    operation_id = "list_recoverable_upload_sessions",
+    responses(
+        (status = 200, description = "Recoverable upload sessions", body = inline(ApiResponse<Vec<upload_service::RecoverableUploadSessionResponse>>)),
+        (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
+    ),
+    security(("bearer" = [])),
+)]
+pub async fn list_recoverable_upload_sessions(
+    state: web::Data<PrimaryAppState>,
+    claims: web::ReqData<Claims>,
+) -> Result<HttpResponse> {
+    let resp = upload_service::list_recoverable_sessions(&state, claims.user_id).await?;
+    Ok(HttpResponse::Ok().json(ApiResponse::ok(resp)))
+}
+
+#[api_docs_macros::path(
     put,
     path = "/api/v1/files/upload/{upload_id}/{chunk_number}",
     tag = "files",
@@ -308,6 +327,29 @@ pub(crate) async fn team_init_chunked_upload(
     )
     .await?;
     Ok(HttpResponse::Created().json(ApiResponse::ok(resp)))
+}
+
+#[api_docs_macros::path(
+    get,
+    path = "/api/v1/teams/{team_id}/files/upload/sessions",
+    tag = "teams",
+    operation_id = "list_team_recoverable_upload_sessions",
+    params(("team_id" = i64, Path, description = "Team ID")),
+    responses(
+        (status = 200, description = "Team recoverable upload sessions", body = inline(ApiResponse<Vec<upload_service::RecoverableUploadSessionResponse>>)),
+        (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
+        (status = 403, description = "Forbidden"),
+    ),
+    security(("bearer" = [])),
+)]
+pub(crate) async fn team_list_recoverable_upload_sessions(
+    state: web::Data<PrimaryAppState>,
+    claims: web::ReqData<Claims>,
+    path: web::Path<i64>,
+) -> Result<HttpResponse> {
+    let resp =
+        upload_service::list_recoverable_sessions_for_team(&state, *path, claims.user_id).await?;
+    Ok(HttpResponse::Ok().json(ApiResponse::ok(resp)))
 }
 
 #[api_docs_macros::path(

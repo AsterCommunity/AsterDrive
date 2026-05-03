@@ -132,6 +132,30 @@ pub async fn find_by_team<C: ConnectionTrait>(
         .map_err(AsterError::from)
 }
 
+pub async fn find_recoverable_by_owner<C: ConnectionTrait>(
+    db: &C,
+    user_id: i64,
+    team_id: Option<i64>,
+) -> Result<Vec<upload_session::Model>> {
+    let now = chrono::Utc::now();
+    let mut query = UploadSession::find()
+        .filter(upload_session::Column::UserId.eq(user_id))
+        .filter(upload_session::Column::ExpiresAt.gt(now))
+        .filter(upload_session::Column::Status.is_in([
+            UploadSessionStatus::Uploading,
+            UploadSessionStatus::Assembling,
+            UploadSessionStatus::Presigned,
+        ]))
+        .order_by_desc(upload_session::Column::UpdatedAt);
+
+    query = match team_id {
+        Some(team_id) => query.filter(upload_session::Column::TeamId.eq(team_id)),
+        None => query.filter(upload_session::Column::TeamId.is_null()),
+    };
+
+    query.all(db).await.map_err(AsterError::from)
+}
+
 pub async fn list_temp_keys_by_policy<C: ConnectionTrait>(
     db: &C,
     policy_id: i64,
