@@ -35,6 +35,7 @@ import { useApiList } from "@/hooks/useApiList";
 import { useConfirmDialog } from "@/hooks/useConfirmDialog";
 import { usePageTitle } from "@/hooks/usePageTitle";
 import { useRetainedDialogValue } from "@/hooks/useRetainedDialogValue";
+import { writeTextToClipboard } from "@/lib/clipboard";
 import { FOLDER_LIMIT, PAGE_SECTION_PADDING_CLASS } from "@/lib/constants";
 import { formatDateShort } from "@/lib/format";
 import { absoluteAppUrl } from "@/lib/publicSiteUrl";
@@ -159,7 +160,7 @@ export default function WebdavAccountsPage() {
 	const copyToClipboard = useCallback(
 		async (value: string) => {
 			try {
-				await navigator.clipboard.writeText(value);
+				await writeTextToClipboard(value);
 				toast.success(t("copied_to_clipboard"));
 			} catch {
 				toast.error(t("errors:unexpected_error"));

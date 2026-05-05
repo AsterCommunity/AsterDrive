@@ -23,6 +23,7 @@ import {
 	SelectValue,
 } from "@/components/ui/select";
 import { handleApiError } from "@/hooks/useApiError";
+import { writeTextToClipboard } from "@/lib/clipboard";
 import { fileService } from "@/services/fileService";
 import { shareService } from "@/services/shareService";
 
@@ -45,7 +46,7 @@ export function ShareDialog({
 	name,
 	initialMode,
 }: ShareDialogProps) {
-	const { t } = useTranslation(["core", "share"]);
+	const { t } = useTranslation(["core", "share", "errors"]);
 	const directEligible = fileId != null;
 	const mode: ShareLinkMode =
 		directEligible && initialMode === "direct" ? "direct" : "page";
@@ -110,10 +111,14 @@ export function ShareDialog({
 	};
 
 	const handleCopy = async (value: string) => {
-		await navigator.clipboard.writeText(value);
-		toast.success(t("copied_to_clipboard"));
-		setCopied(true);
-		setTimeout(() => setCopied(false), 2000);
+		try {
+			await writeTextToClipboard(value);
+			toast.success(t("copied_to_clipboard"));
+			setCopied(true);
+			setTimeout(() => setCopied(false), 2000);
+		} catch {
+			toast.error(t("errors:unexpected_error"));
+		}
 	};
 
 	const handleClose = (open: boolean) => {

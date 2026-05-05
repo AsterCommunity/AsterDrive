@@ -25,6 +25,7 @@ import { getApiErrorMessage, handleApiError } from "@/hooks/useApiError";
 import { useApiList } from "@/hooks/useApiList";
 import { useConfirmDialog } from "@/hooks/useConfirmDialog";
 import { usePageTitle } from "@/hooks/usePageTitle";
+import { writeTextToClipboard } from "@/lib/clipboard";
 import { ADMIN_CONTROL_HEIGHT_CLASS } from "@/lib/constants";
 import { logger } from "@/lib/logger";
 import {
@@ -211,7 +212,7 @@ export default function AdminRemoteNodesPage() {
 
 	const copyToClipboard = async (value: string) => {
 		try {
-			await navigator.clipboard.writeText(value);
+			await writeTextToClipboard(value);
 			toast.success(t("core:copied_to_clipboard"));
 		} catch {
 			toast.error(t("errors:unexpected_error"));

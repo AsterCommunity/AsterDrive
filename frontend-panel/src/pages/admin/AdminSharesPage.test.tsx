@@ -1,14 +1,14 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { useState } from "react";
+import { MemoryRouter, useLocation } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import AdminSharesPage from "@/pages/admin/AdminSharesPage";
 
 const mockState = vi.hoisted(() => ({
 	deleteShare: vi.fn(),
 	handleApiError: vi.fn(),
-	setItems: vi.fn(),
+	list: vi.fn(),
 	toastSuccess: vi.fn(),
-	useApiList: vi.fn(),
 }));
 
 vi.mock("react-i18next", () => ({
@@ -21,6 +21,53 @@ vi.mock("sonner", () => ({
 	toast: {
 		success: (...args: unknown[]) => mockState.toastSuccess(...args),
 	},
+}));
+
+vi.mock("@/components/admin/AdminOffsetPagination", () => ({
+	AdminOffsetPagination: ({
+		currentPage,
+		nextDisabled,
+		onNext,
+		onPageSizeChange,
+		onPrevious,
+		pageSize,
+		pageSizeOptions,
+		prevDisabled,
+		total,
+		totalPages,
+	}: {
+		currentPage: number;
+		nextDisabled: boolean;
+		onNext: () => void;
+		onPageSizeChange: (value: string | null) => void;
+		onPrevious: () => void;
+		pageSize: string;
+		pageSizeOptions: Array<{ label: string; value: string }>;
+		prevDisabled: boolean;
+		total: number;
+		totalPages: number;
+	}) => (
+		<div>
+			<div>{`pagination:${currentPage}/${totalPages}:${pageSize}:${total}`}</div>
+			<button type="button" onClick={onPrevious} disabled={prevDisabled}>
+				CaretLeft
+			</button>
+			<button type="button" onClick={onNext} disabled={nextDisabled}>
+				CaretRight
+			</button>
+			<select
+				data-testid="page-size"
+				value={pageSize}
+				onChange={(event) => onPageSizeChange(event.target.value)}
+			>
+				{pageSizeOptions.map((option) => (
+					<option key={option.value} value={option.value}>
+						{option.label}
+					</option>
+				))}
+			</select>
+		</div>
+	),
 }));
 
 vi.mock("@/components/common/AdminTableList", () => ({
@@ -129,6 +176,37 @@ vi.mock("@/components/ui/button", () => ({
 	),
 }));
 
+vi.mock("@/components/ui/select", () => ({
+	Select: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+	SelectContent: ({ children }: { children: React.ReactNode }) => (
+		<>{children}</>
+	),
+	SelectItem: ({ children }: { children: React.ReactNode }) => (
+		<option>{children}</option>
+	),
+	SelectTrigger: ({ children }: { children: React.ReactNode }) => (
+		<>{children}</>
+	),
+	SelectValue: () => null,
+}));
+
+vi.mock("@/components/ui/tooltip", () => ({
+	Tooltip: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+	TooltipContent: ({ children }: { children: React.ReactNode }) => (
+		<>{children}</>
+	),
+	TooltipProvider: ({ children }: { children: React.ReactNode }) => (
+		<>{children}</>
+	),
+	TooltipTrigger: ({
+		children,
+		render,
+	}: {
+		children?: React.ReactNode;
+		render?: React.ReactNode;
+	}) => <>{render ?? children}</>,
+}));
+
 vi.mock("@/components/ui/icon", () => ({
 	Icon: ({ name }: { name: string }) => <span>{name}</span>,
 }));
@@ -150,10 +228,6 @@ vi.mock("@/components/ui/table", () => ({
 
 vi.mock("@/hooks/useApiError", () => ({
 	handleApiError: (...args: unknown[]) => mockState.handleApiError(...args),
-}));
-
-vi.mock("@/hooks/useApiList", () => ({
-	useApiList: (...args: unknown[]) => mockState.useApiList(...args),
 }));
 
 vi.mock("@/hooks/useConfirmDialog", () => ({
@@ -185,7 +259,7 @@ vi.mock("@/lib/format", () => ({
 vi.mock("@/services/adminService", () => ({
 	adminShareService: {
 		delete: (...args: unknown[]) => mockState.deleteShare(...args),
-		list: vi.fn(),
+		list: (...args: unknown[]) => mockState.list(...args),
 	},
 }));
 
@@ -203,15 +277,32 @@ function createShare(overrides: Record<string, unknown> = {}) {
 	};
 }
 
+function renderPage(initialEntry = "/admin/shares") {
+	return render(
+		<MemoryRouter initialEntries={[initialEntry]}>
+			<LocationProbe />
+			<AdminSharesPage />
+		</MemoryRouter>,
+	);
+}
+
+function LocationProbe() {
+	const location = useLocation();
+
+	return <div data-testid="location-search">{location.search}</div>;
+}
+
 describe("AdminSharesPage", () => {
 	beforeEach(() => {
 		mockState.deleteShare.mockReset();
 		mockState.handleApiError.mockReset();
-		mockState.setItems.mockReset();
+		mockState.list.mockReset();
 		mockState.toastSuccess.mockReset();
-		mockState.useApiList.mockReset();
 		mockState.deleteShare.mockResolvedValue(undefined);
-		mockState.useApiList.mockReturnValue({
+	});
+
+	it("loads the first page with the default pagination state", async () => {
+		mockState.list.mockResolvedValueOnce({
 			items: [
 				createShare(),
 				createShare({
@@ -225,16 +316,21 @@ describe("AdminSharesPage", () => {
 					max_downloads: 1,
 				}),
 			],
-			loading: false,
-			setItems: mockState.setItems,
+			total: 25,
 		});
-	});
 
-	it("renders share rows with active, expired, and limit-reached states", () => {
-		render(<AdminSharesPage />);
+		renderPage();
+
+		await waitFor(() => {
+			expect(mockState.list).toHaveBeenCalledWith({
+				limit: 20,
+				offset: 0,
+			});
+		});
 
 		expect(screen.getByText("shares")).toBeInTheDocument();
 		expect(screen.getByText("shares_intro")).toBeInTheDocument();
+		expect(screen.getByText("pagination:1/2:20:25")).toBeInTheDocument();
 		expect(screen.getByText("share-token")).toBeInTheDocument();
 		expect(screen.getByRole("link", { name: /share-token/ })).toHaveAttribute(
 			"href",
@@ -245,30 +341,73 @@ describe("AdminSharesPage", () => {
 		expect(screen.getByText("limit_reached")).toBeInTheDocument();
 		expect(screen.getByText("1 / 1")).toBeInTheDocument();
 		expect(screen.getAllByText("date:2026-03-28T00:00:00Z")).toHaveLength(3);
+		expect(screen.getByTestId("location-search").textContent).toBe("");
 	});
 
 	it("deletes a share after confirmation and updates the list", async () => {
-		render(<AdminSharesPage />);
+		mockState.list
+			.mockResolvedValueOnce({
+				items: [
+					createShare({
+						id: 21,
+						token: "page-two-share",
+					}),
+				],
+				total: 21,
+			})
+			.mockResolvedValueOnce({
+				items: [
+					createShare({
+						id: 1,
+						token: "page-one-share",
+					}),
+				],
+				total: 20,
+			});
+
+		renderPage("/admin/shares?offset=20&pageSize=20");
+
+		await waitFor(() => {
+			expect(mockState.list).toHaveBeenCalledWith({
+				limit: 20,
+				offset: 20,
+			});
+		});
 
 		fireEvent.click(screen.getAllByRole("button", { name: "Trash" })[0]);
 
-		expect(screen.getByText('core:delete "share-token"?')).toBeInTheDocument();
+		expect(
+			screen.getByText('core:delete "page-two-share"?'),
+		).toBeInTheDocument();
 		expect(screen.getByText("delete_share_desc")).toBeInTheDocument();
 
 		fireEvent.click(screen.getByRole("button", { name: "core:delete" }));
 
 		await waitFor(() => {
-			expect(mockState.deleteShare).toHaveBeenCalledWith(11);
+			expect(mockState.deleteShare).toHaveBeenCalledWith(21);
 		});
-		expect(mockState.setItems).toHaveBeenCalledWith(expect.any(Function));
+		await waitFor(() => {
+			expect(mockState.list).toHaveBeenLastCalledWith({
+				limit: 20,
+				offset: 0,
+			});
+		});
 		expect(mockState.toastSuccess).toHaveBeenCalledWith("share_deleted");
+		expect(screen.getByTestId("location-search").textContent).toBe("");
 	});
 
 	it("routes delete failures through handleApiError", async () => {
 		const error = new Error("delete failed");
 		mockState.deleteShare.mockRejectedValueOnce(error);
 
-		render(<AdminSharesPage />);
+		mockState.list.mockResolvedValueOnce({
+			items: [createShare()],
+			total: 1,
+		});
+
+		renderPage();
+
+		await screen.findByText("share-token");
 
 		fireEvent.click(screen.getAllByRole("button", { name: "Trash" })[0]);
 		fireEvent.click(screen.getByRole("button", { name: "core:delete" }));
@@ -276,5 +415,56 @@ describe("AdminSharesPage", () => {
 		await waitFor(() => {
 			expect(mockState.handleApiError).toHaveBeenCalledWith(error);
 		});
+	});
+
+	it("syncs offset and page size into the url and refetches when pagination changes", async () => {
+		mockState.list
+			.mockResolvedValueOnce({
+				items: [createShare({ id: 1, token: "first-page" })],
+				total: 25,
+			})
+			.mockResolvedValueOnce({
+				items: [createShare({ id: 21, token: "second-page" })],
+				total: 25,
+			})
+			.mockResolvedValueOnce({
+				items: [createShare({ id: 1, token: "page-size-change" })],
+				total: 25,
+			});
+
+		renderPage();
+
+		await waitFor(() => {
+			expect(mockState.list).toHaveBeenNthCalledWith(1, {
+				limit: 20,
+				offset: 0,
+			});
+		});
+
+		fireEvent.click(screen.getByRole("button", { name: "CaretRight" }));
+
+		await waitFor(() => {
+			expect(mockState.list).toHaveBeenNthCalledWith(2, {
+				limit: 20,
+				offset: 20,
+			});
+		});
+		expect(screen.getByTestId("location-search").textContent).toBe(
+			"?offset=20",
+		);
+
+		fireEvent.change(screen.getByTestId("page-size"), {
+			target: { value: "50" },
+		});
+
+		await waitFor(() => {
+			expect(mockState.list).toHaveBeenNthCalledWith(3, {
+				limit: 50,
+				offset: 0,
+			});
+		});
+		expect(screen.getByTestId("location-search").textContent).toBe(
+			"?pageSize=50",
+		);
 	});
 });

@@ -22,6 +22,7 @@ import { handleApiError } from "@/hooks/useApiError";
 import { useConfirmDialog } from "@/hooks/useConfirmDialog";
 import { usePageTitle } from "@/hooks/usePageTitle";
 import { useSelectionShortcuts } from "@/hooks/useSelectionShortcuts";
+import { writeTextToClipboard } from "@/lib/clipboard";
 import { PAGE_SECTION_PADDING_CLASS } from "@/lib/constants";
 import { formatDateAbsolute } from "@/lib/format";
 import { cn } from "@/lib/utils";
@@ -31,7 +32,7 @@ import type { BatchResult, MyShareInfo, ShareStatus } from "@/types/api";
 const PAGE_SIZE = 50;
 
 export default function MySharesPage() {
-	const { t } = useTranslation(["core", "share"]);
+	const { t } = useTranslation(["core", "share", "errors"]);
 	usePageTitle(t("share:my_shares_title"));
 	const [page, setPage] = useState(0);
 	const [loading, setLoading] = useState(true);
@@ -140,8 +141,12 @@ export default function MySharesPage() {
 	};
 
 	const copyShareLink = async (share: MyShareInfo) => {
-		await navigator.clipboard.writeText(shareService.pageUrl(share.token));
-		toast.success(t("copied_to_clipboard"));
+		try {
+			await writeTextToClipboard(shareService.pageUrl(share.token));
+			toast.success(t("copied_to_clipboard"));
+		} catch {
+			toast.error(t("errors:unexpected_error"));
+		}
 	};
 
 	const openShareLink = (share: MyShareInfo) => {

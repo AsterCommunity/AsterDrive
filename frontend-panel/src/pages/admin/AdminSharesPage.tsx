@@ -1,5 +1,8 @@
+import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
+import { AdminOffsetPagination } from "@/components/admin/AdminOffsetPagination";
 import { AdminTableList } from "@/components/common/AdminTableList";
 import { ConfirmDialog } from "@/components/common/ConfirmDialog";
 import { AdminLayout } from "@/components/layout/AdminLayout";
@@ -23,22 +26,85 @@ import {
 	ADMIN_TABLE_ACTIONS_WIDTH_CLASS,
 } from "@/lib/constants";
 import { formatDateShort } from "@/lib/format";
+import {
+	buildOffsetPaginationSearchParams,
+	parseOffsetSearchParam,
+	parsePageSizeOption,
+	parsePageSizeSearchParam,
+} from "@/lib/pagination";
 import { adminShareService } from "@/services/adminService";
 import type { ShareInfo } from "@/types/api";
+
+const SHARE_PAGE_SIZE_OPTIONS = [10, 20, 50] as const;
+const DEFAULT_SHARE_PAGE_SIZE = 20 as const;
 
 export default function AdminSharesPage() {
 	const { t } = useTranslation("admin");
 	usePageTitle(t("shares"));
+	const [searchParams, setSearchParams] = useSearchParams();
+	const [offset, setOffset] = useState(
+		parseOffsetSearchParam(searchParams.get("offset")),
+	);
+	const [pageSize, setPageSize] = useState<
+		(typeof SHARE_PAGE_SIZE_OPTIONS)[number]
+	>(
+		parsePageSizeSearchParam(
+			searchParams.get("pageSize"),
+			SHARE_PAGE_SIZE_OPTIONS,
+			DEFAULT_SHARE_PAGE_SIZE,
+		),
+	);
 	const {
 		items: shares,
 		setItems: setShares,
+		setTotal,
+		total,
 		loading,
-	} = useApiList(() => adminShareService.list({ limit: 100, offset: 0 }));
+	} = useApiList(
+		() => adminShareService.list({ limit: pageSize, offset }),
+		[offset, pageSize],
+	);
+	const totalPages = Math.max(1, Math.ceil(total / pageSize));
+	const currentPage = Math.floor(offset / pageSize) + 1;
+	const prevPageDisabled = offset === 0;
+	const nextPageDisabled = offset + pageSize >= total;
+	const pageSizeOptions = SHARE_PAGE_SIZE_OPTIONS.map((size) => ({
+		label: t("page_size_option", { count: size }),
+		value: String(size),
+	}));
+
+	useEffect(() => {
+		setSearchParams(
+			buildOffsetPaginationSearchParams({
+				offset,
+				pageSize,
+				defaultPageSize: DEFAULT_SHARE_PAGE_SIZE,
+			}),
+			{ replace: true },
+		);
+	}, [offset, pageSize, setSearchParams]);
+
+	const handlePageSizeChange = (value: string | null) => {
+		const next = parsePageSizeOption(value, SHARE_PAGE_SIZE_OPTIONS);
+		if (next == null) return;
+		setPageSize(next);
+		setOffset(0);
+	};
 
 	const handleDelete = async (id: number) => {
 		try {
 			await adminShareService.delete(id);
-			setShares((prev) => prev.filter((s) => s.id !== id));
+			const isLastItemOnPage = shares.length === 1;
+			const nextOffset =
+				isLastItemOnPage && offset > 0
+					? Math.max(0, offset - pageSize)
+					: offset;
+			if (nextOffset !== offset) {
+				setOffset(nextOffset);
+			} else {
+				setShares((prev) => prev.filter((s) => s.id !== id));
+				setTotal((prev) => Math.max(0, prev - 1));
+			}
 			toast.success(t("share_deleted"));
 		} catch (e) {
 			handleApiError(e);
@@ -153,6 +219,19 @@ export default function AdminSharesPage() {
 							</TableCell>
 						</TableRow>
 					)}
+				/>
+
+				<AdminOffsetPagination
+					total={total}
+					currentPage={currentPage}
+					totalPages={totalPages}
+					pageSize={String(pageSize)}
+					pageSizeOptions={pageSizeOptions}
+					onPageSizeChange={handlePageSizeChange}
+					prevDisabled={prevPageDisabled}
+					nextDisabled={nextPageDisabled}
+					onPrevious={() => setOffset(Math.max(0, offset - pageSize))}
+					onNext={() => setOffset(offset + pageSize)}
 				/>
 			</AdminPageShell>
 
