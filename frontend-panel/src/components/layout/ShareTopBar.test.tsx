@@ -12,11 +12,13 @@ vi.mock("@/components/layout/TopBarShell", () => ({
 	TopBarShell: ({
 		left,
 		right,
+		heightClassName,
 	}: {
 		left: React.ReactNode;
 		right: React.ReactNode;
+		heightClassName?: string;
 	}) => (
-		<div>
+		<div data-testid="share-topbar-shell" data-height={heightClassName}>
 			<div>{left}</div>
 			<div>{right}</div>
 		</div>
@@ -24,10 +26,14 @@ vi.mock("@/components/layout/TopBarShell", () => ({
 }));
 
 describe("ShareTopBar", () => {
-	it("renders the translated app logo alt text and share label", () => {
+	it("renders a compact public-share top bar", () => {
 		render(<ShareTopBar />);
 
 		expect(screen.getByAltText("translated:app_name")).toBeInTheDocument();
-		expect(screen.getByText("translated:files:share")).toBeInTheDocument();
+		expect(screen.getByTestId("share-topbar-shell")).toHaveAttribute(
+			"data-height",
+			"h-14",
+		);
+		expect(screen.getByText("translated:files:share")).toHaveClass("sr-only");
 	});
 });

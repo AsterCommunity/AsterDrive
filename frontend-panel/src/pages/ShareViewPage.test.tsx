@@ -34,9 +34,6 @@ const mockState = vi.hoisted(() => ({
 		if (key === "share:shared_by") {
 			return `shared-by:${opts?.name}`;
 		}
-		if (key === "share:shared_with_you") {
-			return `shared-with-you:${opts?.name}:${opts?.resource}`;
-		}
 		if (key === "share:share_content") return "share-content";
 		if (key === "share:password_verified") return "password-verified";
 		return key.replace(/^core:/, "");
@@ -422,7 +419,7 @@ describe("ShareViewPage", () => {
 		).toBeInTheDocument();
 		expect(screen.getByText("Secret Folder")).toBeInTheDocument();
 		expect(screen.getByText("shared-by:Alice Example")).toBeInTheDocument();
-		expect(screen.getByText("share-content")).toBeInTheDocument();
+		expect(screen.queryByText("share-content")).not.toBeInTheDocument();
 	});
 
 	it("renders file shares with preview and download actions", async () => {
@@ -520,7 +517,7 @@ describe("ShareViewPage", () => {
 
 		expect(await screen.findByText("Shared Root")).toBeInTheDocument();
 		expect(screen.getByText("shared-by:Alice Example")).toBeInTheDocument();
-		expect(screen.getByText("share-content")).toBeInTheDocument();
+		expect(screen.queryByText("share-content")).not.toBeInTheDocument();
 		expect(
 			screen.getByText(
 				"avatar:Alice Example:https://www.gravatar.com/avatar/hash?s=512",
@@ -539,6 +536,10 @@ describe("ShareViewPage", () => {
 			);
 		});
 		expect(await screen.findByText("nested.txt")).toBeInTheDocument();
+		expect(
+			screen.getByRole("button", { name: "Shared Root" }),
+		).toBeInTheDocument();
+		expect(screen.getByText("Docs")).toBeInTheDocument();
 
 		fireEvent.click(screen.getByRole("button", { name: "preview:nested.txt" }));
 

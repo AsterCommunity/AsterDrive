@@ -316,14 +316,16 @@ export async function createPageShare(
 	},
 ) {
 	await openItemContextMenu(page, itemName);
-	await page.getByRole("menuitem", { name: "Share page" }).click();
+	await page.getByRole("menuitem", { exact: true, name: "Share" }).click();
 
 	const dialog = page.getByRole("dialog");
 	await expect(dialog).toBeVisible();
 	if (options?.password) {
 		await dialog.getByLabel("Password (optional)").fill(options.password);
 	}
-	await dialog.getByRole("button", { name: "Create share link" }).click();
+	await dialog
+		.getByRole("button", { exact: true, name: "Create link" })
+		.click();
 
 	const shareUrlInput = dialog.getByTestId("share-primary-url");
 	await expect(shareUrlInput).toHaveValue(/\/s\//);

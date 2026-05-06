@@ -7,17 +7,14 @@ export function ShareTopBar() {
 
 	return (
 		<TopBarShell
+			heightClassName="h-14"
 			left={
 				<AsterDriveWordmark
 					alt={t("app_name")}
-					className="h-16 w-auto shrink-0 px-6"
+					className="h-11 w-auto shrink-0 sm:h-12"
 				/>
 			}
-			right={
-				<span className="text-sm text-muted-foreground">
-					{t("files:share")}
-				</span>
-			}
+			right={<span className="sr-only">{t("files:share")}</span>}
 		/>
 	);
 }

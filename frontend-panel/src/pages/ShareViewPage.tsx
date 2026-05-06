@@ -184,11 +184,11 @@ function ShareCenteredPanel({
 			<main className="flex min-h-0 flex-1 items-center justify-center overflow-auto p-4 sm:p-6">
 				<section className="w-full max-w-md rounded-lg border border-border/70 bg-card/85 p-5 shadow-lg shadow-black/5 dark:bg-card/65 dark:shadow-none">
 					<div className="text-center">
-						<div className="mx-auto flex h-12 w-12 items-center justify-center rounded-lg bg-muted/45 text-muted-foreground">
+						<div className="mx-auto flex h-14 w-14 items-center justify-center rounded-lg bg-muted/45 text-muted-foreground">
 							<Icon
 								name={icon}
 								className={
-									icon === "Warning" ? "h-6 w-6 text-destructive" : "h-6 w-6"
+									icon === "Warning" ? "h-7 w-7 text-destructive" : "h-7 w-7"
 								}
 							/>
 						</div>
@@ -212,7 +212,7 @@ function ShareLoadingSkeleton() {
 					className={`border-b border-border/65 bg-card/55 ${PAGE_SECTION_PADDING_CLASS}`}
 				>
 					<div className="mx-auto flex w-full max-w-7xl items-center gap-3 py-3">
-						<Skeleton className="h-10 w-10 rounded-lg" />
+						<Skeleton className="h-12 w-12 rounded-lg" />
 						<div className="min-w-0 flex-1 space-y-2">
 							<Skeleton className="h-5 w-3/5 max-w-lg" />
 							<Skeleton className="h-3 w-72 max-w-full" />
@@ -220,12 +220,8 @@ function ShareLoadingSkeleton() {
 						<Skeleton className="hidden h-8 w-20 rounded-lg sm:block" />
 					</div>
 				</div>
-				<div className={`min-h-0 flex-1 py-4 ${PAGE_SECTION_PADDING_CLASS}`}>
+				<div className={`min-h-0 flex-1 py-3 ${PAGE_SECTION_PADDING_CLASS}`}>
 					<section className="mx-auto flex h-full w-full max-w-7xl flex-col overflow-hidden rounded-lg border border-border/70 bg-card/65 shadow-xs dark:bg-card/35 dark:shadow-none">
-						<div className="flex items-center justify-between gap-3 border-b border-border/65 px-4 py-3">
-							<Skeleton className="h-5 w-44" />
-							<Skeleton className="h-8 w-20 rounded-lg" />
-						</div>
 						<ShareFolderContentSkeleton viewMode="grid" />
 					</section>
 				</div>
@@ -629,8 +625,8 @@ export default function ShareViewPage() {
 									</div>
 								</div>
 							</div>
-							<div className="grid gap-5 p-4 sm:p-5 md:grid-cols-[12rem_minmax(0,1fr)]">
-								<div className="flex h-44 w-full items-center justify-center overflow-hidden rounded-lg border border-border/65 bg-muted/25 sm:h-56 md:aspect-square md:h-auto">
+							<div className="grid gap-5 p-4 sm:p-5 md:grid-cols-[14rem_minmax(0,1fr)]">
+								<div className="flex h-52 w-full items-center justify-center overflow-hidden rounded-lg border border-border/65 bg-muted/25 sm:h-64 md:aspect-square md:h-auto">
 									{singleShareFile ? (
 										<FileThumbnail
 											file={singleShareFile}
@@ -640,16 +636,12 @@ export default function ShareViewPage() {
 									) : (
 										<Icon
 											name="File"
-											className="h-14 w-14 text-muted-foreground"
+											className="h-16 w-16 text-muted-foreground"
 										/>
 									)}
 								</div>
 								<div className="flex min-w-0 flex-col justify-center gap-5">
 									<div className="min-w-0">
-										<div className="mb-2 inline-flex items-center gap-1.5 rounded-md border border-border/65 bg-muted/25 px-2 py-1 text-xs font-medium text-muted-foreground">
-											<Icon name="File" className="h-3.5 w-3.5" />
-											{t("share:file_share")}
-										</div>
 										<h1 className="break-words text-2xl font-semibold leading-tight sm:text-3xl">
 											{info.name}
 										</h1>
@@ -663,7 +655,7 @@ export default function ShareViewPage() {
 												onClick={() => setPreviewFile(singleShareFile)}
 												className="w-full sm:w-auto"
 											>
-												<Icon name="Eye" className="mr-2 h-4 w-4" />
+												<Icon name="Eye" className="mr-2 h-5 w-5" />
 												{t("files:preview")}
 											</Button>
 										) : null}
@@ -672,7 +664,7 @@ export default function ShareViewPage() {
 											onClick={handleDownload}
 											className="w-full sm:w-auto"
 										>
-											<Icon name="Download" className="mr-2 h-4 w-4" />
+											<Icon name="Download" className="mr-2 h-5 w-5" />
 											{t("files:download")}
 										</Button>
 									</div>
@@ -694,8 +686,8 @@ export default function ShareViewPage() {
 				>
 					<div className="mx-auto flex w-full max-w-7xl flex-col gap-3 py-3 sm:flex-row sm:items-center sm:justify-between">
 						<div className="flex min-w-0 items-center gap-3">
-							<div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-amber-500/12 text-amber-600 dark:text-amber-300">
-								<Icon name="Folder" className="h-5 w-5" />
+							<div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg bg-amber-500/12 text-amber-600 dark:text-amber-300">
+								<Icon name="Folder" className="h-6 w-6" />
 							</div>
 							<div className="min-w-0">
 								<h1 className="truncate text-lg font-semibold leading-tight sm:text-xl">
@@ -723,23 +715,19 @@ export default function ShareViewPage() {
 						<ViewToggle value={viewMode} onChange={setViewMode} />
 					</div>
 				</div>
-				<div className={`min-h-0 flex-1 py-4 ${PAGE_SECTION_PADDING_CLASS}`}>
+				<div className={`min-h-0 flex-1 py-3 ${PAGE_SECTION_PADDING_CLASS}`}>
 					<section className="mx-auto flex h-full w-full max-w-7xl flex-col overflow-hidden rounded-lg border border-border/70 bg-card/70 shadow-xs dark:bg-card/40 dark:shadow-none">
-						<div className="flex flex-col gap-3 border-b border-border/65 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
-							<div className="flex min-w-0 items-center gap-2">
-								<Icon
-									name="FolderOpen"
-									className="h-4 w-4 shrink-0 text-amber-500"
-								/>
-								<div className="min-w-0 flex-1">
-									{breadcrumbElement ?? (
-										<span className="block truncate text-base font-semibold text-foreground">
-											{t("share:share_content")}
-										</span>
-									)}
+						{breadcrumbElement ? (
+							<div className="flex flex-col gap-3 border-b border-border/65 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+								<div className="flex min-w-0 items-center gap-2">
+									<Icon
+										name="FolderOpen"
+										className="h-5 w-5 shrink-0 text-amber-500"
+									/>
+									<div className="min-w-0 flex-1">{breadcrumbElement}</div>
 								</div>
 							</div>
-						</div>
+						) : null}
 						<div className="min-h-0 flex-1 overflow-auto">
 							{navigating ? (
 								<ShareFolderContentSkeleton viewMode={viewMode} />

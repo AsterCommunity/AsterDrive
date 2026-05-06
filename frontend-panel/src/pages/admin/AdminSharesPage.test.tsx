@@ -393,7 +393,9 @@ describe("AdminSharesPage", () => {
 			});
 		});
 		expect(mockState.toastSuccess).toHaveBeenCalledWith("share_deleted");
-		expect(screen.getByTestId("location-search").textContent).toBe("");
+		await waitFor(() => {
+			expect(screen.getByTestId("location-search").textContent).toBe("");
+		});
 	});
 
 	it("routes delete failures through handleApiError", async () => {
