@@ -17,6 +17,14 @@ impl NoopCache {
 
 #[async_trait]
 impl CacheBackend for NoopCache {
+    fn backend_name(&self) -> &'static str {
+        "noop"
+    }
+
+    async fn health_check(&self) -> crate::errors::Result<()> {
+        Ok(())
+    }
+
     async fn get_bytes(&self, _key: &str) -> Option<Vec<u8>> {
         None
     }

@@ -402,7 +402,11 @@ async fn probe_and_persist_node<S: PrimaryRuntimeState>(
 
     let (last_capabilities, last_error, probe_error) = match capabilities {
         Ok(capabilities) => (serialize_capabilities(&capabilities), String::new(), None),
-        Err(error) => ("{}".to_string(), error.message().to_string(), Some(error)),
+        Err(error) => (
+            node.last_capabilities.clone(),
+            error.message().to_string(),
+            Some(error),
+        ),
     };
     let model = managed_follower_repo::touch_probe_result(
         state.db(),

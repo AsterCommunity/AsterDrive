@@ -373,8 +373,15 @@ async fn probe_storage_driver(
         .put(&test_path, b"ok")
         .await
         .map_aster_err_ctx(write_error_context, AsterError::storage_driver_error)?;
-    if let Err(e) = driver.delete(&test_path).await {
-        tracing::warn!(path = %test_path, "failed to clean up connection test file: {e}");
-    }
+    driver
+        .delete(&test_path)
+        .await
+        .inspect_err(|error| {
+            tracing::warn!(path = %test_path, "failed to clean up connection test file: {error}");
+        })
+        .map_aster_err_ctx(
+            "connection test cleanup failed",
+            AsterError::storage_driver_error,
+        )?;
     Ok(())
 }

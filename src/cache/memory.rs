@@ -34,6 +34,14 @@ fn entry_weight(key_len: usize, value_len: usize) -> u32 {
 
 #[async_trait]
 impl CacheBackend for MemoryCache {
+    fn backend_name(&self) -> &'static str {
+        "memory"
+    }
+
+    async fn health_check(&self) -> crate::errors::Result<()> {
+        Ok(())
+    }
+
     async fn get_bytes(&self, key: &str) -> Option<Vec<u8>> {
         self.cache.get(key).await
     }

@@ -8,6 +8,7 @@ pub mod config_service;
 pub mod direct_link_service;
 pub mod file_service;
 pub mod folder_service;
+pub mod health_service;
 pub mod integrity_service;
 pub mod lock_service;
 pub mod mail_outbox_service;

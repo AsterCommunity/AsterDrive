@@ -395,35 +395,26 @@ pub fn spawn_primary_background_tasks(
     ));
 
     tasks.push(spawn_periodic(
-        "remote-node-health-test",
-        remote_node_health_test_interval,
+        "system-health-check",
+        system_health_check_interval,
         None,
         shutdown_token.clone(),
         state.clone(),
         |s| async move {
-            match crate::services::managed_follower_service::run_health_tests(&s).await {
-                Ok(stats) if stats.checked > 0 => {
-                    tracing::info!(
-                        checked = stats.checked,
-                        healthy = stats.healthy,
-                        failed = stats.failed,
-                        skipped = stats.skipped,
-                        "completed remote node health test batch"
-                    );
-                    crate::services::task_service::RuntimeTaskRunOutcome::succeeded(Some(format!(
-                        "checked {} remote nodes (healthy {}, failed {}, skipped {})",
-                        stats.checked, stats.healthy, stats.failed, stats.skipped
-                    )))
-                }
-                Ok(_) => crate::services::task_service::RuntimeTaskRunOutcome::quiet(),
-                Err(error) => {
-                    tracing::warn!("remote node health test failed: {error}");
-                    crate::services::task_service::RuntimeTaskRunOutcome::failed(
-                        Some("Remote node health test failed".to_string()),
-                        error.to_string(),
-                    )
-                }
+            let report =
+                crate::services::health_service::run_primary_system_health_checks(&s).await;
+            if report.has_issues() {
+                tracing::warn!(
+                    details = %report.details(),
+                    "system health check found unhealthy components"
+                );
+            } else {
+                tracing::info!(
+                    summary = %report.summary(),
+                    "system health check completed"
+                );
             }
+            report.into_runtime_outcome()
         },
     ));
 
@@ -643,7 +634,7 @@ fn blob_reconcile_interval(state: &PrimaryAppState) -> Duration {
     ))
 }
 
-fn remote_node_health_test_interval(state: &PrimaryAppState) -> Duration {
+fn system_health_check_interval(state: &PrimaryAppState) -> Duration {
     Duration::from_secs(
         crate::config::operations::remote_node_health_test_interval_secs(&state.runtime_config),
     )

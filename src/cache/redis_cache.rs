@@ -1,6 +1,7 @@
 //! 缓存实现：`redis_cache`。
 
 use super::CacheBackend;
+use crate::errors::{AsterError, MapAsterErr};
 use async_trait::async_trait;
 use redis::{AsyncCommands, ExistenceCheck, SetExpiry, SetOptions};
 
@@ -19,6 +20,19 @@ impl RedisCache {
 
 #[async_trait]
 impl CacheBackend for RedisCache {
+    fn backend_name(&self) -> &'static str {
+        "redis"
+    }
+
+    async fn health_check(&self) -> crate::errors::Result<()> {
+        let mut conn = self.conn.clone();
+        let _: String = redis::cmd("PING")
+            .query_async(&mut conn)
+            .await
+            .map_aster_err_ctx("redis cache health check", AsterError::internal_error)?;
+        Ok(())
+    }
+
     async fn get_bytes(&self, key: &str) -> Option<Vec<u8>> {
         let mut conn = self.conn.clone();
         conn.get(key).await.ok()?

@@ -380,7 +380,7 @@ pub static ALL_CONFIGS: &[ConfigDef] = &[
         requires_restart: false,
         is_sensitive: false,
         category: "operations",
-        description: "Seconds between periodic remote node health test runs",
+        description: "Seconds between periodic system health checks for database, cache, and remote nodes",
     },
     ConfigDef {
         key: TEAM_MEMBER_LIST_MAX_LIMIT_KEY,

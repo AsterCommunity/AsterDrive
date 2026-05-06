@@ -264,6 +264,38 @@ async fn test_file_preview_link_supports_public_inline_access_and_usage_limit() 
 }
 
 #[actix_web::test]
+async fn test_file_preview_link_usage_limit_falls_back_when_cache_backend_does_not_persist() {
+    let state = common::setup().await;
+    let app = create_test_app!(state);
+
+    let (token, _) = register_and_login!(app);
+    let file_id = upload_test_file_named!(app, token, "fallback-preview.txt");
+
+    let req = test::TestRequest::post()
+        .uri(&format!("/api/v1/files/{file_id}/preview-link"))
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+    let body: Value = test::read_body_json(resp).await;
+    let preview_path = body["data"]["path"]
+        .as_str()
+        .expect("preview link path should exist")
+        .to_string();
+
+    for _ in 0..5 {
+        let req = test::TestRequest::get().uri(&preview_path).to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(resp.status(), 200);
+    }
+
+    let req = test::TestRequest::get().uri(&preview_path).to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 403);
+}
+
+#[actix_web::test]
 async fn test_file_repo_resolve_unique_filename_prefers_first_gap_and_preserves_suffix() {
     let state = common::setup().await;
     let db = state.db.clone();

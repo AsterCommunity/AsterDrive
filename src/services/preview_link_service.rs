@@ -2,8 +2,11 @@
 
 use base64::Engine;
 use chrono::{DateTime, Duration, Utc};
+use moka::future::Cache;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+use std::sync::LazyLock;
+use std::time::Duration as StdDuration;
 #[cfg(all(debug_assertions, feature = "openapi"))]
 use utoipa::ToSchema;
 
@@ -21,6 +24,14 @@ use crate::services::{
 const PREVIEW_LINK_TTL_SECS: i64 = 5 * 60;
 const PREVIEW_LINK_MAX_USES: u32 = 5;
 const PREVIEW_LINK_CACHE_PREFIX: &str = "preview_link:";
+static FALLBACK_PREVIEW_USAGE: LazyLock<Cache<String, PreviewUsageState>> = LazyLock::new(|| {
+    Cache::builder()
+        .max_capacity(10_000)
+        .time_to_live(StdDuration::from_secs(
+            u64::try_from(PREVIEW_LINK_TTL_SECS).unwrap_or(300),
+        ))
+        .build()
+});
 
 #[derive(Debug, Clone, Serialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
@@ -46,7 +57,7 @@ struct PreviewTokenPayload {
     max_uses: u32,
 }
 
-#[derive(Debug, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize)]
 struct PreviewUsageState {
     used: u32,
 }
@@ -386,11 +397,7 @@ async fn reserve_usage(
 ) -> Result<ReservedUse> {
     let cache_key = preview_cache_key(token);
     let ttl_secs = ttl_seconds(payload)?;
-    let usage = state
-        .cache
-        .get::<PreviewUsageState>(&cache_key)
-        .await
-        .unwrap_or_default();
+    let usage = load_usage(state, &cache_key).await;
     if usage.used >= payload.max_uses {
         return Err(AsterError::share_download_limit(
             "preview link usage limit reached",
@@ -398,14 +405,13 @@ async fn reserve_usage(
     }
 
     let next_used = usage.used.saturating_add(1);
-    state
-        .cache
-        .set(
-            &cache_key,
-            &PreviewUsageState { used: next_used },
-            Some(ttl_secs),
-        )
-        .await;
+    store_usage(
+        state,
+        &cache_key,
+        PreviewUsageState { used: next_used },
+        ttl_secs,
+    )
+    .await;
 
     Ok(ReservedUse {
         cache_key,
@@ -416,20 +422,75 @@ async fn reserve_usage(
 
 async fn rollback_usage(state: &PrimaryAppState, reserved: &ReservedUse) {
     if reserved.previous_used == 0 {
-        state.cache.delete(&reserved.cache_key).await;
+        delete_usage(state, &reserved.cache_key).await;
         return;
     }
 
-    state
-        .cache
-        .set(
-            &reserved.cache_key,
-            &PreviewUsageState {
-                used: reserved.previous_used,
-            },
-            Some(reserved.ttl_secs),
-        )
+    store_usage(
+        state,
+        &reserved.cache_key,
+        PreviewUsageState {
+            used: reserved.previous_used,
+        },
+        reserved.ttl_secs,
+    )
+    .await;
+}
+
+async fn load_usage(state: &PrimaryAppState, cache_key: &str) -> PreviewUsageState {
+    let primary = if state.config.cache.enabled {
+        state.cache.get::<PreviewUsageState>(cache_key).await
+    } else {
+        None
+    };
+    let fallback = FALLBACK_PREVIEW_USAGE.get(cache_key).await;
+
+    match (primary, fallback) {
+        (Some(primary), Some(fallback)) => {
+            if primary.used >= fallback.used {
+                primary
+            } else {
+                fallback
+            }
+        }
+        (Some(primary), None) => primary,
+        (None, Some(fallback)) => fallback,
+        (None, None) => PreviewUsageState::default(),
+    }
+}
+
+async fn store_usage(
+    state: &PrimaryAppState,
+    cache_key: &str,
+    usage: PreviewUsageState,
+    ttl_secs: u64,
+) {
+    FALLBACK_PREVIEW_USAGE
+        .insert(cache_key.to_string(), usage)
         .await;
+
+    if !state.config.cache.enabled {
+        return;
+    }
+
+    state.cache.set(cache_key, &usage, Some(ttl_secs)).await;
+    if let Some(stored) = state.cache.get::<PreviewUsageState>(cache_key).await
+        && stored.used >= usage.used
+    {
+        return;
+    }
+
+    tracing::warn!(
+        key = %cache_key,
+        "preview link usage cache backend did not persist entry; using local fallback cache"
+    );
+}
+
+async fn delete_usage(state: &PrimaryAppState, cache_key: &str) {
+    if state.config.cache.enabled {
+        state.cache.delete(cache_key).await;
+    }
+    FALLBACK_PREVIEW_USAGE.remove(cache_key).await;
 }
 
 fn ttl_seconds(payload: &PreviewTokenPayload) -> Result<u64> {

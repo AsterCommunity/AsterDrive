@@ -141,6 +141,7 @@ fn runtime_task_display_name(task_name: &str) -> String {
         "upload-cleanup" => "Upload cleanup".to_string(),
         "completed-upload-cleanup" => "Completed upload cleanup".to_string(),
         "blob-reconcile" => "Blob reconcile".to_string(),
+        "system-health-check" => "System health check".to_string(),
         "remote-node-health-test" => "Remote node health test".to_string(),
         "trash-cleanup" => "Trash cleanup".to_string(),
         "team-archive-cleanup" => "Team archive cleanup".to_string(),

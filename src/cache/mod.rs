@@ -6,6 +6,7 @@ mod redis_cache;
 mod reservation;
 
 use crate::config::CacheConfig;
+use crate::errors::Result;
 use async_trait::async_trait;
 use serde::{Serialize, de::DeserializeOwned};
 use std::sync::Arc;
@@ -27,6 +28,8 @@ fn redis_backend_target(redis_url: &str) -> String {
 /// 通用缓存后端 trait（支持 trait object，统一使用 bytes 接口）
 #[async_trait]
 pub trait CacheBackend: Send + Sync {
+    fn backend_name(&self) -> &'static str;
+    async fn health_check(&self) -> Result<()>;
     async fn get_bytes(&self, key: &str) -> Option<Vec<u8>>;
     async fn set_bytes(&self, key: &str, value: Vec<u8>, ttl_secs: Option<u64>);
     async fn set_bytes_if_absent(&self, key: &str, value: Vec<u8>, ttl_secs: Option<u64>) -> bool;

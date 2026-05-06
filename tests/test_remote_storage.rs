@@ -1132,6 +1132,73 @@ async fn test_remote_node_connection_failure_returns_error_and_persists_last_err
     assert!(!stored.last_error.is_empty());
 }
 
+#[actix_web::test]
+async fn test_remote_node_failed_probe_preserves_cached_capabilities() {
+    let provider_state = common::setup().await;
+    let consumer_state = common::setup().await;
+    let provider_server = spawn_internal_storage_server(provider_state.follower_view()).await;
+
+    let consumer_node = managed_follower_service::create(
+        &consumer_state,
+        managed_follower_service::CreateRemoteNodeInput {
+            name: "capability-cache-target".to_string(),
+            base_url: provider_server.base_url.clone(),
+            is_enabled: true,
+        },
+    )
+    .await
+    .expect("consumer remote node should be created");
+    let consumer_node_model =
+        managed_follower_repo::find_by_id(&consumer_state.db, consumer_node.id)
+            .await
+            .expect("consumer remote node should be queryable");
+
+    let (provider_binding, _) = master_binding_service::upsert_from_enrollment(
+        &provider_state.db,
+        master_binding_service::UpsertMasterBindingInput {
+            name: "capability-cache-access".to_string(),
+            master_url: "http://master.example.com".to_string(),
+            access_key: consumer_node_model.access_key.clone(),
+            secret_key: consumer_node_model.secret_key.clone(),
+            is_enabled: true,
+        },
+    )
+    .await
+    .expect("provider master binding should be created");
+    provider_state
+        .driver_registry
+        .reload_master_bindings(&provider_state.db)
+        .await
+        .expect("provider binding registry should reload");
+    create_managed_local_ingress_for_binding(
+        &provider_state,
+        &provider_binding.access_key,
+        &provider_binding.access_key,
+    )
+    .await;
+
+    wait_for_remote_probe(&consumer_state, consumer_node.id).await;
+    let cached_capabilities =
+        managed_follower_repo::find_by_id(&consumer_state.db, consumer_node.id)
+            .await
+            .expect("remote node should remain queryable after successful probe")
+            .last_capabilities;
+    assert_ne!(cached_capabilities, "{}");
+
+    provider_server.stop().await;
+
+    let error = managed_follower_service::test_connection(&consumer_state, consumer_node.id)
+        .await
+        .expect_err("stopped provider should make probe fail");
+    assert_eq!(error.code(), "E031");
+
+    let stored = managed_follower_repo::find_by_id(&consumer_state.db, consumer_node.id)
+        .await
+        .expect("remote node should remain queryable after failed probe");
+    assert!(!stored.last_error.is_empty());
+    assert_eq!(stored.last_capabilities, cached_capabilities);
+}
+
 async fn create_internal_hmac_binding(
     provider_state: &aster_drive::runtime::PrimaryAppState,
     label: &str,

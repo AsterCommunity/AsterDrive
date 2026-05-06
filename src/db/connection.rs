@@ -5,6 +5,14 @@ use crate::errors::{AsterError, MapAsterErr, Result};
 use sea_orm::{ConnectOptions, ConnectionTrait, Database, DatabaseConnection, SqlxSqliteConnector};
 
 pub async fn connect(cfg: &DatabaseConfig) -> Result<DatabaseConnection> {
+    let retry_config = crate::db::retry::RetryConfig {
+        max_retries: cfg.retry_count,
+        ..Default::default()
+    };
+    crate::db::retry::with_retry(&retry_config, || connect_once(cfg)).await
+}
+
+async fn connect_once(cfg: &DatabaseConfig) -> Result<DatabaseConnection> {
     let url = normalize_database_url(&cfg.url);
     let is_sqlite = url.starts_with("sqlite:");
     // SQLite relies on a single pooled connection so concurrent writers are serialized at

@@ -3,7 +3,7 @@
 use crate::api::error_code::ErrorCode;
 use crate::api::response::{ApiResponse, HealthResponse, MemoryStatsResponse};
 use crate::runtime::{FollowerAppState, PrimaryAppState};
-use crate::services::readiness_service;
+use crate::services::health_service;
 use actix_web::{HttpResponse, web};
 
 const READY_DB_UNAVAILABLE_MESSAGE: &str = "Database unavailable";
@@ -65,22 +65,22 @@ pub async fn health() -> HttpResponse {
     ),
 )]
 pub async fn primary_ready(state: web::Data<PrimaryAppState>) -> HttpResponse {
-    if let Err(error) = readiness_service::ping_database(&state.db).await {
+    if let Err(error) = health_service::ping_database(&state.db).await {
         return ready_database_error(error);
     }
 
-    match readiness_service::check_primary_ready(state.get_ref()).await {
+    match health_service::check_primary_ready(state.get_ref()).await {
         Ok(_) => HttpResponse::Ok().json(ApiResponse::ok(status_response("ready"))),
         Err(error) => ready_storage_error(error),
     }
 }
 
 pub async fn follower_ready(state: web::Data<FollowerAppState>) -> HttpResponse {
-    if let Err(error) = readiness_service::ping_database(&state.db).await {
+    if let Err(error) = health_service::ping_database(&state.db).await {
         return ready_database_error(error);
     }
 
-    match readiness_service::check_follower_ready(state.get_ref()).await {
+    match health_service::check_follower_ready(state.get_ref()).await {
         Ok(_) => HttpResponse::Ok().json(ApiResponse::ok(status_response("ready"))),
         Err(error) => ready_storage_error(error),
     }
@@ -183,6 +183,7 @@ mod tests {
     #[derive(Clone, Default)]
     struct ProbeDriver {
         fail_put: bool,
+        fail_delete: bool,
         put_calls: Arc<AtomicUsize>,
         delete_calls: Arc<AtomicUsize>,
     }
@@ -195,6 +196,13 @@ mod tests {
         fn failing() -> Self {
             Self {
                 fail_put: true,
+                ..Self::default()
+            }
+        }
+
+        fn failing_delete() -> Self {
+            Self {
+                fail_delete: true,
                 ..Self::default()
             }
         }
@@ -226,7 +234,13 @@ mod tests {
 
         async fn delete(&self, _path: &str) -> crate::errors::Result<()> {
             self.delete_calls.fetch_add(1, Ordering::SeqCst);
-            Ok(())
+            if self.fail_delete {
+                Err(crate::errors::AsterError::storage_driver_error(
+                    "probe delete failed",
+                ))
+            } else {
+                Ok(())
+            }
         }
 
         async fn exists(&self, _path: &str) -> crate::errors::Result<bool> {
@@ -337,6 +351,27 @@ mod tests {
         assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
         assert_eq!(driver.put_calls.load(Ordering::SeqCst), 1);
         assert_eq!(driver.delete_calls.load(Ordering::SeqCst), 0);
+
+        let body = body::to_bytes(response.into_body())
+            .await
+            .expect("health response body should read");
+        let payload: serde_json::Value =
+            serde_json::from_slice(&body).expect("health response should be valid json");
+        assert_eq!(
+            payload["code"],
+            serde_json::json!(ErrorCode::StorageDriverError as i32)
+        );
+        assert_eq!(payload["msg"], READY_STORAGE_UNAVAILABLE_MESSAGE);
+    }
+
+    #[actix_web::test]
+    async fn ready_returns_503_when_default_storage_probe_cleanup_fails() {
+        let driver = ProbeDriver::failing_delete();
+        let response = ready(web::Data::new(build_test_state(Some(driver.clone())).await)).await;
+
+        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(driver.put_calls.load(Ordering::SeqCst), 1);
+        assert_eq!(driver.delete_calls.load(Ordering::SeqCst), 1);
 
         let body = body::to_bytes(response.into_body())
             .await
