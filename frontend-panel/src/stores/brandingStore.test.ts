@@ -36,6 +36,7 @@ async function loadBrandingStoreModule() {
 
 describe("brandingStore", () => {
 	beforeEach(async () => {
+		localStorage.clear();
 		mockState.applyBranding.mockReset();
 		mockState.getBranding.mockReset();
 		mockState.loggerWarn.mockReset();
@@ -86,6 +87,93 @@ describe("brandingStore", () => {
 			"https://drive.example.com",
 			"https://panel.example.com",
 		]);
+	});
+
+	it("hydrates cached branding immediately and revalidates it", async () => {
+		const cachedBranding = {
+			allow_user_registration: true,
+			title: "Cached Drive",
+			description: "Cached description",
+			favicon_url: "/cached.svg",
+			wordmark_dark_url: "/cached-dark.svg",
+			wordmark_light_url: "/cached-light.svg",
+			site_urls: ["https://cached.example.com"],
+		};
+		const freshBranding = {
+			allow_user_registration: false,
+			title: "Fresh Drive",
+			description: "Fresh description",
+			favicon_url: "/fresh.svg",
+			wordmark_dark_url: "/fresh-dark.svg",
+			wordmark_light_url: "/fresh-light.svg",
+			site_urls: ["https://fresh.example.com"],
+		};
+		localStorage.setItem(
+			"aster-cached-branding",
+			JSON.stringify({ branding: cachedBranding, cachedAt: Date.now() }),
+		);
+		mockState.getBranding.mockResolvedValue(freshBranding);
+
+		const { BRANDING_CACHE_KEY, useBrandingStore } =
+			await loadBrandingStoreModule();
+		const { getPublicSiteUrl } = await import("@/lib/publicSiteUrl");
+
+		expect(useBrandingStore.getState()).toMatchObject({
+			allowUserRegistration: true,
+			branding: expect.objectContaining({
+				title: "Cached Drive",
+			}),
+			isLoaded: true,
+			siteUrl: "https://cached.example.com",
+		});
+		expect(getPublicSiteUrl()).toBe("https://cached.example.com");
+
+		await useBrandingStore.getState().load();
+
+		expect(mockState.getBranding).toHaveBeenCalledTimes(1);
+		expect(useBrandingStore.getState()).toMatchObject({
+			allowUserRegistration: false,
+			branding: expect.objectContaining({
+				title: "Fresh Drive",
+			}),
+			siteUrl: "https://fresh.example.com",
+		});
+		expect(
+			JSON.parse(localStorage.getItem(BRANDING_CACHE_KEY) ?? "null"),
+		).toMatchObject({
+			branding: freshBranding,
+		});
+	});
+
+	it("keeps cached branding when revalidation fails", async () => {
+		localStorage.setItem(
+			"aster-cached-branding",
+			JSON.stringify({
+				branding: {
+					allow_user_registration: true,
+					title: "Cached Drive",
+					description: "Cached description",
+					favicon_url: "/cached.svg",
+					wordmark_dark_url: "/cached-dark.svg",
+					wordmark_light_url: "/cached-light.svg",
+					site_urls: ["https://cached.example.com"],
+				},
+				cachedAt: Date.now(),
+			}),
+		);
+		mockState.getBranding.mockRejectedValueOnce(new Error("offline"));
+
+		const { useBrandingStore } = await loadBrandingStoreModule();
+
+		await useBrandingStore.getState().load();
+
+		expect(mockState.loggerWarn).toHaveBeenCalledTimes(1);
+		expect(useBrandingStore.getState()).toMatchObject({
+			isLoaded: true,
+			branding: expect.objectContaining({
+				title: "Cached Drive",
+			}),
+		});
 	});
 
 	it("falls back to defaults when the public endpoint fails", async () => {

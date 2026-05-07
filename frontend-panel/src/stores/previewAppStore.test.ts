@@ -59,6 +59,7 @@ describe("previewAppStore", () => {
 		localStorage.clear();
 		mockState.get.mockReset();
 		mockState.warn.mockReset();
+		vi.useRealTimers();
 	});
 
 	it("drops stale cached configs that still rely on legacy preview app labels", async () => {
@@ -105,7 +106,7 @@ describe("previewAppStore", () => {
 		expect(usePreviewAppStore.getState().config).toEqual(freshConfig);
 		expect(
 			JSON.parse(localStorage.getItem(PREVIEW_APPS_CACHE_KEY) ?? "null"),
-		).toEqual({
+		).toMatchObject({
 			config: freshConfig,
 		});
 
@@ -143,8 +144,33 @@ describe("previewAppStore", () => {
 		expect(usePreviewAppStore.getState().isLoaded).toBe(true);
 		expect(
 			JSON.parse(localStorage.getItem(PREVIEW_APPS_CACHE_KEY) ?? "null"),
-		).toEqual({
+		).toMatchObject({
 			config: freshConfig,
 		});
+	});
+
+	it("revalidates cached config again after the freshness window", async () => {
+		vi.useFakeTimers();
+		vi.setSystemTime(new Date("2026-05-07T00:00:00Z"));
+		localStorage.setItem(
+			"aster-cached-preview-apps",
+			JSON.stringify({ config: cachedConfig, cachedAt: Date.now() }),
+		);
+		mockState.get
+			.mockResolvedValueOnce(freshConfig)
+			.mockResolvedValueOnce(cachedConfig);
+
+		const { usePreviewAppStore } = await loadStore();
+
+		await usePreviewAppStore.getState().load();
+		await usePreviewAppStore.getState().load();
+
+		expect(mockState.get).toHaveBeenCalledTimes(1);
+
+		vi.advanceTimersByTime(30_001);
+		await usePreviewAppStore.getState().load();
+
+		expect(mockState.get).toHaveBeenCalledTimes(2);
+		expect(usePreviewAppStore.getState().config).toEqual(cachedConfig);
 	});
 });

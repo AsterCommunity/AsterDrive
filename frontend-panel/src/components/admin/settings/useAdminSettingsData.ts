@@ -28,7 +28,14 @@ import {
 	type TimeDisplayUnitValue,
 } from "@/components/admin/settings/adminSettingsContentShared";
 import { handleApiError } from "@/hooks/useApiError";
+import {
+	loadAdminConfigSchema,
+	loadAdminTemplateVariables,
+	readAdminConfigSchemaCache,
+	readAdminTemplateVariablesCache,
+} from "@/lib/adminConfigMetadataCache";
 import { adminConfigService } from "@/services/adminService";
+import { useBrandingStore } from "@/stores/brandingStore";
 import { usePreviewAppStore } from "@/stores/previewAppStore";
 import { useThumbnailSupportStore } from "@/stores/thumbnailSupportStore";
 import type {
@@ -41,6 +48,15 @@ import type {
 const PUBLIC_SITE_URL_KEY = "public_site_url";
 const CORS_ALLOWED_ORIGINS_KEY = "cors_allowed_origins";
 const CORS_ALLOW_CREDENTIALS_KEY = "cors_allow_credentials";
+const PUBLIC_BRANDING_CONFIG_KEYS = new Set([
+	PUBLIC_SITE_URL_KEY,
+	"allow_user_registration",
+	"branding_title",
+	"branding_description",
+	"branding_favicon_url",
+	"branding_wordmark_dark_url",
+	"branding_wordmark_light_url",
+]);
 
 type TranslationFn = (key: string, options?: Record<string, unknown>) => string;
 
@@ -57,10 +73,12 @@ export function useAdminSettingsData({
 }: UseAdminSettingsDataProps) {
 	const customDraftIdRef = useRef(0);
 	const [configs, setConfigs] = useState<SystemConfig[]>([]);
-	const [schemas, setSchemas] = useState<ConfigSchemaItem[]>([]);
+	const [schemas, setSchemas] = useState<ConfigSchemaItem[]>(
+		() => readAdminConfigSchemaCache() ?? [],
+	);
 	const [templateVariableGroups, setTemplateVariableGroups] = useState<
 		TemplateVariableGroup[]
-	>([]);
+	>(() => readAdminTemplateVariablesCache() ?? []);
 	const [loading, setLoading] = useState(true);
 	const [saving, setSaving] = useState(false);
 	const [draftValues, setDraftValues] = useState<DraftValues>({});
@@ -172,8 +190,8 @@ export function useAdminSettingsData({
 			}
 			const [cfgs, schemaList, nextTemplateVariableGroups] = await Promise.all([
 				adminConfigService.list({ limit: 200, offset: 0 }),
-				adminConfigService.schema(),
-				adminConfigService.templateVariables().catch((error) => {
+				loadAdminConfigSchema(),
+				loadAdminTemplateVariables().catch((error) => {
 					handleApiError(error);
 					return [];
 				}),
@@ -592,6 +610,9 @@ export function useAdminSettingsData({
 			const mediaProcessingChanged = changedExistingConfigs.some(
 				(config) => config.key === MEDIA_PROCESSING_CONFIG_KEY,
 			);
+			const publicBrandingChanged = changedExistingConfigs.some((config) =>
+				PUBLIC_BRANDING_CONFIG_KEYS.has(config.key),
+			);
 			const nextConfigsByKey = new Map(
 				configs.map((config) => [config.key, config] as const),
 			);
@@ -627,6 +648,10 @@ export function useAdminSettingsData({
 				nextConfigsByKey.get(PUBLIC_SITE_URL_KEY)?.value;
 			if (Array.isArray(nextPublicSiteUrl)) {
 				onPublicSiteUrlChanged(nextPublicSiteUrl);
+			}
+			if (publicBrandingChanged) {
+				useBrandingStore.getState().invalidate();
+				void useBrandingStore.getState().load({ force: true });
 			}
 			if (previewAppsChanged) {
 				usePreviewAppStore.getState().invalidate();

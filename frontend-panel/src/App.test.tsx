@@ -17,6 +17,7 @@ const mockState = vi.hoisted(() => ({
 	previewAppsLoad: vi.fn(),
 	setAuthState: vi.fn(),
 	themeInit: vi.fn(),
+	thumbnailSupportLoad: vi.fn(),
 }));
 
 vi.mock("react-router-dom", () => ({
@@ -55,6 +56,14 @@ vi.mock("@/stores/previewAppStore", () => ({
 	usePreviewAppStore: {
 		getState: () => ({
 			load: mockState.previewAppsLoad,
+		}),
+	},
+}));
+
+vi.mock("@/stores/thumbnailSupportStore", () => ({
+	useThumbnailSupportStore: {
+		getState: () => ({
+			load: mockState.thumbnailSupportLoad,
 		}),
 	},
 }));
@@ -101,6 +110,8 @@ describe("App", () => {
 		mockState.previewAppsLoad.mockReset();
 		mockState.setAuthState.mockReset();
 		mockState.themeInit.mockReset();
+		mockState.thumbnailSupportLoad.mockReset();
+		vi.useRealTimers();
 	});
 
 	afterEach(() => {
@@ -113,6 +124,7 @@ describe("App", () => {
 		render(<App />);
 
 		expect(mockState.previewAppsLoad).toHaveBeenCalledTimes(1);
+		expect(mockState.thumbnailSupportLoad).toHaveBeenCalledTimes(1);
 		expect(mockState.authStore.checkAuth).not.toHaveBeenCalled();
 		expect(mockState.setAuthState).toHaveBeenCalledWith({ isChecking: false });
 	});
@@ -123,7 +135,42 @@ describe("App", () => {
 		render(<App />);
 
 		expect(mockState.previewAppsLoad).toHaveBeenCalledTimes(1);
+		expect(mockState.thumbnailSupportLoad).toHaveBeenCalledTimes(1);
 		expect(mockState.authStore.checkAuth).toHaveBeenCalledTimes(1);
 		expect(mockState.setAuthState).not.toHaveBeenCalled();
+	});
+
+	it("revalidates public config when the tab becomes visible again", () => {
+		render(<App />);
+
+		expect(mockState.brandingLoad).toHaveBeenCalledTimes(1);
+		expect(mockState.previewAppsLoad).toHaveBeenCalledTimes(1);
+		expect(mockState.thumbnailSupportLoad).toHaveBeenCalledTimes(1);
+
+		Object.defineProperty(document, "visibilityState", {
+			configurable: true,
+			value: "visible",
+		});
+		document.dispatchEvent(new Event("visibilitychange"));
+
+		expect(mockState.brandingLoad).toHaveBeenCalledTimes(2);
+		expect(mockState.previewAppsLoad).toHaveBeenCalledTimes(2);
+		expect(mockState.thumbnailSupportLoad).toHaveBeenCalledTimes(2);
+	});
+
+	it("revalidates public config on the interval while visible", () => {
+		vi.useFakeTimers();
+		Object.defineProperty(document, "visibilityState", {
+			configurable: true,
+			value: "visible",
+		});
+
+		render(<App />);
+
+		vi.advanceTimersByTime(60_000);
+
+		expect(mockState.brandingLoad).toHaveBeenCalledTimes(2);
+		expect(mockState.previewAppsLoad).toHaveBeenCalledTimes(2);
+		expect(mockState.thumbnailSupportLoad).toHaveBeenCalledTimes(2);
 	});
 });

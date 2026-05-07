@@ -256,22 +256,25 @@ export default function AdminTeamsPage() {
 		[keyword, offset, pageSize, showArchived],
 	);
 
-	const loadPolicyGroups = useCallback(async () => {
-		try {
-			const cachedPolicyGroups = readAdminPolicyGroupLookup();
-			if (cachedPolicyGroups != null) {
-				setPolicyGroups(cachedPolicyGroups);
+	const loadPolicyGroups = useCallback(
+		async (options?: { force?: boolean }) => {
+			try {
+				const cachedPolicyGroups = readAdminPolicyGroupLookup();
+				if (!options?.force && cachedPolicyGroups != null) {
+					setPolicyGroups(cachedPolicyGroups);
+					setPolicyGroupsLoading(false);
+				} else {
+					setPolicyGroupsLoading(true);
+				}
+				setPolicyGroups(await loadAdminPolicyGroupLookup(options));
+			} catch (error) {
+				handleApiError(error);
+			} finally {
 				setPolicyGroupsLoading(false);
-			} else {
-				setPolicyGroupsLoading(true);
 			}
-			setPolicyGroups(await loadAdminPolicyGroupLookup());
-		} catch (error) {
-			handleApiError(error);
-		} finally {
-			setPolicyGroupsLoading(false);
-		}
-	}, []);
+		},
+		[],
+	);
 
 	useEffect(() => {
 		void loadPolicyGroups();
@@ -349,6 +352,10 @@ export default function AdminTeamsPage() {
 		}
 	};
 
+	const handleRefresh = async () => {
+		await Promise.all([reload(), loadPolicyGroups({ force: true })]);
+	};
+
 	const policyGroupNameById = (policyGroupId: number | null | undefined) =>
 		policyGroupId != null
 			? (policyGroups.find((group) => group.id === policyGroupId)?.name ?? null)
@@ -397,12 +404,16 @@ export default function AdminTeamsPage() {
 								variant="outline"
 								size="sm"
 								className={ADMIN_CONTROL_HEIGHT_CLASS}
-								onClick={() => void reload()}
-								disabled={loading}
+								onClick={() => void handleRefresh()}
+								disabled={loading || policyGroupsLoading}
 							>
 								<Icon
-									name={loading ? "Spinner" : "ArrowsClockwise"}
-									className={`mr-1 h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`}
+									name={
+										loading || policyGroupsLoading
+											? "Spinner"
+											: "ArrowsClockwise"
+									}
+									className={`mr-1 h-3.5 w-3.5 ${loading || policyGroupsLoading ? "animate-spin" : ""}`}
 								/>
 								{t("core:refresh")}
 							</Button>

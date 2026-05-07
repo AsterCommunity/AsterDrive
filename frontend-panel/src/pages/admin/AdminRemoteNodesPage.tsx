@@ -25,6 +25,7 @@ import { getApiErrorMessage, handleApiError } from "@/hooks/useApiError";
 import { useApiList } from "@/hooks/useApiList";
 import { useConfirmDialog } from "@/hooks/useConfirmDialog";
 import { usePageTitle } from "@/hooks/usePageTitle";
+import { invalidateAdminRemoteNodeLookup } from "@/lib/adminRemoteNodeLookup";
 import { writeTextToClipboard } from "@/lib/clipboard";
 import { ADMIN_CONTROL_HEIGHT_CLASS } from "@/lib/constants";
 import { logger } from "@/lib/logger";
@@ -237,6 +238,7 @@ export default function AdminRemoteNodesPage() {
 			setRemoteNodes((prev) =>
 				prev.map((node) => (node.id === remoteNodeId ? latest : node)),
 			);
+			invalidateAdminRemoteNodeLookup();
 		} catch (error) {
 			logger.warn(
 				"Failed to refresh remote node state after connection test",
@@ -262,6 +264,7 @@ export default function AdminRemoteNodesPage() {
 			setRemoteNodes((prev) =>
 				prev.map((node) => (node.id === editingId ? updated : node)),
 			);
+			invalidateAdminRemoteNodeLookup();
 
 			if (showSuccessToast) {
 				toast.success(t("connection_success"));
@@ -287,6 +290,7 @@ export default function AdminRemoteNodesPage() {
 				setRemoteNodes((prev) =>
 					prev.map((node) => (node.id === editingId ? updated : node)),
 				);
+				invalidateAdminRemoteNodeLookup();
 				toast.success(t("remote_node_updated"));
 				handleDialogOpenChange(false);
 			} else {
@@ -303,6 +307,7 @@ export default function AdminRemoteNodesPage() {
 				} else {
 					await reload();
 				}
+				invalidateAdminRemoteNodeLookup();
 				handleDialogOpenChange(false);
 				const command = await adminRemoteNodeService.createEnrollmentCommand(
 					created.id,
@@ -374,6 +379,7 @@ export default function AdminRemoteNodesPage() {
 	const handleDelete = async (id: number) => {
 		try {
 			await adminRemoteNodeService.delete(id);
+			invalidateAdminRemoteNodeLookup();
 			if (remoteNodes.length === 1 && offset > 0) {
 				setOffset(Math.max(0, offset - pageSize));
 			} else {
@@ -403,6 +409,7 @@ export default function AdminRemoteNodesPage() {
 			});
 			setRemoteNodes(nodesPage.items);
 			setTotal(nodesPage.total);
+			invalidateAdminRemoteNodeLookup();
 		} catch (error) {
 			handleApiError(error);
 		}
@@ -422,6 +429,7 @@ export default function AdminRemoteNodesPage() {
 			setRemoteNodes((prev) =>
 				prev.map((node) => (node.id === remoteNodeId ? updated : node)),
 			);
+			invalidateAdminRemoteNodeLookup();
 			if (editingId === remoteNodeId) {
 				setEditingNode(updated);
 			}

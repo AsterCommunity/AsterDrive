@@ -27,7 +27,14 @@ import { handleApiError } from "@/hooks/useApiError";
 import { useApiList } from "@/hooks/useApiList";
 import { useConfirmDialog } from "@/hooks/useConfirmDialog";
 import { usePageTitle } from "@/hooks/usePageTitle";
-import { invalidateAdminPolicyGroupLookup } from "@/lib/adminPolicyGroupLookup";
+import {
+	invalidateAdminPolicyGroupLookup,
+	loadAdminPolicyGroupLookup,
+} from "@/lib/adminPolicyGroupLookup";
+import {
+	loadAdminPolicyLookup,
+	readAdminPolicyLookup,
+} from "@/lib/adminPolicyLookup";
 import { ADMIN_CONTROL_HEIGHT_CLASS } from "@/lib/constants";
 import {
 	buildOffsetPaginationSearchParams,
@@ -35,10 +42,7 @@ import {
 	parsePageSizeOption,
 	parsePageSizeSearchParam,
 } from "@/lib/pagination";
-import {
-	adminPolicyGroupService,
-	adminPolicyService,
-} from "@/services/adminService";
+import { adminPolicyGroupService } from "@/services/adminService";
 import type {
 	PolicyGroupUserMigrationResult,
 	StoragePolicyGroup,
@@ -102,10 +106,19 @@ export default function AdminPolicyGroupsPage() {
 		() => adminPolicyGroupService.list({ limit: pageSize, offset }),
 		[offset, pageSize],
 	);
-	const [policies, setPolicies] = useState<PolicyLookup[]>([]);
-	const [loadedPoliciesCount, setLoadedPoliciesCount] = useState(0);
-	const [policiesTotal, setPoliciesTotal] = useState(0);
-	const [policiesLoading, setPoliciesLoading] = useState(true);
+	const initialPolicies = readAdminPolicyLookup();
+	const [policies, setPolicies] = useState<PolicyLookup[]>(
+		initialPolicies ?? [],
+	);
+	const [loadedPoliciesCount, setLoadedPoliciesCount] = useState(
+		initialPolicies?.length ?? 0,
+	);
+	const [policiesTotal, setPoliciesTotal] = useState(
+		initialPolicies?.length ?? 0,
+	);
+	const [policiesLoading, setPoliciesLoading] = useState(
+		initialPolicies == null,
+	);
 	const [policiesLoadingMore, setPoliciesLoadingMore] = useState(false);
 	const [dialogOpen, setDialogOpen] = useState(false);
 	const [editingGroup, setEditingGroup] = useState<StoragePolicyGroup | null>(
@@ -180,42 +193,31 @@ export default function AdminPolicyGroupsPage() {
 		setOffset(0);
 	};
 
-	const loadPoliciesPage = useCallback(
-		async (pageOffset: number, { reset = false }: { reset?: boolean } = {}) => {
+	const loadPolicies = useCallback(
+		async ({ force = false }: { force?: boolean } = {}) => {
 			try {
-				if (reset) {
-					setPoliciesLoading(true);
-				} else {
-					setPoliciesLoadingMore(true);
-				}
-
-				const page = await adminPolicyService.list({
+				setPoliciesLoading(true);
+				setPoliciesLoadingMore(false);
+				const policyLookup = await loadAdminPolicyLookup({
+					force,
 					limit: POLICY_LOOKUP_PAGE_SIZE,
-					offset: pageOffset,
 				});
-				setPoliciesTotal(page.total);
-				setLoadedPoliciesCount(
-					reset ? page.items.length : pageOffset + page.items.length,
-				);
-				setPolicies((prev) =>
-					reset ? page.items : mergePolicies(prev, page.items),
-				);
+				setPoliciesTotal(policyLookup.length);
+				setLoadedPoliciesCount(policyLookup.length);
+				setPolicies(policyLookup);
 			} catch (e) {
 				handleApiError(e);
 			} finally {
-				if (reset) {
-					setPoliciesLoading(false);
-				} else {
-					setPoliciesLoadingMore(false);
-				}
+				setPoliciesLoading(false);
+				setPoliciesLoadingMore(false);
 			}
 		},
 		[],
 	);
 
 	useEffect(() => {
-		void loadPoliciesPage(0, { reset: true });
-	}, [loadPoliciesPage]);
+		void loadPolicies();
+	}, [loadPolicies]);
 
 	useEffect(() => {
 		if (
@@ -247,15 +249,20 @@ export default function AdminPolicyGroupsPage() {
 		migrationTargetId,
 	]);
 
-	const reloadPolicies = useCallback(async () => {
-		await loadPoliciesPage(0, { reset: true });
-	}, [loadPoliciesPage]);
+	const reloadPolicies = useCallback(
+		async (options?: { force?: boolean }) => {
+			await loadPolicies(options);
+		},
+		[loadPolicies],
+	);
 
 	const loadAllPolicyGroups = useCallback(async () => {
 		try {
 			setMigrationGroupsLoading(true);
 			setMigrationGroups(
-				await adminPolicyGroupService.listAll(POLICY_GROUP_LOOKUP_PAGE_SIZE),
+				await loadAdminPolicyGroupLookup({
+					limit: POLICY_GROUP_LOOKUP_PAGE_SIZE,
+				}),
 			);
 		} catch (e) {
 			handleApiError(e);
@@ -268,17 +275,12 @@ export default function AdminPolicyGroupsPage() {
 		if (policiesLoading || policiesLoadingMore || !hasMorePolicies) {
 			return;
 		}
-		await loadPoliciesPage(loadedPoliciesCount);
-	}, [
-		hasMorePolicies,
-		loadedPoliciesCount,
-		loadPoliciesPage,
-		policiesLoading,
-		policiesLoadingMore,
-	]);
+		await loadPolicies();
+	}, [hasMorePolicies, loadPolicies, policiesLoading, policiesLoadingMore]);
 
 	const handleRefresh = async () => {
-		await Promise.all([reload(), reloadPolicies()]);
+		invalidateAdminPolicyGroupLookup();
+		await Promise.all([reload(), reloadPolicies({ force: true })]);
 	};
 
 	const setField = <K extends keyof PolicyGroupFormData>(

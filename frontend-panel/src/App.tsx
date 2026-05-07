@@ -13,6 +13,7 @@ import {
 } from "@/stores/displayTimeZoneStore";
 import { usePreviewAppStore } from "@/stores/previewAppStore";
 import { useThemeStore } from "@/stores/themeStore";
+import { useThumbnailSupportStore } from "@/stores/thumbnailSupportStore";
 
 function shouldSkipInitialAuthCheck(pathname: string) {
 	return pathname === "/login" || pathname.startsWith("/s/");
@@ -33,6 +34,7 @@ function App() {
 	useEffect(() => {
 		void useBrandingStore.getState().load();
 		void usePreviewAppStore.getState().load();
+		void useThumbnailSupportStore.getState().load();
 		if (!shouldSkipInitialAuthCheck(window.location.pathname)) {
 			checkAuth();
 		} else {
@@ -40,6 +42,31 @@ function App() {
 		}
 		useThemeStore.getState().init();
 	}, [checkAuth]);
+
+	useEffect(() => {
+		if (typeof window === "undefined" || typeof document === "undefined") {
+			return;
+		}
+
+		const revalidatePublicConfig = () => {
+			if (document.visibilityState !== "visible") {
+				return;
+			}
+			void useBrandingStore.getState().load();
+			void usePreviewAppStore.getState().load();
+			void useThumbnailSupportStore.getState().load();
+		};
+
+		const interval = window.setInterval(revalidatePublicConfig, 60_000);
+		window.addEventListener("focus", revalidatePublicConfig);
+		document.addEventListener("visibilitychange", revalidatePublicConfig);
+
+		return () => {
+			window.clearInterval(interval);
+			window.removeEventListener("focus", revalidatePublicConfig);
+			document.removeEventListener("visibilitychange", revalidatePublicConfig);
+		};
+	}, []);
 
 	useEffect(() => {
 		if (isChecking || !isAuthenticated) return;

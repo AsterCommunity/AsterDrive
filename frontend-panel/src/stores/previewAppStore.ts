@@ -4,9 +4,11 @@ import { previewAppsService } from "@/services/previewAppsService";
 import type { PublicPreviewAppsConfig } from "@/types/api";
 
 export const PREVIEW_APPS_CACHE_KEY = "aster-cached-preview-apps";
+const PREVIEW_APPS_REVALIDATE_INTERVAL_MS = 30_000;
 
 interface CachedPreviewAppsPayload {
 	config: PublicPreviewAppsConfig;
+	cachedAt?: number;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -49,7 +51,7 @@ function isPreviewAppsConfig(value: unknown): value is PublicPreviewAppsConfig {
 	);
 }
 
-function readCachedPreviewApps(): PublicPreviewAppsConfig | null {
+function readCachedPreviewApps(): CachedPreviewAppsPayload | null {
 	try {
 		const raw = localStorage.getItem(PREVIEW_APPS_CACHE_KEY);
 		if (!raw) {
@@ -67,7 +69,13 @@ function readCachedPreviewApps(): PublicPreviewAppsConfig | null {
 			return null;
 		}
 
-		return parsed.config;
+		return {
+			config: parsed.config,
+			cachedAt:
+				typeof parsed.cachedAt === "number" && Number.isFinite(parsed.cachedAt)
+					? parsed.cachedAt
+					: 0,
+		};
 	} catch {
 		try {
 			localStorage.removeItem(PREVIEW_APPS_CACHE_KEY);
@@ -82,7 +90,10 @@ function writeCachedPreviewApps(config: PublicPreviewAppsConfig) {
 	try {
 		localStorage.setItem(
 			PREVIEW_APPS_CACHE_KEY,
-			JSON.stringify({ config } satisfies CachedPreviewAppsPayload),
+			JSON.stringify({
+				config,
+				cachedAt: Date.now(),
+			} satisfies CachedPreviewAppsPayload),
 		);
 	} catch {
 		// ignore storage failures
@@ -97,9 +108,10 @@ function clearCachedPreviewApps() {
 	}
 }
 
-const initialCachedConfig = readCachedPreviewApps();
+const initialCachedPayload = readCachedPreviewApps();
+const initialCachedConfig = initialCachedPayload?.config ?? null;
 let inFlightLoad: Promise<void> | null = null;
-let hasRevalidatedThisSession = false;
+let lastRevalidationAttemptAt = 0;
 
 interface PreviewAppState {
 	config: PublicPreviewAppsConfig | null;
@@ -114,7 +126,7 @@ export const usePreviewAppStore = create<PreviewAppState>((set) => ({
 
 	invalidate: () => {
 		clearCachedPreviewApps();
-		hasRevalidatedThisSession = false;
+		lastRevalidationAttemptAt = 0;
 		set({
 			config: null,
 			isLoaded: false,
@@ -122,10 +134,18 @@ export const usePreviewAppStore = create<PreviewAppState>((set) => ({
 	},
 
 	load: async ({ force = false } = {}) => {
-		if (!force && hasRevalidatedThisSession) return;
+		if (
+			!force &&
+			usePreviewAppStore.getState().isLoaded &&
+			Date.now() - lastRevalidationAttemptAt <
+				PREVIEW_APPS_REVALIDATE_INTERVAL_MS
+		) {
+			return;
+		}
 		if (inFlightLoad) return inFlightLoad;
 
 		inFlightLoad = (async () => {
+			lastRevalidationAttemptAt = Date.now();
 			try {
 				const config = await previewAppsService.get();
 				writeCachedPreviewApps(config);
@@ -147,7 +167,6 @@ export const usePreviewAppStore = create<PreviewAppState>((set) => ({
 							},
 				);
 			} finally {
-				hasRevalidatedThisSession = true;
 				inFlightLoad = null;
 			}
 		})();

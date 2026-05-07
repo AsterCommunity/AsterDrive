@@ -29,8 +29,10 @@ async function loadStore() {
 
 describe("thumbnailSupportStore", () => {
 	beforeEach(() => {
+		localStorage.clear();
 		mockState.get.mockReset();
 		mockState.warn.mockReset();
+		vi.useRealTimers();
 	});
 
 	it("loads public thumbnail support once and reuses the loaded state", async () => {
@@ -50,6 +52,34 @@ describe("thumbnailSupportStore", () => {
 		await useThumbnailSupportStore.getState().load();
 
 		expect(mockState.get).toHaveBeenCalledTimes(1);
+	});
+
+	it("hydrates cached support immediately and revalidates it", async () => {
+		const cachedSupport = {
+			version: 1,
+			extensions: ["png"],
+		};
+		localStorage.setItem(
+			"aster-cached-thumbnail-support",
+			JSON.stringify({ config: cachedSupport, cachedAt: Date.now() }),
+		);
+		mockState.get.mockResolvedValue(supportConfig);
+
+		const { THUMBNAIL_SUPPORT_CACHE_KEY, useThumbnailSupportStore } =
+			await loadStore();
+
+		expect(useThumbnailSupportStore.getState().config).toEqual(cachedSupport);
+		expect(useThumbnailSupportStore.getState().isLoaded).toBe(true);
+
+		await useThumbnailSupportStore.getState().load();
+
+		expect(mockState.get).toHaveBeenCalledTimes(1);
+		expect(useThumbnailSupportStore.getState().config).toEqual(supportConfig);
+		expect(
+			JSON.parse(localStorage.getItem(THUMBNAIL_SUPPORT_CACHE_KEY) ?? "null"),
+		).toMatchObject({
+			config: supportConfig,
+		});
 	});
 
 	it("keeps failed bootstraps retryable for the next ordinary load", async () => {
@@ -121,5 +151,34 @@ describe("thumbnailSupportStore", () => {
 
 		expect(useThumbnailSupportStore.getState().config).toEqual(forcedConfig);
 		expect(useThumbnailSupportStore.getState().isLoaded).toBe(true);
+	});
+
+	it("revalidates cached support again after the freshness window", async () => {
+		vi.useFakeTimers();
+		vi.setSystemTime(new Date("2026-05-07T00:00:00Z"));
+		localStorage.setItem(
+			"aster-cached-thumbnail-support",
+			JSON.stringify({ config: supportConfig, cachedAt: Date.now() }),
+		);
+		const refreshedConfig = {
+			version: 1,
+			extensions: ["png", "heic", "mp4"],
+		};
+		mockState.get
+			.mockResolvedValueOnce(refreshedConfig)
+			.mockResolvedValueOnce(supportConfig);
+
+		const { useThumbnailSupportStore } = await loadStore();
+
+		await useThumbnailSupportStore.getState().load();
+		await useThumbnailSupportStore.getState().load();
+
+		expect(mockState.get).toHaveBeenCalledTimes(1);
+
+		vi.advanceTimersByTime(30_001);
+		await useThumbnailSupportStore.getState().load();
+
+		expect(mockState.get).toHaveBeenCalledTimes(2);
+		expect(useThumbnailSupportStore.getState().config).toEqual(supportConfig);
 	});
 });

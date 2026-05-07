@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { useState } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { invalidateAdminRemoteNodeLookup } from "@/lib/adminRemoteNodeLookup";
 import AdminPoliciesPage from "@/pages/admin/AdminPoliciesPage";
 
 const mockState = vi.hoisted(() => ({
@@ -166,6 +167,7 @@ vi.mock("@/components/ui/button", () => ({
 		className,
 		disabled,
 		onClick,
+		title,
 		type,
 		variant,
 	}: {
@@ -173,6 +175,7 @@ vi.mock("@/components/ui/button", () => ({
 		className?: string;
 		disabled?: boolean;
 		onClick?: () => void;
+		title?: string;
 		type?: "button" | "submit";
 		variant?: string;
 	}) => (
@@ -182,6 +185,7 @@ vi.mock("@/components/ui/button", () => ({
 			data-variant={variant}
 			disabled={disabled}
 			onClick={onClick}
+			title={title}
 		>
 			{children}
 		</button>
@@ -519,6 +523,7 @@ describe("AdminPoliciesPage", () => {
 		mockState.create.mockReset();
 		mockState.deletePolicy.mockReset();
 		mockState.handleApiError.mockReset();
+		invalidateAdminRemoteNodeLookup();
 		mockState.items = [];
 		mockState.listRemoteNodes.mockReset();
 		mockState.loading = false;
@@ -544,6 +549,7 @@ describe("AdminPoliciesPage", () => {
 		mockState.reload.mockResolvedValue(undefined);
 		mockState.listRemoteNodes.mockImplementation(async () => ({
 			items: mockState.remoteNodes,
+			total: mockState.remoteNodes.length,
 		}));
 		mockState.testConnection.mockResolvedValue(undefined);
 		mockState.testParams.mockResolvedValue(undefined);
@@ -651,9 +657,10 @@ describe("AdminPoliciesPage", () => {
 
 		const deleteButton = screen.getByRole("button", { name: "Trash" });
 		expect(deleteButton).toBeDisabled();
-		expect(
-			screen.getByText("initial_policy_delete_blocked"),
-		).toBeInTheDocument();
+		expect(deleteButton).toHaveAttribute(
+			"title",
+			"initial_policy_delete_blocked",
+		);
 
 		fireEvent.click(deleteButton);
 

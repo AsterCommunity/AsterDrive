@@ -62,22 +62,25 @@ export default function AdminTeamDetailPage() {
 		`${t("teams")} · ${getAdminTeamDetailSectionTitle(validatedSection, t)}`,
 	);
 
-	const loadPolicyGroups = useCallback(async () => {
-		try {
-			const cachedPolicyGroups = readAdminPolicyGroupLookup();
-			if (cachedPolicyGroups != null) {
-				setPolicyGroups(cachedPolicyGroups);
+	const loadPolicyGroups = useCallback(
+		async (options?: { force?: boolean }) => {
+			try {
+				const cachedPolicyGroups = readAdminPolicyGroupLookup();
+				if (!options?.force && cachedPolicyGroups != null) {
+					setPolicyGroups(cachedPolicyGroups);
+					setPolicyGroupsLoading(false);
+				} else {
+					setPolicyGroupsLoading(true);
+				}
+				setPolicyGroups(await loadAdminPolicyGroupLookup(options));
+			} catch (error) {
+				handleApiError(error);
+			} finally {
 				setPolicyGroupsLoading(false);
-			} else {
-				setPolicyGroupsLoading(true);
 			}
-			setPolicyGroups(await loadAdminPolicyGroupLookup());
-		} catch (error) {
-			handleApiError(error);
-		} finally {
-			setPolicyGroupsLoading(false);
-		}
-	}, []);
+		},
+		[],
+	);
 
 	useEffect(() => {
 		void loadPolicyGroups();
@@ -116,7 +119,7 @@ export default function AdminTeamDetailPage() {
 							viewTransition: false,
 						});
 					}}
-					onRefreshPolicyGroups={loadPolicyGroups}
+					onRefreshPolicyGroups={() => loadPolicyGroups({ force: true })}
 					pageTab={section}
 				/>
 			</AdminPageShell>

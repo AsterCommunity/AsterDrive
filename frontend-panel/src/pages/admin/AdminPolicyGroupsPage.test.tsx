@@ -1,6 +1,8 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { createContext, useContext } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { invalidateAdminPolicyGroupLookup } from "@/lib/adminPolicyGroupLookup";
+import { invalidateAdminPolicyLookup } from "@/lib/adminPolicyLookup";
 import AdminPolicyGroupsPage from "@/pages/admin/AdminPolicyGroupsPage";
 
 const MB = 1024 * 1024;
@@ -538,6 +540,8 @@ describe("AdminPolicyGroupsPage", () => {
 	beforeEach(() => {
 		mockState.createGroup.mockReset();
 		mockState.deleteGroup.mockReset();
+		invalidateAdminPolicyGroupLookup();
+		invalidateAdminPolicyLookup();
 		mockState.groupItems = [];
 		mockState.handleApiError.mockReset();
 		mockState.listGroups.mockReset();
@@ -804,7 +808,7 @@ describe("AdminPolicyGroupsPage", () => {
 		expect(migrateButton).toBeDisabled();
 	});
 
-	it("loads more policies when the rule dropdown is scrolled to the bottom", async () => {
+	it("loads all policy lookup pages before opening the rule dropdown", async () => {
 		mockState.policies = Array.from({ length: 120 }, (_, index) =>
 			createPolicy({
 				id: index + 1,
@@ -820,27 +824,16 @@ describe("AdminPolicyGroupsPage", () => {
 				offset: 0,
 			});
 		});
-
-		fireEvent.click(screen.getByRole("button", { name: /new_policy_group/i }));
-
-		expect(screen.queryByText("Policy 101")).not.toBeInTheDocument();
-
-		const selectContents = screen.getAllByTestId("select-content");
-		const dropdown = selectContents[selectContents.length - 1];
-		Object.defineProperties(dropdown, {
-			clientHeight: { configurable: true, value: 100 },
-			scrollHeight: { configurable: true, value: 580 },
-			scrollTop: { configurable: true, value: 500, writable: true },
-		});
-		fireEvent.scroll(dropdown);
-
 		await waitFor(() => {
 			expect(mockState.listPolicies).toHaveBeenCalledWith({
 				limit: 100,
 				offset: 100,
 			});
 		});
-		expect(await screen.findByText("Policy 101")).toBeInTheDocument();
+
+		fireEvent.click(screen.getByRole("button", { name: /new_policy_group/i }));
+
+		expect(screen.getByText("Policy 101")).toBeInTheDocument();
 	});
 
 	it("filters policy options with the dialog search input while keeping the selected policy visible", async () => {

@@ -18,6 +18,8 @@ import type {
 
 const mockState = vi.hoisted(() => ({
 	actionConfig: vi.fn(),
+	brandingInvalidate: vi.fn(),
+	brandingLoad: vi.fn(),
 	deleteConfig: vi.fn(),
 	handleApiError: vi.fn(),
 	listConfigs: vi.fn(),
@@ -42,6 +44,13 @@ vi.mock("@/hooks/useApiError", () => ({
 	handleApiError: (...args: unknown[]) => mockState.handleApiError(...args),
 }));
 
+vi.mock("@/lib/adminConfigMetadataCache", async () => {
+	const actual = await vi.importActual<
+		typeof import("@/lib/adminConfigMetadataCache")
+	>("@/lib/adminConfigMetadataCache");
+	return actual;
+});
+
 vi.mock("@/services/adminService", () => ({
 	adminConfigService: {
 		action: (...args: unknown[]) => mockState.actionConfig(...args),
@@ -64,6 +73,17 @@ vi.mock("@/stores/previewAppStore", () => {
 	});
 
 	return { usePreviewAppStore };
+});
+
+vi.mock("@/stores/brandingStore", () => {
+	const useBrandingStore = Object.assign(vi.fn(), {
+		getState: () => ({
+			invalidate: mockState.brandingInvalidate,
+			load: mockState.brandingLoad,
+		}),
+	});
+
+	return { useBrandingStore };
 });
 
 vi.mock("@/stores/thumbnailSupportStore", () => {
@@ -237,8 +257,14 @@ function renderUseAdminSettingsData() {
 }
 
 describe("useAdminSettingsData", () => {
-	beforeEach(() => {
+	beforeEach(async () => {
+		const { invalidateAdminConfigMetadataCache } = await import(
+			"@/lib/adminConfigMetadataCache"
+		);
+		invalidateAdminConfigMetadataCache();
 		mockState.actionConfig.mockReset();
+		mockState.brandingInvalidate.mockReset();
+		mockState.brandingLoad.mockReset();
 		mockState.deleteConfig.mockReset();
 		mockState.handleApiError.mockReset();
 		mockState.listConfigs.mockReset();
@@ -258,6 +284,7 @@ describe("useAdminSettingsData", () => {
 		mockState.schema.mockResolvedValue([]);
 		mockState.templateVariables.mockResolvedValue([]);
 		mockState.previewLoad.mockResolvedValue(undefined);
+		mockState.brandingLoad.mockResolvedValue(undefined);
 		mockState.thumbnailSupportLoad.mockResolvedValue(undefined);
 		mockState.deleteConfig.mockResolvedValue(undefined);
 		mockState.setConfig.mockImplementation(
@@ -526,6 +553,8 @@ describe("useAdminSettingsData", () => {
 		expect(onPublicSiteUrlChanged).toHaveBeenCalledWith([
 			"https://next.example.com",
 		]);
+		expect(mockState.brandingInvalidate).toHaveBeenCalledTimes(1);
+		expect(mockState.brandingLoad).toHaveBeenCalledWith({ force: true });
 		expect(mockState.previewInvalidate).toHaveBeenCalledTimes(1);
 		expect(mockState.previewLoad).toHaveBeenCalledWith({ force: true });
 		expect(mockState.thumbnailSupportInvalidate).toHaveBeenCalledTimes(1);
@@ -543,7 +572,7 @@ describe("useAdminSettingsData", () => {
 		).toEqual(["custom.accent"]);
 	});
 
-	it("does not reload public config stores when only public_site_url changes", async () => {
+	it("reloads branding but not preview or thumbnail stores when only public_site_url changes", async () => {
 		const { onPublicSiteUrlChanged, result } = renderUseAdminSettingsData();
 
 		await waitFor(() => expect(result.current.loading).toBe(false));
@@ -564,6 +593,8 @@ describe("useAdminSettingsData", () => {
 		expect(onPublicSiteUrlChanged).toHaveBeenCalledWith([
 			"https://only-public.example.com",
 		]);
+		expect(mockState.brandingInvalidate).toHaveBeenCalledTimes(1);
+		expect(mockState.brandingLoad).toHaveBeenCalledWith({ force: true });
 		expect(mockState.previewInvalidate).not.toHaveBeenCalled();
 		expect(mockState.previewLoad).not.toHaveBeenCalled();
 		expect(mockState.thumbnailSupportInvalidate).not.toHaveBeenCalled();
@@ -592,8 +623,8 @@ describe("useAdminSettingsData", () => {
 		await waitFor(() => {
 			expect(mockState.listConfigs).toHaveBeenCalledTimes(2);
 		});
-		expect(mockState.schema).toHaveBeenCalledTimes(2);
-		expect(mockState.templateVariables).toHaveBeenCalledTimes(2);
+		expect(mockState.schema).toHaveBeenCalledTimes(1);
+		expect(mockState.templateVariables).toHaveBeenCalledTimes(1);
 		expect(onPublicSiteUrlChanged).not.toHaveBeenCalled();
 		expect(mockState.toastSuccess).not.toHaveBeenCalled();
 		expect(result.current.saving).toBe(false);

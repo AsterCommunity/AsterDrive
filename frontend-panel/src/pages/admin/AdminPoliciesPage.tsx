@@ -27,6 +27,11 @@ import { handleApiError } from "@/hooks/useApiError";
 import { useApiList } from "@/hooks/useApiList";
 import { useConfirmDialog } from "@/hooks/useConfirmDialog";
 import { usePageTitle } from "@/hooks/usePageTitle";
+import { invalidateAdminPolicyLookup } from "@/lib/adminPolicyLookup";
+import {
+	loadAdminRemoteNodeLookup,
+	readAdminRemoteNodeLookup,
+} from "@/lib/adminRemoteNodeLookup";
 import { ADMIN_CONTROL_HEIGHT_CLASS } from "@/lib/constants";
 import {
 	buildOffsetPaginationSearchParams,
@@ -34,10 +39,7 @@ import {
 	parsePageSizeOption,
 	parsePageSizeSearchParam,
 } from "@/lib/pagination";
-import {
-	adminPolicyService,
-	adminRemoteNodeService,
-} from "@/services/adminService";
+import { adminPolicyService } from "@/services/adminService";
 import type { DriverType, RemoteNodeInfo, StoragePolicy } from "@/types/api";
 
 const POLICY_PAGE_SIZE_OPTIONS = [10, 20, 50] as const;
@@ -76,7 +78,9 @@ export default function AdminPoliciesPage() {
 	const [editingPolicy, setEditingPolicy] = useState<StoragePolicy | null>(
 		null,
 	);
-	const [remoteNodes, setRemoteNodes] = useState<RemoteNodeInfo[]>([]);
+	const [remoteNodes, setRemoteNodes] = useState<RemoteNodeInfo[]>(
+		() => readAdminRemoteNodeLookup() ?? [],
+	);
 	const [form, setForm] = useState<PolicyFormData>(emptyForm);
 	const [submitting, setSubmitting] = useState(false);
 	const [validatedConnectionKey, setValidatedConnectionKey] = useState<
@@ -111,11 +115,10 @@ export default function AdminPoliciesPage() {
 	useEffect(() => {
 		let active = true;
 
-		void adminRemoteNodeService
-			.list({ limit: 100, offset: 0 })
-			.then((page) => {
+		void loadAdminRemoteNodeLookup()
+			.then((nodes) => {
 				if (active) {
-					setRemoteNodes(page.items);
+					setRemoteNodes(nodes);
 				}
 			})
 			.catch((error) => {
@@ -129,6 +132,14 @@ export default function AdminPoliciesPage() {
 		};
 	}, []);
 
+	const refreshRemoteNodeLookup = async (options?: { force?: boolean }) => {
+		try {
+			setRemoteNodes(await loadAdminRemoteNodeLookup(options));
+		} catch (error) {
+			handleApiError(error);
+		}
+	};
+
 	const handlePageSizeChange = (value: string | null) => {
 		const next = parsePageSizeOption(value, POLICY_PAGE_SIZE_OPTIONS);
 		if (next == null) return;
@@ -140,6 +151,7 @@ export default function AdminPoliciesPage() {
 		if (id === PROTECTED_POLICY_ID) return;
 		try {
 			await adminPolicyService.delete(id);
+			invalidateAdminPolicyLookup();
 			if (policies.length === 1 && offset > 0) {
 				setOffset(Math.max(0, offset - pageSize));
 			} else {
@@ -179,6 +191,7 @@ export default function AdminPoliciesPage() {
 		setEditingPolicy(null);
 		resetDialogState();
 		setForm(emptyForm);
+		void refreshRemoteNodeLookup();
 		setDialogOpen(true);
 	};
 
@@ -187,6 +200,7 @@ export default function AdminPoliciesPage() {
 		setEditingPolicy(policy);
 		resetDialogState();
 		setForm(getPolicyForm(policy));
+		void refreshRemoteNodeLookup();
 		setDialogOpen(true);
 	};
 
@@ -300,12 +314,14 @@ export default function AdminPoliciesPage() {
 					editingId,
 					buildUpdatePolicyPayload(currentForm),
 				);
+				invalidateAdminPolicyLookup();
 				setPolicies((prev) =>
 					prev.map((policy) => (policy.id === editingId ? updated : policy)),
 				);
 				toast.success(t("policy_updated"));
 			} else {
 				await adminPolicyService.create(buildCreatePolicyPayload(currentForm));
+				invalidateAdminPolicyLookup();
 				const nextTotal = total + 1;
 				const nextLastOffset = Math.max(
 					0,
@@ -417,13 +433,14 @@ export default function AdminPoliciesPage() {
 			: "";
 	const handleRefresh = async () => {
 		try {
-			const [policyPage, remoteNodePage] = await Promise.all([
+			const [policyPage, remoteNodeLookup] = await Promise.all([
 				adminPolicyService.list({ limit: pageSize, offset }),
-				adminRemoteNodeService.list({ limit: 100, offset: 0 }),
+				loadAdminRemoteNodeLookup({ force: true }),
 			]);
 			setPolicies(policyPage.items);
 			setTotal(policyPage.total);
-			setRemoteNodes(remoteNodePage.items);
+			setRemoteNodes(remoteNodeLookup);
+			invalidateAdminPolicyLookup();
 		} catch (error) {
 			handleApiError(error);
 		}
