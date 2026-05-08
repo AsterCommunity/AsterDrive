@@ -37,7 +37,9 @@ pub use models::{
 };
 
 pub(crate) use cache::{
-    find_active_file_ids_in_scope, find_active_folder_ids_in_scope,
+    find_active_file_ids_in_resource_scope, find_active_file_ids_in_scope,
+    find_active_folder_ids_in_resource_scope, find_active_folder_ids_in_scope,
+    invalidate_active_share_target_cache_for_resource_scope,
     invalidate_active_share_target_cache_for_scope, invalidate_all_share_token_record_cache,
 };
 pub(crate) use content::{load_preview_shared_file, load_preview_shared_folder_file};

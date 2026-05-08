@@ -2,7 +2,7 @@ use sea_orm::ConnectionTrait;
 
 use crate::db::repository::{team_repo, user_repo};
 use crate::errors::Result;
-use crate::services::workspace_scope_service::WorkspaceStorageScope;
+use crate::services::workspace_scope_service::{WorkspaceResourceScope, WorkspaceStorageScope};
 
 pub(crate) async fn check_quota<C: ConnectionTrait>(
     db: &C,
@@ -24,11 +24,19 @@ pub(crate) async fn update_storage_used<C: ConnectionTrait>(
     scope: WorkspaceStorageScope,
     delta: i64,
 ) -> Result<()> {
+    update_storage_used_for_resource_scope(db, scope.into(), delta).await
+}
+
+pub(crate) async fn update_storage_used_for_resource_scope<C: ConnectionTrait>(
+    db: &C,
+    scope: WorkspaceResourceScope,
+    delta: i64,
+) -> Result<()> {
     match scope {
-        WorkspaceStorageScope::Personal { user_id } => {
+        WorkspaceResourceScope::Personal { user_id } => {
             user_repo::update_storage_used(db, user_id, delta).await
         }
-        WorkspaceStorageScope::Team { team_id, .. } => {
+        WorkspaceResourceScope::Team { team_id } => {
             team_repo::update_storage_used(db, team_id, delta).await
         }
     }

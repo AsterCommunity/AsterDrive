@@ -8,7 +8,7 @@ use crate::errors::{AsterError, Result};
 use crate::runtime::PrimaryAppState;
 use crate::services::{
     share_service,
-    workspace_storage_service::{self, WorkspaceStorageScope},
+    workspace_storage_service::{self, WorkspaceResourceScope, WorkspaceStorageScope},
 };
 use crate::utils::numbers::{i64_to_i32, usize_to_u32};
 
@@ -43,6 +43,14 @@ pub(crate) async fn batch_purge_in_scope(
     scope: WorkspaceStorageScope,
     files: Vec<file::Model>,
 ) -> Result<u32> {
+    batch_purge_in_resource_scope(state, scope.into(), files).await
+}
+
+pub(crate) async fn batch_purge_in_resource_scope(
+    state: &PrimaryAppState,
+    scope: WorkspaceResourceScope,
+    files: Vec<file::Model>,
+) -> Result<u32> {
     if files.is_empty() {
         return Ok(0);
     }
@@ -55,7 +63,7 @@ pub(crate) async fn batch_purge_in_scope(
     );
 
     for file in &files {
-        workspace_storage_service::ensure_file_scope(file, scope)?;
+        workspace_storage_service::ensure_file_resource_scope(file, scope)?;
     }
 
     let file_ids: Vec<i64> = files.iter().map(|file| file.id).collect();
@@ -108,11 +116,16 @@ pub(crate) async fn batch_purge_in_scope(
     }
     file_repo::decrement_blob_ref_counts_by(&txn, &ref_count_decrements).await?;
 
-    workspace_storage_service::update_storage_used(&txn, scope, -total_freed_bytes).await?;
+    workspace_storage_service::update_storage_used_for_resource_scope(
+        &txn,
+        scope,
+        -total_freed_bytes,
+    )
+    .await?;
 
     crate::db::transaction::commit(txn).await?;
     if deleted_shares > 0 {
-        share_service::invalidate_active_share_target_cache_for_scope(state, scope).await;
+        share_service::invalidate_active_share_target_cache_for_resource_scope(state, scope).await;
         share_service::invalidate_all_share_token_record_cache(state).await;
     }
 

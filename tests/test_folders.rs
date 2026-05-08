@@ -337,12 +337,12 @@ async fn test_folder_list_items_are_lightweight_and_info_endpoint_returns_full_d
     assert!(folder["created_at"].is_null());
     assert!(folder["parent_id"].is_null());
     assert!(folder["policy_id"].is_null());
-    assert!(folder["user_id"].is_null());
+    assert!(folder.get("user_id").is_none());
     assert_eq!(file["id"], file_id);
     assert!(file["blob_id"].is_null());
     assert!(file["created_at"].is_null());
     assert!(file["folder_id"].is_null());
-    assert!(file["user_id"].is_null());
+    assert!(file.get("user_id").is_none());
 
     let req = test::TestRequest::get()
         .uri(&format!("/api/v1/folders/{folder_id}/info"))
@@ -356,7 +356,8 @@ async fn test_folder_list_items_are_lightweight_and_info_endpoint_returns_full_d
     assert_eq!(body["data"]["name"], "Projects");
     assert!(body["data"]["created_at"].is_string());
     assert!(body["data"]["parent_id"].is_null());
-    assert!(body["data"]["user_id"].as_i64().unwrap() > 0);
+    assert!(body["data"].get("user_id").is_none());
+    assert!(body["data"]["owner_user_id"].as_i64().unwrap() > 0);
 }
 
 #[actix_web::test]

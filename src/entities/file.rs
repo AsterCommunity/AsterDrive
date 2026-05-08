@@ -17,7 +17,11 @@ pub struct Model {
     pub team_id: Option<i64>,
     pub blob_id: i64,
     pub size: i64,
-    pub user_id: i64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub owner_user_id: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub created_by_user_id: Option<i64>,
+    pub created_by_username: String,
     pub mime_type: String,
     #[cfg_attr(all(debug_assertions, feature = "openapi"), schema(value_type = String))]
     pub created_at: DateTimeUtc,
@@ -34,10 +38,16 @@ pub struct Model {
 pub enum Relation {
     #[sea_orm(
         belongs_to = "super::user::Entity",
-        from = "Column::UserId",
+        from = "Column::OwnerUserId",
         to = "super::user::Column::Id"
     )]
-    User,
+    OwnerUser,
+    #[sea_orm(
+        belongs_to = "super::user::Entity",
+        from = "Column::CreatedByUserId",
+        to = "super::user::Column::Id"
+    )]
+    CreatedByUser,
     #[sea_orm(
         belongs_to = "super::folder::Entity",
         from = "Column::FolderId",
@@ -60,7 +70,7 @@ pub enum Relation {
 
 impl Related<super::user::Entity> for Entity {
     fn to() -> RelationDef {
-        Relation::User.def()
+        Relation::OwnerUser.def()
     }
 }
 

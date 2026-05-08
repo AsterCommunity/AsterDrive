@@ -4,7 +4,7 @@ use sea_orm::{ActiveModelTrait, ConnectionTrait, Set};
 use crate::db::repository::file_repo;
 use crate::entities::{file, file_blob};
 use crate::errors::{AsterError, Result};
-use crate::services::workspace_scope_service::WorkspaceStorageScope;
+use crate::services::workspace_scope_service::{WorkspaceStorageScope, load_scope_actor_username};
 
 const MAX_AUTO_NAME_RETRIES: usize = 32;
 
@@ -24,6 +24,7 @@ async fn create_file_from_blob_with_name_mode<C: ConnectionTrait>(
     name_mode: NewFileNameMode,
 ) -> Result<file::Model> {
     let normalized_filename = crate::utils::normalize_validate_name(filename)?;
+    let created_by_username = load_scope_actor_username(db, scope).await?;
 
     let (mut final_name, team_id) = match scope {
         WorkspaceStorageScope::Personal { user_id } => {
@@ -69,7 +70,9 @@ async fn create_file_from_blob_with_name_mode<C: ConnectionTrait>(
             team_id: Set(team_id),
             blob_id: Set(blob.id),
             size: Set(blob.size),
-            user_id: Set(scope.actor_user_id()),
+            owner_user_id: Set(scope.owner_user_id()),
+            created_by_user_id: Set(Some(scope.actor_user_id())),
+            created_by_username: Set(created_by_username.clone()),
             mime_type: Set(mime.clone()),
             created_at: Set(now),
             updated_at: Set(now),

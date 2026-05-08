@@ -52,7 +52,7 @@ pub(super) enum FileScope {
 pub(super) fn scope_condition(scope: FileScope) -> Condition {
     match scope {
         FileScope::Personal { user_id } => Condition::all()
-            .add(file::Column::UserId.eq(user_id))
+            .add(file::Column::OwnerUserId.eq(user_id))
             .add(file::Column::TeamId.is_null()),
         FileScope::Team { team_id } => Condition::all().add(file::Column::TeamId.eq(team_id)),
     }

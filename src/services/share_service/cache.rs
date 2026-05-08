@@ -9,7 +9,7 @@ use crate::db::repository::share_repo;
 use crate::entities::share;
 use crate::errors::{AsterError, Result};
 use crate::runtime::PrimaryAppState;
-use crate::services::workspace_storage_service::WorkspaceStorageScope;
+use crate::services::workspace_storage_service::{WorkspaceResourceScope, WorkspaceStorageScope};
 use crate::utils::hash;
 
 const ACTIVE_SHARE_TARGET_CACHE_TTL: u64 = 60;
@@ -55,19 +55,19 @@ fn ids_digest(ids: &[i64]) -> String {
     hash::sha256_hex(&bytes)
 }
 
-fn active_share_target_cache_prefix_for_scope(scope: WorkspaceStorageScope) -> String {
+fn active_share_target_cache_prefix_for_scope(scope: WorkspaceResourceScope) -> String {
     match scope {
-        WorkspaceStorageScope::Personal { user_id } => {
+        WorkspaceResourceScope::Personal { user_id } => {
             format!("active_share_targets:personal:{user_id}:")
         }
-        WorkspaceStorageScope::Team { team_id, .. } => {
+        WorkspaceResourceScope::Team { team_id } => {
             format!("active_share_targets:team:{team_id}:")
         }
     }
 }
 
 fn active_share_target_cache_key(
-    scope: WorkspaceStorageScope,
+    scope: WorkspaceResourceScope,
     kind: ShareTargetKind,
     ids: &[i64],
 ) -> String {
@@ -155,6 +155,13 @@ pub(crate) async fn invalidate_active_share_target_cache_for_scope(
     state: &PrimaryAppState,
     scope: WorkspaceStorageScope,
 ) {
+    invalidate_active_share_target_cache_for_resource_scope(state, scope.into()).await;
+}
+
+pub(crate) async fn invalidate_active_share_target_cache_for_resource_scope(
+    state: &PrimaryAppState,
+    scope: WorkspaceResourceScope,
+) {
     state
         .cache
         .invalidate_prefix(&active_share_target_cache_prefix_for_scope(scope))
@@ -179,7 +186,7 @@ pub(crate) async fn invalidate_active_share_target_cache_for_share(
 
 async fn load_active_ids(
     state: &PrimaryAppState,
-    scope: WorkspaceStorageScope,
+    scope: WorkspaceResourceScope,
     kind: ShareTargetKind,
     ids: &[i64],
 ) -> Result<HashSet<i64>> {
@@ -227,21 +234,21 @@ async fn load_active_ids(
 
 async fn load_active_ids_from_database(
     state: &PrimaryAppState,
-    scope: WorkspaceStorageScope,
+    scope: WorkspaceResourceScope,
     kind: ShareTargetKind,
     ids: &[i64],
 ) -> Result<HashSet<i64>> {
     match (scope, kind) {
-        (WorkspaceStorageScope::Personal { user_id }, ShareTargetKind::File) => {
+        (WorkspaceResourceScope::Personal { user_id }, ShareTargetKind::File) => {
             share_repo::find_active_file_ids(&state.db, user_id, ids).await
         }
-        (WorkspaceStorageScope::Personal { user_id }, ShareTargetKind::Folder) => {
+        (WorkspaceResourceScope::Personal { user_id }, ShareTargetKind::Folder) => {
             share_repo::find_active_folder_ids(&state.db, user_id, ids).await
         }
-        (WorkspaceStorageScope::Team { team_id, .. }, ShareTargetKind::File) => {
+        (WorkspaceResourceScope::Team { team_id }, ShareTargetKind::File) => {
             share_repo::find_active_team_file_ids(&state.db, team_id, ids).await
         }
-        (WorkspaceStorageScope::Team { team_id, .. }, ShareTargetKind::Folder) => {
+        (WorkspaceResourceScope::Team { team_id }, ShareTargetKind::Folder) => {
             share_repo::find_active_team_folder_ids(&state.db, team_id, ids).await
         }
     }
@@ -252,12 +259,28 @@ pub(crate) async fn find_active_file_ids_in_scope(
     scope: WorkspaceStorageScope,
     file_ids: &[i64],
 ) -> Result<HashSet<i64>> {
-    load_active_ids(state, scope, ShareTargetKind::File, file_ids).await
+    find_active_file_ids_in_resource_scope(state, scope.into(), file_ids).await
 }
 
 pub(crate) async fn find_active_folder_ids_in_scope(
     state: &PrimaryAppState,
     scope: WorkspaceStorageScope,
+    folder_ids: &[i64],
+) -> Result<HashSet<i64>> {
+    find_active_folder_ids_in_resource_scope(state, scope.into(), folder_ids).await
+}
+
+pub(crate) async fn find_active_file_ids_in_resource_scope(
+    state: &PrimaryAppState,
+    scope: WorkspaceResourceScope,
+    file_ids: &[i64],
+) -> Result<HashSet<i64>> {
+    load_active_ids(state, scope, ShareTargetKind::File, file_ids).await
+}
+
+pub(crate) async fn find_active_folder_ids_in_resource_scope(
+    state: &PrimaryAppState,
+    scope: WorkspaceResourceScope,
     folder_ids: &[i64],
 ) -> Result<HashSet<i64>> {
     load_active_ids(state, scope, ShareTargetKind::Folder, folder_ids).await

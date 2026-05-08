@@ -173,7 +173,9 @@ async fn load_cached_resolved_node(
                 }
                 Err(_) => return Err(FsError::GeneralFailure),
             };
-            if folder.user_id != user_id || folder.team_id.is_some() || folder.deleted_at.is_some()
+            if folder.owner_user_id != Some(user_id)
+                || folder.team_id.is_some()
+                || folder.deleted_at.is_some()
             {
                 state.cache.delete(cache_key).await;
                 return Ok(None);
@@ -195,7 +197,10 @@ async fn load_cached_resolved_node(
                 }
                 Err(_) => return Err(FsError::GeneralFailure),
             };
-            if file.user_id != user_id || file.team_id.is_some() || file.deleted_at.is_some() {
+            if file.owner_user_id != Some(user_id)
+                || file.team_id.is_some()
+                || file.deleted_at.is_some()
+            {
                 state.cache.delete(cache_key).await;
                 return Ok(None);
             }
@@ -331,7 +336,9 @@ async fn validate_cached_parent(
                 Err(error) if is_missing_entity(&error) => return Ok(false),
                 Err(_) => return Err(FsError::GeneralFailure),
             };
-            if folder.user_id != user_id || folder.team_id.is_some() || folder.deleted_at.is_some()
+            if folder.owner_user_id != Some(user_id)
+                || folder.team_id.is_some()
+                || folder.deleted_at.is_some()
             {
                 return Ok(false);
             }

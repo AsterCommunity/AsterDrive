@@ -2001,7 +2001,7 @@ async fn test_team_file_wopi_open_persists_team_scope_and_allows_check_file_info
     let mail_sender = state.mail_sender.clone();
     let app = create_test_app!(state);
 
-    let (owner_id, owner_token) = register_named_user_and_login!(
+    let (_, owner_token) = register_named_user_and_login!(
         app,
         db,
         mail_sender,
@@ -2076,7 +2076,7 @@ async fn test_team_file_wopi_open_persists_team_scope_and_allows_check_file_info
     assert_eq!(resp.status(), 200);
     let body: Value = test::read_body_json(resp).await;
     assert_eq!(body["BaseFileName"], "team-report.docx");
-    assert_eq!(body["OwnerId"], owner_id.to_string());
+    assert_eq!(body["OwnerId"], format!("team:{team_id}"));
     assert_eq!(body["UserId"], member_id.to_string());
 }
 
@@ -2333,7 +2333,9 @@ async fn test_team_wopi_put_relative_accepts_body_larger_than_global_payload_lim
     .unwrap()
     .expect("team put-relative target should be created");
     assert_eq!(created.id, target_file_id);
-    assert_eq!(created.user_id, member_id);
+    assert_eq!(created.owner_user_id, None);
+    assert_eq!(created.created_by_user_id, Some(member_id));
+    assert_eq!(created.created_by_username, "wopimemberlarge");
     assert_eq!(created.team_id, Some(team_id));
 
     let req = test::TestRequest::get()

@@ -25,4 +25,4 @@ pub(crate) use path::{ensure_upload_parent_path, parse_relative_upload_path};
 pub(crate) use policy::{
     load_storage_limits, local_content_dedup_enabled, resolve_policy_for_size,
 };
-pub(crate) use quota::{check_quota, update_storage_used};
+pub(crate) use quota::{check_quota, update_storage_used, update_storage_used_for_resource_scope};

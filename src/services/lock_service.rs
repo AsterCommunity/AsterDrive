@@ -411,11 +411,11 @@ async fn check_entity_ownership(
     match entity_type {
         EntityType::File => {
             let f = file_repo::find_by_id(db, entity_id).await?;
-            Ok(f.user_id == user_id)
+            Ok(f.owner_user_id == Some(user_id))
         }
         EntityType::Folder => {
             let f = folder_repo::find_by_id(db, entity_id).await?;
-            Ok(f.user_id == user_id)
+            Ok(f.owner_user_id == Some(user_id))
         }
     }
 }
@@ -586,7 +586,9 @@ mod tests {
             team_id: Set(None),
             blob_id: Set(blob.id),
             size: Set(1),
-            user_id: Set(user.id),
+            owner_user_id: Set(Some(user.id)),
+            created_by_user_id: Set(Some(user.id)),
+            created_by_username: Set(user.username.clone()),
             mime_type: Set("text/plain".to_string()),
             created_at: Set(now),
             updated_at: Set(now),

@@ -34,7 +34,7 @@ enum SearchScope {
 fn file_scope_condition(scope: SearchScope) -> Condition {
     match scope {
         SearchScope::Personal { user_id } => Condition::all()
-            .add(file::Column::UserId.eq(user_id))
+            .add(file::Column::OwnerUserId.eq(user_id))
             .add(file::Column::TeamId.is_null()),
         SearchScope::Team { team_id } => Condition::all().add(file::Column::TeamId.eq(team_id)),
     }
@@ -43,7 +43,7 @@ fn file_scope_condition(scope: SearchScope) -> Condition {
 fn folder_scope_condition(scope: SearchScope) -> Condition {
     match scope {
         SearchScope::Personal { user_id } => Condition::all()
-            .add(folder::Column::UserId.eq(user_id))
+            .add(folder::Column::OwnerUserId.eq(user_id))
             .add(folder::Column::TeamId.is_null()),
         SearchScope::Team { team_id } => Condition::all().add(folder::Column::TeamId.eq(team_id)),
     }
@@ -80,7 +80,9 @@ pub struct FileSearchItem {
     pub name: String,
     pub folder_id: Option<i64>,
     pub blob_id: i64,
-    pub user_id: i64,
+    pub owner_user_id: Option<i64>,
+    pub created_by_user_id: Option<i64>,
+    pub created_by_username: String,
     pub mime_type: String,
     pub size: i64,
     #[cfg_attr(all(debug_assertions, feature = "openapi"), schema(value_type = String))]
@@ -193,7 +195,9 @@ async fn search_files_in_scope<C: ConnectionTrait>(
         .column(file::Column::Name)
         .column(file::Column::FolderId)
         .column(file::Column::BlobId)
-        .column(file::Column::UserId)
+        .column(file::Column::OwnerUserId)
+        .column(file::Column::CreatedByUserId)
+        .column(file::Column::CreatedByUsername)
         .column(file::Column::MimeType)
         .column_as(file_blob::Column::Size, "size")
         .column(file::Column::CreatedAt)

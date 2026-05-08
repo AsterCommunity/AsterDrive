@@ -14,11 +14,13 @@ mod upload_policy;
 // 调用方只需要依赖 `workspace_storage_service`，不必同时了解 scope helper
 // 和底层核心实现分别散落在哪个文件里。
 pub(crate) use crate::services::workspace_scope_service::{
-    WorkspaceStorageScope, ensure_active_file_scope, ensure_active_folder_scope, ensure_file_scope,
-    ensure_folder_scope, ensure_personal_file_scope, invalidate_team_access_cache_for_member,
+    WorkspaceResourceScope, WorkspaceStorageScope, ensure_active_file_scope,
+    ensure_active_folder_scope, ensure_file_resource_scope, ensure_file_scope, ensure_folder_scope,
+    ensure_personal_file_scope, invalidate_team_access_cache_for_member,
     invalidate_team_access_cache_for_team, list_files_in_folder, list_folders_in_parent,
-    require_scope_access, require_team_access, require_team_management_access,
-    require_team_policy_group_id, verify_file_access, verify_folder_access,
+    load_scope_actor_username, require_scope_access, require_team_access,
+    require_team_management_access, require_team_policy_group_id, verify_file_access,
+    verify_folder_access,
 };
 pub(crate) use crate::services::workspace_storage_core::{
     FinalizeUploadSessionFileParams, check_quota, create_exact_file_from_blob,
@@ -26,7 +28,7 @@ pub(crate) use crate::services::workspace_storage_core::{
     create_remote_nondedup_blob, create_s3_nondedup_blob, ensure_upload_parent_path,
     finalize_upload_session_blob, finalize_upload_session_file, load_storage_limits,
     local_content_dedup_enabled, parse_relative_upload_path, resolve_policy_for_size,
-    update_storage_used,
+    update_storage_used, update_storage_used_for_resource_scope,
 };
 
 pub(crate) use blob_upload::{

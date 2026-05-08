@@ -5,7 +5,9 @@ use crate::db::repository::folder_repo;
 use crate::entities::folder;
 use crate::errors::{AsterError, Result};
 use crate::runtime::PrimaryAppState;
-use crate::services::workspace_scope_service::{WorkspaceStorageScope, verify_folder_access};
+use crate::services::workspace_scope_service::{
+    WorkspaceStorageScope, load_scope_actor_username, verify_folder_access,
+};
 
 pub(crate) struct ParsedUploadPath {
     pub base_folder_id: Option<i64>,
@@ -78,6 +80,7 @@ async fn ensure_folder_in_parent<C: sea_orm::ConnectionTrait>(
     // 目录上传 / 解压导入会并发命中同一路径。
     // 这里先查后建，并在插入冲突后回读，保证“得到该目录”的语义是幂等的。
     let name = crate::utils::normalize_validate_name(name)?;
+    let created_by_username = load_scope_actor_username(db, scope).await?;
 
     match scope {
         WorkspaceStorageScope::Personal { user_id } => {
@@ -91,7 +94,9 @@ async fn ensure_folder_in_parent<C: sea_orm::ConnectionTrait>(
             let model = folder::ActiveModel {
                 name: Set(name.clone()),
                 parent_id: Set(parent_id),
-                user_id: Set(user_id),
+                owner_user_id: Set(Some(user_id)),
+                created_by_user_id: Set(Some(user_id)),
+                created_by_username: Set(created_by_username.clone()),
                 policy_id: Set(None),
                 created_at: Set(now),
                 updated_at: Set(now),
@@ -126,7 +131,9 @@ async fn ensure_folder_in_parent<C: sea_orm::ConnectionTrait>(
                 name: Set(name.clone()),
                 parent_id: Set(parent_id),
                 team_id: Set(Some(team_id)),
-                user_id: Set(actor_user_id),
+                owner_user_id: Set(None),
+                created_by_user_id: Set(Some(actor_user_id)),
+                created_by_username: Set(created_by_username),
                 policy_id: Set(None),
                 created_at: Set(now),
                 updated_at: Set(now),

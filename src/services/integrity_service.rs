@@ -101,7 +101,7 @@ enum StorageOwner {
 #[derive(Clone, Copy)]
 struct FolderNode {
     parent_id: Option<i64>,
-    user_id: i64,
+    owner_user_id: Option<i64>,
     team_id: Option<i64>,
 }
 
@@ -175,7 +175,7 @@ async fn load_actual_storage_usage<C: ConnectionTrait>(
             .select_only()
             .column(file::Column::Id)
             .column(file::Column::Size)
-            .column(file::Column::UserId)
+            .column(file::Column::OwnerUserId)
             .column(file::Column::TeamId)
             .order_by_asc(file::Column::Id)
             .limit(INTEGRITY_BATCH_SIZE);
@@ -184,7 +184,7 @@ async fn load_actual_storage_usage<C: ConnectionTrait>(
         }
 
         let rows = query
-            .into_tuple::<(i64, i64, i64, Option<i64>)>()
+            .into_tuple::<(i64, i64, Option<i64>, Option<i64>)>()
             .all(db)
             .await
             .map_aster_err(AsterError::database_operation)?;
@@ -193,10 +193,19 @@ async fn load_actual_storage_usage<C: ConnectionTrait>(
         }
         last_file_id = rows.last().map(|(id, _, _, _)| *id);
 
-        for (_, size, user_id, team_id) in rows {
+        for (file_id, size, owner_user_id, team_id) in rows {
             let owner = match team_id {
                 Some(team_id) => StorageOwner::Team(team_id),
-                None => StorageOwner::User(user_id),
+                None => {
+                    let Some(owner_user_id) = owner_user_id else {
+                        tracing::warn!(
+                            file_id,
+                            "skipping personal file without owner_user_id during storage usage audit"
+                        );
+                        continue;
+                    };
+                    StorageOwner::User(owner_user_id)
+                }
             };
             add_usage(&mut totals, owner, size)?;
         }
@@ -209,7 +218,7 @@ async fn load_actual_storage_usage<C: ConnectionTrait>(
             .select_only()
             .column(file_version::Column::Id)
             .column(file_version::Column::Size)
-            .column(file::Column::UserId)
+            .column(file::Column::OwnerUserId)
             .column(file::Column::TeamId)
             .order_by_asc(file_version::Column::Id)
             .limit(INTEGRITY_BATCH_SIZE);
@@ -218,7 +227,7 @@ async fn load_actual_storage_usage<C: ConnectionTrait>(
         }
 
         let rows = query
-            .into_tuple::<(i64, i64, i64, Option<i64>)>()
+            .into_tuple::<(i64, i64, Option<i64>, Option<i64>)>()
             .all(db)
             .await
             .map_aster_err(AsterError::database_operation)?;
@@ -227,10 +236,19 @@ async fn load_actual_storage_usage<C: ConnectionTrait>(
         }
         last_version_id = rows.last().map(|(id, _, _, _)| *id);
 
-        for (_, size, user_id, team_id) in rows {
+        for (version_id, size, owner_user_id, team_id) in rows {
             let owner = match team_id {
                 Some(team_id) => StorageOwner::Team(team_id),
-                None => StorageOwner::User(user_id),
+                None => {
+                    let Some(owner_user_id) = owner_user_id else {
+                        tracing::warn!(
+                            version_id,
+                            "skipping personal file version without owner_user_id during storage usage audit"
+                        );
+                        continue;
+                    };
+                    StorageOwner::User(owner_user_id)
+                }
             };
             add_usage(&mut totals, owner, size)?;
         }
@@ -441,7 +459,7 @@ pub async fn audit_folder_tree<C: ConnectionTrait>(db: &C) -> Result<Vec<FolderT
             .select_only()
             .column(folder::Column::Id)
             .column(folder::Column::ParentId)
-            .column(folder::Column::UserId)
+            .column(folder::Column::OwnerUserId)
             .column(folder::Column::TeamId)
             .order_by_asc(folder::Column::Id)
             .limit(INTEGRITY_BATCH_SIZE);
@@ -450,7 +468,7 @@ pub async fn audit_folder_tree<C: ConnectionTrait>(db: &C) -> Result<Vec<FolderT
         }
 
         let rows = query
-            .into_tuple::<(i64, Option<i64>, i64, Option<i64>)>()
+            .into_tuple::<(i64, Option<i64>, Option<i64>, Option<i64>)>()
             .all(db)
             .await
             .map_aster_err(AsterError::database_operation)?;
@@ -459,13 +477,13 @@ pub async fn audit_folder_tree<C: ConnectionTrait>(db: &C) -> Result<Vec<FolderT
         }
         last_folder_id = rows.last().map(|(id, _, _, _)| *id);
 
-        for (id, parent_id, user_id, team_id) in rows {
+        for (id, parent_id, owner_user_id, team_id) in rows {
             ordered_folder_ids.push(id);
             folder_by_id.insert(
                 id,
                 FolderNode {
                     parent_id,
-                    user_id,
+                    owner_user_id,
                     team_id,
                 },
             );
@@ -481,18 +499,19 @@ pub async fn audit_folder_tree<C: ConnectionTrait>(db: &C) -> Result<Vec<FolderT
         if let Some(parent_id) = folder.parent_id {
             match folder_by_id.get(&parent_id) {
                 Some(parent)
-                    if parent.user_id == folder.user_id && parent.team_id == folder.team_id => {}
+                    if parent.owner_user_id == folder.owner_user_id
+                        && parent.team_id == folder.team_id => {}
                 Some(parent) => issues.push(FolderTreeIssue {
                     kind: FolderTreeIssueKind::CrossScopeParent,
                     folder_id,
                     parent_id: Some(parent_id),
                     detail: format!(
-                        "folder#{} points to parent#{} outside its workspace (folder user/team={:?}/{:?}, parent user/team={:?}/{:?})",
+                        "folder#{} points to parent#{} outside its workspace (folder owner/team={:?}/{:?}, parent owner/team={:?}/{:?})",
                         folder_id,
                         parent_id,
-                        folder.user_id,
+                        folder.owner_user_id,
                         folder.team_id,
-                        parent.user_id,
+                        parent.owner_user_id,
                         parent.team_id
                     ),
                 }),
@@ -550,7 +569,7 @@ pub async fn audit_folder_tree<C: ConnectionTrait>(db: &C) -> Result<Vec<FolderT
             current_id = match current.parent_id {
                 Some(parent_id) => match folder_by_id.get(&parent_id) {
                     Some(parent)
-                        if parent.user_id == current.user_id
+                        if parent.owner_user_id == current.owner_user_id
                             && parent.team_id == current.team_id =>
                     {
                         Some(parent_id)

@@ -111,7 +111,7 @@ pub async fn create(
     let root_folder_path = if let Some(fid) = root_folder_id {
         let folder = folder_repo::find_by_id(&state.db, fid).await?;
         crate::services::folder_service::ensure_personal_folder_scope(&folder)?;
-        crate::utils::verify_owner(folder.user_id, user_id, "folder")?;
+        crate::utils::verify_optional_owner(folder.owner_user_id, user_id, "folder")?;
         crate::services::folder_service::build_folder_paths_cached(state, &[fid])
             .await?
             .remove(&fid)

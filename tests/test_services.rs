@@ -295,7 +295,9 @@ async fn test_file_service_get_info() {
         .await
         .unwrap();
     assert_eq!(info.name, "service_test.txt");
-    assert_eq!(info.user_id, user.id);
+    assert_eq!(info.owner_user_id, Some(user.id));
+    assert_eq!(info.created_by_user_id, Some(user.id));
+    assert_eq!(info.created_by_username, user.username);
 
     // 别人的文件
     let user2 = aster_drive::services::auth_service::register(
@@ -2193,7 +2195,9 @@ async fn test_folder_repo_find_expired_deleted_includes_team_folders() {
             name: Set("Team Trash".to_string()),
             parent_id: Set(None),
             team_id: Set(Some(team.id)),
-            user_id: Set(owner.id),
+            owner_user_id: Set(None),
+            created_by_user_id: Set(Some(owner.id)),
+            created_by_username: Set(owner.username.clone()),
             policy_id: Set(None),
             created_at: Set(deleted_at),
             updated_at: Set(deleted_at),
@@ -2214,7 +2218,7 @@ async fn test_folder_repo_find_expired_deleted_includes_team_folders() {
 }
 
 #[actix_web::test]
-async fn test_folder_repo_find_all_by_user_includes_team_folders() {
+async fn test_folder_repo_find_all_by_user_excludes_team_folders() {
     use chrono::Utc;
     use sea_orm::Set;
 
@@ -2267,7 +2271,9 @@ async fn test_folder_repo_find_all_by_user_includes_team_folders() {
             name: Set("Personal".to_string()),
             parent_id: Set(None),
             team_id: Set(None),
-            user_id: Set(member.id),
+            owner_user_id: Set(Some(member.id)),
+            created_by_user_id: Set(Some(member.id)),
+            created_by_username: Set(member.username.clone()),
             policy_id: Set(None),
             created_at: Set(now),
             updated_at: Set(now),
@@ -2284,7 +2290,9 @@ async fn test_folder_repo_find_all_by_user_includes_team_folders() {
             name: Set("Team".to_string()),
             parent_id: Set(None),
             team_id: Set(Some(team.id)),
-            user_id: Set(member.id),
+            owner_user_id: Set(None),
+            created_by_user_id: Set(Some(member.id)),
+            created_by_username: Set(member.username.clone()),
             policy_id: Set(None),
             created_at: Set(now),
             updated_at: Set(now),
@@ -2302,7 +2310,7 @@ async fn test_folder_repo_find_all_by_user_includes_team_folders() {
     let folder_ids: BTreeSet<i64> = folders.into_iter().map(|folder| folder.id).collect();
 
     assert!(folder_ids.contains(&personal.id));
-    assert!(folder_ids.contains(&team_folder.id));
+    assert!(!folder_ids.contains(&team_folder.id));
 }
 
 #[actix_web::test]
@@ -2327,7 +2335,9 @@ async fn test_folder_repo_top_level_deleted_pagination_is_stable_for_equal_times
             name: Set("first".to_string()),
             parent_id: Set(None),
             team_id: Set(None),
-            user_id: Set(user.id),
+            owner_user_id: Set(Some(user.id)),
+            created_by_user_id: Set(Some(user.id)),
+            created_by_username: Set(user.username.clone()),
             policy_id: Set(None),
             created_at: Set(deleted_at),
             updated_at: Set(deleted_at),
@@ -2344,7 +2354,9 @@ async fn test_folder_repo_top_level_deleted_pagination_is_stable_for_equal_times
             name: Set("second".to_string()),
             parent_id: Set(None),
             team_id: Set(None),
-            user_id: Set(user.id),
+            owner_user_id: Set(Some(user.id)),
+            created_by_user_id: Set(Some(user.id)),
+            created_by_username: Set(user.username.clone()),
             policy_id: Set(None),
             created_at: Set(deleted_at),
             updated_at: Set(deleted_at),
@@ -2541,7 +2553,9 @@ async fn test_team_archive_cleanup_deletes_expired_team_data() {
             name: Set("cleanup-folder".to_string()),
             parent_id: Set(None),
             team_id: Set(Some(team.id)),
-            user_id: Set(owner.id),
+            owner_user_id: Set(None),
+            created_by_user_id: Set(Some(owner.id)),
+            created_by_username: Set(owner.username.clone()),
             policy_id: Set(None),
             created_at: Set(now),
             updated_at: Set(now),
@@ -2576,7 +2590,9 @@ async fn test_team_archive_cleanup_deletes_expired_team_data() {
             team_id: Set(Some(team.id)),
             blob_id: Set(blob.id),
             size: Set(12),
-            user_id: Set(owner.id),
+            owner_user_id: Set(None),
+            created_by_user_id: Set(Some(owner.id)),
+            created_by_username: Set(owner.username.clone()),
             mime_type: Set("text/plain".to_string()),
             created_at: Set(now),
             updated_at: Set(now),
@@ -2788,7 +2804,9 @@ async fn test_team_archive_cleanup_processes_multiple_file_and_folder_batches() 
                 team_id: Set(Some(team.id)),
                 blob_id: Set(blob.id),
                 size: Set(1),
-                user_id: Set(owner.id),
+                owner_user_id: Set(None),
+                created_by_user_id: Set(Some(owner.id)),
+                created_by_username: Set(owner.username.clone()),
                 mime_type: Set("text/plain".to_string()),
                 created_at: Set(now),
                 updated_at: Set(now),
@@ -2812,7 +2830,9 @@ async fn test_team_archive_cleanup_processes_multiple_file_and_folder_batches() 
                 name: Set(format!("batched-folder-{idx:04}")),
                 parent_id: Set(None),
                 team_id: Set(Some(team.id)),
-                user_id: Set(owner.id),
+                owner_user_id: Set(None),
+                created_by_user_id: Set(Some(owner.id)),
+                created_by_username: Set(owner.username.clone()),
                 policy_id: Set(None),
                 created_at: Set(now),
                 updated_at: Set(now),

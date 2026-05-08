@@ -53,7 +53,14 @@ pub async fn check_file_info(
     Ok(WopiCheckFileInfo {
         base_file_name: resolved.file.name.clone(),
         file_name_max_length: Some(WOPI_FILE_NAME_MAX_LEN),
-        owner_id: resolved.file.user_id.to_string(),
+        owner_id: match resolved.file.team_id {
+            Some(team_id) => format!("team:{team_id}"),
+            None => resolved
+                .file
+                .owner_user_id
+                .ok_or_else(|| AsterError::auth_forbidden("file has no personal owner"))?
+                .to_string(),
+        },
         size: resolved.file.size,
         user_id: resolved.payload.actor_user_id.to_string(),
         user_can_not_write_relative: false,

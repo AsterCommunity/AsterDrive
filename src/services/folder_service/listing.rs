@@ -9,7 +9,7 @@ use crate::errors::Result;
 use crate::runtime::PrimaryAppState;
 use crate::services::{
     share_service,
-    workspace_storage_service::{self, WorkspaceStorageScope},
+    workspace_storage_service::{self, WorkspaceResourceScope, WorkspaceStorageScope},
 };
 use crate::utils::numbers::usize_to_u64;
 
@@ -50,7 +50,7 @@ struct FolderListingResult {
 
 async fn build_folder_contents(
     state: &PrimaryAppState,
-    scope: WorkspaceStorageScope,
+    scope: WorkspaceResourceScope,
     listing: FolderListingResult,
     params: &FolderListParams,
 ) -> Result<FolderContents> {
@@ -75,8 +75,8 @@ async fn build_folder_contents(
     let file_ids: Vec<i64> = files.iter().map(|file| file.id).collect();
     let folder_ids: Vec<i64> = folders.iter().map(|folder| folder.id).collect();
     let (shared_file_ids, shared_folder_ids) = tokio::try_join!(
-        share_service::find_active_file_ids_in_scope(state, scope, &file_ids),
-        share_service::find_active_folder_ids_in_scope(state, scope, &folder_ids),
+        share_service::find_active_file_ids_in_resource_scope(state, scope, &file_ids),
+        share_service::find_active_folder_ids_in_resource_scope(state, scope, &folder_ids),
     )?;
 
     Ok(FolderContents {
@@ -252,7 +252,7 @@ pub(crate) async fn list_in_scope(
 
     let contents = build_folder_contents(
         state,
-        scope,
+        scope.into(),
         FolderListingResult {
             folders,
             folders_total,
@@ -332,11 +332,7 @@ pub async fn list_shared(
 
         build_folder_contents(
             state,
-            WorkspaceStorageScope::Team {
-                // 分享页没有真实 actor，这里仅借用 folder 所属空间来复用 DTO 构建逻辑。
-                team_id,
-                actor_user_id: folder.user_id,
-            },
+            WorkspaceResourceScope::Team { team_id },
             FolderListingResult {
                 folders,
                 folders_total,
@@ -348,9 +344,12 @@ pub async fn list_shared(
         .await?
     } else {
         ensure_personal_folder_scope(&folder)?;
+        let owner_user_id = folder.owner_user_id.ok_or_else(|| {
+            crate::errors::AsterError::auth_forbidden("folder has no personal owner")
+        })?;
         let (folders, folders_total) = folder_repo::find_children_paginated(
             &state.db,
-            folder.user_id,
+            owner_user_id,
             Some(folder_id),
             params.folder_limit,
             params.folder_offset,
@@ -360,7 +359,7 @@ pub async fn list_shared(
         .await?;
         let (files, files_total) = file_repo::find_by_folder_cursor(
             &state.db,
-            folder.user_id,
+            owner_user_id,
             Some(folder_id),
             params.file_limit,
             params.file_cursor.clone(),
@@ -371,8 +370,8 @@ pub async fn list_shared(
 
         build_folder_contents(
             state,
-            WorkspaceStorageScope::Personal {
-                user_id: folder.user_id,
+            WorkspaceResourceScope::Personal {
+                user_id: owner_user_id,
             },
             FolderListingResult {
                 folders,

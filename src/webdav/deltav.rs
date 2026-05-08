@@ -63,10 +63,18 @@ pub async fn handle_report(
     };
 
     // 查用户名
-    let creator = user_repo::find_by_id(db, file.user_id)
-        .await
-        .map(|u| u.username)
-        .unwrap_or_else(|_| "unknown".to_string());
+    let creator = match file.created_by_user_id {
+        Some(user_id) => user_repo::find_by_id(db, user_id)
+            .await
+            .map(|u| u.username)
+            .unwrap_or_else(|_| file.created_by_username.clone()),
+        None => file.created_by_username.clone(),
+    };
+    let creator = if creator.is_empty() {
+        "unknown".to_string()
+    } else {
+        creator
+    };
 
     // 查当前版本的 blob 信息
     let current_blob = file_repo::find_blob_by_id(db, file.blob_id).await.ok();

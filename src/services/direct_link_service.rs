@@ -125,7 +125,11 @@ fn signature_for_file(file: &file::Model, secret: &str) -> Result<String> {
     let scope_part = if let Some(team_id) = file.team_id {
         format!("team:{team_id}")
     } else {
-        format!("user:{}", file.user_id)
+        format!(
+            "user:{}",
+            file.owner_user_id
+                .ok_or_else(|| AsterError::auth_forbidden("file has no personal owner"))?
+        )
     };
 
     let mut hasher = Sha256::new();
@@ -269,7 +273,9 @@ mod tests {
             team_id: None,
             blob_id: 1,
             size: 100,
-            user_id: 1,
+            owner_user_id: Some(1),
+            created_by_user_id: Some(1),
+            created_by_username: "tester".to_string(),
             mime_type: "text/plain".to_string(),
             created_at: chrono::Utc::now(),
             updated_at: chrono::Utc::now(),
@@ -288,7 +294,9 @@ mod tests {
             team_id: None,
             blob_id: 1,
             size: 100,
-            user_id: 1,
+            owner_user_id: Some(1),
+            created_by_user_id: Some(1),
+            created_by_username: "tester".to_string(),
             mime_type: "text/plain".to_string(),
             created_at: chrono::Utc::now(),
             updated_at: chrono::Utc::now(),
@@ -308,7 +316,9 @@ mod tests {
             team_id: None,
             blob_id: 1,
             size: 100,
-            user_id: 1,
+            owner_user_id: Some(1),
+            created_by_user_id: Some(1),
+            created_by_username: "tester".to_string(),
             mime_type: "text/plain".to_string(),
             created_at: chrono::Utc::now(),
             updated_at: chrono::Utc::now(),

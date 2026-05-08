@@ -12,7 +12,7 @@ use crate::runtime::PrimaryAppState;
 use crate::services::{
     storage_change_service,
     workspace_models::FileInfo,
-    workspace_storage_service::{self, WorkspaceStorageScope},
+    workspace_storage_service::{self, WorkspaceStorageScope, load_scope_actor_username},
 };
 
 use super::get_info_in_scope;
@@ -158,6 +158,7 @@ async fn batch_duplicate_file_records_with_specs_in_scope(
     let now = chrono::Utc::now();
 
     let txn = crate::db::transaction::begin(&state.db).await?;
+    let created_by_username = load_scope_actor_username(&txn, scope).await?;
 
     // 原子性地增加配额（CAS 语义：如果 quota > 0 且 used + total_size > quota，则失败）
     // 这避免了并发场景下的 TOCTOU 问题
@@ -177,7 +178,9 @@ async fn batch_duplicate_file_records_with_specs_in_scope(
             team_id: Set(scope.team_id()),
             blob_id: Set(spec.src.blob_id),
             size: Set(spec.src.size),
-            user_id: Set(scope.actor_user_id()),
+            owner_user_id: Set(scope.owner_user_id()),
+            created_by_user_id: Set(Some(scope.actor_user_id())),
+            created_by_username: Set(created_by_username.clone()),
             mime_type: Set(spec.src.mime_type.clone()),
             created_at: Set(now),
             updated_at: Set(now),
@@ -221,6 +224,7 @@ pub(crate) async fn duplicate_file_record_in_scope(
     let blob_size = blob.size;
 
     let txn = crate::db::transaction::begin(&state.db).await?;
+    let created_by_username = load_scope_actor_username(&txn, scope).await?;
     workspace_storage_service::check_quota(&txn, scope, blob_size).await?;
 
     file_repo::increment_blob_ref_count(&txn, blob.id).await?;
@@ -231,7 +235,9 @@ pub(crate) async fn duplicate_file_record_in_scope(
         team_id: Set(scope.team_id()),
         blob_id: Set(src.blob_id),
         size: Set(src.size),
-        user_id: Set(scope.actor_user_id()),
+        owner_user_id: Set(scope.owner_user_id()),
+        created_by_user_id: Set(Some(scope.actor_user_id())),
+        created_by_username: Set(created_by_username),
         mime_type: Set(src.mime_type.clone()),
         created_at: Set(now),
         updated_at: Set(now),
@@ -260,7 +266,9 @@ pub async fn duplicate_file_record(
     let copied = duplicate_file_record_in_scope(
         state,
         WorkspaceStorageScope::Personal {
-            user_id: src.user_id,
+            user_id: src
+                .owner_user_id
+                .ok_or_else(|| AsterError::auth_forbidden("source file has no personal owner"))?,
         },
         src,
         dest_folder_id,
@@ -272,7 +280,9 @@ pub async fn duplicate_file_record(
         storage_change_service::StorageChangeEvent::new(
             storage_change_service::StorageChangeKind::FileCreated,
             WorkspaceStorageScope::Personal {
-                user_id: src.user_id,
+                user_id: src.owner_user_id.ok_or_else(|| {
+                    AsterError::auth_forbidden("source file has no personal owner")
+                })?,
             },
             vec![copied.id],
             vec![],
@@ -329,6 +339,7 @@ pub(crate) async fn batch_duplicate_file_records_to_mixed_folders_in_scope(
     workspace_storage_service::check_quota(&state.db, scope, total_size).await?;
 
     let txn = crate::db::transaction::begin(&state.db).await?;
+    let created_by_username = load_scope_actor_username(&txn, scope).await?;
     workspace_storage_service::check_quota(&txn, scope, total_size).await?;
 
     let blob_counts = collect_blob_ref_count_increments(
@@ -345,7 +356,9 @@ pub(crate) async fn batch_duplicate_file_records_to_mixed_folders_in_scope(
             team_id: Set(scope.team_id()),
             blob_id: Set(spec.src.blob_id),
             size: Set(spec.src.size),
-            user_id: Set(scope.actor_user_id()),
+            owner_user_id: Set(scope.owner_user_id()),
+            created_by_user_id: Set(Some(scope.actor_user_id())),
+            created_by_username: Set(created_by_username.clone()),
             mime_type: Set(spec.src.mime_type.clone()),
             created_at: Set(now),
             updated_at: Set(now),
@@ -377,7 +390,9 @@ pub async fn batch_duplicate_file_records(
     batch_duplicate_file_records_in_scope(
         state,
         WorkspaceStorageScope::Personal {
-            user_id: src_files[0].user_id,
+            user_id: src_files[0]
+                .owner_user_id
+                .ok_or_else(|| AsterError::auth_forbidden("source file has no personal owner"))?,
         },
         src_files,
         dest_folder_id,

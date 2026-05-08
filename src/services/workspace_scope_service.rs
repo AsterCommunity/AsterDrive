@@ -4,11 +4,12 @@
 //! 这里负责把 scope 相关规则收口，避免每个上层 service 都自己拼一套
 //! `user_id` / `team_id` / `actor_user_id` 判断。
 
-use crate::db::repository::{file_repo, folder_repo, team_member_repo, team_repo};
+use crate::db::repository::{file_repo, folder_repo, team_member_repo, team_repo, user_repo};
 use crate::entities::{file, folder};
 use crate::errors::{AsterError, Result};
 use crate::runtime::PrimaryAppState;
 use crate::{cache::CacheExt, types::TeamMemberRole};
+use sea_orm::ConnectionTrait;
 use serde::{Deserialize, Serialize};
 
 const TEAM_ACCESS_CACHE_TTL: u64 = 60;
@@ -21,6 +22,25 @@ const TEAM_ACCESS_CACHE_TTL: u64 = 60;
 pub(crate) enum WorkspaceStorageScope {
     Personal { user_id: i64 },
     Team { team_id: i64, actor_user_id: i64 },
+}
+
+/// 只描述资源归属空间，不携带当前操作者。
+///
+/// 后台维护、公开分享等路径经常只需要“按哪个用户/团队记账或过滤资源”，
+/// 不能为了复用 `WorkspaceStorageScope` 而伪造 `actor_user_id`。
+#[derive(Clone, Copy, Debug)]
+pub(crate) enum WorkspaceResourceScope {
+    Personal { user_id: i64 },
+    Team { team_id: i64 },
+}
+
+impl From<WorkspaceStorageScope> for WorkspaceResourceScope {
+    fn from(scope: WorkspaceStorageScope) -> Self {
+        match scope {
+            WorkspaceStorageScope::Personal { user_id } => Self::Personal { user_id },
+            WorkspaceStorageScope::Team { team_id, .. } => Self::Team { team_id },
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -71,6 +91,13 @@ impl WorkspaceStorageScope {
         match self {
             Self::Personal { user_id } => user_id,
             Self::Team { actor_user_id, .. } => actor_user_id,
+        }
+    }
+
+    pub(crate) fn owner_user_id(self) -> Option<i64> {
+        match self {
+            Self::Personal { user_id } => Some(user_id),
+            Self::Team { .. } => None,
         }
     }
 
@@ -155,6 +182,14 @@ pub(crate) async fn require_scope_access(
     Ok(())
 }
 
+pub(crate) async fn load_scope_actor_username<C: ConnectionTrait>(
+    db: &C,
+    scope: WorkspaceStorageScope,
+) -> Result<String> {
+    let user = user_repo::find_by_id(db, scope.actor_user_id()).await?;
+    Ok(user.username)
+}
+
 pub(crate) fn ensure_personal_file_scope(file: &file::Model) -> Result<()> {
     if file.team_id.is_some() {
         return Err(AsterError::auth_forbidden(
@@ -174,12 +209,24 @@ pub(crate) fn ensure_personal_folder_scope(folder: &folder::Model) -> Result<()>
 }
 
 pub(crate) fn ensure_file_scope(file: &file::Model, scope: WorkspaceStorageScope) -> Result<()> {
+    ensure_file_resource_scope(file, scope.into())
+}
+
+pub(crate) fn ensure_file_resource_scope(
+    file: &file::Model,
+    scope: WorkspaceResourceScope,
+) -> Result<()> {
     match scope {
-        WorkspaceStorageScope::Personal { user_id } => {
+        WorkspaceResourceScope::Personal { user_id } => {
             ensure_personal_file_scope(file)?;
-            crate::utils::verify_owner(file.user_id, user_id, "file")?;
+            crate::utils::verify_owner(
+                file.owner_user_id
+                    .ok_or_else(|| AsterError::auth_forbidden("file has no personal owner"))?,
+                user_id,
+                "file",
+            )?;
         }
-        WorkspaceStorageScope::Team { team_id, .. } => {
+        WorkspaceResourceScope::Team { team_id } => {
             if file.team_id != Some(team_id) {
                 return Err(AsterError::auth_forbidden("file is outside team workspace"));
             }
@@ -209,12 +256,25 @@ pub(crate) fn ensure_folder_scope(
     folder: &folder::Model,
     scope: WorkspaceStorageScope,
 ) -> Result<()> {
+    ensure_folder_resource_scope(folder, scope.into())
+}
+
+pub(crate) fn ensure_folder_resource_scope(
+    folder: &folder::Model,
+    scope: WorkspaceResourceScope,
+) -> Result<()> {
     match scope {
-        WorkspaceStorageScope::Personal { user_id } => {
+        WorkspaceResourceScope::Personal { user_id } => {
             ensure_personal_folder_scope(folder)?;
-            crate::utils::verify_owner(folder.user_id, user_id, "folder")?;
+            crate::utils::verify_owner(
+                folder
+                    .owner_user_id
+                    .ok_or_else(|| AsterError::auth_forbidden("folder has no personal owner"))?,
+                user_id,
+                "folder",
+            )?;
         }
-        WorkspaceStorageScope::Team { team_id, .. } => {
+        WorkspaceResourceScope::Team { team_id } => {
             if folder.team_id != Some(team_id) {
                 return Err(AsterError::auth_forbidden(
                     "folder is outside team workspace",
@@ -583,7 +643,9 @@ mod tests {
                 name: Set("Parent".to_string()),
                 parent_id: Set(None),
                 team_id: Set(None),
-                user_id: Set(user.id),
+                owner_user_id: Set(Some(user.id)),
+                created_by_user_id: Set(Some(user.id)),
+                created_by_username: Set(user.username.clone()),
                 policy_id: Set(None),
                 created_at: Set(now),
                 updated_at: Set(now),
@@ -600,7 +662,9 @@ mod tests {
                 name: Set("Child".to_string()),
                 parent_id: Set(Some(parent.id)),
                 team_id: Set(None),
-                user_id: Set(user.id),
+                owner_user_id: Set(Some(user.id)),
+                created_by_user_id: Set(Some(user.id)),
+                created_by_username: Set(user.username.clone()),
                 policy_id: Set(None),
                 created_at: Set(now),
                 updated_at: Set(now),

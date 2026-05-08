@@ -254,7 +254,7 @@ fn encode_file_token(
     secret: &str,
 ) -> Result<String> {
     let payload_segment = encode_payload(payload)?;
-    let signature = sign_file_payload(file, &payload_segment, secret);
+    let signature = sign_file_payload(file, &payload_segment, secret)?;
     Ok(format!("{payload_segment}.{signature}"))
 }
 
@@ -286,7 +286,8 @@ async fn resolve_token(state: &PrimaryAppState, token: &str) -> Result<ResolvedP
     match &payload.subject {
         PreviewSubject::File { file_id } => {
             let file = direct_link_service::load_public_file(state, *file_id).await?;
-            let expected = sign_file_payload(&file, payload_segment, &state.config.auth.jwt_secret);
+            let expected =
+                sign_file_payload(&file, payload_segment, &state.config.auth.jwt_secret)?;
             if signature != expected {
                 return Err(AsterError::share_not_found(
                     "preview link token signature mismatch",
@@ -355,25 +356,29 @@ fn decode_expiry(exp: i64) -> Result<DateTime<Utc>> {
         .ok_or_else(|| AsterError::share_not_found("invalid preview link expiry"))
 }
 
-fn file_scope_signature(file: &file::Model) -> String {
+fn file_scope_signature(file: &file::Model) -> Result<String> {
     if let Some(team_id) = file.team_id {
-        format!("team:{team_id}")
+        Ok(format!("team:{team_id}"))
     } else {
-        format!("user:{}", file.user_id)
+        Ok(format!(
+            "user:{}",
+            file.owner_user_id
+                .ok_or_else(|| AsterError::auth_forbidden("file has no personal owner"))?
+        ))
     }
 }
 
-fn sign_file_payload(file: &file::Model, payload_segment: &str, secret: &str) -> String {
+fn sign_file_payload(file: &file::Model, payload_segment: &str, secret: &str) -> Result<String> {
     let mut hasher = Sha256::new();
     hasher.update(
         format!(
             "preview_link:file:{secret}:{}:{}:{payload_segment}",
-            file_scope_signature(file),
+            file_scope_signature(file)?,
             file.id
         )
         .as_bytes(),
     );
-    base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(hasher.finalize())
+    Ok(base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(hasher.finalize()))
 }
 
 fn sign_shared_payload(

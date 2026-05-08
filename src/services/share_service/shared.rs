@@ -123,7 +123,7 @@ pub(super) fn ensure_share_matches_file(
         }
     } else {
         file_service::ensure_personal_file_scope(file)?;
-        crate::utils::verify_owner(file.user_id, share.user_id, "file")?;
+        crate::utils::verify_optional_owner(file.owner_user_id, share.user_id, "file")?;
     }
     Ok(())
 }
@@ -138,7 +138,7 @@ pub(super) fn ensure_share_matches_folder(
         }
     } else {
         folder_service::ensure_personal_folder_scope(folder)?;
-        crate::utils::verify_owner(folder.user_id, share.user_id, "folder")?;
+        crate::utils::verify_optional_owner(folder.owner_user_id, share.user_id, "folder")?;
     }
     Ok(())
 }
@@ -421,7 +421,9 @@ mod tests {
             team_id: None,
             blob_id: 1,
             size: 100,
-            user_id: 1,
+            owner_user_id: Some(1),
+            created_by_user_id: Some(1),
+            created_by_username: "tester".to_string(),
             mime_type: "text/plain".to_string(),
             created_at: chrono::Utc::now(),
             updated_at: chrono::Utc::now(),
@@ -436,7 +438,9 @@ mod tests {
             name: name.to_string(),
             parent_id: None,
             team_id: None,
-            user_id: 1,
+            owner_user_id: Some(1),
+            created_by_user_id: Some(1),
+            created_by_username: "tester".to_string(),
             policy_id: None,
             created_at: chrono::Utc::now(),
             updated_at: chrono::Utc::now(),

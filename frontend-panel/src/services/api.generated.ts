@@ -3459,6 +3459,9 @@ export interface components {
             /** Format: int64 */
             blob_id: number;
             created_at: string;
+            /** Format: int64 */
+            created_by_user_id?: number | null;
+            created_by_username: string;
             deleted_at?: string | null;
             /** Format: int64 */
             folder_id?: number | null;
@@ -3468,12 +3471,12 @@ export interface components {
             mime_type: string;
             name: string;
             /** Format: int64 */
+            owner_user_id?: number | null;
+            /** Format: int64 */
             size: number;
             /** Format: int64 */
             team_id?: number | null;
             updated_at: string;
-            /** Format: int64 */
-            user_id: number;
         };
         FileListItem: {
             /** Format: int64 */
@@ -3500,6 +3503,9 @@ export interface components {
             blob_id: number;
             created_at: string;
             /** Format: int64 */
+            created_by_user_id?: number | null;
+            created_by_username: string;
+            /** Format: int64 */
             folder_id?: number | null;
             /** Format: int64 */
             id: number;
@@ -3507,10 +3513,10 @@ export interface components {
             mime_type: string;
             name: string;
             /** Format: int64 */
+            owner_user_id?: number | null;
+            /** Format: int64 */
             size: number;
             updated_at: string;
-            /** Format: int64 */
-            user_id: number;
         };
         FileVersion: {
             /** Format: int64 */
@@ -3541,11 +3547,16 @@ export interface components {
         };
         FolderInfo: {
             created_at: string;
+            /** Format: int64 */
+            created_by_user_id?: number | null;
+            created_by_username: string;
             deleted_at?: string | null;
             /** Format: int64 */
             id: number;
             is_locked?: boolean;
             name: string;
+            /** Format: int64 */
+            owner_user_id?: number | null;
             /** Format: int64 */
             parent_id?: number | null;
             /** Format: int64 */
@@ -3553,8 +3564,6 @@ export interface components {
             /** Format: int64 */
             team_id?: number | null;
             updated_at: string;
-            /** Format: int64 */
-            user_id: number;
         };
         FolderListItem: {
             /** Format: int64 */
@@ -9896,6 +9905,9 @@ export interface operations {
                             /** Format: int64 */
                             blob_id: number;
                             created_at: string;
+                            /** Format: int64 */
+                            created_by_user_id?: number | null;
+                            created_by_username: string;
                             deleted_at?: string | null;
                             /** Format: int64 */
                             folder_id?: number | null;
@@ -9905,12 +9917,12 @@ export interface operations {
                             mime_type: string;
                             name: string;
                             /** Format: int64 */
+                            owner_user_id?: number | null;
+                            /** Format: int64 */
                             size: number;
                             /** Format: int64 */
                             team_id?: number | null;
                             updated_at: string;
-                            /** Format: int64 */
-                            user_id: number;
                         };
                         error?: null | components["schemas"]["ApiErrorInfo"];
                         msg: string;
@@ -9963,6 +9975,9 @@ export interface operations {
                             /** Format: int64 */
                             blob_id: number;
                             created_at: string;
+                            /** Format: int64 */
+                            created_by_user_id?: number | null;
+                            created_by_username: string;
                             deleted_at?: string | null;
                             /** Format: int64 */
                             folder_id?: number | null;
@@ -9972,12 +9987,12 @@ export interface operations {
                             mime_type: string;
                             name: string;
                             /** Format: int64 */
+                            owner_user_id?: number | null;
+                            /** Format: int64 */
                             size: number;
                             /** Format: int64 */
                             team_id?: number | null;
                             updated_at: string;
-                            /** Format: int64 */
-                            user_id: number;
                         };
                         error?: null | components["schemas"]["ApiErrorInfo"];
                         msg: string;
@@ -10192,6 +10207,9 @@ export interface operations {
                             /** Format: int64 */
                             blob_id: number;
                             created_at: string;
+                            /** Format: int64 */
+                            created_by_user_id?: number | null;
+                            created_by_username: string;
                             deleted_at?: string | null;
                             /** Format: int64 */
                             folder_id?: number | null;
@@ -10201,12 +10219,12 @@ export interface operations {
                             mime_type: string;
                             name: string;
                             /** Format: int64 */
+                            owner_user_id?: number | null;
+                            /** Format: int64 */
                             size: number;
                             /** Format: int64 */
                             team_id?: number | null;
                             updated_at: string;
-                            /** Format: int64 */
-                            user_id: number;
                         };
                         error?: null | components["schemas"]["ApiErrorInfo"];
                         msg: string;
@@ -10354,6 +10372,9 @@ export interface operations {
                             /** Format: int64 */
                             blob_id: number;
                             created_at: string;
+                            /** Format: int64 */
+                            created_by_user_id?: number | null;
+                            created_by_username: string;
                             deleted_at?: string | null;
                             /** Format: int64 */
                             folder_id?: number | null;
@@ -10363,12 +10384,12 @@ export interface operations {
                             mime_type: string;
                             name: string;
                             /** Format: int64 */
+                            owner_user_id?: number | null;
+                            /** Format: int64 */
                             size: number;
                             /** Format: int64 */
                             team_id?: number | null;
                             updated_at: string;
-                            /** Format: int64 */
-                            user_id: number;
                         };
                         error?: null | components["schemas"]["ApiErrorInfo"];
                         msg: string;
@@ -10454,6 +10475,9 @@ export interface operations {
                             /** Format: int64 */
                             blob_id: number;
                             created_at: string;
+                            /** Format: int64 */
+                            created_by_user_id?: number | null;
+                            created_by_username: string;
                             deleted_at?: string | null;
                             /** Format: int64 */
                             folder_id?: number | null;
@@ -10463,12 +10487,12 @@ export interface operations {
                             mime_type: string;
                             name: string;
                             /** Format: int64 */
+                            owner_user_id?: number | null;
+                            /** Format: int64 */
                             size: number;
                             /** Format: int64 */
                             team_id?: number | null;
                             updated_at: string;
-                            /** Format: int64 */
-                            user_id: number;
                         };
                         error?: null | components["schemas"]["ApiErrorInfo"];
                         msg: string;
@@ -10519,6 +10543,9 @@ export interface operations {
                             /** Format: int64 */
                             blob_id: number;
                             created_at: string;
+                            /** Format: int64 */
+                            created_by_user_id?: number | null;
+                            created_by_username: string;
                             deleted_at?: string | null;
                             /** Format: int64 */
                             folder_id?: number | null;
@@ -10528,12 +10555,12 @@ export interface operations {
                             mime_type: string;
                             name: string;
                             /** Format: int64 */
+                            owner_user_id?: number | null;
+                            /** Format: int64 */
                             size: number;
                             /** Format: int64 */
                             team_id?: number | null;
                             updated_at: string;
-                            /** Format: int64 */
-                            user_id: number;
                         };
                         error?: null | components["schemas"]["ApiErrorInfo"];
                         msg: string;
@@ -10598,6 +10625,9 @@ export interface operations {
                             /** Format: int64 */
                             blob_id: number;
                             created_at: string;
+                            /** Format: int64 */
+                            created_by_user_id?: number | null;
+                            created_by_username: string;
                             deleted_at?: string | null;
                             /** Format: int64 */
                             folder_id?: number | null;
@@ -10607,12 +10637,12 @@ export interface operations {
                             mime_type: string;
                             name: string;
                             /** Format: int64 */
+                            owner_user_id?: number | null;
+                            /** Format: int64 */
                             size: number;
                             /** Format: int64 */
                             team_id?: number | null;
                             updated_at: string;
-                            /** Format: int64 */
-                            user_id: number;
                         };
                         error?: null | components["schemas"]["ApiErrorInfo"];
                         msg: string;
@@ -10829,6 +10859,9 @@ export interface operations {
                             /** Format: int64 */
                             blob_id: number;
                             created_at: string;
+                            /** Format: int64 */
+                            created_by_user_id?: number | null;
+                            created_by_username: string;
                             deleted_at?: string | null;
                             /** Format: int64 */
                             folder_id?: number | null;
@@ -10838,12 +10871,12 @@ export interface operations {
                             mime_type: string;
                             name: string;
                             /** Format: int64 */
+                            owner_user_id?: number | null;
+                            /** Format: int64 */
                             size: number;
                             /** Format: int64 */
                             team_id?: number | null;
                             updated_at: string;
-                            /** Format: int64 */
-                            user_id: number;
                         };
                         error?: null | components["schemas"]["ApiErrorInfo"];
                         msg: string;
@@ -11093,6 +11126,9 @@ export interface operations {
                             /** Format: int64 */
                             blob_id: number;
                             created_at: string;
+                            /** Format: int64 */
+                            created_by_user_id?: number | null;
+                            created_by_username: string;
                             deleted_at?: string | null;
                             /** Format: int64 */
                             folder_id?: number | null;
@@ -11102,12 +11138,12 @@ export interface operations {
                             mime_type: string;
                             name: string;
                             /** Format: int64 */
+                            owner_user_id?: number | null;
+                            /** Format: int64 */
                             size: number;
                             /** Format: int64 */
                             team_id?: number | null;
                             updated_at: string;
-                            /** Format: int64 */
-                            user_id: number;
                         };
                         error?: null | components["schemas"]["ApiErrorInfo"];
                         msg: string;
@@ -11266,11 +11302,16 @@ export interface operations {
                         code: components["schemas"]["ErrorCode"];
                         data?: {
                             created_at: string;
+                            /** Format: int64 */
+                            created_by_user_id?: number | null;
+                            created_by_username: string;
                             deleted_at?: string | null;
                             /** Format: int64 */
                             id: number;
                             is_locked: boolean;
                             name: string;
+                            /** Format: int64 */
+                            owner_user_id?: number | null;
                             /** Format: int64 */
                             parent_id?: number | null;
                             /** Format: int64 */
@@ -11278,8 +11319,6 @@ export interface operations {
                             /** Format: int64 */
                             team_id?: number | null;
                             updated_at: string;
-                            /** Format: int64 */
-                            user_id: number;
                         };
                         error?: null | components["schemas"]["ApiErrorInfo"];
                         msg: string;
@@ -11421,11 +11460,16 @@ export interface operations {
                         code: components["schemas"]["ErrorCode"];
                         data?: {
                             created_at: string;
+                            /** Format: int64 */
+                            created_by_user_id?: number | null;
+                            created_by_username: string;
                             deleted_at?: string | null;
                             /** Format: int64 */
                             id: number;
                             is_locked: boolean;
                             name: string;
+                            /** Format: int64 */
+                            owner_user_id?: number | null;
                             /** Format: int64 */
                             parent_id?: number | null;
                             /** Format: int64 */
@@ -11433,8 +11477,6 @@ export interface operations {
                             /** Format: int64 */
                             team_id?: number | null;
                             updated_at: string;
-                            /** Format: int64 */
-                            user_id: number;
                         };
                         error?: null | components["schemas"]["ApiErrorInfo"];
                         msg: string;
@@ -11529,11 +11571,16 @@ export interface operations {
                         code: components["schemas"]["ErrorCode"];
                         data?: {
                             created_at: string;
+                            /** Format: int64 */
+                            created_by_user_id?: number | null;
+                            created_by_username: string;
                             deleted_at?: string | null;
                             /** Format: int64 */
                             id: number;
                             is_locked: boolean;
                             name: string;
+                            /** Format: int64 */
+                            owner_user_id?: number | null;
                             /** Format: int64 */
                             parent_id?: number | null;
                             /** Format: int64 */
@@ -11541,8 +11588,6 @@ export interface operations {
                             /** Format: int64 */
                             team_id?: number | null;
                             updated_at: string;
-                            /** Format: int64 */
-                            user_id: number;
                         };
                         error?: null | components["schemas"]["ApiErrorInfo"];
                         msg: string;
@@ -11587,11 +11632,16 @@ export interface operations {
                         code: components["schemas"]["ErrorCode"];
                         data?: {
                             created_at: string;
+                            /** Format: int64 */
+                            created_by_user_id?: number | null;
+                            created_by_username: string;
                             deleted_at?: string | null;
                             /** Format: int64 */
                             id: number;
                             is_locked: boolean;
                             name: string;
+                            /** Format: int64 */
+                            owner_user_id?: number | null;
                             /** Format: int64 */
                             parent_id?: number | null;
                             /** Format: int64 */
@@ -11599,8 +11649,6 @@ export interface operations {
                             /** Format: int64 */
                             team_id?: number | null;
                             updated_at: string;
-                            /** Format: int64 */
-                            user_id: number;
                         };
                         error?: null | components["schemas"]["ApiErrorInfo"];
                         msg: string;
@@ -11649,11 +11697,16 @@ export interface operations {
                         code: components["schemas"]["ErrorCode"];
                         data?: {
                             created_at: string;
+                            /** Format: int64 */
+                            created_by_user_id?: number | null;
+                            created_by_username: string;
                             deleted_at?: string | null;
                             /** Format: int64 */
                             id: number;
                             is_locked: boolean;
                             name: string;
+                            /** Format: int64 */
+                            owner_user_id?: number | null;
                             /** Format: int64 */
                             parent_id?: number | null;
                             /** Format: int64 */
@@ -11661,8 +11714,6 @@ export interface operations {
                             /** Format: int64 */
                             team_id?: number | null;
                             updated_at: string;
-                            /** Format: int64 */
-                            user_id: number;
                         };
                         error?: null | components["schemas"]["ApiErrorInfo"];
                         msg: string;
@@ -14175,6 +14226,9 @@ export interface operations {
                             /** Format: int64 */
                             blob_id: number;
                             created_at: string;
+                            /** Format: int64 */
+                            created_by_user_id?: number | null;
+                            created_by_username: string;
                             deleted_at?: string | null;
                             /** Format: int64 */
                             folder_id?: number | null;
@@ -14184,12 +14238,12 @@ export interface operations {
                             mime_type: string;
                             name: string;
                             /** Format: int64 */
+                            owner_user_id?: number | null;
+                            /** Format: int64 */
                             size: number;
                             /** Format: int64 */
                             team_id?: number | null;
                             updated_at: string;
-                            /** Format: int64 */
-                            user_id: number;
                         };
                         error?: null | components["schemas"]["ApiErrorInfo"];
                         msg: string;
@@ -14245,6 +14299,9 @@ export interface operations {
                             /** Format: int64 */
                             blob_id: number;
                             created_at: string;
+                            /** Format: int64 */
+                            created_by_user_id?: number | null;
+                            created_by_username: string;
                             deleted_at?: string | null;
                             /** Format: int64 */
                             folder_id?: number | null;
@@ -14254,12 +14311,12 @@ export interface operations {
                             mime_type: string;
                             name: string;
                             /** Format: int64 */
+                            owner_user_id?: number | null;
+                            /** Format: int64 */
                             size: number;
                             /** Format: int64 */
                             team_id?: number | null;
                             updated_at: string;
-                            /** Format: int64 */
-                            user_id: number;
                         };
                         error?: null | components["schemas"]["ApiErrorInfo"];
                         msg: string;
@@ -14537,6 +14594,9 @@ export interface operations {
                             /** Format: int64 */
                             blob_id: number;
                             created_at: string;
+                            /** Format: int64 */
+                            created_by_user_id?: number | null;
+                            created_by_username: string;
                             deleted_at?: string | null;
                             /** Format: int64 */
                             folder_id?: number | null;
@@ -14546,12 +14606,12 @@ export interface operations {
                             mime_type: string;
                             name: string;
                             /** Format: int64 */
+                            owner_user_id?: number | null;
+                            /** Format: int64 */
                             size: number;
                             /** Format: int64 */
                             team_id?: number | null;
                             updated_at: string;
-                            /** Format: int64 */
-                            user_id: number;
                         };
                         error?: null | components["schemas"]["ApiErrorInfo"];
                         msg: string;
@@ -14726,6 +14786,9 @@ export interface operations {
                             /** Format: int64 */
                             blob_id: number;
                             created_at: string;
+                            /** Format: int64 */
+                            created_by_user_id?: number | null;
+                            created_by_username: string;
                             deleted_at?: string | null;
                             /** Format: int64 */
                             folder_id?: number | null;
@@ -14735,12 +14798,12 @@ export interface operations {
                             mime_type: string;
                             name: string;
                             /** Format: int64 */
+                            owner_user_id?: number | null;
+                            /** Format: int64 */
                             size: number;
                             /** Format: int64 */
                             team_id?: number | null;
                             updated_at: string;
-                            /** Format: int64 */
-                            user_id: number;
                         };
                         error?: null | components["schemas"]["ApiErrorInfo"];
                         msg: string;
@@ -14844,6 +14907,9 @@ export interface operations {
                             /** Format: int64 */
                             blob_id: number;
                             created_at: string;
+                            /** Format: int64 */
+                            created_by_user_id?: number | null;
+                            created_by_username: string;
                             deleted_at?: string | null;
                             /** Format: int64 */
                             folder_id?: number | null;
@@ -14853,12 +14919,12 @@ export interface operations {
                             mime_type: string;
                             name: string;
                             /** Format: int64 */
+                            owner_user_id?: number | null;
+                            /** Format: int64 */
                             size: number;
                             /** Format: int64 */
                             team_id?: number | null;
                             updated_at: string;
-                            /** Format: int64 */
-                            user_id: number;
                         };
                         error?: null | components["schemas"]["ApiErrorInfo"];
                         msg: string;
@@ -14918,6 +14984,9 @@ export interface operations {
                             /** Format: int64 */
                             blob_id: number;
                             created_at: string;
+                            /** Format: int64 */
+                            created_by_user_id?: number | null;
+                            created_by_username: string;
                             deleted_at?: string | null;
                             /** Format: int64 */
                             folder_id?: number | null;
@@ -14927,12 +14996,12 @@ export interface operations {
                             mime_type: string;
                             name: string;
                             /** Format: int64 */
+                            owner_user_id?: number | null;
+                            /** Format: int64 */
                             size: number;
                             /** Format: int64 */
                             team_id?: number | null;
                             updated_at: string;
-                            /** Format: int64 */
-                            user_id: number;
                         };
                         error?: null | components["schemas"]["ApiErrorInfo"];
                         msg: string;
@@ -15006,6 +15075,9 @@ export interface operations {
                             /** Format: int64 */
                             blob_id: number;
                             created_at: string;
+                            /** Format: int64 */
+                            created_by_user_id?: number | null;
+                            created_by_username: string;
                             deleted_at?: string | null;
                             /** Format: int64 */
                             folder_id?: number | null;
@@ -15015,12 +15087,12 @@ export interface operations {
                             mime_type: string;
                             name: string;
                             /** Format: int64 */
+                            owner_user_id?: number | null;
+                            /** Format: int64 */
                             size: number;
                             /** Format: int64 */
                             team_id?: number | null;
                             updated_at: string;
-                            /** Format: int64 */
-                            user_id: number;
                         };
                         error?: null | components["schemas"]["ApiErrorInfo"];
                         msg: string;
@@ -15273,6 +15345,9 @@ export interface operations {
                             /** Format: int64 */
                             blob_id: number;
                             created_at: string;
+                            /** Format: int64 */
+                            created_by_user_id?: number | null;
+                            created_by_username: string;
                             deleted_at?: string | null;
                             /** Format: int64 */
                             folder_id?: number | null;
@@ -15282,12 +15357,12 @@ export interface operations {
                             mime_type: string;
                             name: string;
                             /** Format: int64 */
+                            owner_user_id?: number | null;
+                            /** Format: int64 */
                             size: number;
                             /** Format: int64 */
                             team_id?: number | null;
                             updated_at: string;
-                            /** Format: int64 */
-                            user_id: number;
                         };
                         error?: null | components["schemas"]["ApiErrorInfo"];
                         msg: string;
@@ -15582,6 +15657,9 @@ export interface operations {
                             /** Format: int64 */
                             blob_id: number;
                             created_at: string;
+                            /** Format: int64 */
+                            created_by_user_id?: number | null;
+                            created_by_username: string;
                             deleted_at?: string | null;
                             /** Format: int64 */
                             folder_id?: number | null;
@@ -15591,12 +15669,12 @@ export interface operations {
                             mime_type: string;
                             name: string;
                             /** Format: int64 */
+                            owner_user_id?: number | null;
+                            /** Format: int64 */
                             size: number;
                             /** Format: int64 */
                             team_id?: number | null;
                             updated_at: string;
-                            /** Format: int64 */
-                            user_id: number;
                         };
                         error?: null | components["schemas"]["ApiErrorInfo"];
                         msg: string;
@@ -15784,11 +15862,16 @@ export interface operations {
                         code: components["schemas"]["ErrorCode"];
                         data?: {
                             created_at: string;
+                            /** Format: int64 */
+                            created_by_user_id?: number | null;
+                            created_by_username: string;
                             deleted_at?: string | null;
                             /** Format: int64 */
                             id: number;
                             is_locked: boolean;
                             name: string;
+                            /** Format: int64 */
+                            owner_user_id?: number | null;
                             /** Format: int64 */
                             parent_id?: number | null;
                             /** Format: int64 */
@@ -15796,8 +15879,6 @@ export interface operations {
                             /** Format: int64 */
                             team_id?: number | null;
                             updated_at: string;
-                            /** Format: int64 */
-                            user_id: number;
                         };
                         error?: null | components["schemas"]["ApiErrorInfo"];
                         msg: string;
@@ -15966,11 +16047,16 @@ export interface operations {
                         code: components["schemas"]["ErrorCode"];
                         data?: {
                             created_at: string;
+                            /** Format: int64 */
+                            created_by_user_id?: number | null;
+                            created_by_username: string;
                             deleted_at?: string | null;
                             /** Format: int64 */
                             id: number;
                             is_locked: boolean;
                             name: string;
+                            /** Format: int64 */
+                            owner_user_id?: number | null;
                             /** Format: int64 */
                             parent_id?: number | null;
                             /** Format: int64 */
@@ -15978,8 +16064,6 @@ export interface operations {
                             /** Format: int64 */
                             team_id?: number | null;
                             updated_at: string;
-                            /** Format: int64 */
-                            user_id: number;
                         };
                         error?: null | components["schemas"]["ApiErrorInfo"];
                         msg: string;
@@ -16092,11 +16176,16 @@ export interface operations {
                         code: components["schemas"]["ErrorCode"];
                         data?: {
                             created_at: string;
+                            /** Format: int64 */
+                            created_by_user_id?: number | null;
+                            created_by_username: string;
                             deleted_at?: string | null;
                             /** Format: int64 */
                             id: number;
                             is_locked: boolean;
                             name: string;
+                            /** Format: int64 */
+                            owner_user_id?: number | null;
                             /** Format: int64 */
                             parent_id?: number | null;
                             /** Format: int64 */
@@ -16104,8 +16193,6 @@ export interface operations {
                             /** Format: int64 */
                             team_id?: number | null;
                             updated_at: string;
-                            /** Format: int64 */
-                            user_id: number;
                         };
                         error?: null | components["schemas"]["ApiErrorInfo"];
                         msg: string;
@@ -16159,11 +16246,16 @@ export interface operations {
                         code: components["schemas"]["ErrorCode"];
                         data?: {
                             created_at: string;
+                            /** Format: int64 */
+                            created_by_user_id?: number | null;
+                            created_by_username: string;
                             deleted_at?: string | null;
                             /** Format: int64 */
                             id: number;
                             is_locked: boolean;
                             name: string;
+                            /** Format: int64 */
+                            owner_user_id?: number | null;
                             /** Format: int64 */
                             parent_id?: number | null;
                             /** Format: int64 */
@@ -16171,8 +16263,6 @@ export interface operations {
                             /** Format: int64 */
                             team_id?: number | null;
                             updated_at: string;
-                            /** Format: int64 */
-                            user_id: number;
                         };
                         error?: null | components["schemas"]["ApiErrorInfo"];
                         msg: string;
@@ -16230,11 +16320,16 @@ export interface operations {
                         code: components["schemas"]["ErrorCode"];
                         data?: {
                             created_at: string;
+                            /** Format: int64 */
+                            created_by_user_id?: number | null;
+                            created_by_username: string;
                             deleted_at?: string | null;
                             /** Format: int64 */
                             id: number;
                             is_locked: boolean;
                             name: string;
+                            /** Format: int64 */
+                            owner_user_id?: number | null;
                             /** Format: int64 */
                             parent_id?: number | null;
                             /** Format: int64 */
@@ -16242,8 +16337,6 @@ export interface operations {
                             /** Format: int64 */
                             team_id?: number | null;
                             updated_at: string;
-                            /** Format: int64 */
-                            user_id: number;
                         };
                         error?: null | components["schemas"]["ApiErrorInfo"];
                         msg: string;

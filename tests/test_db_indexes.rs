@@ -68,13 +68,13 @@ async fn test_directory_lookup_indexes_cover_listing_and_duplicate_name_queries(
     let folder_listing = explain_query_plan(
         &state.db,
         "SELECT * FROM folders \
-         WHERE user_id = 1 AND deleted_at IS NULL AND parent_id = 2 \
+         WHERE owner_user_id = 1 AND deleted_at IS NULL AND parent_id = 2 \
          ORDER BY name",
     )
     .await;
     assert_uses_index(
         &folder_listing,
-        "idx_folders_user_deleted_parent_name",
+        "idx_folders_owner_deleted_parent_name",
         "folders",
     );
     assert_no_temp_btree(&folder_listing);
@@ -82,34 +82,38 @@ async fn test_directory_lookup_indexes_cover_listing_and_duplicate_name_queries(
     let file_listing = explain_query_plan(
         &state.db,
         "SELECT * FROM files \
-         WHERE user_id = 1 AND deleted_at IS NULL AND folder_id = 2 \
+         WHERE owner_user_id = 1 AND deleted_at IS NULL AND folder_id = 2 \
          ORDER BY name",
     )
     .await;
-    assert_uses_index(&file_listing, "idx_files_user_deleted_folder_name", "files");
+    assert_uses_index(
+        &file_listing,
+        "idx_files_owner_deleted_folder_name",
+        "files",
+    );
     assert_no_temp_btree(&file_listing);
 
     let folder_duplicate = explain_query_plan(
         &state.db,
         "SELECT * FROM folders \
-         WHERE user_id = 1 AND name = 'dup' AND deleted_at IS NULL AND parent_id = 2",
+         WHERE owner_user_id = 1 AND name = 'dup' AND deleted_at IS NULL AND parent_id = 2",
     )
     .await;
     assert_uses_index(
         &folder_duplicate,
-        "idx_folders_user_deleted_parent_name",
+        "idx_folders_owner_deleted_parent_name",
         "folders",
     );
 
     let file_duplicate = explain_query_plan(
         &state.db,
         "SELECT * FROM files \
-         WHERE user_id = 1 AND name = 'dup' AND deleted_at IS NULL AND folder_id = 2",
+         WHERE owner_user_id = 1 AND name = 'dup' AND deleted_at IS NULL AND folder_id = 2",
     )
     .await;
     assert_uses_index(
         &file_duplicate,
-        "idx_files_user_deleted_folder_name",
+        "idx_files_owner_deleted_folder_name",
         "files",
     );
 }
@@ -124,7 +128,7 @@ async fn test_trash_pagination_indexes_cover_deleted_item_queries() {
     let folder_trash = explain_query_plan(
         &state.db,
         "SELECT * FROM folders \
-         WHERE user_id = 1 \
+         WHERE owner_user_id = 1 \
            AND deleted_at IS NOT NULL \
            AND (parent_id IS NULL OR NOT EXISTS ( \
                 SELECT 1 FROM folders p \
@@ -134,13 +138,13 @@ async fn test_trash_pagination_indexes_cover_deleted_item_queries() {
          LIMIT 50 OFFSET 0",
     )
     .await;
-    assert_uses_index(&folder_trash, "idx_folders_user_deleted_at_id", "folders");
+    assert_uses_index(&folder_trash, "idx_folders_owner_deleted_at_id", "folders");
     assert_no_temp_btree(&folder_trash);
 
     let file_trash = explain_query_plan(
         &state.db,
         "SELECT * FROM files \
-         WHERE user_id = 1 \
+         WHERE owner_user_id = 1 \
            AND deleted_at IS NOT NULL \
            AND (folder_id IS NULL OR NOT EXISTS ( \
                 SELECT 1 FROM folders f2 \
@@ -150,7 +154,7 @@ async fn test_trash_pagination_indexes_cover_deleted_item_queries() {
          LIMIT 50",
     )
     .await;
-    assert_uses_index(&file_trash, "idx_files_user_deleted_at_id", "files");
+    assert_uses_index(&file_trash, "idx_files_owner_deleted_at_id", "files");
     assert_no_temp_btree(&file_trash);
 }
 
@@ -230,7 +234,7 @@ async fn test_sqlite_search_fts_query_plan_uses_virtual_tables() {
         "SELECT COUNT(*) \
          FROM files \
          WHERE files.deleted_at IS NULL \
-           AND files.user_id = 1 \
+           AND files.owner_user_id = 1 \
            AND files.team_id IS NULL \
            AND files.folder_id = 1 \
            AND files.id IN ( \
@@ -247,7 +251,7 @@ async fn test_sqlite_search_fts_query_plan_uses_virtual_tables() {
          FROM files \
          JOIN file_blobs ON file_blobs.id = files.blob_id \
          WHERE files.deleted_at IS NULL \
-           AND files.user_id = 1 \
+           AND files.owner_user_id = 1 \
            AND files.team_id IS NULL \
            AND files.folder_id = 1 \
            AND files.id IN ( \
@@ -265,7 +269,7 @@ async fn test_sqlite_search_fts_query_plan_uses_virtual_tables() {
              folders.id, folders.name \
          FROM folders \
          WHERE folders.deleted_at IS NULL \
-           AND folders.user_id = 1 \
+           AND folders.owner_user_id = 1 \
            AND folders.team_id IS NULL \
            AND folders.id IN ( \
                SELECT rowid FROM folders_name_fts WHERE folders_name_fts MATCH '\"docs\"' \

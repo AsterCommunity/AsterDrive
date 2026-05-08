@@ -52,7 +52,7 @@ pub(super) enum FolderScope {
 pub(super) fn scope_condition(scope: FolderScope) -> Condition {
     match scope {
         FolderScope::Personal { user_id } => Condition::all()
-            .add(folder::Column::UserId.eq(user_id))
+            .add(folder::Column::OwnerUserId.eq(user_id))
             .add(folder::Column::TeamId.is_null()),
         FolderScope::Team { team_id } => Condition::all().add(folder::Column::TeamId.eq(team_id)),
     }

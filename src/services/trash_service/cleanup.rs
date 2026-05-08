@@ -8,9 +8,9 @@ use crate::db::repository::{file_repo, folder_repo};
 use crate::entities::{file, folder};
 use crate::errors::Result;
 use crate::runtime::PrimaryAppState;
-use crate::services::{file_service, workspace_storage_service::WorkspaceStorageScope};
+use crate::services::{file_service, workspace_storage_service::WorkspaceResourceScope};
 
-use super::common::{load_retention_days, recursive_purge_folder_in_scope};
+use super::common::{load_retention_days, recursive_purge_folder_in_resource_scope};
 
 /// 自动清理过期回收站条目（后台任务调用）
 pub async fn cleanup_expired(state: &PrimaryAppState) -> Result<u32> {
@@ -25,15 +25,20 @@ pub async fn cleanup_expired(state: &PrimaryAppState) -> Result<u32> {
     for file in expired_files {
         if let Some(team_id) = file.team_id {
             by_team.entry(team_id).or_default().push(file);
+        } else if let Some(owner_user_id) = file.owner_user_id {
+            by_user.entry(owner_user_id).or_default().push(file);
         } else {
-            by_user.entry(file.user_id).or_default().push(file);
+            tracing::warn!(
+                file_id = file.id,
+                "skipping expired personal file without owner_user_id"
+            );
         }
     }
 
     for (user_id, files) in by_user {
-        match file_service::batch_purge_in_scope(
+        match file_service::batch_purge_in_resource_scope(
             state,
-            WorkspaceStorageScope::Personal { user_id },
+            WorkspaceResourceScope::Personal { user_id },
             files,
         )
         .await
@@ -46,12 +51,9 @@ pub async fn cleanup_expired(state: &PrimaryAppState) -> Result<u32> {
     }
 
     for (team_id, files) in by_team {
-        match file_service::batch_purge_in_scope(
+        match file_service::batch_purge_in_resource_scope(
             state,
-            WorkspaceStorageScope::Team {
-                team_id,
-                actor_user_id: 0,
-            },
+            WorkspaceResourceScope::Team { team_id },
             files,
         )
         .await
@@ -77,24 +79,27 @@ pub async fn cleanup_expired(state: &PrimaryAppState) -> Result<u32> {
 
     for folder in top_level_folders {
         let result = if let Some(team_id) = folder.team_id {
-            recursive_purge_folder_in_scope(
+            recursive_purge_folder_in_resource_scope(
                 state,
-                WorkspaceStorageScope::Team {
-                    team_id,
-                    actor_user_id: 0,
+                WorkspaceResourceScope::Team { team_id },
+                folder.id,
+            )
+            .await
+        } else if let Some(owner_user_id) = folder.owner_user_id {
+            recursive_purge_folder_in_resource_scope(
+                state,
+                WorkspaceResourceScope::Personal {
+                    user_id: owner_user_id,
                 },
                 folder.id,
             )
             .await
         } else {
-            recursive_purge_folder_in_scope(
-                state,
-                WorkspaceStorageScope::Personal {
-                    user_id: folder.user_id,
-                },
-                folder.id,
-            )
-            .await
+            tracing::warn!(
+                folder_id = folder.id,
+                "skipping expired personal folder without owner_user_id"
+            );
+            continue;
         };
 
         match result {

@@ -277,11 +277,7 @@ pub async fn force_delete(
 
     let all_files = file_repo::find_all_by_user(db, target_user_id).await?;
     let file_count = all_files.len();
-    if let Err(error) =
-        crate::services::file_service::batch_purge(state, all_files, target_user_id).await
-    {
-        tracing::warn!("batch purge files for user #{target_user_id} failed: {error}");
-    }
+    crate::services::file_service::batch_purge(state, all_files, target_user_id).await?;
 
     let all_folders = folder_repo::find_all_by_user(db, target_user_id).await?;
     let folder_count = all_folders.len();

@@ -12,7 +12,7 @@ use crate::runtime::PrimaryAppState;
 use crate::services::{
     storage_change_service,
     workspace_models::FolderInfo,
-    workspace_storage_service::{self, WorkspaceStorageScope},
+    workspace_storage_service::{self, WorkspaceStorageScope, load_scope_actor_username},
 };
 use crate::types::NullablePatch;
 
@@ -39,6 +39,7 @@ pub(crate) async fn create_in_scope(
     }
 
     let name = crate::utils::normalize_validate_name(name)?;
+    let created_by_username = load_scope_actor_username(&state.db, scope).await?;
 
     let now = Utc::now();
     let created = crate::db::transaction::with_transaction(&state.db, async |txn| {
@@ -60,7 +61,9 @@ pub(crate) async fn create_in_scope(
                 name: Set(name),
                 parent_id: Set(parent_id),
                 team_id: Set(scope.team_id()),
-                user_id: Set(scope.actor_user_id()),
+                owner_user_id: Set(scope.owner_user_id()),
+                created_by_user_id: Set(Some(scope.actor_user_id())),
+                created_by_username: Set(created_by_username),
                 policy_id: Set(None),
                 created_at: Set(now),
                 updated_at: Set(now),

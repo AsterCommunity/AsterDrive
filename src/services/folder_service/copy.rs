@@ -12,7 +12,7 @@ use crate::runtime::PrimaryAppState;
 use crate::services::{
     storage_change_service,
     workspace_models::FolderInfo,
-    workspace_storage_service::{self, WorkspaceStorageScope},
+    workspace_storage_service::{self, WorkspaceStorageScope, load_scope_actor_username},
 };
 
 use super::ensure_folder_model_in_scope;
@@ -156,13 +156,16 @@ async fn create_frontier_children_from_plans_in_scope(
     dest_parent_ids.dedup();
 
     let now = Utc::now();
+    let created_by_username = load_scope_actor_username(db, scope).await?;
     let models: Vec<folder::ActiveModel> = child_plans
         .iter()
         .map(|plan| folder::ActiveModel {
             name: Set(plan.dest_name.clone()),
             parent_id: Set(Some(plan.dest_parent_id)),
             team_id: Set(scope.team_id()),
-            user_id: Set(scope.actor_user_id()),
+            owner_user_id: Set(scope.owner_user_id()),
+            created_by_user_id: Set(Some(scope.actor_user_id())),
+            created_by_username: Set(created_by_username.clone()),
             policy_id: Set(plan.policy_id),
             created_at: Set(now),
             updated_at: Set(now),
@@ -222,6 +225,7 @@ pub(crate) fn recursive_copy_folder_in_scope<'a>(
         let now = Utc::now();
         let src_folder = folder_repo::find_by_id(db, src_folder_id).await?;
         ensure_folder_model_in_scope(&src_folder, scope)?;
+        let created_by_username = load_scope_actor_username(db, scope).await?;
 
         let new_folder = folder_repo::create(
             db,
@@ -229,7 +233,9 @@ pub(crate) fn recursive_copy_folder_in_scope<'a>(
                 name: Set(dest_name.to_string()),
                 parent_id: Set(dest_parent_id),
                 team_id: Set(scope.team_id()),
-                user_id: Set(scope.actor_user_id()),
+                owner_user_id: Set(scope.owner_user_id()),
+                created_by_user_id: Set(Some(scope.actor_user_id())),
+                created_by_username: Set(created_by_username),
                 policy_id: Set(src_folder.policy_id),
                 created_at: Set(now),
                 updated_at: Set(now),

@@ -10,29 +10,29 @@ use sea_orm::ConnectionTrait;
 use crate::db::repository::{file_repo, folder_repo};
 use crate::entities::{file, folder};
 use crate::errors::Result;
-use crate::services::workspace_storage_service::WorkspaceStorageScope;
+use crate::services::workspace_storage_service::{WorkspaceResourceScope, WorkspaceStorageScope};
 
-fn file_matches_scope(file: &file::Model, scope: WorkspaceStorageScope) -> bool {
+fn file_matches_scope(file: &file::Model, scope: WorkspaceResourceScope) -> bool {
     match scope {
-        WorkspaceStorageScope::Personal { user_id } => {
-            file.team_id.is_none() && file.user_id == user_id
+        WorkspaceResourceScope::Personal { user_id } => {
+            file.team_id.is_none() && file.owner_user_id == Some(user_id)
         }
-        WorkspaceStorageScope::Team { team_id, .. } => file.team_id == Some(team_id),
+        WorkspaceResourceScope::Team { team_id } => file.team_id == Some(team_id),
     }
 }
 
-fn folder_matches_scope(folder: &folder::Model, scope: WorkspaceStorageScope) -> bool {
+fn folder_matches_scope(folder: &folder::Model, scope: WorkspaceResourceScope) -> bool {
     match scope {
-        WorkspaceStorageScope::Personal { user_id } => {
-            folder.team_id.is_none() && folder.user_id == user_id
+        WorkspaceResourceScope::Personal { user_id } => {
+            folder.team_id.is_none() && folder.owner_user_id == Some(user_id)
         }
-        WorkspaceStorageScope::Team { team_id, .. } => folder.team_id == Some(team_id),
+        WorkspaceResourceScope::Team { team_id } => folder.team_id == Some(team_id),
     }
 }
 
-pub(crate) async fn collect_folder_forest_in_scope<C: ConnectionTrait>(
+pub(crate) async fn collect_folder_forest_in_resource_scope<C: ConnectionTrait>(
     db: &C,
-    scope: WorkspaceStorageScope,
+    scope: WorkspaceResourceScope,
     root_folder_ids: &[i64],
     include_deleted: bool,
 ) -> Result<(Vec<file::Model>, Vec<i64>)> {
@@ -76,7 +76,7 @@ pub(crate) async fn collect_folder_forest_in_scope<C: ConnectionTrait>(
         }
 
         frontier = match scope {
-            WorkspaceStorageScope::Personal { user_id } => {
+            WorkspaceResourceScope::Personal { user_id } => {
                 files.extend(file_repo::find_by_folders(db, user_id, &frontier).await?);
                 folder_repo::find_children_in_parents(db, user_id, &frontier)
                     .await?
@@ -84,7 +84,7 @@ pub(crate) async fn collect_folder_forest_in_scope<C: ConnectionTrait>(
                     .map(|folder| folder.id)
                     .collect()
             }
-            WorkspaceStorageScope::Team { team_id, .. } => {
+            WorkspaceResourceScope::Team { team_id } => {
                 files.extend(file_repo::find_by_team_folders(db, team_id, &frontier).await?);
                 folder_repo::find_team_children_in_parents(db, team_id, &frontier)
                     .await?
@@ -98,11 +98,30 @@ pub(crate) async fn collect_folder_forest_in_scope<C: ConnectionTrait>(
     Ok((files, folder_ids))
 }
 
+pub(crate) async fn collect_folder_forest_in_scope<C: ConnectionTrait>(
+    db: &C,
+    scope: WorkspaceStorageScope,
+    root_folder_ids: &[i64],
+    include_deleted: bool,
+) -> Result<(Vec<file::Model>, Vec<i64>)> {
+    collect_folder_forest_in_resource_scope(db, scope.into(), root_folder_ids, include_deleted)
+        .await
+}
+
+pub(crate) async fn collect_folder_tree_in_resource_scope<C: ConnectionTrait>(
+    db: &C,
+    scope: WorkspaceResourceScope,
+    folder_id: i64,
+    include_deleted: bool,
+) -> Result<(Vec<file::Model>, Vec<i64>)> {
+    collect_folder_forest_in_resource_scope(db, scope, &[folder_id], include_deleted).await
+}
+
 pub(crate) async fn collect_folder_tree_in_scope<C: ConnectionTrait>(
     db: &C,
     scope: WorkspaceStorageScope,
     folder_id: i64,
     include_deleted: bool,
 ) -> Result<(Vec<file::Model>, Vec<i64>)> {
-    collect_folder_forest_in_scope(db, scope, &[folder_id], include_deleted).await
+    collect_folder_tree_in_resource_scope(db, scope.into(), folder_id, include_deleted).await
 }

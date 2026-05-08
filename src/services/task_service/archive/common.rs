@@ -10,7 +10,10 @@ use crate::entities::{file, folder};
 use crate::errors::{AsterError, MapAsterErr, Result};
 use crate::runtime::PrimaryAppState;
 use crate::services::task_service::TaskLeaseGuard;
-use crate::services::{folder_service, workspace_storage_service::WorkspaceStorageScope};
+use crate::services::{
+    folder_service,
+    workspace_storage_service::{WorkspaceStorageScope, load_scope_actor_username},
+};
 use crate::storage::{DriverRegistry, PolicySnapshot};
 
 #[derive(Debug, Clone)]
@@ -96,13 +99,16 @@ pub(super) async fn create_folder_exact_in_scope(
     }
 
     let now = Utc::now();
+    let created_by_username = load_scope_actor_username(&state.db, scope).await?;
     folder_repo::create(
         &state.db,
         folder::ActiveModel {
             name: Set(name),
             parent_id: Set(parent_id),
             team_id: Set(scope.team_id()),
-            user_id: Set(scope.actor_user_id()),
+            owner_user_id: Set(scope.owner_user_id()),
+            created_by_user_id: Set(Some(scope.actor_user_id())),
+            created_by_username: Set(created_by_username),
             policy_id: Set(None),
             created_at: Set(now),
             updated_at: Set(now),

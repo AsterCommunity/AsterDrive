@@ -13,7 +13,7 @@ use crate::services::{
     audit_service::{self, AuditContext},
     storage_change_service,
     workspace_models::{FileInfo, FileVersion},
-    workspace_storage_service::{self, WorkspaceStorageScope},
+    workspace_storage_service::{self, WorkspaceResourceScope, WorkspaceStorageScope},
 };
 
 async fn load_version_for_file(
@@ -32,15 +32,14 @@ async fn load_version_for_file(
     Ok(version)
 }
 
-fn storage_scope_from_file(file: &crate::entities::file::Model) -> WorkspaceStorageScope {
+fn resource_scope_from_file(file: &crate::entities::file::Model) -> Result<WorkspaceResourceScope> {
     match file.team_id {
-        Some(team_id) => WorkspaceStorageScope::Team {
-            team_id,
-            actor_user_id: file.user_id,
-        },
-        None => WorkspaceStorageScope::Personal {
-            user_id: file.user_id,
-        },
+        Some(team_id) => Ok(WorkspaceResourceScope::Team { team_id }),
+        None => Ok(WorkspaceResourceScope::Personal {
+            user_id: file
+                .owner_user_id
+                .ok_or_else(|| AsterError::auth_forbidden("file has no personal owner"))?,
+        }),
     }
 }
 
@@ -436,7 +435,7 @@ pub async fn delete_version_for_team_with_audit(
 pub async fn cleanup_excess(state: &PrimaryAppState, file_id: i64) -> Result<()> {
     let db = &state.db;
     let file = file_repo::find_by_id(db, file_id).await?;
-    let scope = storage_scope_from_file(&file);
+    let scope = resource_scope_from_file(&file)?;
     let max_versions = get_max_versions(state).await;
 
     loop {
@@ -450,7 +449,12 @@ pub async fn cleanup_excess(state: &PrimaryAppState, file_id: i64) -> Result<()>
             version_repo::delete_by_id(&txn, oldest.id).await?;
             version_repo::decrement_versions_after(&txn, file_id, oldest.version).await?;
             if oldest.size != 0 {
-                workspace_storage_service::update_storage_used(&txn, scope, -oldest.size).await?;
+                workspace_storage_service::update_storage_used_for_resource_scope(
+                    &txn,
+                    scope,
+                    -oldest.size,
+                )
+                .await?;
             }
             crate::db::transaction::commit(txn).await?;
             cleanup_blob_if_unused(state, oldest.blob_id).await?;
@@ -466,7 +470,7 @@ pub async fn cleanup_excess(state: &PrimaryAppState, file_id: i64) -> Result<()>
 pub async fn purge_all_versions(state: &PrimaryAppState, file_id: i64) -> Result<()> {
     let db = &state.db;
     let file = file_repo::find_by_id(db, file_id).await?;
-    let scope = storage_scope_from_file(&file);
+    let scope = resource_scope_from_file(&file)?;
     let versions = version_repo::find_by_file_id(db, file_id).await?;
     let mut reclaimed_bytes = 0i64;
     for version in &versions {
@@ -480,7 +484,12 @@ pub async fn purge_all_versions(state: &PrimaryAppState, file_id: i64) -> Result
     let txn = crate::db::transaction::begin(&state.db).await?;
     let blob_ids = version_repo::delete_all_by_file_id(&txn, file_id).await?;
     if reclaimed_bytes != 0 {
-        workspace_storage_service::update_storage_used(&txn, scope, -reclaimed_bytes).await?;
+        workspace_storage_service::update_storage_used_for_resource_scope(
+            &txn,
+            scope,
+            -reclaimed_bytes,
+        )
+        .await?;
     }
     crate::db::transaction::commit(txn).await?;
 

@@ -182,7 +182,7 @@ pub async fn find_deleted_by_user<C: ConnectionTrait>(
     user_id: i64,
 ) -> Result<Vec<file::Model>> {
     File::find()
-        .filter(file::Column::UserId.eq(user_id))
+        .filter(file::Column::OwnerUserId.eq(user_id))
         .filter(file::Column::TeamId.is_null())
         .filter(file::Column::DeletedAt.is_not_null())
         .order_by_desc(file::Column::DeletedAt)
@@ -223,7 +223,7 @@ pub async fn find_all_by_user<C: ConnectionTrait>(
     user_id: i64,
 ) -> Result<Vec<file::Model>> {
     File::find()
-        .filter(file::Column::UserId.eq(user_id))
+        .filter(file::Column::OwnerUserId.eq(user_id))
         .filter(file::Column::TeamId.is_null())
         .all(db)
         .await
@@ -237,7 +237,7 @@ pub async fn find_all_by_user_paginated<C: ConnectionTrait>(
     limit: u64,
 ) -> Result<Vec<file::Model>> {
     let mut query = File::find()
-        .filter(file::Column::UserId.eq(user_id))
+        .filter(file::Column::OwnerUserId.eq(user_id))
         .filter(file::Column::TeamId.is_null())
         .order_by_asc(file::Column::Id)
         .limit(limit);

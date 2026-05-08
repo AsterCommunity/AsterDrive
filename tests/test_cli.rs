@@ -972,8 +972,8 @@ async fn test_rebased_migrations_use_baseline_for_fresh_install() {
     let versions = applied_migration_versions(&db, DbBackend::Sqlite).await;
     assert_eq!(
         versions,
-        vec![migration::BASELINE_MIGRATION_NAME.to_string()],
-        "fresh install should only stamp the rebased baseline migration"
+        migration::current_migration_names(),
+        "fresh install should stamp all current migrations"
     );
 }
 
@@ -1005,8 +1005,8 @@ async fn test_rebased_migrations_rewrite_complete_alpha25_history() {
     let versions = applied_migration_versions(&db, DbBackend::Sqlite).await;
     assert_eq!(
         versions,
-        vec![migration::BASELINE_MIGRATION_NAME.to_string()],
-        "complete alpha.25 history should be replaced by the rebased baseline stamp"
+        migration::current_migration_names(),
+        "complete alpha.25 history should be replaced by current migration stamps"
     );
 }
 

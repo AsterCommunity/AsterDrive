@@ -356,7 +356,7 @@ fn expression_unique_checks() -> &'static [ExpressionUniqueCheck] {
             constraint: "idx_files_unique_live_name",
             expressions: &[
                 "CASE WHEN team_id IS NULL THEN 0 ELSE 1 END",
-                "CASE WHEN team_id IS NULL THEN user_id ELSE team_id END",
+                "CASE WHEN team_id IS NULL THEN owner_user_id ELSE team_id END",
                 "COALESCE(folder_id, 0)",
                 "name",
                 "CASE WHEN deleted_at IS NULL THEN 1 ELSE NULL END",
@@ -367,7 +367,7 @@ fn expression_unique_checks() -> &'static [ExpressionUniqueCheck] {
             constraint: "idx_folders_unique_live_name",
             expressions: &[
                 "CASE WHEN team_id IS NULL THEN 0 ELSE 1 END",
-                "CASE WHEN team_id IS NULL THEN user_id ELSE team_id END",
+                "CASE WHEN team_id IS NULL THEN owner_user_id ELSE team_id END",
                 "COALESCE(parent_id, 0)",
                 "name",
                 "CASE WHEN deleted_at IS NULL THEN 1 ELSE NULL END",

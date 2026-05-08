@@ -18,6 +18,21 @@ pub fn verify_owner(entity_user_id: i64, user_id: i64, entity_name: &str) -> Res
     Ok(())
 }
 
+/// 校验可为空的 owner 字段；团队空间对象通常没有 personal owner。
+pub fn verify_optional_owner(
+    entity_user_id: Option<i64>,
+    user_id: i64,
+    entity_name: &str,
+) -> Result<()> {
+    verify_owner(
+        entity_user_id.ok_or_else(|| {
+            AsterError::auth_forbidden(format!("{entity_name} has no personal owner"))
+        })?,
+        user_id,
+        entity_name,
+    )
+}
+
 /// 清理临时文件/目录，失败时记录 warn 日志而不是静默忽略
 pub async fn cleanup_temp_file(path: &str) {
     if let Err(e) = tokio::fs::remove_file(path).await

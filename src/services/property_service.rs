@@ -45,14 +45,14 @@ async fn verify_ownership(
         EntityType::File => {
             let f = file_repo::find_by_id(&state.db, entity_id).await?;
             file_service::ensure_personal_file_scope(&f)?;
-            if f.user_id != user_id {
+            if f.owner_user_id != Some(user_id) {
                 return Err(AsterError::auth_forbidden("not your file"));
             }
         }
         EntityType::Folder => {
             let f = folder_repo::find_by_id(&state.db, entity_id).await?;
             folder_service::ensure_personal_folder_scope(&f)?;
-            if f.user_id != user_id {
+            if f.owner_user_id != Some(user_id) {
                 return Err(AsterError::auth_forbidden("not your folder"));
             }
         }

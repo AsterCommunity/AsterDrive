@@ -11,6 +11,7 @@ use sea_orm_migration::sea_orm::{
 
 mod legacy;
 mod m20260502_000001_baseline_schema;
+mod m20260508_000001_split_file_folder_owner_provenance;
 mod search_acceleration;
 mod time;
 
@@ -105,7 +106,10 @@ impl MigratorTrait for Migrator {
 #[async_trait::async_trait]
 impl MigratorTrait for CurrentMigrator {
     fn migrations() -> Vec<Box<dyn MigrationTrait>> {
-        vec![Box::new(m20260502_000001_baseline_schema::Migration)]
+        vec![
+            Box::new(m20260502_000001_baseline_schema::Migration),
+            Box::new(m20260508_000001_split_file_folder_owner_provenance::Migration),
+        ]
     }
 }
 
@@ -224,9 +228,13 @@ pub async fn apply_database_migrations(database: &DatabaseConnection) -> Result<
                         .to_string(),
                 ));
             }
-            <CurrentMigrator as MigratorTrait>::up(database, None).await
+            <CurrentMigrator as MigratorTrait>::up(database, None).await?;
+            Ok(())
         }
-        MigrationTrack::Baseline => <CurrentMigrator as MigratorTrait>::up(database, None).await,
+        MigrationTrack::Baseline => {
+            <CurrentMigrator as MigratorTrait>::up(database, None).await?;
+            Ok(())
+        }
         MigrationTrack::Alpha25Complete => {
             validate_alpha25_rebase_schema(database).await?;
             rewrite_migration_history_to_baseline(database).await?;

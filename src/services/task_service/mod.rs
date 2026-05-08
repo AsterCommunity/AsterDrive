@@ -563,7 +563,10 @@ fn ensure_task_in_scope(task: &background_task::Model, scope: WorkspaceStorageSc
                     "task belongs to a team workspace",
                 ));
             }
-            crate::utils::verify_owner(task.creator_user_id.unwrap_or_default(), user_id, "task")?;
+            let creator_user_id = task.creator_user_id.ok_or_else(|| {
+                AsterError::internal_error(format!("task #{} is missing creator_user_id", task.id))
+            })?;
+            crate::utils::verify_owner(creator_user_id, user_id, "task")?;
         }
         WorkspaceStorageScope::Team { team_id, .. } => {
             if task.team_id != Some(team_id) {
@@ -670,8 +673,11 @@ pub(super) fn truncate_error(error: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::validate_admin_task_cleanup_status;
-    use crate::types::BackgroundTaskStatus;
+    use super::{ensure_task_in_scope, validate_admin_task_cleanup_status};
+    use crate::entities::background_task;
+    use crate::services::workspace_storage_service::WorkspaceStorageScope;
+    use crate::types::{BackgroundTaskKind, BackgroundTaskStatus, StoredTaskPayload};
+    use chrono::{Duration, Utc};
 
     #[test]
     fn validate_admin_task_cleanup_status_accepts_terminal_statuses() {
@@ -690,5 +696,86 @@ mod tests {
         let error = validate_admin_task_cleanup_status(Some(BackgroundTaskStatus::Processing))
             .expect_err("active task cleanup status should be rejected");
         assert!(error.message().contains("completed task statuses"));
+    }
+
+    #[test]
+    fn personal_task_scope_rejects_missing_creator_without_zero_sentinel() {
+        let now = Utc::now();
+        let task = background_task::Model {
+            id: 42,
+            kind: BackgroundTaskKind::ArchiveCompress,
+            status: BackgroundTaskStatus::Failed,
+            creator_user_id: None,
+            team_id: None,
+            share_id: None,
+            display_name: "missing creator".to_string(),
+            payload_json: StoredTaskPayload("{}".to_string()),
+            result_json: None,
+            steps_json: None,
+            progress_current: 0,
+            progress_total: 0,
+            status_text: None,
+            attempt_count: 0,
+            max_attempts: 1,
+            next_run_at: now,
+            processing_token: 0,
+            processing_started_at: None,
+            last_heartbeat_at: None,
+            lease_expires_at: None,
+            started_at: None,
+            finished_at: None,
+            last_error: None,
+            expires_at: now + Duration::hours(1),
+            created_at: now,
+            updated_at: now,
+        };
+
+        let error = ensure_task_in_scope(&task, WorkspaceStorageScope::Personal { user_id: 7 })
+            .expect_err("missing creator must not be coerced to user id 0");
+
+        assert_eq!(error.code(), "E004");
+        assert!(error.message().contains("missing creator_user_id"));
+    }
+
+    #[test]
+    fn team_task_scope_accepts_missing_creator_without_actor_sentinel() {
+        let now = Utc::now();
+        let task = background_task::Model {
+            id: 43,
+            kind: BackgroundTaskKind::ArchiveCompress,
+            status: BackgroundTaskStatus::Failed,
+            creator_user_id: None,
+            team_id: Some(9),
+            share_id: None,
+            display_name: "team task".to_string(),
+            payload_json: StoredTaskPayload("{}".to_string()),
+            result_json: None,
+            steps_json: None,
+            progress_current: 0,
+            progress_total: 0,
+            status_text: None,
+            attempt_count: 0,
+            max_attempts: 1,
+            next_run_at: now,
+            processing_token: 0,
+            processing_started_at: None,
+            last_heartbeat_at: None,
+            lease_expires_at: None,
+            started_at: None,
+            finished_at: None,
+            last_error: None,
+            expires_at: now + Duration::hours(1),
+            created_at: now,
+            updated_at: now,
+        };
+
+        ensure_task_in_scope(
+            &task,
+            WorkspaceStorageScope::Team {
+                team_id: 9,
+                actor_user_id: 7,
+            },
+        )
+        .expect("team task scope should not require a fake creator user id");
     }
 }

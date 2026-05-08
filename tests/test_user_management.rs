@@ -4,6 +4,7 @@
 mod common;
 
 use actix_web::test;
+use sea_orm::EntityTrait;
 use serde_json::Value;
 
 fn avatar_upload_payload() -> (String, Vec<u8>) {
@@ -169,6 +170,188 @@ async fn test_force_delete_user() {
     assert!(
         !avatar_user_dir.exists(),
         "avatar user dir should be deleted during force delete"
+    );
+}
+
+#[actix_web::test]
+async fn test_force_delete_user_preserves_team_upload_and_blob_ref() {
+    let state = common::setup().await;
+    let db = state.db.clone();
+    let runtime_config = state.runtime_config.clone();
+    let app = create_test_app!(state);
+
+    let (admin_token, _) = register_and_login!(app);
+    let victim_id = admin_create_user!(
+        app,
+        admin_token,
+        "team-uploader",
+        "team-uploader@example.com",
+        "password123"
+    );
+    let (victim_token, _) = login_user!(app, "team-uploader", "password123");
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/teams")
+        .insert_header(("Cookie", common::access_cookie_header(&admin_token)))
+        .insert_header(common::csrf_header_for(&admin_token))
+        .set_json(serde_json::json!({ "name": "Force Delete Provenance" }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 201);
+    let body: Value = test::read_body_json(resp).await;
+    let team_id = body["data"]["id"].as_i64().unwrap();
+
+    let req = test::TestRequest::post()
+        .uri(&format!("/api/v1/teams/{team_id}/members"))
+        .insert_header(("Cookie", common::access_cookie_header(&admin_token)))
+        .insert_header(common::csrf_header_for(&admin_token))
+        .set_json(serde_json::json!({ "user_id": victim_id }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 201);
+
+    let boundary = "----ForceDeleteTeamBoundary";
+    let payload = "------ForceDeleteTeamBoundary\r\n\
+         Content-Disposition: form-data; name=\"file\"; filename=\"team-owned.txt\"\r\n\
+         Content-Type: text/plain\r\n\r\n\
+         still team data\r\n\
+         ------ForceDeleteTeamBoundary--\r\n"
+        .to_string();
+    let req = test::TestRequest::post()
+        .uri(&format!("/api/v1/teams/{team_id}/files/upload"))
+        .insert_header(("Cookie", common::access_cookie_header(&victim_token)))
+        .insert_header(common::csrf_header_for(&victim_token))
+        .insert_header((
+            "Content-Type",
+            format!("multipart/form-data; boundary={boundary}"),
+        ))
+        .set_payload(payload)
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 201);
+    let body: Value = test::read_body_json(resp).await;
+    let file_id = body["data"]["id"].as_i64().unwrap();
+
+    let before_file = aster_drive::db::repository::file_repo::find_by_id(&db, file_id)
+        .await
+        .unwrap();
+    assert_eq!(before_file.team_id, Some(team_id));
+    assert_eq!(before_file.owner_user_id, None);
+    assert_eq!(before_file.created_by_user_id, Some(victim_id));
+    assert_eq!(before_file.created_by_username, "team-uploader");
+    let blob_id = before_file.blob_id;
+    let before_blob = aster_drive::db::repository::file_repo::find_blob_by_id(&db, blob_id)
+        .await
+        .unwrap();
+    let before_ref_count = before_blob.ref_count;
+
+    let req = test::TestRequest::delete()
+        .uri(&format!("/api/v1/admin/users/{victim_id}"))
+        .insert_header(("Cookie", common::access_cookie_header(&admin_token)))
+        .insert_header(common::csrf_header_for(&admin_token))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+
+    assert!(
+        aster_drive::db::repository::user_repo::find_by_id(&db, victim_id)
+            .await
+            .is_err()
+    );
+
+    let after_file = aster_drive::db::repository::file_repo::find_by_id(&db, file_id)
+        .await
+        .unwrap();
+    assert_eq!(after_file.team_id, Some(team_id));
+    assert_eq!(after_file.owner_user_id, None);
+    assert_eq!(after_file.created_by_user_id, None);
+    assert_eq!(after_file.created_by_username, "team-uploader");
+
+    let after_blob = aster_drive::db::repository::file_repo::find_blob_by_id(&db, blob_id)
+        .await
+        .unwrap();
+    assert_eq!(after_blob.ref_count, before_ref_count);
+
+    let req = test::TestRequest::get()
+        .uri(&format!("/api/v1/teams/{team_id}/files/{file_id}"))
+        .insert_header(("Cookie", common::access_cookie_header(&admin_token)))
+        .insert_header(common::csrf_header_for(&admin_token))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(body["data"]["owner_user_id"], Value::Null);
+    assert_eq!(body["data"]["created_by_user_id"], Value::Null);
+    assert_eq!(body["data"]["created_by_username"], "team-uploader");
+
+    let req = test::TestRequest::get()
+        .uri(&format!("/api/v1/teams/{team_id}/files/{file_id}/download"))
+        .insert_header(("Cookie", common::access_cookie_header(&admin_token)))
+        .insert_header(common::csrf_header_for(&admin_token))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    let status = resp.status();
+    let body = test::read_body(resp).await;
+    assert_eq!(status, 200, "{}", String::from_utf8_lossy(&body));
+    assert_eq!(&body[..], b"still team data");
+
+    let team_members = aster_drive::entities::team_member::Entity::find()
+        .all(&db)
+        .await
+        .unwrap();
+    assert!(
+        team_members
+            .iter()
+            .all(|member| member.user_id != victim_id)
+    );
+
+    let mut max_versions =
+        aster_drive::db::repository::config_repo::find_by_key(&db, "max_versions_per_file")
+            .await
+            .unwrap()
+            .unwrap();
+    max_versions.value = "1".to_string();
+    runtime_config.apply(max_versions);
+
+    let req = test::TestRequest::put()
+        .uri(&format!("/api/v1/teams/{team_id}/files/{file_id}/content"))
+        .insert_header(("Cookie", common::access_cookie_header(&admin_token)))
+        .insert_header(common::csrf_header_for(&admin_token))
+        .insert_header(("Content-Type", "application/octet-stream"))
+        .set_payload("team update one")
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+
+    let req = test::TestRequest::put()
+        .uri(&format!("/api/v1/teams/{team_id}/files/{file_id}/content"))
+        .insert_header(("Cookie", common::access_cookie_header(&admin_token)))
+        .insert_header(common::csrf_header_for(&admin_token))
+        .insert_header(("Content-Type", "application/octet-stream"))
+        .set_payload("team update two")
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+
+    let after_update_file = aster_drive::db::repository::file_repo::find_by_id(&db, file_id)
+        .await
+        .unwrap();
+    assert_eq!(after_update_file.created_by_user_id, None);
+    assert_eq!(after_update_file.created_by_username, "team-uploader");
+
+    let versions = aster_drive::db::repository::version_repo::find_by_file_id(&db, file_id)
+        .await
+        .unwrap();
+    assert_eq!(versions.len(), 1);
+    assert_eq!(versions[0].size, "team update one".len() as i64);
+
+    let after_update_storage = aster_drive::db::repository::team_repo::find_by_id(&db, team_id)
+        .await
+        .unwrap()
+        .storage_used;
+    assert_eq!(
+        after_update_storage,
+        "team update one".len() as i64 + "team update two".len() as i64
     );
 }
 

@@ -205,7 +205,7 @@ pub async fn find_deleted_by_user<C: ConnectionTrait>(
     user_id: i64,
 ) -> Result<Vec<folder::Model>> {
     Folder::find()
-        .filter(folder::Column::UserId.eq(user_id))
+        .filter(folder::Column::OwnerUserId.eq(user_id))
         .filter(folder::Column::TeamId.is_null())
         .filter(folder::Column::DeletedAt.is_not_null())
         .order_by_desc(folder::Column::DeletedAt)
@@ -246,7 +246,8 @@ pub async fn find_all_by_user<C: ConnectionTrait>(
     user_id: i64,
 ) -> Result<Vec<folder::Model>> {
     Folder::find()
-        .filter(folder::Column::UserId.eq(user_id))
+        .filter(folder::Column::OwnerUserId.eq(user_id))
+        .filter(folder::Column::TeamId.is_null())
         .all(db)
         .await
         .map_err(AsterError::from)
@@ -259,7 +260,8 @@ pub async fn find_all_by_user_paginated<C: ConnectionTrait>(
     limit: u64,
 ) -> Result<Vec<folder::Model>> {
     let mut query = Folder::find()
-        .filter(folder::Column::UserId.eq(user_id))
+        .filter(folder::Column::OwnerUserId.eq(user_id))
+        .filter(folder::Column::TeamId.is_null())
         .order_by_asc(folder::Column::Id)
         .limit(limit);
     if let Some(after_id) = after_id {
