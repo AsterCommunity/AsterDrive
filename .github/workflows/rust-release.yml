@@ -47,10 +47,10 @@ jobs:
             packages: gcc-multilib g++-multilib
           - target: x86_64-pc-windows-gnu
             name: windows_x86_64.exe
-            packages: gcc-mingw-w64-x86-64
+            packages: gcc-mingw-w64-x86-64 nasm
           - target: i686-pc-windows-gnu
             name: windows_i686.exe
-            packages: gcc-mingw-w64-i686
+            packages: gcc-mingw-w64-i686 nasm
 
     steps:
       - uses: actions/checkout@v6

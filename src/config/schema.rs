@@ -244,7 +244,7 @@ pub struct WebDavConfig {
     pub prefix: String,
     /// actix payload 硬上限，改了要重启。运行时软限制从 DB 读。
     #[serde(default = "WebDavConfig::default_payload_limit")]
-    pub payload_limit: usize,
+    pub payload_limit: u64,
 }
 
 impl Default for WebDavConfig {
@@ -260,7 +260,7 @@ impl WebDavConfig {
     fn default_prefix() -> String {
         "/webdav".to_string()
     }
-    fn default_payload_limit() -> usize {
+    fn default_payload_limit() -> u64 {
         10_737_418_240 // 10 GB 硬上限
     }
 }

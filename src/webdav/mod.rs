@@ -23,6 +23,7 @@ use xmltree::{Element, XMLNode};
 use crate::config::WebDavConfig;
 use crate::runtime::PrimaryAppState;
 use crate::services::audit_service;
+use crate::utils::numbers::u64_to_usize;
 use crate::webdav::dav::{
     DavFileSystem, DavLock, DavLockSystem, DavMetaData, DavPath, DavProp, FsError, OpenOptions,
     ReadDirMeta,
@@ -1481,13 +1482,22 @@ pub fn configure(
     webdav_config: &WebDavConfig,
     _db: &sea_orm::DatabaseConnection,
 ) {
+    let payload_limit = u64_to_usize(webdav_config.payload_limit, "webdav.payload_limit")
+        .unwrap_or_else(|_| {
+            tracing::warn!(
+                configured = webdav_config.payload_limit,
+                platform_limit = usize::MAX,
+                "webdav.payload_limit exceeds platform usize range; using platform limit"
+            );
+            usize::MAX
+        });
     let webdav_state = web::Data::new(WebDavState {
         prefix: webdav_config.prefix.clone(),
     });
 
     cfg.app_data(webdav_state).service(
         web::scope(&webdav_config.prefix)
-            .app_data(web::PayloadConfig::new(webdav_config.payload_limit))
+            .app_data(web::PayloadConfig::new(payload_limit))
             .default_service(web::to(webdav_handler)),
     );
 }
