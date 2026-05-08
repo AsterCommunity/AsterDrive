@@ -5,6 +5,64 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v0.1.0-beta.4] - 2026-05-08
+
+### Release Highlights
+
+- **多层缓存优化系统** — 引入应用层缓存抽象，支持内存和 Redis 双后端，Redis 故障时自动降级到本地缓存，分享服务查询性能大幅提升
+- **文件/文件夹所有权模型重构** — 将 `user_id` 拆分为 `owner_user_id`、`created_by_user_id`、`created_by_username`，支持团队空间资源归属追溯
+- **前端组件架构重构** — 管理后台大组件拆分为可维护的子组件目录结构，状态管理逻辑抽离为独立 hooks
+- **多架构原生支持扩展** — Release CI 新增 Linux ARM64/ARMv7、macOS ARM64/x86_64、Windows ARM64 编译目标，Docker 镜像支持 linux/arm64 平台
+- **公共配置自动重新验证** — 前端每 60 秒定时刷新 + 窗口聚焦/可见性变化触发，确保 branding 和预览应用配置实时生效
+
+### Added
+
+- **多层缓存系统**
+  - 新增 `src/cache/` 模块，提供统一缓存抽象接口
+  - 支持 moka 内存缓存和 Redis 双后端，自动故障检测与熔断降级
+  - 缓存预留机制防止并发写入冲突（缩略图生成等场景）
+  - 分享服务集成：分享 token 查找缓存（60s TTL）、活跃分享目标缓存
+- **文件/文件夹所有权字段**
+  - `files` 和 `folders` 表新增 `owner_user_id`、`created_by_user_id`、`created_by_username` 字段
+  - 支持区分资源所有者（团队空间场景为 `NULL`）与实际创建者
+- **公共配置自动重新验证机制**
+  - `App.tsx` 每 60 秒自动重新验证公共配置
+  - 窗口 `focus` 和 `visibilitychange` 事件触发即时刷新
+  - 覆盖 branding、previewApp、thumbnailSupport 三个公共配置 store
+- **Docker 多架构镜像支持**
+  - 新增 `linux/arm64` 平台支持
+  - 双层构建缓存策略（gha + registry）
+  - 镜像 cosign 签名
+- **Release CI 多架构编译大幅扩展**
+  - 新增 Linux ARM64、ARMv7、macOS ARM64/x86_64、Windows ARM64 目标
+  - checksums.txt cosign Sigstore 签名
+
+### Changed
+
+- **分享服务性能优化** — 引入多层缓存减少数据库查询，缓存按 scope 前缀批量失效
+- **CI 构建策略优化** — Docker 构建缓存策略优化，Release 工作流架构矩阵扩展
+
+### Refactored
+
+- **数据库 Migration** — `user_id` 字段拆分迁移（三后端兼容：SQLite 表重建 / SQL 列变更）
+- **前端组件架构** — 98 个组件拆分重组，典型如 `AdminTeamDetailDialog` → `admin-team-detail/` 目录结构
+- **服务层代码结构** — 参数传递优化、函数拆分、减少重复代码
+
+### Notes
+
+- ⚠️ **数据库 Schema 破坏性变更**：`files` 和 `folders` 表移除 `user_id` 字段，升级必须执行 migration
+- ⚠️ **API 响应格式变更**：`FileInfo` / `FolderInfo` 不再返回 `user_id`，改为 `owner_user_id` / `created_by_user_id` / `created_by_username`
+- 该 migration 标记为不可逆，因创建者用户可能已被删除，无法安全回滚
+- 自定义客户端依赖 `user_id` 字段需同步更新字段名
+
+---
+
+**统计数据**：
+- 225 files changed, 19,206 insertions(+), 11,701 deletions(-)
+- 8 commits
+
+---
+
 ## [v0.1.0-beta.3] - 2026-05-06
 
 ### Release Highlights
@@ -2625,7 +2683,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 66 commits
 - Rust Edition 2024, MSRV 1.91.1
 
-[Unreleased]: https://github.com/AptS-1547/AsterDrive/compare/v0.1.0-beta.3...HEAD
+[Unreleased]: https://github.com/AptS-1547/AsterDrive/compare/v0.1.0-beta.4...HEAD
+[v0.1.0-beta.4]: https://github.com/AptS-1547/AsterDrive/compare/v0.1.0-beta.3...v0.1.0-beta.4
 [v0.1.0-beta.3]: https://github.com/AptS-1547/AsterDrive/compare/v0.1.0-beta.2...v0.1.0-beta.3
 [v0.1.0-beta.2]: https://github.com/AptS-1547/AsterDrive/compare/v0.1.0-beta.1...v0.1.0-beta.2
 [v0.1.0-beta.1]: https://github.com/AptS-1547/AsterDrive/compare/v0.0.1-alpha.26...v0.1.0-beta.1
