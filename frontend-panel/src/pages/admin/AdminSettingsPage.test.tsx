@@ -8,6 +8,7 @@ import {
 	within,
 } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { invalidateAdminConfigMetadataCache } from "@/lib/adminConfigMetadataCache";
 import AdminSettingsPage from "@/pages/admin/AdminSettingsPage";
 import type {
 	ConfigSchemaItem,
@@ -547,6 +548,7 @@ function getMockConfigValueType(key: string): SystemConfigValueType {
 
 describe("AdminSettingsPage", () => {
 	beforeEach(() => {
+		invalidateAdminConfigMetadataCache();
 		mockState.actionConfig.mockReset();
 		mockState.codeEditorProps = null;
 		mockState.deleteConfig.mockReset();

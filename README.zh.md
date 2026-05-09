@@ -21,9 +21,6 @@
   <a href="docs/deployment/docker.md"><img alt="Docker 部署" src="https://img.shields.io/badge/docker-deployment-2496ED?style=for-the-badge&logo=docker&logoColor=white"></a>
 </p>
 
-> [!WARNING]
-> AsterDrive 仍处于活跃开发阶段，暂时还不具备生产完备性。用于关键生产负载前，请预期会遇到破坏性变更、安全加固未完全覆盖，以及运维层面的粗糙边角。
-
 ## 功能亮点
 
 - **单二进制交付** - 前端资源通过 `rust-embed` 嵌入 Rust 服务端，无需额外 Web 服务器

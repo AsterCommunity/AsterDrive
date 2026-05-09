@@ -21,9 +21,6 @@
   <a href="docs/deployment/docker.md"><img alt="Docker" src="https://img.shields.io/badge/docker-deployment-2496ED?style=for-the-badge&logo=docker&logoColor=white"></a>
 </p>
 
-> [!WARNING]
-> AsterDrive is still under active development and is not production-ready yet. Expect breaking changes, incomplete hardening, and operational rough edges before using it for critical workloads.
-
 ## Highlights
 
 - **Single binary delivery** - frontend assets are embedded into the Rust server with `rust-embed`
