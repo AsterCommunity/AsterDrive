@@ -28,12 +28,17 @@ codegen-units = 1
 panic = "abort"
 strip = true
 
-[profile.release-debug]
+# 压测/火焰图采样用：接近 release，但保留符号并关闭 LTO，方便 perf 展开栈。
+# frame pointer 需要通过 RUSTFLAGS 传入：
+# RUSTFLAGS="-C force-frame-pointers=yes" cargo build --profile profiling
+[profile.profiling]
 inherits = "release"
+opt-level = 2
 codegen-units = 1
 debug = true
 strip = false
 lto = false
+panic = "abort"
 
 [profile.release-performance]
 inherits = "release"
