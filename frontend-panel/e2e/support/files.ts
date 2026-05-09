@@ -239,7 +239,13 @@ export async function deleteItem(page: Page, itemName: string) {
 }
 
 export async function toggleItemSelection(page: Page, itemName: string) {
-	await fileRow(page, itemName).locator("button[aria-pressed]").first().click();
+	await page
+		.getByRole("row")
+		.filter({ has: page.getByText(itemName, { exact: true }) })
+		.first()
+		.locator("button[aria-pressed]")
+		.first()
+		.click();
 }
 
 export function folderTreeButton(page: Page, folderName: string) {

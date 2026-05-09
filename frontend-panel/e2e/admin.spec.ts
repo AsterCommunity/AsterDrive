@@ -1,8 +1,12 @@
+import { createTeamViaApi } from "./support/api";
 import { authenticate, gotoAdminPage } from "./support/auth";
 import {
 	clickRowAction,
+	createPageShare,
 	dialogByTitle,
+	fileNameCell,
 	tableRowByCellText,
+	uploadViaPicker,
 } from "./support/files";
 import { uniqueAccountName, uniqueName } from "./support/fixtures";
 import { expect, test } from "./support/test";
@@ -116,5 +120,77 @@ test.describe
 			await expect(tableRowByCellText(page, policyName)).toHaveCount(0, {
 				timeout: 30_000,
 			});
+		});
+
+		test("surfaces team and share records in admin pages", async ({
+			page,
+			request,
+		}) => {
+			await authenticate(page, request);
+
+			const teamName = uniqueName("pw-admin-team");
+			const team = await createTeamViaApi(
+				page,
+				teamName,
+				"Team created for admin E2E coverage",
+			);
+			const sharedFile = {
+				buffer: Buffer.from("admin share coverage\n", "utf8"),
+				mimeType: "text/plain",
+				name: `${uniqueName("pw-admin-share")}.txt`,
+			} as const;
+
+			await page.goto("/");
+			await uploadViaPicker(page, [sharedFile]);
+			await expect(fileNameCell(page, sharedFile.name)).toBeVisible({
+				timeout: 30_000,
+			});
+			const shareUrl = await createPageShare(page, sharedFile.name);
+			const shareToken = shareUrl.split("/s/").at(-1) ?? "";
+			expect(shareToken.length).toBeGreaterThan(0);
+
+			await gotoAdminPage(
+				page,
+				`/admin/teams?keyword=${encodeURIComponent(teamName)}`,
+				"Teams",
+			);
+			const teamRow = page
+				.getByRole("row")
+				.filter({ hasText: teamName })
+				.first();
+			await expect(teamRow).toBeVisible({
+				timeout: 30_000,
+			});
+			await teamRow.click();
+			await expect(page).toHaveURL(
+				new RegExp(`/admin/teams/${team.id}/overview$`),
+			);
+			await expect(page.locator("#admin-team-detail-name")).toHaveValue(
+				teamName,
+				{
+					timeout: 30_000,
+				},
+			);
+
+			await page.getByRole("tab", { name: "Members" }).click();
+			await expect(page).toHaveURL(
+				new RegExp(`/admin/teams/${team.id}/members$`),
+			);
+			await expect(
+				page.getByRole("row").filter({ hasText: "admin@example.com" }).first(),
+			).toBeVisible({
+				timeout: 30_000,
+			});
+
+			await gotoAdminPage(page, "/admin/shares", "Shares");
+			const shareRow = tableRowByCellText(page, shareToken);
+			await expect(shareRow).toBeVisible({ timeout: 30_000 });
+			await shareRow.getByRole("button").last().click();
+			const deleteDialog = page.getByRole("alertdialog");
+			await expect(deleteDialog).toBeVisible();
+			await deleteDialog
+				.getByRole("button", { exact: true, name: "Delete" })
+				.click();
+			await expect(shareRow).toHaveCount(0, { timeout: 30_000 });
 		});
 	});

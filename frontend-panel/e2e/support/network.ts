@@ -194,7 +194,15 @@ export async function webdavRequest(
 	options: {
 		body?: string;
 		headers?: Record<string, string>;
-		method: "DELETE" | "GET" | "MKCOL" | "PROPFIND" | "PUT";
+		method:
+			| "COPY"
+			| "DELETE"
+			| "GET"
+			| "LOCK"
+			| "MKCOL"
+			| "MOVE"
+			| "PROPFIND"
+			| "PUT";
 	},
 ) {
 	return page.evaluate(
@@ -216,4 +224,30 @@ export async function webdavRequest(
 			requestPath,
 		},
 	);
+}
+
+export async function waitForApiCondition<T>(
+	page: Page,
+	requestPath: string,
+	predicate: (data: T) => boolean,
+	options?: {
+		intervalMs?: number;
+		timeoutMs?: number;
+	},
+) {
+	const timeoutMs = options?.timeoutMs ?? 30_000;
+	const intervalMs = options?.intervalMs ?? 750;
+	const startedAt = Date.now();
+	let latest: T | null = null;
+
+	for (;;) {
+		latest = await apiJsonInPage<T>(page, requestPath);
+		if (predicate(latest)) {
+			return latest;
+		}
+		if (Date.now() - startedAt >= timeoutMs) {
+			throw new Error(`Timed out waiting for API condition at ${requestPath}`);
+		}
+		await page.waitForTimeout(intervalMs);
+	}
 }
