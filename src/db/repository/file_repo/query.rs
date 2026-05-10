@@ -6,12 +6,15 @@ use sea_orm::{
     ColumnTrait, Condition, ConnectionTrait, DbBackend, EntityTrait, ExprTrait, PaginatorTrait,
     QueryFilter, QueryOrder, QuerySelect, sea_query::Expr,
 };
+use unicode_normalization::UnicodeNormalization;
 
 use crate::api::pagination::{SortBy, SortOrder};
 use crate::entities::file::{self, Entity as File};
 use crate::errors::{AsterError, MapAsterErr, Result};
 
 use super::common::{FileScope, active_scope_condition, apply_folder_condition, scope_condition};
+
+const UNIQUE_FILENAME_CANDIDATE_BATCH_SIZE: usize = 32;
 
 fn sum_as_i64_expr(
     backend: DbBackend,
@@ -479,6 +482,43 @@ pub async fn find_by_names_in_team_folder<C: ConnectionTrait>(
     find_by_names_in_folder_in_scope(db, FileScope::Team { team_id }, folder_id, names).await
 }
 
+fn build_unique_filename_candidates(normalized_name: &str) -> Result<Vec<String>> {
+    let template = crate::utils::copy_name_template(normalized_name);
+    let mut candidates = Vec::with_capacity(UNIQUE_FILENAME_CANDIDATE_BATCH_SIZE);
+    candidates.push(normalized_name.to_string());
+
+    let mut copy_number = template.next_copy_number;
+    while candidates.len() < UNIQUE_FILENAME_CANDIDATE_BATCH_SIZE {
+        candidates.push(crate::utils::format_copy_name(&template, copy_number));
+        if candidates.len() == UNIQUE_FILENAME_CANDIDATE_BATCH_SIZE {
+            break;
+        }
+        copy_number = copy_number.checked_add(1).ok_or_else(|| {
+            AsterError::validation_error(format!(
+                "failed to resolve a unique file name candidate for '{normalized_name}'"
+            ))
+        })?;
+    }
+
+    Ok(candidates)
+}
+
+fn add_normalization_query_variants(names: &[String]) -> Vec<String> {
+    let mut variants = Vec::with_capacity(names.len() * 2);
+    let mut seen = HashSet::with_capacity(names.len() * 2);
+    for name in names {
+        if seen.insert(name.clone()) {
+            variants.push(name.clone());
+        }
+
+        let decomposed: String = name.nfd().collect();
+        if seen.insert(decomposed.clone()) {
+            variants.push(decomposed);
+        }
+    }
+    variants
+}
+
 /// 基于当前目录快照建议一个不冲突的文件名：
 /// 如果 `name` 已存在则递增 " (1)", " (2)" ...
 ///
@@ -492,7 +532,22 @@ async fn resolve_unique_filename_in_scope<C: ConnectionTrait>(
     name: &str,
 ) -> Result<String> {
     let normalized_name = crate::utils::normalize_validate_name(name)?;
-    let template = crate::utils::copy_name_template(&normalized_name);
+    let candidates = build_unique_filename_candidates(&normalized_name)?;
+    let query_names = add_normalization_query_variants(&candidates);
+    let existing_candidate_names: HashSet<String> =
+        find_by_names_in_folder_in_scope(db, scope, folder_id, &query_names)
+            .await?
+            .into_iter()
+            .map(|file| crate::utils::normalize_name(&file.name))
+            .collect();
+
+    if let Some(candidate) = candidates
+        .iter()
+        .find(|candidate| !existing_candidate_names.contains(candidate.as_str()))
+    {
+        return Ok(candidate.clone());
+    }
+
     let existing_names: HashSet<String> = find_by_folder_in_scope(db, scope, folder_id)
         .await?
         .into_iter()
@@ -503,6 +558,7 @@ async fn resolve_unique_filename_in_scope<C: ConnectionTrait>(
         return Ok(normalized_name);
     }
 
+    let template = crate::utils::copy_name_template(&normalized_name);
     let mut copy_number = template.next_copy_number;
     loop {
         let candidate = crate::utils::format_copy_name(&template, copy_number);

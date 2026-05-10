@@ -16,15 +16,112 @@ use migration::Migrator;
 use sea_orm::{ActiveModelTrait, EntityTrait, PaginatorTrait, Set};
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
+use std::sync::{
+    Arc, Mutex,
+    atomic::{AtomicUsize, Ordering},
+};
 use std::time::Duration;
 use tokio::io::AsyncRead;
 use tokio::sync::{Notify, oneshot};
 
 use super::{
-    StoreFromTempHints, StoreFromTempParams, WorkspaceStorageScope,
-    store_from_temp_exact_name_with_hints, store_from_temp_with_hints,
+    StoreFromTempHints, StoreFromTempParams, StorePreuploadedNondedupParams, WorkspaceStorageScope,
+    prepare_non_dedup_blob_upload, store_from_temp_exact_name_with_hints,
+    store_from_temp_with_hints, store_preuploaded_nondedup, upload_temp_file_to_prepared_blob,
 };
+
+struct CountingUploadDriver {
+    inner: crate::storage::drivers::local::LocalDriver,
+    put_file_count: AtomicUsize,
+}
+
+impl CountingUploadDriver {
+    fn new(policy: &storage_policy::Model) -> Self {
+        Self {
+            inner: crate::storage::drivers::local::LocalDriver::new(policy)
+                .expect("counting test driver should initialize"),
+            put_file_count: AtomicUsize::new(0),
+        }
+    }
+
+    fn put_file_count(&self) -> usize {
+        self.put_file_count.load(Ordering::SeqCst)
+    }
+}
+
+#[async_trait]
+impl StorageDriver for CountingUploadDriver {
+    async fn put(&self, path: &str, data: &[u8]) -> crate::errors::Result<String> {
+        self.inner.put(path, data).await
+    }
+
+    async fn get(&self, path: &str) -> crate::errors::Result<Vec<u8>> {
+        self.inner.get(path).await
+    }
+
+    async fn get_stream(
+        &self,
+        path: &str,
+    ) -> crate::errors::Result<Box<dyn AsyncRead + Unpin + Send>> {
+        self.inner.get_stream(path).await
+    }
+
+    async fn delete(&self, path: &str) -> crate::errors::Result<()> {
+        self.inner.delete(path).await
+    }
+
+    async fn exists(&self, path: &str) -> crate::errors::Result<bool> {
+        self.inner.exists(path).await
+    }
+
+    async fn metadata(&self, path: &str) -> crate::errors::Result<BlobMetadata> {
+        self.inner.metadata(path).await
+    }
+
+    fn as_list(&self) -> Option<&dyn ListStorageDriver> {
+        Some(self)
+    }
+
+    fn as_stream_upload(&self) -> Option<&dyn StreamUploadDriver> {
+        Some(self)
+    }
+}
+
+#[async_trait]
+impl ListStorageDriver for CountingUploadDriver {
+    async fn list_paths(&self, prefix: Option<&str>) -> crate::errors::Result<Vec<String>> {
+        self.inner.list_paths(prefix).await
+    }
+
+    async fn scan_paths(
+        &self,
+        prefix: Option<&str>,
+        visitor: &mut dyn StoragePathVisitor,
+    ) -> crate::errors::Result<()> {
+        self.inner.scan_paths(prefix, visitor).await
+    }
+}
+
+#[async_trait]
+impl StreamUploadDriver for CountingUploadDriver {
+    async fn put_file(
+        &self,
+        storage_path: &str,
+        local_path: &str,
+    ) -> crate::errors::Result<String> {
+        self.put_file_count.fetch_add(1, Ordering::SeqCst);
+        self.inner.put_file(storage_path, local_path).await
+    }
+
+    async fn put_reader(
+        &self,
+        storage_path: &str,
+        reader: Box<dyn AsyncRead + Unpin + Send + Sync>,
+        size: i64,
+    ) -> crate::errors::Result<String> {
+        self.inner.put_reader(storage_path, reader, size).await
+    }
+}
 
 struct BlockingPutFileDriver {
     inner: crate::storage::drivers::local::LocalDriver,
@@ -316,6 +413,108 @@ async fn exact_name_conflict_cleans_preuploaded_local_blob() {
     let upload_tree_after = snapshot_dir_tree(&uploads_root).unwrap();
     assert_eq!(blob_count_after, blob_count_before);
     assert_eq!(upload_tree_after, upload_tree_before);
+
+    drop(state);
+    let _ = std::fs::remove_dir_all(&temp_root);
+}
+
+#[tokio::test]
+async fn temp_preupload_quota_failure_does_not_write_blob() {
+    let (state, temp_root, policy, user) = build_test_state().await;
+    let scope = WorkspaceStorageScope::Personal { user_id: user.id };
+    let uploads_root = temp_root.join("uploads");
+    let driver = Arc::new(CountingUploadDriver::new(&policy));
+    state
+        .driver_registry
+        .insert_for_test(policy.id, driver.clone());
+
+    let payload = b"payload larger than quota";
+    let temp_file = temp_root.join("quota-fail-temp.bin");
+    tokio::fs::write(&temp_file, payload).await.unwrap();
+
+    let mut active: user::ActiveModel = user.clone().into();
+    active.storage_quota = Set((payload.len() as i64) - 1);
+    active.update(&state.db).await.unwrap();
+
+    let upload_tree_before = snapshot_dir_tree(&uploads_root).unwrap();
+    let err = store_from_temp_with_hints(
+        &state,
+        StoreFromTempParams::new(
+            scope,
+            None,
+            "quota-fail-temp.bin",
+            &temp_file.to_string_lossy(),
+            payload.len() as i64,
+        ),
+        StoreFromTempHints {
+            resolved_policy: Some(policy),
+            precomputed_hash: None,
+            actor_username: None,
+        },
+    )
+    .await
+    .expect_err("quota failure should stop temp preupload before blob write");
+
+    assert_eq!(err.code(), "E032");
+    assert_eq!(driver.put_file_count(), 0);
+    assert_eq!(file_blob::Entity::find().count(&state.db).await.unwrap(), 0);
+    assert_eq!(
+        snapshot_dir_tree(&uploads_root).unwrap(),
+        upload_tree_before
+    );
+
+    drop(state);
+    let _ = std::fs::remove_dir_all(&temp_root);
+}
+
+#[tokio::test]
+async fn preuploaded_quota_failure_cleans_local_blob() {
+    let (state, temp_root, policy, user) = build_test_state().await;
+    let scope = WorkspaceStorageScope::Personal { user_id: user.id };
+    let uploads_root = temp_root.join("uploads");
+    let driver = Arc::new(CountingUploadDriver::new(&policy));
+    state
+        .driver_registry
+        .insert_for_test(policy.id, driver.clone());
+
+    let payload = b"already uploaded but over quota";
+    let temp_file = temp_root.join("quota-fail-preuploaded.bin");
+    tokio::fs::write(&temp_file, payload).await.unwrap();
+
+    let prepared = prepare_non_dedup_blob_upload(&policy, payload.len() as i64);
+    upload_temp_file_to_prepared_blob(driver.as_ref(), &prepared, &temp_file.to_string_lossy())
+        .await
+        .unwrap();
+    assert_eq!(driver.put_file_count(), 1);
+    assert!(
+        !snapshot_dir_tree(&uploads_root).unwrap().is_empty(),
+        "preuploaded blob should exist before quota failure"
+    );
+
+    let mut active: user::ActiveModel = user.clone().into();
+    active.storage_quota = Set((payload.len() as i64) - 1);
+    active.update(&state.db).await.unwrap();
+
+    let err = store_preuploaded_nondedup(
+        &state,
+        StorePreuploadedNondedupParams {
+            scope,
+            folder_id: None,
+            filename: "quota-fail-preuploaded.bin",
+            size: payload.len() as i64,
+            existing_file_id: None,
+            skip_lock_check: false,
+            policy: &policy,
+            preuploaded_blob: prepared,
+            actor_username: None,
+        },
+    )
+    .await
+    .expect_err("quota failure should clean preuploaded blob");
+
+    assert_eq!(err.code(), "E032");
+    assert_eq!(file_blob::Entity::find().count(&state.db).await.unwrap(), 0);
+    assert!(snapshot_dir_tree(&uploads_root).unwrap().is_empty());
 
     drop(state);
     let _ = std::fs::remove_dir_all(&temp_root);

@@ -347,6 +347,29 @@ async fn test_file_repo_resolve_unique_filename_treats_nfd_and_nfc_as_same_name(
 }
 
 #[actix_web::test]
+async fn test_file_repo_resolve_unique_filename_falls_back_after_candidate_batch() {
+    let state = common::setup().await;
+    let db = state.db.clone();
+    let app = create_test_app!(state);
+
+    let (token, _) = register_and_login!(app);
+    let user = user_repo::find_by_username(&db, "testuser")
+        .await
+        .unwrap()
+        .expect("registered user should exist");
+
+    upload_test_file_named!(app, token, "report.txt");
+    for index in 1..32 {
+        upload_test_file_named!(app, token, &format!("report ({index}).txt"));
+    }
+
+    let candidate = file_repo::resolve_unique_filename(&db, user.id, None, "report.txt")
+        .await
+        .unwrap();
+    assert_eq!(candidate, "report (32).txt");
+}
+
+#[actix_web::test]
 async fn test_dangerous_html_direct_link_stays_inline_with_csp_sandbox() {
     let state = common::setup().await;
     let app = create_test_app!(state);
