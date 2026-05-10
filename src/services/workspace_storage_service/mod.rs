@@ -27,9 +27,10 @@ pub(crate) use crate::services::workspace_storage_core::{
     create_exact_file_from_blob, create_exact_file_from_blob_with_actor_username,
     create_new_file_from_blob, create_new_file_from_blob_with_actor_username, create_nondedup_blob,
     create_nondedup_blob_with_key, create_remote_nondedup_blob, create_s3_nondedup_blob,
-    ensure_upload_parent_path, finalize_upload_session_blob, finalize_upload_session_file,
-    load_storage_limits, local_content_dedup_enabled, parse_relative_upload_path,
-    resolve_policy_for_size, resolve_policy_for_size_with_verified_folder, update_storage_used,
+    ensure_upload_parent_path, finalize_upload_session_blob_with_actor_username,
+    finalize_upload_session_file, load_storage_limits, local_content_dedup_enabled,
+    parse_relative_upload_path, resolve_policy_for_size,
+    resolve_policy_for_size_with_verified_folder, update_storage_used,
     update_storage_used_for_resource_scope,
 };
 

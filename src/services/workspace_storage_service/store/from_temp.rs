@@ -54,6 +54,7 @@ struct PreparedStoreFromTemp {
     blob_plan: TempBlobPlan,
     overwrite_ctx: Option<OverwriteContext>,
     storage_delta: i64,
+    quota_prechecked: bool,
     mime: String,
     now: chrono::DateTime<Utc>,
     actor_username: Option<String>,
@@ -187,7 +188,8 @@ async fn prepare_store_from_temp(
         load_overwrite_context(state, scope, existing_file_id, skip_lock_check).await?;
     let storage_delta = overwrite_ctx.as_ref().map_or(size, |_| size);
 
-    if storage_delta > 0 && matches!(blob_plan, TempBlobPlan::Preuploaded(_)) {
+    let quota_prechecked = storage_delta > 0 && matches!(blob_plan, TempBlobPlan::Preuploaded(_));
+    if quota_prechecked {
         check_quota(&state.db, scope, storage_delta).await?;
     }
 
@@ -207,6 +209,7 @@ async fn prepare_store_from_temp(
         blob_plan,
         overwrite_ctx,
         storage_delta,
+        quota_prechecked,
         mime: mime_guess::from_path(&filename)
             .first_or_octet_stream()
             .to_string(),
@@ -313,6 +316,7 @@ async fn persist_temp_store(
         blob_plan,
         overwrite_ctx,
         storage_delta,
+        quota_prechecked,
         mime,
         now,
         actor_username,
@@ -321,7 +325,7 @@ async fn persist_temp_store(
 
     let create_result = async {
         let txn = crate::db::transaction::begin(&state.db).await?;
-        if storage_delta > 0 {
+        if storage_delta > 0 && !quota_prechecked {
             check_quota(&txn, scope, storage_delta).await?;
         }
 

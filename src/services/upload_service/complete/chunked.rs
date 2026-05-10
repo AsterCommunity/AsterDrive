@@ -30,9 +30,10 @@ enum AssembledBlobPlan {
     Preuploaded(PreparedNonDedupBlobUpload),
 }
 
-pub(super) async fn complete_chunked_upload(
+pub(super) async fn complete_chunked_upload_with_actor_username(
     state: &PrimaryAppState,
     session: upload_session::Model,
+    actor_username: Option<&str>,
 ) -> Result<file::Model> {
     let db = &state.db;
     let upload_id = session.id.clone();
@@ -44,7 +45,14 @@ pub(super) async fn complete_chunked_upload(
         async {
             let policy = state.policy_snapshot.get_policy_or_err(session.policy_id)?;
             let driver = state.driver_registry.get_driver(&policy)?;
-            finalize_chunked_upload_session(state, &session, &policy, driver.as_ref()).await
+            finalize_chunked_upload_session(
+                state,
+                &session,
+                &policy,
+                driver.as_ref(),
+                actor_username,
+            )
+            .await
         },
     )
     .await?;
@@ -57,9 +65,17 @@ async fn finalize_chunked_upload_session(
     session: &upload_session::Model,
     policy: &storage_policy::Model,
     driver: &dyn StorageDriver,
+    actor_username: Option<&str>,
 ) -> Result<file::Model> {
     if policy.driver_type == DriverType::Remote {
-        return finalize_remote_chunked_upload_session(state, session, policy, driver).await;
+        return finalize_remote_chunked_upload_session(
+            state,
+            session,
+            policy,
+            driver,
+            actor_username,
+        )
+        .await;
     }
 
     let assemble_started_at = Instant::now();
@@ -83,6 +99,7 @@ async fn finalize_chunked_upload_session(
         policy.id,
         assembled.size,
         &blob_plan,
+        actor_username,
     )
     .await
     .inspect(|file| {
@@ -103,6 +120,7 @@ async fn finalize_remote_chunked_upload_session(
     session: &upload_session::Model,
     policy: &storage_policy::Model,
     driver: &dyn StorageDriver,
+    actor_username: Option<&str>,
 ) -> Result<file::Model> {
     const CHUNK_RELAY_BUFFER_SIZE: usize = 64 * 1024;
 
@@ -145,7 +163,7 @@ async fn finalize_remote_chunked_upload_session(
     }
 
     let persist_started_at = Instant::now();
-    persist_preuploaded_chunked_upload(state, session, driver, &prepared)
+    persist_preuploaded_chunked_upload(state, session, driver, &prepared, actor_username)
         .await
         .inspect(|file| {
             tracing::debug!(
@@ -332,6 +350,7 @@ async fn persist_assembled_upload(
     policy_id: i64,
     size: i64,
     blob_plan: &AssembledBlobPlan,
+    actor_username: Option<&str>,
 ) -> Result<file::Model> {
     let now = Utc::now();
     let create_result = async {
@@ -352,9 +371,14 @@ async fn persist_assembled_upload(
             }
         };
 
-        let created =
-            workspace_storage_service::finalize_upload_session_blob(&txn, session, &blob, now)
-                .await?;
+        let created = workspace_storage_service::finalize_upload_session_blob_with_actor_username(
+            &txn,
+            session,
+            &blob,
+            now,
+            actor_username,
+        )
+        .await?;
 
         crate::db::transaction::commit(txn).await?;
         Ok::<file::Model, AsterError>(created)
@@ -384,14 +408,20 @@ async fn persist_preuploaded_chunked_upload(
     session: &upload_session::Model,
     driver: &dyn StorageDriver,
     prepared: &PreparedNonDedupBlobUpload,
+    actor_username: Option<&str>,
 ) -> Result<file::Model> {
     let now = Utc::now();
     let create_result = async {
         let txn = crate::db::transaction::begin(&state.db).await?;
         let blob = workspace_storage_service::persist_preuploaded_blob(&txn, prepared).await?;
-        let created =
-            workspace_storage_service::finalize_upload_session_blob(&txn, session, &blob, now)
-                .await?;
+        let created = workspace_storage_service::finalize_upload_session_blob_with_actor_username(
+            &txn,
+            session,
+            &blob,
+            now,
+            actor_username,
+        )
+        .await?;
         crate::db::transaction::commit(txn).await?;
         Ok::<file::Model, AsterError>(created)
     }
