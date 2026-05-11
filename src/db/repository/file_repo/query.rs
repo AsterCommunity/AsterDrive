@@ -1,12 +1,12 @@
 //! `file_repo` 仓储子模块：`query`。
 
-use std::collections::HashSet;
+use std::{borrow::Cow, collections::HashSet};
 
 use sea_orm::{
     ColumnTrait, Condition, ConnectionTrait, DbBackend, EntityTrait, ExprTrait, PaginatorTrait,
     QueryFilter, QueryOrder, QuerySelect, sea_query::Expr,
 };
-use unicode_normalization::UnicodeNormalization;
+use unicode_normalization::{UnicodeNormalization, is_nfc, is_nfd};
 
 use crate::api::pagination::{SortBy, SortOrder};
 use crate::entities::file::{self, Entity as File};
@@ -553,28 +553,48 @@ fn build_unique_filename_candidates(normalized_name: &str) -> Result<Vec<String>
     Ok(candidates)
 }
 
-fn push_unique_normalization_variant(
-    variants: &mut Vec<String>,
-    seen: &mut HashSet<String>,
-    variant: &str,
-) {
-    if !seen.contains(variant) {
+fn push_unique_normalization_variant(variants: &mut Vec<String>, variant: &str) {
+    if variants.iter().all(|existing| existing.as_str() != variant) {
         variants.push(variant.to_string());
-        seen.insert(variant.to_string());
     }
 }
 
-fn add_normalization_query_variants(names: &[String]) -> Vec<String> {
-    let mut variants = Vec::with_capacity(names.len() * 3);
-    let mut seen = HashSet::with_capacity(names.len() * 3);
-    for name in names {
-        push_unique_normalization_variant(&mut variants, &mut seen, name);
-        let composed: String = name.nfc().collect();
-        push_unique_normalization_variant(&mut variants, &mut seen, &composed);
-        let decomposed: String = name.nfd().collect();
-        push_unique_normalization_variant(&mut variants, &mut seen, &decomposed);
+fn push_unique_owned_normalization_variant(variants: &mut Vec<String>, variant: String) {
+    if variants
+        .iter()
+        .all(|existing| existing.as_str() != variant.as_str())
+    {
+        variants.push(variant);
     }
-    variants
+}
+
+fn add_normalization_query_variants(names: &[String]) -> Cow<'_, [String]> {
+    if names.iter().all(|name| name.is_ascii()) {
+        return Cow::Borrowed(names);
+    }
+
+    let mut variants = Vec::with_capacity(names.len());
+    for name in names {
+        push_unique_normalization_variant(&mut variants, name);
+        if name.is_ascii() {
+            continue;
+        }
+        if !is_nfc(name) {
+            push_unique_owned_normalization_variant(&mut variants, name.nfc().collect());
+        }
+        if !is_nfd(name) {
+            push_unique_owned_normalization_variant(&mut variants, name.nfd().collect());
+        }
+    }
+    Cow::Owned(variants)
+}
+
+fn normalize_existing_filename(name: String) -> String {
+    if name.is_ascii() || is_nfc(&name) {
+        name
+    } else {
+        name.nfc().collect()
+    }
 }
 
 /// 基于当前目录快照建议一个不冲突的文件名：
@@ -593,17 +613,17 @@ async fn resolve_unique_filename_in_scope<C: ConnectionTrait>(
     let candidates = build_unique_filename_candidates(&normalized_name)?;
     let query_names = add_normalization_query_variants(&candidates);
     let existing_candidate_names: HashSet<String> =
-        find_names_by_names_in_folder_in_scope(db, scope, folder_id, &query_names)
+        find_names_by_names_in_folder_in_scope(db, scope, folder_id, query_names.as_ref())
             .await?
             .into_iter()
-            .map(|name| crate::utils::normalize_name(&name))
+            .map(normalize_existing_filename)
             .collect();
 
     if let Some(candidate) = candidates
-        .iter()
+        .into_iter()
         .find(|candidate| !existing_candidate_names.contains(candidate.as_str()))
     {
-        return Ok(candidate.clone());
+        return Ok(candidate);
     }
 
     let template = crate::utils::copy_name_template(&normalized_name);
@@ -621,17 +641,17 @@ async fn resolve_unique_filename_in_scope<C: ConnectionTrait>(
         )?;
         let query_names = add_normalization_query_variants(&candidates);
         let existing_names: HashSet<String> =
-            find_names_by_names_in_folder_in_scope(db, scope, folder_id, &query_names)
+            find_names_by_names_in_folder_in_scope(db, scope, folder_id, query_names.as_ref())
                 .await?
                 .into_iter()
-                .map(|name| crate::utils::normalize_name(&name))
+                .map(normalize_existing_filename)
                 .collect();
 
         if let Some(candidate) = candidates
-            .iter()
+            .into_iter()
             .find(|candidate| !existing_names.contains(candidate.as_str()))
         {
-            return Ok(candidate.clone());
+            return Ok(candidate);
         }
 
         next_copy_number = checked_candidate_copy_number(
@@ -664,4 +684,49 @@ pub async fn resolve_unique_team_filename<C: ConnectionTrait>(
     name: &str,
 ) -> Result<String> {
     resolve_unique_filename_in_scope(db, FileScope::Team { team_id }, folder_id, name).await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{add_normalization_query_variants, normalize_existing_filename};
+    use std::borrow::Cow;
+
+    #[test]
+    fn normalization_query_variants_borrow_ascii_candidates() {
+        let names = vec!["report.txt".to_string(), "report (1).txt".to_string()];
+        let variants = add_normalization_query_variants(&names);
+
+        assert!(matches!(variants, Cow::Borrowed(_)));
+        assert_eq!(variants.as_ref(), names.as_slice());
+    }
+
+    #[test]
+    fn normalization_query_variants_add_unicode_forms_only_when_needed() {
+        let names = vec![
+            "caf\u{00e9}.txt".to_string(),
+            "cafe\u{0301}.txt".to_string(),
+        ];
+        let variants = add_normalization_query_variants(&names);
+
+        assert!(matches!(variants, Cow::Owned(_)));
+        assert_eq!(variants.as_ref().len(), 2);
+        assert!(variants.as_ref().contains(&"caf\u{00e9}.txt".to_string()));
+        assert!(variants.as_ref().contains(&"cafe\u{0301}.txt".to_string()));
+    }
+
+    #[test]
+    fn normalize_existing_filename_reuses_ascii_and_nfc_names() {
+        assert_eq!(
+            normalize_existing_filename("report.txt".to_string()),
+            "report.txt"
+        );
+        assert_eq!(
+            normalize_existing_filename("caf\u{00e9}.txt".to_string()),
+            "caf\u{00e9}.txt"
+        );
+        assert_eq!(
+            normalize_existing_filename("cafe\u{0301}.txt".to_string()),
+            "caf\u{00e9}.txt"
+        );
+    }
 }

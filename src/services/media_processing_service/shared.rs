@@ -12,32 +12,7 @@ use crate::types::MediaProcessorKind;
 const CLI_PROCESS_TIMEOUT: Duration = Duration::from_secs(60);
 const MAX_CLI_OUTPUT_BYTES: usize = 16 * 1024 * 1024;
 
-pub(crate) struct TempDirGuard {
-    path: PathBuf,
-}
-
-impl TempDirGuard {
-    pub(crate) fn new(path: PathBuf) -> Self {
-        Self { path }
-    }
-
-    pub(crate) fn path(&self) -> &std::path::Path {
-        &self.path
-    }
-}
-
-impl Drop for TempDirGuard {
-    fn drop(&mut self) {
-        if let Err(error) = std::fs::remove_dir_all(&self.path)
-            && error.kind() != std::io::ErrorKind::NotFound
-        {
-            tracing::warn!(
-                path = %self.path.display(),
-                "failed to cleanup media processing temp dir: {error}"
-            );
-        }
-    }
-}
+pub(crate) use crate::utils::raii::TempDirGuard;
 
 pub(crate) fn run_cli_command_with_timeout(
     command: &str,

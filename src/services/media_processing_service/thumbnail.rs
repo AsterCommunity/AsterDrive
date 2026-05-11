@@ -379,7 +379,12 @@ async fn render_thumbnail_bytes(
                 blob,
                 operations::thumbnail_max_source_bytes(&state.runtime_config),
             )?;
-            crate::services::thumbnail_service::render_thumbnail_bytes(driver.as_ref(), blob).await
+            crate::services::thumbnail_service::render_thumbnail_bytes(
+                driver.as_ref(),
+                blob,
+                &state.config.server.temp_dir,
+            )
+            .await
         }
         MediaProcessorKind::VipsCli => {
             let command = processor.vips_command().to_string();
@@ -483,7 +488,7 @@ async fn render_thumbnail_with_vips_cli(
     tokio::fs::create_dir_all(&temp_dir)
         .await
         .map_aster_err_ctx("create vips temp dir", AsterError::storage_driver_error)?;
-    let temp_dir = TempDirGuard::new(temp_dir);
+    let temp_dir = TempDirGuard::new(temp_dir, "vips thumbnail temp dir");
 
     let output_path = temp_dir.path().join("thumbnail.webp");
     let prepared_input = prepare_cli_source(
@@ -570,7 +575,7 @@ async fn render_thumbnail_with_ffmpeg_cli(
     tokio::fs::create_dir_all(&temp_dir)
         .await
         .map_aster_err_ctx("create ffmpeg temp dir", AsterError::storage_driver_error)?;
-    let temp_dir = TempDirGuard::new(temp_dir);
+    let temp_dir = TempDirGuard::new(temp_dir, "ffmpeg thumbnail temp dir");
 
     let output_path = temp_dir.path().join("thumbnail.png");
     let prepared_input = prepare_cli_source(

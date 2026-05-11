@@ -96,32 +96,7 @@ pub mod fallback {
     use super::*;
     use crate::errors::AsterError;
     use crate::storage::MapAsterErr;
-    use std::path::{Path, PathBuf};
     use tokio::io::AsyncWriteExt;
-
-    struct TempFileGuard {
-        path: PathBuf,
-    }
-
-    impl TempFileGuard {
-        fn new(path: PathBuf) -> Self {
-            Self { path }
-        }
-
-        fn path(&self) -> &Path {
-            &self.path
-        }
-    }
-
-    impl Drop for TempFileGuard {
-        fn drop(&mut self) {
-            if let Err(error) = std::fs::remove_file(&self.path)
-                && error.kind() != std::io::ErrorKind::NotFound
-            {
-                tracing::warn!(path = ?self.path, "failed to cleanup put_reader temp file: {error}");
-            }
-        }
-    }
 
     /// 基于临时文件的 put_reader 通用实现
     pub async fn put_reader_with_temp_file<D>(
@@ -135,11 +110,14 @@ pub mod fallback {
     {
         // 创建临时文件
         let temp_dir = std::env::temp_dir();
-        let temp_path = TempFileGuard::new(temp_dir.join(format!(
-            "aster_put_reader_{}_{}",
-            std::process::id(),
-            rand::random::<u64>()
-        )));
+        let temp_path = crate::utils::raii::TempFileGuard::new(
+            temp_dir.join(format!(
+                "aster_put_reader_{}_{}",
+                std::process::id(),
+                rand::random::<u64>()
+            )),
+            "put_reader temp file",
+        );
 
         // 流式写入临时文件
         let mut file = tokio::fs::File::create(temp_path.path())

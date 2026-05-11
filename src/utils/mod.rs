@@ -4,6 +4,7 @@ pub mod hash;
 pub mod id;
 pub mod numbers;
 pub mod paths;
+pub mod raii;
 
 use crate::errors::{AsterError, Result};
 use unicode_normalization::UnicodeNormalization;

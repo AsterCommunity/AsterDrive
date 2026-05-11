@@ -208,7 +208,7 @@ async fn render_avatar_with_vips_cli(
             "create avatar vips temp dir",
             AsterError::storage_driver_error,
         )?;
-    let temp_dir = TempDirGuard::new(temp_dir);
+    let temp_dir = TempDirGuard::new(temp_dir, "media processing avatar temp dir");
 
     let input_path = cli_source_temp_path(temp_dir.path(), file_name, "");
     let small_output_path = temp_dir.path().join("avatar-512.webp");
