@@ -239,6 +239,18 @@ export default function ShareViewPage() {
 		window.open(url, "_blank");
 	};
 
+	const createVideoStreamLink = useCallback(() => {
+		if (!token || !retainedPreviewFile || !info) {
+			return Promise.reject(new Error("share video stream is unavailable"));
+		}
+		return info.share_type === "file"
+			? shareService.createStreamSession(token)
+			: shareService.createFolderFileStreamSession(
+					token,
+					retainedPreviewFile.id,
+				);
+	}, [info, retainedPreviewFile, token]);
+
 	const previewElement = token ? (
 		<Suspense fallback={null}>
 			{retainedPreviewFile ? (
@@ -261,6 +273,7 @@ export default function ShareViewPage() {
 									retainedPreviewFile.id,
 								)
 					}
+					videoStreamLinkFactory={createVideoStreamLink}
 				/>
 			) : null}
 		</Suspense>

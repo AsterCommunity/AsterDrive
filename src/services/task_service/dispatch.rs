@@ -930,7 +930,7 @@ mod tests {
     #[tokio::test]
     async fn claim_candidates_for_lane_claims_batch_up_to_rechecked_capacity() {
         let db = build_dispatch_test_db().await;
-        let tasks = vec![
+        let tasks = [
             insert_dispatch_test_task(
                 &db,
                 BackgroundTaskKind::ArchiveCompress,

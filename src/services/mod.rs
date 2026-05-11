@@ -29,6 +29,7 @@ pub mod property_service;
 pub mod readiness_service;
 pub mod search_service;
 pub mod share_service;
+pub mod share_stream_service;
 pub mod storage_change_service;
 pub mod stream_ticket_service;
 pub mod task_service;

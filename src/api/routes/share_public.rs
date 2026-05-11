@@ -13,6 +13,7 @@ use crate::runtime::PrimaryAppState;
 use crate::services::file_service::ResolvedDownloadRange;
 use crate::services::{
     direct_link_service, file_service, preview_link_service, profile_service, share_service,
+    share_stream_service,
 };
 use actix_governor::Governor;
 use actix_web::http::header;
@@ -109,6 +110,18 @@ pub fn routes(rl: &RateLimitConfig) -> impl actix_web::dev::HttpServiceFactory +
         .route(
             "/{token}/files/{file_id}/preview-link",
             web::post().to(create_folder_file_preview_link),
+        )
+        .route(
+            "/{token}/stream-session",
+            web::post().to(create_stream_session),
+        )
+        .route(
+            "/{token}/files/{file_id}/stream-session",
+            web::post().to(create_folder_file_stream_session),
+        )
+        .route(
+            "/{token}/stream/{session_token}/{filename}",
+            web::get().to(stream_shared_video),
         )
         .route("/{token}/content", web::get().to(list_shared_content))
         .route(
@@ -221,6 +234,40 @@ pub async fn create_preview_link(
 }
 
 #[api_docs_macros::path(
+    post,
+    path = "/api/v1/s/{token}/stream-session",
+    tag = "shares",
+    operation_id = "create_shared_file_stream_session",
+    params(("token" = String, Path, description = "Share token")),
+    responses(
+        (status = 200, description = "Stream session", body = inline(ApiResponse<crate::services::share_stream_service::ShareStreamSessionInfo>)),
+        (status = 403, description = "Password required or download limit"),
+        (status = 404, description = "Share not found"),
+    ),
+)]
+pub async fn create_stream_session(
+    state: web::Data<PrimaryAppState>,
+    path: web::Path<String>,
+    req: actix_web::HttpRequest,
+) -> Result<HttpResponse> {
+    let token = path.into_inner();
+    let cookie_value = share_cookie_value(&req, &token);
+    share_service::check_share_password_cookie(&state, &token, cookie_value.as_deref()).await?;
+
+    let (scheme, host) = request_origin_parts(&req);
+    let session = share_stream_service::create_session_for_shared_file_for_origin(
+        &state,
+        &token,
+        preview_link_service::RequestOrigin {
+            scheme: &scheme,
+            host: &host,
+        },
+    )
+    .await?;
+    Ok(HttpResponse::Ok().json(ApiResponse::ok(session)))
+}
+
+#[api_docs_macros::path(
     get,
     path = "/api/v1/s/{token}/download",
     tag = "shares",
@@ -299,6 +346,45 @@ pub async fn download_preview(
 
 #[api_docs_macros::path(
     get,
+    path = "/api/v1/s/{token}/stream/{session_token}/{filename}",
+    tag = "shares",
+    operation_id = "stream_shared_video",
+    params(
+        ("token" = String, Path, description = "Share token"),
+        ("session_token" = String, Path, description = "Stream session token"),
+        ("filename" = String, Path, description = "File name")
+    ),
+    responses(
+        (status = 200, description = "File content"),
+        (status = 206, description = "Partial file content"),
+        (status = 403, description = "Password required or download limit"),
+        (status = 404, description = "Share or file not found"),
+    )
+)]
+pub async fn stream_shared_video(
+    state: web::Data<PrimaryAppState>,
+    path: web::Path<(String, String, String)>,
+    req: actix_web::HttpRequest,
+) -> Result<HttpResponse> {
+    let (token, session_token, filename) = path.into_inner();
+    let cookie_value = share_cookie_value(&req, &token);
+    share_service::check_share_password_cookie_ignoring_download_limit(
+        &state,
+        &token,
+        cookie_value.as_deref(),
+    )
+    .await?;
+    let file =
+        share_stream_service::resolve_file_for_stream(&state, &token, &session_token, &filename)
+            .await?;
+    let range = file_service::parse_range_header(req.headers().get(header::RANGE), file.size)?;
+    let outcome =
+        share_stream_service::stream_file(&state, &token, &session_token, &filename, range).await?;
+    Ok(file_service::outcome_to_response(outcome))
+}
+
+#[api_docs_macros::path(
+    get,
     path = "/api/v1/s/{token}/files/{file_id}/download",
     tag = "shares",
     operation_id = "download_shared_folder_file",
@@ -371,6 +457,44 @@ pub async fn create_folder_file_preview_link(
     )
     .await?;
     Ok(HttpResponse::Ok().json(ApiResponse::ok(link)))
+}
+
+#[api_docs_macros::path(
+    post,
+    path = "/api/v1/s/{token}/files/{file_id}/stream-session",
+    tag = "shares",
+    operation_id = "create_shared_folder_file_stream_session",
+    params(
+        ("token" = String, Path, description = "Share token"),
+        ("file_id" = i64, Path, description = "File ID inside shared folder")
+    ),
+    responses(
+        (status = 200, description = "Stream session", body = inline(ApiResponse<crate::services::share_stream_service::ShareStreamSessionInfo>)),
+        (status = 403, description = "Password required or file outside shared folder"),
+        (status = 404, description = "Share or file not found"),
+    )
+)]
+pub async fn create_folder_file_stream_session(
+    state: web::Data<PrimaryAppState>,
+    path: web::Path<(String, i64)>,
+    req: actix_web::HttpRequest,
+) -> Result<HttpResponse> {
+    let (token, file_id) = path.into_inner();
+    let cookie_value = share_cookie_value(&req, &token);
+    share_service::check_share_password_cookie(&state, &token, cookie_value.as_deref()).await?;
+
+    let (scheme, host) = request_origin_parts(&req);
+    let session = share_stream_service::create_session_for_shared_folder_file_for_origin(
+        &state,
+        &token,
+        file_id,
+        preview_link_service::RequestOrigin {
+            scheme: &scheme,
+            host: &host,
+        },
+    )
+    .await?;
+    Ok(HttpResponse::Ok().json(ApiResponse::ok(session)))
 }
 
 #[api_docs_macros::path(

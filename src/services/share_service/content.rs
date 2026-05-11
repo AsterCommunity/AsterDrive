@@ -19,8 +19,9 @@ use super::cache::{
     invalidate_active_share_target_cache_for_share, invalidate_share_token_record_cache_for_share,
 };
 use super::shared::{
-    load_share_file_resource, load_shared_folder_file_target, load_shared_subfolder_target,
-    load_valid_folder_share_root, load_valid_share,
+    load_share_file_resource, load_shared_folder_file_target,
+    load_shared_folder_file_target_ignoring_download_limit, load_shared_subfolder_target,
+    load_usable_share_ignoring_download_limit, load_valid_folder_share_root, load_valid_share,
 };
 
 #[derive(Clone)]
@@ -405,6 +406,23 @@ pub(crate) async fn load_preview_shared_folder_file(
     file_id: i64,
 ) -> Result<(share::Model, crate::entities::file::Model)> {
     load_shared_folder_file_target(state, token, file_id).await
+}
+
+pub(crate) async fn load_shared_file_ignoring_download_limit(
+    state: &PrimaryAppState,
+    token: &str,
+) -> Result<(share::Model, crate::entities::file::Model)> {
+    let share = load_usable_share_ignoring_download_limit(state, token).await?;
+    let file = load_share_file_resource(state, &share).await?;
+    Ok((share, file))
+}
+
+pub(crate) async fn load_shared_folder_file_ignoring_download_limit(
+    state: &PrimaryAppState,
+    token: &str,
+    file_id: i64,
+) -> Result<(share::Model, crate::entities::file::Model)> {
+    load_shared_folder_file_target_ignoring_download_limit(state, token, file_id).await
 }
 
 pub async fn list_shared_subfolder(

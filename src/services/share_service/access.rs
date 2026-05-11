@@ -11,7 +11,9 @@ use crate::utils::hash;
 
 use super::cache::invalidate_share_token_record_cache_for_share;
 use super::models::{SharePublicInfo, SharePublicOwnerInfo};
-use super::shared::{load_valid_share, resolve_share_name};
+use super::shared::{
+    load_usable_share_ignoring_download_limit, load_valid_share, resolve_share_name,
+};
 
 pub async fn get_share_info(state: &PrimaryAppState, token: &str) -> Result<SharePublicInfo> {
     let db = &state.db;
@@ -157,6 +159,26 @@ pub async fn check_share_password_cookie(
 ) -> Result<()> {
     // 使用 load_valid_share 而非 load_share_record，确保验证过期时间和下载次数限制
     let share = load_valid_share(state, token).await?;
+
+    if share.password.is_some() {
+        let value = cookie_value
+            .ok_or_else(|| AsterError::share_password_required("password verification required"))?;
+
+        if !verify_share_cookie(token, value, &state.config.auth.jwt_secret) {
+            return Err(AsterError::share_password_required(
+                "invalid verification cookie",
+            ));
+        }
+    }
+    Ok(())
+}
+
+pub(crate) async fn check_share_password_cookie_ignoring_download_limit(
+    state: &PrimaryAppState,
+    token: &str,
+    cookie_value: Option<&str>,
+) -> Result<()> {
+    let share = load_usable_share_ignoring_download_limit(state, token).await?;
 
     if share.password.is_some() {
         let value = cookie_value

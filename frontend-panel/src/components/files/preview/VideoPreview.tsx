@@ -4,7 +4,9 @@ import { useTranslation } from "react-i18next";
 import { config } from "@/config/app";
 import { joinApiUrl } from "@/lib/apiUrl";
 import { logger } from "@/lib/logger";
+import type { ShareStreamSessionInfo } from "@/types/api";
 import { PreviewError } from "./PreviewError";
+import { PreviewLoadingState } from "./PreviewLoadingState";
 import type { PreviewableFileLike } from "./types";
 
 const DEFAULT_ASPECT_RATIO = 16 / 9;
@@ -13,6 +15,7 @@ const DIALOG_CHROME_HEIGHT_REM = 11;
 interface VideoPreviewProps {
 	file: PreviewableFileLike;
 	path: string;
+	videoStreamLinkFactory?: () => Promise<ShareStreamSessionInfo>;
 }
 
 function getPlayerLanguage(language: string) {
@@ -33,13 +36,24 @@ function resolveVideoSource(path: string) {
 	return joinApiUrl(config.apiBaseUrl, path);
 }
 
-export function VideoPreview({ file, path }: VideoPreviewProps) {
-	const { i18n } = useTranslation("files");
+export function VideoPreview({
+	file,
+	path,
+	videoStreamLinkFactory,
+}: VideoPreviewProps) {
+	const { i18n, t } = useTranslation("files");
 	const containerRef = useRef<HTMLDivElement | null>(null);
+	const [resolvedPath, setResolvedPath] = useState<string | null>(
+		videoStreamLinkFactory ? null : path,
+	);
+	const [streamLinkFailed, setStreamLinkFailed] = useState(false);
 	const [playerFailed, setPlayerFailed] = useState(false);
 	const [mediaFailed, setMediaFailed] = useState(false);
 	const [aspectRatio, setAspectRatio] = useState(DEFAULT_ASPECT_RATIO);
-	const videoSource = useMemo(() => resolveVideoSource(path), [path]);
+	const videoSource = useMemo(
+		() => (resolvedPath ? resolveVideoSource(resolvedPath) : null),
+		[resolvedPath],
+	);
 
 	const playerLanguage = useMemo(
 		() => getPlayerLanguage(i18n.language),
@@ -54,6 +68,39 @@ export function VideoPreview({ file, path }: VideoPreviewProps) {
 	);
 
 	useEffect(() => {
+		let cancelled = false;
+		setStreamLinkFailed(false);
+		setPlayerFailed(false);
+		setMediaFailed(false);
+		setAspectRatio(DEFAULT_ASPECT_RATIO);
+
+		if (!videoStreamLinkFactory) {
+			setResolvedPath(path);
+			return () => {
+				cancelled = true;
+			};
+		}
+
+		setResolvedPath(null);
+		videoStreamLinkFactory()
+			.then((link) => {
+				if (cancelled) return;
+				setResolvedPath(link.path);
+			})
+			.catch((error) => {
+				if (cancelled) return;
+				logger.warn("video stream session creation failed", file.name, error);
+				setStreamLinkFailed(true);
+			});
+
+		return () => {
+			cancelled = true;
+		};
+	}, [file.name, path, videoStreamLinkFactory]);
+
+	useEffect(() => {
+		if (!videoSource) return;
+
 		setPlayerFailed(false);
 		setMediaFailed(false);
 		setAspectRatio(DEFAULT_ASPECT_RATIO);
@@ -79,7 +126,8 @@ export function VideoPreview({ file, path }: VideoPreviewProps) {
 	}, [videoSource]);
 
 	useEffect(() => {
-		if (!containerRef.current || playerFailed || mediaFailed) return;
+		if (!containerRef.current || !videoSource || playerFailed || mediaFailed)
+			return;
 
 		let art: Artplayer | null = null;
 		let videoElement: HTMLVideoElement | null = null;
@@ -120,8 +168,12 @@ export function VideoPreview({ file, path }: VideoPreviewProps) {
 		};
 	}, [file.name, mediaFailed, playerFailed, playerLanguage, videoSource]);
 
-	if (mediaFailed) {
+	if (streamLinkFailed || mediaFailed) {
 		return <PreviewError />;
+	}
+
+	if (!videoSource) {
+		return <PreviewLoadingState text={t("loading_preview")} />;
 	}
 
 	if (playerFailed) {

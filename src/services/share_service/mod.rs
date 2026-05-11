@@ -36,6 +36,7 @@ pub use models::{
     MyShareInfo, ShareInfo, SharePublicInfo, SharePublicOwnerInfo, ShareStatus, ShareTarget,
 };
 
+pub(crate) use access::check_share_password_cookie_ignoring_download_limit;
 pub(crate) use cache::{
     find_active_file_ids_in_resource_scope, find_active_file_ids_in_scope,
     find_active_folder_ids_in_resource_scope, find_active_folder_ids_in_scope,
@@ -43,7 +44,10 @@ pub(crate) use cache::{
     invalidate_active_share_target_cache_for_scope, invalidate_all_share_token_record_cache,
 };
 pub(crate) use content::{download_shared_file_with_range, download_shared_folder_file_with_range};
-pub(crate) use content::{load_preview_shared_file, load_preview_shared_folder_file};
+pub(crate) use content::{
+    load_preview_shared_file, load_preview_shared_folder_file,
+    load_shared_file_ignoring_download_limit, load_shared_folder_file_ignoring_download_limit,
+};
 pub(crate) use management::{
     batch_delete_shares_in_scope, create_share_in_scope, delete_share_in_scope,
     list_shares_paginated_in_scope, update_share_in_scope,

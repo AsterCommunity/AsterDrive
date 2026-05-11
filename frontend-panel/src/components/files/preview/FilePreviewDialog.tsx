@@ -7,6 +7,7 @@ import type {
 	FileInfo,
 	FileListItem,
 	PreviewLinkInfo,
+	ShareStreamSessionInfo,
 	WopiLaunchSession,
 } from "@/types/api";
 import { FilePreviewBody } from "./FilePreviewBody";
@@ -32,6 +33,7 @@ interface FilePreviewDialogProps {
 	downloadPath?: string;
 	editable?: boolean;
 	previewLinkFactory?: () => Promise<PreviewLinkInfo>;
+	videoStreamLinkFactory?: () => Promise<ShareStreamSessionInfo>;
 	wopiSessionFactory?: (appKey: string) => Promise<WopiLaunchSession>;
 	openMode?: "auto" | "direct" | "picker";
 }
@@ -57,6 +59,7 @@ export function FilePreviewDialog({
 	downloadPath,
 	editable = true,
 	previewLinkFactory,
+	videoStreamLinkFactory,
 	wopiSessionFactory,
 	openMode = "auto",
 }: FilePreviewDialogProps) {
@@ -344,6 +347,7 @@ export function FilePreviewDialog({
 									downloadPath={resolvedDownloadPath}
 									getOptionLabel={getOptionLabel}
 									previewLinkFactory={previewLinkFactory}
+									videoStreamLinkFactory={videoStreamLinkFactory}
 									createWopiSession={
 										wopiSessionFactory ? activeWopiSessionFactory : null
 									}

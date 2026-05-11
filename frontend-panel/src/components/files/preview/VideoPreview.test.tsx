@@ -1,4 +1,4 @@
-import { render } from "@testing-library/react";
+import { render, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { VideoPreview } from "@/components/files/preview/VideoPreview";
 
@@ -17,6 +17,7 @@ const mockState = vi.hoisted(() => ({
 vi.mock("react-i18next", () => ({
 	useTranslation: () => ({
 		i18n: { language: "en" },
+		t: (key: string) => key,
 	}),
 }));
 
@@ -73,6 +74,30 @@ describe("VideoPreview", () => {
 
 		expect(mockState.artplayerInstances[0].options.url).toBe(
 			"/pv/token/clip.mp4",
+		);
+	});
+
+	it("creates a stream session before initializing Artplayer when provided", async () => {
+		const videoStreamLinkFactory = vi.fn(async () => ({
+			expires_at: "2026-01-01T00:00:00Z",
+			path: "/api/v1/s/share-token/stream/session-token/clip.mp4",
+		}));
+
+		render(
+			<VideoPreview
+				file={{ name: "clip.mp4", mime_type: "video/mp4" }}
+				path="/s/share-token/download"
+				videoStreamLinkFactory={videoStreamLinkFactory}
+			/>,
+		);
+
+		expect(mockState.artplayerInstances).toHaveLength(0);
+		await waitFor(() => {
+			expect(mockState.artplayerInstances).toHaveLength(1);
+		});
+		expect(videoStreamLinkFactory).toHaveBeenCalledTimes(1);
+		expect(mockState.artplayerInstances[0].options.url).toBe(
+			"/api/v1/s/share-token/stream/session-token/clip.mp4",
 		);
 	});
 });

@@ -5,6 +5,7 @@ import type {
 	FileInfo,
 	FileListItem,
 	PreviewLinkInfo,
+	ShareStreamSessionInfo,
 	WopiLaunchSession,
 } from "@/types/api";
 import { BlobMediaPreview } from "./BlobMediaPreview";
@@ -56,6 +57,7 @@ interface FilePreviewBodyProps {
 	downloadPath: string;
 	getOptionLabel: (option: OpenWithOption) => string;
 	previewLinkFactory?: () => Promise<PreviewLinkInfo>;
+	videoStreamLinkFactory?: () => Promise<ShareStreamSessionInfo>;
 	createWopiSession?: (() => Promise<WopiLaunchSession>) | null;
 	onFileUpdated?: () => void;
 	onDirtyChange: (dirty: boolean) => void;
@@ -72,6 +74,7 @@ export function FilePreviewBody({
 	downloadPath,
 	getOptionLabel,
 	previewLinkFactory,
+	videoStreamLinkFactory,
 	createWopiSession,
 	onFileUpdated,
 	onDirtyChange,
@@ -114,7 +117,13 @@ export function FilePreviewBody({
 	}
 
 	if (activeOption.mode === "video") {
-		return <VideoPreview file={file} path={downloadPath} />;
+		return (
+			<VideoPreview
+				file={file}
+				path={downloadPath}
+				videoStreamLinkFactory={videoStreamLinkFactory}
+			/>
+		);
 	}
 
 	if (activeOption.mode === "url_template") {

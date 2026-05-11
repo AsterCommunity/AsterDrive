@@ -12,6 +12,18 @@ const mockState = vi.hoisted(() => ({
 		(token: string, fileId: number) => `/s/${token}/files/${fileId}/download`,
 	),
 	downloadPath: vi.fn((token: string) => `/s/${token}/download`),
+	createStreamSession: vi.fn((token: string) =>
+		Promise.resolve({
+			expires_at: "2026-01-01T00:00:00Z",
+			path: `/api/v1/s/${token}/stream/session/file.mp4`,
+		}),
+	),
+	createFolderFileStreamSession: vi.fn((token: string, fileId: number) =>
+		Promise.resolve({
+			expires_at: "2026-01-01T00:00:00Z",
+			path: `/api/v1/s/${token}/stream/session/${fileId}.mp4`,
+		}),
+	),
 	thumbnailPath: vi.fn((token: string) => `/s/${token}/thumbnail`),
 	downloadUrl: vi.fn((token: string) => `https://download/${token}`),
 	getInfo: vi.fn(),
@@ -120,11 +132,13 @@ vi.mock("@/components/files/FilePreview", () => ({
 		open = true,
 		downloadPath,
 		editable,
+		videoStreamLinkFactory,
 	}: {
 		file: { name: string };
 		open?: boolean;
 		downloadPath?: string;
 		editable?: boolean;
+		videoStreamLinkFactory?: () => Promise<unknown>;
 	}) =>
 		open ? (
 			<div
@@ -132,6 +146,9 @@ vi.mock("@/components/files/FilePreview", () => ({
 				data-name={file.name}
 				data-download-path={downloadPath ?? ""}
 				data-editable={String(Boolean(editable))}
+				data-has-video-stream-link-factory={String(
+					Boolean(videoStreamLinkFactory),
+				)}
 			/>
 		) : null,
 }));
@@ -327,6 +344,10 @@ vi.mock("@/services/shareService", () => ({
 		downloadFolderPath: (...args: unknown[]) =>
 			mockState.downloadFolderPath(...args),
 		downloadPath: (...args: unknown[]) => mockState.downloadPath(...args),
+		createStreamSession: (...args: unknown[]) =>
+			mockState.createStreamSession(...args),
+		createFolderFileStreamSession: (...args: unknown[]) =>
+			mockState.createFolderFileStreamSession(...args),
 		thumbnailPath: (...args: unknown[]) => mockState.thumbnailPath(...args),
 		downloadUrl: (...args: unknown[]) => mockState.downloadUrl(...args),
 		getInfo: (...args: unknown[]) => mockState.getInfo(...args),
@@ -342,6 +363,8 @@ describe("ShareViewPage", () => {
 		mockState.downloadFolderFileUrl.mockClear();
 		mockState.downloadFolderPath.mockClear();
 		mockState.downloadPath.mockClear();
+		mockState.createStreamSession.mockClear();
+		mockState.createFolderFileStreamSession.mockClear();
 		mockState.thumbnailPath.mockClear();
 		mockState.downloadUrl.mockClear();
 		mockState.getInfo.mockReset();
@@ -477,6 +500,10 @@ describe("ShareViewPage", () => {
 			"data-editable",
 			"false",
 		);
+		expect(screen.getByTestId("file-preview")).toHaveAttribute(
+			"data-has-video-stream-link-factory",
+			"true",
+		);
 
 		fireEvent.click(screen.getByRole("button", { name: /files:download/i }));
 
@@ -550,6 +577,10 @@ describe("ShareViewPage", () => {
 		expect(screen.getByTestId("file-preview")).toHaveAttribute(
 			"data-editable",
 			"false",
+		);
+		expect(screen.getByTestId("file-preview")).toHaveAttribute(
+			"data-has-video-stream-link-factory",
+			"true",
 		);
 
 		fireEvent.click(

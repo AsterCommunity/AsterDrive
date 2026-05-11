@@ -94,6 +94,15 @@ pub(super) async fn load_valid_share(state: &PrimaryAppState, token: &str) -> Re
     Ok(share)
 }
 
+pub(crate) async fn load_usable_share_ignoring_download_limit(
+    state: &PrimaryAppState,
+    token: &str,
+) -> Result<share::Model> {
+    let share = load_share_record(state, token).await?;
+    validate_share_without_download_limit(&share)?;
+    Ok(share)
+}
+
 pub(super) async fn load_share_record(
     state: &PrimaryAppState,
     token: &str,
@@ -208,6 +217,15 @@ pub(super) async fn load_valid_folder_share_root(
     Ok((share, root.id))
 }
 
+pub(crate) async fn load_usable_folder_share_root_ignoring_download_limit(
+    state: &PrimaryAppState,
+    token: &str,
+) -> Result<(share::Model, i64)> {
+    let share = load_usable_share_ignoring_download_limit(state, token).await?;
+    let root = load_share_folder_resource(state, &share).await?;
+    Ok((share, root.id))
+}
+
 pub(super) async fn load_shared_folder_file_target(
     state: &PrimaryAppState,
     token: &str,
@@ -223,6 +241,27 @@ pub(super) async fn load_shared_folder_file_target(
     }
     // 文件夹分享的授权边界不是“同一个 user/team 就行”，而是必须位于
     // share 根目录的子树内；否则同空间的任意文件都会被越权读到。
+    let file_folder_id = file
+        .folder_id
+        .ok_or_else(|| AsterError::auth_forbidden("file is outside shared folder scope"))?;
+    folder_service::verify_folder_in_scope(&state.db, file_folder_id, root_folder_id).await?;
+    Ok((share, file))
+}
+
+pub(crate) async fn load_shared_folder_file_target_ignoring_download_limit(
+    state: &PrimaryAppState,
+    token: &str,
+    file_id: i64,
+) -> Result<(share::Model, crate::entities::file::Model)> {
+    let (share, root_folder_id) =
+        load_usable_folder_share_root_ignoring_download_limit(state, token).await?;
+    let file = file_repo::find_by_id(&state.db, file_id).await?;
+    ensure_share_matches_file(&share, &file)?;
+    if file.deleted_at.is_some() {
+        return Err(AsterError::file_not_found(format!(
+            "file #{file_id} is in trash"
+        )));
+    }
     let file_folder_id = file
         .folder_id
         .ok_or_else(|| AsterError::auth_forbidden("file is outside shared folder scope"))?;
@@ -250,6 +289,12 @@ pub(super) async fn load_shared_subfolder_target(
 pub(super) fn validate_share(share: &share::Model) -> Result<()> {
     // 这里仅验证 share 自身状态是否还能继续使用。
     // 目标资源是否存在、是否仍在分享范围内，由具体 file / folder 加载函数负责。
+    validate_share_without_download_limit(share)?;
+    validate_share_download_limit(share)?;
+    Ok(())
+}
+
+fn validate_share_without_download_limit(share: &share::Model) -> Result<()> {
     share_target_for_share(share)?;
 
     if let Some(exp) = share.expires_at
@@ -257,7 +302,6 @@ pub(super) fn validate_share(share: &share::Model) -> Result<()> {
     {
         return Err(AsterError::share_expired("share has expired"));
     }
-    validate_share_download_limit(share)?;
     Ok(())
 }
 

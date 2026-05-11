@@ -10,6 +10,7 @@ import type {
 	ShareInfo,
 	SharePage,
 	SharePublicInfo,
+	ShareStreamSessionInfo,
 	ShareTarget,
 } from "@/types/api";
 import type { FolderListParams } from "./fileService";
@@ -70,6 +71,9 @@ export function createShareService(workspace: Workspace) {
 		createPreviewLink: (token: string) =>
 			api.post<PreviewLinkInfo>(`/s/${token}/preview-link`),
 
+		createStreamSession: (token: string) =>
+			api.post<ShareStreamSessionInfo>(`/s/${token}/stream-session`),
+
 		thumbnailPath: (token: string) => `/s/${token}/thumbnail`,
 
 		downloadFolderPath: (token: string, fileId: number) =>
@@ -77,6 +81,11 @@ export function createShareService(workspace: Workspace) {
 
 		createFolderFilePreviewLink: (token: string, fileId: number) =>
 			api.post<PreviewLinkInfo>(`/s/${token}/files/${fileId}/preview-link`),
+
+		createFolderFileStreamSession: (token: string, fileId: number) =>
+			api.post<ShareStreamSessionInfo>(
+				`/s/${token}/files/${fileId}/stream-session`,
+			),
 
 		downloadUrl: (token: string) =>
 			joinApiUrl(config.apiBaseUrl, `/s/${token}/download`),

@@ -61,6 +61,8 @@ export type DirectLinkTokenInfo = components["schemas"]["DirectLinkTokenInfo"];
 export type FileSearchItem = components["schemas"]["FileSearchItem"];
 export type MyShareInfo = components["schemas"]["MyShareInfo"];
 export type PreviewLinkInfo = components["schemas"]["PreviewLinkInfo"];
+export type ShareStreamSessionInfo =
+	components["schemas"]["ShareStreamSessionInfo"];
 export type SearchParams = components["schemas"]["SearchParams"];
 export type SearchResults = components["schemas"]["SearchResults"];
 export type ShareInfo = components["schemas"]["ShareInfo"];

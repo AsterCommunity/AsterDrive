@@ -203,7 +203,19 @@ vi.mock("@/components/files/preview/PreviewUnavailable", () => ({
 }));
 
 vi.mock("@/components/files/preview/VideoPreview", () => ({
-	VideoPreview: ({ path }: { path: string }) => <div>{`video:${path}`}</div>,
+	VideoPreview: ({
+		path,
+		videoStreamLinkFactory,
+	}: {
+		path: string;
+		videoStreamLinkFactory?: () => Promise<unknown>;
+	}) => (
+		<div
+			data-has-video-stream-link-factory={String(
+				Boolean(videoStreamLinkFactory),
+			)}
+		>{`video:${path}`}</div>
+	),
 }));
 
 vi.mock("@/components/files/preview/UnsavedChangesGuard", () => ({
@@ -583,9 +595,17 @@ describe("FilePreviewDialog", () => {
 				name: "clip.mp4",
 				size: 2048,
 			} as never,
+			videoStreamLinkFactory: async () => ({
+				expires_at: "2026-01-01T00:00:00Z",
+				path: "/api/v1/s/share/stream/session/clip.mp4",
+			}),
 		});
 
 		await screen.findByText("video:/files/7/download");
+		expect(screen.getByText("video:/files/7/download")).toHaveAttribute(
+			"data-has-video-stream-link-factory",
+			"true",
+		);
 		const classes = screen.getByTestId("dialog-content").className.split(/\s+/);
 		expect(classes).toContain("max-h-[90vh]");
 		expect(classes).not.toContain("h-[90vh]");

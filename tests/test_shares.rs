@@ -3,8 +3,8 @@
 #[macro_use]
 mod common;
 
-use actix_web::cookie::SameSite;
 use actix_web::test;
+use actix_web::{cookie::SameSite, http::StatusCode};
 use serde_json::Value;
 use std::io::Cursor;
 
@@ -684,6 +684,217 @@ async fn test_share_download_limit() {
     let body: Value = test::read_body_json(resp).await;
     assert_eq!(body["data"]["items"][0]["status"], "exhausted");
     assert_eq!(body["data"]["items"][0]["remaining_downloads"], 0);
+}
+
+#[actix_web::test]
+async fn test_share_stream_session_counts_once_across_ranges_and_survives_limit() {
+    let state = common::setup().await;
+    let app = create_test_app!(state);
+    let (token, _) = register_and_login!(app);
+    let file_id = upload_test_file_named!(app, token, "clip.mp4");
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/shares")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({
+            "target": file_target(file_id),
+            "max_downloads": 1
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 201);
+    let body: Value = test::read_body_json(resp).await;
+    let share_token = body["data"]["token"].as_str().unwrap().to_string();
+
+    let req = test::TestRequest::post()
+        .uri(&format!("/api/v1/s/{share_token}/stream-session"))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+    let body: Value = test::read_body_json(resp).await;
+    let stream_path = body["data"]["path"].as_str().unwrap().to_string();
+
+    let req = test::TestRequest::get()
+        .uri(&stream_path)
+        .insert_header(("Range", "bytes=0-3"))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), StatusCode::PARTIAL_CONTENT);
+    assert_eq!(
+        resp.headers()
+            .get("Content-Range")
+            .and_then(|value| value.to_str().ok()),
+        Some("bytes 0-3/12")
+    );
+    assert_eq!(test::read_body(resp).await.as_ref(), b"test");
+
+    let req = test::TestRequest::get()
+        .uri(&stream_path)
+        .insert_header(("Range", "bytes=4-7"))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), StatusCode::PARTIAL_CONTENT);
+    assert_eq!(test::read_body(resp).await.as_ref(), b" con");
+
+    let req = test::TestRequest::get()
+        .uri("/api/v1/shares")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(body["data"]["items"][0]["download_count"], 1);
+
+    let req = test::TestRequest::post()
+        .uri(&format!("/api/v1/s/{share_token}/stream-session"))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(
+        resp.status(),
+        StatusCode::FORBIDDEN,
+        "new stream sessions should be blocked after the limit is exhausted"
+    );
+}
+
+#[actix_web::test]
+async fn test_password_protected_share_stream_session_requires_cookie() {
+    let state = common::setup().await;
+    let app = create_test_app!(state);
+    let (token, _) = register_and_login!(app);
+    let file_id = upload_test_file_named!(app, token, "private-clip.mp4");
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/shares")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({
+            "target": file_target(file_id),
+            "password": "secret"
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 201);
+    let body: Value = test::read_body_json(resp).await;
+    let share_token = body["data"]["token"].as_str().unwrap().to_string();
+
+    let req = test::TestRequest::post()
+        .uri(&format!("/api/v1/s/{share_token}/stream-session"))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+
+    let req = test::TestRequest::post()
+        .uri(&format!("/api/v1/s/{share_token}/verify"))
+        .set_json(serde_json::json!({"password": "secret"}))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+    let signed_cookie = common::extract_cookie(&resp, &format!("aster_share_{share_token}"))
+        .expect("password verification should set share cookie");
+    let cookie_header = format!("aster_share_{share_token}={signed_cookie}");
+
+    let req = test::TestRequest::post()
+        .uri(&format!("/api/v1/s/{share_token}/stream-session"))
+        .insert_header(("Cookie", cookie_header.as_str()))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+    let body: Value = test::read_body_json(resp).await;
+    let stream_path = body["data"]["path"].as_str().unwrap().to_string();
+
+    let req = test::TestRequest::get()
+        .uri(&stream_path)
+        .insert_header(("Range", "bytes=0-3"))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+
+    let req = test::TestRequest::get()
+        .uri(&stream_path)
+        .insert_header(("Cookie", cookie_header))
+        .insert_header(("Range", "bytes=0-3"))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), StatusCode::PARTIAL_CONTENT);
+}
+
+#[actix_web::test]
+async fn test_folder_share_stream_session_counts_once_across_ranges() {
+    let state = common::setup().await;
+    let app = create_test_app!(state);
+    let (token, _) = register_and_login!(app);
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/folders")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({ "name": "Video Folder" }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 201);
+    let body: Value = test::read_body_json(resp).await;
+    let folder_id = body["data"]["id"].as_i64().unwrap();
+    let file_id = upload_test_file_to_folder!(app, token, folder_id);
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/shares")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({
+            "target": folder_target(folder_id),
+            "max_downloads": 1
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 201);
+    let body: Value = test::read_body_json(resp).await;
+    let share_token = body["data"]["token"].as_str().unwrap().to_string();
+
+    let req = test::TestRequest::post()
+        .uri(&format!(
+            "/api/v1/s/{share_token}/files/{file_id}/stream-session"
+        ))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+    let body: Value = test::read_body_json(resp).await;
+    let stream_path = body["data"]["path"].as_str().unwrap().to_string();
+
+    let req = test::TestRequest::get()
+        .uri(&stream_path)
+        .insert_header(("Range", "bytes=0-3"))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), StatusCode::PARTIAL_CONTENT);
+    assert_eq!(test::read_body(resp).await.as_ref(), b"test");
+
+    let req = test::TestRequest::get()
+        .uri(&stream_path)
+        .insert_header(("Range", "bytes=5-11"))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), StatusCode::PARTIAL_CONTENT);
+    assert_eq!(test::read_body(resp).await.as_ref(), b"content");
+
+    let req = test::TestRequest::get()
+        .uri("/api/v1/shares")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(body["data"]["items"][0]["download_count"], 1);
+
+    let req = test::TestRequest::post()
+        .uri(&format!(
+            "/api/v1/s/{share_token}/files/{file_id}/stream-session"
+        ))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), StatusCode::FORBIDDEN);
 }
 
 #[actix_web::test]
