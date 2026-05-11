@@ -202,6 +202,18 @@ async fn claim_due_for_lane(
 
     let now = Utc::now();
     let stale_before = now - Duration::seconds(TASK_PROCESSING_STALE_SECS);
+    let due = background_task_repo::list_claimable_by_kinds(
+        &state.db,
+        now,
+        stale_before,
+        lane_config.kinds(),
+        claim_limit_to_u64(lane_config.limit),
+    )
+    .await?;
+    if due.is_empty() {
+        return Ok(Vec::new());
+    }
+
     let active =
         background_task_repo::count_active_processing_by_kinds(&state.db, now, lane_config.kinds())
             .await?;
@@ -213,18 +225,6 @@ async fn claim_due_for_lane(
             limit = lane_config.limit,
             "background task lane is at capacity; skipping claim"
         );
-        return Ok(Vec::new());
-    }
-
-    let due = background_task_repo::list_claimable_by_kinds(
-        &state.db,
-        now,
-        stale_before,
-        lane_config.kinds(),
-        claim_limit_to_u64(available),
-    )
-    .await?;
-    if due.is_empty() {
         return Ok(Vec::new());
     }
 

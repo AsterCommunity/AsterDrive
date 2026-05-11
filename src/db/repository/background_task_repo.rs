@@ -148,11 +148,20 @@ pub async fn count_active_processing_by_kinds<C: ConnectionTrait>(
         return Ok(0);
     }
 
-    BackgroundTask::find()
+    let count = BackgroundTask::find()
+        .select_only()
+        .column_as(
+            Expr::col(background_task::Column::Id).count(),
+            "active_processing_count",
+        )
         .filter(active_processing_by_kinds_condition(now, kinds))
-        .count(db)
+        .into_tuple::<i64>()
+        .one(db)
         .await
-        .map_err(AsterError::from)
+        .map_err(AsterError::from)?
+        .unwrap_or(0);
+
+    crate::utils::numbers::i64_to_u64(count, "active processing task count")
 }
 
 pub async fn find_latest_by_kind_and_display_name<C: ConnectionTrait>(
