@@ -16,6 +16,7 @@ import {
 	uploadViaPicker,
 } from "./support/files";
 import { uniqueName } from "./support/fixtures";
+import { expectShareCardVisible } from "./support/shares";
 import { expect, test } from "./support/test";
 
 test.describe
@@ -80,9 +81,7 @@ test.describe
 			expect(shareUrl).toContain("/s/");
 			await page.getByRole("link", { name: "My Shares" }).click();
 			await expect(page).toHaveURL(new RegExp(`${workspacePath}/shares$`));
-			await expect(page.getByText(file.name, { exact: true })).toBeVisible({
-				timeout: 30_000,
-			});
+			await expectShareCardVisible(page, file.name);
 
 			await page.getByRole("link", { name: teamName }).click();
 			await expect(page).toHaveURL(new RegExp(`${workspacePath}$`));

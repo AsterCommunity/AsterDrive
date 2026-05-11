@@ -8,6 +8,7 @@ use chrono::{Duration, Utc};
 use sea_orm::{ActiveModelTrait, IntoActiveModel, Set};
 use serde_json::Value;
 use std::io::{Cursor, Read, Write};
+use std::path::Path;
 
 use aster_drive::config::operations::{
     BACKGROUND_TASK_ARCHIVE_MAX_CONCURRENCY_KEY, BACKGROUND_TASK_THUMBNAIL_MAX_CONCURRENCY_KEY,
@@ -171,6 +172,264 @@ fn create_zip_bytes(entries: &[(&str, Option<&[u8]>)]) -> Vec<u8> {
     }
 
     zip.finish().expect("zip writer should finish").into_inner()
+}
+
+fn create_stored_zip_bytes(entries: &[(&str, Option<&[u8]>)]) -> Vec<u8> {
+    let cursor = Cursor::new(Vec::new());
+    let mut zip = zip::ZipWriter::new(cursor);
+    let options =
+        zip::write::SimpleFileOptions::default().compression_method(zip::CompressionMethod::Stored);
+
+    for (path, content) in entries {
+        match content {
+            Some(bytes) => {
+                zip.start_file(*path, options)
+                    .expect("zip entry should start");
+                zip.write_all(bytes).expect("zip entry should be writable");
+            }
+            None => {
+                zip.add_directory(*path, options)
+                    .expect("zip directory should be writable");
+            }
+        }
+    }
+
+    zip.finish().expect("zip writer should finish").into_inner()
+}
+
+fn patch_zip_central_external_attrs(bytes: &mut [u8], path: &str, external_attrs: u32) {
+    let path = path.as_bytes();
+    let central_signature = [0x50, 0x4B, 0x01, 0x02];
+    let mut patched = false;
+
+    for index in 0..bytes.len().saturating_sub(central_signature.len()) {
+        if !bytes[index..].starts_with(&central_signature) {
+            continue;
+        }
+        let name_len = u16::from_le_bytes([bytes[index + 28], bytes[index + 29]]) as usize;
+        let name_start = index + 46;
+        let name_end = name_start + name_len;
+        if name_end <= bytes.len() && &bytes[name_start..name_end] == path {
+            bytes[index + 38..index + 42].copy_from_slice(&external_attrs.to_le_bytes());
+            // Mark "version made by" as Unix so readers do not treat the entry as DOS-only.
+            bytes[index + 5] = 3;
+            patched = true;
+            break;
+        }
+    }
+
+    assert!(patched, "central directory entry should exist");
+}
+
+fn find_zip_local_header(bytes: &[u8], path: &str) -> usize {
+    let path = path.as_bytes();
+    let local_signature = [0x50, 0x4B, 0x03, 0x04];
+
+    for index in 0..bytes.len().saturating_sub(local_signature.len()) {
+        if !bytes[index..].starts_with(&local_signature) || index + 30 > bytes.len() {
+            continue;
+        }
+        let name_len = u16::from_le_bytes([bytes[index + 26], bytes[index + 27]]) as usize;
+        let name_start = index + 30;
+        let name_end = name_start + name_len;
+        if name_end <= bytes.len() && &bytes[name_start..name_end] == path {
+            return index;
+        }
+    }
+
+    panic!("local zip entry header should exist");
+}
+
+fn find_zip_central_header(bytes: &[u8], path: &str) -> usize {
+    let path = path.as_bytes();
+    let central_signature = [0x50, 0x4B, 0x01, 0x02];
+
+    for index in 0..bytes.len().saturating_sub(central_signature.len()) {
+        if !bytes[index..].starts_with(&central_signature) || index + 46 > bytes.len() {
+            continue;
+        }
+        let name_len = u16::from_le_bytes([bytes[index + 28], bytes[index + 29]]) as usize;
+        let name_start = index + 46;
+        let name_end = name_start + name_len;
+        if name_end <= bytes.len() && &bytes[name_start..name_end] == path {
+            return index;
+        }
+    }
+
+    panic!("central zip entry header should exist");
+}
+
+fn patch_zip_entry_general_purpose_flag(bytes: &mut [u8], path: &str, flag_mask: u16) {
+    let local_header = find_zip_local_header(bytes, path);
+    let local_flags = u16::from_le_bytes([bytes[local_header + 6], bytes[local_header + 7]]);
+    bytes[local_header + 6..local_header + 8]
+        .copy_from_slice(&(local_flags | flag_mask).to_le_bytes());
+
+    let central_header = find_zip_central_header(bytes, path);
+    let central_flags = u16::from_le_bytes([bytes[central_header + 8], bytes[central_header + 9]]);
+    bytes[central_header + 8..central_header + 10]
+        .copy_from_slice(&(central_flags | flag_mask).to_le_bytes());
+}
+
+fn patch_zip_entry_compression_method(bytes: &mut [u8], path: &str, method: u16) {
+    let local_header = find_zip_local_header(bytes, path);
+    bytes[local_header + 8..local_header + 10].copy_from_slice(&method.to_le_bytes());
+
+    let central_header = find_zip_central_header(bytes, path);
+    bytes[central_header + 10..central_header + 12].copy_from_slice(&method.to_le_bytes());
+}
+
+fn create_symlink_zip_bytes(path: &str, target: &str) -> Vec<u8> {
+    let mut bytes = create_stored_zip_bytes(&[(path, Some(target.as_bytes()))]);
+    patch_zip_central_external_attrs(&mut bytes, path, 0o120777_u32 << 16);
+    bytes
+}
+
+fn create_special_file_zip_bytes(path: &str) -> Vec<u8> {
+    let mut bytes = create_stored_zip_bytes(&[(path, Some(b""))]);
+    patch_zip_central_external_attrs(&mut bytes, path, 0o060666_u32 << 16);
+    bytes
+}
+
+fn create_encrypted_flag_zip_bytes(path: &str, content: &[u8]) -> Vec<u8> {
+    let mut bytes = create_stored_zip_bytes(&[(path, Some(content))]);
+    patch_zip_entry_general_purpose_flag(&mut bytes, path, 0x0001);
+    bytes
+}
+
+fn create_unsupported_method_zip_bytes(path: &str, content: &[u8]) -> Vec<u8> {
+    let mut bytes = create_stored_zip_bytes(&[(path, Some(content))]);
+    patch_zip_entry_compression_method(&mut bytes, path, 12);
+    bytes
+}
+
+#[cfg(unix)]
+fn set_directory_writable(path: &Path, writable: bool) {
+    use std::os::unix::fs::PermissionsExt;
+
+    let mode = if writable { 0o755 } else { 0o555 };
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode))
+        .expect("test storage directory permissions should update");
+}
+
+#[cfg(not(unix))]
+fn set_directory_writable(path: &Path, writable: bool) {
+    let mut permissions = std::fs::metadata(path)
+        .expect("test storage directory metadata should exist")
+        .permissions();
+    permissions.set_readonly(!writable);
+    std::fs::set_permissions(path, permissions)
+        .expect("test storage directory permissions should update");
+}
+
+fn set_storage_data_directories_writable(
+    storage_root: &Path,
+    writable: bool,
+    writable_subtrees: &[&Path],
+) {
+    let mut pending = vec![storage_root.to_path_buf()];
+    let mut directories = Vec::new();
+
+    while let Some(current) = pending.pop() {
+        let is_writable_subtree = writable_subtrees
+            .iter()
+            .any(|subtree| current == *subtree || current.starts_with(subtree));
+        if current != storage_root && is_writable_subtree {
+            continue;
+        }
+        directories.push(current.clone());
+
+        let Ok(children) = std::fs::read_dir(&current) else {
+            continue;
+        };
+        for child in children.flatten() {
+            let Ok(file_type) = child.file_type() else {
+                continue;
+            };
+            if file_type.is_dir() {
+                pending.push(child.path());
+            }
+        }
+    }
+
+    for directory in directories {
+        set_directory_writable(&directory, writable);
+    }
+}
+
+async fn run_failing_personal_archive_extract(
+    archive_bytes: Vec<u8>,
+    config_overrides: Vec<(&str, String)>,
+) -> Value {
+    let state = common::setup().await;
+    let app = create_test_app!(state.clone());
+
+    aster_drive::services::config_service::set(&state, "background_task_max_attempts", "1", 1)
+        .await
+        .expect("background task max attempts config should update");
+    for (key, value) in config_overrides {
+        aster_drive::services::config_service::set(&state, key, value.as_str(), 1)
+            .await
+            .expect("archive extract limit config should update");
+    }
+
+    let (token, _) = register_and_login!(app);
+    let req = test::TestRequest::post()
+        .uri("/api/v1/files/new")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({ "name": "security-check.zip", "folder_id": null }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 201);
+    let body: Value = test::read_body_json(resp).await;
+    let archive_file_id = body["data"]["id"].as_i64().unwrap();
+
+    let req = test::TestRequest::put()
+        .uri(&format!("/api/v1/files/{archive_file_id}/content"))
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .insert_header(("Content-Type", "application/octet-stream"))
+        .set_payload(archive_bytes)
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+
+    let req = test::TestRequest::post()
+        .uri(&format!("/api/v1/files/{archive_file_id}/extract"))
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({}))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+    let body: Value = test::read_body_json(resp).await;
+    let task_id = body["data"]["id"].as_i64().unwrap();
+
+    let stats = aster_drive::services::task_service::drain(&state)
+        .await
+        .expect("task drain should succeed");
+    assert_eq!(stats.failed, 1);
+    assert_eq!(stats.succeeded, 0);
+
+    let req = test::TestRequest::get()
+        .uri(&format!("/api/v1/tasks/{task_id}"))
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(body["data"]["status"], "failed");
+
+    let task_temp_dir =
+        aster_drive::utils::paths::task_temp_dir(&state.config.server.temp_dir, task_id);
+    assert!(
+        !std::path::Path::new(&task_temp_dir).exists(),
+        "failed extract task should cleanup temp dir"
+    );
+
+    body
 }
 
 fn create_zip_bytes_with_tampered_declared_size(
@@ -1254,6 +1513,238 @@ async fn test_personal_archive_compress_task_creates_workspace_file() {
 }
 
 #[actix_web::test]
+async fn test_archive_compress_task_rejects_expanded_selection_too_large() {
+    let state = common::setup().await;
+    let app = create_test_app!(state.clone());
+    aster_drive::services::config_service::set(&state, "background_task_max_attempts", "1", 1)
+        .await
+        .expect("background task max attempts config should update");
+    aster_drive::services::config_service::set(&state, "archive_build_max_entries", "2", 1)
+        .await
+        .expect("archive build max entries config should update");
+    let (token, _) = register_and_login!(app);
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/folders")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({ "name": "many", "parent_id": null }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 201);
+    let body: Value = test::read_body_json(resp).await;
+    let folder_id = body["data"]["id"].as_i64().unwrap();
+
+    for index in 0..2 {
+        let req = multipart_request!(
+            &format!("/api/v1/files/upload?folder_id={folder_id}"),
+            &token,
+            &format!("file-{index}.txt"),
+            "payload",
+        );
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(resp.status(), 201);
+    }
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/batch/archive-compress")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({
+            "file_ids": [],
+            "folder_ids": [folder_id],
+            "archive_name": "too-many"
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+    let body: Value = test::read_body_json(resp).await;
+    let task_id = body["data"]["id"].as_i64().unwrap();
+
+    let stats = aster_drive::services::task_service::drain(&state)
+        .await
+        .expect("task drain should succeed");
+    assert_eq!(stats.failed, 1);
+    assert_eq!(stats.succeeded, 0);
+
+    let req = test::TestRequest::get()
+        .uri(&format!("/api/v1/tasks/{task_id}"))
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+    let body: Value = test::read_body_json(resp).await;
+    assert!(
+        body["data"]["last_error"]
+            .as_str()
+            .expect("failed task should record last error")
+            .contains("expands to 3 entries"),
+        "expanded selection entry limit should be surfaced"
+    );
+}
+
+#[actix_web::test]
+async fn test_archive_compress_task_rejects_quota_before_building_archive() {
+    let state = common::setup().await;
+    let app = create_test_app!(state.clone());
+    aster_drive::services::config_service::set(&state, "background_task_max_attempts", "1", 1)
+        .await
+        .expect("background task max attempts config should update");
+    let (token, _) = register_and_login!(app);
+
+    let req = multipart_request!("/api/v1/files/upload", &token, "source.txt", "payload");
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 201);
+    let body: Value = test::read_body_json(resp).await;
+    let file_id = body["data"]["id"].as_i64().unwrap();
+
+    let owner = aster_drive::db::repository::user_repo::find_by_username(&state.db, "testuser")
+        .await
+        .expect("owner lookup should succeed")
+        .expect("owner should exist");
+    let mut owner_active = owner.into_active_model();
+    owner_active.storage_quota = Set(owner_active.storage_used.clone().unwrap());
+    owner_active
+        .update(&state.db)
+        .await
+        .expect("owner quota should update");
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/batch/archive-compress")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({
+            "file_ids": [file_id],
+            "folder_ids": [],
+            "archive_name": "quota-fail"
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+    let body: Value = test::read_body_json(resp).await;
+    let task_id = body["data"]["id"].as_i64().unwrap();
+
+    let stats = aster_drive::services::task_service::drain(&state)
+        .await
+        .expect("task drain should succeed");
+    assert_eq!(stats.failed, 1);
+    assert_eq!(stats.succeeded, 0);
+
+    let req = test::TestRequest::get()
+        .uri(&format!("/api/v1/tasks/{task_id}"))
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(body["data"]["status"], "failed");
+    assert_task_steps(
+        &body,
+        &[
+            ("waiting", "succeeded"),
+            ("prepare_sources", "failed"),
+            ("build_archive", "pending"),
+            ("store_result", "pending"),
+        ],
+    );
+    assert!(
+        body["data"]["last_error"]
+            .as_str()
+            .expect("failed task should record last error")
+            .contains("quota"),
+        "quota fast-fail should be surfaced"
+    );
+
+    let task_temp_dir =
+        aster_drive::utils::paths::task_temp_dir(&state.config.server.temp_dir, task_id);
+    assert!(
+        !std::path::Path::new(&task_temp_dir).exists(),
+        "failed archive compress task should not leave temp dir"
+    );
+}
+
+#[actix_web::test]
+async fn test_archive_download_rejects_expanded_selection_source_too_large() {
+    let state = common::setup().await;
+    let app = create_test_app!(state.clone());
+    aster_drive::services::config_service::set(
+        &state,
+        "archive_build_max_total_source_bytes",
+        "4",
+        1,
+    )
+    .await
+    .expect("archive build source size config should update");
+    let (token, _) = register_and_login!(app);
+
+    let req = multipart_request!("/api/v1/files/upload", &token, "large.txt", "12345");
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 201);
+    let body: Value = test::read_body_json(resp).await;
+    let file_id = body["data"]["id"].as_i64().unwrap();
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/batch/archive-download")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({
+            "file_ids": [file_id],
+            "folder_ids": [],
+            "archive_name": "source-limit"
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 400);
+    let body: Value = test::read_body_json(resp).await;
+    assert!(
+        body["msg"]
+            .as_str()
+            .expect("error response should have msg")
+            .contains("source size"),
+        "source-size limit should be surfaced"
+    );
+}
+
+#[actix_web::test]
+async fn test_archive_download_rejects_estimated_output_too_large() {
+    let state = common::setup().await;
+    let app = create_test_app!(state.clone());
+    aster_drive::services::config_service::set(&state, "archive_build_max_temp_bytes", "100", 1)
+        .await
+        .expect("archive build temp size config should update");
+    let (token, _) = register_and_login!(app);
+
+    let req = multipart_request!("/api/v1/files/upload", &token, "tiny.txt", "1");
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 201);
+    let body: Value = test::read_body_json(resp).await;
+    let file_id = body["data"]["id"].as_i64().unwrap();
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/batch/archive-download")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({
+            "file_ids": [file_id],
+            "folder_ids": [],
+            "archive_name": "temp-limit"
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 400);
+    let body: Value = test::read_body_json(resp).await;
+    assert!(
+        body["msg"]
+            .as_str()
+            .expect("error response should have msg")
+            .contains("estimated output size"),
+        "estimated output-size limit should be surfaced"
+    );
+}
+
+#[actix_web::test]
 async fn test_retry_task_reloads_max_attempts_from_runtime_config() {
     let state = common::setup().await;
     let app = create_test_app!(state.clone());
@@ -1775,5 +2266,450 @@ async fn test_archive_extract_task_rejects_entry_size_tampering() {
     assert!(
         !std::path::Path::new(&task_temp_dir).exists(),
         "failed extract task should cleanup temp dir"
+    );
+}
+
+#[actix_web::test]
+async fn test_archive_extract_task_rejects_too_many_entries() {
+    let archive_bytes = create_stored_zip_bytes(&[
+        ("one.txt", Some(b"one".as_slice())),
+        ("two.txt", Some(b"two".as_slice())),
+    ]);
+    let body = run_failing_personal_archive_extract(
+        archive_bytes,
+        vec![("archive_extract_max_entries", "1".to_string())],
+    )
+    .await;
+
+    assert!(
+        body["data"]["last_error"]
+            .as_str()
+            .expect("failed task should record last error")
+            .contains("entries"),
+        "entry limit error should be surfaced"
+    );
+}
+
+#[actix_web::test]
+async fn test_archive_extract_task_rejects_too_many_files() {
+    let archive_bytes = create_stored_zip_bytes(&[
+        ("one.txt", Some(b"one".as_slice())),
+        ("two.txt", Some(b"two".as_slice())),
+    ]);
+    let body = run_failing_personal_archive_extract(
+        archive_bytes,
+        vec![("archive_extract_max_files", "1".to_string())],
+    )
+    .await;
+
+    assert!(
+        body["data"]["last_error"]
+            .as_str()
+            .expect("failed task should record last error")
+            .contains("files"),
+        "file limit error should be surfaced"
+    );
+}
+
+#[actix_web::test]
+async fn test_archive_extract_task_rejects_too_many_directories() {
+    let archive_bytes = create_stored_zip_bytes(&[
+        ("one/file.txt", Some(b"one".as_slice())),
+        ("two/file.txt", Some(b"two".as_slice())),
+    ]);
+    let body = run_failing_personal_archive_extract(
+        archive_bytes,
+        vec![("archive_extract_max_directories", "1".to_string())],
+    )
+    .await;
+
+    assert!(
+        body["data"]["last_error"]
+            .as_str()
+            .expect("failed task should record last error")
+            .contains("directories"),
+        "directory limit error should be surfaced"
+    );
+}
+
+#[actix_web::test]
+async fn test_archive_extract_task_rejects_duplicate_paths() {
+    let archive_bytes = create_stored_zip_bytes(&[
+        ("duplicate.txt", Some(b"first".as_slice())),
+        ("./duplicate.txt", Some(b"second".as_slice())),
+    ]);
+    let body = run_failing_personal_archive_extract(archive_bytes, Vec::new()).await;
+
+    assert!(
+        body["data"]["last_error"]
+            .as_str()
+            .expect("failed task should record last error")
+            .contains("duplicate entry path"),
+        "duplicate path error should be surfaced"
+    );
+}
+
+#[actix_web::test]
+async fn test_archive_extract_task_rejects_file_directory_conflicts() {
+    let archive_bytes = create_stored_zip_bytes(&[
+        ("prefix", Some(b"file".as_slice())),
+        ("prefix/child/", None),
+    ]);
+    let body = run_failing_personal_archive_extract(archive_bytes, Vec::new()).await;
+
+    assert!(
+        body["data"]["last_error"]
+            .as_str()
+            .expect("failed task should record last error")
+            .contains("inside file entry"),
+        "file/directory conflict error should be surfaced"
+    );
+}
+
+#[actix_web::test]
+async fn test_archive_extract_task_rejects_too_deep_paths() {
+    let archive_bytes =
+        create_stored_zip_bytes(&[("a/b/c/payload.txt", Some(b"nested".as_slice()))]);
+    let body = run_failing_personal_archive_extract(
+        archive_bytes,
+        vec![("archive_extract_max_depth", "3".to_string())],
+    )
+    .await;
+
+    assert!(
+        body["data"]["last_error"]
+            .as_str()
+            .expect("failed task should record last error")
+            .contains("depth"),
+        "path depth error should be surfaced"
+    );
+}
+
+#[actix_web::test]
+async fn test_archive_extract_task_rejects_too_long_paths() {
+    let archive_bytes = create_stored_zip_bytes(&[(
+        "long-name/payload.txt",
+        Some(b"path length check".as_slice()),
+    )]);
+    let body = run_failing_personal_archive_extract(
+        archive_bytes,
+        vec![("archive_extract_max_path_bytes", "8".to_string())],
+    )
+    .await;
+
+    assert!(
+        body["data"]["last_error"]
+            .as_str()
+            .expect("failed task should record last error")
+            .contains("path length"),
+        "path length error should be surfaced"
+    );
+}
+
+#[actix_web::test]
+async fn test_archive_extract_task_rejects_high_total_compression_ratio() {
+    let first = vec![b'a'; 4096];
+    let second = vec![b'b'; 4096];
+    let archive_bytes =
+        create_zip_bytes(&[("first.txt", Some(&first)), ("second.txt", Some(&second))]);
+    let body = run_failing_personal_archive_extract(
+        archive_bytes,
+        vec![
+            (
+                "archive_extract_max_entry_compression_ratio",
+                "1000".to_string(),
+            ),
+            ("archive_extract_max_compression_ratio", "2".to_string()),
+        ],
+    )
+    .await;
+
+    assert!(
+        body["data"]["last_error"]
+            .as_str()
+            .expect("failed task should record last error")
+            .contains("total compression ratio"),
+        "total compression ratio error should be surfaced"
+    );
+}
+
+#[actix_web::test]
+async fn test_archive_extract_task_rejects_high_entry_compression_ratio() {
+    let payload = vec![b'a'; 4096];
+    let archive_bytes = create_zip_bytes(&[("payload.txt", Some(&payload))]);
+    let body = run_failing_personal_archive_extract(
+        archive_bytes,
+        vec![(
+            "archive_extract_max_entry_compression_ratio",
+            "2".to_string(),
+        )],
+    )
+    .await;
+
+    assert!(
+        body["data"]["last_error"]
+            .as_str()
+            .expect("failed task should record last error")
+            .contains("compression ratio"),
+        "compression ratio error should be surfaced"
+    );
+}
+
+#[actix_web::test]
+async fn test_archive_extract_task_rejects_symlink_entries() {
+    let archive_bytes = create_symlink_zip_bytes("link", "../target");
+    let body = run_failing_personal_archive_extract(archive_bytes, Vec::new()).await;
+
+    assert!(
+        body["data"]["last_error"]
+            .as_str()
+            .expect("failed task should record last error")
+            .contains("symbolic link"),
+        "symlink error should be surfaced"
+    );
+}
+
+#[actix_web::test]
+async fn test_archive_extract_task_rejects_special_file_entries() {
+    let archive_bytes = create_special_file_zip_bytes("device");
+    let body = run_failing_personal_archive_extract(archive_bytes, Vec::new()).await;
+
+    assert!(
+        body["data"]["last_error"]
+            .as_str()
+            .expect("failed task should record last error")
+            .contains("special file"),
+        "special file error should be surfaced"
+    );
+}
+
+#[actix_web::test]
+async fn test_archive_extract_task_rejects_encrypted_entries() {
+    let archive_bytes = create_encrypted_flag_zip_bytes("secret.txt", b"secret");
+    let body = run_failing_personal_archive_extract(archive_bytes, Vec::new()).await;
+
+    assert!(
+        body["data"]["last_error"]
+            .as_str()
+            .expect("failed task should record last error")
+            .contains("encrypted"),
+        "encrypted entry error should be surfaced"
+    );
+}
+
+#[actix_web::test]
+async fn test_archive_extract_task_rejects_unsupported_compression_method() {
+    let archive_bytes = create_unsupported_method_zip_bytes("payload.txt", b"payload");
+    let body = run_failing_personal_archive_extract(archive_bytes, Vec::new()).await;
+    let last_error = body["data"]["last_error"]
+        .as_str()
+        .expect("failed task should record last error");
+
+    assert!(
+        last_error.contains("unsupported compression method")
+            || last_error.contains("unsupported compression"),
+        "unsupported compression method error should be surfaced"
+    );
+}
+
+#[actix_web::test]
+async fn test_archive_extract_task_rejects_source_archive_larger_than_source_limit_before_download()
+{
+    let archive_bytes = create_stored_zip_bytes(&[("payload.txt", Some(b"payload".as_slice()))]);
+    let body = run_failing_personal_archive_extract(
+        archive_bytes,
+        vec![("archive_extract_max_source_bytes", "1".to_string())],
+    )
+    .await;
+
+    assert_task_steps(
+        &body,
+        &[
+            ("waiting", "succeeded"),
+            ("download_source", "failed"),
+            ("extract_archive", "pending"),
+            ("import_result", "pending"),
+        ],
+    );
+    assert!(
+        body["data"]["last_error"]
+            .as_str()
+            .expect("failed task should record last error")
+            .contains("source archive size"),
+        "source archive size error should be surfaced"
+    );
+}
+
+#[actix_web::test]
+async fn test_archive_extract_task_fails_when_downloaded_source_exceeds_declared_size() {
+    let archive_bytes = create_stored_zip_bytes(&[("payload.txt", Some(b"payload".as_slice()))]);
+    let state = common::setup().await;
+    let app = create_test_app!(state.clone());
+    aster_drive::services::config_service::set(&state, "background_task_max_attempts", "1", 1)
+        .await
+        .expect("background task max attempts config should update");
+    let (token, _) = register_and_login!(app);
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/files/new")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({ "name": "oversized-source.zip", "folder_id": null }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 201);
+    let body: Value = test::read_body_json(resp).await;
+    let archive_file_id = body["data"]["id"].as_i64().unwrap();
+
+    let req = test::TestRequest::put()
+        .uri(&format!("/api/v1/files/{archive_file_id}/content"))
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .insert_header(("Content-Type", "application/octet-stream"))
+        .set_payload(archive_bytes)
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+
+    let source_file =
+        aster_drive::db::repository::file_repo::find_by_id(&state.db, archive_file_id)
+            .await
+            .expect("archive file should be loaded");
+    let mut file_active = source_file.into_active_model();
+    file_active.size = Set(1);
+    file_active
+        .update(&state.db)
+        .await
+        .expect("archive file declared size should update");
+
+    let req = test::TestRequest::post()
+        .uri(&format!("/api/v1/files/{archive_file_id}/extract"))
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({}))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+    let body: Value = test::read_body_json(resp).await;
+    let task_id = body["data"]["id"].as_i64().unwrap();
+
+    let stats = aster_drive::services::task_service::drain(&state)
+        .await
+        .expect("task drain should succeed");
+    assert_eq!(stats.failed, 1);
+    assert_eq!(stats.succeeded, 0);
+
+    let req = test::TestRequest::get()
+        .uri(&format!("/api/v1/tasks/{task_id}"))
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(body["data"]["status"], "failed");
+    assert_task_steps(
+        &body,
+        &[
+            ("waiting", "succeeded"),
+            ("download_source", "failed"),
+            ("extract_archive", "pending"),
+            ("import_result", "pending"),
+        ],
+    );
+    assert!(
+        body["data"]["last_error"]
+            .as_str()
+            .expect("failed task should record last error")
+            .contains("source archive expands beyond declared size"),
+        "downloaded source size error should be surfaced"
+    );
+}
+
+#[actix_web::test]
+async fn test_archive_extract_task_cleans_created_root_after_import_failure() {
+    let archive_bytes = create_stored_zip_bytes(&[
+        ("first.txt", Some(b"first".as_slice())),
+        ("second.txt", Some(b"second".as_slice())),
+    ]);
+    let state = common::setup().await;
+    let app = create_test_app!(state.clone());
+    aster_drive::services::config_service::set(&state, "background_task_max_attempts", "1", 1)
+        .await
+        .expect("background task max attempts config should update");
+    let (token, _) = register_and_login!(app);
+    let owner = aster_drive::db::repository::user_repo::find_by_username(&state.db, "testuser")
+        .await
+        .expect("owner lookup should succeed")
+        .expect("owner should exist");
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/files/new")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({ "name": "cleanup-check.zip", "folder_id": null }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 201);
+    let body: Value = test::read_body_json(resp).await;
+    let archive_file_id = body["data"]["id"].as_i64().unwrap();
+
+    let req = test::TestRequest::put()
+        .uri(&format!("/api/v1/files/{archive_file_id}/content"))
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .insert_header(("Content-Type", "application/octet-stream"))
+        .set_payload(archive_bytes)
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+
+    let req = test::TestRequest::post()
+        .uri(&format!("/api/v1/files/{archive_file_id}/extract"))
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({ "output_folder_name": "cleanup-root" }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+    let body: Value = test::read_body_json(resp).await;
+    let task_id = body["data"]["id"].as_i64().unwrap();
+
+    let storage_root = std::path::Path::new(&state.config.server.upload_temp_dir)
+        .parent()
+        .expect("test storage root should have a parent")
+        .to_path_buf();
+    let writable_subtrees = [
+        std::path::Path::new(&state.config.server.temp_dir),
+        std::path::Path::new(&state.config.server.upload_temp_dir),
+    ];
+    set_storage_data_directories_writable(&storage_root, false, &writable_subtrees);
+    let stats = aster_drive::services::task_service::drain(&state).await;
+    set_storage_data_directories_writable(&storage_root, true, &writable_subtrees);
+    let stats = stats.expect("task drain should succeed");
+    assert_eq!(stats.failed, 1);
+    assert_eq!(stats.succeeded, 0);
+
+    let req = test::TestRequest::get()
+        .uri(&format!("/api/v1/tasks/{task_id}"))
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(body["data"]["status"], "failed");
+
+    let cleanup_root = aster_drive::db::repository::folder_repo::find_by_name_in_parent(
+        &state.db,
+        owner.id,
+        None,
+        "cleanup-root",
+    )
+    .await
+    .expect("folder lookup should succeed");
+    assert!(
+        cleanup_root.is_none(),
+        "partially imported extract root should be purged after import failure"
     );
 }

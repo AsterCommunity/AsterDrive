@@ -134,7 +134,8 @@ where
         | operations::BACKGROUND_TASK_DISPATCH_INTERVAL_SECS_KEY
         | operations::MAINTENANCE_CLEANUP_INTERVAL_SECS_KEY
         | operations::BLOB_RECONCILE_INTERVAL_SECS_KEY
-        | operations::REMOTE_NODE_HEALTH_TEST_INTERVAL_SECS_KEY => {
+        | operations::REMOTE_NODE_HEALTH_TEST_INTERVAL_SECS_KEY
+        | operations::ARCHIVE_EXTRACT_MAX_DURATION_SECS_KEY => {
             operations::normalize_interval_config_value(key, value)
         }
         operations::BACKGROUND_TASK_MAX_CONCURRENCY_KEY
@@ -152,7 +153,19 @@ where
             operations::normalize_list_max_limit_config_value(key, value)
         }
         operations::AVATAR_MAX_UPLOAD_SIZE_BYTES_KEY
+        | operations::ARCHIVE_EXTRACT_MAX_SOURCE_BYTES_KEY
         | operations::ARCHIVE_EXTRACT_MAX_STAGING_BYTES_KEY
+        | operations::ARCHIVE_EXTRACT_MAX_UNCOMPRESSED_BYTES_KEY
+        | operations::ARCHIVE_EXTRACT_MAX_ENTRIES_KEY
+        | operations::ARCHIVE_EXTRACT_MAX_FILES_KEY
+        | operations::ARCHIVE_EXTRACT_MAX_DIRECTORIES_KEY
+        | operations::ARCHIVE_EXTRACT_MAX_DEPTH_KEY
+        | operations::ARCHIVE_EXTRACT_MAX_PATH_BYTES_KEY
+        | operations::ARCHIVE_EXTRACT_MAX_COMPRESSION_RATIO_KEY
+        | operations::ARCHIVE_EXTRACT_MAX_ENTRY_COMPRESSION_RATIO_KEY
+        | operations::ARCHIVE_BUILD_MAX_ENTRIES_KEY
+        | operations::ARCHIVE_BUILD_MAX_TOTAL_SOURCE_BYTES_KEY
+        | operations::ARCHIVE_BUILD_MAX_TEMP_BYTES_KEY
         | operations::THUMBNAIL_MAX_SOURCE_BYTES_KEY => {
             operations::normalize_bytes_config_value(key, value)
         }

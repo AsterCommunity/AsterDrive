@@ -1,6 +1,7 @@
 //! 归档任务子模块：`common`。
 
 use std::io::{Read, Write};
+use std::time::Instant;
 
 use chrono::Utc;
 use sea_orm::{DatabaseConnection, Set};
@@ -15,6 +16,8 @@ use crate::services::{
     workspace_storage_service::{WorkspaceStorageScope, load_scope_actor_username},
 };
 use crate::storage::{DriverRegistry, PolicySnapshot};
+
+use super::selection::ArchiveBuildLimits;
 
 #[derive(Debug, Clone)]
 pub(super) enum ArchiveEntry {
@@ -155,6 +158,7 @@ pub(super) fn write_archive_to_sink<W, F>(
     ctx: ArchiveSinkContext<'_>,
     entries: Vec<ArchiveEntry>,
     total_bytes: i64,
+    limits: ArchiveBuildLimits,
     output: W,
     mut on_progress: F,
 ) -> Result<(W, i64)>
@@ -163,20 +167,22 @@ where
     F: FnMut(i64, &str) -> Result<()>,
 {
     let mut zip = zip::ZipWriter::new_stream(output);
-    let file_options = zip::write::SimpleFileOptions::default()
-        .compression_method(zip::CompressionMethod::Deflated);
     let dir_options =
         zip::write::SimpleFileOptions::default().compression_method(zip::CompressionMethod::Stored);
     let mut processed_bytes = 0_i64;
+    let mut written_bytes = 0_i64;
 
     for entry in entries {
         ensure_task_lease_active(ctx.lease_guard)?;
         match entry {
             ArchiveEntry::Directory { entry_path } => {
+                written_bytes = checked_archive_output_progress(written_bytes, 256, limits)?;
                 zip.add_directory(&entry_path, dir_options)
                     .map_aster_err(AsterError::storage_driver_error)?;
             }
             ArchiveEntry::File { file, entry_path } => {
+                written_bytes = checked_archive_output_progress(written_bytes, file.size, limits)?;
+                let file_options = archive_file_options_for(&file);
                 zip.start_file(&entry_path, file_options)
                     .map_aster_err(AsterError::storage_driver_error)?;
 
@@ -210,6 +216,89 @@ where
     Ok((output, processed_bytes.max(total_bytes)))
 }
 
+fn checked_archive_output_progress(
+    current: i64,
+    added: i64,
+    limits: ArchiveBuildLimits,
+) -> Result<i64> {
+    let next = current
+        .checked_add(added)
+        .ok_or_else(|| AsterError::internal_error("archive output size overflow"))?;
+    if next > limits.max_temp_bytes {
+        return Err(AsterError::validation_error(format!(
+            "archive output size {} exceeds server limit {}",
+            next, limits.max_temp_bytes
+        )));
+    }
+    Ok(next)
+}
+
+fn archive_file_options_for(file: &file::Model) -> zip::write::SimpleFileOptions {
+    let options = zip::write::SimpleFileOptions::default();
+    if should_store_without_deflate(&file.name, &file.mime_type) {
+        options.compression_method(zip::CompressionMethod::Stored)
+    } else {
+        options.compression_method(zip::CompressionMethod::Deflated)
+    }
+}
+
+fn should_store_without_deflate(name: &str, mime_type: &str) -> bool {
+    let mime = mime_type.to_ascii_lowercase();
+    if mime.starts_with("image/")
+        || mime.starts_with("video/")
+        || mime.starts_with("audio/")
+        || matches!(
+            mime.as_str(),
+            "application/pdf"
+                | "application/zip"
+                | "application/x-zip-compressed"
+                | "application/x-7z-compressed"
+                | "application/vnd.rar"
+                | "application/x-rar-compressed"
+                | "application/gzip"
+                | "application/x-gzip"
+                | "application/x-xz"
+                | "application/zstd"
+                | "application/x-zstd"
+        )
+    {
+        return true;
+    }
+
+    let Some(extension) = name.rsplit('.').next() else {
+        return false;
+    };
+    matches!(
+        extension.to_ascii_lowercase().as_str(),
+        "zip"
+            | "7z"
+            | "rar"
+            | "gz"
+            | "tgz"
+            | "bz2"
+            | "xz"
+            | "zst"
+            | "jpg"
+            | "jpeg"
+            | "png"
+            | "gif"
+            | "webp"
+            | "heic"
+            | "heif"
+            | "avif"
+            | "mp4"
+            | "m4v"
+            | "mov"
+            | "mkv"
+            | "webm"
+            | "mp3"
+            | "aac"
+            | "ogg"
+            | "flac"
+            | "pdf"
+    )
+}
+
 pub(super) fn is_client_disconnect_error_text(error_text: &str) -> bool {
     error_text.contains("Broken pipe")
         || error_text.contains("Connection reset by peer")
@@ -221,7 +310,7 @@ pub(super) fn copy_reader_to_writer_with_lease<R: Read, W: Write>(
     reader: &mut R,
     writer: &mut W,
 ) -> Result<u64> {
-    copy_reader_to_writer_internal(lease_guard, reader, writer, None)
+    copy_reader_to_writer_internal(lease_guard, reader, writer, None, None)
 }
 
 pub(super) fn copy_reader_to_writer_with_lease_and_expected_size<R: Read, W: Write>(
@@ -230,8 +319,15 @@ pub(super) fn copy_reader_to_writer_with_lease_and_expected_size<R: Read, W: Wri
     writer: &mut W,
     expected_bytes: u64,
     context: &str,
+    deadline: Option<Instant>,
 ) -> Result<u64> {
-    copy_reader_to_writer_internal(lease_guard, reader, writer, Some((expected_bytes, context)))
+    copy_reader_to_writer_internal(
+        lease_guard,
+        reader,
+        writer,
+        Some((expected_bytes, context)),
+        deadline,
+    )
 }
 
 fn copy_reader_to_writer_internal<R: Read, W: Write>(
@@ -239,12 +335,14 @@ fn copy_reader_to_writer_internal<R: Read, W: Write>(
     reader: &mut R,
     writer: &mut W,
     expected: Option<(u64, &str)>,
+    deadline: Option<Instant>,
 ) -> Result<u64> {
     let mut copied = 0_u64;
     let mut buffer = [0_u8; 64 * 1024];
 
     loop {
         ensure_task_lease_active(lease_guard)?;
+        ensure_deadline_active(deadline)?;
         let read = reader.read(&mut buffer).map_aster_err_ctx(
             "read archive stream chunk",
             AsterError::storage_driver_error,
@@ -284,6 +382,17 @@ fn copy_reader_to_writer_internal<R: Read, W: Write>(
 fn ensure_task_lease_active(lease_guard: Option<&TaskLeaseGuard>) -> Result<()> {
     if let Some(lease_guard) = lease_guard {
         lease_guard.ensure_active()?;
+    }
+    Ok(())
+}
+
+fn ensure_deadline_active(deadline: Option<Instant>) -> Result<()> {
+    if let Some(deadline) = deadline
+        && Instant::now() > deadline
+    {
+        return Err(AsterError::validation_error(
+            "archive operation exceeded server time limit",
+        ));
     }
     Ok(())
 }
@@ -350,6 +459,7 @@ mod tests {
             &mut writer,
             4,
             "archive entry 'payload.bin'",
+            None,
         )
         .expect_err("oversized stream should be rejected");
 
@@ -369,6 +479,7 @@ mod tests {
             &mut writer,
             4,
             "archive entry 'payload.bin'",
+            None,
         )
         .expect_err("truncated stream should be rejected");
 

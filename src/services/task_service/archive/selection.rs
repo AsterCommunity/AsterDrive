@@ -8,6 +8,7 @@ use std::{
 use actix_web::HttpResponse;
 use chrono::Utc;
 
+use crate::config::operations;
 use crate::db::repository::{file_repo, folder_repo};
 use crate::entities::{file, folder};
 use crate::errors::{AsterError, Result};
@@ -33,6 +34,58 @@ pub(super) struct ResolvedArchiveDownload {
     pub(super) archive_name: String,
 }
 
+#[derive(Debug, Clone, Copy)]
+pub(super) struct ArchiveBuildLimits {
+    pub(super) max_entries: u64,
+    pub(super) max_total_source_bytes: i64,
+    pub(super) max_temp_bytes: i64,
+}
+
+impl ArchiveBuildLimits {
+    pub(super) fn from_runtime_config(runtime_config: &crate::config::RuntimeConfig) -> Self {
+        Self {
+            max_entries: operations::archive_build_max_entries(runtime_config),
+            max_total_source_bytes: operations::archive_build_max_total_source_bytes(
+                runtime_config,
+            ),
+            max_temp_bytes: operations::archive_build_max_temp_bytes(runtime_config),
+        }
+    }
+}
+
+#[derive(Debug, Default)]
+pub(super) struct ArchiveBuildStats {
+    pub(super) total_source_bytes: i64,
+    pub(super) estimated_output_bytes: i64,
+}
+
+#[derive(Debug)]
+pub(super) struct CollectedArchiveEntries {
+    pub(super) entries: Vec<ArchiveEntry>,
+    pub(super) stats: ArchiveBuildStats,
+}
+
+impl CollectedArchiveEntries {
+    pub(super) fn total_source_bytes(&self) -> i64 {
+        self.stats.total_source_bytes
+    }
+
+    pub(super) fn estimated_output_bytes(&self) -> i64 {
+        self.stats.estimated_output_bytes
+    }
+
+    pub(super) fn into_entries(self) -> Vec<ArchiveEntry> {
+        self.entries
+    }
+}
+
+#[derive(Debug, Default)]
+struct ArchiveBuildStatsBuilder {
+    entry_count: u64,
+    total_source_bytes: i64,
+    estimated_output_bytes: i64,
+}
+
 pub(crate) async fn stream_archive_download_in_scope(
     state: &PrimaryAppState,
     scope: WorkspaceStorageScope,
@@ -40,8 +93,11 @@ pub(crate) async fn stream_archive_download_in_scope(
 ) -> Result<HttpResponse> {
     let resolved = resolve_archive_download_in_scope(state, scope, &params).await?;
     let archive_name = resolved.archive_name.clone();
-    let (entries, total_bytes) =
-        collect_archive_entries_from_selection_in_scope(state, scope, &resolved.selection).await?;
+    let limits = ArchiveBuildLimits::from_runtime_config(&state.runtime_config);
+    let collected =
+        collect_archive_entries_from_selection_in_scope(state, scope, &resolved.selection, limits)
+            .await?;
+    let total_bytes = collected.total_source_bytes();
 
     let (reader, writer) = tokio::io::duplex(64 * 1024);
     let handle = tokio::runtime::Handle::current();
@@ -61,8 +117,9 @@ pub(crate) async fn stream_archive_download_in_scope(
                 policy_snapshot: policy_snapshot.as_ref(),
                 lease_guard: None,
             },
-            entries,
+            collected.into_entries(),
             total_bytes,
+            limits,
             writer,
             |_, _| Ok(()),
         ) {
@@ -100,6 +157,10 @@ pub(crate) async fn prepare_archive_download_in_scope(
     params: &CreateArchiveTaskParams,
 ) -> Result<PreparedArchiveDownload> {
     let resolved = resolve_archive_download_in_scope(state, scope, params).await?;
+    let limits = ArchiveBuildLimits::from_runtime_config(&state.runtime_config);
+    let _ =
+        collect_archive_entries_from_selection_in_scope(state, scope, &resolved.selection, limits)
+            .await?;
     Ok(PreparedArchiveDownload {
         file_ids: resolved.selection.file_ids,
         folder_ids: resolved.selection.folder_ids,
@@ -193,9 +254,10 @@ pub(super) async fn collect_archive_entries_from_selection_in_scope(
     state: &PrimaryAppState,
     scope: WorkspaceStorageScope,
     selection: &batch_service::NormalizedSelection,
-) -> Result<(Vec<ArchiveEntry>, i64)> {
+    limits: ArchiveBuildLimits,
+) -> Result<CollectedArchiveEntries> {
     let mut entries = Vec::new();
-    let mut total_bytes = 0_i64;
+    let mut stats = ArchiveBuildStatsBuilder::default();
     let mut reserved_root_names = HashSet::new();
 
     for &file_id in &selection.file_ids {
@@ -205,9 +267,7 @@ pub(super) async fn collect_archive_entries_from_selection_in_scope(
             .ok_or_else(|| AsterError::file_not_found(format!("file #{file_id}")))?;
         workspace_storage_service::ensure_active_file_scope(file, scope)?;
         let entry_path = batch_service::reserve_unique_name(&mut reserved_root_names, &file.name);
-        total_bytes = total_bytes
-            .checked_add(file.size)
-            .ok_or_else(|| AsterError::internal_error("archive size overflow"))?;
+        record_archive_build_entry(&mut stats, &entry_path, Some(file.size), limits)?;
         entries.push(ArchiveEntry::File {
             file: file.clone(),
             entry_path,
@@ -238,6 +298,7 @@ pub(super) async fn collect_archive_entries_from_selection_in_scope(
                 AsterError::record_not_found(format!("folder #{tree_folder_id} path"))
             })?;
             let entry_path = archive_directory_entry_path(&archive_root, folder_path, &root_path)?;
+            record_archive_build_entry(&mut stats, &entry_path, None, limits)?;
             entries.push(ArchiveEntry::Directory { entry_path });
         }
 
@@ -257,9 +318,7 @@ pub(super) async fn collect_archive_entries_from_selection_in_scope(
             } else {
                 format!("{archive_root}/{relative_dir}/{}", file.name)
             };
-            total_bytes = total_bytes
-                .checked_add(file.size)
-                .ok_or_else(|| AsterError::internal_error("archive size overflow"))?;
+            record_archive_build_entry(&mut stats, &entry_path, Some(file.size), limits)?;
             entries.push(ArchiveEntry::File { file, entry_path });
         }
     }
@@ -269,7 +328,64 @@ pub(super) async fn collect_archive_entries_from_selection_in_scope(
             .cmp(right.entry_path())
             .then_with(|| left.is_file().cmp(&right.is_file()))
     });
-    Ok((entries, total_bytes))
+    Ok(CollectedArchiveEntries {
+        entries,
+        stats: ArchiveBuildStats {
+            total_source_bytes: stats.total_source_bytes,
+            estimated_output_bytes: stats.estimated_output_bytes,
+        },
+    })
+}
+
+fn record_archive_build_entry(
+    stats: &mut ArchiveBuildStatsBuilder,
+    entry_path: &str,
+    file_size: Option<i64>,
+    limits: ArchiveBuildLimits,
+) -> Result<()> {
+    stats.entry_count = stats
+        .entry_count
+        .checked_add(1)
+        .ok_or_else(|| AsterError::internal_error("archive build entry count overflow"))?;
+    if stats.entry_count > limits.max_entries {
+        return Err(AsterError::validation_error(format!(
+            "archive selection expands to {} entries, exceeds server limit {}",
+            stats.entry_count, limits.max_entries
+        )));
+    }
+
+    if let Some(file_size) = file_size {
+        stats.total_source_bytes = stats
+            .total_source_bytes
+            .checked_add(file_size)
+            .ok_or_else(|| AsterError::internal_error("archive build source size overflow"))?;
+        if stats.total_source_bytes > limits.max_total_source_bytes {
+            return Err(AsterError::validation_error(format!(
+                "archive selection source size {} exceeds server limit {}",
+                stats.total_source_bytes, limits.max_total_source_bytes
+            )));
+        }
+    }
+
+    let path_bytes =
+        crate::utils::numbers::usize_to_i64(entry_path.len(), "archive entry path bytes")?;
+    let source_bytes = file_size.unwrap_or(0);
+    let estimated_entry_bytes = source_bytes
+        .checked_add(path_bytes)
+        .and_then(|value| value.checked_add(256))
+        .ok_or_else(|| AsterError::internal_error("archive build temp size overflow"))?;
+    stats.estimated_output_bytes = stats
+        .estimated_output_bytes
+        .checked_add(estimated_entry_bytes)
+        .ok_or_else(|| AsterError::internal_error("archive build temp size overflow"))?;
+    if stats.estimated_output_bytes > limits.max_temp_bytes {
+        return Err(AsterError::validation_error(format!(
+            "archive selection estimated output size {} exceeds server limit {}",
+            stats.estimated_output_bytes, limits.max_temp_bytes
+        )));
+    }
+
+    Ok(())
 }
 
 pub(super) async fn resolve_archive_compress_target_folder_id(

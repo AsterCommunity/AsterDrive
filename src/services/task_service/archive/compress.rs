@@ -25,8 +25,9 @@ use super::super::{
 };
 use super::common::{ArchiveSinkContext, build_file_display_path, write_archive_to_sink};
 use super::selection::{
-    collect_archive_entries_from_selection_in_scope, ensure_archive_selection_active,
-    resolve_archive_compress_target_folder_id, resolve_archive_download_in_scope,
+    ArchiveBuildLimits, collect_archive_entries_from_selection_in_scope,
+    ensure_archive_selection_active, resolve_archive_compress_target_folder_id,
+    resolve_archive_download_in_scope,
 };
 
 pub(crate) async fn create_archive_compress_task_in_scope(
@@ -90,6 +91,15 @@ pub(super) async fn process_archive_compress_task(
         Some("Validating archive selection"),
         None,
     )?;
+    mark_task_progress(
+        state,
+        &lease_guard,
+        0,
+        0,
+        Some("Validating archive selection"),
+        &steps,
+    )
+    .await?;
     if let Some(target_folder_id) = payload.target_folder_id {
         workspace_storage_service::verify_folder_access(state, scope, target_folder_id).await?;
     }
@@ -102,8 +112,15 @@ pub(super) async fn process_archive_compress_task(
     )
     .await?;
     ensure_archive_selection_active(scope, &selection)?;
-    let (entries, total_bytes) =
-        collect_archive_entries_from_selection_in_scope(state, scope, &selection).await?;
+    let limits = ArchiveBuildLimits::from_runtime_config(&state.runtime_config);
+    let collected =
+        collect_archive_entries_from_selection_in_scope(state, scope, &selection, limits).await?;
+    let total_bytes = collected.total_source_bytes();
+    let estimated_output_bytes = collected.estimated_output_bytes();
+    if estimated_output_bytes > 0 {
+        workspace_storage_service::check_quota(&state.db, scope, estimated_output_bytes).await?;
+    }
+    let entries = collected.into_entries();
     let progress_total = total_bytes.max(0);
     set_task_step_succeeded(
         &mut steps,
@@ -154,6 +171,7 @@ pub(super) async fn process_archive_compress_task(
                 },
                 entries,
                 progress_total,
+                limits,
                 writer,
                 |current, entry_path| {
                     let status_text = format!("Packing {entry_path}");

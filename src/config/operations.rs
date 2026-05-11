@@ -5,13 +5,20 @@ use crate::errors::{AsterError, Result};
 use crate::utils::numbers::{u64_to_i64, u64_to_usize, usize_to_u64};
 
 pub use crate::config::definitions::{
-    ARCHIVE_EXTRACT_MAX_STAGING_BYTES_KEY, AVATAR_MAX_UPLOAD_SIZE_BYTES_KEY,
-    BACKGROUND_TASK_ARCHIVE_MAX_CONCURRENCY_KEY, BACKGROUND_TASK_DISPATCH_INTERVAL_SECS_KEY,
-    BACKGROUND_TASK_MAX_ATTEMPTS_KEY, BACKGROUND_TASK_MAX_CONCURRENCY_KEY,
-    BACKGROUND_TASK_THUMBNAIL_MAX_CONCURRENCY_KEY, BLOB_RECONCILE_INTERVAL_SECS_KEY,
-    MAIL_OUTBOX_DISPATCH_INTERVAL_SECS_KEY, MAINTENANCE_CLEANUP_INTERVAL_SECS_KEY,
-    REMOTE_NODE_HEALTH_TEST_INTERVAL_SECS_KEY, SHARE_DOWNLOAD_ROLLBACK_QUEUE_CAPACITY_KEY,
-    TASK_LIST_MAX_LIMIT_KEY, TEAM_MEMBER_LIST_MAX_LIMIT_KEY, THUMBNAIL_MAX_SOURCE_BYTES_KEY,
+    ARCHIVE_BUILD_MAX_ENTRIES_KEY, ARCHIVE_BUILD_MAX_TEMP_BYTES_KEY,
+    ARCHIVE_BUILD_MAX_TOTAL_SOURCE_BYTES_KEY, ARCHIVE_EXTRACT_MAX_COMPRESSION_RATIO_KEY,
+    ARCHIVE_EXTRACT_MAX_DEPTH_KEY, ARCHIVE_EXTRACT_MAX_DIRECTORIES_KEY,
+    ARCHIVE_EXTRACT_MAX_DURATION_SECS_KEY, ARCHIVE_EXTRACT_MAX_ENTRIES_KEY,
+    ARCHIVE_EXTRACT_MAX_ENTRY_COMPRESSION_RATIO_KEY, ARCHIVE_EXTRACT_MAX_FILES_KEY,
+    ARCHIVE_EXTRACT_MAX_PATH_BYTES_KEY, ARCHIVE_EXTRACT_MAX_SOURCE_BYTES_KEY,
+    ARCHIVE_EXTRACT_MAX_STAGING_BYTES_KEY, ARCHIVE_EXTRACT_MAX_UNCOMPRESSED_BYTES_KEY,
+    AVATAR_MAX_UPLOAD_SIZE_BYTES_KEY, BACKGROUND_TASK_ARCHIVE_MAX_CONCURRENCY_KEY,
+    BACKGROUND_TASK_DISPATCH_INTERVAL_SECS_KEY, BACKGROUND_TASK_MAX_ATTEMPTS_KEY,
+    BACKGROUND_TASK_MAX_CONCURRENCY_KEY, BACKGROUND_TASK_THUMBNAIL_MAX_CONCURRENCY_KEY,
+    BLOB_RECONCILE_INTERVAL_SECS_KEY, MAIL_OUTBOX_DISPATCH_INTERVAL_SECS_KEY,
+    MAINTENANCE_CLEANUP_INTERVAL_SECS_KEY, REMOTE_NODE_HEALTH_TEST_INTERVAL_SECS_KEY,
+    SHARE_DOWNLOAD_ROLLBACK_QUEUE_CAPACITY_KEY, TASK_LIST_MAX_LIMIT_KEY,
+    TEAM_MEMBER_LIST_MAX_LIMIT_KEY, THUMBNAIL_MAX_SOURCE_BYTES_KEY,
 };
 
 pub const DEFAULT_MAIL_OUTBOX_DISPATCH_INTERVAL_SECS: u64 = 5;
@@ -28,7 +35,20 @@ pub const DEFAULT_TEAM_MEMBER_LIST_MAX_LIMIT: u64 = 100;
 pub const DEFAULT_TASK_LIST_MAX_LIMIT: u64 = 100;
 pub const DEFAULT_AVATAR_MAX_UPLOAD_SIZE_BYTES: u64 = 10 * 1024 * 1024;
 pub const DEFAULT_THUMBNAIL_MAX_SOURCE_BYTES: u64 = 64 * 1024 * 1024;
+pub const DEFAULT_ARCHIVE_EXTRACT_MAX_SOURCE_BYTES: u64 = 512 * 1024 * 1024;
 pub const DEFAULT_ARCHIVE_EXTRACT_MAX_STAGING_BYTES: u64 = 2 * 1024 * 1024 * 1024;
+pub const DEFAULT_ARCHIVE_EXTRACT_MAX_UNCOMPRESSED_BYTES: u64 = 1024 * 1024 * 1024;
+pub const DEFAULT_ARCHIVE_EXTRACT_MAX_ENTRIES: u64 = 10_000;
+pub const DEFAULT_ARCHIVE_EXTRACT_MAX_FILES: u64 = 10_000;
+pub const DEFAULT_ARCHIVE_EXTRACT_MAX_DIRECTORIES: u64 = 2_000;
+pub const DEFAULT_ARCHIVE_EXTRACT_MAX_DEPTH: u64 = 64;
+pub const DEFAULT_ARCHIVE_EXTRACT_MAX_PATH_BYTES: u64 = 4096;
+pub const DEFAULT_ARCHIVE_EXTRACT_MAX_COMPRESSION_RATIO: u64 = 200;
+pub const DEFAULT_ARCHIVE_EXTRACT_MAX_ENTRY_COMPRESSION_RATIO: u64 = 500;
+pub const DEFAULT_ARCHIVE_EXTRACT_MAX_DURATION_SECS: u64 = 300;
+pub const DEFAULT_ARCHIVE_BUILD_MAX_ENTRIES: u64 = 10_000;
+pub const DEFAULT_ARCHIVE_BUILD_MAX_TOTAL_SOURCE_BYTES: u64 = 2 * 1024 * 1024 * 1024;
+pub const DEFAULT_ARCHIVE_BUILD_MAX_TEMP_BYTES: u64 = 2 * 1024 * 1024 * 1024;
 
 pub const MAX_LIST_PAGE_LIMIT: u64 = 1000;
 
@@ -218,24 +238,131 @@ pub fn thumbnail_max_source_bytes(runtime_config: &RuntimeConfig) -> i64 {
 }
 
 pub fn archive_extract_max_staging_bytes(runtime_config: &RuntimeConfig) -> i64 {
-    let default_value = u64_to_i64(
+    read_positive_i64_bytes(
+        runtime_config,
+        ARCHIVE_EXTRACT_MAX_STAGING_BYTES_KEY,
         DEFAULT_ARCHIVE_EXTRACT_MAX_STAGING_BYTES,
-        ARCHIVE_EXTRACT_MAX_STAGING_BYTES_KEY,
+        "archive extract staging size config exceeds i64; using default",
     )
-    .unwrap_or(i64::MAX);
-    u64_to_i64(
-        read_positive_u64(
-            runtime_config,
-            ARCHIVE_EXTRACT_MAX_STAGING_BYTES_KEY,
-            DEFAULT_ARCHIVE_EXTRACT_MAX_STAGING_BYTES,
-        ),
-        ARCHIVE_EXTRACT_MAX_STAGING_BYTES_KEY,
+}
+
+pub fn archive_extract_max_source_bytes(runtime_config: &RuntimeConfig) -> i64 {
+    read_positive_i64_bytes(
+        runtime_config,
+        ARCHIVE_EXTRACT_MAX_SOURCE_BYTES_KEY,
+        DEFAULT_ARCHIVE_EXTRACT_MAX_SOURCE_BYTES,
+        "archive extract source size config exceeds i64; using default",
     )
-    .unwrap_or_else(|_| {
-        tracing::warn!(
-            key = ARCHIVE_EXTRACT_MAX_STAGING_BYTES_KEY,
-            "archive extract staging size config exceeds i64; using default"
-        );
+}
+
+pub fn archive_extract_max_uncompressed_bytes(runtime_config: &RuntimeConfig) -> i64 {
+    read_positive_i64_bytes(
+        runtime_config,
+        ARCHIVE_EXTRACT_MAX_UNCOMPRESSED_BYTES_KEY,
+        DEFAULT_ARCHIVE_EXTRACT_MAX_UNCOMPRESSED_BYTES,
+        "archive extract uncompressed size config exceeds i64; using default",
+    )
+}
+
+pub fn archive_extract_max_entries(runtime_config: &RuntimeConfig) -> u64 {
+    read_positive_u64(
+        runtime_config,
+        ARCHIVE_EXTRACT_MAX_ENTRIES_KEY,
+        DEFAULT_ARCHIVE_EXTRACT_MAX_ENTRIES,
+    )
+}
+
+pub fn archive_extract_max_files(runtime_config: &RuntimeConfig) -> u64 {
+    read_positive_u64(
+        runtime_config,
+        ARCHIVE_EXTRACT_MAX_FILES_KEY,
+        DEFAULT_ARCHIVE_EXTRACT_MAX_FILES,
+    )
+}
+
+pub fn archive_extract_max_directories(runtime_config: &RuntimeConfig) -> u64 {
+    read_positive_u64(
+        runtime_config,
+        ARCHIVE_EXTRACT_MAX_DIRECTORIES_KEY,
+        DEFAULT_ARCHIVE_EXTRACT_MAX_DIRECTORIES,
+    )
+}
+
+pub fn archive_extract_max_depth(runtime_config: &RuntimeConfig) -> u64 {
+    read_positive_u64(
+        runtime_config,
+        ARCHIVE_EXTRACT_MAX_DEPTH_KEY,
+        DEFAULT_ARCHIVE_EXTRACT_MAX_DEPTH,
+    )
+}
+
+pub fn archive_extract_max_path_bytes(runtime_config: &RuntimeConfig) -> u64 {
+    read_positive_u64(
+        runtime_config,
+        ARCHIVE_EXTRACT_MAX_PATH_BYTES_KEY,
+        DEFAULT_ARCHIVE_EXTRACT_MAX_PATH_BYTES,
+    )
+}
+
+pub fn archive_extract_max_compression_ratio(runtime_config: &RuntimeConfig) -> u64 {
+    read_positive_u64(
+        runtime_config,
+        ARCHIVE_EXTRACT_MAX_COMPRESSION_RATIO_KEY,
+        DEFAULT_ARCHIVE_EXTRACT_MAX_COMPRESSION_RATIO,
+    )
+}
+
+pub fn archive_extract_max_entry_compression_ratio(runtime_config: &RuntimeConfig) -> u64 {
+    read_positive_u64(
+        runtime_config,
+        ARCHIVE_EXTRACT_MAX_ENTRY_COMPRESSION_RATIO_KEY,
+        DEFAULT_ARCHIVE_EXTRACT_MAX_ENTRY_COMPRESSION_RATIO,
+    )
+}
+
+pub fn archive_extract_max_duration_secs(runtime_config: &RuntimeConfig) -> u64 {
+    read_positive_u64(
+        runtime_config,
+        ARCHIVE_EXTRACT_MAX_DURATION_SECS_KEY,
+        DEFAULT_ARCHIVE_EXTRACT_MAX_DURATION_SECS,
+    )
+}
+
+pub fn archive_build_max_entries(runtime_config: &RuntimeConfig) -> u64 {
+    read_positive_u64(
+        runtime_config,
+        ARCHIVE_BUILD_MAX_ENTRIES_KEY,
+        DEFAULT_ARCHIVE_BUILD_MAX_ENTRIES,
+    )
+}
+
+pub fn archive_build_max_total_source_bytes(runtime_config: &RuntimeConfig) -> i64 {
+    read_positive_i64_bytes(
+        runtime_config,
+        ARCHIVE_BUILD_MAX_TOTAL_SOURCE_BYTES_KEY,
+        DEFAULT_ARCHIVE_BUILD_MAX_TOTAL_SOURCE_BYTES,
+        "archive build total source size config exceeds i64; using default",
+    )
+}
+
+pub fn archive_build_max_temp_bytes(runtime_config: &RuntimeConfig) -> i64 {
+    read_positive_i64_bytes(
+        runtime_config,
+        ARCHIVE_BUILD_MAX_TEMP_BYTES_KEY,
+        DEFAULT_ARCHIVE_BUILD_MAX_TEMP_BYTES,
+        "archive build temp size config exceeds i64; using default",
+    )
+}
+
+fn read_positive_i64_bytes(
+    runtime_config: &RuntimeConfig,
+    key: &str,
+    default: u64,
+    overflow_message: &str,
+) -> i64 {
+    let default_value = u64_to_i64(default, key).unwrap_or(i64::MAX);
+    u64_to_i64(read_positive_u64(runtime_config, key, default), key).unwrap_or_else(|_| {
+        tracing::warn!(key, overflow_message);
         default_value
     })
 }

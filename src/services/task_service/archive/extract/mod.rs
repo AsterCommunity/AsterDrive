@@ -33,8 +33,8 @@ use super::super::{
 use super::common::{build_folder_display_path, create_unique_folder_in_scope};
 use import::materialize_archive_extract_stage;
 use staging::{
-    ArchiveExtractPolicyResolver, ArchiveExtractStageOptions, StageZipArchiveForExtractParams,
-    download_file_to_temp, stage_zip_archive_for_extract,
+    ArchiveExtractLimits, ArchiveExtractPolicyResolver, ArchiveExtractStageOptions,
+    StageZipArchiveForExtractParams, download_file_to_temp, stage_zip_archive_for_extract,
 };
 
 pub(crate) async fn create_archive_extract_task_in_scope(
@@ -98,6 +98,7 @@ pub(super) async fn process_archive_extract_task(
         }
         let max_staging_bytes =
             operations::archive_extract_max_staging_bytes(&state.runtime_config);
+        let extract_limits = ArchiveExtractLimits::from_runtime_config(&state.runtime_config);
         let policy_resolver = resolve_archive_extract_policy_resolver(state, scope).await?;
 
         set_task_step_active(
@@ -115,7 +116,7 @@ pub(super) async fn process_archive_extract_task(
             &steps,
         )
         .await?;
-        ensure_source_archive_fits_staging_limit(source_file.size, max_staging_bytes)?;
+        ensure_source_archive_allowed(source_file.size, max_staging_bytes, extract_limits)?;
         let task_temp_dir = prepare_task_temp_dir(state, lease_guard.lease()).await?;
         let task_temp_path = Path::new(&task_temp_dir);
         let source_archive_path = task_temp_path.join("source.zip");
@@ -146,6 +147,7 @@ pub(super) async fn process_archive_extract_task(
             policy_resolver,
             source_archive_size: source_file.size,
             max_staging_bytes,
+            limits: extract_limits,
         };
         let (staged, mut steps) = tokio::task::spawn_blocking(move || {
             let mut steps = steps_for_worker;
@@ -201,7 +203,7 @@ pub(super) async fn process_archive_extract_task(
             &steps,
         )
         .await?;
-        materialize_archive_extract_stage(
+        if let Err(error) = materialize_archive_extract_stage(
             state,
             &lease_guard,
             scope,
@@ -210,7 +212,13 @@ pub(super) async fn process_archive_extract_task(
             &created_root,
             &mut steps,
         )
-        .await?;
+        .await
+        {
+            if !is_task_lease_lost(&error) && !is_task_lease_renewal_timed_out(&error) {
+                cleanup_created_extract_root(state, scope, created_root.id).await;
+            }
+            return Err(error);
+        }
         cleanup_task_temp_dir_for_task(state, task.id).await?;
         set_task_step_succeeded(
             &mut steps,
@@ -258,6 +266,68 @@ pub(super) async fn process_archive_extract_task(
     }
 }
 
+async fn cleanup_created_extract_root(
+    state: &PrimaryAppState,
+    scope: WorkspaceStorageScope,
+    root_folder_id: i64,
+) {
+    match crate::services::folder_service::collect_folder_tree_in_scope(
+        &state.db,
+        scope,
+        root_folder_id,
+        true,
+    )
+    .await
+    {
+        Ok((files, folder_ids)) => {
+            if let Err(error) =
+                crate::services::file_service::batch_purge_in_scope(state, scope, files).await
+            {
+                tracing::warn!(
+                    root_folder_id,
+                    "failed to purge partially imported archive files: {error}"
+                );
+            }
+            if let Err(error) = crate::db::repository::property_repo::delete_all_for_entities(
+                &state.db,
+                crate::types::EntityType::Folder,
+                &folder_ids,
+            )
+            .await
+            {
+                tracing::warn!(
+                    root_folder_id,
+                    "failed to delete partially imported archive folder properties: {error}"
+                );
+            }
+            if let Err(error) =
+                crate::db::repository::share_repo::delete_by_folder_ids(&state.db, &folder_ids)
+                    .await
+            {
+                tracing::warn!(
+                    root_folder_id,
+                    "failed to delete partially imported archive shares: {error}"
+                );
+            }
+            crate::services::folder_service::invalidate_folder_path_cache(state).await;
+            if let Err(error) =
+                crate::db::repository::folder_repo::delete_many(&state.db, &folder_ids).await
+            {
+                tracing::warn!(
+                    root_folder_id,
+                    "failed to delete partially imported archive folders: {error}"
+                );
+            }
+        }
+        Err(error) => {
+            tracing::warn!(
+                root_folder_id,
+                "failed to collect partially imported archive root for cleanup: {error}"
+            );
+        }
+    }
+}
+
 fn ensure_extract_source_supported(source_file: &file::Model) -> Result<()> {
     if source_file.name.to_ascii_lowercase().ends_with(".zip") {
         Ok(())
@@ -297,10 +367,17 @@ fn strip_zip_extension(name: &str) -> Option<&str> {
     }
 }
 
-fn ensure_source_archive_fits_staging_limit(
+fn ensure_source_archive_allowed(
     source_archive_size: i64,
     max_staging_bytes: i64,
+    limits: ArchiveExtractLimits,
 ) -> Result<()> {
+    if source_archive_size > limits.max_source_bytes {
+        return Err(AsterError::validation_error(format!(
+            "source archive size {} exceeds server limit {}",
+            source_archive_size, limits.max_source_bytes
+        )));
+    }
     if source_archive_size > max_staging_bytes {
         return Err(AsterError::validation_error(format!(
             "source archive requires {} staging bytes before extraction, exceeds server limit {}",

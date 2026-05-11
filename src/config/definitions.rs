@@ -59,7 +59,22 @@ pub const TRASH_RETENTION_DAYS_KEY: &str = "trash_retention_days";
 pub const TEAM_ARCHIVE_RETENTION_DAYS_KEY: &str = "team_archive_retention_days";
 pub const TASK_RETENTION_HOURS_KEY: &str = "task_retention_hours";
 pub const DEFAULT_STORAGE_QUOTA_KEY: &str = "default_storage_quota";
+pub const ARCHIVE_EXTRACT_MAX_SOURCE_BYTES_KEY: &str = "archive_extract_max_source_bytes";
 pub const ARCHIVE_EXTRACT_MAX_STAGING_BYTES_KEY: &str = "archive_extract_max_staging_bytes";
+pub const ARCHIVE_EXTRACT_MAX_UNCOMPRESSED_BYTES_KEY: &str =
+    "archive_extract_max_uncompressed_bytes";
+pub const ARCHIVE_EXTRACT_MAX_ENTRIES_KEY: &str = "archive_extract_max_entries";
+pub const ARCHIVE_EXTRACT_MAX_FILES_KEY: &str = "archive_extract_max_files";
+pub const ARCHIVE_EXTRACT_MAX_DIRECTORIES_KEY: &str = "archive_extract_max_directories";
+pub const ARCHIVE_EXTRACT_MAX_DEPTH_KEY: &str = "archive_extract_max_depth";
+pub const ARCHIVE_EXTRACT_MAX_PATH_BYTES_KEY: &str = "archive_extract_max_path_bytes";
+pub const ARCHIVE_EXTRACT_MAX_COMPRESSION_RATIO_KEY: &str = "archive_extract_max_compression_ratio";
+pub const ARCHIVE_EXTRACT_MAX_ENTRY_COMPRESSION_RATIO_KEY: &str =
+    "archive_extract_max_entry_compression_ratio";
+pub const ARCHIVE_EXTRACT_MAX_DURATION_SECS_KEY: &str = "archive_extract_max_duration_secs";
+pub const ARCHIVE_BUILD_MAX_ENTRIES_KEY: &str = "archive_build_max_entries";
+pub const ARCHIVE_BUILD_MAX_TOTAL_SOURCE_BYTES_KEY: &str = "archive_build_max_total_source_bytes";
+pub const ARCHIVE_BUILD_MAX_TEMP_BYTES_KEY: &str = "archive_build_max_temp_bytes";
 
 // ── Mail keys ────────────────────────────────────────────────────────────────
 pub const MAIL_SMTP_HOST_KEY: &str = "mail_smtp_host";
@@ -491,6 +506,19 @@ pub static ALL_CONFIGS: &[ConfigDef] = &[
         description: "Default storage quota for new users in bytes (0 = unlimited)",
     },
     ConfigDef {
+        key: ARCHIVE_EXTRACT_MAX_SOURCE_BYTES_KEY,
+        label_i18n_key: "settings_item_archive_extract_max_source_bytes_label",
+        description_i18n_key: "settings_item_archive_extract_max_source_bytes_desc",
+        value_type: SystemConfigValueType::Number,
+        default_fn: || {
+            crate::config::operations::DEFAULT_ARCHIVE_EXTRACT_MAX_SOURCE_BYTES.to_string()
+        },
+        requires_restart: false,
+        is_sensitive: false,
+        category: "storage.archive_extract",
+        description: "Maximum source ZIP file bytes accepted for online archive extraction",
+    },
+    ConfigDef {
         key: ARCHIVE_EXTRACT_MAX_STAGING_BYTES_KEY,
         label_i18n_key: "settings_item_archive_extract_max_staging_bytes_label",
         description_i18n_key: "settings_item_archive_extract_max_staging_bytes_desc",
@@ -500,8 +528,155 @@ pub static ALL_CONFIGS: &[ConfigDef] = &[
         },
         requires_restart: false,
         is_sensitive: false,
-        category: "storage",
+        category: "storage.archive_extract",
         description: "Maximum total temporary bytes allowed for archive extract staging, including the downloaded source archive and extracted files",
+    },
+    ConfigDef {
+        key: ARCHIVE_EXTRACT_MAX_UNCOMPRESSED_BYTES_KEY,
+        label_i18n_key: "settings_item_archive_extract_max_uncompressed_bytes_label",
+        description_i18n_key: "settings_item_archive_extract_max_uncompressed_bytes_desc",
+        value_type: SystemConfigValueType::Number,
+        default_fn: || {
+            crate::config::operations::DEFAULT_ARCHIVE_EXTRACT_MAX_UNCOMPRESSED_BYTES.to_string()
+        },
+        requires_restart: false,
+        is_sensitive: false,
+        category: "storage.archive_extract",
+        description: "Maximum total uncompressed file bytes accepted inside a ZIP archive before import",
+    },
+    ConfigDef {
+        key: ARCHIVE_EXTRACT_MAX_ENTRIES_KEY,
+        label_i18n_key: "settings_item_archive_extract_max_entries_label",
+        description_i18n_key: "settings_item_archive_extract_max_entries_desc",
+        value_type: SystemConfigValueType::Number,
+        default_fn: || crate::config::operations::DEFAULT_ARCHIVE_EXTRACT_MAX_ENTRIES.to_string(),
+        requires_restart: false,
+        is_sensitive: false,
+        category: "storage.archive_extract",
+        description: "Maximum number of central-directory entries accepted in a ZIP archive",
+    },
+    ConfigDef {
+        key: ARCHIVE_EXTRACT_MAX_FILES_KEY,
+        label_i18n_key: "settings_item_archive_extract_max_files_label",
+        description_i18n_key: "settings_item_archive_extract_max_files_desc",
+        value_type: SystemConfigValueType::Number,
+        default_fn: || crate::config::operations::DEFAULT_ARCHIVE_EXTRACT_MAX_FILES.to_string(),
+        requires_restart: false,
+        is_sensitive: false,
+        category: "storage.archive_extract",
+        description: "Maximum number of file entries accepted in a ZIP archive",
+    },
+    ConfigDef {
+        key: ARCHIVE_EXTRACT_MAX_DIRECTORIES_KEY,
+        label_i18n_key: "settings_item_archive_extract_max_directories_label",
+        description_i18n_key: "settings_item_archive_extract_max_directories_desc",
+        value_type: SystemConfigValueType::Number,
+        default_fn: || {
+            crate::config::operations::DEFAULT_ARCHIVE_EXTRACT_MAX_DIRECTORIES.to_string()
+        },
+        requires_restart: false,
+        is_sensitive: false,
+        category: "storage.archive_extract",
+        description: "Maximum number of directory paths accepted in a ZIP archive",
+    },
+    ConfigDef {
+        key: ARCHIVE_EXTRACT_MAX_DEPTH_KEY,
+        label_i18n_key: "settings_item_archive_extract_max_depth_label",
+        description_i18n_key: "settings_item_archive_extract_max_depth_desc",
+        value_type: SystemConfigValueType::Number,
+        default_fn: || crate::config::operations::DEFAULT_ARCHIVE_EXTRACT_MAX_DEPTH.to_string(),
+        requires_restart: false,
+        is_sensitive: false,
+        category: "storage.archive_extract",
+        description: "Maximum normalized path depth accepted for ZIP archive entries",
+    },
+    ConfigDef {
+        key: ARCHIVE_EXTRACT_MAX_PATH_BYTES_KEY,
+        label_i18n_key: "settings_item_archive_extract_max_path_bytes_label",
+        description_i18n_key: "settings_item_archive_extract_max_path_bytes_desc",
+        value_type: SystemConfigValueType::Number,
+        default_fn: || {
+            crate::config::operations::DEFAULT_ARCHIVE_EXTRACT_MAX_PATH_BYTES.to_string()
+        },
+        requires_restart: false,
+        is_sensitive: false,
+        category: "storage.archive_extract",
+        description: "Maximum UTF-8 byte length accepted for a normalized ZIP archive entry path",
+    },
+    ConfigDef {
+        key: ARCHIVE_EXTRACT_MAX_COMPRESSION_RATIO_KEY,
+        label_i18n_key: "settings_item_archive_extract_max_compression_ratio_label",
+        description_i18n_key: "settings_item_archive_extract_max_compression_ratio_desc",
+        value_type: SystemConfigValueType::Number,
+        default_fn: || {
+            crate::config::operations::DEFAULT_ARCHIVE_EXTRACT_MAX_COMPRESSION_RATIO.to_string()
+        },
+        requires_restart: false,
+        is_sensitive: false,
+        category: "storage.archive_extract",
+        description: "Maximum total uncompressed-to-compressed byte ratio accepted for a ZIP archive",
+    },
+    ConfigDef {
+        key: ARCHIVE_EXTRACT_MAX_ENTRY_COMPRESSION_RATIO_KEY,
+        label_i18n_key: "settings_item_archive_extract_max_entry_compression_ratio_label",
+        description_i18n_key: "settings_item_archive_extract_max_entry_compression_ratio_desc",
+        value_type: SystemConfigValueType::Number,
+        default_fn: || {
+            crate::config::operations::DEFAULT_ARCHIVE_EXTRACT_MAX_ENTRY_COMPRESSION_RATIO
+                .to_string()
+        },
+        requires_restart: false,
+        is_sensitive: false,
+        category: "storage.archive_extract",
+        description: "Maximum per-file uncompressed-to-compressed byte ratio accepted for ZIP archive entries",
+    },
+    ConfigDef {
+        key: ARCHIVE_EXTRACT_MAX_DURATION_SECS_KEY,
+        label_i18n_key: "settings_item_archive_extract_max_duration_secs_label",
+        description_i18n_key: "settings_item_archive_extract_max_duration_secs_desc",
+        value_type: SystemConfigValueType::Number,
+        default_fn: || {
+            crate::config::operations::DEFAULT_ARCHIVE_EXTRACT_MAX_DURATION_SECS.to_string()
+        },
+        requires_restart: false,
+        is_sensitive: false,
+        category: "storage.archive_extract",
+        description: "Maximum wall-clock seconds allowed for one online archive extraction task",
+    },
+    ConfigDef {
+        key: ARCHIVE_BUILD_MAX_ENTRIES_KEY,
+        label_i18n_key: "settings_item_archive_build_max_entries_label",
+        description_i18n_key: "settings_item_archive_build_max_entries_desc",
+        value_type: SystemConfigValueType::Number,
+        default_fn: || crate::config::operations::DEFAULT_ARCHIVE_BUILD_MAX_ENTRIES.to_string(),
+        requires_restart: false,
+        is_sensitive: false,
+        category: "storage.archive_build",
+        description: "Maximum expanded file and directory entries accepted for archive compression or download",
+    },
+    ConfigDef {
+        key: ARCHIVE_BUILD_MAX_TOTAL_SOURCE_BYTES_KEY,
+        label_i18n_key: "settings_item_archive_build_max_total_source_bytes_label",
+        description_i18n_key: "settings_item_archive_build_max_total_source_bytes_desc",
+        value_type: SystemConfigValueType::Number,
+        default_fn: || {
+            crate::config::operations::DEFAULT_ARCHIVE_BUILD_MAX_TOTAL_SOURCE_BYTES.to_string()
+        },
+        requires_restart: false,
+        is_sensitive: false,
+        category: "storage.archive_build",
+        description: "Maximum total source bytes accepted for archive compression or download",
+    },
+    ConfigDef {
+        key: ARCHIVE_BUILD_MAX_TEMP_BYTES_KEY,
+        label_i18n_key: "settings_item_archive_build_max_temp_bytes_label",
+        description_i18n_key: "settings_item_archive_build_max_temp_bytes_desc",
+        value_type: SystemConfigValueType::Number,
+        default_fn: || crate::config::operations::DEFAULT_ARCHIVE_BUILD_MAX_TEMP_BYTES.to_string(),
+        requires_restart: false,
+        is_sensitive: false,
+        category: "storage.archive_build",
+        description: "Maximum estimated or actual ZIP output bytes accepted for archive compression or download",
     },
     ConfigDef {
         key: THUMBNAIL_MAX_SOURCE_BYTES_KEY,
