@@ -5,6 +5,120 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v0.1.0-beta.5] - 2026-05-12
+
+### Release Highlights
+
+- **HTTP Range 与视频流式预览** — 文件下载、直链、预览链接和公开分享下载支持单段 Range 请求，视频预览改为直链 / 临时 stream session 流式播放，降低大文件预览内存占用
+- **分享视频流式播放会话** — 公开分享新增短期 stream session，同一播放会话多次 Range 拉取只计一次下载次数，并兼容密码分享和文件夹分享内文件
+- **归档解压与构建安全限制** — ZIP 解压和归档构建新增大小、条目数、目录深度、路径长度、压缩比和耗时等多维度限制，强化 zip bomb 与异常归档防护
+- **后台任务分通道调度** — 归档、缩略图和兜底任务按 lane 独立限流，失败任务记录可重试状态，任务认领流程减少重复认领和并发超额
+- **上传与存储性能优化** — 上传初始化、目录上传、文件名冲突解析、本地去重、审计日志写入和临时文件落盘路径均减少重复查询、内存占用和系统调用
+- **前端跨路由上传保活与 E2E 覆盖扩展** — 上传区域提升到工作区路由层，切换页面不丢上传状态；新增多模块 Playwright 覆盖
+
+### Added
+
+- **HTTP Range 支持**
+  - 文件下载、直链下载、预览链接和公开分享下载支持 `Range` 请求
+  - 响应返回 `206 Partial Content`、`Accept-Ranges` 和 `Content-Range`
+  - 支持视频 / 音频拖动播放，当前仅支持单段 Range
+- **分享视频流式播放会话**
+  - 新增公开分享 stream session API
+  - 单文件分享和文件夹分享内子文件均可生成短期播放会话
+  - 同一播放会话的多次 Range 请求只计一次下载次数
+  - 密码分享通过访问 cookie 校验播放权限
+- **归档安全限制配置**
+  - 新增 ZIP 解压源文件大小、展开后总大小、条目数、文件数、目录数限制
+  - 新增路径深度、路径长度、压缩比、单任务耗时上限限制
+  - 新增归档构建条目数、源文件总量和临时输出估算限制
+  - 管理后台运行时设置补充归档限制与后台任务并发配置说明
+- **后台任务失败可重试状态**
+  - `background_tasks` 表新增 `failure_can_retry` 字段
+  - 任务 API 的 `can_retry` 根据失败类型返回，安全 / 校验类失败不再允许手动重试
+  - 历史失败任务保持兼容语义
+- **E2E 与集成测试覆盖**
+  - 新增管理审计、团队、搜索、设置、归档任务和 WebDAV 等 Playwright 覆盖
+  - 新增 Range 下载、分享流式会话、上传初始化碰撞、目录上传、任务调度、归档安全限制等后端集成测试
+
+### Changed
+
+- **视频预览**
+  - 前端视频预览从整段 Blob 拉取改为直接使用 HTTP / 公开分享 / stream session 链接
+  - Artplayer 仅预加载 metadata，初始化失败时回退原生 `<video>`
+  - 分享页视频预览在受控访问场景下自动创建临时流式播放会话
+- **后台任务调度**
+  - 归档任务、缩略图任务和兜底任务分通道并发控制
+  - 任务认领在事务内复核 lane 容量，减少并发调度超额
+  - 任务认领逻辑合并为单次批量事务
+- **上传初始化与完成流程**
+  - 上传初始化先插入 session 再准备外部资源 / 目录，`upload_id` 冲突时自动重试
+  - S3 multipart 初始化失败时尝试 abort 远端 upload
+  - 上传完成路径减少重复配额检查、策略解析、文件夹验证和 actor 信息查询
+  - 目录上传批量预取父目录策略与候选文件名
+- **审计日志写入**
+  - 审计日志改为全局异步批量写入
+  - 查询、统计和关闭流程会主动 flush 待写入审计记录
+  - 高频上传和文件操作路径减少同步数据库写入压力
+- **本地存储与缩略图生成**
+  - 本地内容去重上传使用 no-clobber hard link / 临时复制提升原子性
+  - 上传临时文件写入增加 `BufWriter` 缓冲
+  - 缩略图生成优先读取本地路径，远端对象流式落临时文件后处理
+  - 临时文件和目录清理抽出 RAII 守卫
+- **回收站与存储事件**
+  - 回收站清空文件夹改为批量 forest purge，批处理失败时保留单文件夹 fallback
+  - 回收站列表数量使用服务端总数，文件夹和文件分页可继续独立加载
+  - SSE 存储变更事件会同步刷新个人用量、团队列表和团队用量
+  - 存储变更缓存失效做短窗口合并，减少无谓 folder path cache 清理
+- **依赖与构建**
+  - Rust profiling 构建配置重命名并调整
+  - 前端脚本改为直接调用本地 `biome`
+  - 升级 React / React DOM、Vite、Tailwind CSS、i18next、MSW 等前端依赖
+
+### Fixed
+
+- **上传 session 冲突判断**
+  - 修复唯一冲突检测逻辑，只有确认 ID 已存在时才视为 `upload_id` 碰撞
+  - 避免把其他唯一约束或数据库错误误判为可重试冲突
+- **上传与配额正确性**
+  - 修复预上传 / 完成阶段配额检查顺序，非去重预上传会在写入对象前 fast-fail
+  - 修复数据库失败或配额失败时预上传对象未清理的风险
+  - 修复上传完成时重复配额预检导致的额外查询
+  - 修复 blob `ref_count` 自增前缺少溢出检查的问题
+- **归档解压安全**
+  - 拒绝加密条目、符号链接、特殊文件、重复路径、文件 / 目录冲突和异常压缩方法
+  - 校验声明大小、压缩比和 zip bomb 风险
+  - 修复解压导入失败后可能留下部分已创建目录 / 文件的问题，失败时清理新建根目录
+- **分享下载计数**
+  - 修复客户端中断或构建响应失败时分享下载次数可能虚增的问题
+  - Range / stream session 路径统一下载次数记录语义
+- **前端上传与回收站**
+  - 修复切出文件浏览页后活跃上传任务可能随组件卸载丢失的问题
+  - 修复回收站只加载第一页时数量显示过小的问题
+  - 修复“还有更多文件夹但没有更多文件”时无法继续翻页的问题
+- **其他正确性问题**
+  - 修复文件名冲突解析中的 Unicode NFC / NFD 规范化边界
+  - 修复 tracing 日志字段格式问题
+  - 修复注册 / 首次初始化表单首字段占位符误导用户输入邮箱的问题
+  - 修复存储变更事件到达后个人或团队用量信息可能滞后的问题
+
+### Notes
+
+- 本版本为 `0.1.0-beta` 系列第五个预发布版本
+- 升级需要执行数据库 migration：`background_tasks` 表新增 `failure_can_retry` 可空布尔列
+- 下载接口新增单段 `Range` 支持；多段 Range 暂不支持，会返回校验错误
+- 任务 API 的 `can_retry` 语义收紧，新产生的失败会明确区分可重试 / 不可重试
+- 新增公开分享 stream session API 与 OpenAPI schema，自定义客户端可接入该接口实现受控视频流式播放
+- 系统配置新增后台任务分通道并发和归档限制配置；`background_task_max_concurrency` 作为 fallback lane 上限
+- README 移除了“仍处于活跃开发、不可生产使用”的警告块
+
+---
+
+**统计数据**：
+- 132 files changed, 10,303 insertions(+), 1,197 deletions(-)
+- 29 commits
+
+---
+
 ## [v0.1.0-beta.4] - 2026-05-08
 
 ### Release Highlights
@@ -2683,7 +2797,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 66 commits
 - Rust Edition 2024, MSRV 1.91.1
 
-[Unreleased]: https://github.com/AptS-1547/AsterDrive/compare/v0.1.0-beta.4...HEAD
+[Unreleased]: https://github.com/AptS-1547/AsterDrive/compare/v0.1.0-beta.5...HEAD
+[v0.1.0-beta.5]: https://github.com/AptS-1547/AsterDrive/compare/v0.1.0-beta.4...v0.1.0-beta.5
 [v0.1.0-beta.4]: https://github.com/AptS-1547/AsterDrive/compare/v0.1.0-beta.3...v0.1.0-beta.4
 [v0.1.0-beta.3]: https://github.com/AptS-1547/AsterDrive/compare/v0.1.0-beta.2...v0.1.0-beta.3
 [v0.1.0-beta.2]: https://github.com/AptS-1547/AsterDrive/compare/v0.1.0-beta.1...v0.1.0-beta.2
