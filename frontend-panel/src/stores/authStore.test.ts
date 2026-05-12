@@ -80,7 +80,7 @@ describe("useAuthStore", () => {
 		expect(sessionStorage.getItem("aster-auth-expires-at")).not.toBeNull();
 		expect(useThemeStore.getState()).toMatchObject({
 			mode: "dark",
-			colorPreset: "orange",
+			colorPreset: "#f97316",
 		});
 		expect(useFileStore.getState()).toMatchObject({
 			viewMode: "grid",

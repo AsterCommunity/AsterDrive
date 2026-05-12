@@ -3336,11 +3336,8 @@ export interface components {
             /** Format: int32 */
             total_chunks: number;
         };
-        /**
-         * @description Color preset for the UI accent.
-         * @enum {string}
-         */
-        ColorPreset: "blue" | "green" | "purple" | "orange";
+        /** @description User-selected UI accent color. */
+        ColorPreset: string;
         /** @description Complete a chunked upload session. */
         CompleteUploadReq: {
             parts?: components["schemas"]["CompletedPartReq"][] | null;

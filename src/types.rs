@@ -1,7 +1,7 @@
 //! 共享领域类型定义。
 
 use sea_orm::entity::prelude::*;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize, Serializer, de};
 use std::collections::BTreeMap;
 use std::fmt;
 use std::path::Path;
@@ -377,16 +377,78 @@ pub enum ThemeMode {
     Dark,
 }
 
-/// Color preset for the UI accent.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, Default)]
+const DEFAULT_COLOR_PRESET: &str = "#2563eb";
+
+/// User-selected UI accent color.
+///
+/// Stored and returned as a normalized `#rrggbb` hex color. The legacy preset
+/// names are accepted while parsing old user config, then normalized on output.
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
-#[serde(rename_all = "snake_case")]
-pub enum ColorPreset {
-    #[default]
-    Blue,
-    Green,
-    Purple,
-    Orange,
+#[cfg_attr(
+    all(debug_assertions, feature = "openapi"),
+    schema(value_type = String, example = "#2563eb")
+)]
+pub struct ColorPreset(String);
+
+impl ColorPreset {
+    pub fn parse(value: impl AsRef<str>) -> std::result::Result<Self, String> {
+        let value = value.as_ref().trim();
+        if let Some(hex) = legacy_color_preset(value) {
+            return Ok(Self(hex.to_string()));
+        }
+        if is_hex_color(value) {
+            return Ok(Self(value.to_ascii_lowercase()));
+        }
+        Err("color_preset must be a #rrggbb hex color".to_string())
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl Default for ColorPreset {
+    fn default() -> Self {
+        Self(DEFAULT_COLOR_PRESET.to_string())
+    }
+}
+
+impl Serialize for ColorPreset {
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_str(self.as_str())
+    }
+}
+
+impl<'de> Deserialize<'de> for ColorPreset {
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let value = String::deserialize(deserializer)?;
+        Self::parse(value).map_err(de::Error::custom)
+    }
+}
+
+fn is_hex_color(value: &str) -> bool {
+    value.len() == 7
+        && value.starts_with('#')
+        && value.as_bytes()[1..]
+            .iter()
+            .all(|byte| byte.is_ascii_hexdigit())
+}
+
+fn legacy_color_preset(value: &str) -> Option<&'static str> {
+    match value {
+        "blue" => Some("#2563eb"),
+        "green" => Some("#16a34a"),
+        "purple" => Some("#9333ea"),
+        "orange" => Some("#f97316"),
+        _ => None,
+    }
 }
 
 /// File browser view mode.

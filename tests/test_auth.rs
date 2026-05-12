@@ -2530,7 +2530,7 @@ async fn test_patch_preferences_set_and_get() {
         .insert_header(common::csrf_header_for(&token))
         .set_json(serde_json::json!({
             "theme_mode": "dark",
-            "color_preset": "green",
+            "color_preset": "#16a34a",
             "view_mode": "grid",
             "browser_open_mode": "double_click",
             "sort_by": "size",
@@ -2544,7 +2544,7 @@ async fn test_patch_preferences_set_and_get() {
     let body: Value = test::read_body_json(resp).await;
     assert_eq!(body["code"], 0);
     assert_eq!(body["data"]["theme_mode"], "dark");
-    assert_eq!(body["data"]["color_preset"], "green");
+    assert_eq!(body["data"]["color_preset"], "#16a34a");
     assert_eq!(body["data"]["view_mode"], "grid");
     assert_eq!(body["data"]["browser_open_mode"], "double_click");
     assert_eq!(body["data"]["sort_by"], "size");

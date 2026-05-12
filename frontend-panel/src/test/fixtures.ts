@@ -29,7 +29,7 @@ export function createMeResponse(
 		},
 		preferences: {
 			theme_mode: "dark",
-			color_preset: "orange",
+			color_preset: "#f97316",
 			view_mode: "grid",
 			browser_open_mode: "double_click",
 			sort_by: "updated_at",

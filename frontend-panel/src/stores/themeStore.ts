@@ -10,18 +10,18 @@ const THEME_MODES = {
 } as const;
 
 const COLOR_PRESETS = {
-	blue: "blue",
-	green: "green",
-	purple: "purple",
-	orange: "orange",
+	blue: "#2563eb",
+	green: "#16a34a",
+	purple: "#9333ea",
+	orange: "#f97316",
 } as const;
 
 type ThemeMode = (typeof THEME_MODES)[keyof typeof THEME_MODES];
-type ColorPreset = (typeof COLOR_PRESETS)[keyof typeof COLOR_PRESETS];
+type ColorPreset = `#${string}`;
 type ResolvedTheme = "light" | "dark";
 
 const THEME_MODE_VALUES = Object.values(THEME_MODES);
-const COLOR_PRESET_VALUES = Object.values(COLOR_PRESETS);
+const HEX_COLOR_RE = /^#[0-9a-f]{6}$/i;
 
 const FALLBACK_THEME_TRANSITION_CLASS = "theme-switching";
 const FALLBACK_THEME_TRANSITION_DURATION_MS = 220;
@@ -44,11 +44,8 @@ function isThemeMode(value: unknown): value is ThemeMode {
 	);
 }
 
-function isColorPreset(value: unknown): value is ColorPreset {
-	return (
-		typeof value === "string" &&
-		COLOR_PRESET_VALUES.includes(value as ColorPreset)
-	);
+export function isColorPreset(value: unknown): value is ColorPreset {
+	return typeof value === "string" && HEX_COLOR_RE.test(value.trim());
 }
 
 function normalizeThemeMode(value: unknown, fallback: ThemeMode): ThemeMode {
@@ -59,7 +56,12 @@ function normalizeColorPreset(
 	value: unknown,
 	fallback: ColorPreset,
 ): ColorPreset {
-	return isColorPreset(value) ? value : fallback;
+	if (typeof value !== "string") return fallback;
+	const normalized = value.trim().toLowerCase();
+	if (normalized in COLOR_PRESETS) {
+		return COLOR_PRESETS[normalized as keyof typeof COLOR_PRESETS];
+	}
+	return isColorPreset(normalized) ? (normalized as ColorPreset) : fallback;
 }
 
 function getStoredThemeMode(key: string, fallback: ThemeMode): ThemeMode {
@@ -81,6 +83,70 @@ function resolveTheme(mode: ThemeMode): ResolvedTheme {
 	return isDark ? "dark" : "light";
 }
 
+function colorToPresetName(color: ColorPreset) {
+	for (const [name, presetColor] of Object.entries(COLOR_PRESETS)) {
+		if (presetColor === color) return name;
+	}
+	return "custom";
+}
+
+function parseHexColor(hex: ColorPreset) {
+	return {
+		r: Number.parseInt(hex.slice(1, 3), 16),
+		g: Number.parseInt(hex.slice(3, 5), 16),
+		b: Number.parseInt(hex.slice(5, 7), 16),
+	};
+}
+
+function linearizeSrgb(value: number) {
+	const channel = value / 255;
+	return channel <= 0.03928
+		? channel / 12.92
+		: ((channel + 0.055) / 1.055) ** 2.4;
+}
+
+function relativeLuminance(color: ColorPreset) {
+	const { r, g, b } = parseHexColor(color);
+	return (
+		0.2126 * linearizeSrgb(r) +
+		0.7152 * linearizeSrgb(g) +
+		0.0722 * linearizeSrgb(b)
+	);
+}
+
+function readableForeground(color: ColorPreset) {
+	return relativeLuminance(color) > 0.46
+		? "oklch(0.15 0.018 255)"
+		: "oklch(0.985 0 0)";
+}
+
+function themeColorVariables(color: ColorPreset, resolvedTheme: ResolvedTheme) {
+	const accent =
+		resolvedTheme === "dark"
+			? `color-mix(in oklab, ${color} 28%, black)`
+			: `color-mix(in oklab, ${color} 10%, white)`;
+	const sidebarAccent =
+		resolvedTheme === "dark"
+			? `color-mix(in oklab, ${color} 24%, black)`
+			: `color-mix(in oklab, ${color} 9%, white)`;
+	const accentForeground =
+		resolvedTheme === "dark"
+			? "oklch(0.96 0.01 255)"
+			: `color-mix(in oklab, ${color} 48%, black)`;
+
+	return {
+		"--primary": color,
+		"--primary-foreground": readableForeground(color),
+		"--accent": accent,
+		"--accent-foreground": accentForeground,
+		"--ring": color,
+		"--chart-1": color,
+		"--sidebar-primary": color,
+		"--sidebar-accent": sidebarAccent,
+		"--sidebar-accent-foreground": accentForeground,
+	};
+}
+
 function commitTheme(resolvedTheme: ResolvedTheme, preset: ColorPreset) {
 	const html = document.documentElement;
 
@@ -89,7 +155,12 @@ function commitTheme(resolvedTheme: ResolvedTheme, preset: ColorPreset) {
 	} else {
 		html.classList.remove("dark");
 	}
-	html.setAttribute("data-theme", preset);
+	html.setAttribute("data-theme", colorToPresetName(preset));
+	for (const [name, value] of Object.entries(
+		themeColorVariables(preset, resolvedTheme),
+	)) {
+		html.style.setProperty(name, value);
+	}
 }
 
 function prefersReducedMotion() {
@@ -145,7 +216,7 @@ export { COLOR_PRESETS, THEME_MODES };
 const initialMode = getStoredThemeMode(STORAGE_KEYS.themeMode, "system");
 const initialColorPreset = getStoredColorPreset(
 	STORAGE_KEYS.colorPreset,
-	"blue",
+	COLOR_PRESETS.blue,
 );
 const initialResolvedTheme = resolveTheme(initialMode);
 

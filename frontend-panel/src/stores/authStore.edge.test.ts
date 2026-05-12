@@ -60,7 +60,7 @@ vi.mock("@/stores/themeStore", () => ({
 	useThemeStore: {
 		getState: () => ({
 			mode: "system",
-			colorPreset: "blue",
+			colorPreset: "#2563eb",
 			_applyFromServer: mockState.applyThemePrefs,
 		}),
 	},

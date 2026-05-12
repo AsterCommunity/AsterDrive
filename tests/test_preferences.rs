@@ -125,10 +125,10 @@ async fn test_preferences_empty_patch_noop() {
         .uri("/api/v1/auth/preferences")
         .insert_header(("Cookie", common::access_cookie_header(&token)))
         .insert_header(common::csrf_header_for(&token))
-        .set_json(serde_json::json!({ "color_preset": "green" }))
+        .set_json(serde_json::json!({ "color_preset": "#0f766e" }))
         .to_request();
     let body: Value = test::read_body_json(test::call_service(&app, req).await).await;
-    assert_eq!(body["data"]["color_preset"], "green");
+    assert_eq!(body["data"]["color_preset"], "#0f766e");
     assert!(body["data"]["display_time_zone"].is_null());
     assert!(body["data"]["storage_event_stream_enabled"].is_null());
 
@@ -141,7 +141,7 @@ async fn test_preferences_empty_patch_noop() {
         .to_request();
     let body: Value = test::read_body_json(test::call_service(&app, req).await).await;
     assert_eq!(
-        body["data"]["color_preset"], "green",
+        body["data"]["color_preset"], "#0f766e",
         "empty patch preserves existing"
     );
     assert!(body["data"]["display_time_zone"].is_null());
@@ -305,6 +305,83 @@ async fn test_preferences_invalid_value_rejected() {
         .to_request();
     let resp: actix_web::dev::ServiceResponse = test::call_service(&app, req).await;
     assert_eq!(resp.status(), 400, "invalid enum value should be rejected");
+}
+
+#[actix_web::test]
+async fn test_preferences_color_preset_accepts_hex_color() {
+    let state = common::setup().await;
+    let app = create_test_app!(state);
+    let (token, _) = register_and_login!(app);
+
+    let req = test::TestRequest::patch()
+        .uri("/api/v1/auth/preferences")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({ "color_preset": "#0F766E" }))
+        .to_request();
+    let resp: actix_web::dev::ServiceResponse = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(body["data"]["color_preset"], "#0f766e");
+
+    let req = test::TestRequest::get()
+        .uri("/api/v1/auth/me")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .to_request();
+    let body: Value = test::read_body_json(test::call_service(&app, req).await).await;
+    assert_eq!(
+        body["data"]["preferences"]["color_preset"],
+        "#0f766e"
+    );
+}
+
+#[actix_web::test]
+async fn test_preferences_color_preset_rejects_invalid_color() {
+    let state = common::setup().await;
+    let app = create_test_app!(state);
+    let (token, _) = register_and_login!(app);
+
+    for color in ["greenish", "#12345", "#1234567", "rgb(1, 2, 3)"] {
+        let req = test::TestRequest::patch()
+            .uri("/api/v1/auth/preferences")
+            .insert_header(("Cookie", common::access_cookie_header(&token)))
+            .insert_header(common::csrf_header_for(&token))
+            .set_json(serde_json::json!({ "color_preset": color }))
+            .to_request();
+        let resp: actix_web::dev::ServiceResponse = test::call_service(&app, req).await;
+        assert_eq!(resp.status(), 400, "{color} should be rejected");
+    }
+}
+
+#[actix_web::test]
+async fn test_preferences_color_preset_normalizes_legacy_names() {
+    let state = common::setup().await;
+    let db = state.db.clone();
+    let app = create_test_app!(state);
+    let (token, _) = register_and_login!(app);
+
+    let user = user_repo::find_by_email(&db, "test@example.com")
+        .await
+        .unwrap()
+        .expect("registered user should exist");
+    let mut active = user.clone().into_active_model();
+    active.config = Set(Some(StoredUserConfig(
+        r#"{"color_preset":"green"}"#.to_string(),
+    )));
+    active.updated_at = Set(chrono::Utc::now());
+    active.update(&db).await.unwrap();
+
+    let req = test::TestRequest::get()
+        .uri("/api/v1/auth/me")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .to_request();
+    let body: Value = test::read_body_json(test::call_service(&app, req).await).await;
+    assert_eq!(
+        body["data"]["preferences"]["color_preset"],
+        "#16a34a"
+    );
 }
 
 #[actix_web::test]

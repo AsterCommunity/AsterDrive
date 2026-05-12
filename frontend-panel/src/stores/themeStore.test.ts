@@ -67,6 +67,9 @@ describe("useThemeStore", () => {
 		expect(localStorage.getItem("aster-theme-mode")).toBe("dark");
 		expect(document.documentElement.classList.contains("dark")).toBe(true);
 		expect(document.documentElement.getAttribute("data-theme")).toBe("blue");
+		expect(document.documentElement.style.getPropertyValue("--primary")).toBe(
+			"#2563eb",
+		);
 		expect(mockState.queuePreferenceSync).toHaveBeenCalledWith({
 			theme_mode: "dark",
 		});
@@ -74,7 +77,7 @@ describe("useThemeStore", () => {
 
 	it("reacts to system theme changes after init", async () => {
 		localStorage.setItem("aster-theme-mode", "system");
-		localStorage.setItem("aster-color-preset", "green");
+		localStorage.setItem("aster-color-preset", "#16a34a");
 		const media = mockMatchMedia(true);
 		const { useThemeStore } = await loadThemeStore();
 
@@ -100,7 +103,7 @@ describe("useThemeStore", () => {
 
 		expect(useThemeStore.getState()).toMatchObject({
 			mode: "system",
-			colorPreset: "blue",
+			colorPreset: "#2563eb",
 			resolvedTheme: "light",
 		});
 	});
@@ -118,7 +121,7 @@ describe("useThemeStore", () => {
 
 			expect(useThemeStore.getState()).toMatchObject({
 				mode: "system",
-				colorPreset: "blue",
+				colorPreset: "#2563eb",
 				resolvedTheme: "light",
 			});
 		} finally {
@@ -158,17 +161,51 @@ describe("useThemeStore", () => {
 
 		useThemeStore.getState()._applyFromServer({
 			mode: "light",
-			colorPreset: "orange",
+			colorPreset: "#f97316",
 		});
 
 		expect(useThemeStore.getState()).toMatchObject({
 			mode: "light",
-			colorPreset: "orange",
+			colorPreset: "#f97316",
 			resolvedTheme: "light",
 		});
 		expect(localStorage.getItem("aster-theme-mode")).toBe("light");
-		expect(localStorage.getItem("aster-color-preset")).toBe("orange");
+		expect(localStorage.getItem("aster-color-preset")).toBe("#f97316");
 		expect(document.documentElement.getAttribute("data-theme")).toBe("orange");
+	});
+
+	it("normalizes legacy server color names before applying them", async () => {
+		mockMatchMedia(false);
+		const { useThemeStore } = await loadThemeStore();
+
+		useThemeStore.getState()._applyFromServer({
+			mode: "light",
+			colorPreset: "green",
+		});
+
+		expect(useThemeStore.getState()).toMatchObject({
+			colorPreset: "#16a34a",
+			resolvedTheme: "light",
+		});
+		expect(localStorage.getItem("aster-color-preset")).toBe("#16a34a");
+		expect(document.documentElement.getAttribute("data-theme")).toBe("green");
+	});
+
+	it("persists arbitrary custom colors", async () => {
+		mockMatchMedia(false);
+		const { useThemeStore } = await loadThemeStore();
+
+		useThemeStore.getState().setColorPreset("#0f766e");
+
+		expect(useThemeStore.getState().colorPreset).toBe("#0f766e");
+		expect(localStorage.getItem("aster-color-preset")).toBe("#0f766e");
+		expect(document.documentElement.getAttribute("data-theme")).toBe("custom");
+		expect(document.documentElement.style.getPropertyValue("--primary")).toBe(
+			"#0f766e",
+		);
+		expect(mockState.queuePreferenceSync).toHaveBeenCalledWith({
+			color_preset: "#0f766e",
+		});
 	});
 
 	it("normalizes invalid server theme preferences before applying them", async () => {
@@ -182,11 +219,11 @@ describe("useThemeStore", () => {
 
 		expect(useThemeStore.getState()).toMatchObject({
 			mode: "system",
-			colorPreset: "blue",
+			colorPreset: "#2563eb",
 			resolvedTheme: "light",
 		});
 		expect(localStorage.getItem("aster-theme-mode")).toBe("system");
-		expect(localStorage.getItem("aster-color-preset")).toBe("blue");
+		expect(localStorage.getItem("aster-color-preset")).toBe("#2563eb");
 		expect(document.documentElement.getAttribute("data-theme")).toBe("blue");
 	});
 

@@ -163,7 +163,7 @@ pub async fn update_preferences(
     }
 
     prefs.theme_mode = theme_mode.or(prefs.theme_mode);
-    prefs.color_preset = color_preset.or(prefs.color_preset);
+    prefs.color_preset = color_preset.or(prefs.color_preset.clone());
     prefs.view_mode = view_mode.or(prefs.view_mode);
     prefs.browser_open_mode = browser_open_mode.or(prefs.browser_open_mode);
     prefs.sort_by = sort_by.or(prefs.sort_by);
