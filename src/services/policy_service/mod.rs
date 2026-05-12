@@ -85,10 +85,11 @@ pub async fn update_with_audit(
 pub async fn delete_with_audit(
     state: &PrimaryAppState,
     id: i64,
+    force: bool,
     audit_ctx: &AuditContext,
 ) -> Result<()> {
     let policy = get(state, id).await?;
-    delete(state, id).await?;
+    delete(state, id, force).await?;
     audit_service::log(
         state,
         audit_ctx,

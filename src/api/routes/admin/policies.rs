@@ -2,8 +2,8 @@
 
 use crate::api::dto::admin::{
     AdminPolicyGroupListQuery, AdminPolicyListQuery, CreatePolicyGroupReq, CreatePolicyReq,
-    MigratePolicyGroupUsersReq, PatchPolicyGroupReq, PatchPolicyReq, PolicyGroupItemReq,
-    TestPolicyParamsReq,
+    DeletePolicyQuery, MigratePolicyGroupUsersReq, PatchPolicyGroupReq, PatchPolicyReq,
+    PolicyGroupItemReq, TestPolicyParamsReq,
 };
 use crate::api::dto::validate_request;
 use crate::api::pagination::LimitOffsetQuery;
@@ -244,7 +244,7 @@ pub async fn update_policy(
     path = "/api/v1/admin/policies/{id}",
     tag = "admin",
     operation_id = "delete_policy",
-    params(("id" = i64, Path, description = "Policy ID")),
+    params(("id" = i64, Path, description = "Policy ID"), DeletePolicyQuery),
     responses(
         (status = 200, description = "Policy deleted"),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
@@ -258,9 +258,10 @@ pub async fn delete_policy(
     claims: web::ReqData<Claims>,
     req: HttpRequest,
     path: web::Path<i64>,
+    query: web::Query<DeletePolicyQuery>,
 ) -> Result<HttpResponse> {
     let ctx = audit_service::AuditContext::from_request(&req, &claims);
-    policy_service::delete_with_audit(&state, *path, &ctx).await?;
+    policy_service::delete_with_audit(&state, *path, query.force, &ctx).await?;
     Ok(HttpResponse::Ok().json(ApiResponse::<()>::ok_empty()))
 }
 

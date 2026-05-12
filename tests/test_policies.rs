@@ -4,7 +4,50 @@
 mod common;
 
 use actix_web::test;
+use chrono::{Duration, Utc};
 use serde_json::Value;
+
+struct PolicyUploadSessionSpec<'a> {
+    upload_id: &'a str,
+    policy_id: i64,
+    user_id: i64,
+    s3_temp_key: Option<&'a str>,
+}
+
+async fn create_policy_upload_session(
+    state: &aster_drive::runtime::PrimaryAppState,
+    spec: PolicyUploadSessionSpec<'_>,
+) {
+    use aster_drive::db::repository::upload_session_repo;
+    use aster_drive::types::UploadSessionStatus;
+    use sea_orm::Set;
+
+    let now = Utc::now();
+    upload_session_repo::create(
+        &state.db,
+        aster_drive::entities::upload_session::ActiveModel {
+            id: Set(spec.upload_id.to_string()),
+            user_id: Set(spec.user_id),
+            team_id: Set(None),
+            filename: Set("pending-policy-upload.bin".to_string()),
+            total_size: Set(10),
+            chunk_size: Set(5),
+            total_chunks: Set(2),
+            received_count: Set(1),
+            folder_id: Set(None),
+            policy_id: Set(spec.policy_id),
+            status: Set(UploadSessionStatus::Uploading),
+            s3_temp_key: Set(spec.s3_temp_key.map(str::to_string)),
+            s3_multipart_id: Set(None),
+            file_id: Set(None),
+            created_at: Set(now),
+            expires_at: Set(now + Duration::hours(1)),
+            updated_at: Set(now),
+        },
+    )
+    .await
+    .unwrap();
+}
 
 #[actix_web::test]
 async fn test_user_default_policy_switch_updates_snapshot_immediately() {
@@ -216,6 +259,252 @@ async fn test_policy_crud() {
     let body: Value = test::read_body_json(resp).await;
     assert_eq!(body["data"]["items"].as_array().unwrap().len(), 1);
     assert_eq!(body["data"]["total"], 1);
+}
+
+#[actix_web::test]
+async fn test_policy_delete_rejects_upload_sessions_unless_forced() {
+    use aster_drive::db::repository::{policy_repo, upload_session_repo};
+
+    let state = common::setup().await;
+    let db = state.db.clone();
+    let app = create_test_app!(state.clone());
+    let (token, _) = register_and_login!(app);
+
+    let base_path = format!(
+        "/tmp/asterdrive-policy-upload-session-{}",
+        uuid::Uuid::new_v4()
+    );
+    std::fs::create_dir_all(&base_path).unwrap();
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/admin/policies")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({
+            "name": "Session Guard Policy",
+            "driver_type": "local",
+            "base_path": base_path,
+            "chunk_size": 5_242_880,
+            "max_file_size": 0
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 201);
+    let body: Value = test::read_body_json(resp).await;
+    let policy_id = body["data"]["id"].as_i64().unwrap();
+
+    let user = aster_drive::db::repository::user_repo::find_by_username(&db, "testuser")
+        .await
+        .unwrap()
+        .expect("registered user should exist");
+    let upload_id = uuid::Uuid::new_v4().to_string();
+    let temp_dir = std::path::PathBuf::from(aster_drive::utils::paths::upload_temp_dir(
+        &state.config.server.upload_temp_dir,
+        &upload_id,
+    ));
+    tokio::fs::create_dir_all(&temp_dir).await.unwrap();
+    tokio::fs::write(temp_dir.join("chunk-0"), b"partial")
+        .await
+        .unwrap();
+
+    create_policy_upload_session(
+        &state,
+        PolicyUploadSessionSpec {
+            upload_id: &upload_id,
+            policy_id,
+            user_id: user.id,
+            s3_temp_key: None,
+        },
+    )
+    .await;
+
+    let req = test::TestRequest::delete()
+        .uri(&format!("/api/v1/admin/policies/{policy_id}"))
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 400);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(
+        body["msg"],
+        "cannot delete policy: 1 upload session(s) still reference it"
+    );
+
+    assert!(
+        policy_repo::find_by_id(&db, policy_id).await.is_ok(),
+        "policy should remain after guarded delete"
+    );
+    assert!(
+        upload_session_repo::find_by_id(&db, &upload_id)
+            .await
+            .is_ok(),
+        "upload session should remain after guarded delete"
+    );
+    assert!(
+        temp_dir.exists(),
+        "local upload temp directory should remain after guarded delete"
+    );
+
+    let req = test::TestRequest::delete()
+        .uri(&format!("/api/v1/admin/policies/{policy_id}?force=true"))
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+
+    assert!(
+        policy_repo::find_by_id(&db, policy_id).await.is_err(),
+        "policy should be deleted by forced delete"
+    );
+    assert!(
+        upload_session_repo::find_by_id(&db, &upload_id)
+            .await
+            .is_err(),
+        "forced delete should remove upload sessions"
+    );
+    assert!(
+        !temp_dir.exists(),
+        "forced delete should remove local upload temp directory"
+    );
+}
+
+#[actix_web::test]
+async fn test_policy_force_delete_still_rejects_blob_references() {
+    use aster_drive::db::repository::{file_repo, policy_group_repo, policy_repo};
+    use aster_drive::services::{file_service, policy_service, user_service};
+    use aster_drive::types::DriverType;
+
+    let state = common::setup().await;
+    let db = state.db.clone();
+    let app = create_test_app!(state.clone());
+    let (token, _) = register_and_login!(app);
+    let user = aster_drive::db::repository::user_repo::find_by_username(&db, "testuser")
+        .await
+        .unwrap()
+        .expect("registered user should exist");
+
+    let base_path = format!("/tmp/asterdrive-policy-force-blob-{}", uuid::Uuid::new_v4());
+    std::fs::create_dir_all(&base_path).unwrap();
+    let policy = policy_service::create(
+        &state,
+        policy_service::CreateStoragePolicyInput {
+            name: "Blob Guard Policy".to_string(),
+            connection: policy_service::StoragePolicyConnectionInput {
+                driver_type: DriverType::Local,
+                endpoint: String::new(),
+                bucket: String::new(),
+                access_key: String::new(),
+                secret_key: String::new(),
+                base_path,
+                remote_node_id: None,
+            },
+            max_file_size: 0,
+            chunk_size: None,
+            is_default: false,
+            allowed_types: None,
+            options: None,
+        },
+    )
+    .await
+    .unwrap();
+
+    let group = policy_service::create_group(
+        &state,
+        policy_service::CreateStoragePolicyGroupInput {
+            name: "Blob Guard Group".to_string(),
+            description: None,
+            is_enabled: true,
+            is_default: false,
+            items: vec![policy_service::StoragePolicyGroupItemInput {
+                policy_id: policy.id,
+                priority: 1,
+                min_file_size: 0,
+                max_file_size: 0,
+            }],
+        },
+    )
+    .await
+    .unwrap();
+
+    user_service::update(
+        &state,
+        user_service::UpdateUserInput {
+            id: user.id,
+            email_verified: None,
+            role: None,
+            status: None,
+            storage_quota: None,
+            policy_group_id: Some(group.id),
+        },
+    )
+    .await
+    .unwrap();
+
+    let temp_path = aster_drive::utils::paths::temp_file_path(
+        &state.config.server.temp_dir,
+        &uuid::Uuid::new_v4().to_string(),
+    );
+    tokio::fs::create_dir_all(&state.config.server.temp_dir)
+        .await
+        .unwrap();
+    tokio::fs::write(&temp_path, b"blob reference")
+        .await
+        .unwrap();
+    let file = file_service::store_from_temp(
+        &state,
+        user.id,
+        file_service::StoreFromTempRequest::new(
+            None,
+            "blob-reference.txt",
+            &temp_path,
+            b"blob reference".len() as i64,
+        ),
+    )
+    .await
+    .unwrap();
+    let blob = file_repo::find_blob_by_id(&db, file.blob_id).await.unwrap();
+    assert_eq!(blob.policy_id, policy.id);
+
+    let default_group = policy_group_repo::find_default_group(&db)
+        .await
+        .unwrap()
+        .expect("default policy group should exist");
+    user_service::update(
+        &state,
+        user_service::UpdateUserInput {
+            id: user.id,
+            email_verified: None,
+            role: None,
+            status: None,
+            storage_quota: None,
+            policy_group_id: Some(default_group.id),
+        },
+    )
+    .await
+    .unwrap();
+
+    policy_service::delete_group(&state, group.id)
+        .await
+        .unwrap();
+
+    let req = test::TestRequest::delete()
+        .uri(&format!("/api/v1/admin/policies/{}?force=true", policy.id))
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 400);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(
+        body["msg"],
+        "cannot delete policy: 1 blob(s) still reference it"
+    );
+    assert!(
+        policy_repo::find_by_id(&db, policy.id).await.is_ok(),
+        "force must not delete a policy referenced by blobs"
+    );
 }
 
 #[actix_web::test]

@@ -224,6 +224,27 @@ pub async fn cancel_upload_for_team(
     cancel_upload_impl(state, session).await
 }
 
+pub async fn force_cleanup_by_policy(state: &PrimaryAppState, policy_id: i64) -> Result<u64> {
+    let sessions = upload_session_repo::find_by_policy(&state.db, policy_id).await?;
+    let mut cleaned = 0_u64;
+
+    for session in sessions {
+        let cleanup_outcome = cleanup_remote_upload_state(state, &session).await;
+        if !cleanup_outcome.is_complete() {
+            return Err(AsterError::validation_error(format!(
+                "cannot force delete policy: upload session {} still has remote cleanup pending",
+                session.id
+            )));
+        }
+
+        cleanup_upload_temp_dir(state, &session.id).await;
+        upload_session_repo::delete(&state.db, &session.id).await?;
+        cleaned += 1;
+    }
+
+    Ok(cleaned)
+}
+
 /// 清理过期的上传 session（后台任务调用）
 pub async fn cleanup_expired(state: &PrimaryAppState) -> Result<u32> {
     let expired = upload_session_repo::find_expired(&state.db).await?;

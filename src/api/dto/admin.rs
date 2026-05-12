@@ -16,8 +16,11 @@ use crate::api::pagination::{
 // ── Users ──────────────────────────────────────────────────────────────────
 
 /// Query parameters for the admin user list.
-#[derive(Deserialize)]
-#[cfg_attr(all(debug_assertions, feature = "openapi"), derive(IntoParams))]
+#[derive(Debug, Deserialize)]
+#[cfg_attr(
+    all(debug_assertions, feature = "openapi"),
+    derive(IntoParams, ToSchema)
+)]
 pub struct AdminUserListQuery {
     pub keyword: Option<String>,
     pub role: Option<crate::types::UserRole>,
@@ -126,6 +129,17 @@ pub struct PatchPolicyReq {
     pub allowed_types: Option<Vec<String>>,
     #[validate(nested)]
     pub options: Option<crate::types::StoragePolicyOptions>,
+}
+
+/// Query parameters for deleting a storage policy.
+#[derive(Debug, Deserialize)]
+#[cfg_attr(
+    all(debug_assertions, feature = "openapi"),
+    derive(IntoParams, ToSchema)
+)]
+pub struct DeletePolicyQuery {
+    #[serde(default)]
+    pub force: bool,
 }
 
 /// Test a storage policy connection by parameters (without saving).

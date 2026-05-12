@@ -4,8 +4,8 @@ use crate::entities::upload_session::{self, Entity as UploadSession};
 use crate::errors::{AsterError, Result};
 use crate::types::UploadSessionStatus;
 use sea_orm::{
-    ActiveModelTrait, ColumnTrait, ConnectionTrait, EntityTrait, ExprTrait, QueryFilter,
-    QueryOrder, QuerySelect, SqlErr, sea_query::Expr,
+    ActiveModelTrait, ColumnTrait, ConnectionTrait, EntityTrait, ExprTrait, PaginatorTrait,
+    QueryFilter, QueryOrder, QuerySelect, SqlErr, sea_query::Expr,
 };
 
 pub async fn find_by_id<C: ConnectionTrait>(db: &C, id: &str) -> Result<upload_session::Model> {
@@ -201,6 +201,25 @@ pub async fn find_by_team<C: ConnectionTrait>(
     UploadSession::find()
         .filter(upload_session::Column::TeamId.eq(team_id))
         .all(db)
+        .await
+        .map_err(AsterError::from)
+}
+
+pub async fn find_by_policy<C: ConnectionTrait>(
+    db: &C,
+    policy_id: i64,
+) -> Result<Vec<upload_session::Model>> {
+    UploadSession::find()
+        .filter(upload_session::Column::PolicyId.eq(policy_id))
+        .all(db)
+        .await
+        .map_err(AsterError::from)
+}
+
+pub async fn count_by_policy<C: ConnectionTrait>(db: &C, policy_id: i64) -> Result<u64> {
+    UploadSession::find()
+        .filter(upload_session::Column::PolicyId.eq(policy_id))
+        .count(db)
         .await
         .map_err(AsterError::from)
 }

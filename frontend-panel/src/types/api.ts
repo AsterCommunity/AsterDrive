@@ -99,6 +99,8 @@ export type BackgroundTaskStatus =
 export type CreatePolicyGroupRequest =
 	components["schemas"]["CreatePolicyGroupReq"];
 export type CreatePolicyRequest = components["schemas"]["CreatePolicyReq"];
+export type DeletePolicyQuery =
+	ApiOperations["delete_policy"]["parameters"]["query"];
 export type CreateRemoteNodeRequest =
 	components["schemas"]["CreateRemoteNodeReq"];
 export type DriverType = components["schemas"]["DriverType"];

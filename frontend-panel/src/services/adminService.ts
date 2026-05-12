@@ -29,6 +29,7 @@ import type {
 	CreatePolicyRequest,
 	CreateRemoteNodeRequest,
 	CreateUserReq,
+	DeletePolicyQuery,
 	DriverType,
 	ExecuteConfigActionRequest,
 	ExecuteConfigActionResponse,
@@ -257,7 +258,12 @@ export const adminPolicyService = {
 	update: (id: number, data: UpdatePolicyRequest) =>
 		api.patch<StoragePolicy>(`/admin/policies/${id}`, data),
 
-	delete: (id: number) => api.delete<void>(`/admin/policies/${id}`),
+	delete: (id: number, params?: DeletePolicyQuery) =>
+		api.delete<void>(
+			withQuery(`/admin/policies/${id}`, {
+				force: params?.force,
+			}),
+		),
 
 	testConnection: (id: number) => api.post<void>(`/admin/policies/${id}/test`),
 

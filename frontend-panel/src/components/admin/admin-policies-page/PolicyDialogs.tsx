@@ -13,6 +13,11 @@ interface PolicyDialogsProps {
 		"onConfirm" | "onOpenChange" | "open"
 	>;
 	deletePolicyName: string;
+	forceDeleteDialogProps: Pick<
+		ConfirmDialogProps,
+		"onConfirm" | "onOpenChange" | "open"
+	>;
+	forceDeletePolicyName: string;
 	dialogOpen: boolean;
 	editMode: boolean;
 	endpointValidationMessage: string | null;
@@ -42,6 +47,8 @@ export function PolicyDialogs({
 	createStepTouched,
 	deleteDialogProps,
 	deletePolicyName,
+	forceDeleteDialogProps,
+	forceDeletePolicyName,
 	dialogOpen,
 	editMode,
 	endpointValidationMessage,
@@ -68,6 +75,13 @@ export function PolicyDialogs({
 				title={`${t("delete_policy")} "${deletePolicyName}"?`}
 				description={t("delete_policy_desc")}
 				confirmLabel={t("core:delete")}
+				variant="destructive"
+			/>
+			<ConfirmDialog
+				{...forceDeleteDialogProps}
+				title={`${t("force_delete_policy")} "${forceDeletePolicyName}"?`}
+				description={t("force_delete_policy_desc")}
+				confirmLabel={t("force_delete_policy_confirm")}
 				variant="destructive"
 			/>
 			<ConfirmDialog

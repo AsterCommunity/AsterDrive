@@ -2923,6 +2923,12 @@ export interface components {
             /** Format: int64 */
             user_id?: number | null;
         };
+        /** @enum {string} */
+        AdminAuditLogSortBy: "id" | "created_at" | "user_id" | "action" | "entity_type" | "entity_name" | "ip_address";
+        AdminAuditLogSortQuery: {
+            sort_by?: null | components["schemas"]["AdminAuditLogSortBy"];
+            sort_order?: null | components["schemas"]["SortOrder"];
+        };
         AdminBackgroundTaskEvent: {
             created_at: string;
             creator?: null | components["schemas"]["UserSummary"];
@@ -2951,6 +2957,12 @@ export interface components {
             /** Format: int64 */
             policy_group_id?: number | null;
         };
+        AdminLockListQuery: {
+            sort_by?: null | components["schemas"]["AdminLockSortBy"];
+            sort_order?: null | components["schemas"]["SortOrder"];
+        };
+        /** @enum {string} */
+        AdminLockSortBy: "id" | "path" | "entity_type" | "owner_id" | "timeout_at" | "shared" | "deep" | "created_at";
         AdminOverview: {
             daily_reports: components["schemas"]["AdminOverviewDailyReport"][];
             /** Format: int32 */
@@ -3010,6 +3022,30 @@ export interface components {
             /** Format: int64 */
             policy_group_id?: number | null;
         };
+        AdminPolicyGroupListQuery: {
+            sort_by?: null | components["schemas"]["AdminPolicyGroupSortBy"];
+            sort_order?: null | components["schemas"]["SortOrder"];
+        };
+        /** @enum {string} */
+        AdminPolicyGroupSortBy: "id" | "name" | "is_enabled" | "is_default" | "created_at" | "updated_at";
+        AdminPolicyListQuery: {
+            sort_by?: null | components["schemas"]["AdminPolicySortBy"];
+            sort_order?: null | components["schemas"]["SortOrder"];
+        };
+        /** @enum {string} */
+        AdminPolicySortBy: "id" | "name" | "driver_type" | "endpoint" | "bucket" | "is_default" | "created_at" | "updated_at";
+        AdminRemoteNodeListQuery: {
+            sort_by?: null | components["schemas"]["AdminRemoteNodeSortBy"];
+            sort_order?: null | components["schemas"]["SortOrder"];
+        };
+        /** @enum {string} */
+        AdminRemoteNodeSortBy: "id" | "name" | "base_url" | "is_enabled" | "last_checked_at" | "created_at" | "updated_at";
+        AdminShareListQuery: {
+            sort_by?: null | components["schemas"]["AdminShareSortBy"];
+            sort_order?: null | components["schemas"]["SortOrder"];
+        };
+        /** @enum {string} */
+        AdminShareSortBy: "id" | "token" | "user_id" | "download_count" | "max_downloads" | "expires_at" | "created_at" | "updated_at";
         AdminSystemHealthComponent: {
             message: string;
             name: string;
@@ -3035,8 +3071,12 @@ export interface components {
         /** @description Query parameters for the admin task list. */
         AdminTaskListQuery: {
             kind?: null | components["schemas"]["BackgroundTaskKind"];
+            sort_by?: null | components["schemas"]["AdminTaskSortBy"];
+            sort_order?: null | components["schemas"]["SortOrder"];
             status?: null | components["schemas"]["BackgroundTaskStatus"];
         };
+        /** @enum {string} */
+        AdminTaskSortBy: "id" | "display_name" | "kind" | "status" | "progress" | "created_at" | "updated_at" | "started_at" | "finished_at";
         AdminTeamInfo: {
             archived_at?: string | null;
             created_at: string;
@@ -3059,7 +3099,23 @@ export interface components {
         AdminTeamListQuery: {
             archived?: boolean | null;
             keyword?: string | null;
+            sort_by?: null | components["schemas"]["AdminTeamSortBy"];
+            sort_order?: null | components["schemas"]["SortOrder"];
         };
+        /** @enum {string} */
+        AdminTeamMemberSortBy: "username" | "email" | "role" | "status" | "created_at" | "updated_at";
+        /** @enum {string} */
+        AdminTeamSortBy: "id" | "name" | "storage_used" | "storage_quota" | "created_at" | "updated_at" | "archived_at";
+        /** @description Query parameters for the admin user list. */
+        AdminUserListQuery: {
+            keyword?: string | null;
+            role?: null | components["schemas"]["UserRole"];
+            sort_by?: null | components["schemas"]["AdminUserSortBy"];
+            sort_order?: null | components["schemas"]["SortOrder"];
+            status?: null | components["schemas"]["UserStatus"];
+        };
+        /** @enum {string} */
+        AdminUserSortBy: "id" | "username" | "email" | "role" | "status" | "storage_used" | "storage_quota" | "created_at" | "updated_at";
         ApiErrorInfo: {
             internal_code: string;
             retryable?: boolean | null;
@@ -3449,6 +3505,10 @@ export interface components {
             root_folder_id?: number | null;
             username: string;
         };
+        /** @description Query parameters for deleting a storage policy. */
+        DeletePolicyQuery: {
+            force?: boolean;
+        };
         DirectLinkTokenInfo: {
             token: string;
         };
@@ -3654,6 +3714,14 @@ export interface components {
             limit?: number | null;
             /** Format: int64 */
             offset?: number | null;
+        };
+        /** @description Query parameters for listing team members. */
+        ListTeamMembersQuery: {
+            keyword?: string | null;
+            role?: null | components["schemas"]["TeamMemberRole"];
+            sort_by?: null | components["schemas"]["AdminTeamMemberSortBy"];
+            sort_order?: null | components["schemas"]["SortOrder"];
+            status?: null | components["schemas"]["UserStatus"];
         };
         /** @description Standard login credentials. */
         LoginReq: {
@@ -5164,6 +5232,8 @@ export interface operations {
                 entity_id?: number | null;
                 after?: string | null;
                 before?: string | null;
+                sort_by?: null | components["schemas"]["AdminAuditLogSortBy"];
+                sort_order?: null | components["schemas"]["SortOrder"];
             };
             header?: never;
             path?: never;
@@ -5605,6 +5675,8 @@ export interface operations {
             query?: {
                 limit?: number | null;
                 offset?: number | null;
+                sort_by?: null | components["schemas"]["AdminLockSortBy"];
+                sort_order?: null | components["schemas"]["SortOrder"];
             };
             header?: never;
             path?: never;
@@ -5785,6 +5857,8 @@ export interface operations {
             query?: {
                 limit?: number | null;
                 offset?: number | null;
+                sort_by?: null | components["schemas"]["AdminPolicySortBy"];
+                sort_order?: null | components["schemas"]["SortOrder"];
             };
             header?: never;
             path?: never;
@@ -6017,7 +6091,9 @@ export interface operations {
     };
     delete_policy: {
         parameters: {
-            query?: never;
+            query?: {
+                force?: boolean;
+            };
             header?: never;
             path: {
                 /** @description Policy ID */
@@ -6169,6 +6245,8 @@ export interface operations {
             query?: {
                 limit?: number | null;
                 offset?: number | null;
+                sort_by?: null | components["schemas"]["AdminPolicyGroupSortBy"];
+                sort_order?: null | components["schemas"]["SortOrder"];
             };
             header?: never;
             path?: never;
@@ -6536,6 +6614,8 @@ export interface operations {
             query?: {
                 limit?: number | null;
                 offset?: number | null;
+                sort_by?: null | components["schemas"]["AdminRemoteNodeSortBy"];
+                sort_order?: null | components["schemas"]["SortOrder"];
             };
             header?: never;
             path?: never;
@@ -7280,6 +7360,8 @@ export interface operations {
             query?: {
                 limit?: number | null;
                 offset?: number | null;
+                sort_by?: null | components["schemas"]["AdminShareSortBy"];
+                sort_order?: null | components["schemas"]["SortOrder"];
             };
             header?: never;
             path?: never;
@@ -7391,6 +7473,8 @@ export interface operations {
                 offset?: number | null;
                 kind?: null | components["schemas"]["BackgroundTaskKind"];
                 status?: null | components["schemas"]["BackgroundTaskStatus"];
+                sort_by?: null | components["schemas"]["AdminTaskSortBy"];
+                sort_order?: null | components["schemas"]["SortOrder"];
             };
             header?: never;
             path?: never;
@@ -7529,6 +7613,8 @@ export interface operations {
                 offset?: number | null;
                 keyword?: string | null;
                 archived?: boolean | null;
+                sort_by?: null | components["schemas"]["AdminTeamSortBy"];
+                sort_order?: null | components["schemas"]["SortOrder"];
             };
             header?: never;
             path?: never;
@@ -7927,6 +8013,8 @@ export interface operations {
                 keyword?: string | null;
                 role?: null | components["schemas"]["TeamMemberRole"];
                 status?: null | components["schemas"]["UserStatus"];
+                sort_by?: null | components["schemas"]["AdminTeamMemberSortBy"];
+                sort_order?: null | components["schemas"]["SortOrder"];
             };
             header?: never;
             path: {
@@ -8238,6 +8326,8 @@ export interface operations {
                 keyword?: string | null;
                 role?: null | components["schemas"]["UserRole"];
                 status?: null | components["schemas"]["UserStatus"];
+                sort_by?: null | components["schemas"]["AdminUserSortBy"];
+                sort_order?: null | components["schemas"]["SortOrder"];
             };
             header?: never;
             path?: never;
@@ -13683,6 +13773,8 @@ export interface operations {
                 keyword?: string | null;
                 role?: null | components["schemas"]["TeamMemberRole"];
                 status?: null | components["schemas"]["UserStatus"];
+                sort_by?: null | components["schemas"]["AdminTeamMemberSortBy"];
+                sort_order?: null | components["schemas"]["SortOrder"];
             };
             header?: never;
             path: {

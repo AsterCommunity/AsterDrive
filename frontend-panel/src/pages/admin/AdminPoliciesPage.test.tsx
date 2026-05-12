@@ -3,6 +3,7 @@ import { useState } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { invalidateAdminRemoteNodeLookup } from "@/lib/adminRemoteNodeLookup";
 import AdminPoliciesPage from "@/pages/admin/AdminPoliciesPage";
+import { ApiError } from "@/services/http";
 
 const mockState = vi.hoisted(() => ({
 	create: vi.fn(),
@@ -1557,5 +1558,49 @@ describe("AdminPoliciesPage", () => {
 			expect(screen.queryByText("Remove Me")).not.toBeInTheDocument();
 		});
 		expect(mockState.toastSuccess).toHaveBeenCalledWith("policy_deleted");
+	});
+
+	it("offers force deletion when upload sessions still reference the policy", async () => {
+		mockState.items = [
+			createPolicy({
+				id: 8,
+				name: "Remove Me",
+			}),
+		];
+		mockState.deletePolicy
+			.mockRejectedValueOnce(
+				new ApiError(1003, "upload sessions exist", {
+					subcode: "policy.upload_sessions_exist",
+				}),
+			)
+			.mockImplementationOnce(async (id: number) => {
+				mockState.items = mockState.items.filter((policy) => policy.id !== id);
+			});
+
+		render(<AdminPoliciesPage />);
+
+		fireEvent.click(screen.getByRole("button", { name: "Trash" }));
+		fireEvent.click(screen.getByRole("button", { name: "core:delete" }));
+
+		expect(
+			await screen.findByText('force_delete_policy "Remove Me"?'),
+		).toBeInTheDocument();
+		expect(screen.getByText("force_delete_policy_desc")).toBeInTheDocument();
+		expect(mockState.handleApiError).not.toHaveBeenCalled();
+
+		fireEvent.click(
+			screen.getByRole("button", { name: "force_delete_policy_confirm" }),
+		);
+
+		await waitFor(() => {
+			expect(mockState.deletePolicy).toHaveBeenNthCalledWith(1, 8);
+			expect(mockState.deletePolicy).toHaveBeenNthCalledWith(2, 8, {
+				force: true,
+			});
+		});
+		await waitFor(() => {
+			expect(screen.queryByText("Remove Me")).not.toBeInTheDocument();
+		});
+		expect(mockState.toastSuccess).toHaveBeenCalledWith("policy_force_deleted");
 	});
 });

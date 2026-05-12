@@ -12,7 +12,7 @@ pub use crate::api::dto::admin::{
     AdminPatchTeamReq, AdminPolicyGroupListQuery, AdminPolicyListQuery, AdminRemoteNodeListQuery,
     AdminShareListQuery, AdminTaskCleanupReq, AdminTaskListQuery, AdminTeamListQuery,
     AdminUserListQuery, CreatePolicyGroupReq, CreatePolicyReq, CreateRemoteNodeReq, CreateUserReq,
-    ExecuteConfigActionReq, ExecuteConfigActionResp, MigratePolicyGroupUsersReq,
+    DeletePolicyQuery, ExecuteConfigActionReq, ExecuteConfigActionResp, MigratePolicyGroupUsersReq,
     PatchPolicyGroupReq, PatchPolicyReq, PatchRemoteNodeReq, PatchUserReq, PolicyGroupItemReq,
     ResetUserPasswordReq, SetConfigReq, TestPolicyParamsReq, TestRemoteNodeParamsReq,
 };

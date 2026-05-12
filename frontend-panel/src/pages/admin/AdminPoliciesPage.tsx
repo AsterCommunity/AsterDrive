@@ -43,8 +43,14 @@ import {
 	type SortOrder,
 } from "@/lib/pagination";
 import { adminPolicyService } from "@/services/adminService";
+import { ApiError } from "@/services/http";
 import type { AdminPolicySortBy } from "@/types/adminSort";
-import type { DriverType, RemoteNodeInfo, StoragePolicy } from "@/types/api";
+import type {
+	DeletePolicyQuery,
+	DriverType,
+	RemoteNodeInfo,
+	StoragePolicy,
+} from "@/types/api";
 
 const POLICY_PAGE_SIZE_OPTIONS = [10, 20, 50] as const;
 const DEFAULT_POLICY_PAGE_SIZE = 20 as const;
@@ -62,6 +68,7 @@ const DEFAULT_POLICY_SORT_BY =
 	"created_at" as const satisfies AdminPolicySortBy;
 const DEFAULT_POLICY_SORT_ORDER = "desc" as const satisfies SortOrder;
 const CREATE_LAST_STEP = 2;
+const POLICY_UPLOAD_SESSION_BLOCKER_SUBCODE = "policy.upload_sessions_exist";
 
 export default function AdminPoliciesPage() {
 	const { t } = useTranslation("admin");
@@ -197,19 +204,37 @@ export default function AdminPoliciesPage() {
 		setOffset(0);
 	};
 
-	const handleDelete = async (id: number) => {
+	const finalizePolicyDelete = async () => {
+		invalidateAdminPolicyLookup();
+		if (policies.length === 1 && offset > 0) {
+			setOffset(Math.max(0, offset - pageSize));
+		} else {
+			await reload();
+		}
+	};
+
+	const handleDelete = async (id: number, options?: DeletePolicyQuery) => {
 		if (id === PROTECTED_POLICY_ID) return;
 		try {
-			await adminPolicyService.delete(id);
-			invalidateAdminPolicyLookup();
-			if (policies.length === 1 && offset > 0) {
-				setOffset(Math.max(0, offset - pageSize));
+			if (options) {
+				await adminPolicyService.delete(id, options);
 			} else {
-				await reload();
+				await adminPolicyService.delete(id);
 			}
-			toast.success(t("policy_deleted"));
-		} catch (e) {
-			handleApiError(e);
+			await finalizePolicyDelete();
+			toast.success(
+				options?.force ? t("policy_force_deleted") : t("policy_deleted"),
+			);
+		} catch (error) {
+			if (
+				!options?.force &&
+				error instanceof ApiError &&
+				error.subcode === POLICY_UPLOAD_SESSION_BLOCKER_SUBCODE
+			) {
+				requestForceDeleteConfirm(id);
+				return;
+			}
+			handleApiError(error);
 		}
 	};
 
@@ -218,6 +243,13 @@ export default function AdminPoliciesPage() {
 		requestConfirm,
 		dialogProps,
 	} = useConfirmDialog(handleDelete);
+	const {
+		confirmId: forceDeleteId,
+		requestConfirm: requestForceDeleteConfirm,
+		dialogProps: forceDeleteDialogProps,
+	} = useConfirmDialog<number>(async (id) => {
+		await handleDelete(id, { force: true });
+	});
 	const {
 		requestConfirm: requestSaveAnywayConfirm,
 		dialogProps: saveConfirmDialogProps,
@@ -481,6 +513,10 @@ export default function AdminPoliciesPage() {
 		deleteId !== null
 			? (policies.find((policy) => policy.id === deleteId)?.name ?? "")
 			: "";
+	const forceDeletePolicyName =
+		forceDeleteId !== null
+			? (policies.find((policy) => policy.id === forceDeleteId)?.name ?? "")
+			: "";
 	const handleRefresh = async () => {
 		try {
 			const [policyPage, remoteNodeLookup] = await Promise.all([
@@ -561,6 +597,8 @@ export default function AdminPoliciesPage() {
 				<PolicyDialogs
 					deleteDialogProps={dialogProps}
 					deletePolicyName={deletePolicyName}
+					forceDeleteDialogProps={forceDeleteDialogProps}
+					forceDeletePolicyName={forceDeletePolicyName}
 					dialogOpen={dialogOpen}
 					editMode={editingId !== null}
 					form={form}

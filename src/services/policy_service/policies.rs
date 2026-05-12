@@ -6,7 +6,7 @@ use sea_orm::{ActiveModelTrait, Set};
 use crate::api::pagination::{AdminPolicySortBy, OffsetPage, SortOrder, load_offset_page};
 use crate::db::repository::{managed_follower_repo, policy_group_repo, policy_repo};
 use crate::entities::storage_policy;
-use crate::errors::{AsterError, MapAsterErr, Result};
+use crate::errors::{AsterError, MapAsterErr, Result, validation_error_with_subcode};
 use crate::runtime::{PrimaryAppState, PrimaryRuntimeState};
 use crate::types::{
     DriverType, StoragePolicyOptions, StoredStoragePolicyAllowedTypes, StoredStoragePolicyOptions,
@@ -131,7 +131,7 @@ pub async fn create(
         .map(Into::into)
 }
 
-pub async fn delete(state: &PrimaryAppState, id: i64) -> Result<()> {
+pub async fn delete(state: &PrimaryAppState, id: i64, force: bool) -> Result<()> {
     let policy = policy_repo::find_by_id(&state.db, id).await?;
 
     if policy.id == SYSTEM_STORAGE_POLICY_ID {
@@ -161,6 +161,34 @@ pub async fn delete(state: &PrimaryAppState, id: i64) -> Result<()> {
     if group_ref_count > 0 {
         return Err(AsterError::validation_error(format!(
             "cannot delete policy: {group_ref_count} policy group item(s) still reference it"
+        )));
+    }
+
+    let upload_session_count =
+        crate::db::repository::upload_session_repo::count_by_policy(&state.db, id).await?;
+    if upload_session_count > 0 {
+        if !force {
+            return Err(validation_error_with_subcode(
+                "policy.upload_sessions_exist",
+                format!(
+                    "cannot delete policy: {upload_session_count} upload session(s) still reference it"
+                ),
+            ));
+        }
+
+        let cleaned = crate::services::upload_service::force_cleanup_by_policy(state, id).await?;
+        tracing::info!(
+            policy_id = id,
+            upload_session_count,
+            cleaned,
+            "force-cleaned upload sessions before deleting policy"
+        );
+    }
+
+    let blob_count = crate::db::repository::file_repo::count_blobs_by_policy(&state.db, id).await?;
+    if blob_count > 0 {
+        return Err(AsterError::validation_error(format!(
+            "cannot delete policy: {blob_count} blob(s) still reference it"
         )));
     }
 
