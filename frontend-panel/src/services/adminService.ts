@@ -1,28 +1,26 @@
 import { withQuery } from "@/lib/queryParams";
 import type {
-	AdminAuditLogSortBy,
-	AdminLockSortBy,
-	AdminPolicyGroupSortBy,
-	AdminPolicySortBy,
-	AdminRemoteNodeSortBy,
-	AdminShareSortBy,
-	AdminSortParams,
-	AdminTaskSortBy,
-	AdminTeamMemberSortBy,
-	AdminTeamSortBy,
-	AdminUserSortBy,
-} from "@/types/adminSort";
-import type {
 	ActionMessageResp,
 	AddTeamMemberRequest,
+	AdminConfigListQuery,
 	AdminCreateTeamRequest,
+	AdminLockListQuery,
 	AdminOverview,
+	AdminOverviewQuery,
+	AdminPolicyGroupListQuery,
+	AdminPolicyListQuery,
+	AdminRemoteNodeListQuery,
+	AdminShareListQuery,
 	AdminSharePage,
+	AdminTaskCleanupRequest,
+	AdminTaskListQuery,
+	AdminTeamAuditLogListQuery,
 	AdminTeamInfo,
+	AdminTeamListQuery,
+	AdminTeamMemberListQuery,
 	AdminTeamPage,
 	AdminUpdateTeamRequest,
-	BackgroundTaskKind,
-	BackgroundTaskStatus,
+	AdminUserListQuery,
 	ConfigActionType,
 	ConfigSchemaItem,
 	CreatePolicyGroupRequest,
@@ -30,7 +28,6 @@ import type {
 	CreateRemoteNodeRequest,
 	CreateUserReq,
 	DeletePolicyQuery,
-	DriverType,
 	ExecuteConfigActionRequest,
 	ExecuteConfigActionResponse,
 	LockPage,
@@ -55,8 +52,8 @@ import type {
 	TaskPage,
 	TeamAuditPage,
 	TeamMemberPage,
-	TeamMemberRole,
 	TemplateVariableGroup,
+	TestPolicyParamsRequest,
 	TestRemoteNodeParamsReq,
 	UpdatePolicyGroupRequest,
 	UpdatePolicyRequest,
@@ -65,8 +62,6 @@ import type {
 	UpdateUserRequest,
 	UserInfo,
 	UserPage,
-	UserRole,
-	UserStatus,
 } from "@/types/api";
 import { api } from "./http";
 
@@ -86,7 +81,7 @@ function sanitizeUpdateUserRequest(data: UpdateUserRequest): UpdateUserRequest {
 }
 
 export const adminOverviewService = {
-	get: (params?: { days?: number; timezone?: string; event_limit?: number }) =>
+	get: (params?: AdminOverviewQuery) =>
 		api.get<AdminOverview>(
 			withQuery("/admin/overview", {
 				days: params?.days,
@@ -99,15 +94,7 @@ export const adminOverviewService = {
 // --- Users ---
 
 export const adminUserService = {
-	list: (
-		params?: {
-			limit?: number;
-			offset?: number;
-			keyword?: string;
-			role?: UserRole;
-			status?: UserStatus;
-		} & AdminSortParams<AdminUserSortBy>,
-	) =>
+	list: (params?: AdminUserListQuery) =>
 		api.get<UserPage>(
 			withQuery("/admin/users", {
 				limit: params?.limit,
@@ -139,14 +126,7 @@ export const adminUserService = {
 // --- Teams ---
 
 export const adminTeamService = {
-	list: (
-		params?: {
-			limit?: number;
-			offset?: number;
-			keyword?: string;
-			archived?: boolean;
-		} & AdminSortParams<AdminTeamSortBy>,
-	) =>
+	list: (params?: AdminTeamListQuery) =>
 		api.get<AdminTeamPage>(
 			withQuery("/admin/teams", {
 				limit: params?.limit,
@@ -169,39 +149,18 @@ export const adminTeamService = {
 	delete: (id: number) => api.delete<void>(`/admin/teams/${id}`),
 	restore: (id: number) =>
 		api.post<AdminTeamInfo>(`/admin/teams/${id}/restore`),
-	listAuditLogs: (
-		id: number,
-		params: {
-			user_id?: number;
-			action?: string;
-			after?: string;
-			before?: string;
-			limit?: number;
-			offset?: number;
-		} & AdminSortParams<AdminAuditLogSortBy> = {},
-	) => {
-		const { limit, offset, sort_by, sort_order, ...filters } = params;
+	listAuditLogs: (id: number, params: AdminTeamAuditLogListQuery = {}) => {
+		const { limit, offset, ...filters } = params;
 
 		return api.get<TeamAuditPage>(
 			withQuery(`/admin/teams/${id}/audit-logs`, {
 				limit,
 				offset,
-				sort_by,
-				sort_order,
 				...filters,
 			}),
 		);
 	},
-	listMembers: (
-		id: number,
-		params: {
-			keyword?: string;
-			role?: TeamMemberRole;
-			status?: UserStatus;
-			limit?: number;
-			offset?: number;
-		} & AdminSortParams<AdminTeamMemberSortBy> = {},
-	) => {
+	listMembers: (id: number, params: AdminTeamMemberListQuery = {}) => {
 		const { limit, offset, sort_by, sort_order, ...filters } = params;
 
 		return api.get<TeamMemberPage>(
@@ -235,12 +194,7 @@ export const adminTeamService = {
 // --- Policies ---
 
 export const adminPolicyService = {
-	list: (
-		params?: {
-			limit?: number;
-			offset?: number;
-		} & AdminSortParams<AdminPolicySortBy>,
-	) =>
+	list: (params?: AdminPolicyListQuery) =>
 		api.get<StoragePolicyPage>(
 			withQuery("/admin/policies", {
 				limit: params?.limit,
@@ -267,24 +221,12 @@ export const adminPolicyService = {
 
 	testConnection: (id: number) => api.post<void>(`/admin/policies/${id}/test`),
 
-	testParams: (data: {
-		driver_type: DriverType;
-		endpoint?: string;
-		bucket?: string;
-		access_key?: string;
-		secret_key?: string;
-		base_path?: string;
-		remote_node_id?: number;
-	}) => api.post<void>("/admin/policies/test", data),
+	testParams: (data: TestPolicyParamsRequest) =>
+		api.post<void>("/admin/policies/test", data),
 };
 
 export const adminRemoteNodeService = {
-	list: (
-		params?: {
-			limit?: number;
-			offset?: number;
-		} & AdminSortParams<AdminRemoteNodeSortBy>,
-	) =>
+	list: (params?: AdminRemoteNodeListQuery) =>
 		api.get<RemoteNodePage>(
 			withQuery("/admin/remote-nodes", {
 				limit: params?.limit,
@@ -345,12 +287,7 @@ export const adminRemoteNodeService = {
 // --- Policy Groups ---
 
 export const adminPolicyGroupService = {
-	list: (
-		params?: {
-			limit?: number;
-			offset?: number;
-		} & AdminSortParams<AdminPolicyGroupSortBy>,
-	) =>
+	list: (params?: AdminPolicyGroupListQuery) =>
 		api.get<StoragePolicyGroupPage>(
 			withQuery("/admin/policy-groups", {
 				limit: params?.limit,
@@ -425,12 +362,7 @@ export type WebdavLock = LockPage["items"][number];
 export type AdminShare = ShareInfo;
 
 export const adminShareService = {
-	list: (
-		params?: {
-			limit?: number;
-			offset?: number;
-		} & AdminSortParams<AdminShareSortBy>,
-	) =>
+	list: (params?: AdminShareListQuery) =>
 		api.get<AdminSharePage>(
 			withQuery("/admin/shares", {
 				limit: params?.limit,
@@ -444,14 +376,7 @@ export const adminShareService = {
 };
 
 export const adminTaskService = {
-	list: (
-		params?: {
-			limit?: number;
-			offset?: number;
-			kind?: BackgroundTaskKind;
-			status?: BackgroundTaskStatus;
-		} & AdminSortParams<AdminTaskSortBy>,
-	) =>
+	list: (params?: AdminTaskListQuery) =>
 		api.get<TaskPage>(
 			withQuery("/admin/tasks", {
 				limit: params?.limit,
@@ -463,20 +388,12 @@ export const adminTaskService = {
 			}),
 		),
 
-	cleanupCompleted: (data: {
-		finished_before: string;
-		kind?: BackgroundTaskKind;
-		status?: BackgroundTaskStatus;
-	}) => api.post<RemovedCountResponse>("/admin/tasks/cleanup", data),
+	cleanupCompleted: (data: AdminTaskCleanupRequest) =>
+		api.post<RemovedCountResponse>("/admin/tasks/cleanup", data),
 };
 
 export const adminLockService = {
-	list: (
-		params?: {
-			limit?: number;
-			offset?: number;
-		} & AdminSortParams<AdminLockSortBy>,
-	) =>
+	list: (params?: AdminLockListQuery) =>
 		api.get<LockPage>(
 			withQuery("/admin/locks", {
 				limit: params?.limit,
@@ -493,7 +410,7 @@ export const adminLockService = {
 };
 
 export const adminConfigService = {
-	list: (params?: { limit?: number; offset?: number }) =>
+	list: (params?: AdminConfigListQuery) =>
 		api.get<SystemConfigPage>(
 			withQuery("/admin/config", {
 				limit: params?.limit,

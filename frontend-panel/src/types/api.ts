@@ -6,6 +6,11 @@ import type {
 
 export type { operations, paths } from "@/services/api.generated";
 
+type OperationQuery<Operation extends keyof ApiOperations> =
+	ApiOperations[Operation] extends { parameters: { query?: infer Query } }
+		? NonNullable<Query>
+		: never;
+
 // Core responses
 export type ErrorCode = components["schemas"]["ErrorCode"];
 export type HealthResponse = components["schemas"]["HealthResponse"];
@@ -77,6 +82,8 @@ export type AuditAction = components["schemas"]["AuditAction"];
 export type AuditLogEntry = components["schemas"]["AuditLogEntry"];
 export type AuditLogPage = components["schemas"]["OffsetPage_AuditLogEntry"];
 export type AdminOverview = components["schemas"]["AdminOverview"];
+export type AuditLogListQuery = OperationQuery<"list_audit_logs">;
+export type AdminOverviewQuery = OperationQuery<"get_admin_overview">;
 export type AdminOverviewDailyReport =
 	components["schemas"]["AdminOverviewDailyReport"];
 export type AdminOverviewStats = components["schemas"]["AdminOverviewStats"];
@@ -89,6 +96,11 @@ export type AdminCreateTeamRequest =
 export type AdminTeamInfo = components["schemas"]["AdminTeamInfo"];
 export type AdminTeamPage = components["schemas"]["OffsetPage_AdminTeamInfo"];
 export type AdminUpdateTeamRequest = components["schemas"]["AdminPatchTeamReq"];
+export type AdminTeamListQuery = OperationQuery<"admin_list_teams">;
+export type AdminTeamAuditLogListQuery =
+	OperationQuery<"admin_list_team_audit_logs">;
+export type AdminTeamMemberListQuery =
+	OperationQuery<"admin_list_team_members">;
 export type TeamAuditEntryInfo = components["schemas"]["TeamAuditEntryInfo"];
 export type TeamAuditPage =
 	components["schemas"]["OffsetPage_TeamAuditEntryInfo"];
@@ -96,13 +108,15 @@ export type TeamMemberPage = components["schemas"]["TeamMemberPage"];
 export type BackgroundTaskKind = components["schemas"]["BackgroundTaskKind"];
 export type BackgroundTaskStatus =
 	components["schemas"]["BackgroundTaskStatus"];
+export type AdminUserListQuery = OperationQuery<"list_users">;
 export type CreatePolicyGroupRequest =
 	components["schemas"]["CreatePolicyGroupReq"];
 export type CreatePolicyRequest = components["schemas"]["CreatePolicyReq"];
-export type DeletePolicyQuery =
-	ApiOperations["delete_policy"]["parameters"]["query"];
+export type AdminPolicyListQuery = OperationQuery<"list_policies">;
+export type DeletePolicyQuery = OperationQuery<"delete_policy">;
 export type CreateRemoteNodeRequest =
 	components["schemas"]["CreateRemoteNodeReq"];
+export type AdminRemoteNodeListQuery = OperationQuery<"list_remote_nodes">;
 export type DriverType = components["schemas"]["DriverType"];
 export type MediaProcessorKind = components["schemas"]["MediaProcessorKind"];
 export type LockPage = components["schemas"]["OffsetPage_ResourceLock"];
@@ -133,10 +147,13 @@ export type MigratePolicyGroupUsersRequest =
 	components["schemas"]["MigratePolicyGroupUsersReq"];
 export type PolicyGroupItemRequest =
 	components["schemas"]["PolicyGroupItemReq"];
+export type AdminPolicyGroupListQuery = OperationQuery<"list_policy_groups">;
 export type UpdatePolicyGroupRequest =
 	components["schemas"]["PatchPolicyGroupReq"];
 export type UpdatePolicyRequest = components["schemas"]["PatchPolicyReq"];
 export type PatchRemoteNodeReq = components["schemas"]["PatchRemoteNodeReq"];
+export type TestPolicyParamsRequest =
+	components["schemas"]["TestPolicyParamsReq"];
 export type TestRemoteNodeParamsReq =
 	components["schemas"]["TestRemoteNodeParamsReq"];
 export type UpdateRemoteNodeRequest =
@@ -158,8 +175,14 @@ export type PolicyGroupUserMigrationResult =
 	components["schemas"]["PolicyGroupUserMigrationResult"];
 export type StoragePolicyGroupPage =
 	components["schemas"]["OffsetPage_StoragePolicyGroupInfo"];
+export type AdminShareListQuery = OperationQuery<"list_all_shares">;
+export type AdminTaskListQuery = OperationQuery<"admin_list_tasks">;
+export type AdminTaskCleanupRequest =
+	components["schemas"]["AdminTaskCleanupReq"];
+export type AdminLockListQuery = OperationQuery<"list_locks">;
 export type ConfigActionType = components["schemas"]["ConfigActionType"];
 export type ConfigSchemaItem = components["schemas"]["ConfigSchemaItem"];
+export type AdminConfigListQuery = OperationQuery<"list_config">;
 export type ExecuteConfigActionRequest =
 	components["schemas"]["ExecuteConfigActionReq"];
 export type ExecuteConfigActionResponse =
