@@ -1,6 +1,6 @@
 //! 团队服务子模块：`admin`。
 
-use crate::api::pagination::{OffsetPage, load_offset_page};
+use crate::api::pagination::{AdminTeamSortBy, OffsetPage, SortOrder, load_offset_page};
 use crate::db::repository::team_repo;
 use crate::errors::{AsterError, Result};
 use crate::runtime::PrimaryAppState;
@@ -21,12 +21,18 @@ pub async fn list_admin_teams(
     offset: u64,
     keyword: Option<&str>,
     archived: bool,
+    sort_by: AdminTeamSortBy,
+    sort_order: SortOrder,
 ) -> Result<OffsetPage<AdminTeamInfo>> {
     let page = load_offset_page(limit, offset, 100, |limit, offset| async move {
         if archived {
-            team_repo::find_archived_paginated(&state.db, limit, offset, keyword).await
+            team_repo::find_archived_paginated(
+                &state.db, limit, offset, keyword, sort_by, sort_order,
+            )
+            .await
         } else {
-            team_repo::find_active_paginated(&state.db, limit, offset, keyword).await
+            team_repo::find_active_paginated(&state.db, limit, offset, keyword, sort_by, sort_order)
+                .await
         }
     })
     .await?;

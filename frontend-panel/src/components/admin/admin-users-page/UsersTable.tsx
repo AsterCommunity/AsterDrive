@@ -5,6 +5,7 @@ import {
 	ADMIN_TABLE_MONO_TEXT_CLASS,
 	ADMIN_TABLE_STACKED_CELL_CLASS,
 	ADMIN_TABLE_TEXT_CELL_CLASS,
+	AdminSortableTableHead,
 	AdminTableShell,
 	AdminTable as Table,
 	AdminTableBody as TableBody,
@@ -30,13 +31,18 @@ import {
 } from "@/components/ui/tooltip";
 import { ADMIN_ICON_BUTTON_CLASS } from "@/lib/constants";
 import { formatBytes } from "@/lib/format";
+import type { SortOrder } from "@/lib/pagination";
 import { getNormalizedDisplayName, getUserDisplayName } from "@/lib/user";
+import type { AdminUserSortBy } from "@/types/adminSort";
 import type { UserInfo } from "@/types/api";
 
 interface UsersTableProps {
 	users: UserInfo[];
+	sortBy: AdminUserSortBy;
+	sortOrder: SortOrder;
 	onDeleteUser: (userId: number) => void;
 	onOpenUserDetail: (userId: number) => void;
+	onSortChange: (sortBy: AdminUserSortBy, sortOrder: SortOrder) => void;
 }
 
 function QuotaCell({ user }: { user: UserInfo }) {
@@ -61,6 +67,9 @@ function QuotaCell({ user }: { user: UserInfo }) {
 export function UsersTable({
 	onDeleteUser,
 	onOpenUserDetail,
+	onSortChange,
+	sortBy,
+	sortOrder,
 	users,
 }: UsersTableProps) {
 	const { t } = useTranslation("admin");
@@ -70,12 +79,58 @@ export function UsersTable({
 			<Table>
 				<TableHeader>
 					<TableRow>
-						<TableHead className="w-16">{t("id")}</TableHead>
-						<TableHead>{t("core:username")}</TableHead>
-						<TableHead>{t("core:email")}</TableHead>
-						<TableHead className="w-32">{t("role")}</TableHead>
-						<TableHead className="w-32">{t("core:status")}</TableHead>
-						<TableHead className="w-[220px]">{t("storage")}</TableHead>
+						<AdminSortableTableHead
+							className="w-16"
+							sortKey="id"
+							sortBy={sortBy}
+							sortOrder={sortOrder}
+							onSortChange={onSortChange}
+						>
+							{t("id")}
+						</AdminSortableTableHead>
+						<AdminSortableTableHead
+							sortKey="username"
+							sortBy={sortBy}
+							sortOrder={sortOrder}
+							onSortChange={onSortChange}
+						>
+							{t("core:username")}
+						</AdminSortableTableHead>
+						<AdminSortableTableHead
+							sortKey="email"
+							sortBy={sortBy}
+							sortOrder={sortOrder}
+							onSortChange={onSortChange}
+						>
+							{t("core:email")}
+						</AdminSortableTableHead>
+						<AdminSortableTableHead
+							className="w-32"
+							sortKey="role"
+							sortBy={sortBy}
+							sortOrder={sortOrder}
+							onSortChange={onSortChange}
+						>
+							{t("role")}
+						</AdminSortableTableHead>
+						<AdminSortableTableHead
+							className="w-32"
+							sortKey="status"
+							sortBy={sortBy}
+							sortOrder={sortOrder}
+							onSortChange={onSortChange}
+						>
+							{t("core:status")}
+						</AdminSortableTableHead>
+						<AdminSortableTableHead
+							className="w-[220px]"
+							sortKey="storage_used"
+							sortBy={sortBy}
+							sortOrder={sortOrder}
+							onSortChange={onSortChange}
+						>
+							{t("storage")}
+						</AdminSortableTableHead>
 						<TableHead className="w-20">{t("core:actions")}</TableHead>
 					</TableRow>
 				</TableHeader>

@@ -265,6 +265,8 @@ pub(super) async fn load_team_member_page(
             filters.keyword.as_deref(),
             effective_limit,
             offset,
+            filters.sort_by,
+            filters.sort_order,
         ),
         team_member_repo::count_by_team_grouped_by_role(&state.db, team_id),
     )?;

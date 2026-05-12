@@ -309,6 +309,8 @@ describe("AdminAuditPage", () => {
 				entity_type: undefined,
 				limit: 20,
 				offset: 0,
+				sort_by: "created_at",
+				sort_order: "desc",
 			});
 		});
 		expect(await screen.findByText("report.pdf")).toBeInTheDocument();
@@ -323,6 +325,8 @@ describe("AdminAuditPage", () => {
 				entity_type: undefined,
 				limit: 20,
 				offset: 20,
+				sort_by: "created_at",
+				sort_order: "desc",
 			});
 		});
 		await waitFor(() => {
@@ -339,6 +343,8 @@ describe("AdminAuditPage", () => {
 				entity_type: undefined,
 				limit: 20,
 				offset: 0,
+				sort_by: "created_at",
+				sort_order: "desc",
 			});
 		});
 		expect(await screen.findByText("Deleted file")).toBeInTheDocument();
@@ -353,6 +359,8 @@ describe("AdminAuditPage", () => {
 				entity_type: "folder",
 				limit: 20,
 				offset: 0,
+				sort_by: "created_at",
+				sort_order: "desc",
 			});
 		});
 		await waitFor(() => {

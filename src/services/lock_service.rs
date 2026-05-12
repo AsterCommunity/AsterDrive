@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 #[cfg(all(debug_assertions, feature = "openapi"))]
 use utoipa::ToSchema;
 
-use crate::api::pagination::{OffsetPage, load_offset_page};
+use crate::api::pagination::{AdminLockSortBy, OffsetPage, SortOrder, load_offset_page};
 use crate::db::repository::{file_repo, folder_repo, lock_repo};
 use crate::entities::resource_lock;
 use crate::errors::{AsterError, Result};
@@ -171,10 +171,14 @@ pub async fn list_paginated(
     state: &PrimaryAppState,
     limit: u64,
     offset: u64,
+    sort_by: AdminLockSortBy,
+    sort_order: SortOrder,
 ) -> Result<OffsetPage<ResourceLock>> {
     load_offset_page(limit, offset, 100, |limit, offset| async move {
-        let (items, total) =
-            crate::db::repository::lock_repo::find_paginated(&state.db, limit, offset).await?;
+        let (items, total) = crate::db::repository::lock_repo::find_paginated(
+            &state.db, limit, offset, sort_by, sort_order,
+        )
+        .await?;
         let items = build_resource_locks(state, items).await?;
         Ok((items, total))
     })

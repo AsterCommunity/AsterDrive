@@ -4,6 +4,7 @@ import {
 	ADMIN_TABLE_BADGE_CELL_CLASS,
 	ADMIN_TABLE_STACKED_CELL_CLASS,
 	ADMIN_TABLE_TEXT_CELL_CLASS,
+	AdminSortableTableHead,
 	AdminTableShell,
 	AdminTable as Table,
 	AdminTableBody as TableBody,
@@ -21,6 +22,8 @@ import {
 	ADMIN_TABLE_ACTIONS_WIDTH_CLASS,
 } from "@/lib/constants";
 import { formatBytes, formatDateShort } from "@/lib/format";
+import type { SortOrder } from "@/lib/pagination";
+import type { AdminTeamSortBy } from "@/types/adminSort";
 import type { AdminTeamInfo } from "@/types/api";
 
 interface AdminTeamsTableProps {
@@ -28,12 +31,18 @@ interface AdminTeamsTableProps {
 	policyGroupNameById: (
 		policyGroupId: number | null | undefined,
 	) => string | null;
+	sortBy: AdminTeamSortBy;
+	sortOrder: SortOrder;
 	teams: AdminTeamInfo[];
+	onSortChange: (sortBy: AdminTeamSortBy, sortOrder: SortOrder) => void;
 }
 
 export function AdminTeamsTable({
 	onOpenTeam,
+	onSortChange,
 	policyGroupNameById,
+	sortBy,
+	sortOrder,
 	teams,
 }: AdminTeamsTableProps) {
 	const { t } = useTranslation(["admin", "core"]);
@@ -43,11 +52,34 @@ export function AdminTeamsTable({
 			<Table>
 				<TableHeader>
 					<TableRow>
-						<TableHead>{t("core:name")}</TableHead>
+						<AdminSortableTableHead
+							sortKey="name"
+							sortBy={sortBy}
+							sortOrder={sortOrder}
+							onSortChange={onSortChange}
+						>
+							{t("core:name")}
+						</AdminSortableTableHead>
 						<TableHead>{t("created_by")}</TableHead>
 						<TableHead className="w-28">{t("member_count")}</TableHead>
-						<TableHead className="w-[220px]">{t("quota")}</TableHead>
-						<TableHead className="w-36">{t("core:created_at")}</TableHead>
+						<AdminSortableTableHead
+							className="w-[220px]"
+							sortKey="storage_used"
+							sortBy={sortBy}
+							sortOrder={sortOrder}
+							onSortChange={onSortChange}
+						>
+							{t("quota")}
+						</AdminSortableTableHead>
+						<AdminSortableTableHead
+							className="w-36"
+							sortKey="created_at"
+							sortBy={sortBy}
+							sortOrder={sortOrder}
+							onSortChange={onSortChange}
+						>
+							{t("core:created_at")}
+						</AdminSortableTableHead>
 						<TableHead className={ADMIN_TABLE_ACTIONS_WIDTH_CLASS}>
 							{t("core:actions")}
 						</TableHead>

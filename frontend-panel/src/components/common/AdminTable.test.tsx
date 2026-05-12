@@ -1,6 +1,7 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import {
+	AdminSortableTableHead,
 	AdminTable,
 	AdminTableBody,
 	AdminTableCell,
@@ -48,91 +49,121 @@ vi.mock("@/components/ui/table", () => ({
 	Table: ({
 		children,
 		className,
+		...props
 	}: {
 		children: React.ReactNode;
 		className?: string;
-	}) => (
-		<table data-testid="table" className={className}>
+	} & React.TableHTMLAttributes<HTMLTableElement>) => (
+		<table data-testid="table" className={className} {...props}>
 			{children}
 		</table>
 	),
 	TableBody: ({
 		children,
 		className,
+		...props
 	}: {
 		children: React.ReactNode;
 		className?: string;
-	}) => (
-		<tbody data-testid="table-body" className={className}>
+	} & React.HTMLAttributes<HTMLTableSectionElement>) => (
+		<tbody data-testid="table-body" className={className} {...props}>
 			{children}
 		</tbody>
 	),
 	TableCaption: ({
 		children,
 		className,
+		...props
 	}: {
 		children: React.ReactNode;
 		className?: string;
-	}) => (
-		<caption data-testid="table-caption" className={className}>
+	} & React.HTMLAttributes<HTMLTableCaptionElement>) => (
+		<caption data-testid="table-caption" className={className} {...props}>
 			{children}
 		</caption>
 	),
 	TableCell: ({
 		children,
 		className,
+		...props
 	}: {
 		children: React.ReactNode;
 		className?: string;
-	}) => (
-		<td data-testid="table-cell" className={className}>
+	} & React.TdHTMLAttributes<HTMLTableCellElement>) => (
+		<td data-testid="table-cell" className={className} {...props}>
 			{children}
 		</td>
 	),
 	TableFooter: ({
 		children,
 		className,
+		...props
 	}: {
 		children: React.ReactNode;
 		className?: string;
-	}) => (
-		<tfoot data-testid="table-footer" className={className}>
+	} & React.HTMLAttributes<HTMLTableSectionElement>) => (
+		<tfoot data-testid="table-footer" className={className} {...props}>
 			{children}
 		</tfoot>
 	),
 	TableHead: ({
 		children,
 		className,
+		...props
 	}: {
 		children: React.ReactNode;
 		className?: string;
-	}) => (
-		<th data-testid="table-head" className={className}>
+	} & React.ThHTMLAttributes<HTMLTableCellElement>) => (
+		<th data-testid="table-head" className={className} {...props}>
 			{children}
 		</th>
 	),
 	TableHeader: ({
 		children,
 		className,
+		...props
 	}: {
 		children: React.ReactNode;
 		className?: string;
-	}) => (
-		<thead data-testid="table-header" className={className}>
+	} & React.HTMLAttributes<HTMLTableSectionElement>) => (
+		<thead data-testid="table-header" className={className} {...props}>
 			{children}
 		</thead>
 	),
 	TableRow: ({
 		children,
 		className,
+		...props
 	}: {
 		children: React.ReactNode;
 		className?: string;
-	}) => (
-		<tr data-testid="table-row" className={className}>
+	} & React.HTMLAttributes<HTMLTableRowElement>) => (
+		<tr data-testid="table-row" className={className} {...props}>
 			{children}
 		</tr>
 	),
+}));
+
+vi.mock("@/components/ui/button", () => ({
+	Button: ({
+		children,
+		className,
+		onClick,
+		type = "button",
+	}: {
+		children: React.ReactNode;
+		className?: string;
+		onClick?: () => void;
+		type?: "button" | "submit" | "reset";
+	}) => (
+		<button className={className} onClick={onClick} type={type}>
+			{children}
+		</button>
+	),
+}));
+
+vi.mock("@/components/ui/icon", () => ({
+	Icon: ({ name }: { name: string }) => <span data-testid={name} />,
 }));
 
 describe("AdminTable", () => {
@@ -207,5 +238,59 @@ describe("AdminTable", () => {
 			"text-sm",
 			"custom-cell",
 		);
+	});
+
+	it("renders sortable headers with aria-sort and toggles the next sort order", () => {
+		const onSortChange = vi.fn();
+
+		const { rerender } = render(
+			<table>
+				<thead>
+					<tr>
+						<AdminSortableTableHead
+							sortKey="username"
+							sortBy="created_at"
+							sortOrder="desc"
+							onSortChange={onSortChange}
+						>
+							Username
+						</AdminSortableTableHead>
+					</tr>
+				</thead>
+			</table>,
+		);
+
+		const head = screen.getByTestId("table-head");
+		expect(head).toHaveAttribute("aria-sort", "none");
+
+		fireEvent.click(screen.getByRole("button", { name: /username/i }));
+
+		expect(onSortChange).toHaveBeenCalledWith("username", "asc");
+
+		rerender(
+			<table>
+				<thead>
+					<tr>
+						<AdminSortableTableHead
+							sortKey="username"
+							sortBy="username"
+							sortOrder="asc"
+							onSortChange={onSortChange}
+						>
+							Username
+						</AdminSortableTableHead>
+					</tr>
+				</thead>
+			</table>,
+		);
+
+		expect(screen.getByTestId("table-head")).toHaveAttribute(
+			"aria-sort",
+			"ascending",
+		);
+		fireEvent.click(screen.getByRole("button", { name: /username/i }));
+
+		expect(onSortChange).toHaveBeenLastCalledWith("username", "desc");
+		expect(screen.getByTestId("SortAscending")).toBeInTheDocument();
 	});
 });

@@ -1,4 +1,4 @@
-use crate::api::pagination::{OffsetPage, load_offset_page};
+use crate::api::pagination::{AdminUserSortBy, OffsetPage, SortOrder, load_offset_page};
 use crate::db::repository::user_repo;
 use crate::entities::user;
 use crate::errors::Result;
@@ -172,9 +172,14 @@ pub async fn list_paginated(
     keyword: Option<&str>,
     role: Option<UserRole>,
     status: Option<UserStatus>,
+    sort_by: AdminUserSortBy,
+    sort_order: SortOrder,
 ) -> Result<OffsetPage<UserInfo>> {
     let page = load_offset_page(limit, offset, 100, |limit, offset| async move {
-        user_repo::find_paginated(&state.db, limit, offset, keyword, role, status).await
+        user_repo::find_paginated(
+            &state.db, limit, offset, keyword, role, status, sort_by, sort_order,
+        )
+        .await
     })
     .await?;
 

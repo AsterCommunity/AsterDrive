@@ -1,5 +1,7 @@
 import type { ComponentProps, ReactNode } from "react";
 import { AdminSurface } from "@/components/layout/AdminSurface";
+import { Button } from "@/components/ui/button";
+import { Icon } from "@/components/ui/icon";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import {
 	Table,
@@ -11,6 +13,7 @@ import {
 	TableHeader,
 	TableRow,
 } from "@/components/ui/table";
+import type { SortOrder } from "@/lib/pagination";
 import { cn } from "@/lib/utils";
 
 export const ADMIN_TABLE_ROW_CLASS =
@@ -104,6 +107,58 @@ export function AdminTableHead({
 }: ComponentProps<typeof TableHead>) {
 	return (
 		<TableHead className={cn(ADMIN_TABLE_HEAD_CLASS, className)} {...props} />
+	);
+}
+
+interface AdminSortableTableHeadProps<SortBy extends string>
+	extends Omit<ComponentProps<typeof TableHead>, "children"> {
+	children: ReactNode;
+	sortKey: SortBy;
+	sortBy: SortBy;
+	sortOrder: SortOrder;
+	onSortChange: (sortBy: SortBy, sortOrder: SortOrder) => void;
+}
+
+export function AdminSortableTableHead<SortBy extends string>({
+	children,
+	className,
+	sortKey,
+	sortBy,
+	sortOrder,
+	onSortChange,
+	...props
+}: AdminSortableTableHeadProps<SortBy>) {
+	const active = sortBy === sortKey;
+	const nextOrder: SortOrder = active && sortOrder === "asc" ? "desc" : "asc";
+
+	return (
+		<AdminTableHead
+			className={cn("p-0", className)}
+			aria-sort={
+				active ? (sortOrder === "asc" ? "ascending" : "descending") : "none"
+			}
+			{...props}
+		>
+			<Button
+				type="button"
+				variant="ghost"
+				size="sm"
+				className={cn(
+					"h-9 w-full justify-start rounded-none px-3 text-[11px] font-semibold uppercase tracking-normal hover:bg-muted/45",
+					active ? "text-foreground" : "text-muted-foreground",
+				)}
+				onClick={() => onSortChange(sortKey, nextOrder)}
+			>
+				<span className="truncate">{children}</span>
+				<Icon
+					name={sortOrder === "asc" ? "SortAscending" : "SortDescending"}
+					className={cn(
+						"ml-1.5 h-3.5 w-3.5 shrink-0 transition-opacity",
+						active ? "opacity-100" : "opacity-30",
+					)}
+				/>
+			</Button>
+		</AdminTableHead>
 	);
 }
 

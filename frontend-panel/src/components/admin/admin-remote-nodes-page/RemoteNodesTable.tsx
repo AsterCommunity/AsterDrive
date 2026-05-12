@@ -4,6 +4,7 @@ import {
 	ADMIN_TABLE_BADGE_CELL_CLASS,
 	ADMIN_TABLE_MONO_TEXT_CLASS,
 	ADMIN_TABLE_TEXT_CELL_CLASS,
+	AdminSortableTableHead,
 	AdminTableCell as TableCell,
 	AdminTableHead as TableHead,
 	AdminTableHeader as TableHeader,
@@ -23,7 +24,9 @@ import {
 	ADMIN_ICON_BUTTON_CLASS,
 	ADMIN_TABLE_ACTIONS_WIDTH_CLASS,
 } from "@/lib/constants";
+import type { SortOrder } from "@/lib/pagination";
 import { cn } from "@/lib/utils";
+import type { AdminRemoteNodeSortBy } from "@/types/adminSort";
 import type { RemoteNodeInfo } from "@/types/api";
 import {
 	formatLastChecked,
@@ -41,6 +44,9 @@ interface RemoteNodesTableProps {
 	onEdit: (node: RemoteNodeInfo) => void;
 	onGenerateEnrollmentCommand: (node: RemoteNodeInfo) => void;
 	onRequestDelete: (id: number) => void;
+	sortBy: AdminRemoteNodeSortBy;
+	sortOrder: SortOrder;
+	onSortChange: (sortBy: AdminRemoteNodeSortBy, sortOrder: SortOrder) => void;
 }
 
 export function RemoteNodesTable({
@@ -50,6 +56,9 @@ export function RemoteNodesTable({
 	onEdit,
 	onGenerateEnrollmentCommand,
 	onRequestDelete,
+	onSortChange,
+	sortBy,
+	sortOrder,
 }: RemoteNodesTableProps) {
 	const { t } = useTranslation("admin");
 
@@ -64,10 +73,39 @@ export function RemoteNodesTable({
 			headerRow={
 				<TableHeader>
 					<TableRow>
-						<TableHead className="w-16">{t("id")}</TableHead>
-						<TableHead>{t("core:name")}</TableHead>
-						<TableHead>{t("base_url")}</TableHead>
-						<TableHead>{t("remote_node_status")}</TableHead>
+						<AdminSortableTableHead
+							className="w-16"
+							sortKey="id"
+							sortBy={sortBy}
+							sortOrder={sortOrder}
+							onSortChange={onSortChange}
+						>
+							{t("id")}
+						</AdminSortableTableHead>
+						<AdminSortableTableHead
+							sortKey="name"
+							sortBy={sortBy}
+							sortOrder={sortOrder}
+							onSortChange={onSortChange}
+						>
+							{t("core:name")}
+						</AdminSortableTableHead>
+						<AdminSortableTableHead
+							sortKey="base_url"
+							sortBy={sortBy}
+							sortOrder={sortOrder}
+							onSortChange={onSortChange}
+						>
+							{t("base_url")}
+						</AdminSortableTableHead>
+						<AdminSortableTableHead
+							sortKey="last_checked_at"
+							sortBy={sortBy}
+							sortOrder={sortOrder}
+							onSortChange={onSortChange}
+						>
+							{t("remote_node_status")}
+						</AdminSortableTableHead>
 						<TableHead className={ADMIN_TABLE_ACTIONS_WIDTH_CLASS}>
 							{t("core:actions")}
 						</TableHead>

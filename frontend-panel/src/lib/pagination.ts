@@ -35,6 +35,25 @@ export function parsePageSizeOption<PageSize extends number>(
 		: null;
 }
 
+export type SortOrder = "asc" | "desc";
+
+export function parseSortSearchParam<SortBy extends string>(
+	rawValue: string | null,
+	options: readonly SortBy[],
+	defaultValue: SortBy,
+): SortBy {
+	return options.includes(rawValue as SortBy)
+		? (rawValue as SortBy)
+		: defaultValue;
+}
+
+export function parseSortOrderSearchParam(
+	rawValue: string | null,
+	defaultValue: SortOrder,
+): SortOrder {
+	return rawValue === "asc" || rawValue === "desc" ? rawValue : defaultValue;
+}
+
 export function buildOffsetPaginationSearchParams<PageSize extends number>({
 	offset,
 	pageSize,

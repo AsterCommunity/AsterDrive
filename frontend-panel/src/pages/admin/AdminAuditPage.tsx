@@ -5,11 +5,11 @@ import {
 	ADMIN_TABLE_BADGE_CELL_CLASS,
 	ADMIN_TABLE_MONO_TEXT_CLASS,
 	ADMIN_TABLE_TEXT_CELL_CLASS,
+	AdminSortableTableHead,
 	AdminTableShell,
 	AdminTable as Table,
 	AdminTableBody as TableBody,
 	AdminTableCell as TableCell,
-	AdminTableHead as TableHead,
 	AdminTableHeader as TableHeader,
 	AdminTableRow as TableRow,
 } from "@/components/common/AdminTable";
@@ -49,8 +49,12 @@ import {
 	parseOffsetSearchParam,
 	parsePageSizeOption,
 	parsePageSizeSearchParam,
+	parseSortOrderSearchParam,
+	parseSortSearchParam,
+	type SortOrder,
 } from "@/lib/pagination";
 import { auditService } from "@/services/auditService";
+import type { AdminAuditLogSortBy } from "@/types/adminSort";
 
 const AUDIT_PAGE_SIZE_OPTIONS = [10, 20, 50] as const;
 const DEFAULT_AUDIT_PAGE_SIZE = 20 as const;
@@ -59,7 +63,21 @@ const AUDIT_MANAGED_QUERY_KEYS = [
 	"entityType",
 	"offset",
 	"pageSize",
+	"sortBy",
+	"sortOrder",
 ] as const;
+const AUDIT_SORT_BY_OPTIONS = [
+	"id",
+	"created_at",
+	"user_id",
+	"action",
+	"entity_type",
+	"entity_name",
+	"ip_address",
+] as const satisfies readonly AdminAuditLogSortBy[];
+const DEFAULT_AUDIT_SORT_BY =
+	"created_at" as const satisfies AdminAuditLogSortBy;
+const DEFAULT_AUDIT_SORT_ORDER = "desc" as const satisfies SortOrder;
 
 type AuditEntityTypeFilter = "__all__" | string;
 
@@ -79,11 +97,15 @@ function buildManagedAuditSearchParams({
 	pageSize,
 	action,
 	entityType,
+	sortBy,
+	sortOrder,
 }: {
 	offset: number;
 	pageSize: (typeof AUDIT_PAGE_SIZE_OPTIONS)[number];
 	action: string;
 	entityType: AuditEntityTypeFilter;
+	sortBy: AdminAuditLogSortBy;
+	sortOrder: SortOrder;
 }) {
 	return buildOffsetPaginationSearchParams({
 		offset,
@@ -92,6 +114,8 @@ function buildManagedAuditSearchParams({
 		extraParams: {
 			action: action.trim() || undefined,
 			entityType: entityType !== "__all__" ? entityType : undefined,
+			sortBy: sortBy !== DEFAULT_AUDIT_SORT_BY ? sortBy : undefined,
+			sortOrder: sortOrder !== DEFAULT_AUDIT_SORT_ORDER ? sortOrder : undefined,
 		},
 	});
 }
@@ -106,6 +130,15 @@ function getManagedAuditSearchString(searchParams: URLSearchParams) {
 		),
 		action: searchParams.get("action") ?? "",
 		entityType: parseEntityTypeSearchParam(searchParams.get("entityType")),
+		sortBy: parseSortSearchParam(
+			searchParams.get("sortBy"),
+			AUDIT_SORT_BY_OPTIONS,
+			DEFAULT_AUDIT_SORT_BY,
+		),
+		sortOrder: parseSortOrderSearchParam(
+			searchParams.get("sortOrder"),
+			DEFAULT_AUDIT_SORT_ORDER,
+		),
 	}).toString();
 }
 
@@ -145,6 +178,19 @@ export default function AdminAuditPage() {
 		useState<AuditEntityTypeFilter>(
 			parseEntityTypeSearchParam(searchParams.get("entityType")),
 		);
+	const [sortBy, setSortBy] = useState<AdminAuditLogSortBy>(
+		parseSortSearchParam(
+			searchParams.get("sortBy"),
+			AUDIT_SORT_BY_OPTIONS,
+			DEFAULT_AUDIT_SORT_BY,
+		),
+	);
+	const [sortOrder, setSortOrder] = useState<SortOrder>(
+		parseSortOrderSearchParam(
+			searchParams.get("sortOrder"),
+			DEFAULT_AUDIT_SORT_ORDER,
+		),
+	);
 	const lastWrittenSearchRef = useRef<string | null>(null);
 	const setOffset = (value: number) => {
 		setOffsetState(normalizeOffset(value));
@@ -168,6 +214,15 @@ export default function AdminAuditPage() {
 		const nextEntityType = parseEntityTypeSearchParam(
 			searchParams.get("entityType"),
 		);
+		const nextSortBy = parseSortSearchParam(
+			searchParams.get("sortBy"),
+			AUDIT_SORT_BY_OPTIONS,
+			DEFAULT_AUDIT_SORT_BY,
+		);
+		const nextSortOrder = parseSortOrderSearchParam(
+			searchParams.get("sortOrder"),
+			DEFAULT_AUDIT_SORT_ORDER,
+		);
 
 		setOffsetState((prev) => (prev === nextOffset ? prev : nextOffset));
 		setPageSize((prev) => (prev === nextPageSize ? prev : nextPageSize));
@@ -175,6 +230,8 @@ export default function AdminAuditPage() {
 		setEntityTypeFilter((prev) =>
 			prev === nextEntityType ? prev : nextEntityType,
 		);
+		setSortBy((prev) => (prev === nextSortBy ? prev : nextSortBy));
+		setSortOrder((prev) => (prev === nextSortOrder ? prev : nextSortOrder));
 	}, [searchParams]);
 
 	useEffect(() => {
@@ -183,6 +240,8 @@ export default function AdminAuditPage() {
 			pageSize,
 			action: actionFilter,
 			entityType: entityTypeFilter,
+			sortBy,
+			sortOrder,
 		});
 		const nextSearch = nextManagedSearchParams.toString();
 		const currentSearch = getManagedAuditSearchString(searchParams);
@@ -209,6 +268,8 @@ export default function AdminAuditPage() {
 		pageSize,
 		searchParams,
 		setSearchParams,
+		sortBy,
+		sortOrder,
 	]);
 
 	const { items, loading, reload, total } = useApiList(
@@ -219,8 +280,10 @@ export default function AdminAuditPage() {
 					entityTypeFilter === "__all__" ? undefined : entityTypeFilter,
 				limit: pageSize,
 				offset,
+				sort_by: sortBy,
+				sort_order: sortOrder,
 			}),
-		[actionFilter, entityTypeFilter, offset, pageSize],
+		[actionFilter, entityTypeFilter, offset, pageSize, sortBy, sortOrder],
 	);
 
 	const activeFilterCount =
@@ -264,6 +327,15 @@ export default function AdminAuditPage() {
 	const handleEntityTypeFilterChange = (value: string | null) => {
 		if (!value) return;
 		setEntityTypeFilter(value as AuditEntityTypeFilter);
+		setOffset(0);
+	};
+
+	const handleSortChange = (
+		nextSortBy: AdminAuditLogSortBy,
+		nextOrder: SortOrder,
+	) => {
+		setSortBy(nextSortBy);
+		setSortOrder(nextOrder);
 		setOffset(0);
 	};
 
@@ -362,14 +434,59 @@ export default function AdminAuditPage() {
 						<Table>
 							<TableHeader>
 								<TableRow>
-									<TableHead className="w-[180px]">{t("audit_time")}</TableHead>
-									<TableHead className="w-[180px]">{t("audit_user")}</TableHead>
-									<TableHead className="w-[180px]">
+									<AdminSortableTableHead
+										className="w-[180px]"
+										sortKey="created_at"
+										sortBy={sortBy}
+										sortOrder={sortOrder}
+										onSortChange={handleSortChange}
+									>
+										{t("audit_time")}
+									</AdminSortableTableHead>
+									<AdminSortableTableHead
+										className="w-[180px]"
+										sortKey="user_id"
+										sortBy={sortBy}
+										sortOrder={sortOrder}
+										onSortChange={handleSortChange}
+									>
+										{t("audit_user")}
+									</AdminSortableTableHead>
+									<AdminSortableTableHead
+										className="w-[180px]"
+										sortKey="action"
+										sortBy={sortBy}
+										sortOrder={sortOrder}
+										onSortChange={handleSortChange}
+									>
 										{t("audit_action")}
-									</TableHead>
-									<TableHead className="w-32">{t("audit_entity")}</TableHead>
-									<TableHead>{t("core:name")}</TableHead>
-									<TableHead className="w-[160px]">{t("audit_ip")}</TableHead>
+									</AdminSortableTableHead>
+									<AdminSortableTableHead
+										className="w-32"
+										sortKey="entity_type"
+										sortBy={sortBy}
+										sortOrder={sortOrder}
+										onSortChange={handleSortChange}
+									>
+										{t("audit_entity")}
+									</AdminSortableTableHead>
+									<AdminSortableTableHead
+										sortKey="entity_name"
+										sortBy={sortBy}
+										sortOrder={sortOrder}
+										onSortChange={handleSortChange}
+									>
+										{t("core:name")}
+									</AdminSortableTableHead>
+									<AdminSortableTableHead
+										className="w-[160px]"
+										sortKey="ip_address"
+										sortBy={sortBy}
+										sortOrder={sortOrder}
+										onSortChange={handleSortChange}
+									>
+										{t("audit_ip")}
+									</AdminSortableTableHead>
 								</TableRow>
 							</TableHeader>
 							<TableBody>

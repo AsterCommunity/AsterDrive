@@ -4,6 +4,7 @@ import {
 	ADMIN_TABLE_BADGE_CELL_CLASS,
 	ADMIN_TABLE_MONO_TEXT_CLASS,
 	ADMIN_TABLE_TEXT_CELL_CLASS,
+	AdminSortableTableHead,
 	AdminTableCell as TableCell,
 	AdminTableHead as TableHead,
 	AdminTableHeader as TableHeader,
@@ -17,6 +18,8 @@ import {
 	ADMIN_ICON_BUTTON_CLASS,
 	ADMIN_TABLE_ACTIONS_WIDTH_CLASS,
 } from "@/lib/constants";
+import type { SortOrder } from "@/lib/pagination";
+import type { AdminPolicySortBy } from "@/types/adminSort";
 import type { StoragePolicy } from "@/types/api";
 import {
 	getPolicyDriverBadgeClass,
@@ -29,14 +32,20 @@ interface PoliciesTableProps {
 	onEditPolicy: (policy: StoragePolicy) => void;
 	policies: StoragePolicy[];
 	remoteNodeNameById: Map<number, string>;
+	sortBy: AdminPolicySortBy;
+	sortOrder: SortOrder;
+	onSortChange: (sortBy: AdminPolicySortBy, sortOrder: SortOrder) => void;
 }
 
 export function PoliciesTable({
 	loading,
 	onDeletePolicy,
 	onEditPolicy,
+	onSortChange,
 	policies,
 	remoteNodeNameById,
+	sortBy,
+	sortOrder,
 }: PoliciesTableProps) {
 	const { t } = useTranslation("admin");
 
@@ -51,12 +60,56 @@ export function PoliciesTable({
 			headerRow={
 				<TableHeader>
 					<TableRow>
-						<TableHead className="w-16">{t("id")}</TableHead>
-						<TableHead>{t("core:name")}</TableHead>
-						<TableHead>{t("driver_type")}</TableHead>
-						<TableHead>{t("endpoint_path")}</TableHead>
-						<TableHead>{t("bucket")}</TableHead>
-						<TableHead className="w-20">{t("is_default")}</TableHead>
+						<AdminSortableTableHead
+							className="w-16"
+							sortKey="id"
+							sortBy={sortBy}
+							sortOrder={sortOrder}
+							onSortChange={onSortChange}
+						>
+							{t("id")}
+						</AdminSortableTableHead>
+						<AdminSortableTableHead
+							sortKey="name"
+							sortBy={sortBy}
+							sortOrder={sortOrder}
+							onSortChange={onSortChange}
+						>
+							{t("core:name")}
+						</AdminSortableTableHead>
+						<AdminSortableTableHead
+							sortKey="driver_type"
+							sortBy={sortBy}
+							sortOrder={sortOrder}
+							onSortChange={onSortChange}
+						>
+							{t("driver_type")}
+						</AdminSortableTableHead>
+						<AdminSortableTableHead
+							sortKey="endpoint"
+							sortBy={sortBy}
+							sortOrder={sortOrder}
+							onSortChange={onSortChange}
+						>
+							{t("endpoint_path")}
+						</AdminSortableTableHead>
+						<AdminSortableTableHead
+							sortKey="bucket"
+							sortBy={sortBy}
+							sortOrder={sortOrder}
+							onSortChange={onSortChange}
+						>
+							{t("bucket")}
+						</AdminSortableTableHead>
+						<AdminSortableTableHead
+							className="w-20"
+							sortKey="is_default"
+							sortBy={sortBy}
+							sortOrder={sortOrder}
+							onSortChange={onSortChange}
+						>
+							{t("is_default")}
+						</AdminSortableTableHead>
 						<TableHead className={ADMIN_TABLE_ACTIONS_WIDTH_CLASS}>
 							{t("core:actions")}
 						</TableHead>

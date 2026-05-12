@@ -3,7 +3,7 @@
 use chrono::Utc;
 use sea_orm::{Set, TransactionTrait};
 
-use crate::api::pagination::{OffsetPage, load_offset_page};
+use crate::api::pagination::{AdminPolicyGroupSortBy, OffsetPage, SortOrder, load_offset_page};
 use crate::db::repository::{policy_group_repo, policy_repo, team_repo, user_repo};
 use crate::entities::{storage_policy_group, storage_policy_group_item};
 use crate::errors::{AsterError, MapAsterErr, Result};
@@ -101,9 +101,12 @@ pub async fn list_groups_paginated(
     state: &PrimaryAppState,
     limit: u64,
     offset: u64,
+    sort_by: AdminPolicyGroupSortBy,
+    sort_order: SortOrder,
 ) -> Result<OffsetPage<StoragePolicyGroupInfo>> {
     let page = load_offset_page(limit, offset, 100, |limit, offset| async move {
-        policy_group_repo::find_groups_paginated(&state.db, limit, offset).await
+        policy_group_repo::find_groups_paginated(&state.db, limit, offset, sort_by, sort_order)
+            .await
     })
     .await?;
     Ok(OffsetPage {

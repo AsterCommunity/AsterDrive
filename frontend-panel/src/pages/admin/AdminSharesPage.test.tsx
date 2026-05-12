@@ -345,6 +345,8 @@ describe("AdminSharesPage", () => {
 			expect(mockState.list).toHaveBeenCalledWith({
 				limit: 20,
 				offset: 0,
+				sort_by: "created_at",
+				sort_order: "desc",
 			});
 		});
 
@@ -391,6 +393,8 @@ describe("AdminSharesPage", () => {
 			expect(mockState.list).toHaveBeenCalledWith({
 				limit: 20,
 				offset: 20,
+				sort_by: "created_at",
+				sort_order: "desc",
 			});
 		});
 
@@ -410,6 +414,8 @@ describe("AdminSharesPage", () => {
 			expect(mockState.list).toHaveBeenLastCalledWith({
 				limit: 20,
 				offset: 0,
+				sort_by: "created_at",
+				sort_order: "desc",
 			});
 		});
 		expect(mockState.toastSuccess).toHaveBeenCalledWith("share_deleted");
@@ -460,6 +466,8 @@ describe("AdminSharesPage", () => {
 			expect(mockState.list).toHaveBeenNthCalledWith(1, {
 				limit: 20,
 				offset: 0,
+				sort_by: "created_at",
+				sort_order: "desc",
 			});
 		});
 
@@ -469,6 +477,8 @@ describe("AdminSharesPage", () => {
 			expect(mockState.list).toHaveBeenNthCalledWith(2, {
 				limit: 20,
 				offset: 20,
+				sort_by: "created_at",
+				sort_order: "desc",
 			});
 		});
 		expect(screen.getByTestId("location-search").textContent).toBe(
@@ -483,6 +493,8 @@ describe("AdminSharesPage", () => {
 			expect(mockState.list).toHaveBeenNthCalledWith(3, {
 				limit: 50,
 				offset: 0,
+				sort_by: "created_at",
+				sort_order: "desc",
 			});
 		});
 		expect(screen.getByTestId("location-search").textContent).toBe(

@@ -303,6 +303,8 @@ async fn load_recent_overview_events(
             },
             event_limit,
             0,
+            crate::api::pagination::AdminAuditLogSortBy::CreatedAt,
+            crate::api::pagination::SortOrder::Desc,
         ),
         background_task_repo::list_recent(&state.db, event_limit),
     )?;

@@ -24,10 +24,12 @@ describe("auditService", () => {
 			before: null as never,
 			limit: 20,
 			offset: 40,
+			sort_by: "action",
+			sort_order: "asc",
 		});
 
 		expect(apiGet).toHaveBeenCalledWith(
-			"/admin/audit-logs?limit=20&offset=40&user_id=7&action=user_login&entity_id=9&after=2026-01-01T00%3A00%3A00Z",
+			"/admin/audit-logs?limit=20&offset=40&sort_by=action&sort_order=asc&user_id=7&action=user_login&entity_id=9&after=2026-01-01T00%3A00%3A00Z",
 		);
 	});
 

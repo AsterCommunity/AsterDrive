@@ -22,8 +22,10 @@ import { useAdminTeamDetailTabs } from "@/components/admin/admin-team-detail/use
 import { ConfirmDialog } from "@/components/common/ConfirmDialog";
 import { handleApiError } from "@/hooks/useApiError";
 import { useConfirmDialog } from "@/hooks/useConfirmDialog";
+import type { SortOrder } from "@/lib/pagination";
 import { getUserDisplayName } from "@/lib/user";
 import { adminTeamService } from "@/services/adminService";
+import type { AdminTeamMemberSortBy } from "@/types/adminSort";
 import type {
 	StoragePolicyGroup,
 	TeamMemberRole,
@@ -79,6 +81,9 @@ export function AdminTeamDetailDialog({
 	const [memberRoleFilter, setMemberRoleFilter] = useState<
 		"__all__" | TeamMemberRole
 	>("__all__");
+	const [memberSortBy, setMemberSortBy] =
+		useState<AdminTeamMemberSortBy>("role");
+	const [memberSortOrder, setMemberSortOrder] = useState<SortOrder>("asc");
 	const [memberStatusFilter, setMemberStatusFilter] = useState<
 		"__all__" | UserStatus
 	>("__all__");
@@ -143,6 +148,8 @@ export function AdminTeamDetailDialog({
 		auditOffset,
 		memberFilters,
 		memberOffset,
+		memberSortBy,
+		memberSortOrder,
 		open,
 		teamId,
 	});
@@ -347,7 +354,7 @@ export function AdminTeamDetailDialog({
 			setMemberOffset(0);
 			await Promise.all([
 				loadTeamDetail(teamId),
-				loadMembers(teamId, 0),
+				loadMembers(teamId, 0, memberFilters, memberSortBy, memberSortOrder),
 				loadAuditEntries(teamId),
 				onListChange(),
 			]);
@@ -372,7 +379,13 @@ export function AdminTeamDetailDialog({
 			await adminTeamService.updateMember(teamId, memberUserId, { role });
 			await Promise.all([
 				loadTeamDetail(teamId),
-				loadMembers(teamId, memberOffset),
+				loadMembers(
+					teamId,
+					memberOffset,
+					memberFilters,
+					memberSortBy,
+					memberSortOrder,
+				),
 				loadAuditEntries(teamId),
 				onListChange(),
 			]);
@@ -394,7 +407,13 @@ export function AdminTeamDetailDialog({
 			await adminTeamService.removeMember(teamId, memberUserId);
 			await Promise.all([
 				loadTeamDetail(teamId),
-				loadMembers(teamId, memberOffset),
+				loadMembers(
+					teamId,
+					memberOffset,
+					memberFilters,
+					memberSortBy,
+					memberSortOrder,
+				),
 				loadAuditEntries(teamId),
 				onListChange(),
 			]);
@@ -430,6 +449,8 @@ export function AdminTeamDetailDialog({
 			setMemberQuery("");
 			setMemberRole("member");
 			setMemberRoleFilter("__all__");
+			setMemberSortBy("role");
+			setMemberSortOrder("asc");
 			setMemberStatusFilter("__all__");
 			setName("");
 			setPolicyGroupId("");
@@ -442,6 +463,8 @@ export function AdminTeamDetailDialog({
 		overviewSyncAllowedRef.current = true;
 		setAuditOffset(0);
 		setMemberOffset(0);
+		setMemberSortBy("role");
+		setMemberSortOrder("asc");
 		resetDialogTab();
 	}, [archiveDialogProps.onOpenChange, open, resetDialogTab, teamId]);
 
@@ -488,6 +511,15 @@ export function AdminTeamDetailDialog({
 		);
 	};
 
+	const handleMemberSortChange = (
+		nextSortBy: AdminTeamMemberSortBy,
+		nextOrder: SortOrder,
+	) => {
+		setMemberSortBy(nextSortBy);
+		setMemberSortOrder(nextOrder);
+		setMemberOffset(0);
+	};
+
 	const overviewSection = (
 		<AdminTeamDetailOverviewSection
 			archiving={archiving}
@@ -525,6 +557,8 @@ export function AdminTeamDetailDialog({
 			memberQuery={memberQuery}
 			memberRole={memberRole}
 			memberRoleFilter={memberRoleFilter}
+			memberSortBy={memberSortBy}
+			memberSortOrder={memberSortOrder}
 			memberStatusFilter={memberStatusFilter}
 			memberTotal={memberTotal}
 			memberTotalPages={memberTotalPages}
@@ -545,6 +579,7 @@ export function AdminTeamDetailDialog({
 			statusFilterOptions={statusFilterOptions}
 			team={team}
 			onAddMember={handleAddMember}
+			onMemberSortChange={handleMemberSortChange}
 			onUpdateMemberRole={handleUpdateMemberRole}
 		/>
 	);

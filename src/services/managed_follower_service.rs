@@ -1,6 +1,6 @@
 //! 服务模块：`managed_follower_service`。
 
-use crate::api::pagination::{OffsetPage, load_offset_page};
+use crate::api::pagination::{AdminRemoteNodeSortBy, OffsetPage, SortOrder, load_offset_page};
 use crate::db::repository::{follower_enrollment_session_repo, managed_follower_repo, policy_repo};
 use crate::entities::{follower_enrollment_session, managed_follower};
 use crate::errors::{
@@ -119,10 +119,13 @@ pub async fn list_paginated<S: PrimaryRuntimeState>(
     state: &S,
     limit: u64,
     offset: u64,
+    sort_by: AdminRemoteNodeSortBy,
+    sort_order: SortOrder,
 ) -> Result<OffsetPage<RemoteNodeInfo>> {
     let page = load_offset_page(limit, offset, 100, |limit, offset| async move {
         let (items, total) =
-            managed_follower_repo::find_paginated(state.db(), limit, offset).await?;
+            managed_follower_repo::find_paginated(state.db(), limit, offset, sort_by, sort_order)
+                .await?;
         Ok((items, total))
     })
     .await?;

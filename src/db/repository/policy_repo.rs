@@ -1,11 +1,13 @@
 //! 仓储模块：`policy_repo`。
 
+use crate::api::pagination::{AdminPolicySortBy, SortOrder};
 use crate::db::repository::pagination_repo::fetch_offset_page;
+use crate::db::repository::sort::{order_by_column_with_id, order_by_id};
 use crate::entities::storage_policy::{self, Entity as StoragePolicy};
 use crate::errors::{AsterError, Result};
 use sea_orm::{
     ActiveModelTrait, ColumnTrait, ConnectionTrait, DbBackend, EntityTrait, ExprTrait,
-    PaginatorTrait, QueryFilter, QueryOrder, QuerySelect, Set, sea_query::Expr,
+    PaginatorTrait, QueryFilter, QueryOrder, QuerySelect, Select, Set, sea_query::Expr,
 };
 
 pub async fn find_by_id<C: ConnectionTrait>(db: &C, id: i64) -> Result<storage_policy::Model> {
@@ -50,16 +52,68 @@ pub async fn find_paginated<C: ConnectionTrait>(
     db: &C,
     limit: u64,
     offset: u64,
+    sort_by: AdminPolicySortBy,
+    sort_order: SortOrder,
 ) -> Result<(Vec<storage_policy::Model>, u64)> {
     fetch_offset_page(
         db,
-        StoragePolicy::find()
-            .order_by_desc(storage_policy::Column::CreatedAt)
-            .order_by_desc(storage_policy::Column::Id),
+        apply_admin_policy_sort(StoragePolicy::find(), sort_by, sort_order),
         limit,
         offset,
     )
     .await
+}
+
+fn apply_admin_policy_sort(
+    query: Select<StoragePolicy>,
+    sort_by: AdminPolicySortBy,
+    sort_order: SortOrder,
+) -> Select<StoragePolicy> {
+    match sort_by {
+        AdminPolicySortBy::Id => order_by_id(query, storage_policy::Column::Id, sort_order),
+        AdminPolicySortBy::Name => order_by_column_with_id(
+            query,
+            storage_policy::Column::Name,
+            sort_order,
+            storage_policy::Column::Id,
+        ),
+        AdminPolicySortBy::DriverType => order_by_column_with_id(
+            query,
+            storage_policy::Column::DriverType,
+            sort_order,
+            storage_policy::Column::Id,
+        ),
+        AdminPolicySortBy::Endpoint => order_by_column_with_id(
+            query,
+            storage_policy::Column::Endpoint,
+            sort_order,
+            storage_policy::Column::Id,
+        ),
+        AdminPolicySortBy::Bucket => order_by_column_with_id(
+            query,
+            storage_policy::Column::Bucket,
+            sort_order,
+            storage_policy::Column::Id,
+        ),
+        AdminPolicySortBy::IsDefault => order_by_column_with_id(
+            query,
+            storage_policy::Column::IsDefault,
+            sort_order,
+            storage_policy::Column::Id,
+        ),
+        AdminPolicySortBy::CreatedAt => order_by_column_with_id(
+            query,
+            storage_policy::Column::CreatedAt,
+            sort_order,
+            storage_policy::Column::Id,
+        ),
+        AdminPolicySortBy::UpdatedAt => order_by_column_with_id(
+            query,
+            storage_policy::Column::UpdatedAt,
+            sort_order,
+            storage_policy::Column::Id,
+        ),
+    }
 }
 
 pub async fn count_by_remote_node_id<C: ConnectionTrait>(

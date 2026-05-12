@@ -6,7 +6,9 @@ use sea_orm::{
     PaginatorTrait, QueryFilter, QueryOrder, QuerySelect, Select, sea_query::Expr,
 };
 
+use crate::api::pagination::{AdminTaskSortBy, SortOrder};
 use crate::db::repository::pagination_repo::fetch_offset_page;
+use crate::db::repository::sort::{order_by_column_with_id, order_by_id};
 use crate::entities::background_task::{self, Entity as BackgroundTask};
 use crate::errors::{AsterError, MapAsterErr, Result};
 use crate::types::{BackgroundTaskKind, BackgroundTaskStatus, StoredTaskPayload};
@@ -66,7 +68,15 @@ pub async fn find_paginated_all<C: ConnectionTrait>(
     limit: u64,
     offset: u64,
 ) -> Result<(Vec<background_task::Model>, u64)> {
-    find_paginated_all_filtered(db, limit, offset, &AdminTaskFilters::default()).await
+    find_paginated_all_filtered(
+        db,
+        limit,
+        offset,
+        &AdminTaskFilters::default(),
+        AdminTaskSortBy::UpdatedAt,
+        SortOrder::Desc,
+    )
+    .await
 }
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -87,17 +97,78 @@ pub async fn find_paginated_all_filtered<C: ConnectionTrait>(
     limit: u64,
     offset: u64,
     filters: &AdminTaskFilters,
+    sort_by: AdminTaskSortBy,
+    sort_order: SortOrder,
 ) -> Result<(Vec<background_task::Model>, u64)> {
     fetch_offset_page(
         db,
-        apply_admin_filters(
-            BackgroundTask::find().order_by_desc(background_task::Column::UpdatedAt),
-            filters,
+        apply_admin_task_sort(
+            apply_admin_filters(BackgroundTask::find(), filters),
+            sort_by,
+            sort_order,
         ),
         limit,
         offset,
     )
     .await
+}
+
+fn apply_admin_task_sort(
+    query: Select<BackgroundTask>,
+    sort_by: AdminTaskSortBy,
+    sort_order: SortOrder,
+) -> Select<BackgroundTask> {
+    match sort_by {
+        AdminTaskSortBy::Id => order_by_id(query, background_task::Column::Id, sort_order),
+        AdminTaskSortBy::DisplayName => order_by_column_with_id(
+            query,
+            background_task::Column::DisplayName,
+            sort_order,
+            background_task::Column::Id,
+        ),
+        AdminTaskSortBy::Kind => order_by_column_with_id(
+            query,
+            background_task::Column::Kind,
+            sort_order,
+            background_task::Column::Id,
+        ),
+        AdminTaskSortBy::Status => order_by_column_with_id(
+            query,
+            background_task::Column::Status,
+            sort_order,
+            background_task::Column::Id,
+        ),
+        AdminTaskSortBy::Progress => order_by_column_with_id(
+            query,
+            background_task::Column::ProgressCurrent,
+            sort_order,
+            background_task::Column::Id,
+        ),
+        AdminTaskSortBy::CreatedAt => order_by_column_with_id(
+            query,
+            background_task::Column::CreatedAt,
+            sort_order,
+            background_task::Column::Id,
+        ),
+        AdminTaskSortBy::UpdatedAt => order_by_column_with_id(
+            query,
+            background_task::Column::UpdatedAt,
+            sort_order,
+            background_task::Column::Id,
+        ),
+        AdminTaskSortBy::StartedAt => order_by_column_with_id(
+            query,
+            background_task::Column::StartedAt,
+            sort_order,
+            background_task::Column::Id,
+        ),
+        AdminTaskSortBy::FinishedAt => order_by_column_with_id(
+            query,
+            background_task::Column::FinishedAt,
+            sort_order,
+            background_task::Column::Id,
+        ),
+    }
 }
 
 pub async fn list_recent<C: ConnectionTrait>(
@@ -731,8 +802,9 @@ fn processing_stale_condition(now: DateTime<Utc>) -> Condition {
 #[cfg(test)]
 mod tests {
     use super::{
-        AdminTaskFilters, TerminalTaskCleanupFilters, count_active_processing_by_kinds,
-        delete_terminal_by_filters, find_paginated_all_filtered, list_claimable_by_kinds,
+        AdminTaskFilters, AdminTaskSortBy, SortOrder, TerminalTaskCleanupFilters,
+        count_active_processing_by_kinds, delete_terminal_by_filters, find_paginated_all_filtered,
+        list_claimable_by_kinds,
     };
     use crate::config::DatabaseConfig;
     use crate::entities::background_task;
@@ -880,6 +952,8 @@ mod tests {
                 kind: Some(BackgroundTaskKind::ArchiveExtract),
                 status: Some(BackgroundTaskStatus::Failed),
             },
+            AdminTaskSortBy::UpdatedAt,
+            SortOrder::Desc,
         )
         .await
         .expect("filtered admin task query should succeed");

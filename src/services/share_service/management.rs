@@ -8,7 +8,7 @@ use std::collections::HashMap;
 use chrono::Utc;
 use sea_orm::{DatabaseConnection, Set};
 
-use crate::api::pagination::{OffsetPage, load_offset_page};
+use crate::api::pagination::{AdminShareSortBy, OffsetPage, SortOrder, load_offset_page};
 use crate::db::repository::{file_repo, folder_repo, share_repo};
 use crate::entities::share;
 use crate::errors::{AsterError, Result};
@@ -454,9 +454,12 @@ pub async fn list_paginated(
     state: &PrimaryAppState,
     limit: u64,
     offset: u64,
+    sort_by: AdminShareSortBy,
+    sort_order: SortOrder,
 ) -> Result<OffsetPage<ShareInfo>> {
     load_offset_page(limit, offset, 100, |limit, offset| async move {
-        let (items, total) = share_repo::find_paginated(&state.db, limit, offset).await?;
+        let (items, total) =
+            share_repo::find_paginated(&state.db, limit, offset, sort_by, sort_order).await?;
         let items = share_infos_from_models(state, items).await?;
         Ok((items, total))
     })

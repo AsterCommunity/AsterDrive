@@ -36,6 +36,8 @@ pub async fn list_teams(
         page.offset(),
         query.keyword.as_deref(),
         query.archived.unwrap_or(false),
+        query.sort_by(),
+        query.sort_order(),
     )
     .await?;
     Ok(HttpResponse::Ok().json(ApiResponse::ok(teams)))
@@ -253,11 +255,16 @@ pub async fn list_team_members(
     let members = team_service::list_admin_members(
         &state,
         *path,
-        team_service::TeamMemberListFilters::from_inputs(
-            query.keyword.as_deref(),
-            query.role,
-            query.status,
-        ),
+        {
+            let mut filters = team_service::TeamMemberListFilters::from_inputs(
+                query.keyword.as_deref(),
+                query.role,
+                query.status,
+            );
+            filters.sort_by = query.sort_by();
+            filters.sort_order = query.sort_order();
+            filters
+        },
         page.limit_or(20, 100),
         page.offset(),
     )

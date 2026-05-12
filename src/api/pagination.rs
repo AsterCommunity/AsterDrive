@@ -116,6 +116,141 @@ pub enum SortOrder {
     Desc,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(all(debug_assertions, feature = "openapi"), derive(utoipa::ToSchema))]
+#[serde(rename_all = "snake_case")]
+pub enum AdminUserSortBy {
+    Id,
+    Username,
+    Email,
+    Role,
+    Status,
+    StorageUsed,
+    StorageQuota,
+    CreatedAt,
+    UpdatedAt,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(all(debug_assertions, feature = "openapi"), derive(utoipa::ToSchema))]
+#[serde(rename_all = "snake_case")]
+pub enum AdminTeamSortBy {
+    Id,
+    Name,
+    StorageUsed,
+    StorageQuota,
+    CreatedAt,
+    UpdatedAt,
+    ArchivedAt,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(all(debug_assertions, feature = "openapi"), derive(utoipa::ToSchema))]
+#[serde(rename_all = "snake_case")]
+pub enum AdminTeamMemberSortBy {
+    Username,
+    Email,
+    Role,
+    Status,
+    CreatedAt,
+    UpdatedAt,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(all(debug_assertions, feature = "openapi"), derive(utoipa::ToSchema))]
+#[serde(rename_all = "snake_case")]
+pub enum AdminPolicySortBy {
+    Id,
+    Name,
+    DriverType,
+    Endpoint,
+    Bucket,
+    IsDefault,
+    CreatedAt,
+    UpdatedAt,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(all(debug_assertions, feature = "openapi"), derive(utoipa::ToSchema))]
+#[serde(rename_all = "snake_case")]
+pub enum AdminPolicyGroupSortBy {
+    Id,
+    Name,
+    IsEnabled,
+    IsDefault,
+    CreatedAt,
+    UpdatedAt,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(all(debug_assertions, feature = "openapi"), derive(utoipa::ToSchema))]
+#[serde(rename_all = "snake_case")]
+pub enum AdminRemoteNodeSortBy {
+    Id,
+    Name,
+    BaseUrl,
+    IsEnabled,
+    LastCheckedAt,
+    CreatedAt,
+    UpdatedAt,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(all(debug_assertions, feature = "openapi"), derive(utoipa::ToSchema))]
+#[serde(rename_all = "snake_case")]
+pub enum AdminShareSortBy {
+    Id,
+    Token,
+    UserId,
+    DownloadCount,
+    MaxDownloads,
+    ExpiresAt,
+    CreatedAt,
+    UpdatedAt,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(all(debug_assertions, feature = "openapi"), derive(utoipa::ToSchema))]
+#[serde(rename_all = "snake_case")]
+pub enum AdminTaskSortBy {
+    Id,
+    DisplayName,
+    Kind,
+    Status,
+    Progress,
+    CreatedAt,
+    UpdatedAt,
+    StartedAt,
+    FinishedAt,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(all(debug_assertions, feature = "openapi"), derive(utoipa::ToSchema))]
+#[serde(rename_all = "snake_case")]
+pub enum AdminLockSortBy {
+    Id,
+    Path,
+    EntityType,
+    OwnerId,
+    TimeoutAt,
+    Shared,
+    Deep,
+    CreatedAt,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(all(debug_assertions, feature = "openapi"), derive(utoipa::ToSchema))]
+#[serde(rename_all = "snake_case")]
+pub enum AdminAuditLogSortBy {
+    Id,
+    CreatedAt,
+    UserId,
+    Action,
+    EntityType,
+    EntityName,
+    IpAddress,
+}
+
 /// 文件列表分页参数（文件夹用 offset 分页，文件用 cursor 分页）
 #[derive(Debug, Deserialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(IntoParams))]

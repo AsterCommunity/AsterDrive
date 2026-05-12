@@ -11,11 +11,50 @@ use std::io::Cursor;
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
 
-use aster_drive::db::repository::background_task_repo;
-use aster_drive::entities::background_task;
+use aster_drive::db::repository::{audit_log_repo, background_task_repo, lock_repo, policy_repo};
+use aster_drive::entities::{audit_log, background_task, resource_lock};
 use aster_drive::types::{
-    BackgroundTaskKind, BackgroundTaskStatus, StoredTaskPayload, StoredTaskResult,
+    AuditAction, BackgroundTaskKind, BackgroundTaskStatus, EntityType, StoredLockOwnerInfo,
+    StoredTaskPayload, StoredTaskResult,
 };
+
+fn admin_get_request(token: &str, uri: &str) -> actix_web::test::TestRequest {
+    let mut req = test::TestRequest::get().uri(uri);
+    req = req.insert_header(("Cookie", common::access_cookie_header(token)));
+    req.insert_header(common::csrf_header_for(token))
+}
+
+macro_rules! admin_get_json {
+    ($app:expr, $token:expr, $uri:expr) => {{
+        let req = admin_get_request(&$token, $uri).to_request();
+        let resp = test::call_service(&$app, req).await;
+        assert_eq!(resp.status(), 200, "GET {} should return 200", $uri);
+        test::read_body_json(resp).await
+    }};
+}
+
+fn json_string_values(items: &[Value], key: &str) -> Vec<String> {
+    items
+        .iter()
+        .map(|item| {
+            item[key]
+                .as_str()
+                .unwrap_or_else(|| panic!("{key} should be a string in {item}"))
+                .to_string()
+        })
+        .collect()
+}
+
+fn json_i64_values(items: &[Value], key: &str) -> Vec<i64> {
+    items
+        .iter()
+        .map(|item| {
+            item[key]
+                .as_i64()
+                .unwrap_or_else(|| panic!("{key} should be an integer in {item}"))
+        })
+        .collect()
+}
 
 fn avatar_upload_payload() -> (String, Vec<u8>) {
     let boundary = "----AsterAvatarBoundary".to_string();
@@ -765,6 +804,591 @@ async fn test_admin_teams_are_sorted_by_created_at_desc() {
     assert_eq!(teams.len(), 2);
     assert_eq!(teams[0]["name"], "Second Team");
     assert_eq!(teams[1]["name"], "First Team");
+}
+
+#[actix_web::test]
+async fn test_admin_users_support_explicit_sorting() {
+    let state = common::setup().await;
+    let app = create_test_app!(state);
+    let (token, _) = register_and_login!(app);
+
+    for (username, email) in [
+        ("sort-user-gamma", "sort-user-gamma@example.com"),
+        ("sort-user-alpha", "sort-user-alpha@example.com"),
+        ("sort-user-beta", "sort-user-beta@example.com"),
+    ] {
+        admin_create_user!(app, token, username, email, "password123");
+    }
+
+    let body: Value = admin_get_json!(
+        app,
+        token,
+        "/api/v1/admin/users?keyword=sort-user&sort_by=username&sort_order=asc&limit=10"
+    );
+    let users = body["data"]["items"].as_array().unwrap();
+    assert_eq!(
+        json_string_values(users, "username"),
+        vec!["sort-user-alpha", "sort-user-beta", "sort-user-gamma"]
+    );
+
+    let body: Value = admin_get_json!(
+        app,
+        token,
+        "/api/v1/admin/users?keyword=sort-user&sort_by=email&sort_order=desc&limit=10"
+    );
+    let users = body["data"]["items"].as_array().unwrap();
+    assert_eq!(
+        json_string_values(users, "email"),
+        vec![
+            "sort-user-gamma@example.com",
+            "sort-user-beta@example.com",
+            "sort-user-alpha@example.com"
+        ]
+    );
+}
+
+#[actix_web::test]
+async fn test_admin_sort_query_rejects_unknown_values() {
+    let state = common::setup().await;
+    let app = create_test_app!(state);
+    let (token, _) = register_and_login!(app);
+
+    let req = admin_get_request(&token, "/api/v1/admin/users?sort_by=password_hash").to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 400);
+
+    let req = admin_get_request(&token, "/api/v1/admin/users?sort_order=random").to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 400);
+}
+
+#[actix_web::test]
+async fn test_admin_teams_support_explicit_sorting() {
+    let state = common::setup().await;
+    let default_group_id = state
+        .policy_snapshot
+        .system_default_policy_group()
+        .expect("default policy group should exist")
+        .id;
+    let app = create_test_app!(state);
+    let (admin_token, _) = register_and_login!(app);
+
+    admin_create_user!(
+        app,
+        admin_token,
+        "tnsortadmin",
+        "tnsortadmin@example.com",
+        "password123"
+    );
+
+    for team_name in ["Team Sort Gamma", "Team Sort Alpha", "Team Sort Beta"] {
+        let req = test::TestRequest::post()
+            .uri("/api/v1/admin/teams")
+            .insert_header(("Cookie", common::access_cookie_header(&admin_token)))
+            .insert_header(common::csrf_header_for(&admin_token))
+            .set_json(serde_json::json!({
+                "name": team_name,
+                "admin_identifier": "tnsortadmin",
+                "policy_group_id": default_group_id
+            }))
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(resp.status(), 201);
+    }
+
+    let body: Value = admin_get_json!(
+        app,
+        admin_token,
+        "/api/v1/admin/teams?sort_by=name&sort_order=asc&limit=10"
+    );
+    let teams = body["data"]["items"].as_array().unwrap();
+    assert_eq!(
+        json_string_values(teams, "name"),
+        vec!["Team Sort Alpha", "Team Sort Beta", "Team Sort Gamma"]
+    );
+
+    let body: Value = admin_get_json!(
+        app,
+        admin_token,
+        "/api/v1/admin/teams?sort_by=name&sort_order=desc&limit=10"
+    );
+    let teams = body["data"]["items"].as_array().unwrap();
+    assert_eq!(
+        json_string_values(teams, "name"),
+        vec!["Team Sort Gamma", "Team Sort Beta", "Team Sort Alpha"]
+    );
+}
+
+#[actix_web::test]
+async fn test_admin_team_members_support_explicit_sorting() {
+    let state = common::setup().await;
+    let default_group_id = state
+        .policy_snapshot
+        .system_default_policy_group()
+        .expect("default policy group should exist")
+        .id;
+    let app = create_test_app!(state);
+    let (admin_token, _) = register_and_login!(app);
+
+    admin_create_user!(
+        app,
+        admin_token,
+        "tmmanager",
+        "tmmanager@example.com",
+        "password123"
+    );
+    admin_create_user!(
+        app,
+        admin_token,
+        "tmalpha",
+        "tmalpha@example.com",
+        "password123"
+    );
+    admin_create_user!(
+        app,
+        admin_token,
+        "tmzeta",
+        "tmzeta@example.com",
+        "password123"
+    );
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/admin/teams")
+        .insert_header(("Cookie", common::access_cookie_header(&admin_token)))
+        .insert_header(common::csrf_header_for(&admin_token))
+        .set_json(serde_json::json!({
+            "name": "Team Member Sort",
+            "admin_identifier": "tmmanager",
+            "policy_group_id": default_group_id
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 201);
+    let body: Value = test::read_body_json(resp).await;
+    let team_id = body["data"]["id"].as_i64().unwrap();
+
+    for (identifier, role) in [("tmzeta", "member"), ("tmalpha", "admin")] {
+        let req = test::TestRequest::post()
+            .uri(&format!("/api/v1/admin/teams/{team_id}/members"))
+            .insert_header(("Cookie", common::access_cookie_header(&admin_token)))
+            .insert_header(common::csrf_header_for(&admin_token))
+            .set_json(serde_json::json!({
+                "identifier": identifier,
+                "role": role
+            }))
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(resp.status(), 201);
+    }
+
+    let body: Value = admin_get_json!(
+        app,
+        admin_token,
+        &format!("/api/v1/admin/teams/{team_id}/members?sort_by=username&sort_order=asc&limit=10")
+    );
+    let members = body["data"]["items"].as_array().unwrap();
+    let usernames = members
+        .iter()
+        .map(|item| item["user"]["username"].as_str().unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(usernames, vec!["tmalpha", "tmmanager", "tmzeta"]);
+
+    let body: Value = admin_get_json!(
+        app,
+        admin_token,
+        &format!("/api/v1/admin/teams/{team_id}/members?sort_by=role&sort_order=desc&limit=10")
+    );
+    let members = body["data"]["items"].as_array().unwrap();
+    let roles = members
+        .iter()
+        .map(|item| item["role"].as_str().unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(roles, vec!["member", "admin", "admin"]);
+}
+
+#[actix_web::test]
+async fn test_admin_policies_support_explicit_sorting() {
+    let state = common::setup().await;
+    let app = create_test_app!(state);
+    let (token, _) = register_and_login!(app);
+
+    for (name, bucket) in [
+        ("Policy Sort Zeta", "zeta-bucket"),
+        ("Policy Sort Alpha", "alpha-bucket"),
+    ] {
+        let req = test::TestRequest::post()
+            .uri("/api/v1/admin/policies")
+            .insert_header(("Cookie", common::access_cookie_header(&token)))
+            .insert_header(common::csrf_header_for(&token))
+            .set_json(serde_json::json!({
+                "name": name,
+                "driver_type": "s3",
+                "endpoint": "https://s3.example.com",
+                "bucket": bucket,
+                "access_key": "ak",
+                "secret_key": "sk",
+                "base_path": "sort-tests"
+            }))
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(resp.status(), 201);
+    }
+
+    let body: Value = admin_get_json!(
+        app,
+        token,
+        "/api/v1/admin/policies?sort_by=name&sort_order=asc&limit=10"
+    );
+    let policies = body["data"]["items"].as_array().unwrap();
+    let names = json_string_values(policies, "name");
+    assert_eq!(names[0], "Policy Sort Alpha");
+    assert_eq!(names[1], "Policy Sort Zeta");
+
+    let body: Value = admin_get_json!(
+        app,
+        token,
+        "/api/v1/admin/policies?sort_by=bucket&sort_order=desc&limit=10"
+    );
+    let policies = body["data"]["items"].as_array().unwrap();
+    let buckets = json_string_values(policies, "bucket");
+    assert!(
+        buckets
+            .iter()
+            .position(|bucket| bucket == "zeta-bucket")
+            .unwrap()
+            < buckets
+                .iter()
+                .position(|bucket| bucket == "alpha-bucket")
+                .unwrap()
+    );
+}
+
+#[actix_web::test]
+async fn test_admin_policy_groups_support_explicit_sorting() {
+    let state = common::setup().await;
+    let default_policy_id = policy_repo::find_default(&state.db)
+        .await
+        .unwrap()
+        .expect("default policy should exist")
+        .id;
+    let app = create_test_app!(state);
+    let (token, _) = register_and_login!(app);
+
+    for (name, enabled) in [
+        ("Policy Group Sort Zeta", true),
+        ("Policy Group Sort Alpha", false),
+    ] {
+        let req = test::TestRequest::post()
+            .uri("/api/v1/admin/policy-groups")
+            .insert_header(("Cookie", common::access_cookie_header(&token)))
+            .insert_header(common::csrf_header_for(&token))
+            .set_json(serde_json::json!({
+                "name": name,
+                "description": "sort regression",
+                "is_enabled": enabled,
+                "is_default": false,
+                "items": [{
+                    "policy_id": default_policy_id,
+                    "priority": 1,
+                    "min_file_size": 0,
+                    "max_file_size": 0
+                }]
+            }))
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(resp.status(), 201);
+    }
+
+    let body: Value = admin_get_json!(
+        app,
+        token,
+        "/api/v1/admin/policy-groups?sort_by=name&sort_order=asc&limit=10"
+    );
+    let groups = body["data"]["items"].as_array().unwrap();
+    let names = json_string_values(groups, "name");
+    assert_eq!(names[0], "Default Policy Group");
+    assert_eq!(names[1], "Policy Group Sort Alpha");
+    assert_eq!(names[2], "Policy Group Sort Zeta");
+
+    let body: Value = admin_get_json!(
+        app,
+        token,
+        "/api/v1/admin/policy-groups?sort_by=is_enabled&sort_order=asc&limit=10"
+    );
+    let groups = body["data"]["items"].as_array().unwrap();
+    assert_eq!(groups[0]["name"], "Policy Group Sort Alpha");
+    assert_eq!(groups[0]["is_enabled"], false);
+}
+
+#[actix_web::test]
+async fn test_admin_remote_nodes_support_explicit_sorting() {
+    let state = common::setup().await;
+    let app = create_test_app!(state);
+    let (token, _) = register_and_login!(app);
+
+    for (name, base_url, enabled) in [
+        ("Remote Sort Alpha", "https://alpha.example.com/node/", true),
+        ("Remote Sort Zeta", "https://zeta.example.com/node/", false),
+    ] {
+        let req = test::TestRequest::post()
+            .uri("/api/v1/admin/remote-nodes")
+            .insert_header(("Cookie", common::access_cookie_header(&token)))
+            .insert_header(common::csrf_header_for(&token))
+            .set_json(serde_json::json!({
+                "name": name,
+                "base_url": base_url,
+                "is_enabled": enabled
+            }))
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(resp.status(), 201);
+    }
+
+    let body: Value = admin_get_json!(
+        app,
+        token,
+        "/api/v1/admin/remote-nodes?sort_by=base_url&sort_order=desc&limit=10"
+    );
+    let nodes = body["data"]["items"].as_array().unwrap();
+    assert_eq!(
+        json_string_values(nodes, "base_url"),
+        vec![
+            "https://zeta.example.com/node",
+            "https://alpha.example.com/node"
+        ]
+    );
+
+    let body: Value = admin_get_json!(
+        app,
+        token,
+        "/api/v1/admin/remote-nodes?sort_by=is_enabled&sort_order=asc&limit=10"
+    );
+    let nodes = body["data"]["items"].as_array().unwrap();
+    assert_eq!(nodes[0]["name"], "Remote Sort Zeta");
+    assert_eq!(nodes[0]["is_enabled"], false);
+}
+
+#[actix_web::test]
+async fn test_admin_shares_support_explicit_sorting() {
+    let state = common::setup().await;
+    let app = create_test_app!(state);
+    let (token, _) = register_and_login!(app);
+
+    for (filename, max_downloads) in [
+        ("share-sort-three.txt", 3),
+        ("share-sort-one.txt", 1),
+        ("share-sort-two.txt", 2),
+    ] {
+        let file_id = upload_test_file_named!(app, token, filename);
+        let req = test::TestRequest::post()
+            .uri("/api/v1/shares")
+            .insert_header(("Cookie", common::access_cookie_header(&token)))
+            .insert_header(common::csrf_header_for(&token))
+            .set_json(serde_json::json!({
+                "target": { "type": "file", "id": file_id },
+                "max_downloads": max_downloads
+            }))
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(resp.status(), 201);
+    }
+
+    let body: Value = admin_get_json!(
+        app,
+        token,
+        "/api/v1/admin/shares?sort_by=max_downloads&sort_order=asc&limit=10"
+    );
+    let shares = body["data"]["items"].as_array().unwrap();
+    assert_eq!(json_i64_values(shares, "max_downloads"), vec![1, 2, 3]);
+
+    let body: Value = admin_get_json!(
+        app,
+        token,
+        "/api/v1/admin/shares?sort_by=max_downloads&sort_order=desc&limit=10"
+    );
+    let shares = body["data"]["items"].as_array().unwrap();
+    assert_eq!(json_i64_values(shares, "max_downloads"), vec![3, 2, 1]);
+}
+
+#[actix_web::test]
+async fn test_admin_locks_support_explicit_sorting() {
+    let state = common::setup().await;
+    let app = create_test_app!(state.clone());
+    let (token, _) = register_and_login!(app);
+    let now = Utc::now();
+
+    for (idx, (path, shared, deep)) in [
+        ("/sort/zeta.txt", false, false),
+        ("/sort/alpha.txt", true, true),
+        ("/sort/beta.txt", false, true),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        lock_repo::create(
+            &state.db,
+            resource_lock::ActiveModel {
+                token: Set(format!("urn:uuid:{}", uuid::Uuid::new_v4())),
+                entity_type: Set(EntityType::File),
+                entity_id: Set(10_000 + idx as i64),
+                path: Set(path.to_string()),
+                owner_id: Set(Some(1)),
+                owner_info: Set(Some(StoredLockOwnerInfo(
+                    r#"{"kind":"text","value":"sort-test"}"#.to_string(),
+                ))),
+                timeout_at: Set(Some(now + Duration::hours(1))),
+                shared: Set(shared),
+                deep: Set(deep),
+                created_at: Set(now),
+                ..Default::default()
+            },
+        )
+        .await
+        .expect("lock should be inserted");
+    }
+
+    let body: Value = admin_get_json!(
+        app,
+        token,
+        "/api/v1/admin/locks?sort_by=path&sort_order=asc&limit=10"
+    );
+    let locks = body["data"]["items"].as_array().unwrap();
+    assert_eq!(
+        json_string_values(locks, "path"),
+        vec!["/sort/alpha.txt", "/sort/beta.txt", "/sort/zeta.txt"]
+    );
+
+    let body: Value = admin_get_json!(
+        app,
+        token,
+        "/api/v1/admin/locks?sort_by=shared&sort_order=desc&limit=10"
+    );
+    let locks = body["data"]["items"].as_array().unwrap();
+    assert_eq!(locks[0]["path"], "/sort/alpha.txt");
+    assert_eq!(locks[0]["shared"], true);
+}
+
+#[actix_web::test]
+async fn test_admin_tasks_support_explicit_sorting_and_id_tiebreaker() {
+    let state = common::setup().await;
+    let app = create_test_app!(state.clone());
+    let (token, _) = register_and_login!(app);
+    let now = Utc::now();
+    let mut inserted_ids = Vec::new();
+
+    for display_name in ["Task Sort Zeta", "Task Sort Alpha", "Task Sort Beta"] {
+        let task = background_task_repo::create(
+            &state.db,
+            background_task::ActiveModel {
+                kind: Set(BackgroundTaskKind::SystemRuntime),
+                status: Set(BackgroundTaskStatus::Pending),
+                creator_user_id: Set(Some(1)),
+                team_id: Set(None),
+                share_id: Set(None),
+                display_name: Set(display_name.to_string()),
+                payload_json: Set(StoredTaskPayload(
+                    r#"{"task_name":"background-task-dispatch"}"#.to_string(),
+                )),
+                result_json: Set(None),
+                steps_json: Set(None),
+                progress_current: Set(5),
+                progress_total: Set(10),
+                status_text: Set(Some("sort regression".to_string())),
+                attempt_count: Set(0),
+                max_attempts: Set(3),
+                next_run_at: Set(now),
+                processing_started_at: Set(None),
+                last_heartbeat_at: Set(None),
+                lease_expires_at: Set(None),
+                started_at: Set(None),
+                finished_at: Set(None),
+                last_error: Set(None),
+                failure_can_retry: Set(None),
+                expires_at: Set(now + Duration::hours(24)),
+                created_at: Set(now),
+                updated_at: Set(now),
+                ..Default::default()
+            },
+        )
+        .await
+        .expect("task should be inserted");
+        inserted_ids.push(task.id);
+    }
+
+    let body: Value = admin_get_json!(
+        app,
+        token,
+        "/api/v1/admin/tasks?sort_by=display_name&sort_order=asc&limit=10"
+    );
+    let tasks = body["data"]["items"].as_array().unwrap();
+    assert_eq!(
+        json_string_values(tasks, "display_name"),
+        vec!["Task Sort Alpha", "Task Sort Beta", "Task Sort Zeta"]
+    );
+
+    inserted_ids.sort();
+    inserted_ids.reverse();
+    let body: Value = admin_get_json!(
+        app,
+        token,
+        "/api/v1/admin/tasks?sort_by=progress&sort_order=desc&limit=3"
+    );
+    let tasks = body["data"]["items"].as_array().unwrap();
+    assert_eq!(json_i64_values(tasks, "id"), inserted_ids);
+}
+
+#[actix_web::test]
+async fn test_admin_audit_logs_support_explicit_sorting() {
+    let state = common::setup().await;
+    let app = create_test_app!(state.clone());
+    let (token, _) = register_and_login!(app);
+    let now = Utc::now();
+
+    for (entity_name, ip_address) in [
+        ("Audit Sort Zeta", "10.0.0.3"),
+        ("Audit Sort Alpha", "10.0.0.1"),
+        ("Audit Sort Beta", "10.0.0.2"),
+    ] {
+        audit_log_repo::create(
+            &state.db,
+            audit_log::ActiveModel {
+                user_id: Set(1),
+                action: Set(AuditAction::AdminUpdateUser),
+                entity_type: Set(Some("sort_audit".to_string())),
+                entity_id: Set(Some(entity_name.len() as i64)),
+                entity_name: Set(Some(entity_name.to_string())),
+                details: Set(None),
+                ip_address: Set(Some(ip_address.to_string())),
+                user_agent: Set(None),
+                created_at: Set(now),
+                ..Default::default()
+            },
+        )
+        .await
+        .expect("audit log should be inserted");
+    }
+
+    let body: Value = admin_get_json!(
+        app,
+        token,
+        "/api/v1/admin/audit-logs?entity_type=sort_audit&sort_by=entity_name&sort_order=asc&limit=10"
+    );
+    let logs = body["data"]["items"].as_array().unwrap();
+    assert_eq!(
+        json_string_values(logs, "entity_name"),
+        vec!["Audit Sort Alpha", "Audit Sort Beta", "Audit Sort Zeta"]
+    );
+
+    let body: Value = admin_get_json!(
+        app,
+        token,
+        "/api/v1/admin/audit-logs?entity_type=sort_audit&sort_by=ip_address&sort_order=desc&limit=10"
+    );
+    let logs = body["data"]["items"].as_array().unwrap();
+    assert_eq!(
+        json_string_values(logs, "ip_address"),
+        vec!["10.0.0.3", "10.0.0.2", "10.0.0.1"]
+    );
 }
 
 #[actix_web::test]

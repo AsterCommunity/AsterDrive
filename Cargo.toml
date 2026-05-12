@@ -69,7 +69,7 @@ async-trait = "0.1"
 base64 = "0.22"
 bytes = "1"
 aws-credential-types = { version = "1.2.14", features = ["hardcoded-credentials"] }
-aws-sdk-s3 = { version = "1.131.0", default-features = false, features = ["sigv4a", "http-1x", "default-https-client", "rt-tokio"] }
+aws-sdk-s3 = { version = "1.132.0", default-features = false, features = ["sigv4a", "http-1x", "default-https-client", "rt-tokio"] }
 aws-smithy-http = "0.63"
 chrono = { version = "0.4.44", default-features = false, features = ["clock", "serde"] }
 chrono-tz = "0.10"
@@ -114,7 +114,7 @@ tracing = { version = "0.1.44", default-features = false}
 tracing-appender = "0.2.5"
 tracing-subscriber = { version = "0.3.23", default-features = false, features = ["ansi", "env-filter", "fmt", "json"] }
 unicode-normalization = "0.1"
-utoipa = { version = "5.4.0", features = ["chrono", "actix_extras", "repr"], optional = true }
+utoipa = { version = "5.5.0", features = ["chrono", "actix_extras", "repr"], optional = true }
 utoipa-swagger-ui = { version = "9.0.2", features = ["actix-web"], optional = true }
 urlencoding = "2"
 uuid = { version = "1", features = ["v4"] }

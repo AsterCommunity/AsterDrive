@@ -550,6 +550,8 @@ describe("AdminUsersPage", () => {
 				limit: 10,
 				offset: 10,
 				role: "admin",
+				sort_by: "created_at",
+				sort_order: "desc",
 				status: "disabled",
 			});
 		});
@@ -586,6 +588,8 @@ describe("AdminUsersPage", () => {
 				limit: 20,
 				offset: 0,
 				role: "admin",
+				sort_by: "created_at",
+				sort_order: "desc",
 				status: "disabled",
 			});
 		});
@@ -683,6 +687,8 @@ describe("AdminUsersPage", () => {
 				limit: 10,
 				offset: 10,
 				role: undefined,
+				sort_by: "created_at",
+				sort_order: "desc",
 				status: undefined,
 			});
 		});
@@ -702,6 +708,8 @@ describe("AdminUsersPage", () => {
 				limit: 10,
 				offset: 0,
 				role: undefined,
+				sort_by: "created_at",
+				sort_order: "desc",
 				status: undefined,
 			});
 		});

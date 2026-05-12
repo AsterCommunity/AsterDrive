@@ -1,5 +1,18 @@
 import { withQuery } from "@/lib/queryParams";
 import type {
+	AdminAuditLogSortBy,
+	AdminLockSortBy,
+	AdminPolicyGroupSortBy,
+	AdminPolicySortBy,
+	AdminRemoteNodeSortBy,
+	AdminShareSortBy,
+	AdminSortParams,
+	AdminTaskSortBy,
+	AdminTeamMemberSortBy,
+	AdminTeamSortBy,
+	AdminUserSortBy,
+} from "@/types/adminSort";
+import type {
 	ActionMessageResp,
 	AddTeamMemberRequest,
 	AdminCreateTeamRequest,
@@ -85,13 +98,15 @@ export const adminOverviewService = {
 // --- Users ---
 
 export const adminUserService = {
-	list: (params?: {
-		limit?: number;
-		offset?: number;
-		keyword?: string;
-		role?: UserRole;
-		status?: UserStatus;
-	}) =>
+	list: (
+		params?: {
+			limit?: number;
+			offset?: number;
+			keyword?: string;
+			role?: UserRole;
+			status?: UserStatus;
+		} & AdminSortParams<AdminUserSortBy>,
+	) =>
 		api.get<UserPage>(
 			withQuery("/admin/users", {
 				limit: params?.limit,
@@ -99,6 +114,8 @@ export const adminUserService = {
 				keyword: params?.keyword,
 				role: params?.role,
 				status: params?.status,
+				sort_by: params?.sort_by,
+				sort_order: params?.sort_order,
 			}),
 		),
 
@@ -121,18 +138,22 @@ export const adminUserService = {
 // --- Teams ---
 
 export const adminTeamService = {
-	list: (params?: {
-		limit?: number;
-		offset?: number;
-		keyword?: string;
-		archived?: boolean;
-	}) =>
+	list: (
+		params?: {
+			limit?: number;
+			offset?: number;
+			keyword?: string;
+			archived?: boolean;
+		} & AdminSortParams<AdminTeamSortBy>,
+	) =>
 		api.get<AdminTeamPage>(
 			withQuery("/admin/teams", {
 				limit: params?.limit,
 				offset: params?.offset,
 				keyword: params?.keyword,
 				archived: params?.archived,
+				sort_by: params?.sort_by,
+				sort_order: params?.sort_order,
 			}),
 		),
 
@@ -156,14 +177,16 @@ export const adminTeamService = {
 			before?: string;
 			limit?: number;
 			offset?: number;
-		} = {},
+		} & AdminSortParams<AdminAuditLogSortBy> = {},
 	) => {
-		const { limit, offset, ...filters } = params;
+		const { limit, offset, sort_by, sort_order, ...filters } = params;
 
 		return api.get<TeamAuditPage>(
 			withQuery(`/admin/teams/${id}/audit-logs`, {
 				limit,
 				offset,
+				sort_by,
+				sort_order,
 				...filters,
 			}),
 		);
@@ -176,14 +199,16 @@ export const adminTeamService = {
 			status?: UserStatus;
 			limit?: number;
 			offset?: number;
-		} = {},
+		} & AdminSortParams<AdminTeamMemberSortBy> = {},
 	) => {
-		const { limit, offset, ...filters } = params;
+		const { limit, offset, sort_by, sort_order, ...filters } = params;
 
 		return api.get<TeamMemberPage>(
 			withQuery(`/admin/teams/${id}/members`, {
 				limit,
 				offset,
+				sort_by,
+				sort_order,
 				...filters,
 			}),
 		);
@@ -209,11 +234,18 @@ export const adminTeamService = {
 // --- Policies ---
 
 export const adminPolicyService = {
-	list: (params?: { limit?: number; offset?: number }) =>
+	list: (
+		params?: {
+			limit?: number;
+			offset?: number;
+		} & AdminSortParams<AdminPolicySortBy>,
+	) =>
 		api.get<StoragePolicyPage>(
 			withQuery("/admin/policies", {
 				limit: params?.limit,
 				offset: params?.offset,
+				sort_by: params?.sort_by,
+				sort_order: params?.sort_order,
 			}),
 		),
 
@@ -241,11 +273,18 @@ export const adminPolicyService = {
 };
 
 export const adminRemoteNodeService = {
-	list: (params?: { limit?: number; offset?: number }) =>
+	list: (
+		params?: {
+			limit?: number;
+			offset?: number;
+		} & AdminSortParams<AdminRemoteNodeSortBy>,
+	) =>
 		api.get<RemoteNodePage>(
 			withQuery("/admin/remote-nodes", {
 				limit: params?.limit,
 				offset: params?.offset,
+				sort_by: params?.sort_by,
+				sort_order: params?.sort_order,
 			}),
 		),
 
@@ -300,11 +339,18 @@ export const adminRemoteNodeService = {
 // --- Policy Groups ---
 
 export const adminPolicyGroupService = {
-	list: (params?: { limit?: number; offset?: number }) =>
+	list: (
+		params?: {
+			limit?: number;
+			offset?: number;
+		} & AdminSortParams<AdminPolicyGroupSortBy>,
+	) =>
 		api.get<StoragePolicyGroupPage>(
 			withQuery("/admin/policy-groups", {
 				limit: params?.limit,
 				offset: params?.offset,
+				sort_by: params?.sort_by,
+				sort_order: params?.sort_order,
 			}),
 		),
 
@@ -373,11 +419,18 @@ export type WebdavLock = LockPage["items"][number];
 export type AdminShare = ShareInfo;
 
 export const adminShareService = {
-	list: (params?: { limit?: number; offset?: number }) =>
+	list: (
+		params?: {
+			limit?: number;
+			offset?: number;
+		} & AdminSortParams<AdminShareSortBy>,
+	) =>
 		api.get<AdminSharePage>(
 			withQuery("/admin/shares", {
 				limit: params?.limit,
 				offset: params?.offset,
+				sort_by: params?.sort_by,
+				sort_order: params?.sort_order,
 			}),
 		),
 
@@ -385,18 +438,22 @@ export const adminShareService = {
 };
 
 export const adminTaskService = {
-	list: (params?: {
-		limit?: number;
-		offset?: number;
-		kind?: BackgroundTaskKind;
-		status?: BackgroundTaskStatus;
-	}) =>
+	list: (
+		params?: {
+			limit?: number;
+			offset?: number;
+			kind?: BackgroundTaskKind;
+			status?: BackgroundTaskStatus;
+		} & AdminSortParams<AdminTaskSortBy>,
+	) =>
 		api.get<TaskPage>(
 			withQuery("/admin/tasks", {
 				limit: params?.limit,
 				offset: params?.offset,
 				kind: params?.kind,
 				status: params?.status,
+				sort_by: params?.sort_by,
+				sort_order: params?.sort_order,
 			}),
 		),
 
@@ -408,11 +465,18 @@ export const adminTaskService = {
 };
 
 export const adminLockService = {
-	list: (params?: { limit?: number; offset?: number }) =>
+	list: (
+		params?: {
+			limit?: number;
+			offset?: number;
+		} & AdminSortParams<AdminLockSortBy>,
+	) =>
 		api.get<LockPage>(
 			withQuery("/admin/locks", {
 				limit: params?.limit,
 				offset: params?.offset,
+				sort_by: params?.sort_by,
+				sort_order: params?.sort_order,
 			}),
 		),
 

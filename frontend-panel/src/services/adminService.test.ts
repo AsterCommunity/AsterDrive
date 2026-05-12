@@ -45,35 +45,45 @@ describe("adminService", () => {
 			keyword: "alice",
 			role: "admin" as never,
 			status: "active" as never,
+			sort_by: "username",
+			sort_order: "asc",
 		});
-		adminPolicyService.list({ limit: 5, offset: 10 });
-		adminRemoteNodeService.list({ limit: 7, offset: 14 });
-		adminPolicyGroupService.list({ limit: 6, offset: 12 });
-		adminShareService.list({ limit: 8, offset: 16 });
-		adminLockService.list({ limit: 9 });
+		adminPolicyService.list({ limit: 5, offset: 10, sort_by: "name" });
+		adminRemoteNodeService.list({ limit: 7, offset: 14, sort_order: "desc" });
+		adminPolicyGroupService.list({
+			limit: 6,
+			offset: 12,
+			sort_by: "updated_at",
+			sort_order: "asc",
+		});
+		adminShareService.list({ limit: 8, offset: 16, sort_by: "created_at" });
+		adminLockService.list({ limit: 9, sort_by: "path" });
 		adminConfigService.list({ offset: 3 });
 
 		expect(mockState.get).toHaveBeenNthCalledWith(
 			1,
-			"/admin/users?limit=20&offset=40&keyword=alice&role=admin&status=active",
+			"/admin/users?limit=20&offset=40&keyword=alice&role=admin&status=active&sort_by=username&sort_order=asc",
 		);
 		expect(mockState.get).toHaveBeenNthCalledWith(
 			2,
-			"/admin/policies?limit=5&offset=10",
+			"/admin/policies?limit=5&offset=10&sort_by=name",
 		);
 		expect(mockState.get).toHaveBeenNthCalledWith(
 			3,
-			"/admin/remote-nodes?limit=7&offset=14",
+			"/admin/remote-nodes?limit=7&offset=14&sort_order=desc",
 		);
 		expect(mockState.get).toHaveBeenNthCalledWith(
 			4,
-			"/admin/policy-groups?limit=6&offset=12",
+			"/admin/policy-groups?limit=6&offset=12&sort_by=updated_at&sort_order=asc",
 		);
 		expect(mockState.get).toHaveBeenNthCalledWith(
 			5,
-			"/admin/shares?limit=8&offset=16",
+			"/admin/shares?limit=8&offset=16&sort_by=created_at",
 		);
-		expect(mockState.get).toHaveBeenNthCalledWith(6, "/admin/locks?limit=9");
+		expect(mockState.get).toHaveBeenNthCalledWith(
+			6,
+			"/admin/locks?limit=9&sort_by=path",
+		);
 		expect(mockState.get).toHaveBeenNthCalledWith(7, "/admin/config?offset=3");
 	});
 
@@ -159,12 +169,17 @@ describe("adminService", () => {
 	});
 
 	it("builds admin task list endpoints", () => {
-		adminTaskService.list({ limit: 12, offset: 24 });
+		adminTaskService.list({
+			limit: 12,
+			offset: 24,
+			sort_by: "display_name",
+			sort_order: "asc",
+		});
 		adminTaskService.list();
 
 		expect(mockState.get).toHaveBeenNthCalledWith(
 			1,
-			"/admin/tasks?limit=12&offset=24",
+			"/admin/tasks?limit=12&offset=24&sort_by=display_name&sort_order=asc",
 		);
 		expect(mockState.get).toHaveBeenNthCalledWith(2, "/admin/tasks");
 	});

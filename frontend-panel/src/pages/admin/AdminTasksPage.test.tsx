@@ -476,6 +476,8 @@ describe("AdminTasksPage", () => {
 			expect(mockState.list).toHaveBeenNthCalledWith(1, {
 				limit: 20,
 				offset: 0,
+				sort_by: "updated_at",
+				sort_order: "desc",
 			});
 		});
 		expect(screen.getByText("Extract report archive")).toBeInTheDocument();
@@ -494,6 +496,8 @@ describe("AdminTasksPage", () => {
 			expect(mockState.list).toHaveBeenNthCalledWith(2, {
 				limit: 20,
 				offset: 20,
+				sort_by: "updated_at",
+				sort_order: "desc",
 			});
 		});
 		expect(screen.getByText("source:team:8")).toBeInTheDocument();
@@ -505,6 +509,8 @@ describe("AdminTasksPage", () => {
 			expect(mockState.list).toHaveBeenNthCalledWith(3, {
 				limit: 50,
 				offset: 0,
+				sort_by: "updated_at",
+				sort_order: "desc",
 			});
 		});
 	});
@@ -522,6 +528,8 @@ describe("AdminTasksPage", () => {
 				kind: "archive_compress",
 				limit: 20,
 				offset: 0,
+				sort_by: "updated_at",
+				sort_order: "desc",
 				status: "failed",
 			});
 		});

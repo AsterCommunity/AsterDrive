@@ -5,6 +5,8 @@ use serde::Deserialize;
 use utoipa::{IntoParams, ToSchema};
 use validator::{Validate, ValidationError};
 
+use crate::api::pagination::{AdminTeamMemberSortBy, SortOrder};
+
 // ── Team CRUD ───────────────────────────────────────────────────────────────
 
 /// Query parameters for listing teams.
@@ -65,6 +67,18 @@ pub struct ListTeamMembersQuery {
     pub keyword: Option<String>,
     pub role: Option<crate::types::TeamMemberRole>,
     pub status: Option<crate::types::UserStatus>,
+    pub sort_by: Option<AdminTeamMemberSortBy>,
+    pub sort_order: Option<SortOrder>,
+}
+
+impl ListTeamMembersQuery {
+    pub fn sort_by(&self) -> AdminTeamMemberSortBy {
+        self.sort_by.unwrap_or(AdminTeamMemberSortBy::Role)
+    }
+
+    pub fn sort_order(&self) -> SortOrder {
+        self.sort_order.unwrap_or(SortOrder::Asc)
+    }
 }
 
 fn validate_patch_team(value: &PatchTeamReq) -> std::result::Result<(), ValidationError> {

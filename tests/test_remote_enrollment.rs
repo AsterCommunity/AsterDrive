@@ -68,9 +68,15 @@ async fn test_completed_remote_node_enrollment_rejects_new_token() {
             .enrollment_status,
         managed_follower_service::RemoteNodeEnrollmentStatus::Completed
     );
-    let page = managed_follower_service::list_paginated(&state, 10, 0)
-        .await
-        .expect("remote node list should load");
+    let page = managed_follower_service::list_paginated(
+        &state,
+        10,
+        0,
+        aster_drive::api::pagination::AdminRemoteNodeSortBy::CreatedAt,
+        aster_drive::api::pagination::SortOrder::Desc,
+    )
+    .await
+    .expect("remote node list should load");
     let listed = page
         .items
         .iter()

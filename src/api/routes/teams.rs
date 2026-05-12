@@ -282,11 +282,16 @@ pub async fn list_members(
         &state,
         *path,
         claims.user_id,
-        team_service::TeamMemberListFilters::from_inputs(
-            query.keyword.as_deref(),
-            query.role,
-            query.status,
-        ),
+        {
+            let mut filters = team_service::TeamMemberListFilters::from_inputs(
+                query.keyword.as_deref(),
+                query.role,
+                query.status,
+            );
+            filters.sort_by = query.sort_by();
+            filters.sort_order = query.sort_order();
+            filters
+        },
         page.limit_or(20, 100),
         page.offset(),
     )

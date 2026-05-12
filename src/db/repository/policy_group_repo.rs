@@ -1,6 +1,8 @@
 //! 仓储模块：`policy_group_repo`。
 
+use crate::api::pagination::{AdminPolicyGroupSortBy, SortOrder};
 use crate::db::repository::pagination_repo::fetch_offset_page;
+use crate::db::repository::sort::{order_by_column_with_id, order_by_id};
 use crate::entities::{
     storage_policy_group::{self, Entity as StoragePolicyGroup},
     storage_policy_group_item::{self, Entity as StoragePolicyGroupItem},
@@ -9,7 +11,7 @@ use crate::entities::{
 use crate::errors::{AsterError, Result};
 use sea_orm::{
     ActiveModelTrait, ColumnTrait, ConnectionTrait, EntityTrait, ExprTrait, PaginatorTrait,
-    QueryFilter, QueryOrder, sea_query::Expr,
+    QueryFilter, QueryOrder, Select, sea_query::Expr,
 };
 
 pub async fn find_group_by_id<C: ConnectionTrait>(
@@ -48,16 +50,58 @@ pub async fn find_groups_paginated<C: ConnectionTrait>(
     db: &C,
     limit: u64,
     offset: u64,
+    sort_by: AdminPolicyGroupSortBy,
+    sort_order: SortOrder,
 ) -> Result<(Vec<storage_policy_group::Model>, u64)> {
     fetch_offset_page(
         db,
-        StoragePolicyGroup::find()
-            .order_by_desc(storage_policy_group::Column::CreatedAt)
-            .order_by_desc(storage_policy_group::Column::Id),
+        apply_admin_policy_group_sort(StoragePolicyGroup::find(), sort_by, sort_order),
         limit,
         offset,
     )
     .await
+}
+
+fn apply_admin_policy_group_sort(
+    query: Select<StoragePolicyGroup>,
+    sort_by: AdminPolicyGroupSortBy,
+    sort_order: SortOrder,
+) -> Select<StoragePolicyGroup> {
+    match sort_by {
+        AdminPolicyGroupSortBy::Id => {
+            order_by_id(query, storage_policy_group::Column::Id, sort_order)
+        }
+        AdminPolicyGroupSortBy::Name => order_by_column_with_id(
+            query,
+            storage_policy_group::Column::Name,
+            sort_order,
+            storage_policy_group::Column::Id,
+        ),
+        AdminPolicyGroupSortBy::IsEnabled => order_by_column_with_id(
+            query,
+            storage_policy_group::Column::IsEnabled,
+            sort_order,
+            storage_policy_group::Column::Id,
+        ),
+        AdminPolicyGroupSortBy::IsDefault => order_by_column_with_id(
+            query,
+            storage_policy_group::Column::IsDefault,
+            sort_order,
+            storage_policy_group::Column::Id,
+        ),
+        AdminPolicyGroupSortBy::CreatedAt => order_by_column_with_id(
+            query,
+            storage_policy_group::Column::CreatedAt,
+            sort_order,
+            storage_policy_group::Column::Id,
+        ),
+        AdminPolicyGroupSortBy::UpdatedAt => order_by_column_with_id(
+            query,
+            storage_policy_group::Column::UpdatedAt,
+            sort_order,
+            storage_policy_group::Column::Id,
+        ),
+    }
 }
 
 pub async fn create_group<C: ConnectionTrait>(

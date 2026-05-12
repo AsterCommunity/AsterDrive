@@ -1,16 +1,18 @@
 //! 仓储模块：`user_repo`。
 
+use crate::api::pagination::{AdminUserSortBy, SortOrder};
 use crate::db::repository::pagination_repo::fetch_offset_page;
 use crate::db::repository::search_query::{
     escape_like_query, lower_like_condition, mysql_boolean_mode_query, sqlite_fts_match_condition,
     sqlite_match_query,
 };
+use crate::db::repository::sort::{order_by_column_with_id, order_by_id};
 use crate::entities::user::{self, Entity as User};
 use crate::errors::{AsterError, Result};
 use crate::types::{UserRole, UserStatus};
 use sea_orm::{
     ActiveModelTrait, ColumnTrait, Condition, ConnectionTrait, DbBackend, EntityTrait, ExprTrait,
-    PaginatorTrait, QueryFilter, QueryOrder,
+    PaginatorTrait, QueryFilter, QueryOrder, Select,
     sea_query::{Expr, extension::postgres::PgExpr},
 };
 
@@ -180,13 +182,13 @@ pub async fn find_paginated<C: ConnectionTrait>(
     keyword: Option<&str>,
     role: Option<UserRole>,
     status: Option<UserStatus>,
+    sort_by: AdminUserSortBy,
+    sort_order: SortOrder,
 ) -> Result<(Vec<user::Model>, u64)> {
     let backend = db.get_database_backend();
     let keyword = keyword.map(str::trim).filter(|keyword| !keyword.is_empty());
 
-    let mut q = User::find()
-        .order_by_desc(user::Column::CreatedAt)
-        .order_by_desc(user::Column::Id);
+    let mut q = apply_admin_user_sort(User::find(), sort_by, sort_order);
 
     if let Some(keyword) = keyword {
         q = q.filter(user_keyword_condition(backend, keyword));
@@ -199,6 +201,46 @@ pub async fn find_paginated<C: ConnectionTrait>(
     }
 
     fetch_offset_page(db, q, limit, offset).await
+}
+
+fn apply_admin_user_sort(
+    query: Select<User>,
+    sort_by: AdminUserSortBy,
+    sort_order: SortOrder,
+) -> Select<User> {
+    match sort_by {
+        AdminUserSortBy::Id => order_by_id(query, user::Column::Id, sort_order),
+        AdminUserSortBy::Username => {
+            order_by_column_with_id(query, user::Column::Username, sort_order, user::Column::Id)
+        }
+        AdminUserSortBy::Email => {
+            order_by_column_with_id(query, user::Column::Email, sort_order, user::Column::Id)
+        }
+        AdminUserSortBy::Role => {
+            order_by_column_with_id(query, user::Column::Role, sort_order, user::Column::Id)
+        }
+        AdminUserSortBy::Status => {
+            order_by_column_with_id(query, user::Column::Status, sort_order, user::Column::Id)
+        }
+        AdminUserSortBy::StorageUsed => order_by_column_with_id(
+            query,
+            user::Column::StorageUsed,
+            sort_order,
+            user::Column::Id,
+        ),
+        AdminUserSortBy::StorageQuota => order_by_column_with_id(
+            query,
+            user::Column::StorageQuota,
+            sort_order,
+            user::Column::Id,
+        ),
+        AdminUserSortBy::CreatedAt => {
+            order_by_column_with_id(query, user::Column::CreatedAt, sort_order, user::Column::Id)
+        }
+        AdminUserSortBy::UpdatedAt => {
+            order_by_column_with_id(query, user::Column::UpdatedAt, sort_order, user::Column::Id)
+        }
+    }
 }
 
 pub async fn count_all<C: ConnectionTrait>(db: &C) -> Result<u64> {

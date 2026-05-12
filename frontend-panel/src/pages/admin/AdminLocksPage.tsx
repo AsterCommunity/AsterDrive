@@ -1,6 +1,9 @@
+import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 import {
+	AdminSortableTableHead,
 	AdminTableCell as TableCell,
 	AdminTableHead as TableHead,
 	AdminTableHeader as TableHeader,
@@ -25,8 +28,28 @@ import {
 	ADMIN_TABLE_ACTIONS_WIDTH_CLASS,
 } from "@/lib/constants";
 import { formatDateShort } from "@/lib/format";
+import {
+	buildOffsetPaginationSearchParams,
+	parseSortOrderSearchParam,
+	parseSortSearchParam,
+	type SortOrder,
+} from "@/lib/pagination";
 import type { WebdavLock } from "@/services/adminService";
 import { adminLockService } from "@/services/adminService";
+import type { AdminLockSortBy } from "@/types/adminSort";
+
+const LOCK_SORT_BY_OPTIONS = [
+	"id",
+	"path",
+	"entity_type",
+	"owner_id",
+	"timeout_at",
+	"shared",
+	"deep",
+	"created_at",
+] as const satisfies readonly AdminLockSortBy[];
+const DEFAULT_LOCK_SORT_BY = "id" as const satisfies AdminLockSortBy;
+const DEFAULT_LOCK_SORT_ORDER = "asc" as const satisfies SortOrder;
 
 function formatLockOwnerInfo(lock: WebdavLock) {
 	if (!lock.owner_info) {
@@ -46,12 +69,51 @@ function formatLockOwnerInfo(lock: WebdavLock) {
 export default function AdminLocksPage() {
 	const { t } = useTranslation("admin");
 	usePageTitle(t("webdav_locks"));
+	const [searchParams, setSearchParams] = useSearchParams();
+	const [sortBy, setSortBy] = useState<AdminLockSortBy>(
+		parseSortSearchParam(
+			searchParams.get("sortBy"),
+			LOCK_SORT_BY_OPTIONS,
+			DEFAULT_LOCK_SORT_BY,
+		),
+	);
+	const [sortOrder, setSortOrder] = useState<SortOrder>(
+		parseSortOrderSearchParam(
+			searchParams.get("sortOrder"),
+			DEFAULT_LOCK_SORT_ORDER,
+		),
+	);
 	const {
 		items: locks,
 		setItems: setLocks,
 		loading,
 		reload,
-	} = useApiList(() => adminLockService.list({ limit: 100, offset: 0 }));
+	} = useApiList(
+		() =>
+			adminLockService.list({
+				limit: 100,
+				offset: 0,
+				sort_by: sortBy,
+				sort_order: sortOrder,
+			}),
+		[sortBy, sortOrder],
+	);
+
+	useEffect(() => {
+		setSearchParams(
+			buildOffsetPaginationSearchParams({
+				offset: 0,
+				pageSize: 100,
+				defaultPageSize: 100,
+				extraParams: {
+					sortBy: sortBy !== DEFAULT_LOCK_SORT_BY ? sortBy : undefined,
+					sortOrder:
+						sortOrder !== DEFAULT_LOCK_SORT_ORDER ? sortOrder : undefined,
+				},
+			}),
+			{ replace: true },
+		);
+	}, [setSearchParams, sortBy, sortOrder]);
 
 	const handleForceUnlock = async (id: number) => {
 		try {
@@ -77,6 +139,14 @@ export default function AdminLocksPage() {
 		} catch (e) {
 			handleApiError(e);
 		}
+	};
+
+	const handleSortChange = (
+		nextSortBy: AdminLockSortBy,
+		nextOrder: SortOrder,
+	) => {
+		setSortBy(nextSortBy);
+		setSortOrder(nextOrder);
 	};
 
 	const isExpired = (l: WebdavLock) =>
@@ -108,12 +178,55 @@ export default function AdminLocksPage() {
 					headerRow={
 						<TableHeader>
 							<TableRow>
-								<TableHead className="w-16">{t("id")}</TableHead>
-								<TableHead>{t("path")}</TableHead>
-								<TableHead>{t("owner")}</TableHead>
-								<TableHead>{t("core:type")}</TableHead>
-								<TableHead>{t("core:status")}</TableHead>
-								<TableHead>{t("core:created_at")}</TableHead>
+								<AdminSortableTableHead
+									className="w-16"
+									sortKey="id"
+									sortBy={sortBy}
+									sortOrder={sortOrder}
+									onSortChange={handleSortChange}
+								>
+									{t("id")}
+								</AdminSortableTableHead>
+								<AdminSortableTableHead
+									sortKey="path"
+									sortBy={sortBy}
+									sortOrder={sortOrder}
+									onSortChange={handleSortChange}
+								>
+									{t("path")}
+								</AdminSortableTableHead>
+								<AdminSortableTableHead
+									sortKey="owner_id"
+									sortBy={sortBy}
+									sortOrder={sortOrder}
+									onSortChange={handleSortChange}
+								>
+									{t("owner")}
+								</AdminSortableTableHead>
+								<AdminSortableTableHead
+									sortKey="entity_type"
+									sortBy={sortBy}
+									sortOrder={sortOrder}
+									onSortChange={handleSortChange}
+								>
+									{t("core:type")}
+								</AdminSortableTableHead>
+								<AdminSortableTableHead
+									sortKey="timeout_at"
+									sortBy={sortBy}
+									sortOrder={sortOrder}
+									onSortChange={handleSortChange}
+								>
+									{t("core:status")}
+								</AdminSortableTableHead>
+								<AdminSortableTableHead
+									sortKey="created_at"
+									sortBy={sortBy}
+									sortOrder={sortOrder}
+									onSortChange={handleSortChange}
+								>
+									{t("core:created_at")}
+								</AdminSortableTableHead>
 								<TableHead className={ADMIN_TABLE_ACTIONS_WIDTH_CLASS}>
 									{t("core:actions")}
 								</TableHead>

@@ -34,9 +34,13 @@ import {
 	parseOffsetSearchParam,
 	parsePageSizeOption,
 	parsePageSizeSearchParam,
+	parseSortOrderSearchParam,
+	parseSortSearchParam,
+	type SortOrder,
 } from "@/lib/pagination";
 import { adminRemoteNodeService } from "@/services/adminService";
 import { useBrandingStore } from "@/stores/brandingStore";
+import type { AdminRemoteNodeSortBy } from "@/types/adminSort";
 import type {
 	RemoteCreateIngressProfileRequest,
 	RemoteEnrollmentCommandInfo,
@@ -48,6 +52,18 @@ import type {
 const REMOTE_NODE_PAGE_SIZE_OPTIONS = [10, 20, 50] as const;
 const DEFAULT_REMOTE_NODE_PAGE_SIZE = 20 as const;
 const REMOTE_NODE_CREATE_LAST_STEP = 2 as const;
+const REMOTE_NODE_SORT_BY_OPTIONS = [
+	"id",
+	"name",
+	"base_url",
+	"is_enabled",
+	"last_checked_at",
+	"created_at",
+	"updated_at",
+] as const satisfies readonly AdminRemoteNodeSortBy[];
+const DEFAULT_REMOTE_NODE_SORT_BY =
+	"created_at" as const satisfies AdminRemoteNodeSortBy;
+const DEFAULT_REMOTE_NODE_SORT_ORDER = "desc" as const satisfies SortOrder;
 
 export default function AdminRemoteNodesPage() {
 	const { t } = useTranslation("admin");
@@ -66,6 +82,19 @@ export default function AdminRemoteNodesPage() {
 			DEFAULT_REMOTE_NODE_PAGE_SIZE,
 		),
 	);
+	const [sortBy, setSortBy] = useState<AdminRemoteNodeSortBy>(
+		parseSortSearchParam(
+			searchParams.get("sortBy"),
+			REMOTE_NODE_SORT_BY_OPTIONS,
+			DEFAULT_REMOTE_NODE_SORT_BY,
+		),
+	);
+	const [sortOrder, setSortOrder] = useState<SortOrder>(
+		parseSortOrderSearchParam(
+			searchParams.get("sortOrder"),
+			DEFAULT_REMOTE_NODE_SORT_ORDER,
+		),
+	);
 	const {
 		items: remoteNodes,
 		setItems: setRemoteNodes,
@@ -74,8 +103,14 @@ export default function AdminRemoteNodesPage() {
 		loading,
 		reload,
 	} = useApiList(
-		() => adminRemoteNodeService.list({ limit: pageSize, offset }),
-		[offset, pageSize],
+		() =>
+			adminRemoteNodeService.list({
+				limit: pageSize,
+				offset,
+				sort_by: sortBy,
+				sort_order: sortOrder,
+			}),
+		[offset, pageSize, sortBy, sortOrder],
 	);
 	const [dialogOpen, setDialogOpen] = useState(false);
 	const [editingId, setEditingId] = useState<number | null>(null);
@@ -117,15 +152,31 @@ export default function AdminRemoteNodesPage() {
 				offset,
 				pageSize,
 				defaultPageSize: DEFAULT_REMOTE_NODE_PAGE_SIZE,
+				extraParams: {
+					sortBy: sortBy !== DEFAULT_REMOTE_NODE_SORT_BY ? sortBy : undefined,
+					sortOrder:
+						sortOrder !== DEFAULT_REMOTE_NODE_SORT_ORDER
+							? sortOrder
+							: undefined,
+				},
 			}),
 			{ replace: true },
 		);
-	}, [offset, pageSize, setSearchParams]);
+	}, [offset, pageSize, setSearchParams, sortBy, sortOrder]);
 
 	const handlePageSizeChange = (value: string | null) => {
 		const next = parsePageSizeOption(value, REMOTE_NODE_PAGE_SIZE_OPTIONS);
 		if (next == null) return;
 		setPageSize(next);
+		setOffset(0);
+	};
+
+	const handleSortChange = (
+		nextSortBy: AdminRemoteNodeSortBy,
+		nextOrder: SortOrder,
+	) => {
+		setSortBy(nextSortBy);
+		setSortOrder(nextOrder);
 		setOffset(0);
 	};
 
@@ -406,6 +457,8 @@ export default function AdminRemoteNodesPage() {
 			const nodesPage = await adminRemoteNodeService.list({
 				limit: pageSize,
 				offset,
+				sort_by: sortBy,
+				sort_order: sortOrder,
 			});
 			setRemoteNodes(nodesPage.items);
 			setTotal(nodesPage.total);
@@ -571,6 +624,9 @@ export default function AdminRemoteNodesPage() {
 						void handleGenerateEnrollmentCommand(node)
 					}
 					onRequestDelete={requestConfirm}
+					sortBy={sortBy}
+					sortOrder={sortOrder}
+					onSortChange={handleSortChange}
 				/>
 
 				<AdminOffsetPagination

@@ -7,6 +7,12 @@ use std::collections::HashSet;
 use utoipa::{IntoParams, ToSchema};
 use validator::{Validate, ValidationError};
 
+use crate::api::pagination::{
+    AdminAuditLogSortBy, AdminLockSortBy, AdminPolicyGroupSortBy, AdminPolicySortBy,
+    AdminRemoteNodeSortBy, AdminShareSortBy, AdminTaskSortBy, AdminTeamSortBy, AdminUserSortBy,
+    SortOrder,
+};
+
 // ── Users ──────────────────────────────────────────────────────────────────
 
 /// Query parameters for the admin user list.
@@ -16,6 +22,18 @@ pub struct AdminUserListQuery {
     pub keyword: Option<String>,
     pub role: Option<crate::types::UserRole>,
     pub status: Option<crate::types::UserStatus>,
+    pub sort_by: Option<AdminUserSortBy>,
+    pub sort_order: Option<SortOrder>,
+}
+
+impl AdminUserListQuery {
+    pub fn sort_by(&self) -> AdminUserSortBy {
+        self.sort_by.unwrap_or(AdminUserSortBy::CreatedAt)
+    }
+
+    pub fn sort_order(&self) -> SortOrder {
+        self.sort_order.unwrap_or(SortOrder::Desc)
+    }
 }
 
 /// Create a new user (admin operation).
@@ -253,6 +271,18 @@ pub struct ExecuteConfigActionResp {
 pub struct AdminTaskListQuery {
     pub kind: Option<crate::types::BackgroundTaskKind>,
     pub status: Option<crate::types::BackgroundTaskStatus>,
+    pub sort_by: Option<AdminTaskSortBy>,
+    pub sort_order: Option<SortOrder>,
+}
+
+impl AdminTaskListQuery {
+    pub fn sort_by(&self) -> AdminTaskSortBy {
+        self.sort_by.unwrap_or(AdminTaskSortBy::UpdatedAt)
+    }
+
+    pub fn sort_order(&self) -> SortOrder {
+        self.sort_order.unwrap_or(SortOrder::Desc)
+    }
 }
 
 /// Cleanup completed background tasks by admin-specified conditions.
@@ -276,6 +306,138 @@ pub struct AdminTaskCleanupReq {
 pub struct AdminTeamListQuery {
     pub keyword: Option<String>,
     pub archived: Option<bool>,
+    pub sort_by: Option<AdminTeamSortBy>,
+    pub sort_order: Option<SortOrder>,
+}
+
+impl AdminTeamListQuery {
+    pub fn sort_by(&self) -> AdminTeamSortBy {
+        self.sort_by.unwrap_or(AdminTeamSortBy::CreatedAt)
+    }
+
+    pub fn sort_order(&self) -> SortOrder {
+        self.sort_order.unwrap_or(SortOrder::Desc)
+    }
+}
+
+#[derive(Debug, Deserialize)]
+#[cfg_attr(
+    all(debug_assertions, feature = "openapi"),
+    derive(IntoParams, ToSchema)
+)]
+pub struct AdminPolicyListQuery {
+    pub sort_by: Option<AdminPolicySortBy>,
+    pub sort_order: Option<SortOrder>,
+}
+
+impl AdminPolicyListQuery {
+    pub fn sort_by(&self) -> AdminPolicySortBy {
+        self.sort_by.unwrap_or(AdminPolicySortBy::CreatedAt)
+    }
+
+    pub fn sort_order(&self) -> SortOrder {
+        self.sort_order.unwrap_or(SortOrder::Desc)
+    }
+}
+
+#[derive(Debug, Deserialize)]
+#[cfg_attr(
+    all(debug_assertions, feature = "openapi"),
+    derive(IntoParams, ToSchema)
+)]
+pub struct AdminPolicyGroupListQuery {
+    pub sort_by: Option<AdminPolicyGroupSortBy>,
+    pub sort_order: Option<SortOrder>,
+}
+
+impl AdminPolicyGroupListQuery {
+    pub fn sort_by(&self) -> AdminPolicyGroupSortBy {
+        self.sort_by.unwrap_or(AdminPolicyGroupSortBy::CreatedAt)
+    }
+
+    pub fn sort_order(&self) -> SortOrder {
+        self.sort_order.unwrap_or(SortOrder::Desc)
+    }
+}
+
+#[derive(Debug, Deserialize)]
+#[cfg_attr(
+    all(debug_assertions, feature = "openapi"),
+    derive(IntoParams, ToSchema)
+)]
+pub struct AdminRemoteNodeListQuery {
+    pub sort_by: Option<AdminRemoteNodeSortBy>,
+    pub sort_order: Option<SortOrder>,
+}
+
+impl AdminRemoteNodeListQuery {
+    pub fn sort_by(&self) -> AdminRemoteNodeSortBy {
+        self.sort_by.unwrap_or(AdminRemoteNodeSortBy::CreatedAt)
+    }
+
+    pub fn sort_order(&self) -> SortOrder {
+        self.sort_order.unwrap_or(SortOrder::Desc)
+    }
+}
+
+#[derive(Debug, Deserialize)]
+#[cfg_attr(
+    all(debug_assertions, feature = "openapi"),
+    derive(IntoParams, ToSchema)
+)]
+pub struct AdminShareListQuery {
+    pub sort_by: Option<AdminShareSortBy>,
+    pub sort_order: Option<SortOrder>,
+}
+
+impl AdminShareListQuery {
+    pub fn sort_by(&self) -> AdminShareSortBy {
+        self.sort_by.unwrap_or(AdminShareSortBy::CreatedAt)
+    }
+
+    pub fn sort_order(&self) -> SortOrder {
+        self.sort_order.unwrap_or(SortOrder::Desc)
+    }
+}
+
+#[derive(Debug, Deserialize)]
+#[cfg_attr(
+    all(debug_assertions, feature = "openapi"),
+    derive(IntoParams, ToSchema)
+)]
+pub struct AdminLockListQuery {
+    pub sort_by: Option<AdminLockSortBy>,
+    pub sort_order: Option<SortOrder>,
+}
+
+impl AdminLockListQuery {
+    pub fn sort_by(&self) -> AdminLockSortBy {
+        self.sort_by.unwrap_or(AdminLockSortBy::Id)
+    }
+
+    pub fn sort_order(&self) -> SortOrder {
+        self.sort_order.unwrap_or(SortOrder::Asc)
+    }
+}
+
+#[derive(Debug, Deserialize)]
+#[cfg_attr(
+    all(debug_assertions, feature = "openapi"),
+    derive(IntoParams, ToSchema)
+)]
+pub struct AdminAuditLogSortQuery {
+    pub sort_by: Option<AdminAuditLogSortBy>,
+    pub sort_order: Option<SortOrder>,
+}
+
+impl AdminAuditLogSortQuery {
+    pub fn sort_by(&self) -> AdminAuditLogSortBy {
+        self.sort_by.unwrap_or(AdminAuditLogSortBy::CreatedAt)
+    }
+
+    pub fn sort_order(&self) -> SortOrder {
+        self.sort_order.unwrap_or(SortOrder::Desc)
+    }
 }
 
 /// Create a team (admin operation).

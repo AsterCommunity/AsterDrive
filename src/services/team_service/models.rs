@@ -4,6 +4,7 @@ use serde::Serialize;
 #[cfg(all(debug_assertions, feature = "openapi"))]
 use utoipa::ToSchema;
 
+use crate::api::pagination::{AdminTeamMemberSortBy, SortOrder};
 use crate::services::user_service;
 use crate::types::{TeamMemberRole, UserStatus};
 
@@ -79,11 +80,25 @@ pub struct TeamMemberInfo {
     pub updated_at: chrono::DateTime<chrono::Utc>,
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct TeamMemberListFilters {
     pub keyword: Option<String>,
     pub role: Option<TeamMemberRole>,
     pub status: Option<UserStatus>,
+    pub sort_by: AdminTeamMemberSortBy,
+    pub sort_order: SortOrder,
+}
+
+impl Default for TeamMemberListFilters {
+    fn default() -> Self {
+        Self {
+            keyword: None,
+            role: None,
+            status: None,
+            sort_by: AdminTeamMemberSortBy::Role,
+            sort_order: SortOrder::Asc,
+        }
+    }
 }
 
 impl TeamMemberListFilters {
@@ -99,6 +114,8 @@ impl TeamMemberListFilters {
                 .map(str::to_lowercase),
             role,
             status,
+            sort_by: AdminTeamMemberSortBy::Role,
+            sort_order: SortOrder::Asc,
         }
     }
 }

@@ -1,13 +1,15 @@
 //! 仓储模块：`team_repo`。
 
+use crate::api::pagination::{AdminTeamSortBy, SortOrder};
 use crate::db::repository::pagination_repo::fetch_offset_page;
 use crate::db::repository::search_query::{
     escape_like_query, lower_like_condition, mysql_boolean_mode_query, sqlite_fts_match_condition,
     sqlite_match_query,
 };
+use crate::db::repository::sort::{order_by_column_with_id, order_by_id};
 use sea_orm::{
     ActiveModelTrait, ColumnTrait, Condition, ConnectionTrait, DbBackend, EntityTrait, ExprTrait,
-    PaginatorTrait, QueryFilter, QueryOrder, QuerySelect,
+    PaginatorTrait, QueryFilter, QueryOrder, QuerySelect, Select,
     sea_query::{Expr, extension::postgres::PgExpr},
 };
 
@@ -134,8 +136,10 @@ pub async fn find_active_paginated<C: ConnectionTrait>(
     limit: u64,
     offset: u64,
     keyword: Option<&str>,
+    sort_by: AdminTeamSortBy,
+    sort_order: SortOrder,
 ) -> Result<(Vec<team::Model>, u64)> {
-    find_paginated_by_archived_state(db, limit, offset, keyword, false).await
+    find_paginated_by_archived_state(db, limit, offset, keyword, false, sort_by, sort_order).await
 }
 
 pub async fn find_archived_paginated<C: ConnectionTrait>(
@@ -143,8 +147,10 @@ pub async fn find_archived_paginated<C: ConnectionTrait>(
     limit: u64,
     offset: u64,
     keyword: Option<&str>,
+    sort_by: AdminTeamSortBy,
+    sort_order: SortOrder,
 ) -> Result<(Vec<team::Model>, u64)> {
-    find_paginated_by_archived_state(db, limit, offset, keyword, true).await
+    find_paginated_by_archived_state(db, limit, offset, keyword, true, sort_by, sort_order).await
 }
 
 async fn find_paginated_by_archived_state<C: ConnectionTrait>(
@@ -153,12 +159,12 @@ async fn find_paginated_by_archived_state<C: ConnectionTrait>(
     offset: u64,
     keyword: Option<&str>,
     archived: bool,
+    sort_by: AdminTeamSortBy,
+    sort_order: SortOrder,
 ) -> Result<(Vec<team::Model>, u64)> {
     let backend = db.get_database_backend();
     let keyword = keyword.map(str::trim).filter(|keyword| !keyword.is_empty());
-    let mut q = Team::find()
-        .order_by_desc(team::Column::CreatedAt)
-        .order_by_desc(team::Column::Id);
+    let mut q = apply_admin_team_sort(Team::find(), sort_by, sort_order);
 
     q = if archived {
         q.filter(team::Column::ArchivedAt.is_not_null())
@@ -171,6 +177,43 @@ async fn find_paginated_by_archived_state<C: ConnectionTrait>(
     }
 
     fetch_offset_page(db, q, limit, offset).await
+}
+
+fn apply_admin_team_sort(
+    query: Select<Team>,
+    sort_by: AdminTeamSortBy,
+    sort_order: SortOrder,
+) -> Select<Team> {
+    match sort_by {
+        AdminTeamSortBy::Id => order_by_id(query, team::Column::Id, sort_order),
+        AdminTeamSortBy::Name => {
+            order_by_column_with_id(query, team::Column::Name, sort_order, team::Column::Id)
+        }
+        AdminTeamSortBy::StorageUsed => order_by_column_with_id(
+            query,
+            team::Column::StorageUsed,
+            sort_order,
+            team::Column::Id,
+        ),
+        AdminTeamSortBy::StorageQuota => order_by_column_with_id(
+            query,
+            team::Column::StorageQuota,
+            sort_order,
+            team::Column::Id,
+        ),
+        AdminTeamSortBy::CreatedAt => {
+            order_by_column_with_id(query, team::Column::CreatedAt, sort_order, team::Column::Id)
+        }
+        AdminTeamSortBy::UpdatedAt => {
+            order_by_column_with_id(query, team::Column::UpdatedAt, sort_order, team::Column::Id)
+        }
+        AdminTeamSortBy::ArchivedAt => order_by_column_with_id(
+            query,
+            team::Column::ArchivedAt,
+            sort_order,
+            team::Column::Id,
+        ),
+    }
 }
 
 pub async fn find_archived_before<C: ConnectionTrait>(

@@ -36,8 +36,12 @@ import {
 	parseOffsetSearchParam,
 	parsePageSizeOption,
 	parsePageSizeSearchParam,
+	parseSortOrderSearchParam,
+	parseSortSearchParam,
+	type SortOrder,
 } from "@/lib/pagination";
 import { adminTeamService } from "@/services/adminService";
+import type { AdminTeamSortBy } from "@/types/adminSort";
 import type { StoragePolicyGroup } from "@/types/api";
 
 const TEAM_PAGE_SIZE_OPTIONS = [10, 20, 50] as const;
@@ -47,7 +51,20 @@ const TEAM_MANAGED_QUERY_KEYS = [
 	"keyword",
 	"offset",
 	"pageSize",
+	"sortBy",
+	"sortOrder",
 ] as const;
+const TEAM_SORT_BY_OPTIONS = [
+	"id",
+	"name",
+	"storage_used",
+	"storage_quota",
+	"created_at",
+	"updated_at",
+	"archived_at",
+] as const satisfies readonly AdminTeamSortBy[];
+const DEFAULT_TEAM_SORT_BY = "created_at" as const satisfies AdminTeamSortBy;
+const DEFAULT_TEAM_SORT_ORDER = "desc" as const satisfies SortOrder;
 
 const EMPTY_CREATE_FORM: CreateTeamFormState = {
 	name: "",
@@ -69,11 +86,15 @@ function buildManagedTeamSearchParams({
 	pageSize,
 	keyword,
 	archived,
+	sortBy,
+	sortOrder,
 }: {
 	offset: number;
 	pageSize: (typeof TEAM_PAGE_SIZE_OPTIONS)[number];
 	keyword: string;
 	archived: boolean;
+	sortBy: AdminTeamSortBy;
+	sortOrder: SortOrder;
 }) {
 	return buildOffsetPaginationSearchParams({
 		offset,
@@ -82,6 +103,8 @@ function buildManagedTeamSearchParams({
 		extraParams: {
 			archived: archived ? true : undefined,
 			keyword: keyword.trim() || undefined,
+			sortBy: sortBy !== DEFAULT_TEAM_SORT_BY ? sortBy : undefined,
+			sortOrder: sortOrder !== DEFAULT_TEAM_SORT_ORDER ? sortOrder : undefined,
 		},
 	});
 }
@@ -96,6 +119,15 @@ function getManagedTeamSearchString(searchParams: URLSearchParams) {
 		),
 		keyword: searchParams.get("keyword") ?? "",
 		archived: parseArchivedSearchParam(searchParams.get("archived")),
+		sortBy: parseSortSearchParam(
+			searchParams.get("sortBy"),
+			TEAM_SORT_BY_OPTIONS,
+			DEFAULT_TEAM_SORT_BY,
+		),
+		sortOrder: parseSortOrderSearchParam(
+			searchParams.get("sortOrder"),
+			DEFAULT_TEAM_SORT_ORDER,
+		),
 	}).toString();
 }
 
@@ -175,6 +207,19 @@ export default function AdminTeamsPage() {
 	const [showArchived, setShowArchived] = useState(
 		parseArchivedSearchParam(searchParams.get("archived")),
 	);
+	const [sortBy, setSortBy] = useState<AdminTeamSortBy>(
+		parseSortSearchParam(
+			searchParams.get("sortBy"),
+			TEAM_SORT_BY_OPTIONS,
+			DEFAULT_TEAM_SORT_BY,
+		),
+	);
+	const [sortOrder, setSortOrder] = useState<SortOrder>(
+		parseSortOrderSearchParam(
+			searchParams.get("sortOrder"),
+			DEFAULT_TEAM_SORT_ORDER,
+		),
+	);
 	const [createDialogOpen, setCreateDialogOpen] = useState(false);
 	const [createForm, setCreateForm] =
 		useState<CreateTeamFormState>(EMPTY_CREATE_FORM);
@@ -206,11 +251,22 @@ export default function AdminTeamsPage() {
 		);
 		const nextKeyword = searchParams.get("keyword") ?? "";
 		const nextArchived = parseArchivedSearchParam(searchParams.get("archived"));
+		const nextSortBy = parseSortSearchParam(
+			searchParams.get("sortBy"),
+			TEAM_SORT_BY_OPTIONS,
+			DEFAULT_TEAM_SORT_BY,
+		);
+		const nextSortOrder = parseSortOrderSearchParam(
+			searchParams.get("sortOrder"),
+			DEFAULT_TEAM_SORT_ORDER,
+		);
 
 		setOffsetState((prev) => (prev === nextOffset ? prev : nextOffset));
 		setPageSize((prev) => (prev === nextPageSize ? prev : nextPageSize));
 		setKeyword((prev) => (prev === nextKeyword ? prev : nextKeyword));
 		setShowArchived((prev) => (prev === nextArchived ? prev : nextArchived));
+		setSortBy((prev) => (prev === nextSortBy ? prev : nextSortBy));
+		setSortOrder((prev) => (prev === nextSortOrder ? prev : nextSortOrder));
 	}, [searchParams]);
 
 	useEffect(() => {
@@ -219,6 +275,8 @@ export default function AdminTeamsPage() {
 			pageSize,
 			keyword,
 			archived: showArchived,
+			sortBy,
+			sortOrder,
 		});
 		const nextSearch = nextManagedSearchParams.toString();
 		const currentSearch = getManagedTeamSearchString(searchParams);
@@ -238,7 +296,16 @@ export default function AdminTeamsPage() {
 			mergeManagedTeamSearchParams(searchParams, nextManagedSearchParams),
 			{ replace: true },
 		);
-	}, [keyword, offset, pageSize, searchParams, setSearchParams, showArchived]);
+	}, [
+		keyword,
+		offset,
+		pageSize,
+		searchParams,
+		setSearchParams,
+		showArchived,
+		sortBy,
+		sortOrder,
+	]);
 
 	const {
 		items: teams,
@@ -252,8 +319,10 @@ export default function AdminTeamsPage() {
 				keyword: keyword.trim() || undefined,
 				limit: pageSize,
 				offset,
+				sort_by: sortBy,
+				sort_order: sortOrder,
 			}),
-		[keyword, offset, pageSize, showArchived],
+		[keyword, offset, pageSize, showArchived, sortBy, sortOrder],
 	);
 
 	const loadPolicyGroups = useCallback(
@@ -379,6 +448,15 @@ export default function AdminTeamsPage() {
 		setOffset(0);
 	};
 
+	const handleSortChange = (
+		nextSortBy: AdminTeamSortBy,
+		nextOrder: SortOrder,
+	) => {
+		setSortBy(nextSortBy);
+		setSortOrder(nextOrder);
+		setOffset(0);
+	};
+
 	const handleArchivedToggle = () => {
 		setShowArchived((prev) => !prev);
 		setOffset(0);
@@ -461,7 +539,10 @@ export default function AdminTeamsPage() {
 							})
 						}
 						policyGroupNameById={policyGroupNameById}
+						sortBy={sortBy}
+						sortOrder={sortOrder}
 						teams={teams}
+						onSortChange={handleSortChange}
 					/>
 				)}
 

@@ -37,6 +37,8 @@ pub async fn list_tasks(
             kind: query.kind,
             status: query.status,
         },
+        query.sort_by(),
+        query.sort_order(),
     )
     .await?;
     Ok(HttpResponse::Ok().json(ApiResponse::ok(page)))

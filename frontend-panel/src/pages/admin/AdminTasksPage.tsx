@@ -26,8 +26,12 @@ import {
 	parseOffsetSearchParam,
 	parsePageSizeOption,
 	parsePageSizeSearchParam,
+	parseSortOrderSearchParam,
+	parseSortSearchParam,
+	type SortOrder,
 } from "@/lib/pagination";
 import { adminTaskService } from "@/services/adminService";
+import type { AdminTaskSortBy } from "@/types/adminSort";
 import type {
 	BackgroundTaskKind,
 	BackgroundTaskStatus,
@@ -40,8 +44,23 @@ const TASK_MANAGED_QUERY_KEYS = [
 	"kind",
 	"offset",
 	"pageSize",
+	"sortBy",
+	"sortOrder",
 	"status",
 ] as const;
+const TASK_SORT_BY_OPTIONS = [
+	"id",
+	"display_name",
+	"kind",
+	"status",
+	"progress",
+	"created_at",
+	"updated_at",
+	"started_at",
+	"finished_at",
+] as const satisfies readonly AdminTaskSortBy[];
+const DEFAULT_TASK_SORT_BY = "updated_at" as const satisfies AdminTaskSortBy;
+const DEFAULT_TASK_SORT_ORDER = "desc" as const satisfies SortOrder;
 const TASK_KIND_FILTER_VALUES = [
 	"archive_extract",
 	"archive_compress",
@@ -99,11 +118,15 @@ function buildManagedTaskSearchParams({
 	pageSize,
 	kind,
 	status,
+	sortBy,
+	sortOrder,
 }: {
 	offset: number;
 	pageSize: (typeof TASK_PAGE_SIZE_OPTIONS)[number];
 	kind: TaskKindFilter;
 	status: TaskStatusFilter;
+	sortBy: AdminTaskSortBy;
+	sortOrder: SortOrder;
 }) {
 	return buildOffsetPaginationSearchParams({
 		offset,
@@ -111,6 +134,8 @@ function buildManagedTaskSearchParams({
 		defaultPageSize: DEFAULT_TASK_PAGE_SIZE,
 		extraParams: {
 			kind: kind !== "__all__" ? kind : undefined,
+			sortBy: sortBy !== DEFAULT_TASK_SORT_BY ? sortBy : undefined,
+			sortOrder: sortOrder !== DEFAULT_TASK_SORT_ORDER ? sortOrder : undefined,
 			status: status !== "__all__" ? status : undefined,
 		},
 	});
@@ -126,6 +151,15 @@ function getManagedTaskSearchString(searchParams: URLSearchParams) {
 		),
 		kind: parseTaskKindSearchParam(searchParams.get("kind")),
 		status: parseTaskStatusSearchParam(searchParams.get("status")),
+		sortBy: parseSortSearchParam(
+			searchParams.get("sortBy"),
+			TASK_SORT_BY_OPTIONS,
+			DEFAULT_TASK_SORT_BY,
+		),
+		sortOrder: parseSortOrderSearchParam(
+			searchParams.get("sortOrder"),
+			DEFAULT_TASK_SORT_ORDER,
+		),
 	}).toString();
 }
 
@@ -173,6 +207,19 @@ export default function AdminTasksPage() {
 	const [statusFilter, setStatusFilter] = useState<TaskStatusFilter>(
 		parseTaskStatusSearchParam(searchParams.get("status")),
 	);
+	const [sortBy, setSortBy] = useState<AdminTaskSortBy>(
+		parseSortSearchParam(
+			searchParams.get("sortBy"),
+			TASK_SORT_BY_OPTIONS,
+			DEFAULT_TASK_SORT_BY,
+		),
+	);
+	const [sortOrder, setSortOrder] = useState<SortOrder>(
+		parseSortOrderSearchParam(
+			searchParams.get("sortOrder"),
+			DEFAULT_TASK_SORT_ORDER,
+		),
+	);
 	const [cleanupDialogOpen, setCleanupDialogOpen] = useState(false);
 	const [cleanupFinishedBefore, setCleanupFinishedBefore] = useState(
 		defaultCleanupFinishedBeforeValue,
@@ -203,11 +250,22 @@ export default function AdminTasksPage() {
 		);
 		const nextKind = parseTaskKindSearchParam(searchParams.get("kind"));
 		const nextStatus = parseTaskStatusSearchParam(searchParams.get("status"));
+		const nextSortBy = parseSortSearchParam(
+			searchParams.get("sortBy"),
+			TASK_SORT_BY_OPTIONS,
+			DEFAULT_TASK_SORT_BY,
+		);
+		const nextSortOrder = parseSortOrderSearchParam(
+			searchParams.get("sortOrder"),
+			DEFAULT_TASK_SORT_ORDER,
+		);
 
 		setOffsetState((prev) => (prev === nextOffset ? prev : nextOffset));
 		setPageSize((prev) => (prev === nextPageSize ? prev : nextPageSize));
 		setKindFilter((prev) => (prev === nextKind ? prev : nextKind));
 		setStatusFilter((prev) => (prev === nextStatus ? prev : nextStatus));
+		setSortBy((prev) => (prev === nextSortBy ? prev : nextSortBy));
+		setSortOrder((prev) => (prev === nextSortOrder ? prev : nextSortOrder));
 	}, [searchParams]);
 
 	useEffect(() => {
@@ -216,6 +274,8 @@ export default function AdminTasksPage() {
 			pageSize,
 			kind: kindFilter,
 			status: statusFilter,
+			sortBy,
+			sortOrder,
 		});
 		const nextSearch = nextManagedSearchParams.toString();
 		const currentSearch = getManagedTaskSearchString(searchParams);
@@ -241,6 +301,8 @@ export default function AdminTasksPage() {
 		pageSize,
 		searchParams,
 		setSearchParams,
+		sortBy,
+		sortOrder,
 		statusFilter,
 	]);
 
@@ -251,8 +313,10 @@ export default function AdminTasksPage() {
 				offset,
 				...(kindFilter !== "__all__" ? { kind: kindFilter } : {}),
 				...(statusFilter !== "__all__" ? { status: statusFilter } : {}),
+				sort_by: sortBy,
+				sort_order: sortOrder,
 			}),
-		[kindFilter, offset, pageSize, statusFilter],
+		[kindFilter, offset, pageSize, sortBy, sortOrder, statusFilter],
 	);
 
 	const activeFilterCount =
@@ -363,6 +427,15 @@ export default function AdminTasksPage() {
 		setStatusFilter(
 			value === "__all__" ? "__all__" : parseTaskStatusSearchParam(value),
 		);
+		setOffset(0);
+	};
+
+	const handleSortChange = (
+		nextSortBy: AdminTaskSortBy,
+		nextOrder: SortOrder,
+	) => {
+		setSortBy(nextSortBy);
+		setSortOrder(nextOrder);
 		setOffset(0);
 	};
 
@@ -495,6 +568,9 @@ export default function AdminTasksPage() {
 						formatTaskKind={formatTaskKind}
 						formatTaskSource={formatTaskSource}
 						formatTaskStatus={formatTaskStatus}
+						sortBy={sortBy}
+						sortOrder={sortOrder}
+						onSortChange={handleSortChange}
 					/>
 				)}
 

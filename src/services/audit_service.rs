@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 #[cfg(all(debug_assertions, feature = "openapi"))]
 use utoipa::{IntoParams, ToSchema};
 
-use crate::api::pagination::{OffsetPage, load_offset_page};
+use crate::api::pagination::{AdminAuditLogSortBy, OffsetPage, SortOrder, load_offset_page};
 use crate::db::repository::audit_log_repo;
 use crate::entities::audit_log;
 use crate::errors::Result;
@@ -639,6 +639,8 @@ async fn query_models(
     filters: AuditLogFilters,
     limit: u64,
     offset: u64,
+    sort_by: AdminAuditLogSortBy,
+    sort_order: SortOrder,
 ) -> Result<OffsetPage<audit_log::Model>> {
     flush_global_audit_log_manager().await;
     load_offset_page(limit, offset, 200, |limit, offset| async move {
@@ -653,6 +655,8 @@ async fn query_models(
                 before: filters.before,
                 limit,
                 offset,
+                sort_by,
+                sort_order,
             },
         )
         .await
@@ -699,8 +703,10 @@ pub async fn query(
     filters: AuditLogFilters,
     limit: u64,
     offset: u64,
+    sort_by: AdminAuditLogSortBy,
+    sort_order: SortOrder,
 ) -> Result<OffsetPage<AuditLogEntry>> {
-    let page = query_models(state, filters, limit, offset).await?;
+    let page = query_models(state, filters, limit, offset, sort_by, sort_order).await?;
     let items = build_audit_entries(state, page.items).await?;
     Ok(OffsetPage::new(items, page.total, page.limit, page.offset))
 }
@@ -758,7 +764,15 @@ pub async fn query_team_entries(
     limit: u64,
     offset: u64,
 ) -> Result<OffsetPage<TeamAuditEntryInfo>> {
-    let page = query_models(state, filters, limit, offset).await?;
+    let page = query_models(
+        state,
+        filters,
+        limit,
+        offset,
+        AdminAuditLogSortBy::CreatedAt,
+        SortOrder::Desc,
+    )
+    .await?;
     let mut user_ids = HashSet::new();
     for entry in &page.items {
         user_ids.insert(entry.user_id);

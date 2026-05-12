@@ -3,7 +3,7 @@
 use chrono::Utc;
 use sea_orm::{ActiveModelTrait, Set};
 
-use crate::api::pagination::{OffsetPage, load_offset_page};
+use crate::api::pagination::{AdminPolicySortBy, OffsetPage, SortOrder, load_offset_page};
 use crate::db::repository::{managed_follower_repo, policy_group_repo, policy_repo};
 use crate::entities::storage_policy;
 use crate::errors::{AsterError, MapAsterErr, Result};
@@ -52,9 +52,12 @@ pub async fn list_paginated(
     state: &PrimaryAppState,
     limit: u64,
     offset: u64,
+    sort_by: AdminPolicySortBy,
+    sort_order: SortOrder,
 ) -> Result<OffsetPage<StoragePolicy>> {
     load_offset_page(limit, offset, 100, |limit, offset| async move {
-        let (items, total) = policy_repo::find_paginated(&state.db, limit, offset).await?;
+        let (items, total) =
+            policy_repo::find_paginated(&state.db, limit, offset, sort_by, sort_order).await?;
         Ok((items.into_iter().map(Into::into).collect(), total))
     })
     .await

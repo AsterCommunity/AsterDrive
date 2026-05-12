@@ -4,6 +4,7 @@ import { useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 import { AdminOffsetPagination } from "@/components/admin/AdminOffsetPagination";
 import {
+	AdminSortableTableHead,
 	AdminTableCell as TableCell,
 	AdminTableHead as TableHead,
 	AdminTableHeader as TableHeader,
@@ -32,12 +33,28 @@ import {
 	parseOffsetSearchParam,
 	parsePageSizeOption,
 	parsePageSizeSearchParam,
+	parseSortOrderSearchParam,
+	parseSortSearchParam,
+	type SortOrder,
 } from "@/lib/pagination";
 import { adminShareService } from "@/services/adminService";
+import type { AdminShareSortBy } from "@/types/adminSort";
 import type { ShareInfo } from "@/types/api";
 
 const SHARE_PAGE_SIZE_OPTIONS = [10, 20, 50] as const;
 const DEFAULT_SHARE_PAGE_SIZE = 20 as const;
+const SHARE_SORT_BY_OPTIONS = [
+	"id",
+	"token",
+	"user_id",
+	"download_count",
+	"max_downloads",
+	"expires_at",
+	"created_at",
+	"updated_at",
+] as const satisfies readonly AdminShareSortBy[];
+const DEFAULT_SHARE_SORT_BY = "created_at" as const satisfies AdminShareSortBy;
+const DEFAULT_SHARE_SORT_ORDER = "desc" as const satisfies SortOrder;
 
 export default function AdminSharesPage() {
 	const { t } = useTranslation("admin");
@@ -55,6 +72,19 @@ export default function AdminSharesPage() {
 			DEFAULT_SHARE_PAGE_SIZE,
 		),
 	);
+	const [sortBy, setSortBy] = useState<AdminShareSortBy>(
+		parseSortSearchParam(
+			searchParams.get("sortBy"),
+			SHARE_SORT_BY_OPTIONS,
+			DEFAULT_SHARE_SORT_BY,
+		),
+	);
+	const [sortOrder, setSortOrder] = useState<SortOrder>(
+		parseSortOrderSearchParam(
+			searchParams.get("sortOrder"),
+			DEFAULT_SHARE_SORT_ORDER,
+		),
+	);
 	const {
 		items: shares,
 		setItems: setShares,
@@ -62,8 +92,14 @@ export default function AdminSharesPage() {
 		total,
 		loading,
 	} = useApiList(
-		() => adminShareService.list({ limit: pageSize, offset }),
-		[offset, pageSize],
+		() =>
+			adminShareService.list({
+				limit: pageSize,
+				offset,
+				sort_by: sortBy,
+				sort_order: sortOrder,
+			}),
+		[offset, pageSize, sortBy, sortOrder],
 	);
 	const totalPages = Math.max(1, Math.ceil(total / pageSize));
 	const currentPage = Math.floor(offset / pageSize) + 1;
@@ -80,15 +116,29 @@ export default function AdminSharesPage() {
 				offset,
 				pageSize,
 				defaultPageSize: DEFAULT_SHARE_PAGE_SIZE,
+				extraParams: {
+					sortBy: sortBy !== DEFAULT_SHARE_SORT_BY ? sortBy : undefined,
+					sortOrder:
+						sortOrder !== DEFAULT_SHARE_SORT_ORDER ? sortOrder : undefined,
+				},
 			}),
 			{ replace: true },
 		);
-	}, [offset, pageSize, setSearchParams]);
+	}, [offset, pageSize, setSearchParams, sortBy, sortOrder]);
 
 	const handlePageSizeChange = (value: string | null) => {
 		const next = parsePageSizeOption(value, SHARE_PAGE_SIZE_OPTIONS);
 		if (next == null) return;
 		setPageSize(next);
+		setOffset(0);
+	};
+
+	const handleSortChange = (
+		nextSortBy: AdminShareSortBy,
+		nextOrder: SortOrder,
+	) => {
+		setSortBy(nextSortBy);
+		setSortOrder(nextOrder);
 		setOffset(0);
 	};
 
@@ -144,13 +194,56 @@ export default function AdminSharesPage() {
 					headerRow={
 						<TableHeader>
 							<TableRow>
-								<TableHead className="w-16">{t("id")}</TableHead>
-								<TableHead>{t("token")}</TableHead>
-								<TableHead>{t("audit_user")}</TableHead>
+								<AdminSortableTableHead
+									className="w-16"
+									sortKey="id"
+									sortBy={sortBy}
+									sortOrder={sortOrder}
+									onSortChange={handleSortChange}
+								>
+									{t("id")}
+								</AdminSortableTableHead>
+								<AdminSortableTableHead
+									sortKey="token"
+									sortBy={sortBy}
+									sortOrder={sortOrder}
+									onSortChange={handleSortChange}
+								>
+									{t("token")}
+								</AdminSortableTableHead>
+								<AdminSortableTableHead
+									sortKey="user_id"
+									sortBy={sortBy}
+									sortOrder={sortOrder}
+									onSortChange={handleSortChange}
+								>
+									{t("audit_user")}
+								</AdminSortableTableHead>
 								<TableHead>{t("core:type")}</TableHead>
-								<TableHead>{t("core:status")}</TableHead>
-								<TableHead>{t("downloads")}</TableHead>
-								<TableHead>{t("core:created_at")}</TableHead>
+								<AdminSortableTableHead
+									sortKey="expires_at"
+									sortBy={sortBy}
+									sortOrder={sortOrder}
+									onSortChange={handleSortChange}
+								>
+									{t("core:status")}
+								</AdminSortableTableHead>
+								<AdminSortableTableHead
+									sortKey="download_count"
+									sortBy={sortBy}
+									sortOrder={sortOrder}
+									onSortChange={handleSortChange}
+								>
+									{t("downloads")}
+								</AdminSortableTableHead>
+								<AdminSortableTableHead
+									sortKey="created_at"
+									sortBy={sortBy}
+									sortOrder={sortOrder}
+									onSortChange={handleSortChange}
+								>
+									{t("core:created_at")}
+								</AdminSortableTableHead>
 								<TableHead className={ADMIN_TABLE_ACTIONS_WIDTH_CLASS}>
 									{t("core:actions")}
 								</TableHead>

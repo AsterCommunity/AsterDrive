@@ -1,5 +1,6 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { useState } from "react";
+import { MemoryRouter } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import AdminLocksPage from "@/pages/admin/AdminLocksPage";
 import type { LockPage, UserSummary } from "@/types/api";
@@ -251,6 +252,14 @@ function createLock(
 	};
 }
 
+function renderPage() {
+	return render(
+		<MemoryRouter initialEntries={["/admin/locks"]}>
+			<AdminLocksPage />
+		</MemoryRouter>,
+	);
+}
+
 describe("AdminLocksPage", () => {
 	beforeEach(() => {
 		mockState.cleanupExpired.mockReset();
@@ -281,7 +290,7 @@ describe("AdminLocksPage", () => {
 	});
 
 	it("renders lock rows, statuses, and cleanup action", async () => {
-		render(<AdminLocksPage />);
+		renderPage();
 
 		expect(screen.getByText("webdav_locks")).toBeInTheDocument();
 		expect(screen.getByText("locks_intro")).toBeInTheDocument();
@@ -306,7 +315,7 @@ describe("AdminLocksPage", () => {
 	});
 
 	it("force unlocks a lock after confirmation", async () => {
-		render(<AdminLocksPage />);
+		renderPage();
 
 		fireEvent.click(screen.getAllByRole("button", { name: "Trash" })[0]);
 
@@ -328,7 +337,7 @@ describe("AdminLocksPage", () => {
 		const error = new Error("unlock failed");
 		mockState.forceUnlock.mockRejectedValueOnce(error);
 
-		render(<AdminLocksPage />);
+		renderPage();
 
 		fireEvent.click(screen.getAllByRole("button", { name: "Trash" })[0]);
 		fireEvent.click(screen.getByRole("button", { name: "core:confirm" }));

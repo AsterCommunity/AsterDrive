@@ -4,6 +4,7 @@ import {
 	ADMIN_TABLE_BADGE_CELL_CLASS,
 	ADMIN_TABLE_MONO_TEXT_CLASS,
 	ADMIN_TABLE_TEXT_CELL_CLASS,
+	AdminSortableTableHead,
 	AdminTableShell,
 	AdminTable as Table,
 	AdminTableBody as TableBody,
@@ -14,6 +15,8 @@ import {
 } from "@/components/common/AdminTable";
 import { Badge } from "@/components/ui/badge";
 import { formatDateAbsolute, formatDateAbsoluteWithOffset } from "@/lib/format";
+import type { SortOrder } from "@/lib/pagination";
+import type { AdminTaskSortBy } from "@/types/adminSort";
 import type {
 	BackgroundTaskKind,
 	BackgroundTaskStatus,
@@ -25,6 +28,9 @@ interface AdminTaskTableProps {
 	formatTaskSource: (task: TaskInfo) => ReactNode;
 	formatTaskStatus: (status: BackgroundTaskStatus) => string;
 	items: TaskInfo[];
+	sortBy: AdminTaskSortBy;
+	sortOrder: SortOrder;
+	onSortChange: (sortBy: AdminTaskSortBy, sortOrder: SortOrder) => void;
 }
 
 function getTaskStatusBadgeClass(status: BackgroundTaskStatus) {
@@ -56,6 +62,9 @@ export function AdminTaskTable({
 	formatTaskSource,
 	formatTaskStatus,
 	items,
+	onSortChange,
+	sortBy,
+	sortOrder,
 }: AdminTaskTableProps) {
 	const { t } = useTranslation(["admin", "core"]);
 
@@ -64,21 +73,63 @@ export function AdminTaskTable({
 			<Table>
 				<TableHeader>
 					<TableRow>
-						<TableHead className="w-16">{t("admin:id")}</TableHead>
-						<TableHead className="min-w-[240px]">
+						<AdminSortableTableHead
+							className="w-16"
+							sortKey="id"
+							sortBy={sortBy}
+							sortOrder={sortOrder}
+							onSortChange={onSortChange}
+						>
+							{t("admin:id")}
+						</AdminSortableTableHead>
+						<AdminSortableTableHead
+							className="min-w-[240px]"
+							sortKey="display_name"
+							sortBy={sortBy}
+							sortOrder={sortOrder}
+							onSortChange={onSortChange}
+						>
 							{t("admin:task_name")}
-						</TableHead>
-						<TableHead className="w-[180px]">{t("core:type")}</TableHead>
-						<TableHead className="w-[160px]">{t("core:status")}</TableHead>
+						</AdminSortableTableHead>
+						<AdminSortableTableHead
+							className="w-[180px]"
+							sortKey="kind"
+							sortBy={sortBy}
+							sortOrder={sortOrder}
+							onSortChange={onSortChange}
+						>
+							{t("core:type")}
+						</AdminSortableTableHead>
+						<AdminSortableTableHead
+							className="w-[160px]"
+							sortKey="status"
+							sortBy={sortBy}
+							sortOrder={sortOrder}
+							onSortChange={onSortChange}
+						>
+							{t("core:status")}
+						</AdminSortableTableHead>
 						<TableHead className="w-[160px]">
 							{t("admin:task_source")}
 						</TableHead>
-						<TableHead className="w-[160px]">
+						<AdminSortableTableHead
+							className="w-[160px]"
+							sortKey="progress"
+							sortBy={sortBy}
+							sortOrder={sortOrder}
+							onSortChange={onSortChange}
+						>
 							{t("admin:task_progress")}
-						</TableHead>
-						<TableHead className="w-[180px]">
+						</AdminSortableTableHead>
+						<AdminSortableTableHead
+							className="w-[180px]"
+							sortKey="started_at"
+							sortBy={sortBy}
+							sortOrder={sortOrder}
+							onSortChange={onSortChange}
+						>
 							{t("admin:task_execution_time")}
-						</TableHead>
+						</AdminSortableTableHead>
 						<TableHead className="min-w-[240px]">
 							{t("admin:task_detail")}
 						</TableHead>

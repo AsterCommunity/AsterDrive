@@ -38,12 +38,29 @@ import {
 	parseOffsetSearchParam,
 	parsePageSizeOption,
 	parsePageSizeSearchParam,
+	parseSortOrderSearchParam,
+	parseSortSearchParam,
+	type SortOrder,
 } from "@/lib/pagination";
 import { adminPolicyService } from "@/services/adminService";
+import type { AdminPolicySortBy } from "@/types/adminSort";
 import type { DriverType, RemoteNodeInfo, StoragePolicy } from "@/types/api";
 
 const POLICY_PAGE_SIZE_OPTIONS = [10, 20, 50] as const;
 const DEFAULT_POLICY_PAGE_SIZE = 20 as const;
+const POLICY_SORT_BY_OPTIONS = [
+	"id",
+	"name",
+	"driver_type",
+	"endpoint",
+	"bucket",
+	"is_default",
+	"created_at",
+	"updated_at",
+] as const satisfies readonly AdminPolicySortBy[];
+const DEFAULT_POLICY_SORT_BY =
+	"created_at" as const satisfies AdminPolicySortBy;
+const DEFAULT_POLICY_SORT_ORDER = "desc" as const satisfies SortOrder;
 const CREATE_LAST_STEP = 2;
 
 export default function AdminPoliciesPage() {
@@ -62,6 +79,19 @@ export default function AdminPoliciesPage() {
 			DEFAULT_POLICY_PAGE_SIZE,
 		),
 	);
+	const [sortBy, setSortBy] = useState<AdminPolicySortBy>(
+		parseSortSearchParam(
+			searchParams.get("sortBy"),
+			POLICY_SORT_BY_OPTIONS,
+			DEFAULT_POLICY_SORT_BY,
+		),
+	);
+	const [sortOrder, setSortOrder] = useState<SortOrder>(
+		parseSortOrderSearchParam(
+			searchParams.get("sortOrder"),
+			DEFAULT_POLICY_SORT_ORDER,
+		),
+	);
 	const {
 		items: policies,
 		setItems: setPolicies,
@@ -70,8 +100,14 @@ export default function AdminPoliciesPage() {
 		loading,
 		reload,
 	} = useApiList(
-		() => adminPolicyService.list({ limit: pageSize, offset }),
-		[offset, pageSize],
+		() =>
+			adminPolicyService.list({
+				limit: pageSize,
+				offset,
+				sort_by: sortBy,
+				sort_order: sortOrder,
+			}),
+		[offset, pageSize, sortBy, sortOrder],
 	);
 	const [dialogOpen, setDialogOpen] = useState(false);
 	const [editingId, setEditingId] = useState<number | null>(null);
@@ -107,10 +143,15 @@ export default function AdminPoliciesPage() {
 				offset,
 				pageSize,
 				defaultPageSize: DEFAULT_POLICY_PAGE_SIZE,
+				extraParams: {
+					sortBy: sortBy !== DEFAULT_POLICY_SORT_BY ? sortBy : undefined,
+					sortOrder:
+						sortOrder !== DEFAULT_POLICY_SORT_ORDER ? sortOrder : undefined,
+				},
 			}),
 			{ replace: true },
 		);
-	}, [offset, pageSize, setSearchParams]);
+	}, [offset, pageSize, setSearchParams, sortBy, sortOrder]);
 
 	useEffect(() => {
 		let active = true;
@@ -144,6 +185,15 @@ export default function AdminPoliciesPage() {
 		const next = parsePageSizeOption(value, POLICY_PAGE_SIZE_OPTIONS);
 		if (next == null) return;
 		setPageSize(next);
+		setOffset(0);
+	};
+
+	const handleSortChange = (
+		nextSortBy: AdminPolicySortBy,
+		nextOrder: SortOrder,
+	) => {
+		setSortBy(nextSortBy);
+		setSortOrder(nextOrder);
 		setOffset(0);
 	};
 
@@ -434,7 +484,12 @@ export default function AdminPoliciesPage() {
 	const handleRefresh = async () => {
 		try {
 			const [policyPage, remoteNodeLookup] = await Promise.all([
-				adminPolicyService.list({ limit: pageSize, offset }),
+				adminPolicyService.list({
+					limit: pageSize,
+					offset,
+					sort_by: sortBy,
+					sort_order: sortOrder,
+				}),
 				loadAdminRemoteNodeLookup({ force: true }),
 			]);
 			setPolicies(policyPage.items);
@@ -485,6 +540,9 @@ export default function AdminPoliciesPage() {
 					onEditPolicy={openEdit}
 					policies={policies}
 					remoteNodeNameById={remoteNodeNameById}
+					sortBy={sortBy}
+					sortOrder={sortOrder}
+					onSortChange={handleSortChange}
 				/>
 
 				<AdminOffsetPagination

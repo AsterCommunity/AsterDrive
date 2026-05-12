@@ -1,5 +1,6 @@
 //! 管理员 API 路由：`shares`。
 
+use crate::api::dto::admin::AdminShareListQuery;
 use crate::api::pagination::LimitOffsetQuery;
 #[cfg(all(debug_assertions, feature = "openapi"))]
 use crate::api::pagination::OffsetPage;
@@ -14,7 +15,7 @@ use actix_web::{HttpRequest, HttpResponse, web};
     path = "/api/v1/admin/shares",
     tag = "admin",
     operation_id = "list_all_shares",
-    params(LimitOffsetQuery),
+    params(LimitOffsetQuery, AdminShareListQuery),
     responses(
         (status = 200, description = "All shares", body = inline(ApiResponse<OffsetPage<share_service::ShareInfo>>)),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
@@ -24,10 +25,17 @@ use actix_web::{HttpRequest, HttpResponse, web};
 )]
 pub async fn list_all_shares(
     state: web::Data<PrimaryAppState>,
-    query: web::Query<LimitOffsetQuery>,
+    page: web::Query<LimitOffsetQuery>,
+    query: web::Query<AdminShareListQuery>,
 ) -> Result<HttpResponse> {
-    let shares =
-        share_service::list_paginated(&state, query.limit_or(50, 100), query.offset()).await?;
+    let shares = share_service::list_paginated(
+        &state,
+        page.limit_or(50, 100),
+        page.offset(),
+        query.sort_by(),
+        query.sort_order(),
+    )
+    .await?;
     Ok(HttpResponse::Ok().json(ApiResponse::ok(shares)))
 }
 

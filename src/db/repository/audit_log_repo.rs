@@ -3,9 +3,11 @@
 use chrono::{DateTime, Utc};
 use sea_orm::{
     ActiveModelTrait, ColumnTrait, ConnectionTrait, EntityTrait, PaginatorTrait, QueryFilter,
-    QueryOrder, QuerySelect,
+    QuerySelect, Select,
 };
 
+use crate::api::pagination::{AdminAuditLogSortBy, SortOrder};
+use crate::db::repository::sort::{order_by_column_with_id, order_by_id};
 use crate::entities::audit_log::{self, Entity as AuditLog};
 use crate::errors::{AsterError, Result};
 
@@ -18,6 +20,8 @@ pub struct AuditLogQuery<'a> {
     pub before: Option<DateTime<Utc>>,
     pub limit: u64,
     pub offset: u64,
+    pub sort_by: AdminAuditLogSortBy,
+    pub sort_order: SortOrder,
 }
 
 pub async fn create<C: ConnectionTrait>(
@@ -46,9 +50,7 @@ pub async fn find_with_filters<C: ConnectionTrait>(
     db: &C,
     query: AuditLogQuery<'_>,
 ) -> Result<(Vec<audit_log::Model>, u64)> {
-    let mut q = AuditLog::find()
-        .order_by_desc(audit_log::Column::CreatedAt)
-        .order_by_desc(audit_log::Column::Id);
+    let mut q = apply_admin_audit_log_sort(AuditLog::find(), query.sort_by, query.sort_order);
 
     if let Some(uid) = query.user_id {
         q = q.filter(audit_log::Column::UserId.eq(uid));
@@ -78,6 +80,52 @@ pub async fn find_with_filters<C: ConnectionTrait>(
         .map_err(AsterError::from)?;
 
     Ok((items, total))
+}
+
+fn apply_admin_audit_log_sort(
+    query: Select<AuditLog>,
+    sort_by: AdminAuditLogSortBy,
+    sort_order: SortOrder,
+) -> Select<AuditLog> {
+    match sort_by {
+        AdminAuditLogSortBy::Id => order_by_id(query, audit_log::Column::Id, sort_order),
+        AdminAuditLogSortBy::CreatedAt => order_by_column_with_id(
+            query,
+            audit_log::Column::CreatedAt,
+            sort_order,
+            audit_log::Column::Id,
+        ),
+        AdminAuditLogSortBy::UserId => order_by_column_with_id(
+            query,
+            audit_log::Column::UserId,
+            sort_order,
+            audit_log::Column::Id,
+        ),
+        AdminAuditLogSortBy::Action => order_by_column_with_id(
+            query,
+            audit_log::Column::Action,
+            sort_order,
+            audit_log::Column::Id,
+        ),
+        AdminAuditLogSortBy::EntityType => order_by_column_with_id(
+            query,
+            audit_log::Column::EntityType,
+            sort_order,
+            audit_log::Column::Id,
+        ),
+        AdminAuditLogSortBy::EntityName => order_by_column_with_id(
+            query,
+            audit_log::Column::EntityName,
+            sort_order,
+            audit_log::Column::Id,
+        ),
+        AdminAuditLogSortBy::IpAddress => order_by_column_with_id(
+            query,
+            audit_log::Column::IpAddress,
+            sort_order,
+            audit_log::Column::Id,
+        ),
+    }
 }
 
 /// 删除指定时间之前的审计日志

@@ -3,13 +3,15 @@
 use chrono::Utc;
 use std::collections::HashSet;
 
+use crate::api::pagination::{AdminShareSortBy, SortOrder};
 use crate::db::repository::pagination_repo::fetch_offset_page;
+use crate::db::repository::sort::{order_by_column_with_id, order_by_id};
 use crate::entities::share::{self, Entity as Share};
 use crate::errors::{AsterError, Result};
 use crate::utils::numbers::u64_to_i64;
 use sea_orm::{
     ActiveModelTrait, ColumnTrait, Condition, ConnectionTrait, EntityTrait, ExprTrait,
-    PaginatorTrait, QueryFilter, QueryOrder, QuerySelect, sea_query::Expr,
+    PaginatorTrait, QueryFilter, QueryOrder, QuerySelect, Select, sea_query::Expr,
 };
 
 #[derive(Clone, Copy)]
@@ -150,14 +152,62 @@ pub async fn find_paginated<C: ConnectionTrait>(
     db: &C,
     limit: u64,
     offset: u64,
+    sort_by: AdminShareSortBy,
+    sort_order: SortOrder,
 ) -> Result<(Vec<share::Model>, u64)> {
     fetch_offset_page(
         db,
-        Share::find().order_by_desc(share::Column::CreatedAt),
+        apply_admin_share_sort(Share::find(), sort_by, sort_order),
         limit,
         offset,
     )
     .await
+}
+
+fn apply_admin_share_sort(
+    query: Select<Share>,
+    sort_by: AdminShareSortBy,
+    sort_order: SortOrder,
+) -> Select<Share> {
+    match sort_by {
+        AdminShareSortBy::Id => order_by_id(query, share::Column::Id, sort_order),
+        AdminShareSortBy::Token => {
+            order_by_column_with_id(query, share::Column::Token, sort_order, share::Column::Id)
+        }
+        AdminShareSortBy::UserId => {
+            order_by_column_with_id(query, share::Column::UserId, sort_order, share::Column::Id)
+        }
+        AdminShareSortBy::DownloadCount => order_by_column_with_id(
+            query,
+            share::Column::DownloadCount,
+            sort_order,
+            share::Column::Id,
+        ),
+        AdminShareSortBy::MaxDownloads => order_by_column_with_id(
+            query,
+            share::Column::MaxDownloads,
+            sort_order,
+            share::Column::Id,
+        ),
+        AdminShareSortBy::ExpiresAt => order_by_column_with_id(
+            query,
+            share::Column::ExpiresAt,
+            sort_order,
+            share::Column::Id,
+        ),
+        AdminShareSortBy::CreatedAt => order_by_column_with_id(
+            query,
+            share::Column::CreatedAt,
+            sort_order,
+            share::Column::Id,
+        ),
+        AdminShareSortBy::UpdatedAt => order_by_column_with_id(
+            query,
+            share::Column::UpdatedAt,
+            sort_order,
+            share::Column::Id,
+        ),
+    }
 }
 
 /// 查找用户对同一资源是否已有活跃分享

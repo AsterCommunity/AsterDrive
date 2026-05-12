@@ -1,10 +1,13 @@
 //! 仓储模块：`managed_follower_repo`。
 
+use crate::api::pagination::{AdminRemoteNodeSortBy, SortOrder};
 use crate::db::repository::pagination_repo::fetch_offset_page;
+use crate::db::repository::sort::{order_by_column_with_id, order_by_id};
 use crate::entities::managed_follower::{self, Entity as ManagedFollower};
 use crate::errors::{AsterError, Result};
 use sea_orm::{
-    ActiveModelTrait, ColumnTrait, ConnectionTrait, EntityTrait, QueryFilter, QueryOrder, Set,
+    ActiveModelTrait, ColumnTrait, ConnectionTrait, EntityTrait, QueryFilter, QueryOrder, Select,
+    Set,
 };
 
 pub async fn find_by_id<C: ConnectionTrait>(db: &C, id: i64) -> Result<managed_follower::Model> {
@@ -39,16 +42,62 @@ pub async fn find_paginated<C: ConnectionTrait>(
     db: &C,
     limit: u64,
     offset: u64,
+    sort_by: AdminRemoteNodeSortBy,
+    sort_order: SortOrder,
 ) -> Result<(Vec<managed_follower::Model>, u64)> {
     fetch_offset_page(
         db,
-        ManagedFollower::find()
-            .order_by_desc(managed_follower::Column::CreatedAt)
-            .order_by_desc(managed_follower::Column::Id),
+        apply_admin_remote_node_sort(ManagedFollower::find(), sort_by, sort_order),
         limit,
         offset,
     )
     .await
+}
+
+fn apply_admin_remote_node_sort(
+    query: Select<ManagedFollower>,
+    sort_by: AdminRemoteNodeSortBy,
+    sort_order: SortOrder,
+) -> Select<ManagedFollower> {
+    match sort_by {
+        AdminRemoteNodeSortBy::Id => order_by_id(query, managed_follower::Column::Id, sort_order),
+        AdminRemoteNodeSortBy::Name => order_by_column_with_id(
+            query,
+            managed_follower::Column::Name,
+            sort_order,
+            managed_follower::Column::Id,
+        ),
+        AdminRemoteNodeSortBy::BaseUrl => order_by_column_with_id(
+            query,
+            managed_follower::Column::BaseUrl,
+            sort_order,
+            managed_follower::Column::Id,
+        ),
+        AdminRemoteNodeSortBy::IsEnabled => order_by_column_with_id(
+            query,
+            managed_follower::Column::IsEnabled,
+            sort_order,
+            managed_follower::Column::Id,
+        ),
+        AdminRemoteNodeSortBy::LastCheckedAt => order_by_column_with_id(
+            query,
+            managed_follower::Column::LastCheckedAt,
+            sort_order,
+            managed_follower::Column::Id,
+        ),
+        AdminRemoteNodeSortBy::CreatedAt => order_by_column_with_id(
+            query,
+            managed_follower::Column::CreatedAt,
+            sort_order,
+            managed_follower::Column::Id,
+        ),
+        AdminRemoteNodeSortBy::UpdatedAt => order_by_column_with_id(
+            query,
+            managed_follower::Column::UpdatedAt,
+            sort_order,
+            managed_follower::Column::Id,
+        ),
+    }
 }
 
 pub async fn create<C: ConnectionTrait>(

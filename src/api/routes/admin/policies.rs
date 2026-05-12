@@ -1,8 +1,9 @@
 //! 管理员 API 路由：`policies`。
 
 use crate::api::dto::admin::{
-    CreatePolicyGroupReq, CreatePolicyReq, MigratePolicyGroupUsersReq, PatchPolicyGroupReq,
-    PatchPolicyReq, PolicyGroupItemReq, TestPolicyParamsReq,
+    AdminPolicyGroupListQuery, AdminPolicyListQuery, CreatePolicyGroupReq, CreatePolicyReq,
+    MigratePolicyGroupUsersReq, PatchPolicyGroupReq, PatchPolicyReq, PolicyGroupItemReq,
+    TestPolicyParamsReq,
 };
 use crate::api::dto::validate_request;
 use crate::api::pagination::LimitOffsetQuery;
@@ -138,7 +139,7 @@ impl From<PatchPolicyGroupReq> for policy_service::UpdateStoragePolicyGroupInput
     path = "/api/v1/admin/policies",
     tag = "admin",
     operation_id = "list_policies",
-    params(LimitOffsetQuery),
+    params(LimitOffsetQuery, AdminPolicyListQuery),
     responses(
         (status = 200, description = "List storage policies", body = inline(ApiResponse<OffsetPage<policy_service::StoragePolicy>>)),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
@@ -148,10 +149,17 @@ impl From<PatchPolicyGroupReq> for policy_service::UpdateStoragePolicyGroupInput
 )]
 pub async fn list_policies(
     state: web::Data<PrimaryAppState>,
-    query: web::Query<LimitOffsetQuery>,
+    page: web::Query<LimitOffsetQuery>,
+    query: web::Query<AdminPolicyListQuery>,
 ) -> Result<HttpResponse> {
-    let policies =
-        policy_service::list_paginated(&state, query.limit_or(50, 100), query.offset()).await?;
+    let policies = policy_service::list_paginated(
+        &state,
+        page.limit_or(50, 100),
+        page.offset(),
+        query.sort_by(),
+        query.sort_order(),
+    )
+    .await?;
     Ok(HttpResponse::Ok().json(ApiResponse::ok(policies)))
 }
 
@@ -304,7 +312,7 @@ pub async fn test_policy_params(
     path = "/api/v1/admin/policy-groups",
     tag = "admin",
     operation_id = "list_policy_groups",
-    params(LimitOffsetQuery),
+    params(LimitOffsetQuery, AdminPolicyGroupListQuery),
     responses(
         (status = 200, description = "List storage policy groups", body = inline(ApiResponse<OffsetPage<crate::services::policy_service::StoragePolicyGroupInfo>>)),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
@@ -314,11 +322,17 @@ pub async fn test_policy_params(
 )]
 pub async fn list_policy_groups(
     state: web::Data<PrimaryAppState>,
-    query: web::Query<LimitOffsetQuery>,
+    page: web::Query<LimitOffsetQuery>,
+    query: web::Query<AdminPolicyGroupListQuery>,
 ) -> Result<HttpResponse> {
-    let groups =
-        policy_service::list_groups_paginated(&state, query.limit_or(50, 100), query.offset())
-            .await?;
+    let groups = policy_service::list_groups_paginated(
+        &state,
+        page.limit_or(50, 100),
+        page.offset(),
+        query.sort_by(),
+        query.sort_order(),
+    )
+    .await?;
     Ok(HttpResponse::Ok().json(ApiResponse::ok(groups)))
 }
 

@@ -2,10 +2,12 @@
 
 use std::collections::HashMap;
 
+use crate::api::pagination::{AdminTeamMemberSortBy, SortOrder};
 use crate::db::repository::search_query::{
     escape_like_query, lower_like_condition, mysql_boolean_mode_query, sqlite_fts_match_condition,
     sqlite_match_query,
 };
+use crate::db::repository::sort::{order_by_column_with_id, order_by_id};
 use sea_orm::{
     ActiveModelTrait, ColumnTrait, Condition, ConnectionTrait, DbBackend, EntityTrait, ExprTrait,
     FromQueryResult, PaginatorTrait, QueryFilter, QueryOrder, QuerySelect,
@@ -283,6 +285,8 @@ pub async fn list_page_by_team_with_user<C: ConnectionTrait>(
     keyword: Option<&str>,
     limit: u64,
     offset: u64,
+    sort_by: AdminTeamMemberSortBy,
+    sort_order: SortOrder,
 ) -> Result<(Vec<(team_member::Model, user::Model)>, u64)> {
     let backend = db.get_database_backend();
     let mut query = TeamMember::find()
@@ -300,10 +304,7 @@ pub async fn list_page_by_team_with_user<C: ConnectionTrait>(
         query = query.filter(team_member_keyword_condition(backend, keyword));
     }
 
-    query = query
-        .order_by(team_member_role_rank_expr(), Order::Asc)
-        .order_by_asc(user::Column::Username)
-        .order_by_asc(user::Column::Id);
+    query = apply_admin_team_member_sort(query, sort_by, sort_order);
 
     let total = query.clone().count(db).await.map_err(AsterError::from)?;
     if total == 0 || limit == 0 {
@@ -321,6 +322,43 @@ pub async fn list_page_by_team_with_user<C: ConnectionTrait>(
         .collect();
 
     Ok((items, total))
+}
+
+fn apply_admin_team_member_sort(
+    query: sea_orm::SelectTwo<team_member::Entity, user::Entity>,
+    sort_by: AdminTeamMemberSortBy,
+    sort_order: SortOrder,
+) -> sea_orm::SelectTwo<team_member::Entity, user::Entity> {
+    match sort_by {
+        AdminTeamMemberSortBy::Username => {
+            order_by_column_with_id(query, user::Column::Username, sort_order, user::Column::Id)
+        }
+        AdminTeamMemberSortBy::Email => {
+            order_by_column_with_id(query, user::Column::Email, sort_order, user::Column::Id)
+        }
+        AdminTeamMemberSortBy::Status => {
+            order_by_column_with_id(query, user::Column::Status, sort_order, user::Column::Id)
+        }
+        AdminTeamMemberSortBy::CreatedAt => order_by_column_with_id(
+            query,
+            team_member::Column::CreatedAt,
+            sort_order,
+            user::Column::Id,
+        ),
+        AdminTeamMemberSortBy::UpdatedAt => order_by_column_with_id(
+            query,
+            team_member::Column::UpdatedAt,
+            sort_order,
+            user::Column::Id,
+        ),
+        AdminTeamMemberSortBy::Role => {
+            let ordered = match sort_order {
+                SortOrder::Asc => query.order_by(team_member_role_rank_expr(), Order::Asc),
+                SortOrder::Desc => query.order_by(team_member_role_rank_expr(), Order::Desc),
+            };
+            order_by_id(ordered, user::Column::Id, sort_order)
+        }
+    }
 }
 
 pub async fn count_by_team<C: ConnectionTrait>(db: &C, team_id: i64) -> Result<u64> {

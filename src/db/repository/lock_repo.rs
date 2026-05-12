@@ -3,11 +3,13 @@
 use chrono::Utc;
 use sea_orm::{
     ActiveModelTrait, ColumnTrait, ConnectionTrait, EntityTrait, ExprTrait, QueryFilter,
-    QueryOrder, Set, TryInsertResult,
+    QueryOrder, Select, Set, TryInsertResult,
     sea_query::{Expr, Query, SelectStatement},
 };
 
+use crate::api::pagination::{AdminLockSortBy, SortOrder};
 use crate::db::repository::pagination_repo::fetch_offset_page;
+use crate::db::repository::sort::{order_by_column_with_id, order_by_id};
 use crate::entities::{
     file, folder,
     resource_lock::{self, Entity as ResourceLock},
@@ -72,14 +74,68 @@ pub async fn find_paginated<C: ConnectionTrait>(
     db: &C,
     limit: u64,
     offset: u64,
+    sort_by: AdminLockSortBy,
+    sort_order: SortOrder,
 ) -> Result<(Vec<resource_lock::Model>, u64)> {
     fetch_offset_page(
         db,
-        ResourceLock::find().order_by_asc(resource_lock::Column::Id),
+        apply_admin_lock_sort(ResourceLock::find(), sort_by, sort_order),
         limit,
         offset,
     )
     .await
+}
+
+fn apply_admin_lock_sort(
+    query: Select<ResourceLock>,
+    sort_by: AdminLockSortBy,
+    sort_order: SortOrder,
+) -> Select<ResourceLock> {
+    match sort_by {
+        AdminLockSortBy::Id => order_by_id(query, resource_lock::Column::Id, sort_order),
+        AdminLockSortBy::Path => order_by_column_with_id(
+            query,
+            resource_lock::Column::Path,
+            sort_order,
+            resource_lock::Column::Id,
+        ),
+        AdminLockSortBy::EntityType => order_by_column_with_id(
+            query,
+            resource_lock::Column::EntityType,
+            sort_order,
+            resource_lock::Column::Id,
+        ),
+        AdminLockSortBy::OwnerId => order_by_column_with_id(
+            query,
+            resource_lock::Column::OwnerId,
+            sort_order,
+            resource_lock::Column::Id,
+        ),
+        AdminLockSortBy::TimeoutAt => order_by_column_with_id(
+            query,
+            resource_lock::Column::TimeoutAt,
+            sort_order,
+            resource_lock::Column::Id,
+        ),
+        AdminLockSortBy::Shared => order_by_column_with_id(
+            query,
+            resource_lock::Column::Shared,
+            sort_order,
+            resource_lock::Column::Id,
+        ),
+        AdminLockSortBy::Deep => order_by_column_with_id(
+            query,
+            resource_lock::Column::Deep,
+            sort_order,
+            resource_lock::Column::Id,
+        ),
+        AdminLockSortBy::CreatedAt => order_by_column_with_id(
+            query,
+            resource_lock::Column::CreatedAt,
+            sort_order,
+            resource_lock::Column::Id,
+        ),
+    }
 }
 
 pub async fn find_by_id<C: ConnectionTrait>(

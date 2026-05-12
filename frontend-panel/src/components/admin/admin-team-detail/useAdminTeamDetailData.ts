@@ -1,6 +1,8 @@
 import { useEffect, useEffectEvent, useRef, useState } from "react";
 import { handleApiError } from "@/hooks/useApiError";
+import type { SortOrder } from "@/lib/pagination";
 import { adminTeamService } from "@/services/adminService";
+import type { AdminTeamMemberSortBy } from "@/types/adminSort";
 import type {
 	AdminTeamInfo,
 	TeamAuditEntryInfo,
@@ -23,6 +25,8 @@ interface UseAdminTeamDetailDataArgs {
 	auditOffset: number;
 	memberFilters: AdminTeamMemberFilters;
 	memberOffset: number;
+	memberSortBy: AdminTeamMemberSortBy;
+	memberSortOrder: SortOrder;
 	open: boolean;
 	teamId: number | null;
 }
@@ -31,6 +35,8 @@ export function useAdminTeamDetailData({
 	auditOffset,
 	memberFilters,
 	memberOffset,
+	memberSortBy,
+	memberSortOrder,
 	open,
 	teamId,
 }: UseAdminTeamDetailDataArgs) {
@@ -75,6 +81,8 @@ export function useAdminTeamDetailData({
 			nextTeamId: number,
 			nextOffset = memberOffset,
 			nextFilters: AdminTeamMemberFilters = memberFilters,
+			nextSortBy: AdminTeamMemberSortBy = memberSortBy,
+			nextSortOrder: SortOrder = memberSortOrder,
 		) => {
 			const requestId = ++memberRequestIdRef.current;
 			setMemberLoading(true);
@@ -85,6 +93,8 @@ export function useAdminTeamDetailData({
 					status: nextFilters.status,
 					limit: ADMIN_TEAM_DETAIL_MEMBER_PAGE_SIZE,
 					offset: nextOffset,
+					sort_by: nextSortBy,
+					sort_order: nextSortOrder,
 				});
 				if (requestId !== memberRequestIdRef.current) {
 					return;
@@ -173,8 +183,21 @@ export function useAdminTeamDetailData({
 			return;
 		}
 
-		void loadMembers(teamId, memberOffset, memberFilters);
-	}, [memberFilters, memberOffset, open, teamId]);
+		void loadMembers(
+			teamId,
+			memberOffset,
+			memberFilters,
+			memberSortBy,
+			memberSortOrder,
+		);
+	}, [
+		memberFilters,
+		memberOffset,
+		memberSortBy,
+		memberSortOrder,
+		open,
+		teamId,
+	]);
 
 	return {
 		auditEntries,

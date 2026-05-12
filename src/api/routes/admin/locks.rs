@@ -1,5 +1,6 @@
 //! 管理员 API 路由：`locks`。
 
+use crate::api::dto::admin::AdminLockListQuery;
 use crate::api::pagination::LimitOffsetQuery;
 #[cfg(all(debug_assertions, feature = "openapi"))]
 use crate::api::pagination::OffsetPage;
@@ -14,7 +15,7 @@ use actix_web::{HttpRequest, HttpResponse, web};
     path = "/api/v1/admin/locks",
     tag = "admin",
     operation_id = "list_locks",
-    params(LimitOffsetQuery),
+    params(LimitOffsetQuery, AdminLockListQuery),
     responses(
         (status = 200, description = "All WebDAV locks", body = inline(ApiResponse<OffsetPage<lock_service::ResourceLock>>)),
         (status = 403, description = "Admin required"),
@@ -23,10 +24,17 @@ use actix_web::{HttpRequest, HttpResponse, web};
 )]
 pub async fn list_locks(
     state: web::Data<PrimaryAppState>,
-    query: web::Query<LimitOffsetQuery>,
+    page: web::Query<LimitOffsetQuery>,
+    query: web::Query<AdminLockListQuery>,
 ) -> Result<HttpResponse> {
-    let locks =
-        lock_service::list_paginated(&state, query.limit_or(50, 100), query.offset()).await?;
+    let locks = lock_service::list_paginated(
+        &state,
+        page.limit_or(50, 100),
+        page.offset(),
+        query.sort_by(),
+        query.sort_order(),
+    )
+    .await?;
     Ok(HttpResponse::Ok().json(ApiResponse::ok(locks)))
 }
 

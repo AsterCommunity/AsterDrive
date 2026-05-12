@@ -8,12 +8,13 @@ use actix_web::web;
 
 // DTO re-exports from unified dto/ module
 pub use crate::api::dto::admin::{
-    AdminCreateTeamReq, AdminListQuery, AdminPatchTeamReq, AdminTaskCleanupReq, AdminTaskListQuery,
-    AdminTeamListQuery, AdminUserListQuery, CreatePolicyGroupReq, CreatePolicyReq,
-    CreateRemoteNodeReq, CreateUserReq, ExecuteConfigActionReq, ExecuteConfigActionResp,
-    MigratePolicyGroupUsersReq, PatchPolicyGroupReq, PatchPolicyReq, PatchRemoteNodeReq,
-    PatchUserReq, PolicyGroupItemReq, ResetUserPasswordReq, SetConfigReq, TestPolicyParamsReq,
-    TestRemoteNodeParamsReq,
+    AdminAuditLogSortQuery, AdminCreateTeamReq, AdminListQuery, AdminLockListQuery,
+    AdminPatchTeamReq, AdminPolicyGroupListQuery, AdminPolicyListQuery, AdminRemoteNodeListQuery,
+    AdminShareListQuery, AdminTaskCleanupReq, AdminTaskListQuery, AdminTeamListQuery,
+    AdminUserListQuery, CreatePolicyGroupReq, CreatePolicyReq, CreateRemoteNodeReq, CreateUserReq,
+    ExecuteConfigActionReq, ExecuteConfigActionResp, MigratePolicyGroupUsersReq,
+    PatchPolicyGroupReq, PatchPolicyReq, PatchRemoteNodeReq, PatchUserReq, PolicyGroupItemReq,
+    ResetUserPasswordReq, SetConfigReq, TestPolicyParamsReq, TestRemoteNodeParamsReq,
 };
 
 pub(crate) mod audit_logs;

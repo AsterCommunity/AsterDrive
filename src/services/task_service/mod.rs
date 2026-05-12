@@ -20,7 +20,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration as StdDuration, Instant};
 
-use crate::api::pagination::OffsetPage;
+use crate::api::pagination::{AdminTaskSortBy, OffsetPage, SortOrder};
 use crate::config::operations;
 use crate::db::repository::background_task_repo;
 use crate::entities::background_task;
@@ -198,6 +198,8 @@ pub(crate) async fn list_tasks_paginated_for_admin(
     limit: u64,
     offset: u64,
     filters: AdminTaskListFilters,
+    sort_by: AdminTaskSortBy,
+    sort_order: SortOrder,
 ) -> Result<OffsetPage<TaskInfo>> {
     let limit = limit.clamp(1, operations::task_list_max_limit(&state.runtime_config));
     let (tasks, total) = background_task_repo::find_paginated_all_filtered(
@@ -208,6 +210,8 @@ pub(crate) async fn list_tasks_paginated_for_admin(
             kind: filters.kind,
             status: filters.status,
         },
+        sort_by,
+        sort_order,
     )
     .await?;
 

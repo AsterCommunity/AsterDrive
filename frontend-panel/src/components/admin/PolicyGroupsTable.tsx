@@ -5,6 +5,7 @@ import {
 	ADMIN_TABLE_MONO_TEXT_CLASS,
 	ADMIN_TABLE_STACKED_CELL_CLASS,
 	ADMIN_TABLE_TEXT_CELL_CLASS,
+	AdminSortableTableHead,
 	AdminTableCell as TableCell,
 	AdminTableHead as TableHead,
 	AdminTableHeader as TableHeader,
@@ -32,6 +33,8 @@ import {
 	ADMIN_TABLE_ACTIONS_WIDTH_CLASS,
 } from "@/lib/constants";
 import { formatBytes, formatDateAbsolute } from "@/lib/format";
+import type { SortOrder } from "@/lib/pagination";
+import type { AdminPolicyGroupSortBy } from "@/types/adminSort";
 import type { StoragePolicyGroup, StoragePolicyGroupItem } from "@/types/api";
 
 function getRuleRangeLabel(
@@ -68,6 +71,8 @@ interface PolicyGroupsTableProps {
 		value: string;
 	}>;
 	prevPageDisabled: boolean;
+	sortBy: AdminPolicyGroupSortBy;
+	sortOrder: SortOrder;
 	total: number;
 	totalPages: number;
 	onNextPage: () => void;
@@ -76,6 +81,7 @@ interface PolicyGroupsTableProps {
 	onPageSizeChange: (value: string | null) => void;
 	onPreviousPage: () => void;
 	onRequestDelete: (groupId: number) => void;
+	onSortChange: (sortBy: AdminPolicyGroupSortBy, sortOrder: SortOrder) => void;
 }
 
 export function PolicyGroupsTable({
@@ -86,6 +92,8 @@ export function PolicyGroupsTable({
 	pageSize,
 	pageSizeOptions,
 	prevPageDisabled,
+	sortBy,
+	sortOrder,
 	total,
 	totalPages,
 	onNextPage,
@@ -94,6 +102,7 @@ export function PolicyGroupsTable({
 	onPageSizeChange,
 	onPreviousPage,
 	onRequestDelete,
+	onSortChange,
 }: PolicyGroupsTableProps) {
 	const { t } = useTranslation("admin");
 
@@ -110,11 +119,40 @@ export function PolicyGroupsTable({
 				headerRow={
 					<TableHeader>
 						<TableRow>
-							<TableHead className="w-16">{t("id")}</TableHead>
-							<TableHead>{t("core:name")}</TableHead>
+							<AdminSortableTableHead
+								className="w-16"
+								sortKey="id"
+								sortBy={sortBy}
+								sortOrder={sortOrder}
+								onSortChange={onSortChange}
+							>
+								{t("id")}
+							</AdminSortableTableHead>
+							<AdminSortableTableHead
+								sortKey="name"
+								sortBy={sortBy}
+								sortOrder={sortOrder}
+								onSortChange={onSortChange}
+							>
+								{t("core:name")}
+							</AdminSortableTableHead>
 							<TableHead>{t("policy_group_rules")}</TableHead>
-							<TableHead>{t("policy_group_status")}</TableHead>
-							<TableHead>{t("core:updated_at")}</TableHead>
+							<AdminSortableTableHead
+								sortKey="is_enabled"
+								sortBy={sortBy}
+								sortOrder={sortOrder}
+								onSortChange={onSortChange}
+							>
+								{t("policy_group_status")}
+							</AdminSortableTableHead>
+							<AdminSortableTableHead
+								sortKey="updated_at"
+								sortBy={sortBy}
+								sortOrder={sortOrder}
+								onSortChange={onSortChange}
+							>
+								{t("core:updated_at")}
+							</AdminSortableTableHead>
 							<TableHead className={ADMIN_TABLE_ACTIONS_WIDTH_CLASS}>
 								{t("core:actions")}
 							</TableHead>

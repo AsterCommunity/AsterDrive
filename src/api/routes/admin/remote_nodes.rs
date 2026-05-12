@@ -1,6 +1,8 @@
 //! 管理员 API 路由：`remote_nodes`。
 
-use crate::api::dto::admin::{CreateRemoteNodeReq, PatchRemoteNodeReq, TestRemoteNodeParamsReq};
+use crate::api::dto::admin::{
+    AdminRemoteNodeListQuery, CreateRemoteNodeReq, PatchRemoteNodeReq, TestRemoteNodeParamsReq,
+};
 use crate::api::dto::validate_request;
 use crate::api::pagination::LimitOffsetQuery;
 #[cfg(all(debug_assertions, feature = "openapi"))]
@@ -83,7 +85,7 @@ impl From<TestRemoteNodeParamsReq> for managed_follower_service::TestRemoteNodeI
     path = "/api/v1/admin/remote-nodes",
     tag = "admin",
     operation_id = "list_remote_nodes",
-    params(LimitOffsetQuery),
+    params(LimitOffsetQuery, AdminRemoteNodeListQuery),
     responses(
         (status = 200, description = "List remote nodes", body = inline(ApiResponse<OffsetPage<managed_follower_service::RemoteNodeInfo>>)),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
@@ -93,11 +95,17 @@ impl From<TestRemoteNodeParamsReq> for managed_follower_service::TestRemoteNodeI
 )]
 pub async fn list_remote_nodes(
     state: web::Data<PrimaryAppState>,
-    query: web::Query<LimitOffsetQuery>,
+    page: web::Query<LimitOffsetQuery>,
+    query: web::Query<AdminRemoteNodeListQuery>,
 ) -> Result<HttpResponse> {
-    let nodes =
-        managed_follower_service::list_paginated(&state, query.limit_or(50, 100), query.offset())
-            .await?;
+    let nodes = managed_follower_service::list_paginated(
+        &state,
+        page.limit_or(50, 100),
+        page.offset(),
+        query.sort_by(),
+        query.sort_order(),
+    )
+    .await?;
     Ok(HttpResponse::Ok().json(ApiResponse::ok(nodes)))
 }
 

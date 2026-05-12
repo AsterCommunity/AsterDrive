@@ -1,6 +1,7 @@
 import type { FormEvent } from "react";
 import { useTranslation } from "react-i18next";
 import {
+	AdminSortableTableHead,
 	AdminTable as Table,
 	AdminTableBody as TableBody,
 	AdminTableCell as TableCell,
@@ -25,8 +26,10 @@ import {
 } from "@/components/ui/select";
 import { ADMIN_CONTROL_HEIGHT_CLASS } from "@/lib/constants";
 import { formatDateShort } from "@/lib/format";
+import type { SortOrder } from "@/lib/pagination";
 import { getTeamRoleBadgeClass } from "@/lib/team";
 import { cn } from "@/lib/utils";
+import type { AdminTeamMemberSortBy } from "@/types/adminSort";
 import type {
 	AdminTeamInfo,
 	TeamMemberInfo,
@@ -46,6 +49,8 @@ interface MembersSectionProps {
 	memberQuery: string;
 	memberRole: TeamMemberRole;
 	memberRoleFilter: "__all__" | TeamMemberRole;
+	memberSortBy: AdminTeamMemberSortBy;
+	memberSortOrder: SortOrder;
 	memberStatusFilter: "__all__" | UserStatus;
 	memberTotal: number;
 	memberTotalPages: number;
@@ -72,6 +77,10 @@ interface MembersSectionProps {
 	}>;
 	team: AdminTeamInfo | null;
 	onAddMember: (event: FormEvent<HTMLFormElement>) => void;
+	onMemberSortChange: (
+		sortBy: AdminTeamMemberSortBy,
+		sortOrder: SortOrder,
+	) => void;
 	onUpdateMemberRole: (
 		memberUserId: number,
 		role: TeamMemberRole,
@@ -90,6 +99,8 @@ export function AdminTeamDetailMembersSection({
 	memberQuery,
 	memberRole,
 	memberRoleFilter,
+	memberSortBy,
+	memberSortOrder,
 	memberStatusFilter,
 	memberTotal,
 	memberTotalPages,
@@ -110,6 +121,7 @@ export function AdminTeamDetailMembersSection({
 	statusFilterOptions,
 	team,
 	onAddMember,
+	onMemberSortChange,
 	onUpdateMemberRole,
 }: MembersSectionProps) {
 	const { t } = useTranslation(["admin", "core", "settings"]);
@@ -292,13 +304,46 @@ export function AdminTeamDetailMembersSection({
 						<Table>
 							<TableHeader>
 								<TableRow>
-									<TableHead>{t("settings:settings_team_member")}</TableHead>
-									<TableHead>{t("settings:settings_team_email")}</TableHead>
-									<TableHead>{t("settings:settings_team_status")}</TableHead>
-									<TableHead>
+									<AdminSortableTableHead
+										sortKey="username"
+										sortBy={memberSortBy}
+										sortOrder={memberSortOrder}
+										onSortChange={onMemberSortChange}
+									>
+										{t("settings:settings_team_member")}
+									</AdminSortableTableHead>
+									<AdminSortableTableHead
+										sortKey="email"
+										sortBy={memberSortBy}
+										sortOrder={memberSortOrder}
+										onSortChange={onMemberSortChange}
+									>
+										{t("settings:settings_team_email")}
+									</AdminSortableTableHead>
+									<AdminSortableTableHead
+										sortKey="status"
+										sortBy={memberSortBy}
+										sortOrder={memberSortOrder}
+										onSortChange={onMemberSortChange}
+									>
+										{t("settings:settings_team_status")}
+									</AdminSortableTableHead>
+									<AdminSortableTableHead
+										sortKey="role"
+										sortBy={memberSortBy}
+										sortOrder={memberSortOrder}
+										onSortChange={onMemberSortChange}
+									>
 										{t("settings:settings_team_role_label")}
-									</TableHead>
-									<TableHead>{t("core:created_at")}</TableHead>
+									</AdminSortableTableHead>
+									<AdminSortableTableHead
+										sortKey="created_at"
+										sortBy={memberSortBy}
+										sortOrder={memberSortOrder}
+										onSortChange={onMemberSortChange}
+									>
+										{t("core:created_at")}
+									</AdminSortableTableHead>
 									<TableHead>{t("core:actions")}</TableHead>
 								</TableRow>
 							</TableHeader>
