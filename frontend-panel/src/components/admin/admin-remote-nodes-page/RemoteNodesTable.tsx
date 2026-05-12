@@ -1,14 +1,18 @@
 import { useTranslation } from "react-i18next";
+import {
+	ADMIN_INTERACTIVE_TABLE_ROW_CLASS,
+	ADMIN_TABLE_BADGE_CELL_CLASS,
+	ADMIN_TABLE_MONO_TEXT_CLASS,
+	ADMIN_TABLE_TEXT_CELL_CLASS,
+	AdminTableCell as TableCell,
+	AdminTableHead as TableHead,
+	AdminTableHeader as TableHeader,
+	AdminTableRow as TableRow,
+} from "@/components/common/AdminTable";
 import { AdminTableList } from "@/components/common/AdminTableList";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
-import {
-	TableCell,
-	TableHead,
-	TableHeader,
-	TableRow,
-} from "@/components/ui/table";
 import {
 	Tooltip,
 	TooltipContent,
@@ -28,9 +32,6 @@ import {
 	getRemoteNodeStatusLabel,
 	getRemoteNodeStatusTone,
 	hasCompletedRemoteNodeEnrollment,
-	INTERACTIVE_TABLE_ROW_CLASS,
-	REMOTE_NODE_BADGE_CELL_CONTENT_CLASS,
-	REMOTE_NODE_TEXT_CELL_CONTENT_CLASS,
 } from "./shared";
 
 interface RemoteNodesTableProps {
@@ -84,7 +85,7 @@ export function RemoteNodesTable({
 				return (
 					<TableRow
 						key={node.id}
-						className={INTERACTIVE_TABLE_ROW_CLASS}
+						className={ADMIN_INTERACTIVE_TABLE_ROW_CLASS}
 						onClick={() => onEdit(node)}
 						onKeyDown={(event) => {
 							if (event.key === "Enter" || event.key === " ") {
@@ -95,14 +96,12 @@ export function RemoteNodesTable({
 						tabIndex={0}
 					>
 						<TableCell>
-							<div className={REMOTE_NODE_TEXT_CELL_CONTENT_CLASS}>
-								<span className="font-mono text-xs text-muted-foreground">
-									{node.id}
-								</span>
+							<div className={ADMIN_TABLE_TEXT_CELL_CLASS}>
+								<span className={ADMIN_TABLE_MONO_TEXT_CLASS}>{node.id}</span>
 							</div>
 						</TableCell>
 						<TableCell>
-							<div className={REMOTE_NODE_TEXT_CELL_CONTENT_CLASS}>
+							<div className={ADMIN_TABLE_TEXT_CELL_CLASS}>
 								<div className="min-w-0">
 									<div className="truncate font-medium text-foreground">
 										{node.name}
@@ -111,14 +110,14 @@ export function RemoteNodesTable({
 							</div>
 						</TableCell>
 						<TableCell>
-							<div className={REMOTE_NODE_TEXT_CELL_CONTENT_CLASS}>
+							<div className={ADMIN_TABLE_TEXT_CELL_CLASS}>
 								<span className="truncate text-xs font-mono text-muted-foreground">
 									{node.base_url || t("remote_node_base_url_empty")}
 								</span>
 							</div>
 						</TableCell>
 						<TableCell>
-							<div className={REMOTE_NODE_BADGE_CELL_CONTENT_CLASS}>
+							<div className={ADMIN_TABLE_BADGE_CELL_CLASS}>
 								<div className="space-y-2">
 									<div className="flex flex-wrap gap-1.5">
 										<Badge

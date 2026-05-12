@@ -1,17 +1,17 @@
 import { useTranslation } from "react-i18next";
+import {
+	AdminTable as Table,
+	AdminTableBody as TableBody,
+	AdminTableCell as TableCell,
+	AdminTableHead as TableHead,
+	AdminTableHeader as TableHeader,
+	AdminTableRow as TableRow,
+} from "@/components/common/AdminTable";
 import { PreviewAppIcon } from "@/components/common/PreviewAppIcon";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
 import { Switch } from "@/components/ui/switch";
-import {
-	Table,
-	TableBody,
-	TableCell,
-	TableHead,
-	TableHeader,
-	TableRow,
-} from "@/components/ui/table";
 import { cn } from "@/lib/utils";
 import {
 	isProtectedBuiltinPreviewAppKey,
@@ -60,7 +60,7 @@ export function PreviewAppsTable({
 	}
 
 	return (
-		<div className="overflow-hidden rounded-2xl border border-border/60 bg-background">
+		<div className="overflow-hidden rounded-lg border border-border/60 bg-background">
 			<Table>
 				<TableHeader>
 					<TableRow>

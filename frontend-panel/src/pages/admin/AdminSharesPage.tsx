@@ -3,6 +3,12 @@ import { useTranslation } from "react-i18next";
 import { useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 import { AdminOffsetPagination } from "@/components/admin/AdminOffsetPagination";
+import {
+	AdminTableCell as TableCell,
+	AdminTableHead as TableHead,
+	AdminTableHeader as TableHeader,
+	AdminTableRow as TableRow,
+} from "@/components/common/AdminTable";
 import { AdminTableList } from "@/components/common/AdminTableList";
 import { ConfirmDialog } from "@/components/common/ConfirmDialog";
 import { AdminLayout } from "@/components/layout/AdminLayout";
@@ -11,12 +17,6 @@ import { AdminPageShell } from "@/components/layout/AdminPageShell";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
-import {
-	TableCell,
-	TableHead,
-	TableHeader,
-	TableRow,
-} from "@/components/ui/table";
 import { handleApiError } from "@/hooks/useApiError";
 import { useApiList } from "@/hooks/useApiList";
 import { useConfirmDialog } from "@/hooks/useConfirmDialog";

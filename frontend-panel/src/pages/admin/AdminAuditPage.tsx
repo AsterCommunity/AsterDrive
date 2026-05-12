@@ -1,16 +1,26 @@
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useSearchParams } from "react-router-dom";
+import {
+	ADMIN_TABLE_BADGE_CELL_CLASS,
+	ADMIN_TABLE_MONO_TEXT_CLASS,
+	ADMIN_TABLE_TEXT_CELL_CLASS,
+	AdminTableShell,
+	AdminTable as Table,
+	AdminTableBody as TableBody,
+	AdminTableCell as TableCell,
+	AdminTableHead as TableHead,
+	AdminTableHeader as TableHeader,
+	AdminTableRow as TableRow,
+} from "@/components/common/AdminTable";
 import { EmptyState } from "@/components/common/EmptyState";
 import { SkeletonTable } from "@/components/common/SkeletonTable";
 import { AdminLayout } from "@/components/layout/AdminLayout";
 import { AdminPageHeader } from "@/components/layout/AdminPageHeader";
 import { AdminPageShell } from "@/components/layout/AdminPageShell";
-import { AdminSurface } from "@/components/layout/AdminSurface";
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
 import { Input } from "@/components/ui/input";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import {
 	Select,
 	SelectContent,
@@ -18,14 +28,6 @@ import {
 	SelectTrigger,
 	SelectValue,
 } from "@/components/ui/select";
-import {
-	Table,
-	TableBody,
-	TableCell,
-	TableHead,
-	TableHeader,
-	TableRow,
-} from "@/components/ui/table";
 import {
 	Tooltip,
 	TooltipContent,
@@ -57,10 +59,6 @@ const AUDIT_MANAGED_QUERY_KEYS = [
 	"offset",
 	"pageSize",
 ] as const;
-const AUDIT_TEXT_CELL_CONTENT_CLASS =
-	"flex min-w-0 items-center rounded-lg bg-card/55 px-3 py-3 text-left ring-1 ring-border/35 transition-colors duration-200 dark:bg-background/20";
-const AUDIT_BADGE_CELL_CONTENT_CLASS =
-	"flex items-center rounded-lg bg-muted/30 px-3 py-3 text-left ring-1 ring-border/35 transition-colors duration-200 dark:bg-muted/20";
 
 type AuditEntityTypeFilter = "__all__" | string;
 
@@ -359,79 +357,73 @@ export default function AdminAuditPage() {
 						/>
 					)
 				) : (
-					<AdminSurface padded={false}>
-						<ScrollArea className="min-h-0 flex-1">
-							<Table>
-								<TableHeader>
-									<TableRow>
-										<TableHead className="w-[180px]">
-											{t("audit_time")}
-										</TableHead>
-										<TableHead className="w-24">{t("audit_user")}</TableHead>
-										<TableHead className="w-[180px]">
-											{t("audit_action")}
-										</TableHead>
-										<TableHead className="w-32">{t("audit_entity")}</TableHead>
-										<TableHead>{t("core:name")}</TableHead>
-										<TableHead className="w-[160px]">{t("audit_ip")}</TableHead>
+					<AdminTableShell>
+						<Table>
+							<TableHeader>
+								<TableRow>
+									<TableHead className="w-[180px]">{t("audit_time")}</TableHead>
+									<TableHead className="w-24">{t("audit_user")}</TableHead>
+									<TableHead className="w-[180px]">
+										{t("audit_action")}
+									</TableHead>
+									<TableHead className="w-32">{t("audit_entity")}</TableHead>
+									<TableHead>{t("core:name")}</TableHead>
+									<TableHead className="w-[160px]">{t("audit_ip")}</TableHead>
+								</TableRow>
+							</TableHeader>
+							<TableBody>
+								{items.map((item) => (
+									<TableRow key={item.id}>
+										<TableCell>
+											<div className={ADMIN_TABLE_TEXT_CELL_CLASS}>
+												<span
+													className="text-xs text-muted-foreground whitespace-nowrap"
+													title={formatDateAbsoluteWithOffset(item.created_at)}
+												>
+													{formatDateAbsolute(item.created_at)}
+												</span>
+											</div>
+										</TableCell>
+										<TableCell>
+											<div className={ADMIN_TABLE_TEXT_CELL_CLASS}>
+												<span className={ADMIN_TABLE_MONO_TEXT_CLASS}>
+													{item.user_id ?? "---"}
+												</span>
+											</div>
+										</TableCell>
+										<TableCell>
+											<div className={ADMIN_TABLE_BADGE_CELL_CLASS}>
+												<span className="inline-flex items-center rounded-full bg-blue-50 px-2 py-0.5 text-xs font-medium text-blue-700 dark:bg-blue-950 dark:text-blue-300">
+													{formatAuditAction(t, item.action)}
+												</span>
+											</div>
+										</TableCell>
+										<TableCell>
+											<div className={ADMIN_TABLE_TEXT_CELL_CLASS}>
+												<span className="text-sm text-muted-foreground">
+													{formatAuditEntityType(t, item.entity_type)}
+												</span>
+											</div>
+										</TableCell>
+										<TableCell>
+											<div className={ADMIN_TABLE_TEXT_CELL_CLASS}>
+												<span className="truncate text-sm text-muted-foreground">
+													{item.entity_name ?? "---"}
+												</span>
+											</div>
+										</TableCell>
+										<TableCell>
+											<div className={ADMIN_TABLE_TEXT_CELL_CLASS}>
+												<span className={ADMIN_TABLE_MONO_TEXT_CLASS}>
+													{item.ip_address ?? "---"}
+												</span>
+											</div>
+										</TableCell>
 									</TableRow>
-								</TableHeader>
-								<TableBody>
-									{items.map((item) => (
-										<TableRow key={item.id}>
-											<TableCell>
-												<div className={AUDIT_TEXT_CELL_CONTENT_CLASS}>
-													<span
-														className="text-xs text-muted-foreground whitespace-nowrap"
-														title={formatDateAbsoluteWithOffset(
-															item.created_at,
-														)}
-													>
-														{formatDateAbsolute(item.created_at)}
-													</span>
-												</div>
-											</TableCell>
-											<TableCell>
-												<div className={AUDIT_TEXT_CELL_CONTENT_CLASS}>
-													<span className="font-mono text-xs text-muted-foreground">
-														{item.user_id ?? "---"}
-													</span>
-												</div>
-											</TableCell>
-											<TableCell>
-												<div className={AUDIT_BADGE_CELL_CONTENT_CLASS}>
-													<span className="inline-flex items-center rounded-full bg-blue-50 px-2 py-0.5 text-xs font-medium text-blue-700 dark:bg-blue-950 dark:text-blue-300">
-														{formatAuditAction(t, item.action)}
-													</span>
-												</div>
-											</TableCell>
-											<TableCell>
-												<div className={AUDIT_TEXT_CELL_CONTENT_CLASS}>
-													<span className="text-sm text-muted-foreground">
-														{formatAuditEntityType(t, item.entity_type)}
-													</span>
-												</div>
-											</TableCell>
-											<TableCell>
-												<div className={AUDIT_TEXT_CELL_CONTENT_CLASS}>
-													<span className="truncate text-sm text-muted-foreground">
-														{item.entity_name ?? "---"}
-													</span>
-												</div>
-											</TableCell>
-											<TableCell>
-												<div className={AUDIT_TEXT_CELL_CONTENT_CLASS}>
-													<span className="font-mono text-xs text-muted-foreground">
-														{item.ip_address ?? "---"}
-													</span>
-												</div>
-											</TableCell>
-										</TableRow>
-									))}
-								</TableBody>
-							</Table>
-						</ScrollArea>
-					</AdminSurface>
+								))}
+							</TableBody>
+						</Table>
+					</AdminTableShell>
 				)}
 
 				{total > 0 ? (

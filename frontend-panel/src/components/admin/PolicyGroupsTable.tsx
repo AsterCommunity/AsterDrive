@@ -1,4 +1,15 @@
 import { useTranslation } from "react-i18next";
+import {
+	ADMIN_INTERACTIVE_TABLE_ROW_CLASS,
+	ADMIN_TABLE_BADGE_CELL_CLASS,
+	ADMIN_TABLE_MONO_TEXT_CLASS,
+	ADMIN_TABLE_STACKED_CELL_CLASS,
+	ADMIN_TABLE_TEXT_CELL_CLASS,
+	AdminTableCell as TableCell,
+	AdminTableHead as TableHead,
+	AdminTableHeader as TableHeader,
+	AdminTableRow as TableRow,
+} from "@/components/common/AdminTable";
 import { AdminTableList } from "@/components/common/AdminTableList";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -11,12 +22,6 @@ import {
 	SelectValue,
 } from "@/components/ui/select";
 import {
-	TableCell,
-	TableHead,
-	TableHeader,
-	TableRow,
-} from "@/components/ui/table";
-import {
 	Tooltip,
 	TooltipContent,
 	TooltipProvider,
@@ -28,13 +33,6 @@ import {
 } from "@/lib/constants";
 import { formatBytes, formatDateAbsolute } from "@/lib/format";
 import type { StoragePolicyGroup, StoragePolicyGroupItem } from "@/types/api";
-
-const INTERACTIVE_TABLE_ROW_CLASS =
-	"cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/50";
-const GROUP_TEXT_CELL_CONTENT_CLASS =
-	"flex min-w-0 items-center rounded-lg bg-card/55 px-3 py-3 text-left ring-1 ring-border/35 transition-colors duration-200 dark:bg-background/20";
-const GROUP_BADGE_CELL_CONTENT_CLASS =
-	"flex flex-wrap items-center gap-2 rounded-lg bg-muted/30 px-3 py-3 text-left ring-1 ring-border/35 transition-colors duration-200 dark:bg-muted/20";
 
 function getRuleRangeLabel(
 	t: ReturnType<typeof useTranslation>["t"],
@@ -126,7 +124,7 @@ export function PolicyGroupsTable({
 				renderRow={(group) => (
 					<TableRow
 						key={group.id}
-						className={INTERACTIVE_TABLE_ROW_CLASS}
+						className={ADMIN_INTERACTIVE_TABLE_ROW_CLASS}
 						onClick={() => onOpenEdit(group)}
 						onKeyDown={(event) => {
 							if (event.key === "Enter" || event.key === " ") {
@@ -137,14 +135,12 @@ export function PolicyGroupsTable({
 						tabIndex={0}
 					>
 						<TableCell>
-							<div className={GROUP_TEXT_CELL_CONTENT_CLASS}>
-								<span className="font-mono text-xs text-muted-foreground">
-									{group.id}
-								</span>
+							<div className={ADMIN_TABLE_TEXT_CELL_CLASS}>
+								<span className={ADMIN_TABLE_MONO_TEXT_CLASS}>{group.id}</span>
 							</div>
 						</TableCell>
 						<TableCell>
-							<div className="flex min-w-0 flex-col gap-2 rounded-lg bg-card/55 px-3 py-3 text-left ring-1 ring-border/35 dark:bg-background/20">
+							<div className={ADMIN_TABLE_STACKED_CELL_CLASS}>
 								<div className="truncate font-medium text-foreground">
 									{group.name}
 								</div>
@@ -160,7 +156,7 @@ export function PolicyGroupsTable({
 							</div>
 						</TableCell>
 						<TableCell>
-							<div className="flex min-w-0 flex-col gap-2 rounded-lg bg-card/55 px-3 py-3 text-left ring-1 ring-border/35 dark:bg-background/20">
+							<div className="flex min-w-0 flex-col gap-1.5 text-left">
 								{group.items.slice(0, 2).map((item) => (
 									<div
 										key={item.id}
@@ -185,7 +181,7 @@ export function PolicyGroupsTable({
 							</div>
 						</TableCell>
 						<TableCell>
-							<div className={GROUP_BADGE_CELL_CONTENT_CLASS}>
+							<div className={ADMIN_TABLE_BADGE_CELL_CLASS}>
 								{group.is_default ? (
 									<Badge className="border-blue-300 bg-blue-100 text-blue-700 dark:border-blue-700 dark:bg-blue-900 dark:text-blue-300">
 										{t("is_default")}
@@ -206,7 +202,7 @@ export function PolicyGroupsTable({
 							</div>
 						</TableCell>
 						<TableCell>
-							<div className={GROUP_TEXT_CELL_CONTENT_CLASS}>
+							<div className={ADMIN_TABLE_TEXT_CELL_CLASS}>
 								<span className="text-xs text-muted-foreground">
 									{formatDateAbsolute(group.updated_at)}
 								</span>

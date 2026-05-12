@@ -1,14 +1,14 @@
 import { useTranslation } from "react-i18next";
+import {
+	AdminTable as Table,
+	AdminTableBody as TableBody,
+	AdminTableCell as TableCell,
+	AdminTableHead as TableHead,
+	AdminTableHeader as TableHeader,
+	AdminTableRow as TableRow,
+} from "@/components/common/AdminTable";
 import { SkeletonTable } from "@/components/common/SkeletonTable";
 import { AdminSurface } from "@/components/layout/AdminSurface";
-import {
-	Table,
-	TableBody,
-	TableCell,
-	TableHead,
-	TableHeader,
-	TableRow,
-} from "@/components/ui/table";
 import { PAGE_SECTION_PADDING_CLASS } from "@/lib/constants";
 import { cn } from "@/lib/utils";
 import type { AdminOverview } from "@/types/api";

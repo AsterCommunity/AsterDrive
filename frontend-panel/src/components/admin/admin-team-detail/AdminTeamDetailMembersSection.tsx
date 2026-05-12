@@ -1,5 +1,13 @@
 import type { FormEvent } from "react";
 import { useTranslation } from "react-i18next";
+import {
+	AdminTable as Table,
+	AdminTableBody as TableBody,
+	AdminTableCell as TableCell,
+	AdminTableHead as TableHead,
+	AdminTableHeader as TableHeader,
+	AdminTableRow as TableRow,
+} from "@/components/common/AdminTable";
 import { EmptyState } from "@/components/common/EmptyState";
 import { SkeletonTable } from "@/components/common/SkeletonTable";
 import { Badge } from "@/components/ui/badge";
@@ -14,14 +22,6 @@ import {
 	SelectTrigger,
 	SelectValue,
 } from "@/components/ui/select";
-import {
-	Table,
-	TableBody,
-	TableCell,
-	TableHead,
-	TableHeader,
-	TableRow,
-} from "@/components/ui/table";
 import { ADMIN_CONTROL_HEIGHT_CLASS } from "@/lib/constants";
 import { formatDateShort } from "@/lib/format";
 import { getTeamRoleBadgeClass } from "@/lib/team";
@@ -287,7 +287,7 @@ export function AdminTeamDetailMembersSection({
 				/>
 			) : (
 				<>
-					<div className="overflow-x-auto rounded-xl border">
+					<div className="overflow-x-auto rounded-lg border border-border/70">
 						<Table>
 							<TableHeader>
 								<TableRow>

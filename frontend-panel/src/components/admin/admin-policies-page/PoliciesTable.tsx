@@ -1,14 +1,18 @@
 import { useTranslation } from "react-i18next";
+import {
+	ADMIN_INTERACTIVE_TABLE_ROW_CLASS,
+	ADMIN_TABLE_BADGE_CELL_CLASS,
+	ADMIN_TABLE_MONO_TEXT_CLASS,
+	ADMIN_TABLE_TEXT_CELL_CLASS,
+	AdminTableCell as TableCell,
+	AdminTableHead as TableHead,
+	AdminTableHeader as TableHeader,
+	AdminTableRow as TableRow,
+} from "@/components/common/AdminTable";
 import { AdminTableList } from "@/components/common/AdminTableList";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
-import {
-	TableCell,
-	TableHead,
-	TableHeader,
-	TableRow,
-} from "@/components/ui/table";
 import {
 	ADMIN_ICON_BUTTON_CLASS,
 	ADMIN_TABLE_ACTIONS_WIDTH_CLASS,
@@ -18,13 +22,6 @@ import {
 	getPolicyDriverBadgeClass,
 	PROTECTED_POLICY_ID,
 } from "./policyPresentation";
-
-const INTERACTIVE_TABLE_ROW_CLASS =
-	"cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/50";
-const POLICY_TEXT_CELL_CONTENT_CLASS =
-	"flex min-w-0 items-center rounded-lg bg-card/55 px-3 py-3 text-left ring-1 ring-border/35 transition-colors duration-200 dark:bg-background/20";
-const POLICY_BADGE_CELL_CONTENT_CLASS =
-	"flex items-center rounded-lg bg-muted/30 px-3 py-3 text-left ring-1 ring-border/35 transition-colors duration-200 dark:bg-muted/20";
 
 interface PoliciesTableProps {
 	loading: boolean;
@@ -69,7 +66,7 @@ export function PoliciesTable({
 			renderRow={(policy) => (
 				<TableRow
 					key={policy.id}
-					className={INTERACTIVE_TABLE_ROW_CLASS}
+					className={ADMIN_INTERACTIVE_TABLE_ROW_CLASS}
 					onClick={() => onEditPolicy(policy)}
 					onKeyDown={(event) => {
 						if (event.key === "Enter" || event.key === " ") {
@@ -80,14 +77,12 @@ export function PoliciesTable({
 					tabIndex={0}
 				>
 					<TableCell>
-						<div className={POLICY_TEXT_CELL_CONTENT_CLASS}>
-							<span className="font-mono text-xs text-muted-foreground">
-								{policy.id}
-							</span>
+						<div className={ADMIN_TABLE_TEXT_CELL_CLASS}>
+							<span className={ADMIN_TABLE_MONO_TEXT_CLASS}>{policy.id}</span>
 						</div>
 					</TableCell>
 					<TableCell>
-						<div className={POLICY_TEXT_CELL_CONTENT_CLASS}>
+						<div className={ADMIN_TABLE_TEXT_CELL_CLASS}>
 							<div className="min-w-0">
 								<div className="truncate font-medium text-foreground">
 									{policy.name}
@@ -96,7 +91,7 @@ export function PoliciesTable({
 						</div>
 					</TableCell>
 					<TableCell>
-						<div className={POLICY_BADGE_CELL_CONTENT_CLASS}>
+						<div className={ADMIN_TABLE_BADGE_CELL_CLASS}>
 							<Badge
 								variant="outline"
 								className={getPolicyDriverBadgeClass(policy.driver_type)}
@@ -110,7 +105,7 @@ export function PoliciesTable({
 						</div>
 					</TableCell>
 					<TableCell>
-						<div className={POLICY_TEXT_CELL_CONTENT_CLASS}>
+						<div className={ADMIN_TABLE_TEXT_CELL_CLASS}>
 							<span className="truncate text-xs font-mono text-muted-foreground">
 								{policy.driver_type === "local"
 									? policy.base_path || "./data"
@@ -121,7 +116,7 @@ export function PoliciesTable({
 						</div>
 					</TableCell>
 					<TableCell>
-						<div className={POLICY_TEXT_CELL_CONTENT_CLASS}>
+						<div className={ADMIN_TABLE_TEXT_CELL_CLASS}>
 							<span className="truncate text-xs text-muted-foreground">
 								{policy.driver_type === "remote"
 									? policy.remote_node_id != null
@@ -133,7 +128,7 @@ export function PoliciesTable({
 						</div>
 					</TableCell>
 					<TableCell>
-						<div className={POLICY_BADGE_CELL_CONTENT_CLASS}>
+						<div className={ADMIN_TABLE_BADGE_CELL_CLASS}>
 							{policy.is_default ? (
 								<Badge className="bg-blue-100 border-blue-300 text-blue-700 dark:border-blue-700 dark:bg-blue-900 dark:text-blue-300">
 									{t("is_default")}

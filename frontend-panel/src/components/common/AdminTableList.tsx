@@ -1,9 +1,11 @@
 import type { ReactNode } from "react";
+import {
+	AdminTable,
+	AdminTableBody,
+	AdminTableShell,
+} from "@/components/common/AdminTable";
 import { EmptyState } from "@/components/common/EmptyState";
 import { SkeletonTable } from "@/components/common/SkeletonTable";
-import { AdminSurface } from "@/components/layout/AdminSurface";
-import { ScrollArea } from "@/components/ui/scroll-area";
-import { Table, TableBody } from "@/components/ui/table";
 
 interface AdminTableListProps<T> {
 	loading: boolean;
@@ -43,13 +45,11 @@ export function AdminTableList<T>({
 	}
 
 	return (
-		<AdminSurface padded={false}>
-			<ScrollArea className="min-h-0 flex-1">
-				<Table>
-					{headerRow}
-					<TableBody>{items.map(renderRow)}</TableBody>
-				</Table>
-			</ScrollArea>
-		</AdminSurface>
+		<AdminTableShell>
+			<AdminTable>
+				{headerRow}
+				<AdminTableBody>{items.map(renderRow)}</AdminTableBody>
+			</AdminTable>
+		</AdminTableShell>
 	);
 }

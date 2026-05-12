@@ -1,17 +1,17 @@
 import { useTranslation } from "react-i18next";
+import {
+	AdminTable as Table,
+	AdminTableBody as TableBody,
+	AdminTableCell as TableCell,
+	AdminTableHead as TableHead,
+	AdminTableHeader as TableHeader,
+	AdminTableRow as TableRow,
+} from "@/components/common/AdminTable";
 import { EmptyState } from "@/components/common/EmptyState";
 import { SkeletonTable } from "@/components/common/SkeletonTable";
 import { AdminSurface } from "@/components/layout/AdminSurface";
 import { Badge } from "@/components/ui/badge";
 import { Icon } from "@/components/ui/icon";
-import {
-	Table,
-	TableBody,
-	TableCell,
-	TableHead,
-	TableHeader,
-	TableRow,
-} from "@/components/ui/table";
 import { formatAuditAction, formatAuditEntityType } from "@/lib/audit";
 import { PAGE_SECTION_PADDING_CLASS } from "@/lib/constants";
 import { formatDateAbsolute, formatDateAbsoluteWithOffset } from "@/lib/format";

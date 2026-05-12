@@ -1,26 +1,23 @@
 import { useTranslation } from "react-i18next";
-import { AdminSurface } from "@/components/layout/AdminSurface";
-import { Badge } from "@/components/ui/badge";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import {
-	Table,
-	TableBody,
-	TableCell,
-	TableHead,
-	TableHeader,
-	TableRow,
-} from "@/components/ui/table";
+	ADMIN_TABLE_BADGE_CELL_CLASS,
+	ADMIN_TABLE_MONO_TEXT_CLASS,
+	ADMIN_TABLE_TEXT_CELL_CLASS,
+	AdminTableShell,
+	AdminTable as Table,
+	AdminTableBody as TableBody,
+	AdminTableCell as TableCell,
+	AdminTableHead as TableHead,
+	AdminTableHeader as TableHeader,
+	AdminTableRow as TableRow,
+} from "@/components/common/AdminTable";
+import { Badge } from "@/components/ui/badge";
 import { formatDateAbsolute, formatDateAbsoluteWithOffset } from "@/lib/format";
 import type {
 	BackgroundTaskKind,
 	BackgroundTaskStatus,
 	TaskInfo,
 } from "@/types/api";
-
-const TASK_TEXT_CELL_CONTENT_CLASS =
-	"flex min-w-0 items-center rounded-lg bg-card/55 px-3 py-3 text-left ring-1 ring-border/35 transition-colors duration-200 dark:bg-background/20";
-const TASK_BADGE_CELL_CONTENT_CLASS =
-	"flex items-center rounded-lg bg-muted/30 px-3 py-3 text-left ring-1 ring-border/35 transition-colors duration-200 dark:bg-muted/20";
 
 interface AdminTaskTableProps {
 	formatTaskKind: (kind: BackgroundTaskKind) => string;
@@ -62,103 +59,97 @@ export function AdminTaskTable({
 	const { t } = useTranslation(["admin", "core"]);
 
 	return (
-		<AdminSurface padded={false}>
-			<ScrollArea className="min-h-0 flex-1">
-				<Table>
-					<TableHeader>
-						<TableRow>
-							<TableHead className="w-16">{t("admin:id")}</TableHead>
-							<TableHead className="min-w-[240px]">
-								{t("admin:task_name")}
-							</TableHead>
-							<TableHead className="w-[180px]">{t("core:type")}</TableHead>
-							<TableHead className="w-[160px]">{t("core:status")}</TableHead>
-							<TableHead className="w-[160px]">
-								{t("admin:task_source")}
-							</TableHead>
-							<TableHead className="w-[160px]">
-								{t("admin:task_progress")}
-							</TableHead>
-							<TableHead className="w-[180px]">
-								{t("admin:task_execution_time")}
-							</TableHead>
-							<TableHead className="min-w-[240px]">
-								{t("admin:task_detail")}
-							</TableHead>
+		<AdminTableShell>
+			<Table>
+				<TableHeader>
+					<TableRow>
+						<TableHead className="w-16">{t("admin:id")}</TableHead>
+						<TableHead className="min-w-[240px]">
+							{t("admin:task_name")}
+						</TableHead>
+						<TableHead className="w-[180px]">{t("core:type")}</TableHead>
+						<TableHead className="w-[160px]">{t("core:status")}</TableHead>
+						<TableHead className="w-[160px]">
+							{t("admin:task_source")}
+						</TableHead>
+						<TableHead className="w-[160px]">
+							{t("admin:task_progress")}
+						</TableHead>
+						<TableHead className="w-[180px]">
+							{t("admin:task_execution_time")}
+						</TableHead>
+						<TableHead className="min-w-[240px]">
+							{t("admin:task_detail")}
+						</TableHead>
+					</TableRow>
+				</TableHeader>
+				<TableBody>
+					{items.map((task) => (
+						<TableRow key={task.id}>
+							<TableCell>
+								<div className={ADMIN_TABLE_TEXT_CELL_CLASS}>
+									<span className={ADMIN_TABLE_MONO_TEXT_CLASS}>{task.id}</span>
+								</div>
+							</TableCell>
+							<TableCell>
+								<div className={ADMIN_TABLE_TEXT_CELL_CLASS}>
+									<span className="truncate text-sm font-medium text-foreground">
+										{task.display_name}
+									</span>
+								</div>
+							</TableCell>
+							<TableCell>
+								<div className={ADMIN_TABLE_BADGE_CELL_CLASS}>
+									<Badge variant="outline">{formatTaskKind(task.kind)}</Badge>
+								</div>
+							</TableCell>
+							<TableCell>
+								<div className={ADMIN_TABLE_BADGE_CELL_CLASS}>
+									<span
+										className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium ${getTaskStatusBadgeClass(task.status)}`}
+									>
+										{formatTaskStatus(task.status)}
+									</span>
+								</div>
+							</TableCell>
+							<TableCell>
+								<div className={ADMIN_TABLE_TEXT_CELL_CLASS}>
+									<span className="text-xs text-muted-foreground">
+										{formatTaskSource(task)}
+									</span>
+								</div>
+							</TableCell>
+							<TableCell>
+								<div className={ADMIN_TABLE_TEXT_CELL_CLASS}>
+									<span className="text-sm font-medium text-foreground">
+										{task.progress_percent}%
+									</span>
+								</div>
+							</TableCell>
+							<TableCell>
+								<div className={ADMIN_TABLE_TEXT_CELL_CLASS}>
+									<span
+										className="text-xs text-muted-foreground whitespace-nowrap"
+										title={formatDateAbsoluteWithOffset(taskExecutionAt(task))}
+									>
+										{formatDateAbsolute(taskExecutionAt(task))}
+									</span>
+								</div>
+							</TableCell>
+							<TableCell>
+								<div className={ADMIN_TABLE_TEXT_CELL_CLASS}>
+									<span
+										className="truncate text-xs text-muted-foreground"
+										title={taskDetail(task)}
+									>
+										{taskDetail(task)}
+									</span>
+								</div>
+							</TableCell>
 						</TableRow>
-					</TableHeader>
-					<TableBody>
-						{items.map((task) => (
-							<TableRow key={task.id}>
-								<TableCell>
-									<div className={TASK_TEXT_CELL_CONTENT_CLASS}>
-										<span className="font-mono text-xs text-muted-foreground">
-											{task.id}
-										</span>
-									</div>
-								</TableCell>
-								<TableCell>
-									<div className={TASK_TEXT_CELL_CONTENT_CLASS}>
-										<span className="truncate text-sm font-medium text-foreground">
-											{task.display_name}
-										</span>
-									</div>
-								</TableCell>
-								<TableCell>
-									<div className={TASK_BADGE_CELL_CONTENT_CLASS}>
-										<Badge variant="outline">{formatTaskKind(task.kind)}</Badge>
-									</div>
-								</TableCell>
-								<TableCell>
-									<div className={TASK_BADGE_CELL_CONTENT_CLASS}>
-										<span
-											className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium ${getTaskStatusBadgeClass(task.status)}`}
-										>
-											{formatTaskStatus(task.status)}
-										</span>
-									</div>
-								</TableCell>
-								<TableCell>
-									<div className={TASK_TEXT_CELL_CONTENT_CLASS}>
-										<span className="text-xs text-muted-foreground">
-											{formatTaskSource(task)}
-										</span>
-									</div>
-								</TableCell>
-								<TableCell>
-									<div className={TASK_TEXT_CELL_CONTENT_CLASS}>
-										<span className="text-sm font-medium text-foreground">
-											{task.progress_percent}%
-										</span>
-									</div>
-								</TableCell>
-								<TableCell>
-									<div className={TASK_TEXT_CELL_CONTENT_CLASS}>
-										<span
-											className="text-xs text-muted-foreground whitespace-nowrap"
-											title={formatDateAbsoluteWithOffset(
-												taskExecutionAt(task),
-											)}
-										>
-											{formatDateAbsolute(taskExecutionAt(task))}
-										</span>
-									</div>
-								</TableCell>
-								<TableCell>
-									<div className={TASK_TEXT_CELL_CONTENT_CLASS}>
-										<span
-											className="truncate text-xs text-muted-foreground"
-											title={taskDetail(task)}
-										>
-											{taskDetail(task)}
-										</span>
-									</div>
-								</TableCell>
-							</TableRow>
-						))}
-					</TableBody>
-				</Table>
-			</ScrollArea>
-		</AdminSurface>
+					))}
+				</TableBody>
+			</Table>
+		</AdminTableShell>
 	);
 }
