@@ -8,10 +8,14 @@ import { Icon } from "@/components/ui/icon";
 import { handleApiError } from "@/hooks/useApiError";
 import { useConfirmDialog } from "@/hooks/useConfirmDialog";
 import { formatBatchToast } from "@/lib/formatBatchToast";
+import {
+	forgetStorageEventEchoes,
+	rememberStorageDeleteEchoes,
+} from "@/lib/storageEventEcho";
 import { batchService } from "@/services/batchService";
-import { useAuthStore } from "@/stores/authStore";
 import type { BreadcrumbItem } from "@/stores/fileStore";
 import { useFileStore } from "@/stores/fileStore";
+import { useWorkspaceStore } from "@/stores/workspaceStore";
 
 interface BatchActionBarProps {
 	onArchiveCompress?: (
@@ -45,6 +49,11 @@ export function BatchActionBar({
 	const count = fileIds.length + folderIds.length;
 
 	const handleDelete = async () => {
+		const echoIds = rememberStorageDeleteEchoes({
+			workspace: useWorkspaceStore.getState().workspace,
+			fileIds,
+			folderIds,
+		});
 		try {
 			const result = await batchService.batchDelete(fileIds, folderIds);
 			const batchToast = formatBatchToast(t, "delete", result);
@@ -56,8 +65,9 @@ export function BatchActionBar({
 				});
 			}
 			clearSelection();
-			await Promise.all([refresh(), useAuthStore.getState().refreshUser()]);
+			await refresh();
 		} catch (err) {
+			forgetStorageEventEchoes(echoIds);
 			handleApiError(err);
 		}
 	};

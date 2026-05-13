@@ -1,6 +1,10 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { BatchActionBar } from "@/components/common/BatchActionBar";
+import {
+	clearStorageEventEchoes,
+	consumeStorageEventEcho,
+} from "@/lib/storageEventEcho";
 
 const mockState = vi.hoisted(() => ({
 	archiveCompress: vi.fn(),
@@ -150,6 +154,12 @@ vi.mock("@/stores/fileStore", () => ({
 		}),
 }));
 
+vi.mock("@/stores/workspaceStore", () => ({
+	useWorkspaceStore: {
+		getState: () => ({ workspace: { kind: "personal" } }),
+	},
+}));
+
 describe("BatchActionBar", () => {
 	beforeEach(() => {
 		mockState.archiveCompress.mockReset();
@@ -191,6 +201,7 @@ describe("BatchActionBar", () => {
 			title: "toast:title",
 			variant: "success",
 		});
+		clearStorageEventEchoes();
 	});
 
 	it("does not render when nothing is selected", () => {
@@ -226,7 +237,29 @@ describe("BatchActionBar", () => {
 		await waitFor(() => {
 			expect(mockState.refresh).toHaveBeenCalledTimes(1);
 		});
-		expect(mockState.refreshUser).toHaveBeenCalledTimes(1);
+		expect(mockState.refreshUser).not.toHaveBeenCalled();
+		expect(
+			consumeStorageEventEcho({
+				kind: "file.deleted",
+				workspace: { kind: "personal" },
+				file_ids: [1, 2],
+				folder_ids: [],
+				affected_parent_ids: [7],
+				root_affected: false,
+				at: "2026-05-13T00:00:00Z",
+			}),
+		).toBe(true);
+		expect(
+			consumeStorageEventEcho({
+				kind: "folder.deleted",
+				workspace: { kind: "personal" },
+				file_ids: [],
+				folder_ids: [5],
+				affected_parent_ids: [7],
+				root_affected: false,
+				at: "2026-05-13T00:00:00Z",
+			}),
+		).toBe(true);
 	});
 
 	it("moves selected items to a target folder", async () => {

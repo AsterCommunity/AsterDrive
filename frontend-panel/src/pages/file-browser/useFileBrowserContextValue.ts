@@ -5,6 +5,7 @@ import { workspaceFolderPath } from "@/lib/workspace";
 import type { BreadcrumbItem, BrowserOpenMode } from "@/stores/fileStore";
 import { useWorkspaceStore } from "@/stores/workspaceStore";
 import type { FileListItem, FolderListItem } from "@/types/api";
+import type { FileBrowserSelectionToolbarState } from "./types";
 
 interface UseFileBrowserContextValueOptions {
 	breadcrumb: BreadcrumbItem[];
@@ -13,6 +14,7 @@ interface UseFileBrowserContextValueOptions {
 	displayFolders: FolderListItem[];
 	fadingFileIds: Set<number>;
 	fadingFolderIds: Set<number>;
+	selectionToolbar: FileBrowserSelectionToolbarState | null;
 	handleArchiveCompress: (type: "file" | "folder", id: number) => void;
 	handleArchiveDownload: (folderId: number) => void;
 	handleArchiveExtract: (fileId: number) => void;
@@ -47,6 +49,7 @@ export function useFileBrowserContextValue({
 	displayFolders,
 	fadingFileIds,
 	fadingFolderIds,
+	selectionToolbar,
 	handleArchiveCompress,
 	handleArchiveDownload,
 	handleArchiveExtract,
@@ -103,6 +106,20 @@ export function useFileBrowserContextValue({
 		(file: FileListItem) => openPreview(file, "picker"),
 		[openPreview],
 	);
+	const batchSelectionActions = useMemo(
+		() =>
+			selectionToolbar
+				? {
+						count: selectionToolbar.count,
+						onArchiveCompress: selectionToolbar.onArchiveCompress,
+						onArchiveDownload: selectionToolbar.onArchiveDownload,
+						onCopy: selectionToolbar.onCopy,
+						onDelete: selectionToolbar.onDelete,
+						onMove: selectionToolbar.onMove,
+					}
+				: null,
+		[selectionToolbar],
+	);
 
 	const fileBrowserContextValue = useMemo<FileBrowserContextValue>(
 		() => ({
@@ -110,6 +127,7 @@ export function useFileBrowserContextValue({
 			files: displayFiles,
 			browserOpenMode,
 			breadcrumbPathIds,
+			batchSelectionActions,
 			onFolderOpen: handleFolderOpen,
 			onFileClick: handleFileClick,
 			onFileOpen: handleFileOpen,
@@ -135,6 +153,7 @@ export function useFileBrowserContextValue({
 			displayFiles,
 			browserOpenMode,
 			breadcrumbPathIds,
+			batchSelectionActions,
 			handleFolderOpen,
 			handleFileClick,
 			handleFileOpen,

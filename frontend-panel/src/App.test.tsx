@@ -140,7 +140,8 @@ describe("App", () => {
 		expect(mockState.setAuthState).not.toHaveBeenCalled();
 	});
 
-	it("revalidates public config when the tab becomes visible again", () => {
+	it("does not revalidate public config on tab visibility changes", () => {
+		vi.useFakeTimers();
 		render(<App />);
 
 		expect(mockState.brandingLoad).toHaveBeenCalledTimes(1);
@@ -152,13 +153,14 @@ describe("App", () => {
 			value: "visible",
 		});
 		document.dispatchEvent(new Event("visibilitychange"));
+		vi.advanceTimersByTime(300_000);
 
-		expect(mockState.brandingLoad).toHaveBeenCalledTimes(2);
-		expect(mockState.previewAppsLoad).toHaveBeenCalledTimes(2);
-		expect(mockState.thumbnailSupportLoad).toHaveBeenCalledTimes(2);
+		expect(mockState.brandingLoad).toHaveBeenCalledTimes(1);
+		expect(mockState.previewAppsLoad).toHaveBeenCalledTimes(1);
+		expect(mockState.thumbnailSupportLoad).toHaveBeenCalledTimes(1);
 	});
 
-	it("revalidates public config on the interval while visible", () => {
+	it("does not revalidate public config on an interval", () => {
 		vi.useFakeTimers();
 		Object.defineProperty(document, "visibilityState", {
 			configurable: true,
@@ -167,10 +169,10 @@ describe("App", () => {
 
 		render(<App />);
 
-		vi.advanceTimersByTime(60_000);
+		vi.advanceTimersByTime(300_000);
 
-		expect(mockState.brandingLoad).toHaveBeenCalledTimes(2);
-		expect(mockState.previewAppsLoad).toHaveBeenCalledTimes(2);
-		expect(mockState.thumbnailSupportLoad).toHaveBeenCalledTimes(2);
+		expect(mockState.brandingLoad).toHaveBeenCalledTimes(1);
+		expect(mockState.previewAppsLoad).toHaveBeenCalledTimes(1);
+		expect(mockState.thumbnailSupportLoad).toHaveBeenCalledTimes(1);
 	});
 });

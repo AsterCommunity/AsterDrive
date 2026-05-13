@@ -55,6 +55,7 @@ interface FolderGridCardProps extends BaseGridCardProps {
 	breadcrumbPathIds: number[];
 	fading: boolean;
 	folder: FolderListItem;
+	selectionActive: boolean;
 	onFolderOpen: (id: number, name: string) => void;
 	onMoveToFolder?: (
 		fileIds: number[],
@@ -68,6 +69,7 @@ const FolderGridCard = memo(function FolderGridCard({
 	breadcrumbPathIds,
 	fading,
 	folder,
+	selectionActive,
 	onFolderOpen,
 	onMoveToFolder,
 }: FolderGridCardProps) {
@@ -85,6 +87,7 @@ const FolderGridCard = memo(function FolderGridCard({
 				item={folder}
 				isFolder
 				selected={selected}
+				selectionActive={selectionActive}
 				onSelect={() => toggleFolderSelection(folder.id)}
 				onClick={() => {
 					if (browserOpenMode === "double_click") {
@@ -110,6 +113,7 @@ const FolderGridCard = memo(function FolderGridCard({
 interface FileGridCardProps extends BaseGridCardProps {
 	fading: boolean;
 	file: FileListItem;
+	selectionActive: boolean;
 	onFileClick: (file: FileListItem) => void;
 }
 
@@ -117,6 +121,7 @@ const FileGridCard = memo(function FileGridCard({
 	browserOpenMode,
 	fading,
 	file,
+	selectionActive,
 	onFileClick,
 }: FileGridCardProps) {
 	const selected = useFileStore((s) => s.selectedFileIds.has(file.id));
@@ -129,6 +134,7 @@ const FileGridCard = memo(function FileGridCard({
 				item={file}
 				isFolder={false}
 				selected={selected}
+				selectionActive={selectionActive}
 				onSelect={() => toggleFileSelection(file.id)}
 				onClick={() => {
 					if (browserOpenMode === "double_click") {
@@ -162,6 +168,9 @@ function FileGridComponent({ scrollElement }: FileGridProps) {
 		onFolderOpen,
 		onMoveToFolder,
 	} = useFileBrowserContext();
+	const selectionActive = useFileStore(
+		(s) => s.selectedFileIds.size + s.selectedFolderIds.size > 0,
+	);
 	const [viewportWidth, setViewportWidth] = useState(() =>
 		typeof window === "undefined" ? 1280 : window.innerWidth,
 	);
@@ -187,6 +196,7 @@ function FileGridComponent({ scrollElement }: FileGridProps) {
 			browserOpenMode={browserOpenMode}
 			fading={fadingFolderIds?.has(folder.id) ?? false}
 			folder={folder}
+			selectionActive={selectionActive}
 			onFolderOpen={onFolderOpen}
 			onMoveToFolder={onMoveToFolder}
 		/>
@@ -198,6 +208,7 @@ function FileGridComponent({ scrollElement }: FileGridProps) {
 			browserOpenMode={browserOpenMode}
 			fading={fadingFileIds?.has(file.id) ?? false}
 			file={file}
+			selectionActive={selectionActive}
 			onFileClick={onFileClick}
 		/>
 	);

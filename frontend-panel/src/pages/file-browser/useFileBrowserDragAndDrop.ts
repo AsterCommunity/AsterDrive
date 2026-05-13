@@ -13,9 +13,13 @@ import {
 	readInternalDragData,
 } from "@/lib/dragDrop";
 import { formatBatchToast } from "@/lib/formatBatchToast";
+import {
+	forgetStorageEventEchoes,
+	rememberStorageDeleteEchoes,
+} from "@/lib/storageEventEcho";
 import { batchService } from "@/services/batchService";
-import { useAuthStore } from "@/stores/authStore";
 import type { BreadcrumbItem } from "@/stores/fileStore";
+import { useWorkspaceStore } from "@/stores/workspaceStore";
 import type { BatchResult } from "@/types/api";
 
 interface UseFileBrowserDragAndDropOptions {
@@ -209,6 +213,11 @@ export function useFileBrowserDragAndDrop({
 	const handleTrashDrop = useCallback(
 		async ({ fileIds, folderIds }: InternalDragData) => {
 			if (fileIds.length === 0 && folderIds.length === 0) return;
+			const echoIds = rememberStorageDeleteEchoes({
+				workspace: useWorkspaceStore.getState().workspace,
+				fileIds,
+				folderIds,
+			});
 			try {
 				setFadingFileIds(createIdSet(fileIds));
 				setFadingFolderIds(createIdSet(folderIds));
@@ -219,11 +228,9 @@ export function useFileBrowserDragAndDrop({
 				clearFadingState();
 				showBatchToast("delete", result);
 				clearSelection();
-				await Promise.all([
-					searchQuery ? search(searchQuery) : refresh(),
-					useAuthStore.getState().refreshUser(),
-				]);
+				await (searchQuery ? search(searchQuery) : refresh());
 			} catch (err) {
+				forgetStorageEventEchoes(echoIds);
 				clearFadingState();
 				handleApiError(err);
 			}

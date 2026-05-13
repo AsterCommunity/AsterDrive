@@ -33,6 +33,8 @@ interface FileCardProps {
 	targetPathIds?: number[];
 	fading?: boolean;
 	draggable?: boolean;
+	selectable?: boolean;
+	selectionActive?: boolean;
 	thumbnailPath?: string;
 }
 
@@ -49,6 +51,8 @@ export function FileCard({
 	targetPathIds = [],
 	fading,
 	draggable = true,
+	selectable = true,
+	selectionActive = false,
 	thumbnailPath,
 }: FileCardProps) {
 	const [dragOver, setDragOver] = useState(false);
@@ -128,15 +132,19 @@ export function FileCard({
 			role="button"
 			tabIndex={0}
 		>
-			<ItemCheckbox
-				data-drag-preview-hidden
-				checked={selected}
-				onChange={onSelect}
-				className={cn(
-					"absolute top-2 left-2 transition-opacity",
-					selected ? "opacity-100" : "opacity-0 group-hover:opacity-100",
-				)}
-			/>
+			{selectable && (
+				<ItemCheckbox
+					data-drag-preview-hidden
+					checked={selected}
+					onChange={onSelect}
+					className={cn(
+						"absolute top-2 left-2 transition-opacity",
+						selected || selectionActive
+							? "opacity-100"
+							: "opacity-100 sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100",
+					)}
+				/>
+			)}
 
 			<FileItemStatusIndicators
 				isShared={item.is_shared}

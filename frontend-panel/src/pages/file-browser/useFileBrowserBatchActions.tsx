@@ -1,0 +1,246 @@
+import {
+	type ReactNode,
+	useCallback,
+	useEffect,
+	useMemo,
+	useState,
+} from "react";
+import { useTranslation } from "react-i18next";
+import { toast } from "sonner";
+import { ConfirmDialog } from "@/components/common/ConfirmDialog";
+import { BatchTargetFolderDialog } from "@/components/files/BatchTargetFolderDialog";
+import { handleApiError } from "@/hooks/useApiError";
+import { useConfirmDialog } from "@/hooks/useConfirmDialog";
+import { formatBatchToast } from "@/lib/formatBatchToast";
+import {
+	forgetStorageEventEchoes,
+	rememberStorageDeleteEchoes,
+} from "@/lib/storageEventEcho";
+import { batchService } from "@/services/batchService";
+import { useFileStore } from "@/stores/fileStore";
+import { useWorkspaceStore } from "@/stores/workspaceStore";
+import type { FileListItem, FolderListItem } from "@/types/api";
+import type { FileBrowserSelectionToolbarState } from "./types";
+
+interface UseFileBrowserBatchActionsOptions {
+	displayFiles: FileListItem[];
+	displayFolders: FolderListItem[];
+	onArchiveCompress?: (
+		fileIds: number[],
+		folderIds: number[],
+	) => Promise<void> | void;
+	onArchiveDownload?: (
+		fileIds: number[],
+		folderIds: number[],
+	) => Promise<void> | void;
+}
+
+interface UseFileBrowserBatchActionsResult {
+	dialogs: ReactNode;
+	selectionToolbar: FileBrowserSelectionToolbarState | null;
+}
+
+export function useFileBrowserBatchActions({
+	displayFiles,
+	displayFolders,
+	onArchiveCompress,
+	onArchiveDownload,
+}: UseFileBrowserBatchActionsOptions): UseFileBrowserBatchActionsResult {
+	const { t } = useTranslation(["files", "tasks"]);
+	const selectedFileIds = useFileStore((s) => s.selectedFileIds);
+	const selectedFolderIds = useFileStore((s) => s.selectedFolderIds);
+	const clearSelection = useFileStore((s) => s.clearSelection);
+	const selectItems = useFileStore((s) => s.selectItems);
+	const refresh = useFileStore((s) => s.refresh);
+	const moveToFolder = useFileStore((s) => s.moveToFolder);
+	const currentFolderId = useFileStore((s) => s.currentFolderId);
+	const breadcrumb = useFileStore((s) => s.breadcrumb);
+	const [targetDialogMode, setTargetDialogMode] = useState<
+		"move" | "copy" | null
+	>(null);
+
+	const fileIds = useMemo(() => Array.from(selectedFileIds), [selectedFileIds]);
+	const folderIds = useMemo(
+		() => Array.from(selectedFolderIds),
+		[selectedFolderIds],
+	);
+	const displayedFileIds = useMemo(
+		() => displayFiles.map((file) => file.id),
+		[displayFiles],
+	);
+	const displayedFolderIds = useMemo(
+		() => displayFolders.map((folder) => folder.id),
+		[displayFolders],
+	);
+	const count = fileIds.length + folderIds.length;
+	const displayedCount = displayedFileIds.length + displayedFolderIds.length;
+	const hasDisplayedItems = displayedCount > 0;
+	const allDisplayedSelected =
+		hasDisplayedItems &&
+		count === displayedCount &&
+		displayedFileIds.every((id) => selectedFileIds.has(id)) &&
+		displayedFolderIds.every((id) => selectedFolderIds.has(id));
+
+	useEffect(() => {
+		if (count === 0) {
+			setTargetDialogMode(null);
+		}
+	}, [count]);
+
+	const handleDelete = useCallback(async () => {
+		const echoIds = rememberStorageDeleteEchoes({
+			workspace: useWorkspaceStore.getState().workspace,
+			fileIds,
+			folderIds,
+		});
+		try {
+			const result = await batchService.batchDelete(fileIds, folderIds);
+			const batchToast = formatBatchToast(t, "delete", result);
+			if (batchToast.variant === "error") {
+				toast.error(batchToast.title, { description: batchToast.description });
+			} else {
+				toast.success(batchToast.title, {
+					description: batchToast.description,
+				});
+			}
+			clearSelection();
+			await refresh();
+		} catch (err) {
+			forgetStorageEventEchoes(echoIds);
+			handleApiError(err);
+		}
+	}, [clearSelection, fileIds, folderIds, refresh, t]);
+
+	const {
+		requestConfirm: requestDeleteConfirm,
+		dialogProps: deleteDialogProps,
+	} = useConfirmDialog<true>(handleDelete);
+
+	const handleMove = useCallback(() => {
+		setTargetDialogMode("move");
+	}, []);
+
+	const handleCopy = useCallback(() => {
+		setTargetDialogMode("copy");
+	}, []);
+
+	const handleArchiveDownload = useCallback(async () => {
+		if (!onArchiveDownload) return;
+		try {
+			await onArchiveDownload(fileIds, folderIds);
+			clearSelection();
+		} catch (err) {
+			handleApiError(err);
+		}
+	}, [clearSelection, fileIds, folderIds, onArchiveDownload]);
+
+	const handleArchiveCompress = useCallback(async () => {
+		if (!onArchiveCompress) return;
+		try {
+			await onArchiveCompress(fileIds, folderIds);
+		} catch (err) {
+			handleApiError(err);
+		}
+	}, [fileIds, folderIds, onArchiveCompress]);
+
+	const handleToggleDisplayedSelection = useCallback(() => {
+		if (allDisplayedSelected) {
+			clearSelection();
+			return;
+		}
+
+		selectItems(displayedFileIds, displayedFolderIds);
+	}, [
+		allDisplayedSelected,
+		clearSelection,
+		displayedFileIds,
+		displayedFolderIds,
+		selectItems,
+	]);
+
+	const handleTargetConfirm = useCallback(
+		async (targetFolderId: number | null) => {
+			if (!targetDialogMode) return;
+
+			try {
+				const result =
+					targetDialogMode === "move"
+						? await moveToFolder(fileIds, folderIds, targetFolderId)
+						: await batchService.batchCopy(fileIds, folderIds, targetFolderId);
+				const batchToast = formatBatchToast(t, targetDialogMode, result);
+				if (batchToast.variant === "error") {
+					toast.error(batchToast.title, {
+						description: batchToast.description,
+					});
+				} else {
+					toast.success(batchToast.title, {
+						description: batchToast.description,
+					});
+				}
+				if (targetDialogMode === "copy") {
+					clearSelection();
+					await refresh();
+				}
+				setTargetDialogMode(null);
+			} catch (err) {
+				handleApiError(err);
+			}
+		},
+		[
+			clearSelection,
+			fileIds,
+			folderIds,
+			moveToFolder,
+			refresh,
+			t,
+			targetDialogMode,
+		],
+	);
+
+	const selectionToolbar =
+		count > 0
+			? {
+					count,
+					allDisplayedSelected,
+					hasDisplayedItems,
+					onArchiveCompress: onArchiveCompress
+						? handleArchiveCompress
+						: undefined,
+					onArchiveDownload: onArchiveDownload
+						? handleArchiveDownload
+						: undefined,
+					onClearSelection: clearSelection,
+					onCopy: handleCopy,
+					onDelete: () => requestDeleteConfirm(true),
+					onMove: handleMove,
+					onToggleDisplayedSelection: handleToggleDisplayedSelection,
+				}
+			: null;
+
+	return {
+		selectionToolbar,
+		dialogs: (
+			<>
+				<ConfirmDialog
+					{...deleteDialogProps}
+					title={t("batch_delete_confirm_title", { count })}
+					description={t("batch_delete_confirm_desc")}
+					confirmLabel={t("core:delete")}
+					variant="destructive"
+				/>
+
+				<BatchTargetFolderDialog
+					open={targetDialogMode !== null}
+					onOpenChange={(open) => {
+						if (!open) setTargetDialogMode(null);
+					}}
+					mode={targetDialogMode ?? "move"}
+					onConfirm={handleTargetConfirm}
+					currentFolderId={currentFolderId}
+					initialBreadcrumb={breadcrumb}
+					selectedFolderIds={folderIds}
+				/>
+			</>
+		),
+	};
+}

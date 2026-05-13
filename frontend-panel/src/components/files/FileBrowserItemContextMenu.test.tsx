@@ -4,6 +4,14 @@ import { FileBrowserItemContextMenu } from "@/components/files/FileBrowserItemCo
 
 const mockState = vi.hoisted(() => ({
 	browserContext: {
+		batchSelectionActions: null as {
+			count: number;
+			onArchiveCompress?: () => void;
+			onArchiveDownload?: () => void;
+			onCopy: () => void;
+			onDelete: () => void;
+			onMove: () => void;
+		} | null,
 		onArchiveCompress: vi.fn(),
 		onArchiveDownload: vi.fn(),
 		onArchiveExtract: vi.fn(),
@@ -21,10 +29,19 @@ const mockState = vi.hoisted(() => ({
 		onToggleLock: vi.fn(),
 		onVersions: vi.fn(),
 	},
+	store: {
+		selectedFileIds: new Set<number>(),
+		selectedFolderIds: new Set<number>(),
+	},
 }));
 
 vi.mock("@/components/files/FileBrowserContext", () => ({
 	useFileBrowserContext: () => mockState.browserContext,
+}));
+
+vi.mock("@/stores/fileStore", () => ({
+	useFileStore: (selector: (state: typeof mockState.store) => unknown) =>
+		selector(mockState.store),
 }));
 
 vi.mock("@/components/files/FileContextMenu", () => ({
@@ -45,6 +62,7 @@ vi.mock("@/components/files/FileContextMenu", () => ({
 		onRename,
 		onToggleLock,
 		onVersions,
+		selectionCount,
 	}: {
 		children: React.ReactNode;
 		onArchiveCompress?: () => void;
@@ -62,9 +80,11 @@ vi.mock("@/components/files/FileContextMenu", () => ({
 		onRename?: () => void;
 		onToggleLock?: () => void;
 		onVersions?: () => void;
+		selectionCount?: number;
 	}) => (
 		<div>
 			{children}
+			{selectionCount != null && <div>{`selection:${selectionCount}`}</div>}
 			{onOpen && (
 				<button type="button" onClick={onOpen}>
 					open
@@ -146,6 +166,7 @@ vi.mock("@/components/files/FileContextMenu", () => ({
 
 describe("FileBrowserItemContextMenu", () => {
 	beforeEach(() => {
+		mockState.browserContext.batchSelectionActions = null;
 		mockState.browserContext.onArchiveCompress.mockReset();
 		mockState.browserContext.onArchiveDownload.mockReset();
 		mockState.browserContext.onArchiveExtract.mockReset();
@@ -162,6 +183,8 @@ describe("FileBrowserItemContextMenu", () => {
 		mockState.browserContext.onShare.mockReset();
 		mockState.browserContext.onToggleLock.mockReset();
 		mockState.browserContext.onVersions.mockReset();
+		mockState.store.selectedFileIds = new Set();
+		mockState.store.selectedFolderIds = new Set();
 	});
 
 	it("maps folder actions to the shared browser callbacks", () => {
@@ -280,5 +303,45 @@ describe("FileBrowserItemContextMenu", () => {
 		expect(mockState.browserContext.onDelete).toHaveBeenCalledWith("file", 2);
 		expect(mockState.browserContext.onVersions).toHaveBeenCalledWith(2);
 		expect(mockState.browserContext.onInfo).toHaveBeenCalledWith("file", 2);
+	});
+
+	it("uses batch actions when the current item belongs to a multi-selection", () => {
+		const batchActions = {
+			count: 3,
+			onArchiveCompress: vi.fn(),
+			onArchiveDownload: vi.fn(),
+			onCopy: vi.fn(),
+			onDelete: vi.fn(),
+			onMove: vi.fn(),
+		};
+		mockState.browserContext.batchSelectionActions = batchActions;
+		mockState.store.selectedFileIds = new Set([2, 3]);
+		mockState.store.selectedFolderIds = new Set([1]);
+
+		render(
+			<FileBrowserItemContextMenu
+				item={{ id: 2, name: "bundle.zip", is_locked: false } as never}
+				isFolder={false}
+			>
+				<div>file</div>
+			</FileBrowserItemContextMenu>,
+		);
+
+		expect(screen.getByText("selection:3")).toBeInTheDocument();
+		expect(
+			screen.queryByRole("button", { name: "open" }),
+		).not.toBeInTheDocument();
+		fireEvent.click(screen.getByRole("button", { name: "archive" }));
+		fireEvent.click(screen.getByRole("button", { name: "compress" }));
+		fireEvent.click(screen.getByRole("button", { name: "copy" }));
+		fireEvent.click(screen.getByRole("button", { name: "move" }));
+		fireEvent.click(screen.getByRole("button", { name: "delete" }));
+
+		expect(batchActions.onArchiveDownload).toHaveBeenCalledTimes(1);
+		expect(batchActions.onArchiveCompress).toHaveBeenCalledTimes(1);
+		expect(batchActions.onCopy).toHaveBeenCalledTimes(1);
+		expect(batchActions.onMove).toHaveBeenCalledTimes(1);
+		expect(batchActions.onDelete).toHaveBeenCalledTimes(1);
+		expect(mockState.browserContext.onCopy).not.toHaveBeenCalled();
 	});
 });

@@ -41,12 +41,19 @@ export const createSelectionSlice: FileStoreSlice<SelectionSlice> = (
 		});
 	},
 
+	selectItems: (fileIds, folderIds) => {
+		set({
+			selectedFileIds: new Set(fileIds),
+			selectedFolderIds: new Set(folderIds),
+		});
+	},
+
 	selectAll: () => {
 		const { files, folders } = get();
-		set({
-			selectedFileIds: new Set(files.map((file) => file.id)),
-			selectedFolderIds: new Set(folders.map((folder) => folder.id)),
-		});
+		get().selectItems(
+			files.map((file) => file.id),
+			folders.map((folder) => folder.id),
+		);
 	},
 
 	clearSelection: () => {

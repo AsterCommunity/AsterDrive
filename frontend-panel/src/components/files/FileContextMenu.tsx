@@ -5,6 +5,7 @@ import {
 	ContextMenu,
 	ContextMenuContent,
 	ContextMenuItem,
+	ContextMenuLabel,
 	ContextMenuSeparator,
 	ContextMenuTrigger,
 } from "@/components/ui/context-menu";
@@ -18,18 +19,19 @@ interface FileContextMenuProps {
 	onArchiveExtract?: () => void;
 	onArchiveCompress?: () => void;
 	onArchiveDownload?: () => void;
-	onPageShare: () => void;
+	onPageShare?: () => void;
 	onDirectShare?: () => void;
-	onCopy: () => void;
+	onCopy?: () => void;
 	onMove?: () => void;
-	onToggleLock: () => void;
-	onDelete: () => void;
+	onToggleLock?: () => void;
+	onDelete?: () => void;
 	onRename?: () => void;
 	onVersions?: () => void;
-	onInfo: () => void;
+	onInfo?: () => void;
 	isLocked: boolean;
 	isFolder: boolean;
 	renderTrigger?: boolean;
+	selectionCount?: number;
 }
 
 export function FileContextMenu({
@@ -52,8 +54,10 @@ export function FileContextMenu({
 	isLocked,
 	isFolder,
 	renderTrigger = false,
+	selectionCount,
 }: FileContextMenuProps) {
 	const { t } = useTranslation(["files", "share", "tasks"]);
+	const isSelectionMenu = selectionCount != null && selectionCount > 1;
 
 	const trigger =
 		renderTrigger && isValidElement(children) ? (
@@ -61,6 +65,56 @@ export function FileContextMenu({
 		) : (
 			<ContextMenuTrigger className="w-full">{children}</ContextMenuTrigger>
 		);
+
+	if (isSelectionMenu) {
+		return (
+			<ContextMenu>
+				{trigger}
+				<ContextMenuContent>
+					<ContextMenuLabel>
+						{t("core:selected_count", { count: selectionCount })}
+					</ContextMenuLabel>
+					{onArchiveDownload && (
+						<ContextMenuItem onClick={onArchiveDownload}>
+							<Icon name="Download" className="h-4 w-4 mr-2" />
+							{t("tasks:archive_download_action")}
+						</ContextMenuItem>
+					)}
+					{onArchiveCompress && (
+						<ContextMenuItem onClick={onArchiveCompress}>
+							<Icon name="FileZip" className="h-4 w-4 mr-2" />
+							{t("tasks:archive_compress_action")}
+						</ContextMenuItem>
+					)}
+					{onCopy && (
+						<ContextMenuItem onClick={onCopy}>
+							<Icon name="Copy" className="h-4 w-4 mr-2" />
+							{t("copy")}
+						</ContextMenuItem>
+					)}
+					{onMove && (
+						<ContextMenuItem onClick={onMove}>
+							<Icon name="ArrowsOutCardinal" className="h-4 w-4 mr-2" />
+							{t("move")}
+						</ContextMenuItem>
+					)}
+					{onDelete && (
+						<>
+							<ContextMenuSeparator />
+							<ContextMenuItem
+								onClick={onDelete}
+								variant="destructive"
+								className="text-destructive"
+							>
+								<Icon name="Trash" className="h-4 w-4 mr-2" />
+								{t("core:delete")}
+							</ContextMenuItem>
+						</>
+					)}
+				</ContextMenuContent>
+			</ContextMenu>
+		);
+	}
 
 	return (
 		<ContextMenu>
@@ -105,20 +159,24 @@ export function FileContextMenu({
 						{t("tasks:archive_download_action")}
 					</ContextMenuItem>
 				)}
-				<ContextMenuItem onClick={onPageShare}>
-					<Icon name="Link" className="h-4 w-4 mr-2" />
-					{t("share")}
-				</ContextMenuItem>
+				{onPageShare && (
+					<ContextMenuItem onClick={onPageShare}>
+						<Icon name="Link" className="h-4 w-4 mr-2" />
+						{t("share")}
+					</ContextMenuItem>
+				)}
 				{!isFolder && onDirectShare && (
 					<ContextMenuItem onClick={onDirectShare}>
 						<Icon name="LinkSimple" className="h-4 w-4 mr-2" />
 						{t("share:share_direct_link_action")}
 					</ContextMenuItem>
 				)}
-				<ContextMenuItem onClick={onCopy}>
-					<Icon name="Copy" className="h-4 w-4 mr-2" />
-					{t("copy")}
-				</ContextMenuItem>
+				{onCopy && (
+					<ContextMenuItem onClick={onCopy}>
+						<Icon name="Copy" className="h-4 w-4 mr-2" />
+						{t("copy")}
+					</ContextMenuItem>
+				)}
 				{onMove && (
 					<ContextMenuItem onClick={onMove}>
 						<Icon name="ArrowsOutCardinal" className="h-4 w-4 mr-2" />
@@ -137,32 +195,38 @@ export function FileContextMenu({
 						{t("versions")}
 					</ContextMenuItem>
 				)}
-				<ContextMenuSeparator />
-				<ContextMenuItem onClick={onInfo}>
-					<Icon name="Info" className="h-4 w-4 mr-2" />
-					{t("info")}
-				</ContextMenuItem>
-				<ContextMenuItem onClick={onToggleLock}>
-					{isLocked ? (
-						<>
-							<Icon name="LockOpen" className="h-4 w-4 mr-2" />
-							{t("unlock")}
-						</>
-					) : (
-						<>
-							<Icon name="Lock" className="h-4 w-4 mr-2" />
-							{t("lock")}
-						</>
-					)}
-				</ContextMenuItem>
-				<ContextMenuItem
-					onClick={onDelete}
-					disabled={isLocked}
-					className="text-destructive"
-				>
-					<Icon name="Trash" className="h-4 w-4 mr-2" />
-					{t("core:delete")}
-				</ContextMenuItem>
+				{(onInfo || onToggleLock || onDelete) && <ContextMenuSeparator />}
+				{onInfo && (
+					<ContextMenuItem onClick={onInfo}>
+						<Icon name="Info" className="h-4 w-4 mr-2" />
+						{t("info")}
+					</ContextMenuItem>
+				)}
+				{onToggleLock && (
+					<ContextMenuItem onClick={onToggleLock}>
+						{isLocked ? (
+							<>
+								<Icon name="LockOpen" className="h-4 w-4 mr-2" />
+								{t("unlock")}
+							</>
+						) : (
+							<>
+								<Icon name="Lock" className="h-4 w-4 mr-2" />
+								{t("lock")}
+							</>
+						)}
+					</ContextMenuItem>
+				)}
+				{onDelete && (
+					<ContextMenuItem
+						onClick={onDelete}
+						disabled={isLocked}
+						className="text-destructive"
+					>
+						<Icon name="Trash" className="h-4 w-4 mr-2" />
+						{t("core:delete")}
+					</ContextMenuItem>
+				)}
 			</ContextMenuContent>
 		</ContextMenu>
 	);

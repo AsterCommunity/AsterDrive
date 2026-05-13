@@ -15,6 +15,9 @@ vi.mock("@/components/ui/context-menu", () => ({
 	ContextMenuContent: (props: { children: React.ReactNode }) => (
 		<div>{props.children}</div>
 	),
+	ContextMenuLabel: (props: { children: React.ReactNode }) => (
+		<div>{props.children}</div>
+	),
 	ContextMenuItem: (props: {
 		children: React.ReactNode;
 		className?: string;
@@ -181,5 +184,41 @@ describe("FileContextMenu", () => {
 		expect(screen.getByTestId("context-trigger")).toContainElement(
 			screen.getByText("custom trigger"),
 		);
+	});
+
+	it("renders batch actions when selectionCount is provided", () => {
+		const handlers = {
+			onArchiveCompress: vi.fn(),
+			onArchiveDownload: vi.fn(),
+			onCopy: vi.fn(),
+			onDelete: vi.fn(),
+			onMove: vi.fn(),
+		};
+
+		render(
+			<FileContextMenu
+				isFolder={false}
+				isLocked={false}
+				selectionCount={3}
+				{...handlers}
+			>
+				<div>selected-row</div>
+			</FileContextMenu>,
+		);
+
+		expect(screen.getByText("selected_count")).toBeInTheDocument();
+		expect(screen.queryByText("open")).not.toBeInTheDocument();
+		expect(screen.queryByText("share")).not.toBeInTheDocument();
+		fireEvent.click(screen.getByText("tasks:archive_download_action"));
+		fireEvent.click(screen.getByText("tasks:archive_compress_action"));
+		fireEvent.click(screen.getByText("copy"));
+		fireEvent.click(screen.getByText("move"));
+		fireEvent.click(screen.getByText("delete"));
+
+		expect(handlers.onArchiveDownload).toHaveBeenCalledTimes(1);
+		expect(handlers.onArchiveCompress).toHaveBeenCalledTimes(1);
+		expect(handlers.onCopy).toHaveBeenCalledTimes(1);
+		expect(handlers.onMove).toHaveBeenCalledTimes(1);
+		expect(handlers.onDelete).toHaveBeenCalledTimes(1);
 	});
 });

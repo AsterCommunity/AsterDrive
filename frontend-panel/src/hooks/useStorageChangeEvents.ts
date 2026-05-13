@@ -5,6 +5,10 @@ import { invalidateTextContent } from "@/hooks/useTextContent";
 import { joinApiUrl } from "@/lib/apiUrl";
 import { logger } from "@/lib/logger";
 import {
+	consumeStorageEventEcho,
+	type StorageChangeEventPayload,
+} from "@/lib/storageEventEcho";
+import {
 	deferStorageRefresh,
 	isStorageRefreshGateActive,
 } from "@/lib/storageRefreshGate";
@@ -21,33 +25,8 @@ const SSE_RECONNECT_MAX_MS = 30_000;
 /** 连续失败次数到阈值后熔断，要求用户刷新或重新登录；防止永久打 backend。 */
 const SSE_RECONNECT_FAILURE_LIMIT = 8;
 
-type StorageChangeWorkspace =
-	| { kind: "personal" }
-	| { kind: "team"; team_id: number };
-
-type StorageChangeKind =
-	| "file.created"
-	| "file.updated"
-	| "file.deleted"
-	| "file.restored"
-	| "folder.created"
-	| "folder.updated"
-	| "folder.deleted"
-	| "folder.restored"
-	| "sync.required";
-
-interface StorageChangeEventPayload {
-	kind: StorageChangeKind;
-	workspace?: StorageChangeWorkspace | null;
-	file_ids: number[];
-	folder_ids: number[];
-	affected_parent_ids: number[];
-	root_affected: boolean;
-	at: string;
-}
-
 function eventMatchesWorkspace(
-	eventWorkspace: StorageChangeWorkspace | null | undefined,
+	eventWorkspace: StorageChangeEventPayload["workspace"],
 	workspace: Workspace,
 ) {
 	if (!eventWorkspace) {
@@ -107,7 +86,21 @@ function reloadTeamsForCurrentUser() {
 		.catch(() => undefined);
 }
 
+function eventMayChangeStorageUsage(event: StorageChangeEventPayload) {
+	return (
+		event.kind === "sync.required" ||
+		event.kind === "file.created" ||
+		event.kind === "file.updated" ||
+		event.kind === "file.restored" ||
+		event.kind === "folder.created"
+	);
+}
+
 function refreshStorageUsage(event: StorageChangeEventPayload) {
+	if (!eventMayChangeStorageUsage(event)) {
+		return;
+	}
+
 	const { refreshUser } = useAuthStore.getState();
 	if (event.kind === "sync.required" || !event.workspace) {
 		void refreshUser();
@@ -185,6 +178,10 @@ export function useStorageChangeEvents() {
 					event = JSON.parse(message.data) as StorageChangeEventPayload;
 				} catch (error) {
 					logger.warn("failed to parse storage change event", error);
+					return;
+				}
+
+				if (consumeStorageEventEcho(event)) {
 					return;
 				}
 

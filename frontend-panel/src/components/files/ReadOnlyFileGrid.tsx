@@ -45,6 +45,7 @@ export function ReadOnlyFileGrid({
 								onSelect={() => {}}
 								onClick={() => onFolderClick?.(folder)}
 								draggable={false}
+								selectable={false}
 							/>
 						))}
 					</div>
@@ -68,6 +69,7 @@ export function ReadOnlyFileGrid({
 									onSelect={() => {}}
 									onClick={() => onFileClick?.(file)}
 									draggable={false}
+									selectable={false}
 									thumbnailPath={getThumbnailPath?.(file)}
 								/>
 								{onFileDownload && (

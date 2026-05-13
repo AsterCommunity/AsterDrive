@@ -16,6 +16,7 @@ import { FileBrowserToolbar } from "@/pages/file-browser/FileBrowserToolbar";
 import { FileBrowserWorkspace } from "@/pages/file-browser/FileBrowserWorkspace";
 import { FILE_BROWSER_LAZY_PRELOADERS } from "@/pages/file-browser/fileBrowserLazy";
 import { useFileBrowserArchiveActions } from "@/pages/file-browser/useFileBrowserArchiveActions";
+import { useFileBrowserBatchActions } from "@/pages/file-browser/useFileBrowserBatchActions";
 import { useFileBrowserContextValue } from "@/pages/file-browser/useFileBrowserContextValue";
 import { useFileBrowserDragAndDrop } from "@/pages/file-browser/useFileBrowserDragAndDrop";
 import { useFileBrowserPageState } from "@/pages/file-browser/useFileBrowserPageState";
@@ -187,6 +188,13 @@ export default function FileBrowserPage() {
 		displayFolders,
 		t,
 	});
+	const { dialogs: batchActionDialogs, selectionToolbar } =
+		useFileBrowserBatchActions({
+			displayFiles,
+			displayFolders,
+			onArchiveCompress: handleBatchArchiveCompress,
+			onArchiveDownload: startArchiveDownload,
+		});
 
 	const {
 		contentDragOver,
@@ -233,6 +241,7 @@ export default function FileBrowserPage() {
 			displayFolders,
 			fadingFileIds,
 			fadingFolderIds,
+			selectionToolbar,
 			handleArchiveCompress,
 			handleArchiveDownload,
 			handleArchiveExtract,
@@ -270,6 +279,7 @@ export default function FileBrowserPage() {
 				isRootFolder={isRootFolder}
 				isSearching={isSearching}
 				searchQuery={searchQuery}
+				selectionToolbar={selectionToolbar}
 				sortBy={sortBy}
 				sortOrder={sortOrder}
 				viewMode={viewMode}
@@ -329,6 +339,7 @@ export default function FileBrowserPage() {
 			onMoveToFolder={handleMoveToFolder}
 		>
 			<UploadArea ref={handleUploadAreaReady}>{pageCore}</UploadArea>
+			{batchActionDialogs}
 
 			<FileBrowserDialogs
 				archiveTaskTarget={archiveTaskTarget}
@@ -342,8 +353,6 @@ export default function FileBrowserPage() {
 				renameTarget={renameTarget}
 				shareTarget={shareTarget}
 				versionTarget={versionTarget}
-				onArchiveCompress={handleBatchArchiveCompress}
-				onArchiveDownload={startArchiveDownload}
 				onArchiveTaskClose={closeArchiveTask}
 				onArchiveTaskSubmit={submitArchiveTask}
 				onCopyClose={() => setCopyTarget(null)}

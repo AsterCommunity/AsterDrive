@@ -1,6 +1,10 @@
+import {
+	forgetStorageEventEchoes,
+	rememberStorageDeleteEchoes,
+} from "@/lib/storageEventEcho";
 import { batchService } from "@/services/batchService";
 import { fileService } from "@/services/fileService";
-import { useAuthStore } from "@/stores/authStore";
+import { useWorkspaceStore } from "@/stores/workspaceStore";
 import {
 	applyWorkspaceRequestState,
 	beginWorkspaceRequest,
@@ -15,7 +19,7 @@ export const createCrudSlice: FileStoreSlice<CrudSlice> = (set, get) => ({
 	createFile: async (name) => {
 		const { currentFolderId } = get();
 		await fileService.createEmptyFile(name, currentFolderId);
-		await Promise.all([get().refresh(), useAuthStore.getState().refreshUser()]);
+		await get().refresh();
 	},
 
 	createFolder: async (name) => {
@@ -25,19 +29,37 @@ export const createCrudSlice: FileStoreSlice<CrudSlice> = (set, get) => ({
 	},
 
 	deleteFile: async (id) => {
-		await fileService.deleteFile(id);
+		const echoIds = rememberStorageDeleteEchoes({
+			workspace: useWorkspaceStore.getState().workspace,
+			fileIds: [id],
+		});
+		try {
+			await fileService.deleteFile(id);
+		} catch (error) {
+			forgetStorageEventEchoes(echoIds);
+			throw error;
+		}
 		const next = new Set(get().selectedFileIds);
 		next.delete(id);
 		set({ selectedFileIds: next });
-		await Promise.all([get().refresh(), useAuthStore.getState().refreshUser()]);
+		await get().refresh();
 	},
 
 	deleteFolder: async (id) => {
-		await fileService.deleteFolder(id);
+		const echoIds = rememberStorageDeleteEchoes({
+			workspace: useWorkspaceStore.getState().workspace,
+			folderIds: [id],
+		});
+		try {
+			await fileService.deleteFolder(id);
+		} catch (error) {
+			forgetStorageEventEchoes(echoIds);
+			throw error;
+		}
 		const next = new Set(get().selectedFolderIds);
 		next.delete(id);
 		set({ selectedFolderIds: next });
-		await Promise.all([get().refresh(), useAuthStore.getState().refreshUser()]);
+		await get().refresh();
 	},
 
 	moveToFolder: async (fileIds, folderIds, targetFolderId) => {

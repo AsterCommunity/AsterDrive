@@ -242,6 +242,10 @@ describe("useFileStore actions", () => {
 			new Set([10, 11]),
 		);
 
+		useFileStore.getState().selectItems([2], [11]);
+		expect(useFileStore.getState().selectedFileIds).toEqual(new Set([2]));
+		expect(useFileStore.getState().selectedFolderIds).toEqual(new Set([11]));
+
 		useFileStore.getState().clearSelection();
 		expect(useFileStore.getState().selectionCount()).toBe(0);
 		expect(useFileStore.getState().selectedFileIds).toEqual(new Set());
@@ -340,7 +344,7 @@ describe("useFileStore actions", () => {
 
 		expect(mockState.createEmptyFile).toHaveBeenCalledWith("notes.txt", 9);
 		expectFolderRefresh(1, 9);
-		expect(mockState.refreshUser).toHaveBeenCalledTimes(1);
+		expect(mockState.refreshUser).not.toHaveBeenCalled();
 		expect(useFileStore.getState().files).toEqual([
 			expect.objectContaining({ id: 12, name: "notes.txt" }),
 		]);
@@ -368,7 +372,7 @@ describe("useFileStore actions", () => {
 		]);
 	});
 
-	it("deletes files and folders, clears their selection, and refreshes auth", async () => {
+	it("deletes files and folders, clears their selection, and refreshes contents without auth", async () => {
 		mockState.deleteFile.mockResolvedValue(undefined);
 		mockState.deleteFolder.mockResolvedValue(undefined);
 		mockState.listFolder
@@ -394,14 +398,14 @@ describe("useFileStore actions", () => {
 		expect(mockState.deleteFile).toHaveBeenCalledWith(1);
 		expect(useFileStore.getState().selectedFileIds).toEqual(new Set([2]));
 		expectFolderRefresh(1, 9);
-		expect(mockState.refreshUser).toHaveBeenCalledTimes(1);
+		expect(mockState.refreshUser).not.toHaveBeenCalled();
 
 		await useFileStore.getState().deleteFolder(44);
 
 		expect(mockState.deleteFolder).toHaveBeenCalledWith(44);
 		expect(useFileStore.getState().selectedFolderIds).toEqual(new Set([55]));
 		expectFolderRefresh(2, 9);
-		expect(mockState.refreshUser).toHaveBeenCalledTimes(2);
+		expect(mockState.refreshUser).not.toHaveBeenCalled();
 	});
 
 	it("moves selections, clears them, and refreshes workspace contents", async () => {

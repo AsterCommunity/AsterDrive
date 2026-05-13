@@ -57,3 +57,16 @@ export interface FileBrowserInfoTarget {
 	file?: FileInfo | FileListItem;
 	folder?: FolderInfo | FolderListItem;
 }
+
+export interface FileBrowserSelectionToolbarState {
+	count: number;
+	allDisplayedSelected: boolean;
+	hasDisplayedItems: boolean;
+	onArchiveCompress?: () => void;
+	onArchiveDownload?: () => void;
+	onClearSelection: () => void;
+	onCopy: () => void;
+	onDelete: () => void;
+	onMove: () => void;
+	onToggleDisplayedSelection: () => void;
+}

@@ -141,6 +141,7 @@ export interface SelectionSlice {
 	toggleFolderSelection: (id: number) => void;
 	selectOnlyFile: (id: number) => void;
 	selectOnlyFolder: (id: number) => void;
+	selectItems: (fileIds: number[], folderIds: number[]) => void;
 	selectAll: () => void;
 	clearSelection: () => void;
 	selectionCount: () => number;

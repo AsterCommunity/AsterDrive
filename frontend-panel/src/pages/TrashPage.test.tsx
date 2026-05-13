@@ -452,8 +452,9 @@ describe("TrashPage", () => {
 		);
 		expect(mockState.toastSuccess).toHaveBeenCalledWith("toast:restore");
 		await waitFor(() => {
-			expect(mockState.refreshUser).toHaveBeenCalledTimes(1);
+			expect(mockState.list).toHaveBeenCalledTimes(2);
 		});
+		expect(mockState.refreshUser).not.toHaveBeenCalled();
 	});
 
 	it("confirms and empties the trash, then reloads contents", async () => {

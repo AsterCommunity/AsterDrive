@@ -17,6 +17,7 @@ const REFRESH_RETRY_MS = 60_000;
 
 let refreshTimer: ReturnType<typeof setTimeout> | null = null;
 let inFlightRefresh: Promise<void> | null = null;
+let inFlightRefreshUser: Promise<void> | null = null;
 
 function getCachedUser(): MeResponse | null {
 	try {
@@ -293,25 +294,33 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 	},
 
 	refreshUser: async () => {
-		try {
-			const user = await authService.me();
-			const expiresAt =
-				getExpiresAtFromUser(user) ?? get().expiresAt ?? getStoredExpiresAt();
-			setCachedUser(user);
-			if (expiresAt !== null) {
-				setStoredExpiresAt(expiresAt);
-				get().startAutoRefresh();
+		if (inFlightRefreshUser) return inFlightRefreshUser;
+
+		inFlightRefreshUser = (async () => {
+			try {
+				const user = await authService.me();
+				const expiresAt =
+					getExpiresAtFromUser(user) ?? get().expiresAt ?? getStoredExpiresAt();
+				setCachedUser(user);
+				if (expiresAt !== null) {
+					setStoredExpiresAt(expiresAt);
+					get().startAutoRefresh();
+				}
+				set({
+					user,
+					isAuthenticated: true,
+					isAuthStale: false,
+					bootOffline: false,
+					expiresAt,
+				});
+			} catch (e) {
+				logger.warn("refreshUser failed", e);
+			} finally {
+				inFlightRefreshUser = null;
 			}
-			set({
-				user,
-				isAuthenticated: true,
-				isAuthStale: false,
-				bootOffline: false,
-				expiresAt,
-			});
-		} catch (e) {
-			logger.warn("refreshUser failed", e);
-		}
+		})();
+
+		return inFlightRefreshUser;
 	},
 
 	setStorageEventStreamEnabled: (enabled) => {

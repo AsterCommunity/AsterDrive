@@ -254,7 +254,11 @@ export default function TrashPage() {
 				}
 
 				if (succeeded > 0) {
-					await Promise.all([load(), refreshUser()]);
+					if (operation === "purge") {
+						await Promise.all([load(), refreshUser()]);
+					} else {
+						await load();
+					}
 				}
 			} finally {
 				pendingRef.current = false;

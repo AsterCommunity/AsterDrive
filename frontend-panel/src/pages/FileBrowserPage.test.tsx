@@ -9,6 +9,10 @@ import {
 import { forwardRef, useImperativeHandle } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { FILE_BROWSER_FEEDBACK_DURATION_MS } from "@/lib/constants";
+import {
+	clearStorageEventEchoes,
+	consumeStorageEventEcho,
+} from "@/lib/storageEventEcho";
 import FileBrowserPage from "@/pages/FileBrowserPage";
 
 const mockState = vi.hoisted(() => ({
@@ -159,8 +163,8 @@ vi.mock("@/stores/previewAppStore", () => ({
 	) => selector(mockState.previewAppStore),
 }));
 
-vi.mock("@/components/common/BatchActionBar", () => ({
-	BatchActionBar: ({
+vi.mock("@/pages/file-browser/useFileBrowserBatchActions", () => ({
+	useFileBrowserBatchActions: ({
 		onArchiveCompress,
 		onArchiveDownload,
 	}: {
@@ -172,17 +176,20 @@ vi.mock("@/components/common/BatchActionBar", () => ({
 			fileIds: number[],
 			folderIds: number[],
 		) => Promise<void>;
-	}) => (
-		<div>
-			<div>batch-action-bar</div>
-			<button type="button" onClick={() => void onArchiveCompress([3], [])}>
-				batch-archive-compress
-			</button>
-			<button type="button" onClick={() => void onArchiveDownload([], [])}>
-				batch-archive-empty
-			</button>
-		</div>
-	),
+	}) => ({
+		selectionToolbar: null,
+		dialogs: (
+			<div>
+				<div>batch-action-dialogs</div>
+				<button type="button" onClick={() => void onArchiveCompress([3], [])}>
+					batch-archive-compress
+				</button>
+				<button type="button" onClick={() => void onArchiveDownload([], [])}>
+					batch-archive-empty
+				</button>
+			</div>
+		),
+	}),
 }));
 
 vi.mock("@/components/common/EmptyState", () => ({
@@ -691,15 +698,18 @@ vi.mock("@/components/ui/dropdown-menu", () => ({
 	}) => <div className={className}>{children}</div>,
 	DropdownMenuItem: ({
 		children,
+		disabled,
 		onClick,
 	}: {
 		children: React.ReactNode;
+		disabled?: boolean;
 		onClick?: () => void;
 	}) => (
-		<button type="button" onClick={onClick}>
+		<button type="button" disabled={disabled} onClick={onClick}>
 			{children}
 		</button>
 	),
+	DropdownMenuSeparator: () => <hr />,
 }));
 
 vi.mock("@/components/ui/context-menu", () => ({
@@ -829,6 +839,16 @@ vi.mock("@/stores/fileStore", () => {
 	return { useFileStore };
 });
 
+vi.mock("@/stores/workspaceStore", () => ({
+	useWorkspaceStore: Object.assign(
+		<T,>(selector: (state: { workspace: { kind: "personal" } }) => T) =>
+			selector({ workspace: { kind: "personal" } }),
+		{
+			getState: () => ({ workspace: { kind: "personal" } }),
+		},
+	),
+}));
+
 function createFolder(overrides: Record<string, unknown> = {}) {
 	return {
 		created_at: "2026-03-28T00:00:00Z",
@@ -955,6 +975,7 @@ describe("FileBrowserPage", () => {
 		mockState.store.sortBy = "name";
 		mockState.store.sortOrder = "asc";
 		mockState.store.viewMode = "grid";
+		clearStorageEventEchoes();
 
 		mockState.batchDelete.mockResolvedValue({ ok: true });
 		mockState.createArchiveCompressTask.mockResolvedValue({
@@ -1324,10 +1345,32 @@ describe("FileBrowserPage", () => {
 
 		expect(mockState.store.clearSelection).toHaveBeenCalledTimes(1);
 		expect(mockState.store.refresh).toHaveBeenCalledTimes(1);
-		expect(mockState.refreshUser).toHaveBeenCalledTimes(1);
+		expect(mockState.refreshUser).not.toHaveBeenCalled();
 		expect(mockState.toastSuccess).toHaveBeenCalledWith("delete:ok", {
 			description: "delete:desc",
 		});
+		expect(
+			consumeStorageEventEcho({
+				kind: "file.deleted",
+				workspace: { kind: "personal" },
+				file_ids: [1],
+				folder_ids: [],
+				affected_parent_ids: [12],
+				root_affected: false,
+				at: "2026-05-13T00:00:00Z",
+			}),
+		).toBe(true);
+		expect(
+			consumeStorageEventEcho({
+				kind: "folder.deleted",
+				workspace: { kind: "personal" },
+				file_ids: [],
+				folder_ids: [2],
+				affected_parent_ids: [12],
+				root_affected: false,
+				at: "2026-05-13T00:00:00Z",
+			}),
+		).toBe(true);
 	});
 
 	it("restores preview state from search navigation and supports preview callbacks", async () => {
@@ -1515,7 +1558,7 @@ describe("FileBrowserPage", () => {
 
 		expect(mockState.store.search).toHaveBeenCalledWith("budget");
 		expect(mockState.store.refresh).not.toHaveBeenCalled();
-		expect(mockState.refreshUser).toHaveBeenCalledTimes(1);
+		expect(mockState.refreshUser).not.toHaveBeenCalled();
 	});
 
 	it("shows error batch toasts for move results and closes share dialogs", async () => {

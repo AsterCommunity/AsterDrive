@@ -22,7 +22,7 @@ const mockState = vi.hoisted(() => ({
 		selectOnlyFolder: vi.fn(),
 		toggleFileSelection: vi.fn(),
 		toggleFolderSelection: vi.fn(),
-		selectAll: vi.fn(),
+		selectItems: vi.fn(),
 		clearSelection: vi.fn(),
 		sortBy: "name",
 		sortOrder: "asc",
@@ -220,7 +220,7 @@ describe("FileTable", () => {
 		mockState.store.selectOnlyFolder.mockReset();
 		mockState.store.toggleFileSelection.mockReset();
 		mockState.store.toggleFolderSelection.mockReset();
-		mockState.store.selectAll.mockReset();
+		mockState.store.selectItems.mockReset();
 		mockState.store.clearSelection.mockReset();
 		mockState.store.sortBy = "name";
 		mockState.store.sortOrder = "asc";
@@ -268,7 +268,7 @@ describe("FileTable", () => {
 		rerender(<FileTable scrollElement={document.createElement("div")} />);
 
 		fireEvent.click(screen.getAllByTestId("checkbox")[0]);
-		expect(mockState.store.selectAll).toHaveBeenCalledTimes(1);
+		expect(mockState.store.selectItems).toHaveBeenCalledWith([2], [1]);
 	});
 
 	it("wires row clicks, selection toggles, and drag start metadata", () => {

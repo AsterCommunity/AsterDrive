@@ -1,5 +1,4 @@
 import { Suspense } from "react";
-import { BatchActionBar } from "@/components/common/BatchActionBar";
 import { FilePreview } from "@/components/files/FilePreview";
 import { useRetainedDialogValue } from "@/hooks/useRetainedDialogValue";
 import {
@@ -35,8 +34,6 @@ interface FileBrowserDialogsProps {
 	renameTarget: FileBrowserRenameTarget | null;
 	shareTarget: FileBrowserShareTarget | null;
 	versionTarget: FileBrowserVersionTarget | null;
-	onArchiveCompress: (fileIds: number[], folderIds: number[]) => Promise<void>;
-	onArchiveDownload: (fileIds: number[], folderIds: number[]) => Promise<void>;
 	onArchiveTaskClose: () => void;
 	onArchiveTaskSubmit: (name: string | undefined) => Promise<void>;
 	onCopyClose: () => void;
@@ -65,8 +62,6 @@ export function FileBrowserDialogs({
 	renameTarget,
 	shareTarget,
 	versionTarget,
-	onArchiveCompress,
-	onArchiveDownload,
 	onArchiveTaskClose,
 	onArchiveTaskSubmit,
 	onCopyClose,
@@ -100,11 +95,6 @@ export function FileBrowserDialogs({
 					onOpenChange={onCreateFileOpenChange}
 				/>
 			</Suspense>
-
-			<BatchActionBar
-				onArchiveCompress={onArchiveCompress}
-				onArchiveDownload={onArchiveDownload}
-			/>
 
 			<Suspense fallback={null}>
 				<ArchiveTaskNameDialog

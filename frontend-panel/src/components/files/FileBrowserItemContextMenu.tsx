@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { useFileBrowserContext } from "@/components/files/FileBrowserContext";
 import { FileContextMenu } from "@/components/files/FileContextMenu";
+import { useFileStore } from "@/stores/fileStore";
 import type { FileListItem, FolderListItem } from "@/types/api";
 
 type FileBrowserItemContextMenuProps =
@@ -24,6 +25,7 @@ export function FileBrowserItemContextMenu({
 	renderTrigger = false,
 }: FileBrowserItemContextMenuProps) {
 	const {
+		batchSelectionActions,
 		onArchiveCompress,
 		onArchiveDownload,
 		onArchiveExtract,
@@ -41,6 +43,32 @@ export function FileBrowserItemContextMenu({
 		onToggleLock,
 		onVersions,
 	} = useFileBrowserContext();
+	const selectedFileIds = useFileStore((s) => s.selectedFileIds);
+	const selectedFolderIds = useFileStore((s) => s.selectedFolderIds);
+	const selected = isFolder
+		? selectedFolderIds.has(item.id)
+		: selectedFileIds.has(item.id);
+	const selectionCount = selectedFileIds.size + selectedFolderIds.size;
+	const useBatchMenu =
+		selected && selectionCount > 1 && batchSelectionActions != null;
+
+	if (useBatchMenu) {
+		return (
+			<FileContextMenu
+				renderTrigger={renderTrigger}
+				isFolder={isFolder}
+				isLocked={false}
+				selectionCount={batchSelectionActions.count}
+				onArchiveDownload={batchSelectionActions.onArchiveDownload}
+				onArchiveCompress={batchSelectionActions.onArchiveCompress}
+				onCopy={batchSelectionActions.onCopy}
+				onMove={batchSelectionActions.onMove}
+				onDelete={batchSelectionActions.onDelete}
+			>
+				{children}
+			</FileContextMenu>
+		);
+	}
 
 	if (isFolder) {
 		return (

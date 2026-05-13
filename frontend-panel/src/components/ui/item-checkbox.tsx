@@ -19,7 +19,7 @@ export function ItemCheckbox({
 			data-drag-preview-hidden={dragPreviewHidden ? "true" : undefined}
 			type="button"
 			className={cn(
-				"inline-flex size-5 shrink-0 items-center justify-center rounded-md border shadow-sm transition-colors dark:shadow-none",
+				"inline-flex size-6 shrink-0 items-center justify-center rounded-md border shadow-sm transition-colors dark:shadow-none sm:size-5",
 				checked
 					? "border-primary bg-primary text-primary-foreground hover:border-primary hover:bg-primary/90"
 					: "border-muted-foreground/70 bg-background/90 text-transparent hover:border-foreground/30 hover:bg-accent/40",

@@ -9,11 +9,21 @@ export interface FileBrowserShareTarget {
 	initialMode?: "page" | "direct";
 }
 
+export interface FileBrowserBatchSelectionActions {
+	count: number;
+	onArchiveCompress?: () => void;
+	onArchiveDownload?: () => void;
+	onCopy: () => void;
+	onDelete: () => void;
+	onMove: () => void;
+}
+
 export interface FileBrowserContextValue {
 	folders: FolderListItem[];
 	files: FileListItem[];
 	browserOpenMode: BrowserOpenMode;
 	breadcrumbPathIds: number[];
+	batchSelectionActions?: FileBrowserBatchSelectionActions | null;
 	onFolderOpen: (id: number, name: string) => void;
 	onFileClick: (file: FileListItem) => void;
 	onFileOpen?: (file: FileListItem) => void;

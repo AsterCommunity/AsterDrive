@@ -1,10 +1,11 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { FileBrowserToolbar } from "@/pages/file-browser/FileBrowserToolbar";
 
 vi.mock("react-i18next", () => ({
 	useTranslation: () => ({
-		t: (key: string) => key,
+		t: (key: string, options?: Record<string, unknown>) =>
+			key === "core:selected_count" ? `selected:${options?.count}` : key,
 	}),
 }));
 
@@ -92,12 +93,14 @@ vi.mock("@/components/ui/dropdown-menu", () => ({
 	}) => <div className={props.className}>{props.children}</div>,
 	DropdownMenuItem: (props: {
 		children: React.ReactNode;
+		disabled?: boolean;
 		onClick?: () => void;
 	}) => (
-		<button type="button" onClick={props.onClick}>
+		<button type="button" disabled={props.disabled} onClick={props.onClick}>
 			{props.children}
 		</button>
 	),
+	DropdownMenuSeparator: () => <hr />,
 	DropdownMenuTrigger: (props: {
 		children?: React.ReactNode;
 		render?: React.ReactNode;
@@ -121,29 +124,29 @@ function renderToolbar(
 		onSetSortOrder: vi.fn(),
 		onSetViewMode: vi.fn(),
 	};
+	const props = {
+		breadcrumb: [
+			{ id: null, name: "Root" },
+			{ id: 2, name: "Docs" },
+			{ id: 3, name: "Workspace" },
+			{ id: 4, name: "Final" },
+		],
+		dragOverBreadcrumbIndex: null,
+		isCompactBreadcrumb: true,
+		isRootFolder: false,
+		isSearching: false,
+		searchQuery: null,
+		selectionToolbar: null,
+		sortBy: "name",
+		sortOrder: "asc",
+		viewMode: "grid",
+		...handlers,
+		...overrides,
+	} satisfies React.ComponentProps<typeof FileBrowserToolbar>;
 
-	render(
-		<FileBrowserToolbar
-			breadcrumb={[
-				{ id: null, name: "Root" },
-				{ id: 2, name: "Docs" },
-				{ id: 3, name: "Workspace" },
-				{ id: 4, name: "Final" },
-			]}
-			dragOverBreadcrumbIndex={null}
-			isCompactBreadcrumb
-			isRootFolder={false}
-			isSearching={false}
-			searchQuery={null}
-			sortBy="name"
-			sortOrder="asc"
-			viewMode="grid"
-			{...handlers}
-			{...overrides}
-		/>,
-	);
+	const result = render(<FileBrowserToolbar {...props} />);
 
-	return handlers;
+	return { ...handlers, ...result, props };
 }
 
 describe("FileBrowserToolbar", () => {
@@ -175,5 +178,178 @@ describe("FileBrowserToolbar", () => {
 
 		expect(screen.getByText('core:search: "budget"')).toBeInTheDocument();
 		expect(screen.queryByText("Root")).not.toBeInTheDocument();
+	});
+
+	it("switches to selection actions when items are selected", () => {
+		const selectionHandlers = {
+			onArchiveCompress: vi.fn(),
+			onArchiveDownload: vi.fn(),
+			onClearSelection: vi.fn(),
+			onCopy: vi.fn(),
+			onDelete: vi.fn(),
+			onMove: vi.fn(),
+			onToggleDisplayedSelection: vi.fn(),
+		};
+
+		renderToolbar({
+			selectionToolbar: {
+				count: 3,
+				allDisplayedSelected: false,
+				hasDisplayedItems: true,
+				...selectionHandlers,
+			},
+		});
+
+		expect(screen.getByText("selected:3")).toBeInTheDocument();
+		expect(screen.queryByText("Final")).not.toBeInTheDocument();
+		expect(
+			screen.getByRole("button", { name: "selection_more_actions" }),
+		).toBeInTheDocument();
+
+		fireEvent.click(screen.getByRole("button", { name: "selection_clear" }));
+		fireEvent.click(screen.getAllByText("selection_select_all_visible")[0]);
+		fireEvent.click(screen.getByRole("button", { name: "move" }));
+		fireEvent.click(screen.getAllByText("copy")[0]);
+		fireEvent.click(screen.getByText("tasks:archive_compress_action"));
+		fireEvent.click(screen.getByText("core:delete"));
+
+		expect(selectionHandlers.onClearSelection).toHaveBeenCalledTimes(1);
+		expect(selectionHandlers.onToggleDisplayedSelection).toHaveBeenCalledTimes(
+			1,
+		);
+		expect(selectionHandlers.onMove).toHaveBeenCalledTimes(1);
+		expect(selectionHandlers.onCopy).toHaveBeenCalledTimes(1);
+		expect(selectionHandlers.onArchiveCompress).toHaveBeenCalledTimes(1);
+		expect(selectionHandlers.onDelete).toHaveBeenCalledTimes(1);
+	});
+
+	it("keeps selection content during fade-out before restoring breadcrumbs", () => {
+		vi.useFakeTimers();
+		try {
+			const selectionToolbar = {
+				count: 2,
+				allDisplayedSelected: false,
+				hasDisplayedItems: true,
+				onClearSelection: vi.fn(),
+				onCopy: vi.fn(),
+				onDelete: vi.fn(),
+				onMove: vi.fn(),
+				onToggleDisplayedSelection: vi.fn(),
+			};
+			const { props, rerender } = renderToolbar({ selectionToolbar });
+
+			expect(screen.getByText("selected:2")).toBeInTheDocument();
+			expect(screen.queryByText("Final")).not.toBeInTheDocument();
+
+			rerender(<FileBrowserToolbar {...props} selectionToolbar={null} />);
+
+			expect(screen.getByText("selected:2")).toBeInTheDocument();
+			expect(screen.queryByText("Final")).not.toBeInTheDocument();
+			expect(
+				screen.getByTestId("file-browser-selection-toolbar"),
+			).toHaveAttribute("aria-hidden", "false");
+
+			act(() => {
+				vi.advanceTimersByTime(40);
+			});
+
+			expect(
+				screen.getByTestId("file-browser-selection-toolbar"),
+			).toHaveAttribute("aria-hidden", "true");
+
+			act(() => {
+				vi.advanceTimersByTime(119);
+			});
+
+			expect(screen.getByText("selected:2")).toBeInTheDocument();
+			expect(screen.queryByText("Final")).not.toBeInTheDocument();
+
+			act(() => {
+				vi.advanceTimersByTime(120);
+			});
+
+			expect(screen.queryByText("selected:2")).not.toBeInTheDocument();
+			expect(screen.getByText("Final")).toBeInTheDocument();
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it("does not flash breadcrumbs when selection briefly drops for one render", () => {
+		vi.useFakeTimers();
+		try {
+			const selectionToolbar = {
+				count: 2,
+				allDisplayedSelected: false,
+				hasDisplayedItems: true,
+				onClearSelection: vi.fn(),
+				onCopy: vi.fn(),
+				onDelete: vi.fn(),
+				onMove: vi.fn(),
+				onToggleDisplayedSelection: vi.fn(),
+			};
+			const { props, rerender } = renderToolbar({ selectionToolbar });
+
+			rerender(<FileBrowserToolbar {...props} selectionToolbar={null} />);
+			expect(screen.getByText("selected:2")).toBeInTheDocument();
+			expect(screen.queryByText("Final")).not.toBeInTheDocument();
+
+			rerender(
+				<FileBrowserToolbar {...props} selectionToolbar={selectionToolbar} />,
+			);
+			expect(screen.getByText("selected:2")).toBeInTheDocument();
+			expect(screen.queryByText("Final")).not.toBeInTheDocument();
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it("keeps selection content stable during rapid deselect and reselect", () => {
+		vi.useFakeTimers();
+		try {
+			const selectionToolbar = {
+				count: 2,
+				allDisplayedSelected: false,
+				hasDisplayedItems: true,
+				onClearSelection: vi.fn(),
+				onCopy: vi.fn(),
+				onDelete: vi.fn(),
+				onMove: vi.fn(),
+				onToggleDisplayedSelection: vi.fn(),
+			};
+			const nextSelectionToolbar = {
+				...selectionToolbar,
+				count: 1,
+			};
+			const { props, rerender } = renderToolbar({ selectionToolbar });
+
+			rerender(<FileBrowserToolbar {...props} selectionToolbar={null} />);
+
+			act(() => {
+				vi.advanceTimersByTime(30);
+			});
+
+			expect(screen.getByText("selected:2")).toBeInTheDocument();
+			expect(screen.queryByText("Final")).not.toBeInTheDocument();
+
+			rerender(
+				<FileBrowserToolbar
+					{...props}
+					selectionToolbar={nextSelectionToolbar}
+				/>,
+			);
+
+			expect(screen.getByText("selected:1")).toBeInTheDocument();
+			expect(screen.queryByText("Final")).not.toBeInTheDocument();
+
+			act(() => {
+				vi.advanceTimersByTime(300);
+			});
+
+			expect(screen.getByText("selected:1")).toBeInTheDocument();
+			expect(screen.queryByText("Final")).not.toBeInTheDocument();
+		} finally {
+			vi.useRealTimers();
+		}
 	});
 });

@@ -258,9 +258,9 @@ function FileTableComponent({ scrollElement }: FileTableProps) {
 		onFolderOpen,
 		onMoveToFolder,
 	} = useFileBrowserContext();
-	const selectedFileCount = useFileStore((s) => s.selectedFileIds.size);
-	const selectedFolderCount = useFileStore((s) => s.selectedFolderIds.size);
-	const selectAll = useFileStore((s) => s.selectAll);
+	const selectedFileIds = useFileStore((s) => s.selectedFileIds);
+	const selectedFolderIds = useFileStore((s) => s.selectedFolderIds);
+	const selectItems = useFileStore((s) => s.selectItems);
 	const clearSelection = useFileStore((s) => s.clearSelection);
 	const sortBy = useFileStore((s) => s.sortBy);
 	const sortOrder = useFileStore((s) => s.sortOrder);
@@ -269,8 +269,10 @@ function FileTableComponent({ scrollElement }: FileTableProps) {
 
 	const allSelected =
 		folders.length + files.length > 0 &&
-		selectedFileCount === files.length &&
-		selectedFolderCount === folders.length;
+		files.every((file) => selectedFileIds.has(file.id)) &&
+		folders.every((folder) => selectedFolderIds.has(folder.id)) &&
+		selectedFileIds.size + selectedFolderIds.size ===
+			files.length + folders.length;
 
 	const handleSort = (col: SortBy) => {
 		if (sortBy === col) {
@@ -282,7 +284,11 @@ function FileTableComponent({ scrollElement }: FileTableProps) {
 
 	const handleSelectAll = () => {
 		if (allSelected) clearSelection();
-		else selectAll();
+		else
+			selectItems(
+				files.map((file) => file.id),
+				folders.map((folder) => folder.id),
+			);
 	};
 
 	const renderFolderRow = (folder: FolderListItem) => (

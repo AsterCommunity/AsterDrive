@@ -1,5 +1,9 @@
 import { renderHook, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import {
+	clearStorageEventEchoes,
+	rememberStorageEventEcho,
+} from "@/lib/storageEventEcho";
 
 const mockState = vi.hoisted(() => ({
 	auth: {
@@ -171,6 +175,7 @@ describe("useStorageChangeEvents", () => {
 		mockState.storageRefreshGate.isStorageRefreshGateActive.mockReturnValue(
 			false,
 		);
+		clearStorageEventEchoes();
 		vi.stubGlobal("EventSource", MockEventSource);
 	});
 
@@ -251,7 +256,7 @@ describe("useStorageChangeEvents", () => {
 		expect(mockState.fileStore.navigateTo).not.toHaveBeenCalled();
 	});
 
-	it("ignores events from other workspaces", async () => {
+	it("ignores non-quota events from other workspaces", async () => {
 		mockState.workspace = { kind: "team", teamId: 9 };
 		const { useStorageChangeEvents } = await import(
 			"@/hooks/useStorageChangeEvents"
@@ -265,6 +270,34 @@ describe("useStorageChangeEvents", () => {
 
 		MockEventSource.instances[0]?.emit({
 			kind: "file.deleted",
+			workspace: { kind: "team", team_id: 42 },
+			file_ids: [5],
+			folder_ids: [],
+			affected_parent_ids: [7],
+			root_affected: false,
+			at: "2026-04-08T00:00:00Z",
+		});
+
+		expect(mockState.teamStore.reload).not.toHaveBeenCalled();
+		expect(mockState.invalidateBlobUrl).not.toHaveBeenCalled();
+		expect(mockState.invalidateTextContent).not.toHaveBeenCalled();
+		expect(mockState.fileStore.navigateTo).not.toHaveBeenCalled();
+	});
+
+	it("reloads teams for quota-affecting team events from other workspaces", async () => {
+		mockState.workspace = { kind: "team", teamId: 9 };
+		const { useStorageChangeEvents } = await import(
+			"@/hooks/useStorageChangeEvents"
+		);
+
+		renderHook(() => useStorageChangeEvents());
+
+		await waitFor(() => {
+			expect(MockEventSource.instances).toHaveLength(1);
+		});
+
+		MockEventSource.instances[0]?.emit({
+			kind: "file.created",
 			workspace: { kind: "team", team_id: 42 },
 			file_ids: [5],
 			folder_ids: [],
@@ -311,6 +344,38 @@ describe("useStorageChangeEvents", () => {
 			);
 		});
 		expect(mockState.storageRefreshGate.deferStorageRefresh).toHaveBeenCalled();
+		expect(mockState.fileStore.navigateTo).not.toHaveBeenCalled();
+	});
+
+	it("ignores matching local mutation echo events", async () => {
+		rememberStorageEventEcho({
+			kind: "file.deleted",
+			workspace: { kind: "personal" },
+			fileIds: [12],
+		});
+		const { useStorageChangeEvents } = await import(
+			"@/hooks/useStorageChangeEvents"
+		);
+
+		renderHook(() => useStorageChangeEvents());
+
+		await waitFor(() => {
+			expect(MockEventSource.instances).toHaveLength(1);
+		});
+
+		MockEventSource.instances[0]?.emit({
+			kind: "file.deleted",
+			workspace: { kind: "personal" },
+			file_ids: [12],
+			folder_ids: [],
+			affected_parent_ids: [7],
+			root_affected: false,
+			at: "2026-04-08T00:00:00Z",
+		});
+
+		expect(mockState.auth.refreshUser).not.toHaveBeenCalled();
+		expect(mockState.invalidateBlobUrl).not.toHaveBeenCalled();
+		expect(mockState.invalidateTextContent).not.toHaveBeenCalled();
 		expect(mockState.fileStore.navigateTo).not.toHaveBeenCalled();
 	});
 
