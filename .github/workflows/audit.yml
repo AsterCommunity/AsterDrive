@@ -38,5 +38,4 @@ jobs:
 
       - name: Run audit
         working-directory: frontend-panel
-        run: bun pm audit 2>&1 || true
-        # bun pm audit 目前退出码不稳定，先记录结果
+        run: bun audit --audit-level=high
