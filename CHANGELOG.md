@@ -5,6 +5,75 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v0.1.0-rc.2] - 2026-05-13
+
+### Release Highlights
+
+- **文件浏览器批量操作重构** — 批量移动、复制、删除、归档下载和压缩入口统一到选择工具栏，操作反馈与刷新流程更一致
+- **实时事件去重** — 本机触发的文件操作不再被 SSE 回声重复刷新，减少列表抖动和重复状态更新
+- **顶部工作空间切换器** — 个人空间与团队空间可在顶部快速切换，并支持团队搜索与管理入口跳转
+- **管理后台异步操作反馈增强** — 删除、解锁、清理等操作增加 pending 状态，避免重复点击和误操作
+- **存储策略强制删除与兜底清理** — 管理员可强制删除被上传会话占用的策略，并自动清理相关上传会话与临时对象
+- **公开配置缓存优化** — 公开品牌、预览应用和缩略图支持配置加入缓存与失效机制，减少重复计算和接口开销
+
+### Added
+
+- **工作空间切换器**
+  - 顶部栏新增个人空间 / 团队空间切换入口
+  - 支持团队搜索、当前空间标识和团队管理跳转
+  - 团队加载逻辑上移到布局层，减少页面内重复处理
+- **存储策略删除兜底任务**
+  - 强制删除存储策略时会清理关联上传会话
+  - 新增存储策略删除后的临时对象兜底清理任务
+  - 补充预签名上传策略强删后的延迟清理测试
+- **公开配置缓存**
+  - 公开配置接口增加缓存与缓存失效机制
+  - 品牌、预览应用和缩略图支持信息读取减少重复查询
+- **测试覆盖**
+  - 大幅补充本地 / S3 / 远程存储、任务调度、邮件、缓存、策略和上传集成测试
+  - 补充文件浏览器批量操作、上下文菜单、工作空间切换器和管理后台 pending 状态单元测试
+
+### Changed
+
+- **文件浏览器批量操作**
+  - 批量操作逻辑迁移到独立 hook，减少页面组件状态交织
+  - 文件 / 文件夹上下文菜单与选择工具栏的批量行为更一致
+  - 回收站批量操作、表格和网格视图的选择反馈同步调整
+- **实时存储事件处理**
+  - 新增前端 storage event echo 记录与去重逻辑
+  - 删除、恢复等本机操作触发的 SSE 回声会被识别并跳过重复处理
+- **管理后台列表体验**
+  - 用户、策略、策略组、分享、锁和远程节点列表的异步操作增加 pending 状态
+  - 删除、解锁、清理等操作期间按钮禁用并展示处理中反馈
+- **模块拆分与可维护性**
+  - 后端仓储、审计、锁、任务调度、上传完成、缩略图、本地 / S3 / 远程存储驱动拆分为子模块
+  - 类型定义拆分到按领域组织的 `types/*` 模块
+  - 前端管理后台查询参数类型迁移到生成 API 类型
+
+### Fixed
+
+- **SSE 重复刷新**
+  - 修复本机操作后又收到同一事件导致列表重复刷新、状态抖动的问题
+- **后台任务记录噪音**
+  - 系统健康检查连续成功时复用最近记录，减少后台任务列表噪音和数据库增长
+- **管理操作重复提交**
+  - 删除、解锁等异步操作执行期间阻止重复点击，降低重复请求和误操作风险
+
+### Notes
+
+- 本版本为 `0.1.0` 系列第二个 release candidate
+- 该版本包含大量内部模块拆分，主要影响可维护性和测试覆盖，不改变公开 API 的主要使用方式
+- 自定义客户端如果依赖存储策略删除、上传会话或文件列表实时刷新行为，建议重点验证相关流程
+- 升级前仍建议备份数据库，并按 rc.1 的迁移基线要求确认旧部署已完成 pre-rc.1 迁移链
+
+---
+
+**统计数据**：
+- 244 files changed, 24,194 insertions(+), 15,147 deletions(-)
+- 18 commits
+
+---
+
 ## [v0.1.0-rc.1] - 2026-05-12
 
 ### Release Highlights
@@ -2879,7 +2948,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 66 commits
 - Rust Edition 2024, MSRV 1.91.1
 
-[Unreleased]: https://github.com/AptS-1547/AsterDrive/compare/v0.1.0-rc.1...HEAD
+[Unreleased]: https://github.com/AptS-1547/AsterDrive/compare/v0.1.0-rc.2...HEAD
+[v0.1.0-rc.2]: https://github.com/AptS-1547/AsterDrive/compare/v0.1.0-rc.1...v0.1.0-rc.2
 [v0.1.0-rc.1]: https://github.com/AptS-1547/AsterDrive/compare/v0.1.0-beta.5...v0.1.0-rc.1
 [v0.1.0-beta.5]: https://github.com/AptS-1547/AsterDrive/compare/v0.1.0-beta.4...v0.1.0-beta.5
 [v0.1.0-beta.4]: https://github.com/AptS-1547/AsterDrive/compare/v0.1.0-beta.3...v0.1.0-beta.4
