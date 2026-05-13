@@ -8,7 +8,9 @@ use utoipa::ToSchema;
 use crate::entities::background_task;
 use crate::errors::{AsterError, MapAsterErr, Result};
 use crate::services::user_service;
-use crate::types::{BackgroundTaskKind, BackgroundTaskStatus, StoredTaskPayload, StoredTaskResult};
+use crate::types::{
+    BackgroundTaskKind, BackgroundTaskStatus, DriverType, StoredTaskPayload, StoredTaskResult,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
@@ -140,6 +142,70 @@ pub struct ThumbnailGenerateTaskPayload {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) struct StoragePolicyCleanupPolicySnapshot {
+    pub id: i64,
+    pub name: String,
+    pub driver_type: DriverType,
+    pub endpoint: String,
+    pub bucket: String,
+    pub access_key: String,
+    pub secret_key: String,
+    pub base_path: String,
+    pub remote_node_id: Option<i64>,
+    pub max_file_size: i64,
+    pub allowed_types: String,
+    pub options: String,
+    pub is_default: bool,
+    pub chunk_size: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) struct StoragePolicyCleanupRemoteNodeSnapshot {
+    pub id: i64,
+    pub name: String,
+    pub base_url: String,
+    pub access_key: String,
+    pub secret_key: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
+pub struct StoragePolicyTempCleanupTarget {
+    pub temp_key: String,
+    pub multipart_id: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) struct StoragePolicyTempCleanupTaskPayload {
+    pub policy: StoragePolicyCleanupPolicySnapshot,
+    pub remote_node: Option<StoragePolicyCleanupRemoteNodeSnapshot>,
+    pub temp_keys: Vec<String>,
+    pub multipart_uploads: Vec<StoragePolicyTempCleanupTarget>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
+pub struct StoragePolicyTempCleanupTaskPayloadInfo {
+    pub policy_id: i64,
+    pub policy_name: String,
+    pub driver_type: DriverType,
+    pub temp_key_count: usize,
+    pub multipart_upload_count: usize,
+}
+
+impl From<StoragePolicyTempCleanupTaskPayload> for StoragePolicyTempCleanupTaskPayloadInfo {
+    fn from(value: StoragePolicyTempCleanupTaskPayload) -> Self {
+        Self {
+            policy_id: value.policy.id,
+            policy_name: value.policy.name,
+            driver_type: value.policy.driver_type,
+            temp_key_count: value.temp_keys.len(),
+            multipart_upload_count: value.multipart_uploads.len(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct RuntimeTaskResult {
     pub duration_ms: i64,
@@ -161,11 +227,20 @@ pub struct ThumbnailGenerateTaskResult {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
+pub struct StoragePolicyTempCleanupTaskResult {
+    pub deleted_objects: u64,
+    pub missing_objects: u64,
+    pub failed_objects: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum TaskPayload {
     ArchiveCompress(ArchiveCompressTaskPayload),
     ArchiveExtract(ArchiveExtractTaskPayload),
     ThumbnailGenerate(ThumbnailGenerateTaskPayload),
+    StoragePolicyTempCleanup(StoragePolicyTempCleanupTaskPayloadInfo),
     SystemRuntime(RuntimeTaskPayload),
 }
 
@@ -176,6 +251,7 @@ pub enum TaskResult {
     ArchiveCompress(ArchiveCompressTaskResult),
     ArchiveExtract(ArchiveExtractTaskResult),
     ThumbnailGenerate(ThumbnailGenerateTaskResult),
+    StoragePolicyTempCleanup(StoragePolicyTempCleanupTaskResult),
     SystemRuntime(RuntimeTaskResult),
 }
 
@@ -238,6 +314,9 @@ pub(super) fn parse_task_payload_info(task: &background_task::Model) -> Result<T
         BackgroundTaskKind::ThumbnailGenerate => {
             Ok(TaskPayload::ThumbnailGenerate(parse_task_payload(task)?))
         }
+        BackgroundTaskKind::StoragePolicyTempCleanup => Ok(TaskPayload::StoragePolicyTempCleanup(
+            parse_task_payload::<StoragePolicyTempCleanupTaskPayload>(task)?.into(),
+        )),
         BackgroundTaskKind::SystemRuntime => {
             Ok(TaskPayload::SystemRuntime(parse_task_payload(task)?))
         }
@@ -278,6 +357,17 @@ pub(super) fn parse_task_result_info(task: &background_task::Model) -> Result<Op
                 ))
             })?,
         ))),
+        BackgroundTaskKind::StoragePolicyTempCleanup => {
+            Ok(Some(TaskResult::StoragePolicyTempCleanup(
+                serde_json::from_str(raw.as_ref()).map_err(|error| {
+                    AsterError::internal_error(format!(
+                        "parse result for task #{} ({}): {error}",
+                        task.id,
+                        task.kind.to_value()
+                    ))
+                })?,
+            )))
+        }
         BackgroundTaskKind::SystemRuntime => Ok(Some(TaskResult::SystemRuntime(
             serde_json::from_str(raw.as_ref()).map_err(|error| {
                 AsterError::internal_error(format!(

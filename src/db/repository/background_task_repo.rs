@@ -841,6 +841,7 @@ mod tests {
             BackgroundTaskKind::ArchiveCompress => "archive-compress",
             BackgroundTaskKind::ArchiveExtract => "archive-extract",
             BackgroundTaskKind::ThumbnailGenerate => "thumbnail-generate",
+            BackgroundTaskKind::StoragePolicyTempCleanup => "storage-policy-temp-cleanup",
             BackgroundTaskKind::SystemRuntime => "task-cleanup",
         };
         let payload_json = match kind {
@@ -862,6 +863,27 @@ mod tests {
                 "source_file_name": "repo-test.png",
                 "source_mime_type": "image/png",
                 "processor": "image_magick",
+            }),
+            BackgroundTaskKind::StoragePolicyTempCleanup => serde_json::json!({
+                "policy": {
+                    "id": 1,
+                    "name": "Deleted policy",
+                    "driver_type": "local",
+                    "endpoint": "",
+                    "bucket": "",
+                    "access_key": "",
+                    "secret_key": "",
+                    "base_path": "/tmp/asterdrive-deleted-policy",
+                    "remote_node_id": null,
+                    "max_file_size": 0,
+                    "allowed_types": "[]",
+                    "options": "{}",
+                    "is_default": false,
+                    "chunk_size": 5_242_880,
+                },
+                "remote_node": null,
+                "temp_keys": ["files/temp-object"],
+                "multipart_uploads": [],
             }),
             BackgroundTaskKind::SystemRuntime => serde_json::json!({
                 "task_name": task_name,

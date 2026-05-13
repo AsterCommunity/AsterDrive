@@ -24,6 +24,7 @@ use super::archive;
 use super::retry::{TaskRetryClass, TaskRetryPolicy};
 use super::runtime;
 use super::steps::{mark_active_step_failed, parse_task_steps_json, serialize_task_steps};
+use super::storage_policy_cleanup;
 use super::thumbnail;
 use super::{
     TASK_DRAIN_MAX_ROUNDS, TASK_HEARTBEAT_INTERVAL_SECS, TASK_PROCESSING_STALE_SECS, TaskLease,
@@ -95,7 +96,10 @@ const ARCHIVE_TASK_KINDS: [BackgroundTaskKind; 2] = [
     BackgroundTaskKind::ArchiveExtract,
 ];
 const THUMBNAIL_TASK_KINDS: [BackgroundTaskKind; 1] = [BackgroundTaskKind::ThumbnailGenerate];
-const FALLBACK_TASK_KINDS: [BackgroundTaskKind; 1] = [BackgroundTaskKind::SystemRuntime];
+const FALLBACK_TASK_KINDS: [BackgroundTaskKind; 2] = [
+    BackgroundTaskKind::SystemRuntime,
+    BackgroundTaskKind::StoragePolicyTempCleanup,
+];
 const TASK_LANES: [TaskLane; 3] = [TaskLane::Archive, TaskLane::Thumbnail, TaskLane::Fallback];
 
 pub async fn dispatch_due(state: &PrimaryAppState) -> Result<DispatchStats> {
@@ -654,6 +658,14 @@ async fn process_task(
         BackgroundTaskKind::ThumbnailGenerate => {
             thumbnail::process_thumbnail_generate_task(state, task, lease_guard).await
         }
+        BackgroundTaskKind::StoragePolicyTempCleanup => {
+            storage_policy_cleanup::process_storage_policy_temp_cleanup_task(
+                state,
+                task,
+                lease_guard,
+            )
+            .await
+        }
         BackgroundTaskKind::SystemRuntime => Err(crate::errors::AsterError::internal_error(
             format!("system runtime task #{} should not be dispatched", task.id),
         )),
@@ -701,7 +713,9 @@ fn task_lane(kind: BackgroundTaskKind) -> TaskLane {
             TaskLane::Archive
         }
         BackgroundTaskKind::ThumbnailGenerate => TaskLane::Thumbnail,
-        BackgroundTaskKind::SystemRuntime => TaskLane::Fallback,
+        BackgroundTaskKind::StoragePolicyTempCleanup | BackgroundTaskKind::SystemRuntime => {
+            TaskLane::Fallback
+        }
     }
 }
 
@@ -748,6 +762,7 @@ fn task_retry_class(kind: BackgroundTaskKind, error: &AsterError) -> TaskRetryCl
         BackgroundTaskKind::ThumbnailGenerate => {
             thumbnail::ThumbnailRetryPolicy::retry_class(error)
         }
+        BackgroundTaskKind::StoragePolicyTempCleanup => super::retry::default_retry_class(error),
         BackgroundTaskKind::SystemRuntime => runtime::RuntimeRetryPolicy::retry_class(error),
     }
 }
@@ -919,6 +934,10 @@ mod tests {
         );
         assert_eq!(
             task_lane(BackgroundTaskKind::SystemRuntime),
+            super::TaskLane::Fallback
+        );
+        assert_eq!(
+            task_lane(BackgroundTaskKind::StoragePolicyTempCleanup),
             super::TaskLane::Fallback
         );
     }

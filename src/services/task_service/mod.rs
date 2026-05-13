@@ -9,6 +9,7 @@ mod dispatch;
 mod retry;
 mod runtime;
 mod steps;
+mod storage_policy_cleanup;
 mod thumbnail;
 mod types;
 
@@ -41,6 +42,7 @@ pub(crate) use archive::{
 pub use dispatch::{DispatchStats, cleanup_expired, dispatch_due, drain};
 pub use runtime::{RuntimeTaskRunOutcome, record_runtime_task_run};
 use steps::{initial_task_steps, parse_task_steps_json, serialize_task_steps};
+pub(crate) use storage_policy_cleanup::create_storage_policy_temp_cleanup_task;
 pub(crate) use thumbnail::ensure_thumbnail_task;
 pub use types::{
     ArchiveCompressTaskPayload, ArchiveCompressTaskResult, ArchiveExtractTaskPayload,
@@ -654,7 +656,9 @@ pub(super) fn task_lease_expires_at(
 fn configured_task_max_attempts(state: &PrimaryAppState, kind: BackgroundTaskKind) -> i32 {
     match kind {
         BackgroundTaskKind::SystemRuntime | BackgroundTaskKind::ThumbnailGenerate => 1,
-        BackgroundTaskKind::ArchiveCompress | BackgroundTaskKind::ArchiveExtract => {
+        BackgroundTaskKind::ArchiveCompress
+        | BackgroundTaskKind::ArchiveExtract
+        | BackgroundTaskKind::StoragePolicyTempCleanup => {
             operations::background_task_max_attempts(&state.runtime_config)
         }
     }

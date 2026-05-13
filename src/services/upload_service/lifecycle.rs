@@ -24,6 +24,13 @@ enum UploadRemoteCleanupOutcome {
     DeferredIntervention,
 }
 
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ForceCleanupByPolicyResult {
+    pub cleaned: u64,
+    pub deferred_temp_keys: Vec<String>,
+    pub deferred_multipart_uploads: Vec<(String, String)>,
+}
+
 impl UploadRemoteCleanupOutcome {
     fn is_complete(self) -> bool {
         matches!(self, Self::Complete)
@@ -224,25 +231,39 @@ pub async fn cancel_upload_for_team(
     cancel_upload_impl(state, session).await
 }
 
-pub async fn force_cleanup_by_policy(state: &PrimaryAppState, policy_id: i64) -> Result<u64> {
+pub async fn force_cleanup_by_policy(
+    state: &PrimaryAppState,
+    policy_id: i64,
+) -> Result<ForceCleanupByPolicyResult> {
     let sessions = upload_session_repo::find_by_policy(&state.db, policy_id).await?;
-    let mut cleaned = 0_u64;
+    let mut result = ForceCleanupByPolicyResult::default();
 
-    for session in sessions {
-        let cleanup_outcome = cleanup_remote_upload_state(state, &session).await;
+    for session in &sessions {
+        if let Some(temp_key) = session.s3_temp_key.as_ref() {
+            result.deferred_temp_keys.push(temp_key.clone());
+            if let Some(multipart_id) = session.s3_multipart_id.as_ref() {
+                result
+                    .deferred_multipart_uploads
+                    .push((temp_key.clone(), multipart_id.clone()));
+            }
+        }
+
+        let cleanup_outcome = cleanup_remote_upload_state(state, session).await;
         if !cleanup_outcome.is_complete() {
             return Err(AsterError::validation_error(format!(
                 "cannot force delete policy: upload session {} still has remote cleanup pending",
                 session.id
             )));
         }
-
-        cleanup_upload_temp_dir(state, &session.id).await;
-        upload_session_repo::delete(&state.db, &session.id).await?;
-        cleaned += 1;
     }
 
-    Ok(cleaned)
+    for session in sessions {
+        cleanup_upload_temp_dir(state, &session.id).await;
+        upload_session_repo::delete(&state.db, &session.id).await?;
+        result.cleaned += 1;
+    }
+
+    Ok(result)
 }
 
 /// 清理过期的上传 session（后台任务调用）

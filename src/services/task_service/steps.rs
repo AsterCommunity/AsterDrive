@@ -17,6 +17,7 @@ pub(super) const TASK_STEP_IMPORT_RESULT: &str = "import_result";
 pub(super) const TASK_STEP_INSPECT_SOURCE: &str = "inspect_source";
 pub(super) const TASK_STEP_RENDER_THUMBNAIL: &str = "render_thumbnail";
 pub(super) const TASK_STEP_PERSIST_THUMBNAIL: &str = "persist_thumbnail";
+pub(super) const TASK_STEP_CLEANUP_OBJECTS: &str = "cleanup_objects";
 
 #[derive(Debug, Clone, Copy)]
 struct TaskStepSpec {
@@ -78,6 +79,20 @@ fn task_step_specs(kind: BackgroundTaskKind) -> &'static [TaskStepSpec] {
             TaskStepSpec {
                 key: TASK_STEP_PERSIST_THUMBNAIL,
                 title: "Persist thumbnail",
+            },
+        ],
+        BackgroundTaskKind::StoragePolicyTempCleanup => &[
+            TaskStepSpec {
+                key: TASK_STEP_WAITING,
+                title: "Waiting",
+            },
+            TaskStepSpec {
+                key: TASK_STEP_PREPARE_SOURCES,
+                title: "Prepare storage driver",
+            },
+            TaskStepSpec {
+                key: TASK_STEP_CLEANUP_OBJECTS,
+                title: "Clean temporary objects",
             },
         ],
         BackgroundTaskKind::SystemRuntime => &[],

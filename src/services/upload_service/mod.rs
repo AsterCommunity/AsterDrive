@@ -28,7 +28,8 @@ pub use complete::{
 };
 pub use init::{init_upload, init_upload_for_team};
 pub use lifecycle::{
-    cancel_upload, cancel_upload_for_team, cleanup_expired, force_cleanup_by_policy,
+    ForceCleanupByPolicyResult, cancel_upload, cancel_upload_for_team, cleanup_expired,
+    force_cleanup_by_policy,
 };
 pub use progress::{
     get_progress, get_progress_for_team, list_recoverable_sessions,

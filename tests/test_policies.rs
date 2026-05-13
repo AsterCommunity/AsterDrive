@@ -371,6 +371,123 @@ async fn test_policy_delete_rejects_upload_sessions_unless_forced() {
 }
 
 #[actix_web::test]
+async fn test_policy_force_delete_schedules_late_temp_object_cleanup() {
+    use aster_drive::db::repository::{background_task_repo, policy_repo, upload_session_repo};
+    use aster_drive::entities::background_task;
+    use aster_drive::services::task_service;
+    use aster_drive::types::{BackgroundTaskKind, BackgroundTaskStatus};
+    use sea_orm::{ActiveModelTrait, ColumnTrait, EntityTrait, QueryFilter, Set};
+
+    let state = common::setup().await;
+    let db = state.db.clone();
+    let app = create_test_app!(state.clone());
+    let (token, _) = register_and_login!(app);
+
+    let base_path = format!(
+        "/tmp/asterdrive-policy-late-temp-cleanup-{}",
+        uuid::Uuid::new_v4()
+    );
+    std::fs::create_dir_all(&base_path).unwrap();
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/admin/policies")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({
+            "name": "Late Temp Cleanup Policy",
+            "driver_type": "local",
+            "base_path": base_path,
+            "chunk_size": 5_242_880,
+            "max_file_size": 0
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 201);
+    let body: Value = test::read_body_json(resp).await;
+    let policy_id = body["data"]["id"].as_i64().unwrap();
+
+    let user = aster_drive::db::repository::user_repo::find_by_username(&db, "testuser")
+        .await
+        .unwrap()
+        .expect("registered user should exist");
+    let upload_id = uuid::Uuid::new_v4().to_string();
+    let temp_key = format!("files/late-orphan-{}.bin", uuid::Uuid::new_v4());
+    create_policy_upload_session(
+        &state,
+        PolicyUploadSessionSpec {
+            upload_id: &upload_id,
+            policy_id,
+            user_id: user.id,
+            s3_temp_key: Some(&temp_key),
+        },
+    )
+    .await;
+
+    let req = test::TestRequest::delete()
+        .uri(&format!("/api/v1/admin/policies/{policy_id}?force=true"))
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+
+    assert!(
+        policy_repo::find_by_id(&db, policy_id).await.is_err(),
+        "policy should be deleted by forced delete"
+    );
+    assert!(
+        upload_session_repo::find_by_id(&db, &upload_id)
+            .await
+            .is_err(),
+        "forced delete should remove upload session"
+    );
+
+    let cleanup_task = background_task::Entity::find()
+        .filter(background_task::Column::Kind.eq(BackgroundTaskKind::StoragePolicyTempCleanup))
+        .one(&db)
+        .await
+        .unwrap()
+        .expect("force delete should schedule delayed temp cleanup");
+    assert_eq!(cleanup_task.status, BackgroundTaskStatus::Pending);
+    let payload: Value = serde_json::from_str(cleanup_task.payload_json.as_ref()).unwrap();
+    assert_eq!(payload["policy"]["id"], policy_id);
+    assert_eq!(payload["temp_keys"][0], temp_key);
+
+    let object_path = std::path::Path::new(&base_path).join(&temp_key);
+    tokio::fs::create_dir_all(object_path.parent().unwrap())
+        .await
+        .unwrap();
+    tokio::fs::write(&object_path, b"late presigned write")
+        .await
+        .unwrap();
+    assert!(
+        object_path.exists(),
+        "test should create the late orphan object after policy deletion"
+    );
+
+    let mut active: background_task::ActiveModel = cleanup_task.clone().into();
+    active.next_run_at = Set(Utc::now() - Duration::seconds(1));
+    active.update(&db).await.unwrap();
+
+    let stats = task_service::dispatch_due(&state).await.unwrap();
+    assert_eq!(stats.claimed, 1);
+    assert_eq!(stats.succeeded, 1);
+    assert!(
+        !object_path.exists(),
+        "delayed cleanup should delete late temp object using policy snapshot"
+    );
+
+    let stored_task = background_task_repo::find_by_id(&db, cleanup_task.id)
+        .await
+        .unwrap();
+    assert_eq!(stored_task.status, BackgroundTaskStatus::Succeeded);
+    let result: Value =
+        serde_json::from_str(stored_task.result_json.as_ref().unwrap().as_ref()).unwrap();
+    assert_eq!(result["deleted_objects"], 1);
+    assert_eq!(result["failed_objects"], 0);
+}
+
+#[actix_web::test]
 async fn test_policy_force_delete_still_rejects_blob_references() {
     use aster_drive::db::repository::{file_repo, policy_group_repo, policy_repo};
     use aster_drive::services::{file_service, policy_service, user_service};

@@ -298,6 +298,8 @@ pub enum BackgroundTaskKind {
     ArchiveCompress,
     #[sea_orm(string_value = "thumbnail_generate")]
     ThumbnailGenerate,
+    #[sea_orm(string_value = "storage_policy_temp_cleanup")]
+    StoragePolicyTempCleanup,
     #[sea_orm(string_value = "system_runtime")]
     SystemRuntime,
 }
