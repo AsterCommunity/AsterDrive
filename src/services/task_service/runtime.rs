@@ -16,6 +16,8 @@ use super::types::{
 };
 use super::{task_expiration_from, truncate_error, truncate_status_text};
 
+const SYSTEM_HEALTH_TASK_NAME: &str = "system-health-check";
+
 pub(super) struct RuntimeRetryPolicy;
 
 impl TaskRetryPolicy for RuntimeRetryPolicy {
@@ -139,6 +141,30 @@ pub async fn record_runtime_task_run(
         system_health: outcome.system_health(),
     })?;
 
+    if should_refresh_latest_success(task_name, outcome)
+        && let Some(existing) =
+            background_task_repo::find_latest_system_runtime_by_task_name(&state.db, task_name)
+                .await?
+        && existing.status == BackgroundTaskStatus::Succeeded
+        && background_task_repo::refresh_system_runtime_success(
+            &state.db,
+            background_task_repo::SystemRuntimeSuccessRefresh {
+                id: existing.id,
+                result_json: result_json.as_ref(),
+                status_text: summary.as_deref(),
+                next_run_at: finished_at,
+                started_at,
+                finished_at,
+                expires_at: task_expiration_from(state, finished_at),
+            },
+        )
+        .await?
+    {
+        return background_task_repo::find_by_id(&state.db, existing.id)
+            .await
+            .map(Some);
+    }
+
     // 系统周期任务和用户后台任务共用 background_task 表。
     // 区别在于 runtime 任务的 kind 是 SystemRuntime，它们只是执行事件记录，
     // 不会再被 dispatcher 拿去执行。
@@ -185,6 +211,20 @@ pub async fn record_runtime_task_run(
     .await?;
 
     Ok(Some(task))
+}
+
+fn should_refresh_latest_success(task_name: &str, outcome: &RuntimeTaskRunOutcome) -> bool {
+    task_name == SYSTEM_HEALTH_TASK_NAME
+        && matches!(
+            outcome,
+            RuntimeTaskRunOutcome::Succeeded {
+                system_health: Some(RuntimeSystemHealthResult {
+                    status: super::types::RuntimeSystemHealthStatus::Healthy,
+                    ..
+                }),
+                ..
+            }
+        )
 }
 
 fn runtime_task_display_name(task_name: &str) -> String {

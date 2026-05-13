@@ -15,7 +15,10 @@ use aster_drive::config::operations::{
 };
 use aster_drive::db::repository::background_task_repo;
 use aster_drive::entities::background_task;
-use aster_drive::services::task_service::{self, RuntimeTaskRunOutcome};
+use aster_drive::services::task_service::{
+    self, RuntimeSystemHealthComponent, RuntimeSystemHealthResult, RuntimeSystemHealthStatus,
+    RuntimeTaskRunOutcome,
+};
 use aster_drive::types::{BackgroundTaskKind, BackgroundTaskStatus, StoredTaskPayload};
 
 macro_rules! register_user {
@@ -479,6 +482,17 @@ fn create_zip_bytes_with_tampered_declared_size(
     bytes[local_header + 22..local_header + 26].copy_from_slice(&declared_size_bytes);
     bytes[central_header + 24..central_header + 28].copy_from_slice(&declared_size_bytes);
     bytes
+}
+
+fn healthy_system_health_result() -> RuntimeSystemHealthResult {
+    RuntimeSystemHealthResult {
+        status: RuntimeSystemHealthStatus::Healthy,
+        components: vec![RuntimeSystemHealthComponent {
+            name: "database".to_string(),
+            status: RuntimeSystemHealthStatus::Healthy,
+            message: "database ping succeeded".to_string(),
+        }],
+    }
 }
 
 async fn insert_processing_task(
@@ -1138,6 +1152,105 @@ async fn test_record_runtime_task_run_skips_quiet_outcome() {
         .await
         .expect("recent background tasks should load");
     assert!(recent.is_empty());
+}
+
+#[actix_web::test]
+async fn test_record_runtime_task_run_refreshes_latest_healthy_system_check() {
+    let state = common::setup().await;
+    let first_started_at = Utc::now() - Duration::seconds(6);
+    let first_finished_at = Utc::now() - Duration::seconds(5);
+
+    let first = task_service::record_runtime_task_run(
+        &state,
+        "system-health-check",
+        first_started_at,
+        first_finished_at,
+        &RuntimeTaskRunOutcome::succeeded_with_system_health(
+            Some("system healthy".to_string()),
+            healthy_system_health_result(),
+        ),
+    )
+    .await
+    .expect("first system health event should be recorded")
+    .expect("first healthy check should create a record");
+
+    let second_started_at = Utc::now() - Duration::seconds(1);
+    let second_finished_at = Utc::now();
+    let second = task_service::record_runtime_task_run(
+        &state,
+        "system-health-check",
+        second_started_at,
+        second_finished_at,
+        &RuntimeTaskRunOutcome::succeeded_with_system_health(
+            Some("system healthy".to_string()),
+            healthy_system_health_result(),
+        ),
+    )
+    .await
+    .expect("second system health event should refresh latest record")
+    .expect("second healthy check should return the refreshed record");
+
+    assert_eq!(second.id, first.id);
+    assert_eq!(second.status, BackgroundTaskStatus::Succeeded);
+    assert_eq!(second.started_at, Some(second_started_at));
+    assert_eq!(second.finished_at, Some(second_finished_at));
+    assert_eq!(second.updated_at, second_finished_at);
+
+    let recent = background_task_repo::list_recent(&state.db, 10)
+        .await
+        .expect("recent background tasks should load");
+    assert_eq!(recent.len(), 1);
+    assert_eq!(recent[0].id, first.id);
+}
+
+#[actix_web::test]
+async fn test_record_runtime_task_run_keeps_health_failure_history_before_recovery() {
+    let state = common::setup().await;
+    let failed = task_service::record_runtime_task_run(
+        &state,
+        "system-health-check",
+        Utc::now() - Duration::seconds(5),
+        Utc::now() - Duration::seconds(4),
+        &RuntimeTaskRunOutcome::failed_with_system_health(
+            Some("cache degraded".to_string()),
+            "cache=degraded: fallback active",
+            RuntimeSystemHealthResult {
+                status: RuntimeSystemHealthStatus::Degraded,
+                components: vec![RuntimeSystemHealthComponent {
+                    name: "cache".to_string(),
+                    status: RuntimeSystemHealthStatus::Degraded,
+                    message: "fallback active".to_string(),
+                }],
+            },
+        ),
+    )
+    .await
+    .expect("failed system health event should be recorded")
+    .expect("failed system health should create a record");
+
+    let recovered = task_service::record_runtime_task_run(
+        &state,
+        "system-health-check",
+        Utc::now() - Duration::seconds(1),
+        Utc::now(),
+        &RuntimeTaskRunOutcome::succeeded_with_system_health(
+            Some("system healthy".to_string()),
+            healthy_system_health_result(),
+        ),
+    )
+    .await
+    .expect("recovered system health event should be recorded")
+    .expect("recovery should create a new record after failure");
+
+    assert_ne!(recovered.id, failed.id);
+    assert_eq!(recovered.status, BackgroundTaskStatus::Succeeded);
+
+    let recent = background_task_repo::list_recent(&state.db, 10)
+        .await
+        .expect("recent background tasks should load");
+    assert_eq!(recent.len(), 2);
+    assert_eq!(recent[0].id, recovered.id);
+    assert_eq!(recent[1].id, failed.id);
 }
 
 #[actix_web::test]

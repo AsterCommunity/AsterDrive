@@ -6,13 +6,92 @@ use sea_orm::{
 
 use crate::entities::background_task::{self, Entity as BackgroundTask};
 use crate::errors::{AsterError, Result};
-use crate::types::BackgroundTaskStatus;
+use crate::types::{BackgroundTaskKind, BackgroundTaskStatus};
 
 pub async fn create<C: ConnectionTrait>(
     db: &C,
     model: background_task::ActiveModel,
 ) -> Result<background_task::Model> {
     model.insert(db).await.map_err(AsterError::from)
+}
+
+pub struct SystemRuntimeSuccessRefresh<'a> {
+    pub id: i64,
+    pub result_json: &'a str,
+    pub status_text: Option<&'a str>,
+    pub next_run_at: DateTime<Utc>,
+    pub started_at: DateTime<Utc>,
+    pub finished_at: DateTime<Utc>,
+    pub expires_at: DateTime<Utc>,
+}
+
+pub async fn refresh_system_runtime_success<C: ConnectionTrait>(
+    db: &C,
+    refresh: SystemRuntimeSuccessRefresh<'_>,
+) -> Result<bool> {
+    let result = BackgroundTask::update_many()
+        .col_expr(
+            background_task::Column::Status,
+            Expr::value(BackgroundTaskStatus::Succeeded.to_value()),
+        )
+        .col_expr(
+            background_task::Column::ResultJson,
+            Expr::value(Some(refresh.result_json.to_string())),
+        )
+        .col_expr(background_task::Column::ProgressCurrent, Expr::value(1))
+        .col_expr(background_task::Column::ProgressTotal, Expr::value(1))
+        .col_expr(
+            background_task::Column::StatusText,
+            Expr::value(refresh.status_text.map(str::to_string)),
+        )
+        .col_expr(
+            background_task::Column::NextRunAt,
+            Expr::value(refresh.next_run_at),
+        )
+        .col_expr(
+            background_task::Column::ProcessingStartedAt,
+            Expr::value(Option::<DateTime<Utc>>::None),
+        )
+        .col_expr(
+            background_task::Column::LastHeartbeatAt,
+            Expr::value(Option::<DateTime<Utc>>::None),
+        )
+        .col_expr(
+            background_task::Column::LeaseExpiresAt,
+            Expr::value(Option::<DateTime<Utc>>::None),
+        )
+        .col_expr(
+            background_task::Column::StartedAt,
+            Expr::value(Some(refresh.started_at)),
+        )
+        .col_expr(
+            background_task::Column::FinishedAt,
+            Expr::value(Some(refresh.finished_at)),
+        )
+        .col_expr(
+            background_task::Column::LastError,
+            Expr::value(Option::<String>::None),
+        )
+        .col_expr(
+            background_task::Column::FailureCanRetry,
+            Expr::value(Option::<bool>::None),
+        )
+        .col_expr(
+            background_task::Column::ExpiresAt,
+            Expr::value(refresh.expires_at),
+        )
+        .col_expr(
+            background_task::Column::UpdatedAt,
+            Expr::value(refresh.finished_at),
+        )
+        .filter(background_task::Column::Id.eq(refresh.id))
+        .filter(background_task::Column::Kind.eq(BackgroundTaskKind::SystemRuntime))
+        .filter(background_task::Column::Status.eq(BackgroundTaskStatus::Succeeded))
+        .exec(db)
+        .await
+        .map_err(AsterError::from)?;
+
+    Ok(result.rows_affected == 1)
 }
 
 pub struct TaskProgressUpdate<'a> {
