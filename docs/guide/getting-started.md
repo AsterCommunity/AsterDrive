@@ -12,7 +12,7 @@
 
 如果你是第一次接触自托管，AsterDrive 默认配置就能跑起来——10 分钟内可以看到自己的第一个文件躺在自己服务器上的感觉。我们试过让这件事尽量不需要你先成为运维专家。
 
-如果你已经熟悉 Docker、反向代理这些，可以直接跳到 [部署手册](./installation)。
+如果你已经熟悉 Docker、反向代理这些，可以直接跳到 [部署概览](/deployment/)。
 
 AsterDrive 不会有付费版、Pro 版或功能墙——所有功能在 MIT 协议下开源，每个人能用到的东西完全一样。关于这个项目的取舍和后续路线，可以看 [关于 AsterDrive](./about)。
 
@@ -177,7 +177,7 @@ http://服务器地址:3000
 
 跑通之后，下面这些可能是你接下来想做的：
 
-- 想真上线、挂 HTTPS、配反向代理 → [部署手册](./installation) / [反向代理](/deployment/reverse-proxy)
+- 想真上线、挂 HTTPS、配反向代理 → [部署概览](/deployment/) / [反向代理](/deployment/reverse-proxy)
 - 想做主控 + 从节点部署 → [远程节点](./remote-nodes)
 - 想了解日常用 AsterDrive 是什么样 → [用户手册](./user-guide)
 - 想深入管理后台 → [管理后台](./admin-console)

@@ -3,7 +3,7 @@
 ::: tip 这一篇讲什么
 这一篇只讲怎么把另一台 AsterDrive 接成**从节点**，以及主控端怎么登记远程节点、生成 enroll 命令、验证连通性。
 
-如果你连主控实例都还没跑起来，先看 [部署手册](./installation)。
+如果你连主控实例都还没跑起来，先看 [部署概览](/deployment/)。
 :::
 
 ::: tip 如果 follower 用 Docker

@@ -3,52 +3,53 @@ layout: home
 
 hero:
   name: AsterDrive
-  text: 自托管云存储
-  tagline: 你的文件，真的在你自己手里。一条命令跑起来，用 Rust 写的，MIT 开源。
+  text: 文档中心
+  tagline: 自托管云存储的部署、使用、管理和运维手册。先选路径，再看细节。
   actions:
     - theme: brand
       text: 快速开始
       link: /guide/getting-started
     - theme: alt
-      text: 关于 AsterDrive
-      link: /guide/about
+      text: 使用指南
+      link: /guide/
     - theme: alt
-      text: GitHub
-      link: https://github.com/AptS-1547/AsterDrive
+      text: 部署概览
+      link: /deployment/
 
 features:
-  - title: 一条命令跑起来
-    details: 单个 Rust 二进制，没有 PHP、没有外部 runtime、没有一堆要先装的依赖。一条 docker run 就能在 10 分钟内看到自己的第一个文件躺在自己服务器上。
-  - title: 默认 SQLite，真上线再切 PG
-    details: 默认零运维启动，让你 5 分钟看一下"这个项目是什么"。等真要上线、数据多起来，自带跨数据库迁移工具，平滑切到 PostgreSQL 或 MySQL，不会被困死在 SQLite 里。
-  - title: 改得动（hackable）
-    details: 代码用 Rust 写，分层清晰、错误码千位分域、repo 与 service 拆开。你能 fork 之后看懂、改、PR 回来——我们最喜欢的 issue 是带 PR 来的那种。
-  - title: 不会有 Pro 版
-    details: 不会有付费版、Pro 版或功能墙。所有功能在 MIT 协议下开源，每个人能用到的东西完全一样。现在没有，将来也不会有。
-  - title: 先是一个安心放文件的地方
-    details: 文件管理、上传下载、回收站是骨架。回收站不是附加功能——没有它，你不敢真的把重要文件放进去。再之上才是分享、团队、WebDAV、Office 在线编辑。
-  - title: 本地、S3、远程节点都能落地
-    details: 默认本地存储开箱即用；如果你要接 MinIO、AWS S3 或其他 S3 兼容对象存储，或者把另一台 AsterDrive 当远程存储从节点，配上去就能跑。策略组让你按用户或团队分流到不同的存储路线。
-  - title: Office 文件也能在线编辑
-    details: 浏览器内直接编辑文本类文件；Office 类文件可以接 Collabora 或 OnlyOffice 之类的 WOPI 服务，让它们交给兼容的在线编辑器打开。
-  - title: 给运维留了路
-    details: 启动 healthcheck、跨库迁移工具、doctor 一致性检查、系统设置可热改、完整的 systemd / Docker / 反向代理部署文档——不假装运维不存在。
+  - title: 第一次部署
+    details: 从快速开始到正式上线，先跑通服务，再处理 HTTPS、数据目录、健康检查和首次验收。
+    link: /guide/getting-started
+  - title: 日常使用
+    details: 文件、工作空间、上传、分享、回收站、WebDAV 和在线编辑，按真实使用路径组织。
+    link: /guide/
+  - title: 管理员配置
+    details: 分清 config.toml、后台系统设置、存储策略、策略组、邮件、远程节点各自负责什么。
+    link: /config/
+  - title: 运维维护
+    details: Docker、systemd、反向代理、升级、备份、故障排查和运维 CLI 放在同一条维护路径里。
+    link: /deployment/
 ---
 
-## 从哪里开始
+## 按目的走
 
-按你的角色和目的，直接挑一条往下走：
+### 我只是想先跑起来
 
-- **第一次把服务跑起来** → [快速开始](/guide/getting-started)
-- **想了解这个项目本身** → [关于 AsterDrive](/guide/about)
-- **决定用 Docker、systemd 还是二进制** → [部署手册](/guide/installation)
-- **登录后想知道怎么上传、分享、恢复、编辑和管理团队空间** → [用户手册](/guide/user-guide)
-- **按场景做事**（新部署首轮检查、安排存储路线、处理误删等） → [常用流程](/guide/core-workflows)
-- **想了解管理后台每个入口** → [管理后台](/guide/admin-console)
-- **改端口、数据库、登录密钥、WebDAV、系统设置或日志** → [配置说明](/config/)
-- **挂 HTTPS、反向代理、升级或备份恢复** → [部署与升级](/deployment/)
-- **在命令行里做部署检查、离线改系统设置或跨数据库迁移** → [运维 CLI](/deployment/ops-cli)
-- **碰到问题** → [错误码处理](/guide/errors) / [故障排查](/deployment/troubleshooting)
+从 [快速开始](/guide/getting-started) 走一遍。它会带你完成启动服务、创建第一个管理员、上传文件、试分享、检查 WebDAV 和跑一轮基础验收。
+
+如果你已经决定正式部署，直接看 [部署概览](/deployment/)。那一组文档会把 Docker、systemd、反向代理、升级和备份放在同一条线上讲清楚。
+
+### 我已经登录了，想知道怎么用
+
+从 [使用指南](/guide/) 进入。普通用户优先看 [用户手册](/guide/user-guide) 和 [常用流程](/guide/core-workflows)，单独问题再跳到分享、编辑、上传或 WebDAV。
+
+### 我要管一个实例
+
+先看 [管理后台](/guide/admin-console)，再看 [配置总览](/config/)。AsterDrive 的配置分成启动配置、后台运行时设置、存储策略、策略组和外部网络环境，混在一起看只会把自己绕晕。
+
+### 我要上线或排障
+
+上线前按 [部署概览](/deployment/) 选方式，再补 [反向代理](/deployment/reverse-proxy)、[首次启动检查](/deployment/runtime-behavior)、[备份与恢复](/deployment/backup)。已经出问题就直接去 [故障排查](/deployment/troubleshooting)，看到错误码再配合 [错误码处理](/guide/errors)。
 
 ---
 
