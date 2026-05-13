@@ -495,6 +495,11 @@ fn healthy_system_health_result() -> RuntimeSystemHealthResult {
     }
 }
 
+fn utc_now_at_db_precision() -> chrono::DateTime<chrono::Utc> {
+    chrono::DateTime::from_timestamp_micros(Utc::now().timestamp_micros())
+        .expect("current timestamp should fit in chrono range")
+}
+
 async fn insert_processing_task(
     state: &aster_drive::runtime::PrimaryAppState,
     processing_started_at: chrono::DateTime<chrono::Utc>,
@@ -1157,8 +1162,8 @@ async fn test_record_runtime_task_run_skips_quiet_outcome() {
 #[actix_web::test]
 async fn test_record_runtime_task_run_refreshes_latest_healthy_system_check() {
     let state = common::setup().await;
-    let first_started_at = Utc::now() - Duration::seconds(6);
-    let first_finished_at = Utc::now() - Duration::seconds(5);
+    let first_started_at = utc_now_at_db_precision() - Duration::seconds(6);
+    let first_finished_at = utc_now_at_db_precision() - Duration::seconds(5);
 
     let first = task_service::record_runtime_task_run(
         &state,
@@ -1174,8 +1179,8 @@ async fn test_record_runtime_task_run_refreshes_latest_healthy_system_check() {
     .expect("first system health event should be recorded")
     .expect("first healthy check should create a record");
 
-    let second_started_at = Utc::now() - Duration::seconds(1);
-    let second_finished_at = Utc::now();
+    let second_started_at = utc_now_at_db_precision() - Duration::seconds(1);
+    let second_finished_at = utc_now_at_db_precision();
     let second = task_service::record_runtime_task_run(
         &state,
         "system-health-check",

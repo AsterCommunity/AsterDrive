@@ -138,7 +138,15 @@ export async function expectCodePreview(page: Page, fileName: string) {
 
 export async function closeActiveDialog(page: Page) {
 	const dialog = page.getByRole("dialog");
-	await page.keyboard.press("Escape");
+	const closeButton = dialog.getByRole("button", {
+		exact: true,
+		name: "Close",
+	});
+	if (await closeButton.isVisible().catch(() => false)) {
+		await closeButton.click();
+	} else {
+		await page.keyboard.press("Escape");
+	}
 	await expect(dialog).toBeHidden();
 }
 
@@ -248,6 +256,11 @@ export async function toggleItemSelection(page: Page, itemName: string) {
 		.click();
 }
 
+export async function clickMoreBatchAction(page: Page, actionName: string) {
+	await page.getByRole("button", { name: "More batch actions" }).click();
+	await page.getByRole("menuitem", { exact: true, name: actionName }).click();
+}
+
 export function folderTreeButton(page: Page, folderName: string) {
 	return page
 		.getByRole("complementary")
@@ -268,7 +281,10 @@ export async function openFolder(page: Page, folderName: string) {
 }
 
 export async function navigateToRoot(page: Page) {
-	await page.getByRole("link", { name: "My Drive" }).click();
+	await page
+		.getByRole("complementary")
+		.getByRole("button", { exact: true, name: "Root" })
+		.click();
 	await expect(fileDropZone(page)).toBeVisible();
 	await expect(page).toHaveURL(/\/$/);
 }

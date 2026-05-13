@@ -1,6 +1,7 @@
 import { authenticate, captureClientState } from "./support/auth";
 import {
 	chooseTargetFolder,
+	clickMoreBatchAction,
 	closeActiveDialog,
 	copyItemToFolder,
 	createFolderFromSurface,
@@ -13,7 +14,6 @@ import {
 	expectPdfPreview,
 	expectTrashItemMissing,
 	expectTrashItemVisible,
-	fileDropZone,
 	fileNameCell,
 	folderTreeButton,
 	moveItemToFolder,
@@ -155,8 +155,7 @@ test.describe
 			await page.getByRole("button", { name: "Permanently Delete" }).click();
 			await expectTrashItemMissing(page, referencesFolder);
 
-			await page.getByRole("link", { name: "My Drive" }).click();
-			await expect(fileDropZone(page)).toBeVisible();
+			await navigateToRoot(page);
 			await expect(folderTreeButton(page, projectFolder)).toBeVisible({
 				timeout: 30_000,
 			});
@@ -229,7 +228,7 @@ test.describe
 
 			await toggleItemSelection(page, firstFile.name);
 			await toggleItemSelection(page, secondFile.name);
-			await page.getByRole("button", { exact: true, name: "Delete" }).click();
+			await clickMoreBatchAction(page, "Delete");
 			const deleteDialog = page.getByRole("alertdialog");
 			await expect(deleteDialog).toBeVisible();
 			await deleteDialog.getByRole("button", { name: "Delete" }).click();

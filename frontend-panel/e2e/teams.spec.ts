@@ -1,6 +1,7 @@
 import { createTeamViaApi } from "./support/api";
 import { authenticate } from "./support/auth";
 import {
+	clickMoreBatchAction,
 	createFolderFromSurface,
 	createPageShare,
 	deleteItem,
@@ -47,9 +48,11 @@ test.describe
 
 			await page.goto(workspacePath);
 			await expect(fileDropZone(page)).toBeVisible({ timeout: 30_000 });
-			await expect(page.getByRole("link", { name: teamName })).toBeVisible({
-				timeout: 30_000,
-			});
+			await expect(
+				page.getByRole("button", {
+					name: `Switch workspace, current: ${teamName}`,
+				}),
+			).toBeVisible({ timeout: 30_000 });
 
 			await uploadViaPicker(page, [file]);
 			await createFolderFromSurface(page, folderName);
@@ -83,7 +86,8 @@ test.describe
 			await expect(page).toHaveURL(new RegExp(`${workspacePath}/shares$`));
 			await expectShareCardVisible(page, file.name);
 
-			await page.getByRole("link", { name: teamName }).click();
+			await page.goto(workspacePath);
+			await expect(fileDropZone(page)).toBeVisible({ timeout: 30_000 });
 			await expect(page).toHaveURL(new RegExp(`${workspacePath}$`));
 			await openFolder(page, folderName);
 			await expect(
@@ -92,7 +96,8 @@ test.describe
 					.getByText(folderName, { exact: true }),
 			).toBeVisible();
 
-			await page.getByRole("link", { name: teamName }).click();
+			await page.goto(workspacePath);
+			await expect(fileDropZone(page)).toBeVisible({ timeout: 30_000 });
 			await deleteItem(page, folderName);
 			await expectItemMissing(page, folderName);
 			await page.getByRole("link", { name: "Trash" }).click();
@@ -102,16 +107,15 @@ test.describe
 			await page.getByRole("button", { name: "Restore Selected" }).click();
 			await expectTrashItemMissing(page, folderName);
 
-			await page.getByRole("link", { name: teamName }).click();
+			await page.goto(workspacePath);
+			await expect(fileDropZone(page)).toBeVisible({ timeout: 30_000 });
 			await expect(
 				page.getByText(file.name, { exact: true }).first(),
 			).toBeVisible({
 				timeout: 30_000,
 			});
 			await toggleItemSelection(page, file.name);
-			await page
-				.getByRole("button", { exact: true, name: "Compress online" })
-				.click();
+			await clickMoreBatchAction(page, "Compress online");
 			const archiveDialog = dialogByTitle(page, "Archive name");
 			await expect(archiveDialog).toBeVisible();
 			await archiveDialog

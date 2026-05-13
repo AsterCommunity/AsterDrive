@@ -2,6 +2,7 @@ import { authenticate } from "./support/auth";
 import {
 	createFolderFromSurface,
 	fileNameCell,
+	navigateToRoot,
 	openFolder,
 	uploadViaPicker,
 } from "./support/files";
@@ -75,7 +76,7 @@ test.describe
 					.getByText(folderName, { exact: true }),
 			).toBeVisible();
 
-			await page.getByRole("link", { name: "My Drive" }).click();
+			await navigateToRoot(page);
 			await openFolder(page, folderName);
 		});
 	});
