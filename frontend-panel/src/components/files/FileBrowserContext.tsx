@@ -2,6 +2,11 @@ import { createContext, type ReactNode, useContext } from "react";
 import type { BrowserOpenMode } from "@/stores/fileStore";
 import type { FileListItem, FolderListItem } from "@/types/api";
 
+export interface FileBrowserSelectionDownloadAction {
+	kind: "file" | "archive";
+	onClick: () => void;
+}
+
 export interface FileBrowserShareTarget {
 	fileId?: number;
 	folderId?: number;
@@ -11,8 +16,8 @@ export interface FileBrowserShareTarget {
 
 export interface FileBrowserBatchSelectionActions {
 	count: number;
+	downloadAction?: FileBrowserSelectionDownloadAction;
 	onArchiveCompress?: () => void;
-	onArchiveDownload?: () => void;
 	onCopy: () => void;
 	onDelete: () => void;
 	onMove: () => void;

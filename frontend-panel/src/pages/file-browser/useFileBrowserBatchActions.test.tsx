@@ -124,13 +124,21 @@ const mockStore = {
 	selectedFolderIds: mockState.selectedFolderIds,
 };
 
-function Harness() {
+function Harness({
+	onArchiveDownload,
+	onDownload,
+}: {
+	onArchiveDownload?: (fileIds: number[], folderIds: number[]) => void;
+	onDownload?: (fileId: number, fileName: string) => void;
+} = {}) {
 	const { dialogs, selectionToolbar } = useFileBrowserBatchActions({
 		displayFiles: [
 			{ id: 1, name: "alpha.txt" },
 			{ id: 2, name: "beta.txt" },
 		] as never,
 		displayFolders: [{ id: 5, name: "Docs" }] as never,
+		onArchiveDownload,
+		onDownload,
 	});
 
 	return (
@@ -150,6 +158,14 @@ function Harness() {
 					<button type="button" onClick={selectionToolbar.onCopy}>
 						copy-selected
 					</button>
+					{selectionToolbar.downloadAction ? (
+						<button
+							type="button"
+							onClick={selectionToolbar.downloadAction.onClick}
+						>
+							{`download:${selectionToolbar.downloadAction.kind}`}
+						</button>
+					) : null}
 				</div>
 			) : (
 				<div>no-toolbar</div>
@@ -211,6 +227,44 @@ describe("useFileBrowserBatchActions", () => {
 		fireEvent.click(screen.getByText("toggle-shown"));
 
 		expect(mockState.selectItems).toHaveBeenCalledWith([1, 2], [5]);
+	});
+
+	it("uses the regular file download action for a single selected file", () => {
+		const onArchiveDownload = vi.fn();
+		const onDownload = vi.fn();
+		mockState.selectedFileIds = new Set([1]);
+		mockStore.selectedFileIds = mockState.selectedFileIds;
+
+		render(
+			<Harness onArchiveDownload={onArchiveDownload} onDownload={onDownload} />,
+		);
+
+		fireEvent.click(screen.getByText("download:file"));
+
+		expect(onDownload).toHaveBeenCalledWith(1, "alpha.txt");
+		expect(onArchiveDownload).not.toHaveBeenCalled();
+		expect(mockState.clearSelection).toHaveBeenCalledTimes(1);
+	});
+
+	it("keeps archive download for multiple selected items", async () => {
+		const onArchiveDownload = vi.fn().mockResolvedValue(undefined);
+		const onDownload = vi.fn();
+		mockState.selectedFileIds = new Set([1, 2]);
+		mockState.selectedFolderIds = new Set([5]);
+		mockStore.selectedFileIds = mockState.selectedFileIds;
+		mockStore.selectedFolderIds = mockState.selectedFolderIds;
+
+		render(
+			<Harness onArchiveDownload={onArchiveDownload} onDownload={onDownload} />,
+		);
+
+		fireEvent.click(screen.getByText("download:archive"));
+
+		await waitFor(() => {
+			expect(onArchiveDownload).toHaveBeenCalledWith([1, 2], [5]);
+		});
+		expect(onDownload).not.toHaveBeenCalled();
+		expect(mockState.clearSelection).toHaveBeenCalledTimes(1);
 	});
 
 	it("deletes selected items after confirmation", async () => {

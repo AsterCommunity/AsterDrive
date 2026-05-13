@@ -27,6 +27,8 @@ import {
 import { useTeamStore } from "@/stores/teamStore";
 import { useWorkspaceStore } from "@/stores/workspaceStore";
 
+type WorkspaceSwitcherVariant = "topbar" | "sidebar";
+
 function WorkspaceMenuItem({
 	active,
 	icon,
@@ -67,7 +69,13 @@ function WorkspaceMenuItem({
 	);
 }
 
-export function WorkspaceSwitcher() {
+interface WorkspaceSwitcherProps {
+	variant?: WorkspaceSwitcherVariant;
+}
+
+export function WorkspaceSwitcher({
+	variant = "topbar",
+}: WorkspaceSwitcherProps) {
 	const { t } = useTranslation("core");
 	const navigate = useNavigate();
 	const workspace = useWorkspaceStore((state) => state.workspace);
@@ -110,6 +118,7 @@ export function WorkspaceSwitcher() {
 		!loadingTeams && teams.length === 0 && !hasTeamQuery;
 	const showNoMatchesState =
 		!loadingTeams && teams.length > 0 && filteredTeams.length === 0;
+	const isSidebarVariant = variant === "sidebar";
 
 	return (
 		<DropdownMenu>
@@ -120,7 +129,12 @@ export function WorkspaceSwitcher() {
 						variant="outline"
 						size="sm"
 						aria-label={triggerLabel}
-						className="h-9 max-w-[8.75rem] items-center gap-1.5 rounded-full border-border/45 bg-background/65 px-2 text-left shadow-none hover:bg-muted/45 min-[380px]:max-w-[10.5rem] sm:max-w-[11rem]"
+						className={cn(
+							"items-center gap-1.5 border-border/45 bg-background/65 px-2 text-left shadow-none hover:bg-muted/45",
+							isSidebarVariant
+								? "h-10 w-full justify-start rounded-lg"
+								: "h-9 max-w-[8.75rem] rounded-full min-[380px]:max-w-[10.5rem] sm:max-w-[11rem]",
+						)}
 					/>
 				}
 			>
@@ -149,7 +163,7 @@ export function WorkspaceSwitcher() {
 				/>
 			</DropdownMenuTrigger>
 			<DropdownMenuContent
-				align="start"
+				align={isSidebarVariant ? "center" : "start"}
 				className="w-[min(20rem,calc(100vw-1.5rem))] min-w-[16rem] overflow-hidden p-0"
 			>
 				<div className="border-b border-border/60 p-2">

@@ -4,15 +4,18 @@ import { useTranslation } from "react-i18next";
 import {
 	ContextMenu,
 	ContextMenuContent,
+	ContextMenuGroup,
 	ContextMenuItem,
 	ContextMenuLabel,
 	ContextMenuSeparator,
 	ContextMenuTrigger,
 } from "@/components/ui/context-menu";
 import { Icon } from "@/components/ui/icon";
+import type { FileBrowserSelectionDownloadAction } from "./FileBrowserContext";
 
 interface FileContextMenuProps {
 	children: ReactNode;
+	downloadAction?: FileBrowserSelectionDownloadAction;
 	onOpen?: () => void;
 	onChooseOpenMethod?: () => void;
 	onDownload?: () => void;
@@ -36,6 +39,7 @@ interface FileContextMenuProps {
 
 export function FileContextMenu({
 	children,
+	downloadAction,
 	onOpen,
 	onChooseOpenMethod,
 	onDownload,
@@ -58,6 +62,10 @@ export function FileContextMenu({
 }: FileContextMenuProps) {
 	const { t } = useTranslation(["files", "share", "tasks"]);
 	const isSelectionMenu = selectionCount != null && selectionCount > 1;
+	const selectionDownloadLabel =
+		downloadAction?.kind === "file"
+			? t("download")
+			: t("tasks:archive_download_action");
 
 	const trigger =
 		renderTrigger && isValidElement(children) ? (
@@ -71,33 +79,35 @@ export function FileContextMenu({
 			<ContextMenu>
 				{trigger}
 				<ContextMenuContent>
-					<ContextMenuLabel>
-						{t("core:selected_count", { count: selectionCount })}
-					</ContextMenuLabel>
-					{onArchiveDownload && (
-						<ContextMenuItem onClick={onArchiveDownload}>
-							<Icon name="Download" className="h-4 w-4 mr-2" />
-							{t("tasks:archive_download_action")}
-						</ContextMenuItem>
-					)}
-					{onArchiveCompress && (
-						<ContextMenuItem onClick={onArchiveCompress}>
-							<Icon name="FileZip" className="h-4 w-4 mr-2" />
-							{t("tasks:archive_compress_action")}
-						</ContextMenuItem>
-					)}
-					{onCopy && (
-						<ContextMenuItem onClick={onCopy}>
-							<Icon name="Copy" className="h-4 w-4 mr-2" />
-							{t("copy")}
-						</ContextMenuItem>
-					)}
-					{onMove && (
-						<ContextMenuItem onClick={onMove}>
-							<Icon name="ArrowsOutCardinal" className="h-4 w-4 mr-2" />
-							{t("move")}
-						</ContextMenuItem>
-					)}
+					<ContextMenuGroup>
+						<ContextMenuLabel>
+							{t("core:selected_count", { count: selectionCount })}
+						</ContextMenuLabel>
+						{downloadAction && (
+							<ContextMenuItem onClick={downloadAction.onClick}>
+								<Icon name="Download" className="h-4 w-4 mr-2" />
+								{selectionDownloadLabel}
+							</ContextMenuItem>
+						)}
+						{onArchiveCompress && (
+							<ContextMenuItem onClick={onArchiveCompress}>
+								<Icon name="FileZip" className="h-4 w-4 mr-2" />
+								{t("tasks:archive_compress_action")}
+							</ContextMenuItem>
+						)}
+						{onCopy && (
+							<ContextMenuItem onClick={onCopy}>
+								<Icon name="Copy" className="h-4 w-4 mr-2" />
+								{t("copy")}
+							</ContextMenuItem>
+						)}
+						{onMove && (
+							<ContextMenuItem onClick={onMove}>
+								<Icon name="ArrowsOutCardinal" className="h-4 w-4 mr-2" />
+								{t("move")}
+							</ContextMenuItem>
+						)}
+					</ContextMenuGroup>
 					{onDelete && (
 						<>
 							<ContextMenuSeparator />

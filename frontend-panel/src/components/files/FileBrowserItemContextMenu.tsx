@@ -59,7 +59,7 @@ export function FileBrowserItemContextMenu({
 				isFolder={isFolder}
 				isLocked={false}
 				selectionCount={batchSelectionActions.count}
-				onArchiveDownload={batchSelectionActions.onArchiveDownload}
+				downloadAction={batchSelectionActions.downloadAction}
 				onArchiveCompress={batchSelectionActions.onArchiveCompress}
 				onCopy={batchSelectionActions.onCopy}
 				onMove={batchSelectionActions.onMove}

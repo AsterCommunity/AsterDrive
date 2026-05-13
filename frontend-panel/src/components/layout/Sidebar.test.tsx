@@ -77,6 +77,14 @@ vi.mock("@/components/folders/FolderTree", () => ({
 	),
 }));
 
+vi.mock("@/components/layout/WorkspaceSwitcher", () => ({
+	WorkspaceSwitcher: ({ variant }: { variant?: string }) => (
+		<div data-testid="workspace-switcher" data-variant={variant}>
+			WorkspaceSwitcher
+		</div>
+	),
+}));
+
 vi.mock("@/components/ui/icon", () => ({
 	Icon: ({ name }: { name: string }) => (
 		<span data-testid="icon" data-name={name} />
@@ -130,6 +138,10 @@ describe("Sidebar", () => {
 		expect(screen.getByTestId("folder-tree")).toHaveAttribute(
 			"data-has-move",
 			"false",
+		);
+		expect(screen.getByTestId("workspace-switcher")).toHaveAttribute(
+			"data-variant",
+			"sidebar",
 		);
 		expect(
 			screen.getByRole("button", { name: /translated:share:my_shares_title/i }),

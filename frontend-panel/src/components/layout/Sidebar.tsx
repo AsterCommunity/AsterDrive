@@ -12,6 +12,7 @@ import {
 import { useTranslation } from "react-i18next";
 import { Link, useLocation } from "react-router-dom";
 import { FolderTree } from "@/components/folders/FolderTree";
+import { WorkspaceSwitcher } from "@/components/layout/WorkspaceSwitcher";
 import { Icon, type IconName } from "@/components/ui/icon";
 import { Progress } from "@/components/ui/progress";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -291,6 +292,10 @@ export function Sidebar({
 
 	const sidebarContent = (
 		<div className="flex flex-col h-full">
+			<div className="border-b border-sidebar-border bg-sidebar px-3 py-2 sm:py-2.5">
+				<WorkspaceSwitcher variant="sidebar" />
+			</div>
+
 			{/* Folder tree */}
 			<ScrollArea className="flex-1">
 				<FolderTree onMoveToFolder={onMoveToFolder} />

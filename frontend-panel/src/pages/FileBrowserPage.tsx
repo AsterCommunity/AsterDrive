@@ -194,6 +194,7 @@ export default function FileBrowserPage() {
 			displayFolders,
 			onArchiveCompress: handleBatchArchiveCompress,
 			onArchiveDownload: startArchiveDownload,
+			onDownload: handleDownload,
 		});
 
 	const {

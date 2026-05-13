@@ -1,3 +1,4 @@
+import type { FileBrowserSelectionDownloadAction } from "@/components/files/FileBrowserContext";
 import type {
 	FileInfo,
 	FileListItem,
@@ -61,9 +62,9 @@ export interface FileBrowserInfoTarget {
 export interface FileBrowserSelectionToolbarState {
 	count: number;
 	allDisplayedSelected: boolean;
+	downloadAction?: FileBrowserSelectionDownloadAction;
 	hasDisplayedItems: boolean;
 	onArchiveCompress?: () => void;
-	onArchiveDownload?: () => void;
 	onClearSelection: () => void;
 	onCopy: () => void;
 	onDelete: () => void;

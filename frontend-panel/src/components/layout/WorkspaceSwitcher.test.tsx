@@ -190,11 +190,12 @@ describe("WorkspaceSwitcher", () => {
 	it("renders the personal workspace state", () => {
 		render(<WorkspaceSwitcher />);
 
-		expect(
-			screen.getByRole("button", {
-				name: "translated:workspace_switcher_label:translated:my_drive",
-			}),
-		).toBeInTheDocument();
+		const trigger = screen.getByRole("button", {
+			name: "translated:workspace_switcher_label:translated:my_drive",
+		});
+
+		expect(trigger).toBeInTheDocument();
+		expect(trigger.className).toContain("rounded-full");
 		expect(screen.getAllByText("translated:my_drive")[0]).toBeInTheDocument();
 		expect(
 			screen.getAllByText("translated:workspace_personal_label")[0],
@@ -208,6 +209,19 @@ describe("WorkspaceSwitcher", () => {
 				name: "translated:workspace_search_placeholder",
 			}),
 		).toBeInTheDocument();
+	});
+
+	it("uses a full-width trigger in the sidebar", () => {
+		render(<WorkspaceSwitcher variant="sidebar" />);
+
+		const trigger = screen.getByRole("button", {
+			name: "translated:workspace_switcher_label:translated:my_drive",
+		});
+
+		expect(trigger.className).toContain("h-10");
+		expect(trigger.className).toContain("w-full");
+		expect(trigger.className).toContain("rounded-lg");
+		expect(trigger.className).not.toContain("rounded-full");
 	});
 
 	it("renders the current team and navigates to another workspace", () => {

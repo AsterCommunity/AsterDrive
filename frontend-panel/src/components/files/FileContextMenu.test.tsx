@@ -8,42 +8,58 @@ vi.mock("react-i18next", () => ({
 	}),
 }));
 
-vi.mock("@/components/ui/context-menu", () => ({
-	ContextMenu: (props: { children: React.ReactNode }) => (
-		<div>{props.children}</div>
-	),
-	ContextMenuContent: (props: { children: React.ReactNode }) => (
-		<div>{props.children}</div>
-	),
-	ContextMenuLabel: (props: { children: React.ReactNode }) => (
-		<div>{props.children}</div>
-	),
-	ContextMenuItem: (props: {
-		children: React.ReactNode;
-		className?: string;
-		disabled?: boolean;
-		onClick?: () => void;
-	}) => (
-		<button
-			type="button"
-			className={props.className}
-			disabled={props.disabled}
-			onClick={props.onClick}
-		>
-			{props.children}
-		</button>
-	),
-	ContextMenuSeparator: () => <hr />,
-	ContextMenuTrigger: (props: {
-		children?: React.ReactNode;
-		className?: string;
-		render?: React.ReactNode;
-	}) => (
-		<div className={props.className} data-testid="context-trigger">
-			{props.render ?? props.children}
-		</div>
-	),
-}));
+vi.mock("@/components/ui/context-menu", async () => {
+	const React = await import("react");
+	const GroupContext = React.createContext(false);
+
+	return {
+		ContextMenu: (props: { children: React.ReactNode }) => (
+			<div>{props.children}</div>
+		),
+		ContextMenuContent: (props: { children: React.ReactNode }) => (
+			<div>{props.children}</div>
+		),
+		ContextMenuGroup: (props: { children: React.ReactNode }) => (
+			<GroupContext.Provider value={true}>
+				<div>{props.children}</div>
+			</GroupContext.Provider>
+		),
+		ContextMenuLabel: (props: { children: React.ReactNode }) => {
+			if (!React.useContext(GroupContext)) {
+				throw new Error(
+					"Base UI: MenuGroupRootContext is missing. Menu group parts must be used within <Menu.Group>.",
+				);
+			}
+
+			return <div>{props.children}</div>;
+		},
+		ContextMenuItem: (props: {
+			children: React.ReactNode;
+			className?: string;
+			disabled?: boolean;
+			onClick?: () => void;
+		}) => (
+			<button
+				type="button"
+				className={props.className}
+				disabled={props.disabled}
+				onClick={props.onClick}
+			>
+				{props.children}
+			</button>
+		),
+		ContextMenuSeparator: () => <hr />,
+		ContextMenuTrigger: (props: {
+			children?: React.ReactNode;
+			className?: string;
+			render?: React.ReactNode;
+		}) => (
+			<div className={props.className} data-testid="context-trigger">
+				{props.render ?? props.children}
+			</div>
+		),
+	};
+});
 
 vi.mock("@/components/ui/icon", () => ({
 	Icon: () => <span>icon</span>,
@@ -189,7 +205,7 @@ describe("FileContextMenu", () => {
 	it("renders batch actions when selectionCount is provided", () => {
 		const handlers = {
 			onArchiveCompress: vi.fn(),
-			onArchiveDownload: vi.fn(),
+			onDownload: vi.fn(),
 			onCopy: vi.fn(),
 			onDelete: vi.fn(),
 			onMove: vi.fn(),
@@ -200,6 +216,10 @@ describe("FileContextMenu", () => {
 				isFolder={false}
 				isLocked={false}
 				selectionCount={3}
+				downloadAction={{
+					kind: "archive",
+					onClick: handlers.onDownload,
+				}}
 				{...handlers}
 			>
 				<div>selected-row</div>
@@ -215,10 +235,38 @@ describe("FileContextMenu", () => {
 		fireEvent.click(screen.getByText("move"));
 		fireEvent.click(screen.getByText("delete"));
 
-		expect(handlers.onArchiveDownload).toHaveBeenCalledTimes(1);
+		expect(handlers.onDownload).toHaveBeenCalledTimes(1);
 		expect(handlers.onArchiveCompress).toHaveBeenCalledTimes(1);
 		expect(handlers.onCopy).toHaveBeenCalledTimes(1);
 		expect(handlers.onMove).toHaveBeenCalledTimes(1);
 		expect(handlers.onDelete).toHaveBeenCalledTimes(1);
+	});
+
+	it("labels batch download as a regular download for a single file action", () => {
+		const onDownload = vi.fn();
+
+		render(
+			<FileContextMenu
+				isFolder={false}
+				isLocked={false}
+				selectionCount={2}
+				downloadAction={{
+					kind: "file",
+					onClick: onDownload,
+				}}
+				onCopy={vi.fn()}
+				onDelete={vi.fn()}
+				onMove={vi.fn()}
+			>
+				<div>selected-row</div>
+			</FileContextMenu>,
+		);
+
+		fireEvent.click(screen.getByText("download"));
+
+		expect(onDownload).toHaveBeenCalledTimes(1);
+		expect(
+			screen.queryByText("tasks:archive_download_action"),
+		).not.toBeInTheDocument();
 	});
 });

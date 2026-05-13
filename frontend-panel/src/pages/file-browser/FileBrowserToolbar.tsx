@@ -222,6 +222,10 @@ export function FileBrowserToolbar({
 	const selectDisplayedLabel = renderedSelectionToolbar?.allDisplayedSelected
 		? t("selection_clear")
 		: t("selection_select_all_visible");
+	const selectionDownloadLabel =
+		renderedSelectionToolbar?.downloadAction?.kind === "file"
+			? t("download")
+			: t("tasks:archive_download_action");
 	const selectionToolbarContentClass = selectionToolbarMotionClass(
 		selectionToolbarPhase,
 	);
@@ -418,16 +422,16 @@ export function FileBrowserToolbar({
 						selectionToolbarContentClass,
 					)}
 				>
-					{renderedSelectionToolbar.onArchiveDownload ? (
+					{renderedSelectionToolbar.downloadAction ? (
 						<Button
 							type="button"
 							size="sm"
 							variant="outline"
 							className="hidden md:inline-flex"
-							onClick={renderedSelectionToolbar.onArchiveDownload}
+							onClick={renderedSelectionToolbar.downloadAction.onClick}
 						>
 							<Icon name="Download" className="h-3.5 w-3.5" />
-							<span>{t("tasks:archive_download_action")}</span>
+							<span>{selectionDownloadLabel}</span>
 						</Button>
 					) : null}
 					<Button
@@ -474,16 +478,16 @@ export function FileBrowserToolbar({
 								<Icon name="Check" className="h-4 w-4 text-muted-foreground" />
 								{selectDisplayedLabel}
 							</DropdownMenuItem>
-							{renderedSelectionToolbar.onArchiveDownload ? (
+							{renderedSelectionToolbar.downloadAction ? (
 								<DropdownMenuItem
 									className="md:hidden"
-									onClick={renderedSelectionToolbar.onArchiveDownload}
+									onClick={renderedSelectionToolbar.downloadAction.onClick}
 								>
 									<Icon
 										name="Download"
 										className="h-4 w-4 text-muted-foreground"
 									/>
-									{t("tasks:archive_download_action")}
+									{selectionDownloadLabel}
 								</DropdownMenuItem>
 							) : null}
 							<DropdownMenuItem

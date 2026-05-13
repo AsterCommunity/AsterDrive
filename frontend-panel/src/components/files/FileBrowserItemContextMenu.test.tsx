@@ -6,8 +6,11 @@ const mockState = vi.hoisted(() => ({
 	browserContext: {
 		batchSelectionActions: null as {
 			count: number;
+			downloadAction?: {
+				kind: "file" | "archive";
+				onClick: () => void;
+			};
 			onArchiveCompress?: () => void;
-			onArchiveDownload?: () => void;
 			onCopy: () => void;
 			onDelete: () => void;
 			onMove: () => void;
@@ -47,6 +50,7 @@ vi.mock("@/stores/fileStore", () => ({
 vi.mock("@/components/files/FileContextMenu", () => ({
 	FileContextMenu: ({
 		children,
+		downloadAction,
 		onArchiveCompress,
 		onArchiveDownload,
 		onArchiveExtract,
@@ -65,6 +69,10 @@ vi.mock("@/components/files/FileContextMenu", () => ({
 		selectionCount,
 	}: {
 		children: React.ReactNode;
+		downloadAction?: {
+			kind: "file" | "archive";
+			onClick: () => void;
+		};
 		onArchiveCompress?: () => void;
 		onArchiveDownload?: () => void;
 		onArchiveExtract?: () => void;
@@ -108,6 +116,11 @@ vi.mock("@/components/files/FileContextMenu", () => ({
 			{onArchiveCompress && (
 				<button type="button" onClick={onArchiveCompress}>
 					compress
+				</button>
+			)}
+			{downloadAction && (
+				<button type="button" onClick={downloadAction.onClick}>
+					{`download:${downloadAction.kind}`}
 				</button>
 			)}
 			{onArchiveDownload && (
@@ -308,8 +321,11 @@ describe("FileBrowserItemContextMenu", () => {
 	it("uses batch actions when the current item belongs to a multi-selection", () => {
 		const batchActions = {
 			count: 3,
+			downloadAction: {
+				kind: "archive" as const,
+				onClick: vi.fn(),
+			},
 			onArchiveCompress: vi.fn(),
-			onArchiveDownload: vi.fn(),
 			onCopy: vi.fn(),
 			onDelete: vi.fn(),
 			onMove: vi.fn(),
@@ -331,13 +347,13 @@ describe("FileBrowserItemContextMenu", () => {
 		expect(
 			screen.queryByRole("button", { name: "open" }),
 		).not.toBeInTheDocument();
-		fireEvent.click(screen.getByRole("button", { name: "archive" }));
+		fireEvent.click(screen.getByRole("button", { name: "download:archive" }));
 		fireEvent.click(screen.getByRole("button", { name: "compress" }));
 		fireEvent.click(screen.getByRole("button", { name: "copy" }));
 		fireEvent.click(screen.getByRole("button", { name: "move" }));
 		fireEvent.click(screen.getByRole("button", { name: "delete" }));
 
-		expect(batchActions.onArchiveDownload).toHaveBeenCalledTimes(1);
+		expect(batchActions.downloadAction.onClick).toHaveBeenCalledTimes(1);
 		expect(batchActions.onArchiveCompress).toHaveBeenCalledTimes(1);
 		expect(batchActions.onCopy).toHaveBeenCalledTimes(1);
 		expect(batchActions.onMove).toHaveBeenCalledTimes(1);

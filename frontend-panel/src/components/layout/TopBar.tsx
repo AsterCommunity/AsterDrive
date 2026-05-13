@@ -3,7 +3,6 @@ import { useTranslation } from "react-i18next";
 import { AsterDriveWordmark } from "@/components/common/AsterDriveWordmark";
 import { HeaderControls } from "@/components/layout/HeaderControls";
 import { TopBarShell } from "@/components/layout/TopBarShell";
-import { WorkspaceSwitcher } from "@/components/layout/WorkspaceSwitcher";
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
 
@@ -56,7 +55,6 @@ export function TopBar({
 						alt={t("app_name")}
 						className="hidden h-16 w-auto shrink-0 px-6 md:block"
 					/>
-					<WorkspaceSwitcher />
 				</div>
 			}
 			center={

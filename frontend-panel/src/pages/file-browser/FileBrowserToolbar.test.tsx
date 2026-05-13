@@ -183,7 +183,7 @@ describe("FileBrowserToolbar", () => {
 	it("switches to selection actions when items are selected", () => {
 		const selectionHandlers = {
 			onArchiveCompress: vi.fn(),
-			onArchiveDownload: vi.fn(),
+			onDownload: vi.fn(),
 			onClearSelection: vi.fn(),
 			onCopy: vi.fn(),
 			onDelete: vi.fn(),
@@ -195,8 +195,18 @@ describe("FileBrowserToolbar", () => {
 			selectionToolbar: {
 				count: 3,
 				allDisplayedSelected: false,
+				downloadAction: {
+					kind: "archive",
+					onClick: selectionHandlers.onDownload,
+				},
 				hasDisplayedItems: true,
-				...selectionHandlers,
+				onArchiveCompress: selectionHandlers.onArchiveCompress,
+				onClearSelection: selectionHandlers.onClearSelection,
+				onCopy: selectionHandlers.onCopy,
+				onDelete: selectionHandlers.onDelete,
+				onMove: selectionHandlers.onMove,
+				onToggleDisplayedSelection:
+					selectionHandlers.onToggleDisplayedSelection,
 			},
 		});
 
@@ -210,6 +220,7 @@ describe("FileBrowserToolbar", () => {
 		fireEvent.click(screen.getAllByText("selection_select_all_visible")[0]);
 		fireEvent.click(screen.getByRole("button", { name: "move" }));
 		fireEvent.click(screen.getAllByText("copy")[0]);
+		fireEvent.click(screen.getAllByText("tasks:archive_download_action")[0]);
 		fireEvent.click(screen.getByText("tasks:archive_compress_action"));
 		fireEvent.click(screen.getByText("core:delete"));
 
@@ -219,8 +230,37 @@ describe("FileBrowserToolbar", () => {
 		);
 		expect(selectionHandlers.onMove).toHaveBeenCalledTimes(1);
 		expect(selectionHandlers.onCopy).toHaveBeenCalledTimes(1);
+		expect(selectionHandlers.onDownload).toHaveBeenCalledTimes(1);
 		expect(selectionHandlers.onArchiveCompress).toHaveBeenCalledTimes(1);
 		expect(selectionHandlers.onDelete).toHaveBeenCalledTimes(1);
+	});
+
+	it("labels the selection download action as a regular download for a single file", () => {
+		const onDownload = vi.fn();
+
+		renderToolbar({
+			selectionToolbar: {
+				count: 1,
+				allDisplayedSelected: false,
+				downloadAction: {
+					kind: "file",
+					onClick: onDownload,
+				},
+				hasDisplayedItems: true,
+				onClearSelection: vi.fn(),
+				onCopy: vi.fn(),
+				onDelete: vi.fn(),
+				onMove: vi.fn(),
+				onToggleDisplayedSelection: vi.fn(),
+			},
+		});
+
+		fireEvent.click(screen.getAllByText("download")[0]);
+
+		expect(onDownload).toHaveBeenCalledTimes(1);
+		expect(
+			screen.queryByText("tasks:archive_download_action"),
+		).not.toBeInTheDocument();
 	});
 
 	it("keeps selection content during fade-out before restoring breadcrumbs", () => {

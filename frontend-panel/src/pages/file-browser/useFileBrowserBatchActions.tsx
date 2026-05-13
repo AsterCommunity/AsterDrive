@@ -33,6 +33,7 @@ interface UseFileBrowserBatchActionsOptions {
 		fileIds: number[],
 		folderIds: number[],
 	) => Promise<void> | void;
+	onDownload?: (fileId: number, fileName: string) => void;
 }
 
 interface UseFileBrowserBatchActionsResult {
@@ -45,6 +46,7 @@ export function useFileBrowserBatchActions({
 	displayFolders,
 	onArchiveCompress,
 	onArchiveDownload,
+	onDownload,
 }: UseFileBrowserBatchActionsOptions): UseFileBrowserBatchActionsResult {
 	const { t } = useTranslation(["files", "tasks"]);
 	const selectedFileIds = useFileStore((s) => s.selectedFileIds);
@@ -124,7 +126,22 @@ export function useFileBrowserBatchActions({
 		setTargetDialogMode("copy");
 	}, []);
 
-	const handleArchiveDownload = useCallback(async () => {
+	const isSingleSelectedFile = fileIds.length === 1 && folderIds.length === 0;
+	const selectedSingleFile = useMemo(
+		() =>
+			isSingleSelectedFile
+				? displayFiles.find((file) => file.id === fileIds[0])
+				: undefined,
+		[displayFiles, fileIds, isSingleSelectedFile],
+	);
+
+	const handleSelectionDownload = useCallback(async () => {
+		if (isSingleSelectedFile && onDownload) {
+			onDownload(fileIds[0], selectedSingleFile?.name ?? "");
+			clearSelection();
+			return;
+		}
+
 		if (!onArchiveDownload) return;
 		try {
 			await onArchiveDownload(fileIds, folderIds);
@@ -132,7 +149,15 @@ export function useFileBrowserBatchActions({
 		} catch (err) {
 			handleApiError(err);
 		}
-	}, [clearSelection, fileIds, folderIds, onArchiveDownload]);
+	}, [
+		clearSelection,
+		fileIds,
+		folderIds,
+		isSingleSelectedFile,
+		onArchiveDownload,
+		onDownload,
+		selectedSingleFile,
+	]);
 
 	const handleArchiveCompress = useCallback(async () => {
 		if (!onArchiveCompress) return;
@@ -202,12 +227,21 @@ export function useFileBrowserBatchActions({
 			? {
 					count,
 					allDisplayedSelected,
+					downloadAction:
+						isSingleSelectedFile && onDownload
+							? {
+									kind: "file" as const,
+									onClick: handleSelectionDownload,
+								}
+							: onArchiveDownload
+								? {
+										kind: "archive" as const,
+										onClick: handleSelectionDownload,
+									}
+								: undefined,
 					hasDisplayedItems,
 					onArchiveCompress: onArchiveCompress
 						? handleArchiveCompress
-						: undefined,
-					onArchiveDownload: onArchiveDownload
-						? handleArchiveDownload
 						: undefined,
 					onClearSelection: clearSelection,
 					onCopy: handleCopy,

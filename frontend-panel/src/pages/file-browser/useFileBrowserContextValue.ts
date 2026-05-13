@@ -111,8 +111,8 @@ export function useFileBrowserContextValue({
 			selectionToolbar
 				? {
 						count: selectionToolbar.count,
+						downloadAction: selectionToolbar.downloadAction,
 						onArchiveCompress: selectionToolbar.onArchiveCompress,
-						onArchiveDownload: selectionToolbar.onArchiveDownload,
 						onCopy: selectionToolbar.onCopy,
 						onDelete: selectionToolbar.onDelete,
 						onMove: selectionToolbar.onMove,
