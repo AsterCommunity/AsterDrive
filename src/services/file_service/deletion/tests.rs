@@ -13,6 +13,7 @@ use tokio::io::{AsyncRead, empty};
 use super::*;
 use crate::cache;
 use crate::config::{CacheConfig, Config, DatabaseConfig, RuntimeConfig};
+use crate::db::repository::file_repo;
 use crate::entities::{file, file_blob, storage_policy, user};
 use crate::runtime::PrimaryAppState;
 use crate::services::mail_service;
@@ -313,6 +314,76 @@ async fn ensure_blob_cleanup_if_unreferenced_skips_referenced_blob() {
             .expect("blob lookup should succeed")
             .is_some(),
         "referenced blob row must remain"
+    );
+}
+
+#[tokio::test]
+async fn ensure_blob_cleanup_if_unreferenced_skips_cleanup_claimed_blob() {
+    let (state, _user, policy, driver) = build_deletion_test_state().await;
+    let blob = create_blob(
+        &state.db,
+        policy.id,
+        "files/claimed.bin",
+        9,
+        file_repo::BLOB_CLEANUP_CLAIMED_REF_COUNT,
+    )
+    .await;
+    driver.insert_object(&blob.storage_path);
+
+    let cleaned = ensure_blob_cleanup_if_unreferenced(&state, blob.id).await;
+
+    assert!(
+        cleaned,
+        "cleanup-claimed blob should be treated as already handled by another worker"
+    );
+    assert_eq!(
+        driver.delete_calls(),
+        0,
+        "cleanup-claimed blob must not be deleted by a competing cleanup path"
+    );
+    let reloaded_blob = file_blob::Entity::find_by_id(blob.id)
+        .one(&state.db)
+        .await
+        .expect("blob lookup should succeed")
+        .expect("cleanup-claimed blob row should remain");
+    assert_eq!(
+        reloaded_blob.ref_count,
+        file_repo::BLOB_CLEANUP_CLAIMED_REF_COUNT
+    );
+}
+
+#[tokio::test]
+async fn cleanup_unreferenced_blob_skips_cleanup_claimed_blob() {
+    let (state, _user, policy, driver) = build_deletion_test_state().await;
+    let blob = create_blob(
+        &state.db,
+        policy.id,
+        "files/reconcile-claimed.bin",
+        9,
+        file_repo::BLOB_CLEANUP_CLAIMED_REF_COUNT,
+    )
+    .await;
+    driver.insert_object(&blob.storage_path);
+
+    let cleaned = cleanup_unreferenced_blob(&state, &blob).await;
+
+    assert!(
+        !cleaned,
+        "maintenance cleanup should not count a cleanup-claimed blob as deleted"
+    );
+    assert_eq!(
+        driver.delete_calls(),
+        0,
+        "cleanup-claimed blob must not be deleted by a competing cleanup path"
+    );
+    let reloaded_blob = file_blob::Entity::find_by_id(blob.id)
+        .one(&state.db)
+        .await
+        .expect("blob lookup should succeed")
+        .expect("cleanup-claimed blob row should remain");
+    assert_eq!(
+        reloaded_blob.ref_count,
+        file_repo::BLOB_CLEANUP_CLAIMED_REF_COUNT
     );
 }
 

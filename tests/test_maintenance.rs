@@ -616,6 +616,75 @@ async fn test_reconcile_blob_state_processes_all_batches_without_skipping() {
     assert!(!driver.exists("paging/blob-1000.bin").await.unwrap());
 }
 
+#[actix_web::test]
+async fn test_reconcile_blob_state_skips_fresh_cleanup_claim() {
+    use aster_drive::db::repository::file_repo;
+    use aster_drive::services::maintenance_service;
+
+    let state = common::setup().await;
+    let policy = default_policy(&state).await;
+    let driver = state.driver_registry.get_driver(&policy).unwrap();
+    let storage_path = "claims/fresh.bin";
+    let blob = create_blob(
+        &state,
+        &"d".repeat(64),
+        storage_path,
+        b"fresh cleanup claim",
+        file_repo::BLOB_CLEANUP_CLAIMED_REF_COUNT,
+    )
+    .await;
+
+    let stats = maintenance_service::reconcile_blob_state(&state)
+        .await
+        .unwrap();
+
+    assert_eq!(stats.ref_count_fixed, 0);
+    assert_eq!(stats.orphan_blobs_deleted, 0);
+    let reloaded_blob = file_repo::find_blob_by_id(&state.db, blob.id)
+        .await
+        .unwrap();
+    assert_eq!(
+        reloaded_blob.ref_count,
+        file_repo::BLOB_CLEANUP_CLAIMED_REF_COUNT
+    );
+    assert!(driver.exists(storage_path).await.unwrap());
+}
+
+#[actix_web::test]
+async fn test_reconcile_blob_state_recovers_stale_cleanup_claim() {
+    use aster_drive::db::repository::file_repo;
+    use aster_drive::services::maintenance_service;
+
+    let state = common::setup().await;
+    let policy = default_policy(&state).await;
+    let driver = state.driver_registry.get_driver(&policy).unwrap();
+    let storage_path = "claims/stale.bin";
+    let blob = create_blob(
+        &state,
+        &"e".repeat(64),
+        storage_path,
+        b"stale cleanup claim",
+        file_repo::BLOB_CLEANUP_CLAIMED_REF_COUNT,
+    )
+    .await;
+    let mut active: aster_drive::entities::file_blob::ActiveModel = blob.clone().into();
+    active.updated_at = Set(Utc::now() - Duration::minutes(11));
+    active.update(&state.db).await.unwrap();
+
+    let stats = maintenance_service::reconcile_blob_state(&state)
+        .await
+        .unwrap();
+
+    assert_eq!(stats.ref_count_fixed, 1);
+    assert_eq!(stats.orphan_blobs_deleted, 1);
+    assert!(
+        file_repo::find_blob_by_id(&state.db, blob.id)
+            .await
+            .is_err()
+    );
+    assert!(!driver.exists(storage_path).await.unwrap());
+}
+
 #[cfg(unix)]
 #[actix_web::test]
 async fn test_purge_keeps_blob_row_when_storage_delete_fails_then_maintenance_retries() {

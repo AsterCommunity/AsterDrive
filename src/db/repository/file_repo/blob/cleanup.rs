@@ -4,6 +4,8 @@ use sea_orm::{ColumnTrait, ConnectionTrait, EntityTrait, PaginatorTrait, QueryFi
 use crate::entities::file_blob::{self, Entity as FileBlob};
 use crate::errors::{AsterError, Result};
 
+pub const BLOB_CLEANUP_CLAIMED_REF_COUNT: i32 = -1;
+
 /// 统计某存储策略下的 blob 数量（策略删除保护用）
 pub async fn count_blobs_by_policy<C: ConnectionTrait>(db: &C, policy_id: i64) -> Result<u64> {
     FileBlob::find()
@@ -38,7 +40,7 @@ pub async fn claim_blob_cleanup<C: ConnectionTrait>(db: &C, id: i64) -> Result<b
     let result = FileBlob::update_many()
         .col_expr(
             file_blob::Column::RefCount,
-            sea_orm::sea_query::Expr::value(-1i32),
+            sea_orm::sea_query::Expr::value(BLOB_CLEANUP_CLAIMED_REF_COUNT),
         )
         .col_expr(
             file_blob::Column::UpdatedAt,
@@ -63,7 +65,7 @@ pub async fn restore_blob_cleanup_claim<C: ConnectionTrait>(db: &C, id: i64) -> 
             sea_orm::sea_query::Expr::value(Utc::now()),
         )
         .filter(file_blob::Column::Id.eq(id))
-        .filter(file_blob::Column::RefCount.eq(-1))
+        .filter(file_blob::Column::RefCount.eq(BLOB_CLEANUP_CLAIMED_REF_COUNT))
         .exec(db)
         .await
         .map_err(AsterError::from)?;
@@ -73,7 +75,7 @@ pub async fn restore_blob_cleanup_claim<C: ConnectionTrait>(db: &C, id: i64) -> 
 pub async fn delete_blob_if_cleanup_claimed<C: ConnectionTrait>(db: &C, id: i64) -> Result<bool> {
     let result = FileBlob::delete_many()
         .filter(file_blob::Column::Id.eq(id))
-        .filter(file_blob::Column::RefCount.eq(-1))
+        .filter(file_blob::Column::RefCount.eq(BLOB_CLEANUP_CLAIMED_REF_COUNT))
         .exec(db)
         .await
         .map_err(AsterError::from)?;

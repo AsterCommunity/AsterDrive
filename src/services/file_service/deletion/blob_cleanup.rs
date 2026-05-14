@@ -20,6 +20,14 @@ pub(crate) async fn ensure_blob_cleanup_if_unreferenced(
         }
     };
 
+    if current_blob.ref_count == file_repo::BLOB_CLEANUP_CLAIMED_REF_COUNT {
+        tracing::debug!(
+            blob_id = current_blob.id,
+            "skipping blob cleanup because cleanup is already claimed"
+        );
+        return true;
+    }
+
     if current_blob.ref_count != 0 {
         return true;
     }
@@ -52,6 +60,14 @@ pub(crate) async fn cleanup_unreferenced_blob(
             return false;
         }
     };
+
+    if current_blob.ref_count == file_repo::BLOB_CLEANUP_CLAIMED_REF_COUNT {
+        tracing::debug!(
+            blob_id = current_blob.id,
+            "skipping blob cleanup because cleanup is already claimed"
+        );
+        return false;
+    }
 
     if current_blob.ref_count != 0 {
         tracing::warn!(

@@ -11,6 +11,7 @@ use crate::runtime::PrimaryAppState;
 
 const COMPLETED_SESSION_BATCH_SIZE: u64 = 1_000;
 const BLOB_RECONCILE_BATCH_SIZE: u64 = 1_000;
+const BLOB_CLEANUP_CLAIM_TIMEOUT_SECS: i64 = 10 * 60;
 const MULTIPART_ABORT_MAX_ATTEMPTS: u32 = 3;
 const MULTIPART_ABORT_INITIAL_BACKOFF_MS: u64 = 200;
 
@@ -156,6 +157,15 @@ async fn reconcile_single_blob_ref_count(
             Err(AsterError::RecordNotFound(_)) => return Ok(None),
             Err(error) => return Err(error),
         };
+        if blob.ref_count == file_repo::BLOB_CLEANUP_CLAIMED_REF_COUNT
+            && !blob_cleanup_claim_is_stale(&blob)
+        {
+            tracing::debug!(
+                blob_id,
+                "skipping blob reconcile because cleanup is already claimed"
+            );
+            return Ok(None);
+        }
         let actual_refs = current_blob_ref_count(&txn, blob_id).await?;
         let ref_count_fixed = blob.ref_count != actual_refs;
         if ref_count_fixed {
@@ -211,6 +221,13 @@ async fn load_actual_blob_ref_counts(
     }
 
     Ok(actual)
+}
+
+fn blob_cleanup_claim_is_stale(blob: &file_blob::Model) -> bool {
+    Utc::now()
+        .signed_duration_since(blob.updated_at)
+        .num_seconds()
+        >= BLOB_CLEANUP_CLAIM_TIMEOUT_SECS
 }
 
 async fn cleanup_broken_completed_session_object(
