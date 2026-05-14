@@ -17,6 +17,7 @@ use crate::types::TokenType;
 use crate::utils::numbers::{u64_to_i64, usize_to_i64};
 use actix_web::{HttpRequest, HttpResponse, web};
 use bytes::Bytes;
+use tokio_util::sync::CancellationToken;
 
 use super::cookies::{
     REFRESH_COOKIE, build_access_cookie, build_csrf_cookie, build_refresh_cookie,
@@ -54,9 +55,17 @@ async fn revalidate_storage_event_stream(
         .map(Some)
 }
 
+async fn wait_for_shutdown_signal(shutdown_token: Option<CancellationToken>) {
+    match shutdown_token {
+        Some(token) => token.cancelled().await,
+        None => std::future::pending::<()>().await,
+    }
+}
+
 pub async fn get_storage_events(
     state: web::Data<PrimaryAppState>,
     claims: web::ReqData<Claims>,
+    shutdown_token: Option<web::Data<CancellationToken>>,
 ) -> Result<HttpResponse> {
     let user_id = claims.user_id;
     let session_version = claims.session_version;
@@ -64,6 +73,7 @@ pub async fn get_storage_events(
         .await?
         .expect("visible teams should be loaded on initial SSE auth check");
     let mut rx = state.storage_change_tx.subscribe();
+    let shutdown_token = shutdown_token.map(|token| token.get_ref().clone());
 
     let stream = async_stream::stream! {
         let mut heartbeat = tokio::time::interval(std::time::Duration::from_secs(15));
@@ -72,6 +82,14 @@ pub async fn get_storage_events(
 
         loop {
             tokio::select! {
+                biased;
+                _ = wait_for_shutdown_signal(shutdown_token.clone()) => {
+                    tracing::info!(
+                        user_id,
+                        "closing storage change event stream during server shutdown"
+                    );
+                    break;
+                }
                 _ = heartbeat.tick() => {
                     match revalidate_storage_event_stream(&state, user_id, session_version, true).await {
                         Ok(Some(updated_team_ids)) => {

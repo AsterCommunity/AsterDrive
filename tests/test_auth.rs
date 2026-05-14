@@ -12,6 +12,7 @@ use serde_json::Value;
 use std::io::Cursor;
 use std::sync::Arc;
 use std::time::Duration;
+use tokio_util::sync::CancellationToken;
 
 const TEST_BROWSER_ORIGIN: &str = "http://localhost:8080";
 
@@ -1898,6 +1899,43 @@ async fn test_storage_events_stream_closes_after_session_revocation() {
 
     let fresh_token = login_user_with_credentials!(app, "sse_revoke_user", "password123");
     let _file_id = upload_test_file_named!(app, fresh_token, "post-revoke-personal.txt");
+
+    expect_sse_stream_end(&mut body).await;
+}
+
+#[actix_web::test]
+async fn test_storage_events_stream_closes_on_server_shutdown() {
+    let state = common::setup().await;
+    let shutdown_token = CancellationToken::new();
+    let app = {
+        use actix_web::{App, test, web};
+
+        let db = state.db.clone();
+        test::init_service(
+            App::new()
+                .wrap(aster_drive::api::middleware::security_headers::default_headers())
+                .app_data(web::PayloadConfig::new(10 * 1024 * 1024))
+                .app_data(web::JsonConfig::default().limit(1024 * 1024))
+                .app_data(web::Data::new(shutdown_token.clone()))
+                .app_data(web::Data::new(state))
+                .configure(move |cfg| aster_drive::api::configure_primary(cfg, &db)),
+        )
+        .await
+    };
+    let (token, _) = register_and_login!(app);
+
+    let req = test::TestRequest::get()
+        .uri("/api/v1/auth/events/storage")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+
+    let (_req, resp) = resp.into_parts();
+    let mut body = resp.into_body();
+
+    shutdown_token.cancel();
 
     expect_sse_stream_end(&mut body).await;
 }

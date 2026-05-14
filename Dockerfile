@@ -37,7 +37,7 @@ RUN cargo build --release --features "${CARGO_FEATURES}"
 # Stage 3: Alpine runtime
 FROM alpine:3.23
 
-RUN apk add --no-cache ca-certificates sqlite-libs vips-tools ffmpeg libheif && \
+RUN apk add --no-cache ca-certificates sqlite-libs vips-tools vips-poppler ffmpeg libheif && \
     addgroup -S -g 10001 aster && \
     adduser -S -D -H -u 10001 -G aster -s /sbin/nologin aster && \
     mkdir -p /data && \

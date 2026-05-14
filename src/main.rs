@@ -5,6 +5,9 @@
 use actix_web::{App, HttpServer, web};
 #[cfg(feature = "cli")]
 use clap::{Parser, Subcommand};
+use tokio_util::sync::CancellationToken;
+
+const HTTP_SHUTDOWN_TIMEOUT_SECS: u64 = 8;
 
 #[cfg(debug_assertions)]
 #[global_allocator]
@@ -220,8 +223,10 @@ async fn run_primary_http_server(
 
     let configure_db = state.db.clone();
     let shutdown_db = state.db.clone();
+    let http_shutdown_token = CancellationToken::new();
     let state = web::Data::new(state);
     let task_state = state.clone();
+    let app_shutdown_token = web::Data::new(http_shutdown_token.clone());
     let server = HttpServer::new(move || {
         let db = configure_db.clone();
         App::new()
@@ -232,11 +237,14 @@ async fn run_primary_http_server(
             .app_data(actix_web::web::PayloadConfig::new(10 * 1024 * 1024))
             .app_data(actix_web::web::JsonConfig::default().limit(1024 * 1024))
             .app_data(state.clone())
+            .app_data(app_shutdown_token.clone())
             .configure(move |cfg| aster_drive::api::configure_primary(cfg, &db))
     })
     .keep_alive(std::time::Duration::from_secs(30))
     .client_request_timeout(std::time::Duration::from_millis(5000))
     .client_disconnect_timeout(std::time::Duration::from_millis(1000))
+    .shutdown_timeout(HTTP_SHUTDOWN_TIMEOUT_SECS)
+    .disable_signals()
     .bind((host.as_str(), port))?
     .workers(workers)
     .run();
@@ -248,6 +256,7 @@ async fn run_primary_http_server(
     );
     tokio::spawn(async move {
         aster_drive::runtime::shutdown::wait_for_signal().await;
+        http_shutdown_token.cancel();
         server_handle.stop(true).await;
     });
 
@@ -276,6 +285,7 @@ async fn run_follower_http_server(
 
     let shutdown_db = state.db.clone();
     let state = web::Data::new(state);
+    let http_shutdown_token = CancellationToken::new();
     let server = HttpServer::new(move || {
         App::new()
             .wrap(actix_web::middleware::Compress::default())
@@ -289,6 +299,8 @@ async fn run_follower_http_server(
     .keep_alive(std::time::Duration::from_secs(30))
     .client_request_timeout(std::time::Duration::from_millis(5000))
     .client_disconnect_timeout(std::time::Duration::from_millis(1000))
+    .shutdown_timeout(HTTP_SHUTDOWN_TIMEOUT_SECS)
+    .disable_signals()
     .bind((host.as_str(), port))?
     .workers(workers)
     .run();
@@ -297,6 +309,7 @@ async fn run_follower_http_server(
     let background_tasks = aster_drive::runtime::tasks::spawn_follower_background_tasks();
     tokio::spawn(async move {
         aster_drive::runtime::shutdown::wait_for_signal().await;
+        http_shutdown_token.cancel();
         server_handle.stop(true).await;
     });
 

@@ -4,13 +4,13 @@ use std::any::Any;
 use std::fs::OpenOptions;
 use std::io::Write;
 use std::panic;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
 
-const CRASH_LOG_PATH: &str = "crash.log";
+const CRASH_LOG_PATH: &str = "data/crash.log";
 const ISSUE_TEMPLATE: &str = "issues/new?template=bug_report.yml";
 
-static CRASH_LOG: OnceLock<Option<Mutex<std::fs::File>>> = OnceLock::new();
+static CRASH_LOG: OnceLock<Result<Mutex<std::fs::File>, String>> = OnceLock::new();
 
 #[derive(Debug, Clone)]
 struct PanicContext {
@@ -21,6 +21,22 @@ struct PanicContext {
     thread_name: String,
     location: String,
     message: String,
+}
+
+#[derive(Debug, Clone)]
+struct CrashReportWriteFailure {
+    reason: String,
+    report: String,
+}
+
+impl CrashReportWriteFailure {
+    fn new(reason: String, context: &PanicContext) -> Self {
+        let backtrace = std::backtrace::Backtrace::force_capture().to_string();
+        Self {
+            reason,
+            report: render_crash_report(context, &backtrace),
+        }
+    }
 }
 
 /// 安装自定义 panic hook。
@@ -46,42 +62,59 @@ pub fn install_panic_hook() {
         };
 
         let crash_log_path = crash_log_display_path();
-        let crash_logged = write_crash_report(&context);
+        let crash_log_result = write_crash_report(&context);
+        if let Err(failure) = crash_log_result.as_ref() {
+            eprintln!("{}", failure.report.trim_end());
+        }
 
         eprintln!(
             "{}",
-            render_user_panic_notice(&context, &crash_log_path, crash_logged)
+            render_user_panic_notice(&context, &crash_log_path, crash_log_result.as_ref())
         );
     }));
 }
 
-fn write_crash_report(context: &PanicContext) -> bool {
-    let Some(file_mutex) = crash_log_file() else {
-        return false;
-    };
+fn write_crash_report(context: &PanicContext) -> Result<(), CrashReportWriteFailure> {
+    let file_mutex =
+        crash_log_file().map_err(|reason| CrashReportWriteFailure::new(reason, context))?;
 
-    let Ok(mut guard) = file_mutex.try_lock() else {
-        return false;
-    };
+    let mut guard = file_mutex.try_lock().map_err(|_| {
+        CrashReportWriteFailure::new(
+            "crash log is locked by another panic writer".to_string(),
+            context,
+        )
+    })?;
 
     // Backtrace::force_capture 是同步阻塞操作，在 panic storm 下会拖慢所有线程。
     // 只在实际持有 crash.log 写锁时 capture，stderr 行只打轻量信息。
     let backtrace = std::backtrace::Backtrace::force_capture().to_string();
     let crash_report = render_crash_report(context, &backtrace);
-    guard.write_all(crash_report.as_bytes()).is_ok()
+    guard
+        .write_all(crash_report.as_bytes())
+        .map_err(|e| CrashReportWriteFailure {
+            reason: format!("failed to write {CRASH_LOG_PATH}: {e}"),
+            report: crash_report,
+        })
 }
 
-fn crash_log_file() -> Option<&'static Mutex<std::fs::File>> {
+fn crash_log_file() -> Result<&'static Mutex<std::fs::File>, String> {
     CRASH_LOG
         .get_or_init(|| {
+            let path = Path::new(CRASH_LOG_PATH);
+            if let Some(parent) = path.parent() {
+                std::fs::create_dir_all(parent).map_err(|e| {
+                    format!("failed to create crash log dir '{}': {e}", parent.display())
+                })?;
+            }
             OpenOptions::new()
                 .create(true)
                 .append(true)
-                .open(CRASH_LOG_PATH)
+                .open(path)
                 .map(Mutex::new)
-                .ok()
+                .map_err(|e| format!("failed to open {CRASH_LOG_PATH}: {e}"))
         })
         .as_ref()
+        .map_err(Clone::clone)
 }
 
 fn crash_log_display_path() -> PathBuf {
@@ -136,24 +169,29 @@ fn render_crash_report(context: &PanicContext, backtrace: &str) -> String {
 fn render_user_panic_notice(
     context: &PanicContext,
     crash_log_path: &std::path::Path,
-    crash_logged: bool,
+    crash_log_result: Result<&(), &CrashReportWriteFailure>,
 ) -> String {
     let report_target = issue_report_target(context.repository);
-    let diagnostic_line = if crash_logged {
-        format!(
+    let diagnostic_line = match crash_log_result {
+        Ok(()) => format!(
             "A diagnostic report was written to {}.",
             crash_log_path.display()
-        )
-    } else {
-        format!(
-            "A diagnostic report could not be written to {}.",
-            crash_log_path.display()
-        )
+        ),
+        Err(failure) => format!(
+            "A diagnostic report could not be written to {}: {}.",
+            crash_log_path.display(),
+            failure.reason
+        ),
+    };
+
+    let fallback_line = match crash_log_result {
+        Ok(()) => String::new(),
+        Err(_) => " The diagnostic report was printed to stderr instead.".to_string(),
     };
 
     format!(
         "AsterDrive encountered an unexpected internal error.\n\
-         {diagnostic_line}\n\
+         {diagnostic_line}{fallback_line}\n\
          Timestamp: {}\n\
          If the process exits, restart AsterDrive and report the diagnostic report at:\n\
          {report_target}",
@@ -164,8 +202,8 @@ fn render_user_panic_notice(
 #[cfg(test)]
 mod tests {
     use super::{
-        PanicContext, issue_report_target, panic_payload_message, render_crash_report,
-        render_user_panic_notice,
+        CrashReportWriteFailure, PanicContext, issue_report_target, panic_payload_message,
+        render_crash_report, render_user_panic_notice,
     };
 
     fn test_context() -> PanicContext {
@@ -185,12 +223,12 @@ mod tests {
         let context = test_context();
         let notice = render_user_panic_notice(
             &context,
-            std::path::Path::new("/tmp/asterdrive/crash.log"),
-            true,
+            std::path::Path::new("/tmp/asterdrive/data/crash.log"),
+            Ok(&()),
         );
 
         assert!(notice.contains("AsterDrive encountered an unexpected internal error."));
-        assert!(notice.contains("/tmp/asterdrive/crash.log"));
+        assert!(notice.contains("/tmp/asterdrive/data/crash.log"));
         assert!(notice.contains("2026-05-05 12:34:56.789"));
         assert!(
             notice.contains("https://example.test/asterdrive/issues/new?template=bug_report.yml")
@@ -203,10 +241,20 @@ mod tests {
     #[test]
     fn user_notice_reports_when_crash_log_could_not_be_written() {
         let context = test_context();
-        let notice = render_user_panic_notice(&context, std::path::Path::new("crash.log"), false);
+        let failure = CrashReportWriteFailure {
+            reason: "permission denied".to_string(),
+            report: render_crash_report(&context, "frame 1"),
+        };
+        let notice = render_user_panic_notice(
+            &context,
+            std::path::Path::new("data/crash.log"),
+            Err(&failure),
+        );
 
         assert!(notice.contains("could not be written"));
-        assert!(notice.contains("crash.log"));
+        assert!(notice.contains("data/crash.log"));
+        assert!(notice.contains("permission denied"));
+        assert!(notice.contains("printed to stderr"));
     }
 
     #[test]
