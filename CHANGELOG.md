@@ -5,6 +5,91 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v0.1.0] - 2026-05-15
+
+### Release Highlights
+
+**AsterDrive 第一个稳定版本！** 从 `v0.0.1-alpha.1` 到 `v0.1.0`，AsterDrive 完成了自托管云存储核心能力、远程存储、团队协作、WebDAV、分享、在线预览、后台任务和生产部署文档的第一轮产品化收口。
+
+- **正式版稳定性收口** — 在 rc.2 基础上补齐服务优雅关闭、崩溃诊断、SSE 关闭语义和本地临时文件清理日志，降低生产环境排障成本
+- **生产部署文档完善** — 文档站重构导航与首页，新增生产上线检查、S3 / MinIO / R2、远程从节点、团队权限、在线预览、术语表和 FAQ
+- **多架构镜像发布优化** — Docker 镜像改为 amd64 / arm64 原生 runner 分架构构建，再发布 multi-arch manifest，并继续生成 SBOM 与 cosign 签名
+- **文件浏览器操作体验微调** — 单文件选择时下载按钮直接下载原文件，多选或包含文件夹时才进入归档下载；工作空间切换器移动到侧边栏顶部
+- **服务端可观测性增强** — 团队、策略、锁、WebDAV、删除、清理和版本回收等关键路径补充 tracing 日志，便于定位生产问题
+- **E2E 与集成测试稳定性修复** — 优化任务卡片、批量操作、团队空间、WebDAV 密码字段和时间精度相关断言，减少测试选择器和数据库精度噪音
+
+### Added
+
+- **生产部署与使用文档**
+  - 新增生产上线检查清单，覆盖反向代理、持久化目录、备份、邮件、任务、预览与升级前验证
+  - 新增 S3 / MinIO / Cloudflare R2 存储配置文档
+  - 新增远程从节点存储文档，说明主控-从节点部署、enrollment、反向代理和排障流程
+  - 新增团队与权限、在线预览与 WOPI、术语表、FAQ 和文档贡献说明
+- **运行时关闭与崩溃诊断**
+  - HTTP 服务统一使用自定义 shutdown signal 处理，并设置 8 秒 graceful shutdown timeout
+  - 存储变更 SSE 在服务关闭时主动结束已有连接，并拒绝关闭后的新连接
+  - panic 诊断日志写入 `data/crash.log`，写入失败时会把完整诊断报告输出到 stderr
+- **发布镜像能力**
+  - Docker CI 增加 amd64 / arm64 分架构构建 job
+  - 发布阶段生成 GHCR 与 Docker Hub multi-arch manifest
+  - 稳定版本自动发布 `latest` / `stable` 标签，预发布版本继续发布 `edge`
+- **观测日志**
+  - 删除、永久清理、文件版本回收、锁生命周期、团队归档 / 恢复 / 强删、策略删除、WebDAV 账号删除等路径补充 tracing 事件
+  - 本地存储临时文件清理失败不再静默忽略，会记录 warn 日志
+
+### Changed
+
+- **版本与发布定位**
+  - 根 crate 版本从 `0.1.0-rc.2` 升级到 `0.1.0`
+  - `0.1.0` 系列从 release candidate 切换为第一个稳定版
+- **文档站结构**
+  - VitePress 导航从扁平入口重组为“开始 / 使用 / 管理 / 配置 / 存储 / 部署 / 开发”
+  - 首页改为面向部署、使用、运维和二次开发的入口页
+  - 配置、部署和使用文档补充更多交叉链接与当前版本行为说明
+- **文件浏览器操作**
+  - 批量选择工具栏和右键菜单统一使用 `downloadAction`
+  - 只选中单个文件时，“下载”直接下载原文件；多选或包含文件夹时继续使用归档下载任务
+  - 工作空间切换器从 TopBar 移到侧边栏顶部，团队空间入口更稳定
+- **Docker 运行环境**
+  - 运行时镜像补充 `vips-poppler`，增强 PDF / 文档类预览处理依赖
+  - `docker-compose.yml` 增加 `stop_grace_period: 45s`，配合服务端优雅关闭
+- **前端实时事件**
+  - EventSource 被服务端永久关闭时不再进入退避重连，避免关闭期间产生无意义重连
+
+### Fixed
+
+- **服务关闭时 SSE 连接处理**
+  - 修复服务端关闭期间存储变更事件流可能继续挂起的问题
+  - 修复关闭后新建 SSE 连接仍进入流式响应的问题；现在返回 `204 No Content`
+- **崩溃日志可靠性**
+  - 修复 crash log 目录不存在时无法写入诊断日志的问题
+  - 修复 crash log 写锁竞争或权限失败时用户只能看到简短失败提示、拿不到完整报告的问题
+- **本地存储临时文件清理**
+  - 修复本地上传、去重提升和 copy fallback 路径中临时文件清理失败被静默吞掉的问题
+  - 清理失败现在会记录具体路径与错误，便于追踪磁盘残留
+- **测试稳定性**
+  - 修复 WebDAV 账号测试中密码字段异步断言不稳定的问题
+  - 修复后台任务健康检查测试中数据库时间精度差异导致的偶发失败
+  - 优化 Playwright 测试定位方式，避免任务列表、团队空间和批量操作场景误匹配
+- **生产构建流程**
+  - 避免 Docker 多架构镜像在单 job QEMU 构建下耗时过长或不稳定，改为原生 runner 构建后合并 manifest
+
+### Notes
+
+- 本版本为 AsterDrive 第一个稳定版本，也是 `0.1.0` 系列正式发布版
+- 从 `v0.1.0-rc.2` 升级到 `v0.1.0` 没有新增数据库 migration
+- 升级前仍建议备份数据库与数据目录，生产部署建议按新增的 production checklist 逐项检查
+- Docker 用户建议使用 `v0.1.0`、`stable` 或 `latest` 镜像标签；`edge` 继续保留给 alpha / beta / rc 预发布版本
+- 自定义客户端如果依赖 `/api/v1/auth/events/storage` SSE 连接，需要注意服务关闭时连接可能正常结束，关闭后的新连接会返回 `204`
+
+---
+
+**统计数据**：
+- 101 files changed, 3,621 insertions(+), 751 deletions(-)
+- 12 commits
+
+---
+
 ## [v0.1.0-rc.2] - 2026-05-13
 
 ### Release Highlights
@@ -2948,7 +3033,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 66 commits
 - Rust Edition 2024, MSRV 1.91.1
 
-[Unreleased]: https://github.com/AptS-1547/AsterDrive/compare/v0.1.0-rc.2...HEAD
+[Unreleased]: https://github.com/AptS-1547/AsterDrive/compare/v0.1.0...HEAD
+[v0.1.0]: https://github.com/AptS-1547/AsterDrive/compare/v0.1.0-rc.2...v0.1.0
 [v0.1.0-rc.2]: https://github.com/AptS-1547/AsterDrive/compare/v0.1.0-rc.1...v0.1.0-rc.2
 [v0.1.0-rc.1]: https://github.com/AptS-1547/AsterDrive/compare/v0.1.0-beta.5...v0.1.0-rc.1
 [v0.1.0-beta.5]: https://github.com/AptS-1547/AsterDrive/compare/v0.1.0-beta.4...v0.1.0-beta.5
