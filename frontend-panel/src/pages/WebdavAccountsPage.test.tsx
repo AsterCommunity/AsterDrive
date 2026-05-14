@@ -385,7 +385,9 @@ describe("WebdavAccountsPage", () => {
 		);
 		expect(mockState.reload).toHaveBeenCalledTimes(1);
 		expect(screen.getByDisplayValue("dav-user")).toBeInTheDocument();
-		expect(screen.getByDisplayValue("generated-pass")).toBeInTheDocument();
+		expect(
+			await screen.findByDisplayValue("generated-pass"),
+		).toBeInTheDocument();
 
 		fireEvent.click(
 			screen.getByRole("button", { name: "admin:test_connection" }),
