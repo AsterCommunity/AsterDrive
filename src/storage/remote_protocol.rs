@@ -10,11 +10,16 @@ mod tests;
 pub use auth::{normalize_remote_base_url, sign_internal_request, sign_presigned_request};
 pub use client::RemoteStorageClient;
 pub use models::{
-    RemoteBindingSyncRequest, RemoteCreateIngressProfileRequest,
-    RemoteCreateLocalIngressProfileRequest, RemoteCreateS3IngressProfileRequest,
-    RemoteIngressProfileInfo, RemoteStorageCapabilities, RemoteStorageComposeRequest,
-    RemoteStorageComposeResponse, RemoteStorageListResponse, RemoteStorageObjectMetadata,
-    RemoteUpdateIngressProfileRequest,
+    INTERNAL_STORAGE_MIN_SUPPORTED_PROTOCOL_VERSION,
+    INTERNAL_STORAGE_MIN_SUPPORTED_PROTOCOL_VERSION_LABEL, INTERNAL_STORAGE_PROTOCOL_VERSION,
+    INTERNAL_STORAGE_PROTOCOL_VERSION_LABEL, REMOTE_BROWSER_PRESIGNED_CORS_ALLOWED_HEADERS,
+    REMOTE_BROWSER_PRESIGNED_CORS_GET_EXPOSE_HEADERS,
+    REMOTE_BROWSER_PRESIGNED_CORS_PUT_EXPOSE_HEADERS, RemoteBindingSyncRequest,
+    RemoteCreateIngressProfileRequest, RemoteCreateLocalIngressProfileRequest,
+    RemoteCreateS3IngressProfileRequest, RemoteIngressProfileInfo,
+    RemoteStorageBrowserCorsContract, RemoteStorageCapabilities, RemoteStorageComposeRequest,
+    RemoteStorageComposeResponse, RemoteStorageFeatureFlags, RemoteStorageListResponse,
+    RemoteStorageObjectMetadata, RemoteStorageProtocolLimits, RemoteUpdateIngressProfileRequest,
 };
 
 pub const INTERNAL_STORAGE_BASE_PATH: &str = "/api/v1/internal/storage";

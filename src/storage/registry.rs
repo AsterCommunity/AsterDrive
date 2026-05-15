@@ -10,7 +10,7 @@ use super::multipart::MultipartStorageDriver;
 use crate::db::repository::{managed_follower_repo, master_binding_repo};
 use crate::entities::storage_policy;
 use crate::errors::{Result, precondition_failed_with_subcode};
-use crate::types::DriverType;
+use crate::types::{DriverType, parse_storage_policy_options};
 use dashmap::DashMap;
 use parking_lot::RwLock;
 use std::collections::HashMap;
@@ -191,6 +191,23 @@ impl DriverRegistry {
                         format!("remote node #{remote_node_id} is disabled"),
                     ));
                 }
+                let capabilities =
+                    crate::storage::remote_protocol::RemoteStorageCapabilities::from_stored_json(
+                        &remote_node.last_capabilities,
+                    );
+                let options = parse_storage_policy_options(policy.options.as_ref());
+                if let Err(error) =
+                    capabilities.validate_for_remote_policy(remote_node_id, policy.id, &options)
+                {
+                    tracing::warn!(
+                        remote_node_id,
+                        policy_id = policy.id,
+                        protocol_version = %capabilities.protocol_version,
+                        min_supported_protocol_version = %capabilities.min_supported_protocol_version,
+                        "remote storage policy protocol compatibility check failed: {error}"
+                    );
+                    return Err(error);
+                }
                 Ok(DriverEntry::Remote(Arc::new(RemoteDriver::new(
                     policy,
                     &remote_node,
@@ -244,7 +261,10 @@ mod tests {
             access_key: "follower-ak".to_string(),
             secret_key: "follower-sk".to_string(),
             is_enabled,
-            last_capabilities: "{}".to_string(),
+            last_capabilities: serde_json::to_string(
+                &crate::storage::remote_protocol::RemoteStorageCapabilities::current(),
+            )
+            .expect("current remote capabilities should serialize"),
             last_error: String::new(),
             last_checked_at: None,
             created_at: now,
@@ -347,6 +367,68 @@ mod tests {
                 .query_pairs()
                 .any(|(key, value)| key == "aster_access_key" && value == "follower-ak"),
             "expected follower access key in '{presigned}'"
+        );
+    }
+
+    #[test]
+    fn remote_policy_rejects_missing_protocol_discovery() {
+        let mut follower = managed_follower(true);
+        follower.last_capabilities = "{}".to_string();
+        let registry = registry_with_follower(follower);
+
+        let error = match registry.get_driver(&remote_policy(Some(7))) {
+            Ok(_) => panic!("unknown capabilities should block remote driver initialization"),
+            Err(error) => error,
+        };
+
+        assert_eq!(error.code(), "E031");
+        assert_eq!(
+            error.storage_error_kind(),
+            Some(StorageErrorKind::Misconfigured)
+        );
+        assert!(error.message().contains("protocol incompatible"));
+        assert!(error.message().contains("remote node #7"));
+    }
+
+    #[test]
+    fn remote_policy_rejects_presigned_download_when_range_cors_missing() {
+        let mut capabilities =
+            crate::storage::remote_protocol::RemoteStorageCapabilities::current();
+        capabilities.browser_cors.allowed_headers = vec!["content-type".to_string()];
+        capabilities.browser_cors.exposed_headers =
+            vec!["Accept-Ranges".to_string(), "Content-Length".to_string()];
+        let mut follower = managed_follower(true);
+        follower.last_capabilities =
+            serde_json::to_string(&capabilities).expect("test capabilities should serialize");
+        let registry = registry_with_follower(follower);
+        let mut policy = remote_policy(Some(7));
+        policy.options =
+            crate::types::serialize_storage_policy_options(&crate::types::StoragePolicyOptions {
+                remote_download_strategy: Some(crate::types::RemoteDownloadStrategy::Presigned),
+                ..Default::default()
+            })
+            .expect("policy options should serialize");
+
+        let error = match registry.get_driver(&policy) {
+            Ok(_) => panic!("incomplete browser CORS should block remote presigned download"),
+            Err(error) => error,
+        };
+
+        assert_eq!(error.code(), "E031");
+        assert_eq!(
+            error.storage_error_kind(),
+            Some(StorageErrorKind::Misconfigured)
+        );
+        assert!(
+            error
+                .message()
+                .contains("browser CORS contract is incomplete")
+        );
+        assert!(error.message().contains("allowed_headers missing range"));
+        assert!(
+            error
+                .message()
+                .contains("exposed_headers missing Content-Range")
         );
     }
 }

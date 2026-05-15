@@ -18,12 +18,14 @@ use std::rc::Rc;
 use crate::api::constants::HOUR_SECS;
 use crate::errors::{AsterError, MapAsterErr, Result as AsterResult};
 use crate::runtime::FollowerAppState;
-use crate::storage::remote_protocol::PRESIGNED_AUTH_ACCESS_KEY_QUERY;
+use crate::storage::remote_protocol::{
+    PRESIGNED_AUTH_ACCESS_KEY_QUERY, REMOTE_BROWSER_PRESIGNED_CORS_ALLOWED_HEADERS,
+    REMOTE_BROWSER_PRESIGNED_CORS_GET_EXPOSE_HEADERS,
+    REMOTE_BROWSER_PRESIGNED_CORS_PUT_EXPOSE_HEADERS,
+};
 
 const PRESIGNED_OBJECTS_PATH_PREFIX: &str = "/api/v1/internal/storage/objects/";
 const PREFLIGHT_ALLOWED_METHODS: &str = "GET, PUT, OPTIONS";
-const PUT_ACTUAL_EXPOSE_HEADERS: &str = "ETag";
-const GET_ACTUAL_EXPOSE_HEADERS: &str = "Accept-Ranges, Cache-Control, Content-Disposition, Content-Length, Content-Range, Content-Type, ETag";
 
 pub struct PresignedInternalStorageCors;
 
@@ -241,7 +243,7 @@ fn apply_preflight_headers(headers: &mut HeaderMap) {
     );
     headers.insert(
         header::ACCESS_CONTROL_ALLOW_HEADERS,
-        HeaderValue::from_static("content-type, range"),
+        HeaderValue::from_static(REMOTE_BROWSER_PRESIGNED_CORS_ALLOWED_HEADERS),
     );
     headers.insert(
         header::ACCESS_CONTROL_MAX_AGE,
@@ -254,8 +256,8 @@ fn apply_preflight_headers(headers: &mut HeaderMap) {
 
 fn apply_actual_headers(headers: &mut HeaderMap, method: &Method) {
     let exposed = match *method {
-        Method::GET => GET_ACTUAL_EXPOSE_HEADERS,
-        Method::PUT => PUT_ACTUAL_EXPOSE_HEADERS,
+        Method::GET => REMOTE_BROWSER_PRESIGNED_CORS_GET_EXPOSE_HEADERS,
+        Method::PUT => REMOTE_BROWSER_PRESIGNED_CORS_PUT_EXPOSE_HEADERS,
         _ => return,
     };
     headers.insert(
