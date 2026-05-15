@@ -1735,7 +1735,10 @@ async fn test_storage_events_stream_receives_file_change_frames() {
     assert_eq!(event["kind"], "file.created");
     assert_eq!(event["workspace"]["kind"], "personal");
     assert_eq!(event["affects_quota"], true);
-    assert_eq!(event["storage_delta"].as_i64(), Some("test content".len() as i64));
+    assert_eq!(
+        event["storage_delta"].as_i64(),
+        Some("test content".len() as i64)
+    );
     assert!(
         event["file_ids"]
             .as_array()

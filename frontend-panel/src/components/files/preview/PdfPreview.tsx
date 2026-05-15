@@ -1,3 +1,4 @@
+import { useVirtualizer } from "@tanstack/react-virtual";
 import {
 	type ComponentProps,
 	type KeyboardEvent,
@@ -14,10 +15,9 @@ import "react-pdf/dist/Page/TextLayer.css";
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
 import { Input } from "@/components/ui/input";
-import { useBlobUrl } from "@/hooks/useBlobUrl";
+import { resolveApiResourceUrl } from "@/lib/apiUrl";
 import { isImeComposingKeyEvent } from "@/lib/keyboard";
 import { PreviewError } from "./PreviewError";
-import { PreviewLoadingState } from "./PreviewLoadingState";
 
 pdfjs.GlobalWorkerOptions.workerSrc = new URL(
 	"pdfjs-dist/build/pdf.worker.min.mjs",
@@ -27,6 +27,9 @@ pdfjs.GlobalWorkerOptions.workerSrc = new URL(
 const pdfDocumentOptions = {
 	cMapUrl: `${import.meta.env.BASE_URL}pdfjs/${pdfjs.version}/cmaps/`,
 	cMapPacked: true,
+	disableRange: false,
+	disableStream: false,
+	withCredentials: true,
 } satisfies NonNullable<ComponentProps<typeof Document>["options"]>;
 
 const MIN_ZOOM = 50;
@@ -34,6 +37,10 @@ const MAX_ZOOM = 250;
 const ZOOM_STEP = 25;
 const VIEWER_HORIZONTAL_PADDING = 24;
 const MIN_PAGE_WIDTH = 240;
+const DEFAULT_PAGE_WIDTH = 800;
+const DEFAULT_PAGE_HEIGHT = 1100;
+const PAGE_GAP = 12;
+const VIRTUAL_PAGE_OVERSCAN = 3;
 
 type LoadedDocument = Parameters<
 	NonNullable<ComponentProps<typeof Document>["onLoadSuccess"]>
@@ -49,13 +56,9 @@ interface PdfPreviewProps {
 
 export function PdfPreview({ path, fileName }: PdfPreviewProps) {
 	const { t } = useTranslation("files");
-	const {
-		blob,
-		blobUrl,
-		error: blobError,
-		loading: blobLoading,
-		retry,
-	} = useBlobUrl(path);
+	const documentUrl = useMemo(() => resolveApiResourceUrl(path), [path]);
+	const documentFile = useMemo(() => ({ url: documentUrl }), [documentUrl]);
+	const [reloadKey, setReloadKey] = useState(0);
 	const [numPages, setNumPages] = useState<number | null>(null);
 	const [pdfError, setPdfError] = useState(false);
 	const [currentPage, setCurrentPage] = useState(1);
@@ -68,7 +71,6 @@ export function PdfPreview({ path, fileName }: PdfPreviewProps) {
 		height: number;
 	} | null>(null);
 	const [viewerWidth, setViewerWidth] = useState(0);
-	const pageRefs = useRef<Record<number, HTMLDivElement | null>>({});
 	const pageInputComposingRef = useRef(false);
 	const pageInputCompositionEndAtRef = useRef(0);
 	const scrollContainerRef = useRef<HTMLDivElement | null>(null);
@@ -86,18 +88,63 @@ export function PdfPreview({ path, fileName }: PdfPreviewProps) {
 		return Math.min(Math.max(value, MIN_ZOOM), MAX_ZOOM);
 	}, []);
 
+	const basePageWidth = useMemo(() => {
+		if (!pageSize) return null;
+		return rotation % 180 === 0 ? pageSize.width : pageSize.height;
+	}, [pageSize, rotation]);
+	const basePageHeight = useMemo(() => {
+		if (!pageSize) return null;
+		return rotation % 180 === 0 ? pageSize.height : pageSize.width;
+	}, [pageSize, rotation]);
+
+	const renderedPageWidth = useMemo(() => {
+		if (fitWidth) {
+			if (viewerWidth <= 0) return DEFAULT_PAGE_WIDTH;
+			return Math.max(
+				Math.floor(viewerWidth - VIEWER_HORIZONTAL_PADDING),
+				MIN_PAGE_WIDTH,
+			);
+		}
+		if (!basePageWidth) {
+			return DEFAULT_PAGE_WIDTH;
+		}
+		return Math.max(
+			Math.round((basePageWidth * clampZoom(zoomPercent)) / 100),
+			MIN_PAGE_WIDTH,
+		);
+	}, [basePageWidth, clampZoom, fitWidth, viewerWidth, zoomPercent]);
+
+	const effectiveZoomPercent = useMemo(() => {
+		if (!basePageWidth) return clampZoom(zoomPercent);
+		return clampZoom(Math.round((renderedPageWidth / basePageWidth) * 100));
+	}, [basePageWidth, clampZoom, renderedPageWidth, zoomPercent]);
+	const viewerLayoutVersion = `${renderedPageWidth}:${rotation}`;
+	const estimatedPageHeight = useMemo(() => {
+		const pageWidth = basePageWidth ?? DEFAULT_PAGE_WIDTH;
+		const pageHeight = basePageHeight ?? DEFAULT_PAGE_HEIGHT;
+		return Math.ceil((pageHeight * renderedPageWidth) / pageWidth) + PAGE_GAP;
+	}, [basePageHeight, basePageWidth, renderedPageWidth]);
+
+	const virtualizer = useVirtualizer({
+		count: numPages ?? 0,
+		getScrollElement: () => scrollContainerRef.current,
+		estimateSize: () => estimatedPageHeight,
+		getItemKey: (index) => index + 1,
+		overscan: VIRTUAL_PAGE_OVERSCAN,
+	});
+
 	const onDocumentLoadSuccess = useCallback(
 		({ numPages: n }: LoadedDocument) => {
 			setNumPages(n);
 			setPdfError(false);
 			setCurrentPage(1);
 			setPageInputValue("1");
-			pageRefs.current = {};
 			if (scrollContainerRef.current) {
 				scrollContainerRef.current.scrollTop = 0;
 			}
+			virtualizer.scrollToIndex(0, { align: "start" });
 		},
-		[],
+		[virtualizer],
 	);
 
 	const onDocumentLoadError = useCallback(() => {
@@ -116,57 +163,30 @@ export function PdfPreview({ path, fileName }: PdfPreviewProps) {
 		});
 	}, []);
 
-	const basePageWidth = useMemo(() => {
-		if (!pageSize) return null;
-		return rotation % 180 === 0 ? pageSize.width : pageSize.height;
-	}, [pageSize, rotation]);
-
-	const renderedPageWidth = useMemo(() => {
-		if (fitWidth) {
-			if (viewerWidth <= 0) return 800;
-			return Math.max(
-				Math.floor(viewerWidth - VIEWER_HORIZONTAL_PADDING),
-				MIN_PAGE_WIDTH,
-			);
-		}
-		if (!basePageWidth) {
-			return 800;
-		}
-		return Math.max(
-			Math.round((basePageWidth * clampZoom(zoomPercent)) / 100),
-			MIN_PAGE_WIDTH,
-		);
-	}, [basePageWidth, clampZoom, fitWidth, viewerWidth, zoomPercent]);
-
-	const effectiveZoomPercent = useMemo(() => {
-		if (!basePageWidth) return clampZoom(zoomPercent);
-		return clampZoom(Math.round((renderedPageWidth / basePageWidth) * 100));
-	}, [basePageWidth, clampZoom, renderedPageWidth, zoomPercent]);
-	const viewerLayoutVersion = `${renderedPageWidth}:${rotation}`;
-
 	const syncCurrentPageFromScroll = useCallback(() => {
 		const container = scrollContainerRef.current;
 		if (!container || !numPages) return;
 
+		const virtualPages = virtualizer.getVirtualItems();
+		if (virtualPages.length === 0) return;
+
 		const viewportMidpoint = container.scrollTop + container.clientHeight / 2;
-		let closestPage = 1;
+		let closestPage = currentPage;
 		let closestDistance = Number.POSITIVE_INFINITY;
 
-		for (let pageNumber = 1; pageNumber <= numPages; pageNumber += 1) {
-			const pageElement = pageRefs.current[pageNumber];
-			if (!pageElement) continue;
-			const pageMidpoint = pageElement.offsetTop + pageElement.offsetHeight / 2;
+		for (const virtualPage of virtualPages) {
+			const pageMidpoint = virtualPage.start + virtualPage.size / 2;
 			const distance = Math.abs(pageMidpoint - viewportMidpoint);
 			if (distance < closestDistance) {
 				closestDistance = distance;
-				closestPage = pageNumber;
+				closestPage = virtualPage.index + 1;
 			}
 		}
 
 		setCurrentPage((previousPage) =>
 			previousPage === closestPage ? previousPage : closestPage,
 		);
-	}, [numPages]);
+	}, [currentPage, numPages, virtualizer]);
 
 	const schedulePageSync = useCallback(() => {
 		if (scrollFrameRef.current !== null) return;
@@ -178,17 +198,14 @@ export function PdfPreview({ path, fileName }: PdfPreviewProps) {
 
 	const scrollToPage = useCallback(
 		(pageNumber: number, behavior: ScrollBehavior = "smooth") => {
-			const container = scrollContainerRef.current;
-			const pageElement = pageRefs.current[pageNumber];
-			if (!container || !pageElement) return;
-			container.scrollTo({
-				top: Math.max(pageElement.offsetTop - 8, 0),
+			virtualizer.scrollToIndex(pageNumber - 1, {
+				align: "start",
 				behavior,
 			});
 			setCurrentPage(pageNumber);
 			setPageInputValue(String(pageNumber));
 		},
-		[],
+		[virtualizer],
 	);
 
 	const commitPageInput = useCallback(() => {
@@ -252,18 +269,17 @@ export function PdfPreview({ path, fileName }: PdfPreviewProps) {
 	}, []);
 
 	const handleOpenInNewTab = useCallback(() => {
-		if (!blobUrl) return;
-		window.open(blobUrl, "_blank", "noopener,noreferrer");
-	}, [blobUrl]);
+		window.open(documentUrl, "_blank", "noopener,noreferrer");
+	}, [documentUrl]);
 
 	const handleDownload = useCallback(() => {
-		if (!blobUrl) return;
 		const link = document.createElement("a");
-		link.href = blobUrl;
+		link.href = documentUrl;
 		link.download = fileName ?? "document.pdf";
 		link.click();
-	}, [blobUrl, fileName]);
+	}, [documentUrl, fileName]);
 
+	// biome-ignore lint/correctness/useExhaustiveDependencies: documentUrl intentionally resets viewer state when the PDF source changes
 	useEffect(() => {
 		setNumPages(null);
 		setPdfError(false);
@@ -273,19 +289,14 @@ export function PdfPreview({ path, fileName }: PdfPreviewProps) {
 		setFitWidth(true);
 		setRotation(0);
 		setPageSize(null);
-		pageRefs.current = {};
-		if (!blobUrl) {
-			setViewerWidth(0);
-			return;
-		}
+		setReloadKey(0);
 		if (scrollContainerRef.current) {
 			setViewerWidth(scrollContainerRef.current.clientWidth);
 			scrollContainerRef.current.scrollTop = 0;
 		}
-	}, [blobUrl]);
+	}, [documentUrl]);
 
 	useEffect(() => {
-		if (!numPages) return;
 		const container = scrollContainerRef.current;
 		if (!container) return;
 
@@ -305,7 +316,7 @@ export function PdfPreview({ path, fileName }: PdfPreviewProps) {
 		return () => {
 			resizeObserver.disconnect();
 		};
-	}, [numPages]);
+	}, []);
 
 	useEffect(() => {
 		setPageInputValue(String(currentPage));
@@ -313,6 +324,7 @@ export function PdfPreview({ path, fileName }: PdfPreviewProps) {
 
 	useEffect(() => {
 		if (!numPages) return;
+		virtualizer.measure();
 		const frame = window.requestAnimationFrame(() => {
 			void viewerLayoutVersion;
 			syncCurrentPageFromScroll();
@@ -320,7 +332,7 @@ export function PdfPreview({ path, fileName }: PdfPreviewProps) {
 		return () => {
 			window.cancelAnimationFrame(frame);
 		};
-	}, [numPages, syncCurrentPageFromScroll, viewerLayoutVersion]);
+	}, [numPages, syncCurrentPageFromScroll, viewerLayoutVersion, virtualizer]);
 
 	useEffect(() => {
 		return () => {
@@ -330,19 +342,25 @@ export function PdfPreview({ path, fileName }: PdfPreviewProps) {
 		};
 	}, []);
 
-	if (blobLoading) {
+	if (pdfError) {
 		return (
-			<PreviewLoadingState text={t("loading_preview")} className="h-full" />
+			<PreviewError
+				onRetry={() => {
+					setPdfError(false);
+					setReloadKey((currentKey) => currentKey + 1);
+				}}
+			/>
 		);
 	}
 
-	if (blobError || !blobUrl || !blob) {
-		return <PreviewError onRetry={retry} />;
-	}
-
-	if (pdfError) {
-		return <PreviewError onRetry={retry} />;
-	}
+	const virtualPages = numPages !== null ? virtualizer.getVirtualItems() : [];
+	const firstVirtualPage = virtualPages[0];
+	const lastVirtualPage = virtualPages[virtualPages.length - 1];
+	const paddingTop = firstVirtualPage?.start ?? 0;
+	const paddingBottom = Math.max(
+		0,
+		virtualizer.getTotalSize() - (lastVirtualPage?.end ?? 0),
+	);
 
 	return (
 		<div className="flex h-full min-h-0 w-full min-w-0 flex-col overflow-hidden rounded-xl border border-border/70 bg-card shadow-xs dark:shadow-none">
@@ -511,7 +529,8 @@ export function PdfPreview({ path, fileName }: PdfPreviewProps) {
 				className="min-h-0 flex-1 overflow-auto bg-background/80 px-3 py-3 dark:bg-background/25"
 			>
 				<Document
-					file={blob}
+					key={`${documentUrl}:${reloadKey}`}
+					file={documentFile}
 					options={pdfDocumentOptions}
 					onLoadSuccess={onDocumentLoadSuccess}
 					onLoadError={onDocumentLoadError}
@@ -521,17 +540,23 @@ export function PdfPreview({ path, fileName }: PdfPreviewProps) {
 						</div>
 					}
 				>
-					<div className="space-y-3">
-						{numPages !== null &&
-							Array.from({ length: numPages }, (_, index) => {
-								const pageNumber = index + 1;
+					{numPages !== null && (
+						<div className="w-full" style={{ minWidth: renderedPageWidth }}>
+							{paddingTop > 0 && (
+								<div aria-hidden style={{ height: paddingTop }} />
+							)}
+							{virtualPages.map((virtualPage) => {
+								const pageNumber = virtualPage.index + 1;
 								return (
 									<div
-										key={`page_${pageNumber}`}
+										key={virtualPage.key}
 										ref={(node) => {
-											pageRefs.current[pageNumber] = node;
+											if (node) {
+												virtualizer.measureElement(node);
+											}
 										}}
-										className="flex justify-center"
+										data-index={virtualPage.index}
+										className="flex justify-center pb-3"
 										style={{ minWidth: renderedPageWidth }}
 									>
 										<div className="overflow-hidden rounded-lg bg-white ring-1 ring-black/5">
@@ -552,7 +577,11 @@ export function PdfPreview({ path, fileName }: PdfPreviewProps) {
 									</div>
 								);
 							})}
-					</div>
+							{paddingBottom > 0 && (
+								<div aria-hidden style={{ height: paddingBottom }} />
+							)}
+						</div>
+					)}
 				</Document>
 			</div>
 		</div>

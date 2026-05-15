@@ -150,13 +150,14 @@ async fn requested_headers_validation_accepts_known_headers_case_insensitively()
     let req = actix_test::TestRequest::default()
         .insert_header((
             header::ACCESS_CONTROL_REQUEST_HEADERS,
-            "Authorization, Content-Type, LOCK-TOKEN, X-WOPI-Override, X-WOPI-Lock",
+            "Authorization, Content-Type, LOCK-TOKEN, Range, X-WOPI-Override, X-WOPI-Lock",
         ))
         .to_srv_request();
 
     assert!(requested_headers_are_allowed(&req).unwrap());
     assert!(ALLOWED_HEADERS.contains(&"authorization"));
     assert!(ALLOWED_HEADERS.contains(&"lock-token"));
+    assert!(ALLOWED_HEADERS.contains(&"range"));
     assert!(ALLOWED_HEADERS.contains(&"x-wopi-override"));
     assert!(ALLOWED_HEADERS.contains(&"x-wopi-lock"));
 }
@@ -364,5 +365,61 @@ async fn middleware_preserves_existing_allow_origin_header() {
             .to_str()
             .unwrap(),
         "https://existing.example.com"
+    );
+}
+
+#[actix_web::test]
+async fn middleware_exposes_pdf_range_response_headers() {
+    let state = test_state(&[
+        ("cors_enabled", "true"),
+        ("cors_allowed_origins", "https://drive.example.com"),
+    ])
+    .await;
+    let app = actix_test::init_service(
+        App::new()
+            .wrap(RuntimeCors)
+            .app_data(web::Data::new(state))
+            .route(
+                "/api/v1/files/1/download",
+                web::get().to(|| async {
+                    HttpResponse::PartialContent()
+                        .insert_header(("Accept-Ranges", "bytes"))
+                        .insert_header(("Content-Range", "bytes 0-99/1000"))
+                        .insert_header(("Content-Length", "100"))
+                        .finish()
+                }),
+            ),
+    )
+    .await;
+
+    let req = actix_test::TestRequest::get()
+        .uri("/api/v1/files/1/download")
+        .insert_header((header::HOST, "internal.example.local"))
+        .insert_header((header::ORIGIN, "https://drive.example.com"))
+        .insert_header((header::RANGE, "bytes=0-99"))
+        .to_request();
+    let resp = actix_test::call_service(&app, req).await;
+
+    assert_eq!(resp.status(), 206);
+    let exposed = resp
+        .headers()
+        .get(header::ACCESS_CONTROL_EXPOSE_HEADERS)
+        .expect("CORS actual responses should expose headers")
+        .to_str()
+        .unwrap();
+    assert!(
+        exposed
+            .split(',')
+            .any(|header| header.trim() == "accept-ranges")
+    );
+    assert!(
+        exposed
+            .split(',')
+            .any(|header| header.trim() == "content-range")
+    );
+    assert!(
+        exposed
+            .split(',')
+            .any(|header| header.trim() == "content-length")
     );
 }

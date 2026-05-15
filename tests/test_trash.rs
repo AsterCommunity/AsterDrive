@@ -28,7 +28,10 @@ async fn test_trash_restore_purge() {
         aster_drive::services::storage_change_service::StorageChangeKind::FileCreated
     );
     assert!(upload_event.affects_quota);
-    assert_eq!(upload_event.storage_delta, Some("test content".len() as i64));
+    assert_eq!(
+        upload_event.storage_delta,
+        Some("test content".len() as i64)
+    );
 
     // 软删除
     let req = test::TestRequest::delete()

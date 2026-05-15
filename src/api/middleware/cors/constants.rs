@@ -25,6 +25,7 @@ pub(super) const ALLOWED_HEADERS: &[&str] = &[
     "if",
     "lock-token",
     "overwrite",
+    "range",
     "timeout",
     "x-csrf-token",
     "x-wopi-lock",
@@ -38,6 +39,9 @@ pub(super) const ALLOWED_HEADERS: &[&str] = &[
 ];
 
 pub(super) const EXPOSE_HEADERS: &[&str] = &[
+    "accept-ranges",
+    "content-length",
+    "content-range",
     "dav",
     "etag",
     "lock-token",

@@ -1,8 +1,7 @@
 import Artplayer from "artplayer";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { config } from "@/config/app";
-import { joinApiUrl } from "@/lib/apiUrl";
+import { resolveApiResourceUrl } from "@/lib/apiUrl";
 import { logger } from "@/lib/logger";
 import type { ShareStreamSessionInfo } from "@/types/api";
 import { PreviewError } from "./PreviewError";
@@ -22,20 +21,6 @@ function getPlayerLanguage(language: string) {
 	return language.startsWith("zh") ? "zh-cn" : "en";
 }
 
-function resolveVideoSource(path: string) {
-	if (/^https?:\/\//i.test(path) || path.startsWith("blob:")) {
-		return path;
-	}
-	if (
-		path.startsWith("/api/") ||
-		path.startsWith("/d/") ||
-		path.startsWith("/pv/")
-	) {
-		return path;
-	}
-	return joinApiUrl(config.apiBaseUrl, path);
-}
-
 export function VideoPreview({
 	file,
 	path,
@@ -51,7 +36,7 @@ export function VideoPreview({
 	const [mediaFailed, setMediaFailed] = useState(false);
 	const [aspectRatio, setAspectRatio] = useState(DEFAULT_ASPECT_RATIO);
 	const videoSource = useMemo(
-		() => (resolvedPath ? resolveVideoSource(resolvedPath) : null),
+		() => (resolvedPath ? resolveApiResourceUrl(resolvedPath) : null),
 		[resolvedPath],
 	);
 
