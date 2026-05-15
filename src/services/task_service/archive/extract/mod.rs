@@ -177,16 +177,6 @@ pub(super) async fn process_archive_extract_task(
             &payload.output_folder_name,
         )
         .await?;
-        storage_change_service::publish(
-            state,
-            storage_change_service::StorageChangeEvent::new(
-                storage_change_service::StorageChangeKind::FolderCreated,
-                scope,
-                vec![],
-                vec![created_root.id],
-                vec![created_root.parent_id],
-            ),
-        );
 
         set_task_step_active(
             &mut steps,
@@ -203,7 +193,7 @@ pub(super) async fn process_archive_extract_task(
             &steps,
         )
         .await?;
-        if let Err(error) = materialize_archive_extract_stage(
+        let import_summary = match materialize_archive_extract_stage(
             state,
             &lease_guard,
             scope,
@@ -214,11 +204,25 @@ pub(super) async fn process_archive_extract_task(
         )
         .await
         {
-            if !is_task_lease_lost(&error) && !is_task_lease_renewal_timed_out(&error) {
-                cleanup_created_extract_root(state, scope, created_root.id).await;
+            Ok(summary) => summary,
+            Err(error) => {
+                if !is_task_lease_lost(&error) && !is_task_lease_renewal_timed_out(&error) {
+                    cleanup_created_extract_root(state, scope, created_root.id).await;
+                }
+                return Err(error);
             }
-            return Err(error);
-        }
+        };
+        storage_change_service::publish(
+            state,
+            storage_change_service::StorageChangeEvent::new(
+                storage_change_service::StorageChangeKind::FolderCreated,
+                scope,
+                import_summary.file_ids,
+                import_summary.folder_ids,
+                import_summary.affected_parent_ids,
+            )
+            .with_storage_delta(import_summary.storage_delta),
+        );
         cleanup_task_temp_dir_for_task(state, task.id).await?;
         set_task_step_succeeded(
             &mut steps,

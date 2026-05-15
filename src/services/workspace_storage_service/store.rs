@@ -89,6 +89,7 @@ pub(crate) async fn store_from_temp(
         params,
         StoreFromTempHints::default(),
         NewFileMode::ResolveUnique,
+        true,
     )
     .await
 }
@@ -98,7 +99,8 @@ pub(crate) async fn store_from_temp_with_hints(
     params: StoreFromTempParams<'_>,
     hints: StoreFromTempHints<'_>,
 ) -> Result<file::Model> {
-    from_temp::store_from_temp_internal(state, params, hints, NewFileMode::ResolveUnique).await
+    from_temp::store_from_temp_internal(state, params, hints, NewFileMode::ResolveUnique, true)
+        .await
 }
 
 pub(crate) async fn store_from_temp_exact_name_with_hints(
@@ -106,7 +108,15 @@ pub(crate) async fn store_from_temp_exact_name_with_hints(
     params: StoreFromTempParams<'_>,
     hints: StoreFromTempHints<'_>,
 ) -> Result<file::Model> {
-    from_temp::store_from_temp_internal(state, params, hints, NewFileMode::Exact).await
+    from_temp::store_from_temp_internal(state, params, hints, NewFileMode::Exact, true).await
+}
+
+pub(crate) async fn store_from_temp_exact_name_silent_with_hints(
+    state: &PrimaryAppState,
+    params: StoreFromTempParams<'_>,
+    hints: StoreFromTempHints<'_>,
+) -> Result<file::Model> {
+    from_temp::store_from_temp_internal(state, params, hints, NewFileMode::Exact, false).await
 }
 
 pub(crate) async fn create_empty(

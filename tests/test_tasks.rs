@@ -152,6 +152,16 @@ fn assert_task_steps(body: &Value, expected: &[(&str, &str)]) {
     assert_eq!(actual, expected);
 }
 
+async fn drain_storage_change_events(
+    rx: &mut tokio::sync::broadcast::Receiver<
+        aster_drive::services::storage_change_service::StorageChangeEvent,
+    >,
+) {
+    while let Ok(Ok(_)) =
+        tokio::time::timeout(std::time::Duration::from_millis(10), rx.recv()).await
+    {}
+}
+
 fn create_zip_bytes(entries: &[(&str, Option<&[u8]>)]) -> Vec<u8> {
     let cursor = Cursor::new(Vec::new());
     let mut zip = zip::ZipWriter::new(cursor);
@@ -2161,6 +2171,161 @@ async fn test_team_archive_extract_task_creates_team_folder_tree() {
     .await;
     let file_bytes = test::read_body(resp).await;
     assert_eq!(String::from_utf8_lossy(&file_bytes), "team extract payload");
+}
+
+#[actix_web::test]
+async fn test_archive_extract_task_publishes_single_storage_change_event() {
+    let state = common::setup().await;
+    let mut storage_events = state.storage_change_tx.subscribe();
+    let app = create_test_app!(state.clone());
+    let (token, _) = register_and_login!(app);
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/files/new")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({ "name": "bundle.zip", "folder_id": null }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 201);
+    let body: Value = test::read_body_json(resp).await;
+    let archive_file_id = body["data"]["id"].as_i64().unwrap();
+
+    let archive_bytes = create_zip_bytes(&[
+        ("docs/", None),
+        ("docs/one.txt", Some("one".as_bytes())),
+        ("docs/two.txt", Some("two".as_bytes())),
+        ("three.txt", Some("three".as_bytes())),
+    ]);
+    let archive_size = i64::try_from(archive_bytes.len()).unwrap();
+    let req = test::TestRequest::put()
+        .uri(&format!("/api/v1/files/{archive_file_id}/content"))
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .insert_header(("Content-Type", "application/octet-stream"))
+        .set_payload(archive_bytes)
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+
+    drain_storage_change_events(&mut storage_events).await;
+
+    let req = test::TestRequest::post()
+        .uri(&format!("/api/v1/files/{archive_file_id}/extract"))
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({}))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+
+    let stats = aster_drive::services::task_service::drain(&state)
+        .await
+        .expect("task drain should succeed");
+    assert_eq!(stats.succeeded, 1);
+
+    let event = tokio::time::timeout(std::time::Duration::from_secs(1), storage_events.recv())
+        .await
+        .expect("archive extract should publish one storage event")
+        .expect("storage change channel should stay open");
+    assert_eq!(
+        event.kind,
+        aster_drive::services::storage_change_service::StorageChangeKind::FolderCreated
+    );
+    assert_eq!(event.file_ids.len(), 3);
+    assert_eq!(event.folder_ids.len(), 2);
+    assert_eq!(event.storage_delta, Some(11));
+    assert!(event.affects_quota);
+
+    assert!(
+        tokio::time::timeout(std::time::Duration::from_millis(50), storage_events.recv())
+            .await
+            .is_err(),
+        "archive extract should coalesce per-file storage events"
+    );
+
+    let req = test::TestRequest::get()
+        .uri("/api/v1/auth/me?fields=quota")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(body["data"]["storage_used"], archive_size + 11);
+}
+
+#[actix_web::test]
+async fn test_archive_extract_empty_directories_publish_non_quota_storage_change_event() {
+    let state = common::setup().await;
+    let mut storage_events = state.storage_change_tx.subscribe();
+    let app = create_test_app!(state.clone());
+    let (token, _) = register_and_login!(app);
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/files/new")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({ "name": "empty-dirs.zip", "folder_id": null }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 201);
+    let body: Value = test::read_body_json(resp).await;
+    let archive_file_id = body["data"]["id"].as_i64().unwrap();
+
+    let archive_bytes = create_zip_bytes(&[("alpha/", None), ("alpha/beta/", None)]);
+    let archive_size = i64::try_from(archive_bytes.len()).unwrap();
+    let req = test::TestRequest::put()
+        .uri(&format!("/api/v1/files/{archive_file_id}/content"))
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .insert_header(("Content-Type", "application/octet-stream"))
+        .set_payload(archive_bytes)
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+    drain_storage_change_events(&mut storage_events).await;
+
+    let req = test::TestRequest::post()
+        .uri(&format!("/api/v1/files/{archive_file_id}/extract"))
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({}))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+
+    let stats = aster_drive::services::task_service::drain(&state)
+        .await
+        .expect("task drain should succeed");
+    assert_eq!(stats.succeeded, 1);
+
+    let event = tokio::time::timeout(std::time::Duration::from_secs(1), storage_events.recv())
+        .await
+        .expect("archive extract should publish one storage event")
+        .expect("storage change channel should stay open");
+    assert_eq!(
+        event.kind,
+        aster_drive::services::storage_change_service::StorageChangeKind::FolderCreated
+    );
+    assert!(event.file_ids.is_empty());
+    assert_eq!(event.folder_ids.len(), 3);
+    assert_eq!(event.storage_delta, Some(0));
+    assert!(!event.affects_quota);
+    assert!(
+        tokio::time::timeout(std::time::Duration::from_millis(50), storage_events.recv())
+            .await
+            .is_err(),
+        "empty directory extract should publish only one storage event"
+    );
+
+    let req = test::TestRequest::get()
+        .uri("/api/v1/auth/me?fields=quota")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(body["data"]["storage_used"], archive_size);
 }
 
 #[actix_web::test]

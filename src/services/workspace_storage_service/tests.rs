@@ -26,8 +26,9 @@ use tokio::sync::{Notify, oneshot};
 
 use super::{
     StoreFromTempHints, StoreFromTempParams, StorePreuploadedNondedupParams, WorkspaceStorageScope,
-    prepare_non_dedup_blob_upload, store_from_temp_exact_name_with_hints,
-    store_from_temp_with_hints, store_preuploaded_nondedup, upload_temp_file_to_prepared_blob,
+    prepare_non_dedup_blob_upload, store_from_temp_exact_name_silent_with_hints,
+    store_from_temp_exact_name_with_hints, store_from_temp_with_hints, store_preuploaded_nondedup,
+    upload_temp_file_to_prepared_blob,
 };
 
 struct CountingUploadDriver {
@@ -415,6 +416,80 @@ async fn exact_name_conflict_cleans_preuploaded_local_blob() {
     let upload_tree_after = snapshot_dir_tree(&uploads_root).unwrap();
     assert_eq!(blob_count_after, blob_count_before);
     assert_eq!(upload_tree_after, upload_tree_before);
+
+    drop(state);
+    let _ = std::fs::remove_dir_all(&temp_root);
+}
+
+#[tokio::test]
+async fn temp_store_silent_exact_name_updates_storage_without_storage_event() {
+    let (state, temp_root, policy, user) = build_test_state().await;
+    let scope = WorkspaceStorageScope::Personal { user_id: user.id };
+    let mut storage_events = state.storage_change_tx.subscribe();
+
+    let normal_temp = temp_root.join("normal.bin");
+    let normal_bytes = b"normal event";
+    tokio::fs::write(&normal_temp, normal_bytes).await.unwrap();
+    let normal = store_from_temp_exact_name_with_hints(
+        &state,
+        StoreFromTempParams::new(
+            scope,
+            None,
+            "normal.txt",
+            &normal_temp.to_string_lossy(),
+            normal_bytes.len() as i64,
+        ),
+        StoreFromTempHints {
+            resolved_policy: Some(policy.clone()),
+            precomputed_hash: None,
+            actor_username: None,
+        },
+    )
+    .await
+    .expect("normal temp store should succeed");
+
+    let normal_event = tokio::time::timeout(Duration::from_secs(1), storage_events.recv())
+        .await
+        .expect("normal temp store should publish a storage event")
+        .expect("storage change channel should stay open");
+    assert_eq!(normal_event.file_ids, vec![normal.id]);
+    assert_eq!(normal_event.storage_delta, Some(normal_bytes.len() as i64));
+
+    let silent_temp = temp_root.join("silent.bin");
+    let silent_bytes = b"silent storage";
+    tokio::fs::write(&silent_temp, silent_bytes).await.unwrap();
+    let silent = store_from_temp_exact_name_silent_with_hints(
+        &state,
+        StoreFromTempParams::new(
+            scope,
+            None,
+            "silent.txt",
+            &silent_temp.to_string_lossy(),
+            silent_bytes.len() as i64,
+        ),
+        StoreFromTempHints {
+            resolved_policy: Some(policy),
+            precomputed_hash: None,
+            actor_username: None,
+        },
+    )
+    .await
+    .expect("silent temp store should succeed");
+    assert_eq!(silent.name, "silent.txt");
+
+    let owner = crate::db::repository::user_repo::find_by_id(&state.db, user.id)
+        .await
+        .expect("owner should still exist");
+    assert_eq!(
+        owner.storage_used,
+        normal_bytes.len() as i64 + silent_bytes.len() as i64
+    );
+    assert!(
+        tokio::time::timeout(Duration::from_millis(50), storage_events.recv())
+            .await
+            .is_err(),
+        "silent temp store should not publish a storage event"
+    );
 
     drop(state);
     let _ = std::fs::remove_dir_all(&temp_root);

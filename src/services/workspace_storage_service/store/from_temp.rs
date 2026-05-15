@@ -26,6 +26,7 @@ pub(crate) async fn store_from_temp_internal(
     params: StoreFromTempParams<'_>,
     hints: StoreFromTempHints<'_>,
     new_file_mode: NewFileMode,
+    emit_storage_event: bool,
 ) -> Result<file::Model> {
     let prepared = prepare::prepare_store_from_temp(state, params, hints).await?;
     let scope = prepared.scope;
@@ -34,22 +35,24 @@ pub(crate) async fn store_from_temp_internal(
     let overwritten = existing_file_id.is_some();
     let result = persist::persist_temp_store(state, prepared, new_file_mode).await?;
 
-    let event_kind = if overwritten {
-        storage_change_service::StorageChangeKind::FileUpdated
-    } else {
-        storage_change_service::StorageChangeKind::FileCreated
-    };
-    storage_change_service::publish(
-        state,
-        storage_change_service::StorageChangeEvent::new(
-            event_kind,
-            scope,
-            vec![result.id],
-            vec![],
-            vec![result.folder_id],
-        )
-        .with_storage_delta(storage_delta),
-    );
+    if emit_storage_event {
+        let event_kind = if overwritten {
+            storage_change_service::StorageChangeKind::FileUpdated
+        } else {
+            storage_change_service::StorageChangeKind::FileCreated
+        };
+        storage_change_service::publish(
+            state,
+            storage_change_service::StorageChangeEvent::new(
+                event_kind,
+                scope,
+                vec![result.id],
+                vec![],
+                vec![result.folder_id],
+            )
+            .with_storage_delta(storage_delta),
+        );
+    }
 
     if let Some(existing_id) = existing_file_id {
         crate::services::version_service::cleanup_excess(state, existing_id).await?;

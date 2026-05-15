@@ -21,6 +21,14 @@ struct StagedArchiveTree {
     files: Vec<PathBuf>,
 }
 
+#[derive(Debug, Default)]
+pub(super) struct ArchiveExtractImportSummary {
+    pub(super) file_ids: Vec<i64>,
+    pub(super) folder_ids: Vec<i64>,
+    pub(super) affected_parent_ids: Vec<Option<i64>>,
+    pub(super) storage_delta: i64,
+}
+
 pub(super) async fn materialize_archive_extract_stage(
     state: &PrimaryAppState,
     lease_guard: &TaskLeaseGuard,
@@ -29,11 +37,16 @@ pub(super) async fn materialize_archive_extract_stage(
     extracted_bytes: i64,
     root_folder: &folder::Model,
     steps: &mut [TaskStepInfo],
-) -> Result<()> {
+) -> Result<ArchiveExtractImportSummary> {
     lease_guard.ensure_active()?;
     let tree = collect_staged_archive_tree(stage_root)?;
     let mut folder_ids = HashMap::new();
     folder_ids.insert(PathBuf::new(), root_folder.id);
+    let mut summary = ArchiveExtractImportSummary {
+        folder_ids: vec![root_folder.id],
+        affected_parent_ids: vec![root_folder.parent_id],
+        ..Default::default()
+    };
     let mut imported_bytes = 0_i64;
     let total_progress = extracted_bytes
         .checked_mul(2)
@@ -55,6 +68,8 @@ pub(super) async fn materialize_archive_extract_stage(
                 AsterError::validation_error("archive directory name must be valid UTF-8")
             })?;
         let created = create_folder_exact_in_scope(state, scope, Some(parent_id), name).await?;
+        summary.folder_ids.push(created.id);
+        summary.affected_parent_ids.push(created.parent_id);
         folder_ids.insert(relative_dir.clone(), created.id);
     }
 
@@ -79,7 +94,7 @@ pub(super) async fn materialize_archive_extract_stage(
         let size = i64::try_from(metadata.len()).map_aster_err_with(|| {
             AsterError::internal_error("extracted file size exceeds i64 range")
         })?;
-        workspace_storage_service::store_from_temp_exact_name_with_hints(
+        let created = workspace_storage_service::store_from_temp_exact_name_silent_with_hints(
             state,
             workspace_storage_service::StoreFromTempParams::new(
                 scope,
@@ -91,6 +106,12 @@ pub(super) async fn materialize_archive_extract_stage(
             workspace_storage_service::StoreFromTempHints::default(),
         )
         .await?;
+        summary.file_ids.push(created.id);
+        summary.affected_parent_ids.push(created.folder_id);
+        summary.storage_delta = summary
+            .storage_delta
+            .checked_add(size)
+            .ok_or_else(|| AsterError::internal_error("archive extract storage delta overflow"))?;
         imported_bytes = imported_bytes
             .checked_add(size)
             .ok_or_else(|| AsterError::internal_error("archive extract progress overflow"))?;
@@ -114,7 +135,7 @@ pub(super) async fn materialize_archive_extract_stage(
         .await?;
     }
 
-    Ok(())
+    Ok(summary)
 }
 
 fn collect_staged_archive_tree(stage_root: &Path) -> Result<StagedArchiveTree> {
