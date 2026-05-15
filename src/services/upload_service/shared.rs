@@ -17,18 +17,20 @@ use crate::storage::multipart::MultipartStorageDriver;
 use crate::types::UploadSessionStatus;
 use crate::utils::{id, paths};
 
-pub(super) const UPLOAD_SESSION_ID_MAX_ATTEMPTS: usize = 5;
 const INIT_MULTIPART_ABORT_MAX_ATTEMPTS: u32 = 3;
 const INIT_MULTIPART_ABORT_INITIAL_BACKOFF_MS: u64 = 50;
 
-pub(super) fn new_upload_id() -> String {
-    id::new_uuid()
-}
+pub(super) use id::UniqueUuidAttempt;
 
-pub(super) fn upload_id_collision_exhausted_error() -> AsterError {
-    AsterError::internal_error(format!(
-        "failed to create unique upload session after {UPLOAD_SESSION_ID_MAX_ATTEMPTS} attempts"
-    ))
+pub(super) async fn with_unique_upload_id<F, Fut, T>(mut try_upload_id: F) -> Result<T>
+where
+    F: FnMut(String) -> Fut,
+    Fut: Future<Output = Result<UniqueUuidAttempt<T>>>,
+{
+    id::with_unique_uuid("upload session", |candidate| {
+        try_upload_id(candidate.to_string())
+    })
+    .await
 }
 
 pub(super) async fn delete_upload_session_record_after_init_error<C: ConnectionTrait>(

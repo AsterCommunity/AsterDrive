@@ -164,3 +164,42 @@ pub struct PasswordResetConfirmReq {
 pub struct RequestEmailChangeReq {
     pub new_email: String,
 }
+
+/// Start registering a passkey for the authenticated user.
+#[derive(Deserialize)]
+#[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
+pub struct PasskeyRegisterStartReq {
+    pub name: Option<String>,
+}
+
+/// Finish registering a passkey for the authenticated user.
+#[derive(Deserialize)]
+#[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
+pub struct PasskeyRegisterFinishReq {
+    pub flow_id: String,
+    pub credential: serde_json::Value,
+    pub name: Option<String>,
+}
+
+/// Rename an existing passkey.
+#[derive(Deserialize)]
+#[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
+pub struct PatchPasskeyReq {
+    pub name: String,
+}
+
+/// Start a passkey login challenge.
+#[derive(Deserialize)]
+#[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
+pub struct PasskeyLoginStartReq {
+    pub identifier: Option<String>,
+    pub conditional: Option<bool>,
+}
+
+/// Finish a passkey login challenge.
+#[derive(Deserialize)]
+#[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
+pub struct PasskeyLoginFinishReq {
+    pub flow_id: String,
+    pub credential: serde_json::Value,
+}

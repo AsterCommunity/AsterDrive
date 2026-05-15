@@ -11,6 +11,21 @@ type OperationQuery<Operation extends keyof ApiOperations> =
 		? NonNullable<Query>
 		: never;
 
+type OperationData<Operation extends keyof ApiOperations> =
+	ApiOperations[Operation] extends {
+		responses: {
+			200: {
+				content: {
+					"application/json": {
+						data?: infer Data;
+					};
+				};
+			};
+		};
+	}
+		? NonNullable<Data>
+		: never;
+
 // Core responses
 export type ErrorCode = components["schemas"]["ErrorCode"];
 export type HealthResponse = components["schemas"]["HealthResponse"];
@@ -32,6 +47,19 @@ export type PasswordResetConfirmRequest =
 	components["schemas"]["PasswordResetConfirmReq"];
 export type PasswordResetRequestRequest =
 	components["schemas"]["PasswordResetRequestReq"];
+export type PasskeyInfo = OperationData<"list_passkeys">[number];
+export type PasskeyLoginFinishRequest =
+	components["schemas"]["PasskeyLoginFinishReq"];
+export type PasskeyLoginStartRequest =
+	components["schemas"]["PasskeyLoginStartReq"];
+export type PasskeyLoginStartResponse = OperationData<"start_passkey_login">;
+export type PasskeyRegisterFinishRequest =
+	components["schemas"]["PasskeyRegisterFinishReq"];
+export type PasskeyRegisterStartRequest =
+	components["schemas"]["PasskeyRegisterStartReq"];
+export type PasskeyRegisterStartResponse =
+	OperationData<"start_passkey_registration">;
+export type PatchPasskeyRequest = components["schemas"]["PatchPasskeyReq"];
 export type RequestEmailChangeRequest =
 	components["schemas"]["RequestEmailChangeReq"];
 export type ResendRegisterActivationRequest =

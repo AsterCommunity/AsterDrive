@@ -5,8 +5,7 @@ use crate::errors::{AsterError, Result};
 use crate::runtime::PrimaryAppState;
 use crate::services::upload_service::responses::InitUploadResponse;
 use crate::services::upload_service::shared::{
-    UPLOAD_SESSION_ID_MAX_ATTEMPTS, delete_upload_session_record_after_init_error, new_upload_id,
-    upload_id_collision_exhausted_error,
+    UniqueUuidAttempt, delete_upload_session_record_after_init_error, with_unique_upload_id,
 };
 use crate::services::workspace_storage_service::{
     PolicyUploadTransport, resolve_policy_upload_transport,
@@ -82,8 +81,7 @@ async fn init_presigned_s3_single_upload(
     ctx: &InitUploadContext,
     driver: &dyn crate::storage::driver::StorageDriver,
 ) -> Result<InitUploadResponse> {
-    for attempt in 1..=UPLOAD_SESSION_ID_MAX_ATTEMPTS {
-        let upload_id = new_upload_id();
+    with_unique_upload_id(|upload_id| async {
         let temp_key = format!("files/{upload_id}");
         let inserted = try_persist_upload_session(
             &state.db,
@@ -104,8 +102,7 @@ async fn init_presigned_s3_single_upload(
         )
         .await?;
         if !inserted {
-            tracing::warn!(upload_id, attempt, "upload_id collision, retrying");
-            continue;
+            return Ok(UniqueUuidAttempt::Collision);
         }
 
         let presigned_url = match presigned_put_url(driver, &temp_key).await {
@@ -130,16 +127,15 @@ async fn init_presigned_s3_single_upload(
             "initialized presigned upload session"
         );
 
-        return Ok(InitUploadResponse {
+        Ok(UniqueUuidAttempt::Accepted(InitUploadResponse {
             mode: UploadMode::Presigned,
             upload_id: Some(upload_id),
             chunk_size: None,
             total_chunks: None,
             presigned_url: Some(presigned_url),
-        });
-    }
-
-    Err(upload_id_collision_exhausted_error())
+        }))
+    })
+    .await
 }
 
 async fn init_relay_stream_s3_upload(

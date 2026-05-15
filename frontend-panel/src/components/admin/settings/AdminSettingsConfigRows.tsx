@@ -1,4 +1,4 @@
-import { useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { MediaProcessingConfigEditor } from "@/components/admin/MediaProcessingConfigEditor";
 import { MEDIA_PROCESSING_CONFIG_KEY } from "@/components/admin/mediaProcessingConfigEditorShared";
 import { PreviewAppsConfigEditor } from "@/components/admin/PreviewAppsConfigEditor";
@@ -235,16 +235,50 @@ function ScaledNumberInputControl({
 }) {
 	const { displayUnits, setDisplayUnits, t, updateDraftValue } =
 		useAdminSettingsCategoryContent();
-
-	if (draftValue.trim() && parseWholeNumber(draftValue) === null) {
-		return null;
-	}
+	const hasInvalidDraftValue =
+		draftValue.trim() && parseWholeNumber(draftValue) === null;
 
 	const availableUnits = getAvailableDisplayUnits(units, draftValue);
 	const preferredUnit = getPreferredDisplayUnit(units, draftValue);
 	const selectedUnit =
 		availableUnits.find((unit) => unit.value === displayUnits[config.key]) ??
 		preferredUnit;
+	const displayValue = formatDisplayValue(draftValue, selectedUnit);
+	const [editingValue, setEditingValue] = useState(displayValue);
+	const [focused, setFocused] = useState(false);
+
+	useEffect(() => {
+		if (!focused) {
+			setEditingValue(displayValue);
+		}
+	}, [displayValue, focused]);
+
+	if (hasInvalidDraftValue) {
+		return null;
+	}
+
+	const updateFromDisplayValue = (value: string) => {
+		const nextDisplayValue = value.trim();
+		if (!nextDisplayValue) {
+			updateDraftValue(config.key, "");
+			return;
+		}
+		if (!/^\d+$/.test(nextDisplayValue)) {
+			return;
+		}
+
+		const parsed = Number(nextDisplayValue);
+		if (!Number.isSafeInteger(parsed)) {
+			return;
+		}
+
+		const nextValue = parsed * selectedUnit.multiplier;
+		if (!Number.isSafeInteger(nextValue)) {
+			return;
+		}
+
+		updateDraftValue(config.key, String(nextValue));
+	};
 
 	return (
 		<div
@@ -258,27 +292,20 @@ function ScaledNumberInputControl({
 				inputMode="numeric"
 				step="1"
 				className="w-full sm:max-w-48"
-				value={formatDisplayValue(draftValue, selectedUnit)}
+				value={focused ? editingValue : displayValue}
 				aria-invalid={hasError ? true : undefined}
 				onChange={(event) => {
-					const nextDisplayValue = event.target.value.trim();
-					if (!nextDisplayValue) {
-						updateDraftValue(config.key, "");
-						return;
-					}
-					if (!/^\d+$/.test(nextDisplayValue)) {
-						return;
-					}
-
-					const parsed = Number(nextDisplayValue);
-					if (!Number.isSafeInteger(parsed)) {
-						return;
-					}
-
-					updateDraftValue(
-						config.key,
-						String(parsed * selectedUnit.multiplier),
-					);
+					const nextValue = event.target.value;
+					setEditingValue(nextValue);
+					updateFromDisplayValue(nextValue);
+				}}
+				onFocus={(event) => {
+					setFocused(true);
+					setEditingValue(event.currentTarget.value);
+				}}
+				onBlur={() => {
+					setFocused(false);
+					setEditingValue(displayValue);
 				}}
 				placeholder={t("config_value")}
 			/>

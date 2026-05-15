@@ -14,6 +14,7 @@ pub mod mail_outbox;
 pub mod managed_follower;
 pub mod managed_ingress_profile;
 pub mod master_binding;
+pub mod passkey;
 pub mod resource_lock;
 pub mod share;
 pub mod storage_policy;

@@ -11,6 +11,7 @@ use sea_orm_migration::sea_orm::{
 
 mod legacy;
 mod m20260512_000001_baseline_schema;
+mod m20260515_000001_add_passkeys;
 mod search_acceleration;
 mod time;
 
@@ -111,7 +112,10 @@ impl MigratorTrait for Migrator {
 #[async_trait::async_trait]
 impl MigratorTrait for CurrentMigrator {
     fn migrations() -> Vec<Box<dyn MigrationTrait>> {
-        vec![Box::new(m20260512_000001_baseline_schema::Migration)]
+        vec![
+            Box::new(m20260512_000001_baseline_schema::Migration),
+            Box::new(m20260515_000001_add_passkeys::Migration),
+        ]
     }
 }
 

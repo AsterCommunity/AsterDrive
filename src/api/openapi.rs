@@ -33,6 +33,13 @@ use utoipa::{Modify, OpenApi};
         crate::api::routes::auth::session::delete_other_sessions,
         crate::api::routes::auth::session::delete_session,
         crate::api::routes::auth::session::put_password,
+        crate::api::routes::auth::passkeys::list_passkeys,
+        crate::api::routes::auth::passkeys::start_registration,
+        crate::api::routes::auth::passkeys::finish_registration,
+        crate::api::routes::auth::passkeys::rename_passkey,
+        crate::api::routes::auth::passkeys::delete_passkey,
+        crate::api::routes::auth::passkeys::start_login,
+        crate::api::routes::auth::passkeys::finish_login,
 
         // auth::profile：已登录用户的资料、头像和偏好设置维护接口。
         crate::api::routes::auth::profile::request_email_change,

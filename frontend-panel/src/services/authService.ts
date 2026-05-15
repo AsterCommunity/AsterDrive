@@ -9,8 +9,14 @@ import type {
 	MePartialResponse,
 	MeQuery,
 	MeResponse,
+	PasskeyInfo,
+	PasskeyLoginStartRequest,
+	PasskeyLoginStartResponse,
+	PasskeyRegisterStartRequest,
+	PasskeyRegisterStartResponse,
 	PasswordResetConfirmRequest,
 	PasswordResetRequestRequest,
+	PatchPasskeyRequest,
 	UpdatePreferencesRequest,
 	UpdateProfileRequest,
 	UserInfo,
@@ -46,6 +52,22 @@ export const authService = {
 		const data = await api.post<AuthTokenResp>("/auth/login", {
 			identifier,
 			password,
+		});
+		return {
+			expiresIn: Number(data.expires_in) || 900,
+		};
+	},
+
+	startPasskeyLogin: (payload: PasskeyLoginStartRequest = {}) =>
+		api.post<PasskeyLoginStartResponse>("/auth/passkeys/login/start", payload),
+
+	finishPasskeyLogin: async (
+		flowId: string,
+		credential: unknown,
+	): Promise<AuthSessionState> => {
+		const data = await api.post<AuthTokenResp>("/auth/passkeys/login/finish", {
+			flow_id: flowId,
+			credential,
 		});
 		return {
 			expiresIn: Number(data.expires_in) || 900,
@@ -91,6 +113,30 @@ export const authService = {
 	},
 
 	listSessions: () => api.get<AuthSessionInfo[]>("/auth/sessions"),
+
+	listPasskeys: () => api.get<PasskeyInfo[]>("/auth/passkeys"),
+
+	startPasskeyRegistration: (payload: PasskeyRegisterStartRequest) =>
+		api.post<PasskeyRegisterStartResponse>(
+			"/auth/passkeys/register/start",
+			payload,
+		),
+
+	finishPasskeyRegistration: (
+		flowId: string,
+		credential: unknown,
+		name?: string,
+	) =>
+		api.post<PasskeyInfo>("/auth/passkeys/register/finish", {
+			flow_id: flowId,
+			credential,
+			name,
+		}),
+
+	renamePasskey: (id: number, payload: PatchPasskeyRequest) =>
+		api.patch<PasskeyInfo>(`/auth/passkeys/${id}`, payload),
+
+	deletePasskey: (id: number) => api.delete<void>(`/auth/passkeys/${id}`),
 
 	revokeSession: (id: string) => api.delete<void>(`/auth/sessions/${id}`),
 

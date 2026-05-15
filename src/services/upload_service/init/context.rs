@@ -7,8 +7,7 @@ use crate::errors::{AsterError, Result};
 use crate::runtime::PrimaryAppState;
 use crate::services::upload_service::responses::InitUploadResponse;
 use crate::services::upload_service::shared::{
-    UPLOAD_SESSION_ID_MAX_ATTEMPTS, abort_created_multipart_upload_after_init_error, new_upload_id,
-    upload_id_collision_exhausted_error,
+    UniqueUuidAttempt, abort_created_multipart_upload_after_init_error, with_unique_upload_id,
 };
 use crate::services::workspace_storage_service::{self, WorkspaceStorageScope};
 use crate::storage::multipart::MultipartStorageDriver;
@@ -204,8 +203,7 @@ pub(super) async fn init_multipart_session_with_retry(
         abort_collision_context,
     } = params;
 
-    for attempt in 1..=UPLOAD_SESSION_ID_MAX_ATTEMPTS {
-        let upload_id = new_upload_id();
+    with_unique_upload_id(|upload_id| async {
         let temp_key = format!("files/{upload_id}");
         let multipart_id = multipart.create_multipart_upload(&temp_key).await?;
         let inserted_result = try_persist_upload_session(
@@ -256,8 +254,7 @@ pub(super) async fn init_multipart_session_with_retry(
                 abort_collision_context,
             )
             .await?;
-            tracing::warn!(upload_id, attempt, "upload_id collision, retrying");
-            continue;
+            return Ok(UniqueUuidAttempt::Collision);
         }
 
         tracing::debug!(
@@ -272,15 +269,14 @@ pub(super) async fn init_multipart_session_with_retry(
             "initialized upload session"
         );
 
-        return Ok(chunked_upload_response(
+        Ok(UniqueUuidAttempt::Accepted(chunked_upload_response(
             mode,
             upload_id,
             chunk_size,
             total_chunks,
-        ));
-    }
-
-    Err(upload_id_collision_exhausted_error())
+        )))
+    })
+    .await
 }
 
 fn upload_session_active_model(params: UploadSessionRecordParams) -> upload_session::ActiveModel {

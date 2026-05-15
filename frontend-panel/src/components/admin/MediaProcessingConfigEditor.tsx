@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { DelimitedListInput } from "@/components/admin/DelimitedListInput";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -220,16 +221,14 @@ export function MediaProcessingConfigEditor({
 										<p className="text-xs font-medium text-muted-foreground">
 											{t("media_processing_editor_rule_extensions_label")}
 										</p>
-										<Input
-											value={formatMediaProcessingDelimitedInput(
-												processor.extensions,
-											)}
-											onChange={(event) =>
+										<DelimitedListInput
+											values={processor.extensions}
+											formatValue={formatMediaProcessingDelimitedInput}
+											parseValue={parseMediaProcessingDelimitedInput}
+											onValueChange={(extensions) =>
 												updateProcessor(processor.kind, (current) => ({
 													...current,
-													extensions: parseMediaProcessingDelimitedInput(
-														event.target.value,
-													),
+													extensions,
 												}))
 											}
 											placeholder={t(

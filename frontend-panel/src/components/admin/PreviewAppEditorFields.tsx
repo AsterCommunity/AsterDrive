@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { DelimitedListInput } from "@/components/admin/DelimitedListInput";
 import { Input } from "@/components/ui/input";
 import {
 	Select,
@@ -200,13 +201,15 @@ export function PreviewAppEditorFields({
 				label={t("preview_apps_matches_extensions")}
 				description={t("preview_apps_list_input_hint")}
 			>
-				<Input
+				<DelimitedListInput
 					placeholder={t("preview_apps_matches_extensions_placeholder")}
-					value={formatPreviewAppsDelimitedInput(app.extensions)}
-					onChange={(event) =>
+					values={app.extensions}
+					formatValue={formatPreviewAppsDelimitedInput}
+					parseValue={parsePreviewAppsDelimitedInput}
+					onValueChange={(extensions) =>
 						updateApp(index, (current) => ({
 							...current,
-							extensions: parsePreviewAppsDelimitedInput(event.target.value),
+							extensions,
 						}))
 					}
 				/>
@@ -343,22 +346,22 @@ export function PreviewAppEditorFields({
 						className="md:col-span-2 xl:col-span-3"
 						label={t("preview_apps_url_template_allowed_origins")}
 					>
-						<Input
-							value={formatPreviewAppsDelimitedInput(
+						<DelimitedListInput
+							values={
 								Array.isArray(app.config.allowed_origins)
 									? app.config.allowed_origins.filter(
 											(value): value is string => typeof value === "string",
 										)
-									: [],
-							)}
-							onChange={(event) =>
+									: []
+							}
+							formatValue={formatPreviewAppsDelimitedInput}
+							parseValue={parsePreviewAppsDelimitedInput}
+							onValueChange={(allowedOrigins) =>
 								updateApp(index, (current) => ({
 									...current,
 									config: {
 										...current.config,
-										allowed_origins: parsePreviewAppsDelimitedInput(
-											event.target.value,
-										),
+										allowed_origins: allowedOrigins,
 									},
 								}))
 							}

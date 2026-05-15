@@ -17,8 +17,7 @@ use crate::runtime::PrimaryAppState;
 use crate::services::upload_service::responses::InitUploadResponse;
 use crate::services::upload_service::scope::{personal_scope, team_scope};
 use crate::services::upload_service::shared::{
-    UPLOAD_SESSION_ID_MAX_ATTEMPTS, delete_upload_session_record_after_init_error, new_upload_id,
-    upload_id_collision_exhausted_error,
+    UniqueUuidAttempt, delete_upload_session_record_after_init_error, with_unique_upload_id,
 };
 use crate::services::workspace_storage_service::{
     WorkspaceStorageScope, resolve_policy_upload_transport,
@@ -96,8 +95,7 @@ async fn init_chunked_upload_session(
     let total_chunks = numbers::calc_total_chunks(ctx.total_size, chunk_size, "chunked upload")?;
     let expires_at = Utc::now() + Duration::hours(24);
 
-    for attempt in 1..=UPLOAD_SESSION_ID_MAX_ATTEMPTS {
-        let upload_id = new_upload_id();
+    let upload_id = with_unique_upload_id(|upload_id| async {
         let inserted = try_persist_upload_session(
             &state.db,
             UploadSessionRecordParams {
@@ -117,40 +115,39 @@ async fn init_chunked_upload_session(
         )
         .await?;
         if !inserted {
-            tracing::warn!(upload_id, attempt, "upload_id collision, retrying");
-            continue;
+            return Ok(UniqueUuidAttempt::Collision);
         }
+        Ok(UniqueUuidAttempt::Accepted(upload_id))
+    })
+    .await?;
 
-        if let Err(error) = prepare_chunked_upload_temp_dir(state, &upload_id).await {
-            delete_upload_session_record_after_init_error(
-                &state.db,
-                &upload_id,
-                "chunked temp dir initialization error",
-            )
-            .await;
-            return Err(error);
-        }
-
-        tracing::debug!(
-            scope = ?ctx.scope,
-            upload_id = %upload_id,
-            policy_id = ctx.policy.id,
-            mode = ?UploadMode::Chunked,
-            chunk_size,
-            total_chunks,
-            folder_id = ctx.target.folder_id,
-            "initialized chunked upload session"
-        );
-
-        return Ok(context::chunked_upload_response(
-            UploadMode::Chunked,
-            upload_id,
-            chunk_size,
-            total_chunks,
-        ));
+    if let Err(error) = prepare_chunked_upload_temp_dir(state, &upload_id).await {
+        delete_upload_session_record_after_init_error(
+            &state.db,
+            &upload_id,
+            "chunked temp dir initialization error",
+        )
+        .await;
+        return Err(error);
     }
 
-    Err(upload_id_collision_exhausted_error())
+    tracing::debug!(
+        scope = ?ctx.scope,
+        upload_id = %upload_id,
+        policy_id = ctx.policy.id,
+        mode = ?UploadMode::Chunked,
+        chunk_size,
+        total_chunks,
+        folder_id = ctx.target.folder_id,
+        "initialized chunked upload session"
+    );
+
+    Ok(context::chunked_upload_response(
+        UploadMode::Chunked,
+        upload_id,
+        chunk_size,
+        total_chunks,
+    ))
 }
 
 async fn prepare_chunked_upload_temp_dir(state: &PrimaryAppState, upload_id: &str) -> Result<()> {

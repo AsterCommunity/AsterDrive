@@ -6,13 +6,20 @@ mod common;
 use actix_web::body::MessageBody;
 use actix_web::cookie::SameSite;
 use actix_web::test;
-use aster_drive::db::repository::{auth_session_repo, user_repo};
+use aster_drive::db::repository::{auth_session_repo, passkey_repo, user_repo};
+use aster_drive::entities::passkey;
 use aster_drive::services::auth_service;
+use aster_drive::types::UserStatus;
+use base64::Engine as _;
 use serde_json::Value;
 use std::io::Cursor;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio_util::sync::CancellationToken;
+use webauthn_authenticator_rs::prelude::{Url, WebauthnAuthenticator};
+use webauthn_authenticator_rs::softpasskey::SoftPasskey;
+use webauthn_rs::prelude::{CreationChallengeResponse, RequestChallengeResponse};
+use webauthn_rs_proto::{AllowCredentials, Mediation, ResidentKeyRequirement};
 
 const TEST_BROWSER_ORIGIN: &str = "http://localhost:8080";
 
@@ -215,6 +222,197 @@ where
         frame.is_none(),
         "SSE stream should close after auth revalidation fails"
     );
+}
+
+fn configure_passkey_public_site_url(state: &aster_drive::runtime::PrimaryAppState) {
+    state.runtime_config.apply(common::system_config_model(
+        aster_drive::config::site_url::PUBLIC_SITE_URL_KEY,
+        r#"["http://localhost:8080"]"#,
+    ));
+}
+
+async fn register_test_passkey<S, B, E>(
+    app: &S,
+    access_token: &str,
+    name: &str,
+) -> (SoftPasskey, Value)
+where
+    S: actix_web::dev::Service<
+            actix_http::Request,
+            Response = actix_web::dev::ServiceResponse<B>,
+            Error = E,
+        >,
+    B: MessageBody,
+    E: std::fmt::Debug,
+{
+    let origin = Url::parse(TEST_BROWSER_ORIGIN).unwrap();
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/auth/passkeys/register/start")
+        .insert_header(("Cookie", common::access_cookie_header(access_token)))
+        .insert_header(common::csrf_header_for(access_token))
+        .peer_addr("127.0.0.1:12345".parse().unwrap())
+        .set_json(serde_json::json!({ "name": name }))
+        .to_request();
+    let resp = test::call_service(app, req).await;
+    assert_eq!(resp.status(), 200);
+    let start_body: Value = test::read_body_json(resp).await;
+    let flow_id = start_body["data"]["flow_id"].as_str().unwrap().to_string();
+    let mut challenge = serde_json::from_value::<CreationChallengeResponse>(
+        start_body["data"]["public_key"].clone(),
+    )
+    .expect("registration challenge should deserialize");
+    let selection = challenge
+        .public_key
+        .authenticator_selection
+        .as_ref()
+        .expect("registration should include authenticator selection");
+    assert_eq!(
+        selection.resident_key,
+        Some(ResidentKeyRequirement::Required)
+    );
+    assert!(selection.require_resident_key);
+
+    let selection = challenge
+        .public_key
+        .authenticator_selection
+        .as_mut()
+        .expect("registration should include authenticator selection");
+    selection.resident_key = Some(ResidentKeyRequirement::Discouraged);
+    selection.require_resident_key = false;
+
+    let mut softpasskey = SoftPasskey::new(true);
+    let credential = softpasskey
+        .do_registration(origin, challenge)
+        .expect("soft passkey registration should succeed");
+    let credential = serde_json::to_value(credential).expect("credential should serialize");
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/auth/passkeys/register/finish")
+        .insert_header(("Cookie", common::access_cookie_header(access_token)))
+        .insert_header(common::csrf_header_for(access_token))
+        .peer_addr("127.0.0.1:12345".parse().unwrap())
+        .set_json(serde_json::json!({
+            "flow_id": flow_id,
+            "credential": credential,
+        }))
+        .to_request();
+    let resp = test::call_service(app, req).await;
+    assert_eq!(resp.status(), 200);
+    let passkey_body: Value = test::read_body_json(resp).await;
+
+    (softpasskey, passkey_body["data"].clone())
+}
+
+async fn passkey_login_start<S, B, E>(
+    app: &S,
+    identifier: Option<&str>,
+) -> (String, RequestChallengeResponse)
+where
+    S: actix_web::dev::Service<
+            actix_http::Request,
+            Response = actix_web::dev::ServiceResponse<B>,
+            Error = E,
+        >,
+    B: MessageBody,
+    E: std::fmt::Debug,
+{
+    let payload = match identifier {
+        Some(identifier) => serde_json::json!({ "identifier": identifier }),
+        None => serde_json::json!({}),
+    };
+    let req = test::TestRequest::post()
+        .uri("/api/v1/auth/passkeys/login/start")
+        .insert_header(("Origin", TEST_BROWSER_ORIGIN))
+        .peer_addr("127.0.0.1:12345".parse().unwrap())
+        .set_json(payload)
+        .to_request();
+    let resp = test::call_service(app, req).await;
+    assert_eq!(resp.status(), 200);
+    let start_body: Value = test::read_body_json(resp).await;
+    let flow_id = start_body["data"]["flow_id"].as_str().unwrap().to_string();
+    let challenge = serde_json::from_value::<RequestChallengeResponse>(
+        start_body["data"]["public_key"].clone(),
+    )
+    .expect("login challenge should deserialize");
+    (flow_id, challenge)
+}
+
+async fn conditional_passkey_login_start<S, B, E>(app: &S) -> (String, RequestChallengeResponse)
+where
+    S: actix_web::dev::Service<
+            actix_http::Request,
+            Response = actix_web::dev::ServiceResponse<B>,
+            Error = E,
+        >,
+    B: MessageBody,
+    E: std::fmt::Debug,
+{
+    let req = test::TestRequest::post()
+        .uri("/api/v1/auth/passkeys/login/start")
+        .insert_header(("Origin", TEST_BROWSER_ORIGIN))
+        .peer_addr("127.0.0.1:12345".parse().unwrap())
+        .set_json(serde_json::json!({ "conditional": true }))
+        .to_request();
+    let resp = test::call_service(app, req).await;
+    assert_eq!(resp.status(), 200);
+    let start_body: Value = test::read_body_json(resp).await;
+    let flow_id = start_body["data"]["flow_id"].as_str().unwrap().to_string();
+    let challenge = serde_json::from_value::<RequestChallengeResponse>(
+        start_body["data"]["public_key"].clone(),
+    )
+    .expect("conditional login challenge should deserialize");
+    (flow_id, challenge)
+}
+
+async fn passkey_login_finish<S, B, E>(
+    app: &S,
+    flow_id: &str,
+    credential: Value,
+) -> actix_web::dev::ServiceResponse<B>
+where
+    S: actix_web::dev::Service<
+            actix_http::Request,
+            Response = actix_web::dev::ServiceResponse<B>,
+            Error = E,
+        >,
+    B: MessageBody,
+    E: std::fmt::Debug,
+{
+    let req = test::TestRequest::post()
+        .uri("/api/v1/auth/passkeys/login/finish")
+        .insert_header(("User-Agent", "AsterDrive Passkey Test/1.0"))
+        .peer_addr("127.0.0.1:12345".parse().unwrap())
+        .set_json(serde_json::json!({
+            "flow_id": flow_id,
+            "credential": credential,
+        }))
+        .to_request();
+    test::call_service(app, req).await
+}
+
+fn allow_test_passkey_credential(
+    mut challenge: RequestChallengeResponse,
+    stored_passkey: &passkey::Model,
+) -> (RequestChallengeResponse, uuid::Uuid) {
+    let credential_id = base64::engine::general_purpose::URL_SAFE_NO_PAD
+        .decode(stored_passkey.credential_id.as_bytes())
+        .unwrap();
+    let user_handle = uuid::Uuid::parse_str(&stored_passkey.user_handle).unwrap();
+    challenge.public_key.allow_credentials = vec![AllowCredentials {
+        type_: "public-key".to_string(),
+        id: credential_id,
+        transports: None,
+    }];
+    (challenge, user_handle)
+}
+
+async fn testuser_id<C: sea_orm::ConnectionTrait>(db: &C) -> i64 {
+    user_repo::find_by_username(db, "testuser")
+        .await
+        .unwrap()
+        .expect("testuser should exist")
+        .id
 }
 
 #[actix_web::test]
@@ -3393,6 +3591,359 @@ async fn test_avatar_switch_to_none_deletes_uploaded_objects() {
         .to_request();
     let resp = test::call_service(&app, req).await;
     assert_eq!(resp.status(), 404);
+}
+
+#[actix_web::test]
+async fn test_passkey_register_login_and_replay_protection() {
+    let state = common::setup_with_memory_cache().await;
+    configure_passkey_public_site_url(&state);
+    let app = create_test_app!(state.clone());
+    let (access, _) = register_and_login!(app);
+
+    let (mut softpasskey, passkey) = register_test_passkey(&app, &access, "Laptop").await;
+    assert_eq!(passkey["name"], "Laptop");
+    assert_eq!(passkey["sign_count"], 0);
+    let user_id = testuser_id(&state.db).await;
+    let passkey_id = passkey["id"].as_i64().unwrap();
+    let stored_passkey = passkey_repo::find_by_id_for_user(&state.db, passkey_id, user_id)
+        .await
+        .unwrap()
+        .unwrap();
+
+    let req = test::TestRequest::get()
+        .uri("/api/v1/auth/passkeys")
+        .insert_header(("Cookie", common::access_cookie_header(&access)))
+        .insert_header(common::csrf_header_for(&access))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(body["data"].as_array().unwrap().len(), 1);
+    assert_eq!(body["data"][0]["name"], "Laptop");
+
+    let (flow_id, challenge) = passkey_login_start(&app, Some("testuser")).await;
+    assert!(challenge.public_key.allow_credentials.is_empty());
+    let (challenge, user_handle) = allow_test_passkey_credential(challenge, &stored_passkey);
+    let mut credential = softpasskey
+        .do_authentication(Url::parse(TEST_BROWSER_ORIGIN).unwrap(), challenge)
+        .expect("soft passkey authentication should succeed");
+    credential.response.user_handle = Some(user_handle.as_bytes().to_vec());
+    let credential = serde_json::to_value(credential).expect("credential should serialize");
+    let replay_credential = credential.clone();
+
+    let resp = passkey_login_finish(&app, &flow_id, credential).await;
+    assert_eq!(resp.status(), 200);
+    let login_access = common::extract_cookie(&resp, "aster_access").unwrap();
+    let login_refresh = common::extract_cookie(&resp, "aster_refresh").unwrap();
+    assert!(!login_access.is_empty());
+    assert!(!login_refresh.is_empty());
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(body["code"], 0);
+
+    let sessions = auth_session_repo::list_active_for_user(&state.db, user_id)
+        .await
+        .unwrap();
+    assert_eq!(sessions.len(), 2);
+    assert!(
+        sessions
+            .iter()
+            .any(|session| session.user_agent.as_deref() == Some("AsterDrive Passkey Test/1.0"))
+    );
+
+    let resp = passkey_login_finish(&app, &flow_id, replay_credential).await;
+    assert_eq!(resp.status(), 401);
+}
+
+#[actix_web::test]
+async fn test_passkey_login_without_identifier() {
+    let state = common::setup_with_memory_cache().await;
+    configure_passkey_public_site_url(&state);
+    let app = create_test_app!(state.clone());
+    let (access, _) = register_and_login!(app);
+
+    let (mut softpasskey, passkey) = register_test_passkey(&app, &access, "Laptop").await;
+    let user_id = testuser_id(&state.db).await;
+    let passkey_id = passkey["id"].as_i64().unwrap();
+    let stored_passkey = passkey_repo::find_by_id_for_user(&state.db, passkey_id, user_id)
+        .await
+        .unwrap()
+        .unwrap();
+    let credential_id = base64::engine::general_purpose::URL_SAFE_NO_PAD
+        .decode(stored_passkey.credential_id.as_bytes())
+        .unwrap();
+    let user_handle = uuid::Uuid::parse_str(&stored_passkey.user_handle).unwrap();
+
+    let (flow_id, mut challenge) = passkey_login_start(&app, None).await;
+    assert!(challenge.public_key.allow_credentials.is_empty());
+    assert!(challenge.mediation.is_none());
+    challenge.public_key.allow_credentials = vec![AllowCredentials {
+        type_: "public-key".to_string(),
+        id: credential_id,
+        transports: None,
+    }];
+    let mut credential = softpasskey
+        .do_authentication(Url::parse(TEST_BROWSER_ORIGIN).unwrap(), challenge)
+        .expect("soft passkey authentication should succeed");
+    credential.response.user_handle = Some(user_handle.as_bytes().to_vec());
+    let credential = serde_json::to_value(credential).expect("credential should serialize");
+
+    let resp = passkey_login_finish(&app, &flow_id, credential).await;
+    assert_eq!(resp.status(), 200);
+    assert!(common::extract_cookie(&resp, "aster_access").is_some());
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(body["code"], 0);
+}
+
+#[actix_web::test]
+async fn test_passkey_conditional_login_preserves_mediation() {
+    let state = common::setup_with_memory_cache().await;
+    configure_passkey_public_site_url(&state);
+    let app = create_test_app!(state.clone());
+    let (access, _) = register_and_login!(app);
+
+    let (mut softpasskey, passkey) = register_test_passkey(&app, &access, "Laptop").await;
+    let user_id = testuser_id(&state.db).await;
+    let passkey_id = passkey["id"].as_i64().unwrap();
+    let stored_passkey = passkey_repo::find_by_id_for_user(&state.db, passkey_id, user_id)
+        .await
+        .unwrap()
+        .unwrap();
+
+    let (flow_id, challenge) = conditional_passkey_login_start(&app).await;
+    assert!(challenge.public_key.allow_credentials.is_empty());
+    assert!(matches!(challenge.mediation, Some(Mediation::Conditional)));
+
+    let (challenge, user_handle) = allow_test_passkey_credential(challenge, &stored_passkey);
+    let mut credential = softpasskey
+        .do_authentication(Url::parse(TEST_BROWSER_ORIGIN).unwrap(), challenge)
+        .expect("soft passkey authentication should succeed");
+    credential.response.user_handle = Some(user_handle.as_bytes().to_vec());
+    let credential = serde_json::to_value(credential).expect("credential should serialize");
+
+    let resp = passkey_login_finish(&app, &flow_id, credential).await;
+    assert_eq!(resp.status(), 200);
+    assert!(common::extract_cookie(&resp, "aster_access").is_some());
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(body["code"], 0);
+}
+
+#[actix_web::test]
+async fn test_passkey_login_start_does_not_reveal_unknown_identifier() {
+    let state = common::setup_with_memory_cache().await;
+    configure_passkey_public_site_url(&state);
+    let app = create_test_app!(state.clone());
+
+    let (_flow_id, challenge) = passkey_login_start(&app, Some("missing-user")).await;
+    assert!(challenge.public_key.allow_credentials.is_empty());
+    assert!(challenge.mediation.is_none());
+}
+
+#[actix_web::test]
+async fn test_passkey_login_rejects_identifier_mismatch() {
+    let state = common::setup_with_memory_cache().await;
+    configure_passkey_public_site_url(&state);
+    let app = create_test_app!(state.clone());
+    let (access, _) = register_and_login!(app);
+
+    let (mut softpasskey, passkey) = register_test_passkey(&app, &access, "Laptop").await;
+    let user_id = testuser_id(&state.db).await;
+    let passkey_id = passkey["id"].as_i64().unwrap();
+    let stored_passkey = passkey_repo::find_by_id_for_user(&state.db, passkey_id, user_id)
+        .await
+        .unwrap()
+        .unwrap();
+
+    let (flow_id, challenge) = passkey_login_start(&app, Some("otheruser")).await;
+    assert!(challenge.public_key.allow_credentials.is_empty());
+    let (challenge, user_handle) = allow_test_passkey_credential(challenge, &stored_passkey);
+    let mut credential = softpasskey
+        .do_authentication(Url::parse(TEST_BROWSER_ORIGIN).unwrap(), challenge)
+        .expect("soft passkey authentication should succeed");
+    credential.response.user_handle = Some(user_handle.as_bytes().to_vec());
+    let credential = serde_json::to_value(credential).expect("credential should serialize");
+
+    let resp = passkey_login_finish(&app, &flow_id, credential).await;
+    assert_eq!(resp.status(), 401);
+    assert!(common::extract_cookie(&resp, "aster_access").is_none());
+}
+
+#[actix_web::test]
+async fn test_passkey_registration_finish_is_one_time() {
+    let state = common::setup_with_memory_cache().await;
+    configure_passkey_public_site_url(&state);
+    let app = create_test_app!(state);
+    let (access, _) = register_and_login!(app);
+
+    let origin = Url::parse(TEST_BROWSER_ORIGIN).unwrap();
+    let req = test::TestRequest::post()
+        .uri("/api/v1/auth/passkeys/register/start")
+        .insert_header(("Cookie", common::access_cookie_header(&access)))
+        .insert_header(common::csrf_header_for(&access))
+        .set_json(serde_json::json!({ "name": "Laptop" }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+    let start_body: Value = test::read_body_json(resp).await;
+    let flow_id = start_body["data"]["flow_id"].as_str().unwrap().to_string();
+    let mut challenge = serde_json::from_value::<CreationChallengeResponse>(
+        start_body["data"]["public_key"].clone(),
+    )
+    .unwrap();
+    let selection = challenge
+        .public_key
+        .authenticator_selection
+        .as_ref()
+        .expect("registration should include authenticator selection");
+    assert_eq!(
+        selection.resident_key,
+        Some(ResidentKeyRequirement::Required)
+    );
+    assert!(selection.require_resident_key);
+    let selection = challenge
+        .public_key
+        .authenticator_selection
+        .as_mut()
+        .expect("registration should include authenticator selection");
+    selection.resident_key = Some(ResidentKeyRequirement::Discouraged);
+    selection.require_resident_key = false;
+
+    let mut softpasskey = SoftPasskey::new(true);
+    let credential = softpasskey
+        .do_registration(origin, challenge)
+        .expect("soft passkey registration should succeed");
+    let credential = serde_json::to_value(credential).expect("credential should serialize");
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/auth/passkeys/register/finish")
+        .insert_header(("Cookie", common::access_cookie_header(&access)))
+        .insert_header(common::csrf_header_for(&access))
+        .set_json(serde_json::json!({
+            "flow_id": flow_id,
+            "credential": credential.clone(),
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/auth/passkeys/register/finish")
+        .insert_header(("Cookie", common::access_cookie_header(&access)))
+        .insert_header(common::csrf_header_for(&access))
+        .set_json(serde_json::json!({
+            "flow_id": flow_id,
+            "credential": credential,
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 401);
+}
+
+#[actix_web::test]
+async fn test_passkey_delete_prevents_future_login() {
+    let state = common::setup_with_memory_cache().await;
+    configure_passkey_public_site_url(&state);
+    let app = create_test_app!(state.clone());
+    let (access, _) = register_and_login!(app);
+
+    let (mut softpasskey, passkey) = register_test_passkey(&app, &access, "Laptop").await;
+    let user_id = testuser_id(&state.db).await;
+    let passkey_id = passkey["id"].as_i64().unwrap();
+    let stored_passkey = passkey_repo::find_by_id_for_user(&state.db, passkey_id, user_id)
+        .await
+        .unwrap()
+        .unwrap();
+
+    let req = test::TestRequest::delete()
+        .uri(&format!("/api/v1/auth/passkeys/{passkey_id}"))
+        .insert_header(("Cookie", common::access_cookie_header(&access)))
+        .insert_header(common::csrf_header_for(&access))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+
+    let req = test::TestRequest::get()
+        .uri("/api/v1/auth/passkeys")
+        .insert_header(("Cookie", common::access_cookie_header(&access)))
+        .insert_header(common::csrf_header_for(&access))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+    let body: Value = test::read_body_json(resp).await;
+    assert!(body["data"].as_array().unwrap().is_empty());
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/auth/passkeys/login/start")
+        .insert_header(("Origin", TEST_BROWSER_ORIGIN))
+        .set_json(serde_json::json!({ "identifier": "testuser" }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+    let start_body: Value = test::read_body_json(resp).await;
+    let flow_id = start_body["data"]["flow_id"].as_str().unwrap().to_string();
+    let challenge = serde_json::from_value::<RequestChallengeResponse>(
+        start_body["data"]["public_key"].clone(),
+    )
+    .unwrap();
+    assert!(challenge.public_key.allow_credentials.is_empty());
+
+    let (challenge, user_handle) = allow_test_passkey_credential(challenge, &stored_passkey);
+    let mut credential = softpasskey
+        .do_authentication(Url::parse(TEST_BROWSER_ORIGIN).unwrap(), challenge)
+        .expect("soft passkey authentication should succeed");
+    credential.response.user_handle = Some(user_handle.as_bytes().to_vec());
+    let credential = serde_json::to_value(credential).expect("credential should serialize");
+
+    let resp = passkey_login_finish(&app, &flow_id, credential).await;
+    assert_eq!(resp.status(), 401);
+}
+
+#[actix_web::test]
+async fn test_passkey_disabled_user_cannot_login() {
+    use sea_orm::{ActiveModelTrait, IntoActiveModel, Set};
+
+    let state = common::setup_with_memory_cache().await;
+    configure_passkey_public_site_url(&state);
+    let app = create_test_app!(state.clone());
+    let (access, _) = register_and_login!(app);
+
+    let (mut softpasskey, passkey) = register_test_passkey(&app, &access, "Laptop").await;
+    let user_id = testuser_id(&state.db).await;
+    let passkey_id = passkey["id"].as_i64().unwrap();
+    let stored_passkey = passkey_repo::find_by_id_for_user(&state.db, passkey_id, user_id)
+        .await
+        .unwrap()
+        .unwrap();
+    let mut user = user_repo::find_by_id(&state.db, 1)
+        .await
+        .unwrap()
+        .into_active_model();
+    user.status = Set(UserStatus::Disabled);
+    user.update(&state.db).await.unwrap();
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/auth/passkeys/login/start")
+        .insert_header(("Origin", TEST_BROWSER_ORIGIN))
+        .set_json(serde_json::json!({ "identifier": "testuser" }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+    let start_body: Value = test::read_body_json(resp).await;
+    let flow_id = start_body["data"]["flow_id"].as_str().unwrap().to_string();
+    let challenge = serde_json::from_value::<RequestChallengeResponse>(
+        start_body["data"]["public_key"].clone(),
+    )
+    .unwrap();
+    assert!(challenge.public_key.allow_credentials.is_empty());
+
+    let (challenge, user_handle) = allow_test_passkey_credential(challenge, &stored_passkey);
+    let mut credential = softpasskey
+        .do_authentication(Url::parse(TEST_BROWSER_ORIGIN).unwrap(), challenge)
+        .expect("soft passkey authentication should succeed");
+    credential.response.user_handle = Some(user_handle.as_bytes().to_vec());
+    let credential = serde_json::to_value(credential).expect("credential should serialize");
+
+    let resp = passkey_login_finish(&app, &flow_id, credential).await;
+    assert_eq!(resp.status(), 403);
 }
 
 /// Unauthenticated requests to PATCH /preferences should be rejected.

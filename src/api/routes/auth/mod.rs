@@ -15,6 +15,11 @@ use actix_web::{HttpRequest, HttpResponse, web};
 use bytes::Bytes;
 use rand::RngExt;
 
+pub use self::passkeys::{
+    delete_passkey, finish_login as finish_passkey_login,
+    finish_registration as finish_passkey_registration, list_passkeys, rename_passkey,
+    start_login as start_passkey_login, start_registration as start_passkey_registration,
+};
 pub use self::profile::{
     get_self_avatar, patch_preferences, patch_profile, put_avatar_source, request_email_change,
     resend_email_change, upload_avatar,
@@ -39,6 +44,7 @@ const AUTH_MAIL_RESPONSE_FLOOR_MS: u64 = 350;
 const AUTH_MAIL_RESPONSE_JITTER_MS: u64 = 125;
 
 pub mod cookies;
+pub mod passkeys;
 pub mod profile;
 pub mod public;
 pub mod session;
@@ -89,6 +95,16 @@ pub fn routes(rl: &RateLimitConfig) -> impl actix_web::dev::HttpServiceFactory +
                 .route(web::post().to(login)),
         )
         .service(
+            web::resource("/passkeys/login/start")
+                .wrap(Condition::new(rl.enabled, Governor::new(&auth_limiter)))
+                .route(web::post().to(start_passkey_login)),
+        )
+        .service(
+            web::resource("/passkeys/login/finish")
+                .wrap(Condition::new(rl.enabled, Governor::new(&auth_limiter)))
+                .route(web::post().to(finish_passkey_login)),
+        )
+        .service(
             web::resource("/refresh")
                 .wrap(Condition::new(rl.enabled, Governor::new(&auth_limiter)))
                 .route(web::post().to(refresh)),
@@ -127,6 +143,31 @@ pub fn routes(rl: &RateLimitConfig) -> impl actix_web::dev::HttpServiceFactory +
                 .wrap(JwtAuth)
                 .wrap(Condition::new(rl.enabled, Governor::new(&api_limiter)))
                 .route(web::put().to(put_password)),
+        )
+        .service(
+            web::resource("/passkeys")
+                .wrap(JwtAuth)
+                .wrap(Condition::new(rl.enabled, Governor::new(&api_limiter)))
+                .route(web::get().to(list_passkeys)),
+        )
+        .service(
+            web::resource("/passkeys/register/start")
+                .wrap(JwtAuth)
+                .wrap(Condition::new(rl.enabled, Governor::new(&api_limiter)))
+                .route(web::post().to(start_passkey_registration)),
+        )
+        .service(
+            web::resource("/passkeys/register/finish")
+                .wrap(JwtAuth)
+                .wrap(Condition::new(rl.enabled, Governor::new(&api_limiter)))
+                .route(web::post().to(finish_passkey_registration)),
+        )
+        .service(
+            web::resource("/passkeys/{id}")
+                .wrap(JwtAuth)
+                .wrap(Condition::new(rl.enabled, Governor::new(&api_limiter)))
+                .route(web::patch().to(rename_passkey))
+                .route(web::delete().to(delete_passkey)),
         )
         .service(
             web::resource("/email/change")

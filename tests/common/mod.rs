@@ -834,6 +834,32 @@ pub async fn setup() -> PrimaryAppState {
     setup_with_database_url(&database_url).await
 }
 
+/// 构建使用内存缓存的测试 PrimaryAppState。
+#[allow(dead_code)]
+pub async fn setup_with_memory_cache() -> PrimaryAppState {
+    let base = setup().await;
+    let cache_config = aster_drive::config::CacheConfig {
+        enabled: true,
+        backend: "memory".to_string(),
+        default_ttl: 60,
+        ..Default::default()
+    };
+    let cache = aster_drive::cache::create_cache(&cache_config).await;
+
+    PrimaryAppState {
+        db: base.db,
+        driver_registry: base.driver_registry,
+        runtime_config: base.runtime_config,
+        policy_snapshot: base.policy_snapshot,
+        config: base.config,
+        cache,
+        mail_sender: base.mail_sender,
+        storage_change_tx: base.storage_change_tx,
+        share_download_rollback: base.share_download_rollback,
+        background_task_dispatch_wakeup: base.background_task_dispatch_wakeup,
+    }
+}
+
 fn should_use_mysql_schema_template(database_url: &str) -> bool {
     database_url.starts_with("mysql://")
         && configured_test_database_backend() == TestDatabaseBackend::MySql

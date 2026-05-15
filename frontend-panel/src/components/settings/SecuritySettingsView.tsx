@@ -4,6 +4,7 @@ import { useLocation, useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { SettingsSection } from "@/components/common/SettingsScaffold";
 import { SecurityEmailSection } from "@/components/settings/security-settings/SecurityEmailSection";
+import { SecurityPasskeysSection } from "@/components/settings/security-settings/SecurityPasskeysSection";
 import { SecurityPasswordSection } from "@/components/settings/security-settings/SecurityPasswordSection";
 import { SecuritySessionsSection } from "@/components/settings/security-settings/SecuritySessionsSection";
 import { SecuritySummaryCard } from "@/components/settings/security-settings/SecuritySummaryCard";
@@ -309,6 +310,8 @@ export function SecuritySettingsView() {
 						}}
 						onSubmit={(event) => void handlePasswordSubmit(event)}
 					/>
+
+					<SecurityPasskeysSection />
 
 					<SecuritySessionsSection
 						hasOtherSessions={hasOtherSessions}

@@ -60,6 +60,7 @@ full = ["server", "cli", "metrics", "openapi"]
 
 [dependencies]
 actix-governor = "0.10"
+actix-http = "3"
 actix-multipart = "0.7"
 actix-web = { version = "4.13.0", features = ["compress-brotli", "compress-gzip"] }
 api-docs-macros = { path = "api-docs-macros" }
@@ -117,8 +118,11 @@ unicode-normalization = "0.1"
 utoipa = { version = "5.5.0", features = ["chrono", "actix_extras", "repr"], optional = true }
 utoipa-swagger-ui = { version = "9.0.2", features = ["actix-web"], optional = true }
 urlencoding = "2"
+url = "2"
 uuid = { version = "1", features = ["v4"] }
 validator = { version = "0.20", features = ["derive"] }
+webauthn-rs = { version = "0.6.1-dev", default-features = false, features = ["conditional-ui", "danger-allow-state-serialisation"] }
+webauthn-rs-proto = "0.6.1-dev"
 xmltree = "0.12"
 zip = { version = "8", default-features = false, features = ["deflate"] }
 ipnet = "2.12.0"
@@ -130,6 +134,7 @@ fs2 = "0.4"
 quick-xml = "0.38"
 testcontainers = { version = "0.27", features = ["reusable-containers"] }
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+webauthn-authenticator-rs = { version = "0.6.1-dev", features = ["softpasskey"] }
 
 [build-dependencies]
 chrono = "0.4"

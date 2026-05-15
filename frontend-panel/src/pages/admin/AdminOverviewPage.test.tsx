@@ -211,8 +211,17 @@ vi.mock("recharts", () => ({
 			{children}
 		</div>
 	),
-	ResponsiveContainer: ({ children }: { children: React.ReactNode }) => (
-		<div>{children}</div>
+	ResponsiveContainer: ({
+		children,
+		debounce,
+	}: {
+		children: React.ReactNode;
+		debounce?: number;
+	}) => (
+		<div>
+			<div>{`recharts-responsive-container-debounce:${String(debounce ?? "")}`}</div>
+			{children}
+		</div>
 	),
 	Tooltip: () => <div>recharts-tooltip</div>,
 	XAxis: ({
@@ -490,6 +499,9 @@ describe("AdminOverviewPage", () => {
 		).toBeInTheDocument();
 		expect(
 			screen.getByText("recharts-x-axis:label:0:0:12:12"),
+		).toBeInTheDocument();
+		expect(
+			screen.getByText("recharts-responsive-container-debounce:120"),
 		).toBeInTheDocument();
 		expect(
 			screen.getByText("recharts-line-chart:2026-03-27,2026-03-28,2026-03-29"),

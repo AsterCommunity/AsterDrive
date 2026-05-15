@@ -14,6 +14,7 @@ pub mod managed_follower_repo;
 pub mod managed_ingress_profile_repo;
 pub mod master_binding_repo;
 pub mod pagination_repo;
+pub mod passkey_repo;
 pub mod policy_group_repo;
 pub mod policy_repo;
 pub mod property_repo;

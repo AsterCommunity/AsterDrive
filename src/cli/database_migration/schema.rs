@@ -191,6 +191,8 @@ pub(super) fn binding_kind_from_raw_type(backend: DbBackend, raw_type: &str) -> 
                 BindingKind::Float64
             } else if normalized == "bytea" {
                 BindingKind::Bytes
+            } else if matches!(normalized.as_str(), "json" | "jsonb") {
+                BindingKind::Json
             } else if normalized.contains("timestamp") || normalized == "timestamptz" {
                 BindingKind::TimestampWithTimeZone
             } else {
@@ -211,6 +213,8 @@ pub(super) fn binding_kind_from_raw_type(backend: DbBackend, raw_type: &str) -> 
                 BindingKind::Float64
             } else if normalized.contains("blob") || normalized.contains("binary") {
                 BindingKind::Bytes
+            } else if normalized == "json" {
+                BindingKind::Json
             } else if normalized.contains("timestamp") || normalized.contains("datetime") {
                 BindingKind::TimestampWithTimeZone
             } else {
@@ -220,6 +224,8 @@ pub(super) fn binding_kind_from_raw_type(backend: DbBackend, raw_type: &str) -> 
         DbBackend::Sqlite => {
             if normalized.contains("bool") {
                 BindingKind::Bool
+            } else if normalized.contains("json") {
+                BindingKind::Json
             } else if normalized.contains("timestamp") || normalized.contains("datetime") {
                 BindingKind::TimestampWithTimeZone
             } else if normalized.contains("blob") {

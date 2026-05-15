@@ -126,6 +126,26 @@ fn decode_source_cell(
                 .map_err(decode_error)?;
             Ok(value.map_or(CellValue::Null, CellValue::Timestamp))
         }
+        BindingKind::Json => {
+            if let Ok(value) = row.try_get_by_index_nullable::<Option<serde_json::Value>>(index) {
+                return Ok(value.map_or(CellValue::Null, CellValue::Json));
+            }
+            let value = row
+                .try_get_by_index_nullable::<Option<String>>(index)
+                .map_err(decode_error)?;
+            match value {
+                Some(value) => {
+                    let json = serde_json::from_str(&value).map_err(|error| {
+                        AsterError::database_operation(format!(
+                            "failed to parse {}.{} JSON text from '{}': {error}",
+                            table_name, column_name, raw_type
+                        ))
+                    })?;
+                    Ok(CellValue::Json(json))
+                }
+                None => Ok(CellValue::Null),
+            }
+        }
         BindingKind::String => {
             let value = row
                 .try_get_by_index_nullable::<Option<String>>(index)
@@ -210,6 +230,7 @@ fn cell_into_target_value(
             CellValue::Bool(value) => Some(value.to_string()).into(),
             CellValue::Int64(value) => Some(value.to_string()).into(),
             CellValue::Float64(value) => Some(value.to_string()).into(),
+            CellValue::Json(value) => Some(value.to_string()).into(),
             CellValue::String(value) => Some(value).into(),
             CellValue::Timestamp(value) => Some(value.to_rfc3339()).into(),
             CellValue::Bytes(_) => {
@@ -217,6 +238,14 @@ fn cell_into_target_value(
                     "cannot losslessly convert bytes into string",
                 ));
             }
+        },
+        BindingKind::Json => match cell {
+            CellValue::Null => Option::<serde_json::Value>::None.into(),
+            CellValue::Json(value) => value.into(),
+            CellValue::String(value) => serde_json::from_str::<serde_json::Value>(&value)
+                .map_err(|_| conversion_error("string value is not valid JSON"))?
+                .into(),
+            _ => return Err(conversion_error("unsupported source type for JSON target")),
         },
         BindingKind::Bytes => match cell {
             CellValue::Null => Option::<Vec<u8>>::None.into(),

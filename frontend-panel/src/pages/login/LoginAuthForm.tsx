@@ -24,6 +24,8 @@ interface LoginAuthFormProps {
 	mode: AuthMode;
 	modeActionText: string;
 	password: string;
+	passkeySubmitting: boolean;
+	passkeySupported: boolean;
 	registrationClosed: boolean;
 	showPassword: boolean;
 	submitLabel: string;
@@ -32,6 +34,7 @@ interface LoginAuthFormProps {
 	onForgotPassword: () => void;
 	onIdentifierChange: (value: string) => void;
 	onPasswordChange: (value: string) => void;
+	onPasskeyLogin: () => void;
 	onShowPasswordChange: (show: boolean) => void;
 	onSwitchAuthMode: (mode: Extract<AuthMode, "login" | "register">) => void;
 }
@@ -52,9 +55,12 @@ export function LoginAuthForm({
 	onForgotPassword,
 	onIdentifierChange,
 	onPasswordChange,
+	onPasskeyLogin,
 	onShowPasswordChange,
 	onSwitchAuthMode,
 	password,
+	passkeySubmitting,
+	passkeySupported,
 	registrationClosed,
 	showPassword,
 	submitLabel,
@@ -110,7 +116,7 @@ export function LoginAuthForm({
 					onChange={(event) => onIdentifierChange(event.target.value)}
 					required
 					autoFocus
-					autoComplete="username"
+					autoComplete={mode === "login" ? "username webauthn" : "username"}
 					className={cn(
 						"h-10",
 						errors.identifier &&
@@ -208,6 +214,32 @@ export function LoginAuthForm({
 				) : null}
 				{submitLabel}
 			</Button>
+
+			{mode === "login" ? (
+				<div className="mt-3 space-y-2">
+					<Button
+						type="button"
+						variant="outline"
+						className="h-10 w-full"
+						disabled={
+							checking || submitting || passkeySubmitting || !passkeySupported
+						}
+						onClick={onPasskeyLogin}
+					>
+						{passkeySubmitting ? (
+							<Icon name="Spinner" className="mr-2 h-4 w-4 animate-spin" />
+						) : (
+							<Icon name="Shield" className="mr-2 h-4 w-4" />
+						)}
+						{passkeySubmitting ? t("passkey_signing_in") : t("passkey_sign_in")}
+					</Button>
+					{passkeySupported ? null : (
+						<p className="text-center text-xs text-muted-foreground">
+							{t("passkey_unsupported")}
+						</p>
+					)}
+				</div>
+			) : null}
 
 			{mode !== "setup" && !checking && !registrationClosed ? (
 				<p className="mt-6 text-center text-sm text-muted-foreground">

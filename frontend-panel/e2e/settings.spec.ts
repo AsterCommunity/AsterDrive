@@ -9,6 +9,13 @@ import { fileDropZone } from "./support/files";
 import { uniqueAccountName, uniqueName } from "./support/fixtures";
 import { apiJsonInPage, waitForApiCondition } from "./support/network";
 import { expect, test } from "./support/test";
+import {
+	capturePasskeyGetCalls,
+	disablePasskeyBrowserSupport,
+	installPasskeyBrowserMock,
+	mockPasskeyRegistrationEndpoints,
+	readPasskeyCreateCalls,
+} from "./support/webauthn";
 
 test.describe
 	.serial("Settings E2E", () => {
@@ -16,6 +23,7 @@ test.describe
 			page,
 			request,
 		}) => {
+			await disablePasskeyBrowserSupport(page);
 			await authenticate(page, request);
 
 			const username = uniqueAccountName("pwset");
@@ -138,6 +146,7 @@ test.describe
 			page,
 			request,
 		}) => {
+			await disablePasskeyBrowserSupport(page);
 			await authenticate(page, request);
 
 			const teamName = uniqueName("pw-settings-team");
@@ -199,5 +208,70 @@ test.describe
 				.getByRole("button", { exact: true, name: "Open workspace" })
 				.click();
 			await expect(page).toHaveURL(new RegExp(`/teams/${team.id}$`));
+		});
+
+		test("manages passkeys from security settings", async ({
+			page,
+			request,
+		}) => {
+			await disablePasskeyBrowserSupport(page);
+			await authenticate(page, request);
+			await capturePasskeyGetCalls(page);
+			await installPasskeyBrowserMock(page, { supportCreate: true });
+			const passkeyRequests = await mockPasskeyRegistrationEndpoints(page);
+
+			await page.goto("/settings/security");
+			const securityPanel = page.getByRole("tabpanel", {
+				exact: true,
+				name: "Security",
+			});
+			await expect(securityPanel).toBeVisible({ timeout: 30_000 });
+
+			await page.getByLabel("New passkey name").fill("Laptop");
+			await page
+				.getByRole("button", { exact: true, name: "Add passkey" })
+				.click();
+			await expect(page.getByText("Laptop", { exact: true })).toBeVisible({
+				timeout: 30_000,
+			});
+			expect(passkeyRequests.startPayloads).toEqual([{ name: "Laptop" }]);
+			expect(passkeyRequests.finishPayloads).toHaveLength(1);
+			const createCalls = await readPasskeyCreateCalls(page);
+			expect(createCalls).toContainEqual({ hasPublicKey: true });
+
+			await page.getByRole("button", { exact: true, name: "Rename" }).click();
+			await page.getByLabel("Edit passkey name").fill("Phone");
+			await page.getByRole("button", { exact: true, name: "Save" }).click();
+			await expect(page.getByText("Phone", { exact: true })).toBeVisible({
+				timeout: 30_000,
+			});
+			expect(passkeyRequests.patchRequests).toHaveLength(1);
+			expect(passkeyRequests.patchRequests[0]).toMatchObject({
+				body: { name: "Phone" },
+				id: 7,
+				method: "PATCH",
+			});
+			expect(passkeyRequests.patchRequests[0]?.url).toContain(
+				"/api/v1/auth/passkeys/7",
+			);
+
+			await page.getByRole("button", { exact: true, name: "Delete" }).click();
+			const dialog = page.getByRole("alertdialog", {
+				exact: true,
+				name: "Delete passkey",
+			});
+			await expect(dialog).toBeVisible();
+			await dialog.getByRole("button", { exact: true, name: "Delete" }).click();
+			await expect(page.getByText("No passkeys yet")).toBeVisible({
+				timeout: 30_000,
+			});
+			expect(passkeyRequests.deleteRequests).toHaveLength(1);
+			expect(passkeyRequests.deleteRequests[0]).toMatchObject({
+				id: 7,
+				method: "DELETE",
+			});
+			expect(passkeyRequests.deleteRequests[0]?.url).toContain(
+				"/api/v1/auth/passkeys/7",
+			);
 		});
 	});

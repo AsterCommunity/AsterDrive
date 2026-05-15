@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useLocation, useNavigate } from "react-router-dom";
 import { toast } from "sonner";
@@ -10,6 +10,7 @@ import {
 	clearContactVerificationRedirectSearch,
 	getContactVerificationRedirectState,
 } from "@/lib/contactVerificationRedirect";
+import { logger } from "@/lib/logger";
 import {
 	clearPasswordResetRedirectSearch,
 	getPasswordResetRedirectState,
@@ -21,6 +22,13 @@ import {
 	passwordSchema,
 	usernameSchema,
 } from "@/lib/validation";
+import {
+	getPasskeyCredential,
+	isConditionalPasskeyLoginAvailable,
+	isWebAuthnSupported,
+	WebAuthnCancelledError,
+	WebAuthnUnsupportedError,
+} from "@/lib/webauthn";
 import { authService } from "@/services/authService";
 import { ApiError } from "@/services/http";
 import { useAuthStore } from "@/stores/authStore";
@@ -43,6 +51,9 @@ export default function LoginPage() {
 	const location = useLocation();
 	const navigate = useNavigate();
 	const login = useAuthStore((s) => s.login);
+	const refreshUser = useAuthStore((s) => s.refreshUser);
+	const syncSession = useAuthStore((s) => s.syncSession);
+	const conditionalPasskeyAbortRef = useRef<AbortController | null>(null);
 
 	// The first field is always visible — it doubles as username or email
 	const [identifier, setIdentifier] = useState("");
@@ -56,6 +67,10 @@ export default function LoginPage() {
 	const [submitting, setSubmitting] = useState(false);
 	const [resendingActivation, setResendingActivation] = useState(false);
 	const [requestingPasswordReset, setRequestingPasswordReset] = useState(false);
+	const [passkeySubmitting, setPasskeySubmitting] = useState(false);
+	const [passkeySupported, setPasskeySupported] = useState(false);
+	const [conditionalPasskeySupported, setConditionalPasskeySupported] =
+		useState(false);
 	const [registrationClosed, setRegistrationClosed] = useState(false);
 	const [exiting, setExiting] = useState(false);
 	const [errors, setErrors] = useState<Record<string, string>>({});
@@ -96,6 +111,7 @@ export default function LoginPage() {
 	usePageTitle(modeActionText || t("sign_in"));
 	const isSubmitDisabled =
 		submitting ||
+		passkeySubmitting ||
 		checking ||
 		identifier.trim().length === 0 ||
 		password.length === 0 ||
@@ -199,6 +215,31 @@ export default function LoginPage() {
 		};
 	}, []);
 
+	useEffect(() => {
+		setPasskeySupported(isWebAuthnSupported());
+	}, []);
+
+	useEffect(() => {
+		let cancelled = false;
+
+		void isConditionalPasskeyLoginAvailable()
+			.then((available) => {
+				if (!cancelled) {
+					setConditionalPasskeySupported(available);
+				}
+			})
+			.catch((error) => {
+				if (!cancelled) {
+					setConditionalPasskeySupported(false);
+				}
+				logger.warn("conditional passkey support detection failed", error);
+			});
+
+		return () => {
+			cancelled = true;
+		};
+	}, []);
+
 	// ── Live validation ──
 
 	const validateSingle = (field: string, value: string, schema: z.ZodType) => {
@@ -244,10 +285,10 @@ export default function LoginPage() {
 
 	// ── Exit animation → navigate ──
 
-	const exitAndNavigate = () => {
+	const exitAndNavigate = useCallback(() => {
 		setExiting(true);
 		setTimeout(() => navigate("/", { replace: true }), 350);
-	};
+	}, [navigate]);
 
 	const resetPendingActivation = () => {
 		setPendingActivation(null);
@@ -303,6 +344,110 @@ export default function LoginPage() {
 			setRequestingPasswordReset(false);
 		}
 	};
+
+	const finishPasskeyLogin = useCallback(
+		async (flowId: string, credential: unknown) => {
+			const session = await authService.finishPasskeyLogin(flowId, credential);
+			syncSession(session.expiresIn);
+			await refreshUser();
+			exitAndNavigate();
+		},
+		[exitAndNavigate, refreshUser, syncSession],
+	);
+
+	const handlePasskeyLogin = async () => {
+		if (!passkeySupported || mode !== "login") {
+			toast.error(t("passkey_unsupported"));
+			return;
+		}
+
+		try {
+			conditionalPasskeyAbortRef.current?.abort();
+			conditionalPasskeyAbortRef.current = null;
+			setPasskeySubmitting(true);
+			const trimmedIdentifier = identifier.trim();
+			const start = await authService.startPasskeyLogin(
+				trimmedIdentifier.length > 0 ? { identifier: trimmedIdentifier } : {},
+			);
+			const credential = await getPasskeyCredential(start.public_key);
+			await finishPasskeyLogin(start.flow_id, credential);
+			toast.success(t("passkey_login_success"));
+		} catch (error) {
+			if (error instanceof WebAuthnUnsupportedError) {
+				toast.error(t("passkey_unsupported"));
+				return;
+			}
+			if (error instanceof WebAuthnCancelledError) {
+				toast.error(t("passkey_cancelled"));
+				return;
+			}
+			handleApiError(error);
+		} finally {
+			setPasskeySubmitting(false);
+		}
+	};
+
+	useEffect(() => {
+		if (
+			mode !== "login" ||
+			checking ||
+			showPasswordResetRequest ||
+			pendingActivation ||
+			!conditionalPasskeySupported
+		) {
+			return;
+		}
+
+		const controller = new AbortController();
+		let completed = false;
+		conditionalPasskeyAbortRef.current = controller;
+
+		void (async () => {
+			try {
+				const start = await authService.startPasskeyLogin({
+					conditional: true,
+				});
+				if (controller.signal.aborted) return;
+				const credential = await getPasskeyCredential(
+					start.public_key,
+					"conditional",
+					controller.signal,
+				);
+				if (controller.signal.aborted) return;
+				completed = true;
+				await finishPasskeyLogin(start.flow_id, credential);
+			} catch (error) {
+				if (controller.signal.aborted) return;
+				if (
+					error instanceof WebAuthnUnsupportedError ||
+					error instanceof WebAuthnCancelledError
+				) {
+					return;
+				}
+				handleApiError(error);
+			} finally {
+				if (conditionalPasskeyAbortRef.current === controller) {
+					conditionalPasskeyAbortRef.current = null;
+				}
+			}
+		})();
+
+		return () => {
+			if (conditionalPasskeyAbortRef.current === controller) {
+				conditionalPasskeyAbortRef.current = null;
+			}
+			if (!completed) {
+				controller.abort();
+			}
+		};
+	}, [
+		checking,
+		conditionalPasskeySupported,
+		finishPasskeyLogin,
+		mode,
+		pendingActivation,
+		showPasswordResetRequest,
+	]);
 
 	// ── Submit ──
 
@@ -484,6 +629,8 @@ export default function LoginPage() {
 									mode={mode}
 									modeActionText={modeActionText}
 									password={password}
+									passkeySubmitting={passkeySubmitting}
+									passkeySupported={passkeySupported}
 									registrationClosed={registrationClosed}
 									showPassword={showPassword}
 									submitLabel={submitLabel()}
@@ -524,6 +671,7 @@ export default function LoginPage() {
 											);
 										}
 									}}
+									onPasskeyLogin={() => void handlePasskeyLogin()}
 									onShowPasswordChange={setShowPassword}
 									onSwitchAuthMode={switchAuthMode}
 								/>

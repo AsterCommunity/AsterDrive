@@ -1,4 +1,10 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+	act,
+	fireEvent,
+	render,
+	screen,
+	waitFor,
+} from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import LoginPage from "@/pages/LoginPage";
 import { useThemeStore } from "@/stores/themeStore";
@@ -14,23 +20,53 @@ const MockApiError = vi.hoisted(
 		},
 );
 
+const MockWebAuthnCancelledError = vi.hoisted(
+	() =>
+		class MockWebAuthnCancelledError extends Error {
+			constructor(message = "cancelled") {
+				super(message);
+				this.name = "WebAuthnCancelledError";
+			}
+		},
+);
+
+const MockWebAuthnUnsupportedError = vi.hoisted(
+	() =>
+		class MockWebAuthnUnsupportedError extends Error {
+			constructor(message = "unsupported") {
+				super(message);
+				this.name = "WebAuthnUnsupportedError";
+			}
+		},
+);
+
 const mockState = vi.hoisted(() => ({
 	check: vi.fn(),
+	conditionalPasskeyError: null as Error | null,
 	handleApiError: vi.fn(),
 	allowUserRegistration: true,
+	conditionalPasskeySupported: false,
+	forceEnableDisabledButtons: false,
+	finishPasskeyLogin: vi.fn(),
+	getPasskeyCredential: vi.fn(),
 	login: vi.fn(),
+	loggerWarn: vi.fn(),
 	location: {
 		hash: "",
 		pathname: "/login",
 		search: "",
 	},
 	navigate: vi.fn(),
+	refreshUser: vi.fn(),
 	register: vi.fn(),
 	requestPasswordReset: vi.fn(),
 	resendRegisterActivation: vi.fn(),
 	setup: vi.fn(),
+	startPasskeyLogin: vi.fn(),
+	syncSession: vi.fn(),
 	toastError: vi.fn(),
 	toastSuccess: vi.fn(),
+	webAuthnSupported: false,
 }));
 
 vi.mock("react-i18next", () => ({
@@ -77,7 +113,7 @@ vi.mock("@/components/ui/button", () => ({
 	}) => (
 		<button
 			type={type ?? "button"}
-			disabled={disabled}
+			disabled={disabled && !mockState.forceEnableDisabledButtons}
 			onClick={onClick}
 			className={className}
 		>
@@ -155,22 +191,53 @@ vi.mock("@/lib/validation", () => ({
 	},
 }));
 
+vi.mock("@/lib/logger", () => ({
+	logger: {
+		warn: (...args: unknown[]) => mockState.loggerWarn(...args),
+	},
+}));
+
 vi.mock("@/services/authService", () => ({
 	authService: {
 		check: (...args: unknown[]) => mockState.check(...args),
+		finishPasskeyLogin: (...args: unknown[]) =>
+			mockState.finishPasskeyLogin(...args),
 		requestPasswordReset: (...args: unknown[]) =>
 			mockState.requestPasswordReset(...args),
 		register: (...args: unknown[]) => mockState.register(...args),
 		resendRegisterActivation: (...args: unknown[]) =>
 			mockState.resendRegisterActivation(...args),
 		setup: (...args: unknown[]) => mockState.setup(...args),
+		startPasskeyLogin: (...args: unknown[]) =>
+			mockState.startPasskeyLogin(...args),
 	},
 }));
 
 vi.mock("@/stores/authStore", () => ({
 	useAuthStore: (
-		selector: (state: { login: typeof mockState.login }) => unknown,
-	) => selector({ login: mockState.login }),
+		selector: (state: {
+			login: typeof mockState.login;
+			refreshUser: typeof mockState.refreshUser;
+			syncSession: typeof mockState.syncSession;
+		}) => unknown,
+	) =>
+		selector({
+			login: mockState.login,
+			refreshUser: mockState.refreshUser,
+			syncSession: mockState.syncSession,
+		}),
+}));
+
+vi.mock("@/lib/webauthn", () => ({
+	getPasskeyCredential: (...args: unknown[]) =>
+		mockState.getPasskeyCredential(...args),
+	isConditionalPasskeyLoginAvailable: () =>
+		mockState.conditionalPasskeyError
+			? Promise.reject(mockState.conditionalPasskeyError)
+			: Promise.resolve(mockState.conditionalPasskeySupported),
+	isWebAuthnSupported: () => mockState.webAuthnSupported,
+	WebAuthnCancelledError: MockWebAuthnCancelledError,
+	WebAuthnUnsupportedError: MockWebAuthnUnsupportedError,
 }));
 
 vi.mock("@/stores/brandingStore", () => ({
@@ -198,26 +265,44 @@ describe("LoginPage", () => {
 	beforeEach(() => {
 		document.documentElement.classList.remove("dark");
 		mockState.allowUserRegistration = true;
+		mockState.conditionalPasskeyError = null;
+		mockState.conditionalPasskeySupported = false;
+		mockState.forceEnableDisabledButtons = false;
 		mockState.check.mockReset();
+		mockState.finishPasskeyLogin.mockReset();
+		mockState.getPasskeyCredential.mockReset();
 		mockState.handleApiError.mockReset();
 		mockState.login.mockReset();
+		mockState.loggerWarn.mockReset();
 		mockState.location = {
 			hash: "",
 			pathname: "/login",
 			search: "",
 		};
 		mockState.navigate.mockReset();
+		mockState.refreshUser.mockReset();
 		mockState.register.mockReset();
 		mockState.requestPasswordReset.mockReset();
 		mockState.resendRegisterActivation.mockReset();
 		mockState.setup.mockReset();
+		mockState.startPasskeyLogin.mockReset();
+		mockState.syncSession.mockReset();
 		mockState.toastError.mockReset();
 		mockState.toastSuccess.mockReset();
+		mockState.webAuthnSupported = false;
+		mockState.finishPasskeyLogin.mockResolvedValue({ expiresIn: 900 });
+		mockState.getPasskeyCredential.mockResolvedValue({ id: "credential-1" });
 		mockState.login.mockResolvedValue(undefined);
+		mockState.refreshUser.mockResolvedValue(undefined);
 		mockState.register.mockResolvedValue({ email_verified: false });
 		mockState.requestPasswordReset.mockResolvedValue(undefined);
 		mockState.resendRegisterActivation.mockResolvedValue(undefined);
 		mockState.setup.mockResolvedValue(undefined);
+		mockState.startPasskeyLogin.mockResolvedValue({
+			flow_id: "flow-1",
+			public_key: { publicKey: { challenge: "AQID" } },
+		});
+		mockState.syncSession.mockReturnValue(undefined);
 		mockState.check.mockResolvedValue({
 			has_users: true,
 			allow_user_registration: true,
@@ -257,6 +342,320 @@ describe("LoginPage", () => {
 		await waitFor(() => {
 			expect(mockState.navigate).toHaveBeenCalledWith("/", { replace: true });
 		});
+	});
+
+	it("preserves caret position when editing login fields in the middle", async () => {
+		render(<LoginPage />);
+
+		const identifierInput = (await screen.findByLabelText(
+			"email_or_username",
+		)) as HTMLInputElement;
+		fireEvent.change(identifierInput, {
+			target: { value: "esap" },
+		});
+		identifierInput.focus();
+		identifierInput.setSelectionRange(2, 2);
+		fireEvent.change(identifierInput, {
+			target: { selectionEnd: 3, selectionStart: 3, value: "esXap" },
+		});
+
+		await waitFor(() => {
+			expect(identifierInput).toHaveValue("esXap");
+			expect(identifierInput.selectionStart).toBe(3);
+			expect(identifierInput.selectionEnd).toBe(3);
+		});
+
+		const passwordInput = screen.getByLabelText("password") as HTMLInputElement;
+		fireEvent.change(passwordInput, {
+			target: { value: "secret" },
+		});
+		passwordInput.focus();
+		passwordInput.setSelectionRange(3, 3);
+		fireEvent.change(passwordInput, {
+			target: { selectionEnd: 4, selectionStart: 4, value: "secXret" },
+		});
+
+		await waitFor(() => {
+			expect(passwordInput).toHaveValue("secXret");
+			expect(passwordInput.selectionStart).toBe(4);
+			expect(passwordInput.selectionEnd).toBe(4);
+		});
+	});
+
+	it("shows the passkey fallback when WebAuthn is unavailable", async () => {
+		render(<LoginPage />);
+
+		const passkeyButton = await screen.findByRole("button", {
+			name: /passkey_sign_in/,
+		});
+		expect(screen.getByLabelText("email_or_username")).toHaveAttribute(
+			"autocomplete",
+			"username webauthn",
+		);
+		expect(passkeyButton).toBeDisabled();
+		expect(screen.getByText("passkey_unsupported")).toBeInTheDocument();
+	});
+
+	it("handles passkey support detection failures and blocked explicit passkey requests", async () => {
+		const detectionError = new Error("conditional detection failed");
+		mockState.conditionalPasskeyError = detectionError;
+		mockState.forceEnableDisabledButtons = true;
+
+		render(<LoginPage />);
+
+		await screen.findByRole("button", { name: /passkey_sign_in/ });
+		await waitFor(() => {
+			expect(mockState.loggerWarn).toHaveBeenCalledWith(
+				"conditional passkey support detection failed",
+				detectionError,
+			);
+		});
+
+		fireEvent.click(screen.getByRole("button", { name: /passkey_sign_in/ }));
+
+		await waitFor(() => {
+			expect(mockState.toastError).toHaveBeenCalledWith("passkey_unsupported");
+		});
+		expect(mockState.startPasskeyLogin).not.toHaveBeenCalled();
+	});
+
+	it("signs users in with a supported passkey without an identifier", async () => {
+		mockState.webAuthnSupported = true;
+
+		render(<LoginPage />);
+
+		fireEvent.click(
+			await screen.findByRole("button", { name: /passkey_sign_in/ }),
+		);
+
+		await waitFor(() => {
+			expect(mockState.startPasskeyLogin).toHaveBeenCalledWith({});
+		});
+		await waitFor(() => {
+			expect(mockState.getPasskeyCredential).toHaveBeenCalledWith({
+				publicKey: { challenge: "AQID" },
+			});
+			expect(mockState.finishPasskeyLogin).toHaveBeenCalledWith("flow-1", {
+				id: "credential-1",
+			});
+			expect(mockState.syncSession).toHaveBeenCalledWith(900);
+			expect(mockState.refreshUser).toHaveBeenCalledTimes(1);
+			expect(mockState.toastSuccess).toHaveBeenCalledWith(
+				"passkey_login_success",
+			);
+		});
+		await waitFor(() => {
+			expect(mockState.navigate).toHaveBeenCalledWith("/", { replace: true });
+		});
+	});
+
+	it("passes a trimmed identifier into explicit passkey login", async () => {
+		mockState.webAuthnSupported = true;
+
+		render(<LoginPage />);
+
+		fireEvent.change(await screen.findByLabelText("email_or_username"), {
+			target: { value: "  user@example.com  " },
+		});
+		fireEvent.click(screen.getByRole("button", { name: /passkey_sign_in/ }));
+
+		await waitFor(() => {
+			expect(mockState.startPasskeyLogin).toHaveBeenCalledWith({
+				identifier: "user@example.com",
+			});
+		});
+	});
+
+	it("starts conditional passkey login from the username field", async () => {
+		mockState.webAuthnSupported = true;
+		mockState.conditionalPasskeySupported = true;
+
+		render(<LoginPage />);
+
+		const identifierInput = await screen.findByLabelText("email_or_username");
+		await waitFor(() => {
+			expect(identifierInput).toHaveAttribute(
+				"autocomplete",
+				"username webauthn",
+			);
+		});
+
+		await waitFor(() => {
+			expect(mockState.startPasskeyLogin).toHaveBeenCalledWith({
+				conditional: true,
+			});
+		});
+		await waitFor(() => {
+			expect(mockState.getPasskeyCredential).toHaveBeenCalledWith(
+				{ publicKey: { challenge: "AQID" } },
+				"conditional",
+				expect.any(AbortSignal),
+			);
+		});
+		await waitFor(() => {
+			expect(mockState.finishPasskeyLogin).toHaveBeenCalledWith("flow-1", {
+				id: "credential-1",
+			});
+		});
+		expect(mockState.syncSession).toHaveBeenCalledWith(900);
+		expect(mockState.refreshUser).toHaveBeenCalledTimes(1);
+		expect(mockState.toastSuccess).not.toHaveBeenCalledWith(
+			"passkey_login_success",
+		);
+		await waitFor(() => {
+			expect(mockState.navigate).toHaveBeenCalledWith("/", { replace: true });
+		});
+	});
+
+	it("aborts conditional passkey login before starting explicit passkey login", async () => {
+		mockState.webAuthnSupported = true;
+		mockState.conditionalPasskeySupported = true;
+		let conditionalSignal: AbortSignal | undefined;
+		mockState.getPasskeyCredential.mockImplementation(
+			(
+				_options: unknown,
+				mediation?: CredentialMediationRequirement,
+				signal?: AbortSignal,
+			) => {
+				if (mediation === "conditional") {
+					conditionalSignal = signal;
+					return new Promise(() => undefined);
+				}
+				return Promise.resolve({ id: "credential-1" });
+			},
+		);
+
+		render(<LoginPage />);
+
+		const passkeyButton = await screen.findByRole("button", {
+			name: /passkey_sign_in/,
+		});
+		await waitFor(() => {
+			expect(conditionalSignal).toBeDefined();
+		});
+
+		fireEvent.click(passkeyButton);
+
+		await waitFor(() => {
+			expect(conditionalSignal?.aborted).toBe(true);
+		});
+		await waitFor(() => {
+			expect(mockState.getPasskeyCredential).toHaveBeenCalledWith({
+				publicKey: { challenge: "AQID" },
+			});
+		});
+		expect(mockState.finishPasskeyLogin).toHaveBeenCalledWith("flow-1", {
+			id: "credential-1",
+		});
+		expect(mockState.toastSuccess).toHaveBeenCalledWith(
+			"passkey_login_success",
+		);
+	});
+
+	it("ignores a conditional passkey result after the request has been aborted", async () => {
+		mockState.webAuthnSupported = true;
+		mockState.conditionalPasskeySupported = true;
+		let conditionalSignal: AbortSignal | undefined;
+		let resolveConditionalCredential:
+			| ((credential: { id: string }) => void)
+			| undefined;
+		const conditionalCredentialPromise = new Promise<{ id: string }>(
+			(resolve) => {
+				resolveConditionalCredential = resolve;
+			},
+		);
+		mockState.getPasskeyCredential.mockImplementation(
+			(
+				_options: unknown,
+				mediation?: CredentialMediationRequirement,
+				signal?: AbortSignal,
+			) => {
+				if (mediation === "conditional") {
+					conditionalSignal = signal;
+					return conditionalCredentialPromise;
+				}
+				return Promise.resolve({ id: "credential-1" });
+			},
+		);
+
+		const view = render(<LoginPage />);
+
+		await waitFor(() => {
+			expect(conditionalSignal).toBeDefined();
+		});
+		view.unmount();
+		await act(async () => {
+			resolveConditionalCredential?.({ id: "late-credential" });
+			await conditionalCredentialPromise;
+		});
+
+		expect(mockState.finishPasskeyLogin).not.toHaveBeenCalled();
+		expect(mockState.navigate).not.toHaveBeenCalled();
+	});
+
+	it("shows explicit passkey login errors for unsupported, cancelled, and API failures", async () => {
+		mockState.webAuthnSupported = true;
+
+		render(<LoginPage />);
+
+		await screen.findByRole("button", { name: /passkey_sign_in/ });
+		mockState.getPasskeyCredential.mockRejectedValueOnce(
+			new MockWebAuthnUnsupportedError(),
+		);
+		fireEvent.click(screen.getByRole("button", { name: /passkey_sign_in/ }));
+
+		await waitFor(() =>
+			expect(mockState.toastError).toHaveBeenCalledWith("passkey_unsupported"),
+		);
+
+		mockState.getPasskeyCredential.mockRejectedValueOnce(
+			new MockWebAuthnCancelledError(),
+		);
+		fireEvent.click(screen.getByRole("button", { name: /passkey_sign_in/ }));
+
+		await waitFor(() =>
+			expect(mockState.toastError).toHaveBeenCalledWith("passkey_cancelled"),
+		);
+
+		const error = new Error("passkey login failed");
+		mockState.getPasskeyCredential.mockRejectedValueOnce(error);
+		fireEvent.click(screen.getByRole("button", { name: /passkey_sign_in/ }));
+
+		await waitFor(() =>
+			expect(mockState.handleApiError).toHaveBeenCalledWith(error),
+		);
+	});
+
+	it("ignores cancelled conditional passkey login and reports API failures", async () => {
+		mockState.webAuthnSupported = true;
+		mockState.conditionalPasskeySupported = true;
+		mockState.getPasskeyCredential.mockRejectedValueOnce(
+			new MockWebAuthnCancelledError(),
+		);
+
+		const firstView = render(<LoginPage />);
+
+		await waitFor(() => {
+			expect(mockState.getPasskeyCredential).toHaveBeenCalledWith(
+				{ publicKey: { challenge: "AQID" } },
+				"conditional",
+				expect.any(AbortSignal),
+			);
+		});
+		await waitFor(() => {
+			expect(mockState.handleApiError).not.toHaveBeenCalled();
+		});
+		firstView.unmount();
+
+		const error = new Error("conditional start failed");
+		mockState.getPasskeyCredential.mockReset();
+		mockState.startPasskeyLogin.mockRejectedValueOnce(error);
+
+		render(<LoginPage />);
+
+		await waitFor(() =>
+			expect(mockState.handleApiError).toHaveBeenCalledWith(error),
+		);
 	});
 
 	it("shows a query toast passed from the verification redirect", async () => {
@@ -311,6 +710,70 @@ describe("LoginPage", () => {
 				search: "",
 			},
 			{ replace: true },
+		);
+	});
+
+	it("shows query toasts for invalid, missing, and activated verification redirects", async () => {
+		const cases = [
+			{
+				id: "contact-verification-invalid-login",
+				search: "?contact_verification=invalid",
+				title: "verify_contact_invalid_title",
+				description: "verify_contact_invalid_desc",
+			},
+			{
+				id: "contact-verification-missing-login",
+				search: "?contact_verification=missing",
+				title: "verify_contact_missing_token_title",
+				description: "verify_contact_missing_token_desc",
+			},
+		];
+
+		for (const item of cases) {
+			mockState.location = {
+				hash: "",
+				pathname: "/login",
+				search: item.search,
+			};
+			mockState.navigate.mockReset();
+			mockState.toastError.mockReset();
+
+			const view = render(<LoginPage />);
+
+			await waitFor(() =>
+				expect(mockState.toastError).toHaveBeenCalledWith(item.title, {
+					description: item.description,
+					id: item.id,
+				}),
+			);
+			expect(mockState.navigate).toHaveBeenCalledWith(
+				{
+					hash: "",
+					pathname: "/login",
+					search: "",
+				},
+				{ replace: true },
+			);
+			view.unmount();
+		}
+
+		mockState.location = {
+			hash: "",
+			pathname: "/login",
+			search: "?contact_verification=register-activated",
+		};
+		mockState.navigate.mockReset();
+		mockState.toastSuccess.mockReset();
+
+		render(<LoginPage />);
+
+		await waitFor(() =>
+			expect(mockState.toastSuccess).toHaveBeenCalledWith(
+				"activation_confirmed",
+				{
+					id: "contact-verification-register-activated-login",
+				},
+			),
 		);
 	});
 

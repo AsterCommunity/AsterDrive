@@ -364,7 +364,7 @@ pub(super) async fn update_password_in_connection<C: ConnectionTrait>(
         .map_aster_err(AsterError::database_operation)
 }
 
-pub(super) async fn find_user_by_identifier<C: ConnectionTrait>(
+pub(crate) async fn find_user_by_identifier<C: ConnectionTrait>(
     db: &C,
     identifier: &str,
 ) -> Result<Option<user::Model>> {

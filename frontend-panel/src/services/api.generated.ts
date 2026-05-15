@@ -740,6 +740,102 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/auth/passkeys": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["list_passkeys"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/auth/passkeys/login/finish": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["finish_passkey_login"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/auth/passkeys/login/start": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["start_passkey_login"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/auth/passkeys/register/finish": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["finish_passkey_registration"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/auth/passkeys/register/start": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["start_passkey_registration"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/auth/passkeys/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete: operations["delete_passkey"];
+        options?: never;
+        head?: never;
+        patch: operations["rename_passkey"];
+        trace?: never;
+    };
     "/api/v1/auth/password": {
         parameters: {
             query?: never;
@@ -3281,7 +3377,7 @@ export interface components {
          * @description 审计日志动作
          * @enum {string}
          */
-        AuditAction: "admin_create_user" | "admin_force_delete_user" | "admin_create_team" | "admin_create_policy_group" | "admin_archive_team" | "admin_restore_team" | "admin_revoke_user_sessions" | "admin_reset_user_password" | "admin_update_team" | "admin_update_user" | "admin_delete_policy_group" | "admin_migrate_policy_group_users" | "admin_update_policy_group" | "admin_create_policy" | "admin_update_policy" | "admin_delete_policy" | "admin_delete_config" | "admin_delete_share" | "admin_force_unlock" | "admin_cleanup_expired_locks" | "admin_cleanup_tasks" | "admin_create_remote_node" | "admin_update_remote_node" | "admin_delete_remote_node" | "admin_test_remote_node" | "admin_create_remote_node_enrollment_token" | "admin_create_remote_ingress_profile" | "admin_update_remote_ingress_profile" | "admin_delete_remote_ingress_profile" | "batch_copy" | "batch_delete" | "batch_move" | "config_action_execute" | "config_update" | "file_copy" | "file_create" | "file_delete" | "file_download" | "file_direct_link_create" | "file_edit" | "file_move" | "file_rename" | "file_upload" | "file_preview_link_create" | "file_wopi_open" | "file_upload_cancel" | "file_restore" | "file_purge" | "file_lock" | "file_unlock" | "file_version_restore" | "file_version_delete" | "folder_copy" | "folder_create" | "folder_delete" | "folder_move" | "folder_policy_change" | "folder_rename" | "folder_restore" | "folder_purge" | "folder_lock" | "folder_unlock" | "property_set" | "property_delete" | "share_batch_delete" | "share_create" | "share_delete" | "share_update" | "system_setup" | "team_archive" | "team_cleanup_expired" | "team_create" | "team_member_add" | "team_member_remove" | "team_member_update" | "team_restore" | "team_update" | "task_retry" | "archive_compress" | "archive_extract" | "archive_download" | "trash_purge_all" | "remote_enrollment_redeem" | "remote_enrollment_ack" | "user_revoke_other_sessions" | "user_revoke_session" | "user_update_preferences" | "user_update_profile" | "user_upload_avatar" | "user_set_avatar_source" | "user_update_wopi_info" | "webdav_account_create" | "webdav_account_delete" | "webdav_account_toggle" | "user_change_password" | "user_confirm_password_reset" | "user_confirm_email_change" | "user_confirm_registration" | "user_login" | "user_logout" | "user_refresh_token_reuse_detected" | "user_request_email_change" | "user_request_password_reset" | "user_register" | "user_resend_email_change" | "user_resend_registration";
+        AuditAction: "admin_create_user" | "admin_force_delete_user" | "admin_create_team" | "admin_create_policy_group" | "admin_archive_team" | "admin_restore_team" | "admin_revoke_user_sessions" | "admin_reset_user_password" | "admin_update_team" | "admin_update_user" | "admin_delete_policy_group" | "admin_migrate_policy_group_users" | "admin_update_policy_group" | "admin_create_policy" | "admin_update_policy" | "admin_delete_policy" | "admin_delete_config" | "admin_delete_share" | "admin_force_unlock" | "admin_cleanup_expired_locks" | "admin_cleanup_tasks" | "admin_create_remote_node" | "admin_update_remote_node" | "admin_delete_remote_node" | "admin_test_remote_node" | "admin_create_remote_node_enrollment_token" | "admin_create_remote_ingress_profile" | "admin_update_remote_ingress_profile" | "admin_delete_remote_ingress_profile" | "batch_copy" | "batch_delete" | "batch_move" | "config_action_execute" | "config_update" | "file_copy" | "file_create" | "file_delete" | "file_download" | "file_direct_link_create" | "file_edit" | "file_move" | "file_rename" | "file_upload" | "file_preview_link_create" | "file_wopi_open" | "file_upload_cancel" | "file_restore" | "file_purge" | "file_lock" | "file_unlock" | "file_version_restore" | "file_version_delete" | "folder_copy" | "folder_create" | "folder_delete" | "folder_move" | "folder_policy_change" | "folder_rename" | "folder_restore" | "folder_purge" | "folder_lock" | "folder_unlock" | "property_set" | "property_delete" | "share_batch_delete" | "share_create" | "share_delete" | "share_update" | "system_setup" | "team_archive" | "team_cleanup_expired" | "team_create" | "team_member_add" | "team_member_remove" | "team_member_update" | "team_restore" | "team_update" | "task_retry" | "archive_compress" | "archive_extract" | "archive_download" | "trash_purge_all" | "remote_enrollment_redeem" | "remote_enrollment_ack" | "user_revoke_other_sessions" | "user_revoke_session" | "user_update_preferences" | "user_update_profile" | "user_upload_avatar" | "user_set_avatar_source" | "user_update_wopi_info" | "webdav_account_create" | "webdav_account_delete" | "webdav_account_toggle" | "user_change_password" | "user_confirm_password_reset" | "user_confirm_email_change" | "user_confirm_registration" | "user_login" | "user_logout" | "user_passkey_delete" | "user_passkey_login" | "user_passkey_register" | "user_passkey_rename" | "user_refresh_token_reuse_detected" | "user_request_email_change" | "user_request_password_reset" | "user_register" | "user_resend_email_change" | "user_resend_registration";
         AuditLogEntry: {
             action: components["schemas"]["AuditAction"];
             created_at: string;
@@ -4216,6 +4312,26 @@ export interface components {
         OpenWopiRequest: {
             app_key: string;
         };
+        /** @description Finish a passkey login challenge. */
+        PasskeyLoginFinishReq: {
+            credential: unknown;
+            flow_id: string;
+        };
+        /** @description Start a passkey login challenge. */
+        PasskeyLoginStartReq: {
+            conditional?: boolean | null;
+            identifier?: string | null;
+        };
+        /** @description Finish registering a passkey for the authenticated user. */
+        PasskeyRegisterFinishReq: {
+            credential: unknown;
+            flow_id: string;
+            name?: string | null;
+        };
+        /** @description Start registering a passkey for the authenticated user. */
+        PasskeyRegisterStartReq: {
+            name?: string | null;
+        };
         /** @description Confirm a password reset with the token from the email. */
         PasswordResetConfirmReq: {
             new_password: string;
@@ -4238,6 +4354,10 @@ export interface components {
             parent_id?: number | null;
             /** Format: int64 */
             policy_id?: number | null;
+        };
+        /** @description Rename an existing passkey. */
+        PatchPasskeyReq: {
+            name: string;
         };
         /** @description Patch a storage policy group. */
         PatchPolicyGroupReq: {
@@ -4487,11 +4607,40 @@ export interface components {
             name: string;
             updated_at: string;
         };
+        RemoteStorageBrowserCorsContract: {
+            allowed_headers?: string[];
+            exposed_headers?: string[];
+        };
         RemoteStorageCapabilities: {
-            protocol_version: string;
-            supports_list: boolean;
-            supports_range_read: boolean;
-            supports_stream_upload: boolean;
+            browser_cors?: components["schemas"]["RemoteStorageBrowserCorsContract"];
+            features?: components["schemas"]["RemoteStorageFeatureFlags"];
+            limits?: components["schemas"]["RemoteStorageProtocolLimits"];
+            min_supported_protocol_version?: string;
+            protocol_version?: string;
+            server_version?: string | null;
+            supports_list?: boolean;
+            supports_range_read?: boolean;
+            supports_stream_upload?: boolean;
+        };
+        RemoteStorageFeatureFlags: {
+            accept_ranges_header?: boolean;
+            browser_presigned_cors?: boolean;
+            compose?: boolean;
+            list?: boolean;
+            metadata?: boolean;
+            object_delete?: boolean;
+            object_get?: boolean;
+            object_head?: boolean;
+            object_put?: boolean;
+            range_get?: boolean;
+        };
+        RemoteStorageProtocolLimits: {
+            /** Format: int64 */
+            compose_max_object_size?: number | null;
+            /** Format: int32 */
+            compose_max_parts?: number | null;
+            /** Format: int64 */
+            max_ingress_size?: number | null;
         };
         RemoteUpdateIngressProfileRequest: {
             access_key?: string | null;
@@ -6921,10 +7070,15 @@ export interface operations {
                     "application/json": {
                         code: components["schemas"]["ErrorCode"];
                         data?: {
-                            protocol_version: string;
-                            supports_list: boolean;
-                            supports_range_read: boolean;
-                            supports_stream_upload: boolean;
+                            browser_cors?: components["schemas"]["RemoteStorageBrowserCorsContract"];
+                            features?: components["schemas"]["RemoteStorageFeatureFlags"];
+                            limits?: components["schemas"]["RemoteStorageProtocolLimits"];
+                            min_supported_protocol_version?: string;
+                            protocol_version?: string;
+                            server_version?: string | null;
+                            supports_list?: boolean;
+                            supports_range_read?: boolean;
+                            supports_stream_upload?: boolean;
                         };
                         error?: null | components["schemas"]["ApiErrorInfo"];
                         msg: string;
@@ -9225,6 +9379,323 @@ export interface operations {
             };
         };
     };
+    list_passkeys: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Registered passkeys for current user */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        code: components["schemas"]["ErrorCode"];
+                        data?: {
+                            backed_up: boolean;
+                            backup_eligible: boolean;
+                            created_at: string;
+                            /** Format: int64 */
+                            id: number;
+                            last_used_at?: string | null;
+                            name: string;
+                            /** Format: int64 */
+                            sign_count: number;
+                            transports?: string[] | null;
+                            updated_at: string;
+                        }[];
+                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        msg: string;
+                    };
+                };
+            };
+            /** @description Not authenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    finish_passkey_login: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PasskeyLoginFinishReq"];
+            };
+        };
+        responses: {
+            /** @description Passkey login successful, tokens set in HttpOnly cookies */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        code: components["schemas"]["ErrorCode"];
+                        /** @description Response body for token issuance (login / refresh / password change). */
+                        data?: {
+                            /** Format: int64 */
+                            expires_in: number;
+                        };
+                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        msg: string;
+                    };
+                };
+            };
+            /** @description Invalid credentials */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    start_passkey_login: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PasskeyLoginStartReq"];
+            };
+        };
+        responses: {
+            /** @description Passkey login challenge */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        code: components["schemas"]["ErrorCode"];
+                        data?: {
+                            flow_id: string;
+                            public_key: unknown;
+                        };
+                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        msg: string;
+                    };
+                };
+            };
+            /** @description Invalid credentials */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    finish_passkey_registration: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PasskeyRegisterFinishReq"];
+            };
+        };
+        responses: {
+            /** @description Passkey registered */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        code: components["schemas"]["ErrorCode"];
+                        data?: {
+                            backed_up: boolean;
+                            backup_eligible: boolean;
+                            created_at: string;
+                            /** Format: int64 */
+                            id: number;
+                            last_used_at?: string | null;
+                            name: string;
+                            /** Format: int64 */
+                            sign_count: number;
+                            transports?: string[] | null;
+                            updated_at: string;
+                        };
+                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        msg: string;
+                    };
+                };
+            };
+            /** @description Invalid passkey registration */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Not authenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    start_passkey_registration: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PasskeyRegisterStartReq"];
+            };
+        };
+        responses: {
+            /** @description Passkey registration challenge */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        code: components["schemas"]["ErrorCode"];
+                        data?: {
+                            flow_id: string;
+                            public_key: unknown;
+                        };
+                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        msg: string;
+                    };
+                };
+            };
+            /** @description Not authenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    delete_passkey: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Passkey ID */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Passkey deleted */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Not authenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Passkey not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    rename_passkey: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Passkey ID */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PatchPasskeyReq"];
+            };
+        };
+        responses: {
+            /** @description Passkey renamed */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        code: components["schemas"]["ErrorCode"];
+                        data?: {
+                            backed_up: boolean;
+                            backup_eligible: boolean;
+                            created_at: string;
+                            /** Format: int64 */
+                            id: number;
+                            last_used_at?: string | null;
+                            name: string;
+                            /** Format: int64 */
+                            sign_count: number;
+                            transports?: string[] | null;
+                            updated_at: string;
+                        };
+                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        msg: string;
+                    };
+                };
+            };
+            /** @description Invalid passkey name */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Not authenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Passkey not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     change_password: {
         parameters: {
             query?: never;
@@ -11022,6 +11493,13 @@ export interface operations {
                 };
                 content?: never;
             };
+            /** @description Partial file content */
+            206: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
             /** @description Unauthorized */
             401: {
                 headers: {
@@ -12475,6 +12953,13 @@ export interface operations {
                 };
                 content?: never;
             };
+            /** @description Partial file content */
+            206: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
             /** @description Password required or download limit */
             403: {
                 headers: {
@@ -12507,6 +12992,13 @@ export interface operations {
         responses: {
             /** @description File content */
             200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Partial file content */
+            206: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -12640,6 +13132,13 @@ export interface operations {
         responses: {
             /** @description Thumbnail image (WebP) */
             200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Thumbnail generation accepted */
+            202: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -12908,6 +13407,13 @@ export interface operations {
         responses: {
             /** @description Thumbnail image (WebP) */
             200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Thumbnail generation accepted */
+            202: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -15611,6 +16117,13 @@ export interface operations {
         responses: {
             /** @description Team file content */
             200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Partial team file content */
+            206: {
                 headers: {
                     [name: string]: unknown;
                 };

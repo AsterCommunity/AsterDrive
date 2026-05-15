@@ -14,15 +14,17 @@ use aster_drive::db::repository::{
 };
 use aster_drive::entities::{
     contact_verification_token, follower_enrollment_session, managed_follower, master_binding,
-    storage_policy,
+    passkey, storage_policy,
 };
 use aster_drive::types::{
-    DriverType, StoredStoragePolicyAllowedTypes, StoredStoragePolicyOptions, VerificationChannel,
-    VerificationPurpose,
+    DriverType, StoredPasskeyCredential, StoredStoragePolicyAllowedTypes,
+    StoredStoragePolicyOptions, VerificationChannel, VerificationPurpose,
 };
 use chrono::{Duration, Utc};
-use migration::Migrator;
-use sea_orm::{ActiveModelTrait, ConnectionTrait, DatabaseConnection, DbBackend, Set, Statement};
+use migration::{CurrentMigrator, Migrator, MigratorTrait};
+use sea_orm::{
+    ActiveModelTrait, ConnectionTrait, DatabaseConnection, DbBackend, EntityTrait, Set, Statement,
+};
 use serde_json::Value;
 
 fn aster_drive_bin() -> &'static str {
@@ -84,8 +86,22 @@ async fn setup_pre_rc1_database_url() -> String {
     })
     .await
     .unwrap();
-    Migrator::up(&db, None).await.unwrap();
+    CurrentMigrator::up(&db, Some(1)).await.unwrap();
     rewrite_migration_history(&db, &migration::pre_rc1_migration_names()).await;
+    db.close().await.unwrap();
+    database_url
+}
+
+async fn setup_rebased_baseline_database_url(prefix: &str) -> String {
+    let database_url = setup_empty_database_url(prefix).await;
+    let db = db::connect(&DatabaseConfig {
+        url: database_url.clone(),
+        pool_size: 1,
+        retry_count: 0,
+    })
+    .await
+    .unwrap();
+    CurrentMigrator::up(&db, Some(1)).await.unwrap();
     db.close().await.unwrap();
     database_url
 }
@@ -295,8 +311,43 @@ async fn seed_migration_fixture(database_url: &str) -> i64 {
         .expect("folder id should exist");
 
     let file_id = upload_test_file_to_folder!(app, token, folder_id);
+    seed_passkey_fixture(&state.db).await;
     seed_remote_node_fixture(&state.db).await;
     file_id
+}
+
+async fn seed_passkey_fixture(db: &DatabaseConnection) {
+    let user = user_repo::find_by_email(db, "test@example.com")
+        .await
+        .unwrap()
+        .expect("seed user should exist");
+    let now = Utc::now();
+
+    passkey::ActiveModel {
+        user_id: Set(user.id),
+        credential_id: Set("migrate-passkey-credential".to_string()),
+        user_handle: Set("8f7cb5ac-d850-4706-94ee-2b062765697a".to_string()),
+        credential: Set(StoredPasskeyCredential(
+            serde_json::json!({
+            "cred_id": "migrate-passkey-credential",
+            "counter": 7,
+            "transports": ["internal"]
+            })
+            .to_string(),
+        )),
+        name: Set("Migrated Passkey".to_string()),
+        transports: Set(Some("internal".to_string())),
+        backup_eligible: Set(true),
+        backed_up: Set(false),
+        sign_count: Set(7),
+        created_at: Set(now),
+        updated_at: Set(now),
+        last_used_at: Set(Some(now)),
+        ..Default::default()
+    }
+    .insert(db)
+    .await
+    .unwrap();
 }
 
 async fn seed_remote_node_fixture(db: &DatabaseConnection) {
@@ -464,6 +515,7 @@ async fn assert_migrated_fixture(
         "SELECT COUNT(*) FROM managed_followers",
     )
     .await;
+    let passkeys = scalar_i64(&target_db, target_backend, "SELECT COUNT(*) FROM passkeys").await;
     let enrollment_sessions = scalar_i64(
         &target_db,
         target_backend,
@@ -491,6 +543,11 @@ async fn assert_migrated_fixture(
         &format!("SELECT name FROM files WHERE id = {file_id}"),
     )
     .await;
+    let passkey = aster_drive::entities::passkey::Entity::find()
+        .one(&target_db)
+        .await
+        .unwrap()
+        .expect("migrated passkey should exist");
     let managed_followers_has_namespace =
         column_exists(&target_db, target_backend, "managed_followers", "namespace").await;
     let master_bindings_has_namespace =
@@ -514,11 +571,18 @@ async fn assert_migrated_fixture(
     assert_eq!(users, 1);
     assert_eq!(folders, 1);
     assert_eq!(files, 1);
+    assert_eq!(passkeys, 1);
     assert_eq!(managed_followers, 1);
     assert_eq!(enrollment_sessions, 1);
     assert_eq!(master_bindings, 1);
     assert_eq!(remote_policies, 1);
     assert_eq!(file_name, "test-in-folder.txt");
+    assert_eq!(passkey.name, "Migrated Passkey");
+    let credential = passkey
+        .credential
+        .parse()
+        .expect("passkey credential should be valid JSON");
+    assert_eq!(credential["counter"], 7);
     assert!(!managed_followers_has_namespace);
     assert!(!master_bindings_has_namespace);
     assert!(master_bindings_has_storage_namespace);
@@ -1053,7 +1117,8 @@ async fn test_rebased_migrations_reject_incomplete_pre_rc1_history() {
 
 #[tokio::test]
 async fn test_rebased_baseline_matches_pre_rc1_sqlite_schema_shape() {
-    let baseline_url = setup_empty_database_url("asterdrive-cli-baseline-schema-test").await;
+    let baseline_url =
+        setup_rebased_baseline_database_url("asterdrive-cli-baseline-schema-test").await;
     let baseline_db = db::connect(&DatabaseConfig {
         url: baseline_url,
         pool_size: 1,
@@ -1061,7 +1126,6 @@ async fn test_rebased_baseline_matches_pre_rc1_sqlite_schema_shape() {
     })
     .await
     .unwrap();
-    Migrator::up(&baseline_db, None).await.unwrap();
     let baseline_objects = sqlite_schema_object_keys(&baseline_db).await;
     let baseline_columns = sqlite_schema_columns(&baseline_db).await;
     let pre_rc1_objects = PRE_RC1_SQLITE_OBJECTS

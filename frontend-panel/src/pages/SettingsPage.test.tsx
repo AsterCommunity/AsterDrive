@@ -6,7 +6,12 @@ import SettingsPage from "@/pages/SettingsPage";
 const mockState = vi.hoisted(() => ({
 	authService: {
 		changePassword: vi.fn(),
+		listPasskeys: vi.fn(),
 		listSessions: vi.fn(),
+		startPasskeyRegistration: vi.fn(),
+		finishPasskeyRegistration: vi.fn(),
+		renamePasskey: vi.fn(),
+		deletePasskey: vi.fn(),
 		revokeOtherSessions: vi.fn(),
 		revokeSession: vi.fn(),
 		requestEmailChange: vi.fn(),
@@ -61,6 +66,10 @@ const mockState = vi.hoisted(() => ({
 	},
 	toastSuccess: vi.fn(),
 	translationLanguage: "zh-CN",
+	webAuthn: {
+		createPasskeyCredential: vi.fn(),
+		supported: false,
+	},
 	location: {
 		hash: "",
 		pathname: "/settings/security",
@@ -335,8 +344,16 @@ vi.mock("@/services/authService", () => ({
 	authService: {
 		changePassword: (...args: unknown[]) =>
 			mockState.authService.changePassword(...args),
+		deletePasskey: (...args: unknown[]) =>
+			mockState.authService.deletePasskey(...args),
+		finishPasskeyRegistration: (...args: unknown[]) =>
+			mockState.authService.finishPasskeyRegistration(...args),
+		listPasskeys: (...args: unknown[]) =>
+			mockState.authService.listPasskeys(...args),
 		listSessions: (...args: unknown[]) =>
 			mockState.authService.listSessions(...args),
+		renamePasskey: (...args: unknown[]) =>
+			mockState.authService.renamePasskey(...args),
 		revokeOtherSessions: (...args: unknown[]) =>
 			mockState.authService.revokeOtherSessions(...args),
 		revokeSession: (...args: unknown[]) =>
@@ -349,9 +366,19 @@ vi.mock("@/services/authService", () => ({
 			mockState.authService.updateProfile(...args),
 		setAvatarSource: (...args: unknown[]) =>
 			mockState.authService.setAvatarSource(...args),
+		startPasskeyRegistration: (...args: unknown[]) =>
+			mockState.authService.startPasskeyRegistration(...args),
 		uploadAvatar: (...args: unknown[]) =>
 			mockState.authService.uploadAvatar(...args),
 	},
+}));
+
+vi.mock("@/lib/webauthn", () => ({
+	createPasskeyCredential: (...args: unknown[]) =>
+		mockState.webAuthn.createPasskeyCredential(...args),
+	isWebAuthnSupported: () => mockState.webAuthn.supported,
+	WebAuthnCancelledError: class WebAuthnCancelledError extends Error {},
+	WebAuthnUnsupportedError: class WebAuthnUnsupportedError extends Error {},
 }));
 
 vi.mock("@/stores/authStore", () => ({
@@ -392,6 +419,22 @@ describe("SettingsPage", () => {
 	beforeEach(() => {
 		mockState.authService.changePassword.mockReset();
 		mockState.authService.changePassword.mockResolvedValue({ expiresIn: 900 });
+		mockState.authService.deletePasskey.mockReset();
+		mockState.authService.deletePasskey.mockResolvedValue(undefined);
+		mockState.authService.finishPasskeyRegistration.mockReset();
+		mockState.authService.finishPasskeyRegistration.mockResolvedValue({
+			backed_up: true,
+			backup_eligible: true,
+			created_at: "2026-05-01T08:00:00Z",
+			id: 2,
+			last_used_at: null,
+			name: "Laptop",
+			sign_count: 0,
+			transports: null,
+			updated_at: "2026-05-01T08:00:00Z",
+		});
+		mockState.authService.listPasskeys.mockReset();
+		mockState.authService.listPasskeys.mockResolvedValue([]);
 		mockState.authService.listSessions.mockReset();
 		mockState.authService.listSessions.mockResolvedValue([
 			{
@@ -417,9 +460,28 @@ describe("SettingsPage", () => {
 		mockState.authService.revokeOtherSessions.mockResolvedValue(1);
 		mockState.authService.revokeSession.mockReset();
 		mockState.authService.revokeSession.mockResolvedValue(undefined);
+		mockState.authService.renamePasskey.mockReset();
+		mockState.authService.renamePasskey.mockImplementation(
+			(id: number, payload: { name: string }) => ({
+				backed_up: false,
+				backup_eligible: true,
+				created_at: "2026-04-01T08:00:00Z",
+				id,
+				last_used_at: null,
+				name: payload.name,
+				sign_count: 0,
+				transports: null,
+				updated_at: "2026-05-01T08:00:00Z",
+			}),
+		);
 		mockState.authService.requestEmailChange.mockReset();
 		mockState.authService.resendEmailChange.mockReset();
 		mockState.authService.setAvatarSource.mockReset();
+		mockState.authService.startPasskeyRegistration.mockReset();
+		mockState.authService.startPasskeyRegistration.mockResolvedValue({
+			flow_id: "passkey-flow",
+			public_key: { publicKey: { challenge: "AQID" } },
+		});
 		mockState.authService.uploadAvatar.mockReset();
 		mockState.authService.updateProfile.mockReset();
 		mockState.authStore.forceLogout.mockReset();
@@ -440,6 +502,11 @@ describe("SettingsPage", () => {
 		mockState.themeStore.setMode.mockReset();
 		mockState.toastSuccess.mockReset();
 		mockState.translationLanguage = "zh-CN";
+		mockState.webAuthn.createPasskeyCredential.mockReset();
+		mockState.webAuthn.createPasskeyCredential.mockResolvedValue({
+			id: "credential-1",
+		});
+		mockState.webAuthn.supported = false;
 		mockState.location = {
 			hash: "",
 			pathname: "/settings/security",
@@ -593,6 +660,62 @@ describe("SettingsPage", () => {
 			),
 		);
 		expect(mockState.toastSuccess).toHaveBeenCalled();
+	});
+
+	it("lists passkeys and adds a supported passkey from security settings", async () => {
+		mockState.webAuthn.supported = true;
+		mockState.authService.listPasskeys.mockResolvedValueOnce([
+			{
+				backed_up: false,
+				backup_eligible: true,
+				created_at: "2026-04-01T08:00:00Z",
+				id: 1,
+				last_used_at: null,
+				name: "Phone",
+				sign_count: 0,
+				transports: null,
+				updated_at: "2026-04-01T08:00:00Z",
+			},
+		]);
+
+		render(<SettingsPage section="security" />);
+
+		await waitFor(() =>
+			expect(mockState.authService.listPasskeys).toHaveBeenCalledTimes(1),
+		);
+		expect(screen.getByText("Phone")).toBeInTheDocument();
+
+		fireEvent.change(
+			screen.getByLabelText("settings:settings_passkeys_new_name"),
+			{
+				target: { value: "Laptop" },
+			},
+		);
+		fireEvent.click(
+			screen.getByRole("button", {
+				name: "settings:settings_passkeys_add",
+			}),
+		);
+
+		await waitFor(() => {
+			expect(
+				mockState.authService.startPasskeyRegistration,
+			).toHaveBeenCalledWith({
+				name: "Laptop",
+			});
+			expect(mockState.webAuthn.createPasskeyCredential).toHaveBeenCalledWith({
+				publicKey: { challenge: "AQID" },
+			});
+			expect(
+				mockState.authService.finishPasskeyRegistration,
+			).toHaveBeenCalledWith("passkey-flow", { id: "credential-1" }, "Laptop");
+		});
+		expect(
+			await screen.findByText("settings:settings_passkeys_synced"),
+		).toBeInTheDocument();
+		expect(mockState.toastSuccess).toHaveBeenCalledWith(
+			"settings:settings_passkeys_added",
+		);
 	});
 
 	it("saves the password through the security endpoint", async () => {

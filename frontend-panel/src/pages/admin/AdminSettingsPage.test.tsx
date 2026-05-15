@@ -1048,6 +1048,119 @@ describe("AdminSettingsPage", () => {
 		});
 	});
 
+	it("does not reformat scaled number input while it is focused", async () => {
+		render(<AdminSettingsPage section="auth" />);
+
+		const ttlInput = (await screen.findByDisplayValue(
+			"20",
+		)) as HTMLInputElement;
+		ttlInput.focus();
+
+		fireEvent.change(ttlInput, {
+			target: { value: "21" },
+		});
+
+		expect(ttlInput).toHaveValue(21);
+		expect(screen.queryByDisplayValue("1260")).not.toBeInTheDocument();
+
+		fireEvent.blur(ttlInput);
+
+		expect(screen.getByDisplayValue("21")).toBeInTheDocument();
+	});
+
+	it("ignores invalid scaled number edits and saves blank scaled values explicitly", async () => {
+		render(<AdminSettingsPage section="auth" />);
+
+		const ttlInput = (await screen.findByDisplayValue(
+			"20",
+		)) as HTMLInputElement;
+
+		fireEvent.change(ttlInput, {
+			target: { value: "1.5" },
+		});
+		expect(
+			screen.queryByRole("button", { name: "save_changes" }),
+		).not.toBeInTheDocument();
+
+		fireEvent.change(ttlInput, {
+			target: { value: String(Number.MAX_SAFE_INTEGER + 1) },
+		});
+		expect(
+			screen.queryByRole("button", { name: "save_changes" }),
+		).not.toBeInTheDocument();
+
+		fireEvent.change(ttlInput, {
+			target: { value: "" },
+		});
+		fireEvent.click(
+			await screen.findByRole("button", { name: "save_changes" }),
+		);
+
+		await waitFor(() => {
+			expect(mockState.setConfig).toHaveBeenCalledWith(
+				"auth_access_token_ttl_secs",
+				"",
+			);
+		});
+	});
+
+	it("does not render a scaled number input when the stored numeric draft is invalid", async () => {
+		mockState.listConfigs.mockResolvedValueOnce({
+			items: [
+				createConfig({
+					category: "auth",
+					key: "auth_access_token_ttl_secs",
+					value: "not-a-number",
+					value_type: "number",
+				}),
+			],
+		});
+		mockState.schema.mockResolvedValueOnce([
+			createSchemaItem({
+				category: "auth",
+				key: "auth_access_token_ttl_secs",
+				value_type: "number",
+			}),
+		]);
+
+		render(<AdminSettingsPage section="auth" />);
+
+		await screen.findByText("auth_access_token_ttl_secs");
+		expect(
+			screen.queryByPlaceholderText("config_value"),
+		).not.toBeInTheDocument();
+	});
+
+	it("ignores scaled size edits that would overflow the stored byte value", async () => {
+		mockState.listConfigs.mockResolvedValueOnce({
+			items: [
+				createConfig({
+					category: "storage",
+					key: "avatar_max_upload_size_bytes",
+					value: String(1024 * 1024),
+					value_type: "number",
+				}),
+			],
+		});
+		mockState.schema.mockResolvedValueOnce([
+			createSchemaItem({
+				category: "storage",
+				key: "avatar_max_upload_size_bytes",
+				value_type: "number",
+			}),
+		]);
+
+		render(<AdminSettingsPage section="storage" />);
+
+		fireEvent.change(await screen.findByDisplayValue("1"), {
+			target: { value: String(Number.MAX_SAFE_INTEGER) },
+		});
+
+		expect(
+			screen.queryByRole("button", { name: "save_changes" }),
+		).not.toBeInTheDocument();
+	});
+
 	it("renders a friendly size unit selector while keeping raw byte values on save", async () => {
 		mockState.listConfigs.mockResolvedValueOnce({
 			items: [
@@ -1898,6 +2011,96 @@ describe("AdminSettingsPage", () => {
 		});
 
 		expect(screen.getByLabelText("/branding/next.svg")).toBeInTheDocument();
+	});
+
+	it("edits public site URL origins as stable rows and saves the resulting array", async () => {
+		mockState.listConfigs.mockResolvedValueOnce({
+			items: [
+				createConfig({
+					category: "general",
+					key: "public_site_url",
+					value: ["https://drive.example.com"],
+					value_type: "string_array",
+				}),
+			],
+		});
+		mockState.schema.mockResolvedValueOnce([
+			createSchemaItem({
+				category: "general",
+				key: "public_site_url",
+				label_i18n_key: "settings_item_public_site_url_label",
+				value_type: "string_array",
+			}),
+		]);
+
+		render(<AdminSettingsPage section="general" />);
+
+		const firstOrigin = await screen.findByLabelText(
+			"public_site_url_origin_label 1",
+		);
+		expect(firstOrigin).toHaveValue("https://drive.example.com");
+		expect(
+			screen.getByText("public_site_url_primary_origin"),
+		).toBeInTheDocument();
+
+		fireEvent.click(screen.getByRole("button", { name: "Plus" }));
+		fireEvent.change(screen.getByLabelText("public_site_url_origin_label 2"), {
+			target: { value: "https://panel.example.com" },
+		});
+		expect(screen.getByLabelText("public_site_url_origin_label 1")).toHaveValue(
+			"https://drive.example.com",
+		);
+
+		fireEvent.click(
+			screen.getAllByRole("button", {
+				name: "Trash",
+			})[0],
+		);
+		expect(screen.getByLabelText("public_site_url_origin_label 1")).toHaveValue(
+			"https://panel.example.com",
+		);
+
+		fireEvent.click(screen.getByRole("button", { name: "save_changes" }));
+
+		await waitFor(() => {
+			expect(mockState.setConfig).toHaveBeenCalledWith("public_site_url", [
+				"https://panel.example.com",
+			]);
+		});
+	});
+
+	it("clears the public site URL draft when the only origin row is removed", async () => {
+		mockState.listConfigs.mockResolvedValueOnce({
+			items: [
+				createConfig({
+					category: "general",
+					key: "public_site_url",
+					value: ["https://drive.example.com"],
+					value_type: "string_array",
+				}),
+			],
+		});
+		mockState.schema.mockResolvedValueOnce([
+			createSchemaItem({
+				category: "general",
+				key: "public_site_url",
+				value_type: "string_array",
+			}),
+		]);
+
+		render(<AdminSettingsPage section="general" />);
+
+		await screen.findByLabelText("public_site_url_origin_label 1");
+		fireEvent.click(screen.getByRole("button", { name: "Trash" }));
+
+		expect(screen.getByLabelText("public_site_url_origin_label 1")).toHaveValue(
+			"",
+		);
+		fireEvent.click(screen.getByRole("button", { name: "save_changes" }));
+
+		await waitFor(() => {
+			expect(mockState.setConfig).toHaveBeenCalledWith("public_site_url", []);
+		});
 	});
 
 	it("discards draft changes without sending any requests", async () => {

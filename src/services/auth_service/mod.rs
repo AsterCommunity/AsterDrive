@@ -4,7 +4,7 @@ mod contact_verification;
 mod password;
 mod registration;
 mod session;
-mod shared;
+pub(crate) mod shared;
 mod tokens;
 mod validation;
 

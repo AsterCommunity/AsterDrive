@@ -334,4 +334,26 @@ describe("http api helpers", () => {
 		expect(mockState.axiosModule.post).not.toHaveBeenCalled();
 		expect(mockState.client).not.toHaveBeenCalled();
 	});
+
+	it("does not attempt refresh for passkey login endpoints", async () => {
+		await loadHttpModule();
+		const errorHandler = mockState.getErrorHandler();
+		const originalError = {
+			config: { url: "/auth/passkeys/login/start" },
+			response: { status: 401 },
+		} satisfies MockAxiosError;
+
+		await expect(errorHandler(originalError)).rejects.toBe(originalError);
+		expect(mockState.refreshToken).not.toHaveBeenCalled();
+		expect(mockState.client).not.toHaveBeenCalled();
+
+		const finishError = {
+			config: { url: "/auth/passkeys/login/finish" },
+			response: { status: 401 },
+		} satisfies MockAxiosError;
+
+		await expect(errorHandler(finishError)).rejects.toBe(finishError);
+		expect(mockState.refreshToken).not.toHaveBeenCalled();
+		expect(mockState.client).not.toHaveBeenCalled();
+	});
 });

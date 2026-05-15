@@ -85,6 +85,8 @@ export function AnimateSwap({
 	const [renderedKey, setRenderedKey] = useState(activeKey);
 	const [renderedChildren, setRenderedChildren] = useState(children);
 	const [visible, setVisible] = useState(true);
+	const currentChildren =
+		activeKey === renderedKey ? children : renderedChildren;
 
 	useEffect(() => {
 		if (activeKey === renderedKey) {
@@ -121,7 +123,7 @@ export function AnimateSwap({
 				)}
 				aria-hidden={!visible}
 			>
-				{renderedChildren}
+				{currentChildren}
 			</div>
 		</div>
 	);
@@ -137,6 +139,8 @@ export function AnimateInlineSwap({
 	const [renderedKey, setRenderedKey] = useState(activeKey);
 	const [renderedChildren, setRenderedChildren] = useState(children);
 	const [visible, setVisible] = useState(true);
+	const currentChildren =
+		activeKey === renderedKey ? children : renderedChildren;
 
 	useEffect(() => {
 		if (activeKey === renderedKey) {
@@ -173,7 +177,7 @@ export function AnimateInlineSwap({
 				)}
 				aria-hidden={!visible}
 			>
-				{renderedChildren}
+				{currentChildren}
 			</span>
 		</span>
 	);

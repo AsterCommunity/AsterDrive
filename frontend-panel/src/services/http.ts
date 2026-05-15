@@ -21,9 +21,12 @@ const client: AxiosInstance = axios.create({
 });
 
 // 不需要自动 refresh 的路径
+// FIXME: 如果登录流程新增/调整未认证端点，同步检查 passkey 登录路径是否仍应跳过 refresh。
 const SKIP_REFRESH_PATHS = [
 	"/auth/refresh",
 	"/auth/login",
+	"/auth/passkeys/login/start",
+	"/auth/passkeys/login/finish",
 	"/auth/register",
 	"/auth/register/resend",
 	"/auth/logout",

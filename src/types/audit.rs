@@ -210,6 +210,14 @@ pub enum AuditAction {
     UserLogin,
     #[sea_orm(string_value = "user_logout")]
     UserLogout,
+    #[sea_orm(string_value = "user_passkey_delete")]
+    UserPasskeyDelete,
+    #[sea_orm(string_value = "user_passkey_login")]
+    UserPasskeyLogin,
+    #[sea_orm(string_value = "user_passkey_register")]
+    UserPasskeyRegister,
+    #[sea_orm(string_value = "user_passkey_rename")]
+    UserPasskeyRename,
     #[sea_orm(string_value = "user_refresh_token_reuse_detected")]
     UserRefreshTokenReuseDetected,
     #[sea_orm(string_value = "user_request_email_change")]
@@ -329,6 +337,10 @@ impl AuditAction {
             Self::UserConfirmRegistration => "user_confirm_registration",
             Self::UserLogin => "user_login",
             Self::UserLogout => "user_logout",
+            Self::UserPasskeyDelete => "user_passkey_delete",
+            Self::UserPasskeyLogin => "user_passkey_login",
+            Self::UserPasskeyRegister => "user_passkey_register",
+            Self::UserPasskeyRename => "user_passkey_rename",
             Self::UserRefreshTokenReuseDetected => "user_refresh_token_reuse_detected",
             Self::UserRequestEmailChange => "user_request_email_change",
             Self::UserRequestPasswordReset => "user_request_password_reset",
@@ -442,6 +454,10 @@ impl AuditAction {
             "user_confirm_registration" => Some(Self::UserConfirmRegistration),
             "user_login" => Some(Self::UserLogin),
             "user_logout" => Some(Self::UserLogout),
+            "user_passkey_delete" => Some(Self::UserPasskeyDelete),
+            "user_passkey_login" => Some(Self::UserPasskeyLogin),
+            "user_passkey_register" => Some(Self::UserPasskeyRegister),
+            "user_passkey_rename" => Some(Self::UserPasskeyRename),
             "user_refresh_token_reuse_detected" => Some(Self::UserRefreshTokenReuseDetected),
             "user_request_email_change" => Some(Self::UserRequestEmailChange),
             "user_request_password_reset" => Some(Self::UserRequestPasswordReset),

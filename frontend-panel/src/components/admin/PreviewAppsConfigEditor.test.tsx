@@ -147,6 +147,25 @@ describe("PreviewAppsConfigEditor", () => {
 		expect(screen.getByDisplayValue("custom.viewer.updated")).toHaveFocus();
 	});
 
+	it("keeps delimited list text unformatted while the field is focused", () => {
+		render(<StatefulPreviewAppsEditor />);
+
+		fireEvent.click(screen.getByRole("button", { name: "preview_apps_edit" }));
+
+		const extensionInput = screen.getByDisplayValue("md");
+		extensionInput.focus();
+		fireEvent.change(extensionInput, {
+			target: { value: "md,txt" },
+		});
+
+		expect(screen.getByDisplayValue("md,txt")).toHaveFocus();
+		expect(screen.queryByDisplayValue("md, txt")).not.toBeInTheDocument();
+
+		fireEvent.blur(extensionInput);
+
+		expect(screen.getByDisplayValue("md, txt")).toBeInTheDocument();
+	});
+
 	it("opens the URL template magic variables dialog", () => {
 		render(<StatefulPreviewAppsEditor />);
 
