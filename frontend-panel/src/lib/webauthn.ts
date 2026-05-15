@@ -14,6 +14,13 @@ export class WebAuthnCancelledError extends Error {
 	}
 }
 
+export class WebAuthnOptionsError extends Error {
+	constructor(message = "Invalid WebAuthn options from server") {
+		super(message);
+		this.name = "WebAuthnOptionsError";
+	}
+}
+
 export function isWebAuthnSupported(): boolean {
 	return (
 		typeof window !== "undefined" &&
@@ -61,10 +68,9 @@ function base64UrlToArrayBuffer(value: string): ArrayBuffer {
 
 function arrayBufferToBase64Url(buffer: ArrayBuffer): string {
 	const bytes = new Uint8Array(buffer);
-	let binary = "";
-	for (const byte of bytes) {
-		binary += String.fromCharCode(byte);
-	}
+	const binary = Array.from(bytes, (byte) => String.fromCharCode(byte)).join(
+		"",
+	);
 	return window
 		.btoa(binary)
 		.replace(/\+/g, "-")
@@ -89,7 +95,7 @@ function registrationOptionsFromServer(
 	options: unknown,
 ): PublicKeyCredentialCreationOptions {
 	if (!isRecord(options) || !isRecord(options.publicKey)) {
-		throw new WebAuthnUnsupportedError();
+		throw new WebAuthnOptionsError();
 	}
 
 	const publicKey = options.publicKey;
@@ -115,7 +121,7 @@ function authenticationOptionsFromServer(
 	options: unknown,
 ): CredentialRequestOptions {
 	if (!isRecord(options) || !isRecord(options.publicKey)) {
-		throw new WebAuthnUnsupportedError();
+		throw new WebAuthnOptionsError();
 	}
 
 	const publicKey = options.publicKey;
@@ -206,6 +212,9 @@ function normalizeWebAuthnError(error: unknown): never {
 		throw error;
 	}
 	if (error instanceof DOMException) {
+		if (error.name !== "NotAllowedError" && error.name !== "AbortError") {
+			throw error;
+		}
 		throw new WebAuthnCancelledError(error.message);
 	}
 	throw error;

@@ -1,5 +1,4 @@
 import type { Page, Route } from "@playwright/test";
-import { expect } from "./test";
 
 const TEST_CHALLENGE = "AQIDBA";
 const TEST_CREDENTIAL_ID = "credential-e2e";
@@ -7,6 +6,25 @@ const TEST_FLOW_ID = "passkey-flow-e2e";
 const TEST_USER_HANDLE = "dXNlci1oYW5kbGUtZTJl";
 
 type JsonBody = Record<string, unknown>;
+
+interface MockPasskey {
+	backup_eligible: boolean;
+	backed_up: boolean;
+	created_at: string;
+	id: number;
+	last_used_at: string | null;
+	name: string;
+	sign_count: number;
+	transports: string[];
+	updated_at: string;
+}
+
+interface CapturedPasskeyMutation {
+	body: JsonBody;
+	id: number;
+	method: string;
+	url: string;
+}
 
 function apiResponse(data: unknown) {
 	return {
@@ -211,14 +229,27 @@ export async function mockPasskeyLoginEndpoints(
 
 	await page.route("**/api/v1/auth/passkeys/login/finish", async (route) => {
 		const payload = await readJsonBody(route);
-		finishPayloads.push(payload);
 		const credential = payload.credential as {
 			id?: string;
 			response?: { userHandle?: string };
 		};
-		expect(payload.flow_id).toBe(TEST_FLOW_ID);
-		expect(credential.id).toBe(TEST_CREDENTIAL_ID);
-		expect(credential.response?.userHandle).toBe(TEST_USER_HANDLE);
+		if (
+			payload.flow_id !== TEST_FLOW_ID ||
+			credential.id !== TEST_CREDENTIAL_ID ||
+			credential.response?.userHandle !== TEST_USER_HANDLE
+		) {
+			await route.fulfill({
+				contentType: "application/json",
+				status: 400,
+				body: JSON.stringify({
+					error: "unexpected passkey login finish payload",
+					payload,
+				}),
+			});
+			return;
+		}
+
+		finishPayloads.push(payload);
 		await route.fulfill({
 			contentType: "application/json",
 			headers: {
@@ -238,6 +269,10 @@ export async function mockPasskeyLoginEndpoints(
 export async function mockPasskeyRegistrationEndpoints(page: Page) {
 	const startPayloads: JsonBody[] = [];
 	const finishPayloads: JsonBody[] = [];
+	const patchRequests: CapturedPasskeyMutation[] = [];
+	const deleteRequests: CapturedPasskeyMutation[] = [];
+	const passkeys = new Map<number, MockPasskey>();
+	let nextPasskeyId = 7;
 	const now = "2026-05-15T16:00:00Z";
 
 	await page.route("**/api/v1/auth/passkeys", async (route) => {
@@ -248,7 +283,7 @@ export async function mockPasskeyRegistrationEndpoints(page: Page) {
 		await route.fulfill({
 			contentType: "application/json",
 			status: 200,
-			body: JSON.stringify(apiResponse([])),
+			body: JSON.stringify(apiResponse(Array.from(passkeys.values()))),
 		});
 	});
 
@@ -287,49 +322,69 @@ export async function mockPasskeyRegistrationEndpoints(page: Page) {
 		const payload = await readJsonBody(route);
 		finishPayloads.push(payload);
 		const name = typeof payload.name === "string" ? payload.name : "Passkey";
+		const id = nextPasskeyId;
+		nextPasskeyId += 1;
+		const passkey: MockPasskey = {
+			backup_eligible: true,
+			backed_up: true,
+			created_at: now,
+			id,
+			last_used_at: null,
+			name,
+			sign_count: 0,
+			transports: ["internal"],
+			updated_at: now,
+		};
+		passkeys.set(id, passkey);
 		await route.fulfill({
 			contentType: "application/json",
 			status: 200,
-			body: JSON.stringify(
-				apiResponse({
-					backup_eligible: true,
-					backed_up: true,
-					created_at: now,
-					id: 7,
-					last_used_at: null,
-					name,
-					sign_count: 0,
-					transports: ["internal"],
-					updated_at: now,
-				}),
-			),
+			body: JSON.stringify(apiResponse(passkey)),
 		});
 	});
 
-	await page.route("**/api/v1/auth/passkeys/7", async (route) => {
+	await page.route("**/api/v1/auth/passkeys/*", async (route) => {
+		const id = Number(new URL(route.request().url()).pathname.split("/").pop());
+		const passkey = passkeys.get(id);
+		if (!Number.isSafeInteger(id) || !passkey) {
+			await route.fulfill({
+				contentType: "application/json",
+				status: 404,
+				body: JSON.stringify({ error: "passkey not found" }),
+			});
+			return;
+		}
+
 		if (route.request().method() === "PATCH") {
 			const payload = await readJsonBody(route);
 			const name = typeof payload.name === "string" ? payload.name : "Passkey";
+			patchRequests.push({
+				body: payload,
+				id,
+				method: route.request().method(),
+				url: route.request().url(),
+			});
+			const updated = {
+				...passkey,
+				name,
+				updated_at: now,
+			};
+			passkeys.set(id, updated);
 			await route.fulfill({
 				contentType: "application/json",
 				status: 200,
-				body: JSON.stringify(
-					apiResponse({
-						backup_eligible: true,
-						backed_up: true,
-						created_at: now,
-						id: 7,
-						last_used_at: null,
-						name,
-						sign_count: 0,
-						transports: ["internal"],
-						updated_at: now,
-					}),
-				),
+				body: JSON.stringify(apiResponse(updated)),
 			});
 			return;
 		}
 		if (route.request().method() === "DELETE") {
+			deleteRequests.push({
+				body: {},
+				id,
+				method: route.request().method(),
+				url: route.request().url(),
+			});
+			passkeys.delete(id);
 			await route.fulfill({
 				contentType: "application/json",
 				status: 200,
@@ -341,7 +396,9 @@ export async function mockPasskeyRegistrationEndpoints(page: Page) {
 	});
 
 	return {
+		deleteRequests,
 		finishPayloads,
+		patchRequests,
 		startPayloads,
 	};
 }

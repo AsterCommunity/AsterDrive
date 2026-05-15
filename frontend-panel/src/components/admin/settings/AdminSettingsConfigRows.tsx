@@ -272,7 +272,12 @@ function ScaledNumberInputControl({
 			return;
 		}
 
-		updateDraftValue(config.key, String(parsed * selectedUnit.multiplier));
+		const nextValue = parsed * selectedUnit.multiplier;
+		if (!Number.isSafeInteger(nextValue)) {
+			return;
+		}
+
+		updateDraftValue(config.key, String(nextValue));
 	};
 
 	return (

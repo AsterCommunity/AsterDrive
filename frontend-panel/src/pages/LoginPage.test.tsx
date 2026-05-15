@@ -14,6 +14,26 @@ const MockApiError = vi.hoisted(
 		},
 );
 
+const MockWebAuthnCancelledError = vi.hoisted(
+	() =>
+		class MockWebAuthnCancelledError extends Error {
+			constructor(message = "cancelled") {
+				super(message);
+				this.name = "WebAuthnCancelledError";
+			}
+		},
+);
+
+const MockWebAuthnUnsupportedError = vi.hoisted(
+	() =>
+		class MockWebAuthnUnsupportedError extends Error {
+			constructor(message = "unsupported") {
+				super(message);
+				this.name = "WebAuthnUnsupportedError";
+			}
+		},
+);
+
 const mockState = vi.hoisted(() => ({
 	check: vi.fn(),
 	handleApiError: vi.fn(),
@@ -199,8 +219,8 @@ vi.mock("@/lib/webauthn", () => ({
 	isConditionalPasskeyLoginAvailable: () =>
 		Promise.resolve(mockState.conditionalPasskeySupported),
 	isWebAuthnSupported: () => mockState.webAuthnSupported,
-	WebAuthnCancelledError: class WebAuthnCancelledError extends Error {},
-	WebAuthnUnsupportedError: class WebAuthnUnsupportedError extends Error {},
+	WebAuthnCancelledError: MockWebAuthnCancelledError,
+	WebAuthnUnsupportedError: MockWebAuthnUnsupportedError,
 }));
 
 vi.mock("@/stores/brandingStore", () => ({
@@ -368,17 +388,19 @@ describe("LoginPage", () => {
 		await waitFor(() => {
 			expect(mockState.startPasskeyLogin).toHaveBeenCalledWith({});
 		});
-		expect(mockState.getPasskeyCredential).toHaveBeenCalledWith({
-			publicKey: { challenge: "AQID" },
+		await waitFor(() => {
+			expect(mockState.getPasskeyCredential).toHaveBeenCalledWith({
+				publicKey: { challenge: "AQID" },
+			});
+			expect(mockState.finishPasskeyLogin).toHaveBeenCalledWith("flow-1", {
+				id: "credential-1",
+			});
+			expect(mockState.syncSession).toHaveBeenCalledWith(900);
+			expect(mockState.refreshUser).toHaveBeenCalledTimes(1);
+			expect(mockState.toastSuccess).toHaveBeenCalledWith(
+				"passkey_login_success",
+			);
 		});
-		expect(mockState.finishPasskeyLogin).toHaveBeenCalledWith("flow-1", {
-			id: "credential-1",
-		});
-		expect(mockState.syncSession).toHaveBeenCalledWith(900);
-		expect(mockState.refreshUser).toHaveBeenCalledTimes(1);
-		expect(mockState.toastSuccess).toHaveBeenCalledWith(
-			"passkey_login_success",
-		);
 		await waitFor(() => {
 			expect(mockState.navigate).toHaveBeenCalledWith("/", { replace: true });
 		});
@@ -468,6 +490,71 @@ describe("LoginPage", () => {
 		);
 	});
 
+	it("shows explicit passkey login errors for unsupported, cancelled, and API failures", async () => {
+		mockState.webAuthnSupported = true;
+
+		render(<LoginPage />);
+
+		await screen.findByRole("button", { name: /passkey_sign_in/ });
+		mockState.getPasskeyCredential.mockRejectedValueOnce(
+			new MockWebAuthnUnsupportedError(),
+		);
+		fireEvent.click(screen.getByRole("button", { name: /passkey_sign_in/ }));
+
+		await waitFor(() =>
+			expect(mockState.toastError).toHaveBeenCalledWith("passkey_unsupported"),
+		);
+
+		mockState.getPasskeyCredential.mockRejectedValueOnce(
+			new MockWebAuthnCancelledError(),
+		);
+		fireEvent.click(screen.getByRole("button", { name: /passkey_sign_in/ }));
+
+		await waitFor(() =>
+			expect(mockState.toastError).toHaveBeenCalledWith("passkey_cancelled"),
+		);
+
+		const error = new Error("passkey login failed");
+		mockState.getPasskeyCredential.mockRejectedValueOnce(error);
+		fireEvent.click(screen.getByRole("button", { name: /passkey_sign_in/ }));
+
+		await waitFor(() =>
+			expect(mockState.handleApiError).toHaveBeenCalledWith(error),
+		);
+	});
+
+	it("ignores cancelled conditional passkey login and reports API failures", async () => {
+		mockState.webAuthnSupported = true;
+		mockState.conditionalPasskeySupported = true;
+		mockState.getPasskeyCredential.mockRejectedValueOnce(
+			new MockWebAuthnCancelledError(),
+		);
+
+		const firstView = render(<LoginPage />);
+
+		await waitFor(() => {
+			expect(mockState.getPasskeyCredential).toHaveBeenCalledWith(
+				{ publicKey: { challenge: "AQID" } },
+				"conditional",
+				expect.any(AbortSignal),
+			);
+		});
+		await waitFor(() => {
+			expect(mockState.handleApiError).not.toHaveBeenCalled();
+		});
+		firstView.unmount();
+
+		const error = new Error("conditional start failed");
+		mockState.getPasskeyCredential.mockReset();
+		mockState.startPasskeyLogin.mockRejectedValueOnce(error);
+
+		render(<LoginPage />);
+
+		await waitFor(() =>
+			expect(mockState.handleApiError).toHaveBeenCalledWith(error),
+		);
+	});
+
 	it("shows a query toast passed from the verification redirect", async () => {
 		mockState.location = {
 			hash: "",
@@ -520,6 +607,70 @@ describe("LoginPage", () => {
 				search: "",
 			},
 			{ replace: true },
+		);
+	});
+
+	it("shows query toasts for invalid, missing, and activated verification redirects", async () => {
+		const cases = [
+			{
+				id: "contact-verification-invalid-login",
+				search: "?contact_verification=invalid",
+				title: "verify_contact_invalid_title",
+				description: "verify_contact_invalid_desc",
+			},
+			{
+				id: "contact-verification-missing-login",
+				search: "?contact_verification=missing",
+				title: "verify_contact_missing_token_title",
+				description: "verify_contact_missing_token_desc",
+			},
+		];
+
+		for (const item of cases) {
+			mockState.location = {
+				hash: "",
+				pathname: "/login",
+				search: item.search,
+			};
+			mockState.navigate.mockReset();
+			mockState.toastError.mockReset();
+
+			const view = render(<LoginPage />);
+
+			await waitFor(() =>
+				expect(mockState.toastError).toHaveBeenCalledWith(item.title, {
+					description: item.description,
+					id: item.id,
+				}),
+			);
+			expect(mockState.navigate).toHaveBeenCalledWith(
+				{
+					hash: "",
+					pathname: "/login",
+					search: "",
+				},
+				{ replace: true },
+			);
+			view.unmount();
+		}
+
+		mockState.location = {
+			hash: "",
+			pathname: "/login",
+			search: "?contact_verification=register-activated",
+		};
+		mockState.navigate.mockReset();
+		mockState.toastSuccess.mockReset();
+
+		render(<LoginPage />);
+
+		await waitFor(() =>
+			expect(mockState.toastSuccess).toHaveBeenCalledWith(
+				"activation_confirmed",
+				{
+					id: "contact-verification-register-activated-login",
+				},
+			),
 		);
 	});
 

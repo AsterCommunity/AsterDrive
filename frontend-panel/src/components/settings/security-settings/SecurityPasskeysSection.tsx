@@ -19,8 +19,6 @@ import {
 import { authService } from "@/services/authService";
 import type { PasskeyInfo } from "@/types/api";
 
-const DEFAULT_PASSKEY_NAME = "Passkey";
-
 interface EditablePasskeyName {
 	id: number;
 	value: string;
@@ -39,7 +37,7 @@ export function SecurityPasskeysSection() {
 	const [creating, setCreating] = useState(false);
 	const [name, setName] = useState("");
 	const [editing, setEditing] = useState<EditablePasskeyName | null>(null);
-	const [busyId, setBusyId] = useState<number | null>(null);
+	const [busyIds, setBusyIds] = useState<Set<number>>(() => new Set());
 	const [supported, setSupported] = useState(false);
 
 	const loadPasskeys = useEffectEvent(async () => {
@@ -64,7 +62,8 @@ export function SecurityPasskeysSection() {
 			return;
 		}
 
-		const finalName = name.trim() || DEFAULT_PASSKEY_NAME;
+		const finalName =
+			name.trim() || t("settings:settings_passkeys_default_name");
 		try {
 			setCreating(true);
 			const start = await authService.startPasskeyRegistration({
@@ -101,7 +100,7 @@ export function SecurityPasskeysSection() {
 		if (!finalName) return;
 
 		try {
-			setBusyId(editing.id);
+			setBusyIds((previous) => new Set(previous).add(editing.id));
 			const updated = await authService.renamePasskey(editing.id, {
 				name: finalName,
 			});
@@ -113,20 +112,28 @@ export function SecurityPasskeysSection() {
 		} catch (error) {
 			handleApiError(error);
 		} finally {
-			setBusyId(null);
+			setBusyIds((previous) => {
+				const next = new Set(previous);
+				next.delete(editing.id);
+				return next;
+			});
 		}
 	};
 
 	const handleDelete = async (id: number) => {
 		try {
-			setBusyId(id);
+			setBusyIds((previous) => new Set(previous).add(id));
 			await authService.deletePasskey(id);
 			setPasskeys((prev) => prev.filter((passkey) => passkey.id !== id));
 			toast.success(t("settings:settings_passkeys_deleted"));
 		} catch (error) {
 			handleApiError(error);
 		} finally {
-			setBusyId(null);
+			setBusyIds((previous) => {
+				const next = new Set(previous);
+				next.delete(id);
+				return next;
+			});
 		}
 	};
 
@@ -213,7 +220,7 @@ export function SecurityPasskeysSection() {
 				<div className="space-y-3">
 					{passkeys.map((passkey) => {
 						const currentEdit = editing?.id === passkey.id ? editing : null;
-						const busy = busyId === passkey.id;
+						const busy = busyIds.has(passkey.id);
 						return (
 							<div
 								key={passkey.id}

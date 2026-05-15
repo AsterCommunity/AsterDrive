@@ -43,8 +43,11 @@ where
     )))
 }
 
-/// 生成业务唯一 UUID。调用方负责用数据库查询判断候选值是否已被占用。
-pub async fn new_unique_uuid<F, Fut>(value_name: &str, mut is_taken: F) -> Result<Uuid>
+/// 生成业务 UUID，并用调用方提供的查询过滤已占用候选值。
+///
+/// 这个辅助函数不执行原子占用；调用方必须在后续写入路径继续依赖数据库唯一约束。
+/// 需要“检查并占用”原子语义时，使用 `with_unique_uuid` 并在回调里执行写入。
+pub async fn new_best_effort_uuid<F, Fut>(value_name: &str, mut is_taken: F) -> Result<Uuid>
 where
     F: FnMut(Uuid) -> Fut,
     Fut: Future<Output = Result<bool>>,
@@ -87,9 +90,9 @@ mod tests {
     };
 
     #[tokio::test]
-    async fn new_unique_uuid_returns_first_free_candidate() {
+    async fn new_best_effort_uuid_returns_first_free_candidate() {
         let attempts = Arc::new(AtomicUsize::new(0));
-        let result = new_unique_uuid("test value", {
+        let result = new_best_effort_uuid("test value", {
             let attempts = Arc::clone(&attempts);
             move |_| {
                 let attempts = Arc::clone(&attempts);
@@ -150,9 +153,9 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn new_unique_uuid_retries_taken_candidates() {
+    async fn new_best_effort_uuid_retries_taken_candidates() {
         let attempts = Arc::new(AtomicUsize::new(0));
-        let result = new_unique_uuid("test value", {
+        let result = new_best_effort_uuid("test value", {
             let attempts = Arc::clone(&attempts);
             move |_| {
                 let attempts = Arc::clone(&attempts);
@@ -169,9 +172,9 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn new_unique_uuid_stops_after_retry_budget_is_exhausted() {
+    async fn new_best_effort_uuid_stops_after_retry_budget_is_exhausted() {
         let attempts = Arc::new(AtomicUsize::new(0));
-        let result = new_unique_uuid("test value", {
+        let result = new_best_effort_uuid("test value", {
             let attempts = Arc::clone(&attempts);
             move |_| {
                 let attempts = Arc::clone(&attempts);

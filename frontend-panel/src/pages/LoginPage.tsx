@@ -10,6 +10,7 @@ import {
 	clearContactVerificationRedirectSearch,
 	getContactVerificationRedirectState,
 } from "@/lib/contactVerificationRedirect";
+import { logger } from "@/lib/logger";
 import {
 	clearPasswordResetRedirectSearch,
 	getPasswordResetRedirectState,
@@ -221,11 +222,18 @@ export default function LoginPage() {
 	useEffect(() => {
 		let cancelled = false;
 
-		void isConditionalPasskeyLoginAvailable().then((available) => {
-			if (!cancelled) {
-				setConditionalPasskeySupported(available);
-			}
-		});
+		void isConditionalPasskeyLoginAvailable()
+			.then((available) => {
+				if (!cancelled) {
+					setConditionalPasskeySupported(available);
+				}
+			})
+			.catch((error) => {
+				if (!cancelled) {
+					setConditionalPasskeySupported(false);
+				}
+				logger.warn("conditional passkey support detection failed", error);
+			});
 
 		return () => {
 			cancelled = true;

@@ -92,6 +92,7 @@
 	"settings_password_updated": "Password updated.",
 	"settings_passkeys_section": "Passkeys",
 	"settings_passkeys_section_desc": "Sign in with device unlock, biometrics, or a security key instead of typing your password.",
+	"settings_passkeys_default_name": "Passkey",
 	"settings_passkeys_new_name": "New passkey name",
 	"settings_passkeys_name_placeholder": "For example: MacBook, iPhone, or security key",
 	"settings_passkeys_add_hint": "Your browser opens the system passkey prompt when you add one.",

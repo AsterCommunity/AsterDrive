@@ -25,7 +25,7 @@ impl MigrationTrait for Migration {
                             .string_len(36)
                             .not_null(),
                     )
-                    .col(ColumnDef::new(Passkeys::Credential).json().not_null())
+                    .col(ColumnDef::new(Passkeys::Credential).text().not_null())
                     .col(ColumnDef::new(Passkeys::Name).string_len(128).not_null())
                     .col(ColumnDef::new(Passkeys::Transports).text().null())
                     .col(

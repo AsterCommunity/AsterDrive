@@ -245,6 +245,15 @@ test.describe
 			await expect(page.getByText("Phone", { exact: true })).toBeVisible({
 				timeout: 30_000,
 			});
+			expect(passkeyRequests.patchRequests).toHaveLength(1);
+			expect(passkeyRequests.patchRequests[0]).toMatchObject({
+				body: { name: "Phone" },
+				id: 7,
+				method: "PATCH",
+			});
+			expect(passkeyRequests.patchRequests[0]?.url).toContain(
+				"/api/v1/auth/passkeys/7",
+			);
 
 			await page.getByRole("button", { exact: true, name: "Delete" }).click();
 			const dialog = page.getByRole("alertdialog", {
@@ -256,5 +265,13 @@ test.describe
 			await expect(page.getByText("No passkeys yet")).toBeVisible({
 				timeout: 30_000,
 			});
+			expect(passkeyRequests.deleteRequests).toHaveLength(1);
+			expect(passkeyRequests.deleteRequests[0]).toMatchObject({
+				id: 7,
+				method: "DELETE",
+			});
+			expect(passkeyRequests.deleteRequests[0]?.url).toContain(
+				"/api/v1/auth/passkeys/7",
+			);
 		});
 	});

@@ -92,6 +92,7 @@
 	"settings_password_updated": "密码已更新。",
 	"settings_passkeys_section": "Passkey",
 	"settings_passkeys_section_desc": "用系统解锁、指纹或安全密钥登录，不需要输入密码。",
+	"settings_passkeys_default_name": "Passkey",
 	"settings_passkeys_new_name": "新 Passkey 名称",
 	"settings_passkeys_name_placeholder": "例如：MacBook、iPhone 或安全密钥",
 	"settings_passkeys_add_hint": "添加时浏览器会打开系统 Passkey 验证窗口。",

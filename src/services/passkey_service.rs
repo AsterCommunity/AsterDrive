@@ -6,7 +6,7 @@ use sea_orm::{ActiveModelTrait, ActiveValue::Set, ConnectionTrait, DbErr, SqlErr
 use serde::{Deserialize, Serialize};
 use webauthn_rs::prelude::{
     CreationChallengeResponse, CredentialID, DiscoverableAuthentication, DiscoverableKey, Passkey,
-    PasskeyAuthentication, PasskeyRegistration, PublicKeyCredential, RegisterPublicKeyCredential,
+    PasskeyRegistration, PublicKeyCredential, RegisterPublicKeyCredential,
     RequestChallengeResponse, Uuid, Webauthn, WebauthnBuilder, WebauthnError,
 };
 use webauthn_rs_proto::{ResidentKeyRequirement, UserVerificationPolicy};
@@ -18,6 +18,7 @@ use crate::entities::{passkey, user};
 use crate::errors::{AsterError, MapAsterErr, Result, validation_error_with_subcode};
 use crate::runtime::PrimaryAppState;
 use crate::services::auth_service::{self, LoginResult, is_email_verified};
+use crate::types::StoredPasskeyCredential;
 use crate::utils::{
     id,
     numbers::{u32_to_i64, u64_to_i64},
@@ -57,12 +58,6 @@ pub struct PasskeyLoginStartResp {
     pub public_key: serde_json::Value,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-enum PasskeyLoginMode {
-    Discoverable,
-    User { user_id: i64 },
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct PasskeyRegistrationChallenge {
     user_id: i64,
@@ -73,14 +68,8 @@ struct PasskeyRegistrationChallenge {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct PasskeyAuthenticationChallenge {
-    mode: PasskeyLoginMode,
-    state: StoredAuthenticationState,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-enum StoredAuthenticationState {
-    Discoverable(DiscoverableAuthentication),
-    User(PasskeyAuthentication),
+    identifier: Option<String>,
+    state: DiscoverableAuthentication,
 }
 
 fn registration_cache_key(flow_id: &str) -> String {
@@ -117,7 +106,7 @@ async fn user_handle_for_registration<C: ConnectionTrait>(
     match existing.first() {
         Some(passkey) => user_handle_from_storage(&passkey.user_handle),
         None => {
-            id::new_unique_uuid("passkey user handle", |candidate| {
+            id::new_best_effort_uuid("passkey user handle", |candidate| {
                 let storage = user_handle_to_storage(candidate);
                 async move { passkey_repo::user_handle_exists(db, &storage).await }
             })
@@ -129,7 +118,7 @@ async fn user_handle_for_registration<C: ConnectionTrait>(
 fn normalize_passkey_name(name: Option<&str>) -> Result<String> {
     let trimmed = name.map(str::trim).filter(|value| !value.is_empty());
     let normalized = trimmed.unwrap_or("Passkey");
-    if normalized.len() > PASSKEY_NAME_MAX_LEN {
+    if normalized.chars().count() > PASSKEY_NAME_MAX_LEN {
         return Err(validation_error_with_subcode(
             "passkey.name_too_long",
             format!("passkey name exceeds {PASSKEY_NAME_MAX_LEN} characters"),
@@ -149,14 +138,23 @@ fn passkey_to_json(passkey: &Passkey) -> Result<serde_json::Value> {
         .map_aster_err_ctx("failed to serialize passkey", AsterError::internal_error)
 }
 
-fn passkey_from_json(value: &serde_json::Value) -> Result<Passkey> {
-    serde_json::from_value(value.clone()).map_aster_err_ctx(
+fn stored_passkey_credential(value: &serde_json::Value) -> Result<StoredPasskeyCredential> {
+    StoredPasskeyCredential::from_json(value)
+        .map_aster_err_ctx("failed to serialize passkey", AsterError::internal_error)
+}
+
+fn passkey_from_json(value: &StoredPasskeyCredential) -> Result<Passkey> {
+    let credential = value.parse().map_aster_err_ctx(
+        "failed to parse stored passkey credential JSON",
+        AsterError::database_operation,
+    )?;
+    serde_json::from_value(credential).map_aster_err_ctx(
         "failed to deserialize passkey",
         AsterError::database_operation,
     )
 }
 
-type PasskeyMetadata = (serde_json::Value, Option<String>, bool, bool, i64);
+type PasskeyMetadata = (StoredPasskeyCredential, Option<String>, bool, bool, i64);
 
 fn passkey_metadata(passkey: &Passkey) -> Result<PasskeyMetadata> {
     let credential = passkey_to_json(passkey)?;
@@ -180,7 +178,7 @@ fn passkey_metadata(passkey: &Passkey) -> Result<PasskeyMetadata> {
         .unwrap_or(0);
 
     Ok((
-        credential,
+        stored_passkey_credential(&credential)?,
         transports,
         backup_eligible,
         backed_up,
@@ -403,6 +401,28 @@ fn ensure_login_user(user: &user::Model) -> Result<()> {
     Ok(())
 }
 
+fn normalize_login_identifier(identifier: Option<&str>) -> Option<String> {
+    identifier
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned)
+}
+
+fn ensure_login_identifier_matches(user: &user::Model, identifier: &str) -> Result<()> {
+    let matches = if identifier.contains('@') {
+        user.email == identifier
+    } else {
+        user.username == identifier
+    };
+    if matches {
+        Ok(())
+    } else {
+        Err(AsterError::auth_invalid_credentials(
+            "passkey does not match requested identifier",
+        ))
+    }
+}
+
 fn map_unique_passkey_err(err: DbErr) -> AsterError {
     if matches!(err.sql_err(), Some(SqlErr::UniqueConstraintViolation(_))) {
         return AsterError::validation_error("passkey credential already exists");
@@ -509,7 +529,7 @@ pub async fn finish_registration(
         user_id: Set(user.id),
         credential_id: Set(credential_id),
         user_handle: Set(user_handle_to_storage(challenge.user_handle)),
-        credential: Set(credential.clone()),
+        credential: Set(credential),
         name: Set(final_name),
         transports: Set(transports),
         backup_eligible: Set(backup_eligible),
@@ -552,50 +572,14 @@ pub async fn start_login(
     identifier: Option<&str>,
 ) -> Result<PasskeyLoginStartResp> {
     let webauthn = build_webauthn(state)?;
-    let (mut options, challenge) = match identifier.map(str::trim).filter(|value| !value.is_empty())
-    {
-        Some(identifier) => {
-            let user = auth_service::shared::find_user_by_identifier(&state.db, identifier)
-                .await?
-                .ok_or_else(|| AsterError::auth_invalid_credentials("user not found"))?;
-            ensure_login_user(&user)?;
-            let passkeys = passkey_repo::list_for_user(&state.db, user.id).await?;
-            if passkeys.is_empty() {
-                return Err(AsterError::auth_invalid_credentials(
-                    "no passkeys registered for user",
-                ));
-            }
-            let credentials = passkeys
-                .iter()
-                .map(|item| passkey_from_json(&item.credential))
-                .collect::<Result<Vec<_>>>()?;
-            let (options, state) = webauthn
-                .start_passkey_authentication(&credentials)
-                .map_err(webauthn_error)?;
-            (
-                options,
-                PasskeyAuthenticationChallenge {
-                    mode: PasskeyLoginMode::User { user_id: user.id },
-                    state: StoredAuthenticationState::User(state),
-                },
-            )
-        }
-        None => {
-            let (options, state) = webauthn
-                .start_discoverable_authentication()
-                .map_err(webauthn_error)?;
-            (
-                options,
-                PasskeyAuthenticationChallenge {
-                    mode: PasskeyLoginMode::Discoverable,
-                    state: StoredAuthenticationState::Discoverable(state),
-                },
-            )
-        }
+    let (mut options, auth_state) = webauthn
+        .start_discoverable_authentication()
+        .map_err(webauthn_error)?;
+    let challenge = PasskeyAuthenticationChallenge {
+        identifier: normalize_login_identifier(identifier),
+        state: auth_state,
     };
-    if challenge.mode == PasskeyLoginMode::Discoverable {
-        options.mediation = None;
-    }
+    options.mediation = None;
 
     let flow_id = new_flow_id();
     store_login_challenge(state, &flow_id, &challenge).await;
@@ -617,52 +601,33 @@ pub async fn finish_login(
     let credential = parse_login_credential(credential)?;
     let credential_id = credential_id_to_storage(credential.get_credential_id());
 
-    let passkey = match challenge.mode {
-        PasskeyLoginMode::User { user_id } => {
-            let passkey = passkey_repo::find_by_credential_id(&state.db, &credential_id)
-                .await?
-                .ok_or_else(|| AsterError::auth_invalid_credentials("passkey not found"))?;
-            if passkey.user_id != user_id {
-                return Err(AsterError::auth_invalid_credentials(
-                    "passkey does not belong to user",
-                ));
-            }
-            passkey
-        }
-        PasskeyLoginMode::Discoverable => {
-            let (user_handle, discovered_credential_id) = webauthn
-                .identify_discoverable_authentication(&credential)
-                .map_err(webauthn_error)?;
-            let discovered_credential_id = credential_id_to_storage(discovered_credential_id);
-            if discovered_credential_id != credential_id {
-                return Err(AsterError::auth_invalid_credentials(
-                    "passkey credential id mismatch",
-                ));
-            }
-            passkey_repo::find_by_user_handle_and_credential_id(
-                &state.db,
-                &user_handle_to_storage(user_handle),
-                &credential_id,
-            )
-            .await?
-            .ok_or_else(|| AsterError::auth_invalid_credentials("passkey not found"))?
-        }
-    };
+    let (user_handle, discovered_credential_id) = webauthn
+        .identify_discoverable_authentication(&credential)
+        .map_err(webauthn_error)?;
+    let discovered_credential_id = credential_id_to_storage(discovered_credential_id);
+    if discovered_credential_id != credential_id {
+        return Err(AsterError::auth_invalid_credentials(
+            "passkey credential id mismatch",
+        ));
+    }
+    let passkey = passkey_repo::find_by_user_handle_and_credential_id(
+        &state.db,
+        &user_handle_to_storage(user_handle),
+        &credential_id,
+    )
+    .await?
+    .ok_or_else(|| AsterError::auth_invalid_credentials("passkey not found"))?;
 
     let user = user_repo::find_by_id(&state.db, passkey.user_id).await?;
+    if let Some(identifier) = challenge.identifier.as_deref() {
+        ensure_login_identifier_matches(&user, identifier)?;
+    }
     ensure_login_user(&user)?;
     let mut stored = passkey_from_json(&passkey.credential)?;
-    let result = match challenge.state {
-        StoredAuthenticationState::User(auth_state) => webauthn
-            .finish_passkey_authentication(&credential, &auth_state)
-            .map_err(webauthn_error)?,
-        StoredAuthenticationState::Discoverable(auth_state) => {
-            let discoverable = DiscoverableKey::from(&stored);
-            webauthn
-                .finish_discoverable_authentication(&credential, auth_state, &[discoverable])
-                .map_err(webauthn_error)?
-        }
-    };
+    let discoverable = DiscoverableKey::from(&stored);
+    let result = webauthn
+        .finish_discoverable_authentication(&credential, challenge.state, &[discoverable])
+        .map_err(webauthn_error)?;
     if !result.user_verified() {
         return Err(AsterError::auth_invalid_credentials(
             "passkey user verification required",
@@ -672,7 +637,7 @@ pub async fn finish_login(
     let now = Utc::now();
     let changed = stored.update_credential(&result).unwrap_or(false);
     if changed {
-        let credential = passkey_to_json(&stored)?;
+        let credential = stored_passkey_credential(&passkey_to_json(&stored)?)?;
         passkey_repo::update_credential_after_auth(
             &state.db,
             passkey.id,

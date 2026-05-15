@@ -5,6 +5,8 @@ use serde::{Deserialize, Serialize};
 #[cfg(all(debug_assertions, feature = "openapi"))]
 use utoipa::ToSchema;
 
+use crate::types::StoredPasskeyCredential;
+
 #[derive(Clone, Debug, PartialEq, DeriveEntityModel, Serialize, Deserialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 #[sea_orm(table_name = "passkeys")]
@@ -14,7 +16,8 @@ pub struct Model {
     pub user_id: i64,
     pub credential_id: String,
     pub user_handle: String,
-    pub credential: serde_json::Value,
+    #[cfg_attr(all(debug_assertions, feature = "openapi"), schema(value_type = String))]
+    pub credential: StoredPasskeyCredential,
     pub name: String,
     pub transports: Option<String>,
     pub backup_eligible: bool,

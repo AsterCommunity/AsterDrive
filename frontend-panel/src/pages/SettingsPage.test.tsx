@@ -697,19 +697,19 @@ describe("SettingsPage", () => {
 			}),
 		);
 
-		await waitFor(() =>
+		await waitFor(() => {
 			expect(
 				mockState.authService.startPasskeyRegistration,
 			).toHaveBeenCalledWith({
 				name: "Laptop",
-			}),
-		);
-		expect(mockState.webAuthn.createPasskeyCredential).toHaveBeenCalledWith({
-			publicKey: { challenge: "AQID" },
+			});
+			expect(mockState.webAuthn.createPasskeyCredential).toHaveBeenCalledWith({
+				publicKey: { challenge: "AQID" },
+			});
+			expect(
+				mockState.authService.finishPasskeyRegistration,
+			).toHaveBeenCalledWith("passkey-flow", { id: "credential-1" }, "Laptop");
 		});
-		expect(
-			mockState.authService.finishPasskeyRegistration,
-		).toHaveBeenCalledWith("passkey-flow", { id: "credential-1" }, "Laptop");
 		expect(
 			await screen.findByText("settings:settings_passkeys_synced"),
 		).toBeInTheDocument();

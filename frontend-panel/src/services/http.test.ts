@@ -346,5 +346,14 @@ describe("http api helpers", () => {
 		await expect(errorHandler(originalError)).rejects.toBe(originalError);
 		expect(mockState.refreshToken).not.toHaveBeenCalled();
 		expect(mockState.client).not.toHaveBeenCalled();
+
+		const finishError = {
+			config: { url: "/auth/passkeys/login/finish" },
+			response: { status: 401 },
+		} satisfies MockAxiosError;
+
+		await expect(errorHandler(finishError)).rejects.toBe(finishError);
+		expect(mockState.refreshToken).not.toHaveBeenCalled();
+		expect(mockState.client).not.toHaveBeenCalled();
 	});
 });

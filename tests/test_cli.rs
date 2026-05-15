@@ -17,8 +17,8 @@ use aster_drive::entities::{
     passkey, storage_policy,
 };
 use aster_drive::types::{
-    DriverType, StoredStoragePolicyAllowedTypes, StoredStoragePolicyOptions, VerificationChannel,
-    VerificationPurpose,
+    DriverType, StoredPasskeyCredential, StoredStoragePolicyAllowedTypes,
+    StoredStoragePolicyOptions, VerificationChannel, VerificationPurpose,
 };
 use chrono::{Duration, Utc};
 use migration::{CurrentMigrator, Migrator, MigratorTrait};
@@ -327,11 +327,14 @@ async fn seed_passkey_fixture(db: &DatabaseConnection) {
         user_id: Set(user.id),
         credential_id: Set("migrate-passkey-credential".to_string()),
         user_handle: Set("8f7cb5ac-d850-4706-94ee-2b062765697a".to_string()),
-        credential: Set(serde_json::json!({
+        credential: Set(StoredPasskeyCredential(
+            serde_json::json!({
             "cred_id": "migrate-passkey-credential",
             "counter": 7,
             "transports": ["internal"]
-        })),
+            })
+            .to_string(),
+        )),
         name: Set("Migrated Passkey".to_string()),
         transports: Set(Some("internal".to_string())),
         backup_eligible: Set(true),
@@ -575,7 +578,11 @@ async fn assert_migrated_fixture(
     assert_eq!(remote_policies, 1);
     assert_eq!(file_name, "test-in-folder.txt");
     assert_eq!(passkey.name, "Migrated Passkey");
-    assert_eq!(passkey.credential["counter"], 7);
+    let credential = passkey
+        .credential
+        .parse()
+        .expect("passkey credential should be valid JSON");
+    assert_eq!(credential["counter"], 7);
     assert!(!managed_followers_has_namespace);
     assert!(!master_bindings_has_namespace);
     assert!(master_bindings_has_storage_namespace);

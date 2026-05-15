@@ -8,6 +8,7 @@ use sea_orm::{
 
 use crate::entities::passkey::{self, Entity as Passkey};
 use crate::errors::{AsterError, Result};
+use crate::types::StoredPasskeyCredential;
 
 pub async fn list_for_user<C: ConnectionTrait>(
     db: &C,
@@ -91,12 +92,18 @@ pub async fn update_name_for_user<C: ConnectionTrait>(
 pub async fn update_credential_after_auth<C: ConnectionTrait>(
     db: &C,
     id: i64,
-    credential: serde_json::Value,
+    credential: StoredPasskeyCredential,
     backup_eligible: bool,
     backed_up: bool,
     sign_count: i64,
     last_used_at: chrono::DateTime<Utc>,
 ) -> Result<bool> {
+    if sign_count < 0 {
+        return Err(AsterError::validation_error(
+            "passkey sign count cannot be negative",
+        ));
+    }
+
     let result = Passkey::update_many()
         .col_expr(passkey::Column::Credential, Expr::value(credential))
         .col_expr(

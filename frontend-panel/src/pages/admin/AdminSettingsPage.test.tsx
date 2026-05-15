@@ -1920,6 +1920,96 @@ describe("AdminSettingsPage", () => {
 		expect(screen.getByLabelText("/branding/next.svg")).toBeInTheDocument();
 	});
 
+	it("edits public site URL origins as stable rows and saves the resulting array", async () => {
+		mockState.listConfigs.mockResolvedValueOnce({
+			items: [
+				createConfig({
+					category: "general",
+					key: "public_site_url",
+					value: ["https://drive.example.com"],
+					value_type: "string_array",
+				}),
+			],
+		});
+		mockState.schema.mockResolvedValueOnce([
+			createSchemaItem({
+				category: "general",
+				key: "public_site_url",
+				label_i18n_key: "settings_item_public_site_url_label",
+				value_type: "string_array",
+			}),
+		]);
+
+		render(<AdminSettingsPage section="general" />);
+
+		const firstOrigin = await screen.findByLabelText(
+			"public_site_url_origin_label 1",
+		);
+		expect(firstOrigin).toHaveValue("https://drive.example.com");
+		expect(
+			screen.getByText("public_site_url_primary_origin"),
+		).toBeInTheDocument();
+
+		fireEvent.click(screen.getByRole("button", { name: "Plus" }));
+		fireEvent.change(screen.getByLabelText("public_site_url_origin_label 2"), {
+			target: { value: "https://panel.example.com" },
+		});
+		expect(screen.getByLabelText("public_site_url_origin_label 1")).toHaveValue(
+			"https://drive.example.com",
+		);
+
+		fireEvent.click(
+			screen.getAllByRole("button", {
+				name: "Trash",
+			})[0],
+		);
+		expect(screen.getByLabelText("public_site_url_origin_label 1")).toHaveValue(
+			"https://panel.example.com",
+		);
+
+		fireEvent.click(screen.getByRole("button", { name: "save_changes" }));
+
+		await waitFor(() => {
+			expect(mockState.setConfig).toHaveBeenCalledWith("public_site_url", [
+				"https://panel.example.com",
+			]);
+		});
+	});
+
+	it("clears the public site URL draft when the only origin row is removed", async () => {
+		mockState.listConfigs.mockResolvedValueOnce({
+			items: [
+				createConfig({
+					category: "general",
+					key: "public_site_url",
+					value: ["https://drive.example.com"],
+					value_type: "string_array",
+				}),
+			],
+		});
+		mockState.schema.mockResolvedValueOnce([
+			createSchemaItem({
+				category: "general",
+				key: "public_site_url",
+				value_type: "string_array",
+			}),
+		]);
+
+		render(<AdminSettingsPage section="general" />);
+
+		await screen.findByLabelText("public_site_url_origin_label 1");
+		fireEvent.click(screen.getByRole("button", { name: "Trash" }));
+
+		expect(screen.getByLabelText("public_site_url_origin_label 1")).toHaveValue(
+			"",
+		);
+		fireEvent.click(screen.getByRole("button", { name: "save_changes" }));
+
+		await waitFor(() => {
+			expect(mockState.setConfig).toHaveBeenCalledWith("public_site_url", []);
+		});
+	});
+
 	it("discards draft changes without sending any requests", async () => {
 		render(<AdminSettingsPage />);
 

@@ -127,9 +127,7 @@ fn decode_source_cell(
             Ok(value.map_or(CellValue::Null, CellValue::Timestamp))
         }
         BindingKind::Json => {
-            if let Ok(value) =
-                row.try_get_by_index_nullable::<Option<serde_json::Value>>(index)
-            {
+            if let Ok(value) = row.try_get_by_index_nullable::<Option<serde_json::Value>>(index) {
                 return Ok(value.map_or(CellValue::Null, CellValue::Json));
             }
             let value = row
@@ -242,7 +240,7 @@ fn cell_into_target_value(
             }
         },
         BindingKind::Json => match cell {
-            CellValue::Null => serde_json::Value::Null.into(),
+            CellValue::Null => Option::<serde_json::Value>::None.into(),
             CellValue::Json(value) => value.into(),
             CellValue::String(value) => serde_json::from_str::<serde_json::Value>(&value)
                 .map_err(|_| conversion_error("string value is not valid JSON"))?
