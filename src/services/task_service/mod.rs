@@ -290,6 +290,7 @@ pub(crate) async fn retry_task_in_scope(
             task.id
         )));
     }
+    state.wake_background_task_dispatcher();
 
     get_task_in_scope(state, scope, task_id).await
 }
@@ -437,7 +438,9 @@ pub(super) async fn create_task_record<T: Serialize>(
     // expires_at 代表“任务临时产物何时可以清理”，不是“任务记录何时删库”。
     // 我们保留 background_task 行作为历史留档；真正会按这个时间被清掉的是
     // temp/tasks/{task_id}/... 下面的中间产物。
-    background_task_repo::create(
+    // 用户可见的新后台任务都应该走这个入口创建，这样 archive / 未来的
+    // download_background 一类任务能自动唤醒 dispatcher，而不是等空闲退避 timer。
+    let task = background_task_repo::create(
         &state.db,
         background_task::ActiveModel {
             kind: Set(kind),
@@ -468,7 +471,9 @@ pub(super) async fn create_task_record<T: Serialize>(
             ..Default::default()
         },
     )
-    .await
+    .await?;
+    state.wake_background_task_dispatcher();
+    Ok(task)
 }
 
 pub(super) fn task_scope(task: &background_task::Model) -> Result<WorkspaceStorageScope> {

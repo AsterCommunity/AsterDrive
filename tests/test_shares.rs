@@ -4,7 +4,11 @@
 mod common;
 
 use actix_web::test;
-use actix_web::{cookie::SameSite, http::StatusCode};
+use actix_web::{
+    cookie::SameSite,
+    http::{StatusCode, header},
+};
+use aster_drive::types::BackgroundTaskStatus;
 use serde_json::Value;
 use std::io::Cursor;
 
@@ -166,7 +170,7 @@ async fn test_shares_crud() {
 #[actix_web::test]
 async fn test_shared_thumbnail_returns_304_for_matching_if_none_match() {
     let state = common::setup().await;
-    let app = create_test_app!(state);
+    let app = create_test_app!(state.clone());
 
     let (token, _) = register_and_login!(app);
     let file_id = upload_png!(app, token);
@@ -181,6 +185,32 @@ async fn test_shared_thumbnail_returns_304_for_matching_if_none_match() {
     assert_eq!(resp.status(), 201);
     let body: Value = test::read_body_json(resp).await;
     let share_token = body["data"]["token"].as_str().unwrap().to_string();
+
+    let req = test::TestRequest::get()
+        .uri(&format!("/api/v1/s/{share_token}/thumbnail"))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 202);
+    assert_eq!(
+        resp.headers()
+            .get("Retry-After")
+            .and_then(|value| value.to_str().ok()),
+        Some("2")
+    );
+    assert!(
+        !resp.headers().contains_key(header::CONTENT_TYPE),
+        "pending thumbnail response should not be JSON"
+    );
+    let body = test::read_body(resp).await;
+    assert!(
+        body.is_empty(),
+        "pending thumbnail response should have an empty body"
+    );
+
+    let stats = aster_drive::services::task_service::drain(&state)
+        .await
+        .unwrap();
+    assert_eq!(stats.succeeded, 1);
 
     let req = test::TestRequest::get()
         .uri(&format!("/api/v1/s/{share_token}/thumbnail"))
@@ -219,6 +249,77 @@ async fn test_shared_thumbnail_returns_304_for_matching_if_none_match() {
             .and_then(|value| value.to_str().ok()),
         Some("public, max-age=0, must-revalidate")
     );
+}
+
+#[actix_web::test]
+async fn test_shared_folder_file_thumbnail_returns_202_until_background_generation_finishes() {
+    let state = common::setup().await;
+    let app = create_test_app!(state.clone());
+
+    let (token, _) = register_and_login!(app);
+    let file_id = upload_png!(app, token);
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/folders")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({ "name": "shared-folder" }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 201);
+    let body: Value = test::read_body_json(resp).await;
+    let folder_id = body["data"]["id"].as_i64().unwrap();
+
+    let req = test::TestRequest::patch()
+        .uri(&format!("/api/v1/files/{file_id}"))
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({ "folder_id": folder_id }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/shares")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({ "target": folder_target(folder_id) }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 201);
+    let body: Value = test::read_body_json(resp).await;
+    let share_token = body["data"]["token"].as_str().unwrap().to_string();
+
+    let req = test::TestRequest::get()
+        .uri(&format!(
+            "/api/v1/s/{share_token}/files/{file_id}/thumbnail"
+        ))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 202);
+
+    let stats = aster_drive::services::task_service::drain(&state)
+        .await
+        .unwrap();
+    assert_eq!(stats.succeeded, 1);
+
+    let tasks = aster_drive::db::repository::background_task_repo::list_recent(&state.db, 8)
+        .await
+        .unwrap();
+    assert!(
+        tasks
+            .iter()
+            .any(|task| task.status == BackgroundTaskStatus::Succeeded)
+    );
+
+    let req = test::TestRequest::get()
+        .uri(&format!(
+            "/api/v1/s/{share_token}/files/{file_id}/thumbnail"
+        ))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+    assert_eq!(resp.headers().get("content-type").unwrap(), "image/webp");
 }
 
 #[actix_web::test]

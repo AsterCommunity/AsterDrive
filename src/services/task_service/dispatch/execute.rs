@@ -191,6 +191,7 @@ async fn process_claimed_task(
                     error = %error_message,
                     "background task failed; scheduled retry"
                 );
+                state.wake_background_task_dispatcher();
                 Ok(TaskDispatchOutcome {
                     retried: usize::from(retried),
                     ..Default::default()

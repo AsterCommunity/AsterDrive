@@ -1076,6 +1076,8 @@ pub async fn setup_with_database_url(database_url: &str) -> PrimaryAppState {
         mail_sender,
         storage_change_tx,
         share_download_rollback,
+        background_task_dispatch_wakeup:
+            aster_drive::runtime::PrimaryAppState::new_background_task_dispatch_wakeup(),
     }
 }
 

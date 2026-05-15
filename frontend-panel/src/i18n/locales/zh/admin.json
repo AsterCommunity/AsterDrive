@@ -242,6 +242,8 @@
 	"settings_item_mail_outbox_dispatch_interval_secs_desc": "系统每隔多久扫描一次待发送的事务邮件队列，并尝试派发已经可以发送的邮件。数值越小，排队邮件发得越快，但轮询也会更频繁。",
 	"settings_item_background_task_dispatch_interval_secs_label": "后台任务队列扫描间隔",
 	"settings_item_background_task_dispatch_interval_secs_desc": "系统每隔多久扫描一次待执行的后台任务队列，并把已经满足执行条件的任务交给 worker 开始处理，例如缩略图生成等异步工作。数值越小，排队任务启动越快，但轮询也会更频繁。",
+	"settings_item_background_task_dispatch_idle_max_interval_secs_label": "后台任务空闲最大扫描间隔",
+	"settings_item_background_task_dispatch_idle_max_interval_secs_desc": "调度器在连续空轮询后最多退避到多长时间再扫描一次。新建任务和手动重试仍会立即唤醒调度器。",
 	"settings_item_background_task_max_concurrency_label": "后台任务并发上限",
 	"settings_item_background_task_max_concurrency_desc": "保留的兜底并发上限；当前未被使用，等未来有任务类型接入 fallback lane 后再启用。",
 	"settings_item_background_task_archive_max_concurrency_label": "压缩解压任务并发上限",

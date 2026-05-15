@@ -1596,6 +1596,8 @@ async fn test_personal_archive_compress_task_creates_workspace_file() {
     let resp = test::call_service(&app, req).await;
     assert_eq!(resp.status(), 201);
 
+    let archive_wakeup = state.background_task_dispatch_wakeup.notified();
+    tokio::pin!(archive_wakeup);
     let req = test::TestRequest::post()
         .uri("/api/v1/batch/archive-compress")
         .insert_header(("Cookie", common::access_cookie_header(&token)))
@@ -1611,6 +1613,9 @@ async fn test_personal_archive_compress_task_creates_workspace_file() {
     let body: Value = test::read_body_json(resp).await;
     let task_id = body["data"]["id"].as_i64().unwrap();
     assert_eq!(body["data"]["max_attempts"], 5);
+    tokio::time::timeout(std::time::Duration::from_secs(1), &mut archive_wakeup)
+        .await
+        .expect("archive task creation should wake the dispatcher");
     assert_task_steps(
         &body,
         &[
@@ -1974,12 +1979,17 @@ async fn test_retry_task_reloads_max_attempts_from_runtime_config() {
         .insert_header(("Cookie", common::access_cookie_header(&token)))
         .insert_header(common::csrf_header_for(&token))
         .to_request();
+    let retry_wakeup = state.background_task_dispatch_wakeup.notified();
+    tokio::pin!(retry_wakeup);
     let resp = test::call_service(&app, req).await;
     assert_eq!(resp.status(), 200);
     let body: Value = test::read_body_json(resp).await;
     assert_eq!(body["data"]["status"], "pending");
     assert_eq!(body["data"]["attempt_count"], 0);
     assert_eq!(body["data"]["max_attempts"], 4);
+    tokio::time::timeout(std::time::Duration::from_secs(1), &mut retry_wakeup)
+        .await
+        .expect("manual task retry should wake the dispatcher");
 
     let stored = background_task_repo::find_by_id(&state.db, task.id)
         .await

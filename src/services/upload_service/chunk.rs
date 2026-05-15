@@ -4,6 +4,7 @@
 //! - 服务端本地暂存 chunk 文件
 //! - 服务端 relay 到 S3 multipart，并把 ETag 记入 upload_session_parts
 
+use bytes::Bytes;
 use chrono::Utc;
 
 use crate::db::repository::{upload_session_part_repo, upload_session_repo};
@@ -202,7 +203,7 @@ async fn upload_chunk_impl(
     state: &PrimaryAppState,
     session: upload_session::Model,
     chunk_number: i32,
-    data: &[u8],
+    data: Bytes,
 ) -> Result<ChunkUploadResponse> {
     let db = &state.db;
     let upload_id = session.id.as_str();
@@ -266,7 +267,7 @@ async fn upload_chunk_impl(
         let policy = state.policy_snapshot.get_policy_or_err(session.policy_id)?;
         let multipart = state.driver_registry.get_multipart_driver(&policy)?;
         let etag = match multipart
-            .upload_multipart_part(temp_key, multipart_id, s3_part_number, data)
+            .upload_multipart_part_bytes(temp_key, multipart_id, s3_part_number, data)
             .await
         {
             Ok(etag) => etag,
@@ -361,7 +362,7 @@ async fn upload_chunk_impl(
         ),
     );
 
-    write_local_chunk_temp(&temp_chunk_path, data, upload_id, chunk_number).await?;
+    write_local_chunk_temp(&temp_chunk_path, data.as_ref(), upload_id, chunk_number).await?;
 
     if !publish_local_chunk_temp(
         &temp_chunk_path,
@@ -413,6 +414,18 @@ pub async fn upload_chunk(
     data: &[u8],
 ) -> Result<ChunkUploadResponse> {
     let session = load_upload_session(state, personal_scope(user_id), upload_id).await?;
+    upload_chunk_impl(state, session, chunk_number, Bytes::copy_from_slice(data)).await
+}
+
+/// 上传单个分片，接收 HTTP body 已持有的 `Bytes`，避免 relay multipart 再复制一份大块数据。
+pub async fn upload_chunk_bytes(
+    state: &PrimaryAppState,
+    upload_id: &str,
+    chunk_number: i32,
+    user_id: i64,
+    data: Bytes,
+) -> Result<ChunkUploadResponse> {
+    let session = load_upload_session(state, personal_scope(user_id), upload_id).await?;
     upload_chunk_impl(state, session, chunk_number, data).await
 }
 
@@ -423,6 +436,18 @@ pub async fn upload_chunk_for_team(
     chunk_number: i32,
     user_id: i64,
     data: &[u8],
+) -> Result<ChunkUploadResponse> {
+    let session = load_upload_session(state, team_scope(team_id, user_id), upload_id).await?;
+    upload_chunk_impl(state, session, chunk_number, Bytes::copy_from_slice(data)).await
+}
+
+pub async fn upload_chunk_bytes_for_team(
+    state: &PrimaryAppState,
+    team_id: i64,
+    upload_id: &str,
+    chunk_number: i32,
+    user_id: i64,
+    data: Bytes,
 ) -> Result<ChunkUploadResponse> {
     let session = load_upload_session(state, team_scope(team_id, user_id), upload_id).await?;
     upload_chunk_impl(state, session, chunk_number, data).await

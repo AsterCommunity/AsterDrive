@@ -12,18 +12,20 @@ use actix_web::{
 };
 use futures::future::{LocalBoxFuture, Ready, ok};
 use reqwest::Url;
-use std::collections::{BTreeSet, HashMap};
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::rc::Rc;
 
 use crate::api::constants::HOUR_SECS;
 use crate::errors::{AsterError, MapAsterErr, Result as AsterResult};
 use crate::runtime::FollowerAppState;
-use crate::storage::remote_protocol::PRESIGNED_AUTH_ACCESS_KEY_QUERY;
+use crate::storage::remote_protocol::{
+    PRESIGNED_AUTH_ACCESS_KEY_QUERY, REMOTE_BROWSER_PRESIGNED_CORS_ALLOWED_HEADERS,
+    REMOTE_BROWSER_PRESIGNED_CORS_GET_EXPOSE_HEADERS,
+    REMOTE_BROWSER_PRESIGNED_CORS_PUT_EXPOSE_HEADERS,
+};
 
 const PRESIGNED_OBJECTS_PATH_PREFIX: &str = "/api/v1/internal/storage/objects/";
 const PREFLIGHT_ALLOWED_METHODS: &str = "GET, PUT, OPTIONS";
-const PUT_ACTUAL_EXPOSE_HEADERS: &str = "ETag";
-const GET_ACTUAL_EXPOSE_HEADERS: &str = "Accept-Ranges, Cache-Control, Content-Disposition, Content-Length, Content-Range, Content-Type, ETag";
 
 pub struct PresignedInternalStorageCors;
 
@@ -200,6 +202,20 @@ fn requested_headers_are_allowed(req: &ServiceRequest) -> AsterResult<bool> {
     let request_headers = request_headers.to_str().map_aster_err_with(|| {
         AsterError::validation_error("invalid Access-Control-Request-Headers")
     })?;
+    let allowed_headers = REMOTE_BROWSER_PRESIGNED_CORS_ALLOWED_HEADERS
+        .split(',')
+        .map(str::trim)
+        .filter(|header| !header.is_empty())
+        .map(|header| {
+            let normalized = header.to_ascii_lowercase();
+            normalized
+                .parse::<header::HeaderName>()
+                .map(|_| normalized)
+                .map_aster_err_with(|| {
+                    AsterError::validation_error("invalid Access-Control-Request-Headers")
+                })
+        })
+        .collect::<AsterResult<HashSet<_>>>()?;
 
     for requested in request_headers.split(',') {
         let requested = requested.trim().to_ascii_lowercase();
@@ -211,7 +227,7 @@ fn requested_headers_are_allowed(req: &ServiceRequest) -> AsterResult<bool> {
             AsterError::validation_error("invalid Access-Control-Request-Headers")
         })?;
 
-        if !matches!(requested.as_str(), "content-type" | "range") {
+        if !allowed_headers.contains(&requested) {
             return Ok(false);
         }
     }
@@ -241,7 +257,7 @@ fn apply_preflight_headers(headers: &mut HeaderMap) {
     );
     headers.insert(
         header::ACCESS_CONTROL_ALLOW_HEADERS,
-        HeaderValue::from_static("content-type, range"),
+        HeaderValue::from_static(REMOTE_BROWSER_PRESIGNED_CORS_ALLOWED_HEADERS),
     );
     headers.insert(
         header::ACCESS_CONTROL_MAX_AGE,
@@ -254,8 +270,8 @@ fn apply_preflight_headers(headers: &mut HeaderMap) {
 
 fn apply_actual_headers(headers: &mut HeaderMap, method: &Method) {
     let exposed = match *method {
-        Method::GET => GET_ACTUAL_EXPOSE_HEADERS,
-        Method::PUT => PUT_ACTUAL_EXPOSE_HEADERS,
+        Method::GET => REMOTE_BROWSER_PRESIGNED_CORS_GET_EXPOSE_HEADERS,
+        Method::PUT => REMOTE_BROWSER_PRESIGNED_CORS_PUT_EXPOSE_HEADERS,
         _ => return,
     };
     headers.insert(

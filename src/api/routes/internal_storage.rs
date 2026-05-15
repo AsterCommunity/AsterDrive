@@ -211,7 +211,7 @@ async fn get_capabilities(
     req: HttpRequest,
 ) -> Result<HttpResponse> {
     master_binding_service::authorize_internal_binding_request(state.get_ref(), &req).await?;
-    Ok(HttpResponse::Ok().json(ApiResponse::ok(RemoteStorageCapabilities::default())))
+    Ok(HttpResponse::Ok().json(ApiResponse::ok(RemoteStorageCapabilities::current())))
 }
 
 async fn sync_binding(

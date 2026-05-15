@@ -127,6 +127,18 @@ pub async fn count_by_remote_node_id<C: ConnectionTrait>(
         .map_err(AsterError::from)
 }
 
+pub async fn find_by_remote_node_id<C: ConnectionTrait>(
+    db: &C,
+    remote_node_id: i64,
+) -> Result<Vec<storage_policy::Model>> {
+    StoragePolicy::find()
+        .filter(storage_policy::Column::RemoteNodeId.eq(remote_node_id))
+        .order_by_asc(storage_policy::Column::Id)
+        .all(db)
+        .await
+        .map_err(AsterError::from)
+}
+
 pub async fn create<C: ConnectionTrait>(
     db: &C,
     model: storage_policy::ActiveModel,

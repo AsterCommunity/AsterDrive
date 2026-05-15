@@ -242,6 +242,8 @@
 	"settings_item_mail_outbox_dispatch_interval_secs_desc": "How often the server checks pending transactional email and tries to dispatch messages that are ready to send. Lower values send queued mail sooner but increase polling frequency.",
 	"settings_item_background_task_dispatch_interval_secs_label": "Background task queue scan interval",
 	"settings_item_background_task_dispatch_interval_secs_desc": "How often the server checks the pending background-task queue and hands runnable work to workers, such as thumbnail generation and other asynchronous jobs. Lower values start queued work sooner but increase polling frequency.",
+	"settings_item_background_task_dispatch_idle_max_interval_secs_label": "Background task idle max scan interval",
+	"settings_item_background_task_dispatch_idle_max_interval_secs_desc": "The longest interval the dispatcher may back off to after repeated idle scans. New tasks and manual retries still wake the dispatcher immediately.",
 	"settings_item_background_task_max_concurrency_label": "Background task concurrency cap",
 	"settings_item_background_task_max_concurrency_desc": "Reserved fallback concurrency cap; currently unused until future task kinds are assigned to the fallback lane.",
 	"settings_item_background_task_archive_max_concurrency_label": "Archive task concurrency cap",

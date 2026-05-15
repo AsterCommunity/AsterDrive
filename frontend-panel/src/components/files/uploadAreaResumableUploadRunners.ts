@@ -21,6 +21,8 @@ import type {
 	UploadModeRunners,
 } from "./uploadAreaUploadRunnerShared";
 
+const PRESIGNED_MULTIPART_URL_BATCH_SIZE = 16;
+
 export function createResumableUploadRunners({
 	abortFlagsRef,
 	flushProgress,
@@ -219,14 +221,57 @@ export function createResumableUploadRunners({
 			{ length: totalChunks },
 			(_, index) => index + 1,
 		).filter((partNumber) => !completedSet.has(partNumber));
+		const pendingPartNumbers = [...queue];
 
 		let urlCache: Record<number, string> = {};
+		const inFlightPresignBatches = new Map<number, Promise<void>>();
 
 		const getPartUrl = async (partNumber: number): Promise<string> => {
 			if (urlCache[partNumber]) return urlCache[partNumber];
-			const urls = await uploadService.presignParts(uploadId, [partNumber]);
-			urlCache = { ...urlCache, ...urls };
-			return urlCache[partNumber];
+
+			const inFlightBatch = inFlightPresignBatches.get(partNumber);
+			if (inFlightBatch) {
+				await inFlightBatch;
+				if (urlCache[partNumber]) return urlCache[partNumber];
+			}
+
+			const currentIndex = pendingPartNumbers.indexOf(partNumber);
+			const candidates =
+				currentIndex >= 0
+					? pendingPartNumbers.slice(currentIndex)
+					: [partNumber];
+			let batch = candidates
+				.filter((candidate) => !urlCache[candidate])
+				.slice(0, PRESIGNED_MULTIPART_URL_BATCH_SIZE);
+			if (!batch.includes(partNumber)) {
+				batch = [partNumber, ...batch].slice(
+					0,
+					PRESIGNED_MULTIPART_URL_BATCH_SIZE,
+				);
+			}
+
+			const presignBatch = uploadService
+				.presignParts(uploadId, batch)
+				.then((urls) => {
+					urlCache = { ...urlCache, ...urls };
+				});
+			for (const batchPartNumber of batch) {
+				inFlightPresignBatches.set(batchPartNumber, presignBatch);
+			}
+
+			try {
+				await presignBatch;
+			} finally {
+				for (const batchPartNumber of batch) {
+					inFlightPresignBatches.delete(batchPartNumber);
+				}
+			}
+
+			const url = urlCache[partNumber];
+			if (!url) {
+				throw new Error(`Missing presigned URL for part ${partNumber}`);
+			}
+			return url;
 		};
 
 		await runResumableTransfer({

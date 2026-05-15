@@ -132,6 +132,7 @@ where
         cors::CORS_MAX_AGE_SECS_KEY => cors::normalize_max_age_config_value(value),
         operations::MAIL_OUTBOX_DISPATCH_INTERVAL_SECS_KEY
         | operations::BACKGROUND_TASK_DISPATCH_INTERVAL_SECS_KEY
+        | operations::BACKGROUND_TASK_DISPATCH_IDLE_MAX_INTERVAL_SECS_KEY
         | operations::MAINTENANCE_CLEANUP_INTERVAL_SECS_KEY
         | operations::BLOB_RECONCILE_INTERVAL_SECS_KEY
         | operations::REMOTE_NODE_HEALTH_TEST_INTERVAL_SECS_KEY

@@ -30,7 +30,7 @@ pub(super) async fn complete_presigned_upload(
 
     let policy = state.policy_snapshot.get_policy_or_err(session.policy_id)?;
     let driver = state.driver_registry.get_driver(&policy)?;
-    ensure_uploaded_s3_object_size(
+    let actual_size = ensure_uploaded_s3_object_size(
         driver.as_ref(),
         &temp_key,
         session.total_size,
@@ -52,8 +52,13 @@ pub(super) async fn complete_presigned_upload(
         "completed presigned upload session",
         async {
             let (final_key, actual_size) =
-                copy_presigned_object_to_final_key(driver.as_ref(), &temp_key, session.total_size)
-                    .await?;
+                copy_presigned_object_to_final_key(
+                    driver.as_ref(),
+                    &temp_key,
+                    session.total_size,
+                    actual_size,
+                )
+                .await?;
             let file = match finalize_s3_upload_session(
                 state,
                 &session,
@@ -234,15 +239,8 @@ async fn copy_presigned_object_to_final_key(
     driver: &dyn StorageDriver,
     temp_key: &str,
     declared_size: i64,
+    verified_temp_size: i64,
 ) -> Result<(String, i64)> {
-    ensure_uploaded_s3_object_size(
-        driver,
-        temp_key,
-        declared_size,
-        "uploaded object not found - upload may not have completed",
-    )
-    .await?;
-
     let requested_final_key = presigned_final_storage_path();
     let final_key = driver.copy_object(temp_key, &requested_final_key).await?;
     let final_size = ensure_uploaded_s3_object_size(
@@ -252,6 +250,15 @@ async fn copy_presigned_object_to_final_key(
         "final uploaded object not found after presigned copy",
     )
     .await?;
+    if final_size != verified_temp_size {
+        return Err(upload_assembly_error_with_subcode(
+            "upload.final_object_size_mismatch",
+            format!(
+                "final object size mismatch: temp object {} bytes, final object {} bytes",
+                verified_temp_size, final_size
+            ),
+        ));
+    }
     Ok((final_key, final_size))
 }
 
@@ -353,4 +360,80 @@ async fn complete_s3_multipart_upload_session(
         },
     )
     .await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::copy_presigned_object_to_final_key;
+    use crate::errors::Result;
+    use crate::storage::driver::{BlobMetadata, StorageDriver};
+    use async_trait::async_trait;
+    use std::sync::{Arc, Mutex};
+    use tokio::io::AsyncRead;
+
+    #[derive(Default)]
+    struct CountingCopyDriver {
+        metadata_paths: Mutex<Vec<String>>,
+    }
+
+    #[async_trait]
+    impl StorageDriver for CountingCopyDriver {
+        async fn put(&self, _path: &str, _data: &[u8]) -> Result<String> {
+            unreachable!()
+        }
+
+        async fn get(&self, _path: &str) -> Result<Vec<u8>> {
+            unreachable!()
+        }
+
+        async fn get_stream(&self, _path: &str) -> Result<Box<dyn AsyncRead + Unpin + Send>> {
+            unreachable!()
+        }
+
+        async fn delete(&self, _path: &str) -> Result<()> {
+            unreachable!()
+        }
+
+        async fn exists(&self, _path: &str) -> Result<bool> {
+            unreachable!("metadata errors should not trigger exists in this success path")
+        }
+
+        async fn metadata(&self, path: &str) -> Result<BlobMetadata> {
+            self.metadata_paths
+                .lock()
+                .expect("metadata paths lock should not be poisoned")
+                .push(path.to_string());
+            Ok(BlobMetadata {
+                size: 12,
+                content_type: None,
+            })
+        }
+
+        async fn copy_object(&self, _src_path: &str, dest_path: &str) -> Result<String> {
+            Ok(dest_path.to_string())
+        }
+    }
+
+    #[tokio::test]
+    async fn copy_presigned_object_to_final_key_reuses_verified_temp_size() {
+        let driver = Arc::new(CountingCopyDriver::default());
+
+        let (final_key, final_size) =
+            copy_presigned_object_to_final_key(driver.as_ref(), "temp/object", 12, 12)
+                .await
+                .expect("copy should succeed");
+
+        assert_eq!(final_size, 12);
+        assert_ne!(final_key, "temp/object");
+        let metadata_paths = driver
+            .metadata_paths
+            .lock()
+            .expect("metadata paths lock should not be poisoned")
+            .clone();
+        assert_eq!(
+            metadata_paths,
+            vec![final_key],
+            "temp object metadata should be reused instead of fetched again"
+        );
+    }
 }

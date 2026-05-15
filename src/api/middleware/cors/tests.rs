@@ -86,6 +86,8 @@ async fn test_state(configs: &[(&str, &str)]) -> PrimaryAppState {
         mail_sender: crate::services::mail_service::runtime_sender(runtime_config.clone()),
         storage_change_tx,
         share_download_rollback,
+        background_task_dispatch_wakeup:
+            crate::runtime::PrimaryAppState::new_background_task_dispatch_wakeup(),
     }
 }
 

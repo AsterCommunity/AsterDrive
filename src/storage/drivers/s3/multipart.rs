@@ -3,6 +3,7 @@ use std::time::Duration;
 use async_trait::async_trait;
 use aws_sdk_s3::presigning::PresigningConfig;
 use aws_sdk_s3::primitives::ByteStream;
+use bytes::Bytes;
 
 use crate::errors::{MapAsterErr, Result};
 use crate::storage::error::{StorageErrorKind, storage_driver_error};
@@ -110,6 +111,17 @@ impl MultipartStorageDriver for S3Driver {
         part_number: i32,
         data: &[u8],
     ) -> Result<String> {
+        self.upload_multipart_part_bytes(path, upload_id, part_number, Bytes::copy_from_slice(data))
+            .await
+    }
+
+    async fn upload_multipart_part_bytes(
+        &self,
+        path: &str,
+        upload_id: &str,
+        part_number: i32,
+        data: Bytes,
+    ) -> Result<String> {
         let key = self.full_key(path);
         let resp = self
             .client
@@ -118,7 +130,7 @@ impl MultipartStorageDriver for S3Driver {
             .key(&key)
             .upload_id(upload_id)
             .part_number(part_number)
-            .body(ByteStream::from(data.to_vec()))
+            .body(ByteStream::from(data))
             .send()
             .await
             .map_err(|err| Self::map_sdk_error("S3 upload_part failed", err))?;

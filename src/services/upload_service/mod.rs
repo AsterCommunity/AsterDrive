@@ -21,7 +21,9 @@ use crate::services::audit_service::{self, AuditContext};
 use crate::services::workspace_models::FileInfo;
 use crate::services::workspace_storage_service::{self, WorkspaceStorageScope};
 
-pub use chunk::{upload_chunk, upload_chunk_for_team};
+pub use chunk::{
+    upload_chunk, upload_chunk_bytes, upload_chunk_bytes_for_team, upload_chunk_for_team,
+};
 pub use complete::{
     complete_upload, complete_upload_for_team, complete_upload_for_team_with_audit,
     complete_upload_with_audit,

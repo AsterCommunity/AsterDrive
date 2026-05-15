@@ -342,9 +342,10 @@ async fn create_dead_remote_policy(
             access_key: Set("dead-remote-ak".to_string()),
             secret_key: Set("dead-remote-sk".to_string()),
             is_enabled: Set(true),
-            last_capabilities: Set(
-                "{\"protocol_version\":\"v1\",\"supports_list\":true}".to_string()
-            ),
+            last_capabilities: Set(serde_json::to_string(
+                &aster_drive::storage::remote_protocol::RemoteStorageCapabilities::current(),
+            )
+            .expect("current remote capabilities should serialize")),
             last_error: Set(String::new()),
             last_checked_at: Set(Some(now)),
             created_at: Set(now),
@@ -2348,6 +2349,56 @@ async fn test_upload_service_presign_parts_rejects_non_multipart_session() {
         .await
         .unwrap_err();
     assert!(err.message().contains("not a multipart upload session"));
+}
+
+#[actix_web::test]
+async fn test_upload_service_presign_parts_validates_part_number_batch() {
+    use aster_drive::services::{auth_service, upload_service};
+
+    let state = common::setup().await;
+    let user = auth_service::register(
+        &state,
+        "presignbatch",
+        "presignbatch@test.com",
+        "password123",
+    )
+    .await
+    .unwrap();
+    let upload_id = new_test_upload_id();
+    create_upload_session(
+        &state,
+        user.id,
+        UploadSessionSpec::new(
+            &upload_id,
+            aster_drive::types::UploadSessionStatus::Presigned,
+            chrono::Utc::now() + chrono::Duration::hours(1),
+        )
+        .chunks(3, 0)
+        .s3(Some("files/temp-key"), Some("multipart-id")),
+    )
+    .await;
+
+    let err = upload_service::presign_parts(&state, &upload_id, user.id, vec![])
+        .await
+        .unwrap_err();
+    assert_eq!(err.api_error_subcode(), Some("upload.part_numbers_empty"));
+
+    let err = upload_service::presign_parts(&state, &upload_id, user.id, vec![0])
+        .await
+        .unwrap_err();
+    assert_eq!(
+        err.api_error_subcode(),
+        Some("upload.part_number_out_of_range")
+    );
+
+    let too_many = (1..=65).collect();
+    let err = upload_service::presign_parts(&state, &upload_id, user.id, too_many)
+        .await
+        .unwrap_err();
+    assert_eq!(
+        err.api_error_subcode(),
+        Some("upload.part_numbers_too_many")
+    );
 }
 
 #[actix_web::test]

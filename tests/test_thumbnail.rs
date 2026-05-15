@@ -252,6 +252,24 @@ async fn latest_thumbnail_task_for_processor(
 }
 
 #[actix_web::test]
+async fn test_thumbnail_task_creation_triggers_dispatch_wakeup() {
+    let state = common::setup().await;
+    let app = create_test_app!(state.clone());
+    let (token, _) = register_and_login!(app);
+
+    let file_id = upload_file_bytes!(app, token, "wakeup.png", "image/png", tiny_png());
+    let notified = state.background_task_dispatch_wakeup.notified();
+    tokio::pin!(notified);
+
+    let resp = request_thumbnail!(app, token, file_id);
+    assert_eq!(resp.status(), 202);
+
+    tokio::time::timeout(std::time::Duration::from_secs(1), &mut notified)
+        .await
+        .expect("thumbnail task creation should wake the dispatcher");
+}
+
+#[actix_web::test]
 async fn test_thumbnail_returns_202_when_not_ready() {
     let state = common::setup().await;
     let app = create_test_app!(state);

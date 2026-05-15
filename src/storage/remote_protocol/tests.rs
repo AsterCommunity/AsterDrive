@@ -91,12 +91,7 @@ async fn spawn_protocol_server() -> (TestHttpServer, Arc<ProtocolLog>) {
         HttpResponse::Ok().json(serde_json::json!({
             "code": 0,
             "msg": "",
-            "data": {
-                "protocol_version": "v1",
-                "supports_list": true,
-                "supports_range_read": true,
-                "supports_stream_upload": true
-            }
+            "data": RemoteStorageCapabilities::current()
         }))
     }
 
@@ -621,7 +616,36 @@ async fn remote_client_object_profile_and_compose_paths_roundtrip() {
         .probe_capabilities()
         .await
         .expect("capabilities should load");
-    assert_eq!(capabilities.protocol_version, "v1");
+    assert_eq!(capabilities.protocol_version, "v2");
+    assert_eq!(capabilities.min_supported_protocol_version, "v2");
+    assert!(capabilities.features.object_get);
+    assert!(capabilities.features.object_head);
+    assert!(capabilities.features.range_get);
+    assert!(capabilities.features.accept_ranges_header);
+    assert!(capabilities.features.browser_presigned_cors);
+    assert!(
+        capabilities
+            .browser_cors
+            .allowed_headers
+            .iter()
+            .any(|header| header.eq_ignore_ascii_case("range"))
+    );
+    assert!(
+        capabilities
+            .browser_cors
+            .exposed_headers
+            .iter()
+            .any(|header| header.eq_ignore_ascii_case("ETag"))
+    );
+    assert_eq!(
+        capabilities
+            .browser_cors
+            .exposed_headers
+            .iter()
+            .filter(|header| header.eq_ignore_ascii_case("ETag"))
+            .count(),
+        1
+    );
     assert!(capabilities.supports_list);
     assert!(capabilities.supports_range_read);
     assert!(capabilities.supports_stream_upload);
@@ -855,4 +879,66 @@ async fn remote_client_maps_envelope_errors_and_missing_data() {
 
     handle.stop(true).await;
     let _ = task.await;
+}
+
+#[test]
+fn capabilities_validation_rejects_incompatible_protocol_versions() {
+    let capabilities = RemoteStorageCapabilities {
+        protocol_version: "v1".to_string(),
+        min_supported_protocol_version: "v1".to_string(),
+        ..RemoteStorageCapabilities::current()
+    };
+
+    let error = capabilities
+        .validate_protocol("test remote node")
+        .expect_err("v1 discovery should be incompatible with v2 local protocol");
+
+    assert_eq!(
+        error.storage_error_kind(),
+        Some(StorageErrorKind::Misconfigured)
+    );
+    assert!(
+        error.message().contains("protocol incompatible"),
+        "unexpected error message: {}",
+        error.message()
+    );
+    assert!(
+        error.message().contains("local supports v2-v2"),
+        "unexpected error message: {}",
+        error.message()
+    );
+}
+
+#[test]
+fn capabilities_validation_blocks_remote_presigned_download_without_browser_range_cors() {
+    let mut capabilities = RemoteStorageCapabilities::current();
+    capabilities.browser_cors.allowed_headers = vec!["content-type".to_string()];
+    capabilities.browser_cors.exposed_headers =
+        vec!["Accept-Ranges".to_string(), "Content-Length".to_string()];
+    let options = crate::types::StoragePolicyOptions {
+        remote_download_strategy: Some(crate::types::RemoteDownloadStrategy::Presigned),
+        ..Default::default()
+    };
+
+    let error = capabilities
+        .validate_for_remote_policy(7, 42, &options)
+        .expect_err("missing Range/CORS headers should block presigned remote download");
+
+    assert_eq!(
+        error.storage_error_kind(),
+        Some(StorageErrorKind::Misconfigured)
+    );
+    assert!(
+        error
+            .message()
+            .contains("browser CORS contract is incomplete"),
+        "unexpected error message: {}",
+        error.message()
+    );
+    assert!(error.message().contains("allowed_headers missing range"));
+    assert!(
+        error
+            .message()
+            .contains("exposed_headers missing Content-Range")
+    );
 }

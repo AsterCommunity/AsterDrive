@@ -6,6 +6,7 @@
 
 use crate::errors::Result;
 use async_trait::async_trait;
+use bytes::Bytes;
 use std::time::Duration;
 
 /// Multipart upload 支持。
@@ -42,6 +43,21 @@ pub trait MultipartStorageDriver: Send + Sync {
         part_number: i32,
         data: &[u8],
     ) -> Result<String>;
+
+    /// 服务端直接上传一个 multipart part，接收拥有所有权的 Bytes。
+    ///
+    /// HTTP relay 上传入口已经拿到 `web::Bytes`，S3 等驱动可以覆盖该方法直接构造
+    /// provider body，避免先退回 `&[u8]` 再复制成 `Vec<u8>`。
+    async fn upload_multipart_part_bytes(
+        &self,
+        path: &str,
+        upload_id: &str,
+        part_number: i32,
+        data: Bytes,
+    ) -> Result<String> {
+        self.upload_multipart_part(path, upload_id, part_number, &data)
+            .await
+    }
 
     /// 取消 multipart upload（清理已上传的 parts）
     async fn abort_multipart_upload(&self, path: &str, upload_id: &str) -> Result<()>;

@@ -16,6 +16,7 @@ use crate::storage::{DriverRegistry, PolicySnapshot};
 use actix_web::web;
 use sea_orm::DatabaseConnection;
 use std::sync::Arc;
+use tokio::sync::Notify;
 
 #[derive(Clone)]
 pub struct PrimaryAppState {
@@ -30,6 +31,8 @@ pub struct PrimaryAppState {
     pub storage_change_tx: tokio::sync::broadcast::Sender<StorageChangeEvent>,
     /// 公开分享下载中途断连时的 download_count 回滚队列
     pub share_download_rollback: ShareDownloadRollbackQueue,
+    /// 后台任务 dispatcher 唤醒信号。任务创建/重试后用它打断空闲退避 sleep。
+    pub background_task_dispatch_wakeup: Arc<Notify>,
 }
 
 #[derive(Clone)]
@@ -59,6 +62,14 @@ pub trait PrimaryRuntimeState: SharedRuntimeState {
 pub trait FollowerRuntimeState: SharedRuntimeState {}
 
 impl PrimaryAppState {
+    pub fn new_background_task_dispatch_wakeup() -> Arc<Notify> {
+        Arc::new(Notify::new())
+    }
+
+    pub fn wake_background_task_dispatcher(&self) {
+        self.background_task_dispatch_wakeup.notify_one();
+    }
+
     pub fn follower_view(&self) -> FollowerAppState {
         FollowerAppState::from(self)
     }
@@ -223,6 +234,8 @@ mod tests {
             mail_sender: crate::services::mail_service::memory_sender(),
             storage_change_tx,
             share_download_rollback,
+            background_task_dispatch_wakeup:
+                crate::runtime::PrimaryAppState::new_background_task_dispatch_wakeup(),
         }
     }
 

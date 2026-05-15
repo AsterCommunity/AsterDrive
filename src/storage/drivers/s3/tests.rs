@@ -10,6 +10,7 @@ use crate::types::{StoragePolicyOptions, serialize_storage_policy_options};
 use aws_sdk_s3::config::{BehaviorVersion, Credentials, Region};
 use aws_smithy_http_client::test_util::{ReplayEvent, StaticReplayClient, capture_request};
 use aws_smithy_types::body::SdkBody;
+use bytes::Bytes;
 use std::time::Duration;
 
 fn mocked_driver(
@@ -655,6 +656,46 @@ async fn upload_multipart_part_rejects_missing_etag() {
 
     assert_eq!(err.storage_error_kind(), Some(StorageErrorKind::Unknown));
     assert!(err.message().contains("missing ETag"));
+}
+
+#[tokio::test]
+async fn upload_multipart_part_bytes_sends_request_body_without_slice_vec_roundtrip() {
+    let response = http::Response::builder()
+        .status(200)
+        .header("ETag", "\"part-etag\"")
+        .body(SdkBody::from(
+            r#"<?xml version="1.0" encoding="UTF-8"?>
+                <UploadPartResult><ETag>"part-etag"</ETag></UploadPartResult>"#,
+        ))
+        .expect("mocked response");
+    let (driver, request) = mocked_driver(response);
+
+    let etag = driver
+        .upload_multipart_part_bytes(
+            "object.bin",
+            "upload-123",
+            3,
+            Bytes::from_static(b"relay-part"),
+        )
+        .await
+        .expect("multipart part should upload");
+
+    let captured = request.expect_request();
+    assert_eq!(etag, "\"part-etag\"");
+    let uri = captured.uri().to_string();
+    assert!(
+        uri.contains("partNumber=3"),
+        "expected partNumber in '{uri}'"
+    );
+    assert!(
+        uri.contains("uploadId=upload-123"),
+        "expected uploadId in '{uri}'"
+    );
+    assert_eq!(
+        captured.body().bytes(),
+        Some(&b"relay-part"[..]),
+        "request body should be the provided Bytes payload"
+    );
 }
 
 #[tokio::test]

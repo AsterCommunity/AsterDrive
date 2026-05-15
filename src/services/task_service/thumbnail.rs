@@ -75,7 +75,10 @@ pub(crate) async fn ensure_thumbnail_task(
         match existing.status {
             BackgroundTaskStatus::Pending
             | BackgroundTaskStatus::Processing
-            | BackgroundTaskStatus::Retry => return Ok(()),
+            | BackgroundTaskStatus::Retry => {
+                state.wake_background_task_dispatcher();
+                return Ok(());
+            }
             BackgroundTaskStatus::Failed => {
                 return Err(AsterError::record_not_found(
                     "thumbnail is unavailable for this file",
@@ -132,12 +135,7 @@ pub(crate) async fn ensure_thumbnail_task(
     )
     .await?;
 
-    let state = state.clone();
-    tokio::spawn(async move {
-        if let Err(error) = super::dispatch_due(&state).await {
-            tracing::warn!("thumbnail task eager dispatch failed: {error}");
-        }
-    });
+    state.wake_background_task_dispatcher();
 
     Ok(())
 }

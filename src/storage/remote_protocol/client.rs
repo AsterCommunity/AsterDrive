@@ -114,12 +114,14 @@ impl RemoteStorageClient {
                 format!("remote storage capabilities failed: {}", envelope.msg),
             ));
         }
-        envelope.data.ok_or_else(|| {
+        let capabilities = envelope.data.ok_or_else(|| {
             storage_driver_error(
                 StorageErrorKind::Misconfigured,
                 "remote storage capabilities response missing data",
             )
-        })
+        })?;
+        capabilities.validate_protocol("remote storage capabilities probe")?;
+        Ok(capabilities)
     }
 
     pub async fn put_bytes(&self, key: &str, data: &[u8]) -> Result<()> {

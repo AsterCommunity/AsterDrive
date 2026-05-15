@@ -14,6 +14,11 @@ use crate::services::upload_service::scope::{load_upload_session, personal_scope
 use crate::services::workspace_storage_service::{self, resolve_policy_upload_transport};
 use crate::types::{UploadMode, UploadSessionStatus};
 use crate::utils::paths;
+use futures::{StreamExt, stream};
+
+const RECOVERABLE_UPLOAD_SESSIONS_LIMIT: u64 = 100;
+const RECOVERABLE_UPLOAD_PROGRESS_CONCURRENCY: usize = 8;
+const PRESIGNED_PARTS_MAX_BATCH: usize = 64;
 
 /// 查询上传进度
 async fn get_progress_impl(
@@ -129,13 +134,20 @@ async fn list_recoverable_sessions_impl(
     user_id: i64,
     team_id: Option<i64>,
 ) -> Result<Vec<RecoverableUploadSessionResponse>> {
-    let sessions =
-        upload_session_repo::find_recoverable_by_owner(&state.db, user_id, team_id).await?;
-    let mut recoverable = Vec::with_capacity(sessions.len());
-    for session in sessions {
-        recoverable.push(recoverable_session_response(state, session).await?);
-    }
-    Ok(recoverable)
+    let sessions = upload_session_repo::find_recoverable_by_owner(
+        &state.db,
+        user_id,
+        team_id,
+        RECOVERABLE_UPLOAD_SESSIONS_LIMIT,
+    )
+    .await?;
+    stream::iter(sessions)
+        .map(|session| recoverable_session_response(state, session))
+        .buffered(RECOVERABLE_UPLOAD_PROGRESS_CONCURRENCY)
+        .collect::<Vec<_>>()
+        .await
+        .into_iter()
+        .collect()
 }
 
 pub async fn get_progress(
@@ -194,6 +206,7 @@ async fn presign_parts_impl(
             ),
         ));
     }
+    validate_presign_part_numbers(&session, &part_numbers)?;
 
     let multipart_id = session.s3_multipart_id.as_deref().ok_or_else(|| {
         validation_error_with_subcode(
@@ -222,6 +235,38 @@ async fn presign_parts_impl(
         "presigned multipart upload parts"
     );
     Ok(urls)
+}
+
+fn validate_presign_part_numbers(
+    session: &upload_session::Model,
+    part_numbers: &[i32],
+) -> Result<()> {
+    if part_numbers.is_empty() {
+        return Err(validation_error_with_subcode(
+            "upload.part_numbers_empty",
+            "part_numbers cannot be empty",
+        ));
+    }
+    if part_numbers.len() > PRESIGNED_PARTS_MAX_BATCH {
+        return Err(validation_error_with_subcode(
+            "upload.part_numbers_too_many",
+            format!("part_numbers cannot contain more than {PRESIGNED_PARTS_MAX_BATCH} entries"),
+        ));
+    }
+
+    for part_number in part_numbers {
+        if *part_number < 1 || *part_number > session.total_chunks {
+            return Err(validation_error_with_subcode(
+                "upload.part_number_out_of_range",
+                format!(
+                    "part number {} is outside the valid range 1..={}",
+                    part_number, session.total_chunks
+                ),
+            ));
+        }
+    }
+
+    Ok(())
 }
 
 pub async fn presign_parts(

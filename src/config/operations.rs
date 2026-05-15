@@ -13,6 +13,7 @@ pub use crate::config::definitions::{
     ARCHIVE_EXTRACT_MAX_PATH_BYTES_KEY, ARCHIVE_EXTRACT_MAX_SOURCE_BYTES_KEY,
     ARCHIVE_EXTRACT_MAX_STAGING_BYTES_KEY, ARCHIVE_EXTRACT_MAX_UNCOMPRESSED_BYTES_KEY,
     AVATAR_MAX_UPLOAD_SIZE_BYTES_KEY, BACKGROUND_TASK_ARCHIVE_MAX_CONCURRENCY_KEY,
+    BACKGROUND_TASK_DISPATCH_IDLE_MAX_INTERVAL_SECS_KEY,
     BACKGROUND_TASK_DISPATCH_INTERVAL_SECS_KEY, BACKGROUND_TASK_MAX_ATTEMPTS_KEY,
     BACKGROUND_TASK_MAX_CONCURRENCY_KEY, BACKGROUND_TASK_THUMBNAIL_MAX_CONCURRENCY_KEY,
     BLOB_RECONCILE_INTERVAL_SECS_KEY, MAIL_OUTBOX_DISPATCH_INTERVAL_SECS_KEY,
@@ -23,6 +24,7 @@ pub use crate::config::definitions::{
 
 pub const DEFAULT_MAIL_OUTBOX_DISPATCH_INTERVAL_SECS: u64 = 5;
 pub const DEFAULT_BACKGROUND_TASK_DISPATCH_INTERVAL_SECS: u64 = 5;
+pub const DEFAULT_BACKGROUND_TASK_DISPATCH_IDLE_MAX_INTERVAL_SECS: u64 = 60;
 pub const DEFAULT_BACKGROUND_TASK_MAX_CONCURRENCY: usize = 1;
 pub const DEFAULT_BACKGROUND_TASK_ARCHIVE_MAX_CONCURRENCY: usize = 2;
 pub const DEFAULT_BACKGROUND_TASK_THUMBNAIL_MAX_CONCURRENCY: usize = 1;
@@ -95,6 +97,14 @@ pub fn background_task_dispatch_interval_secs(runtime_config: &RuntimeConfig) ->
         runtime_config,
         BACKGROUND_TASK_DISPATCH_INTERVAL_SECS_KEY,
         DEFAULT_BACKGROUND_TASK_DISPATCH_INTERVAL_SECS,
+    )
+}
+
+pub fn background_task_dispatch_idle_max_interval_secs(runtime_config: &RuntimeConfig) -> u64 {
+    read_positive_u64(
+        runtime_config,
+        BACKGROUND_TASK_DISPATCH_IDLE_MAX_INTERVAL_SECS_KEY,
+        DEFAULT_BACKGROUND_TASK_DISPATCH_IDLE_MAX_INTERVAL_SECS,
     )
 }
 
@@ -452,10 +462,12 @@ fn read_bounded_u64(
 mod tests {
     use super::{
         ARCHIVE_EXTRACT_MAX_STAGING_BYTES_KEY, AVATAR_MAX_UPLOAD_SIZE_BYTES_KEY,
-        BACKGROUND_TASK_ARCHIVE_MAX_CONCURRENCY_KEY, BACKGROUND_TASK_MAX_ATTEMPTS_KEY,
+        BACKGROUND_TASK_ARCHIVE_MAX_CONCURRENCY_KEY,
+        BACKGROUND_TASK_DISPATCH_IDLE_MAX_INTERVAL_SECS_KEY, BACKGROUND_TASK_MAX_ATTEMPTS_KEY,
         BACKGROUND_TASK_MAX_CONCURRENCY_KEY, BACKGROUND_TASK_THUMBNAIL_MAX_CONCURRENCY_KEY,
         BLOB_RECONCILE_INTERVAL_SECS_KEY, DEFAULT_ARCHIVE_EXTRACT_MAX_STAGING_BYTES,
         DEFAULT_AVATAR_MAX_UPLOAD_SIZE_BYTES, DEFAULT_BACKGROUND_TASK_ARCHIVE_MAX_CONCURRENCY,
+        DEFAULT_BACKGROUND_TASK_DISPATCH_IDLE_MAX_INTERVAL_SECS,
         DEFAULT_BACKGROUND_TASK_MAX_ATTEMPTS, DEFAULT_BACKGROUND_TASK_MAX_CONCURRENCY,
         DEFAULT_BACKGROUND_TASK_THUMBNAIL_MAX_CONCURRENCY, DEFAULT_BLOB_RECONCILE_INTERVAL_SECS,
         DEFAULT_REMOTE_NODE_HEALTH_TEST_INTERVAL_SECS,
@@ -464,12 +476,13 @@ mod tests {
         SHARE_DOWNLOAD_ROLLBACK_QUEUE_CAPACITY_KEY, TASK_LIST_MAX_LIMIT_KEY,
         TEAM_MEMBER_LIST_MAX_LIMIT_KEY, archive_extract_max_staging_bytes,
         avatar_max_upload_size_bytes, background_task_archive_max_concurrency,
-        background_task_max_attempts, background_task_max_concurrency,
-        background_task_thumbnail_max_concurrency, blob_reconcile_interval_secs,
-        normalize_attempts_config_value, normalize_bytes_config_value,
-        normalize_concurrency_config_value, normalize_interval_config_value,
-        normalize_list_max_limit_config_value, remote_node_health_test_interval_secs,
-        share_download_rollback_queue_capacity, task_list_max_limit, team_member_list_max_limit,
+        background_task_dispatch_idle_max_interval_secs, background_task_max_attempts,
+        background_task_max_concurrency, background_task_thumbnail_max_concurrency,
+        blob_reconcile_interval_secs, normalize_attempts_config_value,
+        normalize_bytes_config_value, normalize_concurrency_config_value,
+        normalize_interval_config_value, normalize_list_max_limit_config_value,
+        remote_node_health_test_interval_secs, share_download_rollback_queue_capacity,
+        task_list_max_limit, team_member_list_max_limit,
     };
     use crate::config::RuntimeConfig;
     use crate::entities::system_config;
@@ -520,6 +533,33 @@ mod tests {
         assert_eq!(
             remote_node_health_test_interval_secs(&runtime_config),
             DEFAULT_REMOTE_NODE_HEALTH_TEST_INTERVAL_SECS
+        );
+    }
+
+    #[test]
+    fn background_task_dispatch_idle_max_interval_reader_uses_runtime_value_and_default() {
+        let runtime_config = RuntimeConfig::new();
+        assert_eq!(
+            background_task_dispatch_idle_max_interval_secs(&runtime_config),
+            DEFAULT_BACKGROUND_TASK_DISPATCH_IDLE_MAX_INTERVAL_SECS
+        );
+
+        runtime_config.apply(config_model(
+            BACKGROUND_TASK_DISPATCH_IDLE_MAX_INTERVAL_SECS_KEY,
+            "45",
+        ));
+        assert_eq!(
+            background_task_dispatch_idle_max_interval_secs(&runtime_config),
+            45
+        );
+
+        runtime_config.apply(config_model(
+            BACKGROUND_TASK_DISPATCH_IDLE_MAX_INTERVAL_SECS_KEY,
+            "0",
+        ));
+        assert_eq!(
+            background_task_dispatch_idle_max_interval_secs(&runtime_config),
+            DEFAULT_BACKGROUND_TASK_DISPATCH_IDLE_MAX_INTERVAL_SECS
         );
     }
 

@@ -159,6 +159,8 @@ async fn build_lock_test_state() -> (PrimaryAppState, user::Model, file::Model) 
         mail_sender: mail_service::runtime_sender(runtime_config),
         storage_change_tx,
         share_download_rollback,
+        background_task_dispatch_wakeup:
+            crate::runtime::PrimaryAppState::new_background_task_dispatch_wakeup(),
     };
 
     (state, user, file)

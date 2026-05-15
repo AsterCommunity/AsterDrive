@@ -46,6 +46,8 @@ pub async fn prepare_primary() -> Result<PreparedPrimaryRuntime> {
             mail_sender,
             storage_change_tx,
             share_download_rollback,
+            background_task_dispatch_wakeup:
+                crate::runtime::PrimaryAppState::new_background_task_dispatch_wakeup(),
         },
         share_download_rollback_worker,
     })

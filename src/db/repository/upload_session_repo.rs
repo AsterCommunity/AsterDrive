@@ -228,6 +228,7 @@ pub async fn find_recoverable_by_owner<C: ConnectionTrait>(
     db: &C,
     user_id: i64,
     team_id: Option<i64>,
+    limit: u64,
 ) -> Result<Vec<upload_session::Model>> {
     let now = chrono::Utc::now();
     let mut query = UploadSession::find()
@@ -238,7 +239,9 @@ pub async fn find_recoverable_by_owner<C: ConnectionTrait>(
             UploadSessionStatus::Assembling,
             UploadSessionStatus::Presigned,
         ]))
-        .order_by_desc(upload_session::Column::UpdatedAt);
+        .order_by_desc(upload_session::Column::UpdatedAt)
+        .order_by_desc(upload_session::Column::Id)
+        .limit(limit);
 
     query = match team_id {
         Some(team_id) => query.filter(upload_session::Column::TeamId.eq(team_id)),

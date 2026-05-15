@@ -43,6 +43,10 @@ impl DispatchStats {
         self.failed += other.failed;
     }
 
+    pub fn has_activity(&self) -> bool {
+        self.claimed > 0 || self.succeeded > 0 || self.retried > 0 || self.failed > 0
+    }
+
     pub(super) fn add_outcome(&mut self, outcome: TaskDispatchOutcome) {
         self.succeeded += outcome.succeeded;
         self.retried += outcome.retried;

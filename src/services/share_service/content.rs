@@ -1,11 +1,11 @@
 //! 分享服务子模块：`content`。
 
 use crate::db::repository::{file_repo, share_repo};
-use crate::entities::share;
+use crate::entities::{file, share};
 use crate::errors::{AsterError, Result};
 use crate::runtime::PrimaryAppState;
 use crate::services::file_service::ResolvedDownloadRange;
-use crate::services::{file_service, folder_service};
+use crate::services::{file_service, folder_service, media_processing_service, task_service};
 use sea_orm::DatabaseConnection;
 use std::collections::HashMap;
 use std::sync::{
@@ -333,62 +333,63 @@ pub async fn list_shared_folder(
     Ok(contents)
 }
 
+async fn load_or_enqueue_thumbnail(
+    state: &PrimaryAppState,
+    file: &file::Model,
+) -> Result<Option<file_service::ThumbnailResult>> {
+    let blob = file_repo::find_blob_by_id(&state.db, file.blob_id).await?;
+    let thumbnail = media_processing_service::load_thumbnail_if_exists(state, &blob, &file.name)
+        .await
+        .map_err(media_processing_service::map_thumbnail_request_error)?;
+
+    match thumbnail {
+        Some(thumbnail) => Ok(Some(file_service::ThumbnailResult {
+            data: thumbnail.data,
+            blob_hash: blob.hash,
+            thumbnail_processor: Some(thumbnail.thumbnail_processor),
+            thumbnail_version: Some(thumbnail.thumbnail_version),
+        })),
+        None => {
+            task_service::ensure_thumbnail_task(state, &blob, &file.name, &file.mime_type)
+                .await
+                .map_err(media_processing_service::map_thumbnail_request_error)?;
+            Ok(None)
+        }
+    }
+}
+
 pub async fn get_shared_thumbnail(
     state: &PrimaryAppState,
     token: &str,
-) -> Result<file_service::ThumbnailResult> {
+) -> Result<Option<file_service::ThumbnailResult>> {
     let share = load_valid_share(state, token).await?;
     tracing::debug!(share_id = share.id, "loading shared thumbnail");
     let file = load_share_file_resource(state, &share).await?;
-    let blob = file_repo::find_blob_by_id(&state.db, file.blob_id).await?;
-    let thumbnail = crate::services::media_processing_service::get_or_generate_thumbnail(
-        state,
-        &blob,
-        &file.name,
-        &file.mime_type,
-    )
-    .await?;
+    let thumbnail = load_or_enqueue_thumbnail(state, &file).await?;
     tracing::debug!(
         share_id = share.id,
         file_id = file.id,
-        blob_id = blob.id,
-        "loaded shared thumbnail"
+        ready = thumbnail.is_some(),
+        "loaded shared thumbnail state"
     );
-    Ok(file_service::ThumbnailResult {
-        data: thumbnail.data,
-        blob_hash: blob.hash,
-        thumbnail_processor: Some(thumbnail.thumbnail_processor),
-        thumbnail_version: Some(thumbnail.thumbnail_version),
-    })
+    Ok(thumbnail)
 }
 
 pub async fn get_shared_folder_file_thumbnail(
     state: &PrimaryAppState,
     token: &str,
     file_id: i64,
-) -> Result<file_service::ThumbnailResult> {
+) -> Result<Option<file_service::ThumbnailResult>> {
     let (_, file) = load_shared_folder_file_target(state, token, file_id).await?;
     tracing::debug!(file_id = file.id, "loading shared folder file thumbnail");
 
-    let blob = file_repo::find_blob_by_id(&state.db, file.blob_id).await?;
-    let thumbnail = crate::services::media_processing_service::get_or_generate_thumbnail(
-        state,
-        &blob,
-        &file.name,
-        &file.mime_type,
-    )
-    .await?;
+    let thumbnail = load_or_enqueue_thumbnail(state, &file).await?;
     tracing::debug!(
         file_id = file.id,
-        blob_id = blob.id,
-        "loaded shared folder file thumbnail"
+        ready = thumbnail.is_some(),
+        "loaded shared folder file thumbnail state"
     );
-    Ok(file_service::ThumbnailResult {
-        data: thumbnail.data,
-        blob_hash: blob.hash,
-        thumbnail_processor: Some(thumbnail.thumbnail_processor),
-        thumbnail_version: Some(thumbnail.thumbnail_version),
-    })
+    Ok(thumbnail)
 }
 
 pub(crate) async fn load_preview_shared_file(

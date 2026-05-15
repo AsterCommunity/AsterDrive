@@ -12,6 +12,7 @@ use crate::storage::remote_protocol::{
     RemoteBindingSyncRequest, RemoteStorageCapabilities, RemoteStorageClient,
     normalize_remote_base_url,
 };
+use crate::types::parse_storage_policy_options;
 use chrono::Utc;
 use futures::{StreamExt, stream};
 use sea_orm::{ActiveModelTrait, DbErr, Set, SqlErr};
@@ -382,7 +383,7 @@ pub async fn run_health_tests<S: PrimaryRuntimeState>(
 }
 
 pub fn parse_capabilities(raw: &str) -> RemoteStorageCapabilities {
-    serde_json::from_str(raw).unwrap_or_default()
+    RemoteStorageCapabilities::from_stored_json(raw)
 }
 
 pub fn serialize_capabilities(capabilities: &RemoteStorageCapabilities) -> String {
@@ -392,6 +393,22 @@ pub fn serialize_capabilities(capabilities: &RemoteStorageCapabilities) -> Strin
 async fn probe_connection(input: &TestRemoteNodeInput) -> Result<RemoteStorageCapabilities> {
     let client = RemoteStorageClient::new(&input.base_url, &input.access_key, &input.secret_key)?;
     client.probe_capabilities().await
+}
+
+async fn policy_requirements_for_node<S: PrimaryRuntimeState>(
+    state: &S,
+    remote_node_id: i64,
+) -> Result<Vec<(i64, crate::types::StoragePolicyOptions)>> {
+    let policies = policy_repo::find_by_remote_node_id(state.db(), remote_node_id).await?;
+    Ok(policies
+        .into_iter()
+        .map(|policy| {
+            (
+                policy.id,
+                parse_storage_policy_options(policy.options.as_ref()),
+            )
+        })
+        .collect())
 }
 
 async fn probe_and_persist_node<S: PrimaryRuntimeState>(
@@ -406,7 +423,34 @@ async fn probe_and_persist_node<S: PrimaryRuntimeState>(
     .await;
 
     let (last_capabilities, last_error, probe_error) = match capabilities {
-        Ok(capabilities) => (serialize_capabilities(&capabilities), String::new(), None),
+        Ok(capabilities) => {
+            let policy_requirements = policy_requirements_for_node(state, node.id).await?;
+            let policy_requirements = policy_requirements
+                .iter()
+                .map(|(policy_id, options)| (*policy_id, options))
+                .collect::<Vec<_>>();
+            match capabilities.validate_for_binding(
+                node.id,
+                &node.name,
+                policy_requirements.as_slice(),
+            ) {
+                Ok(()) => (serialize_capabilities(&capabilities), String::new(), None),
+                Err(error) => {
+                    tracing::warn!(
+                        remote_node_id = node.id,
+                        remote_node_name = %node.name,
+                        protocol_version = %capabilities.protocol_version,
+                        min_supported_protocol_version = %capabilities.min_supported_protocol_version,
+                        "remote storage protocol compatibility check failed during probe: {error}"
+                    );
+                    (
+                        serialize_capabilities(&capabilities),
+                        error.message().to_string(),
+                        Some(error),
+                    )
+                }
+            }
+        }
         Err(error) => (
             node.last_capabilities.clone(),
             error.message().to_string(),
@@ -421,6 +465,11 @@ async fn probe_and_persist_node<S: PrimaryRuntimeState>(
         Some(Utc::now()),
     )
     .await?;
+    state
+        .driver_registry()
+        .reload_managed_followers(state.db())
+        .await?;
+    state.driver_registry().invalidate_all();
 
     Ok(ProbedRemoteNode { model, probe_error })
 }

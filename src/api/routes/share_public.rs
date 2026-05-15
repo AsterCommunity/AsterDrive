@@ -22,6 +22,12 @@ use actix_web::{HttpRequest, HttpResponse, web};
 
 const SHARE_COOKIE_PREFIX: &str = "aster_share_";
 
+fn thumbnail_pending_response() -> HttpResponse {
+    HttpResponse::Accepted()
+        .insert_header(("Retry-After", "2"))
+        .finish()
+}
+
 fn request_origin_parts(req: &HttpRequest) -> (String, String) {
     let conn = req.connection_info();
     (conn.scheme().to_string(), conn.host().to_string())
@@ -592,6 +598,7 @@ pub async fn shared_avatar(
     params(("token" = String, Path, description = "Share token")),
     responses(
         (status = 200, description = "Thumbnail image (WebP)"),
+        (status = 202, description = "Thumbnail generation accepted"),
         (status = 304, description = "Thumbnail not modified"),
         (status = 400, description = "Thumbnail not supported for this file type"),
         (status = 403, description = "Password required"),
@@ -614,11 +621,14 @@ pub async fn shared_thumbnail(
         .get("If-None-Match")
         .and_then(|value| value.to_str().ok());
 
-    Ok(files::thumbnail_response(
-        result,
-        if_none_match,
-        "public, max-age=0, must-revalidate".to_string(),
-    ))
+    match result {
+        Some(result) => Ok(files::thumbnail_response(
+            result,
+            if_none_match,
+            "public, max-age=0, must-revalidate".to_string(),
+        )),
+        None => Ok(thumbnail_pending_response()),
+    }
 }
 
 #[api_docs_macros::path(
@@ -632,6 +642,7 @@ pub async fn shared_thumbnail(
     ),
     responses(
         (status = 200, description = "Thumbnail image (WebP)"),
+        (status = 202, description = "Thumbnail generation accepted"),
         (status = 304, description = "Thumbnail not modified"),
         (status = 400, description = "Thumbnail not supported for this file type"),
         (status = 403, description = "Password required or file outside shared scope"),
@@ -655,11 +666,14 @@ pub async fn shared_folder_file_thumbnail(
         .get("If-None-Match")
         .and_then(|value| value.to_str().ok());
 
-    Ok(files::thumbnail_response(
-        result,
-        if_none_match,
-        "public, max-age=0, must-revalidate".to_string(),
-    ))
+    match result {
+        Some(result) => Ok(files::thumbnail_response(
+            result,
+            if_none_match,
+            "public, max-age=0, must-revalidate".to_string(),
+        )),
+        None => Ok(thumbnail_pending_response()),
+    }
 }
 
 #[cfg(test)]

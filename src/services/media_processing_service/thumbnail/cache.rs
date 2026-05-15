@@ -132,30 +132,27 @@ async fn load_thumbnail_from_path(
     path: &str,
     clear_metadata_on_missing: bool,
 ) -> Result<Option<Vec<u8>>> {
+    let thumbnail = read_thumbnail_from_path(blob.id, driver, path).await?;
+    if thumbnail.is_none() && clear_metadata_on_missing {
+        clear_thumbnail_metadata(state, blob).await;
+    }
+    Ok(thumbnail)
+}
+
+async fn read_thumbnail_from_path(
+    blob_id: i64,
+    driver: &Arc<dyn StorageDriver>,
+    path: &str,
+) -> Result<Option<Vec<u8>>> {
     match driver.get(path).await {
         Ok(data) => Ok(Some(data)),
+        Err(error) if error.storage_error_kind() == Some(StorageErrorKind::NotFound) => Ok(None),
         Err(error) => match driver.exists(path).await {
-            Ok(false) => {
-                if clear_metadata_on_missing {
-                    clear_thumbnail_metadata(state, blob).await;
-                }
-                Ok(None)
-            }
-            // The thumbnail may appear between the initial read and the follow-up existence
-            // probe while another worker is persisting it. Treat that as a cache miss so the
-            // request can return 202 instead of surfacing a transient 500.
-            Ok(true) if matches!(error.storage_error_kind(), Some(StorageErrorKind::NotFound)) => {
-                tracing::debug!(
-                    blob_id = blob.id,
-                    path,
-                    "thumbnail appeared after initial not-found read; treating as cache miss"
-                );
-                Ok(None)
-            }
+            Ok(false) => Ok(None),
             Ok(true) => Err(error),
             Err(exists_error) => {
                 tracing::warn!(
-                    blob_id = blob.id,
+                    blob_id,
                     path,
                     "thumbnail get failed and existence recheck also failed: {exists_error}"
                 );
@@ -189,5 +186,70 @@ pub(super) async fn persist_thumbnail_metadata(
             path,
             "failed to persist thumbnail metadata: {error}"
         );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::read_thumbnail_from_path;
+    use crate::errors::Result;
+    use crate::storage::StorageErrorKind;
+    use crate::storage::driver::{BlobMetadata, StorageDriver};
+    use crate::storage::error::storage_driver_error;
+    use async_trait::async_trait;
+    use std::sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    };
+    use tokio::io::AsyncRead;
+
+    struct MissingThumbnailDriver {
+        exists_calls: AtomicUsize,
+    }
+
+    #[async_trait]
+    impl StorageDriver for MissingThumbnailDriver {
+        async fn put(&self, _path: &str, _data: &[u8]) -> Result<String> {
+            unreachable!()
+        }
+
+        async fn get(&self, _path: &str) -> Result<Vec<u8>> {
+            Err(storage_driver_error(
+                StorageErrorKind::NotFound,
+                "thumbnail not found",
+            ))
+        }
+
+        async fn get_stream(&self, _path: &str) -> Result<Box<dyn AsyncRead + Unpin + Send>> {
+            unreachable!()
+        }
+
+        async fn delete(&self, _path: &str) -> Result<()> {
+            unreachable!()
+        }
+
+        async fn exists(&self, _path: &str) -> Result<bool> {
+            self.exists_calls.fetch_add(1, Ordering::SeqCst);
+            Ok(false)
+        }
+
+        async fn metadata(&self, _path: &str) -> Result<BlobMetadata> {
+            unreachable!()
+        }
+    }
+
+    #[tokio::test]
+    async fn read_thumbnail_from_path_treats_not_found_get_as_miss_without_exists_probe() {
+        let driver = Arc::new(MissingThumbnailDriver {
+            exists_calls: AtomicUsize::new(0),
+        });
+
+        let loaded =
+            read_thumbnail_from_path(1, &(driver.clone() as Arc<dyn StorageDriver>), "thumb.webp")
+                .await
+                .expect("not found should be a cache miss");
+
+        assert!(loaded.is_none());
+        assert_eq!(driver.exists_calls.load(Ordering::SeqCst), 0);
     }
 }

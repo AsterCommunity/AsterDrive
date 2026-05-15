@@ -17,7 +17,95 @@ use crate::services::share_service::ShareDownloadRollbackWorker;
 use crate::utils::numbers::u128_to_u64;
 
 const BACKGROUND_TASK_SHUTDOWN_GRACE: Duration = Duration::from_secs(30);
+const BACKGROUND_TASK_DISPATCH_ERROR_BACKOFF_CAP: Duration = Duration::from_secs(5);
 const MAINTENANCE_CLEANUP_JITTER_CAP: Duration = Duration::from_secs(30);
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum BackgroundTaskDispatchTrigger {
+    Startup,
+    Timer,
+    Wakeup,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct BackgroundTaskDispatchIteration {
+    has_activity: bool,
+    failed: bool,
+}
+
+impl BackgroundTaskDispatchIteration {
+    fn idle() -> Self {
+        Self {
+            has_activity: false,
+            failed: false,
+        }
+    }
+
+    fn active() -> Self {
+        Self {
+            has_activity: true,
+            failed: false,
+        }
+    }
+
+    fn failed() -> Self {
+        Self {
+            has_activity: false,
+            failed: true,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct BackgroundTaskDispatchBackoff {
+    idle_interval: Duration,
+    last_error: bool,
+}
+
+impl BackgroundTaskDispatchBackoff {
+    fn new(base_interval: Duration, max_interval: Duration) -> Self {
+        Self {
+            idle_interval: effective_dispatch_base_interval(base_interval, max_interval),
+            last_error: false,
+        }
+    }
+
+    fn sleep_duration(&self, base_interval: Duration, max_interval: Duration) -> Duration {
+        let base_interval = effective_dispatch_base_interval(base_interval, max_interval);
+        let max_interval = effective_dispatch_max_interval(base_interval, max_interval);
+        if self.last_error {
+            return base_interval.max(BACKGROUND_TASK_DISPATCH_ERROR_BACKOFF_CAP);
+        }
+        self.idle_interval.max(base_interval).min(max_interval)
+    }
+
+    fn record_iteration(
+        &mut self,
+        trigger: BackgroundTaskDispatchTrigger,
+        iteration: BackgroundTaskDispatchIteration,
+        base_interval: Duration,
+        max_interval: Duration,
+    ) {
+        let base_interval = effective_dispatch_base_interval(base_interval, max_interval);
+        let max_interval = effective_dispatch_max_interval(base_interval, max_interval);
+        if iteration.failed {
+            self.idle_interval = base_interval;
+            self.last_error = true;
+            return;
+        }
+        if iteration.has_activity || matches!(trigger, BackgroundTaskDispatchTrigger::Wakeup) {
+            self.idle_interval = base_interval;
+            self.last_error = false;
+            return;
+        }
+        self.idle_interval = self
+            .idle_interval
+            .max(base_interval)
+            .saturating_mul(2)
+            .min(max_interval);
+        self.last_error = false;
+    }
+}
 
 pub struct BackgroundTasks {
     shutdown_token: CancellationToken,
@@ -163,12 +251,122 @@ async fn run_periodic_iteration<F, Fut>(
     }
 }
 
+async fn spawn_background_task_dispatcher(
+    shutdown_token: CancellationToken,
+    state: web::Data<PrimaryAppState>,
+) {
+    let mut backoff = BackgroundTaskDispatchBackoff::new(
+        background_task_dispatch_interval(&state),
+        background_task_dispatch_idle_max_interval(&state),
+    );
+    let iteration = run_background_task_dispatch_iteration(&state)
+        .instrument(tracing::info_span!(
+            "bg_task",
+            task.name = "background-task-dispatch"
+        ))
+        .await;
+    backoff.record_iteration(
+        BackgroundTaskDispatchTrigger::Startup,
+        iteration,
+        background_task_dispatch_interval(&state),
+        background_task_dispatch_idle_max_interval(&state),
+    );
+
+    loop {
+        let sleep_duration = backoff.sleep_duration(
+            background_task_dispatch_interval(&state),
+            background_task_dispatch_idle_max_interval(&state),
+        );
+        let trigger = tokio::select! {
+            biased;
+            _ = shutdown_token.cancelled() => break,
+            _ = state.background_task_dispatch_wakeup.notified() => {
+                BackgroundTaskDispatchTrigger::Wakeup
+            }
+            _ = tokio::time::sleep(sleep_duration) => {
+                BackgroundTaskDispatchTrigger::Timer
+            }
+        };
+
+        if shutdown_token.is_cancelled() {
+            break;
+        }
+
+        let iteration = run_background_task_dispatch_iteration(&state)
+            .instrument(tracing::info_span!(
+                "bg_task",
+                task.name = "background-task-dispatch"
+            ))
+            .await;
+        backoff.record_iteration(
+            trigger,
+            iteration,
+            background_task_dispatch_interval(&state),
+            background_task_dispatch_idle_max_interval(&state),
+        );
+    }
+}
+
+async fn run_background_task_dispatch_iteration(
+    state: &web::Data<PrimaryAppState>,
+) -> BackgroundTaskDispatchIteration {
+    let started_at = Utc::now();
+    let (iteration, outcome) =
+        match AssertUnwindSafe(crate::services::task_service::dispatch_due(state.get_ref()))
+            .catch_unwind()
+            .await
+        {
+            Ok(result) => {
+                let iteration = match &result {
+                    Ok(stats) if stats.has_activity() => BackgroundTaskDispatchIteration::active(),
+                    Ok(_) => BackgroundTaskDispatchIteration::idle(),
+                    Err(_) => BackgroundTaskDispatchIteration::failed(),
+                };
+                (iteration, background_task_dispatch_outcome(result))
+            }
+            Err(panic) => {
+                let panic_message = if let Some(message) = panic.downcast_ref::<&str>() {
+                    (*message).to_string()
+                } else if let Some(message) = panic.downcast_ref::<String>() {
+                    message.clone()
+                } else {
+                    "unknown panic payload".to_string()
+                };
+                tracing::error!(
+                    "background task 'background-task-dispatch' panicked: {panic_message}"
+                );
+                (
+                    BackgroundTaskDispatchIteration::failed(),
+                    crate::services::task_service::RuntimeTaskRunOutcome::failed(
+                        Some("Task panicked".to_string()),
+                        panic_message,
+                    ),
+                )
+            }
+        };
+    let finished_at = Utc::now();
+
+    if let Err(error) = crate::services::task_service::record_runtime_task_run(
+        state.get_ref(),
+        "background-task-dispatch",
+        started_at,
+        finished_at,
+        &outcome,
+    )
+    .await
+    {
+        tracing::warn!("failed to record runtime task 'background-task-dispatch': {error}");
+    }
+
+    iteration
+}
+
 fn background_task_dispatch_outcome(
     result: crate::errors::Result<crate::services::task_service::DispatchStats>,
 ) -> crate::services::task_service::RuntimeTaskRunOutcome {
     match result {
         Ok(stats) => {
-            if stats.claimed > 0 || stats.failed > 0 {
+            if stats.has_activity() {
                 tracing::info!(
                     claimed = stats.claimed,
                     succeeded = stats.succeeded,
@@ -217,6 +415,17 @@ fn effective_jitter_cap(base_interval: Duration, jitter_cap: Duration) -> Durati
     .unwrap_or(u64::MAX)
         / 10;
     jitter_cap.min(Duration::from_millis(bounded_ms))
+}
+
+fn effective_dispatch_base_interval(base_interval: Duration, _max_interval: Duration) -> Duration {
+    if base_interval.is_zero() {
+        return Duration::from_secs(1);
+    }
+    base_interval
+}
+
+fn effective_dispatch_max_interval(base_interval: Duration, max_interval: Duration) -> Duration {
+    max_interval.max(base_interval)
 }
 
 fn build_background_tasks_base() -> BackgroundTasks {
@@ -288,17 +497,9 @@ pub fn spawn_primary_background_tasks(
         },
     ));
 
-    tasks.push(spawn_periodic(
-        "background-task-dispatch",
-        background_task_dispatch_interval,
-        None,
+    tasks.push(spawn_background_task_dispatcher(
         shutdown_token.clone(),
         state.clone(),
-        |s| async move {
-            // 这是后台任务主调度器：
-            // 周期性捞取 Pending / Retry / stale Processing 任务，并发起认领与执行。
-            background_task_dispatch_outcome(crate::services::task_service::dispatch_due(&s).await)
-        },
     ));
 
     tasks.push(spawn_periodic(
@@ -622,6 +823,14 @@ fn background_task_dispatch_interval(state: &PrimaryAppState) -> Duration {
     )
 }
 
+fn background_task_dispatch_idle_max_interval(state: &PrimaryAppState) -> Duration {
+    Duration::from_secs(
+        crate::config::operations::background_task_dispatch_idle_max_interval_secs(
+            &state.runtime_config,
+        ),
+    )
+}
+
 fn maintenance_cleanup_interval(state: &PrimaryAppState) -> Duration {
     Duration::from_secs(
         crate::config::operations::maintenance_cleanup_interval_secs(&state.runtime_config),
@@ -644,6 +853,7 @@ fn system_health_check_interval(state: &PrimaryAppState) -> Duration {
 mod tests {
     use super::*;
     use crate::config::operations::{
+        BACKGROUND_TASK_DISPATCH_IDLE_MAX_INTERVAL_SECS_KEY,
         BACKGROUND_TASK_DISPATCH_INTERVAL_SECS_KEY, BLOB_RECONCILE_INTERVAL_SECS_KEY,
         MAIL_OUTBOX_DISPATCH_INTERVAL_SECS_KEY, MAINTENANCE_CLEANUP_INTERVAL_SECS_KEY,
         REMOTE_NODE_HEALTH_TEST_INTERVAL_SECS_KEY,
@@ -691,6 +901,8 @@ mod tests {
             mail_sender: crate::services::mail_service::memory_sender(),
             storage_change_tx,
             share_download_rollback,
+            background_task_dispatch_wakeup:
+                crate::runtime::PrimaryAppState::new_background_task_dispatch_wakeup(),
         })
     }
 
@@ -763,6 +975,11 @@ mod tests {
         let state = setup_state().await;
         apply_runtime_value(&state, MAIL_OUTBOX_DISPATCH_INTERVAL_SECS_KEY, "11");
         apply_runtime_value(&state, BACKGROUND_TASK_DISPATCH_INTERVAL_SECS_KEY, "12");
+        apply_runtime_value(
+            &state,
+            BACKGROUND_TASK_DISPATCH_IDLE_MAX_INTERVAL_SECS_KEY,
+            "30",
+        );
         apply_runtime_value(&state, MAINTENANCE_CLEANUP_INTERVAL_SECS_KEY, "13");
         apply_runtime_value(&state, BLOB_RECONCILE_INTERVAL_SECS_KEY, "14");
         apply_runtime_value(&state, REMOTE_NODE_HEALTH_TEST_INTERVAL_SECS_KEY, "15");
@@ -774,6 +991,10 @@ mod tests {
         assert_eq!(
             background_task_dispatch_interval(&state),
             Duration::from_secs(12)
+        );
+        assert_eq!(
+            background_task_dispatch_idle_max_interval(&state),
+            Duration::from_secs(30)
         );
         assert_eq!(
             maintenance_cleanup_interval(&state),
@@ -810,6 +1031,145 @@ mod tests {
                 "Internal Server Error: dispatcher crashed",
             )
         );
+    }
+
+    #[test]
+    fn background_task_dispatch_zero_base_interval_uses_minimum_delay() {
+        let base = Duration::ZERO;
+        let max = Duration::from_secs(30);
+        let mut backoff = BackgroundTaskDispatchBackoff::new(base, max);
+
+        assert_eq!(backoff.sleep_duration(base, max), Duration::from_secs(1));
+
+        backoff.record_iteration(
+            BackgroundTaskDispatchTrigger::Timer,
+            BackgroundTaskDispatchIteration::idle(),
+            base,
+            max,
+        );
+        assert_eq!(backoff.sleep_duration(base, max), Duration::from_secs(2));
+    }
+
+    #[test]
+    fn background_task_dispatch_backoff_grows_on_idle_and_caps() {
+        let base = Duration::from_secs(5);
+        let max = Duration::from_secs(30);
+        let mut backoff = BackgroundTaskDispatchBackoff::new(base, max);
+
+        assert_eq!(backoff.sleep_duration(base, max), base);
+
+        backoff.record_iteration(
+            BackgroundTaskDispatchTrigger::Timer,
+            BackgroundTaskDispatchIteration::idle(),
+            base,
+            max,
+        );
+        assert_eq!(backoff.sleep_duration(base, max), Duration::from_secs(10));
+
+        backoff.record_iteration(
+            BackgroundTaskDispatchTrigger::Timer,
+            BackgroundTaskDispatchIteration::idle(),
+            base,
+            max,
+        );
+        assert_eq!(backoff.sleep_duration(base, max), Duration::from_secs(20));
+
+        backoff.record_iteration(
+            BackgroundTaskDispatchTrigger::Timer,
+            BackgroundTaskDispatchIteration::idle(),
+            base,
+            max,
+        );
+        assert_eq!(backoff.sleep_duration(base, max), max);
+
+        backoff.record_iteration(
+            BackgroundTaskDispatchTrigger::Timer,
+            BackgroundTaskDispatchIteration::idle(),
+            base,
+            max,
+        );
+        assert_eq!(backoff.sleep_duration(base, max), max);
+    }
+
+    #[test]
+    fn background_task_dispatch_backoff_resets_on_wakeup_and_activity() {
+        let base = Duration::from_secs(5);
+        let max = Duration::from_secs(60);
+        let mut backoff = BackgroundTaskDispatchBackoff::new(base, max);
+
+        backoff.record_iteration(
+            BackgroundTaskDispatchTrigger::Timer,
+            BackgroundTaskDispatchIteration::idle(),
+            base,
+            max,
+        );
+        backoff.record_iteration(
+            BackgroundTaskDispatchTrigger::Timer,
+            BackgroundTaskDispatchIteration::idle(),
+            base,
+            max,
+        );
+        assert_eq!(backoff.sleep_duration(base, max), Duration::from_secs(20));
+
+        backoff.record_iteration(
+            BackgroundTaskDispatchTrigger::Wakeup,
+            BackgroundTaskDispatchIteration::idle(),
+            base,
+            max,
+        );
+        assert_eq!(backoff.sleep_duration(base, max), base);
+
+        backoff.record_iteration(
+            BackgroundTaskDispatchTrigger::Timer,
+            BackgroundTaskDispatchIteration::idle(),
+            base,
+            max,
+        );
+        assert_eq!(backoff.sleep_duration(base, max), Duration::from_secs(10));
+
+        backoff.record_iteration(
+            BackgroundTaskDispatchTrigger::Timer,
+            BackgroundTaskDispatchIteration::active(),
+            base,
+            max,
+        );
+        assert_eq!(backoff.sleep_duration(base, max), base);
+    }
+
+    #[test]
+    fn background_task_dispatch_backoff_never_polls_faster_than_normal_after_error() {
+        let base = Duration::from_secs(30);
+        let max = Duration::from_secs(120);
+        let mut backoff = BackgroundTaskDispatchBackoff::new(base, max);
+
+        backoff.record_iteration(
+            BackgroundTaskDispatchTrigger::Timer,
+            BackgroundTaskDispatchIteration::failed(),
+            base,
+            max,
+        );
+        assert_eq!(backoff.sleep_duration(base, max), base);
+
+        let short_base = Duration::from_secs(1);
+        let mut short_backoff = BackgroundTaskDispatchBackoff::new(short_base, max);
+        short_backoff.record_iteration(
+            BackgroundTaskDispatchTrigger::Timer,
+            BackgroundTaskDispatchIteration::failed(),
+            short_base,
+            max,
+        );
+        assert_eq!(
+            short_backoff.sleep_duration(short_base, max),
+            BACKGROUND_TASK_DISPATCH_ERROR_BACKOFF_CAP
+        );
+
+        backoff.record_iteration(
+            BackgroundTaskDispatchTrigger::Timer,
+            BackgroundTaskDispatchIteration::idle(),
+            base,
+            max,
+        );
+        assert_eq!(backoff.sleep_duration(base, max), Duration::from_secs(60));
     }
 
     #[tokio::test]

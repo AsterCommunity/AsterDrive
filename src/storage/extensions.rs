@@ -27,7 +27,10 @@ pub trait PresignedStorageDriver: Send + Sync {
 /// 路径列举支持（用于后台维护任务）
 #[async_trait]
 pub trait ListStorageDriver: Send + Sync {
-    /// 列出当前策略下的对象路径（相对路径）
+    /// 列出当前策略下的对象路径（相对路径）。
+    ///
+    /// 该接口会把结果完整收集到内存，适合小范围列举。完整审计、孤儿对象清理
+    /// 等大规模扫描路径应使用 `scan_paths`，避免在 S3 等后端一次性拉取全部 key。
     async fn list_paths(&self, prefix: Option<&str>) -> Result<Vec<String>>;
 
     /// 逐条扫描当前策略下的对象路径，避免一次性拉取整个列表

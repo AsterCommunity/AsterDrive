@@ -33,6 +33,8 @@ pub const CORS_MAX_AGE_SECS_KEY: &str = "cors_max_age_secs";
 pub const MAIL_OUTBOX_DISPATCH_INTERVAL_SECS_KEY: &str = "mail_outbox_dispatch_interval_secs";
 pub const BACKGROUND_TASK_DISPATCH_INTERVAL_SECS_KEY: &str =
     "background_task_dispatch_interval_secs";
+pub const BACKGROUND_TASK_DISPATCH_IDLE_MAX_INTERVAL_SECS_KEY: &str =
+    "background_task_dispatch_idle_max_interval_secs";
 pub const BACKGROUND_TASK_MAX_CONCURRENCY_KEY: &str = "background_task_max_concurrency";
 pub const BACKGROUND_TASK_ARCHIVE_MAX_CONCURRENCY_KEY: &str =
     "background_task_archive_max_concurrency";
@@ -326,6 +328,20 @@ pub static ALL_CONFIGS: &[ConfigDef] = &[
         is_sensitive: false,
         category: "operations",
         description: "Seconds between background task dispatch polls",
+    },
+    ConfigDef {
+        key: BACKGROUND_TASK_DISPATCH_IDLE_MAX_INTERVAL_SECS_KEY,
+        label_i18n_key: "settings_item_background_task_dispatch_idle_max_interval_secs_label",
+        description_i18n_key: "settings_item_background_task_dispatch_idle_max_interval_secs_desc",
+        value_type: SystemConfigValueType::Number,
+        default_fn: || {
+            crate::config::operations::DEFAULT_BACKGROUND_TASK_DISPATCH_IDLE_MAX_INTERVAL_SECS
+                .to_string()
+        },
+        requires_restart: false,
+        is_sensitive: false,
+        category: "operations",
+        description: "Maximum seconds between background task dispatch polls after idle backoff",
     },
     ConfigDef {
         key: BACKGROUND_TASK_MAX_CONCURRENCY_KEY,

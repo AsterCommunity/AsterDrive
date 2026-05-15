@@ -369,6 +369,72 @@ async fn test_path_resolver_hides_deleted_intermediate_folders() {
 }
 
 #[actix_web::test]
+async fn test_cached_path_resolver_rejects_stale_paths_after_ancestor_rename() {
+    use aster_drive::services::{auth_service, folder_service};
+    use aster_drive::types::NullablePatch;
+    use aster_drive::webdav::path_resolver::{
+        ResolvedNode, resolve_parent_cached, resolve_path_cached,
+    };
+
+    let state = common::setup().await;
+    let user = auth_service::register(
+        &state,
+        "davresolverstale",
+        "davresolverstale@example.com",
+        "pass1234",
+    )
+    .await
+    .unwrap();
+
+    let (_projects, docs, reports, file, _contents) = seed_nested_file(&state, user.id, None).await;
+    let file_path = DavPath::new("/projects/docs/reports/q1.txt").unwrap();
+    let new_file_path = DavPath::new("/projects/manuals/reports/q1.txt").unwrap();
+    let pending_create_path = DavPath::new("/projects/docs/reports/new.txt").unwrap();
+
+    match resolve_path_cached(&state, user.id, &file_path, None)
+        .await
+        .unwrap()
+    {
+        ResolvedNode::File(found) => assert_eq!(found.id, file.id),
+        other => panic!("expected cached file, got {other:?}"),
+    }
+    let (cached_parent_id, cached_leaf) =
+        resolve_parent_cached(&state, user.id, &pending_create_path, None)
+            .await
+            .unwrap();
+    assert_eq!(cached_parent_id, Some(reports.id));
+    assert_eq!(cached_leaf, "new.txt");
+
+    folder_service::update(
+        &state,
+        docs.id,
+        user.id,
+        Some("manuals".to_string()),
+        NullablePatch::Absent,
+        NullablePatch::Absent,
+    )
+    .await
+    .unwrap();
+
+    assert!(matches!(
+        resolve_path_cached(&state, user.id, &file_path, None).await,
+        Err(FsError::NotFound)
+    ));
+    assert!(matches!(
+        resolve_parent_cached(&state, user.id, &pending_create_path, None).await,
+        Err(FsError::NotFound)
+    ));
+
+    match resolve_path_cached(&state, user.id, &new_file_path, None)
+        .await
+        .unwrap()
+    {
+        ResolvedNode::File(found) => assert_eq!(found.id, file.id),
+        other => panic!("expected file at renamed ancestor path, got {other:?}"),
+    }
+}
+
+#[actix_web::test]
 async fn test_aster_dav_fs_handles_deep_paths_inside_scoped_root() {
     use aster_drive::services::{auth_service, folder_service};
     use aster_drive::webdav::fs::AsterDavFs;

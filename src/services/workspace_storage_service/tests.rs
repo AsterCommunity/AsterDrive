@@ -347,6 +347,8 @@ async fn build_test_state() -> (PrimaryAppState, PathBuf, storage_policy::Model,
         mail_sender: mail_service::runtime_sender(runtime_config),
         storage_change_tx,
         share_download_rollback,
+        background_task_dispatch_wakeup:
+            crate::runtime::PrimaryAppState::new_background_task_dispatch_wakeup(),
     };
 
     (state, temp_root, policy, user)

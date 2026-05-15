@@ -665,6 +665,47 @@ describe("UploadArea", () => {
 		expect(removeSession).toHaveBeenCalledWith("upload-multipart");
 	});
 
+	it("batches presigned multipart URL requests", async () => {
+		const partNumbers = Array.from({ length: 20 }, (_, index) => index + 1);
+		initUpload.mockResolvedValue({
+			mode: "presigned_multipart",
+			upload_id: "upload-multipart-batched",
+			chunk_size: 1,
+			total_chunks: partNumbers.length,
+		});
+		presignParts.mockImplementation(
+			async (_uploadId: string, requestedParts: number[]) =>
+				Object.fromEntries(
+					requestedParts.map((partNumber) => [
+						partNumber,
+						`https://s3.example/upload/part-${partNumber}`,
+					]),
+				),
+		);
+		presignedUpload.mockResolvedValue('"etag-001"');
+		completeUpload.mockResolvedValue({ id: 9004 });
+
+		await renderUploadAreaWithFiles([
+			new File(["x".repeat(partNumbers.length)], "multipart-large.bin"),
+		]);
+
+		await screen.findByText(
+			"multipart-large.bin:Presigned Multipart:files:upload_success",
+		);
+
+		expect(presignParts).toHaveBeenCalledTimes(2);
+		expect(presignParts).toHaveBeenNthCalledWith(
+			1,
+			"upload-multipart-batched",
+			partNumbers.slice(0, 16),
+		);
+		expect(presignParts).toHaveBeenNthCalledWith(
+			2,
+			"upload-multipart-batched",
+			partNumbers.slice(16),
+		);
+	});
+
 	it("resumes chunked uploads with the persisted chunk size instead of recomputing it", async () => {
 		loadSessions.mockReturnValue([
 			{

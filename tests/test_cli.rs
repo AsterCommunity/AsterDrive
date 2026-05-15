@@ -310,9 +310,10 @@ async fn seed_remote_node_fixture(db: &DatabaseConnection) {
             access_key: Set("migrate-remote-ak".to_string()),
             secret_key: Set("migrate-remote-sk".to_string()),
             is_enabled: Set(true),
-            last_capabilities: Set(
-                "{\"protocol_version\":\"v1\",\"supports_list\":true}".to_string()
-            ),
+            last_capabilities: Set(serde_json::to_string(
+                &aster_drive::storage::remote_protocol::RemoteStorageCapabilities::current(),
+            )
+            .expect("current remote capabilities should serialize")),
             last_error: Set(String::new()),
             last_checked_at: Set(Some(now)),
             created_at: Set(now),

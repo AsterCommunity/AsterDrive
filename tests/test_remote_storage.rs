@@ -22,8 +22,9 @@ use aster_drive::services::{
     managed_ingress_profile_service, master_binding_service, policy_service, upload_service,
 };
 use aster_drive::storage::remote_protocol::{
-    RemoteCreateIngressProfileRequest, RemoteCreateLocalIngressProfileRequest, RemoteStorageClient,
-    RemoteStorageComposeRequest, sign_internal_request, sign_presigned_request,
+    RemoteCreateIngressProfileRequest, RemoteCreateLocalIngressProfileRequest,
+    RemoteStorageCapabilities, RemoteStorageClient, RemoteStorageComposeRequest,
+    sign_internal_request, sign_presigned_request,
 };
 use aster_drive::types::{
     DriverType, NullablePatch, RemoteDownloadStrategy, RemoteUploadStrategy, StoragePolicyOptions,
@@ -75,6 +76,44 @@ async fn spawn_internal_storage_server(
     })
     .listen(listener)
     .expect("test internal storage server should listen")
+    .run();
+    let handle = server.handle();
+    let task = tokio::spawn(server);
+
+    TestHttpServer {
+        base_url: format!("http://127.0.0.1:{}", addr.port()),
+        handle,
+        task,
+    }
+}
+
+async fn spawn_capabilities_server(capabilities: serde_json::Value) -> TestHttpServer {
+    async fn capabilities_handler(
+        capabilities: web::Data<serde_json::Value>,
+    ) -> actix_web::HttpResponse {
+        actix_web::HttpResponse::Ok().json(serde_json::json!({
+            "code": 0,
+            "msg": "",
+            "data": capabilities.get_ref().clone(),
+        }))
+    }
+
+    let listener = std::net::TcpListener::bind(("127.0.0.1", 0))
+        .expect("test capabilities listener should bind");
+    let addr = listener
+        .local_addr()
+        .expect("test capabilities listener should expose local addr");
+    let capabilities_for_server = capabilities.clone();
+    let server = HttpServer::new(move || {
+        App::new()
+            .app_data(web::Data::new(capabilities_for_server.clone()))
+            .route(
+                "/api/v1/internal/storage/capabilities",
+                web::get().to(capabilities_handler),
+            )
+    })
+    .listen(listener)
+    .expect("test capabilities server should listen")
     .run();
     let handle = server.handle();
     let task = tokio::spawn(server);
@@ -183,6 +222,33 @@ async fn create_remote_policy_with_options(
         .expect("policy snapshot should reload after creating remote policy");
 
     policy
+}
+
+async fn seed_remote_capabilities(
+    state: &aster_drive::runtime::PrimaryAppState,
+    remote_node_id: i64,
+    capabilities: RemoteStorageCapabilities,
+) {
+    let mut remote_node: aster_drive::entities::managed_follower::ActiveModel =
+        managed_follower_repo::find_by_id(&state.db, remote_node_id)
+            .await
+            .expect("remote node should exist before seeding capabilities")
+            .into();
+    remote_node.last_capabilities =
+        Set(serde_json::to_string(&capabilities).expect("remote capabilities should serialize"));
+    remote_node.last_error = Set(String::new());
+    remote_node.last_checked_at = Set(Some(Utc::now()));
+    remote_node.updated_at = Set(Utc::now());
+    remote_node
+        .update(&state.db)
+        .await
+        .expect("remote node capabilities should update");
+    state
+        .driver_registry
+        .reload_managed_followers(&state.db)
+        .await
+        .expect("driver registry should reload seeded remote capabilities");
+    state.driver_registry.invalidate_all();
 }
 
 async fn set_policy_max_file_size(
@@ -570,6 +636,12 @@ async fn setup_browser_presigned_cors_fixture(
         &provider_state,
         &consumer_node_model.access_key,
         &consumer_node_model.access_key,
+    )
+    .await;
+    seed_remote_capabilities(
+        &consumer_state,
+        consumer_node.id,
+        RemoteStorageCapabilities::current(),
     )
     .await;
 
@@ -1199,6 +1271,122 @@ async fn test_remote_node_failed_probe_preserves_cached_capabilities() {
     assert_eq!(stored.last_capabilities, cached_capabilities);
 }
 
+#[actix_web::test]
+async fn test_remote_node_probe_rejects_incompatible_protocol_version() {
+    let state = common::setup().await;
+    let capabilities_server = spawn_capabilities_server(serde_json::json!({
+        "protocol_version": "v1",
+        "min_supported_protocol_version": "v1",
+        "supports_list": true,
+        "supports_range_read": true,
+        "supports_stream_upload": true,
+    }))
+    .await;
+    let node = managed_follower_service::create(
+        &state,
+        managed_follower_service::CreateRemoteNodeInput {
+            name: "old-protocol-target".to_string(),
+            base_url: capabilities_server.base_url.clone(),
+            is_enabled: true,
+        },
+    )
+    .await
+    .expect("remote node should be created");
+    mark_remote_node_enrollment_completed(&state, node.id).await;
+
+    let error = managed_follower_service::test_connection(&state, node.id)
+        .await
+        .expect_err("incompatible remote protocol should fail probe");
+    assert_eq!(error.code(), "E031");
+    assert_eq!(
+        error.storage_error_kind(),
+        Some(aster_drive::storage::StorageErrorKind::Misconfigured)
+    );
+    assert!(error.message().contains("protocol incompatible"));
+    assert!(error.message().contains("local supports v2-v2"));
+
+    let stored = managed_follower_repo::find_by_id(&state.db, node.id)
+        .await
+        .expect("remote node should remain queryable");
+    assert!(stored.last_error.contains("protocol incompatible"));
+    assert_eq!(stored.last_capabilities, "{}");
+
+    capabilities_server.stop().await;
+}
+
+#[actix_web::test]
+async fn test_remote_node_probe_rejects_presigned_download_when_range_cors_missing() {
+    let state = common::setup().await;
+    let mut capabilities = RemoteStorageCapabilities::current();
+    capabilities.browser_cors.allowed_headers = vec!["content-type".to_string()];
+    capabilities.browser_cors.exposed_headers =
+        vec!["Accept-Ranges".to_string(), "Content-Length".to_string()];
+    let capabilities_server = spawn_capabilities_server(
+        serde_json::to_value(&capabilities).expect("capabilities should serialize"),
+    )
+    .await;
+
+    let node = managed_follower_service::create(
+        &state,
+        managed_follower_service::CreateRemoteNodeInput {
+            name: "missing-range-cors-target".to_string(),
+            base_url: capabilities_server.base_url.clone(),
+            is_enabled: true,
+        },
+    )
+    .await
+    .expect("remote node should be created");
+    mark_remote_node_enrollment_completed(&state, node.id).await;
+    create_remote_policy_with_options(
+        &state,
+        node.id,
+        "Remote Presigned Download Needs Range CORS",
+        "base",
+        StoragePolicyOptions {
+            remote_download_strategy: Some(RemoteDownloadStrategy::Presigned),
+            ..Default::default()
+        },
+        5_242_880,
+    )
+    .await;
+
+    let error = managed_follower_service::test_connection(&state, node.id)
+        .await
+        .expect_err("missing Range/CORS contract should fail probe for presigned download policy");
+    assert_eq!(error.code(), "E031");
+    assert_eq!(
+        error.storage_error_kind(),
+        Some(aster_drive::storage::StorageErrorKind::Misconfigured)
+    );
+    assert!(
+        error
+            .message()
+            .contains("browser CORS contract is incomplete")
+    );
+    assert!(error.message().contains("allowed_headers missing range"));
+    assert!(
+        error
+            .message()
+            .contains("exposed_headers missing Content-Range")
+    );
+
+    let stored = managed_follower_repo::find_by_id(&state.db, node.id)
+        .await
+        .expect("remote node should remain queryable");
+    assert!(
+        stored
+            .last_error
+            .contains("browser CORS contract is incomplete")
+    );
+    assert!(
+        stored
+            .last_capabilities
+            .contains("\"protocol_version\":\"v2\"")
+    );
+
+    capabilities_server.stop().await;
+}
+
 async fn create_internal_hmac_binding(
     provider_state: &aster_drive::runtime::PrimaryAppState,
     label: &str,
@@ -1289,7 +1477,11 @@ async fn test_internal_storage_capabilities_probe_does_not_require_ingress_profi
     assert_eq!(resp.status(), actix_web::http::StatusCode::OK);
     let body: serde_json::Value = test::read_body_json(resp).await;
     assert_eq!(body["code"], 0);
-    assert_eq!(body["data"]["protocol_version"], "v1");
+    assert_eq!(body["data"]["protocol_version"], "v2");
+    assert_eq!(body["data"]["min_supported_protocol_version"], "v2");
+    assert_eq!(body["data"]["features"]["object_get"], true);
+    assert_eq!(body["data"]["features"]["object_head"], true);
+    assert_eq!(body["data"]["features"]["browser_presigned_cors"], true);
     assert_eq!(body["data"]["supports_range_read"], true);
 }
 
@@ -1532,7 +1724,13 @@ async fn test_remote_storage_end_to_end_via_internal_api() {
     .await;
 
     let probed = wait_for_remote_probe(&consumer_state, consumer_node.id).await;
-    assert_eq!(probed.capabilities.protocol_version, "v1");
+    assert_eq!(probed.capabilities.protocol_version, "v2");
+    assert_eq!(probed.capabilities.min_supported_protocol_version, "v2");
+    assert!(probed.capabilities.features.object_get);
+    assert!(probed.capabilities.features.object_head);
+    assert!(probed.capabilities.features.range_get);
+    assert!(probed.capabilities.features.accept_ranges_header);
+    assert!(probed.capabilities.features.browser_presigned_cors);
     assert!(probed.capabilities.supports_list);
     assert!(probed.capabilities.supports_range_read);
     assert!(probed.capabilities.supports_stream_upload);
@@ -3069,6 +3267,12 @@ async fn test_remote_presigned_upload_browser_cors_follows_bound_master_origin()
         &consumer_node_model.access_key,
     )
     .await;
+    seed_remote_capabilities(
+        &consumer_state,
+        consumer_node.id,
+        RemoteStorageCapabilities::current(),
+    )
+    .await;
 
     let remote_policy = create_remote_policy_with_options(
         &consumer_state,
@@ -3297,6 +3501,12 @@ async fn test_remote_presigned_download_browser_cors_allows_get() {
         &provider_state,
         &consumer_node_model.access_key,
         &consumer_node_model.access_key,
+    )
+    .await;
+    seed_remote_capabilities(
+        &consumer_state,
+        consumer_node.id,
+        RemoteStorageCapabilities::current(),
     )
     .await;
 
@@ -3832,6 +4042,12 @@ async fn test_remote_presigned_upload_browser_cors_accepts_master_url_with_path_
         &consumer_node_model.access_key,
     )
     .await;
+    seed_remote_capabilities(
+        &consumer_state,
+        consumer_node.id,
+        RemoteStorageCapabilities::current(),
+    )
+    .await;
 
     let remote_policy = create_remote_policy_with_options(
         &consumer_state,
@@ -3951,6 +4167,12 @@ async fn test_remote_presigned_upload_browser_cors_rejects_disabled_binding() {
         &provider_state,
         &binding.access_key,
         &binding.access_key,
+    )
+    .await;
+    seed_remote_capabilities(
+        &consumer_state,
+        consumer_node.id,
+        RemoteStorageCapabilities::current(),
     )
     .await;
 
