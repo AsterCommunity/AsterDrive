@@ -4,16 +4,12 @@ import {
 	type Workspace,
 } from "@/lib/workspace";
 import { bindWorkspaceService } from "@/stores/workspaceStore";
-import type { PurgedCountResponse, TrashContents } from "@/types/api";
+import type {
+	PurgedCountResponse,
+	TrashContents,
+	TrashListParams,
+} from "@/types/api";
 import { api } from "./http";
-
-export interface TrashListParams {
-	folder_limit?: number;
-	folder_offset?: number;
-	file_limit?: number;
-	file_after_expires_at?: string;
-	file_after_id?: number;
-}
 
 function trashPath(workspace: Workspace) {
 	return buildWorkspacePath(workspace, "/trash");

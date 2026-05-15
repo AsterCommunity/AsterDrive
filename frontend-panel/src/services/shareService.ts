@@ -6,14 +6,15 @@ import { bindWorkspaceService } from "@/stores/workspaceStore";
 import type {
 	BatchResult,
 	FolderContents,
+	FolderListParams,
 	PreviewLinkInfo,
 	ShareInfo,
+	ShareListQuery,
 	SharePage,
 	SharePublicInfo,
 	ShareStreamSessionInfo,
 	ShareTarget,
 } from "@/types/api";
-import type { FolderListParams } from "./fileService";
 import { api } from "./http";
 
 function workspaceSharesPrefix(workspace: Workspace) {
@@ -33,7 +34,7 @@ export function createShareService(workspace: Workspace) {
 			max_downloads?: number;
 		}) => api.post<ShareInfo>(workspaceSharesPrefix(workspace), data),
 
-		listMine: (params?: { limit?: number; offset?: number }) =>
+		listMine: (params?: ShareListQuery) =>
 			api.get<SharePage>(workspaceSharesPrefix(workspace), { params }),
 
 		update: (

@@ -1,6 +1,5 @@
 import { FOLDER_LIMIT } from "@/lib/constants";
-import type { FolderListParams } from "@/services/fileService";
-import type { FolderListItem } from "@/types/api";
+import type { FolderListItem, FolderListParams } from "@/types/api";
 import type { FolderTreeNode } from "./types";
 
 export function getFolderTreeListParams(

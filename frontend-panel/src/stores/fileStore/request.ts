@@ -1,10 +1,13 @@
 import { FILE_PAGE_SIZE, FOLDER_LIMIT } from "@/lib/constants";
 import { readLocalStorage, writeLocalStorage } from "@/lib/storage";
-import type { FolderListParams } from "@/services/fileService";
 import { fileService } from "@/services/fileService";
 import { isRequestCanceled } from "@/services/http";
 import { searchService } from "@/services/searchService";
-import type { SearchParams, SearchResults } from "@/types/api";
+import type {
+	FolderListParams,
+	SearchParams,
+	SearchResults,
+} from "@/types/api";
 import type {
 	BreadcrumbItem,
 	FileState,

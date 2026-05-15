@@ -57,8 +57,10 @@ pub struct CopyFileReq {
 
 /// Query parameters for file upload.
 #[derive(Deserialize)]
-#[cfg_attr(all(debug_assertions, feature = "openapi"), derive(IntoParams))]
-#[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
+#[cfg_attr(
+    all(debug_assertions, feature = "openapi"),
+    derive(IntoParams, ToSchema)
+)]
 pub struct FileQuery {
     pub folder_id: Option<i64>,
     pub relative_path: Option<String>,

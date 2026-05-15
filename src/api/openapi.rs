@@ -321,6 +321,8 @@ use utoipa::{Modify, OpenApi};
             crate::api::pagination::SortBy,
             crate::api::pagination::SortOrder,
             crate::api::pagination::LimitOffsetQuery,
+            crate::api::pagination::FolderListQuery,
+            crate::api::pagination::TrashListQuery,
             crate::api::pagination::OffsetPage<crate::services::audit_service::AuditLogEntry>,
             crate::api::pagination::OffsetPage<crate::services::audit_service::TeamAuditEntryInfo>,
             crate::api::pagination::OffsetPage<crate::services::user_service::UserInfo>,
@@ -340,8 +342,10 @@ use utoipa::{Modify, OpenApi};
             crate::api::response::RemovedCountResponse,
 
             // services::admin_service / services::audit_service / services::task_service：后台概览、审计与后台任务细节模型。
+            crate::services::audit_service::AuditLogFilterQuery,
             crate::services::audit_service::AuditLogEntry,
             crate::services::audit_service::TeamAuditEntryInfo,
+            crate::services::admin_service::AdminOverviewQuery,
             crate::services::admin_service::AdminOverview,
             crate::services::admin_service::AdminOverviewStats,
             crate::services::admin_service::AdminOverviewDailyReport,
@@ -383,8 +387,10 @@ use utoipa::{Modify, OpenApi};
             crate::api::routes::auth::SetupReq,
             crate::api::routes::auth::RegisterReq,
             crate::api::routes::auth::ResendRegisterActivationReq,
+            crate::api::routes::auth::ContactVerificationConfirmQuery,
             crate::api::routes::auth::LoginReq,
             crate::api::routes::auth::AuthTokenResp,
+            crate::api::routes::auth::MeQuery,
             crate::api::routes::auth::ActionMessageResp,
             crate::api::routes::auth::PasswordResetRequestReq,
             crate::api::routes::auth::PasswordResetConfirmReq,
@@ -489,6 +495,7 @@ use utoipa::{Modify, OpenApi};
             crate::api::routes::shares::CreateShareReq,
             crate::api::routes::shares::UpdateShareReq,
             crate::api::routes::shares::BatchDeleteSharesReq,
+            crate::api::dto::DirectLinkQuery,
             crate::api::routes::share_public::VerifyPasswordReq,
 
             // api::routes::files / services::{upload_service,webdav_account_service} / entities::upload_session：上传流程与 WebDAV 账户模型。
@@ -503,6 +510,7 @@ use utoipa::{Modify, OpenApi};
             crate::services::webdav_account_service::WebdavAccount,
             crate::services::webdav_account_service::WebdavAccountCreated,
             crate::services::webdav_account_service::WebdavAccountInfo,
+            crate::api::dto::WopiAccessQuery,
             crate::api::dto::WebdavSettingsInfo,
             crate::api::dto::CreateWebdavAccountReq,
             crate::api::dto::TestConnectionReq,

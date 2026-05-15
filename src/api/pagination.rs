@@ -12,8 +12,10 @@ pub const DEFAULT_FILE_LIMIT: u64 = 100;
 pub const MAX_PAGE_SIZE: u64 = 1000;
 
 #[derive(Debug, Clone, Copy, Default, Deserialize)]
-#[cfg_attr(all(debug_assertions, feature = "openapi"), derive(IntoParams))]
-#[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
+#[cfg_attr(
+    all(debug_assertions, feature = "openapi"),
+    derive(IntoParams, ToSchema)
+)]
 pub struct LimitOffsetQuery {
     pub limit: Option<u64>,
     pub offset: Option<u64>,
@@ -253,7 +255,10 @@ pub enum AdminAuditLogSortBy {
 
 /// 文件列表分页参数（文件夹用 offset 分页，文件用 cursor 分页）
 #[derive(Debug, Deserialize)]
-#[cfg_attr(all(debug_assertions, feature = "openapi"), derive(IntoParams))]
+#[cfg_attr(
+    all(debug_assertions, feature = "openapi"),
+    derive(IntoParams, ToSchema)
+)]
 pub struct FolderListQuery {
     /// 文件夹最大返回数量（默认 200，最大 1000；传 0 跳过文件夹查询）
     pub folder_limit: Option<u64>,
@@ -307,7 +312,10 @@ impl FolderListQuery {
 
 /// 回收站列表分页参数
 #[derive(Debug, Deserialize)]
-#[cfg_attr(all(debug_assertions, feature = "openapi"), derive(IntoParams))]
+#[cfg_attr(
+    all(debug_assertions, feature = "openapi"),
+    derive(IntoParams, ToSchema)
+)]
 pub struct TrashListQuery {
     /// 文件夹最大返回数量（默认 200，最大 1000；传 0 跳过文件夹查询）
     pub folder_limit: Option<u64>,

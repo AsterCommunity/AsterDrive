@@ -50,7 +50,10 @@ pub struct LoginReq {
 
 /// Query parameters for email contact verification confirmation.
 #[derive(Deserialize)]
-#[cfg_attr(all(debug_assertions, feature = "openapi"), derive(IntoParams))]
+#[cfg_attr(
+    all(debug_assertions, feature = "openapi"),
+    derive(IntoParams, ToSchema)
+)]
 pub struct ContactVerificationConfirmQuery {
     pub token: Option<String>,
 }
@@ -93,7 +96,10 @@ pub struct ChangePasswordReq {
 
 /// Query parameters for `/auth/me`.
 #[derive(Deserialize)]
-#[cfg_attr(all(debug_assertions, feature = "openapi"), derive(IntoParams))]
+#[cfg_attr(
+    all(debug_assertions, feature = "openapi"),
+    derive(IntoParams, ToSchema)
+)]
 pub struct MeQuery {
     /// Comma-separated field groups to include: profile, preferences, quota, session.
     pub fields: Option<String>,

@@ -1,10 +1,13 @@
 use chrono::{DateTime, Utc};
 use serde::Deserialize;
 #[cfg(all(debug_assertions, feature = "openapi"))]
-use utoipa::IntoParams;
+use utoipa::{IntoParams, ToSchema};
 
 #[derive(Deserialize)]
-#[cfg_attr(all(debug_assertions, feature = "openapi"), derive(IntoParams))]
+#[cfg_attr(
+    all(debug_assertions, feature = "openapi"),
+    derive(IntoParams, ToSchema)
+)]
 pub struct AuditLogFilterQuery {
     pub user_id: Option<i64>,
     pub action: Option<String>,

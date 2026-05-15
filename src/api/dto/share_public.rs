@@ -2,7 +2,7 @@
 
 use serde::Deserialize;
 #[cfg(all(debug_assertions, feature = "openapi"))]
-use utoipa::ToSchema;
+use utoipa::{IntoParams, ToSchema};
 
 /// Verify a share password.
 #[derive(Deserialize)]
@@ -14,6 +14,10 @@ pub struct VerifyPasswordReq {
 /// Query parameters for direct link downloads.
 /// NOTE: The `force_download()` method is defined in `src/api/routes/share_public.rs`.
 #[derive(Deserialize, Default)]
+#[cfg_attr(
+    all(debug_assertions, feature = "openapi"),
+    derive(IntoParams, ToSchema)
+)]
 pub struct DirectLinkQuery {
     pub download: Option<String>,
 }

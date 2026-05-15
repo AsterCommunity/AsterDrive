@@ -3,32 +3,15 @@ import { api } from "@/services/http";
 import type {
 	AddTeamMemberRequest,
 	CreateTeamRequest,
+	TeamAuditLogListQuery,
 	TeamAuditPage,
 	TeamInfo,
 	TeamListQuery,
+	TeamMemberListQuery,
 	TeamMemberPage,
-	TeamMemberRole,
 	UpdateTeamMemberRequest,
 	UpdateTeamRequest,
-	UserStatus,
 } from "@/types/api";
-
-interface TeamAuditLogQuery {
-	user_id?: number;
-	action?: string;
-	after?: string;
-	before?: string;
-	limit?: number;
-	offset?: number;
-}
-
-interface TeamMemberListQuery {
-	keyword?: string;
-	role?: TeamMemberRole;
-	status?: UserStatus;
-	limit?: number;
-	offset?: number;
-}
 
 export const teamService = {
 	list: (params?: TeamListQuery) =>
@@ -46,7 +29,7 @@ export const teamService = {
 		api.patch<TeamInfo>(`/teams/${id}`, data),
 	delete: (id: number) => api.delete<void>(`/teams/${id}`),
 	restore: (id: number) => api.post<TeamInfo>(`/teams/${id}/restore`),
-	listAuditLogs: (id: number, params: TeamAuditLogQuery = {}) => {
+	listAuditLogs: (id: number, params: TeamAuditLogListQuery = {}) => {
 		const { limit, offset, ...filters } = params;
 
 		return api.get<TeamAuditPage>(

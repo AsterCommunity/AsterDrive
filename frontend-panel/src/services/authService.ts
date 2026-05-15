@@ -7,6 +7,7 @@ import type {
 	CheckResp,
 	MeField,
 	MePartialResponse,
+	MeQuery,
 	MeResponse,
 	PasswordResetConfirmRequest,
 	PasswordResetRequestRequest,
@@ -29,8 +30,9 @@ function me(fields?: MeField[]) {
 	if (!fields || fields.length === 0) {
 		return api.get<MeResponse>("/auth/me");
 	}
+	const params: MeQuery = { fields: fields.join(",") };
 	return api.get<MePartialResponse>("/auth/me", {
-		params: { fields: fields.join(",") },
+		params,
 	});
 }
 

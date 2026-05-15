@@ -2,6 +2,7 @@ import { withQuery } from "@/lib/queryParams";
 import type {
 	WebdavAccountCreated,
 	WebdavAccountInfo,
+	WebdavAccountListQuery,
 	WebdavAccountPage,
 	WebdavSettingsInfo,
 } from "@/types/api";
@@ -10,7 +11,7 @@ import { api } from "./http";
 export const webdavAccountService = {
 	settings: () => api.get<WebdavSettingsInfo>("/webdav-accounts/settings"),
 
-	list: (params?: { limit?: number; offset?: number }) =>
+	list: (params?: WebdavAccountListQuery) =>
 		api.get<WebdavAccountPage>(
 			withQuery("/webdav-accounts", {
 				limit: params?.limit,

@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { PERSONAL_WORKSPACE } from "@/lib/workspace";
-import type { FolderListParams } from "@/services/fileService";
 import { createShareService, shareService } from "@/services/shareService";
+import type { FolderListParams } from "@/types/api";
 
 const { apiDelete, apiGet, apiPatch, apiPost } = vi.hoisted(() => ({
 	apiDelete: vi.fn(),

@@ -1,6 +1,6 @@
 import { buildWorkspacePath, type Workspace } from "@/lib/workspace";
 import { bindWorkspaceService } from "@/stores/workspaceStore";
-import type { TaskInfo, TaskPage } from "@/types/api";
+import type { TaskInfo, TaskListQuery, TaskPage } from "@/types/api";
 import { api } from "./http";
 
 function workspaceTasksPrefix(workspace: Workspace) {
@@ -9,7 +9,7 @@ function workspaceTasksPrefix(workspace: Workspace) {
 
 export function createTaskService(workspace: Workspace) {
 	return {
-		listInWorkspace: (params?: { limit?: number; offset?: number }) =>
+		listInWorkspace: (params?: TaskListQuery) =>
 			api.get<TaskPage>(workspaceTasksPrefix(workspace), { params }),
 
 		getTask: (id: number) =>

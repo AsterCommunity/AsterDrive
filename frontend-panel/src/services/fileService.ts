@@ -11,21 +11,12 @@ import type {
 	FolderAncestorItem,
 	FolderContents,
 	FolderInfo,
+	FolderListParams,
 	PreviewLinkInfo,
 	TaskInfo,
 	WopiLaunchSession,
 } from "@/types/api";
 import { ApiError, type ApiRequestConfig, api } from "./http";
-
-export interface FolderListParams {
-	folder_limit?: number;
-	folder_offset?: number;
-	file_limit?: number;
-	file_after_value?: string;
-	file_after_id?: number;
-	sort_by?: "name" | "size" | "created_at" | "updated_at" | "type";
-	sort_order?: "asc" | "desc";
-}
 
 type ServiceRequestOptions = Pick<ApiRequestConfig, "signal">;
 

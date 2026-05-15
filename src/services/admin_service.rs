@@ -30,7 +30,10 @@ const DEFAULT_TIMEZONE: &str = "UTC";
 const ADMIN_OVERVIEW_CACHE_TTL: u64 = 15;
 
 #[derive(Clone, Debug, Deserialize)]
-#[cfg_attr(all(debug_assertions, feature = "openapi"), derive(IntoParams))]
+#[cfg_attr(
+    all(debug_assertions, feature = "openapi"),
+    derive(IntoParams, ToSchema)
+)]
 pub struct AdminOverviewQuery {
     pub days: Option<u32>,
     pub timezone: Option<String>,

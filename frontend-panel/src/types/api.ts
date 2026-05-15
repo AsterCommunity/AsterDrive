@@ -36,6 +36,9 @@ export type RequestEmailChangeRequest =
 	components["schemas"]["RequestEmailChangeReq"];
 export type ResendRegisterActivationRequest =
 	components["schemas"]["ResendRegisterActivationReq"];
+export type ContactVerificationConfirmQuery =
+	components["schemas"]["ContactVerificationConfirmQuery"];
+export type MeQuery = OperationQuery<"me">;
 export type UpdateAvatarSourceRequest =
 	components["schemas"]["UpdateAvatarSourceReq"];
 export type UpdatePreferencesRequest =
@@ -57,15 +60,18 @@ export type FileVersion = components["schemas"]["FileVersion"];
 export type FolderAncestorItem = components["schemas"]["FolderAncestorItem"];
 export type FolderContents = components["schemas"]["FolderContents"];
 export type FolderInfo = components["schemas"]["FolderInfo"];
+export type FolderListParams = OperationQuery<"list_root">;
 export type FolderListItem = components["schemas"]["FolderListItem"];
 export type PurgedCountResponse = components["schemas"]["PurgedCountResponse"];
 export type TrashContents = components["schemas"]["TrashContents"];
 export type TrashFileItem = components["schemas"]["TrashFileItem"];
 export type TrashFolderItem = components["schemas"]["TrashFolderItem"];
+export type TrashListParams = OperationQuery<"list_trash">;
 
 // Sharing and search
 export type AdminSharePage = components["schemas"]["OffsetPage_ShareInfo"];
 export type DirectLinkTokenInfo = components["schemas"]["DirectLinkTokenInfo"];
+export type DirectLinkQuery = components["schemas"]["DirectLinkQuery"];
 export type FileSearchItem = components["schemas"]["FileSearchItem"];
 export type MyShareInfo = components["schemas"]["MyShareInfo"];
 export type PreviewLinkInfo = components["schemas"]["PreviewLinkInfo"];
@@ -75,9 +81,11 @@ export type SearchParams = components["schemas"]["SearchParams"];
 export type SearchResults = components["schemas"]["SearchResults"];
 export type ShareInfo = components["schemas"]["ShareInfo"];
 export type SharePage = components["schemas"]["OffsetPage_MyShareInfo"];
+export type ShareListQuery = OperationQuery<"list_my_shares">;
 export type SharePublicInfo = components["schemas"]["SharePublicInfo"];
 export type ShareStatus = components["schemas"]["ShareStatus"];
 export type ShareTarget = components["schemas"]["ShareTarget"];
+export type TeamShareListQuery = OperationQuery<"list_team_shares">;
 
 // Admin, storage, and WebDAV
 export type AuditAction = components["schemas"]["AuditAction"];
@@ -215,8 +223,10 @@ export type WebdavAccountCreated =
 export type WebdavAccountInfo = components["schemas"]["WebdavAccountInfo"];
 export type WebdavAccountPage =
 	components["schemas"]["OffsetPage_WebdavAccountInfo"];
+export type WebdavAccountListQuery = OperationQuery<"list_webdav_accounts">;
 export type WebdavSettingsInfo = components["schemas"]["WebdavSettingsInfo"];
 export type OpenWopiRequest = components["schemas"]["OpenWopiRequest"];
+export type WopiAccessQuery = components["schemas"]["WopiAccessQuery"];
 export type WopiLaunchSession = components["schemas"]["WopiLaunchSession"];
 
 // Teams
@@ -224,11 +234,15 @@ export type AddTeamMemberRequest = components["schemas"]["AddTeamMemberReq"];
 export type CreateTeamRequest = components["schemas"]["CreateTeamReq"];
 export type TeamInfo = components["schemas"]["TeamInfo"];
 export type TeamListQuery = OperationQuery<"list_teams">;
+export type TeamAuditLogListQuery = OperationQuery<"list_team_audit_logs">;
 export type TeamMemberInfo = components["schemas"]["TeamMemberInfo"];
+export type TeamMemberListQuery = OperationQuery<"list_team_members">;
 export type TeamMemberRole = components["schemas"]["TeamMemberRole"];
 export type UpdateTeamMemberRequest =
 	components["schemas"]["PatchTeamMemberReq"];
 export type UpdateTeamRequest = components["schemas"]["PatchTeamReq"];
+export type TaskListQuery = OperationQuery<"list_tasks">;
+export type TeamTaskListQuery = OperationQuery<"list_team_tasks">;
 export type TaskStepStatus = components["schemas"]["TaskStepStatus"];
 export type TaskStepInfo = components["schemas"]["TaskStepInfo"];
 export type TaskPayload = components["schemas"]["TaskPayload"];
@@ -241,6 +255,7 @@ export type BatchItemError = components["schemas"]["BatchItemError"];
 export type BatchResult = components["schemas"]["BatchResult"];
 export type ChunkUploadResponse = components["schemas"]["ChunkUploadResponse"];
 export type CompletedPart = components["schemas"]["CompletedPartReq"];
+export type FileQuery = components["schemas"]["FileQuery"];
 export type InitUploadResponse = components["schemas"]["InitUploadResponse"];
 export type RecoverableUploadPart =
 	components["schemas"]["RecoverableUploadPartResponse"];

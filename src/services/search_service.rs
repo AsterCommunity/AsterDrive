@@ -16,8 +16,10 @@ use crate::services::{
 };
 
 #[derive(Deserialize)]
-#[cfg_attr(all(debug_assertions, feature = "openapi"), derive(IntoParams))]
-#[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
+#[cfg_attr(
+    all(debug_assertions, feature = "openapi"),
+    derive(IntoParams, ToSchema)
+)]
 pub struct SearchParams {
     /// Name search pattern (case-insensitive substring match)
     pub q: Option<String>,
