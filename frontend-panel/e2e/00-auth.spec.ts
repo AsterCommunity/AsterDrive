@@ -24,6 +24,56 @@ test.describe
 			await loginAsAdmin(page);
 		});
 
+		test("preserves caret position when editing login inputs in the middle", async ({
+			page,
+			request,
+		}) => {
+			await disablePasskeyBrowserSupport(page);
+			if (!(await hasUsers(request))) {
+				await setupAdmin(page);
+				await logout(page);
+			}
+
+			await page.goto("/login");
+			await expect(page.locator("form button[type='submit']")).toBeVisible();
+
+			const identifier = page.getByLabel("Email or username");
+			await identifier.fill("esap");
+			await identifier.evaluate((input) => {
+				if (!(input instanceof HTMLInputElement)) return;
+				input.setSelectionRange(2, 2);
+			});
+			await identifier.pressSequentially("X");
+			await expect(identifier).toHaveValue("esXap");
+			await expect
+				.poll(() =>
+					identifier.evaluate((input) =>
+						input instanceof HTMLInputElement
+							? [input.selectionStart, input.selectionEnd]
+							: [null, null],
+					),
+				)
+				.toEqual([3, 3]);
+
+			const password = page.locator("#password");
+			await password.fill("secret");
+			await password.evaluate((input) => {
+				if (!(input instanceof HTMLInputElement)) return;
+				input.setSelectionRange(3, 3);
+			});
+			await password.pressSequentially("X");
+			await expect(password).toHaveValue("secXret");
+			await expect
+				.poll(() =>
+					password.evaluate((input) =>
+						input instanceof HTMLInputElement
+							? [input.selectionStart, input.selectionEnd]
+							: [null, null],
+					),
+				)
+				.toEqual([4, 4]);
+		});
+
 		test("uses conditional passkey UI without a typed identifier", async ({
 			page,
 			request,

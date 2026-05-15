@@ -1048,6 +1048,26 @@ describe("AdminSettingsPage", () => {
 		});
 	});
 
+	it("does not reformat scaled number input while it is focused", async () => {
+		render(<AdminSettingsPage section="auth" />);
+
+		const ttlInput = (await screen.findByDisplayValue(
+			"20",
+		)) as HTMLInputElement;
+		ttlInput.focus();
+
+		fireEvent.change(ttlInput, {
+			target: { value: "21" },
+		});
+
+		expect(ttlInput).toHaveValue(21);
+		expect(screen.queryByDisplayValue("1260")).not.toBeInTheDocument();
+
+		fireEvent.blur(ttlInput);
+
+		expect(screen.getByDisplayValue("21")).toBeInTheDocument();
+	});
+
 	it("renders a friendly size unit selector while keeping raw byte values on save", async () => {
 		mockState.listConfigs.mockResolvedValueOnce({
 			items: [

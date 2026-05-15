@@ -19,6 +19,7 @@ const COUNT_FORMATTER = new Intl.NumberFormat();
 const DECIMAL_FORMATTER = new Intl.NumberFormat(undefined, {
 	maximumFractionDigits: 1,
 });
+const RESPONSIVE_CONTAINER_RESIZE_DEBOUNCE_MS = 120;
 
 type DailyReport = AdminOverview["daily_reports"][number];
 type TrendSeriesKey = "newUsers" | "shareCreations" | "uploads";
@@ -172,7 +173,11 @@ export function OverviewTrendChart({
 					))}
 				</div>
 				<div className="h-[280px] min-w-0 min-h-[280px]">
-					<ResponsiveContainer width="100%" height="100%">
+					<ResponsiveContainer
+						width="100%"
+						height="100%"
+						debounce={RESPONSIVE_CONTAINER_RESIZE_DEBOUNCE_MS}
+					>
 						<LineChart
 							data={trendData}
 							margin={{ top: 8, right: 8, left: -24, bottom: 0 }}

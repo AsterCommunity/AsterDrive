@@ -304,6 +304,44 @@ describe("LoginPage", () => {
 		});
 	});
 
+	it("preserves caret position when editing login fields in the middle", async () => {
+		render(<LoginPage />);
+
+		const identifierInput = (await screen.findByLabelText(
+			"email_or_username",
+		)) as HTMLInputElement;
+		fireEvent.change(identifierInput, {
+			target: { value: "esap" },
+		});
+		identifierInput.focus();
+		identifierInput.setSelectionRange(2, 2);
+		fireEvent.change(identifierInput, {
+			target: { selectionEnd: 3, selectionStart: 3, value: "esXap" },
+		});
+
+		await waitFor(() => {
+			expect(identifierInput).toHaveValue("esXap");
+			expect(identifierInput.selectionStart).toBe(3);
+			expect(identifierInput.selectionEnd).toBe(3);
+		});
+
+		const passwordInput = screen.getByLabelText("password") as HTMLInputElement;
+		fireEvent.change(passwordInput, {
+			target: { value: "secret" },
+		});
+		passwordInput.focus();
+		passwordInput.setSelectionRange(3, 3);
+		fireEvent.change(passwordInput, {
+			target: { selectionEnd: 4, selectionStart: 4, value: "secXret" },
+		});
+
+		await waitFor(() => {
+			expect(passwordInput).toHaveValue("secXret");
+			expect(passwordInput.selectionStart).toBe(4);
+			expect(passwordInput.selectionEnd).toBe(4);
+		});
+	});
+
 	it("shows the passkey fallback when WebAuthn is unavailable", async () => {
 		render(<LoginPage />);
 
