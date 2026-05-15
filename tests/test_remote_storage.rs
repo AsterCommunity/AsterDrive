@@ -3443,6 +3443,7 @@ async fn test_remote_presigned_download_browser_cors_allows_get() {
     assert!(exposed_headers.contains("Content-Length"));
     assert!(exposed_headers.contains("Content-Range"));
     assert!(exposed_headers.contains("Content-Type"));
+    assert!(exposed_headers.contains("Accept-Ranges"));
     let vary = resp
         .headers()
         .get(actix_web::http::header::VARY)
@@ -3538,6 +3539,12 @@ async fn test_internal_storage_get_honors_range_header() {
             .get(actix_web::http::header::CONTENT_LENGTH)
             .and_then(|value| value.to_str().ok()),
         Some("5")
+    );
+    assert_eq!(
+        resp.headers()
+            .get(actix_web::http::header::ACCEPT_RANGES)
+            .and_then(|value| value.to_str().ok()),
+        Some("bytes")
     );
     let downloaded = test::read_body(resp).await;
     assert_eq!(downloaded.as_ref(), b"45678");

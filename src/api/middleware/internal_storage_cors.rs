@@ -23,8 +23,7 @@ use crate::storage::remote_protocol::PRESIGNED_AUTH_ACCESS_KEY_QUERY;
 const PRESIGNED_OBJECTS_PATH_PREFIX: &str = "/api/v1/internal/storage/objects/";
 const PREFLIGHT_ALLOWED_METHODS: &str = "GET, PUT, OPTIONS";
 const PUT_ACTUAL_EXPOSE_HEADERS: &str = "ETag";
-const GET_ACTUAL_EXPOSE_HEADERS: &str =
-    "Cache-Control, Content-Disposition, Content-Length, Content-Range, Content-Type, ETag";
+const GET_ACTUAL_EXPOSE_HEADERS: &str = "Accept-Ranges, Cache-Control, Content-Disposition, Content-Length, Content-Range, Content-Type, ETag";
 
 pub struct PresignedInternalStorageCors;
 
@@ -320,6 +319,12 @@ mod tests {
                 .split(',')
                 .any(|header| header.trim() == "Content-Range"),
             "GET expose headers should include Content-Range"
+        );
+        assert!(
+            exposed
+                .split(',')
+                .any(|header| header.trim() == "Accept-Ranges"),
+            "GET expose headers should include Accept-Ranges"
         );
     }
 

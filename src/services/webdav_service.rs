@@ -1,8 +1,5 @@
 //! 服务模块：`webdav_service`。
 
-use std::future::Future;
-use std::pin::Pin;
-
 use chrono::Utc;
 
 use crate::db::repository::{file_repo, folder_repo, share_repo};
@@ -140,39 +137,36 @@ pub async fn recursive_purge_folder(
     Ok(())
 }
 
-/// 递归复制文件夹及其所有内容到新位置
+/// 复制文件夹树及其所有内容到新位置
 ///
 /// 利用 blob 去重：只增加 ref_count，不复制物理数据
-pub fn recursive_copy_folder<'a>(
-    state: &'a PrimaryAppState,
+pub async fn copy_folder_tree(
+    state: &PrimaryAppState,
     user_id: i64,
     src_folder_id: i64,
     dest_parent_id: Option<i64>,
-    dest_name: &'a str,
-) -> Pin<Box<dyn Future<Output = Result<folder::Model>> + Send + 'a>> {
-    Box::pin(async move {
-        let scope =
-            crate::services::workspace_storage_service::WorkspaceStorageScope::Personal { user_id };
-        let (copied, storage_delta) =
-            crate::services::folder_service::recursive_copy_folder_in_scope(
-                state,
-                scope,
-                src_folder_id,
-                dest_parent_id,
-                dest_name,
-            )
-            .await?;
-        storage_change_service::publish(
-            state,
-            storage_change_service::StorageChangeEvent::new(
-                storage_change_service::StorageChangeKind::FolderCreated,
-                scope,
-                vec![],
-                vec![copied.id],
-                vec![copied.parent_id],
-            )
-            .with_storage_delta(storage_delta),
-        );
-        Ok(copied)
-    })
+    dest_name: &str,
+) -> Result<folder::Model> {
+    let scope =
+        crate::services::workspace_storage_service::WorkspaceStorageScope::Personal { user_id };
+    let (copied, storage_delta) = crate::services::folder_service::copy_folder_tree_in_scope(
+        state,
+        scope,
+        src_folder_id,
+        dest_parent_id,
+        dest_name,
+    )
+    .await?;
+    storage_change_service::publish(
+        state,
+        storage_change_service::StorageChangeEvent::new(
+            storage_change_service::StorageChangeKind::FolderCreated,
+            scope,
+            vec![],
+            vec![copied.id],
+            vec![copied.parent_id],
+        )
+        .with_storage_delta(storage_delta),
+    );
+    Ok(copied)
 }

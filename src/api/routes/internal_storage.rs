@@ -502,6 +502,7 @@ async fn get_object(
             .unwrap_or(metadata.size)
             .to_string(),
     ));
+    response.insert_header((actix_web::http::header::ACCEPT_RANGES, "bytes"));
     if let Some(range) = partial_range {
         response.insert_header((
             actix_web::http::header::CONTENT_RANGE,
@@ -536,6 +537,7 @@ async fn head_object(
     if let Some(content_type) = metadata.content_type {
         response.insert_header((actix_web::http::header::CONTENT_TYPE, content_type));
     }
+    response.insert_header((actix_web::http::header::ACCEPT_RANGES, "bytes"));
     Ok(response.finish())
 }
 

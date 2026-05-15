@@ -478,7 +478,7 @@ impl DavFileSystem for AsterDavFs {
                     .await;
                 }
                 ResolvedNode::Folder(f) => {
-                    let copied = webdav_service::recursive_copy_folder(
+                    let copied = webdav_service::copy_folder_tree(
                         &state,
                         self.user_id,
                         f.id,

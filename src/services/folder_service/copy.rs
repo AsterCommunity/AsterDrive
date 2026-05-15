@@ -213,59 +213,55 @@ async fn create_frontier_children_from_plans_in_scope(
         .collect()
 }
 
-pub(crate) fn recursive_copy_folder_in_scope<'a>(
-    state: &'a PrimaryAppState,
+pub(crate) async fn copy_folder_tree_in_scope(
+    state: &PrimaryAppState,
     scope: WorkspaceStorageScope,
     src_folder_id: i64,
     dest_parent_id: Option<i64>,
-    dest_name: &'a str,
-) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(folder::Model, i64)>> + Send + 'a>>
-{
-    Box::pin(async move {
-        let db = &state.db;
-        let now = Utc::now();
-        let src_folder = folder_repo::find_by_id(db, src_folder_id).await?;
-        ensure_folder_model_in_scope(&src_folder, scope)?;
-        let created_by_username = load_scope_actor_username(db, scope).await?;
+    dest_name: &str,
+) -> Result<(folder::Model, i64)> {
+    let db = &state.db;
+    let now = Utc::now();
+    let src_folder = folder_repo::find_by_id(db, src_folder_id).await?;
+    ensure_folder_model_in_scope(&src_folder, scope)?;
+    let created_by_username = load_scope_actor_username(db, scope).await?;
 
-        let new_folder = folder_repo::create(
-            db,
-            folder::ActiveModel {
-                name: Set(dest_name.to_string()),
-                parent_id: Set(dest_parent_id),
-                team_id: Set(scope.team_id()),
-                owner_user_id: Set(scope.owner_user_id()),
-                created_by_user_id: Set(Some(scope.actor_user_id())),
-                created_by_username: Set(created_by_username),
-                policy_id: Set(src_folder.policy_id),
-                created_at: Set(now),
-                updated_at: Set(now),
-                ..Default::default()
-            },
-        )
-        .await?;
+    let new_folder = folder_repo::create(
+        db,
+        folder::ActiveModel {
+            name: Set(dest_name.to_string()),
+            parent_id: Set(dest_parent_id),
+            team_id: Set(scope.team_id()),
+            owner_user_id: Set(scope.owner_user_id()),
+            created_by_user_id: Set(Some(scope.actor_user_id())),
+            created_by_username: Set(created_by_username),
+            policy_id: Set(src_folder.policy_id),
+            created_at: Set(now),
+            updated_at: Set(now),
+            ..Default::default()
+        },
+    )
+    .await?;
 
-        let mut frontier = vec![FrontierFolderCopy {
-            src_folder_id,
-            dest_folder_id: new_folder.id,
-        }];
-        let mut storage_delta = 0i64;
-        while !frontier.is_empty() {
-            // 先并发完成当前层的“文件批量复制”和“下一层子目录读取”，
-            // 但把子目录真正写库放在文件复制成功之后，避免扩大失败时的半成品范围。
-            let (frontier_storage_delta, child_plans) = tokio::try_join!(
-                copy_frontier_files_in_scope(state, scope, &frontier),
-                load_frontier_child_plans_in_scope(state, scope, &frontier),
-            )?;
-            storage_delta = storage_delta
-                .checked_add(frontier_storage_delta)
-                .ok_or_else(|| AsterError::internal_error("folder copy storage delta overflow"))?;
-            frontier =
-                create_frontier_children_from_plans_in_scope(state, scope, child_plans).await?;
-        }
+    let mut frontier = vec![FrontierFolderCopy {
+        src_folder_id,
+        dest_folder_id: new_folder.id,
+    }];
+    let mut storage_delta = 0i64;
+    while !frontier.is_empty() {
+        // 先并发完成当前层的“文件批量复制”和“下一层子目录读取”，
+        // 但把子目录真正写库放在文件复制成功之后，避免扩大失败时的半成品范围。
+        let (frontier_storage_delta, child_plans) = tokio::try_join!(
+            copy_frontier_files_in_scope(state, scope, &frontier),
+            load_frontier_child_plans_in_scope(state, scope, &frontier),
+        )?;
+        storage_delta = storage_delta
+            .checked_add(frontier_storage_delta)
+            .ok_or_else(|| AsterError::internal_error("folder copy storage delta overflow"))?;
+        frontier = create_frontier_children_from_plans_in_scope(state, scope, child_plans).await?;
+    }
 
-        Ok((new_folder, storage_delta))
-    })
+    Ok((new_folder, storage_delta))
 }
 
 pub(crate) async fn copy_folder_in_scope(
@@ -319,8 +315,7 @@ pub(crate) async fn copy_folder_in_scope(
             continue;
         }
 
-        match recursive_copy_folder_in_scope(state, scope, src_id, dest_parent_id, &dest_name).await
-        {
+        match copy_folder_tree_in_scope(state, scope, src_id, dest_parent_id, &dest_name).await {
             Ok((copied, storage_delta)) => {
                 storage_change_service::publish(
                     state,

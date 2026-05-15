@@ -153,6 +153,7 @@ pub async fn open_wopi(
     params(("id" = i64, Path, description = "File ID")),
     responses(
         (status = 200, description = "File content"),
+        (status = 206, description = "Partial file content"),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
         (status = 404, description = "File not found"),
     ),
@@ -385,6 +386,7 @@ pub(crate) async fn team_get_thumbnail(
     ),
     responses(
         (status = 200, description = "Team file content"),
+        (status = 206, description = "Partial team file content"),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
         (status = 403, description = "Forbidden"),
         (status = 404, description = "File not found"),

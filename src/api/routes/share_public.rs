@@ -275,6 +275,7 @@ pub async fn create_stream_session(
     params(("token" = String, Path, description = "Share token")),
     responses(
         (status = 200, description = "File content"),
+        (status = 206, description = "Partial file content"),
         (status = 403, description = "Password required or download limit"),
         (status = 404, description = "Share not found"),
     ),
@@ -394,6 +395,7 @@ pub async fn stream_shared_video(
     ),
     responses(
         (status = 200, description = "File content"),
+        (status = 206, description = "Partial file content"),
         (status = 403, description = "Password required or file outside shared folder"),
         (status = 404, description = "Share or file not found"),
     )
