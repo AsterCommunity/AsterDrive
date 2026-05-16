@@ -93,6 +93,7 @@ describe("ArchivePreview", () => {
 		fireEvent.click(screen.getByText("docs"));
 
 		expect(screen.getByText("readme.txt")).toBeInTheDocument();
+		expect(screen.getByText("time:2026-01-02T03:04:05")).toBeInTheDocument();
 		expect(screen.queryByText("image.bin")).not.toBeInTheDocument();
 
 		fireEvent.change(

@@ -407,7 +407,9 @@ fn build_task_info_with_creator(
         status_text: task.status_text,
         attempt_count: task.attempt_count,
         max_attempts: task.max_attempts,
-        last_error: task.last_error,
+        last_error: task
+            .last_error
+            .map(|error| crate::errors::task_error_display_message(&error).to_string()),
         payload,
         result,
         steps,
@@ -744,7 +746,10 @@ pub(super) fn truncate_error(error: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{ensure_task_in_scope, validate_admin_task_cleanup_status};
+    use super::{
+        build_task_info_with_creator, ensure_task_in_scope, truncate_error,
+        validate_admin_task_cleanup_status,
+    };
     use crate::entities::background_task;
     use crate::services::workspace_storage_service::WorkspaceStorageScope;
     use crate::types::{BackgroundTaskKind, BackgroundTaskStatus, StoredTaskPayload};
@@ -767,6 +772,73 @@ mod tests {
         let error = validate_admin_task_cleanup_status(Some(BackgroundTaskStatus::Processing))
             .expect_err("active task cleanup status should be rejected");
         assert!(error.message().contains("completed task statuses"));
+    }
+
+    #[test]
+    fn task_info_hides_persisted_error_subcode_wrapper() {
+        let now = Utc::now();
+        let task = background_task::Model {
+            id: 41,
+            kind: BackgroundTaskKind::ArchiveCompress,
+            status: BackgroundTaskStatus::Failed,
+            creator_user_id: Some(7),
+            team_id: None,
+            share_id: None,
+            display_name: "failed task".to_string(),
+            payload_json: StoredTaskPayload(
+                serde_json::json!({
+                    "file_ids": [],
+                    "folder_ids": [],
+                    "archive_name": "files.zip",
+                    "target_folder_id": null
+                })
+                .to_string(),
+            ),
+            result_json: None,
+            steps_json: None,
+            progress_current: 0,
+            progress_total: 0,
+            status_text: None,
+            attempt_count: 1,
+            max_attempts: 1,
+            next_run_at: now,
+            processing_token: 0,
+            processing_started_at: None,
+            last_heartbeat_at: None,
+            lease_expires_at: None,
+            started_at: None,
+            finished_at: Some(now),
+            last_error: Some(crate::errors::encode_api_error_subcode_message(
+                "archive_preview.invalid_zip",
+                "invalid zip archive".to_string(),
+            )),
+            failure_can_retry: Some(false),
+            expires_at: now + Duration::hours(1),
+            created_at: now,
+            updated_at: now,
+        };
+
+        let info = build_task_info_with_creator(task, None).expect("task info should build");
+
+        assert_eq!(info.last_error.as_deref(), Some("invalid zip archive"));
+    }
+
+    #[test]
+    fn task_error_encoding_preserves_subcode_before_truncation() {
+        let error = crate::errors::validation_error_with_subcode(
+            "archive_preview.rejected",
+            "archive contains unsafe path",
+        );
+        let stored = truncate_error(&crate::errors::encode_task_error_for_storage(&error));
+
+        assert_eq!(
+            crate::errors::task_error_subcode_from_storage(&stored),
+            Some("archive_preview.rejected")
+        );
+        assert_eq!(
+            crate::errors::task_error_display_message(&stored),
+            "archive contains unsafe path"
+        );
     }
 
     #[test]

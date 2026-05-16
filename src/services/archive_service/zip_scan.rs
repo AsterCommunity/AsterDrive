@@ -339,14 +339,12 @@ fn ensure_archive_entry_path_not_conflicting(
                 )));
             }
         }
-        for file_path in file_paths {
-            if file_path == relative_path {
-                return Err(AsterError::validation_error(format!(
-                    "archive directory '{}' conflicts with file '{}'",
-                    relative_path.display(),
-                    file_path.display()
-                )));
-            }
+        if file_paths.contains(relative_path) {
+            return Err(AsterError::validation_error(format!(
+                "archive directory '{}' conflicts with file '{}'",
+                relative_path.display(),
+                relative_path.display()
+            )));
         }
         return Ok(());
     }

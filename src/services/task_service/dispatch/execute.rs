@@ -122,9 +122,13 @@ async fn process_claimed_task(
                 return Ok(TaskDispatchOutcome::default());
             }
             let attempt_count = task.attempt_count + 1;
-            let error_message = truncate_error(&error.to_string());
+            let error_message =
+                truncate_error(&crate::errors::encode_task_error_for_storage(&error));
+            let display_error_message =
+                crate::errors::task_error_display_message(&error_message).to_string();
             let failed_steps_json =
-                build_failed_task_steps_json(state, task.id, task.kind, &error_message).await;
+                build_failed_task_steps_json(state, task.id, task.kind, &display_error_message)
+                    .await;
             let retry_class = task_retry_class(task.kind, &error);
             let should_auto_retry =
                 retry_class.should_auto_retry() && attempt_count < task.max_attempts;
@@ -156,7 +160,7 @@ async fn process_claimed_task(
                     task_id = task.id,
                     kind = %task.kind.to_value(),
                     attempt_count,
-                    error = %error_message,
+                    error = %display_error_message,
                     "background task permanently failed"
                 );
                 Ok(TaskDispatchOutcome {
@@ -188,7 +192,7 @@ async fn process_claimed_task(
                     kind = %task.kind.to_value(),
                     attempt_count,
                     retry_at = %retry_at,
-                    error = %error_message,
+                    error = %display_error_message,
                     "background task failed; scheduled retry"
                 );
                 state.wake_background_task_dispatcher();

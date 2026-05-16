@@ -336,6 +336,24 @@ pub fn display_error(err: impl std::fmt::Display) -> String {
     err.to_string()
 }
 
+pub(crate) fn encode_task_error_for_storage(error: &AsterError) -> String {
+    if api_error_subcode_from_message(error.raw_message()).is_some() {
+        return error.raw_message().to_string();
+    }
+    if let Some(subcode) = error.api_error_subcode() {
+        return encode_api_error_subcode_message(subcode, error.to_string());
+    }
+    error.to_string()
+}
+
+pub(crate) fn task_error_subcode_from_storage(raw_message: &str) -> Option<&str> {
+    api_error_subcode_from_message(raw_message)
+}
+
+pub(crate) fn task_error_display_message(raw_message: &str) -> &str {
+    api_error_display_message(raw_message)
+}
+
 pub fn validation_error_with_subcode(subcode: &str, message: impl Into<String>) -> AsterError {
     tag_error_with_subcode(subcode, message, AsterError::validation_error)
 }

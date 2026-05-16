@@ -303,6 +303,8 @@ async fn load_cached_manifest(
         && cached.manifest.schema_version == CACHE_SCHEMA_VERSION
         && cached.manifest.format == FORMAT_ZIP
     {
+        // Existing successful manifests stay usable when administrators later lower preview
+        // limits; stricter limits only apply to cache misses and newly generated manifests.
         return Ok(Some(cached.manifest));
     }
 
@@ -595,6 +597,47 @@ pub(crate) fn archive_preview_validation_error(
 
 pub(crate) fn map_failed_task_error(last_error: Option<&str>) -> AsterError {
     let message = last_error.unwrap_or("archive preview generation failed");
+    match crate::errors::task_error_subcode_from_storage(message) {
+        Some("archive_preview.unsupported_type") => {
+            return archive_preview_validation_error(
+                "archive_preview.unsupported_type",
+                "archive preview currently supports .zip files only",
+            );
+        }
+        Some("archive_preview.source_too_large") => {
+            return archive_preview_validation_error(
+                "archive_preview.source_too_large",
+                crate::errors::task_error_display_message(message).to_string(),
+            );
+        }
+        Some("archive_preview.invalid_zip") => {
+            return archive_preview_validation_error(
+                "archive_preview.invalid_zip",
+                "invalid zip archive",
+            );
+        }
+        Some("archive_preview.manifest_too_large") => {
+            return archive_preview_validation_error(
+                "archive_preview.manifest_too_large",
+                crate::errors::task_error_display_message(message).to_string(),
+            );
+        }
+        Some("archive_preview.source_size_mismatch") => {
+            return archive_preview_validation_error(
+                "archive_preview.source_size_mismatch",
+                crate::errors::task_error_display_message(message).to_string(),
+            );
+        }
+        Some("archive_preview.rejected") => {
+            return archive_preview_validation_error(
+                "archive_preview.rejected",
+                crate::errors::task_error_display_message(message).to_string(),
+            );
+        }
+        _ => {}
+    }
+
+    // Backward compatibility for tasks failed before subcodes were encoded in last_error.
     let lower = message.to_ascii_lowercase();
     if lower.contains("archive preview currently supports")
         || (lower.contains("supports .zip") && lower.contains("archive preview"))
@@ -712,6 +755,22 @@ mod tests {
         map_failed_task_error(Some(message))
             .api_error_subcode()
             .map(str::to_string)
+    }
+
+    #[test]
+    fn map_failed_task_error_reads_persisted_subcode_without_text_matching() {
+        let stored = crate::errors::encode_api_error_subcode_message(
+            "archive_preview.invalid_zip",
+            "worker changed this wording".to_string(),
+        );
+
+        let error = map_failed_task_error(Some(&stored));
+
+        assert_eq!(
+            error.api_error_subcode(),
+            Some("archive_preview.invalid_zip")
+        );
+        assert_eq!(error.message(), "invalid zip archive");
     }
 
     #[test]

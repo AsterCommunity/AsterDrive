@@ -136,8 +136,7 @@ function entryDepth(path: string) {
 
 function formatZipModifiedAt(value: string | null | undefined) {
 	if (!value) return "";
-	const normalized = value.endsWith("Z") ? value : `${value}Z`;
-	return formatDateTime(normalized);
+	return formatDateTime(value);
 }
 
 function parentPathForArchivePath(path: string) {

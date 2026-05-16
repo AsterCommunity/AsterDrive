@@ -158,12 +158,9 @@ async fn drain_storage_change_events(
         aster_drive::services::storage_change_service::StorageChangeEvent,
     >,
 ) {
-    loop {
-        match tokio::time::timeout(std::time::Duration::from_millis(10), rx.recv()).await {
-            Ok(Ok(_)) | Ok(Err(broadcast::error::RecvError::Lagged(_))) => {}
-            Ok(Err(broadcast::error::RecvError::Closed)) | Err(_) => break,
-        }
-    }
+    while let Ok(Ok(_)) | Ok(Err(broadcast::error::RecvError::Lagged(_))) =
+        tokio::time::timeout(std::time::Duration::from_millis(10), rx.recv()).await
+    {}
 }
 
 fn create_zip_bytes(entries: &[(&str, Option<&[u8]>)]) -> Vec<u8> {
