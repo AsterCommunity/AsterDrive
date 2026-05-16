@@ -8,7 +8,7 @@ on:
       - 'Cargo.lock'
       - 'scripts/coverage-summary.mjs'
       - '.github/workflows/rust.yml'
-    branches: [master, develop]
+    branches: [master]
   pull_request:
     paths:
       - '**/*.rs'

@@ -2,7 +2,7 @@ name: E2E
 
 on:
   push:
-    branches: [master, develop]
+    branches: [master]
     paths:
       - 'frontend-panel/**'
       - 'src/**'

@@ -6,7 +6,7 @@ on:
       - 'frontend-panel/**'
       - 'scripts/coverage-summary.mjs'
       - '.github/workflows/frontend.yml'
-    branches: [master, develop]
+    branches: [master]
   pull_request:
     paths:
       - 'frontend-panel/**'
