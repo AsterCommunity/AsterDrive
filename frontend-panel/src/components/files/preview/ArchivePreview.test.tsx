@@ -160,7 +160,9 @@ describe("ArchivePreview", () => {
 		}));
 		render(<ArchivePreview loadManifest={loadManifest} />);
 
-		expect(await screen.findByText("archive_preview_empty")).toBeInTheDocument();
+		expect(
+			await screen.findByText("archive_preview_empty"),
+		).toBeInTheDocument();
 
 		fireEvent.change(
 			screen.getByRole("searchbox", { name: "archive_preview_search" }),
