@@ -109,6 +109,16 @@ function StatefulPreviewAppsEditor({
 	return <PreviewAppsConfigEditor value={value} onChange={setValue} />;
 }
 
+function editAppByName(name: string) {
+	const row = screen.getByText(name).closest("tr");
+	expect(row).not.toBeNull();
+	fireEvent.click(
+		within(row as HTMLTableRowElement).getByRole("button", {
+			name: "preview_apps_edit",
+		}),
+	);
+}
+
 describe("PreviewAppsConfigEditor", () => {
 	it("opens the add dialog and creates an embed app", () => {
 		render(<StatefulPreviewAppsEditor />);
@@ -134,7 +144,7 @@ describe("PreviewAppsConfigEditor", () => {
 	it("keeps the focused input active while typing in the app edit dialog", () => {
 		render(<StatefulPreviewAppsEditor />);
 
-		fireEvent.click(screen.getByRole("button", { name: "preview_apps_edit" }));
+		editAppByName("外部查看器");
 
 		const keyInput = screen.getByDisplayValue("custom.viewer");
 		keyInput.focus();
@@ -150,7 +160,7 @@ describe("PreviewAppsConfigEditor", () => {
 	it("keeps delimited list text unformatted while the field is focused", () => {
 		render(<StatefulPreviewAppsEditor />);
 
-		fireEvent.click(screen.getByRole("button", { name: "preview_apps_edit" }));
+		editAppByName("外部查看器");
 
 		const extensionInput = screen.getByDisplayValue("md");
 		extensionInput.focus();
@@ -169,7 +179,7 @@ describe("PreviewAppsConfigEditor", () => {
 	it("opens the URL template magic variables dialog", () => {
 		render(<StatefulPreviewAppsEditor />);
 
-		fireEvent.click(screen.getByRole("button", { name: "preview_apps_edit" }));
+		editAppByName("外部查看器");
 		fireEvent.click(
 			screen.getByRole("button", {
 				name: "preview_apps_url_template_variables_link",
@@ -190,7 +200,7 @@ describe("PreviewAppsConfigEditor", () => {
 			/>,
 		);
 
-		fireEvent.click(screen.getByRole("button", { name: "preview_apps_edit" }));
+		editAppByName("图片预览");
 
 		const dialog = screen.getByRole("dialog");
 		const iconField = within(dialog)
@@ -203,7 +213,7 @@ describe("PreviewAppsConfigEditor", () => {
 	it("opens the app editor in a dialog instead of inline content", () => {
 		render(<StatefulPreviewAppsEditor />);
 
-		fireEvent.click(screen.getByRole("button", { name: "preview_apps_edit" }));
+		editAppByName("外部查看器");
 
 		const dialog = screen.getByRole("dialog");
 		expect(

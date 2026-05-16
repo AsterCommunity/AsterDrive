@@ -109,11 +109,15 @@ test.describe
 			await expect(
 				page.getByRole("tabpanel", { exact: true, name: "Security" }),
 			).toBeVisible({ timeout: 30_000 });
+			await page
+				.getByRole("tab", { exact: true, name: "Login devices" })
+				.click();
 			await expect(
 				page.getByText("Current device", { exact: true }),
 			).toBeVisible({
 				timeout: 30_000,
 			});
+			await page.getByRole("tab", { exact: true, name: "Account" }).click();
 			await page
 				.getByLabel("Current password", { exact: true })
 				.fill(initialPassword);
@@ -226,6 +230,7 @@ test.describe
 				name: "Security",
 			});
 			await expect(securityPanel).toBeVisible({ timeout: 30_000 });
+			await page.getByRole("tab", { exact: true, name: "Passkeys" }).click();
 
 			await page.getByLabel("New passkey name").fill("Laptop");
 			await page

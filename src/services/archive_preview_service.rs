@@ -28,6 +28,9 @@ const FORMAT_ZIP: &str = "zip";
 const CACHE_NAMESPACE: &str = "system.archive_preview";
 const ZIP_MANIFEST_CACHE_NAME: &str = "zip_manifest.v1";
 const ENTITY_PROPERTY_VALUE_MAX_BYTES: usize = 65_536;
+const ARCHIVE_PREVIEW_CACHE_WRAPPER_RESERVED_BYTES: usize = 1024;
+const ARCHIVE_PREVIEW_MAX_CACHEABLE_MANIFEST_BYTES: usize =
+    ENTITY_PROPERTY_VALUE_MAX_BYTES - ARCHIVE_PREVIEW_CACHE_WRAPPER_RESERVED_BYTES;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
@@ -92,6 +95,15 @@ struct CachedArchivePreviewManifest {
     source_hash: String,
     limit_signature: String,
     manifest: ArchivePreviewManifest,
+}
+
+#[derive(Debug, Serialize)]
+struct CachedArchivePreviewManifestRef<'a> {
+    schema_version: u32,
+    source_blob_id: i64,
+    source_hash: &'a str,
+    limit_signature: &'a str,
+    manifest: &'a ArchivePreviewManifest,
 }
 
 #[derive(Debug, Clone)]
@@ -222,10 +234,12 @@ impl ArchivePreviewLimits {
                 runtime_config,
             ),
         };
-        let max_manifest_bytes = crate::utils::numbers::u64_to_usize(
+        let configured_max_manifest_bytes = crate::utils::numbers::u64_to_usize(
             operations::archive_preview_max_manifest_bytes(runtime_config),
             operations::ARCHIVE_PREVIEW_MAX_MANIFEST_BYTES_KEY,
         )?;
+        let max_manifest_bytes =
+            configured_max_manifest_bytes.min(ARCHIVE_PREVIEW_MAX_CACHEABLE_MANIFEST_BYTES);
         let max_source_bytes = operations::archive_preview_max_source_bytes(runtime_config);
         let signature = format!(
             "source={};manifest={};entries={};files={};dirs={};uncompressed={};depth={};path={};ratio={};entry_ratio={}",
@@ -302,21 +316,7 @@ pub(crate) async fn store_cached_manifest(
     limits: &ArchivePreviewLimits,
     manifest: &ArchivePreviewManifest,
 ) -> Result<()> {
-    let cached = CachedArchivePreviewManifest {
-        schema_version: CACHE_SCHEMA_VERSION,
-        source_blob_id: blob.id,
-        source_hash: blob.hash.clone(),
-        limit_signature: limits.signature.clone(),
-        manifest: manifest.clone(),
-    };
-    let serialized = match serde_json::to_string(&cached) {
-        Ok(serialized) => serialized,
-        Err(error) => {
-            return Err(AsterError::internal_error(format!(
-                "serialize archive preview cache: {error}"
-            )));
-        }
-    };
+    let serialized = serialize_cached_manifest(blob.id, &blob.hash, &limits.signature, manifest)?;
     if serialized.len() > ENTITY_PROPERTY_VALUE_MAX_BYTES {
         return Err(archive_preview_validation_error(
             "archive_preview.manifest_too_large",
@@ -436,31 +436,54 @@ pub(crate) async fn scan_manifest_from_temp(
         AsterError::internal_error(format!("archive preview worker failed: {error}"))
     })??;
 
-    fit_manifest_to_limit(source_file_id, manifest, limits.max_manifest_bytes)
+    fit_manifest_to_limit(
+        source_file_id,
+        blob.id,
+        &blob.hash,
+        &limits.signature,
+        manifest,
+        limits.max_manifest_bytes,
+    )
 }
 
 fn fit_manifest_to_limit(
     file_id: i64,
+    source_blob_id: i64,
+    source_hash: &str,
+    limit_signature: &str,
     manifest: ArchivePreviewManifest,
     max_manifest_bytes: usize,
 ) -> Result<ArchivePreviewManifest> {
-    if serialized_manifest_len(&manifest)? <= max_manifest_bytes {
+    if manifest_fits_limits(
+        source_blob_id,
+        source_hash,
+        limit_signature,
+        &manifest,
+        max_manifest_bytes,
+    )? {
         return Ok(manifest);
     }
 
-    let original_entries = manifest.entries.clone();
+    let mut base = manifest;
+    let original_entries = std::mem::take(&mut base.entries);
+    base.truncated = true;
     let mut low = 0_usize;
     let mut high = original_entries.len();
-    let mut best = None;
+    let mut best_entry_count = None;
 
     while low <= high {
         let mid = low + (high - low) / 2;
-        let mut candidate = manifest.clone();
-        candidate.truncated = true;
+        let mut candidate = base.clone();
         candidate.entries = original_entries[..mid].to_vec();
 
-        if serialized_manifest_len(&candidate)? <= max_manifest_bytes {
-            best = Some(candidate);
+        if manifest_fits_limits(
+            source_blob_id,
+            source_hash,
+            limit_signature,
+            &candidate,
+            max_manifest_bytes,
+        )? {
+            best_entry_count = Some(mid);
             low = mid.saturating_add(1);
         } else if mid == 0 {
             break;
@@ -469,14 +492,33 @@ fn fit_manifest_to_limit(
         }
     }
 
-    best.ok_or_else(|| {
-        archive_preview_validation_error(
-            "archive_preview.manifest_too_large",
-            format!(
-                "archive preview manifest for file #{file_id} exceeds server limit {max_manifest_bytes} bytes"
-            ),
-        )
-    })
+    if let Some(entry_count) = best_entry_count {
+        base.entries = original_entries[..entry_count].to_vec();
+        return Ok(base);
+    }
+
+    Err(archive_preview_validation_error(
+        "archive_preview.manifest_too_large",
+        format!(
+            "archive preview manifest for file #{file_id} exceeds server limit {max_manifest_bytes} bytes or entity property limit {ENTITY_PROPERTY_VALUE_MAX_BYTES} bytes"
+        ),
+    ))
+}
+
+fn manifest_fits_limits(
+    source_blob_id: i64,
+    source_hash: &str,
+    limit_signature: &str,
+    manifest: &ArchivePreviewManifest,
+    max_manifest_bytes: usize,
+) -> Result<bool> {
+    if serialized_manifest_len(manifest)? > max_manifest_bytes {
+        return Ok(false);
+    }
+    Ok(
+        serialized_cached_manifest_len(source_blob_id, source_hash, limit_signature, manifest)?
+            <= ENTITY_PROPERTY_VALUE_MAX_BYTES,
+    )
 }
 
 fn serialized_manifest_len(manifest: &ArchivePreviewManifest) -> Result<usize> {
@@ -486,6 +528,45 @@ fn serialized_manifest_len(manifest: &ArchivePreviewManifest) -> Result<usize> {
             "serialize archive preview manifest",
             AsterError::internal_error,
         )
+}
+
+fn serialized_cached_manifest_len(
+    source_blob_id: i64,
+    source_hash: &str,
+    limit_signature: &str,
+    manifest: &ArchivePreviewManifest,
+) -> Result<usize> {
+    serde_json::to_vec(&CachedArchivePreviewManifestRef {
+        schema_version: CACHE_SCHEMA_VERSION,
+        source_blob_id,
+        source_hash,
+        limit_signature,
+        manifest,
+    })
+    .map(|bytes| bytes.len())
+    .map_aster_err_ctx(
+        "serialize archive preview cache",
+        AsterError::internal_error,
+    )
+}
+
+fn serialize_cached_manifest(
+    source_blob_id: i64,
+    source_hash: &str,
+    limit_signature: &str,
+    manifest: &ArchivePreviewManifest,
+) -> Result<String> {
+    serde_json::to_string(&CachedArchivePreviewManifestRef {
+        schema_version: CACHE_SCHEMA_VERSION,
+        source_blob_id,
+        source_hash,
+        limit_signature,
+        manifest,
+    })
+    .map_aster_err_ctx(
+        "serialize archive preview cache",
+        AsterError::internal_error,
+    )
 }
 
 pub(crate) fn ensure_archive_preview_source_supported(source_file: &file::Model) -> Result<()> {
@@ -619,4 +700,134 @@ where
     }
 
     Ok(copied)
+}
+
+#[cfg(test)]
+mod tests {
+    use tokio::io::AsyncWriteExt;
+
+    use super::*;
+
+    fn failed_task_subcode(message: &str) -> Option<String> {
+        map_failed_task_error(Some(message))
+            .api_error_subcode()
+            .map(str::to_string)
+    }
+
+    #[test]
+    fn map_failed_task_error_preserves_archive_preview_subcodes() {
+        assert_eq!(
+            failed_task_subcode("archive preview currently supports .zip files only"),
+            Some("archive_preview.unsupported_type".to_string())
+        );
+        assert_eq!(
+            failed_task_subcode(
+                "source archive size 135064658 exceeds archive preview limit 67108864"
+            ),
+            Some("archive_preview.source_too_large".to_string())
+        );
+        assert_eq!(
+            failed_task_subcode("invalid zip archive"),
+            Some("archive_preview.invalid_zip".to_string())
+        );
+        assert_eq!(
+            failed_task_subcode(
+                "archive preview manifest for file #1 exceeds server limit 64 bytes"
+            ),
+            Some("archive_preview.manifest_too_large".to_string())
+        );
+        assert_eq!(
+            failed_task_subcode(
+                "source archive size mismatch: declared 3 bytes, downloaded 2 bytes"
+            ),
+            Some("archive_preview.source_size_mismatch".to_string())
+        );
+        assert_eq!(
+            failed_task_subcode("archive contains 2 entries, exceeds server limit 1"),
+            Some("archive_preview.rejected".to_string())
+        );
+    }
+
+    #[test]
+    fn map_failed_task_error_falls_back_to_unavailable_when_unknown() {
+        let error = map_failed_task_error(Some("worker disappeared"));
+
+        assert_eq!(error.code(), "E006");
+        assert_eq!(
+            error.message(),
+            "archive preview is unavailable for this file"
+        );
+    }
+
+    #[tokio::test]
+    async fn bounded_copy_accepts_exact_size_and_preserves_bytes() {
+        let (mut writer, mut reader) = tokio::io::duplex(16);
+        let producer = tokio::spawn(async move {
+            writer
+                .write_all(b"zip")
+                .await
+                .expect("write should succeed");
+        });
+        let mut output = Vec::new();
+
+        let copied = copy_async_reader_to_writer_with_expected_size(
+            &mut reader,
+            &mut output,
+            3,
+            "source archive",
+        )
+        .await
+        .expect("exact-size stream should copy");
+
+        producer.await.expect("producer should finish");
+        assert_eq!(copied, 3);
+        assert_eq!(output, b"zip");
+    }
+
+    #[tokio::test]
+    async fn bounded_copy_rejects_short_and_long_streams() {
+        let mut short_reader = tokio::io::empty();
+        let mut short_output = Vec::new();
+        let short_error = copy_async_reader_to_writer_with_expected_size(
+            &mut short_reader,
+            &mut short_output,
+            1,
+            "source archive",
+        )
+        .await
+        .expect_err("short stream should fail");
+        assert_eq!(
+            short_error.api_error_subcode(),
+            Some("archive_preview.source_size_mismatch")
+        );
+        assert!(short_error.message().contains("downloaded 0 bytes"));
+
+        let (mut writer, mut reader) = tokio::io::duplex(16);
+        let producer = tokio::spawn(async move {
+            writer
+                .write_all(b"too-long")
+                .await
+                .expect("write should succeed");
+        });
+        let mut long_output = Vec::new();
+        let long_error = copy_async_reader_to_writer_with_expected_size(
+            &mut reader,
+            &mut long_output,
+            3,
+            "source archive",
+        )
+        .await
+        .expect_err("long stream should fail");
+
+        producer.await.expect("producer should finish");
+        assert_eq!(
+            long_error.api_error_subcode(),
+            Some("archive_preview.source_size_mismatch")
+        );
+        assert!(
+            long_error
+                .message()
+                .contains("expands beyond declared size")
+        );
+    }
 }

@@ -125,8 +125,10 @@ async fn test_aster_dav_file_write_mode_persists_empty_and_written_content() {
 
 #[actix_web::test]
 async fn test_aster_dav_fs_reports_quota_and_roundtrips_custom_props() {
+    use aster_drive::db::repository::property_repo;
     use aster_drive::db::repository::user_repo;
     use aster_drive::services::{auth_service, file_service};
+    use aster_drive::types::EntityType;
     use aster_drive::webdav::dav::{DavFileSystem, DavPath, DavProp};
     use aster_drive::webdav::fs::AsterDavFs;
     use sea_orm::{ActiveModelTrait, Set};
@@ -190,6 +192,36 @@ async fn test_aster_dav_fs_reports_quota_and_roundtrips_custom_props() {
     assert_eq!(set_results.len(), 1);
     assert_eq!(set_results[0].0, http::StatusCode::OK);
     assert!(dav_fs.have_props(&file_path).await);
+
+    let stored_file = aster_drive::db::repository::file_repo::find_by_name_in_folder(
+        &state.db,
+        user.id,
+        None,
+        "quota-props.txt",
+    )
+    .await
+    .unwrap()
+    .expect("stored file should exist");
+    property_repo::upsert(
+        &state.db,
+        EntityType::File,
+        stored_file.id,
+        "system.archive_preview",
+        "zip_manifest.v1",
+        Some("cached"),
+    )
+    .await
+    .unwrap();
+    property_repo::upsert(
+        &state.db,
+        EntityType::File,
+        stored_file.id,
+        "DAV:",
+        "displayname",
+        Some("blocked"),
+    )
+    .await
+    .unwrap();
 
     let props_without_content = dav_fs.get_props(&file_path, false).await.unwrap();
     assert_eq!(props_without_content.len(), 1);

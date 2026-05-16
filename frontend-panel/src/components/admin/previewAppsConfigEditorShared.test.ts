@@ -41,17 +41,18 @@ describe("previewAppsConfigEditorShared", () => {
 			]
 		}`);
 
-		expect(draft).toMatchObject({
-			apps: [
-				{
+		expect(draft.version).toBe(2);
+		expect(draft.apps).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({
 					key: "builtin.image",
 					provider: "builtin",
 					labels: {
 						en: "Image preview",
 						zh: "图片预览",
 					},
-				},
-				{
+				}),
+				expect.objectContaining({
 					config: {
 						allowed_origins: ["https://videos.example.com"],
 						mode: "iframe",
@@ -65,10 +66,14 @@ describe("previewAppsConfigEditorShared", () => {
 						en: "Jellyfin",
 					},
 					provider: "url_template",
-				},
-			],
-			version: 2,
-		});
+				}),
+				expect.objectContaining({
+					extensions: ["zip"],
+					key: "builtin.archive",
+					provider: "builtin",
+				}),
+			]),
+		);
 
 		const serialized = JSON.parse(serializePreviewAppsConfig(draft));
 		expect(serialized).toMatchObject({
@@ -135,16 +140,18 @@ describe("previewAppsConfigEditorShared", () => {
 			]
 		}`);
 
-		expect(draft.apps).toMatchObject([
-			{
-				icon: "",
-				key: "builtin.image",
-			},
-			{
-				icon: "",
-				key: "custom.viewer",
-			},
-		]);
+		expect(draft.apps).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({
+					icon: "",
+					key: "builtin.image",
+				}),
+				expect.objectContaining({
+					icon: "",
+					key: "custom.viewer",
+				}),
+			]),
+		);
 
 		expect(JSON.parse(serializePreviewAppsConfig(draft)).apps).toEqual(
 			expect.arrayContaining([
@@ -180,13 +187,15 @@ describe("previewAppsConfigEditorShared", () => {
 			]
 		}`);
 
-		expect(draft.apps).toMatchObject([
-			{
-				extensions: ["md"],
-				key: "custom.viewer",
-				provider: "",
-			},
-		]);
+		expect(draft.apps).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({
+					extensions: ["md"],
+					key: "custom.viewer",
+					provider: "",
+				}),
+			]),
+		);
 	});
 
 	it("creates useful default app drafts", () => {
@@ -256,7 +265,6 @@ describe("previewAppsConfigEditorShared", () => {
 				"preview_apps_error_app_provider_required",
 				"preview_apps_error_url_template_mode_required",
 				"preview_apps_error_url_template_required",
-				"preview_apps_error_builtin_required",
 				"preview_apps_error_wopi_mode_required",
 				"preview_apps_error_wopi_target_required",
 			]),

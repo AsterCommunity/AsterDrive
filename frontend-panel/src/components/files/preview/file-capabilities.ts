@@ -305,7 +305,7 @@ function detectBuiltinFilePreviewProfile(
 			options: BUILTIN_PREVIEW_OPTIONS.xml,
 		};
 	}
-	if (typeInfo.category === "archive" && isZipArchive(file)) {
+	if (isZipArchive(file) || typeInfo.category === "archive") {
 		return {
 			category: "archive",
 			isBlobPreview: false,

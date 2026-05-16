@@ -495,7 +495,7 @@ describe("file preview capabilities", () => {
 		};
 		const archive = {
 			name: "data.zip",
-			mime_type: "application/zip",
+			mime_type: "application/octet-stream",
 		};
 
 		expect(detectFilePreviewProfile(unknown).isEditableText).toBe(true);
@@ -509,7 +509,16 @@ describe("file preview capabilities", () => {
 		expect(detectFilePreviewProfile(unknown).defaultMode).toBeNull();
 
 		expect(detectFilePreviewProfile(archive).isEditableText).toBe(false);
-		expect(detectFilePreviewProfile(archive).options).toEqual([]);
+		expect(detectFilePreviewProfile(archive).options).toEqual([
+			expect.objectContaining({
+				key: "builtin.archive",
+				mode: "archive",
+				labelKey: "open_with_archive",
+			}),
+		]);
+		expect(detectFilePreviewProfile(archive).defaultMode).toBe(
+			"builtin.archive",
+		);
 	});
 
 	it("uses configured builtins as defaults when their built-in bindings match", () => {

@@ -40,8 +40,16 @@ pub fn is_system_namespace(namespace: &str) -> bool {
     namespace.starts_with(SYSTEM_PROPERTY_NAMESPACE_PREFIX)
 }
 
+pub fn is_dav_namespace(namespace: &str) -> bool {
+    namespace == "DAV:"
+}
+
+pub fn is_protected_namespace(namespace: &str) -> bool {
+    is_dav_namespace(namespace) || is_system_namespace(namespace)
+}
+
 fn ensure_user_namespace_mutable(namespace: &str) -> Result<()> {
-    if namespace == "DAV:" {
+    if is_dav_namespace(namespace) {
         return Err(AsterError::auth_forbidden("DAV: namespace is read-only"));
     }
     if is_system_namespace(namespace) {
@@ -88,7 +96,7 @@ pub async fn list(
         property_repo::find_by_entity(&state.db, entity_type, entity_id)
             .await?
             .into_iter()
-            .filter(|prop| !is_system_namespace(&prop.namespace))
+            .filter(|prop| !is_protected_namespace(&prop.namespace))
             .map(Into::into)
             .collect(),
     )

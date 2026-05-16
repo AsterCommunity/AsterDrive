@@ -1054,6 +1054,7 @@ async fn requested_prop_elements(
 
     for prop in requested {
         if prop.is_system_namespace() {
+            missing.push(prop.empty_element());
             continue;
         }
 

@@ -253,6 +253,7 @@ pub async fn create_preview_link(
     responses(
         (status = 200, description = "ZIP archive preview manifest", body = inline(ApiResponse<archive_preview_service::ArchivePreviewManifest>)),
         (status = 202, description = "ZIP archive preview generation has been queued"),
+        (status = 304, description = "Archive preview not modified"),
         (status = 400, description = "Not a supported archive or archive rejected by limits"),
         (status = 403, description = "Password required or archive preview disabled"),
         (status = 404, description = "Share not found"),
@@ -523,6 +524,7 @@ pub async fn create_folder_file_preview_link(
     responses(
         (status = 200, description = "ZIP archive preview manifest", body = inline(ApiResponse<archive_preview_service::ArchivePreviewManifest>)),
         (status = 202, description = "ZIP archive preview generation has been queued"),
+        (status = 304, description = "Archive preview not modified"),
         (status = 400, description = "Not a supported archive or archive rejected by limits"),
         (status = 403, description = "Password required, file outside shared folder, or archive preview disabled"),
         (status = 404, description = "Share or file not found"),

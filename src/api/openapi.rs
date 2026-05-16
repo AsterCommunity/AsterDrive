@@ -72,6 +72,7 @@ use utoipa::{Modify, OpenApi};
 
         // files::access：个人空间中文件读取、下载、缩略图、直链和 WOPI 打开入口。
         crate::api::routes::files::access::get_file,
+        crate::api::routes::files::access::get_archive_preview,
         crate::api::routes::files::access::get_direct_link,
         crate::api::routes::files::access::get_preview_link,
         crate::api::routes::files::access::open_wopi,
@@ -190,6 +191,7 @@ use utoipa::{Modify, OpenApi};
         crate::api::routes::files::upload::team_cancel_upload,
         crate::api::routes::files::mutations::team_create_empty,
         crate::api::routes::files::access::team_get_file,
+        crate::api::routes::files::access::team_get_archive_preview,
         crate::api::routes::files::access::team_get_direct_link,
         crate::api::routes::files::access::team_get_preview_link,
         crate::api::routes::files::access::team_open_wopi,
@@ -305,11 +307,13 @@ use utoipa::{Modify, OpenApi};
         // share_public：匿名访问公开分享时使用的浏览、下载、鉴权和缩略图接口。
         crate::api::routes::share_public::get_share_info,
         crate::api::routes::share_public::verify_password,
+        crate::api::routes::share_public::archive_preview,
         crate::api::routes::share_public::create_preview_link,
         crate::api::routes::share_public::download_shared,
         crate::api::routes::share_public::create_stream_session,
         crate::api::routes::share_public::stream_shared_video,
         crate::api::routes::share_public::create_folder_file_preview_link,
+        crate::api::routes::share_public::folder_file_archive_preview,
         crate::api::routes::share_public::download_shared_folder_file,
         crate::api::routes::share_public::create_folder_file_stream_session,
         crate::api::routes::share_public::list_shared_content,
@@ -370,6 +374,9 @@ use utoipa::{Modify, OpenApi};
             crate::types::BackgroundTaskKind,
             crate::types::BackgroundTaskStatus,
             crate::types::AuditAction,
+            crate::services::archive_preview_service::ArchivePreviewManifest,
+            crate::services::archive_preview_service::ArchivePreviewEntry,
+            crate::services::archive_preview_service::ArchivePreviewEntryKind,
 
             // services::folder_service / entities::{file,folder,file_version}：个人空间文件树、文件实体和版本信息模型。
             crate::services::folder_service::FolderContents,

@@ -59,6 +59,7 @@ pub async fn get_file(
     responses(
         (status = 200, description = "ZIP archive preview manifest", body = inline(ApiResponse<archive_preview_service::ArchivePreviewManifest>)),
         (status = 202, description = "ZIP archive preview generation has been queued"),
+        (status = 304, description = "Archive preview not modified"),
         (status = 400, description = "Not a supported archive or archive rejected by limits"),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
         (status = 403, description = "Archive preview disabled"),
@@ -283,6 +284,8 @@ pub(crate) async fn team_get_file(
     ),
     responses(
         (status = 200, description = "Team ZIP archive preview manifest", body = inline(ApiResponse<archive_preview_service::ArchivePreviewManifest>)),
+        (status = 202, description = "ZIP archive preview generation has been queued"),
+        (status = 304, description = "Archive preview not modified"),
         (status = 400, description = "Not a supported archive or archive rejected by limits"),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
         (status = 403, description = "Forbidden or archive preview disabled"),

@@ -9,6 +9,7 @@ use sea_orm::{ActiveModelTrait, IntoActiveModel, Set};
 use serde_json::Value;
 use std::io::{Cursor, Read, Write};
 use std::path::Path;
+use tokio::sync::broadcast;
 
 use aster_drive::config::operations::{
     BACKGROUND_TASK_ARCHIVE_MAX_CONCURRENCY_KEY, BACKGROUND_TASK_THUMBNAIL_MAX_CONCURRENCY_KEY,
@@ -157,9 +158,12 @@ async fn drain_storage_change_events(
         aster_drive::services::storage_change_service::StorageChangeEvent,
     >,
 ) {
-    while let Ok(Ok(_)) =
-        tokio::time::timeout(std::time::Duration::from_millis(10), rx.recv()).await
-    {}
+    loop {
+        match tokio::time::timeout(std::time::Duration::from_millis(10), rx.recv()).await {
+            Ok(Ok(_)) | Ok(Err(broadcast::error::RecvError::Lagged(_))) => {}
+            Ok(Err(broadcast::error::RecvError::Closed)) | Err(_) => break,
+        }
+    }
 }
 
 fn create_zip_bytes(entries: &[(&str, Option<&[u8]>)]) -> Vec<u8> {

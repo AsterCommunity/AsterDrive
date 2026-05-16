@@ -3,7 +3,7 @@ import { fileURLToPath } from "node:url";
 import { defineConfig } from "@playwright/test";
 
 const port = Number(process.env.ASTER_E2E_PORT ?? "3310");
-const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? `http://127.0.0.1:${port}`;
+const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? `http://localhost:${port}`;
 const configDir = path.dirname(fileURLToPath(import.meta.url));
 const webServerCommand =
 	process.env.ASTER_E2E_SKIP_BUILD === "1"

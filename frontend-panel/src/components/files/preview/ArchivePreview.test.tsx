@@ -131,6 +131,45 @@ describe("ArchivePreview", () => {
 		expect(screen.getByText("main.rs")).toBeInTheDocument();
 	});
 
+	it("opens directories with keyboard and navigates back with breadcrumbs", async () => {
+		const loadManifest = vi.fn(async () => manifest);
+		render(<ArchivePreview loadManifest={loadManifest} />);
+
+		const docs = await screen.findByText("docs");
+		fireEvent.keyDown(docs.closest("tr") as HTMLTableRowElement, {
+			key: "Enter",
+		});
+
+		expect(screen.getByText("readme.txt")).toBeInTheDocument();
+
+		fireEvent.click(screen.getByRole("button", { name: "root" }));
+
+		expect(screen.getByText("image.bin")).toBeInTheDocument();
+		expect(screen.queryByText("readme.txt")).not.toBeInTheDocument();
+	});
+
+	it("shows empty and no-match states", async () => {
+		const loadManifest = vi.fn(async () => ({
+			...manifest,
+			entry_count: 0,
+			file_count: 0,
+			directory_count: 0,
+			total_uncompressed_size: 0,
+			truncated: false,
+			entries: [],
+		}));
+		render(<ArchivePreview loadManifest={loadManifest} />);
+
+		expect(await screen.findByText("archive_preview_empty")).toBeInTheDocument();
+
+		fireEvent.change(
+			screen.getByRole("searchbox", { name: "archive_preview_search" }),
+			{ target: { value: "missing" } },
+		);
+
+		expect(screen.getByText("archive_preview_no_matches")).toBeInTheDocument();
+	});
+
 	it("counts visible items separately from raw zip entries", async () => {
 		const loadManifest = vi.fn(async () => ({
 			...manifest,
@@ -361,6 +400,26 @@ describe("ArchivePreview", () => {
 
 		await waitFor(() => {
 			expect(screen.getByText(messageKey)).toBeInTheDocument();
+		});
+		expect(
+			screen.queryByRole("button", { name: "preview_retry" }),
+		).not.toBeInTheDocument();
+	});
+
+	it("keeps old-server disabled messages friendly", async () => {
+		const loadManifest = vi.fn(async () => {
+			throw new ApiError(
+				ErrorCode.Forbidden,
+				"archive preview is disabled by administrator",
+				{
+					internalCode: "E013",
+				},
+			);
+		});
+		render(<ArchivePreview loadManifest={loadManifest} />);
+
+		await waitFor(() => {
+			expect(screen.getByText("archive_preview_disabled")).toBeInTheDocument();
 		});
 		expect(
 			screen.queryByRole("button", { name: "preview_retry" }),

@@ -51,6 +51,26 @@ fn create_many_entry_zip_bytes(count: usize) -> Vec<u8> {
     zip.finish().expect("zip writer should finish").into_inner()
 }
 
+fn create_many_long_entry_zip_bytes(count: usize) -> Vec<u8> {
+    let cursor = Cursor::new(Vec::new());
+    let mut zip = zip::ZipWriter::new(cursor);
+    let options =
+        zip::write::SimpleFileOptions::default().compression_method(zip::CompressionMethod::Stored);
+
+    for index in 0..count {
+        zip.start_file(
+            format!(
+                "docs/file-{index:04}-archive-preview-manifest-cache-boundary-padding-alpha-beta-gamma-delta.txt"
+            ),
+            options,
+        )
+        .expect("zip entry should start");
+        zip.write_all(b"x").expect("zip entry should be writable");
+    }
+
+    zip.finish().expect("zip writer should finish").into_inner()
+}
+
 async fn upload_bytes<S>(app: &S, token: &str, filename: &str, mime: &str, bytes: Vec<u8>) -> i64
 where
     S: actix_web::dev::Service<
@@ -725,6 +745,66 @@ async fn test_archive_preview_truncates_manifest_to_configured_limit() {
     assert!(
         data["entries"].as_array().unwrap().len() < 20,
         "manifest should keep counts but trim displayed entries"
+    );
+}
+
+#[actix_web::test]
+async fn test_archive_preview_caps_high_manifest_limit_to_cache_storage_limit() {
+    let state = common::setup().await;
+    enable_archive_preview(&state, true, false).await;
+    aster_drive::services::config_service::set(
+        &state,
+        "archive_preview_max_manifest_bytes",
+        "1048576",
+        1,
+    )
+    .await
+    .expect("archive preview manifest limit should update");
+    let app = create_test_app!(state.clone());
+    let (token, _) = register_and_login!(app);
+
+    let file_id = upload_bytes(
+        &app,
+        &token,
+        "cache-boundary.zip",
+        "application/zip",
+        create_many_long_entry_zip_bytes(900),
+    )
+    .await;
+
+    let resp = request_personal_archive_preview(&app, &token, file_id).await;
+    assert_eq!(resp.status(), StatusCode::ACCEPTED);
+    aster_drive::services::task_service::drain(&state)
+        .await
+        .expect("archive preview task should drain");
+    let tasks = archive_preview_tasks(&state).await;
+    assert_eq!(tasks.len(), 1);
+    assert_eq!(tasks[0].status, BackgroundTaskStatus::Succeeded);
+
+    let resp = request_personal_archive_preview(&app, &token, file_id).await;
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body: Value = test::read_body_json(resp).await;
+    let data = &body["data"];
+    assert_eq!(data["truncated"], true);
+    assert_eq!(data["entry_count"], 900);
+    assert!(
+        data["entries"].as_array().unwrap().len() < 900,
+        "high configured manifest limit should still trim to the cacheable storage limit"
+    );
+
+    let cached = property_repo::find_by_key(
+        &state.db,
+        EntityType::File,
+        file_id,
+        "system.archive_preview",
+        "zip_manifest.v1",
+    )
+    .await
+    .expect("cache lookup should succeed")
+    .expect("archive preview manifest should be cached");
+    assert!(
+        cached.value.expect("cache value should be present").len() <= 65_536,
+        "cached archive preview wrapper must fit entity_property.value"
     );
 }
 

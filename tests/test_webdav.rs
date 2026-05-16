@@ -889,6 +889,28 @@ async fn test_webdav_proppatch_rejects_dav_namespace_changes() {
         xml.contains("403") || xml.contains("Forbidden"),
         "DAV namespace writes should be rejected: {xml}"
     );
+
+    let propfind_body = r#"<?xml version="1.0" encoding="utf-8" ?>
+<D:propfind xmlns:D="DAV:">
+  <D:prop>
+    <D:displayname />
+  </D:prop>
+</D:propfind>"#;
+    let req = test::TestRequest::with_uri("/webdav/dav-props.txt")
+        .method(actix_web::http::Method::from_bytes(b"PROPFIND").unwrap())
+        .insert_header(("Authorization", auth.clone()))
+        .insert_header(("Depth", "0"))
+        .insert_header(("Content-Type", "application/xml"))
+        .set_payload(propfind_body)
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 207);
+    let body = test::read_body(resp).await;
+    let xml = String::from_utf8_lossy(&body);
+    assert!(
+        !xml.contains("blocked"),
+        "rejected DAV: property should not be persisted: {xml}"
+    );
 }
 
 #[actix_web::test]
@@ -959,8 +981,8 @@ async fn test_webdav_hides_and_rejects_system_property_namespace() {
     let body = test::read_body(resp).await;
     let xml = String::from_utf8_lossy(&body);
     assert!(
-        !xml.contains("cached") && !xml.contains("zip_manifest.v1"),
-        "system properties must be hidden from WebDAV PROPFIND: {xml}"
+        !xml.contains("cached") && xml.contains("zip_manifest.v1") && xml.contains("404"),
+        "requested system properties must be reported as missing without exposing values: {xml}"
     );
 
     let proppatch_body = r#"<?xml version="1.0" encoding="utf-8" ?>
@@ -984,6 +1006,22 @@ async fn test_webdav_hides_and_rejects_system_property_namespace() {
     assert!(
         xml.contains("403") || xml.contains("Forbidden"),
         "system namespace writes should be rejected: {xml}"
+    );
+
+    let cached = property_repo::find_by_key(
+        &state.db,
+        EntityType::File,
+        file.id,
+        "system.archive_preview",
+        "zip_manifest.v1",
+    )
+    .await
+    .expect("system property lookup should succeed")
+    .expect("system property should still exist");
+    assert_eq!(
+        cached.value.as_deref(),
+        Some("cached"),
+        "rejected PROPPATCH must not overwrite system property"
     );
 }
 

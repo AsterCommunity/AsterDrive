@@ -3469,6 +3469,29 @@ export interface components {
             total_uncompressed_size: number;
             truncated: boolean;
         };
+        ArchivePreviewTaskPayload: {
+            /** Format: int64 */
+            file_id: number;
+            limit_signature: string;
+            /** Format: int64 */
+            source_blob_id: number;
+            source_file_name: string;
+            source_hash: string;
+        };
+        ArchivePreviewTaskResult: {
+            /** Format: int64 */
+            directory_count: number;
+            /** Format: int64 */
+            entry_count: number;
+            /** Format: int64 */
+            file_count: number;
+            /** Format: int64 */
+            file_id: number;
+            /** Format: int64 */
+            source_blob_id: number;
+            source_hash: string;
+            truncated: boolean;
+        };
         /**
          * @description 审计日志动作
          * @enum {string}
@@ -3528,7 +3551,7 @@ export interface components {
          * @description 后台任务类型
          * @enum {string}
          */
-        BackgroundTaskKind: "archive_extract" | "archive_compress" | "thumbnail_generate" | "storage_policy_temp_cleanup" | "system_runtime";
+        BackgroundTaskKind: "archive_extract" | "archive_compress" | "archive_preview_generate" | "thumbnail_generate" | "storage_policy_temp_cleanup" | "system_runtime";
         /**
          * @description 后台任务状态
          * @enum {string}
@@ -5157,6 +5180,9 @@ export interface components {
         }) | (components["schemas"]["ArchiveExtractTaskPayload"] & {
             /** @enum {string} */
             kind: "archive_extract";
+        }) | (components["schemas"]["ArchivePreviewTaskPayload"] & {
+            /** @enum {string} */
+            kind: "archive_preview_generate";
         }) | (components["schemas"]["ThumbnailGenerateTaskPayload"] & {
             /** @enum {string} */
             kind: "thumbnail_generate";
@@ -5173,6 +5199,9 @@ export interface components {
         }) | (components["schemas"]["ArchiveExtractTaskResult"] & {
             /** @enum {string} */
             kind: "archive_extract";
+        }) | (components["schemas"]["ArchivePreviewTaskResult"] & {
+            /** @enum {string} */
+            kind: "archive_preview_generate";
         }) | (components["schemas"]["ThumbnailGenerateTaskResult"] & {
             /** @enum {string} */
             kind: "thumbnail_generate";
@@ -11420,6 +11449,20 @@ export interface operations {
                     };
                 };
             };
+            /** @description ZIP archive preview generation has been queued */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Archive preview not modified */
+            304: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
             /** @description Not a supported archive or archive rejected by limits */
             400: {
                 headers: {
@@ -13046,6 +13089,20 @@ export interface operations {
                     };
                 };
             };
+            /** @description ZIP archive preview generation has been queued */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Archive preview not modified */
+            304: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
             /** @description Not a supported archive or archive rejected by limits */
             400: {
                 headers: {
@@ -13258,6 +13315,20 @@ export interface operations {
                         msg: string;
                     };
                 };
+            };
+            /** @description ZIP archive preview generation has been queued */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Archive preview not modified */
+            304: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Not a supported archive or archive rejected by limits */
             400: {
@@ -16231,6 +16302,20 @@ export interface operations {
                         msg: string;
                     };
                 };
+            };
+            /** @description ZIP archive preview generation has been queued */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Archive preview not modified */
+            304: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Not a supported archive or archive rejected by limits */
             400: {

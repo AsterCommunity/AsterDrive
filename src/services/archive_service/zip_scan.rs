@@ -340,7 +340,7 @@ fn ensure_archive_entry_path_not_conflicting(
             }
         }
         for file_path in file_paths {
-            if file_path != relative_path && file_path.starts_with(relative_path) {
+            if file_path == relative_path {
                 return Err(AsterError::validation_error(format!(
                     "archive directory '{}' conflicts with file '{}'",
                     relative_path.display(),
@@ -486,4 +486,128 @@ fn normalize_archive_entry_path(path: &Path) -> Result<PathBuf> {
         ));
     }
     Ok(normalized)
+}
+
+#[cfg(test)]
+mod tests {
+    use std::io::{Cursor, Write};
+
+    use super::*;
+
+    fn scan_limits() -> ZipScanLimits {
+        ZipScanLimits {
+            max_uncompressed_bytes: 1024 * 1024,
+            max_entries: 100,
+            max_files: 100,
+            max_directories: 100,
+            max_depth: 16,
+            max_path_bytes: 4096,
+            max_compression_ratio: 100,
+            max_entry_compression_ratio: 100,
+        }
+    }
+
+    fn create_stored_zip_bytes(entries: &[(&str, Option<&[u8]>)]) -> Vec<u8> {
+        let cursor = Cursor::new(Vec::new());
+        let mut zip = zip::ZipWriter::new(cursor);
+        let options = zip::write::SimpleFileOptions::default()
+            .compression_method(zip::CompressionMethod::Stored);
+
+        for (path, content) in entries {
+            match content {
+                Some(bytes) => {
+                    zip.start_file(*path, options)
+                        .expect("zip entry should start");
+                    zip.write_all(bytes).expect("zip entry should be writable");
+                }
+                None => {
+                    zip.add_directory(*path, options)
+                        .expect("zip directory should be writable");
+                }
+            }
+        }
+
+        zip.finish().expect("zip writer should finish").into_inner()
+    }
+
+    fn scan_error_for(entries: &[(&str, Option<&[u8]>)]) -> String {
+        let bytes = create_stored_zip_bytes(entries);
+        let cursor = Cursor::new(bytes);
+        let mut archive = zip::ZipArchive::new(cursor).expect("zip should open");
+
+        scan_zip_archive(&mut archive, scan_limits(), None, |_| Ok(()))
+            .expect_err("scan should reject archive")
+            .message()
+            .to_string()
+    }
+
+    #[test]
+    fn scan_allows_explicit_parent_directory_after_child_file() {
+        let bytes = create_stored_zip_bytes(&[
+            ("prefix/child.txt", Some(b"payload".as_slice())),
+            ("prefix/", None),
+        ]);
+        let cursor = Cursor::new(bytes);
+        let mut archive = zip::ZipArchive::new(cursor).expect("zip should open");
+
+        let result = scan_zip_archive(&mut archive, scan_limits(), None, |_| Ok(()))
+            .expect("parent directory after child file should be valid");
+
+        assert_eq!(result.file_count, 1);
+        assert_eq!(result.directory_count, 1);
+        assert_eq!(result.entries.len(), 2);
+    }
+
+    #[test]
+    fn scan_rejects_duplicate_paths_and_file_ancestors() {
+        let duplicate = scan_error_for(&[
+            ("dup/", None),
+            ("dup", Some(b"same-normalized-path".as_slice())),
+        ]);
+        assert!(duplicate.contains("duplicate entry path 'dup'"));
+
+        let child_file = scan_error_for(&[
+            ("prefix", Some(b"not-a-directory".as_slice())),
+            ("prefix/child.txt", Some(b"child".as_slice())),
+        ]);
+        assert!(
+            child_file.contains("archive file 'prefix/child.txt' is inside file entry 'prefix'")
+        );
+
+        let child_directory = scan_error_for(&[
+            ("prefix", Some(b"not-a-directory".as_slice())),
+            ("prefix/child/", None),
+        ]);
+        assert!(
+            child_directory
+                .contains("archive directory 'prefix/child' is inside file entry 'prefix'")
+        );
+    }
+
+    #[test]
+    fn scan_rejects_implicit_directory_limit_overflow() {
+        let bytes = create_stored_zip_bytes(&[("a/b/c.txt", Some(b"nested".as_slice()))]);
+        let cursor = Cursor::new(bytes);
+        let mut archive = zip::ZipArchive::new(cursor).expect("zip should open");
+        let mut limits = scan_limits();
+        limits.max_directories = 1;
+
+        let error = scan_zip_archive(&mut archive, limits, None, |_| Ok(()))
+            .expect_err("implicit directories should count toward directory limit");
+
+        assert!(
+            error
+                .message()
+                .contains("directories, exceeds server limit 1")
+        );
+    }
+
+    #[test]
+    fn scan_deadline_rejects_expired_deadline() {
+        let error =
+            ensure_zip_scan_deadline(Some(Instant::now() - std::time::Duration::from_secs(1)))
+                .expect_err("expired deadline should reject scan");
+
+        assert_eq!(error.message(), "archive scan exceeded server time limit");
+    }
 }

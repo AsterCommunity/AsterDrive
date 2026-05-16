@@ -541,7 +541,7 @@ impl DavFileSystem for AsterDavFs {
                 .map(|props| {
                     props
                         .iter()
-                        .any(|prop| !property_service::is_system_namespace(&prop.namespace))
+                        .any(|prop| !property_service::is_protected_namespace(&prop.namespace))
                 })
                 .unwrap_or(false)
         })
@@ -560,7 +560,7 @@ impl DavFileSystem for AsterDavFs {
 
             Ok(props
                 .into_iter()
-                .filter(|p| !property_service::is_system_namespace(&p.namespace))
+                .filter(|p| !property_service::is_protected_namespace(&p.namespace))
                 .map(|p| DavProp {
                     name: p.name,
                     prefix: None,
@@ -596,7 +596,7 @@ impl DavFileSystem for AsterDavFs {
                 let ns = prop.namespace.as_deref().unwrap_or("");
 
                 // DAV: 与 system.* 命名空间只读，后者用于内部缓存/派生属性。
-                if ns == "DAV:" || property_service::is_system_namespace(ns) {
+                if property_service::is_protected_namespace(ns) {
                     results.push((http::StatusCode::FORBIDDEN, prop));
                     continue;
                 }

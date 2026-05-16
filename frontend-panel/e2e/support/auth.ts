@@ -85,10 +85,46 @@ export async function setupAdmin(page: Page) {
 	await page.locator("form button[type='submit']").click();
 	await expect(page).toHaveURL(/\/$/);
 	await expect(fileDropZone(page)).toBeVisible();
+	await ensureCurrentPublicSiteUrl(page);
 }
 
 export async function loginAsAdmin(page: Page) {
 	await loginWithCredentials(page, ADMIN.email, ADMIN.password);
+	await ensureCurrentPublicSiteUrl(page);
+}
+
+export async function ensureCurrentPublicSiteUrl(page: Page) {
+	await page.evaluate(async () => {
+		const readCookie = (name: string) => {
+			const encodedName = `${encodeURIComponent(name)}=`;
+			for (const chunk of document.cookie.split(";")) {
+				const trimmed = chunk.trim();
+				if (trimmed.startsWith(encodedName)) {
+					return decodeURIComponent(trimmed.slice(encodedName.length));
+				}
+			}
+			return null;
+		};
+		const csrfToken = readCookie("aster_csrf");
+		const headers: Record<string, string> = {
+			"Content-Type": "application/json",
+		};
+		if (csrfToken) {
+			headers["X-CSRF-Token"] = csrfToken;
+		}
+
+		const response = await fetch("/api/v1/admin/config/public_site_url", {
+			body: JSON.stringify({ value: [window.location.origin] }),
+			credentials: "include",
+			headers,
+			method: "PUT",
+		});
+		if (!response.ok) {
+			throw new Error(
+				`failed to configure public_site_url: ${response.status} ${await response.text()}`,
+			);
+		}
+	});
 }
 
 export async function loginWithCredentials(
