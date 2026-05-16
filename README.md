@@ -6,9 +6,9 @@
 </p>
 
 <p align="center">
-  Self-hosted cloud storage built with Rust and React.
+  A lightweight self-hosted cloud drive built with Rust and React.
   <br />
-  Single-binary delivery, Alpine container support, storage policies, WebDAV, sharing, version history, trash, thumbnails, and four upload modes.
+  Personal and team workspaces, local / S3 / remote-node storage policies, sharing, WebDAV, previews, WOPI, version history, trash, thumbnails, and large-file uploads.
 </p>
 
 <p align="center">
@@ -21,16 +21,22 @@
   <a href="docs/deployment/docker.md"><img alt="Docker" src="https://img.shields.io/badge/docker-deployment-2496ED?style=for-the-badge&logo=docker&logoColor=white"></a>
 </p>
 
+## What is AsterDrive?
+
+AsterDrive is an MIT-licensed self-hosted cloud drive for people who want to own their files without running a heavyweight collaboration suite. It focuses on the core drive experience: upload files, organize folders, recover mistakes, share links, mount WebDAV clients, and decide where objects are stored.
+
+It is built as a Rust backend plus a React frontend, shipped as one server binary or an Alpine-based container image. The current `v0.1.x` line is an early stable release: usable for personal and small-team deployments, but still evolving quickly.
+
 ## Highlights
 
-- **Single binary delivery** - frontend assets are embedded into the Rust server with `rust-embed`
-- **Multi-database** - SQLite by default, with MySQL and PostgreSQL support through SeaORM
-- **Pluggable storage policies** - local filesystem and S3-compatible object storage, with user-level and folder-level overrides
-- **Four upload modes** - `direct`, `chunked`, `presigned`, and `presigned_multipart`, negotiated by policy and file size
-- **Sharing** - file and folder sharing with password, expiration time, download limits, public share page, nested shared-folder browsing, child-file download, and shared thumbnails
-- **WebDAV** - dedicated WebDAV accounts, scoped root folder access, database-backed locks, custom properties, and minimal DeltaV version-tree support
-- **Lifecycle management** - trash, version history, thumbnails, locks, periodic cleanup jobs, blob reconciliation, and runtime config management
-- **Admin console** - overview dashboard plus users, storage policies, runtime settings, shares, locks, WebDAV accounts, and audit logs from the frontend panel
+- **Self-hosted by default** - single service, embedded frontend assets, SQLite out of the box, optional PostgreSQL / MySQL
+- **Personal and team workspaces** - separate files, shares, trash, tasks, quotas, audit trail, and storage policy groups per workspace
+- **Flexible storage routing** - local filesystem, S3-compatible object storage, or another AsterDrive follower node; route uploads by user, team, and file size
+- **Large-file friendly uploads** - direct uploads, resumable chunked uploads, S3 presigned uploads, and S3 multipart uploads, negotiated by policy and file size
+- **Sharing and direct links** - file and folder shares with optional password, expiration time, download limits, public pages, nested folder browsing, and single-file direct links
+- **WebDAV support** - dedicated WebDAV accounts, independent passwords, scoped root folders, database-backed locks, custom properties, and a small DeltaV subset
+- **Preview and editing** - built-in preview for common browser-readable files, Monaco-based text editing, version history, thumbnails, and WOPI integration for external Office editors
+- **Operations built in** - admin console, runtime settings, storage policy testing, health checks, audit logs, background tasks, mail queue, cleanup jobs, and `doctor` / migration CLI commands
 
 ## Quick start
 
@@ -97,51 +103,64 @@ If you need offline deployment checks, runtime-config changes from the command l
 
 ### File management
 
-- hierarchical folders
-- file upload, download, rename, move, copy, delete
-- directory upload with `relative_path` auto-folder creation
-- inline search and batch operations
-- thumbnails and file previews
-- version history, restore, and Monaco-based text editing with lock awareness
+- hierarchical folders, directory tree navigation, list / grid views, and breadcrumb navigation
+- file upload, folder upload, download, rename, move, copy, delete, restore, and permanent deletion
+- search within the current workspace, multi-select, batch move / copy / delete, and archive download
+- online archive compression / extraction and background task progress tracking
+- thumbnails, browser-native previews, archive previews, and configurable external preview apps
+- version history, version restore / deletion, and Monaco-based text editing with lock awareness
+- browser-side storage-change events for refreshing the current view when files change
+
+### Workspaces, sharing, and access
+
+- personal workspace plus team workspaces with independent files, shares, trash, tasks, quotas, and audit records
+- team membership with owner / admin / member roles, team archive / restore, and team policy-group assignment
+- public share pages at `/s/:token` for files and folders
+- password-protected shares, expiration time, download limits, share open / download counters, and share management pages
+- shared-folder browsing with child-file download, preview, and thumbnail access inside the shared tree
+- single-file direct links with inline and forced-download variants
+- WebDAV accounts with independent passwords, root-folder restriction, database-backed locks, custom properties, and DeltaV subset support
 
 ### Storage and delivery
 
+- local storage, S3-compatible storage, and remote follower-node storage policies
+- policy groups that route uploads by user, team, and file size
 - optional local-only blob deduplication with SHA-256 + reference counting
-- local storage and S3-compatible storage policies
-- user default policy + folder override
-- S3 transport strategies: `relay_stream` and `presigned`
-- streaming upload/download paths to avoid full-buffer transfers
+- S3 upload / download strategies: `relay_stream` and `presigned`, including multipart uploads for large files
+- remote-node upload / download strategies: `relay_stream` and `presigned`, with follower ingress profiles backed by local or S3 storage
+- streaming upload / download paths to avoid full-buffer transfers where the selected strategy allows it
 
-### Collaboration and access
+### Authentication and user settings
 
-- HttpOnly cookie auth and Bearer JWT support
-- public share pages at `/s/:token`
-- password-protected and expiring shares
-- shared folder browsing with child-file download and thumbnail access inside the shared tree
-- profile, avatar upload / Gravatar, and user preference APIs
-- WebDAV accounts with independent passwords, root-folder restriction, and DeltaV subset support
+- HttpOnly cookie auth plus Bearer JWT support for API clients
+- first-user setup, public registration switch, registration activation, password reset, and email-change confirmation flows
+- user profiles, uploaded avatars, Gravatar avatars, theme / language / timezone / view preferences, and session management
+- optional Passkey / WebAuthn registration and login endpoints
 
-### Operations
+### Operations and administration
 
+- admin overview, user management, team management, storage policies, policy groups, remote nodes, shares, tasks, locks, runtime settings, and audit logs
+- runtime config stored in `system_config`, with schema-driven admin UI and CLI access for offline operations
 - health endpoints: `/health`, `/health/ready`, optional `/health/memory` (`debug_assertions + openapi`), `/health/metrics` (`metrics` feature)
-- runtime config stored in `system_config`
-- admin overview, config schema, and policy connection testing endpoints
-- audit logs for key actions
+- storage policy and remote-node connection testing
+- background task records for archive jobs, thumbnail generation, mail dispatch, cleanup, and system runtime tasks
+- periodic cleanup for uploads, trash, locks, audit logs, teams, WOPI sessions, and orphaned blobs
 - Swagger UI in debug builds with the `openapi` feature, plus static OpenAPI export via `cargo test --features openapi --test generate_openapi`
-- 5-second mail/background-task dispatch, hourly maintenance cleanup, and 6-hour blob reconciliation
 
 ## Documentation map
 
 - [Getting started](docs/guide/getting-started.md)
-- [Installation and deployment](docs/guide/installation.md)
+- [User guide](docs/guide/user-guide.md)
+- [Teams and permissions](docs/guide/teams-and-permissions.md)
+- [Sharing and public access](docs/guide/sharing.md)
+- [Preview and WOPI](docs/guide/preview-and-wopi.md)
+- [Storage backends](docs/storage/index.md)
+- [Remote follower storage](docs/storage/remote-follower.md)
+- [Docker deployment](docs/deployment/docker.md)
 - [Operations CLI](docs/deployment/ops-cli.md)
-- [Performance benchmarking](docs/deployment/performance-benchmarking.md)
-- [Code of Conduct](CODE_OF_CONDUCT.md)
 - [Developer docs](developer-docs/README.md)
 - [Architecture](developer-docs/architecture.md)
-- [Docker deployment](docs/deployment/docker.md)
 - [API overview](developer-docs/api/index.md)
-- [User guide](docs/guide/user-guide.md)
 
 ## Development
 
