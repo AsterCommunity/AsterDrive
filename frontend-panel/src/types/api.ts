@@ -97,6 +97,7 @@ export type UserStatus = components["schemas"]["UserStatus"];
 export type VerificationPurpose = components["schemas"]["VerificationPurpose"];
 
 // Files, folders, and trash
+export type FileCategory = components["schemas"]["FileCategory"];
 export type FileInfo = components["schemas"]["FileInfo"];
 export type FileListItem = components["schemas"]["FileListItem"];
 export type FileVersion = components["schemas"]["FileVersion"];

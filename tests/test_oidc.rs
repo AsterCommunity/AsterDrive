@@ -536,10 +536,10 @@ async fn finish_callback_rejects_disabled_user_with_existing_identity() {
         external_auth_identity_repo::CreateExternalAuthIdentityInput {
             user_id: disabled_user_id,
             provider_id,
-            identity_namespace: mock_provider.issuer.clone(),
-            subject: "disabled-subject".to_string(),
-            email_snapshot: Some("disabled@example.com".to_string()),
-            display_name_snapshot: Some("Disabled User".to_string()),
+            identity_namespace: &mock_provider.issuer,
+            subject: "disabled-subject",
+            email_snapshot: Some("disabled@example.com"),
+            display_name_snapshot: Some("Disabled User"),
             now: Utc::now(),
         },
     )
@@ -582,10 +582,10 @@ async fn finish_callback_allows_existing_identity_without_email_claim() {
         external_auth_identity_repo::CreateExternalAuthIdentityInput {
             user_id: linked_user_id,
             provider_id,
-            identity_namespace: mock_provider.issuer.clone(),
-            subject: "linked-no-email-subject".to_string(),
+            identity_namespace: &mock_provider.issuer,
+            subject: "linked-no-email-subject",
             email_snapshot: None,
-            display_name_snapshot: Some("Linked No Email".to_string()),
+            display_name_snapshot: Some("Linked No Email"),
             now: Utc::now(),
         },
     )
@@ -1643,11 +1643,11 @@ async fn external_auth_identity_lookup_uses_namespace_subject_not_provider_id() 
             provider_id: provider_a.id,
             identity_namespace: provider_a
                 .issuer_url
-                .clone()
+                .as_deref()
                 .expect("issuer url should exist"),
-            subject: "shared-subject".to_string(),
-            email_snapshot: Some("a@example.com".to_string()),
-            display_name_snapshot: Some("Provider A".to_string()),
+            subject: "shared-subject",
+            email_snapshot: Some("a@example.com"),
+            display_name_snapshot: Some("Provider A"),
             now: Utc::now(),
         },
     )
@@ -1674,11 +1674,11 @@ async fn external_auth_identity_lookup_uses_namespace_subject_not_provider_id() 
             provider_id: provider_b.id,
             identity_namespace: provider_b
                 .issuer_url
-                .clone()
+                .as_deref()
                 .expect("issuer url should exist"),
-            subject: "shared-subject".to_string(),
-            email_snapshot: Some("b@example.com".to_string()),
-            display_name_snapshot: Some("Provider B".to_string()),
+            subject: "shared-subject",
+            email_snapshot: Some("b@example.com"),
+            display_name_snapshot: Some("Provider B"),
             now: Utc::now(),
         },
     )

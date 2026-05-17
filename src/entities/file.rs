@@ -1,6 +1,7 @@
 //! SeaORM 实体定义：`file`。
 
 use sea_orm::entity::prelude::*;
+use sea_orm::{ActiveValue, ConnectionTrait, DbErr, Set};
 use serde::{Deserialize, Serialize};
 #[cfg(all(debug_assertions, feature = "openapi"))]
 use utoipa::ToSchema;
@@ -23,6 +24,10 @@ pub struct Model {
     pub created_by_user_id: Option<i64>,
     pub created_by_username: String,
     pub mime_type: String,
+    pub extension: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub compound_extension: Option<String>,
+    pub file_category: crate::types::FileCategory,
     #[cfg_attr(all(debug_assertions, feature = "openapi"), schema(value_type = String))]
     pub created_at: DateTimeUtc,
     #[cfg_attr(all(debug_assertions, feature = "openapi"), schema(value_type = String))]
@@ -92,4 +97,31 @@ impl Related<super::file_blob::Entity> for Entity {
     }
 }
 
-impl ActiveModelBehavior for ActiveModel {}
+#[async_trait::async_trait]
+impl ActiveModelBehavior for ActiveModel {
+    async fn before_save<C>(mut self, _db: &C, _insert: bool) -> std::result::Result<Self, DbErr>
+    where
+        C: ConnectionTrait,
+    {
+        if self.name.is_set() || self.mime_type.is_set() {
+            let name = active_string_value(&self.name);
+            let mime_type = active_string_value(&self.mime_type);
+            if let (Some(name), Some(mime_type)) = (name, mime_type) {
+                let classification =
+                    crate::utils::file_classification::classify_file(name, mime_type);
+                self.extension = Set(classification.extension);
+                self.compound_extension = Set(classification.compound_extension);
+                self.file_category = Set(classification.category);
+            }
+        }
+
+        Ok(self)
+    }
+}
+
+fn active_string_value(value: &ActiveValue<String>) -> Option<&str> {
+    match value {
+        ActiveValue::Set(value) | ActiveValue::Unchanged(value) => Some(value.as_str()),
+        ActiveValue::NotSet => None,
+    }
+}

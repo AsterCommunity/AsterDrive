@@ -18,7 +18,7 @@ interface GlobalSearchResultsPanelProps {
 	resultEntries: SearchEntry[];
 	resultListRef: RefObject<HTMLDivElement | null>;
 	results: SearchResults;
-	trimmedQuery: string;
+	searchActive: boolean;
 }
 
 export function GlobalSearchResultsPanel({
@@ -34,14 +34,14 @@ export function GlobalSearchResultsPanel({
 	resultEntries,
 	resultListRef,
 	results,
-	trimmedQuery,
+	searchActive,
 }: GlobalSearchResultsPanelProps) {
 	const { t } = useTranslation(["files", "search"]);
 
 	return (
 		<div className="flex max-h-[min(68vh,560px)] min-h-80 flex-col">
 			<div className="border-b bg-muted/20 px-4 py-2 text-xs text-muted-foreground">
-				{trimmedQuery
+				{searchActive
 					? t("search:results", {
 							files: results.total_files,
 							folders: results.total_folders,
@@ -49,7 +49,7 @@ export function GlobalSearchResultsPanel({
 					: t("search:start_typing")}
 			</div>
 			<div ref={resultListRef} className="flex-1 overflow-y-auto px-2 py-2">
-				{!trimmedQuery ? (
+				{!searchActive ? (
 					<GlobalSearchEmptyPrompt />
 				) : loading && resultEntries.length === 0 ? (
 					<div className="flex h-full min-h-56 flex-col items-center justify-center gap-3 text-sm text-muted-foreground">

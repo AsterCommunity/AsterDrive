@@ -84,6 +84,7 @@ export function FileThumbnail({
 					<FileTypeIcon
 						mimeType={file.mime_type}
 						fileName={file.name}
+						fileCategory={file.file_category}
 						className="h-4 w-4"
 					/>
 				) : (
@@ -125,6 +126,7 @@ export function FileThumbnail({
 					<FileTypeIcon
 						mimeType={file.mime_type}
 						fileName={file.name}
+						fileCategory={file.file_category}
 						className="h-5 w-5"
 					/>
 				</div>
@@ -166,6 +168,7 @@ export function FileThumbnail({
 				<FileTypeIcon
 					mimeType={file.mime_type}
 					fileName={file.name}
+					fileCategory={file.file_category}
 					className="h-12 w-12"
 				/>
 			</div>

@@ -18,6 +18,9 @@ pub struct FileInfo {
     pub created_by_user_id: Option<i64>,
     pub created_by_username: String,
     pub mime_type: String,
+    pub extension: String,
+    pub compound_extension: Option<String>,
+    pub file_category: crate::types::FileCategory,
     #[cfg_attr(all(debug_assertions, feature = "openapi"), schema(value_type = String))]
     pub created_at: DateTime<Utc>,
     #[cfg_attr(all(debug_assertions, feature = "openapi"), schema(value_type = String))]
@@ -41,6 +44,9 @@ impl From<crate::entities::file::Model> for FileInfo {
             created_by_user_id: model.created_by_user_id,
             created_by_username: model.created_by_username,
             mime_type: model.mime_type,
+            extension: model.extension,
+            compound_extension: model.compound_extension,
+            file_category: model.file_category,
             created_at: model.created_at,
             updated_at: model.updated_at,
             deleted_at: model.deleted_at,

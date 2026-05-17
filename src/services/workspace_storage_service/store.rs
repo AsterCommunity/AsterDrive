@@ -289,10 +289,16 @@ pub(crate) async fn store_preuploaded_nondedup(
                 revalidate_preuploaded_overwrite_target(&txn, scope, &old_file, skip_lock_check)
                     .await?;
             let existing_id = current_file.id;
+            let current_name = current_file.name.clone();
             let mut active: file::ActiveModel = current_file.into();
             active.blob_id = Set(blob.id);
             active.size = Set(blob.size);
+            let classification =
+                crate::utils::file_classification::classify_file(&current_name, &mime);
             active.mime_type = Set(mime);
+            active.extension = Set(classification.extension);
+            active.compound_extension = Set(classification.compound_extension);
+            active.file_category = Set(classification.category);
             active.updated_at = Set(now);
             let updated = active
                 .update(&txn)

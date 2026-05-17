@@ -20,12 +20,29 @@ use crate::storage::{DriverRegistry, PolicySnapshot};
 use super::selection::ArchiveBuildLimits;
 
 #[derive(Debug, Clone)]
+pub(super) struct ArchiveFileEntry {
+    pub(super) blob_id: i64,
+    pub(super) size: i64,
+    pub(super) mime_type: String,
+}
+
+impl From<&file::Model> for ArchiveFileEntry {
+    fn from(file: &file::Model) -> Self {
+        Self {
+            blob_id: file.blob_id,
+            size: file.size,
+            mime_type: file.mime_type.clone(),
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
 pub(super) enum ArchiveEntry {
     Directory {
         entry_path: String,
     },
     File {
-        file: file::Model,
+        file: ArchiveFileEntry,
         entry_path: String,
     },
 }
@@ -182,7 +199,8 @@ where
             }
             ArchiveEntry::File { file, entry_path } => {
                 written_bytes = checked_archive_output_progress(written_bytes, file.size, limits)?;
-                let file_options = archive_file_options_for(&file);
+                let file_name = archive_entry_file_name(&entry_path);
+                let file_options = archive_file_options_for(file_name, &file.mime_type);
                 zip.start_file(&entry_path, file_options)
                     .map_aster_err(AsterError::storage_driver_error)?;
 
@@ -233,13 +251,17 @@ fn checked_archive_output_progress(
     Ok(next)
 }
 
-fn archive_file_options_for(file: &file::Model) -> zip::write::SimpleFileOptions {
+fn archive_file_options_for(file_name: &str, mime_type: &str) -> zip::write::SimpleFileOptions {
     let options = zip::write::SimpleFileOptions::default();
-    if should_store_without_deflate(&file.name, &file.mime_type) {
+    if should_store_without_deflate(file_name, mime_type) {
         options.compression_method(zip::CompressionMethod::Stored)
     } else {
         options.compression_method(zip::CompressionMethod::Deflated)
     }
+}
+
+fn archive_entry_file_name(entry_path: &str) -> &str {
+    entry_path.rsplit('/').next().unwrap_or(entry_path)
 }
 
 fn should_store_without_deflate(name: &str, mime_type: &str) -> bool {

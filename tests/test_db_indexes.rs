@@ -159,6 +159,64 @@ async fn test_trash_pagination_indexes_cover_deleted_item_queries() {
 }
 
 #[actix_web::test]
+async fn test_sqlite_file_type_filter_indexes_cover_search_queries() {
+    let state = common::setup().await;
+    if !skip_unless_sqlite(&state.db) {
+        return;
+    }
+
+    let personal_category = explain_query_plan(
+        &state.db,
+        "SELECT id FROM files \
+         WHERE owner_user_id = 1 \
+           AND team_id IS NULL \
+           AND deleted_at IS NULL \
+           AND file_category = 'image' \
+           AND extension = 'jpg' \
+         ORDER BY name \
+         LIMIT 50",
+    )
+    .await;
+    assert_uses_index(
+        &personal_category,
+        "idx_files_owner_deleted_category_ext",
+        "files",
+    );
+
+    let personal_compound = explain_query_plan(
+        &state.db,
+        "SELECT id FROM files \
+         WHERE owner_user_id = 1 \
+           AND team_id IS NULL \
+           AND deleted_at IS NULL \
+           AND compound_extension = 'tar.gz' \
+         LIMIT 50",
+    )
+    .await;
+    assert_uses_index(
+        &personal_compound,
+        "idx_files_owner_deleted_compound_ext",
+        "files",
+    );
+
+    let team_category = explain_query_plan(
+        &state.db,
+        "SELECT id FROM files \
+         WHERE team_id = 7 \
+           AND deleted_at IS NULL \
+           AND file_category = 'video' \
+           AND extension = 'mp4' \
+         LIMIT 50",
+    )
+    .await;
+    assert_uses_index(
+        &team_category,
+        "idx_files_team_deleted_category_ext",
+        "files",
+    );
+}
+
+#[actix_web::test]
 async fn test_sqlite_search_fts_objects_exist() {
     let state = common::setup().await;
     if !skip_unless_sqlite(&state.db) {

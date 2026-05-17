@@ -146,8 +146,8 @@ pub(super) async fn process_archive_compress_task(
 
     let task_temp_dir = prepare_task_temp_dir(state, lease_guard.lease()).await?;
     let archive_temp_path = Path::new(&task_temp_dir).join(&payload.archive_name);
-    let archive_temp_path_string = archive_temp_path.to_string_lossy().to_string();
-    let archive_temp_path_for_worker = archive_temp_path_string.clone();
+    let archive_temp_path_string = archive_temp_path.to_string_lossy().into_owned();
+    let archive_temp_path_for_worker = archive_temp_path.clone();
     let handle = tokio::runtime::Handle::current();
     let db = state.db.clone();
     let driver_registry = state.driver_registry.clone();

@@ -50,10 +50,15 @@ pub(super) async fn write_file_record_from_temp<C: ConnectionTrait>(
         let current_file =
             super::revalidate_overwrite_target(txn, scope, &old_file, skip_lock_check).await?;
         let existing_id = current_file.id;
+        let current_name = current_file.name.clone();
         let mut active: file::ActiveModel = current_file.into();
         active.blob_id = Set(blob.id);
         active.size = Set(blob.size);
+        let classification = crate::utils::file_classification::classify_file(&current_name, mime);
         active.mime_type = Set(mime.to_string());
+        active.extension = Set(classification.extension);
+        active.compound_extension = Set(classification.compound_extension);
+        active.file_category = Set(classification.category);
         active.updated_at = Set(now);
         let updated = active
             .update(txn)

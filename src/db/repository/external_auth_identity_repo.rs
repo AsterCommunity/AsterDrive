@@ -9,13 +9,13 @@ use sea_orm::{
 use crate::entities::external_auth_identity::{self, Entity as ExternalAuthIdentity};
 use crate::errors::{AsterError, Result};
 
-pub struct CreateExternalAuthIdentityInput {
+pub struct CreateExternalAuthIdentityInput<'a> {
     pub user_id: i64,
     pub provider_id: i64,
-    pub identity_namespace: String,
-    pub subject: String,
-    pub email_snapshot: Option<String>,
-    pub display_name_snapshot: Option<String>,
+    pub identity_namespace: &'a str,
+    pub subject: &'a str,
+    pub email_snapshot: Option<&'a str>,
+    pub display_name_snapshot: Option<&'a str>,
     pub now: chrono::DateTime<Utc>,
 }
 
@@ -80,17 +80,17 @@ pub async fn create<C: ConnectionTrait>(
 
 pub async fn create_identity<C: ConnectionTrait>(
     db: &C,
-    input: CreateExternalAuthIdentityInput,
+    input: CreateExternalAuthIdentityInput<'_>,
 ) -> Result<external_auth_identity::Model> {
     create(
         db,
         external_auth_identity::ActiveModel {
             user_id: Set(input.user_id),
             provider_id: Set(input.provider_id),
-            identity_namespace: Set(input.identity_namespace),
-            subject: Set(input.subject),
-            email_snapshot: Set(input.email_snapshot),
-            display_name_snapshot: Set(input.display_name_snapshot),
+            identity_namespace: Set(input.identity_namespace.to_string()),
+            subject: Set(input.subject.to_string()),
+            email_snapshot: Set(input.email_snapshot.map(str::to_string)),
+            display_name_snapshot: Set(input.display_name_snapshot.map(str::to_string)),
             created_at: Set(input.now),
             updated_at: Set(input.now),
             last_login_at: Set(Some(input.now)),

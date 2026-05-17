@@ -37,7 +37,6 @@ pub(super) async fn complete_chunked_upload_with_actor_username(
     actor_username: Option<&str>,
 ) -> Result<file::Model> {
     let db = &state.db;
-    let upload_id = session.id.clone();
     let created = run_upload_completion_stage(
         db,
         &session,
@@ -57,7 +56,7 @@ pub(super) async fn complete_chunked_upload_with_actor_username(
         },
     )
     .await?;
-    cleanup_upload_temp_dir(state, &upload_id).await;
+    cleanup_upload_temp_dir(state, &session.id).await;
     Ok(created)
 }
 

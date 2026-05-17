@@ -42,9 +42,8 @@ pub(super) async fn complete_presigned_upload(
     )
     .await?;
 
-    let upload_id = session.id.clone();
     tracing::debug!(
-        upload_id = %upload_id,
+        upload_id = %session.id,
         status = ?session.status,
         policy_id = policy.id,
         "completing presigned upload session"
@@ -300,10 +299,9 @@ async fn complete_s3_multipart_upload_session(
     let driver = state.driver_registry.get_driver(&policy)?;
     let multipart = state.driver_registry.get_multipart_driver(&policy)?;
     let driver_ref: &dyn StorageDriver = driver.as_ref();
-    let upload_id = session.id.clone();
 
     tracing::debug!(
-        upload_id = %upload_id,
+        upload_id = %session.id,
         status = ?session.status,
         expected_status = ?expected_status,
         policy_id = policy.id,

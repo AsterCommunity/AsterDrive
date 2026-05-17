@@ -14,6 +14,8 @@ use crate::services::{
     share_service,
     workspace_storage_service::{self, WorkspaceStorageScope},
 };
+use crate::types::FileCategory;
+use crate::utils::file_classification::{parse_extension_filters, parse_file_category};
 
 #[derive(Deserialize)]
 #[cfg_attr(
@@ -28,6 +30,10 @@ pub struct SearchParams {
     pub search_type: Option<String>,
     /// Filter by exact MIME type (e.g. "image/png")
     pub mime_type: Option<String>,
+    /// Filter by file category (image, video, audio, document, spreadsheet, presentation, archive, code, other)
+    pub category: Option<String>,
+    /// Comma-separated file extensions (recommended format), e.g. "pdf,docx,xlsx"
+    pub extensions: Option<String>,
     /// Minimum file size in bytes
     pub min_size: Option<i64>,
     /// Maximum file size in bytes
@@ -58,6 +64,12 @@ type SearchDateRange = (
     Option<chrono::DateTime<chrono::Utc>>,
 );
 
+#[derive(Debug, Clone)]
+struct NormalizedFileFilters {
+    category: Option<FileCategory>,
+    extensions: Vec<String>,
+}
+
 fn build_search_file_list_items(
     files: Vec<search_repo::FileSearchItem>,
     shared_file_ids: &HashSet<i64>,
@@ -69,6 +81,9 @@ fn build_search_file_list_items(
             name: file.name,
             size: file.size,
             mime_type: file.mime_type,
+            extension: file.extension,
+            compound_extension: file.compound_extension,
+            file_category: file.file_category,
             updated_at: file.updated_at,
             is_locked: file.is_locked,
             is_shared: shared_file_ids.contains(&file.id),
@@ -97,7 +112,66 @@ fn validate_search_params(params: &SearchParams) -> Result<()> {
         return Err(AsterError::validation_error("min_size must be <= max_size"));
     }
 
+    let has_file_only_filter = params.category.is_some() || params.extensions.is_some();
+    if has_file_only_filter && matches!(params.search_type.as_deref(), Some("folder")) {
+        return Err(AsterError::validation_error(
+            "category and extensions require type=file or type=all",
+        ));
+    }
+
+    if params.mime_type.is_some()
+        && params
+            .mime_type
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .is_none()
+    {
+        return Err(AsterError::validation_error("mime_type must not be empty"));
+    }
+
+    if params.category.is_some()
+        && params
+            .category
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .is_none()
+    {
+        return Err(AsterError::validation_error("category must not be empty"));
+    }
+
+    if params.extensions.is_some()
+        && params
+            .extensions
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .is_none()
+    {
+        return Err(AsterError::validation_error("extensions must not be empty"));
+    }
+
     Ok(())
+}
+
+fn normalize_file_filters(params: &SearchParams) -> Result<NormalizedFileFilters> {
+    let category = params
+        .category
+        .as_deref()
+        .map(parse_file_category)
+        .transpose()?;
+    let extensions = params
+        .extensions
+        .as_deref()
+        .map(parse_extension_filters)
+        .transpose()?
+        .unwrap_or_default();
+
+    Ok(NormalizedFileFilters {
+        category,
+        extensions,
+    })
 }
 
 fn normalized_query(params: &SearchParams) -> Option<&str> {
@@ -140,6 +214,7 @@ pub(crate) async fn search_in_scope(
     params: &SearchParams,
 ) -> Result<SearchResults> {
     validate_search_params(params)?;
+    let file_filters = normalize_file_filters(params)?;
     workspace_storage_service::require_scope_access(state, scope).await?;
 
     let limit = params.limit.unwrap_or(50).clamp(1, 100);
@@ -151,6 +226,8 @@ pub(crate) async fn search_in_scope(
         has_query = query.is_some(),
         query_len = query.map(str::len),
         mime_type = params.mime_type.as_deref().unwrap_or(""),
+        category = params.category.as_deref().unwrap_or(""),
+        has_extensions = params.extensions.is_some(),
         min_size = params.min_size,
         max_size = params.max_size,
         folder_id = params.folder_id,
@@ -161,6 +238,9 @@ pub(crate) async fn search_in_scope(
 
     let search_type = params.search_type.as_deref().unwrap_or("all");
     let (created_after, created_before) = parse_search_dates(params)?;
+    let file_only_filters_present =
+        file_filters.category.is_some() || !file_filters.extensions.is_empty();
+    let include_folders = search_type != "file" && !file_only_filters_present;
 
     let (files, total_files, folders, total_folders, shared_file_ids, shared_folder_ids) =
         match scope {
@@ -175,6 +255,8 @@ pub(crate) async fn search_in_scope(
                             search_repo::FileSearchFilters {
                                 query,
                                 mime_type: params.mime_type.as_deref(),
+                                category: file_filters.category,
+                                extensions: &file_filters.extensions,
                                 min_size: params.min_size,
                                 max_size: params.max_size,
                                 created_after,
@@ -188,7 +270,7 @@ pub(crate) async fn search_in_scope(
                     }
                 };
                 let folder_search = async {
-                    if search_type == "file" {
+                    if !include_folders {
                         Ok((vec![], 0))
                     } else {
                         search_repo::search_folders(
@@ -240,6 +322,8 @@ pub(crate) async fn search_in_scope(
                             search_repo::FileSearchFilters {
                                 query,
                                 mime_type: params.mime_type.as_deref(),
+                                category: file_filters.category,
+                                extensions: &file_filters.extensions,
                                 min_size: params.min_size,
                                 max_size: params.max_size,
                                 created_after,
@@ -253,7 +337,7 @@ pub(crate) async fn search_in_scope(
                     }
                 };
                 let folder_search = async {
-                    if search_type == "file" {
+                    if !include_folders {
                         Ok((vec![], 0))
                     } else {
                         search_repo::search_team_folders(

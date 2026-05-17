@@ -20,7 +20,8 @@ use crate::services::{
 
 use super::super::types::CreateArchiveTaskParams;
 use super::common::{
-    ArchiveEntry, ArchiveSinkContext, is_client_disconnect_error_text, write_archive_to_sink,
+    ArchiveEntry, ArchiveFileEntry, ArchiveSinkContext, is_client_disconnect_error_text,
+    write_archive_to_sink,
 };
 
 pub(crate) struct PreparedArchiveDownload {
@@ -269,7 +270,7 @@ pub(super) async fn collect_archive_entries_from_selection_in_scope(
         let entry_path = batch_service::reserve_unique_name(&mut reserved_root_names, &file.name);
         record_archive_build_entry(&mut stats, &entry_path, Some(file.size), limits)?;
         entries.push(ArchiveEntry::File {
-            file: file.clone(),
+            file: ArchiveFileEntry::from(file),
             entry_path,
         });
     }
@@ -319,7 +320,10 @@ pub(super) async fn collect_archive_entries_from_selection_in_scope(
                 format!("{archive_root}/{relative_dir}/{}", file.name)
             };
             record_archive_build_entry(&mut stats, &entry_path, Some(file.size), limits)?;
-            entries.push(ArchiveEntry::File { file, entry_path });
+            entries.push(ArchiveEntry::File {
+                file: ArchiveFileEntry::from(&file),
+                entry_path,
+            });
         }
     }
 

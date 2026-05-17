@@ -1,5 +1,6 @@
 //! 工具模块导出。
 
+pub mod file_classification;
 pub mod hash;
 pub mod id;
 pub mod numbers;

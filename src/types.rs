@@ -4,6 +4,7 @@ mod audit;
 mod auth;
 mod config;
 mod entity;
+mod file_category;
 mod mail;
 mod passkey;
 mod patch;
@@ -20,6 +21,7 @@ pub use auth::{
 };
 pub use config::{SystemConfigSource, SystemConfigValueType};
 pub use entity::EntityType;
+pub use file_category::FileCategory;
 pub use mail::{MailOutboxStatus, MailTemplateCode, StoredMailPayload};
 pub use passkey::StoredPasskeyCredential;
 pub use patch::{NullablePatch, deserialize_nullable_patch_option};

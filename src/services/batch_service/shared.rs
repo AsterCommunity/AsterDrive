@@ -26,14 +26,19 @@ pub fn validate_batch_ids(file_ids: &[i64], folder_ids: &[i64]) -> Result<()> {
 }
 
 fn build_file_map(files: Vec<file::Model>) -> HashMap<i64, file::Model> {
-    files.into_iter().map(|file| (file.id, file)).collect()
+    let mut map = HashMap::with_capacity(files.len());
+    for file in files {
+        map.insert(file.id, file);
+    }
+    map
 }
 
 fn build_folder_map(folders: Vec<folder::Model>) -> HashMap<i64, folder::Model> {
-    folders
-        .into_iter()
-        .map(|folder| (folder.id, folder))
-        .collect()
+    let mut map = HashMap::with_capacity(folders.len());
+    for folder in folders {
+        map.insert(folder.id, folder);
+    }
+    map
 }
 
 async fn find_files_by_ids_in_scope(
@@ -78,8 +83,11 @@ async fn load_folder_hierarchy_map(
     scope: WorkspaceStorageScope,
     file_map: &HashMap<i64, file::Model>,
     folder_map: &HashMap<i64, folder::Model>,
-) -> Result<HashMap<i64, folder::Model>> {
-    let mut hierarchy = folder_map.clone();
+) -> Result<HashMap<i64, Option<i64>>> {
+    let mut hierarchy = HashMap::with_capacity(folder_map.len());
+    for (id, folder) in folder_map {
+        hierarchy.insert(*id, folder.parent_id);
+    }
     let mut frontier: HashSet<i64> = folder_map
         .values()
         .filter_map(|folder| folder.parent_id)
@@ -93,7 +101,7 @@ async fn load_folder_hierarchy_map(
         for row in rows {
             let parent_id = row.parent_id;
             let id = row.id;
-            if hierarchy.insert(id, row).is_none()
+            if hierarchy.insert(id, parent_id).is_none()
                 && let Some(parent_id) = parent_id
                 && !hierarchy.contains_key(&parent_id)
             {
@@ -108,16 +116,14 @@ async fn load_folder_hierarchy_map(
 fn has_selected_ancestor(
     start_folder_id: Option<i64>,
     selected_folder_ids: &HashSet<i64>,
-    hierarchy: &HashMap<i64, folder::Model>,
+    hierarchy: &HashMap<i64, Option<i64>>,
 ) -> bool {
     let mut current = start_folder_id;
     while let Some(folder_id) = current {
         if selected_folder_ids.contains(&folder_id) {
             return true;
         }
-        current = hierarchy
-            .get(&folder_id)
-            .and_then(|folder| folder.parent_id);
+        current = hierarchy.get(&folder_id).copied().flatten();
     }
     false
 }
@@ -127,7 +133,7 @@ fn normalize_selection(
     folder_ids: &[i64],
     file_map: &HashMap<i64, file::Model>,
     folder_map: &HashMap<i64, folder::Model>,
-    hierarchy: &HashMap<i64, folder::Model>,
+    hierarchy: &HashMap<i64, Option<i64>>,
 ) -> (Vec<i64>, Vec<i64>) {
     let selected_folder_ids: HashSet<i64> = folder_ids.iter().copied().collect();
 
