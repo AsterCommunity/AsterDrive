@@ -161,10 +161,16 @@ export type AdminExternalAuthProviderKindInfo =
 	OperationData<"admin_list_external_auth_provider_kinds">[number];
 export type AdminExternalAuthProviderInfo =
 	components["schemas"]["AdminExternalAuthProviderInfo"];
+export type AdminExternalAuthProviderPage =
+	components["schemas"]["OffsetPage_AdminExternalAuthProviderInfo"];
+export type AdminExternalAuthProviderListQuery =
+	OperationQuery<"admin_list_external_auth_providers">;
 export type CreateExternalAuthProviderInput =
 	components["schemas"]["CreateExternalAuthProviderInput"];
 export type UpdateExternalAuthProviderInput =
 	components["schemas"]["UpdateExternalAuthProviderInput"];
+export type ExternalAuthProviderTestParamsInput =
+	components["schemas"]["ExternalAuthProviderTestParamsInput"];
 export type ExternalAuthProviderTestResult =
 	components["schemas"]["ExternalAuthProviderTestResult"];
 export type AdminCreateTeamRequest =

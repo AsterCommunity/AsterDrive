@@ -5,7 +5,8 @@ use chrono::{Duration, Utc};
 use sea_orm::{ActiveValue::Set, IntoActiveModel};
 use serde::{Deserialize, Serialize};
 
-use crate::config::{auth_runtime::RuntimeAuthPolicy, site_url};
+use crate::api::pagination::{OffsetPage, load_offset_page};
+use crate::config::{auth_runtime::RuntimeAuthPolicy, branding, site_url};
 use crate::db::repository::{
     external_auth_email_verification_flow_repo, external_auth_identity_repo,
     external_auth_login_flow_repo, external_auth_provider_repo, user_repo,
@@ -22,7 +23,7 @@ use crate::runtime::PrimaryAppState;
 use crate::services::auth_service::{self, LoginResult};
 use crate::services::{mail_outbox_service, mail_service, mail_template::MailTemplatePayload};
 use crate::types::{ExternalAuthProtocol, ExternalAuthProviderKind, UserRole, UserStatus};
-use crate::utils::{hash, numbers::u64_to_i64};
+use crate::utils::{hash, id, numbers::u64_to_i64};
 
 const DEFAULT_SCOPES: &str = "openid email profile";
 const FLOW_TTL_SECS: u64 = 300;
@@ -30,6 +31,7 @@ const EMAIL_VERIFICATION_FLOW_TTL_SECS: u64 = 1_800;
 const REDACTED_SECRET: &str = "***REDACTED***";
 const EXTERNAL_AUTH_USER_PASSWORD_BYTES: usize = 48;
 const EXTERNAL_AUTH_IDENTITY_NAMESPACE_MAX_LEN: usize = 512;
+const EXTERNAL_AUTH_URL_MAX_LEN: usize = 2048;
 const USERNAME_MAX_LEN: usize = 16;
 const USERNAME_MIN_LEN: usize = 4;
 
@@ -39,6 +41,7 @@ pub struct ExternalAuthPublicProvider {
     pub key: String,
     pub kind: ExternalAuthProviderKind,
     pub display_name: String,
+    pub icon_url: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -49,6 +52,11 @@ pub struct ExternalAuthProviderKindInfo {
     pub display_name: String,
     pub description: String,
     pub default_scopes: String,
+    pub issuer_url_required: bool,
+    pub manual_endpoint_configuration_supported: bool,
+    pub authorization_url_required: bool,
+    pub token_url_required: bool,
+    pub userinfo_url_required: bool,
     pub supports_discovery: bool,
     pub supports_pkce: bool,
     pub supports_email_verified_claim: bool,
@@ -136,7 +144,11 @@ pub struct AdminExternalAuthProviderInfo {
     pub provider_kind: ExternalAuthProviderKind,
     pub protocol: ExternalAuthProtocol,
     pub display_name: String,
-    pub issuer_url: String,
+    pub icon_url: Option<String>,
+    pub issuer_url: Option<String>,
+    pub authorization_url: Option<String>,
+    pub token_url: Option<String>,
+    pub userinfo_url: Option<String>,
     pub client_id: String,
     pub client_secret: Option<String>,
     pub client_secret_configured: bool,
@@ -145,10 +157,13 @@ pub struct AdminExternalAuthProviderInfo {
     pub auto_provision_enabled: bool,
     pub auto_link_verified_email_enabled: bool,
     pub require_email_verified: bool,
+    pub subject_claim: Option<String>,
     pub username_claim: Option<String>,
     pub display_name_claim: Option<String>,
     pub email_claim: Option<String>,
+    pub email_verified_claim: Option<String>,
     pub groups_claim: Option<String>,
+    pub avatar_url_claim: Option<String>,
     pub allowed_domains: Vec<String>,
     #[cfg_attr(all(debug_assertions, feature = "openapi"), schema(value_type = String))]
     pub created_at: chrono::DateTime<Utc>,
@@ -160,9 +175,12 @@ pub struct AdminExternalAuthProviderInfo {
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(utoipa::ToSchema))]
 pub struct CreateExternalAuthProviderInput {
     pub provider_kind: ExternalAuthProviderKind,
-    pub key: String,
     pub display_name: String,
-    pub issuer_url: String,
+    pub icon_url: Option<String>,
+    pub issuer_url: Option<String>,
+    pub authorization_url: Option<String>,
+    pub token_url: Option<String>,
+    pub userinfo_url: Option<String>,
     pub client_id: String,
     pub client_secret: Option<String>,
     pub scopes: Option<String>,
@@ -170,19 +188,25 @@ pub struct CreateExternalAuthProviderInput {
     pub auto_provision_enabled: Option<bool>,
     pub auto_link_verified_email_enabled: Option<bool>,
     pub require_email_verified: Option<bool>,
+    pub subject_claim: Option<String>,
     pub username_claim: Option<String>,
     pub display_name_claim: Option<String>,
     pub email_claim: Option<String>,
+    pub email_verified_claim: Option<String>,
     pub groups_claim: Option<String>,
+    pub avatar_url_claim: Option<String>,
     pub allowed_domains: Option<Vec<String>>,
 }
 
 #[derive(Debug, Deserialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(utoipa::ToSchema))]
 pub struct UpdateExternalAuthProviderInput {
-    pub key: Option<String>,
     pub display_name: Option<String>,
-    pub issuer_url: Option<String>,
+    pub icon_url: Option<Option<String>>,
+    pub issuer_url: Option<Option<String>>,
+    pub authorization_url: Option<Option<String>>,
+    pub token_url: Option<Option<String>>,
+    pub userinfo_url: Option<Option<String>>,
     pub client_id: Option<String>,
     pub client_secret: Option<Option<String>>,
     pub scopes: Option<String>,
@@ -190,20 +214,47 @@ pub struct UpdateExternalAuthProviderInput {
     pub auto_provision_enabled: Option<bool>,
     pub auto_link_verified_email_enabled: Option<bool>,
     pub require_email_verified: Option<bool>,
+    pub subject_claim: Option<Option<String>>,
     pub username_claim: Option<Option<String>>,
     pub display_name_claim: Option<Option<String>>,
     pub email_claim: Option<Option<String>>,
+    pub email_verified_claim: Option<Option<String>>,
     pub groups_claim: Option<Option<String>>,
+    pub avatar_url_claim: Option<Option<String>>,
     pub allowed_domains: Option<Option<Vec<String>>>,
+}
+
+#[derive(Debug, Deserialize)]
+#[cfg_attr(all(debug_assertions, feature = "openapi"), derive(utoipa::ToSchema))]
+pub struct ExternalAuthProviderTestParamsInput {
+    pub provider_kind: ExternalAuthProviderKind,
+    pub issuer_url: Option<String>,
+    pub authorization_url: Option<String>,
+    pub token_url: Option<String>,
+    pub userinfo_url: Option<String>,
+    pub client_id: String,
+    pub client_secret: Option<String>,
+    pub scopes: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[cfg_attr(all(debug_assertions, feature = "openapi"), derive(utoipa::ToSchema))]
+pub struct ExternalAuthProviderTestCheck {
+    pub name: String,
+    pub success: bool,
+    pub message: String,
 }
 
 #[derive(Clone, Debug, Serialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(utoipa::ToSchema))]
 pub struct ExternalAuthProviderTestResult {
-    pub issuer: String,
-    pub authorization_endpoint: String,
-    pub token_endpoint: String,
-    pub jwks_key_count: usize,
+    pub provider: String,
+    pub issuer: Option<String>,
+    pub authorization_endpoint: Option<String>,
+    pub token_endpoint: Option<String>,
+    pub userinfo_endpoint: Option<String>,
+    pub jwks_key_count: Option<usize>,
+    pub checks: Vec<ExternalAuthProviderTestCheck>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -218,7 +269,8 @@ pub struct ExternalAuthLoginAuditDetails<'a> {
 #[derive(Clone, Debug, Serialize)]
 pub struct ExternalAuthProviderAuditDetails<'a> {
     pub key: &'a str,
-    pub issuer_url: &'a str,
+    pub icon_url: Option<&'a str>,
+    pub issuer_url: Option<&'a str>,
     pub enabled: bool,
     pub auto_provision_enabled: bool,
     pub auto_link_verified_email_enabled: bool,
@@ -283,6 +335,11 @@ fn descriptor_to_info(
         display_name: descriptor.display_name.to_string(),
         description: descriptor.description.to_string(),
         default_scopes: descriptor.default_scopes.to_string(),
+        issuer_url_required: descriptor.issuer_url_required,
+        manual_endpoint_configuration_supported: descriptor.manual_endpoint_configuration_supported,
+        authorization_url_required: descriptor.authorization_url_required,
+        token_url_required: descriptor.token_url_required,
+        userinfo_url_required: descriptor.userinfo_url_required,
         supports_discovery: descriptor.supports_discovery,
         supports_pkce: descriptor.supports_pkce,
         supports_email_verified_claim: descriptor.supports_email_verified_claim,
@@ -294,6 +351,7 @@ fn provider_to_public(model: external_auth_provider::Model) -> ExternalAuthPubli
         key: model.key,
         kind: model.provider_kind,
         display_name: model.display_name,
+        icon_url: model.icon_url,
     }
 }
 
@@ -315,19 +373,17 @@ fn provider_to_admin(
     model: external_auth_provider::Model,
 ) -> Result<AdminExternalAuthProviderInfo> {
     let allowed_domains = parse_allowed_domains(model.allowed_domains.as_deref())?;
-    let issuer_url = model.issuer_url.ok_or_else(|| {
-        AsterError::database_operation(format!(
-            "external auth provider '{}' is missing issuer_url",
-            model.key
-        ))
-    })?;
     Ok(AdminExternalAuthProviderInfo {
         id: model.id,
         key: model.key,
         provider_kind: model.provider_kind,
         protocol: model.protocol,
         display_name: model.display_name,
-        issuer_url,
+        icon_url: model.icon_url,
+        issuer_url: model.issuer_url,
+        authorization_url: model.authorization_url,
+        token_url: model.token_url,
+        userinfo_url: model.userinfo_url,
         client_id: model.client_id,
         client_secret: model
             .client_secret
@@ -343,10 +399,13 @@ fn provider_to_admin(
         auto_provision_enabled: model.auto_provision_enabled,
         auto_link_verified_email_enabled: model.auto_link_verified_email_enabled,
         require_email_verified: model.require_email_verified,
+        subject_claim: model.subject_claim,
         username_claim: model.username_claim,
         display_name_claim: model.display_name_claim,
         email_claim: model.email_claim,
+        email_verified_claim: model.email_verified_claim,
         groups_claim: model.groups_claim,
+        avatar_url_claim: model.avatar_url_claim,
         allowed_domains,
         created_at: model.created_at,
         updated_at: model.updated_at,
@@ -460,14 +519,66 @@ fn normalize_scopes(value: Option<&str>, protocol: ExternalAuthProtocol) -> Resu
     normalize_scopes_with_default(value, DEFAULT_SCOPES, protocol)
 }
 
-fn normalize_issuer_url(value: &str) -> Result<String> {
-    let issuer = normalize_required(
-        value,
-        "issuer_url",
-        EXTERNAL_AUTH_IDENTITY_NAMESPACE_MAX_LEN,
-    )?;
-    let parsed = url::Url::parse(&issuer).map_aster_err_ctx(
-        "invalid external auth issuer URL",
+fn normalize_optional_url(
+    value: Option<String>,
+    field: &str,
+    max_len: usize,
+) -> Result<Option<String>> {
+    let Some(value) = value else {
+        return Ok(None);
+    };
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return Ok(None);
+    }
+    if trimmed.len() > max_len {
+        return Err(AsterError::validation_error(format!(
+            "{field} exceeds {max_len} bytes"
+        )));
+    }
+    let parse_context = format!("invalid external auth {field}");
+    let parsed =
+        url::Url::parse(trimmed).map_aster_err_ctx(&parse_context, AsterError::validation_error)?;
+    match parsed.scheme() {
+        "https" => {}
+        "http" if parsed.host_str().is_some_and(is_loopback_host) => {}
+        _ => {
+            return Err(AsterError::validation_error(format!(
+                "external auth {field} must use HTTPS, except localhost"
+            )));
+        }
+    }
+    if parsed.fragment().is_some() {
+        return Err(AsterError::validation_error(format!(
+            "external auth {field} cannot include fragment"
+        )));
+    }
+    Ok(Some(trimmed.to_string()))
+}
+
+fn normalize_icon_url_input(value: Option<String>) -> Result<Option<String>> {
+    let Some(value) = value else {
+        return Ok(None);
+    };
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return Ok(None);
+    }
+    if trimmed.len() > EXTERNAL_AUTH_URL_MAX_LEN {
+        return Err(AsterError::validation_error(format!(
+            "icon_url exceeds {EXTERNAL_AUTH_URL_MAX_LEN} bytes"
+        )));
+    }
+    if trimmed.chars().any(char::is_whitespace) {
+        return Err(AsterError::validation_error(
+            "external auth icon_url cannot contain whitespace",
+        ));
+    }
+    if trimmed.starts_with('/') && !trimmed.starts_with("//") {
+        return Ok(Some(trimmed.to_string()));
+    }
+    let parsed = url::Url::parse(trimmed).map_aster_err_ctx(
+        "invalid external auth icon_url",
         AsterError::validation_error,
     )?;
     match parsed.scheme() {
@@ -475,16 +586,58 @@ fn normalize_issuer_url(value: &str) -> Result<String> {
         "http" if parsed.host_str().is_some_and(is_loopback_host) => {}
         _ => {
             return Err(AsterError::validation_error(
-                "external auth issuer_url must use HTTPS, except localhost",
+                "external auth icon_url must be a root-relative path or HTTPS URL, except localhost",
             ));
         }
     }
-    if parsed.fragment().is_some() || parsed.query().is_some() {
+    if parsed.fragment().is_some() {
+        return Err(AsterError::validation_error(
+            "external auth icon_url cannot include fragment",
+        ));
+    }
+    Ok(Some(trimmed.to_string()))
+}
+
+fn normalize_issuer_url_input(value: Option<String>, required: bool) -> Result<Option<String>> {
+    let Some(issuer) = normalize_optional_url(
+        value,
+        "issuer_url",
+        EXTERNAL_AUTH_IDENTITY_NAMESPACE_MAX_LEN,
+    )?
+    else {
+        if required {
+            return Err(AsterError::validation_error("issuer_url is required"));
+        }
+        return Ok(None);
+    };
+    let parsed = url::Url::parse(&issuer).map_aster_err_ctx(
+        "invalid external auth issuer_url",
+        AsterError::validation_error,
+    )?;
+    if parsed.query().is_some() {
         return Err(AsterError::validation_error(
             "external auth issuer_url cannot include query or fragment",
         ));
     }
-    Ok(issuer.trim_end_matches('/').to_string())
+    Ok(Some(issuer.trim_end_matches('/').to_string()))
+}
+
+fn normalize_manual_endpoint_input(
+    value: Option<String>,
+    field: &str,
+    required: bool,
+    supported: bool,
+) -> Result<Option<String>> {
+    let endpoint = normalize_optional_url(value, field, EXTERNAL_AUTH_URL_MAX_LEN)?;
+    if endpoint.is_some() && !supported {
+        return Err(AsterError::validation_error(format!(
+            "{field} is not supported for this external auth provider kind"
+        )));
+    }
+    if endpoint.is_none() && required {
+        return Err(AsterError::validation_error(format!("{field} is required")));
+    }
+    Ok(endpoint)
 }
 
 fn is_loopback_host(host: &str) -> bool {
@@ -770,6 +923,81 @@ fn external_auth_provider_config(
     provider: &external_auth_provider::Model,
 ) -> ExternalAuthProviderConfig {
     ExternalAuthProviderConfig::from_provider(provider)
+}
+
+fn external_auth_provider_config_from_test_params(
+    input: ExternalAuthProviderTestParamsInput,
+) -> Result<ExternalAuthProviderConfig> {
+    let driver = registry::default_registry().get_driver(input.provider_kind)?;
+    let descriptor = driver.descriptor();
+    if descriptor.kind != input.provider_kind {
+        return Err(AsterError::config_error(format!(
+            "external auth provider driver '{}' returned descriptor for '{}'",
+            input.provider_kind.as_str(),
+            descriptor.kind.as_str()
+        )));
+    }
+    Ok(ExternalAuthProviderConfig {
+        id: 0,
+        key: "draft".to_string(),
+        provider_kind: input.provider_kind,
+        protocol: descriptor.protocol,
+        issuer_url: normalize_issuer_url_input(input.issuer_url, descriptor.issuer_url_required)?,
+        authorization_url: normalize_manual_endpoint_input(
+            input.authorization_url,
+            "authorization_url",
+            descriptor.authorization_url_required,
+            descriptor.manual_endpoint_configuration_supported,
+        )?,
+        token_url: normalize_manual_endpoint_input(
+            input.token_url,
+            "token_url",
+            descriptor.token_url_required,
+            descriptor.manual_endpoint_configuration_supported,
+        )?,
+        userinfo_url: normalize_manual_endpoint_input(
+            input.userinfo_url,
+            "userinfo_url",
+            descriptor.userinfo_url_required,
+            descriptor.manual_endpoint_configuration_supported,
+        )?,
+        client_id: normalize_required(&input.client_id, "client_id", 512)?,
+        client_secret: normalize_secret_create(input.client_secret),
+        scopes: normalize_scopes_with_default(
+            input.scopes.as_deref(),
+            descriptor.default_scopes,
+            descriptor.protocol,
+        )?,
+        subject_claim: None,
+        username_claim: None,
+        display_name_claim: None,
+        email_claim: None,
+        email_verified_claim: None,
+        groups_claim: None,
+        avatar_url_claim: None,
+    })
+}
+
+fn map_driver_test_result(
+    result: crate::external_auth::ExternalAuthProviderTestResult,
+) -> ExternalAuthProviderTestResult {
+    ExternalAuthProviderTestResult {
+        provider: result.provider,
+        issuer: result.issuer,
+        authorization_endpoint: result.authorization_endpoint,
+        token_endpoint: result.token_endpoint,
+        userinfo_endpoint: result.userinfo_endpoint,
+        jwks_key_count: result.jwks_key_count,
+        checks: result
+            .checks
+            .into_iter()
+            .map(|check| ExternalAuthProviderTestCheck {
+                name: check.name,
+                success: check.success,
+                message: check.message,
+            })
+            .collect(),
+    }
 }
 
 async fn link_external_auth_identity_to_authenticated_user<C: sea_orm::ConnectionTrait>(
@@ -1083,6 +1311,21 @@ async fn resolve_external_auth_user(
 
 fn external_auth_claims_missing_email(claims: &ExternalAuthUserClaims) -> bool {
     claims.email.as_deref().is_none_or(str::is_empty)
+}
+
+fn format_mail_duration_seconds(total_secs: i64) -> String {
+    let total_secs = total_secs.max(1);
+    let (value, unit) = if total_secs >= 86_400 && total_secs % 86_400 == 0 {
+        (total_secs / 86_400, "day")
+    } else if total_secs >= 3_600 && total_secs % 3_600 == 0 {
+        (total_secs / 3_600, "hour")
+    } else if total_secs >= 60 {
+        ((total_secs + 59) / 60, "minute")
+    } else {
+        (total_secs, "second")
+    };
+    let suffix = if value == 1 { "" } else { "s" };
+    format!("{value} {unit}{suffix}")
 }
 
 async fn resolve_existing_external_auth_identity<C: sea_orm::ConnectionTrait>(
@@ -1424,6 +1667,9 @@ pub async fn start_email_verification(
 
     let verification_token = mail_service::build_verification_token();
     let verification_token_hash = token_hash(&verification_token);
+    let provider_name = provider.display_name.clone();
+    let site_name = branding::title_or_default(&state.runtime_config);
+    let expires_in = format_mail_duration_seconds((flow.expires_at - now).num_seconds());
     let txn = crate::db::transaction::begin(&state.db).await?;
     let result = async {
         external_auth_email_verification_flow_repo::update_email_request(
@@ -1444,7 +1690,13 @@ pub async fn start_email_verification(
             &txn,
             &email,
             None,
-            MailTemplatePayload::external_auth_email_verification(&email, &verification_token),
+            MailTemplatePayload::external_auth_email_verification(
+                &email,
+                &verification_token,
+                &provider_name,
+                &site_name,
+                &expires_in,
+            ),
         )
         .await?;
         Ok(())
@@ -1669,13 +1921,25 @@ pub async fn delete_link(state: &PrimaryAppState, user_id: i64, id: i64) -> Resu
 
 pub async fn list_admin_providers(
     state: &PrimaryAppState,
-) -> Result<Vec<AdminExternalAuthProviderInfo>> {
-    external_auth_provider_repo::find_all(&state.db)
-        .await?
+    limit: u64,
+    offset: u64,
+) -> Result<OffsetPage<AdminExternalAuthProviderInfo>> {
+    let page = load_offset_page(limit, offset, 100, |limit, offset| async move {
+        external_auth_provider_repo::find_paginated(
+            &state.db,
+            limit,
+            offset,
+            registry::default_registry().supported_kinds(),
+        )
+        .await
+    })
+    .await?;
+    let items = page
+        .items
         .into_iter()
-        .filter(|provider| registry::default_registry().contains(provider.provider_kind))
         .map(provider_to_admin)
-        .collect()
+        .collect::<Result<Vec<_>>>()?;
+    Ok(OffsetPage::new(items, page.total, page.limit, page.offset))
 }
 
 pub fn list_provider_kinds() -> Vec<ExternalAuthProviderKindInfo> {
@@ -1712,17 +1976,39 @@ pub async fn create_provider(
             descriptor.kind.as_str()
         )));
     }
-    let key = normalize_key(&input.key)?;
-    if external_auth_provider_repo::find_by_kind_key(&state.db, input.provider_kind, &key)
-        .await?
-        .is_some()
-    {
-        return Err(AsterError::validation_error(
-            "external auth provider key already exists",
-        ));
-    }
+    let key = id::new_best_effort_uuid("external auth provider key", |candidate| {
+        let db = &state.db;
+        let provider_kind = input.provider_kind;
+        async move {
+            let candidate_key = candidate.to_string();
+            external_auth_provider_repo::find_by_kind_key(db, provider_kind, &candidate_key)
+                .await
+                .map(|provider| provider.is_some())
+        }
+    })
+    .await?
+    .to_string();
     let display_name = normalize_required(&input.display_name, "display_name", 128)?;
-    let issuer_url = normalize_issuer_url(&input.issuer_url)?;
+    let icon_url = normalize_icon_url_input(input.icon_url)?;
+    let issuer_url = normalize_issuer_url_input(input.issuer_url, descriptor.issuer_url_required)?;
+    let authorization_url = normalize_manual_endpoint_input(
+        input.authorization_url,
+        "authorization_url",
+        descriptor.authorization_url_required,
+        descriptor.manual_endpoint_configuration_supported,
+    )?;
+    let token_url = normalize_manual_endpoint_input(
+        input.token_url,
+        "token_url",
+        descriptor.token_url_required,
+        descriptor.manual_endpoint_configuration_supported,
+    )?;
+    let userinfo_url = normalize_manual_endpoint_input(
+        input.userinfo_url,
+        "userinfo_url",
+        descriptor.userinfo_url_required,
+        descriptor.manual_endpoint_configuration_supported,
+    )?;
     let client_id = normalize_required(&input.client_id, "client_id", 512)?;
     let scopes = normalize_scopes_with_default(
         input.scopes.as_deref(),
@@ -1734,22 +2020,26 @@ pub async fn create_provider(
     let model = external_auth_provider::ActiveModel {
         key: Set(key),
         display_name: Set(display_name),
+        icon_url: Set(icon_url),
         provider_kind: Set(input.provider_kind),
         protocol: Set(descriptor.protocol),
-        issuer_url: Set(Some(issuer_url)),
-        authorization_url: Set(None),
-        token_url: Set(None),
-        userinfo_url: Set(None),
+        issuer_url: Set(issuer_url),
+        authorization_url: Set(authorization_url),
+        token_url: Set(token_url),
+        userinfo_url: Set(userinfo_url),
         client_id: Set(client_id),
         client_secret: Set(normalize_secret_create(input.client_secret)),
         scopes: Set(scopes),
-        enabled: Set(input.enabled.unwrap_or(false)),
+        enabled: Set(input.enabled.unwrap_or(true)),
         auto_provision_enabled: Set(input.auto_provision_enabled.unwrap_or(false)),
         auto_link_verified_email_enabled: Set(input
             .auto_link_verified_email_enabled
             .unwrap_or(false)),
         require_email_verified: Set(input.require_email_verified.unwrap_or(true)),
-        subject_claim: Set(None),
+        subject_claim: Set(normalize_optional_claim(
+            input.subject_claim,
+            "subject_claim",
+        )?),
         username_claim: Set(normalize_optional_claim(
             input.username_claim,
             "username_claim",
@@ -1759,12 +2049,18 @@ pub async fn create_provider(
             "display_name_claim",
         )?),
         email_claim: Set(normalize_optional_claim(input.email_claim, "email_claim")?),
-        email_verified_claim: Set(None),
+        email_verified_claim: Set(normalize_optional_claim(
+            input.email_verified_claim,
+            "email_verified_claim",
+        )?),
         groups_claim: Set(normalize_optional_claim(
             input.groups_claim,
             "groups_claim",
         )?),
-        avatar_url_claim: Set(None),
+        avatar_url_claim: Set(normalize_optional_claim(
+            input.avatar_url_claim,
+            "avatar_url_claim",
+        )?),
         allowed_domains: Set(allowed_domains),
         created_at: Set(now),
         updated_at: Set(now),
@@ -1785,29 +2081,45 @@ pub async fn update_provider(
             "external auth provider #{id}"
         )));
     }
+    let descriptor = registry::default_registry()
+        .get_driver(existing.provider_kind)?
+        .descriptor();
     let mut active = existing.clone().into_active_model();
-    if let Some(key) = input.key {
-        let key = normalize_key(&key)?;
-        if key != existing.key
-            && external_auth_provider_repo::find_by_kind_key(
-                &state.db,
-                existing.provider_kind,
-                &key,
-            )
-            .await?
-            .is_some()
-        {
-            return Err(AsterError::validation_error(
-                "external auth provider key already exists",
-            ));
-        }
-        active.key = Set(key);
-    }
     if let Some(display_name) = input.display_name {
         active.display_name = Set(normalize_required(&display_name, "display_name", 128)?);
     }
+    if let Some(icon_url) = input.icon_url {
+        active.icon_url = Set(normalize_icon_url_input(icon_url)?);
+    }
     if let Some(issuer_url) = input.issuer_url {
-        active.issuer_url = Set(Some(normalize_issuer_url(&issuer_url)?));
+        active.issuer_url = Set(normalize_issuer_url_input(
+            issuer_url,
+            descriptor.issuer_url_required,
+        )?);
+    }
+    if let Some(authorization_url) = input.authorization_url {
+        active.authorization_url = Set(normalize_manual_endpoint_input(
+            authorization_url,
+            "authorization_url",
+            descriptor.authorization_url_required,
+            descriptor.manual_endpoint_configuration_supported,
+        )?);
+    }
+    if let Some(token_url) = input.token_url {
+        active.token_url = Set(normalize_manual_endpoint_input(
+            token_url,
+            "token_url",
+            descriptor.token_url_required,
+            descriptor.manual_endpoint_configuration_supported,
+        )?);
+    }
+    if let Some(userinfo_url) = input.userinfo_url {
+        active.userinfo_url = Set(normalize_manual_endpoint_input(
+            userinfo_url,
+            "userinfo_url",
+            descriptor.userinfo_url_required,
+            descriptor.manual_endpoint_configuration_supported,
+        )?);
     }
     if let Some(client_id) = input.client_id {
         active.client_id = Set(normalize_required(&client_id, "client_id", 512)?);
@@ -1831,6 +2143,9 @@ pub async fn update_provider(
     if let Some(value) = input.require_email_verified {
         active.require_email_verified = Set(value);
     }
+    if let Some(value) = input.subject_claim {
+        active.subject_claim = Set(normalize_optional_claim(value, "subject_claim")?);
+    }
     if let Some(value) = input.username_claim {
         active.username_claim = Set(normalize_optional_claim(value, "username_claim")?);
     }
@@ -1840,8 +2155,14 @@ pub async fn update_provider(
     if let Some(value) = input.email_claim {
         active.email_claim = Set(normalize_optional_claim(value, "email_claim")?);
     }
+    if let Some(value) = input.email_verified_claim {
+        active.email_verified_claim = Set(normalize_optional_claim(value, "email_verified_claim")?);
+    }
     if let Some(value) = input.groups_claim {
         active.groups_claim = Set(normalize_optional_claim(value, "groups_claim")?);
+    }
+    if let Some(value) = input.avatar_url_claim {
+        active.avatar_url_claim = Set(normalize_optional_claim(value, "avatar_url_claim")?);
     }
     if let Some(value) = input.allowed_domains {
         active.allowed_domains = Set(normalize_allowed_domains(value)?);
@@ -1872,12 +2193,19 @@ pub async fn test_provider(
         .test_provider(&external_auth_provider_config(&provider))
         .await?;
     external_auth_provider_repo::touch_updated_at(&state.db, id, Utc::now()).await?;
-    Ok(ExternalAuthProviderTestResult {
-        issuer: result.issuer,
-        authorization_endpoint: result.authorization_endpoint,
-        token_endpoint: result.token_endpoint,
-        jwks_key_count: result.jwks_key_count,
-    })
+    Ok(map_driver_test_result(result))
+}
+
+pub async fn test_provider_params(
+    _state: &PrimaryAppState,
+    input: ExternalAuthProviderTestParamsInput,
+) -> Result<ExternalAuthProviderTestResult> {
+    let provider = external_auth_provider_config_from_test_params(input)?;
+    let result = registry::default_registry()
+        .get_driver(provider.provider_kind)?
+        .test_provider(&provider)
+        .await?;
+    Ok(map_driver_test_result(result))
 }
 
 pub async fn cleanup_expired_flows(state: &PrimaryAppState) -> Result<u64> {

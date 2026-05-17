@@ -901,6 +901,7 @@ describe("LoginPage", () => {
 	it("starts external auth login with the provider kind and key", async () => {
 		const provider = {
 			display_name: "Example IDP",
+			icon_url: "/static/external-auth/example.svg",
 			key: "example",
 			kind: "oidc",
 		};
@@ -908,7 +909,14 @@ describe("LoginPage", () => {
 
 		render(<LoginPage />);
 
-		fireEvent.click(await screen.findByRole("button", { name: /Example IDP/ }));
+		const externalAuthButton = await screen.findByRole("button", {
+			name: /Example IDP/,
+		});
+		expect(externalAuthButton.querySelector("img")).toHaveAttribute(
+			"src",
+			"/static/external-auth/example.svg",
+		);
+		fireEvent.click(externalAuthButton);
 
 		await waitFor(() =>
 			expect(mockState.startExternalAuthLogin).toHaveBeenCalledWith(provider, {

@@ -483,6 +483,7 @@ const MAIL_TEMPLATE_GROUP_ORDER = [
 	"password_reset",
 	"password_reset_notice",
 	"contact_change_notice",
+	"external_auth_email_verification",
 ] as const;
 
 export function getMailTemplateGroupOrderIndex(groupId: string) {

@@ -3,6 +3,7 @@
 use crate::errors::{AsterError, Result};
 use crate::types::{ExternalAuthProtocol, ExternalAuthProviderKind};
 use async_trait::async_trait;
+use serde::Serialize;
 
 #[derive(Clone, Debug)]
 pub struct ExternalAuthProviderDescriptor {
@@ -11,6 +12,11 @@ pub struct ExternalAuthProviderDescriptor {
     pub display_name: &'static str,
     pub description: &'static str,
     pub default_scopes: &'static str,
+    pub issuer_url_required: bool,
+    pub manual_endpoint_configuration_supported: bool,
+    pub authorization_url_required: bool,
+    pub token_url_required: bool,
+    pub userinfo_url_required: bool,
     pub supports_discovery: bool,
     pub supports_pkce: bool,
     pub supports_email_verified_claim: bool,
@@ -96,12 +102,24 @@ pub struct ExternalAuthProfile {
     pub preferred_username: Option<String>,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize)]
+#[cfg_attr(all(debug_assertions, feature = "openapi"), derive(utoipa::ToSchema))]
+pub struct ExternalAuthProviderTestCheck {
+    pub name: String,
+    pub success: bool,
+    pub message: String,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[cfg_attr(all(debug_assertions, feature = "openapi"), derive(utoipa::ToSchema))]
 pub struct ExternalAuthProviderTestResult {
-    pub issuer: String,
-    pub authorization_endpoint: String,
-    pub token_endpoint: String,
-    pub jwks_key_count: usize,
+    pub provider: String,
+    pub issuer: Option<String>,
+    pub authorization_endpoint: Option<String>,
+    pub token_endpoint: Option<String>,
+    pub userinfo_endpoint: Option<String>,
+    pub jwks_key_count: Option<usize>,
+    pub checks: Vec<ExternalAuthProviderTestCheck>,
 }
 
 #[async_trait]

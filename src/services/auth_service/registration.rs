@@ -2,7 +2,10 @@
 
 use chrono::Utc;
 
-use crate::config::auth_runtime::{RuntimeAuthPolicy, RuntimeContactVerificationPolicy};
+use crate::config::{
+    auth_runtime::{RuntimeAuthPolicy, RuntimeContactVerificationPolicy},
+    branding,
+};
 use crate::db::repository::user_repo;
 use crate::errors::{AsterError, Result};
 use crate::runtime::PrimaryAppState;
@@ -62,6 +65,7 @@ pub async fn register(
     }
 
     let policy = RuntimeContactVerificationPolicy::from_runtime_config(&state.runtime_config);
+    let site_name = branding::title_or_default(&state.runtime_config);
     let txn = crate::db::transaction::begin(&state.db).await?;
     let email_verified_at = (!auth_policy.register_activation_enabled).then_some(Utc::now());
     let user = create_user_with_role(
@@ -90,7 +94,7 @@ pub async fn register(
             &txn,
             &user.email,
             Some(&user.username),
-            MailTemplatePayload::register_activation(&user.username, &token),
+            MailTemplatePayload::register_activation(&user.username, &token, &site_name),
         )
         .await?;
     }
@@ -132,6 +136,7 @@ pub async fn resend_register_activation(
         return Ok(None);
     }
     let policy = RuntimeContactVerificationPolicy::from_runtime_config(&state.runtime_config);
+    let site_name = branding::title_or_default(&state.runtime_config);
 
     let txn = crate::db::transaction::begin(&state.db).await?;
     let token = match issue_contact_verification_token(
@@ -151,7 +156,7 @@ pub async fn resend_register_activation(
         &txn,
         &user.email,
         Some(&user.username),
-        MailTemplatePayload::register_activation(&user.username, &token),
+        MailTemplatePayload::register_activation(&user.username, &token, &site_name),
     )
     .await?;
     crate::db::transaction::commit(txn).await?;

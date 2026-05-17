@@ -132,6 +132,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/admin/external-auth/providers/test": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["admin_test_external_auth_provider_params"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/admin/external-auth/providers/{id}": {
         parameters: {
             query?: never;
@@ -3311,8 +3327,10 @@ export interface components {
         };
         AdminExternalAuthProviderInfo: {
             allowed_domains: string[];
+            authorization_url?: string | null;
             auto_link_verified_email_enabled: boolean;
             auto_provision_enabled: boolean;
+            avatar_url_claim?: string | null;
             client_id: string;
             client_secret?: string | null;
             client_secret_configured: boolean;
@@ -3320,17 +3338,22 @@ export interface components {
             display_name: string;
             display_name_claim?: string | null;
             email_claim?: string | null;
+            email_verified_claim?: string | null;
             enabled: boolean;
             groups_claim?: string | null;
+            icon_url?: string | null;
             /** Format: int64 */
             id: number;
-            issuer_url: string;
+            issuer_url?: string | null;
             key: string;
             protocol: components["schemas"]["ExternalAuthProtocol"];
             provider_kind: components["schemas"]["ExternalAuthProviderKind"];
             require_email_verified: boolean;
             scopes: string;
+            subject_claim?: string | null;
+            token_url?: string | null;
             updated_at: string;
+            userinfo_url?: string | null;
             username_claim?: string | null;
         };
         AdminLockListQuery: {
@@ -3896,20 +3919,26 @@ export interface components {
         };
         CreateExternalAuthProviderInput: {
             allowed_domains?: string[] | null;
+            authorization_url?: string | null;
             auto_link_verified_email_enabled?: boolean | null;
             auto_provision_enabled?: boolean | null;
+            avatar_url_claim?: string | null;
             client_id: string;
             client_secret?: string | null;
             display_name: string;
             display_name_claim?: string | null;
             email_claim?: string | null;
+            email_verified_claim?: string | null;
             enabled?: boolean | null;
             groups_claim?: string | null;
-            issuer_url: string;
-            key: string;
+            icon_url?: string | null;
+            issuer_url?: string | null;
             provider_kind: components["schemas"]["ExternalAuthProviderKind"];
             require_email_verified?: boolean | null;
             scopes?: string | null;
+            subject_claim?: string | null;
+            token_url?: string | null;
+            userinfo_url?: string | null;
             username_claim?: string | null;
         };
         /** @description Create a new folder. */
@@ -4076,14 +4105,33 @@ export interface components {
          * @enum {string}
          */
         ExternalAuthProviderKind: "oidc";
+        ExternalAuthProviderTestCheck: {
+            message: string;
+            name: string;
+            success: boolean;
+        };
+        ExternalAuthProviderTestParamsInput: {
+            authorization_url?: string | null;
+            client_id: string;
+            client_secret?: string | null;
+            issuer_url?: string | null;
+            provider_kind: components["schemas"]["ExternalAuthProviderKind"];
+            scopes?: string | null;
+            token_url?: string | null;
+            userinfo_url?: string | null;
+        };
         ExternalAuthProviderTestResult: {
-            authorization_endpoint: string;
-            issuer: string;
-            jwks_key_count: number;
-            token_endpoint: string;
+            authorization_endpoint?: string | null;
+            checks: components["schemas"]["ExternalAuthProviderTestCheck"][];
+            issuer?: string | null;
+            jwks_key_count?: number | null;
+            provider: string;
+            token_endpoint?: string | null;
+            userinfo_endpoint?: string | null;
         };
         ExternalAuthPublicProvider: {
             display_name: string;
+            icon_url?: string | null;
             key: string;
             kind: components["schemas"]["ExternalAuthProviderKind"];
         };
@@ -4397,6 +4445,45 @@ export interface components {
             updated_at: string;
             /** Format: int64 */
             view_count: number;
+        };
+        OffsetPage_AdminExternalAuthProviderInfo: {
+            items: {
+                allowed_domains: string[];
+                authorization_url?: string | null;
+                auto_link_verified_email_enabled: boolean;
+                auto_provision_enabled: boolean;
+                avatar_url_claim?: string | null;
+                client_id: string;
+                client_secret?: string | null;
+                client_secret_configured: boolean;
+                created_at: string;
+                display_name: string;
+                display_name_claim?: string | null;
+                email_claim?: string | null;
+                email_verified_claim?: string | null;
+                enabled: boolean;
+                groups_claim?: string | null;
+                icon_url?: string | null;
+                /** Format: int64 */
+                id: number;
+                issuer_url?: string | null;
+                key: string;
+                protocol: components["schemas"]["ExternalAuthProtocol"];
+                provider_kind: components["schemas"]["ExternalAuthProviderKind"];
+                require_email_verified: boolean;
+                scopes: string;
+                subject_claim?: string | null;
+                token_url?: string | null;
+                updated_at: string;
+                userinfo_url?: string | null;
+                username_claim?: string | null;
+            }[];
+            /** Format: int64 */
+            limit: number;
+            /** Format: int64 */
+            offset: number;
+            /** Format: int64 */
+            total: number;
         };
         OffsetPage_AdminTeamInfo: {
             items: {
@@ -5721,19 +5808,25 @@ export interface components {
         };
         UpdateExternalAuthProviderInput: {
             allowed_domains?: string[] | null;
+            authorization_url?: string | null;
             auto_link_verified_email_enabled?: boolean | null;
             auto_provision_enabled?: boolean | null;
+            avatar_url_claim?: string | null;
             client_id?: string | null;
             client_secret?: string | null;
             display_name?: string | null;
             display_name_claim?: string | null;
             email_claim?: string | null;
+            email_verified_claim?: string | null;
             enabled?: boolean | null;
             groups_claim?: string | null;
+            icon_url?: string | null;
             issuer_url?: string | null;
-            key?: string | null;
             require_email_verified?: boolean | null;
             scopes?: string | null;
+            subject_claim?: string | null;
+            token_url?: string | null;
+            userinfo_url?: string | null;
             username_claim?: string | null;
         };
         /**
@@ -6448,14 +6541,19 @@ export interface operations {
                     "application/json": {
                         code: components["schemas"]["ErrorCode"];
                         data?: {
+                            authorization_url_required: boolean;
                             default_scopes: string;
                             description: string;
                             display_name: string;
+                            issuer_url_required: boolean;
                             kind: components["schemas"]["ExternalAuthProviderKind"];
+                            manual_endpoint_configuration_supported: boolean;
                             protocol: components["schemas"]["ExternalAuthProtocol"];
                             supports_discovery: boolean;
                             supports_email_verified_claim: boolean;
                             supports_pkce: boolean;
+                            token_url_required: boolean;
+                            userinfo_url_required: boolean;
                         }[];
                         error?: null | components["schemas"]["ApiErrorInfo"];
                         msg: string;
@@ -6480,7 +6578,10 @@ export interface operations {
     };
     admin_list_external_auth_providers: {
         parameters: {
-            query?: never;
+            query?: {
+                limit?: number | null;
+                offset?: number | null;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -6496,29 +6597,44 @@ export interface operations {
                     "application/json": {
                         code: components["schemas"]["ErrorCode"];
                         data?: {
-                            allowed_domains: string[];
-                            auto_link_verified_email_enabled: boolean;
-                            auto_provision_enabled: boolean;
-                            client_id: string;
-                            client_secret?: string | null;
-                            client_secret_configured: boolean;
-                            created_at: string;
-                            display_name: string;
-                            display_name_claim?: string | null;
-                            email_claim?: string | null;
-                            enabled: boolean;
-                            groups_claim?: string | null;
+                            items: {
+                                allowed_domains: string[];
+                                authorization_url?: string | null;
+                                auto_link_verified_email_enabled: boolean;
+                                auto_provision_enabled: boolean;
+                                avatar_url_claim?: string | null;
+                                client_id: string;
+                                client_secret?: string | null;
+                                client_secret_configured: boolean;
+                                created_at: string;
+                                display_name: string;
+                                display_name_claim?: string | null;
+                                email_claim?: string | null;
+                                email_verified_claim?: string | null;
+                                enabled: boolean;
+                                groups_claim?: string | null;
+                                icon_url?: string | null;
+                                /** Format: int64 */
+                                id: number;
+                                issuer_url?: string | null;
+                                key: string;
+                                protocol: components["schemas"]["ExternalAuthProtocol"];
+                                provider_kind: components["schemas"]["ExternalAuthProviderKind"];
+                                require_email_verified: boolean;
+                                scopes: string;
+                                subject_claim?: string | null;
+                                token_url?: string | null;
+                                updated_at: string;
+                                userinfo_url?: string | null;
+                                username_claim?: string | null;
+                            }[];
                             /** Format: int64 */
-                            id: number;
-                            issuer_url: string;
-                            key: string;
-                            protocol: components["schemas"]["ExternalAuthProtocol"];
-                            provider_kind: components["schemas"]["ExternalAuthProviderKind"];
-                            require_email_verified: boolean;
-                            scopes: string;
-                            updated_at: string;
-                            username_claim?: string | null;
-                        }[];
+                            limit: number;
+                            /** Format: int64 */
+                            offset: number;
+                            /** Format: int64 */
+                            total: number;
+                        };
                         error?: null | components["schemas"]["ApiErrorInfo"];
                         msg: string;
                     };
@@ -6563,8 +6679,10 @@ export interface operations {
                         code: components["schemas"]["ErrorCode"];
                         data?: {
                             allowed_domains: string[];
+                            authorization_url?: string | null;
                             auto_link_verified_email_enabled: boolean;
                             auto_provision_enabled: boolean;
+                            avatar_url_claim?: string | null;
                             client_id: string;
                             client_secret?: string | null;
                             client_secret_configured: boolean;
@@ -6572,17 +6690,22 @@ export interface operations {
                             display_name: string;
                             display_name_claim?: string | null;
                             email_claim?: string | null;
+                            email_verified_claim?: string | null;
                             enabled: boolean;
                             groups_claim?: string | null;
+                            icon_url?: string | null;
                             /** Format: int64 */
                             id: number;
-                            issuer_url: string;
+                            issuer_url?: string | null;
                             key: string;
                             protocol: components["schemas"]["ExternalAuthProtocol"];
                             provider_kind: components["schemas"]["ExternalAuthProviderKind"];
                             require_email_verified: boolean;
                             scopes: string;
+                            subject_claim?: string | null;
+                            token_url?: string | null;
                             updated_at: string;
+                            userinfo_url?: string | null;
                             username_claim?: string | null;
                         };
                         error?: null | components["schemas"]["ApiErrorInfo"];
@@ -6591,6 +6714,64 @@ export interface operations {
                 };
             };
             /** @description Invalid provider configuration */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    admin_test_external_auth_provider_params: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ExternalAuthProviderTestParamsInput"];
+            };
+        };
+        responses: {
+            /** @description External auth provider parameters tested */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        code: components["schemas"]["ErrorCode"];
+                        data?: {
+                            authorization_endpoint?: string | null;
+                            checks: components["schemas"]["ExternalAuthProviderTestCheck"][];
+                            issuer?: string | null;
+                            jwks_key_count?: number | null;
+                            provider: string;
+                            token_endpoint?: string | null;
+                            userinfo_endpoint?: string | null;
+                        };
+                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        msg: string;
+                    };
+                };
+            };
+            /** @description Discovery failed */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -6635,8 +6816,10 @@ export interface operations {
                         code: components["schemas"]["ErrorCode"];
                         data?: {
                             allowed_domains: string[];
+                            authorization_url?: string | null;
                             auto_link_verified_email_enabled: boolean;
                             auto_provision_enabled: boolean;
+                            avatar_url_claim?: string | null;
                             client_id: string;
                             client_secret?: string | null;
                             client_secret_configured: boolean;
@@ -6644,17 +6827,22 @@ export interface operations {
                             display_name: string;
                             display_name_claim?: string | null;
                             email_claim?: string | null;
+                            email_verified_claim?: string | null;
                             enabled: boolean;
                             groups_claim?: string | null;
+                            icon_url?: string | null;
                             /** Format: int64 */
                             id: number;
-                            issuer_url: string;
+                            issuer_url?: string | null;
                             key: string;
                             protocol: components["schemas"]["ExternalAuthProtocol"];
                             provider_kind: components["schemas"]["ExternalAuthProviderKind"];
                             require_email_verified: boolean;
                             scopes: string;
+                            subject_claim?: string | null;
+                            token_url?: string | null;
                             updated_at: string;
+                            userinfo_url?: string | null;
                             username_claim?: string | null;
                         };
                         error?: null | components["schemas"]["ApiErrorInfo"];
@@ -6753,8 +6941,10 @@ export interface operations {
                         code: components["schemas"]["ErrorCode"];
                         data?: {
                             allowed_domains: string[];
+                            authorization_url?: string | null;
                             auto_link_verified_email_enabled: boolean;
                             auto_provision_enabled: boolean;
+                            avatar_url_claim?: string | null;
                             client_id: string;
                             client_secret?: string | null;
                             client_secret_configured: boolean;
@@ -6762,17 +6952,22 @@ export interface operations {
                             display_name: string;
                             display_name_claim?: string | null;
                             email_claim?: string | null;
+                            email_verified_claim?: string | null;
                             enabled: boolean;
                             groups_claim?: string | null;
+                            icon_url?: string | null;
                             /** Format: int64 */
                             id: number;
-                            issuer_url: string;
+                            issuer_url?: string | null;
                             key: string;
                             protocol: components["schemas"]["ExternalAuthProtocol"];
                             provider_kind: components["schemas"]["ExternalAuthProviderKind"];
                             require_email_verified: boolean;
                             scopes: string;
+                            subject_claim?: string | null;
+                            token_url?: string | null;
                             updated_at: string;
+                            userinfo_url?: string | null;
                             username_claim?: string | null;
                         };
                         error?: null | components["schemas"]["ApiErrorInfo"];
@@ -6831,10 +7026,13 @@ export interface operations {
                     "application/json": {
                         code: components["schemas"]["ErrorCode"];
                         data?: {
-                            authorization_endpoint: string;
-                            issuer: string;
-                            jwks_key_count: number;
-                            token_endpoint: string;
+                            authorization_endpoint?: string | null;
+                            checks: components["schemas"]["ExternalAuthProviderTestCheck"][];
+                            issuer?: string | null;
+                            jwks_key_count?: number | null;
+                            provider: string;
+                            token_endpoint?: string | null;
+                            userinfo_endpoint?: string | null;
                         };
                         error?: null | components["schemas"]["ApiErrorInfo"];
                         msg: string;
@@ -10360,6 +10558,7 @@ export interface operations {
                         code: components["schemas"]["ErrorCode"];
                         data?: {
                             display_name: string;
+                            icon_url?: string | null;
                             key: string;
                             kind: components["schemas"]["ExternalAuthProviderKind"];
                         }[];

@@ -291,6 +291,20 @@ describe("ShareDialog", () => {
 		expect(mockState.toastSuccess).toHaveBeenCalledWith("share:share_created");
 	});
 
+	it("keeps long share target names inside the dialog title", () => {
+		const longName = `${"e28633d9605db1b835fbee64aa065e9c".repeat(4)}.jpg`;
+
+		render(
+			<ShareDialog open onOpenChange={vi.fn()} fileId={42} name={longName} />,
+		);
+
+		const titleText = screen.getByText(`share:${longName}`);
+		const title = titleText.closest("h2");
+
+		expect(title).toHaveClass("min-w-0", "leading-snug");
+		expect(titleText).toHaveClass("min-w-0", "break-words");
+	});
+
 	it("creates direct links for files and exposes a force-download variant", async () => {
 		mockState.getDirectLinkToken.mockResolvedValue({ token: "direct-token" });
 
@@ -321,6 +335,26 @@ describe("ShareDialog", () => {
 				`${window.location.origin}/d/direct-token/stream.m3u8?download=1`,
 			),
 		).toBeInTheDocument();
+	});
+
+	it("keeps long direct-link target names inside the dialog title", () => {
+		const longName = `${"e28633d9605db1b835fbee64aa065e9c".repeat(4)}.jpg`;
+
+		render(
+			<ShareDialog
+				open
+				onOpenChange={vi.fn()}
+				fileId={13}
+				name={longName}
+				initialMode="direct"
+			/>,
+		);
+
+		const titleText = screen.getByText(`share:${longName}`);
+		const title = titleText.closest("h2");
+
+		expect(title).toHaveClass("min-w-0", "leading-snug");
+		expect(titleText).toHaveClass("min-w-0", "break-words");
 	});
 
 	it("honors the initial direct mode from the entry point", async () => {

@@ -48,6 +48,11 @@ async fn create_external_auth_providers(manager: &SchemaManager<'_>) -> Result<(
                         .not_null(),
                 )
                 .col(
+                    ColumnDef::new(ExternalAuthProviders::IconUrl)
+                        .string_len(2048)
+                        .null(),
+                )
+                .col(
                     ColumnDef::new(ExternalAuthProviders::ProviderKind)
                         .string_len(32)
                         .not_null(),
@@ -501,6 +506,7 @@ enum ExternalAuthProviders {
     Id,
     Key,
     DisplayName,
+    IconUrl,
     ProviderKind,
     Protocol,
     IssuerUrl,

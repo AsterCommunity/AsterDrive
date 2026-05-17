@@ -1,1 +1,1 @@
-Confirm Your New AsterDrive Email Address
+Confirm Your New {{site_name}} Email Address

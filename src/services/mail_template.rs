@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize, de::DeserializeOwned};
 #[cfg(all(debug_assertions, feature = "openapi"))]
 use utoipa::ToSchema;
 
-use crate::config::{RuntimeConfig, mail, site_url};
+use crate::config::{RuntimeConfig, branding, mail, site_url};
 use crate::errors::{AsterError, MapAsterErr, Result};
 use crate::types::{MailTemplateCode, StoredMailPayload};
 
@@ -36,23 +36,31 @@ pub struct TemplateVariableGroup {
 pub struct RegisterActivationPayload {
     pub username: String,
     pub token: String,
+    #[serde(default = "default_site_name")]
+    pub site_name: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ContactChangeConfirmationPayload {
     pub username: String,
     pub token: String,
+    #[serde(default = "default_site_name")]
+    pub site_name: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PasswordResetPayload {
     pub username: String,
     pub token: String,
+    #[serde(default = "default_site_name")]
+    pub site_name: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PasswordResetNoticePayload {
     pub username: String,
+    #[serde(default = "default_site_name")]
+    pub site_name: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -60,12 +68,20 @@ pub struct ContactChangeNoticePayload {
     pub username: String,
     pub previous_email: String,
     pub new_email: String,
+    #[serde(default = "default_site_name")]
+    pub site_name: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ExternalAuthEmailVerificationPayload {
     pub email: String,
     pub token: String,
+    #[serde(default = "default_external_auth_provider_name")]
+    pub provider_name: String,
+    #[serde(default = "default_site_name")]
+    pub site_name: String,
+    #[serde(default = "default_external_auth_expires_in")]
+    pub expires_in: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -79,45 +95,64 @@ pub enum MailTemplatePayload {
 }
 
 impl MailTemplatePayload {
-    pub fn register_activation(username: &str, token: &str) -> Self {
+    pub fn register_activation(username: &str, token: &str, site_name: &str) -> Self {
         Self::RegisterActivation(RegisterActivationPayload {
             username: username.to_string(),
             token: token.to_string(),
+            site_name: site_name.to_string(),
         })
     }
 
-    pub fn contact_change_confirmation(username: &str, token: &str) -> Self {
+    pub fn contact_change_confirmation(username: &str, token: &str, site_name: &str) -> Self {
         Self::ContactChangeConfirmation(ContactChangeConfirmationPayload {
             username: username.to_string(),
             token: token.to_string(),
+            site_name: site_name.to_string(),
         })
     }
 
-    pub fn password_reset(username: &str, token: &str) -> Self {
+    pub fn password_reset(username: &str, token: &str, site_name: &str) -> Self {
         Self::PasswordReset(PasswordResetPayload {
             username: username.to_string(),
             token: token.to_string(),
+            site_name: site_name.to_string(),
         })
     }
 
-    pub fn password_reset_notice(username: &str) -> Self {
+    pub fn password_reset_notice(username: &str, site_name: &str) -> Self {
         Self::PasswordResetNotice(PasswordResetNoticePayload {
             username: username.to_string(),
+            site_name: site_name.to_string(),
         })
     }
 
-    pub fn contact_change_notice(username: &str, previous_email: &str, new_email: &str) -> Self {
+    pub fn contact_change_notice(
+        username: &str,
+        previous_email: &str,
+        new_email: &str,
+        site_name: &str,
+    ) -> Self {
         Self::ContactChangeNotice(ContactChangeNoticePayload {
             username: username.to_string(),
             previous_email: previous_email.to_string(),
             new_email: new_email.to_string(),
+            site_name: site_name.to_string(),
         })
     }
 
-    pub fn external_auth_email_verification(email: &str, token: &str) -> Self {
+    pub fn external_auth_email_verification(
+        email: &str,
+        token: &str,
+        provider_name: &str,
+        site_name: &str,
+        expires_in: &str,
+    ) -> Self {
         Self::ExternalAuthEmailVerification(ExternalAuthEmailVerificationPayload {
             email: email.to_string(),
             token: token.to_string(),
+            provider_name: provider_name.to_string(),
+            site_name: site_name.to_string(),
+            expires_in: expires_in.to_string(),
         })
     }
 
@@ -195,6 +230,11 @@ pub fn list_template_variable_groups() -> Vec<TemplateVariableGroup> {
                     "settings_template_variable_verification_url_label",
                     "settings_template_variable_verification_url_desc",
                 ),
+                placeholder_spec(
+                    "site_name",
+                    "settings_template_variable_site_name_label",
+                    "settings_template_variable_site_name_desc",
+                ),
             ],
         ),
         template_variable_group(
@@ -209,6 +249,11 @@ pub fn list_template_variable_groups() -> Vec<TemplateVariableGroup> {
                     "verification_url",
                     "settings_template_variable_verification_url_label",
                     "settings_template_variable_verification_url_desc",
+                ),
+                placeholder_spec(
+                    "site_name",
+                    "settings_template_variable_site_name_label",
+                    "settings_template_variable_site_name_desc",
                 ),
             ],
         ),
@@ -225,15 +270,27 @@ pub fn list_template_variable_groups() -> Vec<TemplateVariableGroup> {
                     "settings_template_variable_reset_url_label",
                     "settings_template_variable_reset_url_desc",
                 ),
+                placeholder_spec(
+                    "site_name",
+                    "settings_template_variable_site_name_label",
+                    "settings_template_variable_site_name_desc",
+                ),
             ],
         ),
         template_variable_group(
             MailTemplateCode::PasswordResetNotice,
-            &[placeholder_spec(
-                "username",
-                "settings_template_variable_username_label",
-                "settings_template_variable_username_desc",
-            )],
+            &[
+                placeholder_spec(
+                    "username",
+                    "settings_template_variable_username_label",
+                    "settings_template_variable_username_desc",
+                ),
+                placeholder_spec(
+                    "site_name",
+                    "settings_template_variable_site_name_label",
+                    "settings_template_variable_site_name_desc",
+                ),
+            ],
         ),
         template_variable_group(
             MailTemplateCode::ContactChangeNotice,
@@ -253,6 +310,11 @@ pub fn list_template_variable_groups() -> Vec<TemplateVariableGroup> {
                     "settings_template_variable_new_email_label",
                     "settings_template_variable_new_email_desc",
                 ),
+                placeholder_spec(
+                    "site_name",
+                    "settings_template_variable_site_name_label",
+                    "settings_template_variable_site_name_desc",
+                ),
             ],
         ),
         template_variable_group(
@@ -267,6 +329,21 @@ pub fn list_template_variable_groups() -> Vec<TemplateVariableGroup> {
                     "verification_url",
                     "settings_template_variable_verification_url_label",
                     "settings_template_variable_verification_url_desc",
+                ),
+                placeholder_spec(
+                    "provider_name",
+                    "settings_template_variable_provider_name_label",
+                    "settings_template_variable_provider_name_desc",
+                ),
+                placeholder_spec(
+                    "site_name",
+                    "settings_template_variable_site_name_label",
+                    "settings_template_variable_site_name_desc",
+                ),
+                placeholder_spec(
+                    "expires_in",
+                    "settings_template_variable_expires_in_label",
+                    "settings_template_variable_expires_in_desc",
                 ),
             ],
         ),
@@ -285,10 +362,12 @@ pub fn render(
                 text_values: vec![
                     ("username", payload.username.clone()),
                     ("verification_url", verification_url.clone()),
+                    ("site_name", payload.site_name.clone()),
                 ],
                 html_values: vec![
                     ("username", escape_html(&payload.username)),
                     ("verification_url", escape_html(&verification_url)),
+                    ("site_name", escape_html(&payload.site_name)),
                 ],
             }
         }
@@ -298,10 +377,12 @@ pub fn render(
                 text_values: vec![
                     ("username", payload.username.clone()),
                     ("verification_url", verification_url.clone()),
+                    ("site_name", payload.site_name.clone()),
                 ],
                 html_values: vec![
                     ("username", escape_html(&payload.username)),
                     ("verification_url", escape_html(&verification_url)),
+                    ("site_name", escape_html(&payload.site_name)),
                 ],
             }
         }
@@ -311,27 +392,37 @@ pub fn render(
                 text_values: vec![
                     ("username", payload.username.clone()),
                     ("reset_url", reset_url.clone()),
+                    ("site_name", payload.site_name.clone()),
                 ],
                 html_values: vec![
                     ("username", escape_html(&payload.username)),
                     ("reset_url", escape_html(&reset_url)),
+                    ("site_name", escape_html(&payload.site_name)),
                 ],
             }
         }
         MailTemplatePayload::PasswordResetNotice(payload) => PlaceholderSet {
-            text_values: vec![("username", payload.username.clone())],
-            html_values: vec![("username", escape_html(&payload.username))],
+            text_values: vec![
+                ("username", payload.username.clone()),
+                ("site_name", payload.site_name.clone()),
+            ],
+            html_values: vec![
+                ("username", escape_html(&payload.username)),
+                ("site_name", escape_html(&payload.site_name)),
+            ],
         },
         MailTemplatePayload::ContactChangeNotice(payload) => PlaceholderSet {
             text_values: vec![
                 ("username", payload.username.clone()),
                 ("previous_email", payload.previous_email.clone()),
                 ("new_email", payload.new_email.clone()),
+                ("site_name", payload.site_name.clone()),
             ],
             html_values: vec![
                 ("username", escape_html(&payload.username)),
                 ("previous_email", escape_html(&payload.previous_email)),
                 ("new_email", escape_html(&payload.new_email)),
+                ("site_name", escape_html(&payload.site_name)),
             ],
         },
         MailTemplatePayload::ExternalAuthEmailVerification(payload) => {
@@ -341,10 +432,16 @@ pub fn render(
                 text_values: vec![
                     ("email", payload.email.clone()),
                     ("verification_url", verification_url.clone()),
+                    ("provider_name", payload.provider_name.clone()),
+                    ("site_name", payload.site_name.clone()),
+                    ("expires_in", payload.expires_in.clone()),
                 ],
                 html_values: vec![
                     ("email", escape_html(&payload.email)),
                     ("verification_url", escape_html(&verification_url)),
+                    ("provider_name", escape_html(&payload.provider_name)),
+                    ("site_name", escape_html(&payload.site_name)),
+                    ("expires_in", escape_html(&payload.expires_in)),
                 ],
             }
         }
@@ -372,6 +469,18 @@ fn serialize_payload<T: Serialize>(payload: &T) -> Result<String> {
         "failed to serialize mail payload",
         AsterError::internal_error,
     )
+}
+
+fn default_external_auth_provider_name() -> String {
+    "single sign-on provider".to_string()
+}
+
+fn default_site_name() -> String {
+    branding::DEFAULT_BRANDING_TITLE.to_string()
+}
+
+fn default_external_auth_expires_in() -> String {
+    "30 minutes".to_string()
 }
 
 fn deserialize_payload<T: DeserializeOwned>(
@@ -626,7 +735,7 @@ struct ParsedTag {
 
 #[cfg(test)]
 mod tests {
-    use super::{MailTemplateCode, MailTemplatePayload, render};
+    use super::{MailTemplateCode, MailTemplatePayload, list_template_variable_groups, render};
     use crate::config::RuntimeConfig;
     use crate::entities::system_config;
     use chrono::Utc;
@@ -651,7 +760,7 @@ mod tests {
     #[test]
     fn render_register_activation_builds_link_and_escapes_html() {
         let runtime_config = RuntimeConfig::new();
-        let payload = MailTemplatePayload::register_activation("A&B", "token-123");
+        let payload = MailTemplatePayload::register_activation("A&B", "token-123", "Drive & Files");
         let stored = payload.to_stored().unwrap();
         let rendered = render(
             &runtime_config,
@@ -663,6 +772,8 @@ mod tests {
         assert!(rendered.text_body.contains("token=token-123"));
         assert!(rendered.html_body.starts_with("<!doctype html>"));
         assert!(rendered.html_body.contains("A&amp;B"));
+        assert!(rendered.html_body.contains("Drive &amp; Files"));
+        assert!(rendered.subject.contains("Drive & Files"));
     }
 
     #[test]
@@ -671,6 +782,9 @@ mod tests {
         let payload = MailTemplatePayload::external_auth_email_verification(
             "oidc+user@example.com",
             "token-123",
+            "Acme <SSO>",
+            "Drive & Files",
+            "30 minutes",
         );
         let stored = payload.to_stored().unwrap();
         let rendered = render(
@@ -686,6 +800,51 @@ mod tests {
                 .contains("/api/v1/auth/external-auth/email-verification/confirm?token=token-123",)
         );
         assert!(rendered.html_body.contains("oidc+user@example.com"));
+        assert!(rendered.html_body.contains("Acme &lt;SSO&gt;"));
+        assert!(rendered.html_body.contains("Drive &amp; Files"));
+        assert!(rendered.html_body.contains("30 minutes"));
+        assert!(rendered.subject.contains("Drive & Files"));
+        assert!(rendered.text_body.contains("Acme <SSO>"));
+    }
+
+    #[test]
+    fn external_auth_email_verification_variables_exclude_username() {
+        let groups = list_template_variable_groups();
+        let group = groups
+            .iter()
+            .find(|group| group.template_code == "external_auth_email_verification")
+            .expect("external auth email verification variable group should exist");
+        let tokens = group
+            .variables
+            .iter()
+            .map(|variable| variable.token.as_str())
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            tokens,
+            vec![
+                "{{email}}",
+                "{{verification_url}}",
+                "{{provider_name}}",
+                "{{site_name}}",
+                "{{expires_in}}",
+            ]
+        );
+        assert!(!tokens.contains(&"{{username}}"));
+    }
+
+    #[test]
+    fn all_mail_template_variable_groups_include_site_name() {
+        for group in list_template_variable_groups() {
+            assert!(
+                group
+                    .variables
+                    .iter()
+                    .any(|variable| variable.token == "{{site_name}}"),
+                "{} should expose site_name",
+                group.template_code
+            );
+        }
     }
 
     #[test]
@@ -694,6 +853,7 @@ mod tests {
             "Alice",
             "old@example.com",
             "new@example.com",
+            "AsterDrive",
         );
         let stored = payload.to_stored().unwrap();
 
@@ -729,7 +889,7 @@ mod tests {
             "<!doctype html><html><body><p>Hello {{username}}</p></body></html>",
         ));
 
-        let payload = MailTemplatePayload::password_reset("Alice", "token-123");
+        let payload = MailTemplatePayload::password_reset("Alice", "token-123", "AsterDrive");
         let stored = payload.to_stored().unwrap();
         let rendered = render(&runtime_config, MailTemplateCode::PasswordReset, &stored).unwrap();
 

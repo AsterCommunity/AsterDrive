@@ -15,6 +15,7 @@ pub struct Model {
     pub id: i64,
     pub key: String,
     pub display_name: String,
+    pub icon_url: Option<String>,
     pub provider_kind: ExternalAuthProviderKind,
     pub protocol: ExternalAuthProtocol,
     pub issuer_url: Option<String>,

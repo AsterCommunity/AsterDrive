@@ -212,6 +212,7 @@ async fn test_mail_outbox_dispatch_sends_due_message_and_clears_payload() {
     let payload = aster_drive::services::mail_template::MailTemplatePayload::register_activation(
         "alice",
         "token-123",
+        "AsterDrive",
     )
     .to_stored()
     .unwrap();
@@ -251,6 +252,7 @@ async fn test_mail_outbox_dispatch_skips_future_retry_rows() {
     let payload = aster_drive::services::mail_template::MailTemplatePayload::register_activation(
         "alice",
         "token-123",
+        "AsterDrive",
     )
     .to_stored()
     .unwrap();
@@ -285,6 +287,7 @@ async fn test_mail_outbox_dispatch_retries_failed_delivery_with_truncated_error(
     let payload = aster_drive::services::mail_template::MailTemplatePayload::register_activation(
         "alice",
         "token-123",
+        "AsterDrive",
     )
     .to_stored()
     .unwrap();
@@ -319,6 +322,7 @@ async fn test_mail_outbox_dispatch_marks_final_failure_and_clears_payload() {
     let payload = aster_drive::services::mail_template::MailTemplatePayload::register_activation(
         "alice",
         "token-123",
+        "AsterDrive",
     )
     .to_stored()
     .unwrap();
@@ -359,6 +363,7 @@ async fn test_mail_outbox_dispatch_reclaims_stale_processing_rows_and_drain_merg
     let payload = aster_drive::services::mail_template::MailTemplatePayload::register_activation(
         "alice",
         "token-123",
+        "AsterDrive",
     )
     .to_stored()
     .unwrap();
@@ -423,6 +428,7 @@ async fn test_mail_outbox_dispatch_does_not_reclaim_fresh_processing_rows() {
     let payload = aster_drive::services::mail_template::MailTemplatePayload::register_activation(
         "alice",
         "token-123",
+        "AsterDrive",
     )
     .to_stored()
     .unwrap();

@@ -1,1 +1,1 @@
-Your AsterDrive Email Address Was Updated
+Your {{site_name}} Email Address Was Updated

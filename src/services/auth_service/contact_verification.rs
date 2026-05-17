@@ -3,6 +3,7 @@
 use chrono::Utc;
 use sea_orm::{ActiveModelTrait, IntoActiveModel, Set};
 
+use crate::config::branding;
 use crate::db::repository::{contact_verification_token_repo, user_repo};
 use crate::errors::{AsterError, MapAsterErr, Result};
 use crate::runtime::PrimaryAppState;
@@ -59,6 +60,7 @@ pub async fn request_email_change(
     let policy = crate::config::auth_runtime::RuntimeContactVerificationPolicy::from_runtime_config(
         &state.runtime_config,
     );
+    let site_name = branding::title_or_default(&state.runtime_config);
     let txn = crate::db::transaction::begin(&state.db).await?;
     let mut active = existing.into_active_model();
     active.pending_email = Set(Some(normalized_email.clone()));
@@ -76,7 +78,7 @@ pub async fn request_email_change(
         &txn,
         &normalized_email,
         Some(&updated.username),
-        MailTemplatePayload::contact_change_confirmation(&updated.username, &token),
+        MailTemplatePayload::contact_change_confirmation(&updated.username, &token, &site_name),
     )
     .await?;
     crate::db::transaction::commit(txn).await?;
@@ -126,6 +128,7 @@ pub async fn resend_email_change(
     let policy = crate::config::auth_runtime::RuntimeContactVerificationPolicy::from_runtime_config(
         &state.runtime_config,
     );
+    let site_name = branding::title_or_default(&state.runtime_config);
 
     let txn = crate::db::transaction::begin(&state.db).await?;
     let token = match issue_contact_verification_token(
@@ -145,7 +148,7 @@ pub async fn resend_email_change(
         &txn,
         &pending_email,
         Some(&user.username),
-        MailTemplatePayload::contact_change_confirmation(&user.username, &token),
+        MailTemplatePayload::contact_change_confirmation(&user.username, &token, &site_name),
     )
     .await?;
     crate::db::transaction::commit(txn).await?;
@@ -180,6 +183,7 @@ pub async fn request_password_reset(
     let policy = crate::config::auth_runtime::RuntimeContactVerificationPolicy::from_runtime_config(
         &state.runtime_config,
     );
+    let site_name = branding::title_or_default(&state.runtime_config);
     let txn = crate::db::transaction::begin(&state.db).await?;
     let token = match issue_contact_verification_token(
         &txn,
@@ -202,7 +206,7 @@ pub async fn request_password_reset(
         &txn,
         &user.email,
         Some(&user.username),
-        MailTemplatePayload::password_reset(&user.username, &token),
+        MailTemplatePayload::password_reset(&user.username, &token, &site_name),
     )
     .await?;
     crate::db::transaction::commit(txn).await?;
@@ -264,11 +268,12 @@ pub async fn confirm_password_reset(
     }
 
     let updated = update_password_in_connection(&txn, existing_user, new_password).await?;
+    let site_name = branding::title_or_default(&state.runtime_config);
     mail_outbox_service::enqueue(
         &txn,
         &updated.email,
         Some(&updated.username),
-        MailTemplatePayload::password_reset_notice(&updated.username),
+        MailTemplatePayload::password_reset_notice(&updated.username, &site_name),
     )
     .await?;
     crate::db::transaction::commit(txn).await?;
@@ -315,6 +320,7 @@ pub async fn confirm_contact_verification(
         return Err(AsterError::auth_forbidden("account is disabled"));
     }
     let username = existing_user.username.clone();
+    let site_name = branding::title_or_default(&state.runtime_config);
     let previous_email = (purpose == VerificationPurpose::ContactChange
         && existing_user.email != target)
         .then(|| existing_user.email.clone());
@@ -378,6 +384,7 @@ pub async fn confirm_contact_verification(
                             &username,
                             previous_email,
                             &target,
+                            &site_name,
                         ),
                     )
                     .await?;

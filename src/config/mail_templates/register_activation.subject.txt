@@ -1,1 +1,1 @@
-Activate Your AsterDrive Account
+Activate Your {{site_name}} Account

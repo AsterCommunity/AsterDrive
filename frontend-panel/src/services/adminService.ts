@@ -6,6 +6,8 @@ import type {
 	AdminCreateTeamRequest,
 	AdminExternalAuthProviderInfo,
 	AdminExternalAuthProviderKindInfo,
+	AdminExternalAuthProviderListQuery,
+	AdminExternalAuthProviderPage,
 	AdminLockListQuery,
 	AdminOverview,
 	AdminOverviewQuery,
@@ -33,6 +35,7 @@ import type {
 	DeletePolicyQuery,
 	ExecuteConfigActionRequest,
 	ExecuteConfigActionResponse,
+	ExternalAuthProviderTestParamsInput,
 	ExternalAuthProviderTestResult,
 	LockPage,
 	MigratePolicyGroupUsersRequest,
@@ -297,8 +300,13 @@ export const adminExternalAuthService = {
 			"/admin/external-auth/provider-kinds",
 		),
 
-	list: () =>
-		api.get<AdminExternalAuthProviderInfo[]>("/admin/external-auth/providers"),
+	list: (params?: AdminExternalAuthProviderListQuery) =>
+		api.get<AdminExternalAuthProviderPage>(
+			withQuery("/admin/external-auth/providers", {
+				limit: params?.limit,
+				offset: params?.offset,
+			}),
+		),
 
 	get: (id: number) =>
 		api.get<AdminExternalAuthProviderInfo>(
@@ -323,6 +331,12 @@ export const adminExternalAuthService = {
 	test: (id: number) =>
 		api.post<ExternalAuthProviderTestResult>(
 			`/admin/external-auth/providers/${id}/test`,
+		),
+
+	testParams: (data: ExternalAuthProviderTestParamsInput) =>
+		api.post<ExternalAuthProviderTestResult>(
+			"/admin/external-auth/providers/test",
+			data,
 		),
 };
 

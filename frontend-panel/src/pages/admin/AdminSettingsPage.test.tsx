@@ -61,6 +61,16 @@ const translationMap: Record<string, string> = {
 	mail_template_variables_dialog_desc: "mail_template_variables_dialog_desc",
 	mail_template_variables_dialog_empty: "mail_template_variables_dialog_empty",
 	mail_template_variables_dialog_title: "mail_template_variables_dialog_title",
+	settings_mail_template_group_external_auth_email_verification:
+		"External sign-in email verification",
+	settings_item_mail_template_external_auth_email_verification_subject_label:
+		"External sign-in email verification subject",
+	settings_item_mail_template_external_auth_email_verification_subject_desc:
+		"Subject template for external sign-in email verification emails.",
+	settings_item_mail_template_external_auth_email_verification_html_label:
+		"External sign-in email verification HTML body",
+	settings_item_mail_template_external_auth_email_verification_html_desc:
+		"HTML template for external sign-in email verification emails. A complete HTML document is recommended for best client compatibility.",
 	settings_section_collapse: "settings_section_collapse",
 	settings_section_expand: "settings_section_expand",
 	settings_subcategory_mail_config: "settings_subcategory_mail_config",
@@ -102,6 +112,20 @@ const translationMap: Record<string, string> = {
 		"settings_template_variable_reset_url_desc",
 	settings_template_variable_reset_url_label:
 		"settings_template_variable_reset_url_label",
+	settings_template_variable_email_desc: "The email address being verified.",
+	settings_template_variable_email_label: "Email",
+	settings_template_variable_expires_in_desc:
+		"How long the verification link remains valid after the email is generated.",
+	settings_template_variable_expires_in_label: "Expires In",
+	settings_template_variable_provider_name_desc:
+		"The display name of the external sign-in provider.",
+	settings_template_variable_provider_name_label: "Provider Name",
+	settings_template_variable_site_name_desc:
+		"The current public site name from branding settings.",
+	settings_template_variable_site_name_label: "Site Name",
+	settings_template_variable_verification_url_desc:
+		"The confirmation link for the current verification email.",
+	settings_template_variable_verification_url_label: "Verification URL",
 	settings_template_variable_username_desc:
 		"settings_template_variable_username_desc",
 	settings_template_variable_username_label:
@@ -513,6 +537,11 @@ function createTemplateVariableGroup(
 				description_i18n_key: "settings_template_variable_reset_url_desc",
 				label_i18n_key: "settings_template_variable_reset_url_label",
 				token: "{{reset_url}}",
+			},
+			{
+				description_i18n_key: "settings_template_variable_site_name_desc",
+				label_i18n_key: "settings_template_variable_site_name_label",
+				token: "{{site_name}}",
 			},
 		],
 		...overrides,
@@ -1311,6 +1340,153 @@ describe("AdminSettingsPage", () => {
 		expect(
 			(await screen.findAllByText("{{reset_url}}")).length,
 		).toBeGreaterThan(0);
+		expect(
+			(await screen.findAllByText("{{site_name}}")).length,
+		).toBeGreaterThan(0);
+	});
+
+	it("renders external sign-in email verification templates with i18n and variables", async () => {
+		mockState.listConfigs.mockResolvedValueOnce({
+			items: [
+				createConfig({
+					category: "mail.template",
+					description:
+						"Subject template for external auth email verification messages.",
+					key: "mail_template_external_auth_email_verification_subject",
+					value: "Verify your email for AsterDrive sign-in",
+					value_type: "string",
+				}),
+				createConfig({
+					category: "mail.template",
+					description:
+						"HTML template for external auth email verification messages. A complete HTML document is recommended for best client compatibility.",
+					key: "mail_template_external_auth_email_verification_html",
+					value: "<p>Verify {{email}}</p>",
+					value_type: "multiline",
+				}),
+			],
+		});
+		mockState.schema.mockResolvedValueOnce([
+			createSchemaItem({
+				category: "mail.template",
+				description:
+					"Subject template for external auth email verification messages.",
+				description_i18n_key:
+					"settings_item_mail_template_external_auth_email_verification_subject_desc",
+				key: "mail_template_external_auth_email_verification_subject",
+				label_i18n_key:
+					"settings_item_mail_template_external_auth_email_verification_subject_label",
+				value_type: "string",
+			}),
+			createSchemaItem({
+				category: "mail.template",
+				description:
+					"HTML template for external auth email verification messages. A complete HTML document is recommended for best client compatibility.",
+				description_i18n_key:
+					"settings_item_mail_template_external_auth_email_verification_html_desc",
+				key: "mail_template_external_auth_email_verification_html",
+				label_i18n_key:
+					"settings_item_mail_template_external_auth_email_verification_html_label",
+				value_type: "multiline",
+			}),
+		]);
+		mockState.templateVariables.mockResolvedValueOnce([
+			createTemplateVariableGroup({
+				label_i18n_key:
+					"settings_mail_template_group_external_auth_email_verification",
+				template_code: "external_auth_email_verification",
+				variables: [
+					{
+						description_i18n_key: "settings_template_variable_email_desc",
+						label_i18n_key: "settings_template_variable_email_label",
+						token: "{{email}}",
+					},
+					{
+						description_i18n_key:
+							"settings_template_variable_verification_url_desc",
+						label_i18n_key: "settings_template_variable_verification_url_label",
+						token: "{{verification_url}}",
+					},
+					{
+						description_i18n_key:
+							"settings_template_variable_provider_name_desc",
+						label_i18n_key: "settings_template_variable_provider_name_label",
+						token: "{{provider_name}}",
+					},
+					{
+						description_i18n_key: "settings_template_variable_site_name_desc",
+						label_i18n_key: "settings_template_variable_site_name_label",
+						token: "{{site_name}}",
+					},
+					{
+						description_i18n_key: "settings_template_variable_expires_in_desc",
+						label_i18n_key: "settings_template_variable_expires_in_label",
+						token: "{{expires_in}}",
+					},
+				],
+			}),
+		]);
+
+		render(<AdminSettingsPage section="mail" />);
+
+		await screen.findByText("Template");
+		fireEvent.click(
+			await screen.findByRole("button", {
+				name: /external sign-in email verification/i,
+			}),
+		);
+
+		expect(
+			screen.getByText("External sign-in email verification subject"),
+		).toBeInTheDocument();
+		expect(
+			screen.getByText(
+				"Subject template for external sign-in email verification emails.",
+			),
+		).toBeInTheDocument();
+		expect(
+			screen.getByText("External sign-in email verification HTML body"),
+		).toBeInTheDocument();
+		expect(
+			screen.getByText(
+				"HTML template for external sign-in email verification emails. A complete HTML document is recommended for best client compatibility.",
+			),
+		).toBeInTheDocument();
+		expect(
+			screen.queryByText(/OIDC email verification/i),
+		).not.toBeInTheDocument();
+		expect(
+			screen.queryByText("mail_template_external_auth_email_verification_html"),
+		).not.toBeInTheDocument();
+
+		fireEvent.click(
+			await screen.findByRole("button", {
+				name: "mail_template_variable_link",
+			}),
+		);
+
+		expect(
+			await screen.findByText("mail_template_variables_dialog_title"),
+		).toBeInTheDocument();
+		expect(screen.getByText("Email")).toBeInTheDocument();
+		expect(screen.getByText("Verification URL")).toBeInTheDocument();
+		expect(screen.getByText("Provider Name")).toBeInTheDocument();
+		expect(screen.getByText("Site Name")).toBeInTheDocument();
+		expect(screen.getByText("Expires In")).toBeInTheDocument();
+		expect((await screen.findAllByText("{{email}}")).length).toBeGreaterThan(0);
+		expect(
+			(await screen.findAllByText("{{verification_url}}")).length,
+		).toBeGreaterThan(0);
+		expect(
+			(await screen.findAllByText("{{provider_name}}")).length,
+		).toBeGreaterThan(0);
+		expect(
+			(await screen.findAllByText("{{site_name}}")).length,
+		).toBeGreaterThan(0);
+		expect(
+			(await screen.findAllByText("{{expires_in}}")).length,
+		).toBeGreaterThan(0);
+		expect(screen.queryByText("{{username}}")).not.toBeInTheDocument();
 	});
 
 	it("saves staged changes when Cmd+S is pressed from a focused input", async () => {

@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="x-apple-disable-message-reformatting" />
-    <title>Verify Your AsterDrive Email</title>
+    <title>Verify Your {{site_name}} Email</title>
   </head>
   <body
     style="
@@ -27,7 +27,7 @@
             color: #2563eb;
           "
         >
-          AsterDrive
+          {{site_name}}
         </div>
         <div
           style="
@@ -43,11 +43,12 @@
           </h1>
           <p style="margin: 0 0 16px; font-size: 15px; line-height: 1.7;">Hello,</p>
           <p style="margin: 0 0 16px; font-size: 15px; line-height: 1.7;">
-            A single sign-on provider asked AsterDrive to continue sign-in, but it did not provide
+            {{provider_name}} asked {{site_name}} to continue sign-in, but this request still needs
             an email address. Confirm that {{email}} belongs to you to finish linking this sign-in.
           </p>
           <p style="margin: 0 0 24px; font-size: 15px; line-height: 1.7;">
-            This link can only be used for the pending sign-in request that created it.
+            This link can only be used for the pending sign-in request that created it, and it
+            expires in {{expires_in}}.
           </p>
           <p style="margin: 0 0 24px;">
             <a
@@ -89,7 +90,7 @@
             </p>
           </div>
           <p style="margin: 0; font-size: 13px; line-height: 1.7; color: #64748b;">
-            This is an automated security message from AsterDrive. Please do not reply to this
+            This is an automated security message from {{site_name}}. Please do not reply to this
             email.
           </p>
         </div>

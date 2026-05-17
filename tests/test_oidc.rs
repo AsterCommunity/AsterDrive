@@ -34,6 +34,7 @@ use serde::Deserialize;
 use serde_json::Value;
 use std::sync::{Arc, Mutex};
 use std::time::Duration as StdDuration;
+use uuid::Uuid;
 
 const TEST_BROWSER_ORIGIN: &str = "http://localhost:8080";
 const TEST_CLIENT_ID: &str = "aster-test-client";
@@ -353,8 +354,53 @@ where
     create_external_auth_provider_with(app, admin_token, options).await
 }
 
+async fn create_external_auth_provider_key<S, B, E>(
+    app: &S,
+    admin_token: &str,
+    issuer_url: &str,
+    enabled: bool,
+    auto_provision_enabled: bool,
+) -> String
+where
+    S: actix_web::dev::Service<
+            actix_http::Request,
+            Response = actix_web::dev::ServiceResponse<B>,
+            Error = E,
+        >,
+    B: MessageBody,
+    E: std::fmt::Debug,
+{
+    let created = create_external_auth_provider(
+        app,
+        admin_token,
+        issuer_url,
+        enabled,
+        auto_provision_enabled,
+    )
+    .await;
+    created_provider_key(&created)
+}
+
+async fn create_external_auth_provider_with_key<S, B, E>(
+    app: &S,
+    admin_token: &str,
+    options: TestOidcProviderOptions,
+) -> String
+where
+    S: actix_web::dev::Service<
+            actix_http::Request,
+            Response = actix_web::dev::ServiceResponse<B>,
+            Error = E,
+        >,
+    B: MessageBody,
+    E: std::fmt::Debug,
+{
+    let created = create_external_auth_provider_with(app, admin_token, options).await;
+    created_provider_key(&created)
+}
+
 struct TestOidcProviderOptions {
-    key: String,
+    display_name_prefix: String,
     issuer_url: String,
     enabled: bool,
     auto_provision_enabled: bool,
@@ -366,7 +412,7 @@ struct TestOidcProviderOptions {
 impl TestOidcProviderOptions {
     fn mock(issuer_url: &str) -> Self {
         Self {
-            key: "mock".to_string(),
+            display_name_prefix: "mock".to_string(),
             issuer_url: issuer_url.to_string(),
             enabled: true,
             auto_provision_enabled: false,
@@ -397,8 +443,8 @@ where
         .insert_header(common::csrf_header_for(admin_token))
         .set_json(serde_json::json!({
             "provider_kind": "oidc",
-            "key": options.key,
-            "display_name": format!("{} OIDC", options.key),
+            "display_name": format!("{} OIDC", options.display_name_prefix),
+            "icon_url": "/static/external-auth/mock.svg",
             "issuer_url": options.issuer_url,
             "client_id": TEST_CLIENT_ID,
             "client_secret": "super-secret",
@@ -414,6 +460,13 @@ where
     test::read_body_json(resp).await
 }
 
+fn created_provider_key(created: &Value) -> String {
+    created["data"]["key"]
+        .as_str()
+        .expect("provider key should be returned")
+        .to_string()
+}
+
 fn external_auth_provider_model(
     key: &str,
     issuer_url: &str,
@@ -423,6 +476,7 @@ fn external_auth_provider_model(
     external_auth_provider::ActiveModel {
         key: Set(key.to_string()),
         display_name: Set(format!("{key} provider")),
+        icon_url: Set(None),
         provider_kind: Set(aster_drive::types::ExternalAuthProviderKind::Oidc),
         protocol: Set(aster_drive::types::ExternalAuthProtocol::Oidc),
         issuer_url: Set(Some(issuer_url.to_string())),
@@ -674,7 +728,7 @@ fn reserve_localhost_port() -> (u16, std::net::TcpListener) {
     (port, listener)
 }
 
-fn dex_config(issuer: &str) -> String {
+fn dex_config(issuer: &str, provider_key: &str) -> String {
     format!(
         r#"issuer: {issuer}
 storage:
@@ -686,7 +740,7 @@ oauth2:
 staticClients:
   - id: {TEST_CLIENT_ID}
     redirectURIs:
-      - {TEST_BROWSER_ORIGIN}/api/v1/auth/external-auth/oidc/dex/callback
+      - {TEST_BROWSER_ORIGIN}/api/v1/auth/external-auth/oidc/{provider_key}/callback
     name: AsterDrive Test
     secret: {DEX_TEST_CLIENT_SECRET}
 enablePasswordDB: true
@@ -752,7 +806,11 @@ async fn request_dex_redirect(
     );
 }
 
-async fn complete_dex_password_login(issuer: &str, authorization_url: &str) -> String {
+async fn complete_dex_password_login(
+    issuer: &str,
+    provider_key: &str,
+    authorization_url: &str,
+) -> String {
     let client = reqwest::Client::builder()
         .redirect(reqwest::redirect::Policy::none())
         .timeout(StdDuration::from_secs(10))
@@ -806,7 +864,7 @@ async fn complete_dex_password_login(issuer: &str, authorization_url: &str) -> S
         .expect("Dex login redirect should include Location");
     let redirect = absolute_location(&login_url, location);
     let expected_callback =
-        format!("{TEST_BROWSER_ORIGIN}/api/v1/auth/external-auth/oidc/dex/callback");
+        format!("{TEST_BROWSER_ORIGIN}/api/v1/auth/external-auth/oidc/{provider_key}/callback");
     assert_eq!(
         redirect.as_str().split('?').next(),
         Some(expected_callback.as_str()),
@@ -824,8 +882,14 @@ async fn admin_provider_api_masks_secret_and_public_list_only_shows_enabled() {
 
     let created =
         create_external_auth_provider(&app, &admin_token, &mock_provider.issuer, true, false).await;
+    let provider_key = created_provider_key(&created);
+    assert!(Uuid::parse_str(&provider_key).is_ok());
     assert_eq!(created["data"]["client_secret"], "***REDACTED***");
     assert_eq!(created["data"]["client_secret_configured"], true);
+    assert_eq!(
+        created["data"]["icon_url"],
+        "/static/external-auth/mock.svg"
+    );
 
     let req = test::TestRequest::get()
         .uri("/api/v1/admin/external-auth/providers")
@@ -835,7 +899,11 @@ async fn admin_provider_api_masks_secret_and_public_list_only_shows_enabled() {
     let resp = test::call_service(&app, req).await;
     assert_eq!(resp.status(), 200);
     let list_body: Value = test::read_body_json(resp).await;
-    assert_eq!(list_body["data"][0]["client_secret"], "***REDACTED***");
+    assert_eq!(list_body["data"]["total"], 1);
+    assert_eq!(
+        list_body["data"]["items"][0]["client_secret"],
+        "***REDACTED***"
+    );
 
     let req = test::TestRequest::get()
         .uri("/api/v1/auth/external-auth/providers")
@@ -843,7 +911,11 @@ async fn admin_provider_api_masks_secret_and_public_list_only_shows_enabled() {
     let resp = test::call_service(&app, req).await;
     assert_eq!(resp.status(), 200);
     let public_body: Value = test::read_body_json(resp).await;
-    assert_eq!(public_body["data"][0]["key"], "mock");
+    assert_eq!(public_body["data"][0]["key"], provider_key);
+    assert_eq!(
+        public_body["data"][0]["icon_url"],
+        "/static/external-auth/mock.svg"
+    );
     assert!(public_body["data"][0].get("client_secret").is_none());
 
     let req = test::TestRequest::patch()
@@ -890,17 +962,30 @@ async fn admin_provider_kind_api_drives_create_contract() {
     assert_eq!(kinds[0]["supports_discovery"], true);
     assert_eq!(kinds[0]["supports_pkce"], true);
 
-    let created =
-        create_external_auth_provider(&app, &admin_token, &mock_provider.issuer, true, false).await;
+    let req = test::TestRequest::post()
+        .uri("/api/v1/admin/external-auth/providers")
+        .insert_header(("Cookie", common::access_cookie_header(&admin_token)))
+        .insert_header(common::csrf_header_for(&admin_token))
+        .set_json(serde_json::json!({
+            "provider_kind": "oidc",
+            "display_name": "Default Enabled",
+            "issuer_url": mock_provider.issuer,
+            "client_id": TEST_CLIENT_ID,
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 201);
+    let created: Value = test::read_body_json(resp).await;
     assert_eq!(created["data"]["provider_kind"], "oidc");
     assert_eq!(created["data"]["protocol"], "oidc");
+    assert_eq!(created["data"]["enabled"], true);
+    assert!(Uuid::parse_str(created["data"]["key"].as_str().unwrap()).is_ok());
 
     let req = test::TestRequest::post()
         .uri("/api/v1/admin/external-auth/providers")
         .insert_header(("Cookie", common::access_cookie_header(&admin_token)))
         .insert_header(common::csrf_header_for(&admin_token))
         .set_json(serde_json::json!({
-            "key": "missing-kind",
             "display_name": "Missing Kind",
             "issuer_url": mock_provider.issuer,
             "client_id": TEST_CLIENT_ID,
@@ -908,6 +993,99 @@ async fn admin_provider_kind_api_drives_create_contract() {
         .to_request();
     let resp = test::call_service(&app, req).await;
     assert_eq!(resp.status(), 400);
+
+    server.stop(true).await;
+}
+
+#[actix_web::test]
+async fn admin_tests_external_auth_provider_draft_params_without_persisting() {
+    let (mock_provider, server) = start_mock_external_auth_provider().await;
+    let state = common::setup().await;
+    let app = create_test_app!(state.clone());
+    let (admin_token, _) = register_and_login!(app);
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/admin/external-auth/providers/test")
+        .insert_header(("Cookie", common::access_cookie_header(&admin_token)))
+        .insert_header(common::csrf_header_for(&admin_token))
+        .set_json(serde_json::json!({
+            "provider_kind": "oidc",
+            "issuer_url": mock_provider.issuer,
+            "client_id": TEST_CLIENT_ID,
+            "client_secret": "super-secret",
+            "scopes": "openid email profile",
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(body["data"]["provider"], "OpenID Connect");
+    assert_eq!(body["data"]["issuer"], mock_provider.issuer);
+    assert_eq!(
+        body["data"]["authorization_endpoint"],
+        format!("{}/authorize", mock_provider.issuer)
+    );
+    assert_eq!(
+        body["data"]["token_endpoint"],
+        format!("{}/token", mock_provider.issuer)
+    );
+    assert_eq!(body["data"]["jwks_key_count"], 1);
+    assert_eq!(body["data"]["checks"][0]["name"], "discovery");
+    assert_eq!(body["data"]["checks"][1]["name"], "jwks");
+
+    let providers = external_auth_provider::Entity::find()
+        .all(&state.db)
+        .await
+        .expect("providers should query");
+    assert!(providers.is_empty());
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/admin/external-auth/providers/test")
+        .insert_header(("Cookie", common::access_cookie_header(&admin_token)))
+        .insert_header(common::csrf_header_for(&admin_token))
+        .set_json(serde_json::json!({
+            "provider_kind": "oidc",
+            "client_id": TEST_CLIENT_ID,
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 400);
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/admin/external-auth/providers")
+        .insert_header(("Cookie", common::access_cookie_header(&admin_token)))
+        .insert_header(common::csrf_header_for(&admin_token))
+        .set_json(serde_json::json!({
+            "provider_kind": "oidc",
+            "display_name": "Saved IDP",
+            "issuer_url": mock_provider.issuer,
+            "client_id": TEST_CLIENT_ID,
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 201);
+    let created: Value = test::read_body_json(resp).await;
+    let provider_id = created["data"]["id"]
+        .as_i64()
+        .expect("provider id should be returned");
+
+    let req = test::TestRequest::post()
+        .uri(&format!(
+            "/api/v1/admin/external-auth/providers/{provider_id}/test"
+        ))
+        .insert_header(("Cookie", common::access_cookie_header(&admin_token)))
+        .insert_header(common::csrf_header_for(&admin_token))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(body["data"]["issuer"], mock_provider.issuer);
+
+    let providers = external_auth_provider::Entity::find()
+        .all(&state.db)
+        .await
+        .expect("providers should query");
+    assert_eq!(providers.len(), 1);
 
     server.stop(true).await;
 }
@@ -922,10 +1100,14 @@ async fn start_login_persists_pkce_flow_and_rejects_replayed_state() {
     ));
     let app = create_test_app!(state.clone());
     let (admin_token, _) = register_and_login!(app);
-    create_external_auth_provider(&app, &admin_token, &mock_provider.issuer, true, false).await;
+    let provider_key =
+        create_external_auth_provider_key(&app, &admin_token, &mock_provider.issuer, true, false)
+            .await;
 
     let req = test::TestRequest::post()
-        .uri("/api/v1/auth/external-auth/oidc/mock/start")
+        .uri(&format!(
+            "/api/v1/auth/external-auth/oidc/{provider_key}/start"
+        ))
         .insert_header(("Origin", TEST_BROWSER_ORIGIN))
         .set_json(serde_json::json!({ "return_path": "/files?view=grid" }))
         .to_request();
@@ -945,7 +1127,7 @@ async fn start_login_persists_pkce_flow_and_rejects_replayed_state() {
     assert_eq!(authorize_request.client_id, TEST_CLIENT_ID);
     assert_eq!(
         authorize_request.redirect_uri,
-        "http://localhost:8080/api/v1/auth/external-auth/oidc/mock/callback"
+        format!("http://localhost:8080/api/v1/auth/external-auth/oidc/{provider_key}/callback")
     );
     assert!(authorize_request.scope.unwrap().contains("openid"));
     assert_eq!(
@@ -994,10 +1176,13 @@ async fn finish_callback_verifies_jwks_and_issues_asterdrive_cookies() {
     configure_oidc_public_site_url(&state);
     let app = create_test_app!(state.clone());
     let (admin_token, _) = register_and_login!(app);
-    create_external_auth_provider(&app, &admin_token, &mock_provider.issuer, true, true).await;
+    let provider_key =
+        create_external_auth_provider_key(&app, &admin_token, &mock_provider.issuer, true, true)
+            .await;
 
-    let state_value = start_oidc_login(&app, &mock_provider, "mock", "/settings/security").await;
-    let resp = finish_oidc_callback(&app, "mock", &state_value).await;
+    let state_value =
+        start_oidc_login(&app, &mock_provider, &provider_key, "/settings/security").await;
+    let resp = finish_oidc_callback(&app, &provider_key, &state_value).await;
     assert_eq!(resp.status(), 302);
     assert_eq!(
         resp.headers()
@@ -1037,7 +1222,7 @@ async fn finish_callback_auto_links_verified_email_to_existing_user() {
         "linked@example.com",
         "password123"
     );
-    create_external_auth_provider_with(
+    let provider_key = create_external_auth_provider_with_key(
         &app,
         &admin_token,
         TestOidcProviderOptions {
@@ -1047,8 +1232,8 @@ async fn finish_callback_auto_links_verified_email_to_existing_user() {
     )
     .await;
 
-    let state_value = start_oidc_login(&app, &mock_provider, "mock", "/files").await;
-    let resp = finish_oidc_callback(&app, "mock", &state_value).await;
+    let state_value = start_oidc_login(&app, &mock_provider, &provider_key, "/files").await;
+    let resp = finish_oidc_callback(&app, &provider_key, &state_value).await;
     assert_eq!(resp.status(), 302);
     assert_eq!(
         resp.headers()
@@ -1089,7 +1274,7 @@ async fn finish_callback_falls_back_to_manual_binding_for_unverified_auto_link_e
         "unverified@example.com",
         "password123"
     );
-    create_external_auth_provider_with(
+    let provider_key = create_external_auth_provider_with_key(
         &app,
         &admin_token,
         TestOidcProviderOptions {
@@ -1100,8 +1285,8 @@ async fn finish_callback_falls_back_to_manual_binding_for_unverified_auto_link_e
     )
     .await;
 
-    let state_value = start_oidc_login(&app, &mock_provider, "mock", "/").await;
-    let resp = finish_oidc_callback(&app, "mock", &state_value).await;
+    let state_value = start_oidc_login(&app, &mock_provider, &provider_key, "/").await;
+    let resp = finish_oidc_callback(&app, &provider_key, &state_value).await;
     let flow_token = oidc_email_required_flow(&resp);
 
     let identities = external_auth_identity::Entity::find()
@@ -1145,6 +1330,7 @@ async fn finish_callback_rejects_disabled_user_with_existing_identity() {
     );
     let created =
         create_external_auth_provider(&app, &admin_token, &mock_provider.issuer, true, false).await;
+    let provider_key = created_provider_key(&created);
     let provider_id = created["data"]["id"]
         .as_i64()
         .expect("provider id should be returned");
@@ -1164,8 +1350,8 @@ async fn finish_callback_rejects_disabled_user_with_existing_identity() {
     .expect("identity should create");
     disable_user(&state, disabled_user_id).await;
 
-    let state_value = start_oidc_login(&app, &mock_provider, "mock", "/").await;
-    let resp = finish_oidc_callback(&app, "mock", &state_value).await;
+    let state_value = start_oidc_login(&app, &mock_provider, &provider_key, "/").await;
+    let resp = finish_oidc_callback(&app, &provider_key, &state_value).await;
     assert_oidc_error_redirect(&resp);
 
     server.stop(true).await;
@@ -1190,6 +1376,7 @@ async fn finish_callback_allows_existing_identity_without_email_claim() {
     );
     let created =
         create_external_auth_provider(&app, &admin_token, &mock_provider.issuer, true, false).await;
+    let provider_key = created_provider_key(&created);
     let provider_id = created["data"]["id"]
         .as_i64()
         .expect("provider id should be returned");
@@ -1208,8 +1395,8 @@ async fn finish_callback_allows_existing_identity_without_email_claim() {
     .await
     .expect("identity should create");
 
-    let state_value = start_oidc_login(&app, &mock_provider, "mock", "/files").await;
-    let resp = finish_oidc_callback(&app, "mock", &state_value).await;
+    let state_value = start_oidc_login(&app, &mock_provider, &provider_key, "/files").await;
+    let resp = finish_oidc_callback(&app, &provider_key, &state_value).await;
     assert_eq!(resp.status(), 302);
     assert_eq!(
         resp.headers()
@@ -1239,15 +1426,15 @@ async fn finish_callback_falls_back_to_manual_binding_when_auto_provision_disabl
         "manual-link@example.com",
         "password123"
     );
-    create_external_auth_provider_with(
+    let provider_key = create_external_auth_provider_with_key(
         &app,
         &admin_token,
         TestOidcProviderOptions::mock(&mock_provider.issuer),
     )
     .await;
 
-    let state_value = start_oidc_login(&app, &mock_provider, "mock", "/").await;
-    let resp = finish_oidc_callback(&app, "mock", &state_value).await;
+    let state_value = start_oidc_login(&app, &mock_provider, &provider_key, "/").await;
+    let resp = finish_oidc_callback(&app, &provider_key, &state_value).await;
     let flow_token = oidc_email_required_flow(&resp);
 
     let identities = external_auth_identity::Entity::find()
@@ -1294,7 +1481,7 @@ async fn finish_callback_respects_global_registration_setting_for_auto_provision
         "existing-registration-closed@example.com",
         "password123"
     );
-    create_external_auth_provider_with(
+    let provider_key = create_external_auth_provider_with_key(
         &app,
         &admin_token,
         TestOidcProviderOptions {
@@ -1309,8 +1496,8 @@ async fn finish_callback_respects_global_registration_setting_for_auto_provision
         "false",
     ));
 
-    let state_value = start_oidc_login(&app, &mock_provider, "mock", "/").await;
-    let resp = finish_oidc_callback(&app, "mock", &state_value).await;
+    let state_value = start_oidc_login(&app, &mock_provider, &provider_key, "/").await;
+    let resp = finish_oidc_callback(&app, &provider_key, &state_value).await;
     let flow_token = oidc_email_required_flow(&resp);
 
     let identities = external_auth_identity::Entity::find()
@@ -1356,7 +1543,7 @@ async fn manual_binding_respects_global_registration_setting_only_when_email_ver
     configure_oidc_public_site_url(&state);
     let app = create_test_app!(state.clone());
     let (admin_token, _) = register_and_login!(app);
-    create_external_auth_provider_with(
+    let provider_key = create_external_auth_provider_with_key(
         &app,
         &admin_token,
         TestOidcProviderOptions::mock(&mock_provider.issuer),
@@ -1367,8 +1554,8 @@ async fn manual_binding_respects_global_registration_setting_only_when_email_ver
         "false",
     ));
 
-    let state_value = start_oidc_login(&app, &mock_provider, "mock", "/").await;
-    let resp = finish_oidc_callback(&app, "mock", &state_value).await;
+    let state_value = start_oidc_login(&app, &mock_provider, &provider_key, "/").await;
+    let resp = finish_oidc_callback(&app, &provider_key, &state_value).await;
     let flow_token = oidc_email_required_flow(&resp);
 
     let resp =
@@ -1407,7 +1594,7 @@ async fn finish_callback_auto_link_by_verified_email_ignores_global_registration
         "auto-link-registration-closed@example.com",
         "password123"
     );
-    create_external_auth_provider_with(
+    let provider_key = create_external_auth_provider_with_key(
         &app,
         &admin_token,
         TestOidcProviderOptions {
@@ -1422,8 +1609,8 @@ async fn finish_callback_auto_link_by_verified_email_ignores_global_registration
         "false",
     ));
 
-    let state_value = start_oidc_login(&app, &mock_provider, "mock", "/files").await;
-    let resp = finish_oidc_callback(&app, "mock", &state_value).await;
+    let state_value = start_oidc_login(&app, &mock_provider, &provider_key, "/files").await;
+    let resp = finish_oidc_callback(&app, &provider_key, &state_value).await;
     assert_eq!(resp.status(), 302);
     assert_eq!(
         resp.headers()
@@ -1457,15 +1644,16 @@ async fn no_email_claim_can_register_after_local_email_verification() {
     configure_oidc_public_site_url(&state);
     let app = create_test_app!(state.clone());
     let (admin_token, _) = register_and_login!(app);
-    create_external_auth_provider_with(
+    let provider_key = create_external_auth_provider_with_key(
         &app,
         &admin_token,
         TestOidcProviderOptions::mock(&mock_provider.issuer),
     )
     .await;
 
-    let state_value = start_oidc_login(&app, &mock_provider, "mock", "/settings/security").await;
-    let resp = finish_oidc_callback(&app, "mock", &state_value).await;
+    let state_value =
+        start_oidc_login(&app, &mock_provider, &provider_key, "/settings/security").await;
+    let resp = finish_oidc_callback(&app, &provider_key, &state_value).await;
     let flow_token = oidc_email_required_flow(&resp);
 
     assert_start_oidc_email_verification_ok(&app, &flow_token, "fallback-provision@example.com")
@@ -1521,7 +1709,7 @@ async fn no_email_claim_falls_back_to_local_email_verification_for_existing_user
         "fallback-link@example.com",
         "password123"
     );
-    create_external_auth_provider_with(
+    let provider_key = create_external_auth_provider_with_key(
         &app,
         &admin_token,
         TestOidcProviderOptions {
@@ -1531,8 +1719,8 @@ async fn no_email_claim_falls_back_to_local_email_verification_for_existing_user
     )
     .await;
 
-    let state_value = start_oidc_login(&app, &mock_provider, "mock", "/files").await;
-    let resp = finish_oidc_callback(&app, "mock", &state_value).await;
+    let state_value = start_oidc_login(&app, &mock_provider, &provider_key, "/files").await;
+    let resp = finish_oidc_callback(&app, &provider_key, &state_value).await;
     let flow_token = oidc_email_required_flow(&resp);
 
     assert_start_oidc_email_verification_ok(&app, &flow_token, "fallback-link@example.com").await;
@@ -1575,15 +1763,15 @@ async fn manual_email_verification_can_link_existing_user_without_auto_link_enab
         "manual-email-link@example.com",
         "password123"
     );
-    create_external_auth_provider_with(
+    let provider_key = create_external_auth_provider_with_key(
         &app,
         &admin_token,
         TestOidcProviderOptions::mock(&mock_provider.issuer),
     )
     .await;
 
-    let state_value = start_oidc_login(&app, &mock_provider, "mock", "/files").await;
-    let resp = finish_oidc_callback(&app, "mock", &state_value).await;
+    let state_value = start_oidc_login(&app, &mock_provider, &provider_key, "/files").await;
+    let resp = finish_oidc_callback(&app, &provider_key, &state_value).await;
     let flow_token = oidc_email_required_flow(&resp);
 
     assert_start_oidc_email_verification_ok(&app, &flow_token, "manual-email-link@example.com")
@@ -1631,15 +1819,15 @@ async fn no_email_claim_can_link_after_local_password_login() {
         "password-link@example.com",
         "password123"
     );
-    create_external_auth_provider_with(
+    let provider_key = create_external_auth_provider_with_key(
         &app,
         &admin_token,
         TestOidcProviderOptions::mock(&mock_provider.issuer),
     )
     .await;
 
-    let state_value = start_oidc_login(&app, &mock_provider, "mock", "/files").await;
-    let resp = finish_oidc_callback(&app, "mock", &state_value).await;
+    let state_value = start_oidc_login(&app, &mock_provider, &provider_key, "/files").await;
+    let resp = finish_oidc_callback(&app, &provider_key, &state_value).await;
     let flow_token = oidc_email_required_flow(&resp);
 
     let resp = link_oidc_with_password(&app, &flow_token, "pwd-link-user", "password123").await;
@@ -1682,15 +1870,15 @@ async fn oidc_password_link_rejects_wrong_password_without_sending_email() {
         "password-link-wrong@example.com",
         "password123"
     );
-    create_external_auth_provider_with(
+    let provider_key = create_external_auth_provider_with_key(
         &app,
         &admin_token,
         TestOidcProviderOptions::mock(&mock_provider.issuer),
     )
     .await;
 
-    let state_value = start_oidc_login(&app, &mock_provider, "mock", "/").await;
-    let resp = finish_oidc_callback(&app, "mock", &state_value).await;
+    let state_value = start_oidc_login(&app, &mock_provider, &provider_key, "/").await;
+    let resp = finish_oidc_callback(&app, &provider_key, &state_value).await;
     let flow_token = oidc_email_required_flow(&resp);
 
     let resp = link_oidc_with_password(&app, &flow_token, "pwd-link-wrong", "wrong-password").await;
@@ -1723,15 +1911,15 @@ async fn oidc_email_verification_respects_global_registration_setting() {
     configure_oidc_public_site_url(&state);
     let app = create_test_app!(state.clone());
     let (admin_token, _) = register_and_login!(app);
-    create_external_auth_provider_with(
+    let provider_key = create_external_auth_provider_with_key(
         &app,
         &admin_token,
         TestOidcProviderOptions::mock(&mock_provider.issuer),
     )
     .await;
 
-    let state_value = start_oidc_login(&app, &mock_provider, "mock", "/").await;
-    let resp = finish_oidc_callback(&app, "mock", &state_value).await;
+    let state_value = start_oidc_login(&app, &mock_provider, &provider_key, "/").await;
+    let resp = finish_oidc_callback(&app, &provider_key, &state_value).await;
     let flow_token = oidc_email_required_flow(&resp);
     state.runtime_config.apply(common::system_config_model(
         aster_drive::config::auth_runtime::AUTH_ALLOW_USER_REGISTRATION_KEY,
@@ -1770,7 +1958,7 @@ async fn oidc_email_verification_enforces_entered_email_domain() {
     configure_oidc_public_site_url(&state);
     let app = create_test_app!(state.clone());
     let (admin_token, _) = register_and_login!(app);
-    create_external_auth_provider_with(
+    let provider_key = create_external_auth_provider_with_key(
         &app,
         &admin_token,
         TestOidcProviderOptions {
@@ -1780,8 +1968,8 @@ async fn oidc_email_verification_enforces_entered_email_domain() {
     )
     .await;
 
-    let state_value = start_oidc_login(&app, &mock_provider, "mock", "/").await;
-    let resp = finish_oidc_callback(&app, "mock", &state_value).await;
+    let state_value = start_oidc_login(&app, &mock_provider, &provider_key, "/").await;
+    let resp = finish_oidc_callback(&app, &provider_key, &state_value).await;
     let flow_token = oidc_email_required_flow(&resp);
 
     let resp = start_oidc_email_verification(&app, &flow_token, "user@example.org").await;
@@ -1805,7 +1993,7 @@ async fn oidc_email_verification_rejects_replay() {
     configure_oidc_public_site_url(&state);
     let app = create_test_app!(state.clone());
     let (admin_token, _) = register_and_login!(app);
-    create_external_auth_provider_with(
+    let provider_key = create_external_auth_provider_with_key(
         &app,
         &admin_token,
         TestOidcProviderOptions {
@@ -1815,8 +2003,8 @@ async fn oidc_email_verification_rejects_replay() {
     )
     .await;
 
-    let state_value = start_oidc_login(&app, &mock_provider, "mock", "/").await;
-    let resp = finish_oidc_callback(&app, "mock", &state_value).await;
+    let state_value = start_oidc_login(&app, &mock_provider, &provider_key, "/").await;
+    let resp = finish_oidc_callback(&app, &provider_key, &state_value).await;
     let flow_token = oidc_email_required_flow(&resp);
     assert_start_oidc_email_verification_ok(&app, &flow_token, "fallback-replay@example.com").await;
     let token = latest_oidc_email_verification_token(&state).await;
@@ -1855,7 +2043,7 @@ async fn oidc_email_verification_rejects_expired_pending_flow() {
     configure_oidc_public_site_url(&state);
     let app = create_test_app!(state.clone());
     let (admin_token, _) = register_and_login!(app);
-    create_external_auth_provider_with(
+    let provider_key = create_external_auth_provider_with_key(
         &app,
         &admin_token,
         TestOidcProviderOptions {
@@ -1865,8 +2053,8 @@ async fn oidc_email_verification_rejects_expired_pending_flow() {
     )
     .await;
 
-    let state_value = start_oidc_login(&app, &mock_provider, "mock", "/").await;
-    let resp = finish_oidc_callback(&app, "mock", &state_value).await;
+    let state_value = start_oidc_login(&app, &mock_provider, &provider_key, "/").await;
+    let resp = finish_oidc_callback(&app, &provider_key, &state_value).await;
     let flow_token = oidc_email_required_flow(&resp);
     let mut flow = external_auth_email_verification_flow::Entity::find()
         .one(&state.db)
@@ -1893,10 +2081,11 @@ async fn finish_callback_rejects_flow_after_provider_disabled() {
     let (admin_token, _) = register_and_login!(app);
     let created =
         create_external_auth_provider(&app, &admin_token, &mock_provider.issuer, true, true).await;
+    let provider_key = created_provider_key(&created);
     let provider_id = created["data"]["id"]
         .as_i64()
         .expect("provider id should be returned");
-    let state_value = start_oidc_login(&app, &mock_provider, "mock", "/").await;
+    let state_value = start_oidc_login(&app, &mock_provider, &provider_key, "/").await;
 
     let req = test::TestRequest::patch()
         .uri(&format!(
@@ -1909,7 +2098,7 @@ async fn finish_callback_rejects_flow_after_provider_disabled() {
     let resp = test::call_service(&app, req).await;
     assert_eq!(resp.status(), 200);
 
-    let resp = finish_oidc_callback(&app, "mock", &state_value).await;
+    let resp = finish_oidc_callback(&app, &provider_key, &state_value).await;
     assert_oidc_error_redirect(&resp);
     let identities = external_auth_identity::Entity::find()
         .all(&state.db)
@@ -1929,10 +2118,12 @@ async fn finish_callback_rejects_audience_mismatch() {
     configure_oidc_public_site_url(&state);
     let app = create_test_app!(state.clone());
     let (admin_token, _) = register_and_login!(app);
-    create_external_auth_provider(&app, &admin_token, &mock_provider.issuer, true, true).await;
+    let provider_key =
+        create_external_auth_provider_key(&app, &admin_token, &mock_provider.issuer, true, true)
+            .await;
 
-    let state_value = start_oidc_login(&app, &mock_provider, "mock", "/").await;
-    let resp = finish_oidc_callback(&app, "mock", &state_value).await;
+    let state_value = start_oidc_login(&app, &mock_provider, &provider_key, "/").await;
+    let resp = finish_oidc_callback(&app, &provider_key, &state_value).await;
     assert_oidc_error_redirect(&resp);
 
     let identities = external_auth_identity::Entity::find()
@@ -1953,10 +2144,12 @@ async fn finish_callback_rejects_oversized_subject_before_db_write() {
     configure_oidc_public_site_url(&state);
     let app = create_test_app!(state.clone());
     let (admin_token, _) = register_and_login!(app);
-    create_external_auth_provider(&app, &admin_token, &mock_provider.issuer, true, true).await;
+    let provider_key =
+        create_external_auth_provider_key(&app, &admin_token, &mock_provider.issuer, true, true)
+            .await;
 
-    let state_value = start_oidc_login(&app, &mock_provider, "mock", "/").await;
-    let resp = finish_oidc_callback(&app, "mock", &state_value).await;
+    let state_value = start_oidc_login(&app, &mock_provider, &provider_key, "/").await;
+    let resp = finish_oidc_callback(&app, &provider_key, &state_value).await;
     assert_oidc_error_redirect(&resp);
 
     let identities = external_auth_identity::Entity::find()
@@ -1975,11 +2168,13 @@ async fn finish_callback_rejects_nonce_mismatch() {
     configure_oidc_public_site_url(&state);
     let app = create_test_app!(state.clone());
     let (admin_token, _) = register_and_login!(app);
-    create_external_auth_provider(&app, &admin_token, &mock_provider.issuer, true, true).await;
+    let provider_key =
+        create_external_auth_provider_key(&app, &admin_token, &mock_provider.issuer, true, true)
+            .await;
 
-    let state_value = start_oidc_login(&app, &mock_provider, "mock", "/").await;
+    let state_value = start_oidc_login(&app, &mock_provider, &provider_key, "/").await;
     mock_provider.set_nonce_override(Some("wrong-nonce".to_string()));
-    let resp = finish_oidc_callback(&app, "mock", &state_value).await;
+    let resp = finish_oidc_callback(&app, &provider_key, &state_value).await;
     assert_oidc_error_redirect(&resp);
 
     let identities = external_auth_identity::Entity::find()
@@ -1998,9 +2193,11 @@ async fn finish_callback_rejects_provider_key_mismatch() {
     configure_oidc_public_site_url(&state);
     let app = create_test_app!(state.clone());
     let (admin_token, _) = register_and_login!(app);
-    create_external_auth_provider(&app, &admin_token, &mock_provider.issuer, true, true).await;
+    let provider_key =
+        create_external_auth_provider_key(&app, &admin_token, &mock_provider.issuer, true, true)
+            .await;
 
-    let state_value = start_oidc_login(&app, &mock_provider, "mock", "/").await;
+    let state_value = start_oidc_login(&app, &mock_provider, &provider_key, "/").await;
     let resp = finish_oidc_callback(&app, "other", &state_value).await;
     assert_oidc_error_redirect(&resp);
 
@@ -2023,7 +2220,7 @@ async fn finish_callback_enforces_allowed_domains() {
     configure_oidc_public_site_url(&state);
     let app = create_test_app!(state.clone());
     let (admin_token, _) = register_and_login!(app);
-    create_external_auth_provider_with(
+    let provider_key = create_external_auth_provider_with_key(
         &app,
         &admin_token,
         TestOidcProviderOptions {
@@ -2034,8 +2231,8 @@ async fn finish_callback_enforces_allowed_domains() {
     )
     .await;
 
-    let state_value = start_oidc_login(&app, &mock_provider, "mock", "/").await;
-    let resp = finish_oidc_callback(&app, "mock", &state_value).await;
+    let state_value = start_oidc_login(&app, &mock_provider, &provider_key, "/").await;
+    let resp = finish_oidc_callback(&app, &provider_key, &state_value).await;
     assert_oidc_error_redirect(&resp);
 
     let identities = external_auth_identity::Entity::find()
@@ -2062,10 +2259,13 @@ async fn oidc_links_can_be_listed_and_deleted_after_login() {
     configure_oidc_public_site_url(&state);
     let app = create_test_app!(state.clone());
     let (admin_token, _) = register_and_login!(app);
-    create_external_auth_provider(&app, &admin_token, &mock_provider.issuer, true, true).await;
+    let provider_key =
+        create_external_auth_provider_key(&app, &admin_token, &mock_provider.issuer, true, true)
+            .await;
 
-    let state_value = start_oidc_login(&app, &mock_provider, "mock", "/settings/security").await;
-    let resp = finish_oidc_callback(&app, "mock", &state_value).await;
+    let state_value =
+        start_oidc_login(&app, &mock_provider, &provider_key, "/settings/security").await;
+    let resp = finish_oidc_callback(&app, &provider_key, &state_value).await;
     assert_eq!(resp.status(), 302);
     let access_token =
         common::extract_cookie(&resp, "aster_access").expect("access cookie should be set");
@@ -2081,7 +2281,7 @@ async fn oidc_links_can_be_listed_and_deleted_after_login() {
         .as_array()
         .expect("links response should be an array");
     assert_eq!(links.len(), 1);
-    assert_eq!(links[0]["provider_key"], "mock");
+    assert_eq!(links[0]["provider_key"], provider_key);
     assert_eq!(links[0]["subject"], "links-subject");
     let link_id = links[0]["id"].as_i64().expect("link id should exist");
 
@@ -2118,11 +2318,15 @@ async fn finish_callback_rejects_issuer_mismatch_after_id_token_verification() {
     configure_oidc_public_site_url(&state);
     let app = create_test_app!(state.clone());
     let (admin_token, _) = register_and_login!(app);
-    create_external_auth_provider(&app, &admin_token, &mock_provider.issuer, true, true).await;
+    let provider_key =
+        create_external_auth_provider_key(&app, &admin_token, &mock_provider.issuer, true, true)
+            .await;
     mock_provider.set_issuer_override(Some("http://evil.example.test".to_string()));
 
     let req = test::TestRequest::post()
-        .uri("/api/v1/auth/external-auth/oidc/mock/start")
+        .uri(&format!(
+            "/api/v1/auth/external-auth/oidc/{provider_key}/start"
+        ))
         .insert_header(("Origin", TEST_BROWSER_ORIGIN))
         .set_json(serde_json::json!({ "return_path": "/" }))
         .to_request();
@@ -2134,8 +2338,9 @@ async fn finish_callback_rejects_issuer_mismatch_after_id_token_verification() {
         .expect("mock authorize request should succeed");
     let state_value = mock_provider.last_authorize_request().state;
 
-    let callback =
-        format!("/api/v1/auth/external-auth/oidc/mock/callback?code=mock-code&state={state_value}");
+    let callback = format!(
+        "/api/v1/auth/external-auth/oidc/{provider_key}/callback?code=mock-code&state={state_value}"
+    );
     let req = test::TestRequest::get().uri(&callback).to_request();
     let resp = test::call_service(&app, req).await;
     assert_eq!(resp.status(), 302);
@@ -2318,7 +2523,21 @@ async fn dex_container_authorization_code_login_e2e() {
 
     let (dex_port, listener) = reserve_localhost_port();
     let dex_issuer = format!("http://127.0.0.1:{dex_port}");
-    let config = dex_config(&dex_issuer);
+
+    let state = common::setup().await;
+    configure_oidc_public_site_url(&state);
+    let app = create_test_app!(state.clone());
+    let (admin_token, _) = register_and_login!(app);
+    let provider_key = create_external_auth_provider_with_key(
+        &app,
+        &admin_token,
+        TestOidcProviderOptions {
+            auto_provision_enabled: true,
+            ..TestOidcProviderOptions::mock(&dex_issuer)
+        },
+    )
+    .await;
+    let config = dex_config(&dex_issuer, &provider_key);
     drop(listener);
 
     let _container = GenericImage::new("ghcr.io/dexidp/dex", DEX_TEST_IMAGE_TAG)
@@ -2331,23 +2550,10 @@ async fn dex_container_authorization_code_login_e2e() {
         .expect("failed to start Dex OIDC container");
     wait_for_dex_discovery(&dex_issuer).await;
 
-    let state = common::setup().await;
-    configure_oidc_public_site_url(&state);
-    let app = create_test_app!(state.clone());
-    let (admin_token, _) = register_and_login!(app);
-    create_external_auth_provider_with(
-        &app,
-        &admin_token,
-        TestOidcProviderOptions {
-            key: "dex".to_string(),
-            auto_provision_enabled: true,
-            ..TestOidcProviderOptions::mock(&dex_issuer)
-        },
-    )
-    .await;
-
     let req = test::TestRequest::post()
-        .uri("/api/v1/auth/external-auth/oidc/dex/start")
+        .uri(&format!(
+            "/api/v1/auth/external-auth/oidc/{provider_key}/start"
+        ))
         .insert_header(("Origin", TEST_BROWSER_ORIGIN))
         .set_json(serde_json::json!({ "return_path": "/settings/security" }))
         .to_request();
@@ -2358,7 +2564,8 @@ async fn dex_container_authorization_code_login_e2e() {
         .as_str()
         .expect("authorization url should be returned");
 
-    let callback_url = complete_dex_password_login(&dex_issuer, authorization_url).await;
+    let callback_url =
+        complete_dex_password_login(&dex_issuer, &provider_key, authorization_url).await;
     let parsed_callback = reqwest::Url::parse(&callback_url).expect("callback URL should parse");
     let callback_path_and_query = parsed_callback[url::Position::BeforePath..].to_string();
     let req = test::TestRequest::get()

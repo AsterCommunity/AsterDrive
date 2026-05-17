@@ -6,6 +6,7 @@ use sea_orm::{
     sea_query::Expr,
 };
 
+use crate::db::repository::pagination_repo::fetch_offset_page;
 use crate::entities::external_auth_provider::{self, Entity as ExternalAuthProvider};
 use crate::errors::{AsterError, Result};
 use crate::types::ExternalAuthProviderKind;
@@ -17,6 +18,24 @@ pub async fn find_all<C: ConnectionTrait>(db: &C) -> Result<Vec<external_auth_pr
         .all(db)
         .await
         .map_err(AsterError::from)
+}
+
+pub async fn find_paginated<C: ConnectionTrait>(
+    db: &C,
+    limit: u64,
+    offset: u64,
+    supported_kinds: impl IntoIterator<Item = ExternalAuthProviderKind>,
+) -> Result<(Vec<external_auth_provider::Model>, u64)> {
+    fetch_offset_page(
+        db,
+        ExternalAuthProvider::find()
+            .filter(external_auth_provider::Column::ProviderKind.is_in(supported_kinds))
+            .order_by_asc(external_auth_provider::Column::DisplayName)
+            .order_by_asc(external_auth_provider::Column::Id),
+        limit,
+        offset,
+    )
+    .await
 }
 
 pub async fn find_all_by_kind<C: ConnectionTrait>(

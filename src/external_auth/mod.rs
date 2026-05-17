@@ -8,6 +8,6 @@ pub use crate::types::{ExternalAuthProtocol, ExternalAuthProviderKind};
 pub use driver::{
     ExternalAuthAuthorizationStart, ExternalAuthCallback, ExternalAuthProfile,
     ExternalAuthProviderConfig, ExternalAuthProviderDescriptor, ExternalAuthProviderDriver,
-    ExternalAuthProviderTestResult,
+    ExternalAuthProviderTestCheck, ExternalAuthProviderTestResult,
 };
 pub use registry::ExternalAuthProviderRegistry;

@@ -18,7 +18,7 @@ use crate::types::{ExternalAuthProtocol, ExternalAuthProviderKind};
 use super::super::driver::{
     ExternalAuthAuthorizationStart, ExternalAuthCallback, ExternalAuthProfile,
     ExternalAuthProviderConfig, ExternalAuthProviderDescriptor, ExternalAuthProviderDriver,
-    ExternalAuthProviderTestResult,
+    ExternalAuthProviderTestCheck, ExternalAuthProviderTestResult,
 };
 
 const OIDC_ISSUER_MAX_LEN: usize = 512;
@@ -57,6 +57,11 @@ impl ExternalAuthProviderDriver for OidcProviderDriver {
             display_name: "OpenID Connect",
             description: "OpenID Connect authorization-code sign-in with discovery, PKCE, nonce and ID token validation.",
             default_scopes: "openid email profile",
+            issuer_url_required: true,
+            manual_endpoint_configuration_supported: false,
+            authorization_url_required: false,
+            token_url_required: false,
+            userinfo_url_required: false,
             supports_discovery: true,
             supports_pkce: true,
             supports_email_verified_claim: true,
@@ -154,11 +159,30 @@ impl ExternalAuthProviderDriver for OidcProviderDriver {
         let token_endpoint = metadata.token_endpoint().ok_or_else(|| {
             AsterError::config_error("OIDC discovery metadata missing token_endpoint")
         })?;
+        let authorization_endpoint = metadata.authorization_endpoint().as_str().to_string();
+        let token_endpoint = token_endpoint.as_str().to_string();
+        let jwks_key_count = metadata.jwks().keys().len();
         Ok(ExternalAuthProviderTestResult {
-            issuer: metadata.issuer().as_str().to_string(),
-            authorization_endpoint: metadata.authorization_endpoint().as_str().to_string(),
-            token_endpoint: token_endpoint.as_str().to_string(),
-            jwks_key_count: metadata.jwks().keys().len(),
+            provider: self.descriptor().display_name.to_string(),
+            issuer: Some(metadata.issuer().as_str().to_string()),
+            authorization_endpoint: Some(authorization_endpoint),
+            token_endpoint: Some(token_endpoint),
+            userinfo_endpoint: metadata
+                .userinfo_endpoint()
+                .map(|url| url.as_str().to_string()),
+            jwks_key_count: Some(jwks_key_count),
+            checks: vec![
+                ExternalAuthProviderTestCheck {
+                    name: "discovery".to_string(),
+                    success: true,
+                    message: "OIDC discovery metadata was loaded".to_string(),
+                },
+                ExternalAuthProviderTestCheck {
+                    name: "jwks".to_string(),
+                    success: true,
+                    message: format!("JWKS contains {jwks_key_count} key(s)"),
+                },
+            ],
         })
     }
 }

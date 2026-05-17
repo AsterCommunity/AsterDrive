@@ -1,1 +1,1 @@
-Verify your email for AsterDrive sign-in
+Verify your email for {{site_name}} sign-in

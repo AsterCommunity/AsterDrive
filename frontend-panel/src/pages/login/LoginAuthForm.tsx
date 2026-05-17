@@ -3,6 +3,10 @@ import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+	externalAuthKindIconPath,
+	normalizeExternalAuthIconUrl,
+} from "@/lib/externalAuthProviders";
 import { cn } from "@/lib/utils";
 import type { ExternalAuthPublicProvider } from "@/types/api";
 import {
@@ -11,6 +15,40 @@ import {
 	AnimateText,
 } from "./authAnimations";
 import type { AuthMode } from "./types";
+
+function ExternalAuthProviderIcon({
+	provider,
+}: {
+	provider: ExternalAuthPublicProvider;
+}) {
+	const configuredIcon = normalizeExternalAuthIconUrl(provider.icon_url);
+	const kindIcon = externalAuthKindIconPath(provider.kind);
+	const iconUrl = configuredIcon || kindIcon;
+
+	if (iconUrl) {
+		return (
+			<img
+				src={iconUrl}
+				alt=""
+				aria-hidden="true"
+				className="mr-2 h-4 w-4 object-contain"
+				onError={(event) => {
+					if (
+						configuredIcon &&
+						kindIcon &&
+						event.currentTarget.src !== kindIcon
+					) {
+						event.currentTarget.src = kindIcon;
+						return;
+					}
+					event.currentTarget.hidden = true;
+				}}
+			/>
+		);
+	}
+
+	return <Icon name="Globe" className="mr-2 h-4 w-4" />;
+}
 
 interface LoginAuthFormProps {
 	checking: boolean;
@@ -267,7 +305,7 @@ export function LoginAuthForm({
 								{busy ? (
 									<Icon name="Spinner" className="mr-2 h-4 w-4 animate-spin" />
 								) : (
-									<Icon name="Globe" className="mr-2 h-4 w-4" />
+									<ExternalAuthProviderIcon provider={provider} />
 								)}
 								<span className="truncate">
 									{busy

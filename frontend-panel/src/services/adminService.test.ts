@@ -106,6 +106,25 @@ describe("adminService", () => {
 		expect(mockState.get).toHaveBeenNthCalledWith(7, "/admin/config");
 	});
 
+	it("tests external auth provider draft parameters without an id", () => {
+		adminExternalAuthService.testParams({
+			client_id: "client-id",
+			issuer_url: "https://idp.example.com",
+			provider_kind: "oidc" as never,
+			scopes: "openid email profile",
+		});
+
+		expect(mockState.post).toHaveBeenCalledWith(
+			"/admin/external-auth/providers/test",
+			{
+				client_id: "client-id",
+				issuer_url: "https://idp.example.com",
+				provider_kind: "oidc",
+				scopes: "openid email profile",
+			},
+		);
+	});
+
 	it("loads all policy groups across multiple pages", async () => {
 		mockState.get
 			.mockResolvedValueOnce({
@@ -235,18 +254,19 @@ describe("adminService", () => {
 		});
 		adminRemoteNodeService.createEnrollmentCommand(6);
 		adminExternalAuthService.listKinds();
-		adminExternalAuthService.list();
+		adminExternalAuthService.list({ limit: 20, offset: 0 });
 		adminExternalAuthService.get(15);
 		adminExternalAuthService.create({
 			client_id: "client-id",
 			display_name: "Example IDP",
+			icon_url: "/static/external-auth/example.svg",
 			issuer_url: "https://idp.example.com",
-			key: "example",
 			provider_kind: "oidc" as never,
 		});
 		adminExternalAuthService.update(15, {
 			display_name: "Example IDP",
 			enabled: true,
+			icon_url: null,
 		});
 		adminExternalAuthService.test(15);
 		adminExternalAuthService.delete(15);
@@ -351,7 +371,7 @@ describe("adminService", () => {
 		);
 		expect(mockState.get).toHaveBeenNthCalledWith(
 			6,
-			"/admin/external-auth/providers",
+			"/admin/external-auth/providers?limit=20&offset=0",
 		);
 		expect(mockState.get).toHaveBeenNthCalledWith(
 			7,
@@ -363,8 +383,8 @@ describe("adminService", () => {
 			{
 				client_id: "client-id",
 				display_name: "Example IDP",
+				icon_url: "/static/external-auth/example.svg",
 				issuer_url: "https://idp.example.com",
-				key: "example",
 				provider_kind: "oidc",
 			},
 		);
@@ -374,6 +394,7 @@ describe("adminService", () => {
 			{
 				display_name: "Example IDP",
 				enabled: true,
+				icon_url: null,
 			},
 		);
 		expect(mockState.post).toHaveBeenNthCalledWith(

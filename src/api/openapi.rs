@@ -269,6 +269,7 @@ use utoipa::{Modify, OpenApi};
         crate::api::routes::admin::external_auth::get_external_auth_provider,
         crate::api::routes::admin::external_auth::update_external_auth_provider,
         crate::api::routes::admin::external_auth::delete_external_auth_provider,
+        crate::api::routes::admin::external_auth::test_external_auth_provider_params,
         crate::api::routes::admin::external_auth::test_external_auth_provider,
 
         // admin::users：后台用户列表、资料维护、会话回收和强制删除。
@@ -363,6 +364,7 @@ use utoipa::{Modify, OpenApi};
             crate::api::pagination::OffsetPage<crate::services::config_service::SystemConfig>,
             crate::api::pagination::OffsetPage<crate::services::lock_service::ResourceLock>,
             crate::api::pagination::OffsetPage<crate::services::webdav_account_service::WebdavAccountInfo>,
+            crate::api::pagination::OffsetPage<crate::services::external_auth_service::AdminExternalAuthProviderInfo>,
             crate::api::response::HealthResponse,
             crate::api::response::MemoryStatsResponse,
             crate::api::response::PurgedCountResponse,

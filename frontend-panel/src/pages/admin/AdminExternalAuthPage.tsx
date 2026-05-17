@@ -1,7 +1,17 @@
 import type { TFunction } from "i18next";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+	type MouseEvent,
+	useCallback,
+	useEffect,
+	useMemo,
+	useRef,
+	useState,
+} from "react";
 import { useTranslation } from "react-i18next";
+import { useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
+import { AdminOffsetPagination } from "@/components/admin/AdminOffsetPagination";
+import { TestConnectionButton } from "@/components/admin/TestConnectionButton";
 import {
 	ADMIN_INTERACTIVE_TABLE_ROW_CLASS,
 	ADMIN_TABLE_BADGE_CELL_CLASS,
@@ -45,9 +55,18 @@ import { writeTextToClipboard } from "@/lib/clipboard";
 import {
 	ADMIN_CONTROL_HEIGHT_CLASS,
 	ADMIN_ICON_BUTTON_CLASS,
-	ADMIN_TABLE_ACTIONS_WIDTH_CLASS,
 } from "@/lib/constants";
+import {
+	externalAuthKindIconPath,
+	normalizeExternalAuthIconUrl,
+} from "@/lib/externalAuthProviders";
 import { formatDateAbsolute, formatDateAbsoluteWithOffset } from "@/lib/format";
+import {
+	buildOffsetPaginationSearchParams,
+	parseOffsetSearchParam,
+	parsePageSizeOption,
+	parsePageSizeSearchParam,
+} from "@/lib/pagination";
 import { absoluteAppUrl } from "@/lib/publicSiteUrl";
 import { cn } from "@/lib/utils";
 import { adminExternalAuthService } from "@/services/adminService";
@@ -56,27 +75,49 @@ import type {
 	AdminExternalAuthProviderKindInfo,
 	CreateExternalAuthProviderInput,
 	ExternalAuthProviderKind,
+	ExternalAuthProviderTestParamsInput,
+	ExternalAuthProviderTestResult,
 	UpdateExternalAuthProviderInput,
 } from "@/types/api";
 
 const DEFAULT_SCOPES = "openid email profile";
+const REDACTED_SECRET = "***REDACTED***";
+const STANDARD_CLAIMS = {
+	avatarUrlClaim: "picture",
+	displayNameClaim: "name",
+	emailClaim: "email",
+	emailVerifiedClaim: "email_verified",
+	groupsClaim: "groups",
+	subjectClaim: "sub",
+	usernameClaim: "preferred_username",
+} as const;
+const EXTERNAL_AUTH_PAGE_SIZE_OPTIONS = [10, 20, 50] as const;
+const DEFAULT_EXTERNAL_AUTH_PAGE_SIZE = 20 as const;
+const EXTERNAL_AUTH_MANAGED_QUERY_KEYS = ["offset", "pageSize"] as const;
 
 interface ExternalAuthProviderFormData {
 	allowedDomains: string;
+	authorizationUrl: string;
 	autoLinkVerifiedEmailEnabled: boolean;
 	autoProvisionEnabled: boolean;
+	avatarUrlClaim: string;
 	clientId: string;
 	clientSecret: string;
 	displayName: string;
 	displayNameClaim: string;
 	emailClaim: string;
+	emailVerifiedClaim: string;
 	enabled: boolean;
 	groupsClaim: string;
+	iconUrl: string;
 	issuerUrl: string;
 	key: string;
 	providerKind: ExternalAuthProviderKind;
 	requireEmailVerified: boolean;
 	scopes: string;
+	subjectClaim: string;
+	tokenUrl: string;
+	userinfoUrl: string;
 	usernameClaim: string;
 }
 
@@ -87,20 +128,27 @@ interface ExternalAuthCreateStep {
 
 const emptyForm: ExternalAuthProviderFormData = {
 	allowedDomains: "",
+	authorizationUrl: "",
 	autoLinkVerifiedEmailEnabled: false,
 	autoProvisionEnabled: false,
+	avatarUrlClaim: "",
 	clientId: "",
 	clientSecret: "",
 	displayName: "",
 	displayNameClaim: "",
 	emailClaim: "",
-	enabled: false,
+	emailVerifiedClaim: "",
+	enabled: true,
 	groupsClaim: "",
+	iconUrl: "",
 	issuerUrl: "",
 	key: "",
 	providerKind: "oidc",
 	requireEmailVerified: true,
 	scopes: DEFAULT_SCOPES,
+	subjectClaim: "",
+	tokenUrl: "",
+	userinfoUrl: "",
 	usernameClaim: "",
 };
 
@@ -109,20 +157,27 @@ function formFromProvider(
 ): ExternalAuthProviderFormData {
 	return {
 		allowedDomains: provider.allowed_domains.join(", "),
+		authorizationUrl: provider.authorization_url ?? "",
 		autoLinkVerifiedEmailEnabled: provider.auto_link_verified_email_enabled,
 		autoProvisionEnabled: provider.auto_provision_enabled,
+		avatarUrlClaim: provider.avatar_url_claim ?? "",
 		clientId: provider.client_id,
 		clientSecret: provider.client_secret ?? "",
 		displayName: provider.display_name,
 		displayNameClaim: provider.display_name_claim ?? "",
 		emailClaim: provider.email_claim ?? "",
+		emailVerifiedClaim: provider.email_verified_claim ?? "",
 		enabled: provider.enabled,
 		groupsClaim: provider.groups_claim ?? "",
-		issuerUrl: provider.issuer_url,
+		iconUrl: provider.icon_url ?? "",
+		issuerUrl: provider.issuer_url ?? "",
 		key: provider.key,
 		providerKind: provider.provider_kind,
 		requireEmailVerified: provider.require_email_verified,
 		scopes: provider.scopes || DEFAULT_SCOPES,
+		subjectClaim: provider.subject_claim ?? "",
+		tokenUrl: provider.token_url ?? "",
+		userinfoUrl: provider.userinfo_url ?? "",
 		usernameClaim: provider.username_claim ?? "",
 	};
 }
@@ -141,6 +196,44 @@ function localizedProviderKindText(
 ) {
 	const translated = t(key);
 	return translated === key ? fallback : translated;
+}
+
+function ExternalAuthProviderIcon({
+	className,
+	iconUrl,
+	kind,
+}: {
+	className?: string;
+	iconUrl?: string | null;
+	kind: ExternalAuthProviderKind;
+}) {
+	const configuredIcon = normalizeExternalAuthIconUrl(iconUrl);
+	const kindIcon = externalAuthKindIconPath(kind);
+	const effectiveIcon = configuredIcon || kindIcon;
+
+	if (effectiveIcon) {
+		return (
+			<img
+				src={effectiveIcon}
+				alt=""
+				aria-hidden="true"
+				className={cn("object-contain", className)}
+				onError={(event) => {
+					if (
+						configuredIcon &&
+						kindIcon &&
+						event.currentTarget.src !== kindIcon
+					) {
+						event.currentTarget.src = kindIcon;
+						return;
+					}
+					event.currentTarget.hidden = true;
+				}}
+			/>
+		);
+	}
+
+	return <Icon name="SignIn" className={cn("text-primary", className)} />;
 }
 
 function kindDisplayName(
@@ -169,13 +262,6 @@ function kindDescription(
 	);
 }
 
-function kindIconPath(kind: ExternalAuthProviderKind) {
-	switch (kind) {
-		case "oidc":
-			return "/static/external-auth/openid-seeklogo.svg";
-	}
-}
-
 function parseAllowedDomains(value: string) {
 	return value
 		.split(/[,\n]/)
@@ -190,26 +276,41 @@ function nullableText(value: string) {
 	return trimmed ? trimmed : null;
 }
 
+function nullableSecretText(value: string) {
+	const trimmed = value.trim();
+	return trimmed && trimmed !== REDACTED_SECRET ? trimmed : null;
+}
+
+function effectiveClaim(value: string | null | undefined, fallback: string) {
+	return value?.trim() || fallback;
+}
+
 function createPayload(
 	form: ExternalAuthProviderFormData,
 ): CreateExternalAuthProviderInput {
 	const allowedDomains = parseAllowedDomains(form.allowedDomains);
 	return {
 		allowed_domains: allowedDomains.length > 0 ? allowedDomains : null,
+		authorization_url: nullableText(form.authorizationUrl),
 		auto_link_verified_email_enabled: form.autoLinkVerifiedEmailEnabled,
 		auto_provision_enabled: form.autoProvisionEnabled,
+		avatar_url_claim: nullableText(form.avatarUrlClaim),
 		client_id: form.clientId.trim(),
 		client_secret: nullableText(form.clientSecret),
 		display_name: form.displayName.trim(),
 		display_name_claim: nullableText(form.displayNameClaim),
 		email_claim: nullableText(form.emailClaim),
+		email_verified_claim: nullableText(form.emailVerifiedClaim),
 		enabled: form.enabled,
 		groups_claim: nullableText(form.groupsClaim),
-		issuer_url: form.issuerUrl.trim(),
-		key: form.key.trim(),
+		icon_url: nullableText(form.iconUrl),
+		issuer_url: nullableText(form.issuerUrl),
 		provider_kind: form.providerKind,
 		require_email_verified: form.requireEmailVerified,
 		scopes: form.scopes.trim() || DEFAULT_SCOPES,
+		subject_claim: nullableText(form.subjectClaim),
+		token_url: nullableText(form.tokenUrl),
+		userinfo_url: nullableText(form.userinfoUrl),
 		username_claim: nullableText(form.usernameClaim),
 	};
 }
@@ -220,21 +321,101 @@ function updatePayload(
 	const allowedDomains = parseAllowedDomains(form.allowedDomains);
 	return {
 		allowed_domains: allowedDomains.length > 0 ? allowedDomains : null,
+		authorization_url: nullableText(form.authorizationUrl),
 		auto_link_verified_email_enabled: form.autoLinkVerifiedEmailEnabled,
 		auto_provision_enabled: form.autoProvisionEnabled,
+		avatar_url_claim: nullableText(form.avatarUrlClaim),
 		client_id: form.clientId.trim(),
 		client_secret: nullableText(form.clientSecret),
 		display_name: form.displayName.trim(),
 		display_name_claim: nullableText(form.displayNameClaim),
 		email_claim: nullableText(form.emailClaim),
+		email_verified_claim: nullableText(form.emailVerifiedClaim),
 		enabled: form.enabled,
 		groups_claim: nullableText(form.groupsClaim),
-		issuer_url: form.issuerUrl.trim(),
-		key: form.key.trim(),
+		icon_url: nullableText(form.iconUrl),
+		issuer_url: nullableText(form.issuerUrl),
 		require_email_verified: form.requireEmailVerified,
 		scopes: form.scopes.trim() || DEFAULT_SCOPES,
+		subject_claim: nullableText(form.subjectClaim),
+		token_url: nullableText(form.tokenUrl),
+		userinfo_url: nullableText(form.userinfoUrl),
 		username_claim: nullableText(form.usernameClaim),
 	};
+}
+
+function testParamsPayload(
+	form: ExternalAuthProviderFormData,
+): ExternalAuthProviderTestParamsInput {
+	return {
+		authorization_url: nullableText(form.authorizationUrl),
+		client_id: form.clientId.trim(),
+		client_secret: nullableSecretText(form.clientSecret),
+		issuer_url: nullableText(form.issuerUrl),
+		provider_kind: form.providerKind,
+		scopes: form.scopes.trim() || DEFAULT_SCOPES,
+		token_url: nullableText(form.tokenUrl),
+		userinfo_url: nullableText(form.userinfoUrl),
+	};
+}
+
+function normalizeConnectionValue(value: string | null | undefined) {
+	return value?.trim() ?? "";
+}
+
+function formClientSecretChanged(
+	form: ExternalAuthProviderFormData,
+	provider: AdminExternalAuthProviderInfo,
+) {
+	const value = normalizeConnectionValue(form.clientSecret);
+	return provider.client_secret_configured
+		? value !== REDACTED_SECRET
+		: value !== "";
+}
+
+function formConnectionChanged(
+	form: ExternalAuthProviderFormData,
+	provider: AdminExternalAuthProviderInfo,
+) {
+	return (
+		form.providerKind !== provider.provider_kind ||
+		normalizeConnectionValue(form.issuerUrl) !==
+			normalizeConnectionValue(provider.issuer_url) ||
+		normalizeConnectionValue(form.authorizationUrl) !==
+			normalizeConnectionValue(provider.authorization_url) ||
+		normalizeConnectionValue(form.tokenUrl) !==
+			normalizeConnectionValue(provider.token_url) ||
+		normalizeConnectionValue(form.userinfoUrl) !==
+			normalizeConnectionValue(provider.userinfo_url) ||
+		normalizeConnectionValue(form.clientId) !==
+			normalizeConnectionValue(provider.client_id) ||
+		(form.scopes.trim() || DEFAULT_SCOPES) !==
+			(provider.scopes.trim() || DEFAULT_SCOPES) ||
+		formClientSecretChanged(form, provider)
+	);
+}
+
+function formatTestResultSummary(
+	t: TFunction,
+	result: ExternalAuthProviderTestResult,
+) {
+	return result.checks.length > 0
+		? result.checks
+				.map((check) =>
+					t(
+						check.success
+							? "external_auth_provider_test_check_ok"
+							: "external_auth_provider_test_check_error",
+						{
+							name: check.name,
+							message: check.message,
+						},
+					),
+				)
+				.join(" · ")
+		: t("external_auth_provider_test_success_detail", {
+				provider: result.provider,
+			});
 }
 
 function providerStatusTone(provider: AdminExternalAuthProviderInfo) {
@@ -278,6 +459,173 @@ function callbackUrl(
 ) {
 	const path = callbackPath(providerKind, providerKey);
 	return path ? absoluteAppUrl(path) : "";
+}
+
+function providerPrimaryEndpoint(provider: AdminExternalAuthProviderInfo) {
+	if (provider.issuer_url) {
+		return {
+			labelKey: "external_auth_provider_issuer_url",
+			value: provider.issuer_url,
+		};
+	}
+	if (provider.authorization_url) {
+		return {
+			labelKey: "external_auth_provider_authorization_url",
+			value: provider.authorization_url,
+		};
+	}
+	if (provider.token_url) {
+		return {
+			labelKey: "external_auth_provider_token_url",
+			value: provider.token_url,
+		};
+	}
+	if (provider.userinfo_url) {
+		return {
+			labelKey: "external_auth_provider_userinfo_url",
+			value: provider.userinfo_url,
+		};
+	}
+	return null;
+}
+
+function providerAllowedDomainSummary(
+	t: TFunction,
+	provider: AdminExternalAuthProviderInfo,
+) {
+	return provider.allowed_domains.length > 0
+		? provider.allowed_domains.join(", ")
+		: t("external_auth_provider_allowed_domains_all");
+}
+
+function normalizeOffset(offset: number) {
+	return Math.max(0, Math.floor(offset));
+}
+
+function buildManagedExternalAuthSearchParams({
+	offset,
+	pageSize,
+}: {
+	offset: number;
+	pageSize: (typeof EXTERNAL_AUTH_PAGE_SIZE_OPTIONS)[number];
+}) {
+	return buildOffsetPaginationSearchParams({
+		offset,
+		pageSize,
+		defaultPageSize: DEFAULT_EXTERNAL_AUTH_PAGE_SIZE,
+	});
+}
+
+function getManagedExternalAuthSearchString(searchParams: URLSearchParams) {
+	return buildManagedExternalAuthSearchParams({
+		offset: normalizeOffset(parseOffsetSearchParam(searchParams.get("offset"))),
+		pageSize: parsePageSizeSearchParam(
+			searchParams.get("pageSize"),
+			EXTERNAL_AUTH_PAGE_SIZE_OPTIONS,
+			DEFAULT_EXTERNAL_AUTH_PAGE_SIZE,
+		),
+	}).toString();
+}
+
+function mergeManagedExternalAuthSearchParams(
+	searchParams: URLSearchParams,
+	managedSearchParams: URLSearchParams,
+) {
+	const merged = new URLSearchParams(searchParams);
+	for (const key of EXTERNAL_AUTH_MANAGED_QUERY_KEYS) {
+		merged.delete(key);
+	}
+	for (const [key, value] of managedSearchParams.entries()) {
+		merged.set(key, value);
+	}
+	return merged;
+}
+
+function shouldShowIssuerUrl(kind: AdminExternalAuthProviderKindInfo | null) {
+	return Boolean(kind?.supports_discovery || kind?.issuer_url_required);
+}
+
+function shouldShowManualEndpoints(
+	kind: AdminExternalAuthProviderKindInfo | null,
+) {
+	return Boolean(kind?.manual_endpoint_configuration_supported);
+}
+
+function connectionRequirementsMissing(
+	form: ExternalAuthProviderFormData,
+	kind: AdminExternalAuthProviderKindInfo | null,
+) {
+	if (!form.clientId.trim()) {
+		return true;
+	}
+	if ((kind?.issuer_url_required ?? true) && !form.issuerUrl.trim()) {
+		return true;
+	}
+	if (kind?.authorization_url_required && !form.authorizationUrl.trim()) {
+		return true;
+	}
+	if (kind?.token_url_required && !form.tokenUrl.trim()) {
+		return true;
+	}
+	if (kind?.userinfo_url_required && !form.userinfoUrl.trim()) {
+		return true;
+	}
+	return false;
+}
+
+function requiredFieldsMissing(
+	form: ExternalAuthProviderFormData,
+	kind: AdminExternalAuthProviderKindInfo | null,
+) {
+	return !form.displayName.trim() || connectionRequirementsMissing(form, kind);
+}
+
+function formConnectionSummary(
+	form: ExternalAuthProviderFormData,
+	selectedKind: AdminExternalAuthProviderKindInfo | null,
+) {
+	const items = [
+		form.issuerUrl.trim() ? `issuer: ${form.issuerUrl.trim()}` : null,
+		selectedKind?.manual_endpoint_configuration_supported &&
+		form.authorizationUrl.trim()
+			? `authorization: ${form.authorizationUrl.trim()}`
+			: null,
+		selectedKind?.manual_endpoint_configuration_supported &&
+		form.tokenUrl.trim()
+			? `token: ${form.tokenUrl.trim()}`
+			: null,
+		selectedKind?.manual_endpoint_configuration_supported &&
+		form.userinfoUrl.trim()
+			? `userinfo: ${form.userinfoUrl.trim()}`
+			: null,
+	]
+		.filter((item): item is string => item !== null)
+		.join(" · ");
+	return items || "-";
+}
+
+function formClaimSummary(
+	form: ExternalAuthProviderFormData,
+	selectedKind: AdminExternalAuthProviderKindInfo | null,
+) {
+	const claims = [
+		`subject=${effectiveClaim(form.subjectClaim, STANDARD_CLAIMS.subjectClaim)}`,
+		`username=${effectiveClaim(form.usernameClaim, STANDARD_CLAIMS.usernameClaim)}`,
+		`display=${effectiveClaim(form.displayNameClaim, STANDARD_CLAIMS.displayNameClaim)}`,
+		`email=${effectiveClaim(form.emailClaim, STANDARD_CLAIMS.emailClaim)}`,
+		selectedKind?.supports_email_verified_claim
+			? `email_verified=${effectiveClaim(form.emailVerifiedClaim, STANDARD_CLAIMS.emailVerifiedClaim)}`
+			: null,
+		`groups=${effectiveClaim(form.groupsClaim, STANDARD_CLAIMS.groupsClaim)}`,
+		`avatar=${effectiveClaim(form.avatarUrlClaim, STANDARD_CLAIMS.avatarUrlClaim)}`,
+	]
+		.filter((item): item is string => item !== null)
+		.join(" · ");
+	return claims || "-";
+}
+
+function providerIconSummary(form: ExternalAuthProviderFormData) {
+	return form.iconUrl.trim() || "-";
 }
 
 interface CreateProgressProps {
@@ -366,11 +714,14 @@ function CallbackUrlField({ className, onCopy, value }: CallbackUrlFieldProps) {
 	return (
 		<div
 			className={cn(
-				"flex min-w-0 items-center gap-2 rounded-md border border-border/70 bg-muted/30 p-1",
+				"flex min-w-0 w-full max-w-full items-center gap-2 overflow-hidden rounded-md border border-border/70 bg-muted/30 p-1",
 				className,
 			)}
 		>
-			<code className="min-w-0 flex-1 truncate px-2 font-mono text-xs text-foreground">
+			<code
+				className="block min-w-0 flex-1 select-all overflow-x-auto whitespace-nowrap px-2 py-1 font-mono text-xs text-foreground [scrollbar-width:thin]"
+				title={value || "-"}
+			>
 				{value || "-"}
 			</code>
 			<Button
@@ -381,7 +732,7 @@ function CallbackUrlField({ className, onCopy, value }: CallbackUrlFieldProps) {
 				disabled={disabled}
 				aria-label={t("external_auth_provider_copy_callback_url")}
 				title={t("external_auth_provider_copy_callback_url")}
-				onClick={(event) => {
+				onClick={(event: MouseEvent<HTMLButtonElement>) => {
 					event.stopPropagation();
 					if (!disabled) {
 						onCopy(value);
@@ -391,6 +742,302 @@ function CallbackUrlField({ className, onCopy, value }: CallbackUrlFieldProps) {
 				<Icon name="Copy" className="h-3.5 w-3.5" />
 			</Button>
 		</div>
+	);
+}
+
+interface ConnectionFieldsProps {
+	createStepTouched: boolean;
+	form: ExternalAuthProviderFormData;
+	onFieldChange: <K extends keyof ExternalAuthProviderFormData>(
+		key: K,
+		value: ExternalAuthProviderFormData[K],
+	) => void;
+	provider: AdminExternalAuthProviderInfo | null;
+	selectedKind: AdminExternalAuthProviderKindInfo | null;
+	showIssuerUrl: boolean;
+	showManualEndpoints: boolean;
+	t: TFunction;
+}
+
+function ConnectionFields({
+	createStepTouched,
+	form,
+	onFieldChange,
+	provider,
+	selectedKind,
+	showIssuerUrl,
+	showManualEndpoints,
+	t,
+}: ConnectionFieldsProps) {
+	return (
+		<>
+			{showIssuerUrl ? (
+				<div className="space-y-2 md:col-span-2">
+					<Label htmlFor="external-auth-provider-issuer">
+						{t("external_auth_provider_issuer_url")}
+					</Label>
+					<Input
+						id="external-auth-provider-issuer"
+						value={form.issuerUrl}
+						placeholder="https://id.example.com/application/o/asterdrive/"
+						aria-invalid={
+							createStepTouched &&
+							selectedKind?.issuer_url_required &&
+							!form.issuerUrl.trim()
+								? true
+								: undefined
+						}
+						onChange={(event) => onFieldChange("issuerUrl", event.target.value)}
+					/>
+				</div>
+			) : null}
+			{showManualEndpoints ? (
+				<>
+					<div className="space-y-2 md:col-span-2">
+						<Label htmlFor="external-auth-provider-authorization-url">
+							{t("external_auth_provider_authorization_url")}
+						</Label>
+						<Input
+							id="external-auth-provider-authorization-url"
+							value={form.authorizationUrl}
+							placeholder="https://id.example.com/oauth/authorize"
+							aria-invalid={
+								createStepTouched &&
+								selectedKind?.authorization_url_required &&
+								!form.authorizationUrl.trim()
+									? true
+									: undefined
+							}
+							onChange={(event) =>
+								onFieldChange("authorizationUrl", event.target.value)
+							}
+						/>
+					</div>
+					<div className="space-y-2">
+						<Label htmlFor="external-auth-provider-token-url">
+							{t("external_auth_provider_token_url")}
+						</Label>
+						<Input
+							id="external-auth-provider-token-url"
+							value={form.tokenUrl}
+							placeholder="https://id.example.com/oauth/token"
+							aria-invalid={
+								createStepTouched &&
+								selectedKind?.token_url_required &&
+								!form.tokenUrl.trim()
+									? true
+									: undefined
+							}
+							onChange={(event) =>
+								onFieldChange("tokenUrl", event.target.value)
+							}
+						/>
+					</div>
+					<div className="space-y-2">
+						<Label htmlFor="external-auth-provider-userinfo-url">
+							{t("external_auth_provider_userinfo_url")}
+						</Label>
+						<Input
+							id="external-auth-provider-userinfo-url"
+							value={form.userinfoUrl}
+							placeholder="https://id.example.com/oauth/userinfo"
+							aria-invalid={
+								createStepTouched &&
+								selectedKind?.userinfo_url_required &&
+								!form.userinfoUrl.trim()
+									? true
+									: undefined
+							}
+							onChange={(event) =>
+								onFieldChange("userinfoUrl", event.target.value)
+							}
+						/>
+					</div>
+				</>
+			) : null}
+			<div className="space-y-2">
+				<Label htmlFor="external-auth-provider-client-id">
+					{t("external_auth_provider_client_id")}
+				</Label>
+				<Input
+					id="external-auth-provider-client-id"
+					value={form.clientId}
+					aria-invalid={
+						createStepTouched && !form.clientId.trim() ? true : undefined
+					}
+					onChange={(event) => onFieldChange("clientId", event.target.value)}
+				/>
+			</div>
+			<div className="space-y-2">
+				<Label htmlFor="external-auth-provider-client-secret">
+					{t("external_auth_provider_client_secret")}
+				</Label>
+				<Input
+					id="external-auth-provider-client-secret"
+					type="password"
+					value={form.clientSecret}
+					placeholder={
+						provider?.client_secret_configured
+							? t("external_auth_provider_secret_keep_placeholder")
+							: ""
+					}
+					onChange={(event) =>
+						onFieldChange("clientSecret", event.target.value)
+					}
+				/>
+				<p className="text-xs text-muted-foreground">
+					{provider?.client_secret_configured
+						? t("external_auth_provider_secret_keep_hint")
+						: t("external_auth_provider_secret_hint")}
+				</p>
+			</div>
+		</>
+	);
+}
+
+interface ClaimFieldsProps {
+	form: ExternalAuthProviderFormData;
+	onFieldChange: <K extends keyof ExternalAuthProviderFormData>(
+		key: K,
+		value: ExternalAuthProviderFormData[K],
+	) => void;
+	selectedKind: AdminExternalAuthProviderKindInfo | null;
+	t: TFunction;
+}
+
+function ClaimFields({
+	form,
+	onFieldChange,
+	selectedKind,
+	t,
+}: ClaimFieldsProps) {
+	return (
+		<>
+			<div className="space-y-2">
+				<Label htmlFor="external-auth-provider-subject-claim">
+					{t("external_auth_provider_subject_claim")}
+				</Label>
+				<Input
+					id="external-auth-provider-subject-claim"
+					value={form.subjectClaim}
+					placeholder="sub"
+					onChange={(event) =>
+						onFieldChange("subjectClaim", event.target.value)
+					}
+				/>
+				<p className="text-xs text-muted-foreground">
+					{t("external_auth_provider_claim_default_hint", {
+						claim: STANDARD_CLAIMS.subjectClaim,
+					})}
+				</p>
+			</div>
+			<div className="space-y-2">
+				<Label htmlFor="external-auth-provider-username-claim">
+					{t("external_auth_provider_username_claim")}
+				</Label>
+				<Input
+					id="external-auth-provider-username-claim"
+					value={form.usernameClaim}
+					placeholder="preferred_username"
+					onChange={(event) =>
+						onFieldChange("usernameClaim", event.target.value)
+					}
+				/>
+				<p className="text-xs text-muted-foreground">
+					{t("external_auth_provider_claim_default_hint", {
+						claim: STANDARD_CLAIMS.usernameClaim,
+					})}
+				</p>
+			</div>
+			<div className="space-y-2">
+				<Label htmlFor="external-auth-provider-display-claim">
+					{t("external_auth_provider_display_name_claim")}
+				</Label>
+				<Input
+					id="external-auth-provider-display-claim"
+					value={form.displayNameClaim}
+					placeholder="name"
+					onChange={(event) =>
+						onFieldChange("displayNameClaim", event.target.value)
+					}
+				/>
+				<p className="text-xs text-muted-foreground">
+					{t("external_auth_provider_claim_default_hint", {
+						claim: STANDARD_CLAIMS.displayNameClaim,
+					})}
+				</p>
+			</div>
+			<div className="space-y-2">
+				<Label htmlFor="external-auth-provider-email-claim">
+					{t("external_auth_provider_email_claim")}
+				</Label>
+				<Input
+					id="external-auth-provider-email-claim"
+					value={form.emailClaim}
+					placeholder="email"
+					onChange={(event) => onFieldChange("emailClaim", event.target.value)}
+				/>
+				<p className="text-xs text-muted-foreground">
+					{t("external_auth_provider_claim_default_hint", {
+						claim: STANDARD_CLAIMS.emailClaim,
+					})}
+				</p>
+			</div>
+			<div className="space-y-2">
+				<Label htmlFor="external-auth-provider-groups-claim">
+					{t("external_auth_provider_groups_claim")}
+				</Label>
+				<Input
+					id="external-auth-provider-groups-claim"
+					value={form.groupsClaim}
+					placeholder="groups"
+					onChange={(event) => onFieldChange("groupsClaim", event.target.value)}
+				/>
+				<p className="text-xs text-muted-foreground">
+					{t("external_auth_provider_claim_default_hint", {
+						claim: STANDARD_CLAIMS.groupsClaim,
+					})}
+				</p>
+			</div>
+			{selectedKind?.supports_email_verified_claim ? (
+				<div className="space-y-2">
+					<Label htmlFor="external-auth-provider-email-verified-claim">
+						{t("external_auth_provider_email_verified_claim")}
+					</Label>
+					<Input
+						id="external-auth-provider-email-verified-claim"
+						value={form.emailVerifiedClaim}
+						placeholder="email_verified"
+						onChange={(event) =>
+							onFieldChange("emailVerifiedClaim", event.target.value)
+						}
+					/>
+					<p className="text-xs text-muted-foreground">
+						{t("external_auth_provider_claim_default_hint", {
+							claim: STANDARD_CLAIMS.emailVerifiedClaim,
+						})}
+					</p>
+				</div>
+			) : null}
+			<div className="space-y-2">
+				<Label htmlFor="external-auth-provider-avatar-claim">
+					{t("external_auth_provider_avatar_url_claim")}
+				</Label>
+				<Input
+					id="external-auth-provider-avatar-claim"
+					value={form.avatarUrlClaim}
+					placeholder="picture"
+					onChange={(event) =>
+						onFieldChange("avatarUrlClaim", event.target.value)
+					}
+				/>
+				<p className="text-xs text-muted-foreground">
+					{t("external_auth_provider_claim_default_hint", {
+						claim: STANDARD_CLAIMS.avatarUrlClaim,
+					})}
+				</p>
+			</div>
+		</>
 	);
 }
 
@@ -412,10 +1059,12 @@ interface ProviderDialogProps {
 	onCopyCallbackUrl: (value: string) => void;
 	onOpenChange: (open: boolean) => void;
 	onSubmit: () => void;
+	onTestConnection: () => Promise<boolean>;
 	open: boolean;
 	provider: AdminExternalAuthProviderInfo | null;
 	providerKinds: AdminExternalAuthProviderKindInfo[];
 	submitting: boolean;
+	testResult: string | null;
 }
 
 function ProviderDialog({
@@ -433,10 +1082,12 @@ function ProviderDialog({
 	onProviderKindChange,
 	onOpenChange,
 	onSubmit,
+	onTestConnection,
 	open,
 	provider,
 	providerKinds,
 	submitting,
+	testResult,
 }: ProviderDialogProps) {
 	const { t } = useTranslation("admin");
 	const isCreate = mode === "create";
@@ -447,17 +1098,24 @@ function ProviderDialog({
 		providerKinds[0] ??
 		null;
 	const providerKindLabel = kindDisplayName(t, providerKind, providerKinds);
+	const showIssuerUrl = Boolean(
+		shouldShowIssuerUrl(selectedKind) || form.issuerUrl.trim(),
+	);
+	const showManualEndpoints = Boolean(
+		shouldShowManualEndpoints(selectedKind) ||
+			form.authorizationUrl.trim() ||
+			form.tokenUrl.trim() ||
+			form.userinfoUrl.trim(),
+	);
 	const stepAnimationKey = `${createStep}-${createStepDirection}`;
-	const requiredMissing =
-		!form.key.trim() ||
-		!form.displayName.trim() ||
-		!form.issuerUrl.trim() ||
-		!form.clientId.trim();
+	const requiredMissing = requiredFieldsMissing(form, selectedKind);
 	const currentCallbackUrl = callbackUrl(providerKind, form.key);
-	const identityMissing =
-		!form.key.trim() || !form.displayName.trim() || !form.issuerUrl.trim();
-	const connectionMissing = !form.clientId.trim();
+	const identityMissing = !form.displayName.trim();
+	const connectionMissing = connectionRequirementsMissing(form, selectedKind);
+	const testDisabled = submitting || connectionMissing;
 	const submitDisabled = submitting || requiredMissing;
+	const summaryConnection = formConnectionSummary(form, selectedKind);
+	const summaryClaims = formClaimSummary(form, selectedKind);
 	const stepPanelClass = cn(
 		createStepDirection === "idle"
 			? undefined
@@ -543,6 +1201,24 @@ function ProviderDialog({
 			</div>
 		</section>
 	);
+	const connectionTestPanel = (
+		<div className="min-w-0 space-y-2 md:col-span-2">
+			<div className="flex min-w-0 flex-wrap items-center gap-3">
+				<TestConnectionButton
+					disabled={testDisabled}
+					onTest={onTestConnection}
+				/>
+				{testResult ? (
+					<p className="min-w-0 flex-1 text-sm text-emerald-700 dark:text-emerald-300">
+						{testResult}
+					</p>
+				) : null}
+			</div>
+			<p className="text-xs text-muted-foreground">
+				{t("external_auth_provider_test_scope_hint")}
+			</p>
+		</div>
+	);
 	const summaryPanel = (
 		<section className="rounded-2xl border border-border/70 bg-background/70 p-5">
 			<h3 className="text-sm font-semibold">
@@ -557,15 +1233,29 @@ function ProviderDialog({
 				</div>
 				<div>
 					<dt className="text-xs text-muted-foreground">
-						{t("external_auth_provider_key")}
+						{t("external_auth_provider_icon_url")}
 					</dt>
-					<dd className="mt-1 font-mono text-xs">{form.key.trim() || "-"}</dd>
+					<dd className="mt-1 break-words text-xs">
+						{providerIconSummary(form)}
+					</dd>
+				</div>
+				<div>
+					<dt className="text-xs text-muted-foreground">
+						{t("external_auth_provider_primary_endpoint")}
+					</dt>
+					<dd className="mt-1 break-words text-xs">{summaryConnection}</dd>
+				</div>
+				<div>
+					<dt className="text-xs text-muted-foreground">
+						{t("external_auth_provider_claims")}
+					</dt>
+					<dd className="mt-1 break-words text-xs">{summaryClaims}</dd>
 				</div>
 				<div>
 					<dt className="text-xs text-muted-foreground">
 						{t("external_auth_provider_scopes")}
 					</dt>
-					<dd className="mt-1 text-xs">
+					<dd className="mt-1 break-words text-xs">
 						{form.scopes.trim() ||
 							selectedKind?.default_scopes ||
 							DEFAULT_SCOPES}
@@ -580,14 +1270,16 @@ function ProviderDialog({
 							t("external_auth_provider_allowed_domains_all")}
 					</dd>
 				</div>
-				<div>
-					<dt className="text-xs text-muted-foreground">
-						{t("external_auth_provider_callback_url")}
-					</dt>
-					<dd className="mt-1 break-all font-mono text-xs">
-						{currentCallbackUrl || "-"}
-					</dd>
-				</div>
+				{isCreate ? null : (
+					<div>
+						<dt className="text-xs text-muted-foreground">
+							{t("external_auth_provider_callback_url")}
+						</dt>
+						<dd className="mt-1 break-all font-mono text-xs">
+							{currentCallbackUrl || "-"}
+						</dd>
+					</div>
+				)}
 			</dl>
 		</section>
 	);
@@ -658,19 +1350,10 @@ function ProviderDialog({
 															>
 																<div className="flex items-start gap-4">
 																	<div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-white shadow-xs ring-1 ring-black/5 dark:bg-slate-950 dark:ring-white/10">
-																		{kindIconPath(kind.kind) ? (
-																			<img
-																				src={kindIconPath(kind.kind)}
-																				alt=""
-																				aria-hidden="true"
-																				className="h-8 w-8 object-contain"
-																			/>
-																		) : (
-																			<Icon
-																				name="SignIn"
-																				className="h-5 w-5 text-primary"
-																			/>
-																		)}
+																		<ExternalAuthProviderIcon
+																			kind={kind.kind}
+																			className="h-8 w-8"
+																		/>
 																	</div>
 																	<div className="min-w-0 flex-1">
 																		<div className="flex flex-wrap items-center gap-2">
@@ -704,26 +1387,7 @@ function ProviderDialog({
 																</p>
 															</div>
 															<div className="mt-4 grid gap-4 md:grid-cols-2">
-																<div className="space-y-2">
-																	<Label htmlFor="external-auth-provider-key">
-																		{t("external_auth_provider_key")}
-																	</Label>
-																	<Input
-																		id="external-auth-provider-key"
-																		value={form.key}
-																		maxLength={64}
-																		placeholder="authentik"
-																		aria-invalid={
-																			createStepTouched && !form.key.trim()
-																				? true
-																				: undefined
-																		}
-																		onChange={(event) =>
-																			onFieldChange("key", event.target.value)
-																		}
-																	/>
-																</div>
-																<div className="space-y-2">
+																<div className="space-y-2 md:col-span-2">
 																	<Label htmlFor="external-auth-provider-display-name">
 																		{t("external_auth_provider_display_name")}
 																	</Label>
@@ -747,80 +1411,36 @@ function ProviderDialog({
 																	/>
 																</div>
 																<div className="space-y-2 md:col-span-2">
-																	<Label htmlFor="external-auth-provider-issuer">
-																		{t("external_auth_provider_issuer_url")}
+																	<Label htmlFor="external-auth-provider-icon-url">
+																		{t("external_auth_provider_icon_url")}
 																	</Label>
 																	<Input
-																		id="external-auth-provider-issuer"
-																		value={form.issuerUrl}
-																		placeholder="https://id.example.com/application/o/asterdrive/"
-																		aria-invalid={
-																			createStepTouched &&
-																			!form.issuerUrl.trim()
-																				? true
-																				: undefined
-																		}
+																		id="external-auth-provider-icon-url"
+																		value={form.iconUrl}
+																		placeholder="/static/external-auth/acme.svg"
+																		maxLength={2048}
 																		onChange={(event) =>
 																			onFieldChange(
-																				"issuerUrl",
-																				event.target.value,
-																			)
-																		}
-																	/>
-																</div>
-																<div className="space-y-2 md:col-span-2">
-																	<Label>
-																		{t("external_auth_provider_callback_url")}
-																	</Label>
-																	<CallbackUrlField
-																		value={currentCallbackUrl}
-																		onCopy={onCopyCallbackUrl}
-																	/>
-																	<p className="text-xs text-muted-foreground">
-																		{t(
-																			"external_auth_provider_callback_url_hint",
-																		)}
-																	</p>
-																</div>
-																<div className="space-y-2">
-																	<Label htmlFor="external-auth-provider-client-id">
-																		{t("external_auth_provider_client_id")}
-																	</Label>
-																	<Input
-																		id="external-auth-provider-client-id"
-																		value={form.clientId}
-																		aria-invalid={
-																			createStepTouched && !form.clientId.trim()
-																				? true
-																				: undefined
-																		}
-																		onChange={(event) =>
-																			onFieldChange(
-																				"clientId",
-																				event.target.value,
-																			)
-																		}
-																	/>
-																</div>
-																<div className="space-y-2">
-																	<Label htmlFor="external-auth-provider-client-secret">
-																		{t("external_auth_provider_client_secret")}
-																	</Label>
-																	<Input
-																		id="external-auth-provider-client-secret"
-																		type="password"
-																		value={form.clientSecret}
-																		onChange={(event) =>
-																			onFieldChange(
-																				"clientSecret",
+																				"iconUrl",
 																				event.target.value,
 																			)
 																		}
 																	/>
 																	<p className="text-xs text-muted-foreground">
-																		{t("external_auth_provider_secret_hint")}
+																		{t("external_auth_provider_icon_url_hint")}
 																	</p>
 																</div>
+																<ConnectionFields
+																	createStepTouched={createStepTouched}
+																	form={form}
+																	onFieldChange={onFieldChange}
+																	provider={provider}
+																	selectedKind={selectedKind}
+																	showIssuerUrl={showIssuerUrl}
+																	showManualEndpoints={showManualEndpoints}
+																	t={t}
+																/>
+																{connectionTestPanel}
 																{createStepTouched &&
 																(identityMissing || connectionMissing) ? (
 																	<p className="text-xs text-destructive md:col-span-2">
@@ -867,6 +1487,9 @@ function ProviderDialog({
 																			)
 																		}
 																	/>
+																	<p className="text-xs text-muted-foreground">
+																		{t("external_auth_provider_scopes_hint")}
+																	</p>
 																</div>
 																<div className="space-y-2 md:col-span-2">
 																	<Label htmlFor="external-auth-provider-allowed-domains">
@@ -885,73 +1508,18 @@ function ProviderDialog({
 																			)
 																		}
 																	/>
-																</div>
-																<div className="space-y-2">
-																	<Label htmlFor="external-auth-provider-username-claim">
-																		{t("external_auth_provider_username_claim")}
-																	</Label>
-																	<Input
-																		id="external-auth-provider-username-claim"
-																		value={form.usernameClaim}
-																		placeholder="preferred_username"
-																		onChange={(event) =>
-																			onFieldChange(
-																				"usernameClaim",
-																				event.target.value,
-																			)
-																		}
-																	/>
-																</div>
-																<div className="space-y-2">
-																	<Label htmlFor="external-auth-provider-display-claim">
+																	<p className="text-xs text-muted-foreground">
 																		{t(
-																			"external_auth_provider_display_name_claim",
+																			"external_auth_provider_allowed_domains_hint",
 																		)}
-																	</Label>
-																	<Input
-																		id="external-auth-provider-display-claim"
-																		value={form.displayNameClaim}
-																		placeholder="name"
-																		onChange={(event) =>
-																			onFieldChange(
-																				"displayNameClaim",
-																				event.target.value,
-																			)
-																		}
-																	/>
+																	</p>
 																</div>
-																<div className="space-y-2">
-																	<Label htmlFor="external-auth-provider-email-claim">
-																		{t("external_auth_provider_email_claim")}
-																	</Label>
-																	<Input
-																		id="external-auth-provider-email-claim"
-																		value={form.emailClaim}
-																		placeholder="email"
-																		onChange={(event) =>
-																			onFieldChange(
-																				"emailClaim",
-																				event.target.value,
-																			)
-																		}
-																	/>
-																</div>
-																<div className="space-y-2">
-																	<Label htmlFor="external-auth-provider-groups-claim">
-																		{t("external_auth_provider_groups_claim")}
-																	</Label>
-																	<Input
-																		id="external-auth-provider-groups-claim"
-																		value={form.groupsClaim}
-																		placeholder="groups"
-																		onChange={(event) =>
-																			onFieldChange(
-																				"groupsClaim",
-																				event.target.value,
-																			)
-																		}
-																	/>
-																</div>
+																<ClaimFields
+																	form={form}
+																	onFieldChange={onFieldChange}
+																	selectedKind={selectedKind}
+																	t={t}
+																/>
 															</div>
 														</section>
 														{accessPolicyPanel}
@@ -987,20 +1555,6 @@ function ProviderDialog({
 												</div>
 											</div>
 											<div className="space-y-2">
-												<Label htmlFor="external-auth-provider-key">
-													{t("external_auth_provider_key")}
-												</Label>
-												<Input
-													id="external-auth-provider-key"
-													value={form.key}
-													maxLength={64}
-													placeholder="authentik"
-													onChange={(event) =>
-														onFieldChange("key", event.target.value)
-													}
-												/>
-											</div>
-											<div className="space-y-2">
 												<Label htmlFor="external-auth-provider-display-name">
 													{t("external_auth_provider_display_name")}
 												</Label>
@@ -1015,19 +1569,34 @@ function ProviderDialog({
 												/>
 											</div>
 											<div className="space-y-2 md:col-span-2">
-												<Label htmlFor="external-auth-provider-issuer">
-													{t("external_auth_provider_issuer_url")}
+												<Label htmlFor="external-auth-provider-icon-url">
+													{t("external_auth_provider_icon_url")}
 												</Label>
 												<Input
-													id="external-auth-provider-issuer"
-													value={form.issuerUrl}
-													placeholder="https://id.example.com/application/o/asterdrive/"
+													id="external-auth-provider-icon-url"
+													value={form.iconUrl}
+													placeholder="/static/external-auth/acme.svg"
+													maxLength={2048}
 													onChange={(event) =>
-														onFieldChange("issuerUrl", event.target.value)
+														onFieldChange("iconUrl", event.target.value)
 													}
 												/>
+												<p className="text-xs text-muted-foreground">
+													{t("external_auth_provider_icon_url_hint")}
+												</p>
 											</div>
-											<div className="space-y-2 md:col-span-2">
+											<ConnectionFields
+												createStepTouched={createStepTouched}
+												form={form}
+												onFieldChange={onFieldChange}
+												provider={provider}
+												selectedKind={selectedKind}
+												showIssuerUrl={showIssuerUrl}
+												showManualEndpoints={showManualEndpoints}
+												t={t}
+											/>
+											{connectionTestPanel}
+											<div className="min-w-0 space-y-2 md:col-span-2">
 												<Label>
 													{t("external_auth_provider_callback_url")}
 												</Label>
@@ -1037,43 +1606,6 @@ function ProviderDialog({
 												/>
 												<p className="text-xs text-muted-foreground">
 													{t("external_auth_provider_callback_url_hint")}
-												</p>
-											</div>
-											<div className="space-y-2">
-												<Label htmlFor="external-auth-provider-client-id">
-													{t("external_auth_provider_client_id")}
-												</Label>
-												<Input
-													id="external-auth-provider-client-id"
-													value={form.clientId}
-													onChange={(event) =>
-														onFieldChange("clientId", event.target.value)
-													}
-												/>
-											</div>
-											<div className="space-y-2">
-												<Label htmlFor="external-auth-provider-client-secret">
-													{t("external_auth_provider_client_secret")}
-												</Label>
-												<Input
-													id="external-auth-provider-client-secret"
-													type="password"
-													value={form.clientSecret}
-													placeholder={
-														provider?.client_secret_configured
-															? t(
-																	"external_auth_provider_secret_keep_placeholder",
-																)
-															: ""
-													}
-													onChange={(event) =>
-														onFieldChange("clientSecret", event.target.value)
-													}
-												/>
-												<p className="text-xs text-muted-foreground">
-													{provider?.client_secret_configured
-														? t("external_auth_provider_secret_keep_hint")
-														: t("external_auth_provider_secret_hint")}
 												</p>
 											</div>
 										</div>
@@ -1102,6 +1634,9 @@ function ProviderDialog({
 														onFieldChange("scopes", event.target.value)
 													}
 												/>
+												<p className="text-xs text-muted-foreground">
+													{t("external_auth_provider_scopes_hint")}
+												</p>
 											</div>
 											<div className="space-y-2 md:col-span-2">
 												<Label htmlFor="external-auth-provider-allowed-domains">
@@ -1115,62 +1650,16 @@ function ProviderDialog({
 														onFieldChange("allowedDomains", event.target.value)
 													}
 												/>
+												<p className="text-xs text-muted-foreground">
+													{t("external_auth_provider_allowed_domains_hint")}
+												</p>
 											</div>
-											<div className="space-y-2">
-												<Label htmlFor="external-auth-provider-username-claim">
-													{t("external_auth_provider_username_claim")}
-												</Label>
-												<Input
-													id="external-auth-provider-username-claim"
-													value={form.usernameClaim}
-													placeholder="preferred_username"
-													onChange={(event) =>
-														onFieldChange("usernameClaim", event.target.value)
-													}
-												/>
-											</div>
-											<div className="space-y-2">
-												<Label htmlFor="external-auth-provider-display-claim">
-													{t("external_auth_provider_display_name_claim")}
-												</Label>
-												<Input
-													id="external-auth-provider-display-claim"
-													value={form.displayNameClaim}
-													placeholder="name"
-													onChange={(event) =>
-														onFieldChange(
-															"displayNameClaim",
-															event.target.value,
-														)
-													}
-												/>
-											</div>
-											<div className="space-y-2">
-												<Label htmlFor="external-auth-provider-email-claim">
-													{t("external_auth_provider_email_claim")}
-												</Label>
-												<Input
-													id="external-auth-provider-email-claim"
-													value={form.emailClaim}
-													placeholder="email"
-													onChange={(event) =>
-														onFieldChange("emailClaim", event.target.value)
-													}
-												/>
-											</div>
-											<div className="space-y-2">
-												<Label htmlFor="external-auth-provider-groups-claim">
-													{t("external_auth_provider_groups_claim")}
-												</Label>
-												<Input
-													id="external-auth-provider-groups-claim"
-													value={form.groupsClaim}
-													placeholder="groups"
-													onChange={(event) =>
-														onFieldChange("groupsClaim", event.target.value)
-													}
-												/>
-											</div>
+											<ClaimFields
+												form={form}
+												onFieldChange={onFieldChange}
+												selectedKind={selectedKind}
+												t={t}
+											/>
 										</div>
 									</section>
 								</div>
@@ -1244,15 +1733,79 @@ function ProviderDialog({
 	);
 }
 
+interface CreatedProviderCallbackDialogProps {
+	onCopy: (value: string) => void;
+	onOpenChange: (open: boolean) => void;
+	provider: AdminExternalAuthProviderInfo | null;
+}
+
+function CreatedProviderCallbackDialog({
+	onCopy,
+	onOpenChange,
+	provider,
+}: CreatedProviderCallbackDialogProps) {
+	const { t } = useTranslation("admin");
+	const value = provider
+		? callbackUrl(provider.provider_kind, provider.key)
+		: "";
+
+	return (
+		<Dialog open={Boolean(provider)} onOpenChange={onOpenChange}>
+			<DialogContent className="max-w-[calc(100vw-2rem)] overflow-hidden sm:max-w-xl">
+				<DialogHeader>
+					<DialogTitle>
+						{t("external_auth_provider_created_callback_title")}
+					</DialogTitle>
+					<DialogDescription>
+						{t("external_auth_provider_created_callback_desc", {
+							name: provider?.display_name ?? "",
+						})}
+					</DialogDescription>
+				</DialogHeader>
+				<div className="min-w-0 max-w-full space-y-2 overflow-hidden">
+					<Label>{t("external_auth_provider_callback_url")}</Label>
+					<CallbackUrlField value={value} onCopy={onCopy} />
+					<p className="text-xs text-muted-foreground">
+						{t("external_auth_provider_callback_url_hint")}
+					</p>
+				</div>
+				<DialogFooter>
+					<Button
+						type="button"
+						className={ADMIN_CONTROL_HEIGHT_CLASS}
+						onClick={() => onOpenChange(false)}
+					>
+						{t("core:close")}
+					</Button>
+				</DialogFooter>
+			</DialogContent>
+		</Dialog>
+	);
+}
+
 export default function AdminExternalAuthPage() {
 	const { t } = useTranslation("admin");
 	usePageTitle(t("external_auth"));
+	const [searchParams, setSearchParams] = useSearchParams();
+	const [offset, setOffsetState] = useState(
+		normalizeOffset(parseOffsetSearchParam(searchParams.get("offset"))),
+	);
+	const [pageSize, setPageSize] = useState<
+		(typeof EXTERNAL_AUTH_PAGE_SIZE_OPTIONS)[number]
+	>(
+		parsePageSizeSearchParam(
+			searchParams.get("pageSize"),
+			EXTERNAL_AUTH_PAGE_SIZE_OPTIONS,
+			DEFAULT_EXTERNAL_AUTH_PAGE_SIZE,
+		),
+	);
 	const [providers, setProviders] = useState<AdminExternalAuthProviderInfo[]>(
 		[],
 	);
 	const [providerKinds, setProviderKinds] = useState<
 		AdminExternalAuthProviderKindInfo[]
 	>([]);
+	const [total, setTotal] = useState(0);
 	const [loading, setLoading] = useState(true);
 	const [dialogOpen, setDialogOpen] = useState(false);
 	const [editingProvider, setEditingProvider] =
@@ -1264,11 +1817,31 @@ export default function AdminExternalAuthPage() {
 	const [testingId, setTestingId] = useState<number | null>(null);
 	const [deletingId, setDeletingId] = useState<number | null>(null);
 	const [testResult, setTestResult] = useState<string | null>(null);
+	const [createdProviderCallback, setCreatedProviderCallback] =
+		useState<AdminExternalAuthProviderInfo | null>(null);
+	const lastWrittenSearchRef = useRef<string | null>(null);
+	const setOffset = (value: number) => {
+		setOffsetState(normalizeOffset(value));
+	};
 	const enabledCount = useMemo(
 		() => providers.filter((provider) => provider.enabled).length,
 		[providers],
 	);
 	const providerKindCount = providerKinds.length;
+	const totalPages = Math.max(1, Math.ceil(total / pageSize));
+	const currentPage = Math.floor(offset / pageSize) + 1;
+	const prevPageDisabled = offset === 0;
+	const nextPageDisabled = offset + pageSize >= total;
+	const pageSizeOptions = EXTERNAL_AUTH_PAGE_SIZE_OPTIONS.map((size) => ({
+		label: t("page_size_option", { count: size }),
+		value: String(size),
+	}));
+	const handlePageSizeChange = (value: string | null) => {
+		const next = parsePageSizeOption(value, EXTERNAL_AUTH_PAGE_SIZE_OPTIONS);
+		if (next == null) return;
+		setPageSize(next);
+		setOffset(0);
+	};
 	const createSteps: ExternalAuthCreateStep[] = useMemo(
 		() => [
 			{
@@ -1303,21 +1876,72 @@ export default function AdminExternalAuthPage() {
 	}
 	const createStepDirection = stepAnimationRef.current.direction;
 
+	useEffect(() => {
+		const managedSearch = getManagedExternalAuthSearchString(searchParams);
+		if (managedSearch === lastWrittenSearchRef.current) {
+			return;
+		}
+
+		const nextOffset = normalizeOffset(
+			parseOffsetSearchParam(searchParams.get("offset")),
+		);
+		const nextPageSize = parsePageSizeSearchParam(
+			searchParams.get("pageSize"),
+			EXTERNAL_AUTH_PAGE_SIZE_OPTIONS,
+			DEFAULT_EXTERNAL_AUTH_PAGE_SIZE,
+		);
+
+		setOffsetState((prev) => (prev === nextOffset ? prev : nextOffset));
+		setPageSize((prev) => (prev === nextPageSize ? prev : nextPageSize));
+	}, [searchParams]);
+
+	useEffect(() => {
+		const nextManagedSearchParams = buildManagedExternalAuthSearchParams({
+			offset,
+			pageSize,
+		});
+		const nextSearch = nextManagedSearchParams.toString();
+		const currentSearch = getManagedExternalAuthSearchString(searchParams);
+		if (
+			currentSearch !== lastWrittenSearchRef.current &&
+			currentSearch !== nextSearch
+		) {
+			return;
+		}
+
+		lastWrittenSearchRef.current = nextSearch;
+		if (nextSearch === currentSearch) {
+			return;
+		}
+
+		setSearchParams(
+			mergeManagedExternalAuthSearchParams(
+				searchParams,
+				nextManagedSearchParams,
+			),
+			{ replace: true },
+		);
+	}, [offset, pageSize, searchParams, setSearchParams]);
+
 	const loadProviders = useCallback(async () => {
 		try {
 			setLoading(true);
 			const [kinds, providerList] = await Promise.all([
 				adminExternalAuthService.listKinds(),
-				adminExternalAuthService.list(),
+				adminExternalAuthService.list({
+					limit: pageSize,
+					offset,
+				}),
 			]);
 			setProviderKinds(kinds);
-			setProviders(providerList);
+			setProviders(providerList.items);
+			setTotal(providerList.total);
 		} catch (error) {
 			handleApiError(error);
 		} finally {
 			setLoading(false);
 		}
-	}, []);
+	}, [offset, pageSize]);
 
 	useEffect(() => {
 		void loadProviders();
@@ -1339,10 +1963,14 @@ export default function AdminExternalAuthPage() {
 	const setField = <K extends keyof ExternalAuthProviderFormData>(
 		key: K,
 		value: ExternalAuthProviderFormData[K],
-	) => setForm((prev) => ({ ...prev, [key]: value }));
+	) => {
+		setTestResult(null);
+		setForm((prev) => ({ ...prev, [key]: value }));
+	};
 
 	const setProviderKind = (kind: ExternalAuthProviderKind) => {
 		const descriptor = providerKinds.find((item) => item.kind === kind);
+		setTestResult(null);
 		setForm((prev) => ({
 			...prev,
 			providerKind: kind,
@@ -1414,12 +2042,11 @@ export default function AdminExternalAuthPage() {
 			return providerKinds.length > 0;
 		}
 		if (createStep === 1) {
-			return Boolean(
-				form.key.trim() &&
-					form.displayName.trim() &&
-					form.issuerUrl.trim() &&
-					form.clientId.trim(),
-			);
+			const selectedKind =
+				providerKinds.find((kind) => kind.kind === form.providerKind) ??
+				providerKinds[0] ??
+				null;
+			return !requiredFieldsMissing(form, selectedKind);
 		}
 		return true;
 	};
@@ -1463,9 +2090,10 @@ export default function AdminExternalAuthPage() {
 				const created = await adminExternalAuthService.create(
 					createPayload(form),
 				);
-				setProviders((prev) => [...prev, created]);
 				toast.success(t("external_auth_provider_created"));
+				setCreatedProviderCallback(created);
 			}
+			await loadProviders();
 			handleDialogOpenChange(false);
 		} catch (error) {
 			handleApiError(error);
@@ -1474,24 +2102,56 @@ export default function AdminExternalAuthPage() {
 		}
 	};
 
-	const testProvider = async (provider: AdminExternalAuthProviderInfo) => {
-		try {
-			setTestingId(provider.id);
-			const result = await adminExternalAuthService.test(provider.id);
-			setTestResult(
-				t("external_auth_provider_test_success_detail", {
-					issuer: result.issuer,
-					keys: result.jwks_key_count,
-				}),
-			);
-			toast.success(t("external_auth_provider_test_success"));
+	const applyTestResult = (
+		result: ExternalAuthProviderTestResult,
+		options: { touchedProviderId?: number } = {},
+	) => {
+		setTestResult(formatTestResultSummary(t, result));
+		toast.success(t("external_auth_provider_test_success"));
+		if (options.touchedProviderId != null) {
 			setProviders((prev) =>
 				prev.map((item) =>
-					item.id === provider.id
+					item.id === options.touchedProviderId
 						? { ...item, updated_at: new Date().toISOString() }
 						: item,
 				),
 			);
+		}
+	};
+
+	const testFormConnection = async () => {
+		const selectedKind =
+			providerKinds.find((kind) => kind.kind === form.providerKind) ??
+			providerKinds[0] ??
+			null;
+		if (connectionRequirementsMissing(form, selectedKind)) {
+			setCreateStepTouched(true);
+			return false;
+		}
+
+		try {
+			if (editingProvider && !formConnectionChanged(form, editingProvider)) {
+				const result = await adminExternalAuthService.test(editingProvider.id);
+				applyTestResult(result, { touchedProviderId: editingProvider.id });
+				return true;
+			}
+
+			const result = await adminExternalAuthService.testParams(
+				testParamsPayload(form),
+			);
+			applyTestResult(result);
+			return true;
+		} catch (error) {
+			handleApiError(error);
+			return false;
+		}
+	};
+
+	const testProvider = async (provider: AdminExternalAuthProviderInfo) => {
+		try {
+			setTestingId(provider.id);
+			const result = await adminExternalAuthService.test(provider.id);
+			applyTestResult(result, { touchedProviderId: provider.id });
 		} catch (error) {
 			handleApiError(error);
 		} finally {
@@ -1503,7 +2163,16 @@ export default function AdminExternalAuthPage() {
 		try {
 			setDeletingId(id);
 			await adminExternalAuthService.delete(id);
-			setProviders((prev) => prev.filter((provider) => provider.id !== id));
+			const isLastItemOnPage = providers.length === 1;
+			const nextOffset =
+				isLastItemOnPage && offset > 0
+					? Math.max(0, offset - pageSize)
+					: offset;
+			if (nextOffset !== offset) {
+				setOffset(nextOffset);
+			} else {
+				await loadProviders();
+			}
 			toast.success(t("external_auth_provider_deleted"));
 		} catch (error) {
 			handleApiError(error);
@@ -1561,11 +2230,11 @@ export default function AdminExternalAuthPage() {
 						<p className="text-xs text-muted-foreground">
 							{t("external_auth_providers_total")}
 						</p>
-						<p className="mt-1 text-2xl font-semibold">{providers.length}</p>
+						<p className="mt-1 text-2xl font-semibold">{total}</p>
 					</AdminSurface>
 					<AdminSurface className="flex-none p-4">
 						<p className="text-xs text-muted-foreground">
-							{t("external_auth_providers_enabled")}
+							{t("external_auth_providers_enabled_page")}
 						</p>
 						<p className="mt-1 text-2xl font-semibold">{enabledCount}</p>
 					</AdminSurface>
@@ -1597,17 +2266,19 @@ export default function AdminExternalAuthPage() {
 							<TableHeader>
 								<TableRow>
 									<TableHead className="w-16">{t("id")}</TableHead>
-									<TableHead>{t("external_auth_provider")}</TableHead>
-									<TableHead>
-										{t("external_auth_provider_issuer_url")}
+									<TableHead className="min-w-[220px]">
+										{t("external_auth_provider")}
 									</TableHead>
-									<TableHead>
-										{t("external_auth_provider_callback_url")}
+									<TableHead className="min-w-[260px]">
+										{t("external_auth_provider_primary_endpoint")}
 									</TableHead>
-									<TableHead>{t("core:status")}</TableHead>
-									<TableHead className={ADMIN_TABLE_ACTIONS_WIDTH_CLASS}>
-										{t("core:actions")}
+									<TableHead className="w-[180px]">
+										{t("external_auth_provider_allowed_domains")}
 									</TableHead>
+									<TableHead className="w-[220px]">
+										{t("core:status")}
+									</TableHead>
+									<TableHead className="w-32">{t("core:actions")}</TableHead>
 								</TableRow>
 							</TableHeader>
 							<AdminTableBody>
@@ -1617,6 +2288,11 @@ export default function AdminExternalAuthPage() {
 									const providerCallbackUrl = callbackUrl(
 										provider.provider_kind,
 										provider.key,
+									);
+									const primaryEndpoint = providerPrimaryEndpoint(provider);
+									const allowedDomainSummary = providerAllowedDomainSummary(
+										t,
+										provider,
 									);
 									return (
 										<TableRow
@@ -1641,28 +2317,39 @@ export default function AdminExternalAuthPage() {
 												</div>
 											</TableCell>
 											<TableCell>
-												<div className={ADMIN_TABLE_STACKED_CELL_CLASS}>
-													<span className="truncate font-medium text-foreground">
-														{provider.display_name}
-													</span>
-													<span className="flex min-w-0 flex-wrap items-center gap-2">
-														<span className={ADMIN_TABLE_MONO_TEXT_CLASS}>
-															{provider.key}
-														</span>
-														<Badge variant="outline">
-															{kindDisplayName(
-																t,
-																provider.provider_kind,
-																providerKinds,
-															)}
-														</Badge>
-													</span>
+												<div className={ADMIN_TABLE_TEXT_CELL_CLASS}>
+													<div className="mr-3 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-white shadow-xs ring-1 ring-black/5 dark:bg-slate-950 dark:ring-white/10">
+														<ExternalAuthProviderIcon
+															kind={provider.provider_kind}
+															iconUrl={provider.icon_url}
+															className="h-5 w-5"
+														/>
+													</div>
+													<div className={ADMIN_TABLE_STACKED_CELL_CLASS}>
+														<div className="flex min-w-0 items-center gap-2">
+															<span className="truncate font-medium text-foreground">
+																{provider.display_name}
+															</span>
+														</div>
+														<div className="flex min-w-0 flex-wrap items-center gap-2">
+															<Badge variant="outline">
+																{kindDisplayName(
+																	t,
+																	provider.provider_kind,
+																	providerKinds,
+																)}
+															</Badge>
+														</div>
+													</div>
 												</div>
 											</TableCell>
 											<TableCell>
 												<div className={ADMIN_TABLE_STACKED_CELL_CLASS}>
-													<span className="truncate font-mono text-xs">
-														{provider.issuer_url}
+													<span
+														className="truncate font-mono text-xs text-foreground"
+														title={primaryEndpoint?.value ?? "-"}
+													>
+														{primaryEndpoint?.value ?? "-"}
 													</span>
 													<span
 														className={ADMIN_TABLE_MUTED_TEXT_CLASS}
@@ -1670,16 +2357,30 @@ export default function AdminExternalAuthPage() {
 															provider.updated_at,
 														)}
 													>
+														{primaryEndpoint
+															? t(primaryEndpoint.labelKey)
+															: t("external_auth_provider_primary_endpoint")}
+														{" · "}
 														{t("core:updated_at")}:{" "}
 														{formatDateAbsolute(provider.updated_at)}
 													</span>
 												</div>
 											</TableCell>
 											<TableCell>
-												<CallbackUrlField
-													value={providerCallbackUrl}
-													onCopy={(value) => void copyCallbackUrl(value)}
-												/>
+												<div className={ADMIN_TABLE_STACKED_CELL_CLASS}>
+													<span
+														className="truncate text-xs text-muted-foreground"
+														title={allowedDomainSummary}
+													>
+														{allowedDomainSummary}
+													</span>
+													<span
+														className="truncate font-mono text-xs text-muted-foreground"
+														title={provider.scopes}
+													>
+														{provider.scopes}
+													</span>
+												</div>
 											</TableCell>
 											<TableCell>
 												<div className={ADMIN_TABLE_BADGE_CELL_CLASS}>
@@ -1694,6 +2395,13 @@ export default function AdminExternalAuthPage() {
 													<Badge variant="outline">
 														{securityModeLabel(t, provider)}
 													</Badge>
+													{provider.require_email_verified ? (
+														<Badge variant="outline">
+															{t(
+																"external_auth_provider_require_email_verified",
+															)}
+														</Badge>
+													) : null}
 												</div>
 											</TableCell>
 											<TableCell
@@ -1701,6 +2409,23 @@ export default function AdminExternalAuthPage() {
 												onKeyDown={(event) => event.stopPropagation()}
 											>
 												<div className="flex justify-end gap-1">
+													<Button
+														variant="ghost"
+														size="icon"
+														className={ADMIN_ICON_BUTTON_CLASS}
+														onClick={() =>
+															void copyCallbackUrl(providerCallbackUrl)
+														}
+														disabled={!providerCallbackUrl || deleting}
+														aria-label={t(
+															"external_auth_provider_copy_callback_url",
+														)}
+														title={t(
+															"external_auth_provider_copy_callback_url",
+														)}
+													>
+														<Icon name="Copy" className="h-3.5 w-3.5" />
+													</Button>
 													<Button
 														variant="ghost"
 														size="icon"
@@ -1745,6 +2470,19 @@ export default function AdminExternalAuthPage() {
 					</AdminTableShell>
 				)}
 
+				<AdminOffsetPagination
+					total={total}
+					currentPage={currentPage}
+					totalPages={totalPages}
+					pageSize={String(pageSize)}
+					pageSizeOptions={pageSizeOptions}
+					onPageSizeChange={handlePageSizeChange}
+					prevDisabled={prevPageDisabled}
+					nextDisabled={nextPageDisabled}
+					onPrevious={() => setOffset(Math.max(0, offset - pageSize))}
+					onNext={() => setOffset(offset + pageSize)}
+				/>
+
 				<ProviderDialog
 					createStep={createStep}
 					createStepDirection={createStepDirection}
@@ -1764,6 +2502,18 @@ export default function AdminExternalAuthPage() {
 					onOpenChange={handleDialogOpenChange}
 					onProviderKindChange={setProviderKind}
 					onSubmit={() => void submitProvider()}
+					onTestConnection={testFormConnection}
+					testResult={testResult}
+				/>
+
+				<CreatedProviderCallbackDialog
+					provider={createdProviderCallback}
+					onCopy={(value) => void copyCallbackUrl(value)}
+					onOpenChange={(open) => {
+						if (!open) {
+							setCreatedProviderCallback(null);
+						}
+					}}
 				/>
 
 				<ConfirmDialog
