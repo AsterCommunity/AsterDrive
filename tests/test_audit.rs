@@ -4,6 +4,8 @@
 mod common;
 
 use actix_web::test;
+use aster_drive::{entities::audit_log, services::audit_service, types::AuditAction};
+use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
 use serde_json::Value;
 
 macro_rules! fetch_audit_items {
@@ -36,6 +38,41 @@ fn assert_action_present<'a>(items: &'a [Value], action: &str) -> &'a Value {
                     .collect::<Vec<_>>()
             )
         })
+}
+
+#[actix_web::test]
+async fn test_audit_log_persists_long_entity_type_values() {
+    let state = common::setup().await;
+
+    audit_service::log(
+        &state,
+        &audit_service::AuditContext {
+            user_id: 42,
+            ip_address: None,
+            user_agent: None,
+        },
+        AuditAction::AdminTestExternalAuthProvider,
+        Some("external_auth_provider"),
+        None,
+        Some("draft"),
+        Some(serde_json::json!({
+            "provider_kind": "oidc",
+            "key": "draft",
+            "success": true,
+        })),
+    )
+    .await;
+    audit_service::flush_global_audit_log_manager().await;
+
+    let entry = audit_log::Entity::find()
+        .filter(audit_log::Column::Action.eq(AuditAction::AdminTestExternalAuthProvider))
+        .one(&state.db)
+        .await
+        .expect("audit log query should succeed")
+        .expect("long entity_type audit log should persist");
+
+    assert_eq!(entry.entity_type.as_deref(), Some("external_auth_provider"));
+    assert_eq!(entry.entity_name.as_deref(), Some("draft"));
 }
 
 #[actix_web::test]

@@ -131,8 +131,8 @@ pub(super) struct StageZipArchiveForExtractParams<'a> {
     pub(super) db: &'a sea_orm::DatabaseConnection,
     pub(super) policy_snapshot: &'a PolicySnapshot,
     pub(super) lease_guard: &'a TaskLeaseGuard,
-    pub(super) archive_path: &'a str,
-    pub(super) stage_root: &'a str,
+    pub(super) archive_path: &'a Path,
+    pub(super) stage_root: &'a Path,
     pub(super) options: ArchiveExtractStageOptions,
 }
 

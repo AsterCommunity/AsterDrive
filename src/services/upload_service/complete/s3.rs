@@ -21,22 +21,18 @@ pub(super) async fn complete_presigned_upload(
     // presigned 单文件的 complete 阶段，本质是“确认对象存在且大小正确”，
     // 然后把 temp_key 直接认领成正式 blob。
     let db = &state.db;
-    let temp_key = session
-        .s3_temp_key
-        .as_deref()
-        .ok_or_else(|| {
-            upload_assembly_error_with_subcode(
-                ApiSubcode::UploadSessionCorrupted,
-                "missing s3_temp_key",
-            )
-        })?
-        .to_string();
+    let temp_key = session.s3_temp_key.as_deref().ok_or_else(|| {
+        upload_assembly_error_with_subcode(
+            ApiSubcode::UploadSessionCorrupted,
+            "missing s3_temp_key",
+        )
+    })?;
 
     let policy = state.policy_snapshot.get_policy_or_err(session.policy_id)?;
     let driver = state.driver_registry.get_driver(&policy)?;
     let actual_size = ensure_uploaded_s3_object_size(
         driver.as_ref(),
-        &temp_key,
+        temp_key,
         session.total_size,
         "uploaded object not found - upload may not have completed",
     )
@@ -57,7 +53,7 @@ pub(super) async fn complete_presigned_upload(
             let (final_key, actual_size) =
                 copy_presigned_object_to_final_key(
                     driver.as_ref(),
-                    &temp_key,
+                    temp_key,
                     session.total_size,
                     actual_size,
                 )
@@ -85,7 +81,7 @@ pub(super) async fn complete_presigned_upload(
                 }
             };
             if final_key != temp_key
-                && let Err(error) = driver.delete(&temp_key).await
+                && let Err(error) = driver.delete(temp_key).await
             {
                 tracing::warn!(
                     upload_id = %session.id,
@@ -274,26 +270,18 @@ async fn complete_s3_multipart_upload_session(
     actor_username: Option<&str>,
 ) -> Result<file::Model> {
     let db = &state.db;
-    let temp_key = session
-        .s3_temp_key
-        .as_deref()
-        .ok_or_else(|| {
-            upload_assembly_error_with_subcode(
-                ApiSubcode::UploadSessionCorrupted,
-                "missing s3_temp_key",
-            )
-        })?
-        .to_string();
-    let multipart_id = session
-        .s3_multipart_id
-        .as_deref()
-        .ok_or_else(|| {
-            upload_assembly_error_with_subcode(
-                ApiSubcode::UploadSessionCorrupted,
-                "missing s3_multipart_id",
-            )
-        })?
-        .to_string();
+    let temp_key = session.s3_temp_key.as_deref().ok_or_else(|| {
+        upload_assembly_error_with_subcode(
+            ApiSubcode::UploadSessionCorrupted,
+            "missing s3_temp_key",
+        )
+    })?;
+    let multipart_id = session.s3_multipart_id.as_deref().ok_or_else(|| {
+        upload_assembly_error_with_subcode(
+            ApiSubcode::UploadSessionCorrupted,
+            "missing s3_multipart_id",
+        )
+    })?;
 
     let policy = state.policy_snapshot.get_policy_or_err(session.policy_id)?;
     let driver = state.driver_registry.get_driver(&policy)?;
@@ -318,7 +306,7 @@ async fn complete_s3_multipart_upload_session(
             completed_parts.sort_by_key(|(part_number, _)| *part_number);
             // multipart complete 之前要先把 part 列表排序；驱动层依赖有序 part 序列。
             if let Err(error) = multipart
-                .complete_multipart_upload(&temp_key, &multipart_id, completed_parts)
+                .complete_multipart_upload(temp_key, multipart_id, completed_parts)
                 .await
             {
                 // 远端节点可能已经完成了 multipart，但最终响应在返回前丢了。
@@ -326,7 +314,7 @@ async fn complete_s3_multipart_upload_session(
                 if upload_completion_error_is_retryable(&error)
                     && let Ok(actual_size) = ensure_uploaded_s3_object_size(
                         driver_ref,
-                        &temp_key,
+                        temp_key,
                         session.total_size,
                         missing_message,
                     )
@@ -336,7 +324,7 @@ async fn complete_s3_multipart_upload_session(
                         state,
                         &session,
                         policy.id,
-                        &temp_key,
+                        temp_key,
                         actual_size,
                         actor_username,
                     )
@@ -347,7 +335,7 @@ async fn complete_s3_multipart_upload_session(
 
             let actual_size = ensure_uploaded_s3_object_size(
                 driver_ref,
-                &temp_key,
+                temp_key,
                 session.total_size,
                 missing_message,
             )
@@ -357,7 +345,7 @@ async fn complete_s3_multipart_upload_session(
                 state,
                 &session,
                 policy.id,
-                &temp_key,
+                temp_key,
                 actual_size,
                 actor_username,
             )

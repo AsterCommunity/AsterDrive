@@ -88,7 +88,8 @@ async fn finalize_chunked_upload_session(
     let assemble_elapsed_ms = assemble_started_at.elapsed().as_millis();
 
     let stage_started_at = Instant::now();
-    let blob_plan = stage_assembled_blob_upload(driver, policy, &assembled).await?;
+    let assembled_size = assembled.size;
+    let blob_plan = stage_assembled_blob_upload(driver, policy, assembled).await?;
     let stage_elapsed_ms = stage_started_at.elapsed().as_millis();
 
     let persist_started_at = Instant::now();
@@ -97,7 +98,7 @@ async fn finalize_chunked_upload_session(
         session,
         driver,
         policy.id,
-        assembled.size,
+        assembled_size,
         &blob_plan,
         actor_username,
     )
@@ -106,7 +107,7 @@ async fn finalize_chunked_upload_session(
         tracing::debug!(
             upload_id = %session.id,
             file_id = file.id,
-            size = assembled.size,
+            size = assembled_size,
             assemble_elapsed_ms,
             stage_elapsed_ms,
             persist_elapsed_ms = persist_started_at.elapsed().as_millis(),
@@ -307,34 +308,34 @@ async fn assemble_local_chunks_to_temp_file(
 async fn stage_assembled_blob_upload(
     driver: &dyn StorageDriver,
     policy: &storage_policy::Model,
-    assembled: &AssembledTempFile,
+    assembled: AssembledTempFile,
 ) -> Result<AssembledBlobPlan> {
-    if let Some(file_hash) = assembled.file_hash.as_ref() {
-        let storage_path = crate::utils::storage_path_from_blob_key(file_hash);
+    let AssembledTempFile {
+        path,
+        size,
+        file_hash,
+    } = assembled;
+    if let Some(file_hash) = file_hash {
+        let storage_path = crate::utils::storage_path_from_blob_key(&file_hash);
         crate::storage::drivers::local::promote_local_file_if_absent(
             driver,
             &storage_path,
-            &assembled.path,
-            assembled.size,
+            &path,
+            size,
         )
         .await?;
 
         return Ok(AssembledBlobPlan::Dedup {
-            file_hash: file_hash.clone(),
+            file_hash,
             storage_path,
         });
     }
 
     // 不做 dedup 的情况下，先为 blob 预分配最终 key，再把 assembled 文件传上去。
     // 失败只会留下孤儿 storage 对象，由 blob GC 自然回收。
-    let preuploaded =
-        workspace_storage_service::prepare_non_dedup_blob_upload(policy, assembled.size);
-    workspace_storage_service::upload_temp_file_to_prepared_blob(
-        driver,
-        &preuploaded,
-        &assembled.path,
-    )
-    .await?;
+    let preuploaded = workspace_storage_service::prepare_non_dedup_blob_upload(policy, size);
+    workspace_storage_service::upload_temp_file_to_prepared_blob(driver, &preuploaded, &path)
+        .await?;
     Ok(AssembledBlobPlan::Preuploaded(preuploaded))
 }
 

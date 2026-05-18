@@ -30,7 +30,9 @@ use super::super::{
     is_task_lease_renewal_timed_out, mark_task_progress, mark_task_succeeded,
     prepare_task_temp_dir, task_scope,
 };
-use super::common::{build_folder_display_path, create_unique_folder_in_scope};
+use super::common::{
+    build_folder_display_path, create_unique_folder_in_scope, ends_with_ignore_ascii_case,
+};
 use import::materialize_archive_extract_stage;
 use staging::{
     ArchiveExtractLimits, ArchiveExtractPolicyResolver, ArchiveExtractStageOptions,
@@ -140,8 +142,8 @@ pub(super) async fn process_archive_extract_task(
         let policy_snapshot = state.policy_snapshot.clone();
         let handle = tokio::runtime::Handle::current();
         let lease_guard_for_worker = lease_guard.clone();
-        let source_archive_path_string = source_archive_path.to_string_lossy().to_string();
-        let stage_root_string = stage_root.to_string_lossy().to_string();
+        let source_archive_path_for_worker = source_archive_path;
+        let stage_root_for_worker = stage_root.clone();
         let stage_options = ArchiveExtractStageOptions {
             scope,
             policy_resolver,
@@ -157,8 +159,8 @@ pub(super) async fn process_archive_extract_task(
                     db: &db,
                     policy_snapshot: policy_snapshot.as_ref(),
                     lease_guard: &lease_guard_for_worker,
-                    archive_path: &source_archive_path_string,
-                    stage_root: &stage_root_string,
+                    archive_path: &source_archive_path_for_worker,
+                    stage_root: &stage_root_for_worker,
                     options: stage_options,
                 },
                 &mut steps,
@@ -333,7 +335,7 @@ async fn cleanup_created_extract_root(
 }
 
 fn ensure_extract_source_supported(source_file: &file::Model) -> Result<()> {
-    if source_file.name.to_ascii_lowercase().ends_with(".zip") {
+    if ends_with_ignore_ascii_case(&source_file.name, ".zip") {
         Ok(())
     } else {
         Err(AsterError::validation_error(
@@ -364,7 +366,7 @@ fn default_extract_output_folder_name(source_file_name: &str) -> String {
 }
 
 fn strip_zip_extension(name: &str) -> Option<&str> {
-    if name.to_ascii_lowercase().ends_with(".zip") && name.len() > 4 {
+    if ends_with_ignore_ascii_case(name, ".zip") && name.len() > 4 {
         Some(&name[..name.len() - 4])
     } else {
         None

@@ -14,6 +14,7 @@ mod m20260512_000001_baseline_schema;
 mod m20260515_000001_add_passkeys;
 mod m20260517_000001_add_external_auth;
 mod m20260518_000001_add_file_type_filters;
+mod m20260518_000002_expand_audit_entity_type;
 mod search_acceleration;
 mod time;
 
@@ -119,6 +120,7 @@ impl MigratorTrait for CurrentMigrator {
             Box::new(m20260515_000001_add_passkeys::Migration),
             Box::new(m20260517_000001_add_external_auth::Migration),
             Box::new(m20260518_000001_add_file_type_filters::Migration),
+            Box::new(m20260518_000002_expand_audit_entity_type::Migration),
         ]
     }
 }

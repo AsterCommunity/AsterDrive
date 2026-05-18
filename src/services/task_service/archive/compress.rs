@@ -52,10 +52,15 @@ pub(crate) async fn create_archive_compress_task_in_scope(
         params.target_folder_id,
     )
     .await?;
+    let batch_service::NormalizedSelection {
+        file_ids,
+        folder_ids,
+        ..
+    } = resolved.selection;
     let payload = ArchiveCompressTaskPayload {
-        file_ids: resolved.selection.file_ids.clone(),
-        folder_ids: resolved.selection.folder_ids.clone(),
-        archive_name: resolved.archive_name.clone(),
+        file_ids,
+        folder_ids,
+        archive_name: resolved.archive_name,
         target_folder_id,
     };
     let display_name = format!("Compress {}", payload.archive_name);
