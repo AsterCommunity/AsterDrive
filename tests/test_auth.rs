@@ -873,6 +873,8 @@ async fn test_refresh_rotation_isolated_across_devices() {
 
 #[actix_web::test]
 async fn test_refresh_reuse_detected_revokes_all_sessions() {
+    use sea_orm::{ActiveModelTrait, IntoActiveModel, Set};
+
     let state = common::setup().await;
     let app = create_test_app!(state.clone());
 
@@ -912,12 +914,13 @@ async fn test_refresh_reuse_detected_revokes_all_sessions() {
             .unwrap()
             .is_none()
     );
-    assert!(
-        auth_session_repo::find_by_refresh_jti(&state.db, &rotated_jti)
-            .await
-            .unwrap()
-            .is_some()
-    );
+    let rotated_session = auth_session_repo::find_by_refresh_jti(&state.db, &rotated_jti)
+        .await
+        .unwrap()
+        .expect("rotated auth session should exist");
+    let mut active = rotated_session.into_active_model();
+    active.last_seen_at = Set(chrono::Utc::now() - chrono::Duration::seconds(60));
+    active.update(&state.db).await.unwrap();
 
     let req = test::TestRequest::post()
         .uri("/api/v1/auth/refresh")
@@ -1010,6 +1013,7 @@ async fn test_concurrent_refresh_same_token_has_single_winner() {
     let winner = first.as_ref().ok().or(second.as_ref().ok()).unwrap();
     assert!(!winner.0.is_empty());
     assert!(!winner.1.is_empty());
+    let winner_access = winner.0.clone();
     let loser = first.as_ref().err().or(second.as_ref().err()).unwrap();
     assert_eq!(loser.code(), "E012");
 
@@ -1017,13 +1021,22 @@ async fn test_concurrent_refresh_same_token_has_single_winner() {
         .await
         .unwrap()
         .expect("user should exist");
-    assert_eq!(user.session_version, 2);
+    assert_eq!(user.session_version, 1);
     assert!(
         auth_session_repo::list_active_for_user(&state.db, user.id)
             .await
             .unwrap()
-            .is_empty()
+            .len()
+            == 1
     );
+
+    let req = test::TestRequest::get()
+        .uri("/api/v1/auth/me")
+        .insert_header(("Cookie", common::access_cookie_header(&winner_access)))
+        .insert_header(common::csrf_header_for(&winner_access))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
 }
 
 #[actix_web::test]

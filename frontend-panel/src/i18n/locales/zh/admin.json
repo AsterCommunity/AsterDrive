@@ -356,6 +356,7 @@
 	"public_site_url_origin_label": "公开站点来源",
 	"public_site_url_primary_origin": "默认来源",
 	"public_site_url_add_origin": "添加公开站点来源",
+	"public_site_url_add_current_origin": "填入当前访问地址",
 	"public_site_url_remove_origin": "删除公开站点来源",
 	"settings_string_array_item_label": "列表项",
 	"settings_string_array_add_item": "添加列表项",

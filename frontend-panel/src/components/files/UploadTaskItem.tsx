@@ -16,6 +16,7 @@ interface UploadTaskItemProps {
 	mode: string;
 	progress: number;
 	detail?: string;
+	speed?: string;
 	completed?: boolean;
 	actions?: UploadTaskAction[];
 }
@@ -26,6 +27,7 @@ export function UploadTaskItem({
 	mode,
 	progress,
 	detail,
+	speed,
 	completed = false,
 	actions = [],
 }: UploadTaskItemProps) {
@@ -76,6 +78,12 @@ export function UploadTaskItem({
 						<span className="shrink-0">{mode}</span>
 						<span className="text-muted-foreground/60">·</span>
 						<span className="truncate">{detail ?? status}</span>
+						{speed ? (
+							<>
+								<span className="shrink-0 text-muted-foreground/60">·</span>
+								<span className="shrink-0 tabular-nums">{speed}</span>
+							</>
+						) : null}
 					</div>
 				</div>
 				{showProgress ? (

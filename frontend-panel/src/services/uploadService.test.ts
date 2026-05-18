@@ -173,8 +173,15 @@ describe("uploadService", () => {
 		setTestCookie("aster_csrf=csrf-token-1; path=/");
 		const { uploadService } = await import("@/services/uploadService");
 		const progress = vi.fn();
+		const onCreateXhr = vi.fn();
 		const blob = new Blob(["hello"]);
-		const promise = uploadService.uploadChunk("upload-1", 3, blob, progress);
+		const promise = uploadService.uploadChunk(
+			"upload-1",
+			3,
+			blob,
+			progress,
+			onCreateXhr,
+		);
 		const xhr = MockXMLHttpRequest.instances[0];
 
 		xhr.upload.onprogress?.({
@@ -194,6 +201,7 @@ describe("uploadService", () => {
 			etag: "etag-3",
 		});
 		expect(progress).toHaveBeenCalledWith(3, 5);
+		expect(onCreateXhr).toHaveBeenCalledWith(xhr);
 		expect(xhr.method).toBe("PUT");
 		expect(xhr.url).toBe("/api/v1/files/upload/upload-1/3");
 		expect(xhr.withCredentials).toBe(true);
@@ -255,6 +263,28 @@ describe("uploadService", () => {
 		await expect(parseFailure).rejects.toBeInstanceOf(UploadRequestError);
 		await expect(parseFailure).rejects.toMatchObject({
 			status: 200,
+			retryable: false,
+		});
+	});
+
+	it("rejects chunk uploads when the caller aborts the XHR", async () => {
+		const { UploadRequestError, uploadService } = await import(
+			"@/services/uploadService"
+		);
+		const promise = uploadService.uploadChunk(
+			"upload-1",
+			1,
+			new Blob(["hello"]),
+		);
+		const xhr = MockXMLHttpRequest.instances[0];
+
+		xhr.abort();
+
+		await expect(promise).rejects.toThrow("upload aborted");
+		await expect(promise).rejects.toBeInstanceOf(UploadRequestError);
+		await expect(promise).rejects.toMatchObject({
+			isAborted: true,
+			status: 0,
 			retryable: false,
 		});
 	});

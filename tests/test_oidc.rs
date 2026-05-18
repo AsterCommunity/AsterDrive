@@ -285,6 +285,67 @@ async fn admin_tests_external_auth_provider_draft_params_without_persisting() {
 }
 
 #[actix_web::test]
+async fn admin_external_auth_provider_test_reports_discovery_failures_as_bad_request() {
+    let state = common::setup().await;
+    let app = create_test_app!(state);
+    let (admin_token, _) = register_and_login!(app);
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/admin/external-auth/providers/test")
+        .insert_header(("Cookie", common::access_cookie_header(&admin_token)))
+        .insert_header(common::csrf_header_for(&admin_token))
+        .set_json(serde_json::json!({
+            "provider_kind": "oidc",
+            "issuer_url": "http://127.0.0.1:9",
+            "client_id": TEST_CLIENT_ID,
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 400);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(body["code"], 1000);
+    assert!(
+        body["msg"]
+            .as_str()
+            .unwrap()
+            .contains("OIDC discovery failed"),
+        "unexpected error message: {}",
+        body["msg"]
+    );
+}
+
+#[actix_web::test]
+async fn start_login_requires_public_site_url_for_callback_redirect_uri() {
+    let (mock_provider, server) = start_mock_external_auth_provider().await;
+    let state = common::setup().await;
+    let app = create_test_app!(state);
+    let (admin_token, _) = register_and_login!(app);
+    let provider_key =
+        create_external_auth_provider_key(&app, &admin_token, &mock_provider.issuer, true, false)
+            .await;
+
+    let req = test::TestRequest::post()
+        .uri(&format!(
+            "/api/v1/auth/external-auth/oidc/{provider_key}/start"
+        ))
+        .insert_header(("Host", "localhost:8080"))
+        .insert_header(("Origin", TEST_BROWSER_ORIGIN))
+        .set_json(serde_json::json!({ "return_path": "/files" }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 400);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(body["code"], 1000);
+    assert!(
+        body["msg"].as_str().unwrap().contains("public_site_url"),
+        "unexpected error message: {}",
+        body["msg"]
+    );
+
+    server.stop(true).await;
+}
+
+#[actix_web::test]
 async fn start_login_persists_pkce_flow_and_rejects_replayed_state() {
     let (mock_provider, server) = start_mock_external_auth_provider().await;
     let state = common::setup().await;

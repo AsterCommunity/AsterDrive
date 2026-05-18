@@ -196,6 +196,58 @@ describe("useAuthStore", () => {
 		useAuthStore.getState().stopAutoRefresh();
 	});
 
+	it("waits for another tab refresh and syncs the local session expiry", async () => {
+		vi.useFakeTimers();
+
+		let refreshCount = 0;
+		const accessTokenExpiresAt = Math.floor(Date.now() / 1000) + 900;
+		const user = createMeResponse({
+			access_token_expires_at: accessTokenExpiresAt,
+		});
+
+		localStorage.setItem(
+			"aster-auth-refresh-lock",
+			JSON.stringify({
+				ownerId: "peer-tab",
+				lockId: "peer-lock",
+				expiresAt: Date.now() + 15_000,
+			}),
+		);
+
+		server.use(
+			http.post("*/api/v1/auth/refresh", () => {
+				refreshCount += 1;
+				return HttpResponse.json(apiResponse({ expires_in: 900 }));
+			}),
+			http.get("*/api/v1/auth/me", ({ request }) => {
+				const url = new URL(request.url);
+				expect(url.searchParams.get("fields")).toBe("session");
+				return HttpResponse.json(apiResponse(user));
+			}),
+		);
+
+		const { useAuthStore } = await loadStores();
+
+		const refresh = useAuthStore.getState().refreshToken();
+		window.dispatchEvent(
+			new StorageEvent("storage", {
+				key: "aster-auth-refresh-event",
+				newValue: JSON.stringify({
+					ownerId: "peer-tab",
+					lockId: "peer-lock",
+					status: "success",
+					createdAt: Date.now(),
+				}),
+			}),
+		);
+
+		await refresh;
+
+		expect(refreshCount).toBe(0);
+		expect(useAuthStore.getState().expiresAt).toBe(accessTokenExpiresAt * 1000);
+		useAuthStore.getState().stopAutoRefresh();
+	});
+
 	it("updates the cached user when toggling storage event stream locally", async () => {
 		const cachedUser = createMeResponse();
 		localStorage.setItem("aster-cached-user", JSON.stringify(cachedUser));

@@ -45,6 +45,7 @@ import {
 	SelectValue,
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
+import { normalizePublicSiteUrl } from "@/lib/publicSiteUrl";
 import { cn } from "@/lib/utils";
 import type { SystemConfig } from "@/types/api";
 
@@ -133,6 +134,7 @@ function StringArrayConfigControl({
 			? "public_site_url_add_origin"
 			: "settings_string_array_add_item",
 	);
+	const addCurrentOriginLabel = t("public_site_url_add_current_origin");
 	const removeLabel = t(
 		isPublicSiteUrl
 			? "public_site_url_remove_origin"
@@ -164,6 +166,13 @@ function StringArrayConfigControl({
 			value: row,
 		};
 	});
+	const currentOrigin =
+		isPublicSiteUrl && typeof window !== "undefined"
+			? normalizePublicSiteUrl(window.location.origin)
+			: null;
+	const showAddCurrentOrigin =
+		Boolean(currentOrigin) &&
+		!rows.some((row) => normalizePublicSiteUrl(row) === currentOrigin);
 
 	const updateRows = (nextRows: string[]) => {
 		updateDraftValue(
@@ -176,6 +185,29 @@ function StringArrayConfigControl({
 		<div
 			className={cn("space-y-2", fullWidth ? "w-full max-w-3xl" : "max-w-3xl")}
 		>
+			{showAddCurrentOrigin && currentOrigin ? (
+				<Button
+					type="button"
+					variant="outline"
+					size="sm"
+					aria-label={addCurrentOriginLabel}
+					title={addCurrentOriginLabel}
+					onClick={() => {
+						const emptyRowIndex = rows.findIndex((row) => !row.trim());
+						if (emptyRowIndex >= 0) {
+							const nextRows = [...rows];
+							nextRows[emptyRowIndex] = currentOrigin;
+							updateRows(nextRows);
+							return;
+						}
+						rowIdsRef.current.push(createRowId());
+						updateRows([...rows, currentOrigin]);
+					}}
+				>
+					<Icon name="Plus" className="h-3.5 w-3.5" />
+					{addCurrentOriginLabel}
+				</Button>
+			) : null}
 			{rowItems.map((item, index) => {
 				return (
 					<div key={item.key} className="flex items-center gap-2">

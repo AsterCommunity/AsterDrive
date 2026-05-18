@@ -25,6 +25,8 @@ export interface UploadTask {
 	mode: UploadMode | null;
 	status: UploadStatus;
 	progress: number;
+	uploadedBytes?: number;
+	speedBps?: number;
 	error: string | null;
 	uploadId: string | null;
 	completedChunks?: number;
@@ -132,6 +134,7 @@ export function createQueuedUploadTask({
 		mode: null,
 		status: "queued",
 		progress: 0,
+		uploadedBytes: 0,
 		error: null,
 		uploadId: null,
 	};

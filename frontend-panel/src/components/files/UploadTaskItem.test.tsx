@@ -38,12 +38,14 @@ describe("UploadTaskItem", () => {
 				status="Uploading"
 				mode="Chunked"
 				progress={45}
+				speed="2.0 MB/s"
 			/>,
 		);
 
 		expect(screen.getByText("report.pdf")).toBeInTheDocument();
 		expect(screen.getByText("Chunked")).toBeInTheDocument();
 		expect(screen.getByText("Uploading")).toBeInTheDocument();
+		expect(screen.getByText("2.0 MB/s")).toBeInTheDocument();
 		expect(screen.getByText("45%")).toBeInTheDocument();
 		expect(screen.getByTestId("progress")).toHaveAttribute("data-value", "45");
 		expect(container.firstChild).toHaveClass("bg-card/55");

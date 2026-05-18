@@ -6,6 +6,7 @@ import type {
 	UploadTask,
 } from "./uploadAreaManagerShared";
 import { createUploadModeRunners } from "./uploadAreaUploadModeRunners";
+import type { UploadRequestRef } from "./uploadAreaUploadRunnerShared";
 import {
 	cancelUploadTask,
 	retryUploadTask,
@@ -21,11 +22,11 @@ interface UseUploadAreaUploadsOptions {
 	multipartInFlightRef: MutableRefObject<Map<string, number>>;
 	patchTask: (taskId: string, patch: Partial<UploadTask>) => void;
 	patchTaskThrottled: (taskId: string, patch: Partial<UploadTask>) => void;
-	presignedXhrRef: MutableRefObject<Map<string, XMLHttpRequest>>;
 	setTasks: Dispatch<SetStateAction<UploadTask[]>>;
 	setUploadPanelOpen: Dispatch<SetStateAction<boolean>>;
 	t: UploadAreaManagerTranslationFn;
 	tasksRef: MutableRefObject<UploadTask[]>;
+	uploadRequestRef: UploadRequestRef;
 	workspace: Workspace;
 }
 
@@ -38,11 +39,11 @@ export function useUploadAreaUploads({
 	multipartInFlightRef,
 	patchTask,
 	patchTaskThrottled,
-	presignedXhrRef,
 	setTasks,
 	setUploadPanelOpen,
 	t,
 	tasksRef,
+	uploadRequestRef,
 	workspace,
 }: UseUploadAreaUploadsOptions) {
 	const modeRunners = useMemo(
@@ -56,7 +57,7 @@ export function useUploadAreaUploads({
 				multipartInFlightRef,
 				patchTask,
 				patchTaskThrottled,
-				presignedXhrRef,
+				uploadRequestRef,
 				t,
 				workspace,
 			}),
@@ -69,7 +70,7 @@ export function useUploadAreaUploads({
 			multipartInFlightRef,
 			patchTask,
 			patchTaskThrottled,
-			presignedXhrRef,
+			uploadRequestRef,
 			t,
 			workspace,
 		],
@@ -83,11 +84,11 @@ export function useUploadAreaUploads({
 				directAbortRef,
 				markTaskFailed,
 				patchTask,
-				presignedXhrRef,
 				setTasks,
 				setUploadPanelOpen,
 				t,
 				tasksRef,
+				uploadRequestRef,
 				workspace,
 			});
 		},
@@ -97,11 +98,11 @@ export function useUploadAreaUploads({
 			directAbortRef,
 			markTaskFailed,
 			patchTask,
-			presignedXhrRef,
 			setTasks,
 			setUploadPanelOpen,
 			t,
 			tasksRef,
+			uploadRequestRef,
 			workspace,
 		],
 	);
@@ -114,11 +115,11 @@ export function useUploadAreaUploads({
 				directAbortRef,
 				markTaskFailed,
 				patchTask,
-				presignedXhrRef,
 				setTasks,
 				setUploadPanelOpen,
 				t,
 				tasksRef,
+				uploadRequestRef,
 				workspace,
 			});
 		},
@@ -128,11 +129,11 @@ export function useUploadAreaUploads({
 			directAbortRef,
 			markTaskFailed,
 			patchTask,
-			presignedXhrRef,
 			setTasks,
 			setUploadPanelOpen,
 			t,
 			tasksRef,
+			uploadRequestRef,
 			workspace,
 		],
 	);
@@ -145,11 +146,11 @@ export function useUploadAreaUploads({
 				directAbortRef,
 				markTaskFailed,
 				patchTask,
-				presignedXhrRef,
 				setTasks,
 				setUploadPanelOpen,
 				t,
 				tasksRef,
+				uploadRequestRef,
 				workspace,
 			});
 		},
@@ -159,11 +160,11 @@ export function useUploadAreaUploads({
 			directAbortRef,
 			markTaskFailed,
 			patchTask,
-			presignedXhrRef,
 			setTasks,
 			setUploadPanelOpen,
 			t,
 			tasksRef,
+			uploadRequestRef,
 			workspace,
 		],
 	);

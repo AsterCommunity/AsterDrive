@@ -40,25 +40,16 @@ export function BlobImagePreview({
 	const previewKey = `${file.name}\u0000${file.mime_type}\u0000${path}\u0000${
 		fallbackPath ?? ""
 	}`;
-	const [fallbackPreviewKey, setFallbackPreviewKey] = useState<string | null>(
-		null,
-	);
 	const [imageRenderFailedKey, setImageRenderFailedKey] = useState<
 		string | null
 	>(null);
-	const canFallbackPreview = Boolean(fallbackPath) && isHeifPreview(file);
-	const useFallbackPreview = fallbackPreviewKey === previewKey;
+	const shouldPreferBackendPreview =
+		Boolean(fallbackPath) && isHeifPreview(file);
 	const imageRenderFailed = imageRenderFailedKey === previewKey;
-	const activePath =
-		useFallbackPreview && canFallbackPreview ? fallbackPath : path;
-	const { blobUrl, error, loading, retry } = useBlobUrl(activePath ?? path);
+	const activePath = shouldPreferBackendPreview ? (fallbackPath ?? path) : path;
+	const { blobUrl, error, loading, retry } = useBlobUrl(activePath);
 
 	const handleImageError = () => {
-		if (canFallbackPreview && !useFallbackPreview) {
-			setImageRenderFailedKey(null);
-			setFallbackPreviewKey(previewKey);
-			return;
-		}
 		setImageRenderFailedKey(previewKey);
 	};
 

@@ -49,6 +49,30 @@ fn ensure_storage_native_thumbnail_supported(
     )))
 }
 
+fn validate_connection_secret(value: &str, field: &str, driver: &str) -> Result<()> {
+    if value.trim().is_empty() {
+        return Err(AsterError::validation_error(format!(
+            "{field} is required for {driver} storage policies"
+        )));
+    }
+    Ok(())
+}
+
+fn validate_connection_credentials(
+    driver_type: DriverType,
+    access_key: &str,
+    secret_key: &str,
+) -> Result<()> {
+    match driver_type {
+        DriverType::S3 => {
+            validate_connection_secret(access_key, "access_key", "S3-compatible")?;
+            validate_connection_secret(secret_key, "secret_key", "S3-compatible")?;
+        }
+        DriverType::Local | DriverType::Remote => {}
+    }
+    Ok(())
+}
+
 pub async fn list_paginated(
     state: &PrimaryAppState,
     limit: u64,
@@ -91,6 +115,7 @@ pub async fn create(
         remote_node_id,
     } = connection;
     let (endpoint, bucket) = normalize_connection_fields(driver_type, &endpoint, &bucket)?;
+    validate_connection_credentials(driver_type, &access_key, &secret_key)?;
     let remote_node_id = validate_remote_binding(&state.db, driver_type, remote_node_id).await?;
     let allowed_types = allowed_types.unwrap_or_default();
     let options = options.unwrap_or_default().normalized();
@@ -255,12 +280,21 @@ pub async fn update(
     let existing = policy_repo::find_by_id(&txn, id).await?;
     let existing_endpoint = existing.endpoint.clone();
     let existing_bucket = existing.bucket.clone();
+    let existing_access_key = existing.access_key.clone();
+    let existing_secret_key = existing.secret_key.clone();
     let existing_remote_node_id = existing.remote_node_id;
     let existing_options = parse_storage_policy_options(existing.options.as_ref());
     let final_endpoint = endpoint.unwrap_or_else(|| existing_endpoint.clone());
     let final_bucket = bucket.unwrap_or_else(|| existing_bucket.clone());
+    let final_access_key = access_key
+        .clone()
+        .unwrap_or_else(|| existing_access_key.clone());
+    let final_secret_key = secret_key
+        .clone()
+        .unwrap_or_else(|| existing_secret_key.clone());
     let (normalized_endpoint, normalized_bucket) =
         normalize_connection_fields(existing.driver_type, &final_endpoint, &final_bucket)?;
+    validate_connection_credentials(existing.driver_type, &final_access_key, &final_secret_key)?;
     let normalized_remote_node_id = validate_remote_binding(
         &txn,
         existing.driver_type,
@@ -385,6 +419,7 @@ pub async fn test_connection_params<S: PrimaryRuntimeState>(
         remote_node_id,
     } = input;
     let (endpoint, bucket) = normalize_connection_fields(driver_type, &endpoint, &bucket)?;
+    validate_connection_credentials(driver_type, &access_key, &secret_key)?;
     let remote_node_id = validate_remote_binding(state.db(), driver_type, remote_node_id).await?;
 
     let fake_policy = storage_policy::Model {

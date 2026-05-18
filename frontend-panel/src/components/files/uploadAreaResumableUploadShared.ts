@@ -9,6 +9,7 @@ import {
 	type UploadTask,
 } from "./uploadAreaManagerShared";
 import type { UploadModeRunnerContext } from "./uploadAreaUploadRunnerShared";
+import { createUploadSpeedTracker } from "./uploadSpeed";
 
 type ResumableUploadSharedContext = Pick<
 	UploadModeRunnerContext,
@@ -165,6 +166,7 @@ export function createResumableUploadShared({
 		let completed = initialCompleted;
 		let completedBytes = initialCompletedBytes ?? 0;
 		const inFlightBytes = new Map<TItem, number>();
+		const speedTracker = createUploadSpeedTracker(completedBytes);
 		const getCurrentProgress = () =>
 			useByteProgress && totalBytes
 				? calculateByteProgress(
@@ -174,10 +176,25 @@ export function createResumableUploadShared({
 						progressScale,
 					)
 				: calculateProgress(completed, totalItems, progressScale);
+		const getCurrentUploadedBytes = () => {
+			let uploadedBytes = completedBytes;
+			for (const bytes of inFlightBytes.values()) {
+				uploadedBytes += bytes;
+			}
+			return totalBytes
+				? Math.min(Math.max(uploadedBytes, 0), totalBytes)
+				: Math.max(uploadedBytes, 0);
+		};
 
 		patchTask(task.id, {
 			...uploadingPatch,
 			progress: getCurrentProgress(),
+			...(useByteProgress
+				? {
+						uploadedBytes: getCurrentUploadedBytes(),
+						speedBps: undefined,
+					}
+				: {}),
 		});
 
 		const queue = [...items];
@@ -193,6 +210,7 @@ export function createResumableUploadShared({
 					inFlightBytes.set(item, clampLoadedBytes(loaded, getItemSize(item)));
 					patchTaskThrottled(task.id, {
 						progress: getCurrentProgress(),
+						...speedTracker.sample(getCurrentUploadedBytes()),
 					});
 				};
 
@@ -205,6 +223,9 @@ export function createResumableUploadShared({
 				patchTaskThrottled(task.id, {
 					completedChunks: completed,
 					progress: getCurrentProgress(),
+					...(useByteProgress
+						? speedTracker.sample(getCurrentUploadedBytes())
+						: {}),
 				});
 			}
 		};
@@ -225,12 +246,15 @@ export function createResumableUploadShared({
 			patchTask(task.id, {
 				status: "processing",
 				progress: processingProgress,
+				speedBps: undefined,
 			});
 			await completeUpload();
 			removeSession(uploadId);
 			patchTask(task.id, {
 				status: "completed",
 				progress: 100,
+				uploadedBytes: totalBytes,
+				speedBps: undefined,
 				error: null,
 			});
 			markFolderForRefresh(task);

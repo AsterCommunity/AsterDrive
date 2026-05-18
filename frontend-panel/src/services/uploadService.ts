@@ -91,9 +91,11 @@ export function createUploadService(workspace: Workspace = PERSONAL_WORKSPACE) {
 			chunkNumber: number,
 			data: Blob,
 			onProgress?: (loaded: number, total: number) => void,
+			onCreateXhr?: (xhr: XMLHttpRequest) => void,
 		): Promise<ChunkUploadResponse> => {
 			return new Promise((resolve, reject) => {
 				const xhr = new XMLHttpRequest();
+				onCreateXhr?.(xhr);
 				xhr.open(
 					"PUT",
 					`${config.apiBaseUrl}${buildUploadPath(
@@ -165,6 +167,14 @@ export function createUploadService(workspace: Workspace = PERSONAL_WORKSPACE) {
 					reject(
 						new UploadRequestError("network error", {
 							retryable: true,
+						}),
+					);
+				xhr.onabort = () =>
+					reject(
+						new UploadRequestError("upload aborted", {
+							isAborted: true,
+							retryable: false,
+							status: xhr.status,
 						}),
 					);
 				xhr.send(data);

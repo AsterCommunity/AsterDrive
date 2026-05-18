@@ -65,10 +65,14 @@ pub(crate) async fn image_preview_for_file(
     f: &crate::entities::file::Model,
 ) -> Result<ImagePreviewResult> {
     let blob = file_repo::find_blob_by_id(&state.db, f.blob_id).await?;
-    let preview =
-        media_processing_service::generate_and_store_image_preview(state, &blob, &f.name, &f.mime_type)
-            .await
-            .map_err(media_processing_service::map_thumbnail_request_error)?;
+    let preview = media_processing_service::generate_and_store_image_preview(
+        state,
+        &blob,
+        &f.name,
+        &f.mime_type,
+    )
+    .await
+    .map_err(media_processing_service::map_thumbnail_request_error)?;
 
     Ok(ImagePreviewResult {
         data: preview.data,

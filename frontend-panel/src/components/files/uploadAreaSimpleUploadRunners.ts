@@ -16,6 +16,8 @@ import type {
 	UploadModeRunnerContext,
 	UploadModeRunners,
 } from "./uploadAreaUploadRunnerShared";
+import { withTrackedUploadRequest } from "./uploadAreaUploadRunnerShared";
+import { createUploadSpeedTracker } from "./uploadSpeed";
 
 function buildDirectUploadPath(
 	task: UploadTask,
@@ -44,7 +46,7 @@ export function createSimpleUploadRunners({
 	markTaskFailed,
 	patchTask,
 	patchTaskThrottled,
-	presignedXhrRef,
+	uploadRequestRef,
 	workspace,
 }: UploadModeRunnerContext): Pick<
 	UploadModeRunners,
@@ -53,17 +55,21 @@ export function createSimpleUploadRunners({
 	const runDirectUpload = async (task: UploadTask) => {
 		if (!task.file) return;
 
+		const file = task.file;
 		patchTask(task.id, {
 			mode: "direct",
 			status: "uploading",
 			progress: 0,
+			uploadedBytes: 0,
+			speedBps: undefined,
 		});
+		const speedTracker = createUploadSpeedTracker();
 		const controller = new AbortController();
 		directAbortRef.current.set(task.id, controller);
 
 		try {
 			const formData = new FormData();
-			formData.append("file", task.file);
+			formData.append("file", file);
 			await api.client.post(buildDirectUploadPath(task, workspace), formData, {
 				headers: { "Content-Type": "multipart/form-data" },
 				signal: controller.signal,
@@ -72,6 +78,7 @@ export function createSimpleUploadRunners({
 					if (!event.total) return;
 					patchTaskThrottled(task.id, {
 						progress: Math.round((event.loaded / event.total) * 100),
+						...speedTracker.sample(event.loaded),
 					});
 				},
 			});
@@ -79,6 +86,7 @@ export function createSimpleUploadRunners({
 			patchTask(task.id, {
 				status: "completed",
 				progress: 100,
+				...speedTracker.stop(file.size),
 				error: null,
 			});
 			markFolderForRefresh(task);
@@ -100,6 +108,7 @@ export function createSimpleUploadRunners({
 	) => {
 		if (!task.file) return;
 
+		const file = task.file;
 		const uploadId = init.upload_id as string;
 		const presignedUrl = init.presigned_url as string;
 		patchTask(task.id, {
@@ -107,31 +116,38 @@ export function createSimpleUploadRunners({
 			status: "uploading",
 			uploadId,
 			progress: 0,
+			uploadedBytes: 0,
+			speedBps: undefined,
 		});
+		const speedTracker = createUploadSpeedTracker();
 
 		try {
-			await uploadService.presignedUpload(
-				presignedUrl,
-				task.file,
-				(loaded, total) => {
-					patchTaskThrottled(task.id, {
-						progress: Math.round((loaded / total) * S3_PROCESSING_PROGRESS),
-					});
-				},
-				(xhr) => {
-					presignedXhrRef.current.set(task.id, xhr);
-				},
+			await withTrackedUploadRequest(uploadRequestRef, task.id, (onCreateXhr) =>
+				uploadService.presignedUpload(
+					presignedUrl,
+					file,
+					(loaded, total) => {
+						patchTaskThrottled(task.id, {
+							progress: Math.round((loaded / total) * S3_PROCESSING_PROGRESS),
+							...speedTracker.sample(loaded),
+						});
+					},
+					onCreateXhr,
+				),
 			);
 
 			flushProgress();
 			patchTask(task.id, {
 				status: "processing",
 				progress: getProcessingProgress(task.mode),
+				...speedTracker.stop(file.size),
 			});
 			await completeWithRetry(uploadId);
 			patchTask(task.id, {
 				status: "completed",
 				progress: 100,
+				uploadedBytes: file.size,
+				speedBps: undefined,
 				error: null,
 			});
 			markFolderForRefresh(task);
@@ -142,8 +158,6 @@ export function createSimpleUploadRunners({
 			}
 			const message = getApiErrorMessage(error);
 			markTaskFailed(task.id, message);
-		} finally {
-			presignedXhrRef.current.delete(task.id);
 		}
 	};
 

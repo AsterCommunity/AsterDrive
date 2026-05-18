@@ -838,7 +838,8 @@ pub async fn shared_folder_file_image_preview(
     let cookie_value = share_cookie_value(&req, &token);
     share_service::check_share_password_cookie(&state, &token, cookie_value.as_deref()).await?;
 
-    let result = share_service::get_shared_folder_file_image_preview(&state, &token, file_id).await?;
+    let result =
+        share_service::get_shared_folder_file_image_preview(&state, &token, file_id).await?;
     let if_none_match = req
         .headers()
         .get("If-None-Match")

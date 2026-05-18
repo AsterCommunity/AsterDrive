@@ -473,6 +473,63 @@ async fn s3_object_exists(client: &aws_sdk_s3::Client, bucket: &str, key: &str) 
     }
 }
 
+async fn wait_for_s3_multipart_abort(
+    client: &aws_sdk_s3::Client,
+    bucket: &str,
+    key: &str,
+    upload_id: &str,
+) {
+    use aws_sdk_s3::error::ProvideErrorMetadata;
+
+    let ready = tokio::time::timeout(std::time::Duration::from_secs(15), async {
+        loop {
+            match client
+                .list_parts()
+                .bucket(bucket)
+                .key(key)
+                .upload_id(upload_id)
+                .send()
+                .await
+            {
+                Ok(response) => {
+                    tracing::debug!(
+                        upload_id,
+                        bucket,
+                        key,
+                        part_count = response.parts().len(),
+                        "multipart upload still exists while waiting for abort"
+                    );
+                    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+                }
+                Err(error) => {
+                    let code = error.code();
+                    let http_status = error
+                        .raw_response()
+                        .map(|response| response.status().as_u16());
+                    if matches!(code, Some("NoSuchUpload" | "NotFound")) || http_status == Some(404)
+                    {
+                        break;
+                    }
+
+                    tracing::debug!(
+                        upload_id,
+                        bucket,
+                        key,
+                        error = %error,
+                        "multipart abort is not visible yet"
+                    );
+                    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+                }
+            }
+        }
+    })
+    .await;
+
+    if ready.is_err() {
+        panic!("timed out waiting for aborted multipart upload {upload_id} at {bucket}/{key}");
+    }
+}
+
 fn snapshot_dir_tree(
     path: &std::path::Path,
 ) -> std::io::Result<std::collections::BTreeSet<String>> {
@@ -2640,34 +2697,105 @@ async fn test_upload_service_cleanup_expired_keeps_remote_sessions_when_storage_
     );
 }
 
-#[actix_web::test]
-async fn test_cancel_upload_keeps_multipart_session_for_grace_cleanup() {
-    use aster_drive::db::repository::{upload_session_part_repo, upload_session_repo};
+#[tokio::test]
+async fn test_cancel_upload_aborts_presigned_multipart_session_on_rustfs() {
+    use aster_drive::db::repository::upload_session_repo;
     use aster_drive::services::{auth_service, upload_service};
-    use aster_drive::types::UploadSessionStatus;
+    use aws_sdk_s3::error::ProvideErrorMetadata;
+    use testcontainers::{GenericImage, ImageExt, runners::AsyncRunner};
+
+    let container = GenericImage::new("rustfs/rustfs", RUSTFS_TEST_IMAGE_TAG)
+        .with_exposed_port(testcontainers::core::IntoContainerPort::tcp(9000))
+        .with_env_var("RUSTFS_ACCESS_KEY", "rustfsadmin")
+        .with_env_var("RUSTFS_SECRET_KEY", "rustfsadmin123")
+        .start()
+        .await
+        .expect("failed to start rustfs container");
+
+    let port = container.get_host_port_ipv4(9000).await.unwrap();
+    let endpoint = format!("http://127.0.0.1:{port}");
+    let bucket = "test-cancel-presigned-multipart";
+    wait_for_s3_bucket(&endpoint, bucket).await;
 
     let state = common::setup().await;
     let user = auth_service::register(
         &state,
-        "cancelgraceuser",
-        "cancel-grace@test.com",
+        "cancelmpuser",
+        "cancel-multipart@test.com",
         "password123",
     )
     .await
     .unwrap();
-    let upload_id = new_test_upload_id();
-    create_upload_session(
+    let policy = create_s3_default_policy(
         &state,
         user.id,
-        UploadSessionSpec::new(
-            &upload_id,
-            UploadSessionStatus::Uploading,
-            chrono::Utc::now() + chrono::Duration::hours(1),
-        )
-        .chunks(2, 0)
-        .s3(Some("files/temp-key"), Some("multipart-id")),
+        "Cancel Multipart RustFS Policy",
+        &endpoint,
+        bucket,
+        r#"{"s3_upload_strategy":"presigned"}"#,
+        TEST_CHUNK_SIZE as i64,
     )
     .await;
+
+    let part1 = vec![b'A'; TEST_CHUNK_SIZE];
+    let data_len = i64::try_from(TEST_CHUNK_SIZE + 11).unwrap();
+    let init = upload_service::init_upload(
+        &state,
+        user.id,
+        "cancel-multipart.bin",
+        data_len,
+        None,
+        None,
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        init.mode,
+        aster_drive::types::UploadMode::PresignedMultipart
+    );
+    assert_eq!(init.total_chunks, Some(2));
+    let upload_id = init.upload_id.clone().unwrap();
+
+    let session = upload_session_repo::find_by_id(&state.db, &upload_id)
+        .await
+        .unwrap();
+    let temp_key = session
+        .s3_temp_key
+        .clone()
+        .expect("multipart session should store temp key");
+    let multipart_id = session
+        .s3_multipart_id
+        .clone()
+        .expect("multipart session should store multipart id");
+    let object_key =
+        aster_drive::storage::object_key::join_key_prefix(&policy.base_path, &temp_key);
+
+    let urls = upload_service::presign_parts(&state, &upload_id, user.id, vec![1])
+        .await
+        .unwrap();
+    let part_url = urls.get(&1).expect("part 1 URL missing");
+    let client = reqwest::Client::new();
+    let response = client
+        .put(part_url)
+        .header(reqwest::header::CONTENT_LENGTH, part1.len())
+        .body(part1)
+        .send()
+        .await
+        .unwrap();
+    assert!(
+        response.status().is_success(),
+        "multipart part upload failed: {}",
+        response.status()
+    );
+
+    let progress = upload_service::get_progress(&state, &upload_id, user.id)
+        .await
+        .unwrap();
+    assert_eq!(
+        progress.status,
+        aster_drive::types::UploadSessionStatus::Presigned
+    );
+    assert_eq!(progress.chunks_on_disk, vec![1]);
 
     let temp_dir = aster_drive::utils::paths::upload_temp_dir(
         &state.config.server.upload_temp_dir,
@@ -2678,36 +2806,40 @@ async fn test_cancel_upload_keeps_multipart_session_for_grace_cleanup() {
         .await
         .unwrap();
 
-    let canceled_at = chrono::Utc::now();
     upload_service::cancel_upload(&state, &upload_id, user.id)
         .await
         .unwrap();
 
-    let session = upload_session_repo::find_by_id(&state.db, &upload_id)
-        .await
-        .unwrap();
-    assert_eq!(session.status, UploadSessionStatus::Failed);
     assert!(
-        session.expires_at > canceled_at,
-        "multipart cancel should defer cleanup instead of deleting the session immediately"
-    );
-    assert!(
-        session.expires_at <= canceled_at + chrono::Duration::seconds(20),
-        "multipart cancel grace window should stay short"
+        upload_session_repo::find_by_id(&state.db, &upload_id)
+            .await
+            .is_err(),
+        "canceled multipart upload session should be deleted immediately"
     );
     assert!(
         !std::path::Path::new(&temp_dir).exists(),
-        "multipart cancel should still clean local temp data"
+        "canceled multipart upload should clean local temp data"
     );
 
-    upload_session_part_repo::upsert_part(&state.db, &upload_id, 1, "etag-1", 5)
+    let s3_client = s3_test_client(&endpoint);
+    wait_for_s3_multipart_abort(&s3_client, bucket, &object_key, &multipart_id).await;
+
+    let err = s3_client
+        .list_parts()
+        .bucket(bucket)
+        .key(&object_key)
+        .upload_id(&multipart_id)
+        .send()
         .await
-        .unwrap();
-    let part = upload_session_part_repo::find_by_upload_and_part(&state.db, &upload_id, 1)
-        .await
-        .unwrap()
-        .expect("session row should remain available during grace window");
-    assert_eq!(part.etag, "etag-1");
+        .unwrap_err();
+    let code = err.code();
+    let http_status = err
+        .raw_response()
+        .map(|response| response.status().as_u16());
+    assert!(
+        matches!(code, Some("NoSuchUpload" | "NotFound")) || http_status == Some(404),
+        "expected aborted multipart upload to be gone, got error: {err}"
+    );
 }
 
 #[actix_web::test]

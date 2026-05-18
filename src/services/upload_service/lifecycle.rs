@@ -192,15 +192,15 @@ async fn cancel_upload_impl(state: &PrimaryAppState, session: upload_session::Mo
         "canceling upload session"
     );
 
-    if session.s3_multipart_id.is_some()
-        && matches!(
-            session.status,
-            UploadSessionStatus::Uploading
-                | UploadSessionStatus::Presigned
-                | UploadSessionStatus::Assembling
+    let defer_active_multipart_cleanup = session.s3_multipart_id.is_some()
+        && matches!(session.status, UploadSessionStatus::Assembling);
+    if defer_active_multipart_cleanup {
+        defer_upload_session_cleanup(
+            state,
+            upload_id,
+            "canceled assembling multipart upload session",
         )
-    {
-        defer_upload_session_cleanup(state, upload_id, "canceled multipart upload session").await?;
+        .await?;
         return Ok(());
     }
 

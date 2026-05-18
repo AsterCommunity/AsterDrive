@@ -88,6 +88,16 @@ export function formatBytes(bytes: number): string {
 	return `${(bytes / k ** i).toFixed(1)} ${sizes[i]}`;
 }
 
+export function formatBytesPerSecond(bytesPerSecond: number): string {
+	if (!Number.isFinite(bytesPerSecond) || bytesPerSecond <= 0) {
+		return "";
+	}
+	if (bytesPerSecond < 1024) {
+		return `${Math.round(bytesPerSecond)} B/s`;
+	}
+	return `${formatBytes(bytesPerSecond)}/s`;
+}
+
 export function formatNumber(value: number): string {
 	if (!Number.isFinite(value)) {
 		return String(value);

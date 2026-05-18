@@ -1143,7 +1143,7 @@ describe("AdminPoliciesPage", () => {
 		);
 	});
 
-	it("tests changed s3 params and updates without sending blank secrets", async () => {
+	it("tests changed s3 params and updates with provided credentials", async () => {
 		mockState.items = [
 			createPolicy({
 				id: 7,
@@ -1197,6 +1197,9 @@ describe("AdminPoliciesPage", () => {
 		fireEvent.change(screen.getByLabelText("Access Key"), {
 			target: { value: "NEWKEY" },
 		});
+		fireEvent.change(screen.getByLabelText("Secret Key"), {
+			target: { value: "NEWSECRET" },
+		});
 		fireEvent.click(
 			screen.getAllByRole("button", { name: "select-item:relay_stream" })[0],
 		);
@@ -1210,7 +1213,7 @@ describe("AdminPoliciesPage", () => {
 				driver_type: "s3",
 				endpoint: "https://s3.example.com",
 				remote_node_id: undefined,
-				secret_key: undefined,
+				secret_key: "NEWSECRET",
 			});
 		});
 		await waitFor(() => {
@@ -1246,7 +1249,7 @@ describe("AdminPoliciesPage", () => {
 			}),
 		);
 		expect(payload).toHaveProperty("access_key", "NEWKEY");
-		expect(payload).not.toHaveProperty("secret_key");
+		expect(payload).toHaveProperty("secret_key", "NEWSECRET");
 		expect(mockState.toastSuccess).toHaveBeenCalledWith("policy_updated");
 	});
 
@@ -1344,23 +1347,6 @@ describe("AdminPoliciesPage", () => {
 		expect(screen.getByDisplayValue("legacy-bucket")).toBeInTheDocument();
 		expect(screen.getByDisplayValue("legacy-path")).toBeInTheDocument();
 
-		fireEvent.change(screen.getByLabelText("Access Key"), {
-			target: { value: "LEGACYKEY" },
-		});
-		fireEvent.click(screen.getByRole("button", { name: /test_connection/i }));
-
-		await waitFor(() => {
-			expect(mockState.testParams).toHaveBeenCalledWith({
-				access_key: "LEGACYKEY",
-				base_path: "legacy-path",
-				bucket: "legacy-bucket",
-				driver_type: "s3",
-				endpoint: "https://s3.example.com",
-				remote_node_id: undefined,
-				secret_key: undefined,
-			});
-		});
-
 		fireEvent.click(screen.getByRole("button", { name: /save_changes/i }));
 
 		await waitFor(() => {
@@ -1379,7 +1365,7 @@ describe("AdminPoliciesPage", () => {
 			number,
 			Record<string, unknown>,
 		];
-		expect(payload).toHaveProperty("access_key", "LEGACYKEY");
+		expect(payload).not.toHaveProperty("access_key");
 		expect(payload).not.toHaveProperty("secret_key");
 		expect(mockState.toastSuccess).toHaveBeenCalledWith("policy_updated");
 	});
@@ -1408,6 +1394,9 @@ describe("AdminPoliciesPage", () => {
 		fireEvent.change(screen.getByLabelText("Access Key"), {
 			target: { value: "NEWKEY" },
 		});
+		fireEvent.change(screen.getByLabelText("Secret Key"), {
+			target: { value: "NEWSECRET" },
+		});
 		fireEvent.click(
 			screen.getAllByRole("button", { name: "select-item:relay_stream" })[0],
 		);
@@ -1421,7 +1410,7 @@ describe("AdminPoliciesPage", () => {
 				driver_type: "s3",
 				endpoint: "https://s3.example.com",
 				remote_node_id: undefined,
-				secret_key: undefined,
+				secret_key: "NEWSECRET",
 			});
 		});
 
@@ -1450,9 +1439,10 @@ describe("AdminPoliciesPage", () => {
 					s3_download_strategy: "relay_stream",
 					s3_upload_strategy: "relay_stream",
 				},
+				secret_key: "NEWSECRET",
 			}),
 		);
-		expect(payload).not.toHaveProperty("secret_key");
+		expect(payload).toHaveProperty("secret_key", "NEWSECRET");
 		expect(mockState.toastSuccess).toHaveBeenCalledWith("policy_updated");
 	});
 
@@ -1496,19 +1486,25 @@ describe("AdminPoliciesPage", () => {
 		fireEvent.change(screen.getByLabelText("bucket"), {
 			target: { value: "broken-bucket" },
 		});
+		fireEvent.change(screen.getByLabelText("Access Key"), {
+			target: { value: "BROKENKEY" },
+		});
+		fireEvent.change(screen.getByLabelText("Secret Key"), {
+			target: { value: "BROKENSECRET" },
+		});
 		advanceCreateWizardToRulesStep();
 
 		fireEvent.click(screen.getByRole("button", { name: /core:create/i }));
 
 		await waitFor(() => {
 			expect(mockState.testParams).toHaveBeenCalledWith({
-				access_key: undefined,
+				access_key: "BROKENKEY",
 				base_path: undefined,
 				bucket: "broken-bucket",
 				driver_type: "s3",
 				endpoint: "https://s3.example.com",
 				remote_node_id: undefined,
-				secret_key: undefined,
+				secret_key: "BROKENSECRET",
 			});
 		});
 		expect(mockState.create).not.toHaveBeenCalled();
@@ -1524,7 +1520,7 @@ describe("AdminPoliciesPage", () => {
 
 		await waitFor(() => {
 			expect(mockState.create).toHaveBeenCalledWith({
-				access_key: "",
+				access_key: "BROKENKEY",
 				base_path: "",
 				bucket: "broken-bucket",
 				chunk_size: 5 * 1024 * 1024,
@@ -1538,7 +1534,7 @@ describe("AdminPoliciesPage", () => {
 					s3_upload_strategy: "relay_stream",
 				},
 				remote_node_id: undefined,
-				secret_key: "",
+				secret_key: "BROKENSECRET",
 			});
 		});
 		expect(mockState.toastSuccess).toHaveBeenCalledWith("policy_created");
@@ -1659,5 +1655,42 @@ describe("AdminPoliciesPage", () => {
 		await waitFor(() => {
 			expect(mockState.toastSuccess).toHaveBeenCalledWith("policy_deleted");
 		});
+	});
+
+	it("reports backend validation errors for incomplete s3 connection tests", async () => {
+		const validationError = new Error("access_key is required");
+		mockState.testParams.mockRejectedValueOnce(validationError);
+		render(<AdminPoliciesPage />);
+
+		openCreateWizard("s3");
+
+		fireEvent.change(screen.getByLabelText("core:name"), {
+			target: { value: "Broken S3" },
+		});
+		fireEvent.change(screen.getByLabelText("endpoint"), {
+			target: { value: "https://s3.example.com" },
+		});
+		fireEvent.change(screen.getByLabelText("bucket"), {
+			target: { value: "broken-bucket" },
+		});
+		advanceCreateWizardToRulesStep();
+
+		expect(
+			screen.getByRole("button", { name: /test_connection/i }),
+		).not.toBeDisabled();
+		fireEvent.click(screen.getByRole("button", { name: /test_connection/i }));
+		await waitFor(() => {
+			expect(mockState.testParams).toHaveBeenCalledWith({
+				access_key: undefined,
+				base_path: undefined,
+				bucket: "broken-bucket",
+				driver_type: "s3",
+				endpoint: "https://s3.example.com",
+				remote_node_id: undefined,
+				secret_key: undefined,
+			});
+		});
+		expect(mockState.handleApiError).toHaveBeenCalledWith(validationError);
+		expect(mockState.testConnection).not.toHaveBeenCalled();
 	});
 });

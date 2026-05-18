@@ -117,7 +117,8 @@ pub(super) async fn render_image_preview_with_vips_cli(
     command: &str,
 ) -> Result<Vec<u8>> {
     let temp_root = crate::utils::paths::runtime_temp_dir(&state.config.server.temp_dir);
-    let temp_dir = PathBuf::from(temp_root).join(format!("media-vips-preview-{}", uuid::Uuid::new_v4()));
+    let temp_dir =
+        PathBuf::from(temp_root).join(format!("media-vips-preview-{}", uuid::Uuid::new_v4()));
     tokio::fs::create_dir_all(&temp_dir)
         .await
         .map_aster_err_ctx("create vips temp dir", AsterError::storage_driver_error)?;
@@ -181,7 +182,10 @@ pub(super) async fn render_image_preview_with_vips_cli(
         Ok::<(), AsterError>(())
     })
     .await
-    .map_aster_err_ctx("vips CLI image preview task panicked", thumbnail_render_failed)??;
+    .map_aster_err_ctx(
+        "vips CLI image preview task panicked",
+        thumbnail_render_failed,
+    )??;
 
     let preview = read_cli_thumbnail_output(&output_path, "read vips image preview output").await;
     if let Ok(bytes) = &preview {

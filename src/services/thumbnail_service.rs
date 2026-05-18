@@ -288,7 +288,8 @@ pub(crate) async fn render_webp_derivative_bytes(
 
     let temp_source = materialize_thumbnail_source_stream(driver, blob, temp_root).await?;
     tokio::task::spawn_blocking(move || {
-        let result = generate_webp_derivative_from_local_path(temp_source.path().to_path_buf(), max_dim);
+        let result =
+            generate_webp_derivative_from_local_path(temp_source.path().to_path_buf(), max_dim);
         drop(temp_source);
         result
     })

@@ -356,6 +356,7 @@
 	"public_site_url_origin_label": "Public site origin",
 	"public_site_url_primary_origin": "Primary",
 	"public_site_url_add_origin": "Add public site origin",
+	"public_site_url_add_current_origin": "Use current address",
 	"public_site_url_remove_origin": "Remove public site origin",
 	"settings_string_array_item_label": "List item",
 	"settings_string_array_add_item": "Add list item",

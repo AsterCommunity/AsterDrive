@@ -16,8 +16,8 @@ use super::resolve::{build_thumbnail_context, build_thumbnail_context_with_proce
 use super::shared::{StoredThumbnail, ThumbnailContext, ThumbnailData};
 
 pub use cache::delete_thumbnail;
-pub use probe::probe_ffmpeg_cli_command;
 pub use preview::generate_and_store_image_preview;
+pub use probe::probe_ffmpeg_cli_command;
 
 pub async fn load_thumbnail_if_exists(
     state: &PrimaryAppState,

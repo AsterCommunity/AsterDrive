@@ -1,6 +1,7 @@
 import axios from "axios";
 import { create } from "zustand";
 import i18n from "@/i18n";
+import { runWithCrossTabRefreshLock } from "@/lib/crossTabRefresh";
 import { logger } from "@/lib/logger";
 import { cancelPreferenceSync } from "@/lib/preferenceSync";
 import { authService } from "@/services/authService";
@@ -46,7 +47,7 @@ function setCachedUser(user: MeResponse | null) {
 }
 
 function getExpiresAtFromUser(
-	user: Pick<MeResponse, "access_token_expires_at"> | null,
+	user: { access_token_expires_at?: number | null } | null,
 ) {
 	const expiresAtSeconds = Number(user?.access_token_expires_at);
 	if (!Number.isFinite(expiresAtSeconds) || expiresAtSeconds <= 0) {
@@ -323,8 +324,23 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
 		inFlightRefresh = (async () => {
 			try {
-				const session = await authService.refreshToken();
-				get().syncSession(session.expiresIn);
+				const refreshedLocally = await runWithCrossTabRefreshLock(async () => {
+					const session = await authService.refreshToken();
+					get().syncSession(session.expiresIn);
+				});
+				if (!refreshedLocally) {
+					const user = await authService.me(["session"]);
+					const expiresAt =
+						getExpiresAtFromUser(user) ?? Date.now() + REFRESH_RETRY_MS;
+					setStoredExpiresAt(expiresAt);
+					set({
+						expiresAt,
+						isAuthenticated: true,
+						isAuthStale: false,
+						bootOffline: false,
+					});
+					get().startAutoRefresh();
+				}
 			} catch (error) {
 				if (axios.isAxiosError(error) && error.response) {
 					applyLoggedOutState(set);

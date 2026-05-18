@@ -281,7 +281,6 @@ pub async fn get_image_preview(
     .await
 }
 
-
 #[api_docs_macros::path(
     get,
     path = "/api/v1/teams/{team_id}/files/{id}",
@@ -505,7 +504,6 @@ pub(crate) async fn team_get_image_preview(
     let (team_id, file_id) = path.into_inner();
     get_image_preview_response(&state, &req, team_scope(team_id, claims.user_id), file_id).await
 }
-
 
 #[api_docs_macros::path(
     get,
@@ -836,10 +834,10 @@ mod tests {
     use crate::db::repository::file_repo;
     use crate::entities::{file, file_blob, storage_policy, user};
     use crate::runtime::PrimaryAppState;
-    use crate::services::{auth_service, mail_service, media_processing_service};
     use crate::services::file_service::{ImagePreviewResult, ThumbnailResult};
-    use crate::storage::drivers::local::LocalDriver;
+    use crate::services::{auth_service, mail_service, media_processing_service};
     use crate::storage::StorageDriver;
+    use crate::storage::drivers::local::LocalDriver;
     use crate::storage::{DriverRegistry, PolicySnapshot};
     use crate::types::{
         DriverType, StoredStoragePolicyAllowedTypes, StoredStoragePolicyOptions, UserRole,
@@ -938,8 +936,9 @@ mod tests {
 
         let source_bytes = tiny_png();
         let source_hash = crate::utils::hash::sha256_hex(&source_bytes);
-        let driver =
-            Arc::new(LocalDriver::new(&policy).expect("image preview route local driver should build"));
+        let driver = Arc::new(
+            LocalDriver::new(&policy).expect("image preview route local driver should build"),
+        );
         let source_path = "objects/source.png";
         driver
             .put(source_path, &source_bytes)
@@ -949,13 +948,11 @@ mod tests {
             &db,
             file_blob::ActiveModel {
                 hash: Set(source_hash),
-                size: Set(
-                    crate::utils::numbers::usize_to_i64(
-                        source_bytes.len(),
-                        "image preview route source size",
-                    )
-                    .expect("image preview route source size should fit i64"),
-                ),
+                size: Set(crate::utils::numbers::usize_to_i64(
+                    source_bytes.len(),
+                    "image preview route source size",
+                )
+                .expect("image preview route source size should fit i64")),
                 policy_id: Set(policy.id),
                 storage_path: Set(source_path.to_string()),
                 thumbnail_path: Set(None),
@@ -1084,7 +1081,9 @@ mod tests {
 
         let resp = image_preview_response(
             result,
-            Some("\"image-preview-images-1-abcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabca\""),
+            Some(
+                "\"image-preview-images-1-abcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabca\"",
+            ),
             "private, max-age=0, must-revalidate".to_string(),
         );
 
@@ -1106,7 +1105,9 @@ mod tests {
 
         let resp = thumbnail_response(
             result,
-            Some("\"thumb-images-1-abcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabca\""),
+            Some(
+                "\"thumb-images-1-abcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabca\"",
+            ),
             "private, max-age=0, must-revalidate".to_string(),
         );
 
@@ -1121,15 +1122,12 @@ mod tests {
     async fn get_image_preview_route_returns_webp_and_honors_if_none_match() {
         let (state, user, file) = build_image_preview_route_state().await;
         let token = access_token_for(&state, &user).await;
-        let app = test::init_service(
-            App::new().app_data(web::Data::new(state.clone())).service(
-                web::scope("/api/v1")
-                    .service(crate::api::routes::files::routes(&RateLimitConfig {
-                        enabled: false,
-                        ..Default::default()
-                    })),
-            ),
-        )
+        let app = test::init_service(App::new().app_data(web::Data::new(state.clone())).service(
+            web::scope("/api/v1").service(crate::api::routes::files::routes(&RateLimitConfig {
+                enabled: false,
+                ..Default::default()
+            })),
+        ))
         .await;
 
         let response = test::call_service(

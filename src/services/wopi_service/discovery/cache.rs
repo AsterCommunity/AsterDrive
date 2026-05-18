@@ -15,7 +15,7 @@ use super::types::{CachedWopiDiscovery, WopiDiscovery};
 static DISCOVERY_CACHE: LazyLock<Cache<String, CachedWopiDiscovery>> =
     LazyLock::new(|| Cache::builder().max_capacity(128).build());
 
-static DISCOVERY_CLIENT: LazyLock<reqwest::Client> = LazyLock::new(|| build_discovery_client());
+static DISCOVERY_CLIENT: LazyLock<reqwest::Client> = LazyLock::new(build_discovery_client);
 
 fn build_discovery_client() -> reqwest::Client {
     reqwest::Client::builder()

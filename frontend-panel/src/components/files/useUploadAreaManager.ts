@@ -41,6 +41,7 @@ import {
 	buildUploadTaskViews,
 	summarizeUploadTasks,
 } from "./uploadAreaManagerView";
+import { abortAllUploadRequests } from "./uploadAreaUploadRunnerShared";
 import { useUploadAreaRestore } from "./useUploadAreaRestore";
 import { useUploadAreaUploads } from "./useUploadAreaUploads";
 
@@ -72,7 +73,7 @@ export function useUploadAreaManager({
 	const tasksRef = useRef<UploadTask[]>([]);
 	const abortFlagsRef = useRef(new Map<string, boolean>());
 	const directAbortRef = useRef(new Map<string, AbortController>());
-	const presignedXhrRef = useRef(new Map<string, XMLHttpRequest>());
+	const uploadRequestRef = useRef(new Map<string, Set<XMLHttpRequest>>());
 	const multipartInFlightRef = useRef(new Map<string, number>());
 	const pendingRefreshFolderIdsRef = useRef(new Set<number | null>());
 	const previousTaskCountRef = useRef(0);
@@ -105,9 +106,7 @@ export function useUploadAreaManager({
 			for (const controller of directAbortRef.current.values()) {
 				controller.abort();
 			}
-			for (const xhr of presignedXhrRef.current.values()) {
-				xhr.abort();
-			}
+			abortAllUploadRequests(uploadRequestRef);
 			if (progressFlushTimerRef.current !== null) {
 				window.clearTimeout(progressFlushTimerRef.current);
 			}
@@ -122,14 +121,22 @@ export function useUploadAreaManager({
 	const patchTask = useCallback(
 		(taskId: string, patch: Partial<UploadTask>) => {
 			const terminalStatuses: UploadStatus[] = ["completed", "cancelled"];
+			const normalizedPatch =
+				patch.status && patch.status !== "uploading"
+					? { ...patch, speedBps: undefined }
+					: patch;
+			if (patch.status && patch.status !== "uploading") {
+				progressBufferRef.current.delete(taskId);
+			}
 			if (uploadSettings.autoClearCompleted && patch.status === "completed") {
 				setTasks((prev) => prev.filter((task) => task.id !== taskId));
 				return;
 			}
 			const finalPatch =
-				patch.status && terminalStatuses.includes(patch.status)
-					? { ...patch, file: null }
-					: patch;
+				normalizedPatch.status &&
+				terminalStatuses.includes(normalizedPatch.status)
+					? { ...normalizedPatch, file: null }
+					: normalizedPatch;
 			setTasks((prev) =>
 				prev.map((task) =>
 					task.id === taskId ? { ...task, ...finalPatch } : task,
@@ -268,6 +275,8 @@ export function useUploadAreaManager({
 								status: "queued" as const,
 								error: null,
 								progress: 0,
+								uploadedBytes: 0,
+								speedBps: undefined,
 							};
 
 				return prev.map((item) =>
@@ -307,6 +316,7 @@ export function useUploadAreaManager({
 			patchTask(taskId, {
 				status: "failed",
 				error: message,
+				speedBps: undefined,
 			});
 		},
 		[patchTask],
@@ -322,7 +332,7 @@ export function useUploadAreaManager({
 			multipartInFlightRef,
 			patchTask,
 			patchTaskThrottled,
-			presignedXhrRef,
+			uploadRequestRef,
 			setTasks,
 			setUploadPanelOpen,
 			t,

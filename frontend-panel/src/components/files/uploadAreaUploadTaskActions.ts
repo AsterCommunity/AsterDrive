@@ -16,18 +16,22 @@ import {
 	type UploadAreaManagerTranslationFn,
 	type UploadTask,
 } from "./uploadAreaManagerShared";
-import type { UploadModeRunners } from "./uploadAreaUploadRunnerShared";
+import {
+	abortUploadRequests,
+	type UploadModeRunners,
+	type UploadRequestRef,
+} from "./uploadAreaUploadRunnerShared";
 
 export interface UploadTaskActionsContext extends UploadModeRunners {
 	abortFlagsRef: MutableRefObject<Map<string, boolean>>;
 	directAbortRef: MutableRefObject<Map<string, AbortController>>;
 	markTaskFailed: (taskId: string, message: string) => void;
 	patchTask: (taskId: string, patch: Partial<UploadTask>) => void;
-	presignedXhrRef: MutableRefObject<Map<string, XMLHttpRequest>>;
 	setTasks: Dispatch<SetStateAction<UploadTask[]>>;
 	setUploadPanelOpen: Dispatch<SetStateAction<boolean>>;
 	t: UploadAreaManagerTranslationFn;
 	tasksRef: MutableRefObject<UploadTask[]>;
+	uploadRequestRef: UploadRequestRef;
 	workspace: Workspace;
 }
 
@@ -72,7 +76,13 @@ export async function runQueuedUploadTask(
 	if (!task || task.status !== "queued" || !task.file) return;
 
 	const file = task.file;
-	patchTask(taskId, { status: "initializing", error: null, progress: 0 });
+	patchTask(taskId, {
+		status: "initializing",
+		error: null,
+		progress: 0,
+		uploadedBytes: 0,
+		speedBps: undefined,
+	});
 
 	try {
 		if (
@@ -197,9 +207,9 @@ export async function cancelUploadTask(
 		cancelMultipartSession,
 		directAbortRef,
 		patchTask,
-		presignedXhrRef,
 		setTasks,
 		tasksRef,
+		uploadRequestRef,
 	}: UploadTaskActionsContext,
 ) {
 	const task = tasksRef.current.find((item) => item.id === taskId);
@@ -212,7 +222,7 @@ export async function cancelUploadTask(
 	}
 
 	if (task.mode === "presigned") {
-		presignedXhrRef.current.get(taskId)?.abort();
+		abortUploadRequests(uploadRequestRef, taskId);
 		if (task.uploadId) {
 			try {
 				await uploadService.cancelUpload(task.uploadId);
@@ -289,6 +299,8 @@ export async function retryUploadTask(
 	patchTask(taskId, {
 		status: "queued",
 		progress: 0,
+		uploadedBytes: 0,
+		speedBps: undefined,
 		error: null,
 		uploadId: null,
 		completedChunks: 0,

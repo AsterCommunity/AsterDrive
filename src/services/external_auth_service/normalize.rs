@@ -364,12 +364,12 @@ pub fn callback_redirect_uri(
     let path = callback_path(provider_kind, provider_key);
     let uri = site_url::public_app_url_for_request(&state.runtime_config, &path, scheme, host)
         .ok_or_else(|| {
-            AsterError::config_error(
+            AsterError::validation_error(
                 "cannot build external auth callback redirect URI; configure public_site_url",
             )
         })?;
     if uri.starts_with('/') {
-        return Err(AsterError::config_error(
+        return Err(AsterError::validation_error(
             "external auth callback redirect URI must be absolute; configure public_site_url",
         ));
     }

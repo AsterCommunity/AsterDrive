@@ -109,6 +109,7 @@ vi.mock("@/services/fileService", () => ({
 	fileService: {
 		downloadPath: (id: number) => `/files/${id}/download`,
 		thumbnailPath: (id: number) => `/files/${id}/thumbnail`,
+		imagePreviewPath: (id: number) => `/files/${id}/image-preview`,
 	},
 }));
 

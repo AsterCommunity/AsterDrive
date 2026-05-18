@@ -101,7 +101,9 @@ impl ExternalAuthProviderConfig {
         self.issuer_url
             .as_deref()
             .filter(|value| !value.trim().is_empty())
-            .ok_or_else(|| AsterError::config_error("external auth provider missing issuer_url"))
+            .ok_or_else(|| {
+                AsterError::validation_error("external auth provider missing issuer_url")
+            })
     }
 }
 

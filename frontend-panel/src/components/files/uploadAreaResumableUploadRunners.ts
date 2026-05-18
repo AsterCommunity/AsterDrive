@@ -21,6 +21,10 @@ import type {
 	UploadModeRunnerContext,
 	UploadModeRunners,
 } from "./uploadAreaUploadRunnerShared";
+import {
+	abortUploadRequests,
+	withTrackedUploadRequest,
+} from "./uploadAreaUploadRunnerShared";
 
 const PRESIGNED_MULTIPART_URL_BATCH_SIZE = 16;
 
@@ -32,6 +36,7 @@ export function createResumableUploadRunners({
 	multipartInFlightRef,
 	patchTask,
 	patchTaskThrottled,
+	uploadRequestRef,
 }: UploadModeRunnerContext): Pick<
 	UploadModeRunners,
 	| "cancelMultipartSession"
@@ -56,6 +61,7 @@ export function createResumableUploadRunners({
 
 	const cancelMultipartSession = async (task: UploadTask) => {
 		abortFlagsRef.current.set(task.id, true);
+		abortUploadRequests(uploadRequestRef, task.id);
 		if (!task.uploadId) return;
 
 		await waitForMultipartDrain(task.id);
@@ -76,6 +82,7 @@ export function createResumableUploadRunners({
 		patchTask(task.id, {
 			status: "processing",
 			progress: getProcessingProgress(task.mode),
+			speedBps: undefined,
 		});
 
 		try {
@@ -88,6 +95,8 @@ export function createResumableUploadRunners({
 			patchTask(task.id, {
 				status: "completed",
 				progress: 100,
+				uploadedBytes: task.totalBytes,
+				speedBps: undefined,
 				error: null,
 			});
 			markFolderForRefresh(task);
@@ -104,6 +113,8 @@ export function createResumableUploadRunners({
 						status: "pending_file",
 						error: message,
 						progress: 0,
+						uploadedBytes: 0,
+						speedBps: undefined,
 						uploadId: null,
 						completedChunks: 0,
 						totalChunks: 0,
@@ -161,15 +172,22 @@ export function createResumableUploadRunners({
 				const blob = file.slice(start, end);
 
 				await runRetryableUploadOperation({
-					run: () =>
-						withTrackedMultipartRequest(task.id, () =>
-							uploadService.uploadChunk(
-								uploadId,
-								chunkNumber,
-								blob,
-								reportProgress,
+					run: async () => {
+						return withTrackedMultipartRequest(task.id, () =>
+							withTrackedUploadRequest(
+								uploadRequestRef,
+								task.id,
+								(onCreateXhr) =>
+									uploadService.uploadChunk(
+										uploadId,
+										chunkNumber,
+										blob,
+										reportProgress,
+										onCreateXhr,
+									),
 							),
-						),
+						);
+					},
 				});
 			},
 			uploadingPatch: {
@@ -213,6 +231,11 @@ export function createResumableUploadRunners({
 			progress: Math.round(
 				(completedSet.size / totalChunks) * S3_PROCESSING_PROGRESS,
 			),
+			uploadedBytes: [...completedSet].reduce(
+				(total, partNumber) => total + getPartSize(partNumber),
+				0,
+			),
+			speedBps: undefined,
 		});
 
 		const queue = Array.from(
@@ -304,7 +327,17 @@ export function createResumableUploadRunners({
 					run: async () => {
 						const url = await getPartUrl(partNumber);
 						return withTrackedMultipartRequest(task.id, () =>
-							uploadService.presignedUpload(url, blob, reportProgress),
+							withTrackedUploadRequest(
+								uploadRequestRef,
+								task.id,
+								(onCreateXhr) =>
+									uploadService.presignedUpload(
+										url,
+										blob,
+										reportProgress,
+										onCreateXhr,
+									),
+							),
 						);
 					},
 				});

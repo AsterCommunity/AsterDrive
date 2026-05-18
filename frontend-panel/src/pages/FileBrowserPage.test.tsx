@@ -292,13 +292,31 @@ vi.mock("@/components/files/FileBrowserContext", () => ({
 vi.mock("@/components/files/FileGrid", () => ({
 	FileGrid: () => {
 		const context = mockState.fileBrowserContext as {
-			files: Array<{ id: number; name: string }>;
+			files: Array<
+				Record<string, unknown> & {
+					id: number;
+					mime_type?: string;
+					name: string;
+				}
+			>;
 			folders: Array<{ id: number; name: string }>;
 			onArchiveDownload: (folderId: number) => void;
 			onCopy: (type: "file" | "folder", id: number) => void;
-			onFileChooseOpenMethod: (file: { id: number; name: string }) => void;
-			onFileClick: (file: { id: number; name: string }) => void;
-			onFileOpen: (file: { id: number; name: string }) => void;
+			onFileChooseOpenMethod: (file: {
+				id: number;
+				mime_type: string;
+				name: string;
+			}) => void;
+			onFileClick: (file: {
+				id: number;
+				mime_type: string;
+				name: string;
+			}) => void;
+			onFileOpen: (file: {
+				id: number;
+				mime_type: string;
+				name: string;
+			}) => void;
 			onFolderOpen: (id: number, name: string) => void;
 			onMoveToFolder: (
 				fileIds: number[],
@@ -314,6 +332,17 @@ vi.mock("@/components/files/FileGrid", () => ({
 		} | null;
 		const folders = context?.folders ?? [];
 		const files = context?.files ?? [];
+		const defaultClickFile = {
+			id: 3,
+			mime_type: "application/pdf",
+			name: "report.pdf",
+		};
+		const clickFile =
+			files.find(
+				(file) =>
+					file.file_category === "audio" ||
+					file.mime_type?.startsWith("audio/"),
+			) ?? defaultClickFile;
 
 		return (
 			<div>
@@ -324,36 +353,15 @@ vi.mock("@/components/files/FileGrid", () => ({
 				>
 					open-folder
 				</button>
-				<button
-					type="button"
-					onClick={() =>
-						context?.onFileClick({
-							id: 3,
-							name: "report.pdf",
-						})
-					}
-				>
+				<button type="button" onClick={() => context?.onFileClick(clickFile)}>
 					open-file
 				</button>
-				<button
-					type="button"
-					onClick={() =>
-						context?.onFileOpen({
-							id: 3,
-							name: "report.pdf",
-						})
-					}
-				>
+				<button type="button" onClick={() => context?.onFileOpen(clickFile)}>
 					open-file-direct
 				</button>
 				<button
 					type="button"
-					onClick={() =>
-						context?.onFileChooseOpenMethod({
-							id: 3,
-							name: "report.pdf",
-						})
-					}
+					onClick={() => context?.onFileChooseOpenMethod(clickFile)}
 				>
 					open-file-picker
 				</button>
@@ -818,6 +826,7 @@ vi.mock("@/services/fileService", () => ({
 			mockState.getArchivePreview(...args),
 		createWopiSession: (...args: unknown[]) =>
 			mockState.createWopiSession(...args),
+		downloadPath: (id: number) => `/files/${id}/download`,
 		downloadUrl: (id: number) => `https://download/${id}`,
 		setFileLock: (...args: unknown[]) => mockState.setFileLock(...args),
 		setFolderLock: (...args: unknown[]) => mockState.setFolderLock(...args),
@@ -860,6 +869,9 @@ vi.mock("@/stores/musicPlayerStore", () => ({
 }));
 
 vi.mock("@/stores/workspaceStore", () => ({
+	bindWorkspaceService: <T extends object>(
+		factory: (workspace: { kind: "personal" }) => T,
+	) => factory({ kind: "personal" }),
 	useWorkspaceStore: Object.assign(
 		<T,>(selector: (state: { workspace: { kind: "personal" } }) => T) =>
 			selector({ workspace: { kind: "personal" } }),
@@ -1118,7 +1130,10 @@ describe("FileBrowserPage", () => {
 				[
 					expect.objectContaining({
 						id: "file:3",
-						metadata: { artist: "Artist", title: "Song" },
+						metadata: expect.objectContaining({
+							artist: "Artist",
+							title: "Song",
+						}),
 						name: "Artist - Song.mp3",
 					}),
 					expect.objectContaining({

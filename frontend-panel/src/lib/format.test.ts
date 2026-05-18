@@ -2,6 +2,7 @@ import type { i18n as I18n } from "i18next";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
 	formatBytes,
+	formatBytesPerSecond,
 	formatDate,
 	formatDateAbsolute,
 	formatDateAbsoluteWithOffset,
@@ -83,6 +84,12 @@ describe("format helpers", () => {
 		expect(formatBytes(0)).toBe("0 B");
 		expect(formatBytes(1536)).toBe("1.5 KB");
 		expect(formatBytes(1024 * 1024)).toBe("1.0 MB");
+	});
+
+	it("formats transfer speeds with per-second suffixes", () => {
+		expect(formatBytesPerSecond(0)).toBe("");
+		expect(formatBytesPerSecond(512)).toBe("512 B/s");
+		expect(formatBytesPerSecond(1536)).toBe("1.5 KB/s");
 	});
 
 	it("formats integers with locale separators", () => {

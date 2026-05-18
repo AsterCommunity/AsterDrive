@@ -408,7 +408,10 @@ pub async fn get_shared_folder_file_image_preview(
     file_id: i64,
 ) -> Result<file_service::ImagePreviewResult> {
     let (_, file) = load_shared_folder_file_target(state, token, file_id).await?;
-    tracing::debug!(file_id = file.id, "loading shared folder file image preview");
+    tracing::debug!(
+        file_id = file.id,
+        "loading shared folder file image preview"
+    );
     file_service::image_preview_for_file(state, &file).await
 }
 

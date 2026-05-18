@@ -13,8 +13,8 @@ pub mod upload;
 pub mod versions;
 
 pub use self::access::{
-    download, get_archive_preview, get_direct_link, get_file, get_image_preview,
-    get_preview_link, get_thumbnail, open_wopi,
+    download, get_archive_preview, get_direct_link, get_file, get_image_preview, get_preview_link,
+    get_thumbnail, open_wopi,
 };
 pub use self::mutations::{
     CopyFileReq, CreateEmptyRequest, ExtractArchiveRequest, PatchFileReq, SetLockReq, copy_file,

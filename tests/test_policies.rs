@@ -1990,3 +1990,102 @@ async fn test_policy_connection_endpoints_for_local_driver() {
     assert_eq!(resp.status(), 200);
     assert!(!std::path::Path::new(&format!("{temp_base_path}/_aster_connection_test")).exists());
 }
+
+#[actix_web::test]
+async fn test_policy_create_and_params_reject_incomplete_s3_credentials_as_bad_request() {
+    let state = common::setup().await;
+    let app = create_test_app!(state);
+    let (token, _) = register_and_login!(app);
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/admin/policies")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({
+            "name": "Incomplete S3",
+            "driver_type": "s3",
+            "endpoint": "https://s3.example.com",
+            "bucket": "archive"
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 400);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(body["code"], 1000);
+    assert_eq!(
+        body["msg"],
+        "access_key is required for S3-compatible storage policies"
+    );
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/admin/policies/test")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({
+            "driver_type": "s3",
+            "endpoint": "https://s3.example.com",
+            "bucket": "archive"
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 400);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(body["code"], 1000);
+    assert_eq!(
+        body["msg"],
+        "access_key is required for S3-compatible storage policies"
+    );
+}
+
+#[actix_web::test]
+async fn test_policy_update_rejects_clearing_existing_s3_secret_as_bad_request() {
+    let state = common::setup().await;
+    let app = create_test_app!(state);
+    let (token, _) = register_and_login!(app);
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/admin/policies")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({
+            "name": "Valid S3",
+            "driver_type": "s3",
+            "endpoint": "https://s3.example.com",
+            "bucket": "archive",
+            "access_key": "AKIA",
+            "secret_key": "SECRET"
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 201);
+    let body: Value = test::read_body_json(resp).await;
+    let policy_id = body["data"]["id"].as_i64().unwrap();
+
+    let req = test::TestRequest::patch()
+        .uri(&format!("/api/v1/admin/policies/{policy_id}"))
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({
+            "secret_key": ""
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 400);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(body["code"], 1000);
+    assert_eq!(
+        body["msg"],
+        "secret_key is required for S3-compatible storage policies"
+    );
+
+    let req = test::TestRequest::patch()
+        .uri(&format!("/api/v1/admin/policies/{policy_id}"))
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({
+            "name": "Still Valid S3"
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+}

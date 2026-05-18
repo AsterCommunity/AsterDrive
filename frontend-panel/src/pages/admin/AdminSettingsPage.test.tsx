@@ -32,12 +32,15 @@ const mockState = vi.hoisted(() => ({
 	toastSuccess: vi.fn(),
 }));
 
+const defaultLocation = window.location;
+
 const translationMap: Record<string, string> = {
 	cors_wildcard_credentials_validation_error:
 		"cors_wildcard_credentials_validation_error",
 	settings_item_auth_access_token_ttl_secs_desc:
 		"Controls how long newly issued access tokens stay valid.",
 	settings_item_auth_access_token_ttl_secs_label: "Access token lifetime",
+	public_site_url_add_current_origin: "public_site_url_add_current_origin",
 	settings_time_unit_label: "Time unit",
 	settings_time_unit_seconds: "Seconds",
 	settings_time_unit_minutes: "Minutes",
@@ -199,12 +202,14 @@ vi.mock("@/components/layout/AdminPageShell", () => ({
 
 vi.mock("@/components/ui/button", () => ({
 	Button: ({
+		"aria-label": ariaLabel,
 		children,
 		className,
 		disabled,
 		onClick,
 		type,
 	}: {
+		"aria-label"?: string;
 		children: React.ReactNode;
 		className?: string;
 		disabled?: boolean;
@@ -213,6 +218,7 @@ vi.mock("@/components/ui/button", () => ({
 	}) => (
 		<button
 			type={type ?? "button"}
+			aria-label={ariaLabel}
 			className={className}
 			disabled={disabled}
 			onClick={onClick}
@@ -582,6 +588,10 @@ function getMockConfigValueType(key: string): SystemConfigValueType {
 
 describe("AdminSettingsPage", () => {
 	beforeEach(() => {
+		Object.defineProperty(window, "location", {
+			configurable: true,
+			value: defaultLocation,
+		});
 		invalidateAdminConfigMetadataCache();
 		mockState.actionConfig.mockReset();
 		mockState.codeEditorProps = null;
@@ -2275,7 +2285,9 @@ describe("AdminSettingsPage", () => {
 			screen.getByText("public_site_url_primary_origin"),
 		).toBeInTheDocument();
 
-		fireEvent.click(screen.getByRole("button", { name: "Plus" }));
+		fireEvent.click(
+			screen.getByRole("button", { name: "public_site_url_add_origin" }),
+		);
 		fireEvent.change(screen.getByLabelText("public_site_url_origin_label 2"), {
 			target: { value: "https://panel.example.com" },
 		});
@@ -2285,7 +2297,7 @@ describe("AdminSettingsPage", () => {
 
 		fireEvent.click(
 			screen.getAllByRole("button", {
-				name: "Trash",
+				name: "public_site_url_remove_origin",
 			})[0],
 		);
 		expect(screen.getByLabelText("public_site_url_origin_label 1")).toHaveValue(
@@ -2299,6 +2311,88 @@ describe("AdminSettingsPage", () => {
 				"https://panel.example.com",
 			]);
 		});
+	});
+
+	it("can append the current browser origin to the public site URL draft", async () => {
+		mockState.listConfigs.mockResolvedValueOnce({
+			items: [
+				createConfig({
+					category: "general",
+					key: "public_site_url",
+					value: ["http://localhost:3000", "http://localhost:5173"],
+					value_type: "string_array",
+				}),
+			],
+		});
+		mockState.schema.mockResolvedValueOnce([
+			createSchemaItem({
+				category: "general",
+				key: "public_site_url",
+				label_i18n_key: "settings_item_public_site_url_label",
+				value_type: "string_array",
+			}),
+		]);
+		Object.defineProperty(window, "location", {
+			configurable: true,
+			value: {
+				...window.location,
+				origin: "http://localhost:5174",
+			},
+		});
+
+		render(<AdminSettingsPage section="general" />);
+
+		await screen.findByLabelText("public_site_url_origin_label 1");
+		fireEvent.click(
+			screen.getByRole("button", {
+				name: "public_site_url_add_current_origin",
+			}),
+		);
+
+		expect(screen.getByLabelText("public_site_url_origin_label 3")).toHaveValue(
+			"http://localhost:5174",
+		);
+
+		fireEvent.click(screen.getByRole("button", { name: "save_changes" }));
+
+		await waitFor(() => {
+			expect(mockState.setConfig).toHaveBeenCalledWith("public_site_url", [
+				"http://localhost:3000",
+				"http://localhost:5173",
+				"http://localhost:5174",
+			]);
+		});
+	});
+
+	it("does not show the current browser origin shortcut when it is already configured", async () => {
+		mockState.listConfigs.mockResolvedValueOnce({
+			items: [
+				createConfig({
+					category: "general",
+					key: "public_site_url",
+					value: [window.location.origin],
+					value_type: "string_array",
+				}),
+			],
+		});
+		mockState.schema.mockResolvedValueOnce([
+			createSchemaItem({
+				category: "general",
+				key: "public_site_url",
+				label_i18n_key: "settings_item_public_site_url_label",
+				value_type: "string_array",
+			}),
+		]);
+
+		render(<AdminSettingsPage section="general" />);
+
+		await screen.findByLabelText("public_site_url_origin_label 1");
+
+		expect(
+			screen.queryByRole("button", {
+				name: "public_site_url_add_current_origin",
+			}),
+		).not.toBeInTheDocument();
 	});
 
 	it("edits generic string-array configs with list rows and saves arrays", async () => {
@@ -2328,7 +2422,9 @@ describe("AdminSettingsPage", () => {
 		);
 		expect(firstPattern).toHaveValue(".DS_Store");
 
-		fireEvent.click(screen.getByRole("button", { name: "Plus" }));
+		fireEvent.click(
+			screen.getByRole("button", { name: "settings_string_array_add_item" }),
+		);
 		fireEvent.change(
 			screen.getByLabelText("settings_string_array_item_label 2"),
 			{
@@ -2368,7 +2464,9 @@ describe("AdminSettingsPage", () => {
 		render(<AdminSettingsPage section="general" />);
 
 		await screen.findByLabelText("public_site_url_origin_label 1");
-		fireEvent.click(screen.getByRole("button", { name: "Trash" }));
+		fireEvent.click(
+			screen.getByRole("button", { name: "public_site_url_remove_origin" }),
+		);
 
 		expect(screen.getByLabelText("public_site_url_origin_label 1")).toHaveValue(
 			"",

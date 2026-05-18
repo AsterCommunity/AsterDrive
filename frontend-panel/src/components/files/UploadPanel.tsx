@@ -31,6 +31,7 @@ export interface UploadTaskView {
 	targetLabel?: string;
 	batchStatus?: "active" | "done" | "partial_failed";
 	detail?: string;
+	speed?: string;
 	completed?: boolean;
 	actions?: {
 		label: string;

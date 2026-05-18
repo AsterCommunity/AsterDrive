@@ -5,11 +5,16 @@ import { setPublicSiteUrls } from "@/lib/publicSiteUrl";
 
 const mockState = vi.hoisted(() => ({
 	brandingLoaded: false,
+	getConfig: vi.fn(),
 	handleApiError: vi.fn(),
+	loggerWarn: vi.fn(),
+	navigate: vi.fn(),
 	setConfig: vi.fn(),
 	siteUrl: null as string | null,
 	toastSuccess: vi.fn(),
 }));
+
+const defaultLocation = window.location;
 
 function AdminRouteShell({ page }: { page: string }) {
 	return (
@@ -30,6 +35,10 @@ vi.mock("sonner", () => ({
 	toast: {
 		success: (...args: unknown[]) => mockState.toastSuccess(...args),
 	},
+}));
+
+vi.mock("react-router-dom", () => ({
+	useNavigate: () => mockState.navigate,
 }));
 
 vi.mock("@/components/common/ConfirmDialog", () => ({
@@ -66,8 +75,17 @@ vi.mock("@/hooks/useApiError", () => ({
 	handleApiError: (...args: unknown[]) => mockState.handleApiError(...args),
 }));
 
+vi.mock("@/lib/logger", () => ({
+	logger: {
+		warn: (...args: unknown[]) => mockState.loggerWarn(...args),
+		error: vi.fn(),
+		debug: vi.fn(),
+	},
+}));
+
 vi.mock("@/services/adminService", () => ({
 	adminConfigService: {
+		get: (...args: unknown[]) => mockState.getConfig(...args),
 		set: (...args: unknown[]) => mockState.setConfig(...args),
 	},
 }));
@@ -92,11 +110,22 @@ vi.mock("@/stores/brandingStore", () => {
 
 describe("AdminSiteUrlMismatchPrompt", () => {
 	beforeEach(() => {
+		Object.defineProperty(window, "location", {
+			configurable: true,
+			value: defaultLocation,
+		});
 		mockState.brandingLoaded = false;
+		mockState.getConfig.mockReset();
 		mockState.handleApiError.mockReset();
+		mockState.loggerWarn.mockReset();
+		mockState.navigate.mockReset();
 		mockState.setConfig.mockReset();
 		mockState.siteUrl = null;
 		mockState.toastSuccess.mockReset();
+		mockState.getConfig.mockResolvedValue({
+			key: "public_site_url",
+			value: ["https://configured.example.com"],
+		});
 		mockState.setConfig.mockResolvedValue({
 			key: "public_site_url",
 			value: [window.location.origin],
@@ -104,14 +133,14 @@ describe("AdminSiteUrlMismatchPrompt", () => {
 		setPublicSiteUrls(null);
 	});
 
-	it("does not reopen while the admin route shell stays mounted", () => {
+	it("does not reopen while the admin route shell stays mounted", async () => {
 		mockState.brandingLoaded = true;
 		mockState.siteUrl = "https://configured.example.com";
 
 		const { rerender } = render(<AdminRouteShell page="Users" />);
 
 		expect(
-			screen.getByText("translated:site_url_mismatch_title"),
+			await screen.findByText("translated:site_url_mismatch_title"),
 		).toBeInTheDocument();
 
 		fireEvent.click(screen.getByRole("button", { name: "cancel" }));
@@ -134,7 +163,7 @@ describe("AdminSiteUrlMismatchPrompt", () => {
 		const { unmount } = render(<AdminSiteUrlMismatchPrompt />);
 
 		expect(
-			screen.getByText("translated:site_url_mismatch_title"),
+			await screen.findByText("translated:site_url_mismatch_title"),
 		).toBeInTheDocument();
 
 		fireEvent.click(screen.getByRole("button", { name: "cancel" }));
@@ -146,7 +175,7 @@ describe("AdminSiteUrlMismatchPrompt", () => {
 		render(<AdminSiteUrlMismatchPrompt />);
 
 		expect(
-			screen.getByText("translated:site_url_mismatch_title"),
+			await screen.findByText("translated:site_url_mismatch_title"),
 		).toBeInTheDocument();
 
 		fireEvent.click(
@@ -157,11 +186,98 @@ describe("AdminSiteUrlMismatchPrompt", () => {
 
 		await waitFor(() => {
 			expect(mockState.setConfig).toHaveBeenCalledWith("public_site_url", [
+				"https://configured.example.com",
 				window.location.origin,
 			]);
 		});
 		expect(mockState.toastSuccess).toHaveBeenCalledWith(
 			"translated:settings_saved",
 		);
+	});
+
+	it("does not prompt when the current origin exists in the configured origin list", async () => {
+		mockState.brandingLoaded = true;
+		mockState.siteUrl = "http://localhost:3000";
+		mockState.getConfig.mockResolvedValue({
+			key: "public_site_url",
+			value: ["http://localhost:3000", window.location.origin],
+		});
+
+		render(<AdminSiteUrlMismatchPrompt />);
+
+		await waitFor(() => {
+			expect(mockState.getConfig).toHaveBeenCalledWith("public_site_url");
+		});
+		expect(
+			screen.queryByText("translated:site_url_mismatch_title"),
+		).not.toBeInTheDocument();
+		expect(mockState.navigate).not.toHaveBeenCalled();
+		expect(mockState.setConfig).not.toHaveBeenCalled();
+	});
+
+	it("uses the live admin config instead of stale public branding cache", async () => {
+		mockState.brandingLoaded = true;
+		mockState.siteUrl = null;
+		mockState.getConfig.mockResolvedValue({
+			key: "public_site_url",
+			value: [window.location.origin],
+		});
+
+		render(<AdminSiteUrlMismatchPrompt />);
+
+		await waitFor(() => {
+			expect(mockState.getConfig).toHaveBeenCalledWith("public_site_url");
+		});
+		expect(mockState.siteUrl).toBe(window.location.origin);
+		expect(
+			screen.queryByText("translated:site_url_mismatch_title"),
+		).not.toBeInTheDocument();
+		expect(mockState.navigate).not.toHaveBeenCalled();
+		expect(mockState.setConfig).not.toHaveBeenCalled();
+	});
+
+	it("keeps the prompt when no origins are configured", async () => {
+		mockState.brandingLoaded = true;
+		mockState.siteUrl = null;
+		mockState.getConfig.mockResolvedValue({
+			key: "public_site_url",
+			value: [],
+		});
+
+		render(<AdminSiteUrlMismatchPrompt />);
+
+		expect(
+			await screen.findByText("translated:site_url_mismatch_title"),
+		).toBeInTheDocument();
+		expect(mockState.navigate).not.toHaveBeenCalled();
+	});
+
+	it("redirects to settings instead of prompting when multiple origins are configured and the current origin is unknown", async () => {
+		Object.defineProperty(window, "location", {
+			configurable: true,
+			value: {
+				...defaultLocation,
+				origin: "http://localhost:5174",
+			},
+		});
+		mockState.brandingLoaded = true;
+		mockState.siteUrl = "http://localhost:3000";
+		mockState.getConfig.mockResolvedValue({
+			key: "public_site_url",
+			value: ["http://localhost:3000", "http://localhost:5173"],
+		});
+
+		render(<AdminSiteUrlMismatchPrompt />);
+
+		await waitFor(() => {
+			expect(mockState.navigate).toHaveBeenCalledWith(
+				"/admin/settings/general",
+				{ replace: true },
+			);
+		});
+		expect(
+			screen.queryByText("translated:site_url_mismatch_title"),
+		).not.toBeInTheDocument();
+		expect(mockState.setConfig).not.toHaveBeenCalled();
 	});
 });

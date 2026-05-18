@@ -12,11 +12,11 @@ mod thumbnail;
 
 pub use avatar::{probe_vips_cli_command, process_avatar_upload};
 pub(crate) use resolve::{map_thumbnail_request_error, resolve_thumbnail_processor_for_blob};
-pub(crate) use shared::{known_image_preview_cache_paths, known_thumbnail_cache_paths};
 pub use shared::{
     ImagePreviewData, ProcessedAvatar, StoredThumbnail, ThumbnailData,
     image_preview_etag_value_for, thumbnail_etag_value_for,
 };
+pub(crate) use shared::{known_image_preview_cache_paths, known_thumbnail_cache_paths};
 pub(crate) use thumbnail::generate_and_store_thumbnail_with_processor;
 pub use thumbnail::{
     delete_thumbnail, generate_and_store_image_preview, generate_and_store_thumbnail,

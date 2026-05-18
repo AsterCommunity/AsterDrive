@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { MeField } from "@/types/api";
 
 const appendCompletedPart = vi.fn();
@@ -48,6 +48,16 @@ function createDeferred<T>() {
 	return { promise, resolve, reject };
 }
 
+function expectUploadChunkStarted(uploadId: string, chunkNumber: number) {
+	const call = uploadChunk.mock.calls.find(
+		(args) => args[0] === uploadId && args[1] === chunkNumber,
+	);
+	expect(call).toBeDefined();
+	expect(call?.[2]).toBeInstanceOf(Blob);
+	expect(call?.[3]).toEqual(expect.any(Function));
+	return call;
+}
+
 vi.mock("react-i18next", () => ({
 	useTranslation: () => ({
 		t: (key: string) => key,
@@ -68,6 +78,7 @@ vi.mock("@/components/files/UploadPanel", () => ({
 			id: string;
 			mode: string;
 			progress: number;
+			speed?: string;
 			status: string;
 			title: string;
 			actions?: Array<{ label: string; onClick: () => void }>;
@@ -82,6 +93,9 @@ vi.mock("@/components/files/UploadPanel", () => ({
 				{props.tasks.map((task) => (
 					<div key={task.id}>
 						<div>{`${task.title}:${task.mode}:${task.status}:${task.progress}`}</div>
+						{task.speed ? (
+							<div>{`${task.title}:speed:${task.speed}`}</div>
+						) : null}
 						<div>{`${task.title}:${task.mode}:${task.status}`}</div>
 						{task.actions?.map((action) => (
 							<button key={action.label} type="button" onClick={action.onClick}>
@@ -238,6 +252,10 @@ describe("UploadArea", () => {
 		uploadChunk.mockReset();
 		uploadPanelSpy.mockReset();
 		vi.unstubAllEnvs();
+	});
+
+	afterEach(() => {
+		vi.useRealTimers();
 	});
 
 	it("hides the upload panel before any upload activity", async () => {
@@ -496,17 +514,14 @@ describe("UploadArea", () => {
 				baseFolderName: "Projects",
 			}),
 		);
-		expect(uploadChunk).toHaveBeenCalledWith(
-			"upload-chunked",
-			0,
-			expect.any(Blob),
-			expect.any(Function),
-		);
+		expectUploadChunkStarted("upload-chunked", 0);
 		expect(completeUpload).toHaveBeenCalledWith("upload-chunked", undefined);
 		expect(removeSession).toHaveBeenCalledWith("upload-chunked");
 	});
 
 	it("reports chunked upload progress before a chunk completes", async () => {
+		vi.useFakeTimers({ shouldAdvanceTime: true });
+		vi.setSystemTime(new Date("2026-05-19T00:00:00Z"));
 		const chunkUpload = createDeferred<unknown>();
 		initUpload.mockResolvedValue({
 			mode: "chunked",
@@ -522,18 +537,15 @@ describe("UploadArea", () => {
 		]);
 
 		await waitFor(() => {
-			expect(uploadChunk).toHaveBeenCalledWith(
-				"upload-chunked",
-				0,
-				expect.any(Blob),
-				expect.any(Function),
-			);
+			expectUploadChunkStarted("upload-chunked", 0);
 		});
 
 		const reportProgress = uploadChunk.mock.calls[0]?.[3] as
 			| ((loaded: number, total: number) => void)
 			| undefined;
+		await vi.advanceTimersByTimeAsync(500);
 		reportProgress?.(50, 100);
+		await vi.advanceTimersByTimeAsync(500);
 
 		await waitFor(() => {
 			expect(uploadPanelSpy).toHaveBeenLastCalledWith(
@@ -542,6 +554,7 @@ describe("UploadArea", () => {
 					tasks: expect.arrayContaining([
 						expect.objectContaining({
 							progress: 48,
+							speed: expect.stringMatching(/^\d+ B\/s$/),
 							title: "chunk-progress.bin",
 						}),
 					]),
@@ -551,6 +564,52 @@ describe("UploadArea", () => {
 
 		chunkUpload.resolve({});
 		await screen.findByText("chunk-progress.bin:Chunked:files:upload_success");
+	});
+
+	it("reports direct upload speed from browser upload progress", async () => {
+		vi.useFakeTimers({ shouldAdvanceTime: true });
+		vi.setSystemTime(new Date("2026-05-19T00:00:00Z"));
+		const directUpload = createDeferred<unknown>();
+		initUpload.mockResolvedValue({ mode: "direct" });
+		apiClientPost.mockReturnValue(directUpload.promise);
+
+		await renderUploadAreaWithFiles([
+			new File(["x".repeat(100)], "direct-speed.bin"),
+		]);
+
+		await waitFor(() => {
+			expect(apiClientPost).toHaveBeenCalledTimes(1);
+		});
+
+		const requestConfig = apiClientPost.mock.calls[0]?.[2] as
+			| {
+					onUploadProgress?: (event: {
+						loaded: number;
+						total?: number;
+					}) => void;
+			  }
+			| undefined;
+		await vi.advanceTimersByTimeAsync(500);
+		requestConfig?.onUploadProgress?.({ loaded: 50, total: 100 });
+		await vi.advanceTimersByTimeAsync(500);
+
+		await waitFor(() => {
+			expect(uploadPanelSpy).toHaveBeenLastCalledWith(
+				expect.objectContaining({
+					overallProgress: 50,
+					tasks: expect.arrayContaining([
+						expect.objectContaining({
+							progress: 50,
+							speed: expect.stringMatching(/^\d+ B\/s$/),
+							title: "direct-speed.bin",
+						}),
+					]),
+				}),
+			);
+		});
+
+		directUpload.resolve({});
+		await screen.findByText("direct-speed.bin:Direct:files:upload_success");
 	});
 
 	it("weights the overall upload progress by file size", async () => {
@@ -626,6 +685,58 @@ describe("UploadArea", () => {
 		expect(saveSession).not.toHaveBeenCalled();
 	});
 
+	it("reports presigned upload speed from PUT progress", async () => {
+		vi.useFakeTimers({ shouldAdvanceTime: true });
+		vi.setSystemTime(new Date("2026-05-19T00:00:00Z"));
+		const presignedPut = createDeferred<string>();
+		initUpload.mockResolvedValue({
+			mode: "presigned",
+			upload_id: "upload-presigned-speed",
+			presigned_url: "https://s3.example/upload-speed",
+		});
+		presignedUpload.mockReturnValue(presignedPut.promise);
+		completeUpload.mockResolvedValue({ id: 9011 });
+
+		await renderUploadAreaWithFiles([
+			new File(["x".repeat(100)], "presigned-speed.bin"),
+		]);
+
+		await waitFor(() => {
+			expect(presignedUpload).toHaveBeenCalledWith(
+				"https://s3.example/upload-speed",
+				expect.any(File),
+				expect.any(Function),
+				expect.any(Function),
+			);
+		});
+
+		const reportProgress = presignedUpload.mock.calls[0]?.[2] as
+			| ((loaded: number, total: number) => void)
+			| undefined;
+		await vi.advanceTimersByTimeAsync(500);
+		reportProgress?.(50, 100);
+		await vi.advanceTimersByTimeAsync(500);
+
+		await waitFor(() => {
+			expect(uploadPanelSpy).toHaveBeenLastCalledWith(
+				expect.objectContaining({
+					tasks: expect.arrayContaining([
+						expect.objectContaining({
+							progress: 48,
+							speed: expect.stringMatching(/^\d+ B\/s$/),
+							title: "presigned-speed.bin",
+						}),
+					]),
+				}),
+			);
+		});
+
+		presignedPut.resolve('"etag-speed"');
+		await screen.findByText(
+			"presigned-speed.bin:Presigned:files:upload_success",
+		);
+	});
+
 	it("handles multipart presigned uploads and completes with uploaded parts", async () => {
 		initUpload.mockResolvedValue({
 			mode: "presigned_multipart",
@@ -663,6 +774,62 @@ describe("UploadArea", () => {
 			},
 		]);
 		expect(removeSession).toHaveBeenCalledWith("upload-multipart");
+	});
+
+	it("reports multipart presigned upload speed from part progress", async () => {
+		vi.useFakeTimers({ shouldAdvanceTime: true });
+		vi.setSystemTime(new Date("2026-05-19T00:00:00Z"));
+		const multipartPut = createDeferred<string>();
+		initUpload.mockResolvedValue({
+			mode: "presigned_multipart",
+			upload_id: "upload-multipart-speed",
+			chunk_size: 100,
+			total_chunks: 1,
+		});
+		presignParts.mockResolvedValue({
+			1: "https://s3.example/upload/part-speed",
+		});
+		presignedUpload.mockReturnValue(multipartPut.promise);
+		completeUpload.mockResolvedValue({ id: 9012 });
+
+		await renderUploadAreaWithFiles([
+			new File(["x".repeat(100)], "multipart-speed.bin"),
+		]);
+
+		await waitFor(() => {
+			expect(presignedUpload).toHaveBeenCalledWith(
+				"https://s3.example/upload/part-speed",
+				expect.any(Blob),
+				expect.any(Function),
+				expect.any(Function),
+			);
+		});
+
+		const reportProgress = presignedUpload.mock.calls[0]?.[2] as
+			| ((loaded: number, total: number) => void)
+			| undefined;
+		await vi.advanceTimersByTimeAsync(500);
+		reportProgress?.(50, 100);
+		await vi.advanceTimersByTimeAsync(500);
+
+		await waitFor(() => {
+			expect(uploadPanelSpy).toHaveBeenLastCalledWith(
+				expect.objectContaining({
+					tasks: expect.arrayContaining([
+						expect.objectContaining({
+							progress: 48,
+							speed: expect.stringMatching(/^\d+ B\/s$/),
+							title: "multipart-speed.bin",
+						}),
+					]),
+				}),
+			);
+		});
+
+		multipartPut.resolve('"etag-multipart-speed"');
+		await screen.findByText(
+			"multipart-speed.bin:Presigned Multipart:files:upload_success",
+		);
 	});
 
 	it("batches presigned multipart URL requests", async () => {
@@ -745,12 +912,7 @@ describe("UploadArea", () => {
 		});
 
 		await waitFor(() => {
-			expect(uploadChunk).toHaveBeenCalledWith(
-				"upload-resume",
-				1,
-				expect.any(Blob),
-				expect.any(Function),
-			);
+			expectUploadChunkStarted("upload-resume", 1);
 		});
 
 		const resumedChunk = uploadChunk.mock.calls.find(

@@ -1,4 +1,5 @@
 import type { UploadTaskView } from "@/components/files/UploadPanel";
+import { formatBytesPerSecond } from "@/lib/format";
 import {
 	ACTIVE_QUEUE_STATUSES,
 	type UploadAreaManagerTranslationFn,
@@ -38,6 +39,11 @@ function getStatusLabel(task: UploadTask, t: UploadAreaManagerTranslationFn) {
 	if (task.status === "completed") return t("files:upload_success");
 	if (task.status === "cancelled") return t("files:upload_dismiss");
 	return t("files:upload_failed");
+}
+
+function getSpeedLabel(task: UploadTask) {
+	if (task.status !== "uploading" || !task.speedBps) return undefined;
+	return formatBytesPerSecond(task.speedBps);
 }
 
 export function summarizeUploadTasks(tasks: UploadTask[]): UploadTaskSummary {
@@ -162,6 +168,7 @@ export function buildUploadTaskViews({
 			group,
 			targetLabel: task.baseFolderName,
 			detail,
+			speed: getSpeedLabel(task),
 			completed: task.status === "completed",
 			actions,
 		};
