@@ -42,7 +42,7 @@ function getStatusLabel(task: UploadTask, t: UploadAreaManagerTranslationFn) {
 }
 
 function getSpeedLabel(task: UploadTask) {
-	if (task.status !== "uploading" || !task.speedBps) return undefined;
+	if (task.status !== "uploading" || task.speedBps == null) return undefined;
 	return formatBytesPerSecond(task.speedBps);
 }
 

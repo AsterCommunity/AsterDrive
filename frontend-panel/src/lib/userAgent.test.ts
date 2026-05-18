@@ -87,6 +87,34 @@ describe("userAgent helpers", () => {
 		expect(formatPasskeyDefaultName(userAgent)).toBe("macOS - Edge");
 	});
 
+	it("normalizes passkey default names across known operating systems", () => {
+		expect(
+			formatPasskeyDefaultName(
+				"Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Mobile Safari/537.36",
+			),
+		).toBe("Android - Chrome");
+		expect(
+			formatPasskeyDefaultName(
+				"Mozilla/5.0 (X11; CrOS x86_64 15886.44.0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36",
+			),
+		).toBe("ChromeOS - Chrome");
+		expect(
+			formatPasskeyDefaultName(
+				"Mozilla/5.0 (iPhone; CPU iPhone OS 18_3 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.3 Mobile/15E148 Safari/604.1",
+			),
+		).toBe("iOS - Safari");
+		expect(
+			formatPasskeyDefaultName(
+				"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.3 Mobile/15E148 Safari/604.1",
+			),
+		).toBe("iPadOS - Safari");
+		expect(
+			formatPasskeyDefaultName(
+				"Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36",
+			),
+		).toBe("Linux - Chrome");
+	});
+
 	it("falls back when passkey default name cannot identify the client", () => {
 		expect(formatPasskeyDefaultName("Vitest Browser/1.0", "Passkey")).toBe(
 			"Passkey",

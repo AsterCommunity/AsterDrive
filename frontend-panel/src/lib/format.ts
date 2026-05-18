@@ -89,7 +89,7 @@ export function formatBytes(bytes: number): string {
 }
 
 export function formatBytesPerSecond(bytesPerSecond: number): string {
-	if (!Number.isFinite(bytesPerSecond) || bytesPerSecond <= 0) {
+	if (!Number.isFinite(bytesPerSecond) || bytesPerSecond < 0) {
 		return "";
 	}
 	if (bytesPerSecond < 1024) {

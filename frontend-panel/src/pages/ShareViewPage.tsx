@@ -475,11 +475,14 @@ export default function ShareViewPage() {
 			);
 			if (!activeTrack) return false;
 
-			void hydrateMusicQueueForPlayback(queue, activeTrack.id).then(
-				(hydratedQueue) => {
+			void hydrateMusicQueueForPlayback(queue, activeTrack.id)
+				.then((hydratedQueue) => {
 					playTracks(hydratedQueue, activeTrack.id);
-				},
-			);
+				})
+				.catch((error) => {
+					handleApiError(error);
+					setPreviewFile(file);
+				});
 			return true;
 		},
 		[folderContents?.files, info, playTracks, token],

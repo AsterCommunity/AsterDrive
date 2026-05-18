@@ -87,7 +87,7 @@ describe("format helpers", () => {
 	});
 
 	it("formats transfer speeds with per-second suffixes", () => {
-		expect(formatBytesPerSecond(0)).toBe("");
+		expect(formatBytesPerSecond(0)).toBe("0 B/s");
 		expect(formatBytesPerSecond(512)).toBe("512 B/s");
 		expect(formatBytesPerSecond(1536)).toBe("1.5 KB/s");
 	});

@@ -11,7 +11,7 @@ function normalizeBytes(value: number): number {
 }
 
 function roundedSpeed(speedBps: number | undefined): number | undefined {
-	if (!speedBps || !Number.isFinite(speedBps) || speedBps <= 0) {
+	if (speedBps === undefined || !Number.isFinite(speedBps) || speedBps < 0) {
 		return undefined;
 	}
 	return Math.round(speedBps);
@@ -48,6 +48,8 @@ export function createUploadSpeedTracker(
 						? instantSpeedBps
 						: smoothedSpeedBps * (1 - SPEED_SMOOTHING_ALPHA) +
 							instantSpeedBps * SPEED_SMOOTHING_ALPHA;
+			} else {
+				smoothedSpeedBps = 0;
 			}
 			lastUploadedBytes = normalizedUploadedBytes;
 			lastSampleAt = sampledAt;

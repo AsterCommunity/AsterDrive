@@ -1,5 +1,7 @@
 use crate::services::auth_service::Claims;
 use actix_web::HttpRequest;
+use ipnet::IpNet;
+use std::net::IpAddr;
 
 pub(super) const MAX_AUDIT_IP_ADDRESS_LEN: usize = 45;
 pub(super) const MAX_AUDIT_USER_AGENT_LEN: usize = 512;
@@ -31,6 +33,15 @@ impl AuditContext {
     pub fn from_request(req: &HttpRequest, claims: &Claims) -> Self {
         AuditRequestInfo::from_request(req).to_context(claims.user_id)
     }
+
+    pub fn from_request_with_trusted_proxies(
+        req: &HttpRequest,
+        claims: &Claims,
+        trusted_proxies: &[String],
+    ) -> Self {
+        AuditRequestInfo::from_request_with_trusted_proxies(req, trusted_proxies)
+            .to_context(claims.user_id)
+    }
 }
 
 impl AuditRequestInfo {
@@ -48,6 +59,21 @@ impl AuditRequestInfo {
         }
     }
 
+    pub fn from_request_with_trusted_proxies(
+        req: &HttpRequest,
+        trusted_proxies: &[String],
+    ) -> Self {
+        Self {
+            ip_address: trusted_request_ip(req, trusted_proxies)
+                .map(|ip| bounded_audit_value(&ip.to_string(), MAX_AUDIT_IP_ADDRESS_LEN)),
+            user_agent: req
+                .headers()
+                .get("user-agent")
+                .and_then(|v| v.to_str().ok())
+                .map(|s| bounded_audit_value(s, MAX_AUDIT_USER_AGENT_LEN)),
+        }
+    }
+
     pub fn to_context(&self, user_id: i64) -> AuditContext {
         AuditContext {
             user_id,
@@ -55,6 +81,30 @@ impl AuditRequestInfo {
             user_agent: self.user_agent.clone(),
         }
     }
+}
+
+fn trusted_request_ip(req: &HttpRequest, trusted_proxies: &[String]) -> Option<IpAddr> {
+    let peer = req.peer_addr()?.ip();
+    if trusted_proxy_matches(peer, trusted_proxies)
+        && let Some(forwarded_ip) = req
+            .headers()
+            .get("x-forwarded-for")
+            .and_then(|v| v.to_str().ok())
+            .and_then(|s| s.split(',').next())
+            .and_then(|p| p.trim().parse::<IpAddr>().ok())
+    {
+        return Some(forwarded_ip);
+    }
+    Some(peer)
+}
+
+fn trusted_proxy_matches(peer: IpAddr, trusted_proxies: &[String]) -> bool {
+    trusted_proxies.iter().any(|entry| {
+        entry
+            .parse::<IpNet>()
+            .or_else(|_| entry.parse::<IpAddr>().map(IpNet::from))
+            .is_ok_and(|net| net.contains(&peer))
+    })
 }
 
 pub(super) fn bounded_audit_value(value: &str, max_len: usize) -> String {

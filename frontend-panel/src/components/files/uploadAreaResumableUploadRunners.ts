@@ -88,7 +88,11 @@ export function createResumableUploadRunners({
 		try {
 			await completeWithRetry(uploadId, parts);
 			if (abortFlagsRef.current.get(task.id)) {
-				patchTask(task.id, { status: "cancelled", error: null });
+				patchTask(task.id, {
+					status: "cancelled",
+					error: null,
+					speedBps: undefined,
+				});
 				return;
 			}
 			removeSession(uploadId);
@@ -102,7 +106,11 @@ export function createResumableUploadRunners({
 			markFolderForRefresh(task);
 		} catch (error) {
 			if (abortFlagsRef.current.get(task.id)) {
-				patchTask(task.id, { status: "cancelled", error: null });
+				patchTask(task.id, {
+					status: "cancelled",
+					error: null,
+					speedBps: undefined,
+				});
 				return;
 			}
 			const message = getApiErrorMessage(error);

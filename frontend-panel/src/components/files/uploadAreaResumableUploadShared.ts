@@ -238,7 +238,11 @@ export function createResumableUploadShared({
 			await Promise.all(workers);
 
 			if (abortFlagsRef.current.get(task.id)) {
-				patchTask(task.id, { status: "cancelled", error: null });
+				patchTask(task.id, {
+					status: "cancelled",
+					error: null,
+					speedBps: undefined,
+				});
 				return;
 			}
 
@@ -260,7 +264,11 @@ export function createResumableUploadShared({
 			markFolderForRefresh(task);
 		} catch (error) {
 			if (abortFlagsRef.current.get(task.id)) {
-				patchTask(task.id, { status: "cancelled", error: null });
+				patchTask(task.id, {
+					status: "cancelled",
+					error: null,
+					speedBps: undefined,
+				});
 				return;
 			}
 			const message = getApiErrorMessage(error);

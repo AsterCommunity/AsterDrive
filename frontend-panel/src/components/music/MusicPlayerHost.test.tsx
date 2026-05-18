@@ -9,6 +9,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { MusicPlayerHost } from "@/components/music/MusicPlayerHost";
 import type { MusicPlaybackMode } from "@/stores/musicPlayerStore";
 
+type MockMediaSession = {
+	metadata: MediaMetadata | null;
+	playbackState: MediaSessionPlaybackState;
+	setActionHandler: ReturnType<typeof vi.fn>;
+	setPositionState: ReturnType<typeof vi.fn>;
+};
+
 const mockState = vi.hoisted(() => ({
 	clear: vi.fn(),
 	closePanel: vi.fn(),
@@ -140,6 +147,62 @@ function getPlayerPanel() {
 	}).parentElement;
 }
 
+function installMockMediaSession() {
+	const handlers = new Map<MediaSessionAction, MediaSessionActionHandler>();
+	const mediaSession: MockMediaSession = {
+		metadata: null,
+		playbackState: "none",
+		setActionHandler: vi.fn(
+			(
+				action: MediaSessionAction,
+				handler: MediaSessionActionHandler | null,
+			) => {
+				if (handler) {
+					handlers.set(action, handler);
+					return;
+				}
+				handlers.delete(action);
+			},
+		),
+		setPositionState: vi.fn(),
+	};
+
+	class MockMediaMetadata {
+		album: string;
+		artist: string;
+		artwork: ReadonlyArray<MediaImage>;
+		title: string;
+
+		constructor(init: MediaMetadataInit = {}) {
+			this.album = init.album ?? "";
+			this.artist = init.artist ?? "";
+			this.artwork = init.artwork ?? [];
+			this.title = init.title ?? "";
+		}
+	}
+
+	Object.defineProperty(window, "MediaMetadata", {
+		configurable: true,
+		value: MockMediaMetadata,
+		writable: true,
+	});
+	Object.defineProperty(navigator, "mediaSession", {
+		configurable: true,
+		value: mediaSession,
+	});
+
+	return {
+		fireAction(action: MediaSessionAction, details = {}) {
+			handlers.get(action)?.({
+				action,
+				...details,
+			} as MediaSessionActionDetails);
+		},
+		handlers,
+		mediaSession,
+	};
+}
+
 function mockOverflow(text: string, scrollWidth: number, clientWidth: number) {
 	const textNode = [...document.querySelectorAll("*")]
 		.reverse()
@@ -166,12 +229,28 @@ function mockOverflow(text: string, scrollWidth: number, clientWidth: number) {
 	return { textNode, viewport };
 }
 
+function installScrollIntoViewMock() {
+	const scrollIntoView = vi.fn();
+	HTMLElement.prototype.scrollIntoView = scrollIntoView;
+	return scrollIntoView;
+}
+
 describe("MusicPlayerHost", () => {
 	let originalResizeObserver: typeof ResizeObserver | undefined;
 
 	beforeEach(() => {
 		vi.useRealTimers();
 		originalResizeObserver = window.ResizeObserver;
+		Object.defineProperty(window, "requestAnimationFrame", {
+			configurable: true,
+			value: window.requestAnimationFrame ?? vi.fn(),
+			writable: true,
+		});
+		Object.defineProperty(window, "cancelAnimationFrame", {
+			configurable: true,
+			value: window.cancelAnimationFrame ?? vi.fn(),
+			writable: true,
+		});
 		class MockResizeObserver {
 			callback: ResizeObserverCallback;
 
@@ -187,6 +266,20 @@ describe("MusicPlayerHost", () => {
 		}
 		window.ResizeObserver =
 			MockResizeObserver as unknown as typeof ResizeObserver;
+		if (typeof window.requestAnimationFrame !== "function") {
+			Object.defineProperty(window, "requestAnimationFrame", {
+				configurable: true,
+				value: (_callback: FrameRequestCallback) => 1,
+				writable: true,
+			});
+		}
+		if (typeof window.cancelAnimationFrame !== "function") {
+			Object.defineProperty(window, "cancelAnimationFrame", {
+				configurable: true,
+				value: () => undefined,
+				writable: true,
+			});
+		}
 		vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => {
 			callback(0);
 			return 1;
@@ -199,6 +292,12 @@ describe("MusicPlayerHost", () => {
 		Object.defineProperty(HTMLMediaElement.prototype, "pause", {
 			configurable: true,
 			value: vi.fn(),
+		});
+		Object.defineProperty(HTMLMediaElement.prototype, "fastSeek", {
+			configurable: true,
+			value: vi.fn(function fastSeek(this: HTMLMediaElement, time: number) {
+				this.currentTime = time;
+			}),
 		});
 		mockState.clear.mockReset();
 		mockState.closePanel.mockReset();
@@ -213,12 +312,18 @@ describe("MusicPlayerHost", () => {
 		mockState.playTracks.mockReset();
 		mockState.requestPlayback.mockReset();
 		mockState.setError.mockReset();
+		mockState.setError.mockImplementation((error: string | null) => {
+			mockState.state.error = error;
+		});
 		mockState.setPanelOpen.mockReset();
 		mockState.setPlaybackMode.mockReset();
 		mockState.setPlaybackRequested.mockReset();
 		mockState.setPlaying.mockReset();
 		mockState.updateTrackMetadata.mockReset();
 		mockState.updateTrackSource.mockReset();
+		mockState.closePanel.mockImplementation(() => {
+			mockState.state.isPanelOpen = false;
+		});
 		mockState.state.activeTrackId = null;
 		mockState.state.error = null;
 		mockState.state.isPanelOpen = false;
@@ -278,6 +383,23 @@ describe("MusicPlayerHost", () => {
 		expect(screen.getByText("Track Two")).toBeInTheDocument();
 	});
 
+	it("shows file details without repeating the playback mode", () => {
+		setQueue();
+		mockState.state.isPanelOpen = true;
+
+		render(<MusicPlayerHost />);
+
+		fireEvent.click(
+			screen.getByRole("button", { name: /music_player_details/i }),
+		);
+
+		expect(screen.getByText("music_player_file_name")).toBeInTheDocument();
+		expect(screen.getByText("track-one.mp3")).toBeInTheDocument();
+		expect(screen.getByText("music_player_mime_type")).toBeInTheDocument();
+		expect(screen.getByText("audio/mpeg")).toBeInTheDocument();
+		expect(screen.queryByText("music_player_mode")).not.toBeInTheDocument();
+	});
+
 	it("uses automatic marquee only for active overflowing music text", async () => {
 		mockState.state.activeTrackId = "track-1";
 		mockState.state.isPanelOpen = true;
@@ -332,8 +454,24 @@ describe("MusicPlayerHost", () => {
 		expect(scrollingTrack).toHaveStyle({
 			animation: "music-player-text-marquee 28s linear infinite",
 		});
-		expect(document.querySelector("style")?.textContent).toContain("12%");
-		expect(document.querySelector("style")?.textContent).toContain("82%");
+		const { viewport: activeArtistViewport } = mockOverflow(
+			"First Artist, Second Artist",
+			420,
+			180,
+		);
+		await waitFor(() =>
+			expect(activeArtistViewport).toHaveAttribute(
+				"data-marquee-active",
+				"true",
+			),
+		);
+		const marqueeStyles = [...document.querySelectorAll("style")].filter(
+			(style) =>
+				style.textContent?.includes("@keyframes music-player-text-marquee"),
+		);
+		expect(marqueeStyles).toHaveLength(1);
+		expect(marqueeStyles[0]?.textContent).toContain("12%");
+		expect(marqueeStyles[0]?.textContent).toContain("82%");
 
 		const inactiveTitle = screen.getByText(
 			"Very Long Inactive Track Title That Must Stay Truncated",
@@ -361,6 +499,38 @@ describe("MusicPlayerHost", () => {
 
 		expect(mockState.clear).toHaveBeenCalledTimes(1);
 		expect(mockState.closePanel).toHaveBeenCalledTimes(1);
+	});
+
+	it("collapses the player when clicking outside of it", () => {
+		setQueue();
+		mockState.state.isPanelOpen = true;
+
+		render(<MusicPlayerHost />);
+
+		fireEvent.click(screen.getByText("Track One"));
+		expect(mockState.closePanel).not.toHaveBeenCalled();
+
+		fireEvent.click(document.body);
+
+		expect(mockState.closePanel).toHaveBeenCalledTimes(1);
+	});
+
+	it("does not treat queue interactions as outside clicks", () => {
+		setQueue();
+		mockState.state.isPanelOpen = true;
+
+		render(<MusicPlayerHost />);
+
+		fireEvent.click(
+			screen.getByRole("button", { name: /music_player_queue/i }),
+		);
+		fireEvent.click(screen.getByRole("button", { name: /Track Two/i }));
+
+		expect(mockState.closePanel).not.toHaveBeenCalled();
+		expect(mockState.playTracks).toHaveBeenCalledWith(
+			mockState.state.queue,
+			"track-2",
+		);
 	});
 
 	it("requests playback when play is clicked", () => {
@@ -416,6 +586,50 @@ describe("MusicPlayerHost", () => {
 		);
 	});
 
+	it("scrolls the active queue item into view when playback changes outside queue clicks", () => {
+		const scrollIntoView = installScrollIntoViewMock();
+		setQueue();
+		mockState.state.isPanelOpen = true;
+
+		const { rerender } = render(<MusicPlayerHost />);
+
+		fireEvent.click(
+			screen.getByRole("button", { name: /music_player_queue/i }),
+		);
+		scrollIntoView.mockClear();
+
+		mockState.state.activeTrackId = "track-2";
+		rerender(<MusicPlayerHost />);
+
+		expect(scrollIntoView).toHaveBeenCalledWith({
+			block: "nearest",
+			inline: "nearest",
+		});
+	});
+
+	it("does not auto-scroll the queue after a queue item click changes tracks", () => {
+		const scrollIntoView = installScrollIntoViewMock();
+		setQueue();
+		mockState.state.isPanelOpen = true;
+
+		const { rerender } = render(<MusicPlayerHost />);
+
+		fireEvent.click(
+			screen.getByRole("button", { name: /music_player_queue/i }),
+		);
+		scrollIntoView.mockClear();
+		fireEvent.click(screen.getByRole("button", { name: /Track Two/i }));
+
+		mockState.state.activeTrackId = "track-2";
+		rerender(<MusicPlayerHost />);
+
+		expect(mockState.playTracks).toHaveBeenCalledWith(
+			mockState.state.queue,
+			"track-2",
+		);
+		expect(scrollIntoView).not.toHaveBeenCalled();
+	});
+
 	it("reflects audio element events back into the player store", () => {
 		setQueue();
 
@@ -438,6 +652,233 @@ describe("MusicPlayerHost", () => {
 		expect(mockState.setError).toHaveBeenCalledWith("music_player_load_failed");
 		expect(mockState.setPlaybackRequested).toHaveBeenCalledWith(false);
 		expect(mockState.setPlaying).toHaveBeenCalledWith(false);
+	});
+
+	it("skips to the next track two seconds after a load error", async () => {
+		vi.useFakeTimers();
+		setQueue();
+
+		render(<MusicPlayerHost />);
+
+		const audio = document.querySelector("audio");
+		if (!audio) {
+			throw new Error("audio element not found");
+		}
+
+		fireEvent.error(audio);
+
+		expect(mockState.setError).toHaveBeenCalledWith("music_player_load_failed");
+		expect(mockState.playNext).not.toHaveBeenCalled();
+
+		await act(async () => {
+			vi.advanceTimersByTime(1_999);
+		});
+		expect(mockState.playNext).not.toHaveBeenCalled();
+
+		await act(async () => {
+			vi.advanceTimersByTime(1);
+		});
+
+		expect(mockState.playNext).toHaveBeenCalledTimes(1);
+	});
+
+	it("cancels a pending error skip when the user manually skips", async () => {
+		vi.useFakeTimers();
+		setQueue();
+		mockState.state.isPanelOpen = true;
+
+		render(<MusicPlayerHost />);
+
+		const audio = document.querySelector("audio");
+		if (!audio) {
+			throw new Error("audio element not found");
+		}
+
+		fireEvent.error(audio);
+		fireEvent.click(screen.getByRole("button", { name: "music_player_next" }));
+
+		await act(async () => {
+			vi.advanceTimersByTime(2_000);
+		});
+
+		expect(mockState.playNext).toHaveBeenCalledTimes(1);
+	});
+
+	it("clears load errors when the audio element can play", () => {
+		setQueue();
+
+		render(<MusicPlayerHost />);
+
+		const audio = document.querySelector("audio");
+		if (!audio) {
+			throw new Error("audio element not found");
+		}
+
+		fireEvent.canPlay(audio);
+
+		expect(mockState.setError).toHaveBeenCalledWith(null);
+	});
+
+	it("resets and replays the same track when repeat one ends", () => {
+		setQueue();
+		mockState.state.playbackMode = "repeat_one";
+
+		render(<MusicPlayerHost />);
+
+		const audio = document.querySelector("audio");
+		if (!audio) {
+			throw new Error("audio element not found");
+		}
+		Object.defineProperty(audio, "currentTime", {
+			configurable: true,
+			writable: true,
+			value: 42,
+		});
+
+		fireEvent.ended(audio);
+
+		expect(audio.currentTime).toBe(0);
+		expect(mockState.requestPlayback).toHaveBeenCalledTimes(1);
+		expect(mockState.playNext).not.toHaveBeenCalled();
+	});
+
+	it("marks playback as stopped when the media element rejects play", async () => {
+		const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+		vi.mocked(HTMLMediaElement.prototype.play).mockRejectedValueOnce(
+			new Error("autoplay blocked"),
+		);
+		setQueue();
+		mockState.state.playRequested = true;
+		mockState.state.playRequestVersion = 1;
+
+		render(<MusicPlayerHost />);
+
+		await waitFor(() => {
+			expect(mockState.setPlaybackRequested).toHaveBeenCalledWith(false);
+		});
+		expect(mockState.setPlaying).toHaveBeenCalledWith(false);
+		expect(warnSpy).toHaveBeenCalledWith(
+			"[AsterDrive]",
+			"music playback start failed",
+			"track-one.mp3",
+			expect.any(Error),
+		);
+	});
+
+	it("exposes track metadata and playback state to the system media session", () => {
+		const { mediaSession } = installMockMediaSession();
+		mockState.state.activeTrackId = "track-1";
+		mockState.state.isPlaying = true;
+		mockState.state.queue = [
+			{
+				id: "track-1",
+				metadata: {
+					album: "Album One",
+					artist: "Fallback Artist",
+					artists: ["Artist One", "Artist Two"],
+					artworkUrl: "data:image/png;base64,cover",
+					title: "Track One",
+				},
+				mimeType: "audio/mpeg",
+				name: "track-one.mp3",
+				path: "/files/7/download",
+			},
+		];
+
+		render(<MusicPlayerHost />);
+
+		expect(mediaSession.metadata).toMatchObject({
+			album: "Album One",
+			artist: "Artist One, Artist Two",
+			artwork: [
+				{
+					src: "data:image/png;base64,cover",
+					type: "image/png",
+				},
+			],
+			title: "Track One",
+		});
+		expect(mediaSession.playbackState).toBe("playing");
+	});
+
+	it("wires system media controls to player actions", () => {
+		const { fireAction, mediaSession } = installMockMediaSession();
+		setQueue();
+
+		render(<MusicPlayerHost />);
+
+		const audio = document.querySelector("audio");
+		if (!audio) {
+			throw new Error("audio element not found");
+		}
+		Object.defineProperty(audio, "duration", {
+			configurable: true,
+			value: 120,
+		});
+		Object.defineProperty(audio, "currentTime", {
+			configurable: true,
+			writable: true,
+			value: 30,
+		});
+		fireEvent.loadedMetadata(audio);
+		fireEvent.timeUpdate(audio);
+		vi.mocked(HTMLMediaElement.prototype.pause).mockClear();
+
+		fireAction("play");
+		fireAction("pause");
+		fireAction("previoustrack");
+		fireAction("nexttrack");
+		fireAction("seekbackward", { seekOffset: 5 });
+		fireAction("seekforward", { seekOffset: 10 });
+		fireAction("seekto", { fastSeek: true, seekTime: 90 });
+		fireAction("stop");
+
+		expect(mockState.requestPlayback).toHaveBeenCalledTimes(1);
+		expect(HTMLMediaElement.prototype.pause).toHaveBeenCalledTimes(2);
+		expect(mockState.setPlaybackRequested).toHaveBeenCalledWith(false);
+		expect(mockState.playPrevious).toHaveBeenCalledTimes(1);
+		expect(mockState.playNext).toHaveBeenCalledTimes(1);
+		expect(HTMLMediaElement.prototype.fastSeek).toHaveBeenCalledWith(90);
+		expect(audio.currentTime).toBe(0);
+		expect(mediaSession.setPositionState).toHaveBeenLastCalledWith({
+			duration: 120,
+			playbackRate: 1,
+			position: 0,
+		});
+	});
+
+	it("updates system media position from audio progress", () => {
+		const { mediaSession } = installMockMediaSession();
+		setQueue();
+
+		render(<MusicPlayerHost />);
+
+		const audio = document.querySelector("audio");
+		if (!audio) {
+			throw new Error("audio element not found");
+		}
+		Object.defineProperty(audio, "duration", {
+			configurable: true,
+			value: 180,
+		});
+		Object.defineProperty(audio, "currentTime", {
+			configurable: true,
+			writable: true,
+			value: 45,
+		});
+		Object.defineProperty(audio, "playbackRate", {
+			configurable: true,
+			value: 1.25,
+		});
+
+		fireEvent.loadedMetadata(audio);
+		fireEvent.timeUpdate(audio);
+
+		expect(mediaSession.setPositionState).toHaveBeenLastCalledWith({
+			duration: 180,
+			playbackRate: 1.25,
+			position: 45,
+		});
 	});
 
 	it("updates the seek control from audio metadata and lets users seek", () => {
@@ -470,6 +911,25 @@ describe("MusicPlayerHost", () => {
 
 		expect(audio.currentTime).toBe(60);
 		expect(seek).toHaveValue("50");
+	});
+
+	it("clamps volume input values", () => {
+		setQueue();
+		mockState.state.isPanelOpen = true;
+
+		render(<MusicPlayerHost />);
+
+		const audio = document.querySelector("audio");
+		if (!audio) {
+			throw new Error("audio element not found");
+		}
+		const volume = screen.getByRole("slider", { name: "music_player_volume" });
+
+		fireEvent.change(volume, { target: { value: "150" } });
+		expect(audio.volume).toBe(1);
+
+		fireEvent.change(volume, { target: { value: "-20" } });
+		expect(audio.volume).toBe(0);
 	});
 
 	it("pauses while seeking and resumes only when it was previously playing", () => {
@@ -539,6 +999,25 @@ describe("MusicPlayerHost", () => {
 		});
 	});
 
+	it("logs metadata parse failures without surfacing player errors", async () => {
+		const debugSpy = vi.spyOn(console, "debug").mockImplementation(() => {});
+		const parseError = new Error("metadata failed");
+		mockState.parseMusicMetadataFromSource.mockRejectedValueOnce(parseError);
+		setQueue();
+
+		render(<MusicPlayerHost />);
+
+		await waitFor(() => {
+			expect(debugSpy).toHaveBeenCalledWith(
+				"[AsterDrive]",
+				"music metadata parse failed",
+				"track-one.mp3",
+				parseError,
+			);
+		});
+		expect(mockState.updateTrackMetadata).not.toHaveBeenCalled();
+	});
+
 	it("moves to the next track when the current track ends", () => {
 		setQueue();
 
@@ -550,6 +1029,23 @@ describe("MusicPlayerHost", () => {
 		}
 
 		fireEvent.ended(audio);
+
+		expect(mockState.playNext).toHaveBeenCalledTimes(1);
+	});
+
+	it("keeps system next control usable after a load error", () => {
+		const { fireAction } = installMockMediaSession();
+		setQueue();
+
+		render(<MusicPlayerHost />);
+
+		const audio = document.querySelector("audio");
+		if (!audio) {
+			throw new Error("audio element not found");
+		}
+
+		fireEvent.error(audio);
+		fireAction("nexttrack");
 
 		expect(mockState.playNext).toHaveBeenCalledTimes(1);
 	});
@@ -585,5 +1081,43 @@ describe("MusicPlayerHost", () => {
 			expires_at: "2026-01-01T03:00:00Z",
 			path: "/api/v1/s/share-token/stream/session-2/track.mp3",
 		});
+	});
+
+	it("logs stream session refresh failures", async () => {
+		vi.useFakeTimers();
+		const refreshError = new Error("refresh failed");
+		const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+		const refreshStreamLink = vi.fn(async () => {
+			throw refreshError;
+		});
+		vi.setSystemTime(new Date("2026-01-01T00:00:00Z"));
+		mockState.state.activeTrackId = "track-1";
+		mockState.state.queue = [
+			{
+				expiresAt: "2026-01-01T00:03:00Z",
+				id: "track-1",
+				mimeType: "audio/mpeg",
+				name: "track.mp3",
+				path: "/api/v1/s/share-token/stream/session-1/track.mp3",
+				refreshStreamLink,
+			},
+		];
+
+		render(<MusicPlayerHost />);
+
+		await act(async () => {
+			vi.advanceTimersByTime(60_000);
+			await Promise.resolve();
+		});
+
+		expect(refreshStreamLink).toHaveBeenCalledTimes(1);
+		expect(mockState.updateTrackSource).not.toHaveBeenCalled();
+		expect(warnSpy).toHaveBeenCalledWith(
+			"[AsterDrive]",
+			"music stream session refresh failed",
+			"track.mp3",
+			refreshError,
+		);
+		warnSpy.mockRestore();
 	});
 });

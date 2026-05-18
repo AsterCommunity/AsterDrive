@@ -139,17 +139,22 @@ vi.mock("@/stores/previewAppStore", () => ({
 
 vi.mock("@/components/files/preview/BlobImagePreview", () => ({
 	BlobImagePreview: ({
+		file,
 		fallbackPath,
 		fillContainer,
 		path,
 	}: {
+		file: { name: string };
 		fallbackPath?: string;
 		fillContainer?: boolean;
 		path: string;
 	}) => (
-		<div
+		<img
+			alt={file.name}
 			data-fallback-path={fallbackPath ?? ""}
-		>{`blob:image:${path}:${fallbackPath ?? ""}:${String(Boolean(fillContainer))}`}</div>
+			data-fill-container={String(Boolean(fillContainer))}
+			src={`blob:${path}`}
+		/>
 	),
 }));
 
@@ -717,7 +722,7 @@ describe("FilePreviewDialog", () => {
 		});
 
 		await screen.findByText("music:/files/8/download");
-		expect(screen.queryByText("blob:image:/files/8/download:false")).toBeNull();
+		expect(document.querySelector('img[src^="blob:"]')).toBeNull();
 		expect(screen.getByText("music:/files/8/download")).toHaveAttribute(
 			"data-has-media-stream-link-factory",
 			"true",
@@ -763,9 +768,9 @@ describe("FilePreviewDialog", () => {
 			} as never,
 		});
 
-		await screen.findByText(
-			"blob:image:/files/7/download:/files/7/image-preview:false",
-		);
+		expect(
+			await screen.findByRole("img", { name: "tall-image.png" }),
+		).toHaveAttribute("src", "blob:/files/7/download");
 		expect(
 			screen.getByTestId("dialog-content").className.split(/\s+/),
 		).not.toContain("h-[90vh]");
@@ -797,9 +802,9 @@ describe("FilePreviewDialog", () => {
 			} as never,
 		});
 
-		await screen.findByText(
-			"blob:image:/files/7/download:/files/7/image-preview:false",
-		);
+		expect(
+			await screen.findByRole("img", { name: "wide-image.png" }),
+		).toHaveAttribute("data-fill-container", "false");
 
 		fireEvent.click(
 			screen.getByRole("button", {
@@ -807,11 +812,10 @@ describe("FilePreviewDialog", () => {
 			}),
 		);
 
-		expect(
-			await screen.findByText(
-				"blob:image:/files/7/download:/files/7/image-preview:true",
-			),
-		).toBeInTheDocument();
+		expect(screen.getByRole("img", { name: "wide-image.png" })).toHaveAttribute(
+			"data-fill-container",
+			"true",
+		);
 	});
 
 	it("auto-opens hybrid svg previews directly and still allows switching modes", async () => {
@@ -849,9 +853,9 @@ describe("FilePreviewDialog", () => {
 		expect(
 			screen.queryByRole("heading", { name: "files:choose_open_method" }),
 		).not.toBeInTheDocument();
-		await screen.findByText(
-			"blob:image:/files/7/download:/files/7/image-preview:false",
-		);
+		expect(
+			await screen.findByRole("img", { name: "logo.svg" }),
+		).toHaveAttribute("src", "blob:/files/7/download");
 
 		fireEvent.click(
 			screen.getByRole("button", { name: "files:choose_open_method" }),

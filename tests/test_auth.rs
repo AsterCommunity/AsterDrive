@@ -1040,6 +1040,159 @@ async fn test_concurrent_refresh_same_token_has_single_winner() {
 }
 
 #[actix_web::test]
+async fn test_recent_refresh_reuse_from_different_client_revokes_all_sessions() {
+    let state = common::setup().await;
+    let app = create_test_app!(state.clone());
+
+    let (_, refresh) = register_and_login!(app);
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/auth/refresh")
+        .insert_header(("Cookie", common::refresh_cookie_header(&refresh)))
+        .insert_header(common::csrf_header_for(&refresh))
+        .insert_header(("User-Agent", "AsterDrive Original Client/1.0"))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/auth/refresh")
+        .insert_header(("Cookie", common::refresh_cookie_header(&refresh)))
+        .insert_header(common::csrf_header_for(&refresh))
+        .insert_header(("User-Agent", "AsterDrive Suspicious Client/1.0"))
+        .to_request();
+    assert_service_status!(
+        app,
+        req,
+        401,
+        "recent refresh reuse from a different client should be treated as compromise"
+    );
+
+    let user = user_repo::find_by_username(&state.db, "testuser")
+        .await
+        .unwrap()
+        .expect("user should exist");
+    assert_eq!(user.session_version, 2);
+    assert!(
+        auth_session_repo::list_active_for_user(&state.db, user.id)
+            .await
+            .unwrap()
+            .is_empty()
+    );
+}
+
+#[actix_web::test]
+async fn test_recent_refresh_reuse_from_spoofed_forwarded_ip_stays_stale() {
+    let state = common::setup().await;
+    let app = create_test_app!(state.clone());
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/auth/register")
+        .peer_addr("127.0.0.1:12345".parse().unwrap())
+        .set_json(serde_json::json!({
+            "username": "testuser",
+            "email": "test@example.com",
+            "password": "password123"
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 201);
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/auth/login")
+        .peer_addr("127.0.0.1:12345".parse().unwrap())
+        .insert_header(("User-Agent", "AsterDrive Same Client/1.0"))
+        .insert_header(("X-Forwarded-For", "203.0.113.10"))
+        .set_json(serde_json::json!({
+            "identifier": "testuser",
+            "password": "password123"
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+    let refresh = common::extract_cookie(&resp, "aster_refresh").unwrap();
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/auth/refresh")
+        .peer_addr("127.0.0.1:12345".parse().unwrap())
+        .insert_header(("Cookie", common::refresh_cookie_header(&refresh)))
+        .insert_header(common::csrf_header_for(&refresh))
+        .insert_header(("User-Agent", "AsterDrive Same Client/1.0"))
+        .insert_header(("X-Forwarded-For", "203.0.113.11"))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/auth/refresh")
+        .peer_addr("127.0.0.1:12345".parse().unwrap())
+        .insert_header(("Cookie", common::refresh_cookie_header(&refresh)))
+        .insert_header(common::csrf_header_for(&refresh))
+        .insert_header(("User-Agent", "AsterDrive Same Client/1.0"))
+        .insert_header(("X-Forwarded-For", "203.0.113.12"))
+        .to_request();
+    assert_service_status!(
+        app,
+        req,
+        401,
+        "untrusted forwarded IP changes should not make same-client stale refresh look compromised"
+    );
+
+    let user = user_repo::find_by_username(&state.db, "testuser")
+        .await
+        .unwrap()
+        .expect("user should exist");
+    assert_eq!(user.session_version, 1);
+    assert_eq!(
+        auth_session_repo::list_active_for_user(&state.db, user.id)
+            .await
+            .unwrap()
+            .len(),
+        1
+    );
+}
+
+#[actix_web::test]
+async fn test_recent_refresh_reuse_without_client_evidence_revokes_all_sessions() {
+    let state = common::setup().await;
+    let app = create_test_app!(state.clone());
+
+    let (_, refresh) = register_and_login!(app);
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/auth/refresh")
+        .insert_header(("Cookie", common::refresh_cookie_header(&refresh)))
+        .insert_header(common::csrf_header_for(&refresh))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/auth/refresh")
+        .insert_header(("Cookie", common::refresh_cookie_header(&refresh)))
+        .insert_header(common::csrf_header_for(&refresh))
+        .to_request();
+    assert_service_status!(
+        app,
+        req,
+        401,
+        "recent refresh reuse without client evidence should be treated as compromise"
+    );
+
+    let user = user_repo::find_by_username(&state.db, "testuser")
+        .await
+        .unwrap()
+        .expect("user should exist");
+    assert_eq!(user.session_version, 2);
+    assert!(
+        auth_session_repo::list_active_for_user(&state.db, user.id)
+            .await
+            .unwrap()
+            .is_empty()
+    );
+}
+
+#[actix_web::test]
 async fn test_bearer_authenticated_write_allows_missing_request_source() {
     let state = common::setup().await;
     let app = create_test_app!(state);

@@ -55,9 +55,8 @@ pub(super) async fn render_thumbnail_with_vips_cli(
         blob_id = blob.id,
         processor = "vips_cli",
         command,
-        input_arg = input_arg,
         input_source = prepared_input.kind().as_str(),
-        output_path = output_arg,
+        output_path = "<redacted>",
         max_dim,
         "starting vips CLI thumbnail render"
     );
@@ -143,9 +142,8 @@ pub(super) async fn render_image_preview_with_vips_cli(
         blob_id = blob.id,
         processor = "vips_cli",
         command,
-        input_arg = input_arg,
         input_source = prepared_input.kind().as_str(),
-        output_path = output_arg,
+        output_path = "<redacted>",
         max_dim,
         "starting vips CLI image preview render"
     );
@@ -236,9 +234,8 @@ pub(super) async fn render_thumbnail_with_ffmpeg_cli(
         blob_id = blob.id,
         processor = "ffmpeg_cli",
         command,
-        input_arg = input_arg,
         input_source = prepared_input.kind().as_str(),
-        output_path = output_arg,
+        output_path = "<redacted>",
         max_dim,
         "starting ffmpeg CLI thumbnail render"
     );

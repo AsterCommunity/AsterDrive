@@ -30,6 +30,20 @@ describe("createUploadSpeedTracker", () => {
 		expect(tracker.sample(3_000).speedBps).toBe(2_600);
 	});
 
+	it("reports zero speed when no bytes move during a full sample window", () => {
+		let now = 0;
+		const tracker = createUploadSpeedTracker(0, () => now);
+
+		now = 500;
+		expect(tracker.sample(1_000).speedBps).toBe(2_000);
+
+		now = 1_000;
+		expect(tracker.sample(1_000)).toEqual({
+			uploadedBytes: 1_000,
+			speedBps: 0,
+		});
+	});
+
 	it("resets the current rate when uploaded bytes move backwards", () => {
 		let now = 0;
 		const tracker = createUploadSpeedTracker(1_000, () => now);

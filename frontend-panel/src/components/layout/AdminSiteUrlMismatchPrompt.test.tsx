@@ -27,7 +27,10 @@ function AdminRouteShell({ page }: { page: string }) {
 
 vi.mock("react-i18next", () => ({
 	useTranslation: () => ({
-		t: (key: string) => `translated:${key}`,
+		t: (key: string, options?: Record<string, unknown>) =>
+			options
+				? `translated:${key}:${JSON.stringify(options)}`
+				: `translated:${key}`,
 	}),
 }));
 
@@ -213,6 +216,31 @@ describe("AdminSiteUrlMismatchPrompt", () => {
 		).not.toBeInTheDocument();
 		expect(mockState.navigate).not.toHaveBeenCalled();
 		expect(mockState.setConfig).not.toHaveBeenCalled();
+	});
+
+	it("normalizes legacy single-string public site urls", async () => {
+		mockState.brandingLoaded = true;
+		mockState.siteUrl = null;
+		mockState.getConfig.mockResolvedValue({
+			key: "public_site_url",
+			value: " https://configured.example.com/ ",
+		});
+		Object.defineProperty(window, "location", {
+			configurable: true,
+			value: {
+				...defaultLocation,
+				origin: "https://preview.example.com",
+			},
+		});
+
+		render(<AdminSiteUrlMismatchPrompt />);
+
+		expect(
+			await screen.findByText("translated:site_url_mismatch_title"),
+		).toBeInTheDocument();
+		expect(
+			screen.getByText(/https:\/\/configured\.example\.com/),
+		).toBeInTheDocument();
 	});
 
 	it("uses the live admin config instead of stale public branding cache", async () => {

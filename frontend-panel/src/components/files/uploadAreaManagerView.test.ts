@@ -51,18 +51,24 @@ describe("buildUploadTaskViews", () => {
 				}),
 				createTask({
 					id: "task-3",
+					status: "uploading",
+					progress: 40,
+					speedBps: 0,
+				}),
+				createTask({
+					id: "task-4",
 					status: "processing",
 					progress: 95,
 					speedBps: 2_048,
 				}),
 				createTask({
-					id: "task-4",
+					id: "task-5",
 					status: "completed",
 					progress: 100,
 					speedBps: 2_048,
 				}),
 				createTask({
-					id: "task-5",
+					id: "task-6",
 					status: "failed",
 					progress: 40,
 					speedBps: 2_048,
@@ -79,9 +85,10 @@ describe("buildUploadTaskViews", () => {
 			speed: "1.5 KB/s",
 			detail: "Chunk 2/4",
 		});
-		expect(views[2]?.speed).toBeUndefined();
+		expect(views[2]?.speed).toBe("0 B/s");
 		expect(views[3]?.speed).toBeUndefined();
-		expect(views[4]).toMatchObject({
+		expect(views[4]?.speed).toBeUndefined();
+		expect(views[5]).toMatchObject({
 			detail: "network failed",
 			speed: undefined,
 		});

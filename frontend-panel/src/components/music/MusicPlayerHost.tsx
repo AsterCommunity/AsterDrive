@@ -1,5 +1,6 @@
 import type { ChangeEvent, CSSProperties, ReactNode } from "react";
 import {
+	useCallback,
 	useEffect,
 	useId,
 	useLayoutEffect,
@@ -31,6 +32,20 @@ import {
 
 const STREAM_REFRESH_LEAD_MS = 2 * 60 * 1000;
 const STREAM_REFRESH_MIN_DELAY_MS = 10 * 1000;
+const MEDIA_SESSION_SEEK_OFFSET_SECONDS = 10;
+const PLAYBACK_ERROR_SKIP_DELAY_MS = 2_000;
+const MEDIA_SESSION_ACTIONS: MediaSessionAction[] = [
+	"play",
+	"pause",
+	"previoustrack",
+	"nexttrack",
+	"seekbackward",
+	"seekforward",
+	"seekto",
+	"stop",
+];
+const MUSIC_PLAYER_INTERNAL_SELECTOR =
+	"[data-music-player-surface],[data-music-player-trigger]";
 
 function formatPlaybackTime(seconds: number) {
 	if (!Number.isFinite(seconds) || seconds < 0) {
@@ -41,6 +56,13 @@ function formatPlaybackTime(seconds: number) {
 	const minutes = Math.floor(totalSeconds / 60);
 	const remainingSeconds = totalSeconds % 60;
 	return `${minutes}:${remainingSeconds.toString().padStart(2, "0")}`;
+}
+
+function rangeFillStyle(value: number): CSSProperties {
+	const percent = Math.min(100, Math.max(0, value));
+	return {
+		background: `linear-gradient(to right, var(--color-primary) 0%, var(--color-primary) ${percent}%, var(--color-muted) ${percent}%, var(--color-muted) 100%)`,
+	};
 }
 
 function sessionRefreshDelay(expiresAt?: string) {
@@ -64,6 +86,136 @@ function displayArtist(track: MusicPlayerTrack) {
 		return track.metadata.artists.join(", ");
 	}
 	return track.metadata?.artist || null;
+}
+
+function getMusicMediaSession() {
+	if (typeof navigator === "undefined" || !("mediaSession" in navigator)) {
+		return null;
+	}
+	return navigator.mediaSession;
+}
+
+function mediaArtworkFromUrl(src: string): MediaImage {
+	const mimeMatch = src.match(/^data:([^;,]+)/);
+	const type = mimeMatch?.[1];
+	return type ? { src, type } : { src };
+}
+
+function createMediaSessionMetadata(track: MusicPlayerTrack) {
+	if (typeof MediaMetadata === "undefined") {
+		return null;
+	}
+
+	const artworkUrl = track.metadata?.artworkUrl;
+	const metadata: MediaMetadataInit = {
+		album: track.metadata?.album ?? "",
+		artist: displayArtist(track) ?? "",
+		title: displayTitle(track),
+	};
+
+	if (artworkUrl) {
+		metadata.artwork = [mediaArtworkFromUrl(artworkUrl)];
+	}
+
+	return new MediaMetadata(metadata);
+}
+
+function setMediaSessionActionHandler(
+	mediaSession: MediaSession,
+	action: MediaSessionAction,
+	handler: MediaSessionActionHandler | null,
+) {
+	try {
+		mediaSession.setActionHandler(action, handler);
+	} catch (error) {
+		logger.debug("media session action handler ignored", action, error);
+	}
+}
+
+function clearMediaSessionPosition(mediaSession: MediaSession) {
+	if (typeof mediaSession.setPositionState !== "function") return;
+
+	try {
+		mediaSession.setPositionState();
+	} catch (error) {
+		logger.debug("media session position clear failed", error);
+	}
+}
+
+function updateMediaSessionPosition(
+	mediaSession: MediaSession,
+	audio: HTMLAudioElement | null,
+	duration: number,
+	currentTime: number,
+) {
+	if (typeof mediaSession.setPositionState !== "function") return;
+
+	if (!Number.isFinite(duration) || duration <= 0) {
+		clearMediaSessionPosition(mediaSession);
+		return;
+	}
+
+	const position = Math.min(
+		duration,
+		Math.max(0, Number.isFinite(currentTime) ? currentTime : 0),
+	);
+	const playbackRate =
+		audio && Number.isFinite(audio.playbackRate) && audio.playbackRate > 0
+			? audio.playbackRate
+			: 1;
+
+	try {
+		mediaSession.setPositionState({
+			duration,
+			playbackRate,
+			position,
+		});
+	} catch (error) {
+		logger.debug("media session position update failed", error);
+	}
+}
+
+function setAudioCurrentTime(
+	audio: HTMLAudioElement,
+	currentTime: number,
+	fastSeek: boolean,
+) {
+	if (fastSeek && typeof audio.fastSeek === "function") {
+		try {
+			audio.fastSeek(currentTime);
+			return;
+		} catch (error) {
+			logger.debug("audio fast seek failed", error);
+		}
+	}
+
+	audio.currentTime = currentTime;
+}
+
+function isMusicPlayerInteractionTarget(
+	event: MouseEvent,
+	panel: HTMLElement | null,
+) {
+	const path = event.composedPath();
+	if (
+		path.some((entry) => {
+			if (entry === panel) return true;
+			return (
+				entry instanceof Element &&
+				Boolean(entry.closest(MUSIC_PLAYER_INTERNAL_SELECTOR))
+			);
+		})
+	) {
+		return true;
+	}
+
+	const target = event.target;
+	if (!(target instanceof Node)) return false;
+	if (panel?.contains(target)) return true;
+
+	const targetElement =
+		target instanceof Element ? target : target.parentElement;
+	return Boolean(targetElement?.closest(MUSIC_PLAYER_INTERNAL_SELECTOR));
 }
 
 const MUSIC_TEXT_MARQUEE_KEYFRAMES = `
@@ -91,6 +243,7 @@ function useAutoScrollState(text: string, enabled: boolean) {
 	const [scrollDistance, setScrollDistance] = useState(0);
 
 	useLayoutEffect(() => {
+		// `text` is read here so the effect reruns and remeasures when the label changes.
 		void text;
 		if (!enabled) {
 			setIsOverflowing(false);
@@ -161,32 +314,29 @@ function AutoScrollText({
 			data-marquee-active={String(shouldMarquee)}
 		>
 			{shouldMarquee ? (
-				<>
-					<style>{MUSIC_TEXT_MARQUEE_KEYFRAMES}</style>
+				<span
+					className={cn(
+						"flex w-max max-w-none gap-6 whitespace-nowrap will-change-transform hover:[animation-play-state:paused] motion-reduce:[animation:none]",
+					)}
+					style={
+						{
+							animation: `music-player-text-marquee ${animationDuration}s linear infinite`,
+							"--music-text-scroll-distance": `-${scrollDistance}px`,
+						} as CSSProperties
+					}
+				>
 					<span
-						className={cn(
-							"flex w-max max-w-none gap-6 whitespace-nowrap will-change-transform hover:[animation-play-state:paused] motion-reduce:[animation:none]",
-						)}
-						style={
-							{
-								animation: `music-player-text-marquee ${animationDuration}s linear infinite`,
-								"--music-text-scroll-distance": `-${scrollDistance}px`,
-							} as CSSProperties
-						}
+						ref={(node) => {
+							trackRef.current = node;
+						}}
+						className="shrink-0"
 					>
-						<span
-							ref={(node) => {
-								trackRef.current = node;
-							}}
-							className="shrink-0"
-						>
-							{children}
-						</span>
-						<span className="shrink-0" aria-hidden="true">
-							{children}
-						</span>
+						{children}
 					</span>
-				</>
+					<span className="shrink-0" aria-hidden="true">
+						{children}
+					</span>
+				</span>
 			) : (
 				<span
 					ref={(node) => {
@@ -276,9 +426,16 @@ function PlayerIconButton({
 export function MusicPlayerHost() {
 	const { t } = useTranslation("files");
 	const audioRef = useRef<HTMLAudioElement | null>(null);
+	const panelRef = useRef<HTMLDivElement | null>(null);
+	const currentTimeRef = useRef(0);
+	const durationRef = useRef(0);
+	const errorSkipTimerRef = useRef<number | null>(null);
 	const isSeekingRef = useRef(false);
 	const parsedMetadataTrackIdsRef = useRef(new Set<string>());
 	const wasPlayingBeforeSeekRef = useRef(false);
+	const latestTrackIdRef = useRef<string | null>(null);
+	const activeQueueItemRef = useRef<HTMLButtonElement | null>(null);
+	const queueUserActivationTrackIdRef = useRef<string | null>(null);
 	const queuePanelId = useId();
 	const detailsPanelId = useId();
 	const [currentTime, setCurrentTime] = useState(0);
@@ -318,6 +475,9 @@ export function MusicPlayerHost() {
 		() => queue.find((candidate) => candidate.id === activeTrackId) ?? null,
 		[activeTrackId, queue],
 	);
+	useEffect(() => {
+		latestTrackIdRef.current = track?.id ?? null;
+	}, [track?.id]);
 	const source = useMemo(
 		() => (track ? resolveApiResourceUrl(track.path) : null),
 		[track],
@@ -327,19 +487,134 @@ export function MusicPlayerHost() {
 		duration > 0 && Number.isFinite(duration)
 			? Math.min(100, Math.max(0, (currentTime / duration) * 100))
 			: 0;
+	const volumePercent = Math.round(volume * 100);
 	const modeLabel = t(`music_player_mode_${playbackMode}`);
 
 	useEffect(() => {
+		currentTimeRef.current = currentTime;
+		durationRef.current = duration;
+	}, [currentTime, duration]);
+
+	const clearPendingErrorSkip = useCallback(() => {
+		if (errorSkipTimerRef.current === null) return;
+		window.clearTimeout(errorSkipTimerRef.current);
+		errorSkipTimerRef.current = null;
+	}, []);
+
+	const scheduleNextAfterPlaybackError = useCallback(
+		(failedTrackId: string | null) => {
+			clearPendingErrorSkip();
+			if (!failedTrackId) return;
+
+			errorSkipTimerRef.current = window.setTimeout(() => {
+				errorSkipTimerRef.current = null;
+				if (latestTrackIdRef.current !== failedTrackId) return;
+				playNext();
+			}, PLAYBACK_ERROR_SKIP_DELAY_MS);
+		},
+		[clearPendingErrorSkip, playNext],
+	);
+
+	const seekAudioTo = useCallback((nextTime: number, fastSeek = false) => {
+		const audio = audioRef.current;
+		const mediaDuration = durationRef.current;
+		if (
+			!audio ||
+			!Number.isFinite(nextTime) ||
+			!Number.isFinite(mediaDuration) ||
+			mediaDuration <= 0
+		) {
+			return;
+		}
+
+		const clampedTime = Math.min(mediaDuration, Math.max(0, nextTime));
+		setAudioCurrentTime(audio, clampedTime, fastSeek);
+		currentTimeRef.current = clampedTime;
+		setCurrentTime(clampedTime);
+
+		const mediaSession = getMusicMediaSession();
+		if (mediaSession) {
+			updateMediaSessionPosition(
+				mediaSession,
+				audio,
+				mediaDuration,
+				clampedTime,
+			);
+		}
+	}, []);
+
+	const seekAudioBy = useCallback(
+		(offset: number) => {
+			const audio = audioRef.current;
+			const baseTime =
+				audio && Number.isFinite(audio.currentTime)
+					? audio.currentTime
+					: currentTimeRef.current;
+			seekAudioTo(baseTime + offset);
+		},
+		[seekAudioTo],
+	);
+
+	const playPreviousTrack = useCallback(() => {
+		clearPendingErrorSkip();
+		playPrevious();
+	}, [clearPendingErrorSkip, playPrevious]);
+
+	const playNextTrack = useCallback(() => {
+		clearPendingErrorSkip();
+		playNext();
+	}, [clearPendingErrorSkip, playNext]);
+
+	useEffect(() => {
 		if (!trackKey) return;
+		currentTimeRef.current = 0;
+		durationRef.current = 0;
 		setCurrentTime(0);
 		setDuration(0);
-	}, [trackKey]);
+		clearPendingErrorSkip();
+		setError(null);
+	}, [clearPendingErrorSkip, setError, trackKey]);
+
+	useEffect(() => {
+		return () => {
+			clearPendingErrorSkip();
+		};
+	}, [clearPendingErrorSkip]);
+
+	useEffect(() => {
+		if (!isPanelOpen) return;
+
+		const handleDocumentClick = (event: MouseEvent) => {
+			if (isMusicPlayerInteractionTarget(event, panelRef.current)) return;
+			closePanel();
+		};
+
+		document.addEventListener("click", handleDocumentClick);
+		return () => {
+			document.removeEventListener("click", handleDocumentClick);
+		};
+	}, [closePanel, isPanelOpen]);
 
 	useEffect(() => {
 		if (isPanelOpen) return;
 		setDetailsOpen(false);
 		setQueueOpen(false);
 	}, [isPanelOpen]);
+
+	useEffect(() => {
+		if (!queueOpen || !activeTrackId) return;
+
+		if (queueUserActivationTrackIdRef.current === activeTrackId) {
+			queueUserActivationTrackIdRef.current = null;
+			return;
+		}
+		queueUserActivationTrackIdRef.current = null;
+
+		activeQueueItemRef.current?.scrollIntoView({
+			block: "nearest",
+			inline: "nearest",
+		});
+	}, [activeTrackId, queueOpen]);
 
 	useEffect(() => {
 		if (!track || !source || parsedMetadataTrackIdsRef.current.has(track.id)) {
@@ -381,15 +656,107 @@ export function MusicPlayerHost() {
 	}, [volume]);
 
 	useEffect(() => {
+		const mediaSession = getMusicMediaSession();
+		if (!mediaSession) return;
+
+		if (!track) {
+			mediaSession.metadata = null;
+			mediaSession.playbackState = "none";
+			clearMediaSessionPosition(mediaSession);
+			return;
+		}
+
+		mediaSession.metadata = createMediaSessionMetadata(track);
+	}, [track]);
+
+	useEffect(() => {
+		const mediaSession = getMusicMediaSession();
+		if (!mediaSession) return;
+
+		mediaSession.playbackState = track
+			? isPlaying
+				? "playing"
+				: "paused"
+			: "none";
+	}, [isPlaying, track]);
+
+	useEffect(() => {
+		const mediaSession = getMusicMediaSession();
+		if (!mediaSession || !track) return;
+
+		setMediaSessionActionHandler(mediaSession, "play", () => {
+			requestPlayback();
+		});
+		setMediaSessionActionHandler(mediaSession, "pause", () => {
+			audioRef.current?.pause();
+			setPlaybackRequested(false);
+		});
+		setMediaSessionActionHandler(mediaSession, "previoustrack", () => {
+			playPreviousTrack();
+		});
+		setMediaSessionActionHandler(mediaSession, "nexttrack", () => {
+			playNextTrack();
+		});
+		setMediaSessionActionHandler(mediaSession, "seekbackward", (details) => {
+			seekAudioBy(-(details.seekOffset ?? MEDIA_SESSION_SEEK_OFFSET_SECONDS));
+		});
+		setMediaSessionActionHandler(mediaSession, "seekforward", (details) => {
+			seekAudioBy(details.seekOffset ?? MEDIA_SESSION_SEEK_OFFSET_SECONDS);
+		});
+		setMediaSessionActionHandler(mediaSession, "seekto", (details) => {
+			if (typeof details.seekTime !== "number") return;
+			seekAudioTo(details.seekTime, details.fastSeek ?? false);
+		});
+		setMediaSessionActionHandler(mediaSession, "stop", () => {
+			audioRef.current?.pause();
+			setPlaybackRequested(false);
+			seekAudioTo(0);
+		});
+
+		return () => {
+			for (const action of MEDIA_SESSION_ACTIONS) {
+				setMediaSessionActionHandler(mediaSession, action, null);
+			}
+		};
+	}, [
+		playNextTrack,
+		playPreviousTrack,
+		requestPlayback,
+		seekAudioBy,
+		seekAudioTo,
+		setPlaybackRequested,
+		track,
+	]);
+
+	useEffect(() => {
+		const mediaSession = getMusicMediaSession();
+		if (!mediaSession || !track) return;
+
+		updateMediaSessionPosition(
+			mediaSession,
+			audioRef.current,
+			duration,
+			currentTime,
+		);
+	}, [currentTime, duration, track]);
+
+	useEffect(() => {
 		if (!track?.refreshStreamLink) return;
 
 		const delay = sessionRefreshDelay(track.expiresAt);
 		if (delay === null) return;
 
 		const timer = window.setTimeout(() => {
+			const scheduledTrackId = track.id;
+			if (latestTrackIdRef.current !== scheduledTrackId) {
+				return;
+			}
 			track
 				.refreshStreamLink?.()
 				.then((link) => {
+					if (latestTrackIdRef.current !== scheduledTrackId) {
+						return;
+					}
 					updateTrackSource(track.id, link);
 				})
 				.catch((refreshError) => {
@@ -416,15 +783,21 @@ export function MusicPlayerHost() {
 
 		void audio.play().catch((playError) => {
 			logger.warn("music playback start failed", track?.name, playError);
+			setError(t("music_player_load_failed"));
 			setPlaybackRequested(false);
 			setPlaying(false);
+			scheduleNextAfterPlaybackError(track?.id ?? null);
 		});
 	}, [
 		playRequestVersion,
 		playRequested,
+		scheduleNextAfterPlaybackError,
+		setError,
 		setPlaybackRequested,
 		setPlaying,
 		source,
+		t,
+		track?.id,
 		track?.name,
 	]);
 
@@ -439,16 +812,15 @@ export function MusicPlayerHost() {
 			return;
 		}
 
+		clearPendingErrorSkip();
 		requestPlayback();
 	};
 
 	const handleSeek = (event: ChangeEvent<HTMLInputElement>) => {
-		const audio = audioRef.current;
-		if (!audio || duration <= 0) return;
+		if (duration <= 0) return;
 
 		const nextTime = (Number(event.currentTarget.value) / 100) * duration;
-		audio.currentTime = nextTime;
-		setCurrentTime(nextTime);
+		seekAudioTo(nextTime);
 	};
 
 	const beginSeek = () => {
@@ -479,20 +851,29 @@ export function MusicPlayerHost() {
 	};
 
 	const activateQueueTrack = (trackId: string) => {
+		clearPendingErrorSkip();
+		queueUserActivationTrackIdRef.current = trackId;
 		playTracks(queue, trackId);
 	};
 
 	return (
 		<>
+			<style>{MUSIC_TEXT_MARQUEE_KEYFRAMES}</style>
+
 			{/* biome-ignore lint/a11y/useMediaCaption: user-uploaded media may not have captions available */}
 			<audio
 				ref={audioRef}
 				src={source ?? undefined}
 				preload="metadata"
-				onCanPlay={() => setError(null)}
-				onDurationChange={(event) =>
-					setDuration(event.currentTarget.duration || 0)
-				}
+				onCanPlay={() => {
+					clearPendingErrorSkip();
+					setError(null);
+				}}
+				onDurationChange={(event) => {
+					const nextDuration = event.currentTarget.duration || 0;
+					durationRef.current = nextDuration;
+					setDuration(nextDuration);
+				}}
 				onEnded={() => {
 					if (playbackMode === "repeat_one") {
 						const audio = audioRef.current;
@@ -502,29 +883,37 @@ export function MusicPlayerHost() {
 						requestPlayback();
 						return;
 					}
-					playNext();
+					playNextTrack();
 				}}
 				onError={() => {
 					setError(t("music_player_load_failed"));
 					setPlaybackRequested(false);
 					setPlaying(false);
+					scheduleNextAfterPlaybackError(track.id);
 				}}
 				onLoadedMetadata={(event) => {
-					setDuration(event.currentTarget.duration || 0);
+					const nextDuration = event.currentTarget.duration || 0;
+					durationRef.current = nextDuration;
+					setDuration(nextDuration);
 				}}
 				onPause={() => setPlaying(false)}
 				onPlay={() => {
+					clearPendingErrorSkip();
 					setError(null);
 					setPlaying(true);
 					setPlaybackRequested(true);
 				}}
-				onTimeUpdate={(event) =>
-					setCurrentTime(event.currentTarget.currentTime || 0)
-				}
+				onTimeUpdate={(event) => {
+					const nextTime = event.currentTarget.currentTime || 0;
+					currentTimeRef.current = nextTime;
+					setCurrentTime(nextTime);
+				}}
 			/>
 
 			<div
+				ref={panelRef}
 				aria-hidden={!isPanelOpen}
+				data-music-player-surface
 				data-state={isPanelOpen ? "open" : "closed"}
 				inert={isPanelOpen ? undefined : true}
 				className={cn(
@@ -610,8 +999,9 @@ export function MusicPlayerHost() {
 									onPointerDown={beginSeek}
 									onPointerUp={endSeek}
 									aria-label={t("music_player_seek")}
+									style={rangeFillStyle(progress)}
 									className={cn(
-										"h-2 w-full cursor-pointer appearance-none rounded-full bg-muted accent-primary",
+										"h-2 w-full cursor-pointer appearance-none rounded-full accent-primary",
 										duration <= 0 && "cursor-default opacity-60",
 									)}
 									disabled={duration <= 0}
@@ -638,7 +1028,7 @@ export function MusicPlayerHost() {
 									</PlayerIconButton>
 									<PlayerIconButton
 										label={t("music_player_previous")}
-										onClick={playPrevious}
+										onClick={playPreviousTrack}
 									>
 										<Icon name="SkipBack" className="h-4 w-4" />
 									</PlayerIconButton>
@@ -661,7 +1051,7 @@ export function MusicPlayerHost() {
 									</Button>
 									<PlayerIconButton
 										label={t("music_player_next")}
-										onClick={playNext}
+										onClick={playNextTrack}
 									>
 										<Icon name="SkipForward" className="h-4 w-4" />
 									</PlayerIconButton>
@@ -675,10 +1065,11 @@ export function MusicPlayerHost() {
 											min={0}
 											max={100}
 											step={1}
-											value={Math.round(volume * 100)}
+											value={volumePercent}
 											onChange={handleVolumeChange}
 											aria-label={t("music_player_volume")}
-											className="h-1.5 w-16 cursor-pointer appearance-none rounded-full bg-muted accent-primary"
+											style={rangeFillStyle(volumePercent)}
+											className="h-1.5 w-16 cursor-pointer appearance-none rounded-full accent-primary"
 										/>
 									</div>
 								</div>
@@ -717,6 +1108,11 @@ export function MusicPlayerHost() {
 													return (
 														<button
 															key={queueTrack.id}
+															ref={(node) => {
+																if (active && node) {
+																	activeQueueItemRef.current = node;
+																}
+															}}
 															type="button"
 															className={cn(
 																"flex w-full min-w-0 items-center gap-3 rounded-md px-2 py-2 text-left transition hover:bg-muted/55",
@@ -811,12 +1207,6 @@ export function MusicPlayerHost() {
 											<AutoScrollText active={detailsOpen} className="mt-1">
 												{track.mimeType}
 											</AutoScrollText>
-										</div>
-										<div>
-											<div className="text-xs font-medium uppercase text-muted-foreground">
-												{t("music_player_mode")}
-											</div>
-											<p className="mt-1">{modeLabel}</p>
 										</div>
 									</div>
 								</AnimatedCollapsible>

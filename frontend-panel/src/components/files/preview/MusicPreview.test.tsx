@@ -1,4 +1,10 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+	act,
+	fireEvent,
+	render,
+	screen,
+	waitFor,
+} from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { MusicPreview } from "@/components/files/preview/MusicPreview";
 
@@ -250,6 +256,40 @@ describe("MusicPreview", () => {
 		await waitFor(() => {
 			expect(mockState.playTrack).not.toHaveBeenCalled();
 		});
+	});
+
+	it("does not show a stream error after the preview unmounts during a failed start", async () => {
+		let rejectSession: ((error: Error) => void) | undefined;
+		const mediaStreamLinkFactory = vi.fn(
+			() =>
+				new Promise<{
+					expires_at: string;
+					path: string;
+				}>((_, reject) => {
+					rejectSession = reject;
+				}),
+		);
+
+		const { unmount } = render(
+			<MusicPreview
+				file={{ name: "track.mp3", mime_type: "audio/mpeg" }}
+				path="/s/share-token/download"
+				mediaStreamLinkFactory={mediaStreamLinkFactory}
+			/>,
+		);
+
+		fireEvent.click(screen.getByRole("button", { name: "music_preview_play" }));
+		await waitFor(() => {
+			expect(mediaStreamLinkFactory).toHaveBeenCalledTimes(1);
+		});
+		unmount();
+		await act(async () => {
+			rejectSession?.(new Error("unmounted failure"));
+		});
+
+		expect(mockState.playTrack).not.toHaveBeenCalled();
+		expect(mockState.warn).not.toHaveBeenCalled();
+		expect(screen.queryByText("preview_load_failed")).not.toBeInTheDocument();
 	});
 
 	it("shows the playing state for the current track and prevents duplicate starts", () => {

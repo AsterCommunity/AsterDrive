@@ -4,6 +4,7 @@ import {
 	buildShareFolderMusicQueue,
 	buildSingleShareMusicTrack,
 	hydrateMusicQueueForPlayback,
+	hydrateMusicTrackStreamLink,
 	inferMusicMetadata,
 	isMusicFile,
 	parseMusicMetadataFromSource,
@@ -221,10 +222,58 @@ describe("musicPlayer helpers", () => {
 		});
 	});
 
+	it("returns null for single share tracks without usable audio metadata", () => {
+		expect(
+			buildSingleShareMusicTrack(
+				{
+					download_count: 0,
+					has_password: false,
+					mime_type: null,
+					name: "Shared.mp3",
+					shared_by: { avatar: null, name: "Alice" },
+					share_type: "file",
+					size: 128,
+				},
+				"share-token",
+			),
+		).toBeNull();
+		expect(
+			buildSingleShareMusicTrack(
+				{
+					download_count: 0,
+					has_password: false,
+					mime_type: "application/pdf",
+					name: "Manual.pdf",
+					shared_by: { avatar: null, name: "Alice" },
+					share_type: "file",
+					size: 128,
+				},
+				"share-token",
+			),
+		).toBeNull();
+	});
+
+	it("does not hydrate when the active queue track is missing or has no refresh hook", async () => {
+		const directTrack = {
+			id: "file:1",
+			mimeType: "audio/mpeg",
+			name: "Song.mp3",
+			path: "/files/1/download",
+		};
+
+		await expect(hydrateMusicTrackStreamLink(directTrack)).resolves.toBe(
+			directTrack,
+		);
+		await expect(
+			hydrateMusicQueueForPlayback([directTrack], "missing-track"),
+		).resolves.toEqual([directTrack]);
+	});
+
 	it("parses browser music metadata and turns embedded cover art into a data URL", async () => {
 		const blob = new Blob(["audio"]);
 		mockState.fetch.mockResolvedValueOnce({
 			blob: async () => blob,
+			headers: new Headers({ "Content-Range": "bytes 0-4/100" }),
 			ok: true,
 			status: 206,
 		});
@@ -282,6 +331,7 @@ describe("musicPlayer helpers", () => {
 	it("keeps fallback metadata when parsed tags are missing cover, title, or artist", async () => {
 		mockState.fetch.mockResolvedValueOnce({
 			blob: async () => new Blob(["audio"]),
+			headers: new Headers(),
 			ok: true,
 			status: 206,
 		});
@@ -319,5 +369,48 @@ describe("musicPlayer helpers", () => {
 				"Range",
 			),
 		).toBeNull();
+	});
+
+	it("skips parsing when a ranged metadata request returns an unbounded full body", async () => {
+		const blob = vi.fn(async () => new Blob(["full body"]));
+		mockState.fetch.mockResolvedValueOnce({
+			blob,
+			headers: new Headers(),
+			ok: true,
+			status: 200,
+		});
+
+		await expect(
+			parseMusicMetadataFromSource({
+				fallbackMetadata: { artist: "Fallback Artist", title: "Fallback Song" },
+				mimeType: "audio/mpeg",
+				name: "Fallback Song.mp3",
+				size: 10_000_000,
+				source: "/api/v1/files/1/download",
+			}),
+		).resolves.toEqual({
+			artist: "Fallback Artist",
+			title: "Fallback Song",
+		});
+		expect(blob).not.toHaveBeenCalled();
+		expect(mockState.parseBlob).not.toHaveBeenCalled();
+	});
+
+	it("throws when metadata fetch fails", async () => {
+		mockState.fetch.mockResolvedValueOnce({
+			blob: async () => new Blob(["audio"]),
+			headers: new Headers(),
+			ok: false,
+			status: 500,
+		});
+
+		await expect(
+			parseMusicMetadataFromSource({
+				mimeType: "audio/mpeg",
+				name: "Broken.mp3",
+				source: "/api/v1/files/1/download",
+			}),
+		).rejects.toThrow("music metadata request failed with 500");
+		expect(mockState.parseBlob).not.toHaveBeenCalled();
 	});
 });

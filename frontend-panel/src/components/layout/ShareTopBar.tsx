@@ -38,6 +38,7 @@ export function ShareTopBar() {
 										className="rounded-full"
 										onClick={toggleMusicPanel}
 										aria-label={t("files:music_player_open")}
+										data-music-player-trigger
 									/>
 								}
 							>

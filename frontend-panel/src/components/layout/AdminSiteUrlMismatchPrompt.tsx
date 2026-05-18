@@ -23,9 +23,21 @@ function syncPublicSiteUrlRuntime(value: string[] | null | undefined) {
 }
 
 function normalizeConfigValue(value: unknown) {
-	return Array.isArray(value) && value.every((item) => typeof item === "string")
-		? value
-		: [];
+	if (typeof value === "string") {
+		const normalized = normalizePublicSiteUrl(value);
+		return normalized ? [normalized] : [];
+	}
+
+	if (
+		!Array.isArray(value) ||
+		!value.every((item) => typeof item === "string")
+	) {
+		return [];
+	}
+
+	return value
+		.map((item) => normalizePublicSiteUrl(item))
+		.filter((item): item is string => item !== null);
 }
 
 export function AdminSiteUrlMismatchPrompt() {

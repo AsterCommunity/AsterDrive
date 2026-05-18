@@ -93,9 +93,16 @@ function lockIsActive(lock: RefreshLock | null, now = Date.now()) {
 	return lock !== null && lock.expiresAt > now;
 }
 
-function writeRefreshEvent(status: RefreshEvent["status"]) {
+function writeRefreshEvent(
+	status: RefreshEvent["status"],
+	acquiredLock: RefreshLock,
+) {
 	const currentLock = readLock();
-	if (!currentLock || currentLock.ownerId !== currentTabId) {
+	if (
+		!currentLock ||
+		currentLock.ownerId !== currentTabId ||
+		currentLock.lockId !== acquiredLock.lockId
+	) {
 		return;
 	}
 
@@ -108,9 +115,9 @@ function writeRefreshEvent(status: RefreshEvent["status"]) {
 	localStorage.setItem(REFRESH_EVENT_KEY, JSON.stringify(event));
 }
 
-function releaseLock() {
+function releaseLock(acquiredLock: RefreshLock) {
 	const lock = readLock();
-	if (lock?.ownerId === currentTabId) {
+	if (lock?.ownerId === currentTabId && lock.lockId === acquiredLock.lockId) {
 		localStorage.removeItem(REFRESH_LOCK_KEY);
 	}
 }
@@ -130,7 +137,10 @@ function tryAcquireLock() {
 	localStorage.setItem(REFRESH_LOCK_KEY, JSON.stringify(nextLock));
 
 	const storedLock = readLock();
-	return storedLock?.ownerId === currentTabId ? storedLock : null;
+	return storedLock?.ownerId === currentTabId &&
+		storedLock.lockId === nextLock.lockId
+		? storedLock
+		: null;
 }
 
 function waitForPeerRefresh(peerLock: RefreshLock) {
@@ -196,13 +206,13 @@ export async function runWithCrossTabRefreshLock(
 	if (lock !== null) {
 		try {
 			await refresh();
-			writeRefreshEvent("success");
+			writeRefreshEvent("success", lock);
 			return true;
 		} catch (error) {
-			writeRefreshEvent("failure");
+			writeRefreshEvent("failure", lock);
 			throw error;
 		} finally {
-			releaseLock();
+			releaseLock(lock);
 		}
 	}
 

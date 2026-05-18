@@ -16,6 +16,7 @@ vi.mock("@/components/files/preview/FilePreviewDialog", () => ({
 		open: boolean;
 		file: { name: string };
 		downloadPath?: string;
+		imagePreviewPath?: string;
 		editable?: boolean;
 		previewLinkFactory?: () => Promise<unknown>;
 		mediaStreamLinkFactory?: () => Promise<unknown>;

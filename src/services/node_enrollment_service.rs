@@ -1,5 +1,7 @@
 //! 服务模块：`node_enrollment_service`。
 
+use std::time::Duration;
+
 use crate::db::repository::master_binding_repo;
 use crate::entities::master_binding;
 use crate::errors::{AsterError, Result};
@@ -228,6 +230,7 @@ async fn ack_enrollment(master_url: &str, ack_token: &str) -> Result<()> {
 fn node_enrollment_http_client() -> Result<reqwest::Client> {
     reqwest::Client::builder()
         .user_agent(OUTBOUND_HTTP_USER_AGENT)
+        .timeout(Duration::from_secs(10))
         .build()
         .map_err(|error| {
             AsterError::internal_error(format!(

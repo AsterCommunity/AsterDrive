@@ -245,6 +245,10 @@ describe("useAuthStore", () => {
 
 		expect(refreshCount).toBe(0);
 		expect(useAuthStore.getState().expiresAt).toBe(accessTokenExpiresAt * 1000);
+		expect(sessionStorage.getItem("aster-auth-expires-at")).toBe(
+			String(accessTokenExpiresAt * 1000),
+		);
+		expect(localStorage.getItem("aster-cached-user")).toBeNull();
 		useAuthStore.getState().stopAutoRefresh();
 	});
 

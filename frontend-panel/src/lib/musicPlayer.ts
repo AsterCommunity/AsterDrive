@@ -73,7 +73,6 @@ export function buildSingleShareMusicTrack(
 ): MusicPlayerTrack | null {
 	if (!info.mime_type || typeof info.size !== "number") return null;
 	const file = {
-		file_category: "audio",
 		id: -1,
 		mime_type: info.mime_type,
 		name: info.name,
@@ -173,6 +172,24 @@ function pictureToDataUrl(picture: {
 	return `data:${mimeType};base64,${btoa(binary)}`;
 }
 
+function responseHasBoundedMusicMetadataBody(response: Response) {
+	if (response.status === 206) {
+		return true;
+	}
+
+	const contentRange = response.headers.get("Content-Range");
+	if (contentRange) {
+		return true;
+	}
+
+	const contentLength = Number(response.headers.get("Content-Length"));
+	return (
+		Number.isFinite(contentLength) &&
+		contentLength > 0 &&
+		contentLength <= MUSIC_METADATA_FETCH_LIMIT_BYTES
+	);
+}
+
 export async function parseMusicMetadataFromSource({
 	fallbackMetadata,
 	mimeType,
@@ -200,6 +217,15 @@ export async function parseMusicMetadataFromSource({
 	});
 	if (!response.ok) {
 		throw new Error(`music metadata request failed with ${response.status}`);
+	}
+	if (
+		!source.startsWith("blob:") &&
+		!responseHasBoundedMusicMetadataBody(response)
+	) {
+		return (
+			fallbackMetadata ??
+			inferMusicMetadata({ id: -1, mime_type: mimeType, name, size })
+		);
 	}
 
 	const blob = await response.blob();

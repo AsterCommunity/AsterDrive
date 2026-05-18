@@ -220,7 +220,10 @@ pub async fn finish_login(
         &state.runtime_config,
         RequestSourceMode::OptionalWhenPresent,
     )?;
-    let audit_info = AuditRequestInfo::from_request(&req);
+    let audit_info = AuditRequestInfo::from_request_with_trusted_proxies(
+        &req,
+        &state.config.rate_limit.trusted_proxies,
+    );
     let result = passkey_service::finish_login(
         &state,
         &body.flow_id,

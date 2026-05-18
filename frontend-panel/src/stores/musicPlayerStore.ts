@@ -76,7 +76,6 @@ function nextTrackId(
 	mode: MusicPlaybackMode,
 ) {
 	if (queue.length === 0) return null;
-	if (mode === "repeat_one" && activeTrackId) return activeTrackId;
 	if (mode === "shuffle" && queue.length > 1) {
 		const currentIndex = queue.findIndex((track) => track.id === activeTrackId);
 		const candidates = queue.filter((_, index) => index !== currentIndex);
@@ -95,7 +94,6 @@ function previousTrackId(
 	mode: MusicPlaybackMode,
 ) {
 	if (queue.length === 0) return null;
-	if (mode === "repeat_one" && activeTrackId) return activeTrackId;
 	if (mode === "shuffle" && queue.length > 1) {
 		return nextTrackId(queue, activeTrackId, mode);
 	}

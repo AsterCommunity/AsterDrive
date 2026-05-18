@@ -68,7 +68,7 @@ burst_size = 5
 
 ## 反向代理后面怎么配
 
-默认 `trusted_proxies = []` 是最安全的：AsterDrive 忽略 `X-Forwarded-For`，直接按实际连接来源 IP 限流。这样不会被伪造 XFF 绕过，但反代后通常只能看到代理地址。
+默认 `trusted_proxies = []` 是最安全的：AsterDrive 忽略 `X-Forwarded-For`，直接按实际连接来源 IP 限流。这样不会被伪造 XFF 绕过，但反代后通常只能看到代理地址。反向代理部署的更完整说明见 [反向代理](/deployment/reverse-proxy#上线前先对齐这几个值)。
 
 如果你的部署是：
 
@@ -90,6 +90,7 @@ trusted_proxies = ["127.0.0.1", "172.16.0.0/12"]
 - 连接来源不可信时，`X-Forwarded-For` 会被忽略，继续按实际连接 IP 限流
 - `trusted_proxies` 支持单 IP 和 CIDR，例如 `127.0.0.1`、`10.0.0.0/8`、`172.16.0.0/12`
 - 不要把不受你控制的公网段放进去，这等于相信别人帮你报真实 IP
+- 这组 `trusted_proxies` 也会影响认证会话里按客户端 IP 做的复用判断，所以它必须和你的真实反向代理拓扑一致，不能只顾限流不顾登录安全
 
 如果你不想在应用层处理这件事，也可以继续关掉 AsterDrive 限流，把限流交给反向代理（Nginx `limit_req`、Caddy `rate_limit`、Traefik `RateLimit` 中间件）。但不建议两边都配置得很紧，否则排障时容易混淆。
 
