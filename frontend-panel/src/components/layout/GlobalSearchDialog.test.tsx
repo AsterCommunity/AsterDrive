@@ -2,7 +2,7 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { GlobalSearchDialog } from "@/components/layout/GlobalSearchDialog";
-import type { FileListItem, FolderListItem } from "@/types/api";
+import type { FileCategory, FileListItem, FolderListItem } from "@/types/api";
 
 const mockState = vi.hoisted(() => ({
 	getFile: vi.fn(),
@@ -78,6 +78,26 @@ function waitForSearchDebounce() {
 	return new Promise((resolve) => window.setTimeout(resolve, 220));
 }
 
+function fileItem(
+	overrides: Partial<FileListItem> & Pick<FileListItem, "id" | "name">,
+): FileListItem {
+	const extension =
+		overrides.extension ?? overrides.name.split(".").pop() ?? "";
+	const category: FileCategory = overrides.file_category ?? "document";
+
+	return {
+		compound_extension: null,
+		extension,
+		file_category: category,
+		is_locked: false,
+		is_shared: false,
+		mime_type: "text/plain",
+		size: 2048,
+		updated_at: "2026-04-15T12:00:00Z",
+		...overrides,
+	};
+}
+
 describe("GlobalSearchDialog", () => {
 	beforeEach(() => {
 		mockState.getFile.mockReset();
@@ -115,15 +135,10 @@ describe("GlobalSearchDialog", () => {
 			name: "Reports",
 			updated_at: "2026-04-15T12:00:00Z",
 		};
-		const file: FileListItem = {
+		const file = fileItem({
 			id: 7,
-			is_locked: false,
-			is_shared: false,
-			mime_type: "text/plain",
 			name: "report.txt",
-			size: 2048,
-			updated_at: "2026-04-15T12:00:00Z",
-		};
+		});
 		mockState.search.mockResolvedValue({
 			files: [file],
 			folders: [folder],
@@ -155,15 +170,10 @@ describe("GlobalSearchDialog", () => {
 
 	it("opens file results in their parent folder with preview state", async () => {
 		const onOpenChange = vi.fn();
-		const file: FileListItem = {
+		const file = fileItem({
 			id: 7,
-			is_locked: false,
-			is_shared: false,
-			mime_type: "text/plain",
 			name: "report.txt",
-			size: 2048,
-			updated_at: "2026-04-15T12:00:00Z",
-		};
+		});
 		mockState.search.mockResolvedValue({
 			files: [file],
 			folders: [],
@@ -197,24 +207,15 @@ describe("GlobalSearchDialog", () => {
 	});
 
 	it("loads more results when the sentinel enters view", async () => {
-		const firstPageFile = {
+		const firstPageFile = fileItem({
 			id: 7,
-			is_locked: false,
-			is_shared: false,
-			mime_type: "text/plain",
 			name: "report-1.txt",
-			size: 2048,
-			updated_at: "2026-04-15T12:00:00Z",
-		} satisfies FileListItem;
-		const secondPageFile = {
+		});
+		const secondPageFile = fileItem({
 			id: 8,
-			is_locked: false,
-			is_shared: false,
-			mime_type: "text/plain",
 			name: "report-2.txt",
 			size: 1024,
-			updated_at: "2026-04-15T12:00:00Z",
-		} satisfies FileListItem;
+		});
 
 		mockState.search
 			.mockResolvedValueOnce({
@@ -268,6 +269,208 @@ describe("GlobalSearchDialog", () => {
 		expect(await screen.findByText("report-2.txt")).toBeInTheDocument();
 	});
 
+	it("searches by category without requiring a keyword", async () => {
+		const image = fileItem({
+			id: 9,
+			name: "cover.jpg",
+			extension: "jpg",
+			file_category: "image",
+			mime_type: "image/jpeg",
+		});
+		mockState.search.mockResolvedValue({
+			files: [image],
+			folders: [],
+			total_files: 1,
+			total_folders: 0,
+		});
+
+		render(<GlobalSearchDialog open onOpenChange={vi.fn()} />);
+
+		fireEvent.click(
+			screen.getByRole("button", { name: "search:category_image" }),
+		);
+		await waitForSearchDebounce();
+
+		await waitFor(() => {
+			expect(mockState.search).toHaveBeenCalledWith(
+				{
+					type: "file",
+					category: "image",
+					limit: 10,
+				},
+				{ signal: expect.any(AbortSignal) },
+			);
+		});
+		expect(await screen.findByText("cover.jpg")).toBeInTheDocument();
+	});
+
+	it("combines category filters with keyword searches", async () => {
+		mockState.search.mockResolvedValue({
+			files: [],
+			folders: [],
+			total_files: 0,
+			total_folders: 0,
+		});
+
+		render(<GlobalSearchDialog open onOpenChange={vi.fn()} />);
+
+		fireEvent.click(
+			screen.getByRole("button", { name: "search:category_video" }),
+		);
+		fireEvent.change(screen.getByPlaceholderText("search:placeholder"), {
+			target: { value: "clip" },
+		});
+		await waitForSearchDebounce();
+
+		await waitFor(() => {
+			expect(mockState.search).toHaveBeenLastCalledWith(
+				{
+					q: "clip",
+					type: "file",
+					category: "video",
+					limit: 10,
+				},
+				{ signal: expect.any(AbortSignal) },
+			);
+		});
+	});
+
+	it("clears category-only searches when switching to folder results", async () => {
+		mockState.search.mockResolvedValue({
+			files: [],
+			folders: [],
+			total_files: 0,
+			total_folders: 0,
+		});
+
+		render(<GlobalSearchDialog open onOpenChange={vi.fn()} />);
+
+		fireEvent.click(
+			screen.getByRole("button", { name: "search:category_image" }),
+		);
+		await waitForSearchDebounce();
+
+		await waitFor(() => {
+			expect(mockState.search).toHaveBeenCalledWith(
+				{
+					type: "file",
+					category: "image",
+					limit: 10,
+				},
+				{ signal: expect.any(AbortSignal) },
+			);
+		});
+
+		fireEvent.click(
+			screen.getByRole("button", { name: "search:folders_only" }),
+		);
+
+		await waitFor(() => {
+			expect(
+				screen.queryByRole("button", { name: "search:category_image" }),
+			).not.toBeInTheDocument();
+		});
+		expect(screen.getByText("search:start_typing_desc")).toBeInTheDocument();
+		expect(mockState.search).toHaveBeenCalledTimes(1);
+	});
+
+	it("keeps category filters when loading more results", async () => {
+		const firstPageFile = fileItem({
+			id: 7,
+			name: "cover-1.jpg",
+			extension: "jpg",
+			file_category: "image",
+			mime_type: "image/jpeg",
+		});
+		const secondPageFile = fileItem({
+			id: 8,
+			name: "cover-2.jpg",
+			extension: "jpg",
+			file_category: "image",
+			mime_type: "image/jpeg",
+		});
+
+		mockState.search
+			.mockResolvedValueOnce({
+				files: [firstPageFile],
+				folders: [],
+				total_files: 2,
+				total_folders: 0,
+			})
+			.mockResolvedValueOnce({
+				files: [secondPageFile],
+				folders: [],
+				total_files: 2,
+				total_folders: 0,
+			});
+
+		render(<GlobalSearchDialog open onOpenChange={vi.fn()} />);
+
+		fireEvent.click(
+			screen.getByRole("button", { name: "search:category_image" }),
+		);
+		await waitForSearchDebounce();
+		expect(await screen.findByText("cover-1.jpg")).toBeInTheDocument();
+
+		const loadMoreTarget = document.querySelector("[data-search-load-more]");
+		expect(loadMoreTarget).not.toBeNull();
+		expect(mockState.intersectionCallback).not.toBeNull();
+
+		mockState.intersectionCallback?.(
+			[
+				{
+					isIntersecting: true,
+					target: loadMoreTarget as Element,
+				} as IntersectionObserverEntry,
+			],
+			{} as IntersectionObserver,
+		);
+
+		await waitFor(() => {
+			expect(mockState.search).toHaveBeenNthCalledWith(
+				2,
+				{
+					type: "file",
+					category: "image",
+					limit: 10,
+					offset: 1,
+				},
+				{ signal: expect.any(AbortSignal) },
+			);
+		});
+		expect(await screen.findByText("cover-2.jpg")).toBeInTheDocument();
+	});
+
+	it("applies an initial category preset when opened from quick views", async () => {
+		mockState.search.mockResolvedValue({
+			files: [],
+			folders: [],
+			total_files: 0,
+			total_folders: 0,
+		});
+
+		render(
+			<GlobalSearchDialog
+				initialCategory="audio"
+				open
+				onOpenChange={vi.fn()}
+			/>,
+		);
+
+		await waitForSearchDebounce();
+
+		await waitFor(() => {
+			expect(mockState.search).toHaveBeenCalledWith(
+				{
+					type: "file",
+					category: "audio",
+					limit: 10,
+				},
+				{ signal: expect.any(AbortSignal) },
+			);
+		});
+	});
+
 	it("opens folder results directly with a view transition", async () => {
 		const onOpenChange = vi.fn();
 		const folder: FolderListItem = {
@@ -309,15 +512,11 @@ describe("GlobalSearchDialog", () => {
 			name: "Reports",
 			updated_at: "2026-04-15T12:00:00Z",
 		};
-		const file: FileListItem = {
+		const file = fileItem({
 			id: 7,
 			is_locked: true,
-			is_shared: false,
-			mime_type: "text/plain",
 			name: "report.txt",
-			size: 2048,
-			updated_at: "2026-04-15T12:00:00Z",
-		};
+		});
 		mockState.search.mockResolvedValue({
 			files: [file],
 			folders: [folder],
@@ -400,6 +599,60 @@ describe("GlobalSearchDialog", () => {
 		expect(mockState.navigate).not.toHaveBeenCalled();
 	});
 
+	it("handles header close, input blur, and composition end events", async () => {
+		const onOpenChange = vi.fn();
+		mockState.search.mockResolvedValue({
+			files: [],
+			folders: [],
+			total_files: 0,
+			total_folders: 0,
+		});
+
+		render(<GlobalSearchDialog open onOpenChange={onOpenChange} />);
+
+		const input = screen.getByPlaceholderText("search:placeholder");
+		fireEvent.compositionStart(input);
+		fireEvent.change(input, {
+			target: { value: "report" },
+		});
+		fireEvent.compositionEnd(input);
+		fireEvent.blur(input);
+		await waitForSearchDebounce();
+
+		await waitFor(() => {
+			expect(mockState.search).toHaveBeenCalledWith(
+				{
+					q: "report",
+					type: "all",
+					limit: 10,
+				},
+				{ signal: expect.any(AbortSignal) },
+			);
+		});
+
+		const closeIcon = screen
+			.getAllByTestId("icon")
+			.find((icon) => icon.getAttribute("data-name") === "X");
+		expect(closeIcon).toBeDefined();
+		fireEvent.click(closeIcon?.closest("button") as HTMLButtonElement);
+
+		expect(onOpenChange).toHaveBeenCalledWith(false);
+	});
+
+	it("does not trap arrow keys when there are no results to navigate", () => {
+		render(<GlobalSearchDialog open onOpenChange={vi.fn()} />);
+
+		const allowed = fireEvent.keyDown(
+			screen.getByPlaceholderText("search:placeholder"),
+			{
+				cancelable: true,
+				key: "ArrowDown",
+			},
+		);
+
+		expect(allowed).toBe(true);
+	});
+
 	it("shows an empty state when a query has no matches", async () => {
 		mockState.search.mockResolvedValue({
 			files: [],
@@ -444,15 +697,10 @@ describe("GlobalSearchDialog", () => {
 
 	it("closes on escape and resets stale results when reopened", async () => {
 		const onOpenChange = vi.fn();
-		const file: FileListItem = {
+		const file = fileItem({
 			id: 7,
-			is_locked: false,
-			is_shared: false,
-			mime_type: "text/plain",
 			name: "report.txt",
-			size: 2048,
-			updated_at: "2026-04-15T12:00:00Z",
-		};
+		});
 		mockState.search.mockResolvedValue({
 			files: [file],
 			folders: [],
@@ -483,15 +731,10 @@ describe("GlobalSearchDialog", () => {
 	});
 
 	it("ignores duplicate file opens while a result is already opening", async () => {
-		const file: FileListItem = {
+		const file = fileItem({
 			id: 7,
-			is_locked: false,
-			is_shared: false,
-			mime_type: "text/plain",
 			name: "report.txt",
-			size: 2048,
-			updated_at: "2026-04-15T12:00:00Z",
-		};
+		});
 		let resolveFile: ((value: { folder_id: number }) => void) | undefined;
 		mockState.search.mockResolvedValue({
 			files: [file],

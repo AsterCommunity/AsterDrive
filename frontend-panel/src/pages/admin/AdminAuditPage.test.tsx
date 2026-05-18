@@ -73,10 +73,12 @@ vi.mock("@/components/layout/AdminLayout", () => ({
 
 vi.mock("@/components/layout/AdminPageHeader", () => ({
 	AdminPageHeader: ({
+		actions,
 		title,
 		description,
 		toolbar,
 	}: {
+		actions?: React.ReactNode;
 		title: string;
 		description: string;
 		toolbar?: React.ReactNode;
@@ -84,6 +86,7 @@ vi.mock("@/components/layout/AdminPageHeader", () => ({
 		<div>
 			<h1>{title}</h1>
 			<p>{description}</p>
+			<div>{actions}</div>
 			<div>{toolbar}</div>
 		</div>
 	),
@@ -112,6 +115,43 @@ vi.mock("@/components/ui/button", () => ({
 		onClick?: () => void;
 	}) => (
 		<button type="button" disabled={disabled} onClick={onClick}>
+			{children}
+		</button>
+	),
+}));
+
+vi.mock("@/components/ui/badge", () => ({
+	Badge: ({
+		children,
+		className,
+	}: {
+		children: React.ReactNode;
+		className?: string;
+	}) => <span className={className}>{children}</span>,
+}));
+
+vi.mock("@/components/ui/tooltip", () => ({
+	Tooltip: ({ children }: { children: React.ReactNode }) => (
+		<div>{children}</div>
+	),
+	TooltipContent: ({ children }: { children: React.ReactNode }) => (
+		<div>{children}</div>
+	),
+	TooltipProvider: ({ children }: { children: React.ReactNode }) => (
+		<div>{children}</div>
+	),
+	TooltipTrigger: ({
+		children,
+		render,
+	}: {
+		children: React.ReactNode;
+		render: React.ReactElement;
+	}) => (
+		<button
+			type="button"
+			disabled={render.props.disabled}
+			onClick={render.props.onClick}
+		>
 			{children}
 		</button>
 	),
@@ -157,10 +197,12 @@ vi.mock("@/components/ui/scroll-area", () => ({
 vi.mock("@/components/ui/select", () => ({
 	Select: ({
 		children,
+		items,
 		onValueChange,
 		value,
 	}: {
 		children: React.ReactNode;
+		items?: Array<{ label: string; value: string }>;
 		onValueChange?: (value: string) => void;
 		value?: string;
 	}) => (
@@ -175,6 +217,15 @@ vi.mock("@/components/ui/select", () => ({
 			<button type="button" onClick={() => onValueChange?.("folder")}>
 				select-folder
 			</button>
+			{items?.map((item) => (
+				<button
+					key={item.value}
+					type="button"
+					onClick={() => onValueChange?.(item.value)}
+				>
+					{`select-${item.value}`}
+				</button>
+			))}
 			{children}
 		</div>
 	),
@@ -212,6 +263,31 @@ vi.mock("@/components/ui/table", () => ({
 		<div>{children}</div>
 	),
 }));
+
+vi.mock("@/components/common/AdminTable", async () => {
+	const actual = await vi.importActual<
+		typeof import("@/components/common/AdminTable")
+	>("@/components/common/AdminTable");
+
+	return {
+		...actual,
+		AdminTable: ({ children }: { children: React.ReactNode }) => (
+			<div>{children}</div>
+		),
+		AdminTableBody: ({ children }: { children: React.ReactNode }) => (
+			<div>{children}</div>
+		),
+		AdminTableCell: ({ children }: { children: React.ReactNode }) => (
+			<div>{children}</div>
+		),
+		AdminTableHeader: ({ children }: { children: React.ReactNode }) => (
+			<div>{children}</div>
+		),
+		AdminTableRow: ({ children }: { children: React.ReactNode }) => (
+			<div>{children}</div>
+		),
+	};
+});
 
 vi.mock("@/hooks/useApiError", () => ({
 	handleApiError: (...args: unknown[]) => mockState.handleApiError(...args),
@@ -367,6 +443,111 @@ describe("AdminAuditPage", () => {
 		});
 		await waitFor(() => {
 			expect(screen.getAllByText("Folder").length).toBeGreaterThan(0);
+		});
+	});
+
+	it("renders filtered empty state and can clear filters", async () => {
+		mockState.list
+			.mockResolvedValueOnce({
+				items: [],
+				total: 0,
+			})
+			.mockResolvedValueOnce({
+				items: [createEntry()],
+				total: 1,
+			});
+
+		renderPage("/admin/audit?action=file_delete");
+
+		await waitFor(() => {
+			expect(mockState.list).toHaveBeenNthCalledWith(1, {
+				action: "file_delete",
+				entity_type: undefined,
+				limit: 20,
+				offset: 0,
+				sort_by: "created_at",
+				sort_order: "desc",
+			});
+		});
+		expect(
+			await screen.findByText("no_filtered_audit_logs"),
+		).toBeInTheDocument();
+		expect(screen.getByText("filters_active")).toBeInTheDocument();
+
+		fireEvent.click(screen.getByRole("button", { name: "clear_filters" }));
+
+		await waitFor(() => {
+			expect(mockState.list).toHaveBeenNthCalledWith(2, {
+				action: undefined,
+				entity_type: undefined,
+				limit: 20,
+				offset: 0,
+				sort_by: "created_at",
+				sort_order: "desc",
+			});
+		});
+	});
+
+	it("updates page size, sorting, and reloads the audit table", async () => {
+		mockState.list.mockResolvedValue({
+			items: [createEntry()],
+			total: 51,
+		});
+
+		renderPage();
+
+		await waitFor(() => {
+			expect(mockState.list).toHaveBeenNthCalledWith(1, {
+				action: undefined,
+				entity_type: undefined,
+				limit: 20,
+				offset: 0,
+				sort_by: "created_at",
+				sort_order: "desc",
+			});
+		});
+
+		fireEvent.click(screen.getAllByRole("button", { name: "select-50" })[0]);
+
+		await waitFor(() => {
+			expect(mockState.list).toHaveBeenLastCalledWith({
+				action: undefined,
+				entity_type: undefined,
+				limit: 50,
+				offset: 0,
+				sort_by: "created_at",
+				sort_order: "desc",
+			});
+		});
+
+		fireEvent.click(screen.getByRole("button", { name: /audit_action/i }));
+
+		await waitFor(() => {
+			expect(mockState.list).toHaveBeenLastCalledWith({
+				action: undefined,
+				entity_type: undefined,
+				limit: 50,
+				offset: 0,
+				sort_by: "action",
+				sort_order: "asc",
+			});
+		});
+
+		const callsBeforeReload = mockState.list.mock.calls.length;
+		fireEvent.click(screen.getByRole("button", { name: /core:refresh/i }));
+
+		await waitFor(() => {
+			expect(mockState.list.mock.calls.length).toBeGreaterThan(
+				callsBeforeReload,
+			);
+		});
+		expect(mockState.list).toHaveBeenLastCalledWith({
+			action: undefined,
+			entity_type: undefined,
+			limit: 50,
+			offset: 0,
+			sort_by: "action",
+			sort_order: "asc",
 		});
 	});
 

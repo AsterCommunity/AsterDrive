@@ -9,7 +9,7 @@ mod query;
 #[cfg(test)]
 mod tests;
 
-pub use crate::types::AuditAction;
+pub use crate::types::{AuditAction, AuditEntityType};
 pub use context::{AuditContext, AuditRequestInfo};
 pub use details::{
     AdminCreateUserDetails, AdminForceDeleteUserDetails, AdminTaskCleanupAuditDetails,

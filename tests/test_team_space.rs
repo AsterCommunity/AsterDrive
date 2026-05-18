@@ -70,6 +70,33 @@ macro_rules! multipart_request {
     }};
 }
 
+macro_rules! multipart_request_with_mime {
+    ($uri:expr, $token:expr, $filename:expr, $content:expr, $mime:expr $(,)?) => {{
+        let boundary = "----TeamMimeBoundary123";
+        let payload = format!(
+            "------TeamMimeBoundary123\r\n\
+             Content-Disposition: form-data; name=\"file\"; filename=\"{filename}\"\r\n\
+             Content-Type: {mime}\r\n\r\n\
+             {content}\r\n\
+             ------TeamMimeBoundary123--\r\n",
+            filename = $filename,
+            mime = $mime,
+            content = $content,
+        );
+
+        test::TestRequest::post()
+            .uri($uri)
+            .insert_header(("Cookie", common::access_cookie_header(&$token)))
+            .insert_header(common::csrf_header_for(&$token))
+            .insert_header((
+                "Content-Type",
+                format!("multipart/form-data; boundary={boundary}"),
+            ))
+            .set_payload(payload)
+            .to_request()
+    }};
+}
+
 fn build_binary_multipart_payload(filename: &str, data: &[u8]) -> (String, Vec<u8>) {
     let boundary = format!("----AsterTeamBoundary{}", uuid::Uuid::new_v4().simple());
     let mut payload = Vec::new();
@@ -2588,6 +2615,100 @@ async fn test_team_search_rejects_invalid_params_via_shared_validation() {
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 400, "unexpected status for {uri}");
     }
+}
+
+#[actix_web::test]
+async fn test_team_search_supports_category_and_extension_filters() {
+    let state = common::setup().await;
+    let db = state.db.clone();
+    let mail_sender = state.mail_sender.clone();
+    let app = create_test_app!(state);
+
+    let _owner_id = register_user!(
+        app,
+        db,
+        mail_sender,
+        "teamfiletype",
+        "teamfiletype@example.com",
+        "password123"
+    );
+    let owner_token = login_user!(app, "teamfiletype", "password123");
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/teams")
+        .insert_header(("Cookie", common::access_cookie_header(&owner_token)))
+        .insert_header(common::csrf_header_for(&owner_token))
+        .set_json(serde_json::json!({ "name": "Type Search Team" }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 201);
+    let body: Value = test::read_body_json(resp).await;
+    let team_id = body["data"]["id"].as_i64().unwrap();
+
+    let req = multipart_request_with_mime!(
+        &format!("/api/v1/teams/{team_id}/files/upload"),
+        &owner_token,
+        "team-photo.jpg",
+        "image",
+        "image/jpeg"
+    );
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 201);
+
+    let req = multipart_request_with_mime!(
+        &format!("/api/v1/teams/{team_id}/files/upload"),
+        &owner_token,
+        "team-report.pdf",
+        "pdf",
+        "application/pdf"
+    );
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 201);
+
+    let req = multipart_request_with_mime!(
+        &format!("/api/v1/teams/{team_id}/files/upload"),
+        &owner_token,
+        "team-pdf-notes.txt",
+        "text",
+        "text/plain"
+    );
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 201);
+
+    let image_req = test::TestRequest::get()
+        .uri(&format!("/api/v1/teams/{team_id}/search?category=image"))
+        .insert_header(("Cookie", common::access_cookie_header(&owner_token)))
+        .insert_header(common::csrf_header_for(&owner_token))
+        .to_request();
+    let image_resp = test::call_service(&app, image_req).await;
+    assert_eq!(image_resp.status(), 200);
+    let image_body: Value = test::read_body_json(image_resp).await;
+    assert_eq!(image_body["data"]["total_files"], 1);
+    assert_eq!(image_body["data"]["total_folders"], 0);
+    assert_eq!(image_body["data"]["files"][0]["name"], "team-photo.jpg");
+    assert_eq!(image_body["data"]["files"][0]["extension"], "jpg");
+    assert_eq!(image_body["data"]["files"][0]["file_category"], "image");
+
+    let pdf_req = test::TestRequest::get()
+        .uri(&format!("/api/v1/teams/{team_id}/search?extensions=pdf"))
+        .insert_header(("Cookie", common::access_cookie_header(&owner_token)))
+        .insert_header(common::csrf_header_for(&owner_token))
+        .to_request();
+    let pdf_resp = test::call_service(&app, pdf_req).await;
+    assert_eq!(pdf_resp.status(), 200);
+    let pdf_body: Value = test::read_body_json(pdf_resp).await;
+    assert_eq!(pdf_body["data"]["total_files"], 1);
+    assert_eq!(pdf_body["data"]["files"][0]["name"], "team-report.pdf");
+
+    let invalid_req = test::TestRequest::get()
+        .uri(&format!(
+            "/api/v1/teams/{team_id}/search?type=folder&category=image"
+        ))
+        .insert_header(("Cookie", common::access_cookie_header(&owner_token)))
+        .insert_header(common::csrf_header_for(&owner_token))
+        .to_request();
+    let invalid_resp = test::call_service(&app, invalid_req).await;
+    assert_eq!(invalid_resp.status(), 400);
 }
 
 #[actix_web::test]

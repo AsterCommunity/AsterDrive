@@ -234,7 +234,7 @@ pub async fn cancel_upload(
         &state,
         &ctx,
         crate::services::audit_service::AuditAction::FileUploadCancel,
-        Some("upload_session"),
+        crate::services::audit_service::AuditEntityType::UploadSession,
         None,
         Some(&path.upload_id),
         crate::services::audit_service::details(
@@ -517,7 +517,7 @@ pub(crate) async fn team_cancel_upload(
         &state,
         &ctx,
         crate::services::audit_service::AuditAction::FileUploadCancel,
-        Some("upload_session"),
+        crate::services::audit_service::AuditEntityType::UploadSession,
         None,
         Some(&upload_id),
         crate::services::audit_service::details(

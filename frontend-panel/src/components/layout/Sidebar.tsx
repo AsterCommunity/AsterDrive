@@ -42,9 +42,21 @@ import {
 import { useAuthStore } from "@/stores/authStore";
 import { useTeamStore } from "@/stores/teamStore";
 import { useWorkspaceStore } from "@/stores/workspaceStore";
+import type { FileCategory } from "@/types/api";
 
 const SIDEBAR_KEYBOARD_RESIZE_STEP_PX = 16;
 type SidebarResizeHandleElement = HTMLHRElement;
+
+const QUICK_CATEGORY_LINKS: Array<{
+	category: FileCategory;
+	icon: IconName;
+	labelKey: string;
+}> = [
+	{ category: "image", icon: "FileImage", labelKey: "category_image" },
+	{ category: "video", icon: "FileVideo", labelKey: "category_video" },
+	{ category: "audio", icon: "FileAudio", labelKey: "category_audio" },
+	{ category: "document", icon: "FileText", labelKey: "category_document" },
+];
 
 interface SidebarProps {
 	mobileOpen: boolean;
@@ -55,6 +67,7 @@ interface SidebarProps {
 		folderIds: number[],
 		targetFolderId: number | null,
 	) => Promise<void> | void;
+	onSearchCategoryOpen?: (category: FileCategory) => void;
 }
 
 function clampSidebarWidth(width: number) {
@@ -102,6 +115,7 @@ export function Sidebar({
 	onMobileClose,
 	onTrashDrop,
 	onMoveToFolder,
+	onSearchCategoryOpen,
 }: SidebarProps) {
 	const { t } = useTranslation();
 	const location = useLocation();
@@ -300,6 +314,29 @@ export function Sidebar({
 			<ScrollArea className="flex-1">
 				<FolderTree onMoveToFolder={onMoveToFolder} />
 			</ScrollArea>
+
+			<Separator />
+
+			{/* Quick category search */}
+			<div className="p-2 space-y-1">
+				<p className="px-3 py-1 text-xs font-medium text-muted-foreground">
+					{t("search:quick_categories")}
+				</p>
+				{QUICK_CATEGORY_LINKS.map((link) => (
+					<button
+						key={link.category}
+						type="button"
+						onClick={() => {
+							onSearchCategoryOpen?.(link.category);
+							onMobileClose();
+						}}
+						className={sidebarNavItemClass(false, "w-full text-left")}
+					>
+						<Icon name={link.icon} className="h-4 w-4 shrink-0" />
+						{t(`search:${link.labelKey}`)}
+					</button>
+				))}
+			</div>
 
 			<Separator />
 

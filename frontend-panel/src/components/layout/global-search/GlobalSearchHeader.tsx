@@ -3,12 +3,14 @@ import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
 import { Input } from "@/components/ui/input";
-import type { SearchFilter } from "./types";
-import { SEARCH_FILTER_OPTIONS } from "./types";
+import type { SearchCategoryFilter, SearchFilter } from "./types";
+import { SEARCH_CATEGORY_OPTIONS, SEARCH_FILTER_OPTIONS } from "./types";
 
 interface GlobalSearchHeaderProps {
+	categoryFilter: SearchCategoryFilter;
 	filter: SearchFilter;
 	inputRef: Ref<HTMLInputElement>;
+	onCategoryFilterChange: (category: SearchCategoryFilter) => void;
 	onClose: () => void;
 	onFilterChange: (filter: SearchFilter) => void;
 	onInputBlur: () => void;
@@ -20,8 +22,10 @@ interface GlobalSearchHeaderProps {
 }
 
 export function GlobalSearchHeader({
+	categoryFilter,
 	filter,
 	inputRef,
+	onCategoryFilterChange,
 	onClose,
 	onFilterChange,
 	onInputBlur,
@@ -80,6 +84,28 @@ export function GlobalSearchHeader({
 					</Button>
 				))}
 			</div>
+			{filter !== "folder" ? (
+				<fieldset className="mt-2 flex gap-1.5 overflow-x-auto border-0 p-0 pb-1">
+					<legend className="sr-only">{t("search:quick_categories")}</legend>
+					{SEARCH_CATEGORY_OPTIONS.map((option) => {
+						const active = categoryFilter === option.value;
+						return (
+							<Button
+								key={option.value}
+								type="button"
+								variant={active ? "secondary" : "ghost"}
+								size="sm"
+								onClick={() => onCategoryFilterChange(option.value)}
+								className="shrink-0 rounded-full"
+								aria-pressed={active}
+							>
+								<Icon name={option.icon} className="h-4 w-4" />
+								{t(`search:${option.labelKey}`)}
+							</Button>
+						);
+					})}
+				</fieldset>
+			) : null}
 		</div>
 	);
 }

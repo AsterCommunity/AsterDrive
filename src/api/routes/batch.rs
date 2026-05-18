@@ -519,7 +519,7 @@ pub(crate) async fn archive_download_ticket_response(
         state,
         &ctx,
         audit_service::AuditAction::ArchiveDownload,
-        Some("stream_ticket"),
+        crate::services::audit_service::AuditEntityType::StreamTicket,
         None,
         Some(&ticket.token),
         audit_service::details(audit_service::ArchiveSelectionAuditDetails {
@@ -558,7 +558,7 @@ pub(crate) async fn archive_compress_response(
         state,
         &ctx,
         audit_service::AuditAction::ArchiveCompress,
-        Some("task"),
+        crate::services::audit_service::AuditEntityType::Task,
         Some(task.id),
         Some(&task.display_name),
         audit_service::details(audit_service::ArchiveSelectionAuditDetails {

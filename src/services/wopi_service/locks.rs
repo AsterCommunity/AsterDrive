@@ -242,7 +242,7 @@ async fn log_wopi_lock_action(
         state,
         &audit_ctx,
         action,
-        Some("file"),
+        crate::services::audit_service::AuditEntityType::File,
         Some(file.id),
         Some(&file.name),
         Some(serde_json::json!({ "source": "wopi" })),

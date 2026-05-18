@@ -71,7 +71,7 @@ impl DbLockSystem {
             state,
             &self.audit_ctx,
             action,
-            Some(entity_type_name(entity_type)),
+            audit_service::AuditEntityType::from_entity_type(entity_type),
             Some(entity_id),
             None,
             Some(serde_json::json!({ "source": "webdav" })),
@@ -475,12 +475,5 @@ fn lock_owner_xml(lock: &resource_lock::Model) -> Option<String> {
             Some(payload.xml)
         }
         _ => None,
-    }
-}
-
-fn entity_type_name(entity_type: EntityType) -> &'static str {
-    match entity_type {
-        EntityType::File => "file",
-        EntityType::Folder => "folder",
     }
 }

@@ -14,3 +14,12 @@ pub enum EntityType {
     #[sea_orm(string_value = "folder")]
     Folder,
 }
+
+impl EntityType {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::File => "file",
+            Self::Folder => "folder",
+        }
+    }
+}

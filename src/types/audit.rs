@@ -1,8 +1,172 @@
 use sea_orm::entity::prelude::*;
+use serde::de::{self, Visitor};
 use serde::{Deserialize, Serialize};
-use std::fmt;
+use std::{fmt, str::FromStr};
 #[cfg(all(debug_assertions, feature = "openapi"))]
 use utoipa::ToSchema;
+
+use super::EntityType;
+
+macro_rules! define_audit_entity_type {
+    ($($variant:ident => $name:literal),+ $(,)?) => {
+        /// 审计日志实体类型
+        #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+        #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
+        #[cfg_attr(all(debug_assertions, feature = "openapi"), schema(rename_all = "snake_case"))]
+        pub enum AuditEntityType {
+            $(
+                #[serde(rename = $name)]
+                $variant,
+            )+
+        }
+
+        impl AuditEntityType {
+            pub const COUNT: usize = <[()]>::len(&[$(define_audit_entity_type!(@unit $variant)),+]);
+            pub const ALL: [Self; Self::COUNT] = [$(Self::$variant,)+];
+
+            pub const fn as_str(self) -> &'static str {
+                match self {
+                    $(Self::$variant => $name,)+
+                }
+            }
+
+            pub fn from_str_name(value: &str) -> Option<Self> {
+                match value {
+                    $($name => Some(Self::$variant),)+
+                    _ => None,
+                }
+            }
+
+            pub const fn from_entity_type(entity_type: EntityType) -> Self {
+                match entity_type {
+                    EntityType::File => Self::File,
+                    EntityType::Folder => Self::Folder,
+                }
+            }
+        }
+
+        const AUDIT_ENTITY_TYPE_NAMES: &'static [&'static str] = &[$($name,)+];
+    };
+    (@unit $variant:ident) => {
+        ()
+    };
+}
+
+define_audit_entity_type! {
+    AuthSession => "auth_session",
+    Batch => "batch",
+    ExternalAuthIdentity => "external_auth_identity",
+    ExternalAuthProvider => "external_auth_provider",
+    File => "file",
+    Folder => "folder",
+    Passkey => "passkey",
+    PolicyGroup => "policy_group",
+    RemoteIngressProfile => "remote_ingress_profile",
+    RemoteNode => "remote_node",
+    ResourceLock => "resource_lock",
+    Share => "share",
+    StoragePolicy => "storage_policy",
+    StreamTicket => "stream_ticket",
+    SystemConfig => "system_config",
+    Task => "task",
+    Team => "team",
+    Trash => "trash",
+    UploadSession => "upload_session",
+    User => "user",
+    WebdavAccount => "webdav_account",
+}
+
+impl AsRef<str> for AuditEntityType {
+    fn as_ref(&self) -> &str {
+        self.as_str()
+    }
+}
+
+impl fmt::Display for AuditEntityType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+impl FromStr for AuditEntityType {
+    type Err = ParseAuditEntityTypeError;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        Self::from_str_name(value).ok_or(ParseAuditEntityTypeError)
+    }
+}
+
+impl<'de> Deserialize<'de> for AuditEntityType {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        struct AuditEntityTypeVisitor;
+
+        impl Visitor<'_> for AuditEntityTypeVisitor {
+            type Value = AuditEntityType;
+
+            fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+                formatter.write_str("a supported audit entity type")
+            }
+
+            fn visit_str<E>(self, value: &str) -> Result<Self::Value, E>
+            where
+                E: de::Error,
+            {
+                AuditEntityType::from_str_name(value)
+                    .ok_or_else(|| E::unknown_variant(value, AUDIT_ENTITY_TYPE_NAMES))
+            }
+        }
+
+        deserializer.deserialize_str(AuditEntityTypeVisitor)
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct ParseAuditEntityTypeError;
+
+impl fmt::Display for ParseAuditEntityTypeError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("invalid audit entity type")
+    }
+}
+
+impl std::error::Error for ParseAuditEntityTypeError {}
+
+#[cfg(test)]
+mod tests {
+    use super::{AUDIT_ENTITY_TYPE_NAMES, AuditEntityType};
+
+    #[test]
+    fn audit_entity_type_round_trips_string_names() {
+        let names: Vec<_> = AuditEntityType::ALL
+            .iter()
+            .map(|entity_type| entity_type.as_str())
+            .collect();
+        assert_eq!(AUDIT_ENTITY_TYPE_NAMES, names.as_slice());
+
+        for entity_type in AuditEntityType::ALL {
+            let name = entity_type.as_str();
+
+            assert_eq!(entity_type.as_ref(), name);
+            assert_eq!(entity_type.to_string(), name);
+            assert_eq!(AuditEntityType::from_str_name(name), Some(entity_type));
+            assert_eq!(
+                serde_json::to_value(entity_type).expect("audit entity type serializes"),
+                serde_json::json!(name)
+            );
+            assert_eq!(
+                serde_json::from_value::<AuditEntityType>(serde_json::json!(name))
+                    .expect("audit entity type deserializes"),
+                entity_type
+            );
+        }
+
+        assert_eq!(AuditEntityType::from_str_name("unknown"), None);
+        assert!(serde_json::from_value::<AuditEntityType>(serde_json::json!("unknown")).is_err());
+    }
+}
 
 /// 审计日志动作
 #[derive(Debug, Clone, Copy, PartialEq, Eq, EnumIter, DeriveActiveEnum, Serialize, Deserialize)]

@@ -60,7 +60,7 @@ pub async fn create_with_audit(
         state,
         audit_ctx,
         audit_service::AuditAction::AdminCreateUser,
-        Some("user"),
+        crate::services::audit_service::AuditEntityType::User,
         Some(user.id),
         Some(&user.username),
         audit_service::details(audit_service::AdminCreateUserDetails {
@@ -211,7 +211,7 @@ pub async fn update_with_audit(
         state,
         audit_ctx,
         audit_service::AuditAction::AdminUpdateUser,
-        Some("user"),
+        crate::services::audit_service::AuditEntityType::User,
         Some(user.id),
         Some(&user.username),
         audit_service::details(audit_service::AdminUpdateUserDetails {
@@ -353,7 +353,7 @@ pub async fn force_delete_with_audit(
         state,
         audit_ctx,
         audit_service::AuditAction::AdminForceDeleteUser,
-        Some("user"),
+        crate::services::audit_service::AuditEntityType::User,
         Some(summary.user_id),
         Some(&summary.username),
         audit_service::details(audit_service::AdminForceDeleteUserDetails {

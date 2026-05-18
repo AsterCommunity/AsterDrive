@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { FileTypeIcon } from "@/components/files/FileTypeIcon";
 
@@ -103,6 +103,50 @@ describe("FileTypeIcon", () => {
 			"data-name",
 			"FileImage",
 		);
+		expect(screen.queryByTestId("language-icon")).not.toBeInTheDocument();
+	});
+
+	it("loads the language icon map before replacing code category icons", async () => {
+		mockIsIconMapLoaded.mockReturnValue(false);
+		mockHasLanguageIcon.mockReturnValue(true);
+
+		render(
+			<FileTypeIcon
+				mimeType="text/plain"
+				fileName="index.ts"
+				fileCategory="code"
+				className="h-4 w-4"
+			/>,
+		);
+
+		expect(screen.getByTestId("icon")).toHaveAttribute("data-name", "FileCode");
+		expect(mockLoadLanguageIcons).toHaveBeenCalledTimes(1);
+
+		expect(await screen.findByTestId("language-icon")).toHaveAttribute(
+			"data-name",
+			"index.ts",
+		);
+	});
+
+	it("does not update state after unmounting while language icons are loading", async () => {
+		let resolveLoad: (() => void) | undefined;
+		mockIsIconMapLoaded.mockReturnValue(false);
+		mockLoadLanguageIcons.mockReturnValue(
+			new Promise<void>((resolve) => {
+				resolveLoad = resolve;
+			}),
+		);
+
+		const { unmount } = render(
+			<FileTypeIcon mimeType="text/plain" fileName="index.ts" />,
+		);
+
+		unmount();
+		resolveLoad?.();
+
+		await waitFor(() => {
+			expect(mockLoadLanguageIcons).toHaveBeenCalledTimes(1);
+		});
 		expect(screen.queryByTestId("language-icon")).not.toBeInTheDocument();
 	});
 });

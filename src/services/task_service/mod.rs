@@ -307,7 +307,7 @@ pub(crate) async fn retry_task_in_scope_with_audit(
         state,
         audit_ctx,
         audit_service::AuditAction::TaskRetry,
-        Some("task"),
+        crate::services::audit_service::AuditEntityType::Task,
         Some(task.id),
         Some(&task.display_name),
         audit_service::details(audit_service::TaskRetryAuditDetails {

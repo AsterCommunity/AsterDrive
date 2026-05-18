@@ -8,6 +8,7 @@ import type { InternalDragData } from "@/lib/dragDrop";
 import { isImeComposingKeyEvent } from "@/lib/keyboard";
 import { useAuthStore } from "@/stores/authStore";
 import { useTeamStore } from "@/stores/teamStore";
+import type { FileCategory } from "@/types/api";
 
 interface AppLayoutProps {
 	children: ReactNode;
@@ -30,6 +31,8 @@ export function AppLayout({
 	const ensureTeamsLoaded = useTeamStore((state) => state.ensureLoaded);
 	const [mobileOpen, setMobileOpen] = useState(false);
 	const [searchOpen, setSearchOpen] = useState(false);
+	const [initialSearchCategory, setInitialSearchCategory] =
+		useState<FileCategory | null>(null);
 
 	const handleMobileToggle = useCallback(() => {
 		setMobileOpen((prev) => !prev);
@@ -40,7 +43,14 @@ export function AppLayout({
 	}, []);
 
 	const handleSearchOpen = useCallback(() => {
+		setInitialSearchCategory(null);
 		setSearchOpen(true);
+	}, []);
+
+	const handleSearchCategoryOpen = useCallback((category: FileCategory) => {
+		setInitialSearchCategory(category);
+		setSearchOpen(true);
+		setMobileOpen(false);
 	}, []);
 
 	useEffect(() => {
@@ -59,6 +69,7 @@ export function AppLayout({
 			const mod = event.metaKey || event.ctrlKey;
 			if (event.key === "/" || (mod && event.key.toLowerCase() === "k")) {
 				event.preventDefault();
+				setInitialSearchCategory(null);
 				setSearchOpen(true);
 			}
 		}
@@ -81,12 +92,22 @@ export function AppLayout({
 					onMobileClose={handleMobileClose}
 					onTrashDrop={onTrashDrop}
 					onMoveToFolder={onMoveToFolder}
+					onSearchCategoryOpen={handleSearchCategoryOpen}
 				/>
 				<main className="min-h-0 min-w-0 flex-1 flex flex-col overflow-hidden">
 					{children}
 				</main>
 			</div>
-			<GlobalSearchDialog open={searchOpen} onOpenChange={setSearchOpen} />
+			<GlobalSearchDialog
+				initialCategory={initialSearchCategory}
+				open={searchOpen}
+				onOpenChange={(nextOpen) => {
+					setSearchOpen(nextOpen);
+					if (!nextOpen) {
+						setInitialSearchCategory(null);
+					}
+				}}
+			/>
 		</div>
 	);
 }

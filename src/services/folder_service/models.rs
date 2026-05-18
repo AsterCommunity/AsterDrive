@@ -21,6 +21,13 @@ pub struct FileListItem {
     pub name: String,
     pub size: i64,
     pub mime_type: String,
+    /// Lowercase final extension without a leading dot. Empty when the file name has no extension.
+    pub extension: String,
+    /// Lowercase multi-part extension without a leading dot, such as `tar.gz`.
+    /// Populated only when the file name ends with a supported compound extension.
+    pub compound_extension: Option<String>,
+    /// Category derived from the extension first, then MIME type as fallback.
+    pub file_category: crate::types::FileCategory,
     #[cfg_attr(all(debug_assertions, feature = "openapi"), schema(value_type = String))]
     pub updated_at: chrono::DateTime<chrono::Utc>,
     pub is_locked: bool,
@@ -68,6 +75,9 @@ pub fn build_file_list_items(
             name: file.name,
             size: file.size,
             mime_type: file.mime_type,
+            extension: file.extension,
+            compound_extension: file.compound_extension,
+            file_category: file.file_category,
             updated_at: file.updated_at,
             is_locked: file.is_locked,
             is_shared: shared_file_ids.contains(&file.id),
@@ -96,7 +106,14 @@ mod tests {
     use super::*;
     use std::collections::HashSet;
 
-    fn mock_file(id: i64, name: &str, is_locked: bool) -> file::Model {
+    fn mock_file(
+        id: i64,
+        name: &str,
+        is_locked: bool,
+        extension: &str,
+        compound_extension: Option<&str>,
+        file_category: crate::types::FileCategory,
+    ) -> file::Model {
         file::Model {
             id,
             name: name.to_string(),
@@ -108,6 +125,9 @@ mod tests {
             created_by_user_id: Some(1),
             created_by_username: "tester".to_string(),
             mime_type: "text/plain".to_string(),
+            extension: extension.to_string(),
+            compound_extension: compound_extension.map(ToOwned::to_owned),
+            file_category,
             created_at: chrono::Utc::now(),
             updated_at: chrono::Utc::now(),
             deleted_at: None,
@@ -134,18 +154,52 @@ mod tests {
 
     #[test]
     fn build_file_list_items_maps_correctly() {
-        let files = vec![mock_file(1, "a.txt", false), mock_file(2, "b.txt", true)];
+        let files = vec![
+            mock_file(
+                1,
+                "a.txt",
+                false,
+                "txt",
+                None,
+                crate::types::FileCategory::Document,
+            ),
+            mock_file(
+                2,
+                "backup.tar.gz",
+                true,
+                "gz",
+                Some("tar.gz"),
+                crate::types::FileCategory::Archive,
+            ),
+            mock_file(
+                3,
+                "README",
+                false,
+                "",
+                None,
+                crate::types::FileCategory::Other,
+            ),
+        ];
         let shared: HashSet<i64> = [1].into_iter().collect();
         let items = build_file_list_items(files, &shared);
 
-        assert_eq!(items.len(), 2);
+        assert_eq!(items.len(), 3);
         assert_eq!(items[0].id, 1);
         assert_eq!(items[0].name, "a.txt");
+        assert_eq!(items[0].extension, "txt");
+        assert_eq!(items[0].compound_extension, None);
+        assert_eq!(items[0].file_category, crate::types::FileCategory::Document);
         assert!(items[0].is_shared);
         assert!(!items[0].is_locked);
         assert_eq!(items[1].id, 2);
+        assert_eq!(items[1].extension, "gz");
+        assert_eq!(items[1].compound_extension.as_deref(), Some("tar.gz"));
+        assert_eq!(items[1].file_category, crate::types::FileCategory::Archive);
         assert!(!items[1].is_shared);
         assert!(items[1].is_locked);
+        assert_eq!(items[2].extension, "");
+        assert_eq!(items[2].compound_extension, None);
+        assert_eq!(items[2].file_category, crate::types::FileCategory::Other);
     }
 
     #[test]

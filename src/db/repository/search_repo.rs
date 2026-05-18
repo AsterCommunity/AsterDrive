@@ -10,6 +10,7 @@ use crate::entities::{
     folder::{self, Entity as Folder},
 };
 use crate::errors::{AsterError, Result};
+use crate::types::FileCategory;
 use chrono::{DateTime, Utc};
 use sea_orm::sea_query::extension::postgres::PgExpr;
 use sea_orm::{
@@ -53,6 +54,8 @@ fn folder_scope_condition(scope: SearchScope) -> Condition {
 pub struct FileSearchFilters<'a> {
     pub query: Option<&'a str>,
     pub mime_type: Option<&'a str>,
+    pub category: Option<FileCategory>,
+    pub extensions: &'a [String],
     pub min_size: Option<i64>,
     pub max_size: Option<i64>,
     pub created_after: Option<DateTime<Utc>>,
@@ -84,6 +87,9 @@ pub struct FileSearchItem {
     pub created_by_user_id: Option<i64>,
     pub created_by_username: String,
     pub mime_type: String,
+    pub extension: String,
+    pub compound_extension: Option<String>,
+    pub file_category: FileCategory,
     pub size: i64,
     #[cfg_attr(all(debug_assertions, feature = "openapi"), schema(value_type = String))]
     pub created_at: DateTimeUtc,
@@ -151,6 +157,23 @@ async fn search_files_in_scope<C: ConnectionTrait>(
         file_condition = file_condition.add(file::Column::MimeType.eq(mt));
     }
 
+    if let Some(category) = filters.category {
+        file_condition = file_condition.add(file::Column::FileCategory.eq(category));
+    }
+
+    if !filters.extensions.is_empty() {
+        let extension_condition =
+            filters
+                .extensions
+                .iter()
+                .fold(Condition::any(), |condition, extension| {
+                    condition
+                        .add(file::Column::Extension.eq(extension.as_str()))
+                        .add(file::Column::CompoundExtension.eq(extension.as_str()))
+                });
+        file_condition = file_condition.add(extension_condition);
+    }
+
     if let Some(min) = filters.min_size {
         blob_condition = blob_condition.add(file_blob::Column::Size.gte(min));
     }
@@ -199,6 +222,9 @@ async fn search_files_in_scope<C: ConnectionTrait>(
         .column(file::Column::CreatedByUserId)
         .column(file::Column::CreatedByUsername)
         .column(file::Column::MimeType)
+        .column(file::Column::Extension)
+        .column(file::Column::CompoundExtension)
+        .column(file::Column::FileCategory)
         .column_as(file_blob::Column::Size, "size")
         .column(file::Column::CreatedAt)
         .column(file::Column::UpdatedAt)

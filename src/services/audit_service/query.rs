@@ -30,7 +30,7 @@ async fn query_models(
             audit_log_repo::AuditLogQuery {
                 user_id: filters.user_id,
                 action: filters.action.as_deref(),
-                entity_type: filters.entity_type.as_deref(),
+                entity_type: filters.entity_type.map(|entity_type| entity_type.as_str()),
                 entity_id: filters.entity_id,
                 after: filters.after,
                 before: filters.before,
@@ -62,21 +62,34 @@ async fn build_audit_entries(
     )
     .await?;
 
-    Ok(entries
-        .into_iter()
-        .map(|model| AuditLogEntry {
+    let mut items = Vec::with_capacity(entries.len());
+
+    for model in entries {
+        let Some(entity_type) = crate::types::AuditEntityType::from_str_name(&model.entity_type)
+        else {
+            tracing::warn!(
+                audit_log_id = model.id,
+                entity_type = %model.entity_type,
+                "skipping audit log with unsupported entity_type"
+            );
+            continue;
+        };
+
+        items.push(AuditLogEntry {
             id: model.id,
             user: users.get(&model.user_id).cloned(),
             action: model.action,
-            entity_type: model.entity_type,
+            entity_type,
             entity_id: model.entity_id,
             entity_name: model.entity_name,
             details: model.details,
             ip_address: model.ip_address,
             user_agent: model.user_agent,
             created_at: model.created_at,
-        })
-        .collect())
+        });
+    }
+
+    Ok(items)
 }
 
 pub async fn query(

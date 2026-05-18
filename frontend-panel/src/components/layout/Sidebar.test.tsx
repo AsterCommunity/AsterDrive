@@ -11,6 +11,10 @@ const mockState = vi.hoisted(() => ({
 			storage_used: 25,
 		},
 	},
+	teams: [],
+	workspace: {
+		kind: "personal" as const,
+	},
 	hasInternalDragData: vi.fn(),
 	readInternalDragData: vi.fn(),
 }));
@@ -64,6 +68,24 @@ vi.mock("react-router-dom", () => ({
 vi.mock("@/stores/authStore", () => ({
 	useAuthStore: (selector: (state: typeof mockState.auth) => unknown) =>
 		selector(mockState.auth),
+}));
+
+vi.mock("@/stores/teamStore", () => ({
+	useTeamStore: (
+		selector: (state: { teams: typeof mockState.teams }) => unknown,
+	) =>
+		selector({
+			teams: mockState.teams,
+		}),
+}));
+
+vi.mock("@/stores/workspaceStore", () => ({
+	useWorkspaceStore: (
+		selector: (state: { workspace: typeof mockState.workspace }) => unknown,
+	) =>
+		selector({
+			workspace: mockState.workspace,
+		}),
 }));
 
 vi.mock("@/components/folders/FolderTree", () => ({
@@ -125,6 +147,10 @@ describe("Sidebar", () => {
 		mockState.auth.user = {
 			storage_quota: 100,
 			storage_used: 25,
+		};
+		mockState.teams = [];
+		mockState.workspace = {
+			kind: "personal",
 		};
 		mockState.hasInternalDragData.mockReset();
 		mockState.readInternalDragData.mockReset();
@@ -291,5 +317,27 @@ describe("Sidebar", () => {
 		fireEvent.keyDown(resizer, { key: "Home" });
 		expect(aside).toHaveStyle("--user-sidebar-width: 220px");
 		expect(localStorage.getItem(STORAGE_KEYS.userSidebarWidth)).toBe("220");
+	});
+
+	it("opens quick category search links and closes the mobile sidebar", () => {
+		const onMobileClose = vi.fn();
+		const onSearchCategoryOpen = vi.fn();
+
+		render(
+			<Sidebar
+				mobileOpen
+				onMobileClose={onMobileClose}
+				onSearchCategoryOpen={onSearchCategoryOpen}
+			/>,
+		);
+
+		fireEvent.click(
+			screen.getByRole("button", {
+				name: /translated:search:category_image/i,
+			}),
+		);
+
+		expect(onSearchCategoryOpen).toHaveBeenCalledWith("image");
+		expect(onMobileClose).toHaveBeenCalledTimes(1);
 	});
 });

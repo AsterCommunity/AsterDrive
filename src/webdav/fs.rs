@@ -119,7 +119,7 @@ impl AsterDavFs {
             &self.state,
             &self.audit_ctx,
             audit_service::AuditAction::FileDownload,
-            Some("file"),
+            crate::services::audit_service::AuditEntityType::File,
             Some(file.id),
             Some(&file.name),
             Some(serde_json::json!({ "source": "webdav" })),
@@ -305,7 +305,7 @@ impl DavFileSystem for AsterDavFs {
                 &state,
                 &self.audit_ctx,
                 audit_service::AuditAction::FolderDelete,
-                Some("folder"),
+                crate::services::audit_service::AuditEntityType::Folder,
                 Some(folder.id),
                 Some(&folder.name),
                 Some(serde_json::json!({ "source": "webdav" })),
@@ -466,7 +466,7 @@ impl DavFileSystem for AsterDavFs {
                         &state,
                         &self.audit_ctx,
                         audit_service::AuditAction::FileCopy,
-                        Some("file"),
+                        crate::services::audit_service::AuditEntityType::File,
                         Some(copied.id),
                         Some(&copied.name),
                         Some(serde_json::json!({ "source": "webdav" })),
@@ -487,7 +487,7 @@ impl DavFileSystem for AsterDavFs {
                         &state,
                         &self.audit_ctx,
                         audit_service::AuditAction::FolderCopy,
-                        Some("folder"),
+                        crate::services::audit_service::AuditEntityType::Folder,
                         Some(copied.id),
                         Some(&copied.name),
                         Some(serde_json::json!({ "source": "webdav" })),
@@ -628,7 +628,7 @@ impl DavFileSystem for AsterDavFs {
                 };
 
                 if status.is_success() {
-                    let entity_type_label = entity_type_name(entity_type);
+                    let entity_type_label = entity_type.as_str();
                     audit_service::log(
                         &self.state,
                         &self.audit_ctx,
@@ -637,7 +637,7 @@ impl DavFileSystem for AsterDavFs {
                         } else {
                             audit_service::AuditAction::PropertyDelete
                         },
-                        Some(entity_type_label),
+                        audit_service::AuditEntityType::from_entity_type(entity_type),
                         Some(entity_id),
                         None,
                         audit_service::details(audit_service::PropertyAuditDetails {
@@ -668,13 +668,6 @@ async fn resolve_entity(
         Ok(ResolvedNode::File(f)) => Some((EntityType::File, f.id)),
         Ok(ResolvedNode::Folder(f)) => Some((EntityType::Folder, f.id)),
         _ => None,
-    }
-}
-
-fn entity_type_name(entity_type: EntityType) -> &'static str {
-    match entity_type {
-        EntityType::File => "file",
-        EntityType::Folder => "folder",
     }
 }
 

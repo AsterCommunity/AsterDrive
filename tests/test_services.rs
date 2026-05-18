@@ -313,6 +313,78 @@ async fn test_file_service_get_info() {
 }
 
 #[actix_web::test]
+async fn test_file_active_model_partial_name_update_refreshes_classification() {
+    use aster_drive::entities::file;
+    use aster_drive::types::FileCategory;
+    use sea_orm::{ActiveModelTrait, EntityTrait, Set};
+
+    let state = common::setup().await;
+    let user = aster_drive::services::auth_service::register(
+        &state,
+        "filepartialname",
+        "filepartialname@example.com",
+        "password123",
+    )
+    .await
+    .unwrap();
+    let file_id = store_service_file(&state, user.id, None, "notes.txt", "hello").await;
+
+    file::ActiveModel {
+        id: Set(file_id),
+        name: Set("backup.tar.gz".to_string()),
+        ..Default::default()
+    }
+    .update(&state.db)
+    .await
+    .unwrap();
+
+    let updated = file::Entity::find_by_id(file_id)
+        .one(&state.db)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(updated.extension, "gz");
+    assert_eq!(updated.compound_extension.as_deref(), Some("tar.gz"));
+    assert_eq!(updated.file_category, FileCategory::Archive);
+}
+
+#[actix_web::test]
+async fn test_file_active_model_partial_mime_update_refreshes_classification() {
+    use aster_drive::entities::file;
+    use aster_drive::types::FileCategory;
+    use sea_orm::{ActiveModelTrait, EntityTrait, Set};
+
+    let state = common::setup().await;
+    let user = aster_drive::services::auth_service::register(
+        &state,
+        "filepartialmime",
+        "filepartialmime@example.com",
+        "password123",
+    )
+    .await
+    .unwrap();
+    let file_id = store_service_file(&state, user.id, None, "extensionless", "hello").await;
+
+    file::ActiveModel {
+        id: Set(file_id),
+        mime_type: Set("image/png".to_string()),
+        ..Default::default()
+    }
+    .update(&state.db)
+    .await
+    .unwrap();
+
+    let updated = file::Entity::find_by_id(file_id)
+        .one(&state.db)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(updated.extension, "");
+    assert_eq!(updated.compound_extension, None);
+    assert_eq!(updated.file_category, FileCategory::Image);
+}
+
+#[actix_web::test]
 async fn test_collect_folder_tree_respects_deleted_visibility() {
     use aster_drive::services::{auth_service, folder_service, webdav_service};
 

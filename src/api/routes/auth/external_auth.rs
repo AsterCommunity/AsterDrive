@@ -245,7 +245,7 @@ async fn external_auth_login_json_response(
         state,
         &audit_ctx,
         audit_service::AuditAction::UserExternalAuthLogin,
-        Some("external_auth_identity"),
+        crate::services::audit_service::AuditEntityType::ExternalAuthIdentity,
         None,
         Some(&result.provider_key),
         audit_service::details(ExternalAuthLoginAuditDetails {
@@ -292,7 +292,7 @@ async fn external_auth_login_redirect_response(
         state,
         &audit_ctx,
         audit_service::AuditAction::UserExternalAuthLogin,
-        Some("external_auth_identity"),
+        crate::services::audit_service::AuditEntityType::ExternalAuthIdentity,
         None,
         Some(&result.provider_key),
         audit_service::details(ExternalAuthLoginAuditDetails {
@@ -433,7 +433,7 @@ pub async fn delete_link(
         &state,
         &ctx,
         audit_service::AuditAction::UserExternalAuthUnlink,
-        Some("external_auth_identity"),
+        crate::services::audit_service::AuditEntityType::ExternalAuthIdentity,
         Some(id),
         None,
         None,

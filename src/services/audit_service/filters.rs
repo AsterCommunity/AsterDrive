@@ -3,6 +3,8 @@ use serde::Deserialize;
 #[cfg(all(debug_assertions, feature = "openapi"))]
 use utoipa::{IntoParams, ToSchema};
 
+use crate::types::AuditEntityType;
+
 #[derive(Deserialize)]
 #[cfg_attr(
     all(debug_assertions, feature = "openapi"),
@@ -11,7 +13,7 @@ use utoipa::{IntoParams, ToSchema};
 pub struct AuditLogFilterQuery {
     pub user_id: Option<i64>,
     pub action: Option<String>,
-    pub entity_type: Option<String>,
+    pub entity_type: Option<AuditEntityType>,
     pub entity_id: Option<i64>,
     pub after: Option<String>,
     pub before: Option<String>,
@@ -20,7 +22,7 @@ pub struct AuditLogFilterQuery {
 pub struct AuditLogFilters {
     pub user_id: Option<i64>,
     pub action: Option<String>,
-    pub entity_type: Option<String>,
+    pub entity_type: Option<AuditEntityType>,
     pub entity_id: Option<i64>,
     pub after: Option<DateTime<Utc>>,
     pub before: Option<DateTime<Utc>>,
@@ -31,7 +33,7 @@ impl AuditLogFilters {
         Self {
             user_id: query.user_id,
             action: query.action.clone(),
-            entity_type: query.entity_type.clone(),
+            entity_type: query.entity_type,
             entity_id: query.entity_id,
             after: query
                 .after

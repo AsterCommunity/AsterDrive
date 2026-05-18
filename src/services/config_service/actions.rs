@@ -94,7 +94,7 @@ pub async fn execute_action_with_audit(
         state,
         audit_ctx,
         audit_service::AuditAction::ConfigActionExecute,
-        None,
+        audit_service::AuditEntityType::SystemConfig,
         None,
         Some(input.key),
         audit_service::details(audit_service::ConfigActionDetails {

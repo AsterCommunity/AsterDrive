@@ -52,10 +52,15 @@ pub(crate) async fn create_archive_compress_task_in_scope(
         params.target_folder_id,
     )
     .await?;
+    let batch_service::NormalizedSelection {
+        file_ids,
+        folder_ids,
+        ..
+    } = resolved.selection;
     let payload = ArchiveCompressTaskPayload {
-        file_ids: resolved.selection.file_ids.clone(),
-        folder_ids: resolved.selection.folder_ids.clone(),
-        archive_name: resolved.archive_name.clone(),
+        file_ids,
+        folder_ids,
+        archive_name: resolved.archive_name,
         target_folder_id,
     };
     let display_name = format!("Compress {}", payload.archive_name);
@@ -146,8 +151,8 @@ pub(super) async fn process_archive_compress_task(
 
     let task_temp_dir = prepare_task_temp_dir(state, lease_guard.lease()).await?;
     let archive_temp_path = Path::new(&task_temp_dir).join(&payload.archive_name);
-    let archive_temp_path_string = archive_temp_path.to_string_lossy().to_string();
-    let archive_temp_path_for_worker = archive_temp_path_string.clone();
+    let archive_temp_path_string = archive_temp_path.to_string_lossy().into_owned();
+    let archive_temp_path_for_worker = archive_temp_path.clone();
     let handle = tokio::runtime::Handle::current();
     let db = state.db.clone();
     let driver_registry = state.driver_registry.clone();

@@ -347,7 +347,7 @@ pub async fn refresh_tokens(
                     user_agent: None,
                 },
                 audit_service::AuditAction::UserRefreshTokenReuseDetected,
-                Some("user"),
+                crate::services::audit_service::AuditEntityType::User,
                 Some(user_id),
                 None,
                 audit_service::details(RefreshTokenReuseAuditDetails {

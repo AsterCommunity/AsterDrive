@@ -554,7 +554,7 @@ pub(crate) async fn direct_link_response(
         state,
         &ctx,
         audit_service::AuditAction::FileDirectLinkCreate,
-        Some("file"),
+        crate::services::audit_service::AuditEntityType::File,
         Some(file.id),
         Some(&file.name),
         audit_service::details(audit_service::FileAccessTokenAuditDetails {
@@ -590,7 +590,7 @@ pub(crate) async fn preview_link_response(
         state,
         &ctx,
         audit_service::AuditAction::FilePreviewLinkCreate,
-        Some("file"),
+        crate::services::audit_service::AuditEntityType::File,
         Some(file.id),
         Some(&file.name),
         audit_service::details(audit_service::FileAccessTokenAuditDetails {
@@ -628,7 +628,7 @@ pub(crate) async fn open_wopi_response(
         state,
         &ctx,
         audit_service::AuditAction::FileWopiOpen,
-        Some("file"),
+        crate::services::audit_service::AuditEntityType::File,
         Some(file.id),
         Some(&file.name),
         audit_service::details(audit_service::FileAccessTokenAuditDetails {

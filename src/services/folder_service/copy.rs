@@ -1,6 +1,6 @@
 //! 文件夹服务子模块：`copy`。
 
-use std::collections::HashMap;
+use std::{borrow::Cow, collections::HashMap};
 
 use chrono::Utc;
 use sea_orm::Set;
@@ -56,29 +56,30 @@ async fn copy_frontier_files_in_scope(
             file_repo::find_by_team_folders(db, team_id, &src_folder_ids).await?
         }
     };
-    let copy_specs: Vec<crate::services::file_service::BatchDuplicateFileRecordTargetSpec> = files
-        .into_iter()
-        .map(|file| {
-            let src_folder_id = file.folder_id.ok_or_else(|| {
-                AsterError::internal_error(format!(
-                    "folder copy encountered root file #{} in batched frontier load",
-                    file.id
-                ))
-            })?;
-            let dest_folder_id = dest_by_src.get(&src_folder_id).copied().ok_or_else(|| {
-                AsterError::internal_error(format!(
-                    "missing destination folder mapping for source folder #{src_folder_id}"
-                ))
-            })?;
-            Ok(
-                crate::services::file_service::BatchDuplicateFileRecordTargetSpec {
-                    dest_name: file.name.clone(),
-                    src: file,
-                    dest_folder_id: Some(dest_folder_id),
-                },
-            )
-        })
-        .collect::<Result<_>>()?;
+    let copy_specs: Vec<crate::services::file_service::BatchDuplicateFileRecordTargetSpec<'_>> =
+        files
+            .iter()
+            .map(|file| {
+                let src_folder_id = file.folder_id.ok_or_else(|| {
+                    AsterError::internal_error(format!(
+                        "folder copy encountered root file #{} in batched frontier load",
+                        file.id
+                    ))
+                })?;
+                let dest_folder_id = dest_by_src.get(&src_folder_id).copied().ok_or_else(|| {
+                    AsterError::internal_error(format!(
+                        "missing destination folder mapping for source folder #{src_folder_id}"
+                    ))
+                })?;
+                Ok(
+                    crate::services::file_service::BatchDuplicateFileRecordTargetSpec {
+                        dest_name: Cow::Borrowed(file.name.as_str()),
+                        src: file,
+                        dest_folder_id: Some(dest_folder_id),
+                    },
+                )
+            })
+            .collect::<Result<_>>()?;
 
     crate::services::file_service::batch_duplicate_file_records_to_mixed_folders_in_scope(
         state,

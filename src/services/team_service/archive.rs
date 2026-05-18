@@ -248,7 +248,7 @@ pub async fn cleanup_expired_archived_teams(state: &PrimaryAppState) -> Result<u
             state,
             &ctx,
             audit_service::AuditAction::TeamCleanupExpired,
-            Some("team"),
+            crate::services::audit_service::AuditEntityType::Team,
             Some(team_id),
             Some(&team_name),
             audit_service::details(audit_service::TeamCleanupAuditDetails {

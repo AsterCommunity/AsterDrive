@@ -100,9 +100,9 @@ async fn init_chunked_upload_session(
         let inserted = try_persist_upload_session(
             &state.db,
             UploadSessionRecordParams {
-                upload_id: upload_id.clone(),
+                upload_id: &upload_id,
                 scope: ctx.scope,
-                filename: ctx.target.filename.clone(),
+                filename: &ctx.target.filename,
                 total_size: ctx.total_size,
                 chunk_size,
                 total_chunks,

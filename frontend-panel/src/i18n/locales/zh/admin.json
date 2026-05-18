@@ -715,6 +715,8 @@
 	"audit_action_user_resend_registration": "重发注册确认邮件",
 	"audit_entity_type_file": "文件",
 	"audit_entity_type_folder": "文件夹",
+	"audit_entity_type_batch": "批量操作",
+	"audit_entity_type_passkey": "Passkey",
 	"audit_entity_type_team": "团队",
 	"audit_entity_type_user": "用户",
 	"audit_entity_type_share": "分享",

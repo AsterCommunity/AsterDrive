@@ -20,6 +20,8 @@ describe("searchService", () => {
 	it("serializes non-empty search params into the query string", () => {
 		const params = {
 			q: "report",
+			category: "image",
+			extensions: "pdf,docx",
 			folder_id: 7,
 			mime_type: "",
 			limit: 50,
@@ -30,7 +32,7 @@ describe("searchService", () => {
 		searchService.search(params);
 
 		expect(apiGet).toHaveBeenCalledWith(
-			"/search?q=report&folder_id=7&limit=50&offset=0",
+			"/search?q=report&category=image&extensions=pdf%2Cdocx&folder_id=7&limit=50&offset=0",
 			undefined,
 		);
 
@@ -39,7 +41,7 @@ describe("searchService", () => {
 
 		expect(apiGet).toHaveBeenNthCalledWith(
 			2,
-			"/teams/3/search?q=report&folder_id=7&limit=50&offset=0",
+			"/teams/3/search?q=report&category=image&extensions=pdf%2Cdocx&folder_id=7&limit=50&offset=0",
 			undefined,
 		);
 	});
@@ -52,5 +54,17 @@ describe("searchService", () => {
 		expect(apiGet).toHaveBeenCalledWith("/search?q=report", {
 			signal: controller.signal,
 		});
+	});
+
+	it("normalizes typed file extension filters before serializing", () => {
+		searchService.search({
+			category: "document",
+			extensions: [" .PDF ", "docx"],
+		});
+
+		expect(apiGet).toHaveBeenCalledWith(
+			"/search?category=document&extensions=pdf%2Cdocx",
+			undefined,
+		);
 	});
 });

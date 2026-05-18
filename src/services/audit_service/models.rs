@@ -4,7 +4,7 @@ use serde::Serialize;
 use utoipa::ToSchema;
 
 use crate::services::user_service;
-use crate::types::{AuditAction, TeamMemberRole};
+use crate::types::{AuditAction, AuditEntityType, TeamMemberRole};
 
 #[derive(Debug, Clone, Serialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
@@ -12,7 +12,7 @@ pub struct AuditLogEntry {
     pub id: i64,
     pub user: Option<user_service::UserSummary>,
     pub action: AuditAction,
-    pub entity_type: Option<String>,
+    pub entity_type: AuditEntityType,
     pub entity_id: Option<i64>,
     pub entity_name: Option<String>,
     pub details: Option<String>,

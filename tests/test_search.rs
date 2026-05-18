@@ -16,6 +16,35 @@ fn upload_named_file(name: &str, content: &str, mime: &str, boundary: &str) -> S
     )
 }
 
+async fn upload_search_file(
+    app: &impl actix_web::dev::Service<
+        actix_http::Request,
+        Response = actix_web::dev::ServiceResponse,
+        Error = actix_web::Error,
+    >,
+    token: &str,
+    uri: &str,
+    name: &str,
+    content: &str,
+    mime: &str,
+) -> Value {
+    let boundary = "----SearchUploadBoundary123";
+    let payload = upload_named_file(name, content, mime, boundary);
+    let req = test::TestRequest::post()
+        .uri(uri)
+        .insert_header(("Cookie", common::access_cookie_header(token)))
+        .insert_header(common::csrf_header_for(token))
+        .insert_header((
+            "Content-Type",
+            format!("multipart/form-data; boundary={boundary}"),
+        ))
+        .set_payload(payload)
+        .to_request();
+    let resp = test::call_service(app, req).await;
+    assert_eq!(resp.status(), 201, "upload failed for {name}");
+    test::read_body_json(resp).await
+}
+
 #[actix_web::test]
 async fn test_search_includes_share_and_lock_status() {
     let state = common::setup().await;
@@ -336,7 +365,7 @@ async fn test_search_by_mime_type() {
 
     // Search by MIME type — only PDF should match
     let req = test::TestRequest::get()
-        .uri("/api/v1/search?mime_type=application/pdf")
+        .uri("/api/v1/search?mime_type=%20application/pdf%20")
         .insert_header(("Cookie", common::access_cookie_header(&token)))
         .insert_header(common::csrf_header_for(&token))
         .to_request();
@@ -348,6 +377,250 @@ async fn test_search_by_mime_type() {
     let files = body["data"]["files"].as_array().unwrap();
     assert_eq!(files.len(), 1);
     assert_eq!(files[0]["mime_type"], "application/pdf");
+}
+
+#[actix_web::test]
+async fn test_search_by_category_and_extensions() {
+    let state = common::setup().await;
+    let app = create_test_app!(state);
+    let (token, _) = register_and_login!(app);
+
+    upload_search_file(
+        &app,
+        &token,
+        "/api/v1/files/upload",
+        "photo.JPG",
+        "image",
+        "image/jpeg",
+    )
+    .await;
+    upload_search_file(
+        &app,
+        &token,
+        "/api/v1/files/upload",
+        "clip.mp4",
+        "video",
+        "video/mp4",
+    )
+    .await;
+    upload_search_file(
+        &app,
+        &token,
+        "/api/v1/files/upload",
+        "song.mp3",
+        "audio",
+        "audio/mpeg",
+    )
+    .await;
+    upload_search_file(
+        &app,
+        &token,
+        "/api/v1/files/upload",
+        "report.pdf",
+        "pdf",
+        "application/pdf",
+    )
+    .await;
+    upload_search_file(
+        &app,
+        &token,
+        "/api/v1/files/upload",
+        "pdf-notes.txt",
+        "not pdf",
+        "text/plain",
+    )
+    .await;
+    upload_search_file(
+        &app,
+        &token,
+        "/api/v1/files/upload",
+        "sheet.xlsx",
+        "sheet",
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
+    .await;
+    upload_search_file(
+        &app,
+        &token,
+        "/api/v1/files/upload",
+        "backup.tar.gz",
+        "archive",
+        "application/gzip",
+    )
+    .await;
+
+    for (uri, expected_names) in [
+        ("/api/v1/search?type=file&category=image", vec!["photo.JPG"]),
+        ("/api/v1/search?type=file&category=video", vec!["clip.mp4"]),
+        ("/api/v1/search?type=file&category=audio", vec!["song.mp3"]),
+        (
+            "/api/v1/search?type=file&category=document",
+            vec!["pdf-notes.txt", "report.pdf"],
+        ),
+        (
+            "/api/v1/search?type=file&extensions=pdf",
+            vec!["report.pdf"],
+        ),
+        (
+            "/api/v1/search?type=file&extensions=pdf,xlsx",
+            vec!["report.pdf", "sheet.xlsx"],
+        ),
+        (
+            "/api/v1/search?type=file&extensions=tar.gz",
+            vec!["backup.tar.gz"],
+        ),
+        (
+            "/api/v1/search?category=document&q=report",
+            vec!["report.pdf"],
+        ),
+        (
+            "/api/v1/search?category=document&mime_type=application/pdf",
+            vec!["report.pdf"],
+        ),
+    ] {
+        let req = test::TestRequest::get()
+            .uri(uri)
+            .insert_header(("Cookie", common::access_cookie_header(&token)))
+            .insert_header(common::csrf_header_for(&token))
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(resp.status(), 200, "unexpected status for {uri}");
+        let body: Value = test::read_body_json(resp).await;
+        let names: Vec<&str> = body["data"]["files"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|file| file["name"].as_str().unwrap())
+            .collect();
+        assert_eq!(names, expected_names, "unexpected results for {uri}");
+        assert_eq!(
+            body["data"]["total_folders"], 0,
+            "folders should be omitted for {uri}"
+        );
+    }
+
+    let pdf_req = test::TestRequest::get()
+        .uri("/api/v1/search?type=file&extensions=pdf")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .to_request();
+    let pdf_resp = test::call_service(&app, pdf_req).await;
+    let pdf_body: Value = test::read_body_json(pdf_resp).await;
+    let pdf = &pdf_body["data"]["files"][0];
+    assert_eq!(pdf["extension"], "pdf");
+    assert!(pdf["compound_extension"].is_null());
+    assert_eq!(pdf["file_category"], "document");
+
+    let archive_req = test::TestRequest::get()
+        .uri("/api/v1/search?type=file&extensions=tar.gz")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .to_request();
+    let archive_resp = test::call_service(&app, archive_req).await;
+    let archive_body: Value = test::read_body_json(archive_resp).await;
+    assert_eq!(
+        archive_body["data"]["files"][0]["compound_extension"],
+        "tar.gz"
+    );
+    assert_eq!(archive_body["data"]["files"][0]["file_category"], "archive");
+}
+
+#[actix_web::test]
+async fn test_search_category_combines_with_folder_scope_and_rename_updates_fields() {
+    let state = common::setup().await;
+    let app = create_test_app!(state);
+    let (token, _) = register_and_login!(app);
+
+    let folder_req = test::TestRequest::post()
+        .uri("/api/v1/folders")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({ "name": "Scoped", "parent_id": null }))
+        .to_request();
+    let folder_resp = test::call_service(&app, folder_req).await;
+    assert_eq!(folder_resp.status(), 201);
+    let folder_body: Value = test::read_body_json(folder_resp).await;
+    let folder_id = folder_body["data"]["id"].as_i64().unwrap();
+
+    let outside = upload_search_file(
+        &app,
+        &token,
+        "/api/v1/files/upload",
+        "outside.pdf",
+        "pdf",
+        "application/pdf",
+    )
+    .await;
+    let outside_id = outside["data"]["id"].as_i64().unwrap();
+    upload_search_file(
+        &app,
+        &token,
+        &format!("/api/v1/files/upload?folder_id={folder_id}"),
+        "inside.pdf",
+        "pdf",
+        "application/pdf",
+    )
+    .await;
+
+    let scoped_req = test::TestRequest::get()
+        .uri(&format!(
+            "/api/v1/search?type=file&category=document&folder_id={folder_id}"
+        ))
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .to_request();
+    let scoped_resp = test::call_service(&app, scoped_req).await;
+    assert_eq!(scoped_resp.status(), 200);
+    let scoped_body: Value = test::read_body_json(scoped_resp).await;
+    assert_eq!(scoped_body["data"]["total_files"], 1);
+    assert_eq!(scoped_body["data"]["files"][0]["name"], "inside.pdf");
+
+    let rename_req = test::TestRequest::patch()
+        .uri(&format!("/api/v1/files/{outside_id}"))
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({ "name": "outside.mp4" }))
+        .to_request();
+    let rename_resp = test::call_service(&app, rename_req).await;
+    assert_eq!(rename_resp.status(), 200);
+    let rename_body: Value = test::read_body_json(rename_resp).await;
+    assert_eq!(rename_body["data"]["extension"], "mp4");
+    assert_eq!(rename_body["data"]["file_category"], "video");
+
+    let video_req = test::TestRequest::get()
+        .uri("/api/v1/search?type=file&category=video")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .to_request();
+    let video_resp = test::call_service(&app, video_req).await;
+    assert_eq!(video_resp.status(), 200);
+    let video_body: Value = test::read_body_json(video_resp).await;
+    assert_eq!(video_body["data"]["total_files"], 1);
+    assert_eq!(video_body["data"]["files"][0]["name"], "outside.mp4");
+}
+
+#[actix_web::test]
+async fn test_search_rejects_invalid_file_type_filters() {
+    let state = common::setup().await;
+    let app = create_test_app!(state);
+    let (token, _) = register_and_login!(app);
+
+    for uri in [
+        "/api/v1/search?category=bogus",
+        "/api/v1/search?extensions=",
+        "/api/v1/search?extensions=pdf,,docx",
+        "/api/v1/search?extensions=../pdf",
+        "/api/v1/search?type=folder&category=image",
+        "/api/v1/search?type=folder&extensions=pdf",
+    ] {
+        let req = test::TestRequest::get()
+            .uri(uri)
+            .insert_header(("Cookie", common::access_cookie_header(&token)))
+            .insert_header(common::csrf_header_for(&token))
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(resp.status(), 400, "unexpected status for {uri}");
+    }
 }
 
 #[actix_web::test]

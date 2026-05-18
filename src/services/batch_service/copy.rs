@@ -1,6 +1,6 @@
 //! 批量操作服务子模块：`copy`。
 
-use std::collections::HashSet;
+use std::{borrow::Cow, collections::HashSet};
 
 use futures::{StreamExt, stream};
 
@@ -89,8 +89,8 @@ pub(crate) async fn batch_copy_in_scope(
         planned_storage_used = projected_storage_used;
         result.record_success();
         file_copy_specs.push(file_service::BatchDuplicateFileRecordSpec {
-            src: file.clone(),
-            dest_name,
+            src: file,
+            dest_name: Cow::Owned(dest_name),
         });
     }
 

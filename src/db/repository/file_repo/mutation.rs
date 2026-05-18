@@ -44,6 +44,7 @@ pub async fn create_with_blob<C: ConnectionTrait>(
         mime_type,
         now,
     } = input;
+    let classification = crate::utils::file_classification::classify_file(name, mime_type);
 
     File::insert(file::ActiveModel {
         name: Set(name.to_string()),
@@ -55,6 +56,9 @@ pub async fn create_with_blob<C: ConnectionTrait>(
         created_by_user_id: Set(created_by_user_id),
         created_by_username: Set(created_by_username.to_string()),
         mime_type: Set(mime_type.to_string()),
+        extension: Set(classification.extension),
+        compound_extension: Set(classification.compound_extension),
+        file_category: Set(classification.category),
         created_at: Set(now),
         updated_at: Set(now),
         ..Default::default()

@@ -65,7 +65,7 @@ pub async fn admin_delete_share(
         &state,
         &ctx,
         audit_service::AuditAction::AdminDeleteShare,
-        Some("share"),
+        crate::services::audit_service::AuditEntityType::Share,
         Some(*path),
         None,
         None,

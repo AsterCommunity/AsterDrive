@@ -62,11 +62,13 @@ vi.mock("@/components/layout/Sidebar", () => ({
 		onMobileClose,
 		onTrashDrop,
 		onMoveToFolder,
+		onSearchCategoryOpen,
 	}: {
 		mobileOpen: boolean;
 		onMobileClose: () => void;
 		onTrashDrop?: unknown;
 		onMoveToFolder?: unknown;
+		onSearchCategoryOpen?: (category: "image") => void;
 	}) => (
 		<div
 			data-testid="sidebar"
@@ -77,17 +79,33 @@ vi.mock("@/components/layout/Sidebar", () => ({
 			<button type="button" onClick={onMobileClose}>
 				Close Sidebar
 			</button>
+			<button type="button" onClick={() => onSearchCategoryOpen?.("image")}>
+				Open Image Search
+			</button>
 		</div>
 	),
 }));
 
 vi.mock("@/components/layout/GlobalSearchDialog", () => ({
 	GlobalSearchDialog: ({
+		initialCategory,
 		open,
+		onOpenChange,
 	}: {
+		initialCategory: "image" | null;
 		open: boolean;
 		onOpenChange: (open: boolean) => void;
-	}) => <div data-testid="global-search-dialog" data-open={String(open)} />,
+	}) => (
+		<div
+			data-testid="global-search-dialog"
+			data-initial-category={initialCategory ?? ""}
+			data-open={String(open)}
+		>
+			<button type="button" onClick={() => onOpenChange(false)}>
+				Close Search
+			</button>
+		</div>
+	),
 }));
 
 describe("AppLayout", () => {
@@ -196,6 +214,37 @@ describe("AppLayout", () => {
 		expect(screen.getByTestId("global-search-dialog")).toHaveAttribute(
 			"data-open",
 			"true",
+		);
+	});
+
+	it("opens category search from the sidebar and clears the preset when closed", () => {
+		render(<AppLayout>Page Content</AppLayout>);
+
+		fireEvent.click(screen.getByRole("button", { name: "Toggle Sidebar" }));
+		fireEvent.click(screen.getByRole("button", { name: "Open Image Search" }));
+
+		expect(screen.getByTestId("sidebar")).toHaveAttribute(
+			"data-mobile-open",
+			"false",
+		);
+		expect(screen.getByTestId("global-search-dialog")).toHaveAttribute(
+			"data-open",
+			"true",
+		);
+		expect(screen.getByTestId("global-search-dialog")).toHaveAttribute(
+			"data-initial-category",
+			"image",
+		);
+
+		fireEvent.click(screen.getByRole("button", { name: "Close Search" }));
+
+		expect(screen.getByTestId("global-search-dialog")).toHaveAttribute(
+			"data-open",
+			"false",
+		);
+		expect(screen.getByTestId("global-search-dialog")).toHaveAttribute(
+			"data-initial-category",
+			"",
 		);
 	});
 

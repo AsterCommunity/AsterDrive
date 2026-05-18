@@ -79,7 +79,7 @@ pub async fn cleanup_tasks(
         &state,
         &ctx,
         audit_service::AuditAction::AdminCleanupTasks,
-        Some("task"),
+        crate::services::audit_service::AuditEntityType::Task,
         None,
         None,
         audit_service::details(audit_service::AdminTaskCleanupAuditDetails {

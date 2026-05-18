@@ -175,10 +175,10 @@ async fn create_identity_for_claims<C: sea_orm::ConnectionTrait>(
         external_auth_identity_repo::CreateExternalAuthIdentityInput {
             user_id,
             provider_id: provider.id,
-            identity_namespace: claims.identity_namespace.clone(),
-            subject: claims.subject.clone(),
-            email_snapshot: claims.email.clone(),
-            display_name_snapshot: claims.display_name.clone(),
+            identity_namespace: &claims.identity_namespace,
+            subject: &claims.subject,
+            email_snapshot: claims.email.as_deref(),
+            display_name_snapshot: claims.display_name.as_deref(),
             now,
         },
     )

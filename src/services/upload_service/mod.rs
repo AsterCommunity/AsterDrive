@@ -80,7 +80,7 @@ pub(crate) async fn upload_in_scope_with_audit(
         state,
         audit_ctx,
         audit_service::AuditAction::FileUpload,
-        Some("file"),
+        crate::services::audit_service::AuditEntityType::File,
         Some(file.id),
         Some(&file.name),
         None,

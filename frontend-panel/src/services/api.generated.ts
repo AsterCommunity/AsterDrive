@@ -3738,6 +3738,11 @@ export interface components {
          * @enum {string}
          */
         AuditAction: "admin_create_user" | "admin_force_delete_user" | "admin_create_team" | "admin_create_policy_group" | "admin_archive_team" | "admin_restore_team" | "admin_revoke_user_sessions" | "admin_reset_user_password" | "admin_update_team" | "admin_update_user" | "admin_delete_policy_group" | "admin_migrate_policy_group_users" | "admin_update_policy_group" | "admin_create_policy" | "admin_update_policy" | "admin_delete_policy" | "admin_delete_config" | "admin_delete_share" | "admin_force_unlock" | "admin_cleanup_expired_locks" | "admin_cleanup_tasks" | "admin_create_remote_node" | "admin_update_remote_node" | "admin_delete_remote_node" | "admin_test_remote_node" | "admin_create_remote_node_enrollment_token" | "admin_create_remote_ingress_profile" | "admin_update_remote_ingress_profile" | "admin_delete_remote_ingress_profile" | "admin_create_external_auth_provider" | "admin_update_external_auth_provider" | "admin_delete_external_auth_provider" | "admin_test_external_auth_provider" | "batch_copy" | "batch_delete" | "batch_move" | "config_action_execute" | "config_update" | "file_copy" | "file_create" | "file_delete" | "file_download" | "file_direct_link_create" | "file_edit" | "file_move" | "file_rename" | "file_upload" | "file_preview_link_create" | "file_wopi_open" | "file_upload_cancel" | "file_restore" | "file_purge" | "file_lock" | "file_unlock" | "file_version_restore" | "file_version_delete" | "folder_copy" | "folder_create" | "folder_delete" | "folder_move" | "folder_policy_change" | "folder_rename" | "folder_restore" | "folder_purge" | "folder_lock" | "folder_unlock" | "property_set" | "property_delete" | "share_batch_delete" | "share_create" | "share_delete" | "share_update" | "system_setup" | "team_archive" | "team_cleanup_expired" | "team_create" | "team_member_add" | "team_member_remove" | "team_member_update" | "team_restore" | "team_update" | "task_retry" | "archive_compress" | "archive_extract" | "archive_download" | "trash_purge_all" | "remote_enrollment_redeem" | "remote_enrollment_ack" | "user_revoke_other_sessions" | "user_revoke_session" | "user_update_preferences" | "user_update_profile" | "user_upload_avatar" | "user_set_avatar_source" | "user_update_wopi_info" | "webdav_account_create" | "webdav_account_delete" | "webdav_account_toggle" | "user_change_password" | "user_confirm_password_reset" | "user_confirm_email_change" | "user_confirm_registration" | "user_login" | "user_logout" | "user_passkey_delete" | "user_passkey_login" | "user_passkey_register" | "user_passkey_rename" | "user_external_auth_login" | "user_external_auth_link" | "user_external_auth_unlink" | "user_refresh_token_reuse_detected" | "user_request_email_change" | "user_request_password_reset" | "user_register" | "user_resend_email_change" | "user_resend_registration";
+        /**
+         * @description 审计日志实体类型
+         * @enum {string}
+         */
+        AuditEntityType: "auth_session" | "batch" | "external_auth_identity" | "external_auth_provider" | "file" | "folder" | "passkey" | "policy_group" | "remote_ingress_profile" | "remote_node" | "resource_lock" | "share" | "storage_policy" | "stream_ticket" | "system_config" | "task" | "team" | "trash" | "upload_session" | "user" | "webdav_account";
         AuditLogEntry: {
             action: components["schemas"]["AuditAction"];
             created_at: string;
@@ -3745,7 +3750,7 @@ export interface components {
             /** Format: int64 */
             entity_id?: number | null;
             entity_name?: string | null;
-            entity_type?: string | null;
+            entity_type: components["schemas"]["AuditEntityType"];
             /** Format: int64 */
             id: number;
             ip_address?: string | null;
@@ -3758,7 +3763,7 @@ export interface components {
             before?: string | null;
             /** Format: int64 */
             entity_id?: number | null;
-            entity_type?: string | null;
+            entity_type?: null | components["schemas"]["AuditEntityType"];
             /** Format: int64 */
             user_id?: number | null;
         };
@@ -4147,6 +4152,11 @@ export interface components {
             /** Format: int64 */
             target_folder_id?: number | null;
         };
+        /**
+         * @description File category persisted on `files` for indexed browsing and search filters.
+         * @enum {string}
+         */
+        FileCategory: "image" | "video" | "audio" | "document" | "spreadsheet" | "presentation" | "archive" | "code" | "other";
         FileCursor: {
             /** Format: int64 */
             id: number;
@@ -4156,11 +4166,20 @@ export interface components {
         FileInfo: {
             /** Format: int64 */
             blob_id: number;
+            /**
+             * @description Lowercase multi-part extension without a leading dot, such as `tar.gz`.
+             *     Populated only when the file name ends with a supported compound extension.
+             */
+            compound_extension?: string | null;
             created_at: string;
             /** Format: int64 */
             created_by_user_id?: number | null;
             created_by_username: string;
             deleted_at?: string | null;
+            /** @description Lowercase final extension without a leading dot. Empty when the file name has no extension. */
+            extension: string;
+            /** @description Category derived from the extension first, then MIME type as fallback. */
+            file_category: components["schemas"]["FileCategory"];
             /** Format: int64 */
             folder_id?: number | null;
             /** Format: int64 */
@@ -4177,6 +4196,15 @@ export interface components {
             updated_at: string;
         };
         FileListItem: {
+            /**
+             * @description Lowercase multi-part extension without a leading dot, such as `tar.gz`.
+             *     Populated only when the file name ends with a supported compound extension.
+             */
+            compound_extension?: string | null;
+            /** @description Lowercase final extension without a leading dot. Empty when the file name has no extension. */
+            extension: string;
+            /** @description Category derived from the extension first, then MIME type as fallback. */
+            file_category: components["schemas"]["FileCategory"];
             /** Format: int64 */
             id: number;
             is_locked: boolean;
@@ -4199,10 +4227,13 @@ export interface components {
         FileSearchItem: {
             /** Format: int64 */
             blob_id: number;
+            compound_extension?: string | null;
             created_at: string;
             /** Format: int64 */
             created_by_user_id?: number | null;
             created_by_username: string;
+            extension: string;
+            file_category: components["schemas"]["FileCategory"];
             /** Format: int64 */
             folder_id?: number | null;
             /** Format: int64 */
@@ -4519,7 +4550,7 @@ export interface components {
                 /** Format: int64 */
                 entity_id?: number | null;
                 entity_name?: string | null;
-                entity_type?: string | null;
+                entity_type: components["schemas"]["AuditEntityType"];
                 /** Format: int64 */
                 id: number;
                 ip_address?: string | null;
@@ -5237,10 +5268,14 @@ export interface components {
          */
         S3UploadStrategy: "relay_stream" | "presigned";
         SearchParams: {
+            /** @description Filter by file category (image, video, audio, document, spreadsheet, presentation, archive, code, other) */
+            category?: string | null;
             /** @description ISO 8601 datetime — only return items created after this time */
             created_after?: string | null;
             /** @description ISO 8601 datetime — only return items created before this time */
             created_before?: string | null;
+            /** @description Comma-separated file extensions (recommended format), e.g. "pdf,docx,xlsx" */
+            extensions?: string | null;
             /**
              * Format: int64
              * @description Scope search to a specific folder (folder_id for files, parent_id for folders)
@@ -6081,7 +6116,7 @@ export interface operations {
                 offset?: number | null;
                 user_id?: number | null;
                 action?: string | null;
-                entity_type?: string | null;
+                entity_type?: null | components["schemas"]["AuditEntityType"];
                 entity_id?: number | null;
                 after?: string | null;
                 before?: string | null;
@@ -6110,7 +6145,7 @@ export interface operations {
                                 /** Format: int64 */
                                 entity_id?: number | null;
                                 entity_name?: string | null;
-                                entity_type?: string | null;
+                                entity_type: components["schemas"]["AuditEntityType"];
                                 /** Format: int64 */
                                 id: number;
                                 ip_address?: string | null;
@@ -9340,7 +9375,7 @@ export interface operations {
                 offset?: number | null;
                 user_id?: number | null;
                 action?: string | null;
-                entity_type?: string | null;
+                entity_type?: null | components["schemas"]["AuditEntityType"];
                 entity_id?: number | null;
                 after?: string | null;
                 before?: string | null;
@@ -12052,11 +12087,14 @@ export interface operations {
                         data?: {
                             /** Format: int64 */
                             blob_id: number;
+                            compound_extension?: string | null;
                             created_at: string;
                             /** Format: int64 */
                             created_by_user_id?: number | null;
                             created_by_username: string;
                             deleted_at?: string | null;
+                            extension: string;
+                            file_category: components["schemas"]["FileCategory"];
                             /** Format: int64 */
                             folder_id?: number | null;
                             /** Format: int64 */
@@ -12122,11 +12160,14 @@ export interface operations {
                         data?: {
                             /** Format: int64 */
                             blob_id: number;
+                            compound_extension?: string | null;
                             created_at: string;
                             /** Format: int64 */
                             created_by_user_id?: number | null;
                             created_by_username: string;
                             deleted_at?: string | null;
+                            extension: string;
+                            file_category: components["schemas"]["FileCategory"];
                             /** Format: int64 */
                             folder_id?: number | null;
                             /** Format: int64 */
@@ -12354,11 +12395,14 @@ export interface operations {
                         data?: {
                             /** Format: int64 */
                             blob_id: number;
+                            compound_extension?: string | null;
                             created_at: string;
                             /** Format: int64 */
                             created_by_user_id?: number | null;
                             created_by_username: string;
                             deleted_at?: string | null;
+                            extension: string;
+                            file_category: components["schemas"]["FileCategory"];
                             /** Format: int64 */
                             folder_id?: number | null;
                             /** Format: int64 */
@@ -12519,11 +12563,14 @@ export interface operations {
                         data?: {
                             /** Format: int64 */
                             blob_id: number;
+                            compound_extension?: string | null;
                             created_at: string;
                             /** Format: int64 */
                             created_by_user_id?: number | null;
                             created_by_username: string;
                             deleted_at?: string | null;
+                            extension: string;
+                            file_category: components["schemas"]["FileCategory"];
                             /** Format: int64 */
                             folder_id?: number | null;
                             /** Format: int64 */
@@ -12622,11 +12669,14 @@ export interface operations {
                         data?: {
                             /** Format: int64 */
                             blob_id: number;
+                            compound_extension?: string | null;
                             created_at: string;
                             /** Format: int64 */
                             created_by_user_id?: number | null;
                             created_by_username: string;
                             deleted_at?: string | null;
+                            extension: string;
+                            file_category: components["schemas"]["FileCategory"];
                             /** Format: int64 */
                             folder_id?: number | null;
                             /** Format: int64 */
@@ -12778,11 +12828,14 @@ export interface operations {
                         data?: {
                             /** Format: int64 */
                             blob_id: number;
+                            compound_extension?: string | null;
                             created_at: string;
                             /** Format: int64 */
                             created_by_user_id?: number | null;
                             created_by_username: string;
                             deleted_at?: string | null;
+                            extension: string;
+                            file_category: components["schemas"]["FileCategory"];
                             /** Format: int64 */
                             folder_id?: number | null;
                             /** Format: int64 */
@@ -12860,11 +12913,14 @@ export interface operations {
                         data?: {
                             /** Format: int64 */
                             blob_id: number;
+                            compound_extension?: string | null;
                             created_at: string;
                             /** Format: int64 */
                             created_by_user_id?: number | null;
                             created_by_username: string;
                             deleted_at?: string | null;
+                            extension: string;
+                            file_category: components["schemas"]["FileCategory"];
                             /** Format: int64 */
                             folder_id?: number | null;
                             /** Format: int64 */
@@ -13100,11 +13156,14 @@ export interface operations {
                         data?: {
                             /** Format: int64 */
                             blob_id: number;
+                            compound_extension?: string | null;
                             created_at: string;
                             /** Format: int64 */
                             created_by_user_id?: number | null;
                             created_by_username: string;
                             deleted_at?: string | null;
+                            extension: string;
+                            file_category: components["schemas"]["FileCategory"];
                             /** Format: int64 */
                             folder_id?: number | null;
                             /** Format: int64 */
@@ -13367,11 +13426,14 @@ export interface operations {
                         data?: {
                             /** Format: int64 */
                             blob_id: number;
+                            compound_extension?: string | null;
                             created_at: string;
                             /** Format: int64 */
                             created_by_user_id?: number | null;
                             created_by_username: string;
                             deleted_at?: string | null;
+                            extension: string;
+                            file_category: components["schemas"]["FileCategory"];
                             /** Format: int64 */
                             folder_id?: number | null;
                             /** Format: int64 */
@@ -15146,6 +15208,10 @@ export interface operations {
                 type?: string | null;
                 /** @description Filter by exact MIME type (e.g. "image/png") */
                 mime_type?: string | null;
+                /** @description Filter by file category (image, video, audio, document, spreadsheet, presentation, archive, code, other) */
+                category?: string | null;
+                /** @description Comma-separated file extensions (recommended format), e.g. "pdf,docx,xlsx" */
+                extensions?: string | null;
                 /** @description Minimum file size in bytes */
                 min_size?: number | null;
                 /** @description Maximum file size in bytes */
@@ -16012,7 +16078,7 @@ export interface operations {
                 offset?: number | null;
                 user_id?: number | null;
                 action?: string | null;
-                entity_type?: string | null;
+                entity_type?: null | components["schemas"]["AuditEntityType"];
                 entity_id?: number | null;
                 after?: string | null;
                 before?: string | null;
@@ -16786,11 +16852,14 @@ export interface operations {
                         data?: {
                             /** Format: int64 */
                             blob_id: number;
+                            compound_extension?: string | null;
                             created_at: string;
                             /** Format: int64 */
                             created_by_user_id?: number | null;
                             created_by_username: string;
                             deleted_at?: string | null;
+                            extension: string;
+                            file_category: components["schemas"]["FileCategory"];
                             /** Format: int64 */
                             folder_id?: number | null;
                             /** Format: int64 */
@@ -16859,11 +16928,14 @@ export interface operations {
                         data?: {
                             /** Format: int64 */
                             blob_id: number;
+                            compound_extension?: string | null;
                             created_at: string;
                             /** Format: int64 */
                             created_by_user_id?: number | null;
                             created_by_username: string;
                             deleted_at?: string | null;
+                            extension: string;
+                            file_category: components["schemas"]["FileCategory"];
                             /** Format: int64 */
                             folder_id?: number | null;
                             /** Format: int64 */
@@ -17154,11 +17226,14 @@ export interface operations {
                         data?: {
                             /** Format: int64 */
                             blob_id: number;
+                            compound_extension?: string | null;
                             created_at: string;
                             /** Format: int64 */
                             created_by_user_id?: number | null;
                             created_by_username: string;
                             deleted_at?: string | null;
+                            extension: string;
+                            file_category: components["schemas"]["FileCategory"];
                             /** Format: int64 */
                             folder_id?: number | null;
                             /** Format: int64 */
@@ -17346,11 +17421,14 @@ export interface operations {
                         data?: {
                             /** Format: int64 */
                             blob_id: number;
+                            compound_extension?: string | null;
                             created_at: string;
                             /** Format: int64 */
                             created_by_user_id?: number | null;
                             created_by_username: string;
                             deleted_at?: string | null;
+                            extension: string;
+                            file_category: components["schemas"]["FileCategory"];
                             /** Format: int64 */
                             folder_id?: number | null;
                             /** Format: int64 */
@@ -17467,11 +17545,14 @@ export interface operations {
                         data?: {
                             /** Format: int64 */
                             blob_id: number;
+                            compound_extension?: string | null;
                             created_at: string;
                             /** Format: int64 */
                             created_by_user_id?: number | null;
                             created_by_username: string;
                             deleted_at?: string | null;
+                            extension: string;
+                            file_category: components["schemas"]["FileCategory"];
                             /** Format: int64 */
                             folder_id?: number | null;
                             /** Format: int64 */
@@ -17634,11 +17715,14 @@ export interface operations {
                         data?: {
                             /** Format: int64 */
                             blob_id: number;
+                            compound_extension?: string | null;
                             created_at: string;
                             /** Format: int64 */
                             created_by_user_id?: number | null;
                             created_by_username: string;
                             deleted_at?: string | null;
+                            extension: string;
+                            file_category: components["schemas"]["FileCategory"];
                             /** Format: int64 */
                             folder_id?: number | null;
                             /** Format: int64 */
@@ -17725,11 +17809,14 @@ export interface operations {
                         data?: {
                             /** Format: int64 */
                             blob_id: number;
+                            compound_extension?: string | null;
                             created_at: string;
                             /** Format: int64 */
                             created_by_user_id?: number | null;
                             created_by_username: string;
                             deleted_at?: string | null;
+                            extension: string;
+                            file_category: components["schemas"]["FileCategory"];
                             /** Format: int64 */
                             folder_id?: number | null;
                             /** Format: int64 */
@@ -18001,11 +18088,14 @@ export interface operations {
                         data?: {
                             /** Format: int64 */
                             blob_id: number;
+                            compound_extension?: string | null;
                             created_at: string;
                             /** Format: int64 */
                             created_by_user_id?: number | null;
                             created_by_username: string;
                             deleted_at?: string | null;
+                            extension: string;
+                            file_category: components["schemas"]["FileCategory"];
                             /** Format: int64 */
                             folder_id?: number | null;
                             /** Format: int64 */
@@ -18313,11 +18403,14 @@ export interface operations {
                         data?: {
                             /** Format: int64 */
                             blob_id: number;
+                            compound_extension?: string | null;
                             created_at: string;
                             /** Format: int64 */
                             created_by_user_id?: number | null;
                             created_by_username: string;
                             deleted_at?: string | null;
+                            extension: string;
+                            file_category: components["schemas"]["FileCategory"];
                             /** Format: int64 */
                             folder_id?: number | null;
                             /** Format: int64 */
@@ -19032,6 +19125,10 @@ export interface operations {
                 type?: string | null;
                 /** @description Filter by exact MIME type (e.g. "image/png") */
                 mime_type?: string | null;
+                /** @description Filter by file category (image, video, audio, document, spreadsheet, presentation, archive, code, other) */
+                category?: string | null;
+                /** @description Comma-separated file extensions (recommended format), e.g. "pdf,docx,xlsx" */
+                extensions?: string | null;
                 /** @description Minimum file size in bytes */
                 min_size?: number | null;
                 /** @description Maximum file size in bytes */

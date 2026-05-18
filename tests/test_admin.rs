@@ -1366,20 +1366,21 @@ async fn test_admin_audit_logs_support_explicit_sorting() {
     let app = create_test_app!(state.clone());
     let (token, _) = register_and_login!(app);
     let now = Utc::now();
+    let marker = uuid::Uuid::new_v4();
 
     for (entity_name, ip_address) in [
-        ("Audit Sort Zeta", "10.0.0.3"),
-        ("Audit Sort Alpha", "10.0.0.1"),
-        ("Audit Sort Beta", "10.0.0.2"),
+        (format!("Audit Sort {marker} Zeta"), "10.0.0.3"),
+        (format!("Audit Sort {marker} Alpha"), "10.0.0.1"),
+        (format!("Audit Sort {marker} Beta"), "10.0.0.2"),
     ] {
         audit_log_repo::create(
             &state.db,
             audit_log::ActiveModel {
                 user_id: Set(1),
                 action: Set(AuditAction::AdminUpdateUser),
-                entity_type: Set(Some("sort_audit".to_string())),
+                entity_type: Set("user".to_string()),
                 entity_id: Set(Some(entity_name.len() as i64)),
-                entity_name: Set(Some(entity_name.to_string())),
+                entity_name: Set(Some(entity_name)),
                 details: Set(None),
                 ip_address: Set(Some(ip_address.to_string())),
                 user_agent: Set(None),
@@ -1394,24 +1395,94 @@ async fn test_admin_audit_logs_support_explicit_sorting() {
     let body: Value = admin_get_json!(
         app,
         token,
-        "/api/v1/admin/audit-logs?entity_type=sort_audit&sort_by=entity_name&sort_order=asc&limit=10"
+        "/api/v1/admin/audit-logs?entity_type=user&action=admin_update_user&sort_by=entity_name&sort_order=asc&limit=10"
     );
     let logs = body["data"]["items"].as_array().unwrap();
+    let logs: Vec<Value> = logs
+        .iter()
+        .filter(|log| {
+            log["entity_name"]
+                .as_str()
+                .is_some_and(|name| name.contains(&marker.to_string()))
+        })
+        .cloned()
+        .collect();
     assert_eq!(
-        json_string_values(logs, "entity_name"),
-        vec!["Audit Sort Alpha", "Audit Sort Beta", "Audit Sort Zeta"]
+        json_string_values(&logs, "entity_name"),
+        vec![
+            format!("Audit Sort {marker} Alpha"),
+            format!("Audit Sort {marker} Beta"),
+            format!("Audit Sort {marker} Zeta"),
+        ]
     );
 
     let body: Value = admin_get_json!(
         app,
         token,
-        "/api/v1/admin/audit-logs?entity_type=sort_audit&sort_by=ip_address&sort_order=desc&limit=10"
+        "/api/v1/admin/audit-logs?entity_type=user&action=admin_update_user&sort_by=ip_address&sort_order=desc&limit=10"
     );
     let logs = body["data"]["items"].as_array().unwrap();
+    let logs: Vec<Value> = logs
+        .iter()
+        .filter(|log| {
+            log["entity_name"]
+                .as_str()
+                .is_some_and(|name| name.contains(&marker.to_string()))
+        })
+        .cloned()
+        .collect();
     assert_eq!(
-        json_string_values(logs, "ip_address"),
+        json_string_values(&logs, "ip_address"),
         vec!["10.0.0.3", "10.0.0.2", "10.0.0.1"]
     );
+}
+
+#[actix_web::test]
+async fn test_admin_audit_logs_skip_invalid_entity_type_rows() {
+    let state = common::setup().await;
+    let app = create_test_app!(state.clone());
+    let (token, _) = register_and_login!(app);
+    let now = Utc::now();
+    let marker = uuid::Uuid::new_v4();
+
+    for (entity_type, entity_name) in [
+        ("not_a_real_entity", format!("Audit Invalid {marker}")),
+        ("file", format!("Audit Valid {marker}")),
+    ] {
+        audit_log_repo::create(
+            &state.db,
+            audit_log::ActiveModel {
+                user_id: Set(1),
+                action: Set(AuditAction::FileUpload),
+                entity_type: Set(entity_type.to_string()),
+                entity_id: Set(Some(1)),
+                entity_name: Set(Some(entity_name)),
+                details: Set(None),
+                ip_address: Set(None),
+                user_agent: Set(None),
+                created_at: Set(now),
+                ..Default::default()
+            },
+        )
+        .await
+        .expect("audit log should be inserted");
+    }
+
+    let body: Value = admin_get_json!(
+        app,
+        token,
+        "/api/v1/admin/audit-logs?action=file_upload&sort_by=created_at&sort_order=asc&limit=10"
+    );
+    let names: Vec<String> = body["data"]["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|item| item["entity_name"].as_str())
+        .filter(|name| name.contains(&marker.to_string()))
+        .map(ToOwned::to_owned)
+        .collect();
+    assert!(names.contains(&format!("Audit Valid {marker}")));
+    assert!(!names.contains(&format!("Audit Invalid {marker}")));
 }
 
 #[actix_web::test]

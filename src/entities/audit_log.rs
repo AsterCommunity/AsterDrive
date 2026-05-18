@@ -16,7 +16,7 @@ pub struct Model {
     pub id: i64,
     pub user_id: i64,
     pub action: AuditAction,
-    pub entity_type: Option<String>,
+    pub entity_type: String,
     pub entity_id: Option<i64>,
     pub entity_name: Option<String>,
     pub details: Option<String>,

@@ -15,6 +15,7 @@ import {
 } from "@/components/layout/global-search/searchResultState";
 import {
 	EMPTY_RESULTS,
+	type SearchCategoryFilter,
 	type SearchEntry,
 	type SearchFilter,
 	type SearchPreviewLocationState,
@@ -32,17 +33,19 @@ import { fileService } from "@/services/fileService";
 import { isRequestCanceled } from "@/services/http";
 import { searchService } from "@/services/searchService";
 import { useWorkspaceStore } from "@/stores/workspaceStore";
-import type { SearchResults } from "@/types/api";
+import type { FileCategory, SearchParams, SearchResults } from "@/types/api";
 
 const SEARCH_DEBOUNCE_MS = 180;
 const SEARCH_RESULT_LIMIT = 10;
 
 interface GlobalSearchDialogProps {
+	initialCategory?: FileCategory | null;
 	open: boolean;
 	onOpenChange: (open: boolean) => void;
 }
 
 export function GlobalSearchDialog({
+	initialCategory = null,
 	open,
 	onOpenChange,
 }: GlobalSearchDialogProps) {
@@ -58,6 +61,8 @@ export function GlobalSearchDialog({
 	const requestIdRef = useRef(0);
 	const [query, setQuery] = useState("");
 	const [filter, setFilter] = useState<SearchFilter>("all");
+	const [categoryFilter, setCategoryFilter] =
+		useState<SearchCategoryFilter>(null);
 	const [results, setResults] = useState<SearchResults>(EMPTY_RESULTS);
 	const [loading, setLoading] = useState(false);
 	const [loadingMore, setLoadingMore] = useState(false);
@@ -66,6 +71,20 @@ export function GlobalSearchDialog({
 	const [openingKey, setOpeningKey] = useState<string | null>(null);
 
 	const trimmedQuery = query.trim();
+	const hasSearchCriteria = Boolean(trimmedQuery || categoryFilter);
+	const searchType: SearchFilter = categoryFilter ? "file" : filter;
+
+	const buildSearchParams = useMemo(
+		() =>
+			(offset?: number): SearchParams => ({
+				...(trimmedQuery ? { q: trimmedQuery } : {}),
+				type: searchType,
+				...(categoryFilter ? { category: categoryFilter } : {}),
+				limit: SEARCH_RESULT_LIMIT,
+				...(offset == null ? {} : { offset }),
+			}),
+		[categoryFilter, searchType, trimmedQuery],
+	);
 
 	const resultEntries = useMemo<SearchEntry[]>(
 		() => [
@@ -94,6 +113,7 @@ export function GlobalSearchDialog({
 			requestIdRef.current += 1;
 			setQuery("");
 			setFilter("all");
+			setCategoryFilter(null);
 			setResults(EMPTY_RESULTS);
 			setLoading(false);
 			setLoadingMore(false);
@@ -111,11 +131,26 @@ export function GlobalSearchDialog({
 	}, [open]);
 
 	useEffect(() => {
+		if (!open || !initialCategory) {
+			return;
+		}
+
+		setQuery("");
+		setFilter("file");
+		setCategoryFilter(initialCategory);
+		setResults(EMPTY_RESULTS);
+		setActiveIndex(0);
+		setLoading(false);
+		setLoadingMore(false);
+		setError(null);
+	}, [initialCategory, open]);
+
+	useEffect(() => {
 		if (!open) {
 			return;
 		}
 
-		if (!trimmedQuery) {
+		if (!hasSearchCriteria) {
 			controllerRef.current?.abort();
 			controllerRef.current = null;
 			requestIdRef.current += 1;
@@ -138,14 +173,7 @@ export function GlobalSearchDialog({
 
 		const timer = window.setTimeout(() => {
 			void searchService
-				.search(
-					{
-						q: trimmedQuery,
-						type: filter,
-						limit: SEARCH_RESULT_LIMIT,
-					},
-					{ signal: controller.signal },
-				)
+				.search(buildSearchParams(), { signal: controller.signal })
 				.then((nextResults) => {
 					if (requestIdRef.current !== requestId) {
 						return;
@@ -183,12 +211,12 @@ export function GlobalSearchDialog({
 				controllerRef.current = null;
 			}
 		};
-	}, [filter, open, t, trimmedQuery]);
+	}, [buildSearchParams, hasSearchCriteria, open, t]);
 
 	useEffect(() => {
 		if (
 			!open ||
-			!trimmedQuery ||
+			!hasSearchCriteria ||
 			!canLoadMore ||
 			loading ||
 			loadingMore ||
@@ -218,15 +246,9 @@ export function GlobalSearchDialog({
 				setLoadingMore(true);
 
 				void searchService
-					.search(
-						{
-							q: trimmedQuery,
-							type: filter,
-							limit: SEARCH_RESULT_LIMIT,
-							offset: getSearchOffset(results),
-						},
-						{ signal: controller.signal },
-					)
+					.search(buildSearchParams(getSearchOffset(results)), {
+						signal: controller.signal,
+					})
 					.then((nextResults) => {
 						if (requestIdRef.current !== requestId) {
 							return;
@@ -264,7 +286,15 @@ export function GlobalSearchDialog({
 
 		observer.observe(sentinel);
 		return () => observer.disconnect();
-	}, [canLoadMore, filter, loading, loadingMore, open, results, trimmedQuery]);
+	}, [
+		buildSearchParams,
+		canLoadMore,
+		hasSearchCriteria,
+		loading,
+		loadingMore,
+		open,
+		results,
+	]);
 
 	useEffect(() => {
 		if (activeIndex < resultEntries.length) {
@@ -366,10 +396,22 @@ export function GlobalSearchDialog({
 					<DialogTitle>{t("search:dialog_title")}</DialogTitle>
 				</DialogHeader>
 				<GlobalSearchHeader
+					categoryFilter={categoryFilter}
 					filter={filter}
 					inputRef={inputRef}
+					onCategoryFilterChange={(nextCategory) => {
+						setCategoryFilter((current) =>
+							current === nextCategory ? null : nextCategory,
+						);
+						setFilter("file");
+					}}
 					onClose={() => onOpenChange(false)}
-					onFilterChange={setFilter}
+					onFilterChange={(nextFilter) => {
+						setFilter(nextFilter);
+						if (nextFilter !== "file") {
+							setCategoryFilter(null);
+						}
+					}}
 					onInputBlur={() => {
 						inputComposingRef.current = false;
 					}}
@@ -402,7 +444,7 @@ export function GlobalSearchDialog({
 					resultEntries={resultEntries}
 					resultListRef={resultListRef}
 					results={results}
-					trimmedQuery={trimmedQuery}
+					searchActive={hasSearchCriteria}
 				/>
 			</DialogContent>
 		</Dialog>

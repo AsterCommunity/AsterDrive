@@ -424,7 +424,7 @@ pub async fn delete_other_sessions(
         &state,
         &ctx,
         audit_service::AuditAction::UserRevokeOtherSessions,
-        Some("auth_session"),
+        crate::services::audit_service::AuditEntityType::AuthSession,
         None,
         None,
         audit_service::details(audit_service::AuthSessionAuditDetails {
@@ -469,7 +469,7 @@ pub async fn delete_session(
         &state,
         &ctx,
         audit_service::AuditAction::UserRevokeSession,
-        Some("auth_session"),
+        crate::services::audit_service::AuditEntityType::AuthSession,
         None,
         Some(path.as_str()),
         audit_service::details(audit_service::AuthSessionAuditDetails {

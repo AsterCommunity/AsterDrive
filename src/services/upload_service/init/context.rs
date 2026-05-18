@@ -27,18 +27,18 @@ pub(super) struct InitUploadContext {
     pub(super) policy: storage_policy::Model,
 }
 
-pub(super) struct UploadSessionRecordParams {
-    pub(super) upload_id: String,
+pub(super) struct UploadSessionRecordParams<'a> {
+    pub(super) upload_id: &'a str,
     pub(super) scope: WorkspaceStorageScope,
-    pub(super) filename: String,
+    pub(super) filename: &'a str,
     pub(super) total_size: i64,
     pub(super) chunk_size: i64,
     pub(super) total_chunks: i32,
     pub(super) folder_id: Option<i64>,
     pub(super) policy_id: i64,
     pub(super) status: UploadSessionStatus,
-    pub(super) s3_temp_key: Option<String>,
-    pub(super) s3_multipart_id: Option<String>,
+    pub(super) s3_temp_key: Option<&'a str>,
+    pub(super) s3_multipart_id: Option<&'a str>,
     pub(super) expires_at: DateTime<Utc>,
 }
 
@@ -179,7 +179,7 @@ fn validate_policy_upload_size(policy: &storage_policy::Model, total_size: i64) 
 
 pub(super) async fn try_persist_upload_session(
     db: &sea_orm::DatabaseConnection,
-    params: UploadSessionRecordParams,
+    params: UploadSessionRecordParams<'_>,
 ) -> Result<bool> {
     let session = upload_session_active_model(params);
     upload_session_repo::try_create(db, session).await
@@ -209,17 +209,17 @@ pub(super) async fn init_multipart_session_with_retry(
         let inserted_result = try_persist_upload_session(
             &state.db,
             UploadSessionRecordParams {
-                upload_id: upload_id.clone(),
+                upload_id: &upload_id,
                 scope: ctx.scope,
-                filename: ctx.target.filename.clone(),
+                filename: &ctx.target.filename,
                 total_size: ctx.total_size,
                 chunk_size,
                 total_chunks,
                 folder_id: ctx.target.folder_id,
                 policy_id: ctx.policy.id,
                 status,
-                s3_temp_key: Some(temp_key.clone()),
-                s3_multipart_id: Some(multipart_id.clone()),
+                s3_temp_key: Some(&temp_key),
+                s3_multipart_id: Some(&multipart_id),
                 expires_at: Utc::now() + expires_in,
             },
         )
@@ -279,7 +279,9 @@ pub(super) async fn init_multipart_session_with_retry(
     .await
 }
 
-fn upload_session_active_model(params: UploadSessionRecordParams) -> upload_session::ActiveModel {
+fn upload_session_active_model(
+    params: UploadSessionRecordParams<'_>,
+) -> upload_session::ActiveModel {
     let UploadSessionRecordParams {
         upload_id,
         scope,
@@ -297,10 +299,10 @@ fn upload_session_active_model(params: UploadSessionRecordParams) -> upload_sess
     let now = Utc::now();
 
     upload_session::ActiveModel {
-        id: Set(upload_id),
+        id: Set(upload_id.to_string()),
         user_id: Set(scope.actor_user_id()),
         team_id: Set(scope.team_id()),
-        filename: Set(filename),
+        filename: Set(filename.to_string()),
         total_size: Set(total_size),
         chunk_size: Set(chunk_size),
         total_chunks: Set(total_chunks),
@@ -308,8 +310,8 @@ fn upload_session_active_model(params: UploadSessionRecordParams) -> upload_sess
         folder_id: Set(folder_id),
         policy_id: Set(policy_id),
         status: Set(status),
-        s3_temp_key: Set(s3_temp_key),
-        s3_multipart_id: Set(s3_multipart_id),
+        s3_temp_key: Set(s3_temp_key.map(str::to_string)),
+        s3_multipart_id: Set(s3_multipart_id.map(str::to_string)),
         file_id: Set(None),
         created_at: Set(now),
         expires_at: Set(expires_at),

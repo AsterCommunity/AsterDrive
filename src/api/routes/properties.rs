@@ -11,17 +11,9 @@ use crate::config::RateLimitConfig;
 use crate::errors::Result;
 use crate::runtime::PrimaryAppState;
 use crate::services::{audit_service, auth_service::Claims, property_service};
-use crate::types::EntityType;
 use actix_governor::Governor;
 use actix_web::middleware::Condition;
 use actix_web::{HttpRequest, HttpResponse, web};
-
-fn entity_type_name(entity_type: EntityType) -> &'static str {
-    match entity_type {
-        EntityType::File => "file",
-        EntityType::Folder => "folder",
-    }
-}
 
 pub fn routes(rl: &RateLimitConfig) -> impl actix_web::dev::HttpServiceFactory + use<> {
     let limiter = rate_limit::build_governor(&rl.api, &rl.trusted_proxies);
@@ -43,7 +35,7 @@ pub fn routes(rl: &RateLimitConfig) -> impl actix_web::dev::HttpServiceFactory +
     tag = "properties",
     operation_id = "list_properties",
     params(
-        ("entity_type" = EntityType, Path, description = "Entity type: 'file' or 'folder'"),
+        ("entity_type" = crate::types::EntityType, Path, description = "Entity type: 'file' or 'folder'"),
         ("entity_id" = i64, Path, description = "Entity ID"),
     ),
     responses(
@@ -71,7 +63,7 @@ pub async fn list_props(
     tag = "properties",
     operation_id = "set_property",
     params(
-        ("entity_type" = EntityType, Path, description = "Entity type: 'file' or 'folder'"),
+        ("entity_type" = crate::types::EntityType, Path, description = "Entity type: 'file' or 'folder'"),
         ("entity_id" = i64, Path, description = "Entity ID"),
     ),
     request_body = SetPropReq,
@@ -110,11 +102,11 @@ pub async fn set_prop(
         &state,
         &ctx,
         audit_service::AuditAction::PropertySet,
-        Some(entity_type_name(path.entity_type)),
+        audit_service::AuditEntityType::from_entity_type(path.entity_type),
         Some(path.entity_id),
         Some(&property_name),
         audit_service::details(audit_service::PropertyAuditDetails {
-            entity_type: entity_type_name(path.entity_type),
+            entity_type: path.entity_type.as_str(),
             namespace: &body.namespace,
             name: &body.name,
         }),
@@ -129,7 +121,7 @@ pub async fn set_prop(
     tag = "properties",
     operation_id = "delete_property",
     params(
-        ("entity_type" = EntityType, Path, description = "Entity type: 'file' or 'folder'"),
+        ("entity_type" = crate::types::EntityType, Path, description = "Entity type: 'file' or 'folder'"),
         ("entity_id" = i64, Path, description = "Entity ID"),
         ("namespace" = String, Path, description = "Property namespace"),
         ("name" = String, Path, description = "Property name"),
@@ -165,11 +157,11 @@ pub async fn delete_prop(
         &state,
         &ctx,
         audit_service::AuditAction::PropertyDelete,
-        Some(entity_type_name(path.entity_type)),
+        audit_service::AuditEntityType::from_entity_type(path.entity_type),
         Some(path.entity_id),
         Some(&property_name),
         audit_service::details(audit_service::PropertyAuditDetails {
-            entity_type: entity_type_name(path.entity_type),
+            entity_type: path.entity_type.as_str(),
             namespace: &path.namespace,
             name: &path.name,
         }),

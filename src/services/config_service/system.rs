@@ -212,7 +212,7 @@ pub async fn delete_with_audit(
         state,
         audit_ctx,
         audit_service::AuditAction::AdminDeleteConfig,
-        Some("system_config"),
+        crate::services::audit_service::AuditEntityType::SystemConfig,
         Some(config.id),
         Some(key),
         None,
@@ -239,7 +239,7 @@ pub async fn set_with_audit(
         state,
         audit_ctx,
         audit_service::AuditAction::ConfigUpdate,
-        None,
+        audit_service::AuditEntityType::SystemConfig,
         None,
         Some(key),
         audit_service::details(audit_service::ConfigUpdateDetails {

@@ -174,7 +174,7 @@ pub async fn force_unlock_with_audit(
         state,
         audit_ctx,
         audit_service::AuditAction::AdminForceUnlock,
-        Some("resource_lock"),
+        crate::services::audit_service::AuditEntityType::ResourceLock,
         Some(lock_id),
         Some(&lock.path),
         audit_service::details(audit_service::LockAuditDetails {

@@ -1,6 +1,6 @@
 //! 文件服务子模块：`transfer`。
 
-use std::collections::BTreeMap;
+use std::{borrow::Cow, collections::BTreeMap};
 
 use chrono::Utc;
 use sea_orm::{ActiveModelTrait, Set};
@@ -129,22 +129,22 @@ pub async fn copy_file(
 }
 
 #[derive(Clone)]
-pub(crate) struct BatchDuplicateFileRecordSpec {
-    pub src: file::Model,
-    pub dest_name: String,
+pub(crate) struct BatchDuplicateFileRecordSpec<'a> {
+    pub src: &'a file::Model,
+    pub dest_name: Cow<'a, str>,
 }
 
 #[derive(Clone)]
-pub(crate) struct BatchDuplicateFileRecordTargetSpec {
-    pub src: file::Model,
-    pub dest_name: String,
+pub(crate) struct BatchDuplicateFileRecordTargetSpec<'a> {
+    pub src: &'a file::Model,
+    pub dest_name: Cow<'a, str>,
     pub dest_folder_id: Option<i64>,
 }
 
 async fn batch_duplicate_file_records_with_specs_in_scope(
     state: &PrimaryAppState,
     scope: WorkspaceStorageScope,
-    copy_specs: &[BatchDuplicateFileRecordSpec],
+    copy_specs: &[BatchDuplicateFileRecordSpec<'_>],
     dest_folder_id: Option<i64>,
 ) -> Result<Vec<file::Model>> {
     if copy_specs.is_empty() {
@@ -173,26 +173,35 @@ async fn batch_duplicate_file_records_with_specs_in_scope(
 
     let models: Vec<file::ActiveModel> = copy_specs
         .iter()
-        .map(|spec| file::ActiveModel {
-            name: Set(spec.dest_name.clone()),
-            folder_id: Set(dest_folder_id),
-            team_id: Set(scope.team_id()),
-            blob_id: Set(spec.src.blob_id),
-            size: Set(spec.src.size),
-            owner_user_id: Set(scope.owner_user_id()),
-            created_by_user_id: Set(Some(scope.actor_user_id())),
-            created_by_username: Set(created_by_username.clone()),
-            mime_type: Set(spec.src.mime_type.clone()),
-            created_at: Set(now),
-            updated_at: Set(now),
-            ..Default::default()
+        .map(|spec| {
+            let classification = crate::utils::file_classification::classify_file(
+                &spec.dest_name,
+                &spec.src.mime_type,
+            );
+            file::ActiveModel {
+                name: Set(spec.dest_name.to_string()),
+                folder_id: Set(dest_folder_id),
+                team_id: Set(scope.team_id()),
+                blob_id: Set(spec.src.blob_id),
+                size: Set(spec.src.size),
+                owner_user_id: Set(scope.owner_user_id()),
+                created_by_user_id: Set(Some(scope.actor_user_id())),
+                created_by_username: Set(created_by_username.clone()),
+                mime_type: Set(spec.src.mime_type.clone()),
+                extension: Set(classification.extension),
+                compound_extension: Set(classification.compound_extension),
+                file_category: Set(classification.category),
+                created_at: Set(now),
+                updated_at: Set(now),
+                ..Default::default()
+            }
         })
         .collect();
     file_repo::create_many(&txn, models).await?;
 
     let dest_names: Vec<String> = copy_specs
         .iter()
-        .map(|spec| spec.dest_name.clone())
+        .map(|spec| spec.dest_name.to_string())
         .collect();
     let created_files = match scope {
         WorkspaceStorageScope::Personal { user_id } => {
@@ -229,6 +238,8 @@ pub(crate) async fn duplicate_file_record_in_scope(
     workspace_storage_service::check_quota(&txn, scope, blob_size).await?;
 
     file_repo::increment_blob_ref_count(&txn, blob.id).await?;
+    let classification =
+        crate::utils::file_classification::classify_file(dest_name, &src.mime_type);
 
     let new_file = file::ActiveModel {
         name: Set(dest_name.to_string()),
@@ -240,6 +251,9 @@ pub(crate) async fn duplicate_file_record_in_scope(
         created_by_user_id: Set(Some(scope.actor_user_id())),
         created_by_username: Set(created_by_username),
         mime_type: Set(src.mime_type.clone()),
+        extension: Set(classification.extension),
+        compound_extension: Set(classification.compound_extension),
+        file_category: Set(classification.category),
         created_at: Set(now),
         updated_at: Set(now),
         ..Default::default()
@@ -300,11 +314,10 @@ pub(crate) async fn batch_duplicate_file_records_in_scope(
     src_files: &[file::Model],
     dest_folder_id: Option<i64>,
 ) -> Result<Vec<file::Model>> {
-    let copy_specs: Vec<BatchDuplicateFileRecordSpec> = src_files
+    let copy_specs: Vec<BatchDuplicateFileRecordSpec<'_>> = src_files
         .iter()
-        .cloned()
         .map(|src| BatchDuplicateFileRecordSpec {
-            dest_name: src.name.clone(),
+            dest_name: Cow::Borrowed(src.name.as_str()),
             src,
         })
         .collect();
@@ -316,7 +329,7 @@ pub(crate) async fn batch_duplicate_file_records_in_scope(
 pub(crate) async fn batch_duplicate_file_records_with_names_in_scope(
     state: &PrimaryAppState,
     scope: WorkspaceStorageScope,
-    copy_specs: &[BatchDuplicateFileRecordSpec],
+    copy_specs: &[BatchDuplicateFileRecordSpec<'_>],
     dest_folder_id: Option<i64>,
 ) -> Result<Vec<file::Model>> {
     batch_duplicate_file_records_with_specs_in_scope(state, scope, copy_specs, dest_folder_id).await
@@ -325,7 +338,7 @@ pub(crate) async fn batch_duplicate_file_records_with_names_in_scope(
 pub(crate) async fn batch_duplicate_file_records_to_mixed_folders_in_scope(
     state: &PrimaryAppState,
     scope: WorkspaceStorageScope,
-    copy_specs: &[BatchDuplicateFileRecordTargetSpec],
+    copy_specs: &[BatchDuplicateFileRecordTargetSpec<'_>],
 ) -> Result<i64> {
     if copy_specs.is_empty() {
         return Ok(0);
@@ -352,19 +365,28 @@ pub(crate) async fn batch_duplicate_file_records_to_mixed_folders_in_scope(
 
     let models: Vec<file::ActiveModel> = copy_specs
         .iter()
-        .map(|spec| file::ActiveModel {
-            name: Set(spec.dest_name.clone()),
-            folder_id: Set(spec.dest_folder_id),
-            team_id: Set(scope.team_id()),
-            blob_id: Set(spec.src.blob_id),
-            size: Set(spec.src.size),
-            owner_user_id: Set(scope.owner_user_id()),
-            created_by_user_id: Set(Some(scope.actor_user_id())),
-            created_by_username: Set(created_by_username.clone()),
-            mime_type: Set(spec.src.mime_type.clone()),
-            created_at: Set(now),
-            updated_at: Set(now),
-            ..Default::default()
+        .map(|spec| {
+            let classification = crate::utils::file_classification::classify_file(
+                &spec.dest_name,
+                &spec.src.mime_type,
+            );
+            file::ActiveModel {
+                name: Set(spec.dest_name.to_string()),
+                folder_id: Set(spec.dest_folder_id),
+                team_id: Set(scope.team_id()),
+                blob_id: Set(spec.src.blob_id),
+                size: Set(spec.src.size),
+                owner_user_id: Set(scope.owner_user_id()),
+                created_by_user_id: Set(Some(scope.actor_user_id())),
+                created_by_username: Set(created_by_username.clone()),
+                mime_type: Set(spec.src.mime_type.clone()),
+                extension: Set(classification.extension),
+                compound_extension: Set(classification.compound_extension),
+                file_category: Set(classification.category),
+                created_at: Set(now),
+                updated_at: Set(now),
+                ..Default::default()
+            }
         })
         .collect();
     file_repo::create_many(&txn, models).await?;

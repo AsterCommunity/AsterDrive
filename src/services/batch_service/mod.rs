@@ -78,7 +78,7 @@ pub(crate) async fn batch_delete_in_scope_with_audit(
         state,
         audit_ctx,
         audit_service::AuditAction::BatchDelete,
-        None,
+        audit_service::AuditEntityType::Batch,
         None,
         None,
         audit_service::details(audit_service::BatchDeleteDetails {
@@ -107,7 +107,7 @@ pub(crate) async fn batch_move_in_scope_with_audit(
         state,
         audit_ctx,
         audit_service::AuditAction::BatchMove,
-        None,
+        audit_service::AuditEntityType::Batch,
         None,
         None,
         audit_service::details(audit_service::BatchTransferDetails {
@@ -137,7 +137,7 @@ pub(crate) async fn batch_copy_in_scope_with_audit(
         state,
         audit_ctx,
         audit_service::AuditAction::BatchCopy,
-        None,
+        audit_service::AuditEntityType::Batch,
         None,
         None,
         audit_service::details(audit_service::BatchTransferDetails {

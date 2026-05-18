@@ -65,7 +65,7 @@ pub async fn cleanup_expired_with_audit(
         state,
         audit_ctx,
         audit_service::AuditAction::AdminCleanupExpiredLocks,
-        Some("resource_lock"),
+        crate::services::audit_service::AuditEntityType::ResourceLock,
         None,
         None,
         audit_service::details(audit_service::LockCleanupAuditDetails { removed: count }),

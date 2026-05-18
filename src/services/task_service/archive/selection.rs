@@ -20,7 +20,8 @@ use crate::services::{
 
 use super::super::types::CreateArchiveTaskParams;
 use super::common::{
-    ArchiveEntry, ArchiveSinkContext, is_client_disconnect_error_text, write_archive_to_sink,
+    ArchiveEntry, ArchiveFileEntry, ArchiveSinkContext, ends_with_ignore_ascii_case,
+    is_client_disconnect_error_text, write_archive_to_sink,
 };
 
 pub(crate) struct PreparedArchiveDownload {
@@ -269,7 +270,7 @@ pub(super) async fn collect_archive_entries_from_selection_in_scope(
         let entry_path = batch_service::reserve_unique_name(&mut reserved_root_names, &file.name);
         record_archive_build_entry(&mut stats, &entry_path, Some(file.size), limits)?;
         entries.push(ArchiveEntry::File {
-            file: file.clone(),
+            file: ArchiveFileEntry::from_file(file, &entry_path),
             entry_path,
         });
     }
@@ -319,7 +320,10 @@ pub(super) async fn collect_archive_entries_from_selection_in_scope(
                 format!("{archive_root}/{relative_dir}/{}", file.name)
             };
             record_archive_build_entry(&mut stats, &entry_path, Some(file.size), limits)?;
-            entries.push(ArchiveEntry::File { file, entry_path });
+            entries.push(ArchiveEntry::File {
+                file: ArchiveFileEntry::from_file(&file, &entry_path),
+                entry_path,
+            });
         }
     }
 
@@ -475,7 +479,7 @@ fn resolve_archive_name(
         Some(name) if !name.is_empty() => name.to_string(),
         _ => default_archive_name(selection),
     };
-    let final_name = if base.to_ascii_lowercase().ends_with(".zip") {
+    let final_name = if ends_with_ignore_ascii_case(&base, ".zip") {
         base
     } else {
         format!("{base}.zip")

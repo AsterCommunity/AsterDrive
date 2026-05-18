@@ -11,7 +11,7 @@ use tokio_util::sync::CancellationToken;
 use crate::db::repository::audit_log_repo;
 use crate::entities::audit_log;
 use crate::runtime::PrimaryAppState;
-use crate::types::AuditAction;
+use crate::types::{AuditAction, AuditEntityType};
 
 use super::context::AuditContext;
 
@@ -280,7 +280,7 @@ pub async fn log(
     state: &PrimaryAppState,
     ctx: &AuditContext,
     action: AuditAction,
-    entity_type: Option<&str>,
+    entity_type: AuditEntityType,
     entity_id: Option<i64>,
     entity_name: Option<&str>,
     details: Option<serde_json::Value>,
@@ -297,7 +297,7 @@ pub async fn log(
         id: Default::default(),
         user_id: Set(ctx.user_id),
         action: Set(action),
-        entity_type: Set(entity_type.map(|s| s.to_string())),
+        entity_type: Set(entity_type.as_str().to_string()),
         entity_id: Set(entity_id),
         entity_name: Set(entity_name.map(|s| s.to_string())),
         details: Set(details.map(|v| v.to_string())),

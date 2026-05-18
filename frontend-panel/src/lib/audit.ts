@@ -1,25 +1,43 @@
 import type { TFunction } from "i18next";
-import type { AuditAction } from "@/types/api";
+import type { AuditAction, AuditEntityType } from "@/types/api";
 
 export const AUDIT_ENTITY_TYPE_FILTER_VALUES = [
+	"auth_session",
+	"batch",
+	"external_auth_identity",
+	"external_auth_provider",
 	"file",
 	"folder",
-	"team",
-	"user",
-	"share",
-	"task",
-	"resource_lock",
-	"storage_policy",
+	"passkey",
 	"policy_group",
-	"system_config",
-	"remote_node",
 	"remote_ingress_profile",
-	"webdav_account",
-	"upload_session",
+	"remote_node",
+	"resource_lock",
+	"share",
+	"storage_policy",
 	"stream_ticket",
-	"auth_session",
+	"system_config",
+	"task",
+	"team",
 	"trash",
-] as const;
+	"upload_session",
+	"user",
+	"webdav_account",
+] as const satisfies readonly AuditEntityType[];
+
+export function isAuditEntityType(value: string): value is AuditEntityType {
+	type MissingAuditEntityType = Exclude<
+		AuditEntityType,
+		(typeof AUDIT_ENTITY_TYPE_FILTER_VALUES)[number]
+	>;
+	const filterValuesCoverOpenApi: MissingAuditEntityType extends never
+		? true
+		: never = true;
+	return (
+		filterValuesCoverOpenApi &&
+		AUDIT_ENTITY_TYPE_FILTER_VALUES.includes(value as AuditEntityType)
+	);
+}
 
 function resolveAuditTranslation(
 	t: TFunction,

@@ -97,6 +97,7 @@ export type UserStatus = components["schemas"]["UserStatus"];
 export type VerificationPurpose = components["schemas"]["VerificationPurpose"];
 
 // Files, folders, and trash
+export type FileCategory = components["schemas"]["FileCategory"];
 export type FileInfo = components["schemas"]["FileInfo"];
 export type FileListItem = components["schemas"]["FileListItem"];
 export type FileVersion = components["schemas"]["FileVersion"];
@@ -141,6 +142,7 @@ export type TeamShareListQuery = OperationQuery<"list_team_shares">;
 
 // Admin, storage, and WebDAV
 export type AuditAction = components["schemas"]["AuditAction"];
+export type AuditEntityType = components["schemas"]["AuditEntityType"];
 export type AuditLogEntry = components["schemas"]["AuditLogEntry"];
 export type AuditLogPage = components["schemas"]["OffsetPage_AuditLogEntry"];
 export type AdminOverview = components["schemas"]["AdminOverview"];

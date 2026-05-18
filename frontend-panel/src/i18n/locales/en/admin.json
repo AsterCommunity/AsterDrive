@@ -716,6 +716,8 @@
 	"audit_action_user_resend_registration": "Resent registration message",
 	"audit_entity_type_file": "File",
 	"audit_entity_type_folder": "Folder",
+	"audit_entity_type_batch": "Batch operation",
+	"audit_entity_type_passkey": "Passkey",
 	"audit_entity_type_team": "Team",
 	"audit_entity_type_user": "User",
 	"audit_entity_type_share": "Share",

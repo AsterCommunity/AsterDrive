@@ -34,7 +34,7 @@ pub(super) async fn complete_upload_impl_with_audit(
             state,
             audit_ctx,
             audit_service::AuditAction::FileUpload,
-            Some("file"),
+            crate::services::audit_service::AuditEntityType::File,
             Some(file.id),
             Some(&file.name),
             None,

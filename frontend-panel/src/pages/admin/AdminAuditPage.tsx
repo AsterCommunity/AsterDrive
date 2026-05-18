@@ -43,6 +43,7 @@ import {
 	formatAuditAction,
 	formatAuditEntityType,
 	getAuditActionBadgeClass,
+	isAuditEntityType,
 } from "@/lib/audit";
 import { ADMIN_CONTROL_HEIGHT_CLASS } from "@/lib/constants";
 import { formatDateAbsolute, formatDateAbsoluteWithOffset } from "@/lib/format";
@@ -57,6 +58,7 @@ import {
 } from "@/lib/pagination";
 import { auditService } from "@/services/auditService";
 import type { AdminAuditLogSortBy } from "@/types/adminSort";
+import type { AuditEntityType } from "@/types/api";
 
 const AUDIT_PAGE_SIZE_OPTIONS = [10, 20, 50] as const;
 const DEFAULT_AUDIT_PAGE_SIZE = 20 as const;
@@ -81,7 +83,7 @@ const DEFAULT_AUDIT_SORT_BY =
 	"created_at" as const satisfies AdminAuditLogSortBy;
 const DEFAULT_AUDIT_SORT_ORDER = "desc" as const satisfies SortOrder;
 
-type AuditEntityTypeFilter = "__all__" | string;
+type AuditEntityTypeFilter = "__all__" | AuditEntityType;
 
 function normalizeOffset(offset: number) {
 	return Math.max(0, Math.floor(offset));
@@ -91,7 +93,7 @@ function parseEntityTypeSearchParam(
 	value: string | null,
 ): AuditEntityTypeFilter {
 	const normalized = value?.trim();
-	return normalized ? normalized : "__all__";
+	return normalized && isAuditEntityType(normalized) ? normalized : "__all__";
 }
 
 function buildManagedAuditSearchParams({
@@ -328,7 +330,7 @@ export default function AdminAuditPage() {
 
 	const handleEntityTypeFilterChange = (value: string | null) => {
 		if (!value) return;
-		setEntityTypeFilter(value as AuditEntityTypeFilter);
+		setEntityTypeFilter(isAuditEntityType(value) ? value : "__all__");
 		setOffset(0);
 	};
 

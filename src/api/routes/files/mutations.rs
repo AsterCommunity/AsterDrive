@@ -546,7 +546,7 @@ pub(crate) async fn extract_archive_response(
         state,
         &ctx,
         audit_service::AuditAction::ArchiveExtract,
-        Some("task"),
+        crate::services::audit_service::AuditEntityType::Task,
         Some(task.id),
         Some(&task.display_name),
         audit_service::details(audit_service::ArchiveSelectionAuditDetails {

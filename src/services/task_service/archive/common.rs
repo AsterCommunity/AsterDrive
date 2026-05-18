@@ -20,12 +20,30 @@ use crate::storage::{DriverRegistry, PolicySnapshot};
 use super::selection::ArchiveBuildLimits;
 
 #[derive(Debug, Clone)]
+pub(super) struct ArchiveFileEntry {
+    pub(super) blob_id: i64,
+    pub(super) size: i64,
+    pub(super) store_without_deflate: bool,
+}
+
+impl ArchiveFileEntry {
+    pub(super) fn from_file(file: &file::Model, entry_path: &str) -> Self {
+        let file_name = archive_entry_file_name(entry_path);
+        Self {
+            blob_id: file.blob_id,
+            size: file.size,
+            store_without_deflate: should_store_without_deflate(file_name, &file.mime_type),
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
 pub(super) enum ArchiveEntry {
     Directory {
         entry_path: String,
     },
     File {
-        file: file::Model,
+        file: ArchiveFileEntry,
         entry_path: String,
     },
 }
@@ -182,7 +200,7 @@ where
             }
             ArchiveEntry::File { file, entry_path } => {
                 written_bytes = checked_archive_output_progress(written_bytes, file.size, limits)?;
-                let file_options = archive_file_options_for(&file);
+                let file_options = archive_file_options(file.store_without_deflate);
                 zip.start_file(&entry_path, file_options)
                     .map_aster_err(AsterError::storage_driver_error)?;
 
@@ -233,34 +251,43 @@ fn checked_archive_output_progress(
     Ok(next)
 }
 
-fn archive_file_options_for(file: &file::Model) -> zip::write::SimpleFileOptions {
+fn archive_file_options(store_without_deflate: bool) -> zip::write::SimpleFileOptions {
     let options = zip::write::SimpleFileOptions::default();
-    if should_store_without_deflate(&file.name, &file.mime_type) {
+    if store_without_deflate {
         options.compression_method(zip::CompressionMethod::Stored)
     } else {
         options.compression_method(zip::CompressionMethod::Deflated)
     }
 }
 
+fn archive_entry_file_name(entry_path: &str) -> &str {
+    entry_path.rsplit('/').next().unwrap_or(entry_path)
+}
+
+const STORED_MIME_TYPES: &[&str] = &[
+    "application/pdf",
+    "application/zip",
+    "application/x-zip-compressed",
+    "application/x-7z-compressed",
+    "application/vnd.rar",
+    "application/x-rar-compressed",
+    "application/gzip",
+    "application/x-gzip",
+    "application/x-xz",
+    "application/zstd",
+    "application/x-zstd",
+];
+
+const STORED_EXTENSIONS: &[&str] = &[
+    "zip", "7z", "rar", "gz", "tgz", "bz2", "xz", "zst", "jpg", "jpeg", "png", "gif", "webp",
+    "heic", "heif", "avif", "mp4", "m4v", "mov", "mkv", "webm", "mp3", "aac", "ogg", "flac", "pdf",
+];
+
 fn should_store_without_deflate(name: &str, mime_type: &str) -> bool {
-    let mime = mime_type.to_ascii_lowercase();
-    if mime.starts_with("image/")
-        || mime.starts_with("video/")
-        || mime.starts_with("audio/")
-        || matches!(
-            mime.as_str(),
-            "application/pdf"
-                | "application/zip"
-                | "application/x-zip-compressed"
-                | "application/x-7z-compressed"
-                | "application/vnd.rar"
-                | "application/x-rar-compressed"
-                | "application/gzip"
-                | "application/x-gzip"
-                | "application/x-xz"
-                | "application/zstd"
-                | "application/x-zstd"
-        )
+    if starts_with_ignore_ascii_case(mime_type, "image/")
+        || starts_with_ignore_ascii_case(mime_type, "video/")
+        || starts_with_ignore_ascii_case(mime_type, "audio/")
+        || contains_ignore_ascii_case(STORED_MIME_TYPES, mime_type)
     {
         return true;
     }
@@ -268,35 +295,25 @@ fn should_store_without_deflate(name: &str, mime_type: &str) -> bool {
     let Some(extension) = name.rsplit('.').next() else {
         return false;
     };
-    matches!(
-        extension.to_ascii_lowercase().as_str(),
-        "zip"
-            | "7z"
-            | "rar"
-            | "gz"
-            | "tgz"
-            | "bz2"
-            | "xz"
-            | "zst"
-            | "jpg"
-            | "jpeg"
-            | "png"
-            | "gif"
-            | "webp"
-            | "heic"
-            | "heif"
-            | "avif"
-            | "mp4"
-            | "m4v"
-            | "mov"
-            | "mkv"
-            | "webm"
-            | "mp3"
-            | "aac"
-            | "ogg"
-            | "flac"
-            | "pdf"
-    )
+    contains_ignore_ascii_case(STORED_EXTENSIONS, extension)
+}
+
+fn starts_with_ignore_ascii_case(value: &str, prefix: &str) -> bool {
+    value
+        .get(..prefix.len())
+        .is_some_and(|head| head.eq_ignore_ascii_case(prefix))
+}
+
+pub(super) fn ends_with_ignore_ascii_case(value: &str, suffix: &str) -> bool {
+    value
+        .get(value.len().saturating_sub(suffix.len())..)
+        .is_some_and(|tail| tail.eq_ignore_ascii_case(suffix))
+}
+
+fn contains_ignore_ascii_case(values: &[&str], needle: &str) -> bool {
+    values
+        .iter()
+        .any(|value| needle.eq_ignore_ascii_case(value))
 }
 
 pub(super) fn is_client_disconnect_error_text(error_text: &str) -> bool {
