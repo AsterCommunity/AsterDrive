@@ -1694,6 +1694,74 @@ async fn test_personal_archive_compress_task_creates_workspace_file() {
 }
 
 #[actix_web::test]
+async fn test_archive_compress_task_keeps_long_conflict_copy_name_within_limit() {
+    let state = common::setup().await;
+    let app = create_test_app!(state.clone());
+    let (token, _) = register_and_login!(app);
+
+    let long_folder_name = "a".repeat(255);
+    let initial_archive_name = format!("{}.zip", "a".repeat(251));
+    let expected_copy_name = format!("{} (1).zip", "a".repeat(247));
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/files/new")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({ "name": initial_archive_name, "folder_id": null }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 201);
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/folders")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({ "name": long_folder_name, "parent_id": null }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 201);
+    let body: Value = test::read_body_json(resp).await;
+    let folder_id = body["data"]["id"].as_i64().unwrap();
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/batch/archive-compress")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({
+            "file_ids": [],
+            "folder_ids": [folder_id]
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+    let body: Value = test::read_body_json(resp).await;
+    let task_id = body["data"]["id"].as_i64().unwrap();
+
+    let stats = aster_drive::services::task_service::drain(&state)
+        .await
+        .expect("task drain should succeed");
+    assert_eq!(stats.succeeded, 1);
+
+    let req = test::TestRequest::get()
+        .uri(&format!("/api/v1/tasks/{task_id}"))
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(body["data"]["status"], "succeeded");
+
+    let result = read_task_result(&body);
+    assert_eq!(result["target_file_name"], expected_copy_name);
+    assert_eq!(
+        result["target_file_name"].as_str().unwrap().len(),
+        255,
+        "copy archive name should stay within common filesystem component limits"
+    );
+}
+
+#[actix_web::test]
 async fn test_archive_compress_task_rejects_expanded_selection_too_large() {
     let state = common::setup().await;
     let app = create_test_app!(state.clone());
@@ -2330,6 +2398,167 @@ async fn test_archive_extract_empty_directories_publish_non_quota_storage_change
 }
 
 #[actix_web::test]
+async fn test_archive_extract_task_keeps_long_conflict_folder_copy_name_within_limit() {
+    let state = common::setup().await;
+    let app = create_test_app!(state.clone());
+    let (token, _) = register_and_login!(app);
+
+    let long_folder_name = "a".repeat(255);
+    let expected_copy_name = format!("{} (1)", "a".repeat(251));
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/folders")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({ "name": long_folder_name, "parent_id": null }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 201);
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/files/new")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({ "name": "long-output.zip", "folder_id": null }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 201);
+    let body: Value = test::read_body_json(resp).await;
+    let archive_file_id = body["data"]["id"].as_i64().unwrap();
+
+    let archive_bytes = create_zip_bytes(&[("payload.txt", Some(b"payload".as_slice()))]);
+    let req = test::TestRequest::put()
+        .uri(&format!("/api/v1/files/{archive_file_id}/content"))
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .insert_header(("Content-Type", "application/octet-stream"))
+        .set_payload(archive_bytes)
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+
+    let req = test::TestRequest::post()
+        .uri(&format!("/api/v1/files/{archive_file_id}/extract"))
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({
+            "target_folder_id": null,
+            "output_folder_name": long_folder_name
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+    let body: Value = test::read_body_json(resp).await;
+    let task_id = body["data"]["id"].as_i64().unwrap();
+
+    let stats = aster_drive::services::task_service::drain(&state)
+        .await
+        .expect("task drain should succeed");
+    assert_eq!(stats.succeeded, 1);
+
+    let req = test::TestRequest::get()
+        .uri(&format!("/api/v1/tasks/{task_id}"))
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(body["data"]["status"], "succeeded");
+
+    let result = read_task_result(&body);
+    assert_eq!(result["target_folder_name"], expected_copy_name);
+    assert_eq!(
+        result["target_folder_name"].as_str().unwrap().len(),
+        255,
+        "copy folder name should stay within common filesystem component limits"
+    );
+}
+
+#[actix_web::test]
+async fn test_archive_extract_concurrent_root_name_conflicts_allocate_copy_names() {
+    let state = common::setup().await;
+    state.runtime_config.apply(common::system_config_model(
+        BACKGROUND_TASK_ARCHIVE_MAX_CONCURRENCY_KEY,
+        "2",
+    ));
+    let app = create_test_app!(state.clone());
+    let (token, _) = register_and_login!(app);
+
+    let mut task_ids = Vec::new();
+    for index in 0..2 {
+        let req = test::TestRequest::post()
+            .uri("/api/v1/files/new")
+            .insert_header(("Cookie", common::access_cookie_header(&token)))
+            .insert_header(common::csrf_header_for(&token))
+            .set_json(serde_json::json!({
+                "name": format!("concurrent-extract-{index}.zip"),
+                "folder_id": null,
+            }))
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(resp.status(), 201);
+        let body: Value = test::read_body_json(resp).await;
+        let archive_file_id = body["data"]["id"].as_i64().unwrap();
+
+        let payload = format!("payload {index}");
+        let archive_bytes = create_zip_bytes(&[("payload.txt", Some(payload.as_bytes()))]);
+        let req = test::TestRequest::put()
+            .uri(&format!("/api/v1/files/{archive_file_id}/content"))
+            .insert_header(("Cookie", common::access_cookie_header(&token)))
+            .insert_header(common::csrf_header_for(&token))
+            .insert_header(("Content-Type", "application/octet-stream"))
+            .set_payload(archive_bytes)
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(resp.status(), 200);
+
+        let req = test::TestRequest::post()
+            .uri(&format!("/api/v1/files/{archive_file_id}/extract"))
+            .insert_header(("Cookie", common::access_cookie_header(&token)))
+            .insert_header(common::csrf_header_for(&token))
+            .set_json(serde_json::json!({
+                "target_folder_id": null,
+                "output_folder_name": "concurrent-root",
+            }))
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(resp.status(), 200);
+        let body: Value = test::read_body_json(resp).await;
+        task_ids.push(body["data"]["id"].as_i64().unwrap());
+    }
+
+    let stats = aster_drive::services::task_service::drain(&state)
+        .await
+        .expect("task drain should succeed");
+    assert_eq!(stats.succeeded, 2);
+    assert_eq!(stats.failed, 0);
+
+    let mut target_names = Vec::new();
+    for task_id in task_ids {
+        let req = test::TestRequest::get()
+            .uri(&format!("/api/v1/tasks/{task_id}"))
+            .insert_header(("Cookie", common::access_cookie_header(&token)))
+            .insert_header(common::csrf_header_for(&token))
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(resp.status(), 200);
+        let body: Value = test::read_body_json(resp).await;
+        assert_eq!(body["data"]["status"], "succeeded");
+        let result = read_task_result(&body);
+        target_names.push(
+            result["target_folder_name"]
+                .as_str()
+                .expect("extract task result should include target folder name")
+                .to_string(),
+        );
+    }
+
+    target_names.sort();
+    assert_eq!(target_names, vec!["concurrent-root", "concurrent-root (1)"]);
+}
+
+#[actix_web::test]
 async fn test_archive_extract_task_fails_before_staging_when_quota_is_insufficient() {
     let state = common::setup().await;
     let app = create_test_app!(state.clone());
@@ -2690,6 +2919,23 @@ async fn test_archive_extract_task_rejects_duplicate_paths() {
             .expect("failed task should record last error")
             .contains("duplicate entry path"),
         "duplicate path error should be surfaced"
+    );
+}
+
+#[actix_web::test]
+async fn test_archive_extract_task_rejects_unicode_normalized_duplicate_paths() {
+    let archive_bytes = create_stored_zip_bytes(&[
+        ("caf\u{00e9}.txt", Some(b"nfc".as_slice())),
+        ("cafe\u{0301}.txt", Some(b"nfd".as_slice())),
+    ]);
+    let body = run_failing_personal_archive_extract(archive_bytes, Vec::new()).await;
+
+    assert!(
+        body["data"]["last_error"]
+            .as_str()
+            .expect("failed task should record last error")
+            .contains("duplicate entry path"),
+        "unicode-normalized duplicate path error should be surfaced"
     );
 }
 

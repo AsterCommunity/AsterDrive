@@ -19,6 +19,8 @@ use crate::storage::{DriverRegistry, PolicySnapshot};
 
 use super::selection::ArchiveBuildLimits;
 
+const MAX_AUTO_FOLDER_NAME_RETRIES: usize = 32;
+
 #[derive(Debug, Clone)]
 pub(super) struct ArchiveFileEntry {
     pub(super) blob_id: i64,
@@ -91,9 +93,32 @@ pub(super) async fn create_unique_folder_in_scope(
     parent_id: Option<i64>,
     base_name: &str,
 ) -> Result<folder::Model> {
-    let final_name =
-        resolve_unique_folder_name_in_scope(state, scope, parent_id, base_name).await?;
-    create_folder_exact_in_scope(state, scope, parent_id, &final_name).await
+    let normalized_base_name = crate::utils::normalize_validate_name(base_name)?;
+    let mut final_name =
+        resolve_unique_folder_name_in_scope(state, scope, parent_id, &normalized_base_name).await?;
+
+    // `resolve_unique_*` 基于当前快照，只能降低冲突概率。真正创建时仍要用
+    // 数据库唯一约束兜底，并在并发冲突时推进到下一个副本名。
+    for attempt in 0..MAX_AUTO_FOLDER_NAME_RETRIES {
+        match create_folder_exact_in_scope(state, scope, parent_id, &final_name).await {
+            Ok(folder) => return Ok(folder),
+            Err(err) if folder_repo::is_duplicate_name_error(&err, &final_name) => {
+                if attempt + 1 == MAX_AUTO_FOLDER_NAME_RETRIES {
+                    return Err(AsterError::validation_error(format!(
+                        "failed to allocate a unique folder name for '{}'",
+                        normalized_base_name
+                    )));
+                }
+                final_name = crate::utils::next_copy_name(&final_name);
+            }
+            Err(err) => return Err(err),
+        }
+    }
+
+    Err(AsterError::validation_error(format!(
+        "failed to allocate a unique folder name for '{}'",
+        normalized_base_name
+    )))
 }
 
 pub(super) async fn create_folder_exact_in_scope(

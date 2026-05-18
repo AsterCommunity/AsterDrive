@@ -139,6 +139,9 @@ where
         | operations::ARCHIVE_EXTRACT_MAX_DURATION_SECS_KEY => {
             operations::normalize_interval_config_value(key, value)
         }
+        operations::SHARE_STREAM_SESSION_TTL_SECS_KEY => {
+            operations::normalize_share_stream_session_ttl_config_value(key, value)
+        }
         operations::BACKGROUND_TASK_MAX_CONCURRENCY_KEY
         | operations::BACKGROUND_TASK_ARCHIVE_MAX_CONCURRENCY_KEY
         | operations::BACKGROUND_TASK_THUMBNAIL_MAX_CONCURRENCY_KEY => {
@@ -232,6 +235,10 @@ pub fn apply_definition(mut config: system_config::Model) -> system_config::Mode
 #[cfg(test)]
 mod tests {
     use super::{apply_definition, normalize_system_value, validate_value_type};
+    use crate::config::operations::{
+        MAX_SHARE_STREAM_SESSION_TTL_SECS, MIN_SHARE_STREAM_SESSION_TTL_SECS,
+        SHARE_STREAM_SESSION_TTL_SECS_KEY,
+    };
     use crate::entities::system_config;
     use crate::types::{SystemConfigSource, SystemConfigValueType};
     use chrono::Utc;
@@ -270,6 +277,46 @@ mod tests {
         assert!(
             err.message()
                 .contains("cors_allow_credentials cannot be true when cors_allowed_origins is '*'")
+        );
+    }
+
+    #[test]
+    fn normalize_system_value_enforces_share_stream_session_ttl_bounds() {
+        let lookup = HashMap::new();
+
+        assert_eq!(
+            normalize_system_value(
+                &lookup,
+                SHARE_STREAM_SESSION_TTL_SECS_KEY,
+                &MIN_SHARE_STREAM_SESSION_TTL_SECS.to_string(),
+            )
+            .unwrap(),
+            MIN_SHARE_STREAM_SESSION_TTL_SECS.to_string()
+        );
+        assert_eq!(
+            normalize_system_value(
+                &lookup,
+                SHARE_STREAM_SESSION_TTL_SECS_KEY,
+                &MAX_SHARE_STREAM_SESSION_TTL_SECS.to_string(),
+            )
+            .unwrap(),
+            MAX_SHARE_STREAM_SESSION_TTL_SECS.to_string()
+        );
+        assert!(
+            normalize_system_value(
+                &lookup,
+                SHARE_STREAM_SESSION_TTL_SECS_KEY,
+                &(MIN_SHARE_STREAM_SESSION_TTL_SECS - 1).to_string(),
+            )
+            .is_err()
+        );
+        assert!(
+            normalize_system_value(
+                &lookup,
+                SHARE_STREAM_SESSION_TTL_SECS_KEY,
+                &(MAX_SHARE_STREAM_SESSION_TTL_SECS + 1).to_string(),
+            )
+            .is_err()
         );
     }
 

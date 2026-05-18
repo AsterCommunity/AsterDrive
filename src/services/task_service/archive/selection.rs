@@ -479,13 +479,26 @@ fn resolve_archive_name(
         Some(name) if !name.is_empty() => name.to_string(),
         _ => default_archive_name(selection),
     };
-    let final_name = if ends_with_ignore_ascii_case(&base, ".zip") {
-        base
-    } else {
-        format!("{base}.zip")
-    };
+    let final_name = normalize_archive_zip_name(&base)?;
     crate::utils::validate_name(&final_name)?;
     Ok(final_name)
+}
+
+fn normalize_archive_zip_name(base: &str) -> Result<String> {
+    if ends_with_ignore_ascii_case(base, ".zip") {
+        return crate::utils::normalize_validate_name(base);
+    }
+
+    let max_stem_len = crate::utils::MAX_FILENAME_LEN
+        .checked_sub(".zip".len())
+        .ok_or_else(|| AsterError::internal_error("archive name length limit is too small"))?;
+    let stem = crate::utils::normalize_name(base);
+    let stem = crate::utils::truncate_utf8_to_max_bytes(&stem, max_stem_len);
+    let stem = stem.trim_end_matches([' ', '.']);
+    if stem.is_empty() {
+        return Err(AsterError::validation_error("name cannot be empty"));
+    }
+    Ok(format!("{stem}.zip"))
 }
 
 fn default_archive_name(selection: &batch_service::NormalizedSelection) -> String {
@@ -508,7 +521,7 @@ fn default_archive_name(selection: &batch_service::NormalizedSelection) -> Strin
 
 #[cfg(test)]
 mod tests {
-    use super::{archive_directory_entry_path, archive_relative_dir};
+    use super::{archive_directory_entry_path, archive_relative_dir, normalize_archive_zip_name};
 
     #[test]
     fn archive_relative_dir_returns_empty_for_root_path() {
@@ -557,5 +570,14 @@ mod tests {
                 .to_string()
                 .contains("folder path '/other/place' is outside root '/root'")
         );
+    }
+
+    #[test]
+    fn normalize_archive_zip_name_truncates_stem_before_suffix() {
+        let name = normalize_archive_zip_name(&"a".repeat(crate::utils::MAX_FILENAME_LEN)).unwrap();
+
+        assert!(name.ends_with(".zip"));
+        assert_eq!(name.len(), crate::utils::MAX_FILENAME_LEN);
+        crate::utils::validate_name(&name).unwrap();
     }
 }

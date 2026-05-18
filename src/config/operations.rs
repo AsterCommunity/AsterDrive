@@ -23,8 +23,8 @@ pub use crate::config::definitions::{
     BACKGROUND_TASK_MAX_CONCURRENCY_KEY, BACKGROUND_TASK_THUMBNAIL_MAX_CONCURRENCY_KEY,
     BLOB_RECONCILE_INTERVAL_SECS_KEY, MAIL_OUTBOX_DISPATCH_INTERVAL_SECS_KEY,
     MAINTENANCE_CLEANUP_INTERVAL_SECS_KEY, REMOTE_NODE_HEALTH_TEST_INTERVAL_SECS_KEY,
-    SHARE_DOWNLOAD_ROLLBACK_QUEUE_CAPACITY_KEY, TASK_LIST_MAX_LIMIT_KEY,
-    TEAM_MEMBER_LIST_MAX_LIMIT_KEY, THUMBNAIL_MAX_SOURCE_BYTES_KEY,
+    SHARE_DOWNLOAD_ROLLBACK_QUEUE_CAPACITY_KEY, SHARE_STREAM_SESSION_TTL_SECS_KEY,
+    TASK_LIST_MAX_LIMIT_KEY, TEAM_MEMBER_LIST_MAX_LIMIT_KEY, THUMBNAIL_MAX_SOURCE_BYTES_KEY,
 };
 
 pub const DEFAULT_MAIL_OUTBOX_DISPATCH_INTERVAL_SECS: u64 = 5;
@@ -35,6 +35,9 @@ pub const DEFAULT_BACKGROUND_TASK_ARCHIVE_MAX_CONCURRENCY: usize = 2;
 pub const DEFAULT_BACKGROUND_TASK_THUMBNAIL_MAX_CONCURRENCY: usize = 1;
 pub const DEFAULT_BACKGROUND_TASK_MAX_ATTEMPTS: i32 = 3;
 pub const DEFAULT_SHARE_DOWNLOAD_ROLLBACK_QUEUE_CAPACITY: usize = 1024;
+pub const DEFAULT_SHARE_STREAM_SESSION_TTL_SECS: u64 = 3 * 60 * 60;
+pub const MIN_SHARE_STREAM_SESSION_TTL_SECS: u64 = 5 * 60;
+pub const MAX_SHARE_STREAM_SESSION_TTL_SECS: u64 = 24 * 60 * 60;
 pub const DEFAULT_MAINTENANCE_CLEANUP_INTERVAL_SECS: u64 = 3600;
 pub const DEFAULT_BLOB_RECONCILE_INTERVAL_SECS: u64 = 6 * 3600;
 pub const DEFAULT_REMOTE_NODE_HEALTH_TEST_INTERVAL_SECS: u64 = 300;
@@ -100,6 +103,20 @@ pub fn normalize_list_max_limit_config_value(key: &str, value: &str) -> Result<S
     if parsed > MAX_LIST_PAGE_LIMIT {
         return Err(AsterError::validation_error(format!(
             "{key} must be at most {MAX_LIST_PAGE_LIMIT}",
+        )));
+    }
+    Ok(parsed.to_string())
+}
+
+pub fn normalize_share_stream_session_ttl_config_value(key: &str, value: &str) -> Result<String> {
+    let parsed = parse_positive_u64(value).ok_or_else(|| {
+        AsterError::validation_error(format!(
+            "{key} must be a positive integer between {MIN_SHARE_STREAM_SESSION_TTL_SECS} and {MAX_SHARE_STREAM_SESSION_TTL_SECS}"
+        ))
+    })?;
+    if !(MIN_SHARE_STREAM_SESSION_TTL_SECS..=MAX_SHARE_STREAM_SESSION_TTL_SECS).contains(&parsed) {
+        return Err(AsterError::validation_error(format!(
+            "{key} must be between {MIN_SHARE_STREAM_SESSION_TTL_SECS} and {MAX_SHARE_STREAM_SESSION_TTL_SECS}"
         )));
     }
     Ok(parsed.to_string())
@@ -179,6 +196,16 @@ pub fn share_download_rollback_queue_capacity(runtime_config: &RuntimeConfig) ->
         );
         DEFAULT_SHARE_DOWNLOAD_ROLLBACK_QUEUE_CAPACITY
     })
+}
+
+pub fn share_stream_session_ttl_secs(runtime_config: &RuntimeConfig) -> u64 {
+    read_bounded_u64(
+        runtime_config,
+        SHARE_STREAM_SESSION_TTL_SECS_KEY,
+        DEFAULT_SHARE_STREAM_SESSION_TTL_SECS,
+        MIN_SHARE_STREAM_SESSION_TTL_SECS,
+        MAX_SHARE_STREAM_SESSION_TTL_SECS,
+    )
 }
 
 pub fn maintenance_cleanup_interval_secs(runtime_config: &RuntimeConfig) -> u64 {
@@ -562,18 +589,20 @@ mod tests {
         DEFAULT_BACKGROUND_TASK_MAX_ATTEMPTS, DEFAULT_BACKGROUND_TASK_MAX_CONCURRENCY,
         DEFAULT_BACKGROUND_TASK_THUMBNAIL_MAX_CONCURRENCY, DEFAULT_BLOB_RECONCILE_INTERVAL_SECS,
         DEFAULT_REMOTE_NODE_HEALTH_TEST_INTERVAL_SECS,
-        DEFAULT_SHARE_DOWNLOAD_ROLLBACK_QUEUE_CAPACITY, DEFAULT_TASK_LIST_MAX_LIMIT,
-        DEFAULT_TEAM_MEMBER_LIST_MAX_LIMIT, REMOTE_NODE_HEALTH_TEST_INTERVAL_SECS_KEY,
-        SHARE_DOWNLOAD_ROLLBACK_QUEUE_CAPACITY_KEY, TASK_LIST_MAX_LIMIT_KEY,
-        TEAM_MEMBER_LIST_MAX_LIMIT_KEY, archive_extract_max_staging_bytes,
-        avatar_max_upload_size_bytes, background_task_archive_max_concurrency,
-        background_task_dispatch_idle_max_interval_secs, background_task_max_attempts,
-        background_task_max_concurrency, background_task_thumbnail_max_concurrency,
-        blob_reconcile_interval_secs, normalize_attempts_config_value,
-        normalize_bytes_config_value, normalize_concurrency_config_value,
-        normalize_interval_config_value, normalize_list_max_limit_config_value,
+        DEFAULT_SHARE_DOWNLOAD_ROLLBACK_QUEUE_CAPACITY, DEFAULT_SHARE_STREAM_SESSION_TTL_SECS,
+        DEFAULT_TASK_LIST_MAX_LIMIT, DEFAULT_TEAM_MEMBER_LIST_MAX_LIMIT,
+        MAX_SHARE_STREAM_SESSION_TTL_SECS, MIN_SHARE_STREAM_SESSION_TTL_SECS,
+        REMOTE_NODE_HEALTH_TEST_INTERVAL_SECS_KEY, SHARE_DOWNLOAD_ROLLBACK_QUEUE_CAPACITY_KEY,
+        SHARE_STREAM_SESSION_TTL_SECS_KEY, TASK_LIST_MAX_LIMIT_KEY, TEAM_MEMBER_LIST_MAX_LIMIT_KEY,
+        archive_extract_max_staging_bytes, avatar_max_upload_size_bytes,
+        background_task_archive_max_concurrency, background_task_dispatch_idle_max_interval_secs,
+        background_task_max_attempts, background_task_max_concurrency,
+        background_task_thumbnail_max_concurrency, blob_reconcile_interval_secs,
+        normalize_attempts_config_value, normalize_bytes_config_value,
+        normalize_concurrency_config_value, normalize_interval_config_value,
+        normalize_list_max_limit_config_value, normalize_share_stream_session_ttl_config_value,
         remote_node_health_test_interval_secs, share_download_rollback_queue_capacity,
-        task_list_max_limit, team_member_list_max_limit,
+        share_stream_session_ttl_secs, task_list_max_limit, team_member_list_max_limit,
     };
     use crate::config::RuntimeConfig;
     use crate::entities::system_config;
@@ -798,6 +827,51 @@ mod tests {
     }
 
     #[test]
+    fn share_stream_session_ttl_reader_uses_bounded_runtime_value_and_default() {
+        let runtime_config = RuntimeConfig::new();
+        assert_eq!(
+            share_stream_session_ttl_secs(&runtime_config),
+            DEFAULT_SHARE_STREAM_SESSION_TTL_SECS
+        );
+
+        runtime_config.apply(config_model(
+            SHARE_STREAM_SESSION_TTL_SECS_KEY,
+            &MIN_SHARE_STREAM_SESSION_TTL_SECS.to_string(),
+        ));
+        assert_eq!(
+            share_stream_session_ttl_secs(&runtime_config),
+            MIN_SHARE_STREAM_SESSION_TTL_SECS
+        );
+
+        runtime_config.apply(config_model(
+            SHARE_STREAM_SESSION_TTL_SECS_KEY,
+            &MAX_SHARE_STREAM_SESSION_TTL_SECS.to_string(),
+        ));
+        assert_eq!(
+            share_stream_session_ttl_secs(&runtime_config),
+            MAX_SHARE_STREAM_SESSION_TTL_SECS
+        );
+
+        runtime_config.apply(config_model(SHARE_STREAM_SESSION_TTL_SECS_KEY, "299"));
+        assert_eq!(
+            share_stream_session_ttl_secs(&runtime_config),
+            DEFAULT_SHARE_STREAM_SESSION_TTL_SECS
+        );
+
+        runtime_config.apply(config_model(SHARE_STREAM_SESSION_TTL_SECS_KEY, "86401"));
+        assert_eq!(
+            share_stream_session_ttl_secs(&runtime_config),
+            DEFAULT_SHARE_STREAM_SESSION_TTL_SECS
+        );
+
+        runtime_config.apply(config_model(SHARE_STREAM_SESSION_TTL_SECS_KEY, "invalid"));
+        assert_eq!(
+            share_stream_session_ttl_secs(&runtime_config),
+            DEFAULT_SHARE_STREAM_SESSION_TTL_SECS
+        );
+    }
+
+    #[test]
     fn avatar_upload_reader_uses_runtime_value() {
         let runtime_config = RuntimeConfig::new();
         runtime_config.apply(config_model(AVATAR_MAX_UPLOAD_SIZE_BYTES_KEY, "4096"));
@@ -848,11 +922,45 @@ mod tests {
             normalize_list_max_limit_config_value("test_limit", "1000").unwrap(),
             "1000"
         );
+        assert_eq!(
+            normalize_share_stream_session_ttl_config_value(
+                SHARE_STREAM_SESSION_TTL_SECS_KEY,
+                &MIN_SHARE_STREAM_SESSION_TTL_SECS.to_string(),
+            )
+            .unwrap(),
+            MIN_SHARE_STREAM_SESSION_TTL_SECS.to_string()
+        );
+        assert_eq!(
+            normalize_share_stream_session_ttl_config_value(
+                SHARE_STREAM_SESSION_TTL_SECS_KEY,
+                &MAX_SHARE_STREAM_SESSION_TTL_SECS.to_string(),
+            )
+            .unwrap(),
+            MAX_SHARE_STREAM_SESSION_TTL_SECS.to_string()
+        );
         assert!(normalize_interval_config_value("test_interval", "0").is_err());
         assert!(normalize_concurrency_config_value("test_concurrency", "0").is_err());
         assert!(normalize_attempts_config_value("test_attempts", "0").is_err());
         assert!(normalize_bytes_config_value("test_bytes", "-1").is_err());
         assert!(normalize_list_max_limit_config_value("test_limit", "1001").is_err());
+        assert!(
+            normalize_share_stream_session_ttl_config_value(SHARE_STREAM_SESSION_TTL_SECS_KEY, "0")
+                .is_err()
+        );
+        assert!(
+            normalize_share_stream_session_ttl_config_value(
+                SHARE_STREAM_SESSION_TTL_SECS_KEY,
+                &(MIN_SHARE_STREAM_SESSION_TTL_SECS - 1).to_string(),
+            )
+            .is_err()
+        );
+        assert!(
+            normalize_share_stream_session_ttl_config_value(
+                SHARE_STREAM_SESSION_TTL_SECS_KEY,
+                &(MAX_SHARE_STREAM_SESSION_TTL_SECS + 1).to_string(),
+            )
+            .is_err()
+        );
     }
 
     #[test]

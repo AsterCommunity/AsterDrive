@@ -410,13 +410,49 @@ describe("FilePreviewDialog", () => {
 		expect(screen.queryByText("files:mode_markdown")).not.toBeInTheDocument();
 	});
 
+	it("opens directly in picker mode when there is only one available app", async () => {
+		mockState.profile = {
+			category: "audio",
+			defaultMode: "builtin.audio",
+			isBlobPreview: true,
+			isEditableText: false,
+			isTextBased: false,
+			options: [
+				{
+					icon: "FileAudio",
+					key: "builtin.audio",
+					labelKey: "open_with_audio",
+					mode: "audio",
+				},
+			],
+		};
+
+		renderDialog({
+			file: {
+				id: 8,
+				mime_type: "audio/mpeg",
+				name: "track.mp3",
+				size: 4096,
+			} as never,
+			openMode: "picker",
+		});
+
+		expect(
+			screen.queryByRole("heading", { name: "files:choose_open_method" }),
+		).not.toBeInTheDocument();
+		expect(await screen.findByText("audio:/files/8/download")).toHaveAttribute(
+			"data-has-media-stream-link-factory",
+			"false",
+		);
+	});
+
 	it("always shows the more-open-methods button while the chooser is visible", () => {
 		renderDialog();
 
 		expect(screen.getByText("files:more_open_methods")).toBeInTheDocument();
 	});
 
-	it("reveals extra open methods after expanding the more button", async () => {
+	it("opens the only visible app directly and still allows manual method switching", async () => {
 		mockState.profile = {
 			category: "markdown",
 			defaultMode: "builtin.code",
@@ -449,6 +485,19 @@ describe("FilePreviewDialog", () => {
 
 		renderDialog();
 
+		expect(
+			screen.queryByRole("heading", { name: "files:choose_open_method" }),
+		).not.toBeInTheDocument();
+		expect(
+			await screen.findByText("code:/files/7/download:true"),
+		).toBeInTheDocument();
+
+		fireEvent.click(
+			screen.getByRole("button", { name: "files:choose_open_method" }),
+		);
+		expect(
+			await screen.findByRole("heading", { name: "files:choose_open_method" }),
+		).toBeInTheDocument();
 		expect(screen.getByText("files:more_open_methods")).toBeInTheDocument();
 		expect(screen.queryByText("files:mode_markdown")).not.toBeInTheDocument();
 
@@ -459,7 +508,6 @@ describe("FilePreviewDialog", () => {
 			screen.queryByText("files:more_open_methods"),
 		).not.toBeInTheDocument();
 		expect(screen.getByText("files:mode_markdown")).toBeInTheDocument();
-
 		await chooseOpenMethod("files:mode_markdown");
 		expect(
 			await screen.findByText("markdown:/files/7/download"),

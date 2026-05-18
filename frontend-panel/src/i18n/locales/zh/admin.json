@@ -273,6 +273,8 @@
 	"settings_item_background_task_max_attempts_desc": "普通工作区后台任务在被判定为最终失败前，最多允许尝试多少次。这个值会写入新建任务，也会在手动重试失败任务时按当前配置重置；系统周期任务事件始终固定为 1。",
 	"settings_item_share_download_rollback_queue_capacity_label": "分享下载回滚队列容量上限",
 	"settings_item_share_download_rollback_queue_capacity_desc": "在切换到溢出聚合前，分享下载回滚任务最多允许在队列中缓冲多少条。",
+	"settings_item_share_stream_session_ttl_secs_label": "分享流播放会话有效期",
+	"settings_item_share_stream_session_ttl_secs_desc": "控制分享页音频和视频使用 Range 播放链接时，单个临时流会话能保持有效多久。调长后更适合后台播放音乐，但泄漏后的可访问窗口也会变长。",
 	"settings_item_maintenance_cleanup_interval_secs_label": "周期性维护扫描间隔",
 	"settings_item_maintenance_cleanup_interval_secs_desc": "系统每隔多久运行一次周期性维护清理，包含上传会话、回收站、锁、团队归档、审计日志和任务产物等过期数据。数值越小，清理会更及时，但后台扫描也会更频繁。",
 	"settings_item_blob_reconcile_interval_secs_label": "底层 Blob 一致性扫描间隔",

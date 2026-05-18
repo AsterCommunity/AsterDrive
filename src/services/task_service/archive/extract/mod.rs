@@ -8,6 +8,7 @@ use std::path::Path;
 use chrono::Utc;
 
 use crate::config::operations;
+use crate::db::repository::background_task_repo;
 use crate::entities::{background_task, file};
 use crate::errors::{AsterError, MapAsterErr, Result};
 use crate::runtime::PrimaryAppState;
@@ -15,7 +16,7 @@ use crate::services::{
     storage_change_service,
     workspace_storage_service::{self, WorkspaceStorageScope},
 };
-use crate::types::BackgroundTaskKind;
+use crate::types::{BackgroundTaskKind, BackgroundTaskStatus};
 
 use super::super::steps::{
     TASK_STEP_DOWNLOAD_SOURCE, TASK_STEP_IMPORT_RESULT, TASK_STEP_WAITING, parse_task_steps_json,
@@ -26,8 +27,8 @@ use super::super::types::{
     parse_task_payload, serialize_task_result,
 };
 use super::super::{
-    TaskLeaseGuard, cleanup_task_temp_dir_for_task, create_task_record, is_task_lease_lost,
-    is_task_lease_renewal_timed_out, mark_task_progress, mark_task_succeeded,
+    TaskLease, TaskLeaseGuard, cleanup_task_temp_dir_for_task, create_task_record,
+    is_task_lease_lost, is_task_lease_renewal_timed_out, mark_task_progress, mark_task_succeeded,
     prepare_task_temp_dir, task_scope,
 };
 use super::common::{
@@ -208,9 +209,14 @@ pub(super) async fn process_archive_extract_task(
         {
             Ok(summary) => summary,
             Err(error) => {
-                if !is_task_lease_lost(&error) && !is_task_lease_renewal_timed_out(&error) {
-                    cleanup_created_extract_root(state, scope, created_root.id).await;
-                }
+                cleanup_created_extract_root_after_import_error(
+                    state,
+                    scope,
+                    created_root.id,
+                    &lease_guard,
+                    &error,
+                )
+                .await;
                 return Err(error);
             }
         };
@@ -270,6 +276,54 @@ pub(super) async fn process_archive_extract_task(
             Err(error)
         }
     }
+}
+
+async fn cleanup_created_extract_root_after_import_error(
+    state: &PrimaryAppState,
+    scope: WorkspaceStorageScope,
+    root_folder_id: i64,
+    lease_guard: &TaskLeaseGuard,
+    error: &AsterError,
+) {
+    if !is_task_lease_lost(error) && !is_task_lease_renewal_timed_out(error) {
+        cleanup_created_extract_root(state, scope, root_folder_id).await;
+        return;
+    }
+
+    let lease = lease_guard.lease();
+    match background_task_repo::find_by_id(&state.db, lease.task_id).await {
+        Ok(current_task)
+            if should_cleanup_created_extract_root_for_lease_error(&current_task, lease) =>
+        {
+            cleanup_created_extract_root(state, scope, root_folder_id).await;
+        }
+        Ok(current_task) => {
+            tracing::info!(
+                task_id = lease.task_id,
+                processing_token = lease.processing_token,
+                current_processing_token = current_task.processing_token,
+                current_status = ?current_task.status,
+                root_folder_id,
+                "skipping archive extract root cleanup because the task lease moved"
+            );
+        }
+        Err(query_error) => {
+            tracing::warn!(
+                task_id = lease.task_id,
+                processing_token = lease.processing_token,
+                root_folder_id,
+                "failed to check archive extract task lease before cleanup: {query_error}"
+            );
+        }
+    }
+}
+
+fn should_cleanup_created_extract_root_for_lease_error(
+    current_task: &background_task::Model,
+    lease: TaskLease,
+) -> bool {
+    current_task.status == BackgroundTaskStatus::Processing
+        && current_task.processing_token == lease.processing_token
 }
 
 async fn cleanup_created_extract_root(
@@ -413,5 +467,66 @@ async fn resolve_archive_extract_policy_resolver(
             .await?;
             Ok(ArchiveExtractPolicyResolver::Team { policy_group_id })
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use chrono::Utc;
+
+    use super::should_cleanup_created_extract_root_for_lease_error;
+    use crate::entities::background_task;
+    use crate::services::task_service::TaskLease;
+    use crate::types::{BackgroundTaskKind, BackgroundTaskStatus, StoredTaskPayload};
+
+    fn task_model(status: BackgroundTaskStatus, processing_token: i64) -> background_task::Model {
+        let now = Utc::now();
+        background_task::Model {
+            id: 42,
+            kind: BackgroundTaskKind::ArchiveExtract,
+            status,
+            creator_user_id: Some(7),
+            team_id: None,
+            share_id: None,
+            display_name: "Extract archive.zip".to_string(),
+            payload_json: StoredTaskPayload("{}".to_string()),
+            result_json: None,
+            steps_json: None,
+            progress_current: 0,
+            progress_total: 0,
+            status_text: None,
+            attempt_count: 0,
+            max_attempts: 1,
+            next_run_at: now,
+            processing_token,
+            processing_started_at: Some(now),
+            last_heartbeat_at: Some(now),
+            lease_expires_at: Some(now),
+            started_at: Some(now),
+            finished_at: None,
+            last_error: None,
+            failure_can_retry: None,
+            expires_at: now,
+            created_at: now,
+            updated_at: now,
+        }
+    }
+
+    #[test]
+    fn lease_error_cleanup_only_when_task_still_matches_current_token() {
+        let lease = TaskLease::new(42, 3);
+
+        assert!(should_cleanup_created_extract_root_for_lease_error(
+            &task_model(BackgroundTaskStatus::Processing, 3),
+            lease,
+        ));
+        assert!(!should_cleanup_created_extract_root_for_lease_error(
+            &task_model(BackgroundTaskStatus::Processing, 4),
+            lease,
+        ));
+        assert!(!should_cleanup_created_extract_root_for_lease_error(
+            &task_model(BackgroundTaskStatus::Succeeded, 3),
+            lease,
+        ));
     }
 }

@@ -230,17 +230,18 @@ export function FilePreviewDialog({
 		open && activeOption?.mode === "archive" && archivePreviewFactory
 			? stableArchivePreviewFactory
 			: undefined;
+	const hasMultipleVisibleOpenMethods = visibleOptions.length > 1;
 	const showOpenMethodChooser =
 		previewAppsLoaded &&
 		(forceOpenMethodChooser
-			? allOptions.length > 0
+			? allOptions.length > 1
 			: openMode === "picker"
-				? allOptions.length > 0
+				? allOptions.length > 1
 				: openMode === "direct"
 					? false
 					: shouldAutoOpenPreferredMode
 						? false
-						: allOptions.length > 1) &&
+						: hasMultipleVisibleOpenMethods) &&
 		!hasConfirmedInitialMode;
 
 	const usesInnerScroll =

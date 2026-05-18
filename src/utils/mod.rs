@@ -72,8 +72,12 @@ pub async fn cleanup_runtime_temp_root(temp_root: &str) {
     cleanup_temp_dir(&paths::runtime_temp_dir(temp_root)).await;
 }
 
-/// 文件名最大长度
-const MAX_FILENAME_LEN: usize = 255;
+/// 文件名最大长度。
+///
+/// 这里按 UTF-8 字节数限制，而不是 Unicode 标量数量。这样会比 NTFS/APFS 的
+/// “255 个字符”更保守，也能兼容 ext4 常见的 255-byte component 限制。
+pub(crate) const MAX_FILENAME_LEN: usize = 255;
+const COPY_FALLBACK_STEM: &str = "copy";
 
 /// 文件/文件夹名禁止字符
 const FORBIDDEN_CHARS: &[char] = &['/', '\\', '\0', ':', '*', '?', '"', '<', '>', '|'];
@@ -106,7 +110,7 @@ fn validate_normalized_name(name: &str) -> Result<()> {
     }
     if name.len() > MAX_FILENAME_LEN {
         return Err(AsterError::validation_error(format!(
-            "name too long (max {MAX_FILENAME_LEN} chars)"
+            "name too long (max {MAX_FILENAME_LEN} bytes)"
         )));
     }
     if name == "." || name == ".." {
@@ -190,9 +194,58 @@ pub(crate) fn copy_name_template(name: &str) -> CopyNameTemplate {
 }
 
 pub(crate) fn format_copy_name(template: &CopyNameTemplate, copy_number: u32) -> String {
-    match template.ext.as_deref() {
-        Some(ext) => format!("{} ({copy_number}){ext}", template.base_name),
-        None => format!("{} ({copy_number})", template.base_name),
+    format_copy_name_with_limit(template, copy_number, MAX_FILENAME_LEN)
+}
+
+pub(crate) fn format_copy_name_with_limit(
+    template: &CopyNameTemplate,
+    copy_number: u32,
+    max_len: usize,
+) -> String {
+    let suffix = format!(" ({copy_number})");
+    let ext = template.ext.as_deref().unwrap_or("");
+    let ext = bounded_copy_extension(ext, suffix.len(), max_len);
+    let max_base_len = max_len.saturating_sub(suffix.len() + ext.len());
+    let mut base = truncate_utf8_to_max_bytes(&template.base_name, max_base_len);
+    if base.is_empty() {
+        base = truncate_utf8_to_max_bytes(COPY_FALLBACK_STEM, max_base_len);
+    }
+
+    format!("{base}{suffix}{ext}")
+}
+
+pub(crate) fn truncate_utf8_to_max_bytes(value: &str, max_len: usize) -> String {
+    if value.len() <= max_len {
+        return value.to_string();
+    }
+
+    let mut end = max_len;
+    while end > 0 && !value.is_char_boundary(end) {
+        end -= 1;
+    }
+    value[..end].to_string()
+}
+
+fn bounded_copy_extension(ext: &str, suffix_len: usize, max_len: usize) -> String {
+    if ext.is_empty() {
+        return String::new();
+    }
+
+    let max_ext_len = max_len
+        .saturating_sub(COPY_FALLBACK_STEM.len())
+        .saturating_sub(suffix_len);
+    if max_ext_len < 2 {
+        return String::new();
+    }
+
+    let mut candidate = truncate_utf8_to_max_bytes(ext, max_ext_len);
+    while candidate.ends_with('.') || candidate.ends_with(' ') {
+        candidate.pop();
+    }
+    if candidate.len() < 2 || !candidate.starts_with('.') {
+        String::new()
+    } else {
+        candidate
     }
 }
 
@@ -277,6 +330,28 @@ mod tests {
         assert_eq!(next_copy_name("my.file.tar.gz"), "my.file.tar (1).gz");
         assert_eq!(next_copy_name("photo (1).jpg"), "photo (2).jpg");
         assert_eq!(next_copy_name(".hidden"), ".hidden (1)");
+    }
+
+    #[test]
+    fn test_next_copy_name_keeps_result_within_filename_limit() {
+        let candidate = next_copy_name(&"a".repeat(MAX_FILENAME_LEN));
+        assert!(candidate.ends_with(" (1)"));
+        assert!(candidate.len() <= MAX_FILENAME_LEN);
+        assert!(validate_name(&candidate).is_ok());
+
+        let candidate = next_copy_name(&format!("{}.txt", "a".repeat(MAX_FILENAME_LEN - 4)));
+        assert!(candidate.ends_with(" (1).txt"));
+        assert!(candidate.len() <= MAX_FILENAME_LEN);
+        assert!(validate_name(&candidate).is_ok());
+    }
+
+    #[test]
+    fn test_next_copy_name_truncates_on_utf8_boundary() {
+        let candidate = next_copy_name(&format!("{}.txt", "猫".repeat(90)));
+        assert!(candidate.ends_with(" (1).txt"));
+        assert!(candidate.len() <= MAX_FILENAME_LEN);
+        assert!(candidate.is_char_boundary(candidate.len()));
+        assert!(validate_name(&candidate).is_ok());
     }
 
     #[test]

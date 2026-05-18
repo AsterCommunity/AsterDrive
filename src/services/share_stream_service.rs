@@ -10,7 +10,7 @@ use std::time::Duration as StdDuration;
 use utoipa::ToSchema;
 
 use crate::cache::CacheExt;
-use crate::config::site_url;
+use crate::config::{operations, site_url};
 use crate::db::repository::{file_repo, share_repo};
 use crate::entities::{file, share};
 use crate::errors::{AsterError, MapAsterErr, Result};
@@ -18,14 +18,14 @@ use crate::runtime::PrimaryAppState;
 use crate::services::{
     direct_link_service, file_service, file_service::ResolvedDownloadRange, share_service,
 };
+use crate::utils::numbers::u64_to_i64;
 
-const SHARE_STREAM_SESSION_TTL_SECS: i64 = 30 * 60;
 const SHARE_STREAM_COUNTED_CACHE_PREFIX: &str = "share_stream_session_counted:";
 static FALLBACK_COUNTED_SESSIONS: LazyLock<Cache<String, CountMarkerState>> = LazyLock::new(|| {
     Cache::builder()
         .max_capacity(10_000)
         .time_to_live(StdDuration::from_secs(
-            u64::try_from(SHARE_STREAM_SESSION_TTL_SECS).unwrap_or(1800),
+            operations::MAX_SHARE_STREAM_SESSION_TTL_SECS,
         ))
         .build()
 });
@@ -81,9 +81,12 @@ pub(crate) async fn create_session_for_shared_file_for_origin(
     request_origin: crate::services::preview_link_service::RequestOrigin<'_>,
 ) -> Result<ShareStreamSessionInfo> {
     let (share, file) = share_service::load_preview_shared_file(state, share_token).await?;
-    let payload = build_payload(ShareStreamSubject::ShareFile {
-        share_token: share.token.clone(),
-    });
+    let payload = build_payload(
+        ShareStreamSubject::ShareFile {
+            share_token: share.token.clone(),
+        },
+        share_stream_session_ttl_secs_i64(state)?,
+    );
     build_session_for_shared_file(state, &share, &file, &payload, Some(request_origin))
 }
 
@@ -95,10 +98,13 @@ pub(crate) async fn create_session_for_shared_folder_file_for_origin(
 ) -> Result<ShareStreamSessionInfo> {
     let (share, file) =
         share_service::load_preview_shared_folder_file(state, share_token, file_id).await?;
-    let payload = build_payload(ShareStreamSubject::ShareFolderFile {
-        share_token: share.token.clone(),
-        file_id: file.id,
-    });
+    let payload = build_payload(
+        ShareStreamSubject::ShareFolderFile {
+            share_token: share.token.clone(),
+            file_id: file.id,
+        },
+        share_stream_session_ttl_secs_i64(state)?,
+    );
     build_session_for_shared_file(state, &share, &file, &payload, Some(request_origin))
 }
 
@@ -184,10 +190,17 @@ pub(crate) async fn stream_file(
     }
 }
 
-fn build_payload(subject: ShareStreamSubject) -> ShareStreamSessionPayload {
+fn share_stream_session_ttl_secs_i64(state: &PrimaryAppState) -> Result<i64> {
+    u64_to_i64(
+        operations::share_stream_session_ttl_secs(&state.runtime_config),
+        operations::SHARE_STREAM_SESSION_TTL_SECS_KEY,
+    )
+}
+
+fn build_payload(subject: ShareStreamSubject, ttl_secs: i64) -> ShareStreamSessionPayload {
     ShareStreamSessionPayload {
         subject,
-        exp: (Utc::now() + Duration::seconds(SHARE_STREAM_SESSION_TTL_SECS)).timestamp(),
+        exp: (Utc::now() + Duration::seconds(ttl_secs)).timestamp(),
         nonce: crate::utils::id::new_short_token(),
     }
 }
@@ -513,13 +526,17 @@ fn encode_marker_state(state: CountMarkerState) -> Result<Vec<u8>> {
 mod tests {
     use super::{ShareStreamSubject, build_payload, decode_payload, encode_payload, stream_path};
     use crate::config::RuntimeConfig;
+    use chrono::Utc;
 
     #[test]
     fn payload_roundtrips() {
-        let payload = build_payload(ShareStreamSubject::ShareFolderFile {
-            share_token: "share_token".to_string(),
-            file_id: 42,
-        });
+        let payload = build_payload(
+            ShareStreamSubject::ShareFolderFile {
+                share_token: "share_token".to_string(),
+                file_id: 42,
+            },
+            3600,
+        );
         let encoded = encode_payload(&payload).unwrap();
         let decoded = decode_payload(&encoded).unwrap();
 
@@ -533,6 +550,21 @@ mod tests {
             }
             ShareStreamSubject::ShareFile { .. } => panic!("unexpected subject"),
         }
+    }
+
+    #[test]
+    fn payload_uses_supplied_ttl() {
+        let before = Utc::now().timestamp();
+        let payload = build_payload(
+            ShareStreamSubject::ShareFile {
+                share_token: "share_token".to_string(),
+            },
+            7200,
+        );
+        let after = Utc::now().timestamp();
+
+        assert!(payload.exp >= before + 7200);
+        assert!(payload.exp <= after + 7200);
     }
 
     #[test]

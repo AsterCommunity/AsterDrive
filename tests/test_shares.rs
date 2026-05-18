@@ -8,7 +8,9 @@ use actix_web::{
     cookie::SameSite,
     http::{StatusCode, header},
 };
+use aster_drive::config::operations::SHARE_STREAM_SESSION_TTL_SECS_KEY;
 use aster_drive::types::BackgroundTaskStatus;
+use chrono::Utc;
 use serde_json::Value;
 use std::io::Cursor;
 
@@ -857,6 +859,47 @@ async fn test_share_stream_session_counts_once_across_ranges_and_survives_limit(
         StatusCode::FORBIDDEN,
         "new stream sessions should be blocked after the limit is exhausted"
     );
+}
+
+#[actix_web::test]
+async fn test_share_stream_session_uses_configured_ttl() {
+    let state = common::setup().await;
+    state.runtime_config.apply(common::system_config_model(
+        SHARE_STREAM_SESSION_TTL_SECS_KEY,
+        "3600",
+    ));
+    let app = create_test_app!(state);
+    let (token, _) = register_and_login!(app);
+    let file_id = upload_test_file_named!(app, token, "song.mp3");
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/shares")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({
+            "target": file_target(file_id)
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 201);
+    let body: Value = test::read_body_json(resp).await;
+    let share_token = body["data"]["token"].as_str().unwrap().to_string();
+
+    let before = Utc::now().timestamp();
+    let req = test::TestRequest::post()
+        .uri(&format!("/api/v1/s/{share_token}/stream-session"))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    let after = Utc::now().timestamp();
+    assert_eq!(resp.status(), 200);
+    let body: Value = test::read_body_json(resp).await;
+    let expires_at = body["data"]["expires_at"].as_str().unwrap();
+    let expires_at = chrono::DateTime::parse_from_rfc3339(expires_at)
+        .unwrap()
+        .timestamp();
+
+    assert!(expires_at >= before + 3600);
+    assert!(expires_at <= after + 3600);
 }
 
 #[actix_web::test]

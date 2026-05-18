@@ -60,6 +60,10 @@ vi.mock("@/components/layout/OfflineBootFallback", () => ({
 	OfflineBootFallback: () => <div data-testid="offline-fallback" />,
 }));
 
+vi.mock("@/components/audio/AudioPlayerHost", () => ({
+	AudioPlayerHost: () => <div data-testid="audio-player-host" />,
+}));
+
 vi.mock("@/stores/brandingStore", () => ({
 	useBrandingStore: {
 		getState: () => ({
@@ -211,6 +215,7 @@ describe("App", () => {
 		expect(screen.getByTestId("offline-fallback")).toBeInTheDocument();
 		expect(screen.queryByTestId("router-provider")).not.toBeInTheDocument();
 		expect(screen.getByTestId("toaster")).toBeInTheDocument();
+		expect(screen.getByTestId("audio-player-host")).toBeInTheDocument();
 	});
 
 	it("defers redirect handling and warmup while auth is still checking", async () => {

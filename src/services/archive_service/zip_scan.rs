@@ -476,7 +476,7 @@ fn normalize_archive_entry_path(path: &Path) -> Result<PathBuf> {
                 let name = name.to_str().ok_or_else(|| {
                     AsterError::validation_error("archive entry name must be valid UTF-8")
                 })?;
-                crate::utils::validate_name(name)?;
+                let name = crate::utils::normalize_validate_name(name)?;
                 normalized.push(name);
             }
             _ => {
@@ -590,6 +590,16 @@ mod tests {
             child_directory
                 .contains("archive directory 'prefix/child' is inside file entry 'prefix'")
         );
+    }
+
+    #[test]
+    fn scan_rejects_unicode_normalized_duplicate_paths() {
+        let duplicate = scan_error_for(&[
+            ("caf\u{00e9}.txt", Some(b"nfc".as_slice())),
+            ("cafe\u{0301}.txt", Some(b"nfd".as_slice())),
+        ]);
+
+        assert!(duplicate.contains("duplicate entry path"));
     }
 
     #[test]

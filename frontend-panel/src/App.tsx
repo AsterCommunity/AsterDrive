@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import { RouterProvider } from "react-router-dom";
 import { Toaster, toast } from "sonner";
+import { AudioPlayerHost } from "@/components/audio/AudioPlayerHost";
 import { OfflineBootFallback } from "@/components/layout/OfflineBootFallback";
 import { usePwaUpdate } from "@/hooks/usePwaUpdate";
 import { useStorageChangeEvents } from "@/hooks/useStorageChangeEvents";
@@ -99,6 +100,7 @@ function App() {
 				<RouterProvider router={router} />
 			)}
 			<Toaster position="bottom-right" richColors swipeDirections={["right"]} />
+			<AudioPlayerHost />
 		</>
 	);
 }

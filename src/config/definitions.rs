@@ -43,6 +43,7 @@ pub const BACKGROUND_TASK_THUMBNAIL_MAX_CONCURRENCY_KEY: &str =
 pub const BACKGROUND_TASK_MAX_ATTEMPTS_KEY: &str = "background_task_max_attempts";
 pub const SHARE_DOWNLOAD_ROLLBACK_QUEUE_CAPACITY_KEY: &str =
     "share_download_rollback_queue_capacity";
+pub const SHARE_STREAM_SESSION_TTL_SECS_KEY: &str = "share_stream_session_ttl_secs";
 pub const MAINTENANCE_CLEANUP_INTERVAL_SECS_KEY: &str = "maintenance_cleanup_interval_secs";
 pub const BLOB_RECONCILE_INTERVAL_SECS_KEY: &str = "blob_reconcile_interval_secs";
 pub const REMOTE_NODE_HEALTH_TEST_INTERVAL_SECS_KEY: &str = "remote_node_health_test_interval_secs";
@@ -458,6 +459,17 @@ pub static ALL_CONFIGS: &[ConfigDef] = &[
         is_sensitive: false,
         category: "operations",
         description: "Maximum buffered shared download rollback jobs before overflow aggregation is used",
+    },
+    ConfigDef {
+        key: SHARE_STREAM_SESSION_TTL_SECS_KEY,
+        label_i18n_key: "settings_item_share_stream_session_ttl_secs_label",
+        description_i18n_key: "settings_item_share_stream_session_ttl_secs_desc",
+        value_type: SystemConfigValueType::Number,
+        default_fn: || crate::config::operations::DEFAULT_SHARE_STREAM_SESSION_TTL_SECS.to_string(),
+        requires_restart: false,
+        is_sensitive: false,
+        category: "storage",
+        description: "Lifetime in seconds for shared file stream sessions",
     },
     ConfigDef {
         key: MAINTENANCE_CLEANUP_INTERVAL_SECS_KEY,
