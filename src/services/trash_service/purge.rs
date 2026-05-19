@@ -1,18 +1,16 @@
 //! 回收站服务子模块：`purge`。
 
+use super::PURGE_ALL_BATCH_SIZE;
+use super::common::{
+    FolderPurgeSummary, purge_folder_forest_in_scope_silent, purge_folder_tree_in_scope,
+    verify_file_in_trash_in_scope, verify_folder_in_trash_in_scope,
+};
 use crate::db::repository::{file_repo, folder_repo};
 use crate::errors::Result;
 use crate::runtime::PrimaryAppState;
 use crate::services::{
-    file_service,
+    file_service, storage_change_service,
     workspace_storage_service::{self, WorkspaceStorageScope},
-};
-use crate::utils::numbers::usize_to_u32;
-
-use super::PURGE_ALL_BATCH_SIZE;
-use super::common::{
-    recursive_purge_folder_forest_in_scope, recursive_purge_folder_in_scope,
-    verify_file_in_trash_in_scope, verify_folder_in_trash_in_scope,
 };
 
 /// 永久删除单个文件
@@ -47,7 +45,7 @@ pub async fn purge_folder(state: &PrimaryAppState, id: i64, user_id: i64) -> Res
     let scope = WorkspaceStorageScope::Personal { user_id };
     tracing::debug!(scope = ?scope, folder_id = id, "purging folder from trash");
     verify_folder_in_trash_in_scope(state, scope, id).await?;
-    recursive_purge_folder_in_scope(state, scope, id).await?;
+    purge_folder_tree_in_scope(state, scope, id).await?;
     tracing::debug!(scope = ?scope, folder_id = id, "purged folder from trash");
     Ok(())
 }
@@ -64,15 +62,45 @@ pub async fn purge_team_folder(
     };
     tracing::debug!(scope = ?scope, folder_id = id, "purging folder from trash");
     verify_folder_in_trash_in_scope(state, scope, id).await?;
-    recursive_purge_folder_in_scope(state, scope, id).await?;
+    purge_folder_tree_in_scope(state, scope, id).await?;
     tracing::debug!(scope = ?scope, folder_id = id, "purged folder from trash");
     Ok(())
 }
 
-async fn purge_all_in_scope(state: &PrimaryAppState, scope: WorkspaceStorageScope) -> Result<u32> {
+pub(crate) async fn purge_all_in_scope(
+    state: &PrimaryAppState,
+    scope: WorkspaceStorageScope,
+) -> Result<u32> {
+    let summary = purge_all_in_scope_silent(state, scope).await?;
+    publish_purge_all_storage_change(state, scope, &summary);
+    Ok(summary.purged)
+}
+
+#[derive(Debug, Default)]
+pub(crate) struct PurgeAllSummary {
+    pub purged: u32,
+    freed_bytes: i64,
+}
+
+impl PurgeAllSummary {
+    fn add_folder_summary(&mut self, summary: FolderPurgeSummary) {
+        self.purged += summary.purged;
+        self.freed_bytes += summary.freed_bytes;
+    }
+
+    fn add_file_summary(&mut self, summary: file_service::BatchPurgeSummary) {
+        self.purged += summary.purged;
+        self.freed_bytes += summary.freed_bytes;
+    }
+}
+
+pub(crate) async fn purge_all_in_scope_silent(
+    state: &PrimaryAppState,
+    scope: WorkspaceStorageScope,
+) -> Result<PurgeAllSummary> {
     tracing::debug!(scope = ?scope, "purging all trash contents");
     workspace_storage_service::require_scope_access(state, scope).await?;
-    let mut count: u32 = 0;
+    let mut summary = PurgeAllSummary::default();
 
     let mut folder_cursor: Option<(chrono::DateTime<chrono::Utc>, i64)> = None;
     loop {
@@ -103,19 +131,18 @@ async fn purge_all_in_scope(state: &PrimaryAppState, scope: WorkspaceStorageScop
         folder_cursor = top_folders
             .last()
             .and_then(|folder| folder.deleted_at.map(|deleted_at| (deleted_at, folder.id)));
-        let folder_count = usize_to_u32(top_folders.len(), "purged folder count")?;
         let folder_ids: Vec<i64> = top_folders.into_iter().map(|folder| folder.id).collect();
-        match recursive_purge_folder_forest_in_scope(state, scope, &folder_ids).await {
-            Ok(()) => count += folder_count,
+        match purge_folder_forest_in_scope_silent(state, scope, &folder_ids).await {
+            Ok(folder_summary) => summary.add_folder_summary(folder_summary),
             Err(error) => {
                 tracing::warn!(
                     folder_ids = ?folder_ids,
                     "batch purge top-level folders failed, falling back to per-folder purge: {error}"
                 );
                 for folder_id in folder_ids {
-                    match recursive_purge_folder_in_scope(state, scope, folder_id).await {
-                        Ok(()) => count += 1,
-                        Err(error) => tracing::warn!("purge folder {folder_id} failed: {error}"),
+                    match purge_folder_forest_in_scope_silent(state, scope, &[folder_id]).await {
+                        Ok(folder_summary) => summary.add_folder_summary(folder_summary),
+                        Err(error) => return Err(error),
                     }
                 }
             }
@@ -148,17 +175,48 @@ async fn purge_all_in_scope(state: &PrimaryAppState, scope: WorkspaceStorageScop
             break;
         }
 
-        file_cursor = top_files
+        let next_file_cursor = top_files
             .last()
             .and_then(|file| file.deleted_at.map(|deleted_at| (deleted_at, file.id)));
-        match file_service::batch_purge_in_scope(state, scope, top_files).await {
-            Ok(purged) => count += purged,
-            Err(error) => tracing::warn!("batch purge top-level files failed: {error}"),
+        match file_service::batch_purge_in_resource_scope_silent(state, scope.into(), top_files)
+            .await
+        {
+            Ok(file_summary) => {
+                summary.add_file_summary(file_summary);
+                file_cursor = next_file_cursor;
+            }
+            Err(error) => return Err(error),
         }
     }
 
-    tracing::debug!(scope = ?scope, purged_count = count, "purged all trash contents");
-    Ok(count)
+    tracing::debug!(
+        scope = ?scope,
+        purged_count = summary.purged,
+        "purged all trash contents"
+    );
+    Ok(summary)
+}
+
+pub(crate) fn publish_purge_all_storage_change(
+    state: &PrimaryAppState,
+    scope: WorkspaceStorageScope,
+    summary: &PurgeAllSummary,
+) {
+    if summary.purged == 0 && summary.freed_bytes == 0 {
+        return;
+    }
+
+    storage_change_service::publish(
+        state,
+        storage_change_service::StorageChangeEvent::new(
+            storage_change_service::StorageChangeKind::SyncRequired,
+            scope,
+            vec![],
+            vec![],
+            vec![],
+        )
+        .with_storage_delta(-summary.freed_bytes),
+    );
 }
 
 /// 清空用户回收站（返回实际成功删除数量）

@@ -85,11 +85,11 @@ pub async fn recursive_soft_delete(
     Ok(())
 }
 
-/// 递归永久删除文件夹及其所有内容（批量优化版）
+/// 永久删除文件夹树及其所有内容（批量优化版）
 ///
-/// 先递归收集所有文件和文件夹 ID（含已删除），然后一次 batch_purge 处理所有文件，
+/// 先收集所有文件和文件夹 ID（含已删除），然后一次 batch_purge 处理所有文件，
 /// 再批量删除文件夹记录和属性。比逐个 purge 快得多。
-pub async fn recursive_purge_folder(
+pub async fn purge_folder_tree(
     state: &PrimaryAppState,
     user_id: i64,
     folder_id: i64,

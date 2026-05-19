@@ -21,6 +21,7 @@ import { usePageTitle } from "@/hooks/usePageTitle";
 import { useSelectionShortcuts } from "@/hooks/useSelectionShortcuts";
 import { FOLDER_LIMIT } from "@/lib/constants";
 import { formatBatchToast } from "@/lib/formatBatchToast";
+import { subscribeStorageChange } from "@/lib/storageChangeBus";
 import { trashService } from "@/services/trashService";
 import { useAuthStore } from "@/stores/authStore";
 import type { TrashContents } from "@/types/api";
@@ -68,7 +69,7 @@ function toTrashItems(contents: TrashContents): TrashItem[] {
 }
 
 export default function TrashPage() {
-	const { t } = useTranslation(["core", "files", "admin"]);
+	const { t } = useTranslation(["core", "files", "admin", "tasks"]);
 	usePageTitle(t("core:trash"));
 	const refreshUser = useAuthStore((s) => s.refreshUser);
 	const [contents, setContents] = useState<TrashContents>({
@@ -85,6 +86,7 @@ export default function TrashPage() {
 		null,
 	);
 	const pendingRef = useRef(false);
+	const syncInFlightRef = useRef(false);
 	const sentinelRef = useRef<HTMLDivElement | null>(null);
 
 	const items = toTrashItems(contents);
@@ -155,6 +157,23 @@ export default function TrashPage() {
 	useEffect(() => {
 		void load();
 	}, [load]);
+
+	useEffect(() => {
+		return subscribeStorageChange((event) => {
+			if (event.kind !== "sync.required") {
+				return;
+			}
+			if (syncInFlightRef.current) {
+				return;
+			}
+			syncInFlightRef.current = true;
+			void Promise.all([load(), refreshUser({ fields: ["quota"] })]).finally(
+				() => {
+					syncInFlightRef.current = false;
+				},
+			);
+		});
+	}, [load, refreshUser]);
 
 	// Infinite scroll
 	useEffect(() => {
@@ -299,9 +318,10 @@ export default function TrashPage() {
 			operation: "purge-all",
 		});
 		try {
-			await trashService.purgeAll();
-			toast.success(t("trash_emptied"));
-			await Promise.all([load(), refreshUser({ fields: ["quota"] })]);
+			const task = await trashService.purgeAll();
+			toast.success(t("tasks:task_created_success"), {
+				description: task.display_name,
+			});
 		} catch (err) {
 			handleApiError(err);
 		} finally {

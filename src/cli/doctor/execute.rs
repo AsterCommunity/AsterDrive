@@ -5,17 +5,14 @@
 
 use sea_orm::{DatabaseConnection, DbBackend};
 
-use crate::cli::db_shared::{
-    backend_name, migration_names, pending_migrations, redact_database_url,
-};
+use crate::cli::db_shared::{backend_name, pending_migrations, redact_database_url};
 
 use super::{
     DoctorArgs, DoctorCheck, DoctorDeepScope, DoctorReport, DoctorStatus,
     doctor_blob_ref_count_check, doctor_check, doctor_folder_tree_check, doctor_mail_check,
-    doctor_mysql_datetime_alter_risk_check, doctor_preview_apps_check,
-    doctor_public_site_url_check, doctor_scope_enabled, doctor_sqlite_search_check,
-    doctor_storage_policy_check, doctor_storage_scan_checks, doctor_storage_usage_check,
-    effective_deep_scopes,
+    doctor_preview_apps_check, doctor_public_site_url_check, doctor_scope_enabled,
+    doctor_sqlite_search_check, doctor_storage_policy_check, doctor_storage_scan_checks,
+    doctor_storage_usage_check, effective_deep_scopes,
 };
 
 struct DoctorMigrationInspection {
@@ -42,23 +39,11 @@ pub(super) async fn execute_doctor_command_impl(args: &DoctorArgs) -> DoctorRepo
         return DoctorReport::new(args, redacted_database_url, backend, deep, scopes, checks);
     };
 
-    let migration_inspection = inspect_doctor_migrations(&db, db_backend, &mut checks).await;
+    let migration_inspection = inspect_doctor_migrations(&db, &mut checks).await;
 
     if db_backend == DbBackend::Sqlite {
         checks.push(
             sqlite_search_check(
-                &db,
-                migration_inspection
-                    .as_ref()
-                    .map(|inspection| inspection.pending.as_slice()),
-            )
-            .await,
-        );
-    }
-
-    if db_backend == DbBackend::MySql {
-        checks.push(
-            mysql_datetime_risk_check(
                 &db,
                 migration_inspection
                     .as_ref()
@@ -132,7 +117,6 @@ async fn connect_doctor_database(
 
 async fn inspect_doctor_migrations(
     db: &DatabaseConnection,
-    db_backend: DbBackend,
     checks: &mut Vec<DoctorCheck>,
 ) -> Option<DoctorMigrationInspection> {
     let history = match migration::inspect_migration_history(db).await {
@@ -153,13 +137,20 @@ async fn inspect_doctor_migrations(
         }
     };
 
-    if history.has_unknown_applied() {
+    if history.track == migration::MigrationTrack::Unknown {
+        let details = if !history.unknown_applied.is_empty() {
+            history.unknown_applied.clone()
+        } else if history.applied.is_empty() {
+            vec!["empty migration history with existing schema objects".to_string()]
+        } else {
+            vec!["non-prefix migration history".to_string()]
+        };
         checks.push(doctor_check(
             "database_migrations",
             "Database migrations",
             DoctorStatus::Fail,
             "database contains unknown migration versions",
-            history.unknown_applied.clone(),
+            details,
             Some(
                 "Compare the database with the current migration baseline before running maintenance-oriented CLI commands."
                     .to_string(),
@@ -168,40 +159,7 @@ async fn inspect_doctor_migrations(
         return None;
     }
 
-    if history.has_inconsistent_baseline_stamp() {
-        checks.push(doctor_check(
-            "database_migrations",
-            "Database migrations",
-            DoctorStatus::Fail,
-            "database migration history mixes rebased and pre-rc.1 migrations",
-            Vec::new(),
-            Some(
-                "Restore a backup or contact maintainers before running maintenance-oriented CLI commands."
-                    .to_string(),
-            ),
-        ));
-        return None;
-    }
-
-    if history.is_pre_rc1_incomplete() {
-        checks.push(doctor_check(
-            "database_migrations",
-            "Database migrations",
-            DoctorStatus::Fail,
-            "database is not fully upgraded to the pre-rc.1 migration set",
-            history.pending_pre_rc1.clone(),
-            Some(
-                "Run the last pre-rc.1 build and apply all migrations before upgrading to this rebased migration baseline."
-                    .to_string(),
-            ),
-        ));
-        return Some(DoctorMigrationInspection {
-            pending: history.pending_pre_rc1,
-        });
-    }
-
-    let expected_migrations = migration_names();
-    match pending_migrations(db, db_backend, &expected_migrations).await {
+    match pending_migrations(db).await {
         Ok(pending) => {
             checks.push(if pending.is_empty() {
                 doctor_check(
@@ -260,39 +218,6 @@ async fn sqlite_search_check(
             vec!["migration status is unavailable".to_string()],
             Some(
                 "Fix migration metadata access first, then rerun doctor to validate SQLite FTS5 trigram support."
-                    .to_string(),
-            ),
-        ),
-    }
-}
-
-async fn mysql_datetime_risk_check(
-    db: &DatabaseConnection,
-    pending_migrations: Option<&[String]>,
-) -> DoctorCheck {
-    match pending_migrations {
-        Some(pending) => match doctor_mysql_datetime_alter_risk_check(db, pending).await {
-            Ok(check) => check,
-            Err(err) => doctor_check(
-                "mysql_datetime_alter_risk",
-                "MySQL datetime ALTER risk",
-                DoctorStatus::Fail,
-                "failed to inspect MySQL datetime ALTER risk",
-                vec![err.message().to_string()],
-                Some(
-                    "Check MySQL metadata access, then rerun doctor to estimate the DATETIME(6) migration blast radius."
-                        .to_string(),
-                ),
-            ),
-        },
-        None => doctor_check(
-            "mysql_datetime_alter_risk",
-            "MySQL datetime ALTER risk",
-            DoctorStatus::Fail,
-            "failed to inspect MySQL datetime ALTER risk",
-            vec!["migration status is unavailable".to_string()],
-            Some(
-                "Fix migration metadata access first, then rerun doctor to inspect the DATETIME(6) migration risk."
                     .to_string(),
             ),
         ),

@@ -22,6 +22,9 @@ use aster_drive::services::task_service::{
 };
 use aster_drive::types::{BackgroundTaskKind, BackgroundTaskStatus, StoredTaskPayload};
 
+const OLD_BACKGROUND_TASK_DISPLAY_NAME_LIMIT: usize = 255;
+const EXPANDED_BACKGROUND_TASK_DISPLAY_NAME_LIMIT: usize = 512;
+
 macro_rules! register_user {
     ($app:expr, $db:expr, $mail_sender:expr, $username:expr, $email:expr, $password:expr) => {{
         let req = test::TestRequest::post()
@@ -122,6 +125,22 @@ fn read_archive_download_path(body: &Value) -> String {
 
 fn read_task_result(body: &Value) -> Value {
     body["data"]["result"].clone()
+}
+
+fn assert_expanded_task_display_name(body: &Value, expected: &str, context: &str) {
+    let display_name = body["data"]["display_name"]
+        .as_str()
+        .expect("task response should include display_name");
+
+    assert_eq!(display_name, expected);
+    assert!(
+        display_name.len() > OLD_BACKGROUND_TASK_DISPLAY_NAME_LIMIT,
+        "{context} task display name should exceed the old {OLD_BACKGROUND_TASK_DISPLAY_NAME_LIMIT}-byte column limit"
+    );
+    assert!(
+        display_name.len() <= EXPANDED_BACKGROUND_TASK_DISPLAY_NAME_LIMIT,
+        "{context} task display name should fit the expanded {EXPANDED_BACKGROUND_TASK_DISPLAY_NAME_LIMIT}-byte column limit"
+    );
 }
 
 fn read_task_steps(body: &Value) -> Vec<(String, String)> {
@@ -1148,6 +1167,45 @@ async fn test_record_runtime_task_run_persists_system_runtime_event() {
 }
 
 #[actix_web::test]
+async fn test_record_runtime_task_run_truncates_overlong_task_name_on_utf8_boundary() {
+    let state = common::setup().await;
+    let started_at = Utc::now() - Duration::seconds(1);
+    let finished_at = Utc::now();
+    let overlong_task_name = format!(
+        "{}猫{}",
+        "runtime-".repeat(64),
+        "suffix-that-should-be-truncated"
+    );
+
+    let recorded = task_service::record_runtime_task_run(
+        &state,
+        &overlong_task_name,
+        started_at,
+        finished_at,
+        &RuntimeTaskRunOutcome::succeeded(Some("runtime task completed".to_string())),
+    )
+    .await
+    .expect("runtime task event should be recorded")
+    .expect("runtime task event should not be quiet");
+
+    assert_eq!(recorded.kind, BackgroundTaskKind::SystemRuntime);
+    assert_eq!(
+        recorded.display_name.len(),
+        EXPANDED_BACKGROUND_TASK_DISPLAY_NAME_LIMIT
+    );
+    assert!(
+        recorded
+            .display_name
+            .is_char_boundary(recorded.display_name.len())
+    );
+    assert!(recorded.display_name.starts_with("runtime "));
+    assert!(
+        recorded.display_name.len() < overlong_task_name.replace('-', " ").len(),
+        "stored runtime task display name should be truncated"
+    );
+}
+
+#[actix_web::test]
 async fn test_record_runtime_task_run_skips_quiet_outcome() {
     let state = common::setup().await;
     let started_at = Utc::now() - Duration::seconds(1);
@@ -1702,6 +1760,7 @@ async fn test_archive_compress_task_keeps_long_conflict_copy_name_within_limit()
     let long_folder_name = "a".repeat(255);
     let initial_archive_name = format!("{}.zip", "a".repeat(251));
     let expected_copy_name = format!("{} (1).zip", "a".repeat(247));
+    let expected_display_name = format!("Compress {initial_archive_name}");
 
     let req = test::TestRequest::post()
         .uri("/api/v1/files/new")
@@ -1735,6 +1794,7 @@ async fn test_archive_compress_task_keeps_long_conflict_copy_name_within_limit()
     let resp = test::call_service(&app, req).await;
     assert_eq!(resp.status(), 200);
     let body: Value = test::read_body_json(resp).await;
+    assert_expanded_task_display_name(&body, &expected_display_name, "archive compress");
     let task_id = body["data"]["id"].as_i64().unwrap();
 
     let stats = aster_drive::services::task_service::drain(&state)
@@ -2405,6 +2465,8 @@ async fn test_archive_extract_task_keeps_long_conflict_folder_copy_name_within_l
 
     let long_folder_name = "a".repeat(255);
     let expected_copy_name = format!("{} (1)", "a".repeat(251));
+    let archive_name = format!("{}.zip", "a".repeat(251));
+    let expected_display_name = format!("Extract {archive_name}");
 
     let req = test::TestRequest::post()
         .uri("/api/v1/folders")
@@ -2419,7 +2481,7 @@ async fn test_archive_extract_task_keeps_long_conflict_folder_copy_name_within_l
         .uri("/api/v1/files/new")
         .insert_header(("Cookie", common::access_cookie_header(&token)))
         .insert_header(common::csrf_header_for(&token))
-        .set_json(serde_json::json!({ "name": "long-output.zip", "folder_id": null }))
+        .set_json(serde_json::json!({ "name": archive_name, "folder_id": null }))
         .to_request();
     let resp = test::call_service(&app, req).await;
     assert_eq!(resp.status(), 201);
@@ -2449,6 +2511,7 @@ async fn test_archive_extract_task_keeps_long_conflict_folder_copy_name_within_l
     let resp = test::call_service(&app, req).await;
     assert_eq!(resp.status(), 200);
     let body: Value = test::read_body_json(resp).await;
+    assert_expanded_task_display_name(&body, &expected_display_name, "archive extract");
     let task_id = body["data"]["id"].as_i64().unwrap();
 
     let stats = aster_drive::services::task_service::drain(&state)

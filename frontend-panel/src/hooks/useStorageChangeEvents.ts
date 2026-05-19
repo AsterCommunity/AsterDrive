@@ -4,6 +4,7 @@ import { invalidateBlobUrl } from "@/hooks/useBlobUrl";
 import { invalidateTextContent } from "@/hooks/useTextContent";
 import { joinApiUrl } from "@/lib/apiUrl";
 import { logger } from "@/lib/logger";
+import { publishStorageChange } from "@/lib/storageChangeBus";
 import {
 	consumeStorageEventEcho,
 	type StorageChangeEventPayload,
@@ -186,6 +187,8 @@ export function useStorageChangeEvents() {
 				if (!eventMatchesWorkspace(event.workspace, workspace)) {
 					return;
 				}
+
+				publishStorageChange(event);
 
 				if (event.kind === "sync.required") {
 					invalidateBlobUrl();

@@ -10,7 +10,7 @@ use crate::errors::Result;
 use crate::runtime::PrimaryAppState;
 use crate::services::{file_service, workspace_storage_service::WorkspaceResourceScope};
 
-use super::common::{load_retention_days, recursive_purge_folder_in_resource_scope};
+use super::common::{load_retention_days, purge_folder_tree_in_resource_scope};
 
 /// 自动清理过期回收站条目（后台任务调用）
 pub async fn cleanup_expired(state: &PrimaryAppState) -> Result<u32> {
@@ -79,14 +79,14 @@ pub async fn cleanup_expired(state: &PrimaryAppState) -> Result<u32> {
 
     for folder in top_level_folders {
         let result = if let Some(team_id) = folder.team_id {
-            recursive_purge_folder_in_resource_scope(
+            purge_folder_tree_in_resource_scope(
                 state,
                 WorkspaceResourceScope::Team { team_id },
                 folder.id,
             )
             .await
         } else if let Some(owner_user_id) = folder.owner_user_id {
-            recursive_purge_folder_in_resource_scope(
+            purge_folder_tree_in_resource_scope(
                 state,
                 WorkspaceResourceScope::Personal {
                     user_id: owner_user_id,

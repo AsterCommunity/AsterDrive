@@ -23,7 +23,7 @@ use super::types::{
 };
 use super::{
     TaskLeaseGuard, configured_task_max_attempts, mark_task_progress, mark_task_succeeded,
-    task_expiration_from,
+    task_expiration_from, truncate_display_name,
 };
 
 pub(super) struct ThumbnailRetryPolicy;
@@ -107,7 +107,7 @@ pub(crate) async fn ensure_thumbnail_task(
             creator_user_id: Set(None),
             team_id: Set(None),
             share_id: Set(None),
-            display_name: Set(display_name),
+            display_name: Set(truncate_display_name(&display_name)),
             payload_json: Set(payload_json),
             result_json: Set(None),
             steps_json: Set(Some(steps_json)),

@@ -500,7 +500,7 @@ describe("TasksPage", () => {
 		});
 	});
 
-	it("keeps task details collapsed until expanded and removes duplicate active step headings", async () => {
+	it("shows task steps before details are expanded and removes the summary progress bar", async () => {
 		mockState.listInWorkspace.mockResolvedValue({
 			items: [
 				createTask({
@@ -518,21 +518,62 @@ describe("TasksPage", () => {
 		render(<TasksPage />);
 
 		await screen.findByText("Extract archive");
-		expect(screen.queryByText("1. Waiting")).not.toBeInTheDocument();
-		expect(screen.queryByText("num:20 / num:50")).not.toBeInTheDocument();
+		expect(screen.getByText("1. Waiting")).toBeInTheDocument();
+		expect(screen.getByText("2. Prepare archive sources")).toBeInTheDocument();
+		expect(screen.getByText("3. Build archive")).toBeInTheDocument();
+		expect(screen.getByText("4. Save archive")).toBeInTheDocument();
+		expect(screen.getByText(/Packing archive/)).toBeInTheDocument();
+		expect(screen.getByText("tasks:step_progress_label")).toBeInTheDocument();
+		expect(screen.getByText(/num:20 \/ num:50/)).toBeInTheDocument();
+		expect(screen.queryByTestId("progress")).not.toBeInTheDocument();
+		expect(
+			screen.queryByText("tasks:progress_ratio_label"),
+		).not.toBeInTheDocument();
 
 		fireEvent.click(screen.getByText("tasks:show_details"));
 
-		expect(await screen.findByText("1. Waiting")).toBeInTheDocument();
-		expect(screen.getByText("2. Prepare archive sources")).toBeInTheDocument();
+		expect(await screen.findByText("tasks:timeline_label")).toBeInTheDocument();
 		expect(screen.getAllByText("3. Build archive")).toHaveLength(1);
-		expect(screen.getByText("4. Save archive")).toBeInTheDocument();
-		expect(screen.getByText(/Packing archive/)).toBeInTheDocument();
-		expect(screen.getByText("tasks:timeline_label")).toBeInTheDocument();
-		expect(screen.getByText("tasks:step_progress_label")).toBeInTheDocument();
 		expect(screen.getByText("tasks:progress_ratio_label")).toBeInTheDocument();
 		expect(screen.getByText("num:35 / num:100")).toBeInTheDocument();
-		expect(screen.getByText(/num:20 \/ num:50/)).toBeInTheDocument();
+		expect(screen.getByTestId("progress")).toHaveAttribute("data-value", "35");
+	});
+
+	it("keeps the task card when a refreshed task no longer has step details", async () => {
+		mockState.listInWorkspace
+			.mockResolvedValueOnce({
+				items: [
+					createTask({
+						kind: "archive_compress",
+						steps: createTaskSteps("archive_compress", "processing"),
+					}),
+				],
+				total: 1,
+			})
+			.mockResolvedValueOnce({
+				items: [
+					createTask({
+						kind: "archive_compress",
+						status_text: "waiting for worker",
+						steps: [],
+					}),
+				],
+				total: 1,
+			});
+
+		render(<TasksPage />);
+
+		expect(await screen.findByText("Extract archive")).toBeInTheDocument();
+		expect(screen.getByText("tasks:steps_label")).toBeInTheDocument();
+
+		fireEvent.click(screen.getByLabelText("core:refresh"));
+
+		await waitFor(() => {
+			expect(mockState.listInWorkspace).toHaveBeenCalledTimes(2);
+		});
+		expect(screen.getByText("Extract archive")).toBeInTheDocument();
+		expect(screen.queryByText("tasks:steps_label")).not.toBeInTheDocument();
+		expect(screen.getByText(/waiting for worker/)).toBeInTheDocument();
 	});
 
 	it("renders summary timestamps by status and keeps detailed times in the expanded panel", async () => {
@@ -613,5 +654,32 @@ describe("TasksPage", () => {
 		expect(mockState.navigate).toHaveBeenCalledWith("/folder/42", {
 			viewTransition: false,
 		});
+	});
+
+	it("renders trash purge tasks without step details", async () => {
+		mockState.listInWorkspace.mockResolvedValue({
+			items: [
+				createTask({
+					display_name: "Empty trash",
+					kind: "trash_purge_all",
+					payload: { kind: "trash_purge_all" },
+					progress_current: 0,
+					progress_percent: 0,
+					progress_total: 0,
+					started_at: null,
+					status: "pending",
+					status_text: null,
+					steps: [],
+				}),
+			],
+			total: 1,
+		});
+
+		render(<TasksPage />);
+
+		expect(await screen.findByText("Empty trash")).toBeInTheDocument();
+		expect(screen.getByText("tasks:kind_trash_purge_all")).toBeInTheDocument();
+		expect(screen.queryByText("tasks:steps_label")).not.toBeInTheDocument();
+		expect(screen.queryByText("tasks:show_details")).not.toBeInTheDocument();
 	});
 });

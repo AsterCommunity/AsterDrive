@@ -1,7 +1,11 @@
 const REFRESH_LOCK_KEY = "aster-auth-refresh-lock";
 const REFRESH_EVENT_KEY = "aster-auth-refresh-event";
+const REFRESH_CHANNEL_NAME = "aster-auth-refresh";
 const REFRESH_LOCK_TTL_MS = 15_000;
-const REFRESH_WAIT_TIMEOUT_MS = 20_000;
+const REFRESH_LOCK_RENEW_MS = 5_000;
+const REFRESH_WAIT_TIMEOUT_MS = 45_000;
+
+type RefreshFailureKind = "auth" | "transient";
 
 type RefreshLock = {
 	ownerId: string;
@@ -13,7 +17,19 @@ type RefreshEvent = {
 	ownerId: string;
 	lockId: string;
 	status: "success" | "failure";
+	failureKind?: RefreshFailureKind;
+	fallback?: true;
 	createdAt: number;
+};
+
+type PeerWaitResult =
+	| RefreshEvent["status"]
+	| "auth_failure"
+	| "expired"
+	| "timeout";
+
+type RunWithCrossTabRefreshLockOptions = {
+	classifyError?: (error: unknown) => RefreshFailureKind;
 };
 
 class PeerRefreshFailedError extends Error {
@@ -28,6 +44,25 @@ class PeerRefreshTimedOutError extends Error {
 		super("peer auth refresh timed out");
 		this.name = "PeerRefreshTimedOutError";
 	}
+}
+
+class PeerRefreshAuthFailedError extends Error {
+	readonly crossTabRefreshAuthFailure = true;
+
+	constructor() {
+		super("peer auth refresh failed");
+		this.name = "PeerRefreshAuthFailedError";
+	}
+}
+
+export function isCrossTabRefreshAuthFailure(error: unknown): boolean {
+	return (
+		error instanceof PeerRefreshAuthFailedError ||
+		(typeof error === "object" &&
+			error !== null &&
+			"crossTabRefreshAuthFailure" in error &&
+			error.crossTabRefreshAuthFailure === true)
+	);
 }
 
 function isRefreshLock(value: unknown): value is RefreshLock {
@@ -54,6 +89,10 @@ function isRefreshEvent(value: unknown): value is RefreshEvent {
 		typeof record.lockId === "string" &&
 		record.lockId.length > 0 &&
 		(record.status === "success" || record.status === "failure") &&
+		(record.failureKind === undefined ||
+			record.failureKind === "auth" ||
+			record.failureKind === "transient") &&
+		(record.fallback === undefined || record.fallback === true) &&
 		typeof record.createdAt === "number" &&
 		Number.isFinite(record.createdAt)
 	);
@@ -93,36 +132,11 @@ function lockIsActive(lock: RefreshLock | null, now = Date.now()) {
 	return lock !== null && lock.expiresAt > now;
 }
 
-function writeRefreshEvent(
-	status: RefreshEvent["status"],
-	acquiredLock: RefreshLock,
-) {
-	const currentLock = readLock();
-	if (
-		!currentLock ||
-		currentLock.ownerId !== currentTabId ||
-		currentLock.lockId !== acquiredLock.lockId
-	) {
-		return;
-	}
-
-	const event: RefreshEvent = {
-		ownerId: currentTabId,
-		lockId: currentLock.lockId,
-		status,
-		createdAt: Date.now(),
-	};
-	localStorage.setItem(REFRESH_EVENT_KEY, JSON.stringify(event));
+function writeLock(lock: RefreshLock) {
+	localStorage.setItem(REFRESH_LOCK_KEY, JSON.stringify(lock));
 }
 
-function releaseLock(acquiredLock: RefreshLock) {
-	const lock = readLock();
-	if (lock?.ownerId === currentTabId && lock.lockId === acquiredLock.lockId) {
-		localStorage.removeItem(REFRESH_LOCK_KEY);
-	}
-}
-
-function tryAcquireLock() {
+function tryAcquireLock(): RefreshLock | null {
 	const now = Date.now();
 	const currentLock = readLock();
 	if (lockIsActive(currentLock, now) && currentLock?.ownerId !== currentTabId) {
@@ -134,26 +148,151 @@ function tryAcquireLock() {
 		lockId: lockId(),
 		expiresAt: now + REFRESH_LOCK_TTL_MS,
 	};
-	localStorage.setItem(REFRESH_LOCK_KEY, JSON.stringify(nextLock));
+	writeLock(nextLock);
 
 	const storedLock = readLock();
-	return storedLock?.ownerId === currentTabId &&
+	if (
+		storedLock?.ownerId === currentTabId &&
 		storedLock.lockId === nextLock.lockId
-		? storedLock
+	) {
+		return storedLock;
+	}
+	if (storedLock === null) {
+		localStorage.removeItem(REFRESH_LOCK_KEY);
+	}
+	return null;
+}
+
+function releaseLock(acquiredLock: RefreshLock) {
+	const lock = readLock();
+	if (lock?.ownerId === currentTabId && lock.lockId === acquiredLock.lockId) {
+		localStorage.removeItem(REFRESH_LOCK_KEY);
+	}
+}
+
+function refreshLockLease(acquiredLock: RefreshLock): RefreshLock | null {
+	const lock = readLock();
+	if (lock?.ownerId !== currentTabId || lock.lockId !== acquiredLock.lockId) {
+		return null;
+	}
+
+	const renewedLock = {
+		...lock,
+		expiresAt: Date.now() + REFRESH_LOCK_TTL_MS,
+	};
+	writeLock(renewedLock);
+	return renewedLock;
+}
+
+function openRefreshChannel(): BroadcastChannel | null {
+	if (
+		typeof BroadcastChannel === "undefined" ||
+		typeof window === "undefined"
+	) {
+		return null;
+	}
+
+	return new BroadcastChannel(REFRESH_CHANNEL_NAME);
+}
+
+function broadcastRefreshEvent(event: RefreshEvent) {
+	localStorage.setItem(REFRESH_EVENT_KEY, JSON.stringify(event));
+	const channel = openRefreshChannel();
+	try {
+		channel?.postMessage(event);
+	} finally {
+		channel?.close();
+	}
+}
+
+function writeRefreshEvent(
+	status: RefreshEvent["status"],
+	acquiredLock: RefreshLock,
+	failureKind?: RefreshFailureKind,
+) {
+	const currentLock = readLock();
+	if (
+		!currentLock ||
+		currentLock.ownerId !== currentTabId ||
+		currentLock.lockId !== acquiredLock.lockId
+	) {
+		return;
+	}
+
+	broadcastRefreshEvent({
+		ownerId: currentTabId,
+		lockId: currentLock.lockId,
+		status,
+		...(failureKind ? { failureKind } : {}),
+		createdAt: Date.now(),
+	});
+}
+
+function eventMatchesPeerLock(event: RefreshEvent, peerLock: RefreshLock) {
+	return (
+		event.ownerId === peerLock.ownerId &&
+		event.ownerId !== currentTabId &&
+		event.lockId === peerLock.lockId &&
+		Date.now() - event.createdAt <= REFRESH_WAIT_TIMEOUT_MS
+	);
+}
+
+function eventMatchesFallbackRefresh(
+	event: RefreshEvent,
+	waitStartedAt: number,
+) {
+	return (
+		event.fallback === true &&
+		event.ownerId !== currentTabId &&
+		event.createdAt >= waitStartedAt &&
+		Date.now() - event.createdAt <= REFRESH_WAIT_TIMEOUT_MS &&
+		!lockIsActive(readLock())
+	);
+}
+
+function getStoredEventForLock(
+	peerLock: RefreshLock,
+	waitStartedAt: number,
+): RefreshEvent | null {
+	const event = parseJson<RefreshEvent>(
+		localStorage.getItem(REFRESH_EVENT_KEY),
+	);
+	return isRefreshEvent(event) &&
+		(eventMatchesPeerLock(event, peerLock) ||
+			eventMatchesFallbackRefresh(event, waitStartedAt))
+		? event
 		: null;
 }
 
-function waitForPeerRefresh(peerLock: RefreshLock) {
-	return new Promise<RefreshEvent["status"] | "timeout">((resolve) => {
+function resultFromRefreshEvent(event: RefreshEvent): PeerWaitResult {
+	if (event.status === "failure" && event.failureKind === "auth") {
+		return "auth_failure";
+	}
+	return event.status;
+}
+
+function waitForPeerRefresh(
+	peerLock: RefreshLock,
+	deadline: number,
+	waitStartedAt: number,
+) {
+	return new Promise<PeerWaitResult>((resolve) => {
 		let settled = false;
+		let expiryTimeout: ReturnType<typeof setTimeout> | null = null;
 		let timeout: ReturnType<typeof setTimeout> | null = null;
+		const channel = openRefreshChannel();
 
 		const cleanup = () => {
 			window.removeEventListener("storage", onStorage);
+			if (channel) {
+				channel.removeEventListener("message", onChannelMessage);
+				channel.close();
+			}
+			if (expiryTimeout !== null) clearTimeout(expiryTimeout);
 			if (timeout !== null) clearTimeout(timeout);
 		};
 
-		const finish = (status: RefreshEvent["status"] | "timeout") => {
+		const finish = (status: PeerWaitResult) => {
 			if (settled) return;
 			settled = true;
 			cleanup();
@@ -161,73 +300,181 @@ function waitForPeerRefresh(peerLock: RefreshLock) {
 		};
 
 		const handleEvent = (event: RefreshEvent | null) => {
-			if (!isRefreshEvent(event)) {
+			if (
+				!event ||
+				(!eventMatchesPeerLock(event, peerLock) &&
+					!eventMatchesFallbackRefresh(event, waitStartedAt))
+			) {
 				return;
 			}
-			if (event.ownerId === currentTabId || event.lockId !== peerLock.lockId) {
-				return;
-			}
-			if (Date.now() - event.createdAt > REFRESH_WAIT_TIMEOUT_MS) return;
-			finish(event.status);
+			finish(resultFromRefreshEvent(event));
+		};
+
+		const scheduleExpiry = (expiresAt: number) => {
+			if (expiryTimeout !== null) clearTimeout(expiryTimeout);
+			expiryTimeout = setTimeout(
+				() => {
+					finish("expired");
+				},
+				Math.max(0, expiresAt - Date.now()),
+			);
 		};
 
 		function onStorage(event: StorageEvent) {
 			if (event.key === REFRESH_EVENT_KEY) {
-				handleEvent(parseJson<RefreshEvent>(event.newValue));
+				const refreshEvent = parseJson<RefreshEvent>(event.newValue);
+				handleEvent(isRefreshEvent(refreshEvent) ? refreshEvent : null);
 				return;
 			}
-			if (event.key === REFRESH_LOCK_KEY && event.newValue === null) {
-				const lastEvent = parseJson<RefreshEvent>(
-					localStorage.getItem(REFRESH_EVENT_KEY),
-				);
-				handleEvent(lastEvent);
+			if (event.key !== REFRESH_LOCK_KEY) {
+				return;
+			}
+
+			if (event.newValue === null) {
+				handleEvent(getStoredEventForLock(peerLock, waitStartedAt));
+				finish("expired");
+				return;
+			}
+
+			const updatedLock = parseJson<unknown>(event.newValue);
+			if (
+				isRefreshLock(updatedLock) &&
+				updatedLock.ownerId === peerLock.ownerId &&
+				updatedLock.lockId === peerLock.lockId &&
+				lockIsActive(updatedLock)
+			) {
+				scheduleExpiry(updatedLock.expiresAt);
 			}
 		}
 
+		function onChannelMessage(event: MessageEvent) {
+			handleEvent(isRefreshEvent(event.data) ? event.data : null);
+		}
+
+		const latestEvent = getStoredEventForLock(peerLock, waitStartedAt);
+		if (latestEvent) {
+			finish(resultFromRefreshEvent(latestEvent));
+			return;
+		}
+
 		window.addEventListener("storage", onStorage);
-		timeout = setTimeout(() => {
-			finish("timeout");
-		}, REFRESH_WAIT_TIMEOUT_MS);
-		handleEvent(
-			parseJson<RefreshEvent>(localStorage.getItem(REFRESH_EVENT_KEY)),
+		channel?.addEventListener("message", onChannelMessage);
+		scheduleExpiry(peerLock.expiresAt);
+		timeout = setTimeout(
+			() => {
+				finish("timeout");
+			},
+			Math.max(0, deadline - Date.now()),
 		);
 	});
 }
 
+async function refreshWithLock(
+	initialLock: RefreshLock,
+	refresh: () => Promise<void>,
+	options: RunWithCrossTabRefreshLockOptions,
+) {
+	let currentLock = initialLock;
+	const renewalTimer = setInterval(() => {
+		const renewedLock = refreshLockLease(currentLock);
+		if (renewedLock !== null) {
+			currentLock = renewedLock;
+		}
+	}, REFRESH_LOCK_RENEW_MS);
+
+	try {
+		await refresh();
+		writeRefreshEvent("success", currentLock);
+		return true;
+	} catch (error) {
+		writeRefreshEvent(
+			"failure",
+			currentLock,
+			options.classifyError?.(error) ?? "transient",
+		);
+		throw error;
+	} finally {
+		clearInterval(renewalTimer);
+		releaseLock(currentLock);
+	}
+}
+
+async function refreshWithoutConfirmedLock(
+	refresh: () => Promise<void>,
+	options: RunWithCrossTabRefreshLockOptions,
+) {
+	const directLockId = lockId();
+	try {
+		await refresh();
+		broadcastRefreshEvent({
+			ownerId: currentTabId,
+			lockId: directLockId,
+			status: "success",
+			fallback: true,
+			createdAt: Date.now(),
+		});
+		return true;
+	} catch (error) {
+		broadcastRefreshEvent({
+			ownerId: currentTabId,
+			lockId: directLockId,
+			status: "failure",
+			failureKind: options.classifyError?.(error) ?? "transient",
+			fallback: true,
+			createdAt: Date.now(),
+		});
+		throw error;
+	}
+}
+
 export async function runWithCrossTabRefreshLock(
 	refresh: () => Promise<void>,
+	options: RunWithCrossTabRefreshLockOptions = {},
 ): Promise<boolean> {
 	if (typeof window === "undefined") {
 		await refresh();
 		return true;
 	}
 
-	const lock = tryAcquireLock();
-	if (lock !== null) {
-		try {
-			await refresh();
-			writeRefreshEvent("success", lock);
-			return true;
-		} catch (error) {
-			writeRefreshEvent("failure", lock);
-			throw error;
-		} finally {
-			releaseLock(lock);
+	const deadline = Date.now() + REFRESH_WAIT_TIMEOUT_MS;
+	while (Date.now() <= deadline) {
+		const waitStartedAt = Date.now();
+		const lock = tryAcquireLock();
+		if (lock !== null) {
+			return refreshWithLock(lock, refresh, options);
+		}
+
+		const peerLock = readLock();
+		if (peerLock === null || !lockIsActive(peerLock)) {
+			const recoveredLock = tryAcquireLock();
+			if (recoveredLock !== null) {
+				return refreshWithLock(recoveredLock, refresh, options);
+			}
+			if (!lockIsActive(readLock())) {
+				return refreshWithoutConfirmedLock(refresh, options);
+			}
+			await new Promise((resolve) => setTimeout(resolve, 25));
+			continue;
+		}
+
+		const peerResult = await waitForPeerRefresh(
+			peerLock,
+			deadline,
+			waitStartedAt,
+		);
+		if (peerResult === "success") {
+			return false;
+		}
+		if (peerResult === "failure") {
+			throw new PeerRefreshFailedError();
+		}
+		if (peerResult === "auth_failure") {
+			throw new PeerRefreshAuthFailedError();
+		}
+		if (peerResult === "timeout") {
+			throw new PeerRefreshTimedOutError();
 		}
 	}
 
-	const peerLock = readLock();
-	if (peerLock === null || !lockIsActive(peerLock)) {
-		await refresh();
-		return true;
-	}
-
-	const peerResult = await waitForPeerRefresh(peerLock);
-	if (peerResult === "failure") {
-		throw new PeerRefreshFailedError();
-	}
-	if (peerResult === "timeout") {
-		throw new PeerRefreshTimedOutError();
-	}
-	return false;
+	throw new PeerRefreshTimedOutError();
 }

@@ -11,6 +11,7 @@ mod runtime;
 mod steps;
 mod storage_policy_cleanup;
 mod thumbnail;
+mod trash;
 mod types;
 
 use chrono::{Duration, Utc};
@@ -46,6 +47,7 @@ pub use runtime::{RuntimeTaskRunOutcome, record_runtime_task_run};
 use steps::{initial_task_steps, parse_task_steps_json, serialize_task_steps};
 pub(crate) use storage_policy_cleanup::create_storage_policy_temp_cleanup_task;
 pub(crate) use thumbnail::ensure_thumbnail_task;
+pub(crate) use trash::create_trash_purge_all_task_in_scope;
 pub use types::{
     ArchiveCompressTaskPayload, ArchiveCompressTaskResult, ArchiveExtractTaskPayload,
     ArchiveExtractTaskResult, ArchivePreviewTaskPayload, ArchivePreviewTaskResult,
@@ -53,12 +55,14 @@ pub use types::{
     RuntimeSystemHealthComponent, RuntimeSystemHealthResult, RuntimeSystemHealthStatus,
     RuntimeTaskPayload, RuntimeTaskResult, TaskInfo, TaskPayload, TaskResult, TaskStepInfo,
     TaskStepStatus, ThumbnailGenerateTaskPayload, ThumbnailGenerateTaskResult,
+    TrashPurgeAllTaskPayload, TrashPurgeAllTaskResult,
 };
 use types::{parse_task_payload_info, parse_task_result_info, serialize_task_payload};
 
 pub(super) const DEFAULT_TASK_RETENTION_HOURS: i64 = 24;
 pub(super) const TASK_HEARTBEAT_INTERVAL_SECS: u64 = 10;
 pub(super) const TASK_PROCESSING_STALE_SECS: i64 = 60;
+pub(super) const TASK_DISPLAY_NAME_MAX_LEN: usize = 512;
 pub(super) const TASK_LAST_ERROR_MAX_LEN: usize = 1024;
 pub(super) const TASK_STATUS_TEXT_MAX_LEN: usize = 255;
 pub(super) const TASK_DRAIN_MAX_ROUNDS: usize = 32;
@@ -436,6 +440,7 @@ pub(super) async fn create_task_record<T: Serialize>(
     let now = Utc::now();
     let payload_json = serialize_task_payload(payload)?;
     let steps_json = serialize_task_steps(&initial_task_steps(kind))?;
+    let display_name = truncate_display_name(display_name);
 
     // expires_at 代表“任务临时产物何时可以清理”，不是“任务记录何时删库”。
     // 我们保留 background_task 行作为历史留档；真正会按这个时间被清掉的是
@@ -450,7 +455,7 @@ pub(super) async fn create_task_record<T: Serialize>(
             creator_user_id: Set(Some(scope.actor_user_id())),
             team_id: Set(scope.team_id()),
             share_id: Set(None),
-            display_name: Set(display_name.to_string()),
+            display_name: Set(display_name),
             payload_json: Set(payload_json),
             result_json: Set(None),
             steps_json: Set(Some(steps_json)),
@@ -476,6 +481,10 @@ pub(super) async fn create_task_record<T: Serialize>(
     .await?;
     state.wake_background_task_dispatcher();
     Ok(task)
+}
+
+pub(super) fn truncate_display_name(value: &str) -> String {
+    crate::utils::truncate_utf8_to_max_bytes(value, TASK_DISPLAY_NAME_MAX_LEN)
 }
 
 pub(super) fn task_scope(task: &background_task::Model) -> Result<WorkspaceStorageScope> {
@@ -666,6 +675,7 @@ fn configured_task_max_attempts(state: &PrimaryAppState, kind: BackgroundTaskKin
         BackgroundTaskKind::ArchiveCompress
         | BackgroundTaskKind::ArchiveExtract
         | BackgroundTaskKind::ArchivePreviewGenerate
+        | BackgroundTaskKind::TrashPurgeAll
         | BackgroundTaskKind::StoragePolicyTempCleanup => {
             operations::background_task_max_attempts(&state.runtime_config)
         }
@@ -746,8 +756,8 @@ pub(super) fn truncate_error(error: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        build_task_info_with_creator, ensure_task_in_scope, truncate_error,
-        validate_admin_task_cleanup_status,
+        TASK_DISPLAY_NAME_MAX_LEN, build_task_info_with_creator, ensure_task_in_scope,
+        truncate_display_name, truncate_error, validate_admin_task_cleanup_status,
     };
     use crate::api::subcode::ApiSubcode;
     use crate::entities::background_task;
@@ -839,6 +849,33 @@ mod tests {
             crate::errors::task_error_display_message(&stored),
             "archive contains unsafe path"
         );
+    }
+
+    #[test]
+    fn truncate_display_name_keeps_utf8_boundary() {
+        let value = format!("{}猫", "a".repeat(TASK_DISPLAY_NAME_MAX_LEN - 1));
+
+        let truncated = truncate_display_name(&value);
+
+        assert_eq!(truncated.len(), TASK_DISPLAY_NAME_MAX_LEN - 1);
+        assert!(truncated.is_char_boundary(truncated.len()));
+    }
+
+    #[test]
+    fn truncate_display_name_keeps_exact_ascii_limit() {
+        let value = "a".repeat(TASK_DISPLAY_NAME_MAX_LEN);
+
+        assert_eq!(truncate_display_name(&value), value);
+    }
+
+    #[test]
+    fn truncate_display_name_truncates_ascii_over_limit() {
+        let value = "a".repeat(TASK_DISPLAY_NAME_MAX_LEN + 1);
+
+        let truncated = truncate_display_name(&value);
+
+        assert_eq!(truncated.len(), TASK_DISPLAY_NAME_MAX_LEN);
+        assert_eq!(truncated, "a".repeat(TASK_DISPLAY_NAME_MAX_LEN));
     }
 
     #[test]

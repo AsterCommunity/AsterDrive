@@ -29,6 +29,21 @@ export function dialogByTitle(page: Page, title: string) {
 		.first();
 }
 
+async function waitForUploadCompletion(
+	page: Page,
+	files: ReadonlyArray<TestFile>,
+) {
+	for (const file of files) {
+		await expect(
+			page
+				.getByText(file.name, { exact: true })
+				.locator("..")
+				.filter({ hasText: "Upload complete" })
+				.first(),
+		).toBeVisible({ timeout: 30_000 });
+	}
+}
+
 export async function uploadViaPicker(
 	page: Page,
 	files: ReadonlyArray<TestFile>,
@@ -40,6 +55,7 @@ export async function uploadViaPicker(
 			name: file.name,
 		})),
 	);
+	await waitForUploadCompletion(page, files);
 }
 
 export async function uploadViaDragDrop(
@@ -71,6 +87,7 @@ export async function uploadViaDragDrop(
 	await dropZone.dispatchEvent("dragenter", { dataTransfer });
 	await dropZone.dispatchEvent("dragover", { dataTransfer });
 	await dropZone.dispatchEvent("drop", { dataTransfer });
+	await waitForUploadCompletion(page, files);
 }
 
 export async function openSurfaceContextMenu(page: Page) {
@@ -129,15 +146,19 @@ export async function expectCodePreview(page: Page, fileName: string) {
 	await chooseOpenMethodIfPrompted(page, "Source view");
 	const dialog = page.getByRole("dialog");
 	await expect(dialog).toBeVisible();
-	await expect(
-		dialog.getByText('const greeting = "Hello from Playwright";'),
-	).toBeVisible({
+	await expect(dialog.locator("pre")).toContainText(
+		'const greeting = "Hello from Playwright";',
+		{
+			timeout: 30_000,
+		},
+	);
+	await expect(dialog.locator("pre")).toContainText("console.log(greeting);", {
 		timeout: 30_000,
 	});
 }
 
 export async function closeActiveDialog(page: Page) {
-	const dialog = page.getByRole("dialog");
+	const dialog = page.locator('[role="dialog"]:not([data-closed])').first();
 	const closeButton = dialog.getByRole("button", {
 		exact: true,
 		name: "Close",
@@ -147,7 +168,9 @@ export async function closeActiveDialog(page: Page) {
 	} else {
 		await page.keyboard.press("Escape");
 	}
-	await expect(dialog).toBeHidden();
+	await expect(page.locator('[role="dialog"]:not([data-closed])')).toHaveCount(
+		0,
+	);
 }
 
 export async function chooseOpenMethodIfPrompted(

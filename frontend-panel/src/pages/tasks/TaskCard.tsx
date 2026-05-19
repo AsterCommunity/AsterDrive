@@ -34,6 +34,81 @@ interface TaskCardProps {
 	task: TaskInfo;
 }
 
+function TaskStepsPreview({
+	activeStep,
+	task,
+}: {
+	activeStep: ReturnType<typeof currentTaskStep>;
+	task: TaskInfo;
+}) {
+	const { t } = useTranslation(["core", "tasks"]);
+
+	if (task.steps.length === 0) {
+		return null;
+	}
+
+	return (
+		<div className="space-y-2.5 rounded-lg border bg-muted/15 px-3 py-3">
+			<div className="flex flex-wrap items-start justify-between gap-2">
+				<div className="text-sm font-medium">{t("tasks:steps_label")}</div>
+				{activeStep && activeStep.progress_total > 0 ? (
+					<div className="text-right text-xs text-muted-foreground">
+						<div>{t("tasks:step_progress_label")}</div>
+						<div className="font-medium tabular-nums text-foreground">
+							{stepProgressPercent(activeStep)}% ·{" "}
+							{formatProgressCounts(
+								activeStep.progress_current,
+								activeStep.progress_total,
+							)}
+						</div>
+					</div>
+				) : null}
+			</div>
+			<div className="overflow-x-auto pb-0.5">
+				<div className="w-full">
+					<div className="mx-auto flex w-fit min-w-max items-start px-0.5 py-1.5">
+						{task.steps.map((step, index) => (
+							<div key={`${task.id}-${step.key}`} className="contents">
+								<div className="w-32 shrink-0 md:w-36 lg:w-40">
+									<div className="flex flex-col items-center text-center">
+										<div className="relative flex h-10 w-10 items-center justify-center md:h-11 md:w-11">
+											{step.status === "active" ? (
+												<span className="absolute inset-0 animate-spin rounded-full border-2 border-primary/20 border-t-primary" />
+											) : null}
+											<span
+												className={`relative flex h-8 w-8 items-center justify-center rounded-full border text-xs font-semibold transition-colors md:h-9 md:w-9 md:text-sm ${stepCircleClass(step.status)}`}
+											>
+												{stepCircleLabel(index, step.status)}
+											</span>
+										</div>
+										<div className="mt-2 space-y-0.5 md:mt-2.5">
+											<p className="text-xs font-semibold leading-snug md:text-sm">
+												{index + 1}. {formatTaskStepTitle(t, task.kind, step)}
+											</p>
+											<p
+												className={`text-[11px] font-medium ${stepStatusTextClass(step.status)}`}
+											>
+												{formatTaskStepStatus(t, step.status)}
+											</p>
+										</div>
+									</div>
+								</div>
+								{index < task.steps.length - 1 ? (
+									<div className="flex h-10 w-10 shrink-0 items-center px-1 md:h-11 md:w-12 md:px-1.5">
+										<div
+											className={`h-1 w-full rounded-full ${stepConnectorClass(step.status)}`}
+										/>
+									</div>
+								) : null}
+							</div>
+						))}
+					</div>
+				</div>
+			</div>
+		</div>
+	);
+}
+
 export function TaskCard({
 	detailsExpanded,
 	onOpenTargetFolder,
@@ -64,13 +139,7 @@ export function TaskCard({
 		task.status === "succeeded"
 			? 100
 			: Math.max(0, Math.min(100, task.progress_percent));
-	const progressText =
-		task.progress_total > 0
-			? t("tasks:progress_ratio", {
-					current: task.progress_current,
-					total: task.progress_total,
-				})
-			: null;
+	const hasProgressCounts = task.progress_total > 0;
 
 	return (
 		<Card className="p-4 md:p-5">
@@ -149,20 +218,15 @@ export function TaskCard({
 					</div>
 				</div>
 
-				<div className="space-y-2">
-					<div className="flex flex-wrap items-center justify-between gap-2 text-sm">
-						<span className="text-muted-foreground">
-							{t("tasks:progress_label")}
-						</span>
-						<span className="font-medium tabular-nums">{progressValue}%</span>
-					</div>
-					<Progress value={progressValue} className="h-2" />
-					{taskSummaryText ? (
+				<TaskStepsPreview activeStep={activeStep} task={task} />
+
+				{taskSummaryText ? (
+					<div className="space-y-2">
 						<p className="text-sm text-muted-foreground">
 							{t("tasks:status_text_label")}: {taskSummaryText}
 						</p>
-					) : null}
-				</div>
+					</div>
+				) : null}
 
 				<AnimatedTaskDetails open={detailsExpanded} className="space-y-2.5">
 					<div id={detailsSectionId} className="space-y-2.5 pt-0.5">
@@ -198,7 +262,7 @@ export function TaskCard({
 												{progressValue}%
 											</div>
 										</div>
-										{progressText ? (
+										{hasProgressCounts ? (
 											<div className="text-right text-xs text-muted-foreground">
 												<div>{t("tasks:progress_ratio_label")}</div>
 												<div className="font-medium text-foreground tabular-nums">
@@ -214,73 +278,6 @@ export function TaskCard({
 								</div>
 							</div>
 						</div>
-
-						{task.steps.length > 0 ? (
-							<div className="space-y-2.5 rounded-lg border bg-muted/15 px-3 py-3">
-								<div className="flex flex-wrap items-start justify-between gap-2">
-									<div className="text-sm font-medium">
-										{t("tasks:steps_label")}
-									</div>
-									{activeStep && activeStep.progress_total > 0 ? (
-										<div className="text-right text-xs text-muted-foreground">
-											<div>{t("tasks:step_progress_label")}</div>
-											<div className="font-medium tabular-nums text-foreground">
-												{stepProgressPercent(activeStep)}% ·{" "}
-												{formatProgressCounts(
-													activeStep.progress_current,
-													activeStep.progress_total,
-												)}
-											</div>
-										</div>
-									) : null}
-								</div>
-								<div className="overflow-x-auto pb-0.5">
-									<div className="w-full">
-										<div className="mx-auto flex w-fit min-w-max items-start px-0.5 py-1.5">
-											{task.steps.map((step, index) => (
-												<div
-													key={`${task.id}-${step.key}`}
-													className="contents"
-												>
-													<div className="w-32 shrink-0 md:w-36 lg:w-40">
-														<div className="flex flex-col items-center text-center">
-															<div className="relative flex h-10 w-10 items-center justify-center md:h-11 md:w-11">
-																{step.status === "active" ? (
-																	<span className="absolute inset-0 rounded-full border-2 border-primary/20 border-t-primary animate-spin" />
-																) : null}
-																<span
-																	className={`relative flex h-8 w-8 items-center justify-center rounded-full border text-xs font-semibold transition-colors md:h-9 md:w-9 md:text-sm ${stepCircleClass(step.status)}`}
-																>
-																	{stepCircleLabel(index, step.status)}
-																</span>
-															</div>
-															<div className="mt-2 space-y-0.5 md:mt-2.5">
-																<p className="text-xs font-semibold leading-snug md:text-sm">
-																	{index + 1}.{" "}
-																	{formatTaskStepTitle(t, task.kind, step)}
-																</p>
-																<p
-																	className={`text-[11px] font-medium ${stepStatusTextClass(step.status)}`}
-																>
-																	{formatTaskStepStatus(t, step.status)}
-																</p>
-															</div>
-														</div>
-													</div>
-													{index < task.steps.length - 1 ? (
-														<div className="flex h-10 w-10 shrink-0 items-center px-1 md:h-11 md:w-12 md:px-1.5">
-															<div
-																className={`h-1 w-full rounded-full ${stepConnectorClass(step.status)}`}
-															/>
-														</div>
-													) : null}
-												</div>
-											))}
-										</div>
-									</div>
-								</div>
-							</div>
-						) : null}
 
 						{task.last_error ? (
 							<div className="rounded-lg border border-destructive/20 bg-destructive/5 px-3 py-2 text-sm text-destructive">

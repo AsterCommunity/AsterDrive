@@ -4,9 +4,18 @@
 mod common;
 
 use actix_web::test;
-use sea_orm::{ConnectionTrait, DatabaseConnection, DbBackend, Statement};
+use sea_orm::{ActiveValue::Set, ConnectionTrait, DatabaseConnection, DbBackend, Statement};
 use serde_json::Value;
 use tokio::time::{Duration, timeout};
+
+use aster_drive::db::repository::background_task_repo;
+use aster_drive::entities::background_task;
+use aster_drive::types::{
+    BackgroundTaskKind, BackgroundTaskStatus, StoredTaskPayload, StoredTaskResult,
+};
+
+const OLD_BACKGROUND_TASK_DISPLAY_NAME_LIMIT: usize = 255;
+const EXPANDED_BACKGROUND_TASK_DISPLAY_NAME_LIMIT: usize = 512;
 
 fn upload_named_file(name: &str, content: &str, mime: &str, boundary: &str) -> String {
     format!(
@@ -168,6 +177,87 @@ async fn assert_mysql_search_objects(db: &DatabaseConnection) {
     assert_eq!(precision, Some(6));
 }
 
+async fn assert_background_task_display_name_column_len(
+    db: &DatabaseConnection,
+    backend: DbBackend,
+) {
+    let sql = match backend {
+        DbBackend::Postgres => {
+            "SELECT character_maximum_length::bigint \
+             FROM information_schema.columns \
+             WHERE table_schema = 'public' \
+               AND table_name = 'background_tasks' \
+               AND column_name = 'display_name'"
+        }
+        DbBackend::MySql => {
+            "SELECT CAST(CHARACTER_MAXIMUM_LENGTH AS SIGNED) \
+             FROM INFORMATION_SCHEMA.COLUMNS \
+             WHERE TABLE_SCHEMA = DATABASE() \
+               AND TABLE_NAME = 'background_tasks' \
+               AND COLUMN_NAME = 'display_name'"
+        }
+        backend => panic!("unsupported test database backend: {backend:?}"),
+    };
+
+    let row = db
+        .query_one_raw(Statement::from_string(backend, sql))
+        .await
+        .unwrap()
+        .expect("background_tasks.display_name column should exist");
+    let max_len: i64 = row.try_get_by_index(0).unwrap();
+    assert_eq!(
+        max_len,
+        i64::try_from(EXPANDED_BACKGROUND_TASK_DISPLAY_NAME_LIMIT).unwrap()
+    );
+}
+
+async fn assert_background_task_display_name_accepts_expanded_len(db: &DatabaseConnection) {
+    let now = chrono::Utc::now();
+    let display_name = "x".repeat(OLD_BACKGROUND_TASK_DISPLAY_NAME_LIMIT + 1);
+    assert!(display_name.len() <= EXPANDED_BACKGROUND_TASK_DISPLAY_NAME_LIMIT);
+
+    let task = background_task_repo::create(
+        db,
+        background_task::ActiveModel {
+            kind: Set(BackgroundTaskKind::SystemRuntime),
+            status: Set(BackgroundTaskStatus::Succeeded),
+            creator_user_id: Set(None),
+            team_id: Set(None),
+            share_id: Set(None),
+            display_name: Set(display_name.clone()),
+            payload_json: Set(StoredTaskPayload(
+                r#"{"task_name":"expanded-display-name-smoke"}"#.to_string(),
+            )),
+            result_json: Set(Some(StoredTaskResult(
+                r#"{"duration_ms":0,"summary":"expanded display name accepted"}"#.to_string(),
+            ))),
+            steps_json: Set(None),
+            progress_current: Set(1),
+            progress_total: Set(1),
+            status_text: Set(Some("expanded display name accepted".to_string())),
+            attempt_count: Set(0),
+            max_attempts: Set(1),
+            next_run_at: Set(now),
+            processing_token: Set(0),
+            processing_started_at: Set(None),
+            last_heartbeat_at: Set(None),
+            lease_expires_at: Set(None),
+            started_at: Set(Some(now)),
+            finished_at: Set(Some(now)),
+            last_error: Set(None),
+            failure_can_retry: Set(None),
+            expires_at: Set(now + chrono::Duration::hours(1)),
+            created_at: Set(now),
+            updated_at: Set(now),
+            ..Default::default()
+        },
+    )
+    .await
+    .expect("expanded background task display_name should insert");
+
+    assert_eq!(task.display_name, display_name);
+}
+
 #[actix_web::test]
 async fn test_sqlite_transactions_are_serialized_by_single_connection_pool() {
     use sea_orm::TransactionTrait;
@@ -208,6 +298,8 @@ async fn exercise_backend_smoke(database_url: &str, backend: DbBackend) {
         DbBackend::MySql => assert_mysql_search_objects(&state.db).await,
         _ => unreachable!("only postgres/mysql smoke tests use this helper"),
     }
+    assert_background_task_display_name_column_len(&state.db, backend).await;
+    assert_background_task_display_name_accepts_expanded_len(&state.db).await;
 
     let app = create_test_app!(state);
     let (token, _) = register_and_login!(app);

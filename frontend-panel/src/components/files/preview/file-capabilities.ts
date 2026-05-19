@@ -130,13 +130,14 @@ export function getFileTypeInfo(file: PreviewableFileLike): FileTypeInfo {
 		};
 	}
 
+	if (TEXT_EXTENSIONS.has(ext)) {
+		return { category: "text", icon: "FileCode", color: "text-slate-500" };
+	}
+
 	for (const [prefix, info] of PREFIX_TYPE_INFO) {
 		if (file.mime_type.startsWith(prefix)) return info;
 	}
 
-	if (TEXT_EXTENSIONS.has(ext)) {
-		return { category: "text", icon: "FileCode", color: "text-slate-500" };
-	}
 	return DEFAULT_TYPE_INFO;
 }
 

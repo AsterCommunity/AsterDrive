@@ -528,6 +528,35 @@ describe("AdminOverviewPage", () => {
 		);
 	});
 
+	it("labels trash purge background tasks in the overview", async () => {
+		const overview = createOverview();
+		overview.recent_background_tasks = [
+			{
+				created_at: "2026-03-29T09:20:00Z",
+				creator: null,
+				display_name: "Empty trash",
+				duration_ms: null,
+				finished_at: "2026-03-29T09:21:00Z",
+				id: 19,
+				kind: "trash_purge_all",
+				last_error: null,
+				started_at: "2026-03-29T09:20:58Z",
+				status: "succeeded",
+				status_text: "purged 3 items",
+				team_id: null,
+				updated_at: "2026-03-29T09:21:00Z",
+			},
+		];
+		mockState.get.mockResolvedValueOnce(overview);
+
+		render(<AdminOverviewPage />);
+
+		expect(await screen.findByText("Empty trash")).toBeInTheDocument();
+		expect(screen.getByText("tasks:kind_trash_purge_all")).toBeInTheDocument();
+		expect(screen.getByText("purged 3 items")).toBeInTheDocument();
+		expect(screen.queryByText(/^duration:/)).not.toBeInTheDocument();
+	});
+
 	it("hides noisy component summaries when system health is healthy", async () => {
 		const overview = createOverview();
 		overview.system_health = {

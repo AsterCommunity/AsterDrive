@@ -16,6 +16,13 @@ use super::blob_cleanup::ensure_blob_cleanup_if_unreferenced;
 
 const BLOB_CLEANUP_CONCURRENCY: usize = 8;
 
+#[derive(Debug, Default)]
+pub(crate) struct BatchPurgeSummary {
+    pub purged: u32,
+    pub file_ids: Vec<i64>,
+    pub freed_bytes: i64,
+}
+
 pub(crate) async fn purge_in_scope(
     state: &PrimaryAppState,
     scope: WorkspaceStorageScope,
@@ -51,8 +58,29 @@ pub(crate) async fn batch_purge_in_resource_scope(
     scope: WorkspaceResourceScope,
     files: Vec<file::Model>,
 ) -> Result<u32> {
+    Ok(
+        batch_purge_in_resource_scope_internal(state, scope, files, true)
+            .await?
+            .purged,
+    )
+}
+
+pub(crate) async fn batch_purge_in_resource_scope_silent(
+    state: &PrimaryAppState,
+    scope: WorkspaceResourceScope,
+    files: Vec<file::Model>,
+) -> Result<BatchPurgeSummary> {
+    batch_purge_in_resource_scope_internal(state, scope, files, false).await
+}
+
+async fn batch_purge_in_resource_scope_internal(
+    state: &PrimaryAppState,
+    scope: WorkspaceResourceScope,
+    files: Vec<file::Model>,
+    emit_storage_event: bool,
+) -> Result<BatchPurgeSummary> {
     if files.is_empty() {
-        return Ok(0);
+        return Ok(BatchPurgeSummary::default());
     }
 
     let input_count = files.len();
@@ -126,17 +154,19 @@ pub(crate) async fn batch_purge_in_resource_scope(
     .await?;
 
     crate::db::transaction::commit(txn).await?;
-    storage_change_service::publish(
-        state,
-        storage_change_service::StorageChangeEvent::new_for_resource_scope(
-            storage_change_service::StorageChangeKind::FilePurged,
-            scope,
-            file_ids,
-            vec![],
-            parent_ids,
-        )
-        .with_storage_delta(-total_freed_bytes),
-    );
+    if emit_storage_event {
+        storage_change_service::publish(
+            state,
+            storage_change_service::StorageChangeEvent::new_for_resource_scope(
+                storage_change_service::StorageChangeKind::FilePurged,
+                scope,
+                file_ids.clone(),
+                vec![],
+                parent_ids.clone(),
+            )
+            .with_storage_delta(-total_freed_bytes),
+        );
+    }
     if deleted_shares > 0 {
         share_service::invalidate_active_share_target_cache_for_resource_scope(state, scope).await;
         share_service::invalidate_all_share_token_record_cache(state).await;
@@ -162,7 +192,11 @@ pub(crate) async fn batch_purge_in_resource_scope(
         cleanup_blob_count = blob_ids.len(),
         "purged files permanently"
     );
-    Ok(count)
+    Ok(BatchPurgeSummary {
+        purged: count,
+        file_ids,
+        freed_bytes: total_freed_bytes,
+    })
 }
 
 pub async fn batch_purge(

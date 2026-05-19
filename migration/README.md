@@ -1,18 +1,13 @@
 # Running Migrator CLI
 
-## Baseline rebase policy
+## Migration policy
 
-The current migration set is rebased into `m20260512_000001_baseline_schema`.
+The supported migration chain starts at `m20260512_000001_baseline_schema`.
 
-- Fresh installs run the new baseline directly.
-- Existing deployments must first run the full pre-rc.1 migration set:
-  `m20260502_000001_baseline_schema`,
-  `m20260508_000001_split_file_folder_owner_provenance`,
-  and `m20260511_000001_add_background_task_failure_can_retry`.
-- When a complete pre-rc.1 migration history is detected, AsterDrive validates key schema sentinels and rewrites only `seaql_migrations` to the new baseline stamp.
-- Incomplete pre-rebase histories are rejected with an instruction to upgrade to the last pre-rc.1 build first.
-
-Do not truncate application tables for this rebase. Only migration metadata is rewritten.
+- Fresh installs run the current migration chain directly.
+- Existing supported deployments must already have migration metadata from the current chain.
+- Historical pre-`v0.1.0` rebase rows are no longer rewritten in place. Databases that still contain those rows must first be upgraded through a supported intermediate release or restored from a backup made after the current baseline was applied.
+- Do not edit `seaql_migrations` by hand. If migration metadata and application tables disagree, fix the database from a backup or an explicitly supported upgrade path.
 
 - Generate a new migration file
     ```sh

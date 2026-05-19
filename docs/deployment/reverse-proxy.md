@@ -24,9 +24,9 @@ AsterDrive 不内置 TLS 终端。
 - 代理层不要拦掉 WebDAV 的 `PROPFIND`、`MOVE`、`COPY`、`LOCK`、`UNLOCK`
 - 代理层不要覆盖缩略图接口返回的 `ETag` / `Cache-Control`
 - 代理层必须保留真实 `Host`，并正确传递公网协议。AsterDrive 会用请求 Host 在 `公开站点地址` 列表里做精确匹配，生成对应域名的分享、WebDAV 和 WOPI URL
-- 如果你希望 AsterDrive 识别真实客户端 IP，那么前置反向代理必须是你自己控制并信任的那一跳。AsterDrive 只会在连接来源命中 `rate_limit.trusted_proxies` 时，才读取 `X-Forwarded-For` 里的客户端 IP；否则会忽略转发头，继续按实际连接来源处理
+- 如果你希望 AsterDrive 识别真实客户端 IP，那么前置反向代理必须是你自己控制并信任的那一跳。AsterDrive 只会在连接来源命中 `network_trust.trusted_proxies` 时，才读取 `X-Forwarded-For` 里的客户端 IP；否则会忽略转发头，继续按实际连接来源处理
 - `X-Forwarded-For` / `Forwarded` 这类头不能直接当成用户身份凭据。只有当请求确实来自你配置的代理、网关或 Docker 内网跳板时，它们才有意义；不要把公网段、第三方 CDN 或你不控制的上游放进 `trusted_proxies`
-- 如果你需要按真实客户端 IP 做限流、审计或会话安全判断，先看 [访问限流](/config/rate-limit) 对 `trusted_proxies` 的说明，再把同一组代理地址 / CIDR 同步到你的反向代理拓扑里
+- 如果你需要按真实客户端 IP 做限流、审计或会话安全判断，先看 [访问限流](/config/rate-limit) 对 `[network_trust].trusted_proxies` 的说明，再把同一组代理地址 / CIDR 同步到你的反向代理拓扑里
 
 本文默认：
 

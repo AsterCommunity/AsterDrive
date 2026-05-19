@@ -5,6 +5,7 @@ import type {
 } from "axios";
 import axios, { AxiosHeaders } from "axios";
 import { config } from "@/config/app";
+import { isCrossTabRefreshAuthFailure } from "@/lib/crossTabRefresh";
 import {
 	type ApiErrorInfo as ApiErrorInfoPayload,
 	type ApiResponse,
@@ -141,12 +142,15 @@ client.interceptors.response.use(
 
 		// 跳过公开端点的自动 refresh（避免把分享页误当成登录态接口）
 		const shouldSkip = shouldSkipRefresh(url);
-		if (error.response?.status === 401 && !original._retry && !shouldSkip) {
+		if (
+			error.response?.status === 401 &&
+			original &&
+			!original._retry &&
+			!shouldSkip
+		) {
 			original._retry = true;
 
-			if (isRefreshing) {
-				await refreshPromise;
-			} else {
+			if (!isRefreshing) {
 				isRefreshing = true;
 				refreshPromise = (async () => {
 					const { useAuthStore } = await import("@/stores/authStore");
@@ -162,7 +166,10 @@ client.interceptors.response.use(
 				return client(original);
 			} catch (refreshError) {
 				// 网络错误（离线）时不强制登出
-				if (!axios.isAxiosError(refreshError) || !refreshError.response) {
+				if (
+					!isCrossTabRefreshAuthFailure(refreshError) &&
+					(!axios.isAxiosError(refreshError) || !refreshError.response)
+				) {
 					return Promise.reject(error);
 				}
 				const { forceLogout } = await import("@/stores/authStore");

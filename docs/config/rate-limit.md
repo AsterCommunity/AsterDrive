@@ -1,14 +1,16 @@
 # 访问限流
 
-::: tip 这一篇覆盖 `[rate_limit]`
+::: tip 这一篇覆盖 `[rate_limit]` 和 `[network_trust]`
 默认关闭。打开后按访问来源 IP 对登录、公开访问、API、写操作分别限流。
-**反向代理后面可以用，但要配 `trusted_proxies`**——不配的话，应用只能看到代理 IP，很容易把所有用户当成同一个来源。
+**反向代理后面可以用，但要配 `network_trust.trusted_proxies`**——不配的话，应用只能看到代理 IP，很容易把所有用户当成同一个来源。
 :::
 
 ```toml
+[network_trust]
+trusted_proxies = []
+
 [rate_limit]
 enabled = false
-trusted_proxies = []
 
 [rate_limit.auth]
 seconds_per_request = 2
@@ -68,7 +70,7 @@ burst_size = 5
 
 ## 反向代理后面怎么配
 
-默认 `trusted_proxies = []` 是最安全的：AsterDrive 忽略 `X-Forwarded-For`，直接按实际连接来源 IP 限流。这样不会被伪造 XFF 绕过，但反代后通常只能看到代理地址。反向代理部署的更完整说明见 [反向代理](/deployment/reverse-proxy#上线前先对齐这几个值)。
+默认 `[network_trust].trusted_proxies = []` 是最安全的配置：AsterDrive 会忽略 `X-Forwarded-For`，直接按实际连接来源 IP 限流，避免被伪造 XFF 绕过；但在反向代理后面，服务端通常只能看到代理地址。反向代理部署的完整说明见 [反向代理](/deployment/reverse-proxy#上线前先对齐这几个值)。
 
 如果你的部署是：
 
@@ -79,9 +81,11 @@ burst_size = 5
 那就把你**自己控制的代理 IP / CIDR** 放进 `trusted_proxies`：
 
 ```toml
+[network_trust]
+trusted_proxies = ["127.0.0.1", "172.16.0.0/12"]
+
 [rate_limit]
 enabled = true
-trusted_proxies = ["127.0.0.1", "172.16.0.0/12"]
 ```
 
 规则很简单：

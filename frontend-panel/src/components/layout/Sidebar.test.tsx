@@ -120,8 +120,16 @@ vi.mock("@/components/ui/progress", () => ({
 }));
 
 vi.mock("@/components/ui/scroll-area", () => ({
-	ScrollArea: ({ children }: { children: React.ReactNode }) => (
-		<div>{children}</div>
+	ScrollArea: ({
+		children,
+		className,
+	}: {
+		children: React.ReactNode;
+		className?: string;
+	}) => (
+		<div data-testid="scroll-area" className={className}>
+			{children}
+		</div>
 	),
 }));
 
@@ -165,6 +173,7 @@ describe("Sidebar", () => {
 			"data-has-move",
 			"false",
 		);
+		expect(screen.getByTestId("scroll-area")).toHaveClass("min-h-32", "flex-1");
 		expect(screen.getByTestId("workspace-switcher")).toHaveAttribute(
 			"data-variant",
 			"sidebar",

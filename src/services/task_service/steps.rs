@@ -20,6 +20,7 @@ pub(super) const TASK_STEP_INSPECT_SOURCE: &str = "inspect_source";
 pub(super) const TASK_STEP_RENDER_THUMBNAIL: &str = "render_thumbnail";
 pub(super) const TASK_STEP_PERSIST_THUMBNAIL: &str = "persist_thumbnail";
 pub(super) const TASK_STEP_CLEANUP_OBJECTS: &str = "cleanup_objects";
+pub(super) const TASK_STEP_PURGE_TRASH: &str = "purge_trash";
 
 #[derive(Debug, Clone, Copy)]
 struct TaskStepSpec {
@@ -99,6 +100,16 @@ fn task_step_specs(kind: BackgroundTaskKind) -> &'static [TaskStepSpec] {
             TaskStepSpec {
                 key: TASK_STEP_PERSIST_THUMBNAIL,
                 title: "Persist thumbnail",
+            },
+        ],
+        BackgroundTaskKind::TrashPurgeAll => &[
+            TaskStepSpec {
+                key: TASK_STEP_WAITING,
+                title: "Waiting",
+            },
+            TaskStepSpec {
+                key: TASK_STEP_PURGE_TRASH,
+                title: "Purge trash",
             },
         ],
         BackgroundTaskKind::StoragePolicyTempCleanup => &[

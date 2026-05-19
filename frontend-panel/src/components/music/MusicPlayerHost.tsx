@@ -46,6 +46,7 @@ const MEDIA_SESSION_ACTIONS: MediaSessionAction[] = [
 ];
 const MUSIC_PLAYER_INTERNAL_SELECTOR =
 	"[data-music-player-surface],[data-music-player-trigger]";
+const BUFFERED_RANGE_CURRENT_TIME_TOLERANCE_SECONDS = 0.5;
 
 function formatPlaybackTime(seconds: number) {
 	if (!Number.isFinite(seconds) || seconds < 0) {
@@ -58,10 +59,15 @@ function formatPlaybackTime(seconds: number) {
 	return `${minutes}:${remainingSeconds.toString().padStart(2, "0")}`;
 }
 
-function rangeFillStyle(value: number): CSSProperties {
-	const percent = Math.min(100, Math.max(0, value));
+function clampPercent(value: number) {
+	return Math.min(100, Math.max(0, value));
+}
+
+function rangeFillStyle(value: number, bufferedValue = value): CSSProperties {
+	const percent = clampPercent(value);
+	const bufferedPercent = Math.max(percent, clampPercent(bufferedValue));
 	return {
-		background: `linear-gradient(to right, var(--color-primary) 0%, var(--color-primary) ${percent}%, var(--color-muted) ${percent}%, var(--color-muted) 100%)`,
+		background: `linear-gradient(to right, var(--color-primary) 0%, var(--color-primary) ${percent}%, color-mix(in oklab, var(--color-primary) 35%, var(--color-muted)) ${percent}%, color-mix(in oklab, var(--color-primary) 35%, var(--color-muted)) ${bufferedPercent}%, var(--color-muted) ${bufferedPercent}%, var(--color-muted) 100%)`,
 	};
 }
 
@@ -190,6 +196,34 @@ function setAudioCurrentTime(
 	}
 
 	audio.currentTime = currentTime;
+}
+
+function bufferedProgressFromAudio(
+	audio: HTMLAudioElement | null,
+	duration: number,
+) {
+	if (!audio || !Number.isFinite(duration) || duration <= 0) return 0;
+
+	const currentTime = Number.isFinite(audio.currentTime)
+		? audio.currentTime
+		: 0;
+	let bufferedEnd = currentTime;
+	const { buffered } = audio;
+	for (let index = 0; index < buffered.length; index += 1) {
+		const rangeStart = buffered.start(index);
+		const rangeEnd = buffered.end(index);
+		if (
+			Number.isFinite(rangeStart) &&
+			Number.isFinite(rangeEnd) &&
+			rangeStart <=
+				currentTime + BUFFERED_RANGE_CURRENT_TIME_TOLERANCE_SECONDS &&
+			rangeEnd > bufferedEnd
+		) {
+			bufferedEnd = rangeEnd;
+		}
+	}
+
+	return clampPercent((bufferedEnd / duration) * 100);
 }
 
 function isMusicPlayerInteractionTarget(
@@ -438,6 +472,7 @@ export function MusicPlayerHost() {
 	const queueUserActivationTrackIdRef = useRef<string | null>(null);
 	const queuePanelId = useId();
 	const detailsPanelId = useId();
+	const [bufferedProgress, setBufferedProgress] = useState(0);
 	const [currentTime, setCurrentTime] = useState(0);
 	const [duration, setDuration] = useState(0);
 	const [detailsOpen, setDetailsOpen] = useState(false);
@@ -499,6 +534,10 @@ export function MusicPlayerHost() {
 		if (errorSkipTimerRef.current === null) return;
 		window.clearTimeout(errorSkipTimerRef.current);
 		errorSkipTimerRef.current = null;
+	}, []);
+
+	const syncBufferedProgress = useCallback((audio: HTMLAudioElement | null) => {
+		setBufferedProgress(bufferedProgressFromAudio(audio, durationRef.current));
 	}, []);
 
 	const scheduleNextAfterPlaybackError = useCallback(
@@ -569,6 +608,7 @@ export function MusicPlayerHost() {
 		if (!trackKey) return;
 		currentTimeRef.current = 0;
 		durationRef.current = 0;
+		setBufferedProgress(0);
 		setCurrentTime(0);
 		setDuration(0);
 		clearPendingErrorSkip();
@@ -868,11 +908,15 @@ export function MusicPlayerHost() {
 				onCanPlay={() => {
 					clearPendingErrorSkip();
 					setError(null);
+					syncBufferedProgress(audioRef.current);
 				}}
 				onDurationChange={(event) => {
 					const nextDuration = event.currentTarget.duration || 0;
 					durationRef.current = nextDuration;
 					setDuration(nextDuration);
+					setBufferedProgress(
+						bufferedProgressFromAudio(event.currentTarget, nextDuration),
+					);
 				}}
 				onEnded={() => {
 					if (playbackMode === "repeat_one") {
@@ -895,6 +939,9 @@ export function MusicPlayerHost() {
 					const nextDuration = event.currentTarget.duration || 0;
 					durationRef.current = nextDuration;
 					setDuration(nextDuration);
+					setBufferedProgress(
+						bufferedProgressFromAudio(event.currentTarget, nextDuration),
+					);
 				}}
 				onPause={() => setPlaying(false)}
 				onPlay={() => {
@@ -903,10 +950,14 @@ export function MusicPlayerHost() {
 					setPlaying(true);
 					setPlaybackRequested(true);
 				}}
+				onProgress={(event) => {
+					syncBufferedProgress(event.currentTarget);
+				}}
 				onTimeUpdate={(event) => {
 					const nextTime = event.currentTarget.currentTime || 0;
 					currentTimeRef.current = nextTime;
 					setCurrentTime(nextTime);
+					syncBufferedProgress(event.currentTarget);
 				}}
 			/>
 
@@ -999,7 +1050,7 @@ export function MusicPlayerHost() {
 									onPointerDown={beginSeek}
 									onPointerUp={endSeek}
 									aria-label={t("music_player_seek")}
-									style={rangeFillStyle(progress)}
+									style={rangeFillStyle(progress, bufferedProgress)}
 									className={cn(
 										"h-2 w-full cursor-pointer appearance-none rounded-full accent-primary",
 										duration <= 0 && "cursor-default opacity-60",

@@ -7,10 +7,8 @@ mod execute;
 mod storage_scan;
 
 use crate::errors::Result;
-use crate::errors::{AsterError, MapAsterErr};
 use crate::services::integrity_service;
 use clap::{Args, ValueEnum};
-use sea_orm::{ConnectionTrait, DbBackend, Statement};
 use serde::Serialize;
 
 use super::shared::{
@@ -260,13 +258,13 @@ async fn doctor_sqlite_search_check(
             name: "sqlite_search_acceleration",
             label: "SQLite search acceleration",
             status: DoctorStatus::Fail,
-                summary: "SQLite search acceleration objects are missing".to_string(),
-                details: status.detail_lines(),
-                suggestion: Some(
+            summary: "SQLite search acceleration objects are missing".to_string(),
+            details: status.detail_lines(),
+            suggestion: Some(
                 "Apply the latest migrations and restore the files_name_fts / folders_name_fts / users_search_fts / teams_search_fts objects if they were removed manually."
                     .to_string(),
-                ),
-            },
+            ),
+        },
         Ok(None) => DoctorCheck {
             name: "sqlite_search_acceleration",
             label: "SQLite search acceleration",
@@ -287,170 +285,6 @@ async fn doctor_sqlite_search_check(
             ),
         },
     }
-}
-
-const MYSQL_DATETIME_FIX_RISK_TABLES: &[&str] = &[
-    "users",
-    "storage_policies",
-    "user_storage_policies",
-    "folders",
-    "file_blobs",
-    "files",
-    "system_config",
-    "shares",
-    "upload_sessions",
-    "webdav_accounts",
-    "webdav_locks",
-    "file_versions",
-    "resource_locks",
-    "audit_logs",
-    "user_profiles",
-    "upload_session_parts",
-    "storage_policy_groups",
-    "storage_policy_group_items",
-    "teams",
-    "team_members",
-    "contact_verification_tokens",
-    "external_auth_providers",
-    "external_auth_identities",
-    "external_auth_login_flows",
-    "external_auth_email_verification_flows",
-    "mail_outbox",
-    "background_tasks",
-    "wopi_sessions",
-];
-
-async fn doctor_mysql_datetime_alter_risk_check(
-    db: &sea_orm::DatabaseConnection,
-    pending_migrations: &[String],
-) -> Result<DoctorCheck> {
-    if db.get_database_backend() != DbBackend::MySql {
-        return Ok(doctor_check(
-            "mysql_datetime_alter_risk",
-            "MySQL datetime ALTER risk",
-            DoctorStatus::Ok,
-            "not applicable",
-            Vec::new(),
-            None,
-        ));
-    }
-
-    if !pending_migrations
-        .iter()
-        .any(|name| name == migration::MYSQL_UTC_DATETIME_FIX_MIGRATION_NAME)
-    {
-        return Ok(doctor_check(
-            "mysql_datetime_alter_risk",
-            "MySQL datetime ALTER risk",
-            DoctorStatus::Ok,
-            "DATETIME(6) fix migration is not pending",
-            Vec::new(),
-            None,
-        ));
-    }
-
-    let table_filter = MYSQL_DATETIME_FIX_RISK_TABLES
-        .iter()
-        .map(|table| format!("'{}'", table.replace('\'', "''")))
-        .collect::<Vec<_>>()
-        .join(", ");
-    let sql = format!(
-        "SELECT table_name, \
-                COALESCE(table_rows, 0) AS table_rows, \
-                COALESCE(data_length, 0) + COALESCE(index_length, 0) AS total_bytes \
-         FROM information_schema.tables \
-         WHERE table_schema = DATABASE() \
-           AND table_name IN ({table_filter}) \
-         ORDER BY total_bytes DESC, table_rows DESC, table_name"
-    );
-    let rows = db
-        .query_all_raw(Statement::from_string(DbBackend::MySql, sql))
-        .await
-        .map_aster_err(AsterError::database_operation)?;
-
-    let mut details = Vec::new();
-    let mut at_risk = false;
-    for row in rows {
-        let table_name = row
-            .try_get_by_index::<String>(0)
-            .map_aster_err(AsterError::database_operation)?;
-        let approximate_rows = decode_row_metric(&row, 1)?;
-        let total_bytes = decode_row_metric(&row, 2)?;
-        if approximate_rows >= 100_000
-            || total_bytes >= 256 * 1024 * 1024
-            || matches!(table_name.as_str(), "files" | "file_blobs")
-                && (approximate_rows > 0 || total_bytes > 0)
-        {
-            at_risk = true;
-        }
-        details.push(format!(
-            "{} approx_rows={} size={}",
-            table_name,
-            approximate_rows,
-            format_bytes(total_bytes)
-        ));
-    }
-
-    Ok(doctor_check(
-        "mysql_datetime_alter_risk",
-        "MySQL datetime ALTER risk",
-        if at_risk {
-            DoctorStatus::Warn
-        } else {
-            DoctorStatus::Ok
-        },
-        if at_risk {
-            "pending DATETIME(6) fix may rebuild large MySQL tables".to_string()
-        } else {
-            "pending DATETIME(6) fix only targets small MySQL tables".to_string()
-        },
-        details,
-        Some(
-            "Plan a maintenance window for m20260415_000004_fix_mysql_utc_datetime_columns, or run the ALTER through gh-ost / pt-online-schema-change before upgrading."
-                .to_string(),
-        ),
-    ))
-}
-
-fn decode_row_metric(row: &sea_orm::QueryResult, index: usize) -> Result<i64> {
-    if let Ok(value) = row.try_get_by_index::<i64>(index) {
-        return Ok(value);
-    }
-    if let Ok(value) = row.try_get_by_index::<i32>(index) {
-        return Ok(i64::from(value));
-    }
-    if let Ok(value) = row.try_get_by_index::<u64>(index) {
-        return i64::try_from(value).map_err(|_| {
-            crate::errors::AsterError::database_operation(format!(
-                "metric value {value} does not fit into i64"
-            ))
-        });
-    }
-    if let Ok(value) = row.try_get_by_index::<u32>(index) {
-        return Ok(i64::from(value));
-    }
-
-    Err(crate::errors::AsterError::database_operation(
-        "failed to decode MySQL metadata metric".to_string(),
-    ))
-}
-
-fn format_bytes(bytes: i64) -> String {
-    const KIB: i64 = 1024;
-    const MIB: i64 = 1024 * 1024;
-    const GIB: i64 = 1024 * 1024 * 1024;
-
-    if bytes >= GIB {
-        return format!("{:.1} GiB", bytes as f64 / GIB as f64);
-    }
-    if bytes >= MIB {
-        return format!("{:.1} MiB", bytes as f64 / MIB as f64);
-    }
-    if bytes >= KIB {
-        return format!("{:.1} KiB", bytes as f64 / KIB as f64);
-    }
-
-    format!("{bytes} B")
 }
 
 /// Renders a successful doctor report in the requested output format.

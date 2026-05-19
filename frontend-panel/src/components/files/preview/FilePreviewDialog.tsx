@@ -297,7 +297,7 @@ export function FilePreviewDialog({
 	}, []);
 
 	useEffect(() => {
-		if (showOpenMethodChooser || !isDialogAnimationEnabled) {
+		if (!open || showOpenMethodChooser || !isDialogAnimationEnabled) {
 			return;
 		}
 
@@ -308,7 +308,7 @@ export function FilePreviewDialog({
 		return () => {
 			window.clearTimeout(timer);
 		};
-	}, [isDialogAnimationEnabled, showOpenMethodChooser]);
+	}, [isDialogAnimationEnabled, open, showOpenMethodChooser]);
 
 	const handleDialogOpenChange = useCallback(
 		(open: boolean) => {

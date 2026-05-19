@@ -14,7 +14,7 @@ use super::types::{
     RuntimeSystemHealthResult, RuntimeTaskPayload, RuntimeTaskResult, serialize_task_payload,
     serialize_task_result,
 };
-use super::{task_expiration_from, truncate_error, truncate_status_text};
+use super::{task_expiration_from, truncate_display_name, truncate_error, truncate_status_text};
 
 const SYSTEM_HEALTH_TASK_NAME: &str = "system-health-check";
 
@@ -176,7 +176,7 @@ pub async fn record_runtime_task_run(
             creator_user_id: Set(None),
             team_id: Set(None),
             share_id: Set(None),
-            display_name: Set(runtime_task_display_name(task_name)),
+            display_name: Set(truncate_display_name(&runtime_task_display_name(task_name))),
             payload_json: Set(payload_json),
             result_json: Set(Some(result_json)),
             steps_json: Set(None),

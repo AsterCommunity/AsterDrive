@@ -66,6 +66,7 @@ const TASK_KIND_FILTER_VALUES = [
 	"archive_compress",
 	"archive_preview_generate",
 	"thumbnail_generate",
+	"trash_purge_all",
 	"system_runtime",
 ] as const;
 const TASK_STATUS_FILTER_VALUES = [
@@ -359,6 +360,8 @@ export default function AdminTasksPage() {
 				return t("tasks:kind_archive_preview_generate");
 			case "thumbnail_generate":
 				return t("tasks:kind_thumbnail_generate");
+			case "trash_purge_all":
+				return t("tasks:kind_trash_purge_all");
 			case "system_runtime":
 				return t("tasks:kind_system_runtime");
 			default:

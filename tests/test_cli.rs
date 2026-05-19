@@ -21,7 +21,7 @@ use aster_drive::types::{
     StoredStoragePolicyOptions, VerificationChannel, VerificationPurpose,
 };
 use chrono::{Duration, Utc};
-use migration::{CurrentMigrator, Migrator, MigratorTrait};
+use migration::Migrator;
 use sea_orm::{
     ActiveModelTrait, ConnectionTrait, DatabaseConnection, DbBackend, EntityTrait, Set, Statement,
 };
@@ -35,8 +35,6 @@ const MIGRATION_REMOTE_NODE_NAME: &str = "MigratedRemoteNode";
 const MIGRATION_REMOTE_POLICY_NAME: &str = "MigratedRemotePolicy";
 const MIGRATION_MASTER_BINDING_NAME: &str = "MigratedMasterBinding";
 const MIGRATION_MASTER_STORAGE_NAMESPACE: &str = "mb_migrate_remote_space";
-const PRE_RC1_SQLITE_OBJECTS: &str = include_str!("fixtures/migration/pre_rc1_sqlite_objects.txt");
-const PRE_RC1_SQLITE_COLUMNS: &str = include_str!("fixtures/migration/pre_rc1_sqlite_columns.txt");
 
 async fn setup_database_url() -> String {
     let db_path =
@@ -75,52 +73,6 @@ async fn setup_ready_database_url() -> String {
     let url = format!("sqlite://{}?mode=rwc", db_path.display());
     let _state = common::setup_with_database_url(&url).await;
     url
-}
-
-async fn setup_pre_rc1_database_url() -> String {
-    let database_url = setup_empty_database_url("asterdrive-cli-pre-rc1-test").await;
-    let db = db::connect(&DatabaseConfig {
-        url: database_url.clone(),
-        pool_size: 1,
-        retry_count: 0,
-    })
-    .await
-    .unwrap();
-    CurrentMigrator::up(&db, Some(1)).await.unwrap();
-    rewrite_migration_history(&db, &migration::pre_rc1_migration_names()).await;
-    db.close().await.unwrap();
-    database_url
-}
-
-async fn setup_rebased_baseline_database_url(prefix: &str) -> String {
-    let database_url = setup_empty_database_url(prefix).await;
-    let db = db::connect(&DatabaseConfig {
-        url: database_url.clone(),
-        pool_size: 1,
-        retry_count: 0,
-    })
-    .await
-    .unwrap();
-    CurrentMigrator::up(&db, Some(1)).await.unwrap();
-    db.close().await.unwrap();
-    database_url
-}
-
-async fn rewrite_migration_history(db: &DatabaseConnection, versions: &[String]) {
-    let backend = db.get_database_backend();
-    db.execute_unprepared("DELETE FROM seaql_migrations")
-        .await
-        .unwrap();
-
-    for version in versions {
-        db.execute_raw(Statement::from_sql_and_values(
-            backend,
-            "INSERT INTO seaql_migrations (version, applied_at) VALUES (?, ?)",
-            [version.clone().into(), 1_i64.into()],
-        ))
-        .await
-        .unwrap();
-    }
 }
 
 fn run_aster_drive(args: &[&str]) -> std::process::Output {
@@ -226,67 +178,6 @@ async fn applied_migration_versions(db: &DatabaseConnection, backend: DbBackend)
     .into_iter()
     .map(|row| row.try_get_by_index::<String>(0).unwrap())
     .collect()
-}
-
-async fn sqlite_schema_object_keys(db: &DatabaseConnection) -> Vec<String> {
-    let mut rows: Vec<String> = db
-        .query_all_raw(Statement::from_string(
-            DbBackend::Sqlite,
-            "SELECT type, name, tbl_name \
-             FROM sqlite_master \
-             WHERE name NOT LIKE 'sqlite_%' \
-               AND name <> 'seaql_migrations' \
-             ORDER BY type, name",
-        ))
-        .await
-        .unwrap()
-        .into_iter()
-        .map(|row| {
-            let object_type: String = row.try_get_by_index(0).unwrap();
-            let name: String = row.try_get_by_index(1).unwrap();
-            let table_name: String = row.try_get_by_index(2).unwrap();
-            format!("{object_type}|{name}|{table_name}")
-        })
-        .collect();
-    rows.sort();
-    rows
-}
-
-async fn sqlite_schema_columns(db: &DatabaseConnection) -> Vec<String> {
-    let table_names = db
-        .query_all_raw(Statement::from_string(
-            DbBackend::Sqlite,
-            "SELECT name \
-             FROM sqlite_master \
-             WHERE type = 'table' \
-               AND name NOT LIKE 'sqlite_%' \
-               AND name <> 'seaql_migrations' \
-             ORDER BY name",
-        ))
-        .await
-        .unwrap()
-        .into_iter()
-        .map(|row| row.try_get_by_index::<String>(0).unwrap())
-        .collect::<Vec<_>>();
-
-    let mut columns = Vec::new();
-    for table_name in table_names {
-        let pragma = format!("PRAGMA table_info({})", quote_sqlite_ident(&table_name));
-        let rows = db
-            .query_all_raw(Statement::from_string(DbBackend::Sqlite, pragma))
-            .await
-            .unwrap();
-        for row in rows {
-            let column_name: String = row.try_get_by_index(1).unwrap();
-            columns.push(format!("{table_name}|{column_name}"));
-        }
-    }
-    columns.sort();
-    columns
-}
-
-fn quote_sqlite_ident(identifier: &str) -> String {
-    format!("\"{}\"", identifier.replace('"', "\"\""))
 }
 
 async fn seed_migration_fixture(database_url: &str) -> i64 {
@@ -1026,7 +917,7 @@ async fn test_root_binary_doctor_reports_sqlite_search_acceleration_ready() {
 }
 
 #[tokio::test]
-async fn test_rebased_migrations_use_baseline_for_fresh_install() {
+async fn test_migrations_use_current_baseline_for_fresh_install() {
     let database_url = setup_empty_database_url("asterdrive-cli-fresh-baseline-test").await;
     let db = db::connect(&DatabaseConfig {
         url: database_url.clone(),
@@ -1045,51 +936,21 @@ async fn test_rebased_migrations_use_baseline_for_fresh_install() {
 }
 
 #[tokio::test]
-async fn test_rebased_migrations_rewrite_complete_pre_rc1_history() {
-    let database_url = setup_pre_rc1_database_url().await;
+async fn test_migrations_reject_unsupported_historical_migration_history() {
+    let database_url = setup_empty_database_url("asterdrive-cli-old-migration-test").await;
     let db = db::connect(&DatabaseConfig {
         url: database_url.clone(),
-        pool_size: 1,
-        retry_count: 0,
-    })
-    .await
-    .unwrap();
-    let pre_rc1_versions = applied_migration_versions(&db, DbBackend::Sqlite).await;
-    assert!(
-        pre_rc1_versions.len() > 1,
-        "pre-rc.1 fixture should start with historical migration rows"
-    );
-    db.close().await.unwrap();
-
-    let db = db::connect(&DatabaseConfig {
-        url: database_url,
         pool_size: 1,
         retry_count: 0,
     })
     .await
     .unwrap();
     Migrator::up(&db, None).await.unwrap();
-    let versions = applied_migration_versions(&db, DbBackend::Sqlite).await;
-    assert_eq!(
-        versions,
-        migration::current_migration_names(),
-        "complete pre-rc.1 history should be replaced by current migration stamps"
-    );
-}
-
-#[tokio::test]
-async fn test_rebased_migrations_reject_incomplete_pre_rc1_history() {
-    let database_url = setup_pre_rc1_database_url().await;
-    let db = db::connect(&DatabaseConfig {
-        url: database_url.clone(),
-        pool_size: 1,
-        retry_count: 0,
-    })
-    .await
-    .unwrap();
-    db.execute_unprepared(
-        "DELETE FROM seaql_migrations WHERE version = 'm20260511_000001_add_background_task_failure_can_retry'",
-    )
+    db.execute_raw(Statement::from_sql_and_values(
+        DbBackend::Sqlite,
+        "INSERT INTO seaql_migrations (version, applied_at) VALUES (?, ?)",
+        ["m20260502_000001_baseline_schema".into(), 1_i64.into()],
+    ))
     .await
     .unwrap();
     db.close().await.unwrap();
@@ -1103,47 +964,78 @@ async fn test_rebased_migrations_reject_incomplete_pre_rc1_history() {
     .unwrap();
     let error = Migrator::up(&db, None)
         .await
-        .expect_err("incomplete pre-rc.1 history should be rejected");
+        .expect_err("unsupported historical migration rows should be rejected");
     let stderr = error.to_string();
     assert!(
-        stderr.contains("pre-rc.1"),
-        "error should tell operators to upgrade to pre-rc.1 first: {stderr}"
+        stderr.contains("m20260502_000001_baseline_schema"),
+        "error should include the unsupported migration name: {stderr}"
     );
     assert!(
-        stderr.contains("m20260511_000001_add_background_task_failure_can_retry"),
-        "error should include the missing migration name: {stderr}"
+        stderr.contains("unknown migration versions"),
+        "error should explain that historical migration rows are no longer accepted: {stderr}"
     );
 }
 
 #[tokio::test]
-async fn test_rebased_baseline_matches_pre_rc1_sqlite_schema_shape() {
-    let baseline_url =
-        setup_rebased_baseline_database_url("asterdrive-cli-baseline-schema-test").await;
-    let baseline_db = db::connect(&DatabaseConfig {
-        url: baseline_url,
+async fn test_migrations_reject_non_prefix_current_migration_history() {
+    let database_url = setup_empty_database_url("asterdrive-cli-non-prefix-migration-test").await;
+    let db = db::connect(&DatabaseConfig {
+        url: database_url,
         pool_size: 1,
         retry_count: 0,
     })
     .await
     .unwrap();
-    let baseline_objects = sqlite_schema_object_keys(&baseline_db).await;
-    let baseline_columns = sqlite_schema_columns(&baseline_db).await;
-    let pre_rc1_objects = PRE_RC1_SQLITE_OBJECTS
-        .lines()
-        .map(str::to_string)
-        .collect::<Vec<_>>();
-    let pre_rc1_columns = PRE_RC1_SQLITE_COLUMNS
-        .lines()
-        .map(str::to_string)
-        .collect::<Vec<_>>();
+    Migrator::up(&db, None).await.unwrap();
+    let current_names = migration::current_migration_names();
+    db.execute_raw(Statement::from_sql_and_values(
+        DbBackend::Sqlite,
+        "DELETE FROM seaql_migrations WHERE version = ?",
+        [current_names[0].clone().into()],
+    ))
+    .await
+    .unwrap();
 
-    assert_eq!(
-        baseline_objects, pre_rc1_objects,
-        "rebased baseline schema must keep the same SQLite object set as fully-applied pre-rc.1"
+    let history = migration::inspect_migration_history(&db).await.unwrap();
+    assert_eq!(history.track, migration::MigrationTrack::Unknown);
+
+    let error = Migrator::up(&db, None)
+        .await
+        .expect_err("non-prefix migration history should be rejected");
+    let stderr = error.to_string();
+    assert!(
+        stderr.contains("non-prefix migration history"),
+        "error should identify the non-prefix migration history: {stderr}"
     );
-    assert_eq!(
-        baseline_columns, pre_rc1_columns,
-        "rebased baseline schema must keep the same SQLite table columns as fully-applied pre-rc.1"
+}
+
+#[tokio::test]
+async fn test_migrations_reject_existing_schema_with_empty_history() {
+    let database_url = setup_empty_database_url("asterdrive-cli-empty-history-schema-test").await;
+    let db = db::connect(&DatabaseConfig {
+        url: database_url,
+        pool_size: 1,
+        retry_count: 0,
+    })
+    .await
+    .unwrap();
+    db.execute_raw(Statement::from_string(
+        DbBackend::Sqlite,
+        "CREATE TABLE users (id INTEGER PRIMARY KEY)".to_string(),
+    ))
+    .await
+    .unwrap();
+
+    let history = migration::inspect_migration_history(&db).await.unwrap();
+    assert_eq!(history.track, migration::MigrationTrack::Unknown);
+
+    let error = Migrator::up(&db, None)
+        .await
+        .expect_err("existing schema with empty history should be rejected");
+    let stderr = error.to_string();
+    assert!(
+        stderr.contains("empty migration history with existing schema objects"),
+        "error should identify existing schema objects without migration history: {stderr}"
     );
 }
 

@@ -6,27 +6,18 @@ pub use sea_orm_migration::prelude::*;
 
 use sea_orm_migration::sea_orm::{
     ConnectionTrait as SeaConnectionTrait, DatabaseConnection, DbBackend, Statement,
-    TransactionTrait,
 };
 
-mod legacy;
 mod m20260512_000001_baseline_schema;
 mod m20260515_000001_add_passkeys;
 mod m20260517_000001_add_external_auth;
 mod m20260518_000001_add_file_type_filters;
 mod m20260518_000002_expand_audit_entity_type;
+mod m20260519_000001_expand_background_task_display_name;
 mod search_acceleration;
 mod time;
 
 pub const BASELINE_MIGRATION_NAME: &str = "m20260512_000001_baseline_schema";
-pub const MYSQL_UTC_DATETIME_FIX_MIGRATION_NAME: &str =
-    legacy::MYSQL_UTC_DATETIME_FIX_MIGRATION_NAME;
-const OLD_BASELINE_MIGRATION_NAME: &str = "m20260502_000001_baseline_schema";
-const PRE_RC1_MIGRATION_NAMES: &[&str] = &[
-    OLD_BASELINE_MIGRATION_NAME,
-    "m20260508_000001_split_file_folder_owner_provenance",
-    "m20260511_000001_add_background_task_failure_can_retry",
-];
 
 const MIGRATION_TABLE: &str = "seaql_migrations";
 const APPLICATION_SCHEMA_SENTINELS: &[&str] = &[
@@ -43,20 +34,22 @@ pub struct CurrentMigrator;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MigrationTrack {
     Empty,
-    Baseline,
-    PreRc1Complete,
-    PreRc1Incomplete,
-    Mixed,
+    Current,
+    Unknown,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum EmptyDatabaseState {
+    Empty,
+    HasObjects,
 }
 
 impl MigrationTrack {
     pub fn label(self) -> &'static str {
         match self {
             Self::Empty => "empty",
-            Self::Baseline => "baseline",
-            Self::PreRc1Complete => "pre_rc1_complete",
-            Self::PreRc1Incomplete => "pre_rc1_incomplete",
-            Self::Mixed => "mixed",
+            Self::Current => "current",
+            Self::Unknown => "unknown",
         }
     }
 }
@@ -66,31 +59,16 @@ pub struct MigrationHistory {
     pub track: MigrationTrack,
     pub applied: Vec<String>,
     pub pending_current: Vec<String>,
-    pub pending_pre_rc1: Vec<String>,
     pub unknown_applied: Vec<String>,
 }
 
 impl MigrationHistory {
     pub fn effective_pending(&self) -> &[String] {
-        match self.track {
-            MigrationTrack::PreRc1Incomplete => &self.pending_pre_rc1,
-            MigrationTrack::Empty
-            | MigrationTrack::Baseline
-            | MigrationTrack::PreRc1Complete
-            | MigrationTrack::Mixed => &self.pending_current,
-        }
+        &self.pending_current
     }
 
     pub fn has_unknown_applied(&self) -> bool {
         !self.unknown_applied.is_empty()
-    }
-
-    pub fn has_inconsistent_baseline_stamp(&self) -> bool {
-        self.track == MigrationTrack::Mixed
-    }
-
-    pub fn is_pre_rc1_incomplete(&self) -> bool {
-        self.track == MigrationTrack::PreRc1Incomplete
     }
 }
 
@@ -121,6 +99,7 @@ impl MigratorTrait for CurrentMigrator {
             Box::new(m20260517_000001_add_external_auth::Migration),
             Box::new(m20260518_000001_add_file_type_filters::Migration),
             Box::new(m20260518_000002_expand_audit_entity_type::Migration),
+            Box::new(m20260519_000001_expand_background_task_display_name::Migration),
         ]
     }
 }
@@ -132,99 +111,76 @@ pub fn current_migration_names() -> Vec<String> {
         .collect()
 }
 
-pub fn pre_rc1_migration_names() -> Vec<String> {
-    PRE_RC1_MIGRATION_NAMES
-        .iter()
-        .map(|name| (*name).to_string())
-        .collect()
-}
-
-pub fn recognized_migration_names() -> Vec<String> {
-    let mut names = pre_rc1_migration_names();
-    for current in current_migration_names() {
-        if !names.iter().any(|name| name == &current) {
-            names.push(current);
-        }
-    }
-    names
-}
-
 pub async fn inspect_migration_history<C>(db: &C) -> Result<MigrationHistory, DbErr>
 where
     C: SeaConnectionTrait,
 {
     let applied = applied_migrations(db, db.get_database_backend()).await?;
     let current_names = current_migration_names();
-    let pre_rc1_names = pre_rc1_migration_names();
 
-    let applied_lookup = applied
-        .iter()
-        .map(String::as_str)
-        .collect::<std::collections::HashSet<_>>();
     let current_lookup = current_names
-        .iter()
-        .map(String::as_str)
-        .collect::<std::collections::HashSet<_>>();
-    let pre_rc1_lookup = pre_rc1_names
         .iter()
         .map(String::as_str)
         .collect::<std::collections::HashSet<_>>();
 
     let unknown_applied = applied
         .iter()
-        .filter(|name| {
-            !current_lookup.contains(name.as_str()) && !pre_rc1_lookup.contains(name.as_str())
-        })
+        .filter(|name| !current_lookup.contains(name.as_str()))
         .cloned()
         .collect::<Vec<_>>();
 
-    let pending_current = current_names
-        .iter()
-        .filter(|name| !applied_lookup.contains(name.as_str()))
-        .cloned()
-        .collect::<Vec<_>>();
-    let pending_pre_rc1 = pre_rc1_names
-        .iter()
-        .filter(|name| !applied_lookup.contains(name.as_str()))
-        .cloned()
-        .collect::<Vec<_>>();
+    let is_current_prefix = applied.len() <= current_names.len()
+        && applied
+            .iter()
+            .zip(current_names.iter())
+            .all(|(applied_name, current_name)| applied_name == current_name);
 
-    let baseline_applied = applied_lookup.contains(BASELINE_MIGRATION_NAME);
-    let has_pre_rc1_rows = applied
-        .iter()
-        .any(|name| pre_rc1_lookup.contains(name.as_str()));
+    let pending_current = if is_current_prefix {
+        current_names
+            .iter()
+            .skip(applied.len())
+            .cloned()
+            .collect::<Vec<_>>()
+    } else {
+        Vec::new()
+    };
 
     let track = if applied.is_empty() {
-        MigrationTrack::Empty
-    } else if baseline_applied {
-        if has_pre_rc1_rows {
-            MigrationTrack::Mixed
-        } else {
-            MigrationTrack::Baseline
+        match inspect_empty_database_state(db).await? {
+            EmptyDatabaseState::Empty => MigrationTrack::Empty,
+            EmptyDatabaseState::HasObjects => MigrationTrack::Unknown,
         }
-    } else if has_pre_rc1_rows && pending_pre_rc1.is_empty() {
-        MigrationTrack::PreRc1Complete
-    } else if has_pre_rc1_rows {
-        MigrationTrack::PreRc1Incomplete
+    } else if unknown_applied.is_empty() && is_current_prefix {
+        MigrationTrack::Current
     } else {
-        MigrationTrack::Mixed
+        MigrationTrack::Unknown
     };
 
     Ok(MigrationHistory {
         track,
         applied,
         pending_current,
-        pending_pre_rc1,
         unknown_applied,
     })
 }
 
+async fn inspect_empty_database_state<C>(db: &C) -> Result<EmptyDatabaseState, DbErr>
+where
+    C: SeaConnectionTrait,
+{
+    if migration_table_exists(db).await? || application_schema_exists(db).await? {
+        Ok(EmptyDatabaseState::HasObjects)
+    } else {
+        Ok(EmptyDatabaseState::Empty)
+    }
+}
+
 pub async fn apply_database_migrations(database: &DatabaseConnection) -> Result<(), DbErr> {
     let history = inspect_migration_history(database).await?;
-    if history.has_unknown_applied() {
+    if history.track == MigrationTrack::Unknown {
         return Err(migration_state_error(format!(
             "database contains unknown migration versions: {}",
-            history.unknown_applied.join(", ")
+            unsupported_migration_versions_label(&history)
         )));
     }
 
@@ -235,127 +191,34 @@ pub async fn apply_database_migrations(database: &DatabaseConnection) -> Result<
             {
                 return Err(migration_state_error(
                     "database contains migration metadata or application tables but migration \
-                     history is empty; first upgrade to the last pre-rc.1 build and apply all \
-                     migrations, then upgrade to this version"
+                     history is empty; restore a backup or run a supported intermediate release \
+                     before upgrading to this version"
                         .to_string(),
                 ));
             }
             <CurrentMigrator as MigratorTrait>::up(database, None).await?;
             Ok(())
         }
-        MigrationTrack::Baseline => {
+        MigrationTrack::Current => {
             <CurrentMigrator as MigratorTrait>::up(database, None).await?;
             Ok(())
         }
-        MigrationTrack::PreRc1Complete => {
-            validate_pre_rc1_rebase_schema(database).await?;
-            rewrite_migration_history_to_baseline(database).await?;
-            <CurrentMigrator as MigratorTrait>::up(database, None).await
-        }
-        MigrationTrack::PreRc1Incomplete => Err(migration_state_error(format!(
-            "database migration history is not fully upgraded to the last pre-rc.1 migration set; \
-             first run the last pre-rc.1 build and apply all migrations, then upgrade to this version. \
-             missing migrations: {}",
-            history.pending_pre_rc1.join(", ")
+        MigrationTrack::Unknown => Err(migration_state_error(format!(
+            "database contains unsupported migration versions: {}. Upgrade from a supported \
+             release line or restore a backup before continuing",
+            unsupported_migration_versions_label(&history)
         ))),
-        MigrationTrack::Mixed => Err(migration_state_error(
-            "database migration history mixes rebased baseline and pre-rc.1 migrations; \
-             restore a backup or contact maintainers before continuing"
-                .to_string(),
-        )),
     }
 }
 
-async fn validate_pre_rc1_rebase_schema(database: &DatabaseConnection) -> Result<(), DbErr> {
-    let backend = database.get_database_backend();
-    for table_name in [
-        "auth_sessions",
-        "managed_ingress_profiles",
-        "master_bindings",
-    ] {
-        if !table_exists(database, backend, table_name).await? {
-            return Err(rebase_required_error(format!(
-                "expected table '{table_name}' is missing"
-            )));
-        }
+fn unsupported_migration_versions_label(history: &MigrationHistory) -> String {
+    if !history.unknown_applied.is_empty() {
+        history.unknown_applied.join(", ")
+    } else if history.applied.is_empty() {
+        "<empty migration history with existing schema objects>".to_string()
+    } else {
+        "<non-prefix migration history>".to_string()
     }
-
-    if column_exists(database, backend, "master_bindings", "ingress_policy_id").await? {
-        return Err(rebase_required_error(
-            "master_bindings.ingress_policy_id still exists".to_string(),
-        ));
-    }
-
-    for (table_name, column_name) in [
-        ("folders", "owner_user_id"),
-        ("folders", "created_by_user_id"),
-        ("folders", "created_by_username"),
-        ("files", "owner_user_id"),
-        ("files", "created_by_user_id"),
-        ("files", "created_by_username"),
-        ("background_tasks", "failure_can_retry"),
-    ] {
-        if !column_exists(database, backend, table_name, column_name).await? {
-            return Err(rebase_required_error(format!(
-                "expected column '{table_name}.{column_name}' is missing"
-            )));
-        }
-    }
-
-    for (table_name, column_name) in [("folders", "user_id"), ("files", "user_id")] {
-        if column_exists(database, backend, table_name, column_name).await? {
-            return Err(rebase_required_error(format!(
-                "{table_name}.{column_name} still exists"
-            )));
-        }
-    }
-
-    if backend == DbBackend::MySql {
-        let timestamp_columns = scalar_i64(
-            database,
-            backend,
-            "SELECT COUNT(*) \
-             FROM information_schema.columns \
-             WHERE table_schema = DATABASE() \
-               AND table_name <> 'seaql_migrations' \
-               AND data_type = 'timestamp'",
-        )
-        .await?;
-        if timestamp_columns != 0 {
-            return Err(rebase_required_error(format!(
-                "MySQL schema still has {timestamp_columns} TIMESTAMP column(s)"
-            )));
-        }
-    }
-
-    Ok(())
-}
-
-async fn rewrite_migration_history_to_baseline(database: &DatabaseConnection) -> Result<(), DbErr> {
-    let backend = database.get_database_backend();
-    let txn = database.begin().await?;
-    txn.execute_unprepared(&format!(
-        "DELETE FROM {}",
-        quote_ident(backend, MIGRATION_TABLE)
-    ))
-    .await?;
-
-    let sql = format!(
-        "INSERT INTO {} ({}, {}) VALUES (?, ?)",
-        quote_ident(backend, MIGRATION_TABLE),
-        quote_ident(backend, "version"),
-        quote_ident(backend, "applied_at"),
-    );
-    let applied_at = current_unix_timestamp()?;
-    txn.execute_raw(Statement::from_sql_and_values(
-        backend,
-        sql,
-        [BASELINE_MIGRATION_NAME.into(), applied_at.into()],
-    ))
-    .await?;
-    txn.commit().await?;
-
-    Ok(())
 }
 
 async fn application_schema_exists<C>(db: &C) -> Result<bool, DbErr>
@@ -376,71 +239,6 @@ where
     C: SeaConnectionTrait,
 {
     table_exists(db, db.get_database_backend(), MIGRATION_TABLE).await
-}
-
-async fn column_exists<C>(
-    db: &C,
-    backend: DbBackend,
-    table_name: &str,
-    column_name: &str,
-) -> Result<bool, DbErr>
-where
-    C: SeaConnectionTrait,
-{
-    let sql = match backend {
-        DbBackend::Sqlite => format!(
-            "SELECT CASE WHEN EXISTS(SELECT 1 FROM pragma_table_info({}) WHERE name = {}) THEN 1 ELSE 0 END",
-            quote_literal(table_name),
-            quote_literal(column_name)
-        ),
-        DbBackend::Postgres => format!(
-            "SELECT CASE WHEN EXISTS(SELECT 1 FROM information_schema.columns \
-             WHERE table_schema = current_schema() \
-               AND table_name = {} \
-               AND column_name = {}) THEN 1 ELSE 0 END",
-            quote_literal(table_name),
-            quote_literal(column_name)
-        ),
-        DbBackend::MySql => format!(
-            "SELECT CASE WHEN EXISTS(SELECT 1 FROM information_schema.columns \
-             WHERE table_schema = DATABASE() \
-               AND table_name = {} \
-               AND column_name = {}) THEN 1 ELSE 0 END",
-            quote_literal(table_name),
-            quote_literal(column_name)
-        ),
-        _ => {
-            return Err(migration_state_error(
-                "unsupported database backend for migration column inspection".to_string(),
-            ));
-        }
-    };
-
-    scalar_i64(db, backend, &sql).await.map(|value| value != 0)
-}
-
-async fn scalar_i64<C>(db: &C, backend: DbBackend, sql: &str) -> Result<i64, DbErr>
-where
-    C: SeaConnectionTrait,
-{
-    let row = db
-        .query_one_raw(Statement::from_string(backend, sql.to_string()))
-        .await?
-        .ok_or_else(|| migration_state_error("scalar query returned no rows".to_string()))?;
-
-    if let Ok(value) = row.try_get_by_index::<i64>(0) {
-        return Ok(value);
-    }
-    if let Ok(value) = row.try_get_by_index::<i32>(0) {
-        return Ok(i64::from(value));
-    }
-    if let Ok(value) = row.try_get_by_index::<bool>(0) {
-        return Ok(if value { 1 } else { 0 });
-    }
-
-    Err(migration_state_error(
-        "failed to decode scalar query result".to_string(),
-    ))
 }
 
 async fn applied_migrations<C>(db: &C, backend: DbBackend) -> Result<Vec<String>, DbErr>
@@ -514,17 +312,6 @@ where
     ))
 }
 
-fn current_unix_timestamp() -> Result<i64, DbErr> {
-    let duration = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_err(|error| {
-            migration_state_error(format!("system clock is before UNIX epoch: {error}"))
-        })?;
-    <i64 as std::convert::TryFrom<u64>>::try_from(duration.as_secs()).map_err(|_| {
-        migration_state_error("current UNIX timestamp does not fit into i64".to_string())
-    })
-}
-
 fn quote_ident(backend: DbBackend, ident: &str) -> String {
     match backend {
         DbBackend::MySql => format!("`{}`", ident.replace('`', "``")),
@@ -541,11 +328,4 @@ fn quote_literal(value: &str) -> String {
 
 fn migration_state_error(message: String) -> DbErr {
     DbErr::Custom(message)
-}
-
-fn rebase_required_error(detail: String) -> DbErr {
-    migration_state_error(format!(
-        "database schema is not ready for migration rebase ({detail}); first upgrade to \
-         the last pre-rc.1 build and apply all migrations, then upgrade to this version"
-    ))
 }

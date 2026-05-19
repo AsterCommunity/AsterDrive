@@ -947,6 +947,203 @@ describe("MusicPlayerHost", () => {
 		expect(seek).toHaveValue("50");
 	});
 
+	it("renders buffered audio progress behind the active seek progress", () => {
+		setQueue();
+		mockState.state.isPanelOpen = true;
+
+		render(<MusicPlayerHost />);
+
+		const audio = document.querySelector("audio");
+		if (!audio) {
+			throw new Error("audio element not found");
+		}
+		Object.defineProperty(audio, "duration", {
+			configurable: true,
+			value: 120,
+		});
+		Object.defineProperty(audio, "currentTime", {
+			configurable: true,
+			writable: true,
+			value: 30,
+		});
+		Object.defineProperty(audio, "buffered", {
+			configurable: true,
+			value: {
+				start: vi.fn(() => 0),
+				end: vi.fn(() => 90),
+				length: 1,
+			},
+		});
+
+		fireEvent.loadedMetadata(audio);
+		fireEvent.timeUpdate(audio);
+		fireEvent.progress(audio);
+
+		const seek = screen.getByRole("slider", { name: "music_player_seek" });
+		const style = seek.getAttribute("style") ?? "";
+		expect(seek).toHaveValue("25");
+		expect(style).toContain("var(--color-primary) 25%");
+		expect(style).toContain("var(--color-muted)) 75%");
+	});
+
+	it("uses the buffered range nearest the playhead instead of later ranges", () => {
+		setQueue();
+		mockState.state.isPanelOpen = true;
+
+		render(<MusicPlayerHost />);
+
+		const audio = document.querySelector("audio");
+		if (!audio) {
+			throw new Error("audio element not found");
+		}
+		Object.defineProperty(audio, "duration", {
+			configurable: true,
+			value: 100,
+		});
+		Object.defineProperty(audio, "currentTime", {
+			configurable: true,
+			writable: true,
+			value: 30,
+		});
+		Object.defineProperty(audio, "buffered", {
+			configurable: true,
+			value: {
+				start: vi.fn((index: number) => (index === 0 ? 0 : 80)),
+				end: vi.fn((index: number) => (index === 0 ? 25 : 100)),
+				length: 2,
+			},
+		});
+
+		fireEvent.loadedMetadata(audio);
+		fireEvent.timeUpdate(audio);
+		fireEvent.progress(audio);
+
+		const seek = screen.getByRole("slider", { name: "music_player_seek" });
+		const style = seek.getAttribute("style") ?? "";
+		expect(seek).toHaveValue("30");
+		expect(style).toContain("var(--color-primary) 30%");
+		expect(style).toContain("var(--color-muted)) 30%");
+		expect(style).not.toContain("var(--color-muted)) 100%");
+	});
+
+	it("does not show stale buffered progress ahead of the playhead", () => {
+		setQueue();
+		mockState.state.isPanelOpen = true;
+
+		render(<MusicPlayerHost />);
+
+		const audio = document.querySelector("audio");
+		if (!audio) {
+			throw new Error("audio element not found");
+		}
+		Object.defineProperty(audio, "duration", {
+			configurable: true,
+			value: 100,
+		});
+		Object.defineProperty(audio, "currentTime", {
+			configurable: true,
+			writable: true,
+			value: 30,
+		});
+		Object.defineProperty(audio, "buffered", {
+			configurable: true,
+			value: {
+				start: vi.fn(() => 0),
+				end: vi.fn(() => 20),
+				length: 1,
+			},
+		});
+
+		fireEvent.loadedMetadata(audio);
+		fireEvent.timeUpdate(audio);
+		fireEvent.progress(audio);
+
+		const seek = screen.getByRole("slider", { name: "music_player_seek" });
+		const style = seek.getAttribute("style") ?? "";
+		expect(seek).toHaveValue("30");
+		expect(style).toContain("var(--color-primary) 30%");
+		expect(style).toContain("var(--color-muted)) 30%");
+		expect(style).not.toContain("var(--color-muted)) 20%");
+	});
+
+	it("falls back to the start of the matching buffered range when current time is invalid", () => {
+		setQueue();
+		mockState.state.isPanelOpen = true;
+
+		render(<MusicPlayerHost />);
+
+		const audio = document.querySelector("audio");
+		if (!audio) {
+			throw new Error("audio element not found");
+		}
+		Object.defineProperty(audio, "duration", {
+			configurable: true,
+			value: 100,
+		});
+		Object.defineProperty(audio, "currentTime", {
+			configurable: true,
+			writable: true,
+			value: Number.NaN,
+		});
+		Object.defineProperty(audio, "buffered", {
+			configurable: true,
+			value: {
+				start: vi.fn(() => 0),
+				end: vi.fn(() => 40),
+				length: 1,
+			},
+		});
+
+		fireEvent.loadedMetadata(audio);
+		fireEvent.timeUpdate(audio);
+		fireEvent.progress(audio);
+
+		const seek = screen.getByRole("slider", { name: "music_player_seek" });
+		const style = seek.getAttribute("style") ?? "";
+		expect(seek).toHaveValue("0");
+		expect(style).toContain("var(--color-primary) 0%");
+		expect(style).toContain("var(--color-muted)) 40%");
+	});
+
+	it("renders zero buffered progress when audio has no buffered ranges", () => {
+		setQueue();
+		mockState.state.isPanelOpen = true;
+
+		render(<MusicPlayerHost />);
+
+		const audio = document.querySelector("audio");
+		if (!audio) {
+			throw new Error("audio element not found");
+		}
+		Object.defineProperty(audio, "duration", {
+			configurable: true,
+			value: 100,
+		});
+		Object.defineProperty(audio, "currentTime", {
+			configurable: true,
+			writable: true,
+			value: 0,
+		});
+		Object.defineProperty(audio, "buffered", {
+			configurable: true,
+			value: {
+				start: vi.fn(),
+				end: vi.fn(),
+				length: 0,
+			},
+		});
+
+		fireEvent.loadedMetadata(audio);
+		fireEvent.timeUpdate(audio);
+		fireEvent.progress(audio);
+
+		const seek = screen.getByRole("slider", { name: "music_player_seek" });
+		const style = seek.getAttribute("style") ?? "";
+		expect(seek).toHaveValue("0");
+		expect(style).toContain("var(--color-primary) 0%");
+		expect(style).toContain("var(--color-muted)) 0%");
+	});
+
 	it("clamps volume input values", () => {
 		setQueue();
 		mockState.state.isPanelOpen = true;

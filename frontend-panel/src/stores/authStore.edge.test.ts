@@ -202,6 +202,85 @@ describe("useAuthStore edge cases", () => {
 		expect(sessionStorage.getItem("aster-auth-expires-at")).toBeNull();
 	});
 
+	it("clears local session state when a peer reports refresh auth failure", async () => {
+		localStorage.setItem(
+			"aster-cached-user",
+			JSON.stringify(createCachedUser()),
+		);
+		sessionStorage.setItem(
+			"aster-auth-expires-at",
+			String(Date.now() + 60_000),
+		);
+		localStorage.setItem(
+			"aster-auth-refresh-lock",
+			JSON.stringify({
+				ownerId: "peer-tab",
+				lockId: "peer-lock",
+				expiresAt: Date.now() + 15_000,
+			}),
+		);
+		const { useAuthStore } = await loadStore();
+
+		const refresh = useAuthStore.getState().refreshToken();
+		window.dispatchEvent(
+			new StorageEvent("storage", {
+				key: "aster-auth-refresh-event",
+				newValue: JSON.stringify({
+					ownerId: "peer-tab",
+					lockId: "peer-lock",
+					status: "failure",
+					failureKind: "auth",
+					createdAt: Date.now(),
+				}),
+			}),
+		);
+
+		await expect(refresh).rejects.toThrow("peer auth refresh failed");
+		expect(mockState.refreshToken).not.toHaveBeenCalled();
+		expect(useAuthStore.getState()).toMatchObject({
+			isAuthenticated: false,
+			isChecking: false,
+			isAuthStale: false,
+			bootOffline: false,
+			user: null,
+			expiresAt: null,
+		});
+		expect(localStorage.getItem("aster-cached-user")).toBeNull();
+		expect(sessionStorage.getItem("aster-auth-expires-at")).toBeNull();
+	});
+
+	it("logs auto refresh failures for immediate and scheduled retries", async () => {
+		vi.useFakeTimers();
+		const immediateFailure = new Error("immediate refresh failed");
+		const scheduledFailure = new Error("scheduled refresh failed");
+		mockState.refreshToken
+			.mockRejectedValueOnce(immediateFailure)
+			.mockRejectedValueOnce(scheduledFailure);
+		mockState.isAxiosError.mockReturnValue(false);
+		const { useAuthStore } = await loadStore();
+
+		useAuthStore.getState().startAutoRefresh(-1);
+		await vi.waitFor(() => {
+			expect(mockState.warn).toHaveBeenCalledWith(
+				"auto refresh failed",
+				immediateFailure,
+			);
+		});
+
+		expect(vi.getTimerCount()).toBe(1);
+
+		useAuthStore.getState().startAutoRefresh(1);
+		await vi.advanceTimersByTimeAsync(1);
+
+		expect(mockState.warn).toHaveBeenCalledWith(
+			"auto refresh failed",
+			scheduledFailure,
+		);
+		expect(mockState.refreshToken).toHaveBeenCalledTimes(2);
+		useAuthStore.getState().stopAutoRefresh();
+		vi.useRealTimers();
+	});
+
 	it("forceLogout clears cached auth artifacts", async () => {
 		localStorage.setItem(
 			"aster-cached-user",

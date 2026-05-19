@@ -179,12 +179,17 @@ async fn test_restore_file_rejects_active_name_conflict() {
 
 #[actix_web::test]
 async fn test_trash_purge_all() {
+    use aster_drive::db::repository::user_repo;
+    use aster_drive::services::storage_change_service::StorageChangeKind;
+
     let state = common::setup().await;
-    let app = create_test_app!(state);
+    let mut rx = state.storage_change_tx.subscribe();
+    let app = create_test_app!(state.clone());
     let (token, _) = register_and_login!(app);
 
     // 上传两个文件
     let f1 = upload_test_file!(app, token);
+    let _upload_f1_event = rx.recv().await.expect("first upload should publish event");
     // 第二个用不同名字
     let boundary = "----TestBoundary123";
     let payload = "------TestBoundary123\r\n\
@@ -206,6 +211,7 @@ async fn test_trash_purge_all() {
     assert_eq!(resp.status(), 201);
     let body: Value = test::read_body_json(resp).await;
     let f2 = body["data"]["id"].as_i64().unwrap();
+    let _upload_f2_event = rx.recv().await.expect("second upload should publish event");
 
     // 软删除两个
     for fid in [f1, f2] {
@@ -215,6 +221,7 @@ async fn test_trash_purge_all() {
             .insert_header(common::csrf_header_for(&token))
             .to_request();
         test::call_service(&app, req).await;
+        let _trash_event = rx.recv().await.expect("soft delete should publish event");
     }
 
     // 回收站有 2 个
@@ -226,8 +233,17 @@ async fn test_trash_purge_all() {
     let resp = test::call_service(&app, req).await;
     let body: Value = test::read_body_json(resp).await;
     assert_eq!(body["data"]["files"].as_array().unwrap().len(), 2);
+    let owner_before = user_repo::find_by_username(&state.db, "testuser")
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        owner_before.storage_used,
+        "test content".len() as i64 + "second".len() as i64
+    );
 
-    // purge all
+    // purge all creates a background task and does not synchronously scan/purge
+    // the whole trash inside the HTTP request.
     let req = test::TestRequest::delete()
         .uri("/api/v1/trash")
         .insert_header(("Cookie", common::access_cookie_header(&token)))
@@ -235,6 +251,83 @@ async fn test_trash_purge_all() {
         .to_request();
     let resp = test::call_service(&app, req).await;
     assert_eq!(resp.status(), 200);
+    let body: Value = test::read_body_json(resp).await;
+    let task_id = body["data"]["id"].as_i64().unwrap();
+    assert_eq!(body["data"]["kind"], "trash_purge_all");
+    assert_eq!(body["data"]["status"], "pending");
+    assert_eq!(body["data"]["payload"]["kind"], "trash_purge_all");
+
+    let req = test::TestRequest::delete()
+        .uri("/api/v1/trash")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+    let body: Value = test::read_body_json(resp).await;
+    let duplicate_task_id = body["data"]["id"].as_i64().unwrap();
+    assert_ne!(duplicate_task_id, task_id);
+    assert_eq!(body["data"]["kind"], "trash_purge_all");
+    assert_eq!(body["data"]["status"], "pending");
+
+    // The request has only scheduled the work, so the trash is still present
+    // until the dispatcher runs.
+    let req = test::TestRequest::get()
+        .uri("/api/v1/trash")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(body["data"]["files"].as_array().unwrap().len(), 2);
+
+    let stats = aster_drive::services::task_service::drain(&state)
+        .await
+        .expect("trash purge task drain should succeed");
+    assert_eq!(stats.succeeded, 2);
+    let purge_all_event = rx
+        .try_recv()
+        .expect("purge-all task should publish one storage sync event");
+    assert_eq!(purge_all_event.kind, StorageChangeKind::SyncRequired);
+    assert!(purge_all_event.file_ids.is_empty());
+    assert!(purge_all_event.folder_ids.is_empty());
+    assert!(purge_all_event.affected_parent_ids.is_empty());
+    assert!(purge_all_event.affects_quota);
+    assert_eq!(
+        purge_all_event.storage_delta,
+        Some(-(("test content".len() + "second".len()) as i64))
+    );
+    assert!(
+        rx.try_recv().is_err(),
+        "trash purge-all should not publish one SSE event per purged entry"
+    );
+
+    let req = test::TestRequest::get()
+        .uri(&format!("/api/v1/tasks/{task_id}"))
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(body["data"]["status"], "succeeded");
+    assert_eq!(body["data"]["result"]["kind"], "trash_purge_all");
+    assert_eq!(body["data"]["result"]["purged"], 2);
+
+    let req = test::TestRequest::get()
+        .uri(&format!("/api/v1/tasks/{duplicate_task_id}"))
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(body["data"]["status"], "succeeded");
+    assert_eq!(body["data"]["result"]["kind"], "trash_purge_all");
+    assert_eq!(
+        body["data"]["result"]["purged"], 0,
+        "a duplicate empty-trash task should become a no-op after the first task drains the trash"
+    );
 
     // 回收站为空
     let req = test::TestRequest::get()
@@ -245,6 +338,48 @@ async fn test_trash_purge_all() {
     let resp = test::call_service(&app, req).await;
     let body: Value = test::read_body_json(resp).await;
     assert_eq!(body["data"]["files"].as_array().unwrap().len(), 0);
+    let owner_after = user_repo::find_by_username(&state.db, "testuser")
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(owner_after.storage_used, 0);
+}
+
+#[actix_web::test]
+async fn test_empty_trash_purge_all_task_succeeds_with_zero_result() {
+    let state = common::setup().await;
+    let app = create_test_app!(state.clone());
+    let (token, _) = register_and_login!(app);
+
+    let req = test::TestRequest::delete()
+        .uri("/api/v1/trash")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+    let body: Value = test::read_body_json(resp).await;
+    let task_id = body["data"]["id"].as_i64().unwrap();
+    assert_eq!(body["data"]["kind"], "trash_purge_all");
+    assert_eq!(body["data"]["status"], "pending");
+
+    let stats = aster_drive::services::task_service::drain(&state)
+        .await
+        .expect("empty trash purge task drain should succeed");
+    assert_eq!(stats.succeeded, 1);
+
+    let req = test::TestRequest::get()
+        .uri(&format!("/api/v1/tasks/{task_id}"))
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(body["data"]["status"], "succeeded");
+    assert_eq!(body["data"]["result"]["kind"], "trash_purge_all");
+    assert_eq!(body["data"]["result"]["purged"], 0);
+    assert_eq!(body["data"]["progress_percent"], 100);
 }
 
 /// 测试嵌套文件夹的 purge：删除顶层文件夹后 purge，子文件夹和子文件都应被彻底清理
@@ -325,7 +460,7 @@ async fn test_purge_nested_folder_cleans_children() {
 #[actix_web::test]
 async fn test_purge_all_nested_no_orphans() {
     let state = common::setup().await;
-    let app = create_test_app!(state);
+    let app = create_test_app!(state.clone());
     let (token, _) = register_and_login!(app);
 
     // 创建 A/B/C 三层嵌套
@@ -382,7 +517,7 @@ async fn test_purge_all_nested_no_orphans() {
         .to_request();
     test::call_service(&app, req).await;
 
-    // purge all
+    // purge all is scheduled and then executed by the background dispatcher.
     let req = test::TestRequest::delete()
         .uri("/api/v1/trash")
         .insert_header(("Cookie", common::access_cookie_header(&token)))
@@ -390,6 +525,13 @@ async fn test_purge_all_nested_no_orphans() {
         .to_request();
     let resp = test::call_service(&app, req).await;
     assert_eq!(resp.status(), 200);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(body["data"]["kind"], "trash_purge_all");
+
+    let stats = aster_drive::services::task_service::drain(&state)
+        .await
+        .expect("trash purge task drain should succeed");
+    assert_eq!(stats.succeeded, 1);
 
     // 回收站完全为空
     let req = test::TestRequest::get()

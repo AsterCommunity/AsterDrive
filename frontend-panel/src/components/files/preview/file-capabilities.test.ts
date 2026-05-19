@@ -156,6 +156,15 @@ describe("file preview capabilities", () => {
 			category: "unknown",
 			icon: "File",
 		});
+		expect(
+			getFileTypeInfo({
+				name: "playwright-code.ts",
+				mime_type: "video/vnd.dlna.mpeg-tts",
+			}),
+		).toMatchObject({
+			category: "text",
+			icon: "FileCode",
+		});
 	});
 
 	it("derives preview profiles and open-with options", () => {

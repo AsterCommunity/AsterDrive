@@ -29,7 +29,7 @@ use super::types::{
 };
 use super::{
     TaskLeaseGuard, configured_task_max_attempts, initial_task_steps, mark_task_progress,
-    mark_task_succeeded, serialize_task_steps, task_expiration_from,
+    mark_task_succeeded, serialize_task_steps, task_expiration_from, truncate_display_name,
 };
 
 const TEMP_CLEANUP_GRACE_SECS: u64 = HOUR_SECS + 60;
@@ -78,10 +78,10 @@ pub(crate) async fn create_storage_policy_temp_cleanup_task(
             creator_user_id: Set(None),
             team_id: Set(None),
             share_id: Set(None),
-            display_name: Set(format!(
+            display_name: Set(truncate_display_name(&format!(
                 "Clean deleted storage policy #{} temporary uploads",
                 policy.id
-            )),
+            ))),
             payload_json: Set(payload_json),
             result_json: Set(None),
             steps_json: Set(Some(steps_json)),

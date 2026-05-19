@@ -1,7 +1,10 @@
 import axios from "axios";
 import { create } from "zustand";
 import i18n from "@/i18n";
-import { runWithCrossTabRefreshLock } from "@/lib/crossTabRefresh";
+import {
+	isCrossTabRefreshAuthFailure,
+	runWithCrossTabRefreshLock,
+} from "@/lib/crossTabRefresh";
 import { logger } from "@/lib/logger";
 import { cancelPreferenceSync } from "@/lib/preferenceSync";
 import { authService } from "@/services/authService";
@@ -336,10 +339,18 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
 		inFlightRefresh = (async () => {
 			try {
-				const refreshedLocally = await runWithCrossTabRefreshLock(async () => {
-					const session = await authService.refreshToken();
-					get().syncSession(session.expiresIn);
-				});
+				const refreshedLocally = await runWithCrossTabRefreshLock(
+					async () => {
+						const session = await authService.refreshToken();
+						get().syncSession(session.expiresIn);
+					},
+					{
+						classifyError: (error) =>
+							axios.isAxiosError(error) && error.response
+								? "auth"
+								: "transient",
+					},
+				);
 				if (!refreshedLocally) {
 					const user = await authService.me(["session"]);
 					const expiresAt =
@@ -362,7 +373,10 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 					get().startAutoRefresh();
 				}
 			} catch (error) {
-				if (axios.isAxiosError(error) && error.response) {
+				if (
+					isCrossTabRefreshAuthFailure(error) ||
+					(axios.isAxiosError(error) && error.response)
+				) {
 					applyLoggedOutState(set);
 				} else {
 					get().startAutoRefresh(REFRESH_RETRY_MS);
