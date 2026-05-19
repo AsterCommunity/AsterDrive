@@ -99,7 +99,7 @@ pub async fn finish_login(
 ) -> Result<HttpResponse> {
     let audit_info = AuditRequestInfo::from_request_with_trusted_proxies(
         &req,
-        &state.config.rate_limit.trusted_proxies,
+        &state.config.network_trust.trusted_proxies,
     );
     let (kind, provider) = path.into_inner();
     let provider_kind = match parse_provider_kind(&kind) {
@@ -173,7 +173,7 @@ pub async fn link_with_password(
     csrf::ensure_request_source_allowed(&req, &state.runtime_config, RequestSourceMode::Required)?;
     let audit_info = AuditRequestInfo::from_request_with_trusted_proxies(
         &req,
-        &state.config.rate_limit.trusted_proxies,
+        &state.config.network_trust.trusted_proxies,
     );
     let result = external_auth_service::link_with_password(
         &state,
@@ -214,7 +214,7 @@ pub async fn confirm_email_verification(
 
     let audit_info = AuditRequestInfo::from_request_with_trusted_proxies(
         &req,
-        &state.config.rate_limit.trusted_proxies,
+        &state.config.network_trust.trusted_proxies,
     );
     let result = match external_auth_service::confirm_email_verification(
         &state,

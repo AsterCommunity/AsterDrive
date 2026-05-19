@@ -4,18 +4,24 @@ use crate::api::dto::TrashItemPath;
 use crate::api::middleware::auth::JwtAuth;
 use crate::api::middleware::rate_limit;
 use crate::api::pagination::TrashListQuery;
-use crate::api::response::{ApiResponse, PurgedCountResponse};
-use crate::config::RateLimitConfig;
+use crate::api::response::ApiResponse;
+use crate::config::{NetworkTrustConfig, RateLimitConfig};
 use crate::errors::Result;
 use crate::runtime::PrimaryAppState;
-use crate::services::{audit_service, auth_service::Claims, trash_service};
+use crate::services::{
+    audit_service, auth_service::Claims, task_service, trash_service,
+    workspace_storage_service::WorkspaceStorageScope,
+};
 use crate::types::EntityType;
 use actix_governor::Governor;
 use actix_web::middleware::Condition;
 use actix_web::{HttpRequest, HttpResponse, web};
 
-pub fn routes(rl: &RateLimitConfig) -> impl actix_web::dev::HttpServiceFactory + use<> {
-    let limiter = rate_limit::build_governor(&rl.api, &rl.trusted_proxies);
+pub fn routes(
+    rl: &RateLimitConfig,
+    network_trust: &NetworkTrustConfig,
+) -> impl actix_web::dev::HttpServiceFactory + use<> {
+    let limiter = rate_limit::build_governor(&rl.api, &network_trust.trusted_proxies);
 
     web::scope("/trash")
         .wrap(JwtAuth)
@@ -160,7 +166,7 @@ pub async fn purge_one(
     tag = "trash",
     operation_id = "purge_all_trash",
     responses(
-        (status = 200, description = "Trash emptied", body = inline(ApiResponse<crate::api::response::PurgedCountResponse>)),
+        (status = 200, description = "Trash purge task created", body = inline(ApiResponse<task_service::TaskInfo>)),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
     ),
     security(("bearer" = [])),
@@ -170,19 +176,22 @@ pub async fn purge_all(
     claims: web::ReqData<Claims>,
     req: HttpRequest,
 ) -> Result<HttpResponse> {
-    let count = trash_service::purge_all(&state, claims.user_id).await?;
+    let scope = WorkspaceStorageScope::Personal {
+        user_id: claims.user_id,
+    };
+    let task = task_service::create_trash_purge_all_task_in_scope(&state, scope).await?;
     let ctx = audit_service::AuditContext::from_request(&req, &claims);
     audit_service::log(
         &state,
         &ctx,
         audit_service::AuditAction::TrashPurgeAll,
         crate::services::audit_service::AuditEntityType::Trash,
+        Some(task.id),
+        Some(&task.display_name),
         None,
-        None,
-        audit_service::details(audit_service::TrashPurgeAllAuditDetails { purged: count }),
     )
     .await;
-    Ok(HttpResponse::Ok().json(ApiResponse::ok(PurgedCountResponse { purged: count })))
+    Ok(HttpResponse::Ok().json(ApiResponse::ok(task)))
 }
 
 #[api_docs_macros::path(
@@ -331,7 +340,7 @@ pub(crate) async fn team_purge_one(
     operation_id = "purge_all_team_trash",
     params(("team_id" = i64, Path, description = "Team ID")),
     responses(
-        (status = 200, description = "Trash emptied", body = inline(ApiResponse<PurgedCountResponse>)),
+        (status = 200, description = "Team trash purge task created", body = inline(ApiResponse<task_service::TaskInfo>)),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
         (status = 403, description = "Forbidden"),
     ),
@@ -343,17 +352,22 @@ pub(crate) async fn team_purge_all(
     req: HttpRequest,
     path: web::Path<i64>,
 ) -> Result<HttpResponse> {
-    let purged = trash_service::purge_all_team(&state, *path, claims.user_id).await?;
+    let team_id = *path;
+    let scope = WorkspaceStorageScope::Team {
+        team_id,
+        actor_user_id: claims.user_id,
+    };
+    let task = task_service::create_trash_purge_all_task_in_scope(&state, scope).await?;
     let ctx = audit_service::AuditContext::from_request(&req, &claims);
     audit_service::log(
         &state,
         &ctx,
         audit_service::AuditAction::TrashPurgeAll,
         crate::services::audit_service::AuditEntityType::Trash,
-        Some(*path),
+        Some(task.id),
+        Some(&task.display_name),
         None,
-        audit_service::details(audit_service::TrashPurgeAllAuditDetails { purged }),
     )
     .await;
-    Ok(HttpResponse::Ok().json(ApiResponse::ok(PurgedCountResponse { purged })))
+    Ok(HttpResponse::Ok().json(ApiResponse::ok(task)))
 }

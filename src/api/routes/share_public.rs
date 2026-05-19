@@ -6,8 +6,8 @@ use crate::api::middleware::rate_limit;
 use crate::api::pagination::FolderListQuery;
 use crate::api::response::ApiResponse;
 use crate::api::routes::files;
-use crate::config::RateLimitConfig;
 use crate::config::auth_runtime::RuntimeAuthPolicy;
+use crate::config::{NetworkTrustConfig, RateLimitConfig};
 use crate::errors::Result;
 use crate::runtime::PrimaryAppState;
 use crate::services::file_service::ResolvedDownloadRange;
@@ -95,9 +95,12 @@ impl DirectLinkQuery {
     }
 }
 
-pub fn routes(rl: &RateLimitConfig) -> impl actix_web::dev::HttpServiceFactory + use<> {
-    let limiter = rate_limit::build_governor(&rl.public, &rl.trusted_proxies);
-    let verify_limiter = rate_limit::build_governor(&rl.auth, &rl.trusted_proxies);
+pub fn routes(
+    rl: &RateLimitConfig,
+    network_trust: &NetworkTrustConfig,
+) -> impl actix_web::dev::HttpServiceFactory + use<> {
+    let limiter = rate_limit::build_governor(&rl.public, &network_trust.trusted_proxies);
+    let verify_limiter = rate_limit::build_governor(&rl.auth, &network_trust.trusted_proxies);
 
     web::scope("/s")
         .wrap(Condition::new(rl.enabled, Governor::new(&limiter)))
@@ -155,8 +158,11 @@ pub fn routes(rl: &RateLimitConfig) -> impl actix_web::dev::HttpServiceFactory +
         .route("/{token}/avatar/{size}", web::get().to(shared_avatar))
 }
 
-pub fn direct_routes(rl: &RateLimitConfig) -> impl actix_web::dev::HttpServiceFactory + use<> {
-    let limiter = rate_limit::build_governor(&rl.public, &rl.trusted_proxies);
+pub fn direct_routes(
+    rl: &RateLimitConfig,
+    network_trust: &NetworkTrustConfig,
+) -> impl actix_web::dev::HttpServiceFactory + use<> {
+    let limiter = rate_limit::build_governor(&rl.public, &network_trust.trusted_proxies);
 
     (
         web::resource("/d/{token}/{filename}")
@@ -855,14 +861,17 @@ pub async fn shared_folder_file_image_preview(
 #[cfg(test)]
 mod tests {
     use super::direct_routes;
-    use crate::config::RateLimitConfig;
+    use crate::config::{NetworkTrustConfig, RateLimitConfig};
     use actix_web::{App, HttpResponse, http::StatusCode, test, web};
 
     #[actix_web::test]
     async fn direct_routes_do_not_shadow_later_root_services() {
         let app = test::init_service(
             App::new()
-                .service(direct_routes(&RateLimitConfig::default()))
+                .service(direct_routes(
+                    &RateLimitConfig::default(),
+                    &NetworkTrustConfig::default(),
+                ))
                 .route(
                     "/after",
                     web::get().to(|| async { HttpResponse::Ok().finish() }),

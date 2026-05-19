@@ -22,9 +22,7 @@ use crate::errors::{AsterError, Result};
 use crate::utils::numbers::{i64_to_usize, usize_to_i64};
 
 use self::ui::ProgressReporter;
-use crate::cli::db_shared::{
-    backend_name, join_strings, migration_names, pending_migrations, redact_database_url,
-};
+use crate::cli::db_shared::{backend_name, join_strings, pending_migrations, redact_database_url};
 use apply::execute_apply_mode;
 use checkpoint::update_checkpoint;
 use helpers::now_ms;
@@ -319,7 +317,6 @@ struct ApplyModeContext<'a> {
     source_plans: &'a [TablePlan],
     table_reports: &'a mut [TableReport],
     target_pending_before: &'a [String],
-    expected_migrations: &'a [String],
     progress: &'a ProgressReporter,
 }
 
@@ -355,9 +352,7 @@ pub async fn execute_database_migration(
     let target_backend = target_db.get_database_backend();
     validate_backends(source_backend, target_backend)?;
 
-    let expected_migrations = migration_names();
-    let source_pending =
-        pending_migrations(&source_db, source_backend, &expected_migrations).await?;
+    let source_pending = pending_migrations(&source_db).await?;
     if !source_pending.is_empty() {
         return Err(AsterError::validation_error(format!(
             "source database has pending migrations: {}",
@@ -367,8 +362,7 @@ pub async fn execute_database_migration(
 
     let source_plans = load_source_plans(&source_db).await?;
     let source_rows_total = total_source_rows(&source_plans);
-    let target_pending_before =
-        pending_migrations(&target_db, target_backend, &expected_migrations).await?;
+    let target_pending_before = pending_migrations(&target_db).await?;
 
     progress.stage(
         "preflight",
@@ -482,7 +476,6 @@ pub async fn execute_database_migration(
                 source_plans: &source_plans,
                 table_reports: &mut table_reports,
                 target_pending_before: &target_pending_before,
-                expected_migrations: &expected_migrations,
                 progress: &progress,
             })
             .await?;

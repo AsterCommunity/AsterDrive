@@ -7,6 +7,7 @@ use crate::utils::paths::{
 };
 use config::{Config as RawConfig, Environment, File};
 use std::path::{Path, PathBuf};
+use toml_edit::{DocumentMut, Item, Table};
 
 pub fn load() -> Result<Config> {
     let base_dir = std::env::current_dir()
@@ -31,6 +32,7 @@ fn load_from_dir(
     let config_path = base_dir.join(DEFAULT_CONFIG_PATH);
 
     ensure_default_config_exists(&config_path, &Config::default())?;
+    migrate_legacy_config_file(&config_path)?;
 
     let mut builder =
         RawConfig::builder().add_source(File::from(config_path.as_path()).required(false));
@@ -72,6 +74,75 @@ fn reject_deprecated_config_keys(raw: &RawConfig) -> Result<()> {
     Ok(())
 }
 
+// TODO: 0.3.0 版本需要删除这段兼容迁移；旧配置应只保留 [network_trust].trusted_proxies。
+fn migrate_legacy_config_file(config_path: &Path) -> Result<()> {
+    let content = match std::fs::read_to_string(config_path) {
+        Ok(content) => content,
+        Err(error) => {
+            return Err(AsterError::config_error(format!(
+                "failed to read {}: {error}",
+                config_path.display()
+            )));
+        }
+    };
+
+    let mut doc = content.parse::<DocumentMut>().map_err(|error| {
+        AsterError::config_error(format!(
+            "failed to parse {}: {error}",
+            config_path.display()
+        ))
+    })?;
+
+    let legacy_trusted_proxies = {
+        let Some(rate_limit_item) = doc.get("rate_limit") else {
+            return Ok(());
+        };
+        let Some(rate_limit_table) = rate_limit_item.as_table() else {
+            return Ok(());
+        };
+        rate_limit_table.get("trusted_proxies").cloned()
+    };
+
+    let Some(legacy_trusted_proxies) = legacy_trusted_proxies else {
+        return Ok(());
+    };
+
+    if let Some(network_trust_item) = doc.get("network_trust")
+        && network_trust_item.as_table().is_none()
+    {
+        return Err(AsterError::config_error(
+            "failed to migrate legacy trusted_proxies: network_trust must be a table",
+        ));
+    }
+
+    let network_trust_item = doc
+        .as_table_mut()
+        .entry("network_trust")
+        .or_insert(Item::Table(Table::new()));
+    if let Some(network_trust_table) = network_trust_item.as_table_mut()
+        && !network_trust_table.contains_key("trusted_proxies")
+    {
+        network_trust_table.insert("trusted_proxies", legacy_trusted_proxies);
+    }
+
+    if let Some(rate_limit_item) = doc.as_table_mut().get_mut("rate_limit")
+        && let Some(rate_limit_table) = rate_limit_item.as_table_mut()
+    {
+        rate_limit_table.remove("trusted_proxies");
+    }
+
+    std::fs::write(config_path, doc.to_string()).map_aster_err_ctx(
+        &format!("failed to write migrated {}", config_path.display()),
+        AsterError::config_error,
+    )?;
+
+    eprintln!(
+        "[INFO] Migrated legacy configuration in: {}",
+        config_path.display()
+    );
+    Ok(())
+}
+
 fn ensure_default_config_exists(config_path: &Path, default: &Config) -> Result<()> {
     if config_path.exists() {
         return Ok(());
@@ -84,10 +155,10 @@ fn create_default_config(config_path: &Path, default: &Config) -> Result<()> {
     let toml_str = toml::to_string_pretty(default).map_aster_err(AsterError::config_error)?;
 
     let content = format!(
-        "# AsterDrive 配置文件\n\
-         # 由首次启动自动生成，请根据需要修改\n\
-         # 相对路径默认相对于当前文件所在目录（默认是 ./data）\n\
-         # 文档: https://asterdrive.docs.esap.cc/config/\n\n\
+        "# AsterDrive configuration file\n\
+         # Generated on first startup; edit as needed.\n\
+         # Relative paths are resolved against the directory containing this file (default: ./data).\n\
+         # Docs: https://asterdrive.docs.esap.cc/config/\n\n\
          {toml_str}"
     );
 
@@ -167,6 +238,7 @@ mod tests {
             cfg.server.follower.managed_ingress_local_root,
             "data/managed-ingress"
         );
+        assert!(cfg.network_trust.trusted_proxies.is_empty());
         assert!(dir.join(DEFAULT_CONFIG_PATH).exists());
         assert!(generated.contains("[server]"));
         assert!(generated.contains(r#"start_mode = "primary""#));
@@ -175,6 +247,8 @@ mod tests {
         assert!(generated.contains(r#"upload_temp_dir = ".uploads""#));
         assert!(generated.contains("[server.follower]"));
         assert!(generated.contains(r#"managed_ingress_local_root = "managed-ingress""#));
+        assert!(generated.contains("[network_trust]"));
+        assert!(generated.contains(r#"trusted_proxies = []"#));
 
         let _ = std::fs::remove_dir_all(dir);
     }
@@ -209,6 +283,35 @@ url = "sqlite://custom.db?mode=rwc"
         assert_eq!(cfg.database.url, DEFAULT_SQLITE_DATABASE_URL);
         assert!(dir.join("config.toml").exists());
         assert!(dir.join(DEFAULT_CONFIG_PATH).exists());
+
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn load_migrates_legacy_rate_limit_trusted_proxies_to_network_trust() {
+        let dir = make_temp_dir("legacy-trusted-proxies");
+        write(
+            &dir.join(DEFAULT_CONFIG_PATH),
+            br#"[rate_limit]
+enabled = true
+trusted_proxies = ["10.0.0.0/8", "192.168.0.0/16"]
+
+[rate_limit.auth]
+seconds_per_request = 1
+burst_size = 5
+"#,
+        );
+
+        let cfg = load_from_dir(&dir, None, false).unwrap();
+        let migrated = std::fs::read_to_string(dir.join(DEFAULT_CONFIG_PATH)).unwrap();
+
+        assert_eq!(
+            cfg.network_trust.trusted_proxies,
+            vec!["10.0.0.0/8".to_string(), "192.168.0.0/16".to_string()]
+        );
+        assert!(!migrated.contains("rate_limit.trusted_proxies"));
+        assert!(migrated.contains("[network_trust]"));
+        assert!(migrated.contains(r#"trusted_proxies = ["10.0.0.0/8", "192.168.0.0/16"]"#));
 
         let _ = std::fs::remove_dir_all(dir);
     }

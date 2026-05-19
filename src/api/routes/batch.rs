@@ -6,7 +6,7 @@ use crate::api::middleware::auth::JwtAuth;
 use crate::api::middleware::rate_limit;
 use crate::api::response::ApiResponse;
 use crate::api::routes::team_scope;
-use crate::config::RateLimitConfig;
+use crate::config::{NetworkTrustConfig, RateLimitConfig};
 use crate::errors::Result;
 use crate::runtime::PrimaryAppState;
 use crate::services::{
@@ -19,8 +19,11 @@ use actix_governor::Governor;
 use actix_web::middleware::Condition;
 use actix_web::{HttpRequest, HttpResponse, web};
 
-pub fn routes(rl: &RateLimitConfig) -> impl actix_web::dev::HttpServiceFactory + use<> {
-    let limiter = rate_limit::build_governor(&rl.write, &rl.trusted_proxies);
+pub fn routes(
+    rl: &RateLimitConfig,
+    network_trust: &NetworkTrustConfig,
+) -> impl actix_web::dev::HttpServiceFactory + use<> {
+    let limiter = rate_limit::build_governor(&rl.write, &network_trust.trusted_proxies);
 
     web::scope("/batch")
         .wrap(JwtAuth)

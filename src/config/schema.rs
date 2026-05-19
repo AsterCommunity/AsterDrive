@@ -18,6 +18,8 @@ pub struct Config {
     #[serde(default)]
     pub webdav: WebDavConfig,
     #[serde(default)]
+    pub network_trust: NetworkTrustConfig,
+    #[serde(default)]
     pub rate_limit: RateLimitConfig,
 }
 
@@ -272,6 +274,24 @@ impl WebDavConfig {
     }
 }
 
+/// 网络信任配置（config.toml）
+///
+/// 这组受信代理信息会影响真实客户端 IP 的判定，供限流、认证审计等模块共用。
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct NetworkTrustConfig {
+    /// 受信任的上游代理 IP 列表（CIDR 格式或单 IP）。
+    #[serde(default)]
+    pub trusted_proxies: Vec<String>,
+}
+
+impl Default for NetworkTrustConfig {
+    fn default() -> Self {
+        Self {
+            trusted_proxies: Vec::new(),
+        }
+    }
+}
+
 /// Rate limiting 配置
 ///
 /// 四个层级，不同接口类别不同阈值：
@@ -291,12 +311,6 @@ pub struct RateLimitConfig {
     pub api: RateLimitTier,
     #[serde(default = "RateLimitConfig::default_write")]
     pub write: RateLimitTier,
-    /// 受信任的上游代理 IP 列表（CIDR 格式或单 IP）。
-    /// 非空时 `AsterIpKeyExtractor` 会从 X-Forwarded-For 取最后一跳真实客户端 IP。
-    /// 空（默认）时直接用 `peer_addr`，安全且不受伪造 XFF 攻击。
-    /// 示例：["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"]
-    #[serde(default)]
-    pub trusted_proxies: Vec<String>,
 }
 
 impl Default for RateLimitConfig {
@@ -307,7 +321,6 @@ impl Default for RateLimitConfig {
             public: Self::default_public(),
             api: Self::default_api(),
             write: Self::default_write(),
-            trusted_proxies: Vec::new(),
         }
     }
 }

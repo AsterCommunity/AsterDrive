@@ -4,11 +4,7 @@ import {
 	type Workspace,
 } from "@/lib/workspace";
 import { bindWorkspaceService } from "@/stores/workspaceStore";
-import type {
-	PurgedCountResponse,
-	TrashContents,
-	TrashListParams,
-} from "@/types/api";
+import type { TaskInfo, TrashContents, TrashListParams } from "@/types/api";
 import { api } from "./http";
 
 function trashPath(workspace: Workspace) {
@@ -31,7 +27,7 @@ export function createTrashService(workspace: Workspace = PERSONAL_WORKSPACE) {
 
 		purgeFolder: (id: number) => api.delete<void>(`${basePath}/folder/${id}`),
 
-		purgeAll: () => api.delete<PurgedCountResponse>(basePath),
+		purgeAll: () => api.delete<TaskInfo>(basePath),
 	};
 }
 

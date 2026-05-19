@@ -17,6 +17,7 @@ use super::super::runtime;
 use super::super::steps::{mark_active_step_failed, parse_task_steps_json, serialize_task_steps};
 use super::super::storage_policy_cleanup;
 use super::super::thumbnail;
+use super::super::trash;
 use super::{
     DispatchStats, TASK_HEARTBEAT_INTERVAL_SECS, TaskDispatchOutcome, TaskLease, TaskLeaseGuard,
     is_task_lease_lost, is_task_lease_renewal_timed_out, task_expiration_from,
@@ -277,6 +278,9 @@ async fn process_task(
         BackgroundTaskKind::ThumbnailGenerate => {
             thumbnail::process_thumbnail_generate_task(state, task, lease_guard).await
         }
+        BackgroundTaskKind::TrashPurgeAll => {
+            trash::process_trash_purge_all_task(state, task, lease_guard).await
+        }
         BackgroundTaskKind::StoragePolicyTempCleanup => {
             storage_policy_cleanup::process_storage_policy_temp_cleanup_task(
                 state,
@@ -313,6 +317,7 @@ pub(super) fn task_retry_class(kind: BackgroundTaskKind, error: &AsterError) -> 
         BackgroundTaskKind::ThumbnailGenerate => {
             thumbnail::ThumbnailRetryPolicy::retry_class(error)
         }
+        BackgroundTaskKind::TrashPurgeAll => super::super::retry::default_retry_class(error),
         BackgroundTaskKind::StoragePolicyTempCleanup => {
             super::super::retry::default_retry_class(error)
         }

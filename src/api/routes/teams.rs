@@ -7,7 +7,7 @@ use crate::api::middleware::rate_limit;
 use crate::api::pagination::LimitOffsetQuery;
 use crate::api::response::ApiResponse;
 use crate::api::routes::{batch, folders, search, shares, tasks, trash};
-use crate::config::RateLimitConfig;
+use crate::config::{NetworkTrustConfig, RateLimitConfig};
 use crate::errors::Result;
 use crate::runtime::PrimaryAppState;
 use crate::services::{audit_service, auth_service::Claims, team_service};
@@ -16,8 +16,11 @@ use actix_governor::Governor;
 use actix_web::middleware::Condition;
 use actix_web::{HttpRequest, HttpResponse, web};
 
-pub fn routes(rl: &RateLimitConfig) -> impl actix_web::dev::HttpServiceFactory + use<> {
-    let limiter = rate_limit::build_governor(&rl.api, &rl.trusted_proxies);
+pub fn routes(
+    rl: &RateLimitConfig,
+    network_trust: &NetworkTrustConfig,
+) -> impl actix_web::dev::HttpServiceFactory + use<> {
+    let limiter = rate_limit::build_governor(&rl.api, &network_trust.trusted_proxies);
 
     web::scope("/teams")
         .wrap(JwtAuth)

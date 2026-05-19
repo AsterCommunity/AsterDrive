@@ -164,6 +164,16 @@ pub struct ThumbnailGenerateTaskPayload {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
+pub struct TrashPurgeAllTaskPayload {}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
+pub struct TrashPurgeAllTaskResult {
+    pub purged: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) struct StoragePolicyCleanupPolicySnapshot {
     pub id: i64,
     pub name: String,
@@ -263,6 +273,7 @@ pub enum TaskPayload {
     ArchiveExtract(ArchiveExtractTaskPayload),
     ArchivePreviewGenerate(ArchivePreviewTaskPayload),
     ThumbnailGenerate(ThumbnailGenerateTaskPayload),
+    TrashPurgeAll(TrashPurgeAllTaskPayload),
     StoragePolicyTempCleanup(StoragePolicyTempCleanupTaskPayloadInfo),
     SystemRuntime(RuntimeTaskPayload),
 }
@@ -275,6 +286,7 @@ pub enum TaskResult {
     ArchiveExtract(ArchiveExtractTaskResult),
     ArchivePreviewGenerate(ArchivePreviewTaskResult),
     ThumbnailGenerate(ThumbnailGenerateTaskResult),
+    TrashPurgeAll(TrashPurgeAllTaskResult),
     StoragePolicyTempCleanup(StoragePolicyTempCleanupTaskResult),
     SystemRuntime(RuntimeTaskResult),
 }
@@ -341,6 +353,9 @@ pub(super) fn parse_task_payload_info(task: &background_task::Model) -> Result<T
         BackgroundTaskKind::ThumbnailGenerate => {
             Ok(TaskPayload::ThumbnailGenerate(parse_task_payload(task)?))
         }
+        BackgroundTaskKind::TrashPurgeAll => {
+            Ok(TaskPayload::TrashPurgeAll(parse_task_payload(task)?))
+        }
         BackgroundTaskKind::StoragePolicyTempCleanup => Ok(TaskPayload::StoragePolicyTempCleanup(
             parse_task_payload::<StoragePolicyTempCleanupTaskPayload>(task)?.into(),
         )),
@@ -385,6 +400,15 @@ pub(super) fn parse_task_result_info(task: &background_task::Model) -> Result<Op
             })?,
         ))),
         BackgroundTaskKind::ThumbnailGenerate => Ok(Some(TaskResult::ThumbnailGenerate(
+            serde_json::from_str(raw.as_ref()).map_err(|error| {
+                AsterError::internal_error(format!(
+                    "parse result for task #{} ({}): {error}",
+                    task.id,
+                    task.kind.to_value()
+                ))
+            })?,
+        ))),
+        BackgroundTaskKind::TrashPurgeAll => Ok(Some(TaskResult::TrashPurgeAll(
             serde_json::from_str(raw.as_ref()).map_err(|error| {
                 AsterError::internal_error(format!(
                     "parse result for task #{} ({}): {error}",

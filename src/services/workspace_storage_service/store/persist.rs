@@ -5,7 +5,6 @@ use crate::runtime::PrimaryAppState;
 use crate::services::workspace_storage_service::{
     check_quota, cleanup_preuploaded_blob_upload, persist_preuploaded_blob,
 };
-use crate::storage::driver::StorageDriver;
 use sea_orm::ConnectionTrait;
 
 use super::TempBlobPlan;
@@ -36,21 +35,18 @@ pub(super) async fn persist_temp_store(
     } = prepared;
     let cleanup_blob_plan = blob_plan.clone();
 
+    if storage_delta > 0 && !quota_prechecked {
+        check_quota(&state.db, scope, storage_delta).await?;
+    }
+    stage_temp_blob_before_transaction(&blob_plan, driver.as_ref(), size, &temp_path).await?;
+
     let create_result = async {
         let txn = crate::db::transaction::begin(&state.db).await?;
-        if storage_delta > 0 && !quota_prechecked {
+        if storage_delta > 0 {
             check_quota(&txn, scope, storage_delta).await?;
         }
 
-        let blob = persist_temp_blob(
-            &txn,
-            &blob_plan,
-            driver.as_ref(),
-            size,
-            policy.id,
-            &temp_path,
-        )
-        .await?;
+        let blob = persist_temp_blob(&txn, &blob_plan, size, policy.id).await?;
         let result = super::write_record::write_file_record_from_temp(
             &txn,
             WriteFileRecordFromTempParams {
@@ -89,13 +85,31 @@ pub(super) async fn persist_temp_store(
     }
 }
 
+async fn stage_temp_blob_before_transaction(
+    blob_plan: &TempBlobPlan,
+    driver: &dyn crate::storage::driver::StorageDriver,
+    size: i64,
+    temp_path: &str,
+) -> Result<()> {
+    match blob_plan {
+        TempBlobPlan::Dedup(target) => {
+            crate::storage::drivers::local::promote_local_file_if_absent(
+                driver,
+                &target.storage_path,
+                temp_path,
+                size,
+            )
+            .await
+        }
+        TempBlobPlan::Preuploaded(_) => Ok(()),
+    }
+}
+
 async fn persist_temp_blob<C: ConnectionTrait>(
     txn: &C,
     blob_plan: &TempBlobPlan,
-    driver: &dyn StorageDriver,
     size: i64,
     policy_id: i64,
-    temp_path: &str,
 ) -> Result<file_blob::Model> {
     match blob_plan {
         TempBlobPlan::Dedup(target) => {
@@ -107,14 +121,6 @@ async fn persist_temp_blob<C: ConnectionTrait>(
                 &target.storage_path,
             )
             .await?;
-            if blob.inserted {
-                let stream_driver = driver.as_stream_upload().ok_or_else(|| {
-                    AsterError::storage_driver_error("stream upload not supported")
-                })?;
-                stream_driver
-                    .put_file(&target.storage_path, temp_path)
-                    .await?;
-            }
             Ok(blob.model)
         }
         TempBlobPlan::Preuploaded(preuploaded_blob) => {

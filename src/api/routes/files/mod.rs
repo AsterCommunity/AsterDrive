@@ -2,7 +2,7 @@
 
 use crate::api::middleware::auth::JwtAuth;
 use crate::api::middleware::rate_limit;
-use crate::config::RateLimitConfig;
+use crate::config::{NetworkTrustConfig, RateLimitConfig};
 use actix_governor::Governor;
 use actix_web::middleware::Condition;
 use actix_web::web;
@@ -45,8 +45,11 @@ pub(crate) use self::upload::{
 };
 pub(crate) use self::versions::{team_delete_version, team_list_versions, team_restore_version};
 
-pub fn routes(rl: &RateLimitConfig) -> impl actix_web::dev::HttpServiceFactory + use<> {
-    let limiter = rate_limit::build_governor(&rl.api, &rl.trusted_proxies);
+pub fn routes(
+    rl: &RateLimitConfig,
+    network_trust: &NetworkTrustConfig,
+) -> impl actix_web::dev::HttpServiceFactory + use<> {
+    let limiter = rate_limit::build_governor(&rl.api, &network_trust.trusted_proxies);
 
     web::scope("/files")
         .wrap(JwtAuth)

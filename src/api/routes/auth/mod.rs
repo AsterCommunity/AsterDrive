@@ -4,8 +4,8 @@ pub use crate::api::dto::auth::*;
 use crate::api::middleware::auth::JwtAuth;
 use crate::api::middleware::rate_limit;
 use crate::api::request_auth::access_token;
-use crate::config::RateLimitConfig;
 use crate::config::site_url;
+use crate::config::{NetworkTrustConfig, RateLimitConfig};
 use crate::runtime::PrimaryAppState;
 use crate::services::{auth_service, storage_change_service};
 use actix_governor::Governor;
@@ -58,9 +58,12 @@ pub mod profile;
 pub mod public;
 pub mod session;
 
-pub fn routes(rl: &RateLimitConfig) -> impl actix_web::dev::HttpServiceFactory + use<> {
-    let auth_limiter = rate_limit::build_governor(&rl.auth, &rl.trusted_proxies);
-    let api_limiter = rate_limit::build_governor(&rl.api, &rl.trusted_proxies);
+pub fn routes(
+    rl: &RateLimitConfig,
+    network_trust: &NetworkTrustConfig,
+) -> impl actix_web::dev::HttpServiceFactory + use<> {
+    let auth_limiter = rate_limit::build_governor(&rl.auth, &network_trust.trusted_proxies);
+    let api_limiter = rate_limit::build_governor(&rl.api, &network_trust.trusted_proxies);
 
     web::scope("/auth")
         .service(

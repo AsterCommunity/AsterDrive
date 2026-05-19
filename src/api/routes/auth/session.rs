@@ -213,7 +213,7 @@ pub async fn login(
     )?;
     let audit_info = AuditRequestInfo::from_request_with_trusted_proxies(
         &req,
-        &state.config.rate_limit.trusted_proxies,
+        &state.config.network_trust.trusted_proxies,
     );
     let result =
         auth_service::login_with_audit(&state, &body.identifier, &body.password, &audit_info)
@@ -260,7 +260,7 @@ pub async fn refresh(state: web::Data<PrimaryAppState>, req: HttpRequest) -> Res
     csrf::ensure_double_submit_token(&req)?;
     let audit_info = AuditRequestInfo::from_request_with_trusted_proxies(
         &req,
-        &state.config.rate_limit.trusted_proxies,
+        &state.config.network_trust.trusted_proxies,
     );
     let auth_policy = RuntimeAuthPolicy::from_runtime_config(&state.runtime_config);
     let refresh_tok = req
@@ -314,7 +314,7 @@ pub async fn logout(state: web::Data<PrimaryAppState>, req: HttpRequest) -> Http
 
     let audit_info = AuditRequestInfo::from_request_with_trusted_proxies(
         &req,
-        &state.config.rate_limit.trusted_proxies,
+        &state.config.network_trust.trusted_proxies,
     );
     if let Some(refresh_token) = req
         .cookie(REFRESH_COOKIE)
@@ -431,7 +431,7 @@ pub async fn delete_other_sessions(
     let ctx = AuditContext::from_request_with_trusted_proxies(
         &req,
         &claims,
-        &state.config.rate_limit.trusted_proxies,
+        &state.config.network_trust.trusted_proxies,
     );
     audit_service::log(
         &state,
@@ -480,7 +480,7 @@ pub async fn delete_session(
     let ctx = AuditContext::from_request_with_trusted_proxies(
         &req,
         &claims,
-        &state.config.rate_limit.trusted_proxies,
+        &state.config.network_trust.trusted_proxies,
     );
     audit_service::log(
         &state,
@@ -530,7 +530,7 @@ pub async fn put_password(
     let ctx = AuditContext::from_request_with_trusted_proxies(
         &req,
         &claims,
-        &state.config.rate_limit.trusted_proxies,
+        &state.config.network_trust.trusted_proxies,
     );
     let user = auth_service::change_password_with_audit(
         &state,

@@ -153,6 +153,10 @@ fn task_lane_keeps_archive_and_thumbnail_separate() {
         TaskLane::Thumbnail
     );
     assert_eq!(
+        task_lane(BackgroundTaskKind::TrashPurgeAll),
+        TaskLane::Fallback
+    );
+    assert_eq!(
         task_lane(BackgroundTaskKind::SystemRuntime),
         TaskLane::Fallback
     );

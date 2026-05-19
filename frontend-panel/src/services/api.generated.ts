@@ -3861,7 +3861,7 @@ export interface components {
          * @description 后台任务类型
          * @enum {string}
          */
-        BackgroundTaskKind: "archive_extract" | "archive_compress" | "archive_preview_generate" | "thumbnail_generate" | "storage_policy_temp_cleanup" | "system_runtime";
+        BackgroundTaskKind: "archive_extract" | "archive_compress" | "archive_preview_generate" | "thumbnail_generate" | "trash_purge_all" | "storage_policy_temp_cleanup" | "system_runtime";
         /**
          * @description 后台任务状态
          * @enum {string}
@@ -5672,6 +5672,9 @@ export interface components {
         }) | (components["schemas"]["ThumbnailGenerateTaskPayload"] & {
             /** @enum {string} */
             kind: "thumbnail_generate";
+        }) | (components["schemas"]["TrashPurgeAllTaskPayload"] & {
+            /** @enum {string} */
+            kind: "trash_purge_all";
         }) | (components["schemas"]["StoragePolicyTempCleanupTaskPayloadInfo"] & {
             /** @enum {string} */
             kind: "storage_policy_temp_cleanup";
@@ -5691,6 +5694,9 @@ export interface components {
         }) | (components["schemas"]["ThumbnailGenerateTaskResult"] & {
             /** @enum {string} */
             kind: "thumbnail_generate";
+        }) | (components["schemas"]["TrashPurgeAllTaskResult"] & {
+            /** @enum {string} */
+            kind: "trash_purge_all";
         }) | (components["schemas"]["StoragePolicyTempCleanupTaskResult"] & {
             /** @enum {string} */
             kind: "storage_policy_temp_cleanup";
@@ -5900,6 +5906,11 @@ export interface components {
              * @description 文件夹偏移量（默认 0）
              */
             folder_offset?: number | null;
+        };
+        TrashPurgeAllTaskPayload: Record<string, never>;
+        TrashPurgeAllTaskResult: {
+            /** Format: int32 */
+            purged: number;
         };
         /** @description Update the user's avatar source. */
         UpdateAvatarSourceReq: {
@@ -20171,7 +20182,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Trash emptied */
+            /** @description Team trash purge task created */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -20181,7 +20192,37 @@ export interface operations {
                         code: components["schemas"]["ErrorCode"];
                         data?: {
                             /** Format: int32 */
-                            purged: number;
+                            attempt_count: number;
+                            can_retry: boolean;
+                            created_at: string;
+                            creator?: null | components["schemas"]["UserSummary"];
+                            display_name: string;
+                            expires_at: string;
+                            finished_at?: string | null;
+                            /** Format: int64 */
+                            id: number;
+                            kind: components["schemas"]["BackgroundTaskKind"];
+                            last_error?: string | null;
+                            lease_expires_at?: string | null;
+                            /** Format: int32 */
+                            max_attempts: number;
+                            payload: components["schemas"]["TaskPayload"];
+                            /** Format: int64 */
+                            progress_current: number;
+                            /** Format: int32 */
+                            progress_percent: number;
+                            /** Format: int64 */
+                            progress_total: number;
+                            result?: null | components["schemas"]["TaskResult"];
+                            /** Format: int64 */
+                            share_id?: number | null;
+                            started_at?: string | null;
+                            status: components["schemas"]["BackgroundTaskStatus"];
+                            status_text?: string | null;
+                            steps: components["schemas"]["TaskStepInfo"][];
+                            /** Format: int64 */
+                            team_id?: number | null;
+                            updated_at: string;
                         };
                         error?: null | components["schemas"]["ApiErrorInfo"];
                         msg: string;
@@ -20356,7 +20397,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Trash emptied */
+            /** @description Trash purge task created */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -20366,7 +20407,37 @@ export interface operations {
                         code: components["schemas"]["ErrorCode"];
                         data?: {
                             /** Format: int32 */
-                            purged: number;
+                            attempt_count: number;
+                            can_retry: boolean;
+                            created_at: string;
+                            creator?: null | components["schemas"]["UserSummary"];
+                            display_name: string;
+                            expires_at: string;
+                            finished_at?: string | null;
+                            /** Format: int64 */
+                            id: number;
+                            kind: components["schemas"]["BackgroundTaskKind"];
+                            last_error?: string | null;
+                            lease_expires_at?: string | null;
+                            /** Format: int32 */
+                            max_attempts: number;
+                            payload: components["schemas"]["TaskPayload"];
+                            /** Format: int64 */
+                            progress_current: number;
+                            /** Format: int32 */
+                            progress_percent: number;
+                            /** Format: int64 */
+                            progress_total: number;
+                            result?: null | components["schemas"]["TaskResult"];
+                            /** Format: int64 */
+                            share_id?: number | null;
+                            started_at?: string | null;
+                            status: components["schemas"]["BackgroundTaskStatus"];
+                            status_text?: string | null;
+                            steps: components["schemas"]["TaskStepInfo"][];
+                            /** Format: int64 */
+                            team_id?: number | null;
+                            updated_at: string;
                         };
                         error?: null | components["schemas"]["ApiErrorInfo"];
                         msg: string;

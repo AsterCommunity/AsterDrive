@@ -105,6 +105,8 @@ pub enum BackgroundTaskKind {
     ArchivePreviewGenerate,
     #[sea_orm(string_value = "thumbnail_generate")]
     ThumbnailGenerate,
+    #[sea_orm(string_value = "trash_purge_all")]
+    TrashPurgeAll,
     #[sea_orm(string_value = "storage_policy_temp_cleanup")]
     StoragePolicyTempCleanup,
     #[sea_orm(string_value = "system_runtime")]
@@ -187,6 +189,7 @@ mod tests {
                 "archive_preview_generate",
             ),
             (BackgroundTaskKind::ThumbnailGenerate, "thumbnail_generate"),
+            (BackgroundTaskKind::TrashPurgeAll, "trash_purge_all"),
             (
                 BackgroundTaskKind::StoragePolicyTempCleanup,
                 "storage_policy_temp_cleanup",

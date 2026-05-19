@@ -7,7 +7,8 @@ use crate::runtime::PrimaryAppState;
 use crate::services::mail_service;
 use crate::storage::driver::{BlobMetadata, StoragePathVisitor};
 use crate::storage::{
-    DriverRegistry, ListStorageDriver, PolicySnapshot, StorageDriver, StreamUploadDriver,
+    DriverRegistry, ListStorageDriver, LocalPathStorageDriver, PolicySnapshot, StorageDriver,
+    StreamUploadDriver,
 };
 use crate::types::{DriverType, UserRole, UserStatus};
 use async_trait::async_trait;
@@ -19,6 +20,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{
     Arc, Mutex,
     atomic::{AtomicUsize, Ordering},
+    mpsc,
 };
 use std::time::Duration;
 use tokio::io::AsyncRead;
@@ -86,6 +88,10 @@ impl StorageDriver for CountingUploadDriver {
     fn as_stream_upload(&self) -> Option<&dyn StreamUploadDriver> {
         Some(self)
     }
+
+    fn as_local_path(&self) -> Option<&dyn LocalPathStorageDriver> {
+        self.inner.as_local_path()
+    }
 }
 
 #[async_trait]
@@ -122,6 +128,13 @@ impl StreamUploadDriver for CountingUploadDriver {
     ) -> crate::errors::Result<String> {
         self.inner.put_reader(storage_path, reader, size).await
     }
+}
+
+fn enable_content_dedup(policy: &storage_policy::Model) -> storage_policy::Model {
+    let mut policy = policy.clone();
+    policy.options =
+        crate::types::StoredStoragePolicyOptions(r#"{"content_dedup":true}"#.to_string());
+    policy
 }
 
 struct BlockingPutFileDriver {
@@ -183,6 +196,10 @@ impl StorageDriver for BlockingPutFileDriver {
     fn as_stream_upload(&self) -> Option<&dyn StreamUploadDriver> {
         Some(self)
     }
+
+    fn as_local_path(&self) -> Option<&dyn LocalPathStorageDriver> {
+        self.inner.as_local_path()
+    }
 }
 
 #[async_trait]
@@ -226,6 +243,131 @@ impl StreamUploadDriver for BlockingPutFileDriver {
         size: i64,
     ) -> crate::errors::Result<String> {
         self.inner.put_reader(storage_path, reader, size).await
+    }
+}
+
+struct BlockingLocalPathDriver {
+    inner: crate::storage::drivers::local::LocalDriver,
+    target_entered: Mutex<Option<oneshot::Sender<()>>>,
+    release_target: Mutex<Option<mpsc::Receiver<()>>>,
+}
+
+impl BlockingLocalPathDriver {
+    fn new(policy: &storage_policy::Model) -> (Self, oneshot::Receiver<()>, mpsc::Sender<()>) {
+        let (entered_tx, entered_rx) = oneshot::channel();
+        let (release_tx, release_rx) = mpsc::channel();
+        (
+            Self {
+                inner: crate::storage::drivers::local::LocalDriver::new(policy)
+                    .expect("blocking local path test driver should initialize"),
+                target_entered: Mutex::new(Some(entered_tx)),
+                release_target: Mutex::new(Some(release_rx)),
+            },
+            entered_rx,
+            release_tx,
+        )
+    }
+}
+
+#[async_trait]
+impl StorageDriver for BlockingLocalPathDriver {
+    async fn put(&self, path: &str, data: &[u8]) -> crate::errors::Result<String> {
+        self.inner.put(path, data).await
+    }
+
+    async fn get(&self, path: &str) -> crate::errors::Result<Vec<u8>> {
+        self.inner.get(path).await
+    }
+
+    async fn get_stream(
+        &self,
+        path: &str,
+    ) -> crate::errors::Result<Box<dyn AsyncRead + Unpin + Send>> {
+        self.inner.get_stream(path).await
+    }
+
+    async fn delete(&self, path: &str) -> crate::errors::Result<()> {
+        self.inner.delete(path).await
+    }
+
+    async fn exists(&self, path: &str) -> crate::errors::Result<bool> {
+        self.inner.exists(path).await
+    }
+
+    async fn metadata(&self, path: &str) -> crate::errors::Result<BlobMetadata> {
+        self.inner.metadata(path).await
+    }
+
+    fn as_list(&self) -> Option<&dyn ListStorageDriver> {
+        Some(self)
+    }
+
+    fn as_stream_upload(&self) -> Option<&dyn StreamUploadDriver> {
+        Some(self)
+    }
+
+    fn as_local_path(&self) -> Option<&dyn LocalPathStorageDriver> {
+        Some(self)
+    }
+}
+
+#[async_trait]
+impl ListStorageDriver for BlockingLocalPathDriver {
+    async fn list_paths(&self, prefix: Option<&str>) -> crate::errors::Result<Vec<String>> {
+        self.inner.list_paths(prefix).await
+    }
+
+    async fn scan_paths(
+        &self,
+        prefix: Option<&str>,
+        visitor: &mut dyn StoragePathVisitor,
+    ) -> crate::errors::Result<()> {
+        self.inner.scan_paths(prefix, visitor).await
+    }
+}
+
+#[async_trait]
+impl StreamUploadDriver for BlockingLocalPathDriver {
+    async fn put_file(
+        &self,
+        storage_path: &str,
+        local_path: &str,
+    ) -> crate::errors::Result<String> {
+        self.inner.put_file(storage_path, local_path).await
+    }
+
+    async fn put_reader(
+        &self,
+        storage_path: &str,
+        reader: Box<dyn AsyncRead + Unpin + Send + Sync>,
+        size: i64,
+    ) -> crate::errors::Result<String> {
+        self.inner.put_reader(storage_path, reader, size).await
+    }
+}
+
+impl LocalPathStorageDriver for BlockingLocalPathDriver {
+    fn resolve_local_path(&self, path: &str) -> crate::errors::Result<PathBuf> {
+        if let Some(sender) = self
+            .target_entered
+            .lock()
+            .expect("blocking local path test driver lock should succeed")
+            .take()
+        {
+            let _ = sender.send(());
+        }
+        let release_rx = self
+            .release_target
+            .lock()
+            .expect("blocking local path release lock should succeed")
+            .take()
+            .expect("blocking local path release receiver should exist");
+        release_rx.recv().map_err(|error| {
+            crate::errors::AsterError::storage_driver_error(format!(
+                "blocking local path release channel closed: {error}"
+            ))
+        })?;
+        self.inner.as_local_path().unwrap().resolve_local_path(path)
     }
 }
 
@@ -655,6 +797,69 @@ async fn slow_nondedup_preupload_does_not_block_task_listing() {
         .expect("store task should join")
         .expect("store task should succeed");
     assert_eq!(stored.name, "slow-upload.bin");
+
+    drop(state);
+    let _ = std::fs::remove_dir_all(&temp_root);
+}
+
+#[tokio::test]
+async fn slow_dedup_blob_publish_does_not_block_task_listing() {
+    let (state, temp_root, policy, user) = build_test_state().await;
+    let policy = enable_content_dedup(&policy);
+    let scope = WorkspaceStorageScope::Personal { user_id: user.id };
+    let (blocking_driver, entered_rx, release_target) = BlockingLocalPathDriver::new(&policy);
+    state
+        .driver_registry
+        .insert_for_test(policy.id, Arc::new(blocking_driver));
+
+    let temp_file = temp_root.join("slow-dedup-upload.bin");
+    let payload = b"slow dedup upload payload";
+    tokio::fs::write(&temp_file, payload).await.unwrap();
+
+    let state_for_store = state.clone();
+    let policy_for_store = policy.clone();
+    let temp_path = temp_file.to_string_lossy().into_owned();
+    let store_task = tokio::task::spawn_blocking(move || {
+        tokio::runtime::Handle::current().block_on(store_from_temp_with_hints(
+            &state_for_store,
+            StoreFromTempParams::new(
+                scope,
+                None,
+                "slow-dedup-upload.bin",
+                &temp_path,
+                payload.len() as i64,
+            ),
+            StoreFromTempHints {
+                resolved_policy: Some(policy_for_store),
+                precomputed_hash: None,
+                actor_username: None,
+            },
+        ))
+    });
+
+    tokio::time::timeout(Duration::from_secs(1), entered_rx)
+        .await
+        .expect("dedup blob publish should resolve target path")
+        .expect("target path entry signal should be sent");
+
+    let page = tokio::time::timeout(
+        Duration::from_millis(250),
+        crate::services::task_service::list_tasks_paginated_in_scope(&state, scope, 20, 0),
+    )
+    .await
+    .expect("task listing should not wait for blocked dedup blob publish")
+    .expect("task listing should succeed");
+    assert_eq!(page.total, 0);
+    assert!(page.items.is_empty());
+
+    release_target.send(()).unwrap();
+
+    let stored = tokio::time::timeout(Duration::from_secs(1), store_task)
+        .await
+        .expect("store task should finish after releasing target path")
+        .expect("store task should join")
+        .expect("store task should succeed");
+    assert_eq!(stored.name, "slow-dedup-upload.bin");
 
     drop(state);
     let _ = std::fs::remove_dir_all(&temp_root);

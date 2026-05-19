@@ -500,7 +500,7 @@ describe("TasksPage", () => {
 		});
 	});
 
-	it("keeps task details collapsed until expanded and removes duplicate active step headings", async () => {
+	it("shows task steps before details are expanded and removes the summary progress bar", async () => {
 		mockState.listInWorkspace.mockResolvedValue({
 			items: [
 				createTask({
@@ -518,21 +518,25 @@ describe("TasksPage", () => {
 		render(<TasksPage />);
 
 		await screen.findByText("Extract archive");
-		expect(screen.queryByText("1. Waiting")).not.toBeInTheDocument();
-		expect(screen.queryByText("num:20 / num:50")).not.toBeInTheDocument();
+		expect(screen.getByText("1. Waiting")).toBeInTheDocument();
+		expect(screen.getByText("2. Prepare archive sources")).toBeInTheDocument();
+		expect(screen.getByText("3. Build archive")).toBeInTheDocument();
+		expect(screen.getByText("4. Save archive")).toBeInTheDocument();
+		expect(screen.getByText(/Packing archive/)).toBeInTheDocument();
+		expect(screen.getByText("tasks:step_progress_label")).toBeInTheDocument();
+		expect(screen.getByText(/num:20 \/ num:50/)).toBeInTheDocument();
+		expect(screen.queryByTestId("progress")).not.toBeInTheDocument();
+		expect(
+			screen.queryByText("tasks:progress_ratio_label"),
+		).not.toBeInTheDocument();
 
 		fireEvent.click(screen.getByText("tasks:show_details"));
 
-		expect(await screen.findByText("1. Waiting")).toBeInTheDocument();
-		expect(screen.getByText("2. Prepare archive sources")).toBeInTheDocument();
+		expect(await screen.findByText("tasks:timeline_label")).toBeInTheDocument();
 		expect(screen.getAllByText("3. Build archive")).toHaveLength(1);
-		expect(screen.getByText("4. Save archive")).toBeInTheDocument();
-		expect(screen.getByText(/Packing archive/)).toBeInTheDocument();
-		expect(screen.getByText("tasks:timeline_label")).toBeInTheDocument();
-		expect(screen.getByText("tasks:step_progress_label")).toBeInTheDocument();
 		expect(screen.getByText("tasks:progress_ratio_label")).toBeInTheDocument();
 		expect(screen.getByText("num:35 / num:100")).toBeInTheDocument();
-		expect(screen.getByText(/num:20 \/ num:50/)).toBeInTheDocument();
+		expect(screen.getByTestId("progress")).toHaveAttribute("data-value", "35");
 	});
 
 	it("renders summary timestamps by status and keeps detailed times in the expanded panel", async () => {

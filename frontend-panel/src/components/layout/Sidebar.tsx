@@ -305,20 +305,20 @@ export function Sidebar({
 	};
 
 	const sidebarContent = (
-		<div className="flex flex-col h-full">
-			<div className="border-b border-sidebar-border bg-sidebar px-3 py-2 sm:py-2.5">
+		<div className="flex h-full min-h-0 flex-col overflow-y-auto overscroll-contain">
+			<div className="shrink-0 border-b border-sidebar-border bg-sidebar px-3 py-2 sm:py-2.5">
 				<WorkspaceSwitcher variant="sidebar" />
 			</div>
 
 			{/* Folder tree */}
-			<ScrollArea className="flex-1">
+			<ScrollArea className="min-h-32 flex-1">
 				<FolderTree onMoveToFolder={onMoveToFolder} />
 			</ScrollArea>
 
 			<Separator />
 
 			{/* Quick category search */}
-			<div className="p-2 space-y-1">
+			<div className="shrink-0 p-2 space-y-1">
 				<p className="px-3 py-1 text-xs font-medium text-muted-foreground">
 					{t("search:quick_categories")}
 				</p>
@@ -341,7 +341,7 @@ export function Sidebar({
 			<Separator />
 
 			{/* Navigation links */}
-			<div className="p-2 space-y-1">
+			<div className="shrink-0 p-2 space-y-1">
 				{navLinks.map((link) => (
 					<Link
 						key={link.to}
@@ -369,7 +369,7 @@ export function Sidebar({
 			{user && (!isTeamWorkspace(workspace) || activeTeam) && (
 				<>
 					<Separator />
-					<div className="p-3 space-y-1.5">
+					<div className="shrink-0 p-3 space-y-1.5">
 						<p className="text-xs font-medium text-muted-foreground">
 							{activeTeam ? activeTeam.name : t("files:storage_space")}
 						</p>

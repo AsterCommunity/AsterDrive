@@ -1123,10 +1123,13 @@ mod tests {
         let (state, user, file) = build_image_preview_route_state().await;
         let token = access_token_for(&state, &user).await;
         let app = test::init_service(App::new().app_data(web::Data::new(state.clone())).service(
-            web::scope("/api/v1").service(crate::api::routes::files::routes(&RateLimitConfig {
-                enabled: false,
-                ..Default::default()
-            })),
+            web::scope("/api/v1").service(crate::api::routes::files::routes(
+                &RateLimitConfig {
+                    enabled: false,
+                    ..Default::default()
+                },
+                &crate::config::NetworkTrustConfig::default(),
+            )),
         ))
         .await;
 

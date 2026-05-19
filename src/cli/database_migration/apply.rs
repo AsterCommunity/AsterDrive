@@ -31,8 +31,7 @@ pub(super) async fn execute_apply_mode(ctx: ApplyModeContext<'_>) -> Result<Appl
         .await
         .map_aster_err(AsterError::database_operation)?;
     let target_backend = ctx.target_db.get_database_backend();
-    let target_pending_after =
-        pending_migrations(ctx.target_db, target_backend, ctx.expected_migrations).await?;
+    let target_pending_after = pending_migrations(ctx.target_db).await?;
     if !target_pending_after.is_empty() {
         return Err(AsterError::database_operation(format!(
             "target database still has pending migrations after prepare: {}",

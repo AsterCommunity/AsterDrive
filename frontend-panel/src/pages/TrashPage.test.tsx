@@ -10,6 +10,7 @@ const mockState = vi.hoisted(() => ({
 	})),
 	handleApiError: vi.fn(),
 	list: vi.fn(),
+	listeners: new Set<(event: unknown) => void>(),
 	purgeAll: vi.fn(),
 	purgeFile: vi.fn(),
 	purgeFolder: vi.fn(),
@@ -341,6 +342,15 @@ vi.mock("@/lib/formatBatchToast", () => ({
 	formatBatchToast: (...args: unknown[]) => mockState.formatBatchToast(...args),
 }));
 
+vi.mock("@/lib/storageChangeBus", () => ({
+	subscribeStorageChange: (listener: (event: unknown) => void) => {
+		mockState.listeners.add(listener);
+		return () => {
+			mockState.listeners.delete(listener);
+		};
+	},
+}));
+
 vi.mock("@/services/trashService", () => ({
 	trashService: {
 		list: (...args: unknown[]) => mockState.list(...args),
@@ -383,6 +393,7 @@ describe("TrashPage", () => {
 		mockState.formatBatchToast.mockClear();
 		mockState.handleApiError.mockReset();
 		mockState.list.mockReset();
+		mockState.listeners.clear();
 		mockState.purgeAll.mockReset();
 		mockState.purgeFile.mockReset();
 		mockState.purgeFolder.mockReset();
@@ -395,7 +406,9 @@ describe("TrashPage", () => {
 		MockIntersectionObserver.reset();
 
 		mockState.list.mockResolvedValue(emptyTrashContents());
-		mockState.purgeAll.mockResolvedValue(undefined);
+		mockState.purgeAll.mockResolvedValue({
+			display_name: "Empty trash",
+		});
 		mockState.purgeFile.mockResolvedValue(undefined);
 		mockState.purgeFolder.mockResolvedValue(undefined);
 		mockState.refreshUser.mockResolvedValue(undefined);
@@ -457,7 +470,7 @@ describe("TrashPage", () => {
 		expect(mockState.refreshUser).not.toHaveBeenCalled();
 	});
 
-	it("confirms and empties the trash, then reloads contents", async () => {
+	it("confirms and schedules trash purge without reloading before completion", async () => {
 		mockState.list
 			.mockResolvedValueOnce({
 				files: [fileItem],
@@ -479,10 +492,51 @@ describe("TrashPage", () => {
 		await waitFor(() => {
 			expect(mockState.purgeAll).toHaveBeenCalledTimes(1);
 		});
-		expect(mockState.toastSuccess).toHaveBeenCalledWith("trash_emptied");
+		expect(mockState.toastSuccess).toHaveBeenCalledWith(
+			"tasks:task_created_success",
+			{
+				description: "Empty trash",
+			},
+		);
+		expect(mockState.list).toHaveBeenCalledTimes(1);
 		await waitFor(() => {
-			expect(mockState.refreshUser).toHaveBeenCalledTimes(1);
+			expect(mockState.refreshUser).not.toHaveBeenCalled();
 		});
+	});
+
+	it("reloads trash contents and quota when a sync.required event arrives", async () => {
+		mockState.list
+			.mockResolvedValueOnce({
+				files: [fileItem],
+				files_total: 1,
+				folders: [],
+				folders_total: 0,
+				next_file_cursor: null,
+			} as never)
+			.mockResolvedValueOnce(emptyTrashContents());
+
+		render(<TrashPage />);
+
+		await screen.findByText("select:report.pdf");
+
+		for (const listener of mockState.listeners) {
+			listener({
+				kind: "sync.required",
+				workspace: { kind: "personal" },
+				file_ids: [],
+				folder_ids: [],
+				affected_parent_ids: [],
+				root_affected: false,
+				affects_quota: true,
+				storage_delta: null,
+				at: "2026-05-19T00:00:00Z",
+			});
+		}
+
+		await waitFor(() => {
+			expect(mockState.list).toHaveBeenCalledTimes(2);
+		});
+		expect(mockState.refreshUser).toHaveBeenCalledWith({ fields: ["quota"] });
 	});
 
 	it("shows the server total even when only the first trash page is loaded", async () => {

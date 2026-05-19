@@ -150,37 +150,59 @@ pub(super) async fn verify_folder_in_trash_in_scope(
     Ok(folder)
 }
 
-pub(super) async fn recursive_purge_folder_in_scope(
+pub(super) async fn purge_folder_tree_in_scope(
     state: &PrimaryAppState,
     scope: WorkspaceStorageScope,
     folder_id: i64,
 ) -> Result<()> {
-    recursive_purge_folder_forest_in_scope(state, scope, &[folder_id]).await
+    purge_folder_forest_in_scope(state, scope, &[folder_id]).await
 }
 
-pub(super) async fn recursive_purge_folder_in_resource_scope(
+pub(super) async fn purge_folder_tree_in_resource_scope(
     state: &PrimaryAppState,
     scope: WorkspaceResourceScope,
     folder_id: i64,
 ) -> Result<()> {
-    recursive_purge_folder_forest_in_resource_scope(state, scope, &[folder_id]).await
+    purge_folder_forest_in_resource_scope(state, scope, &[folder_id], true)
+        .await
+        .map(|_| ())
 }
 
-pub(super) async fn recursive_purge_folder_forest_in_scope(
+pub(super) async fn purge_folder_forest_in_scope(
     state: &PrimaryAppState,
     scope: WorkspaceStorageScope,
     folder_ids: &[i64],
 ) -> Result<()> {
-    recursive_purge_folder_forest_in_resource_scope(state, scope.into(), folder_ids).await
+    purge_folder_forest_in_resource_scope(state, scope.into(), folder_ids, true)
+        .await
+        .map(|_| ())
 }
 
-pub(super) async fn recursive_purge_folder_forest_in_resource_scope(
+pub(super) async fn purge_folder_forest_in_scope_silent(
+    state: &PrimaryAppState,
+    scope: WorkspaceStorageScope,
+    folder_ids: &[i64],
+) -> Result<FolderPurgeSummary> {
+    purge_folder_forest_in_resource_scope(state, scope.into(), folder_ids, false).await
+}
+
+#[derive(Debug, Default)]
+pub(super) struct FolderPurgeSummary {
+    pub purged: u32,
+    pub folder_ids: Vec<i64>,
+    pub affected_parent_ids: Vec<Option<i64>>,
+    pub file_ids: Vec<i64>,
+    pub freed_bytes: i64,
+}
+
+pub(super) async fn purge_folder_forest_in_resource_scope(
     state: &PrimaryAppState,
     scope: WorkspaceResourceScope,
     folder_ids: &[i64],
-) -> Result<()> {
+    emit_storage_event: bool,
+) -> Result<FolderPurgeSummary> {
     if folder_ids.is_empty() {
-        return Ok(());
+        return Ok(FolderPurgeSummary::default());
     }
 
     tracing::debug!(
@@ -202,7 +224,8 @@ pub(super) async fn recursive_purge_folder_forest_in_resource_scope(
             .await?;
     let file_count = all_files.len();
     let folder_count = all_folder_ids.len();
-    file_service::batch_purge_in_resource_scope(state, scope, all_files).await?;
+    let file_summary =
+        file_service::batch_purge_in_resource_scope_silent(state, scope, all_files).await?;
     property_repo::delete_all_for_entities(&state.db, EntityType::Folder, &all_folder_ids).await?;
     let deleted_shares = share_repo::delete_by_folder_ids(&state.db, &all_folder_ids).await?;
     if deleted_shares > 0 {
@@ -214,16 +237,19 @@ pub(super) async fn recursive_purge_folder_forest_in_resource_scope(
     }
     crate::services::folder_service::invalidate_folder_path_cache(state).await;
     folder_repo::delete_many(&state.db, &all_folder_ids).await?;
-    storage_change_service::publish(
-        state,
-        storage_change_service::StorageChangeEvent::new_for_resource_scope(
-            storage_change_service::StorageChangeKind::FolderPurged,
-            scope,
-            vec![],
-            folder_ids.to_vec(),
-            parent_ids,
-        ),
-    );
+    if emit_storage_event {
+        storage_change_service::publish(
+            state,
+            storage_change_service::StorageChangeEvent::new_for_resource_scope(
+                storage_change_service::StorageChangeKind::FolderPurged,
+                scope,
+                file_summary.file_ids.clone(),
+                folder_ids.to_vec(),
+                parent_ids.clone(),
+            )
+            .with_storage_delta(-file_summary.freed_bytes),
+        );
+    }
     tracing::debug!(
         scope = ?scope,
         root_folder_count = folder_ids.len(),
@@ -232,5 +258,11 @@ pub(super) async fn recursive_purge_folder_forest_in_resource_scope(
         deleted_shares,
         "purged folder forest permanently"
     );
-    Ok(())
+    Ok(FolderPurgeSummary {
+        purged: crate::utils::numbers::usize_to_u32(folder_ids.len(), "purged folder count")?,
+        folder_ids: folder_ids.to_vec(),
+        affected_parent_ids: parent_ids,
+        file_ids: file_summary.file_ids,
+        freed_bytes: file_summary.freed_bytes,
+    })
 }

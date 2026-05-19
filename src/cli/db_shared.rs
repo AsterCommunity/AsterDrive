@@ -5,7 +5,7 @@
 
 use std::path::Path;
 
-use migration::{current_migration_names, inspect_migration_history};
+use migration::inspect_migration_history;
 use sea_orm::{ConnectionTrait, DbBackend, Statement};
 
 use crate::errors::{AsterError, MapAsterErr, Result};
@@ -23,15 +23,7 @@ pub(super) fn backend_name(backend: DbBackend) -> &'static str {
     }
 }
 
-pub(super) fn migration_names() -> Vec<String> {
-    current_migration_names()
-}
-
-pub(super) async fn pending_migrations<C>(
-    db: &C,
-    _backend: DbBackend,
-    _expected: &[String],
-) -> Result<Vec<String>>
+pub(super) async fn pending_migrations<C>(db: &C) -> Result<Vec<String>>
 where
     C: ConnectionTrait,
 {
@@ -43,12 +35,6 @@ where
             "database contains unknown migration versions: {}",
             join_strings(&history.unknown_applied)
         )));
-    }
-    if history.has_inconsistent_baseline_stamp() {
-        return Err(AsterError::validation_error("database migration history mixes the rebased baseline with pre-rc.1 migrations; restore a backup or contact maintainers before continuing".to_string()));
-    }
-    if history.track == migration::MigrationTrack::PreRc1Complete {
-        return Ok(Vec::new());
     }
 
     Ok(history.effective_pending().to_vec())

@@ -11,6 +11,7 @@ mod runtime;
 mod steps;
 mod storage_policy_cleanup;
 mod thumbnail;
+mod trash;
 mod types;
 
 use chrono::{Duration, Utc};
@@ -46,6 +47,7 @@ pub use runtime::{RuntimeTaskRunOutcome, record_runtime_task_run};
 use steps::{initial_task_steps, parse_task_steps_json, serialize_task_steps};
 pub(crate) use storage_policy_cleanup::create_storage_policy_temp_cleanup_task;
 pub(crate) use thumbnail::ensure_thumbnail_task;
+pub(crate) use trash::create_trash_purge_all_task_in_scope;
 pub use types::{
     ArchiveCompressTaskPayload, ArchiveCompressTaskResult, ArchiveExtractTaskPayload,
     ArchiveExtractTaskResult, ArchivePreviewTaskPayload, ArchivePreviewTaskResult,
@@ -53,6 +55,7 @@ pub use types::{
     RuntimeSystemHealthComponent, RuntimeSystemHealthResult, RuntimeSystemHealthStatus,
     RuntimeTaskPayload, RuntimeTaskResult, TaskInfo, TaskPayload, TaskResult, TaskStepInfo,
     TaskStepStatus, ThumbnailGenerateTaskPayload, ThumbnailGenerateTaskResult,
+    TrashPurgeAllTaskPayload, TrashPurgeAllTaskResult,
 };
 use types::{parse_task_payload_info, parse_task_result_info, serialize_task_payload};
 
@@ -666,6 +669,7 @@ fn configured_task_max_attempts(state: &PrimaryAppState, kind: BackgroundTaskKin
         BackgroundTaskKind::ArchiveCompress
         | BackgroundTaskKind::ArchiveExtract
         | BackgroundTaskKind::ArchivePreviewGenerate
+        | BackgroundTaskKind::TrashPurgeAll
         | BackgroundTaskKind::StoragePolicyTempCleanup => {
             operations::background_task_max_attempts(&state.runtime_config)
         }

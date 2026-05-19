@@ -11,6 +11,7 @@ pub use cleanup::cleanup_expired;
 pub use common::load_retention_days;
 pub use listing::{expires_cursor_to_deleted_cursor, list_team_trash, list_trash};
 pub use models::{TrashContents, TrashFileCursor, TrashFileItem, TrashFolderItem};
+pub(crate) use purge::{publish_purge_all_storage_change, purge_all_in_scope_silent};
 pub use purge::{
     purge_all, purge_all_team, purge_file, purge_folder, purge_team_file, purge_team_folder,
 };

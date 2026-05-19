@@ -27,11 +27,12 @@ pub use content::{
 pub(crate) use content::{
     StreamedTempUpload, stream_request_body_to_temp_upload, update_content_stream_in_scope,
 };
-pub use deletion::{batch_purge, delete, purge};
 pub(crate) use deletion::{
-    batch_purge_in_resource_scope, batch_purge_in_scope, cleanup_unreferenced_blob,
-    delete_in_scope, ensure_blob_cleanup_if_unreferenced,
+    BatchPurgeSummary, batch_purge_in_resource_scope, batch_purge_in_resource_scope_silent,
+    batch_purge_in_scope, cleanup_unreferenced_blob, delete_in_scope,
+    ensure_blob_cleanup_if_unreferenced,
 };
+pub use deletion::{batch_purge, delete, purge};
 pub(crate) use download::range::{ResolvedDownloadRange, parse_range_header};
 pub use download::{DownloadOutcome, StreamedFile, download, download_raw};
 pub(crate) use download::{

@@ -222,7 +222,7 @@ pub async fn finish_login(
     )?;
     let audit_info = AuditRequestInfo::from_request_with_trusted_proxies(
         &req,
-        &state.config.rate_limit.trusted_proxies,
+        &state.config.network_trust.trusted_proxies,
     );
     let result = passkey_service::finish_login(
         &state,
