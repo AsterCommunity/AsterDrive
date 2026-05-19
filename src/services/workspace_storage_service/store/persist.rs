@@ -38,7 +38,8 @@ pub(super) async fn persist_temp_store(
     if storage_delta > 0 && !quota_prechecked {
         check_quota(&state.db, scope, storage_delta).await?;
     }
-    stage_temp_blob_before_transaction(&blob_plan, driver.as_ref(), size, &temp_path).await?;
+    let staged_dedup_target =
+        stage_temp_blob_before_transaction(&blob_plan, driver.as_ref(), size, &temp_path).await?;
 
     let create_result = async {
         let txn = crate::db::transaction::begin(&state.db).await?;
@@ -72,6 +73,9 @@ pub(super) async fn persist_temp_store(
     match create_result {
         Ok(result) => Ok(result),
         Err(error) => {
+            if staged_dedup_target {
+                rollback_staged_dedup_blob(state, &blob_plan, driver.as_ref(), policy.id).await;
+            }
             if let TempBlobPlan::Preuploaded(preuploaded_blob) = &cleanup_blob_plan {
                 cleanup_preuploaded_blob_upload(
                     driver.as_ref(),
@@ -90,18 +94,56 @@ async fn stage_temp_blob_before_transaction(
     driver: &dyn crate::storage::driver::StorageDriver,
     size: i64,
     temp_path: &str,
-) -> Result<()> {
+) -> Result<bool> {
     match blob_plan {
-        TempBlobPlan::Dedup(target) => {
+        TempBlobPlan::Dedup(target) => Ok(
             crate::storage::drivers::local::promote_local_file_if_absent(
                 driver,
                 &target.storage_path,
                 temp_path,
                 size,
             )
-            .await
+            .await?
+            .created(),
+        ),
+        TempBlobPlan::Preuploaded(_) => Ok(false),
+    }
+}
+
+async fn rollback_staged_dedup_blob(
+    state: &PrimaryAppState,
+    blob_plan: &TempBlobPlan,
+    driver: &dyn crate::storage::driver::StorageDriver,
+    policy_id: i64,
+) {
+    let TempBlobPlan::Dedup(target) = blob_plan else {
+        return;
+    };
+
+    match file_repo::find_blob_by_hash(&state.db, &target.file_hash, policy_id).await {
+        Ok(Some(blob)) => {
+            tracing::debug!(
+                blob_id = blob.id,
+                storage_path = %target.storage_path,
+                "skipping staged dedup blob rollback because a blob row now references it"
+            );
+            return;
         }
-        TempBlobPlan::Preuploaded(_) => Ok(()),
+        Ok(None) => {}
+        Err(error) => {
+            tracing::warn!(
+                storage_path = %target.storage_path,
+                "failed to verify staged dedup blob before rollback; keeping object: {error}"
+            );
+            return;
+        }
+    }
+
+    if let Err(error) = driver.delete(&target.storage_path).await {
+        tracing::warn!(
+            storage_path = %target.storage_path,
+            "failed to rollback staged dedup blob after DB error: {error}"
+        );
     }
 }
 

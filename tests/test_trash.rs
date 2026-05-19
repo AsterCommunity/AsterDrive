@@ -289,6 +289,9 @@ async fn test_trash_purge_all() {
         .try_recv()
         .expect("purge-all task should publish one storage sync event");
     assert_eq!(purge_all_event.kind, StorageChangeKind::SyncRequired);
+    assert!(purge_all_event.file_ids.is_empty());
+    assert!(purge_all_event.folder_ids.is_empty());
+    assert!(purge_all_event.affected_parent_ids.is_empty());
     assert!(purge_all_event.affects_quota);
     assert_eq!(
         purge_all_event.storage_delta,

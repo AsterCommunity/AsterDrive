@@ -1,3 +1,4 @@
+import { logger } from "@/lib/logger";
 import type { StorageChangeEventPayload } from "@/lib/storageEventEcho";
 
 type StorageChangeListener = (event: StorageChangeEventPayload) => void;
@@ -13,6 +14,12 @@ export function subscribeStorageChange(listener: StorageChangeListener) {
 
 export function publishStorageChange(event: StorageChangeEventPayload) {
 	for (const listener of listeners) {
-		listener(event);
+		try {
+			Promise.resolve(listener(event)).catch((error: unknown) => {
+				logger.error("storage change listener failed", error);
+			});
+		} catch (error) {
+			logger.error("storage change listener failed", error);
+		}
 	}
 }

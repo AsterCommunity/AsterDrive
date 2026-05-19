@@ -79,25 +79,17 @@ pub(crate) async fn purge_all_in_scope(
 #[derive(Debug, Default)]
 pub(crate) struct PurgeAllSummary {
     pub purged: u32,
-    file_ids: Vec<i64>,
-    folder_ids: Vec<i64>,
-    affected_parent_ids: Vec<Option<i64>>,
     freed_bytes: i64,
 }
 
 impl PurgeAllSummary {
     fn add_folder_summary(&mut self, summary: FolderPurgeSummary) {
         self.purged += summary.purged;
-        self.file_ids.extend(summary.file_ids);
-        self.folder_ids.extend(summary.folder_ids);
-        self.affected_parent_ids.extend(summary.affected_parent_ids);
         self.freed_bytes += summary.freed_bytes;
     }
 
     fn add_file_summary(&mut self, summary: file_service::BatchPurgeSummary) {
         self.purged += summary.purged;
-        self.file_ids.extend(summary.file_ids);
-        self.affected_parent_ids.extend(summary.affected_parent_ids);
         self.freed_bytes += summary.freed_bytes;
     }
 }
@@ -148,9 +140,7 @@ pub(crate) async fn purge_all_in_scope_silent(
                     "batch purge top-level folders failed, falling back to per-folder purge: {error}"
                 );
                 for folder_id in folder_ids {
-                    match purge_folder_forest_in_scope_silent(state, scope, &[folder_id])
-                        .await
-                    {
+                    match purge_folder_forest_in_scope_silent(state, scope, &[folder_id]).await {
                         Ok(folder_summary) => summary.add_folder_summary(folder_summary),
                         Err(error) => tracing::warn!("purge folder {folder_id} failed: {error}"),
                     }
@@ -185,14 +175,17 @@ pub(crate) async fn purge_all_in_scope_silent(
             break;
         }
 
-        file_cursor = top_files
+        let next_file_cursor = top_files
             .last()
             .and_then(|file| file.deleted_at.map(|deleted_at| (deleted_at, file.id)));
         match file_service::batch_purge_in_resource_scope_silent(state, scope.into(), top_files)
             .await
         {
-            Ok(file_summary) => summary.add_file_summary(file_summary),
-            Err(error) => tracing::warn!("batch purge top-level files failed: {error}"),
+            Ok(file_summary) => {
+                summary.add_file_summary(file_summary);
+                file_cursor = next_file_cursor;
+            }
+            Err(error) => return Err(error),
         }
     }
 
@@ -218,9 +211,9 @@ pub(crate) fn publish_purge_all_storage_change(
         storage_change_service::StorageChangeEvent::new(
             storage_change_service::StorageChangeKind::SyncRequired,
             scope,
-            summary.file_ids.clone(),
-            summary.folder_ids.clone(),
-            summary.affected_parent_ids.clone(),
+            vec![],
+            vec![],
+            vec![],
         )
         .with_storage_delta(-summary.freed_bytes),
     );

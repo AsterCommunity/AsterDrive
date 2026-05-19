@@ -977,6 +977,69 @@ async fn test_migrations_reject_unsupported_historical_migration_history() {
 }
 
 #[tokio::test]
+async fn test_migrations_reject_non_prefix_current_migration_history() {
+    let database_url = setup_empty_database_url("asterdrive-cli-non-prefix-migration-test").await;
+    let db = db::connect(&DatabaseConfig {
+        url: database_url,
+        pool_size: 1,
+        retry_count: 0,
+    })
+    .await
+    .unwrap();
+    Migrator::up(&db, None).await.unwrap();
+    let current_names = migration::current_migration_names();
+    db.execute_raw(Statement::from_sql_and_values(
+        DbBackend::Sqlite,
+        "DELETE FROM seaql_migrations WHERE version = ?",
+        [current_names[0].clone().into()],
+    ))
+    .await
+    .unwrap();
+
+    let history = migration::inspect_migration_history(&db).await.unwrap();
+    assert_eq!(history.track, migration::MigrationTrack::Unknown);
+
+    let error = Migrator::up(&db, None)
+        .await
+        .expect_err("non-prefix migration history should be rejected");
+    let stderr = error.to_string();
+    assert!(
+        stderr.contains("non-prefix migration history"),
+        "error should identify the non-prefix migration history: {stderr}"
+    );
+}
+
+#[tokio::test]
+async fn test_migrations_reject_existing_schema_with_empty_history() {
+    let database_url = setup_empty_database_url("asterdrive-cli-empty-history-schema-test").await;
+    let db = db::connect(&DatabaseConfig {
+        url: database_url,
+        pool_size: 1,
+        retry_count: 0,
+    })
+    .await
+    .unwrap();
+    db.execute_raw(Statement::from_string(
+        DbBackend::Sqlite,
+        "CREATE TABLE users (id INTEGER PRIMARY KEY)".to_string(),
+    ))
+    .await
+    .unwrap();
+
+    let history = migration::inspect_migration_history(&db).await.unwrap();
+    assert_eq!(history.track, migration::MigrationTrack::Unknown);
+
+    let error = Migrator::up(&db, None)
+        .await
+        .expect_err("existing schema with empty history should be rejected");
+    let stderr = error.to_string();
+    assert!(
+        stderr.contains("empty migration history with existing schema objects"),
+        "error should identify existing schema objects without migration history: {stderr}"
+    );
+}
+
+#[tokio::test]
 async fn test_root_binary_doctor_deep_fix_repairs_counters() {
     let database_url = setup_database_url().await;
     let state = common::setup_with_database_url(&database_url).await;

@@ -218,9 +218,7 @@ export function TaskCard({
 					</div>
 				</div>
 
-				{task.steps.length > 0 ? (
-					<TaskStepsPreview activeStep={activeStep} task={task} />
-				) : null}
+				<TaskStepsPreview activeStep={activeStep} task={task} />
 
 				{taskSummaryText ? (
 					<div className="space-y-2">

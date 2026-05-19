@@ -541,6 +541,41 @@ describe("AdminTasksPage", () => {
 		});
 	});
 
+	it("accepts trash purge filters from the url", async () => {
+		mockState.list.mockResolvedValueOnce({
+			items: [
+				createTask({
+					display_name: "Empty trash",
+					kind: "trash_purge_all",
+					payload: { kind: "trash_purge_all" },
+					progress_current: 0,
+					progress_percent: 100,
+					progress_total: 0,
+					status: "succeeded",
+					status_text: "purged 3 items",
+				}),
+			],
+			total: 1,
+		});
+
+		renderPage("/admin/tasks?kind=trash_purge_all");
+
+		await waitFor(() => {
+			expect(mockState.list).toHaveBeenCalledWith({
+				kind: "trash_purge_all",
+				limit: 20,
+				offset: 0,
+				sort_by: "updated_at",
+				sort_order: "desc",
+			});
+		});
+		expect(screen.getByText("Empty trash")).toBeInTheDocument();
+		expect(
+			screen.getAllByText("tasks:kind_trash_purge_all").length,
+		).toBeGreaterThan(0);
+		expect(screen.getByText("select:trash_purge_all")).toBeInTheDocument();
+	});
+
 	it("cleans up completed tasks from the dialog and reloads the list", async () => {
 		mockState.list
 			.mockResolvedValueOnce({

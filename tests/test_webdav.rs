@@ -81,6 +81,7 @@ async fn setup_with_custom_webdav_config(
     let state = common::setup().await;
     let db = state.db.clone();
     let rl = RateLimitConfig::default();
+    let network_trust = state.config.network_trust.clone();
 
     test::init_service(
         App::new()
@@ -92,8 +93,11 @@ async fn setup_with_custom_webdav_config(
                 aster_drive::webdav::configure(cfg, &webdav_config, &db);
                 cfg.service(
                     web::scope("/api/v1")
-                        .service(aster_drive::api::routes::auth::routes(&rl))
-                        .service(aster_drive::api::routes::webdav_accounts::routes(&rl)),
+                        .service(aster_drive::api::routes::auth::routes(&rl, &network_trust))
+                        .service(aster_drive::api::routes::webdav_accounts::routes(
+                            &rl,
+                            &network_trust,
+                        )),
                 );
             }),
     )

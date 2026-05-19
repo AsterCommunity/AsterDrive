@@ -142,7 +142,7 @@ PostgreSQL 和 SQLite 不受这个限制。
 
 ## 从旧版本升级
 
-当前版本的正式升级路径以 `v0.1.0` 及之后的 migration 历史为准。也就是说，数据库的 `seaql_migrations` 里应当已经位于当前基线链：
+当前版本的正式升级路径以 `v0.1.0` 及之后的 migration 历史为准。也就是说，数据库的 `seaql_migrations` 表中应当包含当前基线迁移记录：
 
 ```text
 m20260512_000001_baseline_schema

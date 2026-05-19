@@ -86,6 +86,7 @@ export default function TrashPage() {
 		null,
 	);
 	const pendingRef = useRef(false);
+	const syncInFlightRef = useRef(false);
 	const sentinelRef = useRef<HTMLDivElement | null>(null);
 
 	const items = toTrashItems(contents);
@@ -162,7 +163,15 @@ export default function TrashPage() {
 			if (event.kind !== "sync.required") {
 				return;
 			}
-			void Promise.all([load(), refreshUser({ fields: ["quota"] })]);
+			if (syncInFlightRef.current) {
+				return;
+			}
+			syncInFlightRef.current = true;
+			void Promise.all([load(), refreshUser({ fields: ["quota"] })]).finally(
+				() => {
+					syncInFlightRef.current = false;
+				},
+			);
 		});
 	}, [load, refreshUser]);
 

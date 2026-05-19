@@ -1,5 +1,6 @@
 use super::paths::sanitize_relative_path;
 use crate::storage::driver::{StorageDriver, StoragePathVisitor};
+use crate::storage::drivers::local::promote::PromoteLocalFileOutcome;
 use crate::storage::extensions::{ListStorageDriver, LocalPathStorageDriver};
 use std::path::{Path, PathBuf};
 use tokio::io::AsyncReadExt;
@@ -121,11 +122,35 @@ async fn promote_local_file_if_absent_does_not_overwrite_existing_target() {
 
     let source = base.join("source.bin");
     tokio::fs::write(&source, b"new").await.unwrap();
-    super::promote_local_file_if_absent(&driver, target, source.to_str().unwrap(), 3)
+    let outcome = super::promote_local_file_if_absent(&driver, target, source.to_str().unwrap(), 3)
         .await
         .unwrap();
 
+    assert_eq!(outcome, PromoteLocalFileOutcome::AlreadyExists);
     assert_eq!(tokio::fs::read(&target_full).await.unwrap(), b"old");
+    assert!(!source.exists());
+
+    let _ = tokio::fs::remove_dir_all(&base).await;
+}
+
+#[tokio::test]
+async fn promote_local_file_if_absent_reports_created_target() {
+    let base = unique_temp_dir("local-promote-created-test");
+    tokio::fs::create_dir_all(&base).await.unwrap();
+
+    let policy = build_policy(&base);
+    let driver = super::LocalDriver::new(&policy).unwrap();
+    let target = "ab/cd/new";
+    let target_full = driver.full_path(target).unwrap();
+
+    let source = base.join("source.bin");
+    tokio::fs::write(&source, b"new").await.unwrap();
+    let outcome = super::promote_local_file_if_absent(&driver, target, source.to_str().unwrap(), 3)
+        .await
+        .unwrap();
+
+    assert_eq!(outcome, PromoteLocalFileOutcome::Created);
+    assert_eq!(tokio::fs::read(&target_full).await.unwrap(), b"new");
     assert!(!source.exists());
 
     let _ = tokio::fs::remove_dir_all(&base).await;

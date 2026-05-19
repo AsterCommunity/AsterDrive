@@ -4,12 +4,24 @@ use crate::errors::{AsterError, MapAsterErr, Result};
 use crate::storage::driver::StorageDriver;
 use crate::utils::numbers;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PromoteLocalFileOutcome {
+    Created,
+    AlreadyExists,
+}
+
+impl PromoteLocalFileOutcome {
+    pub fn created(self) -> bool {
+        matches!(self, Self::Created)
+    }
+}
+
 pub async fn promote_local_file_if_absent(
     driver: &dyn StorageDriver,
     storage_path: &str,
     local_path: &str,
     expected_size: i64,
-) -> Result<()> {
+) -> Result<PromoteLocalFileOutcome> {
     let local_driver = driver.as_local_path().ok_or_else(|| {
         AsterError::storage_driver_error("local path storage driver not supported")
     })?;
@@ -25,7 +37,7 @@ pub async fn promote_local_file_if_absent(
         Ok(()) => match validate_existing_local_blob_size(&target, expected_size).await {
             Ok(()) => {
                 crate::utils::cleanup_temp_file(local_path).await;
-                Ok(())
+                Ok(PromoteLocalFileOutcome::Created)
             }
             Err(error) => {
                 if let Err(cleanup_error) = tokio::fs::remove_file(&target).await
@@ -42,7 +54,7 @@ pub async fn promote_local_file_if_absent(
         Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
             validate_existing_local_blob_size(&target, expected_size).await?;
             crate::utils::cleanup_temp_file(local_path).await;
-            Ok(())
+            Ok(PromoteLocalFileOutcome::AlreadyExists)
         }
         Err(link_error) => {
             promote_local_file_via_temp_copy(local_path, &target, expected_size, link_error).await
@@ -55,7 +67,7 @@ async fn promote_local_file_via_temp_copy(
     target: &Path,
     expected_size: u64,
     link_error: std::io::Error,
-) -> Result<()> {
+) -> Result<PromoteLocalFileOutcome> {
     let Some(parent) = target.parent() else {
         return Err(AsterError::storage_driver_error(format!(
             "local dedup target has no parent: {}",
@@ -83,12 +95,12 @@ async fn promote_local_file_via_temp_copy(
     let result = match tokio::fs::hard_link(&temp_path, target).await {
         Ok(()) => {
             crate::utils::cleanup_temp_file(local_path).await;
-            Ok(())
+            Ok(PromoteLocalFileOutcome::Created)
         }
         Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
             validate_existing_local_blob_size(target, expected_size).await?;
             crate::utils::cleanup_temp_file(local_path).await;
-            Ok(())
+            Ok(PromoteLocalFileOutcome::AlreadyExists)
         }
         Err(error) => Err(AsterError::storage_driver_error(format!(
             "promote local dedup blob with no-clobber link failed after initial link error ({link_error}): {error}"

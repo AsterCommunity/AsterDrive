@@ -37,6 +37,12 @@ pub enum MigrationTrack {
     Unknown,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum EmptyDatabaseState {
+    Empty,
+    HasObjects,
+}
+
 impl MigrationTrack {
     pub fn label(self) -> &'static str {
         match self {
@@ -110,10 +116,6 @@ where
     let applied = applied_migrations(db, db.get_database_backend()).await?;
     let current_names = current_migration_names();
 
-    let applied_lookup = applied
-        .iter()
-        .map(String::as_str)
-        .collect::<std::collections::HashSet<_>>();
     let current_lookup = current_names
         .iter()
         .map(String::as_str)
@@ -125,15 +127,28 @@ where
         .cloned()
         .collect::<Vec<_>>();
 
-    let pending_current = current_names
-        .iter()
-        .filter(|name| !applied_lookup.contains(name.as_str()))
-        .cloned()
-        .collect::<Vec<_>>();
+    let is_current_prefix = applied.len() <= current_names.len()
+        && applied
+            .iter()
+            .zip(current_names.iter())
+            .all(|(applied_name, current_name)| applied_name == current_name);
+
+    let pending_current = if is_current_prefix {
+        current_names
+            .iter()
+            .skip(applied.len())
+            .cloned()
+            .collect::<Vec<_>>()
+    } else {
+        Vec::new()
+    };
 
     let track = if applied.is_empty() {
-        MigrationTrack::Empty
-    } else if unknown_applied.is_empty() {
+        match inspect_empty_database_state(db).await? {
+            EmptyDatabaseState::Empty => MigrationTrack::Empty,
+            EmptyDatabaseState::HasObjects => MigrationTrack::Unknown,
+        }
+    } else if unknown_applied.is_empty() && is_current_prefix {
         MigrationTrack::Current
     } else {
         MigrationTrack::Unknown
@@ -147,12 +162,23 @@ where
     })
 }
 
+async fn inspect_empty_database_state<C>(db: &C) -> Result<EmptyDatabaseState, DbErr>
+where
+    C: SeaConnectionTrait,
+{
+    if migration_table_exists(db).await? || application_schema_exists(db).await? {
+        Ok(EmptyDatabaseState::HasObjects)
+    } else {
+        Ok(EmptyDatabaseState::Empty)
+    }
+}
+
 pub async fn apply_database_migrations(database: &DatabaseConnection) -> Result<(), DbErr> {
     let history = inspect_migration_history(database).await?;
-    if history.has_unknown_applied() {
+    if history.track == MigrationTrack::Unknown {
         return Err(migration_state_error(format!(
             "database contains unknown migration versions: {}",
-            history.unknown_applied.join(", ")
+            unsupported_migration_versions_label(&history)
         )));
     }
 
@@ -178,8 +204,18 @@ pub async fn apply_database_migrations(database: &DatabaseConnection) -> Result<
         MigrationTrack::Unknown => Err(migration_state_error(format!(
             "database contains unsupported migration versions: {}. Upgrade from a supported \
              release line or restore a backup before continuing",
-            history.unknown_applied.join(", ")
+            unsupported_migration_versions_label(&history)
         ))),
+    }
+}
+
+fn unsupported_migration_versions_label(history: &MigrationHistory) -> String {
+    if !history.unknown_applied.is_empty() {
+        history.unknown_applied.join(", ")
+    } else if history.applied.is_empty() {
+        "<empty migration history with existing schema objects>".to_string()
+    } else {
+        "<non-prefix migration history>".to_string()
     }
 }
 

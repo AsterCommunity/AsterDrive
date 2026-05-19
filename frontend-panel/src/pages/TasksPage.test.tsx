@@ -539,6 +539,43 @@ describe("TasksPage", () => {
 		expect(screen.getByTestId("progress")).toHaveAttribute("data-value", "35");
 	});
 
+	it("keeps the task card when a refreshed task no longer has step details", async () => {
+		mockState.listInWorkspace
+			.mockResolvedValueOnce({
+				items: [
+					createTask({
+						kind: "archive_compress",
+						steps: createTaskSteps("archive_compress", "processing"),
+					}),
+				],
+				total: 1,
+			})
+			.mockResolvedValueOnce({
+				items: [
+					createTask({
+						kind: "archive_compress",
+						status_text: "waiting for worker",
+						steps: [],
+					}),
+				],
+				total: 1,
+			});
+
+		render(<TasksPage />);
+
+		expect(await screen.findByText("Extract archive")).toBeInTheDocument();
+		expect(screen.getByText("tasks:steps_label")).toBeInTheDocument();
+
+		fireEvent.click(screen.getByLabelText("core:refresh"));
+
+		await waitFor(() => {
+			expect(mockState.listInWorkspace).toHaveBeenCalledTimes(2);
+		});
+		expect(screen.getByText("Extract archive")).toBeInTheDocument();
+		expect(screen.queryByText("tasks:steps_label")).not.toBeInTheDocument();
+		expect(screen.getByText(/waiting for worker/)).toBeInTheDocument();
+	});
+
 	it("renders summary timestamps by status and keeps detailed times in the expanded panel", async () => {
 		mockState.listInWorkspace.mockResolvedValue({
 			items: [
@@ -617,5 +654,32 @@ describe("TasksPage", () => {
 		expect(mockState.navigate).toHaveBeenCalledWith("/folder/42", {
 			viewTransition: false,
 		});
+	});
+
+	it("renders trash purge tasks without step details", async () => {
+		mockState.listInWorkspace.mockResolvedValue({
+			items: [
+				createTask({
+					display_name: "Empty trash",
+					kind: "trash_purge_all",
+					payload: { kind: "trash_purge_all" },
+					progress_current: 0,
+					progress_percent: 0,
+					progress_total: 0,
+					started_at: null,
+					status: "pending",
+					status_text: null,
+					steps: [],
+				}),
+			],
+			total: 1,
+		});
+
+		render(<TasksPage />);
+
+		expect(await screen.findByText("Empty trash")).toBeInTheDocument();
+		expect(screen.getByText("tasks:kind_trash_purge_all")).toBeInTheDocument();
+		expect(screen.queryByText("tasks:steps_label")).not.toBeInTheDocument();
+		expect(screen.queryByText("tasks:show_details")).not.toBeInTheDocument();
 	});
 });

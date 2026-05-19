@@ -1926,6 +1926,9 @@ async fn test_admin_tasks_cleanup_uses_explicit_finished_before() {
                 r#"{"policy":{"id":1,"name":"Deleted policy","driver_type":"local","endpoint":"","bucket":"","access_key":"","secret_key":"","base_path":"/tmp/asterdrive-deleted-policy","remote_node_id":null,"max_file_size":0,"allowed_types":"[]","options":"{}","is_default":false,"chunk_size":5242880},"remote_node":null,"temp_keys":["files/temp-object"],"multipart_uploads":[]}"#
                     .to_string(),
             ),
+            BackgroundTaskKind::TrashPurgeAll => {
+                StoredTaskPayload(r#"{}"#.to_string())
+            }
         };
 
         background_task_repo::create(

@@ -305,12 +305,12 @@ export function Sidebar({
 	};
 
 	const sidebarContent = (
-		<div className="flex h-full min-h-0 flex-col overflow-y-auto overscroll-contain">
+		<div className="flex h-full min-h-0 flex-col overflow-hidden overscroll-contain">
 			<div className="shrink-0 border-b border-sidebar-border bg-sidebar px-3 py-2 sm:py-2.5">
 				<WorkspaceSwitcher variant="sidebar" />
 			</div>
 
-			{/* Folder tree */}
+			{/* FolderTree scrolling is handled by ScrollArea. */}
 			<ScrollArea className="min-h-32 flex-1">
 				<FolderTree onMoveToFolder={onMoveToFolder} />
 			</ScrollArea>

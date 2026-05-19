@@ -137,13 +137,20 @@ async fn inspect_doctor_migrations(
         }
     };
 
-    if history.has_unknown_applied() {
+    if history.track == migration::MigrationTrack::Unknown {
+        let details = if !history.unknown_applied.is_empty() {
+            history.unknown_applied.clone()
+        } else if history.applied.is_empty() {
+            vec!["empty migration history with existing schema objects".to_string()]
+        } else {
+            vec!["non-prefix migration history".to_string()]
+        };
         checks.push(doctor_check(
             "database_migrations",
             "Database migrations",
             DoctorStatus::Fail,
             "database contains unknown migration versions",
-            history.unknown_applied.clone(),
+            details,
             Some(
                 "Compare the database with the current migration baseline before running maintenance-oriented CLI commands."
                     .to_string(),

@@ -46,6 +46,7 @@ const MEDIA_SESSION_ACTIONS: MediaSessionAction[] = [
 ];
 const MUSIC_PLAYER_INTERNAL_SELECTOR =
 	"[data-music-player-surface],[data-music-player-trigger]";
+const BUFFERED_RANGE_CURRENT_TIME_TOLERANCE_SECONDS = 0.5;
 
 function formatPlaybackTime(seconds: number) {
 	if (!Number.isFinite(seconds) || seconds < 0) {
@@ -203,12 +204,22 @@ function bufferedProgressFromAudio(
 ) {
 	if (!audio || !Number.isFinite(duration) || duration <= 0) return 0;
 
-	let bufferedEnd = 0;
+	const currentTime = Number.isFinite(audio.currentTime)
+		? audio.currentTime
+		: 0;
+	let bufferedEnd = currentTime;
 	const { buffered } = audio;
 	for (let index = 0; index < buffered.length; index += 1) {
+		const rangeStart = buffered.start(index);
 		const rangeEnd = buffered.end(index);
-		if (Number.isFinite(rangeEnd)) {
-			bufferedEnd = Math.max(bufferedEnd, rangeEnd);
+		if (
+			Number.isFinite(rangeStart) &&
+			Number.isFinite(rangeEnd) &&
+			rangeStart <=
+				currentTime + BUFFERED_RANGE_CURRENT_TIME_TOLERANCE_SECONDS &&
+			rangeEnd > bufferedEnd
+		) {
+			bufferedEnd = rangeEnd;
 		}
 	}
 

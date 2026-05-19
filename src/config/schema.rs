@@ -277,19 +277,11 @@ impl WebDavConfig {
 /// 网络信任配置（config.toml）
 ///
 /// 这组受信代理信息会影响真实客户端 IP 的判定，供限流、认证审计等模块共用。
-#[derive(Debug, Deserialize, Serialize, Clone)]
+#[derive(Debug, Deserialize, Serialize, Clone, Default)]
 pub struct NetworkTrustConfig {
     /// 受信任的上游代理 IP 列表（CIDR 格式或单 IP）。
     #[serde(default)]
     pub trusted_proxies: Vec<String>,
-}
-
-impl Default for NetworkTrustConfig {
-    fn default() -> Self {
-        Self {
-            trusted_proxies: Vec::new(),
-        }
-    }
 }
 
 /// Rate limiting 配置

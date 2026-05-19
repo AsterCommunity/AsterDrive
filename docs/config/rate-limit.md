@@ -70,7 +70,7 @@ burst_size = 5
 
 ## 反向代理后面怎么配
 
-默认 `[network_trust].trusted_proxies = []` 是最安全的：AsterDrive 忽略 `X-Forwarded-For`，直接按实际连接来源 IP 限流。这样不会被伪造 XFF 绕过，但反代后通常只能看到代理地址。反向代理部署的更完整说明见 [反向代理](/deployment/reverse-proxy#上线前先对齐这几个值)。
+默认 `[network_trust].trusted_proxies = []` 是最安全的配置：AsterDrive 会忽略 `X-Forwarded-For`，直接按实际连接来源 IP 限流，避免被伪造 XFF 绕过；但在反向代理后面，服务端通常只能看到代理地址。反向代理部署的完整说明见 [反向代理](/deployment/reverse-proxy#上线前先对齐这几个值)。
 
 如果你的部署是：
 

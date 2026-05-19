@@ -5,7 +5,7 @@ use crate::errors::{AsterError, MapAsterErr, Result};
 use crate::utils::paths::{
     DEFAULT_CONFIG_PATH, resolve_config_relative_path, resolve_config_relative_sqlite_url,
 };
-use config::{Config as RawConfig, Environment, File};
+use config::{Config as RawConfig, Environment, File, FileFormat};
 use std::path::{Path, PathBuf};
 use toml_edit::{DocumentMut, Item, Table};
 
@@ -32,10 +32,15 @@ fn load_from_dir(
     let config_path = base_dir.join(DEFAULT_CONFIG_PATH);
 
     ensure_default_config_exists(&config_path, &Config::default())?;
-    migrate_legacy_config_file(&config_path)?;
+    let migrated_config = migrate_legacy_config_file(&config_path)?;
 
-    let mut builder =
-        RawConfig::builder().add_source(File::from(config_path.as_path()).required(false));
+    let mut builder = RawConfig::builder();
+    builder = match migrated_config {
+        Some(migrated_config) => {
+            builder.add_source(File::from_str(&migrated_config, FileFormat::Toml))
+        }
+        None => builder.add_source(File::from(config_path.as_path()).required(false)),
+    };
 
     if include_env {
         builder = builder.add_source(
@@ -75,7 +80,7 @@ fn reject_deprecated_config_keys(raw: &RawConfig) -> Result<()> {
 }
 
 // TODO: 0.3.0 版本需要删除这段兼容迁移；旧配置应只保留 [network_trust].trusted_proxies。
-fn migrate_legacy_config_file(config_path: &Path) -> Result<()> {
+fn migrate_legacy_config_file(config_path: &Path) -> Result<Option<String>> {
     let content = match std::fs::read_to_string(config_path) {
         Ok(content) => content,
         Err(error) => {
@@ -95,16 +100,16 @@ fn migrate_legacy_config_file(config_path: &Path) -> Result<()> {
 
     let legacy_trusted_proxies = {
         let Some(rate_limit_item) = doc.get("rate_limit") else {
-            return Ok(());
+            return Ok(None);
         };
         let Some(rate_limit_table) = rate_limit_item.as_table() else {
-            return Ok(());
+            return Ok(None);
         };
         rate_limit_table.get("trusted_proxies").cloned()
     };
 
     let Some(legacy_trusted_proxies) = legacy_trusted_proxies else {
-        return Ok(());
+        return Ok(None);
     };
 
     if let Some(network_trust_item) = doc.get("network_trust")
@@ -131,16 +136,20 @@ fn migrate_legacy_config_file(config_path: &Path) -> Result<()> {
         rate_limit_table.remove("trusted_proxies");
     }
 
-    std::fs::write(config_path, doc.to_string()).map_aster_err_ctx(
-        &format!("failed to write migrated {}", config_path.display()),
-        AsterError::config_error,
-    )?;
+    let migrated_content = doc.to_string();
 
-    eprintln!(
-        "[INFO] Migrated legacy configuration in: {}",
-        config_path.display()
-    );
-    Ok(())
+    if let Err(error) = std::fs::write(config_path, &migrated_content) {
+        eprintln!(
+            "[WARN] Failed to write migrated configuration to {}: {error}. Using migrated config in memory.",
+            config_path.display()
+        );
+    } else {
+        eprintln!(
+            "[INFO] Migrated legacy configuration in: {}",
+            config_path.display()
+        );
+    }
+    Ok(Some(migrated_content))
 }
 
 fn ensure_default_config_exists(config_path: &Path, default: &Config) -> Result<()> {
@@ -221,6 +230,15 @@ mod tests {
             std::fs::create_dir_all(parent).unwrap();
         }
         std::fs::write(path, content).unwrap();
+    }
+
+    #[cfg(unix)]
+    fn make_read_only(path: &Path) {
+        use std::os::unix::fs::PermissionsExt;
+
+        let mut permissions = std::fs::metadata(path).unwrap().permissions();
+        permissions.set_mode(0o444);
+        std::fs::set_permissions(path, permissions).unwrap();
     }
 
     #[test]
@@ -312,6 +330,36 @@ burst_size = 5
         assert!(!migrated.contains("rate_limit.trusted_proxies"));
         assert!(migrated.contains("[network_trust]"));
         assert!(migrated.contains(r#"trusted_proxies = ["10.0.0.0/8", "192.168.0.0/16"]"#));
+
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn load_uses_migrated_legacy_trusted_proxies_in_memory_when_write_fails() {
+        let dir = make_temp_dir("legacy-trusted-proxies-read-only");
+        let config_path = dir.join(DEFAULT_CONFIG_PATH);
+        write(
+            &config_path,
+            br#"[rate_limit]
+enabled = true
+trusted_proxies = ["10.0.0.0/8"]
+
+[rate_limit.auth]
+seconds_per_request = 1
+burst_size = 5
+"#,
+        );
+        make_read_only(&config_path);
+
+        let cfg = load_from_dir(&dir, None, false).unwrap();
+        let unchanged = std::fs::read_to_string(&config_path).unwrap();
+
+        assert_eq!(
+            cfg.network_trust.trusted_proxies,
+            vec!["10.0.0.0/8".to_string()]
+        );
+        assert!(unchanged.contains("trusted_proxies = [\"10.0.0.0/8\"]"));
 
         let _ = std::fs::remove_dir_all(dir);
     }

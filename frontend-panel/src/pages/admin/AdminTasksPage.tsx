@@ -66,6 +66,7 @@ const TASK_KIND_FILTER_VALUES = [
 	"archive_compress",
 	"archive_preview_generate",
 	"thumbnail_generate",
+	"trash_purge_all",
 	"system_runtime",
 ] as const;
 const TASK_STATUS_FILTER_VALUES = [

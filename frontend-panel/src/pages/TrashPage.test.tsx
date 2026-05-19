@@ -539,6 +539,90 @@ describe("TrashPage", () => {
 		expect(mockState.refreshUser).toHaveBeenCalledWith({ fields: ["quota"] });
 	});
 
+	it("ignores storage events that do not require a full sync", async () => {
+		mockState.list.mockResolvedValueOnce({
+			files: [fileItem],
+			files_total: 1,
+			folders: [],
+			folders_total: 0,
+			next_file_cursor: null,
+		} as never);
+
+		render(<TrashPage />);
+
+		await screen.findByText("select:report.pdf");
+
+		for (const listener of mockState.listeners) {
+			listener({
+				kind: "file.trashed",
+				workspace: { kind: "personal" },
+				file_ids: [1],
+				folder_ids: [],
+				affected_parent_ids: [],
+				root_affected: false,
+				affects_quota: true,
+				storage_delta: null,
+				at: "2026-05-19T00:00:00Z",
+			});
+		}
+
+		await waitFor(() => {
+			expect(mockState.list).toHaveBeenCalledTimes(1);
+		});
+		expect(mockState.refreshUser).not.toHaveBeenCalled();
+	});
+
+	it("skips concurrent sync.required reloads while one is in flight", async () => {
+		let resolveReload:
+			| ((value: ReturnType<typeof emptyTrashContents>) => void)
+			| null = null;
+		mockState.list
+			.mockResolvedValueOnce({
+				files: [fileItem],
+				files_total: 1,
+				folders: [],
+				folders_total: 0,
+				next_file_cursor: null,
+			} as never)
+			.mockImplementationOnce(
+				() =>
+					new Promise((resolve) => {
+						resolveReload = resolve;
+					}) as never,
+			);
+
+		render(<TrashPage />);
+
+		await screen.findByText("select:report.pdf");
+
+		const event = {
+			kind: "sync.required",
+			workspace: { kind: "personal" },
+			file_ids: [],
+			folder_ids: [],
+			affected_parent_ids: [],
+			root_affected: false,
+			affects_quota: true,
+			storage_delta: null,
+			at: "2026-05-19T00:00:00Z",
+		};
+		for (const listener of mockState.listeners) {
+			listener(event);
+			listener(event);
+		}
+
+		await waitFor(() => {
+			expect(mockState.list).toHaveBeenCalledTimes(2);
+		});
+		expect(mockState.refreshUser).toHaveBeenCalledTimes(1);
+
+		resolveReload?.(emptyTrashContents());
+
+		await waitFor(() => {
+			expect(screen.queryByText("select:report.pdf")).not.toBeInTheDocument();
+		});
+	});
+
 	it("shows the server total even when only the first trash page is loaded", async () => {
 		mockState.list.mockResolvedValueOnce({
 			files: [fileItem],

@@ -189,9 +189,6 @@ pub(super) async fn purge_folder_forest_in_scope_silent(
 #[derive(Debug, Default)]
 pub(super) struct FolderPurgeSummary {
     pub purged: u32,
-    pub folder_ids: Vec<i64>,
-    pub affected_parent_ids: Vec<Option<i64>>,
-    pub file_ids: Vec<i64>,
     pub freed_bytes: i64,
 }
 
@@ -260,9 +257,6 @@ pub(super) async fn purge_folder_forest_in_resource_scope(
     );
     Ok(FolderPurgeSummary {
         purged: crate::utils::numbers::usize_to_u32(folder_ids.len(), "purged folder count")?,
-        folder_ids: folder_ids.to_vec(),
-        affected_parent_ids: parent_ids,
-        file_ids: file_summary.file_ids,
         freed_bytes: file_summary.freed_bytes,
     })
 }

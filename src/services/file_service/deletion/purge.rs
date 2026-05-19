@@ -20,7 +20,6 @@ const BLOB_CLEANUP_CONCURRENCY: usize = 8;
 pub(crate) struct BatchPurgeSummary {
     pub purged: u32,
     pub file_ids: Vec<i64>,
-    pub affected_parent_ids: Vec<Option<i64>>,
     pub freed_bytes: i64,
 }
 
@@ -196,7 +195,6 @@ async fn batch_purge_in_resource_scope_internal(
     Ok(BatchPurgeSummary {
         purged: count,
         file_ids,
-        affected_parent_ids: parent_ids,
         freed_bytes: total_freed_bytes,
     })
 }

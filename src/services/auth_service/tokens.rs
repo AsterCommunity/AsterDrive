@@ -121,6 +121,29 @@ fn is_stale_refresh_from_same_client(
         && refresh_client_matches(session, ip_address, user_agent)
 }
 
+fn classify_refresh_reuse_session(
+    reused_auth_session: Option<&auth_session::Model>,
+    user_id: i64,
+    refresh_jti: &str,
+    now: chrono::DateTime<Utc>,
+    ip_address: Option<&str>,
+    user_agent: Option<&str>,
+) -> RefreshRotationError {
+    if reused_auth_session.is_some_and(|session| {
+        is_stale_refresh_from_same_client(session, user_id, now, ip_address, user_agent)
+    }) {
+        return RefreshRotationError::StaleRefresh {
+            user_id,
+            reused_jti: refresh_jti.to_string(),
+        };
+    }
+
+    RefreshRotationError::ReuseDetected {
+        user_id,
+        reused_jti: refresh_jti.to_string(),
+    }
+}
+
 fn try_acquire_refresh_rotation_lock(refresh_jti: &str) -> Option<RefreshRotationLockGuard> {
     match REFRESH_ROTATION_LOCKS.entry(refresh_jti.to_string()) {
         Entry::Occupied(_) => None,
@@ -131,6 +154,26 @@ fn try_acquire_refresh_rotation_lock(refresh_jti: &str) -> Option<RefreshRotatio
             })
         }
     }
+}
+
+async fn classify_refresh_rotation_lock_loss<C: ConnectionTrait>(
+    db: &C,
+    claims: &Claims,
+    refresh_jti: &str,
+    ip_address: Option<&str>,
+    user_agent: Option<&str>,
+) -> Result<RefreshRotationError> {
+    let now = Utc::now();
+    let reused_auth_session =
+        auth_session_repo::find_by_previous_refresh_jti(db, refresh_jti).await?;
+    Ok(classify_refresh_reuse_session(
+        reused_auth_session.as_ref(),
+        claims.user_id,
+        refresh_jti,
+        now,
+        ip_address,
+        user_agent,
+    ))
 }
 
 async fn authenticate_token(
@@ -294,7 +337,66 @@ pub async fn refresh_tokens(
             reused_jti = refresh_jti,
             "concurrent refresh token rotation lost same-token race"
         );
-        return Err(AsterError::auth_token_invalid("stale refresh token"));
+        let txn = crate::db::transaction::begin(&state.db).await?;
+        let lock_loss = classify_refresh_rotation_lock_loss(
+            &txn,
+            &claims,
+            &refresh_jti,
+            ip_address,
+            user_agent,
+        )
+        .await?;
+        return match lock_loss {
+            RefreshRotationError::StaleRefresh {
+                user_id,
+                reused_jti,
+            } => {
+                crate::db::transaction::rollback(txn).await?;
+                tracing::debug!(
+                    user_id,
+                    reused_jti,
+                    "stale refresh token reused within rotation grace window"
+                );
+                Err(AsterError::auth_token_invalid("stale refresh token"))
+            }
+            RefreshRotationError::ReuseDetected {
+                user_id,
+                reused_jti,
+            } => {
+                user_repo::bump_session_version(&txn, user_id).await?;
+                purge_all_auth_sessions_in_connection(&txn, user_id).await?;
+                crate::db::transaction::commit(txn).await?;
+                invalidate_auth_snapshot_cache(state, user_id).await;
+                tracing::warn!(
+                    user_id,
+                    reused_jti,
+                    "refresh token reuse detected after losing rotation lock; revoked all sessions"
+                );
+                audit_service::log(
+                    state,
+                    &AuditContext {
+                        user_id,
+                        ip_address: None,
+                        user_agent: None,
+                    },
+                    audit_service::AuditAction::UserRefreshTokenReuseDetected,
+                    crate::services::audit_service::AuditEntityType::User,
+                    Some(user_id),
+                    None,
+                    audit_service::details(RefreshTokenReuseAuditDetails {
+                        reused_jti: &reused_jti,
+                    }),
+                )
+                .await;
+                Err(AsterError::auth_token_invalid(
+                    "refresh token reuse detected",
+                ))
+            }
+            RefreshRotationError::Aster(error) => {
+                crate::db::transaction::rollback(txn).await?;
+                Err(error)
+            }
+        };
     };
 
     let txn = crate::db::transaction::begin(&state.db).await?;
@@ -555,6 +657,21 @@ mod tests {
 
     const SECRET: &str = "test_secret_32bytes_xxxxxxxxxxxxxxxxx";
 
+    fn make_auth_session(now: chrono::DateTime<Utc>) -> auth_session::Model {
+        auth_session::Model {
+            id: "session-id".to_string(),
+            user_id: 1,
+            current_refresh_jti: "next-jti".to_string(),
+            previous_refresh_jti: Some("refresh-jti".to_string()),
+            refresh_expires_at: now + ChronoDuration::days(1),
+            ip_address: Some("203.0.113.10".to_string()),
+            user_agent: Some("browser".to_string()),
+            created_at: now,
+            last_seen_at: now,
+            revoked_at: None,
+        }
+    }
+
     fn make_token(
         token_type: TokenType,
         ttl_secs: u64,
@@ -645,5 +762,39 @@ mod tests {
             role: crate::types::UserRole::User,
         };
         assert!(ensure_session_current(&claims, snapshot).is_ok());
+    }
+
+    #[test]
+    fn classify_refresh_reuse_session_treats_same_client_grace_as_stale() {
+        let now = Utc::now();
+        let session = make_auth_session(now);
+
+        let result = classify_refresh_reuse_session(
+            Some(&session),
+            1,
+            "refresh-jti",
+            now,
+            Some("203.0.113.10"),
+            Some("browser"),
+        );
+
+        assert!(matches!(result, RefreshRotationError::StaleRefresh { .. }));
+    }
+
+    #[test]
+    fn classify_refresh_reuse_session_treats_different_client_as_reuse() {
+        let now = Utc::now();
+        let session = make_auth_session(now);
+
+        let result = classify_refresh_reuse_session(
+            Some(&session),
+            1,
+            "refresh-jti",
+            now,
+            Some("203.0.113.11"),
+            Some("other-browser"),
+        );
+
+        assert!(matches!(result, RefreshRotationError::ReuseDetected { .. }));
     }
 }

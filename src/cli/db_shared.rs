@@ -5,7 +5,7 @@
 
 use std::path::Path;
 
-use migration::inspect_migration_history;
+use migration::{MigrationHistory, MigrationTrack, inspect_migration_history};
 use sea_orm::{ConnectionTrait, DbBackend, Statement};
 
 use crate::errors::{AsterError, MapAsterErr, Result};
@@ -30,14 +30,24 @@ where
     let history = inspect_migration_history(db)
         .await
         .map_aster_err(AsterError::database_operation)?;
-    if history.has_unknown_applied() {
+    if history.track == MigrationTrack::Unknown {
         return Err(AsterError::validation_error(format!(
             "database contains unknown migration versions: {}",
-            join_strings(&history.unknown_applied)
+            unsupported_migration_versions_label(&history)
         )));
     }
 
     Ok(history.effective_pending().to_vec())
+}
+
+fn unsupported_migration_versions_label(history: &MigrationHistory) -> String {
+    if !history.unknown_applied.is_empty() {
+        join_strings(&history.unknown_applied)
+    } else if history.applied.is_empty() {
+        "<empty migration history with existing schema objects>".to_string()
+    } else {
+        "<non-prefix migration history>".to_string()
+    }
 }
 
 pub(super) async fn scalar_i64<C>(db: &C, backend: DbBackend, sql: &str) -> Result<i64>
