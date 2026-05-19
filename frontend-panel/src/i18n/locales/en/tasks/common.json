@@ -1,0 +1,16 @@
+{
+	"title": "Tasks",
+	"empty_title": "No background tasks yet",
+	"empty_desc": "Future background jobs will appear here.",
+	"view_tasks": "Open tasks",
+	"error_label": "Error",
+	"retry_task": "Retry",
+	"show_details": "Show details",
+	"hide_details": "Hide details",
+	"active_polling_hint": "Active tasks refresh automatically.",
+	"retry_success": "Task queued for retry",
+	"task_id_label": "Task #{{id}}",
+	"task_created_success": "Task added to the task center",
+	"result_path_label": "Result path",
+	"open_target_folder": "Open target folder"
+}

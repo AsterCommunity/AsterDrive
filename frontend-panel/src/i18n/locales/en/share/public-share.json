@@ -1,0 +1,13 @@
+{
+	"password_protected": "This share is password protected",
+	"download_limit_reached": "Download limit reached.",
+	"password_verified": "Password verified",
+	"failed_to_load_share": "This share could not be loaded right now.",
+	"n_downloads": "{{count}} downloads",
+	"n_of_m_downloads": "{{count}} / {{max}} downloads",
+	"expires_date": "Expires {{date}}",
+	"never_expires": "Never expires",
+	"password_required": "Password required",
+	"public_access": "Public access",
+	"shared_by": "Shared by {{name}}"
+}

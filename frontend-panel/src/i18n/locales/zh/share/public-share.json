@@ -1,0 +1,13 @@
+{
+	"password_protected": "此分享受密码保护",
+	"download_limit_reached": "下载次数已达上限。",
+	"password_verified": "密码验证成功",
+	"failed_to_load_share": "暂时无法加载这个分享。",
+	"n_downloads": "{{count}} 次下载",
+	"n_of_m_downloads": "{{count}} / {{max}} 次下载",
+	"expires_date": "{{date}} 过期",
+	"never_expires": "永不过期",
+	"password_required": "需要密码",
+	"public_access": "公开访问",
+	"shared_by": "分享者：{{name}}"
+}

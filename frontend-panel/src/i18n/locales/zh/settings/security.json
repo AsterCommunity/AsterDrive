@@ -1,0 +1,15 @@
+{
+	"settings_security": "安全",
+	"settings_security_desc": "管理登录密码，并查看修改后当前浏览器会话的处理方式。",
+	"settings_security_tab_account": "账号",
+	"settings_security_tab_passkeys": "Passkey",
+	"settings_security_tab_external": "外部身份",
+	"settings_security_tab_sessions": "登录设备",
+	"settings_security_show_details": "详情",
+	"settings_security_hide_details": "收起",
+	"settings_security_session_count": "{{count}} 个会话",
+	"settings_security_account": "账号",
+	"settings_security_account_desc": "这会更新 @{{username}} 的本地登录密码。",
+	"settings_security_session": "当前会话",
+	"settings_security_session_desc": "修改密码后，当前浏览器会话暂时仍会保持登录。"
+}

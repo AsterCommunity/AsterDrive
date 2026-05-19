@@ -1,0 +1,12 @@
+{
+	"settings_item_branding_title_label": "公开页面标题",
+	"settings_item_branding_title_desc": "控制登录页、分享页和应用页的浏览器标签标题。留空会回退到默认的 AsterDrive。",
+	"settings_item_branding_description_label": "公开页面描述",
+	"settings_item_branding_description_desc": "控制登录前即可暴露的 HTML description 元信息。留空会回退到默认描述。",
+	"settings_item_branding_favicon_url_label": "公开 favicon 地址",
+	"settings_item_branding_favicon_url_desc": "填写公开可访问的 HTTP(S) 或同源图标 URL。留空会回退到 /favicon.svg。",
+	"settings_item_branding_wordmark_dark_url_label": "亮底站点 Logo 地址",
+	"settings_item_branding_wordmark_dark_url_desc": "填写公开可访问的 HTTP(S) 或同源 Logo URL，用于顶栏、表单等浅色背景区域。留空会回退到 /static/asterdrive/asterdrive-dark.svg。",
+	"settings_item_branding_wordmark_light_url_label": "暗底站点 Logo 地址",
+	"settings_item_branding_wordmark_light_url_desc": "填写公开可访问的 HTTP(S) 或同源 Logo URL，用于登录页 Hero 等深色背景区域。留空会回退到 /static/asterdrive/asterdrive-light.svg。"
+}

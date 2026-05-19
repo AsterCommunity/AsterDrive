@@ -1,0 +1,14 @@
+{
+	"thumbnail_format_guess_failed": "识别缩略图源文件格式失败，请稍后重试",
+	"thumbnail_decode_failed": "解析缩略图源文件失败，请稍后重试",
+	"thumbnail_encode_failed": "编码缩略图结果失败，请稍后重试",
+	"thumbnail_processor_unavailable": "当前文件暂时无法生成缩略图",
+	"thumbnail_render_failed": "生成缩略图失败，请稍后重试",
+	"thumbnail_output_invalid": "生成的缩略图结果无效，请稍后重试",
+	"thumbnail_task_panicked": "缩略图处理任务异常中断，请稍后重试",
+	"thumbnail_source_too_large": "源文件过大，暂时无法生成缩略图",
+	"thumbnail_source_temp_create_failed": "服务器创建缩略图源临时文件失败，请稍后重试",
+	"thumbnail_source_stream_failed": "服务器读取缩略图源数据失败，请稍后重试",
+	"thumbnail_source_temp_flush_failed": "服务器落盘缩略图源临时文件失败，请稍后重试",
+	"thumbnail_source_temp_copy_failed": "服务器准备缩略图源文件失败，请稍后重试"
+}

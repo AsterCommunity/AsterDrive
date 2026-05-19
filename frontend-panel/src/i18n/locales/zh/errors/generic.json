@@ -1,0 +1,8 @@
+{
+	"rate_limited": "请求过于频繁，请稍后再试。",
+	"mail_not_configured": "邮件系统尚未配置，暂时无法发送验证邮件。",
+	"mail_delivery_failed": "邮件发送失败，请稍后再试",
+	"network_error": "暂时无法连接到服务器，请检查网络连接后再试",
+	"request_timeout": "请求超时，请稍后重试",
+	"unexpected_error": "暂时无法完成操作，请稍后再试"
+}

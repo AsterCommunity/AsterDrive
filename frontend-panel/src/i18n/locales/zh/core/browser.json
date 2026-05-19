@@ -1,0 +1,17 @@
+{
+	"file_browser": "文件浏览器",
+	"file_browser_desc": "文件浏览器的默认视图模式。",
+	"root": "根目录",
+	"storage_used": "已使用 {{used}}",
+	"storage_quota": "{{used}} / {{quota}}",
+	"folders_section": "文件夹",
+	"files_section": "文件",
+	"storage_space": "存储空间",
+	"search_placeholder": "搜索文件...",
+	"breadcrumb": "路径导航",
+	"open_sidebar": "打开侧边栏",
+	"close_sidebar": "关闭侧边栏",
+	"resize_sidebar": "调整侧边栏宽度",
+	"open_admin_sidebar": "打开管理侧边栏",
+	"close_admin_sidebar": "关闭管理侧边栏"
+}

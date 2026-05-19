@@ -1,0 +1,12 @@
+{
+	"loading_preview": "Loading...",
+	"preview_load_failed": "Failed to load",
+	"preview_retry": "Retry",
+	"preview_not_available": "Preview is not available for this file type",
+	"preview_not_available_desc": "Download the file, or try another open mode later.",
+	"preview_enter_fullscreen": "Fill window",
+	"preview_exit_fullscreen": "Restore window",
+	"table_parse_failed": "Failed to parse table",
+	"table_truncated": "This file is large. Only the first {{count}} rows are shown.",
+	"structured_parse_failed": "Failed to parse structured content. Try switching back to source view."
+}

@@ -1,0 +1,6 @@
+{
+	"passkey_sign_in": "Sign in with passkey",
+	"passkey_signing_in": "Verifying passkey...",
+	"passkey_unsupported": "This browser or environment does not support passkeys.",
+	"passkey_cancelled": "Passkey verification was cancelled."
+}

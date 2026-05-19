@@ -1,0 +1,8 @@
+{
+	"avatar_file_required": "请先选择要上传的头像图片",
+	"avatar_upload_read_failed": "读取头像上传内容失败，请稍后重试",
+	"avatar_processor_unavailable": "当前头像处理方式不可用，请稍后再试",
+	"avatar_empty_image": "上传的头像图片为空或无效",
+	"avatar_render_failed": "处理头像失败，请稍后重试",
+	"avatar_output_invalid": "生成的头像结果无效，请换一张图片重试"
+}

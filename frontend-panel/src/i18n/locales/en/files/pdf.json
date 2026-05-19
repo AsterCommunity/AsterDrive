@@ -1,0 +1,17 @@
+{
+	"pdf_label": "PDF",
+	"pdf_page_count": "{{count}} pages",
+	"pdf_page_of_total": "Page {{page}} / {{count}}",
+	"pdf_page_input_label": "Page number",
+	"pdf_previous_page": "Previous page",
+	"pdf_next_page": "Next page",
+	"pdf_zoom_out": "Zoom out",
+	"pdf_zoom_in": "Zoom in",
+	"pdf_zoom_reset": "Reset zoom",
+	"pdf_zoom_percent": "{{zoom}}%",
+	"pdf_fit_width": "Fit width",
+	"pdf_rotate_left": "Rotate left",
+	"pdf_rotate_right": "Rotate right",
+	"pdf_open_new_tab": "Open in new tab",
+	"pdf_download": "Download PDF"
+}

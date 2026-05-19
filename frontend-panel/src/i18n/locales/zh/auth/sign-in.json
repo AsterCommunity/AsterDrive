@@ -1,0 +1,18 @@
+{
+	"sign_in": "登录",
+	"sign_up": "注册",
+	"continue": "继续",
+	"email_or_username": "邮箱或用户名",
+	"signing_in": "登录中...",
+	"creating_account": "创建账号中...",
+	"dont_have_account": "还没有账号？",
+	"already_have_account": "已有账号？",
+	"login_success": "欢迎回来！",
+	"register_success": "账号已创建，请查收激活邮件",
+	"register_success_direct": "账号已创建，现在可以直接登录",
+	"sign_in_to_account": "登录到你的账号",
+	"create_new_account": "创建新账号",
+	"enter_password": "输入密码",
+	"choose_username": "设置用户名",
+	"not_you": "换一个？"
+}

@@ -1,0 +1,21 @@
+{
+	"settings_item_cors_enabled_label": "启用 CORS 处理",
+	"settings_item_cors_enabled_desc": "控制 AsterDrive 是否主动处理浏览器跨域请求。关闭后服务端不会返回任何 CORS 响应头，也不会执行 CORS 拦截。",
+	"settings_item_cors_allowed_origins_label": "允许的跨域来源",
+	"settings_item_cors_allowed_origins_desc": "填写允许浏览器跨域访问的来源列表，使用英文逗号分隔。留空表示服务端不返回 CORS 响应头，由浏览器自然阻止跨域访问；\"*\" 表示允许任意来源。",
+	"settings_item_cors_allow_credentials_label": "允许跨域携带凭据",
+	"settings_item_cors_allow_credentials_desc": "控制 CORS 响应是否返回 Access-Control-Allow-Credentials。开启时不要把允许来源配置成 \"*\"。",
+	"settings_item_cors_max_age_secs_label": "预检缓存时间",
+	"settings_item_cors_max_age_secs_desc": "控制浏览器会把 CORS 预检结果缓存多久，缓存期间相同请求不需要重复预检。",
+	"settings_item_public_site_url_label": "公开站点地址",
+	"settings_item_public_site_url_desc": "填写外部用户实际访问这个站点时使用的 HTTP(S) 来源，一个输入框对应一个来源，例如 https://drive.example.com 和 https://panel.example.com。它会用于生成分享页、Office 预览、WebDAV 和后续回调所需的公网绝对链接；第一项会作为默认回退来源。列表留空时会退回当前请求来源。",
+	"public_site_url_origin_label": "公开站点来源",
+	"public_site_url_primary_origin": "默认来源",
+	"public_site_url_add_origin": "添加公开站点来源",
+	"public_site_url_add_current_origin": "填入当前访问地址",
+	"public_site_url_remove_origin": "删除公开站点来源",
+	"site_url_mismatch_title": "当前站点配置不匹配",
+	"site_url_mismatch_description": "检测到当前访问地址为 {{current}}，但系统配置中的公开站点地址列表不包含它（当前配置：{{configured}}）。现在将把 {{current}} 追加到公开站点地址列表，以允许分享链接、Office 预览、WebDAV 地址和后续回调使用该来源；当前默认站点和回退策略不会被更改。是否立即追加？",
+	"site_url_mismatch_confirm": "更新站点地址",
+	"site_url_mismatch_not_set": "未设置"
+}

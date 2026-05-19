@@ -1,0 +1,17 @@
+{
+	"file_browser": "File Browser",
+	"file_browser_desc": "Default view mode for the file browser.",
+	"root": "Root",
+	"storage_used": "{{used}} used",
+	"storage_quota": "{{used}} / {{quota}}",
+	"folders_section": "Folders",
+	"files_section": "Files",
+	"storage_space": "Storage",
+	"search_placeholder": "Search files...",
+	"breadcrumb": "Breadcrumb",
+	"open_sidebar": "Open sidebar",
+	"close_sidebar": "Close sidebar",
+	"resize_sidebar": "Resize sidebar",
+	"open_admin_sidebar": "Open admin sidebar",
+	"close_admin_sidebar": "Close admin sidebar"
+}

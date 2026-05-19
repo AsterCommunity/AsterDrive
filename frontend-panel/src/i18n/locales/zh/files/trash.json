@@ -1,0 +1,21 @@
+{
+	"confirm_delete": "将此项移到回收站？",
+	"confirm_delete_desc": "之后仍可在回收站中恢复。",
+	"trash_page_desc": "已删除的项目会保留到过期时间；过期前可恢复或永久删除。",
+	"trash_expires_at": "过期时间",
+	"trash_restore_selected": "恢复所选",
+	"trash_delete_permanently": "永久删除",
+	"trash_delete_selected": "永久删除所选",
+	"trash_restoring": "恢复中...",
+	"trash_purging": "删除中...",
+	"trash_restore_success": "已恢复 {{count}} 项",
+	"trash_restore_partial": "已恢复 {{succeeded}} 项，{{failed}} 项未成功",
+	"trash_restore_failed": "未能恢复所选项目",
+	"trash_purge_success": "已永久删除 {{count}} 项",
+	"trash_purge_partial": "已永久删除 {{succeeded}} 项，{{failed}} 项未成功",
+	"trash_purge_failed": "未能永久删除所选项目",
+	"trash_purge_confirm_title": "永久删除这 {{count}} 项？",
+	"trash_purge_confirm_desc": "删除后将无法恢复。",
+	"trash_empty_title": "回收站为空",
+	"trash_empty_desc": "删除的项目会显示在这里。"
+}

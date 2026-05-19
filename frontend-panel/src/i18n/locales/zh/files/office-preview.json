@@ -1,0 +1,10 @@
+{
+	"office_provider_google": "Google",
+	"office_provider_microsoft": "Microsoft",
+	"office_preview_loading": "正在加载 {{provider}} 预览器...",
+	"office_preview_open_external": "在 {{provider}} 中打开",
+	"office_preview_timeout_desc": "{{provider}} 响应较慢。你可以重试、切换其他预览提供方，或直接下载文件。",
+	"office_preview_error_desc": "预览链接初始化失败。你可以重试、切换其他预览提供方，或直接下载文件。",
+	"office_preview_public_url_desc": "{{provider}} 只能读取公网可访问的文件链接。当前预览链接看起来是 localhost、内网地址或本地域名，所以在线预览会直接失败。",
+	"office_preview_https_required_desc": "{{provider}} 只能读取 HTTPS 文件链接。当前预览链接还是 HTTP，所以在线预览会直接失败。"
+}

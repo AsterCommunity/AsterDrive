@@ -1,0 +1,13 @@
+{
+	"my_drive": "My Drive",
+	"workspaces": "Workspaces",
+	"workspace_personal_label": "Personal",
+	"workspace_team_label": "Team",
+	"workspace_team_fallback": "Team #{{id}}",
+	"workspace_switcher_label": "Switch workspace, current: {{name}}",
+	"workspace_search_placeholder": "Find team...",
+	"workspace_empty_teams": "Teams you create and join appear here for quick context switching.",
+	"workspace_no_matching_teams": "No matching teams.",
+	"workspace_manage_teams": "Manage teams",
+	"workspace_manage_teams_desc": "Review memberships and team settings"
+}

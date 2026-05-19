@@ -1,0 +1,8 @@
+{
+	"validation_request_origin_invalid": "The Origin request header is invalid",
+	"validation_request_referer_invalid": "The Referer request header is invalid",
+	"validation_request_host_invalid": "The request host information is invalid",
+	"validation_request_scheme_invalid": "The request scheme information is invalid",
+	"validation_request_header_value_invalid": "The request header value is too long or invalid",
+	"validation_system_already_initialized": "The system has already been initialized"
+}

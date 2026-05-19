@@ -1,0 +1,22 @@
+{
+	"step_progress_label": "步骤进度",
+	"step_status_pending": "未开始",
+	"step_status_active": "进行中",
+	"step_status_succeeded": "已完成",
+	"step_status_failed": "失败",
+	"step_status_canceled": "已取消",
+	"step_archive_compress_waiting": "等待执行",
+	"step_archive_compress_prepare_sources": "准备归档内容",
+	"step_archive_compress_build_archive": "压缩归档",
+	"step_archive_compress_store_result": "写回工作区",
+	"step_archive_extract_waiting": "等待执行",
+	"step_archive_extract_download_source": "下载源压缩包",
+	"step_archive_extract_extract_archive": "解压到临时目录",
+	"step_archive_extract_import_result": "导入工作区",
+	"step_archive_preview_generate_waiting": "等待执行",
+	"step_archive_preview_generate_download_source": "下载源压缩包",
+	"step_archive_preview_generate_scan_archive": "扫描压缩包清单",
+	"step_archive_preview_generate_persist_manifest": "保存预览清单",
+	"step_trash_purge_all_waiting": "等待执行",
+	"step_trash_purge_all_purge_trash": "清空回收站"
+}

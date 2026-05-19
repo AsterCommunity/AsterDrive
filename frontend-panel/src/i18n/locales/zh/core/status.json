@@ -1,0 +1,12 @@
+{
+	"active": "活跃",
+	"disabled_status": "已禁用",
+	"expired": "已过期",
+	"restored": "已恢复",
+	"permanently_deleted": "已永久删除",
+	"trash_emptied": "回收站已清空",
+	"unavailable": "不可用",
+	"shared_folder": "共享文件夹",
+	"empty_folder": "空文件夹",
+	"all_files": "所有文件"
+}

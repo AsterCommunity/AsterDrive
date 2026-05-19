@@ -46,6 +46,116 @@ const DEFERRED_NAMESPACES = ["admin", "webdav", "settings", "search"] as const;
 
 type LocaleNamespace = (typeof ALL_NAMESPACES)[number];
 
+type LocaleModule = { default: ResourceKey };
+
+const FLAT_LOCALE_MODULES = import.meta.glob<LocaleModule>(
+	"./locales/*/*.json",
+);
+const SPLIT_LOCALE_MODULES = import.meta.glob<LocaleModule>(
+	"./locales/*/*/*.json",
+);
+
+const SPLIT_NAMESPACE_PARTS: Partial<
+	Record<LocaleNamespace, readonly string[]>
+> = {
+	core: ["common", "appearance", "workspace", "browser", "date-time", "status"],
+	files: [
+		"actions",
+		"versions",
+		"upload",
+		"listing",
+		"batch",
+		"trash",
+		"storage",
+		"preview",
+		"music",
+		"pdf",
+		"open-with",
+		"office-preview",
+		"archive-preview",
+		"editor",
+		"video",
+		"external-preview",
+		"clipboard",
+		"info",
+		"sort",
+	],
+	auth: [
+		"sign-in",
+		"setup",
+		"passkeys",
+		"external-auth",
+		"activation",
+		"password-reset",
+		"contact-verification",
+		"navigation",
+	],
+	errors: [
+		"generic",
+		"auth",
+		"upload",
+		"storage",
+		"tasks",
+		"thumbnails",
+		"avatar",
+		"managed-ingress",
+		"remote-nodes",
+		"workspace",
+		"external-auth",
+		"wopi",
+		"validation",
+		"error-page",
+	],
+	admin: [
+		"navigation",
+		"overview",
+		"tasks",
+		"settings-common",
+		"settings-auth",
+		"settings-mail",
+		"settings-network",
+		"settings-operations",
+		"settings-storage",
+		"preview-apps",
+		"settings-branding",
+		"media-processing",
+		"audit",
+		"about",
+		"policies",
+		"policy-groups",
+		"remote-nodes",
+		"external-auth",
+		"users",
+		"teams",
+		"shares-locks-trash",
+		"common",
+	],
+	settings: [
+		"overview",
+		"appearance",
+		"profile",
+		"avatar",
+		"security",
+		"email",
+		"password",
+		"passkeys",
+		"external-auth",
+		"sessions",
+		"teams",
+		"quick-actions",
+	],
+	share: ["public-share", "share-dialog", "my-shares"],
+	tasks: [
+		"common",
+		"archive-actions",
+		"status-kind",
+		"progress",
+		"steps",
+		"summary",
+		"pagination",
+	],
+};
+
 function isLocaleNamespace(namespace: string): namespace is LocaleNamespace {
 	return (ALL_NAMESPACES as readonly string[]).includes(namespace);
 }
@@ -60,14 +170,59 @@ function getLanguageSwitchNamespaces(): LocaleNamespace[] {
 	];
 }
 
+async function loadJsonModule(
+	path: string,
+	modules: Record<string, () => Promise<LocaleModule>>,
+) {
+	const loader = modules[path];
+	if (!loader) {
+		throw new Error(`Missing i18n locale module: ${path}`);
+	}
+	return (await loader()).default;
+}
+
+async function loadNamespace(
+	lang: SupportedLanguage,
+	namespace: LocaleNamespace,
+) {
+	const splitParts = SPLIT_NAMESPACE_PARTS[namespace];
+	if (!splitParts) {
+		return loadJsonModule(
+			`./locales/${lang}/${namespace}.json`,
+			FLAT_LOCALE_MODULES,
+		);
+	}
+
+	const resources = await Promise.all(
+		splitParts.map((part) =>
+			loadJsonModule(
+				`./locales/${lang}/${namespace}/${part}.json`,
+				SPLIT_LOCALE_MODULES,
+			),
+		),
+	);
+	const merged: ResourceKey = {};
+	for (const resource of resources) {
+		for (const [key, value] of Object.entries(resource)) {
+			if (key in merged) {
+				throw new Error(
+					`Duplicate i18n key "${key}" in ${lang}/${namespace} split locale files`,
+				);
+			}
+			merged[key] = value;
+		}
+	}
+	return merged;
+}
+
 async function loadLocale(
-	lang: string,
+	lang: SupportedLanguage,
 	namespaces: readonly LocaleNamespace[] = ALL_NAMESPACES,
 ) {
 	const entries = await Promise.all(
 		namespaces.map(async (namespace) => {
-			const module = await import(`./locales/${lang}/${namespace}.json`);
-			return [namespace, module.default] as const;
+			const resources = await loadNamespace(lang, namespace);
+			return [namespace, resources] as const;
 		}),
 	);
 	return Object.fromEntries(entries) as Partial<
@@ -76,9 +231,10 @@ async function loadLocale(
 }
 
 async function ensureNamespaces(
-	lang: string,
+	language: string,
 	namespaces: readonly LocaleNamespace[],
 ) {
+	const lang = normalizeLanguage(language);
 	const missing = namespaces.filter(
 		(namespace) => !i18n.hasResourceBundle(lang, namespace),
 	);

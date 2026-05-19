@@ -1,0 +1,12 @@
+{
+	"active": "Active",
+	"disabled_status": "Disabled",
+	"expired": "Expired",
+	"restored": "Restored",
+	"permanently_deleted": "Permanently deleted",
+	"trash_emptied": "Trash emptied",
+	"unavailable": "Unavailable",
+	"shared_folder": "Shared folder",
+	"empty_folder": "Empty folder",
+	"all_files": "All files"
+}

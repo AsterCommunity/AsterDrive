@@ -1,0 +1,4 @@
+{
+	"task_lease_lost": "The background task lease was lost. Please try again",
+	"task_lease_renewal_timed_out": "The background task lease renewal timed out. Please try again"
+}

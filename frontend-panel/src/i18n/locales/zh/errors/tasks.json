@@ -1,0 +1,4 @@
+{
+	"task_lease_lost": "后台任务处理资格已失效，请稍后重试",
+	"task_lease_renewal_timed_out": "后台任务续约超时，请稍后重试"
+}

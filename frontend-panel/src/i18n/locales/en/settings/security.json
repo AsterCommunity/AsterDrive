@@ -1,0 +1,15 @@
+{
+	"settings_security": "Security",
+	"settings_security_desc": "Manage your sign-in password and review how this browser session behaves after the change.",
+	"settings_security_tab_account": "Account",
+	"settings_security_tab_passkeys": "Passkeys",
+	"settings_security_tab_external": "External IDs",
+	"settings_security_tab_sessions": "Login devices",
+	"settings_security_show_details": "Details",
+	"settings_security_hide_details": "Collapse",
+	"settings_security_session_count": "{{count}} sessions",
+	"settings_security_account": "Account",
+	"settings_security_account_desc": "This updates the local sign-in password for @{{username}}.",
+	"settings_security_session": "Current session",
+	"settings_security_session_desc": "Your current browser session stays signed in for now after the password change."
+}

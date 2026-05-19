@@ -1,0 +1,9 @@
+{
+	"summary_created_at": "Created {{date}}",
+	"summary_started_at": "Started {{date}}",
+	"summary_finished_at": "Finished {{date}}",
+	"summary_failed_at": "Failed {{date}}",
+	"summary_canceled_at": "Canceled {{date}}",
+	"finished_at": "Finished {{date}}",
+	"started_at": "Started {{date}}"
+}

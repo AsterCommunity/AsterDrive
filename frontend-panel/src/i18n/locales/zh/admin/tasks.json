@@ -1,0 +1,23 @@
+{
+	"task_name": "任务",
+	"task_source": "来源",
+	"task_progress": "进度",
+	"task_execution_time": "执行时间",
+	"task_detail": "详情",
+	"all_task_types": "所有任务类型",
+	"all_task_statuses": "所有任务状态",
+	"all_completed_task_statuses": "所有已结束状态",
+	"no_filtered_tasks": "没有匹配条件的后台任务",
+	"no_filtered_tasks_desc": "调整筛选条件后再试，或者清空筛选查看完整任务历史。",
+	"task_cleanup_action": "清理历史任务",
+	"task_cleanup_title": "条件清理已结束任务",
+	"task_cleanup_desc": "只清理已结束任务记录，运行中、排队中和重试中的任务不会受影响。",
+	"task_cleanup_finished_before": "清理结束于该时间之前的任务",
+	"reset_cleanup_conditions": "重置条件",
+	"cleanup_completed_tasks": "清理已结束任务",
+	"task_cleanup_confirm_desc": "将删除结束于 {{finishedBefore}} 之前、类型为“{{kind}}”、状态为“{{status}}”的任务记录。",
+	"task_cleanup_confirm_desc_invalid": "请选择有效的结束时间后再执行。",
+	"tasks_cleaned": "已清理 {{count}} 条任务记录",
+	"no_tasks": "暂时没有后台任务",
+	"no_tasks_desc": "后台任务开始执行并写入记录后，这里会显示完整历史。"
+}

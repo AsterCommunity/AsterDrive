@@ -1,0 +1,20 @@
+{
+	"verify_contact_title": "Verify Contact",
+	"verify_contact_panel_desc": "Use this page to confirm a registration activation or an email-change request.",
+	"verify_contact_panel_hint": "If the link has expired, resend it from the sign-in page or security settings.",
+	"verify_contact_verifying_title": "Verifying link",
+	"verify_contact_verifying_desc": "Please wait while this contact verification request is being confirmed.",
+	"verify_contact_redirecting_hint": "You will be redirected automatically after verification. Do not refresh or close this page.",
+	"verify_contact_missing_token_title": "Missing verification token",
+	"verify_contact_missing_token_desc": "This link does not contain a usable verification token, so there is nothing to confirm.",
+	"verify_contact_invalid_title": "Invalid verification link",
+	"verify_contact_invalid_desc": "This link may be invalid, already used, or replaced by a newer email. To activate your account, resend the activation email from the sign-in page. To confirm an email change, resend the confirmation from security settings.",
+	"verify_contact_expired_title": "Verification link expired",
+	"verify_contact_expired_desc": "This link has expired. To activate your account, resend the activation email from the sign-in page. To confirm an email change, resend the confirmation from security settings.",
+	"verify_contact_error_title": "Verification failed",
+	"verify_contact_error_desc": "The server did not finish processing this verification. Try again in a moment.",
+	"verify_contact_success_register_title": "Registration activated",
+	"verify_contact_success_register_desc": "{{target}} is now activated. You can sign in immediately.",
+	"verify_contact_success_change_title": "Email updated",
+	"verify_contact_success_change_desc": "The new email {{target}} has been confirmed and applied."
+}

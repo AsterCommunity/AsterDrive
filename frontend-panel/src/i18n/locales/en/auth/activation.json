@@ -1,0 +1,11 @@
+{
+	"activation_pending_title": "Activation Required",
+	"activation_pending_notice": "This account still needs activation",
+	"activation_pending_desc_email": "We already sent an activation link to {{email}}.",
+	"activation_pending_desc_identifier": "This account is still waiting for activation. You can resend the activation email.",
+	"activation_pending_hint": "If you have not received the email, check your spam folder first. If it is still missing, resend the activation email.",
+	"resend_activation": "Resend activation email",
+	"resending_activation": "Sending...",
+	"activation_resent": "Activation email sent again",
+	"activation_confirmed": "Account activated. Sign in to continue."
+}

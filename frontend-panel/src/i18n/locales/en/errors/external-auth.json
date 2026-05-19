@@ -1,0 +1,4 @@
+{
+	"external_auth_provider_disabled": "This external authentication provider is disabled",
+	"external_auth_policy_denied": "The external authentication policy does not allow this action"
+}

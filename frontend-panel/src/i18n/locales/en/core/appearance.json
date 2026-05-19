@@ -1,0 +1,12 @@
+{
+	"theme": "Theme",
+	"theme_light": "Light",
+	"theme_dark": "Dark",
+	"theme_system": "System",
+	"language": "Language",
+	"language_en": "English",
+	"language_zh": "中文",
+	"appearance_desc": "Choose your preferred theme mode and accent color.",
+	"mode": "Mode",
+	"color": "Color"
+}

@@ -1,0 +1,8 @@
+{
+	"root": "Root",
+	"storage_used": "{{used}} used",
+	"storage_quota": "{{used}} / {{quota}}",
+	"folders_section": "Folders",
+	"files_section": "Files",
+	"storage_space": "Storage"
+}

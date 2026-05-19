@@ -1,0 +1,22 @@
+{
+	"settings_sessions_section": "登录设备",
+	"settings_sessions_section_desc": "这里展示当前仍登录的设备。移除后，该设备最多还能保持登录到本次会话过期为止。",
+	"settings_sessions_empty": "没有活动中的登录设备",
+	"settings_sessions_empty_desc": "当前账号还没有可展示的设备会话。",
+	"settings_sessions_current": "当前设备",
+	"settings_sessions_last_seen": "最近活动",
+	"settings_sessions_signed_in": "登录时间",
+	"settings_sessions_expires": "过期时间",
+	"settings_sessions_ip": "IP 地址",
+	"settings_sessions_device_desktop": "桌面端",
+	"settings_sessions_device_mobile": "移动端",
+	"settings_sessions_device_tablet": "平板",
+	"settings_sessions_unknown_device": "未知设备",
+	"settings_sessions_unknown_ip": "未记录",
+	"settings_sessions_revoke": "移除此设备",
+	"settings_sessions_revoke_current": "退出此设备",
+	"settings_sessions_revoke_others": "退出其他设备",
+	"settings_sessions_revoked": "设备已移除。",
+	"settings_sessions_revoked_current": "当前设备已退出登录。",
+	"settings_sessions_revoke_others_success": "已退出其他 {{count}} 台设备。"
+}

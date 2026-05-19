@@ -1,0 +1,12 @@
+{
+	"date": "Date",
+	"created_at": "Created",
+	"updated_at": "Updated",
+	"date_relative_just_now": "just now",
+	"date_relative_minutes_ago": "{{count}}m ago",
+	"date_relative_hours_ago": "{{count}}h ago",
+	"date_relative_days_ago": "{{count}}d ago",
+	"date_relative_minutes_later": "in {{count}}m",
+	"date_relative_hours_later": "in {{count}}h",
+	"date_relative_days_later": "in {{count}}d"
+}

@@ -1,0 +1,23 @@
+{
+	"task_name": "Task",
+	"task_source": "Source",
+	"task_progress": "Progress",
+	"task_execution_time": "Execution time",
+	"task_detail": "Detail",
+	"all_task_types": "All task types",
+	"all_task_statuses": "All task statuses",
+	"all_completed_task_statuses": "All completed statuses",
+	"no_filtered_tasks": "No background tasks match these filters",
+	"no_filtered_tasks_desc": "Adjust the filters or clear them to review the full task history.",
+	"task_cleanup_action": "Clean task history",
+	"task_cleanup_title": "Conditional cleanup for completed tasks",
+	"task_cleanup_desc": "Only completed task records are removed. Pending, processing, and retry tasks stay untouched.",
+	"task_cleanup_finished_before": "Clean up tasks completed before this time",
+	"reset_cleanup_conditions": "Reset conditions",
+	"cleanup_completed_tasks": "Clean up completed tasks",
+	"task_cleanup_confirm_desc": "This deletes task records completed before {{finishedBefore}} with kind \"{{kind}}\" and status \"{{status}}\".",
+	"task_cleanup_confirm_desc_invalid": "Choose a valid completion time before continuing.",
+	"tasks_cleaned": "Removed {{count}} task records",
+	"no_tasks": "No background tasks yet",
+	"no_tasks_desc": "Recorded background task history will appear here after jobs start running."
+}

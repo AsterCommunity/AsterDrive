@@ -1,0 +1,14 @@
+{
+	"thumbnail_format_guess_failed": "Failed to detect the source file format for the thumbnail. Please try again",
+	"thumbnail_decode_failed": "Failed to decode the thumbnail source file. Please try again",
+	"thumbnail_encode_failed": "Failed to encode the generated thumbnail. Please try again",
+	"thumbnail_processor_unavailable": "A thumbnail cannot be generated for this file right now",
+	"thumbnail_render_failed": "Failed to generate a thumbnail. Please try again later",
+	"thumbnail_output_invalid": "The generated thumbnail output was invalid. Please try again later",
+	"thumbnail_task_panicked": "The thumbnail processing task stopped unexpectedly. Please try again",
+	"thumbnail_source_too_large": "The source file is too large to generate a thumbnail right now",
+	"thumbnail_source_temp_create_failed": "The server failed to create a temporary thumbnail source file. Please try again",
+	"thumbnail_source_stream_failed": "The server failed while reading thumbnail source data. Please try again",
+	"thumbnail_source_temp_flush_failed": "The server failed while flushing the temporary thumbnail source file. Please try again",
+	"thumbnail_source_temp_copy_failed": "The server failed while preparing the thumbnail source file. Please try again"
+}

@@ -1,0 +1,8 @@
+{
+	"validation_request_origin_invalid": "Origin 请求头格式无效",
+	"validation_request_referer_invalid": "Referer 请求头格式无效",
+	"validation_request_host_invalid": "请求主机信息无效",
+	"validation_request_scheme_invalid": "请求协议信息无效",
+	"validation_request_header_value_invalid": "请求头值过长或无效",
+	"validation_system_already_initialized": "系统已经完成初始化"
+}

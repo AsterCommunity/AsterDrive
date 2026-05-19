@@ -1,0 +1,11 @@
+{
+	"activation_pending_title": "等待激活",
+	"activation_pending_notice": "这个账号还没完成激活",
+	"activation_pending_desc_email": "我们已经向 {{email}} 发送了激活链接。",
+	"activation_pending_desc_identifier": "这个账号还在等待激活，你可以重新发送激活邮件。",
+	"activation_pending_hint": "如果暂时没收到邮件，可以先检查垃圾箱；仍未收到的话，再重新发送激活邮件。",
+	"resend_activation": "重新发送激活邮件",
+	"resending_activation": "发送中...",
+	"activation_resent": "激活邮件已重新发送",
+	"activation_confirmed": "账号已激活，请登录。"
+}

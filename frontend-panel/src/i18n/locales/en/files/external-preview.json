@@ -1,0 +1,11 @@
+{
+	"wopi_loading": "Starting {{label}}...",
+	"wopi_unavailable": "This WOPI app is unavailable",
+	"wopi_unavailable_desc": "The WOPI session could not be initialized. Check the backend WOPI Host, token issuance, and client configuration.",
+	"wopi_external_desc": "{{label}} is configured to open outside the preview dialog.",
+	"wopi_open": "Open in {{label}}",
+	"url_template_unavailable": "This preview app is unavailable",
+	"url_template_unavailable_desc": "The configured target URL could not be resolved or is not allowed by the preview app settings.",
+	"url_template_external_desc": "{{label}} is configured to open outside the preview dialog.",
+	"url_template_open": "Open in {{label}}"
+}

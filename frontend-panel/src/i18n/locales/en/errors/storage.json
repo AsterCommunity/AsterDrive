@@ -1,0 +1,11 @@
+{
+	"storage_quota_exceeded": "Not enough storage space available",
+	"storage_auth_failed": "Storage authentication failed. Check the configured access credentials",
+	"storage_permission_denied": "The storage backend denied this operation. Check its permissions",
+	"storage_misconfigured": "The storage configuration is invalid or incomplete. Check the connection settings",
+	"storage_not_found": "The target storage resource does not exist or has already been removed",
+	"storage_rate_limited": "The storage backend is rate limiting requests. Try again shortly",
+	"storage_transient_failure": "The storage backend is temporarily unavailable. Try again later",
+	"storage_precondition_failed": "The storage operation precondition failed. Refresh and try again",
+	"storage_operation_unsupported": "This storage backend does not support the requested operation"
+}

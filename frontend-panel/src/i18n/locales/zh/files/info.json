@@ -1,0 +1,23 @@
+{
+	"info": "详细信息",
+	"info_name": "名称",
+	"info_size": "大小",
+	"info_type": "类型",
+	"info_mime": "MIME 类型",
+	"info_created": "创建时间",
+	"info_modified": "修改时间",
+	"info_locked": "锁定状态",
+	"info_locked_yes": "已锁定",
+	"info_locked_no": "未锁定",
+	"info_blob_id": "Blob ID",
+	"info_policy_id": "存储策略 ID",
+	"info_children": "内容",
+	"info_children_count": "{{folders}} 个文件夹，{{files}} 个文件",
+	"info_loading": "加载中...",
+	"info_actions": "快捷操作",
+	"info_overview": "概览",
+	"info_status": "状态",
+	"info_shared": "分享状态",
+	"info_shared_yes": "已分享",
+	"info_shared_no": "未分享"
+}

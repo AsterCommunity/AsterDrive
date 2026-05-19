@@ -1,0 +1,10 @@
+{
+	"settings_profile": "个人资料",
+	"settings_profile_desc": "管理账号在面板里的展示方式。",
+	"settings_display_name": "展示名称",
+	"settings_display_name_desc": "设置在面板中优先展示的名称，不会影响登录用户名。",
+	"settings_display_name_placeholder": "输入展示名称",
+	"settings_display_name_hint": "登录用户名仍为 @{{username}}，留空则回退为用户名。",
+	"settings_username_readonly_hint": "用户名用于登录，不支持修改。",
+	"settings_profile_updated": "个人资料已更新。"
+}

@@ -1,0 +1,12 @@
+{
+	"settings_item_branding_title_label": "Public browser title",
+	"settings_item_branding_title_desc": "Controls the browser tab title shown on login, share, and app pages. Leave it empty to fall back to AsterDrive.",
+	"settings_item_branding_description_label": "Public page description",
+	"settings_item_branding_description_desc": "Controls the HTML description metadata exposed before login. Leave it empty to fall back to the default deployment description.",
+	"settings_item_branding_favicon_url_label": "Public favicon URL",
+	"settings_item_branding_favicon_url_desc": "Provide a public HTTP(S) or same-origin icon URL. Leave it empty to fall back to /favicon.svg.",
+	"settings_item_branding_wordmark_dark_url_label": "Site logo URL for light surfaces",
+	"settings_item_branding_wordmark_dark_url_desc": "Provide a public HTTP(S) or same-origin logo URL used on headers and other light surfaces. Leave it empty to fall back to /static/asterdrive/asterdrive-dark.svg.",
+	"settings_item_branding_wordmark_light_url_label": "Site logo URL for dark surfaces",
+	"settings_item_branding_wordmark_light_url_desc": "Provide a public HTTP(S) or same-origin logo URL used on dark surfaces such as the login hero panel. Leave it empty to fall back to /static/asterdrive/asterdrive-light.svg."
+}

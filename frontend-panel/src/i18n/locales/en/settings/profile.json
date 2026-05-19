@@ -1,0 +1,10 @@
+{
+	"settings_profile": "Profile",
+	"settings_profile_desc": "Manage how your account appears across the panel.",
+	"settings_display_name": "Display Name",
+	"settings_display_name_desc": "Set the name shown across the panel without changing your login username.",
+	"settings_display_name_placeholder": "Enter a display name",
+	"settings_display_name_hint": "Your login username stays @{{username}}. Leave it empty to fall back to the username.",
+	"settings_username_readonly_hint": "Username is used for sign-in and cannot be changed.",
+	"settings_profile_updated": "Profile updated."
+}

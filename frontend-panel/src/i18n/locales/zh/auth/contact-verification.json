@@ -1,0 +1,20 @@
+{
+	"verify_contact_title": "验证邮箱",
+	"verify_contact_panel_desc": "在这里完成注册激活或邮箱改绑确认，链接状态会自动检测。",
+	"verify_contact_panel_hint": "如果链接已失效，请回到登录页或安全设置页重新发送。",
+	"verify_contact_verifying_title": "正在验证链接",
+	"verify_contact_verifying_desc": "请稍等，正在确认这次联系信息验证请求。",
+	"verify_contact_redirecting_hint": "验证完成后会自动跳转，请不要刷新或关闭这个页面。",
+	"verify_contact_missing_token_title": "缺少验证令牌",
+	"verify_contact_missing_token_desc": "这个链接中缺少可用的验证参数，无法继续确认。",
+	"verify_contact_invalid_title": "验证链接无效",
+	"verify_contact_invalid_desc": "链接可能已失效、已被使用，或者已经被更新的邮件替换。如需激活账号，可在登录页重新发送邮件；如需确认改绑，可在安全设置中重新发送确认邮件。",
+	"verify_contact_expired_title": "验证链接已过期",
+	"verify_contact_expired_desc": "链接已经过期了。如需激活账号，可在登录页重新发送邮件；如需确认改绑，可在安全设置中重新发送确认邮件。",
+	"verify_contact_error_title": "验证失败",
+	"verify_contact_error_desc": "服务端刚才没把这次验证处理完，稍后再试一次。",
+	"verify_contact_success_register_title": "注册已激活",
+	"verify_contact_success_register_desc": "{{target}} 已完成激活，现在可以直接登录了。",
+	"verify_contact_success_change_title": "邮箱已更新",
+	"verify_contact_success_change_desc": "新邮箱 {{target}} 已确认并生效。"
+}

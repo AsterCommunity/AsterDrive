@@ -1,0 +1,13 @@
+{
+	"archive_extract_action": "在线解压",
+	"archive_compress_action": "在线压缩",
+	"archive_download_action": "下载为 ZIP",
+	"archive_compress_dialog_title": "压缩包名称",
+	"archive_compress_name_placeholder": "输入压缩包名称",
+	"archive_compress_dialog_hint": "可自行修改，未带 .zip 时会自动补上。",
+	"archive_compress_submit": "创建压缩任务",
+	"archive_extract_dialog_title": "解压目标文件夹",
+	"archive_extract_name_placeholder": "输入解压后的文件夹名称",
+	"archive_extract_dialog_hint": "可自行修改输出文件夹名称。",
+	"archive_extract_submit": "创建解压任务"
+}

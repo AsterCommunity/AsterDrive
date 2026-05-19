@@ -1,0 +1,21 @@
+{
+	"versions": "版本历史",
+	"version_history_title": "版本历史 - {{name}}",
+	"version_empty": "暂无历史版本",
+	"version_current": "当前版本",
+	"version_history_count": "共 {{count}} 个历史版本",
+	"version_column": "版本",
+	"version_size": "大小",
+	"version_date": "日期",
+	"version_actions": "操作",
+	"version_restore": "恢复",
+	"version_delete": "删除",
+	"version_restoring": "恢复中...",
+	"version_deleting": "删除中...",
+	"version_restored": "已恢复该版本",
+	"version_deleted": "已删除该版本",
+	"version_restore_confirm_title": "恢复到此版本？",
+	"version_restore_confirm_desc": "恢复后，版本 v{{version}} 及其之后的历史版本将被删除，此操作不可撤销。",
+	"version_delete_confirm_title": "永久删除此历史版本？",
+	"version_delete_confirm_desc": "删除后，版本 v{{version}} 将无法恢复。如果这是最后一个历史版本，你将无法再回退到更早内容。"
+}

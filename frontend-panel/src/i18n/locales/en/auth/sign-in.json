@@ -1,0 +1,18 @@
+{
+	"sign_in": "Sign In",
+	"sign_up": "Sign Up",
+	"continue": "Continue",
+	"email_or_username": "Email or username",
+	"signing_in": "Signing in...",
+	"creating_account": "Creating account...",
+	"dont_have_account": "Don't have an account?",
+	"already_have_account": "Already have an account?",
+	"login_success": "Welcome back!",
+	"register_success": "Account created. Check your email to activate it",
+	"register_success_direct": "Account created. You can sign in now",
+	"sign_in_to_account": "Sign in to your account",
+	"create_new_account": "Create a new account",
+	"enter_password": "Enter your password",
+	"choose_username": "Choose a username",
+	"not_you": "Not you?"
+}

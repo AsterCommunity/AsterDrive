@@ -1,0 +1,8 @@
+{
+	"edited_by_others": "检测到这个文件已有新的修改，请刷新后再继续。",
+	"saving": "保存中...",
+	"unsaved_changes": "未保存",
+	"unsaved_confirm_desc": "当前改动还没有保存，继续的话这部分修改会被丢弃。",
+	"discard_changes": "放弃修改",
+	"save_shortcut_hint": "⌘/Ctrl + S 保存"
+}

@@ -1,0 +1,13 @@
+{
+	"progress_label": "进度",
+	"progress_ratio_label": "原始进度",
+	"progress_ratio": "{{current}} / {{total}}",
+	"steps_label": "步骤",
+	"current_step_label": "当前步骤",
+	"timeline_label": "时间线",
+	"timeline_created_label": "创建",
+	"timeline_started_label": "开始",
+	"timeline_finished_label": "完成",
+	"timeline_failed_label": "失败",
+	"timeline_canceled_label": "取消"
+}

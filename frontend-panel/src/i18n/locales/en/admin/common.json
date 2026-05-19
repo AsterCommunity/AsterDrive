@@ -1,0 +1,23 @@
+{
+	"cors_wildcard_credentials_validation_error": "You cannot keep allowed origins as \"*\" while cross-origin credentials are enabled. Switch to an explicit origin list or turn credentials off before saving.",
+	"deleted_at": "Deleted",
+	"no_active_locks": "No active locks",
+	"no_active_locks_desc": "WebDAV locks will appear here.",
+	"no_policies": "No policies",
+	"no_policies_desc": "Storage policies control where files are stored.",
+	"add_custom_config": "Add Custom Config",
+	"no_config": "No config entries",
+	"no_policies_assigned": "No policy group assigned. Uploads will fail until one is set.",
+	"select_policy_group": "Select policy group...",
+	"delete_config_desc": "This config entry will be permanently removed.",
+	"id": "ID",
+	"token": "Token",
+	"downloads": "Downloads",
+	"filtered_user_count": "{{count}} users match on this page",
+	"manage_policies": "Manage storage policies",
+	"delete_user": "Delete user",
+	"pagination_prev_disabled": "Already on the first page",
+	"pagination_next_disabled": "Already on the last page",
+	"no_remote_nodes": "No remote nodes yet",
+	"no_remote_nodes_desc": "Register a follower node first. After saving it, you can immediately generate an enrollment command and run it on the follower server."
+}

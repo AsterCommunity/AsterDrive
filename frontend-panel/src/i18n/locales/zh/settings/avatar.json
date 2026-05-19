@@ -1,0 +1,21 @@
+{
+	"settings_avatar": "头像",
+	"settings_avatar_none_desc": "当前还没有配置自定义头像。",
+	"settings_avatar_gravatar_desc": "使用根据邮箱地址生成的 Gravatar 头像。",
+	"settings_avatar_upload_desc": "使用已上传并优化过的头像。",
+	"settings_avatar_upload_and_crop": "上传并裁剪头像",
+	"settings_use_gravatar": "使用 Gravatar",
+	"settings_remove_avatar": "移除头像",
+	"settings_avatar_crop_title": "裁剪头像",
+	"settings_avatar_crop_desc": "拖动裁剪框移动位置，拖拽边缘调整大小，左侧预览会实时更新。",
+	"settings_avatar_crop_preview": "实时预览",
+	"settings_avatar_crop_guide_title": "裁剪说明",
+	"settings_avatar_crop_selected": "已选择图片",
+	"settings_avatar_crop_output_hint": "将导出为不超过 {{size}} 的方形头像。",
+	"settings_avatar_crop_zoom": "缩放",
+	"settings_avatar_crop_hint": "图片会按原始比例完整显示，不会被拖动或拉伸；只调整圆形裁剪框的位置和大小。",
+	"settings_avatar_crop_reset": "恢复默认裁剪框",
+	"settings_avatar_crop_apply": "应用头像",
+	"settings_avatar_updated": "头像已更新。",
+	"settings_avatar_source_updated": "头像来源已更新。"
+}

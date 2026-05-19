@@ -1,0 +1,5 @@
+{
+	"pagination_desc": "Page {{current}} of {{total}} · {{count}} total task(s)",
+	"prev_page": "Previous page",
+	"next_page": "Next page"
+}

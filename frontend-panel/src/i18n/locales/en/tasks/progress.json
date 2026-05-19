@@ -1,0 +1,13 @@
+{
+	"progress_label": "Progress",
+	"progress_ratio_label": "Raw progress",
+	"progress_ratio": "{{current}} / {{total}}",
+	"steps_label": "Steps",
+	"current_step_label": "Current step",
+	"timeline_label": "Timeline",
+	"timeline_created_label": "Created",
+	"timeline_started_label": "Started",
+	"timeline_finished_label": "Finished",
+	"timeline_failed_label": "Failed",
+	"timeline_canceled_label": "Canceled"
+}

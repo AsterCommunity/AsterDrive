@@ -1,0 +1,12 @@
+{
+	"theme": "主题",
+	"theme_light": "浅色",
+	"theme_dark": "深色",
+	"theme_system": "跟随系统",
+	"language": "语言",
+	"language_en": "English",
+	"language_zh": "中文",
+	"appearance_desc": "选择你偏好的主题模式和强调色。",
+	"mode": "模式",
+	"color": "颜色"
+}

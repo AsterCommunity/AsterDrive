@@ -1,0 +1,10 @@
+{
+	"office_provider_google": "Google",
+	"office_provider_microsoft": "Microsoft",
+	"office_preview_loading": "Loading {{provider}} viewer...",
+	"office_preview_open_external": "Open in {{provider}}",
+	"office_preview_timeout_desc": "{{provider}} is responding slowly. Retry, switch providers, or download the file instead.",
+	"office_preview_error_desc": "The preview link could not be prepared. Retry, switch providers, or download the file instead.",
+	"office_preview_public_url_desc": "{{provider}} can only load documents from publicly reachable URLs. This preview link looks like localhost, a private network address, or a local-only hostname, so online preview will fail.",
+	"office_preview_https_required_desc": "{{provider}} can only load documents from HTTPS URLs. This preview link is using HTTP, so online preview will fail."
+}

@@ -1,0 +1,15 @@
+{
+	"status_pending": "Queued",
+	"status_processing": "Processing",
+	"status_retry": "Retrying",
+	"status_succeeded": "Completed",
+	"status_failed": "Failed",
+	"status_canceled": "Canceled",
+	"kind_archive_extract": "Archive extraction",
+	"kind_archive_compress": "Archive compression",
+	"kind_archive_preview_generate": "Archive preview generation",
+	"kind_thumbnail_generate": "Thumbnail generation",
+	"kind_trash_purge_all": "Trash purge",
+	"kind_system_runtime": "System runtime task",
+	"status_text_label": "Status"
+}

@@ -1,0 +1,21 @@
+{
+	"confirm_delete": "Move this item to trash?",
+	"confirm_delete_desc": "You can still restore it from trash later.",
+	"trash_page_desc": "Deleted items stay until their expiration time; you can restore or permanently delete them before then.",
+	"trash_expires_at": "Expires",
+	"trash_restore_selected": "Restore Selected",
+	"trash_delete_permanently": "Permanently Delete",
+	"trash_delete_selected": "Delete Selected Permanently",
+	"trash_restoring": "Restoring...",
+	"trash_purging": "Deleting...",
+	"trash_restore_success": "Restored {{count}} item(s)",
+	"trash_restore_partial": "Restored {{succeeded}} item(s), {{failed}} failed",
+	"trash_restore_failed": "Could not restore the selected items",
+	"trash_purge_success": "Permanently deleted {{count}} item(s)",
+	"trash_purge_partial": "Permanently deleted {{succeeded}} item(s), {{failed}} failed",
+	"trash_purge_failed": "Could not permanently delete the selected items",
+	"trash_purge_confirm_title": "Permanently delete these {{count}} item(s)?",
+	"trash_purge_confirm_desc": "These items cannot be restored afterward.",
+	"trash_empty_title": "Trash is empty",
+	"trash_empty_desc": "Deleted items will appear here."
+}

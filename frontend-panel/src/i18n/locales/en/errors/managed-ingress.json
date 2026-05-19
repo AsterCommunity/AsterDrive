@@ -1,0 +1,12 @@
+{
+	"managed_ingress_binding_mismatch": "Only the sole configured primary may manage follower ingress profiles",
+	"managed_ingress_default_delete_requires_replacement": "Set another ingress profile as default before deleting this default one",
+	"managed_ingress_default_error": "The default managed ingress profile is not ready yet because it has a recorded error",
+	"managed_ingress_default_missing": "Managed ingress profiles exist, but no default profile is configured",
+	"managed_ingress_default_not_applied": "The default managed ingress profile has not finished applying yet",
+	"managed_ingress_required": "The follower cannot accept remote writes until a default landing target is configured by the primary",
+	"managed_ingress_default_update_requires_replacement": "You cannot unset the default ingress profile directly. Set another profile as default first",
+	"managed_ingress_driver_unsupported": "Managed ingress profiles only support local and S3 drivers",
+	"managed_ingress_local_path_invalid": "The local ingress path must stay relative to the managed ingress root",
+	"managed_ingress_single_primary_required": "Managed ingress profiles require the follower to be bound to exactly one primary. Multi-primary followers are rejected directly"
+}

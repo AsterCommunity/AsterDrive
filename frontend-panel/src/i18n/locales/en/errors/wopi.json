@@ -1,0 +1,7 @@
+{
+	"wopi_max_expected_size_exceeded": "The file exceeds the current WOPI client's maximum allowed size",
+	"wopi_public_site_url_required": "WOPI integration requires public_site_url to be configured first",
+	"wopi_app_disabled": "This WOPI app is disabled",
+	"wopi_request_origin_untrusted": "This WOPI request came from an untrusted origin",
+	"wopi_request_referer_untrusted": "This WOPI request has an untrusted Referer"
+}

@@ -1,0 +1,5 @@
+{
+	"pagination_desc": "第 {{current}} / {{total}} 页，共 {{count}} 个任务",
+	"prev_page": "上一页",
+	"next_page": "下一页"
+}

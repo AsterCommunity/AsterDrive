@@ -1,0 +1,11 @@
+{
+	"sort_date": "Date",
+	"sort_by": "Sort",
+	"sort_name": "Name",
+	"sort_size": "Size",
+	"sort_created_at": "Upload date",
+	"sort_updated_at": "Modified date",
+	"sort_type": "Type",
+	"sort_asc": "Ascending",
+	"sort_desc": "Descending"
+}

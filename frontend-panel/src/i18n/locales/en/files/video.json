@@ -1,0 +1,6 @@
+{
+	"video_browser_unavailable": "Custom video browser is unavailable",
+	"video_browser_unavailable_desc": "Check the video browser deployment config and allowed origins.",
+	"video_browser_open": "Open in {{label}}",
+	"video_browser_external_desc": "This video browser is configured to open outside the preview dialog."
+}

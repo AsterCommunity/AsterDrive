@@ -1,0 +1,13 @@
+{
+	"archive_extract_action": "Extract online",
+	"archive_compress_action": "Compress online",
+	"archive_download_action": "Download as ZIP",
+	"archive_compress_dialog_title": "Archive name",
+	"archive_compress_name_placeholder": "Enter an archive name",
+	"archive_compress_dialog_hint": "You can change it here. A .zip suffix is added automatically if omitted.",
+	"archive_compress_submit": "Create compression task",
+	"archive_extract_dialog_title": "Output folder name",
+	"archive_extract_name_placeholder": "Enter the extracted folder name",
+	"archive_extract_dialog_hint": "You can change the destination folder name here.",
+	"archive_extract_submit": "Create extract task"
+}

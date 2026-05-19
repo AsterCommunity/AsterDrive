@@ -1,0 +1,15 @@
+{
+	"settings_external_auth_links_section": "External identities",
+	"settings_external_auth_links_section_desc": "Review external identities linked to this account. After unlinking, that identity can no longer sign directly into this account.",
+	"settings_external_auth_links_empty": "No external identities",
+	"settings_external_auth_links_empty_desc": "After an external sign-in flow links an identity, it will appear here.",
+	"settings_external_auth_links_delete": "Unlink",
+	"settings_external_auth_links_deleted": "External identity unlinked.",
+	"settings_external_auth_links_delete_title": "Unlink external identity",
+	"settings_external_auth_links_delete_desc": "After unlinking, this external identity can no longer sign directly into the current account. If automatic linking is enabled, a later eligible sign-in may link it again.",
+	"settings_external_auth_links_issuer": "Issuer",
+	"settings_external_auth_links_subject": "Subject",
+	"settings_external_auth_links_created": "Linked",
+	"settings_external_auth_links_last_login": "Last login",
+	"settings_external_auth_links_never_used": "Not recorded"
+}

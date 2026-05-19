@@ -1,0 +1,23 @@
+{
+	"open": "打开",
+	"open_with_action": "打开方式",
+	"choose_open_method": "请选择打开方式",
+	"more_open_methods": "更多打开方式",
+	"preview_coming_soon": "这种预览方式暂未开放",
+	"preview_coming_soon_desc": "对应的渲染能力仍在开发中。",
+	"open_with_image": "图片预览",
+	"open_with_video": "视频预览",
+	"open_with_custom_video_browser": "自定义视频浏览器",
+	"open_with_audio": "音频预览",
+	"open_with_pdf": "PDF 预览",
+	"open_with_office_microsoft": "Microsoft 预览器",
+	"open_with_office_google": "Google 预览器",
+	"open_with_markdown": "Markdown 预览",
+	"open_with_table": "表格预览",
+	"open_with_archive": "压缩包预览",
+	"open_with_structured": "结构视图",
+	"open_with_formatted": "格式化视图",
+	"open_with_code": "源码视图",
+	"open_with_try_text": "以文本方式打开",
+	"open_modes_count": "{{count}} 种打开方式"
+}

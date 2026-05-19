@@ -1,0 +1,8 @@
+{
+	"avatar_file_required": "Choose an avatar image to upload",
+	"avatar_upload_read_failed": "Failed to read the uploaded avatar data. Please try again",
+	"avatar_processor_unavailable": "The selected avatar processing path is not available right now",
+	"avatar_empty_image": "The uploaded avatar image is empty or invalid",
+	"avatar_render_failed": "Failed to process the avatar image. Please try again",
+	"avatar_output_invalid": "The generated avatar output was invalid. Try a different image"
+}

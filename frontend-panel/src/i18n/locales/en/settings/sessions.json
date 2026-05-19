@@ -1,0 +1,22 @@
+{
+	"settings_sessions_section": "Login devices",
+	"settings_sessions_section_desc": "This lists devices that are still signed in. After removal, that device can remain signed in until its current session expires.",
+	"settings_sessions_empty": "No active login devices",
+	"settings_sessions_empty_desc": "There are no device sessions to show for this account right now.",
+	"settings_sessions_current": "Current device",
+	"settings_sessions_last_seen": "Last active",
+	"settings_sessions_signed_in": "Signed in",
+	"settings_sessions_expires": "Expires at",
+	"settings_sessions_ip": "IP address",
+	"settings_sessions_device_desktop": "Desktop",
+	"settings_sessions_device_mobile": "Mobile",
+	"settings_sessions_device_tablet": "Tablet",
+	"settings_sessions_unknown_device": "Unknown device",
+	"settings_sessions_unknown_ip": "Not recorded",
+	"settings_sessions_revoke": "Remove device",
+	"settings_sessions_revoke_current": "Sign out this device",
+	"settings_sessions_revoke_others": "Sign out other devices",
+	"settings_sessions_revoked": "Device removed.",
+	"settings_sessions_revoked_current": "Signed out of this device.",
+	"settings_sessions_revoke_others_success": "Signed out {{count}} other devices."
+}

@@ -1,0 +1,21 @@
+{
+	"versions": "Version History",
+	"version_history_title": "Version History - {{name}}",
+	"version_empty": "No previous versions",
+	"version_current": "Current version",
+	"version_history_count": "{{count}} historical version(s)",
+	"version_column": "Version",
+	"version_size": "Size",
+	"version_date": "Date",
+	"version_actions": "Actions",
+	"version_restore": "Restore",
+	"version_delete": "Delete",
+	"version_restoring": "Restoring...",
+	"version_deleting": "Deleting...",
+	"version_restored": "Version restored",
+	"version_deleted": "Version deleted",
+	"version_restore_confirm_title": "Restore this version?",
+	"version_restore_confirm_desc": "Version v{{version}} and all newer history versions will be permanently removed. This action cannot be undone.",
+	"version_delete_confirm_title": "Permanently delete this history version?",
+	"version_delete_confirm_desc": "Version v{{version}} will be permanently removed and cannot be restored. If this is the last history version, you will no longer be able to roll back to earlier content."
+}

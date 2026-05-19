@@ -1,0 +1,15 @@
+{
+	"settings_external_auth_links_section": "外部身份",
+	"settings_external_auth_links_section_desc": "查看当前账号已绑定的外部身份，解绑后对应身份不能再直接登录此账号。",
+	"settings_external_auth_links_empty": "还没有外部身份",
+	"settings_external_auth_links_empty_desc": "通过登录页完成一次外部登录绑定后，这里会显示对应身份。",
+	"settings_external_auth_links_delete": "解绑",
+	"settings_external_auth_links_deleted": "外部身份已解绑。",
+	"settings_external_auth_links_delete_title": "解绑外部身份",
+	"settings_external_auth_links_delete_desc": "解绑后，这个外部身份将不能再直接登录当前账号。若管理员开启自动绑定，满足条件时后续登录可能会重新绑定。",
+	"settings_external_auth_links_issuer": "签发方",
+	"settings_external_auth_links_subject": "Subject",
+	"settings_external_auth_links_created": "绑定时间",
+	"settings_external_auth_links_last_login": "最近登录",
+	"settings_external_auth_links_never_used": "尚未记录"
+}

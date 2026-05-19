@@ -1,0 +1,11 @@
+{
+	"wopi_loading": "正在启动 {{label}}...",
+	"wopi_unavailable": "当前 WOPI 应用暂不可用",
+	"wopi_unavailable_desc": "WOPI 会话没有成功初始化。请检查后端 WOPI Host、令牌签发和客户端配置。",
+	"wopi_external_desc": "{{label}} 被配置为在预览弹窗外打开。",
+	"wopi_open": "在 {{label}} 中打开",
+	"url_template_unavailable": "当前预览应用暂不可用",
+	"url_template_unavailable_desc": "配置的目标地址无法解析，或者不在预览应用允许的来源范围内。",
+	"url_template_external_desc": "{{label}} 被配置为在预览弹窗外打开。",
+	"url_template_open": "在 {{label}} 中打开"
+}

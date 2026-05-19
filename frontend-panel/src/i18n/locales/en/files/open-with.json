@@ -1,0 +1,23 @@
+{
+	"open": "Open",
+	"open_with_action": "Open With",
+	"choose_open_method": "Choose how to open this file",
+	"more_open_methods": "More open methods",
+	"preview_coming_soon": "This preview mode is not available yet",
+	"preview_coming_soon_desc": "The required renderer is still under development.",
+	"open_with_image": "Image preview",
+	"open_with_video": "Video preview",
+	"open_with_custom_video_browser": "Custom video browser",
+	"open_with_audio": "Audio preview",
+	"open_with_pdf": "PDF preview",
+	"open_with_office_microsoft": "Microsoft Viewer",
+	"open_with_office_google": "Google Viewer",
+	"open_with_markdown": "Markdown preview",
+	"open_with_table": "Table preview",
+	"open_with_archive": "Archive preview",
+	"open_with_structured": "Structured view",
+	"open_with_formatted": "Formatted view",
+	"open_with_code": "Source view",
+	"open_with_try_text": "Open as text",
+	"open_modes_count": "{{count}} open modes"
+}

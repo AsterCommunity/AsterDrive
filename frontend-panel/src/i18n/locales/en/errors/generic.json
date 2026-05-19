@@ -1,0 +1,8 @@
+{
+	"rate_limited": "Too many requests. Please try again shortly.",
+	"mail_not_configured": "Mail delivery is not configured, so verification emails cannot be sent right now.",
+	"mail_delivery_failed": "Failed to send email. Please try again later",
+	"network_error": "Could not reach the server. Check your connection and try again.",
+	"request_timeout": "The request timed out. Please try again.",
+	"unexpected_error": "Something went wrong. Please try again later"
+}

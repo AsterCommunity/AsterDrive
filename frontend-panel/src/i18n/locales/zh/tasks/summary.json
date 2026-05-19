@@ -1,0 +1,9 @@
+{
+	"summary_created_at": "创建于 {{date}}",
+	"summary_started_at": "开始于 {{date}}",
+	"summary_finished_at": "完成于 {{date}}",
+	"summary_failed_at": "失败于 {{date}}",
+	"summary_canceled_at": "取消于 {{date}}",
+	"finished_at": "{{date}} 完成",
+	"started_at": "{{date}} 开始"
+}

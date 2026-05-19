@@ -1,0 +1,6 @@
+{
+	"video_browser_unavailable": "自定义视频浏览器暂不可用",
+	"video_browser_unavailable_desc": "请检查视频浏览器部署配置和允许来源设置。",
+	"video_browser_open": "在 {{label}} 中打开",
+	"video_browser_external_desc": "当前视频浏览器被配置为在预览弹窗外打开。"
+}

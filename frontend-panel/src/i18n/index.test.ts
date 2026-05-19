@@ -19,6 +19,12 @@ async function loadModule() {
 	return (await import("@/i18n")).default;
 }
 
+async function loadI18nModule() {
+	vi.resetModules();
+	mockState.idleCallbacks.length = 0;
+	return import("@/i18n");
+}
+
 describe("i18n", () => {
 	beforeEach(() => {
 		localStorage.clear();
@@ -66,5 +72,29 @@ describe("i18n", () => {
 
 		expect(i18n.language).toBe("en");
 		expect(i18n.hasResourceBundle("en", "settings")).toBe(true);
+	});
+
+	it("merges split locale files into their original namespaces", async () => {
+		localStorage.setItem("aster-language", "zh");
+		const module = await loadI18nModule();
+		const i18n = module.default;
+
+		await module.ensureI18nNamespaces(["admin", "files", "settings"], "zh");
+
+		expect(i18n.t("files:upload_success")).toBe("上传完成");
+		expect(i18n.t("files:archive_preview_title")).toBe("ZIP 内容");
+		expect(i18n.t("settings:settings_passkeys_section")).toBe("Passkey");
+		expect(i18n.t("admin:overview_total_users")).toBe("总用户数");
+		expect(i18n.t("admin:preview_apps_provider_archive")).toBe("压缩包");
+	});
+
+	it("keeps unsplit locale files loadable", async () => {
+		localStorage.setItem("aster-language", "en");
+		const module = await loadI18nModule();
+		const i18n = module.default;
+
+		await module.ensureI18nNamespaces(["webdav"], "en");
+
+		expect(i18n.t("webdav:webdav_endpoint")).toBe("WebDAV Endpoint");
 	});
 });

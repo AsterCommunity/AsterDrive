@@ -1,0 +1,7 @@
+{
+	"wopi_max_expected_size_exceeded": "文件超过当前 WOPI 客户端允许的最大大小",
+	"wopi_public_site_url_required": "WOPI 集成需要先配置 public_site_url",
+	"wopi_app_disabled": "当前 WOPI 应用已被禁用",
+	"wopi_request_origin_untrusted": "当前 WOPI 请求来源不受信任",
+	"wopi_request_referer_untrusted": "当前 WOPI 请求 Referer 不受信任"
+}

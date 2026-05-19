@@ -1,0 +1,23 @@
+{
+	"cors_wildcard_credentials_validation_error": "允许来源不能是 \"*\"，否则就不能开启跨域凭据。先改成明确来源列表，或者关闭跨域凭据再保存。",
+	"deleted_at": "删除时间",
+	"no_active_locks": "无活动锁",
+	"no_active_locks_desc": "WebDAV 锁将显示在这里。",
+	"no_policies": "暂无策略",
+	"no_policies_desc": "存储策略控制文件的存储位置。",
+	"add_custom_config": "添加自定义配置",
+	"no_config": "暂无配置项",
+	"no_policies_assigned": "未绑定策略组，上传会直接失败。",
+	"select_policy_group": "选择策略组...",
+	"delete_config_desc": "此配置项将被永久删除。",
+	"id": "ID",
+	"token": "令牌",
+	"downloads": "下载次数",
+	"filtered_user_count": "当前页筛出 {{count}} 位用户",
+	"manage_policies": "管理存储策略",
+	"delete_user": "删除用户",
+	"pagination_prev_disabled": "已经是第一页了",
+	"pagination_next_disabled": "已经是最后一页了",
+	"no_remote_nodes": "暂无远程节点",
+	"no_remote_nodes_desc": "先登记一个从节点。保存后即可直接生成接入命令，拿到从节点执行。"
+}

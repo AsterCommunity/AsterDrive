@@ -1,0 +1,20 @@
+{
+	"about_product_badge": "Admin Console",
+	"about_tagline": "A self-hosted control plane for files, sharing, storage policies, and runtime configuration.",
+	"about_summary": "AsterDrive ships the Rust backend and React admin panel through one delivery chain, balancing single-binary deployment, object storage extensibility, WebDAV access, and an operations-friendly management surface.",
+	"about_version": "Current version",
+	"about_channel": "Release channel",
+	"about_channel_release": "Stable",
+	"about_channel_development": "Development",
+	"about_channel_alpha": "Alpha",
+	"about_channel_beta": "Beta",
+	"about_channel_rc": "RC",
+	"about_channel_unknown": "Unknown",
+	"about_license": "License",
+	"about_repository": "Repository",
+	"about_resources": "Project resources",
+	"about_resources_desc": "Documentation, repository, and license links are available here.",
+	"about_open_docs": "Open docs",
+	"about_view_repository": "View repository",
+	"about_view_license": "View license"
+}

@@ -1,0 +1,21 @@
+{
+	"settings_item_cors_enabled_label": "Enable CORS handling",
+	"settings_item_cors_enabled_desc": "Controls whether AsterDrive actively processes cross-origin browser requests. When disabled, the server skips all CORS headers and enforcement.",
+	"settings_item_cors_allowed_origins_label": "Allowed cross-origin origins",
+	"settings_item_cors_allowed_origins_desc": "List the browser origins that may access AsterDrive cross-origin, separated by commas. Empty means the server returns no CORS headers and the browser blocks cross-origin access naturally. \"*\" allows any origin.",
+	"settings_item_cors_allow_credentials_label": "Allow cross-origin credentials",
+	"settings_item_cors_allow_credentials_desc": "Controls whether CORS responses include Access-Control-Allow-Credentials. Do not combine this with an allowed-origins value of \"*\".",
+	"settings_item_cors_max_age_secs_label": "Preflight cache duration",
+	"settings_item_cors_max_age_secs_desc": "Controls how long browsers keep CORS preflight results cached before they need to re-check.",
+	"settings_item_public_site_url_label": "Public site URL",
+	"settings_item_public_site_url_desc": "Set the public HTTP(S) origins that external users actually use to reach this site, one origin per field, for example https://drive.example.com and https://panel.example.com. They are used to build absolute links for share pages, Office previews, WebDAV, and callbacks; the first origin is the fallback. Leave the list empty to fall back to the current request origin.",
+	"public_site_url_origin_label": "Public site origin",
+	"public_site_url_primary_origin": "Primary",
+	"public_site_url_add_origin": "Add public site origin",
+	"public_site_url_add_current_origin": "Use current address",
+	"public_site_url_remove_origin": "Remove public site origin",
+	"site_url_mismatch_title": "Current site URL does not match the system config",
+	"site_url_mismatch_description": "The current browser address is {{current}}, but the configured public site URL list does not include it (current config: {{configured}}). Update it now so share links, Office previews, WebDAV endpoints, and future callbacks use the current address?",
+	"site_url_mismatch_confirm": "Update site URL",
+	"site_url_mismatch_not_set": "not set"
+}

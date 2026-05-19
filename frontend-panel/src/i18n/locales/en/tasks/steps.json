@@ -1,0 +1,22 @@
+{
+	"step_progress_label": "Step progress",
+	"step_status_pending": "Pending",
+	"step_status_active": "In progress",
+	"step_status_succeeded": "Completed",
+	"step_status_failed": "Failed",
+	"step_status_canceled": "Canceled",
+	"step_archive_compress_waiting": "Waiting",
+	"step_archive_compress_prepare_sources": "Prepare archive sources",
+	"step_archive_compress_build_archive": "Build archive",
+	"step_archive_compress_store_result": "Save archive",
+	"step_archive_extract_waiting": "Waiting",
+	"step_archive_extract_download_source": "Download source archive",
+	"step_archive_extract_extract_archive": "Extract to staging",
+	"step_archive_extract_import_result": "Import to workspace",
+	"step_archive_preview_generate_waiting": "Waiting",
+	"step_archive_preview_generate_download_source": "Download source archive",
+	"step_archive_preview_generate_scan_archive": "Scan archive manifest",
+	"step_archive_preview_generate_persist_manifest": "Save preview manifest",
+	"step_trash_purge_all_waiting": "Waiting",
+	"step_trash_purge_all_purge_trash": "Purge trash"
+}

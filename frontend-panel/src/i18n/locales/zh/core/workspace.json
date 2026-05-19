@@ -1,0 +1,13 @@
+{
+	"my_drive": "我的空间",
+	"workspaces": "工作空间",
+	"workspace_personal_label": "个人空间",
+	"workspace_team_label": "团队空间",
+	"workspace_team_fallback": "团队 #{{id}}",
+	"workspace_switcher_label": "切换工作空间，当前：{{name}}",
+	"workspace_search_placeholder": "查找团队...",
+	"workspace_empty_teams": "你创建或加入的团队会显示在这里，方便快速切换上下文。",
+	"workspace_no_matching_teams": "没有匹配的团队。",
+	"workspace_manage_teams": "管理团队",
+	"workspace_manage_teams_desc": "查看成员身份和团队设置"
+}
