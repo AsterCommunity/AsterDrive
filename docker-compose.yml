@@ -1,6 +1,7 @@
 services:
   asterdrive:
-    image: ghcr.io/apts-1547/asterdrive:latest
+    image: ghcr.io/apts-1547/asterdrive:stable
+    # Or use `image: e1saps/asterdrive:stable` to pull from Docker Hub.
     ports:
       - "3000:3000"
     volumes:
