@@ -132,12 +132,22 @@ describe("handleApiError", () => {
 				ApiSubcode.AuthCsrfTokenInvalid,
 			),
 		);
+		handleApiError(
+			new mockState.ApiError(
+				ErrorCode.Forbidden,
+				"new user registration is disabled",
+				ApiSubcode.AuthRegistrationDisabled,
+			),
+		);
 
 		expect(mockState.translate).toHaveBeenCalledWith(
 			"errors:auth_request_origin_untrusted",
 		);
 		expect(mockState.translate).toHaveBeenCalledWith(
 			"errors:auth_csrf_token_invalid",
+		);
+		expect(mockState.translate).toHaveBeenCalledWith(
+			"errors:auth_registration_disabled",
 		);
 		expect(mockState.toastError).toHaveBeenNthCalledWith(
 			1,
@@ -146,6 +156,10 @@ describe("handleApiError", () => {
 		expect(mockState.toastError).toHaveBeenNthCalledWith(
 			2,
 			"translated:errors:auth_csrf_token_invalid",
+		);
+		expect(mockState.toastError).toHaveBeenNthCalledWith(
+			3,
+			"translated:errors:auth_registration_disabled",
 		);
 	});
 
@@ -166,12 +180,22 @@ describe("handleApiError", () => {
 				ApiSubcode.WorkspaceScopeDenied,
 			),
 		);
+		handleApiError(
+			new mockState.ApiError(
+				ErrorCode.Forbidden,
+				"team owner or admin role is required",
+				ApiSubcode.TeamAdminOrOwnerRequired,
+			),
+		);
 
 		expect(mockState.translate).toHaveBeenCalledWith(
 			"errors:team_owner_required",
 		);
 		expect(mockState.translate).toHaveBeenCalledWith(
 			"errors:workspace_scope_denied",
+		);
+		expect(mockState.translate).toHaveBeenCalledWith(
+			"errors:team_admin_or_owner_required",
 		);
 		expect(mockState.toastError).toHaveBeenNthCalledWith(
 			1,
@@ -180,6 +204,10 @@ describe("handleApiError", () => {
 		expect(mockState.toastError).toHaveBeenNthCalledWith(
 			2,
 			"translated:errors:workspace_scope_denied",
+		);
+		expect(mockState.toastError).toHaveBeenNthCalledWith(
+			3,
+			"translated:errors:team_admin_or_owner_required",
 		);
 	});
 

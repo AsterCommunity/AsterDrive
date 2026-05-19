@@ -345,7 +345,7 @@ pub(super) async fn require_team_membership(
 pub(super) fn ensure_can_manage_team(role: TeamMemberRole) -> Result<()> {
     if !role.can_manage_team() {
         return Err(auth_forbidden_with_subcode(
-            ApiSubcode::TeamOwnerRequired,
+            ApiSubcode::TeamAdminOrOwnerRequired,
             "team owner or admin role is required",
         ));
     }

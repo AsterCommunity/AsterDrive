@@ -130,9 +130,11 @@
 - `auth.request_source_untrusted` / `auth.request_origin_untrusted` / `auth.request_referer_untrusted`：Cookie 认证请求来源不可信，通常和跨站请求、反向代理站点地址配置或浏览器来源有关
 - `auth.request_source_missing`：要求来源校验的请求缺少 `Origin` / `Referer` 等来源信息
 - `auth.csrf_cookie_missing` / `auth.csrf_header_missing` / `auth.csrf_token_invalid`：CSRF Cookie、`X-CSRF-Token` 请求头缺失或 token 校验失败，刷新页面后重试
+- `auth.registration_disabled`：系统关闭了公开注册
 - `auth.session_user_mismatch`：当前会话和当前账号不一致，重新登录
 - `team.not_member`：当前账号不是该团队成员
 - `team.owner_required`：需要团队所有者权限
+- `team.admin_or_owner_required`：需要团队管理员或所有者权限
 - `workspace.scope_denied`：资源不属于当前工作空间
 - `share.scope_denied`：分享范围不允许访问该资源
 - `lock.not_owner`：当前用户不是锁定者或资源所有者

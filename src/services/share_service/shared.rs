@@ -131,7 +131,10 @@ pub(super) fn ensure_share_matches_file(
 ) -> Result<()> {
     if let Some(team_id) = share.team_id {
         if file.team_id != Some(team_id) {
-            return Err(AsterError::auth_forbidden("file is outside shared scope"));
+            return Err(auth_forbidden_with_subcode(
+                ApiSubcode::ShareScopeDenied,
+                "file is outside shared scope",
+            ));
         }
     } else {
         file_service::ensure_personal_file_scope(file)?;
@@ -146,7 +149,10 @@ pub(super) fn ensure_share_matches_folder(
 ) -> Result<()> {
     if let Some(team_id) = share.team_id {
         if folder.team_id != Some(team_id) {
-            return Err(AsterError::auth_forbidden("folder is outside shared scope"));
+            return Err(auth_forbidden_with_subcode(
+                ApiSubcode::ShareScopeDenied,
+                "folder is outside shared scope",
+            ));
         }
     } else {
         folder_service::ensure_personal_folder_scope(folder)?;

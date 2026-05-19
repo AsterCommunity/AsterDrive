@@ -62,6 +62,7 @@ define_api_subcodes! {
     AuthCsrfCookieMissing => "auth.csrf_cookie_missing",
     AuthCsrfHeaderMissing => "auth.csrf_header_missing",
     AuthCsrfTokenInvalid => "auth.csrf_token_invalid",
+    AuthRegistrationDisabled => "auth.registration_disabled",
 
     AvatarFileRequired => "avatar.file_required",
     AvatarUploadReadFailed => "avatar.upload_read_failed",
@@ -99,6 +100,7 @@ define_api_subcodes! {
 
     TeamNotMember => "team.not_member",
     TeamOwnerRequired => "team.owner_required",
+    TeamAdminOrOwnerRequired => "team.admin_or_owner_required",
 
     PolicyUploadSessionsExist => "policy.upload_sessions_exist",
 

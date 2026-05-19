@@ -374,7 +374,7 @@ pub(crate) async fn require_team_management_access(
     let access = load_team_access(state, team_id, user_id).await?;
     if !access.role.can_manage_team() {
         return Err(auth_forbidden_with_subcode(
-            ApiSubcode::WorkspaceScopeDenied,
+            ApiSubcode::TeamAdminOrOwnerRequired,
             "team owner or admin role is required",
         ));
     }

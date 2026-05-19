@@ -65,6 +65,7 @@ const errorSubcodeKeys: Partial<Record<ApiSubcodeType, string>> = {
 	[ApiSubcode.AuthCsrfCookieMissing]: "errors:auth_csrf_cookie_missing",
 	[ApiSubcode.AuthCsrfHeaderMissing]: "errors:auth_csrf_header_missing",
 	[ApiSubcode.AuthCsrfTokenInvalid]: "errors:auth_csrf_token_invalid",
+	[ApiSubcode.AuthRegistrationDisabled]: "errors:auth_registration_disabled",
 	[ApiSubcode.FileEtagMismatch]: "errors:file_etag_mismatch",
 	[ApiSubcode.FileNameConflict]: "errors:file_name_conflict",
 	[ApiSubcode.FolderNameConflict]: "errors:folder_name_conflict",
@@ -187,6 +188,7 @@ const errorSubcodeKeys: Partial<Record<ApiSubcodeType, string>> = {
 	[ApiSubcode.TeamMemberExists]: "errors:team_member_exists",
 	[ApiSubcode.TeamNotMember]: "errors:team_not_member",
 	[ApiSubcode.TeamOwnerRequired]: "errors:team_owner_required",
+	[ApiSubcode.TeamAdminOrOwnerRequired]: "errors:team_admin_or_owner_required",
 	[ApiSubcode.WorkspaceScopeDenied]: "errors:workspace_scope_denied",
 	[ApiSubcode.WebdavUsernameExists]: "errors:webdav_username_exists",
 	[ApiSubcode.ExternalAuthProviderDisabled]:

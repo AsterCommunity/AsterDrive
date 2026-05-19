@@ -60,7 +60,7 @@ pub async fn register(
     );
     if !auth_policy.allow_user_registration {
         return Err(auth_forbidden_with_subcode(
-            ApiSubcode::ExternalAuthPolicyDenied,
+            ApiSubcode::AuthRegistrationDisabled,
             "new user registration is disabled",
         ));
     }

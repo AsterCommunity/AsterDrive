@@ -9,7 +9,7 @@ use actix_web::{
 use crate::api::subcode::ApiSubcode;
 use crate::config::{RuntimeConfig, cors, site_url};
 use crate::errors::{
-    AsterError, MapAsterErr, Result, auth_forbidden_with_subcode, validation_error_with_subcode,
+    MapAsterErr, Result, auth_forbidden_with_subcode, validation_error_with_subcode,
 };
 
 const MAX_REQUEST_SCHEME_LEN: usize = 16;
@@ -208,9 +208,12 @@ fn ensure_value_len(value: &str, max_len: usize, label: &str, subcode: ApiSubcod
 }
 
 fn origin_from_url(url: &str) -> Result<String> {
-    let scheme_end = url
-        .find("://")
-        .ok_or_else(|| AsterError::validation_error("invalid Referer header"))?;
+    let scheme_end = url.find("://").ok_or_else(|| {
+        validation_error_with_subcode(
+            ApiSubcode::ValidationRequestSchemeInvalid,
+            "invalid Referer header",
+        )
+    })?;
     let scheme = &url[..scheme_end];
     ensure_value_len(
         scheme,
