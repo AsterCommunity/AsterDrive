@@ -3,9 +3,10 @@
 use base64::Engine;
 use serde::{Deserialize, Serialize};
 
+use crate::api::subcode::ApiSubcode;
 use crate::cache::CacheExt;
 use crate::db::repository::{user_repo, webdav_account_repo};
-use crate::errors::{AsterError, MapAsterErr};
+use crate::errors::{AsterError, MapAsterErr, auth_forbidden_with_subcode};
 use crate::runtime::PrimaryAppState;
 use crate::utils::hash;
 
@@ -116,7 +117,10 @@ async fn authenticate_basic(
         .ok_or_else(|| AsterError::auth_invalid_credentials("WebDAV account not found"))?;
 
     if !account.is_active {
-        return Err(AsterError::auth_forbidden("WebDAV account is disabled"));
+        return Err(auth_forbidden_with_subcode(
+            ApiSubcode::AuthAccountDisabled,
+            "WebDAV account is disabled",
+        ));
     }
 
     if !hash::verify_password(password, &account.password_hash)? {
@@ -126,7 +130,10 @@ async fn authenticate_basic(
     // 确认关联用户仍然活跃
     let user = user_repo::find_by_id(&state.db, account.user_id).await?;
     if !user.status.is_active() {
-        return Err(AsterError::auth_forbidden("user account is disabled"));
+        return Err(auth_forbidden_with_subcode(
+            ApiSubcode::AuthAccountDisabled,
+            "user account is disabled",
+        ));
     }
 
     state

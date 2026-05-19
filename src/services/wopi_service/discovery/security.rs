@@ -1,6 +1,9 @@
 use chrono::Utc;
 
-use crate::errors::{AsterError, MapAsterErr, Result};
+use crate::api::subcode::ApiSubcode;
+use crate::errors::{
+    AsterError, MapAsterErr, Result, auth_forbidden_with_subcode, validation_error_with_subcode,
+};
 use crate::runtime::PrimaryAppState;
 use crate::services::preview_app_service;
 use crate::services::wopi_service::proof::validate_wopi_proof;
@@ -27,27 +30,42 @@ pub(crate) fn ensure_request_source_allowed(
         .filter(|value| !value.trim().is_empty())
         .map(|value| crate::config::cors::normalize_origin(value, false))
         .transpose()
-        .map_aster_err_with(|| AsterError::validation_error("invalid Origin header"))?
+        .map_aster_err_with(|| {
+            validation_error_with_subcode(
+                ApiSubcode::ValidationRequestOriginInvalid,
+                "invalid Origin header",
+            )
+        })?
     {
         if trusted_origins.iter().any(|allowed| allowed == &origin) {
             return Ok(());
         }
-        return Err(AsterError::auth_forbidden("untrusted WOPI request origin"));
+        return Err(auth_forbidden_with_subcode(
+            ApiSubcode::WopiRequestOriginUntrusted,
+            "untrusted WOPI request origin",
+        ));
     }
 
     if let Some(referer) = request_source
         .referer
         .filter(|value| !value.trim().is_empty())
     {
-        let referer_origin = origin_from_url(referer)
-            .ok_or_else(|| AsterError::validation_error("invalid Referer header"))?;
+        let referer_origin = origin_from_url(referer).ok_or_else(|| {
+            validation_error_with_subcode(
+                ApiSubcode::ValidationRequestRefererInvalid,
+                "invalid Referer header",
+            )
+        })?;
         if trusted_origins
             .iter()
             .any(|allowed| allowed == &referer_origin)
         {
             return Ok(());
         }
-        return Err(AsterError::auth_forbidden("untrusted WOPI request referer"));
+        return Err(auth_forbidden_with_subcode(
+            ApiSubcode::WopiRequestRefererUntrusted,
+            "untrusted WOPI request referer",
+        ));
     }
 
     Ok(())

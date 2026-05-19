@@ -5,9 +5,10 @@ use serde::Serialize;
 use std::sync::{Arc, LazyLock, Weak};
 use tokio::sync::{Mutex, OwnedMutexGuard};
 
+use crate::api::subcode::ApiSubcode;
 use crate::db::repository::{auth_session_repo, user_repo};
 use crate::entities::auth_session;
-use crate::errors::{AsterError, Result};
+use crate::errors::{AsterError, Result, auth_forbidden_with_subcode};
 use crate::runtime::PrimaryAppState;
 use crate::services::audit_service::{self, AuditContext};
 use crate::types::TokenType;
@@ -261,7 +262,10 @@ async fn rotate_refresh_in_transaction<C: ConnectionTrait>(
     };
     let user = user_repo::find_by_id(db, claims.user_id).await?;
     if !user.status.is_active() {
-        return Err(AsterError::auth_forbidden("account is disabled"));
+        return Err(auth_forbidden_with_subcode(
+            ApiSubcode::AuthAccountDisabled,
+            "account is disabled",
+        ));
     }
     if claims.session_version != user.session_version {
         return Err(AsterError::auth_token_invalid("session revoked"));

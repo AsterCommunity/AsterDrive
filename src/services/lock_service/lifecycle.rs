@@ -1,9 +1,10 @@
 use chrono::{Duration, Utc};
 use sea_orm::Set;
 
+use crate::api::subcode::ApiSubcode;
 use crate::db::repository::lock_repo;
 use crate::entities::resource_lock;
-use crate::errors::{AsterError, Result};
+use crate::errors::{AsterError, Result, auth_forbidden_with_subcode};
 use crate::runtime::PrimaryAppState;
 use crate::services::audit_service::{self, AuditContext};
 use crate::types::EntityType;
@@ -111,7 +112,10 @@ pub async fn unlock(
         let is_owner = existing.owner_id == Some(user_id);
         let is_entity_owner = check_entity_ownership(db, entity_type, entity_id, user_id).await?;
         if !is_owner && !is_entity_owner {
-            return Err(AsterError::auth_forbidden("not the lock owner"));
+            return Err(auth_forbidden_with_subcode(
+                ApiSubcode::LockNotOwner,
+                "not the lock owner",
+            ));
         }
     }
 

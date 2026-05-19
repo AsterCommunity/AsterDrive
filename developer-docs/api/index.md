@@ -55,6 +55,29 @@
 - `msg`：错误消息；成功时通常为空
 - `data`：响应体；部分成功接口会省略
 
+错误响应还会带 `error` 对象：
+
+```json
+{
+  "code": 2003,
+  "msg": "untrusted request origin for cookie-authenticated action",
+  "error": {
+    "internal_code": "E013",
+    "subcode": "auth.request_origin_untrusted",
+    "retryable": false
+  }
+}
+```
+
+错误字段约定：
+
+- `code` 是稳定数字大类，用来区分认证、上传、存储、分享等分域。
+- `error.internal_code` 是后端内部错误枚举码，给日志和排障用，不作为前端业务分支依据。
+- `msg` 是诊断性 fallback 文本，不能作为 i18n key，也不要在客户端用字符串匹配判断业务原因。
+- `error.subcode` 是稳定机器可读细分原因，前端 i18n 和交互分支应该优先用它；没有 subcode 时再回退到 `code`。
+- 新增用户可见错误时，如果同一个 `code` / `internal_code` 会覆盖多个业务原因，必须补 `ApiSubcode` 并同步前端 `ApiSubcode` 常量、`useApiError` 映射和中英文 locale。
+- 辅助函数不要靠错误消息或 label 字符串反推 subcode；调用点应显式传入对应 `ApiSubcode`。
+
 ## 不走统一 JSON 包装的接口
 
 以下能力返回原始内容而不是 `ApiResponse`：

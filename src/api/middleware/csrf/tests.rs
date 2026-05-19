@@ -2,6 +2,7 @@
 
 use actix_web::cookie::Cookie;
 
+use crate::api::subcode::ApiSubcode;
 use crate::config::RuntimeConfig;
 
 use super::source::{ensure_headers_allowed, ensure_request_source_allowed};
@@ -265,6 +266,24 @@ fn referer_source_check_ignores_long_path_after_bounded_origin() {
             RequestSourceMode::Required,
         )
         .is_ok()
+    );
+}
+
+#[test]
+fn invalid_referer_missing_scheme_has_scheme_subcode() {
+    let err = ensure_headers_allowed(
+        None,
+        Some("drive.example.com/files"),
+        None,
+        "https://drive.example.com",
+        &[],
+        RequestSourceMode::OptionalWhenPresent,
+    )
+    .unwrap_err();
+
+    assert_eq!(
+        err.api_error_subcode(),
+        Some(ApiSubcode::ValidationRequestSchemeInvalid)
     );
 }
 

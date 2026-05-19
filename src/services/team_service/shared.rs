@@ -14,7 +14,9 @@ use crate::api::subcode::ApiSubcode;
 use crate::config::operations;
 use crate::db::repository::{policy_group_repo, team_member_repo, team_repo, user_repo};
 use crate::entities::{team, team_member, user};
-use crate::errors::{AsterError, Result, validation_error_with_subcode};
+use crate::errors::{
+    AsterError, Result, auth_forbidden_with_subcode, validation_error_with_subcode,
+};
 use crate::runtime::PrimaryAppState;
 use crate::services::{profile_service, user_service};
 use crate::types::TeamMemberRole;
@@ -334,13 +336,16 @@ pub(super) async fn require_team_membership(
     let team = team_repo::find_active_by_id(&state.db, team_id).await?;
     let membership = team_member_repo::find_by_team_and_user(&state.db, team_id, user_id)
         .await?
-        .ok_or_else(|| AsterError::auth_forbidden("not a member of this team"))?;
+        .ok_or_else(|| {
+            auth_forbidden_with_subcode(ApiSubcode::TeamNotMember, "not a member of this team")
+        })?;
     Ok((team, membership))
 }
 
 pub(super) fn ensure_can_manage_team(role: TeamMemberRole) -> Result<()> {
     if !role.can_manage_team() {
-        return Err(AsterError::auth_forbidden(
+        return Err(auth_forbidden_with_subcode(
+            ApiSubcode::TeamAdminOrOwnerRequired,
             "team owner or admin role is required",
         ));
     }

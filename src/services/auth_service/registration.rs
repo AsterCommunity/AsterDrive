@@ -2,12 +2,13 @@
 
 use chrono::Utc;
 
+use crate::api::subcode::ApiSubcode;
 use crate::config::{
     auth_runtime::{RuntimeAuthPolicy, RuntimeContactVerificationPolicy},
     branding,
 };
 use crate::db::repository::user_repo;
-use crate::errors::{AsterError, Result};
+use crate::errors::{Result, auth_forbidden_with_subcode, validation_error_with_subcode};
 use crate::runtime::PrimaryAppState;
 use crate::services::{mail_outbox_service, mail_template::MailTemplatePayload};
 use crate::types::{UserRole, UserStatus, VerificationPurpose};
@@ -58,7 +59,8 @@ pub async fn register(
         "registering user"
     );
     if !auth_policy.allow_user_registration {
-        return Err(AsterError::auth_forbidden(
+        return Err(auth_forbidden_with_subcode(
+            ApiSubcode::AuthRegistrationDisabled,
             "new user registration is disabled",
         ));
     }
@@ -186,7 +188,10 @@ pub async fn setup(
 ) -> Result<AuthUserInfo> {
     tracing::debug!("running initial setup");
     if user_repo::count_all(&state.db).await? > 0 {
-        return Err(AsterError::validation_error("system already initialized"));
+        return Err(validation_error_with_subcode(
+            ApiSubcode::ValidationSystemAlreadyInitialized,
+            "system already initialized",
+        ));
     }
     let user = create_first_admin(state, username, email, password)
         .await

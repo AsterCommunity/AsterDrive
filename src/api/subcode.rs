@@ -52,6 +52,17 @@ define_api_subcodes! {
     AuthUsernameExists => "auth.username_exists",
     AuthEmailExists => "auth.email_exists",
     AuthIdentifierExists => "auth.identifier_exists",
+    AuthAdminRequired => "auth.admin_required",
+    AuthAccountDisabled => "auth.account_disabled",
+    AuthRequestSourceUntrusted => "auth.request_source_untrusted",
+    AuthRequestOriginUntrusted => "auth.request_origin_untrusted",
+    AuthRequestRefererUntrusted => "auth.request_referer_untrusted",
+    AuthRequestSourceMissing => "auth.request_source_missing",
+    AuthSessionUserMismatch => "auth.session_user_mismatch",
+    AuthCsrfCookieMissing => "auth.csrf_cookie_missing",
+    AuthCsrfHeaderMissing => "auth.csrf_header_missing",
+    AuthCsrfTokenInvalid => "auth.csrf_token_invalid",
+    AuthRegistrationDisabled => "auth.registration_disabled",
 
     AvatarFileRequired => "avatar.file_required",
     AvatarUploadReadFailed => "avatar.upload_read_failed",
@@ -65,6 +76,10 @@ define_api_subcodes! {
     FileModifiedDuringWrite => "file.modified_during_write",
 
     FolderNameConflict => "folder.name_conflict",
+
+    LockNotOwner => "lock.not_owner",
+
+    ShareScopeDenied => "share.scope_denied",
 
     ManagedIngressBindingMismatch => "managed_ingress.binding_mismatch",
     ManagedIngressDefaultDeleteRequiresReplacement => "managed_ingress.default_delete_requires_replacement",
@@ -83,7 +98,16 @@ define_api_subcodes! {
     PasskeyNameTooLong => "passkey.name_too_long",
     PasskeyNotDiscoverable => "passkey.not_discoverable",
 
+    TeamNotMember => "team.not_member",
+    TeamOwnerRequired => "team.owner_required",
+    TeamAdminOrOwnerRequired => "team.admin_or_owner_required",
+
     PolicyUploadSessionsExist => "policy.upload_sessions_exist",
+
+    WorkspaceScopeDenied => "workspace.scope_denied",
+
+    ExternalAuthProviderDisabled => "external_auth.provider_disabled",
+    ExternalAuthPolicyDenied => "external_auth.policy_denied",
 
     RemoteNodeDisabled => "remote_node.disabled",
     RemoteNodeEnrollmentRequired => "remote_node.enrollment_required",
@@ -117,6 +141,11 @@ define_api_subcodes! {
     ThumbnailSourceTempCreateFailed => "thumbnail.source_temp_create_failed",
     ThumbnailSourceTempFlushFailed => "thumbnail.source_temp_flush_failed",
     ThumbnailSourceTempCopyFailed => "thumbnail.source_temp_copy_failed",
+
+    WopiPublicSiteUrlRequired => "wopi.public_site_url_required",
+    WopiAppDisabled => "wopi.app_disabled",
+    WopiRequestOriginUntrusted => "wopi.request_origin_untrusted",
+    WopiRequestRefererUntrusted => "wopi.request_referer_untrusted",
 
     UploadTempDirCreateFailed => "upload.temp_dir_create_failed",
     UploadTempFileCreateFailed => "upload.temp_file_create_failed",
@@ -167,6 +196,13 @@ define_api_subcodes! {
     WebdavUsernameExists => "webdav.username_exists",
 
     WopiMaxExpectedSizeExceeded => "wopi.max_expected_size_exceeded",
+
+    ValidationRequestOriginInvalid => "validation.request_origin_invalid",
+    ValidationRequestRefererInvalid => "validation.request_referer_invalid",
+    ValidationRequestHostInvalid => "validation.request_host_invalid",
+    ValidationRequestSchemeInvalid => "validation.request_scheme_invalid",
+    ValidationRequestHeaderValueInvalid => "validation.request_header_value_invalid",
+    ValidationSystemAlreadyInitialized => "validation.system_already_initialized",
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

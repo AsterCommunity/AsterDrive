@@ -5,9 +5,10 @@
 
 use std::collections::HashSet;
 
+use crate::api::subcode::ApiSubcode;
 use crate::db::repository::{team_member_repo, team_repo};
 use crate::entities::{team, team_member};
-use crate::errors::{AsterError, Result};
+use crate::errors::{Result, auth_forbidden_with_subcode};
 use crate::runtime::PrimaryAppState;
 use crate::types::TeamMemberRole;
 
@@ -134,7 +135,10 @@ pub async fn update_team(
 pub async fn archive_team(state: &PrimaryAppState, team_id: i64, actor_user_id: i64) -> Result<()> {
     let (team, membership) = require_team_membership(state, team_id, actor_user_id).await?;
     if !membership.role.is_owner() {
-        return Err(AsterError::auth_forbidden("team owner role is required"));
+        return Err(auth_forbidden_with_subcode(
+            ApiSubcode::TeamOwnerRequired,
+            "team owner role is required",
+        ));
     }
 
     // 归档团队不删除成员关系，恢复时仍依赖原 membership 判断谁可以解封。
@@ -149,7 +153,9 @@ pub async fn restore_team(
     let team = team_repo::find_archived_by_id(&state.db, team_id).await?;
     let membership = team_member_repo::find_by_team_and_user(&state.db, team_id, actor_user_id)
         .await?
-        .ok_or_else(|| AsterError::auth_forbidden("not a member of this team"))?;
+        .ok_or_else(|| {
+            auth_forbidden_with_subcode(ApiSubcode::TeamNotMember, "not a member of this team")
+        })?;
     ensure_can_manage_team(membership.role)?;
 
     let restored = restore_team_record(state, team).await?;

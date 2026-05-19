@@ -7,7 +7,8 @@ use actix_web::{
 use futures::future::{LocalBoxFuture, Ready, ok};
 use std::rc::Rc;
 
-use crate::errors::AsterError;
+use crate::api::subcode::ApiSubcode;
+use crate::errors::{AsterError, auth_forbidden_with_subcode};
 use crate::services::auth_service::AuthSnapshot;
 
 /// 要求请求已经通过 JwtAuth，并且当前用户是管理员。
@@ -63,7 +64,11 @@ where
             };
 
             if !is_admin {
-                return Err(AsterError::auth_forbidden("admin role required").into());
+                return Err(auth_forbidden_with_subcode(
+                    ApiSubcode::AuthAdminRequired,
+                    "admin role required",
+                )
+                .into());
             }
 
             svc.call(req).await

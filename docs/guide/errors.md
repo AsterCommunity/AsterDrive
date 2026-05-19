@@ -21,6 +21,8 @@
 
 知道分段后，看到一个新错误码时大致能猜到是哪类问题。
 
+很多错误还会带更细的 `error.subcode`。前端会优先用它展示更具体的提示；脚本或第三方客户端也应该优先判断 `subcode`，不要解析英文 `msg`。`msg` 只适合作为兜底说明或排障线索。
+
 ---
 
 ## 通用 (1xxx)
@@ -32,6 +34,14 @@
 普通用户碰到通常是表单字段没填对（比如名字含非法字符、日期格式不对）。检查表单提示，按要求修正。
 
 如果你确认参数没问题，可能是前后端版本不一致，刷新页面强制更新。
+
+请求来源校验相关的格式问题会带更具体的子错误：
+
+- `validation.request_origin_invalid`：`Origin` 请求头格式无效
+- `validation.request_referer_invalid`：`Referer` 请求头格式无效
+- `validation.request_host_invalid`：请求 Host 无效，常见于反向代理转发头配置错误
+- `validation.request_scheme_invalid`：请求 scheme 无效，常见于 HTTPS 反代没有正确传递 `X-Forwarded-Proto`
+- `validation.request_header_value_invalid`：请求来源相关 header 过长或无法处理
 
 ### `not_found` (1001) / `endpoint_not_found` (1005)
 
@@ -112,6 +122,24 @@
 - 普通用户操作管理功能：换有权限的账号
 - 管理员被禁用：联系其他管理员
 - 操作另一个用户的资源：检查分享权限或团队成员权限
+
+同样是 `forbidden`，`error.subcode` 会说明具体原因：
+
+- `auth.admin_required`：需要管理员权限
+- `auth.account_disabled`：账号已被禁用
+- `auth.request_source_untrusted` / `auth.request_origin_untrusted` / `auth.request_referer_untrusted`：Cookie 认证请求来源不可信，通常和跨站请求、反向代理站点地址配置或浏览器来源有关
+- `auth.request_source_missing`：要求来源校验的请求缺少 `Origin` / `Referer` 等来源信息
+- `auth.csrf_cookie_missing` / `auth.csrf_header_missing` / `auth.csrf_token_invalid`：CSRF Cookie、`X-CSRF-Token` 请求头缺失或 token 校验失败，刷新页面后重试
+- `auth.registration_disabled`：系统关闭了公开注册
+- `auth.session_user_mismatch`：当前会话和当前账号不一致，重新登录
+- `team.not_member`：当前账号不是该团队成员
+- `team.owner_required`：需要团队所有者权限
+- `team.admin_or_owner_required`：需要团队管理员或所有者权限
+- `workspace.scope_denied`：资源不属于当前工作空间
+- `share.scope_denied`：分享范围不允许访问该资源
+- `lock.not_owner`：当前用户不是锁定者或资源所有者
+- `external_auth.provider_disabled` / `external_auth.policy_denied`：外部认证提供方被禁用，或策略不允许当前操作
+- `wopi.app_disabled` / `wopi.request_origin_untrusted` / `wopi.request_referer_untrusted`：WOPI 应用禁用或 WOPI 请求来源不可信
 
 ### `pending_activation` (2004)
 

@@ -52,6 +52,20 @@ const errorSubcodeKeys: Partial<Record<ApiSubcodeType, string>> = {
 	[ApiSubcode.AuthUsernameExists]: "errors:auth_username_exists",
 	[ApiSubcode.AuthEmailExists]: "errors:auth_email_exists",
 	[ApiSubcode.AuthIdentifierExists]: "errors:auth_identifier_exists",
+	[ApiSubcode.AuthAdminRequired]: "errors:auth_admin_required",
+	[ApiSubcode.AuthAccountDisabled]: "errors:auth_account_disabled",
+	[ApiSubcode.AuthRequestSourceUntrusted]:
+		"errors:auth_request_source_untrusted",
+	[ApiSubcode.AuthRequestOriginUntrusted]:
+		"errors:auth_request_origin_untrusted",
+	[ApiSubcode.AuthRequestRefererUntrusted]:
+		"errors:auth_request_referer_untrusted",
+	[ApiSubcode.AuthRequestSourceMissing]: "errors:auth_request_source_missing",
+	[ApiSubcode.AuthSessionUserMismatch]: "errors:auth_session_user_mismatch",
+	[ApiSubcode.AuthCsrfCookieMissing]: "errors:auth_csrf_cookie_missing",
+	[ApiSubcode.AuthCsrfHeaderMissing]: "errors:auth_csrf_header_missing",
+	[ApiSubcode.AuthCsrfTokenInvalid]: "errors:auth_csrf_token_invalid",
+	[ApiSubcode.AuthRegistrationDisabled]: "errors:auth_registration_disabled",
 	[ApiSubcode.FileEtagMismatch]: "errors:file_etag_mismatch",
 	[ApiSubcode.FileNameConflict]: "errors:file_name_conflict",
 	[ApiSubcode.FolderNameConflict]: "errors:folder_name_conflict",
@@ -169,11 +183,39 @@ const errorSubcodeKeys: Partial<Record<ApiSubcodeType, string>> = {
 	[ApiSubcode.ManagedIngressSinglePrimaryRequired]:
 		"errors:managed_ingress_single_primary_required",
 	[ApiSubcode.RemoteNodeDisabled]: "errors:remote_node_disabled",
+	[ApiSubcode.LockNotOwner]: "errors:lock_not_owner",
+	[ApiSubcode.ShareScopeDenied]: "errors:share_scope_denied",
 	[ApiSubcode.TeamMemberExists]: "errors:team_member_exists",
+	[ApiSubcode.TeamNotMember]: "errors:team_not_member",
+	[ApiSubcode.TeamOwnerRequired]: "errors:team_owner_required",
+	[ApiSubcode.TeamAdminOrOwnerRequired]: "errors:team_admin_or_owner_required",
+	[ApiSubcode.WorkspaceScopeDenied]: "errors:workspace_scope_denied",
 	[ApiSubcode.WebdavUsernameExists]: "errors:webdav_username_exists",
+	[ApiSubcode.ExternalAuthProviderDisabled]:
+		"errors:external_auth_provider_disabled",
+	[ApiSubcode.ExternalAuthPolicyDenied]: "errors:external_auth_policy_denied",
 	[ApiSubcode.WopiMaxExpectedSizeExceeded]:
 		"errors:wopi_max_expected_size_exceeded",
+	[ApiSubcode.WopiPublicSiteUrlRequired]:
+		"errors:wopi_public_site_url_required",
+	[ApiSubcode.WopiAppDisabled]: "errors:wopi_app_disabled",
+	[ApiSubcode.WopiRequestOriginUntrusted]:
+		"errors:wopi_request_origin_untrusted",
+	[ApiSubcode.WopiRequestRefererUntrusted]:
+		"errors:wopi_request_referer_untrusted",
 	[ApiSubcode.RemoteNodeUniqueConflict]: "errors:remote_node_unique_conflict",
+	[ApiSubcode.ValidationRequestOriginInvalid]:
+		"errors:validation_request_origin_invalid",
+	[ApiSubcode.ValidationRequestRefererInvalid]:
+		"errors:validation_request_referer_invalid",
+	[ApiSubcode.ValidationRequestHostInvalid]:
+		"errors:validation_request_host_invalid",
+	[ApiSubcode.ValidationRequestSchemeInvalid]:
+		"errors:validation_request_scheme_invalid",
+	[ApiSubcode.ValidationRequestHeaderValueInvalid]:
+		"errors:validation_request_header_value_invalid",
+	[ApiSubcode.ValidationSystemAlreadyInitialized]:
+		"errors:validation_system_already_initialized",
 };
 
 function getErrorCode(error: unknown): string | undefined {
