@@ -92,7 +92,10 @@ pub(super) fn parse_video_metadata_from_path(
     })
 }
 
-fn first_stream_of_type<'a>(streams: Option<&'a Vec<Value>>, codec_type: &str) -> Option<&'a Value> {
+fn first_stream_of_type<'a>(
+    streams: Option<&'a Vec<Value>>,
+    codec_type: &str,
+) -> Option<&'a Value> {
     streams?.iter().find(|stream| {
         stream
             .get("codec_type")

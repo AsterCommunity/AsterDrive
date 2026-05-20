@@ -117,11 +117,10 @@ fn exif_entry<'a>(exif: &'a Exif, tag: ExifTag) -> Option<&'a EntryValue> {
 }
 
 fn exif_entry_by_code(exif: &Exif, code: u16) -> Option<&EntryValue> {
-    exif.get_by_code(IfdIndex::MAIN, code)
-        .or_else(|| {
-            exif.iter()
-                .find_map(|entry| (entry.tag.code() == code).then_some(entry.value))
-        })
+    exif.get_by_code(IfdIndex::MAIN, code).or_else(|| {
+        exif.iter()
+            .find_map(|entry| (entry.tag.code() == code).then_some(entry.value))
+    })
 }
 
 fn clean_metadata_string(value: Option<&str>) -> Option<String> {

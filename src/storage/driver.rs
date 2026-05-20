@@ -91,6 +91,15 @@ pub trait StorageDriver: Send + Sync {
     /// 获取文件元信息
     async fn metadata(&self, path: &str) -> Result<BlobMetadata>;
 
+    /// 轻量就绪检查。
+    ///
+    /// 这个方法用于 `/health/ready` 等高频探针路径，只应校验本进程运行时状态
+    /// 或本地低成本前置条件。不要在默认实现里进行远端网络 I/O；需要完整写入
+    /// 验证的场景应使用管理端的连接测试接口。
+    async fn readiness_check(&self) -> Result<()> {
+        Ok(())
+    }
+
     /// 同 bucket/存储内复制对象
     ///
     /// 默认实现基于 get + put，性能较慢但通用。

@@ -49,14 +49,8 @@ fn push_i32_le(bytes: &mut Vec<u8>, value: i32) {
 fn tiny_jpeg_with_exif() -> Vec<u8> {
     let mut jpeg = Vec::new();
     let encoder = image::codecs::jpeg::JpegEncoder::new(&mut jpeg);
-    image::ImageEncoder::write_image(
-        encoder,
-        &[255, 0, 0],
-        1,
-        1,
-        image::ExtendedColorType::Rgb8,
-    )
-    .unwrap();
+    image::ImageEncoder::write_image(encoder, &[255, 0, 0], 1, 1, image::ExtendedColorType::Rgb8)
+        .unwrap();
 
     let mut entries = vec![
         (0x010f, TiffValue::Ascii("SONY")),
