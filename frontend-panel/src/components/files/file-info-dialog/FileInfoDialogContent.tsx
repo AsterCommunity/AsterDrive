@@ -1,5 +1,6 @@
 import { FileItemStatusIndicators } from "@/components/files/FileItemStatusIndicators";
-import { FileTypeIcon } from "@/components/files/FileTypeIcon";
+import type { ThumbnailFileLike } from "@/components/files/FileThumbnail";
+import { MediaThumbnail } from "@/components/files/MediaThumbnail";
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
 import { cn } from "@/lib/utils";
@@ -9,6 +10,8 @@ interface FileInfoDialogContentProps {
 	currentLocked: boolean;
 	isDesktop: boolean;
 	isShared: boolean | null;
+	metadataRows?: DetailRow[];
+	metadataTitle?: string;
 	overviewRows: DetailRow[];
 	statusRows: DetailRow[];
 	summaryLabel: string;
@@ -16,8 +19,7 @@ interface FileInfoDialogContentProps {
 	targetIcon:
 		| {
 				type: "file";
-				fileName: string;
-				mimeType: string;
+				file: ThumbnailFileLike;
 		  }
 		| {
 				type: "folder";
@@ -83,6 +85,8 @@ export function FileInfoDialogContent({
 	currentLocked,
 	isDesktop,
 	isShared,
+	metadataRows = [],
+	metadataTitle,
 	onClose,
 	overviewRows,
 	overviewTitle,
@@ -99,10 +103,12 @@ export function FileInfoDialogContent({
 				<div className="flex items-start gap-3">
 					<div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-muted/35 text-muted-foreground dark:bg-muted/20">
 						{targetIcon.type === "file" ? (
-							<FileTypeIcon
-								mimeType={targetIcon.mimeType}
-								fileName={targetIcon.fileName}
-								className="h-8 w-8"
+							<MediaThumbnail
+								file={targetIcon.file}
+								size="lg"
+								className="rounded-2xl"
+								iconClassName="h-8 w-8"
+								imageClassName="h-full w-full object-cover"
 							/>
 						) : (
 							<Icon name="Folder" className="h-8 w-8 text-amber-500" />
@@ -146,6 +152,12 @@ export function FileInfoDialogContent({
 			<Section title={overviewTitle}>
 				<DetailList rows={overviewRows} />
 			</Section>
+
+			{metadataRows.length > 0 ? (
+				<Section title={metadataTitle}>
+					<DetailList rows={metadataRows} />
+				</Section>
+			) : null}
 
 			<Section title={statusTitle}>
 				<DetailList rows={statusRows} />

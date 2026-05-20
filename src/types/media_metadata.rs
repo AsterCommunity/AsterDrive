@@ -39,12 +39,29 @@ pub enum MediaMetadataStatus {
     Unsupported,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct ImageMediaMetadata {
     pub width: u32,
     pub height: u32,
     pub format: Option<String>,
+    pub camera_make: Option<String>,
+    pub camera_model: Option<String>,
+    pub lens_make: Option<String>,
+    pub lens_model: Option<String>,
+    pub f_number: Option<f64>,
+    pub exposure_time_seconds: Option<f64>,
+    pub iso: Option<u32>,
+    pub exposure_bias_ev: Option<f64>,
+    pub flash_fired: Option<bool>,
+    pub flash_mode: Option<u16>,
+    pub focal_length_mm: Option<f64>,
+    pub focal_length_35mm: Option<u32>,
+    pub taken_at: Option<String>,
+    pub orientation: Option<u16>,
+    pub artist: Option<String>,
+    pub copyright: Option<String>,
+    pub software: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -71,18 +88,36 @@ pub struct AudioMediaMetadata {
     pub embedded_picture_mime_type: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct VideoMediaMetadata {
     pub duration_ms: Option<u64>,
     pub width: Option<u32>,
     pub height: Option<u32>,
+    pub display_width: Option<u32>,
+    pub display_height: Option<u32>,
+    pub rotation_degrees: Option<i32>,
     pub codec: Option<String>,
     pub container: Option<String>,
     pub frame_rate: Option<String>,
+    pub video_bitrate: Option<u64>,
+    pub overall_bitrate: Option<u64>,
+    pub pixel_format: Option<String>,
+    pub bit_depth: Option<u8>,
+    pub color_space: Option<String>,
+    pub color_transfer: Option<String>,
+    pub color_primaries: Option<String>,
+    pub hdr_format: Option<String>,
+    pub audio_codec: Option<String>,
+    pub audio_channels: Option<u32>,
+    pub audio_sample_rate: Option<u32>,
+    pub audio_bitrate: Option<u64>,
+    pub audio_stream_count: u32,
+    pub subtitle_stream_count: u32,
+    pub creation_time: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum MediaMetadataPayload {

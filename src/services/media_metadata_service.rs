@@ -4,14 +4,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use chrono::{DateTime, Utc};
-use image::ImageReader;
-use lofty::config::ParseOptions;
-use lofty::file::{AudioFile, TaggedFileExt};
-use lofty::prelude::Accessor;
-use lofty::probe::Probe;
-use lofty::tag::{ItemKey, Tag};
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 use tokio::io::AsyncWriteExt;
 
 use crate::config::{media_processing, operations};
@@ -19,14 +12,23 @@ use crate::db::repository::{file_repo, media_metadata_repo};
 use crate::entities::{blob_media_metadata, file, file_blob};
 use crate::errors::{AsterError, MapAsterErr, Result};
 use crate::runtime::PrimaryAppState;
-use crate::services::media_processing_service::run_cli_command_with_timeout;
 use crate::services::workspace_storage_service::WorkspaceStorageScope;
 use crate::storage::StorageDriver;
 use crate::types::{
-    AudioMediaMetadata, FileCategory, ImageMediaMetadata, MediaMetadataKind, MediaMetadataPayload,
-    MediaMetadataStatus, StoredMediaMetadataPayload, VideoMediaMetadata,
+    FileCategory, MediaMetadataKind, MediaMetadataPayload, MediaMetadataStatus,
+    StoredMediaMetadataPayload, VideoMediaMetadata,
 };
 use crate::utils::raii::TempFileGuard;
+
+mod audio;
+mod image;
+mod video;
+
+use audio::parse_audio_metadata_from_path;
+use image::parse_image_metadata_from_path;
+use video::parse_video_metadata_from_path;
+
+pub use video::probe_ffprobe_cli_command;
 
 const PARSER_VERSION: &str = "1";
 const IMAGE_PARSER_NAME: &str = "image";
@@ -350,14 +352,7 @@ fn unsupported_video_result() -> ExtractedMediaMetadata {
     ExtractedMediaMetadata {
         kind: MediaMetadataKind::Video,
         status: MediaMetadataStatus::Unsupported,
-        metadata: Some(MediaMetadataPayload::Video(VideoMediaMetadata {
-            duration_ms: None,
-            width: None,
-            height: None,
-            codec: None,
-            container: None,
-            frame_rate: None,
-        })),
+        metadata: Some(MediaMetadataPayload::Video(VideoMediaMetadata::default())),
         error_message: Some(
             "video metadata extraction is not available without a video probe".to_string(),
         ),
@@ -454,248 +449,6 @@ async fn extract_audio_metadata(
         parser: AUDIO_PARSER_NAME.to_string(),
         parser_version: PARSER_VERSION.to_string(),
     })
-}
-
-fn parse_image_metadata_from_path(path: &Path) -> Result<ImageMediaMetadata> {
-    let reader = ImageReader::open(path).map_aster_err_ctx(
-        "open image metadata source",
-        AsterError::storage_driver_error,
-    )?;
-    let reader = reader
-        .with_guessed_format()
-        .map_aster_err_ctx("guess image metadata format", AsterError::validation_error)?;
-    let format = reader
-        .format()
-        .map(|format| format.to_mime_type().to_string());
-    let (width, height) = reader
-        .into_dimensions()
-        .map_aster_err_ctx("read image dimensions", AsterError::validation_error)?;
-
-    Ok(ImageMediaMetadata {
-        width,
-        height,
-        format,
-    })
-}
-
-fn parse_audio_metadata_from_path(path: &Path) -> Result<AudioMediaMetadata> {
-    let mut options = ParseOptions::new();
-    options = options.read_cover_art(true);
-    let tagged_file = Probe::open(path)
-        .map_aster_err_ctx(
-            "open audio metadata source",
-            AsterError::storage_driver_error,
-        )?
-        .guess_file_type()
-        .map_aster_err_ctx("guess audio metadata format", AsterError::validation_error)?
-        .options(options)
-        .read()
-        .map_aster_err_ctx("read audio metadata", AsterError::validation_error)?;
-    let tag = tagged_file
-        .primary_tag()
-        .or_else(|| tagged_file.first_tag());
-    let properties = tagged_file.properties();
-    let picture = tag.and_then(|tag| tag.pictures().first());
-
-    Ok(AudioMediaMetadata {
-        title: tag.and_then(Accessor::title).map(clean_tag_text),
-        artist: tag.and_then(Accessor::artist).map(clean_tag_text),
-        artists: tag.map(track_artists).unwrap_or_default(),
-        album: tag.and_then(Accessor::album).map(clean_tag_text),
-        album_artist: tag
-            .and_then(|tag| tag.get_string(ItemKey::AlbumArtist))
-            .map(clean_tag_text),
-        duration_ms: duration_ms(properties.duration()),
-        sample_rate: properties.sample_rate(),
-        channels: properties.channels(),
-        bit_depth: properties.bit_depth(),
-        overall_bitrate: properties.overall_bitrate(),
-        audio_bitrate: properties.audio_bitrate(),
-        track_number: tag.and_then(Accessor::track),
-        track_total: tag.and_then(Accessor::track_total),
-        disc_number: tag.and_then(Accessor::disk),
-        disc_total: tag.and_then(Accessor::disk_total),
-        genre: tag.and_then(Accessor::genre).map(clean_tag_text),
-        date: tag
-            .and_then(Accessor::date)
-            .map(|timestamp| timestamp.to_string()),
-        has_embedded_picture: picture.is_some(),
-        embedded_picture_mime_type: picture
-            .and_then(|picture| picture.mime_type())
-            .map(|mime| mime.as_str().to_string()),
-    })
-}
-
-fn parse_video_metadata_from_path(command: &str, path: &Path) -> Result<VideoMediaMetadata> {
-    let path_arg = path.to_string_lossy().to_string();
-    let output = run_cli_command_with_timeout(
-        command,
-        &[
-            "-v",
-            "error",
-            "-print_format",
-            "json",
-            "-show_streams",
-            "-show_format",
-            &path_arg,
-        ],
-        |message| AsterError::validation_error(format!("ffprobe metadata failed: {message}")),
-    )?;
-    if !output.status.success() {
-        let detail = crate::services::media_processing_service::cli_output_detail(&output);
-        return Err(AsterError::validation_error(format!(
-            "ffprobe metadata command failed: {detail}"
-        )));
-    }
-
-    let value: Value = serde_json::from_slice(&output.stdout)
-        .map_aster_err_ctx("parse ffprobe metadata JSON", AsterError::validation_error)?;
-    let video_stream = value
-        .get("streams")
-        .and_then(Value::as_array)
-        .and_then(|streams| {
-            streams.iter().find(|stream| {
-                stream
-                    .get("codec_type")
-                    .and_then(Value::as_str)
-                    .is_some_and(|value| value == "video")
-            })
-        });
-    let format = value.get("format");
-
-    Ok(VideoMediaMetadata {
-        duration_ms: video_stream
-            .and_then(|stream| json_duration_ms(stream.get("duration")))
-            .or_else(|| format.and_then(|format| json_duration_ms(format.get("duration")))),
-        width: video_stream.and_then(|stream| json_u32(stream.get("width"))),
-        height: video_stream.and_then(|stream| json_u32(stream.get("height"))),
-        codec: video_stream
-            .and_then(|stream| clean_json_string(stream.get("codec_name")))
-            .or_else(|| {
-                video_stream.and_then(|stream| clean_json_string(stream.get("codec_tag_string")))
-            }),
-        container: format.and_then(|format| clean_json_string(format.get("format_name"))),
-        frame_rate: video_stream
-            .and_then(|stream| clean_json_string(stream.get("avg_frame_rate")))
-            .filter(|value| value != "0/0")
-            .or_else(|| {
-                video_stream
-                    .and_then(|stream| clean_json_string(stream.get("r_frame_rate")))
-                    .filter(|value| value != "0/0")
-            }),
-    })
-}
-
-pub async fn probe_ffprobe_cli_command(command: &str) -> Result<String> {
-    let command = media_processing::normalize_ffprobe_command(command)?;
-    if !media_processing::command_is_available(&command) {
-        return Err(AsterError::validation_error(format!(
-            "ffprobe command '{command}' is not available"
-        )));
-    }
-
-    tracing::debug!(
-        command = %command,
-        "starting ffprobe CLI probe for media metadata"
-    );
-
-    let probe_command = command.clone();
-    let output = tokio::task::spawn_blocking(move || {
-        run_cli_command_with_timeout(&probe_command, &["-version"], |message| {
-            AsterError::validation_error(format!("ffprobe probe failed: {message}"))
-        })
-    })
-    .await
-    .map_aster_err_ctx("ffprobe probe task panicked", AsterError::validation_error)??;
-
-    if !output.status.success() {
-        let detail = crate::services::media_processing_service::cli_output_detail(&output);
-        return Err(AsterError::validation_error(format!(
-            "ffprobe probe failed for '{command}': {detail}"
-        )));
-    }
-
-    let detail = first_non_empty_output_line(&output.stdout)
-        .or_else(|| first_non_empty_output_line(&output.stderr))
-        .unwrap_or_default();
-
-    tracing::debug!(
-        command = %command,
-        version = detail.as_str(),
-        "ffprobe CLI probe completed"
-    );
-
-    if detail.is_empty() {
-        Ok(format!("ffprobe command '{command}' is available"))
-    } else {
-        Ok(format!(
-            "ffprobe command '{command}' is available: {detail}"
-        ))
-    }
-}
-
-fn first_non_empty_output_line(output: &[u8]) -> Option<String> {
-    String::from_utf8_lossy(output)
-        .lines()
-        .map(str::trim)
-        .find(|line| !line.is_empty())
-        .map(str::to_string)
-}
-
-fn clean_json_string(value: Option<&Value>) -> Option<String> {
-    value
-        .and_then(Value::as_str)
-        .map(str::trim)
-        .filter(|value| !value.is_empty() && *value != "N/A")
-        .map(str::to_string)
-}
-
-fn json_u32(value: Option<&Value>) -> Option<u32> {
-    match value? {
-        Value::Number(number) => number.as_u64().and_then(|value| u32::try_from(value).ok()),
-        Value::String(value) => value.trim().parse::<u32>().ok(),
-        _ => None,
-    }
-}
-
-fn json_duration_ms(value: Option<&Value>) -> Option<u64> {
-    let raw = match value? {
-        Value::Number(number) => number.as_f64()?,
-        Value::String(value) => value.trim().parse::<f64>().ok()?,
-        _ => return None,
-    };
-    if !raw.is_finite() || raw <= 0.0 {
-        return None;
-    }
-    crate::utils::numbers::f64_seconds_to_u64_millis(raw, "media metadata duration").ok()
-}
-
-fn track_artists(tag: &Tag) -> Vec<String> {
-    let artists = tag
-        .get_strings(ItemKey::TrackArtists)
-        .map(clean_tag_text)
-        .filter(|value| !value.is_empty())
-        .collect::<Vec<_>>();
-    if !artists.is_empty() {
-        return artists;
-    }
-
-    tag.artist()
-        .map(clean_tag_text)
-        .filter(|value| !value.is_empty())
-        .into_iter()
-        .collect()
-}
-
-fn clean_tag_text(value: impl AsRef<str>) -> String {
-    value.as_ref().trim().to_string()
-}
-
-fn duration_ms(duration: std::time::Duration) -> Option<u64> {
-    if duration.is_zero() {
-        return None;
-    }
-    u64::try_from(duration.as_millis()).ok()
 }
 
 fn ensure_media_metadata_source_size_supported(
@@ -836,27 +589,4 @@ pub fn task_display_name(blob_id: i64, kind: MediaMetadataKind) -> String {
 
 pub fn cache_error_message(error: &AsterError) -> String {
     crate::utils::truncate_utf8_to_max_bytes(error.message(), CACHE_ERROR_MAX_LEN)
-}
-
-#[cfg(test)]
-mod tests {
-    use serde_json::json;
-
-    use super::*;
-
-    #[test]
-    fn json_duration_ms_rounds_ffprobe_seconds_to_milliseconds() {
-        assert_eq!(json_duration_ms(Some(&json!(1.2344))), Some(1234));
-        assert_eq!(json_duration_ms(Some(&json!(1.2345))), Some(1235));
-        assert_eq!(json_duration_ms(Some(&json!("2.5"))), Some(2500));
-    }
-
-    #[test]
-    fn json_duration_ms_rejects_non_positive_or_invalid_values() {
-        assert_eq!(json_duration_ms(Some(&json!(0))), None);
-        assert_eq!(json_duration_ms(Some(&json!(-1))), None);
-        assert_eq!(json_duration_ms(Some(&json!("N/A"))), None);
-        assert_eq!(json_duration_ms(Some(&json!(null))), None);
-        assert_eq!(json_duration_ms(None), None);
-    }
 }

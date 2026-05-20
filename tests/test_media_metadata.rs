@@ -27,6 +27,117 @@ fn tiny_png() -> Vec<u8> {
     buf.into_inner()
 }
 
+enum TiffValue<'a> {
+    Ascii(&'a str),
+    Short(u16),
+    Rational(u32, u32),
+    SRational(i32, i32),
+}
+
+fn push_u16_le(bytes: &mut Vec<u8>, value: u16) {
+    bytes.extend_from_slice(&value.to_le_bytes());
+}
+
+fn push_u32_le(bytes: &mut Vec<u8>, value: u32) {
+    bytes.extend_from_slice(&value.to_le_bytes());
+}
+
+fn push_i32_le(bytes: &mut Vec<u8>, value: i32) {
+    bytes.extend_from_slice(&value.to_le_bytes());
+}
+
+fn tiny_jpeg_with_exif() -> Vec<u8> {
+    let mut jpeg = Vec::new();
+    let encoder = image::codecs::jpeg::JpegEncoder::new(&mut jpeg);
+    image::ImageEncoder::write_image(
+        encoder,
+        &[255, 0, 0],
+        1,
+        1,
+        image::ExtendedColorType::Rgb8,
+    )
+    .unwrap();
+
+    let mut entries = vec![
+        (0x010f, TiffValue::Ascii("SONY")),
+        (0x0110, TiffValue::Ascii("ILCE-7CM2")),
+        (0x0112, TiffValue::Short(1)),
+        (0x0131, TiffValue::Ascii("ILCE-7CM2 v1.01")),
+        (0x013b, TiffValue::Ascii("Aaron Liu")),
+        (0x829a, TiffValue::Rational(1, 200)),
+        (0x829d, TiffValue::Rational(28, 10)),
+        (0x8827, TiffValue::Short(100)),
+        (0x9003, TiffValue::Ascii("2024:04:01 05:44:11")),
+        (0x9204, TiffValue::SRational(0, 10)),
+        (0x9209, TiffValue::Short(0)),
+        (0x920a, TiffValue::Rational(28, 1)),
+        (0xa405, TiffValue::Short(28)),
+        (0xa433, TiffValue::Ascii("TAMRON")),
+        (0xa434, TiffValue::Ascii("E 28-200mm F2.8-5.6 A071")),
+    ];
+    entries.sort_by_key(|(tag, _)| *tag);
+
+    let mut tiff = Vec::new();
+    tiff.extend_from_slice(b"II");
+    push_u16_le(&mut tiff, 42);
+    push_u32_le(&mut tiff, 8);
+    push_u16_le(&mut tiff, entries.len().try_into().unwrap());
+
+    let ifd_len = 2 + entries.len() * 12 + 4;
+    let mut data = Vec::new();
+    for (tag, value) in entries {
+        push_u16_le(&mut tiff, tag);
+        match value {
+            TiffValue::Ascii(value) => {
+                let mut ascii = value.as_bytes().to_vec();
+                ascii.push(0);
+                push_u16_le(&mut tiff, 2);
+                push_u32_le(&mut tiff, ascii.len().try_into().unwrap());
+                if ascii.len() <= 4 {
+                    tiff.extend_from_slice(&ascii);
+                    tiff.resize(tiff.len() + 4 - ascii.len(), 0);
+                } else {
+                    push_u32_le(&mut tiff, (8 + ifd_len + data.len()).try_into().unwrap());
+                    data.extend_from_slice(&ascii);
+                }
+            }
+            TiffValue::Short(value) => {
+                push_u16_le(&mut tiff, 3);
+                push_u32_le(&mut tiff, 1);
+                push_u16_le(&mut tiff, value);
+                push_u16_le(&mut tiff, 0);
+            }
+            TiffValue::Rational(numerator, denominator) => {
+                push_u16_le(&mut tiff, 5);
+                push_u32_le(&mut tiff, 1);
+                push_u32_le(&mut tiff, (8 + ifd_len + data.len()).try_into().unwrap());
+                push_u32_le(&mut data, numerator);
+                push_u32_le(&mut data, denominator);
+            }
+            TiffValue::SRational(numerator, denominator) => {
+                push_u16_le(&mut tiff, 10);
+                push_u32_le(&mut tiff, 1);
+                push_u32_le(&mut tiff, (8 + ifd_len + data.len()).try_into().unwrap());
+                push_i32_le(&mut data, numerator);
+                push_i32_le(&mut data, denominator);
+            }
+        }
+    }
+    push_u32_le(&mut tiff, 0);
+    tiff.extend_from_slice(&data);
+
+    let mut app1_payload = b"Exif\0\0".to_vec();
+    app1_payload.extend_from_slice(&tiff);
+    let app1_len: u16 = (app1_payload.len() + 2).try_into().unwrap();
+    let mut result = Vec::with_capacity(jpeg.len() + app1_payload.len() + 4);
+    result.extend_from_slice(&jpeg[..2]);
+    result.extend_from_slice(&[0xff, 0xe1]);
+    result.extend_from_slice(&app1_len.to_be_bytes());
+    result.extend_from_slice(&app1_payload);
+    result.extend_from_slice(&jpeg[2..]);
+    result
+}
+
 fn tiny_mp4() -> Vec<u8> {
     base64::engine::general_purpose::STANDARD
         .decode("AAAAIGZ0eXBpc29tAAACAGlzb21pc28yYXZjMW1wNDEAAAN1bW9vdgAAAGxtdmhkAAAAAAAAAAAAAAAAAAAD6AAAAMgAAQAAAQAAAAAAAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAgAAAp90cmFrAAAAXHRraGQAAAADAAAAAAAAAAAAAAABAAAAAAAAAMgAAAAAAAAAAAAAAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAABAAAAAABAAAAAQAAAAAAAkZWR0cwAAABxlbHN0AAAAAAAAAAEAAADIAAAEAAABAAAAAAIXbWRpYQAAACBtZGhkAAAAAAAAAAAAAAAAAAAyAAAACgBVxAAAAAAALWhkbHIAAAAAAAAAAHZpZGUAAAAAAAAAAAAAAABWaWRlb0hhbmRsZXIAAAABwm1pbmYAAAAUdm1oZAAAAAEAAAAAAAAAAAAAACRkaW5mAAAAHGRyZWYAAAAAAAAAAQAAAAx1cmwgAAAAAQAAAYJzdGJsAAAAvnN0c2QAAAAAAAAAAQAAAK5hdmMxAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAAAABAAEABIAAAASAAAAAAAAAABFUxhdmM2Mi4yOC4xMDAgbGlieDI2NAAAAAAAAAAAAAAAGP//AAAANGF2Y0MBZAAK/+EAF2dkAAqs2V7ARAAAAwAEAAADAMg8SJZYAQAGaOvjyyLA/fj4AAAAABBwYXNwAAAAAQAAAAEAAAAUYnRydAAAAAAAAHcQAAAAAAAAABhzdHRzAAAAAAAAAAEAAAAFAAACAAAAABRzdHNzAAAAAAAAAAEAAAABAAAAOGN0dHMAAAAAAAAABQAAAAEAAAQAAAAAAQAACgAAAAABAAAEAAAAAAEAAAAAAAAAAQAAAgAAAAAcc3RzYwAAAAAAAAABAAAAAQAAAAUAAAABAAAAKHN0c3oAAAAAAAAAAAAAAAUAAALKAAAADAAAAAwAAAAMAAAADAAAABRzdGNvAAAAAAAAAAEAAAOlAAAAYnVkdGEAAABabWV0YQAAAAAAAAAhaGRscgAAAAAAAAAAbWRpcmFwcGwAAAAAAAAAAAAAAAAtaWxzdAAAACWpdG9vAAAAHWRhdGEAAAABAAAAAExhdmY2Mi4xMi4xMDAAAAAIZnJlZQAAAwJtZGF0AAACrgYF//+q3EXpvebZSLeWLNgg2SPu73gyNjQgLSBjb3JlIDE2NSByMzIyMiBiMzU2MDVhIC0gSC4yNjQvTVBFRy00IEFWQyBjb2RlYyAtIENvcHlsZWZ0IDIwMDMtMjAyNSAtIGh0dHA6Ly93d3cudmlkZW9sYW4ub3JnL3gyNjQuaHRtbCAtIG9wdGlvbnM6IGNhYmFjPTEgcmVmPTMgZGVibG9jaz0xOjA6MCBhbmFseXNlPTB4MzoweDExMyBtZT1oZXggc3VibWU9NyBwc3k9MSBwc3lfcmQ9MS4wMDowLjAwIG1peGVkX3JlZj0xIG1lX3JhbmdlPTE2IGNocm9tYV9tZT0xIHRyZWxsaXM9MSA4eDhkY3Q9MSBjcW09MCBkZWFkem9uZT0yMSwxMSBmYXN0X3Bza2lwPTEgY2hyb21hX3FwX29mZnNldD0tMiB0aHJlYWRzPTEgbG9va2FoZWFkX3RocmVhZHM9MSBzbGljZWRfdGhyZWFkcz0wIG5yPTAgZGVjaW1hdGU9MSBpbnRlcmxhY2VkPTAgYmx1cmF5X2NvbXBhdD0wIGNvbnN0cmFpbmVkX2ludHJhPTAgYmZyYW1lcz0zIGJfcHlyYW1pZD0yIGJfYWRhcHQ9MSBiX2JpYXM9MCBkaXJlY3Q9MSB3ZWlnaHRiPTEgb3Blbl9nb3A9MCB3ZWlnaHRwPTIga2V5aW50PTI1MCBrZXlpbnRfbWluPTI1IHNjZW5lY3V0PTQwIGludHJhX3JlZnJlc2g9MCByY19sb29rYWhlYWQ9NDAgcmM9Y3JmIG1idHJlZT0xIGNyZj0yMy4wIHFjb21wPTAuNjAgcXBtaW49MCBxcG1heD02OSBxcHN0ZXA9NCBpcF9yYXRpbz0xLjQwIGFxPTE6MS4wMACAAAAAFGWIhAAz//7fMvgUzcWJzsyAXJ6XAAAACEGaJGxCv/7AAAAACEGeQniF/8GBAAAACAGeYXRCv8SAAAAACAGeY2pCv8SB")
@@ -41,7 +152,7 @@ fn write_fake_ffprobe_metadata_command() -> std::path::PathBuf {
     let path = dir.join("fake-ffprobe");
     std::fs::write(
         &path,
-        "#!/bin/sh\ncat <<'JSON'\n{\"streams\":[{\"codec_type\":\"video\",\"codec_name\":\"h264\",\"width\":32,\"height\":18,\"duration\":\"2.500000\",\"avg_frame_rate\":\"25/1\"}],\"format\":{\"format_name\":\"mov,mp4,m4a,3gp,3g2,mj2\",\"duration\":\"2.500000\"}}\nJSON\n",
+        "#!/bin/sh\ncat <<'JSON'\n{\"streams\":[{\"codec_type\":\"video\",\"codec_name\":\"h264\",\"profile\":\"High\",\"width\":32,\"height\":18,\"duration\":\"2.500000\",\"avg_frame_rate\":\"30000/1001\",\"bit_rate\":\"8400000\",\"pix_fmt\":\"yuv420p10le\",\"bits_per_raw_sample\":\"10\",\"color_space\":\"bt2020nc\",\"color_transfer\":\"smpte2084\",\"color_primaries\":\"bt2020\",\"side_data_list\":[{\"side_data_type\":\"Display Matrix\",\"rotation\":90}],\"tags\":{\"creation_time\":\"2024-04-01T05:44:11.000000Z\"}},{\"codec_type\":\"audio\",\"codec_name\":\"aac\",\"channels\":2,\"sample_rate\":\"48000\",\"bit_rate\":\"192000\"},{\"codec_type\":\"subtitle\",\"codec_name\":\"subrip\"}],\"format\":{\"format_name\":\"mov,mp4,m4a,3gp,3g2,mj2\",\"duration\":\"2.500000\",\"bit_rate\":\"9100000\",\"tags\":{\"creation_time\":\"2024-04-01T05:44:11.000000Z\"}}}\nJSON\n",
     )
     .unwrap();
     let mut permissions = std::fs::metadata(&path).unwrap().permissions();
@@ -228,6 +339,63 @@ async fn file_media_metadata_extracts_image_and_reuses_blob_cache() {
             .count(),
         1
     );
+}
+
+#[actix_web::test]
+async fn file_media_metadata_extracts_image_exif_fields() {
+    let state = common::setup().await;
+    let app = create_test_app!(state.clone());
+    let (token, _) = register_and_login!(app);
+    let file_id = upload_file_bytes(
+        &app,
+        &token,
+        "camera.jpg",
+        "image/jpeg",
+        &tiny_jpeg_with_exif(),
+    )
+    .await;
+
+    let req = test::TestRequest::get()
+        .uri(&format!("/api/v1/files/{file_id}/media-metadata"))
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 202);
+
+    let stats = aster_drive::services::task_service::drain(&state)
+        .await
+        .expect("task drain should succeed");
+    assert_eq!(stats.succeeded, 1);
+
+    let req = test::TestRequest::get()
+        .uri(&format!("/api/v1/files/{file_id}/media-metadata"))
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+    let body: Value = test::read_body_json(resp).await;
+    let metadata = &body["data"]["metadata"];
+    assert_eq!(metadata["kind"], "image");
+    assert_eq!(metadata["width"], 1);
+    assert_eq!(metadata["height"], 1);
+    assert_eq!(metadata["camera_make"], "SONY");
+    assert_eq!(metadata["camera_model"], "ILCE-7CM2");
+    assert_eq!(metadata["lens_make"], "TAMRON");
+    assert_eq!(metadata["lens_model"], "E 28-200mm F2.8-5.6 A071");
+    assert_eq!(metadata["f_number"], 2.8);
+    assert_eq!(metadata["exposure_time_seconds"], 0.005);
+    assert_eq!(metadata["iso"], 100);
+    assert_eq!(metadata["exposure_bias_ev"], 0.0);
+    assert_eq!(metadata["flash_fired"], false);
+    assert_eq!(metadata["flash_mode"], 0);
+    assert_eq!(metadata["focal_length_mm"], 28.0);
+    assert_eq!(metadata["focal_length_35mm"], 28);
+    assert_eq!(metadata["taken_at"], "2024-04-01T05:44:11");
+    assert_eq!(metadata["orientation"], 1);
+    assert_eq!(metadata["artist"], "Aaron Liu");
+    assert_eq!(metadata["software"], "ILCE-7CM2 v1.01");
 }
 
 #[actix_web::test]
@@ -466,8 +634,29 @@ async fn video_media_metadata_uses_configured_ffprobe_command() {
     assert_eq!(body["data"]["parser"], "ffprobe");
     assert_eq!(body["data"]["metadata"]["width"], 32);
     assert_eq!(body["data"]["metadata"]["height"], 18);
+    assert_eq!(body["data"]["metadata"]["display_width"], 18);
+    assert_eq!(body["data"]["metadata"]["display_height"], 32);
+    assert_eq!(body["data"]["metadata"]["rotation_degrees"], 90);
     assert_eq!(body["data"]["metadata"]["duration_ms"], 2500);
-    assert_eq!(body["data"]["metadata"]["frame_rate"], "25/1");
+    assert_eq!(body["data"]["metadata"]["frame_rate"], "30000/1001");
+    assert_eq!(body["data"]["metadata"]["video_bitrate"], 8_400_000);
+    assert_eq!(body["data"]["metadata"]["overall_bitrate"], 9_100_000);
+    assert_eq!(body["data"]["metadata"]["pixel_format"], "yuv420p10le");
+    assert_eq!(body["data"]["metadata"]["bit_depth"], 10);
+    assert_eq!(body["data"]["metadata"]["color_space"], "bt2020nc");
+    assert_eq!(body["data"]["metadata"]["color_transfer"], "smpte2084");
+    assert_eq!(body["data"]["metadata"]["color_primaries"], "bt2020");
+    assert_eq!(body["data"]["metadata"]["hdr_format"], "HDR10");
+    assert_eq!(body["data"]["metadata"]["audio_codec"], "aac");
+    assert_eq!(body["data"]["metadata"]["audio_channels"], 2);
+    assert_eq!(body["data"]["metadata"]["audio_sample_rate"], 48_000);
+    assert_eq!(body["data"]["metadata"]["audio_bitrate"], 192_000);
+    assert_eq!(body["data"]["metadata"]["audio_stream_count"], 1);
+    assert_eq!(body["data"]["metadata"]["subtitle_stream_count"], 1);
+    assert_eq!(
+        body["data"]["metadata"]["creation_time"],
+        "2024-04-01T05:44:11.000000Z"
+    );
 
     let _ = std::fs::remove_dir_all(
         fake_ffprobe

@@ -116,57 +116,14 @@ export type TrashContents = components["schemas"]["TrashContents"];
 export type TrashFileItem = components["schemas"]["TrashFileItem"];
 export type TrashFolderItem = components["schemas"]["TrashFolderItem"];
 export type TrashListParams = OperationQuery<"list_trash">;
-export type MediaMetadataKind = "image" | "audio" | "video";
-export type MediaMetadataStatus = "ready" | "failed" | "unsupported";
-export interface ImageMediaMetadata {
-	width: number;
-	height: number;
-	format?: string | null;
-}
-export interface AudioMediaMetadata {
-	title?: string | null;
-	artist?: string | null;
-	artists: string[];
-	album?: string | null;
-	album_artist?: string | null;
-	duration_ms?: number | null;
-	sample_rate?: number | null;
-	channels?: number | null;
-	bit_depth?: number | null;
-	overall_bitrate?: number | null;
-	audio_bitrate?: number | null;
-	track_number?: number | null;
-	track_total?: number | null;
-	disc_number?: number | null;
-	disc_total?: number | null;
-	genre?: string | null;
-	date?: string | null;
-	has_embedded_picture: boolean;
-	embedded_picture_mime_type?: string | null;
-}
-export interface VideoMediaMetadata {
-	duration_ms?: number | null;
-	width?: number | null;
-	height?: number | null;
-	codec?: string | null;
-	container?: string | null;
-	frame_rate?: string | null;
-}
+export type MediaMetadataKind = components["schemas"]["MediaMetadataKind"];
+export type MediaMetadataStatus = components["schemas"]["MediaMetadataStatus"];
+export type ImageMediaMetadata = components["schemas"]["ImageMediaMetadata"];
+export type AudioMediaMetadata = components["schemas"]["AudioMediaMetadata"];
+export type VideoMediaMetadata = components["schemas"]["VideoMediaMetadata"];
 export type MediaMetadataPayload =
-	| ({ kind: "image" } & ImageMediaMetadata)
-	| ({ kind: "audio" } & AudioMediaMetadata)
-	| ({ kind: "video" } & VideoMediaMetadata);
-export interface MediaMetadataInfo {
-	blob_id: number;
-	blob_hash: string;
-	kind: MediaMetadataKind;
-	status: MediaMetadataStatus;
-	metadata?: MediaMetadataPayload | null;
-	error?: string | null;
-	parser: string;
-	parser_version: string;
-	updated_at: string;
-}
+	components["schemas"]["MediaMetadataPayload"];
+export type MediaMetadataInfo = components["schemas"]["MediaMetadataInfo"];
 
 // Sharing and search
 export type AdminSharePage = components["schemas"]["OffsetPage_ShareInfo"];

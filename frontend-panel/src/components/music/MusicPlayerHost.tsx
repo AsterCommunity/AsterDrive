@@ -10,7 +10,7 @@ import {
 } from "react";
 import { useTranslation } from "react-i18next";
 import { AnimatedCollapsible } from "@/components/common/AnimatedCollapsible";
-import { FileThumbnail } from "@/components/files/FileThumbnail";
+import { MediaThumbnail } from "@/components/files/MediaThumbnail";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
@@ -443,58 +443,6 @@ function nextPlaybackMode(mode: MusicPlaybackMode): MusicPlaybackMode {
 	if (mode === "repeat_queue") return "repeat_one";
 	if (mode === "repeat_one") return "shuffle";
 	return "repeat_queue";
-}
-
-function MusicArtwork({
-	className,
-	iconClassName,
-	imageClassName,
-	track,
-}: {
-	className?: string;
-	iconClassName?: string;
-	imageClassName?: string;
-	track: MusicPlayerTrack | null;
-}) {
-	if (track?.thumbnail) {
-		return (
-			<FileThumbnail
-				file={track.thumbnail.file}
-				size="md"
-				thumbnailPath={track.thumbnail.path}
-				className={cn(
-					"overflow-hidden rounded-lg border border-border/55 bg-muted/35 shadow-xs dark:bg-muted/25 dark:shadow-none",
-					className,
-				)}
-				iconClassName={iconClassName}
-				imageClassName={imageClassName}
-			/>
-		);
-	}
-
-	if (track?.metadata?.artworkUrl) {
-		return (
-			<img
-				src={track.metadata.artworkUrl}
-				alt=""
-				className={cn("object-cover", imageClassName, className)}
-			/>
-		);
-	}
-
-	return (
-		<div
-			className={cn(
-				"flex items-center justify-center overflow-hidden rounded-lg border border-border/55 bg-[linear-gradient(135deg,var(--color-muted),var(--color-background))] text-primary",
-				className,
-			)}
-		>
-			<Icon
-				name="VinylRecord"
-				className={cn("h-1/2 w-1/2 opacity-80", iconClassName)}
-			/>
-		</div>
-	);
 }
 
 function PlayerIconButton({
@@ -1199,8 +1147,10 @@ export function MusicPlayerHost() {
 					<div className="max-h-[calc(100vh-6.5rem)] overflow-y-auto overscroll-contain">
 						<div className="px-4 py-4">
 							<div className="flex min-w-0 gap-3">
-								<MusicArtwork
-									track={track}
+								<MediaThumbnail
+									file={track?.thumbnail?.file}
+									thumbnailPath={track?.thumbnail?.path}
+									artworkUrl={track?.metadata?.artworkUrl}
 									className="h-20 w-20 shrink-0 rounded-lg sm:h-24 sm:w-24"
 									iconClassName="h-12 w-12"
 									imageClassName="h-full w-full object-cover"
@@ -1373,8 +1323,10 @@ export function MusicPlayerHost() {
 																)}
 															>
 																{queueTrack.thumbnail ? (
-																	<MusicArtwork
-																		track={queueTrack}
+																	<MediaThumbnail
+																		file={queueTrack.thumbnail.file}
+																		thumbnailPath={queueTrack.thumbnail.path}
+																		artworkUrl={queueTrack.metadata?.artworkUrl}
 																		className="h-full w-full rounded-md border-0 bg-transparent shadow-none"
 																		iconClassName="h-4 w-4"
 																		imageClassName="h-full w-full object-cover"

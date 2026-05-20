@@ -4494,9 +4494,34 @@ export interface components {
             version: string;
         };
         ImageMediaMetadata: {
+            artist?: string | null;
+            camera_make?: string | null;
+            camera_model?: string | null;
+            copyright?: string | null;
+            /** Format: double */
+            exposure_bias_ev?: number | null;
+            /** Format: double */
+            exposure_time_seconds?: number | null;
+            /** Format: double */
+            f_number?: number | null;
+            flash_fired?: boolean | null;
+            /** Format: int32 */
+            flash_mode?: number | null;
+            /** Format: int32 */
+            focal_length_35mm?: number | null;
+            /** Format: double */
+            focal_length_mm?: number | null;
             format?: string | null;
             /** Format: int32 */
             height: number;
+            /** Format: int32 */
+            iso?: number | null;
+            lens_make?: string | null;
+            lens_model?: string | null;
+            /** Format: int32 */
+            orientation?: number | null;
+            software?: string | null;
+            taken_at?: string | null;
             /** Format: int32 */
             width: number;
         };
@@ -6262,13 +6287,42 @@ export interface components {
             password: string;
         };
         VideoMediaMetadata: {
+            /** Format: int64 */
+            audio_bitrate?: number | null;
+            /** Format: int32 */
+            audio_channels?: number | null;
+            audio_codec?: string | null;
+            /** Format: int32 */
+            audio_sample_rate?: number | null;
+            /** Format: int32 */
+            audio_stream_count: number;
+            /** Format: int32 */
+            bit_depth?: number | null;
             codec?: string | null;
+            color_primaries?: string | null;
+            color_space?: string | null;
+            color_transfer?: string | null;
             container?: string | null;
+            creation_time?: string | null;
+            /** Format: int32 */
+            display_height?: number | null;
+            /** Format: int32 */
+            display_width?: number | null;
             /** Format: int64 */
             duration_ms?: number | null;
             frame_rate?: string | null;
+            hdr_format?: string | null;
             /** Format: int32 */
             height?: number | null;
+            /** Format: int64 */
+            overall_bitrate?: number | null;
+            pixel_format?: string | null;
+            /** Format: int32 */
+            rotation_degrees?: number | null;
+            /** Format: int32 */
+            subtitle_stream_count: number;
+            /** Format: int64 */
+            video_bitrate?: number | null;
             /** Format: int32 */
             width?: number | null;
         };
