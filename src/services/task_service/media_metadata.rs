@@ -260,6 +260,6 @@ fn parser_name_for_kind(kind: MediaMetadataKind) -> &'static str {
     match kind {
         MediaMetadataKind::Image => "image",
         MediaMetadataKind::Audio => "lofty",
-        MediaMetadataKind::Video => "unsupported",
+        MediaMetadataKind::Video => "ffprobe",
     }
 }

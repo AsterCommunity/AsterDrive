@@ -117,10 +117,9 @@ pub(super) async fn render_thumbnail_bytes(
             );
             render_thumbnail_with_storage_native(blob, driver.as_ref(), source_mime_type).await
         }
-        _ => Err(crate::errors::AsterError::internal_error(format!(
-            "{} cannot render thumbnails",
-            processor.kind().as_str()
-        ))),
+        MediaProcessorKind::FfprobeCli => Err(crate::errors::AsterError::internal_error(
+            "ffprobe_cli cannot render thumbnails",
+        )),
     }
 }
 
@@ -261,9 +260,11 @@ pub(super) async fn render_image_preview_bytes(
             )
             .await
         }
-        _ => Err(crate::errors::AsterError::internal_error(format!(
-            "{} cannot render image previews",
-            processor.kind().as_str()
-        ))),
+        MediaProcessorKind::Lofty | MediaProcessorKind::FfprobeCli => {
+            Err(crate::errors::AsterError::internal_error(format!(
+                "{} cannot render image previews",
+                processor.kind().as_str()
+            )))
+        }
     }
 }

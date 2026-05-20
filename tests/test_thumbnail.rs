@@ -289,7 +289,7 @@ async fn test_thumbnail_returns_202_when_not_ready() {
 }
 
 #[actix_web::test]
-async fn test_thumbnail_audio_uses_lofty_processor_after_old_uses_are_backfilled() {
+async fn test_thumbnail_audio_schedules_lofty_processor_for_legacy_metadata_only_config() {
     let state = common::setup().await;
     let app = create_test_app!(state.clone());
     let (token, _) = register_and_login!(app);
@@ -331,6 +331,9 @@ async fn test_thumbnail_audio_uses_lofty_processor_after_old_uses_are_backfilled
     let resp = request_thumbnail!(app, token, file_id);
     assert_eq!(resp.status(), 202);
 
+    // The uploaded bytes are intentionally not decoded here: this only verifies that
+    // legacy Lofty configs declaring metadata:audio are normalized into thumbnail
+    // scheduling support. The Lofty renderer path covers embedded-artwork decoding.
     let task =
         latest_thumbnail_task_for_processor(&state, file_id, MediaProcessorKind::Lofty).await;
     assert_eq!(task.status, BackgroundTaskStatus::Pending);

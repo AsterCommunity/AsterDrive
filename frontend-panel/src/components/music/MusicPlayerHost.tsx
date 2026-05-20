@@ -785,24 +785,24 @@ export function MusicPlayerHost() {
 				}
 			}
 
-			const fallback = await parseMusicMetadataFromSource({
-				fallbackMetadata,
-				mimeType,
-				name,
-				signal: controller.signal,
-				size,
-				source,
-			});
-
-			if (
-				loadBackendMetadata &&
-				pendingRetryDelayMs !== null &&
-				!controller.signal.aborted
-			) {
-				updateBackendMetadataWhenReady(1, pendingRetryDelayMs);
+			try {
+				return await parseMusicMetadataFromSource({
+					fallbackMetadata,
+					mimeType,
+					name,
+					signal: controller.signal,
+					size,
+					source,
+				});
+			} finally {
+				if (
+					loadBackendMetadata &&
+					pendingRetryDelayMs !== null &&
+					!controller.signal.aborted
+				) {
+					updateBackendMetadataWhenReady(1, pendingRetryDelayMs);
+				}
 			}
-
-			return fallback;
 		};
 
 		void loadMetadata()

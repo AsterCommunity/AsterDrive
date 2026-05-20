@@ -11,6 +11,8 @@ use super::shared::{MediaOperation, ResolvedMediaProcessor, ThumbnailContext};
 
 const THUMBNAIL_PROCESSOR_MATCH_MISSING_PREFIX: &str = "no enabled thumbnail processor matched";
 const BUILTIN_IMAGES_PROCESSOR_PREFIX: &str = "built-in images processor";
+const AUDIO_THUMBNAIL_EXTENSIONS: &[&str] =
+    &["mp3", "m4a", "flac", "aac", "ogg", "wav", "wma", "opus"];
 
 pub(crate) fn resolve_thumbnail_processor_for_blob(
     state: &PrimaryAppState,
@@ -312,19 +314,29 @@ fn collect_thumbnail_processor_candidates(
         runtime_config,
         file_name,
     ));
-    if source_mime_type
-        .split_once(';')
-        .map(|(value, _)| value)
-        .unwrap_or(source_mime_type)
-        .trim()
-        .starts_with("audio/")
-    {
+    if is_audio_thumbnail_source(file_name, source_mime_type) {
         candidates.extend(collect_thumbnail_audio_processor_candidates(
             runtime_config,
             file_name,
         ));
     }
     candidates
+}
+
+fn is_audio_thumbnail_source(file_name: &str, source_mime_type: &str) -> bool {
+    let mime_type = source_mime_type
+        .split_once(';')
+        .map(|(value, _)| value)
+        .unwrap_or(source_mime_type)
+        .trim()
+        .to_ascii_lowercase();
+    if mime_type.starts_with("audio/") {
+        return true;
+    }
+
+    media_processing_config::file_extension(file_name)
+        .as_deref()
+        .is_some_and(|extension| AUDIO_THUMBNAIL_EXTENSIONS.contains(&extension))
 }
 
 fn resolve_media_processor_from_candidates(

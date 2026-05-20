@@ -21,6 +21,8 @@
 	"media_processing_editor_use_metadata_image": "Image Metadata",
 	"media_processing_editor_use_metadata_audio": "Audio Metadata",
 	"media_processing_editor_use_metadata_video": "Video Metadata",
+	"thumbnail_processor_vips_cli": "VIPS CLI",
+	"thumbnail_processor_ffmpeg_cli": "FFmpeg CLI",
 	"thumbnail_processor_ffprobe_cli": "FFprobe CLI",
 	"thumbnail_processor_lofty": "AsterDrive Built-in Audio",
 	"media_processing_editor_rule_extensions_label": "Extensions",

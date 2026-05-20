@@ -21,9 +21,10 @@ export function mediaMetadataKindForFile(
 	) {
 		return file.file_category;
 	}
-	if (file.mime_type.startsWith("image/")) return "image";
-	if (file.mime_type.startsWith("audio/")) return "audio";
-	if (file.mime_type.startsWith("video/")) return "video";
+	const mimeType = file.mime_type.toLowerCase();
+	if (mimeType.startsWith("image/")) return "image";
+	if (mimeType.startsWith("audio/")) return "audio";
+	if (mimeType.startsWith("video/")) return "video";
 	return null;
 }
 
@@ -115,7 +116,7 @@ function formatChannels(value: number | null | undefined, t: Translate) {
 	if (!isPositiveFiniteNumber(value)) return null;
 	if (value === 1) return t("info_media_channels_mono");
 	if (value === 2) return t("info_media_channels_stereo");
-	return `${value} ${t("info_media_channels_unit")}`;
+	return t("info_media_channels_count", { count: value });
 }
 
 function formatBitDepth(value: number | null | undefined) {
@@ -428,7 +429,7 @@ function buildAudioMetadataRows({
 			: [];
 	}
 
-	const artists = metadata.artists
+	const artists = (metadata.artists ?? [])
 		.map(cleanInfoText)
 		.filter((value): value is string => value !== null);
 	const artist =

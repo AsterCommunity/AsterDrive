@@ -1968,12 +1968,14 @@ describe("AdminSettingsPage", () => {
 		fireEvent.click(
 			await screen.findByRole("button", { name: /settings_section_expand/i }),
 		);
+		const vipsCard = (await screen.findByText(/vips_cli/i)).closest(
+			"[data-slot='card']",
+		);
+		expect(vipsCard).not.toBeNull();
 		fireEvent.click(
-			(
-				await screen.findAllByRole("button", {
-					name: /media_processing_editor_processor_test_command/i,
-				})
-			)[0],
+			within(vipsCard as HTMLElement).getByRole("button", {
+				name: /media_processing_editor_processor_test_command/i,
+			}),
 		);
 
 		await waitFor(() => {

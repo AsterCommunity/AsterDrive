@@ -109,7 +109,7 @@ fn enrich_image_metadata_from_exif(path: &Path, metadata: &mut ImageMediaMetadat
     Ok(())
 }
 
-fn exif_entry<'a>(exif: &'a Exif, tag: ExifTag) -> Option<&'a EntryValue> {
+fn exif_entry(exif: &Exif, tag: ExifTag) -> Option<&EntryValue> {
     exif.get(tag).or_else(|| {
         exif.iter()
             .find_map(|entry| (entry.tag.tag() == Some(tag)).then_some(entry.value))

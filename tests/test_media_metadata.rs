@@ -193,6 +193,60 @@ async fn upload_file_bytes(
     body["data"]["id"].as_i64().unwrap()
 }
 
+async fn request_media_metadata(
+    app: &impl actix_web::dev::Service<
+        actix_http::Request,
+        Response = actix_web::dev::ServiceResponse,
+        Error = actix_web::Error,
+    >,
+    token: &str,
+    file_id: i64,
+) -> actix_web::dev::ServiceResponse {
+    let req = test::TestRequest::get()
+        .uri(&format!("/api/v1/files/{file_id}/media-metadata"))
+        .insert_header(("Cookie", common::access_cookie_header(token)))
+        .insert_header(common::csrf_header_for(token))
+        .to_request();
+    test::call_service(app, req).await
+}
+
+async fn duplicate_file_for_same_blob(
+    state: &aster_drive::runtime::PrimaryAppState,
+    source_file_id: i64,
+    name: &str,
+) -> i64 {
+    let source = file_repo::find_by_id(&state.db, source_file_id)
+        .await
+        .unwrap();
+    let now = chrono::Utc::now();
+    file_repo::increment_blob_ref_count(&state.db, source.blob_id)
+        .await
+        .unwrap();
+    file::ActiveModel {
+        name: Set(name.to_string()),
+        folder_id: Set(source.folder_id),
+        team_id: Set(source.team_id),
+        blob_id: Set(source.blob_id),
+        size: Set(source.size),
+        owner_user_id: Set(source.owner_user_id),
+        created_by_user_id: Set(source.created_by_user_id),
+        created_by_username: Set(source.created_by_username),
+        mime_type: Set(source.mime_type),
+        extension: Set(source.extension),
+        compound_extension: Set(source.compound_extension),
+        file_category: Set(source.file_category),
+        created_at: Set(now),
+        updated_at: Set(now),
+        deleted_at: Set(None),
+        is_locked: Set(false),
+        ..Default::default()
+    }
+    .insert(&state.db)
+    .await
+    .unwrap()
+    .id
+}
+
 async fn set_system_config(state: &aster_drive::runtime::PrimaryAppState, key: &str, value: &str) {
     config_repo::upsert(&state.db, key, value, 1).await.unwrap();
     let mut model = config_repo::find_by_key(&state.db, key)
@@ -281,12 +335,7 @@ async fn file_media_metadata_extracts_image_and_reuses_blob_cache() {
     let (token, _) = register_and_login!(app);
     let file_id = upload_file_bytes(&app, &token, "cover.png", "image/png", &tiny_png()).await;
 
-    let req = test::TestRequest::get()
-        .uri(&format!("/api/v1/files/{file_id}/media-metadata"))
-        .insert_header(("Cookie", common::access_cookie_header(&token)))
-        .insert_header(common::csrf_header_for(&token))
-        .to_request();
-    let resp = test::call_service(&app, req).await;
+    let resp = request_media_metadata(&app, &token, file_id).await;
     assert_eq!(resp.status(), 202);
     assert_eq!(
         resp.headers()
@@ -304,18 +353,14 @@ async fn file_media_metadata_extracts_image_and_reuses_blob_cache() {
     assert_eq!(task.status, BackgroundTaskStatus::Pending);
     let payload: Value = serde_json::from_str(task.payload_json.as_ref()).unwrap();
     assert_eq!(payload["kind"], "image");
+    assert_eq!(task.max_attempts, 3);
 
     let stats = aster_drive::services::task_service::drain(&state)
         .await
         .expect("task drain should succeed");
     assert_eq!(stats.succeeded, 1);
 
-    let req = test::TestRequest::get()
-        .uri(&format!("/api/v1/files/{file_id}/media-metadata"))
-        .insert_header(("Cookie", common::access_cookie_header(&token)))
-        .insert_header(common::csrf_header_for(&token))
-        .to_request();
-    let resp = test::call_service(&app, req).await;
+    let resp = request_media_metadata(&app, &token, file_id).await;
     assert_eq!(resp.status(), 200);
     let body: Value = test::read_body_json(resp).await;
     assert_eq!(body["data"]["kind"], "image");
@@ -333,6 +378,36 @@ async fn file_media_metadata_extracts_image_and_reuses_blob_cache() {
             .count(),
         1
     );
+
+    let second_file_id = duplicate_file_for_same_blob(&state, file_id, "cover-copy.png").await;
+    let resp = request_media_metadata(&app, &token, second_file_id).await;
+    assert_eq!(resp.status(), 200);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(body["data"]["kind"], "image");
+    assert_eq!(body["data"]["status"], "ready");
+    assert_eq!(body["data"]["metadata"]["kind"], "image");
+
+    let tasks = background_task_repo::list_recent(&state.db, 16)
+        .await
+        .unwrap();
+    assert_eq!(
+        tasks
+            .iter()
+            .filter(|task| task.kind == BackgroundTaskKind::MediaMetadataExtract)
+            .count(),
+        1
+    );
+    let payload: Value = serde_json::from_str(
+        tasks
+            .iter()
+            .find(|task| task.kind == BackgroundTaskKind::MediaMetadataExtract)
+            .expect("media metadata task should still exist")
+            .payload_json
+            .as_ref(),
+    )
+    .unwrap();
+    assert_eq!(payload["kind"], "image");
+    assert_eq!(stats.succeeded, 1);
 }
 
 #[actix_web::test]

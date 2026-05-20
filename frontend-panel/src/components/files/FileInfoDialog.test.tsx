@@ -348,8 +348,10 @@ describe("FileInfoDialog", () => {
 			/>,
 		);
 
-		expect(mockState.getMediaMetadata).toHaveBeenCalledWith(1, {
-			signal: expect.any(AbortSignal),
+		await waitFor(() => {
+			expect(mockState.getMediaMetadata).toHaveBeenCalledWith(1, {
+				signal: expect.any(AbortSignal),
+			});
 		});
 		expect(
 			await screen.findByText("info_media_metadata_image"),
@@ -426,8 +428,10 @@ describe("FileInfoDialog", () => {
 			/>,
 		);
 
-		expect(mockState.getMediaMetadata).toHaveBeenCalledWith(1, {
-			signal: expect.any(AbortSignal),
+		await waitFor(() => {
+			expect(mockState.getMediaMetadata).toHaveBeenCalledWith(1, {
+				signal: expect.any(AbortSignal),
+			});
 		});
 		expect(
 			await screen.findByText("info_media_metadata_audio"),
@@ -507,8 +511,10 @@ describe("FileInfoDialog", () => {
 			/>,
 		);
 
-		expect(mockState.getMediaMetadata).toHaveBeenCalledWith(1, {
-			signal: expect.any(AbortSignal),
+		await waitFor(() => {
+			expect(mockState.getMediaMetadata).toHaveBeenCalledWith(1, {
+				signal: expect.any(AbortSignal),
+			});
 		});
 		expect(
 			await screen.findByText("info_media_metadata_video"),

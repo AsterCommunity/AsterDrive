@@ -21,6 +21,8 @@
 	"media_processing_editor_use_metadata_image": "图片元数据",
 	"media_processing_editor_use_metadata_audio": "音频元数据",
 	"media_processing_editor_use_metadata_video": "视频元数据",
+	"thumbnail_processor_vips_cli": "VIPS CLI",
+	"thumbnail_processor_ffmpeg_cli": "FFmpeg CLI",
 	"thumbnail_processor_ffprobe_cli": "FFprobe CLI",
 	"thumbnail_processor_lofty": "AsterDrive 内置音频",
 	"media_processing_editor_rule_extensions_label": "后缀",

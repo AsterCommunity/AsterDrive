@@ -15,7 +15,7 @@ use crate::runtime::PrimaryAppState;
 use crate::services::workspace_storage_service::WorkspaceStorageScope;
 use crate::storage::StorageDriver;
 use crate::types::{
-    FileCategory, MediaMetadataKind, MediaMetadataPayload, MediaMetadataStatus,
+    FileCategory, MediaMetadataKind, MediaMetadataPayload, MediaMetadataStatus, MediaProcessorKind,
     StoredMediaMetadataPayload, VideoMediaMetadata,
 };
 use crate::utils::raii::TempFileGuard;
@@ -52,6 +52,10 @@ pub struct MediaMetadataInfo {
     pub updated_at: DateTime<Utc>,
 }
 
+#[expect(
+    clippy::large_enum_variant,
+    reason = "one-shot service-to-route result; boxing would add a heap allocation without shrinking retained state"
+)]
 pub enum MediaMetadataLookup {
     Ready(MediaMetadataInfo),
     Pending,
@@ -139,9 +143,7 @@ fn should_use_cached_metadata(
     f: &file::Model,
     record: &blob_media_metadata::Model,
 ) -> bool {
-    if record.kind == MediaMetadataKind::Video
-        && record.status == MediaMetadataStatus::Unsupported
-        && record.parser == VIDEO_UNSUPPORTED_PARSER_NAME
+    if record.status == MediaMetadataStatus::Unsupported
         && let Some(processor) =
             media_metadata_processor_for_file_name(&state.runtime_config, record.kind, &f.name)
     {
@@ -149,8 +151,16 @@ fn should_use_cached_metadata(
             .config
             .command
             .as_deref()
-            .unwrap_or(media_processing::DEFAULT_FFPROBE_COMMAND);
-        if media_processing::command_is_available(command) {
+            .or(match processor.kind {
+                MediaProcessorKind::FfprobeCli => Some(media_processing::DEFAULT_FFPROBE_COMMAND),
+                MediaProcessorKind::Images
+                | MediaProcessorKind::Lofty
+                | MediaProcessorKind::VipsCli
+                | MediaProcessorKind::FfmpegCli
+                | MediaProcessorKind::StorageNative => None,
+            });
+        let command_available = command.is_none_or(media_processing::command_is_available);
+        if command_available {
             return false;
         }
     }

@@ -497,10 +497,11 @@
 
 ### 执行配置动作
 
-当前已经落地两类动作目标：
+当前已经落地三类动作目标：
 
 - `POST /admin/config/mail/action`
 - `POST /admin/config/frontend_preview_apps_json/action`
+- `POST /admin/config/media_processing_registry_json/action`（`test_vips_cli`、`test_ffmpeg_cli`、`test_ffprobe_cli`）
 
 邮件测试示例：
 

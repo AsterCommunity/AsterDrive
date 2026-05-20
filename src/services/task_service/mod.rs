@@ -673,9 +673,8 @@ pub(super) fn task_lease_expires_at(
 
 fn configured_task_max_attempts(state: &PrimaryAppState, kind: BackgroundTaskKind) -> i32 {
     match kind {
-        BackgroundTaskKind::SystemRuntime
-        | BackgroundTaskKind::ThumbnailGenerate
-        | BackgroundTaskKind::MediaMetadataExtract => 1,
+        BackgroundTaskKind::SystemRuntime | BackgroundTaskKind::ThumbnailGenerate => 1,
+        BackgroundTaskKind::MediaMetadataExtract => 3,
         BackgroundTaskKind::ArchiveCompress
         | BackgroundTaskKind::ArchiveExtract
         | BackgroundTaskKind::ArchivePreviewGenerate
