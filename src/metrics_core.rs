@@ -30,7 +30,7 @@ pub trait MetricsRecorder: Send + Sync {
 
     fn record_file_upload(&self, mode: &'static str, status: &'static str) {}
 
-    fn record_file_download(&self, source: &'static str, outcome: &'static str, has_range: bool) {}
+    fn record_file_download(&self, source: &'static str, outcome: &str, has_range: bool) {}
 
     fn record_upload_session(&self, mode: &'static str) {}
 

@@ -192,7 +192,7 @@ async fn execute_preview_app_action(
 
             Ok(ConfigActionResult {
                 message: format!(
-                    "Built WOPI preview apps from {discovery_url} into the preview app draft"
+                    "Built WOPI apps from {discovery_url} into the current app registry draft"
                 ),
                 target_email: None,
                 value: Some(serialized),
@@ -305,7 +305,7 @@ async fn build_wopi_discovery_preview_apps_into_config(
         return Err(AsterError::validation_error("discovery_url is required"));
     }
 
-    let discovered_apps = wopi_service::discover_preview_apps(state, discovery_url).await?;
+    let discovered_apps = wopi_service::discover_apps(state, discovery_url).await?;
     let existing_generated_apps = config
         .apps
         .iter()
@@ -315,7 +315,7 @@ async fn build_wopi_discovery_preview_apps_into_config(
         })
         .collect::<BTreeMap<_, _>>();
     let imported_apps =
-        build_imported_wopi_preview_apps(discovery_url, &existing_generated_apps, discovered_apps)?;
+        build_imported_wopi_apps(discovery_url, &existing_generated_apps, discovered_apps)?;
 
     let mut next_apps = Vec::with_capacity(config.apps.len() + imported_apps.len());
     for app in &config.apps {
@@ -330,10 +330,10 @@ async fn build_wopi_discovery_preview_apps_into_config(
     Ok(())
 }
 
-fn build_imported_wopi_preview_apps(
+fn build_imported_wopi_apps(
     discovery_url: &str,
     existing_generated_apps: &BTreeMap<String, preview_app_service::PublicPreviewAppDefinition>,
-    discovered_apps: Vec<wopi_service::DiscoveredWopiPreviewApp>,
+    discovered_apps: Vec<wopi_service::DiscoveredWopiApp>,
 ) -> Result<Vec<preview_app_service::PublicPreviewAppDefinition>> {
     let mut imported = Vec::new();
 
@@ -466,7 +466,7 @@ fn slugify_preview_app_key_segment(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        PREVIEW_APP_DISCOVERY_GENERATED_SEGMENT, build_imported_wopi_preview_apps,
+        PREVIEW_APP_DISCOVERY_GENERATED_SEGMENT, build_imported_wopi_apps,
         generated_preview_app_key_prefix, generated_preview_app_suffix,
         is_generated_wopi_discovery_app,
     };
@@ -484,7 +484,7 @@ mod tests {
     }
 
     #[test]
-    fn build_imported_wopi_preview_apps_preserves_existing_enabled_state() {
+    fn build_imported_wopi_apps_preserves_existing_enabled_state() {
         let discovery_url = "http://localhost:8080/hosting/discovery";
         let existing_key =
             "custom.wopi.localhost.8080.hosting.discovery__wopi_discovery__word".to_string();
@@ -506,10 +506,10 @@ mod tests {
             },
         )]);
 
-        let imported = build_imported_wopi_preview_apps(
+        let imported = build_imported_wopi_apps(
             discovery_url,
             &existing_generated,
-            vec![wopi_service::DiscoveredWopiPreviewApp {
+            vec![wopi_service::DiscoveredWopiApp {
                 action: "view".to_string(),
                 extensions: vec!["doc".to_string(), "docx".to_string()],
                 icon_url: Some("http://localhost:8080/word.ico".to_string()),
@@ -534,11 +534,11 @@ mod tests {
     }
 
     #[test]
-    fn build_imported_wopi_preview_apps_enables_new_entries_by_default() {
-        let imported = build_imported_wopi_preview_apps(
+    fn build_imported_wopi_apps_enables_new_entries_by_default() {
+        let imported = build_imported_wopi_apps(
             "http://localhost:8080/hosting/discovery",
             &BTreeMap::new(),
-            vec![wopi_service::DiscoveredWopiPreviewApp {
+            vec![wopi_service::DiscoveredWopiApp {
                 action: "view".to_string(),
                 extensions: vec!["docx".to_string()],
                 icon_url: Some("http://localhost:8080/word.ico".to_string()),

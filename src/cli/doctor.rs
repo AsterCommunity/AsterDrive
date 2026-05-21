@@ -828,10 +828,10 @@ fn doctor_preview_apps_check(runtime_config: &crate::config::RuntimeConfig) -> D
             name: "preview_apps",
             label: "Preview app registry",
             status: DoctorStatus::Warn,
-            summary: "WOPI preview apps are configured but public_site_url is empty".to_string(),
+            summary: "WOPI apps are configured but public_site_url is empty".to_string(),
             details,
             suggestion: Some(
-                "Set public_site_url or disable WOPI preview apps to avoid generating unusable preview entry points."
+                "Set public_site_url or disable WOPI apps to avoid generating unusable launch entry points."
                     .to_string(),
             ),
         };

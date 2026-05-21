@@ -6,7 +6,7 @@ use super::drivers::local::LocalDriver;
 use super::drivers::remote::RemoteDriver;
 use super::drivers::s3::S3Driver;
 use super::error::storage_driver_error;
-use super::metrics_driver::MetricsStorageDriver;
+use super::metrics_driver::{MetricsMultipartStorageDriver, MetricsStorageDriver};
 use super::multipart::MultipartStorageDriver;
 use crate::api::subcode::ApiSubcode;
 use crate::db::repository::{managed_follower_repo, master_binding_repo};
@@ -22,8 +22,9 @@ use std::sync::Arc;
 /// 已实例化的 driver。
 ///
 /// `storage` 是业务路径统一使用的驱动；启用 metrics 时它会在创建 entry 时包一层
-/// `MetricsStorageDriver`。`multipart` 保留原始 S3/Remote 驱动的 multipart 能力，
-/// 避免 wrapper 影响分片上传专用路径。
+/// `MetricsStorageDriver`。`multipart` 是分片上传专用路径；启用 metrics 时同样包一层
+/// `MetricsMultipartStorageDriver`，保证 `get_driver().as_multipart()` 和
+/// `get_multipart_driver()` 两条入口都记录指标。
 #[derive(Clone)]
 struct DriverEntry {
     storage: Arc<dyn StorageDriver>,
@@ -43,6 +44,7 @@ impl DriverEntry {
 pub struct DriverRegistry {
     /// policy_id → 已实例化的 driver
     drivers: DashMap<i64, DriverEntry>,
+    driver_init_lock: parking_lot::Mutex<()>,
     managed_followers_by_id: RwLock<HashMap<i64, crate::entities::managed_follower::Model>>,
     master_bindings_by_access_key: RwLock<HashMap<String, crate::entities::master_binding::Model>>,
     metrics: SharedMetricsRecorder,
@@ -52,6 +54,7 @@ impl DriverRegistry {
     pub fn new(metrics: SharedMetricsRecorder) -> Self {
         Self {
             drivers: DashMap::new(),
+            driver_init_lock: parking_lot::Mutex::new(()),
             managed_followers_by_id: RwLock::new(HashMap::new()),
             master_bindings_by_access_key: RwLock::new(HashMap::new()),
             metrics,
@@ -157,17 +160,28 @@ impl DriverRegistry {
         );
     }
 
+    /// Insert the exact S3 driver instance for tests that need raw S3 behavior.
+    ///
+    /// This intentionally bypasses metrics wrapping so tests can rely on the
+    /// provided `Arc<S3Driver>` being the stored storage and multipart object.
     #[cfg(test)]
     pub fn insert_s3_for_test(&self, policy_id: i64, driver: Arc<S3Driver>) {
         let storage: Arc<dyn StorageDriver> = driver.clone();
         let multipart: Arc<dyn MultipartStorageDriver> = driver;
         self.drivers.insert(
             policy_id,
-            self.build_entry(DriverType::S3, storage, Some(multipart)),
+            DriverEntry {
+                storage,
+                multipart: Some(multipart),
+            },
         );
     }
 
     fn get_entry(&self, policy: &storage_policy::Model) -> Result<DriverEntry> {
+        if let Some(entry) = self.drivers.get(&policy.id) {
+            return Ok(entry.clone());
+        }
+        let _guard = self.driver_init_lock.lock();
         if let Some(entry) = self.drivers.get(&policy.id) {
             return Ok(entry.clone());
         }
@@ -238,14 +252,23 @@ impl DriverRegistry {
         storage: Arc<dyn StorageDriver>,
         multipart: Option<Arc<dyn MultipartStorageDriver>>,
     ) -> DriverEntry {
-        let storage = if self.metrics.enabled() {
-            Arc::new(MetricsStorageDriver::new(
+        let (storage, multipart) = if self.metrics.enabled() {
+            let multipart = multipart.map(|driver| {
+                Arc::new(MetricsMultipartStorageDriver::new(
+                    driver,
+                    driver_type,
+                    self.metrics.clone(),
+                )) as Arc<dyn MultipartStorageDriver>
+            });
+            let storage = Arc::new(MetricsStorageDriver::new(
                 storage,
                 driver_type,
                 self.metrics.clone(),
-            ))
+                multipart.clone(),
+            ));
+            (storage as Arc<dyn StorageDriver>, multipart)
         } else {
-            storage
+            (storage, multipart)
         };
 
         DriverEntry { storage, multipart }
@@ -262,14 +285,113 @@ impl Default for DriverRegistry {
 mod tests {
     use super::*;
     use crate::metrics_core::MetricsRecorder;
+    use crate::storage::error::{StorageErrorKind, storage_driver_error};
     use crate::types::{StoredStoragePolicyAllowedTypes, StoredStoragePolicyOptions};
+    use parking_lot::Mutex;
     use std::time::Duration;
 
-    struct EnabledMetrics;
+    #[derive(Default)]
+    struct CapturingMetrics {
+        storage_operations: Mutex<Vec<&'static str>>,
+    }
 
-    impl MetricsRecorder for EnabledMetrics {
+    impl MetricsRecorder for CapturingMetrics {
         fn enabled(&self) -> bool {
             true
+        }
+
+        fn record_storage_driver_operation(
+            &self,
+            _driver: &'static str,
+            operation: &'static str,
+            _status: &'static str,
+            _kind: &'static str,
+            _duration_seconds: f64,
+        ) {
+            self.storage_operations.lock().push(operation);
+        }
+    }
+
+    struct TestMultipartDriver;
+
+    #[async_trait::async_trait]
+    impl StorageDriver for TestMultipartDriver {
+        async fn put(&self, _path: &str, _data: &[u8]) -> Result<String> {
+            panic!("not used")
+        }
+
+        async fn get(&self, _path: &str) -> Result<Vec<u8>> {
+            panic!("not used")
+        }
+
+        async fn get_stream(
+            &self,
+            _path: &str,
+        ) -> Result<Box<dyn tokio::io::AsyncRead + Unpin + Send>> {
+            panic!("not used")
+        }
+
+        async fn delete(&self, _path: &str) -> Result<()> {
+            panic!("not used")
+        }
+
+        async fn exists(&self, _path: &str) -> Result<bool> {
+            panic!("not used")
+        }
+
+        async fn metadata(&self, _path: &str) -> Result<crate::storage::driver::BlobMetadata> {
+            panic!("not used")
+        }
+
+        fn as_multipart(&self) -> Option<&dyn MultipartStorageDriver> {
+            Some(self)
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl MultipartStorageDriver for TestMultipartDriver {
+        async fn create_multipart_upload(&self, _path: &str) -> Result<String> {
+            Ok("upload-1".to_string())
+        }
+
+        async fn presigned_upload_part_url(
+            &self,
+            _path: &str,
+            _upload_id: &str,
+            _part_number: i32,
+            _expires: Duration,
+        ) -> Result<String> {
+            panic!("not used")
+        }
+
+        async fn complete_multipart_upload(
+            &self,
+            _path: &str,
+            _upload_id: &str,
+            _parts: Vec<(i32, String)>,
+        ) -> Result<()> {
+            panic!("not used")
+        }
+
+        async fn upload_multipart_part(
+            &self,
+            _path: &str,
+            _upload_id: &str,
+            _part_number: i32,
+            _data: &[u8],
+        ) -> Result<String> {
+            panic!("not used")
+        }
+
+        async fn abort_multipart_upload(&self, _path: &str, _upload_id: &str) -> Result<()> {
+            Err(storage_driver_error(
+                StorageErrorKind::NotFound,
+                "multipart upload missing",
+            ))
+        }
+
+        async fn list_uploaded_parts(&self, _path: &str, _upload_id: &str) -> Result<Vec<i32>> {
+            panic!("not used")
         }
     }
 
@@ -336,7 +458,7 @@ mod tests {
 
     #[test]
     fn metrics_enabled_driver_is_wrapped_once_and_cached() {
-        let registry = DriverRegistry::new(Arc::new(EnabledMetrics));
+        let registry = DriverRegistry::new(Arc::new(CapturingMetrics::default()));
         let policy = local_policy();
 
         let driver1 = registry
@@ -349,6 +471,39 @@ mod tests {
         assert!(
             Arc::ptr_eq(&driver1, &driver2),
             "metrics wrapper should be cached with the driver entry"
+        );
+    }
+
+    #[tokio::test]
+    async fn metrics_enabled_multipart_driver_records_operations() {
+        let metrics = Arc::new(CapturingMetrics::default());
+        let registry = DriverRegistry::new(metrics.clone());
+        let policy = remote_policy(Some(7));
+        let driver = Arc::new(TestMultipartDriver);
+        let storage: Arc<dyn StorageDriver> = driver.clone();
+        let multipart: Arc<dyn MultipartStorageDriver> = driver;
+
+        registry.drivers.insert(
+            policy.id,
+            registry.build_entry(DriverType::Remote, storage, Some(multipart)),
+        );
+
+        let multipart_driver = registry
+            .get_multipart_driver(&policy)
+            .expect("test multipart driver should be available");
+        let upload_id = multipart_driver
+            .create_multipart_upload("object.bin")
+            .await
+            .expect("multipart create should succeed");
+        let error = multipart_driver
+            .abort_multipart_upload("object.bin", &upload_id)
+            .await
+            .expect_err("abort should fail for test driver");
+
+        assert_eq!(error.storage_error_kind(), Some(StorageErrorKind::NotFound));
+        assert_eq!(
+            metrics.storage_operations.lock().as_slice(),
+            &["create_multipart_upload", "abort_multipart_upload"]
         );
     }
 

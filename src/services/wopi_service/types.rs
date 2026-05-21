@@ -111,7 +111,7 @@ pub enum WopiRenameFileResult {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct DiscoveredWopiPreviewApp {
+pub struct DiscoveredWopiApp {
     pub action: String,
     pub extensions: Vec<String>,
     pub icon_url: Option<String>,

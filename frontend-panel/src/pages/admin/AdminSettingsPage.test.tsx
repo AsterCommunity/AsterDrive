@@ -2122,7 +2122,7 @@ describe("AdminSettingsPage", () => {
 		expect(previewTitle).toBeInTheDocument();
 	});
 
-	it("builds WOPI discovery apps into the local preview app draft", async () => {
+	it("builds WOPI discovery apps into the local app registry draft", async () => {
 		const initialPreviewValue = JSON.stringify(
 			{
 				version: 2,

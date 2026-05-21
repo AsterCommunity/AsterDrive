@@ -373,17 +373,19 @@ pub async fn download_shared(
     share_service::check_share_password_cookie(&state, &path, cookie_value.as_deref()).await?;
     let range = shared_file_range(&state, path.as_str(), &req).await?;
 
-    let outcome = share_service::download_shared_file_with_range(
+    let outcome = file_service::record_download_result(
         &state,
-        &path,
-        req.headers()
-            .get("If-None-Match")
-            .and_then(|v| v.to_str().ok()),
-        range,
+        "share",
+        share_service::download_shared_file_with_range(
+            &state,
+            &path,
+            req.headers()
+                .get("If-None-Match")
+                .and_then(|v| v.to_str().ok()),
+            range,
+        ),
     )
-    .await
-    .inspect(|outcome| file_service::record_download_metric(&state, "share", outcome))
-    .inspect_err(|_| file_service::record_download_failure_metric(&state, "share"))?;
+    .await?;
     Ok(file_service::outcome_to_response(outcome))
 }
 
@@ -396,19 +398,21 @@ pub async fn download_direct(
     let (token, filename) = path.into_inner();
     let file = direct_link_service::resolve_file_for_download(&state, &token, &filename).await?;
     let range = file_service::parse_range_header(req.headers().get(header::RANGE), file.size)?;
-    let outcome = direct_link_service::download_file(
+    let outcome = file_service::record_download_result(
         &state,
-        &token,
-        &filename,
-        query.force_download(),
-        req.headers()
-            .get("If-None-Match")
-            .and_then(|v| v.to_str().ok()),
-        range,
+        "direct_link",
+        direct_link_service::download_file(
+            &state,
+            &token,
+            &filename,
+            query.force_download(),
+            req.headers()
+                .get("If-None-Match")
+                .and_then(|v| v.to_str().ok()),
+            range,
+        ),
     )
-    .await
-    .inspect(|outcome| file_service::record_download_metric(&state, "direct_link", outcome))
-    .inspect_err(|_| file_service::record_download_failure_metric(&state, "direct_link"))?;
+    .await?;
     Ok(file_service::outcome_to_response(outcome))
 }
 
@@ -420,18 +424,20 @@ pub async fn download_preview(
     let (token, filename) = path.into_inner();
     let file = preview_link_service::resolve_file_for_download(&state, &token, &filename).await?;
     let range = file_service::parse_range_header(req.headers().get(header::RANGE), file.size)?;
-    let outcome = preview_link_service::download_file(
+    let outcome = file_service::record_download_result(
         &state,
-        &token,
-        &filename,
-        req.headers()
-            .get("If-None-Match")
-            .and_then(|v| v.to_str().ok()),
-        range,
+        "preview_link",
+        preview_link_service::download_file(
+            &state,
+            &token,
+            &filename,
+            req.headers()
+                .get("If-None-Match")
+                .and_then(|v| v.to_str().ok()),
+            range,
+        ),
     )
-    .await
-    .inspect(|outcome| file_service::record_download_metric(&state, "preview_link", outcome))
-    .inspect_err(|_| file_service::record_download_failure_metric(&state, "preview_link"))?;
+    .await?;
     Ok(file_service::outcome_to_response(outcome))
 }
 
@@ -469,15 +475,12 @@ pub async fn stream_shared_video(
         share_stream_service::resolve_file_for_stream(&state, &token, &session_token, &filename)
             .await?;
     let range = file_service::parse_range_header(req.headers().get(header::RANGE), file.size)?;
-    let outcome =
-        share_stream_service::stream_file(&state, &token, &session_token, &filename, range)
-            .await
-            .inspect(|outcome| {
-                file_service::record_download_metric(&state, "share_stream", outcome)
-            })
-            .inspect_err(|_| {
-                file_service::record_download_failure_metric(&state, "share_stream")
-            })?;
+    let outcome = file_service::record_download_result(
+        &state,
+        "share_stream",
+        share_stream_service::stream_file(&state, &token, &session_token, &filename, range),
+    )
+    .await?;
     Ok(file_service::outcome_to_response(outcome))
 }
 
@@ -507,18 +510,20 @@ pub async fn download_shared_folder_file(
     share_service::check_share_password_cookie(&state, &token, cookie_value.as_deref()).await?;
     let range = shared_folder_file_range(&state, &token, file_id, &req).await?;
 
-    let outcome = share_service::download_shared_folder_file_with_range(
+    let outcome = file_service::record_download_result(
         &state,
-        &token,
-        file_id,
-        req.headers()
-            .get("If-None-Match")
-            .and_then(|v| v.to_str().ok()),
-        range,
+        "share",
+        share_service::download_shared_folder_file_with_range(
+            &state,
+            &token,
+            file_id,
+            req.headers()
+                .get("If-None-Match")
+                .and_then(|v| v.to_str().ok()),
+            range,
+        ),
     )
-    .await
-    .inspect(|outcome| file_service::record_download_metric(&state, "share", outcome))
-    .inspect_err(|_| file_service::record_download_failure_metric(&state, "share"))?;
+    .await?;
     Ok(file_service::outcome_to_response(outcome))
 }
 

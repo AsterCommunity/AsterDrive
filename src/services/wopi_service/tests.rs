@@ -7,8 +7,8 @@ use rsa::{RsaPrivateKey, rand_core::OsRng, traits::PublicKeyParts};
 use serde_json::json;
 
 use super::discovery::{
-    append_wopi_src, build_discovered_preview_apps, ensure_request_source_allowed,
-    expand_action_url, parse_discovery_xml, resolve_discovery_action_url, trusted_origins_for_app,
+    append_wopi_src, build_discovered_apps, ensure_request_source_allowed, expand_action_url,
+    parse_discovery_xml, resolve_discovery_action_url, trusted_origins_for_app,
 };
 use super::operations::parse_wopi_max_expected_size;
 use super::session::access_token_hash;
@@ -17,7 +17,7 @@ use super::targets::{
     normalize_relative_target_name, normalize_requested_rename_target, parse_put_relative_request,
 };
 use super::types::{
-    DiscoveredWopiPreviewApp, WOPI_FILE_NAME_MAX_LEN, WopiCheckFileInfo, WopiRequestSource,
+    DiscoveredWopiApp, WOPI_FILE_NAME_MAX_LEN, WopiCheckFileInfo, WopiRequestSource,
 };
 use crate::services::preview_app_service::{
     PreviewAppProvider, PreviewOpenMode, PublicPreviewAppConfig, PublicPreviewAppDefinition,
@@ -97,7 +97,7 @@ fn parse_discovery_xml_extracts_named_actions() {
 }
 
 #[test]
-fn build_discovered_preview_apps_groups_actions_by_app_name() {
+fn build_discovered_apps_groups_actions_by_app_name() {
     let discovery = parse_discovery_xml(
         r#"
             <wopi-discovery>
@@ -120,12 +120,12 @@ fn build_discovered_preview_apps_groups_actions_by_app_name() {
     )
     .unwrap();
 
-    let apps = build_discovered_preview_apps(&discovery);
+    let apps = build_discovered_apps(&discovery);
 
     assert_eq!(apps.len(), 3);
     assert_eq!(
         apps[0],
-        DiscoveredWopiPreviewApp {
+        DiscoveredWopiApp {
             action: "edit".to_string(),
             extensions: vec!["doc".to_string(), "docx".to_string()],
             icon_url: Some("https://office.example.com/word.ico".to_string()),
@@ -135,7 +135,7 @@ fn build_discovered_preview_apps_groups_actions_by_app_name() {
     );
     assert_eq!(
         apps[1],
-        DiscoveredWopiPreviewApp {
+        DiscoveredWopiApp {
             action: "view".to_string(),
             extensions: vec!["xls".to_string(), "xlsx".to_string()],
             icon_url: Some("https://office.example.com/excel.ico".to_string()),
@@ -145,7 +145,7 @@ fn build_discovered_preview_apps_groups_actions_by_app_name() {
     );
     assert_eq!(
         apps[2],
-        DiscoveredWopiPreviewApp {
+        DiscoveredWopiApp {
             action: "view".to_string(),
             extensions: vec!["pdf".to_string()],
             icon_url: Some("https://office.example.com/pdf.ico".to_string()),

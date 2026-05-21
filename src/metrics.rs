@@ -221,10 +221,10 @@ mod inner {
 
         let _ = PROCESS_STARTED_AT.get_or_init(Instant::now);
         let metrics = Metrics::new()?;
-        match METRICS.set(metrics) {
-            Ok(()) => Ok(()),
-            Err(_) => Ok(()),
-        }
+        // Concurrent initialization races are benign here; the first successful
+        // Metrics::new() wins and later Set errors are intentionally ignored.
+        let _ = METRICS.set(metrics);
+        Ok(())
     }
 
     pub fn get_metrics() -> Option<&'static Metrics> {
@@ -330,7 +330,7 @@ mod inner {
             .inc();
     }
 
-    pub fn record_file_download(source: &'static str, outcome: &'static str, has_range: bool) {
+    pub fn record_file_download(source: &'static str, outcome: &str, has_range: bool) {
         let Some(metrics) = get_metrics() else {
             return;
         };
@@ -570,7 +570,7 @@ impl crate::metrics_core::MetricsRecorder for PrometheusMetricsRecorder {
         record_file_upload(mode, status);
     }
 
-    fn record_file_download(&self, source: &'static str, outcome: &'static str, has_range: bool) {
+    fn record_file_download(&self, source: &'static str, outcome: &str, has_range: bool) {
         record_file_download(source, outcome, has_range);
     }
 

@@ -58,14 +58,14 @@ where
         }
 
         let started_at = Instant::now();
-        let method = req.method().as_str().to_string();
+        let method = req.method().clone();
         let route = route_label(&req);
 
         Box::pin(async move {
             match svc.call(req).await {
                 Ok(resp) => {
                     metrics.record_http_request(
-                        &method,
+                        method.as_str(),
                         &route,
                         resp.status().as_u16(),
                         started_at.elapsed().as_secs_f64(),
@@ -74,7 +74,7 @@ where
                 }
                 Err(error) => {
                     metrics.record_http_request(
-                        &method,
+                        method.as_str(),
                         &route,
                         error.as_response_error().status_code().as_u16(),
                         started_at.elapsed().as_secs_f64(),

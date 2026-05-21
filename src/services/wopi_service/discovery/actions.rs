@@ -1,5 +1,5 @@
 use crate::services::wopi_service::proof::WopiProofKeySet;
-use crate::services::wopi_service::types::DiscoveredWopiPreviewApp;
+use crate::services::wopi_service::types::DiscoveredWopiApp;
 
 use super::types::{WopiDiscovery, WopiDiscoveryAction};
 
@@ -79,9 +79,7 @@ fn is_known_discovery_action(action: &str) -> bool {
     DISCOVERY_ACTION_PRIORITY.contains(&action)
 }
 
-pub(crate) fn build_discovered_preview_apps(
-    discovery: &WopiDiscovery,
-) -> Vec<DiscoveredWopiPreviewApp> {
+pub(crate) fn build_discovered_apps(discovery: &WopiDiscovery) -> Vec<DiscoveredWopiApp> {
     #[derive(Debug, Clone)]
     struct DiscoveryGroup {
         icon_url: Option<String>,
@@ -184,7 +182,7 @@ pub(crate) fn build_discovered_preview_apps(
             }
         }
 
-        results.push(DiscoveredWopiPreviewApp {
+        results.push(DiscoveredWopiApp {
             action: action_name,
             extensions,
             icon_url: group.icon_url,

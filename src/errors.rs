@@ -11,6 +11,34 @@ use crate::storage::error::{
 
 const API_ERROR_SUBCODE_PREFIX: &str = "__ASTER_API_SUBCODE__=";
 const API_ERROR_SUBCODE_SEPARATOR: &str = "::";
+const AUTH_TOKEN_INVALID_REASON_PREFIX: &str = "__ASTER_AUTH_TOKEN_INVALID_REASON__=";
+const AUTH_TOKEN_INVALID_REASON_SEPARATOR: &str = "::";
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AuthTokenInvalidReason {
+    Invalid,
+    ReuseDetected,
+    Stale,
+}
+
+impl AuthTokenInvalidReason {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Invalid => "invalid",
+            Self::ReuseDetected => "reuse_detected",
+            Self::Stale => "stale",
+        }
+    }
+
+    fn parse(value: &str) -> Option<Self> {
+        match value {
+            "invalid" => Some(Self::Invalid),
+            "reuse_detected" => Some(Self::ReuseDetected),
+            "stale" => Some(Self::Stale),
+            _ => None,
+        }
+    }
+}
 
 /// 计数宏：计算传入标识符的数量（放在 define_errors! 之前，因为后者在展开时会调用此宏）
 macro_rules! count {
@@ -54,7 +82,9 @@ macro_rules! define_errors {
 
             /// 错误详情
             pub fn message(&self) -> &str {
-                api_error_display_message(storage_driver_error_display_message(self.raw_message()))
+                api_error_display_message(auth_token_invalid_display_message(
+                    storage_driver_error_display_message(self.raw_message()),
+                ))
             }
         }
 
@@ -149,6 +179,13 @@ impl AsterError {
             }
             Self::PreconditionFailed(_) => Some(StorageErrorKind::Precondition),
             Self::UnsupportedDriver(_) => Some(StorageErrorKind::Unsupported),
+            _ => None,
+        }
+    }
+
+    pub fn auth_token_invalid_reason(&self) -> Option<AuthTokenInvalidReason> {
+        match self {
+            Self::AuthTokenInvalid(message) => auth_token_invalid_reason_from_message(message),
             _ => None,
         }
     }
@@ -373,6 +410,16 @@ pub fn auth_forbidden_with_subcode(subcode: ApiSubcode, message: impl Into<Strin
     tag_error_with_subcode(subcode, message, AsterError::auth_forbidden)
 }
 
+pub fn auth_token_invalid_with_reason(
+    reason: AuthTokenInvalidReason,
+    message: impl Into<String>,
+) -> AsterError {
+    AsterError::auth_token_invalid(encode_auth_token_invalid_reason_message(
+        reason,
+        message.into(),
+    ))
+}
+
 pub fn precondition_failed_with_subcode(
     subcode: ApiSubcode,
     message: impl Into<String>,
@@ -444,6 +491,34 @@ fn api_error_display_message(raw_message: &str) -> &str {
     split_encoded_api_error_message(raw_message)
         .map(|(_, message)| message)
         .unwrap_or(raw_message)
+}
+
+fn encode_auth_token_invalid_reason_message(
+    reason: AuthTokenInvalidReason,
+    message: String,
+) -> String {
+    format!(
+        "{AUTH_TOKEN_INVALID_REASON_PREFIX}{}{AUTH_TOKEN_INVALID_REASON_SEPARATOR}{message}",
+        reason.as_str()
+    )
+}
+
+fn split_encoded_auth_token_invalid_reason_message(
+    raw_message: &str,
+) -> Option<(AuthTokenInvalidReason, &str)> {
+    let encoded = raw_message.strip_prefix(AUTH_TOKEN_INVALID_REASON_PREFIX)?;
+    let (reason, message) = encoded.split_once(AUTH_TOKEN_INVALID_REASON_SEPARATOR)?;
+    Some((AuthTokenInvalidReason::parse(reason)?, message))
+}
+
+fn auth_token_invalid_display_message(raw_message: &str) -> &str {
+    split_encoded_auth_token_invalid_reason_message(raw_message)
+        .map(|(_, message)| message)
+        .unwrap_or(raw_message)
+}
+
+fn auth_token_invalid_reason_from_message(raw_message: &str) -> Option<AuthTokenInvalidReason> {
+    split_encoded_auth_token_invalid_reason_message(raw_message).map(|(reason, _)| reason)
 }
 
 fn api_error_subcode_from_message(raw_message: &str) -> Option<ApiSubcode> {

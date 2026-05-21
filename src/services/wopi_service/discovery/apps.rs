@@ -3,9 +3,9 @@ use crate::errors::{AsterError, Result};
 use crate::runtime::PrimaryAppState;
 use crate::services::preview_app_service;
 use crate::services::wopi_service::targets::file_extension;
-use crate::services::wopi_service::types::DiscoveredWopiPreviewApp;
+use crate::services::wopi_service::types::DiscoveredWopiApp;
 
-use super::actions::{build_discovered_preview_apps, resolve_discovery_action_url};
+use super::actions::{build_discovered_apps, resolve_discovery_action_url};
 use super::cache::load_discovery;
 use super::types::WopiAppConfig;
 use super::url::{append_wopi_src, expand_action_url, trusted_origins_for_app};
@@ -25,15 +25,15 @@ pub fn allowed_origins(state: &PrimaryAppState) -> Vec<String> {
     origins
 }
 
-pub async fn discover_preview_apps(
+pub async fn discover_apps(
     state: &PrimaryAppState,
     discovery_url: &str,
-) -> Result<Vec<DiscoveredWopiPreviewApp>> {
+) -> Result<Vec<DiscoveredWopiApp>> {
     let discovery = load_discovery(state, discovery_url).await?;
-    let apps = build_discovered_preview_apps(&discovery);
+    let apps = build_discovered_apps(&discovery);
     if apps.is_empty() {
         return Err(AsterError::validation_error(
-            "WOPI discovery did not expose any importable preview apps",
+            "WOPI discovery did not expose any importable apps",
         ));
     }
     Ok(apps)
@@ -44,16 +44,13 @@ pub(crate) fn parse_wopi_app_config(
 ) -> Result<WopiAppConfig> {
     if app.provider != preview_app_service::PreviewAppProvider::Wopi {
         return Err(AsterError::validation_error(format!(
-            "preview app '{}' is not a WOPI provider",
+            "app '{}' is not a WOPI provider",
             app.key
         )));
     }
 
     let mode = app.config.mode.ok_or_else(|| {
-        AsterError::validation_error(format!(
-            "preview app '{}' WOPI provider requires config.mode",
-            app.key
-        ))
+        AsterError::validation_error(format!("WOPI app '{}' requires config.mode", app.key))
     })?;
 
     let action = app
@@ -71,7 +68,7 @@ pub(crate) fn parse_wopi_app_config(
     let discovery_url = app.config.discovery_url.clone();
     if action_url.is_none() && discovery_url.is_none() {
         return Err(AsterError::validation_error(format!(
-            "preview app '{}' WOPI provider requires config.action_url or config.discovery_url",
+            "WOPI app '{}' requires config.action_url or config.discovery_url",
             app.key
         )));
     }
