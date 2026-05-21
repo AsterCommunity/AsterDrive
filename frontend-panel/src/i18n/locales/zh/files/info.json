@@ -59,6 +59,7 @@
 	"info_exif_lens": "镜头",
 	"info_exif_taken_at": "拍摄时间",
 	"info_exif_resolution": "分辨率",
+	"info_exif_location": "位置",
 	"info_exif_author": "作者",
 	"info_exif_software": "软件",
 	"info_locked": "锁定状态",

@@ -59,6 +59,7 @@
 	"info_exif_lens": "Lens",
 	"info_exif_taken_at": "Taken",
 	"info_exif_resolution": "Resolution",
+	"info_exif_location": "Location",
 	"info_exif_author": "Author",
 	"info_exif_software": "Software",
 	"info_locked": "Lock Status",

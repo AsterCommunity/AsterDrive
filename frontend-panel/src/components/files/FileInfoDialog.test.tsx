@@ -306,22 +306,29 @@ describe("FileInfoDialog", () => {
 			error: null,
 			kind: "image",
 			metadata: {
-				artist: "Aaron Liu",
-				camera_make: "SONY",
-				camera_model: "ILCE-7CM2",
+				artist: "Aster Tester",
+				camera_make: "NIKON CORPORATION",
+				camera_model: "NIKON D3400",
 				exposure_bias_ev: 0,
-				exposure_time_seconds: 0.005,
-				f_number: 2.8,
+				exposure_time_seconds: 0.003125,
+				f_number: 5.6,
 				flash_fired: false,
-				focal_length_mm: 28,
+				flash_mode: 16,
+				focal_length_35mm: 202,
+				focal_length_mm: 135,
 				format: "image/jpeg",
-				height: 3265,
-				iso: 100,
+				gps_altitude_meters: 12.3,
+				gps_latitude: 36,
+				gps_longitude: 120.5,
+				height: 4016,
+				iso: 400,
 				kind: "image",
-				lens_model: "E 28-200mm F2.8-5.6 A071",
-				software: "ILCE-7CM2 v1.01",
-				taken_at: "2024-04-01T05:44:11",
-				width: 4898,
+				lens_make: "NIKON",
+				lens_model: "55-200mm f/4-5.6",
+				orientation: 8,
+				software: "Ver.1.12",
+				taken_at: "2026-03-05T17:19:01",
+				width: 6016,
 			},
 			parser: "image",
 			parser_version: "1",
@@ -358,21 +365,25 @@ describe("FileInfoDialog", () => {
 			await screen.findByText("info_media_metadata_image"),
 		).toBeInTheDocument();
 		expect(screen.getByText("info_exif_aperture")).toBeInTheDocument();
-		expect(screen.getByText("ƒ/2.8")).toBeInTheDocument();
+		expect(screen.getByText("ƒ/5.6")).toBeInTheDocument();
 		expect(screen.getByText("info_exif_exposure")).toBeInTheDocument();
-		expect(screen.getByText("1/200 info_exif_seconds")).toBeInTheDocument();
+		expect(screen.getByText("1/320 info_exif_seconds")).toBeInTheDocument();
 		expect(screen.getByText("info_exif_camera")).toBeInTheDocument();
-		expect(screen.getByText("SONY ILCE-7CM2")).toBeInTheDocument();
-		expect(screen.getByText("info_exif_lens")).toBeInTheDocument();
 		expect(
-			screen.getByText("28mm (E 28-200mm F2.8-5.6 A071)"),
+			screen.getByText("NIKON CORPORATION NIKON D3400"),
 		).toBeInTheDocument();
+		expect(screen.getByText("info_exif_lens")).toBeInTheDocument();
+		expect(screen.getByText("135mm (55-200mm f/4-5.6)")).toBeInTheDocument();
 		expect(screen.getByText("info_exif_taken_at")).toBeInTheDocument();
-		expect(screen.getByText("2024/4/1 05:44:11")).toBeInTheDocument();
+		expect(screen.getByText("2026/3/5 17:19:01")).toBeInTheDocument();
 		expect(screen.getByText("info_exif_resolution")).toBeInTheDocument();
-		expect(screen.getByText("16.0 MP · 4898 x 3265")).toBeInTheDocument();
-		expect(screen.getByText("Aaron Liu")).toBeInTheDocument();
-		expect(screen.getByText("ILCE-7CM2 v1.01")).toBeInTheDocument();
+		expect(screen.getByText("24.2 MP · 6016 x 4016")).toBeInTheDocument();
+		expect(screen.getByText("info_exif_location")).toBeInTheDocument();
+		expect(
+			screen.getByText("36.000000 · 120.500000 · 12.3 m"),
+		).toBeInTheDocument();
+		expect(screen.getByText("Aster Tester")).toBeInTheDocument();
+		expect(screen.getByText("Ver.1.12")).toBeInTheDocument();
 	});
 
 	it("shows audio metadata in the details panel", async () => {

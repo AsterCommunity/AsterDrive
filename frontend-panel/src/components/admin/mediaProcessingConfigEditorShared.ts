@@ -46,6 +46,7 @@ export const MEDIA_PROCESSING_DEFAULT_VIPS_EXTENSIONS = [
 	"svslide",
 	"bif",
 	"raw",
+	"nef",
 ] as const;
 export const MEDIA_PROCESSING_DEFAULT_FFMPEG_EXTENSIONS = [
 	"mp4",
@@ -68,23 +69,33 @@ export const MEDIA_PROCESSING_DEFAULT_FFMPEG_EXTENSIONS = [
 ] as const;
 export const MEDIA_PROCESSING_DEFAULT_FFPROBE_EXTENSIONS =
 	MEDIA_PROCESSING_DEFAULT_FFMPEG_EXTENSIONS;
-export const MEDIA_PROCESSING_DEFAULT_LOFTY_EXTENSIONS = [
+export const MEDIA_PROCESSING_BUILTIN_AUDIO_METADATA_EXTENSIONS = [
 	"aac",
+	"ape",
 	"aiff",
 	"aif",
-	"ape",
+	"afc",
+	"aifc",
+	"mp3",
+	"mp2",
+	"mp1",
+	"wav",
+	"wave",
+	"wv",
+	"opus",
 	"flac",
+	"ogg",
+	"mp4",
 	"m4a",
 	"m4b",
 	"m4p",
 	"m4r",
-	"mka",
-	"mp3",
-	"oga",
-	"ogg",
-	"opus",
-	"wav",
-	"wv",
+	"m4v",
+	"3gp",
+	"mpc",
+	"mp+",
+	"mpp",
+	"spx",
 ] as const;
 export const MEDIA_PROCESSING_PROCESSOR_ORDER = [
 	"vips_cli",
@@ -247,7 +258,7 @@ function defaultExtensions(kind: MediaProcessingEditorProcessorKind) {
 		case "ffprobe_cli":
 			return [...MEDIA_PROCESSING_DEFAULT_FFPROBE_EXTENSIONS];
 		case "lofty":
-			return [...MEDIA_PROCESSING_DEFAULT_LOFTY_EXTENSIONS];
+			return [...MEDIA_PROCESSING_BUILTIN_AUDIO_METADATA_EXTENSIONS];
 		case "images":
 			return [];
 	}

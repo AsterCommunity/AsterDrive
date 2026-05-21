@@ -301,6 +301,28 @@ function formatImageResolution(metadata: ImageMediaMetadata) {
 	return `${megapixels.toFixed(1)} MP · ${metadata.width} x ${metadata.height}`;
 }
 
+function formatGpsLocation(metadata: ImageMediaMetadata) {
+	const latitude = metadata.gps_latitude;
+	const longitude = metadata.gps_longitude;
+	if (
+		typeof latitude !== "number" ||
+		!Number.isFinite(latitude) ||
+		typeof longitude !== "number" ||
+		!Number.isFinite(longitude)
+	) {
+		return null;
+	}
+
+	const parts = [latitude.toFixed(6), longitude.toFixed(6)];
+	if (
+		typeof metadata.gps_altitude_meters === "number" &&
+		Number.isFinite(metadata.gps_altitude_meters)
+	) {
+		parts.push(`${trimDecimal(metadata.gps_altitude_meters, 1)} m`);
+	}
+	return parts.join(" · ");
+}
+
 function imageMediaMetadata(info: MediaMetadataInfo | null) {
 	if (
 		info?.status !== "ready" ||
@@ -407,6 +429,7 @@ function buildImageMetadataRows({
 			label: t("info_exif_resolution"),
 			value: formatImageResolution(metadata),
 		},
+		{ label: t("info_exif_location"), value: formatGpsLocation(metadata) },
 		{ label: t("info_exif_author"), value: cleanInfoText(metadata.artist) },
 		{ label: t("info_exif_software"), value: cleanInfoText(metadata.software) },
 	]);

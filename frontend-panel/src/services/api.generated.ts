@@ -4512,6 +4512,12 @@ export interface components {
             /** Format: double */
             focal_length_mm?: number | null;
             format?: string | null;
+            /** Format: double */
+            gps_altitude_meters?: number | null;
+            /** Format: double */
+            gps_latitude?: number | null;
+            /** Format: double */
+            gps_longitude?: number | null;
             /** Format: int32 */
             height: number;
             /** Format: int32 */

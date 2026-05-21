@@ -29,8 +29,12 @@ fn tiny_png() -> Vec<u8> {
 
 enum TiffValue<'a> {
     Ascii(&'a str),
+    Byte(u8),
+    ByteArray(&'a [u8]),
     Short(u16),
+    Long(u32),
     Rational(u32, u32),
+    RationalArray(&'a [(u32, u32)]),
     SRational(i32, i32),
 }
 
@@ -46,12 +50,109 @@ fn push_i32_le(bytes: &mut Vec<u8>, value: i32) {
     bytes.extend_from_slice(&value.to_le_bytes());
 }
 
+fn write_tiff_ifd(entries: &[(u16, TiffValue<'_>)], base_offset: usize) -> Vec<u8> {
+    let mut ifd = Vec::new();
+    push_u16_le(&mut ifd, entries.len().try_into().unwrap());
+
+    let ifd_len = 2 + entries.len() * 12 + 4;
+    let mut data = Vec::new();
+    for (tag, value) in entries {
+        push_u16_le(&mut ifd, *tag);
+        match value {
+            TiffValue::Ascii(value) => {
+                let mut ascii = value.as_bytes().to_vec();
+                ascii.push(0);
+                push_u16_le(&mut ifd, 2);
+                push_u32_le(&mut ifd, ascii.len().try_into().unwrap());
+                if ascii.len() <= 4 {
+                    ifd.extend_from_slice(&ascii);
+                    ifd.resize(ifd.len() + 4 - ascii.len(), 0);
+                } else {
+                    push_u32_le(
+                        &mut ifd,
+                        (base_offset + ifd_len + data.len()).try_into().unwrap(),
+                    );
+                    data.extend_from_slice(&ascii);
+                }
+            }
+            TiffValue::Byte(value) => {
+                push_u16_le(&mut ifd, 1);
+                push_u32_le(&mut ifd, 1);
+                ifd.push(*value);
+                ifd.resize(ifd.len() + 3, 0);
+            }
+            TiffValue::ByteArray(values) => {
+                push_u16_le(&mut ifd, 1);
+                push_u32_le(&mut ifd, values.len().try_into().unwrap());
+                if values.len() <= 4 {
+                    ifd.extend_from_slice(values);
+                    ifd.resize(ifd.len() + 4 - values.len(), 0);
+                } else {
+                    push_u32_le(
+                        &mut ifd,
+                        (base_offset + ifd_len + data.len()).try_into().unwrap(),
+                    );
+                    data.extend_from_slice(values);
+                }
+            }
+            TiffValue::Short(value) => {
+                push_u16_le(&mut ifd, 3);
+                push_u32_le(&mut ifd, 1);
+                push_u16_le(&mut ifd, *value);
+                push_u16_le(&mut ifd, 0);
+            }
+            TiffValue::Long(value) => {
+                push_u16_le(&mut ifd, 4);
+                push_u32_le(&mut ifd, 1);
+                push_u32_le(&mut ifd, *value);
+            }
+            TiffValue::Rational(numerator, denominator) => {
+                push_u16_le(&mut ifd, 5);
+                push_u32_le(&mut ifd, 1);
+                push_u32_le(
+                    &mut ifd,
+                    (base_offset + ifd_len + data.len()).try_into().unwrap(),
+                );
+                push_u32_le(&mut data, *numerator);
+                push_u32_le(&mut data, *denominator);
+            }
+            TiffValue::RationalArray(values) => {
+                push_u16_le(&mut ifd, 5);
+                push_u32_le(&mut ifd, values.len().try_into().unwrap());
+                push_u32_le(
+                    &mut ifd,
+                    (base_offset + ifd_len + data.len()).try_into().unwrap(),
+                );
+                for (numerator, denominator) in *values {
+                    push_u32_le(&mut data, *numerator);
+                    push_u32_le(&mut data, *denominator);
+                }
+            }
+            TiffValue::SRational(numerator, denominator) => {
+                push_u16_le(&mut ifd, 10);
+                push_u32_le(&mut ifd, 1);
+                push_u32_le(
+                    &mut ifd,
+                    (base_offset + ifd_len + data.len()).try_into().unwrap(),
+                );
+                push_i32_le(&mut data, *numerator);
+                push_i32_le(&mut data, *denominator);
+            }
+        }
+    }
+    push_u32_le(&mut ifd, 0);
+    ifd.extend_from_slice(&data);
+    ifd
+}
+
 fn tiny_jpeg_with_exif() -> Vec<u8> {
     let mut jpeg = Vec::new();
     let encoder = image::codecs::jpeg::JpegEncoder::new(&mut jpeg);
     image::ImageEncoder::write_image(encoder, &[255, 0, 0], 1, 1, image::ExtendedColorType::Rgb8)
         .unwrap();
 
+    let gps_latitude = [(36, 1), (0, 1), (0, 1)];
+    let gps_longitude = [(120, 1), (30, 1), (0, 1)];
     let mut entries = vec![
         (0x010f, TiffValue::Ascii("NIKON CORPORATION")),
         (0x0110, TiffValue::Ascii("NIKON D3400")),
@@ -69,56 +170,33 @@ fn tiny_jpeg_with_exif() -> Vec<u8> {
         (0xa433, TiffValue::Ascii("NIKON")),
         (0xa434, TiffValue::Ascii("55-200mm f/4-5.6")),
     ];
+    let mut gps_entries = vec![
+        (0x0000, TiffValue::ByteArray(&[2, 3, 0, 0])),
+        (0x0001, TiffValue::Ascii("N")),
+        (0x0002, TiffValue::RationalArray(&gps_latitude)),
+        (0x0003, TiffValue::Ascii("E")),
+        (0x0004, TiffValue::RationalArray(&gps_longitude)),
+        (0x0005, TiffValue::Byte(0)),
+        (0x0006, TiffValue::Rational(123, 10)),
+    ];
     entries.sort_by_key(|(tag, _)| *tag);
+    gps_entries.sort_by_key(|(tag, _)| *tag);
+
+    entries.push((0x8825, TiffValue::Long(0)));
+    entries.sort_by_key(|(tag, _)| *tag);
+    let gps_ifd_offset = 8 + write_tiff_ifd(&entries, 8).len();
+    for (tag, value) in &mut entries {
+        if *tag == 0x8825 {
+            *value = TiffValue::Long(gps_ifd_offset.try_into().unwrap());
+        }
+    }
 
     let mut tiff = Vec::new();
     tiff.extend_from_slice(b"II");
     push_u16_le(&mut tiff, 42);
     push_u32_le(&mut tiff, 8);
-    push_u16_le(&mut tiff, entries.len().try_into().unwrap());
-
-    let ifd_len = 2 + entries.len() * 12 + 4;
-    let mut data = Vec::new();
-    for (tag, value) in entries {
-        push_u16_le(&mut tiff, tag);
-        match value {
-            TiffValue::Ascii(value) => {
-                let mut ascii = value.as_bytes().to_vec();
-                ascii.push(0);
-                push_u16_le(&mut tiff, 2);
-                push_u32_le(&mut tiff, ascii.len().try_into().unwrap());
-                if ascii.len() <= 4 {
-                    tiff.extend_from_slice(&ascii);
-                    tiff.resize(tiff.len() + 4 - ascii.len(), 0);
-                } else {
-                    push_u32_le(&mut tiff, (8 + ifd_len + data.len()).try_into().unwrap());
-                    data.extend_from_slice(&ascii);
-                }
-            }
-            TiffValue::Short(value) => {
-                push_u16_le(&mut tiff, 3);
-                push_u32_le(&mut tiff, 1);
-                push_u16_le(&mut tiff, value);
-                push_u16_le(&mut tiff, 0);
-            }
-            TiffValue::Rational(numerator, denominator) => {
-                push_u16_le(&mut tiff, 5);
-                push_u32_le(&mut tiff, 1);
-                push_u32_le(&mut tiff, (8 + ifd_len + data.len()).try_into().unwrap());
-                push_u32_le(&mut data, numerator);
-                push_u32_le(&mut data, denominator);
-            }
-            TiffValue::SRational(numerator, denominator) => {
-                push_u16_le(&mut tiff, 10);
-                push_u32_le(&mut tiff, 1);
-                push_u32_le(&mut tiff, (8 + ifd_len + data.len()).try_into().unwrap());
-                push_i32_le(&mut data, numerator);
-                push_i32_le(&mut data, denominator);
-            }
-        }
-    }
-    push_u32_le(&mut tiff, 0);
-    tiff.extend_from_slice(&data);
+    tiff.extend_from_slice(&write_tiff_ifd(&entries, 8));
+    tiff.extend_from_slice(&write_tiff_ifd(&gps_entries, gps_ifd_offset));
 
     let mut app1_payload = b"Exif\0\0".to_vec();
     app1_payload.extend_from_slice(&tiff);
@@ -130,6 +208,36 @@ fn tiny_jpeg_with_exif() -> Vec<u8> {
     result.extend_from_slice(&app1_payload);
     result.extend_from_slice(&jpeg[2..]);
     result
+}
+
+fn tiff_with_full_size_sub_ifd() -> Vec<u8> {
+    let mut cursor = std::io::Cursor::new(Vec::new());
+    {
+        let mut encoder = tiff::encoder::TiffEncoder::new(&mut cursor).unwrap();
+        let sub_ifd = {
+            let mut directory = encoder.extra_directory().unwrap();
+            directory
+                .write_tag(tiff::tags::Tag::ImageWidth, 6016u32)
+                .unwrap();
+            directory
+                .write_tag(tiff::tags::Tag::ImageLength, 4016u32)
+                .unwrap();
+            directory.finish_with_offsets().unwrap()
+        };
+        let mut image = encoder
+            .new_image::<tiff::encoder::colortype::Gray8>(160, 120)
+            .unwrap();
+        image
+            .encoder()
+            .write_tag(tiff::tags::Tag::PhotometricInterpretation, 1u16)
+            .unwrap();
+        image
+            .encoder()
+            .write_tag(tiff::tags::Tag::SubIfd, sub_ifd.offset)
+            .unwrap();
+        image.write_data(&vec![0; 160 * 120]).unwrap();
+    }
+    cursor.into_inner()
 }
 
 fn tiny_mp4() -> Vec<u8> {
@@ -465,7 +573,96 @@ async fn file_media_metadata_extracts_image_exif_fields() {
     assert_eq!(metadata["focal_length_35mm"], 202);
     assert_eq!(metadata["taken_at"], "2026-03-05T17:19:01");
     assert_eq!(metadata["orientation"], 8);
+    assert_eq!(metadata["gps_latitude"], 36.0);
+    assert_eq!(metadata["gps_longitude"], 120.5);
+    assert_eq!(metadata["gps_altitude_meters"], 12.3);
     assert_eq!(metadata["artist"], "Aster Tester");
+    assert_eq!(metadata["software"], "Ver.1.12");
+}
+
+#[actix_web::test]
+async fn file_media_metadata_prefers_full_size_tiff_sub_ifd_dimensions() {
+    let state = common::setup().await;
+    let app = create_test_app!(state.clone());
+    let (token, _) = register_and_login!(app);
+    let bytes = tiff_with_full_size_sub_ifd();
+    let file_id = insert_synthetic_media_file(
+        &state,
+        "preview-first.nef",
+        "image/x-nikon-nef",
+        FileCategory::Image,
+        &bytes,
+    )
+    .await;
+
+    let resp = request_media_metadata(&app, &token, file_id).await;
+    assert_eq!(resp.status(), 202);
+
+    let stats = aster_drive::services::task_service::drain(&state)
+        .await
+        .expect("task drain should succeed");
+    assert_eq!(stats.succeeded, 1);
+
+    let resp = request_media_metadata(&app, &token, file_id).await;
+    assert_eq!(resp.status(), 200);
+    let body: Value = test::read_body_json(resp).await;
+    let metadata = &body["data"]["metadata"];
+    assert_eq!(metadata["kind"], "image");
+    assert_eq!(metadata["width"], 6016);
+    assert_eq!(metadata["height"], 4016);
+}
+
+#[actix_web::test]
+async fn file_media_metadata_extracts_real_nef_fixture_when_available() {
+    let fixture_path = std::path::Path::new("/Users/esap/Downloads/DSC_0293.NEF");
+    if !fixture_path.exists() {
+        eprintln!("skipping NEF metadata fixture test; {fixture_path:?} does not exist");
+        return;
+    }
+
+    let state = common::setup().await;
+    let app = create_test_app!(state.clone());
+    let (token, _) = register_and_login!(app);
+    let bytes = std::fs::read(fixture_path).expect("NEF fixture should be readable");
+    let file_id = insert_synthetic_media_file(
+        &state,
+        "DSC_0293.NEF",
+        "image/x-nikon-nef",
+        FileCategory::Image,
+        &bytes,
+    )
+    .await;
+
+    let resp = request_media_metadata(&app, &token, file_id).await;
+    assert_eq!(resp.status(), 202);
+
+    let stats = aster_drive::services::task_service::drain(&state)
+        .await
+        .expect("task drain should succeed");
+    assert_eq!(stats.succeeded, 1);
+
+    let resp = request_media_metadata(&app, &token, file_id).await;
+    assert_eq!(resp.status(), 200);
+    let body: Value = test::read_body_json(resp).await;
+    let metadata = &body["data"]["metadata"];
+    assert_eq!(body["data"]["kind"], "image");
+    assert_eq!(body["data"]["status"], "ready");
+    assert_eq!(body["data"]["parser"], "image");
+    assert_eq!(metadata["kind"], "image");
+    assert_eq!(metadata["width"], 6016);
+    assert_eq!(metadata["height"], 4016);
+    assert_eq!(metadata["camera_make"], "NIKON CORPORATION");
+    assert_eq!(metadata["camera_model"], "NIKON D3400");
+    assert_eq!(metadata["f_number"], 5.6);
+    assert_eq!(metadata["exposure_time_seconds"], 0.003125);
+    assert_eq!(metadata["iso"], 400);
+    assert_eq!(metadata["exposure_bias_ev"], 0.0);
+    assert_eq!(metadata["flash_fired"], false);
+    assert_eq!(metadata["flash_mode"], 16);
+    assert_eq!(metadata["focal_length_mm"], 135.0);
+    assert_eq!(metadata["focal_length_35mm"], 202);
+    assert_eq!(metadata["taken_at"], "2026-03-05T17:19:01");
+    assert_eq!(metadata["orientation"], 8);
     assert_eq!(metadata["software"], "Ver.1.12");
 }
 

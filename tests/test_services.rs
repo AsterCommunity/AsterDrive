@@ -2155,7 +2155,7 @@ async fn test_team_service_rejects_create_without_default_policy_group() {
     .unwrap();
 
     state
-        .db
+        .writer_db()
         .execute_unprepared("UPDATE storage_policy_groups SET is_default = FALSE;")
         .await
         .unwrap();

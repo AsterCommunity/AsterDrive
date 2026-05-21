@@ -10,10 +10,11 @@ use crate::errors::{AsterError, Result};
 use crate::types::MediaProcessorKind;
 
 use super::types::{
+    BUILTIN_AUDIO_METADATA_EXTENSIONS, BUILTIN_IMAGE_METADATA_EXTENSIONS,
     BUILTIN_IMAGES_SUPPORTED_EXTENSIONS, DEFAULT_FFMPEG_COMMAND, DEFAULT_FFMPEG_EXTENSIONS,
-    DEFAULT_FFPROBE_COMMAND, DEFAULT_FFPROBE_EXTENSIONS, DEFAULT_LOFTY_EXTENSIONS,
-    DEFAULT_VIPS_COMMAND, DEFAULT_VIPS_EXTENSIONS, MEDIA_PROCESSING_REGISTRY_VERSION,
-    MatchedMediaProcessor, MediaProcessingMatchKind, MediaProcessingProcessorConfig,
+    DEFAULT_FFPROBE_COMMAND, DEFAULT_FFPROBE_EXTENSIONS, DEFAULT_VIPS_COMMAND,
+    DEFAULT_VIPS_EXTENSIONS, MEDIA_PROCESSING_REGISTRY_VERSION, MatchedMediaProcessor,
+    MediaProcessingMatchKind, MediaProcessingProcessorConfig,
     MediaProcessingProcessorRuntimeConfig, MediaProcessingRegistryConfig, MediaProcessingUse,
     PUBLIC_THUMBNAIL_SUPPORT_VERSION, PublicThumbnailSupport,
 };
@@ -77,6 +78,14 @@ fn normalize_processor_command(value: &str, default_command: &str, label: &str) 
 
 pub fn builtin_images_supports_extension(extension: &str) -> bool {
     BUILTIN_IMAGES_SUPPORTED_EXTENSIONS.contains(&extension)
+}
+
+pub fn builtin_image_metadata_supports_extension(extension: &str) -> bool {
+    BUILTIN_IMAGE_METADATA_EXTENSIONS.contains(&extension)
+}
+
+pub fn builtin_audio_metadata_supports_extension(extension: &str) -> bool {
+    BUILTIN_AUDIO_METADATA_EXTENSIONS.contains(&extension)
 }
 
 pub fn vips_command_from_registry_value(value: &str) -> Result<String> {
@@ -153,7 +162,11 @@ pub fn public_thumbnail_support(runtime_config: &RuntimeConfig) -> PublicThumbna
             MediaProcessorKind::Lofty
                 if processor_supports_use(processor, MediaProcessingUse::ThumbnailAudio) =>
             {
-                extensions.extend(processor.extensions.iter().cloned());
+                extensions.extend(
+                    BUILTIN_AUDIO_METADATA_EXTENSIONS
+                        .iter()
+                        .map(|extension| (*extension).to_string()),
+                );
             }
             MediaProcessorKind::Images
             | MediaProcessorKind::VipsCli
@@ -186,6 +199,13 @@ pub fn default_media_processing_registry_json() -> String {
 }
 
 pub fn normalize_media_processing_registry_config_value(value: &str) -> Result<String> {
+    normalize_media_processing_registry_config_value_with_command_validation(value, true)
+}
+
+fn normalize_media_processing_registry_config_value_with_command_validation(
+    value: &str,
+    validate_runtime_commands: bool,
+) -> Result<String> {
     let mut config: MediaProcessingRegistryConfig =
         serde_json::from_str(value).map_err(|error| {
             AsterError::validation_error(format!(
@@ -195,7 +215,7 @@ pub fn normalize_media_processing_registry_config_value(value: &str) -> Result<S
     if config.version == 1 {
         config.version = MEDIA_PROCESSING_REGISTRY_VERSION;
     }
-    validate_media_processing_registry_config(&mut config, true)?;
+    validate_media_processing_registry_config(&mut config, validate_runtime_commands)?;
     serde_json::to_string_pretty(&config).map_err(|error| {
         AsterError::internal_error(format!(
             "failed to serialize normalized media processing config: {error}",
@@ -215,6 +235,10 @@ pub fn media_processing_registry(runtime_config: &RuntimeConfig) -> MediaProcess
             default_media_processing_registry()
         }
     }
+}
+
+pub fn normalize_existing_media_processing_registry_config_value(value: &str) -> Result<String> {
+    normalize_media_processing_registry_config_value_with_command_validation(value, false)
 }
 
 pub fn processor_candidates_for_file_name(
@@ -259,7 +283,32 @@ pub fn processor_candidates_for_use(
             let Some(extension) = extension.as_deref() else {
                 continue;
             };
-            if builtin_images_supports_extension(extension) {
+            let supported = match media_use {
+                MediaProcessingUse::ThumbnailImage => builtin_images_supports_extension(extension),
+                MediaProcessingUse::MetadataImage => {
+                    builtin_image_metadata_supports_extension(extension)
+                }
+                MediaProcessingUse::ThumbnailAudio
+                | MediaProcessingUse::ThumbnailVideo
+                | MediaProcessingUse::MetadataAudio
+                | MediaProcessingUse::MetadataVideo => false,
+            };
+            if supported {
+                matched.push(MatchedMediaProcessor {
+                    processor: processor.clone(),
+                    match_kind: MediaProcessingMatchKind::Extension,
+                });
+            }
+            continue;
+        }
+
+        if processor.kind == MediaProcessorKind::Lofty
+            && media_use == MediaProcessingUse::MetadataAudio
+        {
+            let Some(extension) = extension.as_deref() else {
+                continue;
+            };
+            if builtin_audio_metadata_supports_extension(extension) {
                 matched.push(MatchedMediaProcessor {
                     processor: processor.clone(),
                     match_kind: MediaProcessingMatchKind::Extension,
@@ -341,7 +390,7 @@ pub fn default_processor_config_for_kind(
                 .iter()
                 .map(|extension| (*extension).to_string())
                 .collect(),
-            MediaProcessorKind::Lofty => DEFAULT_LOFTY_EXTENSIONS
+            MediaProcessorKind::Lofty => BUILTIN_AUDIO_METADATA_EXTENSIONS
                 .iter()
                 .map(|extension| (*extension).to_string())
                 .collect(),
@@ -458,17 +507,22 @@ fn windows_pathext_values() -> Vec<String> {
 }
 
 fn parse_media_processing_registry_config(value: &str) -> Result<MediaProcessingRegistryConfig> {
-    let mut config: MediaProcessingRegistryConfig =
-        serde_json::from_str(value).map_err(|error| {
-            AsterError::validation_error(format!(
-                "media processing config must be valid JSON: {error}",
-            ))
-        })?;
-    if config.version == 1 {
-        config.version = MEDIA_PROCESSING_REGISTRY_VERSION;
-    }
-    validate_media_processing_registry_config(&mut config, false)?;
-    Ok(config)
+    parse_media_processing_registry_config_with_command_validation(value, false)
+}
+
+fn parse_media_processing_registry_config_with_command_validation(
+    value: &str,
+    validate_runtime_commands: bool,
+) -> Result<MediaProcessingRegistryConfig> {
+    let normalized = normalize_media_processing_registry_config_value_with_command_validation(
+        value,
+        validate_runtime_commands,
+    )?;
+    serde_json::from_str(&normalized).map_err(|error| {
+        AsterError::internal_error(format!(
+            "normalized media processing config failed to parse: {error}",
+        ))
+    })
 }
 
 fn validate_media_processing_registry_config(

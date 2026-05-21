@@ -1,3 +1,5 @@
+use std::sync::LazyLock;
+
 use crate::types::MediaProcessorKind;
 use serde::{Deserialize, Serialize};
 #[cfg(all(debug_assertions, feature = "openapi"))]
@@ -8,8 +10,29 @@ pub const PUBLIC_THUMBNAIL_SUPPORT_VERSION: i32 = 1;
 pub const DEFAULT_VIPS_COMMAND: &str = "vips";
 pub const DEFAULT_FFMPEG_COMMAND: &str = "ffmpeg";
 pub const DEFAULT_FFPROBE_COMMAND: &str = "ffprobe";
-pub const BUILTIN_IMAGES_SUPPORTED_EXTENSIONS: &[&str] = &[
-    "jpg", "jpeg", "jpe", "png", "gif", "webp", "bmp", "tif", "tiff",
+const BUILTIN_IMAGE_EXTENSION_ALIASES: &[&str] = &["apng", "jfif"];
+const BUILTIN_AUDIO_METADATA_EXTENSION_ALIASES: &[&str] = &["wave"];
+pub static BUILTIN_IMAGES_SUPPORTED_EXTENSIONS: LazyLock<Vec<&'static str>> = LazyLock::new(|| {
+    let mut extensions = std::collections::BTreeSet::new();
+    for format in image::ImageFormat::all().filter(|format| format.reading_enabled()) {
+        extensions.extend(format.extensions_str().iter().copied());
+    }
+    extensions.extend(
+        BUILTIN_IMAGE_EXTENSION_ALIASES
+            .iter()
+            .copied()
+            .filter(|extension| {
+                image::ImageFormat::from_extension(extension)
+                    .is_some_and(|format| format.reading_enabled())
+            }),
+    );
+    extensions.into_iter().collect()
+});
+pub const BUILTIN_IMAGE_METADATA_EXTENSIONS: &[&str] = &[
+    "jpg", "jpeg", "jfif", "png", "apng", "tif", "tiff", "heic", "heif", "avif", "cr3", "cr2",
+    "raf", "iiq", "3fr", "ari", "arw", "bay", "cap", "dcr", "dng", "erf", "fff", "k25", "kdc",
+    "mef", "mos", "mrw", "nef", "nrw", "orf", "pef", "ptx", "pxn", "r3d", "raw", "rw2", "rwl",
+    "sr2", "srf", "srw", "x3f",
 ];
 /// Common libvips input suffixes used as the default binding for `vips_cli`.
 ///
@@ -18,16 +41,23 @@ pub const DEFAULT_VIPS_EXTENSIONS: &[&str] = &[
     "csv", "mat", "img", "hdr", "pbm", "pgm", "ppm", "pfm", "pnm", "svg", "svgz", "j2k", "jp2",
     "jpt", "j2c", "jpc", "gif", "png", "jpg", "jpeg", "jpe", "webp", "tif", "tiff", "fits", "fit",
     "fts", "exr", "jxl", "pdf", "heic", "heif", "avif", "svs", "vms", "vmu", "ndpi", "scn", "mrxs",
-    "svslide", "bif", "raw",
+    "svslide", "bif", "raw", "nef",
 ];
 pub const DEFAULT_FFMPEG_EXTENSIONS: &[&str] = &[
     "mp4", "m4v", "mov", "mkv", "webm", "avi", "mpg", "mpeg", "m2v", "ts", "m2ts", "mts", "3gp",
     "3g2", "ogv", "flv", "wmv",
 ];
-pub const DEFAULT_LOFTY_EXTENSIONS: &[&str] = &[
-    "aac", "aiff", "aif", "ape", "flac", "m4a", "m4b", "m4p", "m4r", "mka", "mp3", "oga", "ogg",
-    "opus", "wav", "wv",
-];
+pub static BUILTIN_AUDIO_METADATA_EXTENSIONS: LazyLock<Vec<&'static str>> = LazyLock::new(|| {
+    let mut extensions = std::collections::BTreeSet::new();
+    extensions.extend(lofty::file::EXTENSIONS.iter().copied());
+    extensions.extend(
+        BUILTIN_AUDIO_METADATA_EXTENSION_ALIASES
+            .iter()
+            .copied()
+            .filter(|extension| lofty::file::FileType::from_ext(extension).is_some()),
+    );
+    extensions.into_iter().collect()
+});
 pub const DEFAULT_FFPROBE_EXTENSIONS: &[&str] = DEFAULT_FFMPEG_EXTENSIONS;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

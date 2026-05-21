@@ -317,8 +317,14 @@ where
             .await?
             .ok_or_else(|| AsterError::record_not_found(format!("config key '{}'", def.key)))?;
         let mut active: system_config::ActiveModel = existing.into();
-        if def.key == preview_app_service::PREVIEW_APPS_CONFIG_KEY {
-            normalize_existing_preview_apps_config_value(&mut active);
+        match def.key {
+            MEDIA_PROCESSING_REGISTRY_JSON_KEY => {
+                normalize_existing_media_processing_registry_config_value(&mut active);
+            }
+            preview_app_service::PREVIEW_APPS_CONFIG_KEY => {
+                normalize_existing_preview_apps_config_value(&mut active);
+            }
+            _ => {}
         }
         active.source = Set(SystemConfigSource::System);
         active.value_type = Set(def.value_type);
@@ -334,6 +340,29 @@ where
     }
 
     Ok(count)
+}
+
+fn normalize_existing_media_processing_registry_config_value(
+    active: &mut system_config::ActiveModel,
+) {
+    let existing = match &active.value {
+        sea_orm::ActiveValue::Set(value) | sea_orm::ActiveValue::Unchanged(value) => value.clone(),
+        sea_orm::ActiveValue::NotSet => return,
+    };
+
+    match media_processing::normalize_existing_media_processing_registry_config_value(&existing) {
+        Ok(normalized) if normalized != existing => {
+            active.value = Set(normalized);
+        }
+        Ok(_) => {}
+        Err(error) => {
+            tracing::warn!(
+                error = %error,
+                key = MEDIA_PROCESSING_REGISTRY_JSON_KEY,
+                "failed to normalize existing media processing registry during default config sync"
+            );
+        }
+    }
 }
 
 fn normalize_existing_preview_apps_config_value(active: &mut system_config::ActiveModel) {

@@ -1,10 +1,11 @@
-use std::path::Path;
+use std::{collections::BTreeMap, fs::File, io::BufReader, path::Path};
 
-use image::ImageReader;
 use nom_exif::{
     EntryValue, Exif, ExifDateTime, ExifTag, IfdIndex, ImageFormatMetadata, MediaParser,
     MediaSource,
 };
+use tiff::decoder::Decoder as TiffDecoder;
+use tiff::tags::Tag as TiffTag;
 
 use crate::errors::{AsterError, MapAsterErr, Result};
 use crate::types::ImageMediaMetadata;
@@ -12,24 +13,10 @@ use crate::types::ImageMediaMetadata;
 const EXIF_ARTIST_TAG_CODE: u16 = 0x013b;
 
 pub(super) fn parse_image_metadata_from_path(path: &Path) -> Result<ImageMediaMetadata> {
-    let reader = ImageReader::open(path).map_aster_err_ctx(
-        "open image metadata source",
-        AsterError::storage_driver_error,
-    )?;
-    let reader = reader
-        .with_guessed_format()
-        .map_aster_err_ctx("guess image metadata format", AsterError::validation_error)?;
-    let format = reader
-        .format()
-        .map(|format| format.to_mime_type().to_string());
-    let (width, height) = reader
-        .into_dimensions()
-        .map_aster_err_ctx("read image dimensions", AsterError::validation_error)?;
-
     let mut metadata = ImageMediaMetadata {
-        width,
-        height,
-        format,
+        width: 0,
+        height: 0,
+        format: None,
         camera_make: None,
         camera_model: None,
         lens_make: None,
@@ -44,32 +31,89 @@ pub(super) fn parse_image_metadata_from_path(path: &Path) -> Result<ImageMediaMe
         focal_length_35mm: None,
         taken_at: None,
         orientation: None,
+        gps_latitude: None,
+        gps_longitude: None,
+        gps_altitude_meters: None,
         artist: None,
         copyright: None,
         software: None,
     };
 
-    if let Err(error) = enrich_image_metadata_from_exif(path, &mut metadata) {
-        tracing::debug!(
-            path = %path.display(),
-            error = %error,
-            "image exif metadata unavailable"
-        );
+    match parse_nom_exif_image_metadata(path) {
+        Ok(image_metadata) => enrich_image_metadata_from_nom_exif(&image_metadata, &mut metadata),
+        Err(error) => {
+            tracing::debug!(
+                path = %path.display(),
+                error = %error,
+                "image metadata unavailable from nom-exif, falling back to image dimensions"
+            );
+        }
+    }
+
+    match tiff_directory_dimensions_from_path(path) {
+        Ok(Some((width, height)))
+            if dimensions_area(width, height)
+                > dimensions_area(metadata.width, metadata.height) =>
+        {
+            metadata.width = width;
+            metadata.height = height;
+        }
+        Ok(_) => {}
+        Err(error) => {
+            tracing::debug!(
+                path = %path.display(),
+                error = %error,
+                "image dimensions unavailable from TIFF directory metadata"
+            );
+        }
+    }
+
+    if metadata.width == 0 || metadata.height == 0 {
+        let (width, height, format) = image_reader_metadata(path)?;
+        metadata.width = width;
+        metadata.height = height;
+        metadata.format = metadata.format.take().or(format);
     }
 
     Ok(metadata)
 }
 
-fn enrich_image_metadata_from_exif(path: &Path, metadata: &mut ImageMediaMetadata) -> Result<()> {
+fn parse_nom_exif_image_metadata(path: &Path) -> Result<nom_exif::ImageMetadata<Exif>> {
     let mut parser = MediaParser::new();
     let source = MediaSource::open(path)
-        .map_aster_err_ctx("open image exif source", AsterError::validation_error)?;
+        .map_aster_err_ctx("open image metadata source", AsterError::validation_error)?;
     let image_metadata = parser
         .parse_image_metadata(source)
-        .map_aster_err_ctx("parse image exif metadata", AsterError::validation_error)?;
-    let image_metadata: nom_exif::ImageMetadata<Exif> = image_metadata.into();
+        .map_aster_err_ctx("parse image metadata", AsterError::validation_error)?;
+    Ok(image_metadata.into())
+}
 
+fn image_reader_metadata(path: &Path) -> Result<(u32, u32, Option<String>)> {
+    let reader = image::ImageReader::open(path).map_aster_err_ctx(
+        "open image metadata source",
+        AsterError::storage_driver_error,
+    )?;
+    let reader = reader
+        .with_guessed_format()
+        .map_aster_err_ctx("guess image metadata format", AsterError::validation_error)?;
+    let format = reader
+        .format()
+        .map(|format| format.to_mime_type().to_string());
+    let (width, height) = reader
+        .into_dimensions()
+        .map_aster_err_ctx("read image dimensions", AsterError::validation_error)?;
+    Ok((width, height, format))
+}
+
+fn enrich_image_metadata_from_nom_exif(
+    image_metadata: &nom_exif::ImageMetadata<Exif>,
+    metadata: &mut ImageMediaMetadata,
+) {
     if let Some(exif) = image_metadata.exif.as_ref() {
+        if let Some((width, height)) = exif_dimensions(exif) {
+            metadata.width = width;
+            metadata.height = height;
+        }
         metadata.camera_make = exif_text(exif, ExifTag::Make);
         metadata.camera_model = exif_text(exif, ExifTag::Model);
         metadata.lens_make = exif_text(exif, ExifTag::LensMake);
@@ -86,6 +130,11 @@ fn enrich_image_metadata_from_exif(path: &Path, metadata: &mut ImageMediaMetadat
             .or_else(|| exif_datetime(exif, ExifTag::CreateDate))
             .or_else(|| exif_datetime(exif, ExifTag::ModifyDate));
         metadata.orientation = exif_u16(exif, ExifTag::Orientation);
+        if let Some(gps) = exif.gps_info() {
+            metadata.gps_latitude = gps.latitude_decimal().filter(|value| value.is_finite());
+            metadata.gps_longitude = gps.longitude_decimal().filter(|value| value.is_finite());
+            metadata.gps_altitude_meters = gps.altitude_meters().filter(|value| value.is_finite());
+        }
         metadata.artist = exif_text_by_code(exif, EXIF_ARTIST_TAG_CODE);
         metadata.copyright = exif_text(exif, ExifTag::Copyright);
         metadata.software = exif_text(exif, ExifTag::Software);
@@ -105,8 +154,6 @@ fn enrich_image_metadata_from_exif(path: &Path, metadata: &mut ImageMediaMetadat
             .take()
             .or_else(|| clean_metadata_string(chunks.get("Software")));
     }
-
-    Ok(())
 }
 
 fn exif_entry(exif: &Exif, tag: ExifTag) -> Option<&EntryValue> {
@@ -139,40 +186,119 @@ fn exif_text_by_code(exif: &Exif, code: u16) -> Option<String> {
     clean_metadata_string(exif_entry_by_code(exif, code).and_then(EntryValue::as_str))
 }
 
+fn tiff_directory_dimensions_from_path(
+    path: &Path,
+) -> std::result::Result<Option<(u32, u32)>, tiff::TiffError> {
+    let file = File::open(path)?;
+    let mut decoder = TiffDecoder::new(BufReader::new(file))?;
+    let mut best = Some(decoder.dimensions()?);
+
+    if let Some(value) = decoder.find_tag(TiffTag::SubIfd)? {
+        if let Ok(sub_ifds) = value.into_ifd_vec() {
+            for sub_ifd in sub_ifds {
+                let directory = decoder.read_directory(sub_ifd)?;
+                let mut tags = decoder.read_directory_tags(&directory);
+                let width = tags.find_tag_unsigned::<u32>(TiffTag::ImageWidth)?;
+                let height = tags.find_tag_unsigned::<u32>(TiffTag::ImageLength)?;
+                if let Some(dimensions) = width.zip(height) {
+                    best = Some(larger_dimensions(best, dimensions));
+                }
+            }
+        }
+    }
+
+    while decoder.more_images() {
+        decoder.next_image()?;
+        best = Some(larger_dimensions(best, decoder.dimensions()?));
+    }
+
+    Ok(best.filter(|(width, height)| *width > 0 && *height > 0))
+}
+
+fn exif_dimensions(exif: &Exif) -> Option<(u32, u32)> {
+    let mut by_ifd = BTreeMap::<IfdIndex, (Option<u32>, Option<u32>)>::new();
+    for entry in exif.iter() {
+        let Some(tag) = entry.tag.tag() else {
+            continue;
+        };
+        let Some(value) = entry_u32(entry.value) else {
+            continue;
+        };
+        match tag {
+            ExifTag::ExifImageWidth | ExifTag::ImageWidth => {
+                by_ifd.entry(entry.ifd).or_default().0 = Some(value);
+            }
+            ExifTag::ExifImageHeight | ExifTag::ImageHeight => {
+                by_ifd.entry(entry.ifd).or_default().1 = Some(value);
+            }
+            _ => {}
+        }
+    }
+
+    by_ifd
+        .into_values()
+        .filter_map(|(width, height)| Some((width?, height?)))
+        .filter(|(width, height)| *width > 0 && *height > 0)
+        .max_by_key(|(width, height)| u64::from(*width) * u64::from(*height))
+}
+
+fn larger_dimensions(current: Option<(u32, u32)>, candidate: (u32, u32)) -> (u32, u32) {
+    let Some(current) = current else {
+        return candidate;
+    };
+    if dimensions_area(candidate.0, candidate.1) > dimensions_area(current.0, current.1) {
+        candidate
+    } else {
+        current
+    }
+}
+
+fn dimensions_area(width: u32, height: u32) -> u64 {
+    u64::from(width) * u64::from(height)
+}
+
 fn exif_float(exif: &Exif, tag: ExifTag) -> Option<f64> {
     let value = exif_entry(exif, tag)?.try_as_float()?;
     value.is_finite().then_some(value)
 }
 
-fn exif_u16(exif: &Exif, tag: ExifTag) -> Option<u16> {
-    exif_entry(exif, tag)
-        .and_then(EntryValue::as_u16)
+fn entry_u16(value: &EntryValue) -> Option<u16> {
+    value
+        .as_u16()
         .or_else(|| {
-            exif_entry(exif, tag)
-                .and_then(EntryValue::as_u16_slice)
+            value
+                .as_u16_slice()
                 .and_then(|values| values.first().copied())
         })
         .or_else(|| {
-            exif_entry(exif, tag)
-                .and_then(EntryValue::try_as_integer)
+            value
+                .try_as_integer()
                 .and_then(|value| u16::try_from(value).ok())
         })
 }
 
-fn exif_u32(exif: &Exif, tag: ExifTag) -> Option<u32> {
-    exif_entry(exif, tag)
-        .and_then(EntryValue::as_u32)
+fn entry_u32(value: &EntryValue) -> Option<u32> {
+    value
+        .as_u32()
         .or_else(|| {
-            exif_entry(exif, tag)
-                .and_then(EntryValue::as_u32_slice)
+            value
+                .as_u32_slice()
                 .and_then(|values| values.first().copied())
         })
-        .or_else(|| exif_u16(exif, tag).map(u32::from))
+        .or_else(|| entry_u16(value).map(u32::from))
         .or_else(|| {
-            exif_entry(exif, tag)
-                .and_then(EntryValue::try_as_integer)
+            value
+                .try_as_integer()
                 .and_then(|value| u32::try_from(value).ok())
         })
+}
+
+fn exif_u16(exif: &Exif, tag: ExifTag) -> Option<u16> {
+    exif_entry(exif, tag).and_then(entry_u16)
+}
+
+fn exif_u32(exif: &Exif, tag: ExifTag) -> Option<u32> {
+    exif_entry(exif, tag).and_then(entry_u32)
 }
 
 fn exif_datetime(exif: &Exif, tag: ExifTag) -> Option<String> {

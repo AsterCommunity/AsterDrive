@@ -224,7 +224,7 @@ async fn test_sqlite_search_fts_objects_exist() {
     }
 
     let objects = state
-        .db
+        .writer_db()
         .query_all_raw(Statement::from_string(
             DbBackend::Sqlite,
             "SELECT name FROM sqlite_master \

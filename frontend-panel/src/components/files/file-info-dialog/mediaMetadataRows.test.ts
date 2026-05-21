@@ -111,6 +111,9 @@ describe("mediaMetadataRows", () => {
 						flash_fired: true,
 						focal_length_mm: 35.5,
 						format: "image/jpeg",
+						gps_altitude_meters: 12.34,
+						gps_latitude: 36,
+						gps_longitude: 120.5,
 						height: 3000,
 						iso: Number.NaN,
 						kind: "image",
@@ -134,6 +137,9 @@ describe("mediaMetadataRows", () => {
 		expect(rows.get("info_exif_lens")).toBe("35.5mm");
 		expect(rows.get("info_exif_taken_at")).toBe("2024:04:01 05:44:11");
 		expect(rows.get("info_exif_resolution")).toBe("12.0 MP · 4000 x 3000");
+		expect(rows.get("info_exif_location")).toBe(
+			"36.000000 · 120.500000 · 12.3 m",
+		);
 		expect(rows.get("info_exif_author")).toBe("Casey");
 		expect(rows.get("info_exif_software")).toBeUndefined();
 	});

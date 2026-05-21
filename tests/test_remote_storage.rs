@@ -328,7 +328,7 @@ async fn create_managed_local_ingress_for_binding(
     access_key: &str,
     base_path: &str,
 ) {
-    let binding = master_binding_repo::find_by_access_key(&provider_state.writer_db(), access_key)
+    let binding = master_binding_repo::find_by_access_key(provider_state.writer_db(), access_key)
         .await
         .expect("provider master binding lookup should succeed")
         .expect("provider master binding should exist");
@@ -614,12 +614,12 @@ async fn setup_browser_presigned_cors_fixture(
     .await
     .expect("consumer remote node should be created");
     let consumer_node_model =
-        managed_follower_repo::find_by_id(&consumer_state.writer_db(), consumer_node.id)
+        managed_follower_repo::find_by_id(consumer_state.writer_db(), consumer_node.id)
             .await
             .expect("consumer remote node should be queryable");
 
     master_binding_service::upsert_from_enrollment(
-        &provider_state.writer_db(),
+        provider_state.writer_db(),
         master_binding_service::UpsertMasterBindingInput {
             name: format!("{label}-binding"),
             master_url: master_url.to_string(),
@@ -632,7 +632,7 @@ async fn setup_browser_presigned_cors_fixture(
     .expect("provider master binding should be created");
     provider_state
         .driver_registry
-        .reload_master_bindings(&provider_state.writer_db())
+        .reload_master_bindings(provider_state.writer_db())
         .await
         .expect("provider binding registry should reload");
     create_managed_local_ingress_for_binding(
@@ -663,7 +663,7 @@ async fn setup_browser_presigned_cors_fixture(
 
     let app = create_test_app!(consumer_state.clone());
     let _ = register_and_login!(app);
-    let user = user_repo::find_by_username(&consumer_state.writer_db(), "testuser")
+    let user = user_repo::find_by_username(consumer_state.writer_db(), "testuser")
         .await
         .expect("test user lookup should succeed")
         .expect("test user should exist");
@@ -725,12 +725,12 @@ async fn test_managed_ingress_profile_handles_remote_writes_without_legacy_bindi
     .await
     .expect("consumer remote node should be created");
     let consumer_node_model =
-        managed_follower_repo::find_by_id(&consumer_state.writer_db(), consumer_node.id)
+        managed_follower_repo::find_by_id(consumer_state.writer_db(), consumer_node.id)
             .await
             .expect("consumer remote node should be queryable");
 
     let (provider_binding, _) = master_binding_service::upsert_from_enrollment(
-        &provider_state.writer_db(),
+        provider_state.writer_db(),
         master_binding_service::UpsertMasterBindingInput {
             name: "managed-ingress-binding".to_string(),
             master_url: "http://master.example.com".to_string(),
@@ -743,7 +743,7 @@ async fn test_managed_ingress_profile_handles_remote_writes_without_legacy_bindi
     .expect("provider binding should be created");
     provider_state
         .driver_registry
-        .reload_master_bindings(&provider_state.writer_db())
+        .reload_master_bindings(provider_state.writer_db())
         .await
         .expect("provider binding registry should reload");
     create_managed_local_ingress_for_binding(
@@ -807,7 +807,7 @@ async fn test_managed_ingress_profile_api_isolates_multiple_primary_bindings() {
     let provider_server = spawn_internal_storage_server(provider_state.follower_view()).await;
 
     let (binding_a, _) = master_binding_service::upsert_from_enrollment(
-        &provider_state.writer_db(),
+        provider_state.writer_db(),
         master_binding_service::UpsertMasterBindingInput {
             name: "primary-a".to_string(),
             master_url: "http://primary-a.example.com".to_string(),
@@ -819,7 +819,7 @@ async fn test_managed_ingress_profile_api_isolates_multiple_primary_bindings() {
     .await
     .expect("provider binding a should be created");
     let (binding_b, _) = master_binding_service::upsert_from_enrollment(
-        &provider_state.writer_db(),
+        provider_state.writer_db(),
         master_binding_service::UpsertMasterBindingInput {
             name: "primary-b".to_string(),
             master_url: "http://primary-b.example.com".to_string(),
@@ -834,7 +834,7 @@ async fn test_managed_ingress_profile_api_isolates_multiple_primary_bindings() {
 
     provider_state
         .driver_registry
-        .reload_master_bindings(&provider_state.writer_db())
+        .reload_master_bindings(provider_state.writer_db())
         .await
         .expect("provider binding registry should reload");
 
@@ -967,7 +967,7 @@ async fn test_internal_storage_presigned_put_rejects_payload_exceeding_ingress_l
     let access_key = "limit-access-key";
     let secret_key = "limit-secret-key";
     master_binding_service::upsert_from_enrollment(
-        &provider_state.writer_db(),
+        provider_state.writer_db(),
         master_binding_service::UpsertMasterBindingInput {
             name: "limit-binding".to_string(),
             master_url: "http://master.example.com".to_string(),
@@ -980,7 +980,7 @@ async fn test_internal_storage_presigned_put_rejects_payload_exceeding_ingress_l
     .expect("provider binding should be created");
     provider_state
         .driver_registry
-        .reload_master_bindings(&provider_state.writer_db())
+        .reload_master_bindings(provider_state.writer_db())
         .await
         .expect("provider binding registry should reload");
     create_managed_local_ingress_for_binding(&provider_state, access_key, access_key).await;
@@ -1026,7 +1026,7 @@ async fn test_internal_storage_presigned_put_ignores_bytes_beyond_declared_conte
     let access_key = "declared-length-access-key";
     let secret_key = "declared-length-secret-key";
     master_binding_service::upsert_from_enrollment(
-        &provider_state.writer_db(),
+        provider_state.writer_db(),
         master_binding_service::UpsertMasterBindingInput {
             name: "declared-length-binding".to_string(),
             master_url: "http://master.example.com".to_string(),
@@ -1039,11 +1039,11 @@ async fn test_internal_storage_presigned_put_ignores_bytes_beyond_declared_conte
     .expect("provider binding should be created");
     provider_state
         .driver_registry
-        .reload_master_bindings(&provider_state.writer_db())
+        .reload_master_bindings(provider_state.writer_db())
         .await
         .expect("provider binding registry should reload");
     create_managed_local_ingress_for_binding(&provider_state, access_key, access_key).await;
-    let binding = master_binding_repo::find_by_access_key(&provider_state.writer_db(), access_key)
+    let binding = master_binding_repo::find_by_access_key(provider_state.writer_db(), access_key)
         .await
         .expect("provider binding lookup should succeed")
         .expect("provider binding should exist");
@@ -1113,7 +1113,7 @@ async fn test_internal_storage_compose_rejects_expected_size_exceeding_ingress_l
     let access_key = "compose-limit-access-key";
     let secret_key = "compose-limit-secret-key";
     master_binding_service::upsert_from_enrollment(
-        &provider_state.writer_db(),
+        provider_state.writer_db(),
         master_binding_service::UpsertMasterBindingInput {
             name: "compose-limit-binding".to_string(),
             master_url: "http://master.example.com".to_string(),
@@ -1126,7 +1126,7 @@ async fn test_internal_storage_compose_rejects_expected_size_exceeding_ingress_l
     .expect("provider binding should be created");
     provider_state
         .driver_registry
-        .reload_master_bindings(&provider_state.writer_db())
+        .reload_master_bindings(provider_state.writer_db())
         .await
         .expect("provider binding registry should reload");
     create_managed_local_ingress_for_binding(&provider_state, access_key, access_key).await;
@@ -1224,12 +1224,12 @@ async fn test_remote_node_failed_probe_preserves_cached_capabilities() {
     .await
     .expect("consumer remote node should be created");
     let consumer_node_model =
-        managed_follower_repo::find_by_id(&consumer_state.writer_db(), consumer_node.id)
+        managed_follower_repo::find_by_id(consumer_state.writer_db(), consumer_node.id)
             .await
             .expect("consumer remote node should be queryable");
 
     let (provider_binding, _) = master_binding_service::upsert_from_enrollment(
-        &provider_state.writer_db(),
+        provider_state.writer_db(),
         master_binding_service::UpsertMasterBindingInput {
             name: "capability-cache-access".to_string(),
             master_url: "http://master.example.com".to_string(),
@@ -1242,7 +1242,7 @@ async fn test_remote_node_failed_probe_preserves_cached_capabilities() {
     .expect("provider master binding should be created");
     provider_state
         .driver_registry
-        .reload_master_bindings(&provider_state.writer_db())
+        .reload_master_bindings(provider_state.writer_db())
         .await
         .expect("provider binding registry should reload");
     create_managed_local_ingress_for_binding(
@@ -1254,7 +1254,7 @@ async fn test_remote_node_failed_probe_preserves_cached_capabilities() {
 
     wait_for_remote_probe(&consumer_state, consumer_node.id).await;
     let cached_capabilities =
-        managed_follower_repo::find_by_id(&consumer_state.writer_db(), consumer_node.id)
+        managed_follower_repo::find_by_id(consumer_state.writer_db(), consumer_node.id)
             .await
             .expect("remote node should remain queryable after successful probe")
             .last_capabilities;
@@ -1267,7 +1267,7 @@ async fn test_remote_node_failed_probe_preserves_cached_capabilities() {
         .expect_err("stopped provider should make probe fail");
     assert_eq!(error.code(), "E031");
 
-    let stored = managed_follower_repo::find_by_id(&consumer_state.writer_db(), consumer_node.id)
+    let stored = managed_follower_repo::find_by_id(consumer_state.writer_db(), consumer_node.id)
         .await
         .expect("remote node should remain queryable after failed probe");
     assert!(!stored.last_error.is_empty());
@@ -1397,7 +1397,7 @@ async fn create_internal_hmac_binding(
     let access_key = format!("{label}-access-key");
     let secret_key = format!("{label}-secret-key");
     master_binding_service::upsert_from_enrollment(
-        &provider_state.writer_db(),
+        provider_state.writer_db(),
         master_binding_service::UpsertMasterBindingInput {
             name: format!("{label}-binding"),
             master_url: "http://master.example.com".to_string(),
@@ -1425,7 +1425,7 @@ async fn setup_internal_hmac_binding_state(
     let (access_key, secret_key) = create_internal_hmac_binding(&provider_state, label).await;
     provider_state
         .driver_registry
-        .reload_master_bindings(&provider_state.writer_db())
+        .reload_master_bindings(provider_state.writer_db())
         .await
         .expect("provider binding registry should reload");
     (provider_state, access_key, secret_key)
@@ -1438,7 +1438,7 @@ async fn test_internal_storage_capabilities_probe_does_not_require_ingress_profi
     let secret_key = "capabilities-no-ingress-secret-key";
 
     master_binding_service::upsert_from_enrollment(
-        &provider_state.writer_db(),
+        provider_state.writer_db(),
         master_binding_service::UpsertMasterBindingInput {
             name: "capabilities-no-ingress-binding".to_string(),
             master_url: "http://master.example.com".to_string(),
@@ -1451,7 +1451,7 @@ async fn test_internal_storage_capabilities_probe_does_not_require_ingress_profi
     .expect("provider binding should be created");
     provider_state
         .driver_registry
-        .reload_master_bindings(&provider_state.writer_db())
+        .reload_master_bindings(provider_state.writer_db())
         .await
         .expect("provider binding registry should reload");
 
@@ -1576,7 +1576,7 @@ async fn test_internal_storage_hmac_nonce_is_scoped_by_access_key() {
         create_internal_hmac_binding(&provider_state, "capabilities-nonce-scope-b").await;
     provider_state
         .driver_registry
-        .reload_master_bindings(&provider_state.writer_db())
+        .reload_master_bindings(provider_state.writer_db())
         .await
         .expect("provider binding registry should reload");
 
@@ -1698,12 +1698,12 @@ async fn test_remote_storage_end_to_end_via_internal_api() {
     .await
     .expect("consumer remote node should be created");
     let consumer_node_model =
-        managed_follower_repo::find_by_id(&consumer_state.writer_db(), consumer_node.id)
+        managed_follower_repo::find_by_id(consumer_state.writer_db(), consumer_node.id)
             .await
             .expect("consumer remote node should be queryable");
 
     let (provider_binding, _) = master_binding_service::upsert_from_enrollment(
-        &provider_state.writer_db(),
+        provider_state.writer_db(),
         master_binding_service::UpsertMasterBindingInput {
             name: "consumer-access".to_string(),
             master_url: "http://master.example.com".to_string(),
@@ -1716,7 +1716,7 @@ async fn test_remote_storage_end_to_end_via_internal_api() {
     .expect("provider master binding should be created");
     provider_state
         .driver_registry
-        .reload_master_bindings(&provider_state.writer_db())
+        .reload_master_bindings(provider_state.writer_db())
         .await
         .expect("provider binding registry should reload");
     create_managed_local_ingress_for_binding(
@@ -1792,13 +1792,12 @@ async fn test_remote_storage_end_to_end_via_internal_api() {
     .expect("remote file upload should succeed");
     aster_drive::utils::cleanup_temp_file(&upload_path_string).await;
 
-    let created_file = file_repo::find_by_id(&consumer_state.writer_db(), created.id)
+    let created_file = file_repo::find_by_id(consumer_state.writer_db(), created.id)
         .await
         .expect("uploaded file should be queryable");
-    let created_blob =
-        file_repo::find_blob_by_id(&consumer_state.writer_db(), created_file.blob_id)
-            .await
-            .expect("uploaded blob should be queryable");
+    let created_blob = file_repo::find_blob_by_id(consumer_state.writer_db(), created_file.blob_id)
+        .await
+        .expect("uploaded blob should be queryable");
 
     assert!(created_blob.hash.starts_with("remote-"));
     assert!(created_blob.storage_path.starts_with("files/"));
@@ -1871,10 +1870,10 @@ async fn test_remote_storage_end_to_end_via_internal_api() {
     )
     .await
     .expect("remote empty file should be created");
-    let empty_file = file_repo::find_by_id(&consumer_state.writer_db(), empty_file.id)
+    let empty_file = file_repo::find_by_id(consumer_state.writer_db(), empty_file.id)
         .await
         .expect("empty remote file should exist");
-    let empty_blob = file_repo::find_blob_by_id(&consumer_state.writer_db(), empty_file.blob_id)
+    let empty_blob = file_repo::find_blob_by_id(consumer_state.writer_db(), empty_file.blob_id)
         .await
         .expect("empty remote blob should exist");
 
@@ -1927,12 +1926,12 @@ async fn test_remote_presigned_download_redirects_to_follower() {
     .await
     .expect("consumer remote node should be created");
     let consumer_node_model =
-        managed_follower_repo::find_by_id(&consumer_state.writer_db(), consumer_node.id)
+        managed_follower_repo::find_by_id(consumer_state.writer_db(), consumer_node.id)
             .await
             .expect("consumer remote node should be queryable");
 
     master_binding_service::upsert_from_enrollment(
-        &provider_state.writer_db(),
+        provider_state.writer_db(),
         master_binding_service::UpsertMasterBindingInput {
             name: "consumer-access".to_string(),
             master_url: "http://master.example.com".to_string(),
@@ -1945,7 +1944,7 @@ async fn test_remote_presigned_download_redirects_to_follower() {
     .expect("provider master binding should be created");
     provider_state
         .driver_registry
-        .reload_master_bindings(&provider_state.writer_db())
+        .reload_master_bindings(provider_state.writer_db())
         .await
         .expect("provider binding registry should reload");
     create_managed_local_ingress_for_binding(
@@ -1972,7 +1971,7 @@ async fn test_remote_presigned_download_redirects_to_follower() {
 
     let app = create_test_app!(consumer_state.clone());
     let (token, _) = register_and_login!(app);
-    let user = user_repo::find_by_username(&consumer_state.writer_db(), "testuser")
+    let user = user_repo::find_by_username(consumer_state.writer_db(), "testuser")
         .await
         .expect("test user lookup should succeed")
         .expect("test user should exist");
@@ -2117,12 +2116,12 @@ async fn test_disabling_remote_node_syncs_follower_binding_and_blocks_remote_use
     .await
     .expect("consumer remote node should be created");
     let consumer_node_model =
-        managed_follower_repo::find_by_id(&consumer_state.writer_db(), consumer_node.id)
+        managed_follower_repo::find_by_id(consumer_state.writer_db(), consumer_node.id)
             .await
             .expect("consumer remote node should be queryable");
 
     master_binding_service::upsert_from_enrollment(
-        &provider_state.writer_db(),
+        provider_state.writer_db(),
         master_binding_service::UpsertMasterBindingInput {
             name: "consumer-access".to_string(),
             master_url: "http://master.example.com".to_string(),
@@ -2135,7 +2134,7 @@ async fn test_disabling_remote_node_syncs_follower_binding_and_blocks_remote_use
     .expect("provider master binding should be created");
     provider_state
         .driver_registry
-        .reload_master_bindings(&provider_state.writer_db())
+        .reload_master_bindings(provider_state.writer_db())
         .await
         .expect("provider binding registry should reload");
     create_managed_local_ingress_for_binding(
@@ -2159,7 +2158,7 @@ async fn test_disabling_remote_node_syncs_follower_binding_and_blocks_remote_use
     .expect("disabling remote node should succeed");
 
     let provider_binding = master_binding_repo::find_by_access_key(
-        &provider_state.writer_db(),
+        provider_state.writer_db(),
         &consumer_node_model.access_key,
     )
     .await
@@ -2240,12 +2239,12 @@ async fn test_saved_remote_node_connection_endpoint_returns_precondition_failed_
     .await
     .expect("consumer remote node should be created");
     let consumer_node_model =
-        managed_follower_repo::find_by_id(&consumer_state.writer_db(), consumer_node.id)
+        managed_follower_repo::find_by_id(consumer_state.writer_db(), consumer_node.id)
             .await
             .expect("consumer remote node should be queryable");
 
     master_binding_service::upsert_from_enrollment(
-        &provider_state.writer_db(),
+        provider_state.writer_db(),
         master_binding_service::UpsertMasterBindingInput {
             name: "consumer-access".to_string(),
             master_url: "http://master.example.com".to_string(),
@@ -2258,7 +2257,7 @@ async fn test_saved_remote_node_connection_endpoint_returns_precondition_failed_
     .expect("provider master binding should be created");
     provider_state
         .driver_registry
-        .reload_master_bindings(&provider_state.writer_db())
+        .reload_master_bindings(provider_state.writer_db())
         .await
         .expect("provider binding registry should reload");
     create_managed_local_ingress_for_binding(
@@ -2338,7 +2337,7 @@ async fn test_disabled_remote_nodes_skip_network_during_health_checks() {
     );
 
     let remote_node_model =
-        managed_follower_repo::find_by_id(&consumer_state.writer_db(), remote_node.id)
+        managed_follower_repo::find_by_id(consumer_state.writer_db(), remote_node.id)
             .await
             .expect("disabled remote node should remain queryable");
     assert_eq!(remote_node_model.last_checked_at, None);
@@ -2379,7 +2378,7 @@ async fn test_pending_remote_nodes_skip_network_during_health_checks() {
     );
 
     let remote_node_model =
-        managed_follower_repo::find_by_id(&consumer_state.writer_db(), remote_node.id)
+        managed_follower_repo::find_by_id(consumer_state.writer_db(), remote_node.id)
             .await
             .expect("pending remote node should remain queryable");
     assert_eq!(remote_node_model.last_checked_at, None);
@@ -2428,7 +2427,7 @@ async fn test_pending_remote_node_connection_test_requires_completed_enrollment_
     );
 
     let remote_node_model =
-        managed_follower_repo::find_by_id(&consumer_state.writer_db(), remote_node.id)
+        managed_follower_repo::find_by_id(consumer_state.writer_db(), remote_node.id)
             .await
             .expect("pending remote node should remain queryable");
     assert_eq!(remote_node_model.last_checked_at, None);
@@ -2496,12 +2495,12 @@ async fn test_health_checks_only_touch_enabled_remote_nodes_in_mixed_sets() {
     .await
     .expect("enabled remote node should be created");
     let enabled_node_model =
-        managed_follower_repo::find_by_id(&consumer_state.writer_db(), enabled_node.id)
+        managed_follower_repo::find_by_id(consumer_state.writer_db(), enabled_node.id)
             .await
             .expect("enabled remote node should be queryable");
 
     master_binding_service::upsert_from_enrollment(
-        &provider_state.writer_db(),
+        provider_state.writer_db(),
         master_binding_service::UpsertMasterBindingInput {
             name: "enabled-health-check-access".to_string(),
             master_url: "http://master.example.com".to_string(),
@@ -2514,7 +2513,7 @@ async fn test_health_checks_only_touch_enabled_remote_nodes_in_mixed_sets() {
     .expect("provider binding for enabled node should be created");
     provider_state
         .driver_registry
-        .reload_master_bindings(&provider_state.writer_db())
+        .reload_master_bindings(provider_state.writer_db())
         .await
         .expect("provider binding registry should reload");
     create_managed_local_ingress_for_binding(
@@ -2556,11 +2555,11 @@ async fn test_health_checks_only_touch_enabled_remote_nodes_in_mixed_sets() {
     );
 
     let enabled_node_model =
-        managed_follower_repo::find_by_id(&consumer_state.writer_db(), enabled_node.id)
+        managed_follower_repo::find_by_id(consumer_state.writer_db(), enabled_node.id)
             .await
             .expect("enabled remote node should remain queryable");
     let disabled_node_model =
-        managed_follower_repo::find_by_id(&consumer_state.writer_db(), disabled_node.id)
+        managed_follower_repo::find_by_id(consumer_state.writer_db(), disabled_node.id)
             .await
             .expect("disabled remote node should remain queryable");
     assert!(enabled_node_model.last_checked_at.is_some());
@@ -2587,12 +2586,12 @@ async fn test_thumbnail_endpoint_returns_precondition_failed_when_remote_node_di
     .await
     .expect("consumer remote node should be created");
     let consumer_node_model =
-        managed_follower_repo::find_by_id(&consumer_state.writer_db(), consumer_node.id)
+        managed_follower_repo::find_by_id(consumer_state.writer_db(), consumer_node.id)
             .await
             .expect("consumer remote node should be queryable");
 
     master_binding_service::upsert_from_enrollment(
-        &provider_state.writer_db(),
+        provider_state.writer_db(),
         master_binding_service::UpsertMasterBindingInput {
             name: "consumer-access".to_string(),
             master_url: "http://master.example.com".to_string(),
@@ -2605,7 +2604,7 @@ async fn test_thumbnail_endpoint_returns_precondition_failed_when_remote_node_di
     .expect("provider master binding should be created");
     provider_state
         .driver_registry
-        .reload_master_bindings(&provider_state.writer_db())
+        .reload_master_bindings(provider_state.writer_db())
         .await
         .expect("provider binding registry should reload");
     create_managed_local_ingress_for_binding(
@@ -2627,7 +2626,7 @@ async fn test_thumbnail_endpoint_returns_precondition_failed_when_remote_node_di
 
     let app = create_test_app!(consumer_state.clone());
     let (token, _) = register_and_login!(app);
-    let user = user_repo::find_by_username(&consumer_state.writer_db(), "testuser")
+    let user = user_repo::find_by_username(consumer_state.writer_db(), "testuser")
         .await
         .expect("test user lookup should succeed")
         .expect("test user should exist");
@@ -2668,13 +2667,12 @@ async fn test_thumbnail_endpoint_returns_precondition_failed_when_remote_node_di
     .expect("remote thumbnail source upload should succeed");
     aster_drive::utils::cleanup_temp_file(&upload_path_string).await;
 
-    let created_file = file_repo::find_by_id(&consumer_state.writer_db(), created.id)
+    let created_file = file_repo::find_by_id(consumer_state.writer_db(), created.id)
         .await
         .expect("uploaded file should be queryable");
-    let created_blob =
-        file_repo::find_blob_by_id(&consumer_state.writer_db(), created_file.blob_id)
-            .await
-            .expect("uploaded blob should be queryable");
+    let created_blob = file_repo::find_blob_by_id(consumer_state.writer_db(), created_file.blob_id)
+        .await
+        .expect("uploaded blob should be queryable");
     aster_drive::services::media_processing_service::generate_and_store_thumbnail(
         &consumer_state,
         &created_blob,
@@ -2726,12 +2724,12 @@ async fn test_remote_presigned_upload_writes_directly_to_provider() {
     .await
     .expect("consumer remote node should be created");
     let consumer_node_model =
-        managed_follower_repo::find_by_id(&consumer_state.writer_db(), consumer_node.id)
+        managed_follower_repo::find_by_id(consumer_state.writer_db(), consumer_node.id)
             .await
             .expect("consumer remote node should be queryable");
 
     let (provider_binding, _) = master_binding_service::upsert_from_enrollment(
-        &provider_state.writer_db(),
+        provider_state.writer_db(),
         master_binding_service::UpsertMasterBindingInput {
             name: "consumer-access".to_string(),
             master_url: "http://master.example.com".to_string(),
@@ -2744,7 +2742,7 @@ async fn test_remote_presigned_upload_writes_directly_to_provider() {
     .expect("provider master binding should be created");
     provider_state
         .driver_registry
-        .reload_master_bindings(&provider_state.writer_db())
+        .reload_master_bindings(provider_state.writer_db())
         .await
         .expect("provider binding registry should reload");
     create_managed_local_ingress_for_binding(
@@ -2771,7 +2769,7 @@ async fn test_remote_presigned_upload_writes_directly_to_provider() {
 
     let app = create_test_app!(consumer_state.clone());
     let _ = register_and_login!(app);
-    let user = user_repo::find_by_username(&consumer_state.writer_db(), "testuser")
+    let user = user_repo::find_by_username(consumer_state.writer_db(), "testuser")
         .await
         .expect("test user lookup should succeed")
         .expect("test user should exist");
@@ -2815,7 +2813,7 @@ async fn test_remote_presigned_upload_writes_directly_to_provider() {
         response.headers().get(reqwest::header::ETAG).is_some(),
         "remote presigned upload should return ETag header"
     );
-    let session = upload_session_repo::find_by_id(&consumer_state.writer_db(), &upload_id)
+    let session = upload_session_repo::find_by_id(consumer_state.writer_db(), &upload_id)
         .await
         .expect("upload session should exist");
     let temp_key = session
@@ -2860,13 +2858,12 @@ async fn test_remote_presigned_upload_writes_directly_to_provider() {
     let created = upload_service::complete_upload(&consumer_state, &upload_id, user.id, None)
         .await
         .expect("remote presigned upload should complete");
-    let created_file = file_repo::find_by_id(&consumer_state.writer_db(), created.id)
+    let created_file = file_repo::find_by_id(consumer_state.writer_db(), created.id)
         .await
         .expect("uploaded file should be queryable");
-    let created_blob =
-        file_repo::find_blob_by_id(&consumer_state.writer_db(), created_file.blob_id)
-            .await
-            .expect("uploaded blob should be queryable");
+    let created_blob = file_repo::find_blob_by_id(consumer_state.writer_db(), created_file.blob_id)
+        .await
+        .expect("uploaded blob should be queryable");
     assert_ne!(
         created_blob.storage_path, temp_key,
         "completed remote presigned uploads must be copied away from the still-valid PUT key"
@@ -2917,12 +2914,12 @@ async fn test_force_delete_policy_cleans_late_remote_presigned_put_e2e() {
     .await
     .expect("consumer remote node should be created");
     let consumer_node_model =
-        managed_follower_repo::find_by_id(&consumer_state.writer_db(), consumer_node.id)
+        managed_follower_repo::find_by_id(consumer_state.writer_db(), consumer_node.id)
             .await
             .expect("consumer remote node should be queryable");
 
     let (provider_binding, _) = master_binding_service::upsert_from_enrollment(
-        &provider_state.writer_db(),
+        provider_state.writer_db(),
         master_binding_service::UpsertMasterBindingInput {
             name: "late-presigned-consumer-access".to_string(),
             master_url: "http://master.example.com".to_string(),
@@ -2935,7 +2932,7 @@ async fn test_force_delete_policy_cleans_late_remote_presigned_put_e2e() {
     .expect("provider master binding should be created");
     provider_state
         .driver_registry
-        .reload_master_bindings(&provider_state.writer_db())
+        .reload_master_bindings(provider_state.writer_db())
         .await
         .expect("provider binding registry should reload");
     create_managed_local_ingress_for_binding(
@@ -2961,7 +2958,7 @@ async fn test_force_delete_policy_cleans_late_remote_presigned_put_e2e() {
 
     let app = create_test_app!(consumer_state.clone());
     let _ = register_and_login!(app);
-    let user = user_repo::find_by_username(&consumer_state.writer_db(), "testuser")
+    let user = user_repo::find_by_username(consumer_state.writer_db(), "testuser")
         .await
         .expect("test user lookup should succeed")
         .expect("test user should exist");
@@ -2998,7 +2995,7 @@ async fn test_force_delete_policy_cleans_late_remote_presigned_put_e2e() {
         .presigned_url
         .clone()
         .expect("presigned mode should return presigned_url");
-    let session = upload_session_repo::find_by_id(&consumer_state.writer_db(), &upload_id)
+    let session = upload_session_repo::find_by_id(consumer_state.writer_db(), &upload_id)
         .await
         .expect("upload session should exist");
     let temp_key = session
@@ -3023,13 +3020,13 @@ async fn test_force_delete_policy_cleans_late_remote_presigned_put_e2e() {
         .await
         .expect("force deleting remote policy with pending presigned session should succeed");
     assert!(
-        policy_repo::find_by_id(&consumer_state.writer_db(), remote_policy.id)
+        policy_repo::find_by_id(consumer_state.writer_db(), remote_policy.id)
             .await
             .is_err(),
         "remote policy should be deleted"
     );
     assert!(
-        upload_session_repo::find_by_id(&consumer_state.writer_db(), &upload_id)
+        upload_session_repo::find_by_id(consumer_state.writer_db(), &upload_id)
             .await
             .is_err(),
         "force delete should remove the remote upload session before the old URL expires"
@@ -3048,14 +3045,14 @@ async fn test_force_delete_policy_cleans_late_remote_presigned_put_e2e() {
 
     let cleanup_task = background_task::Entity::find()
         .filter(background_task::Column::Kind.eq(BackgroundTaskKind::StoragePolicyTempCleanup))
-        .one(&consumer_state.writer_db())
+        .one(consumer_state.writer_db())
         .await
         .expect("cleanup task query should succeed")
         .expect("force delete should schedule delayed cleanup");
     assert_eq!(cleanup_task.status, BackgroundTaskStatus::Pending);
     let mut due_task: background_task::ActiveModel = cleanup_task.clone().into();
     due_task.next_run_at = Set(Utc::now() - ChronoDuration::seconds(1));
-    due_task.update(&consumer_state.writer_db()).await.unwrap();
+    due_task.update(consumer_state.writer_db()).await.unwrap();
 
     let stats = task_service::dispatch_due(&consumer_state)
         .await
@@ -3068,10 +3065,9 @@ async fn test_force_delete_policy_cleans_late_remote_presigned_put_e2e() {
             .expect("provider temp path existence should be readable after cleanup"),
         "delayed cleanup should delete the late remote temp object"
     );
-    let stored_task =
-        background_task_repo::find_by_id(&consumer_state.writer_db(), cleanup_task.id)
-            .await
-            .expect("cleanup task should remain queryable");
+    let stored_task = background_task_repo::find_by_id(consumer_state.writer_db(), cleanup_task.id)
+        .await
+        .expect("cleanup task should remain queryable");
     assert_eq!(stored_task.status, BackgroundTaskStatus::Succeeded);
 
     provider_server.stop().await;
@@ -3094,12 +3090,12 @@ async fn test_remote_relay_stream_direct_upload_e2e() {
     .await
     .expect("consumer remote node should be created");
     let consumer_node_model =
-        managed_follower_repo::find_by_id(&consumer_state.writer_db(), consumer_node.id)
+        managed_follower_repo::find_by_id(consumer_state.writer_db(), consumer_node.id)
             .await
             .expect("consumer remote node should be queryable");
 
     let (provider_binding, _) = master_binding_service::upsert_from_enrollment(
-        &provider_state.writer_db(),
+        provider_state.writer_db(),
         master_binding_service::UpsertMasterBindingInput {
             name: "consumer-access".to_string(),
             master_url: "http://master.example.com".to_string(),
@@ -3112,7 +3108,7 @@ async fn test_remote_relay_stream_direct_upload_e2e() {
     .expect("provider master binding should be created");
     provider_state
         .driver_registry
-        .reload_master_bindings(&provider_state.writer_db())
+        .reload_master_bindings(provider_state.writer_db())
         .await
         .expect("provider binding registry should reload");
     create_managed_local_ingress_for_binding(
@@ -3212,13 +3208,12 @@ async fn test_remote_relay_stream_direct_upload_e2e() {
         "remote relay direct upload should not create local temp files or upload temp dirs"
     );
 
-    let created_file = file_repo::find_by_id(&consumer_state.writer_db(), file_id)
+    let created_file = file_repo::find_by_id(consumer_state.writer_db(), file_id)
         .await
         .expect("uploaded file should be queryable");
-    let created_blob =
-        file_repo::find_blob_by_id(&consumer_state.writer_db(), created_file.blob_id)
-            .await
-            .expect("uploaded blob should be queryable");
+    let created_blob = file_repo::find_blob_by_id(consumer_state.writer_db(), created_file.blob_id)
+        .await
+        .expect("uploaded blob should be queryable");
     assert!(created_blob.hash.starts_with("remote-"));
     assert!(created_blob.storage_path.starts_with("files/"));
 
@@ -3253,12 +3248,12 @@ async fn test_remote_presigned_upload_browser_cors_follows_bound_master_origin()
     .await
     .expect("consumer remote node should be created");
     let consumer_node_model =
-        managed_follower_repo::find_by_id(&consumer_state.writer_db(), consumer_node.id)
+        managed_follower_repo::find_by_id(consumer_state.writer_db(), consumer_node.id)
             .await
             .expect("consumer remote node should be queryable");
 
     master_binding_service::upsert_from_enrollment(
-        &provider_state.writer_db(),
+        provider_state.writer_db(),
         master_binding_service::UpsertMasterBindingInput {
             name: "consumer-access".to_string(),
             master_url: "http://localhost:3000".to_string(),
@@ -3271,7 +3266,7 @@ async fn test_remote_presigned_upload_browser_cors_follows_bound_master_origin()
     .expect("provider master binding should be created");
     provider_state
         .driver_registry
-        .reload_master_bindings(&provider_state.writer_db())
+        .reload_master_bindings(provider_state.writer_db())
         .await
         .expect("provider binding registry should reload");
     create_managed_local_ingress_for_binding(
@@ -3302,7 +3297,7 @@ async fn test_remote_presigned_upload_browser_cors_follows_bound_master_origin()
 
     let app = create_test_app!(consumer_state.clone());
     let _ = register_and_login!(app);
-    let user = user_repo::find_by_username(&consumer_state.writer_db(), "testuser")
+    let user = user_repo::find_by_username(consumer_state.writer_db(), "testuser")
         .await
         .expect("test user lookup should succeed")
         .expect("test user should exist");
@@ -3489,12 +3484,12 @@ async fn test_remote_presigned_download_browser_cors_allows_get() {
     .await
     .expect("consumer remote node should be created");
     let consumer_node_model =
-        managed_follower_repo::find_by_id(&consumer_state.writer_db(), consumer_node.id)
+        managed_follower_repo::find_by_id(consumer_state.writer_db(), consumer_node.id)
             .await
             .expect("consumer remote node should be queryable");
 
     master_binding_service::upsert_from_enrollment(
-        &provider_state.writer_db(),
+        provider_state.writer_db(),
         master_binding_service::UpsertMasterBindingInput {
             name: "consumer-access".to_string(),
             master_url: "http://localhost:3000".to_string(),
@@ -3507,7 +3502,7 @@ async fn test_remote_presigned_download_browser_cors_allows_get() {
     .expect("provider master binding should be created");
     provider_state
         .driver_registry
-        .reload_master_bindings(&provider_state.writer_db())
+        .reload_master_bindings(provider_state.writer_db())
         .await
         .expect("provider binding registry should reload");
     create_managed_local_ingress_for_binding(
@@ -3538,7 +3533,7 @@ async fn test_remote_presigned_download_browser_cors_allows_get() {
 
     let app = create_test_app!(consumer_state.clone());
     let _ = register_and_login!(app);
-    let user = user_repo::find_by_username(&consumer_state.writer_db(), "testuser")
+    let user = user_repo::find_by_username(consumer_state.writer_db(), "testuser")
         .await
         .expect("test user lookup should succeed")
         .expect("test user should exist");
@@ -3688,7 +3683,7 @@ async fn test_internal_storage_get_honors_range_header() {
     let body = b"0123456789abcdef";
 
     master_binding_service::upsert_from_enrollment(
-        &provider_state.writer_db(),
+        provider_state.writer_db(),
         master_binding_service::UpsertMasterBindingInput {
             name: "range-header-binding".to_string(),
             master_url: "http://master.example.com".to_string(),
@@ -3701,11 +3696,11 @@ async fn test_internal_storage_get_honors_range_header() {
     .expect("provider binding should be created");
     provider_state
         .driver_registry
-        .reload_master_bindings(&provider_state.writer_db())
+        .reload_master_bindings(provider_state.writer_db())
         .await
         .expect("provider binding registry should reload");
     create_managed_local_ingress_for_binding(&provider_state, access_key, access_key).await;
-    let binding = master_binding_repo::find_by_access_key(&provider_state.writer_db(), access_key)
+    let binding = master_binding_repo::find_by_access_key(provider_state.writer_db(), access_key)
         .await
         .expect("provider binding lookup should succeed")
         .expect("provider binding should exist");
@@ -3790,12 +3785,12 @@ async fn test_remote_relay_stream_chunked_upload_e2e() {
     .await
     .expect("consumer remote node should be created");
     let consumer_node_model =
-        managed_follower_repo::find_by_id(&consumer_state.writer_db(), consumer_node.id)
+        managed_follower_repo::find_by_id(consumer_state.writer_db(), consumer_node.id)
             .await
             .expect("consumer remote node should be queryable");
 
     let (provider_binding, _) = master_binding_service::upsert_from_enrollment(
-        &provider_state.writer_db(),
+        provider_state.writer_db(),
         master_binding_service::UpsertMasterBindingInput {
             name: "consumer-access".to_string(),
             master_url: "http://master.example.com".to_string(),
@@ -3808,7 +3803,7 @@ async fn test_remote_relay_stream_chunked_upload_e2e() {
     .expect("provider master binding should be created");
     provider_state
         .driver_registry
-        .reload_master_bindings(&provider_state.writer_db())
+        .reload_master_bindings(provider_state.writer_db())
         .await
         .expect("provider binding registry should reload");
     create_managed_local_ingress_for_binding(
@@ -3878,7 +3873,7 @@ async fn test_remote_relay_stream_chunked_upload_e2e() {
         .upload_id
         .clone()
         .expect("chunked mode should return upload id");
-    let session = upload_session_repo::find_by_id(&consumer_state.writer_db(), &upload_id)
+    let session = upload_session_repo::find_by_id(consumer_state.writer_db(), &upload_id)
         .await
         .expect("upload session should exist");
     let remote_multipart_id = session
@@ -3911,7 +3906,7 @@ async fn test_remote_relay_stream_chunked_upload_e2e() {
         "remote relay multipart should not create local upload temp dir"
     );
     assert!(
-        upload_session_part_repo::list_by_upload(&consumer_state.writer_db(), &upload_id)
+        upload_session_part_repo::list_by_upload(consumer_state.writer_db(), &upload_id)
             .await
             .expect("multipart parts should be queryable")
             .is_empty()
@@ -3946,7 +3941,7 @@ async fn test_remote_relay_stream_chunked_upload_e2e() {
     assert_eq!(error_body["error"]["internal_code"], "E024");
     assert_eq!(error_body["error"]["subcode"], "upload.chunk_too_large");
     assert!(
-        upload_session_part_repo::list_by_upload(&consumer_state.writer_db(), &oversized_upload_id)
+        upload_session_part_repo::list_by_upload(consumer_state.writer_db(), &oversized_upload_id)
             .await
             .expect("multipart parts should be queryable")
             .is_empty(),
@@ -3989,7 +3984,7 @@ async fn test_remote_relay_stream_chunked_upload_e2e() {
         .expect("remote relay upload progress should be queryable");
     assert_eq!(progress.chunks_on_disk, vec![0]);
 
-    let parts = upload_session_part_repo::list_by_upload(&consumer_state.writer_db(), &upload_id)
+    let parts = upload_session_part_repo::list_by_upload(consumer_state.writer_db(), &upload_id)
         .await
         .expect("remote relay multipart parts should be queryable");
     assert_eq!(parts.len(), 1);
@@ -4024,13 +4019,12 @@ async fn test_remote_relay_stream_chunked_upload_e2e() {
     let created = upload_service::complete_upload(&consumer_state, &upload_id, user.id, None)
         .await
         .expect("remote relay multipart upload should complete");
-    let created_file = file_repo::find_by_id(&consumer_state.writer_db(), created.id)
+    let created_file = file_repo::find_by_id(consumer_state.writer_db(), created.id)
         .await
         .expect("uploaded file should be queryable");
-    let created_blob =
-        file_repo::find_blob_by_id(&consumer_state.writer_db(), created_file.blob_id)
-            .await
-            .expect("uploaded blob should be queryable");
+    let created_blob = file_repo::find_blob_by_id(consumer_state.writer_db(), created_file.blob_id)
+        .await
+        .expect("uploaded blob should be queryable");
     assert_eq!(created_blob.storage_path, format!("files/{upload_id}"));
 
     let stored_path = managed_ingress_object_path(
@@ -4091,12 +4085,12 @@ async fn test_remote_presigned_upload_browser_cors_accepts_master_url_with_path_
     .await
     .expect("consumer remote node should be created");
     let consumer_node_model =
-        managed_follower_repo::find_by_id(&consumer_state.writer_db(), consumer_node.id)
+        managed_follower_repo::find_by_id(consumer_state.writer_db(), consumer_node.id)
             .await
             .expect("consumer remote node should be queryable");
 
     master_binding_service::upsert_from_enrollment(
-        &provider_state.writer_db(),
+        provider_state.writer_db(),
         master_binding_service::UpsertMasterBindingInput {
             name: "consumer-access".to_string(),
             master_url: "http://localhost:3000/admin/settings/general".to_string(),
@@ -4109,7 +4103,7 @@ async fn test_remote_presigned_upload_browser_cors_accepts_master_url_with_path_
     .expect("provider master binding should be created");
     provider_state
         .driver_registry
-        .reload_master_bindings(&provider_state.writer_db())
+        .reload_master_bindings(provider_state.writer_db())
         .await
         .expect("provider binding registry should reload");
     create_managed_local_ingress_for_binding(
@@ -4140,7 +4134,7 @@ async fn test_remote_presigned_upload_browser_cors_accepts_master_url_with_path_
 
     let app = create_test_app!(consumer_state.clone());
     let _ = register_and_login!(app);
-    let user = user_repo::find_by_username(&consumer_state.writer_db(), "testuser")
+    let user = user_repo::find_by_username(consumer_state.writer_db(), "testuser")
         .await
         .expect("test user lookup should succeed")
         .expect("test user should exist");
@@ -4217,12 +4211,12 @@ async fn test_remote_presigned_upload_browser_cors_rejects_disabled_binding() {
     .await
     .expect("consumer remote node should be created");
     let consumer_node_model =
-        managed_follower_repo::find_by_id(&consumer_state.writer_db(), consumer_node.id)
+        managed_follower_repo::find_by_id(consumer_state.writer_db(), consumer_node.id)
             .await
             .expect("consumer remote node should be queryable");
 
     let binding = master_binding_service::upsert_from_enrollment(
-        &provider_state.writer_db(),
+        provider_state.writer_db(),
         master_binding_service::UpsertMasterBindingInput {
             name: "consumer-access".to_string(),
             master_url: "http://localhost:3000".to_string(),
@@ -4236,7 +4230,7 @@ async fn test_remote_presigned_upload_browser_cors_rejects_disabled_binding() {
     .0;
     provider_state
         .driver_registry
-        .reload_master_bindings(&provider_state.writer_db())
+        .reload_master_bindings(provider_state.writer_db())
         .await
         .expect("provider binding registry should reload");
     create_managed_local_ingress_for_binding(
@@ -4267,7 +4261,7 @@ async fn test_remote_presigned_upload_browser_cors_rejects_disabled_binding() {
 
     let app = create_test_app!(consumer_state.clone());
     let _ = register_and_login!(app);
-    let user = user_repo::find_by_username(&consumer_state.writer_db(), "testuser")
+    let user = user_repo::find_by_username(consumer_state.writer_db(), "testuser")
         .await
         .expect("test user lookup should succeed")
         .expect("test user should exist");
@@ -4669,12 +4663,12 @@ async fn test_remote_presigned_multipart_upload_composes_on_provider_without_ass
     .await
     .expect("consumer remote node should be created");
     let consumer_node_model =
-        managed_follower_repo::find_by_id(&consumer_state.writer_db(), consumer_node.id)
+        managed_follower_repo::find_by_id(consumer_state.writer_db(), consumer_node.id)
             .await
             .expect("consumer remote node should be queryable");
 
     let (provider_binding, _) = master_binding_service::upsert_from_enrollment(
-        &provider_state.writer_db(),
+        provider_state.writer_db(),
         master_binding_service::UpsertMasterBindingInput {
             name: "consumer-access".to_string(),
             master_url: "http://master.example.com".to_string(),
@@ -4687,7 +4681,7 @@ async fn test_remote_presigned_multipart_upload_composes_on_provider_without_ass
     .expect("provider master binding should be created");
     provider_state
         .driver_registry
-        .reload_master_bindings(&provider_state.writer_db())
+        .reload_master_bindings(provider_state.writer_db())
         .await
         .expect("provider binding registry should reload");
     create_managed_local_ingress_for_binding(
@@ -4714,7 +4708,7 @@ async fn test_remote_presigned_multipart_upload_composes_on_provider_without_ass
 
     let app = create_test_app!(consumer_state.clone());
     let _ = register_and_login!(app);
-    let user = user_repo::find_by_username(&consumer_state.writer_db(), "testuser")
+    let user = user_repo::find_by_username(consumer_state.writer_db(), "testuser")
         .await
         .expect("test user lookup should succeed")
         .expect("test user should exist");
@@ -4753,7 +4747,7 @@ async fn test_remote_presigned_multipart_upload_composes_on_provider_without_ass
         .upload_id
         .clone()
         .expect("presigned multipart mode should return upload id");
-    let session = upload_session_repo::find_by_id(&consumer_state.writer_db(), &upload_id)
+    let session = upload_session_repo::find_by_id(consumer_state.writer_db(), &upload_id)
         .await
         .expect("upload session should exist");
     let remote_multipart_id = session
@@ -4837,13 +4831,12 @@ async fn test_remote_presigned_multipart_upload_composes_on_provider_without_ass
     )
     .await
     .expect("remote presigned multipart upload should complete");
-    let created_file = file_repo::find_by_id(&consumer_state.writer_db(), created.id)
+    let created_file = file_repo::find_by_id(consumer_state.writer_db(), created.id)
         .await
         .expect("uploaded file should be queryable");
-    let created_blob =
-        file_repo::find_blob_by_id(&consumer_state.writer_db(), created_file.blob_id)
-            .await
-            .expect("uploaded blob should be queryable");
+    let created_blob = file_repo::find_blob_by_id(consumer_state.writer_db(), created_file.blob_id)
+        .await
+        .expect("uploaded blob should be queryable");
 
     let stored_path = managed_ingress_object_path(
         &provider_state,

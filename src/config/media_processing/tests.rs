@@ -4,19 +4,20 @@ use crate::types::{MediaProcessorKind, SystemConfigSource, SystemConfigValueType
 use chrono::Utc;
 
 use super::{
+    BUILTIN_AUDIO_METADATA_EXTENSIONS, BUILTIN_IMAGE_METADATA_EXTENSIONS,
     BUILTIN_IMAGES_SUPPORTED_EXTENSIONS, DEFAULT_FFMPEG_COMMAND, DEFAULT_FFMPEG_EXTENSIONS,
-    DEFAULT_FFPROBE_COMMAND, DEFAULT_FFPROBE_EXTENSIONS, DEFAULT_LOFTY_EXTENSIONS,
-    DEFAULT_VIPS_COMMAND, DEFAULT_VIPS_EXTENSIONS, MEDIA_PROCESSING_REGISTRY_JSON_KEY,
-    MEDIA_PROCESSING_REGISTRY_VERSION, MatchedMediaProcessor, MediaProcessingMatchKind,
-    MediaProcessingProcessorConfig, MediaProcessingProcessorRuntimeConfig,
-    MediaProcessingRegistryConfig, MediaProcessingUse, PublicThumbnailSupport,
-    command_is_available, default_media_processing_registry,
-    default_media_processing_registry_json, default_uses_for_kind,
-    ffmpeg_command_from_registry_value, ffprobe_command_from_registry_value, file_extension,
-    media_processing_registry, normalize_ffmpeg_command, normalize_ffprobe_command,
+    DEFAULT_FFPROBE_COMMAND, DEFAULT_FFPROBE_EXTENSIONS, DEFAULT_VIPS_COMMAND,
+    DEFAULT_VIPS_EXTENSIONS, MEDIA_PROCESSING_REGISTRY_JSON_KEY, MEDIA_PROCESSING_REGISTRY_VERSION,
+    MatchedMediaProcessor, MediaProcessingMatchKind, MediaProcessingProcessorConfig,
+    MediaProcessingProcessorRuntimeConfig, MediaProcessingRegistryConfig, MediaProcessingUse,
+    PublicThumbnailSupport, builtin_audio_metadata_supports_extension,
+    builtin_image_metadata_supports_extension, command_is_available,
+    default_media_processing_registry, default_media_processing_registry_json,
+    default_uses_for_kind, ffmpeg_command_from_registry_value, ffprobe_command_from_registry_value,
+    file_extension, media_processing_registry, normalize_ffmpeg_command, normalize_ffprobe_command,
     normalize_media_processing_registry_config_value, normalize_vips_command,
-    parse_media_processor_kind, processor_candidates_for_file_name, processor_config_for_kind,
-    public_thumbnail_support, vips_command_from_registry_value,
+    parse_media_processor_kind, processor_candidates_for_file_name, processor_candidates_for_use,
+    processor_config_for_kind, public_thumbnail_support, vips_command_from_registry_value,
 };
 
 fn config_model(key: &str, value: &str) -> system_config::Model {
@@ -107,10 +108,59 @@ fn normalize_ffprobe_command_trims_and_defaults() {
 
 #[test]
 fn builtin_images_supports_known_extensions() {
-    for extension in BUILTIN_IMAGES_SUPPORTED_EXTENSIONS {
+    for extension in BUILTIN_IMAGES_SUPPORTED_EXTENSIONS.iter() {
         assert!(super::builtin_images_supports_extension(extension));
     }
+    for format in image::ImageFormat::all().filter(|format| format.reading_enabled()) {
+        for extension in format.extensions_str() {
+            assert!(
+                BUILTIN_IMAGES_SUPPORTED_EXTENSIONS.contains(extension),
+                "image extension '{extension}' should be exposed"
+            );
+        }
+    }
+    assert!(BUILTIN_IMAGES_SUPPORTED_EXTENSIONS.contains(&"apng"));
+    assert!(BUILTIN_IMAGES_SUPPORTED_EXTENSIONS.contains(&"jfif"));
     assert!(!super::builtin_images_supports_extension("heic"));
+    assert!(!super::builtin_images_supports_extension("nef"));
+    assert!(!super::builtin_images_supports_extension("pfm"));
+}
+
+#[test]
+fn builtin_image_metadata_supports_nom_exif_image_extensions() {
+    for extension in BUILTIN_IMAGE_METADATA_EXTENSIONS {
+        assert!(builtin_image_metadata_supports_extension(extension));
+    }
+    assert!(builtin_image_metadata_supports_extension("heic"));
+    assert!(builtin_image_metadata_supports_extension("cr3"));
+    assert!(builtin_image_metadata_supports_extension("raf"));
+    assert!(builtin_image_metadata_supports_extension("nef"));
+    assert!(!super::builtin_images_supports_extension("nef"));
+    assert!(!builtin_image_metadata_supports_extension("webp"));
+}
+
+#[test]
+fn builtin_audio_metadata_supports_lofty_extensions() {
+    for extension in BUILTIN_AUDIO_METADATA_EXTENSIONS.iter() {
+        assert!(builtin_audio_metadata_supports_extension(extension));
+        assert!(
+            lofty::file::FileType::from_ext(extension).is_some(),
+            "lofty should recognize extension '{extension}'"
+        );
+    }
+    for extension in lofty::file::EXTENSIONS {
+        assert!(
+            BUILTIN_AUDIO_METADATA_EXTENSIONS.contains(extension),
+            "lofty extension '{extension}' should be exposed"
+        );
+    }
+    assert!(builtin_audio_metadata_supports_extension("mp2"));
+    assert!(builtin_audio_metadata_supports_extension("aifc"));
+    assert!(builtin_audio_metadata_supports_extension("spx"));
+    assert!(builtin_audio_metadata_supports_extension("mpc"));
+    assert!(builtin_audio_metadata_supports_extension("wave"));
+    assert!(!builtin_audio_metadata_supports_extension("mka"));
+    assert!(!builtin_audio_metadata_supports_extension("oga"));
 }
 
 #[test]
@@ -284,7 +334,7 @@ fn default_registry_includes_known_processors_in_fixed_order() {
                     MediaProcessingUse::ThumbnailAudio,
                     MediaProcessingUse::MetadataAudio,
                 ],
-                extensions: DEFAULT_LOFTY_EXTENSIONS
+                extensions: BUILTIN_AUDIO_METADATA_EXTENSIONS
                     .iter()
                     .map(|extension| (*extension).to_string())
                     .collect(),
@@ -360,18 +410,21 @@ fn public_thumbnail_support_exposes_enabled_processor_capabilities() {
         .to_string(),
     ));
 
+    let mut expected = BUILTIN_AUDIO_METADATA_EXTENSIONS
+        .iter()
+        .map(|extension| (*extension).to_string())
+        .collect::<std::collections::BTreeSet<_>>();
+    expected.extend(
+        ["avif", "heic", "mp4", "webm"]
+            .into_iter()
+            .map(str::to_string),
+    );
+
     assert_eq!(
         public_thumbnail_support(&runtime_config),
         PublicThumbnailSupport {
             version: 1,
-            extensions: vec![
-                "avif".to_string(),
-                "flac".to_string(),
-                "heic".to_string(),
-                "mp3".to_string(),
-                "mp4".to_string(),
-                "webm".to_string(),
-            ],
+            extensions: expected.into_iter().collect(),
         }
     );
 }
@@ -381,7 +434,7 @@ fn public_thumbnail_support_keeps_builtin_extensions_when_images_are_enabled() {
     let support = public_thumbnail_support(&RuntimeConfig::new());
     let expected = BUILTIN_IMAGES_SUPPORTED_EXTENSIONS
         .iter()
-        .chain(DEFAULT_LOFTY_EXTENSIONS.iter())
+        .chain(BUILTIN_AUDIO_METADATA_EXTENSIONS.iter())
         .map(|extension| (*extension).to_string())
         .collect::<std::collections::BTreeSet<_>>()
         .into_iter()
@@ -700,6 +753,87 @@ fn processor_candidates_for_file_name_use_fixed_processor_priority() {
 }
 
 #[test]
+fn nef_uses_builtin_image_metadata_and_vips_thumbnail_bindings() {
+    let mut config = default_media_processing_registry();
+    processor_config_for_kind_mut(&mut config, MediaProcessorKind::VipsCli)
+        .expect("vips processor should exist")
+        .enabled = true;
+
+    let metadata_candidates =
+        processor_candidates_for_use(&config, MediaProcessingUse::MetadataImage, "photo.NEF");
+    assert_eq!(metadata_candidates.len(), 1);
+    assert_eq!(
+        metadata_candidates[0].processor.kind,
+        MediaProcessorKind::Images
+    );
+    assert_eq!(
+        metadata_candidates[0].match_kind,
+        MediaProcessingMatchKind::Extension
+    );
+
+    let thumbnail_candidates = processor_candidates_for_file_name(&config, "photo.NEF");
+    assert_eq!(thumbnail_candidates.len(), 1);
+    assert_eq!(
+        thumbnail_candidates[0].processor.kind,
+        MediaProcessorKind::VipsCli
+    );
+    assert_eq!(
+        thumbnail_candidates[0].match_kind,
+        MediaProcessingMatchKind::Extension
+    );
+
+    processor_config_for_kind_mut(&mut config, MediaProcessorKind::VipsCli)
+        .expect("vips processor should exist")
+        .enabled = false;
+    assert!(processor_candidates_for_file_name(&config, "photo.NEF").is_empty());
+}
+
+#[test]
+fn audio_metadata_uses_builtin_lofty_extensions_over_stored_match_list() {
+    let config = MediaProcessingRegistryConfig {
+        version: MEDIA_PROCESSING_REGISTRY_VERSION,
+        processors: vec![MediaProcessingProcessorConfig {
+            kind: MediaProcessorKind::Lofty,
+            enabled: true,
+            uses: vec![MediaProcessingUse::MetadataAudio],
+            extensions: vec!["mp3".to_string()],
+            config: MediaProcessingProcessorRuntimeConfig::default(),
+        }],
+    };
+
+    let candidates =
+        processor_candidates_for_use(&config, MediaProcessingUse::MetadataAudio, "track.spx");
+    assert_eq!(candidates.len(), 1);
+    assert_eq!(candidates[0].processor.kind, MediaProcessorKind::Lofty);
+    assert_eq!(
+        candidates[0].match_kind,
+        MediaProcessingMatchKind::Extension
+    );
+
+    let disabled = MediaProcessingRegistryConfig {
+        processors: vec![MediaProcessingProcessorConfig {
+            enabled: false,
+            ..config.processors[0].clone()
+        }],
+        ..config
+    };
+    assert!(
+        processor_candidates_for_use(&disabled, MediaProcessingUse::MetadataAudio, "track.spx")
+            .is_empty()
+    );
+}
+
+fn processor_config_for_kind_mut(
+    config: &mut MediaProcessingRegistryConfig,
+    kind: MediaProcessorKind,
+) -> Option<&mut MediaProcessingProcessorConfig> {
+    config
+        .processors
+        .iter_mut()
+        .find(|processor| processor.kind == kind)
+}
+
+#[test]
 fn file_extension_normalizes_suffixes() {
     assert_eq!(file_extension("photo.HEIC"), Some("heic".to_string()));
     assert_eq!(file_extension("archive"), None);
@@ -799,5 +933,34 @@ fn runtime_readers_keep_ffmpeg_processor_even_when_command_is_unavailable() {
     assert_eq!(
         processor.config.command.as_deref(),
         Some("definitely-missing-ffmpeg-cli")
+    );
+}
+
+#[test]
+fn normalize_existing_media_processing_registry_adds_metadata_raw_extensions_without_enabling_processors()
+ {
+    let normalized = super::normalize_existing_media_processing_registry_config_value(
+        r#"{
+                "version": 1,
+                "processors": [
+                    {
+                        "kind": "images",
+                        "enabled": false
+                    }
+                ]
+            }"#,
+    )
+    .unwrap();
+
+    let parsed: MediaProcessingRegistryConfig = serde_json::from_str(&normalized).unwrap();
+    let images = processor_config_for_kind(&parsed, MediaProcessorKind::Images)
+        .expect("images processor should exist");
+    assert!(!images.enabled);
+    assert_eq!(
+        images.uses,
+        vec![
+            MediaProcessingUse::ThumbnailImage,
+            MediaProcessingUse::MetadataImage,
+        ]
     );
 }

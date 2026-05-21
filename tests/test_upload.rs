@@ -276,7 +276,7 @@ async fn test_upload_session_try_create_preserves_non_id_unique_conflict() {
 
     let state = common::setup().await;
     state
-        .db
+        .writer_db()
         .execute_unprepared(
             "CREATE UNIQUE INDEX uq_upload_sessions_filename_test ON upload_sessions (filename)",
         )
