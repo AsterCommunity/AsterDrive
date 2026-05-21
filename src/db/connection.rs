@@ -294,6 +294,23 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn sqlite_memory_handles_use_single_connection() {
+        let handles = super::connect_handles(&DatabaseConfig {
+            url: "sqlite::memory:".to_string(),
+            pool_size: 4,
+            retry_count: 0,
+        })
+        .await
+        .expect("sqlite memory handles should connect");
+
+        assert!(!handles.sqlite_read_write_split());
+        assert_eq!(
+            handles.writer().get_database_backend(),
+            handles.reader().get_database_backend()
+        );
+    }
+
+    #[tokio::test]
     async fn sqlite_reader_pool_is_query_only() {
         let url = format!(
             "sqlite:///tmp/asterdrive-reader-pool-{}.db?mode=rwc",
@@ -306,6 +323,7 @@ mod tests {
         })
         .await
         .expect("sqlite handles should connect");
+        assert!(handles.sqlite_read_write_split());
 
         handles
             .writer()
@@ -333,6 +351,7 @@ mod tests {
         })
         .await
         .expect("sqlite handles should connect");
+        assert!(handles.sqlite_read_write_split());
 
         handles
             .writer()

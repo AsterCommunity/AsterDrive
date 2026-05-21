@@ -310,8 +310,20 @@ mod tests {
             follower.db().get_database_backend()
         );
         assert_eq!(
+            state.writer_db().get_database_backend(),
+            follower.writer_db().get_database_backend()
+        );
+        assert_eq!(
             state.reader_db().get_database_backend(),
             follower.reader_db().get_database_backend()
+        );
+        assert_eq!(
+            SharedRuntimeState::writer_db(&state).get_database_backend(),
+            SharedRuntimeState::writer_db(&follower).get_database_backend()
+        );
+        assert_eq!(
+            SharedRuntimeState::reader_db(&state).get_database_backend(),
+            SharedRuntimeState::reader_db(&follower).get_database_backend()
         );
     }
 
@@ -320,9 +332,29 @@ mod tests {
         let state = setup_state().await;
         let data = web::Data::new(state.clone());
 
+        assert_eq!(
+            SharedRuntimeState::db(&data).get_database_backend(),
+            state.db.get_database_backend()
+        );
+        assert_eq!(
+            SharedRuntimeState::writer_db(&data).get_database_backend(),
+            state.writer_db().get_database_backend()
+        );
+        assert_eq!(
+            SharedRuntimeState::reader_db(&data).get_database_backend(),
+            state.reader_db().get_database_backend()
+        );
         assert!(Arc::ptr_eq(&state.runtime_config, data.runtime_config()));
         assert!(Arc::ptr_eq(&state.mail_sender, data.mail_sender()));
         assert!(Arc::ptr_eq(&state.driver_registry, data.driver_registry()));
+        assert!(Arc::ptr_eq(
+            &state.policy_snapshot,
+            SharedRuntimeState::policy_snapshot(&data)
+        ));
+        assert!(Arc::ptr_eq(
+            &state.config,
+            SharedRuntimeState::config(&data)
+        ));
         assert_eq!(
             state.storage_change_tx.receiver_count(),
             data.storage_change_tx().receiver_count()
@@ -338,6 +370,26 @@ mod tests {
 
         let follower = setup_state().await.follower_view();
         let data = web::Data::new(follower);
+        assert_eq!(
+            SharedRuntimeState::writer_db(&data).get_database_backend(),
+            data.get_ref().writer_db().get_database_backend()
+        );
+        assert_eq!(
+            SharedRuntimeState::reader_db(&data).get_database_backend(),
+            data.get_ref().reader_db().get_database_backend()
+        );
         assert_follower_state(&data);
+    }
+
+    #[tokio::test]
+    async fn primary_state_wakes_background_task_dispatcher() {
+        let state = setup_state().await;
+        let notified = state.background_task_dispatch_wakeup.notified();
+
+        state.wake_background_task_dispatcher();
+
+        tokio::time::timeout(std::time::Duration::from_secs(1), notified)
+            .await
+            .expect("background dispatcher wakeup should notify waiters");
     }
 }
