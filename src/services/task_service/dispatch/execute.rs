@@ -12,6 +12,7 @@ use crate::runtime::PrimaryAppState;
 use crate::types::BackgroundTaskKind;
 
 use super::super::archive;
+use super::super::media_metadata;
 use super::super::retry::{TaskRetryClass, TaskRetryPolicy};
 use super::super::runtime;
 use super::super::steps::{mark_active_step_failed, parse_task_steps_json, serialize_task_steps};
@@ -278,6 +279,9 @@ async fn process_task(
         BackgroundTaskKind::ThumbnailGenerate => {
             thumbnail::process_thumbnail_generate_task(state, task, lease_guard).await
         }
+        BackgroundTaskKind::MediaMetadataExtract => {
+            media_metadata::process_media_metadata_extract_task(state, task, lease_guard).await
+        }
         BackgroundTaskKind::TrashPurgeAll => {
             trash::process_trash_purge_all_task(state, task, lease_guard).await
         }
@@ -316,6 +320,9 @@ pub(super) fn task_retry_class(kind: BackgroundTaskKind, error: &AsterError) -> 
         }
         BackgroundTaskKind::ThumbnailGenerate => {
             thumbnail::ThumbnailRetryPolicy::retry_class(error)
+        }
+        BackgroundTaskKind::MediaMetadataExtract => {
+            media_metadata::MediaMetadataRetryPolicy::retry_class(error)
         }
         BackgroundTaskKind::TrashPurgeAll => super::super::retry::default_retry_class(error),
         BackgroundTaskKind::StoragePolicyTempCleanup => {

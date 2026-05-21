@@ -1,9 +1,8 @@
-import type { MediaProcessorKind } from "@/types/api";
-
 export const MEDIA_PROCESSING_CONFIG_KEY = "media_processing_registry_json";
-export const MEDIA_PROCESSING_CONFIG_VERSION = 1;
+export const MEDIA_PROCESSING_CONFIG_VERSION = 2;
 export const MEDIA_PROCESSING_DEFAULT_VIPS_COMMAND = "vips";
 export const MEDIA_PROCESSING_DEFAULT_FFMPEG_COMMAND = "ffmpeg";
+export const MEDIA_PROCESSING_DEFAULT_FFPROBE_COMMAND = "ffprobe";
 export const MEDIA_PROCESSING_DEFAULT_VIPS_EXTENSIONS = [
 	"csv",
 	"mat",
@@ -67,13 +66,42 @@ export const MEDIA_PROCESSING_DEFAULT_FFMPEG_EXTENSIONS = [
 	"flv",
 	"wmv",
 ] as const;
+export const MEDIA_PROCESSING_DEFAULT_FFPROBE_EXTENSIONS =
+	MEDIA_PROCESSING_DEFAULT_FFMPEG_EXTENSIONS;
+export const MEDIA_PROCESSING_DEFAULT_LOFTY_EXTENSIONS = [
+	"aac",
+	"aiff",
+	"aif",
+	"ape",
+	"flac",
+	"m4a",
+	"m4b",
+	"m4p",
+	"m4r",
+	"mka",
+	"mp3",
+	"oga",
+	"ogg",
+	"opus",
+	"wav",
+	"wv",
+] as const;
 export const MEDIA_PROCESSING_PROCESSOR_ORDER = [
 	"vips_cli",
 	"ffmpeg_cli",
+	"ffprobe_cli",
+	"lofty",
 	"images",
-] as const satisfies readonly MediaProcessorKind[];
+] as const satisfies readonly string[];
 export type MediaProcessingEditorProcessorKind =
 	(typeof MEDIA_PROCESSING_PROCESSOR_ORDER)[number];
+export type MediaProcessingEditorUse =
+	| "thumbnail:image"
+	| "thumbnail:audio"
+	| "thumbnail:video"
+	| "metadata:image"
+	| "metadata:audio"
+	| "metadata:video";
 
 export interface MediaProcessingEditorProcessorConfig {
 	command: string;
@@ -84,6 +112,7 @@ export interface MediaProcessingEditorProcessor {
 	enabled: boolean;
 	extensions: string[];
 	kind: MediaProcessingEditorProcessorKind;
+	uses: MediaProcessingEditorUse[];
 }
 
 export interface MediaProcessingEditorConfig {
@@ -120,26 +149,62 @@ function readStringList(value: unknown) {
 		);
 }
 
+function readUseList(value: unknown) {
+	if (!Array.isArray(value)) {
+		return [];
+	}
+
+	return value
+		.map((item) => readString(item).trim().toLowerCase())
+		.filter(
+			(item): item is MediaProcessingEditorUse =>
+				item === "thumbnail:image" ||
+				item === "thumbnail:audio" ||
+				item === "thumbnail:video" ||
+				item === "metadata:image" ||
+				item === "metadata:audio" ||
+				item === "metadata:video",
+		)
+		.filter(
+			(item, index, items) => item.length > 0 && items.indexOf(item) === index,
+		);
+}
+
+function normalizeUses(
+	kind: MediaProcessingEditorProcessorKind,
+	uses: MediaProcessingEditorUse[],
+) {
+	const normalized = uses.length > 0 ? [...uses] : [];
+	for (const defaultUse of defaultUses(kind)) {
+		if (!normalized.includes(defaultUse)) {
+			normalized.push(defaultUse);
+		}
+	}
+	return normalized;
+}
+
 function readProcessorKind(
 	value: unknown,
 ): MediaProcessingEditorProcessorKind | "" {
 	const normalized = readString(value).trim().toLowerCase();
 	if (
 		normalized === "images" ||
+		normalized === "lofty" ||
 		normalized === "vips_cli" ||
-		normalized === "ffmpeg_cli"
+		normalized === "ffmpeg_cli" ||
+		normalized === "ffprobe_cli"
 	) {
 		return normalized;
 	}
 	return "";
 }
 
-function defaultEnabled(kind: MediaProcessorKind) {
-	return kind === "images";
+function defaultEnabled(kind: MediaProcessingEditorProcessorKind) {
+	return kind === "images" || kind === "lofty";
 }
 
 function processorUsesCommand(kind: MediaProcessingEditorProcessorKind) {
-	return kind === "vips_cli" || kind === "ffmpeg_cli";
+	return kind === "vips_cli" || kind === "ffmpeg_cli" || kind === "ffprobe_cli";
 }
 
 function defaultCommand(kind: MediaProcessingEditorProcessorKind) {
@@ -148,8 +213,28 @@ function defaultCommand(kind: MediaProcessingEditorProcessorKind) {
 			return MEDIA_PROCESSING_DEFAULT_VIPS_COMMAND;
 		case "ffmpeg_cli":
 			return MEDIA_PROCESSING_DEFAULT_FFMPEG_COMMAND;
+		case "ffprobe_cli":
+			return MEDIA_PROCESSING_DEFAULT_FFPROBE_COMMAND;
+		case "lofty":
 		case "images":
 			return "";
+	}
+}
+
+export function defaultUses(
+	kind: MediaProcessingEditorProcessorKind,
+): MediaProcessingEditorUse[] {
+	switch (kind) {
+		case "vips_cli":
+			return ["thumbnail:image"];
+		case "ffmpeg_cli":
+			return ["thumbnail:video"];
+		case "ffprobe_cli":
+			return ["metadata:video"];
+		case "lofty":
+			return ["thumbnail:audio", "metadata:audio"];
+		case "images":
+			return ["thumbnail:image", "metadata:image"];
 	}
 }
 
@@ -159,6 +244,10 @@ function defaultExtensions(kind: MediaProcessingEditorProcessorKind) {
 			return [...MEDIA_PROCESSING_DEFAULT_VIPS_EXTENSIONS];
 		case "ffmpeg_cli":
 			return [...MEDIA_PROCESSING_DEFAULT_FFMPEG_EXTENSIONS];
+		case "ffprobe_cli":
+			return [...MEDIA_PROCESSING_DEFAULT_FFPROBE_EXTENSIONS];
+		case "lofty":
+			return [...MEDIA_PROCESSING_DEFAULT_LOFTY_EXTENSIONS];
 		case "images":
 			return [];
 	}
@@ -174,6 +263,7 @@ function createDefaultProcessor(
 		enabled: defaultEnabled(kind),
 		extensions: defaultExtensions(kind),
 		kind,
+		uses: defaultUses(kind),
 	};
 }
 
@@ -190,6 +280,7 @@ function normalizeProcessor(
 	}
 
 	const runtimeConfig = isRecord(value.config) ? value.config : undefined;
+	const uses = readUseList(value.uses);
 
 	return {
 		config: {
@@ -200,6 +291,7 @@ function normalizeProcessor(
 		enabled: readBoolean(value.enabled, defaultEnabled(kind)),
 		extensions: kind === "images" ? [] : readStringList(value.extensions),
 		kind,
+		uses: normalizeUses(kind, uses),
 	};
 }
 
@@ -255,7 +347,7 @@ export function serializeMediaProcessingConfig(
 ) {
 	return JSON.stringify(
 		{
-			version: config.version,
+			version: MEDIA_PROCESSING_CONFIG_VERSION,
 			processors: mergeProcessors(config.processors).map((processor) => {
 				const serialized = {
 					enabled: processor.enabled,
@@ -263,6 +355,7 @@ export function serializeMediaProcessingConfig(
 						? { extensions: processor.extensions }
 						: {}),
 					kind: processor.kind,
+					uses: processor.uses,
 				} as Record<string, unknown>;
 				if (processorUsesCommand(processor.kind)) {
 					serialized.config = {

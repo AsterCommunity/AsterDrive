@@ -10,6 +10,7 @@ import {
 } from "react";
 import { useTranslation } from "react-i18next";
 import { AnimatedCollapsible } from "@/components/common/AnimatedCollapsible";
+import { MediaThumbnail } from "@/components/files/MediaThumbnail";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
@@ -19,21 +20,28 @@ import {
 	TooltipProvider,
 	TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { useBlobUrl } from "@/hooks/useBlobUrl";
 import { resolveApiResourceUrl } from "@/lib/apiUrl";
 import { formatBytes } from "@/lib/format";
 import { logger } from "@/lib/logger";
 import { parseMusicMetadataFromSource } from "@/lib/musicPlayer";
+import { supportsThumbnailExtension } from "@/lib/thumbnailSupport";
 import { cn } from "@/lib/utils";
+import { ApiPendingError } from "@/services/http";
 import {
 	type MusicPlaybackMode,
 	type MusicPlayerTrack,
+	type MusicTrackMetadata,
 	useMusicPlayerStore,
 } from "@/stores/musicPlayerStore";
+import { useThumbnailSupportStore } from "@/stores/thumbnailSupportStore";
 
 const STREAM_REFRESH_LEAD_MS = 2 * 60 * 1000;
 const STREAM_REFRESH_MIN_DELAY_MS = 10 * 1000;
 const MEDIA_SESSION_SEEK_OFFSET_SECONDS = 10;
 const PLAYBACK_ERROR_SKIP_DELAY_MS = 2_000;
+const MEDIA_METADATA_PENDING_MAX_RETRIES = 12;
+const MEDIA_METADATA_PENDING_MAX_RETRY_DELAY_MS = 30_000;
 const MEDIA_SESSION_ACTIONS: MediaSessionAction[] = [
 	"play",
 	"pause",
@@ -83,6 +91,20 @@ function sessionRefreshDelay(expiresAt?: string) {
 	);
 }
 
+function metadataPendingRetryDelay(error: unknown) {
+	if (!(error instanceof ApiPendingError)) {
+		return null;
+	}
+
+	const retryAfterSeconds = Number.isFinite(error.retryAfterSeconds)
+		? error.retryAfterSeconds
+		: 2;
+	return Math.min(
+		MEDIA_METADATA_PENDING_MAX_RETRY_DELAY_MS,
+		Math.max(1, retryAfterSeconds) * 1000,
+	);
+}
+
 function displayTitle(track: MusicPlayerTrack) {
 	return track.metadata?.title || track.name;
 }
@@ -107,12 +129,14 @@ function mediaArtworkFromUrl(src: string): MediaImage {
 	return type ? { src, type } : { src };
 }
 
-function createMediaSessionMetadata(track: MusicPlayerTrack) {
+function createMediaSessionMetadata(
+	track: MusicPlayerTrack,
+	artworkUrl?: string | null,
+) {
 	if (typeof MediaMetadata === "undefined") {
 		return null;
 	}
 
-	const artworkUrl = track.metadata?.artworkUrl;
 	const metadata: MediaMetadataInit = {
 		album: track.metadata?.album ?? "",
 		artist: displayArtist(track) ?? "",
@@ -124,6 +148,30 @@ function createMediaSessionMetadata(track: MusicPlayerTrack) {
 	}
 
 	return new MediaMetadata(metadata);
+}
+
+function hasUsefulMusicMetadata(
+	metadata: MusicTrackMetadata | null | undefined,
+): metadata is MusicTrackMetadata {
+	if (!metadata) return false;
+	if (metadata.title?.trim()) return true;
+	if (metadata.album?.trim()) return true;
+	if (metadata.artist?.trim()) return true;
+	if (metadata.artists?.some((artist) => artist.trim())) return true;
+	return Boolean(metadata.artworkUrl?.trim());
+}
+
+function musicDetailRows(track: MusicPlayerTrack) {
+	return [
+		["music_player_file_name", track.name],
+		["music_player_title_label", track.metadata?.title],
+		["music_player_artist_label", displayArtist(track)],
+		["music_player_album_label", track.metadata?.album],
+		["music_player_mime_type", track.mimeType],
+	].filter((row): row is [string, string] => {
+		const value = row[1];
+		return typeof value === "string" && value.trim().length > 0;
+	});
 }
 
 function setMediaSessionActionHandler(
@@ -397,35 +445,6 @@ function nextPlaybackMode(mode: MusicPlaybackMode): MusicPlaybackMode {
 	return "repeat_queue";
 }
 
-function MusicArtwork({
-	className,
-	track,
-}: {
-	className?: string;
-	track: MusicPlayerTrack | null;
-}) {
-	if (track?.metadata?.artworkUrl) {
-		return (
-			<img
-				src={track.metadata.artworkUrl}
-				alt=""
-				className={cn("object-cover", className)}
-			/>
-		);
-	}
-
-	return (
-		<div
-			className={cn(
-				"flex items-center justify-center overflow-hidden rounded-lg border border-border/55 bg-[linear-gradient(135deg,var(--color-muted),var(--color-background))] text-primary",
-				className,
-			)}
-		>
-			<Icon name="VinylRecord" className="h-1/2 w-1/2 opacity-80" />
-		</div>
-	);
-}
-
 function PlayerIconButton({
 	active = false,
 	children,
@@ -506,6 +525,11 @@ export function MusicPlayerHost() {
 	const updateTrackSource = useMusicPlayerStore(
 		(state) => state.updateTrackSource,
 	);
+	const thumbnailSupport = useThumbnailSupportStore((state) => state.config);
+	const thumbnailSupportLoaded = useThumbnailSupportStore(
+		(state) => state.isLoaded,
+	);
+	const loadThumbnailSupport = useThumbnailSupportStore((state) => state.load);
 	const track = useMemo(
 		() => queue.find((candidate) => candidate.id === activeTrackId) ?? null,
 		[activeTrackId, queue],
@@ -522,8 +546,32 @@ export function MusicPlayerHost() {
 		duration > 0 && Number.isFinite(duration)
 			? Math.min(100, Math.max(0, (currentTime / duration) * 100))
 			: 0;
+	const detailRows = track ? musicDetailRows(track) : [];
+	const mediaSessionThumbnailPath =
+		track?.thumbnail &&
+		thumbnailSupportLoaded &&
+		supportsThumbnailExtension(
+			track.thumbnail.file.name,
+			thumbnailSupport?.extensions,
+		)
+			? (track.thumbnail.path ?? null)
+			: null;
+	const { blobUrl: mediaSessionThumbnailUrl } = useBlobUrl(
+		mediaSessionThumbnailPath,
+		{
+			lane: "thumbnail",
+		},
+	);
+	const mediaSessionArtworkUrl =
+		mediaSessionThumbnailUrl ?? track?.metadata?.artworkUrl ?? null;
 	const volumePercent = Math.round(volume * 100);
 	const modeLabel = t(`music_player_mode_${playbackMode}`);
+
+	useEffect(() => {
+		if (track?.thumbnail && !thumbnailSupportLoaded) {
+			void loadThumbnailSupport();
+		}
+	}, [loadThumbnailSupport, thumbnailSupportLoaded, track?.thumbnail]);
 
 	useEffect(() => {
 		currentTimeRef.current = currentTime;
@@ -665,18 +713,103 @@ export function MusicPlayerHost() {
 		const controller = new AbortController();
 		const trackId = track.id;
 		const fallbackMetadata = track.metadata;
+		const loadBackendMetadata = track.loadBackendMetadata;
 		const mimeType = track.mimeType;
 		const name = track.name;
+		const retryTimers = new Set<number>();
 		const size = track.size;
-		void parseMusicMetadataFromSource({
-			fallbackMetadata,
-			mimeType,
-			name,
-			signal: controller.signal,
-			size,
-			source,
-		})
+		const updateBackendMetadataWhenReady = (
+			attempt: number,
+			delayMs: number,
+		) => {
+			const timer = window.setTimeout(() => {
+				retryTimers.delete(timer);
+				if (
+					controller.signal.aborted ||
+					latestTrackIdRef.current !== trackId ||
+					!loadBackendMetadata
+				) {
+					return;
+				}
+
+				void loadBackendMetadata(controller.signal)
+					.then((backendMetadata) => {
+						if (
+							controller.signal.aborted ||
+							latestTrackIdRef.current !== trackId ||
+							!hasUsefulMusicMetadata(backendMetadata)
+						) {
+							return;
+						}
+						updateTrackMetadata(trackId, backendMetadata);
+					})
+					.catch((metadataError) => {
+						if (controller.signal.aborted) return;
+						const retryDelayMs = metadataPendingRetryDelay(metadataError);
+						if (
+							retryDelayMs !== null &&
+							attempt < MEDIA_METADATA_PENDING_MAX_RETRIES
+						) {
+							updateBackendMetadataWhenReady(attempt + 1, retryDelayMs);
+							return;
+						}
+						logger.debug(
+							"backend music metadata unavailable",
+							name,
+							metadataError,
+						);
+					});
+			}, delayMs);
+			retryTimers.add(timer);
+		};
+		const loadMetadata = async () => {
+			let pendingRetryDelayMs: number | null = null;
+			if (loadBackendMetadata) {
+				try {
+					const backendMetadata = await loadBackendMetadata(controller.signal);
+					if (hasUsefulMusicMetadata(backendMetadata)) {
+						return backendMetadata;
+					}
+				} catch (metadataError) {
+					if (controller.signal.aborted) throw metadataError;
+					pendingRetryDelayMs = metadataPendingRetryDelay(metadataError);
+					if (pendingRetryDelayMs !== null) {
+						logger.debug("backend music metadata pending", name, metadataError);
+					} else {
+						logger.debug(
+							"backend music metadata unavailable",
+							name,
+							metadataError,
+						);
+					}
+				}
+			}
+
+			try {
+				return await parseMusicMetadataFromSource({
+					fallbackMetadata,
+					mimeType,
+					name,
+					signal: controller.signal,
+					size,
+					source,
+				});
+			} finally {
+				if (
+					loadBackendMetadata &&
+					pendingRetryDelayMs !== null &&
+					!controller.signal.aborted
+				) {
+					updateBackendMetadataWhenReady(1, pendingRetryDelayMs);
+				}
+			}
+		};
+
+		void loadMetadata()
 			.then((metadata) => {
+				if (controller.signal.aborted || latestTrackIdRef.current !== trackId) {
+					return;
+				}
 				updateTrackMetadata(trackId, metadata);
 			})
 			.catch((metadataError) => {
@@ -686,6 +819,10 @@ export function MusicPlayerHost() {
 
 		return () => {
 			controller.abort();
+			for (const timer of retryTimers) {
+				window.clearTimeout(timer);
+			}
+			retryTimers.clear();
 		};
 	}, [source, track, updateTrackMetadata]);
 
@@ -706,8 +843,11 @@ export function MusicPlayerHost() {
 			return;
 		}
 
-		mediaSession.metadata = createMediaSessionMetadata(track);
-	}, [track]);
+		mediaSession.metadata = createMediaSessionMetadata(
+			track,
+			mediaSessionArtworkUrl,
+		);
+	}, [mediaSessionArtworkUrl, track]);
 
 	useEffect(() => {
 		const mediaSession = getMusicMediaSession();
@@ -1007,9 +1147,13 @@ export function MusicPlayerHost() {
 					<div className="max-h-[calc(100vh-6.5rem)] overflow-y-auto overscroll-contain">
 						<div className="px-4 py-4">
 							<div className="flex min-w-0 gap-3">
-								<MusicArtwork
-									track={track}
+								<MediaThumbnail
+									file={track?.thumbnail?.file}
+									thumbnailPath={track?.thumbnail?.path}
+									artworkUrl={track?.metadata?.artworkUrl}
 									className="h-20 w-20 shrink-0 rounded-lg sm:h-24 sm:w-24"
+									iconClassName="h-12 w-12"
+									imageClassName="h-full w-full object-cover"
 								/>
 								<div className="flex min-w-0 flex-1 flex-col justify-center">
 									<AutoScrollText
@@ -1178,7 +1322,16 @@ export function MusicPlayerHost() {
 																	active && "bg-primary/15 text-primary",
 																)}
 															>
-																{active && isPlaying ? (
+																{queueTrack.thumbnail ? (
+																	<MediaThumbnail
+																		file={queueTrack.thumbnail.file}
+																		thumbnailPath={queueTrack.thumbnail.path}
+																		artworkUrl={queueTrack.metadata?.artworkUrl}
+																		className="h-full w-full rounded-md border-0 bg-transparent shadow-none"
+																		iconClassName="h-4 w-4"
+																		imageClassName="h-full w-full object-cover"
+																	/>
+																) : active && isPlaying ? (
 																	<Icon name="MusicNotes" className="h-4 w-4" />
 																) : (
 																	index + 1
@@ -1243,22 +1396,16 @@ export function MusicPlayerHost() {
 										id={detailsPanelId}
 										className="space-y-3 rounded-md border border-border/55 bg-muted/12 p-3 text-sm"
 									>
-										<div>
-											<div className="text-xs font-medium uppercase text-muted-foreground">
-												{t("music_player_file_name")}
+										{detailRows.map(([labelKey, value]) => (
+											<div key={labelKey}>
+												<div className="text-xs font-medium uppercase text-muted-foreground">
+													{t(labelKey)}
+												</div>
+												<AutoScrollText active={detailsOpen} className="mt-1">
+													{value}
+												</AutoScrollText>
 											</div>
-											<AutoScrollText active={detailsOpen} className="mt-1">
-												{track.name}
-											</AutoScrollText>
-										</div>
-										<div>
-											<div className="text-xs font-medium uppercase text-muted-foreground">
-												{t("music_player_mime_type")}
-											</div>
-											<AutoScrollText active={detailsOpen} className="mt-1">
-												{track.mimeType}
-											</AutoScrollText>
-										</div>
+										))}
 									</div>
 								</AnimatedCollapsible>
 							</div>

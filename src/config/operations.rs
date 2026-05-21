@@ -22,7 +22,8 @@ pub use crate::config::definitions::{
     BACKGROUND_TASK_DISPATCH_INTERVAL_SECS_KEY, BACKGROUND_TASK_MAX_ATTEMPTS_KEY,
     BACKGROUND_TASK_MAX_CONCURRENCY_KEY, BACKGROUND_TASK_THUMBNAIL_MAX_CONCURRENCY_KEY,
     BLOB_RECONCILE_INTERVAL_SECS_KEY, MAIL_OUTBOX_DISPATCH_INTERVAL_SECS_KEY,
-    MAINTENANCE_CLEANUP_INTERVAL_SECS_KEY, REMOTE_NODE_HEALTH_TEST_INTERVAL_SECS_KEY,
+    MAINTENANCE_CLEANUP_INTERVAL_SECS_KEY, MEDIA_METADATA_ENABLED_KEY,
+    MEDIA_METADATA_MAX_SOURCE_BYTES_KEY, REMOTE_NODE_HEALTH_TEST_INTERVAL_SECS_KEY,
     SHARE_DOWNLOAD_ROLLBACK_QUEUE_CAPACITY_KEY, SHARE_STREAM_SESSION_TTL_SECS_KEY,
     TASK_LIST_MAX_LIMIT_KEY, TEAM_MEMBER_LIST_MAX_LIMIT_KEY, THUMBNAIL_MAX_SOURCE_BYTES_KEY,
 };
@@ -45,6 +46,8 @@ pub const DEFAULT_TEAM_MEMBER_LIST_MAX_LIMIT: u64 = 100;
 pub const DEFAULT_TASK_LIST_MAX_LIMIT: u64 = 100;
 pub const DEFAULT_AVATAR_MAX_UPLOAD_SIZE_BYTES: u64 = 10 * 1024 * 1024;
 pub const DEFAULT_THUMBNAIL_MAX_SOURCE_BYTES: u64 = 64 * 1024 * 1024;
+pub const DEFAULT_MEDIA_METADATA_ENABLED: bool = true;
+pub const DEFAULT_MEDIA_METADATA_MAX_SOURCE_BYTES: u64 = 256 * 1024 * 1024;
 pub const DEFAULT_ARCHIVE_EXTRACT_MAX_SOURCE_BYTES: u64 = 512 * 1024 * 1024;
 pub const DEFAULT_ARCHIVE_EXTRACT_MAX_STAGING_BYTES: u64 = 2 * 1024 * 1024 * 1024;
 pub const DEFAULT_ARCHIVE_EXTRACT_MAX_UNCOMPRESSED_BYTES: u64 = 1024 * 1024 * 1024;
@@ -293,6 +296,23 @@ pub fn thumbnail_max_source_bytes(runtime_config: &RuntimeConfig) -> i64 {
         );
         default_value
     })
+}
+
+pub fn media_metadata_enabled(runtime_config: &RuntimeConfig) -> bool {
+    read_bool(
+        runtime_config,
+        MEDIA_METADATA_ENABLED_KEY,
+        DEFAULT_MEDIA_METADATA_ENABLED,
+    )
+}
+
+pub fn media_metadata_max_source_bytes(runtime_config: &RuntimeConfig) -> i64 {
+    read_positive_i64_bytes(
+        runtime_config,
+        MEDIA_METADATA_MAX_SOURCE_BYTES_KEY,
+        DEFAULT_MEDIA_METADATA_MAX_SOURCE_BYTES,
+        "media metadata source size config exceeds i64; using default",
+    )
 }
 
 pub fn archive_extract_max_staging_bytes(runtime_config: &RuntimeConfig) -> i64 {
@@ -598,7 +618,7 @@ mod tests {
         background_task_archive_max_concurrency, background_task_dispatch_idle_max_interval_secs,
         background_task_max_attempts, background_task_max_concurrency,
         background_task_thumbnail_max_concurrency, blob_reconcile_interval_secs,
-        normalize_attempts_config_value, normalize_bytes_config_value,
+        normalize_attempts_config_value, normalize_bool_config_value, normalize_bytes_config_value,
         normalize_concurrency_config_value, normalize_interval_config_value,
         normalize_list_max_limit_config_value, normalize_share_stream_session_ttl_config_value,
         remote_node_health_test_interval_secs, share_download_rollback_queue_capacity,
@@ -943,6 +963,10 @@ mod tests {
         assert!(normalize_attempts_config_value("test_attempts", "0").is_err());
         assert!(normalize_bytes_config_value("test_bytes", "-1").is_err());
         assert!(normalize_list_max_limit_config_value("test_limit", "1001").is_err());
+        assert_eq!(
+            normalize_bool_config_value("test_bool", " yes ").unwrap(),
+            "true"
+        );
         assert!(
             normalize_share_stream_session_ttl_config_value(SHARE_STREAM_SESSION_TTL_SECS_KEY, "0")
                 .is_err()

@@ -6,6 +6,7 @@ mod config;
 mod entity;
 mod file_category;
 mod mail;
+mod media_metadata;
 mod passkey;
 mod patch;
 mod preferences;
@@ -23,6 +24,10 @@ pub use config::{SystemConfigSource, SystemConfigValueType};
 pub use entity::EntityType;
 pub use file_category::FileCategory;
 pub use mail::{MailOutboxStatus, MailTemplateCode, StoredMailPayload};
+pub use media_metadata::{
+    AudioMediaMetadata, ImageMediaMetadata, MediaMetadataKind, MediaMetadataPayload,
+    MediaMetadataStatus, StoredMediaMetadataPayload, VideoMediaMetadata,
+};
 pub use passkey::StoredPasskeyCredential;
 pub use patch::{NullablePatch, deserialize_nullable_patch_option};
 pub use preferences::{

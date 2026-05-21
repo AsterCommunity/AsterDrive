@@ -106,6 +106,14 @@ pub async fn process_avatar_upload(
             ApiSubcode::AvatarProcessorUnavailable,
             "ffmpeg_cli avatar processing is not supported",
         )),
+        MediaProcessorKind::FfprobeCli => Err(precondition_failed_with_subcode(
+            ApiSubcode::AvatarProcessorUnavailable,
+            "ffprobe_cli avatar processing is not supported",
+        )),
+        MediaProcessorKind::Lofty => Err(precondition_failed_with_subcode(
+            ApiSubcode::AvatarProcessorUnavailable,
+            "lofty avatar processing is not supported",
+        )),
         MediaProcessorKind::StorageNative => Err(precondition_failed_with_subcode(
             ApiSubcode::AvatarProcessorUnavailable,
             "storage-native avatar processing is not supported",

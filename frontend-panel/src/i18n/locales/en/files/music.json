@@ -6,6 +6,8 @@
 	"music_preview_resume": "Resume music",
 	"music_player_close": "Close player",
 	"music_player_collapse": "Collapse player",
+	"music_player_album_label": "Album",
+	"music_player_artist_label": "Artist",
 	"music_player_details": "Details",
 	"music_player_file_name": "File name",
 	"music_player_load_failed": "Music playback failed",
@@ -21,6 +23,7 @@
 	"music_player_previous": "Previous track",
 	"music_player_queue": "Queue",
 	"music_player_seek": "Seek music",
+	"music_player_title_label": "Title",
 	"music_player_title": "Music",
 	"music_player_unknown_artist": "Unknown artist",
 	"music_player_volume": "Volume"

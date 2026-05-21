@@ -9,8 +9,8 @@ use crate::services::{
     archive_preview_service,
     audit_service::{self, AuditContext},
     auth_service::Claims,
-    direct_link_service, file_service, media_processing_service, preview_link_service,
-    wopi_service,
+    direct_link_service, file_service, media_metadata_service, media_processing_service,
+    preview_link_service, wopi_service,
     workspace_models::FileInfo,
     workspace_storage_service::WorkspaceStorageScope,
 };
@@ -239,6 +239,35 @@ pub async fn get_thumbnail(
     get_thumbnail_response(
         &state,
         &req,
+        WorkspaceStorageScope::Personal {
+            user_id: claims.user_id,
+        },
+        *path,
+    )
+    .await
+}
+
+#[api_docs_macros::path(
+    get,
+    path = "/api/v1/files/{id}/media-metadata",
+    tag = "files",
+    operation_id = "get_file_media_metadata",
+    params(("id" = i64, Path, description = "File ID")),
+    responses(
+        (status = 200, description = "Blob media metadata", body = inline(ApiResponse<media_metadata_service::MediaMetadataInfo>)),
+        (status = 202, description = "Media metadata extraction in progress"),
+        (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
+        (status = 404, description = "File not found"),
+    ),
+    security(("bearer" = [])),
+)]
+pub async fn get_media_metadata(
+    state: web::Data<PrimaryAppState>,
+    claims: web::ReqData<Claims>,
+    path: web::Path<i64>,
+) -> Result<HttpResponse> {
+    get_media_metadata_response(
+        &state,
         WorkspaceStorageScope::Personal {
             user_id: claims.user_id,
         },
@@ -507,6 +536,33 @@ pub(crate) async fn team_get_image_preview(
 
 #[api_docs_macros::path(
     get,
+    path = "/api/v1/teams/{team_id}/files/{id}/media-metadata",
+    tag = "teams",
+    operation_id = "get_team_file_media_metadata",
+    params(
+        ("team_id" = i64, Path, description = "Team ID"),
+        ("id" = i64, Path, description = "File ID")
+    ),
+    responses(
+        (status = 200, description = "Team file blob media metadata", body = inline(ApiResponse<media_metadata_service::MediaMetadataInfo>)),
+        (status = 202, description = "Media metadata extraction in progress"),
+        (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
+        (status = 403, description = "Forbidden"),
+        (status = 404, description = "File not found"),
+    ),
+    security(("bearer" = [])),
+)]
+pub(crate) async fn team_get_media_metadata(
+    state: web::Data<PrimaryAppState>,
+    claims: web::ReqData<Claims>,
+    path: web::Path<(i64, i64)>,
+) -> Result<HttpResponse> {
+    let (team_id, file_id) = path.into_inner();
+    get_media_metadata_response(&state, team_scope(team_id, claims.user_id), file_id).await
+}
+
+#[api_docs_macros::path(
+    get,
     path = "/api/v1/teams/{team_id}/files/{id}/download",
     tag = "teams",
     operation_id = "download_team_file",
@@ -770,6 +826,21 @@ pub(crate) async fn get_image_preview_response(
         if_none_match,
         "private, max-age=0, must-revalidate".to_string(),
     ))
+}
+
+pub(crate) async fn get_media_metadata_response(
+    state: &PrimaryAppState,
+    scope: WorkspaceStorageScope,
+    file_id: i64,
+) -> Result<HttpResponse> {
+    match media_metadata_service::get_for_file_in_scope(state, scope, file_id).await? {
+        media_metadata_service::MediaMetadataLookup::Ready(info) => {
+            Ok(HttpResponse::Ok().json(ApiResponse::ok(info)))
+        }
+        media_metadata_service::MediaMetadataLookup::Pending => Ok(HttpResponse::Accepted()
+            .insert_header((header::RETRY_AFTER, "2"))
+            .json(ApiResponse::<()>::ok_empty())),
+    }
 }
 
 pub(crate) fn image_preview_response(

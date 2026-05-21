@@ -60,7 +60,7 @@
 	"settings_subcategory_storage_archive_build": "压缩包构建",
 	"settings_subcategory_storage_archive_build_desc": "限制批量压缩和归档下载展开后的条目数量、源文件总量和 ZIP 输出体积，避免一次选择拖垮后台任务或临时盘。",
 	"settings_subcategory_storage_media_processing": "媒体处理",
-	"settings_subcategory_storage_media_processing_desc": "集中配置可用媒体处理器、缩略图大小限制，以及可选的 vips / ffmpeg CLI 集成。",
+	"settings_subcategory_storage_media_processing_desc": "集中配置媒体元数据解析、缩略图处理器和安全限制。",
 	"settings_type_boolean": "布尔",
 	"settings_type_number": "数字",
 	"settings_type_string": "文本",

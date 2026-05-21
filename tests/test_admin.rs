@@ -96,6 +96,23 @@ fn write_fake_vips_command() -> std::path::PathBuf {
     path
 }
 
+#[cfg(unix)]
+fn write_fake_ffprobe_command() -> std::path::PathBuf {
+    let dir =
+        std::env::temp_dir().join(format!("aster-drive-ffprobe-test-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("fake-ffprobe");
+    std::fs::write(
+        &path,
+        "#!/bin/sh\nif [ \"$1\" = \"-version\" ]; then\n  echo \"ffprobe version 7.1-test\"\n  exit 0\nfi\necho \"unexpected args: $@\" >&2\nexit 1\n",
+    )
+    .unwrap();
+    let mut permissions = std::fs::metadata(&path).unwrap().permissions();
+    permissions.set_mode(0o755);
+    std::fs::set_permissions(&path, permissions).unwrap();
+    path
+}
+
 #[actix_web::test]
 async fn test_admin_scope_requires_authentication() {
     let state = common::setup().await;
@@ -181,6 +198,12 @@ async fn test_admin_scope_allows_admin_users() {
     assert!(keys.contains(&"archive_preview_max_duration_secs"));
     assert!(keys.contains(&"thumbnail_max_source_bytes"));
     assert!(keys.contains(&"media_processing_registry_json"));
+    assert!(keys.contains(&"media_metadata_enabled"));
+    assert!(keys.contains(&"media_metadata_max_source_bytes"));
+    assert!(!keys.contains(&"media_metadata_image_enabled"));
+    assert!(!keys.contains(&"media_metadata_audio_enabled"));
+    assert!(!keys.contains(&"media_metadata_video_enabled"));
+    assert!(!keys.contains(&"media_metadata_ffprobe_command"));
     assert!(keys.contains(&"branding_title"));
     assert!(keys.contains(&"branding_description"));
     assert!(keys.contains(&"branding_favicon_url"));
@@ -1922,6 +1945,10 @@ async fn test_admin_tasks_cleanup_uses_explicit_finished_before() {
                 r#"{"blob_id":1,"blob_hash":"hash","source_file_name":"image.png","source_mime_type":"image/png","processor":"images"}"#
                     .to_string(),
             ),
+            BackgroundTaskKind::MediaMetadataExtract => StoredTaskPayload(
+                r#"{"blob_id":1,"blob_hash":"hash","source_file_name":"image.png","source_mime_type":"image/png","kind":"image"}"#
+                    .to_string(),
+            ),
             BackgroundTaskKind::StoragePolicyTempCleanup => StoredTaskPayload(
                 r#"{"policy":{"id":1,"name":"Deleted policy","driver_type":"local","endpoint":"","bucket":"","access_key":"","secret_key":"","base_path":"/tmp/asterdrive-deleted-policy","remote_node_id":null,"max_file_size":0,"allowed_types":"[]","options":"{}","is_default":false,"chunk_size":5242880},"remote_node":null,"temp_keys":["files/temp-object"],"multipart_uploads":[]}"#
                     .to_string(),
@@ -2577,6 +2604,60 @@ async fn test_admin_config_action_tests_vips_command_from_draft() {
         fake_vips
             .parent()
             .expect("fake vips script should have a parent directory"),
+    );
+}
+
+#[cfg(unix)]
+#[actix_web::test]
+async fn test_admin_config_action_tests_media_processing_ffprobe_command_from_draft() {
+    let fake_ffprobe = write_fake_ffprobe_command();
+    let fake_ffprobe_command = fake_ffprobe.to_string_lossy().to_string();
+    let draft_value = serde_json::json!({
+        "version": 2,
+        "processors": [
+            {
+                "kind": "ffprobe_cli",
+                "enabled": false,
+                "uses": ["metadata:video"],
+                "extensions": ["mp4"],
+                "config": {
+                    "command": fake_ffprobe_command
+                }
+            },
+            {
+                "kind": "images",
+                "enabled": true
+            }
+        ]
+    })
+    .to_string();
+    let state = common::setup().await;
+    let app = create_test_app!(state);
+    let (token, _) = register_and_login!(app);
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/admin/config/media_processing_registry_json/action")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({
+            "action": "test_ffprobe_cli",
+            "value": draft_value
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+    let body: Value = test::read_body_json(resp).await;
+    let message = body["data"]["message"]
+        .as_str()
+        .expect("config action should return a message");
+    assert!(message.contains("is available"));
+    assert!(message.contains("ffprobe version 7.1-test"));
+    assert!(message.contains(fake_ffprobe.to_string_lossy().as_ref()));
+
+    let _ = std::fs::remove_dir_all(
+        fake_ffprobe
+            .parent()
+            .expect("fake ffprobe script should have a parent directory"),
     );
 }
 

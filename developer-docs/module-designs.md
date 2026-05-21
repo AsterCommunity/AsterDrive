@@ -343,10 +343,10 @@ dispatcher 会定期续心跳，数据库里同时记录：
 dispatcher 不是用一个全局并发池无差别捞所有任务，而是按任务类型分 lane：
 
 - `Archive`：`archive_compress`、`archive_extract`、`archive_preview_generate`，并发上限来自 `background_task_archive_max_concurrency`
-- `Thumbnail`：`thumbnail_generate`，并发上限来自 `background_task_thumbnail_max_concurrency`
+- `Thumbnail`：`thumbnail_generate`、`media_metadata_extract`，并发上限来自 `background_task_thumbnail_max_concurrency`
 - `Fallback`：`storage_policy_temp_cleanup` 和系统运行记录的兜底 lane，并发上限来自 `background_task_max_concurrency`
 
-归档预览虽然是只读扫描，但也会触达对象存储和 ZIP 解析，所以和压缩 / 解压共享 archive 并发预算。
+归档预览虽然是只读扫描，但也会触达对象存储和 ZIP 解析，所以和压缩 / 解压共享 archive 并发预算。媒体元数据解析也会读取原始对象并进行 CPU 解析，因此和缩略图共享 thumbnail lane。
 
 archive 和 thumbnail lane 会在单轮 dispatch 里快速继续捞下一批，避免大量同类任务只靠下一次周期 tick 慢慢推进。Fallback lane 更保守，避免维护型任务抢走太多资源。
 

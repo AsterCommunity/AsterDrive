@@ -39,6 +39,7 @@ export interface AdminSettingsCategoryContentProps {
 		value: string;
 	}) => Promise<string>;
 	handleTestFfmpegCliCommand: (value: string) => Promise<void>;
+	handleTestFfprobeCliCommand: (value: string) => Promise<void>;
 	handleTestVipsCliCommand: (value: string) => Promise<void>;
 	isMobileNavigation: boolean;
 	markCustomDeleted: (key: string) => void;

@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { ShareStreamSessionInfo } from "@/types/api";
+import type { FileCategory, ShareStreamSessionInfo } from "@/types/api";
 
 export type MusicPlaybackMode = "repeat_queue" | "repeat_one" | "shuffle";
 
@@ -11,6 +11,16 @@ export interface MusicTrackMetadata {
 	title?: string | null;
 }
 
+export interface MusicTrackThumbnailSource {
+	file: {
+		id: number;
+		file_category?: FileCategory;
+		mime_type: string;
+		name: string;
+	};
+	path?: string;
+}
+
 export interface MusicPlayerTrack {
 	id: string;
 	name: string;
@@ -19,6 +29,10 @@ export interface MusicPlayerTrack {
 	size?: number;
 	expiresAt?: string;
 	metadata?: MusicTrackMetadata;
+	thumbnail?: MusicTrackThumbnailSource;
+	loadBackendMetadata?: (
+		signal?: AbortSignal,
+	) => Promise<MusicTrackMetadata | null>;
 	refreshStreamLink?: () => Promise<ShareStreamSessionInfo>;
 }
 

@@ -182,8 +182,8 @@ mod tests {
 
     #[derive(Clone, Default)]
     struct ProbeDriver {
-        fail_put: bool,
-        fail_delete: bool,
+        fail_ready: bool,
+        ready_calls: Arc<AtomicUsize>,
         put_calls: Arc<AtomicUsize>,
         delete_calls: Arc<AtomicUsize>,
     }
@@ -195,14 +195,7 @@ mod tests {
 
         fn failing() -> Self {
             Self {
-                fail_put: true,
-                ..Self::default()
-            }
-        }
-
-        fn failing_delete() -> Self {
-            Self {
-                fail_delete: true,
+                fail_ready: true,
                 ..Self::default()
             }
         }
@@ -212,13 +205,7 @@ mod tests {
     impl StorageDriver for ProbeDriver {
         async fn put(&self, path: &str, _data: &[u8]) -> crate::errors::Result<String> {
             self.put_calls.fetch_add(1, Ordering::SeqCst);
-            if self.fail_put {
-                Err(crate::errors::AsterError::storage_driver_error(
-                    "probe put failed",
-                ))
-            } else {
-                Ok(path.to_string())
-            }
+            Ok(path.to_string())
         }
 
         async fn get(&self, _path: &str) -> crate::errors::Result<Vec<u8>> {
@@ -234,13 +221,7 @@ mod tests {
 
         async fn delete(&self, _path: &str) -> crate::errors::Result<()> {
             self.delete_calls.fetch_add(1, Ordering::SeqCst);
-            if self.fail_delete {
-                Err(crate::errors::AsterError::storage_driver_error(
-                    "probe delete failed",
-                ))
-            } else {
-                Ok(())
-            }
+            Ok(())
         }
 
         async fn exists(&self, _path: &str) -> crate::errors::Result<bool> {
@@ -252,6 +233,17 @@ mod tests {
                 size: 0,
                 content_type: None,
             })
+        }
+
+        async fn readiness_check(&self) -> crate::errors::Result<()> {
+            self.ready_calls.fetch_add(1, Ordering::SeqCst);
+            if self.fail_ready {
+                Err(crate::errors::AsterError::storage_driver_error(
+                    "readiness probe failed",
+                ))
+            } else {
+                Ok(())
+            }
         }
     }
 
@@ -329,13 +321,14 @@ mod tests {
     }
 
     #[actix_web::test]
-    async fn ready_checks_default_storage_probe() {
+    async fn ready_checks_default_storage_readiness_without_write_probe() {
         let driver = ProbeDriver::healthy();
         let response = ready(web::Data::new(build_test_state(Some(driver.clone())).await)).await;
 
         assert_eq!(response.status(), StatusCode::OK);
-        assert_eq!(driver.put_calls.load(Ordering::SeqCst), 1);
-        assert_eq!(driver.delete_calls.load(Ordering::SeqCst), 1);
+        assert_eq!(driver.ready_calls.load(Ordering::SeqCst), 1);
+        assert_eq!(driver.put_calls.load(Ordering::SeqCst), 0);
+        assert_eq!(driver.delete_calls.load(Ordering::SeqCst), 0);
 
         let body = body::to_bytes(response.into_body())
             .await
@@ -346,34 +339,14 @@ mod tests {
     }
 
     #[actix_web::test]
-    async fn ready_returns_503_when_default_storage_probe_fails() {
+    async fn ready_returns_503_when_default_storage_readiness_fails() {
         let driver = ProbeDriver::failing();
         let response = ready(web::Data::new(build_test_state(Some(driver.clone())).await)).await;
 
         assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
-        assert_eq!(driver.put_calls.load(Ordering::SeqCst), 1);
+        assert_eq!(driver.ready_calls.load(Ordering::SeqCst), 1);
+        assert_eq!(driver.put_calls.load(Ordering::SeqCst), 0);
         assert_eq!(driver.delete_calls.load(Ordering::SeqCst), 0);
-
-        let body = body::to_bytes(response.into_body())
-            .await
-            .expect("health response body should read");
-        let payload: serde_json::Value =
-            serde_json::from_slice(&body).expect("health response should be valid json");
-        assert_eq!(
-            payload["code"],
-            serde_json::json!(ErrorCode::StorageDriverError as i32)
-        );
-        assert_eq!(payload["msg"], READY_STORAGE_UNAVAILABLE_MESSAGE);
-    }
-
-    #[actix_web::test]
-    async fn ready_returns_503_when_default_storage_probe_cleanup_fails() {
-        let driver = ProbeDriver::failing_delete();
-        let response = ready(web::Data::new(build_test_state(Some(driver.clone())).await)).await;
-
-        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
-        assert_eq!(driver.put_calls.load(Ordering::SeqCst), 1);
-        assert_eq!(driver.delete_calls.load(Ordering::SeqCst), 1);
 
         let body = body::to_bytes(response.into_body())
             .await

@@ -318,6 +318,8 @@ primary 后台工作由 `src/runtime/tasks.rs` 注册，分成一个常驻 worke
 - `archive_preview_*`
 - `archive_extract_max_staging_bytes`
 - `thumbnail_max_source_bytes`
+- `media_metadata_enabled`
+- `media_metadata_max_source_bytes`
 - `media_processing_registry_json`
 - `wopi_*`
 

@@ -153,6 +153,10 @@ fn task_lane_keeps_archive_and_thumbnail_separate() {
         TaskLane::Thumbnail
     );
     assert_eq!(
+        task_lane(BackgroundTaskKind::MediaMetadataExtract),
+        TaskLane::Thumbnail
+    );
+    assert_eq!(
         task_lane(BackgroundTaskKind::TrashPurgeAll),
         TaskLane::Fallback
     );
@@ -376,6 +380,13 @@ fn thumbnail_retry_only_keeps_transient_storage_errors() {
     );
     assert!(
         !task_retry_class(BackgroundTaskKind::ThumbnailGenerate, &misconfigured).can_manual_retry()
+    );
+    assert!(
+        task_retry_class(BackgroundTaskKind::MediaMetadataExtract, &transient).should_auto_retry()
+    );
+    assert!(
+        !task_retry_class(BackgroundTaskKind::MediaMetadataExtract, &misconfigured)
+            .can_manual_retry()
     );
 }
 

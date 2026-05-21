@@ -19,6 +19,8 @@ pub(super) const TASK_STEP_PERSIST_MANIFEST: &str = "persist_manifest";
 pub(super) const TASK_STEP_INSPECT_SOURCE: &str = "inspect_source";
 pub(super) const TASK_STEP_RENDER_THUMBNAIL: &str = "render_thumbnail";
 pub(super) const TASK_STEP_PERSIST_THUMBNAIL: &str = "persist_thumbnail";
+pub(super) const TASK_STEP_EXTRACT_METADATA: &str = "extract_metadata";
+pub(super) const TASK_STEP_PERSIST_METADATA: &str = "persist_metadata";
 pub(super) const TASK_STEP_CLEANUP_OBJECTS: &str = "cleanup_objects";
 pub(super) const TASK_STEP_PURGE_TRASH: &str = "purge_trash";
 
@@ -100,6 +102,24 @@ fn task_step_specs(kind: BackgroundTaskKind) -> &'static [TaskStepSpec] {
             TaskStepSpec {
                 key: TASK_STEP_PERSIST_THUMBNAIL,
                 title: "Persist thumbnail",
+            },
+        ],
+        BackgroundTaskKind::MediaMetadataExtract => &[
+            TaskStepSpec {
+                key: TASK_STEP_WAITING,
+                title: "Waiting",
+            },
+            TaskStepSpec {
+                key: TASK_STEP_INSPECT_SOURCE,
+                title: "Inspect source blob",
+            },
+            TaskStepSpec {
+                key: TASK_STEP_EXTRACT_METADATA,
+                title: "Extract metadata",
+            },
+            TaskStepSpec {
+                key: TASK_STEP_PERSIST_METADATA,
+                title: "Persist metadata",
             },
         ],
         BackgroundTaskKind::TrashPurgeAll => &[

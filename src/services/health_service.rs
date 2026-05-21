@@ -211,7 +211,14 @@ pub async fn ping_database(db: &DatabaseConnection) -> Result<()> {
 }
 
 pub async fn check_primary_ready<S: PrimaryRuntimeState>(state: &S) -> Result<()> {
-    crate::services::policy_service::test_default_connection(state).await
+    let policy = state
+        .policy_snapshot()
+        .system_default_policy()
+        .ok_or_else(|| {
+            AsterError::storage_policy_not_found("system default storage policy not found")
+        })?;
+    let driver = state.driver_registry().get_driver(&policy)?;
+    driver.readiness_check().await
 }
 
 pub async fn check_follower_ready<S: FollowerRuntimeState>(state: &S) -> Result<()> {

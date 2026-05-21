@@ -51,6 +51,8 @@ pub const TEAM_MEMBER_LIST_MAX_LIMIT_KEY: &str = "team_member_list_max_limit";
 pub const TASK_LIST_MAX_LIMIT_KEY: &str = "task_list_max_limit";
 pub const AVATAR_MAX_UPLOAD_SIZE_BYTES_KEY: &str = "avatar_max_upload_size_bytes";
 pub const THUMBNAIL_MAX_SOURCE_BYTES_KEY: &str = "thumbnail_max_source_bytes";
+pub const MEDIA_METADATA_ENABLED_KEY: &str = "media_metadata_enabled";
+pub const MEDIA_METADATA_MAX_SOURCE_BYTES_KEY: &str = "media_metadata_max_source_bytes";
 pub const MEDIA_PROCESSING_REGISTRY_JSON_KEY: &str = "media_processing_registry_json";
 pub const THUMBNAIL_DEFAULT_PROCESSOR_KEY: &str = "thumbnail_default_processor";
 pub const THUMBNAIL_VIPS_CLI_ENABLED_KEY: &str = "thumbnail_vips_cli_enabled";
@@ -854,6 +856,30 @@ pub static ALL_CONFIGS: &[ConfigDef] = &[
         description: "Maximum original file size eligible for thumbnail generation in bytes",
     },
     ConfigDef {
+        key: MEDIA_METADATA_ENABLED_KEY,
+        label_i18n_key: "settings_item_media_metadata_enabled_label",
+        description_i18n_key: "settings_item_media_metadata_enabled_desc",
+        value_type: SystemConfigValueType::Boolean,
+        default_fn: || crate::config::operations::DEFAULT_MEDIA_METADATA_ENABLED.to_string(),
+        requires_restart: false,
+        is_sensitive: false,
+        category: "storage.media_processing",
+        description: "Enable backend blob-level media metadata extraction and cache",
+    },
+    ConfigDef {
+        key: MEDIA_METADATA_MAX_SOURCE_BYTES_KEY,
+        label_i18n_key: "settings_item_media_metadata_max_source_bytes_label",
+        description_i18n_key: "settings_item_media_metadata_max_source_bytes_desc",
+        value_type: SystemConfigValueType::Number,
+        default_fn: || {
+            crate::config::operations::DEFAULT_MEDIA_METADATA_MAX_SOURCE_BYTES.to_string()
+        },
+        requires_restart: false,
+        is_sensitive: false,
+        category: "storage.media_processing",
+        description: "Maximum original file size eligible for backend media metadata extraction in bytes",
+    },
+    ConfigDef {
         key: MEDIA_PROCESSING_REGISTRY_JSON_KEY,
         label_i18n_key: "settings_item_media_processing_registry_json_label",
         description_i18n_key: "settings_item_media_processing_registry_json_desc",
@@ -862,7 +888,7 @@ pub static ALL_CONFIGS: &[ConfigDef] = &[
         requires_restart: false,
         is_sensitive: false,
         category: "storage.media_processing",
-        description: "Media processing rule registry used to route thumbnail generation by file extension",
+        description: "Unified media processing registry for thumbnail and metadata processors",
     },
     // ── User ───────────────────────────────────────────────
     ConfigDef {

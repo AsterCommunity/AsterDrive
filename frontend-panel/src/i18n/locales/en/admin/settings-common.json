@@ -60,7 +60,7 @@
 	"settings_subcategory_storage_archive_build": "Archive Building",
 	"settings_subcategory_storage_archive_build_desc": "Limit expanded entry count, total source bytes, and ZIP output size for batch compression and archive downloads.",
 	"settings_subcategory_storage_media_processing": "Media Processing",
-	"settings_subcategory_storage_media_processing_desc": "Configure available media processors, thumbnail limits, and optional vips or ffmpeg CLI integrations.",
+	"settings_subcategory_storage_media_processing_desc": "Configure media metadata extraction, thumbnail processors, and safety limits.",
 	"settings_type_boolean": "Boolean",
 	"settings_type_number": "Number",
 	"settings_type_string": "Text",

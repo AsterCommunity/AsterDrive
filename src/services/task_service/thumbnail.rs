@@ -55,6 +55,7 @@ pub(crate) async fn ensure_thumbnail_task(
         state,
         blob,
         source_file_name,
+        source_mime_type,
     )?
     .kind();
     tracing::debug!(
@@ -289,6 +290,7 @@ fn thumbnail_task_display_name(
 fn thumbnail_processor_display_name(processor: crate::types::MediaProcessorKind) -> &'static str {
     match processor {
         crate::types::MediaProcessorKind::Images => "AsterDrive built-in",
+        crate::types::MediaProcessorKind::Lofty => "AsterDrive built-in audio",
         _ => processor.as_str(),
     }
 }

@@ -16,6 +16,7 @@ pub use shared::{
     ImagePreviewData, ProcessedAvatar, StoredThumbnail, ThumbnailData,
     image_preview_etag_value_for, thumbnail_etag_value_for,
 };
+pub(crate) use shared::{cli_output_detail, run_cli_command_with_timeout};
 pub(crate) use shared::{known_image_preview_cache_paths, known_thumbnail_cache_paths};
 pub(crate) use thumbnail::generate_and_store_thumbnail_with_processor;
 pub use thumbnail::{

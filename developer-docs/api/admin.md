@@ -428,9 +428,13 @@
 - `archive_extract_max_staging_bytes`
 - `avatar_max_upload_size_bytes`
 - `thumbnail_max_source_bytes`
+- `media_metadata_enabled`
+- `media_metadata_max_source_bytes`
 - `media_processing_registry_json`
 
-缩略图处理器已经统一迁移到 `media_processing_registry_json`；旧的 `thumbnail_default_processor`、`thumbnail_vips_cli_enabled`、`thumbnail_vips_command` 会在启动时作为废弃配置键清理，不应再写进新文档或新代码。
+`media_processing_registry_json` 是统一媒体处理注册表，用来管理内置 `images`、内置 `lofty`、VIPS CLI、FFmpeg CLI、FFprobe CLI 的启用状态、能力用途、后缀绑定和命令路径。缩略图与媒体元数据都走这条注册表；`media_metadata_enabled` 只保留为媒体元数据总开关，单类媒体是否启用由对应处理器控制。
+
+`POST /admin/config/media_processing_registry_json/action` 支持 `test_vips_cli`、`test_ffmpeg_cli` 和 `test_ffprobe_cli`，会用当前草稿注册表或已保存注册表里的命令执行探测，适用于二进制文件改名、不在 PATH 下，或安装在自定义路径的环境。
 
 - `wopi_access_token_ttl_secs`
 - `wopi_lock_ttl_secs`
@@ -493,10 +497,11 @@
 
 ### 执行配置动作
 
-当前已经落地两类动作目标：
+当前已经落地三类动作目标：
 
 - `POST /admin/config/mail/action`
 - `POST /admin/config/frontend_preview_apps_json/action`
+- `POST /admin/config/media_processing_registry_json/action`（`test_vips_cli`、`test_ffmpeg_cli`、`test_ffprobe_cli`）
 
 邮件测试示例：
 

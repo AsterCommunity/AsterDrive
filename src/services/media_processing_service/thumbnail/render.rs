@@ -1,12 +1,15 @@
+use std::io::Cursor;
+use std::path::Path;
 use std::sync::Arc;
 
 use crate::config::operations;
 use crate::entities::file_blob;
-use crate::errors::Result;
+use crate::errors::{AsterError, MapAsterErr, Result};
 use crate::runtime::PrimaryAppState;
 use crate::storage::StorageDriver;
 use crate::types::MediaProcessorKind;
 
+use crate::services::media_processing_service::cli_input::prepare_cli_source;
 use crate::services::media_processing_service::shared::ResolvedMediaProcessor;
 
 use super::cli::{
@@ -87,6 +90,25 @@ pub(super) async fn render_thumbnail_bytes(
             )
             .await
         }
+        MediaProcessorKind::Lofty => {
+            tracing::debug!(
+                blob_id = blob.id,
+                processor = "lofty",
+                "rendering thumbnail from embedded audio artwork"
+            );
+            crate::services::thumbnail_service::ensure_source_size_supported(
+                blob,
+                operations::thumbnail_max_source_bytes(&state.runtime_config),
+            )?;
+            render_thumbnail_with_lofty(
+                state,
+                blob,
+                source_file_name,
+                source_mime_type,
+                driver.as_ref(),
+            )
+            .await
+        }
         MediaProcessorKind::StorageNative => {
             tracing::debug!(
                 blob_id = blob.id,
@@ -95,7 +117,68 @@ pub(super) async fn render_thumbnail_bytes(
             );
             render_thumbnail_with_storage_native(blob, driver.as_ref(), source_mime_type).await
         }
+        MediaProcessorKind::FfprobeCli => Err(crate::errors::AsterError::internal_error(
+            "ffprobe_cli cannot render thumbnails",
+        )),
     }
+}
+
+async fn render_thumbnail_with_lofty(
+    state: &PrimaryAppState,
+    blob: &file_blob::Model,
+    source_file_name: &str,
+    source_mime_type: &str,
+    driver: &dyn StorageDriver,
+) -> Result<Vec<u8>> {
+    let temp_root = crate::utils::paths::runtime_temp_dir(&state.config.server.temp_dir);
+    let temp_dir =
+        std::path::PathBuf::from(temp_root).join(format!("media-lofty-{}", uuid::Uuid::new_v4()));
+    tokio::fs::create_dir_all(&temp_dir)
+        .await
+        .map_aster_err_ctx("create lofty temp dir", AsterError::storage_driver_error)?;
+    let temp_dir = crate::services::media_processing_service::shared::TempDirGuard::new(
+        temp_dir,
+        "lofty thumbnail temp dir",
+    );
+    let prepared_input = prepare_cli_source(
+        driver,
+        &blob.storage_path,
+        source_file_name,
+        source_mime_type,
+        temp_dir.path(),
+        false,
+    )
+    .await?;
+    let source_path = std::path::PathBuf::from(prepared_input.input_arg());
+    tokio::task::spawn_blocking(move || render_audio_artwork_thumbnail_from_path(&source_path))
+        .await
+        .map_aster_err_ctx("lofty thumbnail task panicked", AsterError::internal_error)?
+}
+
+fn render_audio_artwork_thumbnail_from_path(path: &Path) -> Result<Vec<u8>> {
+    let mut options = lofty::config::ParseOptions::new();
+    options = options.read_cover_art(true);
+    let tagged_file = lofty::probe::Probe::open(path)
+        .map_aster_err_ctx(
+            "open audio thumbnail source",
+            AsterError::storage_driver_error,
+        )?
+        .guess_file_type()
+        .map_aster_err_ctx("guess audio thumbnail format", AsterError::validation_error)?
+        .options(options)
+        .read()
+        .map_aster_err_ctx(
+            "read audio thumbnail metadata",
+            AsterError::validation_error,
+        )?;
+    let tag = lofty::file::TaggedFileExt::primary_tag(&tagged_file)
+        .or_else(|| lofty::file::TaggedFileExt::first_tag(&tagged_file));
+    let picture = tag
+        .and_then(|tag| tag.pictures().first())
+        .ok_or_else(|| AsterError::validation_error("audio file has no embedded artwork"))?;
+    crate::services::thumbnail_service::render_thumbnail_from_image_bytes(Cursor::new(
+        picture.data().to_vec(),
+    ))
 }
 
 pub(super) async fn render_image_preview_bytes(
@@ -176,6 +259,12 @@ pub(super) async fn render_image_preview_bytes(
                 &command,
             )
             .await
+        }
+        MediaProcessorKind::Lofty | MediaProcessorKind::FfprobeCli => {
+            Err(crate::errors::AsterError::internal_error(format!(
+                "{} cannot render image previews",
+                processor.kind().as_str()
+            )))
         }
     }
 }

@@ -37,6 +37,7 @@ async fn insert_task(
         BackgroundTaskKind::ArchiveExtract => "archive-extract",
         BackgroundTaskKind::ArchivePreviewGenerate => "archive-preview-generate",
         BackgroundTaskKind::ThumbnailGenerate => "thumbnail-generate",
+        BackgroundTaskKind::MediaMetadataExtract => "media-metadata-extract",
         BackgroundTaskKind::TrashPurgeAll => "trash-purge-all",
         BackgroundTaskKind::StoragePolicyTempCleanup => "storage-policy-temp-cleanup",
         BackgroundTaskKind::SystemRuntime => "task-cleanup",
@@ -67,6 +68,13 @@ async fn insert_task(
             "source_file_name": "repo-test.png",
             "source_mime_type": "image/png",
             "processor": "image_magick",
+        }),
+        BackgroundTaskKind::MediaMetadataExtract => serde_json::json!({
+            "blob_id": 1,
+            "blob_hash": "hash",
+            "source_file_name": "repo-test.png",
+            "source_mime_type": "image/png",
+            "kind": "image",
         }),
         BackgroundTaskKind::TrashPurgeAll => serde_json::json!({}),
         BackgroundTaskKind::StoragePolicyTempCleanup => serde_json::json!({

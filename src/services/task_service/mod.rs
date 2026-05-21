@@ -6,6 +6,7 @@
 
 mod archive;
 mod dispatch;
+mod media_metadata;
 mod retry;
 mod runtime;
 mod steps;
@@ -43,6 +44,7 @@ pub(crate) use archive::{
     prepare_archive_download_in_scope, stream_archive_download_in_scope,
 };
 pub use dispatch::{DispatchStats, cleanup_expired, dispatch_due, drain};
+pub(crate) use media_metadata::ensure_media_metadata_task;
 pub use runtime::{RuntimeTaskRunOutcome, record_runtime_task_run};
 use steps::{initial_task_steps, parse_task_steps_json, serialize_task_steps};
 pub(crate) use storage_policy_cleanup::create_storage_policy_temp_cleanup_task;
@@ -52,10 +54,10 @@ pub use types::{
     ArchiveCompressTaskPayload, ArchiveCompressTaskResult, ArchiveExtractTaskPayload,
     ArchiveExtractTaskResult, ArchivePreviewTaskPayload, ArchivePreviewTaskResult,
     CreateArchiveCompressTaskParams, CreateArchiveExtractTaskParams, CreateArchiveTaskParams,
-    RuntimeSystemHealthComponent, RuntimeSystemHealthResult, RuntimeSystemHealthStatus,
-    RuntimeTaskPayload, RuntimeTaskResult, TaskInfo, TaskPayload, TaskResult, TaskStepInfo,
-    TaskStepStatus, ThumbnailGenerateTaskPayload, ThumbnailGenerateTaskResult,
-    TrashPurgeAllTaskPayload, TrashPurgeAllTaskResult,
+    MediaMetadataExtractTaskPayload, MediaMetadataExtractTaskResult, RuntimeSystemHealthComponent,
+    RuntimeSystemHealthResult, RuntimeSystemHealthStatus, RuntimeTaskPayload, RuntimeTaskResult,
+    TaskInfo, TaskPayload, TaskResult, TaskStepInfo, TaskStepStatus, ThumbnailGenerateTaskPayload,
+    ThumbnailGenerateTaskResult, TrashPurgeAllTaskPayload, TrashPurgeAllTaskResult,
 };
 use types::{parse_task_payload_info, parse_task_result_info, serialize_task_payload};
 
@@ -672,6 +674,7 @@ pub(super) fn task_lease_expires_at(
 fn configured_task_max_attempts(state: &PrimaryAppState, kind: BackgroundTaskKind) -> i32 {
     match kind {
         BackgroundTaskKind::SystemRuntime | BackgroundTaskKind::ThumbnailGenerate => 1,
+        BackgroundTaskKind::MediaMetadataExtract => 3,
         BackgroundTaskKind::ArchiveCompress
         | BackgroundTaskKind::ArchiveExtract
         | BackgroundTaskKind::ArchivePreviewGenerate

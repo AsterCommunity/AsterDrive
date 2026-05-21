@@ -1,6 +1,6 @@
 [package]
 name = "aster_drive"
-version = "0.2.0-beta.2"
+version = "0.2.0-beta.3"
 description = "A self-hosted cloud storage solution."
 authors = [
     "AptS-1547 <apts-1547@esaps.net>",
@@ -92,6 +92,7 @@ mime_guess = "2"
 moka = { version = "0.12.15", features = ["future"] }
 md-5 = "0.11.0"
 num_cpus = "1.17.0"
+nom-exif = "3.4.1"
 parking_lot = "0.12"
 paste = "1.0.15"
 percent-encoding = "2.3"
@@ -128,6 +129,7 @@ webauthn-rs-proto = "0.6.1-dev"
 xmltree = "0.12"
 zip = { version = "8", default-features = false, features = ["deflate"] }
 ipnet = "2.12.0"
+lofty = "0.24.0"
 
 [dev-dependencies]
 aws-smithy-http-client = { version = "1.1.12", features = ["test-util"] }

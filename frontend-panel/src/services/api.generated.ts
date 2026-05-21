@@ -1657,6 +1657,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/files/{id}/media-metadata": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["get_file_media_metadata"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/files/{id}/preview-link": {
         parameters: {
             query?: never;
@@ -2073,6 +2089,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/s/{token}/files/{file_id}/media-metadata": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["shared_folder_file_media_metadata"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/s/{token}/files/{file_id}/preview-link": {
         parameters: {
             query?: never;
@@ -2145,6 +2177,22 @@ export interface paths {
             cookie?: never;
         };
         get: operations["shared_image_preview"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/s/{token}/media-metadata": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["shared_file_media_metadata"];
         put?: never;
         post?: never;
         delete?: never;
@@ -2803,6 +2851,22 @@ export interface paths {
         get?: never;
         put?: never;
         post: operations["set_team_file_lock"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/teams/{team_id}/files/{id}/media-metadata": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["get_team_file_media_metadata"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -3797,6 +3861,37 @@ export interface components {
             source_hash: string;
             truncated: boolean;
         };
+        AudioMediaMetadata: {
+            album?: string | null;
+            album_artist?: string | null;
+            artist?: string | null;
+            artists: string[];
+            /** Format: int32 */
+            audio_bitrate?: number | null;
+            /** Format: int32 */
+            bit_depth?: number | null;
+            /** Format: int32 */
+            channels?: number | null;
+            date?: string | null;
+            /** Format: int32 */
+            disc_number?: number | null;
+            /** Format: int32 */
+            disc_total?: number | null;
+            /** Format: int64 */
+            duration_ms?: number | null;
+            embedded_picture_mime_type?: string | null;
+            genre?: string | null;
+            has_embedded_picture: boolean;
+            /** Format: int32 */
+            overall_bitrate?: number | null;
+            /** Format: int32 */
+            sample_rate?: number | null;
+            title?: string | null;
+            /** Format: int32 */
+            track_number?: number | null;
+            /** Format: int32 */
+            track_total?: number | null;
+        };
         /**
          * @description 审计日志动作
          * @enum {string}
@@ -3861,7 +3956,7 @@ export interface components {
          * @description 后台任务类型
          * @enum {string}
          */
-        BackgroundTaskKind: "archive_extract" | "archive_compress" | "archive_preview_generate" | "thumbnail_generate" | "trash_purge_all" | "storage_policy_temp_cleanup" | "system_runtime";
+        BackgroundTaskKind: "archive_extract" | "archive_compress" | "archive_preview_generate" | "thumbnail_generate" | "media_metadata_extract" | "trash_purge_all" | "storage_policy_temp_cleanup" | "system_runtime";
         /**
          * @description 后台任务状态
          * @enum {string}
@@ -3949,7 +4044,7 @@ export interface components {
             part_number: number;
         };
         /** @enum {string} */
-        ConfigActionType: "build_wopi_discovery_preview_config" | "send_test_email" | "test_vips_cli" | "test_ffmpeg_cli";
+        ConfigActionType: "build_wopi_discovery_preview_config" | "send_test_email" | "test_vips_cli" | "test_ffmpeg_cli" | "test_ffprobe_cli";
         ConfigSchemaItem: {
             category: string;
             description: string;
@@ -4398,6 +4493,38 @@ export interface components {
             status: string;
             version: string;
         };
+        ImageMediaMetadata: {
+            artist?: string | null;
+            camera_make?: string | null;
+            camera_model?: string | null;
+            copyright?: string | null;
+            /** Format: double */
+            exposure_bias_ev?: number | null;
+            /** Format: double */
+            exposure_time_seconds?: number | null;
+            /** Format: double */
+            f_number?: number | null;
+            flash_fired?: boolean | null;
+            /** Format: int32 */
+            flash_mode?: number | null;
+            /** Format: int32 */
+            focal_length_35mm?: number | null;
+            /** Format: double */
+            focal_length_mm?: number | null;
+            format?: string | null;
+            /** Format: int32 */
+            height: number;
+            /** Format: int32 */
+            iso?: number | null;
+            lens_make?: string | null;
+            lens_model?: string | null;
+            /** Format: int32 */
+            orientation?: number | null;
+            software?: string | null;
+            taken_at?: string | null;
+            /** Format: int32 */
+            width: number;
+        };
         /** @description Initialize a chunked upload session. */
         InitUploadReq: {
             filename: string;
@@ -4504,11 +4631,52 @@ export interface components {
             updated_at: string;
             username: string;
         };
+        MediaMetadataExtractTaskPayload: {
+            blob_hash: string;
+            /** Format: int64 */
+            blob_id: number;
+            kind: components["schemas"]["MediaMetadataKind"];
+            source_file_name: string;
+            source_mime_type: string;
+        };
+        MediaMetadataExtractTaskResult: {
+            /** Format: int64 */
+            blob_id: number;
+            kind: components["schemas"]["MediaMetadataKind"];
+            parser: string;
+            status: components["schemas"]["MediaMetadataStatus"];
+        };
+        MediaMetadataInfo: {
+            blob_hash: string;
+            /** Format: int64 */
+            blob_id: number;
+            error?: string | null;
+            kind: components["schemas"]["MediaMetadataKind"];
+            metadata?: null | components["schemas"]["MediaMetadataPayload"];
+            parser: string;
+            parser_version: string;
+            status: components["schemas"]["MediaMetadataStatus"];
+            updated_at: string;
+        };
+        /** @enum {string} */
+        MediaMetadataKind: "image" | "audio" | "video";
+        MediaMetadataPayload: (components["schemas"]["ImageMediaMetadata"] & {
+            /** @enum {string} */
+            kind: "image";
+        }) | (components["schemas"]["AudioMediaMetadata"] & {
+            /** @enum {string} */
+            kind: "audio";
+        }) | (components["schemas"]["VideoMediaMetadata"] & {
+            /** @enum {string} */
+            kind: "video";
+        });
+        /** @enum {string} */
+        MediaMetadataStatus: "ready" | "failed" | "unsupported";
         /**
          * @description 统一媒体处理器类型（system_config / storage_policy.options）
          * @enum {string}
          */
-        MediaProcessorKind: "images" | "vips_cli" | "ffmpeg_cli" | "storage_native";
+        MediaProcessorKind: "images" | "lofty" | "vips_cli" | "ffmpeg_cli" | "ffprobe_cli" | "storage_native";
         MemoryStatsResponse: {
             heap_allocated_mb: string;
             heap_peak_mb: string;
@@ -5672,6 +5840,9 @@ export interface components {
         }) | (components["schemas"]["ThumbnailGenerateTaskPayload"] & {
             /** @enum {string} */
             kind: "thumbnail_generate";
+        }) | (components["schemas"]["MediaMetadataExtractTaskPayload"] & {
+            /** @enum {string} */
+            kind: "media_metadata_extract";
         }) | (components["schemas"]["TrashPurgeAllTaskPayload"] & {
             /** @enum {string} */
             kind: "trash_purge_all";
@@ -5694,6 +5865,9 @@ export interface components {
         }) | (components["schemas"]["ThumbnailGenerateTaskResult"] & {
             /** @enum {string} */
             kind: "thumbnail_generate";
+        }) | (components["schemas"]["MediaMetadataExtractTaskResult"] & {
+            /** @enum {string} */
+            kind: "media_metadata_extract";
         }) | (components["schemas"]["TrashPurgeAllTaskResult"] & {
             /** @enum {string} */
             kind: "trash_purge_all";
@@ -6111,6 +6285,46 @@ export interface components {
         /** @description Verify a share password. */
         VerifyPasswordReq: {
             password: string;
+        };
+        VideoMediaMetadata: {
+            /** Format: int64 */
+            audio_bitrate?: number | null;
+            /** Format: int32 */
+            audio_channels?: number | null;
+            audio_codec?: string | null;
+            /** Format: int32 */
+            audio_sample_rate?: number | null;
+            /** Format: int32 */
+            audio_stream_count: number;
+            /** Format: int32 */
+            bit_depth?: number | null;
+            codec?: string | null;
+            color_primaries?: string | null;
+            color_space?: string | null;
+            color_transfer?: string | null;
+            container?: string | null;
+            creation_time?: string | null;
+            /** Format: int32 */
+            display_height?: number | null;
+            /** Format: int32 */
+            display_width?: number | null;
+            /** Format: int64 */
+            duration_ms?: number | null;
+            frame_rate?: string | null;
+            hdr_format?: string | null;
+            /** Format: int32 */
+            height?: number | null;
+            /** Format: int64 */
+            overall_bitrate?: number | null;
+            pixel_format?: string | null;
+            /** Format: int32 */
+            rotation_degrees?: number | null;
+            /** Format: int32 */
+            subtitle_stream_count: number;
+            /** Format: int64 */
+            video_bitrate?: number | null;
+            /** Format: int32 */
+            width?: number | null;
         };
         WebdavAccount: {
             created_at: string;
@@ -13338,6 +13552,66 @@ export interface operations {
             };
         };
     };
+    get_file_media_metadata: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description File ID */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Blob media metadata */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        code: components["schemas"]["ErrorCode"];
+                        data?: {
+                            blob_hash: string;
+                            /** Format: int64 */
+                            blob_id: number;
+                            error?: string | null;
+                            kind: components["schemas"]["MediaMetadataKind"];
+                            metadata?: null | components["schemas"]["MediaMetadataPayload"];
+                            parser: string;
+                            parser_version: string;
+                            status: components["schemas"]["MediaMetadataStatus"];
+                            updated_at: string;
+                        };
+                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        msg: string;
+                    };
+                };
+            };
+            /** @description Media metadata extraction in progress */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description File not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     create_file_preview_link: {
         parameters: {
             query?: never;
@@ -14920,6 +15194,68 @@ export interface operations {
             };
         };
     };
+    shared_folder_file_media_metadata: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Share token */
+                token: string;
+                /** @description File ID inside shared folder */
+                file_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Blob media metadata */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        code: components["schemas"]["ErrorCode"];
+                        data?: {
+                            blob_hash: string;
+                            /** Format: int64 */
+                            blob_id: number;
+                            error?: string | null;
+                            kind: components["schemas"]["MediaMetadataKind"];
+                            metadata?: null | components["schemas"]["MediaMetadataPayload"];
+                            parser: string;
+                            parser_version: string;
+                            status: components["schemas"]["MediaMetadataStatus"];
+                            updated_at: string;
+                        };
+                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        msg: string;
+                    };
+                };
+            };
+            /** @description Media metadata extraction in progress */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Password required or file outside shared scope */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Share or file not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     create_shared_folder_file_preview_link: {
         parameters: {
             query?: never;
@@ -15211,6 +15547,66 @@ export interface operations {
             };
             /** @description Unexpected image preview generation failure */
             500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    shared_file_media_metadata: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Share token */
+                token: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Blob media metadata */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        code: components["schemas"]["ErrorCode"];
+                        data?: {
+                            blob_hash: string;
+                            /** Format: int64 */
+                            blob_id: number;
+                            error?: string | null;
+                            kind: components["schemas"]["MediaMetadataKind"];
+                            metadata?: null | components["schemas"]["MediaMetadataPayload"];
+                            parser: string;
+                            parser_version: string;
+                            status: components["schemas"]["MediaMetadataStatus"];
+                            updated_at: string;
+                        };
+                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        msg: string;
+                    };
+                };
+            };
+            /** @description Media metadata extraction in progress */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Password required */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Share or file not found */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -18453,6 +18849,75 @@ export interface operations {
                         msg: string;
                     };
                 };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description File not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    get_team_file_media_metadata: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Team ID */
+                team_id: number;
+                /** @description File ID */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Team file blob media metadata */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        code: components["schemas"]["ErrorCode"];
+                        data?: {
+                            blob_hash: string;
+                            /** Format: int64 */
+                            blob_id: number;
+                            error?: string | null;
+                            kind: components["schemas"]["MediaMetadataKind"];
+                            metadata?: null | components["schemas"]["MediaMetadataPayload"];
+                            parser: string;
+                            parser_version: string;
+                            status: components["schemas"]["MediaMetadataStatus"];
+                            updated_at: string;
+                        };
+                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        msg: string;
+                    };
+                };
+            };
+            /** @description Media metadata extraction in progress */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Unauthorized */
             401: {

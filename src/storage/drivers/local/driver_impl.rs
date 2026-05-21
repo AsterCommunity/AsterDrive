@@ -80,6 +80,20 @@ impl StorageDriver for LocalDriver {
         })
     }
 
+    async fn readiness_check(&self) -> Result<()> {
+        let metadata = tokio::fs::metadata(&self.base_path)
+            .await
+            .map_aster_err_ctx("local storage readiness", AsterError::storage_driver_error)?;
+        if metadata.is_dir() {
+            Ok(())
+        } else {
+            Err(AsterError::storage_driver_error(format!(
+                "local storage readiness: base path '{}' is not a directory",
+                self.base_path.display()
+            )))
+        }
+    }
+
     async fn copy_object(&self, src_path: &str, dest_path: &str) -> Result<String> {
         let src_full = self.full_path(src_path)?;
         let dest_full = self.full_path(dest_path)?;

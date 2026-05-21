@@ -1,4 +1,5 @@
 import type { IconName } from "@/components/ui/icon";
+import type { FileCategory as ApiFileCategory } from "@/types/api";
 
 export type FileCategory =
 	| "image"
@@ -59,6 +60,8 @@ export interface FilePreviewProfile {
 }
 
 export interface PreviewableFileLike {
+	id?: number;
+	file_category?: ApiFileCategory;
 	name: string;
 	mime_type: string;
 	size?: number;

@@ -31,9 +31,10 @@ pub(crate) async fn get_thumbnail_data_in_scope(
 ) -> Result<Option<ThumbnailResult>> {
     let f = get_info_in_scope(state, scope, file_id).await?;
     let blob = file_repo::find_blob_by_id(&state.db, f.blob_id).await?;
-    let thumbnail = media_processing_service::load_thumbnail_if_exists(state, &blob, &f.name)
-        .await
-        .map_err(media_processing_service::map_thumbnail_request_error)?;
+    let thumbnail =
+        media_processing_service::load_thumbnail_if_exists(state, &blob, &f.name, &f.mime_type)
+            .await
+            .map_err(media_processing_service::map_thumbnail_request_error)?;
 
     match thumbnail {
         Some(thumbnail) => Ok(Some(ThumbnailResult {

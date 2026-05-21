@@ -116,6 +116,7 @@ fn join_pipe_reader(
 }
 
 pub(crate) const FFMPEG_CLI_THUMBNAIL_PROCESSOR_NAMESPACE: &str = "ffmpeg-cli";
+pub(crate) const LOFTY_THUMBNAIL_PROCESSOR_NAMESPACE: &str = "lofty";
 pub(crate) const STORAGE_NATIVE_THUMBNAIL_PROCESSOR_NAMESPACE: &str = "storage-native";
 pub(crate) const VIPS_CLI_THUMBNAIL_PROCESSOR_NAMESPACE: &str = "vips-cli";
 
@@ -178,6 +179,10 @@ impl ResolvedMediaProcessor {
             }
             MediaProcessorKind::VipsCli => VIPS_CLI_THUMBNAIL_PROCESSOR_NAMESPACE,
             MediaProcessorKind::FfmpegCli => FFMPEG_CLI_THUMBNAIL_PROCESSOR_NAMESPACE,
+            MediaProcessorKind::Lofty => LOFTY_THUMBNAIL_PROCESSOR_NAMESPACE,
+            MediaProcessorKind::FfprobeCli => {
+                crate::services::thumbnail_service::IMAGES_THUMBNAIL_PROCESSOR_NAMESPACE
+            }
             MediaProcessorKind::StorageNative => STORAGE_NATIVE_THUMBNAIL_PROCESSOR_NAMESPACE,
         }
     }
@@ -271,6 +276,7 @@ pub(crate) fn known_thumbnail_cache_paths(blob_hash: &str) -> Vec<String> {
         [
             VIPS_CLI_THUMBNAIL_PROCESSOR_NAMESPACE,
             FFMPEG_CLI_THUMBNAIL_PROCESSOR_NAMESPACE,
+            LOFTY_THUMBNAIL_PROCESSOR_NAMESPACE,
             STORAGE_NATIVE_THUMBNAIL_PROCESSOR_NAMESPACE,
         ]
         .into_iter()
@@ -327,10 +333,10 @@ fn infer_extension_from_mime(source_mime_type: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::{
-        FFMPEG_CLI_THUMBNAIL_PROCESSOR_NAMESPACE, MAX_CLI_OUTPUT_BYTES,
-        STORAGE_NATIVE_THUMBNAIL_PROCESSOR_NAMESPACE, VIPS_CLI_THUMBNAIL_PROCESSOR_NAMESPACE,
-        join_pipe_reader, known_image_preview_cache_paths, known_thumbnail_cache_paths,
-        spawn_pipe_reader,
+        FFMPEG_CLI_THUMBNAIL_PROCESSOR_NAMESPACE, LOFTY_THUMBNAIL_PROCESSOR_NAMESPACE,
+        MAX_CLI_OUTPUT_BYTES, STORAGE_NATIVE_THUMBNAIL_PROCESSOR_NAMESPACE,
+        VIPS_CLI_THUMBNAIL_PROCESSOR_NAMESPACE, join_pipe_reader, known_image_preview_cache_paths,
+        known_thumbnail_cache_paths, spawn_pipe_reader,
     };
     use std::io::Cursor;
 
@@ -352,6 +358,11 @@ mod tests {
                 crate::services::thumbnail_service::thumb_path_for(
                     HASH,
                     FFMPEG_CLI_THUMBNAIL_PROCESSOR_NAMESPACE,
+                    crate::services::thumbnail_service::CURRENT_THUMBNAIL_VERSION,
+                ),
+                crate::services::thumbnail_service::thumb_path_for(
+                    HASH,
+                    LOFTY_THUMBNAIL_PROCESSOR_NAMESPACE,
                     crate::services::thumbnail_service::CURRENT_THUMBNAIL_VERSION,
                 ),
                 crate::services::thumbnail_service::thumb_path_for(

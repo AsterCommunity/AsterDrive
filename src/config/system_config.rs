@@ -156,7 +156,11 @@ where
         operations::TEAM_MEMBER_LIST_MAX_LIMIT_KEY | operations::TASK_LIST_MAX_LIMIT_KEY => {
             operations::normalize_list_max_limit_config_value(key, value)
         }
+        operations::MEDIA_METADATA_ENABLED_KEY => {
+            operations::normalize_bool_config_value(key, value)
+        }
         operations::AVATAR_MAX_UPLOAD_SIZE_BYTES_KEY
+        | operations::MEDIA_METADATA_MAX_SOURCE_BYTES_KEY
         | operations::ARCHIVE_EXTRACT_MAX_SOURCE_BYTES_KEY
         | operations::ARCHIVE_EXTRACT_MAX_STAGING_BYTES_KEY
         | operations::ARCHIVE_EXTRACT_MAX_UNCOMPRESSED_BYTES_KEY

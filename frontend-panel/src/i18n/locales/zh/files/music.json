@@ -6,6 +6,8 @@
 	"music_preview_resume": "继续播放",
 	"music_player_close": "关闭播放器",
 	"music_player_collapse": "收起播放器",
+	"music_player_album_label": "专辑",
+	"music_player_artist_label": "歌手",
 	"music_player_details": "详情",
 	"music_player_file_name": "文件名",
 	"music_player_load_failed": "音乐播放失败",
@@ -21,6 +23,7 @@
 	"music_player_previous": "上一首",
 	"music_player_queue": "播放列表",
 	"music_player_seek": "调整播放进度",
+	"music_player_title_label": "标题",
 	"music_player_title": "音乐",
 	"music_player_unknown_artist": "未知歌手",
 	"music_player_volume": "音量"

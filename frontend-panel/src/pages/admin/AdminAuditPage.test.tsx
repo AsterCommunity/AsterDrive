@@ -507,7 +507,9 @@ describe("AdminAuditPage", () => {
 			});
 		});
 
-		fireEvent.click(screen.getAllByRole("button", { name: "select-50" })[0]);
+		fireEvent.click(
+			(await screen.findAllByRole("button", { name: "select-50" }))[0],
+		);
 
 		await waitFor(() => {
 			expect(mockState.list).toHaveBeenLastCalledWith({

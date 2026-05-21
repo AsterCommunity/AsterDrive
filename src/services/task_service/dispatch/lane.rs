@@ -21,7 +21,10 @@ const ARCHIVE_TASK_KINDS: [BackgroundTaskKind; 3] = [
     BackgroundTaskKind::ArchiveExtract,
     BackgroundTaskKind::ArchivePreviewGenerate,
 ];
-const THUMBNAIL_TASK_KINDS: [BackgroundTaskKind; 1] = [BackgroundTaskKind::ThumbnailGenerate];
+const THUMBNAIL_TASK_KINDS: [BackgroundTaskKind; 2] = [
+    BackgroundTaskKind::ThumbnailGenerate,
+    BackgroundTaskKind::MediaMetadataExtract,
+];
 const FALLBACK_TASK_KINDS: [BackgroundTaskKind; 3] = [
     BackgroundTaskKind::SystemRuntime,
     BackgroundTaskKind::StoragePolicyTempCleanup,
@@ -69,7 +72,9 @@ pub(super) fn task_lane(kind: BackgroundTaskKind) -> TaskLane {
         BackgroundTaskKind::ArchiveCompress
         | BackgroundTaskKind::ArchiveExtract
         | BackgroundTaskKind::ArchivePreviewGenerate => TaskLane::Archive,
-        BackgroundTaskKind::ThumbnailGenerate => TaskLane::Thumbnail,
+        BackgroundTaskKind::ThumbnailGenerate | BackgroundTaskKind::MediaMetadataExtract => {
+            TaskLane::Thumbnail
+        }
         BackgroundTaskKind::StoragePolicyTempCleanup
         | BackgroundTaskKind::TrashPurgeAll
         | BackgroundTaskKind::SystemRuntime => TaskLane::Fallback,

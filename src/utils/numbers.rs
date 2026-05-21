@@ -38,6 +38,30 @@ pub fn u128_to_u64(value: u128, value_name: &str) -> Result<u64> {
     })
 }
 
+pub fn f64_seconds_to_u64_millis(seconds: f64, value_name: &str) -> Result<u64> {
+    if !seconds.is_finite() {
+        return Err(AsterError::internal_error(format!(
+            "{value_name} must be finite: {seconds}"
+        )));
+    }
+    if seconds < 0.0 {
+        return Err(AsterError::internal_error(format!(
+            "{value_name} cannot be negative: {seconds}"
+        )));
+    }
+
+    let duration = std::time::Duration::try_from_secs_f64(seconds).map_aster_err_with(|| {
+        AsterError::internal_error(format!("{value_name} exceeds duration range: {seconds}"))
+    })?;
+    let rounded_duration = duration
+        .checked_add(std::time::Duration::from_micros(500))
+        .ok_or_else(|| {
+            AsterError::internal_error(format!("{value_name} exceeds duration range: {seconds}"))
+        })?;
+
+    u128_to_u64(rounded_duration.as_millis(), value_name)
+}
+
 pub fn u32_to_usize(value: u32, value_name: &str) -> Result<usize> {
     usize::try_from(value).map_aster_err_with(|| {
         AsterError::internal_error(format!(
@@ -142,6 +166,38 @@ mod tests {
     #[test]
     fn i64_to_u64_rejects_negative_values() {
         let err = i64_to_u64(-1, "content_length").unwrap_err();
+        assert_eq!(err.code(), "E004");
+    }
+
+    #[test]
+    fn f64_seconds_to_u64_millis_rounds_to_nearest_millisecond() {
+        assert_eq!(f64_seconds_to_u64_millis(1.2344, "duration").unwrap(), 1234);
+        assert_eq!(f64_seconds_to_u64_millis(1.2345, "duration").unwrap(), 1235);
+        assert_eq!(f64_seconds_to_u64_millis(0.0004, "duration").unwrap(), 0);
+        assert_eq!(f64_seconds_to_u64_millis(0.0005, "duration").unwrap(), 1);
+    }
+
+    #[test]
+    fn f64_seconds_to_u64_millis_accepts_zero() {
+        assert_eq!(f64_seconds_to_u64_millis(0.0, "duration").unwrap(), 0);
+    }
+
+    #[test]
+    fn f64_seconds_to_u64_millis_rejects_invalid_values() {
+        let negative = f64_seconds_to_u64_millis(-1.0, "duration").unwrap_err();
+        assert_eq!(negative.code(), "E004");
+
+        let nan = f64_seconds_to_u64_millis(f64::NAN, "duration").unwrap_err();
+        assert_eq!(nan.code(), "E004");
+
+        let infinity = f64_seconds_to_u64_millis(f64::INFINITY, "duration").unwrap_err();
+        assert_eq!(infinity.code(), "E004");
+    }
+
+    #[test]
+    fn f64_seconds_to_u64_millis_rejects_u64_millis_overflow() {
+        let overflow_seconds = "18446744073709552".parse::<f64>().unwrap();
+        let err = f64_seconds_to_u64_millis(overflow_seconds, "duration").unwrap_err();
         assert_eq!(err.code(), "E004");
     }
 

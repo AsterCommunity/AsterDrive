@@ -117,3 +117,37 @@ async fn test_health_ready_returns_503_when_default_storage_policy_is_missing() 
     );
     assert_eq!(body["msg"], "Storage unavailable");
 }
+
+#[actix_web::test]
+async fn test_health_ready_does_not_probe_s3_network() {
+    let state = common::setup().await;
+    let default_policy = policy_repo::find_default(&state.db)
+        .await
+        .unwrap()
+        .expect("default policy should exist");
+
+    let mut active: storage_policy::ActiveModel = default_policy.clone().into();
+    active.driver_type = Set(aster_drive::types::DriverType::S3);
+    active.endpoint = Set("http://127.0.0.1:9".to_string());
+    active.bucket = Set("ready-probe".to_string());
+    active.access_key = Set("test-access-key".to_string());
+    active.secret_key = Set("test-secret-key".to_string());
+    active.options = Set(aster_drive::types::StoredStoragePolicyOptions(
+        r#"{"s3_connect_timeout_secs":1,"s3_read_timeout_secs":1,"s3_operation_timeout_secs":1}"#
+            .to_string(),
+    ));
+    active.updated_at = Set(Utc::now());
+    active.update(&state.db).await.unwrap();
+
+    state.driver_registry.invalidate(default_policy.id);
+    state.policy_snapshot.reload(&state.db).await.unwrap();
+
+    let app = create_test_app!(state);
+
+    let req = test::TestRequest::get().uri("/health/ready").to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(body["data"]["status"], "ready");
+}

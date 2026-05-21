@@ -263,8 +263,20 @@ ASTER_BOOTSTRAP_ENABLE_FFMPEG_CLI=true
 
 官方 Docker 镜像已经安装 `vips` 和 `ffmpeg`，并默认打开这两个 bootstrap ENV，所以新库通常会直接带上对应处理器。
 
-这两个变量只影响 `media_processing_registry_json` 还不存在时的初始默认值；系统设置已经生成后，请继续在 `管理 -> 系统设置 -> 存储与保留 -> 媒体处理` 里调整。
+这两个变量只影响 `media_processing_registry_json` 还不存在时的初始默认值。这个规则表是统一媒体处理配置入口，用来管理内置 `images`、内置 `lofty`、VIPS CLI、FFmpeg CLI、FFprobe CLI 的启用状态、能力用途、后缀绑定和命令路径；缩略图和媒体元数据都会走这条链路。
 :::
+
+### 媒体元数据
+
+媒体元数据和缩略图共用 `media_processing_registry_json`：
+
+- `media_metadata_enabled` 是总开关
+- `media_metadata_max_source_bytes` 限制进入元数据后台任务的源文件大小
+- `images` 处理器启用且具备 `metadata:image` 用途时，负责图片元数据
+- `lofty` 处理器启用且具备 `metadata:audio` 用途时，负责音频元数据；具备 `thumbnail:audio` 用途时，负责从音频内嵌封面生成 WebP 缩略图
+- `ffprobe_cli` 处理器启用且具备 `metadata:video` 用途时，负责视频元数据；它的 `config.command` 可以是命令名或绝对路径
+
+如果服务端的 `ffprobe` 改名了、没放进 PATH，或者需要指定自定义安装路径，把 `media_processing_registry_json` 里 `ffprobe_cli.config.command` 改成对应命令或绝对路径，然后在媒体处理注册表里执行 `test_ffprobe_cli` 探测。
 
 ## WebDAV
 

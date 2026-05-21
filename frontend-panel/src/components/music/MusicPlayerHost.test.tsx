@@ -7,6 +7,7 @@ import {
 } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { MusicPlayerHost } from "@/components/music/MusicPlayerHost";
+import { ApiPendingError } from "@/services/http";
 import type { MusicPlaybackMode } from "@/stores/musicPlayerStore";
 
 type MockMediaSession = {
@@ -32,6 +33,16 @@ const mockState = vi.hoisted(() => ({
 	setPlaying: vi.fn(),
 	updateTrackSource: vi.fn(),
 	updateTrackMetadata: vi.fn(),
+	thumbnailSupportStore: {
+		config: {
+			version: 1,
+			extensions: ["mp3"],
+		},
+		invalidate: vi.fn(),
+		isLoaded: true,
+		load: vi.fn(),
+	},
+	useBlobUrl: vi.fn(),
 	state: {
 		activeTrackId: null as string | null,
 		error: null as string | null,
@@ -48,6 +59,7 @@ const mockState = vi.hoisted(() => ({
 			}>;
 			id: string;
 			metadata?: {
+				album?: string | null;
 				artist?: string | null;
 				artists?: string[] | null;
 				artworkUrl?: string | null;
@@ -57,6 +69,15 @@ const mockState = vi.hoisted(() => ({
 			name: string;
 			path: string;
 			size?: number;
+			thumbnail?: {
+				file: {
+					file_category?: "audio";
+					id: number;
+					mime_type: string;
+					name: string;
+				};
+				path?: string;
+			};
 		}>,
 	},
 }));
@@ -118,6 +139,39 @@ vi.mock("@/lib/musicPlayer", () => ({
 		mockState.parseMusicMetadataFromSource(...args),
 }));
 
+vi.mock("@/hooks/useBlobUrl", () => ({
+	useBlobUrl: (...args: unknown[]) => mockState.useBlobUrl(...args),
+}));
+
+vi.mock("@/stores/thumbnailSupportStore", () => ({
+	useThumbnailSupportStore: (
+		selector: (state: typeof mockState.thumbnailSupportStore) => unknown,
+	) => selector(mockState.thumbnailSupportStore),
+}));
+
+vi.mock("@/components/files/FileThumbnail", () => ({
+	FileThumbnail: ({
+		className,
+		file,
+		thumbnailPath,
+	}: {
+		className?: string;
+		file: {
+			id: number;
+			name: string;
+		};
+		thumbnailPath?: string;
+	}) => (
+		<div
+			className={className}
+			data-file-id={file.id}
+			data-file-name={file.name}
+			data-testid="file-thumbnail"
+			data-thumbnail-path={thumbnailPath ?? ""}
+		/>
+	),
+}));
+
 function setQueue() {
 	mockState.state.activeTrackId = "track-1";
 	mockState.state.queue = [
@@ -128,6 +182,15 @@ function setQueue() {
 			name: "track-one.mp3",
 			path: "/files/7/download",
 			size: 1024,
+			thumbnail: {
+				file: {
+					file_category: "audio",
+					id: 7,
+					mime_type: "audio/mpeg",
+					name: "track-one.mp3",
+				},
+				path: "/files/7/thumbnail",
+			},
 		},
 		{
 			id: "track-2",
@@ -136,8 +199,25 @@ function setQueue() {
 			name: "track-two.mp3",
 			path: "/files/8/download",
 			size: 2048,
+			thumbnail: {
+				file: {
+					file_category: "audio",
+					id: 8,
+					mime_type: "audio/mpeg",
+					name: "track-two.mp3",
+				},
+				path: "/files/8/thumbnail",
+			},
 		},
 	];
+}
+
+function getQueuedTracks() {
+	const [firstTrack, secondTrack] = mockState.state.queue;
+	if (!firstTrack || !secondTrack) {
+		throw new Error("expected queued test tracks");
+	}
+	return { firstTrack, secondTrack };
 }
 
 function getPlayerPanel() {
@@ -233,6 +313,14 @@ function installScrollIntoViewMock() {
 	const scrollIntoView = vi.fn();
 	HTMLElement.prototype.scrollIntoView = scrollIntoView;
 	return scrollIntoView;
+}
+
+async function flushAsyncEffects() {
+	await act(async () => {
+		for (let index = 0; index < 6; index += 1) {
+			await Promise.resolve();
+		}
+	});
 }
 
 describe("MusicPlayerHost", () => {
@@ -335,7 +423,37 @@ describe("MusicPlayerHost", () => {
 		mockState.setPlaybackRequested.mockReset();
 		mockState.setPlaying.mockReset();
 		mockState.updateTrackMetadata.mockReset();
+		mockState.updateTrackMetadata.mockImplementation(
+			(trackId: string, metadata: Record<string, unknown>) => {
+				mockState.state.queue = mockState.state.queue.map((track) =>
+					track.id === trackId
+						? {
+								...track,
+								metadata: {
+									...(track.metadata ?? {}),
+									...metadata,
+								},
+							}
+						: track,
+				);
+			},
+		);
 		mockState.updateTrackSource.mockReset();
+		mockState.thumbnailSupportStore.config = {
+			version: 1,
+			extensions: ["mp3"],
+		};
+		mockState.thumbnailSupportStore.isLoaded = true;
+		mockState.thumbnailSupportStore.invalidate.mockReset();
+		mockState.thumbnailSupportStore.load.mockReset();
+		mockState.useBlobUrl.mockReset();
+		mockState.useBlobUrl.mockReturnValue({
+			blob: null,
+			blobUrl: null,
+			error: false,
+			loading: false,
+			retry: vi.fn(),
+		});
 		mockState.closePanel.mockImplementation(() => {
 			mockState.state.isPanelOpen = false;
 		});
@@ -408,6 +526,10 @@ describe("MusicPlayerHost", () => {
 		expect(screen.getByText("music_player_title")).toBeInTheDocument();
 		expect(screen.getByText("Track One")).toBeInTheDocument();
 		expect(screen.getByText("Artist One")).toBeInTheDocument();
+		expect(screen.getByTestId("file-thumbnail")).toHaveAttribute(
+			"data-thumbnail-path",
+			"/files/7/thumbnail",
+		);
 		expect(queueToggle).toHaveAttribute("aria-expanded", "false");
 		expect(screen.queryByText("Track Two")).not.toBeInTheDocument();
 
@@ -415,11 +537,31 @@ describe("MusicPlayerHost", () => {
 
 		expect(queueToggle).toHaveAttribute("aria-expanded", "true");
 		expect(screen.getByText("Track Two")).toBeInTheDocument();
+		expect(
+			screen
+				.getAllByTestId("file-thumbnail")
+				.map((node) => node.getAttribute("data-thumbnail-path")),
+		).toEqual([
+			"/files/7/thumbnail",
+			"/files/7/thumbnail",
+			"/files/8/thumbnail",
+		]);
 	});
 
 	it("shows file details without repeating the playback mode", () => {
 		setQueue();
 		mockState.state.isPanelOpen = true;
+		const { firstTrack, secondTrack } = getQueuedTracks();
+		mockState.state.queue = [
+			{
+				...firstTrack,
+				metadata: {
+					...firstTrack.metadata,
+					album: "Album One",
+				},
+			},
+			secondTrack,
+		];
 
 		render(<MusicPlayerHost />);
 
@@ -429,6 +571,12 @@ describe("MusicPlayerHost", () => {
 
 		expect(screen.getByText("music_player_file_name")).toBeInTheDocument();
 		expect(screen.getByText("track-one.mp3")).toBeInTheDocument();
+		expect(screen.getByText("music_player_title_label")).toBeInTheDocument();
+		expect(screen.getAllByText("Track One").length).toBeGreaterThan(0);
+		expect(screen.getByText("music_player_artist_label")).toBeInTheDocument();
+		expect(screen.getAllByText("Artist One").length).toBeGreaterThan(0);
+		expect(screen.getByText("music_player_album_label")).toBeInTheDocument();
+		expect(screen.getByText("Album One")).toBeInTheDocument();
 		expect(screen.getByText("music_player_mime_type")).toBeInTheDocument();
 		expect(screen.getByText("audio/mpeg")).toBeInTheDocument();
 		expect(screen.queryByText("music_player_mode")).not.toBeInTheDocument();
@@ -835,6 +983,77 @@ describe("MusicPlayerHost", () => {
 		expect(mediaSession.playbackState).toBe("playing");
 	});
 
+	it("uses the authenticated backend thumbnail blob as system media artwork when available", () => {
+		const { mediaSession } = installMockMediaSession();
+		mockState.useBlobUrl.mockReturnValue({
+			blob: new Blob(["cover"], { type: "image/webp" }),
+			blobUrl: "blob:backend-cover",
+			error: false,
+			loading: false,
+			retry: vi.fn(),
+		});
+		setQueue();
+		const { firstTrack, secondTrack } = getQueuedTracks();
+		mockState.state.queue = [
+			{
+				...firstTrack,
+				metadata: {
+					...firstTrack.metadata,
+					artworkUrl: "data:image/png;base64,fallback-cover",
+				},
+			},
+			secondTrack,
+		];
+
+		render(<MusicPlayerHost />);
+
+		expect(mockState.useBlobUrl).toHaveBeenCalledWith("/files/7/thumbnail", {
+			lane: "thumbnail",
+		});
+		expect(mediaSession.metadata).toMatchObject({
+			artwork: [
+				{
+					src: "blob:backend-cover",
+				},
+			],
+			title: "Track One",
+		});
+	});
+
+	it("falls back to parsed artwork for system media metadata while thumbnail support loads", () => {
+		const { mediaSession } = installMockMediaSession();
+		mockState.thumbnailSupportStore.config = null;
+		mockState.thumbnailSupportStore.isLoaded = false;
+		setQueue();
+		const { firstTrack, secondTrack } = getQueuedTracks();
+		mockState.state.queue = [
+			{
+				...firstTrack,
+				metadata: {
+					...firstTrack.metadata,
+					artworkUrl: "data:image/png;base64,fallback-cover",
+				},
+			},
+			secondTrack,
+		];
+
+		render(<MusicPlayerHost />);
+
+		expect(mockState.thumbnailSupportStore.load).toHaveBeenCalledTimes(1);
+		expect(mockState.useBlobUrl).toHaveBeenCalledWith(null, {
+			lane: "thumbnail",
+		});
+		expect(mediaSession.metadata).toMatchObject({
+			artwork: [
+				{
+					src: "data:image/png;base64,fallback-cover",
+					type: "image/png",
+				},
+			],
+			title: "Track One",
+		});
+	});
+
 	it("wires system media controls to player actions", () => {
 		const { fireAction, mediaSession } = installMockMediaSession();
 		setQueue();
@@ -986,6 +1205,89 @@ describe("MusicPlayerHost", () => {
 		expect(style).toContain("var(--color-muted)) 75%");
 	});
 
+	it("updates duration and buffered progress from durationchange events", () => {
+		setQueue();
+		mockState.state.isPanelOpen = true;
+
+		render(<MusicPlayerHost />);
+
+		const audio = document.querySelector("audio");
+		if (!audio) {
+			throw new Error("audio element not found");
+		}
+		Object.defineProperty(audio, "duration", {
+			configurable: true,
+			value: 90,
+		});
+		Object.defineProperty(audio, "currentTime", {
+			configurable: true,
+			writable: true,
+			value: 9,
+		});
+		Object.defineProperty(audio, "buffered", {
+			configurable: true,
+			value: {
+				start: vi.fn(() => 0),
+				end: vi.fn(() => 45),
+				length: 1,
+			},
+		});
+
+		fireEvent.durationChange(audio);
+		fireEvent.timeUpdate(audio);
+
+		const seek = screen.getByRole("slider", { name: "music_player_seek" });
+		const style = seek.getAttribute("style") ?? "";
+		expect(screen.getAllByText("1:30").length).toBeGreaterThan(0);
+		expect(seek).toHaveValue("10");
+		expect(style).toContain("var(--color-muted)) 50%");
+	});
+
+	it("pauses while scrubbing and resumes when the pointer seek ends", () => {
+		setQueue();
+		mockState.state.isPanelOpen = true;
+		mockState.state.isPlaying = true;
+		mockState.state.playRequested = true;
+
+		render(<MusicPlayerHost />);
+
+		const audio = document.querySelector("audio");
+		if (!audio) {
+			throw new Error("audio element not found");
+		}
+		Object.defineProperty(audio, "duration", {
+			configurable: true,
+			value: 120,
+		});
+		fireEvent.loadedMetadata(audio);
+
+		const seek = screen.getByRole("slider", { name: "music_player_seek" });
+		fireEvent.pointerDown(seek);
+		fireEvent.pointerUp(seek);
+
+		expect(HTMLMediaElement.prototype.pause).toHaveBeenCalledTimes(1);
+		expect(mockState.setPlaybackRequested).toHaveBeenCalledWith(false);
+		expect(mockState.requestPlayback).toHaveBeenCalledTimes(1);
+	});
+
+	it("clamps volume changes and switches the volume icon at zero", () => {
+		setQueue();
+		mockState.state.isPanelOpen = true;
+
+		render(<MusicPlayerHost />);
+
+		const volume = screen.getByRole("slider", { name: "music_player_volume" });
+		expect(volume).toHaveValue("85");
+
+		fireEvent.change(volume, { target: { value: "-25" } });
+
+		expect(volume).toHaveValue("0");
+
+		fireEvent.change(volume, { target: { value: "125" } });
+
+		expect(volume).toHaveValue("100");
+	});
+
 	it("uses the buffered range nearest the playhead instead of later ranges", () => {
 		setQueue();
 		mockState.state.isPanelOpen = true;
@@ -1024,6 +1326,60 @@ describe("MusicPlayerHost", () => {
 		expect(style).toContain("var(--color-primary) 30%");
 		expect(style).toContain("var(--color-muted)) 30%");
 		expect(style).not.toContain("var(--color-muted)) 100%");
+	});
+
+	it("falls back from pending backend metadata to browser parsing and then updates when backend metadata becomes ready", async () => {
+		vi.useFakeTimers();
+		const loadBackendMetadata = vi
+			.fn()
+			.mockRejectedValueOnce(new ApiPendingError("processing", 1))
+			.mockResolvedValueOnce({
+				artist: "Backend Artist",
+				title: "Backend Title",
+			});
+		mockState.parseMusicMetadataFromSource.mockResolvedValueOnce({
+			artist: "Parsed Artist",
+			title: "Parsed Title",
+		});
+		mockState.state.activeTrackId = "track-1";
+		mockState.state.queue = [
+			{
+				id: "track-1",
+				loadBackendMetadata,
+				metadata: { title: "Fallback Title" },
+				mimeType: "audio/mpeg",
+				name: "track.mp3",
+				path: "/files/7/download",
+			},
+		];
+
+		render(<MusicPlayerHost />);
+
+		await flushAsyncEffects();
+
+		expect(mockState.parseMusicMetadataFromSource).toHaveBeenCalledWith(
+			expect.objectContaining({
+				fallbackMetadata: { title: "Fallback Title" },
+				source: "/api/v1/files/7/download",
+			}),
+		);
+		expect(mockState.updateTrackMetadata).toHaveBeenCalledWith("track-1", {
+			artist: "Parsed Artist",
+			title: "Parsed Title",
+		});
+
+		await act(async () => {
+			await vi.advanceTimersByTimeAsync(1_000);
+		});
+
+		expect(loadBackendMetadata).toHaveBeenCalledTimes(2);
+		await act(async () => {
+			await Promise.resolve();
+		});
+		expect(mockState.updateTrackMetadata).toHaveBeenCalledWith("track-1", {
+			artist: "Backend Artist",
+			title: "Backend Title",
+		});
 	});
 
 	it("does not show stale buffered progress ahead of the playhead", () => {
@@ -1198,9 +1554,7 @@ describe("MusicPlayerHost", () => {
 
 		const { rerender } = render(<MusicPlayerHost />);
 
-		await act(async () => {
-			await Promise.resolve();
-		});
+		await flushAsyncEffects();
 
 		const [firstTrack, secondTrack] = mockState.state.queue;
 		if (!firstTrack || !secondTrack) {
@@ -1219,15 +1573,58 @@ describe("MusicPlayerHost", () => {
 		];
 		rerender(<MusicPlayerHost />);
 
-		await act(async () => {
-			await Promise.resolve();
-		});
+		await flushAsyncEffects();
 
 		expect(mockState.parseMusicMetadataFromSource).toHaveBeenCalledTimes(1);
 		expect(mockState.updateTrackMetadata).toHaveBeenCalledWith("track-1", {
 			artist: "Parsed Artist",
 			title: "Parsed Title",
 		});
+	});
+
+	it("shows frontend fallback parsed metadata in details when backend metadata is unavailable", async () => {
+		const loadBackendMetadata = vi
+			.fn()
+			.mockRejectedValueOnce(new Error("backend unavailable"));
+		mockState.parseMusicMetadataFromSource.mockResolvedValueOnce({
+			album: "Parsed Album",
+			artist: "Parsed Artist",
+			artists: ["Parsed Artist"],
+			title: "Parsed Title",
+		});
+		setQueue();
+		mockState.state.isPanelOpen = true;
+		const { firstTrack, secondTrack } = getQueuedTracks();
+		mockState.state.queue = [
+			{
+				...firstTrack,
+				loadBackendMetadata,
+			},
+			secondTrack,
+		];
+
+		const { rerender } = render(<MusicPlayerHost />);
+
+		await flushAsyncEffects();
+		expect(loadBackendMetadata).toHaveBeenCalledTimes(1);
+		expect(mockState.updateTrackMetadata).toHaveBeenCalledWith("track-1", {
+			album: "Parsed Album",
+			artist: "Parsed Artist",
+			artists: ["Parsed Artist"],
+			title: "Parsed Title",
+		});
+
+		rerender(<MusicPlayerHost />);
+		fireEvent.click(
+			screen.getByRole("button", { name: /music_player_details/i }),
+		);
+
+		expect(screen.getByText("music_player_title_label")).toBeInTheDocument();
+		expect(screen.getAllByText("Parsed Title").length).toBeGreaterThan(0);
+		expect(screen.getByText("music_player_artist_label")).toBeInTheDocument();
+		expect(screen.getAllByText("Parsed Artist").length).toBeGreaterThan(0);
+		expect(screen.getByText("music_player_album_label")).toBeInTheDocument();
+		expect(screen.getByText("Parsed Album")).toBeInTheDocument();
 	});
 
 	it("logs metadata parse failures without surfacing player errors", async () => {
@@ -1246,6 +1643,97 @@ describe("MusicPlayerHost", () => {
 				parseError,
 			);
 		});
+		expect(mockState.updateTrackMetadata).not.toHaveBeenCalled();
+	});
+
+	it("retries pending backend metadata using Retry-After while keeping fallback metadata", async () => {
+		vi.useFakeTimers();
+		const debugSpy = vi.spyOn(console, "debug").mockImplementation(() => {});
+		const loadBackendMetadata = vi
+			.fn()
+			.mockRejectedValueOnce(new ApiPendingError("pending", 3))
+			.mockResolvedValueOnce({
+				artist: "Backend Artist",
+				title: "Backend Title",
+			});
+		setQueue();
+		const { firstTrack, secondTrack } = getQueuedTracks();
+		mockState.state.queue = [
+			{
+				...firstTrack,
+				loadBackendMetadata,
+			},
+			secondTrack,
+		];
+
+		render(<MusicPlayerHost />);
+
+		await flushAsyncEffects();
+		expect(mockState.updateTrackMetadata).toHaveBeenCalledWith("track-1", {
+			artist: "Parsed Artist",
+			title: "Parsed Title",
+		});
+		expect(loadBackendMetadata).toHaveBeenCalledTimes(1);
+
+		await act(async () => {
+			vi.advanceTimersByTime(2_999);
+		});
+		expect(loadBackendMetadata).toHaveBeenCalledTimes(1);
+
+		await act(async () => {
+			vi.advanceTimersByTime(1);
+		});
+		await flushAsyncEffects();
+
+		expect(mockState.updateTrackMetadata).toHaveBeenCalledWith("track-1", {
+			artist: "Backend Artist",
+			title: "Backend Title",
+		});
+		expect(loadBackendMetadata).toHaveBeenCalledTimes(2);
+		expect(debugSpy).toHaveBeenCalledWith(
+			"[AsterDrive]",
+			"backend music metadata pending",
+			"track-one.mp3",
+			expect.any(ApiPendingError),
+		);
+	});
+
+	it("does not apply retried backend metadata after switching tracks", async () => {
+		vi.useFakeTimers();
+		const loadBackendMetadata = vi
+			.fn()
+			.mockRejectedValueOnce(new ApiPendingError("pending", 1))
+			.mockResolvedValueOnce({
+				artist: "Late Artist",
+				title: "Late Title",
+			});
+		setQueue();
+		const { firstTrack, secondTrack } = getQueuedTracks();
+		mockState.state.queue = [
+			{
+				...firstTrack,
+				loadBackendMetadata,
+			},
+			secondTrack,
+		];
+
+		const { unmount } = render(<MusicPlayerHost />);
+
+		await flushAsyncEffects();
+		expect(mockState.updateTrackMetadata).toHaveBeenCalledWith("track-1", {
+			artist: "Parsed Artist",
+			title: "Parsed Title",
+		});
+		mockState.updateTrackMetadata.mockClear();
+		mockState.state.activeTrackId = "track-2";
+		unmount();
+
+		await act(async () => {
+			vi.advanceTimersByTime(1_000);
+		});
+		await flushAsyncEffects();
+
+		expect(loadBackendMetadata).toHaveBeenCalledTimes(1);
 		expect(mockState.updateTrackMetadata).not.toHaveBeenCalled();
 	});
 

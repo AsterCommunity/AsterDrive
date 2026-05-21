@@ -1,5 +1,4 @@
-use crate::config::mail;
-use crate::config::media_processing;
+use crate::config::{mail, media_processing};
 use crate::db::repository::user_repo;
 use crate::errors::{AsterError, MapAsterErr, Result};
 use crate::runtime::PrimaryAppState;
@@ -26,6 +25,7 @@ pub enum ConfigActionType {
     SendTestEmail,
     TestVipsCli,
     TestFfmpegCli,
+    TestFfprobeCli,
 }
 
 impl ConfigActionType {
@@ -35,6 +35,7 @@ impl ConfigActionType {
             Self::SendTestEmail => "send_test_email",
             Self::TestVipsCli => "test_vips_cli",
             Self::TestFfmpegCli => "test_ffmpeg_cli",
+            Self::TestFfprobeCli => "test_ffprobe_cli",
         }
     }
 }
@@ -253,6 +254,32 @@ async fn execute_media_processing_action(
             );
 
             let message = media_processing_service::probe_ffmpeg_cli_command(&command).await?;
+
+            Ok(ConfigActionResult {
+                message,
+                target_email: None,
+                value: None,
+            })
+        }
+        ConfigActionType::TestFfprobeCli => {
+            let raw_value = value.map(str::to_string).unwrap_or_else(|| {
+                state
+                    .runtime_config
+                    .get(media_processing::MEDIA_PROCESSING_REGISTRY_JSON_KEY)
+                    .unwrap_or_else(media_processing::default_media_processing_registry_json)
+            });
+            let command = media_processing::ffprobe_command_from_registry_value(&raw_value)?;
+
+            tracing::debug!(
+                actor_user_id,
+                action = %action.as_str(),
+                command = %command,
+                "config: executing media processing action"
+            );
+
+            let message =
+                crate::services::media_metadata_service::probe_ffprobe_cli_command(&command)
+                    .await?;
 
             Ok(ConfigActionResult {
                 message,

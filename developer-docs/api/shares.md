@@ -90,7 +90,9 @@
 | `GET` | `/s/{token}/files/{file_id}/archive-preview` | 为分享目录树中的子文件获取 ZIP 归档预览清单 |
 | `POST` | `/s/{token}/files/{file_id}/stream-session` | 为分享目录树中的子文件生成短期流式播放 session |
 | `GET` | `/s/{token}/thumbnail` | 获取分享文件缩略图 |
+| `GET` | `/s/{token}/media-metadata` | 获取分享文件媒体元数据 |
 | `GET` | `/s/{token}/files/{file_id}/thumbnail` | 获取分享目录树中子文件的缩略图 |
+| `GET` | `/s/{token}/files/{file_id}/media-metadata` | 获取分享目录树中子文件的媒体元数据 |
 | `GET` | `/s/{token}/avatar/{size}` | 获取分享拥有者已上传头像 |
 
 其中：
@@ -101,6 +103,7 @@
 - `/preview-link` 只适用于文件分享；返回的 `PreviewLinkInfo.path` 最终指向根路径 `/pv/{token}/{filename}`
 - `/archive-preview` 只适用于 ZIP 文件分享；缓存未生成时返回 `202` 并排队 `archive_preview_generate` 任务
 - `/stream-session` 只适用于文件分享；返回的 `ShareStreamSessionInfo.path` 最终指向 `/api/v1/s/{token}/stream/{session_token}/{filename}`
+- `/media-metadata` 只适用于文件分享；缓存未生成时返回 `202` 并排队 `media_metadata_extract` 任务
 - `/content` 只返回文件夹分享的根目录内容
 - `/folders/{folder_id}/content` 用于继续浏览分享目录树中的子目录
 - `/files/{file_id}/download` 用于下载分享文件夹树中的子文件
@@ -109,6 +112,7 @@
 - `/files/{file_id}/stream-session` 用于分享目录树里子文件的短期流式播放 session
 - `/thumbnail` 只适用于服务端当前支持生成缩略图的文件分享
 - `/files/{file_id}/thumbnail` 只适用于分享目录树中服务端当前支持生成缩略图的文件
+- `/files/{file_id}/media-metadata` 用于分享目录树里子文件的媒体元数据；缓存未生成时返回 `202` 并排队 `media_metadata_extract` 任务
 - `/avatar/{size}` 只返回分享拥有者“已上传头像”的二进制资源，当前支持 `512` 和 `1024`
 
 `POST /s/{token}/stream-session` 和 `POST /s/{token}/files/{file_id}/stream-session` 的成功响应示例：

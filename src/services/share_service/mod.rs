@@ -24,8 +24,9 @@ pub use access::{
 pub use content::{
     ShareDownloadRollbackQueue, ShareDownloadRollbackWorker, build_share_download_rollback_queue,
     download_shared_file, download_shared_folder_file, get_shared_folder_file_image_preview,
-    get_shared_folder_file_thumbnail, get_shared_image_preview, get_shared_thumbnail,
-    list_shared_folder, list_shared_subfolder, share_download_rollback_worker_task,
+    get_shared_folder_file_media_metadata, get_shared_folder_file_thumbnail,
+    get_shared_image_preview, get_shared_media_metadata, get_shared_thumbnail, list_shared_folder,
+    list_shared_subfolder, share_download_rollback_worker_task,
     spawn_detached_share_download_rollback_queue,
 };
 pub use management::{

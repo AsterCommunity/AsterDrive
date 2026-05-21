@@ -84,8 +84,9 @@ describe("MusicPreview", () => {
 	it("starts direct music playback through the global player store", async () => {
 		render(
 			<MusicPreview
-				file={{ name: "track.mp3", mime_type: "audio/mpeg" }}
+				file={{ id: 7, name: "track.mp3", mime_type: "audio/mpeg" }}
 				path="/files/7/download"
+				thumbnailPath="/files/7/thumbnail"
 			/>,
 		);
 
@@ -97,6 +98,15 @@ describe("MusicPreview", () => {
 					metadata: { title: "track" },
 					name: "track.mp3",
 					path: "/files/7/download",
+					thumbnail: {
+						file: {
+							file_category: "audio",
+							id: 7,
+							mime_type: "audio/mpeg",
+							name: "track.mp3",
+						},
+						path: "/files/7/thumbnail",
+					},
 				}),
 			);
 		});

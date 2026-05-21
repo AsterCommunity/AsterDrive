@@ -11,24 +11,40 @@ use crate::types::MediaProcessorKind;
 
 use super::types::{
     BUILTIN_IMAGES_SUPPORTED_EXTENSIONS, DEFAULT_FFMPEG_COMMAND, DEFAULT_FFMPEG_EXTENSIONS,
+    DEFAULT_FFPROBE_COMMAND, DEFAULT_FFPROBE_EXTENSIONS, DEFAULT_LOFTY_EXTENSIONS,
     DEFAULT_VIPS_COMMAND, DEFAULT_VIPS_EXTENSIONS, MEDIA_PROCESSING_REGISTRY_VERSION,
     MatchedMediaProcessor, MediaProcessingMatchKind, MediaProcessingProcessorConfig,
-    MediaProcessingProcessorRuntimeConfig, MediaProcessingRegistryConfig,
+    MediaProcessingProcessorRuntimeConfig, MediaProcessingRegistryConfig, MediaProcessingUse,
     PUBLIC_THUMBNAIL_SUPPORT_VERSION, PublicThumbnailSupport,
 };
 use crate::config::definitions::MEDIA_PROCESSING_REGISTRY_JSON_KEY;
 
-const THUMBNAIL_PROCESSOR_PRIORITY: [MediaProcessorKind; 3] = [
+const MEDIA_PROCESSOR_PRIORITY: [MediaProcessorKind; 5] = [
     MediaProcessorKind::VipsCli,
     MediaProcessorKind::FfmpegCli,
+    MediaProcessorKind::FfprobeCli,
+    MediaProcessorKind::Lofty,
     MediaProcessorKind::Images,
 ];
+
+const THUMBNAIL_PROCESSOR_PRIORITY: [MediaProcessorKind; 4] = [
+    MediaProcessorKind::VipsCli,
+    MediaProcessorKind::FfmpegCli,
+    MediaProcessorKind::Lofty,
+    MediaProcessorKind::Images,
+];
+
+const METADATA_IMAGE_PROCESSOR_PRIORITY: [MediaProcessorKind; 1] = [MediaProcessorKind::Images];
+const METADATA_AUDIO_PROCESSOR_PRIORITY: [MediaProcessorKind; 1] = [MediaProcessorKind::Lofty];
+const METADATA_VIDEO_PROCESSOR_PRIORITY: [MediaProcessorKind; 1] = [MediaProcessorKind::FfprobeCli];
 
 pub fn parse_media_processor_kind(value: &str) -> Option<MediaProcessorKind> {
     match value.trim().to_ascii_lowercase().as_str() {
         "images" => Some(MediaProcessorKind::Images),
+        "lofty" => Some(MediaProcessorKind::Lofty),
         "vips_cli" => Some(MediaProcessorKind::VipsCli),
         "ffmpeg_cli" => Some(MediaProcessorKind::FfmpegCli),
+        "ffprobe_cli" => Some(MediaProcessorKind::FfprobeCli),
         "storage_native" => Some(MediaProcessorKind::StorageNative),
         _ => None,
     }
@@ -40,6 +56,10 @@ pub fn normalize_vips_command(value: &str) -> Result<String> {
 
 pub fn normalize_ffmpeg_command(value: &str) -> Result<String> {
     normalize_processor_command(value, DEFAULT_FFMPEG_COMMAND, "ffmpeg command")
+}
+
+pub fn normalize_ffprobe_command(value: &str) -> Result<String> {
+    normalize_processor_command(value, DEFAULT_FFPROBE_COMMAND, "ffprobe command")
 }
 
 fn normalize_processor_command(value: &str, default_command: &str, label: &str) -> Result<String> {
@@ -60,17 +80,7 @@ pub fn builtin_images_supports_extension(extension: &str) -> bool {
 }
 
 pub fn vips_command_from_registry_value(value: &str) -> Result<String> {
-    let config: MediaProcessingRegistryConfig = serde_json::from_str(value).map_err(|error| {
-        AsterError::validation_error(format!(
-            "media processing config must be valid JSON: {error}",
-        ))
-    })?;
-    if config.version != MEDIA_PROCESSING_REGISTRY_VERSION {
-        return Err(AsterError::validation_error(format!(
-            "media processing config version must be {MEDIA_PROCESSING_REGISTRY_VERSION}",
-        )));
-    }
-
+    let config = parse_media_processing_registry_config(value)?;
     let command = processor_config_for_kind(&config, MediaProcessorKind::VipsCli)
         .and_then(|processor| processor.config.command.as_deref())
         .unwrap_or(DEFAULT_VIPS_COMMAND);
@@ -78,21 +88,23 @@ pub fn vips_command_from_registry_value(value: &str) -> Result<String> {
 }
 
 pub fn ffmpeg_command_from_registry_value(value: &str) -> Result<String> {
-    let config: MediaProcessingRegistryConfig = serde_json::from_str(value).map_err(|error| {
-        AsterError::validation_error(format!(
-            "media processing config must be valid JSON: {error}",
-        ))
-    })?;
-    if config.version != MEDIA_PROCESSING_REGISTRY_VERSION {
-        return Err(AsterError::validation_error(format!(
-            "media processing config version must be {MEDIA_PROCESSING_REGISTRY_VERSION}",
-        )));
-    }
-
+    let config = parse_media_processing_registry_config(value)?;
     let command = processor_config_for_kind(&config, MediaProcessorKind::FfmpegCli)
         .and_then(|processor| processor.config.command.as_deref())
         .unwrap_or(DEFAULT_FFMPEG_COMMAND);
     normalize_ffmpeg_command(command)
+}
+
+pub fn ffprobe_command_from_registry_value(value: &str) -> Result<String> {
+    let config = parse_media_processing_registry_config(value)?;
+    ffprobe_command_from_registry(&config)
+}
+
+pub fn ffprobe_command_from_registry(config: &MediaProcessingRegistryConfig) -> Result<String> {
+    let command = processor_config_for_kind(config, MediaProcessorKind::FfprobeCli)
+        .and_then(|processor| processor.config.command.as_deref())
+        .unwrap_or(DEFAULT_FFPROBE_COMMAND);
+    normalize_ffprobe_command(command)
 }
 
 pub fn public_thumbnail_support(runtime_config: &RuntimeConfig) -> PublicThumbnailSupport {
@@ -105,14 +117,18 @@ pub fn public_thumbnail_support(runtime_config: &RuntimeConfig) -> PublicThumbna
         .filter(|processor| processor.enabled)
     {
         match processor.kind {
-            MediaProcessorKind::Images => {
+            MediaProcessorKind::Images
+                if processor_supports_use(processor, MediaProcessingUse::ThumbnailImage) =>
+            {
                 extensions.extend(
                     BUILTIN_IMAGES_SUPPORTED_EXTENSIONS
                         .iter()
                         .map(|extension| (*extension).to_string()),
                 );
             }
-            MediaProcessorKind::VipsCli => {
+            MediaProcessorKind::VipsCli
+                if processor_supports_use(processor, MediaProcessingUse::ThumbnailImage) =>
+            {
                 let command = processor
                     .config
                     .command
@@ -122,7 +138,9 @@ pub fn public_thumbnail_support(runtime_config: &RuntimeConfig) -> PublicThumbna
                     extensions.extend(processor.extensions.iter().cloned());
                 }
             }
-            MediaProcessorKind::FfmpegCli => {
+            MediaProcessorKind::FfmpegCli
+                if processor_supports_use(processor, MediaProcessingUse::ThumbnailVideo) =>
+            {
                 let command = processor
                     .config
                     .command
@@ -132,7 +150,17 @@ pub fn public_thumbnail_support(runtime_config: &RuntimeConfig) -> PublicThumbna
                     extensions.extend(processor.extensions.iter().cloned());
                 }
             }
-            MediaProcessorKind::StorageNative => {}
+            MediaProcessorKind::Lofty
+                if processor_supports_use(processor, MediaProcessingUse::ThumbnailAudio) =>
+            {
+                extensions.extend(processor.extensions.iter().cloned());
+            }
+            MediaProcessorKind::Images
+            | MediaProcessorKind::VipsCli
+            | MediaProcessorKind::FfmpegCli
+            | MediaProcessorKind::FfprobeCli
+            | MediaProcessorKind::Lofty
+            | MediaProcessorKind::StorageNative => {}
         }
     }
 
@@ -145,7 +173,7 @@ pub fn public_thumbnail_support(runtime_config: &RuntimeConfig) -> PublicThumbna
 pub fn default_media_processing_registry() -> MediaProcessingRegistryConfig {
     MediaProcessingRegistryConfig {
         version: MEDIA_PROCESSING_REGISTRY_VERSION,
-        processors: THUMBNAIL_PROCESSOR_PRIORITY
+        processors: MEDIA_PROCESSOR_PRIORITY
             .into_iter()
             .map(default_processor_config_for_kind)
             .collect(),
@@ -164,6 +192,9 @@ pub fn normalize_media_processing_registry_config_value(value: &str) -> Result<S
                 "media processing config must be valid JSON: {error}",
             ))
         })?;
+    if config.version == 1 {
+        config.version = MEDIA_PROCESSING_REGISTRY_VERSION;
+    }
     validate_media_processing_registry_config(&mut config, true)?;
     serde_json::to_string_pretty(&config).map_err(|error| {
         AsterError::internal_error(format!(
@@ -190,18 +221,54 @@ pub fn processor_candidates_for_file_name(
     config: &MediaProcessingRegistryConfig,
     file_name: &str,
 ) -> Vec<MatchedMediaProcessor> {
+    processor_candidates_for_use(config, MediaProcessingUse::ThumbnailImage, file_name)
+        .into_iter()
+        .chain(processor_candidates_for_use(
+            config,
+            MediaProcessingUse::ThumbnailAudio,
+            file_name,
+        ))
+        .chain(processor_candidates_for_use(
+            config,
+            MediaProcessingUse::ThumbnailVideo,
+            file_name,
+        ))
+        .collect()
+}
+
+pub fn processor_candidates_for_use(
+    config: &MediaProcessingRegistryConfig,
+    media_use: MediaProcessingUse,
+    file_name: &str,
+) -> Vec<MatchedMediaProcessor> {
     let extension = file_extension(file_name);
     let mut matched = Vec::new();
 
-    for kind in THUMBNAIL_PROCESSOR_PRIORITY {
-        let Some(processor) = processor_config_for_kind(config, kind) else {
+    for kind in processor_priority_for_use(media_use) {
+        let Some(processor) = processor_config_for_kind(config, *kind) else {
             continue;
         };
         if !processor.enabled {
             continue;
         }
+        if !processor_supports_use(processor, media_use) {
+            continue;
+        }
 
-        if processor.kind == MediaProcessorKind::Images || processor.extensions.is_empty() {
+        if processor.kind == MediaProcessorKind::Images {
+            let Some(extension) = extension.as_deref() else {
+                continue;
+            };
+            if builtin_images_supports_extension(extension) {
+                matched.push(MatchedMediaProcessor {
+                    processor: processor.clone(),
+                    match_kind: MediaProcessingMatchKind::Extension,
+                });
+            }
+            continue;
+        }
+
+        if processor.extensions.is_empty() {
             matched.push(MatchedMediaProcessor {
                 processor: processor.clone(),
                 match_kind: MediaProcessingMatchKind::Any,
@@ -227,6 +294,24 @@ pub fn processor_candidates_for_file_name(
     matched
 }
 
+pub fn processor_supports_use(
+    processor: &MediaProcessingProcessorConfig,
+    media_use: MediaProcessingUse,
+) -> bool {
+    processor.uses.contains(&media_use)
+}
+
+fn processor_priority_for_use(media_use: MediaProcessingUse) -> &'static [MediaProcessorKind] {
+    match media_use {
+        MediaProcessingUse::ThumbnailImage
+        | MediaProcessingUse::ThumbnailAudio
+        | MediaProcessingUse::ThumbnailVideo => &THUMBNAIL_PROCESSOR_PRIORITY,
+        MediaProcessingUse::MetadataImage => &METADATA_IMAGE_PROCESSOR_PRIORITY,
+        MediaProcessingUse::MetadataAudio => &METADATA_AUDIO_PROCESSOR_PRIORITY,
+        MediaProcessingUse::MetadataVideo => &METADATA_VIDEO_PROCESSOR_PRIORITY,
+    }
+}
+
 pub fn file_extension(file_name: &str) -> Option<String> {
     Path::new(file_name)
         .extension()
@@ -241,13 +326,22 @@ pub fn default_processor_config_for_kind(
 ) -> MediaProcessingProcessorConfig {
     MediaProcessingProcessorConfig {
         kind,
-        enabled: kind == MediaProcessorKind::Images,
+        enabled: matches!(kind, MediaProcessorKind::Images | MediaProcessorKind::Lofty),
+        uses: default_uses_for_kind(kind),
         extensions: match kind {
             MediaProcessorKind::VipsCli => DEFAULT_VIPS_EXTENSIONS
                 .iter()
                 .map(|extension| (*extension).to_string())
                 .collect(),
             MediaProcessorKind::FfmpegCli => DEFAULT_FFMPEG_EXTENSIONS
+                .iter()
+                .map(|extension| (*extension).to_string())
+                .collect(),
+            MediaProcessorKind::FfprobeCli => DEFAULT_FFPROBE_EXTENSIONS
+                .iter()
+                .map(|extension| (*extension).to_string())
+                .collect(),
+            MediaProcessorKind::Lofty => DEFAULT_LOFTY_EXTENSIONS
                 .iter()
                 .map(|extension| (*extension).to_string())
                 .collect(),
@@ -260,8 +354,28 @@ pub fn default_processor_config_for_kind(
             MediaProcessorKind::FfmpegCli => MediaProcessingProcessorRuntimeConfig {
                 command: Some(DEFAULT_FFMPEG_COMMAND.to_string()),
             },
+            MediaProcessorKind::FfprobeCli => MediaProcessingProcessorRuntimeConfig {
+                command: Some(DEFAULT_FFPROBE_COMMAND.to_string()),
+            },
             _ => MediaProcessingProcessorRuntimeConfig::default(),
         },
+    }
+}
+
+pub fn default_uses_for_kind(kind: MediaProcessorKind) -> Vec<MediaProcessingUse> {
+    match kind {
+        MediaProcessorKind::Images => vec![
+            MediaProcessingUse::ThumbnailImage,
+            MediaProcessingUse::MetadataImage,
+        ],
+        MediaProcessorKind::Lofty => vec![
+            MediaProcessingUse::ThumbnailAudio,
+            MediaProcessingUse::MetadataAudio,
+        ],
+        MediaProcessorKind::VipsCli => vec![MediaProcessingUse::ThumbnailImage],
+        MediaProcessorKind::FfmpegCli => vec![MediaProcessingUse::ThumbnailVideo],
+        MediaProcessorKind::FfprobeCli => vec![MediaProcessingUse::MetadataVideo],
+        MediaProcessorKind::StorageNative => Vec::new(),
     }
 }
 
@@ -350,6 +464,9 @@ fn parse_media_processing_registry_config(value: &str) -> Result<MediaProcessing
                 "media processing config must be valid JSON: {error}",
             ))
         })?;
+    if config.version == 1 {
+        config.version = MEDIA_PROCESSING_REGISTRY_VERSION;
+    }
     validate_media_processing_registry_config(&mut config, false)?;
     Ok(config)
 }
@@ -371,8 +488,15 @@ fn validate_media_processing_registry_config(
             MediaProcessorKind::Images => {
                 processor.extensions.clear();
                 processor.config = MediaProcessingProcessorRuntimeConfig::default();
+                normalize_uses_for_kind(&mut processor.uses, processor.kind)?;
+            }
+            MediaProcessorKind::Lofty => {
+                normalize_uses_for_kind(&mut processor.uses, processor.kind)?;
+                normalize_match_list(&mut processor.extensions)?;
+                processor.config = MediaProcessingProcessorRuntimeConfig::default();
             }
             MediaProcessorKind::VipsCli => {
+                normalize_uses_for_kind(&mut processor.uses, processor.kind)?;
                 normalize_match_list(&mut processor.extensions)?;
                 let command = processor
                     .config
@@ -391,6 +515,7 @@ fn validate_media_processing_registry_config(
                 processor.config.command = Some(normalized_command);
             }
             MediaProcessorKind::FfmpegCli => {
+                normalize_uses_for_kind(&mut processor.uses, processor.kind)?;
                 normalize_match_list(&mut processor.extensions)?;
                 let command = processor
                     .config
@@ -404,6 +529,25 @@ fn validate_media_processing_registry_config(
                 {
                     return Err(AsterError::validation_error(format!(
                         "enabled ffmpeg_cli processor command '{normalized_command}' is not available",
+                    )));
+                }
+                processor.config.command = Some(normalized_command);
+            }
+            MediaProcessorKind::FfprobeCli => {
+                normalize_uses_for_kind(&mut processor.uses, processor.kind)?;
+                normalize_match_list(&mut processor.extensions)?;
+                let command = processor
+                    .config
+                    .command
+                    .as_deref()
+                    .unwrap_or(DEFAULT_FFPROBE_COMMAND);
+                let normalized_command = normalize_ffprobe_command(command)?;
+                if validate_runtime_commands
+                    && processor.enabled
+                    && !command_is_available(&normalized_command)
+                {
+                    return Err(AsterError::validation_error(format!(
+                        "enabled ffprobe_cli processor command '{normalized_command}' is not available",
                     )));
                 }
                 processor.config.command = Some(normalized_command);
@@ -426,7 +570,7 @@ fn validate_media_processing_registry_config(
         normalized.push(processor);
     }
 
-    config.processors = THUMBNAIL_PROCESSOR_PRIORITY
+    config.processors = MEDIA_PROCESSOR_PRIORITY
         .into_iter()
         .map(|kind| {
             normalized
@@ -443,6 +587,38 @@ fn validate_media_processing_registry_config(
         ));
     }
 
+    Ok(())
+}
+
+fn normalize_uses_for_kind(
+    uses: &mut Vec<MediaProcessingUse>,
+    kind: MediaProcessorKind,
+) -> Result<()> {
+    if uses.is_empty() {
+        *uses = default_uses_for_kind(kind);
+        return Ok(());
+    }
+
+    let supported = default_uses_for_kind(kind);
+    let mut unique = Vec::new();
+    for media_use in std::mem::take(uses) {
+        if !supported.contains(&media_use) {
+            return Err(AsterError::validation_error(format!(
+                "processor '{}' does not support media use '{}'",
+                kind.as_str(),
+                media_use.as_str()
+            )));
+        }
+        if !unique.contains(&media_use) {
+            unique.push(media_use);
+        }
+    }
+    for default_use in supported {
+        if !unique.contains(&default_use) {
+            unique.push(default_use);
+        }
+    }
+    *uses = unique;
     Ok(())
 }
 

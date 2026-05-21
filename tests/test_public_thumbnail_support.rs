@@ -40,6 +40,8 @@ async fn test_public_thumbnail_support_returns_default_builtin_extensions() {
     assert!(extensions.iter().any(|value| value == "png"));
     assert!(extensions.iter().any(|value| value == "jpg"));
     assert!(extensions.iter().any(|value| value == "tiff"));
+    assert!(extensions.iter().any(|value| value == "mp3"));
+    assert!(extensions.iter().any(|value| value == "flac"));
 }
 
 #[actix_web::test]
@@ -90,6 +92,52 @@ async fn test_public_thumbnail_support_merges_builtin_and_enabled_vips_extension
     assert!(extensions.iter().any(|value| value == "png"));
     assert!(extensions.iter().any(|value| value == "heic"));
     assert!(extensions.iter().any(|value| value == "avif"));
+}
+
+#[actix_web::test]
+async fn test_public_thumbnail_support_backfills_old_lofty_uses() {
+    let state = common::setup().await;
+    let app = create_test_app!(state);
+    let (token, _) = register_and_login!(app);
+
+    let req = test::TestRequest::put()
+        .uri("/api/v1/admin/config/media_processing_registry_json")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(json!({
+            "value": json!({
+                "version": 2,
+                "processors": [
+                    {
+                        "kind": "lofty",
+                        "enabled": true,
+                        "uses": ["metadata:audio"],
+                        "extensions": ["mp3"]
+                    },
+                    {
+                        "kind": "images",
+                        "enabled": true,
+                        "uses": ["thumbnail:image", "metadata:image"]
+                    }
+                ]
+            })
+            .to_string()
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+
+    let req = test::TestRequest::get()
+        .uri("/api/v1/public/thumbnail-support")
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+
+    let body: Value = test::read_body_json(resp).await;
+    let extensions = body["data"]["extensions"]
+        .as_array()
+        .expect("extensions should be an array");
+    assert!(extensions.iter().any(|value| value == "mp3"));
 }
 
 #[actix_web::test]

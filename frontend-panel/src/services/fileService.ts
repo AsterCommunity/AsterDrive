@@ -13,6 +13,7 @@ import type {
 	FolderContents,
 	FolderInfo,
 	FolderListParams,
+	MediaMetadataInfo,
 	PreviewLinkInfo,
 	TaskInfo,
 	WopiLaunchSession,
@@ -78,6 +79,12 @@ export function createFileService(workspace: Workspace) {
 		getArchivePreview: (id: number, options?: ServiceRequestOptions) =>
 			api.get<ArchivePreviewManifest>(
 				buildWorkspacePath(workspace, `/files/${id}/archive-preview`),
+				options,
+			),
+
+		getMediaMetadata: (id: number, options?: ServiceRequestOptions) =>
+			api.get<MediaMetadataInfo>(
+				buildWorkspacePath(workspace, `/files/${id}/media-metadata`),
 				options,
 			),
 

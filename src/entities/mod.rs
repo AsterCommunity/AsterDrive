@@ -3,6 +3,7 @@
 pub mod audit_log;
 pub mod auth_session;
 pub mod background_task;
+pub mod blob_media_metadata;
 pub mod contact_verification_token;
 pub mod entity_property;
 pub mod external_auth_email_verification_flow;

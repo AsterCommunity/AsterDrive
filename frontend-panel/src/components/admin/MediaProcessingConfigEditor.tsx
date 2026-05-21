@@ -25,6 +25,7 @@ import {
 interface MediaProcessingConfigEditorProps {
 	onChange: (value: string) => void;
 	onTestFfmpegCliCommand?: (value: string) => Promise<void>;
+	onTestFfprobeCliCommand?: (value: string) => Promise<void>;
 	onTestVipsCliCommand?: (value: string) => Promise<void>;
 	value: string;
 }
@@ -34,7 +35,7 @@ function parseDraftValue(value: string): MediaProcessingEditorConfig {
 		return parseMediaProcessingConfig(value);
 	} catch {
 		return parseMediaProcessingConfig(`{
-			"version": 1,
+			"version": 2,
 			"processors": []
 		}`);
 	}
@@ -46,14 +47,38 @@ function getProcessorLabelKey(kind: MediaProcessingEditorProcessor["kind"]) {
 			return "thumbnail_processor_vips_cli";
 		case "ffmpeg_cli":
 			return "thumbnail_processor_ffmpeg_cli";
+		case "ffprobe_cli":
+			return "thumbnail_processor_ffprobe_cli";
+		case "lofty":
+			return "thumbnail_processor_lofty";
 		case "images":
 			return "thumbnail_processor_images";
+	}
+}
+
+function getProcessorUseLabelKey(
+	use: MediaProcessingEditorProcessor["uses"][number],
+) {
+	switch (use) {
+		case "thumbnail:image":
+			return "media_processing_editor_use_thumbnail_image";
+		case "thumbnail:audio":
+			return "media_processing_editor_use_thumbnail_audio";
+		case "thumbnail:video":
+			return "media_processing_editor_use_thumbnail_video";
+		case "metadata:image":
+			return "media_processing_editor_use_metadata_image";
+		case "metadata:audio":
+			return "media_processing_editor_use_metadata_audio";
+		case "metadata:video":
+			return "media_processing_editor_use_metadata_video";
 	}
 }
 
 export function MediaProcessingConfigEditor({
 	onChange,
 	onTestFfmpegCliCommand,
+	onTestFfprobeCliCommand,
 	onTestVipsCliCommand,
 	value,
 }: MediaProcessingConfigEditorProps) {
@@ -104,7 +129,9 @@ export function MediaProcessingConfigEditor({
 					? onTestVipsCliCommand
 					: kind === "ffmpeg_cli"
 						? onTestFfmpegCliCommand
-						: undefined;
+						: kind === "ffprobe_cli"
+							? onTestFfprobeCliCommand
+							: undefined;
 			if (!handler) {
 				return;
 			}
@@ -116,7 +143,12 @@ export function MediaProcessingConfigEditor({
 				setTestingProcessorKind(null);
 			}
 		},
-		[draft, onTestFfmpegCliCommand, onTestVipsCliCommand],
+		[
+			draft,
+			onTestFfmpegCliCommand,
+			onTestFfprobeCliCommand,
+			onTestVipsCliCommand,
+		],
 	);
 
 	return (
@@ -147,12 +179,16 @@ export function MediaProcessingConfigEditor({
 
 			<div className="space-y-3">
 				{draft.processors.map((processor) => {
-					const isBuiltinFallback = processor.kind === "images";
+					const isBuiltinFallback =
+						processor.kind === "images" || processor.kind === "lofty";
 					const supportsCommand =
-						processor.kind === "vips_cli" || processor.kind === "ffmpeg_cli";
+						processor.kind === "vips_cli" ||
+						processor.kind === "ffmpeg_cli" ||
+						processor.kind === "ffprobe_cli";
 					const canTestCommand =
 						(processor.kind === "vips_cli" && onTestVipsCliCommand) ||
-						(processor.kind === "ffmpeg_cli" && onTestFfmpegCliCommand);
+						(processor.kind === "ffmpeg_cli" && onTestFfmpegCliCommand) ||
+						(processor.kind === "ffprobe_cli" && onTestFfprobeCliCommand);
 
 					return (
 						<Card key={processor.kind} size="sm">
@@ -183,6 +219,11 @@ export function MediaProcessingConfigEditor({
 												{t("media_processing_editor_processor_fallback")}
 											</Badge>
 										) : null}
+										{processor.uses.map((use) => (
+											<Badge key={use} variant="outline">
+												{t(getProcessorUseLabelKey(use))}
+											</Badge>
+										))}
 									</div>
 								</div>
 							</CardHeader>

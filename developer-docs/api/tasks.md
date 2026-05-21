@@ -36,6 +36,7 @@
 另外，系统内部还会创建：
 
 - `thumbnail_generate`
+- `media_metadata_extract`
 - `storage_policy_temp_cleanup`
 - `system_runtime`
 
@@ -97,12 +98,13 @@
 
 ## 当前任务类型
 
-当前代码里的 `BackgroundTaskKind` 有六种：
+当前代码里的 `BackgroundTaskKind` 有七种：
 
 - `archive_extract`
 - `archive_compress`
 - `archive_preview_generate`
 - `thumbnail_generate`
+- `media_metadata_extract`
 - `storage_policy_temp_cleanup`
 - `system_runtime`
 
@@ -120,6 +122,7 @@
 - `archive_extract`：解压归档文件到工作空间目录
 - `archive_compress`：把一组选中资源打包并写回工作空间
 - `archive_preview_generate`：异步扫描 ZIP 文件并把只读 manifest 缓存在实体属性里
+- `media_metadata_extract`：异步解析图片 / 音频 / 视频基础元数据并把结果按 blob 缓存；`media_metadata_enabled` 是总开关，具体图片 / 音频 / 视频处理器、后缀绑定和 `ffprobe` 命令由 `media_processing_registry_json` 控制，缺失时缓存为 `unsupported`
 - `storage_policy_temp_cleanup`：强制删除存储策略后，兜底清理遗留的临时对象和 multipart upload
 
 ## `POST /tasks/{id}/retry`

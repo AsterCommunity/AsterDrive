@@ -186,6 +186,7 @@ async fn thumbnail_task_display_name_for_processor(
 fn thumbnail_processor_display_name(processor: MediaProcessorKind) -> &'static str {
     match processor {
         MediaProcessorKind::Images => "AsterDrive built-in",
+        MediaProcessorKind::Lofty => "AsterDrive built-in audio",
         _ => processor.as_str(),
     }
 }
@@ -285,6 +286,60 @@ async fn test_thumbnail_returns_202_when_not_ready() {
             .and_then(|value| value.to_str().ok()),
         Some("2")
     );
+}
+
+#[actix_web::test]
+async fn test_thumbnail_audio_schedules_lofty_processor_for_legacy_metadata_only_config() {
+    let state = common::setup().await;
+    let app = create_test_app!(state.clone());
+    let (token, _) = register_and_login!(app);
+
+    let req = test::TestRequest::put()
+        .uri("/api/v1/admin/config/media_processing_registry_json")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(json!({
+            "value": json!({
+                "version": 2,
+                "processors": [
+                    {
+                        "kind": "lofty",
+                        "enabled": true,
+                        "uses": ["metadata:audio"],
+                        "extensions": ["mp3"]
+                    },
+                    {
+                        "kind": "images",
+                        "enabled": true,
+                        "uses": ["thumbnail:image", "metadata:image"]
+                    }
+                ]
+            })
+            .to_string()
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+
+    let file_id = upload_file_bytes!(
+        app,
+        token,
+        "The Score - Real Life.mp3",
+        "audio/mpeg",
+        b"not a real mp3"
+    );
+    let resp = request_thumbnail!(app, token, file_id);
+    assert_eq!(resp.status(), 202);
+
+    // The uploaded bytes are intentionally not decoded here: this only verifies that
+    // legacy Lofty configs declaring metadata:audio are normalized into thumbnail
+    // scheduling support. The Lofty renderer path covers embedded-artwork decoding.
+    let task =
+        latest_thumbnail_task_for_processor(&state, file_id, MediaProcessorKind::Lofty).await;
+    assert_eq!(task.status, BackgroundTaskStatus::Pending);
+    let payload: Value = serde_json::from_str(task.payload_json.as_ref()).unwrap();
+    assert_eq!(payload["processor"], "lofty");
+    assert_eq!(payload["source_file_name"], "The Score - Real Life.mp3");
 }
 
 #[actix_web::test]

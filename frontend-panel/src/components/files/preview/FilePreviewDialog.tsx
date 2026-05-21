@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { fileService } from "@/services/fileService";
+import type { MusicPlayerTrack } from "@/stores/musicPlayerStore";
 import { usePreviewAppStore } from "@/stores/previewAppStore";
 import type {
 	ArchivePreviewManifest,
@@ -33,11 +34,13 @@ interface FilePreviewDialogProps {
 	onFileUpdated?: () => void;
 	downloadPath?: string;
 	imagePreviewPath?: string;
+	thumbnailPath?: string;
 	editable?: boolean;
 	previewLinkFactory?: () => Promise<PreviewLinkInfo>;
 	archivePreviewFactory?: (options?: {
 		signal?: AbortSignal;
 	}) => Promise<ArchivePreviewManifest>;
+	loadMusicBackendMetadata?: MusicPlayerTrack["loadBackendMetadata"];
 	mediaStreamLinkFactory?: () => Promise<ShareStreamSessionInfo>;
 	wopiSessionFactory?: (appKey: string) => Promise<WopiLaunchSession>;
 	openMode?: "auto" | "direct" | "picker";
@@ -63,9 +66,11 @@ export function FilePreviewDialog({
 	onFileUpdated,
 	downloadPath,
 	imagePreviewPath,
+	thumbnailPath,
 	editable = true,
 	previewLinkFactory,
 	archivePreviewFactory,
+	loadMusicBackendMetadata,
 	mediaStreamLinkFactory,
 	wopiSessionFactory,
 	openMode = "auto",
@@ -78,6 +83,17 @@ export function FilePreviewDialog({
 		downloadPath ?? fileService.downloadPath(file.id);
 	const resolvedImagePreviewPath =
 		imagePreviewPath ?? fileService.imagePreviewPath(file.id);
+	const resolvedThumbnailPath =
+		thumbnailPath ?? fileService.thumbnailPath(file.id);
+	const resolvedLoadMusicBackendMetadata =
+		loadMusicBackendMetadata ??
+		((signal?: AbortSignal) =>
+			import("@/lib/musicPlayer").then(
+				({ backendAudioMetadataToTrackMetadata }) =>
+					fileService
+						.getMediaMetadata(file.id, { signal })
+						.then((metadata) => backendAudioMetadataToTrackMetadata(metadata)),
+			));
 
 	useEffect(() => {
 		if (previewAppsLoaded) return;
@@ -377,9 +393,11 @@ export function FilePreviewDialog({
 									previewAppsLoaded={previewAppsLoaded}
 									downloadPath={resolvedDownloadPath}
 									imagePreviewPath={resolvedImagePreviewPath}
+									thumbnailPath={resolvedThumbnailPath}
 									getOptionLabel={getOptionLabel}
 									previewLinkFactory={previewLinkFactory}
 									archivePreviewFactory={activeArchivePreviewFactory}
+									loadMusicBackendMetadata={resolvedLoadMusicBackendMetadata}
 									mediaStreamLinkFactory={mediaStreamLinkFactory}
 									createWopiSession={
 										wopiSessionFactory ? activeWopiSessionFactory : null

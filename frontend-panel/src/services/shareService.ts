@@ -8,6 +8,7 @@ import type {
 	BatchResult,
 	FolderContents,
 	FolderListParams,
+	MediaMetadataInfo,
 	PreviewLinkInfo,
 	ShareInfo,
 	ShareListQuery,
@@ -78,6 +79,9 @@ export function createShareService(workspace: Workspace) {
 		getArchivePreview: (token: string, options?: ServiceRequestOptions) =>
 			api.get<ArchivePreviewManifest>(`/s/${token}/archive-preview`, options),
 
+		getMediaMetadata: (token: string, options?: ServiceRequestOptions) =>
+			api.get<MediaMetadataInfo>(`/s/${token}/media-metadata`, options),
+
 		createStreamSession: (token: string) =>
 			api.post<ShareStreamSessionInfo>(`/s/${token}/stream-session`),
 
@@ -87,6 +91,9 @@ export function createShareService(workspace: Workspace) {
 
 		downloadFolderPath: (token: string, fileId: number) =>
 			`/s/${token}/files/${fileId}/download`,
+
+		folderFileThumbnailPath: (token: string, fileId: number) =>
+			`/s/${token}/files/${fileId}/thumbnail`,
 
 		folderFileImagePreviewPath: (token: string, fileId: number) =>
 			`/s/${token}/files/${fileId}/image-preview`,
@@ -101,6 +108,16 @@ export function createShareService(workspace: Workspace) {
 		) =>
 			api.get<ArchivePreviewManifest>(
 				`/s/${token}/files/${fileId}/archive-preview`,
+				options,
+			),
+
+		getFolderFileMediaMetadata: (
+			token: string,
+			fileId: number,
+			options?: ServiceRequestOptions,
+		) =>
+			api.get<MediaMetadataInfo>(
+				`/s/${token}/files/${fileId}/media-metadata`,
 				options,
 			),
 

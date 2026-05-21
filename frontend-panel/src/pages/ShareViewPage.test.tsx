@@ -12,10 +12,20 @@ const mockState = vi.hoisted(() => ({
 		(token: string, fileId: number) => `/s/${token}/files/${fileId}/download`,
 	),
 	downloadPath: vi.fn((token: string) => `/s/${token}/download`),
+	createFolderFilePreviewLink: vi.fn((token: string, fileId: number) =>
+		Promise.resolve({
+			expires_at: "2026-01-01T00:00:00Z",
+			max_uses: 1,
+			path: `/pv/${token}/files/${fileId}`,
+		}),
+	),
 	imagePreviewPath: vi.fn((token: string) => `/s/${token}/image-preview`),
 	folderFileImagePreviewPath: vi.fn(
 		(token: string, fileId: number) =>
 			`/s/${token}/files/${fileId}/image-preview`,
+	),
+	folderFileThumbnailPath: vi.fn(
+		(token: string, fileId: number) => `/s/${token}/files/${fileId}/thumbnail`,
 	),
 	createStreamSession: vi.fn((token: string) =>
 		Promise.resolve({
@@ -31,6 +41,37 @@ const mockState = vi.hoisted(() => ({
 	),
 	getArchivePreview: vi.fn(() => Promise.resolve({ entries: [] })),
 	getFolderFileArchivePreview: vi.fn(() => Promise.resolve({ entries: [] })),
+	createPreviewLink: vi.fn((token: string) =>
+		Promise.resolve({
+			expires_at: "2026-01-01T00:00:00Z",
+			max_uses: 1,
+			path: `/pv/${token}`,
+		}),
+	),
+	getFolderFileMediaMetadata: vi.fn(() =>
+		Promise.resolve({
+			kind: "audio",
+			metadata: {
+				artist: "Folder Artist",
+				has_embedded_picture: false,
+				kind: "audio",
+				title: "Folder Song",
+			},
+			status: "ready",
+		}),
+	),
+	getMediaMetadata: vi.fn(() =>
+		Promise.resolve({
+			kind: "audio",
+			metadata: {
+				artist: "Share Artist",
+				has_embedded_picture: false,
+				kind: "audio",
+				title: "Share Song",
+			},
+			status: "ready",
+		}),
+	),
 	thumbnailPath: vi.fn((token: string) => `/s/${token}/thumbnail`),
 	downloadUrl: vi.fn((token: string) => `https://download/${token}`),
 	getInfo: vi.fn(),
@@ -151,32 +192,55 @@ vi.mock("@/components/files/FilePreview", () => ({
 		open = true,
 		downloadPath,
 		imagePreviewPath,
+		thumbnailPath,
 		editable,
 		archivePreviewFactory,
+		loadMusicBackendMetadata,
 		mediaStreamLinkFactory,
+		previewLinkFactory,
 	}: {
 		file: { name: string };
 		open?: boolean;
 		downloadPath?: string;
 		imagePreviewPath?: string;
+		thumbnailPath?: string;
 		editable?: boolean;
 		archivePreviewFactory?: () => Promise<unknown>;
+		loadMusicBackendMetadata?: (signal?: AbortSignal) => Promise<unknown>;
 		mediaStreamLinkFactory?: () => Promise<unknown>;
+		previewLinkFactory?: () => Promise<unknown>;
 	}) =>
 		open ? (
-			<div
-				data-testid="file-preview"
-				data-name={file.name}
-				data-download-path={downloadPath ?? ""}
-				data-image-preview-path={imagePreviewPath ?? ""}
-				data-editable={String(Boolean(editable))}
-				data-has-archive-preview-factory={String(
-					Boolean(archivePreviewFactory),
-				)}
-				data-has-media-stream-link-factory={String(
-					Boolean(mediaStreamLinkFactory),
-				)}
-			/>
+			<div>
+				<div
+					data-testid="file-preview"
+					data-name={file.name}
+					data-download-path={downloadPath ?? ""}
+					data-image-preview-path={imagePreviewPath ?? ""}
+					data-thumbnail-path={thumbnailPath ?? ""}
+					data-editable={String(Boolean(editable))}
+					data-has-archive-preview-factory={String(
+						Boolean(archivePreviewFactory),
+					)}
+					data-has-media-stream-link-factory={String(
+						Boolean(mediaStreamLinkFactory),
+					)}
+				/>
+				<button type="button" onClick={() => void previewLinkFactory?.()}>
+					call-preview-link
+				</button>
+				<button
+					type="button"
+					onClick={() =>
+						void loadMusicBackendMetadata?.(new AbortController().signal)
+					}
+				>
+					call-music-metadata
+				</button>
+				<button type="button" onClick={() => void mediaStreamLinkFactory?.()}>
+					call-stream-link
+				</button>
+			</div>
 		) : null,
 }));
 
@@ -375,11 +439,21 @@ vi.mock("@/services/shareService", () => ({
 			mockState.createStreamSession(...args),
 		createFolderFileStreamSession: (...args: unknown[]) =>
 			mockState.createFolderFileStreamSession(...args),
+		createPreviewLink: (...args: unknown[]) =>
+			mockState.createPreviewLink(...args),
+		createFolderFilePreviewLink: (...args: unknown[]) =>
+			mockState.createFolderFilePreviewLink(...args),
 		getArchivePreview: (...args: unknown[]) =>
 			mockState.getArchivePreview(...args),
 		getFolderFileArchivePreview: (...args: unknown[]) =>
 			mockState.getFolderFileArchivePreview(...args),
+		getMediaMetadata: (...args: unknown[]) =>
+			mockState.getMediaMetadata(...args),
+		getFolderFileMediaMetadata: (...args: unknown[]) =>
+			mockState.getFolderFileMediaMetadata(...args),
 		thumbnailPath: (...args: unknown[]) => mockState.thumbnailPath(...args),
+		folderFileThumbnailPath: (...args: unknown[]) =>
+			mockState.folderFileThumbnailPath(...args),
 		imagePreviewPath: (...args: unknown[]) =>
 			mockState.imagePreviewPath(...args),
 		folderFileImagePreviewPath: (...args: unknown[]) =>
@@ -396,13 +470,18 @@ vi.mock("@/services/shareService", () => ({
 describe("ShareViewPage", () => {
 	beforeEach(() => {
 		mockState.downloadFolderFileUrl.mockClear();
+		mockState.createFolderFilePreviewLink.mockClear();
 		mockState.downloadFolderPath.mockClear();
 		mockState.downloadPath.mockClear();
 		mockState.createStreamSession.mockClear();
 		mockState.createFolderFileStreamSession.mockClear();
+		mockState.createPreviewLink.mockClear();
 		mockState.getArchivePreview.mockClear();
 		mockState.getFolderFileArchivePreview.mockClear();
+		mockState.getMediaMetadata.mockClear();
+		mockState.getFolderFileMediaMetadata.mockClear();
 		mockState.thumbnailPath.mockClear();
+		mockState.folderFileThumbnailPath.mockClear();
 		mockState.imagePreviewPath.mockClear();
 		mockState.folderFileImagePreviewPath.mockClear();
 		mockState.downloadUrl.mockClear();
@@ -537,6 +616,10 @@ describe("ShareViewPage", () => {
 			"/s/share-token/download",
 		);
 		expect(screen.getByTestId("file-preview")).toHaveAttribute(
+			"data-thumbnail-path",
+			"/s/share-token/thumbnail",
+		);
+		expect(screen.getByTestId("file-preview")).toHaveAttribute(
 			"data-editable",
 			"false",
 		);
@@ -548,6 +631,20 @@ describe("ShareViewPage", () => {
 			"data-has-media-stream-link-factory",
 			"true",
 		);
+
+		fireEvent.click(screen.getByRole("button", { name: "call-preview-link" }));
+		fireEvent.click(
+			screen.getByRole("button", { name: "call-music-metadata" }),
+		);
+		fireEvent.click(screen.getByRole("button", { name: "call-stream-link" }));
+
+		await waitFor(() => {
+			expect(mockState.createPreviewLink).toHaveBeenCalledWith("share-token");
+			expect(mockState.getMediaMetadata).toHaveBeenCalledWith("share-token", {
+				signal: expect.any(AbortSignal),
+			});
+			expect(mockState.createStreamSession).toHaveBeenCalledWith("share-token");
+		});
 
 		fireEvent.click(screen.getByRole("button", { name: /files:download/i }));
 
@@ -652,6 +749,14 @@ describe("ShareViewPage", () => {
 			"/s/share-token/files/5/download",
 		);
 		expect(screen.getByTestId("file-preview")).toHaveAttribute(
+			"data-thumbnail-path",
+			"/s/share-token/files/5/thumbnail",
+		);
+		expect(mockState.folderFileThumbnailPath).toHaveBeenCalledWith(
+			"share-token",
+			5,
+		);
+		expect(screen.getByTestId("file-preview")).toHaveAttribute(
 			"data-editable",
 			"false",
 		);
@@ -663,6 +768,28 @@ describe("ShareViewPage", () => {
 			"data-has-media-stream-link-factory",
 			"true",
 		);
+
+		fireEvent.click(screen.getByRole("button", { name: "call-preview-link" }));
+		fireEvent.click(
+			screen.getByRole("button", { name: "call-music-metadata" }),
+		);
+		fireEvent.click(screen.getByRole("button", { name: "call-stream-link" }));
+
+		await waitFor(() => {
+			expect(mockState.createFolderFilePreviewLink).toHaveBeenCalledWith(
+				"share-token",
+				5,
+			);
+			expect(mockState.getFolderFileMediaMetadata).toHaveBeenCalledWith(
+				"share-token",
+				5,
+				{ signal: expect.any(AbortSignal) },
+			);
+			expect(mockState.createFolderFileStreamSession).toHaveBeenCalledWith(
+				"share-token",
+				5,
+			);
+		});
 
 		fireEvent.click(
 			screen.getByRole("button", { name: "download:nested.txt" }),

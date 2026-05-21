@@ -3,10 +3,11 @@ use serde::{Deserialize, Serialize};
 #[cfg(all(debug_assertions, feature = "openapi"))]
 use utoipa::ToSchema;
 
-pub const MEDIA_PROCESSING_REGISTRY_VERSION: i32 = 1;
+pub const MEDIA_PROCESSING_REGISTRY_VERSION: i32 = 2;
 pub const PUBLIC_THUMBNAIL_SUPPORT_VERSION: i32 = 1;
 pub const DEFAULT_VIPS_COMMAND: &str = "vips";
 pub const DEFAULT_FFMPEG_COMMAND: &str = "ffmpeg";
+pub const DEFAULT_FFPROBE_COMMAND: &str = "ffprobe";
 pub const BUILTIN_IMAGES_SUPPORTED_EXTENSIONS: &[&str] = &[
     "jpg", "jpeg", "jpe", "png", "gif", "webp", "bmp", "tif", "tiff",
 ];
@@ -23,6 +24,40 @@ pub const DEFAULT_FFMPEG_EXTENSIONS: &[&str] = &[
     "mp4", "m4v", "mov", "mkv", "webm", "avi", "mpg", "mpeg", "m2v", "ts", "m2ts", "mts", "3gp",
     "3g2", "ogv", "flv", "wmv",
 ];
+pub const DEFAULT_LOFTY_EXTENSIONS: &[&str] = &[
+    "aac", "aiff", "aif", "ape", "flac", "m4a", "m4b", "m4p", "m4r", "mka", "mp3", "oga", "ogg",
+    "opus", "wav", "wv",
+];
+pub const DEFAULT_FFPROBE_EXTENSIONS: &[&str] = DEFAULT_FFMPEG_EXTENSIONS;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum MediaProcessingUse {
+    #[serde(rename = "thumbnail:image")]
+    ThumbnailImage,
+    #[serde(rename = "thumbnail:audio")]
+    ThumbnailAudio,
+    #[serde(rename = "thumbnail:video")]
+    ThumbnailVideo,
+    #[serde(rename = "metadata:image")]
+    MetadataImage,
+    #[serde(rename = "metadata:audio")]
+    MetadataAudio,
+    #[serde(rename = "metadata:video")]
+    MetadataVideo,
+}
+
+impl MediaProcessingUse {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::ThumbnailImage => "thumbnail:image",
+            Self::ThumbnailAudio => "thumbnail:audio",
+            Self::ThumbnailVideo => "thumbnail:video",
+            Self::MetadataImage => "metadata:image",
+            Self::MetadataAudio => "metadata:audio",
+            Self::MetadataVideo => "metadata:video",
+        }
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
@@ -60,6 +95,8 @@ pub struct MediaProcessingProcessorConfig {
     pub kind: MediaProcessorKind,
     #[serde(default = "default_true")]
     pub enabled: bool,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub uses: Vec<MediaProcessingUse>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub extensions: Vec<String>,
     #[serde(

@@ -23,8 +23,9 @@ pub async fn load_thumbnail_if_exists(
     state: &PrimaryAppState,
     blob: &file_blob::Model,
     file_name: &str,
+    source_mime_type: &str,
 ) -> Result<Option<ThumbnailData>> {
-    let ctx = build_thumbnail_context(state, blob, file_name)?;
+    let ctx = build_thumbnail_context(state, blob, file_name, source_mime_type)?;
     cache::load_thumbnail_if_exists_with_context(state, blob, &ctx).await
 }
 
@@ -34,7 +35,7 @@ pub async fn get_or_generate_thumbnail(
     file_name: &str,
     source_mime_type: &str,
 ) -> Result<ThumbnailData> {
-    let ctx = build_thumbnail_context(state, blob, file_name)?;
+    let ctx = build_thumbnail_context(state, blob, file_name, source_mime_type)?;
     if let Some(data) = cache::load_thumbnail_if_exists_with_context(state, blob, &ctx).await? {
         return Ok(data);
     }
@@ -83,7 +84,7 @@ pub async fn generate_and_store_thumbnail(
     file_name: &str,
     source_mime_type: &str,
 ) -> Result<StoredThumbnail> {
-    let ctx = build_thumbnail_context(state, blob, file_name)?;
+    let ctx = build_thumbnail_context(state, blob, file_name, source_mime_type)?;
     generate_and_store_with_context(state, blob, file_name, source_mime_type, &ctx).await
 }
 

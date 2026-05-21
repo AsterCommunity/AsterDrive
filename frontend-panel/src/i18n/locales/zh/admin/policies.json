@@ -48,8 +48,6 @@
 	"content_dedup": "内容去重",
 	"local_content_dedup_desc": "开启后，上传到本机存储时会在临时文件写完后再计算一次 SHA-256，并复用相同内容的 blob。关闭后会跳过这次全文件读取，每次上传都创建新的 blob。",
 	"thumbnail_processor_images": "AsterDrive 内置",
-	"thumbnail_processor_ffmpeg_cli": "ffmpeg_cli",
-	"thumbnail_processor_vips_cli": "vips_cli",
 	"chunk_size": "分片大小 (MB)",
 	"chunk_size_desc": "大于此大小的文件使用分片上传。S3 的 relay_stream / presigned 模式，以及远程存储的 presigned 模式下，都会把它作为 multipart 分片大小；S3 multipart 最小 part 大小会按 5 MiB 约束。0 = 始终单次上传。",
 	"set_as_default": "设为默认策略",

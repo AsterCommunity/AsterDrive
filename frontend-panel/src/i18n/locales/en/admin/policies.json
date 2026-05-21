@@ -48,8 +48,6 @@
 	"content_dedup": "Content Deduplication",
 	"local_content_dedup_desc": "When enabled, local uploads compute SHA-256 after the temporary file is written and reuse blobs with identical content. When disabled, uploads skip the extra full-file read and always create a new blob.",
 	"thumbnail_processor_images": "AsterDrive Built-in",
-	"thumbnail_processor_ffmpeg_cli": "ffmpeg_cli",
-	"thumbnail_processor_vips_cli": "vips_cli",
 	"chunk_size": "Chunk Size (MB)",
 	"chunk_size_desc": "Files larger than this are split into chunks. For S3 relay_stream and presigned modes, and for remote presigned mode, this also controls the multipart part size; S3 multipart still obeys the 5 MiB minimum part size. 0 = always use single upload.",
 	"set_as_default": "Set as default policy",

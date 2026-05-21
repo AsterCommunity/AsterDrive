@@ -116,6 +116,14 @@ export type TrashContents = components["schemas"]["TrashContents"];
 export type TrashFileItem = components["schemas"]["TrashFileItem"];
 export type TrashFolderItem = components["schemas"]["TrashFolderItem"];
 export type TrashListParams = OperationQuery<"list_trash">;
+export type MediaMetadataKind = components["schemas"]["MediaMetadataKind"];
+export type MediaMetadataStatus = components["schemas"]["MediaMetadataStatus"];
+export type ImageMediaMetadata = components["schemas"]["ImageMediaMetadata"];
+export type AudioMediaMetadata = components["schemas"]["AudioMediaMetadata"];
+export type VideoMediaMetadata = components["schemas"]["VideoMediaMetadata"];
+export type MediaMetadataPayload =
+	components["schemas"]["MediaMetadataPayload"];
+export type MediaMetadataInfo = components["schemas"]["MediaMetadataInfo"];
 
 // Sharing and search
 export type AdminSharePage = components["schemas"]["OffsetPage_ShareInfo"];

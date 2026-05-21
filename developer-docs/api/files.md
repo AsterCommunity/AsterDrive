@@ -164,6 +164,14 @@
 
 接口统一返回 WebP，并按 Blob、processor 和 processor version 复用缓存。
 
+### 媒体元数据
+
+`GET /files/{id}/media-metadata` 返回按 Blob 缓存的媒体元数据；团队空间对应接口是 `GET /teams/{team_id}/files/{id}/media-metadata`。缓存未生成时接口返回 `202` 和 `Retry-After`，后台会创建 `media_metadata_extract` 任务，前端稍后重试同一接口即可。
+
+当前图片元数据由内置 `images` 处理器读取尺寸和格式；音频元数据由内置 `lofty` 处理器读取标题、艺术家、专辑、时长、采样率、声道、码率、曲目号和内嵌封面存在性等信息；视频元数据由 `ffprobe_cli` 处理器通过服务端 `ffprobe` 读取时长、尺寸、编码、容器和帧率。`media_metadata_enabled` 是总开关；图片 / 音频 / 视频是否参与解析、命中的后缀，以及 `ffprobe` 的命令名或绝对路径，都统一在 `media_processing_registry_json` 里配置。若运行环境找不到配置的 `ffprobe`，视频会返回并缓存为 `unsupported`；配置修正且命令可用后，旧的 missing-probe unsupported 缓存会被重新探测。
+
+音频内嵌封面不单独开音乐封面缓存。`lofty` 处理器具备 `thumbnail:audio` 用途时，客户端继续复用现有 thumbnail 路径获取封面图；响应里的 `has_embedded_picture` 和 MIME 用于播放器元数据展示和兜底判断。
+
 ### `GET /files/{id}/archive-preview`
 
 这条接口为 ZIP 文件返回只读清单，不解压、不写入工作空间：

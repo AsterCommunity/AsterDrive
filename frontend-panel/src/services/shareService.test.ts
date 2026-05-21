@@ -98,8 +98,14 @@ describe("shareService", () => {
 
 		shareService.getInfo("token-1");
 		shareService.verifyPassword("token-1", "secret");
+		shareService.createPreviewLink("token-1");
 		shareService.getArchivePreview("token-1");
+		shareService.getMediaMetadata("token-1");
+		shareService.createStreamSession("token-1");
 		shareService.getFolderFileArchivePreview("token-1", 42);
+		shareService.getFolderFileMediaMetadata("token-1", 42);
+		shareService.createFolderFilePreviewLink("token-1", 42);
+		shareService.createFolderFileStreamSession("token-1", 42);
 		shareService.listContent("token-1", params);
 		shareService.listSubfolderContent("token-1", 42, params);
 
@@ -111,16 +117,30 @@ describe("shareService", () => {
 		);
 		expect(apiGet).toHaveBeenNthCalledWith(
 			3,
+			"/s/token-1/media-metadata",
+			undefined,
+		);
+		expect(apiGet).toHaveBeenNthCalledWith(
+			4,
 			"/s/token-1/files/42/archive-preview",
+			undefined,
+		);
+		expect(apiGet).toHaveBeenNthCalledWith(
+			5,
+			"/s/token-1/files/42/media-metadata",
 			undefined,
 		);
 		expect(apiPost).toHaveBeenCalledWith("/s/token-1/verify", {
 			password: "secret",
 		});
-		expect(apiGet).toHaveBeenNthCalledWith(4, "/s/token-1/content", {
+		expect(apiPost).toHaveBeenCalledWith("/s/token-1/preview-link");
+		expect(apiPost).toHaveBeenCalledWith("/s/token-1/stream-session");
+		expect(apiPost).toHaveBeenCalledWith("/s/token-1/files/42/preview-link");
+		expect(apiPost).toHaveBeenCalledWith("/s/token-1/files/42/stream-session");
+		expect(apiGet).toHaveBeenNthCalledWith(6, "/s/token-1/content", {
 			params,
 		});
-		expect(apiGet).toHaveBeenNthCalledWith(5, "/s/token-1/folders/42/content", {
+		expect(apiGet).toHaveBeenNthCalledWith(7, "/s/token-1/folders/42/content", {
 			params,
 		});
 		expect(shareService.pagePath("token-1")).toBe("/s/token-1");
@@ -129,6 +149,9 @@ describe("shareService", () => {
 		);
 		expect(shareService.downloadPath("token-1")).toBe("/s/token-1/download");
 		expect(shareService.thumbnailPath("token-1")).toBe("/s/token-1/thumbnail");
+		expect(shareService.folderFileThumbnailPath("token-1", 42)).toBe(
+			"/s/token-1/files/42/thumbnail",
+		);
 		expect(shareService.imagePreviewPath("token-1")).toBe(
 			"/s/token-1/image-preview",
 		);
@@ -146,11 +169,15 @@ describe("shareService", () => {
 		);
 	});
 
-	it("forwards abort signals for public archive preview requests", () => {
+	it("forwards abort signals for public preview metadata requests", () => {
 		const controller = new AbortController();
 
 		shareService.getArchivePreview("token-1", { signal: controller.signal });
 		shareService.getFolderFileArchivePreview("token-1", 42, {
+			signal: controller.signal,
+		});
+		shareService.getMediaMetadata("token-1", { signal: controller.signal });
+		shareService.getFolderFileMediaMetadata("token-1", 42, {
 			signal: controller.signal,
 		});
 
@@ -160,6 +187,14 @@ describe("shareService", () => {
 		expect(apiGet).toHaveBeenNthCalledWith(
 			2,
 			"/s/token-1/files/42/archive-preview",
+			{ signal: controller.signal },
+		);
+		expect(apiGet).toHaveBeenNthCalledWith(3, "/s/token-1/media-metadata", {
+			signal: controller.signal,
+		});
+		expect(apiGet).toHaveBeenNthCalledWith(
+			4,
+			"/s/token-1/files/42/media-metadata",
 			{ signal: controller.signal },
 		);
 	});

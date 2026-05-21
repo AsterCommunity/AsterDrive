@@ -7,6 +7,8 @@ import type {
 import type {
 	FileInfo,
 	FileListItem,
+	MediaMetadataInfo,
+	MediaMetadataPayload,
 	SharePublicInfo,
 	ShareStreamSessionInfo,
 } from "@/types/api";
@@ -32,6 +34,59 @@ function stripKnownAudioExtension(name: string) {
 	);
 }
 
+function cleanMetadataText(value: string | null | undefined) {
+	const normalized = value?.trim();
+	return normalized ? normalized : null;
+}
+
+function cleanMetadataTexts(values: string[] | null | undefined) {
+	const normalized = values
+		?.map((value) => cleanMetadataText(value))
+		.filter((value): value is string => value !== null);
+	return normalized && normalized.length > 0 ? normalized : null;
+}
+
+function audioMetadataPayload(
+	info: MediaMetadataInfo,
+): Extract<MediaMetadataPayload, { kind: "audio" }> | null {
+	if (info.kind !== "audio" || info.status !== "ready") {
+		return null;
+	}
+	const metadata = info.metadata;
+	return metadata?.kind === "audio" ? metadata : null;
+}
+
+export function backendAudioMetadataToTrackMetadata(
+	info: MediaMetadataInfo,
+): MusicTrackMetadata | null {
+	const metadata = audioMetadataPayload(info);
+	if (!metadata) return null;
+
+	const artists =
+		cleanMetadataTexts(metadata.artists) ??
+		(cleanMetadataText(metadata.artist)
+			? [cleanMetadataText(metadata.artist) as string]
+			: null);
+	const title = cleanMetadataText(metadata.title);
+	const album = cleanMetadataText(metadata.album);
+
+	if (!title && !album && (!artists || artists.length === 0)) {
+		return null;
+	}
+
+	const result: MusicTrackMetadata = {};
+	if (album) result.album = album;
+	if (artists && artists.length > 0) {
+		result.artists = artists;
+		result.artist = cleanMetadataText(metadata.artist) ?? artists.join(", ");
+	} else {
+		const artist = cleanMetadataText(metadata.artist);
+		if (artist) result.artist = artist;
+	}
+	if (title) result.title = title;
+	return result;
+}
+
 export function inferMusicMetadata(file: MusicFileLike): MusicTrackMetadata {
 	const baseName = stripKnownAudioExtension(file.name).trim() || file.name;
 	const separatorMatch = baseName.match(/^(.+?)\s[-–—]\s(.+)$/);
@@ -55,11 +110,24 @@ export function inferMusicMetadata(file: MusicFileLike): MusicTrackMetadata {
 export function buildDirectMusicTrack(file: MusicFileLike): MusicPlayerTrack {
 	return {
 		id: `file:${file.id}`,
+		loadBackendMetadata: async (signal) =>
+			backendAudioMetadataToTrackMetadata(
+				await fileService.getMediaMetadata(file.id, { signal }),
+			),
 		metadata: inferMusicMetadata(file),
 		mimeType: file.mime_type,
 		name: file.name,
 		path: fileService.downloadPath(file.id),
 		size: file.size,
+		thumbnail: {
+			file: {
+				file_category: "audio",
+				id: file.id,
+				mime_type: file.mime_type,
+				name: file.name,
+			},
+			path: fileService.thumbnailPath(file.id),
+		},
 	};
 }
 
@@ -82,12 +150,25 @@ export function buildSingleShareMusicTrack(
 
 	return {
 		id: `share:${token}:file`,
+		loadBackendMetadata: async (signal) =>
+			backendAudioMetadataToTrackMetadata(
+				await shareService.getMediaMetadata(token, { signal }),
+			),
 		metadata: inferMusicMetadata(file),
 		mimeType: file.mime_type,
 		name: file.name,
 		path: shareService.downloadPath(token),
 		refreshStreamLink: () => shareService.createStreamSession(token),
 		size: file.size,
+		thumbnail: {
+			file: {
+				file_category: "audio",
+				id: -1,
+				mime_type: file.mime_type,
+				name: file.name,
+			},
+			path: shareService.thumbnailPath(token),
+		},
 	};
 }
 
@@ -97,6 +178,12 @@ export function buildShareFolderMusicTrack(
 ): MusicPlayerTrack {
 	return {
 		id: `share:${token}:file:${file.id}`,
+		loadBackendMetadata: async (signal) =>
+			backendAudioMetadataToTrackMetadata(
+				await shareService.getFolderFileMediaMetadata(token, file.id, {
+					signal,
+				}),
+			),
 		metadata: inferMusicMetadata(file),
 		mimeType: file.mime_type,
 		name: file.name,
@@ -104,6 +191,15 @@ export function buildShareFolderMusicTrack(
 		refreshStreamLink: () =>
 			shareService.createFolderFileStreamSession(token, file.id),
 		size: file.size,
+		thumbnail: {
+			file: {
+				file_category: "audio",
+				id: file.id,
+				mime_type: file.mime_type,
+				name: file.name,
+			},
+			path: shareService.folderFileThumbnailPath(token, file.id),
+		},
 	};
 }
 
@@ -142,18 +238,6 @@ export async function hydrateMusicQueueForPlayback(
 	return tracks.map((track) =>
 		track.id === activeTrackId ? hydratedTrack : track,
 	);
-}
-
-function cleanMetadataText(value: string | null | undefined) {
-	const normalized = value?.trim();
-	return normalized ? normalized : null;
-}
-
-function cleanMetadataTexts(values: string[] | null | undefined) {
-	const normalized = values
-		?.map((value) => cleanMetadataText(value))
-		.filter((value): value is string => value !== null);
-	return normalized && normalized.length > 0 ? normalized : null;
 }
 
 function pictureToDataUrl(picture: {

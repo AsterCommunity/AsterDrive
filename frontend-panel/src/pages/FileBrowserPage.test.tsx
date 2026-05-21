@@ -828,8 +828,10 @@ vi.mock("@/services/fileService", () => ({
 			mockState.createWopiSession(...args),
 		downloadPath: (id: number) => `/files/${id}/download`,
 		downloadUrl: (id: number) => `https://download/${id}`,
+		getMediaMetadata: vi.fn(async () => null),
 		setFileLock: (...args: unknown[]) => mockState.setFileLock(...args),
 		setFolderLock: (...args: unknown[]) => mockState.setFolderLock(...args),
+		thumbnailPath: (id: number) => `/files/${id}/thumbnail`,
 	},
 }));
 

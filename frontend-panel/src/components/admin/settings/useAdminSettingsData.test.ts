@@ -103,6 +103,10 @@ const translationMap: Record<string, string> = {
 	custom_config_key_duplicate: "custom_config_key_duplicate",
 	custom_config_key_required: "custom_config_key_required",
 	settings_saved: "settings_saved",
+	settings_item_media_processing_registry_json_label:
+		"Media processing registry",
+	settings_item_media_processing_registry_json_desc:
+		"Choose which media processors are enabled and bind extensions as needed. Built-in AsterDrive processors act as the final fallback when enabled.",
 };
 
 function t(key: string) {
@@ -164,6 +168,34 @@ function createValidMediaProcessingConfig(
 				enabled: false,
 				extensions: ["heic", "heif"],
 				kind: "vips_cli",
+				uses: ["thumbnail:image"],
+			},
+			{
+				config: {
+					command: "ffmpeg",
+				},
+				enabled: false,
+				extensions: ["mp4"],
+				kind: "ffmpeg_cli",
+				uses: ["thumbnail:video"],
+			},
+			{
+				config: {
+					command: "ffprobe",
+				},
+				enabled: false,
+				extensions: ["mp4"],
+				kind: "ffprobe_cli",
+				uses: ["metadata:video"],
+			},
+			{
+				config: {
+					command: "",
+				},
+				enabled: true,
+				extensions: ["mp3", "flac"],
+				kind: "lofty",
+				uses: ["thumbnail:audio", "metadata:audio"],
 			},
 			{
 				config: {
@@ -172,6 +204,7 @@ function createValidMediaProcessingConfig(
 				enabled: true,
 				extensions: [],
 				kind: "images",
+				uses: ["thumbnail:image", "metadata:image"],
 			},
 		],
 	};
@@ -200,6 +233,18 @@ function createBaseConfigs() {
 			value: createValidMediaProcessingConfig(),
 			value_type: "multiline",
 		}),
+		createConfig({
+			category: "storage.media_processing",
+			key: "media_metadata_enabled",
+			value: "true",
+			value_type: "boolean",
+		}),
+		createConfig({
+			category: "storage.media_processing",
+			key: "media_metadata_max_source_bytes",
+			value: "1073741824",
+			value_type: "number",
+		}),
 	];
 }
 
@@ -226,6 +271,7 @@ function getConfigCategory(key: string) {
 	if (key.startsWith("custom")) return "custom";
 	if (key === PREVIEW_APPS_CONFIG_KEY) return "general.preview";
 	if (key === MEDIA_PROCESSING_CONFIG_KEY) return "storage.media_processing";
+	if (key.startsWith("media_metadata_")) return "storage.media_processing";
 	return "general";
 }
 
@@ -235,9 +281,11 @@ function getMockConfigSource(key: string): SystemConfigSource {
 
 function getMockConfigValueType(key: string): SystemConfigValueType {
 	if (key === "public_site_url") return "string_array";
-	return key === PREVIEW_APPS_CONFIG_KEY || key === MEDIA_PROCESSING_CONFIG_KEY
-		? "multiline"
-		: "string";
+	if (key === PREVIEW_APPS_CONFIG_KEY || key === MEDIA_PROCESSING_CONFIG_KEY)
+		return "multiline";
+	if (key === "media_metadata_enabled") return "boolean";
+	if (key === "media_metadata_max_source_bytes") return "number";
+	return "string";
 }
 
 function renderUseAdminSettingsData() {
@@ -497,6 +545,34 @@ describe("useAdminSettingsData", () => {
 					enabled: true,
 					extensions: ["heic", "avif"],
 					kind: "vips_cli",
+					uses: ["thumbnail:image"],
+				},
+				{
+					config: {
+						command: "ffmpeg",
+					},
+					enabled: false,
+					extensions: ["mp4"],
+					kind: "ffmpeg_cli",
+					uses: ["thumbnail:video"],
+				},
+				{
+					config: {
+						command: "/opt/bin/ffprobe",
+					},
+					enabled: true,
+					extensions: ["mp4"],
+					kind: "ffprobe_cli",
+					uses: ["metadata:video"],
+				},
+				{
+					config: {
+						command: "",
+					},
+					enabled: true,
+					extensions: ["mp3"],
+					kind: "lofty",
+					uses: ["thumbnail:audio", "metadata:audio"],
 				},
 				{
 					config: {
@@ -505,6 +581,7 @@ describe("useAdminSettingsData", () => {
 					enabled: true,
 					extensions: [],
 					kind: "images",
+					uses: ["thumbnail:image", "metadata:image"],
 				},
 			],
 		});
@@ -599,6 +676,80 @@ describe("useAdminSettingsData", () => {
 		expect(mockState.previewLoad).not.toHaveBeenCalled();
 		expect(mockState.thumbnailSupportInvalidate).not.toHaveBeenCalled();
 		expect(mockState.thumbnailSupportLoad).not.toHaveBeenCalled();
+	});
+
+	it("tests the media processing ffprobe command against the current draft", async () => {
+		mockState.actionConfig.mockResolvedValueOnce({
+			message: "ffprobe command '/opt/bin/ffprobe-custom' is available",
+		});
+		const { result } = renderUseAdminSettingsData();
+
+		await waitFor(() => expect(result.current.loading).toBe(false));
+
+		await act(async () => {
+			await result.current.handleTestFfprobeCliCommand(
+				createValidMediaProcessingConfig({
+					processors: [
+						{
+							config: {
+								command: "vips",
+							},
+							enabled: false,
+							extensions: ["heic"],
+							kind: "vips_cli",
+							uses: ["thumbnail:image"],
+						},
+						{
+							config: {
+								command: "ffmpeg",
+							},
+							enabled: false,
+							extensions: ["mp4"],
+							kind: "ffmpeg_cli",
+							uses: ["thumbnail:video"],
+						},
+						{
+							config: {
+								command: "/opt/bin/ffprobe-custom",
+							},
+							enabled: false,
+							extensions: ["mp4"],
+							kind: "ffprobe_cli",
+							uses: ["metadata:video"],
+						},
+						{
+							config: {
+								command: "",
+							},
+							enabled: true,
+							extensions: ["mp3"],
+							kind: "lofty",
+							uses: ["thumbnail:audio", "metadata:audio"],
+						},
+						{
+							config: {
+								command: "",
+							},
+							enabled: true,
+							extensions: [],
+							kind: "images",
+							uses: ["thumbnail:image", "metadata:image"],
+						},
+					],
+				}),
+			);
+		});
+
+		expect(mockState.actionConfig).toHaveBeenCalledWith(
+			MEDIA_PROCESSING_CONFIG_KEY,
+			expect.objectContaining({
+				action: "test_ffprobe_cli",
+				value: expect.stringContaining("/opt/bin/ffprobe-custom"),
+			}),
+		);
+		expect(mockState.toastSuccess).toHaveBeenCalledWith(
+			"ffprobe command '/opt/bin/ffprobe-custom' is available",
+		);
 	});
 
 	it("reloads configs after save failure and reports the error", async () => {

@@ -16,6 +16,7 @@ use crate::services::workspace_models::FileInfo;
 use crate::services::workspace_storage_service::{self, WorkspaceStorageScope};
 use crate::types::NullablePatch;
 
+pub use crate::services::media_metadata_service::{MediaMetadataInfo, MediaMetadataLookup};
 pub(crate) use common::{
     DownloadDisposition, ensure_personal_file_scope, if_none_match_matches,
     if_none_match_matches_value, inline_sandbox_csp, requires_inline_sandbox,

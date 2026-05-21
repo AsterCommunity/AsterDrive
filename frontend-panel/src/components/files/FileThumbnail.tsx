@@ -1,44 +1,35 @@
 import { useEffect } from "react";
 import { useBlobUrl } from "@/hooks/useBlobUrl";
 import { useEnteredViewport } from "@/hooks/useEnteredViewport";
+import { supportsThumbnailExtension } from "@/lib/thumbnailSupport";
+import { cn } from "@/lib/utils";
 import { fileService } from "@/services/fileService";
 import { useThumbnailSupportStore } from "@/stores/thumbnailSupportStore";
-import type { FileInfo, FileListItem } from "@/types/api";
+import type { FileCategory, FileInfo, FileListItem } from "@/types/api";
 import { Icon } from "../ui/icon";
 import { FileTypeIcon } from "./FileTypeIcon";
 
+export interface ThumbnailFileLike {
+	id: number;
+	file_category?: FileCategory;
+	mime_type: string;
+	name: string;
+}
+
 interface FileThumbnailProps {
-	file: FileInfo | FileListItem;
+	className?: string;
+	file: FileInfo | FileListItem | ThumbnailFileLike;
+	iconClassName?: string;
+	imageClassName?: string;
 	size?: "sm" | "md" | "lg";
 	thumbnailPath?: string;
 }
 
-function getThumbnailExtension(fileName: string) {
-	const trimmed = fileName.trim().toLowerCase();
-	const dot = trimmed.lastIndexOf(".");
-	if (dot <= 0 || dot === trimmed.length - 1) {
-		return "";
-	}
-	return trimmed.slice(dot + 1);
-}
-
-function supportsThumbnailExtension(
-	fileName: string,
-	extensions: string[] | undefined,
-) {
-	const extension = getThumbnailExtension(fileName);
-	if (!extension || !extensions?.length) {
-		return false;
-	}
-
-	return extensions.some(
-		(candidate) =>
-			candidate.trim().replace(/^\./, "").toLowerCase() === extension,
-	);
-}
-
 export function FileThumbnail({
+	className,
 	file,
+	iconClassName,
+	imageClassName,
 	size = "sm",
 	thumbnailPath,
 }: FileThumbnailProps) {
@@ -72,12 +63,18 @@ export function FileThumbnail({
 		return (
 			<div
 				ref={ref}
-				className="flex h-6 w-6 shrink-0 items-center justify-center overflow-hidden rounded-md border border-border/50 bg-muted/35 shadow-xs dark:bg-muted/25 dark:shadow-none"
+				className={cn(
+					"flex h-6 w-6 shrink-0 items-center justify-center overflow-hidden rounded-md border border-border/50 bg-muted/35 shadow-xs dark:bg-muted/25 dark:shadow-none",
+					className,
+				)}
 			>
 				{canRequestThumbnail && loading && !error && !blobUrl ? (
 					<Icon
 						name="Spinner"
-						className="h-3.5 w-3.5 animate-spin text-muted-foreground"
+						className={cn(
+							"h-3.5 w-3.5 animate-spin text-muted-foreground",
+							iconClassName,
+						)}
 						data-testid="thumbnail-loading"
 					/>
 				) : !canRequestThumbnail || error || !blobUrl ? (
@@ -85,7 +82,7 @@ export function FileThumbnail({
 						mimeType={file.mime_type}
 						fileName={file.name}
 						fileCategory={file.file_category}
-						className="h-4 w-4"
+						className={cn("h-4 w-4", iconClassName)}
 					/>
 				) : (
 					<img
@@ -94,7 +91,7 @@ export function FileThumbnail({
 						loading="lazy"
 						decoding="async"
 						draggable={false}
-						className="h-full w-full object-cover"
+						className={cn("h-full w-full object-cover", imageClassName)}
 					/>
 				)}
 			</div>
@@ -106,11 +103,14 @@ export function FileThumbnail({
 			return (
 				<div
 					ref={ref}
-					className="flex h-full w-full items-center justify-center text-muted-foreground"
+					className={cn(
+						"flex h-full w-full items-center justify-center text-muted-foreground",
+						className,
+					)}
 				>
 					<Icon
 						name="Spinner"
-						className="h-4 w-4 animate-spin"
+						className={cn("h-4 w-4 animate-spin", iconClassName)}
 						data-testid="thumbnail-loading"
 					/>
 				</div>
@@ -121,27 +121,36 @@ export function FileThumbnail({
 			return (
 				<div
 					ref={ref}
-					className="flex h-full w-full items-center justify-center"
+					className={cn(
+						"flex h-full w-full items-center justify-center",
+						className,
+					)}
 				>
 					<FileTypeIcon
 						mimeType={file.mime_type}
 						fileName={file.name}
 						fileCategory={file.file_category}
-						className="h-5 w-5"
+						className={cn("h-5 w-5", iconClassName)}
 					/>
 				</div>
 			);
 		}
 
 		return (
-			<div ref={ref} className="flex h-full w-full items-center justify-center">
+			<div
+				ref={ref}
+				className={cn(
+					"flex h-full w-full items-center justify-center",
+					className,
+				)}
+			>
 				<img
 					src={blobUrl}
 					alt=""
 					loading="lazy"
 					decoding="async"
 					draggable={false}
-					className="h-full w-full object-cover"
+					className={cn("h-full w-full object-cover", imageClassName)}
 				/>
 			</div>
 		);
@@ -151,11 +160,14 @@ export function FileThumbnail({
 		return (
 			<div
 				ref={ref}
-				className="flex h-full w-full items-center justify-center text-muted-foreground"
+				className={cn(
+					"flex h-full w-full items-center justify-center text-muted-foreground",
+					className,
+				)}
 			>
 				<Icon
 					name="Spinner"
-					className="h-5 w-5 animate-spin"
+					className={cn("h-5 w-5 animate-spin", iconClassName)}
 					data-testid="thumbnail-loading"
 				/>
 			</div>
@@ -164,26 +176,38 @@ export function FileThumbnail({
 
 	if (!canRequestThumbnail || error || !blobUrl) {
 		return (
-			<div ref={ref} className="flex h-full w-full items-center justify-center">
+			<div
+				ref={ref}
+				className={cn(
+					"flex h-full w-full items-center justify-center",
+					className,
+				)}
+			>
 				<FileTypeIcon
 					mimeType={file.mime_type}
 					fileName={file.name}
 					fileCategory={file.file_category}
-					className="h-12 w-12"
+					className={cn("h-12 w-12", iconClassName)}
 				/>
 			</div>
 		);
 	}
 
 	return (
-		<div ref={ref} className="flex h-full w-full items-center justify-center">
+		<div
+			ref={ref}
+			className={cn(
+				"flex h-full w-full items-center justify-center",
+				className,
+			)}
+		>
 			<img
 				src={blobUrl}
 				alt=""
 				loading="lazy"
 				decoding="async"
 				draggable={false}
-				className="h-full w-auto shrink-0 max-w-none"
+				className={cn("h-full w-auto shrink-0 max-w-none", imageClassName)}
 			/>
 		</div>
 	);

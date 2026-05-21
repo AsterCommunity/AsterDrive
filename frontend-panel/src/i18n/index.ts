@@ -279,7 +279,7 @@ function scheduleDeferredWarmup(lang: SupportedLanguage) {
 const lang = detectLanguage();
 const resources = await loadLocale(lang, INITIAL_NAMESPACES);
 
-i18n.use(initReactI18next).init({
+await i18n.use(initReactI18next).init({
 	resources: { [lang]: resources },
 	lng: lang,
 	fallbackLng: "en",

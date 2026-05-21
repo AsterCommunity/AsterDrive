@@ -13,8 +13,8 @@ pub mod upload;
 pub mod versions;
 
 pub use self::access::{
-    download, get_archive_preview, get_direct_link, get_file, get_image_preview, get_preview_link,
-    get_thumbnail, open_wopi,
+    download, get_archive_preview, get_direct_link, get_file, get_image_preview,
+    get_media_metadata, get_preview_link, get_thumbnail, open_wopi,
 };
 pub use self::mutations::{
     CopyFileReq, CreateEmptyRequest, ExtractArchiveRequest, PatchFileReq, SetLockReq, copy_file,
@@ -32,8 +32,8 @@ pub use crate::api::dto::files::{OpenWopiRequest, VersionPath};
 pub(crate) use self::access::{
     archive_preview_manifest_response, archive_preview_pending_response, image_preview_response,
     team_download, team_get_archive_preview, team_get_direct_link, team_get_file,
-    team_get_image_preview, team_get_preview_link, team_get_thumbnail, team_open_wopi,
-    thumbnail_response,
+    team_get_image_preview, team_get_media_metadata, team_get_preview_link, team_get_thumbnail,
+    team_open_wopi, thumbnail_response,
 };
 pub(crate) use self::mutations::{
     team_copy_file, team_create_empty, team_delete_file, team_extract_archive, team_patch_file,
@@ -84,6 +84,7 @@ pub fn routes(
         .route("/{id}/download", web::get().to(download))
         .route("/{id}/thumbnail", web::get().to(get_thumbnail))
         .route("/{id}/image-preview", web::get().to(get_image_preview))
+        .route("/{id}/media-metadata", web::get().to(get_media_metadata))
         .route("/{id}/content", web::put().to(update_content))
         .route("/{id}/extract", web::post().to(extract_archive))
         .route("/{id}/lock", web::post().to(set_lock))
@@ -137,6 +138,10 @@ pub fn team_routes() -> actix_web::Scope {
         .route("/{id}/wopi/open", web::post().to(team_open_wopi))
         .route("/{id}/thumbnail", web::get().to(team_get_thumbnail))
         .route("/{id}/image-preview", web::get().to(team_get_image_preview))
+        .route(
+            "/{id}/media-metadata",
+            web::get().to(team_get_media_metadata),
+        )
         .route("/{id}/content", web::put().to(team_update_content))
         .route("/{id}/extract", web::post().to(team_extract_archive))
         .route("/{id}/lock", web::post().to(team_set_lock))

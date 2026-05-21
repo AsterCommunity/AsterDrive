@@ -99,8 +99,10 @@ pub enum RemoteUploadStrategy {
 #[serde(rename_all = "snake_case")]
 pub enum MediaProcessorKind {
     Images,
+    Lofty,
     VipsCli,
     FfmpegCli,
+    FfprobeCli,
     StorageNative,
 }
 
@@ -108,8 +110,10 @@ impl MediaProcessorKind {
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::Images => "images",
+            Self::Lofty => "lofty",
             Self::VipsCli => "vips_cli",
             Self::FfmpegCli => "ffmpeg_cli",
+            Self::FfprobeCli => "ffprobe_cli",
             Self::StorageNative => "storage_native",
         }
     }

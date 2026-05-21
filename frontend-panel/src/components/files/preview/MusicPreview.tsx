@@ -3,15 +3,20 @@ import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
 import { logger } from "@/lib/logger";
-import { useMusicPlayerStore } from "@/stores/musicPlayerStore";
+import {
+	type MusicPlayerTrack,
+	useMusicPlayerStore,
+} from "@/stores/musicPlayerStore";
 import type { ShareStreamSessionInfo } from "@/types/api";
 import { PreviewError } from "./PreviewError";
 import type { PreviewableFileLike } from "./types";
 
 interface MusicPreviewProps {
 	file: PreviewableFileLike;
+	loadBackendMetadata?: MusicPlayerTrack["loadBackendMetadata"];
 	mediaStreamLinkFactory?: () => Promise<ShareStreamSessionInfo>;
 	path: string;
+	thumbnailPath?: string;
 }
 
 function previewMusicTitle(name: string) {
@@ -20,8 +25,10 @@ function previewMusicTitle(name: string) {
 
 export function MusicPreview({
 	file,
+	loadBackendMetadata,
 	mediaStreamLinkFactory,
 	path,
+	thumbnailPath,
 }: MusicPreviewProps) {
 	const { t } = useTranslation("files");
 	const currentTrackId = useMusicPlayerStore((state) => state.activeTrackId);
@@ -75,7 +82,19 @@ export function MusicPreview({
 					path: link.path,
 					size: file.size,
 					expiresAt: link.expires_at || undefined,
+					loadBackendMetadata,
 					refreshStreamLink: mediaStreamLinkFactory,
+					thumbnail: thumbnailPath
+						? {
+								file: {
+									file_category: file.file_category ?? "audio",
+									id: file.id ?? -1,
+									mime_type: file.mime_type,
+									name: file.name,
+								},
+								path: thumbnailPath,
+							}
+						: undefined,
 				});
 			})
 			.catch((error) => {
@@ -92,10 +111,14 @@ export function MusicPreview({
 	}, [
 		file.mime_type,
 		file.name,
+		file.file_category,
+		file.id,
 		file.size,
+		loadBackendMetadata,
 		mediaStreamLinkFactory,
 		path,
 		playTrack,
+		thumbnailPath,
 		trackId,
 	]);
 

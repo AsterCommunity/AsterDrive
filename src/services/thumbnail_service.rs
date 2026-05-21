@@ -158,6 +158,13 @@ where
     encode_webp(&thumb)
 }
 
+pub(crate) fn render_thumbnail_from_image_bytes<R>(reader: R) -> Result<Vec<u8>>
+where
+    R: std::io::BufRead + std::io::Seek,
+{
+    generate_thumbnail_from_reader(ImageReader::new(reader))
+}
+
 fn generate_webp_derivative_from_reader<R>(reader: ImageReader<R>, max_dim: u32) -> Result<Vec<u8>>
 where
     R: std::io::BufRead + std::io::Seek,

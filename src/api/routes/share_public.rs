@@ -12,8 +12,8 @@ use crate::errors::Result;
 use crate::runtime::PrimaryAppState;
 use crate::services::file_service::ResolvedDownloadRange;
 use crate::services::{
-    archive_preview_service, direct_link_service, file_service, preview_link_service,
-    profile_service, share_service, share_stream_service,
+    archive_preview_service, direct_link_service, file_service, media_metadata_service,
+    preview_link_service, profile_service, share_service, share_stream_service,
 };
 use actix_governor::Governor;
 use actix_web::http::header;
@@ -26,6 +26,17 @@ fn thumbnail_pending_response() -> HttpResponse {
     HttpResponse::Accepted()
         .insert_header(("Retry-After", "2"))
         .finish()
+}
+
+fn media_metadata_response(lookup: media_metadata_service::MediaMetadataLookup) -> HttpResponse {
+    match lookup {
+        media_metadata_service::MediaMetadataLookup::Ready(info) => {
+            HttpResponse::Ok().json(ApiResponse::ok(info))
+        }
+        media_metadata_service::MediaMetadataLookup::Pending => HttpResponse::Accepted()
+            .insert_header((header::RETRY_AFTER, "2"))
+            .json(ApiResponse::<()>::ok_empty()),
+    }
 }
 
 fn request_origin_parts(req: &HttpRequest) -> (String, String) {
@@ -144,12 +155,20 @@ pub fn routes(
         )
         .route("/{token}/thumbnail", web::get().to(shared_thumbnail))
         .route(
+            "/{token}/media-metadata",
+            web::get().to(shared_media_metadata),
+        )
+        .route(
             "/{token}/image-preview",
             web::get().to(shared_image_preview),
         )
         .route(
             "/{token}/files/{file_id}/thumbnail",
             web::get().to(shared_folder_file_thumbnail),
+        )
+        .route(
+            "/{token}/files/{file_id}/media-metadata",
+            web::get().to(shared_folder_file_media_metadata),
         )
         .route(
             "/{token}/files/{file_id}/image-preview",
@@ -773,6 +792,32 @@ pub async fn shared_image_preview(
 
 #[api_docs_macros::path(
     get,
+    path = "/api/v1/s/{token}/media-metadata",
+    tag = "shares",
+    operation_id = "shared_file_media_metadata",
+    params(("token" = String, Path, description = "Share token")),
+    responses(
+        (status = 200, description = "Blob media metadata", body = inline(ApiResponse<media_metadata_service::MediaMetadataInfo>)),
+        (status = 202, description = "Media metadata extraction in progress"),
+        (status = 403, description = "Password required"),
+        (status = 404, description = "Share or file not found"),
+    ),
+)]
+pub async fn shared_media_metadata(
+    state: web::Data<PrimaryAppState>,
+    path: web::Path<String>,
+    req: actix_web::HttpRequest,
+) -> Result<HttpResponse> {
+    let token = path.into_inner();
+    let cookie_value = share_cookie_value(&req, &token);
+    share_service::check_share_password_cookie(&state, &token, cookie_value.as_deref()).await?;
+
+    let lookup = share_service::get_shared_media_metadata(&state, &token).await?;
+    Ok(media_metadata_response(lookup))
+}
+
+#[api_docs_macros::path(
+    get,
     path = "/api/v1/s/{token}/files/{file_id}/thumbnail",
     tag = "shares",
     operation_id = "shared_folder_file_thumbnail",
@@ -814,6 +859,36 @@ pub async fn shared_folder_file_thumbnail(
         )),
         None => Ok(thumbnail_pending_response()),
     }
+}
+
+#[api_docs_macros::path(
+    get,
+    path = "/api/v1/s/{token}/files/{file_id}/media-metadata",
+    tag = "shares",
+    operation_id = "shared_folder_file_media_metadata",
+    params(
+        ("token" = String, Path, description = "Share token"),
+        ("file_id" = i64, Path, description = "File ID inside shared folder")
+    ),
+    responses(
+        (status = 200, description = "Blob media metadata", body = inline(ApiResponse<media_metadata_service::MediaMetadataInfo>)),
+        (status = 202, description = "Media metadata extraction in progress"),
+        (status = 403, description = "Password required or file outside shared scope"),
+        (status = 404, description = "Share or file not found"),
+    )
+)]
+pub async fn shared_folder_file_media_metadata(
+    state: web::Data<PrimaryAppState>,
+    path: web::Path<(String, i64)>,
+    req: actix_web::HttpRequest,
+) -> Result<HttpResponse> {
+    let (token, file_id) = path.into_inner();
+    let cookie_value = share_cookie_value(&req, &token);
+    share_service::check_share_password_cookie(&state, &token, cookie_value.as_deref()).await?;
+
+    let lookup =
+        share_service::get_shared_folder_file_media_metadata(&state, &token, file_id).await?;
+    Ok(media_metadata_response(lookup))
 }
 
 #[api_docs_macros::path(

@@ -11,11 +11,13 @@ import { useRetainedDialogValue } from "@/hooks/useRetainedDialogValue";
 import { formatBytes, formatDateAbsolute } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { fileService } from "@/services/fileService";
+import { ApiPendingError } from "@/services/http";
 import type {
 	FileInfo,
 	FileListItem,
 	FolderInfo,
 	FolderListItem,
+	MediaMetadataInfo,
 } from "@/types/api";
 import { FileInfoDialogContent } from "./file-info-dialog/FileInfoDialogContent";
 import {
@@ -23,7 +25,11 @@ import {
 	hasFileDetails,
 	hasFolderDetails,
 } from "./file-info-dialog/fileInfoDialogUtils";
-import type { DetailRow, QuickAction } from "./file-info-dialog/types";
+import {
+	buildMediaMetadataRows,
+	mediaMetadataKindForFile,
+} from "./file-info-dialog/mediaMetadataRows";
+import type { DetailRow } from "./file-info-dialog/types";
 import { useMediaQuery } from "./file-info-dialog/useMediaQuery";
 
 interface FileInfoDialogProps {
@@ -50,23 +56,32 @@ interface FileInfoDialogProps {
 }
 
 const DESKTOP_PANEL_EXIT_MS = 220;
+const MEDIA_METADATA_PENDING_MAX_RETRIES = 12;
+const MEDIA_METADATA_PENDING_MAX_RETRY_DELAY_MS = 30_000;
 type FileInfoDialogTarget = {
 	file?: FileInfo | FileListItem;
 	folder?: FolderInfo | FolderListItem;
 };
+
+function mediaMetadataPendingRetryDelay(error: unknown) {
+	if (!(error instanceof ApiPendingError)) {
+		return null;
+	}
+
+	const retryAfterSeconds = Number.isFinite(error.retryAfterSeconds)
+		? error.retryAfterSeconds
+		: 2;
+	return Math.min(
+		MEDIA_METADATA_PENDING_MAX_RETRY_DELAY_MS,
+		Math.max(1, retryAfterSeconds) * 1000,
+	);
+}
 
 export function FileInfoDialog({
 	open,
 	onOpenChange,
 	file,
 	folder,
-	onPreview,
-	onOpenFolder,
-	onShare,
-	onDownload,
-	onRename,
-	onVersions,
-	onToggleLock,
 }: FileInfoDialogProps) {
 	const { t } = useTranslation(["files", "core"]);
 	const retainedTargetInput = useMemo<FileInfoDialogTarget | null>(
@@ -83,14 +98,18 @@ export function FileInfoDialog({
 		folders: number;
 		files: number;
 	} | null>(null);
-	const [optimisticLocked, setOptimisticLocked] = useState<boolean | null>(
+	const [mediaMetadata, setMediaMetadata] = useState<MediaMetadataInfo | null>(
 		null,
 	);
+	const [mediaMetadataLoading, setMediaMetadataLoading] = useState(false);
 	const isDesktop = useMediaQuery("(min-width: 1024px)");
 	const [desktopMounted, setDesktopMounted] = useState(open);
 	const [desktopVisible, setDesktopVisible] = useState(open);
 	const renderedFile = file ?? retainedTarget?.file;
 	const renderedFolder = folder ?? retainedTarget?.folder;
+	const renderedMediaMetadataKind = renderedFile
+		? mediaMetadataKindForFile(renderedFile)
+		: null;
 
 	useEffect(() => {
 		if (!open || !file) {
@@ -198,6 +217,56 @@ export function FileInfoDialog({
 	}, [open, folder]);
 
 	useEffect(() => {
+		if (!open || !renderedFile || !renderedMediaMetadataKind) {
+			setMediaMetadata(null);
+			setMediaMetadataLoading(false);
+			return;
+		}
+
+		const controller = new AbortController();
+		let retryTimer: number | null = null;
+		let cancelled = false;
+
+		const loadMetadata = (attempt: number) => {
+			setMediaMetadataLoading(true);
+			fileService
+				.getMediaMetadata(renderedFile.id, { signal: controller.signal })
+				.then((metadata) => {
+					if (cancelled || controller.signal.aborted) return;
+					setMediaMetadata(metadata);
+					setMediaMetadataLoading(false);
+				})
+				.catch((error) => {
+					if (cancelled || controller.signal.aborted) return;
+					const retryDelayMs = mediaMetadataPendingRetryDelay(error);
+					if (
+						retryDelayMs !== null &&
+						attempt < MEDIA_METADATA_PENDING_MAX_RETRIES
+					) {
+						retryTimer = window.setTimeout(() => {
+							retryTimer = null;
+							loadMetadata(attempt + 1);
+						}, retryDelayMs);
+						return;
+					}
+					setMediaMetadata(null);
+					setMediaMetadataLoading(false);
+				});
+		};
+
+		setMediaMetadata(null);
+		loadMetadata(0);
+
+		return () => {
+			cancelled = true;
+			controller.abort();
+			if (retryTimer !== null) {
+				window.clearTimeout(retryTimer);
+			}
+		};
+	}, [open, renderedFile, renderedMediaMetadataKind]);
+
+	useEffect(() => {
 		if (!isDesktop) {
 			setDesktopMounted(open);
 			setDesktopVisible(open);
@@ -250,17 +319,12 @@ export function FileInfoDialog({
 	const title = renderedFile
 		? (activeFile ?? renderedFile).name
 		: ((activeFolder ?? renderedFolder)?.name ?? "");
-	const targetKey = renderedFile
-		? `file:${renderedFile.id}`
-		: renderedFolder
-			? `folder:${renderedFolder.id}`
-			: null;
 	const resolvedLocked = renderedFile
 		? (renderedFile.is_locked ?? activeFile?.is_locked ?? false)
 		: renderedFolder
 			? (renderedFolder.is_locked ?? activeFolder?.is_locked ?? false)
 			: false;
-	const currentLocked = optimisticLocked ?? resolvedLocked;
+	const currentLocked = resolvedLocked;
 
 	const summaryLabel = renderedFile ? t("core:file") : t("core:folder");
 	const summarySubtitle = renderedFile
@@ -347,142 +411,19 @@ export function FileInfoDialog({
 						: t("info_shared_no"),
 		},
 	];
-
-	useEffect(() => {
-		if (optimisticLocked !== null && optimisticLocked === resolvedLocked) {
-			setOptimisticLocked(null);
-		}
-	}, [optimisticLocked, resolvedLocked]);
-
-	useEffect(() => {
-		if (targetKey == null) {
-			setOptimisticLocked(null);
-			return;
-		}
-		setOptimisticLocked(null);
-	}, [targetKey]);
-
-	const handleQuickLockToggle = async () => {
-		if (!onToggleLock || (!renderedFile && !renderedFolder)) {
-			return;
-		}
-
-		const targetId = renderedFile?.id ?? renderedFolder?.id;
-		if (targetId == null) {
-			return;
-		}
-
-		const nextLocked = !currentLocked;
-		setOptimisticLocked(nextLocked);
-
-		const result = await onToggleLock(
-			renderedFile ? "file" : "folder",
-			targetId,
-			currentLocked,
-		);
-
-		if (result === false) {
-			setOptimisticLocked(null);
-		}
-	};
-
-	const quickActions: QuickAction[] = renderedFile
-		? [
-				onPreview
-					? {
-							icon: "Eye",
-							label: t("preview"),
-							onClick: () => onPreview(activeFile ?? renderedFile),
-						}
-					: null,
-				onDownload
-					? {
-							icon: "Download",
-							label: t("download"),
-							onClick: () => onDownload((activeFile ?? renderedFile).id, title),
-						}
-					: null,
-				onShare
-					? {
-							icon: "Link",
-							label: t("share"),
-							onClick: () =>
-								onShare({
-									fileId: (activeFile ?? renderedFile).id,
-									name: title,
-									initialMode: "page",
-								}),
-						}
-					: null,
-				onRename
-					? {
-							icon: "PencilSimple",
-							label: t("rename"),
-							onClick: () =>
-								onRename("file", (activeFile ?? renderedFile).id, title),
-						}
-					: null,
-				onVersions
-					? {
-							icon: "Clock",
-							label: t("versions"),
-							onClick: () => onVersions((activeFile ?? renderedFile).id),
-						}
-					: null,
-				onToggleLock
-					? {
-							icon: currentLocked ? "LockOpen" : "Lock",
-							label: currentLocked ? t("unlock") : t("lock"),
-							onClick: () => {
-								void handleQuickLockToggle();
-							},
-						}
-					: null,
-			].filter((action): action is QuickAction => action != null)
-		: renderedFolder
-			? [
-					onOpenFolder
-						? {
-								icon: "FolderOpen",
-								label: t("open"),
-								onClick: () => onOpenFolder(activeFolder ?? renderedFolder),
-							}
-						: null,
-					onShare
-						? {
-								icon: "Link",
-								label: t("share"),
-								onClick: () =>
-									onShare({
-										folderId: (activeFolder ?? renderedFolder).id,
-										name: title,
-										initialMode: "page",
-									}),
-							}
-						: null,
-					onRename
-						? {
-								icon: "PencilSimple",
-								label: t("rename"),
-								onClick: () =>
-									onRename(
-										"folder",
-										(activeFolder ?? renderedFolder).id,
-										title,
-									),
-							}
-						: null,
-					onToggleLock
-						? {
-								icon: currentLocked ? "LockOpen" : "Lock",
-								label: currentLocked ? t("unlock") : t("lock"),
-								onClick: () => {
-									void handleQuickLockToggle();
-								},
-							}
-						: null,
-				].filter((action): action is QuickAction => action != null)
+	const metadataRows =
+		renderedMediaMetadataKind != null
+			? buildMediaMetadataRows({
+					kind: renderedMediaMetadataKind,
+					loading: mediaMetadataLoading,
+					loadingText,
+					metadata: mediaMetadata,
+					t,
+				})
 			: [];
+	const metadataTitle = renderedMediaMetadataKind
+		? t(`info_media_metadata_${renderedMediaMetadataKind}`)
+		: t("info_media_metadata");
 
 	if (
 		(isDesktop && !open && !desktopMounted) ||
@@ -493,14 +434,14 @@ export function FileInfoDialog({
 
 	const content = (
 		<FileInfoDialogContent
-			actionsTitle={t("info_actions")}
 			closeLabel={t("close")}
 			currentLocked={currentLocked}
 			isDesktop={isDesktop}
 			isShared={isShared}
+			metadataRows={metadataRows}
+			metadataTitle={metadataTitle}
 			overviewRows={overviewRows}
 			overviewTitle={t("info_overview")}
-			quickActions={quickActions}
 			statusRows={statusRows}
 			statusTitle={t("info_status")}
 			summaryLabel={summaryLabel}
@@ -509,8 +450,12 @@ export function FileInfoDialog({
 				renderedFile
 					? {
 							type: "file",
-							mimeType: (activeFile ?? renderedFile).mime_type,
-							fileName: (activeFile ?? renderedFile).name,
+							file: {
+								file_category: (activeFile ?? renderedFile).file_category,
+								id: (activeFile ?? renderedFile).id,
+								mime_type: (activeFile ?? renderedFile).mime_type,
+								name: (activeFile ?? renderedFile).name,
+							},
 						}
 					: { type: "folder" }
 			}
@@ -529,14 +474,14 @@ export function FileInfoDialog({
 			>
 				<aside
 					className={cn(
-						"h-full min-h-0 w-[22rem] border-l bg-muted/20 transition-[opacity,transform] duration-280 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none",
+						"flex h-full min-h-0 w-[22rem] flex-col overflow-hidden border-l bg-muted/20 transition-[opacity,transform] duration-280 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none",
 						desktopVisible
 							? "translate-x-0 opacity-100"
 							: "translate-x-3 opacity-0",
 					)}
 					aria-label={t("info")}
 				>
-					<ScrollArea className="min-h-0 flex-1">{content}</ScrollArea>
+					<ScrollArea className="h-full min-h-0 flex-1">{content}</ScrollArea>
 				</aside>
 			</div>
 		);
@@ -550,7 +495,7 @@ export function FileInfoDialog({
 		>
 			<DialogContent
 				keepMounted
-				className="w-[calc(100%-1rem)] max-w-[calc(100%-1rem)] gap-0 overflow-hidden p-0 sm:w-full sm:max-w-lg"
+				className="max-h-[min(80vh,42rem)] w-[calc(100%-1rem)] max-w-[calc(100%-1rem)] gap-0 overflow-hidden p-0 sm:w-full sm:max-w-lg"
 			>
 				<DialogHeader className="sr-only">
 					<DialogTitle>{title}</DialogTitle>

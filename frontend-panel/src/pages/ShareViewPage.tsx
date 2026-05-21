@@ -17,6 +17,7 @@ import { usePageTitle } from "@/hooks/usePageTitle";
 import { useRetainedDialogValue } from "@/hooks/useRetainedDialogValue";
 import { FOLDER_LIMIT } from "@/lib/constants";
 import {
+	backendAudioMetadataToTrackMetadata,
 	buildShareFolderMusicQueue,
 	buildSingleShareMusicTrack,
 	hydrateMusicQueueForPlayback,
@@ -529,6 +530,14 @@ export default function ShareViewPage() {
 									retainedPreviewFile.id,
 								)
 					}
+					thumbnailPath={
+						info?.share_type === "file"
+							? shareService.thumbnailPath(token)
+							: shareService.folderFileThumbnailPath(
+									token,
+									retainedPreviewFile.id,
+								)
+					}
 					editable={false}
 					previewLinkFactory={() =>
 						info?.share_type === "file"
@@ -546,6 +555,21 @@ export default function ShareViewPage() {
 									retainedPreviewFile.id,
 									options,
 								)
+					}
+					loadMusicBackendMetadata={(signal) =>
+						info?.share_type === "file"
+							? shareService
+									.getMediaMetadata(token, { signal })
+									.then((metadata) =>
+										backendAudioMetadataToTrackMetadata(metadata),
+									)
+							: shareService
+									.getFolderFileMediaMetadata(token, retainedPreviewFile.id, {
+										signal,
+									})
+									.then((metadata) =>
+										backendAudioMetadataToTrackMetadata(metadata),
+									)
 					}
 					mediaStreamLinkFactory={createMediaStreamLink}
 				/>

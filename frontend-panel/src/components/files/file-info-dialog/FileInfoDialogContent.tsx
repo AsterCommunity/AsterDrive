@@ -1,24 +1,25 @@
 import { FileItemStatusIndicators } from "@/components/files/FileItemStatusIndicators";
-import { FileTypeIcon } from "@/components/files/FileTypeIcon";
+import type { ThumbnailFileLike } from "@/components/files/FileThumbnail";
+import { MediaThumbnail } from "@/components/files/MediaThumbnail";
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
 import { cn } from "@/lib/utils";
-import type { DetailRow, QuickAction } from "./types";
+import type { DetailRow } from "./types";
 
 interface FileInfoDialogContentProps {
 	currentLocked: boolean;
 	isDesktop: boolean;
 	isShared: boolean | null;
+	metadataRows?: DetailRow[];
+	metadataTitle?: string;
 	overviewRows: DetailRow[];
-	quickActions: QuickAction[];
 	statusRows: DetailRow[];
 	summaryLabel: string;
 	summarySubtitle: string;
 	targetIcon:
 		| {
 				type: "file";
-				fileName: string;
-				mimeType: string;
+				file: ThumbnailFileLike;
 		  }
 		| {
 				type: "folder";
@@ -26,7 +27,6 @@ interface FileInfoDialogContentProps {
 	title: string;
 	onClose: () => void;
 	closeLabel: string;
-	actionsTitle: string;
 	overviewTitle: string;
 	statusTitle: string;
 }
@@ -80,40 +80,16 @@ function DetailList({ rows }: { rows: DetailRow[] }) {
 	);
 }
 
-function ActionGrid({ actions }: { actions: QuickAction[] }) {
-	if (actions.length === 0) {
-		return null;
-	}
-
-	return (
-		<div className="grid grid-cols-2 gap-2">
-			{actions.map((action) => (
-				<Button
-					key={action.label}
-					type="button"
-					variant="outline"
-					size="sm"
-					className="justify-start"
-					onClick={action.onClick}
-				>
-					<Icon name={action.icon} className="h-4 w-4" />
-					<span className="truncate">{action.label}</span>
-				</Button>
-			))}
-		</div>
-	);
-}
-
 export function FileInfoDialogContent({
-	actionsTitle,
 	closeLabel,
 	currentLocked,
 	isDesktop,
 	isShared,
+	metadataRows = [],
+	metadataTitle,
 	onClose,
 	overviewRows,
 	overviewTitle,
-	quickActions,
 	statusRows,
 	statusTitle,
 	summaryLabel,
@@ -127,10 +103,12 @@ export function FileInfoDialogContent({
 				<div className="flex items-start gap-3">
 					<div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-muted/35 text-muted-foreground dark:bg-muted/20">
 						{targetIcon.type === "file" ? (
-							<FileTypeIcon
-								mimeType={targetIcon.mimeType}
-								fileName={targetIcon.fileName}
-								className="h-8 w-8"
+							<MediaThumbnail
+								file={targetIcon.file}
+								size="lg"
+								className="rounded-2xl"
+								iconClassName="h-8 w-8"
+								imageClassName="h-full w-full object-cover"
 							/>
 						) : (
 							<Icon name="Folder" className="h-8 w-8 text-amber-500" />
@@ -171,15 +149,15 @@ export function FileInfoDialogContent({
 				</div>
 			</Section>
 
-			{quickActions.length > 0 ? (
-				<Section title={actionsTitle}>
-					<ActionGrid actions={quickActions} />
-				</Section>
-			) : null}
-
 			<Section title={overviewTitle}>
 				<DetailList rows={overviewRows} />
 			</Section>
+
+			{metadataRows.length > 0 ? (
+				<Section title={metadataTitle}>
+					<DetailList rows={metadataRows} />
+				</Section>
+			) : null}
 
 			<Section title={statusTitle}>
 				<DetailList rows={statusRows} />

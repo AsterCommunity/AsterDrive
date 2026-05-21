@@ -1,6 +1,7 @@
 import { lazy, Suspense } from "react";
 import { useTranslation } from "react-i18next";
 import { normalizeTablePreviewDelimiter } from "@/lib/tablePreview";
+import type { MusicPlayerTrack } from "@/stores/musicPlayerStore";
 import type {
 	ArchivePreviewManifest,
 	FileInfo,
@@ -63,11 +64,13 @@ interface FilePreviewBodyProps {
 	previewAppsLoaded: boolean;
 	downloadPath: string;
 	imagePreviewPath?: string;
+	thumbnailPath?: string;
 	getOptionLabel: (option: OpenWithOption) => string;
 	previewLinkFactory?: () => Promise<PreviewLinkInfo>;
 	archivePreviewFactory?: (options?: {
 		signal?: AbortSignal;
 	}) => Promise<ArchivePreviewManifest>;
+	loadMusicBackendMetadata?: MusicPlayerTrack["loadBackendMetadata"];
 	mediaStreamLinkFactory?: () => Promise<ShareStreamSessionInfo>;
 	createWopiSession?: (() => Promise<WopiLaunchSession>) | null;
 	onFileUpdated?: () => void;
@@ -84,9 +87,11 @@ export function FilePreviewBody({
 	previewAppsLoaded,
 	downloadPath,
 	imagePreviewPath,
+	thumbnailPath,
 	getOptionLabel,
 	previewLinkFactory,
 	archivePreviewFactory,
+	loadMusicBackendMetadata,
 	mediaStreamLinkFactory,
 	createWopiSession,
 	onFileUpdated,
@@ -133,7 +138,9 @@ export function FilePreviewBody({
 		return (
 			<MusicPreview
 				file={file}
+				loadBackendMetadata={loadMusicBackendMetadata}
 				path={downloadPath}
+				thumbnailPath={thumbnailPath}
 				mediaStreamLinkFactory={mediaStreamLinkFactory}
 			/>
 		);
