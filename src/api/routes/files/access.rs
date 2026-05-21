@@ -1061,7 +1061,7 @@ mod tests {
             .reload(&db)
             .await
             .expect("image preview route policy snapshot should reload");
-        let driver_registry = Arc::new(DriverRegistry::new());
+        let driver_registry = Arc::new(DriverRegistry::noop());
         driver_registry.insert_for_test(policy.id, driver);
 
         let runtime_config = Arc::new(RuntimeConfig::new());
@@ -1090,6 +1090,7 @@ mod tests {
             policy_snapshot,
             config: Arc::new(config),
             cache,
+            metrics: crate::metrics_core::NoopMetrics::arc(),
             mail_sender: mail_service::runtime_sender(runtime_config),
             storage_change_tx,
             share_download_rollback,

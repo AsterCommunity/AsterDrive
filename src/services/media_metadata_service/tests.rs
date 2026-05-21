@@ -289,7 +289,7 @@ async fn test_state_with_driver(driver: Arc<dyn StorageDriver>) -> PrimaryAppSta
         .reload(&db)
         .await
         .expect("policy snapshot should reload");
-    let driver_registry = Arc::new(crate::storage::DriverRegistry::new());
+    let driver_registry = Arc::new(crate::storage::DriverRegistry::noop());
     driver_registry.insert_for_test(policy.id, driver);
     let runtime_config = Arc::new(crate::config::RuntimeConfig::new());
     let cache = crate::cache::create_cache(&crate::config::CacheConfig {
@@ -313,6 +313,7 @@ async fn test_state_with_driver(driver: Arc<dyn StorageDriver>) -> PrimaryAppSta
         policy_snapshot,
         config: Arc::new(crate::config::Config::default()),
         cache,
+        metrics: crate::metrics_core::NoopMetrics::arc(),
         mail_sender: crate::services::mail_service::memory_sender(),
         storage_change_tx,
         share_download_rollback,

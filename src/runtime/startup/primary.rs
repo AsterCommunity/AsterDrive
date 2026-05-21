@@ -25,6 +25,7 @@ pub async fn prepare_primary() -> Result<PreparedPrimaryRuntime> {
         crate::services::share_service::build_share_download_rollback_queue(
             common.database.clone(),
             rollback_queue_capacity,
+            common.metrics.clone(),
         );
     crate::services::audit_service::init_global_audit_log_manager(common.database.clone());
 
@@ -43,6 +44,7 @@ pub async fn prepare_primary() -> Result<PreparedPrimaryRuntime> {
             policy_snapshot: common.policy_snapshot,
             config: common.cfg,
             cache: common.cache,
+            metrics: common.metrics,
             mail_sender,
             storage_change_tx,
             share_download_rollback,

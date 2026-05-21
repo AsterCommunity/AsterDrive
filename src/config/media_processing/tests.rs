@@ -108,6 +108,15 @@ fn normalize_ffprobe_command_trims_and_defaults() {
 
 #[test]
 fn builtin_images_supports_known_extensions() {
+    let expected_extensions = [
+        "apng", "bmp", "exr", "ff", "gif", "hdr", "ico", "jfif", "jpeg", "jpg", "pam", "pbm",
+        "pgm", "png", "pnm", "ppm", "qoi", "tga", "tif", "tiff", "webp",
+    ];
+    assert_eq!(
+        BUILTIN_IMAGES_SUPPORTED_EXTENSIONS.as_slice(),
+        expected_extensions
+    );
+
     for extension in BUILTIN_IMAGES_SUPPORTED_EXTENSIONS.iter() {
         assert!(super::builtin_images_supports_extension(extension));
     }
@@ -121,6 +130,9 @@ fn builtin_images_supports_known_extensions() {
     }
     assert!(BUILTIN_IMAGES_SUPPORTED_EXTENSIONS.contains(&"apng"));
     assert!(BUILTIN_IMAGES_SUPPORTED_EXTENSIONS.contains(&"jfif"));
+    assert!(!super::builtin_images_supports_extension("avif"));
+    assert!(!image::ImageFormat::Avif.reading_enabled());
+    assert!(!super::builtin_images_supports_extension("dds"));
     assert!(!super::builtin_images_supports_extension("heic"));
     assert!(!super::builtin_images_supports_extension("nef"));
     assert!(!super::builtin_images_supports_extension("pfm"));

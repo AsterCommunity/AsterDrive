@@ -20,6 +20,16 @@ pub enum DriverType {
     Remote,
 }
 
+impl DriverType {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Local => "local",
+            Self::S3 => "s3",
+            Self::Remote => "remote",
+        }
+    }
+}
+
 /// 上传 session 状态
 #[derive(Debug, Clone, Copy, PartialEq, Eq, EnumIter, DeriveActiveEnum, Serialize, Deserialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
@@ -47,6 +57,17 @@ pub enum UploadMode {
     Chunked,
     Presigned,
     PresignedMultipart,
+}
+
+impl UploadMode {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Direct => "direct",
+            Self::Chunked => "chunked",
+            Self::Presigned => "presigned",
+            Self::PresignedMultipart => "presigned_multipart",
+        }
+    }
 }
 
 /// S3 上传传输策略（存储策略 options JSON）

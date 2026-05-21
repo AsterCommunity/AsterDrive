@@ -72,7 +72,9 @@ pub(crate) async fn upload_in_scope_with_audit(
             actor_username: Some(&actor_username),
         },
     )
-    .await?;
+    .await
+    .inspect(|_| record_direct_upload_metric(state, "success"))
+    .inspect_err(|_| record_direct_upload_metric(state, "failure"))?;
     let store_elapsed_ms = upload_started_at.elapsed().as_millis();
 
     let audit_started_at = Instant::now();
@@ -97,4 +99,8 @@ pub(crate) async fn upload_in_scope_with_audit(
         "direct upload completed"
     );
     Ok(file.into())
+}
+
+fn record_direct_upload_metric(state: &PrimaryAppState, status: &'static str) {
+    state.metrics.record_file_upload("direct", status);
 }

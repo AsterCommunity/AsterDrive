@@ -16,11 +16,16 @@ use sea_orm::{
 
 const BOOTSTRAP_ENABLE_VIPS_CLI_ENV: &str = "ASTER_BOOTSTRAP_ENABLE_VIPS_CLI";
 const BOOTSTRAP_ENABLE_FFMPEG_CLI_ENV: &str = "ASTER_BOOTSTRAP_ENABLE_FFMPEG_CLI";
+const BOOTSTRAP_ENABLE_FFPROBE_CLI_ENV: &str = "ASTER_BOOTSTRAP_ENABLE_FFPROBE_CLI";
 const BOOTSTRAP_MEDIA_PROCESSOR_ENV_FLAGS: &[(MediaProcessorKind, &str)] = &[
     (MediaProcessorKind::VipsCli, BOOTSTRAP_ENABLE_VIPS_CLI_ENV),
     (
         MediaProcessorKind::FfmpegCli,
         BOOTSTRAP_ENABLE_FFMPEG_CLI_ENV,
+    ),
+    (
+        MediaProcessorKind::FfprobeCli,
+        BOOTSTRAP_ENABLE_FFPROBE_CLI_ENV,
     ),
 ];
 
@@ -454,9 +459,9 @@ mod tests {
         let db = setup_db().await;
 
         ensure_defaults_with_env(&db, &|name| match name {
-            BOOTSTRAP_ENABLE_VIPS_CLI_ENV | BOOTSTRAP_ENABLE_FFMPEG_CLI_ENV => {
-                Some("1".to_string())
-            }
+            BOOTSTRAP_ENABLE_VIPS_CLI_ENV
+            | BOOTSTRAP_ENABLE_FFMPEG_CLI_ENV
+            | BOOTSTRAP_ENABLE_FFPROBE_CLI_ENV => Some("1".to_string()),
             _ => None,
         })
         .await
@@ -469,6 +474,9 @@ mod tests {
         let ffmpeg =
             media_processing::processor_config_for_kind(&config, MediaProcessorKind::FfmpegCli)
                 .expect("ffmpeg config should exist");
+        let ffprobe =
+            media_processing::processor_config_for_kind(&config, MediaProcessorKind::FfprobeCli)
+                .expect("ffprobe config should exist");
 
         assert!(vips.enabled);
         assert_eq!(
@@ -490,6 +498,17 @@ mod tests {
         assert_eq!(
             ffmpeg.config.command.as_deref(),
             Some(media_processing::DEFAULT_FFMPEG_COMMAND)
+        );
+
+        assert!(ffprobe.enabled);
+        assert_eq!(
+            ffprobe.extensions,
+            media_processing::default_processor_config_for_kind(MediaProcessorKind::FfprobeCli)
+                .extensions
+        );
+        assert_eq!(
+            ffprobe.config.command.as_deref(),
+            Some(media_processing::DEFAULT_FFPROBE_COMMAND)
         );
     }
 
@@ -550,20 +569,42 @@ mod tests {
             .expect("initial media processing config insert should succeed");
 
         ensure_defaults_with_env(&db, &|name| match name {
-            BOOTSTRAP_ENABLE_VIPS_CLI_ENV | BOOTSTRAP_ENABLE_FFMPEG_CLI_ENV => {
-                Some("1".to_string())
-            }
+            BOOTSTRAP_ENABLE_VIPS_CLI_ENV
+            | BOOTSTRAP_ENABLE_FFMPEG_CLI_ENV
+            | BOOTSTRAP_ENABLE_FFPROBE_CLI_ENV => Some("1".to_string()),
             _ => None,
         })
         .await
         .expect("ensure_defaults should succeed");
 
-        let stored = find_by_key(&db, MEDIA_PROCESSING_REGISTRY_JSON_KEY)
-            .await
-            .expect("media processing config lookup should succeed")
-            .expect("media processing config should exist");
+        let config = media_processing_registry_config(&db).await;
+        let vips =
+            media_processing::processor_config_for_kind(&config, MediaProcessorKind::VipsCli)
+                .expect("vips config should exist");
+        let ffmpeg =
+            media_processing::processor_config_for_kind(&config, MediaProcessorKind::FfmpegCli)
+                .expect("ffmpeg config should exist");
+        let images =
+            media_processing::processor_config_for_kind(&config, MediaProcessorKind::Images)
+                .expect("images config should exist");
 
-        assert_eq!(stored.value, existing);
+        assert_eq!(
+            config.version,
+            media_processing::MEDIA_PROCESSING_REGISTRY_VERSION
+        );
+        assert!(!vips.enabled);
+        assert_eq!(vips.extensions, vec!["heic".to_string()]);
+        assert_eq!(
+            vips.config.command.as_deref(),
+            Some(media_processing::DEFAULT_VIPS_COMMAND)
+        );
+        assert!(ffmpeg.enabled);
+        assert_eq!(ffmpeg.extensions, vec!["mp4".to_string()]);
+        assert_eq!(
+            ffmpeg.config.command.as_deref(),
+            Some(media_processing::DEFAULT_FFMPEG_COMMAND)
+        );
+        assert!(images.enabled);
     }
 
     #[tokio::test]

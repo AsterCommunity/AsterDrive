@@ -14,6 +14,7 @@ pub mod errors;
 pub mod external_auth;
 #[cfg(feature = "metrics")]
 pub mod metrics;
+pub mod metrics_core;
 pub mod runtime;
 pub mod services;
 pub mod storage;

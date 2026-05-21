@@ -63,4 +63,65 @@
 
 只有在编译时启用了 `metrics` feature 才会注册，输出格式为 Prometheus text exposition。
 
-这个接口更适合 Prometheus 等监控系统抓取，不建议直接暴露给公网。
+`metrics` feature 不在默认 feature 里。需要 Prometheus 指标时按需编译：
+
+```bash
+cargo build --release --features metrics
+```
+
+或者使用包含 `metrics` 的完整构建：
+
+```bash
+cargo build --release --features full
+```
+
+当前不会在应用层给 `/health/metrics` 做鉴权。生产环境必须通过反向代理、防火墙、安全组或内网监听限制访问，只允许 Prometheus / Grafana Agent / VictoriaMetrics Agent 等采集端访问，不要把这个接口无差别暴露到公网。
+
+反向代理建议：
+
+- 独立匹配 `/health/metrics`，只允许监控系统来源 IP
+- 或者只在内网域名 / 内网监听端口暴露
+- 不要复用普通用户登录态保护这个接口，Prometheus scrape 应保持简单、稳定、可自动化
+
+### 当前指标
+
+HTTP 和数据库：
+
+| 指标 | 标签 | 说明 |
+| --- | --- | --- |
+| `http_requests_total` | `method`, `route`, `status` | HTTP 请求总数，`route` 使用 Actix route pattern 或低基数 fallback |
+| `http_request_duration_seconds` | `method`, `route`, `status` | HTTP 请求耗时直方图 |
+| `db_queries_total` | `backend`, `kind`, `status` | SeaORM 查询总数，`kind` 按 SQL 首词粗分类 |
+| `db_query_duration_seconds` | `backend`, `kind`, `status` | SeaORM 查询耗时直方图 |
+
+认证、上传、下载和后台任务：
+
+| 指标 | 标签 | 说明 |
+| --- | --- | --- |
+| `auth_events_total` | `action`, `status`, `reason` | 登录和 refresh token 事件，包含成功与主要失败原因 |
+| `file_uploads_total` | `mode`, `status` | 文件上传结果，覆盖 direct / chunked / presigned / presigned multipart 等模式 |
+| `file_downloads_total` | `source`, `outcome`, `range` | 文件下载结果，区分登录下载、公开分享、直链、预览链接和 share stream |
+| `upload_sessions_total` | `mode` | 创建的上传 session 数量 |
+| `upload_session_events_total` | `mode`, `event`, `status` | 上传 session 生命周期事件，例如 complete / cancel |
+| `background_tasks_total` | `kind`, `status` | 后台任务状态转换统计 |
+| `background_task_retries_total` | `kind` | 后台任务 retry 次数 |
+| `background_tasks_pending` | 无 | 当前 `Pending` / `Retry` 后台任务积压量 |
+
+存储驱动和公开分享回滚：
+
+| 指标 | 标签 | 说明 |
+| --- | --- | --- |
+| `storage_driver_operations_total` | `driver`, `operation`, `status`, `kind` | 存储驱动操作次数，失败时 `kind` 来自存储错误分类 |
+| `storage_driver_operation_duration_seconds` | `driver`, `operation`, `status`, `kind` | 存储驱动操作耗时直方图 |
+| `share_download_rollback_events_total` | `event` | 公开分享流式下载中断后的下载计数回滚队列事件 |
+| `share_download_rollback_pending` | 无 | 待处理分享下载计数回滚量 |
+
+进程指标：
+
+| 指标 | 标签 | 说明 |
+| --- | --- | --- |
+| `process_memory_rss_bytes` | 无 | 当前进程 RSS 内存，单位 bytes |
+| `process_cpu_milliseconds_total` | 无 | 当前进程累计 CPU time，单位 milliseconds |
+| `process_uptime_seconds` | 无 | 当前进程从 metrics 初始化开始计算的运行时长，单位 seconds |
+
+`process_cpu_milliseconds_total` 直接暴露毫秒值，查询时不需要再从 seconds 手动换算。`process_uptime_seconds` 不使用 Unix epoch，而是基于本进程启动后的单调时间更新。

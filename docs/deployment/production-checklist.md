@@ -14,6 +14,7 @@
 | 登录安全 | `jwt_secret` 已固定，Cookie 仅 HTTPS 发送已开启 | [登录与会话](/config/auth) |
 | 存储路线 | 默认存储策略、默认策略组、用户/团队绑定都符合预期 | [存储策略](/config/storage) |
 | 邮件 | 注册激活、密码重置、邮箱改绑邮件能发通 | [邮件](/config/mail) |
+| 监控 | 如需 Prometheus，已按需编译 `metrics` feature，并限制 `/health/metrics` 访问来源 | [监控与 Grafana](/deployment/monitoring) |
 | 备份 | 至少完成一次备份，并知道恢复顺序 | [备份与恢复](/deployment/backup) |
 | 升级 | 知道当前版本来源，升级前已看更新日志 | [升级与版本迁移](/deployment/upgrade) |
 
@@ -162,22 +163,45 @@ bootstrap_insecure_cookies = true
 
 如果站点对公网开放，建议至少开启认证、公开分享和写入类路径的限流。
 
-## 9. 最后一轮验收
+## 9. Prometheus 指标
+
+Prometheus 指标是按需编译能力，默认构建不启用。需要上线采集时，使用：
+
+```bash
+cargo build --release --features metrics
+```
+
+或者使用包含全部可选能力的 `full` feature。
+
+上线前确认：
+
+- `/health/metrics` 能被采集端访问
+- `/health/metrics` 没有直接暴露到公网
+- 反向代理、防火墙或安全组只允许监控系统来源访问
+- scrape interval、保留周期和采集目标已经明确
+- 至少能看到 HTTP、DB、上传、下载、后台任务、存储驱动和进程 RSS / CPU / uptime 指标
+
+AsterDrive 当前不对 `/health/metrics` 做应用层鉴权。这个选择是为了让 Prometheus scrape 保持简单稳定，访问控制交给反向代理或网络边界处理。
+
+Grafana dashboard 和本地 Prometheus + Grafana 示例见 [监控与 Grafana](/deployment/monitoring)。
+
+## 10. 最后一轮验收
 
 上线前用真实域名、真实账号、真实客户端跑一遍：
 
 1. `/health` 返回 200
 2. `/health/ready` 返回 200
-3. 登录、刷新页面、退出登录都正常
-4. 上传一个小文件和一个大文件
-5. 下载文件，预览图片或 PDF
-6. 创建分享链接，用无登录浏览器访问
-7. 删除文件，再从回收站恢复
-8. 如果启用了 WebDAV，用真实客户端读写一次
-9. 如果启用了 WOPI，用真实 Office 文件打开并保存一次
-10. 到 `管理 -> 任务` 看最近有没有持续失败任务
-11. 到 `管理 -> 审计日志` 看关键操作是否按预期记录
-12. 跑一次 `aster_drive doctor`
+3. 如果启用了 metrics，受限来源访问 `/health/metrics` 返回 Prometheus 文本
+4. 登录、刷新页面、退出登录都正常
+5. 上传一个小文件和一个大文件
+6. 下载文件，预览图片或 PDF
+7. 创建分享链接，用无登录浏览器访问
+8. 删除文件，再从回收站恢复
+9. 如果启用了 WebDAV，用真实客户端读写一次
+10. 如果启用了 WOPI，用真实 Office 文件打开并保存一次
+11. 到 `管理 -> 任务` 看最近有没有持续失败任务
+12. 到 `管理 -> 审计日志` 看关键操作是否按预期记录
+13. 跑一次 `aster_drive doctor`
 
 ## 上线后第一天重点看什么
 

@@ -147,7 +147,7 @@ If you need offline deployment checks, runtime-config changes from the command l
 
 - admin overview, user management, team management, storage policies, policy groups, remote nodes, shares, tasks, locks, runtime settings, and audit logs
 - runtime config stored in `system_config`, with schema-driven admin UI and CLI access for offline operations
-- health endpoints: `/health`, `/health/ready`, optional `/health/memory` (`debug_assertions + openapi`), `/health/metrics` (`metrics` feature)
+- health endpoints: `/health`, `/health/ready`, optional `/health/memory` (`debug_assertions + openapi`), `/health/metrics` (`metrics` feature, not enabled by default)
 - storage policy and remote-node connection testing
 - background task records for archive jobs, thumbnail generation, mail dispatch, cleanup, and system runtime tasks
 - periodic cleanup for uploads, trash, locks, audit logs, teams, WOPI sessions, and orphaned blobs

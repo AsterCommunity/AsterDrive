@@ -212,7 +212,9 @@ pub(crate) async fn download_in_scope_with_file_and_audit(
         if_none_match,
         range,
     )
-    .await?;
+    .await
+    .inspect(|outcome| record_download_metric(state, "authenticated", outcome))
+    .inspect_err(|_| record_download_failure_metric(state, "authenticated"))?;
     audit_service::log(
         state,
         audit_ctx,
@@ -224,4 +226,18 @@ pub(crate) async fn download_in_scope_with_file_and_audit(
     )
     .await;
     Ok(outcome)
+}
+
+pub fn record_download_metric(
+    state: &PrimaryAppState,
+    source: &'static str,
+    outcome: &DownloadOutcome,
+) {
+    state
+        .metrics
+        .record_file_download(source, outcome.metrics_outcome(), outcome.has_range());
+}
+
+pub fn record_download_failure_metric(state: &PrimaryAppState, source: &'static str) {
+    state.metrics.record_file_download(source, "failure", false);
 }

@@ -125,14 +125,6 @@ pub async fn metrics_endpoint() -> HttpResponse {
             .body("Metrics not initialized");
     };
 
-    // 更新 uptime
-    metrics.uptime_seconds.set(
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_secs_f64())
-            .unwrap_or(0.0),
-    );
-
     match metrics.export() {
         Ok(output) => HttpResponse::Ok()
             .content_type("text/plain; version=0.0.4; charset=utf-8")
@@ -258,7 +250,7 @@ mod tests {
             .await
             .expect("health test migrations should apply");
 
-        let driver_registry = Arc::new(DriverRegistry::new());
+        let driver_registry = Arc::new(DriverRegistry::noop());
         if let Some(driver) = driver.clone() {
             let now = Utc::now();
             let policy = storage_policy::ActiveModel {
@@ -312,6 +304,7 @@ mod tests {
             policy_snapshot,
             config: Arc::new(Config::default()),
             cache,
+            metrics: crate::metrics_core::NoopMetrics::arc(),
             mail_sender: mail_service::runtime_sender(runtime_config),
             storage_change_tx,
             share_download_rollback,

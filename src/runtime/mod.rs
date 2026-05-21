@@ -9,6 +9,7 @@ pub mod tasks;
 use crate::cache::CacheBackend;
 use crate::config::{Config, RuntimeConfig};
 use crate::db::DbHandles;
+use crate::metrics_core::SharedMetricsRecorder;
 use crate::services::{
     mail_service::MailSender, share_service::ShareDownloadRollbackQueue,
     storage_change_service::StorageChangeEvent,
@@ -27,6 +28,7 @@ pub struct PrimaryAppState {
     pub policy_snapshot: Arc<PolicySnapshot>,
     pub config: Arc<Config>,
     pub cache: Arc<dyn CacheBackend>,
+    pub metrics: SharedMetricsRecorder,
     pub mail_sender: Arc<dyn MailSender>,
     /// 文件/文件夹变更广播（SSE 消费）
     pub storage_change_tx: tokio::sync::broadcast::Sender<StorageChangeEvent>,
@@ -43,6 +45,7 @@ pub struct FollowerAppState {
     pub policy_snapshot: Arc<PolicySnapshot>,
     pub config: Arc<Config>,
     pub cache: Arc<dyn CacheBackend>,
+    pub metrics: SharedMetricsRecorder,
 }
 
 pub trait SharedRuntimeState {
@@ -52,6 +55,7 @@ pub trait SharedRuntimeState {
     fn policy_snapshot(&self) -> &Arc<PolicySnapshot>;
     fn config(&self) -> &Arc<Config>;
     fn cache(&self) -> &Arc<dyn CacheBackend>;
+    fn metrics(&self) -> &SharedMetricsRecorder;
 }
 
 pub trait PrimaryRuntimeState: SharedRuntimeState {
@@ -97,6 +101,7 @@ impl From<&PrimaryAppState> for FollowerAppState {
             policy_snapshot: state.policy_snapshot.clone(),
             config: state.config.clone(),
             cache: state.cache.clone(),
+            metrics: state.metrics.clone(),
         }
     }
 }
@@ -138,6 +143,10 @@ impl SharedRuntimeState for PrimaryAppState {
 
     fn cache(&self) -> &Arc<dyn CacheBackend> {
         &self.cache
+    }
+
+    fn metrics(&self) -> &SharedMetricsRecorder {
+        &self.metrics
     }
 }
 
@@ -183,6 +192,10 @@ impl SharedRuntimeState for FollowerAppState {
     fn cache(&self) -> &Arc<dyn CacheBackend> {
         &self.cache
     }
+
+    fn metrics(&self) -> &SharedMetricsRecorder {
+        &self.metrics
+    }
 }
 
 impl FollowerRuntimeState for FollowerAppState {}
@@ -210,6 +223,10 @@ impl<T: SharedRuntimeState> SharedRuntimeState for web::Data<T> {
 
     fn cache(&self) -> &Arc<dyn CacheBackend> {
         self.get_ref().cache()
+    }
+
+    fn metrics(&self) -> &SharedMetricsRecorder {
+        self.get_ref().metrics()
     }
 }
 
@@ -262,15 +279,20 @@ mod tests {
         let (storage_change_tx, _) = tokio::sync::broadcast::channel(
             crate::services::storage_change_service::STORAGE_CHANGE_CHANNEL_CAPACITY,
         );
-        let (share_download_rollback, _worker) = build_share_download_rollback_queue(db.clone(), 1);
+        let (share_download_rollback, _worker) = build_share_download_rollback_queue(
+            db.clone(),
+            1,
+            crate::metrics_core::NoopMetrics::arc(),
+        );
 
         PrimaryAppState {
             db_handles: crate::db::DbHandles::single(db),
-            driver_registry: Arc::new(DriverRegistry::new()),
+            driver_registry: Arc::new(DriverRegistry::noop()),
             runtime_config,
             policy_snapshot: Arc::new(PolicySnapshot::new()),
             config: Arc::new(Config::default()),
             cache,
+            metrics: crate::metrics_core::NoopMetrics::arc(),
             mail_sender: crate::services::mail_service::memory_sender(),
             storage_change_tx,
             share_download_rollback,

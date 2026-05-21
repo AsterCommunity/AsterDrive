@@ -169,17 +169,6 @@ async fn main() -> std::io::Result<()> {
         tracing::warn!("{}", warning);
     }
 
-    // 3. 初始化 Prometheus 指标（metrics feature）
-    #[cfg(feature = "metrics")]
-    {
-        match aster_drive::metrics::init_metrics() {
-            Ok(()) => {
-                tracing::info!("prometheus metrics initialized");
-            }
-            Err(e) => tracing::warn!("failed to init metrics: {e}"),
-        }
-    }
-
     // 只清理短命 runtime 临时目录：
     // - 不碰 temp_dir 根，避免误删共享目录（例如 /tmp）里的其他内容；
     // - 不碰 temp_dir/tasks，保留后台任务产物给 retention/排障逻辑处理。
@@ -227,16 +216,19 @@ async fn run_primary_http_server(
     let state = web::Data::new(state);
     let task_state = state.clone();
     let app_shutdown_token = web::Data::new(http_shutdown_token.clone());
+    let metrics = web::Data::new(state.metrics.clone());
     let server = HttpServer::new(move || {
         let db = configure_db.clone();
         App::new()
             .wrap(actix_web::middleware::Compress::default())
+            .wrap(aster_drive::api::middleware::metrics::MetricsMiddleware)
             .wrap(aster_drive::api::middleware::request_id::RequestIdMiddleware)
             .wrap(aster_drive::api::middleware::cors::RuntimeCors)
             .wrap(aster_drive::api::middleware::security_headers::default_headers())
             .app_data(actix_web::web::PayloadConfig::new(10 * 1024 * 1024))
             .app_data(actix_web::web::JsonConfig::default().limit(1024 * 1024))
             .app_data(state.clone())
+            .app_data(metrics.clone())
             .app_data(app_shutdown_token.clone())
             .configure(move |cfg| aster_drive::api::configure_primary(cfg, &db))
     })
@@ -284,16 +276,20 @@ async fn run_follower_http_server(
     );
 
     let shutdown_db = state.writer_db().clone();
+    let follower_metrics = state.metrics.clone();
     let state = web::Data::new(state);
     let http_shutdown_token = CancellationToken::new();
+    let metrics = web::Data::new(state.metrics.clone());
     let server = HttpServer::new(move || {
         App::new()
             .wrap(actix_web::middleware::Compress::default())
+            .wrap(aster_drive::api::middleware::metrics::MetricsMiddleware)
             .wrap(aster_drive::api::middleware::request_id::RequestIdMiddleware)
             .wrap(aster_drive::api::middleware::security_headers::default_headers())
             .app_data(actix_web::web::PayloadConfig::new(10 * 1024 * 1024))
             .app_data(actix_web::web::JsonConfig::default().limit(1024 * 1024))
             .app_data(state.clone())
+            .app_data(metrics.clone())
             .configure(aster_drive::api::configure_follower)
     })
     .keep_alive(std::time::Duration::from_secs(30))
@@ -306,7 +302,8 @@ async fn run_follower_http_server(
     .run();
 
     let server_handle = server.handle();
-    let background_tasks = aster_drive::runtime::tasks::spawn_follower_background_tasks();
+    let background_tasks =
+        aster_drive::runtime::tasks::spawn_follower_background_tasks(follower_metrics);
     tokio::spawn(async move {
         aster_drive::runtime::shutdown::wait_for_signal().await;
         http_shutdown_token.cancel();

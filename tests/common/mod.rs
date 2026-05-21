@@ -853,6 +853,7 @@ pub async fn setup_with_memory_cache() -> PrimaryAppState {
         policy_snapshot: base.policy_snapshot,
         config: base.config,
         cache,
+        metrics: aster_drive::metrics_core::NoopMetrics::arc(),
         mail_sender: base.mail_sender,
         storage_change_tx: base.storage_change_tx,
         share_download_rollback: base.share_download_rollback,
@@ -1096,11 +1097,12 @@ pub async fn setup_with_database_url(database_url: &str) -> PrimaryAppState {
         db_handles: aster_drive::db::connect_reader_for_writer(&db_cfg, db.clone())
             .await
             .unwrap(),
-        driver_registry: std::sync::Arc::new(aster_drive::storage::DriverRegistry::new()),
+        driver_registry: std::sync::Arc::new(aster_drive::storage::DriverRegistry::noop()),
         runtime_config,
         policy_snapshot,
         config,
         cache,
+        metrics: aster_drive::metrics_core::NoopMetrics::arc(),
         mail_sender,
         storage_change_tx,
         share_download_rollback,

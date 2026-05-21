@@ -189,6 +189,17 @@ pub async fn count_processing<C: ConnectionTrait>(db: &C) -> Result<u64> {
         .map_err(AsterError::from)
 }
 
+pub async fn count_pending_or_retry<C: ConnectionTrait>(db: &C) -> Result<u64> {
+    BackgroundTask::find()
+        .filter(
+            background_task::Column::Status
+                .is_in([BackgroundTaskStatus::Pending, BackgroundTaskStatus::Retry]),
+        )
+        .count(db)
+        .await
+        .map_err(AsterError::from)
+}
+
 pub async fn count_active_processing_by_kinds<C: ConnectionTrait>(
     db: &C,
     now: DateTime<Utc>,

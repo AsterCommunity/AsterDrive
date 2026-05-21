@@ -219,16 +219,16 @@ where
     let mut decoder = TiffDecoder::new(BufReader::new(reader))?;
     let mut best = Some(decoder.dimensions()?);
 
-    if let Some(value) = decoder.find_tag(TiffTag::SubIfd)? {
-        if let Ok(sub_ifds) = value.into_ifd_vec() {
-            for sub_ifd in sub_ifds {
-                let directory = decoder.read_directory(sub_ifd)?;
-                let mut tags = decoder.read_directory_tags(&directory);
-                let width = tags.find_tag_unsigned::<u32>(TiffTag::ImageWidth)?;
-                let height = tags.find_tag_unsigned::<u32>(TiffTag::ImageLength)?;
-                if let Some(dimensions) = width.zip(height) {
-                    best = Some(larger_dimensions(best, dimensions));
-                }
+    if let Some(value) = decoder.find_tag(TiffTag::SubIfd)?
+        && let Ok(sub_ifds) = value.into_ifd_vec()
+    {
+        for sub_ifd in sub_ifds {
+            let directory = decoder.read_directory(sub_ifd)?;
+            let mut tags = decoder.read_directory_tags(&directory);
+            let width = tags.find_tag_unsigned::<u32>(TiffTag::ImageWidth)?;
+            let height = tags.find_tag_unsigned::<u32>(TiffTag::ImageLength)?;
+            if let Some(dimensions) = width.zip(height) {
+                best = Some(larger_dimensions(best, dimensions));
             }
         }
     }

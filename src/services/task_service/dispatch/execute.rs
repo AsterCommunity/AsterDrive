@@ -108,10 +108,13 @@ async fn process_claimed_task(
     };
 
     match task_result {
-        Ok(()) => Ok(TaskDispatchOutcome {
-            succeeded: 1,
-            ..Default::default()
-        }),
+        Ok(()) => {
+            record_task_metric(state, task.kind, "succeeded");
+            Ok(TaskDispatchOutcome {
+                succeeded: 1,
+                ..Default::default()
+            })
+        }
         Err(error) => {
             // lease 丢失 / 续约超时代表“这条执行流已经过期”，不是业务失败。
             // 这时不要再把任务改成 Failed/Retry，否则旧 worker 可能覆盖新 lease 的结果。
@@ -165,6 +168,9 @@ async fn process_claimed_task(
                     error = %display_error_message,
                     "background task permanently failed"
                 );
+                if failed {
+                    record_task_metric(state, task.kind, "failed");
+                }
                 Ok(TaskDispatchOutcome {
                     failed: usize::from(failed),
                     ..Default::default()
@@ -198,6 +204,9 @@ async fn process_claimed_task(
                     "background task failed; scheduled retry"
                 );
                 state.wake_background_task_dispatcher();
+                if retried {
+                    record_task_metric(state, task.kind, "retry");
+                }
                 Ok(TaskDispatchOutcome {
                     retried: usize::from(retried),
                     ..Default::default()
@@ -205,6 +214,12 @@ async fn process_claimed_task(
             }
         }
     }
+}
+
+fn record_task_metric(state: &PrimaryAppState, kind: BackgroundTaskKind, status: &'static str) {
+    state
+        .metrics
+        .record_background_task_transition(kind.as_str(), status);
 }
 
 pub(super) fn evaluate_heartbeat_result(

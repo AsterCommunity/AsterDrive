@@ -625,41 +625,67 @@ pub async fn refresh_tokens(
     ip_address: Option<&str>,
     user_agent: Option<&str>,
 ) -> Result<(String, String)> {
-    // Public service entrypoint used by both HTTP handlers and tests. Keep the
-    // order intact: verify JWT cheaply first, acquire the per-JTI lock second,
-    // then do all authoritative state checks in the transaction.
-    tracing::debug!("refreshing auth tokens");
-    let claims = verify_token(refresh, &state.config.auth.jwt_secret)?;
-    ensure_token_type(&claims, TokenType::Refresh)?;
-    let refresh_jti = claims
-        .jti
-        .clone()
-        .ok_or_else(|| AsterError::auth_token_invalid("refresh token missing jti"))?;
+    let result = async {
+        // Public service entrypoint used by both HTTP handlers and tests. Keep the
+        // order intact: verify JWT cheaply first, acquire the per-JTI lock second,
+        // then do all authoritative state checks in the transaction.
+        tracing::debug!("refreshing auth tokens");
+        let claims = verify_token(refresh, &state.config.auth.jwt_secret)?;
+        ensure_token_type(&claims, TokenType::Refresh)?;
+        let refresh_jti = claims
+            .jti
+            .clone()
+            .ok_or_else(|| AsterError::auth_token_invalid("refresh token missing jti"))?;
 
-    let rotation_lock = acquire_refresh_rotation_lock(&refresh_jti).await;
-    // This boolean is the only bridge between the lock layer and reuse
-    // classification. Do not infer SameProcessContention from timing, map
-    // entries, or recent timestamps alone.
-    let reuse_evidence = if rotation_lock.was_contended {
-        RefreshReuseEvidence::SameProcessContention
-    } else {
-        RefreshReuseEvidence::ClientFingerprint
+        let rotation_lock = acquire_refresh_rotation_lock(&refresh_jti).await;
+        // This boolean is the only bridge between the lock layer and reuse
+        // classification. Do not infer SameProcessContention from timing, map
+        // entries, or recent timestamps alone.
+        let reuse_evidence = if rotation_lock.was_contended {
+            RefreshReuseEvidence::SameProcessContention
+        } else {
+            RefreshReuseEvidence::ClientFingerprint
+        };
+        let outcome = crate::db::transaction::with_transaction(state.writer_db(), async |txn| {
+            rotate_refresh_in_transaction(
+                txn,
+                state,
+                &claims,
+                &refresh_jti,
+                ip_address,
+                user_agent,
+                reuse_evidence,
+            )
+            .await
+        })
+        .await?;
+
+        finish_refresh_outcome(state, &claims, &refresh_jti, outcome).await
+    }
+    .await;
+
+    record_refresh_metric(state, &result);
+    result
+}
+
+fn record_refresh_metric(state: &PrimaryAppState, result: &Result<(String, String)>) {
+    let (status, reason) = match result {
+        Ok(_) => ("success", "ok"),
+        Err(AsterError::AuthTokenExpired(_)) => ("failure", "expired"),
+        Err(AsterError::AuthTokenInvalid(message))
+            if message.contains("refresh token reuse detected") =>
+        {
+            ("failure", "reuse_detected")
+        }
+        Err(AsterError::AuthTokenInvalid(message)) if message.contains("stale refresh token") => {
+            ("failure", "stale")
+        }
+        Err(AsterError::AuthTokenInvalid(_)) => ("failure", "invalid"),
+        Err(AsterError::AuthForbidden(_)) => ("failure", "forbidden"),
+        Err(AsterError::RateLimited(_)) => ("failure", "rate_limited"),
+        Err(_) => ("failure", "error"),
     };
-    let outcome = crate::db::transaction::with_transaction(state.writer_db(), async |txn| {
-        rotate_refresh_in_transaction(
-            txn,
-            state,
-            &claims,
-            &refresh_jti,
-            ip_address,
-            user_agent,
-            reuse_evidence,
-        )
-        .await
-    })
-    .await?;
-
-    finish_refresh_outcome(state, &claims, &refresh_jti, outcome).await
+    state.metrics.record_auth_event("refresh", status, reason);
 }
 
 #[cfg(debug_assertions)]

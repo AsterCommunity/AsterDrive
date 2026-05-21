@@ -162,7 +162,9 @@ WebDAV 不走 `src/api/routes/**`，而是：
 | `src/runtime/startup/common.rs` | 连接数据库、跑 migration、准备默认策略和运行时配置、加载 policy snapshot / driver registry / cache |
 | `src/runtime/startup/primary.rs` | 构造 primary 运行时：`RuntimeConfig`、邮件发送器、SSE 广播、分享下载回滚队列 |
 | `src/runtime/startup/follower.rs` | 构造 follower 运行时：只保留 follower 需要的共享状态 |
-| `src/runtime/tasks.rs` | primary 周期任务与 metrics worker 的注册和关闭 |
+| `src/runtime/tasks.rs` | primary 周期任务注册和关闭；metrics 系统指标任务通过 `MetricsRecorder` 注入 |
+| `src/metrics_core.rs` | 始终编译的指标记录 trait 与 `NoopMetrics`，业务层只依赖这层 |
+| `src/metrics.rs` | Prometheus 具体实现，仅 `metrics` feature 启用时编译 |
 | `src/api/primary.rs` | primary 路由注册 |
 | `src/api/follower.rs` | follower 路由注册 |
 | `src/api/routes/auth/mod.rs` | 认证、会话、偏好、头像、SSE |
@@ -187,25 +189,31 @@ WebDAV 不走 `src/api/routes/**`，而是：
 3. 如果启用了 `cli` feature 且传入了 CLI 子命令，先执行对应命令并直接退出
 4. 初始化静态配置
 5. 初始化日志
-6. 可选初始化 metrics
-7. 清理 runtime 临时目录
-8. 根据 `config.server.start_mode` 选择 `primary` 或 `follower`
+6. 清理 runtime 临时目录
+7. 根据 `config.server.start_mode` 选择 `primary` 或 `follower`
+
+Prometheus 指标不在 `main.rs` 直接初始化，而是在 `prepare_common()` 中创建 `MetricsRecorder`：
+
+- 启用 `metrics` feature 时初始化 Prometheus registry，并注入 Prometheus recorder
+- 未启用时注入 `NoopMetrics`
+- 业务层、HTTP middleware、存储驱动 wrapper 和后台任务只依赖 `src/metrics_core.rs` 的 trait，不直接依赖 Prometheus
 
 ### `prepare_common()`
 
 `src/runtime/startup/common.rs` 会做所有节点共享的准备：
 
-1. 连接数据库
-2. 执行全部 migration
-3. 准备 SQLite 搜索加速能力（若当前后端适用）
-4. 确保至少存在一个默认本地存储策略
-5. 仅 primary 模式下补种默认策略组
-6. 初始化 `auth_cookie_secure` 引导值
-7. 写入 `system_config` 默认值
-8. 清理废弃的 `node_runtime_mode` 和旧 thumbnail 运行时配置键
-9. 重载 `PolicySnapshot`
-10. 根据节点模式重载 `DriverRegistry`
-11. 初始化缓存后端
+1. 创建 `MetricsRecorder`，让数据库连接和后续运行时状态都能共享同一个 recorder
+2. 连接数据库
+3. 执行全部 migration
+4. 准备 SQLite 搜索加速能力（若当前后端适用）
+5. 确保至少存在一个默认本地存储策略
+6. 仅 primary 模式下补种默认策略组
+7. 初始化 `auth_cookie_secure` 引导值
+8. 写入 `system_config` 默认值
+9. 清理废弃的 `node_runtime_mode` 和旧 thumbnail 运行时配置键
+10. 重载 `PolicySnapshot`
+11. 根据节点模式重载 `DriverRegistry`
+12. 初始化缓存后端
 
 ### 数据库连接句柄
 
@@ -236,7 +244,7 @@ WebDAV 不走 `src/api/routes/**`，而是：
 - `/api/v1/internal/storage/*`
 - `/health*`
 
-`spawn_follower_background_tasks()` 当前不会启动 primary 的业务清理任务。
+`spawn_follower_background_tasks(metrics)` 当前只启动通过 `MetricsRecorder` 注入的通用后台任务，不会启动 primary 的业务清理任务。
 
 ## 后台任务
 

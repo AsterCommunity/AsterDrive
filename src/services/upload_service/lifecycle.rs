@@ -218,7 +218,11 @@ async fn cancel_upload_impl(state: &PrimaryAppState, session: upload_session::Mo
 
 pub async fn cancel_upload(state: &PrimaryAppState, upload_id: &str, user_id: i64) -> Result<()> {
     let session = load_upload_session(state, personal_scope(user_id), upload_id).await?;
-    cancel_upload_impl(state, session).await
+    let mode = upload_session_mode_label(&session);
+    cancel_upload_impl(state, session)
+        .await
+        .inspect(|_| record_upload_cancel_metric(state, mode, true))
+        .inspect_err(|_| record_upload_cancel_metric(state, mode, false))
 }
 
 pub async fn cancel_upload_for_team(
@@ -228,7 +232,32 @@ pub async fn cancel_upload_for_team(
     user_id: i64,
 ) -> Result<()> {
     let session = load_upload_session(state, team_scope(team_id, user_id), upload_id).await?;
-    cancel_upload_impl(state, session).await
+    let mode = upload_session_mode_label(&session);
+    cancel_upload_impl(state, session)
+        .await
+        .inspect(|_| record_upload_cancel_metric(state, mode, true))
+        .inspect_err(|_| record_upload_cancel_metric(state, mode, false))
+}
+
+fn upload_session_mode_label(session: &upload_session::Model) -> &'static str {
+    if session.status == UploadSessionStatus::Presigned {
+        if session.s3_multipart_id.is_some() {
+            return "presigned_multipart";
+        }
+        return "presigned";
+    }
+    if session.s3_multipart_id.is_some() {
+        return "presigned_multipart";
+    }
+    "chunked"
+}
+
+fn record_upload_cancel_metric(state: &PrimaryAppState, mode: &'static str, success: bool) {
+    state.metrics.record_upload_session_event(
+        mode,
+        "cancel",
+        if success { "success" } else { "failure" },
+    );
 }
 
 pub async fn force_cleanup_by_policy(

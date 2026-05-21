@@ -78,11 +78,12 @@ async fn test_state(configs: &[(&str, &str)]) -> PrimaryAppState {
 
     PrimaryAppState {
         db_handles: crate::db::DbHandles::single(db),
-        driver_registry: Arc::new(crate::storage::DriverRegistry::new()),
+        driver_registry: Arc::new(crate::storage::DriverRegistry::noop()),
         runtime_config: runtime_config.clone(),
         policy_snapshot: Arc::new(crate::storage::PolicySnapshot::new()),
         config: Arc::new(Config::default()),
         cache,
+        metrics: crate::metrics_core::NoopMetrics::arc(),
         mail_sender: crate::services::mail_service::runtime_sender(runtime_config.clone()),
         storage_change_tx,
         share_download_rollback,

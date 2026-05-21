@@ -115,6 +115,21 @@ pub enum BackgroundTaskKind {
     SystemRuntime,
 }
 
+impl BackgroundTaskKind {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::ArchiveExtract => "archive_extract",
+            Self::ArchiveCompress => "archive_compress",
+            Self::ArchivePreviewGenerate => "archive_preview_generate",
+            Self::ThumbnailGenerate => "thumbnail_generate",
+            Self::MediaMetadataExtract => "media_metadata_extract",
+            Self::TrashPurgeAll => "trash_purge_all",
+            Self::StoragePolicyTempCleanup => "storage_policy_temp_cleanup",
+            Self::SystemRuntime => "system_runtime",
+        }
+    }
+}
+
 /// 后台任务状态
 #[derive(Debug, Clone, Copy, PartialEq, Eq, EnumIter, DeriveActiveEnum, Serialize, Deserialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
@@ -136,6 +151,17 @@ pub enum BackgroundTaskStatus {
 }
 
 impl BackgroundTaskStatus {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Pending => "pending",
+            Self::Processing => "processing",
+            Self::Retry => "retry",
+            Self::Succeeded => "succeeded",
+            Self::Failed => "failed",
+            Self::Canceled => "canceled",
+        }
+    }
+
     pub fn is_terminal(self) -> bool {
         matches!(self, Self::Succeeded | Self::Failed | Self::Canceled)
     }

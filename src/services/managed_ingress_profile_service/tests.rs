@@ -9,6 +9,7 @@ use super::{
 use crate::api::subcode::ApiSubcode;
 use crate::db::repository::{managed_ingress_profile_repo, master_binding_repo};
 use crate::entities::{managed_ingress_profile, master_binding};
+use crate::metrics_core::SharedMetricsRecorder;
 use crate::runtime::{FollowerRuntimeState, SharedRuntimeState};
 use crate::storage::remote_protocol::{
     RemoteCreateIngressProfileRequest, RemoteCreateLocalIngressProfileRequest,
@@ -26,6 +27,7 @@ struct TestFollowerState {
     policy_snapshot: Arc<crate::storage::PolicySnapshot>,
     config: Arc<crate::config::Config>,
     cache: Arc<dyn crate::cache::CacheBackend>,
+    metrics: SharedMetricsRecorder,
 }
 
 impl SharedRuntimeState for TestFollowerState {
@@ -51,6 +53,10 @@ impl SharedRuntimeState for TestFollowerState {
 
     fn cache(&self) -> &Arc<dyn crate::cache::CacheBackend> {
         &self.cache
+    }
+
+    fn metrics(&self) -> &SharedMetricsRecorder {
+        &self.metrics
     }
 }
 
@@ -88,10 +94,11 @@ async fn setup_state() -> TestFollowerState {
 
     TestFollowerState {
         db,
-        driver_registry: Arc::new(crate::storage::DriverRegistry::new()),
+        driver_registry: Arc::new(crate::storage::DriverRegistry::noop()),
         policy_snapshot: Arc::new(crate::storage::PolicySnapshot::new()),
         config,
         cache,
+        metrics: crate::metrics_core::NoopMetrics::arc(),
     }
 }
 

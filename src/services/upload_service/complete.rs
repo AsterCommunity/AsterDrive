@@ -87,7 +87,33 @@ async fn complete_upload_impl_with_hints(
         success = result.is_ok(),
         "upload completion plan finished"
     );
+    record_upload_completion_metric(state, plan_label, result.is_ok());
     result
+}
+
+fn record_upload_completion_metric(
+    state: &PrimaryAppState,
+    plan_label: &'static str,
+    success: bool,
+) {
+    let mode = upload_mode_label_from_completion_plan(plan_label);
+    let status = if success { "success" } else { "failure" };
+    state
+        .metrics
+        .record_upload_session_event(mode, "complete", status);
+    if success {
+        state.metrics.record_file_upload(mode, "success");
+    }
+}
+
+fn upload_mode_label_from_completion_plan(plan_label: &'static str) -> &'static str {
+    match plan_label {
+        "complete_presigned" => "presigned",
+        "complete_presigned_multipart" | "complete_relay_multipart" => "presigned_multipart",
+        "assemble_chunks" => "chunked",
+        "return_completed" => "completed_retry",
+        _ => "unknown",
+    }
 }
 
 async fn load_upload_actor_username_best_effort(

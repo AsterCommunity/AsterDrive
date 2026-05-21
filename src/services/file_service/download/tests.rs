@@ -218,7 +218,7 @@ async fn build_download_test_state(
         .await
         .expect("download test policy snapshot should reload");
 
-    let driver_registry = Arc::new(DriverRegistry::new());
+    let driver_registry = Arc::new(DriverRegistry::noop());
     driver_registry.insert_for_test(policy.id, Arc::new(driver.clone()));
 
     let runtime_config = Arc::new(RuntimeConfig::new());
@@ -248,6 +248,7 @@ async fn build_download_test_state(
         policy_snapshot,
         config: Arc::new(config),
         cache,
+        metrics: crate::metrics_core::NoopMetrics::arc(),
         mail_sender: mail_service::runtime_sender(runtime_config),
         storage_change_tx,
         share_download_rollback,

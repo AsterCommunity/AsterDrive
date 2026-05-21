@@ -199,11 +199,12 @@ mod tests {
 
         PrimaryAppState {
             db_handles: crate::db::DbHandles::single(db),
-            driver_registry: Arc::new(DriverRegistry::new()),
+            driver_registry: Arc::new(DriverRegistry::noop()),
             runtime_config: runtime_config.clone(),
             policy_snapshot: Arc::new(PolicySnapshot::new()),
             config: Arc::new(Config::default()),
             cache,
+            metrics: crate::metrics_core::NoopMetrics::arc(),
             mail_sender: mail_service::runtime_sender(runtime_config),
             storage_change_tx,
             share_download_rollback,

@@ -166,7 +166,7 @@ async fn build_deletion_test_state() -> (
     config.server.upload_temp_dir = temp_root.join(".uploads").to_string_lossy().into_owned();
 
     let driver = TrackingDeleteDriver::default();
-    let driver_registry = Arc::new(DriverRegistry::new());
+    let driver_registry = Arc::new(DriverRegistry::noop());
     driver_registry.insert_for_test(policy.id, Arc::new(driver.clone()));
     let policy_snapshot = Arc::new(PolicySnapshot::new());
     policy_snapshot
@@ -189,6 +189,7 @@ async fn build_deletion_test_state() -> (
         policy_snapshot,
         config: Arc::new(config),
         cache,
+        metrics: crate::metrics_core::NoopMetrics::arc(),
         mail_sender: mail_service::runtime_sender(runtime_config),
         storage_change_tx,
         share_download_rollback,

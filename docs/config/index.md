@@ -93,7 +93,7 @@ ASTER__WEBDAV__PREFIX=/dav
 | 启动配置覆盖 | `ASTER__SERVER__HOST`、`ASTER__DATABASE__URL`、`ASTER__SERVER__START_MODE` | 服务启动前就要确定的配置；优先级高于 `config.toml` |
 | 首次引导开关 | `ASTER__AUTH__BOOTSTRAP_INSECURE_COOKIES` | 只影响系统设置第一次写入默认值；初始化完成后，后续请在后台系统设置里改 |
 | 从节点自动接入 | `ASTER_BOOTSTRAP_REMOTE_MASTER_URL`、`ASTER_BOOTSTRAP_REMOTE_ENROLLMENT_TOKEN` | Docker follower 首次启动时自动 enroll；成功后建议移除 |
-| 媒体处理默认值 | `ASTER_BOOTSTRAP_ENABLE_VIPS_CLI`、`ASTER_BOOTSTRAP_ENABLE_FFMPEG_CLI` | 只在媒体处理系统设置还不存在时，用来决定初始默认处理器 |
+| 媒体处理默认值 | `ASTER_BOOTSTRAP_ENABLE_VIPS_CLI`、`ASTER_BOOTSTRAP_ENABLE_FFMPEG_CLI`、`ASTER_BOOTSTRAP_ENABLE_FFPROBE_CLI` | 只在媒体处理系统设置还不存在时，用来决定初始默认处理器 |
 | 运维 CLI 参数 | `ASTER_CLI_DATABASE_URL`、`ASTER_CLI_OUTPUT_FORMAT` | 脚本里不想每次写长参数时使用，见 [运维 CLI](/deployment/ops-cli) |
 
 ::: tip 判断一个 ENV 要不要长期保留

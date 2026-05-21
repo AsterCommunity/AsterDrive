@@ -34,6 +34,26 @@ pub enum DownloadOutcome {
     PresignedRedirect { url: String },
 }
 
+impl DownloadOutcome {
+    pub fn metrics_outcome(&self) -> &'static str {
+        match self {
+            Self::Stream(stream) => {
+                if stream.range.is_some() {
+                    "partial"
+                } else {
+                    "stream"
+                }
+            }
+            Self::NotModified { .. } => "not_modified",
+            Self::PresignedRedirect { .. } => "presigned_redirect",
+        }
+    }
+
+    pub fn has_range(&self) -> bool {
+        matches!(self, Self::Stream(stream) if stream.range.is_some())
+    }
+}
+
 impl std::fmt::Debug for StreamedFile {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("StreamedFile")

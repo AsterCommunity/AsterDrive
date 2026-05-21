@@ -380,11 +380,12 @@ async fn log_writes_synchronously_without_global_manager() {
         );
     let state = crate::runtime::PrimaryAppState {
         db_handles: crate::db::DbHandles::single(db.clone()),
-        driver_registry: std::sync::Arc::new(crate::storage::DriverRegistry::new()),
+        driver_registry: std::sync::Arc::new(crate::storage::DriverRegistry::noop()),
         runtime_config,
         policy_snapshot: std::sync::Arc::new(crate::storage::PolicySnapshot::new()),
         config: std::sync::Arc::new(crate::config::Config::default()),
         cache,
+        metrics: crate::metrics_core::NoopMetrics::arc(),
         mail_sender: crate::services::mail_service::memory_sender(),
         storage_change_tx,
         share_download_rollback,

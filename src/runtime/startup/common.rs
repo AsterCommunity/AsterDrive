@@ -3,6 +3,7 @@ use crate::config::auth_runtime::AUTH_COOKIE_SECURE_KEY;
 use crate::config::node_mode::NodeRuntimeMode;
 use crate::db;
 use crate::errors::{AsterError, MapAsterErr, Result};
+use crate::metrics_core::SharedMetricsRecorder;
 use crate::storage::DriverRegistry;
 use migration::Migrator;
 use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
@@ -15,6 +16,7 @@ pub(super) struct CommonRuntimeParts {
     pub driver_registry: Arc<DriverRegistry>,
     pub policy_snapshot: Arc<crate::storage::PolicySnapshot>,
     pub cache: Arc<dyn crate::cache::CacheBackend>,
+    pub metrics: SharedMetricsRecorder,
 }
 
 const OBSOLETE_NODE_RUNTIME_MODE_KEY: &str = "node_runtime_mode";
@@ -24,15 +26,21 @@ const OBSOLETE_THUMBNAIL_VIPS_COMMAND_KEY: &str = "thumbnail_vips_command";
 
 pub(super) async fn prepare_common(mode: NodeRuntimeMode) -> Result<CommonRuntimeParts> {
     let cfg = config::get_config();
+    let metrics = create_metrics_recorder();
 
-    let database = db::connect(&cfg.database).await?;
+    let database = db::connect_with_metrics(&cfg.database, metrics.clone()).await?;
     initialize_database_state(&database, cfg.as_ref(), mode).await?;
-    let db_handles = db::connect_reader_for_writer(&cfg.database, database.clone()).await?;
+    let db_handles = db::connect_reader_for_writer_with_metrics(
+        &cfg.database,
+        database.clone(),
+        metrics.clone(),
+    )
+    .await?;
 
     let policy_snapshot = Arc::new(crate::storage::PolicySnapshot::new());
     policy_snapshot.reload(&database).await?;
 
-    let driver_registry = Arc::new(DriverRegistry::new());
+    let driver_registry = Arc::new(DriverRegistry::new(metrics.clone()));
     match mode {
         NodeRuntimeMode::Primary => driver_registry.reload_primary_state(&database).await?,
         NodeRuntimeMode::Follower => driver_registry.reload_follower_state(&database).await?,
@@ -47,7 +55,25 @@ pub(super) async fn prepare_common(mode: NodeRuntimeMode) -> Result<CommonRuntim
         driver_registry,
         policy_snapshot,
         cache,
+        metrics,
     })
+}
+
+fn create_metrics_recorder() -> SharedMetricsRecorder {
+    #[cfg(feature = "metrics")]
+    {
+        match crate::metrics::init_metrics() {
+            Ok(()) => {
+                tracing::info!("prometheus metrics initialized");
+                return Arc::new(crate::metrics::PrometheusMetricsRecorder);
+            }
+            Err(error) => {
+                tracing::warn!("failed to init metrics, falling back to noop metrics: {error}");
+            }
+        }
+    }
+
+    crate::metrics_core::NoopMetrics::arc()
 }
 
 pub async fn initialize_database_state(

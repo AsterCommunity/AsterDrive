@@ -65,10 +65,12 @@ async fn init_upload_for_scope(
     }
 
     if let Some(response) = s3::init_s3_upload(state, &ctx).await? {
+        record_upload_session_if_created(state, &response);
         return Ok(response);
     }
 
     if let Some(response) = remote::init_remote_upload(state, &ctx).await? {
+        record_upload_session_if_created(state, &response);
         return Ok(response);
     }
 
@@ -83,7 +85,15 @@ async fn init_upload_for_scope(
         return Ok(direct_upload_response());
     }
 
-    init_chunked_upload_session(state, &ctx).await
+    let response = init_chunked_upload_session(state, &ctx).await?;
+    record_upload_session_if_created(state, &response);
+    Ok(response)
+}
+
+fn record_upload_session_if_created(state: &PrimaryAppState, response: &InitUploadResponse) {
+    if response.upload_id.is_some() {
+        state.metrics.record_upload_session(response.mode.as_str());
+    }
 }
 
 async fn init_chunked_upload_session(

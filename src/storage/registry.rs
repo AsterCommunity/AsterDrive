@@ -6,46 +6,37 @@ use super::drivers::local::LocalDriver;
 use super::drivers::remote::RemoteDriver;
 use super::drivers::s3::S3Driver;
 use super::error::storage_driver_error;
+use super::metrics_driver::MetricsStorageDriver;
 use super::multipart::MultipartStorageDriver;
 use crate::api::subcode::ApiSubcode;
 use crate::db::repository::{managed_follower_repo, master_binding_repo};
 use crate::entities::storage_policy;
 use crate::errors::{Result, precondition_failed_with_subcode};
+use crate::metrics_core::SharedMetricsRecorder;
 use crate::types::{DriverType, parse_storage_policy_options};
 use dashmap::DashMap;
 use parking_lot::RwLock;
 use std::collections::HashMap;
 use std::sync::Arc;
 
-/// 已实例化的 driver，按类型区分以支持 multipart downcast。
+/// 已实例化的 driver。
+///
+/// `storage` 是业务路径统一使用的驱动；启用 metrics 时它会在创建 entry 时包一层
+/// `MetricsStorageDriver`。`multipart` 保留原始 S3/Remote 驱动的 multipart 能力，
+/// 避免 wrapper 影响分片上传专用路径。
 #[derive(Clone)]
-enum DriverEntry {
-    Local(Arc<LocalDriver>),
-    Remote(Arc<RemoteDriver>),
-    S3(Arc<S3Driver>),
-    #[cfg(test)]
-    Mock(Arc<dyn StorageDriver>),
+struct DriverEntry {
+    storage: Arc<dyn StorageDriver>,
+    multipart: Option<Arc<dyn MultipartStorageDriver>>,
 }
 
 impl DriverEntry {
-    fn as_storage_driver(&self) -> Arc<dyn StorageDriver> {
-        match self {
-            DriverEntry::Local(d) => d.clone(),
-            DriverEntry::Remote(d) => d.clone(),
-            DriverEntry::S3(d) => d.clone(),
-            #[cfg(test)]
-            DriverEntry::Mock(d) => d.clone(),
-        }
+    fn storage_driver(&self) -> Arc<dyn StorageDriver> {
+        self.storage.clone()
     }
 
-    fn as_multipart_driver(&self) -> Option<Arc<dyn MultipartStorageDriver>> {
-        match self {
-            DriverEntry::Local(_) => None,
-            DriverEntry::Remote(d) => Some(d.clone()),
-            DriverEntry::S3(d) => Some(d.clone()),
-            #[cfg(test)]
-            DriverEntry::Mock(_) => None,
-        }
+    fn multipart_driver(&self) -> Option<Arc<dyn MultipartStorageDriver>> {
+        self.multipart.clone()
     }
 }
 
@@ -54,20 +45,26 @@ pub struct DriverRegistry {
     drivers: DashMap<i64, DriverEntry>,
     managed_followers_by_id: RwLock<HashMap<i64, crate::entities::managed_follower::Model>>,
     master_bindings_by_access_key: RwLock<HashMap<String, crate::entities::master_binding::Model>>,
+    metrics: SharedMetricsRecorder,
 }
 
 impl DriverRegistry {
-    pub fn new() -> Self {
+    pub fn new(metrics: SharedMetricsRecorder) -> Self {
         Self {
             drivers: DashMap::new(),
             managed_followers_by_id: RwLock::new(HashMap::new()),
             master_bindings_by_access_key: RwLock::new(HashMap::new()),
+            metrics,
         }
+    }
+
+    pub fn noop() -> Self {
+        Self::new(crate::metrics_core::NoopMetrics::arc())
     }
 
     /// 根据 StoragePolicy 获取或创建 driver（惰性实例化）
     pub fn get_driver(&self, policy: &storage_policy::Model) -> Result<Arc<dyn StorageDriver>> {
-        Ok(self.get_entry(policy)?.as_storage_driver())
+        Ok(self.get_entry(policy)?.storage_driver())
     }
 
     /// 获取支持 multipart upload 的 driver。
@@ -77,17 +74,15 @@ impl DriverRegistry {
         &self,
         policy: &storage_policy::Model,
     ) -> Result<Arc<dyn MultipartStorageDriver>> {
-        self.get_entry(policy)?
-            .as_multipart_driver()
-            .ok_or_else(|| {
-                storage_driver_error(
-                    StorageErrorKind::Unsupported,
-                    format!(
-                        "storage policy {} (driver: {:?}) does not support multipart upload",
-                        policy.id, policy.driver_type
-                    ),
-                )
-            })
+        self.get_entry(policy)?.multipart_driver().ok_or_else(|| {
+            storage_driver_error(
+                StorageErrorKind::Unsupported,
+                format!(
+                    "storage policy {} (driver: {:?}) does not support multipart upload",
+                    policy.id, policy.driver_type
+                ),
+            )
+        })
     }
 
     /// 策略更新后使缓存的 driver 失效
@@ -153,12 +148,23 @@ impl DriverRegistry {
 
     #[cfg(test)]
     pub fn insert_for_test(&self, policy_id: i64, driver: Arc<dyn StorageDriver>) {
-        self.drivers.insert(policy_id, DriverEntry::Mock(driver));
+        self.drivers.insert(
+            policy_id,
+            DriverEntry {
+                storage: driver,
+                multipart: None,
+            },
+        );
     }
 
     #[cfg(test)]
     pub fn insert_s3_for_test(&self, policy_id: i64, driver: Arc<S3Driver>) {
-        self.drivers.insert(policy_id, DriverEntry::S3(driver));
+        let storage: Arc<dyn StorageDriver> = driver.clone();
+        let multipart: Arc<dyn MultipartStorageDriver> = driver;
+        self.drivers.insert(
+            policy_id,
+            self.build_entry(DriverType::S3, storage, Some(multipart)),
+        );
     }
 
     fn get_entry(&self, policy: &storage_policy::Model) -> Result<DriverEntry> {
@@ -172,7 +178,10 @@ impl DriverRegistry {
 
     fn create_entry(&self, policy: &storage_policy::Model) -> Result<DriverEntry> {
         match policy.driver_type {
-            DriverType::Local => Ok(DriverEntry::Local(Arc::new(LocalDriver::new(policy)?))),
+            DriverType::Local => {
+                let driver: Arc<dyn StorageDriver> = Arc::new(LocalDriver::new(policy)?);
+                Ok(self.build_entry(policy.driver_type, driver, None))
+            }
             DriverType::Remote => {
                 let remote_node_id = policy.remote_node_id.ok_or_else(|| {
                     storage_driver_error(
@@ -209,27 +218,68 @@ impl DriverRegistry {
                     );
                     return Err(error);
                 }
-                Ok(DriverEntry::Remote(Arc::new(RemoteDriver::new(
-                    policy,
-                    &remote_node,
-                )?)))
+                let driver = Arc::new(RemoteDriver::new(policy, &remote_node)?);
+                let storage: Arc<dyn StorageDriver> = driver.clone();
+                let multipart: Arc<dyn MultipartStorageDriver> = driver;
+                Ok(self.build_entry(policy.driver_type, storage, Some(multipart)))
             }
-            DriverType::S3 => Ok(DriverEntry::S3(Arc::new(S3Driver::new(policy)?))),
+            DriverType::S3 => {
+                let driver = Arc::new(S3Driver::new(policy)?);
+                let storage: Arc<dyn StorageDriver> = driver.clone();
+                let multipart: Arc<dyn MultipartStorageDriver> = driver;
+                Ok(self.build_entry(policy.driver_type, storage, Some(multipart)))
+            }
         }
+    }
+
+    fn build_entry(
+        &self,
+        driver_type: DriverType,
+        storage: Arc<dyn StorageDriver>,
+        multipart: Option<Arc<dyn MultipartStorageDriver>>,
+    ) -> DriverEntry {
+        let storage = if self.metrics.enabled() {
+            Arc::new(MetricsStorageDriver::new(
+                storage,
+                driver_type,
+                self.metrics.clone(),
+            ))
+        } else {
+            storage
+        };
+
+        DriverEntry { storage, multipart }
     }
 }
 
 impl Default for DriverRegistry {
     fn default() -> Self {
-        Self::new()
+        Self::noop()
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::metrics_core::MetricsRecorder;
     use crate::types::{StoredStoragePolicyAllowedTypes, StoredStoragePolicyOptions};
     use std::time::Duration;
+
+    struct EnabledMetrics;
+
+    impl MetricsRecorder for EnabledMetrics {
+        fn enabled(&self) -> bool {
+            true
+        }
+    }
+
+    fn local_policy() -> storage_policy::Model {
+        let mut policy = remote_policy(None);
+        policy.driver_type = DriverType::Local;
+        policy.remote_node_id = None;
+        policy.base_path = "data/test-local-driver".to_string();
+        policy
+    }
 
     fn remote_policy(remote_node_id: Option<i64>) -> storage_policy::Model {
         let now = chrono::Utc::now();
@@ -276,7 +326,7 @@ mod tests {
     fn registry_with_follower(
         follower: crate::entities::managed_follower::Model,
     ) -> DriverRegistry {
-        let registry = DriverRegistry::new();
+        let registry = DriverRegistry::noop();
         registry
             .managed_followers_by_id
             .write()
@@ -285,8 +335,26 @@ mod tests {
     }
 
     #[test]
+    fn metrics_enabled_driver_is_wrapped_once_and_cached() {
+        let registry = DriverRegistry::new(Arc::new(EnabledMetrics));
+        let policy = local_policy();
+
+        let driver1 = registry
+            .get_driver(&policy)
+            .expect("local driver should be created");
+        let driver2 = registry
+            .get_driver(&policy)
+            .expect("cached local driver should be returned");
+
+        assert!(
+            Arc::ptr_eq(&driver1, &driver2),
+            "metrics wrapper should be cached with the driver entry"
+        );
+    }
+
+    #[test]
     fn remote_policy_requires_remote_node_id() {
-        let registry = DriverRegistry::new();
+        let registry = DriverRegistry::noop();
 
         let error = match registry.get_driver(&remote_policy(None)) {
             Ok(_) => panic!("remote policy without node id should fail"),
@@ -303,7 +371,7 @@ mod tests {
 
     #[test]
     fn remote_policy_requires_loaded_follower() {
-        let registry = DriverRegistry::new();
+        let registry = DriverRegistry::noop();
 
         let error = match registry.get_driver(&remote_policy(Some(7))) {
             Ok(_) => panic!("remote policy without loaded follower should fail"),

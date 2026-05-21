@@ -15,7 +15,7 @@ pub(super) async fn doctor_storage_scan_checks(
     db: &DatabaseConnection,
     policy_id: Option<i64>,
 ) -> Result<Vec<DoctorCheck>> {
-    let driver_registry = crate::storage::DriverRegistry::new();
+    let driver_registry = crate::storage::DriverRegistry::noop();
     let report = integrity_service::audit_storage_objects(db, &driver_registry, policy_id).await?;
     let scan_meta = scan_meta_details(&report);
 

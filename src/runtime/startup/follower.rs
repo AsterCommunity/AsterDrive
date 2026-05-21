@@ -25,6 +25,7 @@ pub async fn prepare_follower() -> Result<PreparedFollowerRuntime> {
             policy_snapshot: common.policy_snapshot,
             config: common.cfg,
             cache: common.cache,
+            metrics: common.metrics,
         },
     })
 }

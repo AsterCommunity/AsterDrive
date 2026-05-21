@@ -381,7 +381,9 @@ pub async fn download_shared(
             .and_then(|v| v.to_str().ok()),
         range,
     )
-    .await?;
+    .await
+    .inspect(|outcome| file_service::record_download_metric(&state, "share", outcome))
+    .inspect_err(|_| file_service::record_download_failure_metric(&state, "share"))?;
     Ok(file_service::outcome_to_response(outcome))
 }
 
@@ -404,7 +406,9 @@ pub async fn download_direct(
             .and_then(|v| v.to_str().ok()),
         range,
     )
-    .await?;
+    .await
+    .inspect(|outcome| file_service::record_download_metric(&state, "direct_link", outcome))
+    .inspect_err(|_| file_service::record_download_failure_metric(&state, "direct_link"))?;
     Ok(file_service::outcome_to_response(outcome))
 }
 
@@ -425,7 +429,9 @@ pub async fn download_preview(
             .and_then(|v| v.to_str().ok()),
         range,
     )
-    .await?;
+    .await
+    .inspect(|outcome| file_service::record_download_metric(&state, "preview_link", outcome))
+    .inspect_err(|_| file_service::record_download_failure_metric(&state, "preview_link"))?;
     Ok(file_service::outcome_to_response(outcome))
 }
 
@@ -464,7 +470,14 @@ pub async fn stream_shared_video(
             .await?;
     let range = file_service::parse_range_header(req.headers().get(header::RANGE), file.size)?;
     let outcome =
-        share_stream_service::stream_file(&state, &token, &session_token, &filename, range).await?;
+        share_stream_service::stream_file(&state, &token, &session_token, &filename, range)
+            .await
+            .inspect(|outcome| {
+                file_service::record_download_metric(&state, "share_stream", outcome)
+            })
+            .inspect_err(|_| {
+                file_service::record_download_failure_metric(&state, "share_stream")
+            })?;
     Ok(file_service::outcome_to_response(outcome))
 }
 
@@ -503,7 +516,9 @@ pub async fn download_shared_folder_file(
             .and_then(|v| v.to_str().ok()),
         range,
     )
-    .await?;
+    .await
+    .inspect(|outcome| file_service::record_download_metric(&state, "share", outcome))
+    .inspect_err(|_| file_service::record_download_failure_metric(&state, "share"))?;
     Ok(file_service::outcome_to_response(outcome))
 }
 

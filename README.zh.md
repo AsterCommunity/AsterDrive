@@ -147,7 +147,7 @@ docker compose up -d
 
 - 管理总览、用户管理、团队管理、存储策略、策略组、远程节点、分享、任务、锁、运行时设置和审计日志
 - 运行时配置存储在 `system_config`，支持 schema 驱动的管理界面和离线 CLI 操作
-- 健康检查接口：`/health`、`/health/ready`，可选 `/health/memory`（`debug_assertions + openapi`）、`/health/metrics`（`metrics` feature）
+- 健康检查接口：`/health`、`/health/ready`，可选 `/health/memory`（`debug_assertions + openapi`）、`/health/metrics`（`metrics` feature，默认不启用）
 - 存储策略和远程节点连通性测试
 - 后台任务记录覆盖压缩包任务、缩略图生成、邮件派发、清理任务和系统运行任务
 - 定期清理上传会话、回收站、锁、审计日志、团队归档、WOPI 会话和孤儿 Blob

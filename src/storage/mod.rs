@@ -4,6 +4,7 @@ pub mod driver;
 pub mod drivers;
 pub mod error;
 pub mod extensions;
+mod metrics_driver;
 pub mod multipart;
 pub mod object_key;
 pub mod policy_snapshot;

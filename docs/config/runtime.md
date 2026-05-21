@@ -43,7 +43,7 @@
 | 配 SMTP、发测试邮件、改事务邮件模版 | `邮件投递` |
 | 调回收站、历史版本、团队归档、任务产物保留时间 | `存储与保留` |
 | 调在线解压临时空间上限 | `存储与保留 -> 在线解压 staging 大小上限` |
-| 调缩略图大小限制、vips / ffmpeg 处理器 | `存储与保留 -> 媒体处理` |
+| 调缩略图大小限制、vips / ffmpeg / ffprobe 处理器 | `存储与保留 -> 媒体处理` |
 | 关闭 WebDAV | `WebDAV -> 启用 WebDAV` |
 | 调邮件派发、后台任务派发、并发、重试、周期清理频率 | `运行与调度` |
 | 调分享页音频/视频流播放临时会话有效期 | `运行与调度 -> 分享流播放会话有效期` |
@@ -242,28 +242,29 @@
 
 - 开关某个处理器
 - 给处理器绑定文件后缀
-- 配置 `vips_cli` 或 `ffmpeg_cli` 使用的命令
+- 配置 `vips_cli`、`ffmpeg_cli` 或 `ffprobe_cli` 使用的命令
 - 测试命令是否能被服务端执行
 - 保留 AsterDrive 内置图片处理器作为兜底
 
 默认内置链路覆盖常见图片格式。  
-如果你想给 HEIC、AVIF、PDF 封面或视频缩略图扩展能力，可以接 `vips` 或 `ffmpeg`，但前提是这些命令真的装在服务端环境里。
+如果你想给 HEIC、AVIF、PDF 封面、视频缩略图或视频元数据扩展能力，可以接 `vips`、`ffmpeg` 或 `ffprobe`，但前提是这些命令真的装在服务端环境里。
 
 ::: tip 建议先保留内置处理器
-除非你已经确认 vips / ffmpeg 的命令路径、权限和后缀绑定都没问题，否则保留内置处理器当兜底更省心。
+除非你已经确认 vips / ffmpeg / ffprobe 的命令路径、权限和后缀绑定都没问题，否则保留内置处理器当兜底更省心。
 :::
 
 ::: details 首次启动时的媒体处理 ENV
-服务第一次初始化系统设置时，会读取两个 bootstrap 环境变量，用来决定媒体处理默认配置里是否启用 CLI 处理器：
+服务第一次初始化系统设置时，会读取三个 bootstrap 环境变量，用来决定媒体处理默认配置里是否启用 CLI 处理器：
 
 ```bash
 ASTER_BOOTSTRAP_ENABLE_VIPS_CLI=true
 ASTER_BOOTSTRAP_ENABLE_FFMPEG_CLI=true
+ASTER_BOOTSTRAP_ENABLE_FFPROBE_CLI=true
 ```
 
-官方 Docker 镜像已经安装 `vips` 和 `ffmpeg`，并默认打开这两个 bootstrap ENV，所以新库通常会直接带上对应处理器。
+官方 Docker 镜像已经安装 `vips`、`ffmpeg` 和 `ffprobe`，并默认打开这三个 bootstrap ENV，所以新库通常会直接带上对应处理器。
 
-这两个变量只影响 `media_processing_registry_json` 还不存在时的初始默认值。这个规则表是统一媒体处理配置入口，用来管理内置 `images`、内置 `lofty`、VIPS CLI、FFmpeg CLI、FFprobe CLI 的启用状态、能力用途、后缀绑定和命令路径；缩略图和媒体元数据都会走这条链路。
+这三个变量只影响 `media_processing_registry_json` 还不存在时的初始默认值。这个规则表是统一媒体处理配置入口，用来管理内置 `images`、内置 `lofty`、VIPS CLI、FFmpeg CLI、FFprobe CLI 的启用状态、能力用途、后缀绑定和命令路径；缩略图和媒体元数据都会走这条链路。
 :::
 
 ### 媒体元数据

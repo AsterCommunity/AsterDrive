@@ -2,6 +2,7 @@
 
 use crate::config::DatabaseConfig;
 use crate::errors::{AsterError, MapAsterErr, Result};
+use crate::metrics_core::SharedMetricsRecorder;
 use sea_orm::{ConnectOptions, ConnectionTrait, Database, DatabaseConnection, SqlxSqliteConnector};
 
 #[derive(Clone)]
@@ -34,11 +35,18 @@ impl DbHandles {
 }
 
 pub async fn connect(cfg: &DatabaseConfig) -> Result<DatabaseConnection> {
+    connect_with_metrics(cfg, crate::metrics_core::NoopMetrics::arc()).await
+}
+
+pub async fn connect_with_metrics(
+    cfg: &DatabaseConfig,
+    metrics: SharedMetricsRecorder,
+) -> Result<DatabaseConnection> {
     let retry_config = crate::db::retry::RetryConfig {
         max_retries: cfg.retry_count,
         ..Default::default()
     };
-    crate::db::retry::with_retry(&retry_config, || connect_once(cfg)).await
+    crate::db::retry::with_retry(&retry_config, || connect_once(cfg, metrics.clone())).await
 }
 
 pub async fn connect_handles(cfg: &DatabaseConfig) -> Result<DbHandles> {
@@ -50,12 +58,21 @@ pub async fn connect_reader_for_writer(
     cfg: &DatabaseConfig,
     writer: DatabaseConnection,
 ) -> Result<DbHandles> {
+    connect_reader_for_writer_with_metrics(cfg, writer, crate::metrics_core::NoopMetrics::arc())
+        .await
+}
+
+pub async fn connect_reader_for_writer_with_metrics(
+    cfg: &DatabaseConfig,
+    writer: DatabaseConnection,
+    metrics: SharedMetricsRecorder,
+) -> Result<DbHandles> {
     let url = normalize_database_url(&cfg.url);
     if !sqlite_reader_pool_enabled(&url) {
         return Ok(DbHandles::single(writer));
     }
 
-    let reader = connect_sqlite_reader_once(cfg, &url).await?;
+    let reader = connect_sqlite_reader_once(cfg, &url, metrics).await?;
     Ok(DbHandles {
         writer,
         reader,
@@ -63,7 +80,10 @@ pub async fn connect_reader_for_writer(
     })
 }
 
-async fn connect_once(cfg: &DatabaseConfig) -> Result<DatabaseConnection> {
+async fn connect_once(
+    cfg: &DatabaseConfig,
+    metrics: SharedMetricsRecorder,
+) -> Result<DatabaseConnection> {
     let url = normalize_database_url(&cfg.url);
     let is_sqlite = url.starts_with("sqlite:");
     // SQLite relies on a single pooled connection so concurrent writers are serialized at
@@ -108,10 +128,8 @@ async fn connect_once(cfg: &DatabaseConfig) -> Result<DatabaseConnection> {
             .map_aster_err(AsterError::database_operation)?;
     }
 
-    #[cfg(feature = "metrics")]
     let mut db = db;
-    #[cfg(feature = "metrics")]
-    install_db_metrics(&mut db);
+    install_db_metrics(&mut db, metrics);
 
     Ok(db)
 }
@@ -119,6 +137,7 @@ async fn connect_once(cfg: &DatabaseConfig) -> Result<DatabaseConnection> {
 async fn connect_sqlite_reader_once(
     cfg: &DatabaseConfig,
     normalized_writer_url: &str,
+    metrics: SharedMetricsRecorder,
 ) -> Result<DatabaseConnection> {
     let reader_url = sqlite_reader_url(normalized_writer_url);
     let max_connections = cfg.pool_size.max(1);
@@ -141,9 +160,10 @@ async fn connect_sqlite_reader_once(
             })
         });
 
-    let db = SqlxSqliteConnector::connect(opt)
+    let mut db = SqlxSqliteConnector::connect(opt)
         .await
         .map_aster_err(AsterError::database_operation)?;
+    install_db_metrics(&mut db, metrics);
 
     tracing::info!(
         max_connections,
@@ -203,9 +223,14 @@ fn sqlite_reader_url(normalized_writer_url: &str) -> String {
     }
 }
 
-#[cfg(feature = "metrics")]
-fn install_db_metrics(db: &mut DatabaseConnection) {
-    db.set_metric_callback(crate::metrics::record_db_query);
+fn install_db_metrics(db: &mut DatabaseConnection, metrics: SharedMetricsRecorder) {
+    if !metrics.enabled() {
+        return;
+    }
+
+    db.set_metric_callback(move |info| {
+        metrics.record_db_query(info);
+    });
 }
 
 #[cfg(test)]

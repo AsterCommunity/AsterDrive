@@ -64,6 +64,10 @@ mod tests {
         .unwrap();
         Migrator::up(&db, None).await.unwrap();
 
-        perform_shutdown(spawn_follower_background_tasks(), db).await;
+        perform_shutdown(
+            spawn_follower_background_tasks(crate::metrics_core::NoopMetrics::arc()),
+            db,
+        )
+        .await;
     }
 }

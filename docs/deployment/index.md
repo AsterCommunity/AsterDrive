@@ -130,6 +130,7 @@ bootstrap_insecure_cookies = false
 - 准备备份、恢复和恢复后校验：看 [备份与恢复](/deployment/backup)
 - 想在命令行里做部署检查、离线配置或跨数据库迁移：看 [运维 CLI](/deployment/ops-cli)
 - 准备挂 HTTPS：看 [反向代理](/deployment/reverse-proxy)
+- 准备接 Prometheus / Grafana：看 [监控与 Grafana](/deployment/monitoring)
 - 想确认首次启动到底自动做了哪些事：看 [首次启动检查](/deployment/runtime-behavior)
 - 准备升级：看 [升级与浏览器缓存](/deployment/frontend-assets)
 - 想建立或复跑性能基准：看 [性能基准与压测](/deployment/performance-benchmarking)

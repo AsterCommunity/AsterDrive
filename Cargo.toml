@@ -70,7 +70,7 @@ async-trait = "0.1"
 base64 = "0.22"
 bytes = "1"
 aws-credential-types = { version = "1.2.14", features = ["hardcoded-credentials"] }
-aws-sdk-s3 = { version = "1.132.0", default-features = false, features = ["sigv4a", "http-1x", "default-https-client", "rt-tokio"] }
+aws-sdk-s3 = { version = "1.133.0", default-features = false, features = ["sigv4a", "http-1x", "default-https-client", "rt-tokio"] }
 aws-smithy-http = "0.63"
 chrono = { version = "0.4.44", default-features = false, features = ["clock", "serde"] }
 chrono-tz = "0.10"
@@ -83,7 +83,7 @@ hex = "0.4"
 hmac = "0.13"
 http = "1"
 http-body = "1"
-image = { version = "0.25", default-features = false, features = ["default-formats", "avif-native"] }
+image = { version = "0.25", default-features = false, features = ["bmp", "dds", "exr", "ff", "gif", "hdr", "ico", "jpeg", "png", "pnm", "qoi", "tga", "tiff", "webp"] }
 governor = "0.10"
 jsonwebtoken = { version = "10", features = ["rust_crypto"] }
 lettre = { version = "0.11", default-features = false, features = ["builder", "smtp-transport", "tokio1-rustls-tls"] }
@@ -92,7 +92,7 @@ mime_guess = "2"
 moka = { version = "0.12.15", features = ["future"] }
 md-5 = "0.11.0"
 num_cpus = "1.17.0"
-nom-exif = "3.4.1"
+nom-exif = "=3.4.1"
 parking_lot = "0.12"
 paste = "1.0.15"
 percent-encoding = "2.3"
@@ -134,7 +134,7 @@ lofty = "0.24.0"
 
 [dev-dependencies]
 aws-smithy-http-client = { version = "1.1.12", features = ["test-util"] }
-aws-smithy-types = "1.4.7"
+aws-smithy-types = "1.4.8"
 fs2 = "0.4"
 quick-xml = "0.38"
 testcontainers = { version = "0.27", features = ["reusable-containers"] }

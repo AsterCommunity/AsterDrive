@@ -25,46 +25,64 @@ pub async fn login(
     };
     tracing::debug!(identifier_kind, "login attempt");
 
-    let Some(user) = find_user_by_identifier(state.writer_db(), identifier).await? else {
-        tracing::debug!(identifier_kind, "login rejected: user not found");
-        return Err(AsterError::auth_invalid_credentials("user not found"));
-    };
+    let outcome = async {
+        let Some(user) = find_user_by_identifier(state.writer_db(), identifier).await? else {
+            tracing::debug!(identifier_kind, "login rejected: user not found");
+            return Err(AsterError::auth_invalid_credentials("user not found"));
+        };
 
-    if !user.status.is_active() {
-        tracing::debug!(user_id = user.id, "login rejected: account disabled");
-        return Err(auth_forbidden_with_subcode(
-            ApiSubcode::AuthAccountDisabled,
-            "account is disabled",
-        ));
-    }
-    if !is_email_verified(&user) {
+        if !user.status.is_active() {
+            tracing::debug!(user_id = user.id, "login rejected: account disabled");
+            return Err(auth_forbidden_with_subcode(
+                ApiSubcode::AuthAccountDisabled,
+                "account is disabled",
+            ));
+        }
+        if !is_email_verified(&user) {
+            tracing::debug!(
+                user_id = user.id,
+                "login rejected: account pending activation"
+            );
+            return Err(AsterError::auth_pending_activation(
+                "account pending activation",
+            ));
+        }
+
+        if !hash::verify_password(password, &user.password_hash)? {
+            tracing::debug!(user_id = user.id, "login rejected: invalid password");
+            return Err(AsterError::auth_invalid_credentials("wrong password"));
+        }
+
+        let (access, refresh) = issue_tokens_for_user(state, &user, ip_address, user_agent).await?;
+
         tracing::debug!(
             user_id = user.id,
-            "login rejected: account pending activation"
+            session_version = user.session_version,
+            "login succeeded"
         );
-        return Err(AsterError::auth_pending_activation(
-            "account pending activation",
-        ));
+
+        Ok(LoginResult {
+            access_token: access,
+            refresh_token: refresh,
+            user_id: user.id,
+        })
     }
+    .await;
 
-    if !hash::verify_password(password, &user.password_hash)? {
-        tracing::debug!(user_id = user.id, "login rejected: invalid password");
-        return Err(AsterError::auth_invalid_credentials("wrong password"));
-    }
+    record_login_metric(state, &outcome);
+    outcome
+}
 
-    let (access, refresh) = issue_tokens_for_user(state, &user, ip_address, user_agent).await?;
-
-    tracing::debug!(
-        user_id = user.id,
-        session_version = user.session_version,
-        "login succeeded"
-    );
-
-    Ok(LoginResult {
-        access_token: access,
-        refresh_token: refresh,
-        user_id: user.id,
-    })
+fn record_login_metric(state: &PrimaryAppState, result: &Result<LoginResult>) {
+    let (status, reason) = match result {
+        Ok(_) => ("success", "ok"),
+        Err(AsterError::AuthInvalidCredentials(_)) => ("failure", "invalid_credentials"),
+        Err(AsterError::AuthForbidden(_)) => ("failure", "forbidden"),
+        Err(AsterError::AuthPendingActivation(_)) => ("failure", "pending_activation"),
+        Err(AsterError::RateLimited(_)) => ("failure", "rate_limited"),
+        Err(_) => ("failure", "error"),
+    };
+    state.metrics.record_auth_event("login", status, reason);
 }
 
 pub async fn change_password(

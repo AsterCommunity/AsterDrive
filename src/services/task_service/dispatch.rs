@@ -84,6 +84,8 @@ pub async fn dispatch_due(state: &PrimaryAppState) -> Result<DispatchStats> {
         }
     }
 
+    refresh_pending_metric(state).await;
+
     if let Some(first_error) = first_error {
         tracing::warn!(
             stats = ?stats,
@@ -94,6 +96,18 @@ pub async fn dispatch_due(state: &PrimaryAppState) -> Result<DispatchStats> {
     }
 
     Ok(stats)
+}
+
+async fn refresh_pending_metric(state: &PrimaryAppState) {
+    match crate::db::repository::background_task_repo::count_pending_or_retry(state.writer_db())
+        .await
+    {
+        Ok(pending) => state.metrics.set_background_tasks_pending(pending),
+        Err(error) => tracing::warn!(
+            error = %error,
+            "failed to refresh background task pending metric"
+        ),
+    }
 }
 
 async fn dispatch_lane(

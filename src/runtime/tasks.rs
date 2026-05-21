@@ -428,21 +428,14 @@ fn effective_dispatch_max_interval(base_interval: Duration, max_interval: Durati
     max_interval.max(base_interval)
 }
 
-fn build_background_tasks_base() -> BackgroundTasks {
-    #[cfg(not(feature = "metrics"))]
-    {
-        BackgroundTasks::new()
+fn build_background_tasks_base(
+    metrics: &crate::metrics_core::SharedMetricsRecorder,
+) -> BackgroundTasks {
+    let mut tasks = BackgroundTasks::new();
+    if let Some(task) = metrics.system_metrics_updater_task(tasks.shutdown_token()) {
+        tasks.push(task);
     }
-
-    #[cfg(feature = "metrics")]
-    {
-        let mut tasks = BackgroundTasks::new();
-        tasks.push(crate::metrics::system_metrics_updater_task(
-            tasks.shutdown_token(),
-        ));
-
-        tasks
-    }
+    tasks
 }
 
 /// Spawn all primary-only periodic background cleanup tasks.
@@ -450,7 +443,7 @@ pub fn spawn_primary_background_tasks(
     state: web::Data<PrimaryAppState>,
     share_download_rollback_worker: ShareDownloadRollbackWorker,
 ) -> BackgroundTasks {
-    let mut tasks = build_background_tasks_base();
+    let mut tasks = build_background_tasks_base(&state.metrics);
     let shutdown_token = tasks.shutdown_token();
 
     tasks.push(
@@ -832,9 +825,11 @@ pub fn spawn_primary_background_tasks(
 }
 
 /// Spawn only follower-safe background tasks.
-pub fn spawn_follower_background_tasks() -> BackgroundTasks {
+pub fn spawn_follower_background_tasks(
+    metrics: crate::metrics_core::SharedMetricsRecorder,
+) -> BackgroundTasks {
     tracing::info!("follower mode enabled; skipping primary-only background tasks");
-    build_background_tasks_base()
+    build_background_tasks_base(&metrics)
 }
 
 fn mail_outbox_dispatch_interval(state: &PrimaryAppState) -> Duration {
@@ -915,15 +910,20 @@ mod tests {
             crate::services::storage_change_service::STORAGE_CHANGE_CHANNEL_CAPACITY,
         );
         let (share_download_rollback, _worker) =
-            crate::services::share_service::build_share_download_rollback_queue(db.clone(), 1);
+            crate::services::share_service::build_share_download_rollback_queue(
+                db.clone(),
+                1,
+                crate::metrics_core::NoopMetrics::arc(),
+            );
 
         web::Data::new(PrimaryAppState {
             db_handles: crate::db::DbHandles::single(db),
-            driver_registry: Arc::new(crate::storage::DriverRegistry::new()),
+            driver_registry: Arc::new(crate::storage::DriverRegistry::noop()),
             runtime_config,
             policy_snapshot: Arc::new(crate::storage::PolicySnapshot::new()),
             config: Arc::new(crate::config::Config::default()),
             cache,
+            metrics: crate::metrics_core::NoopMetrics::arc(),
             mail_sender: crate::services::mail_service::memory_sender(),
             storage_change_tx,
             share_download_rollback,
@@ -991,7 +991,7 @@ mod tests {
 
     #[tokio::test]
     async fn follower_background_tasks_can_shutdown_without_primary_workers() {
-        let tasks = spawn_follower_background_tasks();
+        let tasks = spawn_follower_background_tasks(crate::metrics_core::NoopMetrics::arc());
 
         tasks.shutdown().await;
     }
