@@ -11,8 +11,8 @@ pub use actions::{
 };
 pub(crate) use public::invalidate_public_thumbnail_support_cache;
 pub use public::{
-    PUBLIC_CONFIG_CACHE_CONTROL, PublicBranding, get_public_branding, get_public_preview_apps,
-    get_public_thumbnail_support,
+    PUBLIC_CONFIG_CACHE_CONTROL, PublicBranding, get_public_branding,
+    get_public_media_data_support, get_public_preview_apps, get_public_thumbnail_support,
 };
 pub use schema::{
     ConfigSchemaItem, TemplateVariableGroup, TemplateVariableItem, get_schema,

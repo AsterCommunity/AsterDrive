@@ -17,7 +17,7 @@ pub use registry::{
     normalize_ffprobe_command, normalize_media_processing_registry_config_value,
     normalize_vips_command, parse_media_processor_kind, processor_candidates_for_file_name,
     processor_candidates_for_use, processor_config_for_kind, processor_supports_use,
-    public_thumbnail_support, vips_command_from_registry_value,
+    public_media_data_support, public_thumbnail_support, vips_command_from_registry_value,
 };
 pub use types::{
     BUILTIN_AUDIO_METADATA_EXTENSIONS, BUILTIN_IMAGE_METADATA_EXTENSIONS,
@@ -26,5 +26,7 @@ pub use types::{
     DEFAULT_VIPS_EXTENSIONS, MEDIA_PROCESSING_REGISTRY_VERSION, MatchedMediaProcessor,
     MediaProcessingMatchKind, MediaProcessingProcessorConfig,
     MediaProcessingProcessorRuntimeConfig, MediaProcessingRegistryConfig, MediaProcessingUse,
-    PUBLIC_THUMBNAIL_SUPPORT_VERSION, PublicThumbnailSupport,
+    PUBLIC_MEDIA_DATA_MAX_SAFE_SOURCE_BYTES, PUBLIC_MEDIA_DATA_SUPPORT_VERSION,
+    PUBLIC_THUMBNAIL_SUPPORT_VERSION, PublicMediaDataKindSupport, PublicMediaDataKindsSupport,
+    PublicMediaDataSupport, PublicMediaDataSupportMatch, PublicThumbnailSupport,
 };

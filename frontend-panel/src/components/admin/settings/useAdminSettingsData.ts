@@ -36,6 +36,7 @@ import {
 } from "@/lib/adminConfigMetadataCache";
 import { adminConfigService } from "@/services/adminService";
 import { useBrandingStore } from "@/stores/brandingStore";
+import { useMediaDataSupportStore } from "@/stores/mediaDataSupportStore";
 import { usePreviewAppStore } from "@/stores/previewAppStore";
 import { useThumbnailSupportStore } from "@/stores/thumbnailSupportStore";
 import type {
@@ -56,6 +57,11 @@ const PUBLIC_BRANDING_CONFIG_KEYS = new Set([
 	"branding_favicon_url",
 	"branding_wordmark_dark_url",
 	"branding_wordmark_light_url",
+]);
+const MEDIA_DATA_SUPPORT_CONFIG_KEYS = new Set([
+	MEDIA_PROCESSING_CONFIG_KEY,
+	"media_metadata_enabled",
+	"media_metadata_max_source_bytes",
 ]);
 
 type TranslationFn = (key: string, options?: Record<string, unknown>) => string;
@@ -626,6 +632,9 @@ export function useAdminSettingsData({
 			const mediaProcessingChanged = changedExistingConfigs.some(
 				(config) => config.key === MEDIA_PROCESSING_CONFIG_KEY,
 			);
+			const mediaDataSupportChanged = changedExistingConfigs.some((config) =>
+				MEDIA_DATA_SUPPORT_CONFIG_KEYS.has(config.key),
+			);
 			const publicBrandingChanged = changedExistingConfigs.some((config) =>
 				PUBLIC_BRANDING_CONFIG_KEYS.has(config.key),
 			);
@@ -676,6 +685,10 @@ export function useAdminSettingsData({
 			if (mediaProcessingChanged) {
 				useThumbnailSupportStore.getState().invalidate();
 				void useThumbnailSupportStore.getState().load({ force: true });
+			}
+			if (mediaDataSupportChanged) {
+				useMediaDataSupportStore.getState().invalidate();
+				void useMediaDataSupportStore.getState().load({ force: true });
 			}
 			toast.success(t("settings_saved"));
 		} catch (error) {

@@ -305,6 +305,14 @@ export type PublicPreviewAppsConfig =
 	components["schemas"]["PublicPreviewAppsConfig"];
 export type PublicThumbnailSupport =
 	components["schemas"]["PublicThumbnailSupport"];
+export type PublicMediaDataKindSupport =
+	components["schemas"]["PublicMediaDataKindSupport"];
+export type PublicMediaDataKindsSupport =
+	components["schemas"]["PublicMediaDataKindsSupport"];
+export type PublicMediaDataSupport =
+	components["schemas"]["PublicMediaDataSupport"];
+export type PublicMediaDataSupportMatch =
+	components["schemas"]["PublicMediaDataSupportMatch"];
 export type SystemConfig = components["schemas"]["SystemConfig"];
 export type SystemConfigPage = components["schemas"]["OffsetPage_SystemConfig"];
 export type SystemConfigSource = components["schemas"]["SystemConfigSource"];

@@ -240,6 +240,49 @@ fn tiff_with_full_size_sub_ifd() -> Vec<u8> {
     cursor.into_inner()
 }
 
+fn tiff_like_raw_with_exif_fields_and_bad_gps_ifd() -> Vec<u8> {
+    let mut entries = vec![
+        (0x0100, TiffValue::Long(6016)),
+        (0x0101, TiffValue::Long(4016)),
+        (0x010f, TiffValue::Ascii("NIKON CORPORATION")),
+        (0x0110, TiffValue::Ascii("NIKON D3400")),
+        (0x0112, TiffValue::Short(8)),
+        (0x0131, TiffValue::Ascii("Ver.1.12")),
+        (0x013b, TiffValue::Ascii("Aster Tester")),
+        (0x8769, TiffValue::Long(0)),
+        (0x8825, TiffValue::Long(0x00ff_ffff)),
+    ];
+    let mut exif_entries = vec![
+        (0x829a, TiffValue::Rational(1, 320)),
+        (0x829d, TiffValue::Rational(56, 10)),
+        (0x8827, TiffValue::Short(400)),
+        (0x9003, TiffValue::Ascii("2026:03:05 17:19:01")),
+        (0x9204, TiffValue::SRational(0, 10)),
+        (0x9209, TiffValue::Short(16)),
+        (0x920a, TiffValue::Rational(135, 1)),
+        (0xa405, TiffValue::Short(202)),
+        (0xa433, TiffValue::Ascii("NIKON")),
+        (0xa434, TiffValue::Ascii("55-200mm f/4-5.6")),
+    ];
+    entries.sort_by_key(|(tag, _)| *tag);
+    exif_entries.sort_by_key(|(tag, _)| *tag);
+
+    let exif_ifd_offset = 8 + write_tiff_ifd(&entries, 8).len();
+    for (tag, value) in &mut entries {
+        if *tag == 0x8769 {
+            *value = TiffValue::Long(exif_ifd_offset.try_into().unwrap());
+        }
+    }
+
+    let mut tiff = Vec::new();
+    tiff.extend_from_slice(b"II");
+    push_u16_le(&mut tiff, 42);
+    push_u32_le(&mut tiff, 8);
+    tiff.extend_from_slice(&write_tiff_ifd(&entries, 8));
+    tiff.extend_from_slice(&write_tiff_ifd(&exif_entries, exif_ifd_offset));
+    tiff
+}
+
 fn tiny_mp4() -> Vec<u8> {
     base64::engine::general_purpose::STANDARD
         .decode("AAAAIGZ0eXBpc29tAAACAGlzb21pc28yYXZjMW1wNDEAAAN1bW9vdgAAAGxtdmhkAAAAAAAAAAAAAAAAAAAD6AAAAMgAAQAAAQAAAAAAAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAgAAAp90cmFrAAAAXHRraGQAAAADAAAAAAAAAAAAAAABAAAAAAAAAMgAAAAAAAAAAAAAAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAABAAAAAABAAAAAQAAAAAAAkZWR0cwAAABxlbHN0AAAAAAAAAAEAAADIAAAEAAABAAAAAAIXbWRpYQAAACBtZGhkAAAAAAAAAAAAAAAAAAAyAAAACgBVxAAAAAAALWhkbHIAAAAAAAAAAHZpZGUAAAAAAAAAAAAAAABWaWRlb0hhbmRsZXIAAAABwm1pbmYAAAAUdm1oZAAAAAEAAAAAAAAAAAAAACRkaW5mAAAAHGRyZWYAAAAAAAAAAQAAAAx1cmwgAAAAAQAAAYJzdGJsAAAAvnN0c2QAAAAAAAAAAQAAAK5hdmMxAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAAAABAAEABIAAAASAAAAAAAAAABFUxhdmM2Mi4yOC4xMDAgbGlieDI2NAAAAAAAAAAAAAAAGP//AAAANGF2Y0MBZAAK/+EAF2dkAAqs2V7ARAAAAwAEAAADAMg8SJZYAQAGaOvjyyLA/fj4AAAAABBwYXNwAAAAAQAAAAEAAAAUYnRydAAAAAAAAHcQAAAAAAAAABhzdHRzAAAAAAAAAAEAAAAFAAACAAAAABRzdHNzAAAAAAAAAAEAAAABAAAAOGN0dHMAAAAAAAAABQAAAAEAAAQAAAAAAQAACgAAAAABAAAEAAAAAAEAAAAAAAAAAQAAAgAAAAAcc3RzYwAAAAAAAAABAAAAAQAAAAUAAAABAAAAKHN0c3oAAAAAAAAAAAAAAAUAAALKAAAADAAAAAwAAAAMAAAADAAAABRzdGNvAAAAAAAAAAEAAAOlAAAAYnVkdGEAAABabWV0YQAAAAAAAAAhaGRscgAAAAAAAAAAbWRpcmFwcGwAAAAAAAAAAAAAAAAtaWxzdAAAACWpdG9vAAAAHWRhdGEAAAABAAAAAExhdmY2Mi4xMi4xMDAAAAAIZnJlZQAAAwJtZGF0AAACrgYF//+q3EXpvebZSLeWLNgg2SPu73gyNjQgLSBjb3JlIDE2NSByMzIyMiBiMzU2MDVhIC0gSC4yNjQvTVBFRy00IEFWQyBjb2RlYyAtIENvcHlsZWZ0IDIwMDMtMjAyNSAtIGh0dHA6Ly93d3cudmlkZW9sYW4ub3JnL3gyNjQuaHRtbCAtIG9wdGlvbnM6IGNhYmFjPTEgcmVmPTMgZGVibG9jaz0xOjA6MCBhbmFseXNlPTB4MzoweDExMyBtZT1oZXggc3VibWU9NyBwc3k9MSBwc3lfcmQ9MS4wMDowLjAwIG1peGVkX3JlZj0xIG1lX3JhbmdlPTE2IGNocm9tYV9tZT0xIHRyZWxsaXM9MSA4eDhkY3Q9MSBjcW09MCBkZWFkem9uZT0yMSwxMSBmYXN0X3Bza2lwPTEgY2hyb21hX3FwX29mZnNldD0tMiB0aHJlYWRzPTEgbG9va2FoZWFkX3RocmVhZHM9MSBzbGljZWRfdGhyZWFkcz0wIG5yPTAgZGVjaW1hdGU9MSBpbnRlcmxhY2VkPTAgYmx1cmF5X2NvbXBhdD0wIGNvbnN0cmFpbmVkX2ludHJhPTAgYmZyYW1lcz0zIGJfcHlyYW1pZD0yIGJfYWRhcHQ9MSBiX2JpYXM9MCBkaXJlY3Q9MSB3ZWlnaHRiPTEgb3Blbl9nb3A9MCB3ZWlnaHRwPTIga2V5aW50PTI1MCBrZXlpbnRfbWluPTI1IHNjZW5lY3V0PTQwIGludHJhX3JlZnJlc2g9MCByY19sb29rYWhlYWQ9NDAgcmM9Y3JmIG1idHJlZT0xIGNyZj0yMy4wIHFjb21wPTAuNjAgcXBtaW49MCBxcG1heD02OSBxcHN0ZXA9NCBpcF9yYXRpbz0xLjQwIGFxPTE6MS4wMACAAAAAFGWIhAAz//7fMvgUzcWJzsyAXJ6XAAAACEGaJGxCv/7AAAAACEGeQniF/8GBAAAACAGeYXRCv8SAAAAACAGeY2pCv8SB")
@@ -610,6 +653,57 @@ async fn file_media_metadata_prefers_full_size_tiff_sub_ifd_dimensions() {
     assert_eq!(metadata["kind"], "image");
     assert_eq!(metadata["width"], 6016);
     assert_eq!(metadata["height"], 4016);
+}
+
+#[actix_web::test]
+async fn file_media_metadata_extracts_tiff_like_raw_exif_fields_with_parser_fallback() {
+    let state = common::setup().await;
+    let app = create_test_app!(state.clone());
+    let (token, _) = register_and_login!(app);
+    let bytes = tiff_like_raw_with_exif_fields_and_bad_gps_ifd();
+    let file_id = insert_synthetic_media_file(
+        &state,
+        "fallback.nef",
+        "image/x-nikon-nef",
+        FileCategory::Image,
+        &bytes,
+    )
+    .await;
+
+    let resp = request_media_metadata(&app, &token, file_id).await;
+    assert_eq!(resp.status(), 202);
+
+    let stats = aster_drive::services::task_service::drain(&state)
+        .await
+        .expect("task drain should succeed");
+    assert_eq!(stats.succeeded, 1);
+
+    let resp = request_media_metadata(&app, &token, file_id).await;
+    assert_eq!(resp.status(), 200);
+    let body: Value = test::read_body_json(resp).await;
+    let metadata = &body["data"]["metadata"];
+    assert_eq!(metadata["kind"], "image");
+    assert_eq!(metadata["width"], 6016);
+    assert_eq!(metadata["height"], 4016);
+    assert_eq!(metadata["camera_make"], "NIKON CORPORATION");
+    assert_eq!(metadata["camera_model"], "NIKON D3400");
+    assert_eq!(metadata["lens_make"], "NIKON");
+    assert_eq!(metadata["lens_model"], "55-200mm f/4-5.6");
+    assert_eq!(metadata["f_number"], 5.6);
+    assert_eq!(metadata["exposure_time_seconds"], 0.003125);
+    assert_eq!(metadata["iso"], 400);
+    assert_eq!(metadata["exposure_bias_ev"], 0.0);
+    assert_eq!(metadata["flash_fired"], false);
+    assert_eq!(metadata["flash_mode"], 16);
+    assert_eq!(metadata["focal_length_mm"], 135.0);
+    assert_eq!(metadata["focal_length_35mm"], 202);
+    assert_eq!(metadata["taken_at"], "2026-03-05T17:19:01");
+    assert_eq!(metadata["orientation"], 8);
+    assert_eq!(metadata["artist"], "Aster Tester");
+    assert_eq!(metadata["software"], "Ver.1.12");
+    assert!(metadata["gps_latitude"].is_null());
+    assert!(metadata["gps_longitude"].is_null());
+    assert!(metadata["gps_altitude_meters"].is_null());
 }
 
 #[actix_web::test]

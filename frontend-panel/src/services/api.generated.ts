@@ -5238,6 +5238,26 @@ export interface components {
             wordmark_dark_url: string;
             wordmark_light_url: string;
         };
+        PublicMediaDataKindSupport: {
+            enabled: boolean;
+            extensions?: string[];
+            match: components["schemas"]["PublicMediaDataSupportMatch"];
+        };
+        PublicMediaDataKindsSupport: {
+            audio: components["schemas"]["PublicMediaDataKindSupport"];
+            image: components["schemas"]["PublicMediaDataKindSupport"];
+            video: components["schemas"]["PublicMediaDataKindSupport"];
+        };
+        PublicMediaDataSupport: {
+            enabled: boolean;
+            kinds: components["schemas"]["PublicMediaDataKindsSupport"];
+            /** Format: int64 */
+            max_source_bytes: number;
+            /** Format: int32 */
+            version: number;
+        };
+        /** @enum {string} */
+        PublicMediaDataSupportMatch: "extensions" | "any";
         PublicPreviewAppConfig: {
             /** @default null */
             action: string | null;

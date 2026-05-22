@@ -22,6 +22,8 @@ const mockState = vi.hoisted(() => ({
 	brandingLoad: vi.fn(),
 	deleteConfig: vi.fn(),
 	handleApiError: vi.fn(),
+	mediaDataSupportInvalidate: vi.fn(),
+	mediaDataSupportLoad: vi.fn(),
 	listConfigs: vi.fn(),
 	previewInvalidate: vi.fn(),
 	previewLoad: vi.fn(),
@@ -63,6 +65,17 @@ vi.mock("@/services/adminService", () => ({
 			mockState.templateVariables(...args),
 	},
 }));
+
+vi.mock("@/stores/mediaDataSupportStore", () => {
+	const useMediaDataSupportStore = Object.assign(vi.fn(), {
+		getState: () => ({
+			invalidate: mockState.mediaDataSupportInvalidate,
+			load: mockState.mediaDataSupportLoad,
+		}),
+	});
+
+	return { useMediaDataSupportStore };
+});
 
 vi.mock("@/stores/previewAppStore", () => {
 	const usePreviewAppStore = Object.assign(vi.fn(), {
@@ -323,7 +336,9 @@ describe("useAdminSettingsData", () => {
 		mockState.setConfig.mockReset();
 		mockState.templateVariables.mockReset();
 		mockState.thumbnailSupportInvalidate.mockReset();
+		mockState.mediaDataSupportInvalidate.mockReset();
 		mockState.thumbnailSupportLoad.mockReset();
+		mockState.mediaDataSupportLoad.mockReset();
 		mockState.toastSuccess.mockReset();
 
 		mockState.listConfigs.mockResolvedValue({
@@ -638,6 +653,10 @@ describe("useAdminSettingsData", () => {
 		expect(mockState.thumbnailSupportLoad).toHaveBeenCalledWith({
 			force: true,
 		});
+		expect(mockState.mediaDataSupportInvalidate).toHaveBeenCalledTimes(1);
+		expect(mockState.mediaDataSupportLoad).toHaveBeenCalledWith({
+			force: true,
+		});
 		expect(mockState.toastSuccess).toHaveBeenCalledWith("settings_saved");
 
 		await waitFor(() => {
@@ -676,6 +695,8 @@ describe("useAdminSettingsData", () => {
 		expect(mockState.previewLoad).not.toHaveBeenCalled();
 		expect(mockState.thumbnailSupportInvalidate).not.toHaveBeenCalled();
 		expect(mockState.thumbnailSupportLoad).not.toHaveBeenCalled();
+		expect(mockState.mediaDataSupportInvalidate).not.toHaveBeenCalled();
+		expect(mockState.mediaDataSupportLoad).not.toHaveBeenCalled();
 	});
 
 	it("tests the media processing ffprobe command against the current draft", async () => {

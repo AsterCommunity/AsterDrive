@@ -18,6 +18,7 @@ use crate::storage::StorageDriver;
 struct RangeOnlyDriver {
     data: Vec<u8>,
     range_calls: AtomicUsize,
+    range_bytes_requested: AtomicUsize,
     stream_calls: AtomicUsize,
 }
 
@@ -26,6 +27,7 @@ impl RangeOnlyDriver {
         Self {
             data,
             range_calls: AtomicUsize::new(0),
+            range_bytes_requested: AtomicUsize::new(0),
             stream_calls: AtomicUsize::new(0),
         }
     }
@@ -53,6 +55,11 @@ impl StorageDriver for RangeOnlyDriver {
         length: Option<u64>,
     ) -> Result<Box<dyn AsyncRead + Unpin + Send>> {
         self.range_calls.fetch_add(1, Ordering::SeqCst);
+        if let Some(length) = length {
+            let length = crate::utils::numbers::u64_to_usize(length, "range test length")?;
+            self.range_bytes_requested
+                .fetch_add(length, Ordering::SeqCst);
+        }
         let start = crate::utils::numbers::u64_to_usize(offset, "range test start")?;
         let end = length
             .map(|length| {
@@ -120,6 +127,25 @@ fn tiny_png_bytes() -> Vec<u8> {
         ::image::ExtendedColorType::Rgb8,
     )
     .expect("tiny PNG should encode");
+    bytes
+}
+
+fn tiff_like_raw_with_large_tail() -> Vec<u8> {
+    let mut bytes = Vec::new();
+    bytes.extend_from_slice(b"II");
+    bytes.extend_from_slice(&42_u16.to_le_bytes());
+    bytes.extend_from_slice(&8_u32.to_le_bytes());
+    bytes.extend_from_slice(&2_u16.to_le_bytes());
+    bytes.extend_from_slice(&0x0100_u16.to_le_bytes());
+    bytes.extend_from_slice(&4_u16.to_le_bytes());
+    bytes.extend_from_slice(&1_u32.to_le_bytes());
+    bytes.extend_from_slice(&6016_u32.to_le_bytes());
+    bytes.extend_from_slice(&0x0101_u16.to_le_bytes());
+    bytes.extend_from_slice(&4_u16.to_le_bytes());
+    bytes.extend_from_slice(&1_u32.to_le_bytes());
+    bytes.extend_from_slice(&4016_u32.to_le_bytes());
+    bytes.extend_from_slice(&0_u32.to_le_bytes());
+    bytes.resize(16 * 1024 * 1024, 0);
     bytes
 }
 
@@ -202,6 +228,34 @@ async fn range_media_metadata_source_uses_get_range_without_streaming_whole_blob
     assert_eq!(metadata.height, 1);
     assert!(driver.range_calls.load(Ordering::SeqCst) > 0);
     assert_eq!(driver.stream_calls.load(Ordering::SeqCst), 0);
+}
+
+#[tokio::test]
+async fn range_tiff_fallback_uses_seekable_ranges_without_streaming_whole_blob() {
+    let bytes = tiff_like_raw_with_large_tail();
+    let blob = test_blob(bytes.len());
+    let driver = Arc::new(RangeOnlyDriver::new(bytes));
+    let source = PreparedRangeMediaMetadataSource::new(
+        driver.clone(),
+        &blob,
+        "large-tail.nef",
+        "image/x-nikon-nef",
+        tokio::runtime::Handle::current(),
+    )
+    .expect("range source should build");
+
+    let metadata = tokio::task::spawn_blocking(move || {
+        parse_image_metadata_with_reader_factory("storage range", || Ok(source.reader()))
+    })
+    .await
+    .expect("range metadata task should not panic")
+    .expect("range TIFF metadata should parse");
+
+    assert_eq!(metadata.width, 6016);
+    assert_eq!(metadata.height, 4016);
+    assert!(driver.range_calls.load(Ordering::SeqCst) > 0);
+    assert_eq!(driver.stream_calls.load(Ordering::SeqCst), 0);
+    assert!(driver.range_bytes_requested.load(Ordering::SeqCst) < 2 * 1024 * 1024);
 }
 
 #[tokio::test]

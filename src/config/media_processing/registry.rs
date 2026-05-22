@@ -5,9 +5,9 @@ use std::path::Path;
 #[cfg(windows)]
 use std::path::PathBuf;
 
-use crate::config::RuntimeConfig;
+use crate::config::{RuntimeConfig, operations};
 use crate::errors::{AsterError, Result};
-use crate::types::MediaProcessorKind;
+use crate::types::{MediaMetadataKind, MediaProcessorKind};
 
 use super::types::{
     BUILTIN_AUDIO_METADATA_EXTENSIONS, BUILTIN_IMAGE_METADATA_EXTENSIONS,
@@ -16,7 +16,9 @@ use super::types::{
     DEFAULT_VIPS_EXTENSIONS, MEDIA_PROCESSING_REGISTRY_VERSION, MatchedMediaProcessor,
     MediaProcessingMatchKind, MediaProcessingProcessorConfig,
     MediaProcessingProcessorRuntimeConfig, MediaProcessingRegistryConfig, MediaProcessingUse,
-    PUBLIC_THUMBNAIL_SUPPORT_VERSION, PublicThumbnailSupport,
+    PUBLIC_MEDIA_DATA_MAX_SAFE_SOURCE_BYTES, PUBLIC_MEDIA_DATA_SUPPORT_VERSION,
+    PUBLIC_THUMBNAIL_SUPPORT_VERSION, PublicMediaDataKindSupport, PublicMediaDataKindsSupport,
+    PublicMediaDataSupport, PublicMediaDataSupportMatch, PublicThumbnailSupport,
 };
 use crate::config::definitions::MEDIA_PROCESSING_REGISTRY_JSON_KEY;
 
@@ -181,6 +183,117 @@ pub fn public_thumbnail_support(runtime_config: &RuntimeConfig) -> PublicThumbna
         version: PUBLIC_THUMBNAIL_SUPPORT_VERSION,
         extensions: extensions.into_iter().collect(),
     }
+}
+
+pub fn public_media_data_support(runtime_config: &RuntimeConfig) -> PublicMediaDataSupport {
+    let registry = media_processing_registry(runtime_config);
+    let enabled = operations::media_metadata_enabled(runtime_config);
+
+    PublicMediaDataSupport {
+        version: PUBLIC_MEDIA_DATA_SUPPORT_VERSION,
+        enabled,
+        max_source_bytes: operations::media_metadata_max_source_bytes(runtime_config)
+            .min(PUBLIC_MEDIA_DATA_MAX_SAFE_SOURCE_BYTES),
+        kinds: PublicMediaDataKindsSupport {
+            image: public_media_data_kind_support(&registry, enabled, MediaMetadataKind::Image),
+            audio: public_media_data_kind_support(&registry, enabled, MediaMetadataKind::Audio),
+            video: public_media_data_kind_support(&registry, enabled, MediaMetadataKind::Video),
+        },
+    }
+}
+
+fn public_media_data_kind_support(
+    registry: &MediaProcessingRegistryConfig,
+    media_enabled: bool,
+    kind: MediaMetadataKind,
+) -> PublicMediaDataKindSupport {
+    if !media_enabled {
+        return disabled_media_data_kind_support();
+    }
+
+    match kind {
+        MediaMetadataKind::Image => builtin_media_data_kind_support(
+            registry,
+            MediaProcessorKind::Images,
+            MediaProcessingUse::MetadataImage,
+            BUILTIN_IMAGE_METADATA_EXTENSIONS.iter().copied(),
+        ),
+        MediaMetadataKind::Audio => builtin_media_data_kind_support(
+            registry,
+            MediaProcessorKind::Lofty,
+            MediaProcessingUse::MetadataAudio,
+            BUILTIN_AUDIO_METADATA_EXTENSIONS.iter().copied(),
+        ),
+        MediaMetadataKind::Video => ffprobe_media_data_kind_support(registry),
+    }
+}
+
+fn builtin_media_data_kind_support(
+    registry: &MediaProcessingRegistryConfig,
+    processor_kind: MediaProcessorKind,
+    media_use: MediaProcessingUse,
+    extensions: impl IntoIterator<Item = &'static str>,
+) -> PublicMediaDataKindSupport {
+    let Some(processor) = processor_config_for_kind(registry, processor_kind) else {
+        return disabled_media_data_kind_support();
+    };
+    if !processor.enabled || !processor_supports_use(processor, media_use) {
+        return disabled_media_data_kind_support();
+    }
+
+    PublicMediaDataKindSupport {
+        enabled: true,
+        match_kind: PublicMediaDataSupportMatch::Extensions,
+        extensions: sorted_extensions(extensions),
+    }
+}
+
+fn ffprobe_media_data_kind_support(
+    registry: &MediaProcessingRegistryConfig,
+) -> PublicMediaDataKindSupport {
+    let Some(processor) = processor_config_for_kind(registry, MediaProcessorKind::FfprobeCli)
+    else {
+        return disabled_media_data_kind_support();
+    };
+    if !processor.enabled || !processor_supports_use(processor, MediaProcessingUse::MetadataVideo) {
+        return disabled_media_data_kind_support();
+    }
+
+    let command = processor
+        .config
+        .command
+        .as_deref()
+        .unwrap_or(DEFAULT_FFPROBE_COMMAND);
+    if !command_is_available(command) {
+        return disabled_media_data_kind_support();
+    }
+
+    PublicMediaDataKindSupport {
+        enabled: true,
+        match_kind: if processor.extensions.is_empty() {
+            PublicMediaDataSupportMatch::Any
+        } else {
+            PublicMediaDataSupportMatch::Extensions
+        },
+        extensions: sorted_extensions(processor.extensions.iter().map(String::as_str)),
+    }
+}
+
+fn disabled_media_data_kind_support() -> PublicMediaDataKindSupport {
+    PublicMediaDataKindSupport {
+        enabled: false,
+        match_kind: PublicMediaDataSupportMatch::Extensions,
+        extensions: Vec::new(),
+    }
+}
+
+fn sorted_extensions<'a>(extensions: impl IntoIterator<Item = &'a str>) -> Vec<String> {
+    extensions
+        .into_iter()
+        .map(str::to_string)
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect()
 }
 
 pub fn default_media_processing_registry() -> MediaProcessingRegistryConfig {

@@ -30,6 +30,7 @@ pub fn routes() -> impl actix_web::dev::HttpServiceFactory + use<> {
         .route("/branding", web::get().to(get_branding))
         .route("/preview-apps", web::get().to(get_preview_apps))
         .route("/thumbnail-support", web::get().to(get_thumbnail_support))
+        .route("/media-data-support", web::get().to(get_media_data_support))
         .route(
             "/remote-enrollment/redeem",
             web::post().to(redeem_remote_enrollment),
@@ -79,6 +80,20 @@ pub async fn get_preview_apps(state: web::Data<PrimaryAppState>) -> Result<HttpR
 )]
 pub async fn get_thumbnail_support(state: web::Data<PrimaryAppState>) -> Result<HttpResponse> {
     let support = config_service::get_public_thumbnail_support(&state).await;
+    Ok(public_config_response(support))
+}
+
+#[api_docs_macros::path(
+    get,
+    path = "/api/v1/public/media-data-support",
+    tag = "public",
+    operation_id = "get_public_media_data_support",
+    responses(
+        (status = 200, description = "Public media metadata support config", body = inline(ApiResponse<crate::config::media_processing::PublicMediaDataSupport>)),
+    ),
+)]
+pub async fn get_media_data_support(state: web::Data<PrimaryAppState>) -> Result<HttpResponse> {
+    let support = config_service::get_public_media_data_support(&state).await;
     Ok(public_config_response(support))
 }
 

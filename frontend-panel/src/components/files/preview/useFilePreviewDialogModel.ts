@@ -1,0 +1,512 @@
+import { useCallback, useEffect, useMemo, useReducer, useRef } from "react";
+import { supportsAudioMediaData } from "@/lib/mediaDataSupport";
+import { fileService } from "@/services/fileService";
+import { useMediaDataSupportStore } from "@/stores/mediaDataSupportStore";
+import type { MusicPlayerTrack } from "@/stores/musicPlayerStore";
+import { usePreviewAppStore } from "@/stores/previewAppStore";
+import type {
+	ArchivePreviewManifest,
+	FileInfo,
+	FileListItem,
+	PreviewLinkInfo,
+	ShareStreamSessionInfo,
+	WopiLaunchSession,
+} from "@/types/api";
+import {
+	detectFilePreviewProfile,
+	getFileExtension,
+} from "./file-capabilities";
+import { resolveOpenWithOptionLabel } from "./openWithLabel";
+import type { OpenWithMode, OpenWithOption } from "./types";
+import { getVideoBrowserOpenWithOption } from "./video-browser-config";
+
+const PREVIEW_DIALOG_OPEN_ANIMATION_MS = 120;
+
+export interface FilePreviewDialogProps {
+	open: boolean;
+	file: FileInfo | FileListItem;
+	onClose: () => void;
+	onOpenChangeComplete?: (open: boolean) => void;
+	onFileUpdated?: () => void;
+	downloadPath?: string;
+	imagePreviewPath?: string;
+	thumbnailPath?: string;
+	editable?: boolean;
+	previewLinkFactory?: () => Promise<PreviewLinkInfo>;
+	archivePreviewFactory?: (options?: {
+		signal?: AbortSignal;
+	}) => Promise<ArchivePreviewManifest>;
+	loadMusicBackendMetadata?: MusicPlayerTrack["loadBackendMetadata"];
+	mediaStreamLinkFactory?: () => Promise<ShareStreamSessionInfo>;
+	wopiSessionFactory?: (appKey: string) => Promise<WopiLaunchSession>;
+	openMode?: "auto" | "direct" | "picker";
+}
+
+interface FilePreviewDialogModelInput
+	extends Omit<
+		FilePreviewDialogProps,
+		"onOpenChangeComplete" | "onFileUpdated"
+	> {
+	language?: string;
+	translateFileLabel: (key: string) => string;
+}
+
+interface DialogState {
+	confirmOpen: boolean;
+	forceOpenMethodChooser: boolean;
+	hasConfirmedInitialMode: boolean;
+	isDialogAnimationEnabled: boolean;
+	isDirty: boolean;
+	isExpanded: boolean;
+	mode: OpenWithMode | null;
+	showAllOpenMethods: boolean;
+}
+
+type DialogStateAction =
+	| {
+			type: "syncPreferredMode";
+			mode: OpenWithMode | null;
+			fileChanged: boolean;
+	  }
+	| { type: "setShowAllOpenMethods"; open: boolean }
+	| { type: "setDirty"; dirty: boolean }
+	| { type: "setConfirmOpen"; open: boolean }
+	| { type: "selectOpenMethod"; mode: OpenWithMode }
+	| { type: "openMethodPicker" }
+	| { type: "discardChanges" }
+	| { type: "toggleExpanded" }
+	| { type: "disableDialogAnimation" };
+
+const initialDialogState: DialogState = {
+	confirmOpen: false,
+	forceOpenMethodChooser: false,
+	hasConfirmedInitialMode: false,
+	isDialogAnimationEnabled: true,
+	isDirty: false,
+	isExpanded: false,
+	mode: null,
+	showAllOpenMethods: false,
+};
+
+function dialogStateReducer(
+	state: DialogState,
+	action: DialogStateAction,
+): DialogState {
+	switch (action.type) {
+		case "syncPreferredMode":
+			if (action.fileChanged) {
+				return {
+					...state,
+					forceOpenMethodChooser: false,
+					hasConfirmedInitialMode: false,
+					isExpanded: false,
+					mode: action.mode,
+				};
+			}
+			return {
+				...state,
+				mode: action.mode,
+			};
+		case "setShowAllOpenMethods":
+			return state.showAllOpenMethods === action.open
+				? state
+				: { ...state, showAllOpenMethods: action.open };
+		case "setDirty":
+			return state.isDirty === action.dirty
+				? state
+				: { ...state, isDirty: action.dirty };
+		case "setConfirmOpen":
+			return state.confirmOpen === action.open
+				? state
+				: { ...state, confirmOpen: action.open };
+		case "selectOpenMethod":
+			return {
+				...state,
+				forceOpenMethodChooser: false,
+				hasConfirmedInitialMode: true,
+				isDialogAnimationEnabled: true,
+				mode: action.mode,
+			};
+		case "openMethodPicker":
+			return {
+				...state,
+				forceOpenMethodChooser: true,
+				hasConfirmedInitialMode: false,
+				isDialogAnimationEnabled: true,
+				showAllOpenMethods: false,
+			};
+		case "discardChanges":
+			return {
+				...state,
+				confirmOpen: false,
+				isDirty: false,
+			};
+		case "toggleExpanded":
+			return {
+				...state,
+				isDialogAnimationEnabled: false,
+				isExpanded: !state.isExpanded,
+			};
+		case "disableDialogAnimation":
+			return state.isDialogAnimationEnabled
+				? { ...state, isDialogAnimationEnabled: false }
+				: state;
+	}
+}
+
+function getEmbeddedOptionMode(option: OpenWithOption | null) {
+	if (!option) {
+		return "new_tab";
+	}
+
+	if (option.mode !== "url_template" && option.mode !== "wopi") {
+		return "iframe";
+	}
+
+	return option.config?.mode === "new_tab" ? "new_tab" : "iframe";
+}
+
+export function useFilePreviewDialogModel({
+	open,
+	file,
+	onClose,
+	downloadPath,
+	imagePreviewPath,
+	thumbnailPath,
+	editable = true,
+	previewLinkFactory,
+	archivePreviewFactory,
+	loadMusicBackendMetadata,
+	mediaStreamLinkFactory,
+	wopiSessionFactory,
+	openMode = "auto",
+	language,
+	translateFileLabel,
+}: FilePreviewDialogModelInput) {
+	const previewApps = usePreviewAppStore((state) => state.config);
+	const previewAppsLoaded = usePreviewAppStore((state) => state.isLoaded);
+	const loadPreviewApps = usePreviewAppStore((state) => state.load);
+	const mediaDataSupport = useMediaDataSupportStore((state) => state.config);
+	const mediaDataSupportLoaded = useMediaDataSupportStore(
+		(state) => state.isLoaded,
+	);
+	const loadMediaDataSupport = useMediaDataSupportStore((state) => state.load);
+	const resolvedDownloadPath =
+		downloadPath ?? fileService.downloadPath(file.id);
+	const resolvedImagePreviewPath =
+		imagePreviewPath ?? fileService.imagePreviewPath(file.id);
+	const resolvedThumbnailPath =
+		thumbnailPath ?? fileService.thumbnailPath(file.id);
+	const canRequestAudioMetadata =
+		mediaDataSupportLoaded && supportsAudioMediaData(file, mediaDataSupport);
+	const resolvedLoadMusicBackendMetadata =
+		loadMusicBackendMetadata ??
+		(canRequestAudioMetadata
+			? (signal?: AbortSignal) =>
+					import("@/lib/musicPlayer").then(
+						({ backendAudioMetadataToTrackMetadata }) =>
+							fileService
+								.getMediaMetadata(file.id, { signal })
+								.then((metadata) =>
+									backendAudioMetadataToTrackMetadata(metadata),
+								),
+					)
+			: undefined);
+
+	useEffect(() => {
+		if (!mediaDataSupportLoaded) {
+			void loadMediaDataSupport();
+		}
+	}, [loadMediaDataSupport, mediaDataSupportLoaded]);
+
+	useEffect(() => {
+		if (previewAppsLoaded) return;
+		void loadPreviewApps();
+	}, [loadPreviewApps, previewAppsLoaded]);
+
+	const baseProfile = useMemo(() => {
+		if (!previewAppsLoaded) return null;
+		return detectFilePreviewProfile(file, previewApps);
+	}, [file, previewApps, previewAppsLoaded]);
+
+	const customVideoBrowserOption = useMemo(
+		() => getVideoBrowserOpenWithOption(),
+		[],
+	);
+
+	const profile = useMemo(() => {
+		if (!baseProfile) return null;
+		if (
+			baseProfile.category !== "video" ||
+			!customVideoBrowserOption ||
+			baseProfile.options.some(
+				(option) => option.key === customVideoBrowserOption.key,
+			)
+		) {
+			return baseProfile;
+		}
+
+		return {
+			...baseProfile,
+			allOptions: [
+				...(baseProfile.allOptions ?? baseProfile.options),
+				customVideoBrowserOption,
+			],
+			options: [...baseProfile.options, customVideoBrowserOption],
+		};
+	}, [baseProfile, customVideoBrowserOption]);
+
+	const isOptionAvailable = useCallback(
+		(option: OpenWithOption) =>
+			(option.mode !== "wopi" || Boolean(wopiSessionFactory)) &&
+			(option.mode !== "archive" || Boolean(archivePreviewFactory)),
+		[archivePreviewFactory, wopiSessionFactory],
+	);
+
+	const allOptions = useMemo(
+		() =>
+			(profile?.allOptions ?? profile?.options ?? []).filter(isOptionAvailable),
+		[isOptionAvailable, profile],
+	);
+	const visibleOptions = useMemo(() => {
+		if (!profile || profile.options.length === 0) {
+			return allOptions;
+		}
+
+		const nextVisibleOptions = profile.options.filter(isOptionAvailable);
+		return nextVisibleOptions.length > 0 ? nextVisibleOptions : allOptions;
+	}, [allOptions, isOptionAvailable, profile]);
+	const hiddenOptions = useMemo(
+		() =>
+			allOptions.filter(
+				(option) =>
+					!visibleOptions.some((candidate) => candidate.key === option.key),
+			),
+		[allOptions, visibleOptions],
+	);
+
+	const preferredMode = useMemo(() => {
+		if (!profile) return null;
+		if (
+			profile.defaultMode &&
+			allOptions.some((option) => option.key === profile.defaultMode)
+		) {
+			return profile.defaultMode;
+		}
+		return allOptions[0]?.key ?? null;
+	}, [allOptions, profile]);
+	const shouldAutoOpenPreferredMode = useMemo(
+		() =>
+			openMode === "auto" &&
+			Boolean(profile) &&
+			profile?.category === "image" &&
+			profile.isTextBased &&
+			allOptions.some(
+				(option) => option.key === preferredMode && option.mode === "image",
+			),
+		[allOptions, openMode, preferredMode, profile],
+	);
+
+	const [state, dispatch] = useReducer(dialogStateReducer, initialDialogState);
+	const previousFileIdRef = useRef(file.id);
+	const archivePreviewFactoryRef = useRef(archivePreviewFactory);
+
+	useEffect(() => {
+		archivePreviewFactoryRef.current = archivePreviewFactory;
+	}, [archivePreviewFactory]);
+
+	useEffect(() => {
+		const hasFileChanged = previousFileIdRef.current !== file.id;
+		if (hasFileChanged) {
+			previousFileIdRef.current = file.id;
+		}
+		dispatch({
+			type: "syncPreferredMode",
+			fileChanged: hasFileChanged,
+			mode: preferredMode,
+		});
+	}, [file.id, preferredMode]);
+
+	const activeMode = state.mode ?? preferredMode;
+
+	useEffect(() => {
+		dispatch({
+			type: "setShowAllOpenMethods",
+			open: Boolean(
+				activeMode && hiddenOptions.some((option) => option.key === activeMode),
+			),
+		});
+	}, [activeMode, hiddenOptions]);
+
+	const activeOption = useMemo(() => {
+		if (!profile || !activeMode) return null;
+		return allOptions.find((option) => option.key === activeMode) ?? null;
+	}, [activeMode, allOptions, profile]);
+
+	const getOptionLabel = useCallback(
+		(option: OpenWithOption) =>
+			resolveOpenWithOptionLabel(option, language, translateFileLabel),
+		[language, translateFileLabel],
+	);
+	const activeWopiSessionFactory = useCallback(() => {
+		if (!activeOption || activeOption.mode !== "wopi" || !wopiSessionFactory) {
+			return Promise.reject(new Error("wopi session factory unavailable"));
+		}
+
+		return wopiSessionFactory(activeOption.key);
+	}, [activeOption, wopiSessionFactory]);
+	const stableArchivePreviewFactory = useCallback(
+		(options?: { signal?: AbortSignal }) => {
+			const factory = archivePreviewFactoryRef.current;
+			if (!factory) {
+				return Promise.reject(new Error("archive preview factory unavailable"));
+			}
+
+			return factory(options);
+		},
+		[],
+	);
+	const activeArchivePreviewFactory =
+		open && activeOption?.mode === "archive" && archivePreviewFactory
+			? stableArchivePreviewFactory
+			: undefined;
+	const hasMultipleVisibleOpenMethods = visibleOptions.length > 1;
+	const showOpenMethodChooser =
+		previewAppsLoaded &&
+		(state.forceOpenMethodChooser
+			? allOptions.length > 1
+			: openMode === "picker"
+				? allOptions.length > 1
+				: openMode === "direct"
+					? false
+					: shouldAutoOpenPreferredMode
+						? false
+						: hasMultipleVisibleOpenMethods) &&
+		!state.hasConfirmedInitialMode;
+
+	const usesInnerScroll =
+		activeOption?.mode === "pdf" ||
+		activeOption?.mode === "table" ||
+		((activeOption?.mode === "url_template" || activeOption?.mode === "wopi") &&
+			getEmbeddedOptionMode(activeOption) !== "new_tab");
+	const fillsViewportHeight =
+		activeOption?.mode === "code" ||
+		activeOption?.mode === "formatted" ||
+		activeOption?.mode === "markdown" ||
+		activeOption?.mode === "archive" ||
+		activeOption?.mode === "pdf" ||
+		activeOption?.mode === "table" ||
+		((activeOption?.mode === "url_template" || activeOption?.mode === "wopi") &&
+			getEmbeddedOptionMode(activeOption) !== "new_tab");
+
+	const closeWithGuard = useCallback(() => {
+		if (state.isDirty) {
+			dispatch({ type: "setConfirmOpen", open: true });
+			return;
+		}
+		onClose();
+	}, [onClose, state.isDirty]);
+
+	const handleOpenMethodSelect = useCallback((nextMode: OpenWithMode) => {
+		dispatch({ type: "selectOpenMethod", mode: nextMode });
+	}, []);
+
+	const handleOpenMethodPickerOpen = useCallback(() => {
+		dispatch({ type: "openMethodPicker" });
+	}, []);
+
+	const handleDiscardChanges = useCallback(() => {
+		dispatch({ type: "discardChanges" });
+		onClose();
+	}, [onClose]);
+
+	const handleExpandToggle = useCallback(() => {
+		dispatch({ type: "toggleExpanded" });
+	}, []);
+
+	useEffect(() => {
+		if (!open || showOpenMethodChooser || !state.isDialogAnimationEnabled) {
+			return;
+		}
+
+		const timer = window.setTimeout(() => {
+			dispatch({ type: "disableDialogAnimation" });
+		}, PREVIEW_DIALOG_OPEN_ANIMATION_MS);
+
+		return () => {
+			window.clearTimeout(timer);
+		};
+	}, [state.isDialogAnimationEnabled, open, showOpenMethodChooser]);
+
+	const handleDialogOpenChange = useCallback(
+		(nextOpen: boolean) => {
+			if (nextOpen) {
+				return;
+			}
+
+			if (showOpenMethodChooser) {
+				onClose();
+				return;
+			}
+
+			closeWithGuard();
+		},
+		[closeWithGuard, onClose, showOpenMethodChooser],
+	);
+
+	const dialogContentClassName = showOpenMethodChooser
+		? "flex max-h-[min(90vh,calc(100vh-2rem))] w-[min(96vw,32rem)] max-w-[min(96vw,32rem)] flex-col gap-0 overflow-hidden p-0 sm:max-w-[min(96vw,32rem)]"
+		: [
+				"flex max-h-[90vh] w-[min(96vw,1200px)] max-w-[min(96vw,1200px)] flex-col gap-0 overflow-hidden p-0 sm:max-w-[min(96vw,1200px)]",
+				(fillsViewportHeight || state.isExpanded) && "h-[90vh]",
+				state.isExpanded &&
+					"top-0 left-0 h-screen w-screen max-h-screen max-w-none translate-x-0 translate-y-0 rounded-none sm:max-w-none",
+			]
+				.filter(Boolean)
+				.join(" ");
+	const formattedCategory: "json" | "xml" =
+		profile?.category === "xml" || getFileExtension(file) === "xml"
+			? "xml"
+			: "json";
+
+	return {
+		activeArchivePreviewFactory,
+		activeMode,
+		activeOption,
+		allOptions,
+		closeWithGuard,
+		dialogContentClassName,
+		editable,
+		fillsViewportHeight,
+		formattedCategory,
+		getOptionLabel,
+		handleDialogOpenChange,
+		handleDiscardChanges,
+		handleExpandToggle,
+		handleOpenMethodPickerOpen,
+		handleOpenMethodSelect,
+		hiddenOptions,
+		isDirty: state.isDirty,
+		isDialogAnimationEnabled: state.isDialogAnimationEnabled,
+		isExpanded: state.isExpanded,
+		previewAppsLoaded,
+		profile,
+		resolvedDownloadPath,
+		resolvedImagePreviewPath,
+		resolvedLoadMusicBackendMetadata,
+		resolvedThumbnailPath,
+		setConfirmOpen: (nextOpen: boolean) =>
+			dispatch({ type: "setConfirmOpen", open: nextOpen }),
+		setIsDirty: (dirty: boolean) => dispatch({ type: "setDirty", dirty }),
+		showAllOpenMethods: state.showAllOpenMethods,
+		showOpenMethodChooser,
+		usesInnerScroll,
+		visibleOptions,
+		wopiSessionFactory: wopiSessionFactory ? activeWopiSessionFactory : null,
+		onShowAllOpenMethods: () =>
+			dispatch({ type: "setShowAllOpenMethods", open: true }),
+		confirmOpen: state.confirmOpen,
+		mediaStreamLinkFactory,
+		previewLinkFactory,
+	};
+}

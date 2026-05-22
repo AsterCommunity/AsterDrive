@@ -28,6 +28,24 @@ const mockState = vi.hoisted(() => ({
 			},
 		],
 	},
+	mediaDataSupportStore: {
+		config: {
+			enabled: true,
+			kinds: {
+				audio: {
+					enabled: true,
+					extensions: ["mp3", "flac"],
+					match: "extensions",
+				},
+				image: { enabled: true, extensions: ["jpg"], match: "extensions" },
+				video: { enabled: false, extensions: [], match: "extensions" },
+			},
+			max_source_bytes: 1024 * 1024 * 1024,
+			version: 1,
+		},
+		isLoaded: true,
+		load: vi.fn(async () => {}),
+	},
 	previewAppStore: {
 		config: null,
 		isLoaded: true,
@@ -134,6 +152,12 @@ vi.mock("@/services/fileService", () => ({
 			mockState.imagePreviewPath(...args),
 		thumbnailPath: (...args: unknown[]) => mockState.thumbnailPath(...args),
 	},
+}));
+
+vi.mock("@/stores/mediaDataSupportStore", () => ({
+	useMediaDataSupportStore: (
+		selector: (state: typeof mockState.mediaDataSupportStore) => unknown,
+	) => selector(mockState.mediaDataSupportStore),
 }));
 
 vi.mock("@/stores/previewAppStore", () => ({
@@ -382,6 +406,8 @@ describe("FilePreviewDialog", () => {
 	beforeEach(() => {
 		mockState.downloadPath.mockClear();
 		mockState.getMediaMetadata.mockReset();
+		mockState.mediaDataSupportStore.isLoaded = true;
+		mockState.mediaDataSupportStore.load.mockReset();
 		mockState.imagePreviewPath.mockClear();
 		mockState.thumbnailPath.mockClear();
 		mockState.previewAppStore.load.mockReset();

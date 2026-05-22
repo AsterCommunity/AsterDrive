@@ -1,6 +1,6 @@
 use crate::config::branding;
 use crate::config::site_url;
-use crate::config::{auth_runtime, media_processing};
+use crate::config::{auth_runtime, media_processing, operations};
 use crate::runtime::PrimaryAppState;
 use crate::services::preview_app_service;
 use crate::types::parse_storage_policy_options;
@@ -14,8 +14,9 @@ use std::time::Duration;
 #[cfg(all(debug_assertions, feature = "openapi"))]
 use utoipa::ToSchema;
 
-pub const PUBLIC_THUMBNAIL_SUPPORT_CACHE_TTL_SECS: u64 = 60;
+pub const PUBLIC_SUPPORT_CACHE_TTL_SECS: u64 = 60;
 pub const PUBLIC_CONFIG_CACHE_CONTROL: &str = "public, max-age=60";
+const PUBLIC_MEDIA_DATA_SUPPORT_CACHE_KEY: &str = "public_media_data_support";
 const PUBLIC_THUMBNAIL_SUPPORT_CACHE_KEY: &str = "public_thumbnail_support";
 
 static PUBLIC_THUMBNAIL_SUPPORT_CACHE: LazyLock<
@@ -23,7 +24,16 @@ static PUBLIC_THUMBNAIL_SUPPORT_CACHE: LazyLock<
 > = LazyLock::new(|| {
     Cache::builder()
         .max_capacity(128)
-        .time_to_live(Duration::from_secs(PUBLIC_THUMBNAIL_SUPPORT_CACHE_TTL_SECS))
+        .time_to_live(Duration::from_secs(PUBLIC_SUPPORT_CACHE_TTL_SECS))
+        .build()
+});
+
+static PUBLIC_MEDIA_DATA_SUPPORT_CACHE: LazyLock<
+    Cache<String, media_processing::PublicMediaDataSupport>,
+> = LazyLock::new(|| {
+    Cache::builder()
+        .max_capacity(128)
+        .time_to_live(Duration::from_secs(PUBLIC_SUPPORT_CACHE_TTL_SECS))
         .build()
 });
 
@@ -56,6 +66,25 @@ pub fn get_public_preview_apps(
     state: &PrimaryAppState,
 ) -> preview_app_service::PublicPreviewAppsConfig {
     preview_app_service::get_public_preview_apps(state)
+}
+
+pub async fn get_public_media_data_support(
+    state: &PrimaryAppState,
+) -> media_processing::PublicMediaDataSupport {
+    let cache_key = public_media_data_support_cache_key(state);
+    if let Some(cached) = PUBLIC_MEDIA_DATA_SUPPORT_CACHE.get(&cache_key).await {
+        return cached;
+    }
+
+    let support = media_processing::public_media_data_support(&state.runtime_config);
+    PUBLIC_MEDIA_DATA_SUPPORT_CACHE
+        .insert(cache_key, support.clone())
+        .await;
+    support
+}
+
+pub(crate) fn invalidate_public_media_data_support_cache() {
+    PUBLIC_MEDIA_DATA_SUPPORT_CACHE.invalidate_all();
 }
 
 pub async fn get_public_thumbnail_support(
@@ -105,6 +134,27 @@ fn build_public_thumbnail_support(
 
     support.extensions = extensions.into_iter().collect();
     support
+}
+
+fn public_media_data_support_cache_key(state: &PrimaryAppState) -> String {
+    let mut hasher = DefaultHasher::new();
+    state
+        .runtime_config
+        .get(media_processing::MEDIA_PROCESSING_REGISTRY_JSON_KEY)
+        .hash(&mut hasher);
+    state
+        .runtime_config
+        .get(operations::MEDIA_METADATA_ENABLED_KEY)
+        .hash(&mut hasher);
+    state
+        .runtime_config
+        .get(operations::MEDIA_METADATA_MAX_SOURCE_BYTES_KEY)
+        .hash(&mut hasher);
+
+    format!(
+        "{PUBLIC_MEDIA_DATA_SUPPORT_CACHE_KEY}:{:x}",
+        hasher.finish()
+    )
 }
 
 fn public_thumbnail_support_cache_key(state: &PrimaryAppState) -> String {

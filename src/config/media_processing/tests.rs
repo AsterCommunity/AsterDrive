@@ -1,4 +1,8 @@
 use crate::config::RuntimeConfig;
+use crate::config::operations::{
+    DEFAULT_MEDIA_METADATA_MAX_SOURCE_BYTES, MEDIA_METADATA_ENABLED_KEY,
+    MEDIA_METADATA_MAX_SOURCE_BYTES_KEY,
+};
 use crate::entities::system_config;
 use crate::types::{MediaProcessorKind, SystemConfigSource, SystemConfigValueType};
 use chrono::Utc;
@@ -10,6 +14,8 @@ use super::{
     DEFAULT_VIPS_EXTENSIONS, MEDIA_PROCESSING_REGISTRY_JSON_KEY, MEDIA_PROCESSING_REGISTRY_VERSION,
     MatchedMediaProcessor, MediaProcessingMatchKind, MediaProcessingProcessorConfig,
     MediaProcessingProcessorRuntimeConfig, MediaProcessingRegistryConfig, MediaProcessingUse,
+    PUBLIC_MEDIA_DATA_MAX_SAFE_SOURCE_BYTES, PUBLIC_MEDIA_DATA_SUPPORT_VERSION,
+    PublicMediaDataKindSupport, PublicMediaDataSupport, PublicMediaDataSupportMatch,
     PublicThumbnailSupport, builtin_audio_metadata_supports_extension,
     builtin_image_metadata_supports_extension, command_is_available,
     default_media_processing_registry, default_media_processing_registry_json,
@@ -17,7 +23,8 @@ use super::{
     file_extension, media_processing_registry, normalize_ffmpeg_command, normalize_ffprobe_command,
     normalize_media_processing_registry_config_value, normalize_vips_command,
     parse_media_processor_kind, processor_candidates_for_file_name, processor_candidates_for_use,
-    processor_config_for_kind, public_thumbnail_support, vips_command_from_registry_value,
+    processor_config_for_kind, public_media_data_support, public_thumbnail_support,
+    vips_command_from_registry_value,
 };
 
 fn config_model(key: &str, value: &str) -> system_config::Model {
@@ -42,6 +49,11 @@ fn available_test_command() -> String {
         .expect("current test executable path should be available")
         .to_string_lossy()
         .into_owned()
+}
+
+fn default_media_metadata_max_source_bytes() -> i64 {
+    i64::try_from(DEFAULT_MEDIA_METADATA_MAX_SOURCE_BYTES)
+        .expect("default media metadata max source bytes should fit i64")
 }
 
 #[test]
@@ -454,6 +466,165 @@ fn public_thumbnail_support_keeps_builtin_extensions_when_images_are_enabled() {
 
     assert_eq!(support.version, 1);
     assert_eq!(support.extensions, expected);
+}
+
+#[test]
+fn public_media_data_support_exposes_default_metadata_capabilities() {
+    let support = public_media_data_support(&RuntimeConfig::new());
+
+    assert!(support.enabled);
+    assert_eq!(support.version, PUBLIC_MEDIA_DATA_SUPPORT_VERSION);
+    assert_eq!(
+        support.max_source_bytes,
+        default_media_metadata_max_source_bytes()
+    );
+    assert!(support.kinds.image.enabled);
+    assert_eq!(
+        support.kinds.image.match_kind,
+        PublicMediaDataSupportMatch::Extensions
+    );
+    assert!(
+        support
+            .kinds
+            .image
+            .extensions
+            .iter()
+            .any(|value| value == "jpg")
+    );
+    assert!(support.kinds.audio.enabled);
+    assert!(
+        support
+            .kinds
+            .audio
+            .extensions
+            .iter()
+            .any(|value| value == "mp3")
+    );
+    assert!(!support.kinds.video.enabled);
+}
+
+#[test]
+fn public_media_data_support_clamps_source_limit_to_js_safe_integer() {
+    let runtime_config = RuntimeConfig::new();
+    runtime_config.apply(config_model(
+        MEDIA_METADATA_MAX_SOURCE_BYTES_KEY,
+        "9007199254740992",
+    ));
+
+    let support = public_media_data_support(&runtime_config);
+
+    assert_eq!(
+        support.max_source_bytes,
+        PUBLIC_MEDIA_DATA_MAX_SAFE_SOURCE_BYTES
+    );
+}
+
+#[test]
+fn public_media_data_support_respects_global_disable_and_source_limit() {
+    let runtime_config = RuntimeConfig::new();
+    runtime_config.apply(config_model(MEDIA_METADATA_ENABLED_KEY, "false"));
+    runtime_config.apply(config_model(MEDIA_METADATA_MAX_SOURCE_BYTES_KEY, "12345"));
+
+    let support = public_media_data_support(&runtime_config);
+
+    assert_eq!(
+        support,
+        PublicMediaDataSupport {
+            version: PUBLIC_MEDIA_DATA_SUPPORT_VERSION,
+            enabled: false,
+            max_source_bytes: 12345,
+            kinds: super::types::PublicMediaDataKindsSupport {
+                image: PublicMediaDataKindSupport {
+                    enabled: false,
+                    match_kind: PublicMediaDataSupportMatch::Extensions,
+                    extensions: Vec::new(),
+                },
+                audio: PublicMediaDataKindSupport {
+                    enabled: false,
+                    match_kind: PublicMediaDataSupportMatch::Extensions,
+                    extensions: Vec::new(),
+                },
+                video: PublicMediaDataKindSupport {
+                    enabled: false,
+                    match_kind: PublicMediaDataSupportMatch::Extensions,
+                    extensions: Vec::new(),
+                },
+            },
+        }
+    );
+}
+
+#[test]
+fn public_media_data_support_exposes_enabled_ffprobe_extensions() {
+    let runtime_config = RuntimeConfig::new();
+    runtime_config.apply(config_model(
+        MEDIA_PROCESSING_REGISTRY_JSON_KEY,
+        &serde_json::json!({
+            "version": 2,
+            "processors": [
+                {
+                    "kind": "ffprobe_cli",
+                    "enabled": true,
+                    "uses": ["metadata:video"],
+                    "extensions": ["MP4", ".mov"],
+                    "config": {
+                        "command": available_test_command(),
+                    },
+                },
+                {
+                    "kind": "images",
+                    "enabled": true,
+                    "uses": ["metadata:image"],
+                },
+                {
+                    "kind": "lofty",
+                    "enabled": true,
+                    "uses": ["metadata:audio"],
+                },
+            ],
+        })
+        .to_string(),
+    ));
+
+    let support = public_media_data_support(&runtime_config);
+
+    assert!(support.kinds.video.enabled);
+    assert_eq!(
+        support.kinds.video.match_kind,
+        PublicMediaDataSupportMatch::Extensions
+    );
+    assert_eq!(support.kinds.video.extensions, vec!["mov", "mp4"]);
+}
+
+#[test]
+fn public_media_data_support_preserves_ffprobe_any_match() {
+    let runtime_config = RuntimeConfig::new();
+    runtime_config.apply(config_model(
+        MEDIA_PROCESSING_REGISTRY_JSON_KEY,
+        &serde_json::json!({
+            "version": 2,
+            "processors": [
+                {
+                    "kind": "ffprobe_cli",
+                    "enabled": true,
+                    "uses": ["metadata:video"],
+                    "config": {
+                        "command": available_test_command(),
+                    },
+                },
+            ],
+        })
+        .to_string(),
+    ));
+
+    let support = public_media_data_support(&runtime_config);
+
+    assert!(support.kinds.video.enabled);
+    assert_eq!(
+        support.kinds.video.match_kind,
+        PublicMediaDataSupportMatch::Any
+    );
+    assert!(support.kinds.video.extensions.is_empty());
 }
 
 #[test]

@@ -15,6 +15,7 @@ const mockState = vi.hoisted(() => ({
 		preference: "browser",
 	},
 	previewAppsLoad: vi.fn(),
+	mediaDataSupportLoad: vi.fn(),
 	warmupRouteChunks: vi.fn(),
 	setAuthState: vi.fn(),
 	themeInit: vi.fn(),
@@ -68,6 +69,14 @@ vi.mock("@/stores/brandingStore", () => ({
 	useBrandingStore: {
 		getState: () => ({
 			load: mockState.brandingLoad,
+		}),
+	},
+}));
+
+vi.mock("@/stores/mediaDataSupportStore", () => ({
+	useMediaDataSupportStore: {
+		getState: () => ({
+			load: mockState.mediaDataSupportLoad,
 		}),
 	},
 }));
@@ -128,6 +137,7 @@ describe("App", () => {
 		mockState.displayTimeZoneStore.preference = "browser";
 		mockState.brandingLoad.mockReset();
 		mockState.previewAppsLoad.mockReset();
+		mockState.mediaDataSupportLoad.mockReset();
 		mockState.setAuthState.mockReset();
 		mockState.themeInit.mockReset();
 		mockState.thumbnailSupportLoad.mockReset();
@@ -147,6 +157,7 @@ describe("App", () => {
 
 		expect(mockState.previewAppsLoad).toHaveBeenCalledTimes(1);
 		expect(mockState.thumbnailSupportLoad).toHaveBeenCalledTimes(1);
+		expect(mockState.mediaDataSupportLoad).toHaveBeenCalledTimes(1);
 		expect(mockState.authStore.checkAuth).not.toHaveBeenCalled();
 		expect(mockState.setAuthState).toHaveBeenCalledWith({ isChecking: false });
 	});
@@ -167,6 +178,7 @@ describe("App", () => {
 
 		expect(mockState.previewAppsLoad).toHaveBeenCalledTimes(1);
 		expect(mockState.thumbnailSupportLoad).toHaveBeenCalledTimes(1);
+		expect(mockState.mediaDataSupportLoad).toHaveBeenCalledTimes(1);
 		expect(mockState.authStore.checkAuth).toHaveBeenCalledTimes(1);
 		expect(mockState.setAuthState).not.toHaveBeenCalled();
 	});
@@ -178,6 +190,7 @@ describe("App", () => {
 		expect(mockState.brandingLoad).toHaveBeenCalledTimes(1);
 		expect(mockState.previewAppsLoad).toHaveBeenCalledTimes(1);
 		expect(mockState.thumbnailSupportLoad).toHaveBeenCalledTimes(1);
+		expect(mockState.mediaDataSupportLoad).toHaveBeenCalledTimes(1);
 
 		Object.defineProperty(document, "visibilityState", {
 			configurable: true,
@@ -189,6 +202,7 @@ describe("App", () => {
 		expect(mockState.brandingLoad).toHaveBeenCalledTimes(1);
 		expect(mockState.previewAppsLoad).toHaveBeenCalledTimes(1);
 		expect(mockState.thumbnailSupportLoad).toHaveBeenCalledTimes(1);
+		expect(mockState.mediaDataSupportLoad).toHaveBeenCalledTimes(1);
 	});
 
 	it("does not revalidate public config on an interval", () => {
@@ -205,6 +219,7 @@ describe("App", () => {
 		expect(mockState.brandingLoad).toHaveBeenCalledTimes(1);
 		expect(mockState.previewAppsLoad).toHaveBeenCalledTimes(1);
 		expect(mockState.thumbnailSupportLoad).toHaveBeenCalledTimes(1);
+		expect(mockState.mediaDataSupportLoad).toHaveBeenCalledTimes(1);
 	});
 
 	it("renders the offline boot fallback instead of the router", () => {

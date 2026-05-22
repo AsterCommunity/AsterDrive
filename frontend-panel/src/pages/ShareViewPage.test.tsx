@@ -1,7 +1,15 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+	act,
+	fireEvent,
+	render,
+	screen,
+	waitFor,
+} from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { FOLDER_LIMIT } from "@/lib/constants";
 import ShareViewPage from "@/pages/ShareViewPage";
+import { ApiError } from "@/services/http";
+import { ErrorCode } from "@/types/api-helpers";
 
 const mockState = vi.hoisted(() => ({
 	downloadFolderFileUrl: vi.fn(
@@ -79,6 +87,24 @@ const mockState = vi.hoisted(() => ({
 	listContent: vi.fn(),
 	listSubfolderContent: vi.fn(),
 	musicPlayTracks: vi.fn(),
+	mediaDataSupportStore: {
+		config: {
+			enabled: true,
+			kinds: {
+				audio: {
+					enabled: true,
+					extensions: ["mp3", "flac"],
+					match: "extensions",
+				},
+				image: { enabled: true, extensions: ["jpg"], match: "extensions" },
+				video: { enabled: false, extensions: [], match: "extensions" },
+			},
+			max_source_bytes: 1024 * 1024 * 1024,
+			version: 1,
+		},
+		isLoaded: true,
+		load: vi.fn(async () => {}),
+	},
 	openWindow: vi.fn(),
 	params: { token: "share-token" as string | undefined },
 	previewAppStore: {
@@ -102,6 +128,59 @@ const mockState = vi.hoisted(() => ({
 	verifyPassword: vi.fn(),
 }));
 
+class MockIntersectionObserver {
+	static instances: MockIntersectionObserver[] = [];
+
+	disconnect = vi.fn();
+	observe = vi.fn();
+	root = null;
+	rootMargin = "";
+	thresholds: number[] = [];
+	unobserve = vi.fn();
+
+	private readonly callback: IntersectionObserverCallback;
+
+	constructor(
+		callback: IntersectionObserverCallback,
+		options: IntersectionObserverInit = {},
+	) {
+		this.callback = callback;
+		this.root = (options.root as Element | Document | null | undefined) ?? null;
+		this.rootMargin = options.rootMargin ?? "";
+		this.thresholds = Array.isArray(options.threshold)
+			? options.threshold
+			: options.threshold !== undefined
+				? [options.threshold]
+				: [];
+		MockIntersectionObserver.instances.push(this);
+	}
+
+	takeRecords() {
+		return [];
+	}
+
+	trigger(target: Element, isIntersecting = true) {
+		this.callback(
+			[
+				{
+					boundingClientRect: DOMRect.fromRect(),
+					intersectionRatio: isIntersecting ? 1 : 0,
+					intersectionRect: DOMRect.fromRect(),
+					isIntersecting,
+					rootBounds: null,
+					target,
+					time: 0,
+				} as IntersectionObserverEntry,
+			],
+			this as unknown as IntersectionObserver,
+		);
+	}
+
+	static reset() {
+		MockIntersectionObserver.instances = [];
+	}
+}
+
 vi.mock("react-i18next", () => ({
 	useTranslation: () => ({
 		t: mockState.translate,
@@ -117,6 +196,18 @@ vi.mock("sonner", () => ({
 		success: (...args: unknown[]) => mockState.toastSuccess(...args),
 	},
 }));
+
+vi.mock("@/stores/mediaDataSupportStore", () => {
+	const useMediaDataSupportStore = Object.assign(
+		(selector: (state: typeof mockState.mediaDataSupportStore) => unknown) =>
+			selector(mockState.mediaDataSupportStore),
+		{
+			getState: () => mockState.mediaDataSupportStore,
+		},
+	);
+
+	return { useMediaDataSupportStore };
+});
 
 vi.mock("@/stores/previewAppStore", () => ({
 	usePreviewAppStore: (
@@ -197,6 +288,7 @@ vi.mock("@/components/files/FilePreview", () => ({
 		archivePreviewFactory,
 		loadMusicBackendMetadata,
 		mediaStreamLinkFactory,
+		onClose,
 		previewLinkFactory,
 	}: {
 		file: { name: string };
@@ -208,6 +300,7 @@ vi.mock("@/components/files/FilePreview", () => ({
 		archivePreviewFactory?: () => Promise<unknown>;
 		loadMusicBackendMetadata?: (signal?: AbortSignal) => Promise<unknown>;
 		mediaStreamLinkFactory?: () => Promise<unknown>;
+		onClose?: () => void;
 		previewLinkFactory?: () => Promise<unknown>;
 	}) =>
 		open ? (
@@ -229,6 +322,9 @@ vi.mock("@/components/files/FilePreview", () => ({
 				<button type="button" onClick={() => void previewLinkFactory?.()}>
 					call-preview-link
 				</button>
+				<button type="button" onClick={() => void archivePreviewFactory?.()}>
+					call-archive-preview
+				</button>
 				<button
 					type="button"
 					onClick={() =>
@@ -239,6 +335,9 @@ vi.mock("@/components/files/FilePreview", () => ({
 				</button>
 				<button type="button" onClick={() => void mediaStreamLinkFactory?.()}>
 					call-stream-link
+				</button>
+				<button type="button" onClick={onClose}>
+					close-preview
 				</button>
 			</div>
 		) : null,
@@ -487,8 +586,12 @@ describe("ShareViewPage", () => {
 		mockState.downloadUrl.mockClear();
 		mockState.getInfo.mockReset();
 		mockState.handleApiError.mockReset();
+		MockIntersectionObserver.reset();
 		mockState.listContent.mockReset();
 		mockState.listSubfolderContent.mockReset();
+		mockState.mediaDataSupportStore.isLoaded = true;
+		mockState.mediaDataSupportStore.load.mockReset();
+		mockState.mediaDataSupportStore.load.mockResolvedValue(undefined);
 		mockState.openWindow.mockReset();
 		mockState.params = { token: "share-token" };
 		mockState.previewAppStore.load.mockReset();
@@ -513,6 +616,61 @@ describe("ShareViewPage", () => {
 			configurable: true,
 			value: mockState.openWindow,
 		});
+	});
+
+	it("renders an unavailable panel for expired shares", async () => {
+		mockState.getInfo.mockRejectedValueOnce(
+			new ApiError(ErrorCode.ShareExpired, "expired"),
+		);
+
+		render(<ShareViewPage />);
+
+		expect(await screen.findByText("errors:share_expired")).toBeInTheDocument();
+		expect(screen.getByText("unavailable")).toBeInTheDocument();
+	});
+
+	it("maps share load errors to the public unavailable panel", async () => {
+		mockState.getInfo.mockRejectedValueOnce(
+			new ApiError(ErrorCode.ShareNotFound, "missing"),
+		);
+
+		const { unmount } = render(<ShareViewPage />);
+
+		expect(
+			await screen.findByText("errors:share_not_found"),
+		).toBeInTheDocument();
+		unmount();
+
+		mockState.getInfo.mockRejectedValueOnce(
+			new ApiError(
+				ErrorCode.ShareDownloadLimitReached,
+				"download limit reached",
+			),
+		);
+
+		const limited = render(<ShareViewPage />);
+
+		expect(
+			await screen.findByText("share:download_limit_reached"),
+		).toBeInTheDocument();
+		limited.unmount();
+
+		mockState.getInfo.mockRejectedValueOnce(
+			new ApiError(ErrorCode.BadRequest, "bad request"),
+		);
+
+		const badRequest = render(<ShareViewPage />);
+
+		expect(await screen.findByText("bad request")).toBeInTheDocument();
+		badRequest.unmount();
+
+		mockState.getInfo.mockRejectedValueOnce(new Error("network down"));
+
+		render(<ShareViewPage />);
+
+		expect(
+			await screen.findByText("share:failed_to_load_share"),
+		).toBeInTheDocument();
 	});
 
 	it("verifies passwords for protected folder shares and then loads their contents", async () => {
@@ -540,7 +698,10 @@ describe("ShareViewPage", () => {
 
 		await screen.findByText("Secret Folder");
 		expect(mockState.previewAppStore.load).toHaveBeenCalledTimes(1);
-		fireEvent.change(screen.getByPlaceholderText("password"), {
+		const passwordInput = screen.getByLabelText("password");
+		expect(passwordInput).toHaveAttribute("id", "share-password");
+		expect(passwordInput).not.toHaveAttribute("autofocus");
+		fireEvent.change(passwordInput, {
 			target: { value: "letmein" },
 		});
 		fireEvent.click(screen.getByRole("button", { name: "verify" }));
@@ -562,6 +723,93 @@ describe("ShareViewPage", () => {
 		expect(screen.getByText("Secret Folder")).toBeInTheDocument();
 		expect(screen.getByText("shared-by:Alice Example")).toBeInTheDocument();
 		expect(screen.queryByText("share-content")).not.toBeInTheDocument();
+	});
+
+	it("keeps the password panel open and reports verify failures", async () => {
+		mockState.getInfo.mockResolvedValueOnce({
+			has_password: true,
+			name: "Secret Folder",
+			shared_by: {
+				avatar: null,
+				name: "Alice Example",
+			},
+			share_type: "folder",
+		} as never);
+		const error = new ApiError(ErrorCode.AuthFailed, "wrong password");
+		mockState.verifyPassword.mockRejectedValueOnce(error);
+
+		render(<ShareViewPage />);
+
+		const passwordInput = await screen.findByLabelText("password");
+		fireEvent.change(passwordInput, {
+			target: { value: "wrong" },
+		});
+		fireEvent.click(screen.getByRole("button", { name: "verify" }));
+
+		await waitFor(() => {
+			expect(mockState.handleApiError).toHaveBeenCalledWith(error);
+		});
+		expect(screen.getByLabelText("password")).toHaveValue("wrong");
+		expect(mockState.listContent).not.toHaveBeenCalled();
+		expect(screen.queryByText("share-content")).not.toBeInTheDocument();
+	});
+
+	it("resets password verification and input when switching protected shares", async () => {
+		mockState.getInfo
+			.mockResolvedValueOnce({
+				has_password: true,
+				name: "First Secret",
+				shared_by: {
+					avatar: null,
+					name: "Alice Example",
+				},
+				share_type: "folder",
+			} as never)
+			.mockResolvedValueOnce({
+				has_password: true,
+				name: "Second Secret",
+				shared_by: {
+					avatar: null,
+					name: "Bob Example",
+				},
+				share_type: "folder",
+			} as never);
+		mockState.listContent.mockResolvedValueOnce({
+			files: [],
+			folders: [{ id: 1, name: "Docs" }],
+			next_file_cursor: null,
+		} as never);
+
+		const { rerender } = render(<ShareViewPage />);
+
+		const passwordInput = await screen.findByLabelText("password");
+		fireEvent.change(passwordInput, {
+			target: { value: "first-password" },
+		});
+		fireEvent.click(screen.getByRole("button", { name: "verify" }));
+
+		await waitFor(() => {
+			expect(mockState.verifyPassword).toHaveBeenCalledWith(
+				"share-token",
+				"first-password",
+			);
+		});
+		expect(
+			await screen.findByRole("button", { name: "folder:Docs" }),
+		).toBeInTheDocument();
+
+		mockState.params = { token: "second-token" };
+		rerender(<ShareViewPage />);
+
+		await waitFor(() => {
+			expect(mockState.getInfo).toHaveBeenCalledWith("second-token");
+		});
+		const nextPasswordInput = await screen.findByLabelText("password");
+		expect(nextPasswordInput).toHaveValue("");
+		expect(screen.getByText("Second Secret")).toBeInTheDocument();
+		expect(
+			screen.queryByRole("button", { name: "folder:Docs" }),
+		).not.toBeInTheDocument();
 	});
 
 	it("renders file shares with preview and download actions", async () => {
@@ -615,6 +863,13 @@ describe("ShareViewPage", () => {
 			"data-download-path",
 			"/s/share-token/download",
 		);
+		fireEvent.click(screen.getByRole("button", { name: "close-preview" }));
+		expect(screen.queryByTestId("file-preview")).not.toBeInTheDocument();
+		fireEvent.click(screen.getByRole("button", { name: /files:preview/i }));
+		expect(await screen.findByTestId("file-preview")).toHaveAttribute(
+			"data-download-path",
+			"/s/share-token/download",
+		);
 		expect(screen.getByTestId("file-preview")).toHaveAttribute(
 			"data-thumbnail-path",
 			"/s/share-token/thumbnail",
@@ -634,17 +889,22 @@ describe("ShareViewPage", () => {
 
 		fireEvent.click(screen.getByRole("button", { name: "call-preview-link" }));
 		fireEvent.click(
+			screen.getByRole("button", { name: "call-archive-preview" }),
+		);
+		fireEvent.click(
 			screen.getByRole("button", { name: "call-music-metadata" }),
 		);
 		fireEvent.click(screen.getByRole("button", { name: "call-stream-link" }));
 
 		await waitFor(() => {
 			expect(mockState.createPreviewLink).toHaveBeenCalledWith("share-token");
-			expect(mockState.getMediaMetadata).toHaveBeenCalledWith("share-token", {
-				signal: expect.any(AbortSignal),
-			});
+			expect(mockState.getArchivePreview).toHaveBeenCalledWith(
+				"share-token",
+				undefined,
+			);
 			expect(mockState.createStreamSession).toHaveBeenCalledWith("share-token");
 		});
+		expect(mockState.getMediaMetadata).not.toHaveBeenCalled();
 
 		fireEvent.click(screen.getByRole("button", { name: /files:download/i }));
 
@@ -653,6 +913,67 @@ describe("ShareViewPage", () => {
 			"https://download/share-token",
 			"_blank",
 		);
+	});
+
+	it("loads media data support when the preview element has not bootstrapped it", async () => {
+		mockState.mediaDataSupportStore.isLoaded = false;
+		mockState.getInfo.mockResolvedValueOnce({
+			download_count: 0,
+			has_password: false,
+			mime_type: "application/pdf",
+			name: "Manual.pdf",
+			shared_by: {
+				avatar: null,
+				name: "Alice Example",
+			},
+			share_type: "file",
+			size: 256,
+		} as never);
+
+		render(<ShareViewPage />);
+
+		expect(await screen.findByText("Manual.pdf")).toBeInTheDocument();
+		await waitFor(() => {
+			expect(mockState.mediaDataSupportStore.load).toHaveBeenCalledTimes(1);
+		});
+	});
+
+	it("passes media metadata loaders to audio file share previews", async () => {
+		mockState.getInfo.mockResolvedValueOnce({
+			download_count: 0,
+			has_password: false,
+			mime_type: "audio/mpeg",
+			name: "Preview Song.mp3",
+			shared_by: {
+				avatar: null,
+				name: "Alice Example",
+			},
+			share_type: "file",
+			size: 512,
+		} as never);
+		mockState.musicPlayTracks.mockImplementationOnce(() => {
+			throw new Error("fall back to preview");
+		});
+
+		render(<ShareViewPage />);
+
+		await screen.findByText("Preview Song.mp3");
+		fireEvent.click(screen.getByRole("button", { name: /files:preview/i }));
+
+		expect(await screen.findByTestId("file-preview")).toHaveAttribute(
+			"data-download-path",
+			"/s/share-token/download",
+		);
+
+		fireEvent.click(
+			screen.getByRole("button", { name: "call-music-metadata" }),
+		);
+
+		await waitFor(() => {
+			expect(mockState.getMediaMetadata).toHaveBeenCalledWith("share-token", {
+				signal: expect.any(AbortSignal),
+			});
+		});
 	});
 
 	it("plays shared music directly without opening the file preview", async () => {
@@ -771,6 +1092,9 @@ describe("ShareViewPage", () => {
 
 		fireEvent.click(screen.getByRole("button", { name: "call-preview-link" }));
 		fireEvent.click(
+			screen.getByRole("button", { name: "call-archive-preview" }),
+		);
+		fireEvent.click(
 			screen.getByRole("button", { name: "call-music-metadata" }),
 		);
 		fireEvent.click(screen.getByRole("button", { name: "call-stream-link" }));
@@ -780,16 +1104,17 @@ describe("ShareViewPage", () => {
 				"share-token",
 				5,
 			);
-			expect(mockState.getFolderFileMediaMetadata).toHaveBeenCalledWith(
+			expect(mockState.getFolderFileArchivePreview).toHaveBeenCalledWith(
 				"share-token",
 				5,
-				{ signal: expect.any(AbortSignal) },
+				undefined,
 			);
 			expect(mockState.createFolderFileStreamSession).toHaveBeenCalledWith(
 				"share-token",
 				5,
 			);
 		});
+		expect(mockState.getFolderFileMediaMetadata).not.toHaveBeenCalled();
 
 		fireEvent.click(
 			screen.getByRole("button", { name: "download:nested.txt" }),
@@ -803,6 +1128,292 @@ describe("ShareViewPage", () => {
 			"https://download/share-token/files/5",
 			"_blank",
 		);
+	});
+
+	it("keeps current folder contents visible when folder navigation fails", async () => {
+		mockState.getInfo.mockResolvedValueOnce({
+			has_password: false,
+			name: "Shared Root",
+			shared_by: {
+				avatar: null,
+				name: "Alice Example",
+			},
+			share_type: "folder",
+		} as never);
+		mockState.listContent.mockResolvedValueOnce({
+			files: [{ id: 2, mime_type: "text/plain", name: "root.txt", size: 2 }],
+			folders: [{ id: 1, name: "Docs" }],
+			next_file_cursor: null,
+		} as never);
+		const error = new ApiError(ErrorCode.FolderNotFound, "missing folder");
+		mockState.listSubfolderContent.mockRejectedValueOnce(error);
+
+		render(<ShareViewPage />);
+
+		expect(await screen.findByText("root.txt")).toBeInTheDocument();
+		fireEvent.click(screen.getByRole("button", { name: "folder:Docs" }));
+
+		await waitFor(() => {
+			expect(mockState.handleApiError).toHaveBeenCalledWith(error);
+		});
+		expect(screen.getByText("root.txt")).toBeInTheDocument();
+	});
+
+	it("toggles folder view mode from grid to list", async () => {
+		mockState.getInfo.mockResolvedValueOnce({
+			has_password: false,
+			name: "Shared Root",
+			shared_by: {
+				avatar: null,
+				name: "Alice Example",
+			},
+			share_type: "folder",
+		} as never);
+		mockState.listContent.mockResolvedValueOnce({
+			files: [],
+			folders: [],
+			next_file_cursor: null,
+		} as never);
+
+		render(<ShareViewPage />);
+
+		expect(await screen.findByText("view:grid")).toBeInTheDocument();
+		fireEvent.click(screen.getByRole("button", { name: "list" }));
+		expect(screen.getByText("view:list")).toBeInTheDocument();
+	});
+
+	it("deduplicates repeated infinite-scroll loads for the same cursor", async () => {
+		const originalIntersectionObserver = window.IntersectionObserver;
+		Object.defineProperty(window, "IntersectionObserver", {
+			writable: true,
+			value: MockIntersectionObserver,
+		});
+
+		type LoadMoreResponse = {
+			files: Array<{
+				id: number;
+				mime_type: string;
+				name: string;
+				size: number;
+			}>;
+			folders: [];
+			next_file_cursor: null;
+		};
+		let resolveMore!: (contents: LoadMoreResponse) => void;
+		const loadMorePromise = new Promise<LoadMoreResponse>((resolve) => {
+			resolveMore = resolve;
+		});
+
+		try {
+			mockState.getInfo.mockResolvedValueOnce({
+				has_password: false,
+				name: "Shared Root",
+				shared_by: {
+					avatar: null,
+					name: "Alice Example",
+				},
+				share_type: "folder",
+			} as never);
+			mockState.listContent
+				.mockResolvedValueOnce({
+					files: [
+						{ id: 1, mime_type: "text/plain", name: "first.txt", size: 1 },
+					],
+					folders: [],
+					next_file_cursor: { id: 1, value: "first.txt" },
+				} as never)
+				.mockReturnValueOnce(loadMorePromise as never);
+
+			render(<ShareViewPage />);
+
+			expect(await screen.findByText("first.txt")).toBeInTheDocument();
+			await waitFor(() => {
+				expect(MockIntersectionObserver.instances).toHaveLength(1);
+			});
+
+			const observer = MockIntersectionObserver.instances[0];
+			const target = observer?.observe.mock.calls[0]?.[0] as
+				| Element
+				| undefined;
+			expect(target).toBeInstanceOf(HTMLElement);
+
+			if (observer && target) {
+				act(() => {
+					observer.trigger(target);
+					observer.trigger(target);
+				});
+			}
+
+			await waitFor(() => {
+				expect(mockState.listContent).toHaveBeenCalledTimes(2);
+			});
+			expect(mockState.listContent).toHaveBeenLastCalledWith("share-token", {
+				file_after_id: 1,
+				file_after_value: "first.txt",
+				file_limit: 100,
+				folder_limit: 0,
+			});
+
+			await act(async () => {
+				resolveMore({
+					files: [
+						{ id: 2, mime_type: "text/plain", name: "second.txt", size: 2 },
+					],
+					folders: [],
+					next_file_cursor: null,
+				});
+				await loadMorePromise;
+			});
+
+			expect(await screen.findByText("second.txt")).toBeInTheDocument();
+			expect(mockState.listContent).toHaveBeenCalledTimes(2);
+		} finally {
+			Object.defineProperty(window, "IntersectionObserver", {
+				writable: true,
+				value: originalIntersectionObserver,
+			});
+		}
+	});
+
+	it("loads more files inside a subfolder and allows retry after a page error", async () => {
+		const originalIntersectionObserver = window.IntersectionObserver;
+		Object.defineProperty(window, "IntersectionObserver", {
+			writable: true,
+			value: MockIntersectionObserver,
+		});
+
+		try {
+			mockState.getInfo.mockResolvedValueOnce({
+				has_password: false,
+				name: "Shared Root",
+				shared_by: {
+					avatar: null,
+					name: "Alice Example",
+				},
+				share_type: "folder",
+			} as never);
+			mockState.listContent.mockResolvedValueOnce({
+				files: [],
+				folders: [{ id: 9, name: "Nested" }],
+				next_file_cursor: null,
+			} as never);
+			mockState.listSubfolderContent
+				.mockResolvedValueOnce({
+					files: [
+						{ id: 10, mime_type: "text/plain", name: "alpha.txt", size: 10 },
+					],
+					folders: [],
+					next_file_cursor: { id: 10, value: "alpha.txt" },
+				} as never)
+				.mockRejectedValueOnce(
+					new ApiError(ErrorCode.BadRequest, "page failed"),
+				)
+				.mockResolvedValueOnce({
+					files: [
+						{ id: 11, mime_type: "text/plain", name: "beta.txt", size: 11 },
+					],
+					folders: [],
+					next_file_cursor: null,
+				} as never);
+
+			render(<ShareViewPage />);
+
+			fireEvent.click(
+				await screen.findByRole("button", { name: "folder:Nested" }),
+			);
+			expect(await screen.findByText("alpha.txt")).toBeInTheDocument();
+			await waitFor(() => {
+				expect(MockIntersectionObserver.instances).toHaveLength(1);
+			});
+
+			const firstObserver = MockIntersectionObserver.instances[0];
+			const firstTarget = firstObserver?.observe.mock.calls[0]?.[0] as
+				| Element
+				| undefined;
+			expect(firstTarget).toBeInstanceOf(HTMLElement);
+
+			if (firstObserver && firstTarget) {
+				act(() => {
+					firstObserver.trigger(firstTarget);
+				});
+			}
+
+			await waitFor(() => {
+				expect(mockState.handleApiError).toHaveBeenCalledWith(
+					expect.objectContaining({ message: "page failed" }),
+				);
+			});
+			expect(mockState.listSubfolderContent).toHaveBeenLastCalledWith(
+				"share-token",
+				9,
+				{
+					file_after_id: 10,
+					file_after_value: "alpha.txt",
+					file_limit: 100,
+					folder_limit: 0,
+				},
+			);
+
+			if (firstObserver && firstTarget) {
+				act(() => {
+					firstObserver.trigger(firstTarget);
+				});
+			}
+
+			expect(await screen.findByText("beta.txt")).toBeInTheDocument();
+			expect(mockState.listSubfolderContent).toHaveBeenCalledTimes(3);
+		} finally {
+			Object.defineProperty(window, "IntersectionObserver", {
+				writable: true,
+				value: originalIntersectionObserver,
+			});
+		}
+	});
+
+	it("passes folder media metadata loaders to audio folder previews", async () => {
+		mockState.getInfo.mockResolvedValueOnce({
+			has_password: false,
+			name: "Shared Root",
+			shared_by: {
+				avatar: null,
+				name: "Alice Example",
+			},
+			share_type: "folder",
+		} as never);
+		mockState.listContent.mockResolvedValueOnce({
+			files: [
+				{ id: 4, mime_type: "audio/mpeg", name: "Preview Song.mp3", size: 4 },
+			],
+			folders: [],
+			next_file_cursor: null,
+		} as never);
+		mockState.musicPlayTracks.mockImplementationOnce(() => {
+			throw new Error("fall back to preview");
+		});
+
+		render(<ShareViewPage />);
+
+		expect(await screen.findByText("Preview Song.mp3")).toBeInTheDocument();
+		fireEvent.click(
+			screen.getByRole("button", { name: "preview:Preview Song.mp3" }),
+		);
+
+		expect(await screen.findByTestId("file-preview")).toHaveAttribute(
+			"data-download-path",
+			"/s/share-token/files/4/download",
+		);
+
+		fireEvent.click(
+			screen.getByRole("button", { name: "call-music-metadata" }),
+		);
+
+		await waitFor(() => {
+			expect(mockState.getFolderFileMediaMetadata).toHaveBeenCalledWith(
+				"share-token",
+				4,
+				{ signal: expect.any(AbortSignal) },
+			);
+		});
 	});
 
 	it("plays shared folder music directly from the folder listing", async () => {

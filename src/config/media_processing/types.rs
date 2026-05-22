@@ -7,6 +7,8 @@ use utoipa::ToSchema;
 
 pub const MEDIA_PROCESSING_REGISTRY_VERSION: i32 = 2;
 pub const PUBLIC_THUMBNAIL_SUPPORT_VERSION: i32 = 1;
+pub const PUBLIC_MEDIA_DATA_SUPPORT_VERSION: i32 = 1;
+pub const PUBLIC_MEDIA_DATA_MAX_SAFE_SOURCE_BYTES: i64 = 9_007_199_254_740_991;
 pub const DEFAULT_VIPS_COMMAND: &str = "vips";
 pub const DEFAULT_FFMPEG_COMMAND: &str = "ffmpeg";
 pub const DEFAULT_FFPROBE_COMMAND: &str = "ffprobe";
@@ -95,6 +97,41 @@ pub struct PublicThumbnailSupport {
     pub version: i32,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub extensions: Vec<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+#[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
+pub enum PublicMediaDataSupportMatch {
+    Extensions,
+    Any,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
+pub struct PublicMediaDataKindSupport {
+    pub enabled: bool,
+    #[serde(rename = "match")]
+    pub match_kind: PublicMediaDataSupportMatch,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub extensions: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
+pub struct PublicMediaDataKindsSupport {
+    pub image: PublicMediaDataKindSupport,
+    pub audio: PublicMediaDataKindSupport,
+    pub video: PublicMediaDataKindSupport,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
+pub struct PublicMediaDataSupport {
+    pub version: i32,
+    pub enabled: bool,
+    pub max_source_bytes: i64,
+    pub kinds: PublicMediaDataKindsSupport,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]

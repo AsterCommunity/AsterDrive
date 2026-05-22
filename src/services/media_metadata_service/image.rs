@@ -15,6 +15,8 @@ use tiff::tags::Tag as TiffTag;
 use crate::errors::{AsterError, MapAsterErr, Result};
 use crate::types::ImageMediaMetadata;
 
+mod tiff_fallback;
+
 const EXIF_ARTIST_TAG_CODE: u16 = 0x013b;
 
 pub(super) fn parse_image_metadata_from_path(path: &Path) -> Result<ImageMediaMetadata> {
@@ -68,6 +70,17 @@ where
                 error = %error,
                 "image metadata unavailable from nom-exif, falling back to image dimensions"
             );
+
+            match tiff_fallback::enrich_image_metadata_from_reader(make_reader()?, &mut metadata) {
+                Ok(()) => {}
+                Err(error) => {
+                    tracing::debug!(
+                        source = source_label,
+                        error = %error,
+                        "image EXIF metadata unavailable from TIFF fallback"
+                    );
+                }
+            }
         }
     }
 

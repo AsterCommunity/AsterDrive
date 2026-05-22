@@ -13,6 +13,7 @@ import {
 	resolveActiveDisplayTimeZone,
 	useDisplayTimeZoneStore,
 } from "@/stores/displayTimeZoneStore";
+import { useMediaDataSupportStore } from "@/stores/mediaDataSupportStore";
 import { usePreviewAppStore } from "@/stores/previewAppStore";
 import { useThemeStore } from "@/stores/themeStore";
 import { useThumbnailSupportStore } from "@/stores/thumbnailSupportStore";
@@ -25,6 +26,7 @@ function loadPublicConfig() {
 	void useBrandingStore.getState().load();
 	void usePreviewAppStore.getState().load();
 	void useThumbnailSupportStore.getState().load();
+	void useMediaDataSupportStore.getState().load();
 }
 
 function consumeExternalAuthSuccessRedirect() {

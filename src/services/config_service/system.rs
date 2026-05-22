@@ -1,6 +1,7 @@
 use crate::api::pagination::{OffsetPage, load_offset_page};
 use crate::config::definitions::ALL_CONFIGS;
 use crate::config::media_processing::MEDIA_PROCESSING_REGISTRY_JSON_KEY;
+use crate::config::operations::{MEDIA_METADATA_ENABLED_KEY, MEDIA_METADATA_MAX_SOURCE_BYTES_KEY};
 use crate::config::system_config as shared_system_config;
 use crate::db::repository::config_repo;
 use crate::entities::system_config;
@@ -263,7 +264,14 @@ fn apply_system_config_definition(config: system_config::Model) -> system_config
 }
 
 fn invalidate_dependent_public_config_caches(key: &str) {
-    if key == MEDIA_PROCESSING_REGISTRY_JSON_KEY {
-        super::public::invalidate_public_thumbnail_support_cache();
+    match key {
+        MEDIA_PROCESSING_REGISTRY_JSON_KEY => {
+            super::public::invalidate_public_thumbnail_support_cache();
+            super::public::invalidate_public_media_data_support_cache();
+        }
+        MEDIA_METADATA_ENABLED_KEY | MEDIA_METADATA_MAX_SOURCE_BYTES_KEY => {
+            super::public::invalidate_public_media_data_support_cache();
+        }
+        _ => {}
     }
 }
