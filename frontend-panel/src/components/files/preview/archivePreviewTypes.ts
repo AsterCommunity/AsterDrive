@@ -59,21 +59,3 @@ export type ArchivePreviewAction =
 			type: "filenameEncodingChanged";
 			filenameEncoding: ArchiveFilenameEncoding;
 	  };
-
-export const archiveFilenameEncodingOptions: ArchiveFilenameEncoding[] = [
-	"auto",
-	"utf8",
-	"gb18030",
-	"cp437",
-];
-
-export function isArchiveFilenameEncoding(
-	value: string | null,
-): value is ArchiveFilenameEncoding {
-	return (
-		value === "auto" ||
-		value === "utf8" ||
-		value === "gb18030" ||
-		value === "cp437"
-	);
-}

@@ -400,6 +400,7 @@ use utoipa::{Modify, OpenApi};
             crate::types::BackgroundTaskKind,
             crate::types::BackgroundTaskStatus,
             crate::types::AuditAction,
+            crate::types::ArchiveFilenameEncoding,
             crate::services::archive_preview_service::ArchivePreviewManifest,
             crate::services::archive_preview_service::ArchivePreviewEntry,
             crate::services::archive_preview_service::ArchivePreviewEntryKind,

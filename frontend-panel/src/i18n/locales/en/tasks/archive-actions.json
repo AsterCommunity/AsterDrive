@@ -14,5 +14,10 @@
 	"archive_filename_encoding_auto": "Auto",
 	"archive_filename_encoding_utf8": "UTF-8",
 	"archive_filename_encoding_gb18030": "GB18030",
-	"archive_filename_encoding_cp437": "CP437"
+	"archive_filename_encoding_cp437": "CP437",
+	"archive_filename_encoding_cp850": "CP850",
+	"archive_filename_encoding_shift_jis": "Shift_JIS",
+	"archive_filename_encoding_big5": "Big5",
+	"archive_filename_encoding_euc_kr": "EUC-KR",
+	"archive_filename_encoding_windows_1252": "Windows-1252"
 }

@@ -1,13 +1,11 @@
 import { useMemo } from "react";
 import { useTranslation } from "react-i18next";
+import { isArchiveFilenameEncoding } from "@/lib/archiveFilenameEncoding";
 import {
 	ArchivePreviewContent,
 	ArchivePreviewErrorState,
 } from "./ArchivePreviewContent";
-import {
-	type ArchivePreviewProps,
-	isArchiveFilenameEncoding,
-} from "./archivePreviewTypes";
+import type { ArchivePreviewProps } from "./archivePreviewTypes";
 import {
 	buildArchiveDirectoryEntries,
 	buildArchiveVisibleEntries,

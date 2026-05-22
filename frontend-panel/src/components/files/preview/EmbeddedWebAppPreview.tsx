@@ -30,7 +30,7 @@ export function EmbeddedWebAppPreview({
 	iframeHidden = false,
 	iframeName,
 	iframeReferrerPolicy = "same-origin",
-	iframeSandbox = "",
+	iframeSandbox = EXTERNAL_WEB_APP_IFRAME_SANDBOX,
 	loadingOverlay,
 	onLoad,
 	src,

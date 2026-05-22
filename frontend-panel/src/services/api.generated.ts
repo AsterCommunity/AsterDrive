@@ -3811,7 +3811,7 @@ export interface components {
          * @description ZIP entry filename decoding strategy.
          * @enum {string}
          */
-        ArchiveFilenameEncoding: "auto" | "utf8" | "gb18030" | "cp437";
+        ArchiveFilenameEncoding: "auto" | "utf8" | "gb18030" | "cp437" | "cp850" | "shift_jis" | "big5" | "euc_kr" | "windows_1252";
         ArchivePreviewEntry: {
             /** Format: int64 */
             compressed_size: number;

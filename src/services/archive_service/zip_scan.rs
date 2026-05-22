@@ -5,7 +5,11 @@ use std::io::{Read, Seek};
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
-use encoding_rs::GB18030;
+use encoding_rs::{BIG5, EUC_KR, Encoding, GB18030, SHIFT_JIS, WINDOWS_1252};
+use oem_cp::{
+    code_table::{DECODING_TABLE_CP437, DECODING_TABLE_CP850},
+    decode_string_complete_table,
+};
 use serde::{Deserialize, Serialize};
 #[cfg(all(debug_assertions, feature = "openapi"))]
 use utoipa::ToSchema;
@@ -308,7 +312,32 @@ fn decode_zip_entry_name<R: Read>(
                 entry.name()
             ))
         }),
-        ArchiveFilenameEncoding::Cp437 => Ok(entry.name().to_string()),
+        ArchiveFilenameEncoding::Cp437 => Ok(decode_string_complete_table(
+            raw,
+            &DECODING_TABLE_CP437,
+        )),
+        ArchiveFilenameEncoding::Cp850 => Ok(decode_string_complete_table(
+            raw,
+            &DECODING_TABLE_CP850,
+        )),
+        ArchiveFilenameEncoding::ShiftJis => decode_zip_entry_name_legacy_encoding(
+            raw,
+            entry.name(),
+            SHIFT_JIS,
+            "Shift_JIS",
+        ),
+        ArchiveFilenameEncoding::Big5 => {
+            decode_zip_entry_name_legacy_encoding(raw, entry.name(), BIG5, "Big5")
+        }
+        ArchiveFilenameEncoding::EucKr => {
+            decode_zip_entry_name_legacy_encoding(raw, entry.name(), EUC_KR, "EUC-KR")
+        }
+        ArchiveFilenameEncoding::Windows1252 => decode_zip_entry_name_legacy_encoding(
+            raw,
+            entry.name(),
+            WINDOWS_1252,
+            "Windows-1252",
+        ),
     }
 }
 
@@ -349,6 +378,23 @@ fn decode_gb18030(raw: &[u8]) -> Option<String> {
     GB18030
         .decode_without_bom_handling_and_without_replacement(raw)
         .map(|value| value.into_owned())
+}
+
+fn decode_zip_entry_name_legacy_encoding(
+    raw: &[u8],
+    display_name: &str,
+    encoding: &'static Encoding,
+    encoding_label: &str,
+) -> Result<String> {
+    encoding
+        .decode_without_bom_handling_and_without_replacement(raw)
+        .map(|value| value.into_owned())
+        .ok_or_else(|| {
+            AsterError::validation_error(format!(
+                "archive entry '{}' filename is not valid {}",
+                display_name, encoding_label
+            ))
+        })
 }
 
 fn contains_gb18030_cjk_signal(value: &str) -> bool {
@@ -589,6 +635,9 @@ fn has_windows_drive_prefix(path: &str) -> bool {
 mod tests {
     use std::io::{Cursor, Write};
 
+    use encoding_rs::{BIG5, EUC_KR, SHIFT_JIS, WINDOWS_1252};
+    use oem_cp::{code_table::ENCODING_TABLE_CP850, encode_string_checked};
+
     use super::*;
     use zip::HasZipMetadata;
 
@@ -658,6 +707,67 @@ mod tests {
         );
         let mut bytes = create_stored_zip_bytes(&[(decoded_name, Some(content))]);
         patch_zip_entry_raw_name(&mut bytes, decoded_name.as_bytes(), raw_name, true);
+        bytes
+    }
+
+    fn create_stored_zip_bytes_with_variable_raw_name(raw_name: &[u8], content: &[u8]) -> Vec<u8> {
+        let content_crc = crc32(content);
+        let compressed_size: u32 = content.len().try_into().expect("test content fits u32");
+        let uncompressed_size = compressed_size;
+        let name_len: u16 = raw_name.len().try_into().expect("test filename fits u16");
+
+        let mut bytes = Vec::new();
+        push_u32(&mut bytes, 0x0403_4b50);
+        push_u16(&mut bytes, 10);
+        push_u16(&mut bytes, 0);
+        push_u16(&mut bytes, 0);
+        push_u16(&mut bytes, 0);
+        push_u16(&mut bytes, 0);
+        push_u32(&mut bytes, content_crc);
+        push_u32(&mut bytes, compressed_size);
+        push_u32(&mut bytes, uncompressed_size);
+        push_u16(&mut bytes, name_len);
+        push_u16(&mut bytes, 0);
+        bytes.extend_from_slice(raw_name);
+        bytes.extend_from_slice(content);
+
+        let central_directory_offset: u32 = bytes
+            .len()
+            .try_into()
+            .expect("test central directory offset fits u32");
+        push_u32(&mut bytes, 0x0201_4b50);
+        push_u16(&mut bytes, 20);
+        push_u16(&mut bytes, 10);
+        push_u16(&mut bytes, 0);
+        push_u16(&mut bytes, 0);
+        push_u16(&mut bytes, 0);
+        push_u16(&mut bytes, 0);
+        push_u32(&mut bytes, content_crc);
+        push_u32(&mut bytes, compressed_size);
+        push_u32(&mut bytes, uncompressed_size);
+        push_u16(&mut bytes, name_len);
+        push_u16(&mut bytes, 0);
+        push_u16(&mut bytes, 0);
+        push_u16(&mut bytes, 0);
+        push_u16(&mut bytes, 0);
+        push_u32(&mut bytes, 0);
+        push_u32(&mut bytes, 0);
+        bytes.extend_from_slice(raw_name);
+
+        let central_directory_size: u32 = (bytes.len()
+            - usize::try_from(central_directory_offset)
+                .expect("test central directory offset fits usize"))
+        .try_into()
+        .expect("test central directory size fits u32");
+        push_u32(&mut bytes, 0x0605_4b50);
+        push_u16(&mut bytes, 0);
+        push_u16(&mut bytes, 0);
+        push_u16(&mut bytes, 1);
+        push_u16(&mut bytes, 1);
+        push_u32(&mut bytes, central_directory_size);
+        push_u32(&mut bytes, central_directory_offset);
+        push_u16(&mut bytes, 0);
+
         bytes
     }
 
@@ -993,6 +1103,74 @@ mod tests {
             .expect("CP437 path should scan when forced");
 
         assert_eq!(entries[0].path, "éber.txt");
+    }
+
+    #[test]
+    fn scan_forced_cp437_decodes_raw_name_even_with_utf8_flag() {
+        let bytes = create_stored_zip_bytes_with_raw_name_and_utf8_flag(
+            "aaaa.txt",
+            b"\x82ber.txt",
+            b"payload",
+        );
+        let entries = scan_entries_with_encoding(bytes, ArchiveFilenameEncoding::Cp437)
+            .expect("CP437 path should scan from raw bytes when forced");
+
+        assert_eq!(entries[0].path, "éber.txt");
+    }
+
+    #[test]
+    fn scan_forced_cp850_decodes_legacy_latin_paths() {
+        let raw_name =
+            encode_string_checked("über.txt", &ENCODING_TABLE_CP850).expect("name fits CP850");
+        let bytes = create_stored_zip_bytes_with_variable_raw_name(&raw_name, b"payload");
+        let entries = scan_entries_with_encoding(bytes, ArchiveFilenameEncoding::Cp850)
+            .expect("CP850 path should scan when forced");
+
+        assert_eq!(entries[0].path, "über.txt");
+    }
+
+    #[test]
+    fn scan_forced_shift_jis_decodes_legacy_japanese_paths() {
+        let (raw_name, _, had_errors) = SHIFT_JIS.encode("日本語.txt");
+        assert!(!had_errors);
+        let bytes = create_stored_zip_bytes_with_variable_raw_name(&raw_name, b"payload");
+        let entries = scan_entries_with_encoding(bytes, ArchiveFilenameEncoding::ShiftJis)
+            .expect("Shift_JIS path should scan when forced");
+
+        assert_eq!(entries[0].path, "日本語.txt");
+    }
+
+    #[test]
+    fn scan_forced_big5_decodes_legacy_traditional_chinese_paths() {
+        let (raw_name, _, had_errors) = BIG5.encode("繁體.txt");
+        assert!(!had_errors);
+        let bytes = create_stored_zip_bytes_with_variable_raw_name(&raw_name, b"payload");
+        let entries = scan_entries_with_encoding(bytes, ArchiveFilenameEncoding::Big5)
+            .expect("Big5 path should scan when forced");
+
+        assert_eq!(entries[0].path, "繁體.txt");
+    }
+
+    #[test]
+    fn scan_forced_euc_kr_decodes_legacy_korean_paths() {
+        let (raw_name, _, had_errors) = EUC_KR.encode("한국어.txt");
+        assert!(!had_errors);
+        let bytes = create_stored_zip_bytes_with_variable_raw_name(&raw_name, b"payload");
+        let entries = scan_entries_with_encoding(bytes, ArchiveFilenameEncoding::EucKr)
+            .expect("EUC-KR path should scan when forced");
+
+        assert_eq!(entries[0].path, "한국어.txt");
+    }
+
+    #[test]
+    fn scan_forced_windows_1252_decodes_legacy_western_paths() {
+        let (raw_name, _, had_errors) = WINDOWS_1252.encode("café.txt");
+        assert!(!had_errors);
+        let bytes = create_stored_zip_bytes_with_variable_raw_name(&raw_name, b"payload");
+        let entries = scan_entries_with_encoding(bytes, ArchiveFilenameEncoding::Windows1252)
+            .expect("Windows-1252 path should scan when forced");
+
+        assert_eq!(entries[0].path, "café.txt");
     }
 
     #[test]

@@ -12,6 +12,13 @@ pub enum ArchiveFilenameEncoding {
     Utf8,
     Gb18030,
     Cp437,
+    Cp850,
+    ShiftJis,
+    Big5,
+    EucKr,
+    #[serde(rename = "windows_1252")]
+    #[cfg_attr(all(debug_assertions, feature = "openapi"), schema(rename = "windows_1252"))]
+    Windows1252,
 }
 
 impl ArchiveFilenameEncoding {
@@ -21,6 +28,11 @@ impl ArchiveFilenameEncoding {
             Self::Utf8 => "utf8",
             Self::Gb18030 => "gb18030",
             Self::Cp437 => "cp437",
+            Self::Cp850 => "cp850",
+            Self::ShiftJis => "shift_jis",
+            Self::Big5 => "big5",
+            Self::EucKr => "euc_kr",
+            Self::Windows1252 => "windows_1252",
         }
     }
 }

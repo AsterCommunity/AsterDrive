@@ -1,5 +1,4 @@
-import type { KeyboardEvent } from "react";
-import { useMemo } from "react";
+import { Fragment, type KeyboardEvent, useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { FileTypeIcon } from "@/components/files/FileTypeIcon";
 import { Badge } from "@/components/ui/badge";
@@ -30,6 +29,7 @@ import {
 	TableHeader,
 	TableRow,
 } from "@/components/ui/table";
+import { archiveFilenameEncodingOptions } from "@/lib/archiveFilenameEncoding";
 import { formatBytes, formatDateTime, formatNumber } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import type {
@@ -40,7 +40,6 @@ import type {
 	ArchiveBrowserEntry,
 	ArchivePreviewErrorKind,
 } from "./archivePreviewTypes";
-import { archiveFilenameEncodingOptions } from "./archivePreviewTypes";
 import {
 	buildArchiveBreadcrumb,
 	displayParentForEntry,
@@ -269,28 +268,30 @@ function ArchiveBreadcrumbBar({
 					{breadcrumb.map((item, index) => {
 						const isLast = index === breadcrumb.length - 1;
 						return (
-							<BreadcrumbItem key={item.path ?? "root"} className="min-w-0">
-								{index > 0 ? (
+							<Fragment key={item.path ?? "root"}>
+								<BreadcrumbItem className="min-w-0">
+									{isLast ? (
+										<BreadcrumbPage className="text-xs">
+											{item.name}
+										</BreadcrumbPage>
+									) : (
+										<BreadcrumbLink
+											render={
+												<button
+													type="button"
+													onClick={() => onCurrentFolderChange(item.path)}
+												/>
+											}
+											className="text-xs"
+										>
+											{item.name}
+										</BreadcrumbLink>
+									)}
+								</BreadcrumbItem>
+								{isLast ? null : (
 									<BreadcrumbSeparator className="mx-0 text-muted-foreground/45" />
-								) : null}
-								{isLast ? (
-									<BreadcrumbPage className="text-xs">
-										{item.name}
-									</BreadcrumbPage>
-								) : (
-									<BreadcrumbLink
-										render={
-											<button
-												type="button"
-												onClick={() => onCurrentFolderChange(item.path)}
-											/>
-										}
-										className="text-xs"
-									>
-										{item.name}
-									</BreadcrumbLink>
 								)}
-							</BreadcrumbItem>
+							</Fragment>
 						);
 					})}
 				</BreadcrumbList>
