@@ -70,17 +70,17 @@ where
                 error = %error,
                 "image metadata unavailable from nom-exif, falling back to image dimensions"
             );
-        }
-    }
 
-    match tiff_fallback::enrich_image_metadata_from_reader(make_reader()?, &mut metadata) {
-        Ok(()) => {}
-        Err(error) => {
-            tracing::debug!(
-                source = source_label,
-                error = %error,
-                "image EXIF metadata unavailable from TIFF fallback"
-            );
+            match tiff_fallback::enrich_image_metadata_from_reader(make_reader()?, &mut metadata) {
+                Ok(()) => {}
+                Err(error) => {
+                    tracing::debug!(
+                        source = source_label,
+                        error = %error,
+                        "image EXIF metadata unavailable from TIFF fallback"
+                    );
+                }
+            }
         }
     }
 

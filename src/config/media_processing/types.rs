@@ -8,6 +8,7 @@ use utoipa::ToSchema;
 pub const MEDIA_PROCESSING_REGISTRY_VERSION: i32 = 2;
 pub const PUBLIC_THUMBNAIL_SUPPORT_VERSION: i32 = 1;
 pub const PUBLIC_MEDIA_DATA_SUPPORT_VERSION: i32 = 1;
+pub const PUBLIC_MEDIA_DATA_MAX_SAFE_SOURCE_BYTES: i64 = 9_007_199_254_740_991;
 pub const DEFAULT_VIPS_COMMAND: &str = "vips";
 pub const DEFAULT_FFMPEG_COMMAND: &str = "ffmpeg";
 pub const DEFAULT_FFPROBE_COMMAND: &str = "ffprobe";

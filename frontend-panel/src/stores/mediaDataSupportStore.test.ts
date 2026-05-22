@@ -78,7 +78,7 @@ describe("mediaDataSupportStore", () => {
 			max_source_bytes: 2048,
 		};
 		localStorage.setItem(
-			"aster-cached-media-data-support",
+			"aster-cached-media-data-support:v1",
 			JSON.stringify({ config: cachedSupport, cachedAt: Date.now() }),
 		);
 		mockState.get.mockResolvedValue(supportConfig);
@@ -100,9 +100,43 @@ describe("mediaDataSupportStore", () => {
 		});
 	});
 
-	it("drops malformed cached support configs", async () => {
+	it("ignores stale unversioned cached support", async () => {
+		const staleCachedSupport = {
+			...supportConfig,
+			max_source_bytes: 4096,
+		};
 		localStorage.setItem(
 			"aster-cached-media-data-support",
+			JSON.stringify({ config: staleCachedSupport, cachedAt: Date.now() }),
+		);
+		mockState.get.mockResolvedValue(supportConfig);
+
+		const { MEDIA_DATA_SUPPORT_CACHE_KEY, useMediaDataSupportStore } =
+			await loadStore();
+
+		expect(MEDIA_DATA_SUPPORT_CACHE_KEY).toBe(
+			"aster-cached-media-data-support:v1",
+		);
+		expect(useMediaDataSupportStore.getState().config).toBeNull();
+		expect(useMediaDataSupportStore.getState().isLoaded).toBe(false);
+
+		await useMediaDataSupportStore.getState().load();
+
+		expect(mockState.get).toHaveBeenCalledTimes(1);
+		expect(useMediaDataSupportStore.getState().config).toEqual(supportConfig);
+		expect(
+			localStorage.getItem("aster-cached-media-data-support"),
+		).not.toBeNull();
+		expect(
+			JSON.parse(localStorage.getItem(MEDIA_DATA_SUPPORT_CACHE_KEY) ?? "null"),
+		).toMatchObject({
+			config: supportConfig,
+		});
+	});
+
+	it("drops malformed cached support configs", async () => {
+		localStorage.setItem(
+			"aster-cached-media-data-support:v1",
 			JSON.stringify({
 				config: {
 					enabled: true,
@@ -121,6 +155,65 @@ describe("mediaDataSupportStore", () => {
 		expect(useMediaDataSupportStore.getState().config).toBeNull();
 		expect(useMediaDataSupportStore.getState().isLoaded).toBe(false);
 		expect(localStorage.getItem(MEDIA_DATA_SUPPORT_CACHE_KEY)).toBeNull();
+	});
+
+	it("drops cached support payloads without a config object", async () => {
+		localStorage.setItem(
+			"aster-cached-media-data-support:v1",
+			JSON.stringify({ config: null, cachedAt: Date.now() }),
+		);
+
+		const { MEDIA_DATA_SUPPORT_CACHE_KEY, useMediaDataSupportStore } =
+			await loadStore();
+
+		expect(useMediaDataSupportStore.getState().config).toBeNull();
+		expect(useMediaDataSupportStore.getState().isLoaded).toBe(false);
+		expect(localStorage.getItem(MEDIA_DATA_SUPPORT_CACHE_KEY)).toBeNull();
+	});
+
+	it("drops unparseable cached support payloads", async () => {
+		localStorage.setItem("aster-cached-media-data-support:v1", "{bad json");
+
+		const { MEDIA_DATA_SUPPORT_CACHE_KEY, useMediaDataSupportStore } =
+			await loadStore();
+
+		expect(useMediaDataSupportStore.getState().config).toBeNull();
+		expect(useMediaDataSupportStore.getState().isLoaded).toBe(false);
+		expect(localStorage.getItem(MEDIA_DATA_SUPPORT_CACHE_KEY)).toBeNull();
+	});
+
+	it("invalidates loaded support and clears the versioned cache", async () => {
+		mockState.get.mockResolvedValue(supportConfig);
+
+		const { MEDIA_DATA_SUPPORT_CACHE_KEY, useMediaDataSupportStore } =
+			await loadStore();
+
+		await useMediaDataSupportStore.getState().load();
+		expect(localStorage.getItem(MEDIA_DATA_SUPPORT_CACHE_KEY)).not.toBeNull();
+
+		useMediaDataSupportStore.getState().invalidate();
+
+		expect(localStorage.getItem(MEDIA_DATA_SUPPORT_CACHE_KEY)).toBeNull();
+		expect(useMediaDataSupportStore.getState().config).toBeNull();
+		expect(useMediaDataSupportStore.getState().isLoaded).toBe(false);
+	});
+
+	it("ignores an in-flight load after invalidation", async () => {
+		let resolveLoad!: (value: typeof supportConfig) => void;
+		const pendingLoad = new Promise<typeof supportConfig>((resolve) => {
+			resolveLoad = resolve;
+		});
+		mockState.get.mockReturnValueOnce(pendingLoad);
+
+		const { useMediaDataSupportStore } = await loadStore();
+
+		const load = useMediaDataSupportStore.getState().load();
+		useMediaDataSupportStore.getState().invalidate();
+		resolveLoad(supportConfig);
+		await load;
+
+		expect(useMediaDataSupportStore.getState().config).toBeNull();
+		expect(useMediaDataSupportStore.getState().isLoaded).toBe(false);
 	});
 
 	it("keeps failed bootstraps retryable for the next ordinary load", async () => {
@@ -198,7 +291,7 @@ describe("mediaDataSupportStore", () => {
 		vi.useFakeTimers();
 		vi.setSystemTime(new Date("2026-05-07T00:00:00Z"));
 		localStorage.setItem(
-			"aster-cached-media-data-support",
+			"aster-cached-media-data-support:v1",
 			JSON.stringify({ config: supportConfig, cachedAt: Date.now() }),
 		);
 		const refreshedConfig = {

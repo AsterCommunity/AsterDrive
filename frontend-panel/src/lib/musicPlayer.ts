@@ -111,11 +111,13 @@ export function inferMusicMetadata(file: MusicFileLike): MusicTrackMetadata {
 
 function audioBackendMetadataLoader(
 	file: MusicFileLike,
-	loader: MusicPlayerTrack["loadBackendMetadata"],
-): MusicPlayerTrack["loadBackendMetadata"] | undefined {
-	const support = useMediaDataSupportStore.getState().config;
-	if (!supportsAudioMediaData(file, support)) return undefined;
-	return loader;
+	loader: NonNullable<MusicPlayerTrack["loadBackendMetadata"]>,
+): MusicPlayerTrack["loadBackendMetadata"] {
+	return (signal) => {
+		const support = useMediaDataSupportStore.getState().config;
+		if (!supportsAudioMediaData(file, support)) return Promise.resolve(null);
+		return loader(signal);
+	};
 }
 
 export function buildDirectMusicTrack(file: MusicFileLike): MusicPlayerTrack {

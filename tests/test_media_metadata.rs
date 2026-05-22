@@ -701,6 +701,9 @@ async fn file_media_metadata_extracts_tiff_like_raw_exif_fields_with_parser_fall
     assert_eq!(metadata["orientation"], 8);
     assert_eq!(metadata["artist"], "Aster Tester");
     assert_eq!(metadata["software"], "Ver.1.12");
+    assert!(metadata["gps_latitude"].is_null());
+    assert!(metadata["gps_longitude"].is_null());
+    assert!(metadata["gps_altitude_meters"].is_null());
 }
 
 #[actix_web::test]

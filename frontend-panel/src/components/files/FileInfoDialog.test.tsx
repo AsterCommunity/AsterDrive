@@ -201,6 +201,16 @@ describe("FileInfoDialog", () => {
 		expect(mockState.listFolder).not.toHaveBeenCalled();
 	});
 
+	it("renders nothing when opened without a file or folder target", () => {
+		render(<FileInfoDialog open onOpenChange={vi.fn()} />);
+
+		expect(screen.queryByTestId("dialog")).not.toBeInTheDocument();
+		expect(mockState.getFile).not.toHaveBeenCalled();
+		expect(mockState.getFolderInfo).not.toHaveBeenCalled();
+		expect(mockState.getMediaMetadata).not.toHaveBeenCalled();
+		expect(mockState.listFolder).not.toHaveBeenCalled();
+	});
+
 	it("loads folder details and child counts when opened and shows the resolved totals", async () => {
 		let resolveList:
 			| ((value: { files_total: number; folders_total: number }) => void)
@@ -248,6 +258,40 @@ describe("FileInfoDialog", () => {
 		resolveList?.({ files_total: 5, folders_total: 2 });
 
 		expect((await screen.findAllByText("folders:2 files:5")).length).toBe(2);
+	});
+
+	it("shows shared status for folder list items", async () => {
+		mockState.getFolderInfo.mockResolvedValueOnce({
+			created_at: "2026-02-01T00:00:00Z",
+			id: 3,
+			is_locked: false,
+			name: "Projects",
+			policy_id: null,
+			updated_at: "2026-02-02T00:00:00Z",
+		});
+		mockState.listFolder.mockResolvedValueOnce({
+			files_total: 0,
+			folders_total: 0,
+		});
+
+		render(
+			<FileInfoDialog
+				open
+				onOpenChange={vi.fn()}
+				folder={
+					{
+						id: 3,
+						is_locked: false,
+						is_shared: true,
+						name: "Projects",
+						updated_at: "2026-02-02T00:00:00Z",
+					} as never
+				}
+			/>,
+		);
+
+		expect(await screen.findByText("info_shared_yes")).toBeInTheDocument();
+		expect(screen.getByText("status:unlocked:shared")).toBeInTheDocument();
 	});
 
 	it("resets loaded folder counts on close and falls back to loading after a failed refresh", async () => {

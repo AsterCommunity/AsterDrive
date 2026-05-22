@@ -2,6 +2,8 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { FOLDER_LIMIT } from "@/lib/constants";
 import ShareViewPage from "@/pages/ShareViewPage";
+import { ApiError } from "@/services/http";
+import { ErrorCode } from "@/types/api-helpers";
 
 const mockState = vi.hoisted(() => ({
 	downloadFolderFileUrl: vi.fn(
@@ -227,6 +229,7 @@ vi.mock("@/components/files/FilePreview", () => ({
 		archivePreviewFactory,
 		loadMusicBackendMetadata,
 		mediaStreamLinkFactory,
+		onClose,
 		previewLinkFactory,
 	}: {
 		file: { name: string };
@@ -238,6 +241,7 @@ vi.mock("@/components/files/FilePreview", () => ({
 		archivePreviewFactory?: () => Promise<unknown>;
 		loadMusicBackendMetadata?: (signal?: AbortSignal) => Promise<unknown>;
 		mediaStreamLinkFactory?: () => Promise<unknown>;
+		onClose?: () => void;
 		previewLinkFactory?: () => Promise<unknown>;
 	}) =>
 		open ? (
@@ -259,6 +263,9 @@ vi.mock("@/components/files/FilePreview", () => ({
 				<button type="button" onClick={() => void previewLinkFactory?.()}>
 					call-preview-link
 				</button>
+				<button type="button" onClick={() => void archivePreviewFactory?.()}>
+					call-archive-preview
+				</button>
 				<button
 					type="button"
 					onClick={() =>
@@ -269,6 +276,9 @@ vi.mock("@/components/files/FilePreview", () => ({
 				</button>
 				<button type="button" onClick={() => void mediaStreamLinkFactory?.()}>
 					call-stream-link
+				</button>
+				<button type="button" onClick={onClose}>
+					close-preview
 				</button>
 			</div>
 		) : null,
@@ -519,6 +529,9 @@ describe("ShareViewPage", () => {
 		mockState.handleApiError.mockReset();
 		mockState.listContent.mockReset();
 		mockState.listSubfolderContent.mockReset();
+		mockState.mediaDataSupportStore.isLoaded = true;
+		mockState.mediaDataSupportStore.load.mockReset();
+		mockState.mediaDataSupportStore.load.mockResolvedValue(undefined);
 		mockState.openWindow.mockReset();
 		mockState.params = { token: "share-token" };
 		mockState.previewAppStore.load.mockReset();
@@ -543,6 +556,17 @@ describe("ShareViewPage", () => {
 			configurable: true,
 			value: mockState.openWindow,
 		});
+	});
+
+	it("renders an unavailable panel for expired shares", async () => {
+		mockState.getInfo.mockRejectedValueOnce(
+			new ApiError(ErrorCode.ShareExpired, "expired"),
+		);
+
+		render(<ShareViewPage />);
+
+		expect(await screen.findByText("errors:share_expired")).toBeInTheDocument();
+		expect(screen.getByText("unavailable")).toBeInTheDocument();
 	});
 
 	it("verifies passwords for protected folder shares and then loads their contents", async () => {
@@ -570,7 +594,9 @@ describe("ShareViewPage", () => {
 
 		await screen.findByText("Secret Folder");
 		expect(mockState.previewAppStore.load).toHaveBeenCalledTimes(1);
-		fireEvent.change(screen.getByPlaceholderText("password"), {
+		const passwordInput = screen.getByPlaceholderText("password");
+		expect(passwordInput).not.toHaveAttribute("autofocus");
+		fireEvent.change(passwordInput, {
 			target: { value: "letmein" },
 		});
 		fireEvent.click(screen.getByRole("button", { name: "verify" }));
@@ -645,6 +671,13 @@ describe("ShareViewPage", () => {
 			"data-download-path",
 			"/s/share-token/download",
 		);
+		fireEvent.click(screen.getByRole("button", { name: "close-preview" }));
+		expect(screen.queryByTestId("file-preview")).not.toBeInTheDocument();
+		fireEvent.click(screen.getByRole("button", { name: /files:preview/i }));
+		expect(await screen.findByTestId("file-preview")).toHaveAttribute(
+			"data-download-path",
+			"/s/share-token/download",
+		);
 		expect(screen.getByTestId("file-preview")).toHaveAttribute(
 			"data-thumbnail-path",
 			"/s/share-token/thumbnail",
@@ -664,12 +697,19 @@ describe("ShareViewPage", () => {
 
 		fireEvent.click(screen.getByRole("button", { name: "call-preview-link" }));
 		fireEvent.click(
+			screen.getByRole("button", { name: "call-archive-preview" }),
+		);
+		fireEvent.click(
 			screen.getByRole("button", { name: "call-music-metadata" }),
 		);
 		fireEvent.click(screen.getByRole("button", { name: "call-stream-link" }));
 
 		await waitFor(() => {
 			expect(mockState.createPreviewLink).toHaveBeenCalledWith("share-token");
+			expect(mockState.getArchivePreview).toHaveBeenCalledWith(
+				"share-token",
+				undefined,
+			);
 			expect(mockState.createStreamSession).toHaveBeenCalledWith("share-token");
 		});
 		expect(mockState.getMediaMetadata).not.toHaveBeenCalled();
@@ -681,6 +721,67 @@ describe("ShareViewPage", () => {
 			"https://download/share-token",
 			"_blank",
 		);
+	});
+
+	it("loads media data support when the preview element has not bootstrapped it", async () => {
+		mockState.mediaDataSupportStore.isLoaded = false;
+		mockState.getInfo.mockResolvedValueOnce({
+			download_count: 0,
+			has_password: false,
+			mime_type: "application/pdf",
+			name: "Manual.pdf",
+			shared_by: {
+				avatar: null,
+				name: "Alice Example",
+			},
+			share_type: "file",
+			size: 256,
+		} as never);
+
+		render(<ShareViewPage />);
+
+		expect(await screen.findByText("Manual.pdf")).toBeInTheDocument();
+		await waitFor(() => {
+			expect(mockState.mediaDataSupportStore.load).toHaveBeenCalledTimes(1);
+		});
+	});
+
+	it("passes media metadata loaders to audio file share previews", async () => {
+		mockState.getInfo.mockResolvedValueOnce({
+			download_count: 0,
+			has_password: false,
+			mime_type: "audio/mpeg",
+			name: "Preview Song.mp3",
+			shared_by: {
+				avatar: null,
+				name: "Alice Example",
+			},
+			share_type: "file",
+			size: 512,
+		} as never);
+		mockState.musicPlayTracks.mockImplementationOnce(() => {
+			throw new Error("fall back to preview");
+		});
+
+		render(<ShareViewPage />);
+
+		await screen.findByText("Preview Song.mp3");
+		fireEvent.click(screen.getByRole("button", { name: /files:preview/i }));
+
+		expect(await screen.findByTestId("file-preview")).toHaveAttribute(
+			"data-download-path",
+			"/s/share-token/download",
+		);
+
+		fireEvent.click(
+			screen.getByRole("button", { name: "call-music-metadata" }),
+		);
+
+		await waitFor(() => {
+			expect(mockState.getMediaMetadata).toHaveBeenCalledWith("share-token", {
+				signal: expect.any(AbortSignal),
+			});
+		});
 	});
 
 	it("plays shared music directly without opening the file preview", async () => {
@@ -799,6 +900,9 @@ describe("ShareViewPage", () => {
 
 		fireEvent.click(screen.getByRole("button", { name: "call-preview-link" }));
 		fireEvent.click(
+			screen.getByRole("button", { name: "call-archive-preview" }),
+		);
+		fireEvent.click(
 			screen.getByRole("button", { name: "call-music-metadata" }),
 		);
 		fireEvent.click(screen.getByRole("button", { name: "call-stream-link" }));
@@ -807,6 +911,11 @@ describe("ShareViewPage", () => {
 			expect(mockState.createFolderFilePreviewLink).toHaveBeenCalledWith(
 				"share-token",
 				5,
+			);
+			expect(mockState.getFolderFileArchivePreview).toHaveBeenCalledWith(
+				"share-token",
+				5,
+				undefined,
 			);
 			expect(mockState.createFolderFileStreamSession).toHaveBeenCalledWith(
 				"share-token",
@@ -827,6 +936,52 @@ describe("ShareViewPage", () => {
 			"https://download/share-token/files/5",
 			"_blank",
 		);
+	});
+
+	it("passes folder media metadata loaders to audio folder previews", async () => {
+		mockState.getInfo.mockResolvedValueOnce({
+			has_password: false,
+			name: "Shared Root",
+			shared_by: {
+				avatar: null,
+				name: "Alice Example",
+			},
+			share_type: "folder",
+		} as never);
+		mockState.listContent.mockResolvedValueOnce({
+			files: [
+				{ id: 4, mime_type: "audio/mpeg", name: "Preview Song.mp3", size: 4 },
+			],
+			folders: [],
+			next_file_cursor: null,
+		} as never);
+		mockState.musicPlayTracks.mockImplementationOnce(() => {
+			throw new Error("fall back to preview");
+		});
+
+		render(<ShareViewPage />);
+
+		expect(await screen.findByText("Preview Song.mp3")).toBeInTheDocument();
+		fireEvent.click(
+			screen.getByRole("button", { name: "preview:Preview Song.mp3" }),
+		);
+
+		expect(await screen.findByTestId("file-preview")).toHaveAttribute(
+			"data-download-path",
+			"/s/share-token/files/4/download",
+		);
+
+		fireEvent.click(
+			screen.getByRole("button", { name: "call-music-metadata" }),
+		);
+
+		await waitFor(() => {
+			expect(mockState.getFolderFileMediaMetadata).toHaveBeenCalledWith(
+				"share-token",
+				4,
+				{ signal: expect.any(AbortSignal) },
+			);
+		});
 	});
 
 	it("plays shared folder music directly from the folder listing", async () => {

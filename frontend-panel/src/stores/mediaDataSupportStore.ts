@@ -3,7 +3,8 @@ import { logger } from "@/lib/logger";
 import { mediaDataSupportService } from "@/services/mediaDataSupportService";
 import type { PublicMediaDataSupport } from "@/types/api";
 
-export const MEDIA_DATA_SUPPORT_CACHE_KEY = "aster-cached-media-data-support";
+export const MEDIA_DATA_SUPPORT_CACHE_KEY =
+	"aster-cached-media-data-support:v1";
 const MEDIA_DATA_SUPPORT_REVALIDATE_INTERVAL_MS = 30_000;
 
 interface CachedMediaDataSupportPayload {
@@ -121,6 +122,8 @@ export const useMediaDataSupportStore = create<MediaDataSupportState>(
 		isLoaded: initialCachedConfig !== null,
 
 		invalidate: () => {
+			latestLoadToken += 1;
+			inFlightLoad = null;
 			clearCachedMediaDataSupport();
 			lastRevalidationAttemptAt = 0;
 			set({
@@ -147,26 +150,28 @@ export const useMediaDataSupportStore = create<MediaDataSupportState>(
 				lastRevalidationAttemptAt = Date.now();
 				try {
 					const config = await mediaDataSupportService.get();
-					if (latestLoadToken !== loadToken) return;
-					writeCachedMediaDataSupport(config);
-					set({
-						config,
-						isLoaded: true,
-					});
+					if (latestLoadToken === loadToken) {
+						writeCachedMediaDataSupport(config);
+						set({
+							config,
+							isLoaded: true,
+						});
+					}
 				} catch (error) {
 					logger.warn(
 						"media data support bootstrap failed, using cached support list when available",
 						error,
 					);
-					if (latestLoadToken !== loadToken) return;
-					set((state) =>
-						state.isLoaded
-							? state
-							: {
-									config: null,
-									isLoaded: false,
-								},
-					);
+					if (latestLoadToken === loadToken) {
+						set((state) =>
+							state.isLoaded
+								? state
+								: {
+										config: null,
+										isLoaded: false,
+									},
+						);
+					}
 				} finally {
 					if (inFlightLoad === loadPromise) {
 						inFlightLoad = null;

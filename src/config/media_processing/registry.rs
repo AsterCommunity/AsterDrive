@@ -16,9 +16,9 @@ use super::types::{
     DEFAULT_VIPS_EXTENSIONS, MEDIA_PROCESSING_REGISTRY_VERSION, MatchedMediaProcessor,
     MediaProcessingMatchKind, MediaProcessingProcessorConfig,
     MediaProcessingProcessorRuntimeConfig, MediaProcessingRegistryConfig, MediaProcessingUse,
-    PUBLIC_MEDIA_DATA_SUPPORT_VERSION, PUBLIC_THUMBNAIL_SUPPORT_VERSION,
-    PublicMediaDataKindSupport, PublicMediaDataKindsSupport, PublicMediaDataSupport,
-    PublicMediaDataSupportMatch, PublicThumbnailSupport,
+    PUBLIC_MEDIA_DATA_MAX_SAFE_SOURCE_BYTES, PUBLIC_MEDIA_DATA_SUPPORT_VERSION,
+    PUBLIC_THUMBNAIL_SUPPORT_VERSION, PublicMediaDataKindSupport, PublicMediaDataKindsSupport,
+    PublicMediaDataSupport, PublicMediaDataSupportMatch, PublicThumbnailSupport,
 };
 use crate::config::definitions::MEDIA_PROCESSING_REGISTRY_JSON_KEY;
 
@@ -192,7 +192,8 @@ pub fn public_media_data_support(runtime_config: &RuntimeConfig) -> PublicMediaD
     PublicMediaDataSupport {
         version: PUBLIC_MEDIA_DATA_SUPPORT_VERSION,
         enabled,
-        max_source_bytes: operations::media_metadata_max_source_bytes(runtime_config),
+        max_source_bytes: operations::media_metadata_max_source_bytes(runtime_config)
+            .min(PUBLIC_MEDIA_DATA_MAX_SAFE_SOURCE_BYTES),
         kinds: PublicMediaDataKindsSupport {
             image: public_media_data_kind_support(&registry, enabled, MediaMetadataKind::Image),
             audio: public_media_data_kind_support(&registry, enabled, MediaMetadataKind::Audio),

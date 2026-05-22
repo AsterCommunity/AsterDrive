@@ -1,6 +1,6 @@
 use std::{
     collections::{HashSet, VecDeque},
-    io::{Read, Seek, SeekFrom},
+    io::{self, Read, Seek, SeekFrom},
 };
 
 use crate::types::ImageMediaMetadata;
@@ -42,7 +42,9 @@ const TIFF_GPS_LONGITUDE: u16 = 0x0004;
 const TIFF_GPS_ALTITUDE_REF: u16 = 0x0005;
 const TIFF_GPS_ALTITUDE: u16 = 0x0006;
 const TIFF_FALLBACK_MAX_DEPTH: usize = 8;
+const TIFF_FALLBACK_MAX_IFD_ENTRIES: usize = 4096;
 const TIFF_FALLBACK_MAX_OFFSETS_PER_TAG: usize = 32;
+const TIFF_FALLBACK_MAX_VALUE_BYTES: u64 = 64 * 1024;
 
 pub(super) fn enrich_image_metadata_from_reader<R>(
     mut reader: R,
@@ -62,10 +64,7 @@ where
         return Ok(());
     }
 
-    reader.seek(SeekFrom::Start(0))?;
-    let mut bytes = Vec::new();
-    reader.read_to_end(&mut bytes)?;
-    if let Some(tiff_metadata) = parse_tiff_fallback_metadata(&bytes) {
+    if let Some(tiff_metadata) = parse_tiff_fallback_metadata(&mut reader)? {
         tiff_metadata.enrich_image_metadata(metadata);
     }
     Ok(())
@@ -135,7 +134,7 @@ impl TiffEndian {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 enum TiffIfdKind {
     Main,
     Exif,
@@ -423,27 +422,48 @@ fn fill_missing<T>(target: &mut Option<T>, value: Option<T>) {
     }
 }
 
-fn parse_tiff_fallback_metadata(bytes: &[u8]) -> Option<TiffFallbackMetadata> {
-    if bytes.len() < 8 {
-        return None;
-    }
-
-    let endian = match bytes.get(..2)? {
-        b"II" => TiffEndian::Little,
-        b"MM" => TiffEndian::Big,
-        _ => return None,
+fn parse_tiff_fallback_metadata<R>(reader: &mut R) -> io::Result<Option<TiffFallbackMetadata>>
+where
+    R: Read + Seek,
+{
+    let Some(header) = read_exact_at(reader, 0, 8)? else {
+        return Ok(None);
     };
 
-    let magic = endian.read_u16(bytes.get(2..4)?)?;
+    let endian = match header.get(..2) {
+        Some(b"II") => TiffEndian::Little,
+        Some(b"MM") => TiffEndian::Big,
+        _ => return Ok(None),
+    };
+
+    let Some(magic) = endian.read_u16(header.get(2..4).unwrap_or_default()) else {
+        return Ok(None);
+    };
     let (bigtiff, first_ifd_offset) = match magic {
-        42 => (false, u64::from(endian.read_u32(bytes.get(4..8)?)?)),
-        43 => {
-            if endian.read_u16(bytes.get(4..6)?)? != 8 || endian.read_u16(bytes.get(6..8)?)? != 0 {
-                return None;
-            }
-            (true, endian.read_u64(bytes.get(8..16)?)?)
+        42 => {
+            let Some(first_ifd_offset) = endian.read_u32(header.get(4..8).unwrap_or_default())
+            else {
+                return Ok(None);
+            };
+            (false, u64::from(first_ifd_offset))
         }
-        _ => return None,
+        43 => {
+            let Some(bigtiff_header) = read_exact_at(reader, 0, 16)? else {
+                return Ok(None);
+            };
+            if endian.read_u16(bigtiff_header.get(4..6).unwrap_or_default()) != Some(8)
+                || endian.read_u16(bigtiff_header.get(6..8).unwrap_or_default()) != Some(0)
+            {
+                return Ok(None);
+            }
+            let Some(first_ifd_offset) =
+                endian.read_u64(bigtiff_header.get(8..16).unwrap_or_default())
+            else {
+                return Ok(None);
+            };
+            (true, first_ifd_offset)
+        }
+        _ => return Ok(None),
     };
 
     let mut metadata = TiffFallbackMetadata::default();
@@ -455,53 +475,85 @@ fn parse_tiff_fallback_metadata(bytes: &[u8]) -> Option<TiffFallbackMetadata> {
     let mut visited = HashSet::new();
 
     while let Some(task) = queue.pop_front() {
-        if task.offset == 0 || task.depth > TIFF_FALLBACK_MAX_DEPTH || !visited.insert(task.offset)
+        if task.offset == 0
+            || task.depth > TIFF_FALLBACK_MAX_DEPTH
+            || !visited.insert((task.offset, task.kind))
         {
             continue;
         }
-        parse_tiff_ifd(bytes, endian, bigtiff, task, &mut metadata, &mut queue);
+        parse_tiff_ifd(reader, endian, bigtiff, task, &mut metadata, &mut queue)?;
     }
 
-    Some(metadata)
+    Ok(Some(metadata))
 }
 
-fn parse_tiff_ifd(
-    bytes: &[u8],
+fn parse_tiff_ifd<R>(
+    reader: &mut R,
     endian: TiffEndian,
     bigtiff: bool,
     task: TiffIfdTask,
     metadata: &mut TiffFallbackMetadata,
     queue: &mut VecDeque<TiffIfdTask>,
-) -> Option<()> {
-    let offset = usize::try_from(task.offset).ok()?;
+) -> io::Result<Option<()>>
+where
+    R: Read + Seek,
+{
     let count_size = if bigtiff { 8 } else { 2 };
     let entry_size = if bigtiff { 20 } else { 12 };
     let offset_field_size = if bigtiff { 8 } else { 4 };
-    let count_bytes = bytes.get(offset..offset.checked_add(count_size)?)?;
-    let entry_count = if bigtiff {
-        usize::try_from(endian.read_u64(count_bytes)?).ok()?
-    } else {
-        usize::from(endian.read_u16(count_bytes)?)
+    let Some(count_bytes) = read_exact_at(reader, task.offset, count_size)? else {
+        return Ok(None);
     };
-    let entries_start = offset.checked_add(count_size)?;
-    let entries_len = entry_count.checked_mul(entry_size)?;
-    let entries_end = entries_start.checked_add(entries_len)?;
-    if entries_end > bytes.len() {
-        return None;
+    let entry_count = if bigtiff {
+        let Some(count) = endian.read_u64(&count_bytes) else {
+            return Ok(None);
+        };
+        let Some(count) = usize::try_from(count).ok() else {
+            return Ok(None);
+        };
+        count
+    } else {
+        let Some(count) = endian.read_u16(&count_bytes) else {
+            return Ok(None);
+        };
+        usize::from(count)
+    };
+    if entry_count > TIFF_FALLBACK_MAX_IFD_ENTRIES {
+        return Ok(None);
     }
+    let Some(entries_start) = task.offset.checked_add(usize_to_u64(count_size)) else {
+        return Ok(None);
+    };
+    let Some(entries_len) = u64::try_from(entry_count)
+        .ok()
+        .and_then(|count| count.checked_mul(usize_to_u64(entry_size)))
+    else {
+        return Ok(None);
+    };
+    let Some(entries_end) = entries_start.checked_add(entries_len) else {
+        return Ok(None);
+    };
 
     let mut width = None;
     let mut height = None;
     for index in 0..entry_count {
-        let entry_offset = entries_start.checked_add(index.checked_mul(entry_size)?)?;
+        let Some(entry_offset) = u64::try_from(index)
+            .ok()
+            .and_then(|index| index.checked_mul(usize_to_u64(entry_size)))
+            .and_then(|entry_offset| entries_start.checked_add(entry_offset))
+        else {
+            return Ok(None);
+        };
         let Some(entry) = parse_tiff_entry(
-            bytes,
+            reader,
             endian,
             bigtiff,
+            task.kind,
             entry_offset,
             entry_size,
             offset_field_size,
-        ) else {
+        )?
+        else {
             continue;
         };
         apply_tiff_entry(
@@ -520,60 +572,111 @@ fn parse_tiff_ifd(
     }
 
     let next_offset_start = entries_end;
-    let next_offset_end = next_offset_start.checked_add(offset_field_size)?;
-    let next_offset_bytes = bytes.get(next_offset_start..next_offset_end)?;
+    let Some(next_offset_bytes) = read_exact_at(reader, next_offset_start, offset_field_size)?
+    else {
+        return Ok(None);
+    };
     let next_offset = if bigtiff {
-        endian.read_u64(next_offset_bytes)?
+        let Some(offset) = endian.read_u64(&next_offset_bytes) else {
+            return Ok(None);
+        };
+        offset
     } else {
-        u64::from(endian.read_u32(next_offset_bytes)?)
+        let Some(offset) = endian.read_u32(&next_offset_bytes) else {
+            return Ok(None);
+        };
+        u64::from(offset)
     };
     enqueue_tiff_ifd(queue, next_offset, TiffIfdKind::Generic, task.depth + 1);
-    Some(())
+    Ok(Some(()))
 }
 
-fn parse_tiff_entry(
-    bytes: &[u8],
+fn parse_tiff_entry<R>(
+    reader: &mut R,
     endian: TiffEndian,
     bigtiff: bool,
-    entry_offset: usize,
+    ifd_kind: TiffIfdKind,
+    entry_offset: u64,
     entry_size: usize,
     offset_field_size: usize,
-) -> Option<TiffEntry> {
-    let entry = bytes.get(entry_offset..entry_offset.checked_add(entry_size)?)?;
-    let tag = endian.read_u16(entry.get(0..2)?)?;
-    let field_type = endian.read_u16(entry.get(2..4)?)?;
+) -> io::Result<Option<TiffEntry>>
+where
+    R: Read + Seek,
+{
+    let Some(entry) = read_exact_at(reader, entry_offset, entry_size)? else {
+        return Ok(None);
+    };
+    let Some(tag) = entry.get(0..2).and_then(|bytes| endian.read_u16(bytes)) else {
+        return Ok(None);
+    };
+    if !should_parse_tiff_tag(tag, ifd_kind) {
+        return Ok(None);
+    }
+    let Some(field_type) = entry.get(2..4).and_then(|bytes| endian.read_u16(bytes)) else {
+        return Ok(None);
+    };
     let count = if bigtiff {
-        endian.read_u64(entry.get(4..12)?)?
+        let Some(count) = entry.get(4..12).and_then(|bytes| endian.read_u64(bytes)) else {
+            return Ok(None);
+        };
+        count
     } else {
-        u64::from(endian.read_u32(entry.get(4..8)?)?)
+        let Some(count) = entry.get(4..8).and_then(|bytes| endian.read_u32(bytes)) else {
+            return Ok(None);
+        };
+        u64::from(count)
     };
     let value_field_start = if bigtiff { 12 } else { 8 };
-    let value_field = entry.get(value_field_start..value_field_start + offset_field_size)?;
-    let value_data = tiff_entry_data(bytes, endian, field_type, count, value_field)?;
-    let value = parse_tiff_entry_value(field_type, count, value_data, endian)?;
-    Some(TiffEntry { tag, value })
+    let Some(value_field) = entry.get(value_field_start..value_field_start + offset_field_size)
+    else {
+        return Ok(None);
+    };
+    let Some(value_data) = tiff_entry_data(reader, endian, field_type, count, value_field)? else {
+        return Ok(None);
+    };
+    let Some(value) = parse_tiff_entry_value(field_type, count, value_data, endian) else {
+        return Ok(None);
+    };
+    Ok(Some(TiffEntry { tag, value }))
 }
 
-fn tiff_entry_data<'a>(
-    bytes: &'a [u8],
+fn tiff_entry_data<R>(
+    reader: &mut R,
     endian: TiffEndian,
     field_type: u16,
     count: u64,
-    value_field: &'a [u8],
-) -> Option<&'a [u8]> {
-    let byte_len = u64::from(tiff_field_type_byte_len(field_type)?);
-    let total_len = byte_len.checked_mul(count)?;
-    let total_len_usize = usize::try_from(total_len).ok()?;
+    value_field: &[u8],
+) -> io::Result<Option<Vec<u8>>>
+where
+    R: Read + Seek,
+{
+    let Some(byte_len) = tiff_field_type_byte_len(field_type).map(u64::from) else {
+        return Ok(None);
+    };
+    let Some(total_len) = byte_len.checked_mul(count) else {
+        return Ok(None);
+    };
+    if total_len > TIFF_FALLBACK_MAX_VALUE_BYTES {
+        return Ok(None);
+    }
+    let Some(total_len_usize) = usize::try_from(total_len).ok() else {
+        return Ok(None);
+    };
     if total_len_usize <= value_field.len() {
-        return value_field.get(..total_len_usize);
+        return Ok(value_field.get(..total_len_usize).map(<[u8]>::to_vec));
     }
     let data_offset = if value_field.len() == 8 {
-        endian.read_u64(value_field)?
+        let Some(offset) = endian.read_u64(value_field) else {
+            return Ok(None);
+        };
+        offset
     } else {
-        u64::from(endian.read_u32(value_field)?)
+        let Some(offset) = endian.read_u32(value_field) else {
+            return Ok(None);
+        };
+        u64::from(offset)
     };
-    let data_offset = usize::try_from(data_offset).ok()?;
-    bytes.get(data_offset..data_offset.checked_add(total_len_usize)?)
+    read_exact_at(reader, data_offset, total_len_usize)
 }
 
 fn tiff_field_type_byte_len(field_type: u16) -> Option<u8> {
@@ -589,14 +692,14 @@ fn tiff_field_type_byte_len(field_type: u16) -> Option<u8> {
 fn parse_tiff_entry_value(
     field_type: u16,
     count: u64,
-    data: &[u8],
+    data: Vec<u8>,
     endian: TiffEndian,
 ) -> Option<TiffEntryValue> {
     let count = usize::try_from(count).ok()?;
     match field_type {
-        1 | 7 => Some(TiffEntryValue::Bytes(data.to_vec())),
+        1 | 7 => Some(TiffEntryValue::Bytes(data)),
         2 => {
-            let trimmed = data.split(|byte| *byte == 0).next().unwrap_or(data);
+            let trimmed = data.split(|byte| *byte == 0).next().unwrap_or(&data);
             let value = std::str::from_utf8(trimmed).ok()?.to_string();
             Some(TiffEntryValue::Ascii(value))
         }
@@ -670,6 +773,63 @@ fn parse_tiff_entry_value(
         )),
         _ => None,
     }
+}
+
+fn should_parse_tiff_tag(tag: u16, ifd_kind: TiffIfdKind) -> bool {
+    match tag {
+        TIFF_TAG_IMAGE_WIDTH
+        | TIFF_TAG_IMAGE_LENGTH
+        | TIFF_TAG_MAKE
+        | TIFF_TAG_MODEL
+        | TIFF_TAG_ORIENTATION
+        | TIFF_TAG_MODIFY_DATE
+        | TIFF_TAG_SOFTWARE
+        | TIFF_TAG_ARTIST
+        | TIFF_TAG_SUB_IFD
+        | TIFF_TAG_COPYRIGHT
+        | TIFF_TAG_EXIF_IFD
+        | TIFF_TAG_GPS_IFD
+        | TIFF_TAG_EXPOSURE_TIME
+        | TIFF_TAG_F_NUMBER
+        | TIFF_TAG_ISO
+        | TIFF_TAG_DATE_TIME_ORIGINAL
+        | TIFF_TAG_CREATE_DATE
+        | TIFF_TAG_OFFSET_TIME
+        | TIFF_TAG_OFFSET_TIME_ORIGINAL
+        | TIFF_TAG_OFFSET_TIME_DIGITIZED
+        | TIFF_TAG_EXPOSURE_BIAS
+        | TIFF_TAG_FLASH
+        | TIFF_TAG_FOCAL_LENGTH
+        | TIFF_TAG_EXIF_IMAGE_WIDTH
+        | TIFF_TAG_EXIF_IMAGE_HEIGHT
+        | TIFF_TAG_FOCAL_LENGTH_35MM
+        | TIFF_TAG_LENS_MAKE
+        | TIFF_TAG_LENS_MODEL => true,
+        TIFF_GPS_LATITUDE_REF
+        | TIFF_GPS_LATITUDE
+        | TIFF_GPS_LONGITUDE_REF
+        | TIFF_GPS_LONGITUDE
+        | TIFF_GPS_ALTITUDE_REF
+        | TIFF_GPS_ALTITUDE => ifd_kind == TiffIfdKind::Gps,
+        _ => false,
+    }
+}
+
+fn read_exact_at<R>(reader: &mut R, offset: u64, len: usize) -> io::Result<Option<Vec<u8>>>
+where
+    R: Read + Seek,
+{
+    reader.seek(SeekFrom::Start(offset))?;
+    let mut bytes = vec![0; len];
+    match reader.read_exact(&mut bytes) {
+        Ok(()) => Ok(Some(bytes)),
+        Err(error) if error.kind() == io::ErrorKind::UnexpectedEof => Ok(None),
+        Err(error) => Err(error),
+    }
+}
+
+fn usize_to_u64(value: usize) -> u64 {
+    u64::try_from(value).expect("TIFF fallback constant should fit u64")
 }
 
 fn apply_tiff_entry(
@@ -838,4 +998,94 @@ fn format_tiff_datetime(value: &str, offset: Option<&str>) -> Option<String> {
     chrono::NaiveDateTime::parse_from_str(value, "%Y:%m:%d %H:%M:%S")
         .ok()
         .map(|datetime| datetime.format("%Y-%m-%dT%H:%M:%S").to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use std::io::{self, Cursor, Read, Seek, SeekFrom};
+
+    use crate::types::ImageMediaMetadata;
+
+    use super::enrich_image_metadata_from_reader;
+
+    struct CountingReader {
+        inner: Cursor<Vec<u8>>,
+        bytes_read: usize,
+    }
+
+    impl CountingReader {
+        fn new(bytes: Vec<u8>) -> Self {
+            Self {
+                inner: Cursor::new(bytes),
+                bytes_read: 0,
+            }
+        }
+    }
+
+    impl Read for CountingReader {
+        fn read(&mut self, output: &mut [u8]) -> io::Result<usize> {
+            let read = self.inner.read(output)?;
+            self.bytes_read += read;
+            Ok(read)
+        }
+    }
+
+    impl Seek for CountingReader {
+        fn seek(&mut self, pos: SeekFrom) -> io::Result<u64> {
+            self.inner.seek(pos)
+        }
+    }
+
+    #[test]
+    fn tiff_fallback_reads_only_metadata_ranges() {
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(b"II");
+        bytes.extend_from_slice(&42_u16.to_le_bytes());
+        bytes.extend_from_slice(&8_u32.to_le_bytes());
+        bytes.extend_from_slice(&2_u16.to_le_bytes());
+        bytes.extend_from_slice(&0x0100_u16.to_le_bytes());
+        bytes.extend_from_slice(&4_u16.to_le_bytes());
+        bytes.extend_from_slice(&1_u32.to_le_bytes());
+        bytes.extend_from_slice(&6016_u32.to_le_bytes());
+        bytes.extend_from_slice(&0x0101_u16.to_le_bytes());
+        bytes.extend_from_slice(&4_u16.to_le_bytes());
+        bytes.extend_from_slice(&1_u32.to_le_bytes());
+        bytes.extend_from_slice(&4016_u32.to_le_bytes());
+        bytes.extend_from_slice(&0_u32.to_le_bytes());
+        bytes.resize(16 * 1024 * 1024, 0);
+
+        let mut metadata = ImageMediaMetadata {
+            width: 0,
+            height: 0,
+            format: None,
+            camera_make: None,
+            camera_model: None,
+            lens_make: None,
+            lens_model: None,
+            f_number: None,
+            exposure_time_seconds: None,
+            iso: None,
+            exposure_bias_ev: None,
+            flash_fired: None,
+            flash_mode: None,
+            focal_length_mm: None,
+            focal_length_35mm: None,
+            taken_at: None,
+            orientation: None,
+            gps_latitude: None,
+            gps_longitude: None,
+            gps_altitude_meters: None,
+            artist: None,
+            copyright: None,
+            software: None,
+        };
+
+        let mut reader = CountingReader::new(bytes);
+        enrich_image_metadata_from_reader(&mut reader, &mut metadata)
+            .expect("TIFF fallback should parse minimal metadata");
+
+        assert_eq!(metadata.width, 6016);
+        assert_eq!(metadata.height, 4016);
+        assert!(reader.bytes_read < 1024);
+    }
 }

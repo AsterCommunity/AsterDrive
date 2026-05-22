@@ -64,8 +64,29 @@ describe("mediaDataSupport", () => {
 		).toBe(false);
 		expect(
 			supportsMediaData(
+				{ mime_type: "audio/mpeg", name: "Track", size: 1024 },
+				supportConfig,
+			),
+		).toBe(false);
+		expect(
+			supportsMediaData(
 				{ mime_type: "audio/mpeg", name: "Track.mp3", size: 1025 },
 				supportConfig,
+			),
+		).toBe(false);
+		expect(
+			supportsMediaData(
+				{ mime_type: "audio/mpeg", name: "Track.mp3", size: 1024 },
+				{
+					...supportConfig,
+					kinds: {
+						...supportConfig.kinds,
+						audio: {
+							...supportConfig.kinds.audio,
+							enabled: false,
+						},
+					},
+				},
 			),
 		).toBe(false);
 		expect(

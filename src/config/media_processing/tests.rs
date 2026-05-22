@@ -1,5 +1,8 @@
 use crate::config::RuntimeConfig;
-use crate::config::operations::{MEDIA_METADATA_ENABLED_KEY, MEDIA_METADATA_MAX_SOURCE_BYTES_KEY};
+use crate::config::operations::{
+    DEFAULT_MEDIA_METADATA_MAX_SOURCE_BYTES, MEDIA_METADATA_ENABLED_KEY,
+    MEDIA_METADATA_MAX_SOURCE_BYTES_KEY,
+};
 use crate::entities::system_config;
 use crate::types::{MediaProcessorKind, SystemConfigSource, SystemConfigValueType};
 use chrono::Utc;
@@ -11,6 +14,7 @@ use super::{
     DEFAULT_VIPS_EXTENSIONS, MEDIA_PROCESSING_REGISTRY_JSON_KEY, MEDIA_PROCESSING_REGISTRY_VERSION,
     MatchedMediaProcessor, MediaProcessingMatchKind, MediaProcessingProcessorConfig,
     MediaProcessingProcessorRuntimeConfig, MediaProcessingRegistryConfig, MediaProcessingUse,
+    PUBLIC_MEDIA_DATA_MAX_SAFE_SOURCE_BYTES, PUBLIC_MEDIA_DATA_SUPPORT_VERSION,
     PublicMediaDataKindSupport, PublicMediaDataSupport, PublicMediaDataSupportMatch,
     PublicThumbnailSupport, builtin_audio_metadata_supports_extension,
     builtin_image_metadata_supports_extension, command_is_available,
@@ -45,6 +49,11 @@ fn available_test_command() -> String {
         .expect("current test executable path should be available")
         .to_string_lossy()
         .into_owned()
+}
+
+fn default_media_metadata_max_source_bytes() -> i64 {
+    i64::try_from(DEFAULT_MEDIA_METADATA_MAX_SOURCE_BYTES)
+        .expect("default media metadata max source bytes should fit i64")
 }
 
 #[test]
@@ -464,8 +473,11 @@ fn public_media_data_support_exposes_default_metadata_capabilities() {
     let support = public_media_data_support(&RuntimeConfig::new());
 
     assert!(support.enabled);
-    assert_eq!(support.version, 1);
-    assert_eq!(support.max_source_bytes, 256 * 1024 * 1024);
+    assert_eq!(support.version, PUBLIC_MEDIA_DATA_SUPPORT_VERSION);
+    assert_eq!(
+        support.max_source_bytes,
+        default_media_metadata_max_source_bytes()
+    );
     assert!(support.kinds.image.enabled);
     assert_eq!(
         support.kinds.image.match_kind,
@@ -492,6 +504,22 @@ fn public_media_data_support_exposes_default_metadata_capabilities() {
 }
 
 #[test]
+fn public_media_data_support_clamps_source_limit_to_js_safe_integer() {
+    let runtime_config = RuntimeConfig::new();
+    runtime_config.apply(config_model(
+        MEDIA_METADATA_MAX_SOURCE_BYTES_KEY,
+        "9007199254740992",
+    ));
+
+    let support = public_media_data_support(&runtime_config);
+
+    assert_eq!(
+        support.max_source_bytes,
+        PUBLIC_MEDIA_DATA_MAX_SAFE_SOURCE_BYTES
+    );
+}
+
+#[test]
 fn public_media_data_support_respects_global_disable_and_source_limit() {
     let runtime_config = RuntimeConfig::new();
     runtime_config.apply(config_model(MEDIA_METADATA_ENABLED_KEY, "false"));
@@ -502,7 +530,7 @@ fn public_media_data_support_respects_global_disable_and_source_limit() {
     assert_eq!(
         support,
         PublicMediaDataSupport {
-            version: 1,
+            version: PUBLIC_MEDIA_DATA_SUPPORT_VERSION,
             enabled: false,
             max_source_bytes: 12345,
             kinds: super::types::PublicMediaDataKindsSupport {
