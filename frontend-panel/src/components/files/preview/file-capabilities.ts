@@ -514,10 +514,14 @@ function detectConfiguredFilePreviewProfile(
 		);
 	const appMap = new Map(configuredOptions);
 	const availableAppKeys = new Set(configuredApps.map((app) => app.key));
-	const matchedConfiguredOptions = configuredApps
-		.filter((app) => matchesConfiguredApp(file, app))
-		.map((app) => appMap.get(app.key) ?? null)
-		.filter((option): option is OpenWithOption => option !== null);
+	const matchedConfiguredOptions = configuredApps.flatMap((app) => {
+		if (!matchesConfiguredApp(file, app)) {
+			return [];
+		}
+
+		const option = appMap.get(app.key);
+		return option ? [option] : [];
+	});
 
 	const builtinOptions = builtinProfile.options
 		.map((option) =>

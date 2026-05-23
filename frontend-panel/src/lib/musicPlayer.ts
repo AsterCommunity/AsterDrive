@@ -146,7 +146,9 @@ export function buildDirectMusicTrack(file: MusicFileLike): MusicPlayerTrack {
 }
 
 export function buildDirectMusicQueue(files: MusicFileLike[]) {
-	return files.filter(isMusicFile).map(buildDirectMusicTrack);
+	return files.flatMap((file) =>
+		isMusicFile(file) ? [buildDirectMusicTrack(file)] : [],
+	);
 }
 
 export function buildSingleShareMusicTrack(
@@ -223,9 +225,9 @@ export function buildShareFolderMusicQueue(
 	token: string,
 	files: MusicFileLike[],
 ) {
-	return files
-		.filter(isMusicFile)
-		.map((file) => buildShareFolderMusicTrack(token, file));
+	return files.flatMap((file) =>
+		isMusicFile(file) ? [buildShareFolderMusicTrack(token, file)] : [],
+	);
 }
 
 export async function hydrateMusicTrackStreamLink(track: MusicPlayerTrack) {
@@ -328,8 +330,10 @@ export async function parseMusicMetadataFromSource({
 		);
 	}
 
-	const blob = await response.blob();
-	const { parseBlob, selectCover } = await import("music-metadata");
+	const [blob, { parseBlob, selectCover }] = await Promise.all([
+		response.blob(),
+		import("music-metadata"),
+	]);
 	const parsed = await parseBlob(blob, {
 		duration: false,
 		skipCovers: false,

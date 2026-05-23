@@ -2,6 +2,10 @@ import type { i18n as I18n } from "i18next";
 import { getActiveDisplayTimeZone } from "@/stores/displayTimeZoneStore";
 
 const INTEGER_FORMATTER = new Intl.NumberFormat();
+const UTC_OFFSET_FORMATTERS = new Map<
+	string,
+	Map<"longOffset" | "shortOffset", Intl.DateTimeFormat>
+>();
 
 type DateFormatI18n = Pick<I18n, "language" | "resolvedLanguage" | "t">;
 
@@ -44,13 +48,23 @@ function normalizeUtcOffsetLabel(label: string): string {
 
 function formatUtcOffset(date: Date): string {
 	const timeZone = getActiveDisplayTimeZone();
+	let formatterByOffset = UTC_OFFSET_FORMATTERS.get(timeZone);
+	if (!formatterByOffset) {
+		formatterByOffset = new Map();
+		UTC_OFFSET_FORMATTERS.set(timeZone, formatterByOffset);
+	}
 
 	for (const timeZoneName of ["longOffset", "shortOffset"] as const) {
 		try {
-			const parts = new Intl.DateTimeFormat("en-US", {
-				timeZone,
-				timeZoneName,
-			}).formatToParts(date);
+			let formatter = formatterByOffset.get(timeZoneName);
+			if (!formatter) {
+				formatter = new Intl.DateTimeFormat("en-US", {
+					timeZone,
+					timeZoneName,
+				});
+				formatterByOffset.set(timeZoneName, formatter);
+			}
+			const parts = formatter.formatToParts(date);
 			const label = parts.find((part) => part.type === "timeZoneName")?.value;
 			if (label) {
 				return normalizeUtcOffsetLabel(label);

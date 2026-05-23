@@ -1044,6 +1044,7 @@ export function MusicPlayerHost() {
 			<audio
 				ref={audioRef}
 				src={source ?? undefined}
+				aria-label={t("music_player_title")}
 				preload="metadata"
 				onCanPlay={() => {
 					clearPendingErrorSkip();
@@ -1231,7 +1232,7 @@ export function MusicPlayerHost() {
 										type="button"
 										variant="default"
 										size="icon"
-										className="mx-1 h-11 w-11 rounded-full"
+										className="mx-1 size-11 rounded-full"
 										onClick={togglePlayback}
 										aria-label={
 											isPlaying

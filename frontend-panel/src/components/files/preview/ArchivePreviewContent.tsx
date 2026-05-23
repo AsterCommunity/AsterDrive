@@ -279,6 +279,7 @@ function ArchiveBreadcrumbBar({
 											render={
 												<button
 													type="button"
+													aria-label={item.name}
 													onClick={() => onCurrentFolderChange(item.path)}
 												/>
 											}

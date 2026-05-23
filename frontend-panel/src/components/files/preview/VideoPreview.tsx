@@ -170,6 +170,7 @@ export function VideoPreview({
 				{/* biome-ignore lint/a11y/useMediaCaption: user-uploaded media may not have captions available */}
 				<video
 					src={videoSource}
+					aria-label={file.name}
 					controls
 					preload="metadata"
 					onError={() => setMediaFailed(true)}

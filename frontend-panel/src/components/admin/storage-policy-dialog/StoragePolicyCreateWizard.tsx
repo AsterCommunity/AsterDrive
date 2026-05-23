@@ -171,7 +171,7 @@ export function StoragePolicyCreateWizard({
 											)}
 										>
 											<div className="flex items-start gap-4">
-												<div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-2xl bg-white shadow-sm ring-1 ring-black/5">
+												<div className="flex size-16 shrink-0 items-center justify-center rounded-2xl bg-white shadow-sm ring-1 ring-black/5">
 													<StorageDriverVisual
 														option={option}
 														className={

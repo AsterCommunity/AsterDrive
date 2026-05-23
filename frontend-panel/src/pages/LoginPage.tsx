@@ -56,6 +56,7 @@ export default function LoginPage() {
 	const refreshUser = useAuthStore((s) => s.refreshUser);
 	const syncSession = useAuthStore((s) => s.syncSession);
 	const conditionalPasskeyAbortRef = useRef<AbortController | null>(null);
+	const conditionalPasskeySupportedRef = useRef(false);
 
 	// The first field is always visible — it doubles as username or email
 	const [identifier, setIdentifier] = useState("");
@@ -78,8 +79,6 @@ export default function LoginPage() {
 		string | null
 	>(null);
 	const [passkeySupported, setPasskeySupported] = useState(false);
-	const [conditionalPasskeySupported, setConditionalPasskeySupported] =
-		useState(false);
 	const [registrationClosed, setRegistrationClosed] = useState(false);
 	const [exiting, setExiting] = useState(false);
 	const [errors, setErrors] = useState<Record<string, string>>({});
@@ -356,12 +355,12 @@ export default function LoginPage() {
 		void isConditionalPasskeyLoginAvailable()
 			.then((available) => {
 				if (!cancelled) {
-					setConditionalPasskeySupported(available);
+					conditionalPasskeySupportedRef.current = available;
 				}
 			})
 			.catch((error) => {
 				if (!cancelled) {
-					setConditionalPasskeySupported(false);
+					conditionalPasskeySupportedRef.current = false;
 				}
 				logger.warn("conditional passkey support detection failed", error);
 			});
@@ -617,7 +616,7 @@ export default function LoginPage() {
 			showPasswordResetRequest ||
 			externalAuthRecoveryFlow ||
 			pendingActivation ||
-			!conditionalPasskeySupported
+			!conditionalPasskeySupportedRef.current
 		) {
 			return;
 		}
@@ -666,7 +665,6 @@ export default function LoginPage() {
 		};
 	}, [
 		checking,
-		conditionalPasskeySupported,
 		finishPasskeyLogin,
 		mode,
 		externalAuthRecoveryFlow,

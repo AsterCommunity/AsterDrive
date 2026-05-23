@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
@@ -40,10 +40,7 @@ export function MusicPreview({
 	const [starting, setStarting] = useState(false);
 	const mountedRef = useRef(true);
 	const startRequestIdRef = useRef(0);
-	const trackId = useMemo(
-		() => `${file.name}:${file.size ?? "unknown"}:${file.mime_type}:${path}`,
-		[file.mime_type, file.name, file.size, path],
-	);
+	const trackId = `${file.name}:${file.size ?? "unknown"}:${file.mime_type}:${path}`;
 	const isCurrentTrack =
 		currentTrackId === trackId && queue.some((track) => track.id === trackId);
 

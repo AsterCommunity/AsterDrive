@@ -112,6 +112,7 @@ export function UploadAreaHost({ workspace }: UploadAreaHostProps) {
 			<input
 				ref={fileInputRef}
 				type="file"
+				aria-label={t("files:upload_file")}
 				data-testid="upload-file-input"
 				multiple
 				className="hidden"
@@ -120,6 +121,7 @@ export function UploadAreaHost({ workspace }: UploadAreaHostProps) {
 			<input
 				ref={folderInputRef}
 				type="file"
+				aria-label={t("files:upload_folder")}
 				data-testid="upload-folder-input"
 				multiple
 				className="hidden"
@@ -130,6 +132,7 @@ export function UploadAreaHost({ workspace }: UploadAreaHostProps) {
 			<input
 				ref={resumeFileInputRef}
 				type="file"
+				aria-label={t("files:upload_resume_select")}
 				data-testid="resume-input"
 				className="hidden"
 				onChange={handleResumeFileChange}

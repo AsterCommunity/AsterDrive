@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { createContext, useContext } from "react";
+import { createContext, use } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { invalidateAdminPolicyGroupLookup } from "@/lib/adminPolicyGroupLookup";
 import { invalidateAdminPolicyLookup } from "@/lib/adminPolicyLookup";
@@ -323,7 +323,7 @@ vi.mock("@/components/ui/select", () => {
 			children: React.ReactNode;
 			value: string;
 		}) => {
-			const context = useContext(SelectContext);
+			const context = use(SelectContext);
 
 			return (
 				<button
@@ -344,7 +344,7 @@ vi.mock("@/components/ui/select", () => {
 			className?: string;
 		}) => <div className={className}>{children}</div>,
 		SelectValue: ({ placeholder }: { placeholder?: string }) => {
-			const context = useContext(SelectContext);
+			const context = use(SelectContext);
 			const selectedLabel = context.items?.find(
 				(option) => option.value === context.value,
 			)?.label;

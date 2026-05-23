@@ -65,9 +65,10 @@ export function useAdminSettingsSaveBar({
 	}, [enterDurationMs, exitDurationMs, hasUnsavedChanges]);
 
 	useEffect(() => {
+		const timerState = timerRef;
 		return () => {
-			if (timerRef.current !== null) {
-				window.clearTimeout(timerRef.current);
+			if (timerState.current !== null) {
+				window.clearTimeout(timerState.current);
 			}
 		};
 	}, []);

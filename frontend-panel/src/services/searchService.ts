@@ -19,8 +19,10 @@ type SearchRequestParams = SearchParams | FileSearchQuery;
 function normalizeSearchParams(params: SearchRequestParams): SearchParams {
 	const extensions = Array.isArray(params.extensions)
 		? params.extensions
-				.map((extension) => extension.trim().replace(/^\./, "").toLowerCase())
-				.filter(Boolean)
+				.flatMap((extension) => {
+					const normalized = extension.trim().replace(/^\./, "").toLowerCase();
+					return normalized ? [normalized] : [];
+				})
 				.join(",")
 		: params.extensions;
 

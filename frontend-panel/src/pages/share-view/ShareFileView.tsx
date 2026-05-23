@@ -71,10 +71,7 @@ export function ShareFileView({
 										thumbnailPath={shareService.thumbnailPath(token)}
 									/>
 								) : (
-									<Icon
-										name="File"
-										className="h-16 w-16 text-muted-foreground"
-									/>
+									<Icon name="File" className="size-16 text-muted-foreground" />
 								)}
 							</div>
 							<div className="flex min-w-0 flex-col justify-center gap-5">

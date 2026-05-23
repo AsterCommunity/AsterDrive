@@ -113,7 +113,7 @@ export function ProfileSettingsView() {
 								avatar={user?.profile.avatar ?? null}
 								name={previewDisplayName}
 								size="lg"
-								className="h-24 w-24 ring-1 ring-border/35"
+								className="size-24 ring-1 ring-border/35"
 							/>
 							<div className="min-w-0 flex-1 space-y-1.5">
 								<p className="truncate text-sm font-semibold">
@@ -133,6 +133,7 @@ export function ProfileSettingsView() {
 							<input
 								ref={fileInputRef}
 								type="file"
+								aria-label={t("settings:settings_avatar_upload_and_crop")}
 								accept="image/*"
 								className="hidden"
 								onChange={handleAvatarSelect}

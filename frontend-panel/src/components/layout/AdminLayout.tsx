@@ -101,7 +101,6 @@ export function AdminLayout({ children }: { children: ReactNode }) {
 					)}
 					onClick={handleMobileClose}
 					aria-label={t("core:close_admin_sidebar")}
-					aria-hidden={!mobileOpen}
 					tabIndex={mobileOpen ? 0 : -1}
 				/>
 				<aside

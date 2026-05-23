@@ -151,6 +151,7 @@ export function AdminTeamDetailOverviewSection({
 							</Label>
 							<textarea
 								id="admin-team-detail-description"
+								aria-label={t("description")}
 								value={description}
 								disabled={formDisabled}
 								rows={6}

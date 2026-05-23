@@ -32,35 +32,24 @@ export function useTeamManageScrollRestoration({
 		const sidebar = sidebarRef.current;
 		if (sidebar == null) {
 			return () => {
-				if (contentRef.current == null) {
+				if (content == null) {
 					return;
 				}
 
-				teamManageContentScrollPositions.set(
-					teamId,
-					contentRef.current.scrollTop,
-				);
+				teamManageContentScrollPositions.set(teamId, content.scrollTop);
 			};
 		}
 
 		sidebar.scrollTop = teamManageSidebarScrollPositions.get(teamId) ?? 0;
 
 		return () => {
-			if (contentRef.current != null) {
-				teamManageContentScrollPositions.set(
-					teamId,
-					contentRef.current.scrollTop,
-				);
+			if (content != null) {
+				teamManageContentScrollPositions.set(teamId, content.scrollTop);
 			}
 
-			if (sidebarRef.current == null) {
-				return;
+			if (sidebar != null) {
+				teamManageSidebarScrollPositions.set(teamId, sidebar.scrollTop);
 			}
-
-			teamManageSidebarScrollPositions.set(
-				teamId,
-				sidebarRef.current.scrollTop,
-			);
 		};
 	}, [isPageLayout, pageTab, teamId]);
 

@@ -1,6 +1,7 @@
 import type { UploadTaskView } from "@/components/files/UploadPanel";
 import { formatBytesPerSecond } from "@/lib/format";
 import {
+	ACTIVE_QUEUE_STATUS_SET,
 	ACTIVE_QUEUE_STATUSES,
 	type UploadAreaManagerTranslationFn,
 	type UploadTask,
@@ -68,7 +69,7 @@ export function summarizeUploadTasks(tasks: UploadTask[]): UploadTaskSummary {
 			failedCount += 1;
 			continue;
 		}
-		if (ACTIVE_QUEUE_STATUSES.includes(task.status)) {
+		if (ACTIVE_QUEUE_STATUS_SET.has(task.status)) {
 			activeCount += 1;
 		}
 	}

@@ -180,7 +180,7 @@ export function AvatarCropDialog({
 								<div className="mt-5 flex justify-center">
 									<canvas
 										ref={previewCanvasRef}
-										className="h-48 w-48 rounded-full bg-muted ring-1 ring-border/45"
+										className="size-48 rounded-full bg-muted ring-1 ring-border/45"
 										aria-label={t("settings:settings_avatar_crop_preview")}
 									/>
 								</div>

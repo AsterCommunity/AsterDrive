@@ -1,4 +1,5 @@
 let publicSiteUrls: string[] = [];
+let publicSiteUrlSet = new Set<string>();
 
 export function normalizePublicSiteUrl(value: string | null | undefined) {
 	const normalized = value?.trim();
@@ -41,6 +42,7 @@ export function normalizePublicSiteUrls(
 
 export function setPublicSiteUrls(value: readonly string[] | null | undefined) {
 	publicSiteUrls = normalizePublicSiteUrls(value);
+	publicSiteUrlSet = new Set(publicSiteUrls);
 	return publicSiteUrls[0] ?? null;
 }
 
@@ -54,7 +56,7 @@ export function getPublicSiteUrls() {
 
 export function publicSiteUrlMatches(value: string | null | undefined) {
 	const origin = normalizePublicSiteUrl(value);
-	return Boolean(origin && publicSiteUrls.includes(origin));
+	return Boolean(origin && publicSiteUrlSet.has(origin));
 }
 
 export function absoluteAppUrl(path: string) {

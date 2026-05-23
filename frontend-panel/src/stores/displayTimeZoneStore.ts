@@ -4,6 +4,7 @@ import { queuePreferenceSync } from "@/lib/preferenceSync";
 
 export const DISPLAY_TIME_ZONE_BROWSER = "browser";
 const FALLBACK_BROWSER_TIME_ZONE = "UTC";
+const DISPLAY_TIME_ZONE_SUPPORT_CACHE = new Map<string, boolean>();
 
 export const COMMON_DISPLAY_TIME_ZONES = [
 	"UTC",
@@ -19,10 +20,17 @@ export const COMMON_DISPLAY_TIME_ZONES = [
 ] as const;
 
 function isSupportedDisplayTimeZone(timeZone: string): boolean {
+	const cached = DISPLAY_TIME_ZONE_SUPPORT_CACHE.get(timeZone);
+	if (cached !== undefined) {
+		return cached;
+	}
+
 	try {
 		new Intl.DateTimeFormat(undefined, { timeZone });
+		DISPLAY_TIME_ZONE_SUPPORT_CACHE.set(timeZone, true);
 		return true;
 	} catch {
+		DISPLAY_TIME_ZONE_SUPPORT_CACHE.set(timeZone, false);
 		return false;
 	}
 }

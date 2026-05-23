@@ -1,5 +1,5 @@
 import type { FormEvent } from "react";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -29,15 +29,43 @@ export function RenameDialog({
 	id,
 	currentName,
 }: RenameDialogProps) {
+	const resetKey = `${type}:${id}:${currentName}:${open ? "open" : "closed"}`;
+
+	return (
+		<Dialog open={open} onOpenChange={onOpenChange}>
+			<DialogContent keepMounted>
+				<DialogHeader>
+					<DialogTitle>
+						<RenameDialogTitle />
+					</DialogTitle>
+				</DialogHeader>
+				<RenameDialogForm
+					key={resetKey}
+					type={type}
+					id={id}
+					currentName={currentName}
+					onOpenChange={onOpenChange}
+				/>
+			</DialogContent>
+		</Dialog>
+	);
+}
+
+function RenameDialogTitle() {
+	const { t } = useTranslation("files");
+
+	return t("rename");
+}
+
+function RenameDialogForm({
+	type,
+	id,
+	currentName,
+	onOpenChange,
+}: Omit<RenameDialogProps, "open">) {
 	const { t } = useTranslation("files");
 	const refresh = useFileStore((s) => s.refresh);
 	const [name, setName] = useState(currentName);
-
-	useEffect(() => {
-		if (open) {
-			setName(currentName);
-		}
-	}, [currentName, open]);
 
 	const handleSubmit = async (e: FormEvent) => {
 		e.preventDefault();
@@ -61,31 +89,25 @@ export function RenameDialog({
 	};
 
 	return (
-		<Dialog open={open} onOpenChange={onOpenChange}>
-			<DialogContent keepMounted>
-				<DialogHeader>
-					<DialogTitle>{t("rename")}</DialogTitle>
-				</DialogHeader>
-				<form onSubmit={handleSubmit} className="space-y-4">
-					<Input
-						value={name}
-						onChange={(e) => setName(e.target.value)}
-						autoFocus
-						onFocus={(e) => {
-							// Select filename without extension
-							const dot = e.target.value.lastIndexOf(".");
-							if (dot > 0 && type === "file") {
-								e.target.setSelectionRange(0, dot);
-							} else {
-								e.target.select();
-							}
-						}}
-					/>
-					<Button type="submit" className="w-full">
-						{t("rename")}
-					</Button>
-				</form>
-			</DialogContent>
-		</Dialog>
+		<form onSubmit={handleSubmit} className="space-y-4">
+			<Input
+				value={name}
+				aria-label={t("rename")}
+				onChange={(e) => setName(e.target.value)}
+				autoFocus
+				onFocus={(e) => {
+					// Select filename without extension
+					const dot = e.target.value.lastIndexOf(".");
+					if (dot > 0 && type === "file") {
+						e.target.setSelectionRange(0, dot);
+					} else {
+						e.target.select();
+					}
+				}}
+			/>
+			<Button type="submit" className="w-full">
+				{t("rename")}
+			</Button>
+		</form>
 	);
 }

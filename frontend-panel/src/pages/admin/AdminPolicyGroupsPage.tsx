@@ -360,7 +360,7 @@ export default function AdminPolicyGroupsPage() {
 
 	const getNextPolicyId = () => {
 		const selected = new Set(
-			form.items.map((item) => item.policyId).filter(Boolean),
+			form.items.flatMap((item) => (item.policyId ? [item.policyId] : [])),
 		);
 		return (
 			policies.find((policy) => !selected.has(String(policy.id)))?.id ??
@@ -609,8 +609,10 @@ export default function AdminPolicyGroupsPage() {
 					sortOrder={sortOrder}
 					nextPageDisabled={nextPageDisabled}
 					onPageSizeChange={handlePageSizeChange}
-					onPreviousPage={() => setOffset(Math.max(0, offset - pageSize))}
-					onNextPage={() => setOffset(offset + pageSize)}
+					onPreviousPage={() =>
+						setOffset((current) => Math.max(0, current - pageSize))
+					}
+					onNextPage={() => setOffset((current) => current + pageSize)}
 					onOpenEdit={openEdit}
 					onOpenMigration={openMigrationDialog}
 					onRequestDelete={requestConfirm}

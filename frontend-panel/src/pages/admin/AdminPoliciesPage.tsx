@@ -602,8 +602,10 @@ export default function AdminPoliciesPage() {
 					onPageSizeChange={handlePageSizeChange}
 					prevDisabled={prevPageDisabled}
 					nextDisabled={nextPageDisabled}
-					onPrevious={() => setOffset(Math.max(0, offset - pageSize))}
-					onNext={() => setOffset(offset + pageSize)}
+					onPrevious={() =>
+						setOffset((current) => Math.max(0, current - pageSize))
+					}
+					onNext={() => setOffset((current) => current + pageSize)}
 				/>
 
 				<PolicyDialogs

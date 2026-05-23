@@ -80,7 +80,7 @@ export function TrashGrid({
 						<CardContent className="space-y-3">
 							<div className="flex items-start justify-between gap-3">
 								<div className="flex items-center gap-3">
-									<div className="flex h-11 w-11 items-center justify-center rounded-xl bg-muted/70">
+									<div className="flex size-11 items-center justify-center rounded-xl bg-muted/70">
 										{item.entity_type === "folder" ? (
 											<Icon name="Folder" className="size-6 text-amber-500" />
 										) : (

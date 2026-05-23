@@ -130,6 +130,7 @@ export function CreateTeamDialog({
 							<Label htmlFor="admin-team-description">{t("description")}</Label>
 							<textarea
 								id="admin-team-description"
+								aria-label={t("description")}
 								value={form.description}
 								disabled={submitting}
 								rows={4}

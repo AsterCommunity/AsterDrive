@@ -69,11 +69,11 @@ export function GlobalSearchResultRow({
 					</span>
 					{entry.kind === "file" ? (
 						<>
-							<span className="h-1 w-1 rounded-full bg-border" />
+							<span className="size-1 rounded-full bg-border" />
 							<span>{formatBytes(entry.item.size)}</span>
 						</>
 					) : null}
-					<span className="h-1 w-1 rounded-full bg-border" />
+					<span className="size-1 rounded-full bg-border" />
 					<span>{formatDate(entry.item.updated_at, i18n)}</span>
 				</div>
 			</div>

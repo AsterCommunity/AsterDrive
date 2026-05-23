@@ -1,3 +1,4 @@
+import type { SetStateAction } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useSearchParams } from "react-router-dom";
@@ -91,8 +92,10 @@ export default function AdminExternalAuthPage() {
 	const [createdProviderCallback, setCreatedProviderCallback] =
 		useState<AdminExternalAuthProviderInfo | null>(null);
 	const lastWrittenSearchRef = useRef<string | null>(null);
-	const setOffset = useCallback((value: number) => {
-		setOffsetState(normalizeOffset(value));
+	const setOffset = useCallback((value: SetStateAction<number>) => {
+		setOffsetState((current) =>
+			normalizeOffset(typeof value === "function" ? value(current) : value),
+		);
 	}, []);
 	const enabledCount = useMemo(
 		() => providers.filter((provider) => provider.enabled).length,
@@ -561,8 +564,10 @@ export default function AdminExternalAuthPage() {
 					onPageSizeChange={handlePageSizeChange}
 					prevDisabled={prevPageDisabled}
 					nextDisabled={nextPageDisabled}
-					onPrevious={() => setOffset(Math.max(0, offset - pageSize))}
-					onNext={() => setOffset(offset + pageSize)}
+					onPrevious={() =>
+						setOffset((current) => Math.max(0, current - pageSize))
+					}
+					onNext={() => setOffset((current) => current + pageSize)}
 				/>
 
 				<ExternalAuthProviderDialog

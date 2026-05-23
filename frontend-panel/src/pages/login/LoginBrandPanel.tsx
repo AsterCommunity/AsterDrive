@@ -4,8 +4,8 @@ export function LoginBrandPanel() {
 	return (
 		<div className="relative hidden items-center justify-center overflow-hidden bg-gradient-to-br from-neutral-900 via-neutral-800 to-neutral-900 lg:flex lg:w-1/2">
 			<div className="absolute inset-0 opacity-[0.03]">
-				<div className="absolute top-1/4 left-1/4 h-96 w-96 rounded-full bg-emerald-500 blur-3xl" />
-				<div className="absolute right-1/4 bottom-1/4 h-80 w-80 rounded-full bg-amber-500 blur-3xl" />
+				<div className="absolute top-1/4 left-1/4 size-96 rounded-full bg-emerald-500 blur-3xl" />
+				<div className="absolute right-1/4 bottom-1/4 size-80 rounded-full bg-amber-500 blur-3xl" />
 			</div>
 			<div className="relative max-w-md px-12 text-center">
 				<AsterDriveWordmark

@@ -45,33 +45,38 @@ const TOKEN_PATTERN = /{{\s*([a-zA-Z0-9_]+)\s*}}/g;
 const FILE_PREVIEW_URL_TOKENS = new Set(["file_preview_url"]);
 
 function normalizeOrigins(value?: string) {
-	return (value ?? "")
-		.split(",")
-		.map((item) => item.trim())
-		.filter(Boolean)
-		.map((origin) => {
-			try {
-				return new URL(origin).origin;
-			} catch {
-				return null;
-			}
-		})
-		.filter((origin): origin is string => origin !== null);
+	return (value ?? "").split(",").flatMap((item) => {
+		const origin = item.trim();
+		if (!origin) {
+			return [];
+		}
+
+		try {
+			return [new URL(origin).origin];
+		} catch {
+			return [];
+		}
+	});
 }
 
 function normalizeOriginList(values: unknown) {
 	if (!Array.isArray(values)) return [];
-	return values
-		.map((value) => (typeof value === "string" ? value.trim() : ""))
-		.filter(Boolean)
-		.map((origin) => {
-			try {
-				return new URL(origin).origin;
-			} catch {
-				return null;
-			}
-		})
-		.filter((origin): origin is string => origin !== null);
+	return values.flatMap((value) => {
+		if (typeof value !== "string") {
+			return [];
+		}
+
+		const origin = value.trim();
+		if (!origin) {
+			return [];
+		}
+
+		try {
+			return [new URL(origin).origin];
+		} catch {
+			return [];
+		}
+	});
 }
 
 export function parseVideoBrowserConfig(

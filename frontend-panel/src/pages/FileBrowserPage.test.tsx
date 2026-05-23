@@ -6,7 +6,7 @@ import {
 	waitFor,
 	within,
 } from "@testing-library/react";
-import { forwardRef, useImperativeHandle } from "react";
+import { type Ref, useImperativeHandle } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { FILE_BROWSER_FEEDBACK_DURATION_MS } from "@/lib/constants";
 import {
@@ -584,19 +584,22 @@ vi.mock("@/components/files/ShareDialog", () => ({
 }));
 
 vi.mock("@/components/files/UploadArea", () => ({
-	UploadArea: forwardRef(function MockUploadArea(
-		{ children }: { children: React.ReactNode },
-		ref: React.ForwardedRef<{
+	UploadArea: function MockUploadArea({
+		children,
+		ref,
+	}: {
+		children: React.ReactNode;
+		ref?: Ref<{
 			triggerFileUpload: () => void;
 			triggerFolderUpload: () => void;
-		}>,
-	) {
+		}>;
+	}) {
 		useImperativeHandle(ref, () => ({
 			triggerFileUpload: vi.fn(),
 			triggerFolderUpload: vi.fn(),
 		}));
 		return <div>{children}</div>;
-	}),
+	},
 }));
 
 vi.mock("@/components/files/VersionHistoryDialog", () => ({
@@ -762,22 +765,21 @@ vi.mock("@/components/ui/icon", () => ({
 }));
 
 vi.mock("@/components/ui/scroll-area", () => ({
-	ScrollArea: forwardRef(function MockScrollArea(
-		{
-			children,
-			className,
-		}: {
-			children: React.ReactNode;
-			className?: string;
-		},
-		ref: React.ForwardedRef<HTMLDivElement>,
-	) {
+	ScrollArea: function MockScrollArea({
+		children,
+		className,
+		ref,
+	}: {
+		children: React.ReactNode;
+		className?: string;
+		ref?: Ref<HTMLDivElement>;
+	}) {
 		return (
 			<div ref={ref} className={className}>
 				{children}
 			</div>
 		);
-	}),
+	},
 }));
 
 vi.mock("@/hooks/useApiError", () => ({

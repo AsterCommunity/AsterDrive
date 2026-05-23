@@ -14,6 +14,8 @@ import {
 import { cn } from "@/lib/utils";
 import type { FileListItem, FolderListItem } from "@/types/api";
 
+const EMPTY_TARGET_PATH_IDS: number[] = [];
+
 interface FileCardProps {
 	item: FileListItem | FolderListItem;
 	isFolder: boolean;
@@ -48,7 +50,7 @@ export function FileCard({
 	dragData,
 	resolveDragData,
 	onDrop,
-	targetPathIds = [],
+	targetPathIds = EMPTY_TARGET_PATH_IDS,
 	fading,
 	draggable = true,
 	selectable = true,

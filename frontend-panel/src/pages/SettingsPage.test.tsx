@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { createContext, useContext } from "react";
+import { createContext, use } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import SettingsPage from "@/pages/SettingsPage";
 
@@ -240,7 +240,7 @@ vi.mock("@/components/ui/select", () => ({
 		children: React.ReactNode;
 		value: string;
 	}) => {
-		const context = useContext(SelectContext);
+		const context = use(SelectContext);
 		return (
 			<button type="button" onClick={() => context.onValueChange?.(value)}>
 				{children}
@@ -255,7 +255,7 @@ vi.mock("@/components/ui/select", () => ({
 		<div>{children}</div>
 	),
 	SelectValue: () => {
-		const context = useContext(SelectContext);
+		const context = use(SelectContext);
 		return <span>{context.value}</span>;
 	},
 }));
@@ -301,7 +301,7 @@ vi.mock("@/components/ui/tabs", () => ({
 		children: React.ReactNode;
 		value: string;
 	}) => {
-		const context = useContext(TabsContext);
+		const context = use(TabsContext);
 		return (
 			<button
 				type="button"
@@ -319,7 +319,7 @@ vi.mock("@/components/ui/tabs", () => ({
 		children: React.ReactNode;
 		value: string;
 	}) => {
-		const context = useContext(TabsContext);
+		const context = use(TabsContext);
 		return context.value === value ? <div>{children}</div> : null;
 	},
 }));

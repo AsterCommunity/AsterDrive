@@ -221,11 +221,12 @@ export function CodePreviewEditor({
 	}, [prismConfig]);
 
 	useEffect(() => {
-		commandsRef.current.clear();
+		const commands = commandsRef.current;
+		commands.clear();
 		onMountRef.current?.(
 			{
 				addCommand(keybinding, handler) {
-					commandsRef.current.set(keybinding, handler);
+					commands.set(keybinding, handler);
 				},
 			},
 			{
@@ -235,7 +236,7 @@ export function CodePreviewEditor({
 		);
 
 		return () => {
-			commandsRef.current.clear();
+			commands.clear();
 		};
 	}, []);
 

@@ -193,10 +193,12 @@ function createDragPreview(source: HTMLElement, options: DragPreviewOptions) {
 				cell.style.display = "none";
 				return;
 			}
-			cell.style.padding = "0";
-			cell.style.border = "none";
-			cell.style.background = "transparent";
-			cell.style.verticalAlign = "middle";
+			Object.assign(cell.style, {
+				background: "transparent",
+				border: "none",
+				padding: "0",
+				verticalAlign: "middle",
+			});
 		});
 
 		const checkboxColumn = preview.querySelector(

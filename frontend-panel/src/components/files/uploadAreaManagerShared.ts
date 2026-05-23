@@ -44,6 +44,9 @@ export const ACTIVE_QUEUE_STATUSES: UploadStatus[] = [
 	"uploading",
 	"processing",
 ];
+export const ACTIVE_QUEUE_STATUS_SET = new Set<UploadStatus>(
+	ACTIVE_QUEUE_STATUSES,
+);
 
 export const CONCURRENCY_ACTIVE_STATUSES: UploadStatus[] = [
 	"initializing",

@@ -45,7 +45,7 @@ import { useWorkspaceStore } from "@/stores/workspaceStore";
 import type { FileCategory } from "@/types/api";
 
 const SIDEBAR_KEYBOARD_RESIZE_STEP_PX = 16;
-type SidebarResizeHandleElement = HTMLHRElement;
+type SidebarResizeHandleElement = HTMLDivElement;
 
 const QUICK_CATEGORY_LINKS: Array<{
 	category: FileCategory;
@@ -409,7 +409,6 @@ export function Sidebar({
 				)}
 				onClick={onMobileClose}
 				aria-label={t("close_sidebar")}
-				aria-hidden={!mobileOpen}
 				tabIndex={mobileOpen ? 0 : -1}
 			/>
 
@@ -428,7 +427,8 @@ export function Sidebar({
 				)}
 			>
 				{sidebarContent}
-				<hr
+				<div
+					role="slider"
 					aria-label={t("resize_sidebar")}
 					aria-orientation="vertical"
 					aria-valuemax={USER_SIDEBAR_MAX_WIDTH_PX}

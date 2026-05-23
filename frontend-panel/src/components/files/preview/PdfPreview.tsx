@@ -335,9 +335,10 @@ export function PdfPreview({ path, fileName }: PdfPreviewProps) {
 	}, [numPages, syncCurrentPageFromScroll, viewerLayoutVersion, virtualizer]);
 
 	useEffect(() => {
+		const scrollFrame = scrollFrameRef;
 		return () => {
-			if (scrollFrameRef.current !== null) {
-				window.cancelAnimationFrame(scrollFrameRef.current);
+			if (scrollFrame.current !== null) {
+				window.cancelAnimationFrame(scrollFrame.current);
 			}
 		};
 	}, []);

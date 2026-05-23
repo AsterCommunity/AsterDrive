@@ -64,6 +64,7 @@ export function TeamManageOverviewSection({
 						</Label>
 						<textarea
 							id="team-manage-description"
+							aria-label={t("settings:settings_team_description")}
 							value={teamDescription}
 							readOnly={!canManageTeam}
 							disabled={mutating || detailLoading}

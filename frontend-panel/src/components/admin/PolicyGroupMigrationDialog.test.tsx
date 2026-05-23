@@ -1,5 +1,5 @@
 import { fireEvent, render, screen } from "@testing-library/react";
-import { createContext, useContext } from "react";
+import { createContext, use } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { PolicyGroupMigrationDialog } from "@/components/admin/PolicyGroupMigrationDialog";
 
@@ -108,7 +108,7 @@ vi.mock("@/components/ui/select", () => {
 		SelectContent: () => null,
 		SelectItem: () => null,
 		SelectTrigger: () => {
-			const context = useContext(SelectContext);
+			const context = use(SelectContext);
 
 			return (
 				<select

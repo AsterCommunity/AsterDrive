@@ -102,17 +102,22 @@ export function useUploadAreaManager({
 	}, [tasks.length]);
 
 	useEffect(() => {
+		const directAbortControllers = directAbortRef.current;
+		const progressFlushTimerState = progressFlushTimerRef;
+		const queueWasActiveState = queueWasActiveRef;
+		const uploadRequests = uploadRequestRef;
+
 		return () => {
-			for (const controller of directAbortRef.current.values()) {
+			for (const controller of directAbortControllers.values()) {
 				controller.abort();
 			}
-			abortAllUploadRequests(uploadRequestRef);
-			if (progressFlushTimerRef.current !== null) {
-				window.clearTimeout(progressFlushTimerRef.current);
+			abortAllUploadRequests(uploadRequests);
+			if (progressFlushTimerState.current !== null) {
+				window.clearTimeout(progressFlushTimerState.current);
 			}
-			if (queueWasActiveRef.current) {
+			if (queueWasActiveState.current) {
 				leaveStorageRefreshGate();
-				queueWasActiveRef.current = false;
+				queueWasActiveState.current = false;
 				clearDeferredStorageRefresh();
 			}
 		};
@@ -366,9 +371,9 @@ export function useUploadAreaManager({
 	}, [runTask, tasks, uploadSettings.concurrency]);
 
 	const retryFailedTasks = useCallback(() => {
-		const failedTaskIds = tasksRef.current
-			.filter((task) => task.status === "failed")
-			.map((task) => task.id);
+		const failedTaskIds = tasksRef.current.flatMap((task) =>
+			task.status === "failed" ? [task.id] : [],
+		);
 		for (const taskId of failedTaskIds) {
 			void retryTask(taskId);
 		}

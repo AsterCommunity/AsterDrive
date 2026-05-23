@@ -29,6 +29,8 @@ import { fileService } from "@/services/fileService";
 import type { BreadcrumbItem as FileBreadcrumbItem } from "@/stores/fileStore";
 import type { FolderListItem } from "@/types/api";
 
+const EMPTY_SELECTED_FOLDER_IDS: number[] = [];
+
 interface BatchTargetFolderDialogProps {
 	open: boolean;
 	onOpenChange: (open: boolean) => void;
@@ -46,7 +48,7 @@ export function BatchTargetFolderDialog({
 	onConfirm,
 	currentFolderId,
 	initialBreadcrumb,
-	selectedFolderIds = [],
+	selectedFolderIds = EMPTY_SELECTED_FOLDER_IDS,
 }: BatchTargetFolderDialogProps) {
 	const { t } = useTranslation(["files", "core"]);
 	const [loading, setLoading] = useState(false);

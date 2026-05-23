@@ -1,4 +1,4 @@
-import type { FormEvent } from "react";
+import type { FormEvent, SetStateAction } from "react";
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useSearchParams } from "react-router-dom";
@@ -232,8 +232,10 @@ export default function AdminTasksPage() {
 		useState<TaskTerminalStatusFilter>("__all__");
 	const [cleanupSubmitting, setCleanupSubmitting] = useState(false);
 	const lastWrittenSearchRef = useRef<string | null>(null);
-	const setOffset = (value: number) => {
-		setOffsetState(normalizeOffset(value));
+	const setOffset = (value: SetStateAction<number>) => {
+		setOffsetState((current) =>
+			normalizeOffset(typeof value === "function" ? value(current) : value),
+		);
 	};
 
 	useEffect(() => {
@@ -589,8 +591,10 @@ export default function AdminTasksPage() {
 					onPageSizeChange={handlePageSizeChange}
 					prevDisabled={prevPageDisabled}
 					nextDisabled={nextPageDisabled}
-					onPrevious={() => setOffset(Math.max(0, offset - pageSize))}
-					onNext={() => setOffset(offset + pageSize)}
+					onPrevious={() =>
+						setOffset((current) => Math.max(0, current - pageSize))
+					}
+					onNext={() => setOffset((current) => current + pageSize)}
 				/>
 			</AdminPageShell>
 

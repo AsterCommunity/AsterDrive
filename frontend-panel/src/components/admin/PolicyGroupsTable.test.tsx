@@ -1,5 +1,5 @@
 import { fireEvent, render, screen } from "@testing-library/react";
-import { cloneElement, createContext, isValidElement, useContext } from "react";
+import { cloneElement, createContext, isValidElement, use } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { PolicyGroupsTable } from "@/components/admin/PolicyGroupsTable";
 
@@ -138,7 +138,7 @@ vi.mock("@/components/ui/select", () => {
 			"aria-label"?: string;
 			[key: string]: unknown;
 		}) => {
-			const context = useContext(SelectContext);
+			const context = use(SelectContext);
 
 			return (
 				<select

@@ -39,8 +39,9 @@ export function useFileEditorSession({
 	}, [editing]);
 
 	useEffect(() => {
+		const editingState = editingRef;
 		return () => {
-			if (editingRef.current) {
+			if (editingState.current) {
 				fileService.setFileLock(fileId, false).catch(() => {});
 			}
 		};

@@ -8,7 +8,7 @@ export function OfflineBootFallback() {
 	return (
 		<div className="flex min-h-screen bg-background text-foreground">
 			<div className="m-auto flex w-full max-w-xl flex-col items-center gap-6 px-6 text-center">
-				<div className="flex h-16 w-16 items-center justify-center rounded-2xl border bg-muted/40">
+				<div className="flex size-16 items-center justify-center rounded-2xl border bg-muted/40">
 					<Icon name="WifiX" className="size-8 text-muted-foreground" />
 				</div>
 				<div className="space-y-2">

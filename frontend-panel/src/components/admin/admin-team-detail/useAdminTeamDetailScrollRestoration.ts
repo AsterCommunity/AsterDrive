@@ -34,35 +34,24 @@ export function useAdminTeamDetailScrollRestoration({
 		const sidebar = sidebarRef.current;
 		if (sidebar == null) {
 			return () => {
-				if (contentRef.current == null) {
+				if (content == null) {
 					return;
 				}
 
-				adminTeamDetailContentScrollPositions.set(
-					teamId,
-					contentRef.current.scrollTop,
-				);
+				adminTeamDetailContentScrollPositions.set(teamId, content.scrollTop);
 			};
 		}
 
 		sidebar.scrollTop = adminTeamDetailSidebarScrollPositions.get(teamId) ?? 0;
 
 		return () => {
-			if (contentRef.current != null) {
-				adminTeamDetailContentScrollPositions.set(
-					teamId,
-					contentRef.current.scrollTop,
-				);
+			if (content != null) {
+				adminTeamDetailContentScrollPositions.set(teamId, content.scrollTop);
 			}
 
-			if (sidebarRef.current == null) {
-				return;
+			if (sidebar != null) {
+				adminTeamDetailSidebarScrollPositions.set(teamId, sidebar.scrollTop);
 			}
-
-			adminTeamDetailSidebarScrollPositions.set(
-				teamId,
-				sidebarRef.current.scrollTop,
-			);
 		};
 	}, [contentRef, isPageLayout, pageTab, sidebarRef, teamId]);
 }

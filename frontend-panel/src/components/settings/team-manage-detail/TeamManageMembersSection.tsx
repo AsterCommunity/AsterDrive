@@ -1,4 +1,4 @@
-import type { FormEvent } from "react";
+import type { FormEvent, SetStateAction } from "react";
 import { useTranslation } from "react-i18next";
 import { EmptyState } from "@/components/common/EmptyState";
 import { SkeletonTable } from "@/components/common/SkeletonTable";
@@ -69,7 +69,7 @@ interface MembersSectionProps {
 	roleLabel: (role: TeamMemberRole) => string;
 	roleOptions: TeamMemberRole[];
 	setMemberIdentifier: (value: string) => void;
-	setMemberOffset: (offset: number) => void;
+	setMemberOffset: (offset: SetStateAction<number>) => void;
 	setMemberQuery: (value: string) => void;
 	setMemberRole: (value: TeamMemberRole) => void;
 	setMemberRoleFilter: (value: "__all__" | TeamMemberRole) => void;
@@ -91,7 +91,7 @@ export function TeamManageMembersSection({
 	memberCurrentPage,
 	memberIdentifier,
 	memberLoading,
-	memberOffset,
+	memberOffset: _memberOffset,
 	memberPageSize,
 	memberQuery,
 	memberRole,
@@ -435,7 +435,9 @@ export function TeamManageMembersSection({
 									size="sm"
 									disabled={prevMemberPageDisabled || memberLoading}
 									onClick={() =>
-										setMemberOffset(Math.max(0, memberOffset - memberPageSize))
+										setMemberOffset((current) =>
+											Math.max(0, current - memberPageSize),
+										)
 									}
 								>
 									<Icon name="CaretLeft" className="size-4" />
@@ -445,7 +447,9 @@ export function TeamManageMembersSection({
 									variant="outline"
 									size="sm"
 									disabled={nextMemberPageDisabled || memberLoading}
-									onClick={() => setMemberOffset(memberOffset + memberPageSize)}
+									onClick={() =>
+										setMemberOffset((current) => current + memberPageSize)
+									}
 								>
 									<Icon name="CaretRight" className="size-4" />
 								</Button>
