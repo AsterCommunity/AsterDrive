@@ -241,11 +241,6 @@ pub async fn delete_by_path_prefix<C: ConnectionTrait>(db: &C, prefix: &str) -> 
     Ok(res.rows_affected)
 }
 
-/// 查找并返回所有过期锁
-pub async fn find_expired<C: ConnectionTrait>(db: &C) -> Result<Vec<resource_lock::Model>> {
-    find_expired_before(db, Utc::now()).await
-}
-
 pub async fn find_expired_before<C: ConnectionTrait>(
     db: &C,
     cutoff: chrono::DateTime<Utc>,
@@ -256,11 +251,6 @@ pub async fn find_expired_before<C: ConnectionTrait>(
         .all(db)
         .await
         .map_err(AsterError::from)
-}
-
-/// 删除过期锁（返回删除数量）
-pub async fn delete_expired<C: ConnectionTrait>(db: &C) -> Result<u64> {
-    delete_expired_before(db, Utc::now()).await
 }
 
 pub async fn delete_expired_before<C: ConnectionTrait>(

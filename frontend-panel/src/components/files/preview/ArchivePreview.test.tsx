@@ -77,6 +77,10 @@ const manifest: ArchivePreviewManifest = {
 	directory_count: 1,
 	total_uncompressed_size: 12,
 	truncated: true,
+	extract_compatibility: {
+		supported: true,
+		reason: null,
+	},
 	entries: [
 		{
 			path: "docs",
@@ -147,6 +151,22 @@ describe("ArchivePreview", () => {
 
 		expect(screen.getByText("image.bin")).toBeInTheDocument();
 		expect(screen.queryByText("readme.txt")).not.toBeInTheDocument();
+	});
+
+	it("shows an extract compatibility notice for preview-only entry names", async () => {
+		const loadManifest = vi.fn(async () => ({
+			...manifest,
+			extract_compatibility: {
+				supported: false,
+				reason: "unsupported_entry_names" as const,
+			},
+		}));
+		render(<ArchivePreview loadManifest={loadManifest} />);
+
+		expect(await screen.findByText("docs")).toBeInTheDocument();
+		expect(
+			screen.getByText("archive_preview_extract_unsupported_entry_names"),
+		).toBeInTheDocument();
 	});
 
 	it("shows implicit folders as navigable entries", async () => {
@@ -249,6 +269,9 @@ describe("ArchivePreview", () => {
 			expect(screen.getByText("preview_load_failed")).toBeInTheDocument();
 		});
 		expect(
+			screen.getByRole("button", { name: "archive_preview_filename_encoding" }),
+		).toBeInTheDocument();
+		expect(
 			screen.getByRole("button", { name: "preview_retry" }),
 		).toBeInTheDocument();
 	});
@@ -296,6 +319,11 @@ describe("ArchivePreview", () => {
 			expect(
 				screen.getByText("archive_preview_generating"),
 			).toBeInTheDocument();
+			expect(
+				screen.getByRole("button", {
+					name: "archive_preview_filename_encoding",
+				}),
+			).toBeInTheDocument();
 			expect(screen.queryByText("preview_load_failed")).not.toBeInTheDocument();
 
 			await act(async () => {
@@ -319,12 +347,60 @@ describe("ArchivePreview", () => {
 		fireEvent.click(screen.getByText("select-gb18030"));
 
 		expect(screen.getByText("archive_preview_generating")).toBeInTheDocument();
+		expect(screen.queryByText("docs")).not.toBeInTheDocument();
 		await waitFor(() => {
 			expect(loadManifest).toHaveBeenCalledWith(
 				expect.objectContaining({ filenameEncoding: "gb18030" }),
 			);
 		});
 		expect(loadManifest).toHaveBeenCalledTimes(2);
+	});
+
+	it("keeps the archive shell mounted after an encoding failure so another encoding can be selected", async () => {
+		const loadManifest = vi
+			.fn<
+				(options?: {
+					signal?: AbortSignal;
+					filenameEncoding?: "auto" | "utf8" | "gb18030" | "cp437";
+				}) => Promise<ArchivePreviewManifest>
+			>()
+			.mockRejectedValueOnce(
+				new ApiError(
+					ErrorCode.BadRequest,
+					"archive entry filename is not valid Big5",
+					{
+						internalCode: "E005",
+						subcode: ApiSubcode.ArchivePreviewRejected,
+					},
+				),
+			)
+			.mockResolvedValueOnce(manifest);
+		render(<ArchivePreview loadManifest={loadManifest} />);
+
+		await waitFor(() => {
+			expect(
+				screen.getByText("archive_preview_encoding_failed"),
+			).toBeInTheDocument();
+		});
+		expect(screen.getByRole("alert")).toHaveClass(
+			"min-h-[14rem]",
+			"items-center",
+			"justify-center",
+		);
+		expect(
+			screen.getByRole("button", { name: "archive_preview_filename_encoding" }),
+		).toBeInTheDocument();
+		expect(
+			screen.queryByRole("button", { name: "preview_retry" }),
+		).not.toBeInTheDocument();
+
+		fireEvent.click(screen.getByText("select-gb18030"));
+
+		expect(screen.getByText("archive_preview_generating")).toBeInTheDocument();
+		expect(await screen.findByText("docs")).toBeInTheDocument();
+		expect(loadManifest).toHaveBeenLastCalledWith(
+			expect.objectContaining({ filenameEncoding: "gb18030" }),
+		);
 	});
 
 	it("passes an abort signal to the loader and aborts it on unmount", async () => {
@@ -382,6 +458,9 @@ describe("ArchivePreview", () => {
 		await waitFor(() => {
 			expect(screen.getByText("archive_preview_disabled")).toBeInTheDocument();
 		});
+		expect(
+			screen.getByRole("button", { name: "archive_preview_filename_encoding" }),
+		).toBeInTheDocument();
 		expect(
 			screen.queryByRole("button", { name: "preview_retry" }),
 		).not.toBeInTheDocument();
@@ -454,6 +533,32 @@ describe("ArchivePreview", () => {
 		await waitFor(() => {
 			expect(screen.getByText(messageKey)).toBeInTheDocument();
 		});
+		expect(
+			screen.queryByRole("button", { name: "preview_retry" }),
+		).not.toBeInTheDocument();
+	});
+
+	it("explains filename encoding failures without a retry button", async () => {
+		const loadManifest = vi.fn(async () => {
+			throw new ApiError(
+				ErrorCode.BadRequest,
+				"archive entry 'x.drawio' filename is not valid Big5",
+				{
+					internalCode: "E005",
+					subcode: ApiSubcode.ArchivePreviewRejected,
+				},
+			);
+		});
+		render(<ArchivePreview loadManifest={loadManifest} />);
+
+		await waitFor(() => {
+			expect(
+				screen.getByText("archive_preview_encoding_failed"),
+			).toBeInTheDocument();
+		});
+		expect(
+			screen.getByRole("button", { name: "archive_preview_filename_encoding" }),
+		).toBeInTheDocument();
 		expect(
 			screen.queryByRole("button", { name: "preview_retry" }),
 		).not.toBeInTheDocument();

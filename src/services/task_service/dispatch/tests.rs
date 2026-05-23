@@ -24,17 +24,20 @@ use super::execute::{evaluate_heartbeat_result, run_with_concurrency_limit, task
 use super::lane::{TaskLane, TaskLaneConfig, task_lane};
 
 async fn build_dispatch_test_db() -> sea_orm::DatabaseConnection {
-    let db = db::connect(&DatabaseConfig {
-        url: "sqlite::memory:".to_string(),
-        pool_size: 1,
-        retry_count: 0,
-    })
+    let db = db::connect_with_metrics(
+        &DatabaseConfig {
+            url: "sqlite::memory:".to_string(),
+            pool_size: 1,
+            retry_count: 0,
+        },
+        crate::metrics_core::NoopMetrics::arc(),
+    )
     .await
     .expect("dispatch test DB should connect");
     Migrator::up(&db, None)
         .await
         .expect("dispatch test migrations should succeed");
-    config_repo::ensure_defaults(&db)
+    config_repo::ensure_defaults_with_env(&db, &|_| None)
         .await
         .expect("dispatch test config defaults should exist");
     db

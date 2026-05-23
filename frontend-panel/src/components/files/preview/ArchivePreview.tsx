@@ -1,21 +1,15 @@
 import { useMemo } from "react";
-import { useTranslation } from "react-i18next";
 import { isArchiveFilenameEncoding } from "@/lib/archiveFilenameEncoding";
-import {
-	ArchivePreviewContent,
-	ArchivePreviewErrorState,
-} from "./ArchivePreviewContent";
+import { ArchivePreviewContent } from "./ArchivePreviewContent";
 import type { ArchivePreviewProps } from "./archivePreviewTypes";
 import {
 	buildArchiveDirectoryEntries,
 	buildArchiveVisibleEntries,
 } from "./archivePreviewUtils";
-import { PreviewLoadingState } from "./PreviewLoadingState";
 import { PreviewUnavailable } from "./PreviewUnavailable";
 import { useArchivePreviewState } from "./useArchivePreviewState";
 
 export function ArchivePreview({ loadManifest }: ArchivePreviewProps) {
-	const { t } = useTranslation("files");
 	const [state, dispatch] = useArchivePreviewState(loadManifest);
 	const {
 		manifest,
@@ -54,24 +48,6 @@ export function ArchivePreview({ loadManifest }: ArchivePreviewProps) {
 		return <PreviewUnavailable />;
 	}
 
-	if (loading) {
-		return (
-			<PreviewLoadingState
-				text={t(pending ? "archive_preview_generating" : "loading_preview")}
-				className="h-full"
-			/>
-		);
-	}
-
-	if (error || !manifest) {
-		return (
-			<ArchivePreviewErrorState
-				error={error}
-				onRetry={() => dispatch({ type: "retryRequested" })}
-			/>
-		);
-	}
-
 	return (
 		<ArchivePreviewContent
 			manifest={manifest}
@@ -79,12 +55,16 @@ export function ArchivePreview({ loadManifest }: ArchivePreviewProps) {
 			currentFolder={currentFolder}
 			filenameEncoding={filenameEncoding}
 			visibleEntries={visibleEntries}
+			loading={loading}
+			pending={pending}
+			error={error}
 			onQueryChange={(query) => dispatch({ type: "queryChanged", query })}
 			onCurrentFolderChange={(currentFolder) =>
 				dispatch({ type: "currentFolderChanged", currentFolder })
 			}
 			onOpenDirectory={openArchiveDirectory}
 			onFilenameEncodingChange={handleFilenameEncodingChange}
+			onRetry={() => dispatch({ type: "retryRequested" })}
 		/>
 	);
 }

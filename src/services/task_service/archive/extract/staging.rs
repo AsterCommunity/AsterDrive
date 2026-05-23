@@ -12,7 +12,7 @@ use crate::entities::file;
 use crate::errors::{AsterError, MapAsterErr, Result};
 use crate::runtime::PrimaryAppState;
 use crate::services::archive_service::zip_scan::{
-    ZipScanEntry, ZipScanLimits, ensure_zip_scan_deadline, scan_zip_archive,
+    ZipScanEntry, ZipScanLimits, ZipScanNamePolicy, ensure_zip_scan_deadline, scan_zip_archive,
 };
 use crate::services::task_service::TaskStepInfo;
 use crate::services::workspace_storage_service::{self, WorkspaceStorageScope};
@@ -205,6 +205,7 @@ pub(super) fn stage_zip_archive_for_extract(
         options.limits.scan_limits(),
         deadline,
         options.filename_encoding,
+        ZipScanNamePolicy::StrictAsterName,
         |entry_size| {
             options
                 .policy_resolver

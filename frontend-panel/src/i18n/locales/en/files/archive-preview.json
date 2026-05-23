@@ -30,5 +30,7 @@
 	"archive_preview_unsupported_type": "Archive preview currently supports ZIP files only.",
 	"archive_preview_source_too_large": "This archive exceeds the preview size limit set by the administrator.",
 	"archive_preview_invalid_zip": "This file is not a valid ZIP archive.",
-	"archive_preview_rejected": "This archive does not meet the server preview limits."
+	"archive_preview_encoding_failed": "This filename encoding cannot decode the ZIP. Choose a different filename encoding and try again.",
+	"archive_preview_rejected": "This archive does not meet the server preview limits.",
+	"archive_preview_extract_unsupported_entry_names": "Some entries use names that AsterDrive cannot extract, but the archive can still be previewed."
 }

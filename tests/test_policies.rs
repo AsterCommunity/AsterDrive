@@ -64,7 +64,7 @@ async fn test_user_default_policy_switch_updates_snapshot_immediately() {
     .await
     .unwrap();
 
-    let initial_policy = file_service::resolve_policy(&state, user.id, None)
+    let initial_policy = file_service::resolve_policy_for_size(&state, user.id, None, 0)
         .await
         .unwrap();
 
@@ -132,7 +132,7 @@ async fn test_user_default_policy_switch_updates_snapshot_immediately() {
         Some(alternate_policy.id)
     );
 
-    let resolved_after_switch = file_service::resolve_policy(&state, user.id, None)
+    let resolved_after_switch = file_service::resolve_policy_for_size(&state, user.id, None, 0)
         .await
         .unwrap();
     assert_eq!(resolved_after_switch.id, alternate_policy.id);
@@ -1651,7 +1651,7 @@ async fn test_resolve_policy_fails_without_user_policy_group() {
         .await
         .unwrap();
 
-    let err = file_service::resolve_policy(&state, user.id, None)
+    let err = file_service::resolve_policy_for_size(&state, user.id, None, 0)
         .await
         .unwrap_err();
     assert_eq!(err.code(), "E030");
@@ -1731,7 +1731,7 @@ async fn test_resolve_policy_fails_for_disabled_assigned_policy_group() {
         .await
         .unwrap();
 
-    let err = file_service::resolve_policy(&state, user.id, None)
+    let err = file_service::resolve_policy_for_size(&state, user.id, None, 0)
         .await
         .unwrap_err();
     assert_eq!(err.code(), "E005");

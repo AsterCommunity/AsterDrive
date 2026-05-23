@@ -93,8 +93,6 @@ pub struct ArchivePreviewTaskPayload {
     pub source_blob_id: i64,
     pub source_hash: String,
     pub limit_signature: String,
-    #[serde(default)]
-    pub filename_encoding: ArchiveFilenameEncoding,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

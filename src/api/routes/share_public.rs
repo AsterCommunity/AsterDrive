@@ -127,7 +127,7 @@ pub fn routes(
         .route("/{token}/download", web::get().to(download_shared))
         .route(
             "/{token}/files/{file_id}/download",
-            web::get().to(download_shared_folder_file),
+            web::get().to(download_shared_folder_file_handler),
         )
         .route(
             "/{token}/files/{file_id}/preview-link",
@@ -512,7 +512,7 @@ pub async fn stream_shared_video(
         (status = 404, description = "Share or file not found"),
     )
 )]
-pub async fn download_shared_folder_file(
+pub async fn download_shared_folder_file_handler(
     state: web::Data<PrimaryAppState>,
     path: web::Path<(String, i64)>,
     req: actix_web::HttpRequest,

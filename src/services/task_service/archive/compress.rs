@@ -30,6 +30,8 @@ use super::selection::{
     resolve_archive_download_in_scope,
 };
 
+const EMIT_ARCHIVE_STORAGE_EVENT: bool = true;
+
 pub(crate) async fn create_archive_compress_task_in_scope(
     state: &PrimaryAppState,
     scope: WorkspaceStorageScope,
@@ -240,7 +242,7 @@ pub(super) async fn process_archive_compress_task(
         &steps,
     )
     .await?;
-    let stored = workspace_storage_service::store_from_temp(
+    let stored = workspace_storage_service::store_from_temp_internal(
         state,
         workspace_storage_service::StoreFromTempParams::new(
             scope,
@@ -249,6 +251,9 @@ pub(super) async fn process_archive_compress_task(
             &archive_temp_path_string,
             archive_size,
         ),
+        workspace_storage_service::StoreFromTempHints::default(),
+        workspace_storage_service::NewFileMode::ResolveUnique,
+        EMIT_ARCHIVE_STORAGE_EVENT,
     )
     .await?;
     cleanup_task_temp_dir_for_task(state, task.id).await?;

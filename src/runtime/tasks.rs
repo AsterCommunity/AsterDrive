@@ -887,15 +887,18 @@ mod tests {
     use std::sync::Arc;
 
     async fn setup_state() -> web::Data<PrimaryAppState> {
-        let db = crate::db::connect(&crate::config::DatabaseConfig {
-            url: "sqlite::memory:".to_string(),
-            pool_size: 1,
-            retry_count: 0,
-        })
+        let db = crate::db::connect_with_metrics(
+            &crate::config::DatabaseConfig {
+                url: "sqlite::memory:".to_string(),
+                pool_size: 1,
+                retry_count: 0,
+            },
+            crate::metrics_core::NoopMetrics::arc(),
+        )
         .await
         .unwrap();
         Migrator::up(&db, None).await.unwrap();
-        crate::db::repository::config_repo::ensure_defaults(&db)
+        crate::db::repository::config_repo::ensure_defaults_with_env(&db, &|_| None)
             .await
             .unwrap();
 

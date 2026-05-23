@@ -55,11 +55,14 @@ mod tests {
 
     #[tokio::test]
     async fn perform_shutdown_stops_empty_background_tasks_and_closes_database() {
-        let db = crate::db::connect(&crate::config::DatabaseConfig {
-            url: "sqlite::memory:".to_string(),
-            pool_size: 1,
-            retry_count: 0,
-        })
+        let db = crate::db::connect_with_metrics(
+            &crate::config::DatabaseConfig {
+                url: "sqlite::memory:".to_string(),
+                pool_size: 1,
+                retry_count: 0,
+            },
+            crate::metrics_core::NoopMetrics::arc(),
+        )
         .await
         .unwrap();
         Migrator::up(&db, None).await.unwrap();

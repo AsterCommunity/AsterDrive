@@ -1,6 +1,6 @@
 //! 工作空间存储服务子模块：`store`。
 
-mod from_temp;
+pub(crate) mod from_temp;
 
 use chrono::Utc;
 use sea_orm::{ActiveModelTrait, Set};
@@ -79,20 +79,6 @@ pub(crate) struct StorePreuploadedNondedupParams<'a> {
     pub policy: &'a crate::entities::storage_policy::Model,
     pub preuploaded_blob: PreparedNonDedupBlobUpload,
     pub actor_username: Option<&'a str>,
-}
-
-pub(crate) async fn store_from_temp(
-    state: &PrimaryAppState,
-    params: StoreFromTempParams<'_>,
-) -> Result<file::Model> {
-    from_temp::store_from_temp_internal(
-        state,
-        params,
-        StoreFromTempHints::default(),
-        NewFileMode::ResolveUnique,
-        true,
-    )
-    .await
 }
 
 pub(crate) async fn store_from_temp_with_hints(

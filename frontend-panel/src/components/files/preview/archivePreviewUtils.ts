@@ -22,6 +22,10 @@ const archivePreviewRejectedSubcodes = new Set<string>([
 	ApiSubcode.ArchivePreviewSourceSizeMismatch,
 ]);
 
+function isArchiveFilenameEncodingError(message: string) {
+	return message.includes("filename is not valid");
+}
+
 export function classifyArchivePreviewError(
 	error: unknown,
 ): ArchivePreviewErrorKind {
@@ -30,6 +34,7 @@ export function classifyArchivePreviewError(
 	}
 
 	const subcode = error.subcode ?? "";
+	const message = error.message.toLowerCase();
 	if (
 		error.code === ErrorCode.Forbidden &&
 		archivePreviewDisabledSubcodes.has(subcode)
@@ -58,11 +63,13 @@ export function classifyArchivePreviewError(
 		error.code === ErrorCode.BadRequest &&
 		archivePreviewRejectedSubcodes.has(subcode)
 	) {
+		if (isArchiveFilenameEncodingError(message)) {
+			return "encoding";
+		}
 		return "rejected";
 	}
 
 	// Older servers did not attach subcodes yet.
-	const message = error.message.toLowerCase();
 	if (
 		error.code === ErrorCode.Forbidden &&
 		message.includes("archive preview") &&
@@ -83,6 +90,12 @@ export function classifyArchivePreviewError(
 		message.includes("archive preview limit")
 	) {
 		return "sourceTooLarge";
+	}
+	if (
+		error.code === ErrorCode.BadRequest &&
+		isArchiveFilenameEncodingError(message)
+	) {
+		return "encoding";
 	}
 
 	return "generic";

@@ -240,10 +240,13 @@ mod tests {
     }
 
     async fn build_test_state(driver: Option<ProbeDriver>) -> PrimaryAppState {
-        let db = crate::db::connect(&DatabaseConfig {
-            url: "sqlite::memory:".to_string(),
-            ..Default::default()
-        })
+        let db = crate::db::connect_with_metrics(
+            &DatabaseConfig {
+                url: "sqlite::memory:".to_string(),
+                ..Default::default()
+            },
+            crate::metrics_core::NoopMetrics::arc(),
+        )
         .await
         .expect("health test db should connect");
         Migrator::up(&db, None)

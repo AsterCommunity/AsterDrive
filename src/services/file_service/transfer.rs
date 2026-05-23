@@ -139,7 +139,7 @@ pub(crate) struct BatchDuplicateFileRecordTargetSpec<'a> {
     pub dest_folder_id: Option<i64>,
 }
 
-async fn batch_duplicate_file_records_with_specs_in_scope(
+pub(crate) async fn batch_duplicate_file_records_with_specs_in_scope(
     state: &PrimaryAppState,
     scope: WorkspaceStorageScope,
     copy_specs: &[BatchDuplicateFileRecordSpec<'_>],
@@ -322,15 +322,6 @@ pub(crate) async fn batch_duplicate_file_records_in_scope(
 
     batch_duplicate_file_records_with_specs_in_scope(state, scope, &copy_specs, dest_folder_id)
         .await
-}
-
-pub(crate) async fn batch_duplicate_file_records_with_names_in_scope(
-    state: &PrimaryAppState,
-    scope: WorkspaceStorageScope,
-    copy_specs: &[BatchDuplicateFileRecordSpec<'_>],
-    dest_folder_id: Option<i64>,
-) -> Result<Vec<file::Model>> {
-    batch_duplicate_file_records_with_specs_in_scope(state, scope, copy_specs, dest_folder_id).await
 }
 
 pub(crate) async fn batch_duplicate_file_records_to_mixed_folders_in_scope(

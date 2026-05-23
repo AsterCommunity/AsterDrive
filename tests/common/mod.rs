@@ -361,9 +361,12 @@ async fn drop_stale_test_databases(
         pool_size: 1,
         retry_count: 0,
     };
-    let admin_db = aster_drive::db::connect(&admin_cfg)
-        .await
-        .expect("stale test database cleanup should connect");
+    let admin_db = aster_drive::db::connect_with_metrics(
+        &admin_cfg,
+        aster_drive::metrics_core::NoopMetrics::arc(),
+    )
+    .await
+    .expect("stale test database cleanup should connect");
 
     for database_name in database_names {
         let drop_sql = format!(
@@ -385,9 +388,12 @@ async fn ensure_mysql_test_user_access(admin_database_url: &str, username: &str)
         pool_size: 1,
         retry_count: 0,
     };
-    let admin_db = aster_drive::db::connect(&admin_cfg)
-        .await
-        .expect("mysql test admin connection should succeed");
+    let admin_db = aster_drive::db::connect_with_metrics(
+        &admin_cfg,
+        aster_drive::metrics_core::NoopMetrics::arc(),
+    )
+    .await
+    .expect("mysql test admin connection should succeed");
     let grant_sql = format!(
         "GRANT ALL PRIVILEGES ON *.* TO {}@'%'",
         quote_mysql_string(username)
@@ -501,7 +507,12 @@ async fn wait_for_database(database_url: &str) {
                 pool_size: 1,
                 retry_count: 0,
             };
-            match aster_drive::db::connect(&cfg).await {
+            match aster_drive::db::connect_with_metrics(
+                &cfg,
+                aster_drive::metrics_core::NoopMetrics::arc(),
+            )
+            .await
+            {
                 Ok(_) => break,
                 Err(err) => {
                     last_err = Some(err.to_string());
@@ -721,7 +732,12 @@ async fn provision_isolated_test_database_url_with_template(
         pool_size: 1,
         retry_count: 0,
     };
-    let admin_db = aster_drive::db::connect(&admin_cfg).await.unwrap();
+    let admin_db = aster_drive::db::connect_with_metrics(
+        &admin_cfg,
+        aster_drive::metrics_core::NoopMetrics::arc(),
+    )
+    .await
+    .unwrap();
     let backend = admin_db.get_database_backend();
     let parsed_url = reqwest::Url::parse(database_url).unwrap();
     let base_name = database_name_from_url(&parsed_url).unwrap_or_else(|| "asterdrive".to_string());
@@ -769,9 +785,12 @@ async fn build_postgres_database_template() -> PostgresDatabaseTemplate {
         pool_size: 1,
         retry_count: 0,
     };
-    let db = aster_drive::db::connect(&db_cfg)
-        .await
-        .expect("postgres template database connection should succeed");
+    let db = aster_drive::db::connect_with_metrics(
+        &db_cfg,
+        aster_drive::metrics_core::NoopMetrics::arc(),
+    )
+    .await
+    .expect("postgres template database connection should succeed");
 
     use migration::Migrator;
     Migrator::up(&db, None)
@@ -926,9 +945,12 @@ async fn build_mysql_schema_template() -> MySqlSchemaTemplate {
         pool_size: 1,
         retry_count: 0,
     };
-    let db = aster_drive::db::connect(&db_cfg)
-        .await
-        .expect("mysql schema template connection should succeed");
+    let db = aster_drive::db::connect_with_metrics(
+        &db_cfg,
+        aster_drive::metrics_core::NoopMetrics::arc(),
+    )
+    .await
+    .expect("mysql schema template connection should succeed");
 
     use migration::Migrator;
     Migrator::up(&db, None)
@@ -980,7 +1002,12 @@ pub async fn setup_with_database_url(database_url: &str) -> PrimaryAppState {
         pool_size: 1,
         retry_count: 0,
     };
-    let db = aster_drive::db::connect(&db_cfg).await.unwrap();
+    let db = aster_drive::db::connect_with_metrics(
+        &db_cfg,
+        aster_drive::metrics_core::NoopMetrics::arc(),
+    )
+    .await
+    .unwrap();
 
     // 跑迁移
     use migration::Migrator;
@@ -1052,7 +1079,7 @@ pub async fn setup_with_database_url(database_url: &str) -> PrimaryAppState {
     .await
     .unwrap();
 
-    aster_drive::db::repository::config_repo::ensure_defaults(&db)
+    aster_drive::db::repository::config_repo::ensure_defaults_with_env(&db, &|_| None)
         .await
         .unwrap();
     aster_drive::db::repository::config_repo::upsert(
@@ -1094,9 +1121,13 @@ pub async fn setup_with_database_url(database_url: &str) -> PrimaryAppState {
         );
 
     PrimaryAppState {
-        db_handles: aster_drive::db::connect_reader_for_writer(&db_cfg, db.clone())
-            .await
-            .unwrap(),
+        db_handles: aster_drive::db::connect_reader_for_writer_with_metrics(
+            &db_cfg,
+            db.clone(),
+            aster_drive::metrics_core::NoopMetrics::arc(),
+        )
+        .await
+        .unwrap(),
         driver_registry: std::sync::Arc::new(aster_drive::storage::DriverRegistry::noop()),
         runtime_config,
         policy_snapshot,

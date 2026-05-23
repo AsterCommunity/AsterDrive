@@ -104,7 +104,10 @@ pub async fn initialize_database_state(
         &bootstrap_cookie_secure,
     )
     .await?;
-    crate::db::repository::config_repo::ensure_defaults(database).await?;
+    crate::db::repository::config_repo::ensure_defaults_with_env(database, &|name| {
+        std::env::var(name).ok()
+    })
+    .await?;
     if matches!(mode, NodeRuntimeMode::Follower) {
         handle_optional_follower_bootstrap(
             crate::services::node_enrollment_service::bootstrap_from_env_if_configured(database)
@@ -202,11 +205,14 @@ mod tests {
     use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, Set};
 
     async fn setup_db() -> sea_orm::DatabaseConnection {
-        let db = crate::db::connect(&crate::config::DatabaseConfig {
-            url: "sqlite::memory:".to_string(),
-            pool_size: 1,
-            retry_count: 0,
-        })
+        let db = crate::db::connect_with_metrics(
+            &crate::config::DatabaseConfig {
+                url: "sqlite::memory:".to_string(),
+                pool_size: 1,
+                retry_count: 0,
+            },
+            crate::metrics_core::NoopMetrics::arc(),
+        )
         .await
         .unwrap();
         Migrator::up(&db, None).await.unwrap();
@@ -310,11 +316,14 @@ mod tests {
 
     #[tokio::test]
     async fn initialize_database_state_seeds_primary_runtime_defaults() {
-        let db = crate::db::connect(&crate::config::DatabaseConfig {
-            url: "sqlite::memory:".to_string(),
-            pool_size: 1,
-            retry_count: 0,
-        })
+        let db = crate::db::connect_with_metrics(
+            &crate::config::DatabaseConfig {
+                url: "sqlite::memory:".to_string(),
+                pool_size: 1,
+                retry_count: 0,
+            },
+            crate::metrics_core::NoopMetrics::arc(),
+        )
         .await
         .unwrap();
         let config = crate::config::Config {

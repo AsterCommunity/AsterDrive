@@ -15,7 +15,8 @@ use crate::services::{
     policy_service::StoragePolicy,
     workspace_models::FileInfo,
     workspace_storage_service::{
-        self, StoreFromTempHints, StoreFromTempParams, WorkspaceStorageScope,
+        self, NewFileMode, StoreFromTempHints, StoreFromTempParams, WorkspaceStorageScope,
+        WorkspaceUploadHints,
     },
 };
 
@@ -199,7 +200,7 @@ pub async fn store_from_temp(
     user_id: i64,
     request: StoreFromTempRequest<'_>,
 ) -> Result<FileInfo> {
-    workspace_storage_service::store_from_temp(
+    workspace_storage_service::store_from_temp_internal(
         state,
         StoreFromTempParams {
             scope: WorkspaceStorageScope::Personal { user_id },
@@ -210,6 +211,9 @@ pub async fn store_from_temp(
             existing_file_id: request.existing_file_id,
             skip_lock_check: request.skip_lock_check,
         },
+        StoreFromTempHints::default(),
+        NewFileMode::ResolveUnique,
+        true,
     )
     .await
     .map(Into::into)
@@ -224,13 +228,14 @@ pub async fn upload(
     relative_path: Option<&str>,
     declared_size: Option<i64>,
 ) -> Result<FileInfo> {
-    workspace_storage_service::upload(
+    workspace_storage_service::upload_with_hints(
         state,
         WorkspaceStorageScope::Personal { user_id },
         payload,
         folder_id,
         relative_path,
         declared_size,
+        WorkspaceUploadHints::default(),
     )
     .await
     .map(Into::into)
@@ -335,11 +340,14 @@ pub(crate) async fn update_content_in_scope(
             .await
             .map_aster_err(AsterError::storage_driver_error)?;
 
-        let result = workspace_storage_service::store_from_temp(
+        let result = workspace_storage_service::store_from_temp_internal(
             state,
             StoreFromTempParams::new(scope, f.folder_id, &f.name, &temp_path, size)
                 .overwrite(file_id)
                 .skip_lock_check(),
+            StoreFromTempHints::default(),
+            NewFileMode::ResolveUnique,
+            true,
         )
         .await;
         crate::utils::cleanup_temp_file(&temp_path).await;
@@ -466,15 +474,6 @@ pub async fn update_content(
     )
     .await
     .map(|(file, hash)| (file.into(), hash))
-}
-
-/// 根据优先级链解析存储策略：文件夹覆盖 → 用户绑定策略组
-pub async fn resolve_policy(
-    state: &PrimaryAppState,
-    user_id: i64,
-    folder_id: Option<i64>,
-) -> Result<StoragePolicy> {
-    resolve_policy_for_size(state, user_id, folder_id, 0).await
 }
 
 pub async fn resolve_policy_for_size(

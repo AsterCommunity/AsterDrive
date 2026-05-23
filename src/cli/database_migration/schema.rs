@@ -18,11 +18,14 @@ use super::{
 };
 
 pub(super) async fn connect_database(database_url: &str) -> Result<DatabaseConnection> {
-    db::connect(&crate::config::DatabaseConfig {
-        url: database_url.to_string(),
-        pool_size: 1,
-        retry_count: 0,
-    })
+    db::connect_with_metrics(
+        &crate::config::DatabaseConfig {
+            url: database_url.to_string(),
+            pool_size: 1,
+            retry_count: 0,
+        },
+        crate::metrics_core::NoopMetrics::arc(),
+    )
     .await
 }
 

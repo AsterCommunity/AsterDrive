@@ -261,15 +261,7 @@ fn push_job(batch: &mut HashMap<i64, u64>, job: DownloadCountRollbackJob) {
     *batch.entry(job.share_id).or_default() += job.count;
 }
 
-pub async fn download_shared_file(
-    state: &PrimaryAppState,
-    token: &str,
-    if_none_match: Option<&str>,
-) -> Result<file_service::DownloadOutcome> {
-    download_shared_file_with_range(state, token, if_none_match, None).await
-}
-
-pub(crate) async fn download_shared_file_with_range(
+pub async fn download_shared_file_with_range(
     state: &PrimaryAppState,
     token: &str,
     if_none_match: Option<&str>,
@@ -288,16 +280,7 @@ pub(crate) async fn download_shared_file_with_range(
     .await
 }
 
-pub async fn download_shared_folder_file(
-    state: &PrimaryAppState,
-    token: &str,
-    file_id: i64,
-    if_none_match: Option<&str>,
-) -> Result<file_service::DownloadOutcome> {
-    download_shared_folder_file_with_range(state, token, file_id, if_none_match, None).await
-}
-
-pub(crate) async fn download_shared_folder_file_with_range(
+pub async fn download_shared_folder_file_with_range(
     state: &PrimaryAppState,
     token: &str,
     file_id: i64,
@@ -624,7 +607,7 @@ async fn download_share_resource_with_disposition(
             Ok(outcome)
         }
         Err(error) => {
-            match share_repo::decrement_download_count(state.writer_db(), share.id).await {
+            match share_repo::decrement_download_count_by(state.writer_db(), share.id, 1).await {
                 Ok(true) => {}
                 Ok(false) => {
                     tracing::warn!(

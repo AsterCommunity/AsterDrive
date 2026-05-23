@@ -1,6 +1,6 @@
 //! 运行时配置定义 — 所有 system_config 键的单一数据源
 //!
-//! 启动时 `ensure_defaults()` 遍历此数组，
+//! 启动时默认配置初始化流程遍历此数组，
 //! 对每项执行 INSERT ... ON CONFLICT DO NOTHING。
 //!
 //! 所有 `system_config` 键字符串在此处以 `pub const` 形式声明，

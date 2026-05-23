@@ -3342,6 +3342,23 @@ async fn test_archive_extract_task_rejects_too_long_paths() {
 }
 
 #[actix_web::test]
+async fn test_archive_extract_task_rejects_display_only_entry_names() {
+    let archive_bytes = create_stored_zip_bytes(&[(
+        "folder/name:with-colon.txt",
+        Some(b"not importable".as_slice()),
+    )]);
+    let body = run_failing_personal_archive_extract(archive_bytes, Vec::new()).await;
+
+    assert!(
+        body["data"]["last_error"]
+            .as_str()
+            .expect("failed task should record last error")
+            .contains("forbidden character ':'"),
+        "extract must still reject archive entries that cannot become AsterDrive names"
+    );
+}
+
+#[actix_web::test]
 async fn test_archive_extract_task_rejects_high_total_compression_ratio() {
     let first = vec![b'a'; 4096];
     let second = vec![b'b'; 4096];

@@ -3825,12 +3825,19 @@ export interface components {
         };
         /** @enum {string} */
         ArchivePreviewEntryKind: "file" | "directory";
+        ArchivePreviewExtractCompatibility: {
+            reason?: null | components["schemas"]["ArchivePreviewExtractUnsupportedReason"];
+            supported: boolean;
+        };
+        /** @enum {string} */
+        ArchivePreviewExtractUnsupportedReason: "unsupported_entry_names";
         ArchivePreviewManifest: {
             /** Format: int64 */
             directory_count: number;
             entries: components["schemas"]["ArchivePreviewEntry"][];
             /** Format: int64 */
             entry_count: number;
+            extract_compatibility: components["schemas"]["ArchivePreviewExtractCompatibility"];
             /** Format: int64 */
             file_count: number;
             format: string;
@@ -3847,7 +3854,6 @@ export interface components {
         ArchivePreviewTaskPayload: {
             /** Format: int64 */
             file_id: number;
-            filename_encoding?: components["schemas"]["ArchiveFilenameEncoding"];
             limit_signature: string;
             /** Format: int64 */
             source_blob_id: number;
@@ -13064,6 +13070,7 @@ export interface operations {
                             entries: components["schemas"]["ArchivePreviewEntry"][];
                             /** Format: int64 */
                             entry_count: number;
+                            extract_compatibility: components["schemas"]["ArchivePreviewExtractCompatibility"];
                             /** Format: int64 */
                             file_count: number;
                             format: string;
@@ -14841,6 +14848,7 @@ export interface operations {
                             entries: components["schemas"]["ArchivePreviewEntry"][];
                             /** Format: int64 */
                             entry_count: number;
+                            extract_compatibility: components["schemas"]["ArchivePreviewExtractCompatibility"];
                             /** Format: int64 */
                             file_count: number;
                             format: string;
@@ -15070,6 +15078,7 @@ export interface operations {
                             entries: components["schemas"]["ArchivePreviewEntry"][];
                             /** Format: int64 */
                             entry_count: number;
+                            extract_compatibility: components["schemas"]["ArchivePreviewExtractCompatibility"];
                             /** Format: int64 */
                             file_count: number;
                             format: string;
@@ -18328,6 +18337,7 @@ export interface operations {
                             entries: components["schemas"]["ArchivePreviewEntry"][];
                             /** Format: int64 */
                             entry_count: number;
+                            extract_compatibility: components["schemas"]["ArchivePreviewExtractCompatibility"];
                             /** Format: int64 */
                             file_count: number;
                             format: string;

@@ -427,12 +427,6 @@ pub async fn increment_download_count<C: ConnectionTrait>(db: &C, id: i64) -> Re
     Ok(result.rows_affected > 0)
 }
 
-/// 回滚一次 download_count 递增。
-/// 返回 false 表示分享不存在或计数已经是 0。
-pub async fn decrement_download_count<C: ConnectionTrait>(db: &C, id: i64) -> Result<bool> {
-    decrement_download_count_by(db, id, 1).await
-}
-
 /// 回滚多次 `download_count` 递增。
 /// 返回 false 表示分享不存在或计数已经是 0。
 pub async fn decrement_download_count_by<C: ConnectionTrait>(

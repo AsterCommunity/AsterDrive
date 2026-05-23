@@ -29,26 +29,6 @@ pub(crate) struct WorkspaceUploadHints<'a> {
     pub actor_username: Option<&'a str>,
 }
 
-pub(crate) async fn upload(
-    state: &PrimaryAppState,
-    scope: WorkspaceStorageScope,
-    payload: &mut Multipart,
-    folder_id: Option<i64>,
-    relative_path: Option<&str>,
-    declared_size: Option<i64>,
-) -> Result<file::Model> {
-    upload_with_hints(
-        state,
-        scope,
-        payload,
-        folder_id,
-        relative_path,
-        declared_size,
-        WorkspaceUploadHints::default(),
-    )
-    .await
-}
-
 pub(crate) async fn upload_with_hints(
     state: &PrimaryAppState,
     scope: WorkspaceStorageScope,

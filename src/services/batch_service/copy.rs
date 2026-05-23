@@ -100,7 +100,7 @@ pub(crate) async fn batch_copy_in_scope(
                 AsterError::internal_error("copied byte count overflow during batch copy")
             })
         })?;
-        let created_files = file_service::batch_duplicate_file_records_with_names_in_scope(
+        let created_files = file_service::batch_duplicate_file_records_with_specs_in_scope(
             state,
             scope,
             &file_copy_specs,

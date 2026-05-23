@@ -40,11 +40,14 @@ async fn build_lock_test_state() -> (PrimaryAppState, user::Model, file::Model) 
         std::env::temp_dir().join(format!("asterdrive-lock-service-{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&temp_root).expect("lock service temp root should exist");
 
-    let db = crate::db::connect(&DatabaseConfig {
-        url: "sqlite::memory:".to_string(),
-        pool_size: 1,
-        retry_count: 0,
-    })
+    let db = crate::db::connect_with_metrics(
+        &DatabaseConfig {
+            url: "sqlite::memory:".to_string(),
+            pool_size: 1,
+            retry_count: 0,
+        },
+        crate::metrics_core::NoopMetrics::arc(),
+    )
     .await
     .expect("lock service test DB should connect");
     Migrator::up(&db, None)

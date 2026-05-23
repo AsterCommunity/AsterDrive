@@ -23,11 +23,11 @@ pub use access::{
 };
 pub use content::{
     ShareDownloadRollbackQueue, ShareDownloadRollbackWorker, build_share_download_rollback_queue,
-    download_shared_file, download_shared_folder_file, get_shared_folder_file_image_preview,
-    get_shared_folder_file_media_metadata, get_shared_folder_file_thumbnail,
-    get_shared_image_preview, get_shared_media_metadata, get_shared_thumbnail, list_shared_folder,
-    list_shared_subfolder, share_download_rollback_worker_task,
-    spawn_detached_share_download_rollback_queue,
+    download_shared_file_with_range, download_shared_folder_file_with_range,
+    get_shared_folder_file_image_preview, get_shared_folder_file_media_metadata,
+    get_shared_folder_file_thumbnail, get_shared_image_preview, get_shared_media_metadata,
+    get_shared_thumbnail, list_shared_folder, list_shared_subfolder,
+    share_download_rollback_worker_task, spawn_detached_share_download_rollback_queue,
 };
 pub use management::{
     admin_delete_share, batch_delete_shares, batch_delete_team_shares, create_share, delete_share,
@@ -45,7 +45,6 @@ pub(crate) use cache::{
     invalidate_active_share_target_cache_for_resource_scope,
     invalidate_active_share_target_cache_for_scope, invalidate_all_share_token_record_cache,
 };
-pub(crate) use content::{download_shared_file_with_range, download_shared_folder_file_with_range};
 pub(crate) use content::{
     load_preview_shared_file, load_preview_shared_folder_file,
     load_shared_file_ignoring_download_limit, load_shared_folder_file_ignoring_download_limit,

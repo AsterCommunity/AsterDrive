@@ -63,11 +63,14 @@ impl SharedRuntimeState for TestFollowerState {
 impl FollowerRuntimeState for TestFollowerState {}
 
 async fn setup_state() -> TestFollowerState {
-    let db = crate::db::connect(&crate::config::DatabaseConfig {
-        url: "sqlite::memory:".to_string(),
-        pool_size: 1,
-        retry_count: 0,
-    })
+    let db = crate::db::connect_with_metrics(
+        &crate::config::DatabaseConfig {
+            url: "sqlite::memory:".to_string(),
+            pool_size: 1,
+            retry_count: 0,
+        },
+        crate::metrics_core::NoopMetrics::arc(),
+    )
     .await
     .unwrap();
     migration::Migrator::up(&db, None).await.unwrap();

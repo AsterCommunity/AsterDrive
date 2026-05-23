@@ -49,11 +49,14 @@ fn test_policy(
 }
 
 async fn test_state(configs: &[(&str, &str)]) -> PrimaryAppState {
-    let db = crate::db::connect(&DatabaseConfig {
-        url: "sqlite::memory:".to_string(),
-        pool_size: 1,
-        retry_count: 0,
-    })
+    let db = crate::db::connect_with_metrics(
+        &DatabaseConfig {
+            url: "sqlite::memory:".to_string(),
+            pool_size: 1,
+            retry_count: 0,
+        },
+        crate::metrics_core::NoopMetrics::arc(),
+    )
     .await
     .unwrap();
 

@@ -194,13 +194,16 @@ pub fn cli_styles() -> Styles {
 }
 
 pub(super) async fn connect_database(database_url: &str) -> Result<sea_orm::DatabaseConnection> {
-    let db = db::connect(&crate::config::DatabaseConfig {
-        url: database_url.to_string(),
-        pool_size: 1,
-        retry_count: 0,
-    })
+    let db = db::connect_with_metrics(
+        &crate::config::DatabaseConfig {
+            url: database_url.to_string(),
+            pool_size: 1,
+            retry_count: 0,
+        },
+        crate::metrics_core::NoopMetrics::arc(),
+    )
     .await?;
-    config_repo::ensure_defaults(&db).await?;
+    config_repo::ensure_defaults_with_env(&db, &|name| std::env::var(name).ok()).await?;
     Ok(db)
 }
 
@@ -209,11 +212,14 @@ pub(super) async fn prepare_database(database_url: &str) -> Result<sea_orm::Data
         crate::config::init_config()?;
     }
     let cfg = crate::config::get_config();
-    let db = db::connect(&crate::config::DatabaseConfig {
-        url: database_url.to_string(),
-        pool_size: 1,
-        retry_count: 0,
-    })
+    let db = db::connect_with_metrics(
+        &crate::config::DatabaseConfig {
+            url: database_url.to_string(),
+            pool_size: 1,
+            retry_count: 0,
+        },
+        crate::metrics_core::NoopMetrics::arc(),
+    )
     .await?;
     crate::runtime::startup::initialize_database_state(
         &db,

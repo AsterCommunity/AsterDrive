@@ -282,11 +282,15 @@ where
 }
 
 /// 确保所有系统配置存在，同步元信息（不覆盖用户修改的 value）
-pub async fn ensure_defaults<C: ConnectionTrait>(db: &C) -> Result<usize> {
-    ensure_defaults_with_env(db, &|name| std::env::var(name).ok()).await
+pub async fn ensure_defaults_with_env<C, F>(db: &C, get_env: &F) -> Result<usize>
+where
+    C: ConnectionTrait,
+    F: Fn(&str) -> Option<String>,
+{
+    ensure_defaults_inner(db, get_env).await
 }
 
-async fn ensure_defaults_with_env<C, F>(db: &C, get_env: &F) -> Result<usize>
+async fn ensure_defaults_inner<C, F>(db: &C, get_env: &F) -> Result<usize>
 where
     C: ConnectionTrait,
     F: Fn(&str) -> Option<String>,
@@ -411,11 +415,14 @@ mod tests {
     use migration::Migrator;
 
     async fn setup_db() -> sea_orm::DatabaseConnection {
-        let db = db::connect(&DatabaseConfig {
-            url: "sqlite::memory:".to_string(),
-            pool_size: 1,
-            retry_count: 0,
-        })
+        let db = db::connect_with_metrics(
+            &DatabaseConfig {
+                url: "sqlite::memory:".to_string(),
+                pool_size: 1,
+                retry_count: 0,
+            },
+            crate::metrics_core::NoopMetrics::arc(),
+        )
         .await
         .expect("config repo test DB should connect");
         Migrator::up(&db, None)

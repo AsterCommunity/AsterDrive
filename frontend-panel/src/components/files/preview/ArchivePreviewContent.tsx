@@ -49,6 +49,7 @@ import {
 	parentPathForArchivePath,
 } from "./archivePreviewUtils";
 import { PreviewError } from "./PreviewError";
+import { PreviewLoadingState } from "./PreviewLoadingState";
 
 function ArchiveSummaryItem({
 	label,
@@ -149,14 +150,16 @@ function ArchivePreviewToolbar({
 	filenameEncoding,
 	manifest,
 	visibleItemCount,
+	searchDisabled,
 	onQueryChange,
 	onClearQuery,
 	onFilenameEncodingChange,
 }: {
 	query: string;
 	filenameEncoding: ArchiveFilenameEncoding;
-	manifest: ArchivePreviewManifest;
+	manifest: ArchivePreviewManifest | null;
 	visibleItemCount: number;
+	searchDisabled: boolean;
 	onQueryChange: (query: string) => void;
 	onClearQuery: () => void;
 	onFilenameEncodingChange: (value: string | null) => void;
@@ -175,6 +178,7 @@ function ArchivePreviewToolbar({
 					aria-label={t("archive_preview_search")}
 					placeholder={t("archive_preview_search")}
 					value={query}
+					disabled={searchDisabled}
 					onChange={(event) => onQueryChange(event.target.value)}
 					className="h-7 border-border/60 bg-background/70 shadow-none dark:bg-background/25"
 				/>
@@ -184,6 +188,7 @@ function ArchivePreviewToolbar({
 						variant="ghost"
 						size="icon-xs"
 						aria-label={t("archive_preview_clear_search")}
+						disabled={searchDisabled}
 						onClick={onClearQuery}
 					>
 						<Icon name="X" className="size-3.5" />
@@ -213,23 +218,46 @@ function ArchivePreviewToolbar({
 					</SelectContent>
 				</Select>
 			</div>
-			<div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
-				<ArchiveSummaryItem
-					label={t("archive_preview_items")}
-					value={formatNumber(visibleItemCount)}
-				/>
-				<ArchiveSummaryItem
-					label={t("archive_preview_files")}
-					value={formatNumber(manifest.file_count)}
-				/>
-				<ArchiveSummaryItem
-					label={t("archive_preview_folders")}
-					value={formatNumber(manifest.directory_count)}
-				/>
-				{manifest.truncated ? (
-					<Badge variant="outline">{t("archive_preview_truncated")}</Badge>
-				) : null}
-			</div>
+			{manifest ? (
+				<div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
+					<ArchiveSummaryItem
+						label={t("archive_preview_items")}
+						value={formatNumber(visibleItemCount)}
+					/>
+					<ArchiveSummaryItem
+						label={t("archive_preview_files")}
+						value={formatNumber(manifest.file_count)}
+					/>
+					<ArchiveSummaryItem
+						label={t("archive_preview_folders")}
+						value={formatNumber(manifest.directory_count)}
+					/>
+					{manifest.truncated ? (
+						<Badge variant="outline">{t("archive_preview_truncated")}</Badge>
+					) : null}
+				</div>
+			) : null}
+		</div>
+	);
+}
+
+function ArchiveExtractCompatibilityNotice({
+	manifest,
+}: {
+	manifest: ArchivePreviewManifest;
+}) {
+	const { t } = useTranslation("files");
+	if (manifest.extract_compatibility?.supported !== false) {
+		return null;
+	}
+
+	return (
+		<div className="flex shrink-0 items-start gap-2 border-amber-200/80 border-b bg-amber-50 px-3 py-2 text-amber-950 text-xs dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-100">
+			<Icon
+				name="Warning"
+				className="mt-0.5 size-3.5 shrink-0 text-amber-600 dark:text-amber-300"
+			/>
+			<span>{t("archive_preview_extract_unsupported_entry_names")}</span>
 		</div>
 	);
 }
@@ -379,29 +407,86 @@ function ArchivePreviewFooter({
 	);
 }
 
+function archivePreviewErrorMessageKey(error: ArchivePreviewErrorKind | null) {
+	if (error === "disabled") return "archive_preview_disabled";
+	if (error === "encoding") return "archive_preview_encoding_failed";
+	if (error === "unsupported") return "archive_preview_unsupported_type";
+	if (error === "sourceTooLarge") return "archive_preview_source_too_large";
+	if (error === "invalid") return "archive_preview_invalid_zip";
+	if (error === "rejected") return "archive_preview_rejected";
+	return "preview_load_failed";
+}
+
+function archivePreviewErrorCanRetry(error: ArchivePreviewErrorKind | null) {
+	return !error || error === "generic";
+}
+
+function ArchivePreviewErrorPane({
+	error,
+	onRetry,
+}: {
+	error: ArchivePreviewErrorKind | null;
+	onRetry: () => void;
+}) {
+	return (
+		<div
+			role="alert"
+			className="flex min-h-[14rem] flex-1 items-center justify-center bg-background/80 dark:bg-background/25"
+		>
+			<PreviewError
+				messageKey={archivePreviewErrorMessageKey(error)}
+				onRetry={archivePreviewErrorCanRetry(error) ? onRetry : undefined}
+			/>
+		</div>
+	);
+}
+
+function ArchivePreviewLoadingPane({ text }: { text: string }) {
+	return (
+		<div className="flex min-h-0 flex-1 items-center justify-center bg-background/80 dark:bg-background/25">
+			<PreviewLoadingState text={text} className="h-full min-h-[14rem]" />
+		</div>
+	);
+}
+
 export function ArchivePreviewContent({
 	manifest,
 	query,
 	currentFolder,
 	filenameEncoding,
 	visibleEntries,
+	loading,
+	pending,
+	error,
 	onQueryChange,
 	onCurrentFolderChange,
 	onOpenDirectory,
 	onFilenameEncodingChange,
+	onRetry,
 }: {
-	manifest: ArchivePreviewManifest;
+	manifest: ArchivePreviewManifest | null;
 	query: string;
 	currentFolder: string | null;
 	filenameEncoding: ArchiveFilenameEncoding;
 	visibleEntries: ArchiveBrowserEntry[];
+	loading: boolean;
+	pending: boolean;
+	error: ArchivePreviewErrorKind | null;
 	onQueryChange: (query: string) => void;
 	onCurrentFolderChange: (currentFolder: string | null) => void;
 	onOpenDirectory: (path: string) => void;
 	onFilenameEncodingChange: (value: string | null) => void;
+	onRetry: () => void;
 }) {
-	const isSearching = query.trim().length > 0;
-	const visibleItemCount = manifest.file_count + manifest.directory_count;
+	const { t } = useTranslation("files");
+	const hasManifest = Boolean(manifest);
+	const isSearching = hasManifest && query.trim().length > 0;
+	const visibleItemCount = manifest
+		? manifest.file_count + manifest.directory_count
+		: 0;
+	const loadMessage = t(
+		pending ? "archive_preview_generating" : "loading_preview",
+	);
 
 	return (
 		<div className="flex h-full min-h-0 w-full min-w-0 flex-col overflow-hidden rounded-xl border border-border/70 bg-card shadow-xs dark:shadow-none">
@@ -410,49 +495,35 @@ export function ArchivePreviewContent({
 				filenameEncoding={filenameEncoding}
 				manifest={manifest}
 				visibleItemCount={visibleItemCount}
+				searchDisabled={!manifest || loading || Boolean(error)}
 				onQueryChange={onQueryChange}
 				onClearQuery={() => onQueryChange("")}
 				onFilenameEncodingChange={onFilenameEncodingChange}
 			/>
-			{isSearching ? null : (
+			{manifest ? (
+				<ArchiveExtractCompatibilityNotice manifest={manifest} />
+			) : null}
+			{manifest && !isSearching && !loading && !error ? (
 				<ArchiveBreadcrumbBar
 					currentFolder={currentFolder}
 					onCurrentFolderChange={onCurrentFolderChange}
 				/>
+			) : null}
+			{loading ? (
+				<ArchivePreviewLoadingPane text={loadMessage} />
+			) : error || !manifest ? (
+				<ArchivePreviewErrorPane error={error} onRetry={onRetry} />
+			) : (
+				<ArchiveEntryTable
+					visibleEntries={visibleEntries}
+					isSearching={isSearching}
+					query={query}
+					onOpenDirectory={onOpenDirectory}
+				/>
 			)}
-			<ArchiveEntryTable
-				visibleEntries={visibleEntries}
-				isSearching={isSearching}
-				query={query}
-				onOpenDirectory={onOpenDirectory}
-			/>
-			<ArchivePreviewFooter manifest={manifest} />
+			{manifest && !loading && !error ? (
+				<ArchivePreviewFooter manifest={manifest} />
+			) : null}
 		</div>
 	);
-}
-
-export function ArchivePreviewErrorState({
-	error,
-	onRetry,
-}: {
-	error: ArchivePreviewErrorKind | null;
-	onRetry: () => void;
-}) {
-	if (error === "disabled") {
-		return <PreviewError messageKey="archive_preview_disabled" />;
-	}
-	if (error === "unsupported") {
-		return <PreviewError messageKey="archive_preview_unsupported_type" />;
-	}
-	if (error === "sourceTooLarge") {
-		return <PreviewError messageKey="archive_preview_source_too_large" />;
-	}
-	if (error === "invalid") {
-		return <PreviewError messageKey="archive_preview_invalid_zip" />;
-	}
-	if (error === "rejected") {
-		return <PreviewError messageKey="archive_preview_rejected" />;
-	}
-
-	return <PreviewError onRetry={onRetry} />;
 }

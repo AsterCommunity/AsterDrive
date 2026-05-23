@@ -20,7 +20,7 @@ pub async fn lock_by_id<C: ConnectionTrait>(db: &C, id: i64) -> Result<folder::M
             .map_err(AsterError::from)?
             .ok_or_else(|| AsterError::folder_not_found(format!("folder #{id}"))),
         DbBackend::Sqlite => {
-            // AsterDrive forces SQLite to a single pooled connection in `db::connect()`,
+            // AsterDrive forces SQLite to a single pooled connection in the DB connect path,
             // so an open transaction already serializes all writers at connection acquisition.
             // There is no row-level lock to emulate here.
             find_by_id(db, id).await

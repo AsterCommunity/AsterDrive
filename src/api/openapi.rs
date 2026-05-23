@@ -334,7 +334,7 @@ use utoipa::{Modify, OpenApi};
         crate::api::routes::share_public::stream_shared_video,
         crate::api::routes::share_public::create_folder_file_preview_link,
         crate::api::routes::share_public::folder_file_archive_preview,
-        crate::api::routes::share_public::download_shared_folder_file,
+        crate::api::routes::share_public::download_shared_folder_file_handler,
         crate::api::routes::share_public::create_folder_file_stream_session,
         crate::api::routes::share_public::list_shared_content,
         crate::api::routes::share_public::list_shared_subfolder_content,
@@ -404,6 +404,8 @@ use utoipa::{Modify, OpenApi};
             crate::services::archive_preview_service::ArchivePreviewManifest,
             crate::services::archive_preview_service::ArchivePreviewEntry,
             crate::services::archive_preview_service::ArchivePreviewEntryKind,
+            crate::services::archive_preview_service::ArchivePreviewExtractCompatibility,
+            crate::services::archive_preview_service::ArchivePreviewExtractUnsupportedReason,
 
             // services::folder_service / entities::{file,folder,file_version}：个人空间文件树、文件实体和版本信息模型。
             crate::services::folder_service::FolderContents,

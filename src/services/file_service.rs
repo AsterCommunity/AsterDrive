@@ -24,8 +24,8 @@ pub(crate) use common::{
     if_none_match_matches_value, inline_sandbox_csp, requires_inline_sandbox,
 };
 pub use content::{
-    StoreFromTempRequest, create_empty, resolve_policy, resolve_policy_for_size, store_from_temp,
-    update_content, upload,
+    StoreFromTempRequest, create_empty, resolve_policy_for_size, store_from_temp, update_content,
+    upload,
 };
 pub(crate) use content::{
     StreamedTempUpload, stream_request_body_to_temp_upload, update_content_stream_in_scope,
@@ -36,7 +36,8 @@ pub(crate) use deletion::{
     ensure_blob_cleanup_if_unreferenced,
 };
 pub use deletion::{batch_purge, delete, purge};
-pub(crate) use download::range::{ResolvedDownloadRange, parse_range_header};
+pub use download::range::ResolvedDownloadRange;
+pub(crate) use download::range::parse_range_header;
 pub use download::{DownloadOutcome, StreamedFile, download, download_raw};
 pub(crate) use download::{
     build_download_outcome_with_disposition_and_range, build_stream_outcome_with_disposition,
@@ -54,7 +55,7 @@ pub(crate) use thumbnail::{
 pub(crate) use transfer::{
     BatchDuplicateFileRecordSpec, BatchDuplicateFileRecordTargetSpec,
     batch_duplicate_file_records_to_mixed_folders_in_scope,
-    batch_duplicate_file_records_with_names_in_scope, copy_file_in_scope,
+    batch_duplicate_file_records_with_specs_in_scope, copy_file_in_scope,
 };
 pub use transfer::{batch_duplicate_file_records, copy_file, duplicate_file_record};
 

@@ -15,6 +15,7 @@ export interface ArchivePreviewProps {
 export type ArchiveEntry = ArchivePreviewManifest["entries"][number];
 export type ArchivePreviewErrorKind =
 	| "disabled"
+	| "encoding"
 	| "invalid"
 	| "rejected"
 	| "sourceTooLarge"

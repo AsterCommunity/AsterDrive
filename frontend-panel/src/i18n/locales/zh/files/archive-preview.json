@@ -30,5 +30,7 @@
 	"archive_preview_unsupported_type": "压缩包预览目前只支持 ZIP 文件。",
 	"archive_preview_source_too_large": "这个压缩包超过了管理员设置的预览大小上限。",
 	"archive_preview_invalid_zip": "这个文件不是有效的 ZIP 压缩包。",
-	"archive_preview_rejected": "这个压缩包不符合服务器的预览限制。"
+	"archive_preview_encoding_failed": "当前文件名编码无法解析这个 ZIP，请切换文件名编码后重试。",
+	"archive_preview_rejected": "这个压缩包不符合服务器的预览限制。",
+	"archive_preview_extract_unsupported_entry_names": "这个压缩包包含当前系统不支持解压的文件名，但仍可预览内容。"
 }

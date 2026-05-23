@@ -40,11 +40,14 @@ async fn setup_database_url() -> String {
     let db_path =
         std::env::temp_dir().join(format!("asterdrive-cli-test-{}.db", uuid::Uuid::new_v4()));
     let url = format!("sqlite://{}?mode=rwc", db_path.display());
-    let db = db::connect(&DatabaseConfig {
-        url: url.clone(),
-        pool_size: 1,
-        retry_count: 0,
-    })
+    let db = db::connect_with_metrics(
+        &DatabaseConfig {
+            url: url.clone(),
+            pool_size: 1,
+            retry_count: 0,
+        },
+        aster_drive::metrics_core::NoopMetrics::arc(),
+    )
     .await
     .unwrap();
     Migrator::up(&db, None).await.unwrap();
@@ -54,11 +57,14 @@ async fn setup_database_url() -> String {
 async fn setup_empty_database_url(prefix: &str) -> String {
     let db_path = std::env::temp_dir().join(format!("{prefix}-{}.db", uuid::Uuid::new_v4()));
     let url = format!("sqlite://{}?mode=rwc", db_path.display());
-    let db = db::connect(&DatabaseConfig {
-        url: url.clone(),
-        pool_size: 1,
-        retry_count: 0,
-    })
+    let db = db::connect_with_metrics(
+        &DatabaseConfig {
+            url: url.clone(),
+            pool_size: 1,
+            retry_count: 0,
+        },
+        aster_drive::metrics_core::NoopMetrics::arc(),
+    )
     .await
     .unwrap();
     db.close().await.unwrap();
@@ -326,11 +332,14 @@ async fn seed_remote_node_fixture(db: &DatabaseConnection) {
 }
 
 async fn seed_contact_verification_history(database_url: &str) {
-    let db = db::connect(&DatabaseConfig {
-        url: database_url.to_string(),
-        pool_size: 1,
-        retry_count: 0,
-    })
+    let db = db::connect_with_metrics(
+        &DatabaseConfig {
+            url: database_url.to_string(),
+            pool_size: 1,
+            retry_count: 0,
+        },
+        aster_drive::metrics_core::NoopMetrics::arc(),
+    )
     .await
     .unwrap();
     let user = user_repo::find_by_email(&db, "test@example.com")
@@ -390,11 +399,14 @@ async fn assert_migrated_fixture(
     target_backend: DbBackend,
     file_id: i64,
 ) {
-    let target_db = db::connect(&DatabaseConfig {
-        url: target_database_url.to_string(),
-        pool_size: 1,
-        retry_count: 0,
-    })
+    let target_db = db::connect_with_metrics(
+        &DatabaseConfig {
+            url: target_database_url.to_string(),
+            pool_size: 1,
+            retry_count: 0,
+        },
+        aster_drive::metrics_core::NoopMetrics::arc(),
+    )
     .await
     .unwrap();
     let users = scalar_i64(&target_db, target_backend, "SELECT COUNT(*) FROM users").await;
@@ -919,11 +931,14 @@ async fn test_root_binary_doctor_reports_sqlite_search_acceleration_ready() {
 #[tokio::test]
 async fn test_migrations_use_current_baseline_for_fresh_install() {
     let database_url = setup_empty_database_url("asterdrive-cli-fresh-baseline-test").await;
-    let db = db::connect(&DatabaseConfig {
-        url: database_url.clone(),
-        pool_size: 1,
-        retry_count: 0,
-    })
+    let db = db::connect_with_metrics(
+        &DatabaseConfig {
+            url: database_url.clone(),
+            pool_size: 1,
+            retry_count: 0,
+        },
+        aster_drive::metrics_core::NoopMetrics::arc(),
+    )
     .await
     .unwrap();
     Migrator::up(&db, None).await.unwrap();
@@ -938,11 +953,14 @@ async fn test_migrations_use_current_baseline_for_fresh_install() {
 #[tokio::test]
 async fn test_migrations_reject_unsupported_historical_migration_history() {
     let database_url = setup_empty_database_url("asterdrive-cli-old-migration-test").await;
-    let db = db::connect(&DatabaseConfig {
-        url: database_url.clone(),
-        pool_size: 1,
-        retry_count: 0,
-    })
+    let db = db::connect_with_metrics(
+        &DatabaseConfig {
+            url: database_url.clone(),
+            pool_size: 1,
+            retry_count: 0,
+        },
+        aster_drive::metrics_core::NoopMetrics::arc(),
+    )
     .await
     .unwrap();
     Migrator::up(&db, None).await.unwrap();
@@ -955,11 +973,14 @@ async fn test_migrations_reject_unsupported_historical_migration_history() {
     .unwrap();
     db.close().await.unwrap();
 
-    let db = db::connect(&DatabaseConfig {
-        url: database_url,
-        pool_size: 1,
-        retry_count: 0,
-    })
+    let db = db::connect_with_metrics(
+        &DatabaseConfig {
+            url: database_url,
+            pool_size: 1,
+            retry_count: 0,
+        },
+        aster_drive::metrics_core::NoopMetrics::arc(),
+    )
     .await
     .unwrap();
     let error = Migrator::up(&db, None)
@@ -979,11 +1000,14 @@ async fn test_migrations_reject_unsupported_historical_migration_history() {
 #[tokio::test]
 async fn test_migrations_reject_non_prefix_current_migration_history() {
     let database_url = setup_empty_database_url("asterdrive-cli-non-prefix-migration-test").await;
-    let db = db::connect(&DatabaseConfig {
-        url: database_url,
-        pool_size: 1,
-        retry_count: 0,
-    })
+    let db = db::connect_with_metrics(
+        &DatabaseConfig {
+            url: database_url,
+            pool_size: 1,
+            retry_count: 0,
+        },
+        aster_drive::metrics_core::NoopMetrics::arc(),
+    )
     .await
     .unwrap();
     Migrator::up(&db, None).await.unwrap();
@@ -1012,11 +1036,14 @@ async fn test_migrations_reject_non_prefix_current_migration_history() {
 #[tokio::test]
 async fn test_migrations_reject_existing_schema_with_empty_history() {
     let database_url = setup_empty_database_url("asterdrive-cli-empty-history-schema-test").await;
-    let db = db::connect(&DatabaseConfig {
-        url: database_url,
-        pool_size: 1,
-        retry_count: 0,
-    })
+    let db = db::connect_with_metrics(
+        &DatabaseConfig {
+            url: database_url,
+            pool_size: 1,
+            retry_count: 0,
+        },
+        aster_drive::metrics_core::NoopMetrics::arc(),
+    )
     .await
     .unwrap();
     db.execute_raw(Statement::from_string(
@@ -1284,11 +1311,14 @@ async fn test_root_binary_database_migrate_sqlite_to_postgres_happy_path() {
         redact_database_url(&target_database_url)
     );
 
-    let target_db = db::connect(&DatabaseConfig {
-        url: target_database_url.clone(),
-        pool_size: 1,
-        retry_count: 0,
-    })
+    let target_db = db::connect_with_metrics(
+        &DatabaseConfig {
+            url: target_database_url.clone(),
+            pool_size: 1,
+            retry_count: 0,
+        },
+        aster_drive::metrics_core::NoopMetrics::arc(),
+    )
     .await
     .unwrap();
     let checkpoint_source_url = scalar_string(
@@ -1427,11 +1457,14 @@ async fn test_root_binary_database_migrate_sqlite_resume_from_checkpoint() {
             .contains("forced failure")
     );
 
-    let target_db = db::connect(&DatabaseConfig {
-        url: target_database_url.clone(),
-        pool_size: 1,
-        retry_count: 0,
-    })
+    let target_db = db::connect_with_metrics(
+        &DatabaseConfig {
+            url: target_database_url.clone(),
+            pool_size: 1,
+            retry_count: 0,
+        },
+        aster_drive::metrics_core::NoopMetrics::arc(),
+    )
     .await
     .unwrap();
     let checkpoint_rows = scalar_i64(
@@ -1582,11 +1615,14 @@ async fn test_root_binary_database_migrate_allows_consumed_contact_verification_
         Some(0)
     );
 
-    let target_db = db::connect(&DatabaseConfig {
-        url: target_database_url.clone(),
-        pool_size: 1,
-        retry_count: 0,
-    })
+    let target_db = db::connect_with_metrics(
+        &DatabaseConfig {
+            url: target_database_url.clone(),
+            pool_size: 1,
+            retry_count: 0,
+        },
+        aster_drive::metrics_core::NoopMetrics::arc(),
+    )
     .await
     .unwrap();
     let active_password_reset_tokens = scalar_i64(

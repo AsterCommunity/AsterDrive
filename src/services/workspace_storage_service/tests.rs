@@ -409,11 +409,14 @@ async fn build_test_state() -> (PrimaryAppState, PathBuf, storage_policy::Model,
     let uploads_root = temp_root.join("uploads");
     std::fs::create_dir_all(&uploads_root).expect("uploads root should be created");
 
-    let db = crate::db::connect(&DatabaseConfig {
-        url: "sqlite::memory:".to_string(),
-        pool_size: 1,
-        retry_count: 0,
-    })
+    let db = crate::db::connect_with_metrics(
+        &DatabaseConfig {
+            url: "sqlite::memory:".to_string(),
+            pool_size: 1,
+            retry_count: 0,
+        },
+        crate::metrics_core::NoopMetrics::arc(),
+    )
     .await
     .unwrap();
     Migrator::up(&db, None).await.unwrap();

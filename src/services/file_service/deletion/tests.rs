@@ -101,11 +101,14 @@ async fn build_deletion_test_state() -> (
     ));
     std::fs::create_dir_all(&temp_root).expect("deletion test temp root should exist");
 
-    let db = crate::db::connect(&DatabaseConfig {
-        url: "sqlite::memory:".to_string(),
-        pool_size: 1,
-        retry_count: 0,
-    })
+    let db = crate::db::connect_with_metrics(
+        &DatabaseConfig {
+            url: "sqlite::memory:".to_string(),
+            pool_size: 1,
+            retry_count: 0,
+        },
+        crate::metrics_core::NoopMetrics::arc(),
+    )
     .await
     .expect("deletion test DB should connect");
     Migrator::up(&db, None)

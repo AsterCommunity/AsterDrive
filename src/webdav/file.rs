@@ -791,11 +791,14 @@ mod tests {
         ));
         std::fs::create_dir_all(&temp_root).expect("temp root should be created");
 
-        let db = crate::db::connect(&DatabaseConfig {
-            url: "sqlite::memory:".to_string(),
-            pool_size: 1,
-            retry_count: 0,
-        })
+        let db = crate::db::connect_with_metrics(
+            &DatabaseConfig {
+                url: "sqlite::memory:".to_string(),
+                pool_size: 1,
+                retry_count: 0,
+            },
+            crate::metrics_core::NoopMetrics::arc(),
+        )
         .await
         .expect("test database connection should succeed");
         Migrator::up(&db, None)

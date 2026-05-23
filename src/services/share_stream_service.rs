@@ -175,7 +175,8 @@ pub(crate) async fn stream_file(
         Err(error) => {
             if matches!(count_reservation, CountReservation::Reserved) {
                 release_counted_marker(state, session_token).await;
-                match share_repo::decrement_download_count(state.writer_db(), share.id).await {
+                match share_repo::decrement_download_count_by(state.writer_db(), share.id, 1).await
+                {
                     Ok(true) | Ok(false) => {}
                     Err(rollback_error) => {
                         tracing::warn!(

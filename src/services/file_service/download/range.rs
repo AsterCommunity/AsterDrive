@@ -10,7 +10,7 @@ pub(crate) struct DownloadRangeRequest {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct ResolvedDownloadRange {
+pub struct ResolvedDownloadRange {
     pub(crate) start: u64,
     pub(crate) end: u64,
     pub(crate) length: u64,
@@ -18,7 +18,47 @@ pub(crate) struct ResolvedDownloadRange {
 }
 
 impl ResolvedDownloadRange {
-    pub(crate) fn content_range_header(self) -> String {
+    pub fn new(start: u64, end: u64, total_size: u64) -> Result<Self> {
+        if total_size == 0 {
+            return Err(AsterError::validation_error(
+                "download range total size must be greater than zero",
+            ));
+        }
+        if start > end {
+            return Err(AsterError::validation_error(
+                "download range end must be greater than or equal to start",
+            ));
+        }
+        if end >= total_size {
+            return Err(AsterError::validation_error(
+                "download range end must be smaller than total size",
+            ));
+        }
+        Ok(Self {
+            start,
+            end,
+            length: end - start + 1,
+            total_size,
+        })
+    }
+
+    pub fn start(&self) -> u64 {
+        self.start
+    }
+
+    pub fn end(&self) -> u64 {
+        self.end
+    }
+
+    pub fn length(&self) -> u64 {
+        self.length
+    }
+
+    pub fn total_size(&self) -> u64 {
+        self.total_size
+    }
+
+    pub fn content_range_header(&self) -> String {
         format!("bytes {}-{}/{}", self.start, self.end, self.total_size)
     }
 }
@@ -91,12 +131,12 @@ pub(crate) fn parse_range_header(
         }
     };
 
-    Ok(Some(ResolvedDownloadRange {
-        start: requested.start,
-        end: requested.start + requested.length - 1,
-        length: requested.length,
+    ResolvedDownloadRange::new(
+        requested.start,
+        requested.start + requested.length - 1,
         total_size,
-    }))
+    )
+    .map(Some)
 }
 
 fn parse_range_bound(value: &str, name: &str) -> Result<u64> {
@@ -116,7 +156,12 @@ mod tests {
         let range = parse_range_header(Some(&header), total_size)
             .unwrap()
             .expect("range should be parsed");
-        (range.start, range.end, range.length, range.total_size)
+        (
+            range.start(),
+            range.end(),
+            range.length(),
+            range.total_size(),
+        )
     }
 
     #[test]
@@ -138,6 +183,24 @@ mod tests {
     #[test]
     fn clamps_end_beyond_file_size() {
         assert_eq!(parse("bytes=17-99", 20), (17, 19, 3, 20));
+    }
+
+    #[test]
+    fn resolved_range_exposes_public_api() {
+        let range = super::ResolvedDownloadRange::new(2, 6, 10).unwrap();
+
+        assert_eq!(range.start(), 2);
+        assert_eq!(range.end(), 6);
+        assert_eq!(range.length(), 5);
+        assert_eq!(range.total_size(), 10);
+        assert_eq!(range.content_range_header(), "bytes 2-6/10");
+    }
+
+    #[test]
+    fn resolved_range_constructor_rejects_invalid_ranges() {
+        assert!(super::ResolvedDownloadRange::new(0, 0, 0).is_err());
+        assert!(super::ResolvedDownloadRange::new(5, 4, 10).is_err());
+        assert!(super::ResolvedDownloadRange::new(5, 10, 10).is_err());
     }
 
     #[test]

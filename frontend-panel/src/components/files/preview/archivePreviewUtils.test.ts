@@ -1,9 +1,12 @@
 import { describe, expect, it } from "vitest";
+import { ApiError } from "@/services/http";
 import type { ArchivePreviewManifest } from "@/types/api";
+import { ApiSubcode, ErrorCode } from "@/types/api-helpers";
 import {
 	buildArchiveBreadcrumb,
 	buildArchiveDirectoryEntries,
 	buildArchiveVisibleEntries,
+	classifyArchivePreviewError,
 	parentPathForArchivePath,
 } from "./archivePreviewUtils";
 
@@ -18,6 +21,10 @@ const baseManifest: ArchivePreviewManifest = {
 	directory_count: 1,
 	total_uncompressed_size: 12,
 	truncated: false,
+	extract_compatibility: {
+		supported: true,
+		reason: null,
+	},
 	entries: [
 		{
 			path: "docs/readme.txt",
@@ -111,5 +118,30 @@ describe("archivePreviewUtils", () => {
 			{ path: "docs", name: "docs" },
 			{ path: "docs/images", name: "images" },
 		]);
+	});
+
+	it("classifies invalid filename encoding errors separately from generic rejected archives", () => {
+		const error = new ApiError(
+			ErrorCode.BadRequest,
+			"archive entry 'x.drawio' filename is not valid Big5",
+			{
+				internalCode: "E005",
+				subcode: ApiSubcode.ArchivePreviewRejected,
+			},
+		);
+
+		expect(classifyArchivePreviewError(error)).toBe("encoding");
+		expect(
+			classifyArchivePreviewError(
+				new ApiError(
+					ErrorCode.BadRequest,
+					"archive contains 2 entries, exceeds server limit 1",
+					{
+						internalCode: "E005",
+						subcode: ApiSubcode.ArchivePreviewRejected,
+					},
+				),
+			),
+		).toBe("rejected");
 	});
 });

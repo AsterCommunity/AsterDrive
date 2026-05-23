@@ -314,11 +314,14 @@ mod tests {
     use sea_orm::{ActiveModelTrait, Set};
 
     async fn setup_db() -> sea_orm::DatabaseConnection {
-        let db = db::connect(&DatabaseConfig {
-            url: "sqlite::memory:".to_string(),
-            pool_size: 1,
-            retry_count: 0,
-        })
+        let db = db::connect_with_metrics(
+            &DatabaseConfig {
+                url: "sqlite::memory:".to_string(),
+                pool_size: 1,
+                retry_count: 0,
+            },
+            crate::metrics_core::NoopMetrics::arc(),
+        )
         .await
         .unwrap();
         Migrator::up(&db, None).await.unwrap();

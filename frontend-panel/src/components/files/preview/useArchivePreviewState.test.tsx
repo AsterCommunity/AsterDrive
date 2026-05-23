@@ -15,6 +15,10 @@ const manifest: ArchivePreviewManifest = {
 	directory_count: 0,
 	total_uncompressed_size: 5,
 	truncated: false,
+	extract_compatibility: {
+		supported: true,
+		reason: null,
+	},
 	entries: [
 		{
 			path: "readme.txt",

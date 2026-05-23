@@ -1885,10 +1885,14 @@ async fn test_share_download_failure_rolls_back_download_quota() {
     let stored_path = std::path::Path::new(&policy.base_path).join(&blob.storage_path);
     std::fs::remove_file(&stored_path).unwrap();
 
-    let err =
-        aster_drive::services::share_service::download_shared_file(&state, &share.token, None)
-            .await
-            .unwrap_err();
+    let err = aster_drive::services::share_service::download_shared_file_with_range(
+        &state,
+        &share.token,
+        None,
+        None,
+    )
+    .await
+    .unwrap_err();
     assert_ne!(err.code(), "E053");
 
     let reloaded = aster_drive::db::repository::share_repo::find_by_id(state.writer_db(), share.id)
@@ -1896,10 +1900,14 @@ async fn test_share_download_failure_rolls_back_download_quota() {
         .unwrap();
     assert_eq!(reloaded.download_count, 0);
 
-    let err =
-        aster_drive::services::share_service::download_shared_file(&state, &share.token, None)
-            .await
-            .unwrap_err();
+    let err = aster_drive::services::share_service::download_shared_file_with_range(
+        &state,
+        &share.token,
+        None,
+        None,
+    )
+    .await
+    .unwrap_err();
     assert_ne!(err.code(), "E053");
 
     let reloaded = aster_drive::db::repository::share_repo::find_by_id(state.writer_db(), share.id)
