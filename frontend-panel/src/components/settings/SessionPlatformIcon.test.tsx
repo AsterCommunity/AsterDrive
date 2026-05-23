@@ -45,11 +45,7 @@ describe("SessionPlatformIcon", () => {
 			<SessionPlatformIcon userAgent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36 Edg/147.0.0.0" />,
 		);
 
-		expect(screen.getByTestId("fa-edge")).toHaveClass(
-			"h-4",
-			"w-4",
-			"text-sky-600",
-		);
+		expect(screen.getByTestId("fa-edge")).toHaveClass("size-4", "text-sky-600");
 		expect(screen.getByTestId("fa-apple")).toHaveClass(
 			"h-2.5",
 			"w-2.5",
@@ -63,8 +59,7 @@ describe("SessionPlatformIcon", () => {
 		);
 
 		expect(screen.getByTestId("pi-globe")).toHaveClass(
-			"h-4",
-			"w-4",
+			"size-4",
 			"text-primary",
 		);
 		expect(screen.getByTestId("fa-android")).toHaveClass(

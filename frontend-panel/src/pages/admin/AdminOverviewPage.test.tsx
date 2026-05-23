@@ -489,7 +489,7 @@ describe("AdminOverviewPage", () => {
 			),
 		).not.toBeInTheDocument();
 		expect(
-			screen.getByText("recharts-line:uploads:overview_report_uploads"),
+			await screen.findByText("recharts-line:uploads:overview_report_uploads"),
 		).toBeInTheDocument();
 		expect(
 			screen.getByText("recharts-line:shareCreations:overview_report_shares"),

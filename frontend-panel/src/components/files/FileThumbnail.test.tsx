@@ -193,7 +193,7 @@ describe("FileThumbnail", () => {
 		});
 
 		const { rerender } = render(<FileThumbnail file={pngFile} size="lg" />);
-		expect(screen.getByTestId("file-type-icon")).toHaveClass("h-12", "w-12");
+		expect(screen.getByTestId("file-type-icon")).toHaveClass("size-12");
 
 		mockState.useBlobUrl.mockReturnValue({
 			blobUrl: null,
@@ -202,7 +202,7 @@ describe("FileThumbnail", () => {
 		});
 		rerender(<FileThumbnail file={pngFile} />);
 
-		expect(screen.getByTestId("file-type-icon")).toHaveClass("h-4", "w-4");
+		expect(screen.getByTestId("file-type-icon")).toHaveClass("size-4");
 	});
 
 	it("renders medium thumbnails across loading, fallback, and success states", () => {
@@ -216,7 +216,7 @@ describe("FileThumbnail", () => {
 			<FileThumbnail file={pngFile} size="md" />,
 		);
 
-		expect(screen.getByTestId("thumbnail-loading")).toHaveClass("h-4", "w-4");
+		expect(screen.getByTestId("thumbnail-loading")).toHaveClass("size-4");
 
 		mockState.useBlobUrl.mockReturnValue({
 			blobUrl: null,
@@ -225,7 +225,7 @@ describe("FileThumbnail", () => {
 		});
 		rerender(<FileThumbnail file={pngFile} size="md" />);
 
-		expect(screen.getByTestId("file-type-icon")).toHaveClass("h-5", "w-5");
+		expect(screen.getByTestId("file-type-icon")).toHaveClass("size-5");
 
 		mockState.useBlobUrl.mockReturnValue({
 			blobUrl: "blob:3",
@@ -269,7 +269,7 @@ describe("FileThumbnail", () => {
 
 		render(<FileThumbnail file={pngFile} size="lg" />);
 
-		expect(screen.getByTestId("thumbnail-loading")).toHaveClass("h-5", "w-5");
+		expect(screen.getByTestId("thumbnail-loading")).toHaveClass("size-5");
 		expect(screen.queryByTestId("file-type-icon")).not.toBeInTheDocument();
 	});
 

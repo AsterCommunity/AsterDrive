@@ -192,7 +192,6 @@ export function classifySharedFile(
 	if (mime.startsWith("image/")) return "image";
 	if (mime.startsWith("video/")) return "video";
 	if (mime.startsWith("audio/")) return "audio";
-	if (mime === "application/pdf" || mime.startsWith("text/")) return "document";
 	if (
 		mime.includes("spreadsheet") ||
 		mime.includes("excel") ||
@@ -213,5 +212,6 @@ export function classifySharedFile(
 		return "archive";
 	}
 	if (mime.includes("json") || mime.includes("xml")) return "code";
+	if (mime === "application/pdf" || mime.startsWith("text/")) return "document";
 	return "other";
 }

@@ -180,8 +180,10 @@ async function uploadOneFile() {
 }
 
 async function renderUploadAreaWithFiles(files: File[]) {
-	const { UploadArea } = await import("@/components/files/UploadArea");
-	const { UploadAreaHost } = await import("@/components/files/UploadAreaHost");
+	const [{ UploadArea }, { UploadAreaHost }] = await Promise.all([
+		import("@/components/files/UploadArea"),
+		import("@/components/files/UploadAreaHost"),
+	]);
 
 	const view = render(
 		<>
@@ -208,8 +210,10 @@ async function renderUploadAreaWithFiles(files: File[]) {
 }
 
 async function renderUploadArea() {
-	const { UploadArea } = await import("@/components/files/UploadArea");
-	const { UploadAreaHost } = await import("@/components/files/UploadAreaHost");
+	const [{ UploadArea }, { UploadAreaHost }] = await Promise.all([
+		import("@/components/files/UploadArea"),
+		import("@/components/files/UploadAreaHost"),
+	]);
 
 	return render(
 		<>
@@ -324,10 +328,10 @@ describe("UploadArea", () => {
 	});
 
 	it("keeps active uploads when the file browser route unmounts", async () => {
-		const { UploadArea } = await import("@/components/files/UploadArea");
-		const { UploadAreaHost } = await import(
-			"@/components/files/UploadAreaHost"
-		);
+		const [{ UploadArea }, { UploadAreaHost }] = await Promise.all([
+			import("@/components/files/UploadArea"),
+			import("@/components/files/UploadAreaHost"),
+		]);
 		const upload = createDeferred<unknown>();
 		const file = new File(["route"], "route-switch.txt", {
 			type: "text/plain",

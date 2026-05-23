@@ -52,16 +52,12 @@ describe("FileTypeIcon", () => {
 			<FileTypeIcon
 				mimeType="application/pdf"
 				fileName="manual.pdf"
-				className="h-4 w-4"
+				className="size-4"
 			/>,
 		);
 
 		expect(screen.getByTestId("icon")).toHaveAttribute("data-name", "FileText");
-		expect(screen.getByTestId("icon")).toHaveClass(
-			"text-blue-500",
-			"h-4",
-			"w-4",
-		);
+		expect(screen.getByTestId("icon")).toHaveClass("text-blue-500", "size-4");
 	});
 
 	it("renders a language icon when the icon map is loaded and the file matches", () => {
@@ -71,7 +67,7 @@ describe("FileTypeIcon", () => {
 			<FileTypeIcon
 				mimeType="text/plain"
 				fileName="main.ts"
-				className="h-4 w-4"
+				className="size-4"
 			/>,
 		);
 
@@ -79,7 +75,7 @@ describe("FileTypeIcon", () => {
 			"data-name",
 			"main.ts",
 		);
-		expect(screen.getByTestId("language-icon")).toHaveClass("h-4", "w-4");
+		expect(screen.getByTestId("language-icon")).toHaveClass("size-4");
 		expect(screen.queryByTestId("icon")).not.toBeInTheDocument();
 	});
 
@@ -95,7 +91,7 @@ describe("FileTypeIcon", () => {
 			<FileTypeIcon
 				mimeType="image/svg+xml"
 				fileName="diagram.svg"
-				className="h-4 w-4"
+				className="size-4"
 			/>,
 		);
 
@@ -115,7 +111,7 @@ describe("FileTypeIcon", () => {
 				mimeType="text/plain"
 				fileName="index.ts"
 				fileCategory="code"
-				className="h-4 w-4"
+				className="size-4"
 			/>,
 		);
 

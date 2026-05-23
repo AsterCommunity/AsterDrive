@@ -82,14 +82,13 @@ describe("language-icon", () => {
 		firstRender.unmount();
 
 		const { container } = render(
-			<LanguageIcon name="main.ts" className="h-12 w-12 sized-icon" />,
+			<LanguageIcon name="main.ts" className="size-12 sized-icon" />,
 		);
 
 		expect(screen.getByTestId("dev-icon")).toHaveAttribute("data-size", "100%");
 		expect(container.firstChild).toHaveClass(
 			"inline-flex",
-			"h-12",
-			"w-12",
+			"size-12",
 			"sized-icon",
 		);
 	});

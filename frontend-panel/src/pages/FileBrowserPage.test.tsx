@@ -1342,6 +1342,7 @@ describe("FileBrowserPage", () => {
 				3,
 				undefined,
 				"custom-output",
+				undefined,
 			);
 		});
 		expect(mockState.store.clearSelection).not.toHaveBeenCalled();

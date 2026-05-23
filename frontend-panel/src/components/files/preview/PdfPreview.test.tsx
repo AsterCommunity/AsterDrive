@@ -192,12 +192,9 @@ describe("PdfPreview", () => {
 		);
 
 		fireEvent.click(screen.getByLabelText("pdf_download"));
-		const createdLinks = createElementSpy.mock.results
-			.map((result) => result.value)
-			.filter(
-				(value): value is HTMLAnchorElement =>
-					value instanceof HTMLAnchorElement,
-			);
+		const createdLinks = createElementSpy.mock.results.flatMap((result) =>
+			result.value instanceof HTMLAnchorElement ? [result.value] : [],
+		);
 		const downloadLink = createdLinks.find((link) =>
 			link.href.endsWith("/api/v1/files/1/download"),
 		);
