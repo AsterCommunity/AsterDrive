@@ -101,6 +101,7 @@ impl From<&AsterError> for ErrorCode {
                         ApiSubcode::AuthUsernameExists
                             | ApiSubcode::AuthEmailExists
                             | ApiSubcode::AuthIdentifierExists
+                            | ApiSubcode::AuthMfaFactorAlreadyExists
                             | ApiSubcode::FileNameConflict
                             | ApiSubcode::FolderNameConflict
                             | ApiSubcode::TeamMemberExists
@@ -200,6 +201,7 @@ mod tests {
             ApiSubcode::AuthUsernameExists,
             ApiSubcode::AuthEmailExists,
             ApiSubcode::AuthIdentifierExists,
+            ApiSubcode::AuthMfaFactorAlreadyExists,
             ApiSubcode::FileNameConflict,
             ApiSubcode::FolderNameConflict,
             ApiSubcode::TeamMemberExists,

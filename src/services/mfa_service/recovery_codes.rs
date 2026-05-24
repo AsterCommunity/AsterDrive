@@ -1,6 +1,5 @@
 //! MFA 恢复码生成与验证。
 
-use data_encoding::BASE32_NOPAD;
 use rand::RngExt;
 use sea_orm::ActiveValue::Set;
 
@@ -9,7 +8,9 @@ use crate::entities::mfa_recovery_code;
 use crate::errors::{AsterError, Result};
 use crate::utils::hash;
 
-use super::{RECOVERY_CODE_BYTES, RECOVERY_CODE_COUNT, now_utc};
+use super::{RECOVERY_CODE_CHARS, RECOVERY_CODE_COUNT, now_utc};
+
+const RECOVERY_CODE_ALPHABET: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
 
 pub struct GeneratedRecoveryCodes {
     pub plaintext: Vec<String>,
@@ -67,11 +68,14 @@ pub fn looks_like_code(code: &str) -> bool {
 }
 
 fn generate_code() -> String {
-    let mut bytes = [0_u8; RECOVERY_CODE_BYTES];
     let mut rng = rand::rng();
-    rng.fill(&mut bytes);
-    let raw = BASE32_NOPAD.encode(&bytes);
-    format!("{}-{}", &raw[..5], &raw[5..10])
+    let raw = (0..RECOVERY_CODE_CHARS)
+        .map(|_| {
+            let idx = rng.random_range(0..RECOVERY_CODE_ALPHABET.len());
+            RECOVERY_CODE_ALPHABET[idx] as char
+        })
+        .collect::<String>();
+    format!("{}-{}-{}", &raw[..4], &raw[4..8], &raw[8..12])
 }
 
 fn normalize_code(code: &str) -> Result<String> {

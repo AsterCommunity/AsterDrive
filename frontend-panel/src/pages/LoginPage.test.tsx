@@ -88,6 +88,11 @@ const mockState = vi.hoisted(() => ({
 	webAuthnSupported: false,
 }));
 
+function requestAnimationFrameCallback(callback: FrameRequestCallback) {
+	callback(0);
+	return 0;
+}
+
 vi.mock("react-i18next", () => ({
 	useTranslation: () => ({
 		t: mockTranslate,
@@ -392,6 +397,9 @@ vi.mock("@/stores/brandingStore", () => ({
 
 describe("LoginPage", () => {
 	beforeEach(() => {
+		vi.spyOn(window, "requestAnimationFrame").mockImplementation(
+			requestAnimationFrameCallback,
+		);
 		Object.defineProperty(window, "location", {
 			configurable: true,
 			value: {
@@ -575,6 +583,135 @@ describe("LoginPage", () => {
 				method: "recovery_code",
 				code: "G3THI-TMIHN",
 			});
+		});
+	});
+
+	it("opens an MFA challenge from the redirect query and verifies back to the requested return path", async () => {
+		mockState.location = {
+			hash: "#top",
+			pathname: "/login",
+			search:
+				"?mfa=required&flow=redirect-flow&return_path=%2Fsettings%2Fsecurity",
+		};
+
+		render(<LoginPage />);
+
+		expect(await screen.findByText("mfa_panel_title")).toBeInTheDocument();
+		expect(mockState.navigate).toHaveBeenCalledWith(
+			{
+				hash: "#top",
+				pathname: "/login",
+				search: "",
+			},
+			{ replace: true },
+		);
+
+		await screen.findByRole("button", { name: /mfa_verify/ });
+		fireEvent.change(screen.getByLabelText("mfa_code_label"), {
+			target: { value: "123456" },
+		});
+		fireEvent.click(screen.getByRole("button", { name: /mfa_verify/ }));
+
+		await waitFor(() => {
+			expect(mockState.verifyMfaChallenge).toHaveBeenCalledWith({
+				code: "123456",
+				flow_token: "redirect-flow",
+				method: "totp",
+			});
+		});
+		await waitFor(() => {
+			expect(mockState.navigate).toHaveBeenCalledWith("/settings/security", {
+				replace: true,
+			});
+		});
+	});
+
+	it("validates MFA challenge expiry and required code before verification", async () => {
+		vi.useFakeTimers({ shouldAdvanceTime: true });
+		vi.setSystemTime(new Date("2026-05-24T08:00:00.000Z"));
+		mockState.login.mockResolvedValueOnce({
+			status: "mfa_required",
+			flowToken: "mfa-flow",
+			expiresIn: 300,
+			methods: ["totp"],
+		});
+
+		render(<LoginPage />);
+
+		fireEvent.change(await screen.findByLabelText("email_or_username"), {
+			target: { value: "user@example.com" },
+		});
+		fireEvent.change(screen.getByLabelText("password"), {
+			target: { value: "secret123" },
+		});
+		fireEvent.click(screen.getByRole("button", { name: "sign_in" }));
+
+		await screen.findByText("mfa_panel_title");
+		await screen.findByRole("button", { name: /mfa_verify/ });
+		const mfaForm = screen.getByLabelText("mfa_code_label").closest("form");
+		if (!mfaForm) {
+			throw new Error("MFA form not found");
+		}
+		fireEvent.submit(mfaForm);
+		expect(screen.getByText("mfa_code_required")).toBeInTheDocument();
+		expect(mockState.verifyMfaChallenge).not.toHaveBeenCalled();
+
+		fireEvent.change(screen.getByLabelText("mfa_code_label"), {
+			target: { value: "123456" },
+		});
+		act(() => {
+			vi.setSystemTime(new Date("2026-05-24T08:06:00.000Z"));
+			vi.advanceTimersByTime(1000);
+		});
+		await screen.findByText("mfa_flow_expired");
+		fireEvent.submit(mfaForm);
+
+		expect(screen.getAllByText("mfa_flow_expired").length).toBeGreaterThan(0);
+		expect(mockState.verifyMfaChallenge).not.toHaveBeenCalled();
+	});
+
+	it("reports MFA verification failures and allows returning to sign-in", async () => {
+		const error = new Error("invalid mfa");
+		mockState.login.mockResolvedValueOnce({
+			status: "mfa_required",
+			flowToken: "mfa-flow",
+			expiresIn: 300,
+			methods: [],
+		});
+		mockState.verifyMfaChallenge.mockRejectedValueOnce(error);
+
+		render(<LoginPage />);
+
+		fireEvent.change(await screen.findByLabelText("email_or_username"), {
+			target: { value: "user@example.com" },
+		});
+		fireEvent.change(screen.getByLabelText("password"), {
+			target: { value: "secret123" },
+		});
+		fireEvent.click(screen.getByRole("button", { name: "sign_in" }));
+
+		await screen.findByText("mfa_panel_title");
+		await screen.findByRole("button", { name: /mfa_verify/ });
+		fireEvent.change(screen.getByLabelText("mfa_code_label"), {
+			target: { value: "123456" },
+		});
+		fireEvent.click(screen.getByRole("button", { name: /mfa_verify/ }));
+
+		await waitFor(() => {
+			expect(mockState.verifyMfaChallenge).toHaveBeenCalledWith({
+				code: "123456",
+				flow_token: "mfa-flow",
+				method: "totp",
+			});
+		});
+		expect(mockState.handleApiError).toHaveBeenCalledWith(error);
+		expect(screen.getByText("mfa_panel_title")).toBeInTheDocument();
+
+		fireEvent.click(screen.getByRole("button", { name: /back_to_sign_in/ }));
+		await waitFor(() => {
+			expect(
+				screen.getByRole("button", { name: "sign_in" }),
+			).toBeInTheDocument();
 		});
 	});
 

@@ -134,12 +134,12 @@ export function LoginPageView({
 }: LoginPageViewProps) {
 	const activeKey = pendingActivation
 		? "pending-activation"
-		: externalAuthRecovery
-			? "external-auth-recovery"
-			: mfaPanel
-				? "mfa-challenge"
-				: passwordResetPanel
-					? "password-reset-request"
+		: passwordResetPanel
+			? "password-reset-request"
+			: externalAuthRecovery
+				? "external-auth-recovery"
+				: mfaPanel
+					? "mfa-challenge"
 					: "auth-form";
 
 	return (

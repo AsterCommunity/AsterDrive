@@ -10,15 +10,17 @@ use aster_drive::config::DatabaseConfig;
 use aster_drive::db;
 use aster_drive::db::repository::{
     contact_verification_token_repo, file_repo, follower_enrollment_session_repo,
-    managed_follower_repo, master_binding_repo, policy_repo, user_repo,
+    managed_follower_repo, master_binding_repo, mfa_factor_repo, mfa_login_flow_repo,
+    mfa_recovery_code_repo, mfa_totp_setup_flow_repo, policy_repo, user_repo,
 };
 use aster_drive::entities::{
     contact_verification_token, follower_enrollment_session, managed_follower, master_binding,
-    passkey, storage_policy,
+    mfa_factor, mfa_login_flow, mfa_recovery_code, mfa_totp_setup_flow, passkey, storage_policy,
 };
 use aster_drive::types::{
-    DriverType, StoredPasskeyCredential, StoredStoragePolicyAllowedTypes,
-    StoredStoragePolicyOptions, VerificationChannel, VerificationPurpose,
+    DriverType, MfaFactorMethod, MfaFirstFactor, StoredPasskeyCredential,
+    StoredStoragePolicyAllowedTypes, StoredStoragePolicyOptions, VerificationChannel,
+    VerificationPurpose,
 };
 use chrono::{Duration, Utc};
 use migration::Migrator;
@@ -209,6 +211,7 @@ async fn seed_migration_fixture(database_url: &str) -> i64 {
 
     let file_id = upload_test_file_to_folder!(app, token, folder_id);
     seed_passkey_fixture(state.writer_db()).await;
+    seed_mfa_fixture(state.writer_db()).await;
     seed_remote_node_fixture(state.writer_db()).await;
     file_id
 }
@@ -243,6 +246,90 @@ async fn seed_passkey_fixture(db: &DatabaseConnection) {
         ..Default::default()
     }
     .insert(db)
+    .await
+    .unwrap();
+}
+
+async fn seed_mfa_fixture(db: &DatabaseConnection) {
+    let user = user_repo::find_by_email(db, "test@example.com")
+        .await
+        .unwrap()
+        .expect("seed user should exist");
+    let now = Utc::now();
+
+    mfa_factor_repo::create(
+        db,
+        mfa_factor::ActiveModel {
+            user_id: Set(user.id),
+            method: Set(MfaFactorMethod::Totp),
+            name: Set("Migrated TOTP".to_string()),
+            secret_ciphertext: Set("migrate-factor-secret-ciphertext".to_string()),
+            secret_version: Set(1),
+            enabled_at: Set(now - Duration::minutes(20)),
+            last_used_at: Set(Some(now - Duration::minutes(5))),
+            created_at: Set(now - Duration::minutes(25)),
+            updated_at: Set(now - Duration::minutes(5)),
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap();
+
+    mfa_recovery_code_repo::create_many(
+        db,
+        vec![
+            mfa_recovery_code::ActiveModel {
+                user_id: Set(user.id),
+                code_hash: Set("migrate-recovery-code-unused".to_string()),
+                used_at: Set(None),
+                created_at: Set(now - Duration::minutes(20)),
+                ..Default::default()
+            },
+            mfa_recovery_code::ActiveModel {
+                user_id: Set(user.id),
+                code_hash: Set("migrate-recovery-code-used".to_string()),
+                used_at: Set(Some(now - Duration::minutes(10))),
+                created_at: Set(now - Duration::minutes(30)),
+                ..Default::default()
+            },
+        ],
+    )
+    .await
+    .unwrap();
+
+    mfa_login_flow_repo::create(
+        db,
+        mfa_login_flow::ActiveModel {
+            flow_token_hash: Set("migrate-login-flow-token-hash".to_string()),
+            user_id: Set(user.id),
+            user_session_version: Set(user.session_version),
+            first_factor: Set(MfaFirstFactor::Password),
+            return_path: Set(Some("/files".to_string())),
+            ip_address: Set(Some("127.0.0.1".to_string())),
+            user_agent: Set(Some("migration-test".to_string())),
+            attempt_count: Set(1),
+            expires_at: Set(now + Duration::minutes(10)),
+            consumed_at: Set(None),
+            created_at: Set(now - Duration::minutes(1)),
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap();
+
+    mfa_totp_setup_flow_repo::create(
+        db,
+        mfa_totp_setup_flow::ActiveModel {
+            flow_token_hash: Set("migrate-totp-setup-token-hash".to_string()),
+            user_id: Set(user.id),
+            secret_ciphertext: Set("migrate-setup-secret-ciphertext".to_string()),
+            secret_version: Set(1),
+            expires_at: Set(now + Duration::minutes(10)),
+            consumed_at: Set(Some(now - Duration::minutes(1))),
+            created_at: Set(now - Duration::minutes(5)),
+            ..Default::default()
+        },
+    )
     .await
     .unwrap();
 }
@@ -419,6 +506,43 @@ async fn assert_migrated_fixture(
     )
     .await;
     let passkeys = scalar_i64(&target_db, target_backend, "SELECT COUNT(*) FROM passkeys").await;
+    let mfa_factors = scalar_i64(
+        &target_db,
+        target_backend,
+        "SELECT COUNT(*) FROM mfa_factors",
+    )
+    .await;
+    let mfa_recovery_codes = scalar_i64(
+        &target_db,
+        target_backend,
+        "SELECT COUNT(*) FROM mfa_recovery_codes",
+    )
+    .await;
+    let mfa_login_flows = scalar_i64(
+        &target_db,
+        target_backend,
+        "SELECT COUNT(*) FROM mfa_login_flows",
+    )
+    .await;
+    let mfa_totp_setup_flows = scalar_i64(
+        &target_db,
+        target_backend,
+        "SELECT COUNT(*) FROM mfa_totp_setup_flows",
+    )
+    .await;
+    let used_mfa_recovery_codes = scalar_i64(
+        &target_db,
+        target_backend,
+        "SELECT COUNT(*) FROM mfa_recovery_codes WHERE used_at IS NOT NULL",
+    )
+    .await;
+    let mfa_login_flow_with_attempt_count = scalar_i64(
+        &target_db,
+        target_backend,
+        "SELECT COUNT(*) FROM mfa_login_flows \
+         WHERE flow_token_hash = 'migrate-login-flow-token-hash' AND attempt_count = 1",
+    )
+    .await;
     let enrollment_sessions = scalar_i64(
         &target_db,
         target_backend,
@@ -475,6 +599,12 @@ async fn assert_migrated_fixture(
     assert_eq!(folders, 1);
     assert_eq!(files, 1);
     assert_eq!(passkeys, 1);
+    assert_eq!(mfa_factors, 1);
+    assert_eq!(mfa_recovery_codes, 2);
+    assert_eq!(mfa_login_flows, 1);
+    assert_eq!(mfa_totp_setup_flows, 1);
+    assert_eq!(used_mfa_recovery_codes, 1);
+    assert_eq!(mfa_login_flow_with_attempt_count, 1);
     assert_eq!(managed_followers, 1);
     assert_eq!(enrollment_sessions, 1);
     assert_eq!(master_bindings, 1);

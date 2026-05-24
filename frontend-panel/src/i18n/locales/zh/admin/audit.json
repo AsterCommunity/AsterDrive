@@ -135,7 +135,7 @@
 	"audit_entity_type_file": "文件",
 	"audit_entity_type_folder": "文件夹",
 	"audit_entity_type_batch": "批量操作",
-	"audit_entity_type_mfa_factor": "MFA 因子",
+	"audit_entity_type_mfa_factor": "MFA 设备",
 	"audit_entity_type_passkey": "Passkey",
 	"audit_entity_type_team": "团队",
 	"audit_entity_type_user": "用户",

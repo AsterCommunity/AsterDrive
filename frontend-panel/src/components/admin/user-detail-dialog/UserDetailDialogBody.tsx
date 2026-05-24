@@ -264,6 +264,8 @@ export function UserDetailDialogBody({
 		try {
 			dispatch({ type: "set_busy", field: "savingProfile", value: true });
 			await onUpdate(user.id, data);
+		} catch (error) {
+			handleApiError(error);
 		} finally {
 			dispatch({ type: "set_busy", field: "savingProfile", value: false });
 		}

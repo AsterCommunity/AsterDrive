@@ -2,7 +2,7 @@
 	"settings_security": "安全",
 	"settings_security_desc": "管理登录密码，并查看修改后当前浏览器会话的处理方式。",
 	"settings_security_tab_account": "账号",
-	"settings_security_tab_mfa": "MFA",
+	"settings_security_tab_mfa": "多因素认证",
 	"settings_security_tab_passkeys": "Passkey",
 	"settings_security_tab_external": "外部身份",
 	"settings_security_tab_sessions": "登录设备",

@@ -51,8 +51,7 @@ import {
 import type { AuthMode } from "./login/types";
 
 function resolveMfaMethod(code: string, methods: MfaMethod[]): MfaMethod {
-	const normalized = code.trim();
-	const isTotp = /^\d{6}$/.test(normalized.replace(/\s/g, ""));
+	const isTotp = /^\d{6}$/.test(normalizeTotpCode(code));
 	if (isTotp && methods.includes("totp")) {
 		return "totp";
 	}
@@ -60,6 +59,10 @@ function resolveMfaMethod(code: string, methods: MfaMethod[]): MfaMethod {
 		return "recovery_code";
 	}
 	return methods[0] ?? "totp";
+}
+
+function normalizeTotpCode(code: string) {
+	return code.trim().replace(/\s/g, "");
 }
 
 function useLoginPageController() {
@@ -776,11 +779,12 @@ function useLoginPageController() {
 
 		try {
 			const method = resolveMfaMethod(code, challenge.methods);
+			const normalizedCode = method === "totp" ? normalizeTotpCode(code) : code;
 			dispatchAuthPanel({ type: "set_mfa_submitting", submitting: true });
 			const session = await authService.verifyMfaChallenge({
 				flow_token: challenge.flowToken,
 				method,
-				code,
+				code: normalizedCode,
 			});
 			await finishAuthenticatedLogin(
 				session,
@@ -897,7 +901,7 @@ function useLoginPageController() {
 		if (mode === "setup") return t("create_admin");
 		if (mode === "register") return t("sign_up");
 		if (mode === "login") return t("sign_in");
-		return t("continue");
+		return t("core:continue");
 	};
 
 	const description = () => {

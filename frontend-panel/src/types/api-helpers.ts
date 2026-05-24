@@ -87,6 +87,7 @@ export const ApiSubcode = {
 	AuthMfaCodeInvalid: "auth.mfa_code_invalid",
 	AuthMfaAttemptsExceeded: "auth.mfa_attempts_exceeded",
 	AuthMfaFactorRequired: "auth.mfa_factor_required",
+	AuthMfaFactorAlreadyExists: "auth.mfa_factor_already_exists",
 	AuthMfaRecoveryCodeUsed: "auth.mfa_recovery_code_used",
 	AvatarFileRequired: "avatar.file_required",
 	AvatarUploadReadFailed: "avatar.upload_read_failed",

@@ -205,7 +205,7 @@ pub async fn reset_user_password(
     operation_id = "reset_user_mfa",
     params(("id" = i64, Path, description = "User ID")),
     responses(
-        (status = 200, description = "User MFA reset"),
+        (status = 200, description = "User MFA configuration cleared; this resets authenticators, recovery codes, and pending MFA login flows without deleting the user"),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
         (status = 403, description = "Forbidden"),
         (status = 404, description = "User not found"),

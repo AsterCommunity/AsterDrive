@@ -33,7 +33,7 @@
 	"settings_mfa_secret": "Secret",
 	"settings_mfa_otpauth_uri": "otpauth URI",
 	"settings_mfa_factor_name": "Device name",
-	"settings_mfa_factor_name_placeholder": "Authenticator app",
+	"settings_mfa_factor_name_placeholder": "e.g., iPhone, Work device",
 	"settings_mfa_totp_code": "6-digit code",
 	"settings_mfa_finish_setup": "Enable MFA",
 	"settings_mfa_enabled": "MFA enabled.",

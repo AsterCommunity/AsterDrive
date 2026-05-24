@@ -86,9 +86,13 @@ impl ExternalAuthProviderKind {
     }
 }
 
-/// MFA 因子类型。MVP 只把 TOTP 作为持久化 factor。
+/// TODO: MFA 因子类型。MVP 只把 TOTP 作为持久化 factor。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, EnumIter, DeriveActiveEnum, Serialize, Deserialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
+#[cfg_attr(
+    all(debug_assertions, feature = "openapi"),
+    schema(as = MfaPersistentFactorType)
+)]
 #[sea_orm(rs_type = "String", db_type = "String(StringLen::N(16))")]
 #[serde(rename_all = "snake_case")]
 pub enum MfaFactorMethod {
@@ -107,6 +111,10 @@ impl MfaFactorMethod {
 /// MFA challenge 可用验证方法。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
+#[cfg_attr(
+    all(debug_assertions, feature = "openapi"),
+    schema(as = MfaChallengeMethodType)
+)]
 #[serde(rename_all = "snake_case")]
 pub enum MfaMethod {
     Totp,

@@ -40,6 +40,11 @@ pub struct MfaChallengeLoginResult {
     pub user_id: i64,
 }
 
+struct MfaChallengeAttempt {
+    user_id: i64,
+    result: Result<MfaChallengeLoginResult>,
+}
+
 pub async fn complete_primary_login_or_start_mfa(
     state: &PrimaryAppState,
     user: &user::Model,
@@ -144,7 +149,7 @@ pub async fn verify_challenge(
     }
     let now = Utc::now();
     let txn = crate::db::transaction::begin(state.writer_db()).await?;
-    let result = async {
+    let attempt = async {
         let flow = mfa_login_flow_repo::find_by_flow_token_hash(
             &txn,
             &crypto::token_hash(normalized_flow_token),
@@ -155,6 +160,7 @@ pub async fn verify_challenge(
 
         let user = user_repo::find_by_id(&txn, flow.user_id).await?;
         ensure_flow_user_valid(&user, &flow)?;
+        let user_id = user.id;
 
         let verified = match method {
             MfaMethod::Totp if totp::looks_like_code(code) => {
@@ -171,13 +177,17 @@ pub async fn verify_challenge(
             let next_attempt_count = flow.attempt_count.saturating_add(1);
             let consume_at = (next_attempt_count >= MFA_MAX_ATTEMPTS).then_some(now);
             mfa_login_flow_repo::increment_attempts(&txn, flow.id, consume_at).await?;
-            return Err(if next_attempt_count >= MFA_MAX_ATTEMPTS {
+            let error = if next_attempt_count >= MFA_MAX_ATTEMPTS {
                 auth_token_invalid_with_subcode(
                     ApiSubcode::AuthMfaAttemptsExceeded,
                     "MFA attempts exceeded",
                 )
             } else {
                 code_invalid()
+            };
+            return Ok::<_, AsterError>(MfaChallengeAttempt {
+                user_id,
+                result: Err(error),
             });
         }
 
@@ -193,15 +203,18 @@ pub async fn verify_challenge(
             flow.user_agent.as_deref(),
         )
         .await?;
-        Ok::<_, AsterError>(MfaChallengeLoginResult {
-            access_token,
-            refresh_token,
-            user_id: user.id,
+        Ok::<_, AsterError>(MfaChallengeAttempt {
+            user_id,
+            result: Ok(MfaChallengeLoginResult {
+                access_token,
+                refresh_token,
+                user_id,
+            }),
         })
     }
-    .await;
+    .await?;
 
-    match result {
+    match attempt.result {
         Ok(result) => {
             crate::db::transaction::commit(txn).await?;
             let audit_ctx = audit_service::AuditContext {
@@ -228,7 +241,7 @@ pub async fn verify_challenge(
             ) {
                 crate::db::transaction::commit(txn).await?;
                 let audit_ctx = audit_service::AuditContext {
-                    user_id: 0,
+                    user_id: attempt.user_id,
                     ip_address: None,
                     user_agent: None,
                 };

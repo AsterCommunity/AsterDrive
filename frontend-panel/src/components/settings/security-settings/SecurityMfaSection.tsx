@@ -107,12 +107,13 @@ export function SecurityMfaSection() {
 			dispatchAction({ type: "busy", busy: true });
 			if (actionState.kind === "disable") {
 				const factor = status?.factors[0];
-				if (!factor) return;
-				await authService.deleteMfaFactor(factor.id, {
-					code: actionState.code,
-				});
-				cancelSetup();
-				toast.success(t("settings:settings_mfa_disabled"));
+				if (factor) {
+					await authService.deleteMfaFactor(factor.id, {
+						code: actionState.code,
+					});
+					cancelSetup();
+					toast.success(t("settings:settings_mfa_disabled"));
+				}
 			} else {
 				const codes = await authService.regenerateMfaRecoveryCodes({
 					code: actionState.code,
@@ -127,6 +128,7 @@ export function SecurityMfaSection() {
 			await load();
 		} catch (error) {
 			handleApiError(error);
+		} finally {
 			dispatchAction({ type: "busy", busy: false });
 		}
 	};

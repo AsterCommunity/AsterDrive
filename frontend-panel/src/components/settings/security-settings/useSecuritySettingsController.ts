@@ -182,7 +182,7 @@ export function useSecuritySettingsController() {
 		switch (verification.status) {
 			case "email-changed":
 				if (!verification.email) {
-					return;
+					break;
 				}
 				toast.success(
 					t("settings:settings_email_change_confirmed", {

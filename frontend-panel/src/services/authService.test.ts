@@ -427,33 +427,33 @@ describe("authService", () => {
 						method: "totp",
 						name: "Phone",
 					},
-					recovery_codes: ["ABCDE-FGHIJ"],
+					recovery_codes: ["ABCD-EFGH-IJKL"],
 				};
 			}
 			if (url === "/auth/mfa/recovery-codes/regenerate") {
-				return ["KLMNO-PQRST"];
+				return ["KLMN-OPQR-STUV"];
 			}
 			return undefined;
 		});
 		mockState.delete.mockResolvedValue(undefined);
 
-		expect(authService.startTotpSetup()).toMatchObject({
+		await expect(await authService.startTotpSetup()).toMatchObject({
 			flow_token: "setup-flow",
 			secret: "SECRET",
 		});
-		expect(
-			authService.finishTotpSetup({
+		await expect(
+			await authService.finishTotpSetup({
 				flow_token: "setup-flow",
 				code: "123456",
 				name: "Phone",
 			}),
 		).toMatchObject({
-			recovery_codes: ["ABCDE-FGHIJ"],
+			recovery_codes: ["ABCD-EFGH-IJKL"],
 		});
 		await authService.deleteMfaFactor(7, { code: "123456" });
-		expect(
-			authService.regenerateMfaRecoveryCodes({ code: "KLMNO-PQRST" }),
-		).toEqual(["KLMNO-PQRST"]);
+		await expect(
+			await authService.regenerateMfaRecoveryCodes({ code: "KLMN-OPQR-STUV" }),
+		).toEqual(["KLMN-OPQR-STUV"]);
 
 		expect(mockState.post).toHaveBeenNthCalledWith(
 			1,
@@ -474,7 +474,7 @@ describe("authService", () => {
 		expect(mockState.post).toHaveBeenNthCalledWith(
 			3,
 			"/auth/mfa/recovery-codes/regenerate",
-			{ code: "KLMNO-PQRST" },
+			{ code: "KLMN-OPQR-STUV" },
 		);
 	});
 

@@ -71,6 +71,8 @@ const errorSubcodeKeys: Partial<Record<ApiSubcodeType, string>> = {
 	[ApiSubcode.AuthMfaCodeInvalid]: "errors:auth_mfa_code_invalid",
 	[ApiSubcode.AuthMfaAttemptsExceeded]: "errors:auth_mfa_attempts_exceeded",
 	[ApiSubcode.AuthMfaFactorRequired]: "errors:auth_mfa_factor_required",
+	[ApiSubcode.AuthMfaFactorAlreadyExists]:
+		"errors:auth_mfa_factor_already_exists",
 	[ApiSubcode.AuthMfaRecoveryCodeUsed]: "errors:auth_mfa_recovery_code_used",
 	[ApiSubcode.FileEtagMismatch]: "errors:file_etag_mismatch",
 	[ApiSubcode.FileNameConflict]: "errors:file_name_conflict",

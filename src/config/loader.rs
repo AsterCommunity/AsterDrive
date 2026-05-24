@@ -235,9 +235,13 @@ fn ensure_stable_default_config_keys(
     let updated = doc.to_string();
     if let Err(error) = std::fs::write(config_path, &updated) {
         eprintln!(
-            "[WARN] Failed to write generated stable configuration keys to {}: {error}. Using generated keys in memory.",
+            "[ERROR] Failed to write generated stable configuration keys to {}: {error}. Fix config file permissions before starting.",
             config_path.display()
         );
+        return Err(AsterError::config_error(format!(
+            "failed to persist generated stable configuration keys to {}: {error}",
+            config_path.display()
+        )));
     } else {
         eprintln!(
             "[INFO] Added generated stable configuration keys to: {}",

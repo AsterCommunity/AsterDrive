@@ -99,7 +99,7 @@ pub async fn start_totp_setup(
         .is_some()
     {
         return Err(auth_forbidden_with_subcode(
-            ApiSubcode::AuthMfaFactorRequired,
+            ApiSubcode::AuthMfaFactorAlreadyExists,
             "TOTP MFA is already enabled",
         ));
     }
@@ -158,7 +158,7 @@ pub async fn verify_totp_setup(
             .is_some()
         {
             return Err(auth_forbidden_with_subcode(
-                ApiSubcode::AuthMfaFactorRequired,
+                ApiSubcode::AuthMfaFactorAlreadyExists,
                 "TOTP MFA is already enabled",
             ));
         }

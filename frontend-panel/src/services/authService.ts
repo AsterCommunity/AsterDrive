@@ -138,9 +138,12 @@ function invalidateAuthIdentityCaches() {
 function normalizeLoginResult(data: RawLoginResponse): LoginResult {
 	const expiresIn = Number(data.expires_in) || 900;
 	if (data.status === "mfa_required") {
+		if (!data.flow_token) {
+			throw new Error("MFA challenge response is missing flow token");
+		}
 		return {
 			status: "mfa_required",
-			flowToken: data.flow_token || "",
+			flowToken: data.flow_token,
 			expiresIn,
 			methods: (data.methods || []).filter(
 				(method): method is MfaMethod =>
