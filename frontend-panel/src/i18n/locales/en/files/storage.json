@@ -1,5 +1,7 @@
 {
 	"root": "Root",
+	"expand_tree": "Expand tree",
+	"collapse_tree": "Collapse tree",
 	"storage_used": "{{used}} used",
 	"storage_quota": "{{used}} / {{quota}}",
 	"folders_section": "Folders",

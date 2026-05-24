@@ -22,7 +22,7 @@ export function SecurityMfaSensitiveActionForm({
 	if (!actionState.kind) return null;
 
 	return (
-		<div className="space-y-4 rounded-lg border bg-muted/20 p-4">
+		<div className="space-y-4 rounded-lg border bg-muted/20 p-4 transition-[background-color,border-color,box-shadow] duration-200 ease-out">
 			<div className="space-y-1">
 				<h4 className="text-sm font-semibold">
 					{actionState.kind === "disable"

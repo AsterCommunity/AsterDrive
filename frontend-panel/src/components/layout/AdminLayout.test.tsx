@@ -102,6 +102,7 @@ describe("AdminLayout", () => {
 			"translated:locks",
 			"translated:system_settings",
 			"translated:audit_log",
+			"translated:core:back",
 			"translated:about",
 		];
 
@@ -111,6 +112,15 @@ describe("AdminLayout", () => {
 				screen.getByRole("button", { name: new RegExp(label, "i") }),
 			).toBeInTheDocument();
 		}
+		const backButton = screen.getByRole("button", {
+			name: /translated:core:back/i,
+		});
+		const aboutButton = screen.getByRole("button", {
+			name: /translated:about/i,
+		});
+		expect(backButton.compareDocumentPosition(aboutButton)).toBe(
+			Node.DOCUMENT_POSITION_FOLLOWING,
+		);
 		expect(screen.getAllByTestId("icon")).toHaveLength(
 			expectedNavigationLabels.length,
 		);
@@ -152,8 +162,8 @@ describe("AdminLayout", () => {
 		expectMobileOverlayClosed();
 	});
 
-	it("uses full-height mobile overlay positioning below the top bar", () => {
-		render(<AdminLayout>Admin Content</AdminLayout>);
+	it("uses dynamic viewport mobile overlay positioning below the top bar", () => {
+		const { container } = render(<AdminLayout>Admin Content</AdminLayout>);
 
 		fireEvent.click(
 			screen.getByRole("button", { name: "Toggle Admin Sidebar" }),
@@ -161,7 +171,10 @@ describe("AdminLayout", () => {
 
 		const overlay = expectMobileOverlayOpen();
 
-		expect(overlay.className).toContain("bottom-0");
+		expect(overlay.className).toContain("h-[calc(100dvh-4rem)]");
 		expect(overlay.className).toContain("top-16");
+		expect(container.querySelector("aside")?.className).toContain(
+			"h-[calc(100dvh-4rem)]",
+		);
 	});
 });

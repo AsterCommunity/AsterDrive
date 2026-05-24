@@ -1,3 +1,4 @@
+import { createFolderViaApi } from "./support/api";
 import { authenticate, captureClientState } from "./support/auth";
 import {
 	chooseTargetFolder,
@@ -14,6 +15,7 @@ import {
 	expectPdfPreview,
 	expectTrashItemMissing,
 	expectTrashItemVisible,
+	fileDropZone,
 	fileNameCell,
 	folderTreeButton,
 	moveItemToFolder,
@@ -168,6 +170,56 @@ test.describe
 			await expect(fileNameCell(page, renamedLifecycleFile)).toBeVisible({
 				timeout: 30_000,
 			});
+		});
+
+		test("keeps the sidebar directory tree usable on short viewports", async ({
+			page,
+			request,
+		}) => {
+			await authenticate(page, request);
+
+			const rootFolder = await createFolderViaApi(
+				page,
+				"/api/v1",
+				uniqueName("pw-sidebar-root"),
+			);
+			let parentId = rootFolder.id;
+			for (let index = 0; index < 8; index += 1) {
+				const child = await createFolderViaApi(
+					page,
+					"/api/v1",
+					`pw-sidebar-child-${index}`,
+					parentId,
+				);
+				parentId = child.id;
+			}
+
+			await page.setViewportSize({ width: 1024, height: 420 });
+			await page.goto("/");
+			await expect(fileDropZone(page)).toBeVisible();
+			const rootTreeItem = folderTreeButton(page, rootFolder.name);
+			await expect(rootTreeItem).toBeVisible({ timeout: 30_000 });
+
+			const sidebarScroll = page.getByTestId("user-sidebar-scroll");
+			await expect(sidebarScroll).toHaveCount(1);
+			await expect(sidebarScroll).toHaveClass(/min-h-0/);
+			await expect(sidebarScroll).toHaveClass(/flex-1/);
+			await expect(sidebarScroll).not.toHaveClass(/min-h-32/);
+
+			await expect(
+				sidebarScroll.getByRole("button", {
+					exact: true,
+					name: rootFolder.name,
+				}),
+			).toBeVisible();
+			await expect(
+				sidebarScroll.getByRole("button", { exact: true, name: "Images" }),
+			).toBeVisible();
+			await expect(
+				sidebarScroll.getByRole("link", { name: "Trash" }),
+			).toBeVisible();
+			await expect(sidebarScroll.getByText("Storage")).toHaveCount(0);
+			await expect(page.getByText("Storage")).toBeVisible();
 		});
 
 		test("applies batch copy, move, and delete operations from multi-selection", async ({

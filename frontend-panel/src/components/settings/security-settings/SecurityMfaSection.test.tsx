@@ -242,7 +242,7 @@ describe("SecurityMfaSection", () => {
 			expect(mockState.authService.startTotpSetup).toHaveBeenCalledTimes(1);
 		});
 		expect(
-			screen.getByRole("img", {
+			await screen.findByRole("img", {
 				name: "settings:settings_mfa_qr_alt",
 			}),
 		).toBeInTheDocument();
@@ -269,7 +269,7 @@ describe("SecurityMfaSection", () => {
 			}),
 		);
 		fireEvent.change(
-			screen.getByLabelText("settings:settings_mfa_factor_name"),
+			await screen.findByLabelText("settings:settings_mfa_factor_name"),
 			{
 				target: { value: "  Work phone  " },
 			},
@@ -324,11 +324,15 @@ describe("SecurityMfaSection", () => {
 		fireEvent.click(
 			screen.getByRole("button", { name: "settings:settings_mfa_done" }),
 		);
-		await waitFor(() => {
-			expect(
-				screen.queryByText("settings:settings_mfa_recovery_codes_title"),
-			).not.toBeInTheDocument();
-		});
+		const exitingRecoveryPanel = screen
+			.getByText("settings:settings_mfa_recovery_codes_title")
+			.closest('[aria-hidden="true"]');
+		expect(exitingRecoveryPanel).not.toBeNull();
+
+		fireEvent.transitionEnd(exitingRecoveryPanel as Element);
+		expect(
+			screen.queryByText("settings:settings_mfa_recovery_codes_title"),
+		).not.toBeInTheDocument();
 	});
 
 	it("opens the disable MFA code entry directly and disables the factor", async () => {

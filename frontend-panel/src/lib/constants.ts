@@ -4,10 +4,12 @@ export const DRAG_SOURCE_MIME = "application/x-asterdrive-drag-source";
 
 /** 顶栏高度（Tailwind spacing token） */
 export const USER_TOPBAR_HEIGHT_CLASS = "h-16";
-export const USER_TOPBAR_OFFSET_CLASS = "top-16 bottom-0";
+export const USER_TOPBAR_OFFSET_CLASS =
+	"top-16 h-[calc(100dvh-4rem)] md:h-auto";
 
 export const ADMIN_TOPBAR_HEIGHT_CLASS = "h-16";
-export const ADMIN_TOPBAR_OFFSET_CLASS = "top-16 bottom-0";
+export const ADMIN_TOPBAR_OFFSET_CLASS =
+	"top-16 h-[calc(100dvh-4rem)] md:h-auto";
 
 /** 侧栏宽度 */
 export const USER_SIDEBAR_WIDTH_CLASS = "w-60 md:w-[var(--user-sidebar-width)]";

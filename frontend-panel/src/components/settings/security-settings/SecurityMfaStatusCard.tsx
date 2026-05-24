@@ -23,7 +23,7 @@ export function SecurityMfaStatusCard({
 	const { t } = useTranslation(["settings"]);
 
 	return (
-		<div className="rounded-lg border bg-muted/20 p-4">
+		<div className="rounded-lg border bg-muted/20 p-4 transition-[background-color,border-color,box-shadow] duration-200 ease-out">
 			<div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
 				<div className="min-w-0 space-y-1">
 					<p className="text-sm font-medium">{factor.name}</p>
@@ -71,7 +71,7 @@ export function SecurityMfaEmptyState({
 	const { t } = useTranslation(["settings"]);
 
 	return (
-		<div className="rounded-lg border border-dashed bg-muted/20 px-4 py-8 text-center">
+		<div className="rounded-lg border border-dashed bg-muted/20 px-4 py-8 text-center transition-[background-color,border-color,box-shadow] duration-200 ease-out">
 			<p className="text-sm font-medium">{t("settings:settings_mfa_empty")}</p>
 			<p className="mt-1 text-sm text-muted-foreground">
 				{t("settings:settings_mfa_empty_desc")}

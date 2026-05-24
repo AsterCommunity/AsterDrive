@@ -1,5 +1,7 @@
 {
 	"root": "根目录",
+	"expand_tree": "展开目录树",
+	"collapse_tree": "收起目录树",
 	"storage_used": "已使用 {{used}}",
 	"storage_quota": "{{used}} / {{quota}}",
 	"folders_section": "文件夹",

@@ -14,6 +14,10 @@ import {
 	stepIndex,
 } from "./mfaTypes";
 import { SecurityMfaHeader } from "./SecurityMfaHeader";
+import {
+	SecurityMfaMeasuredMotion,
+	SecurityMfaPresence,
+} from "./SecurityMfaMotion";
 import { SecurityMfaSensitiveActionForm } from "./SecurityMfaSensitiveActionForm";
 import { SecurityMfaSetupPanel } from "./SecurityMfaSetupPanel";
 import {
@@ -137,6 +141,10 @@ export function SecurityMfaSection() {
 	const factor = status?.factors[0] ?? null;
 	const activeStep = setupState.step ?? "intro";
 	const activeStepIndex = stepIndex(activeStep);
+	const actionVisible = !!actionState.kind;
+	const showEmptyState = !factor && !setupState.step;
+	const showSetup = !!setupState.step;
+	const showStatusCard = !!factor;
 	const canFinishSetup =
 		!!setupState.setup &&
 		!setupState.finishBusy &&
@@ -157,64 +165,74 @@ export function SecurityMfaSection() {
 				onRefresh={() => void load()}
 			/>
 
-			{factor ? (
-				<SecurityMfaStatusCard
-					factor={factor}
-					recoveryCodesRemaining={status?.recovery_codes_remaining ?? 0}
-					onOpenAction={(kind) => dispatchAction({ type: "open", kind })}
-				/>
-			) : setupState.step ? null : (
-				<SecurityMfaEmptyState
-					onStartSetup={() => dispatchSetup({ type: "intro" })}
-				/>
-			)}
+			<SecurityMfaMeasuredMotion contentClassName="space-y-4">
+				<SecurityMfaPresence show={showStatusCard}>
+					{factor ? (
+						<SecurityMfaStatusCard
+							factor={factor}
+							recoveryCodesRemaining={status?.recovery_codes_remaining ?? 0}
+							onOpenAction={(kind) => dispatchAction({ type: "open", kind })}
+						/>
+					) : null}
+				</SecurityMfaPresence>
 
-			{setupState.step ? (
-				<SecurityMfaSetupPanel
-					activeStep={activeStep}
-					activeStepIndex={activeStepIndex}
-					canFinishSetup={canFinishSetup}
-					setupState={setupState}
-					onBackToIntro={() =>
-						dispatchSetup({ type: "set_step", step: "intro" })
-					}
-					onBackToScan={() => dispatchSetup({ type: "set_step", step: "scan" })}
-					onCancel={cancelSetup}
-					onCodeChange={(code) => dispatchSetup({ type: "set_code", code })}
-					onContinueToVerify={() =>
-						dispatchSetup({ type: "set_step", step: "verify" })
-					}
-					onCopy={copy}
-					onCopyRecoveryCodes={() =>
-						void (async () => {
-							await copy(
-								recoveryCodesFile(),
-								t("settings:settings_mfa_recovery_copied"),
-							);
+				<SecurityMfaPresence show={showEmptyState}>
+					<SecurityMfaEmptyState
+						onStartSetup={() => dispatchSetup({ type: "intro" })}
+					/>
+				</SecurityMfaPresence>
+
+				<SecurityMfaPresence show={showSetup}>
+					<SecurityMfaSetupPanel
+						activeStep={activeStep}
+						activeStepIndex={activeStepIndex}
+						canFinishSetup={canFinishSetup}
+						setupState={setupState}
+						onBackToIntro={() =>
+							dispatchSetup({ type: "set_step", step: "intro" })
+						}
+						onBackToScan={() =>
+							dispatchSetup({ type: "set_step", step: "scan" })
+						}
+						onCancel={cancelSetup}
+						onCodeChange={(code) => dispatchSetup({ type: "set_code", code })}
+						onContinueToVerify={() =>
+							dispatchSetup({ type: "set_step", step: "verify" })
+						}
+						onCopy={copy}
+						onCopyRecoveryCodes={() =>
+							void (async () => {
+								await copy(
+									recoveryCodesFile(),
+									t("settings:settings_mfa_recovery_copied"),
+								);
+								confirmRecoverySaved();
+							})()
+						}
+						onDownloadRecoveryCodes={() => {
+							downloadRecoveryCodes(recoveryCodesFile());
 							confirmRecoverySaved();
-						})()
-					}
-					onDownloadRecoveryCodes={() => {
-						downloadRecoveryCodes(recoveryCodesFile());
-						confirmRecoverySaved();
-					}}
-					onFinish={() => void finishSetup()}
-					onIntroContinue={() => void startSetup()}
-					onNameChange={(name) => dispatchSetup({ type: "set_name", name })}
-					onRecoveryConfirmChange={() =>
-						dispatchSetup({ type: "toggle_recovery_confirmed" })
-					}
-					onRecoveryDone={completeSetup}
-					onToggleSecret={() => dispatchSetup({ type: "toggle_secret" })}
-				/>
-			) : null}
+						}}
+						onFinish={() => void finishSetup()}
+						onIntroContinue={() => void startSetup()}
+						onNameChange={(name) => dispatchSetup({ type: "set_name", name })}
+						onRecoveryConfirmChange={() =>
+							dispatchSetup({ type: "toggle_recovery_confirmed" })
+						}
+						onRecoveryDone={completeSetup}
+						onToggleSecret={() => dispatchSetup({ type: "toggle_secret" })}
+					/>
+				</SecurityMfaPresence>
 
-			<SecurityMfaSensitiveActionForm
-				actionState={actionState}
-				onCancel={() => dispatchAction({ type: "reset" })}
-				onCodeChange={(code) => dispatchAction({ type: "code", code })}
-				onSubmit={() => void submitSensitiveAction()}
-			/>
+				<SecurityMfaPresence show={actionVisible}>
+					<SecurityMfaSensitiveActionForm
+						actionState={actionState}
+						onCancel={() => dispatchAction({ type: "reset" })}
+						onCodeChange={(code) => dispatchAction({ type: "code", code })}
+						onSubmit={() => void submitSensitiveAction()}
+					/>
+				</SecurityMfaPresence>
+			</SecurityMfaMeasuredMotion>
 		</div>
 	);
 }

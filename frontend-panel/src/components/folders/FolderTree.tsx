@@ -76,6 +76,9 @@ export function FolderTree({ onMoveToFolder }: FolderTreeProps = {}) {
 	const [loadedIds, setLoadedIds] = useState<Set<number>>(
 		() => new Set(cachedSnapshot?.loadedIds ?? []),
 	);
+	const [rootExpanded, setRootExpanded] = useState(
+		() => cachedSnapshot?.rootExpanded ?? true,
+	);
 	const [rootLoaded, setRootLoaded] = useState(
 		() => cachedSnapshot !== null || rootIds.length > 0,
 	);
@@ -117,6 +120,7 @@ export function FolderTree({ onMoveToFolder }: FolderTreeProps = {}) {
 		setExpandedIds(new Set());
 		setLoadingIds(new Set());
 		setLoadedIds(new Set());
+		setRootExpanded(true);
 		setRootLoaded(false);
 	}, [clearHoverExpandTimer, currentWorkspaceKey, sortBy, sortOrder, userId]);
 
@@ -125,6 +129,7 @@ export function FolderTree({ onMoveToFolder }: FolderTreeProps = {}) {
 			expandedIds: Array.from(expandedIds),
 			loadedIds: Array.from(loadedIds),
 			nodeEntries: cloneNodeEntries(nodeMap),
+			rootExpanded,
 			rootIds,
 			sortBy,
 			sortOrder,
@@ -136,6 +141,7 @@ export function FolderTree({ onMoveToFolder }: FolderTreeProps = {}) {
 		expandedIds,
 		loadedIds,
 		nodeMap,
+		rootExpanded,
 		rootIds,
 		sortBy,
 		sortOrder,
@@ -294,6 +300,7 @@ export function FolderTree({ onMoveToFolder }: FolderTreeProps = {}) {
 		let cancelled = false;
 
 		async function expandPath() {
+			setRootExpanded(true);
 			for (const folderId of pathIds) {
 				if (cancelled) return;
 				await ensureChildrenLoaded(folderId);
@@ -460,6 +467,11 @@ export function FolderTree({ onMoveToFolder }: FolderTreeProps = {}) {
 		void moveToFolder(data.fileIds, data.folderIds, null).catch(handleApiError);
 	};
 
+	const handleRootToggle = () => {
+		clearHoverExpandTimer();
+		setRootExpanded((prev) => !prev);
+	};
+
 	const handleDragHoverStart = useCallback(
 		(folderId: number) => {
 			scheduleHoverExpand(folderId);
@@ -507,22 +519,50 @@ export function FolderTree({ onMoveToFolder }: FolderTreeProps = {}) {
 				<SkeletonTree count={4} />
 			) : (
 				<>
-					<button
-						type="button"
+					{/* biome-ignore lint/a11y/useSemanticElements: outer row needs drag-drop target and contains a nested toggle button */}
+					<div
+						role="button"
+						tabIndex={0}
+						aria-expanded={rootExpanded}
 						className={folderTreeRowClass(
 							currentFolderId === null &&
 								location.pathname === workspaceRootPath(workspace),
 							rootDragOver && "ring-2 ring-primary bg-accent/30",
 						)}
 						onClick={() => navigate(workspaceRootPath(workspace))}
+						onKeyDown={(e) => {
+							if (e.key === "Enter" || e.key === " ") {
+								e.preventDefault();
+								navigate(workspaceRootPath(workspace));
+							}
+						}}
 						onDragOver={handleRootDragOver}
 						onDragLeave={() => setRootDragOver(false)}
 						onDrop={handleRootDrop}
 					>
-						<Icon name="Folder" className="size-4 text-muted-foreground" />
-						{t("root")}
-					</button>
-					{renderChildren(visibleRootIds, 1)}
+						<button
+							type="button"
+							aria-label={t(rootExpanded ? "collapse_tree" : "expand_tree")}
+							className="shrink-0 rounded p-0.5 text-muted-foreground hover:bg-accent-foreground/10 hover:text-foreground"
+							onClick={(e) => {
+								e.stopPropagation();
+								handleRootToggle();
+							}}
+						>
+							<Icon
+								name={rootExpanded ? "CaretDown" : "CaretRight"}
+								className="size-3 text-muted-foreground"
+							/>
+						</button>
+						<div className="flex min-w-0 flex-1 items-center gap-2 px-1">
+							<Icon
+								name={rootExpanded ? "FolderOpen" : "Folder"}
+								className="size-4 shrink-0 text-muted-foreground"
+							/>
+							<span className="truncate">{t("root")}</span>
+						</div>
+					</div>
+					{rootExpanded && renderChildren(visibleRootIds, 1)}
 				</>
 			)}
 		</div>

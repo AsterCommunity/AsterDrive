@@ -1,5 +1,5 @@
 import QRCode from "qrcode";
-import { useMemo } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
@@ -13,6 +13,10 @@ import {
 	type SetupUiState,
 	stepIndex,
 } from "./mfaTypes";
+import {
+	SecurityMfaMeasuredMotion,
+	SecurityMfaStepMotion,
+} from "./SecurityMfaMotion";
 
 type QrModules = ReturnType<typeof QRCode.create>["modules"];
 
@@ -58,10 +62,17 @@ export function SecurityMfaSetupPanel({
 	setupState,
 }: SecurityMfaSetupPanelProps) {
 	const { t } = useTranslation(["core", "settings"]);
+	const previousStepIndexRef = useRef(activeStepIndex);
+	const stepDirection =
+		activeStepIndex >= previousStepIndexRef.current ? "forward" : "backward";
+
+	useEffect(() => {
+		previousStepIndexRef.current = activeStepIndex;
+	}, [activeStepIndex]);
 
 	return (
-		<div className="overflow-hidden rounded-lg border">
-			<div className="border-b bg-muted/25 p-4">
+		<div className="overflow-hidden rounded-lg border transition-[border-color,box-shadow] duration-200 ease-out">
+			<div className="border-b bg-muted/25 p-4 transition-colors duration-200">
 				<div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
 					<div className="space-y-1">
 						<p className="text-sm font-semibold">
@@ -75,59 +86,61 @@ export function SecurityMfaSetupPanel({
 				</div>
 			</div>
 
-			<div className="p-4">
-				{setupState.step === "intro" ? (
-					<SetupIntro
-						setupBusy={setupState.busy}
-						onCancel={onCancel}
-						onContinue={onIntroContinue}
-					/>
-				) : null}
+			<SecurityMfaMeasuredMotion className="p-4">
+				<SecurityMfaStepMotion activeKey={activeStep} direction={stepDirection}>
+					{setupState.step === "intro" ? (
+						<SetupIntro
+							setupBusy={setupState.busy}
+							onCancel={onCancel}
+							onContinue={onIntroContinue}
+						/>
+					) : null}
 
-				{setupState.step === "scan" && setupState.setup ? (
-					<SetupScan
-						setup={setupState.setup}
-						showSecret={setupState.showSecret}
-						onBack={onBackToIntro}
-						onCancel={onCancel}
-						onCopy={onCopy}
-						onContinue={onContinueToVerify}
-						onToggleSecret={onToggleSecret}
-					/>
-				) : null}
+					{setupState.step === "scan" && setupState.setup ? (
+						<SetupScan
+							setup={setupState.setup}
+							showSecret={setupState.showSecret}
+							onBack={onBackToIntro}
+							onCancel={onCancel}
+							onCopy={onCopy}
+							onContinue={onContinueToVerify}
+							onToggleSecret={onToggleSecret}
+						/>
+					) : null}
 
-				{setupState.step === "verify" && setupState.setup ? (
-					<SetupVerify
-						canFinishSetup={canFinishSetup}
-						finishBusy={setupState.finishBusy}
-						setupCode={setupState.code}
-						setupName={setupState.name}
-						onBack={onBackToScan}
-						onCancel={onCancel}
-						onCodeChange={onCodeChange}
-						onFinish={onFinish}
-						onNameChange={onNameChange}
-					/>
-				) : null}
+					{setupState.step === "verify" && setupState.setup ? (
+						<SetupVerify
+							canFinishSetup={canFinishSetup}
+							finishBusy={setupState.finishBusy}
+							setupCode={setupState.code}
+							setupName={setupState.name}
+							onBack={onBackToScan}
+							onCancel={onCancel}
+							onCodeChange={onCodeChange}
+							onFinish={onFinish}
+							onNameChange={onNameChange}
+						/>
+					) : null}
 
-				{setupState.step === "recovery" &&
-				setupState.recoveryCodes.length > 0 ? (
-					<SetupRecovery
-						recoveryCodes={setupState.recoveryCodes}
-						recoveryConfirmed={setupState.recoveryConfirmed}
-						onConfirmChange={onRecoveryConfirmChange}
-						onCopy={onCopyRecoveryCodes}
-						onDownload={onDownloadRecoveryCodes}
-						onDone={onRecoveryDone}
-					/>
-				) : null}
-			</div>
+					{setupState.step === "recovery" &&
+					setupState.recoveryCodes.length > 0 ? (
+						<SetupRecovery
+							recoveryCodes={setupState.recoveryCodes}
+							recoveryConfirmed={setupState.recoveryConfirmed}
+							onConfirmChange={onRecoveryConfirmChange}
+							onCopy={onCopyRecoveryCodes}
+							onDownload={onDownloadRecoveryCodes}
+							onDone={onRecoveryDone}
+						/>
+					) : null}
+				</SecurityMfaStepMotion>
+			</SecurityMfaMeasuredMotion>
 
 			{setupState.step !== "recovery" ? (
 				<div className="border-t bg-muted/15 px-4 py-3">
 					<div className="h-1.5 overflow-hidden rounded-full bg-muted">
 						<div
-							className="h-full rounded-full bg-primary transition-all"
+							className="h-full rounded-full bg-primary transition-[width] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none"
 							style={{
 								width: `${((activeStepIndex + 1) / SETUP_STEPS.length) * 100}%`,
 							}}
@@ -151,15 +164,21 @@ function SetupStepper({ activeStep }: { activeStep: SetupStep }) {
 					<li
 						key={step}
 						className={cn(
-							"flex min-w-0 items-center gap-2 rounded-md border px-2 py-1.5",
+							"flex min-w-0 items-center gap-2 rounded-md border px-2 py-1.5 transition-[background-color,border-color,color,box-shadow,transform] duration-200 ease-out motion-reduce:transition-none",
 							active
-								? "border-primary/30 bg-primary/10 text-foreground"
+								? "border-primary/30 bg-primary/10 text-foreground shadow-xs ring-1 ring-primary/10"
 								: complete
 									? "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-300"
 									: "border-border bg-background text-muted-foreground",
 						)}
 					>
-						<span className="flex size-5 shrink-0 items-center justify-center rounded-full border bg-background text-[11px]">
+						<span
+							className={cn(
+								"flex size-5 shrink-0 items-center justify-center rounded-full border bg-background text-[11px] transition-[background-color,border-color,color,transform] duration-200 ease-out motion-reduce:transition-none",
+								active && "scale-105 border-primary/40 text-primary",
+								complete && "border-emerald-300 text-emerald-700",
+							)}
+						>
 							{complete ? <Icon name="Check" className="size-3" /> : index + 1}
 						</span>
 						<span className="truncate">
@@ -242,7 +261,7 @@ function SetupHint({
 	description: string;
 }) {
 	return (
-		<div className="rounded-lg border bg-background p-3">
+		<div className="rounded-lg border bg-background p-3 transition-[background-color,border-color,box-shadow,transform] duration-150 ease-out hover:-translate-y-0.5 hover:border-border hover:shadow-xs motion-reduce:transition-none motion-reduce:hover:translate-y-0 dark:hover:shadow-none">
 			<Icon name={icon} className="size-5 text-primary" />
 			<p className="mt-3 text-sm font-medium">{title}</p>
 			<p className="mt-1 text-xs text-muted-foreground">{description}</p>
@@ -506,10 +525,11 @@ function SetupRecovery({
 				</p>
 			</div>
 			<div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-				{recoveryCodes.map((code) => (
+				{recoveryCodes.map((code, index) => (
 					<code
 						key={code}
-						className="rounded-md border bg-background px-3 py-2 text-sm"
+						className="animate-in fade-in slide-in-from-bottom-1 rounded-md border bg-background px-3 py-2 text-sm duration-200 motion-reduce:animate-none"
+						style={{ animationDelay: `${index * 24}ms` }}
 					>
 						{code}
 					</code>

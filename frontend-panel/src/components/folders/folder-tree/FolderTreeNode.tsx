@@ -102,6 +102,7 @@ export function FolderTreeNodeRow({
 				role="button"
 				tabIndex={0}
 				draggable
+				aria-expanded={showToggle ? isExpanded : undefined}
 				className={folderTreeRowClass(
 					isActive,
 					dragOver && "ring-2 ring-primary bg-accent/30",

@@ -310,66 +310,71 @@ export function Sidebar({
 				<WorkspaceSwitcher variant="sidebar" />
 			</div>
 
-			{/* FolderTree scrolling is handled by ScrollArea. */}
-			<ScrollArea className="min-h-32 flex-1">
-				<FolderTree onMoveToFolder={onMoveToFolder} />
+			<ScrollArea data-testid="user-sidebar-scroll" className="min-h-0 flex-1">
+				<div className="flex min-h-full flex-col">
+					<FolderTree onMoveToFolder={onMoveToFolder} />
+
+					<div className="mt-auto">
+						<Separator />
+
+						{/* Quick category search */}
+						<div className="p-2 space-y-1">
+							<p className="px-3 py-1 text-xs font-medium text-muted-foreground">
+								{t("search:quick_categories")}
+							</p>
+							{QUICK_CATEGORY_LINKS.map((link) => (
+								<button
+									key={link.category}
+									type="button"
+									onClick={() => {
+										onSearchCategoryOpen?.(link.category);
+										onMobileClose();
+									}}
+									className={sidebarNavItemClass(false, "w-full text-left")}
+								>
+									<Icon name={link.icon} className="size-4 shrink-0" />
+									{t(`search:${link.labelKey}`)}
+								</button>
+							))}
+						</div>
+
+						<Separator />
+
+						{/* Navigation links */}
+						<div className="p-2 space-y-1">
+							{navLinks.map((link) => (
+								<Link
+									key={link.to}
+									to={link.to}
+									onClick={onMobileClose}
+									onDragOver={
+										link.to === trashPath ? handleTrashDragOver : undefined
+									}
+									onDragLeave={
+										link.to === trashPath ? handleTrashDragLeave : undefined
+									}
+									onDrop={link.to === trashPath ? handleTrashDrop : undefined}
+									className={sidebarNavItemClass(
+										location.pathname === link.to,
+										link.to === trashPath &&
+											trashDragOver &&
+											"bg-destructive/10 text-destructive ring-1 ring-destructive/30",
+									)}
+								>
+									<Icon name={link.icon} className="size-4 shrink-0" />
+									{link.label}
+								</Link>
+							))}
+						</div>
+					</div>
+				</div>
 			</ScrollArea>
-
-			<Separator />
-
-			{/* Quick category search */}
-			<div className="shrink-0 p-2 space-y-1">
-				<p className="px-3 py-1 text-xs font-medium text-muted-foreground">
-					{t("search:quick_categories")}
-				</p>
-				{QUICK_CATEGORY_LINKS.map((link) => (
-					<button
-						key={link.category}
-						type="button"
-						onClick={() => {
-							onSearchCategoryOpen?.(link.category);
-							onMobileClose();
-						}}
-						className={sidebarNavItemClass(false, "w-full text-left")}
-					>
-						<Icon name={link.icon} className="size-4 shrink-0" />
-						{t(`search:${link.labelKey}`)}
-					</button>
-				))}
-			</div>
-
-			<Separator />
-
-			{/* Navigation links */}
-			<div className="shrink-0 p-2 space-y-1">
-				{navLinks.map((link) => (
-					<Link
-						key={link.to}
-						to={link.to}
-						onClick={onMobileClose}
-						onDragOver={link.to === trashPath ? handleTrashDragOver : undefined}
-						onDragLeave={
-							link.to === trashPath ? handleTrashDragLeave : undefined
-						}
-						onDrop={link.to === trashPath ? handleTrashDrop : undefined}
-						className={sidebarNavItemClass(
-							location.pathname === link.to,
-							link.to === trashPath &&
-								trashDragOver &&
-								"bg-destructive/10 text-destructive ring-1 ring-destructive/30",
-						)}
-					>
-						<Icon name={link.icon} className="size-4 shrink-0" />
-						{link.label}
-					</Link>
-				))}
-			</div>
 
 			{/* Storage usage */}
 			{user && (!isTeamWorkspace(workspace) || activeTeam) && (
 				<>
 					<Separator />
-					<div className="shrink-0 p-3 space-y-1.5">
+					<div className="shrink-0 space-y-1.5 px-3 pt-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] md:pb-3">
 						<p className="text-xs font-medium text-muted-foreground">
 							{activeTeam ? activeTeam.name : t("files:storage_space")}
 						</p>

@@ -46,7 +46,13 @@ export function AdminLayout({ children }: { children: ReactNode }) {
 			icon: "ClipboardText",
 		},
 	];
-	const secondaryNavItems: { to: string; label: string; icon: IconName }[] = [
+	const secondaryNavItems: {
+		to: string;
+		label: string;
+		icon: IconName;
+		end?: boolean;
+	}[] = [
+		{ to: "/", label: t("core:back"), icon: "Undo", end: true },
 		{ to: "/admin/about", label: t("about"), icon: "Info" },
 	];
 
@@ -67,12 +73,18 @@ export function AdminLayout({ children }: { children: ReactNode }) {
 					))}
 				</nav>
 			</ScrollArea>
-			<div className={cn("border-t py-2", SIDEBAR_SECTION_PADDING_CLASS)}>
+			<div
+				className={cn(
+					"border-t pt-2 pb-[calc(0.5rem+env(safe-area-inset-bottom))] md:pb-2",
+					SIDEBAR_SECTION_PADDING_CLASS,
+				)}
+			>
 				<nav className="space-y-1">
 					{secondaryNavItems.map((item) => (
 						<NavLink
 							key={item.to}
 							to={item.to}
+							end={item.end}
 							onClick={handleMobileClose}
 							className={({ isActive }) => sidebarNavItemClass(isActive)}
 						>
@@ -86,7 +98,7 @@ export function AdminLayout({ children }: { children: ReactNode }) {
 	);
 
 	return (
-		<div className="flex h-screen flex-col bg-background">
+		<div className="flex h-dvh flex-col bg-background">
 			<AdminTopBar
 				onSidebarToggle={handleMobileToggle}
 				mobileOpen={mobileOpen}

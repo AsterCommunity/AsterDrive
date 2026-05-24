@@ -12,6 +12,7 @@ export interface FolderTreeSnapshot {
 	expandedIds: number[];
 	loadedIds: number[];
 	nodeEntries: Array<[number, FolderTreeNode]>;
+	rootExpanded: boolean;
 	rootIds: number[];
 	sortBy: SortBy;
 	sortOrder: SortOrder;
