@@ -1,5 +1,5 @@
 import { fireEvent, render, screen } from "@testing-library/react";
-import type { ComponentProps, ReactNode } from "react";
+import type { ComponentProps, ReactNode, SetStateAction } from "react";
 import { describe, expect, it, vi } from "vitest";
 import { TeamManageMembersSection } from "@/components/settings/team-manage-detail/TeamManageMembersSection";
 import type { TeamInfo, TeamMemberInfo, UserSummary } from "@/types/api";
@@ -184,6 +184,15 @@ const team = (): TeamInfo => ({
 	updated_at: "2026-05-01T00:00:00Z",
 });
 
+function expectNumericStateUpdater(
+	value: SetStateAction<number>,
+	current: number,
+	expected: number,
+) {
+	expect(typeof value).toBe("function");
+	expect((value as (current: number) => number)(current)).toBe(expected);
+}
+
 function createProps(
 	overrides: Partial<ComponentProps<typeof TeamManageMembersSection>> = {},
 ) {
@@ -287,7 +296,11 @@ describe("TeamManageMembersSection", () => {
 		const nextPageButton = screen.getByText("CaretRight").closest("button");
 		if (!nextPageButton) throw new Error("Expected next page button");
 		fireEvent.click(nextPageButton);
-		expect(props.setMemberOffset).toHaveBeenCalledWith(10);
+		expectNumericStateUpdater(
+			vi.mocked(props.setMemberOffset).mock.lastCall?.[0],
+			props.memberOffset,
+			10,
+		);
 	});
 
 	it("shows loading and filtered empty states", () => {

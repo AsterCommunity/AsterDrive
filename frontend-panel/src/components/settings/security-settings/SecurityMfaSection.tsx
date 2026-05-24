@@ -1,9 +1,7 @@
 import { useCallback, useEffect, useReducer, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
-import { ConfirmDialog } from "@/components/common/ConfirmDialog";
 import { handleApiError } from "@/hooks/useApiError";
-import { useConfirmDialog } from "@/hooks/useConfirmDialog";
 import { writeTextToClipboard } from "@/lib/clipboard";
 import { authService, type MfaStatus } from "@/services/authService";
 import {
@@ -12,7 +10,6 @@ import {
 	downloadRecoveryCodes,
 	EMPTY_ACTION_STATE,
 	formatRecoveryCodesFile,
-	type PendingAction,
 	setupReducer,
 	stepIndex,
 } from "./mfaTypes";
@@ -107,13 +104,16 @@ export function SecurityMfaSection() {
 			dispatchAction({ type: "busy", busy: true });
 			if (actionState.kind === "disable") {
 				const factor = status?.factors[0];
-				if (factor) {
-					await authService.deleteMfaFactor(factor.id, {
-						code: actionState.code,
-					});
-					cancelSetup();
-					toast.success(t("settings:settings_mfa_disabled"));
+				if (!factor) {
+					toast.info(t("settings:settings_mfa_disable_missing_factor"));
+					dispatchAction({ type: "reset" });
+					return;
 				}
+				await authService.deleteMfaFactor(factor.id, {
+					code: actionState.code,
+				});
+				cancelSetup();
+				toast.success(t("settings:settings_mfa_disabled"));
 			} else {
 				const codes = await authService.regenerateMfaRecoveryCodes({
 					code: actionState.code,
@@ -133,16 +133,8 @@ export function SecurityMfaSection() {
 		}
 	};
 
-	const { requestConfirm, dialogProps } = useConfirmDialog<PendingAction>(
-		(nextAction) => {
-			if (!nextAction) return;
-			dispatchAction({ type: "open", kind: nextAction });
-		},
-	);
-
 	const enabled = status?.enabled ?? false;
 	const factor = status?.factors[0] ?? null;
-	const confirmAction = dialogProps.confirmId;
 	const activeStep = setupState.step ?? "intro";
 	const activeStepIndex = stepIndex(activeStep);
 	const canFinishSetup =
@@ -169,7 +161,7 @@ export function SecurityMfaSection() {
 				<SecurityMfaStatusCard
 					factor={factor}
 					recoveryCodesRemaining={status?.recovery_codes_remaining ?? 0}
-					onRequestConfirm={requestConfirm}
+					onOpenAction={(kind) => dispatchAction({ type: "open", kind })}
 				/>
 			) : setupState.step ? null : (
 				<SecurityMfaEmptyState
@@ -222,22 +214,6 @@ export function SecurityMfaSection() {
 				onCancel={() => dispatchAction({ type: "reset" })}
 				onCodeChange={(code) => dispatchAction({ type: "code", code })}
 				onSubmit={() => void submitSensitiveAction()}
-			/>
-
-			<ConfirmDialog
-				{...dialogProps}
-				title={
-					confirmAction === "disable"
-						? t("settings:settings_mfa_disable_title")
-						: t("settings:settings_mfa_regenerate_title")
-				}
-				description={
-					confirmAction === "disable"
-						? t("settings:settings_mfa_disable_desc")
-						: t("settings:settings_mfa_regenerate_desc")
-				}
-				confirmLabel={t("core:continue")}
-				variant={confirmAction === "disable" ? "destructive" : "default"}
 			/>
 		</div>
 	);

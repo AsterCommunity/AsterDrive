@@ -26,10 +26,13 @@ export function SecurityMfaSensitiveActionForm({
 			<div className="space-y-1">
 				<h4 className="text-sm font-semibold">
 					{actionState.kind === "disable"
-						? t("settings:settings_mfa_disable_title")
-						: t("settings:settings_mfa_regenerate_title")}
+						? t("settings:settings_mfa_disable")
+						: t("settings:settings_mfa_regenerate_recovery")}
 				</h4>
 				<p className="text-sm text-muted-foreground">
+					{actionState.kind === "disable"
+						? t("settings:settings_mfa_disable_desc")
+						: t("settings:settings_mfa_regenerate_desc")}{" "}
 					{t("settings:settings_mfa_sensitive_action_desc")}
 				</p>
 			</div>

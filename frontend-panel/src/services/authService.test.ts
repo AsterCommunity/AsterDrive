@@ -408,6 +408,18 @@ describe("authService", () => {
 		);
 	});
 
+	it("rejects MFA login responses without a flow token", async () => {
+		mockState.post.mockReturnValueOnce({
+			status: "mfa_required",
+			expires_in: 300,
+			methods: ["totp"],
+		});
+
+		await expect(authService.login("alice", "secret")).rejects.toThrow(
+			"MFA challenge response is missing flow token",
+		);
+	});
+
 	it("uses MFA management endpoints without current password", async () => {
 		mockState.post.mockImplementation((url: string) => {
 			if (url === "/auth/mfa/totp/setup/start") {
@@ -454,6 +466,7 @@ describe("authService", () => {
 		await expect(
 			await authService.regenerateMfaRecoveryCodes({ code: "KLMN-OPQR-STUV" }),
 		).toEqual(["KLMN-OPQR-STUV"]);
+		expect(authService.getMfaStatus()).toBeUndefined();
 
 		expect(mockState.post).toHaveBeenNthCalledWith(
 			1,
@@ -476,6 +489,7 @@ describe("authService", () => {
 			"/auth/mfa/recovery-codes/regenerate",
 			{ code: "KLMN-OPQR-STUV" },
 		);
+		expect(mockState.get).toHaveBeenCalledWith("/auth/mfa");
 	});
 
 	it("uses the expected external auth endpoints and payloads", async () => {

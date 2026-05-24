@@ -1,10 +1,4 @@
-import {
-	fireEvent,
-	render,
-	screen,
-	waitFor,
-	within,
-} from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { SecurityMfaSection } from "@/components/settings/security-settings/SecurityMfaSection";
 import type { MfaFactorInfo, MfaStatus } from "@/services/authService";
@@ -20,6 +14,7 @@ const mockState = vi.hoisted(() => ({
 	clipboard: vi.fn(),
 	downloadedLinks: [] as HTMLAnchorElement[],
 	handleApiError: vi.fn(),
+	toastInfo: vi.fn(),
 	toastSuccess: vi.fn(),
 }));
 
@@ -43,35 +38,9 @@ vi.mock("qrcode", () => ({
 
 vi.mock("sonner", () => ({
 	toast: {
+		info: (...args: unknown[]) => mockState.toastInfo(...args),
 		success: (...args: unknown[]) => mockState.toastSuccess(...args),
 	},
-}));
-
-vi.mock("@/components/common/ConfirmDialog", () => ({
-	ConfirmDialog: ({
-		confirmLabel,
-		description,
-		onConfirm,
-		open,
-		title,
-		variant,
-	}: {
-		confirmLabel: string;
-		description?: string;
-		onConfirm: () => void;
-		open: boolean;
-		title: string;
-		variant?: string;
-	}) =>
-		open ? (
-			<div role="dialog" data-variant={variant}>
-				<h2>{title}</h2>
-				<p>{description}</p>
-				<button type="button" onClick={onConfirm}>
-					{confirmLabel}
-				</button>
-			</div>
-		) : null,
 }));
 
 vi.mock("@/components/ui/badge", () => ({
@@ -188,14 +157,14 @@ describe("SecurityMfaSection", () => {
 		mockState.authService.finishTotpSetup.mockReset();
 		mockState.authService.finishTotpSetup.mockResolvedValue({
 			factor: factor(),
-			recovery_codes: ["AAAA-BBBB", "CCCC-DDDD"],
+			recovery_codes: ["AAAA-BBBB-CCCC", "DDDD-EEEE-FFFF"],
 		});
 		mockState.authService.getMfaStatus.mockReset();
 		mockState.authService.getMfaStatus.mockResolvedValue(status());
 		mockState.authService.regenerateMfaRecoveryCodes.mockReset();
 		mockState.authService.regenerateMfaRecoveryCodes.mockResolvedValue([
-			"EEEE-FFFF",
-			"GGGG-HHHH",
+			"GGGG-HHHH-IIII",
+			"JJJJ-KKKK-LLLL",
 		]);
 		mockState.authService.startTotpSetup.mockReset();
 		mockState.authService.startTotpSetup.mockResolvedValue({
@@ -208,6 +177,7 @@ describe("SecurityMfaSection", () => {
 		mockState.clipboard.mockResolvedValue(undefined);
 		mockState.downloadedLinks = [];
 		mockState.handleApiError.mockReset();
+		mockState.toastInfo.mockReset();
 		mockState.toastSuccess.mockReset();
 		if (!URL.createObjectURL) {
 			Object.defineProperty(URL, "createObjectURL", {
@@ -324,7 +294,7 @@ describe("SecurityMfaSection", () => {
 			"settings:settings_mfa_enabled",
 		);
 
-		expect(await screen.findByText("AAAA-BBBB")).toBeInTheDocument();
+		expect(await screen.findByText("AAAA-BBBB-CCCC")).toBeInTheDocument();
 		fireEvent.click(
 			screen.getByRole("button", {
 				name: "settings:settings_mfa_copy_recovery_codes",
@@ -332,7 +302,7 @@ describe("SecurityMfaSection", () => {
 		);
 		await waitFor(() => {
 			expect(mockState.clipboard).toHaveBeenLastCalledWith(
-				expect.stringContaining("AAAA-BBBB"),
+				expect.stringContaining("AAAA-BBBB-CCCC"),
 			);
 		});
 		expect(mockState.toastSuccess).toHaveBeenCalledWith(
@@ -361,7 +331,7 @@ describe("SecurityMfaSection", () => {
 		});
 	});
 
-	it("disables an enabled TOTP factor after confirmation and code entry", async () => {
+	it("opens the disable MFA code entry directly and disables the factor", async () => {
 		mockState.authService.getMfaStatus.mockResolvedValue(
 			status({
 				enabled: true,
@@ -383,10 +353,18 @@ describe("SecurityMfaSection", () => {
 				name: "settings:settings_mfa_disable",
 			}),
 		);
-		const dialog = screen.getByRole("dialog");
-		expect(dialog).toHaveAttribute("data-variant", "destructive");
-		fireEvent.click(
-			within(dialog).getByRole("button", { name: "core:continue" }),
+		expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+		expect(
+			screen.getByText(/settings:settings_mfa_disable_desc/),
+		).toHaveTextContent("settings:settings_mfa_sensitive_action_desc");
+		expect(
+			screen.getByLabelText("settings:settings_mfa_code_or_recovery"),
+		).toBeInTheDocument();
+		fireEvent.change(
+			screen.getByLabelText("settings:settings_mfa_code_or_recovery"),
+			{
+				target: { value: "123456" },
+			},
 		);
 
 		fireEvent.change(
@@ -411,6 +389,43 @@ describe("SecurityMfaSection", () => {
 		);
 	});
 
+	it("reports a stale disable action when no factor exists", async () => {
+		mockState.authService.getMfaStatus.mockResolvedValue(
+			status({ enabled: true, factors: [factor()] }),
+		);
+
+		render(<SecurityMfaSection />);
+
+		expect(await screen.findByText("Authenticator app")).toBeInTheDocument();
+		fireEvent.click(
+			screen.getByRole("button", {
+				name: "settings:settings_mfa_disable",
+			}),
+		);
+
+		mockState.authService.getMfaStatus.mockResolvedValue(status());
+		fireEvent.click(screen.getByRole("button", { name: "core:refresh" }));
+		await screen.findByText("settings:settings_mfa_empty");
+		fireEvent.change(
+			screen.getByLabelText("settings:settings_mfa_code_or_recovery"),
+			{
+				target: { value: "123456" },
+			},
+		);
+		fireEvent.click(
+			screen.getByRole("button", {
+				name: "settings:settings_mfa_disable",
+			}),
+		);
+
+		await waitFor(() => {
+			expect(mockState.toastInfo).toHaveBeenCalledWith(
+				"settings:settings_mfa_disable_missing_factor",
+			);
+		});
+		expect(mockState.authService.deleteMfaFactor).not.toHaveBeenCalled();
+	});
+
 	it("regenerates recovery codes and keeps failed sensitive actions editable", async () => {
 		const error = new Error("bad code");
 		mockState.authService.getMfaStatus.mockResolvedValue(
@@ -428,11 +443,10 @@ describe("SecurityMfaSection", () => {
 				name: "settings:settings_mfa_regenerate_recovery",
 			}),
 		);
-		fireEvent.click(
-			within(screen.getByRole("dialog")).getByRole("button", {
-				name: "core:continue",
-			}),
-		);
+		expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+		expect(
+			screen.getByText(/settings:settings_mfa_regenerate_desc/),
+		).toHaveTextContent("settings:settings_mfa_sensitive_action_desc");
 		fireEvent.change(
 			screen.getByLabelText("settings:settings_mfa_code_or_recovery"),
 			{
@@ -473,7 +487,7 @@ describe("SecurityMfaSection", () => {
 		expect(mockState.toastSuccess).toHaveBeenCalledWith(
 			"settings:settings_mfa_recovery_regenerated",
 		);
-		expect(await screen.findByText("EEEE-FFFF")).toBeInTheDocument();
+		expect(await screen.findByText("GGGG-HHHH-IIII")).toBeInTheDocument();
 	});
 
 	it("reports setup and clipboard failures through the shared API error handler", async () => {

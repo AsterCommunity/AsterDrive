@@ -38,6 +38,7 @@
 	"settings_mfa_finish_setup": "启用 MFA",
 	"settings_mfa_enabled": "MFA 已启用。",
 	"settings_mfa_disabled": "MFA 已禁用。",
+	"settings_mfa_disable_missing_factor": "MFA 已经处于禁用状态。需要的话刷新设置后再试。",
 	"settings_mfa_enabled_at": "启用时间",
 	"settings_mfa_recovery_remaining": "剩余 {{count}} 个恢复码",
 	"settings_mfa_regenerate_recovery": "重新生成恢复码",

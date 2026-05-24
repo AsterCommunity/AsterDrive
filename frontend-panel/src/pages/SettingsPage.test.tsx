@@ -86,6 +86,8 @@ const mockState = vi.hoisted(() => ({
 		pathname: "/settings/security",
 		search: "",
 	},
+	handleApiError: vi.fn(),
+	toastError: vi.fn(),
 }));
 
 vi.mock("react-i18next", () => ({
@@ -371,12 +373,12 @@ vi.mock("@/lib/validation", () => ({
 }));
 
 vi.mock("@/hooks/useApiError", () => ({
-	handleApiError: vi.fn(),
+	handleApiError: (...args: unknown[]) => mockState.handleApiError(...args),
 }));
 
 vi.mock("sonner", () => ({
 	toast: {
-		error: vi.fn(),
+		error: (...args: unknown[]) => mockState.toastError(...args),
 		success: (...args: unknown[]) => mockState.toastSuccess(...args),
 	},
 }));
@@ -582,10 +584,12 @@ describe("SettingsPage", () => {
 		mockState.fileStore.setBrowserOpenMode.mockReset();
 		mockState.fileStore.setViewMode.mockReset();
 		mockState.fileStore.viewMode = "list";
+		mockState.handleApiError.mockReset();
 		mockState.navigate.mockReset();
 		mockState.preferenceSync.mockReset();
 		mockState.themeStore.mode = "dark";
 		mockState.themeStore.setMode.mockReset();
+		mockState.toastError.mockReset();
 		mockState.toastSuccess.mockReset();
 		mockState.translationLanguage = "zh-CN";
 		mockState.webAuthn.createPasskeyCredential.mockReset();
@@ -872,6 +876,55 @@ describe("SettingsPage", () => {
 		expect(mockState.authStore.syncSession).toHaveBeenCalledWith(900);
 	});
 
+	it("validates and reports password update failures in security settings", async () => {
+		const error = new Error("password update failed");
+		mockState.authService.changePassword.mockRejectedValueOnce(error);
+		render(<SettingsPage section="security" />);
+
+		const form = screen
+			.getByLabelText("settings:settings_password_current")
+			.closest("form");
+		if (!form) throw new Error("password form not found");
+
+		fireEvent.submit(form);
+		expect(screen.getByText("password-required")).toBeInTheDocument();
+		expect(screen.getAllByText("invalid-password").length).toBeGreaterThan(0);
+		expect(mockState.authService.changePassword).not.toHaveBeenCalled();
+
+		fireEvent.change(
+			screen.getByLabelText("settings:settings_password_current"),
+			{
+				target: { value: "pass123" },
+			},
+		);
+		fireEvent.change(screen.getByLabelText("settings:settings_password_new"), {
+			target: { value: "newsecret456" },
+		});
+		fireEvent.change(
+			screen.getByLabelText("settings:settings_password_confirm"),
+			{
+				target: { value: "different456" },
+			},
+		);
+		fireEvent.submit(form);
+		expect(
+			screen.getByText("settings:settings_password_confirm_mismatch"),
+		).toBeInTheDocument();
+		expect(mockState.authService.changePassword).not.toHaveBeenCalled();
+
+		fireEvent.change(
+			screen.getByLabelText("settings:settings_password_confirm"),
+			{
+				target: { value: "newsecret456" },
+			},
+		);
+		fireEvent.submit(form);
+
+		await waitFor(() => {
+			expect(mockState.handleApiError).toHaveBeenCalledWith(error);
+		});
+	});
+
 	it("requests, validates, and resends security email changes", async () => {
 		const { rerender } = render(<SettingsPage section="security" />);
 
@@ -938,6 +991,42 @@ describe("SettingsPage", () => {
 		);
 	});
 
+	it("reports security email change and resend failures", async () => {
+		const requestError = new Error("email change failed");
+		const resendError = new Error("email resend failed");
+		mockState.authService.requestEmailChange.mockRejectedValueOnce(
+			requestError,
+		);
+		mockState.authService.resendEmailChange.mockRejectedValueOnce(resendError);
+
+		const { rerender } = render(<SettingsPage section="security" />);
+
+		fireEvent.change(screen.getByLabelText("settings:settings_email_new"), {
+			target: { value: "alice+fail@example.com" },
+		});
+		fireEvent.click(
+			screen.getByRole("button", {
+				name: "settings:settings_email_change_request",
+			}),
+		);
+
+		await waitFor(() => {
+			expect(mockState.handleApiError).toHaveBeenCalledWith(requestError);
+		});
+
+		mockState.authStore.user.pending_email = "alice+pending@example.com";
+		rerender(<SettingsPage section="security" />);
+		fireEvent.click(
+			await screen.findByRole("button", {
+				name: "settings:settings_email_change_resend",
+			}),
+		);
+
+		await waitFor(() => {
+			expect(mockState.handleApiError).toHaveBeenCalledWith(resendError);
+		});
+	});
+
 	it("revokes current and non-current sessions from security settings", async () => {
 		render(<SettingsPage section="security" />);
 
@@ -980,6 +1069,55 @@ describe("SettingsPage", () => {
 		});
 	});
 
+	it("reports security session loading and revoke failures", async () => {
+		const loadError = new Error("sessions failed");
+		mockState.authService.listSessions.mockRejectedValueOnce(loadError);
+
+		const firstView = render(<SettingsPage section="security" />);
+		await waitFor(() => {
+			expect(mockState.handleApiError).toHaveBeenCalledWith(loadError);
+		});
+		firstView.unmount();
+		mockState.handleApiError.mockReset();
+
+		const revokeError = new Error("revoke failed");
+		mockState.authService.revokeSession.mockRejectedValueOnce(revokeError);
+		render(<SettingsPage section="security" />);
+
+		fireEvent.click(
+			screen.getByRole("button", {
+				name: "settings:settings_security_tab_sessions",
+			}),
+		);
+		await waitFor(() =>
+			expect(mockState.authService.listSessions).toHaveBeenCalled(),
+		);
+		fireEvent.click(
+			screen.getByRole("button", {
+				name: "settings:settings_sessions_revoke",
+			}),
+		);
+
+		await waitFor(() => {
+			expect(mockState.handleApiError).toHaveBeenCalledWith(revokeError);
+		});
+
+		const revokeOthersError = new Error("revoke others failed");
+		mockState.handleApiError.mockReset();
+		mockState.authService.revokeOtherSessions.mockRejectedValueOnce(
+			revokeOthersError,
+		);
+		fireEvent.click(
+			screen.getByRole("button", {
+				name: "settings:settings_sessions_revoke_others",
+			}),
+		);
+
+		await waitFor(() => {
+			expect(mockState.handleApiError).toHaveBeenCalledWith(revokeOthersError);
+		});
+	});
+
 	it("shows a query toast after redirecting into security settings", async () => {
 		mockState.location = {
 			hash: "",
@@ -1005,6 +1143,57 @@ describe("SettingsPage", () => {
 			},
 			{ replace: true },
 		);
+	});
+
+	it("shows security redirect error toasts", async () => {
+		const cases = [
+			{
+				description: "auth:verify_contact_expired_desc",
+				id: "contact-verification-expired-settings",
+				search: "?contact_verification=expired",
+				title: "auth:verify_contact_expired_title",
+			},
+			{
+				description: "auth:verify_contact_invalid_desc",
+				id: "contact-verification-invalid-settings",
+				search: "?contact_verification=invalid",
+				title: "auth:verify_contact_invalid_title",
+			},
+			{
+				description: "auth:verify_contact_missing_token_desc",
+				id: "contact-verification-missing-settings",
+				search: "?contact_verification=missing",
+				title: "auth:verify_contact_missing_token_title",
+			},
+		];
+
+		for (const item of cases) {
+			mockState.location = {
+				hash: "#security",
+				pathname: "/settings/security",
+				search: item.search,
+			};
+			mockState.navigate.mockReset();
+			mockState.toastError.mockReset();
+
+			const view = render(<SettingsPage section="security" />);
+
+			await waitFor(() => {
+				expect(mockState.toastError).toHaveBeenCalledWith(item.title, {
+					description: item.description,
+					id: item.id,
+				});
+			});
+			expect(mockState.navigate).toHaveBeenCalledWith(
+				{
+					hash: "#security",
+					pathname: "/settings/security",
+					search: "",
+				},
+				{ replace: true },
+			);
+			view.unmount();
+		}
 	});
 
 	it("saves the display name through the profile endpoint", async () => {

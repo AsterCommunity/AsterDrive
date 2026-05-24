@@ -206,6 +206,25 @@ describe("useAuthStore edge cases", () => {
 		expect(mockState.warn).toHaveBeenCalledWith("refreshUser failed", failure);
 	});
 
+	it("rejects MFA-required login responses before syncing a session", async () => {
+		mockState.login.mockResolvedValue({
+			status: "mfa_required",
+			expiresIn: 300,
+			flowToken: "mfa-flow",
+			methods: ["totp"],
+		});
+		const { useAuthStore } = await loadStore();
+
+		await expect(
+			useAuthStore.getState().login("alice@example.com", "secret"),
+		).rejects.toThrow("MFA verification is required before session sync");
+		expect(mockState.me).not.toHaveBeenCalled();
+		expect(useAuthStore.getState()).toMatchObject({
+			isAuthenticated: false,
+			user: null,
+		});
+	});
+
 	it("clears local session state when refresh fails with an auth response", async () => {
 		localStorage.setItem(
 			"aster-cached-user",

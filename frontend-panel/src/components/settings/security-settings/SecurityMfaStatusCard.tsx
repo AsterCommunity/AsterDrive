@@ -8,7 +8,7 @@ import type { PendingAction } from "./mfaTypes";
 interface SecurityMfaStatusCardProps {
 	factor: MfaFactorInfo;
 	recoveryCodesRemaining: number;
-	onRequestConfirm: (action: Exclude<PendingAction, null>) => void;
+	onOpenAction: (action: Exclude<PendingAction, null>) => void;
 }
 
 function methodLabel(method: MfaFactorInfo["method"]) {
@@ -17,7 +17,7 @@ function methodLabel(method: MfaFactorInfo["method"]) {
 
 export function SecurityMfaStatusCard({
 	factor,
-	onRequestConfirm,
+	onOpenAction,
 	recoveryCodesRemaining,
 }: SecurityMfaStatusCardProps) {
 	const { t } = useTranslation(["settings"]);
@@ -42,7 +42,7 @@ export function SecurityMfaStatusCard({
 					<Button
 						type="button"
 						variant="outline"
-						onClick={() => onRequestConfirm("regenerate")}
+						onClick={() => onOpenAction("regenerate")}
 					>
 						<Icon name="ArrowsClockwise" className="mr-2 size-4" />
 						{t("settings:settings_mfa_regenerate_recovery")}
@@ -50,7 +50,7 @@ export function SecurityMfaStatusCard({
 					<Button
 						type="button"
 						variant="destructive"
-						onClick={() => onRequestConfirm("disable")}
+						onClick={() => onOpenAction("disable")}
 					>
 						<Icon name="Trash" className="mr-2 size-4" />
 						{t("settings:settings_mfa_disable")}

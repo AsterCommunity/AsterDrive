@@ -662,6 +662,26 @@ describe("UserDetailDialog", () => {
 		);
 	});
 
+	it("validates admin password reset fields before submitting", async () => {
+		renderDialog();
+
+		await waitForPolicyLoad();
+		fireEvent.change(screen.getByLabelText("password"), {
+			target: { value: "short" },
+		});
+		fireEvent.change(screen.getByLabelText("confirm_password"), {
+			target: { value: "different" },
+		});
+		fireEvent.click(
+			screen.getAllByRole("button", { name: "reset_password" })[0],
+		);
+
+		await waitFor(() => {
+			expect(screen.getByText("password_confirm_mismatch")).toBeInTheDocument();
+		});
+		expect(mockState.resetPassword).not.toHaveBeenCalled();
+	});
+
 	it("resets user MFA from the detail dialog", async () => {
 		renderDialog();
 

@@ -65,6 +65,12 @@ function normalizeTotpCode(code: string) {
 	return code.trim().replace(/\s/g, "");
 }
 
+function resolveMfaRedirectExpiresAt(expiresIn: string | null) {
+	const parsed = Number(expiresIn);
+	const ttlSeconds = Number.isFinite(parsed) && parsed > 0 ? parsed : 300;
+	return Date.now() + ttlSeconds * 1000;
+}
+
 function useLoginPageController() {
 	const { t } = useTranslation(["auth", "core", "settings"]);
 	const { hash, pathname, search } = useLocation();
@@ -161,6 +167,7 @@ function useLoginPageController() {
 		const searchParams = new URLSearchParams(search);
 		const mfaStatus = searchParams.get("mfa");
 		const mfaFlow = searchParams.get("flow");
+		const mfaExpiresIn = searchParams.get("expires_in");
 		const returnPath = searchParams.get("return_path") || "/";
 		const externalAuthStatus = searchParams.get("external_auth");
 		const externalAuthMessage = searchParams.get("message");
@@ -222,7 +229,7 @@ function useLoginPageController() {
 			dispatchAuthPanel({
 				type: "open_mfa",
 				challenge: {
-					expiresAt: Date.now() + 300_000,
+					expiresAt: resolveMfaRedirectExpiresAt(mfaExpiresIn),
 					flowToken: mfaFlow,
 					methods: ["totp", "recovery_code"],
 					returnPath,
@@ -275,6 +282,7 @@ function useLoginPageController() {
 		searchParams.delete("code");
 		searchParams.delete("message");
 		searchParams.delete("flow");
+		searchParams.delete("expires_in");
 		searchParams.delete("return_path");
 		const cleanedSearch = searchParams.toString();
 

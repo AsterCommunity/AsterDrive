@@ -229,6 +229,15 @@ function createProps(
 	} satisfies ComponentProps<typeof AdminTeamDetailMembersSection>;
 }
 
+function expectNumericStateUpdater(
+	value: number | ((current: number) => number) | undefined,
+	current: number,
+	expected: number,
+) {
+	expect(typeof value).toBe("function");
+	expect((value as (current: number) => number)(current)).toBe(expected);
+}
+
 describe("AdminTeamDetailMembersSection", () => {
 	it("wires filters, sorting, member mutation controls and pagination", () => {
 		const props = createProps();
@@ -274,7 +283,11 @@ describe("AdminTeamDetailMembersSection", () => {
 		const nextPageButton = screen.getByText("CaretRight").closest("button");
 		if (!nextPageButton) throw new Error("Expected next page button");
 		fireEvent.click(nextPageButton);
-		expect(props.setMemberOffset).toHaveBeenCalledWith(10);
+		expectNumericStateUpdater(
+			vi.mocked(props.setMemberOffset).mock.lastCall?.[0],
+			props.memberOffset,
+			10,
+		);
 	});
 
 	it("renders readonly, loading and empty states", () => {

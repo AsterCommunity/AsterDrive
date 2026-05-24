@@ -38,6 +38,7 @@
 	"settings_mfa_finish_setup": "Enable MFA",
 	"settings_mfa_enabled": "MFA enabled.",
 	"settings_mfa_disabled": "MFA disabled.",
+	"settings_mfa_disable_missing_factor": "MFA is already disabled. Refresh the settings and try again if needed.",
 	"settings_mfa_enabled_at": "enabled",
 	"settings_mfa_recovery_remaining": "{{count}} recovery codes remaining",
 	"settings_mfa_regenerate_recovery": "Regenerate recovery codes",

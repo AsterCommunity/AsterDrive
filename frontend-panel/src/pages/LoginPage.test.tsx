@@ -49,6 +49,12 @@ const mockTranslate = vi.hoisted(
 		) {
 			return `external_auth_sign_in_with ${options.provider}`;
 		}
+		if (
+			normalized === "mfa_flow_remaining" &&
+			typeof options?.seconds === "number"
+		) {
+			return `mfa_flow_remaining ${options.seconds}`;
+		}
 		return normalized;
 	},
 );
@@ -587,16 +593,19 @@ describe("LoginPage", () => {
 	});
 
 	it("opens an MFA challenge from the redirect query and verifies back to the requested return path", async () => {
+		vi.useFakeTimers({ shouldAdvanceTime: true });
+		vi.setSystemTime(new Date("2026-05-24T08:00:00.000Z"));
 		mockState.location = {
 			hash: "#top",
 			pathname: "/login",
 			search:
-				"?mfa=required&flow=redirect-flow&return_path=%2Fsettings%2Fsecurity",
+				"?mfa=required&flow=redirect-flow&expires_in=120&return_path=%2Fsettings%2Fsecurity",
 		};
 
 		render(<LoginPage />);
 
 		expect(await screen.findByText("mfa_panel_title")).toBeInTheDocument();
+		expect(screen.getByText("mfa_flow_remaining 120")).toBeInTheDocument();
 		expect(mockState.navigate).toHaveBeenCalledWith(
 			{
 				hash: "#top",

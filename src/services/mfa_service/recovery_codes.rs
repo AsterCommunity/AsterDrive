@@ -11,6 +11,7 @@ use crate::utils::hash;
 use super::{RECOVERY_CODE_CHARS, RECOVERY_CODE_COUNT, now_utc};
 
 const RECOVERY_CODE_ALPHABET: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
+const RECOVERY_CODE_GROUPS: usize = 3;
 
 pub struct GeneratedRecoveryCodes {
     pub plaintext: Vec<String>,
@@ -74,8 +75,12 @@ fn generate_code() -> String {
             let idx = rng.random_range(0..RECOVERY_CODE_ALPHABET.len());
             RECOVERY_CODE_ALPHABET[idx] as char
         })
-        .collect::<String>();
-    format!("{}-{}-{}", &raw[..4], &raw[4..8], &raw[8..12])
+        .collect::<Vec<_>>();
+    let group_size = RECOVERY_CODE_CHARS.div_ceil(RECOVERY_CODE_GROUPS).max(1);
+    raw.chunks(group_size)
+        .map(|chunk| chunk.iter().collect::<String>())
+        .collect::<Vec<_>>()
+        .join("-")
 }
 
 fn normalize_code(code: &str) -> Result<String> {
