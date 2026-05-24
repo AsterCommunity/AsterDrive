@@ -25,6 +25,7 @@ import { useAuthStore } from "@/stores/authStore";
 import { useFileStore } from "@/stores/fileStore";
 import { useWorkspaceStore } from "@/stores/workspaceStore";
 import type { FolderListItem } from "@/types/api";
+import { AnimatedTreeGroup } from "./folder-tree/AnimatedTreeGroup";
 import { FolderTreeNodeRow } from "./folder-tree/FolderTreeNode";
 import {
 	cloneNodeEntries,
@@ -550,8 +551,10 @@ export function FolderTree({ onMoveToFolder }: FolderTreeProps = {}) {
 							}}
 						>
 							<Icon
-								name={rootExpanded ? "CaretDown" : "CaretRight"}
-								className="size-3 text-muted-foreground"
+								name="CaretRight"
+								className={`size-3 text-muted-foreground transition-transform duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none ${
+									rootExpanded ? "rotate-90" : "rotate-0"
+								}`}
 							/>
 						</button>
 						<div className="flex min-w-0 flex-1 items-center gap-2 px-1">
@@ -562,7 +565,9 @@ export function FolderTree({ onMoveToFolder }: FolderTreeProps = {}) {
 							<span className="truncate">{t("root")}</span>
 						</div>
 					</div>
-					{rootExpanded && renderChildren(visibleRootIds, 1)}
+					<AnimatedTreeGroup open={rootExpanded && visibleRootIds.length > 0}>
+						{renderChildren(visibleRootIds, 1)}
+					</AnimatedTreeGroup>
 				</>
 			)}
 		</div>

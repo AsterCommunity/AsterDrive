@@ -208,7 +208,9 @@ describe("FolderTree", () => {
 
 		expect(mockState.navigate).not.toHaveBeenCalled();
 		expect(rootRow).toHaveAttribute("aria-expanded", "false");
-		expect(screen.queryByText("Alpha")).not.toBeInTheDocument();
+		await waitFor(() => {
+			expect(screen.queryByText("Alpha")).not.toBeInTheDocument();
+		});
 
 		fireEvent.click(screen.getByRole("button", { name: "expand_tree" }));
 

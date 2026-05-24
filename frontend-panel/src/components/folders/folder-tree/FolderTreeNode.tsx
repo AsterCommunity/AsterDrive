@@ -14,6 +14,7 @@ import {
 	writeInternalDragData,
 } from "@/lib/dragDrop";
 import { folderTreeRowClass } from "@/lib/utils";
+import { AnimatedTreeGroup } from "./AnimatedTreeGroup";
 import type { TreeNodeProps } from "./types";
 
 export function FolderTreeNodeRow({
@@ -135,12 +136,12 @@ export function FolderTreeNodeRow({
 					>
 						{isLoading ? (
 							<div className="size-3 animate-spin rounded-full border-2 border-t-muted-foreground border-muted-foreground/30" />
-						) : isExpanded ? (
-							<Icon name="CaretDown" className="size-3 text-muted-foreground" />
 						) : (
 							<Icon
 								name="CaretRight"
-								className="size-3 text-muted-foreground"
+								className={`size-3 text-muted-foreground transition-transform duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none ${
+									isExpanded ? "rotate-90" : "rotate-0"
+								}`}
 							/>
 						)}
 					</button>
@@ -162,9 +163,9 @@ export function FolderTreeNodeRow({
 					<span className="truncate">{node.folder.name}</span>
 				</div>
 			</div>
-			{isExpanded &&
-				node.childIds.length > 0 &&
-				renderChildren(node.childIds, depth + 1)}
+			<AnimatedTreeGroup open={isExpanded && node.childIds.length > 0}>
+				{renderChildren(node.childIds, depth + 1)}
+			</AnimatedTreeGroup>
 		</div>
 	);
 }
