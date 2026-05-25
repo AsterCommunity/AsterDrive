@@ -147,6 +147,7 @@ export function EditShareDialog({
 							<Input
 								id="edit-share-password"
 								type="password"
+								autoComplete="new-password"
 								placeholder={t("share:share_password_placeholder")}
 								value={password}
 								onChange={(event) => setPassword(event.target.value)}

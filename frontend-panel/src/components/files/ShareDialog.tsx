@@ -215,6 +215,7 @@ export function ShareDialog({
 									<Input
 										id="share-password"
 										type="password"
+										autoComplete="new-password"
 										placeholder={t("share:share_password_placeholder")}
 										value={password}
 										onChange={(e) => setPassword(e.target.value)}

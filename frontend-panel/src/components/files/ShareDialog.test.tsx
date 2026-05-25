@@ -252,7 +252,11 @@ describe("ShareDialog", () => {
 			<ShareDialog open onOpenChange={vi.fn()} fileId={42} name="report.pdf" />,
 		);
 
-		fireEvent.change(screen.getByLabelText("share:share_password_optional"), {
+		const passwordInput = screen.getByLabelText(
+			"share:share_password_optional",
+		);
+		expect(passwordInput).toHaveAttribute("autocomplete", "new-password");
+		fireEvent.change(passwordInput, {
 			target: { value: "secret" },
 		});
 		fireEvent.change(screen.getByTestId("share-expiry"), {

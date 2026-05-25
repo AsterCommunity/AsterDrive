@@ -34,6 +34,7 @@ export function SharePasswordPanel({
 					<Input
 						id="share-password"
 						type="password"
+						autoComplete="current-password"
 						placeholder={t("core:password")}
 						value={password}
 						onChange={(event) => onPasswordChange(event.target.value)}

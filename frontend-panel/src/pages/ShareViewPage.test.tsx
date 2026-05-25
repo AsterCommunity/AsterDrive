@@ -700,6 +700,7 @@ describe("ShareViewPage", () => {
 		expect(mockState.previewAppStore.load).toHaveBeenCalledTimes(1);
 		const passwordInput = screen.getByLabelText("password");
 		expect(passwordInput).toHaveAttribute("id", "share-password");
+		expect(passwordInput).toHaveAttribute("autocomplete", "current-password");
 		expect(passwordInput).not.toHaveAttribute("autofocus");
 		fireEvent.change(passwordInput, {
 			target: { value: "letmein" },

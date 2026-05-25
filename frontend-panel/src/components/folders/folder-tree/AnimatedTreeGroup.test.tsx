@@ -1,20 +1,23 @@
-import { render, screen, waitFor } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { render, screen } from "@testing-library/react";
+import { describe, expect, it } from "vitest";
 import { AnimatedTreeGroup } from "./AnimatedTreeGroup";
 
 describe("AnimatedTreeGroup", () => {
-	beforeEach(() => {
-		vi.useRealTimers();
-	});
-
-	it("keeps tree row content visible while opening", async () => {
+	it("keeps tree row content mounted and visible while opening", () => {
 		const { container, rerender } = render(
 			<AnimatedTreeGroup open={false}>
 				<div>Child Folder</div>
 			</AnimatedTreeGroup>,
 		);
 
-		expect(screen.queryByText("Child Folder")).not.toBeInTheDocument();
+		const closedGroup = container.firstElementChild as HTMLElement | null;
+		const closedContent = closedGroup?.firstElementChild as HTMLElement | null;
+
+		expect(screen.getByText("Child Folder")).toBeInTheDocument();
+		expect(closedGroup).toHaveAttribute("aria-hidden", "true");
+		expect(closedGroup).toHaveAttribute("inert");
+		expect(closedGroup).toHaveClass("grid-rows-[0fr]");
+		expect(closedContent).toHaveClass("scale-y-0");
 
 		rerender(
 			<AnimatedTreeGroup open>
@@ -26,13 +29,13 @@ describe("AnimatedTreeGroup", () => {
 		const content = group?.firstElementChild as HTMLElement | null;
 
 		expect(screen.getByText("Child Folder")).toBeInTheDocument();
-		expect(group?.style.transitionProperty).toBe("max-height");
-		expect(content?.style.transitionProperty).toBe("transform");
-		expect(group?.style.opacity).toBe("");
-		expect(content?.style.opacity).toBe("");
+		expect(group).toHaveAttribute("aria-hidden", "false");
+		expect(group).not.toHaveAttribute("inert");
+		expect(group).toHaveClass("grid-rows-[1fr]");
+		expect(content).toHaveClass("scale-y-100");
 	});
 
-	it("unmounts children after the collapse motion finishes", async () => {
+	it("hides the collapsed subtree from accessibility and interaction", () => {
 		const { rerender } = render(
 			<AnimatedTreeGroup open>
 				<div>Child Folder</div>
@@ -48,9 +51,8 @@ describe("AnimatedTreeGroup", () => {
 		);
 
 		expect(screen.getByText("Child Folder")).toBeInTheDocument();
-
-		await waitFor(() => {
-			expect(screen.queryByText("Child Folder")).not.toBeInTheDocument();
-		});
+		expect(
+			screen.getByText("Child Folder").closest("[aria-hidden]"),
+		).toHaveAttribute("aria-hidden", "true");
 	});
 });

@@ -201,7 +201,11 @@ describe("EditShareDialog", () => {
 		fireEvent.change(screen.getByTestId("share-password-action"), {
 			target: { value: "set" },
 		});
-		fireEvent.change(screen.getByLabelText("share:share_password_optional"), {
+		const passwordInput = screen.getByLabelText(
+			"share:share_password_optional",
+		);
+		expect(passwordInput).toHaveAttribute("autocomplete", "new-password");
+		fireEvent.change(passwordInput, {
 			target: { value: "new-secret" },
 		});
 		fireEvent.change(screen.getByLabelText("share:share_expiration"), {
