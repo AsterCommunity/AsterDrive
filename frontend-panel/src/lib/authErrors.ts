@@ -28,5 +28,9 @@ function readApiResponseCode(error: unknown): number | null {
 
 export function isTokenAuthError(error: unknown): boolean {
 	const code = readApiCode(error) ?? readApiResponseCode(error);
-	return code === ErrorCode.TokenExpired || code === ErrorCode.TokenInvalid;
+	return (
+		code === ErrorCode.TokenExpired ||
+		code === ErrorCode.TokenInvalid ||
+		code === ErrorCode.TokenMissing
+	);
 }

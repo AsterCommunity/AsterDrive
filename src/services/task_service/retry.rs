@@ -57,6 +57,8 @@ pub(super) fn default_retry_class(error: &AsterError) -> TaskRetryClass {
         | AsterError::AuthInvalidCredentials(_)
         | AsterError::AuthTokenExpired(_)
         | AsterError::AuthTokenInvalid(_)
+        | AsterError::AuthTokenMissing(_)
+        | AsterError::AuthMfaFailed(_)
         | AsterError::AuthForbidden(_)
         | AsterError::AuthPendingActivation(_)
         | AsterError::ContactVerificationInvalid(_)

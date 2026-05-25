@@ -300,6 +300,7 @@ fn download_failure_reason(error: &AsterError) -> &'static str {
         AsterError::SharePasswordRequired(_) => "password_required",
         AsterError::ShareDownloadLimit(_) => "download_limit",
         AsterError::AuthForbidden(_) | AsterError::AuthPendingActivation(_) => "forbidden",
+        AsterError::AuthTokenMissing(_) => "token_missing",
         AsterError::AuthTokenExpired(_) => "token_expired",
         AsterError::AuthTokenInvalid(_) => "token_invalid",
         AsterError::ValidationError(_) => "validation",

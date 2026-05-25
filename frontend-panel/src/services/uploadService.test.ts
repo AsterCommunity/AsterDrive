@@ -241,12 +241,31 @@ describe("uploadService", () => {
 		await expect(statusFailure).rejects.toThrow("chunk upload failed: 500");
 		await expect(statusFailure).rejects.toMatchObject({ retryable: true });
 
+		const authFailure = uploadService.uploadChunk(
+			"upload-1",
+			5,
+			new Blob(["e"]),
+		);
+		const xhrAuth = MockXMLHttpRequest.instances[2];
+		xhrAuth.status = 401;
+		xhrAuth.responseText = JSON.stringify({
+			code: ErrorCode.TokenMissing,
+			msg: "missing token",
+		});
+		xhrAuth.onload?.();
+		await expect(authFailure).rejects.toThrow("missing token");
+		await expect(authFailure).rejects.toMatchObject({
+			authFailure: true,
+			retryable: true,
+			status: 401,
+		});
+
 		const networkFailure = uploadService.uploadChunk(
 			"upload-1",
 			3,
 			new Blob(["c"]),
 		);
-		const xhrNetwork = MockXMLHttpRequest.instances[2];
+		const xhrNetwork = MockXMLHttpRequest.instances[3];
 		xhrNetwork.onerror?.();
 		await expect(networkFailure).rejects.toThrow("network error");
 		await expect(networkFailure).rejects.toMatchObject({ retryable: true });
@@ -256,7 +275,7 @@ describe("uploadService", () => {
 			4,
 			new Blob(["d"]),
 		);
-		const xhrParse = MockXMLHttpRequest.instances[3];
+		const xhrParse = MockXMLHttpRequest.instances[4];
 		xhrParse.status = 200;
 		xhrParse.responseText = "";
 		xhrParse.onload?.();

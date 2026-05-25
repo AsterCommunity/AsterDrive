@@ -26,6 +26,7 @@ export type {
 };
 
 export class UploadRequestError extends Error {
+	authFailure: boolean;
 	isAborted: boolean;
 	retryable: boolean;
 	status?: number;
@@ -33,6 +34,7 @@ export class UploadRequestError extends Error {
 	constructor(
 		message: string,
 		options?: {
+			authFailure?: boolean;
 			isAborted?: boolean;
 			retryable?: boolean;
 			status?: number;
@@ -40,6 +42,7 @@ export class UploadRequestError extends Error {
 	) {
 		super(message);
 		this.name = "UploadRequestError";
+		this.authFailure = options?.authFailure ?? false;
 		this.isAborted = options?.isAborted ?? false;
 		this.retryable = options?.retryable ?? false;
 		this.status = options?.status;
@@ -58,6 +61,33 @@ function parseApiMessage(responseText: string): string | null {
 	} catch {
 		return null;
 	}
+}
+
+function parseApiErrorResponse(responseText: string): {
+	code?: number;
+	msg?: string;
+} | null {
+	if (!responseText) return null;
+	try {
+		const parsed = JSON.parse(responseText) as {
+			code?: unknown;
+			msg?: unknown;
+		};
+		return {
+			code: typeof parsed.code === "number" ? parsed.code : undefined,
+			msg: typeof parsed.msg === "string" ? parsed.msg : undefined,
+		};
+	} catch {
+		return null;
+	}
+}
+
+function isTokenUploadErrorCode(code: number | undefined): boolean {
+	return (
+		code === ErrorCode.TokenExpired ||
+		code === ErrorCode.TokenInvalid ||
+		code === ErrorCode.TokenMissing
+	);
 }
 
 export function isRetryableUploadError(error: unknown): boolean {
@@ -151,13 +181,15 @@ export function createUploadService(workspace: Workspace = PERSONAL_WORKSPACE) {
 							);
 						}
 					} else {
+						const apiError = parseApiErrorResponse(xhr.responseText);
+						const authFailure = isTokenUploadErrorCode(apiError?.code);
 						reject(
 							new UploadRequestError(
-								parseApiMessage(xhr.responseText) ??
-									`chunk upload failed: ${xhr.status}`,
+								apiError?.msg ?? `chunk upload failed: ${xhr.status}`,
 								{
 									status: xhr.status,
-									retryable: isRetryableHttpStatus(xhr.status),
+									authFailure,
+									retryable: authFailure || isRetryableHttpStatus(xhr.status),
 								},
 							),
 						);

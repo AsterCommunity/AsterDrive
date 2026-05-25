@@ -5,6 +5,43 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v0.2.0-hotfix.1] - 2026-05-25
+
+### Release Highlights
+
+**`0.2.0` 系列第一个热修复。** 本版本细分认证错误码语义，将原来笼统的 `AuthFailed` (2000) 拆分为 `TokenMissing` (2007)、`CredentialsFailed` (2008) 和 `MfaFailed` (2009) 三个独立错误码，让前端能更精确地处理认证失败场景。
+
+- **认证错误码细分** — 缺少 token、凭证错误和 MFA 验证失败分别返回独立错误码，前端可按语义触发刷新或重定向
+- **SSE 断线重连前刷新会话** — 存储变更事件流断开后先刷新 access token 再重连，减少因 token 过期导致的连续重连失败
+- **上传分块认证失败自动刷新** — 分块上传因 token 认证失败时先刷新会话再立即重试，无需等待退避延迟
+- **侧边栏拖拽手柄无障碍语义修正** — 将 resize handle 从 `<input type="range">` 改为 `<hr>` + ARIA separator，匹配实际交互语义
+
+### Changed
+
+- 后端认证中间件缺少 token 时返回 `TokenMissing` (2007)，不再混入凭证错误
+- MFA 相关错误（验证码错误、流程过期、尝试次数超限、因子未启用、恢复码已用）统一映射到 `MfaFailed` (2009)
+- 凭证错误（密码错误、分享密码错误等）返回 `CredentialsFailed` (2008)
+- 前端 `isTokenAuthError` 匹配 `TokenMissing`，HTTP 拦截器在 `TokenMissing` 时触发 token 刷新重试
+- 存储变更事件流在认证初始化（`isChecking`）期间不建立连接，避免 bootstrap 阶段的无效 SSE 请求
+- 存储变更事件流断线后先刷新 access token，刷新导致会话清除时不再重连
+- 分块上传因 token 认证失败时先刷新会话再立即重试，跳过指数退避延迟
+- 侧边栏宽度调整手柄从 `role=slider` 改为 `role=separator`，修正无障碍语义
+
+### Fixed
+
+- 修复 SSE 事件流因 access token 过期而连续重连失败后最终放弃的问题
+- 修复上传分块因 token 过期失败后仍需等待退避延迟的问题
+- 修复 MFA 验证失败错误码被映射到通用 `AuthFailed` 而非独立 `MfaFailed` 的问题
+- 修复缺少 token 的请求被错误归类为凭证错误的问题
+
+### Notes
+
+- 本版本为 `0.2.0` 系列第一个热修复版本
+- API 错误码新增 2007 (TokenMissing)、2008 (CredentialsFailed)、2009 (MfaFailed)；`AuthFailed` (2000) 仍保留但不再由当前代码路径产生
+- 自定义客户端如果按 `code == 2000` 判断认证失败，建议改为匹配 2000-2009 范围或按具体子码处理
+- 没有新增数据库 migration
+- 统计数据：28 files changed, 430 insertions(+), 72 deletions(-)
+
 ## [v0.2.0] - 2026-05-25
 
 ### Release Highlights
@@ -3429,7 +3466,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 66 commits
 - Rust Edition 2024, MSRV 1.91.1
 
-[Unreleased]: https://github.com/AptS-1547/AsterDrive/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/AptS-1547/AsterDrive/compare/v0.2.0-hotfix.1...HEAD
+[v0.2.0-hotfix.1]: https://github.com/AptS-1547/AsterDrive/compare/v0.2.0...v0.2.0-hotfix.1
 [v0.2.0]: https://github.com/AptS-1547/AsterDrive/compare/v0.2.0-rc.1...v0.2.0
 [v0.2.0-rc.1]: https://github.com/AptS-1547/AsterDrive/compare/v0.2.0-beta.3...v0.2.0-rc.1
 [v0.2.0-beta.3]: https://github.com/AptS-1547/AsterDrive/compare/v0.2.0-beta.2...v0.2.0-beta.3

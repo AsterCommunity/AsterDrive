@@ -112,6 +112,7 @@ function refreshStorageUsage(event: StorageChangeEventPayload) {
 
 export function useStorageChangeEvents() {
 	const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
+	const isChecking = useAuthStore((state) => state.isChecking);
 	const storageEventStreamEnabled = useAuthStore(
 		(state) => state.user?.preferences?.storage_event_stream_enabled !== false,
 	);
@@ -119,6 +120,7 @@ export function useStorageChangeEvents() {
 	useEffect(() => {
 		if (
 			!isAuthenticated ||
+			isChecking ||
 			!storageEventStreamEnabled ||
 			typeof EventSource === "undefined"
 		) {
@@ -131,10 +133,11 @@ export function useStorageChangeEvents() {
 		let source: EventSource | null = null;
 		let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 		let failureCount = 0;
+		let refreshAttemptedForFailureStreak = false;
 		let cancelled = false;
 
 		const scheduleReconnect = () => {
-			if (cancelled) return;
+			if (cancelled || !useAuthStore.getState().isAuthenticated) return;
 			if (failureCount >= SSE_RECONNECT_FAILURE_LIMIT) {
 				logger.warn(
 					`storage event stream gave up after ${failureCount} consecutive failures; reload to retry`,
@@ -156,6 +159,28 @@ export function useStorageChangeEvents() {
 			}, delay);
 		};
 
+		const refreshSessionBeforeReconnect = () => {
+			if (
+				refreshAttemptedForFailureStreak ||
+				!useAuthStore.getState().isAuthenticated
+			) {
+				scheduleReconnect();
+				return;
+			}
+
+			refreshAttemptedForFailureStreak = true;
+			void useAuthStore
+				.getState()
+				.refreshToken()
+				.catch((error) => {
+					logger.debug(
+						"storage change event stream auth refresh before reconnect failed",
+						error,
+					);
+				})
+				.finally(scheduleReconnect);
+		};
+
 		const connect = () => {
 			if (cancelled) return;
 			source = new EventSource(
@@ -166,6 +191,7 @@ export function useStorageChangeEvents() {
 			source.onopen = () => {
 				// 连接确认建立后才重置失败计数；浏览器在 onopen 之前的重连不算成功
 				failureCount = 0;
+				refreshAttemptedForFailureStreak = false;
 			};
 
 			source.onmessage = (message) => {
@@ -224,7 +250,7 @@ export function useStorageChangeEvents() {
 				failureCount += 1;
 				source?.close();
 				source = null;
-				scheduleReconnect();
+				refreshSessionBeforeReconnect();
 			};
 		};
 
@@ -239,5 +265,5 @@ export function useStorageChangeEvents() {
 			source?.close();
 			source = null;
 		};
-	}, [isAuthenticated, storageEventStreamEnabled]);
+	}, [isAuthenticated, isChecking, storageEventStreamEnabled]);
 }

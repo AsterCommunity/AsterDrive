@@ -79,7 +79,11 @@ function tokenApiError(code = ErrorCode.TokenInvalid) {
 	return {
 		code,
 		message:
-			code === ErrorCode.TokenInvalid ? "session revoked" : "token expired",
+			code === ErrorCode.TokenInvalid
+				? "session revoked"
+				: code === ErrorCode.TokenMissing
+					? "missing token"
+					: "token expired",
 	};
 }
 
@@ -174,7 +178,7 @@ describe("useAuthStore edge cases", () => {
 			"aster-auth-expires-at",
 			String(Date.now() + 60_000),
 		);
-		mockState.me.mockRejectedValue(tokenApiError());
+		mockState.me.mockRejectedValue(tokenApiError(ErrorCode.TokenMissing));
 		mockState.isAxiosError.mockReturnValue(false);
 		const { useAuthStore } = await loadStore();
 

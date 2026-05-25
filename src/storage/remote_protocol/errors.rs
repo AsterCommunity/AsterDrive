@@ -184,6 +184,9 @@ pub(super) fn remote_api_error_kind(code: i32) -> Option<StorageErrorKind> {
         code if code == ErrorCode::AuthFailed as i32
             || code == ErrorCode::TokenExpired as i32
             || code == ErrorCode::TokenInvalid as i32
+            || code == ErrorCode::TokenMissing as i32
+            || code == ErrorCode::CredentialsFailed as i32
+            || code == ErrorCode::MfaFailed as i32
             || code == ErrorCode::StorageAuthFailed as i32 =>
         {
             Some(StorageErrorKind::Auth)

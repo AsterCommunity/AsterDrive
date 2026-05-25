@@ -9,7 +9,7 @@ use crate::db::repository::{
     mfa_factor_repo, mfa_login_flow_repo, mfa_totp_setup_flow_repo, user_repo,
 };
 use crate::entities::{mfa_login_flow, user};
-use crate::errors::{AsterError, Result};
+use crate::errors::{AsterError, Result, auth_mfa_failed_with_subcode};
 use crate::runtime::PrimaryAppState;
 use crate::services::{audit_service, auth_service};
 use crate::types::{MfaFactorMethod, MfaFirstFactor, MfaMethod};
@@ -178,7 +178,7 @@ pub async fn verify_challenge(
             let consume_at = (next_attempt_count >= MFA_MAX_ATTEMPTS).then_some(now);
             mfa_login_flow_repo::increment_attempts(&txn, flow.id, consume_at).await?;
             let error = if next_attempt_count >= MFA_MAX_ATTEMPTS {
-                auth_token_invalid_with_subcode(
+                auth_mfa_failed_with_subcode(
                     ApiSubcode::AuthMfaAttemptsExceeded,
                     "MFA attempts exceeded",
                 )
@@ -271,7 +271,7 @@ async fn verify_totp<C: sea_orm::ConnectionTrait>(
     now: chrono::DateTime<Utc>,
 ) -> Result<bool> {
     let Some(factor) = mfa_factor_repo::find_totp_for_user(db, user.id).await? else {
-        return Err(auth_token_invalid_with_subcode(
+        return Err(auth_mfa_failed_with_subcode(
             ApiSubcode::AuthMfaFactorRequired,
             "TOTP factor is not enabled",
         ));
@@ -294,13 +294,13 @@ fn ensure_flow_active(flow: &mfa_login_flow::Model, now: chrono::DateTime<Utc>) 
         return Err(flow_invalid("MFA flow has already been consumed"));
     }
     if flow.expires_at <= now {
-        return Err(auth_token_invalid_with_subcode(
+        return Err(auth_mfa_failed_with_subcode(
             ApiSubcode::AuthMfaFlowExpired,
             "MFA flow has expired",
         ));
     }
     if flow.attempt_count >= MFA_MAX_ATTEMPTS {
-        return Err(auth_token_invalid_with_subcode(
+        return Err(auth_mfa_failed_with_subcode(
             ApiSubcode::AuthMfaAttemptsExceeded,
             "MFA attempts exceeded",
         ));
@@ -324,16 +324,9 @@ fn ensure_flow_user_valid(user: &user::Model, flow: &mfa_login_flow::Model) -> R
 }
 
 fn code_invalid() -> AsterError {
-    auth_token_invalid_with_subcode(ApiSubcode::AuthMfaCodeInvalid, "invalid MFA code")
+    auth_mfa_failed_with_subcode(ApiSubcode::AuthMfaCodeInvalid, "invalid MFA code")
 }
 
 fn flow_invalid(message: impl Into<String>) -> AsterError {
-    auth_token_invalid_with_subcode(ApiSubcode::AuthMfaFlowInvalid, message)
-}
-
-fn auth_token_invalid_with_subcode(subcode: ApiSubcode, message: impl Into<String>) -> AsterError {
-    AsterError::auth_token_invalid(crate::errors::encode_api_error_subcode_message(
-        subcode,
-        message.into(),
-    ))
+    auth_mfa_failed_with_subcode(ApiSubcode::AuthMfaFlowInvalid, message)
 }

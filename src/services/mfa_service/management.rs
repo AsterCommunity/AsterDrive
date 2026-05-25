@@ -12,7 +12,7 @@ use crate::db::repository::{
 };
 use crate::entities::{mfa_factor, mfa_totp_setup_flow};
 use crate::errors::{
-    AsterError, Result, auth_forbidden_with_subcode, auth_invalid_credentials_with_subcode,
+    AsterError, Result, auth_forbidden_with_subcode, auth_mfa_failed_with_subcode,
 };
 use crate::runtime::PrimaryAppState;
 use crate::services::{audit_service, auth_service};
@@ -178,7 +178,10 @@ pub async fn verify_totp_setup(
             &flow.secret_ciphertext,
         )?;
         if !totp::verify_code(&secret, &input.code, now)? {
-            return Err(AsterError::auth_invalid_credentials("invalid TOTP code"));
+            return Err(auth_mfa_failed_with_subcode(
+                ApiSubcode::AuthMfaCodeInvalid,
+                "invalid TOTP code",
+            ));
         }
         if !mfa_totp_setup_flow_repo::consume(&txn, flow.id, now).await? {
             return Err(AsterError::auth_token_invalid(
@@ -375,7 +378,10 @@ async fn verify_sensitive_mfa_code<C: sea_orm::ConnectionTrait>(
     code: Option<&str>,
 ) -> Result<()> {
     let Some(code) = code.map(str::trim).filter(|value| !value.is_empty()) else {
-        return Err(AsterError::auth_invalid_credentials("MFA code is required"));
+        return Err(auth_mfa_failed_with_subcode(
+            ApiSubcode::AuthMfaCodeInvalid,
+            "MFA code is required",
+        ));
     };
     if looks_like_totp_code(code)
         && let Some(factor) = mfa_factor_repo::find_totp_for_user(db, user_id).await?
@@ -395,7 +401,7 @@ async fn verify_sensitive_mfa_code<C: sea_orm::ConnectionTrait>(
     {
         return Ok(());
     }
-    Err(auth_invalid_credentials_with_subcode(
+    Err(auth_mfa_failed_with_subcode(
         ApiSubcode::AuthMfaCodeInvalid,
         "invalid MFA code",
     ))

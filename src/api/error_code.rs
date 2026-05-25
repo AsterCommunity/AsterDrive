@@ -46,6 +46,9 @@ pub enum ErrorCode {
     PendingActivation = 2004,
     ContactVerificationInvalid = 2005,
     ContactVerificationExpired = 2006,
+    TokenMissing = 2007,
+    CredentialsFailed = 2008,
+    MfaFailed = 2009,
 
     // 文件错误 3000-3099
     FileNotFound = 3000,
@@ -119,9 +122,11 @@ impl From<&AsterError> for ErrorCode {
             AsterError::MailDeliveryFailed(_) => ErrorCode::MailDeliveryFailed,
 
             // 认证
-            AsterError::AuthInvalidCredentials(_) => ErrorCode::AuthFailed,
+            AsterError::AuthInvalidCredentials(_) => ErrorCode::CredentialsFailed,
             AsterError::AuthTokenExpired(_) => ErrorCode::TokenExpired,
             AsterError::AuthTokenInvalid(_) => ErrorCode::TokenInvalid,
+            AsterError::AuthTokenMissing(_) => ErrorCode::TokenMissing,
+            AsterError::AuthMfaFailed(_) => ErrorCode::MfaFailed,
             AsterError::AuthForbidden(_) => ErrorCode::Forbidden,
             AsterError::AuthPendingActivation(_) => ErrorCode::PendingActivation,
             AsterError::ContactVerificationInvalid(_) => ErrorCode::ContactVerificationInvalid,
@@ -185,7 +190,7 @@ impl From<&AsterError> for ErrorCode {
 // 穷举性静态检查：AsterError 每新增一个变体，必须同步更新 From 实现，
 // 否则 const 断言会编译失败。
 const _: () = assert!(
-    crate::errors::ASTER_ERROR_VARIANT_COUNT == 38,
+    crate::errors::ASTER_ERROR_VARIANT_COUNT == 40,
     "AsterError variant count mismatch: update the assertion or the From impl"
 );
 
@@ -193,7 +198,37 @@ const _: () = assert!(
 mod tests {
     use super::ErrorCode;
     use crate::api::subcode::ApiSubcode;
-    use crate::errors::validation_error_with_subcode;
+    use crate::errors::{AsterError, validation_error_with_subcode};
+
+    #[test]
+    fn token_missing_maps_to_token_missing_code() {
+        let error = AsterError::auth_token_missing("missing token");
+
+        assert_eq!(ErrorCode::from(&error), ErrorCode::TokenMissing);
+    }
+
+    #[test]
+    fn invalid_credentials_maps_to_credentials_failed_code() {
+        let error = AsterError::auth_invalid_credentials("wrong password");
+
+        assert_eq!(ErrorCode::from(&error), ErrorCode::CredentialsFailed);
+    }
+
+    #[test]
+    fn mfa_error_subcodes_map_to_mfa_failed_code() {
+        for subcode in [
+            ApiSubcode::AuthMfaFlowInvalid,
+            ApiSubcode::AuthMfaFlowExpired,
+            ApiSubcode::AuthMfaCodeInvalid,
+            ApiSubcode::AuthMfaAttemptsExceeded,
+            ApiSubcode::AuthMfaFactorRequired,
+            ApiSubcode::AuthMfaRecoveryCodeUsed,
+        ] {
+            let error = crate::errors::auth_mfa_failed_with_subcode(subcode, "mfa failed");
+
+            assert_eq!(ErrorCode::from(&error), ErrorCode::MfaFailed);
+        }
+    }
 
     #[test]
     fn validation_conflict_subcodes_map_to_conflict() {

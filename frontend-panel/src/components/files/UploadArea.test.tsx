@@ -12,6 +12,7 @@ const loadSessions = vi.fn(() => []);
 const presignedUpload = vi.fn();
 const presignParts = vi.fn();
 const refresh = vi.fn().mockResolvedValue(undefined);
+const refreshToken = vi.fn().mockResolvedValue(undefined);
 const refreshUser = vi.fn().mockResolvedValue(undefined);
 const removeSession = vi.fn();
 const saveSession = vi.fn();
@@ -26,6 +27,7 @@ interface MockFileStoreState {
 }
 
 interface MockAuthStoreState {
+	refreshToken: () => Promise<void>;
 	refreshUser: (options?: { fields?: MeField[] }) => Promise<void>;
 }
 
@@ -122,10 +124,19 @@ vi.mock("@/stores/fileStore", () => ({
 }));
 
 vi.mock("@/stores/authStore", () => ({
-	useAuthStore: <T,>(selector: (state: MockAuthStoreState) => T) =>
-		selector({
-			refreshUser,
-		}),
+	useAuthStore: Object.assign(
+		<T,>(selector: (state: MockAuthStoreState) => T) =>
+			selector({
+				refreshToken,
+				refreshUser,
+			}),
+		{
+			getState: () => ({
+				refreshToken,
+				refreshUser,
+			}),
+		},
+	),
 }));
 
 vi.mock("@/lib/uploadPersistence", () => ({
@@ -249,6 +260,8 @@ describe("UploadArea", () => {
 		presignParts.mockReset();
 		refresh.mockReset();
 		refresh.mockResolvedValue(undefined);
+		refreshToken.mockReset();
+		refreshToken.mockResolvedValue(undefined);
 		refreshUser.mockReset();
 		refreshUser.mockResolvedValue(undefined);
 		removeSession.mockReset();
@@ -521,6 +534,37 @@ describe("UploadArea", () => {
 		expectUploadChunkStarted("upload-chunked", 0);
 		expect(completeUpload).toHaveBeenCalledWith("upload-chunked", undefined);
 		expect(removeSession).toHaveBeenCalledWith("upload-chunked");
+	});
+
+	it("refreshes the session before retrying a chunk after token auth failure", async () => {
+		initUpload.mockResolvedValue({
+			mode: "chunked",
+			upload_id: "upload-chunked",
+			chunk_size: 5,
+			total_chunks: 1,
+		});
+		uploadChunk
+			.mockRejectedValueOnce(
+				Object.assign(new Error("missing token"), {
+					authFailure: true,
+					retryable: true,
+				}),
+			)
+			.mockResolvedValueOnce({});
+		completeUpload.mockResolvedValue({ id: 9002 });
+
+		await uploadOneFile();
+
+		await screen.findByText("hello.txt:Chunked:files:upload_success");
+
+		expect(uploadChunk).toHaveBeenCalledTimes(2);
+		expect(refreshToken).toHaveBeenCalledTimes(1);
+		expect(refreshToken.mock.invocationCallOrder[0]).toBeGreaterThan(
+			uploadChunk.mock.invocationCallOrder[0],
+		);
+		expect(refreshToken.mock.invocationCallOrder[0]).toBeLessThan(
+			uploadChunk.mock.invocationCallOrder[1],
+		);
 	});
 
 	it("reports chunked upload progress before a chunk completes", async () => {

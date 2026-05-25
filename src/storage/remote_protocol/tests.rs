@@ -297,11 +297,19 @@ async fn spawn_protocol_server() -> (TestHttpServer, Arc<ProtocolLog>) {
 #[test]
 fn remote_api_error_kind_maps_auth_codes() {
     assert_eq!(
-        remote_api_error_kind(ErrorCode::AuthFailed as i32),
+        remote_api_error_kind(ErrorCode::CredentialsFailed as i32),
         Some(StorageErrorKind::Auth)
     );
     assert_eq!(
         remote_api_error_kind(ErrorCode::TokenExpired as i32),
+        Some(StorageErrorKind::Auth)
+    );
+    assert_eq!(
+        remote_api_error_kind(ErrorCode::TokenMissing as i32),
+        Some(StorageErrorKind::Auth)
+    );
+    assert_eq!(
+        remote_api_error_kind(ErrorCode::MfaFailed as i32),
         Some(StorageErrorKind::Auth)
     );
 }

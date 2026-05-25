@@ -8,6 +8,8 @@ import {
 const mockState = vi.hoisted(() => ({
 	auth: {
 		isAuthenticated: true,
+		isChecking: false,
+		refreshToken: vi.fn(),
 		refreshUser: vi.fn(),
 		user: {
 			id: 100,
@@ -165,6 +167,9 @@ describe("useStorageChangeEvents", () => {
 	beforeEach(() => {
 		MockEventSource.reset();
 		mockState.auth.isAuthenticated = true;
+		mockState.auth.isChecking = false;
+		mockState.auth.refreshToken.mockReset();
+		mockState.auth.refreshToken.mockResolvedValue(undefined);
 		mockState.auth.refreshUser.mockReset();
 		mockState.auth.refreshUser.mockResolvedValue(undefined);
 		mockState.auth.user.preferences.storage_event_stream_enabled = true;
@@ -444,6 +449,19 @@ describe("useStorageChangeEvents", () => {
 		});
 	});
 
+	it("does not open the event stream while auth bootstrap is checking", async () => {
+		mockState.auth.isChecking = true;
+		const { useStorageChangeEvents } = await import(
+			"@/hooks/useStorageChangeEvents"
+		);
+
+		renderHook(() => useStorageChangeEvents());
+
+		await waitFor(() => {
+			expect(MockEventSource.instances).toHaveLength(0);
+		});
+	});
+
 	it("reconnects with exponential backoff after onerror", async () => {
 		vi.useFakeTimers();
 		try {
@@ -458,21 +476,65 @@ describe("useStorageChangeEvents", () => {
 			// 第 1 次失败 → 退避 1000ms 后重连
 			MockEventSource.instances[0]?.triggerError();
 			expect(MockEventSource.instances[0]?.close).toHaveBeenCalledTimes(1);
+			expect(mockState.auth.refreshToken).toHaveBeenCalledTimes(1);
 			expect(MockEventSource.instances).toHaveLength(1);
-			vi.advanceTimersByTime(999);
+			await vi.advanceTimersByTimeAsync(999);
 			expect(MockEventSource.instances).toHaveLength(1);
-			vi.advanceTimersByTime(1);
+			await vi.advanceTimersByTimeAsync(1);
 			expect(MockEventSource.instances).toHaveLength(2);
 
 			// 第 2 次失败 → 2000ms 后重连
 			MockEventSource.instances[1]?.triggerError();
-			vi.advanceTimersByTime(2000);
+			await vi.advanceTimersByTimeAsync(2000);
 			expect(MockEventSource.instances).toHaveLength(3);
 
 			// 第 3 次失败 → 4000ms
 			MockEventSource.instances[2]?.triggerError();
-			vi.advanceTimersByTime(4000);
+			await vi.advanceTimersByTimeAsync(4000);
 			expect(MockEventSource.instances).toHaveLength(4);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it("refreshes the session before reconnecting after onerror", async () => {
+		vi.useFakeTimers();
+		try {
+			const { useStorageChangeEvents } = await import(
+				"@/hooks/useStorageChangeEvents"
+			);
+			renderHook(() => useStorageChangeEvents());
+
+			MockEventSource.instances[0]?.triggerError();
+
+			expect(mockState.auth.refreshToken).toHaveBeenCalledTimes(1);
+			expect(MockEventSource.instances).toHaveLength(1);
+
+			await vi.advanceTimersByTimeAsync(1000);
+
+			expect(MockEventSource.instances).toHaveLength(2);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it("does not reconnect when auth refresh clears the session", async () => {
+		vi.useFakeTimers();
+		try {
+			mockState.auth.refreshToken.mockImplementationOnce(async () => {
+				mockState.auth.isAuthenticated = false;
+				throw new Error("refresh failed");
+			});
+			const { useStorageChangeEvents } = await import(
+				"@/hooks/useStorageChangeEvents"
+			);
+			renderHook(() => useStorageChangeEvents());
+
+			MockEventSource.instances[0]?.triggerError();
+			await vi.advanceTimersByTimeAsync(60_000);
+
+			expect(mockState.auth.refreshToken).toHaveBeenCalledTimes(1);
+			expect(MockEventSource.instances).toHaveLength(1);
 		} finally {
 			vi.useRealTimers();
 		}
@@ -489,7 +551,7 @@ describe("useStorageChangeEvents", () => {
 			expect(MockEventSource.instances).toHaveLength(1);
 
 			MockEventSource.instances[0]?.triggerClosedError();
-			vi.advanceTimersByTime(60_000);
+			await vi.advanceTimersByTimeAsync(60_000);
 
 			expect(MockEventSource.instances[0]?.close).not.toHaveBeenCalled();
 			expect(MockEventSource.instances).toHaveLength(1);
@@ -508,7 +570,7 @@ describe("useStorageChangeEvents", () => {
 
 			// 失败 1 次累计 failureCount=1，等待 1000ms 后重连
 			MockEventSource.instances[0]?.triggerError();
-			vi.advanceTimersByTime(1000);
+			await vi.advanceTimersByTimeAsync(1000);
 			expect(MockEventSource.instances).toHaveLength(2);
 
 			// 第 2 个连接成功 onopen → 重置计数
@@ -516,9 +578,9 @@ describe("useStorageChangeEvents", () => {
 
 			// 再次失败应当回到 1000ms（如果未重置就是 2000ms）
 			MockEventSource.instances[1]?.triggerError();
-			vi.advanceTimersByTime(999);
+			await vi.advanceTimersByTimeAsync(999);
 			expect(MockEventSource.instances).toHaveLength(2);
-			vi.advanceTimersByTime(1);
+			await vi.advanceTimersByTimeAsync(1);
 			expect(MockEventSource.instances).toHaveLength(3);
 		} finally {
 			vi.useRealTimers();
@@ -537,14 +599,14 @@ describe("useStorageChangeEvents", () => {
 			for (let i = 0; i < 8; i += 1) {
 				MockEventSource.instances[i]?.triggerError();
 				// 退避上限 30s 足以覆盖最大 delay（2^7 * 1000 = 128000 → cap 30000）
-				vi.advanceTimersByTime(30_000);
+				await vi.advanceTimersByTimeAsync(30_000);
 			}
 			// 此时应已建 8 个 EventSource（i=0..7 的 instance）
 			expect(MockEventSource.instances).toHaveLength(8);
 
 			// 第 8 次失败 → failureCount=8 = limit → 不再 schedule
 			MockEventSource.instances[7]?.triggerError();
-			vi.advanceTimersByTime(60_000);
+			await vi.advanceTimersByTimeAsync(60_000);
 			expect(MockEventSource.instances).toHaveLength(8);
 
 			// unmount 时清理 timer + 关闭 source（不 throw）

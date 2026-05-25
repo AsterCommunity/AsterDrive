@@ -1,7 +1,7 @@
 {
 	"name": "asterdrive-panel",
 	"private": true,
-	"version": "0.2.0",
+	"version": "0.2.0-hotfix.1",
 	"type": "module",
 	"scripts": {
 		"extract:pdfjs-cmaps": "node ./scripts/extract-pdfjs-cmaps.mjs",

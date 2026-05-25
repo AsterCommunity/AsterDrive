@@ -366,6 +366,47 @@ describe("http api helpers", () => {
 		);
 	});
 
+	it("refreshes and retries when the protected request has no access token", async () => {
+		mockState.client.mockResolvedValue({
+			data: {
+				code: ErrorCode.Success,
+				msg: "ok",
+				data: { retried: true },
+			},
+		});
+
+		await loadHttpModule();
+		const errorHandler = mockState.getErrorHandler();
+		const originalRequest = { url: "/auth/me", _retry: false };
+
+		await expect(
+			errorHandler({
+				config: originalRequest,
+				response: {
+					status: 401,
+					data: {
+						code: ErrorCode.TokenMissing,
+						msg: "missing token",
+						error: { internal_code: "E017" },
+					},
+				},
+			}),
+		).resolves.toEqual({
+			data: {
+				code: ErrorCode.Success,
+				msg: "ok",
+				data: { retried: true },
+			},
+		});
+		expect(mockState.refreshToken).toHaveBeenCalledTimes(1);
+		expect(mockState.client).toHaveBeenCalledWith(
+			expect.objectContaining({
+				url: "/auth/me",
+				_retry: true,
+			}),
+		);
+	});
+
 	it("does not attempt refresh for non-token auth failures", async () => {
 		await loadHttpModule();
 		const errorHandler = mockState.getErrorHandler();
@@ -374,10 +415,10 @@ describe("http api helpers", () => {
 			response: {
 				status: 401,
 				data: {
-					code: ErrorCode.AuthFailed,
+					code: ErrorCode.MfaFailed,
 					msg: "invalid MFA code",
 					error: {
-						internal_code: "E010",
+						internal_code: "E018",
 						subcode: ApiSubcode.AuthMfaCodeInvalid,
 					},
 				},
@@ -386,9 +427,9 @@ describe("http api helpers", () => {
 
 		await expect(errorHandler(originalError)).rejects.toEqual(
 			expect.objectContaining({
-				code: ErrorCode.AuthFailed,
+				code: ErrorCode.MfaFailed,
 				message: "invalid MFA code",
-				internalCode: "E010",
+				internalCode: "E018",
 				subcode: ApiSubcode.AuthMfaCodeInvalid,
 			}),
 		);

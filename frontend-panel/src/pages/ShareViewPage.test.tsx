@@ -736,7 +736,7 @@ describe("ShareViewPage", () => {
 			},
 			share_type: "folder",
 		} as never);
-		const error = new ApiError(ErrorCode.AuthFailed, "wrong password");
+		const error = new ApiError(ErrorCode.CredentialsFailed, "wrong password");
 		mockState.verifyPassword.mockRejectedValueOnce(error);
 
 		render(<ShareViewPage />);

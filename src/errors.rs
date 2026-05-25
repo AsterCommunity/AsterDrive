@@ -129,6 +129,8 @@ define_errors! {
     AuthPendingActivation( "E014", "Pending Activation"),
     ContactVerificationInvalid("E015", "Contact Verification Invalid"),
     ContactVerificationExpired("E016", "Contact Verification Expired"),
+    AuthTokenMissing(      "E017", "Token Missing"),
+    AuthMfaFailed(         "E018", "MFA Failed"),
 
     // ========== E020-E029: 文件错误 ==========
     FileNotFound(         "E020", "File Not Found"),
@@ -245,7 +247,9 @@ impl AsterError {
 
             Self::AuthInvalidCredentials(_)
             | Self::AuthTokenExpired(_)
-            | Self::AuthTokenInvalid(_) => StatusCode::UNAUTHORIZED,
+            | Self::AuthTokenInvalid(_)
+            | Self::AuthTokenMissing(_)
+            | Self::AuthMfaFailed(_) => StatusCode::UNAUTHORIZED,
 
             Self::AuthForbidden(_) | Self::AuthPendingActivation(_) => StatusCode::FORBIDDEN,
 
@@ -415,6 +419,10 @@ pub fn auth_invalid_credentials_with_subcode(
     message: impl Into<String>,
 ) -> AsterError {
     tag_error_with_subcode(subcode, message, AsterError::auth_invalid_credentials)
+}
+
+pub fn auth_mfa_failed_with_subcode(subcode: ApiSubcode, message: impl Into<String>) -> AsterError {
+    tag_error_with_subcode(subcode, message, AsterError::auth_mfa_failed)
 }
 
 pub fn auth_token_invalid_with_reason(
@@ -620,7 +628,7 @@ impl<T, E: std::fmt::Display + 'static> MapAsterErr<T> for std::result::Result<T
 #[cfg(test)]
 mod tests {
     use super::{
-        AsterError, MapAsterErr, ResponseLogLevel, auth_invalid_credentials_with_subcode,
+        AsterError, MapAsterErr, ResponseLogLevel, auth_mfa_failed_with_subcode,
         thumbnail_generation_error_with_subcode, upload_assembly_error_with_subcode,
         validation_error_with_subcode,
     };
@@ -753,9 +761,9 @@ mod tests {
     }
 
     #[actix_web::test]
-    async fn auth_invalid_credentials_subcode_response_preserves_subcode() {
+    async fn auth_mfa_failed_subcode_response_preserves_subcode() {
         let subcode = ApiSubcode::AuthMfaCodeInvalid;
-        let err = auth_invalid_credentials_with_subcode(subcode, "invalid MFA code");
+        let err = auth_mfa_failed_with_subcode(subcode, "invalid MFA code");
         let response = actix_web::ResponseError::error_response(&err);
 
         assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
@@ -766,8 +774,34 @@ mod tests {
         let payload: serde_json::Value =
             serde_json::from_slice(&body).expect("response body should be valid json");
 
+        assert_eq!(
+            payload["code"],
+            crate::api::error_code::ErrorCode::MfaFailed as i32
+        );
         assert_eq!(payload["msg"], "invalid MFA code");
+        assert_eq!(payload["error"]["internal_code"], "E018");
         assert_eq!(payload["error"]["subcode"], subcode.as_str());
+    }
+
+    #[actix_web::test]
+    async fn auth_token_missing_response_uses_token_missing_code() {
+        let err = AsterError::auth_token_missing("missing token");
+        let response = actix_web::ResponseError::error_response(&err);
+
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+
+        let body = body::to_bytes(response.into_body())
+            .await
+            .expect("response body should read");
+        let payload: serde_json::Value =
+            serde_json::from_slice(&body).expect("response body should be valid json");
+
+        assert_eq!(
+            payload["code"],
+            crate::api::error_code::ErrorCode::TokenMissing as i32
+        );
+        assert_eq!(payload["msg"], "missing token");
+        assert_eq!(payload["error"]["internal_code"], "E017");
     }
 
     #[actix_web::test]

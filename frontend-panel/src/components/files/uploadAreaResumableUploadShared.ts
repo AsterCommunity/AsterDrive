@@ -1,6 +1,7 @@
 import { getApiErrorMessage } from "@/hooks/useApiError";
 import { removeSession } from "@/lib/uploadPersistence";
 import { isRetryableUploadError } from "@/services/uploadService";
+import { useAuthStore } from "@/stores/authStore";
 import {
 	CHUNK_CONCURRENT,
 	CHUNK_MAX_RETRIES,
@@ -72,6 +73,13 @@ function clampLoadedBytes(loaded: number, total: number) {
 	return Math.min(Math.max(loaded, 0), Math.max(total, 0));
 }
 
+function isAuthFailureUploadError(error: Error) {
+	return (
+		"authFailure" in error &&
+		(error as { authFailure?: boolean }).authFailure === true
+	);
+}
+
 export function createResumableUploadShared({
 	abortFlagsRef,
 	flushProgress,
@@ -133,7 +141,12 @@ export function createResumableUploadShared({
 				if (!isRetryableUploadError(lastError)) {
 					break;
 				}
-				if (attempt < CHUNK_MAX_RETRIES - 1) {
+				let shouldDelayRetry = true;
+				if (isAuthFailureUploadError(lastError)) {
+					await useAuthStore.getState().refreshToken();
+					shouldDelayRetry = false;
+				}
+				if (shouldDelayRetry && attempt < CHUNK_MAX_RETRIES - 1) {
 					await new Promise((resolve) =>
 						setTimeout(resolve, 1000 * 2 ** attempt),
 					);

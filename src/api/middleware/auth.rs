@@ -74,7 +74,7 @@ where
             let token = cookie_token.or_else(|| bearer_token(req.request()));
 
             match token {
-                None => Err(AsterError::auth_invalid_credentials("missing token").into()),
+                None => Err(AsterError::auth_token_missing("missing token").into()),
                 Some(t) => match auth_service::authenticate_access_token(state, &t).await {
                     Ok((claims, snapshot)) => {
                         tracing::Span::current().record("user_id", claims.user_id);

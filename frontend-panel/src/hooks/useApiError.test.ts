@@ -64,16 +64,35 @@ describe("handleApiError", () => {
 		handleApiError(
 			new mockState.ApiError(ErrorCode.PendingActivation, "pending"),
 		);
+		handleApiError(new mockState.ApiError(ErrorCode.TokenMissing, "missing"));
+		handleApiError(
+			new mockState.ApiError(ErrorCode.CredentialsFailed, "credentials"),
+		);
+		handleApiError(new mockState.ApiError(ErrorCode.MfaFailed, "mfa failed"));
 
 		expect(mockState.translate).toHaveBeenCalledWith("errors:forbidden");
 		expect(mockState.translate).toHaveBeenCalledWith(
 			"errors:pending_activation",
 		);
+		expect(mockState.translate).toHaveBeenCalledWith("errors:token_missing");
+		expect(mockState.translate).toHaveBeenCalledWith(
+			"errors:credentials_failed",
+		);
+		expect(mockState.translate).toHaveBeenCalledWith("errors:mfa_failed");
 		expect(mockState.toastError).toHaveBeenCalledWith(
 			"translated:errors:forbidden",
 		);
 		expect(mockState.toastError).toHaveBeenCalledWith(
 			"translated:errors:pending_activation",
+		);
+		expect(mockState.toastError).toHaveBeenCalledWith(
+			"translated:errors:token_missing",
+		);
+		expect(mockState.toastError).toHaveBeenCalledWith(
+			"translated:errors:credentials_failed",
+		);
+		expect(mockState.toastError).toHaveBeenCalledWith(
+			"translated:errors:mfa_failed",
 		);
 	});
 
