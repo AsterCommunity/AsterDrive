@@ -19,6 +19,10 @@ import {
 import { resolveOpenWithOptionLabel } from "./openWithLabel";
 import type { OpenWithMode, OpenWithOption } from "./types";
 import { getVideoBrowserOpenWithOption } from "./video-browser-config";
+import {
+	createWopiSessionResource,
+	type WopiSessionResource,
+} from "./wopiSessionResource";
 
 const PREVIEW_DIALOG_OPEN_ANIMATION_MS = 120;
 
@@ -310,6 +314,11 @@ export function useFilePreviewDialogModel({
 	const [state, dispatch] = useReducer(dialogStateReducer, initialDialogState);
 	const previousFileIdRef = useRef(file.id);
 	const archivePreviewFactoryRef = useRef(archivePreviewFactory);
+	const wopiResourceRef = useRef<{
+		factory: FilePreviewDialogProps["wopiSessionFactory"];
+		key: string;
+		resource: WopiSessionResource;
+	} | null>(null);
 
 	useEffect(() => {
 		archivePreviewFactoryRef.current = archivePreviewFactory;
@@ -355,6 +364,29 @@ export function useFilePreviewDialogModel({
 
 		return wopiSessionFactory(activeOption.key);
 	}, [activeOption, wopiSessionFactory]);
+	const activeWopiSessionResource = useMemo(() => {
+		if (!activeOption || activeOption.mode !== "wopi" || !wopiSessionFactory) {
+			return null;
+		}
+
+		const resourceKey = `${file.id}:${activeOption.key}`;
+		if (
+			wopiResourceRef.current?.key === resourceKey &&
+			wopiResourceRef.current.factory === wopiSessionFactory
+		) {
+			return wopiResourceRef.current.resource;
+		}
+
+		const resource = createWopiSessionResource(() =>
+			wopiSessionFactory(activeOption.key),
+		);
+		wopiResourceRef.current = {
+			factory: wopiSessionFactory,
+			key: resourceKey,
+			resource,
+		};
+		return resource;
+	}, [activeOption, file.id, wopiSessionFactory]);
 	const stableArchivePreviewFactory = useCallback(
 		(options?: { signal?: AbortSignal }) => {
 			const factory = archivePreviewFactoryRef.current;
@@ -503,6 +535,7 @@ export function useFilePreviewDialogModel({
 		usesInnerScroll,
 		visibleOptions,
 		wopiSessionFactory: wopiSessionFactory ? activeWopiSessionFactory : null,
+		wopiSessionResource: activeWopiSessionResource,
 		onShowAllOpenMethods: () =>
 			dispatch({ type: "setShowAllOpenMethods", open: true }),
 		confirmOpen: state.confirmOpen,

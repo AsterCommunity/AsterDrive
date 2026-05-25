@@ -1,10 +1,14 @@
-import { useState } from "react";
+import { useReducer } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import {
 	computeShareExpiry,
 	normalizeMaxDownloads,
 } from "@/components/files/shareDialogShared";
+import {
+	initialShareDialogState,
+	shareDialogReducer,
+} from "@/components/files/shareDialogState";
 import { Button } from "@/components/ui/button";
 import {
 	Dialog,
@@ -50,15 +54,12 @@ export function ShareDialog({
 	const directEligible = fileId != null;
 	const mode: ShareLinkMode =
 		directEligible && initialMode === "direct" ? "direct" : "page";
-	const [password, setPassword] = useState("");
-	const [expiry, setExpiry] = useState("never");
-	const [maxDownloads, setMaxDownloads] = useState("");
-	const [createdLinks, setCreatedLinks] = useState<{
-		primaryUrl: string;
-		forceDownloadUrl: string | null;
-	} | null>(null);
-	const [copied, setCopied] = useState(false);
-	const [loading, setLoading] = useState(false);
+	const [state, dispatch] = useReducer(
+		shareDialogReducer,
+		initialShareDialogState,
+	);
+	const { copied, createdLinks, expiry, loading, maxDownloads, password } =
+		state;
 	const expiryOptions = [
 		{ label: t("share:share_expiry_never"), value: "never" },
 		{ label: t("share:share_expiry_1h"), value: "1h" },
@@ -69,7 +70,7 @@ export function ShareDialog({
 
 	const handleCreate = async (e: React.FormEvent) => {
 		e.preventDefault();
-		setLoading(true);
+		dispatch({ type: "createStarted" });
 		try {
 			let primaryUrl: string;
 			let forceDownloadUrl: string | null = null;
@@ -101,12 +102,15 @@ export function ShareDialog({
 				primaryUrl = shareService.pageUrl(share.token);
 			}
 
-			setCreatedLinks({ primaryUrl, forceDownloadUrl });
+			dispatch({
+				type: "createSucceeded",
+				links: { primaryUrl, forceDownloadUrl },
+			});
 			toast.success(t("share:share_created"));
 		} catch (error) {
 			handleApiError(error);
 		} finally {
-			setLoading(false);
+			dispatch({ type: "createFinished" });
 		}
 	};
 
@@ -114,8 +118,8 @@ export function ShareDialog({
 		try {
 			await writeTextToClipboard(value);
 			toast.success(t("copied_to_clipboard"));
-			setCopied(true);
-			setTimeout(() => setCopied(false), 2000);
+			dispatch({ type: "copySucceeded" });
+			setTimeout(() => dispatch({ type: "copyReset" }), 2000);
 		} catch {
 			toast.error(t("errors:unexpected_error"));
 		}
@@ -123,11 +127,7 @@ export function ShareDialog({
 
 	const handleClose = (open: boolean) => {
 		if (!open) {
-			setPassword("");
-			setExpiry("never");
-			setMaxDownloads("");
-			setCreatedLinks(null);
-			setCopied(false);
+			dispatch({ type: "reset" });
 		}
 		onOpenChange(open);
 	};
@@ -218,7 +218,12 @@ export function ShareDialog({
 										autoComplete="new-password"
 										placeholder={t("share:share_password_placeholder")}
 										value={password}
-										onChange={(e) => setPassword(e.target.value)}
+										onChange={(e) =>
+											dispatch({
+												type: "setPassword",
+												value: e.target.value,
+											})
+										}
 									/>
 								</div>
 
@@ -227,7 +232,12 @@ export function ShareDialog({
 									<Select
 										items={expiryOptions}
 										value={expiry}
-										onValueChange={(v) => setExpiry(v ?? "never")}
+										onValueChange={(v) =>
+											dispatch({
+												type: "setExpiry",
+												value: v ?? "never",
+											})
+										}
 									>
 										<SelectTrigger>
 											<SelectValue />
@@ -258,7 +268,12 @@ export function ShareDialog({
 									type="number"
 									placeholder={t("share:share_download_limit_placeholder")}
 									value={maxDownloads}
-									onChange={(e) => setMaxDownloads(e.target.value)}
+									onChange={(e) =>
+										dispatch({
+											type: "setMaxDownloads",
+											value: e.target.value,
+										})
+									}
 								/>
 							</div>
 						)}

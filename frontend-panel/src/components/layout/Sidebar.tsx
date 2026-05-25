@@ -1,3 +1,4 @@
+import type { TFunction } from "i18next";
 import {
 	type CSSProperties,
 	type DragEvent,
@@ -10,13 +11,7 @@ import {
 	useState,
 } from "react";
 import { useTranslation } from "react-i18next";
-import { Link, useLocation } from "react-router-dom";
-import { FolderTree } from "@/components/folders/FolderTree";
-import { WorkspaceSwitcher } from "@/components/layout/WorkspaceSwitcher";
-import { Icon, type IconName } from "@/components/ui/icon";
-import { Progress } from "@/components/ui/progress";
-import { ScrollArea } from "@/components/ui/scroll-area";
-import { Separator } from "@/components/ui/separator";
+import { useLocation } from "react-router-dom";
 import { STORAGE_KEYS } from "@/config/app";
 import {
 	USER_SIDEBAR_DEFAULT_WIDTH_PX,
@@ -25,15 +20,11 @@ import {
 	USER_SIDEBAR_WIDTH_CLASS,
 	USER_TOPBAR_OFFSET_CLASS,
 } from "@/lib/constants";
-import {
-	hasInternalDragData,
-	type InternalDragData,
-	readInternalDragData,
-} from "@/lib/dragDrop";
-import { formatBytes } from "@/lib/format";
-import { cn, sidebarNavItemClass } from "@/lib/utils";
+import { hasInternalDragData, readInternalDragData } from "@/lib/dragDrop";
+import { cn } from "@/lib/utils";
 import {
 	isTeamWorkspace,
+	type Workspace,
 	workspaceSharesPath,
 	workspaceTasksPath,
 	workspaceTrashPath,
@@ -42,33 +33,15 @@ import {
 import { useAuthStore } from "@/stores/authStore";
 import { useTeamStore } from "@/stores/teamStore";
 import { useWorkspaceStore } from "@/stores/workspaceStore";
-import type { FileCategory } from "@/types/api";
+import { SidebarContent } from "./SidebarContent";
+import { SidebarResizeHandle } from "./SidebarResizeHandle";
+import type {
+	SidebarNavLink,
+	SidebarProps,
+	SidebarResizeHandleElement,
+} from "./sidebarTypes";
 
 const SIDEBAR_KEYBOARD_RESIZE_STEP_PX = 16;
-type SidebarResizeHandleElement = HTMLDivElement;
-
-const QUICK_CATEGORY_LINKS: Array<{
-	category: FileCategory;
-	icon: IconName;
-	labelKey: string;
-}> = [
-	{ category: "image", icon: "FileImage", labelKey: "category_image" },
-	{ category: "video", icon: "FileVideo", labelKey: "category_video" },
-	{ category: "audio", icon: "FileAudio", labelKey: "category_audio" },
-	{ category: "document", icon: "FileText", labelKey: "category_document" },
-];
-
-interface SidebarProps {
-	mobileOpen: boolean;
-	onMobileClose: () => void;
-	onTrashDrop?: (data: InternalDragData) => void | Promise<void>;
-	onMoveToFolder?: (
-		fileIds: number[],
-		folderIds: number[],
-		targetFolderId: number | null,
-	) => Promise<void> | void;
-	onSearchCategoryOpen?: (category: FileCategory) => void;
-}
 
 function clampSidebarWidth(width: number) {
 	return Math.min(
@@ -108,6 +81,39 @@ function storeSidebarWidth(width: number) {
 	} catch {
 		// localStorage can be unavailable or full; resizing should still work.
 	}
+}
+
+function buildSidebarNavLinks(
+	t: TFunction,
+	workspace: Workspace,
+): SidebarNavLink[] {
+	const links: SidebarNavLink[] = [
+		{
+			to: workspaceTrashPath(workspace),
+			icon: "Trash",
+			label: t("trash"),
+		},
+		{
+			to: workspaceSharesPath(workspace),
+			icon: "Link",
+			label: t("share:my_shares_title"),
+		},
+		{
+			to: workspaceTasksPath(workspace),
+			icon: "Clock",
+			label: t("tasks:title"),
+		},
+	];
+
+	if (!isTeamWorkspace(workspace)) {
+		links.push({
+			to: workspaceWebdavPath(),
+			icon: "HardDrive",
+			label: t("webdav"),
+		});
+	}
+
+	return links;
 }
 
 export function Sidebar({
@@ -237,36 +243,10 @@ export function Sidebar({
 		[commitSidebarWidth, sidebarWidth],
 	);
 
-	const navLinks: { to: string; icon: IconName; label: string }[] =
-		useMemo(() => {
-			const links: { to: string; icon: IconName; label: string }[] = [
-				{
-					to: workspaceTrashPath(workspace),
-					icon: "Trash",
-					label: t("trash"),
-				},
-				{
-					to: workspaceSharesPath(workspace),
-					icon: "Link",
-					label: t("share:my_shares_title"),
-				},
-				{
-					to: workspaceTasksPath(workspace),
-					icon: "Clock",
-					label: t("tasks:title"),
-				},
-			];
-
-			if (!isTeamWorkspace(workspace)) {
-				links.push({
-					to: workspaceWebdavPath(),
-					icon: "HardDrive",
-					label: t("webdav"),
-				});
-			}
-
-			return links;
-		}, [t, workspace]);
+	const navLinks = useMemo(
+		() => buildSidebarNavLinks(t, workspace),
+		[t, workspace],
+	);
 
 	const storageUsed = activeTeam
 		? activeTeam.storage_used
@@ -304,104 +284,6 @@ export function Sidebar({
 		void onTrashDrop(data);
 	};
 
-	const sidebarContent = (
-		<div className="flex h-full min-h-0 flex-col overflow-hidden overscroll-contain">
-			<div className="shrink-0 border-b border-sidebar-border bg-sidebar px-3 py-2 sm:py-2.5">
-				<WorkspaceSwitcher variant="sidebar" />
-			</div>
-
-			<ScrollArea data-testid="user-sidebar-scroll" className="min-h-0 flex-1">
-				<div className="flex min-h-full flex-col">
-					<FolderTree onMoveToFolder={onMoveToFolder} />
-
-					<div className="mt-auto">
-						<Separator />
-
-						{/* Quick category search */}
-						<div className="p-2 space-y-1">
-							<p className="px-3 py-1 text-xs font-medium text-muted-foreground">
-								{t("search:quick_categories")}
-							</p>
-							{QUICK_CATEGORY_LINKS.map((link) => (
-								<button
-									key={link.category}
-									type="button"
-									onClick={() => {
-										onSearchCategoryOpen?.(link.category);
-										onMobileClose();
-									}}
-									className={sidebarNavItemClass(false, "w-full text-left")}
-								>
-									<Icon name={link.icon} className="size-4 shrink-0" />
-									{t(`search:${link.labelKey}`)}
-								</button>
-							))}
-						</div>
-
-						<Separator />
-
-						{/* Navigation links */}
-						<div className="p-2 space-y-1">
-							{navLinks.map((link) => (
-								<Link
-									key={link.to}
-									to={link.to}
-									onClick={onMobileClose}
-									onDragOver={
-										link.to === trashPath ? handleTrashDragOver : undefined
-									}
-									onDragLeave={
-										link.to === trashPath ? handleTrashDragLeave : undefined
-									}
-									onDrop={link.to === trashPath ? handleTrashDrop : undefined}
-									className={sidebarNavItemClass(
-										location.pathname === link.to,
-										link.to === trashPath &&
-											trashDragOver &&
-											"bg-destructive/10 text-destructive ring-1 ring-destructive/30",
-									)}
-								>
-									<Icon name={link.icon} className="size-4 shrink-0" />
-									{link.label}
-								</Link>
-							))}
-						</div>
-					</div>
-				</div>
-			</ScrollArea>
-
-			{/* Storage usage */}
-			{user && (!isTeamWorkspace(workspace) || activeTeam) && (
-				<>
-					<Separator />
-					<div className="shrink-0 space-y-1.5 px-3 pt-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] md:pb-3">
-						<p className="text-xs font-medium text-muted-foreground">
-							{activeTeam ? activeTeam.name : t("files:storage_space")}
-						</p>
-						<Progress
-							value={
-								storageQuota > 0
-									? Math.min((storageUsed / storageQuota) * 100, 100)
-									: 0
-							}
-							className="h-1.5"
-						/>
-						<p className="text-xs text-muted-foreground">
-							{storageQuota > 0
-								? t("files:storage_quota", {
-										used: formatBytes(storageUsed),
-										quota: formatBytes(storageQuota),
-									})
-								: t("files:storage_used", {
-										used: formatBytes(storageUsed),
-									})}
-						</p>
-					</div>
-				</>
-			)}
-		</div>
-	);
-
 	return (
 		<>
 			{/* Mobile overlay backdrop */}
@@ -431,19 +313,26 @@ export function Sidebar({
 						: "-translate-x-full pointer-events-none shadow-none md:pointer-events-auto",
 				)}
 			>
-				{sidebarContent}
-				<div
-					role="slider"
-					aria-label={t("resize_sidebar")}
-					aria-orientation="vertical"
-					aria-valuemax={USER_SIDEBAR_MAX_WIDTH_PX}
-					aria-valuemin={USER_SIDEBAR_MIN_WIDTH_PX}
-					aria-valuenow={sidebarWidth}
-					tabIndex={0}
-					className={cn(
-						"absolute inset-y-0 -right-1 z-20 hidden h-auto w-2 cursor-col-resize touch-none border-0 bg-transparent transition-colors md:block focus-visible:bg-primary/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring hover:bg-primary/15",
-						sidebarResizing && "bg-primary/25",
-					)}
+				<SidebarContent
+					activeTeam={activeTeam}
+					locationPathname={location.pathname}
+					navLinks={navLinks}
+					onMobileClose={onMobileClose}
+					onMoveToFolder={onMoveToFolder}
+					onSearchCategoryOpen={onSearchCategoryOpen}
+					onTrashDragLeave={handleTrashDragLeave}
+					onTrashDragOver={handleTrashDragOver}
+					onTrashDropEvent={handleTrashDrop}
+					storageQuota={storageQuota}
+					storageUsed={storageUsed}
+					trashDragOver={trashDragOver}
+					trashPath={trashPath}
+					user={user}
+					workspace={workspace}
+				/>
+				<SidebarResizeHandle
+					resizing={sidebarResizing}
+					width={sidebarWidth}
 					onPointerDown={handleSidebarResizePointerDown}
 					onKeyDown={handleSidebarResizeKeyDown}
 				/>

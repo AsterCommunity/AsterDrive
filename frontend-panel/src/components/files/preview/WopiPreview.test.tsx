@@ -2,6 +2,7 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { WopiPreview } from "@/components/files/preview/WopiPreview";
 import type { WopiLaunchSession } from "@/types/api";
+import { createWopiSessionResource } from "./wopiSessionResource";
 
 vi.mock("react-i18next", () => ({
 	useTranslation: () => ({
@@ -38,50 +39,53 @@ describe("WopiPreview", () => {
 		vi.spyOn(HTMLFormElement.prototype, "submit").mockImplementation(() => {});
 	});
 
-	it("shows a loading state while creating the WOPI session", () => {
-		render(
+	function renderPreview({
+		createSession,
+		label = "Office",
+		rawConfig = null,
+	}: {
+		createSession: () => Promise<WopiLaunchSession>;
+		label?: string;
+		rawConfig?: Record<string, unknown> | null;
+	}) {
+		return render(
 			<WopiPreview
-				createSession={() => new Promise(() => undefined)}
-				label="Office"
-				rawConfig={null}
+				label={label}
+				rawConfig={rawConfig}
+				sessionResource={createWopiSessionResource(createSession)}
 			/>,
 		);
+	}
+
+	it("shows a loading state while creating the WOPI session", () => {
+		renderPreview({
+			createSession: () => new Promise(() => undefined),
+		});
 
 		expect(screen.getByRole("status")).toHaveTextContent("wopi_loading:Office");
 	});
 
 	it("renders the unavailable state for invalid URLs or rejected sessions", async () => {
-		const { rerender } = render(
-			<WopiPreview
-				createSession={async () => validSession({ action_url: "ftp://bad" })}
-				label="Office"
-				rawConfig={null}
-			/>,
-		);
+		const firstView = renderPreview({
+			createSession: async () => validSession({ action_url: "ftp://bad" }),
+		});
 
 		expect(await screen.findByText("wopi_unavailable")).toBeInTheDocument();
 
-		rerender(
-			<WopiPreview
-				createSession={async () => {
-					throw new Error("session failed");
-				}}
-				label="Office"
-				rawConfig={null}
-			/>,
-		);
+		firstView.unmount();
+		renderPreview({
+			createSession: async () => {
+				throw new Error("session failed");
+			},
+		});
 
 		expect(await screen.findByText("wopi_unavailable")).toBeInTheDocument();
 	});
 
 	it("submits valid iframe sessions into the named preview frame", async () => {
-		render(
-			<WopiPreview
-				createSession={async () => validSession()}
-				label="Office"
-				rawConfig={null}
-			/>,
-		);
+		renderPreview({
+			createSession: async () => validSession(),
+		});
 
 		const frame = await screen.findByTitle("Office");
 		await waitFor(() => {
@@ -108,7 +112,6 @@ describe("WopiPreview", () => {
 			access_token_ttl: "3600",
 			user_id: "42",
 		});
-		expect(screen.getByRole("status")).toHaveTextContent("wopi_loading:Office");
 
 		fireEvent.load(frame);
 
@@ -118,13 +121,10 @@ describe("WopiPreview", () => {
 	});
 
 	it("uses raw config for new-tab mode and posts to a generated external target", async () => {
-		render(
-			<WopiPreview
-				createSession={async () => validSession({ mode: undefined })}
-				label="Office"
-				rawConfig={{ mode: "new_tab" }}
-			/>,
-		);
+		renderPreview({
+			createSession: async () => validSession({ mode: undefined }),
+			rawConfig: { mode: "new_tab" },
+		});
 
 		expect(await screen.findByText("Office")).toBeInTheDocument();
 		fireEvent.click(
@@ -147,13 +147,11 @@ describe("WopiPreview", () => {
 	});
 
 	it("lets the session mode override a raw iframe config", async () => {
-		render(
-			<WopiPreview
-				createSession={async () => validSession({ mode: "new_tab" })}
-				label="Collabora"
-				rawConfig={{ mode: "iframe" }}
-			/>,
-		);
+		renderPreview({
+			createSession: async () => validSession({ mode: "new_tab" }),
+			label: "Collabora",
+			rawConfig: { mode: "iframe" },
+		});
 
 		expect(await screen.findByText("Collabora")).toBeInTheDocument();
 		expect(screen.queryByTitle("Collabora")).not.toBeInTheDocument();

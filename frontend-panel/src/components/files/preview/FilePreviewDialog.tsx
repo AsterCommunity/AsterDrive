@@ -100,7 +100,7 @@ export function FilePreviewDialog({
 										model.resolvedLoadMusicBackendMetadata
 									}
 									mediaStreamLinkFactory={mediaStreamLinkFactory}
-									createWopiSession={model.wopiSessionFactory}
+									wopiSessionResource={model.wopiSessionResource}
 									onFileUpdated={onFileUpdated}
 									onDirtyChange={model.setIsDirty}
 									editable={model.editable}

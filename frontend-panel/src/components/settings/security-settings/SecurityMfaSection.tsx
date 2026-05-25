@@ -14,10 +14,8 @@ import {
 	stepIndex,
 } from "./mfaTypes";
 import { SecurityMfaHeader } from "./SecurityMfaHeader";
-import {
-	SecurityMfaMeasuredMotion,
-	SecurityMfaPresence,
-} from "./SecurityMfaMotion";
+import { SecurityMfaMeasuredMotion } from "./SecurityMfaMotion";
+import { SecurityMfaPresence } from "./SecurityMfaPresence";
 import { SecurityMfaSensitiveActionForm } from "./SecurityMfaSensitiveActionForm";
 import { SecurityMfaSetupPanel } from "./SecurityMfaSetupPanel";
 import {

@@ -9,7 +9,6 @@ import type {
 	FileListItem,
 	PreviewLinkInfo,
 	ShareStreamSessionInfo,
-	WopiLaunchSession,
 } from "@/types/api";
 import { BlobImagePreview } from "./BlobImagePreview";
 import type { detectFilePreviewProfile } from "./file-capabilities";
@@ -20,6 +19,7 @@ import type { OpenWithOption } from "./types";
 import { UrlTemplatePreview } from "./UrlTemplatePreview";
 import { VideoPreview } from "./VideoPreview";
 import { WopiPreview } from "./WopiPreview";
+import type { WopiSessionResource } from "./wopiSessionResource";
 
 const PdfPreview = lazy(async () => {
 	const module = await import("./PdfPreview");
@@ -74,7 +74,7 @@ interface FilePreviewBodyProps {
 	}) => Promise<ArchivePreviewManifest>;
 	loadMusicBackendMetadata?: MusicPlayerTrack["loadBackendMetadata"];
 	mediaStreamLinkFactory?: () => Promise<ShareStreamSessionInfo>;
-	createWopiSession?: (() => Promise<WopiLaunchSession>) | null;
+	wopiSessionResource?: WopiSessionResource | null;
 	onFileUpdated?: () => void;
 	onDirtyChange: (dirty: boolean) => void;
 	editable: boolean;
@@ -95,7 +95,7 @@ export function FilePreviewBody({
 	archivePreviewFactory,
 	loadMusicBackendMetadata,
 	mediaStreamLinkFactory,
-	createWopiSession,
+	wopiSessionResource,
 	onFileUpdated,
 	onDirtyChange,
 	editable,
@@ -172,14 +172,14 @@ export function FilePreviewBody({
 	}
 
 	if (activeOption.mode === "wopi") {
-		if (!createWopiSession) {
+		if (!wopiSessionResource) {
 			return <PreviewUnavailable />;
 		}
 		return (
 			<WopiPreview
 				label={getOptionLabel(activeOption)}
 				rawConfig={activeOption.config ?? null}
-				createSession={createWopiSession}
+				sessionResource={wopiSessionResource}
 			/>
 		);
 	}

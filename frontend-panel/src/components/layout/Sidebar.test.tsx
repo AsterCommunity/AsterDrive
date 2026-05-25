@@ -331,13 +331,13 @@ describe("Sidebar", () => {
 		});
 
 		expect(aside).toHaveStyle("--user-sidebar-width: 240px");
-		expect(resizer).toHaveAttribute("aria-valuenow", "240");
+		expect(resizer).toHaveValue("240");
 
 		fireEvent.pointerDown(resizer, { button: 0, clientX: 240 });
 		fireEvent.pointerMove(window, { clientX: 320 });
 
 		expect(aside).toHaveStyle("--user-sidebar-width: 320px");
-		expect(resizer).toHaveAttribute("aria-valuenow", "320");
+		expect(resizer).toHaveValue("320");
 		expect(document.body.style.cursor).toBe("col-resize");
 
 		fireEvent.pointerUp(window);
@@ -358,12 +358,12 @@ describe("Sidebar", () => {
 
 		fireEvent.keyDown(resizer, { key: "End" });
 		expect(aside).toHaveStyle("--user-sidebar-width: 420px");
-		expect(resizer).toHaveAttribute("aria-valuenow", "420");
+		expect(resizer).toHaveValue("420");
 		expect(localStorage.getItem(STORAGE_KEYS.userSidebarWidth)).toBe("420");
 
 		fireEvent.keyDown(resizer, { key: "Home" });
 		expect(aside).toHaveStyle("--user-sidebar-width: 220px");
-		expect(resizer).toHaveAttribute("aria-valuenow", "220");
+		expect(resizer).toHaveValue("220");
 		expect(localStorage.getItem(STORAGE_KEYS.userSidebarWidth)).toBe("220");
 	});
 

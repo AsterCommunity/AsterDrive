@@ -13,10 +13,8 @@ import {
 	type SetupUiState,
 	stepIndex,
 } from "./mfaTypes";
-import {
-	SecurityMfaMeasuredMotion,
-	SecurityMfaStepMotion,
-} from "./SecurityMfaMotion";
+import { SecurityMfaMeasuredMotion } from "./SecurityMfaMotion";
+import { SecurityMfaStepMotion } from "./SecurityMfaStepMotion";
 
 type QrModules = ReturnType<typeof QRCode.create>["modules"];
 

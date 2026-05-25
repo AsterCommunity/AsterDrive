@@ -237,16 +237,16 @@ vi.mock("@/components/files/preview/UrlTemplatePreview", () => ({
 
 vi.mock("@/components/files/preview/WopiPreview", () => ({
 	WopiPreview: ({
-		createSession,
 		label,
 		rawConfig,
+		sessionResource,
 	}: {
-		createSession: () => Promise<unknown>;
 		label: string;
 		rawConfig: Record<string, unknown> | null | undefined;
+		sessionResource: unknown;
 	}) => (
 		<div>
-			{`wopi:${label}:${String(rawConfig?.mode ?? "")}:${String(Boolean(createSession))}`}
+			{`wopi:${label}:${String(rawConfig?.mode ?? "")}:${String(Boolean(sessionResource))}`}
 		</div>
 	),
 }));

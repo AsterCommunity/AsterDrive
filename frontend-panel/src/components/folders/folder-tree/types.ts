@@ -21,6 +21,7 @@ export interface FolderTreeSnapshot {
 }
 
 export interface TreeNodeProps {
+	children?: ReactNode;
 	currentFolderId: number | null;
 	depth: number;
 	expandedIds: Set<number>;
@@ -38,7 +39,6 @@ export interface TreeNodeProps {
 	) => void;
 	onNavigate: (id: number, name: string) => void;
 	onToggle: (id: number) => void;
-	renderChildren: (ids: number[], depth: number) => ReactNode;
 }
 
 export interface FolderTreeProps {

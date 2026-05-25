@@ -1,10 +1,8 @@
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import {
-	SecurityMfaMeasuredMotion,
-	SecurityMfaPresence,
-	SecurityMfaStepMotion,
-} from "./SecurityMfaMotion";
+import { SecurityMfaMeasuredMotion } from "./SecurityMfaMotion";
+import { SecurityMfaPresence } from "./SecurityMfaPresence";
+import { SecurityMfaStepMotion } from "./SecurityMfaStepMotion";
 
 const originalGetBoundingClientRect =
 	HTMLElement.prototype.getBoundingClientRect;
@@ -132,6 +130,10 @@ describe("SecurityMfaMotion", () => {
 		expect(screen.getByText("mfa-action-form")).toBeInTheDocument();
 		expect(container).toHaveAttribute("aria-hidden", "true");
 		expect(container.style.gridTemplateRows).toBe("0fr");
+
+		fireEvent.transitionEnd(screen.getByText("mfa-action-form"));
+
+		expect(screen.getByText("mfa-action-form")).toBeInTheDocument();
 
 		fireEvent.transitionEnd(container);
 

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useReducer } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import {
@@ -6,6 +6,11 @@ import {
 	toDateTimeLocalValue,
 	toIsoDateTime,
 } from "@/components/files/shareDialogShared";
+import {
+	type EditSharePasswordAction,
+	editShareDialogReducer,
+	initialEditShareDialogFormState,
+} from "@/components/files/shareDialogState";
 import { Button } from "@/components/ui/button";
 import {
 	Dialog,
@@ -29,8 +34,6 @@ import { useRetainedDialogValue } from "@/hooks/useRetainedDialogValue";
 import { shareService } from "@/services/shareService";
 import type { MyShareInfo } from "@/types/api";
 
-type PasswordAction = "keep" | "clear" | "set";
-
 interface EditShareDialogProps {
 	open: boolean;
 	onOpenChange: (open: boolean) => void;
@@ -47,24 +50,26 @@ export function EditShareDialog({
 	const { t } = useTranslation(["core", "share"]);
 	const { retainedValue: share, handleOpenChangeComplete } =
 		useRetainedDialogValue(inputShare, open);
-	const [passwordAction, setPasswordAction] = useState<PasswordAction>("keep");
-	const [password, setPassword] = useState("");
-	const [expiresAt, setExpiresAt] = useState("");
-	const [maxDownloads, setMaxDownloads] = useState("0");
-	const [loading, setLoading] = useState(false);
+	const [formState, dispatchForm] = useReducer(
+		editShareDialogReducer,
+		initialEditShareDialogFormState,
+	);
+	const { expiresAt, loading, maxDownloads, password, passwordAction } =
+		formState;
 	const passwordActionOptions = [
 		{ label: t("share:my_shares_edit_password_keep"), value: "keep" },
 		{ label: t("share:my_shares_edit_password_clear"), value: "clear" },
 		{ label: t("share:my_shares_edit_password_set"), value: "set" },
-	] satisfies ReadonlyArray<{ label: string; value: PasswordAction }>;
+	] satisfies ReadonlyArray<{ label: string; value: EditSharePasswordAction }>;
 
 	useEffect(() => {
 		if (!open || !share) return;
 
-		setPasswordAction("keep");
-		setPassword("");
-		setExpiresAt(toDateTimeLocalValue(share.expires_at));
-		setMaxDownloads(String(share.max_downloads));
+		dispatchForm({
+			type: "resetForShare",
+			expiresAt: toDateTimeLocalValue(share.expires_at),
+			maxDownloads: String(share.max_downloads),
+		});
 	}, [open, share]);
 
 	if (!share) return null;
@@ -77,7 +82,7 @@ export function EditShareDialog({
 			return;
 		}
 
-		setLoading(true);
+		dispatchForm({ type: "saveStarted" });
 		try {
 			await shareService.update(share.id, {
 				password:
@@ -95,7 +100,7 @@ export function EditShareDialog({
 		} catch (error) {
 			handleApiError(error);
 		} finally {
-			setLoading(false);
+			dispatchForm({ type: "saveFinished" });
 		}
 	};
 
@@ -123,7 +128,10 @@ export function EditShareDialog({
 							items={passwordActionOptions}
 							value={passwordAction}
 							onValueChange={(value) =>
-								setPasswordAction((value as PasswordAction | null) ?? "keep")
+								dispatchForm({
+									type: "setPasswordAction",
+									value: (value as EditSharePasswordAction | null) ?? "keep",
+								})
 							}
 						>
 							<SelectTrigger>
@@ -150,7 +158,12 @@ export function EditShareDialog({
 								autoComplete="new-password"
 								placeholder={t("share:share_password_placeholder")}
 								value={password}
-								onChange={(event) => setPassword(event.target.value)}
+								onChange={(event) =>
+									dispatchForm({
+										type: "setPassword",
+										value: event.target.value,
+									})
+								}
 							/>
 						</div>
 					)}
@@ -163,7 +176,12 @@ export function EditShareDialog({
 							id="edit-share-expires-at"
 							type="datetime-local"
 							value={expiresAt}
-							onChange={(event) => setExpiresAt(event.target.value)}
+							onChange={(event) =>
+								dispatchForm({
+									type: "setExpiresAt",
+									value: event.target.value,
+								})
+							}
 						/>
 						<p className="text-xs text-muted-foreground">
 							{t("share:my_shares_edit_expiry_hint")}
@@ -180,7 +198,12 @@ export function EditShareDialog({
 							min={0}
 							placeholder={t("share:share_download_limit_placeholder")}
 							value={maxDownloads}
-							onChange={(event) => setMaxDownloads(event.target.value)}
+							onChange={(event) =>
+								dispatchForm({
+									type: "setMaxDownloads",
+									value: event.target.value,
+								})
+							}
 						/>
 					</div>
 

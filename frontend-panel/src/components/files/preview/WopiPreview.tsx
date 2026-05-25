@@ -1,4 +1,11 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+	useCallback,
+	useEffect,
+	useMemo,
+	useRef,
+	useState,
+	useSyncExternalStore,
+} from "react";
 import { useTranslation } from "react-i18next";
 import { EmptyState } from "@/components/common/EmptyState";
 import { Button } from "@/components/ui/button";
@@ -10,20 +17,16 @@ import {
 	TRUSTED_DOCUMENT_VIEWER_IFRAME_SANDBOX,
 } from "./EmbeddedWebAppPreview";
 import { PreviewLoadingState } from "./PreviewLoadingState";
+import type { WopiSessionResource } from "./wopiSessionResource";
 
 interface WopiPreviewProps {
-	createSession: () => Promise<WopiLaunchSession>;
 	label: string;
 	rawConfig: Record<string, unknown> | null | undefined;
+	sessionResource: WopiSessionResource;
 }
 
 interface WopiSessionRequestKey {
-	createSession: WopiPreviewProps["createSession"];
-}
-
-interface WopiSessionState {
-	requestKey: WopiSessionRequestKey;
-	session: WopiLaunchSession | null;
+	sessionResource: WopiSessionResource;
 }
 
 interface WopiFrameSubmission {
@@ -54,19 +57,10 @@ function buildWopiFormFields(
 	};
 }
 
-function isValidActionUrl(value: string) {
-	try {
-		const parsed = new URL(value);
-		return parsed.protocol === "http:" || parsed.protocol === "https:";
-	} catch {
-		return false;
-	}
-}
-
 export function WopiPreview({
-	createSession,
 	label,
 	rawConfig,
+	sessionResource,
 }: WopiPreviewProps) {
 	const { t } = useTranslation("files");
 	const iframeNameRef = useRef(
@@ -76,44 +70,16 @@ export function WopiPreview({
 	const submittedFrameRef = useRef<WopiFrameSubmission | null>(null);
 	const [loadedFrameSubmission, setLoadedFrameSubmission] =
 		useState<WopiFrameSubmission | null>(null);
-	const [sessionState, setSessionState] = useState<WopiSessionState | null>(
-		null,
-	);
 	const requestKey = useMemo<WopiSessionRequestKey>(
-		() => ({ createSession }),
-		[createSession],
+		() => ({ sessionResource }),
+		[sessionResource],
 	);
-
-	useEffect(() => {
-		let cancelled = false;
-
-		void createSession()
-			.then((nextSession) => {
-				if (cancelled) {
-					return;
-				}
-				if (
-					!nextSession.action_url ||
-					!isValidActionUrl(nextSession.action_url)
-				) {
-					setSessionState({ requestKey, session: null });
-					return;
-				}
-				setSessionState({ requestKey, session: nextSession });
-			})
-			.catch(() => {
-				if (cancelled) {
-					return;
-				}
-				setSessionState({ requestKey, session: null });
-			});
-
-		return () => {
-			cancelled = true;
-		};
-	}, [createSession, requestKey]);
-
-	const isLoading = sessionState?.requestKey !== requestKey;
+	const sessionState = useSyncExternalStore(
+		sessionResource.subscribe,
+		sessionResource.getSnapshot,
+		sessionResource.getSnapshot,
+	);
+	const isLoading = sessionState.loading;
 	const session = isLoading ? null : sessionState.session;
 
 	const mode = useMemo(

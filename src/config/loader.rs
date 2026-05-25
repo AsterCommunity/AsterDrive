@@ -401,7 +401,11 @@ burst_size = 5
         let config_path = dir.join(DEFAULT_CONFIG_PATH);
         write(
             &config_path,
-            br#"[rate_limit]
+            br#"[auth]
+jwt_secret = "test-jwt-secret"
+mfa_secret_key = "test-mfa-secret-key"
+
+[rate_limit]
 enabled = true
 trusted_proxies = ["10.0.0.0/8"]
 
