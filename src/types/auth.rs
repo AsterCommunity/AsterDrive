@@ -119,6 +119,7 @@ impl MfaFactorMethod {
 pub enum MfaMethod {
     Totp,
     RecoveryCode,
+    EmailCode,
 }
 
 impl MfaMethod {
@@ -126,6 +127,7 @@ impl MfaMethod {
         match self {
             Self::Totp => "totp",
             Self::RecoveryCode => "recovery_code",
+            Self::EmailCode => "email_code",
         }
     }
 }

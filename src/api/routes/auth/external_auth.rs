@@ -351,9 +351,17 @@ fn external_auth_redirect_completion_response(
                 .finish())
         }
         PrimaryLoginCompletion::MfaRequired(challenge) => {
+            let methods = challenge
+                .methods
+                .iter()
+                .map(|method| method.as_str())
+                .collect::<Vec<_>>()
+                .join(",");
             let path = format!(
-                "/login?mfa=required&flow={}&return_path={}",
+                "/login?mfa=required&flow={}&expires_in={}&methods={}&return_path={}",
                 urlencoding::encode(&challenge.flow_token),
+                challenge.expires_in,
+                urlencoding::encode(&methods),
                 urlencoding::encode(return_path)
             );
             let redirect_url = site_url::public_app_url_or_path(&state.runtime_config, &path);

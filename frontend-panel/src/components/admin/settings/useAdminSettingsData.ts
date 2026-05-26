@@ -49,6 +49,17 @@ import type {
 const PUBLIC_SITE_URL_KEY = "public_site_url";
 const CORS_ALLOWED_ORIGINS_KEY = "cors_allowed_origins";
 const CORS_ALLOW_CREDENTIALS_KEY = "cors_allow_credentials";
+const AUTH_EMAIL_CODE_LOGIN_ENABLED_KEY = "auth_email_code_login_enabled";
+const MAIL_SMTP_HOST_KEY = "mail_smtp_host";
+const MAIL_FROM_ADDRESS_KEY = "mail_from_address";
+const MAIL_SMTP_USERNAME_KEY = "mail_smtp_username";
+const MAIL_SMTP_PASSWORD_KEY = "mail_smtp_password";
+const MAIL_DELIVERY_CONFIG_KEYS = new Set([
+	MAIL_SMTP_HOST_KEY,
+	MAIL_FROM_ADDRESS_KEY,
+	MAIL_SMTP_USERNAME_KEY,
+	MAIL_SMTP_PASSWORD_KEY,
+]);
 const PUBLIC_BRANDING_CONFIG_KEYS = new Set([
 	PUBLIC_SITE_URL_KEY,
 	"allow_user_registration",
@@ -65,6 +76,26 @@ const MEDIA_DATA_SUPPORT_CONFIG_KEYS = new Set([
 ]);
 
 type TranslationFn = (key: string, options?: Record<string, unknown>) => string;
+type DraftValueReader = (key: string) => DraftValues[string] | undefined;
+
+function isMailDeliveryConfigReady(readValue: DraftValueReader) {
+	const smtpHost = configValueToString(readValue(MAIL_SMTP_HOST_KEY)).trim();
+	const fromAddress = configValueToString(
+		readValue(MAIL_FROM_ADDRESS_KEY),
+	).trim();
+	const smtpUsername = configValueToString(
+		readValue(MAIL_SMTP_USERNAME_KEY),
+	).trim();
+	const smtpPassword = configValueToString(
+		readValue(MAIL_SMTP_PASSWORD_KEY),
+	).trim();
+
+	return (
+		Boolean(smtpHost) &&
+		Boolean(fromAddress) &&
+		Boolean(smtpUsername) === Boolean(smtpPassword)
+	);
+}
 
 interface UseAdminSettingsDataProps {
 	currentUserEmail: string;
@@ -422,6 +453,11 @@ export function useAdminSettingsData({
 		[newCustomRows],
 	);
 
+	const configsByKey = useMemo(
+		() => new Map(configs.map((config) => [config.key, config] as const)),
+		[configs],
+	);
+
 	const newCustomRowErrors = useMemo(() => {
 		const errors = new Map<string, string>();
 		const keyCounts = new Map<string, number>();
@@ -497,19 +533,18 @@ export function useAdminSettingsData({
 
 	const configValidationErrors = useMemo(() => {
 		const errors = new Map<string, string>();
-		const configsByKey = new Map(
-			configs.map((config) => [config.key, config] as const),
-		);
+		const draftValueByKey = (key: string) =>
+			draftValues[key] ?? (configsByKey.get(key)?.value as DraftValues[string]);
 		const allowedOrigins = configValueToString(
-			draftValues[CORS_ALLOWED_ORIGINS_KEY] ??
-				(configsByKey.get(CORS_ALLOWED_ORIGINS_KEY)
-					?.value as DraftValues[string]),
+			draftValueByKey(CORS_ALLOWED_ORIGINS_KEY),
 		).trim();
 		const allowCredentials =
 			configValueToString(
-				draftValues[CORS_ALLOW_CREDENTIALS_KEY] ??
-					(configsByKey.get(CORS_ALLOW_CREDENTIALS_KEY)
-						?.value as DraftValues[string]),
+				draftValueByKey(CORS_ALLOW_CREDENTIALS_KEY),
+			).trim() === "true";
+		const emailCodeLoginEnabled =
+			configValueToString(
+				draftValueByKey(AUTH_EMAIL_CODE_LOGIN_ENABLED_KEY),
 			).trim() === "true";
 
 		if (allowCredentials && allowedOrigins === "*") {
@@ -518,8 +553,15 @@ export function useAdminSettingsData({
 			errors.set(CORS_ALLOW_CREDENTIALS_KEY, message);
 		}
 
+		if (emailCodeLoginEnabled && !isMailDeliveryConfigReady(draftValueByKey)) {
+			errors.set(
+				AUTH_EMAIL_CODE_LOGIN_ENABLED_KEY,
+				t("email_code_mfa_mail_config_required"),
+			);
+		}
+
 		return errors;
-	}, [configs, draftValues, t]);
+	}, [configsByKey, draftValues, t]);
 
 	const changedCount =
 		changedExistingConfigs.length +
@@ -548,11 +590,41 @@ export function useAdminSettingsData({
 		[draftValues],
 	);
 
+	const getDraftValueByKey = useCallback(
+		(key: string) => {
+			if (Object.hasOwn(draftValues, key)) {
+				return draftValues[key];
+			}
+			return configsByKey.get(key)?.value as DraftValues[string] | undefined;
+		},
+		[configsByKey, draftValues],
+	);
+
 	const updateDraftValue = useCallback(
 		(key: string, value: DraftValues[string]) => {
-			setDraftValues((previous) => ({ ...previous, [key]: value }));
+			setDraftValues((previous) => {
+				const next = { ...previous, [key]: value };
+				const readNextValue = (lookupKey: string) => {
+					if (Object.hasOwn(next, lookupKey)) {
+						return next[lookupKey];
+					}
+					return configsByKey.get(lookupKey)?.value as
+						| DraftValues[string]
+						| undefined;
+				};
+
+				if (
+					MAIL_DELIVERY_CONFIG_KEYS.has(key) &&
+					configsByKey.has(AUTH_EMAIL_CODE_LOGIN_ENABLED_KEY) &&
+					!isMailDeliveryConfigReady(readNextValue)
+				) {
+					next[AUTH_EMAIL_CODE_LOGIN_ENABLED_KEY] = "false";
+				}
+
+				return next;
+			});
 		},
-		[],
+		[configsByKey],
 	);
 
 	const toggleSubcategoryGroup = useCallback(
@@ -647,7 +719,15 @@ export function useAdminSettingsData({
 				nextConfigsByKey.delete(config.key);
 			}
 
-			for (const config of changedExistingConfigs) {
+			const orderedChangedConfigs = [...changedExistingConfigs].sort(
+				(left, right) => {
+					const priority = (config: SystemConfig) =>
+						config.key === AUTH_EMAIL_CODE_LOGIN_ENABLED_KEY ? 1 : 0;
+					return priority(left) - priority(right);
+				},
+			);
+
+			for (const config of orderedChangedConfigs) {
 				const nextValue = getDraftValue(config);
 				const savedConfig = await adminConfigService.set(config.key, nextValue);
 				nextConfigsByKey.set(
@@ -728,6 +808,7 @@ export function useAdminSettingsData({
 		expandedSubcategoryGroups,
 		expandedTemplateGroups,
 		getDraftValue,
+		getDraftValueByKey,
 		getSystemConfigDescription,
 		getSystemConfigLabel,
 		getTemplateVariableDescription,

@@ -103,7 +103,7 @@ impl MailSender for RuntimeMailSender {
                 "mail service is not configured",
             ));
         }
-        if settings.smtp_username.is_empty() ^ settings.smtp_password.is_empty() {
+        if !settings.is_ready_for_delivery() {
             return Err(AsterError::mail_not_configured(
                 "mail SMTP username and password must both be set or both be empty",
             ));

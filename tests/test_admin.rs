@@ -2621,6 +2621,171 @@ async fn test_admin_config() {
 }
 
 #[actix_web::test]
+async fn test_admin_email_code_mfa_requires_complete_mail_config() {
+    let state = common::setup().await;
+    let app = create_test_app!(state);
+    let (token, _) = register_and_login!(app);
+
+    let req = test::TestRequest::put()
+        .uri("/api/v1/admin/config/auth_email_code_login_enabled")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({ "value": "true" }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    let status = resp.status();
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(status, 400, "{body:#?}");
+    assert!(
+        body["msg"]
+            .as_str()
+            .unwrap()
+            .contains("email code MFA requires complete SMTP mail configuration")
+    );
+
+    for (key, value) in [
+        ("mail_smtp_host", "smtp.example.com"),
+        ("mail_from_address", "noreply@example.com"),
+        ("mail_smtp_username", "smtp-user"),
+    ] {
+        let req = test::TestRequest::put()
+            .uri(&format!("/api/v1/admin/config/{key}"))
+            .insert_header(("Cookie", common::access_cookie_header(&token)))
+            .insert_header(common::csrf_header_for(&token))
+            .set_json(serde_json::json!({ "value": value }))
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(resp.status(), 200);
+    }
+
+    let req = test::TestRequest::put()
+        .uri("/api/v1/admin/config/auth_email_code_login_enabled")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({ "value": "true" }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    let status = resp.status();
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(status, 400, "{body:#?}");
+    assert!(
+        body["msg"]
+            .as_str()
+            .unwrap()
+            .contains("email code MFA requires complete SMTP mail configuration")
+    );
+
+    let req = test::TestRequest::put()
+        .uri("/api/v1/admin/config/mail_smtp_password")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({ "value": "smtp-pass" }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+
+    let req = test::TestRequest::put()
+        .uri("/api/v1/admin/config/auth_email_code_login_enabled")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({ "value": "true" }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    let status = resp.status();
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(status, 200, "{body:#?}");
+    assert_eq!(body["data"]["value"], "true");
+}
+
+#[actix_web::test]
+async fn test_admin_mail_config_changes_disable_email_code_mfa_when_incomplete() {
+    let state = common::setup().await;
+    let app = create_test_app!(state);
+    let (token, _) = register_and_login!(app);
+
+    for (key, value) in [
+        ("mail_smtp_host", "smtp.example.com"),
+        ("mail_from_address", "noreply@example.com"),
+        ("auth_email_code_login_enabled", "true"),
+    ] {
+        let req = test::TestRequest::put()
+            .uri(&format!("/api/v1/admin/config/{key}"))
+            .insert_header(("Cookie", common::access_cookie_header(&token)))
+            .insert_header(common::csrf_header_for(&token))
+            .set_json(serde_json::json!({ "value": value }))
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(resp.status(), 200);
+    }
+
+    let req = test::TestRequest::put()
+        .uri("/api/v1/admin/config/mail_smtp_host")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({ "value": "" }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    let status = resp.status();
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(status, 200, "{body:#?}");
+
+    let req = test::TestRequest::get()
+        .uri("/api/v1/admin/config/auth_email_code_login_enabled")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    let status = resp.status();
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(status, 200, "{body:#?}");
+    assert_eq!(body["data"]["value"], "false");
+}
+
+#[actix_web::test]
+async fn test_admin_smtp_credential_mismatch_disables_email_code_mfa() {
+    let state = common::setup().await;
+    let app = create_test_app!(state);
+    let (token, _) = register_and_login!(app);
+
+    for (key, value) in [
+        ("mail_smtp_host", "smtp.example.com"),
+        ("mail_from_address", "noreply@example.com"),
+        ("auth_email_code_login_enabled", "true"),
+    ] {
+        let req = test::TestRequest::put()
+            .uri(&format!("/api/v1/admin/config/{key}"))
+            .insert_header(("Cookie", common::access_cookie_header(&token)))
+            .insert_header(common::csrf_header_for(&token))
+            .set_json(serde_json::json!({ "value": value }))
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(resp.status(), 200);
+    }
+
+    let req = test::TestRequest::put()
+        .uri("/api/v1/admin/config/mail_smtp_username")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({ "value": "smtp-user" }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    let status = resp.status();
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(status, 200, "{body:#?}");
+
+    let req = test::TestRequest::get()
+        .uri("/api/v1/admin/config/auth_email_code_login_enabled")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    let status = resp.status();
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(status, 200, "{body:#?}");
+    assert_eq!(body["data"]["value"], "false");
+}
+
+#[actix_web::test]
 async fn test_admin_config_action_sends_test_email() {
     let state = common::setup().await;
     let mail_sender = state.mail_sender.clone();

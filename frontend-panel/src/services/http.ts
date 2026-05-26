@@ -30,6 +30,7 @@ const SKIP_REFRESH_PATHS = [
 	"/auth/refresh",
 	"/auth/login",
 	"/auth/mfa/challenge/verify",
+	"/auth/mfa/challenge/email-code/send",
 	"/auth/passkeys/login/start",
 	"/auth/passkeys/login/finish",
 	"/auth/register",

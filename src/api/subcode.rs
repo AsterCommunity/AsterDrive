@@ -70,6 +70,8 @@ define_api_subcodes! {
     AuthMfaFactorRequired => "auth.mfa_factor_required",
     AuthMfaFactorAlreadyExists => "auth.mfa_factor_already_exists",
     AuthMfaRecoveryCodeUsed => "auth.mfa_recovery_code_used",
+    AuthMfaEmailCodeRequired => "auth.mfa_email_code_required",
+    AuthMfaEmailCodeExpired => "auth.mfa_email_code_expired",
 
     AvatarFileRequired => "avatar.file_required",
     AvatarUploadReadFailed => "avatar.upload_read_failed",

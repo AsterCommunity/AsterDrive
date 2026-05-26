@@ -6,7 +6,9 @@ use crate::errors::{AsterError, Result};
 pub use crate::config::definitions::{
     AUTH_ACCESS_TOKEN_TTL_SECS_KEY, AUTH_ALLOW_USER_REGISTRATION_KEY,
     AUTH_CONTACT_CHANGE_TTL_SECS_KEY, AUTH_CONTACT_VERIFICATION_RESEND_COOLDOWN_SECS_KEY,
-    AUTH_COOKIE_SECURE_KEY, AUTH_PASSWORD_RESET_REQUEST_COOLDOWN_SECS_KEY,
+    AUTH_COOKIE_SECURE_KEY, AUTH_EMAIL_CODE_LOGIN_ALLOW_TOTP_FALLBACK_KEY,
+    AUTH_EMAIL_CODE_LOGIN_ENABLED_KEY, AUTH_EMAIL_CODE_LOGIN_RESEND_COOLDOWN_SECS_KEY,
+    AUTH_EMAIL_CODE_LOGIN_TTL_SECS_KEY, AUTH_PASSWORD_RESET_REQUEST_COOLDOWN_SECS_KEY,
     AUTH_PASSWORD_RESET_TTL_SECS_KEY, AUTH_REFRESH_TOKEN_TTL_SECS_KEY,
     AUTH_REGISTER_ACTIVATION_ENABLED_KEY, AUTH_REGISTER_ACTIVATION_TTL_SECS_KEY,
 };
@@ -21,6 +23,10 @@ pub const DEFAULT_AUTH_CONTACT_CHANGE_TTL_SECS: u64 = 86_400;
 pub const DEFAULT_AUTH_PASSWORD_RESET_TTL_SECS: u64 = 3_600;
 pub const DEFAULT_AUTH_CONTACT_VERIFICATION_RESEND_COOLDOWN_SECS: u64 = 60;
 pub const DEFAULT_AUTH_PASSWORD_RESET_REQUEST_COOLDOWN_SECS: u64 = 60;
+pub const DEFAULT_AUTH_EMAIL_CODE_LOGIN_ENABLED: bool = false;
+pub const DEFAULT_AUTH_EMAIL_CODE_LOGIN_ALLOW_TOTP_FALLBACK: bool = false;
+pub const DEFAULT_AUTH_EMAIL_CODE_LOGIN_TTL_SECS: u64 = 600;
+pub const DEFAULT_AUTH_EMAIL_CODE_LOGIN_RESEND_COOLDOWN_SECS: u64 = 60;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct RuntimeAuthPolicy {
@@ -38,6 +44,14 @@ pub struct RuntimeContactVerificationPolicy {
     pub resend_cooldown_secs: u64,
     pub password_reset_ttl_secs: u64,
     pub password_reset_request_cooldown_secs: u64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RuntimeEmailCodeLoginPolicy {
+    pub enabled: bool,
+    pub allow_totp_fallback: bool,
+    pub ttl_secs: u64,
+    pub resend_cooldown_secs: u64,
 }
 
 impl RuntimeAuthPolicy {
@@ -166,6 +180,57 @@ impl RuntimeContactVerificationPolicy {
     }
 }
 
+impl RuntimeEmailCodeLoginPolicy {
+    pub fn from_runtime_config(runtime_config: &RuntimeConfig) -> Self {
+        let enabled = match runtime_config.get(AUTH_EMAIL_CODE_LOGIN_ENABLED_KEY) {
+            Some(raw) => match parse_bool_str(&raw) {
+                Some(value) => value,
+                None => {
+                    tracing::warn!(
+                        key = AUTH_EMAIL_CODE_LOGIN_ENABLED_KEY,
+                        value = %raw,
+                        "invalid runtime email code login enabled config; using default"
+                    );
+                    DEFAULT_AUTH_EMAIL_CODE_LOGIN_ENABLED
+                }
+            },
+            None => DEFAULT_AUTH_EMAIL_CODE_LOGIN_ENABLED,
+        };
+        let allow_totp_fallback =
+            match runtime_config.get(AUTH_EMAIL_CODE_LOGIN_ALLOW_TOTP_FALLBACK_KEY) {
+                Some(raw) => match parse_bool_str(&raw) {
+                    Some(value) => value,
+                    None => {
+                        tracing::warn!(
+                            key = AUTH_EMAIL_CODE_LOGIN_ALLOW_TOTP_FALLBACK_KEY,
+                            value = %raw,
+                            "invalid runtime email code TOTP fallback config; using default"
+                        );
+                        DEFAULT_AUTH_EMAIL_CODE_LOGIN_ALLOW_TOTP_FALLBACK
+                    }
+                },
+                None => DEFAULT_AUTH_EMAIL_CODE_LOGIN_ALLOW_TOTP_FALLBACK,
+            };
+        let ttl_secs = read_positive_u64(
+            runtime_config,
+            AUTH_EMAIL_CODE_LOGIN_TTL_SECS_KEY,
+            DEFAULT_AUTH_EMAIL_CODE_LOGIN_TTL_SECS,
+        );
+        let resend_cooldown_secs = read_positive_u64(
+            runtime_config,
+            AUTH_EMAIL_CODE_LOGIN_RESEND_COOLDOWN_SECS_KEY,
+            DEFAULT_AUTH_EMAIL_CODE_LOGIN_RESEND_COOLDOWN_SECS,
+        );
+
+        Self {
+            enabled,
+            allow_totp_fallback,
+            ttl_secs,
+            resend_cooldown_secs,
+        }
+    }
+}
+
 pub fn normalize_cookie_secure_config_value(value: &str) -> Result<String> {
     match parse_bool_str(value) {
         Some(value) => Ok(if value { "true" } else { "false" }.to_string()),
@@ -190,6 +255,15 @@ pub fn normalize_register_activation_enabled_config_value(value: &str) -> Result
         None => Err(AsterError::validation_error(
             "auth_register_activation_enabled must be 'true' or 'false'",
         )),
+    }
+}
+
+pub fn normalize_email_code_login_bool_config_value(key: &str, value: &str) -> Result<String> {
+    match parse_bool_str(value) {
+        Some(value) => Ok(if value { "true" } else { "false" }.to_string()),
+        None => Err(AsterError::validation_error(format!(
+            "{key} must be 'true' or 'false'",
+        ))),
     }
 }
 
@@ -232,10 +306,15 @@ fn read_positive_u64(runtime_config: &RuntimeConfig, key: &str, default: u64) ->
 mod tests {
     use super::{
         AUTH_ACCESS_TOKEN_TTL_SECS_KEY, AUTH_ALLOW_USER_REGISTRATION_KEY, AUTH_COOKIE_SECURE_KEY,
+        AUTH_EMAIL_CODE_LOGIN_ALLOW_TOTP_FALLBACK_KEY, AUTH_EMAIL_CODE_LOGIN_ENABLED_KEY,
+        AUTH_EMAIL_CODE_LOGIN_RESEND_COOLDOWN_SECS_KEY, AUTH_EMAIL_CODE_LOGIN_TTL_SECS_KEY,
         AUTH_REFRESH_TOKEN_TTL_SECS_KEY, AUTH_REGISTER_ACTIVATION_ENABLED_KEY,
         DEFAULT_AUTH_ACCESS_TOKEN_TTL_SECS, DEFAULT_AUTH_ALLOW_USER_REGISTRATION,
-        DEFAULT_AUTH_COOKIE_SECURE, DEFAULT_AUTH_REFRESH_TOKEN_TTL_SECS,
-        DEFAULT_AUTH_REGISTER_ACTIVATION_ENABLED, RuntimeAuthPolicy,
+        DEFAULT_AUTH_COOKIE_SECURE, DEFAULT_AUTH_EMAIL_CODE_LOGIN_ALLOW_TOTP_FALLBACK,
+        DEFAULT_AUTH_EMAIL_CODE_LOGIN_ENABLED, DEFAULT_AUTH_EMAIL_CODE_LOGIN_RESEND_COOLDOWN_SECS,
+        DEFAULT_AUTH_EMAIL_CODE_LOGIN_TTL_SECS, DEFAULT_AUTH_REFRESH_TOKEN_TTL_SECS,
+        DEFAULT_AUTH_REGISTER_ACTIVATION_ENABLED, RuntimeAuthPolicy, RuntimeEmailCodeLoginPolicy,
+        normalize_email_code_login_bool_config_value, normalize_token_ttl_config_value,
     };
     use crate::config::RuntimeConfig;
     use crate::entities::system_config;
@@ -298,5 +377,98 @@ mod tests {
         assert!(!policy.register_activation_enabled);
         assert_eq!(policy.access_token_ttl_secs, 120);
         assert_eq!(policy.refresh_token_ttl_secs, 3600);
+    }
+
+    #[test]
+    fn runtime_email_code_login_policy_uses_safe_defaults() {
+        let runtime_config = RuntimeConfig::new();
+        let policy = RuntimeEmailCodeLoginPolicy::from_runtime_config(&runtime_config);
+
+        assert_eq!(policy.enabled, DEFAULT_AUTH_EMAIL_CODE_LOGIN_ENABLED);
+        assert_eq!(
+            policy.allow_totp_fallback,
+            DEFAULT_AUTH_EMAIL_CODE_LOGIN_ALLOW_TOTP_FALLBACK
+        );
+        assert_eq!(policy.ttl_secs, DEFAULT_AUTH_EMAIL_CODE_LOGIN_TTL_SECS);
+        assert_eq!(
+            policy.resend_cooldown_secs,
+            DEFAULT_AUTH_EMAIL_CODE_LOGIN_RESEND_COOLDOWN_SECS
+        );
+    }
+
+    #[test]
+    fn runtime_email_code_login_policy_reads_valid_values() {
+        let runtime_config = RuntimeConfig::new();
+        runtime_config.apply(config_model(AUTH_EMAIL_CODE_LOGIN_ENABLED_KEY, "on"));
+        runtime_config.apply(config_model(
+            AUTH_EMAIL_CODE_LOGIN_ALLOW_TOTP_FALLBACK_KEY,
+            "1",
+        ));
+        runtime_config.apply(config_model(AUTH_EMAIL_CODE_LOGIN_TTL_SECS_KEY, "1"));
+        runtime_config.apply(config_model(
+            AUTH_EMAIL_CODE_LOGIN_RESEND_COOLDOWN_SECS_KEY,
+            "60",
+        ));
+
+        let policy = RuntimeEmailCodeLoginPolicy::from_runtime_config(&runtime_config);
+
+        assert!(policy.enabled);
+        assert!(policy.allow_totp_fallback);
+        assert_eq!(policy.ttl_secs, 1);
+        assert_eq!(policy.resend_cooldown_secs, 60);
+    }
+
+    #[test]
+    fn runtime_email_code_login_policy_rejects_invalid_values_to_defaults() {
+        let runtime_config = RuntimeConfig::new();
+        runtime_config.apply(config_model(AUTH_EMAIL_CODE_LOGIN_ENABLED_KEY, "maybe"));
+        runtime_config.apply(config_model(
+            AUTH_EMAIL_CODE_LOGIN_ALLOW_TOTP_FALLBACK_KEY,
+            "perhaps",
+        ));
+        runtime_config.apply(config_model(AUTH_EMAIL_CODE_LOGIN_TTL_SECS_KEY, "0"));
+        runtime_config.apply(config_model(
+            AUTH_EMAIL_CODE_LOGIN_RESEND_COOLDOWN_SECS_KEY,
+            "not-a-number",
+        ));
+
+        let policy = RuntimeEmailCodeLoginPolicy::from_runtime_config(&runtime_config);
+
+        assert!(!policy.enabled);
+        assert!(!policy.allow_totp_fallback);
+        assert_eq!(policy.ttl_secs, DEFAULT_AUTH_EMAIL_CODE_LOGIN_TTL_SECS);
+        assert_eq!(
+            policy.resend_cooldown_secs,
+            DEFAULT_AUTH_EMAIL_CODE_LOGIN_RESEND_COOLDOWN_SECS
+        );
+    }
+
+    #[test]
+    fn runtime_email_code_login_normalizers_enforce_boolean_and_positive_ttl() {
+        assert_eq!(
+            normalize_email_code_login_bool_config_value(AUTH_EMAIL_CODE_LOGIN_ENABLED_KEY, "yes")
+                .unwrap(),
+            "true"
+        );
+        assert_eq!(
+            normalize_email_code_login_bool_config_value(
+                AUTH_EMAIL_CODE_LOGIN_ALLOW_TOTP_FALLBACK_KEY,
+                "off"
+            )
+            .unwrap(),
+            "false"
+        );
+        assert!(
+            normalize_email_code_login_bool_config_value(
+                AUTH_EMAIL_CODE_LOGIN_ENABLED_KEY,
+                "sometimes"
+            )
+            .is_err()
+        );
+        assert_eq!(
+            normalize_token_ttl_config_value(AUTH_EMAIL_CODE_LOGIN_TTL_SECS_KEY, "60").unwrap(),
+            "60"
+        );
+        assert!(normalize_token_ttl_config_value(AUTH_EMAIL_CODE_LOGIN_TTL_SECS_KEY, "0").is_err());
     }
 }

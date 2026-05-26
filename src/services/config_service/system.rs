@@ -3,6 +3,7 @@ use crate::config::definitions::ALL_CONFIGS;
 use crate::config::media_processing::MEDIA_PROCESSING_REGISTRY_JSON_KEY;
 use crate::config::operations::{MEDIA_METADATA_ENABLED_KEY, MEDIA_METADATA_MAX_SOURCE_BYTES_KEY};
 use crate::config::system_config as shared_system_config;
+use crate::config::{auth_runtime, mail, mail::RuntimeMailSettings};
 use crate::db::repository::config_repo;
 use crate::entities::system_config;
 use crate::errors::{AsterError, Result};
@@ -185,12 +186,18 @@ pub async fn set(
         validate_value_type(def.value_type, &normalized_value)?;
         normalized_value = normalize_system_value(state, key, &normalized_value)?;
     }
+    validate_config_dependencies(state, key, &normalized_value)?;
 
-    let config = apply_system_config_definition(
-        config_repo::upsert(state.writer_db(), key, &normalized_value, updated_by).await?,
-    );
-    state.runtime_config.apply(config.clone());
-    invalidate_dependent_public_config_caches(key);
+    let changed =
+        upsert_config_and_apply_dependents(state, key, &normalized_value, updated_by).await?;
+    let config = changed
+        .iter()
+        .find(|item| item.key == key)
+        .cloned()
+        .ok_or_else(|| AsterError::internal_error(format!("saved config key '{key}' missing")))?;
+    for changed_key in changed {
+        invalidate_dependent_public_config_caches(&changed_key.key);
+    }
     Ok(config.into())
 }
 
@@ -257,6 +264,112 @@ fn validate_value_type(value_type: SystemConfigValueType, value: &str) -> Result
 
 fn normalize_system_value(state: &PrimaryAppState, key: &str, value: &str) -> Result<String> {
     shared_system_config::normalize_system_value(&state.runtime_config, key, value)
+}
+
+fn validate_config_dependencies(state: &PrimaryAppState, key: &str, value: &str) -> Result<()> {
+    if key != auth_runtime::AUTH_EMAIL_CODE_LOGIN_ENABLED_KEY || value != "true" {
+        return Ok(());
+    }
+
+    let settings = RuntimeMailSettings::from_runtime_config(&state.runtime_config);
+    if settings.is_ready_for_delivery() {
+        return Ok(());
+    }
+
+    Err(AsterError::validation_error(
+        "email code MFA requires complete SMTP mail configuration",
+    ))
+}
+
+async fn upsert_config_and_apply_dependents(
+    state: &PrimaryAppState,
+    key: &str,
+    value: &str,
+    updated_by: i64,
+) -> Result<Vec<system_config::Model>> {
+    let txn = crate::db::transaction::begin(state.writer_db()).await?;
+    let result = async {
+        let saved = config_repo::upsert(&txn, key, value, updated_by).await?;
+        let mut changed = vec![apply_system_config_definition(saved)];
+        if key != auth_runtime::AUTH_EMAIL_CODE_LOGIN_ENABLED_KEY
+            && mail_config_change_disables_email_code_mfa(state, key, value)
+        {
+            let disabled = config_repo::upsert(
+                &txn,
+                auth_runtime::AUTH_EMAIL_CODE_LOGIN_ENABLED_KEY,
+                "false",
+                updated_by,
+            )
+            .await?;
+            changed.push(apply_system_config_definition(disabled));
+        }
+        Ok::<_, AsterError>(changed)
+    }
+    .await;
+
+    match result {
+        Ok(changed) => {
+            crate::db::transaction::commit(txn).await?;
+            for item in &changed {
+                state.runtime_config.apply(item.clone());
+            }
+            Ok(changed)
+        }
+        Err(error) => {
+            crate::db::transaction::rollback(txn).await?;
+            Err(error)
+        }
+    }
+}
+
+fn mail_config_change_disables_email_code_mfa(
+    state: &PrimaryAppState,
+    key: &str,
+    value: &str,
+) -> bool {
+    if !matches!(
+        key,
+        mail::MAIL_SMTP_HOST_KEY
+            | mail::MAIL_FROM_ADDRESS_KEY
+            | mail::MAIL_SMTP_USERNAME_KEY
+            | mail::MAIL_SMTP_PASSWORD_KEY
+    ) {
+        return false;
+    }
+    if !state.runtime_config.get_bool_or(
+        auth_runtime::AUTH_EMAIL_CODE_LOGIN_ENABLED_KEY,
+        auth_runtime::DEFAULT_AUTH_EMAIL_CODE_LOGIN_ENABLED,
+    ) {
+        return false;
+    }
+
+    let lookup = |lookup_key: &str| {
+        if lookup_key == key {
+            value.to_string()
+        } else {
+            state.runtime_config.get(lookup_key).unwrap_or_default()
+        }
+    };
+    let settings = RuntimeMailSettings {
+        smtp_host: lookup(mail::MAIL_SMTP_HOST_KEY),
+        smtp_port: state
+            .runtime_config
+            .get(mail::MAIL_SMTP_PORT_KEY)
+            .and_then(|raw| raw.trim().parse().ok())
+            .unwrap_or(mail::DEFAULT_MAIL_SMTP_PORT),
+        smtp_username: lookup(mail::MAIL_SMTP_USERNAME_KEY),
+        smtp_password: lookup(mail::MAIL_SMTP_PASSWORD_KEY),
+        from_address: lookup(mail::MAIL_FROM_ADDRESS_KEY),
+        from_name: state
+            .runtime_config
+            .get(mail::MAIL_FROM_NAME_KEY)
+            .unwrap_or_default(),
+        encryption_enabled: state
+            .runtime_config
+            .get_bool_or(mail::MAIL_SECURITY_KEY, mail::DEFAULT_MAIL_SECURITY),
+    };
+
+    !settings.is_ready_for_delivery()
 }
 
 fn apply_system_config_definition(config: system_config::Model) -> system_config::Model {

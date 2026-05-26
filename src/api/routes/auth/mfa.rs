@@ -7,7 +7,7 @@ use crate::runtime::PrimaryAppState;
 use crate::services::auth_service::Claims;
 use crate::services::{audit_service, mfa_service};
 use actix_web::{HttpRequest, HttpResponse, web};
-use mfa_service::MfaChallengeVerifyRequest;
+use mfa_service::{MfaChallengeVerifyRequest, MfaEmailCodeSendRequest};
 
 #[api_docs_macros::path(
     post,
@@ -42,6 +42,37 @@ pub async fn verify_challenge(
         &result.access_token,
         &result.refresh_token,
     )
+}
+
+#[api_docs_macros::path(
+    post,
+    path = "/api/v1/auth/mfa/challenge/email-code/send",
+    tag = "auth",
+    operation_id = "send_mfa_email_code",
+    request_body = MfaEmailCodeSendRequest,
+    responses(
+        (status = 200, description = "MFA email code sent", body = inline(ApiResponse<mfa_service::MfaEmailCodeSendResponse>)),
+        (status = 401, description = "Invalid MFA flow"),
+        (status = 429, description = "Email code resend cooldown is still active"),
+    ),
+)]
+pub async fn send_email_code(
+    state: web::Data<PrimaryAppState>,
+    req: HttpRequest,
+    body: web::Json<MfaEmailCodeSendRequest>,
+) -> Result<HttpResponse> {
+    csrf::ensure_request_source_allowed(
+        &req,
+        &state.runtime_config,
+        RequestSourceMode::OptionalWhenPresent,
+    )?;
+    let audit_info = audit_service::AuditRequestInfo::from_request_with_trusted_proxies(
+        &req,
+        &state.config.network_trust.trusted_proxies,
+    );
+    Ok(HttpResponse::Ok().json(ApiResponse::ok(
+        mfa_service::send_email_code(&state, &body.flow_token, &audit_info).await?,
+    )))
 }
 
 #[api_docs_macros::path(

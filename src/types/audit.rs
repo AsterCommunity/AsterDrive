@@ -391,6 +391,8 @@ pub enum AuditAction {
     UserMfaDisable,
     #[sea_orm(string_value = "user_mfa_recovery_codes_regenerate")]
     UserMfaRecoveryCodesRegenerate,
+    #[sea_orm(string_value = "user_mfa_email_code_send")]
+    UserMfaEmailCodeSend,
     #[sea_orm(string_value = "user_mfa_challenge_success")]
     UserMfaChallengeSuccess,
     #[sea_orm(string_value = "user_mfa_challenge_failed")]
@@ -536,6 +538,7 @@ impl AuditAction {
             Self::UserMfaEnable => "user_mfa_enable",
             Self::UserMfaDisable => "user_mfa_disable",
             Self::UserMfaRecoveryCodesRegenerate => "user_mfa_recovery_codes_regenerate",
+            Self::UserMfaEmailCodeSend => "user_mfa_email_code_send",
             Self::UserMfaChallengeSuccess => "user_mfa_challenge_success",
             Self::UserMfaChallengeFailed => "user_mfa_challenge_failed",
             Self::UserPasskeyDelete => "user_passkey_delete",
@@ -666,6 +669,7 @@ impl AuditAction {
             "user_mfa_enable" => Some(Self::UserMfaEnable),
             "user_mfa_disable" => Some(Self::UserMfaDisable),
             "user_mfa_recovery_codes_regenerate" => Some(Self::UserMfaRecoveryCodesRegenerate),
+            "user_mfa_email_code_send" => Some(Self::UserMfaEmailCodeSend),
             "user_mfa_challenge_success" => Some(Self::UserMfaChallengeSuccess),
             "user_mfa_challenge_failed" => Some(Self::UserMfaChallengeFailed),
             "user_passkey_delete" => Some(Self::UserPasskeyDelete),

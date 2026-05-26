@@ -19,6 +19,7 @@ pub mod mail_outbox;
 pub mod managed_follower;
 pub mod managed_ingress_profile;
 pub mod master_binding;
+pub mod mfa_email_code;
 pub mod mfa_factor;
 pub mod mfa_login_flow;
 pub mod mfa_recovery_code;

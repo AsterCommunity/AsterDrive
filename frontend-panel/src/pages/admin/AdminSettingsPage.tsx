@@ -148,6 +148,7 @@ export default function AdminSettingsPage({
 		expandedSubcategoryGroups,
 		expandedTemplateGroups,
 		getDraftValue,
+		getDraftValueByKey,
 		getSystemConfigDescription,
 		getSystemConfigLabel,
 		getTemplateVariableDescription,
@@ -426,6 +427,7 @@ export default function AdminSettingsPage({
 				getCategoryDescription={getCategoryDescription}
 				getCategoryLabel={getCategoryLabel}
 				getDraftValue={getDraftValue}
+				getDraftValueByKey={getDraftValueByKey}
 				getMailTemplateGroupLabel={getMailTemplateGroupLabel}
 				getSubcategoryDescription={getSubcategoryDescription}
 				getSubcategoryLabel={getSubcategoryLabel}
@@ -443,6 +445,7 @@ export default function AdminSettingsPage({
 				newCustomRows={newCustomRows}
 				openTemplateVariablesDialog={openTemplateVariablesDialog}
 				openTestEmailDialog={openTestEmailDialog}
+				navigateToMailSettings={() => navigate("/admin/settings/mail")}
 				removeNewCustomRow={removeNewCustomRow}
 				restoreDeletedCustom={restoreDeletedCustom}
 				setDisplayUnits={setDisplayUnits}

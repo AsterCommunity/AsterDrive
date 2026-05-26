@@ -12,9 +12,15 @@ export interface MfaChallengeState {
 export interface MfaPanelState {
 	challenge: MfaChallengeState;
 	code: string;
+	emailCodeError: string;
+	emailCodeExpiresAt: number | null;
+	emailCodeResendAt: number;
+	emailCodeSending: boolean;
+	emailCodeSent: boolean;
 	error: string;
 	kind: "mfa";
 	now: number;
+	selectedMethod: MfaMethod;
 	submitting: boolean;
 }
 
@@ -74,7 +80,16 @@ export type AuthPanelAction =
 	| { type: "set_external_password_identifier"; identifier: string }
 	| { type: "set_external_password_submitting"; submitting: boolean }
 	| { type: "set_mfa_code"; code: string }
+	| { type: "set_mfa_email_code_error"; error: string }
+	| {
+			type: "set_mfa_email_code_sent";
+			expiresIn: number;
+			now: number;
+			resendAfter: number;
+	  }
+	| { type: "set_mfa_email_code_sending"; sending: boolean }
 	| { type: "set_mfa_error"; error: string }
+	| { type: "set_mfa_method"; method: MfaMethod }
 	| { type: "set_mfa_now"; now: number }
 	| { type: "set_mfa_submitting"; submitting: boolean }
 	| { type: "set_password_reset_email"; email: string; error: string }
@@ -120,9 +135,15 @@ export function authPanelReducer(
 			return {
 				challenge: action.challenge,
 				code: "",
+				emailCodeError: "",
+				emailCodeExpiresAt: null,
+				emailCodeResendAt: 0,
+				emailCodeSending: false,
+				emailCodeSent: false,
 				error: "",
 				kind: "mfa",
 				now: Date.now(),
+				selectedMethod: initialMfaMethod(action.challenge.methods),
 				submitting: false,
 			};
 		case "open_password_reset":
@@ -210,9 +231,42 @@ export function authPanelReducer(
 		case "set_mfa_code":
 			if (state.kind !== "mfa") return state;
 			return { ...state, code: action.code, error: "" };
+		case "set_mfa_email_code_error":
+			if (state.kind !== "mfa") return state;
+			return {
+				...state,
+				emailCodeError: action.error,
+				emailCodeSending: false,
+			};
+		case "set_mfa_email_code_sent":
+			if (state.kind !== "mfa") return state;
+			return {
+				...state,
+				emailCodeError: "",
+				emailCodeExpiresAt: action.now + action.expiresIn * 1000,
+				emailCodeResendAt: action.now + action.resendAfter * 1000,
+				emailCodeSending: false,
+				emailCodeSent: true,
+			};
+		case "set_mfa_email_code_sending":
+			if (state.kind !== "mfa") return state;
+			return {
+				...state,
+				emailCodeError: action.sending ? "" : state.emailCodeError,
+				emailCodeSending: action.sending,
+			};
 		case "set_mfa_error":
 			if (state.kind !== "mfa") return state;
 			return { ...state, error: action.error };
+		case "set_mfa_method":
+			if (state.kind !== "mfa") return state;
+			if (!state.challenge.methods.includes(action.method)) return state;
+			return {
+				...state,
+				code: "",
+				error: "",
+				selectedMethod: action.method,
+			};
 		case "set_mfa_now":
 			if (state.kind !== "mfa") return state;
 			return { ...state, now: action.now };
@@ -253,4 +307,11 @@ export function authPanelReducer(
 				pendingActivation: action.pendingActivation,
 			};
 	}
+}
+
+function initialMfaMethod(methods: MfaMethod[]): MfaMethod {
+	if (methods.includes("totp")) return "totp";
+	if (methods.includes("email_code")) return "email_code";
+	if (methods.includes("recovery_code")) return "recovery_code";
+	return "totp";
 }

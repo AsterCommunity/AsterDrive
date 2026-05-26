@@ -370,11 +370,14 @@ describe("authService", () => {
 					status: "mfa_required",
 					expires_in: 300,
 					flow_token: "mfa-flow",
-					methods: ["totp", "recovery_code"],
+					methods: ["totp", "recovery_code", "email_code"],
 				};
 			}
 			if (url === "/auth/mfa/challenge/verify") {
 				return { status: "authenticated", expires_in: 900 };
+			}
+			if (url === "/auth/mfa/challenge/email-code/send") {
+				return { expires_in: 600, resend_after: 60 };
 			}
 			return undefined;
 		});
@@ -383,7 +386,7 @@ describe("authService", () => {
 			status: "mfa_required",
 			expiresIn: 300,
 			flowToken: "mfa-flow",
-			methods: ["totp", "recovery_code"],
+			methods: ["totp", "recovery_code", "email_code"],
 		});
 		await expect(
 			authService.verifyMfaChallenge({
@@ -392,6 +395,10 @@ describe("authService", () => {
 				code: "123456",
 			}),
 		).resolves.toEqual({ expiresIn: 900 });
+		expect(authService.sendMfaEmailCode({ flow_token: "mfa-flow" })).toEqual({
+			expires_in: 600,
+			resend_after: 60,
+		});
 
 		expect(mockState.post).toHaveBeenNthCalledWith(1, "/auth/login", {
 			identifier: "alice",
@@ -406,6 +413,29 @@ describe("authService", () => {
 				code: "123456",
 			},
 		);
+		expect(mockState.post).toHaveBeenNthCalledWith(
+			3,
+			"/auth/mfa/challenge/email-code/send",
+			{
+				flow_token: "mfa-flow",
+			},
+		);
+	});
+
+	it("filters unsupported MFA methods from login responses", async () => {
+		mockState.post.mockReturnValueOnce({
+			status: "mfa_required",
+			expires_in: 300,
+			flow_token: "mfa-flow",
+			methods: ["email_code", "sms", "", "totp"],
+		});
+
+		await expect(authService.login("alice", "secret")).resolves.toEqual({
+			status: "mfa_required",
+			expiresIn: 300,
+			flowToken: "mfa-flow",
+			methods: ["email_code", "totp"],
+		});
 	});
 
 	it("rejects MFA login responses without a flow token", async () => {

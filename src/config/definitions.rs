@@ -20,6 +20,12 @@ pub const AUTH_CONTACT_VERIFICATION_RESEND_COOLDOWN_SECS_KEY: &str =
     "auth_contact_verification_resend_cooldown_secs";
 pub const AUTH_PASSWORD_RESET_REQUEST_COOLDOWN_SECS_KEY: &str =
     "auth_password_reset_request_cooldown_secs";
+pub const AUTH_EMAIL_CODE_LOGIN_ENABLED_KEY: &str = "auth_email_code_login_enabled";
+pub const AUTH_EMAIL_CODE_LOGIN_ALLOW_TOTP_FALLBACK_KEY: &str =
+    "auth_email_code_login_allow_totp_fallback";
+pub const AUTH_EMAIL_CODE_LOGIN_TTL_SECS_KEY: &str = "auth_email_code_login_ttl_secs";
+pub const AUTH_EMAIL_CODE_LOGIN_RESEND_COOLDOWN_SECS_KEY: &str =
+    "auth_email_code_login_resend_cooldown_secs";
 pub const AUTH_ALLOW_USER_REGISTRATION_KEY: &str = "auth_allow_user_registration";
 pub const AUTH_REGISTER_ACTIVATION_ENABLED_KEY: &str = "auth_register_activation_enabled";
 
@@ -118,6 +124,9 @@ pub const MAIL_TEMPLATE_EXTERNAL_AUTH_EMAIL_VERIFICATION_SUBJECT_KEY: &str =
     "mail_template_external_auth_email_verification_subject";
 pub const MAIL_TEMPLATE_EXTERNAL_AUTH_EMAIL_VERIFICATION_HTML_KEY: &str =
     "mail_template_external_auth_email_verification_html";
+pub const MAIL_TEMPLATE_LOGIN_EMAIL_CODE_SUBJECT_KEY: &str =
+    "mail_template_login_email_code_subject";
+pub const MAIL_TEMPLATE_LOGIN_EMAIL_CODE_HTML_KEY: &str = "mail_template_login_email_code_html";
 
 // ── General / branding keys ──────────────────────────────────────────────────
 pub const PUBLIC_SITE_URL_KEY: &str = "public_site_url";
@@ -267,6 +276,50 @@ pub static ALL_CONFIGS: &[ConfigDef] = &[
         is_sensitive: false,
         category: "auth",
         description: "Minimum cooldown between verification email resends in seconds",
+    },
+    ConfigDef {
+        key: AUTH_EMAIL_CODE_LOGIN_ENABLED_KEY,
+        label_i18n_key: "settings_item_auth_email_code_login_enabled_label",
+        description_i18n_key: "settings_item_auth_email_code_login_enabled_desc",
+        value_type: SystemConfigValueType::Boolean,
+        default_fn: || "false".to_string(),
+        requires_restart: false,
+        is_sensitive: false,
+        category: "auth",
+        description: "Allow verified-email users to complete MFA with a one-time email code when mail is configured",
+    },
+    ConfigDef {
+        key: AUTH_EMAIL_CODE_LOGIN_ALLOW_TOTP_FALLBACK_KEY,
+        label_i18n_key: "settings_item_auth_email_code_login_allow_totp_fallback_label",
+        description_i18n_key: "settings_item_auth_email_code_login_allow_totp_fallback_desc",
+        value_type: SystemConfigValueType::Boolean,
+        default_fn: || "false".to_string(),
+        requires_restart: false,
+        is_sensitive: false,
+        category: "auth",
+        description: "Allow users with TOTP MFA to use email code MFA as a fallback method",
+    },
+    ConfigDef {
+        key: AUTH_EMAIL_CODE_LOGIN_TTL_SECS_KEY,
+        label_i18n_key: "settings_item_auth_email_code_login_ttl_secs_label",
+        description_i18n_key: "settings_item_auth_email_code_login_ttl_secs_desc",
+        value_type: SystemConfigValueType::Number,
+        default_fn: || "600".to_string(),
+        requires_restart: false,
+        is_sensitive: false,
+        category: "auth",
+        description: "Email MFA login code lifetime in seconds",
+    },
+    ConfigDef {
+        key: AUTH_EMAIL_CODE_LOGIN_RESEND_COOLDOWN_SECS_KEY,
+        label_i18n_key: "settings_item_auth_email_code_login_resend_cooldown_secs_label",
+        description_i18n_key: "settings_item_auth_email_code_login_resend_cooldown_secs_desc",
+        value_type: SystemConfigValueType::Number,
+        default_fn: || "60".to_string(),
+        requires_restart: false,
+        is_sensitive: false,
+        category: "auth",
+        description: "Minimum cooldown between email MFA login code sends in seconds",
     },
     ConfigDef {
         key: AUTH_PASSWORD_RESET_REQUEST_COOLDOWN_SECS_KEY,
@@ -1238,6 +1291,38 @@ pub static ALL_CONFIGS: &[ConfigDef] = &[
         is_sensitive: false,
         category: "mail.template",
         description: "HTML template for external auth email verification emails. Prefer a complete HTML document for best client compatibility",
+    },
+    ConfigDef {
+        key: MAIL_TEMPLATE_LOGIN_EMAIL_CODE_SUBJECT_KEY,
+        label_i18n_key: "settings_item_mail_template_login_email_code_subject_label",
+        description_i18n_key: "settings_item_mail_template_login_email_code_subject_desc",
+        value_type: SystemConfigValueType::String,
+        default_fn: || {
+            crate::config::mail::default_template_subject(
+                crate::types::MailTemplateCode::LoginEmailCode,
+            )
+            .to_string()
+        },
+        requires_restart: false,
+        is_sensitive: false,
+        category: "mail.template",
+        description: "Subject template for login email code messages",
+    },
+    ConfigDef {
+        key: MAIL_TEMPLATE_LOGIN_EMAIL_CODE_HTML_KEY,
+        label_i18n_key: "settings_item_mail_template_login_email_code_html_label",
+        description_i18n_key: "settings_item_mail_template_login_email_code_html_desc",
+        value_type: SystemConfigValueType::Multiline,
+        default_fn: || {
+            crate::config::mail::default_template_html(
+                crate::types::MailTemplateCode::LoginEmailCode,
+            )
+            .to_string()
+        },
+        requires_restart: false,
+        is_sensitive: false,
+        category: "mail.template",
+        description: "HTML template for login email code messages. Prefer a complete HTML document for best client compatibility",
     },
     // ── General ─────────────────────────────────────────────
     ConfigDef {

@@ -37,9 +37,14 @@ const defaultLocation = window.location;
 const translationMap: Record<string, string> = {
 	cors_wildcard_credentials_validation_error:
 		"cors_wildcard_credentials_validation_error",
+	email_code_mfa_mail_config_required: "email_code_mfa_mail_config_required",
+	email_code_mfa_mail_settings_link: "Go to Mail Settings",
 	settings_item_auth_access_token_ttl_secs_desc:
 		"Controls how long newly issued access tokens stay valid.",
 	settings_item_auth_access_token_ttl_secs_label: "Access token lifetime",
+	settings_item_auth_email_code_login_enabled_desc:
+		"Email-code MFA requires complete mail delivery settings.",
+	settings_item_auth_email_code_login_enabled_label: "Require email-code MFA",
 	public_site_url_add_current_origin: "public_site_url_add_current_origin",
 	settings_time_unit_label: "Time unit",
 	settings_time_unit_seconds: "Seconds",
@@ -386,19 +391,29 @@ vi.mock("@/components/ui/dialog", () => ({
 
 vi.mock("@/components/ui/switch", () => ({
 	Switch: ({
+		"aria-invalid": ariaInvalid,
 		checked,
+		disabled,
 		id,
 		onCheckedChange,
 	}: {
+		"aria-invalid"?: boolean;
 		checked: boolean;
+		disabled?: boolean;
 		id?: string;
 		onCheckedChange?: (checked: boolean) => void;
 	}) => (
 		<button
 			type="button"
 			id={id}
+			aria-invalid={ariaInvalid}
 			aria-label={`switch:${id ?? "config"}:${checked}`}
-			onClick={() => onCheckedChange?.(!checked)}
+			disabled={disabled}
+			onClick={() => {
+				if (!disabled) {
+					onCheckedChange?.(!checked);
+				}
+			}}
 		/>
 	),
 }));
@@ -589,6 +604,9 @@ function getMockConfigSource(key: string): SystemConfigSource {
 
 function getMockConfigValueType(key: string): SystemConfigValueType {
 	if (key === "storage.enabled") {
+		return "boolean";
+	}
+	if (key === "auth_email_code_login_enabled") {
 		return "boolean";
 	}
 	if (
@@ -1080,6 +1098,299 @@ describe("AdminSettingsPage", () => {
 		expect(mockState.setConfig).toHaveBeenCalledWith(
 			"cors_allowed_origins",
 			"https://panel.example.com",
+		);
+	});
+
+	it("keeps email-code MFA disabled until mail delivery settings are complete", async () => {
+		mockState.listConfigs.mockResolvedValueOnce({
+			items: [
+				createConfig({
+					category: "auth",
+					key: "auth_email_code_login_enabled",
+					value: "false",
+					value_type: "boolean",
+				}),
+				createConfig({
+					category: "mail.config",
+					key: "mail_smtp_host",
+					value: "smtp.example.com",
+					value_type: "string",
+				}),
+				createConfig({
+					category: "mail.config",
+					key: "mail_from_address",
+					value: "",
+					value_type: "string",
+				}),
+			],
+		});
+		mockState.schema.mockResolvedValueOnce([
+			createSchemaItem({
+				category: "auth",
+				description_i18n_key:
+					"settings_item_auth_email_code_login_enabled_desc",
+				key: "auth_email_code_login_enabled",
+				label_i18n_key: "settings_item_auth_email_code_login_enabled_label",
+				value_type: "boolean",
+			}),
+			createSchemaItem({
+				category: "mail.config",
+				key: "mail_smtp_host",
+				value_type: "string",
+			}),
+			createSchemaItem({
+				category: "mail.config",
+				key: "mail_from_address",
+				value_type: "string",
+			}),
+		]);
+
+		render(<AdminSettingsPage section="auth" />);
+
+		const toggle = await screen.findByLabelText(
+			"switch:auth_email_code_login_enabled:false",
+		);
+		expect(toggle).toBeDisabled();
+		expect(
+			screen.getByText("email_code_mfa_mail_config_required"),
+		).toBeInTheDocument();
+
+		fireEvent.click(toggle);
+
+		expect(
+			screen.queryByRole("button", { name: "save_changes" }),
+		).not.toBeInTheDocument();
+		expect(mockState.setConfig).not.toHaveBeenCalled();
+
+		fireEvent.click(
+			screen.getByRole("button", { name: /Go to Mail Settings/i }),
+		);
+
+		expect(mockState.navigate).toHaveBeenCalledWith("/admin/settings/mail");
+	});
+
+	it("treats half-filled SMTP credentials as incomplete for email-code MFA", async () => {
+		mockState.listConfigs.mockResolvedValueOnce({
+			items: [
+				createConfig({
+					category: "auth",
+					key: "auth_email_code_login_enabled",
+					value: "false",
+					value_type: "boolean",
+				}),
+				createConfig({
+					category: "mail.config",
+					key: "mail_smtp_host",
+					value: "smtp.example.com",
+					value_type: "string",
+				}),
+				createConfig({
+					category: "mail.config",
+					key: "mail_from_address",
+					value: "noreply@example.com",
+					value_type: "string",
+				}),
+				createConfig({
+					category: "mail.config",
+					key: "mail_smtp_username",
+					value: "smtp-user",
+					value_type: "string",
+				}),
+				createConfig({
+					category: "mail.config",
+					is_sensitive: true,
+					key: "mail_smtp_password",
+					value: "",
+					value_type: "string",
+				}),
+			],
+		});
+		mockState.schema.mockResolvedValueOnce([
+			createSchemaItem({
+				category: "auth",
+				key: "auth_email_code_login_enabled",
+				value_type: "boolean",
+			}),
+			createSchemaItem({
+				category: "mail.config",
+				key: "mail_smtp_host",
+				value_type: "string",
+			}),
+			createSchemaItem({
+				category: "mail.config",
+				key: "mail_from_address",
+				value_type: "string",
+			}),
+			createSchemaItem({
+				category: "mail.config",
+				key: "mail_smtp_username",
+				value_type: "string",
+			}),
+			createSchemaItem({
+				category: "mail.config",
+				is_sensitive: true,
+				key: "mail_smtp_password",
+				value_type: "string",
+			}),
+		]);
+
+		render(<AdminSettingsPage section="auth" />);
+
+		const toggle = await screen.findByLabelText(
+			"switch:auth_email_code_login_enabled:false",
+		);
+		expect(toggle).toBeDisabled();
+		expect(
+			screen.getByText("email_code_mfa_mail_config_required"),
+		).toBeInTheDocument();
+	});
+
+	it("saves mail delivery drafts before enabling email-code MFA in the same batch", async () => {
+		mockState.listConfigs.mockResolvedValueOnce({
+			items: [
+				createConfig({
+					category: "mail.config",
+					key: "mail_smtp_host",
+					value: "",
+					value_type: "string",
+				}),
+				createConfig({
+					category: "mail.config",
+					key: "mail_from_address",
+					value: "old@example.com",
+					value_type: "string",
+				}),
+				createConfig({
+					category: "auth",
+					key: "auth_email_code_login_enabled",
+					value: "false",
+					value_type: "boolean",
+				}),
+			],
+		});
+		mockState.schema.mockResolvedValueOnce([
+			createSchemaItem({
+				category: "mail.config",
+				key: "mail_smtp_host",
+				value_type: "string",
+			}),
+			createSchemaItem({
+				category: "mail.config",
+				key: "mail_from_address",
+				value_type: "string",
+			}),
+			createSchemaItem({
+				category: "auth",
+				key: "auth_email_code_login_enabled",
+				value_type: "boolean",
+			}),
+		]);
+
+		const { rerender } = render(<AdminSettingsPage section="mail" />);
+
+		await screen.findByDisplayValue("old@example.com");
+		const emptyMailInputs = screen
+			.getAllByPlaceholderText("config_value")
+			.filter(
+				(input): input is HTMLInputElement =>
+					input instanceof HTMLInputElement && input.value === "",
+			);
+		expect(emptyMailInputs).toHaveLength(1);
+		fireEvent.change(emptyMailInputs[0], {
+			target: { value: "smtp.example.com" },
+		});
+		fireEvent.change(screen.getByDisplayValue("old@example.com"), {
+			target: { value: "noreply@example.com" },
+		});
+
+		rerender(<AdminSettingsPage section="auth" />);
+
+		const toggle = await screen.findByLabelText(
+			"switch:auth_email_code_login_enabled:false",
+		);
+		expect(toggle).not.toBeDisabled();
+		fireEvent.click(toggle);
+		fireEvent.click(screen.getByRole("button", { name: "save_changes" }));
+
+		await waitFor(() => {
+			expect(mockState.setConfig).toHaveBeenCalledTimes(3);
+		});
+		expect(mockState.setConfig.mock.calls.map(([key]) => key)).toEqual([
+			"mail_smtp_host",
+			"mail_from_address",
+			"auth_email_code_login_enabled",
+		]);
+		expect(mockState.setConfig).toHaveBeenNthCalledWith(
+			3,
+			"auth_email_code_login_enabled",
+			"true",
+		);
+	});
+
+	it("turns off the email-code MFA draft when mail delivery settings become incomplete", async () => {
+		mockState.listConfigs.mockResolvedValueOnce({
+			items: [
+				createConfig({
+					category: "mail.config",
+					key: "mail_smtp_host",
+					value: "smtp.example.com",
+					value_type: "string",
+				}),
+				createConfig({
+					category: "auth",
+					key: "auth_email_code_login_enabled",
+					value: "true",
+					value_type: "boolean",
+				}),
+				createConfig({
+					category: "mail.config",
+					key: "mail_from_address",
+					value: "noreply@example.com",
+					value_type: "string",
+				}),
+			],
+		});
+		mockState.schema.mockResolvedValueOnce([
+			createSchemaItem({
+				category: "mail.config",
+				key: "mail_smtp_host",
+				value_type: "string",
+			}),
+			createSchemaItem({
+				category: "auth",
+				key: "auth_email_code_login_enabled",
+				value_type: "boolean",
+			}),
+			createSchemaItem({
+				category: "mail.config",
+				key: "mail_from_address",
+				value_type: "string",
+			}),
+		]);
+
+		render(<AdminSettingsPage section="mail" />);
+
+		fireEvent.change(await screen.findByDisplayValue("smtp.example.com"), {
+			target: { value: "" },
+		});
+
+		const saveButton = await screen.findByRole("button", {
+			name: "save_changes",
+		});
+		expect(saveButton).not.toBeDisabled();
+		fireEvent.click(saveButton);
+
+		await waitFor(() => {
+			expect(mockState.setConfig).toHaveBeenCalledTimes(2);
+		});
+		expect(mockState.setConfig.mock.calls.map(([key]) => key)).toEqual([
+			"mail_smtp_host",
+			"auth_email_code_login_enabled",
+		]);
+		expect(mockState.setConfig).toHaveBeenNthCalledWith(
+			2,
+			"auth_email_code_login_enabled",
+			"false",
 		);
 	});
 

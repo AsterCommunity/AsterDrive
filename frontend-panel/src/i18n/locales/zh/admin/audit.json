@@ -122,6 +122,7 @@
 	"audit_action_user_mfa_challenge_success": "完成 MFA 验证",
 	"audit_action_user_mfa_disable": "停用 MFA",
 	"audit_action_user_mfa_enable": "启用 MFA",
+	"audit_action_user_mfa_email_code_send": "发送 MFA 邮箱验证码",
 	"audit_action_user_mfa_recovery_codes_regenerate": "重新生成 MFA 恢复码",
 	"audit_action_user_external_auth_login": "用户通过外部认证登录",
 	"audit_action_user_external_auth_link": "绑定外部身份",
