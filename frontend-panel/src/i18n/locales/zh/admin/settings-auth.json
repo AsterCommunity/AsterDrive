@@ -24,7 +24,7 @@
 	"settings_item_auth_email_code_login_allow_totp_fallback_label": "允许 TOTP 使用邮箱兜底",
 	"settings_item_auth_email_code_login_allow_totp_fallback_desc": "允许已启用 TOTP 的用户把邮箱验证码作为额外登录验证方式。如果不希望邮箱降低认证器 MFA 强度，请保持关闭。",
 	"settings_item_auth_email_code_login_ttl_secs_label": "邮箱登录验证码有效期",
-	"settings_item_auth_email_code_login_ttl_secs_desc": "控制已发送的邮箱登录验证码在失效前还能使用多久。",
+	"settings_item_auth_email_code_login_ttl_secs_desc": "控制已发送的邮箱登录验证码最长还能使用多久。实际有效期不会超过本次 MFA 验证剩余时间。",
 	"settings_item_auth_email_code_login_resend_cooldown_secs_label": "邮箱登录验证码重发冷却时间",
 	"settings_item_auth_email_code_login_resend_cooldown_secs_desc": "控制同一用户两次请求邮箱登录验证码之间至少要间隔多久。",
 	"settings_item_auth_password_reset_request_cooldown_secs_label": "密码重置请求冷却时间",

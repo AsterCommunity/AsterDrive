@@ -24,7 +24,7 @@
 	"settings_item_auth_email_code_login_allow_totp_fallback_label": "Allow email fallback for TOTP",
 	"settings_item_auth_email_code_login_allow_totp_fallback_desc": "Lets users who already have TOTP use email code as an additional login challenge method. Keep this off if email should not weaken authenticator-app MFA.",
 	"settings_item_auth_email_code_login_ttl_secs_label": "Email login code lifetime",
-	"settings_item_auth_email_code_login_ttl_secs_desc": "How long an issued email login code remains valid.",
+	"settings_item_auth_email_code_login_ttl_secs_desc": "The maximum lifetime of an issued email login code. The actual lifetime never exceeds the remaining MFA challenge time.",
 	"settings_item_auth_email_code_login_resend_cooldown_secs_label": "Email login code resend cooldown",
 	"settings_item_auth_email_code_login_resend_cooldown_secs_desc": "The minimum wait before the same user can request another email login code.",
 	"settings_item_auth_password_reset_request_cooldown_secs_label": "Password reset request cooldown",

@@ -308,7 +308,7 @@ pub static ALL_CONFIGS: &[ConfigDef] = &[
         requires_restart: false,
         is_sensitive: false,
         category: "auth",
-        description: "Email MFA login code lifetime in seconds",
+        description: "Maximum email MFA login code lifetime in seconds; actual lifetime is capped by the remaining MFA challenge time",
     },
     ConfigDef {
         key: AUTH_EMAIL_CODE_LOGIN_RESEND_COOLDOWN_SECS_KEY,

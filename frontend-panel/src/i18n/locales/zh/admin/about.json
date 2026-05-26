@@ -1,7 +1,7 @@
 {
 	"about_product_badge": "管理面板",
-	"about_tagline": "面向自托管场景的文件、分享、存储策略与运行配置控制台。",
-	"about_summary": "AsterDrive 将 Rust 后端与 React 管理面板打包在同一交付链路里，兼顾单文件部署、对象存储扩展、WebDAV 访问和面向运维的后台管理体验。",
+	"about_tagline": "自托管云存储控制台。",
+	"about_summary": "管理文件、分享链接、用户权限、存储策略、WebDAV 访问与系统运行配置。AsterDrive 将 Rust 后端与 React 管理面板统一交付，适合个人、团队和私有化环境部署。",
 	"about_version": "当前版本",
 	"about_channel": "发布通道",
 	"about_channel_release": "稳定版",
