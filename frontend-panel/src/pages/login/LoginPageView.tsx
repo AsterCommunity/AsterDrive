@@ -2,6 +2,7 @@ import type { FormEvent } from "react";
 import type { z } from "zod/v4";
 import { AsterDriveWordmark } from "@/components/common/AsterDriveWordmark";
 import { cn } from "@/lib/utils";
+import type { MfaMethod } from "@/services/authService";
 import type { ExternalAuthPublicProvider } from "@/types/api";
 import { AnimateSwap } from "./authAnimations";
 import { ExternalAuthRecoveryPanel } from "./ExternalAuthRecoveryPanel";
@@ -66,6 +67,8 @@ interface LoginPageViewProps {
 	onIdentifierChange: (value: string) => void;
 	onMfaBack: () => void;
 	onMfaCodeChange: (value: string) => void;
+	onMfaEmailCodeSend: () => void;
+	onMfaMethodChange: (method: MfaMethod) => void;
 	onPasskeyLogin: () => void;
 	onPasswordChange: (value: string) => void;
 	onPasswordResetBack: () => void;
@@ -109,6 +112,8 @@ export function LoginPageView({
 	onIdentifierChange,
 	onMfaBack,
 	onMfaCodeChange,
+	onMfaEmailCodeSend,
+	onMfaMethodChange,
 	onPasskeyLogin,
 	onPasswordChange,
 	onPasswordResetBack,
@@ -206,18 +211,27 @@ export function LoginPageView({
 							) : mfaPanel ? (
 								<MfaChallengePanel
 									code={mfaPanel.code}
+									emailCodeError={mfaPanel.emailCodeError}
+									emailCodeExpiresAt={mfaPanel.emailCodeExpiresAt}
+									emailCodeResendAt={mfaPanel.emailCodeResendAt}
+									emailCodeSending={mfaPanel.emailCodeSending}
+									emailCodeSent={mfaPanel.emailCodeSent}
 									error={mfaPanel.error}
 									expired={mfaPanel.challenge.expiresAt <= mfaPanel.now}
+									methods={mfaPanel.challenge.methods}
 									remainingSeconds={Math.max(
 										0,
 										Math.ceil(
 											(mfaPanel.challenge.expiresAt - mfaPanel.now) / 1000,
 										),
 									)}
+									selectedMethod={mfaPanel.selectedMethod}
 									submitting={mfaPanel.submitting}
 									t={t}
 									onBack={onMfaBack}
 									onCodeChange={onMfaCodeChange}
+									onEmailCodeSend={onMfaEmailCodeSend}
+									onMethodChange={onMfaMethodChange}
 								/>
 							) : (
 								<LoginAuthForm

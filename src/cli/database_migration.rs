@@ -49,6 +49,7 @@ const COPY_TABLE_ORDER: &[&str] = &[
     "mfa_factors",
     "mfa_recovery_codes",
     "mfa_login_flows",
+    "mfa_email_codes",
     "mfa_totp_setup_flows",
     "teams",
     "team_members",

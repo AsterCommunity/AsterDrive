@@ -33,6 +33,7 @@ pub struct AdminCreateTeamInput {
     pub description: Option<String>,
     pub admin_user_id: Option<i64>,
     pub admin_identifier: Option<String>,
+    pub storage_quota: Option<i64>,
     pub policy_group_id: Option<i64>,
 }
 
@@ -40,6 +41,7 @@ pub struct AdminCreateTeamInput {
 pub struct AdminUpdateTeamInput {
     pub name: Option<String>,
     pub description: Option<String>,
+    pub storage_quota: Option<i64>,
     pub policy_group_id: Option<i64>,
 }
 

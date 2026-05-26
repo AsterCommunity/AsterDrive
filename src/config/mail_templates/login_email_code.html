@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="{{lang}}">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="x-apple-disable-message-reformatting" />
+    <title>Your {{site_name}} login code</title>
+  </head>
+  <body
+    style="
+      margin: 0;
+      padding: 0;
+      background-color: #f4f7fb;
+      color: #1f2937;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    "
+  >
+    <div style="margin: 0; padding: 32px 16px; background-color: #f4f7fb;">
+      <div style="max-width: 640px; margin: 0 auto;">
+        <div
+          style="
+            margin: 0 0 16px;
+            font-size: 13px;
+            font-weight: 700;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            color: #2563eb;
+          "
+        >
+          {{site_name}}
+        </div>
+        <div
+          style="
+            background-color: #ffffff;
+            border: 1px solid #dbe4f0;
+            border-radius: 16px;
+            padding: 32px 28px;
+            box-shadow: 0 8px 24px rgba(15, 23, 42, 0.06);
+          "
+        >
+          <h1 style="margin: 0 0 16px; font-size: 24px; line-height: 1.3; color: #0f172a;">
+            Complete your sign-in
+          </h1>
+          <p style="margin: 0 0 16px; font-size: 15px; line-height: 1.7;">Hello {{username}},</p>
+          <p style="margin: 0 0 20px; font-size: 15px; line-height: 1.7;">
+            Use this one-time code to finish signing in to your {{site_name}} account.
+          </p>
+          <div
+            style="
+              margin: 0 0 20px;
+              padding: 18px 20px;
+              border-radius: 14px;
+              background-color: #eff6ff;
+              border: 1px solid #bfdbfe;
+              color: #1e3a8a;
+              font-size: 30px;
+              font-weight: 800;
+              letter-spacing: 0.18em;
+              text-align: center;
+            "
+          >
+            {{code}}
+          </div>
+          <p style="margin: 0 0 24px; font-size: 14px; line-height: 1.7; color: #475569;">
+            This code expires in {{expires_in}}. It can only be used once.
+          </p>
+          <div
+            style="
+              margin: 0 0 24px;
+              padding: 16px 18px;
+              border-radius: 12px;
+              background-color: #f8fafc;
+              border: 1px solid #e2e8f0;
+            "
+          >
+            <p style="margin: 0; font-size: 13px; line-height: 1.7; color: #475569;">
+              If you did not try to sign in, ignore this email and consider changing your password.
+            </p>
+          </div>
+          <p style="margin: 0; font-size: 13px; line-height: 1.7; color: #64748b;">
+            This is an automated security message from {{site_name}}. Please do not reply to this
+            email.
+          </p>
+        </div>
+      </div>
+    </div>
+  </body>
+</html>

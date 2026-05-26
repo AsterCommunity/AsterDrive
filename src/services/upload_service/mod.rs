@@ -29,7 +29,10 @@ pub use complete::{
     complete_upload, complete_upload_for_team, complete_upload_for_team_with_audit,
     complete_upload_with_audit,
 };
-pub use init::{init_upload, init_upload_for_team};
+pub use init::{
+    InitUploadParams, init_upload, init_upload_for_team, init_upload_for_team_with_frontend_client,
+    init_upload_with_frontend_client,
+};
 pub use lifecycle::{
     ForceCleanupByPolicyResult, cancel_upload, cancel_upload_for_team, cleanup_expired,
     force_cleanup_by_policy,

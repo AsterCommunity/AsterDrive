@@ -1,4 +1,5 @@
 import { config } from "@/config/app";
+import { getUploadFrontendClientId } from "@/lib/uploadClientId";
 import {
 	buildWorkspacePath,
 	PERSONAL_WORKSPACE,
@@ -113,7 +114,10 @@ export function createUploadService(workspace: Workspace = PERSONAL_WORKSPACE) {
 		}) =>
 			api.post<InitUploadResponse>(
 				buildUploadPath(workspace, "/files/upload/init"),
-				data,
+				{
+					...data,
+					frontend_client_id: getUploadFrontendClientId(),
+				},
 			),
 
 		uploadChunk: (
@@ -246,6 +250,11 @@ export function createUploadService(workspace: Workspace = PERSONAL_WORKSPACE) {
 		listRecoverableSessions: () =>
 			api.get<RecoverableUploadSession[]>(
 				buildUploadPath(workspace, "/files/upload/sessions"),
+				{
+					params: {
+						frontend_client_id: getUploadFrontendClientId(),
+					},
+				},
 			),
 
 		presignParts: (uploadId: string, partNumbers: number[]) =>

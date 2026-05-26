@@ -465,6 +465,8 @@ pub struct AdminCreateTeamReq {
     #[validate(range(min = 1, message = "admin_user_id must be greater than 0"))]
     pub admin_user_id: Option<i64>,
     pub admin_identifier: Option<String>,
+    #[validate(range(min = 0, message = "storage_quota must be non-negative"))]
+    pub storage_quota: Option<i64>,
     #[validate(range(min = 1, message = "policy_group_id must be greater than 0"))]
     pub policy_group_id: Option<i64>,
 }
@@ -476,6 +478,8 @@ pub struct AdminCreateTeamReq {
 pub struct AdminPatchTeamReq {
     pub name: Option<String>,
     pub description: Option<String>,
+    #[validate(range(min = 0, message = "storage_quota must be non-negative"))]
+    pub storage_quota: Option<i64>,
     #[serde(
         default,
         deserialize_with = "crate::api::routes::admin::common::deserialize_non_null_policy_group_id"

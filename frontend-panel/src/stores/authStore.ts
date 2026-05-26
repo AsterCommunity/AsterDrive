@@ -156,6 +156,14 @@ function applyLoggedOutState(
 	setAuthState: (state: Partial<AuthState>) => void,
 ) {
 	cancelPreferenceSync();
+	void import("@/hooks/useBlobUrl")
+		.then(({ clearBlobUrlCache, clearPersistedBlobUrlCache }) => {
+			clearBlobUrlCache();
+			void clearPersistedBlobUrlCache();
+		})
+		.catch(() => {
+			// 登出清理不能被可选的缩略图缓存清理阻塞。
+		});
 	clearRefreshTimer();
 	// teamStore 是独立的子状态，登出时直接清空
 	useTeamStore.getState().clear();

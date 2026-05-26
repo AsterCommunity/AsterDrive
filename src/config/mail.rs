@@ -12,6 +12,7 @@ pub use crate::config::definitions::{
     MAIL_TEMPLATE_CONTACT_CHANGE_NOTICE_HTML_KEY, MAIL_TEMPLATE_CONTACT_CHANGE_NOTICE_SUBJECT_KEY,
     MAIL_TEMPLATE_EXTERNAL_AUTH_EMAIL_VERIFICATION_HTML_KEY,
     MAIL_TEMPLATE_EXTERNAL_AUTH_EMAIL_VERIFICATION_SUBJECT_KEY,
+    MAIL_TEMPLATE_LOGIN_EMAIL_CODE_HTML_KEY, MAIL_TEMPLATE_LOGIN_EMAIL_CODE_SUBJECT_KEY,
     MAIL_TEMPLATE_PASSWORD_RESET_HTML_KEY, MAIL_TEMPLATE_PASSWORD_RESET_NOTICE_HTML_KEY,
     MAIL_TEMPLATE_PASSWORD_RESET_NOTICE_SUBJECT_KEY, MAIL_TEMPLATE_PASSWORD_RESET_SUBJECT_KEY,
     MAIL_TEMPLATE_REGISTER_ACTIVATION_HTML_KEY, MAIL_TEMPLATE_REGISTER_ACTIVATION_SUBJECT_KEY,
@@ -62,6 +63,11 @@ impl RuntimeMailSettings {
     pub fn is_configured(&self) -> bool {
         !self.smtp_host.trim().is_empty() && !self.from_address.trim().is_empty()
     }
+
+    pub fn is_ready_for_delivery(&self) -> bool {
+        self.is_configured()
+            && self.smtp_username.trim().is_empty() == self.smtp_password.trim().is_empty()
+    }
 }
 
 pub fn template_subject_key(code: MailTemplateCode) -> &'static str {
@@ -76,6 +82,7 @@ pub fn template_subject_key(code: MailTemplateCode) -> &'static str {
         MailTemplateCode::ExternalAuthEmailVerification => {
             MAIL_TEMPLATE_EXTERNAL_AUTH_EMAIL_VERIFICATION_SUBJECT_KEY
         }
+        MailTemplateCode::LoginEmailCode => MAIL_TEMPLATE_LOGIN_EMAIL_CODE_SUBJECT_KEY,
     }
 }
 
@@ -91,6 +98,7 @@ pub fn template_html_key(code: MailTemplateCode) -> &'static str {
         MailTemplateCode::ExternalAuthEmailVerification => {
             MAIL_TEMPLATE_EXTERNAL_AUTH_EMAIL_VERIFICATION_HTML_KEY
         }
+        MailTemplateCode::LoginEmailCode => MAIL_TEMPLATE_LOGIN_EMAIL_CODE_HTML_KEY,
     }
 }
 
@@ -119,6 +127,10 @@ pub fn default_template_subject(code: MailTemplateCode) -> &'static str {
             include_str!("mail_templates/external_auth_email_verification.subject.txt")
                 .trim_end_matches(['\r', '\n'])
         }
+        MailTemplateCode::LoginEmailCode => {
+            include_str!("mail_templates/login_email_code.subject.txt")
+                .trim_end_matches(['\r', '\n'])
+        }
     }
 }
 
@@ -143,6 +155,9 @@ pub fn default_template_html(code: MailTemplateCode) -> &'static str {
         MailTemplateCode::ExternalAuthEmailVerification => {
             include_str!("mail_templates/external_auth_email_verification.html")
                 .trim_end_matches(['\r', '\n'])
+        }
+        MailTemplateCode::LoginEmailCode => {
+            include_str!("mail_templates/login_email_code.html").trim_end_matches(['\r', '\n'])
         }
     }
 }

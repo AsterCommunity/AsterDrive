@@ -2770,6 +2770,7 @@ async fn test_team_archive_cleanup_deletes_expired_team_data() {
             id: Set(upload_id.clone()),
             user_id: Set(owner.id),
             team_id: Set(Some(team.id)),
+            frontend_client_id: Set(None),
             filename: Set("pending.bin".to_string()),
             total_size: Set(10),
             chunk_size: Set(10),

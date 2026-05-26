@@ -3,6 +3,7 @@
 	"upload_success": "Upload complete",
 	"upload_multiple_success": "Uploaded {{count}} file(s)",
 	"upload_failed": "Upload failed",
+	"upload_cancelled": "Upload canceled",
 	"upload_resume_title": "Incomplete upload: {{filename}}",
 	"upload_resume_desc": "Select the same file to resume uploading.",
 	"upload_resume": "Resume",

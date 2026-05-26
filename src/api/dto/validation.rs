@@ -11,6 +11,15 @@ pub(crate) fn validate_name(value: &str) -> std::result::Result<(), ValidationEr
     crate::utils::validate_name(value).map_err(aster_to_validation_error)
 }
 
+pub(crate) fn validate_uuid(value: &str) -> std::result::Result<(), ValidationError> {
+    let uuid = uuid::Uuid::parse_str(value)
+        .map_err(|_| message_validation_error("value must be a valid UUID"))?;
+    if !uuid.hyphenated().to_string().eq_ignore_ascii_case(value) {
+        return Err(message_validation_error("value must be a hyphenated UUID"));
+    }
+    Ok(())
+}
+
 pub(crate) fn validate_non_blank(value: &str) -> std::result::Result<(), ValidationError> {
     if value.trim().is_empty() {
         return Err(message_validation_error("value cannot be empty"));

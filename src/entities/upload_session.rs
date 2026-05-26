@@ -16,6 +16,9 @@ pub struct Model {
     pub id: String, // UUID
     pub user_id: i64,
     pub team_id: Option<i64>,
+    /// Browser/frontend instance that initiated the session.
+    /// Used only for recoverable-session visibility; auth still uses user/team scope.
+    pub frontend_client_id: Option<String>,
     pub filename: String,
     pub total_size: i64,
     pub chunk_size: i64,

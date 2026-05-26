@@ -16,6 +16,8 @@ mod m20260518_000002_expand_audit_entity_type;
 mod m20260519_000001_expand_background_task_display_name;
 mod m20260520_000001_add_blob_media_metadata;
 mod m20260523_000001_add_mfa;
+mod m20260526_000001_add_upload_session_frontend_client;
+mod m20260526_000002_add_mfa_email_codes;
 mod search_acceleration;
 mod time;
 
@@ -104,6 +106,8 @@ impl MigratorTrait for CurrentMigrator {
             Box::new(m20260519_000001_expand_background_task_display_name::Migration),
             Box::new(m20260520_000001_add_blob_media_metadata::Migration),
             Box::new(m20260523_000001_add_mfa::Migration),
+            Box::new(m20260526_000001_add_upload_session_frontend_client::Migration),
+            Box::new(m20260526_000002_add_mfa_email_codes::Migration),
         ]
     }
 }

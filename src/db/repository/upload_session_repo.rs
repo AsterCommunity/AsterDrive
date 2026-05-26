@@ -228,6 +228,7 @@ pub async fn find_recoverable_by_owner<C: ConnectionTrait>(
     db: &C,
     user_id: i64,
     team_id: Option<i64>,
+    frontend_client_id: Option<&str>,
     limit: u64,
 ) -> Result<Vec<upload_session::Model>> {
     let now = chrono::Utc::now();
@@ -247,6 +248,10 @@ pub async fn find_recoverable_by_owner<C: ConnectionTrait>(
         Some(team_id) => query.filter(upload_session::Column::TeamId.eq(team_id)),
         None => query.filter(upload_session::Column::TeamId.is_null()),
     };
+
+    if let Some(frontend_client_id) = frontend_client_id {
+        query = query.filter(upload_session::Column::FrontendClientId.eq(frontend_client_id));
+    }
 
     query.all(db).await.map_err(AsterError::from)
 }

@@ -18,6 +18,7 @@ pub mod managed_follower_repo;
 pub mod managed_ingress_profile_repo;
 pub mod master_binding_repo;
 pub mod media_metadata_repo;
+pub mod mfa_email_code_repo;
 pub mod mfa_factor_repo;
 pub mod mfa_login_flow_repo;
 pub mod mfa_recovery_code_repo;

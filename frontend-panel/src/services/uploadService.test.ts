@@ -17,6 +17,7 @@ const mockState = vi.hoisted(() => {
 		delete: vi.fn(),
 		get: vi.fn(),
 		post: vi.fn(),
+		uploadFrontendClientId: "11111111-1111-4111-8111-111111111111",
 	};
 });
 
@@ -30,6 +31,10 @@ vi.mock("@/services/http", () => ({
 		get: mockState.get,
 		post: mockState.post,
 	},
+}));
+
+vi.mock("@/lib/uploadClientId", () => ({
+	getUploadFrontendClientId: () => mockState.uploadFrontendClientId,
 }));
 
 function setTestCookie(cookie: string) {
@@ -121,10 +126,13 @@ describe("uploadService", () => {
 			total_size: 5,
 			folder_id: 7,
 			relative_path: "docs/hello.txt",
+			frontend_client_id: mockState.uploadFrontendClientId,
 		});
 		expect(mockState.delete).toHaveBeenCalledWith("/files/upload/upload-1");
 		expect(mockState.get).toHaveBeenCalledWith("/files/upload/upload-1");
-		expect(mockState.get).toHaveBeenCalledWith("/files/upload/sessions");
+		expect(mockState.get).toHaveBeenCalledWith("/files/upload/sessions", {
+			params: { frontend_client_id: mockState.uploadFrontendClientId },
+		});
 		expect(mockState.post).toHaveBeenNthCalledWith(
 			2,
 			"/files/upload/upload-1/presign-parts",
@@ -151,6 +159,7 @@ describe("uploadService", () => {
 		expect(mockState.post).toHaveBeenCalledWith("/teams/8/files/upload/init", {
 			filename: "team.txt",
 			total_size: 3,
+			frontend_client_id: mockState.uploadFrontendClientId,
 		});
 		expect(mockState.delete).toHaveBeenCalledWith(
 			"/teams/8/files/upload/upload-2",
@@ -160,6 +169,9 @@ describe("uploadService", () => {
 		);
 		expect(mockState.get).toHaveBeenCalledWith(
 			"/teams/8/files/upload/sessions",
+			{
+				params: { frontend_client_id: mockState.uploadFrontendClientId },
+			},
 		);
 		expect(mockState.post).toHaveBeenCalledWith(
 			"/teams/8/files/upload/upload-2/presign-parts",

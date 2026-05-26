@@ -90,4 +90,22 @@ describe("UploadTaskItem", () => {
 		expect(onRetry).toHaveBeenCalledTimes(1);
 		expect(onCancel).toHaveBeenCalledTimes(1);
 	});
+
+	it("renders cancelled uploads with a destructive X instead of progress spinner", () => {
+		const { container } = render(
+			<UploadTaskItem
+				title="video.mov"
+				status="Upload canceled"
+				mode="Chunked"
+				progress={42}
+				cancelled
+			/>,
+		);
+
+		expect(screen.getByText("Upload canceled")).toBeInTheDocument();
+		expect(screen.queryByText("42%")).not.toBeInTheDocument();
+		expect(screen.queryByTestId("progress")).not.toBeInTheDocument();
+		expect(container.firstChild).toHaveClass("bg-destructive/5");
+		expect(screen.getByTestId("icon")).toHaveAttribute("data-name", "X");
+	});
 });

@@ -7,8 +7,8 @@ use serde::{Deserialize, Serialize};
 use crate::api::subcode::ApiSubcode;
 use crate::config::branding;
 use crate::db::repository::{
-    mfa_factor_repo, mfa_login_flow_repo, mfa_recovery_code_repo, mfa_totp_setup_flow_repo,
-    user_repo,
+    mfa_email_code_repo, mfa_factor_repo, mfa_login_flow_repo, mfa_recovery_code_repo,
+    mfa_totp_setup_flow_repo, user_repo,
 };
 use crate::entities::{mfa_factor, mfa_totp_setup_flow};
 use crate::errors::{
@@ -261,6 +261,7 @@ pub async fn delete_factor(
         ensure_user_can_manage_mfa(&user)?;
         verify_sensitive_mfa_code(&txn, state, user_id, input.code.as_deref()).await?;
         mfa_recovery_code_repo::delete_all_for_user(&txn, user_id).await?;
+        mfa_email_code_repo::delete_all_for_user(&txn, user_id).await?;
         mfa_login_flow_repo::delete_all_for_user(&txn, user_id).await?;
         mfa_totp_setup_flow_repo::delete_all_for_user(&txn, user_id).await?;
         mfa_factor_repo::delete_for_user(&txn, factor_id, user_id).await
@@ -337,6 +338,7 @@ pub async fn reset_user_mfa(
         let next_session_version = user.session_version.saturating_add(1);
         mfa_factor_repo::delete_all_for_user(&txn, user_id).await?;
         mfa_recovery_code_repo::delete_all_for_user(&txn, user_id).await?;
+        mfa_email_code_repo::delete_all_for_user(&txn, user_id).await?;
         mfa_login_flow_repo::delete_all_for_user(&txn, user_id).await?;
         mfa_totp_setup_flow_repo::delete_all_for_user(&txn, user_id).await?;
         crate::db::repository::auth_session_repo::delete_all_for_user(&txn, user_id).await?;

@@ -5,6 +5,8 @@ import type { UserSummary } from "@/types/api";
 
 const mockState = vi.hoisted(() => ({
 	handleApiError: vi.fn(),
+	toastError: vi.fn(),
+	toastSuccess: vi.fn(),
 }));
 
 const adminTeamServiceMocks = vi.hoisted(() => ({
@@ -43,8 +45,8 @@ vi.mock("react-i18next", () => ({
 
 vi.mock("sonner", () => ({
 	toast: {
-		error: vi.fn(),
-		success: vi.fn(),
+		error: (...args: unknown[]) => mockState.toastError(...args),
+		success: (...args: unknown[]) => mockState.toastSuccess(...args),
 	},
 }));
 
@@ -59,6 +61,8 @@ vi.mock("@/services/adminService", () => ({
 describe("AdminTeamDetailDialog", () => {
 	beforeEach(() => {
 		mockState.handleApiError.mockReset();
+		mockState.toastError.mockReset();
+		mockState.toastSuccess.mockReset();
 		adminTeamServiceMocks.addMember.mockReset();
 		adminTeamServiceMocks.delete.mockReset();
 		adminTeamServiceMocks.get.mockReset();
@@ -230,5 +234,304 @@ describe("AdminTeamDetailDialog", () => {
 		expect(input.isConnected).toBe(true);
 		expect(screen.getByLabelText("core:name")).toBe(input);
 		expect(input.value).toBe("Product Ops");
+	});
+
+	it("converts the overview quota field from MB to bytes when saving", async () => {
+		render(
+			<AdminTeamDetailDialog
+				layout="page"
+				onListChange={async () => undefined}
+				onOpenChange={vi.fn()}
+				onPageTabChange={vi.fn()}
+				onRefreshPolicyGroups={async () => undefined}
+				open
+				pageTab="overview"
+				policyGroups={[
+					{
+						created_at: "2026-04-01T00:00:00Z",
+						description: "",
+						id: 5,
+						is_default: false,
+						is_enabled: true,
+						items: [
+							{
+								id: 1,
+								max_file_size: 0,
+								min_file_size: 0,
+								policy: {
+									id: 7,
+									name: "Default",
+								},
+								policy_id: 7,
+								priority: 1,
+							},
+						],
+						name: "Primary",
+						updated_at: "2026-04-01T00:00:00Z",
+					},
+				]}
+				policyGroupsLoading={false}
+				teamId={14}
+			/>,
+		);
+
+		const quotaInput = (await screen.findByLabelText(
+			"team_quota_mb",
+		)) as HTMLInputElement;
+		fireEvent.change(quotaInput, { target: { value: "4" } });
+		fireEvent.click(screen.getByRole("button", { name: "save_changes" }));
+
+		await waitFor(() => {
+			expect(adminTeamServiceMocks.update).toHaveBeenCalledWith(14, {
+				name: "Product",
+				description: "Team description",
+				storage_quota: 4 * 1024 * 1024,
+				policy_group_id: 5,
+			});
+		});
+	});
+
+	it("sends zero quota when the overview quota field is set to zero", async () => {
+		render(
+			<AdminTeamDetailDialog
+				layout="page"
+				onListChange={async () => undefined}
+				onOpenChange={vi.fn()}
+				onPageTabChange={vi.fn()}
+				onRefreshPolicyGroups={async () => undefined}
+				open
+				pageTab="overview"
+				policyGroups={[
+					{
+						created_at: "2026-04-01T00:00:00Z",
+						description: "",
+						id: 5,
+						is_default: false,
+						is_enabled: true,
+						items: [
+							{
+								id: 1,
+								max_file_size: 0,
+								min_file_size: 0,
+								policy: {
+									id: 7,
+									name: "Default",
+								},
+								policy_id: 7,
+								priority: 1,
+							},
+						],
+						name: "Primary",
+						updated_at: "2026-04-01T00:00:00Z",
+					},
+				]}
+				policyGroupsLoading={false}
+				teamId={14}
+			/>,
+		);
+
+		const quotaInput = (await screen.findByLabelText(
+			"team_quota_mb",
+		)) as HTMLInputElement;
+		fireEvent.change(quotaInput, { target: { value: "0" } });
+		fireEvent.click(screen.getByRole("button", { name: "save_changes" }));
+
+		await waitFor(() => {
+			expect(adminTeamServiceMocks.update).toHaveBeenCalledWith(14, {
+				name: "Product",
+				description: "Team description",
+				storage_quota: 0,
+				policy_group_id: 5,
+			});
+		});
+	});
+
+	it("does not treat zero text as a change when the team quota is already unlimited", async () => {
+		adminTeamServiceMocks.get.mockResolvedValueOnce({
+			archived_at: null,
+			created_at: "2026-04-01T00:00:00Z",
+			created_by: createUserSummary(),
+			description: "Team description",
+			id: 14,
+			member_count: 8,
+			name: "Product",
+			policy_group_id: 5,
+			storage_quota: 0,
+			storage_used: 512,
+			updated_at: "2026-04-02T00:00:00Z",
+		});
+
+		render(
+			<AdminTeamDetailDialog
+				layout="page"
+				onListChange={async () => undefined}
+				onOpenChange={vi.fn()}
+				onPageTabChange={vi.fn()}
+				onRefreshPolicyGroups={async () => undefined}
+				open
+				pageTab="overview"
+				policyGroups={[
+					{
+						created_at: "2026-04-01T00:00:00Z",
+						description: "",
+						id: 5,
+						is_default: false,
+						is_enabled: true,
+						items: [
+							{
+								id: 1,
+								max_file_size: 0,
+								min_file_size: 0,
+								policy: {
+									id: 7,
+									name: "Default",
+								},
+								policy_id: 7,
+								priority: 1,
+							},
+						],
+						name: "Primary",
+						updated_at: "2026-04-01T00:00:00Z",
+					},
+				]}
+				policyGroupsLoading={false}
+				teamId={14}
+			/>,
+		);
+
+		const quotaInput = (await screen.findByLabelText(
+			"team_quota_mb",
+		)) as HTMLInputElement;
+		fireEvent.change(quotaInput, { target: { value: "0" } });
+
+		expect(screen.getByRole("button", { name: "save_changes" })).toBeDisabled();
+		expect(adminTeamServiceMocks.update).not.toHaveBeenCalled();
+	});
+
+	it("preserves non-integer MB quota bytes when saving unrelated overview edits", async () => {
+		adminTeamServiceMocks.get.mockResolvedValueOnce({
+			archived_at: null,
+			created_at: "2026-04-01T00:00:00Z",
+			created_by: createUserSummary(),
+			description: "Team description",
+			id: 14,
+			member_count: 8,
+			name: "Product",
+			policy_group_id: 5,
+			storage_quota: 1024,
+			storage_used: 512,
+			updated_at: "2026-04-02T00:00:00Z",
+		});
+
+		render(
+			<AdminTeamDetailDialog
+				layout="page"
+				onListChange={async () => undefined}
+				onOpenChange={vi.fn()}
+				onPageTabChange={vi.fn()}
+				onRefreshPolicyGroups={async () => undefined}
+				open
+				pageTab="overview"
+				policyGroups={[
+					{
+						created_at: "2026-04-01T00:00:00Z",
+						description: "",
+						id: 5,
+						is_default: false,
+						is_enabled: true,
+						items: [
+							{
+								id: 1,
+								max_file_size: 0,
+								min_file_size: 0,
+								policy: {
+									id: 7,
+									name: "Default",
+								},
+								policy_id: 7,
+								priority: 1,
+							},
+						],
+						name: "Primary",
+						updated_at: "2026-04-01T00:00:00Z",
+					},
+				]}
+				policyGroupsLoading={false}
+				teamId={14}
+			/>,
+		);
+
+		const quotaInput = (await screen.findByLabelText(
+			"team_quota_mb",
+		)) as HTMLInputElement;
+		expect(quotaInput.value).toBe(String(1024 / 1024 / 1024));
+		fireEvent.change(screen.getByDisplayValue("Team description"), {
+			target: { value: "Updated description" },
+		});
+		const saveButton = screen.getByRole("button", { name: "save_changes" });
+		await waitFor(() => {
+			expect(saveButton).not.toBeDisabled();
+		});
+		fireEvent.click(saveButton);
+
+		await waitFor(() => {
+			expect(adminTeamServiceMocks.update).toHaveBeenCalledWith(14, {
+				name: "Product",
+				description: "Updated description",
+				storage_quota: 1024,
+				policy_group_id: 5,
+			});
+		});
+	});
+
+	it("rejects overflowing overview quota values before saving", async () => {
+		render(
+			<AdminTeamDetailDialog
+				layout="page"
+				onListChange={async () => undefined}
+				onOpenChange={vi.fn()}
+				onPageTabChange={vi.fn()}
+				onRefreshPolicyGroups={async () => undefined}
+				open
+				pageTab="overview"
+				policyGroups={[
+					{
+						created_at: "2026-04-01T00:00:00Z",
+						description: "",
+						id: 5,
+						is_default: false,
+						is_enabled: true,
+						items: [
+							{
+								id: 1,
+								max_file_size: 0,
+								min_file_size: 0,
+								policy: {
+									id: 7,
+									name: "Default",
+								},
+								policy_id: 7,
+								priority: 1,
+							},
+						],
+						name: "Primary",
+						updated_at: "2026-04-01T00:00:00Z",
+					},
+				]}
+				policyGroupsLoading={false}
+				teamId={14}
+			/>,
+		);
+
+		const quotaInput = (await screen.findByLabelText(
+			"team_quota_mb",
+		)) as HTMLInputElement;
+		fireEvent.change(quotaInput, {
+			target: { value: "999999999999999999999999" },
+		});
+
+		expect(screen.getByRole("button", { name: "save_changes" })).toBeDisabled();
+		expect(adminTeamServiceMocks.update).not.toHaveBeenCalled();
+		expect(mockState.toastError).not.toHaveBeenCalled();
 	});
 });

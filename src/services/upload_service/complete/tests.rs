@@ -10,6 +10,7 @@ fn mock_session(status: UploadSessionStatus) -> upload_session::Model {
         id: "test-upload".to_string(),
         user_id: 1,
         team_id: None,
+        frontend_client_id: None,
         filename: "demo.bin".to_string(),
         total_size: 12,
         chunk_size: 4,

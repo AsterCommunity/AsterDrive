@@ -41,6 +41,7 @@ import {
 	parseSortSearchParam,
 	type SortOrder,
 } from "@/lib/pagination";
+import { parseStorageQuotaMbToBytes } from "@/lib/storageQuota";
 import { adminTeamService } from "@/services/adminService";
 import type { AdminTeamSortBy } from "@/types/adminSort";
 import type { StoragePolicyGroup } from "@/types/api";
@@ -71,6 +72,7 @@ const EMPTY_CREATE_FORM: CreateTeamFormState = {
 	name: "",
 	description: "",
 	adminIdentifier: "",
+	quotaValue: "",
 	policyGroupId: "",
 };
 
@@ -80,6 +82,13 @@ function normalizeOffset(offset: number) {
 
 function parseArchivedSearchParam(value: string | null) {
 	return value === "1" || value === "true";
+}
+
+function createTeamQuotaBytes(value: string) {
+	const normalized = value.trim();
+	if (!normalized) return undefined;
+
+	return parseStorageQuotaMbToBytes(normalized);
 }
 
 function buildManagedTeamSearchParams({
@@ -401,7 +410,17 @@ export default function AdminTeamsPage() {
 		const name = createForm.name.trim();
 		const adminIdentifier = createForm.adminIdentifier.trim();
 		const policyGroupId = Number(createForm.policyGroupId);
-		if (!name || !adminIdentifier || !Number.isFinite(policyGroupId)) {
+		if (
+			!name ||
+			!adminIdentifier ||
+			!Number.isSafeInteger(policyGroupId) ||
+			policyGroupId <= 0
+		) {
+			return;
+		}
+		const storageQuota = createTeamQuotaBytes(createForm.quotaValue);
+		if (storageQuota === null) {
+			toast.error(t("team_quota_invalid"));
 			return;
 		}
 
@@ -412,6 +431,7 @@ export default function AdminTeamsPage() {
 				description: createForm.description.trim() || undefined,
 				admin_identifier: adminIdentifier,
 				policy_group_id: policyGroupId,
+				...(storageQuota === undefined ? {} : { storage_quota: storageQuota }),
 			});
 			setCreateDialogOpen(false);
 			setCreateForm(EMPTY_CREATE_FORM);

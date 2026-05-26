@@ -74,6 +74,12 @@ describe("buildUploadTaskViews", () => {
 					speedBps: 2_048,
 					error: "network failed",
 				}),
+				createTask({
+					id: "task-7",
+					status: "cancelled",
+					progress: 40,
+					speedBps: 2_048,
+				}),
 			],
 		});
 
@@ -90,6 +96,11 @@ describe("buildUploadTaskViews", () => {
 		expect(views[4]?.speed).toBeUndefined();
 		expect(views[5]).toMatchObject({
 			detail: "network failed",
+			speed: undefined,
+		});
+		expect(views[6]).toMatchObject({
+			cancelled: true,
+			detail: "files:upload_cancelled",
 			speed: undefined,
 		});
 	});

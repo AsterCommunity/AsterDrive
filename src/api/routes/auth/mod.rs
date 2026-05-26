@@ -25,7 +25,8 @@ pub use self::external_auth::{
 };
 pub use self::mfa::{
     delete_factor as delete_mfa_factor, finish_totp_setup, regenerate_recovery_codes,
-    start_totp_setup, status as mfa_status, verify_challenge as verify_mfa_challenge,
+    send_email_code as send_mfa_email_code, start_totp_setup, status as mfa_status,
+    verify_challenge as verify_mfa_challenge,
 };
 pub use self::passkeys::{
     delete_passkey, finish_login as finish_passkey_login,
@@ -115,6 +116,11 @@ pub fn routes(
             web::resource("/mfa/challenge/verify")
                 .wrap(Condition::new(rl.enabled, Governor::new(&auth_limiter)))
                 .route(web::post().to(verify_mfa_challenge)),
+        )
+        .service(
+            web::resource("/mfa/challenge/email-code/send")
+                .wrap(Condition::new(rl.enabled, Governor::new(&auth_limiter)))
+                .route(web::post().to(send_mfa_email_code)),
         )
         .service(
             web::resource("/passkeys/login/start")

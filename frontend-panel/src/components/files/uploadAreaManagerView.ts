@@ -38,7 +38,7 @@ function getStatusLabel(task: UploadTask, t: UploadAreaManagerTranslationFn) {
 	if (task.status === "uploading") return t("files:uploading_to_storage");
 	if (task.status === "processing") return t("files:upload_processing");
 	if (task.status === "completed") return t("files:upload_success");
-	if (task.status === "cancelled") return t("files:upload_dismiss");
+	if (task.status === "cancelled") return t("files:upload_cancelled");
 	return t("files:upload_failed");
 }
 
@@ -171,6 +171,7 @@ export function buildUploadTaskViews({
 			detail,
 			speed: getSpeedLabel(task),
 			completed: task.status === "completed",
+			cancelled: task.status === "cancelled",
 			actions,
 		};
 	});

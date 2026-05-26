@@ -37,7 +37,7 @@ export interface AuthSessionState {
 	expiresIn: number;
 }
 
-export type MfaMethod = "totp" | "recovery_code";
+export type MfaMethod = "totp" | "recovery_code" | "email_code";
 
 export type LoginResult =
 	| { status: "authenticated"; expiresIn: number }
@@ -76,6 +76,11 @@ export interface TotpSetupFinishResponse {
 
 export interface MfaSensitiveActionRequest {
 	code?: string;
+}
+
+export interface MfaEmailCodeSendResponse {
+	expires_in: number;
+	resend_after: number;
 }
 
 type RawLoginResponse = {
@@ -147,7 +152,9 @@ function normalizeLoginResult(data: RawLoginResponse): LoginResult {
 			expiresIn,
 			methods: (data.methods || []).filter(
 				(method): method is MfaMethod =>
-					method === "totp" || method === "recovery_code",
+					method === "totp" ||
+					method === "recovery_code" ||
+					method === "email_code",
 			),
 		};
 	}
@@ -400,6 +407,12 @@ export const authService = {
 			expiresIn: Number(data.expires_in) || 900,
 		};
 	},
+
+	sendMfaEmailCode: (payload: { flow_token: string }) =>
+		api.post<MfaEmailCodeSendResponse>(
+			"/auth/mfa/challenge/email-code/send",
+			payload,
+		),
 
 	deleteMfaFactor: (id: number, payload: MfaSensitiveActionRequest) =>
 		api.delete<void>(`/auth/mfa/factors/${id}`, { data: payload }),

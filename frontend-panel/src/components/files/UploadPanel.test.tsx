@@ -248,4 +248,35 @@ describe("UploadPanel", () => {
 		expect(screen.getByText("2 tasks · all complete")).toBeInTheDocument();
 		expect(screen.queryByText("100%")).not.toBeInTheDocument();
 	});
+
+	it("does not treat cancelled uploads as active rows", () => {
+		render(
+			<UploadPanel
+				open
+				onToggle={vi.fn()}
+				title="Uploads"
+				summary="1 task · cancelled"
+				tasks={[
+					{
+						id: "cancelled-a",
+						title: "cancelled-a.txt",
+						status: "Upload canceled",
+						mode: "Chunked",
+						progress: 42,
+						cancelled: true,
+					},
+				]}
+				emptyText="No tasks"
+				totalCount={1}
+				successCount={0}
+				failedCount={0}
+				activeCount={0}
+				overallProgress={42}
+			/>,
+		);
+
+		expect(screen.getByText("Upload canceled")).toBeInTheDocument();
+		expect(screen.getByText("upload_batch_partial_failed")).toBeInTheDocument();
+		expect(screen.queryByText("42%")).not.toBeInTheDocument();
+	});
 });

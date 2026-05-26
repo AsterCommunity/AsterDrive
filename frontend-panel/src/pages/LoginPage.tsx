@@ -50,10 +50,26 @@ import {
 } from "./login/loginPageState";
 import type { AuthMode } from "./login/types";
 
+const MFA_METHODS: MfaMethod[] = ["totp", "recovery_code", "email_code"];
+
+function parseMfaMethods(value: string | null): MfaMethod[] {
+	if (!value) return ["totp", "recovery_code"];
+	const methods = value
+		.split(",")
+		.map((method) => method.trim())
+		.filter((method): method is MfaMethod =>
+			MFA_METHODS.includes(method as MfaMethod),
+		);
+	return methods.length > 0 ? methods : ["totp", "recovery_code"];
+}
+
 function resolveMfaMethod(code: string, methods: MfaMethod[]): MfaMethod {
 	const isTotp = /^\d{6}$/.test(normalizeTotpCode(code));
 	if (isTotp && methods.includes("totp")) {
 		return "totp";
+	}
+	if (/^\d{8}$/.test(code.trim()) && methods.includes("email_code")) {
+		return "email_code";
 	}
 	if (methods.includes("recovery_code")) {
 		return "recovery_code";
@@ -168,6 +184,7 @@ function useLoginPageController() {
 		const mfaStatus = searchParams.get("mfa");
 		const mfaFlow = searchParams.get("flow");
 		const mfaExpiresIn = searchParams.get("expires_in");
+		const mfaMethods = searchParams.get("methods");
 		const returnPath = searchParams.get("return_path") || "/";
 		const externalAuthStatus = searchParams.get("external_auth");
 		const externalAuthMessage = searchParams.get("message");
@@ -231,7 +248,7 @@ function useLoginPageController() {
 				challenge: {
 					expiresAt: resolveMfaRedirectExpiresAt(mfaExpiresIn),
 					flowToken: mfaFlow,
-					methods: ["totp", "recovery_code"],
+					methods: parseMfaMethods(mfaMethods),
 					returnPath,
 					successMessage: loginSuccessMessage,
 				},
@@ -283,6 +300,7 @@ function useLoginPageController() {
 		searchParams.delete("message");
 		searchParams.delete("flow");
 		searchParams.delete("expires_in");
+		searchParams.delete("methods");
 		searchParams.delete("return_path");
 		const cleanedSearch = searchParams.toString();
 
@@ -777,6 +795,13 @@ function useLoginPageController() {
 			return;
 		}
 		const code = mfaPanel.code.trim();
+		if (mfaPanel.selectedMethod === "email_code" && !mfaPanel.emailCodeSent) {
+			dispatchAuthPanel({
+				type: "set_mfa_error",
+				error: t("mfa_email_code_required_send"),
+			});
+			return;
+		}
 		if (!code) {
 			dispatchAuthPanel({
 				type: "set_mfa_error",
@@ -786,8 +811,11 @@ function useLoginPageController() {
 		}
 
 		try {
-			const method = resolveMfaMethod(code, challenge.methods);
-			const normalizedCode = method === "totp" ? normalizeTotpCode(code) : code;
+			const method = challenge.methods.includes(mfaPanel.selectedMethod)
+				? mfaPanel.selectedMethod
+				: resolveMfaMethod(code, challenge.methods);
+			const normalizedCode =
+				method === "totp" ? normalizeTotpCode(code) : code.trim();
 			dispatchAuthPanel({ type: "set_mfa_submitting", submitting: true });
 			const session = await authService.verifyMfaChallenge({
 				flow_token: challenge.flowToken,
@@ -803,6 +831,39 @@ function useLoginPageController() {
 			handleApiError(error);
 		} finally {
 			dispatchAuthPanel({ type: "set_mfa_submitting", submitting: false });
+		}
+	};
+
+	const handleMfaEmailCodeSend = async () => {
+		if (!mfaPanel) return;
+		if (mfaPanel.selectedMethod !== "email_code") return;
+		if (mfaPanel.challenge.expiresAt <= Date.now()) {
+			dispatchAuthPanel({
+				type: "set_mfa_error",
+				error: t("mfa_flow_expired"),
+			});
+			return;
+		}
+		if (mfaPanel.emailCodeResendAt > Date.now()) return;
+
+		try {
+			dispatchAuthPanel({ type: "set_mfa_email_code_sending", sending: true });
+			const result = await authService.sendMfaEmailCode({
+				flow_token: mfaPanel.challenge.flowToken,
+			});
+			dispatchAuthPanel({
+				type: "set_mfa_email_code_sent",
+				expiresIn: result.expires_in,
+				now: Date.now(),
+				resendAfter: result.resend_after,
+			});
+			toast.success(t("mfa_email_code_sent"));
+		} catch (error) {
+			dispatchAuthPanel({
+				type: "set_mfa_email_code_sending",
+				sending: false,
+			});
+			handleApiError(error);
 		}
 	};
 
@@ -1035,6 +1096,10 @@ function useLoginPageController() {
 				type: "set_mfa_code",
 				code: value,
 			});
+		},
+		onMfaEmailCodeSend: () => void handleMfaEmailCodeSend(),
+		onMfaMethodChange: (method: MfaMethod) => {
+			dispatchAuthPanel({ type: "set_mfa_method", method });
 		},
 		onPasskeyLogin: () => void handlePasskeyLogin(),
 		onPasswordChange: (value: string) => {

@@ -31,26 +31,61 @@ use self::context::{
     resolve_init_upload_context, try_persist_upload_session,
 };
 
+#[derive(Clone, Copy)]
+pub struct InitUploadParams<'a> {
+    pub filename: &'a str,
+    pub total_size: i64,
+    pub folder_id: Option<i64>,
+    pub relative_path: Option<&'a str>,
+    pub frontend_client_id: Option<&'a str>,
+}
+
+impl<'a> InitUploadParams<'a> {
+    pub fn new(
+        filename: &'a str,
+        total_size: i64,
+        folder_id: Option<i64>,
+        relative_path: Option<&'a str>,
+    ) -> Self {
+        Self {
+            filename,
+            total_size,
+            folder_id,
+            relative_path,
+            frontend_client_id: None,
+        }
+    }
+
+    pub fn with_frontend_client(mut self, frontend_client_id: Option<&'a str>) -> Self {
+        self.frontend_client_id = frontend_client_id;
+        self
+    }
+}
+
 async fn init_upload_for_scope(
     state: &PrimaryAppState,
     scope: WorkspaceStorageScope,
-    filename: &str,
-    total_size: i64,
-    folder_id: Option<i64>,
-    relative_path: Option<&str>,
+    params: InitUploadParams<'_>,
 ) -> Result<InitUploadResponse> {
     tracing::debug!(
         scope = ?scope,
-        folder_id,
-        filename = %filename,
-        total_size,
-        relative_path = relative_path.unwrap_or(""),
+        folder_id = params.folder_id,
+        filename = %params.filename,
+        total_size = params.total_size,
+        relative_path = params.relative_path.unwrap_or(""),
         "initializing upload session"
     );
 
-    let ctx =
-        resolve_init_upload_context(state, scope, filename, total_size, folder_id, relative_path)
-            .await?;
+    let ctx = resolve_init_upload_context(
+        state,
+        scope,
+        params.filename,
+        params.total_size,
+        params.folder_id,
+        params.relative_path,
+        params.frontend_client_id,
+    )
+    .await?;
     let transport = resolve_policy_upload_transport(&ctx.policy);
 
     if ctx.total_size == 0 {
@@ -118,6 +153,7 @@ async fn init_chunked_upload_session(
                 total_chunks,
                 folder_id: ctx.target.folder_id,
                 policy_id: ctx.policy.id,
+                frontend_client_id: ctx.frontend_client_id.as_deref(),
                 status: UploadSessionStatus::Uploading,
                 s3_temp_key: None,
                 s3_multipart_id: None,
@@ -180,15 +216,20 @@ pub async fn init_upload(
     folder_id: Option<i64>,
     relative_path: Option<&str>,
 ) -> Result<InitUploadResponse> {
-    init_upload_for_scope(
+    init_upload_with_frontend_client(
         state,
-        personal_scope(user_id),
-        filename,
-        total_size,
-        folder_id,
-        relative_path,
+        user_id,
+        InitUploadParams::new(filename, total_size, folder_id, relative_path),
     )
     .await
+}
+
+pub async fn init_upload_with_frontend_client(
+    state: &PrimaryAppState,
+    user_id: i64,
+    params: InitUploadParams<'_>,
+) -> Result<InitUploadResponse> {
+    init_upload_for_scope(state, personal_scope(user_id), params).await
 }
 
 /// 团队空间上传协商：规则和个人空间一致，但路径归属与配额都落在团队 scope。
@@ -201,13 +242,20 @@ pub async fn init_upload_for_team(
     folder_id: Option<i64>,
     relative_path: Option<&str>,
 ) -> Result<InitUploadResponse> {
-    init_upload_for_scope(
+    init_upload_for_team_with_frontend_client(
         state,
-        team_scope(team_id, user_id),
-        filename,
-        total_size,
-        folder_id,
-        relative_path,
+        team_id,
+        user_id,
+        InitUploadParams::new(filename, total_size, folder_id, relative_path),
     )
     .await
+}
+
+pub async fn init_upload_for_team_with_frontend_client(
+    state: &PrimaryAppState,
+    team_id: i64,
+    user_id: i64,
+    params: InitUploadParams<'_>,
+) -> Result<InitUploadResponse> {
+    init_upload_for_scope(state, team_scope(team_id, user_id), params).await
 }

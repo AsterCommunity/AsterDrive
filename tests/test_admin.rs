@@ -473,6 +473,7 @@ async fn test_admin_team_crud() {
             "name": "Operations",
             "description": "Shared operations workspace",
             "admin_identifier": "team-admin",
+            "storage_quota": 536870912,
             "policy_group_id": default_group_id
         }))
         .to_request();
@@ -484,6 +485,7 @@ async fn test_admin_team_crud() {
     assert_eq!(team["name"], "Operations");
     assert_eq!(team["created_by"]["username"], "testuser");
     assert_eq!(team["member_count"], 1);
+    assert_eq!(team["storage_quota"], 536870912);
     assert_eq!(team["policy_group_id"], default_group_id);
 
     let req = test::TestRequest::get()
@@ -538,6 +540,7 @@ async fn test_admin_team_crud() {
         .set_json(serde_json::json!({
             "name": "Operations Core",
             "description": "Updated by admin",
+            "storage_quota": 1073741824,
             "policy_group_id": alternate_group_id
         }))
         .to_request();
@@ -546,7 +549,21 @@ async fn test_admin_team_crud() {
     let body: Value = test::read_body_json(resp).await;
     assert_eq!(body["data"]["name"], "Operations Core");
     assert_eq!(body["data"]["description"], "Updated by admin");
+    assert_eq!(body["data"]["storage_quota"], 1073741824);
     assert_eq!(body["data"]["policy_group_id"], alternate_group_id);
+
+    let req = test::TestRequest::patch()
+        .uri(&format!("/api/v1/admin/teams/{team_id}"))
+        .insert_header(("Cookie", common::access_cookie_header(&admin_token)))
+        .insert_header(common::csrf_header_for(&admin_token))
+        .set_json(serde_json::json!({
+            "storage_quota": 0
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(body["data"]["storage_quota"], 0);
 
     let req = test::TestRequest::post()
         .uri("/api/v1/auth/register")
@@ -964,6 +981,114 @@ async fn test_admin_teams_support_explicit_sorting() {
         json_string_values(teams, "name"),
         vec!["Team Sort Gamma", "Team Sort Beta", "Team Sort Alpha"]
     );
+}
+
+#[actix_web::test]
+async fn test_admin_team_quota_rejects_negative_values() {
+    let state = common::setup().await;
+    let default_group_id = state
+        .policy_snapshot
+        .system_default_policy_group()
+        .expect("default policy group should exist")
+        .id;
+    let app = create_test_app!(state);
+    let (admin_token, _) = register_and_login!(app);
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/admin/teams")
+        .insert_header(("Cookie", common::access_cookie_header(&admin_token)))
+        .insert_header(common::csrf_header_for(&admin_token))
+        .set_json(serde_json::json!({
+            "name": "Negative Quota",
+            "admin_identifier": "testuser",
+            "storage_quota": -1,
+            "policy_group_id": default_group_id
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 400);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(body["msg"], "storage_quota must be non-negative");
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/admin/teams")
+        .insert_header(("Cookie", common::access_cookie_header(&admin_token)))
+        .insert_header(common::csrf_header_for(&admin_token))
+        .set_json(serde_json::json!({
+            "name": "Quota Patch Target",
+            "admin_identifier": "testuser",
+            "storage_quota": 0,
+            "policy_group_id": default_group_id
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 201);
+    let body: Value = test::read_body_json(resp).await;
+    let team_id = body["data"]["id"].as_i64().unwrap();
+
+    let req = test::TestRequest::patch()
+        .uri(&format!("/api/v1/admin/teams/{team_id}"))
+        .insert_header(("Cookie", common::access_cookie_header(&admin_token)))
+        .insert_header(common::csrf_header_for(&admin_token))
+        .set_json(serde_json::json!({
+            "storage_quota": -1
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 400);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(body["msg"], "storage_quota must be non-negative");
+}
+
+#[actix_web::test]
+async fn test_admin_team_quota_uses_default_when_omitted_and_allows_zero() {
+    let state = common::setup().await;
+    let default_group_id = state
+        .policy_snapshot
+        .system_default_policy_group()
+        .expect("default policy group should exist")
+        .id;
+    let mut default_quota = aster_drive::db::repository::config_repo::find_by_key(
+        state.writer_db(),
+        "default_storage_quota",
+    )
+    .await
+    .unwrap()
+    .expect("default_storage_quota should exist");
+    default_quota.value = "1048576".to_string();
+    state.runtime_config.apply(default_quota);
+
+    let app = create_test_app!(state);
+    let (admin_token, _) = register_and_login!(app);
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/admin/teams")
+        .insert_header(("Cookie", common::access_cookie_header(&admin_token)))
+        .insert_header(common::csrf_header_for(&admin_token))
+        .set_json(serde_json::json!({
+            "name": "Default Quota Team",
+            "admin_identifier": "testuser",
+            "policy_group_id": default_group_id
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 201);
+    let body: Value = test::read_body_json(resp).await;
+    let team_id = body["data"]["id"].as_i64().unwrap();
+    assert_eq!(body["data"]["storage_quota"], 1048576);
+
+    let req = test::TestRequest::patch()
+        .uri(&format!("/api/v1/admin/teams/{team_id}"))
+        .insert_header(("Cookie", common::access_cookie_header(&admin_token)))
+        .insert_header(common::csrf_header_for(&admin_token))
+        .set_json(serde_json::json!({
+            "storage_quota": 0
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(body["data"]["storage_quota"], 0);
 }
 
 #[actix_web::test]
@@ -2493,6 +2618,171 @@ async fn test_admin_config() {
         .to_request();
     let resp = test::call_service(&app, req).await;
     assert_eq!(resp.status(), 200);
+}
+
+#[actix_web::test]
+async fn test_admin_email_code_mfa_requires_complete_mail_config() {
+    let state = common::setup().await;
+    let app = create_test_app!(state);
+    let (token, _) = register_and_login!(app);
+
+    let req = test::TestRequest::put()
+        .uri("/api/v1/admin/config/auth_email_code_login_enabled")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({ "value": "true" }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    let status = resp.status();
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(status, 400, "{body:#?}");
+    assert!(
+        body["msg"]
+            .as_str()
+            .unwrap()
+            .contains("email code MFA requires complete SMTP mail configuration")
+    );
+
+    for (key, value) in [
+        ("mail_smtp_host", "smtp.example.com"),
+        ("mail_from_address", "noreply@example.com"),
+        ("mail_smtp_username", "smtp-user"),
+    ] {
+        let req = test::TestRequest::put()
+            .uri(&format!("/api/v1/admin/config/{key}"))
+            .insert_header(("Cookie", common::access_cookie_header(&token)))
+            .insert_header(common::csrf_header_for(&token))
+            .set_json(serde_json::json!({ "value": value }))
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(resp.status(), 200);
+    }
+
+    let req = test::TestRequest::put()
+        .uri("/api/v1/admin/config/auth_email_code_login_enabled")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({ "value": "true" }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    let status = resp.status();
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(status, 400, "{body:#?}");
+    assert!(
+        body["msg"]
+            .as_str()
+            .unwrap()
+            .contains("email code MFA requires complete SMTP mail configuration")
+    );
+
+    let req = test::TestRequest::put()
+        .uri("/api/v1/admin/config/mail_smtp_password")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({ "value": "smtp-pass" }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+
+    let req = test::TestRequest::put()
+        .uri("/api/v1/admin/config/auth_email_code_login_enabled")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({ "value": "true" }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    let status = resp.status();
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(status, 200, "{body:#?}");
+    assert_eq!(body["data"]["value"], "true");
+}
+
+#[actix_web::test]
+async fn test_admin_mail_config_changes_disable_email_code_mfa_when_incomplete() {
+    let state = common::setup().await;
+    let app = create_test_app!(state);
+    let (token, _) = register_and_login!(app);
+
+    for (key, value) in [
+        ("mail_smtp_host", "smtp.example.com"),
+        ("mail_from_address", "noreply@example.com"),
+        ("auth_email_code_login_enabled", "true"),
+    ] {
+        let req = test::TestRequest::put()
+            .uri(&format!("/api/v1/admin/config/{key}"))
+            .insert_header(("Cookie", common::access_cookie_header(&token)))
+            .insert_header(common::csrf_header_for(&token))
+            .set_json(serde_json::json!({ "value": value }))
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(resp.status(), 200);
+    }
+
+    let req = test::TestRequest::put()
+        .uri("/api/v1/admin/config/mail_smtp_host")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({ "value": "" }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    let status = resp.status();
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(status, 200, "{body:#?}");
+
+    let req = test::TestRequest::get()
+        .uri("/api/v1/admin/config/auth_email_code_login_enabled")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    let status = resp.status();
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(status, 200, "{body:#?}");
+    assert_eq!(body["data"]["value"], "false");
+}
+
+#[actix_web::test]
+async fn test_admin_smtp_credential_mismatch_disables_email_code_mfa() {
+    let state = common::setup().await;
+    let app = create_test_app!(state);
+    let (token, _) = register_and_login!(app);
+
+    for (key, value) in [
+        ("mail_smtp_host", "smtp.example.com"),
+        ("mail_from_address", "noreply@example.com"),
+        ("auth_email_code_login_enabled", "true"),
+    ] {
+        let req = test::TestRequest::put()
+            .uri(&format!("/api/v1/admin/config/{key}"))
+            .insert_header(("Cookie", common::access_cookie_header(&token)))
+            .insert_header(common::csrf_header_for(&token))
+            .set_json(serde_json::json!({ "value": value }))
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(resp.status(), 200);
+    }
+
+    let req = test::TestRequest::put()
+        .uri("/api/v1/admin/config/mail_smtp_username")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({ "value": "smtp-user" }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    let status = resp.status();
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(status, 200, "{body:#?}");
+
+    let req = test::TestRequest::get()
+        .uri("/api/v1/admin/config/auth_email_code_login_enabled")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    let status = resp.status();
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(status, 200, "{body:#?}");
+    assert_eq!(body["data"]["value"], "false");
 }
 
 #[actix_web::test]

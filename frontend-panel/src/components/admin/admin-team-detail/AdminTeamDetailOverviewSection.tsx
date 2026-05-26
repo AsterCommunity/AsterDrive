@@ -26,12 +26,14 @@ interface OverviewSectionProps {
 	onDescriptionChange: (value: string) => void;
 	onNameChange: (value: string) => void;
 	onPolicyGroupChange: (value: string) => void;
+	onQuotaValueChange: (value: string) => void;
 	onRefreshPolicyGroups: () => Promise<void>;
 	onSave: () => Promise<void>;
 	policyGroupId: string;
 	policyGroupOptions: PolicyGroupOption[];
 	policyGroupUnavailable: boolean;
 	policyGroupsLoading: boolean;
+	quotaValue: string;
 	restoring: boolean;
 	saving: boolean;
 	team: AdminTeamInfo | null;
@@ -48,12 +50,14 @@ export function AdminTeamDetailOverviewSection({
 	onDescriptionChange,
 	onNameChange,
 	onPolicyGroupChange,
+	onQuotaValueChange,
 	onRefreshPolicyGroups,
 	onSave,
 	policyGroupId,
 	policyGroupOptions,
 	policyGroupUnavailable,
 	policyGroupsLoading,
+	quotaValue,
 	restoring,
 	saving,
 	team,
@@ -92,6 +96,7 @@ export function AdminTeamDetailOverviewSection({
 			) : (
 				<form
 					className="space-y-4"
+					noValidate
 					onSubmit={(event) => {
 						event.preventDefault();
 						void onSave();
@@ -144,6 +149,25 @@ export function AdminTeamDetailOverviewSection({
 									{t("policy_group_no_assignable_groups")}
 								</p>
 							) : null}
+						</div>
+						<div className="space-y-2 md:col-span-2">
+							<Label htmlFor="admin-team-detail-storage-quota">
+								{t("team_quota_mb")}
+							</Label>
+							<Input
+								id="admin-team-detail-storage-quota"
+								type="number"
+								min={0}
+								step={1}
+								value={quotaValue}
+								disabled={formDisabled}
+								placeholder={t("team_quota_unlimited_short")}
+								className={ADMIN_CONTROL_HEIGHT_CLASS}
+								onChange={(event) => onQuotaValueChange(event.target.value)}
+							/>
+							<p className="text-xs text-muted-foreground">
+								{t("team_quota_update_desc")}
+							</p>
 						</div>
 						<div className="space-y-2 md:col-span-2">
 							<Label htmlFor="admin-team-detail-description">

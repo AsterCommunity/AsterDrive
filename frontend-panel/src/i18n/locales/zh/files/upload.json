@@ -3,6 +3,7 @@
 	"upload_success": "上传完成",
 	"upload_multiple_success": "已上传 {{count}} 个文件",
 	"upload_failed": "上传失败",
+	"upload_cancelled": "上传已取消",
 	"upload_resume_title": "有未完成的上传：{{filename}}",
 	"upload_resume_desc": "重新选择同一个文件即可继续上传。",
 	"upload_resume": "继续上传",

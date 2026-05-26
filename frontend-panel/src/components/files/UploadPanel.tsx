@@ -33,6 +33,7 @@ export interface UploadTaskView {
 	detail?: string;
 	speed?: string;
 	completed?: boolean;
+	cancelled?: boolean;
 	actions?: {
 		label: string;
 		icon: "X" | "ArrowsClockwise" | "Upload";
@@ -88,7 +89,13 @@ function taskShowsProgress(task: UploadTaskView) {
 	const waitingForFile = task.actions?.some(
 		(action) => action.icon === "Upload",
 	);
-	return !task.completed && !failed && !waitingForFile && task.progress < 100;
+	return (
+		!task.completed &&
+		!task.cancelled &&
+		!failed &&
+		!waitingForFile &&
+		task.progress < 100
+	);
 }
 
 export function UploadPanel({
@@ -130,7 +137,10 @@ export function UploadPanel({
 			let active = 0;
 			for (const task of groupTasks) {
 				if (task.completed) success++;
-				else if (task.actions?.some((a) => a.icon === "ArrowsClockwise"))
+				else if (
+					task.cancelled ||
+					task.actions?.some((a) => a.icon === "ArrowsClockwise")
+				)
 					failed++;
 				else active++;
 			}

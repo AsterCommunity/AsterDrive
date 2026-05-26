@@ -94,6 +94,7 @@ async fn init_presigned_s3_single_upload(
                 total_chunks: 0,
                 folder_id: ctx.target.folder_id,
                 policy_id: ctx.policy.id,
+                frontend_client_id: ctx.frontend_client_id.as_deref(),
                 status: UploadSessionStatus::Presigned,
                 s3_temp_key: Some(&temp_key),
                 s3_multipart_id: None,

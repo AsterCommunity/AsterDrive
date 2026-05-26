@@ -90,6 +90,19 @@ pub struct InitUploadReq {
     pub total_size: i64,
     pub folder_id: Option<i64>,
     pub relative_path: Option<String>,
+    #[validate(custom(function = "crate::api::dto::validation::validate_uuid"))]
+    pub frontend_client_id: Option<String>,
+}
+
+/// Query parameters for recoverable upload sessions.
+#[derive(Deserialize, Validate)]
+#[cfg_attr(
+    all(debug_assertions, feature = "openapi"),
+    derive(IntoParams, ToSchema)
+)]
+pub struct UploadSessionsQuery {
+    #[validate(custom(function = "crate::api::dto::validation::validate_uuid"))]
+    pub frontend_client_id: Option<String>,
 }
 
 /// Path parameters for chunk upload.

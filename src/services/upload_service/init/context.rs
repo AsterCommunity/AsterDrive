@@ -25,6 +25,7 @@ pub(super) struct InitUploadContext {
     pub(super) target: ResolvedUploadTarget,
     pub(super) total_size: i64,
     pub(super) policy: storage_policy::Model,
+    pub(super) frontend_client_id: Option<String>,
 }
 
 pub(super) struct UploadSessionRecordParams<'a> {
@@ -36,6 +37,7 @@ pub(super) struct UploadSessionRecordParams<'a> {
     pub(super) total_chunks: i32,
     pub(super) folder_id: Option<i64>,
     pub(super) policy_id: i64,
+    pub(super) frontend_client_id: Option<&'a str>,
     pub(super) status: UploadSessionStatus,
     pub(super) s3_temp_key: Option<&'a str>,
     pub(super) s3_multipart_id: Option<&'a str>,
@@ -61,6 +63,7 @@ pub(super) async fn resolve_init_upload_context(
     total_size: i64,
     folder_id: Option<i64>,
     relative_path: Option<&str>,
+    frontend_client_id: Option<&str>,
 ) -> Result<InitUploadContext> {
     let target = resolve_upload_target(state, scope, filename, folder_id, relative_path).await?;
 
@@ -87,6 +90,7 @@ pub(super) async fn resolve_init_upload_context(
         target,
         total_size,
         policy,
+        frontend_client_id: frontend_client_id.map(str::to_string),
     })
 }
 
@@ -217,6 +221,7 @@ pub(super) async fn init_multipart_session_with_retry(
                 total_chunks,
                 folder_id: ctx.target.folder_id,
                 policy_id: ctx.policy.id,
+                frontend_client_id: ctx.frontend_client_id.as_deref(),
                 status,
                 s3_temp_key: Some(&temp_key),
                 s3_multipart_id: Some(&multipart_id),
@@ -291,6 +296,7 @@ fn upload_session_active_model(
         total_chunks,
         folder_id,
         policy_id,
+        frontend_client_id,
         status,
         s3_temp_key,
         s3_multipart_id,
@@ -302,6 +308,7 @@ fn upload_session_active_model(
         id: Set(upload_id.to_string()),
         user_id: Set(scope.actor_user_id()),
         team_id: Set(scope.team_id()),
+        frontend_client_id: Set(frontend_client_id.map(str::to_string)),
         filename: Set(filename.to_string()),
         total_size: Set(total_size),
         chunk_size: Set(chunk_size),

@@ -29,6 +29,7 @@ async fn create_policy_upload_session(
             id: Set(spec.upload_id.to_string()),
             user_id: Set(spec.user_id),
             team_id: Set(None),
+            frontend_client_id: Set(None),
             filename: Set("pending-policy-upload.bin".to_string()),
             total_size: Set(10),
             chunk_size: Set(5),

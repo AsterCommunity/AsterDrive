@@ -73,6 +73,7 @@ pub async fn create_team(
             description: body.description.clone(),
             admin_user_id: body.admin_user_id,
             admin_identifier: body.admin_identifier.clone(),
+            storage_quota: body.storage_quota,
             policy_group_id: body.policy_group_id,
         },
         &ctx,
@@ -134,6 +135,7 @@ pub async fn update_team(
         team_service::AdminUpdateTeamInput {
             name: body.name.clone(),
             description: body.description.clone(),
+            storage_quota: body.storage_quota,
             policy_group_id: body.policy_group_id,
         },
         &ctx,

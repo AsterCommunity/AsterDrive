@@ -81,13 +81,16 @@ pub async fn init_chunked_upload(
     body: web::Json<InitUploadReq>,
 ) -> Result<HttpResponse> {
     validate_request(&*body)?;
-    let resp = upload_service::init_upload(
+    let resp = upload_service::init_upload_with_frontend_client(
         &state,
         claims.user_id,
-        &body.filename,
-        body.total_size,
-        body.folder_id,
-        body.relative_path.as_deref(),
+        upload_service::InitUploadParams::new(
+            &body.filename,
+            body.total_size,
+            body.folder_id,
+            body.relative_path.as_deref(),
+        )
+        .with_frontend_client(body.frontend_client_id.as_deref()),
     )
     .await?;
     Ok(HttpResponse::Created().json(ApiResponse::ok(resp)))
@@ -98,6 +101,7 @@ pub async fn init_chunked_upload(
     path = "/api/v1/files/upload/sessions",
     tag = "files",
     operation_id = "list_recoverable_upload_sessions",
+    params(UploadSessionsQuery),
     responses(
         (status = 200, description = "Recoverable upload sessions", body = inline(ApiResponse<Vec<upload_service::RecoverableUploadSessionResponse>>)),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
@@ -107,8 +111,15 @@ pub async fn init_chunked_upload(
 pub async fn list_recoverable_upload_sessions(
     state: web::Data<PrimaryAppState>,
     claims: web::ReqData<Claims>,
+    query: web::Query<UploadSessionsQuery>,
 ) -> Result<HttpResponse> {
-    let resp = upload_service::list_recoverable_sessions(&state, claims.user_id).await?;
+    validate_request(&*query)?;
+    let resp = upload_service::list_recoverable_sessions(
+        &state,
+        claims.user_id,
+        query.frontend_client_id.as_deref(),
+    )
+    .await?;
     Ok(HttpResponse::Ok().json(ApiResponse::ok(resp)))
 }
 
@@ -338,14 +349,17 @@ pub(crate) async fn team_init_chunked_upload(
     body: web::Json<InitUploadReq>,
 ) -> Result<HttpResponse> {
     validate_request(&*body)?;
-    let resp = upload_service::init_upload_for_team(
+    let resp = upload_service::init_upload_for_team_with_frontend_client(
         &state,
         *path,
         claims.user_id,
-        &body.filename,
-        body.total_size,
-        body.folder_id,
-        body.relative_path.as_deref(),
+        upload_service::InitUploadParams::new(
+            &body.filename,
+            body.total_size,
+            body.folder_id,
+            body.relative_path.as_deref(),
+        )
+        .with_frontend_client(body.frontend_client_id.as_deref()),
     )
     .await?;
     Ok(HttpResponse::Created().json(ApiResponse::ok(resp)))
@@ -356,7 +370,7 @@ pub(crate) async fn team_init_chunked_upload(
     path = "/api/v1/teams/{team_id}/files/upload/sessions",
     tag = "teams",
     operation_id = "list_team_recoverable_upload_sessions",
-    params(("team_id" = i64, Path, description = "Team ID")),
+    params(("team_id" = i64, Path, description = "Team ID"), UploadSessionsQuery),
     responses(
         (status = 200, description = "Team recoverable upload sessions", body = inline(ApiResponse<Vec<upload_service::RecoverableUploadSessionResponse>>)),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
@@ -368,9 +382,16 @@ pub(crate) async fn team_list_recoverable_upload_sessions(
     state: web::Data<PrimaryAppState>,
     claims: web::ReqData<Claims>,
     path: web::Path<i64>,
+    query: web::Query<UploadSessionsQuery>,
 ) -> Result<HttpResponse> {
-    let resp =
-        upload_service::list_recoverable_sessions_for_team(&state, *path, claims.user_id).await?;
+    validate_request(&*query)?;
+    let resp = upload_service::list_recoverable_sessions_for_team(
+        &state,
+        *path,
+        claims.user_id,
+        query.frontend_client_id.as_deref(),
+    )
+    .await?;
     Ok(HttpResponse::Ok().json(ApiResponse::ok(resp)))
 }
 

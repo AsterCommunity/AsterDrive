@@ -223,6 +223,8 @@ mod tests {
             ApiSubcode::AuthMfaAttemptsExceeded,
             ApiSubcode::AuthMfaFactorRequired,
             ApiSubcode::AuthMfaRecoveryCodeUsed,
+            ApiSubcode::AuthMfaEmailCodeRequired,
+            ApiSubcode::AuthMfaEmailCodeExpired,
         ] {
             let error = crate::errors::auth_mfa_failed_with_subcode(subcode, "mfa failed");
 

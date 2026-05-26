@@ -34,6 +34,7 @@ import {
 	type TimeDisplayUnitValue,
 	UrlAssetPreview,
 } from "@/components/admin/settings/adminSettingsContentShared";
+import { isMailDeliveryConfigReady } from "@/components/admin/settings/mailDeliveryConfigReady";
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
 import { Input } from "@/components/ui/input";
@@ -50,12 +51,14 @@ import { cn } from "@/lib/utils";
 import type { SystemConfig } from "@/types/api";
 
 const PUBLIC_SITE_URL_KEY = "public_site_url";
+const AUTH_EMAIL_CODE_LOGIN_ENABLED_KEY = "auth_email_code_login_enabled";
 
 function FieldMeta({ config }: { config: SystemConfig }) {
 	const {
 		getDraftValue,
 		getSystemConfigDescription,
 		getSystemConfigLabel,
+		navigateToMailSettings,
 		openTemplateVariablesDialog,
 		t,
 	} = useAdminSettingsCategoryContent();
@@ -69,6 +72,8 @@ function FieldMeta({ config }: { config: SystemConfig }) {
 	const showRawKey = configLabel !== config.key;
 	const showTemplateVariableLink =
 		config.category === "mail.template" && config.key.endsWith("_html");
+	const showEmailCodeMailSettingsLink =
+		config.key === AUTH_EMAIL_CODE_LOGIN_ENABLED_KEY;
 
 	return (
 		<div className="space-y-1">
@@ -105,6 +110,17 @@ function FieldMeta({ config }: { config: SystemConfig }) {
 					onClick={() => openTemplateVariablesDialog(config)}
 				>
 					{t("mail_template_variable_link")}
+				</button>
+			) : null}
+			{showEmailCodeMailSettingsLink ? (
+				<button
+					type="button"
+					className="inline-flex w-fit items-center gap-1.5 text-sm font-medium text-primary underline-offset-4 transition-colors hover:text-primary/80 hover:underline"
+					onClick={navigateToMailSettings}
+				>
+					<Icon name="EnvelopeSimple" className="size-4" />
+					{t("email_code_mfa_mail_settings_link")}
+					<Icon name="ArrowRight" className="size-3.5" />
 				</button>
 			) : null}
 		</div>
@@ -544,12 +560,30 @@ function ConfigInputControl({
 }
 
 export function SystemConfigRow({ config }: { config: SystemConfig }) {
-	const { configValidationErrors, getDraftValue, t, updateDraftValue } =
-		useAdminSettingsCategoryContent();
+	const {
+		configValidationErrors,
+		getDraftValue,
+		getDraftValueByKey,
+		t,
+		updateDraftValue,
+	} = useAdminSettingsCategoryContent();
 	const draftValue = getDraftValue(config);
 	const draftStringValue = configValueToString(draftValue);
 	const valueType = getConfigValueType(config);
 	const error = configValidationErrors.get(config.key);
+	const isEmailCodeLoginToggle =
+		config.key === AUTH_EMAIL_CODE_LOGIN_ENABLED_KEY;
+	const emailCodeMailReady = isEmailCodeLoginToggle
+		? isMailDeliveryConfigReady(getDraftValueByKey)
+		: true;
+	const emailCodeEnableBlocked =
+		isEmailCodeLoginToggle &&
+		!emailCodeMailReady &&
+		draftStringValue !== "true";
+	const emailCodeMailRequiredMessage =
+		isEmailCodeLoginToggle && !emailCodeMailReady
+			? t("email_code_mfa_mail_config_required")
+			: null;
 
 	return (
 		<div className="space-y-3">
@@ -560,9 +594,13 @@ export function SystemConfigRow({ config }: { config: SystemConfig }) {
 						id={config.key}
 						aria-invalid={error ? true : undefined}
 						checked={draftStringValue === "true"}
-						onCheckedChange={(checked) =>
-							updateDraftValue(config.key, checked ? "true" : "false")
-						}
+						disabled={emailCodeEnableBlocked}
+						onCheckedChange={(checked) => {
+							if (checked && isEmailCodeLoginToggle && !emailCodeMailReady) {
+								return;
+							}
+							updateDraftValue(config.key, checked ? "true" : "false");
+						}}
 					/>
 					<span>
 						{draftStringValue === "true"
@@ -578,6 +616,11 @@ export function SystemConfigRow({ config }: { config: SystemConfig }) {
 				/>
 			)}
 			{error ? <p className="text-sm text-destructive">{error}</p> : null}
+			{!error && emailCodeMailRequiredMessage ? (
+				<p className="text-sm text-muted-foreground">
+					{emailCodeMailRequiredMessage}
+				</p>
+			) : null}
 		</div>
 	);
 }

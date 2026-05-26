@@ -136,11 +136,13 @@ async fn list_recoverable_sessions_impl(
     state: &PrimaryAppState,
     user_id: i64,
     team_id: Option<i64>,
+    frontend_client_id: Option<&str>,
 ) -> Result<Vec<RecoverableUploadSessionResponse>> {
     let sessions = upload_session_repo::find_recoverable_by_owner(
         state.reader_db(),
         user_id,
         team_id,
+        frontend_client_id,
         RECOVERABLE_UPLOAD_SESSIONS_LIMIT,
     )
     .await?;
@@ -165,8 +167,9 @@ pub async fn get_progress(
 pub async fn list_recoverable_sessions(
     state: &PrimaryAppState,
     user_id: i64,
+    frontend_client_id: Option<&str>,
 ) -> Result<Vec<RecoverableUploadSessionResponse>> {
-    list_recoverable_sessions_impl(state, user_id, None).await
+    list_recoverable_sessions_impl(state, user_id, None, frontend_client_id).await
 }
 
 pub async fn get_progress_for_team(
@@ -184,9 +187,10 @@ pub async fn list_recoverable_sessions_for_team(
     state: &PrimaryAppState,
     team_id: i64,
     user_id: i64,
+    frontend_client_id: Option<&str>,
 ) -> Result<Vec<RecoverableUploadSessionResponse>> {
     workspace_storage_service::require_team_access(state, team_id, user_id).await?;
-    list_recoverable_sessions_impl(state, user_id, Some(team_id)).await
+    list_recoverable_sessions_impl(state, user_id, Some(team_id), frontend_client_id).await
 }
 
 /// 为 multipart presigned 上传批量生成 per-part presigned PUT URL

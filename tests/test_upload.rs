@@ -196,6 +196,7 @@ async fn create_upload_session(
             id: Set(spec.upload_id.to_string()),
             user_id: Set(user_id),
             team_id: Set(None),
+            frontend_client_id: Set(None),
             filename: Set("manual-upload.bin".to_string()),
             total_size: Set(10),
             chunk_size: Set(5),
@@ -241,6 +242,7 @@ async fn test_upload_session_try_create_reports_id_conflict() {
         id: Set(upload_id.clone()),
         user_id: Set(user.id),
         team_id: Set(None),
+        frontend_client_id: Set(None),
         filename: Set("try-create.bin".to_string()),
         total_size: Set(1),
         chunk_size: Set(1),
@@ -301,6 +303,7 @@ async fn test_upload_session_try_create_preserves_non_id_unique_conflict() {
         id: Set(upload_id),
         user_id: Set(user.id),
         team_id: Set(None),
+        frontend_client_id: Set(None),
         filename: Set(filename.clone()),
         total_size: Set(1),
         chunk_size: Set(1),
@@ -974,6 +977,7 @@ async fn test_recoverable_upload_sessions_endpoint_lists_active_sessions() {
     let state = common::setup().await;
     let app = create_test_app!(state);
     let (token, _) = register_and_login!(app);
+    let frontend_client_id = "11111111-1111-4111-8111-111111111111";
 
     let total_size = TEST_CHUNK_SIZE + 1;
     let req = test::TestRequest::post()
@@ -982,7 +986,8 @@ async fn test_recoverable_upload_sessions_endpoint_lists_active_sessions() {
         .insert_header(common::csrf_header_for(&token))
         .set_json(serde_json::json!({
             "filename": "recoverable.bin",
-            "total_size": total_size
+            "total_size": total_size,
+            "frontend_client_id": frontend_client_id
         }))
         .to_request();
     let resp = test::call_service(&app, req).await;
@@ -992,7 +997,9 @@ async fn test_recoverable_upload_sessions_endpoint_lists_active_sessions() {
     let upload_id = body["data"]["upload_id"].as_str().unwrap().to_string();
 
     let req = test::TestRequest::get()
-        .uri("/api/v1/files/upload/sessions")
+        .uri(&format!(
+            "/api/v1/files/upload/sessions?frontend_client_id={frontend_client_id}"
+        ))
         .insert_header(("Cookie", common::access_cookie_header(&token)))
         .insert_header(common::csrf_header_for(&token))
         .to_request();
@@ -1011,6 +1018,103 @@ async fn test_recoverable_upload_sessions_endpoint_lists_active_sessions() {
     );
     assert_eq!(sessions[0]["folder_id"], Value::Null);
     assert_eq!(sessions[0]["chunks_on_disk"].as_array().unwrap().len(), 0);
+
+    let req = test::TestRequest::get()
+        .uri(
+            "/api/v1/files/upload/sessions?frontend_client_id=22222222-2222-4222-8222-222222222222",
+        )
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(
+        body["data"].as_array().unwrap().len(),
+        0,
+        "sessions from a different frontend client should be hidden"
+    );
+}
+
+#[actix_web::test]
+async fn test_recoverable_upload_sessions_endpoint_filters_by_frontend_client() {
+    let state = common::setup().await;
+    let app = create_test_app!(state);
+    let (token, _) = register_and_login!(app);
+    let client_a = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+    let client_b = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/files/upload/init")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({
+            "filename": "client-a.bin",
+            "total_size": TEST_CHUNK_SIZE + 1,
+            "frontend_client_id": client_a
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 201);
+    let body: Value = test::read_body_json(resp).await;
+    let upload_a = body["data"]["upload_id"].as_str().unwrap().to_string();
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/files/upload/init")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({
+            "filename": "client-b.bin",
+            "total_size": TEST_CHUNK_SIZE + 1,
+            "frontend_client_id": client_b
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 201);
+    let body: Value = test::read_body_json(resp).await;
+    let upload_b = body["data"]["upload_id"].as_str().unwrap().to_string();
+
+    let req = test::TestRequest::get()
+        .uri(&format!(
+            "/api/v1/files/upload/sessions?frontend_client_id={client_a}"
+        ))
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+    let body: Value = test::read_body_json(resp).await;
+    let sessions = body["data"].as_array().unwrap();
+    assert_eq!(sessions.len(), 1);
+    assert_eq!(sessions[0]["upload_id"], upload_a);
+
+    let req = test::TestRequest::get()
+        .uri(&format!(
+            "/api/v1/files/upload/sessions?frontend_client_id={client_b}"
+        ))
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+    let body: Value = test::read_body_json(resp).await;
+    let sessions = body["data"].as_array().unwrap();
+    assert_eq!(sessions.len(), 1);
+    assert_eq!(sessions[0]["upload_id"], upload_b);
+
+    let req = test::TestRequest::get()
+        .uri("/api/v1/files/upload/sessions")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(
+        body["data"].as_array().unwrap().len(),
+        2,
+        "legacy callers without a frontend filter keep the old owner-wide behavior"
+    );
 }
 
 #[actix_web::test]
@@ -1026,6 +1130,19 @@ async fn test_init_upload_validates_filename_and_total_size() {
         .set_json(serde_json::json!({
             "filename": "",
             "total_size": 1024
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 400);
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/files/upload/init")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({
+            "filename": "valid.bin",
+            "total_size": 1024,
+            "frontend_client_id": "11111111111141118111111111111111"
         }))
         .to_request();
     let resp = test::call_service(&app, req).await;
@@ -2452,6 +2569,7 @@ async fn test_upload_service_get_progress_uses_db_parts_for_terminal_relay_multi
                 id: Set(upload_id.clone()),
                 user_id: Set(user.id),
                 team_id: Set(None),
+                frontend_client_id: Set(None),
                 filename: Set("relay-progress.bin".to_string()),
                 total_size: Set(15),
                 chunk_size: Set(5),

@@ -18,6 +18,7 @@ interface UploadTaskItemProps {
 	detail?: string;
 	speed?: string;
 	completed?: boolean;
+	cancelled?: boolean;
 	actions?: UploadTaskAction[];
 }
 
@@ -31,14 +32,19 @@ export function UploadTaskItem({
 	detail,
 	speed,
 	completed = false,
+	cancelled = false,
 	actions = EMPTY_UPLOAD_TASK_ACTIONS,
 }: UploadTaskItemProps) {
 	const failed =
-		!completed && actions.some((action) => action.icon === "ArrowsClockwise");
+		!completed &&
+		!cancelled &&
+		actions.some((action) => action.icon === "ArrowsClockwise");
 	const waitingForFile =
-		!completed && actions.some((action) => action.icon === "Upload");
+		!completed &&
+		!cancelled &&
+		actions.some((action) => action.icon === "Upload");
 	const showProgress =
-		!completed && !failed && !waitingForFile && progress < 100;
+		!completed && !cancelled && !failed && !waitingForFile && progress < 100;
 
 	return (
 		<div
@@ -47,7 +53,7 @@ export function UploadTaskItem({
 				completed
 					? "bg-card/35 text-foreground/75 hover:bg-muted/30 dark:bg-card/20"
 					: "bg-card/55 hover:bg-card/75 dark:bg-card/35 dark:hover:bg-card/50",
-				failed &&
+				(failed || cancelled) &&
 					"bg-destructive/5 hover:bg-destructive/10 dark:bg-destructive/10",
 			)}
 		>
@@ -56,7 +62,7 @@ export function UploadTaskItem({
 					className={cn(
 						"mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full",
 						completed && "bg-emerald-500/10 text-emerald-600",
-						failed && "bg-destructive/10 text-destructive",
+						(failed || cancelled) && "bg-destructive/10 text-destructive",
 						waitingForFile && "bg-primary/10 text-primary",
 						showProgress && "bg-primary/10 text-primary",
 					)}
@@ -65,11 +71,13 @@ export function UploadTaskItem({
 						name={
 							completed
 								? "Check"
-								: failed
-									? "CircleAlert"
-									: waitingForFile
-										? "Upload"
-										: "Spinner"
+								: cancelled
+									? "X"
+									: failed
+										? "CircleAlert"
+										: waitingForFile
+											? "Upload"
+											: "Spinner"
 						}
 						className={cn("size-3.5", showProgress && "animate-spin")}
 					/>

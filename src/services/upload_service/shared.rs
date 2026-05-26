@@ -477,6 +477,7 @@ mod tests {
             id: "test-session".to_string(),
             user_id: 1,
             team_id: None,
+            frontend_client_id: None,
             filename: "test.bin".to_string(),
             total_size,
             chunk_size,

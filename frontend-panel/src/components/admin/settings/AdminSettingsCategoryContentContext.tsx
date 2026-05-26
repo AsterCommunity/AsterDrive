@@ -25,6 +25,7 @@ export interface AdminSettingsCategoryContentProps {
 	getCategoryDescription: (category: string) => string | undefined;
 	getCategoryLabel: (category: string) => string;
 	getDraftValue: (config: SystemConfig) => ConfigDraftValue;
+	getDraftValueByKey: (key: string) => ConfigDraftValue | undefined;
 	getMailTemplateGroupLabel: (groupId: string) => string;
 	getSubcategoryDescription: (
 		category: string,
@@ -60,6 +61,7 @@ export interface AdminSettingsCategoryContentProps {
 	toggleSubcategoryGroup: (groupKey: string, nextExpanded: boolean) => void;
 	toggleTemplateGroup: (groupKey: string, nextExpanded: boolean) => void;
 	updateDraftValue: (key: string, value: ConfigDraftValue) => void;
+	navigateToMailSettings: () => void;
 	updateNewCustomRow: (
 		id: string,
 		field: keyof Omit<NewCustomDraft, "id">,
