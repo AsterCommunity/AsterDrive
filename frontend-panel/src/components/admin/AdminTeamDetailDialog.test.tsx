@@ -231,4 +231,114 @@ describe("AdminTeamDetailDialog", () => {
 		expect(screen.getByLabelText("core:name")).toBe(input);
 		expect(input.value).toBe("Product Ops");
 	});
+
+	it("converts the overview quota field from MB to bytes when saving", async () => {
+		render(
+			<AdminTeamDetailDialog
+				layout="page"
+				onListChange={async () => undefined}
+				onOpenChange={vi.fn()}
+				onPageTabChange={vi.fn()}
+				onRefreshPolicyGroups={async () => undefined}
+				open
+				pageTab="overview"
+				policyGroups={[
+					{
+						created_at: "2026-04-01T00:00:00Z",
+						description: "",
+						id: 5,
+						is_default: false,
+						is_enabled: true,
+						items: [
+							{
+								id: 1,
+								max_file_size: 0,
+								min_file_size: 0,
+								policy: {
+									id: 7,
+									name: "Default",
+								},
+								policy_id: 7,
+								priority: 1,
+							},
+						],
+						name: "Primary",
+						updated_at: "2026-04-01T00:00:00Z",
+					},
+				]}
+				policyGroupsLoading={false}
+				teamId={14}
+			/>,
+		);
+
+		const quotaInput = (await screen.findByLabelText(
+			"team_quota_mb",
+		)) as HTMLInputElement;
+		fireEvent.change(quotaInput, { target: { value: "4" } });
+		fireEvent.click(screen.getByRole("button", { name: "save_changes" }));
+
+		await waitFor(() => {
+			expect(adminTeamServiceMocks.update).toHaveBeenCalledWith(14, {
+				name: "Product",
+				description: "Team description",
+				storage_quota: 4 * 1024 * 1024,
+				policy_group_id: 5,
+			});
+		});
+	});
+
+	it("sends zero quota when the overview quota field is set to zero", async () => {
+		render(
+			<AdminTeamDetailDialog
+				layout="page"
+				onListChange={async () => undefined}
+				onOpenChange={vi.fn()}
+				onPageTabChange={vi.fn()}
+				onRefreshPolicyGroups={async () => undefined}
+				open
+				pageTab="overview"
+				policyGroups={[
+					{
+						created_at: "2026-04-01T00:00:00Z",
+						description: "",
+						id: 5,
+						is_default: false,
+						is_enabled: true,
+						items: [
+							{
+								id: 1,
+								max_file_size: 0,
+								min_file_size: 0,
+								policy: {
+									id: 7,
+									name: "Default",
+								},
+								policy_id: 7,
+								priority: 1,
+							},
+						],
+						name: "Primary",
+						updated_at: "2026-04-01T00:00:00Z",
+					},
+				]}
+				policyGroupsLoading={false}
+				teamId={14}
+			/>,
+		);
+
+		const quotaInput = (await screen.findByLabelText(
+			"team_quota_mb",
+		)) as HTMLInputElement;
+		fireEvent.change(quotaInput, { target: { value: "0" } });
+		fireEvent.click(screen.getByRole("button", { name: "save_changes" }));
+
+		await waitFor(() => {
+			expect(adminTeamServiceMocks.update).toHaveBeenCalledWith(14, {
+				name: "Product",
+				description: "Team description",
+				storage_quota: 0,
+				policy_group_id: 5,
+			});
+		});
+	});
 });

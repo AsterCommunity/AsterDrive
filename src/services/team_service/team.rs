@@ -121,6 +121,7 @@ pub async fn create_team(
         TeamMemberRole::Owner,
         input,
         policy_group_id,
+        None,
     )
     .await?;
     build_team_info(state, &created_team, TeamMemberRole::Owner).await
@@ -139,7 +140,7 @@ pub async fn update_team(
 ) -> Result<TeamInfo> {
     let (team, membership) = require_team_membership(state, team_id, actor_user_id).await?;
     ensure_can_manage_team(membership.role)?;
-    let updated = update_team_record(state, team, input, None).await?;
+    let updated = update_team_record(state, team, input, None, None).await?;
     build_team_info(state, &updated, membership.role).await
 }
 

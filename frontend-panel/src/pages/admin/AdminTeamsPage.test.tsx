@@ -5,9 +5,11 @@ import AdminTeamsPage from "@/pages/admin/AdminTeamsPage";
 import type { UserSummary } from "@/types/api";
 
 const mockState = vi.hoisted(() => ({
+	createTeam: vi.fn(),
 	handleApiError: vi.fn(),
 	listPolicyGroups: vi.fn(),
 	navigate: vi.fn(),
+	policyGroupsCache: [] as unknown[],
 	reload: vi.fn(),
 	searchParams: "",
 	setSearchParams: vi.fn(),
@@ -59,7 +61,7 @@ vi.mock("sonner", () => ({
 }));
 
 vi.mock("@/lib/adminPolicyGroupLookup", () => ({
-	readAdminPolicyGroupLookup: () => null,
+	readAdminPolicyGroupLookup: () => mockState.policyGroupsCache,
 	loadAdminPolicyGroupLookup: () => mockState.listPolicyGroups(100),
 }));
 
@@ -160,13 +162,22 @@ vi.mock("@/components/ui/icon", () => ({
 
 vi.mock("@/components/ui/input", () => ({
 	Input: ({
+		id,
 		onChange,
+		placeholder,
+		type,
 		value,
 	}: {
+		id?: string;
 		onChange?: (event: { target: { value: string } }) => void;
+		placeholder?: string;
+		type?: string;
 		value?: string;
 	}) => (
 		<input
+			id={id}
+			placeholder={placeholder}
+			type={type}
 			value={value}
 			onChange={(event) =>
 				onChange?.({ target: { value: event.target.value } })
@@ -176,7 +187,9 @@ vi.mock("@/components/ui/input", () => ({
 }));
 
 vi.mock("@/components/ui/label", () => ({
-	Label: ({ children }: { children: ReactNode }) => <span>{children}</span>,
+	Label: ({ children, htmlFor }: { children: ReactNode; htmlFor?: string }) => (
+		<label htmlFor={htmlFor}>{children}</label>
+	),
 }));
 
 vi.mock("@/components/ui/select", () => ({
@@ -226,21 +239,50 @@ vi.mock("@/hooks/useApiList", () => ({
 
 vi.mock("@/services/adminService", () => ({
 	adminTeamService: {
+		create: (...args: unknown[]) => mockState.createTeam(...args),
 		list: vi.fn(),
 	},
 }));
 
 describe("AdminTeamsPage", () => {
 	beforeEach(() => {
+		mockState.createTeam.mockReset();
 		mockState.handleApiError.mockReset();
 		mockState.listPolicyGroups.mockReset();
 		mockState.navigate.mockReset();
+		mockState.policyGroupsCache = [
+			{
+				created_at: "2026-04-01T00:00:00Z",
+				description: "",
+				id: 5,
+				is_default: true,
+				is_enabled: true,
+				items: [
+					{
+						id: 1,
+						max_file_size: 0,
+						min_file_size: 0,
+						policy: {
+							id: 7,
+							name: "Default",
+						},
+						policy_id: 7,
+						priority: 1,
+					},
+				],
+				name: "Primary",
+				updated_at: "2026-04-01T00:00:00Z",
+			},
+		];
 		mockState.reload.mockReset();
 		mockState.searchParams = "";
 		mockState.setSearchParams.mockReset();
 		mockState.toastSuccess.mockReset();
 
-		mockState.listPolicyGroups.mockResolvedValue([]);
+		mockState.createTeam.mockResolvedValue({
+			id: 15,
+		});
+		mockState.listPolicyGroups.mockResolvedValue(mockState.policyGroupsCache);
 		mockState.reload.mockResolvedValue(undefined);
 	});
 
@@ -255,5 +297,53 @@ describe("AdminTeamsPage", () => {
 				viewTransition: false,
 			},
 		);
+	});
+
+	it("converts the create dialog team quota from MB to bytes", async () => {
+		render(<AdminTeamsPage />);
+
+		fireEvent.click(screen.getByText("new_team"));
+		fireEvent.change(screen.getByLabelText("core:name"), {
+			target: { value: "Design" },
+		});
+		fireEvent.change(screen.getByLabelText("team_admin_identifier"), {
+			target: { value: "lead@example.com" },
+		});
+		fireEvent.change(screen.getByLabelText("team_quota_mb"), {
+			target: { value: "20" },
+		});
+
+		await screen.findByText("Primary");
+		fireEvent.click(screen.getByText("create_team"));
+
+		expect(mockState.createTeam).toHaveBeenCalledWith({
+			name: "Design",
+			description: undefined,
+			admin_identifier: "lead@example.com",
+			storage_quota: 20 * 1024 * 1024,
+			policy_group_id: 5,
+		});
+	});
+
+	it("omits the create quota override when the quota field is blank", async () => {
+		render(<AdminTeamsPage />);
+
+		fireEvent.click(screen.getByText("new_team"));
+		fireEvent.change(screen.getByLabelText("core:name"), {
+			target: { value: "Defaulted" },
+		});
+		fireEvent.change(screen.getByLabelText("team_admin_identifier"), {
+			target: { value: "lead@example.com" },
+		});
+
+		fireEvent.click(screen.getByText("create_team"));
+
+		expect(mockState.createTeam).toHaveBeenCalledWith({
+			name: "Defaulted",
+			description: undefined,
+			admin_identifier: "lead@example.com",
+			storage_quota: undefined,
+			policy_group_id: 5,
+		});
 	});
 });

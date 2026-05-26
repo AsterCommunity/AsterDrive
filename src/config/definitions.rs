@@ -586,7 +586,7 @@ pub static ALL_CONFIGS: &[ConfigDef] = &[
         requires_restart: false,
         is_sensitive: false,
         category: "storage",
-        description: "Default storage quota for new users in bytes (0 = unlimited)",
+        description: "Default storage quota for new users and teams in bytes (0 = unlimited)",
     },
     ConfigDef {
         key: ARCHIVE_EXTRACT_MAX_SOURCE_BYTES_KEY,

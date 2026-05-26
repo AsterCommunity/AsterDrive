@@ -47,6 +47,7 @@ import type { StoragePolicyGroup } from "@/types/api";
 
 const TEAM_PAGE_SIZE_OPTIONS = [10, 20, 50] as const;
 const DEFAULT_TEAM_PAGE_SIZE = 20 as const;
+const BYTES_PER_MB = 1024 * 1024;
 const TEAM_MANAGED_QUERY_KEYS = [
 	"archived",
 	"keyword",
@@ -71,6 +72,7 @@ const EMPTY_CREATE_FORM: CreateTeamFormState = {
 	name: "",
 	description: "",
 	adminIdentifier: "",
+	quotaValue: "",
 	policyGroupId: "",
 };
 
@@ -80,6 +82,14 @@ function normalizeOffset(offset: number) {
 
 function parseArchivedSearchParam(value: string | null) {
 	return value === "1" || value === "true";
+}
+
+function createTeamQuotaBytes(value: string) {
+	const normalized = value.trim();
+	if (!normalized) return undefined;
+
+	const mb = Number.parseInt(normalized, 10);
+	return Number.isNaN(mb) || mb <= 0 ? 0 : mb * BYTES_PER_MB;
 }
 
 function buildManagedTeamSearchParams({
@@ -401,7 +411,12 @@ export default function AdminTeamsPage() {
 		const name = createForm.name.trim();
 		const adminIdentifier = createForm.adminIdentifier.trim();
 		const policyGroupId = Number(createForm.policyGroupId);
-		if (!name || !adminIdentifier || !Number.isFinite(policyGroupId)) {
+		if (
+			!name ||
+			!adminIdentifier ||
+			!Number.isSafeInteger(policyGroupId) ||
+			policyGroupId <= 0
+		) {
 			return;
 		}
 
@@ -411,6 +426,7 @@ export default function AdminTeamsPage() {
 				name,
 				description: createForm.description.trim() || undefined,
 				admin_identifier: adminIdentifier,
+				storage_quota: createTeamQuotaBytes(createForm.quotaValue),
 				policy_group_id: policyGroupId,
 			});
 			setCreateDialogOpen(false);

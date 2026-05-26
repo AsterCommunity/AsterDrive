@@ -19,8 +19,8 @@
 	"settings_item_auth_contact_verification_resend_cooldown_secs_desc": "控制同一用户两次重发验证邮件之间至少要间隔多久。",
 	"settings_item_auth_password_reset_request_cooldown_secs_label": "密码重置请求冷却时间",
 	"settings_item_auth_password_reset_request_cooldown_secs_desc": "控制同一用户两次发起密码重置邮件请求之间至少要间隔多久。",
-	"settings_item_default_storage_quota_label": "新用户默认存储配额",
-	"settings_item_default_storage_quota_desc": "新创建用户默认拿到的存储配额。填写 0 表示不限制。",
+	"settings_item_default_storage_quota_label": "新用户/团队默认存储配额",
+	"settings_item_default_storage_quota_desc": "新创建用户和团队默认拿到的存储配额。填写 0 表示不限制。",
 	"settings_item_gravatar_base_url_label": "Gravatar 基础地址",
 	"settings_item_gravatar_base_url_desc": "用于拼接 Gravatar 头像请求的基础地址。访问官方地址受限时，可以改成可用的代理或镜像。"
 }

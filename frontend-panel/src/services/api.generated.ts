@@ -3564,6 +3564,8 @@ export interface components {
             name: string;
             /** Format: int64 */
             policy_group_id?: number | null;
+            /** Format: int64 */
+            storage_quota?: number | null;
         };
         AdminExternalAuthProviderInfo: {
             allowed_domains: string[];
@@ -3667,6 +3669,8 @@ export interface components {
             name?: string | null;
             /** Format: int64 */
             policy_group_id?: number | null;
+            /** Format: int64 */
+            storage_quota?: number | null;
         };
         AdminPolicyGroupListQuery: {
             sort_by?: null | components["schemas"]["AdminPolicyGroupSortBy"];

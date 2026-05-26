@@ -27,6 +27,7 @@ import { getUserDisplayName } from "@/lib/user";
 import { adminTeamService } from "@/services/adminService";
 import type { AdminTeamMemberSortBy } from "@/types/adminSort";
 import type {
+	AdminTeamInfo,
 	StoragePolicyGroup,
 	TeamMemberRole,
 	UserStatus,
@@ -48,6 +49,18 @@ interface AdminTeamDetailDialogProps {
 	) => void;
 	onRefreshPolicyGroups: () => Promise<void>;
 	pageTab?: AdminTeamDetailTab;
+}
+
+const BYTES_PER_MB = 1024 * 1024;
+
+function quotaMbValue(team: AdminTeamInfo | null) {
+	const quota = team?.storage_quota ?? 0;
+	return quota > 0 ? String(Math.max(1, Math.round(quota / BYTES_PER_MB))) : "";
+}
+
+function quotaValueToBytes(value: string) {
+	const mb = Number.parseInt(value, 10);
+	return Number.isNaN(mb) || mb <= 0 ? 0 : mb * BYTES_PER_MB;
 }
 
 export function AdminTeamDetailDialog({
@@ -90,6 +103,7 @@ export function AdminTeamDetailDialog({
 	const [name, setName] = useState("");
 	const [description, setDescription] = useState("");
 	const [policyGroupId, setPolicyGroupId] = useState("");
+	const [quotaValue, setQuotaValue] = useState("");
 	const [restoring, setRestoring] = useState(false);
 	const [saving, setSaving] = useState(false);
 	const contentRef = useRef<HTMLDivElement | null>(null);
@@ -173,6 +187,7 @@ export function AdminTeamDetailDialog({
 		setPolicyGroupId(
 			team?.policy_group_id != null ? String(team.policy_group_id) : "",
 		);
+		setQuotaValue(quotaMbValue(team));
 	}, [team]);
 
 	const handleNameChange = (value: string) => {
@@ -188,6 +203,11 @@ export function AdminTeamDetailDialog({
 	const handlePolicyGroupChange = (value: string) => {
 		overviewSyncAllowedRef.current = false;
 		setPolicyGroupId(value);
+	};
+
+	const handleQuotaValueChange = (value: string) => {
+		overviewSyncAllowedRef.current = false;
+		setQuotaValue(value);
 	};
 
 	const quota = team?.storage_quota ?? 0;
@@ -221,6 +241,7 @@ export function AdminTeamDetailDialog({
 		canMutateTeam &&
 		(name.trim() !== team.name ||
 			(description.trim() || "") !== team.description ||
+			quotaValue !== quotaMbValue(team) ||
 			selectedPolicyGroupId !== (team.policy_group_id ?? null));
 	const hasMemberFilters =
 		memberKeyword.length > 0 ||
@@ -262,7 +283,11 @@ export function AdminTeamDetailDialog({
 
 		const nextName = name.trim();
 		const nextPolicyGroupId = Number(policyGroupId);
-		if (!nextName || !Number.isFinite(nextPolicyGroupId)) {
+		if (
+			!nextName ||
+			!Number.isSafeInteger(nextPolicyGroupId) ||
+			nextPolicyGroupId <= 0
+		) {
 			return;
 		}
 
@@ -272,6 +297,7 @@ export function AdminTeamDetailDialog({
 			await adminTeamService.update(team.id, {
 				name: nextName,
 				description: description.trim() || undefined,
+				storage_quota: quotaValueToBytes(quotaValue),
 				policy_group_id: nextPolicyGroupId,
 			});
 			await Promise.all([
@@ -532,12 +558,14 @@ export function AdminTeamDetailDialog({
 			onDescriptionChange={handleDescriptionChange}
 			onNameChange={handleNameChange}
 			onPolicyGroupChange={handlePolicyGroupChange}
+			onQuotaValueChange={handleQuotaValueChange}
 			onRefreshPolicyGroups={onRefreshPolicyGroups}
 			onSave={handleSave}
 			policyGroupId={policyGroupId}
 			policyGroupOptions={policyGroupOptions}
 			policyGroupUnavailable={policyGroupUnavailable}
 			policyGroupsLoading={policyGroupsLoading}
+			quotaValue={quotaValue}
 			restoring={restoring}
 			saving={saving}
 			team={team}

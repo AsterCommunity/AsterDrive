@@ -77,6 +77,15 @@ fn default_team_storage_quota(state: &PrimaryAppState) -> i64 {
     }
 }
 
+fn validate_storage_quota(storage_quota: i64) -> Result<i64> {
+    if storage_quota < 0 {
+        return Err(AsterError::validation_error(
+            "storage_quota must be non-negative",
+        ));
+    }
+    Ok(storage_quota)
+}
+
 async fn load_creator_summary(
     state: &PrimaryAppState,
     team: &team::Model,
@@ -476,10 +485,14 @@ pub(super) async fn create_team_record(
     initial_member_role: TeamMemberRole,
     input: CreateTeamInput,
     policy_group_id: i64,
+    storage_quota: Option<i64>,
 ) -> Result<team::Model> {
     let name = validate_team_name(&input.name)?;
     let description = normalize_description(input.description.as_deref());
-    let storage_quota = default_team_storage_quota(state);
+    let storage_quota = match storage_quota {
+        Some(storage_quota) => validate_storage_quota(storage_quota)?,
+        None => default_team_storage_quota(state),
+    };
     let now = Utc::now();
 
     let txn = crate::db::transaction::begin(state.writer_db()).await?;
@@ -535,6 +548,7 @@ pub(super) async fn update_team_record(
     team: team::Model,
     input: UpdateTeamInput,
     policy_group_id: Option<i64>,
+    storage_quota: Option<i64>,
 ) -> Result<team::Model> {
     let mut active = team.into_active_model();
     if let Some(name) = input.name {
@@ -547,6 +561,9 @@ pub(super) async fn update_team_record(
         ensure_assignable_policy_group(state, policy_group_id).await?;
         active.policy_group_id = Set(Some(policy_group_id));
     }
+    if let Some(storage_quota) = storage_quota {
+        active.storage_quota = Set(validate_storage_quota(storage_quota)?);
+    }
     active.updated_at = Set(Utc::now());
 
     let updated = team_repo::update(state.writer_db(), active).await?;
@@ -556,6 +573,7 @@ pub(super) async fn update_team_record(
     .await;
     tracing::debug!(
         team_id = updated.id,
+        storage_quota = updated.storage_quota,
         policy_group_id = updated.policy_group_id,
         "updated team"
     );

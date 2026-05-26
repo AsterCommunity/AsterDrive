@@ -23,6 +23,7 @@ export interface CreateTeamFormState {
 	name: string;
 	description: string;
 	adminIdentifier: string;
+	quotaValue: string;
 	policyGroupId: string;
 }
 
@@ -125,6 +126,25 @@ export function CreateTeamDialog({
 									{t("policy_group_no_assignable_groups")}
 								</p>
 							) : null}
+						</div>
+						<div className="space-y-2">
+							<Label htmlFor="admin-team-storage-quota">
+								{t("team_quota_mb")}
+							</Label>
+							<Input
+								id="admin-team-storage-quota"
+								type="number"
+								min={0}
+								value={form.quotaValue}
+								disabled={submitting}
+								placeholder={t("team_quota_default_short")}
+								onChange={(event) =>
+									onFieldChange("quotaValue", event.target.value)
+								}
+							/>
+							<p className="text-xs text-muted-foreground">
+								{t("team_quota_create_desc")}
+							</p>
 						</div>
 						<div className="space-y-2">
 							<Label htmlFor="admin-team-description">{t("description")}</Label>

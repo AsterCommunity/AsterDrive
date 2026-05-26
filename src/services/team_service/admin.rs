@@ -98,6 +98,7 @@ pub async fn create_admin_team(
             description: input.description,
         },
         policy_group_id,
+        input.storage_quota,
     )
     .await?;
     build_admin_team_info(state, &created_team).await
@@ -117,6 +118,7 @@ pub async fn update_admin_team(
             description: input.description,
         },
         input.policy_group_id,
+        input.storage_quota,
     )
     .await?;
     build_admin_team_info(state, &updated).await

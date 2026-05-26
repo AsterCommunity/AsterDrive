@@ -473,6 +473,7 @@ async fn test_admin_team_crud() {
             "name": "Operations",
             "description": "Shared operations workspace",
             "admin_identifier": "team-admin",
+            "storage_quota": 536870912,
             "policy_group_id": default_group_id
         }))
         .to_request();
@@ -484,6 +485,7 @@ async fn test_admin_team_crud() {
     assert_eq!(team["name"], "Operations");
     assert_eq!(team["created_by"]["username"], "testuser");
     assert_eq!(team["member_count"], 1);
+    assert_eq!(team["storage_quota"], 536870912);
     assert_eq!(team["policy_group_id"], default_group_id);
 
     let req = test::TestRequest::get()
@@ -538,6 +540,7 @@ async fn test_admin_team_crud() {
         .set_json(serde_json::json!({
             "name": "Operations Core",
             "description": "Updated by admin",
+            "storage_quota": 1073741824,
             "policy_group_id": alternate_group_id
         }))
         .to_request();
@@ -546,7 +549,21 @@ async fn test_admin_team_crud() {
     let body: Value = test::read_body_json(resp).await;
     assert_eq!(body["data"]["name"], "Operations Core");
     assert_eq!(body["data"]["description"], "Updated by admin");
+    assert_eq!(body["data"]["storage_quota"], 1073741824);
     assert_eq!(body["data"]["policy_group_id"], alternate_group_id);
+
+    let req = test::TestRequest::patch()
+        .uri(&format!("/api/v1/admin/teams/{team_id}"))
+        .insert_header(("Cookie", common::access_cookie_header(&admin_token)))
+        .insert_header(common::csrf_header_for(&admin_token))
+        .set_json(serde_json::json!({
+            "storage_quota": 0
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(body["data"]["storage_quota"], 0);
 
     let req = test::TestRequest::post()
         .uri("/api/v1/auth/register")
@@ -964,6 +981,114 @@ async fn test_admin_teams_support_explicit_sorting() {
         json_string_values(teams, "name"),
         vec!["Team Sort Gamma", "Team Sort Beta", "Team Sort Alpha"]
     );
+}
+
+#[actix_web::test]
+async fn test_admin_team_quota_rejects_negative_values() {
+    let state = common::setup().await;
+    let default_group_id = state
+        .policy_snapshot
+        .system_default_policy_group()
+        .expect("default policy group should exist")
+        .id;
+    let app = create_test_app!(state);
+    let (admin_token, _) = register_and_login!(app);
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/admin/teams")
+        .insert_header(("Cookie", common::access_cookie_header(&admin_token)))
+        .insert_header(common::csrf_header_for(&admin_token))
+        .set_json(serde_json::json!({
+            "name": "Negative Quota",
+            "admin_identifier": "testuser",
+            "storage_quota": -1,
+            "policy_group_id": default_group_id
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 400);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(body["msg"], "storage_quota must be non-negative");
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/admin/teams")
+        .insert_header(("Cookie", common::access_cookie_header(&admin_token)))
+        .insert_header(common::csrf_header_for(&admin_token))
+        .set_json(serde_json::json!({
+            "name": "Quota Patch Target",
+            "admin_identifier": "testuser",
+            "storage_quota": 0,
+            "policy_group_id": default_group_id
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 201);
+    let body: Value = test::read_body_json(resp).await;
+    let team_id = body["data"]["id"].as_i64().unwrap();
+
+    let req = test::TestRequest::patch()
+        .uri(&format!("/api/v1/admin/teams/{team_id}"))
+        .insert_header(("Cookie", common::access_cookie_header(&admin_token)))
+        .insert_header(common::csrf_header_for(&admin_token))
+        .set_json(serde_json::json!({
+            "storage_quota": -1
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 400);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(body["msg"], "storage_quota must be non-negative");
+}
+
+#[actix_web::test]
+async fn test_admin_team_quota_uses_default_when_omitted_and_allows_zero() {
+    let state = common::setup().await;
+    let default_group_id = state
+        .policy_snapshot
+        .system_default_policy_group()
+        .expect("default policy group should exist")
+        .id;
+    let mut default_quota = aster_drive::db::repository::config_repo::find_by_key(
+        state.writer_db(),
+        "default_storage_quota",
+    )
+    .await
+    .unwrap()
+    .expect("default_storage_quota should exist");
+    default_quota.value = "1048576".to_string();
+    state.runtime_config.apply(default_quota);
+
+    let app = create_test_app!(state);
+    let (admin_token, _) = register_and_login!(app);
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/admin/teams")
+        .insert_header(("Cookie", common::access_cookie_header(&admin_token)))
+        .insert_header(common::csrf_header_for(&admin_token))
+        .set_json(serde_json::json!({
+            "name": "Default Quota Team",
+            "admin_identifier": "testuser",
+            "policy_group_id": default_group_id
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 201);
+    let body: Value = test::read_body_json(resp).await;
+    let team_id = body["data"]["id"].as_i64().unwrap();
+    assert_eq!(body["data"]["storage_quota"], 1048576);
+
+    let req = test::TestRequest::patch()
+        .uri(&format!("/api/v1/admin/teams/{team_id}"))
+        .insert_header(("Cookie", common::access_cookie_header(&admin_token)))
+        .insert_header(common::csrf_header_for(&admin_token))
+        .set_json(serde_json::json!({
+            "storage_quota": 0
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(body["data"]["storage_quota"], 0);
 }
 
 #[actix_web::test]
