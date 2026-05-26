@@ -83,6 +83,7 @@ pub async fn consume_active_for_user<C: ConnectionTrait>(
         .col_expr(mfa_email_code::Column::ConsumedAt, Expr::value(Some(now)))
         .filter(mfa_email_code::Column::UserId.eq(user_id))
         .filter(mfa_email_code::Column::ConsumedAt.is_null())
+        .filter(mfa_email_code::Column::ExpiresAt.gt(now))
         .exec(db)
         .await
         .map_err(AsterError::from)?;

@@ -27,6 +27,7 @@ interface FetchBlobUrlOptions {
 	lane: BlobFetchLane;
 	logErrors?: boolean;
 	notifyOnChange?: boolean;
+	owner: BlobCacheEntry;
 	path: string;
 	previousBlob?: Blob;
 	previousEtag: string | null;
@@ -44,6 +45,7 @@ const BLOB_FETCH_LIMITS: Record<BlobFetchLane, number> = {
 };
 const PERSISTED_THUMBNAIL_CACHE_NAME = "aster-thumbnail-blobs-v1";
 const PERSISTED_THUMBNAIL_CACHE_PREFIX = "/__asterdrive_thumbnail_cache__/";
+const CACHED_USER_KEY = "aster-cached-user";
 const blobUrlCache = new Map<string, BlobCacheEntry>();
 const blobUrlListeners = new Map<string, Set<() => void>>();
 const pendingBlobFetches: Record<BlobFetchLane, Array<() => void>> = {
@@ -75,9 +77,27 @@ function cacheStorageAvailable() {
 	);
 }
 
+function currentPersistedThumbnailNamespace() {
+	try {
+		const raw = globalThis.localStorage?.getItem(CACHED_USER_KEY);
+		if (raw) {
+			const user = JSON.parse(raw) as { id?: unknown };
+			if (
+				(typeof user.id === "number" && Number.isSafeInteger(user.id)) ||
+				typeof user.id === "string"
+			) {
+				return `user:${String(user.id)}`;
+			}
+		}
+	} catch {
+		// Ignore storage/parse errors and fall back to an anonymous namespace.
+	}
+	return "anonymous";
+}
+
 function persistentThumbnailRequest(path: string) {
 	const origin = globalThis.location?.origin ?? "http://localhost";
-	const cacheKey = `${config.apiBaseUrl}|${path}`;
+	const cacheKey = `${currentPersistedThumbnailNamespace()}|${config.apiBaseUrl}|${path}`;
 	return new Request(
 		`${origin}${PERSISTED_THUMBNAIL_CACHE_PREFIX}${encodeURIComponent(cacheKey)}`,
 	);
@@ -127,7 +147,7 @@ async function writePersistedThumbnail(
 		if (etag) headers.set("ETag", etag);
 		await cache.put(
 			persistentThumbnailRequest(path),
-			new Response(await blob.arrayBuffer(), {
+			new Response(blob, {
 				headers,
 				status: 200,
 			}),
@@ -235,6 +255,7 @@ async function fetchBlobUrlFromNetwork({
 	lane,
 	logErrors = true,
 	notifyOnChange = false,
+	owner,
 	path,
 	previousBlob,
 	previousEtag,
@@ -264,11 +285,11 @@ async function fetchBlobUrlFromNetwork({
 			const retryAfter = Number(response.headers["retry-after"]) || 2;
 			if (attempt >= MAX_RETRIES) {
 				const current = blobUrlCache.get(path);
-				if (current && !current.refreshTimer) {
+				if (current && current === owner && !current.refreshTimer) {
 					current.promise = undefined;
 					current.refreshTimer = setTimeout(() => {
 						const latest = blobUrlCache.get(path);
-						if (!latest) return;
+						if (!latest || latest !== owner) return;
 						latest.refreshTimer = undefined;
 						latest.needsRefresh = true;
 						notifyBlobUrlInvalidation(path);
@@ -281,26 +302,8 @@ async function fetchBlobUrlFromNetwork({
 		}
 
 		const current = blobUrlCache.get(path);
-		if (!current) {
-			if (isMissingThumbnailResponse(response.status, lane)) {
-				if (shouldPersistBlobOnDisk(lane)) void deletePersistedThumbnail(path);
-				return "";
-			}
-			if (response.status === 200) {
-				const blob =
-					response.data instanceof Blob
-						? response.data
-						: new Blob([response.data as BlobPart]);
-				if (shouldPersistBlobOnDisk(lane)) {
-					await writePersistedThumbnail(
-						path,
-						blob,
-						response.headers.etag ?? null,
-					);
-				}
-				return URL.createObjectURL(blob);
-			}
-			return previousObjectUrl ?? "";
+		if (!current || current !== owner) {
+			return "";
 		}
 
 		if (isMissingThumbnailResponse(response.status, lane)) {
@@ -332,7 +335,14 @@ async function fetchBlobUrlFromNetwork({
 			response.data instanceof Blob
 				? response.data
 				: new Blob([response.data as BlobPart]);
+		if (blobUrlCache.get(path) !== owner) {
+			return "";
+		}
 		const objectUrl = URL.createObjectURL(blob);
+		if (blobUrlCache.get(path) !== owner) {
+			URL.revokeObjectURL(objectUrl);
+			return "";
+		}
 		current.blob = blob;
 		current.objectUrl = objectUrl;
 		current.etag = response.headers.etag ?? null;
@@ -342,7 +352,7 @@ async function fetchBlobUrlFromNetwork({
 		if (previousObjectUrl && previousObjectUrl !== objectUrl) {
 			URL.revokeObjectURL(previousObjectUrl);
 		}
-		if (shouldPersistBlobOnDisk(lane)) {
+		if (shouldPersistBlobOnDisk(lane) && blobUrlCache.get(path) === owner) {
 			await writePersistedThumbnail(path, blob, current.etag ?? null);
 		}
 		if (notifyOnChange) notifyBlobUrlInvalidation(path);
@@ -419,8 +429,15 @@ async function acquireBlobUrl(
 	const promise = (async () => {
 		if (shouldPersistBlobOnDisk(lane) && !previousObjectUrl) {
 			const persisted = await readPersistedThumbnail(path);
+			if (blobUrlCache.get(path) !== entry) {
+				return "";
+			}
 			if (persisted) {
 				const objectUrl = URL.createObjectURL(persisted.blob);
+				if (blobUrlCache.get(path) !== entry) {
+					URL.revokeObjectURL(objectUrl);
+					return "";
+				}
 				entry.blob = persisted.blob;
 				entry.objectUrl = objectUrl;
 				entry.etag = persisted.etag;
@@ -432,6 +449,7 @@ async function acquireBlobUrl(
 					lane,
 					logErrors: false,
 					notifyOnChange: true,
+					owner: entry,
 					path,
 					previousBlob: persisted.blob,
 					previousEtag: persisted.etag,
@@ -444,6 +462,7 @@ async function acquireBlobUrl(
 
 		return fetchBlobUrlFromNetwork({
 			lane,
+			owner: entry,
 			path,
 			previousBlob,
 			previousEtag,

@@ -338,12 +338,14 @@ describe("AdminTeamsPage", () => {
 
 		fireEvent.click(screen.getByText("create_team"));
 
-		expect(mockState.createTeam).toHaveBeenCalledWith({
+		expect(mockState.createTeam).toHaveBeenCalledTimes(1);
+		const payload = mockState.createTeam.mock.calls[0][0];
+		expect(payload).toEqual({
 			name: "Defaulted",
 			description: undefined,
 			admin_identifier: "lead@example.com",
-			storage_quota: undefined,
 			policy_group_id: 5,
 		});
+		expect(payload).not.toHaveProperty("storage_quota");
 	});
 });

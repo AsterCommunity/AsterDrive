@@ -27,6 +27,10 @@ import {
 	sortConfigsByKey,
 	type TimeDisplayUnitValue,
 } from "@/components/admin/settings/adminSettingsContentShared";
+import {
+	isMailDeliveryConfigReady,
+	MAIL_DELIVERY_CONFIG_KEYS,
+} from "@/components/admin/settings/mailDeliveryConfigReady";
 import { handleApiError } from "@/hooks/useApiError";
 import {
 	loadAdminConfigSchema,
@@ -46,20 +50,11 @@ import type {
 	TemplateVariableGroup,
 } from "@/types/api";
 
+const CONFIG_PAGE_SIZE = 100;
 const PUBLIC_SITE_URL_KEY = "public_site_url";
 const CORS_ALLOWED_ORIGINS_KEY = "cors_allowed_origins";
 const CORS_ALLOW_CREDENTIALS_KEY = "cors_allow_credentials";
 const AUTH_EMAIL_CODE_LOGIN_ENABLED_KEY = "auth_email_code_login_enabled";
-const MAIL_SMTP_HOST_KEY = "mail_smtp_host";
-const MAIL_FROM_ADDRESS_KEY = "mail_from_address";
-const MAIL_SMTP_USERNAME_KEY = "mail_smtp_username";
-const MAIL_SMTP_PASSWORD_KEY = "mail_smtp_password";
-const MAIL_DELIVERY_CONFIG_KEYS = new Set([
-	MAIL_SMTP_HOST_KEY,
-	MAIL_FROM_ADDRESS_KEY,
-	MAIL_SMTP_USERNAME_KEY,
-	MAIL_SMTP_PASSWORD_KEY,
-]);
 const PUBLIC_BRANDING_CONFIG_KEYS = new Set([
 	PUBLIC_SITE_URL_KEY,
 	"allow_user_registration",
@@ -76,25 +71,30 @@ const MEDIA_DATA_SUPPORT_CONFIG_KEYS = new Set([
 ]);
 
 type TranslationFn = (key: string, options?: Record<string, unknown>) => string;
-type DraftValueReader = (key: string) => DraftValues[string] | undefined;
 
-function isMailDeliveryConfigReady(readValue: DraftValueReader) {
-	const smtpHost = configValueToString(readValue(MAIL_SMTP_HOST_KEY)).trim();
-	const fromAddress = configValueToString(
-		readValue(MAIL_FROM_ADDRESS_KEY),
-	).trim();
-	const smtpUsername = configValueToString(
-		readValue(MAIL_SMTP_USERNAME_KEY),
-	).trim();
-	const smtpPassword = configValueToString(
-		readValue(MAIL_SMTP_PASSWORD_KEY),
-	).trim();
+async function loadAllSystemConfigs() {
+	const items: SystemConfig[] = [];
+	let offset = 0;
 
-	return (
-		Boolean(smtpHost) &&
-		Boolean(fromAddress) &&
-		Boolean(smtpUsername) === Boolean(smtpPassword)
-	);
+	while (true) {
+		const page = await adminConfigService.list({
+			limit: CONFIG_PAGE_SIZE,
+			offset,
+		});
+		items.push(...page.items);
+
+		const nextOffset = page.offset + page.items.length;
+		const total = Number(page.total);
+		const loadedAllKnownItems = Number.isFinite(total) && nextOffset >= total;
+		const reachedShortPage =
+			!Number.isFinite(total) && page.items.length < CONFIG_PAGE_SIZE;
+		if (loadedAllKnownItems || reachedShortPage || page.items.length === 0) {
+			break;
+		}
+		offset = nextOffset;
+	}
+
+	return items;
 }
 
 interface UseAdminSettingsDataProps {
@@ -242,14 +242,14 @@ export function useAdminSettingsData({
 				setLoading(true);
 			}
 			const [cfgs, schemaList, nextTemplateVariableGroups] = await Promise.all([
-				adminConfigService.list({ limit: 200, offset: 0 }),
+				loadAllSystemConfigs(),
 				loadAdminConfigSchema(),
 				loadAdminTemplateVariables().catch((error) => {
 					handleApiError(error);
 					return [];
 				}),
 			]);
-			setConfigs(cfgs.items);
+			setConfigs(cfgs);
 			setSchemas(schemaList);
 			setTemplateVariableGroups(nextTemplateVariableGroups);
 		} catch (error) {

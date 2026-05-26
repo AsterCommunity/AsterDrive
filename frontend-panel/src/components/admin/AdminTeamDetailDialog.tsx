@@ -55,12 +55,22 @@ const BYTES_PER_MB = 1024 * 1024;
 
 function quotaMbValue(team: AdminTeamInfo | null) {
 	const quota = team?.storage_quota ?? 0;
-	return quota > 0 ? String(Math.max(1, Math.round(quota / BYTES_PER_MB))) : "";
+	return quota > 0 ? String(quota / BYTES_PER_MB) : "";
 }
 
-function quotaValueToBytes(value: string) {
-	const mb = Number.parseInt(value, 10);
-	return Number.isNaN(mb) || mb <= 0 ? 0 : mb * BYTES_PER_MB;
+function quotaValueToBytes(value: string, team: AdminTeamInfo | null) {
+	const normalized = value.trim();
+	if (normalized === quotaMbValue(team)) {
+		return team?.storage_quota ?? 0;
+	}
+	if (!normalized) {
+		return 0;
+	}
+	if (!/^\d+$/.test(normalized)) {
+		return null;
+	}
+	const mb = Number.parseInt(normalized, 10);
+	return mb === 0 ? 0 : mb * BYTES_PER_MB;
 }
 
 export function AdminTeamDetailDialog({
@@ -237,11 +247,13 @@ export function AdminTeamDetailDialog({
 			!currentPolicyGroup.is_enabled ||
 			currentPolicyGroup.items.length === 0);
 	const canMutateTeam = team != null && team.archived_at == null;
+	const nextQuota = quotaValueToBytes(quotaValue, team);
 	const hasChanges =
 		canMutateTeam &&
+		nextQuota !== null &&
 		(name.trim() !== team.name ||
 			(description.trim() || "") !== team.description ||
-			quotaValue !== quotaMbValue(team) ||
+			nextQuota !== quota ||
 			selectedPolicyGroupId !== (team.policy_group_id ?? null));
 	const hasMemberFilters =
 		memberKeyword.length > 0 ||
@@ -291,13 +303,19 @@ export function AdminTeamDetailDialog({
 			return;
 		}
 
+		const nextQuota = quotaValueToBytes(quotaValue, team);
+		if (nextQuota === null) {
+			toast.error(t("team_quota_invalid"));
+			return;
+		}
+
 		try {
 			setSaving(true);
 			overviewSyncAllowedRef.current = true;
 			await adminTeamService.update(team.id, {
 				name: nextName,
 				description: description.trim() || undefined,
-				storage_quota: quotaValueToBytes(quotaValue),
+				storage_quota: nextQuota,
 				policy_group_id: nextPolicyGroupId,
 			});
 			await Promise.all([
@@ -480,6 +498,7 @@ export function AdminTeamDetailDialog({
 			setMemberStatusFilter("__all__");
 			setName("");
 			setPolicyGroupId("");
+			setQuotaValue("");
 			setRestoring(false);
 			setSaving(false);
 			resetDialogTab();
@@ -504,6 +523,7 @@ export function AdminTeamDetailDialog({
 	const handleDialogOpenChange = (nextOpen: boolean) => {
 		if (!nextOpen) {
 			archiveDialogProps.onOpenChange(false);
+			setQuotaValue("");
 		}
 		onOpenChange(nextOpen);
 	};
@@ -654,7 +674,7 @@ export function AdminTeamDetailDialog({
 				membersSection={membersSection}
 				onContentScroll={handleContentScroll}
 				onOpenChange={handleDialogOpenChange}
-				onPageBack={() => onOpenChange(false)}
+				onPageBack={() => handleDialogOpenChange(false)}
 				onSidebarScroll={handleSidebarScroll}
 				onTabChange={handleTabChange}
 				open={open}

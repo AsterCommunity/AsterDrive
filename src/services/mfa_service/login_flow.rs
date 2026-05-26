@@ -159,8 +159,6 @@ pub async fn send_email_code(
     }
 
     let now = Utc::now();
-    let code = generate_email_code();
-    let code_hash = hash::hash_password(&code)?;
     let txn = crate::db::transaction::begin(state.writer_db()).await?;
     let result = async {
         let flow = mfa_login_flow_repo::find_by_flow_token_hash(
@@ -201,6 +199,8 @@ pub async fn send_email_code(
         )?;
         let effective_expires_in = policy.ttl_secs.min(remaining_flow_secs);
         let ttl = u64_to_i64(effective_expires_in, "email code ttl")?;
+        let code = generate_email_code();
+        let code_hash = hash::hash_password(&code)?;
         let record = mfa_email_code_repo::create(
             &txn,
             mfa_email_code::ActiveModel {
@@ -214,11 +214,11 @@ pub async fn send_email_code(
             },
         )
         .await?;
-        Ok::<_, AsterError>((flow, user, record, effective_expires_in))
+        Ok::<_, AsterError>((flow, user, record, effective_expires_in, code))
     }
     .await;
 
-    let (flow, user, record, effective_expires_in) = match result {
+    let (flow, user, record, effective_expires_in, code) = match result {
         Ok(value) => {
             crate::db::transaction::commit(txn).await?;
             value
@@ -235,8 +235,21 @@ pub async fn send_email_code(
         &branding::title_or_default(&state.runtime_config),
         &format_email_code_expires_in(effective_expires_in),
     );
-    let stored = payload.to_stored()?;
-    let rendered = mail_template::render(&state.runtime_config, payload.template_code(), &stored)?;
+    let stored = match payload.to_stored() {
+        Ok(stored) => stored,
+        Err(error) => {
+            consume_email_code_after_mail_failure(state, record.id).await;
+            return Err(error);
+        }
+    };
+    let rendered =
+        match mail_template::render(&state.runtime_config, payload.template_code(), &stored) {
+            Ok(rendered) => rendered,
+            Err(error) => {
+                consume_email_code_after_mail_failure(state, record.id).await;
+                return Err(error);
+            }
+        };
     if let Err(error) = mail_service::send_rendered(
         state,
         mail_service::MailRecipient {
@@ -247,15 +260,7 @@ pub async fn send_email_code(
     )
     .await
     {
-        if let Err(cleanup_error) =
-            mfa_email_code_repo::consume(state.writer_db(), record.id, Utc::now()).await
-        {
-            tracing::warn!(
-                mfa_email_code_id = record.id,
-                error = %cleanup_error,
-                "failed to consume email MFA code after mail delivery failure"
-            );
-        }
+        consume_email_code_after_mail_failure(state, record.id).await;
         return Err(error);
     }
 
@@ -274,6 +279,18 @@ pub async fn send_email_code(
         expires_in: effective_expires_in,
         resend_after: policy.resend_cooldown_secs,
     })
+}
+
+async fn consume_email_code_after_mail_failure(state: &PrimaryAppState, record_id: i64) {
+    if let Err(cleanup_error) =
+        mfa_email_code_repo::consume(state.writer_db(), record_id, Utc::now()).await
+    {
+        tracing::warn!(
+            mfa_email_code_id = record_id,
+            error = %cleanup_error,
+            "failed to consume email MFA code after mail delivery failure"
+        );
+    }
 }
 
 pub async fn verify_challenge(

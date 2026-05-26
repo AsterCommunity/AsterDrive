@@ -30,6 +30,8 @@
 	"settings_template_variable_site_name_desc": "当前品牌配置中的公开站点名称。",
 	"settings_template_variable_expires_in_label": "剩余有效期",
 	"settings_template_variable_expires_in_desc": "这封邮件生成后，验证链接还会保持有效的时间。",
+	"settings_template_variable_lang_label": "语言",
+	"settings_template_variable_lang_desc": "邮件 HTML 文档使用的 BCP 47 语言标签。",
 	"mail_send_test_email": "发送测试邮件",
 	"mail_send_test_email_hint": "默认发送到当前登录管理员的邮箱，也可以手动改成其他收件地址。",
 	"mail_test_email_dialog_title": "发送测试邮件",

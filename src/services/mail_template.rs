@@ -92,6 +92,8 @@ pub struct LoginEmailCodePayload {
     pub site_name: String,
     #[serde(default = "default_login_email_code_expires_in")]
     pub expires_in: String,
+    #[serde(default = "default_mail_template_lang")]
+    pub lang: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -173,6 +175,7 @@ impl MailTemplatePayload {
             code: code.to_string(),
             site_name: site_name.to_string(),
             expires_in: expires_in.to_string(),
+            lang: default_mail_template_lang(),
         })
     }
 
@@ -396,6 +399,11 @@ pub fn list_template_variable_groups() -> Vec<TemplateVariableGroup> {
                     "settings_template_variable_expires_in_label",
                     "settings_template_variable_expires_in_desc",
                 ),
+                placeholder_spec(
+                    "lang",
+                    "settings_template_variable_lang_label",
+                    "settings_template_variable_lang_desc",
+                ),
             ],
         ),
     ]
@@ -502,12 +510,17 @@ pub fn render(
                 ("code", payload.code.clone()),
                 ("site_name", payload.site_name.clone()),
                 ("expires_in", payload.expires_in.clone()),
+                ("lang", normalize_mail_template_lang(&payload.lang)),
             ],
             html_values: vec![
                 ("username", escape_html(&payload.username)),
                 ("code", escape_html(&payload.code)),
                 ("site_name", escape_html(&payload.site_name)),
                 ("expires_in", escape_html(&payload.expires_in)),
+                (
+                    "lang",
+                    escape_html(&normalize_mail_template_lang(&payload.lang)),
+                ),
             ],
         },
     };
@@ -550,6 +563,22 @@ fn default_external_auth_expires_in() -> String {
 
 fn default_login_email_code_expires_in() -> String {
     "10 minutes".to_string()
+}
+
+fn default_mail_template_lang() -> String {
+    "en".to_string()
+}
+
+fn normalize_mail_template_lang(value: &str) -> String {
+    let normalized = value.trim();
+    if normalized.is_empty()
+        || !normalized
+            .chars()
+            .all(|ch| ch.is_ascii_alphanumeric() || ch == '-')
+    {
+        return default_mail_template_lang();
+    }
+    normalized.to_string()
 }
 
 fn deserialize_payload<T: DeserializeOwned>(
@@ -900,6 +929,22 @@ mod tests {
             ]
         );
         assert!(!tokens.contains(&"{{username}}"));
+    }
+
+    #[test]
+    fn render_login_email_code_sets_default_html_lang() {
+        let runtime_config = RuntimeConfig::new();
+        let payload = MailTemplatePayload::login_email_code(
+            "Alice",
+            "12345678",
+            "Drive & Files",
+            "5 minutes",
+        );
+        let stored = payload.to_stored().unwrap();
+        let rendered = render(&runtime_config, MailTemplateCode::LoginEmailCode, &stored).unwrap();
+
+        assert!(rendered.html_body.contains("<html lang=\"en\">"));
+        assert!(rendered.html_body.contains("12345678"));
     }
 
     #[test]

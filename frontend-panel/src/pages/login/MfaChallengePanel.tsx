@@ -55,12 +55,15 @@ export function MfaChallengePanel({
 		? Math.max(0, Math.ceil((emailCodeExpiresAt - Date.now()) / 1000))
 		: 0;
 	const isEmailMethod = selectedMethod === "email_code";
+	const trimmedCode = code.trim();
 	const canSubmit =
 		!submitting &&
 		!expired &&
 		(isEmailMethod
-			? emailCodeSent && /^\d{8}$/.test(code.trim())
-			: code.trim().length > 0);
+			? emailCodeSent && /^\d{8}$/.test(trimmedCode)
+			: selectedMethod === "totp"
+				? /^\d{6}$/.test(trimmedCode)
+				: trimmedCode.length > 0);
 	const codeLabel = mfaCodeLabel(selectedMethod, t);
 	const codePlaceholder = mfaCodePlaceholder(selectedMethod, t);
 	const codeInputMode = selectedMethod === "recovery_code" ? "text" : "numeric";

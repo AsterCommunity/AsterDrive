@@ -30,6 +30,8 @@
 	"settings_template_variable_site_name_desc": "The current public site name from branding settings.",
 	"settings_template_variable_expires_in_label": "Expires In",
 	"settings_template_variable_expires_in_desc": "How long the verification link remains valid after the email is generated.",
+	"settings_template_variable_lang_label": "Language",
+	"settings_template_variable_lang_desc": "The BCP 47 language tag used on the email HTML document.",
 	"mail_send_test_email": "Send test email",
 	"mail_send_test_email_hint": "Defaults to the current admin's email address, but you can change the recipient before sending.",
 	"mail_test_email_dialog_title": "Send test email",

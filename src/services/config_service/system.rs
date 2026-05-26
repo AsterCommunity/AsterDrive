@@ -195,8 +195,8 @@ pub async fn set(
         .find(|item| item.key == key)
         .cloned()
         .ok_or_else(|| AsterError::internal_error(format!("saved config key '{key}' missing")))?;
-    for changed_key in changed {
-        invalidate_dependent_public_config_caches(&changed_key.key);
+    for changed_config in changed {
+        invalidate_dependent_public_config_caches(&changed_config.key);
     }
     Ok(config.into())
 }
@@ -236,26 +236,58 @@ pub async fn set_with_audit(
     updated_by: i64,
     audit_ctx: &AuditContext,
 ) -> Result<SystemConfig> {
-    let config = set(state, key, value.clone(), updated_by).await?;
-    // 敏感配置值在审计日志中脱敏
+    let value = value.clone();
+    let value_type = ALL_CONFIGS
+        .iter()
+        .find(|def| def.key == key)
+        .map(|def| def.value_type)
+        .unwrap_or(SystemConfigValueType::String);
+    let mut normalized_value = value.to_storage_for_type(value_type)?;
+
+    if let Some(def) = ALL_CONFIGS.iter().find(|def| def.key == key) {
+        validate_value_type(def.value_type, &normalized_value)?;
+        normalized_value = normalize_system_value(state, key, &normalized_value)?;
+    }
+    validate_config_dependencies(state, key, &normalized_value)?;
+
+    let changed =
+        upsert_config_and_apply_dependents(state, key, &normalized_value, updated_by).await?;
+    let config = changed
+        .iter()
+        .find(|item| item.key == key)
+        .cloned()
+        .ok_or_else(|| AsterError::internal_error(format!("saved config key '{key}' missing")))?;
+
+    for changed_config in &changed {
+        invalidate_dependent_public_config_caches(&changed_config.key);
+        audit_config_update(state, audit_ctx, changed_config).await;
+    }
+
+    Ok(config.into())
+}
+
+async fn audit_config_update(
+    state: &PrimaryAppState,
+    audit_ctx: &AuditContext,
+    config: &system_config::Model,
+) {
     let audit_value = if config.is_sensitive {
         "***REDACTED***".to_string()
     } else {
-        value.to_audit_string()
+        SystemConfigValue::from_storage(config.value_type, config.value.clone()).to_audit_string()
     };
     audit_service::log(
         state,
         audit_ctx,
         audit_service::AuditAction::ConfigUpdate,
         audit_service::AuditEntityType::SystemConfig,
-        None,
-        Some(key),
+        Some(config.id),
+        Some(&config.key),
         audit_service::details(audit_service::ConfigUpdateDetails {
             value: &audit_value,
         }),
     )
     .await;
-    Ok(config)
 }
 
 fn validate_value_type(value_type: SystemConfigValueType, value: &str) -> Result<()> {

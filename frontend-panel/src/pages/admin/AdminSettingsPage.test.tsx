@@ -71,6 +71,7 @@ const translationMap: Record<string, string> = {
 	mail_template_variables_dialog_title: "mail_template_variables_dialog_title",
 	settings_mail_template_group_external_auth_email_verification:
 		"External sign-in email verification",
+	settings_mail_template_group_login_email_code: "Login email code",
 	settings_item_mail_template_external_auth_email_verification_subject_label:
 		"External sign-in email verification subject",
 	settings_item_mail_template_external_auth_email_verification_subject_desc:
@@ -79,6 +80,14 @@ const translationMap: Record<string, string> = {
 		"External sign-in email verification HTML body",
 	settings_item_mail_template_external_auth_email_verification_html_desc:
 		"HTML template for external sign-in email verification emails. A complete HTML document is recommended for best client compatibility.",
+	settings_item_mail_template_login_email_code_subject_label:
+		"Login email code subject",
+	settings_item_mail_template_login_email_code_subject_desc:
+		"Subject template for login email-code MFA messages.",
+	settings_item_mail_template_login_email_code_html_label:
+		"Login email code HTML body",
+	settings_item_mail_template_login_email_code_html_desc:
+		"HTML template for login email-code MFA messages. A complete HTML document is recommended for best client compatibility.",
 	settings_section_collapse: "settings_section_collapse",
 	settings_section_expand: "settings_section_expand",
 	settings_subcategory_mail_config: "settings_subcategory_mail_config",
@@ -1825,6 +1834,84 @@ describe("AdminSettingsPage", () => {
 			(await screen.findAllByText("{{expires_in}}")).length,
 		).toBeGreaterThan(0);
 		expect(screen.queryByText("{{username}}")).not.toBeInTheDocument();
+	});
+
+	it("loads later config pages so login email code HTML templates are editable", async () => {
+		const firstPageConfigs = Array.from({ length: 100 }, (_, index) =>
+			createConfig({
+				category: "auth",
+				key: `auth_dummy_${index}`,
+				value: String(index),
+				value_type: "string",
+			}),
+		);
+		mockState.listConfigs
+			.mockResolvedValueOnce({
+				items: firstPageConfigs,
+				limit: 100,
+				offset: 0,
+				total: 102,
+			})
+			.mockResolvedValueOnce({
+				items: [
+					createConfig({
+						category: "mail.template",
+						key: "mail_template_login_email_code_subject",
+						value: "Your login code",
+						value_type: "string",
+					}),
+					createConfig({
+						category: "mail.template",
+						key: "mail_template_login_email_code_html",
+						value: "<p>{{code}}</p>",
+						value_type: "multiline",
+					}),
+				],
+				limit: 100,
+				offset: 100,
+				total: 102,
+			});
+		mockState.schema.mockResolvedValueOnce([
+			createSchemaItem({
+				category: "mail.template",
+				description_i18n_key:
+					"settings_item_mail_template_login_email_code_subject_desc",
+				key: "mail_template_login_email_code_subject",
+				label_i18n_key:
+					"settings_item_mail_template_login_email_code_subject_label",
+				value_type: "string",
+			}),
+			createSchemaItem({
+				category: "mail.template",
+				description_i18n_key:
+					"settings_item_mail_template_login_email_code_html_desc",
+				key: "mail_template_login_email_code_html",
+				label_i18n_key:
+					"settings_item_mail_template_login_email_code_html_label",
+				value_type: "multiline",
+			}),
+		]);
+
+		render(<AdminSettingsPage section="mail" />);
+
+		await screen.findByText("Template");
+		fireEvent.click(
+			await screen.findByRole("button", { name: /login email code/i }),
+		);
+
+		expect(screen.getByText("Login email code subject")).toBeInTheDocument();
+		expect(screen.getByText("Login email code HTML body")).toBeInTheDocument();
+		expect(
+			await screen.findByDisplayValue("<p>{{code}}</p>"),
+		).toBeInTheDocument();
+		expect(mockState.listConfigs).toHaveBeenCalledWith({
+			limit: 100,
+			offset: 0,
+		});
+		expect(mockState.listConfigs).toHaveBeenCalledWith({
+			limit: 100,
+			offset: 100,
+		});
 	});
 
 	it("saves staged changes when Cmd+S is pressed from a focused input", async () => {

@@ -157,6 +157,7 @@ export function AdminTeamDetailOverviewSection({
 								id="admin-team-detail-storage-quota"
 								type="number"
 								min={0}
+								step="any"
 								value={quotaValue}
 								disabled={formDisabled}
 								placeholder={t("team_quota_unlimited_short")}

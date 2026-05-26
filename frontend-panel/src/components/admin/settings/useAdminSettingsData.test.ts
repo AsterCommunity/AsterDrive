@@ -801,4 +801,53 @@ describe("useAdminSettingsData", () => {
 		expect(mockState.toastSuccess).not.toHaveBeenCalled();
 		expect(result.current.saving).toBe(false);
 	});
+
+	it("loads all config pages when the first page is full", async () => {
+		const firstPage = Array.from({ length: 100 }, (_, index) =>
+			createConfig({
+				key: `dummy_config_${index}`,
+				value: String(index),
+			}),
+		);
+		mockState.listConfigs
+			.mockResolvedValueOnce({
+				items: firstPage,
+				limit: 100,
+				offset: 0,
+				total: 101,
+			})
+			.mockResolvedValueOnce({
+				items: [
+					createConfig({
+						category: "mail.template",
+						key: "mail_template_login_email_code_html",
+						value: "<p>{{code}}</p>",
+						value_type: "multiline",
+					}),
+				],
+				limit: 100,
+				offset: 100,
+				total: 101,
+			});
+
+		const { result } = renderUseAdminSettingsData();
+
+		await waitFor(() => expect(result.current.loading).toBe(false));
+
+		expect(mockState.listConfigs).toHaveBeenCalledWith({
+			limit: 100,
+			offset: 0,
+		});
+		expect(mockState.listConfigs).toHaveBeenCalledWith({
+			limit: 100,
+			offset: 100,
+		});
+		expect(result.current.systemGroups.mail).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({
+					key: "mail_template_login_email_code_html",
+				}),
+			]),
+		);
+	});
 });

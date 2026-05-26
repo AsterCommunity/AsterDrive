@@ -34,6 +34,7 @@ import {
 	type TimeDisplayUnitValue,
 	UrlAssetPreview,
 } from "@/components/admin/settings/adminSettingsContentShared";
+import { isMailDeliveryConfigReady } from "@/components/admin/settings/mailDeliveryConfigReady";
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
 import { Input } from "@/components/ui/input";
@@ -51,33 +52,6 @@ import type { SystemConfig } from "@/types/api";
 
 const PUBLIC_SITE_URL_KEY = "public_site_url";
 const AUTH_EMAIL_CODE_LOGIN_ENABLED_KEY = "auth_email_code_login_enabled";
-const MAIL_SMTP_HOST_KEY = "mail_smtp_host";
-const MAIL_FROM_ADDRESS_KEY = "mail_from_address";
-const MAIL_SMTP_USERNAME_KEY = "mail_smtp_username";
-const MAIL_SMTP_PASSWORD_KEY = "mail_smtp_password";
-
-function isMailDeliveryConfigReady(
-	getDraftValueByKey: (key: string) => ConfigDraftValue | undefined,
-) {
-	const smtpHost = configValueToString(
-		getDraftValueByKey(MAIL_SMTP_HOST_KEY),
-	).trim();
-	const fromAddress = configValueToString(
-		getDraftValueByKey(MAIL_FROM_ADDRESS_KEY),
-	).trim();
-	const smtpUsername = configValueToString(
-		getDraftValueByKey(MAIL_SMTP_USERNAME_KEY),
-	).trim();
-	const smtpPassword = configValueToString(
-		getDraftValueByKey(MAIL_SMTP_PASSWORD_KEY),
-	).trim();
-
-	return (
-		Boolean(smtpHost) &&
-		Boolean(fromAddress) &&
-		Boolean(smtpUsername) === Boolean(smtpPassword)
-	);
-}
 
 function FieldMeta({ config }: { config: SystemConfig }) {
 	const {

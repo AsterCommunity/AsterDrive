@@ -87,9 +87,11 @@ function parseArchivedSearchParam(value: string | null) {
 function createTeamQuotaBytes(value: string) {
 	const normalized = value.trim();
 	if (!normalized) return undefined;
+	if (!/^\d+$/.test(normalized)) return null;
 
 	const mb = Number.parseInt(normalized, 10);
-	return Number.isNaN(mb) || mb <= 0 ? 0 : mb * BYTES_PER_MB;
+	if (Number.isNaN(mb) || mb < 0) return null;
+	return mb === 0 ? 0 : mb * BYTES_PER_MB;
 }
 
 function buildManagedTeamSearchParams({
@@ -419,6 +421,11 @@ export default function AdminTeamsPage() {
 		) {
 			return;
 		}
+		const storageQuota = createTeamQuotaBytes(createForm.quotaValue);
+		if (storageQuota === null) {
+			toast.error(t("team_quota_invalid"));
+			return;
+		}
 
 		try {
 			setSubmitting(true);
@@ -426,8 +433,8 @@ export default function AdminTeamsPage() {
 				name,
 				description: createForm.description.trim() || undefined,
 				admin_identifier: adminIdentifier,
-				storage_quota: createTeamQuotaBytes(createForm.quotaValue),
 				policy_group_id: policyGroupId,
+				...(storageQuota === undefined ? {} : { storage_quota: storageQuota }),
 			});
 			setCreateDialogOpen(false);
 			setCreateForm(EMPTY_CREATE_FORM);

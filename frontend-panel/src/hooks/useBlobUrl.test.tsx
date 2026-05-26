@@ -72,8 +72,26 @@ function installCacheStorage(cache = new MockCache()) {
 	return { cache, cacheStorage };
 }
 
+function installBlobStreamPolyfill() {
+	if (typeof Blob.prototype.stream === "function") return;
+	Object.defineProperty(Blob.prototype, "stream", {
+		configurable: true,
+		value(this: Blob) {
+			return new ReadableStream<Uint8Array>({
+				start: async (controller) => {
+					controller.enqueue(new Uint8Array(await this.arrayBuffer()));
+					controller.close();
+				},
+			});
+		},
+	});
+}
+
 describe("useBlobUrl", () => {
 	beforeEach(() => {
+		vi.useRealTimers();
+		installBlobStreamPolyfill();
+		localStorage.clear();
 		mockState.get.mockReset();
 		mockState.warn.mockReset();
 		Object.defineProperty(globalThis, "caches", {
@@ -364,6 +382,90 @@ describe("useBlobUrl", () => {
 		second.unmount();
 		module.clearBlobUrlCache();
 		await module.clearPersistedBlobUrlCache();
+	});
+
+	it("namespaces persisted thumbnail blobs by the current user", async () => {
+		const { cache } = installCacheStorage();
+		localStorage.setItem("aster-cached-user", JSON.stringify({ id: 1 }));
+		mockState.get.mockResolvedValueOnce({
+			status: 200,
+			data: new Blob(["user-1-image"]),
+			headers: { etag: '"etag-user-1"' },
+		});
+		let module = await loadHookModule();
+
+		const first = renderHook(() =>
+			module.useBlobUrl("/thumb", { lane: "thumbnail" }),
+		);
+		await waitFor(() => {
+			expect(first.result.current.blobUrl).toBe("blob:1");
+		});
+		first.unmount();
+		module.clearBlobUrlCache();
+
+		localStorage.setItem("aster-cached-user", JSON.stringify({ id: 2 }));
+		mockState.get.mockResolvedValueOnce({
+			status: 200,
+			data: new Blob(["user-2-image"]),
+			headers: { etag: '"etag-user-2"' },
+		});
+		module = await loadHookModule();
+
+		const second = renderHook(() =>
+			module.useBlobUrl("/thumb", { lane: "thumbnail" }),
+		);
+		await waitFor(() => {
+			expect(second.result.current.blobUrl).toBe("blob:2");
+		});
+
+		expect(mockState.get).toHaveBeenCalledTimes(2);
+		expect(cache.store.size).toBe(2);
+		expect(
+			[...cache.store.keys()].some((key) => key.includes("user%3A1")),
+		).toBe(true);
+		expect(
+			[...cache.store.keys()].some((key) => key.includes("user%3A2")),
+		).toBe(true);
+
+		second.unmount();
+		module.clearBlobUrlCache();
+		await module.clearPersistedBlobUrlCache();
+	});
+
+	it("does not create orphan object URLs after the cache entry is revoked", async () => {
+		vi.useFakeTimers();
+		const response = deferred<{
+			status: number;
+			data: Blob;
+			headers: Record<string, string>;
+		}>();
+		mockState.get.mockReturnValueOnce(response.promise);
+		const { clearBlobUrlCache, useBlobUrl } = await loadHookModule();
+
+		const hook = renderHook(() => useBlobUrl("/thumb"));
+		await act(async () => {
+			await Promise.resolve();
+		});
+		expect(mockState.get).toHaveBeenCalledTimes(1);
+
+		hook.unmount();
+		await act(async () => {
+			vi.advanceTimersByTime(30_000);
+		});
+
+		await act(async () => {
+			response.resolve({
+				status: 200,
+				data: new Blob(["image"]),
+				headers: { etag: '"etag-orphan"' },
+			});
+			await response.promise;
+			await Promise.resolve();
+		});
+
+		expect(URL.createObjectURL).not.toHaveBeenCalled();
+		clearBlobUrlCache();
+		vi.useRealTimers();
 	});
 
 	it("stays idle when no path is provided", async () => {
