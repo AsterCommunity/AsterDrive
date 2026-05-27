@@ -3,6 +3,8 @@
 use actix_web::http::StatusCode;
 use std::any::Any;
 
+use crate::api::api_error_code::ApiErrorCode;
+use crate::api::error_code::ErrorCode;
 use crate::api::response::ApiErrorInfo;
 use crate::api::subcode::ApiSubcode;
 use crate::storage::error::{
@@ -160,13 +162,31 @@ impl AsterError {
     }
 
     pub fn api_error_info(&self) -> ApiErrorInfo {
+        #[allow(deprecated)]
         ApiErrorInfo {
+            code: self.api_error_code(),
             internal_code: self.code().to_string(),
+            // TODO(0.3.0): stop serializing legacy ApiSubcode after clients
+            // have migrated to ApiErrorInfo.code.
             subcode: self.api_error_subcode(),
             retryable: self.api_error_retryable(),
         }
     }
 
+    pub fn api_error_code(&self) -> ApiErrorCode {
+        // TODO(0.3.0): remove the ApiSubcode preference once errors carry
+        // ApiErrorCode directly instead of tunneling subcodes through messages.
+        if let Some(subcode) = self.api_error_subcode()
+            && let Some(code) = ApiErrorCode::from_subcode(subcode)
+        {
+            return code;
+        }
+
+        ApiErrorCode::from_legacy_code(ErrorCode::from(self))
+    }
+
+    // TODO(0.3.0): remove this public compatibility accessor after
+    // ApiErrorInfo.subcode and subcode-encoded messages are removed.
     pub fn api_error_subcode(&self) -> Option<ApiSubcode> {
         if let Some(subcode) = api_error_subcode_from_message(self.raw_message()) {
             return Some(subcode);
@@ -354,6 +374,8 @@ pub fn display_error(err: impl std::fmt::Display) -> String {
     err.to_string()
 }
 
+// TODO(0.3.0): remove task-error subcode persistence once background tasks store
+// structured ApiErrorCode metadata instead of encoded display strings.
 pub(crate) fn encode_task_error_for_storage(error: &AsterError) -> String {
     if api_error_subcode_from_message(error.raw_message()).is_some() {
         return error.raw_message().to_string();
@@ -364,6 +386,7 @@ pub(crate) fn encode_task_error_for_storage(error: &AsterError) -> String {
     error.to_string()
 }
 
+// TODO(0.3.0): remove when task records no longer persist legacy subcode tags.
 pub(crate) fn task_error_subcode_from_storage(raw_message: &str) -> Option<ApiSubcode> {
     api_error_subcode_from_message(raw_message)
 }
@@ -372,6 +395,7 @@ pub(crate) fn task_error_display_message(raw_message: &str) -> &str {
     api_error_display_message(raw_message)
 }
 
+// TODO(0.3.0): replace callers with structured ApiErrorCode constructors.
 pub fn validation_error_with_subcode(
     subcode: ApiSubcode,
     message: impl Into<String>,
@@ -379,10 +403,12 @@ pub fn validation_error_with_subcode(
     tag_error_with_subcode(subcode, message, AsterError::validation_error)
 }
 
+// TODO(0.3.0): replace callers with structured ApiErrorCode constructors.
 pub fn auth_forbidden_with_subcode(subcode: ApiSubcode, message: impl Into<String>) -> AsterError {
     tag_error_with_subcode(subcode, message, AsterError::auth_forbidden)
 }
 
+// TODO(0.3.0): replace callers with structured ApiErrorCode constructors.
 pub fn auth_invalid_credentials_with_subcode(
     subcode: ApiSubcode,
     message: impl Into<String>,
@@ -390,10 +416,12 @@ pub fn auth_invalid_credentials_with_subcode(
     tag_error_with_subcode(subcode, message, AsterError::auth_invalid_credentials)
 }
 
+// TODO(0.3.0): replace callers with structured ApiErrorCode constructors.
 pub fn auth_mfa_failed_with_subcode(subcode: ApiSubcode, message: impl Into<String>) -> AsterError {
     tag_error_with_subcode(subcode, message, AsterError::auth_mfa_failed)
 }
 
+// TODO(0.3.0): replace callers with structured ApiErrorCode constructors.
 pub fn precondition_failed_with_subcode(
     subcode: ApiSubcode,
     message: impl Into<String>,
@@ -401,6 +429,7 @@ pub fn precondition_failed_with_subcode(
     tag_error_with_subcode(subcode, message, AsterError::precondition_failed)
 }
 
+// TODO(0.3.0): replace callers with structured ApiErrorCode constructors.
 pub fn file_upload_error_with_subcode(
     subcode: ApiSubcode,
     message: impl Into<String>,
@@ -408,6 +437,7 @@ pub fn file_upload_error_with_subcode(
     tag_error_with_subcode(subcode, message, AsterError::file_upload_failed)
 }
 
+// TODO(0.3.0): replace callers with structured ApiErrorCode constructors.
 pub fn payload_too_large_with_subcode(
     subcode: ApiSubcode,
     message: impl Into<String>,
@@ -415,6 +445,7 @@ pub fn payload_too_large_with_subcode(
     tag_error_with_subcode(subcode, message, AsterError::payload_too_large)
 }
 
+// TODO(0.3.0): replace callers with structured ApiErrorCode constructors.
 pub fn chunk_upload_error_with_subcode(
     subcode: ApiSubcode,
     message: impl Into<String>,
@@ -422,6 +453,7 @@ pub fn chunk_upload_error_with_subcode(
     tag_error_with_subcode(subcode, message, AsterError::chunk_upload_failed)
 }
 
+// TODO(0.3.0): replace callers with structured ApiErrorCode constructors.
 pub fn upload_assembly_error_with_subcode(
     subcode: ApiSubcode,
     message: impl Into<String>,
@@ -429,6 +461,7 @@ pub fn upload_assembly_error_with_subcode(
     tag_error_with_subcode(subcode, message, AsterError::upload_assembly_failed)
 }
 
+// TODO(0.3.0): replace callers with structured ApiErrorCode constructors.
 pub fn thumbnail_generation_error_with_subcode(
     subcode: ApiSubcode,
     message: impl Into<String>,
@@ -436,6 +469,7 @@ pub fn thumbnail_generation_error_with_subcode(
     tag_error_with_subcode(subcode, message, AsterError::thumbnail_generation_failed)
 }
 
+// TODO(0.3.0): remove after ApiErrorCode replaces subcode-compatible messages.
 fn tag_error_with_subcode(
     subcode: ApiSubcode,
     message: impl Into<String>,
@@ -444,6 +478,7 @@ fn tag_error_with_subcode(
     f(encode_api_error_subcode_message(subcode, message.into()))
 }
 
+// TODO(0.3.0): remove after ApiErrorCode replaces subcode-compatible messages.
 pub fn encode_api_error_subcode_message(subcode: ApiSubcode, message: String) -> String {
     format!(
         "{API_ERROR_SUBCODE_PREFIX}{}{API_ERROR_SUBCODE_SEPARATOR}{message}",
@@ -481,6 +516,8 @@ fn api_error_subcode_from_message(raw_message: &str) -> Option<ApiSubcode> {
         })
 }
 
+// TODO(0.3.0): classify chunk-upload client errors by ApiErrorCode instead of
+// the legacy ApiSubcode compatibility accessor.
 fn chunk_upload_failure_is_client_error(error: &AsterError) -> bool {
     matches!(
         error.api_error_subcode(),
@@ -563,6 +600,7 @@ mod tests {
         thumbnail_generation_error_with_subcode, upload_assembly_error_with_subcode,
         validation_error_with_subcode,
     };
+    use crate::api::api_error_code::ApiErrorCode;
     use crate::api::error_code::ErrorCode;
     use crate::api::response::ApiErrorInfo;
     use crate::api::subcode::ApiSubcode;
@@ -656,7 +694,9 @@ mod tests {
 
     #[test]
     fn api_error_info_serializes_subcode_as_stable_wire_value() {
+        #[allow(deprecated)]
         let info = ApiErrorInfo {
+            code: ApiErrorCode::UploadChunkSizeMismatch,
             internal_code: "E005".to_string(),
             subcode: Some(ApiSubcode::UploadChunkSizeMismatch),
             retryable: None,
@@ -664,6 +704,7 @@ mod tests {
 
         let payload = serde_json::to_value(&info).expect("ApiErrorInfo should serialize");
 
+        assert_eq!(payload["code"], "upload.chunk_size_mismatch");
         assert_eq!(payload["internal_code"], "E005");
         assert_eq!(payload["subcode"], "upload.chunk_size_mismatch");
         assert!(payload.get("retryable").is_none());
@@ -672,6 +713,7 @@ mod tests {
     #[test]
     fn api_error_info_rejects_unknown_subcode_on_deserialize() {
         let payload = serde_json::json!({
+            "code": "upload.chunk_size_mismatch",
             "internal_code": "E005",
             "subcode": "remote.dynamic"
         });
@@ -688,7 +730,27 @@ mod tests {
         let err = AsterError::validation_error(raw);
 
         assert_eq!(err.api_error_subcode(), None);
+        assert_eq!(err.api_error_code(), ApiErrorCode::BadRequest);
         assert_eq!(err.message(), "remote message");
+    }
+
+    #[test]
+    fn api_error_code_falls_back_to_legacy_numeric_code_without_subcode() {
+        let err = AsterError::auth_token_expired("expired");
+
+        assert_eq!(err.api_error_subcode(), None);
+        assert_eq!(err.api_error_code(), ApiErrorCode::TokenExpired);
+    }
+
+    #[test]
+    fn api_error_code_prefers_known_legacy_subcode_over_numeric_code() {
+        let err = validation_error_with_subcode(
+            ApiSubcode::UploadChunkSizeMismatch,
+            "chunk size mismatch",
+        );
+
+        assert_eq!(ErrorCode::from(&err), ErrorCode::BadRequest);
+        assert_eq!(err.api_error_code(), ApiErrorCode::UploadChunkSizeMismatch);
     }
 
     #[actix_web::test]
@@ -710,6 +772,7 @@ mod tests {
             crate::api::error_code::ErrorCode::MfaFailed as i32
         );
         assert_eq!(payload["msg"], "invalid MFA code");
+        assert_eq!(payload["error"]["code"], subcode.as_str());
         assert_eq!(payload["error"]["internal_code"], "E018");
         assert_eq!(payload["error"]["subcode"], subcode.as_str());
     }
@@ -732,6 +795,7 @@ mod tests {
             crate::api::error_code::ErrorCode::TokenMissing as i32
         );
         assert_eq!(payload["msg"], "missing token");
+        assert_eq!(payload["error"]["code"], "auth.token_missing");
         assert_eq!(payload["error"]["internal_code"], "E017");
     }
 
@@ -753,14 +817,13 @@ mod tests {
             crate::api::error_code::ErrorCode::RefreshTokenStale as i32
         );
         assert_eq!(payload["msg"], "stale refresh token");
+        assert_eq!(payload["error"]["code"], "auth.refresh_token_stale");
         assert_eq!(payload["error"]["internal_code"], "E019");
     }
 
     #[actix_web::test]
     async fn refresh_reuse_response_uses_reuse_detected_code() {
-        let err = AsterError::auth_refresh_token_reuse_detected(
-            "refresh token reuse detected",
-        );
+        let err = AsterError::auth_refresh_token_reuse_detected("refresh token reuse detected");
         let response = actix_web::ResponseError::error_response(&err);
 
         assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
@@ -776,6 +839,10 @@ mod tests {
             crate::api::error_code::ErrorCode::RefreshTokenReuseDetected as i32
         );
         assert_eq!(payload["msg"], "refresh token reuse detected");
+        assert_eq!(
+            payload["error"]["code"],
+            "auth.refresh_token_reuse_detected"
+        );
         assert_eq!(payload["error"]["internal_code"], "E062");
     }
 
@@ -797,6 +864,7 @@ mod tests {
             serde_json::json!(ErrorCode::StorageTransientFailure as i32)
         );
         assert_eq!(payload["msg"], "Storage Driver Error");
+        assert_eq!(payload["error"]["code"], "storage.transient");
         assert_eq!(payload["error"]["internal_code"], "E031");
         assert_eq!(payload["error"]["subcode"], "storage.transient");
         assert_eq!(payload["error"]["retryable"], true);
@@ -818,6 +886,7 @@ mod tests {
             serde_json::json!(ErrorCode::StoragePermissionDenied as i32)
         );
         assert_eq!(payload["error"]["internal_code"], "E031");
+        assert_eq!(payload["error"]["code"], "storage.permission");
         assert_eq!(payload["error"]["subcode"], "storage.permission");
         assert_eq!(payload["error"]["retryable"], false);
     }
@@ -841,6 +910,7 @@ mod tests {
             serde_json::json!(ErrorCode::Conflict as i32)
         );
         assert_eq!(payload["msg"], "email already exists");
+        assert_eq!(payload["error"]["code"], "auth.email_exists");
         assert_eq!(payload["error"]["internal_code"], "E005");
         assert_eq!(payload["error"]["subcode"], "auth.email_exists");
         assert!(payload["error"]["retryable"].is_null());
@@ -865,6 +935,7 @@ mod tests {
             serde_json::json!(ErrorCode::UploadAssemblyFailed as i32)
         );
         assert_eq!(payload["msg"], "Upload Assembly Failed");
+        assert_eq!(payload["error"]["code"], "upload.temp_object_missing");
         assert_eq!(payload["error"]["subcode"], "upload.temp_object_missing");
     }
 
@@ -887,6 +958,7 @@ mod tests {
             serde_json::json!(ErrorCode::ThumbnailFailed as i32)
         );
         assert_eq!(payload["msg"], "Thumbnail Generation Failed");
+        assert_eq!(payload["error"]["code"], "thumbnail.output_invalid");
         assert_eq!(payload["error"]["subcode"], "thumbnail.output_invalid");
     }
 }

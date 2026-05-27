@@ -1,14 +1,21 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { ApiSubcode, ErrorCode } from "@/types/api-helpers";
+import { ApiErrorCode, ApiSubcode, ErrorCode } from "@/types/api-helpers";
 
 const mockState = vi.hoisted(() => {
 	class MockApiError extends Error {
 		code: number;
+		apiCode?: string;
 		subcode?: string;
 
-		constructor(code: number, message: string, subcode?: string) {
+		constructor(
+			code: number,
+			message: string,
+			subcode?: string,
+			apiCode?: string,
+		) {
 			super(message);
 			this.code = code;
+			this.apiCode = apiCode;
 			this.subcode = subcode;
 		}
 	}
@@ -133,6 +140,26 @@ describe("handleApiError", () => {
 		);
 		expect(mockState.toastError).toHaveBeenCalledWith(
 			"translated:errors:storage_transient_failure",
+		);
+	});
+
+	it("prefers structured API error codes over legacy subcodes", async () => {
+		const { handleApiError } = await import("@/hooks/useApiError");
+
+		handleApiError(
+			new mockState.ApiError(
+				ErrorCode.FileUploadFailed,
+				"Upload Failed",
+				ApiSubcode.UploadTempFileWriteFailed,
+				ApiErrorCode.UploadHashTempReadFailed,
+			),
+		);
+
+		expect(mockState.translate).toHaveBeenCalledWith(
+			"errors:upload_hash_temp_read_failed",
+		);
+		expect(mockState.toastError).toHaveBeenCalledWith(
+			"translated:errors:upload_hash_temp_read_failed",
 		);
 	});
 

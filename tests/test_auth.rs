@@ -604,6 +604,59 @@ async fn test_login_rejects_untrusted_origin() {
 }
 
 #[actix_web::test]
+async fn test_login_uses_generic_invalid_credentials_message() {
+    let state = common::setup().await;
+    let app = create_test_app!(state);
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/auth/login")
+        .peer_addr("127.0.0.1:12345".parse().unwrap())
+        .set_json(serde_json::json!({
+            "identifier": "ghost-user",
+            "password": "wrongpassword"
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 401);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(body["code"], 2008);
+    assert_eq!(body["msg"], "Invalid Credentials");
+    assert_eq!(body["error"]["code"], "auth.credentials_failed");
+    assert!(
+        body["msg"]
+            .as_str()
+            .is_some_and(|msg| !msg.contains("user not found") && !msg.contains("wrong password"))
+    );
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/auth/register")
+        .peer_addr("127.0.0.1:12345".parse().unwrap())
+        .set_json(serde_json::json!({
+            "username": "alice",
+            "email": "alice@example.com",
+            "password": "secret123"
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 201);
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/auth/login")
+        .peer_addr("127.0.0.1:12345".parse().unwrap())
+        .set_json(serde_json::json!({
+            "identifier": "alice",
+            "password": "wrongpassword"
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 401);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(body["code"], 2008);
+    assert_eq!(body["msg"], "Invalid Credentials");
+    assert_eq!(body["error"]["code"], "auth.credentials_failed");
+}
+
+#[actix_web::test]
 async fn test_cookie_authenticated_write_rejects_same_site_request_source() {
     let state = common::setup().await;
     let app = create_test_app!(state);

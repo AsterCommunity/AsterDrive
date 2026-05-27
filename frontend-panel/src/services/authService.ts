@@ -1,5 +1,6 @@
 import type {
 	ActionMessageResp,
+	ApiResponse,
 	AuthSessionInfo,
 	AuthTokenResp,
 	AvatarSource,
@@ -30,7 +31,7 @@ import type {
 	UserPreferences,
 	UserProfileInfo,
 } from "@/types/api";
-import { type ApiResponse, ErrorCode, isApiSubcode } from "@/types/api-helpers";
+import { ErrorCode, isApiErrorCode, isApiSubcode } from "@/types/api-helpers";
 import { ApiError, api } from "./http";
 
 export interface AuthSessionState {
@@ -497,7 +498,12 @@ export const authService = {
 		);
 		if (resp.code !== ErrorCode.Success) {
 			throw new ApiError(resp.code, resp.msg, {
+				apiCode:
+					resp.error?.code && isApiErrorCode(resp.error.code)
+						? resp.error.code
+						: undefined,
 				internalCode: resp.error?.internal_code ?? undefined,
+				// TODO(0.3.0): remove subcode compatibility after API clients use error.code.
 				subcode:
 					resp.error?.subcode && isApiSubcode(resp.error.subcode)
 						? resp.error.subcode

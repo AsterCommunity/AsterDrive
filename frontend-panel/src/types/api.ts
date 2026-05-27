@@ -28,7 +28,19 @@ type OperationData<Operation extends keyof ApiOperations> =
 
 // Core responses
 export type ErrorCode = components["schemas"]["ErrorCode"];
+export type ApiErrorCode = components["schemas"]["ApiErrorCode"];
+export type ApiErrorInfo = components["schemas"]["ApiErrorInfo"];
 export type ApiSubcode = components["schemas"]["ApiSubcode"];
+// TODO(0.3.0): revisit this wrapper when the backend response envelope migrates
+// from numeric ErrorCode/subcode compatibility to ApiErrorCode-only responses.
+// OpenAPI expands Rust ApiResponse<T> into concrete ApiResponse_X schemas, so
+// the frontend keeps this thin generic alias as the single local entry point.
+export type ApiResponse<T = unknown> = {
+	code: ErrorCode;
+	msg: string;
+	data?: T | null;
+	error?: ApiErrorInfo | null;
+};
 export type HealthResponse = components["schemas"]["HealthResponse"];
 export type MemoryStatsResponse = components["schemas"]["MemoryStatsResponse"];
 
@@ -155,6 +167,8 @@ export type AuditAction = components["schemas"]["AuditAction"];
 export type AuditEntityType = components["schemas"]["AuditEntityType"];
 export type AuditLogEntry = components["schemas"]["AuditLogEntry"];
 export type AuditLogPage = components["schemas"]["OffsetPage_AuditLogEntry"];
+export type AdminAuditLogSortBy = components["schemas"]["AdminAuditLogSortBy"];
+export type AdminLockSortBy = components["schemas"]["AdminLockSortBy"];
 export type AdminOverview = components["schemas"]["AdminOverview"];
 export type AuditLogListQuery = OperationQuery<"list_audit_logs">;
 export type AdminOverviewQuery = OperationQuery<"get_admin_overview">;
@@ -189,12 +203,15 @@ export type AdminCreateTeamRequest =
 	components["schemas"]["AdminCreateTeamReq"];
 export type AdminTeamInfo = components["schemas"]["AdminTeamInfo"];
 export type AdminTeamPage = components["schemas"]["OffsetPage_AdminTeamInfo"];
+export type AdminTeamSortBy = components["schemas"]["AdminTeamSortBy"];
 export type AdminUpdateTeamRequest = components["schemas"]["AdminPatchTeamReq"];
 export type AdminTeamListQuery = OperationQuery<"admin_list_teams">;
 export type AdminTeamAuditLogListQuery =
 	OperationQuery<"admin_list_team_audit_logs">;
 export type AdminTeamMemberListQuery =
 	OperationQuery<"admin_list_team_members">;
+export type AdminTeamMemberSortBy =
+	components["schemas"]["AdminTeamMemberSortBy"];
 export type TeamAuditEntryInfo = components["schemas"]["TeamAuditEntryInfo"];
 export type TeamAuditPage =
 	components["schemas"]["OffsetPage_TeamAuditEntryInfo"];
@@ -205,14 +222,22 @@ export type BackgroundTaskKind =
 export type BackgroundTaskStatus =
 	components["schemas"]["BackgroundTaskStatus"];
 export type AdminUserListQuery = OperationQuery<"list_users">;
+export type AdminUserSortBy = components["schemas"]["AdminUserSortBy"];
 export type CreatePolicyGroupRequest =
 	components["schemas"]["CreatePolicyGroupReq"];
 export type CreatePolicyRequest = components["schemas"]["CreatePolicyReq"];
 export type AdminPolicyListQuery = OperationQuery<"list_policies">;
+export type AdminPolicySortBy = components["schemas"]["AdminPolicySortBy"];
+export type AdminPolicyGroupSortBy =
+	components["schemas"]["AdminPolicyGroupSortBy"];
 export type DeletePolicyQuery = OperationQuery<"delete_policy">;
 export type CreateRemoteNodeRequest =
 	components["schemas"]["CreateRemoteNodeReq"];
 export type AdminRemoteNodeListQuery = OperationQuery<"list_remote_nodes">;
+export type AdminRemoteNodeSortBy =
+	components["schemas"]["AdminRemoteNodeSortBy"];
+export type AdminShareSortBy = components["schemas"]["AdminShareSortBy"];
+export type AdminTaskSortBy = components["schemas"]["AdminTaskSortBy"];
 export type DriverType = components["schemas"]["DriverType"];
 export type MediaProcessorKind = components["schemas"]["MediaProcessorKind"];
 export type LockPage = components["schemas"]["OffsetPage_ResourceLock"];

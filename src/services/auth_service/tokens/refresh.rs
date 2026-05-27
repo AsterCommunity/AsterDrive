@@ -43,9 +43,7 @@ use tokio::sync::{Mutex, OwnedMutexGuard};
 use crate::api::subcode::ApiSubcode;
 use crate::db::repository::{auth_session_repo, user_repo};
 use crate::entities::auth_session;
-use crate::errors::{
-    AsterError, Result, auth_forbidden_with_subcode,
-};
+use crate::errors::{AsterError, Result, auth_forbidden_with_subcode};
 use crate::runtime::PrimaryAppState;
 use crate::services::audit_service::{self, AuditContext};
 use crate::types::TokenType;

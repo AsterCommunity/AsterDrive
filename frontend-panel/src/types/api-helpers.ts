@@ -1,4 +1,5 @@
 import type {
+	ApiErrorCode as GeneratedApiErrorCode,
 	ApiSubcode as GeneratedApiSubcode,
 	ErrorCode as GeneratedErrorCode,
 	TrashFileItem,
@@ -6,6 +7,7 @@ import type {
 } from "@/types/api";
 
 export type ErrorCode = GeneratedErrorCode;
+export type ApiErrorCode = GeneratedApiErrorCode;
 export type ApiSubcode = GeneratedApiSubcode;
 
 export const ErrorCode = {
@@ -221,28 +223,77 @@ export const ApiSubcode = {
 	ValidationSystemAlreadyInitialized: "validation.system_already_initialized",
 } as const satisfies Record<string, ApiSubcode>;
 
+export const ApiErrorCode = {
+	Success: "success",
+	BadRequest: "bad_request",
+	NotFound: "not_found",
+	InternalServerError: "internal_server_error",
+	DatabaseError: "database.error",
+	ConfigError: "config.error",
+	EndpointNotFound: "endpoint.not_found",
+	RateLimited: "rate_limited",
+	MailNotConfigured: "mail.not_configured",
+	MailDeliveryFailed: "mail.delivery_failed",
+	Conflict: "conflict",
+	AuthFailed: "auth.failed",
+	TokenExpired: "auth.token_expired",
+	TokenInvalid: "auth.token_invalid",
+	Forbidden: "forbidden",
+	PendingActivation: "auth.pending_activation",
+	ContactVerificationInvalid: "auth.contact_verification_invalid",
+	ContactVerificationExpired: "auth.contact_verification_expired",
+	TokenMissing: "auth.token_missing",
+	CredentialsFailed: "auth.credentials_failed",
+	MfaFailed: "auth.mfa_failed",
+	RefreshTokenStale: "auth.refresh_token_stale",
+	RefreshTokenReuseDetected: "auth.refresh_token_reuse_detected",
+	FileNotFound: "file.not_found",
+	FileTooLarge: "file.too_large",
+	FileTypeNotAllowed: "file.type_not_allowed",
+	FileUploadFailed: "file.upload_failed",
+	UploadSessionNotFound: "upload.session_not_found",
+	UploadSessionExpired: "upload.session_expired",
+	ChunkUploadFailed: "upload.chunk_failed",
+	UploadAssemblyFailed: "upload.assembly_failed",
+	ThumbnailFailed: "thumbnail.failed",
+	ResourceLocked: "resource.locked",
+	PreconditionFailed: "precondition_failed",
+	UploadAssembling: "upload.assembling",
+	StoragePolicyNotFound: "storage.policy_not_found",
+	StorageDriverError: "storage.driver_error",
+	StorageQuotaExceeded: "storage.quota_exceeded",
+	UnsupportedDriver: "storage.unsupported_driver",
+	StorageAuthFailed: "storage.auth_failed",
+	StoragePermissionDenied: "storage.permission_denied",
+	StorageObjectNotFound: "storage.object_not_found",
+	StorageTransientFailure: "storage.transient_failure",
+	StoragePreconditionFailed: "storage.precondition_failed",
+	StorageOperationUnsupported: "storage.operation_unsupported",
+	FolderNotFound: "folder.not_found",
+	ShareNotFound: "share.not_found",
+	ShareExpired: "share.expired",
+	SharePasswordRequired: "share.password_required",
+	ShareDownloadLimitReached: "share.download_limit_reached",
+	...ApiSubcode,
+} as const satisfies Record<string, ApiErrorCode>;
+
 type AssertNever<T extends never> = T;
 export type ApiSubcodeCoverageCheck = AssertNever<
 	Exclude<ApiSubcode, (typeof ApiSubcode)[keyof typeof ApiSubcode]>
 >;
+export type ApiErrorCodeCoverageCheck = AssertNever<
+	Exclude<ApiErrorCode, (typeof ApiErrorCode)[keyof typeof ApiErrorCode]>
+>;
 
 const apiSubcodeValues = new Set<string>(Object.values(ApiSubcode));
+const apiErrorCodeValues = new Set<string>(Object.values(ApiErrorCode));
 
 export function isApiSubcode(value: string): value is ApiSubcode {
 	return apiSubcodeValues.has(value);
 }
 
-export interface ApiErrorInfo {
-	internal_code: string;
-	subcode?: ApiSubcode | null;
-	retryable?: boolean | null;
-}
-
-export interface ApiResponse<T> {
-	code: ErrorCode;
-	msg: string;
-	data?: T | null;
-	error?: ApiErrorInfo | null;
+export function isApiErrorCode(value: string): value is ApiErrorCode {
+	return apiErrorCodeValues.has(value);
 }
 
 export type TrashItem =

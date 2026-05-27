@@ -1,5 +1,6 @@
 //! API 层模块导出。
 
+pub mod api_error_code;
 mod common;
 pub mod constants;
 pub mod dto;

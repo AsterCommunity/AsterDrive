@@ -3,6 +3,7 @@ import { toast } from "sonner";
 import i18n from "@/i18n";
 import { ApiError } from "@/services/http";
 import {
+	type ApiErrorCode as ApiErrorCodeType,
 	ApiSubcode,
 	type ApiSubcode as ApiSubcodeType,
 	ErrorCode,
@@ -233,6 +234,10 @@ const errorSubcodeKeys: Partial<Record<ApiSubcodeType, string>> = {
 		"errors:validation_system_already_initialized",
 };
 
+function errorCodeToMessageKey(code: ApiErrorCodeType): string {
+	return `errors:${code.replaceAll(".", "_")}`;
+}
+
 function getErrorCode(error: unknown): string | undefined {
 	if (typeof error !== "object" || error === null || !("code" in error)) {
 		return undefined;
@@ -280,11 +285,15 @@ function getTransportErrorMessageKey(error: unknown): string | null {
 
 export function getApiErrorMessage(error: unknown) {
 	if (error instanceof ApiError) {
+		const apiCodeKey = error.apiCode
+			? errorCodeToMessageKey(error.apiCode)
+			: undefined;
+		// TODO(0.3.0): remove subcode fallback after backend clients use error.code.
 		const subcodeKey =
 			error.subcode && isApiSubcode(error.subcode)
 				? errorSubcodeKeys[error.subcode]
 				: undefined;
-		const key = subcodeKey ?? errorMessageKeys[error.code];
+		const key = apiCodeKey ?? subcodeKey ?? errorMessageKeys[error.code];
 		if (key) {
 			return i18n.t(key);
 		}

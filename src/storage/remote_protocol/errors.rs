@@ -17,6 +17,8 @@ struct RemoteErrorEnvelope {
 
 #[derive(Debug, Deserialize)]
 struct RemoteErrorInfo {
+    // TODO(0.3.0): accept remote ApiErrorCode here and remove legacy subcode
+    // parsing after follower/primary nodes no longer expose ApiSubcode.
     subcode: Option<String>,
 }
 
@@ -80,6 +82,8 @@ pub(super) fn build_remote_status_error_from_parts(
 ) -> AsterError {
     let envelope = serde_json::from_str::<RemoteErrorEnvelope>(body).ok();
     let remote_code = envelope.as_ref().map(|value| value.code);
+    // TODO(0.3.0): read remote error.code as ApiErrorCode and drop this
+    // ApiSubcode compatibility path.
     let remote_subcode = envelope
         .as_ref()
         .and_then(|value| value.error.as_ref())

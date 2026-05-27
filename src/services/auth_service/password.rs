@@ -29,7 +29,7 @@ pub async fn login(
     let outcome = async {
         let Some(user) = find_user_by_identifier(state.writer_db(), identifier).await? else {
             tracing::debug!(identifier_kind, "login rejected: user not found");
-            return Err(AsterError::auth_invalid_credentials("user not found"));
+            return Err(AsterError::auth_invalid_credentials("Invalid Credentials"));
         };
 
         if !user.status.is_active() {
@@ -51,7 +51,7 @@ pub async fn login(
 
         if !hash::verify_password(password, &user.password_hash)? {
             tracing::debug!(user_id = user.id, "login rejected: invalid password");
-            return Err(AsterError::auth_invalid_credentials("wrong password"));
+            return Err(AsterError::auth_invalid_credentials("Invalid Credentials"));
         }
 
         let completion = mfa_service::complete_primary_login_or_start_mfa(

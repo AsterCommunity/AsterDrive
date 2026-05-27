@@ -7,6 +7,7 @@ import {
 } from "@/lib/workspace";
 import { bindWorkspaceService } from "@/stores/workspaceStore";
 import type {
+	ApiResponse,
 	ChunkUploadResponse,
 	CompletedPart,
 	FileInfo,
@@ -14,7 +15,7 @@ import type {
 	RecoverableUploadSession,
 	UploadProgressResponse,
 } from "@/types/api";
-import { type ApiResponse, ErrorCode, isApiSubcode } from "@/types/api-helpers";
+import { ErrorCode, isApiErrorCode, isApiSubcode } from "@/types/api-helpers";
 import { CSRF_HEADER_NAME, getCsrfToken } from "./csrf";
 import { ApiError, api } from "./http";
 
@@ -229,7 +230,12 @@ export function createUploadService(workspace: Workspace = PERSONAL_WORKSPACE) {
 			);
 			if (resp.data.code !== ErrorCode.Success) {
 				throw new ApiError(resp.data.code, resp.data.msg, {
+					apiCode:
+						resp.data.error?.code && isApiErrorCode(resp.data.error.code)
+							? resp.data.error.code
+							: undefined,
 					internalCode: resp.data.error?.internal_code ?? undefined,
+					// TODO(0.3.0): remove subcode compatibility after API clients use error.code.
 					subcode:
 						resp.data.error?.subcode && isApiSubcode(resp.data.error.subcode)
 							? resp.data.error.subcode

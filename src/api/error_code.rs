@@ -100,6 +100,9 @@ impl From<&AsterError> for ErrorCode {
             AsterError::ConfigError(_) => ErrorCode::ConfigError,
             AsterError::InternalError(_) => ErrorCode::InternalServerError,
             AsterError::ValidationError(_) => {
+                // TODO(0.3.0): replace this legacy numeric-code refinement with
+                // direct ApiErrorCode classification. The top-level numeric
+                // ErrorCode should remain only as old-client compatibility.
                 if matches!(
                     err.api_error_subcode(),
                     Some(
@@ -227,11 +230,12 @@ mod tests {
 
     #[test]
     fn refresh_token_reuse_detected_maps_to_reuse_code() {
-        let error = AsterError::auth_refresh_token_reuse_detected(
-            "refresh token reuse detected",
-        );
+        let error = AsterError::auth_refresh_token_reuse_detected("refresh token reuse detected");
 
-        assert_eq!(ErrorCode::from(&error), ErrorCode::RefreshTokenReuseDetected);
+        assert_eq!(
+            ErrorCode::from(&error),
+            ErrorCode::RefreshTokenReuseDetected
+        );
     }
 
     #[test]
