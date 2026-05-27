@@ -27,7 +27,7 @@
 //! 4. If the current JTI is already gone, classify the incoming token as stale
 //!    or reuse by looking at `previous_refresh_jti` plus the evidence listed
 //!    above.
-//! 5. A stale retry returns E012 only. A confirmed reuse bumps
+//! 5. A stale retry returns E019 only. A confirmed reuse bumps
 //!    `users.session_version`, purges auth sessions, invalidates cached auth
 //!    snapshots, and records an audit log.
 
@@ -55,7 +55,7 @@ use super::super::session::{
 use super::{ensure_token_type, issue_tokens_for_session_id, verify_token};
 
 // This window is only for classifying an already-rotated previous JTI. It does
-// not allow a second successful refresh; stale callers still receive E012.
+// not allow a second successful refresh; stale callers still receive E019.
 const REFRESH_REUSE_GRACE_SECS: i64 = 15;
 
 // Process-local serialization for a single refresh JTI.
@@ -191,7 +191,7 @@ fn is_stale_refresh_from_same_client(
     user_agent: Option<&str>,
 ) -> bool {
     // Same-client stale requires all three facts: same user, live session, and
-    // a recent rotation. The caller still gets E012; this only decides whether
+    // a recent rotation. The caller still gets E019; this only decides whether
     // to avoid global session revocation.
     session.user_id == user_id
         && session.revoked_at.is_none()
@@ -531,8 +531,8 @@ async fn finish_refresh_rejection(
     rejection: RefreshRejection,
     reuse_log_message: &'static str,
 ) -> Result<(String, String)> {
-    // Both stale and reuse map to E012 at the API boundary, but only reuse has
-    // already changed session state and receives security audit logging.
+    // Stale and reuse are both rejected, but only reuse has already changed
+    // session state and receives security audit logging.
     match rejection {
         RefreshRejection::StaleRefresh {
             user_id,

@@ -73,6 +73,7 @@ const COPY_TABLE_ORDER: &[&str] = &[
     "audit_logs",
     "mail_outbox",
     "background_tasks",
+    "storage_migration_checkpoints",
     "entity_properties",
     "resource_locks",
     "wopi_sessions",

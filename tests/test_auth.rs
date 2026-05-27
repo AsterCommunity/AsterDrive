@@ -1110,7 +1110,7 @@ async fn test_concurrent_refresh_same_token_has_single_winner() {
     assert!(!winner.1.is_empty());
     let winner_access = winner.0.clone();
     let loser = first.as_ref().err().or(second.as_ref().err()).unwrap();
-    assert_eq!(loser.code(), "E012");
+    assert_eq!(loser.code(), "E019");
 
     let user = user_repo::find_by_username(state.writer_db(), "testuser")
         .await

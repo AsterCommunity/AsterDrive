@@ -80,26 +80,26 @@ export default function AdminPoliciesPage() {
 	usePageTitle(t("policies"));
 	const navigate = useNavigate();
 	const [searchParams, setSearchParams] = useSearchParams();
-	const [offset, setOffset] = useState(
+	const [offset, setOffset] = useState(() =>
 		parseOffsetSearchParam(searchParams.get("offset")),
 	);
 	const [pageSize, setPageSize] = useState<
 		(typeof POLICY_PAGE_SIZE_OPTIONS)[number]
-	>(
+	>(() =>
 		parsePageSizeSearchParam(
 			searchParams.get("pageSize"),
 			POLICY_PAGE_SIZE_OPTIONS,
 			DEFAULT_POLICY_PAGE_SIZE,
 		),
 	);
-	const [sortBy, setSortBy] = useState<AdminPolicySortBy>(
+	const [sortBy, setSortBy] = useState<AdminPolicySortBy>(() =>
 		parseSortSearchParam(
 			searchParams.get("sortBy"),
 			POLICY_SORT_BY_OPTIONS,
 			DEFAULT_POLICY_SORT_BY,
 		),
 	);
-	const [sortOrder, setSortOrder] = useState<SortOrder>(
+	const [sortOrder, setSortOrder] = useState<SortOrder>(() =>
 		parseSortOrderSearchParam(
 			searchParams.get("sortOrder"),
 			DEFAULT_POLICY_SORT_ORDER,
@@ -723,7 +723,7 @@ export default function AdminPoliciesPage() {
 					deletingPolicyId={deletingPolicyId}
 					onDeletePolicy={requestDeleteConfirm}
 					onEditPolicy={openEdit}
-					policies={migrationPolicies}
+					policies={policies}
 					remoteNodeNameById={remoteNodeNameById}
 					sortBy={sortBy}
 					sortOrder={sortOrder}
@@ -773,7 +773,7 @@ export default function AdminPoliciesPage() {
 					dryRun={migrationDryRun}
 					dryRunLoading={migrationDryRunLoading}
 					open={migrationDialogOpen}
-					policies={policies}
+					policies={migrationPolicies}
 					sourcePolicyId={migrationSourcePolicyId}
 					targetPolicyId={migrationTargetPolicyId}
 					submitting={migrationSubmitting}

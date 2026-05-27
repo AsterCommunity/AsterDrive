@@ -29,6 +29,7 @@ const mockState = vi.hoisted(() => ({
 	testConnection: vi.fn(),
 	testParams: vi.fn(),
 	total: 0,
+	toastError: vi.fn(),
 	toastSuccess: vi.fn(),
 	update: vi.fn(),
 }));
@@ -68,6 +69,7 @@ vi.mock("react-i18next", () => ({
 
 vi.mock("sonner", () => ({
 	toast: {
+		error: (...args: unknown[]) => mockState.toastError(...args),
 		success: (...args: unknown[]) => mockState.toastSuccess(...args),
 	},
 }));
@@ -326,9 +328,11 @@ vi.mock("@/components/ui/select", () => {
 		),
 		SelectItem: ({
 			children,
+			disabled,
 			value,
 		}: {
 			children: React.ReactNode;
+			disabled?: boolean;
 			value: string;
 		}) => {
 			const context = useContext(SelectContext);
@@ -337,7 +341,7 @@ vi.mock("@/components/ui/select", () => {
 				<button
 					type="button"
 					aria-label={`select-item:${value}`}
-					disabled={context.disabled}
+					disabled={context.disabled || disabled}
 					onClick={() => context.onValueChange?.(value)}
 				>
 					{children}
@@ -496,6 +500,7 @@ vi.mock("@/services/adminService", () => ({
 		dryRunMigration: (...args: unknown[]) => mockState.dryRunMigration(...args),
 		delete: (...args: unknown[]) => mockState.deletePolicy(...args),
 		list: vi.fn(),
+		listAll: async () => mockState.items,
 		testConnection: (...args: unknown[]) => mockState.testConnection(...args),
 		testParams: (...args: unknown[]) => mockState.testParams(...args),
 		update: (...args: unknown[]) => mockState.update(...args),
@@ -541,6 +546,15 @@ function openEditPolicy(name: string) {
 	fireEvent.click(screen.getByText(name));
 }
 
+async function openMigrationDialog() {
+	fireEvent.click(
+		screen.getByRole("button", {
+			name: /policy_migration_action/,
+		}),
+	);
+	await screen.findByText("policy_migration_title");
+}
+
 describe("AdminPoliciesPage", () => {
 	beforeEach(() => {
 		mockState.create.mockReset();
@@ -560,6 +574,7 @@ describe("AdminPoliciesPage", () => {
 		mockState.testConnection.mockReset();
 		mockState.testParams.mockReset();
 		mockState.total = 0;
+		mockState.toastError.mockReset();
 		mockState.toastSuccess.mockReset();
 		mockState.update.mockReset();
 
@@ -653,12 +668,7 @@ describe("AdminPoliciesPage", () => {
 
 		render(<AdminPoliciesPage />);
 
-		fireEvent.click(
-			screen.getByRole("button", {
-				name: /policy_migration_action/,
-			}),
-		);
-		expect(screen.getByText("policy_migration_title")).toBeInTheDocument();
+		await openMigrationDialog();
 		expect(screen.getAllByText("#1 · Hot Local").length).toBeGreaterThan(1);
 		expect(screen.getAllByText("#2 · Archive S3").length).toBeGreaterThan(1);
 		expect(
@@ -710,9 +720,7 @@ describe("AdminPoliciesPage", () => {
 
 		render(<AdminPoliciesPage />);
 
-		fireEvent.click(
-			screen.getByRole("button", { name: /policy_migration_action/ }),
-		);
+		await openMigrationDialog();
 		fireEvent.click(
 			screen.getByRole("button", { name: /policy_migration_dry_run/ }),
 		);
@@ -741,7 +749,7 @@ describe("AdminPoliciesPage", () => {
 		).toBeDisabled();
 	});
 
-	it("prevents submitting a storage policy migration with the same source and target", () => {
+	it("prevents submitting a storage policy migration with the same source and target", async () => {
 		mockState.items = [
 			createPolicy({ id: 1, name: "Hot Local" }),
 			createPolicy({ id: 2, name: "Archive S3", driver_type: "s3" }),
@@ -749,19 +757,14 @@ describe("AdminPoliciesPage", () => {
 
 		render(<AdminPoliciesPage />);
 
-		fireEvent.click(
-			screen.getByRole("button", { name: /policy_migration_action/ }),
-		);
-		fireEvent.click(
-			screen.getAllByRole("button", { name: "select-item:1" })[1],
-		);
+		await openMigrationDialog();
 
 		expect(
-			screen.getByText("policy_migration_same_policy_error"),
-		).toBeInTheDocument();
+			screen.getAllByRole("button", { name: "select-item:1" })[1],
+		).toBeDisabled();
 		expect(
 			screen.getByRole("button", { name: /policy_migration_dry_run/ }),
-		).toBeDisabled();
+		).toBeEnabled();
 		expect(
 			screen.getByRole("button", { name: /policy_migration_submit/ }),
 		).toBeDisabled();
@@ -778,9 +781,7 @@ describe("AdminPoliciesPage", () => {
 
 		render(<AdminPoliciesPage />);
 
-		fireEvent.click(
-			screen.getByRole("button", { name: /policy_migration_action/ }),
-		);
+		await openMigrationDialog();
 		fireEvent.click(
 			screen.getByRole("button", { name: /policy_migration_dry_run/ }),
 		);

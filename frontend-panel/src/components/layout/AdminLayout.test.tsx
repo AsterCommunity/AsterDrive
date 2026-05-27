@@ -98,6 +98,8 @@ describe("AdminLayout", () => {
 			"translated:external_auth",
 			"translated:policy_groups",
 			"translated:shares",
+			"translated:admin_files",
+			"translated:admin_file_blobs",
 			"translated:tasks",
 			"translated:locks",
 			"translated:system_settings",
