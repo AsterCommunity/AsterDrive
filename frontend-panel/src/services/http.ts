@@ -7,12 +7,16 @@ import axios, { AxiosHeaders } from "axios";
 import { config } from "@/config/app";
 import { isTokenAuthError } from "@/lib/authErrors";
 import { isCrossTabRefreshAuthFailure } from "@/lib/crossTabRefresh";
+import type {
+	ApiErrorCode,
+	ApiErrorInfo as ApiErrorInfoPayload,
+	ApiResponse,
+	ApiSubcode,
+} from "@/types/api";
 import {
-	type ApiErrorInfo as ApiErrorInfoPayload,
-	type ApiResponse,
-	type ApiSubcode,
 	ErrorCode,
 	type ErrorCode as ErrorCodeType,
+	isApiErrorCode,
 	isApiSubcode,
 } from "@/types/api-helpers";
 import { CSRF_HEADER_NAME, getCsrfToken } from "./csrf";
@@ -102,6 +106,7 @@ export type ApiRequestConfig = Pick<
 >;
 
 type ApiErrorDetails = {
+	apiCode?: ApiErrorCode;
 	internalCode?: string;
 	subcode?: ApiSubcode;
 	retryable?: boolean;
@@ -193,6 +198,7 @@ function isRefreshableAuthError(error: unknown): boolean {
 
 export class ApiError extends Error {
 	code: ErrorCodeType;
+	apiCode?: ApiErrorCode;
 	internalCode?: string;
 	subcode?: ApiSubcode;
 	retryable?: boolean;
@@ -204,6 +210,7 @@ export class ApiError extends Error {
 	) {
 		super(message);
 		this.code = code;
+		this.apiCode = details.apiCode;
 		this.internalCode = details.internalCode;
 		this.subcode = details.subcode;
 		this.retryable = details.retryable;
@@ -235,8 +242,13 @@ function normalizeApiErrorInfo(
 	}
 
 	return {
+		apiCode:
+			typeof value.code === "string" && isApiErrorCode(value.code)
+				? value.code
+				: undefined,
 		internalCode:
 			typeof value.internal_code === "string" ? value.internal_code : undefined,
+		// TODO(0.3.0): remove subcode parsing after backend clients use error.code.
 		subcode:
 			typeof value.subcode === "string" && isApiSubcode(value.subcode)
 				? value.subcode

@@ -25,6 +25,7 @@ const SSE_RECONNECT_BASE_MS = 1_000;
 const SSE_RECONNECT_MAX_MS = 30_000;
 /** 连续失败次数到阈值后熔断，要求用户刷新或重新登录；防止永久打 backend。 */
 const SSE_RECONNECT_FAILURE_LIMIT = 8;
+const SSE_INITIAL_CONNECT_DELAY_MS = 1_500;
 
 function eventMatchesWorkspace(
 	eventWorkspace: StorageChangeEventPayload["workspace"],
@@ -254,7 +255,10 @@ export function useStorageChangeEvents() {
 			};
 		};
 
-		connect();
+		reconnectTimer = setTimeout(() => {
+			reconnectTimer = null;
+			connect();
+		}, SSE_INITIAL_CONNECT_DELAY_MS);
 
 		return () => {
 			cancelled = true;

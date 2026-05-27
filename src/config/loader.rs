@@ -170,7 +170,7 @@ fn create_default_config(config_path: &Path, default: &Config) -> Result<()> {
         "# AsterDrive configuration file\n\
          # Generated on first startup; edit as needed.\n\
          # Relative paths are resolved against the directory containing this file (default: ./data).\n\
-         # Docs: https://asterdrive.docs.esap.cc/config/\n\n\
+         # Docs: https://drive.astercosm.com/config/\n\n\
          {toml_str}"
     );
 

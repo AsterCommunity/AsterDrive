@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	authService,
 	invalidateExternalAuthLinksCache,
+	invalidateMfaStatusCache,
 	invalidatePasskeysCache,
 } from "@/services/authService";
 import type {
@@ -58,6 +59,7 @@ vi.mock("@/services/http", () => ({
 describe("authService", () => {
 	beforeEach(() => {
 		invalidateExternalAuthLinksCache();
+		invalidateMfaStatusCache();
 		invalidatePasskeysCache();
 		mockState.clientPost.mockReset();
 		mockState.delete.mockReset();
@@ -496,7 +498,7 @@ describe("authService", () => {
 		await expect(
 			await authService.regenerateMfaRecoveryCodes({ code: "KLMN-OPQR-STUV" }),
 		).toEqual(["KLMN-OPQR-STUV"]);
-		expect(authService.getMfaStatus()).toBeUndefined();
+		await expect(authService.getMfaStatus()).resolves.toBeUndefined();
 
 		expect(mockState.post).toHaveBeenNthCalledWith(
 			1,
@@ -520,6 +522,47 @@ describe("authService", () => {
 			{ code: "KLMN-OPQR-STUV" },
 		);
 		expect(mockState.get).toHaveBeenCalledWith("/auth/mfa");
+	});
+
+	it("caches MFA status requests and invalidates them after MFA changes", async () => {
+		const enabledStatus = {
+			enabled: true,
+			factors: [
+				{
+					enabled_at: "2026-05-23T00:00:00Z",
+					id: 7,
+					last_used_at: null,
+					method: "totp" as const,
+					name: "Phone",
+				},
+			],
+			recovery_codes_remaining: 6,
+		};
+		mockState.get.mockResolvedValue(enabledStatus);
+		mockState.post.mockResolvedValue({
+			factor: enabledStatus.factors[0],
+			recovery_codes: ["ABCD-EFGH-IJKL"],
+		});
+
+		const [first, second] = await Promise.all([
+			authService.getMfaStatus(),
+			authService.getMfaStatus(),
+		]);
+		first.factors[0].name = "mutated";
+		await expect(authService.getMfaStatus()).resolves.toEqual(second);
+		expect(mockState.get).toHaveBeenCalledTimes(1);
+
+		await expect(authService.getMfaStatus({ force: true })).resolves.toEqual(
+			second,
+		);
+		expect(mockState.get).toHaveBeenCalledTimes(2);
+
+		await authService.finishTotpSetup({
+			flow_token: "setup-flow",
+			code: "123456",
+		});
+		await authService.getMfaStatus();
+		expect(mockState.get).toHaveBeenCalledTimes(3);
 	});
 
 	it("uses the expected external auth endpoints and payloads", async () => {

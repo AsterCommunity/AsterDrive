@@ -18,17 +18,35 @@ env:
 
 jobs:
   build:
-    name: Build ${{ matrix.platform }}
+    name: Build ${{ matrix.variant }} ${{ matrix.platform }}
     runs-on: ${{ matrix.runner }}
     if: github.event_name != 'pull_request'
     strategy:
       fail-fast: false
       matrix:
         include:
-          - platform: linux/amd64
+          - variant: default
+            features: server,cli
+            suffix: ""
+            platform: linux/amd64
             arch: amd64
             runner: ubuntu-latest
-          - platform: linux/arm64
+          - variant: default
+            features: server,cli
+            suffix: ""
+            platform: linux/arm64
+            arch: arm64
+            runner: ubuntu-24.04-arm
+          - variant: metrics
+            features: server,cli,metrics
+            suffix: "-metrics"
+            platform: linux/amd64
+            arch: amd64
+            runner: ubuntu-latest
+          - variant: metrics
+            features: server,cli,metrics
+            suffix: "-metrics"
+            platform: linux/arm64
             arch: arm64
             runner: ubuntu-24.04-arm
 
@@ -60,10 +78,10 @@ jobs:
             ${{ env.REGISTRY_IMAGE_GHCR }}
             ${{ env.REGISTRY_IMAGE_DOCKERHUB }}
           tags: |
-            type=ref,event=tag
-            type=raw,value=latest,enable=${{ !contains(github.ref_name, 'alpha') && !contains(github.ref_name, 'beta') && !contains(github.ref_name, 'rc') }}
-            type=raw,value=stable,enable=${{ !contains(github.ref_name, 'alpha') && !contains(github.ref_name, 'beta') && !contains(github.ref_name, 'rc') }}
-            type=raw,value=edge,enable=${{ contains(github.ref_name, 'alpha') || contains(github.ref_name, 'beta') || contains(github.ref_name, 'rc') }}
+            type=ref,event=tag,suffix=${{ matrix.suffix }}
+            type=raw,value=latest${{ matrix.suffix }},enable=${{ !contains(github.ref_name, 'alpha') && !contains(github.ref_name, 'beta') && !contains(github.ref_name, 'rc') }}
+            type=raw,value=stable${{ matrix.suffix }},enable=${{ !contains(github.ref_name, 'alpha') && !contains(github.ref_name, 'beta') && !contains(github.ref_name, 'rc') }}
+            type=raw,value=edge${{ matrix.suffix }},enable=${{ contains(github.ref_name, 'alpha') || contains(github.ref_name, 'beta') || contains(github.ref_name, 'rc') }}
           labels: |
             org.opencontainers.image.title=AsterDrive
             org.opencontainers.image.description=Self-hosted cloud storage system built with Rust
@@ -77,26 +95,34 @@ jobs:
           platforms: ${{ matrix.platform }}
           push: true
           tags: |
-            ${{ env.REGISTRY_IMAGE_GHCR }}:${{ env.TEMP_IMAGE_TAG }}-${{ matrix.arch }}
-            ${{ env.REGISTRY_IMAGE_DOCKERHUB }}:${{ env.TEMP_IMAGE_TAG }}-${{ matrix.arch }}
+            ${{ env.REGISTRY_IMAGE_GHCR }}:${{ env.TEMP_IMAGE_TAG }}-${{ matrix.variant }}-${{ matrix.arch }}
+            ${{ env.REGISTRY_IMAGE_DOCKERHUB }}:${{ env.TEMP_IMAGE_TAG }}-${{ matrix.variant }}-${{ matrix.arch }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: |
-            type=gha,scope=docker-image-${{ matrix.arch }}
-            type=registry,ref=${{ env.REGISTRY_IMAGE_GHCR }}:buildcache-${{ matrix.arch }}
-            type=registry,ref=${{ env.REGISTRY_IMAGE_GHCR }}:buildcache
+            type=gha,scope=docker-image-${{ matrix.variant }}-${{ matrix.arch }}
+            type=registry,ref=${{ env.REGISTRY_IMAGE_GHCR }}:buildcache-${{ matrix.variant }}-${{ matrix.arch }}
+            type=registry,ref=${{ env.REGISTRY_IMAGE_GHCR }}:buildcache-${{ matrix.variant }}
           cache-to: |
-            type=gha,mode=max,scope=docker-image-${{ matrix.arch }}
-            type=registry,ref=${{ env.REGISTRY_IMAGE_GHCR }}:buildcache-${{ matrix.arch }},mode=max
+            type=gha,mode=max,scope=docker-image-${{ matrix.variant }}-${{ matrix.arch }}
+            type=registry,ref=${{ env.REGISTRY_IMAGE_GHCR }}:buildcache-${{ matrix.variant }}-${{ matrix.arch }},mode=max
           build-args: |
-            CARGO_FEATURES=server
+            CARGO_FEATURES=${{ matrix.features }}
           provenance: true
           sbom: true
 
   publish-manifest:
-    name: Publish multi-arch manifest
+    name: Publish ${{ matrix.variant }} multi-arch manifest
     runs-on: ubuntu-latest
     needs: build
     if: github.event_name != 'pull_request'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - variant: default
+            suffix: ""
+          - variant: metrics
+            suffix: "-metrics"
 
     steps:
       - name: Login to Docker Hub
@@ -124,10 +150,10 @@ jobs:
         with:
           images: ${{ env.REGISTRY_IMAGE_GHCR }}
           tags: |
-            type=ref,event=tag
-            type=raw,value=latest,enable=${{ !contains(github.ref_name, 'alpha') && !contains(github.ref_name, 'beta') && !contains(github.ref_name, 'rc') }}
-            type=raw,value=stable,enable=${{ !contains(github.ref_name, 'alpha') && !contains(github.ref_name, 'beta') && !contains(github.ref_name, 'rc') }}
-            type=raw,value=edge,enable=${{ contains(github.ref_name, 'alpha') || contains(github.ref_name, 'beta') || contains(github.ref_name, 'rc') }}
+            type=ref,event=tag,suffix=${{ matrix.suffix }}
+            type=raw,value=latest${{ matrix.suffix }},enable=${{ !contains(github.ref_name, 'alpha') && !contains(github.ref_name, 'beta') && !contains(github.ref_name, 'rc') }}
+            type=raw,value=stable${{ matrix.suffix }},enable=${{ !contains(github.ref_name, 'alpha') && !contains(github.ref_name, 'beta') && !contains(github.ref_name, 'rc') }}
+            type=raw,value=edge${{ matrix.suffix }},enable=${{ contains(github.ref_name, 'alpha') || contains(github.ref_name, 'beta') || contains(github.ref_name, 'rc') }}
 
       - name: Extract Docker Hub metadata
         id: meta-dockerhub
@@ -135,16 +161,17 @@ jobs:
         with:
           images: ${{ env.REGISTRY_IMAGE_DOCKERHUB }}
           tags: |
-            type=ref,event=tag
-            type=raw,value=latest,enable=${{ !contains(github.ref_name, 'alpha') && !contains(github.ref_name, 'beta') && !contains(github.ref_name, 'rc') }}
-            type=raw,value=stable,enable=${{ !contains(github.ref_name, 'alpha') && !contains(github.ref_name, 'beta') && !contains(github.ref_name, 'rc') }}
-            type=raw,value=edge,enable=${{ contains(github.ref_name, 'alpha') || contains(github.ref_name, 'beta') || contains(github.ref_name, 'rc') }}
+            type=ref,event=tag,suffix=${{ matrix.suffix }}
+            type=raw,value=latest${{ matrix.suffix }},enable=${{ !contains(github.ref_name, 'alpha') && !contains(github.ref_name, 'beta') && !contains(github.ref_name, 'rc') }}
+            type=raw,value=stable${{ matrix.suffix }},enable=${{ !contains(github.ref_name, 'alpha') && !contains(github.ref_name, 'beta') && !contains(github.ref_name, 'rc') }}
+            type=raw,value=edge${{ matrix.suffix }},enable=${{ contains(github.ref_name, 'alpha') || contains(github.ref_name, 'beta') || contains(github.ref_name, 'rc') }}
 
       - name: Create multi-arch manifests
         id: manifests
         env:
           GHCR_TAGS: ${{ steps.meta-ghcr.outputs.tags }}
           DOCKERHUB_TAGS: ${{ steps.meta-dockerhub.outputs.tags }}
+          MATRIX_VARIANT: ${{ matrix.variant }}
         run: |
           create_manifest() {
             local tags="$1"
@@ -170,8 +197,8 @@ jobs:
 
             docker buildx imagetools create "${args[@]}" \
               --metadata-file "$metadata_file" \
-              "${image}:${TEMP_IMAGE_TAG}-amd64" \
-              "${image}:${TEMP_IMAGE_TAG}-arm64" >&2
+              "${image}:${TEMP_IMAGE_TAG}-${MATRIX_VARIANT}-amd64" \
+              "${image}:${TEMP_IMAGE_TAG}-${MATRIX_VARIANT}-arm64" >&2
 
             printf '%s\n' "$first_tag"
           }

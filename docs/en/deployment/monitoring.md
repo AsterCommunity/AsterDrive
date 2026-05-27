@@ -149,7 +149,7 @@ The AsterDrive docs site provides a Grafana dashboard JSON that can be imported 
 Full URL on the online docs site:
 
 ```text
-https://asterdrive.docs.esap.cc/grafana/asterdrive-overview.json
+https://drive.astercosm.com/grafana/asterdrive-overview.json
 ```
 
 Import steps:

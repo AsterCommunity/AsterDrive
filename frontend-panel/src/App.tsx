@@ -6,6 +6,7 @@ import { MusicPlayerHost } from "@/components/music/MusicPlayerHost";
 import { usePwaUpdate } from "@/hooks/usePwaUpdate";
 import { useStorageChangeEvents } from "@/hooks/useStorageChangeEvents";
 import i18n from "@/i18n";
+import { runWhenIdle } from "@/lib/idleTask";
 import { router } from "@/router";
 import { useAuthStore } from "@/stores/authStore";
 import { useBrandingStore } from "@/stores/brandingStore";
@@ -24,9 +25,15 @@ function shouldSkipInitialAuthCheck(pathname: string) {
 
 function loadPublicConfig() {
 	void useBrandingStore.getState().load();
-	void usePreviewAppStore.getState().load();
-	void useThumbnailSupportStore.getState().load();
-	void useMediaDataSupportStore.getState().load();
+	const cancelDeferredLoads = runWhenIdle(
+		() => {
+			void usePreviewAppStore.getState().load();
+			void useThumbnailSupportStore.getState().load();
+			void useMediaDataSupportStore.getState().load();
+		},
+		{ fallbackDelayMs: 1_200, timeoutMs: 3_000 },
+	);
+	return cancelDeferredLoads;
 }
 
 function consumeExternalAuthSuccessRedirect() {
@@ -58,13 +65,14 @@ function App() {
 	useStorageChangeEvents();
 
 	useEffect(() => {
-		loadPublicConfig();
+		const cancelPublicConfig = loadPublicConfig();
 		if (!shouldSkipInitialAuthCheck(window.location.pathname)) {
 			checkAuth();
 		} else {
 			useAuthStore.setState({ isChecking: false });
 		}
 		useThemeStore.getState().init();
+		return cancelPublicConfig;
 	}, [checkAuth]);
 
 	useEffect(() => {

@@ -14,7 +14,7 @@ import {
 } from "./shared";
 
 export const DOCKER_FOLLOWER_DOCS_URL =
-	"https://asterdrive.docs.esap.cc/deployment/docker-follower";
+	"https://drive.astercosm.com/deployment/docker-follower";
 
 export function RemoteNodeSectionIntro({
 	description,

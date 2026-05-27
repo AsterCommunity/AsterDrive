@@ -26,12 +26,23 @@ const mockState = vi.hoisted(() => ({
 		}>,
 		currentFolderId: null as number | null,
 		folders: [] as Array<{ id: number; name: string }>,
+		lastFolderContents: null as {
+			folderId: number | null;
+			folders: Array<{ id: number; name: string }>;
+			sortBy: "name" | "size" | "created_at" | "updated_at" | "type";
+			sortOrder: "asc" | "desc";
+			workspaceRevision: number;
+		} | null,
 		loading: false,
 		moveToFolder: vi.fn(),
 		sortBy: "name" as "name" | "size" | "created_at" | "updated_at" | "type",
 		sortOrder: "asc" as "asc" | "desc",
+		workspaceRequestRevision: 0,
 	},
 	pathname: "/",
+	workspace: { kind: "personal" } as
+		| { kind: "personal" }
+		| { kind: "team"; teamId: number },
 	writeInternalDragData: vi.fn(),
 }));
 
@@ -87,9 +98,22 @@ vi.mock("@/stores/authStore", () => ({
 		selector(mockState.auth),
 }));
 
-vi.mock("@/stores/fileStore", () => ({
-	useFileStore: <T,>(selector: (state: typeof mockState.fileStore) => T) =>
-		selector(mockState.fileStore),
+vi.mock("@/stores/fileStore", () => {
+	const useFileStore = Object.assign(
+		<T,>(selector: (state: typeof mockState.fileStore) => T) =>
+			selector(mockState.fileStore),
+		{
+			getState: () => mockState.fileStore,
+		},
+	);
+
+	return { useFileStore };
+});
+
+vi.mock("@/stores/workspaceStore", () => ({
+	useWorkspaceStore: <T,>(
+		selector: (state: { workspace: typeof mockState.workspace }) => T,
+	) => selector(mockState),
 }));
 
 function createFolder(id: number, name: string) {
@@ -143,11 +167,14 @@ describe("FolderTree", () => {
 		mockState.fileStore.breadcrumb = [{ id: null, name: "Root" }];
 		mockState.fileStore.currentFolderId = null;
 		mockState.fileStore.folders = [];
+		mockState.fileStore.lastFolderContents = null;
 		mockState.fileStore.loading = false;
 		mockState.fileStore.moveToFolder.mockResolvedValue(undefined);
 		mockState.fileStore.sortBy = "name";
 		mockState.fileStore.sortOrder = "asc";
+		mockState.fileStore.workspaceRequestRevision = 0;
 		mockState.pathname = "/";
+		mockState.workspace = { kind: "personal" };
 
 		mockState.getInvalidInternalDropReason.mockReturnValue(null);
 		mockState.hasInternalDragData.mockReturnValue(false);
@@ -167,6 +194,7 @@ describe("FolderTree", () => {
 	});
 
 	it("loads root folders and reuses the cached snapshot on remount", async () => {
+		mockState.pathname = "/folder/99";
 		mockState.fileStore.folders = [
 			createFolder(1, "Alpha"),
 			createFolder(2, "Beta"),
@@ -197,14 +225,59 @@ describe("FolderTree", () => {
 		expect(mockState.listRoot).toHaveBeenCalledTimes(1);
 	});
 
+	it("reuses the root file listing while the file page is loading", async () => {
+		mockState.fileStore.loading = true;
+		mockState.listRoot.mockResolvedValue({
+			folders: [createFolder(9, "Duplicate Request")],
+		});
+
+		const { FolderTree } = await import("@/components/folders/FolderTree");
+		const view = render(<FolderTree />);
+
+		expect(screen.getByText("skeleton:4")).toBeInTheDocument();
+		expect(mockState.listRoot).not.toHaveBeenCalled();
+
+		mockState.fileStore.loading = false;
+		mockState.fileStore.folders = [createFolder(1, "Alpha")];
+		mockState.fileStore.lastFolderContents = {
+			folderId: null,
+			folders: [createFolder(1, "Alpha")],
+			sortBy: "name",
+			sortOrder: "asc",
+			workspaceRevision: 0,
+		};
+		view.rerender(<FolderTree />);
+
+		expect(await screen.findByText("Alpha")).toBeInTheDocument();
+		expect(mockState.listRoot).not.toHaveBeenCalled();
+		expect(screen.queryByText("Duplicate Request")).not.toBeInTheDocument();
+	});
+
+	it("loads the root list on the sidebar route when no file page request is active", async () => {
+		mockState.pathname = "/folder/99";
+		mockState.fileStore.folders = [createFolder(1, "Alpha")];
+		mockState.listRoot.mockResolvedValue({
+			folders: [createFolder(1, "Alpha")],
+		});
+
+		await renderTree();
+
+		expect(await screen.findByText("Alpha")).toBeInTheDocument();
+		expect(mockState.listRoot).toHaveBeenCalledTimes(1);
+	});
+
 	it("collapses and expands the root folder list without navigating", async () => {
 		mockState.fileStore.folders = [
 			createFolder(1, "Alpha"),
 			createFolder(2, "Beta"),
 		];
-		mockState.listRoot.mockResolvedValue({
+		mockState.fileStore.lastFolderContents = {
+			folderId: null,
 			folders: [createFolder(1, "Alpha"), createFolder(2, "Beta")],
-		});
+			sortBy: "name",
+			sortOrder: "asc",
+			workspaceRevision: 0,
+		};
 
 		await renderTree();
 
@@ -255,6 +328,7 @@ describe("FolderTree", () => {
 	});
 
 	it("uses the current file sorting preferences for folder requests", async () => {
+		mockState.pathname = "/folder/99";
 		mockState.fileStore.sortBy = "updated_at";
 		mockState.fileStore.sortOrder = "desc";
 		mockState.listRoot.mockResolvedValue({
@@ -274,9 +348,13 @@ describe("FolderTree", () => {
 
 	it("loads children while navigating by click and keyboard", async () => {
 		mockState.fileStore.folders = [createFolder(1, "Alpha Root")];
-		mockState.listRoot.mockResolvedValue({
+		mockState.fileStore.lastFolderContents = {
+			folderId: null,
 			folders: [createFolder(1, "Alpha Root")],
-		});
+			sortBy: "name",
+			sortOrder: "asc",
+			workspaceRevision: 0,
+		};
 		mockState.listFolder.mockImplementation(async (id: number) => {
 			if (id === 1) {
 				return {
@@ -329,9 +407,13 @@ describe("FolderTree", () => {
 		} as unknown as DataTransfer;
 
 		mockState.fileStore.folders = [createFolder(1, "Alpha")];
-		mockState.listRoot.mockResolvedValue({
+		mockState.fileStore.lastFolderContents = {
+			folderId: null,
 			folders: [createFolder(1, "Alpha")],
-		});
+			sortBy: "name",
+			sortOrder: "asc",
+			workspaceRevision: 0,
+		};
 		mockState.hasInternalDragData.mockReturnValue(true);
 		mockState.readInternalDragData.mockReturnValue({
 			fileIds: [9],
@@ -345,6 +427,15 @@ describe("FolderTree", () => {
 		fireEvent.dragOver(rootButton, { dataTransfer });
 
 		expect(dataTransfer.dropEffect).toBe("move");
+		expect(rootButton.closest("[data-folder-tree-root-row]")).toHaveClass(
+			"ring-2",
+		);
+
+		fireEvent.dragLeave(rootButton, { dataTransfer });
+
+		expect(rootButton.closest("[data-folder-tree-root-row]")).not.toHaveClass(
+			"ring-2",
+		);
 
 		fireEvent.drop(rootButton, { dataTransfer });
 
@@ -360,6 +451,95 @@ describe("FolderTree", () => {
 		expect(onMoveToFolder).toHaveBeenCalledTimes(1);
 	});
 
+	it("ignores root drag events without internal drag data", async () => {
+		const dataTransfer = {
+			dropEffect: "copy",
+			types: [],
+		} as unknown as DataTransfer;
+
+		mockState.fileStore.folders = [createFolder(1, "Alpha")];
+		mockState.fileStore.lastFolderContents = {
+			folderId: null,
+			folders: [createFolder(1, "Alpha")],
+			sortBy: "name",
+			sortOrder: "asc",
+			workspaceRevision: 0,
+		};
+		mockState.hasInternalDragData.mockReturnValue(false);
+
+		await renderTree();
+
+		const rootButton = await screen.findByRole("button", { name: /root/i });
+		fireEvent.dragOver(rootButton, { dataTransfer });
+
+		expect(dataTransfer.dropEffect).toBe("copy");
+		expect(rootButton.closest("[data-folder-tree-root-row]")).not.toHaveClass(
+			"ring-2",
+		);
+	});
+
+	it("cancels pending hover expansion when drag leaves the folder row", async () => {
+		const dataTransfer = {
+			dropEffect: "copy",
+			types: ["application/x-asterdrive-move"],
+		} as unknown as DataTransfer;
+
+		mockState.fileStore.folders = [createFolder(1, "Alpha")];
+		mockState.fileStore.lastFolderContents = {
+			folderId: null,
+			folders: [createFolder(1, "Alpha")],
+			sortBy: "name",
+			sortOrder: "asc",
+			workspaceRevision: 0,
+		};
+		mockState.listFolder.mockResolvedValue({
+			folders: [createFolder(2, "Beta")],
+		});
+		mockState.hasInternalDragData.mockReturnValue(true);
+
+		await renderTree();
+
+		await screen.findByText("Alpha");
+		const alphaRow = getFolderRow("Alpha");
+
+		vi.useFakeTimers();
+		fireEvent.dragOver(alphaRow, { dataTransfer });
+		fireEvent.dragLeave(alphaRow, {
+			dataTransfer,
+			relatedTarget: document.body,
+		});
+		await vi.advanceTimersByTimeAsync(FOLDER_TREE_DRAG_EXPAND_DELAY_MS);
+		vi.useRealTimers();
+
+		expect(mockState.listFolder).not.toHaveBeenCalled();
+		expect(screen.queryByText("Beta")).not.toBeInTheDocument();
+	});
+
+	it("resets cached folders when the workspace changes", async () => {
+		mockState.pathname = "/folder/99";
+		mockState.fileStore.folders = [createFolder(1, "Personal Folder")];
+		mockState.listRoot.mockResolvedValueOnce({
+			folders: [createFolder(1, "Personal Folder")],
+		});
+
+		const { FolderTree } = await import("@/components/folders/FolderTree");
+		const view = render(<FolderTree />);
+
+		expect(await screen.findByText("Personal Folder")).toBeInTheDocument();
+		expect(mockState.listRoot).toHaveBeenCalledTimes(1);
+
+		mockState.workspace = { kind: "team", teamId: 12 };
+		mockState.pathname = "/teams/12";
+		mockState.fileStore.folders = [createFolder(2, "Team Folder")];
+		mockState.listRoot.mockResolvedValueOnce({
+			folders: [createFolder(2, "Team Folder")],
+		});
+		view.rerender(<FolderTree />);
+
+		expect(await screen.findByText("Team Folder")).toBeInTheDocument();
+		expect(screen.queryByText("Personal Folder")).not.toBeInTheDocument();
+	});
+
 	it("expands a hovered folder after the drag delay and drops into it", async () => {
 		const dataTransfer = {
 			dropEffect: "copy",
@@ -367,9 +547,13 @@ describe("FolderTree", () => {
 		} as unknown as DataTransfer;
 
 		mockState.fileStore.folders = [createFolder(1, "Alpha")];
-		mockState.listRoot.mockResolvedValue({
+		mockState.fileStore.lastFolderContents = {
+			folderId: null,
 			folders: [createFolder(1, "Alpha")],
-		});
+			sortBy: "name",
+			sortOrder: "asc",
+			workspaceRevision: 0,
+		};
 		mockState.listFolder.mockResolvedValue({
 			folders: [createFolder(2, "Beta")],
 		});
@@ -417,9 +601,13 @@ describe("FolderTree", () => {
 
 	it("refreshes affected parents when a folder-tree-move event is dispatched", async () => {
 		mockState.fileStore.folders = [createFolder(1, "Alpha")];
-		mockState.listRoot.mockResolvedValue({
+		mockState.fileStore.lastFolderContents = {
+			folderId: null,
 			folders: [createFolder(1, "Alpha")],
-		});
+			sortBy: "name",
+			sortOrder: "asc",
+			workspaceRevision: 0,
+		};
 		mockState.listFolder.mockImplementation(async (id: number) => {
 			if (id === 1) {
 				return {

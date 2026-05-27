@@ -218,6 +218,9 @@ describe("SecurityMfaSection", () => {
 			expect(mockState.handleApiError).toHaveBeenCalledWith(error);
 		});
 		expect(mockState.authService.getMfaStatus).toHaveBeenCalledTimes(2);
+		expect(mockState.authService.getMfaStatus).toHaveBeenLastCalledWith({
+			force: true,
+		});
 	});
 
 	it("walks through TOTP setup, stores recovery codes, and closes after confirmation", async () => {

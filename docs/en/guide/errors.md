@@ -21,7 +21,9 @@ Backend error codes are grouped by thousands:
 
 Once you know the range, a new error code roughly tells you which category of problem it belongs to.
 
-Many errors also include a more specific `error.subcode`. The frontend uses it first to show a more concrete message. Scripts and third-party clients should also check `subcode` first instead of parsing the English `msg`. `msg` is only suitable as a fallback explanation or troubleshooting clue.
+Many errors also include a more specific `error.code`. This is the new stable string error code. The frontend, scripts, and third-party clients should check it first instead of parsing the English `msg`. `msg` is only suitable as a fallback explanation or troubleshooting clue.
+
+Before 0.3.0, some responses also include `error.subcode`. It is only a transition field for older clients. New scripts, integrations, and frontend logic should use `error.code`. When troubleshooting or opening an issue, record `error.code` first, then the numeric top-level `code`.
 
 ---
 
@@ -91,7 +93,7 @@ Resource conflict. Most commonly, the thing you are creating or changing already
 - Remote node binding hit a uniqueness conflict
 
 Regular users should follow the page prompt, choose another name, or refresh and retry.
-Administrators encountering this during batch import, script calls, or remote-node enrollment should first read `error.subcode`; it is more specific than `conflict` itself.
+Administrators encountering this during batch import, script calls, or remote-node enrollment should first read `error.code`; it is more specific than `conflict` itself. Older transition responses may also include `error.subcode`, but that field is only a compatibility reference.
 
 ---
 
@@ -123,7 +125,7 @@ You do not have permission to perform this operation.
 - Administrator disabled: contact another administrator
 - Operating another user's resource: check share permissions or team membership permissions
 
-The same `forbidden` error uses `error.subcode` to explain the concrete reason:
+The same `forbidden` error uses `error.code` to explain the concrete reason. Before 0.3.0, the same value may also appear in the compatibility field `error.subcode`:
 
 - `auth.admin_required`: administrator permission required
 - `auth.account_disabled`: account has been disabled
@@ -159,7 +161,7 @@ Links are time-limited, 24 hours by default. Request a new one. If `invalid` rep
 
 ### Passkey-Related Suberrors
 
-Passkey problems usually still belong to main error codes such as `bad_request`, `auth_failed`, or `token_invalid`. Check `error.subcode` for accuracy:
+Passkey problems usually still belong to main error codes such as `bad_request`, `auth_failed`, or `token_invalid`. Check `error.code` for accuracy:
 
 - `passkey.name_invalid`: passkey name contains control characters; choose a normal name
 - `passkey.name_too_long`: passkey name is too long; shorten it and retry
@@ -299,7 +301,7 @@ Wait a few seconds and retry complete. Large files take longer to assemble becau
 
 ### ZIP Archive Preview Suberrors
 
-ZIP preview errors usually hang under `bad_request` or `forbidden`. Check `error.subcode`:
+ZIP preview errors usually hang under `bad_request` or `forbidden`. Check `error.code`:
 
 - `archive_preview.disabled`: global ZIP preview switch is not enabled
 - `archive_preview.user_disabled`: ZIP preview for logged-in users is not enabled
@@ -312,7 +314,7 @@ ZIP preview errors usually hang under `bad_request` or `forbidden`. Check `error
 - `archive_preview.rejected`: background task refused to run, probably because the file changed, permission changed, or runtime limits are no longer satisfied
 
 If the first open only shows "generating", that is not an error. Wait for `archive preview generation` in `Admin -> Tasks` / `Task Center` to finish, then open again.  
-If the UI says the current filename encoding cannot parse this ZIP, switch `Filename encoding` in the ZIP preview toolbar and retry. This kind of prompt may not have a separate backend subcode.
+If the UI says the current filename encoding cannot parse this ZIP, switch `Filename encoding` in the ZIP preview toolbar and retry. This kind of prompt may not have a separate backend error code.
 
 ---
 
@@ -509,4 +511,4 @@ Submit the issue in this order:
 3. Run `aster_drive doctor` once as administrator
 4. Open an issue in [GitHub Issues](https://github.com/AptS-1547/AsterDrive/issues)
 
-`error_code` is the fastest clue for locating the problem. When reporting an issue, paste the error code first. It is more useful than pasting an English error message.
+`error.code` and the numeric `code` are the fastest clues for locating the problem. When reporting an issue, paste the error code first. It is more useful than pasting an English error message.

@@ -83,6 +83,13 @@ export function normalizeSortOrder(
 
 export interface RequestSlice {
 	resetWorkspaceState: () => void;
+	lastFolderContents: {
+		folderId: number | null;
+		folders: FolderListItem[];
+		sortBy: SortBy;
+		sortOrder: SortOrder;
+		workspaceRevision: number;
+	} | null;
 	workspaceRequestRevision: number;
 	_workspaceRequestId: number;
 	_workspaceRequestController: AbortController | null;

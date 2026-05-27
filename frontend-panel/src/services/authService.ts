@@ -1,5 +1,6 @@
 import type {
 	ActionMessageResp,
+	ApiResponse,
 	AuthSessionInfo,
 	AuthTokenResp,
 	AvatarSource,
@@ -30,7 +31,7 @@ import type {
 	UserPreferences,
 	UserProfileInfo,
 } from "@/types/api";
-import { type ApiResponse, ErrorCode, isApiSubcode } from "@/types/api-helpers";
+import { ErrorCode, isApiErrorCode, isApiSubcode } from "@/types/api-helpers";
 import { ApiError, api } from "./http";
 
 export interface AuthSessionState {
@@ -98,9 +99,17 @@ interface ListExternalAuthLinksOptions {
 	force?: boolean;
 }
 
+interface GetMfaStatusOptions {
+	force?: boolean;
+}
+
 let cachedPasskeys: PasskeyInfo[] | null = null;
 let pendingPasskeysRequest: Promise<PasskeyInfo[]> | null = null;
 let passkeysCacheSerial = 0;
+
+let cachedMfaStatus: MfaStatus | null = null;
+let pendingMfaStatusRequest: Promise<MfaStatus> | null = null;
+let mfaStatusCacheSerial = 0;
 
 let cachedExternalAuthLinks: ExternalAuthLinkInfo[] | null = null;
 let pendingExternalAuthLinksRequest: Promise<ExternalAuthLinkInfo[]> | null =
@@ -115,8 +124,19 @@ function cloneExternalAuthLinks(links: ExternalAuthLinkInfo[]) {
 	return links.map((link) => ({ ...link }));
 }
 
+function cloneMfaStatus(status: MfaStatus) {
+	return {
+		...status,
+		factors: status.factors.map((factor) => ({ ...factor })),
+	};
+}
+
 function primePasskeysCache(passkeys: PasskeyInfo[]) {
 	cachedPasskeys = clonePasskeys(passkeys);
+}
+
+function primeMfaStatusCache(status: MfaStatus) {
+	cachedMfaStatus = cloneMfaStatus(status);
 }
 
 function primeExternalAuthLinksCache(links: ExternalAuthLinkInfo[]) {
@@ -129,6 +149,12 @@ export function invalidatePasskeysCache() {
 	passkeysCacheSerial += 1;
 }
 
+export function invalidateMfaStatusCache() {
+	cachedMfaStatus = null;
+	pendingMfaStatusRequest = null;
+	mfaStatusCacheSerial += 1;
+}
+
 export function invalidateExternalAuthLinksCache() {
 	cachedExternalAuthLinks = null;
 	pendingExternalAuthLinksRequest = null;
@@ -137,6 +163,7 @@ export function invalidateExternalAuthLinksCache() {
 
 function invalidateAuthIdentityCaches() {
 	invalidatePasskeysCache();
+	invalidateMfaStatusCache();
 	invalidateExternalAuthLinksCache();
 }
 
@@ -261,6 +288,34 @@ function listExternalAuthLinks(options?: ListExternalAuthLinksOptions) {
 	return request.then(cloneExternalAuthLinks);
 }
 
+function getMfaStatus(options?: GetMfaStatusOptions) {
+	const force = options?.force ?? false;
+	if (!force && cachedMfaStatus !== null) {
+		return Promise.resolve(cloneMfaStatus(cachedMfaStatus));
+	}
+	if (!force && pendingMfaStatusRequest !== null) {
+		return pendingMfaStatusRequest.then(cloneMfaStatus);
+	}
+
+	const requestSerial = ++mfaStatusCacheSerial;
+	const request = (async () => {
+		const status = await api.get<MfaStatus>("/auth/mfa");
+		if (status) {
+			if (requestSerial === mfaStatusCacheSerial) {
+				primeMfaStatusCache(status);
+			}
+			return cloneMfaStatus(status);
+		}
+		return status;
+	})().finally(() => {
+		if (pendingMfaStatusRequest === request) {
+			pendingMfaStatusRequest = null;
+		}
+	});
+	pendingMfaStatusRequest = request;
+	return request.then((status) => (status ? cloneMfaStatus(status) : status));
+}
+
 function me(): Promise<MeResponse>;
 function me(fields: MeField[]): Promise<MePartialResponse>;
 function me(fields?: MeField[]) {
@@ -382,7 +437,7 @@ export const authService = {
 
 	listExternalAuthLinks,
 
-	getMfaStatus: () => api.get<MfaStatus>("/auth/mfa"),
+	getMfaStatus,
 
 	startTotpSetup: () =>
 		api.post<TotpSetupStartResponse>("/auth/mfa/totp/setup/start"),
@@ -391,8 +446,13 @@ export const authService = {
 		flow_token: string;
 		code: string;
 		name?: string;
-	}) =>
-		api.post<TotpSetupFinishResponse>("/auth/mfa/totp/setup/finish", payload),
+	}) => {
+		invalidateMfaStatusCache();
+		return api.post<TotpSetupFinishResponse>(
+			"/auth/mfa/totp/setup/finish",
+			payload,
+		);
+	},
 
 	verifyMfaChallenge: async (payload: {
 		flow_token: string;
@@ -414,11 +474,22 @@ export const authService = {
 			payload,
 		),
 
-	deleteMfaFactor: (id: number, payload: MfaSensitiveActionRequest) =>
-		api.delete<void>(`/auth/mfa/factors/${id}`, { data: payload }),
+	deleteMfaFactor: async (id: number, payload: MfaSensitiveActionRequest) => {
+		const result = await api.delete<void>(`/auth/mfa/factors/${id}`, {
+			data: payload,
+		});
+		invalidateMfaStatusCache();
+		return result;
+	},
 
-	regenerateMfaRecoveryCodes: (payload: MfaSensitiveActionRequest) =>
-		api.post<string[]>("/auth/mfa/recovery-codes/regenerate", payload),
+	regenerateMfaRecoveryCodes: async (payload: MfaSensitiveActionRequest) => {
+		const result = await api.post<string[]>(
+			"/auth/mfa/recovery-codes/regenerate",
+			payload,
+		);
+		invalidateMfaStatusCache();
+		return result;
+	},
 
 	deleteExternalAuthLink: async (id: number) => {
 		await api.delete<void>(`/auth/external-auth/links/${id}`);
@@ -497,7 +568,12 @@ export const authService = {
 		);
 		if (resp.code !== ErrorCode.Success) {
 			throw new ApiError(resp.code, resp.msg, {
+				apiCode:
+					resp.error?.code && isApiErrorCode(resp.error.code)
+						? resp.error.code
+						: undefined,
 				internalCode: resp.error?.internal_code ?? undefined,
+				// TODO(0.3.0): remove subcode compatibility after API clients use error.code.
 				subcode:
 					resp.error?.subcode && isApiSubcode(resp.error.subcode)
 						? resp.error.subcode

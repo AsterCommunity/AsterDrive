@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { ApiSubcode, ErrorCode } from "@/types/api-helpers";
+import { ApiErrorCode, ApiSubcode, ErrorCode } from "@/types/api-helpers";
 
 type MockAxiosError = {
 	config?: { _retry?: boolean; url?: string };
@@ -245,6 +245,7 @@ describe("http api helpers", () => {
 				code: ErrorCode.StorageTransientFailure,
 				msg: "Storage Driver Error",
 				error: {
+					code: ApiErrorCode.StorageTransient,
 					internal_code: "E031",
 					subcode: ApiSubcode.StorageTransient,
 					retryable: true,
@@ -258,6 +259,7 @@ describe("http api helpers", () => {
 			expect.objectContaining({
 				code: ErrorCode.StorageTransientFailure,
 				message: "Storage Driver Error",
+				apiCode: ApiErrorCode.StorageTransient,
 				internalCode: "E031",
 				subcode: ApiSubcode.StorageTransient,
 				retryable: true,
@@ -272,6 +274,7 @@ describe("http api helpers", () => {
 				msg: "denied",
 				error: {
 					internal_code: "E013",
+					code: "remote.dynamic",
 					subcode: "remote.dynamic",
 				},
 			},
@@ -283,8 +286,88 @@ describe("http api helpers", () => {
 			expect.objectContaining({
 				code: ErrorCode.Forbidden,
 				message: "denied",
+				apiCode: undefined,
 				internalCode: "E013",
 				subcode: undefined,
+			}),
+		);
+	});
+
+	it("keeps valid ApiErrorCode even when legacy subcode is unknown", async () => {
+		mockState.client.get.mockResolvedValue({
+			data: {
+				code: ErrorCode.Forbidden,
+				msg: "denied",
+				error: {
+					internal_code: "E013",
+					code: ApiErrorCode.AuthRequestOriginUntrusted,
+					subcode: "remote.dynamic",
+				},
+			},
+		});
+
+		const { api } = await loadHttpModule();
+
+		await expect(api.get("/files")).rejects.toEqual(
+			expect.objectContaining({
+				code: ErrorCode.Forbidden,
+				message: "denied",
+				apiCode: ApiErrorCode.AuthRequestOriginUntrusted,
+				internalCode: "E013",
+				subcode: undefined,
+			}),
+		);
+	});
+
+	it("falls back to legacy subcode when structured ApiErrorCode is absent", async () => {
+		mockState.client.get.mockResolvedValue({
+			data: {
+				code: ErrorCode.Forbidden,
+				msg: "denied",
+				error: {
+					internal_code: "E013",
+					subcode: ApiSubcode.AuthCsrfTokenInvalid,
+				},
+			},
+		});
+
+		const { api } = await loadHttpModule();
+
+		await expect(api.get("/files")).rejects.toEqual(
+			expect.objectContaining({
+				code: ErrorCode.Forbidden,
+				message: "denied",
+				apiCode: undefined,
+				internalCode: "E013",
+				subcode: ApiSubcode.AuthCsrfTokenInvalid,
+			}),
+		);
+	});
+
+	it("ignores malformed ApiErrorInfo fields without failing extraction", async () => {
+		mockState.client.get.mockResolvedValue({
+			data: {
+				code: ErrorCode.BadRequest,
+				msg: "bad request",
+				error: {
+					internal_code: 42,
+					code: 1000,
+					subcode: null,
+					retryable: "false",
+				},
+			},
+		});
+
+		const { api } = await loadHttpModule();
+
+		await expect(api.get("/files")).rejects.toEqual(
+			expect.objectContaining({
+				code: ErrorCode.BadRequest,
+				message: "bad request",
+				apiCode: undefined,
+				internalCode: undefined,
+				subcode: undefined,
+				retryable: undefined,
 			}),
 		);
 	});

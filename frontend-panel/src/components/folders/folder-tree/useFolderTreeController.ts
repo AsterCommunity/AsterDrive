@@ -47,6 +47,7 @@ export function useFolderTreeController({
 	const moveToFolder = useFileStore((s) => s.moveToFolder);
 	const storeFolders = useFileStore((s) => s.folders);
 	const storeCurrentFolderId = useFileStore((s) => s.currentFolderId);
+	const storeLastFolderContents = useFileStore((s) => s.lastFolderContents);
 	const storeLoading = useFileStore((s) => s.loading);
 	const sortBy = useFileStore((s) => s.sortBy);
 	const sortOrder = useFileStore((s) => s.sortOrder);
@@ -154,11 +155,33 @@ export function useFolderTreeController({
 		[],
 	);
 
+	const hasFreshStoreFolderContents = useCallback(
+		(parentId: number | null) =>
+			storeLastFolderContents?.folderId === parentId &&
+			storeLastFolderContents.sortBy === sortBy &&
+			storeLastFolderContents.sortOrder === sortOrder &&
+			storeLastFolderContents.workspaceRevision ===
+				useFileStore.getState().workspaceRequestRevision,
+		[sortBy, sortOrder, storeLastFolderContents],
+	);
+
 	const ensureChildrenLoaded = useCallback(
 		async (parentId: number | null) => {
 			if (parentId === null) {
 				if (rootLoaded) return;
 			} else if (loadedIds.has(parentId)) {
+				return;
+			}
+
+			const lastFolderContents = useFileStore.getState().lastFolderContents;
+			if (
+				lastFolderContents?.folderId === parentId &&
+				lastFolderContents.sortBy === sortBy &&
+				lastFolderContents.sortOrder === sortOrder &&
+				lastFolderContents.workspaceRevision ===
+					useFileStore.getState().workspaceRequestRevision
+			) {
+				syncFolderChildren(parentId, lastFolderContents.folders);
 				return;
 			}
 
@@ -235,6 +258,15 @@ export function useFolderTreeController({
 
 	useEffect(() => {
 		if (rootLoaded) return;
+
+		if (isRootRoute && storeCurrentFolderId === null) {
+			if (storeLoading) return;
+			if (hasFreshStoreFolderContents(null)) {
+				syncFolderChildren(null, storeFolders);
+				return;
+			}
+		}
+
 		let cancelled = false;
 		void ensureChildrenLoaded(null).catch(() => {
 			if (!cancelled) {
@@ -244,7 +276,16 @@ export function useFolderTreeController({
 		return () => {
 			cancelled = true;
 		};
-	}, [ensureChildrenLoaded, rootLoaded]);
+	}, [
+		ensureChildrenLoaded,
+		hasFreshStoreFolderContents,
+		isRootRoute,
+		rootLoaded,
+		storeCurrentFolderId,
+		storeFolders,
+		storeLoading,
+		syncFolderChildren,
+	]);
 
 	useEffect(() => {
 		if (storeLoading) return;
@@ -259,6 +300,22 @@ export function useFolderTreeController({
 		storeLoading,
 		syncFolderChildren,
 	]);
+
+	useEffect(() => {
+		if (!storeLastFolderContents) return;
+		if (storeLastFolderContents.sortBy !== sortBy) return;
+		if (storeLastFolderContents.sortOrder !== sortOrder) return;
+		if (
+			storeLastFolderContents.workspaceRevision !==
+			useFileStore.getState().workspaceRequestRevision
+		) {
+			return;
+		}
+		syncFolderChildren(
+			storeLastFolderContents.folderId,
+			storeLastFolderContents.folders,
+		);
+	}, [sortBy, sortOrder, storeLastFolderContents, syncFolderChildren]);
 
 	useEffect(() => {
 		if (storeLoading) return;

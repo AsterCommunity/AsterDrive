@@ -89,7 +89,7 @@ describe("AdminAboutPage", () => {
 		expect(screen.getAllByText("about_channel_alpha")).toHaveLength(2);
 		expect(
 			screen.getByRole("link", { name: /about_open_docs/i }),
-		).toHaveAttribute("href", "https://asterdrive.docs.esap.cc/");
+		).toHaveAttribute("href", "https://drive.astercosm.com/");
 		expect(
 			screen.getByRole("link", { name: /about_view_repository/i }),
 		).toHaveAttribute("href", "https://github.com/AptS-1547/AsterDrive");

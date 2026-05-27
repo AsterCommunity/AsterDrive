@@ -19,7 +19,7 @@ import { usePageTitle } from "@/hooks/usePageTitle";
 import { cn } from "@/lib/utils";
 
 const REPOSITORY_URL = "https://github.com/AptS-1547/AsterDrive";
-const DOCS_URL = "https://asterdrive.docs.esap.cc/";
+const DOCS_URL = "https://drive.astercosm.com/";
 const LICENSE_URL = `${REPOSITORY_URL}/blob/master/LICENSE`;
 
 type ReleaseChannel =

@@ -55,11 +55,13 @@ pub fn storage_driver_error(kind: StorageErrorKind, message: impl Into<String>) 
     AsterError::storage_driver_error(encode_storage_driver_error_message(kind, message.into()))
 }
 
+// TODO(0.3.0): replace callers with structured ApiErrorCode constructors.
 pub fn storage_driver_error_with_subcode(
     kind: StorageErrorKind,
     subcode: ApiSubcode,
     message: impl Into<String>,
 ) -> AsterError {
+    // TODO(0.3.0): remove after storage errors carry structured ApiErrorCode.
     storage_driver_error(
         kind,
         encode_api_error_subcode_message(subcode, message.into()),

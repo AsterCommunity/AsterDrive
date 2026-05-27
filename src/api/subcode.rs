@@ -1,4 +1,8 @@
-//! Stable API error subcodes.
+//! Legacy stable API error subcodes.
+//!
+//! TODO(0.3.0): remove this as a public API contract after all callers and
+//! clients use `ApiErrorCode`. Until then, keep wire values stable so old
+//! clients can read `ApiErrorInfo.subcode`.
 
 use serde::{Deserialize, Serialize};
 use std::str::FromStr;

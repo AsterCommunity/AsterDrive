@@ -72,6 +72,7 @@ function createCachedUser() {
 		id: 1,
 		username: "cached-user",
 		email: "cached@example.com",
+		access_token_expires_at: Math.floor(Date.now() / 1000) + 60,
 	};
 }
 
@@ -292,6 +293,47 @@ describe("useAuthStore edge cases", () => {
 		expect(sessionStorage.getItem("aster-auth-expires-at")).toBeNull();
 	});
 
+	it("recovers a stale refresh by syncing the current session", async () => {
+		const cachedUser = createCachedUser();
+		localStorage.setItem("aster-cached-user", JSON.stringify(cachedUser));
+		sessionStorage.setItem(
+			"aster-auth-expires-at",
+			String(Date.now() + 60_000),
+		);
+		const nextExpiresAt = Math.floor(Date.now() / 1000) + 900;
+		mockState.refreshToken.mockRejectedValue({
+			code: ErrorCode.RefreshTokenStale,
+			message: "stale refresh token",
+		});
+		mockState.me.mockResolvedValue({
+			...cachedUser,
+			access_token_expires_at: nextExpiresAt,
+		});
+		mockState.isAxiosError.mockReturnValue(false);
+		const { useAuthStore } = await loadStore();
+
+		await expect(
+			useAuthStore.getState().refreshToken(),
+		).resolves.toBeUndefined();
+
+		expect(mockState.me).toHaveBeenCalledWith(["session"]);
+		expect(useAuthStore.getState()).toMatchObject({
+			isAuthenticated: true,
+			isAuthStale: false,
+			bootOffline: false,
+			expiresAt: nextExpiresAt * 1000,
+		});
+		expect(sessionStorage.getItem("aster-auth-expires-at")).toBe(
+			String(nextExpiresAt * 1000),
+		);
+		expect(
+			JSON.parse(localStorage.getItem("aster-cached-user") ?? "{}"),
+		).toMatchObject({
+			access_token_expires_at: nextExpiresAt,
+		});
+		useAuthStore.getState().stopAutoRefresh();
+	});
+
 	it("clears local session state when a peer reports refresh auth failure", async () => {
 		localStorage.setItem(
 			"aster-cached-user",
@@ -307,6 +349,7 @@ describe("useAuthStore edge cases", () => {
 				ownerId: "peer-tab",
 				lockId: "peer-lock",
 				expiresAt: Date.now() + 15_000,
+				updatedAt: Date.now(),
 			}),
 		);
 		const { useAuthStore } = await loadStore();

@@ -360,7 +360,10 @@ use utoipa::{Modify, OpenApi};
     components(
         schemas(
             // api::error_code / api::pagination / api::response：统一错误码、分页结构和通用响应模型。
+            crate::api::api_error_code::ApiErrorCode,
             crate::api::error_code::ErrorCode,
+            // TODO(0.3.0): remove ApiSubcode from public OpenAPI schemas after
+            // ApiErrorInfo.subcode is removed from the response contract.
             crate::api::subcode::ApiSubcode,
             crate::api::pagination::SortBy,
             crate::api::pagination::SortOrder,

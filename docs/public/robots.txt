@@ -1,4 +1,4 @@
 User-agent: *
 Allow: /
 
-Sitemap: https://asterdrive.docs.esap.cc/sitemap.xml
+Sitemap: https://drive.astercosm.com/sitemap.xml

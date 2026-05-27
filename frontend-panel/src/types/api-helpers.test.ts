@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { ApiSubcode, isApiSubcode } from "@/types/api-helpers";
+import {
+	ApiErrorCode,
+	ApiSubcode,
+	isApiErrorCode,
+	isApiSubcode,
+} from "@/types/api-helpers";
 
 describe("ApiSubcode helpers", () => {
 	it("accepts every runtime ApiSubcode constant", () => {
@@ -22,5 +27,42 @@ describe("ApiSubcode helpers", () => {
 		"file.created",
 	])("rejects non-generated or non-error subcode value %s", (value) => {
 		expect(isApiSubcode(value)).toBe(false);
+	});
+});
+
+describe("ApiErrorCode helpers", () => {
+	it("accepts every runtime ApiErrorCode constant", () => {
+		for (const code of Object.values(ApiErrorCode)) {
+			expect(isApiErrorCode(code)).toBe(true);
+		}
+	});
+
+	it("keeps ApiErrorCode runtime values unique", () => {
+		const values = Object.values(ApiErrorCode);
+
+		expect(new Set(values).size).toBe(values.length);
+	});
+
+	it("covers every legacy ApiSubcode during the transition period", () => {
+		const codes = new Set(Object.values(ApiErrorCode));
+
+		for (const subcode of Object.values(ApiSubcode)) {
+			expect(codes.has(subcode)).toBe(true);
+		}
+	});
+
+	it.each([
+		"",
+		"AuthFailed",
+		"StorageTransient",
+		"auth.failed ",
+		" auth.failed",
+		"AUTH.FAILED",
+		"auth_failed",
+		"2000",
+		"remote.dynamic",
+		"storage.remote_permission",
+	])("rejects non-generated or non-error API error code value %s", (value) => {
+		expect(isApiErrorCode(value)).toBe(false);
 	});
 });

@@ -323,6 +323,9 @@ export function useUploadAreaRestore({
 	]);
 
 	useEffect(() => {
-		void restorePendingSessions();
+		const timer = window.setTimeout(() => {
+			void restorePendingSessions();
+		}, 600);
+		return () => window.clearTimeout(timer);
 	}, [restorePendingSessions]);
 }

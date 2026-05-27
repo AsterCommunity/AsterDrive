@@ -60,6 +60,13 @@ export const createNavigationSlice: FileStoreSlice<NavigationSlice> = (
 				filesTotalCount: contents.files_total,
 				nextFileCursor: contents.next_file_cursor ?? null,
 				breadcrumb: newBreadcrumb,
+				lastFolderContents: {
+					folderId,
+					folders: contents.folders,
+					sortBy: get().sortBy,
+					sortOrder: get().sortOrder,
+					workspaceRevision: get().workspaceRequestRevision,
+				},
 				loading: false,
 				error: null,
 			});
@@ -103,6 +110,13 @@ export const createNavigationSlice: FileStoreSlice<NavigationSlice> = (
 				foldersTotalCount: contents.folders_total,
 				filesTotalCount: contents.files_total,
 				nextFileCursor: contents.next_file_cursor ?? null,
+				lastFolderContents: {
+					folderId: currentFolderId,
+					folders: contents.folders,
+					sortBy: get().sortBy,
+					sortOrder: get().sortOrder,
+					workspaceRevision: get().workspaceRequestRevision,
+				},
 				loading: false,
 			});
 		} catch (error) {

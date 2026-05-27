@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isTokenAuthError } from "@/lib/authErrors";
+import { isStaleRefreshTokenError, isTokenAuthError } from "@/lib/authErrors";
 import { ErrorCode } from "@/types/api-helpers";
 
 describe("isTokenAuthError", () => {
@@ -12,6 +12,9 @@ describe("isTokenAuthError", () => {
 
 	it("detects token auth errors from direct and nested API codes", () => {
 		expect(isTokenAuthError({ code: ErrorCode.TokenExpired })).toBe(true);
+		expect(isTokenAuthError({ code: String(ErrorCode.TokenExpired) })).toBe(
+			true,
+		);
 		expect(isTokenAuthError({ code: ErrorCode.TokenMissing })).toBe(true);
 		expect(
 			isTokenAuthError({
@@ -22,7 +25,34 @@ describe("isTokenAuthError", () => {
 				},
 			}),
 		).toBe(true);
+		expect(
+			isTokenAuthError({ code: ErrorCode.RefreshTokenReuseDetected }),
+		).toBe(true);
 		expect(isTokenAuthError({ code: ErrorCode.InvalidCredentials })).toBe(
+			false,
+		);
+		expect(isTokenAuthError({ code: ErrorCode.RefreshTokenStale })).toBe(false);
+	});
+
+	it("detects stale refresh token errors separately", () => {
+		expect(
+			isStaleRefreshTokenError({ code: ErrorCode.RefreshTokenStale }),
+		).toBe(true);
+		expect(
+			isStaleRefreshTokenError({
+				code: String(ErrorCode.RefreshTokenStale),
+			}),
+		).toBe(true);
+		expect(
+			isStaleRefreshTokenError({
+				response: {
+					data: {
+						code: ErrorCode.RefreshTokenStale,
+					},
+				},
+			}),
+		).toBe(true);
+		expect(isStaleRefreshTokenError({ code: ErrorCode.TokenInvalid })).toBe(
 			false,
 		);
 	});

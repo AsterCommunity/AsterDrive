@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url'
 import { defineConfig } from 'vitepress'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
-const SITE_URL = 'https://asterdrive.docs.esap.cc/'
+const SITE_URL = 'https://drive.astercosm.com/'
 const ZH_SITE_DESCRIPTION =
   'AsterDrive 官方文档中心，覆盖快速开始、日常使用、管理员配置、Docker/systemd 部署、备份恢复、WebDAV、WOPI 和远程节点。'
 const EN_SITE_DESCRIPTION =

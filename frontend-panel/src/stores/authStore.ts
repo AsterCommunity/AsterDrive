@@ -1,7 +1,7 @@
 import axios from "axios";
 import { create } from "zustand";
 import i18n from "@/i18n";
-import { isTokenAuthError } from "@/lib/authErrors";
+import { isStaleRefreshTokenError, isTokenAuthError } from "@/lib/authErrors";
 import {
 	isCrossTabRefreshAuthFailure,
 	runWithCrossTabRefreshLock,
@@ -235,6 +235,30 @@ function updateCachedSessionExpiry(expiresAt: number) {
 	return expiresAtSeconds;
 }
 
+async function syncSessionFromMe(
+	getState: () => AuthState,
+	setAuthState: (state: Partial<AuthState>) => void,
+) {
+	const user = await authService.me(["session"]);
+	const expiresAt = getExpiresAtFromUser(user) ?? Date.now() + REFRESH_RETRY_MS;
+	const expiresAtSeconds = updateCachedSessionExpiry(expiresAt);
+	const currentUser = getState().user;
+	setStoredExpiresAt(expiresAt);
+	setAuthState({
+		expiresAt,
+		isAuthenticated: true,
+		isAuthStale: false,
+		bootOffline: false,
+		user: currentUser
+			? {
+					...currentUser,
+					access_token_expires_at: expiresAtSeconds,
+				}
+			: null,
+	});
+	getState().startAutoRefresh();
+}
+
 // ── Subscription: 用户偏好同步 ────────────────────────────────────────────────
 //
 // 当 user 对象变化且处于已认证状态时，将服务端偏好同步到 themeStore / fileStore。
@@ -356,11 +380,19 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 			try {
 				const refreshedLocally = await runWithCrossTabRefreshLock(
 					async () => {
-						const session = await authService.refreshToken();
-						get().syncSession(session.expiresIn);
+						try {
+							const session = await authService.refreshToken();
+							get().syncSession(session.expiresIn);
+						} catch (error) {
+							if (!isStaleRefreshTokenError(error)) {
+								throw error;
+							}
+							await syncSessionFromMe(get, set);
+						}
 					},
 					{
 						classifyError: (error) =>
+							isStaleRefreshTokenError(error) ||
 							isTokenAuthError(error) ||
 							(axios.isAxiosError(error) && error.response)
 								? "auth"
@@ -368,25 +400,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 					},
 				);
 				if (!refreshedLocally) {
-					const user = await authService.me(["session"]);
-					const expiresAt =
-						getExpiresAtFromUser(user) ?? Date.now() + REFRESH_RETRY_MS;
-					const expiresAtSeconds = updateCachedSessionExpiry(expiresAt);
-					const currentUser = get().user;
-					setStoredExpiresAt(expiresAt);
-					set({
-						expiresAt,
-						isAuthenticated: true,
-						isAuthStale: false,
-						bootOffline: false,
-						user: currentUser
-							? {
-									...currentUser,
-									access_token_expires_at: expiresAtSeconds,
-								}
-							: null,
-					});
-					get().startAutoRefresh();
+					await syncSessionFromMe(get, set);
 				}
 			} catch (error) {
 				if (

@@ -35,10 +35,10 @@ export function SecurityMfaSection() {
 		EMPTY_ACTION_STATE,
 	);
 
-	const load = useCallback(async () => {
+	const load = useCallback(async (options?: { force?: boolean }) => {
 		try {
 			setLoading(true);
-			setStatus(await authService.getMfaStatus());
+			setStatus(await authService.getMfaStatus(options));
 		} catch (error) {
 			handleApiError(error);
 		} finally {
@@ -160,7 +160,7 @@ export function SecurityMfaSection() {
 			<SecurityMfaHeader
 				enabled={enabled}
 				loading={loading}
-				onRefresh={() => void load()}
+				onRefresh={() => void load({ force: true })}
 			/>
 
 			<SecurityMfaMeasuredMotion contentClassName="space-y-4">

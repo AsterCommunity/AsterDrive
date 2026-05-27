@@ -12,7 +12,7 @@
 </p>
 
 <p align="center">
-  <a href="https://asterdrive.docs.esap.cc/"><img alt="在线文档" src="https://img.shields.io/badge/docs-VitePress-7C3AED?style=for-the-badge&logo=vitepress&logoColor=white"></a>
+  <a href="https://drive.astercosm.com/"><img alt="在线文档" src="https://img.shields.io/badge/docs-VitePress-7C3AED?style=for-the-badge&logo=vitepress&logoColor=white"></a>
   <a href="README.md"><img alt="English README" src="https://img.shields.io/badge/README-English-E11D48?style=for-the-badge"></a>
   <a href="docs/guide/getting-started.md"><img alt="快速开始" src="https://img.shields.io/badge/快速开始-guide-2563EB?style=for-the-badge"></a>
   <a href="docs/deployment/ops-cli.md"><img alt="运维 CLI" src="https://img.shields.io/badge/运维-CLI-0EA5E9?style=for-the-badge"></a>

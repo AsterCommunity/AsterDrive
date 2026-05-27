@@ -195,7 +195,7 @@ describe("RemoteNodeDialog", () => {
 			screen.getByRole("link", { name: "remote_node_wizard_docs_link" }),
 		).toHaveAttribute(
 			"href",
-			"https://asterdrive.docs.esap.cc/deployment/docker-follower",
+			"https://drive.astercosm.com/deployment/docker-follower",
 		);
 	});
 

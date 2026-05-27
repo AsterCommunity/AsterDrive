@@ -5,12 +5,19 @@ use serde::{Deserialize, Serialize};
 #[cfg(all(debug_assertions, feature = "openapi"))]
 use utoipa::ToSchema;
 
-use super::{error_code::ErrorCode, subcode::ApiSubcode};
+use super::{api_error_code::ApiErrorCode, error_code::ErrorCode, subcode::ApiSubcode};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct ApiErrorInfo {
+    pub code: ApiErrorCode,
     pub internal_code: String,
+    // TODO(0.3.0): remove this schema field after old clients stop reading
+    // error.subcode. ApiErrorInfo.code is the stable public error identifier.
+    #[deprecated(
+        since = "0.3.0",
+        note = "use ApiErrorInfo.code instead; subcode is kept only for transition compatibility"
+    )]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub subcode: Option<ApiSubcode>,
     #[serde(skip_serializing_if = "Option::is_none")]

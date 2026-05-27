@@ -57,6 +57,13 @@ vi.mock("@/lib/pwaWarmup", () => ({
 		mockState.warmupRouteChunks(...args),
 }));
 
+vi.mock("@/lib/idleTask", () => ({
+	runWhenIdle: (task: () => void) => {
+		const timer = window.setTimeout(task, 1200);
+		return () => window.clearTimeout(timer);
+	},
+}));
+
 vi.mock("@/components/layout/OfflineBootFallback", () => ({
 	OfflineBootFallback: () => <div data-testid="offline-fallback" />,
 }));
@@ -155,9 +162,10 @@ describe("App", () => {
 
 		render(<App />);
 
-		expect(mockState.previewAppsLoad).toHaveBeenCalledTimes(1);
-		expect(mockState.thumbnailSupportLoad).toHaveBeenCalledTimes(1);
-		expect(mockState.mediaDataSupportLoad).toHaveBeenCalledTimes(1);
+		expect(mockState.brandingLoad).toHaveBeenCalledTimes(1);
+		expect(mockState.previewAppsLoad).not.toHaveBeenCalled();
+		expect(mockState.thumbnailSupportLoad).not.toHaveBeenCalled();
+		expect(mockState.mediaDataSupportLoad).not.toHaveBeenCalled();
 		expect(mockState.authStore.checkAuth).not.toHaveBeenCalled();
 		expect(mockState.setAuthState).toHaveBeenCalledWith({ isChecking: false });
 	});
@@ -176,18 +184,25 @@ describe("App", () => {
 
 		render(<App />);
 
-		expect(mockState.previewAppsLoad).toHaveBeenCalledTimes(1);
-		expect(mockState.thumbnailSupportLoad).toHaveBeenCalledTimes(1);
-		expect(mockState.mediaDataSupportLoad).toHaveBeenCalledTimes(1);
+		expect(mockState.brandingLoad).toHaveBeenCalledTimes(1);
+		expect(mockState.previewAppsLoad).not.toHaveBeenCalled();
+		expect(mockState.thumbnailSupportLoad).not.toHaveBeenCalled();
+		expect(mockState.mediaDataSupportLoad).not.toHaveBeenCalled();
 		expect(mockState.authStore.checkAuth).toHaveBeenCalledTimes(1);
 		expect(mockState.setAuthState).not.toHaveBeenCalled();
 	});
 
-	it("does not revalidate public config on tab visibility changes", () => {
+	it("defers noncritical public config and does not revalidate on tab visibility changes", () => {
 		vi.useFakeTimers();
 		render(<App />);
 
 		expect(mockState.brandingLoad).toHaveBeenCalledTimes(1);
+		expect(mockState.previewAppsLoad).not.toHaveBeenCalled();
+		expect(mockState.thumbnailSupportLoad).not.toHaveBeenCalled();
+		expect(mockState.mediaDataSupportLoad).not.toHaveBeenCalled();
+
+		vi.advanceTimersByTime(1200);
+
 		expect(mockState.previewAppsLoad).toHaveBeenCalledTimes(1);
 		expect(mockState.thumbnailSupportLoad).toHaveBeenCalledTimes(1);
 		expect(mockState.mediaDataSupportLoad).toHaveBeenCalledTimes(1);
