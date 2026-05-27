@@ -15,6 +15,7 @@ import { taskService } from "@/services/taskService";
 import { useWorkspaceStore } from "@/stores/workspaceStore";
 import type { TaskInfo } from "@/types/api";
 import { TaskCard } from "./tasks/TaskCard";
+import { taskHasExpandableDetails } from "./tasks/TaskDetailsPanel";
 import { ACTIVE_TASK_STATUSES } from "./tasks/taskPresentation";
 
 const PAGE_SIZE = 20;
@@ -89,12 +90,16 @@ export default function TasksPage() {
 				return prev;
 			}
 
-			const visibleTaskIds = new Set(tasks.map((task) => task.id));
+			const expandableTaskIds = new Set(
+				tasks
+					.filter((task) => taskHasExpandableDetails(task))
+					.map((task) => task.id),
+			);
 			const next = new Set<number>();
 			let changed = false;
 
 			for (const taskId of prev) {
-				if (visibleTaskIds.has(taskId)) {
+				if (expandableTaskIds.has(taskId)) {
 					next.add(taskId);
 				} else {
 					changed = true;

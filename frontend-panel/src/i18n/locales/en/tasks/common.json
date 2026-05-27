@@ -12,5 +12,20 @@
 	"task_id_label": "Task #{{id}}",
 	"task_created_success": "Task added to the task center",
 	"result_path_label": "Result path",
-	"open_target_folder": "Open target folder"
+	"open_target_folder": "Open target folder",
+	"summary_action_prefix": "Move",
+	"summary_archive_extract_to": "extract to",
+	"summary_archive_compress_to": "pack to",
+	"summary_selected_items": "{{count}} items",
+	"summary_generate_preview_for": "Generate preview for",
+	"summary_generate_thumbnail_for": "Generate thumbnail for",
+	"summary_extract_metadata_for": "Extract media metadata for",
+	"summary_purge_trash": "Empty trash",
+	"summary_migrate_storage_policy": "Migrate storage policy",
+	"summary_policy_id": "Policy #{{id}}",
+	"summary_cleanup_temp_files": "Clean storage temporary files",
+	"summary_system_runtime": "Run system task {{name}}",
+	"summary_root_folder": "My files",
+	"task_progress_title": "Task progress",
+	"task_details_title": "Task details"
 }

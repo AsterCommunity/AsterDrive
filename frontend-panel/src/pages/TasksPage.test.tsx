@@ -487,9 +487,10 @@ describe("TasksPage", () => {
 
 		render(<TasksPage />);
 
-		expect(await screen.findByText("Extract archive")).toBeInTheDocument();
+		expect(await screen.findByText("bundle.zip")).toBeInTheDocument();
 
-		fireEvent.click(screen.getByText("tasks:retry_task"));
+		fireEvent.click(screen.getByRole("button", { name: "tasks:show_details" }));
+		fireEvent.click(await screen.findByText("tasks:retry_task"));
 
 		await waitFor(() => {
 			expect(mockState.retryTask).toHaveBeenCalledWith(1);
@@ -500,7 +501,7 @@ describe("TasksPage", () => {
 		});
 	});
 
-	it("shows task steps before details are expanded and removes the summary progress bar", async () => {
+	it("shows a compact summary before expansion and full task progress after expansion", async () => {
 		mockState.listInWorkspace.mockResolvedValue({
 			items: [
 				createTask({
@@ -517,21 +518,33 @@ describe("TasksPage", () => {
 
 		render(<TasksPage />);
 
-		await screen.findByText("Extract archive");
-		expect(screen.getByText("1. Waiting")).toBeInTheDocument();
+		expect(await screen.findByText("bundle-export.zip")).toBeInTheDocument();
+		expect(screen.getByText("tasks:summary_action_prefix")).toBeInTheDocument();
+		expect(
+			screen.getByText("tasks:summary_archive_compress_to"),
+		).toBeInTheDocument();
+		expect(screen.queryByText("1. Waiting")).not.toBeInTheDocument();
+		expect(
+			screen.queryByText("2. Prepare archive sources"),
+		).not.toBeInTheDocument();
+		expect(screen.queryByText(/Packing archive/)).not.toBeInTheDocument();
+		expect(
+			screen.queryByText("tasks:step_progress_label"),
+		).not.toBeInTheDocument();
+		expect(screen.queryByTestId("progress")).not.toBeInTheDocument();
+		expect(
+			screen.queryByText("tasks:progress_ratio_label"),
+		).not.toBeInTheDocument();
+
+		fireEvent.click(screen.getByRole("button", { name: "tasks:show_details" }));
+
+		expect(await screen.findByText("1. Waiting")).toBeInTheDocument();
 		expect(screen.getByText("2. Prepare archive sources")).toBeInTheDocument();
 		expect(screen.getByText("3. Build archive")).toBeInTheDocument();
 		expect(screen.getByText("4. Save archive")).toBeInTheDocument();
 		expect(screen.getByText(/Packing archive/)).toBeInTheDocument();
 		expect(screen.getByText("tasks:step_progress_label")).toBeInTheDocument();
 		expect(screen.getByText(/num:20 \/ num:50/)).toBeInTheDocument();
-		expect(screen.queryByTestId("progress")).not.toBeInTheDocument();
-		expect(
-			screen.queryByText("tasks:progress_ratio_label"),
-		).not.toBeInTheDocument();
-
-		fireEvent.click(screen.getByText("tasks:show_details"));
-
 		expect(await screen.findByText("tasks:timeline_label")).toBeInTheDocument();
 		expect(screen.getAllByText("3. Build archive")).toHaveLength(1);
 		expect(screen.getByText("tasks:progress_ratio_label")).toBeInTheDocument();
@@ -563,20 +576,24 @@ describe("TasksPage", () => {
 
 		render(<TasksPage />);
 
-		expect(await screen.findByText("Extract archive")).toBeInTheDocument();
-		expect(screen.getByText("tasks:steps_label")).toBeInTheDocument();
+		expect(await screen.findByText("bundle-export.zip")).toBeInTheDocument();
+		expect(screen.queryByText("tasks:steps_label")).not.toBeInTheDocument();
+		fireEvent.click(screen.getByRole("button", { name: "tasks:show_details" }));
+		expect(await screen.findByText("tasks:steps_label")).toBeInTheDocument();
 
 		fireEvent.click(screen.getByLabelText("core:refresh"));
 
 		await waitFor(() => {
 			expect(mockState.listInWorkspace).toHaveBeenCalledTimes(2);
 		});
-		expect(screen.getByText("Extract archive")).toBeInTheDocument();
-		expect(screen.queryByText("tasks:steps_label")).not.toBeInTheDocument();
-		expect(screen.getByText(/waiting for worker/)).toBeInTheDocument();
+		expect(screen.getByText("bundle-export.zip")).toBeInTheDocument();
+		await waitFor(() => {
+			expect(screen.queryByText("tasks:steps_label")).not.toBeInTheDocument();
+			expect(screen.queryByText(/waiting for worker/)).not.toBeInTheDocument();
+		});
 	});
 
-	it("renders summary timestamps by status and keeps detailed times in the expanded panel", async () => {
+	it("keeps timestamps and large progress counts inside the expanded panel", async () => {
 		mockState.listInWorkspace.mockResolvedValue({
 			items: [
 				createTask({
@@ -593,16 +610,17 @@ describe("TasksPage", () => {
 
 		render(<TasksPage />);
 
+		expect(await screen.findByText("bundle.zip")).toBeInTheDocument();
 		expect(
-			await screen.findByText(
+			screen.queryByText(
 				'tasks:summary_finished_at:{"date":"date:2026-04-10T00:03:10Z"}',
 			),
-		).toBeInTheDocument();
+		).not.toBeInTheDocument();
 		expect(
 			screen.queryByText("num:4152537914 / num:4152537914"),
 		).not.toBeInTheDocument();
 
-		fireEvent.click(screen.getByText("tasks:show_details"));
+		fireEvent.click(screen.getByRole("button", { name: "tasks:show_details" }));
 
 		expect(
 			await screen.findByText("tasks:timeline_created_label"),
@@ -612,6 +630,11 @@ describe("TasksPage", () => {
 		).toBeInTheDocument();
 		expect(
 			screen.getByText("tasks:timeline_finished_label"),
+		).toBeInTheDocument();
+		expect(
+			screen.getByText(
+				'tasks:summary_finished_at:{"date":"date:2026-04-10T00:03:10Z"}',
+			),
 		).toBeInTheDocument();
 		expect(
 			screen.getByText("num:4152537914 / num:4152537914"),
@@ -641,8 +664,8 @@ describe("TasksPage", () => {
 
 		render(<TasksPage />);
 
-		await screen.findByText("Extract archive");
-		fireEvent.click(screen.getByText("tasks:show_details"));
+		await screen.findByText("bundle-export.zip");
+		fireEvent.click(screen.getByRole("button", { name: "tasks:show_details" }));
 
 		expect(
 			await screen.findByText("tasks:result_path_label"),
@@ -677,9 +700,13 @@ describe("TasksPage", () => {
 
 		render(<TasksPage />);
 
-		expect(await screen.findByText("Empty trash")).toBeInTheDocument();
+		expect(
+			await screen.findByText("tasks:summary_purge_trash"),
+		).toBeInTheDocument();
 		expect(screen.getByText("tasks:kind_trash_purge_all")).toBeInTheDocument();
 		expect(screen.queryByText("tasks:steps_label")).not.toBeInTheDocument();
-		expect(screen.queryByText("tasks:show_details")).not.toBeInTheDocument();
+		expect(
+			screen.queryByRole("button", { name: "tasks:show_details" }),
+		).not.toBeInTheDocument();
 	});
 });

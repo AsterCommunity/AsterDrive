@@ -12,5 +12,20 @@
 	"task_id_label": "任务 #{{id}}",
 	"task_created_success": "任务已加入任务中心",
 	"result_path_label": "结果路径",
-	"open_target_folder": "打开目标文件夹"
+	"open_target_folder": "打开目标文件夹",
+	"summary_action_prefix": "将",
+	"summary_archive_extract_to": "解压缩至",
+	"summary_archive_compress_to": "打包至",
+	"summary_selected_items": "{{count}} 个项目",
+	"summary_generate_preview_for": "生成预览",
+	"summary_generate_thumbnail_for": "生成缩略图",
+	"summary_extract_metadata_for": "提取媒体信息",
+	"summary_purge_trash": "清空回收站",
+	"summary_migrate_storage_policy": "迁移存储策略",
+	"summary_policy_id": "策略 #{{id}}",
+	"summary_cleanup_temp_files": "清理存储临时文件",
+	"summary_system_runtime": "执行系统任务 {{name}}",
+	"summary_root_folder": "我的文件",
+	"task_progress_title": "任务进度",
+	"task_details_title": "任务详情"
 }
