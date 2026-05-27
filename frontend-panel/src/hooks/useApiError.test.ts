@@ -69,6 +69,15 @@ describe("handleApiError", () => {
 			new mockState.ApiError(ErrorCode.CredentialsFailed, "credentials"),
 		);
 		handleApiError(new mockState.ApiError(ErrorCode.MfaFailed, "mfa failed"));
+		handleApiError(
+			new mockState.ApiError(ErrorCode.RefreshTokenStale, "stale"),
+		);
+		handleApiError(
+			new mockState.ApiError(
+				ErrorCode.RefreshTokenReuseDetected,
+				"reuse detected",
+			),
+		);
 
 		expect(mockState.translate).toHaveBeenCalledWith("errors:forbidden");
 		expect(mockState.translate).toHaveBeenCalledWith(
@@ -79,6 +88,12 @@ describe("handleApiError", () => {
 			"errors:credentials_failed",
 		);
 		expect(mockState.translate).toHaveBeenCalledWith("errors:mfa_failed");
+		expect(mockState.translate).toHaveBeenCalledWith(
+			"errors:refresh_token_stale",
+		);
+		expect(mockState.translate).toHaveBeenCalledWith(
+			"errors:refresh_token_reuse_detected",
+		);
 		expect(mockState.toastError).toHaveBeenCalledWith(
 			"translated:errors:forbidden",
 		);
@@ -87,6 +102,12 @@ describe("handleApiError", () => {
 		);
 		expect(mockState.toastError).toHaveBeenCalledWith(
 			"translated:errors:token_missing",
+		);
+		expect(mockState.toastError).toHaveBeenCalledWith(
+			"translated:errors:refresh_token_stale",
+		);
+		expect(mockState.toastError).toHaveBeenCalledWith(
+			"translated:errors:refresh_token_reuse_detected",
 		);
 		expect(mockState.toastError).toHaveBeenCalledWith(
 			"translated:errors:credentials_failed",

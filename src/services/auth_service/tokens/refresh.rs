@@ -44,8 +44,7 @@ use crate::api::subcode::ApiSubcode;
 use crate::db::repository::{auth_session_repo, user_repo};
 use crate::entities::auth_session;
 use crate::errors::{
-    AsterError, AuthTokenInvalidReason, Result, auth_forbidden_with_subcode,
-    auth_token_invalid_with_reason,
+    AsterError, Result, auth_forbidden_with_subcode,
 };
 use crate::runtime::PrimaryAppState;
 use crate::services::audit_service::{self, AuditContext};
@@ -546,18 +545,14 @@ async fn finish_refresh_rejection(
                 reused_jti,
                 "stale refresh token reused within rotation grace window"
             );
-            Err(auth_token_invalid_with_reason(
-                AuthTokenInvalidReason::Stale,
-                "stale refresh token",
-            ))
+            Err(AsterError::auth_refresh_token_stale("stale refresh token"))
         }
         RefreshRejection::ReuseDetected {
             user_id,
             reused_jti,
         } => {
             record_refresh_reuse_detection(state, user_id, &reused_jti, reuse_log_message).await?;
-            Err(auth_token_invalid_with_reason(
-                AuthTokenInvalidReason::ReuseDetected,
+            Err(AsterError::auth_refresh_token_reuse_detected(
                 "refresh token reuse detected",
             ))
         }
@@ -679,22 +674,8 @@ fn record_refresh_metric(state: &PrimaryAppState, result: &Result<(String, Strin
     let (status, reason) = match result {
         Ok(_) => ("success", "ok"),
         Err(AsterError::AuthTokenExpired(_)) => ("failure", "expired"),
-        Err(error)
-            if matches!(
-                error.auth_token_invalid_reason(),
-                Some(AuthTokenInvalidReason::ReuseDetected)
-            ) =>
-        {
-            ("failure", "reuse_detected")
-        }
-        Err(error)
-            if matches!(
-                error.auth_token_invalid_reason(),
-                Some(AuthTokenInvalidReason::Stale)
-            ) =>
-        {
-            ("failure", "stale")
-        }
+        Err(AsterError::AuthRefreshTokenStale(_)) => ("failure", "stale"),
+        Err(AsterError::AuthRefreshTokenReuseDetected(_)) => ("failure", "reuse_detected"),
         Err(AsterError::AuthTokenInvalid(_)) => ("failure", "invalid"),
         Err(AsterError::AuthForbidden(_)) => ("failure", "forbidden"),
         Err(AsterError::RateLimited(_)) => ("failure", "rate_limited"),

@@ -11,34 +11,6 @@ use crate::storage::error::{
 
 const API_ERROR_SUBCODE_PREFIX: &str = "__ASTER_API_SUBCODE__=";
 const API_ERROR_SUBCODE_SEPARATOR: &str = "::";
-const AUTH_TOKEN_INVALID_REASON_PREFIX: &str = "__ASTER_AUTH_TOKEN_INVALID_REASON__=";
-const AUTH_TOKEN_INVALID_REASON_SEPARATOR: &str = "::";
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum AuthTokenInvalidReason {
-    Invalid,
-    ReuseDetected,
-    Stale,
-}
-
-impl AuthTokenInvalidReason {
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::Invalid => "invalid",
-            Self::ReuseDetected => "reuse_detected",
-            Self::Stale => "stale",
-        }
-    }
-
-    fn parse(value: &str) -> Option<Self> {
-        match value {
-            "invalid" => Some(Self::Invalid),
-            "reuse_detected" => Some(Self::ReuseDetected),
-            "stale" => Some(Self::Stale),
-            _ => None,
-        }
-    }
-}
 
 /// 计数宏：计算传入标识符的数量（放在 define_errors! 之前，因为后者在展开时会调用此宏）
 macro_rules! count {
@@ -82,9 +54,7 @@ macro_rules! define_errors {
 
             /// 错误详情
             pub fn message(&self) -> &str {
-                api_error_display_message(auth_token_invalid_display_message(
-                    storage_driver_error_display_message(self.raw_message()),
-                ))
+                api_error_display_message(storage_driver_error_display_message(self.raw_message()))
             }
         }
 
@@ -131,6 +101,7 @@ define_errors! {
     ContactVerificationExpired("E016", "Contact Verification Expired"),
     AuthTokenMissing(      "E017", "Token Missing"),
     AuthMfaFailed(         "E018", "MFA Failed"),
+    AuthRefreshTokenStale( "E019", "Refresh Token Stale"),
 
     // ========== E020-E029: 文件错误 ==========
     FileNotFound(         "E020", "File Not Found"),
@@ -171,6 +142,9 @@ define_errors! {
 
     // ========== E061: 上传处理中 ==========
     UploadAssembling("E061", "Upload Assembling"),
+
+    // ========== E062: Refresh token 安全事件 ==========
+    AuthRefreshTokenReuseDetected("E062", "Refresh Token Reuse Detected"),
 }
 
 impl AsterError {
@@ -181,13 +155,6 @@ impl AsterError {
             }
             Self::PreconditionFailed(_) => Some(StorageErrorKind::Precondition),
             Self::UnsupportedDriver(_) => Some(StorageErrorKind::Unsupported),
-            _ => None,
-        }
-    }
-
-    pub fn auth_token_invalid_reason(&self) -> Option<AuthTokenInvalidReason> {
-        match self {
-            Self::AuthTokenInvalid(message) => auth_token_invalid_reason_from_message(message),
             _ => None,
         }
     }
@@ -248,6 +215,8 @@ impl AsterError {
             Self::AuthInvalidCredentials(_)
             | Self::AuthTokenExpired(_)
             | Self::AuthTokenInvalid(_)
+            | Self::AuthRefreshTokenStale(_)
+            | Self::AuthRefreshTokenReuseDetected(_)
             | Self::AuthTokenMissing(_)
             | Self::AuthMfaFailed(_) => StatusCode::UNAUTHORIZED,
 
@@ -425,16 +394,6 @@ pub fn auth_mfa_failed_with_subcode(subcode: ApiSubcode, message: impl Into<Stri
     tag_error_with_subcode(subcode, message, AsterError::auth_mfa_failed)
 }
 
-pub fn auth_token_invalid_with_reason(
-    reason: AuthTokenInvalidReason,
-    message: impl Into<String>,
-) -> AsterError {
-    AsterError::auth_token_invalid(encode_auth_token_invalid_reason_message(
-        reason,
-        message.into(),
-    ))
-}
-
 pub fn precondition_failed_with_subcode(
     subcode: ApiSubcode,
     message: impl Into<String>,
@@ -506,34 +465,6 @@ fn api_error_display_message(raw_message: &str) -> &str {
     split_encoded_api_error_message(raw_message)
         .map(|(_, message)| message)
         .unwrap_or(raw_message)
-}
-
-fn encode_auth_token_invalid_reason_message(
-    reason: AuthTokenInvalidReason,
-    message: String,
-) -> String {
-    format!(
-        "{AUTH_TOKEN_INVALID_REASON_PREFIX}{}{AUTH_TOKEN_INVALID_REASON_SEPARATOR}{message}",
-        reason.as_str()
-    )
-}
-
-fn split_encoded_auth_token_invalid_reason_message(
-    raw_message: &str,
-) -> Option<(AuthTokenInvalidReason, &str)> {
-    let encoded = raw_message.strip_prefix(AUTH_TOKEN_INVALID_REASON_PREFIX)?;
-    let (reason, message) = encoded.split_once(AUTH_TOKEN_INVALID_REASON_SEPARATOR)?;
-    Some((AuthTokenInvalidReason::parse(reason)?, message))
-}
-
-fn auth_token_invalid_display_message(raw_message: &str) -> &str {
-    split_encoded_auth_token_invalid_reason_message(raw_message)
-        .map(|(_, message)| message)
-        .unwrap_or(raw_message)
-}
-
-fn auth_token_invalid_reason_from_message(raw_message: &str) -> Option<AuthTokenInvalidReason> {
-    split_encoded_auth_token_invalid_reason_message(raw_message).map(|(reason, _)| reason)
 }
 
 fn api_error_subcode_from_message(raw_message: &str) -> Option<ApiSubcode> {
@@ -802,6 +733,50 @@ mod tests {
         );
         assert_eq!(payload["msg"], "missing token");
         assert_eq!(payload["error"]["internal_code"], "E017");
+    }
+
+    #[actix_web::test]
+    async fn stale_refresh_response_uses_refresh_token_stale_code() {
+        let err = AsterError::auth_refresh_token_stale("stale refresh token");
+        let response = actix_web::ResponseError::error_response(&err);
+
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+
+        let body = body::to_bytes(response.into_body())
+            .await
+            .expect("response body should read");
+        let payload: serde_json::Value =
+            serde_json::from_slice(&body).expect("response body should be valid json");
+
+        assert_eq!(
+            payload["code"],
+            crate::api::error_code::ErrorCode::RefreshTokenStale as i32
+        );
+        assert_eq!(payload["msg"], "stale refresh token");
+        assert_eq!(payload["error"]["internal_code"], "E019");
+    }
+
+    #[actix_web::test]
+    async fn refresh_reuse_response_uses_reuse_detected_code() {
+        let err = AsterError::auth_refresh_token_reuse_detected(
+            "refresh token reuse detected",
+        );
+        let response = actix_web::ResponseError::error_response(&err);
+
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+
+        let body = body::to_bytes(response.into_body())
+            .await
+            .expect("response body should read");
+        let payload: serde_json::Value =
+            serde_json::from_slice(&body).expect("response body should be valid json");
+
+        assert_eq!(
+            payload["code"],
+            crate::api::error_code::ErrorCode::RefreshTokenReuseDetected as i32
+        );
+        assert_eq!(payload["msg"], "refresh token reuse detected");
+        assert_eq!(payload["error"]["internal_code"], "E062");
     }
 
     #[actix_web::test]

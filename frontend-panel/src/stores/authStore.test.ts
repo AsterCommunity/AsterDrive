@@ -211,6 +211,7 @@ describe("useAuthStore", () => {
 				ownerId: "peer-tab",
 				lockId: "peer-lock",
 				expiresAt: Date.now() + 15_000,
+				updatedAt: Date.now(),
 			}),
 		);
 

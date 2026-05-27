@@ -31,6 +31,12 @@ export function isTokenAuthError(error: unknown): boolean {
 	return (
 		code === ErrorCode.TokenExpired ||
 		code === ErrorCode.TokenInvalid ||
-		code === ErrorCode.TokenMissing
+		code === ErrorCode.TokenMissing ||
+		code === ErrorCode.RefreshTokenReuseDetected
 	);
+}
+
+export function isStaleRefreshTokenError(error: unknown): boolean {
+	const code = readApiCode(error) ?? readApiResponseCode(error);
+	return code === ErrorCode.RefreshTokenStale;
 }

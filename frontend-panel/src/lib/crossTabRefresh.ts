@@ -1,8 +1,12 @@
 const REFRESH_LOCK_KEY = "aster-auth-refresh-lock";
 const REFRESH_EVENT_KEY = "aster-auth-refresh-event";
 const REFRESH_CHANNEL_NAME = "aster-auth-refresh";
-const REFRESH_LOCK_TTL_MS = 15_000;
-const REFRESH_LOCK_RENEW_MS = 5_000;
+// Keep this below the backend same-client stale-refresh grace window. If a tab
+// dies after the server rotates the refresh JTI but before it broadcasts the
+// result, a waiter may take over with the old cookie when the lease expires.
+const REFRESH_LOCK_TTL_MS = 10_000;
+const REFRESH_LOCK_HEARTBEAT_MS = 1_000;
+const REFRESH_LOCK_STALE_MS = 3_000;
 const REFRESH_WAIT_TIMEOUT_MS = 45_000;
 
 type RefreshFailureKind = "auth" | "transient";
@@ -11,6 +15,7 @@ type RefreshLock = {
 	ownerId: string;
 	lockId: string;
 	expiresAt: number;
+	updatedAt?: number;
 };
 
 type RefreshEvent = {
@@ -26,6 +31,7 @@ type PeerWaitResult =
 	| RefreshEvent["status"]
 	| "auth_failure"
 	| "expired"
+	| "stale"
 	| "timeout";
 
 type RunWithCrossTabRefreshLockOptions = {
@@ -75,7 +81,10 @@ function isRefreshLock(value: unknown): value is RefreshLock {
 		typeof record.lockId === "string" &&
 		record.lockId.length > 0 &&
 		typeof record.expiresAt === "number" &&
-		Number.isFinite(record.expiresAt)
+		Number.isFinite(record.expiresAt) &&
+		(record.updatedAt === undefined ||
+			(typeof record.updatedAt === "number" &&
+				Number.isFinite(record.updatedAt)))
 	);
 }
 
@@ -132,6 +141,18 @@ function lockIsActive(lock: RefreshLock | null, now = Date.now()) {
 	return lock !== null && lock.expiresAt > now;
 }
 
+function lockUpdatedAt(lock: RefreshLock) {
+	return lock.updatedAt ?? 0;
+}
+
+function lockIsLive(lock: RefreshLock | null, now = Date.now()) {
+	return (
+		lockIsActive(lock, now) &&
+		lock !== null &&
+		now - lockUpdatedAt(lock) < REFRESH_LOCK_STALE_MS
+	);
+}
+
 function writeLock(lock: RefreshLock) {
 	localStorage.setItem(REFRESH_LOCK_KEY, JSON.stringify(lock));
 }
@@ -139,7 +160,7 @@ function writeLock(lock: RefreshLock) {
 function tryAcquireLock(): RefreshLock | null {
 	const now = Date.now();
 	const currentLock = readLock();
-	if (lockIsActive(currentLock, now) && currentLock?.ownerId !== currentTabId) {
+	if (lockIsLive(currentLock, now) && currentLock?.ownerId !== currentTabId) {
 		return null;
 	}
 
@@ -147,6 +168,7 @@ function tryAcquireLock(): RefreshLock | null {
 		ownerId: currentTabId,
 		lockId: lockId(),
 		expiresAt: now + REFRESH_LOCK_TTL_MS,
+		updatedAt: now,
 	};
 	writeLock(nextLock);
 
@@ -179,6 +201,7 @@ function refreshLockLease(acquiredLock: RefreshLock): RefreshLock | null {
 	const renewedLock = {
 		...lock,
 		expiresAt: Date.now() + REFRESH_LOCK_TTL_MS,
+		updatedAt: Date.now(),
 	};
 	writeLock(renewedLock);
 	return renewedLock;
@@ -279,6 +302,7 @@ function waitForPeerRefresh(
 	return new Promise<PeerWaitResult>((resolve) => {
 		let settled = false;
 		let expiryTimeout: ReturnType<typeof setTimeout> | null = null;
+		let staleTimeout: ReturnType<typeof setTimeout> | null = null;
 		let timeout: ReturnType<typeof setTimeout> | null = null;
 		const channel = openRefreshChannel();
 
@@ -289,6 +313,7 @@ function waitForPeerRefresh(
 				channel.close();
 			}
 			if (expiryTimeout !== null) clearTimeout(expiryTimeout);
+			if (staleTimeout !== null) clearTimeout(staleTimeout);
 			if (timeout !== null) clearTimeout(timeout);
 		};
 
@@ -314,9 +339,29 @@ function waitForPeerRefresh(
 			if (expiryTimeout !== null) clearTimeout(expiryTimeout);
 			expiryTimeout = setTimeout(
 				() => {
+					const latestEvent = getStoredEventForLock(peerLock, waitStartedAt);
+					if (latestEvent) {
+						finish(resultFromRefreshEvent(latestEvent));
+						return;
+					}
 					finish("expired");
 				},
 				Math.max(0, expiresAt - Date.now()),
+			);
+		};
+
+		const scheduleStale = (updatedAt: number) => {
+			if (staleTimeout !== null) clearTimeout(staleTimeout);
+			staleTimeout = setTimeout(
+				() => {
+					const latestEvent = getStoredEventForLock(peerLock, waitStartedAt);
+					if (latestEvent) {
+						finish(resultFromRefreshEvent(latestEvent));
+						return;
+					}
+					finish("stale");
+				},
+				Math.max(0, updatedAt + REFRESH_LOCK_STALE_MS - Date.now()),
 			);
 		};
 
@@ -344,6 +389,7 @@ function waitForPeerRefresh(
 				lockIsActive(updatedLock)
 			) {
 				scheduleExpiry(updatedLock.expiresAt);
+				scheduleStale(lockUpdatedAt(updatedLock));
 			}
 		}
 
@@ -360,6 +406,7 @@ function waitForPeerRefresh(
 		window.addEventListener("storage", onStorage);
 		channel?.addEventListener("message", onChannelMessage);
 		scheduleExpiry(peerLock.expiresAt);
+		scheduleStale(lockUpdatedAt(peerLock));
 		timeout = setTimeout(
 			() => {
 				finish("timeout");
@@ -380,7 +427,7 @@ async function refreshWithLock(
 		if (renewedLock !== null) {
 			currentLock = renewedLock;
 		}
-	}, REFRESH_LOCK_RENEW_MS);
+	}, REFRESH_LOCK_HEARTBEAT_MS);
 
 	try {
 		await refresh();
@@ -445,12 +492,12 @@ export async function runWithCrossTabRefreshLock(
 		}
 
 		const peerLock = readLock();
-		if (peerLock === null || !lockIsActive(peerLock)) {
+		if (peerLock === null || !lockIsLive(peerLock)) {
 			const recoveredLock = tryAcquireLock();
 			if (recoveredLock !== null) {
 				return refreshWithLock(recoveredLock, refresh, options);
 			}
-			if (!lockIsActive(readLock())) {
+			if (!lockIsLive(readLock())) {
 				return refreshWithoutConfirmedLock(refresh, options);
 			}
 			await new Promise((resolve) => setTimeout(resolve, 25));

@@ -30,6 +30,8 @@ export const ErrorCode = {
 	TokenMissing: 2007,
 	CredentialsFailed: 2008,
 	MfaFailed: 2009,
+	RefreshTokenStale: 2010,
+	RefreshTokenReuseDetected: 2011,
 	FileNotFound: 3000,
 	FileTooLarge: 3001,
 	FileTypeNotAllowed: 3002,

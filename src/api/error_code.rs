@@ -49,6 +49,8 @@ pub enum ErrorCode {
     TokenMissing = 2007,
     CredentialsFailed = 2008,
     MfaFailed = 2009,
+    RefreshTokenStale = 2010,
+    RefreshTokenReuseDetected = 2011,
 
     // 文件错误 3000-3099
     FileNotFound = 3000,
@@ -125,6 +127,8 @@ impl From<&AsterError> for ErrorCode {
             AsterError::AuthInvalidCredentials(_) => ErrorCode::CredentialsFailed,
             AsterError::AuthTokenExpired(_) => ErrorCode::TokenExpired,
             AsterError::AuthTokenInvalid(_) => ErrorCode::TokenInvalid,
+            AsterError::AuthRefreshTokenStale(_) => ErrorCode::RefreshTokenStale,
+            AsterError::AuthRefreshTokenReuseDetected(_) => ErrorCode::RefreshTokenReuseDetected,
             AsterError::AuthTokenMissing(_) => ErrorCode::TokenMissing,
             AsterError::AuthMfaFailed(_) => ErrorCode::MfaFailed,
             AsterError::AuthForbidden(_) => ErrorCode::Forbidden,
@@ -190,7 +194,7 @@ impl From<&AsterError> for ErrorCode {
 // 穷举性静态检查：AsterError 每新增一个变体，必须同步更新 From 实现，
 // 否则 const 断言会编译失败。
 const _: () = assert!(
-    crate::errors::ASTER_ERROR_VARIANT_COUNT == 40,
+    crate::errors::ASTER_ERROR_VARIANT_COUNT == 42,
     "AsterError variant count mismatch: update the assertion or the From impl"
 );
 
@@ -212,6 +216,22 @@ mod tests {
         let error = AsterError::auth_invalid_credentials("wrong password");
 
         assert_eq!(ErrorCode::from(&error), ErrorCode::CredentialsFailed);
+    }
+
+    #[test]
+    fn stale_refresh_token_maps_to_stale_refresh_code() {
+        let error = AsterError::auth_refresh_token_stale("stale refresh token");
+
+        assert_eq!(ErrorCode::from(&error), ErrorCode::RefreshTokenStale);
+    }
+
+    #[test]
+    fn refresh_token_reuse_detected_maps_to_reuse_code() {
+        let error = AsterError::auth_refresh_token_reuse_detected(
+            "refresh token reuse detected",
+        );
+
+        assert_eq!(ErrorCode::from(&error), ErrorCode::RefreshTokenReuseDetected);
     }
 
     #[test]

@@ -18,6 +18,8 @@ const errorMessageKeys: Partial<Record<ErrorCodeType, string>> = {
 	[ErrorCode.TokenExpired]: "errors:token_expired",
 	[ErrorCode.TokenInvalid]: "errors:token_invalid",
 	[ErrorCode.TokenMissing]: "errors:token_missing",
+	[ErrorCode.RefreshTokenStale]: "errors:refresh_token_stale",
+	[ErrorCode.RefreshTokenReuseDetected]: "errors:refresh_token_reuse_detected",
 	[ErrorCode.CredentialsFailed]: "errors:credentials_failed",
 	[ErrorCode.MfaFailed]: "errors:mfa_failed",
 	[ErrorCode.Forbidden]: "errors:forbidden",

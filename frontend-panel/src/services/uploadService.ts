@@ -87,7 +87,8 @@ function isTokenUploadErrorCode(code: number | undefined): boolean {
 	return (
 		code === ErrorCode.TokenExpired ||
 		code === ErrorCode.TokenInvalid ||
-		code === ErrorCode.TokenMissing
+		code === ErrorCode.TokenMissing ||
+		code === ErrorCode.RefreshTokenReuseDetected
 	);
 }
 
