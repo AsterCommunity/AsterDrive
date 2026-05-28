@@ -162,4 +162,50 @@ describe("StoragePolicySummaryFields", () => {
 			screen.getByText("policy_capacity_unavailable_desc"),
 		).toBeInTheDocument();
 	});
+
+	it("renders capacity descriptions when blob metadata exists but disk totals are unavailable", () => {
+		const { rerender } = render(
+			<PolicyCapacityCard
+				capacity={createCapacity({
+					blob_total_bytes: 300,
+					capacity: {
+						available_bytes: null,
+						observed_at: "2026-05-01T00:00:00Z",
+						source: "s3_head_bucket",
+						status: "unsupported",
+						total_bytes: null,
+						used_bytes: null,
+					},
+				})}
+				loading={false}
+				t={t}
+			/>,
+		);
+
+		expect(screen.getByText("bytes:300")).toBeInTheDocument();
+		expect(
+			screen.getByText("policy_capacity_unsupported_desc"),
+		).toBeInTheDocument();
+
+		rerender(
+			<PolicyCapacityCard
+				capacity={createCapacity({
+					blob_total_bytes: 300,
+					capacity: {
+						available_bytes: null,
+						observed_at: "2026-05-01T00:00:00Z",
+						source: "local_filesystem",
+						status: "unavailable",
+						total_bytes: null,
+						used_bytes: null,
+					},
+				})}
+				loading={false}
+				t={t}
+			/>,
+		);
+		expect(
+			screen.getByText("policy_capacity_unavailable_desc"),
+		).toBeInTheDocument();
+	});
 });

@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { emptyForm } from "@/components/admin/storagePolicyDialogShared";
 import { S3DownloadStrategyField } from "./S3DownloadStrategyField";
@@ -20,25 +20,80 @@ const labels: Record<string, string> = {
 
 const t: Translate = (key) => labels[key] ?? key;
 
+vi.mock("@/components/ui/label", () => ({
+	Label: ({
+		children,
+		htmlFor,
+	}: {
+		children: React.ReactNode;
+		htmlFor?: string;
+	}) => <label htmlFor={htmlFor}>{children}</label>,
+}));
+
+vi.mock("@/components/ui/select", () => ({
+	Select: ({
+		children,
+		items,
+		onValueChange,
+		value,
+	}: {
+		children: React.ReactNode;
+		items?: Array<{ label: string; value: string }>;
+		onValueChange?: (value: string) => void;
+		value?: string;
+	}) => (
+		<div>
+			<div>{`select:${value}`}</div>
+			{items?.map((item) => (
+				<button
+					key={item.value}
+					type="button"
+					onClick={() => onValueChange?.(item.value)}
+				>
+					{`choose:${item.value}`}
+				</button>
+			))}
+			{children}
+		</div>
+	),
+	SelectContent: ({ children }: { children: React.ReactNode }) => (
+		<div>{children}</div>
+	),
+	SelectItem: ({ children }: { children: React.ReactNode }) => (
+		<div>{children}</div>
+	),
+	SelectTrigger: ({ children }: { children: React.ReactNode }) => (
+		<div>{children}</div>
+	),
+	SelectValue: () => <span>select-value</span>,
+}));
+
 describe("S3 strategy fields", () => {
 	it("renders upload strategy copy for the selected mode", () => {
+		const onFieldChange = vi.fn();
 		render(
 			<S3UploadStrategyField
 				form={{ ...emptyForm, s3_upload_strategy: "presigned" }}
-				onFieldChange={vi.fn()}
+				onFieldChange={onFieldChange}
 				t={t}
 			/>,
 		);
 
 		expect(screen.getByText("S3 upload strategy")).toBeInTheDocument();
 		expect(screen.getByText("Upload directly to S3.")).toBeInTheDocument();
+		fireEvent.click(screen.getByText("choose:relay_stream"));
+		expect(onFieldChange).toHaveBeenCalledWith(
+			"s3_upload_strategy",
+			"relay_stream",
+		);
 	});
 
 	it("renders download strategy copy for the selected mode", () => {
+		const onFieldChange = vi.fn();
 		render(
 			<S3DownloadStrategyField
 				form={{ ...emptyForm, s3_download_strategy: "relay_stream" }}
-				onFieldChange={vi.fn()}
+				onFieldChange={onFieldChange}
 				t={t}
 			/>,
 		);
@@ -47,5 +102,10 @@ describe("S3 strategy fields", () => {
 		expect(
 			screen.getByText("Download through the server."),
 		).toBeInTheDocument();
+		fireEvent.click(screen.getByText("choose:presigned"));
+		expect(onFieldChange).toHaveBeenCalledWith(
+			"s3_download_strategy",
+			"presigned",
+		);
 	});
 });

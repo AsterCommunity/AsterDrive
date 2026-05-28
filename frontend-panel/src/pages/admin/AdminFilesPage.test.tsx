@@ -177,12 +177,14 @@ vi.mock("@/components/common/ConfirmDialog", () => ({
 		confirmLabel,
 		description,
 		onConfirm,
+		onOpenChange,
 		open,
 		title,
 	}: {
 		confirmLabel?: string;
 		description?: string;
 		onConfirm: () => void;
+		onOpenChange?: (open: boolean) => void;
 		open: boolean;
 		title: string;
 	}) =>
@@ -190,6 +192,9 @@ vi.mock("@/components/common/ConfirmDialog", () => ({
 			<div>
 				<h2>{title}</h2>
 				{description ? <p>{description}</p> : null}
+				<button type="button" onClick={() => onOpenChange?.(false)}>
+					close-confirm
+				</button>
 				<button type="button" onClick={onConfirm}>
 					{confirmLabel ?? "confirm"}
 				</button>
@@ -762,6 +767,79 @@ describe("AdminFilesPage", () => {
 		expect(screen.getAllByText(/#45/).length).toBeGreaterThan(0);
 	});
 
+	it("updates blob range filters, pagination, and detail dialog visibility", async () => {
+		mockState.listBlobs
+			.mockResolvedValueOnce({
+				items: [createBlob()],
+				total: 45,
+			})
+			.mockResolvedValue({
+				items: [createBlob()],
+				total: 45,
+			});
+
+		renderPage("blobs", "/admin/file-blobs?offset=20");
+
+		await waitFor(() => {
+			expect(mockState.listBlobs).toHaveBeenCalledWith({
+				hash: undefined,
+				limit: 20,
+				offset: 20,
+				policy_id: undefined,
+				ref_count_max: undefined,
+				ref_count_min: undefined,
+				size_max: undefined,
+				size_min: undefined,
+				sort_by: "created_at",
+				sort_order: "desc",
+				storage_path: undefined,
+			});
+		});
+
+		fireEvent.click(screen.getByText("next"));
+		await waitFor(() => {
+			expect(screen.getByTestId("location-search").textContent).toContain(
+				"offset=40",
+			);
+		});
+
+		fireEvent.change(screen.getByPlaceholderText("admin_ref_count_max"), {
+			target: { value: "5" },
+		});
+		fireEvent.change(screen.getByPlaceholderText("admin_size_min"), {
+			target: { value: "1024" },
+		});
+
+		await waitFor(() => {
+			expect(mockState.listBlobs).toHaveBeenLastCalledWith({
+				hash: undefined,
+				limit: 20,
+				offset: 0,
+				policy_id: undefined,
+				ref_count_max: 5,
+				ref_count_min: undefined,
+				size_max: undefined,
+				size_min: 1024,
+				sort_by: "created_at",
+				sort_order: "desc",
+				storage_path: undefined,
+			});
+		});
+
+		await waitFor(() => {
+			expect(screen.getByTestId("location-search").textContent).not.toContain(
+				"offset=40",
+			);
+		});
+
+		fireEvent.click(await screen.findByText("fedcba9876...fedcba"));
+		expect(await screen.findByText("Blob #31")).toBeInTheDocument();
+		fireEvent.click(screen.getByText("close"));
+		await waitFor(() => {
+			expect(screen.queryByText("Blob #31")).not.toBeInTheDocument();
+		});
+	});
+
 	it("opens blob details from keyboard activation", async () => {
 		renderPage("blobs");
 
@@ -924,8 +1002,46 @@ describe("AdminFilesPage", () => {
 		});
 	});
 
+	it("can cancel and confirm destructive full blob maintenance", async () => {
+		renderPage("blobs");
+
+		fireEvent.click(
+			await screen.findByRole("button", {
+				name: /admin_blob_action_cleanup_orphan/,
+			}),
+		);
+		expect(
+			screen.getByText(
+				"admin_blob_full_maintenance_confirm_desc_orphan_cleanup",
+			),
+		).toBeInTheDocument();
+		fireEvent.click(screen.getByText("close-confirm"));
+		expect(
+			screen.queryByText(
+				"admin_blob_full_maintenance_confirm_desc_orphan_cleanup",
+			),
+		).not.toBeInTheDocument();
+
+		fireEvent.click(
+			screen.getByRole("button", {
+				name: /admin_blob_action_cleanup_orphan/,
+			}),
+		);
+		fireEvent.click(
+			screen.getByRole("button", {
+				name: "admin_blob_full_maintenance_confirm",
+			}),
+		);
+
+		await waitFor(() => {
+			expect(mockState.createBlobMaintenanceTask).toHaveBeenCalledWith({
+				action: "orphan_cleanup",
+			});
+		});
+	});
+
 	it("only enables orphan cleanup for orphan blobs", async () => {
-		mockState.listBlobs.mockResolvedValueOnce({
+		mockState.listBlobs.mockResolvedValue({
 			items: [
 				createBlob({
 					actual_ref_count: 0,
@@ -950,7 +1066,11 @@ describe("AdminFilesPage", () => {
 		);
 
 		renderPage("blobs");
-		fireEvent.click(await screen.findByText("fedcba9876...fedcba"));
+		const blobCell = await screen.findByText("fedcba9876...fedcba");
+		fireEvent.click(blobCell);
+		await waitFor(() => {
+			expect(mockState.getBlob).toHaveBeenCalledWith(32);
+		});
 		expect(await screen.findByText("Blob #32")).toBeInTheDocument();
 
 		const cleanupButton = (

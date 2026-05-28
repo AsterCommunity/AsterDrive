@@ -689,10 +689,30 @@ describe("AdminPoliciesPage", () => {
 		expect(s3Badge).toHaveClass("bg-blue-500/10", "text-blue-600");
 	});
 
+	it("updates pagination offset from the policy pager", () => {
+		mockState.items = [createPolicy({ id: 1, name: "Default Local" })];
+		mockState.total = 45;
+
+		render(<AdminPoliciesPage />);
+
+		const buttons = screen.getAllByRole("button");
+		fireEvent.click(buttons[buttons.length - 1]);
+
+		expect(mockState.setSearchParams).toHaveBeenLastCalledWith(
+			new URLSearchParams("offset=20"),
+			{ replace: true },
+		);
+	});
+
 	it("checks a storage policy migration plan before creating the task", async () => {
 		mockState.items = [
 			createPolicy({ id: 1, name: "Hot Local" }),
-			createPolicy({ id: 2, name: "Archive S3", driver_type: "s3" }),
+			createPolicy({
+				id: 2,
+				name: "Archive Local",
+				driver_type: "local",
+				root_path: "./archive",
+			}),
 		];
 		mockState.dryRunMigration.mockResolvedValueOnce({
 			can_start: true,
@@ -724,7 +744,7 @@ describe("AdminPoliciesPage", () => {
 
 		await openMigrationDialog();
 		expect(screen.getAllByText("#1 · Hot Local").length).toBeGreaterThan(1);
-		expect(screen.getAllByText("#2 · Archive S3").length).toBeGreaterThan(1);
+		expect(screen.getAllByText("#2 · Archive Local").length).toBeGreaterThan(1);
 		expect(
 			screen.getByRole("button", { name: /policy_migration_submit/ }),
 		).toBeDisabled();
@@ -806,6 +826,28 @@ describe("AdminPoliciesPage", () => {
 
 		expect(
 			screen.getByRole("button", { name: /policy_migration_action/ }),
+		).toBeDisabled();
+	});
+
+	it("clears a matching migration target when the source changes", async () => {
+		mockState.items = [
+			createPolicy({ id: 1, name: "Hot Local" }),
+			createPolicy({ id: 2, name: "Archive S3", driver_type: "s3" }),
+			createPolicy({ id: 3, name: "Cold S3", driver_type: "s3" }),
+		];
+
+		render(<AdminPoliciesPage />);
+
+		await openMigrationDialog();
+		fireEvent.click(
+			screen.getAllByRole("button", { name: "select-item:2" })[0],
+		);
+
+		expect(
+			screen.getByRole("button", { name: /policy_migration_dry_run/ }),
+		).toBeDisabled();
+		expect(
+			screen.getByRole("button", { name: /policy_migration_submit/ }),
 		).toBeDisabled();
 	});
 

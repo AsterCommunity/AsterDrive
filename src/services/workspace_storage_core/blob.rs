@@ -40,22 +40,6 @@ fn is_content_sha256_blob_key(blob_key: &str) -> bool {
     blob_key.len() == 64 && blob_key.bytes().all(|byte| byte.is_ascii_hexdigit())
 }
 
-#[cfg(test)]
-mod tests {
-    use super::is_content_sha256_blob_key;
-
-    #[test]
-    fn nondedup_blob_key_guard_rejects_content_hash_shape() {
-        assert!(is_content_sha256_blob_key(
-            "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
-        ));
-        assert!(!is_content_sha256_blob_key(
-            "s3-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
-        ));
-        assert!(!is_content_sha256_blob_key("0123456789abcdef"));
-    }
-}
-
 pub(crate) async fn create_nondedup_blob<C: ConnectionTrait>(
     db: &C,
     size: i64,
@@ -110,4 +94,20 @@ async fn create_opaque_nondedup_blob<C: ConnectionTrait>(
         },
     )
     .await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_content_sha256_blob_key;
+
+    #[test]
+    fn nondedup_blob_key_guard_rejects_content_hash_shape() {
+        assert!(is_content_sha256_blob_key(
+            "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+        ));
+        assert!(!is_content_sha256_blob_key(
+            "s3-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+        ));
+        assert!(!is_content_sha256_blob_key("0123456789abcdef"));
+    }
 }

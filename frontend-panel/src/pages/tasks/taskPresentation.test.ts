@@ -3,14 +3,19 @@ import type { TaskInfo } from "@/types/api";
 import {
 	buildTaskTimeline,
 	currentTaskStep,
+	formatProgressCounts,
 	formatTaskDisplayName,
 	formatTaskKind,
+	formatTaskStepStatus,
 	formatTaskStepTitle,
 	parseStoragePolicyMigrationResult,
 	parseTaskResult,
 	statusBadgeVariant,
+	stepCircleClass,
 	stepCircleLabel,
+	stepConnectorClass,
 	stepProgressPercent,
+	stepStatusTextClass,
 	taskMetaTextClass,
 	taskSummaryTimestamp,
 } from "./taskPresentation";
@@ -131,6 +136,19 @@ describe("taskPresentation storage policy migration", () => {
 				}),
 			),
 		).toBe("Clean orphan blobs for 2 blob(s)");
+		expect(
+			formatTaskDisplayName(
+				t,
+				createTask({
+					display_name: "Backend maintenance name",
+					kind: "blob_maintenance",
+					payload: {
+						action: "unexpected_action",
+						kind: "blob_maintenance",
+					} as never,
+				}),
+			),
+		).toBe("Backend maintenance name");
 	});
 
 	it("covers task presentation utility branches", () => {
@@ -145,6 +163,38 @@ describe("taskPresentation storage policy migration", () => {
 		expect(stepCircleLabel(2, "failed")).toBe("!");
 		expect(stepCircleLabel(2, "canceled")).toBe("X");
 		expect(stepCircleLabel(2, "pending")).toBe("3");
+		expect(stepStatusTextClass("active")).toBe("text-primary");
+		expect(stepStatusTextClass("succeeded")).toBe("text-foreground");
+		expect(stepStatusTextClass("failed")).toBe("text-destructive");
+		expect(stepStatusTextClass("skipped")).toBe("text-muted-foreground");
+		expect(stepStatusTextClass("canceled")).toBe("text-muted-foreground");
+		expect(stepConnectorClass("succeeded")).toBe("bg-primary/70");
+		expect(stepConnectorClass("active")).toBe("bg-primary/35");
+		expect(stepConnectorClass("failed")).toBe("bg-destructive/35");
+		expect(stepConnectorClass("skipped")).toBe("bg-border/40");
+		expect(stepConnectorClass("canceled")).toBe("bg-border/60");
+		expect(stepConnectorClass("pending")).toBe("bg-border/40");
+		expect(stepCircleClass("active")).toContain("ring-primary");
+		expect(stepCircleClass("succeeded")).toContain("border-primary");
+		expect(stepCircleClass("failed")).toContain("text-destructive");
+		expect(stepCircleClass("skipped")).toContain("text-muted-foreground");
+		expect(stepCircleClass("canceled")).toContain("bg-muted");
+		expect(stepCircleClass("pending")).toContain("bg-background");
+		expect(formatTaskStepStatus(t, "pending")).toBe(
+			"tasks:step_status_pending",
+		);
+		expect(formatTaskStepStatus(t, "active")).toBe("tasks:step_status_active");
+		expect(formatTaskStepStatus(t, "succeeded")).toBe(
+			"tasks:step_status_succeeded",
+		);
+		expect(formatTaskStepStatus(t, "failed")).toBe("tasks:step_status_failed");
+		expect(formatTaskStepStatus(t, "skipped")).toBe(
+			"tasks:step_status_skipped",
+		);
+		expect(formatTaskStepStatus(t, "canceled")).toBe(
+			"tasks:step_status_canceled",
+		);
+		expect(formatProgressCounts(1200, 3400)).toBe("1,200 / 3,400");
 		expect(
 			stepProgressPercent({
 				key: "done",
@@ -226,6 +276,15 @@ describe("taskPresentation storage policy migration", () => {
 				}),
 			),
 		).toMatch(/^Started /);
+		expect(
+			taskSummaryTimestamp(
+				t,
+				createTask({
+					status: "retry",
+					started_at: null,
+				}),
+			),
+		).toMatch(/^Created /);
 		expect(
 			taskSummaryTimestamp(
 				t,

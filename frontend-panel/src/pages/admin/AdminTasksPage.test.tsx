@@ -988,6 +988,67 @@ describe("AdminTasksPage", () => {
 		});
 	});
 
+	it("builds cleanup requests with kind and status filters and rejects invalid dates", async () => {
+		renderPage();
+
+		await waitFor(() => {
+			expect(mockState.list).toHaveBeenCalledTimes(1);
+		});
+
+		fireEvent.click(
+			screen.getByRole("button", { name: /task_cleanup_action/ }),
+		);
+		const finishedBefore = "2026-04-22T09:15";
+		const finishedBeforeIso = new Date(finishedBefore).toISOString();
+		fireEvent.change(
+			screen.getByLabelText("admin:task_cleanup_finished_before"),
+			{
+				target: { value: finishedBefore },
+			},
+		);
+		fireEvent.click(
+			screen.getAllByRole("button", {
+				name: "select-storage_policy_migration",
+			})[1],
+		);
+		fireEvent.click(
+			screen.getAllByRole("button", { name: "select-failed" })[1],
+		);
+		expect(
+			screen.getByText(
+				`cleanup-desc:time:${finishedBeforeIso}:tasks:kind_storage_policy_migration:tasks:status_failed`,
+			),
+		).toBeInTheDocument();
+
+		fireEvent.click(
+			screen.getByRole("button", { name: /cleanup_completed_tasks/ }),
+		);
+
+		await waitFor(() => {
+			expect(mockState.cleanupCompleted).toHaveBeenCalledWith({
+				finished_before: finishedBeforeIso,
+				kind: "storage_policy_migration",
+				status: "failed",
+			});
+		});
+
+		fireEvent.click(
+			screen.getByRole("button", { name: /task_cleanup_action/ }),
+		);
+		fireEvent.change(
+			screen.getByLabelText("admin:task_cleanup_finished_before"),
+			{
+				target: { value: "not-a-date" },
+			},
+		);
+		expect(
+			screen.getByText("admin:task_cleanup_confirm_desc_invalid"),
+		).toBeInTheDocument();
+		expect(
+			screen.getByRole("button", { name: /cleanup_completed_tasks/ }),
+		).toBeDisabled();
+	});
+
 	it("routes loading failures through handleApiError", async () => {
 		const loadError = new Error("tasks failed");
 		mockState.list.mockRejectedValueOnce(loadError);

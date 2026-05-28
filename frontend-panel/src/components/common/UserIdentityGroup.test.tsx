@@ -41,6 +41,18 @@ describe("UserIdentityGroup", () => {
 		expect(screen.getByText("+4")).toBeInTheDocument();
 	});
 
+	it("renders all provided users without a remaining count when total is omitted", () => {
+		render(
+			<UserIdentityGroup
+				users={[createUser(1, "Root User"), createUser(2, "Second User")]}
+			/>,
+		);
+
+		expect(screen.getByText("Root User")).toBeInTheDocument();
+		expect(screen.getByText("Second User")).toBeInTheDocument();
+		expect(screen.queryByText(/\+/)).not.toBeInTheDocument();
+	});
+
 	it("limits visible users and derives the remaining count from total", () => {
 		render(
 			<UserIdentityGroup

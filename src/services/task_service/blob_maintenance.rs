@@ -2,7 +2,7 @@
 
 use std::collections::{HashMap, HashSet};
 
-use sea_orm::{EntityTrait, PaginatorTrait};
+use sea_orm::{ColumnTrait, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder, QuerySelect};
 
 use crate::db::repository::{file_repo, version_repo};
 use crate::db::transaction;
@@ -95,7 +95,8 @@ pub(super) async fn process_blob_maintenance_task(
     )
     .await?;
 
-    let total = count_target_blobs(state, payload.blob_ids.as_deref()).await?;
+    let target_scope = BlobTargetScope::load(state, payload.blob_ids.as_deref()).await?;
+    let total = target_scope.total;
     set_task_step_succeeded(
         &mut steps,
         TASK_STEP_SCAN_BLOBS,
@@ -120,7 +121,7 @@ pub(super) async fn process_blob_maintenance_task(
                 state,
                 &lease_guard,
                 &mut steps,
-                payload.blob_ids.as_deref(),
+                &target_scope,
                 total,
                 &mut result,
             )
@@ -137,7 +138,7 @@ pub(super) async fn process_blob_maintenance_task(
                 state,
                 &lease_guard,
                 &mut steps,
-                payload.blob_ids.as_deref(),
+                &target_scope,
                 total,
                 &mut result,
             )
@@ -158,7 +159,7 @@ pub(super) async fn process_blob_maintenance_task(
                 state,
                 &lease_guard,
                 &mut steps,
-                payload.blob_ids.as_deref(),
+                &target_scope,
                 total,
                 &mut result,
             )
@@ -167,7 +168,7 @@ pub(super) async fn process_blob_maintenance_task(
                 state,
                 &lease_guard,
                 &mut steps,
-                payload.blob_ids.as_deref(),
+                &target_scope,
                 total,
                 &mut result,
             )
@@ -198,7 +199,7 @@ async fn run_integrity_check(
     state: &PrimaryAppState,
     lease_guard: &TaskLeaseGuard,
     steps: &mut [super::TaskStepInfo],
-    blob_ids: Option<&[i64]>,
+    target_scope: &BlobTargetScope<'_>,
     total: i64,
     result: &mut BlobMaintenanceTaskResult,
 ) -> Result<()> {
@@ -210,11 +211,11 @@ async fn run_integrity_check(
     )?;
     mark_task_progress(state, lease_guard, 0, total, Some("Checking blobs"), steps).await?;
 
-    let mut cursor = BlobTargetCursor::new(blob_ids);
+    let mut cursor = target_scope.cursor();
     let mut progress = 0;
 
     loop {
-        let blobs = load_target_blob_batch(state, blob_ids, &mut cursor).await?;
+        let blobs = load_target_blob_batch(state, target_scope.blob_ids, &mut cursor).await?;
         if blobs.is_empty() {
             break;
         }
@@ -270,7 +271,7 @@ async fn run_ref_count_reconcile(
     state: &PrimaryAppState,
     lease_guard: &TaskLeaseGuard,
     steps: &mut [super::TaskStepInfo],
-    blob_ids: Option<&[i64]>,
+    target_scope: &BlobTargetScope<'_>,
     total: i64,
     result: &mut BlobMaintenanceTaskResult,
 ) -> Result<()> {
@@ -290,11 +291,11 @@ async fn run_ref_count_reconcile(
     )
     .await?;
 
-    let mut cursor = BlobTargetCursor::new(blob_ids);
+    let mut cursor = target_scope.cursor();
     let mut progress = 0;
 
     loop {
-        let blobs = load_target_blob_batch(state, blob_ids, &mut cursor).await?;
+        let blobs = load_target_blob_batch(state, target_scope.blob_ids, &mut cursor).await?;
         if blobs.is_empty() {
             break;
         }
@@ -366,7 +367,7 @@ async fn run_orphan_cleanup(
     state: &PrimaryAppState,
     lease_guard: &TaskLeaseGuard,
     steps: &mut [super::TaskStepInfo],
-    blob_ids: Option<&[i64]>,
+    target_scope: &BlobTargetScope<'_>,
     total: i64,
     result: &mut BlobMaintenanceTaskResult,
 ) -> Result<()> {
@@ -386,11 +387,11 @@ async fn run_orphan_cleanup(
     )
     .await?;
 
-    let mut cursor = BlobTargetCursor::new(blob_ids);
+    let mut cursor = target_scope.cursor();
     let mut progress = 0;
 
     loop {
-        let blobs = load_target_blob_batch(state, blob_ids, &mut cursor).await?;
+        let blobs = load_target_blob_batch(state, target_scope.blob_ids, &mut cursor).await?;
         if blobs.is_empty() {
             break;
         }
@@ -568,30 +569,76 @@ async fn current_blob_ref_counts(
     Ok(counts)
 }
 
-enum BlobTargetCursor {
-    All { last_blob_id: Option<i64> },
-    Targeted { next_index: usize },
+struct BlobTargetScope<'a> {
+    blob_ids: Option<&'a [i64]>,
+    total: i64,
+    max_blob_id: Option<i64>,
 }
 
-impl BlobTargetCursor {
-    fn new(blob_ids: Option<&[i64]>) -> Self {
-        if blob_ids.is_some() {
-            Self::Targeted { next_index: 0 }
+impl<'a> BlobTargetScope<'a> {
+    async fn load(state: &PrimaryAppState, blob_ids: Option<&'a [i64]>) -> Result<Self> {
+        if let Some(blob_ids) = blob_ids {
+            return Ok(Self {
+                blob_ids: Some(blob_ids),
+                total: crate::utils::numbers::usize_to_i64(
+                    blob_ids.len(),
+                    "blob maintenance target count",
+                )?,
+                max_blob_id: None,
+            });
+        }
+
+        let (total, max_blob_id) = count_all_blob_targets(state).await?;
+        Ok(Self {
+            blob_ids: None,
+            total,
+            max_blob_id,
+        })
+    }
+
+    fn cursor(&self) -> BlobTargetCursor {
+        if self.blob_ids.is_some() {
+            BlobTargetCursor::Targeted { next_index: 0 }
         } else {
-            Self::All { last_blob_id: None }
+            BlobTargetCursor::All {
+                last_blob_id: None,
+                max_blob_id: self.max_blob_id,
+            }
         }
     }
 }
 
-async fn count_target_blobs(state: &PrimaryAppState, blob_ids: Option<&[i64]>) -> Result<i64> {
-    let Some(blob_ids) = blob_ids else {
-        let count = file_blob::Entity::find()
+enum BlobTargetCursor {
+    All {
+        last_blob_id: Option<i64>,
+        max_blob_id: Option<i64>,
+    },
+    Targeted {
+        next_index: usize,
+    },
+}
+
+async fn count_all_blob_targets(state: &PrimaryAppState) -> Result<(i64, Option<i64>)> {
+    let max_blob_id = file_blob::Entity::find()
+        .select_only()
+        .column(file_blob::Column::Id)
+        .order_by_desc(file_blob::Column::Id)
+        .into_tuple::<i64>()
+        .one(state.writer_db())
+        .await
+        .map_err(AsterError::from)?;
+    let count = match max_blob_id {
+        Some(max_blob_id) => file_blob::Entity::find()
+            .filter(file_blob::Column::Id.lte(max_blob_id))
             .count(state.writer_db())
             .await
-            .map_err(AsterError::from)?;
-        return crate::utils::numbers::u64_to_i64(count, "blob maintenance target count");
+            .map_err(AsterError::from)?,
+        None => 0,
     };
-    crate::utils::numbers::usize_to_i64(blob_ids.len(), "blob maintenance target count")
+    Ok((
+        crate::utils::numbers::u64_to_i64(count, "blob maintenance target count")?,
+        max_blob_id,
+    ))
 }
 
 async fn load_target_blob_batch(
@@ -600,10 +647,14 @@ async fn load_target_blob_batch(
     cursor: &mut BlobTargetCursor,
 ) -> Result<Vec<file_blob::Model>> {
     match cursor {
-        BlobTargetCursor::All { last_blob_id } => {
+        BlobTargetCursor::All {
+            last_blob_id,
+            max_blob_id,
+        } => {
             let blobs = file_repo::find_blobs_paginated(
                 state.writer_db(),
                 *last_blob_id,
+                *max_blob_id,
                 BLOB_MAINTENANCE_BATCH_SIZE,
             )
             .await?;

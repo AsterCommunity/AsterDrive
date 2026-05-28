@@ -490,6 +490,7 @@ pub async fn find_blobs_by_ids<C: ConnectionTrait>(
 pub async fn find_blobs_paginated<C: ConnectionTrait>(
     db: &C,
     after_id: Option<i64>,
+    max_id: Option<i64>,
     limit: u64,
 ) -> Result<Vec<file_blob::Model>> {
     let mut query = FileBlob::find()
@@ -497,6 +498,9 @@ pub async fn find_blobs_paginated<C: ConnectionTrait>(
         .limit(limit);
     if let Some(last_id) = after_id {
         query = query.filter(file_blob::Column::Id.gt(last_id));
+    }
+    if let Some(max_id) = max_id {
+        query = query.filter(file_blob::Column::Id.lte(max_id));
     }
     query.all(db).await.map_err(AsterError::from)
 }
