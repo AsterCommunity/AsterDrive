@@ -606,10 +606,11 @@ async fn migrate_one_blob(
     let existing_target_blob =
         file_repo::find_blob_by_hash(state.writer_db(), &latest.hash, target_policy_id).await?;
     if let Some(target_blob) = existing_target_blob.as_ref()
-        && content_hash {
-            verify_existing_target(target_driver, target_blob, &latest.hash, latest.size).await?;
-            return merge_blob_records(state, task_id, latest, target_blob.clone()).await;
-        }
+        && content_hash
+    {
+        verify_existing_target(target_driver, target_blob, &latest.hash, latest.size).await?;
+        return merge_blob_records(state, task_id, latest, target_blob.clone()).await;
+    }
     let renamed_opaque_blob = !content_hash && existing_target_blob.is_some();
     let target_hash = if content_hash || !renamed_opaque_blob {
         latest.hash.clone()

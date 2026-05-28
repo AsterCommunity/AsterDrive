@@ -681,6 +681,21 @@ describe("AdminFilesPage", () => {
 		expect(screen.getAllByText("Root User").length).toBeGreaterThan(1);
 	});
 
+	it("opens file details from keyboard activation", async () => {
+		renderPage("files");
+
+		const fileCell = await screen.findByText("report.txt");
+		const row = fileCell.closest("tr");
+		if (!row) {
+			throw new Error("Expected file row");
+		}
+		fireEvent.keyDown(row, { key: "Enter" });
+
+		await waitFor(() => {
+			expect(mockState.getFile).toHaveBeenCalledWith(21);
+		});
+	});
+
 	it("lists blobs with numeric filters and opens blob details", async () => {
 		renderPage(
 			"blobs",
@@ -745,6 +760,21 @@ describe("AdminFilesPage", () => {
 		).toBeGreaterThan(0);
 		expect(screen.getByText("admin_actual_ref_count")).toBeInTheDocument();
 		expect(screen.getAllByText(/#45/).length).toBeGreaterThan(0);
+	});
+
+	it("opens blob details from keyboard activation", async () => {
+		renderPage("blobs");
+
+		const blobCell = await screen.findByText("fedcba9876...fedcba");
+		const row = blobCell.closest("tr");
+		if (!row) {
+			throw new Error("Expected blob row");
+		}
+		fireEvent.keyDown(row, { key: " " });
+
+		await waitFor(() => {
+			expect(mockState.getBlob).toHaveBeenCalledWith(31);
+		});
 	});
 
 	it("renders every blob health state with reference counters", async () => {

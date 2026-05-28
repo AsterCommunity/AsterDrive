@@ -1,15 +1,33 @@
 import { describe, expect, it } from "vitest";
 import type { TaskInfo } from "@/types/api";
 import {
+	buildTaskTimeline,
+	currentTaskStep,
 	formatTaskDisplayName,
 	formatTaskKind,
 	formatTaskStepTitle,
 	parseStoragePolicyMigrationResult,
+	parseTaskResult,
+	statusBadgeVariant,
+	stepCircleLabel,
+	stepProgressPercent,
+	taskMetaTextClass,
+	taskSummaryTimestamp,
 } from "./taskPresentation";
 
 function t(key: string, values?: Record<string, number | string>) {
 	const translations: Record<string, string> = {
 		"tasks:kind_storage_policy_migration": "Storage policy migration",
+		"tasks:summary_created_at": `Created ${values?.date}`,
+		"tasks:summary_started_at": `Started ${values?.date}`,
+		"tasks:summary_finished_at": `Finished ${values?.date}`,
+		"tasks:summary_failed_at": `Failed ${values?.date}`,
+		"tasks:summary_canceled_at": `Canceled ${values?.date}`,
+		"tasks:timeline_created_label": "Created",
+		"tasks:timeline_started_label": "Started",
+		"tasks:timeline_failed_label": "Failed",
+		"tasks:timeline_canceled_label": "Canceled",
+		"tasks:timeline_finished_label": "Finished",
 		"tasks:blob_maintenance_scope_all": "all blobs",
 		"tasks:blob_maintenance_scope_selected": `${values?.count} blob(s)`,
 		"tasks:blob_maintenance_integrity_check_name": `Check integrity for ${values?.scope}`,
@@ -89,6 +107,20 @@ describe("taskPresentation storage policy migration", () => {
 			formatTaskDisplayName(
 				t,
 				createTask({
+					display_name: "Reconcile references for 2 blob(s)",
+					kind: "blob_maintenance",
+					payload: {
+						action: "ref_count_reconcile",
+						blob_ids: [3, 4],
+						kind: "blob_maintenance",
+					},
+				}),
+			),
+		).toBe("Reconcile references for 2 blob(s)");
+		expect(
+			formatTaskDisplayName(
+				t,
+				createTask({
 					display_name: "Clean orphan blobs for 2 blob(s)",
 					kind: "blob_maintenance",
 					payload: {
@@ -99,6 +131,188 @@ describe("taskPresentation storage policy migration", () => {
 				}),
 			),
 		).toBe("Clean orphan blobs for 2 blob(s)");
+	});
+
+	it("covers task presentation utility branches", () => {
+		expect(statusBadgeVariant("retry")).toBe("secondary");
+		expect(statusBadgeVariant("succeeded")).toBe("default");
+		expect(statusBadgeVariant("failed")).toBe("destructive");
+		expect(statusBadgeVariant("canceled")).toBe("outline");
+		expect(taskMetaTextClass("processing")).toBe("text-primary");
+		expect(taskMetaTextClass("succeeded")).toBe("text-foreground");
+		expect(taskMetaTextClass("failed")).toBe("text-destructive");
+		expect(taskMetaTextClass("pending")).toBe("text-muted-foreground");
+		expect(stepCircleLabel(2, "failed")).toBe("!");
+		expect(stepCircleLabel(2, "canceled")).toBe("X");
+		expect(stepCircleLabel(2, "pending")).toBe("3");
+		expect(
+			stepProgressPercent({
+				key: "done",
+				progress_current: 0,
+				progress_total: 0,
+				status: "succeeded",
+				title: "Done",
+			}),
+		).toBe(100);
+		expect(
+			stepProgressPercent({
+				key: "overflow",
+				progress_current: 15,
+				progress_total: 10,
+				status: "active",
+				title: "Overflow",
+			}),
+		).toBe(100);
+		expect(
+			stepProgressPercent({
+				key: "negative",
+				progress_current: -5,
+				progress_total: 10,
+				status: "active",
+				title: "Negative",
+			}),
+		).toBe(0);
+	});
+
+	it("selects the current step by active, failed, last, and empty fallbacks", () => {
+		const activeTask = createTask({
+			steps: [
+				{
+					key: "queued",
+					progress_current: 0,
+					progress_total: 0,
+					status: "succeeded",
+					title: "Queued",
+				},
+				{
+					key: "copy",
+					progress_current: 1,
+					progress_total: 2,
+					status: "active",
+					title: "Copy",
+				},
+			],
+		});
+		expect(currentTaskStep(activeTask)?.key).toBe("copy");
+		expect(
+			currentTaskStep({
+				...activeTask,
+				steps: [
+					{ ...activeTask.steps[0], status: "succeeded" },
+					{ ...activeTask.steps[1], status: "failed" },
+				],
+			})?.key,
+		).toBe("copy");
+		expect(
+			currentTaskStep({
+				...activeTask,
+				steps: [
+					{ ...activeTask.steps[0], status: "succeeded" },
+					{ ...activeTask.steps[1], status: "pending" },
+				],
+			})?.key,
+		).toBe("copy");
+		expect(currentTaskStep(createTask({ steps: [] }))).toBeNull();
+	});
+
+	it("formats task timestamps and timelines using status-specific labels", () => {
+		expect(taskSummaryTimestamp(t, createTask())).toMatch(/^Created /);
+		expect(
+			taskSummaryTimestamp(
+				t,
+				createTask({
+					status: "processing",
+					started_at: "2026-04-17T00:01:00Z",
+				}),
+			),
+		).toMatch(/^Started /);
+		expect(
+			taskSummaryTimestamp(
+				t,
+				createTask({
+					finished_at: null,
+					status: "succeeded",
+					started_at: "2026-04-17T00:01:00Z",
+				}),
+			),
+		).toMatch(/^Started /);
+		expect(
+			taskSummaryTimestamp(
+				t,
+				createTask({
+					finished_at: null,
+					status: "succeeded",
+					started_at: null,
+				}),
+			),
+		).toMatch(/^Created /);
+		expect(
+			taskSummaryTimestamp(
+				t,
+				createTask({
+					finished_at: "2026-04-17T00:02:00Z",
+					status: "failed",
+				}),
+			),
+		).toMatch(/^Failed /);
+		expect(
+			taskSummaryTimestamp(
+				t,
+				createTask({
+					finished_at: null,
+					status: "failed",
+					started_at: "2026-04-17T00:01:00Z",
+				}),
+			),
+		).toMatch(/^Started /);
+		expect(
+			taskSummaryTimestamp(
+				t,
+				createTask({
+					finished_at: null,
+					status: "failed",
+					started_at: null,
+				}),
+			),
+		).toMatch(/^Created /);
+		expect(
+			taskSummaryTimestamp(
+				t,
+				createTask({
+					finished_at: "2026-04-17T00:02:00Z",
+					status: "canceled",
+				}),
+			),
+		).toMatch(/^Canceled /);
+		expect(
+			taskSummaryTimestamp(
+				t,
+				createTask({
+					finished_at: null,
+					status: "canceled",
+					started_at: "2026-04-17T00:01:00Z",
+				}),
+			),
+		).toMatch(/^Started /);
+		expect(
+			taskSummaryTimestamp(
+				t,
+				createTask({
+					finished_at: null,
+					status: "canceled",
+					started_at: null,
+				}),
+			),
+		).toMatch(/^Created /);
+		expect(
+			buildTaskTimeline(
+				t,
+				createTask({
+					finished_at: "2026-04-17T00:02:00Z",
+					status: "canceled",
+				}),
+			).map((entry) => entry.label),
+		).toEqual(["Created", "Canceled"]);
 	});
 
 	it("translates known storage migration steps and falls back to backend titles", () => {
@@ -210,6 +424,51 @@ describe("taskPresentation storage policy migration", () => {
 						target_folder_id: 2,
 						target_path: "/archive",
 					},
+				}),
+			),
+		).toBeNull();
+	});
+
+	it("parses archive task results and ignores non-archive results", () => {
+		expect(
+			parseTaskResult(
+				createTask({
+					kind: "archive_compress",
+					result: {
+						kind: "archive_compress",
+						target_file_id: 90,
+						target_file_name: "bundle.zip",
+						target_folder_id: undefined,
+						target_path: "/bundle.zip",
+					} as never,
+				}),
+			),
+		).toEqual({ target_folder_id: null, target_path: "/bundle.zip" });
+		expect(
+			parseTaskResult(
+				createTask({
+					kind: "archive_extract",
+					result: {
+						kind: "archive_extract",
+						target_folder_id: 7,
+						target_path: "/extract",
+					},
+				}),
+			),
+		).toEqual({ target_folder_id: 7, target_path: "/extract" });
+		expect(
+			parseTaskResult(
+				createTask({
+					kind: "thumbnail_generate",
+					result: {
+						blob_id: 1,
+						kind: "thumbnail_generate",
+						processor: "native",
+						reused_existing_thumbnail: false,
+						thumbnail_path: "thumb.jpg",
+						thumbnail_processor: "native",
+						thumbnail_version: "1",
+					} as never,
 				}),
 			),
 		).toBeNull();

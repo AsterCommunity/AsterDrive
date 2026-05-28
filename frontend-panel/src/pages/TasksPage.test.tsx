@@ -801,4 +801,105 @@ describe("TasksPage", () => {
 		).toBeInTheDocument();
 		expect(screen.getByText("4096")).toBeInTheDocument();
 	});
+
+	it("renders less common task kinds with their icon and summary fallbacks", async () => {
+		mockState.listInWorkspace.mockResolvedValue({
+			items: [
+				createTask({
+					display_name: "Generate missing thumbnail",
+					kind: "thumbnail_generate",
+					payload: {
+						blob_hash: "hash-a",
+						blob_id: 11,
+						kind: "thumbnail_generate",
+						processor: "native",
+						source_file_name: "",
+						source_mime_type: "image/png",
+					} as never,
+					progress_current: 0,
+					progress_percent: 0,
+					progress_total: 0,
+					status: "succeeded",
+					status_text: null,
+					steps: [],
+				}),
+				createTask({
+					display_name: "Extract media metadata",
+					id: 2,
+					kind: "media_metadata_extract",
+					payload: {
+						blob_hash: "hash-b",
+						blob_id: 12,
+						kind: "media_metadata_extract",
+						source_file_name: "song.flac",
+						source_mime_type: "audio/flac",
+					} as never,
+					progress_current: 0,
+					progress_percent: 0,
+					progress_total: 0,
+					status: "succeeded",
+					status_text: null,
+					steps: [],
+				}),
+				createTask({
+					display_name: "Clean temp objects",
+					id: 3,
+					kind: "storage_policy_temp_cleanup",
+					payload: {
+						driver_type: "s3",
+						kind: "storage_policy_temp_cleanup",
+						multipart_upload_count: 2,
+						policy_id: 5,
+						policy_name: "Archive S3",
+						temp_key_count: 3,
+					} as never,
+					progress_current: 0,
+					progress_percent: 0,
+					progress_total: 0,
+					status: "succeeded",
+					status_text: null,
+					steps: [],
+				}),
+				createTask({
+					display_name: "Hourly cleanup",
+					id: 4,
+					kind: "system_runtime",
+					payload: {
+						kind: "system_runtime",
+						task_name: "audit-log-cleanup",
+					},
+					progress_current: 0,
+					progress_percent: 0,
+					progress_total: 0,
+					status: "succeeded",
+					status_text: null,
+					steps: [],
+				}),
+			],
+			total: 4,
+		});
+
+		render(<TasksPage />);
+
+		expect(
+			await screen.findByText("Generate missing thumbnail"),
+		).toBeInTheDocument();
+		expect(
+			screen.getByText("tasks:summary_generate_thumbnail_for"),
+		).toBeInTheDocument();
+		expect(screen.getByText("Extract media metadata")).toBeInTheDocument();
+		expect(screen.getByText("media metadata extract")).toBeInTheDocument();
+		expect(
+			screen.getByText("tasks:summary_cleanup_temp_files"),
+		).toBeInTheDocument();
+		expect(screen.getByText("storage policy temp cleanup")).toBeInTheDocument();
+		expect(
+			screen.getByText("tasks:summary_system_runtime"),
+		).toBeInTheDocument();
+		expect(screen.getByText("tasks:kind_system_runtime")).toBeInTheDocument();
+		expect(screen.getAllByText("icon:FileImage").length).toBeGreaterThan(0);
+		expect(screen.getByText("icon:Info")).toBeInTheDocument();
+		expect(screen.getByText("icon:Clock")).toBeInTheDocument();
+		expect(screen.getByText("icon:Gear")).toBeInTheDocument();
+	});
 });
