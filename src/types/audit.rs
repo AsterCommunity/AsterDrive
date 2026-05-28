@@ -584,6 +584,7 @@ impl AuditAction {
             "admin_force_unlock" => Some(Self::AdminForceUnlock),
             "admin_cleanup_expired_locks" => Some(Self::AdminCleanupExpiredLocks),
             "admin_cleanup_tasks" => Some(Self::AdminCleanupTasks),
+            "admin_create_blob_maintenance_task" => Some(Self::AdminCreateBlobMaintenanceTask),
             "admin_create_remote_node" => Some(Self::AdminCreateRemoteNode),
             "admin_update_remote_node" => Some(Self::AdminUpdateRemoteNode),
             "admin_delete_remote_node" => Some(Self::AdminDeleteRemoteNode),

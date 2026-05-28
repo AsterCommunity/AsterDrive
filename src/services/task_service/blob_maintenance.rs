@@ -650,7 +650,7 @@ fn should_mark_blob_maintenance_progress(progress: i64, total: i64) -> bool {
 }
 
 async fn ensure_blob_targets_exist(state: &PrimaryAppState, blob_ids: &[i64]) -> Result<()> {
-    let found = file_repo::find_blobs_by_ids(state.reader_db(), blob_ids).await?;
+    let found = file_repo::find_blobs_by_ids(state.writer_db(), blob_ids).await?;
     for blob_id in blob_ids {
         if !found.contains_key(blob_id) {
             return Err(AsterError::record_not_found(format!(

@@ -16,16 +16,6 @@ import {
 	stepStatusTextClass,
 } from "./taskPresentation";
 
-export function taskHasExpandableDetails(task: TaskInfo) {
-	return (
-		task.steps.length > 0 ||
-		task.last_error !== null ||
-		(task.status === "succeeded" &&
-			(parseTaskResult(task) !== null ||
-				parseStoragePolicyMigrationResult(task) !== null))
-	);
-}
-
 export function TaskStepsPreview({ task }: { task: TaskInfo }) {
 	const { t } = useTranslation(["core", "tasks"]);
 	const activeStep = currentTaskStep(task);

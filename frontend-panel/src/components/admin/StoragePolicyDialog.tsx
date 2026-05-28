@@ -47,7 +47,11 @@ interface StoragePolicyDialogProps {
 	onSyncNormalizedS3Form: () => void;
 }
 
-export function StoragePolicyDialog({
+export function StoragePolicyDialog(props: StoragePolicyDialogProps) {
+	return useStoragePolicyDialogContent(props);
+}
+
+function useStoragePolicyDialogContent({
 	open,
 	mode,
 	form,

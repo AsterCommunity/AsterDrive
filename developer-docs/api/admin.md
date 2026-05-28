@@ -208,7 +208,7 @@
 - `GET /admin/files` 支持 `name`、`blob_id`、`policy_id`、`owner_user_id`、`team_id`、`deleted`、`limit`、`offset`、`sort_by`、`sort_order`
 - `GET /admin/file-blobs` 支持 `hash`、`policy_id`、`storage_path`、`ref_count_min`、`ref_count_max`、`size_min`、`size_max`、`limit`、`offset`、`sort_by`、`sort_order`
 - `hash_kind` 只是观测派生字段：64 位十六进制 SHA-256 记为 `content_sha256`，其他值记为 `opaque`
-- `POST /admin/file-blobs/maintenance` 请求体为 `{ "action": "...", "blob_ids": [...] }`，`blob_ids` 必须非空且当前最多 1000 个
+- `POST /admin/file-blobs/maintenance` 请求体为 `{ "action": "...", "blob_ids": [...] }`，`blob_ids` 可省略；提供时必须非空且当前最多 1000 个
 - `action` 支持 `integrity_check`、`ref_count_reconcile`、`orphan_cleanup`
 - `integrity_check` 只检查对象是否存在以及对象大小是否和 blob 记录一致，不修改 blob
 - `ref_count_reconcile` 会按当前文件和文件版本引用重新计算并修正 `ref_count`

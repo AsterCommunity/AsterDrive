@@ -1095,9 +1095,13 @@ async fn test_migration_backfills_storage_migration_result_renamed_opaque_count(
     .await
     .unwrap();
 
-    let migration_count_before_opaque_backfill =
-        u32::try_from(migration::current_migration_names().len().saturating_sub(1))
-            .expect("migration count should fit u32");
+    let migration_count_before_opaque_backfill = u32::try_from(
+        migration::current_migration_names()
+            .iter()
+            .position(|name| name.contains("add_storage_migration_opaque_rename_count"))
+            .expect("opaque rename count migration should exist"),
+    )
+    .expect("migration count should fit u32");
     CurrentMigrator::up(&db, Some(migration_count_before_opaque_backfill))
         .await
         .unwrap();

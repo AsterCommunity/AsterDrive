@@ -298,6 +298,7 @@ pub struct StoragePolicyMigrationTaskResult {
     pub skipped_blobs: i64,
     pub failed_blobs: i64,
     pub migrated_bytes: i64,
+    #[serde(default)]
     pub renamed_opaque_blobs: i64,
 }
 

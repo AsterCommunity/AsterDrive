@@ -18,10 +18,16 @@ export function UserIdentityGroup({
 }: UserIdentityGroupProps) {
 	if (!users?.length) {
 		if (total && total > 0) {
-			return <span className="text-xs text-muted-foreground">+{total}</span>;
+			return (
+				<span className={className}>
+					<span className="text-xs text-muted-foreground">+{total}</span>
+				</span>
+			);
 		}
 		return (
-			<span className="text-sm text-muted-foreground">{fallbackLabel}</span>
+			<span className={className}>
+				<span className="text-sm text-muted-foreground">{fallbackLabel}</span>
+			</span>
 		);
 	}
 

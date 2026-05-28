@@ -5,11 +5,8 @@ import { Card } from "@/components/ui/card";
 import { Icon, type IconName } from "@/components/ui/icon";
 import type { TaskInfo } from "@/types/api";
 import { AnimatedTaskDetails } from "./AnimatedTaskDetails";
-import {
-	TaskDetailsContent,
-	TaskStepsPreview,
-	taskHasExpandableDetails,
-} from "./TaskDetailsPanel";
+import { TaskDetailsContent, TaskStepsPreview } from "./TaskDetailsPanel";
+import { taskHasExpandableDetails } from "./taskDetails";
 import {
 	currentTaskStep,
 	formatTaskDisplayName,

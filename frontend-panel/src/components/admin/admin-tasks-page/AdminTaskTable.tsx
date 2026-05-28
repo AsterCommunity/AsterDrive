@@ -30,8 +30,8 @@ import { cn } from "@/lib/utils";
 import {
 	TaskDetailsContent,
 	TaskStepsPreview,
-	taskHasExpandableDetails,
 } from "@/pages/tasks/TaskDetailsPanel";
+import { taskHasExpandableDetails } from "@/pages/tasks/taskDetails";
 import { formatTaskDisplayName } from "@/pages/tasks/taskPresentation";
 import type { AdminTaskSortBy } from "@/types/adminSort";
 import type {

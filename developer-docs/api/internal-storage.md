@@ -60,7 +60,7 @@
 - `supports_stream_upload`
 - `supports_capacity`
 
-当前协议版本是 `v2`，最小支持版本也是 `v2`。主节点在加载远端策略或刷新绑定时会做能力协商：
+当前协议版本是 `v3`，向后兼容 `v2`，最小支持版本仍是 `v2`。`v3` 在能力协商中声明 `supports_capacity`；兼容窗口内主节点仍可连接不支持容量观测的 `v2` follower。主节点在加载远端策略或刷新绑定时会做能力协商：
 
 - `protocol_version` / `min_supported_protocol_version` 必须和本地支持区间有交集
 - 基础远端策略要求 `object_get`、`object_head`、`object_put`、`object_delete`、`metadata`、`range_get`、`accept_ranges_header`、`list`、`compose`

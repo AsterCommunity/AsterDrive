@@ -339,10 +339,10 @@ fn summarize_blob_uploader_refs(
 fn blob_health(recorded_ref_count: i32, actual_ref_count: i64) -> AdminFileBlobHealth {
     if recorded_ref_count == file_repo::BLOB_CLEANUP_CLAIMED_REF_COUNT {
         AdminFileBlobHealth::CleanupClaimed
-    } else if actual_ref_count == 0 {
-        AdminFileBlobHealth::Orphan
     } else if i64::from(recorded_ref_count) != actual_ref_count {
         AdminFileBlobHealth::RefCountMismatch
+    } else if recorded_ref_count == 0 && actual_ref_count == 0 {
+        AdminFileBlobHealth::Orphan
     } else {
         AdminFileBlobHealth::Healthy
     }
