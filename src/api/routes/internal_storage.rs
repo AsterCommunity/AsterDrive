@@ -9,9 +9,9 @@ use crate::storage::driver::{BlobMetadata, StorageDriver};
 use crate::storage::object_key;
 use crate::storage::remote_protocol::{
     INTERNAL_AUTH_SIGNATURE_HEADER, PRESIGNED_AUTH_ACCESS_KEY_QUERY, RemoteBindingSyncRequest,
-    RemoteCreateIngressProfileRequest, RemoteStorageCapabilities, RemoteStorageComposeRequest,
-    RemoteStorageComposeResponse, RemoteStorageListResponse, RemoteStorageObjectMetadata,
-    RemoteUpdateIngressProfileRequest,
+    RemoteCreateIngressProfileRequest, RemoteStorageCapabilities, RemoteStorageCapacityResponse,
+    RemoteStorageComposeRequest, RemoteStorageComposeResponse, RemoteStorageListResponse,
+    RemoteStorageObjectMetadata, RemoteUpdateIngressProfileRequest,
 };
 use actix_web::http::StatusCode;
 use actix_web::{HttpRequest, HttpResponse, dev::HttpServiceFactory, web};
@@ -25,6 +25,7 @@ pub fn routes() -> impl HttpServiceFactory {
     web::scope("/internal/storage")
         .wrap(PresignedInternalStorageCors)
         .route("/capabilities", web::get().to(get_capabilities))
+        .route("/capacity", web::get().to(get_capacity))
         .route("/binding", web::put().to(sync_binding))
         .route("/ingress-profiles", web::get().to(list_ingress_profiles))
         .route("/ingress-profiles", web::post().to(create_ingress_profile))
@@ -212,6 +213,15 @@ async fn get_capabilities(
 ) -> Result<HttpResponse> {
     master_binding_service::authorize_internal_binding_request(state.get_ref(), &req).await?;
     Ok(HttpResponse::Ok().json(ApiResponse::ok(RemoteStorageCapabilities::current())))
+}
+
+async fn get_capacity(
+    state: web::Data<FollowerAppState>,
+    req: HttpRequest,
+) -> Result<HttpResponse> {
+    let ctx = master_binding_service::authorize_internal_request(state.get_ref(), &req).await?;
+    let capacity = ctx.ingress_driver.capacity_info().await?;
+    Ok(HttpResponse::Ok().json(ApiResponse::ok(RemoteStorageCapacityResponse { capacity })))
 }
 
 async fn sync_binding(

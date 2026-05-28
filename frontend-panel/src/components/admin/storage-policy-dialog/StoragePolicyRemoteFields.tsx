@@ -91,11 +91,11 @@ export function RemoteDownloadStrategyField({
 }: SharedFieldProps) {
 	const options = [
 		{
-			label: t("remote_download_strategy_relay_stream"),
+			label: t("download_strategy_relay_stream"),
 			value: "relay_stream",
 		},
 		{
-			label: t("remote_download_strategy_presigned"),
+			label: t("download_strategy_presigned"),
 			value: "presigned",
 		},
 	] satisfies ReadonlyArray<SelectOption<RemoteDownloadStrategy>>;
@@ -109,8 +109,8 @@ export function RemoteDownloadStrategyField({
 			onChange={(value) => onFieldChange("remote_download_strategy", value)}
 			description={t(
 				form.remote_download_strategy === "relay_stream"
-					? "remote_download_strategy_relay_stream_desc"
-					: "remote_download_strategy_presigned_desc",
+					? "download_strategy_relay_stream_desc"
+					: "download_strategy_presigned_desc",
 			)}
 		/>
 	);
@@ -123,11 +123,11 @@ export function RemoteUploadStrategyField({
 }: SharedFieldProps) {
 	const options = [
 		{
-			label: t("remote_upload_strategy_relay_stream"),
+			label: t("upload_strategy_relay_stream"),
 			value: "relay_stream",
 		},
 		{
-			label: t("remote_upload_strategy_presigned"),
+			label: t("upload_strategy_presigned"),
 			value: "presigned",
 		},
 	] satisfies ReadonlyArray<SelectOption<RemoteUploadStrategy>>;
@@ -141,8 +141,8 @@ export function RemoteUploadStrategyField({
 			onChange={(value) => onFieldChange("remote_upload_strategy", value)}
 			description={t(
 				form.remote_upload_strategy === "relay_stream"
-					? "remote_upload_strategy_relay_stream_desc"
-					: "remote_upload_strategy_presigned_desc",
+					? "upload_strategy_relay_stream_desc"
+					: "upload_strategy_presigned_desc",
 			)}
 		/>
 	);

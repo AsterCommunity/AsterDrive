@@ -8,6 +8,7 @@ use crate::api::subcode::ApiSubcode;
 use crate::errors::AsterError;
 use crate::storage::driver::PresignedDownloadOptions;
 use crate::storage::error::StorageErrorKind;
+use crate::storage::{StorageCapacityInfo, StorageCapacityStatus};
 use crate::types::DriverType;
 use actix_web::{App, HttpRequest, HttpResponse, HttpServer, web};
 use std::collections::HashMap;
@@ -107,6 +108,24 @@ async fn spawn_protocol_server() -> (TestHttpServer, Arc<ProtocolLog>) {
             "code": 0,
             "msg": "",
             "data": { "items": [format!("{prefix}/one.bin"), format!("{prefix}/two.bin")] }
+        }))
+    }
+
+    async fn capacity(req: HttpRequest, log: web::Data<Arc<ProtocolLog>>) -> HttpResponse {
+        log_request(&req, &[], &log);
+        HttpResponse::Ok().json(serde_json::json!({
+            "code": 0,
+            "msg": "",
+            "data": {
+                "capacity": StorageCapacityInfo {
+                    status: StorageCapacityStatus::Supported,
+                    total_bytes: Some(1_000),
+                    available_bytes: Some(600),
+                    used_bytes: Some(400),
+                    source: "remote_test".to_string(),
+                    observed_at: chrono::Utc::now(),
+                }
+            }
         }))
     }
 
@@ -239,6 +258,7 @@ async fn spawn_protocol_server() -> (TestHttpServer, Arc<ProtocolLog>) {
                 "/api/v1/internal/storage/objects",
                 web::get().to(list_objects),
             )
+            .route("/api/v1/internal/storage/capacity", web::get().to(capacity))
             .route(
                 "/api/v1/internal/storage/objects/{key:.*}/metadata",
                 web::get().to(metadata),
@@ -645,7 +665,7 @@ async fn remote_client_object_profile_and_compose_paths_roundtrip() {
         .probe_capabilities()
         .await
         .expect("capabilities should load");
-    assert_eq!(capabilities.protocol_version, "v2");
+    assert_eq!(capabilities.protocol_version, "v3");
     assert_eq!(capabilities.min_supported_protocol_version, "v2");
     assert!(capabilities.features.object_get);
     assert!(capabilities.features.object_head);
@@ -678,6 +698,7 @@ async fn remote_client_object_profile_and_compose_paths_roundtrip() {
     assert!(capabilities.supports_list);
     assert!(capabilities.supports_range_read);
     assert!(capabilities.supports_stream_upload);
+    assert!(capabilities.supports_capacity);
 
     client
         .put_bytes("folder/file name?.txt", b"upload")
@@ -716,6 +737,13 @@ async fn remote_client_object_profile_and_compose_paths_roundtrip() {
 
     let listed = client.list_paths(Some("prefix")).await.unwrap();
     assert_eq!(listed, vec!["prefix/one.bin", "prefix/two.bin"]);
+
+    let capacity = client.capacity_info().await.unwrap();
+    assert_eq!(capacity.status, StorageCapacityStatus::Supported);
+    assert_eq!(capacity.total_bytes, Some(1_000));
+    assert_eq!(capacity.available_bytes, Some(600));
+    assert_eq!(capacity.used_bytes, Some(400));
+    assert_eq!(capacity.source, "remote_test");
 
     client
         .sync_binding(&RemoteBindingSyncRequest {
@@ -797,6 +825,9 @@ async fn remote_client_object_profile_and_compose_paths_roundtrip() {
             && request
                 .path_and_query
                 .contains("/objects/stream.bin?offset=7&length=5")
+    }));
+    assert!(requests.iter().any(|request| {
+        request.method == "GET" && request.path_and_query == "/api/v1/internal/storage/capacity"
     }));
     assert!(requests.iter().any(|request| {
         request.method == "PATCH"
@@ -910,6 +941,152 @@ async fn remote_client_maps_envelope_errors_and_missing_data() {
     let _ = task.await;
 }
 
+#[tokio::test]
+async fn remote_client_probe_accepts_v2_capabilities_without_capacity_support() {
+    async fn capabilities_v2() -> HttpResponse {
+        HttpResponse::Ok().json(serde_json::json!({
+            "code": 0,
+            "msg": "",
+            "data": {
+                "protocol_version": "v2",
+                "min_supported_protocol_version": "v2",
+                "features": RemoteStorageFeatureFlags::current(),
+                "browser_cors": RemoteStorageBrowserCorsContract::current(),
+                "limits": RemoteStorageProtocolLimits::default(),
+                "supports_list": true,
+                "supports_range_read": true,
+                "supports_stream_upload": true
+            }
+        }))
+    }
+
+    let listener = std::net::TcpListener::bind(("127.0.0.1", 0))
+        .expect("v2 capabilities listener should bind");
+    let addr = listener
+        .local_addr()
+        .expect("v2 capabilities listener addr should resolve");
+    let server = HttpServer::new(move || {
+        App::new().route(
+            "/api/v1/internal/storage/capabilities",
+            web::get().to(capabilities_v2),
+        )
+    })
+    .listen(listener)
+    .expect("v2 capabilities server should listen")
+    .run();
+    let handle = server.handle();
+    let task = tokio::spawn(server);
+    let client = RemoteStorageClient::new(
+        &format!("http://127.0.0.1:{}", addr.port()),
+        "access-key",
+        "secret-key",
+    )
+    .expect("remote client should build");
+
+    let capabilities = client
+        .probe_capabilities()
+        .await
+        .expect("v3 client should accept v2 capabilities");
+    assert_eq!(capabilities.protocol_version, "v2");
+    assert_eq!(capabilities.min_supported_protocol_version, "v2");
+    assert!(capabilities.supports_stream_upload);
+    assert!(!capabilities.supports_capacity);
+
+    handle.stop(true).await;
+    let _ = task.await;
+}
+
+#[tokio::test]
+async fn remote_client_capacity_maps_missing_data_and_unsupported_errors() {
+    async fn capacity_missing_data() -> HttpResponse {
+        HttpResponse::Ok().json(serde_json::json!({
+            "code": 0,
+            "msg": "",
+        }))
+    }
+
+    async fn capacity_unsupported() -> HttpResponse {
+        HttpResponse::BadRequest().json(serde_json::json!({
+            "code": ErrorCode::StorageOperationUnsupported as i32,
+            "msg": "capacity unsupported"
+        }))
+    }
+
+    let missing_listener = std::net::TcpListener::bind(("127.0.0.1", 0))
+        .expect("missing capacity listener should bind");
+    let missing_addr = missing_listener
+        .local_addr()
+        .expect("missing capacity listener addr should resolve");
+    let missing_server = HttpServer::new(move || {
+        App::new().route(
+            "/api/v1/internal/storage/capacity",
+            web::get().to(capacity_missing_data),
+        )
+    })
+    .listen(missing_listener)
+    .expect("missing capacity server should listen")
+    .run();
+    let missing_handle = missing_server.handle();
+    let missing_task = tokio::spawn(missing_server);
+    let missing_client = RemoteStorageClient::new(
+        &format!("http://127.0.0.1:{}", missing_addr.port()),
+        "access-key",
+        "secret-key",
+    )
+    .expect("missing client should build");
+
+    let missing_error = missing_client
+        .capacity_info()
+        .await
+        .expect_err("missing capacity data should fail");
+    assert_eq!(
+        missing_error.storage_error_kind(),
+        Some(StorageErrorKind::Misconfigured)
+    );
+    assert!(
+        missing_error
+            .message()
+            .contains("capacity response missing data")
+    );
+    missing_handle.stop(true).await;
+    let _ = missing_task.await;
+
+    let unsupported_listener = std::net::TcpListener::bind(("127.0.0.1", 0))
+        .expect("unsupported capacity listener should bind");
+    let unsupported_addr = unsupported_listener
+        .local_addr()
+        .expect("unsupported capacity listener addr should resolve");
+    let unsupported_server = HttpServer::new(move || {
+        App::new().route(
+            "/api/v1/internal/storage/capacity",
+            web::get().to(capacity_unsupported),
+        )
+    })
+    .listen(unsupported_listener)
+    .expect("unsupported capacity server should listen")
+    .run();
+    let unsupported_handle = unsupported_server.handle();
+    let unsupported_task = tokio::spawn(unsupported_server);
+    let unsupported_client = RemoteStorageClient::new(
+        &format!("http://127.0.0.1:{}", unsupported_addr.port()),
+        "access-key",
+        "secret-key",
+    )
+    .expect("unsupported client should build");
+
+    let unsupported_error = unsupported_client
+        .capacity_info()
+        .await
+        .expect_err("remote unsupported should fail");
+    assert_eq!(
+        unsupported_error.storage_error_kind(),
+        Some(StorageErrorKind::Unsupported)
+    );
+    assert!(unsupported_error.message().contains("capacity unsupported"));
+    unsupported_handle.stop(true).await;
+    let _ = unsupported_task.await;
+}
+
 #[test]
 fn capabilities_validation_rejects_incompatible_protocol_versions() {
     let capabilities = RemoteStorageCapabilities {
@@ -920,7 +1097,7 @@ fn capabilities_validation_rejects_incompatible_protocol_versions() {
 
     let error = capabilities
         .validate_protocol("test remote node")
-        .expect_err("v1 discovery should be incompatible with v2 local protocol");
+        .expect_err("v1 discovery should be incompatible with local protocol");
 
     assert_eq!(
         error.storage_error_kind(),
@@ -932,10 +1109,24 @@ fn capabilities_validation_rejects_incompatible_protocol_versions() {
         error.message()
     );
     assert!(
-        error.message().contains("local supports v2-v2"),
+        error.message().contains("local supports v2-v3"),
         "unexpected error message: {}",
         error.message()
     );
+}
+
+#[test]
+fn capabilities_validation_accepts_v2_remote_nodes() {
+    let capabilities = RemoteStorageCapabilities {
+        protocol_version: "v2".to_string(),
+        min_supported_protocol_version: "v2".to_string(),
+        supports_capacity: false,
+        ..RemoteStorageCapabilities::current()
+    };
+
+    capabilities
+        .validate_protocol("test remote node")
+        .expect("v2 discovery should remain compatible");
 }
 
 #[test]

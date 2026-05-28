@@ -25,6 +25,7 @@ export {
 } from "@/components/admin/storage-policy-dialog/StoragePolicyS3Fields";
 export {
 	DriverTypeBadge,
+	PolicyCapacityCard,
 	PolicySectionIntro,
 	PolicySummaryCard,
 	StorageDriverVisual,

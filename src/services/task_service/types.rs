@@ -303,6 +303,9 @@ pub struct StoragePolicyMigrationTaskResult {
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum StoragePolicyMigrationCapacityCheck {
+    Sufficient,
+    Insufficient,
+    Unsupported,
     Unavailable,
 }
 
@@ -327,6 +330,7 @@ pub struct StoragePolicyMigrationDryRun {
     pub target_supports_stream_upload: bool,
     pub target_connection_ok: bool,
     pub target_capacity_check: StoragePolicyMigrationCapacityCheck,
+    pub target_capacity: crate::storage::StorageCapacityInfo,
     pub delete_source_after_success_supported: bool,
     pub can_start: bool,
     pub warnings: Vec<StoragePolicyMigrationDryRunWarning>,

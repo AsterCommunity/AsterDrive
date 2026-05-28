@@ -5,7 +5,9 @@ use tokio::io::AsyncRead;
 use crate::errors::{MapAsterErr, Result};
 use crate::storage::driver::{BlobMetadata, StorageDriver};
 use crate::storage::error::{StorageErrorKind, storage_driver_error};
-use crate::storage::extensions::{ListStorageDriver, PresignedStorageDriver, StreamUploadDriver};
+use crate::storage::extensions::{
+    ListStorageDriver, PresignedStorageDriver, StorageCapacityInfo, StreamUploadDriver,
+};
 use crate::storage::multipart::MultipartStorageDriver;
 use crate::utils::numbers;
 
@@ -181,6 +183,13 @@ impl StorageDriver for S3Driver {
             .map_err(|err| Self::map_sdk_error("S3 copy_object failed", err))?;
 
         Ok(dest_path.to_string())
+    }
+
+    async fn capacity_info(&self) -> Result<StorageCapacityInfo> {
+        Err(storage_driver_error(
+            StorageErrorKind::Unsupported,
+            "S3-compatible storage does not expose standardized bucket capacity information",
+        ))
     }
 
     fn as_presigned(&self) -> Option<&dyn PresignedStorageDriver> {

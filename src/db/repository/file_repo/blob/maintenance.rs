@@ -3,6 +3,7 @@ use sea_orm::{
     ColumnTrait, ConnectionTrait, DbBackend, EntityTrait, ExprTrait, PaginatorTrait, QueryFilter,
     QuerySelect, sea_query::Expr,
 };
+use std::collections::HashMap;
 
 use crate::entities::file_blob::{self, Entity as FileBlob};
 use crate::errors::{AsterError, Result};
@@ -33,6 +34,28 @@ pub async fn count_blob_refs_from_files<C: ConnectionTrait>(
         .select_only()
         .column(file::Column::BlobId)
         .column_as(Expr::col(file::Column::Id).count(), "ref_count")
+        .group_by(file::Column::BlobId)
+        .into_tuple::<(i64, i64)>()
+        .all(db)
+        .await
+        .map_err(AsterError::from)?;
+    Ok(rows.into_iter().collect())
+}
+
+/// 批量统计指定 blob 当前被文件记录引用的次数。
+pub async fn count_blob_refs_from_files_for_blobs<C: ConnectionTrait>(
+    db: &C,
+    blob_ids: &[i64],
+) -> Result<HashMap<i64, i64>> {
+    use crate::entities::file::{self, Entity as File};
+    if blob_ids.is_empty() {
+        return Ok(HashMap::new());
+    }
+    let rows = File::find()
+        .select_only()
+        .column(file::Column::BlobId)
+        .column_as(Expr::col(file::Column::Id).count(), "ref_count")
+        .filter(file::Column::BlobId.is_in(blob_ids.iter().copied()))
         .group_by(file::Column::BlobId)
         .into_tuple::<(i64, i64)>()
         .all(db)

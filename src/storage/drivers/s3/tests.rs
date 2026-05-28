@@ -82,6 +82,26 @@ fn replay_event(body: &str) -> ReplayEvent {
     )
 }
 
+#[tokio::test]
+async fn capacity_info_returns_unsupported_without_s3_request() {
+    let response = http::Response::builder()
+        .status(200)
+        .body(SdkBody::empty())
+        .expect("unused mocked response");
+    let (driver, _request) = mocked_driver(response);
+
+    let err = driver
+        .capacity_info()
+        .await
+        .expect_err("S3 capacity should be explicitly unsupported");
+
+    assert_eq!(
+        err.storage_error_kind(),
+        Some(StorageErrorKind::Unsupported)
+    );
+    assert!(err.message().contains("does not expose standardized"));
+}
+
 fn assert_storage_driver_error(err: AsterError, expected_kind: StorageErrorKind) {
     assert_eq!(err.code(), "E031");
     assert_eq!(err.storage_error_kind(), Some(expected_kind));

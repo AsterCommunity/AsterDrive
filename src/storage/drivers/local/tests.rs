@@ -1,7 +1,9 @@
 use super::paths::sanitize_relative_path;
 use crate::storage::driver::{StorageDriver, StoragePathVisitor};
 use crate::storage::drivers::local::promote::PromoteLocalFileOutcome;
-use crate::storage::extensions::{ListStorageDriver, LocalPathStorageDriver};
+use crate::storage::extensions::{
+    ListStorageDriver, LocalPathStorageDriver, StorageCapacityStatus,
+};
 use std::path::{Path, PathBuf};
 use tokio::io::AsyncReadExt;
 
@@ -102,6 +104,34 @@ async fn get_range_returns_partial_bytes() {
     let mut buf = Vec::new();
     reader.read_to_end(&mut buf).await.unwrap();
     assert_eq!(buf, b"Hello");
+
+    let _ = tokio::fs::remove_dir_all(&base).await;
+}
+
+#[tokio::test]
+async fn capacity_info_reports_filesystem_space_for_base_path() {
+    let base = unique_temp_dir("capacity-test");
+    tokio::fs::create_dir_all(&base).await.unwrap();
+
+    let policy = build_policy(&base);
+    let driver = super::LocalDriver::new(&policy).unwrap();
+
+    let capacity = driver
+        .capacity_info()
+        .await
+        .expect("local capacity should be observable");
+
+    assert_eq!(capacity.status, StorageCapacityStatus::Supported);
+    assert_eq!(capacity.source, "local_filesystem");
+    let total = capacity.total_bytes.expect("total bytes should exist");
+    let available = capacity
+        .available_bytes
+        .expect("available bytes should exist");
+    let used = capacity.used_bytes.expect("used bytes should exist");
+    assert!(total > 0);
+    assert!(available > 0);
+    assert!(total >= available);
+    assert_eq!(used, total.saturating_sub(available));
 
     let _ = tokio::fs::remove_dir_all(&base).await;
 }

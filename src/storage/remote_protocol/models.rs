@@ -1,5 +1,6 @@
 use crate::api::response::ApiErrorInfo;
 use crate::errors::Result;
+use crate::storage::StorageCapacityInfo;
 use crate::storage::error::{StorageErrorKind, storage_driver_error};
 use crate::types::{
     DriverType, RemoteDownloadStrategy, RemoteUploadStrategy, StoragePolicyOptions,
@@ -9,9 +10,9 @@ use std::fmt;
 #[cfg(all(debug_assertions, feature = "openapi"))]
 use utoipa::ToSchema;
 
-pub const INTERNAL_STORAGE_PROTOCOL_VERSION: u16 = 2;
+pub const INTERNAL_STORAGE_PROTOCOL_VERSION: u16 = 3;
 pub const INTERNAL_STORAGE_MIN_SUPPORTED_PROTOCOL_VERSION: u16 = 2;
-pub const INTERNAL_STORAGE_PROTOCOL_VERSION_LABEL: &str = "v2";
+pub const INTERNAL_STORAGE_PROTOCOL_VERSION_LABEL: &str = "v3";
 pub const INTERNAL_STORAGE_MIN_SUPPORTED_PROTOCOL_VERSION_LABEL: &str = "v2";
 pub const REMOTE_BROWSER_PRESIGNED_CORS_ALLOWED_HEADERS: &str = "content-type, range";
 pub const REMOTE_BROWSER_PRESIGNED_CORS_GET_EXPOSE_HEADERS: &str = "Accept-Ranges, Cache-Control, Content-Disposition, Content-Length, Content-Range, Content-Type, ETag";
@@ -38,6 +39,8 @@ pub struct RemoteStorageCapabilities {
     pub supports_range_read: bool,
     #[serde(default)]
     pub supports_stream_upload: bool,
+    #[serde(default)]
+    pub supports_capacity: bool,
 }
 
 impl Default for RemoteStorageCapabilities {
@@ -59,6 +62,7 @@ impl RemoteStorageCapabilities {
             supports_list: true,
             supports_range_read: true,
             supports_stream_upload: true,
+            supports_capacity: true,
         }
     }
 
@@ -73,6 +77,7 @@ impl RemoteStorageCapabilities {
             supports_list: false,
             supports_range_read: false,
             supports_stream_upload: false,
+            supports_capacity: false,
         }
     }
 
@@ -417,6 +422,12 @@ fn contains_header(headers: &[String], expected: &str) -> bool {
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
 pub struct RemoteStorageListResponse {
     pub items: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
+pub struct RemoteStorageCapacityResponse {
+    pub capacity: StorageCapacityInfo,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

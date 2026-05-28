@@ -74,6 +74,16 @@ pub struct StoragePolicy {
     pub updated_at: chrono::DateTime<chrono::Utc>,
 }
 
+#[derive(Debug, Clone, Serialize)]
+#[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
+pub struct StoragePolicyCapacityInfo {
+    pub policy_id: i64,
+    pub driver_type: DriverType,
+    pub blob_count: i64,
+    pub blob_total_bytes: i64,
+    pub capacity: crate::storage::StorageCapacityInfo,
+}
+
 impl From<storage_policy::Model> for StoragePolicy {
     fn from(model: storage_policy::Model) -> Self {
         Self {

@@ -16,12 +16,13 @@ pub use groups::{
 };
 pub use models::{
     CreateStoragePolicyGroupInput, CreateStoragePolicyInput, PolicyGroupUserMigrationResult,
-    StoragePolicy, StoragePolicyConnectionInput, StoragePolicyGroupInfo,
+    StoragePolicy, StoragePolicyCapacityInfo, StoragePolicyConnectionInput, StoragePolicyGroupInfo,
     StoragePolicyGroupItemInfo, StoragePolicyGroupItemInput, StoragePolicySummaryInfo,
     UpdateStoragePolicyGroupInput, UpdateStoragePolicyInput,
 };
+pub(crate) use policies::capacity_info_or_status;
 pub use policies::{
-    create, delete, get, list_paginated, test_connection, test_connection_params,
+    capacity_info, create, delete, get, list_paginated, test_connection, test_connection_params,
     test_default_connection, update,
 };
 

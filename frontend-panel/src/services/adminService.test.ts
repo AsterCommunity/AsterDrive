@@ -226,6 +226,7 @@ describe("adminService", () => {
 		adminUserService.delete(5);
 
 		adminPolicyService.get(3);
+		adminPolicyService.getCapacity(3);
 		adminPolicyService.create({
 			name: "Primary",
 			driver_type: "s3" as never,

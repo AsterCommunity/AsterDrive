@@ -211,6 +211,28 @@ pub async fn get_policy(
 }
 
 #[api_docs_macros::path(
+    get,
+    path = "/api/v1/admin/policies/{id}/capacity",
+    tag = "admin",
+    operation_id = "get_policy_capacity",
+    params(("id" = i64, Path, description = "Policy ID")),
+    responses(
+        (status = 200, description = "Storage policy capacity observability", body = inline(ApiResponse<policy_service::StoragePolicyCapacityInfo>)),
+        (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
+        (status = 403, description = "Forbidden"),
+        (status = 404, description = "Policy not found"),
+    ),
+    security(("bearer" = [])),
+)]
+pub async fn get_policy_capacity(
+    state: web::Data<PrimaryAppState>,
+    path: web::Path<i64>,
+) -> Result<HttpResponse> {
+    let capacity = policy_service::capacity_info(&state, *path).await?;
+    Ok(HttpResponse::Ok().json(ApiResponse::ok(capacity)))
+}
+
+#[api_docs_macros::path(
     patch,
     path = "/api/v1/admin/policies/{id}",
     tag = "admin",

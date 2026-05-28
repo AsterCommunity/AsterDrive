@@ -3,7 +3,11 @@ use tokio::io::{AsyncRead, AsyncSeekExt};
 
 use crate::errors::{AsterError, MapAsterErr, Result};
 use crate::storage::driver::{BlobMetadata, StorageDriver};
-use crate::storage::extensions::{ListStorageDriver, LocalPathStorageDriver, StreamUploadDriver};
+use crate::storage::extensions::{
+    ListStorageDriver, LocalPathStorageDriver, StorageCapacityInfo, StorageCapacityStatus,
+    StreamUploadDriver,
+};
+use crate::utils::numbers::u64_to_i64;
 
 use super::LocalDriver;
 
@@ -118,6 +122,31 @@ impl StorageDriver for LocalDriver {
 
     fn as_local_path(&self) -> Option<&dyn LocalPathStorageDriver> {
         Some(self)
+    }
+
+    async fn capacity_info(&self) -> Result<StorageCapacityInfo> {
+        let base_path = self.base_path.clone();
+        tokio::task::spawn_blocking(move || {
+            let total = fs2::total_space(&base_path).map_aster_err_ctx(
+                "local capacity total_space",
+                AsterError::storage_driver_error,
+            )?;
+            let available = fs2::available_space(&base_path).map_aster_err_ctx(
+                "local capacity available_space",
+                AsterError::storage_driver_error,
+            )?;
+            let used = total.saturating_sub(available);
+            Ok(StorageCapacityInfo {
+                status: StorageCapacityStatus::Supported,
+                total_bytes: Some(u64_to_i64(total, "local capacity total_bytes")?),
+                available_bytes: Some(u64_to_i64(available, "local capacity available_bytes")?),
+                used_bytes: Some(u64_to_i64(used, "local capacity used_bytes")?),
+                source: "local_filesystem".to_string(),
+                observed_at: chrono::Utc::now(),
+            })
+        })
+        .await
+        .map_aster_err_ctx("local capacity task", AsterError::storage_driver_error)?
     }
 }
 

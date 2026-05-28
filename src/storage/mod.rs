@@ -17,7 +17,8 @@ pub use driver::{
 };
 pub use error::StorageErrorKind;
 pub use extensions::{
-    ListStorageDriver, LocalPathStorageDriver, PresignedStorageDriver, StreamUploadDriver,
+    ListStorageDriver, LocalPathStorageDriver, PresignedStorageDriver, StorageCapacityInfo,
+    StorageCapacityStatus, StreamUploadDriver,
 };
 pub use multipart::MultipartStorageDriver;
 pub use policy_snapshot::PolicySnapshot;

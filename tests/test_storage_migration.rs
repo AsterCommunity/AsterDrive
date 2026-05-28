@@ -487,15 +487,98 @@ async fn test_storage_migration_dry_run_reports_preflight_summary() {
     assert_eq!(data["estimated_copy_blob_count"], 1);
     assert_eq!(data["target_supports_stream_upload"], true);
     assert_eq!(data["target_connection_ok"], true);
-    assert_eq!(data["target_capacity_check"], "unavailable");
+    assert_eq!(data["target_capacity_check"], "sufficient");
+    assert_eq!(data["target_capacity"]["status"], "supported");
+    assert_eq!(data["target_capacity"]["source"], "local_filesystem");
+    assert!(
+        data["target_capacity"]["available_bytes"]
+            .as_i64()
+            .expect("available bytes should be present")
+            >= 6
+    );
     assert_eq!(data["delete_source_after_success_supported"], false);
     assert_eq!(data["can_start"], true);
+    assert_eq!(data["warnings"].as_array().unwrap(), &Vec::<Value>::new());
+}
+
+#[actix_web::test]
+async fn test_storage_migration_capacity_preflight_uses_estimated_copy_bytes() {
+    let state = common::setup().await;
+    let app = create_test_app!(state.clone());
+    let (token, _) = register_and_login!(app);
+    let source = create_local_policy(&state, "source-capacity-estimate").await;
+    let target = create_local_policy(&state, "target-capacity-estimate").await;
+
+    let shared = create_blob_with_object(&state, &source, b"already-present-large", 1).await;
+    let missing = create_blob_with_object(&state, &source, b"x", 1).await;
+    create_blob_with_object(&state, &target, b"already-present-large", 1).await;
+
+    let missing_summary = file_repo::summarize_missing_blobs_between_policies(
+        state.writer_db(),
+        source.id,
+        target.id,
+    )
+    .await
+    .expect("missing blob summary should load");
+    assert_eq!(missing_summary.count, 1);
+    assert_eq!(missing_summary.total_size, missing.size);
+
+    let (status, body) = dry_run_migration_via_api(&app, &token, source.id, target.id).await;
+
+    assert_eq!(status, actix_web::http::StatusCode::OK);
+    assert_eq!(body["code"], 0);
+    let data = &body["data"];
+    assert_eq!(data["source_blob_count"], 2);
+    assert_eq!(
+        data["source_total_bytes"].as_i64(),
+        Some(shared.size + missing.size)
+    );
+    assert_eq!(data["target_matching_blob_count"], 1);
+    assert_eq!(data["estimated_copy_blob_count"], 1);
+    assert_eq!(data["target_capacity_check"], "sufficient");
     assert!(
-        data["warnings"]
-            .as_array()
-            .expect("warnings should be an array")
-            .iter()
-            .any(|warning| warning == "target_capacity_unavailable")
+        data["target_capacity"]["available_bytes"]
+            .as_i64()
+            .expect("available bytes should be present")
+            >= missing.size
+    );
+}
+
+#[actix_web::test]
+async fn test_storage_policy_capacity_api_reports_local_filesystem_capacity() {
+    let state = common::setup().await;
+    let app = create_test_app!(state.clone());
+    let (token, _) = register_and_login!(app);
+    let policy = create_local_policy(&state, "capacity-api").await;
+    let blob = create_blob_with_object(&state, &policy, b"capacity-api-blob", 1).await;
+
+    let req = test::TestRequest::get()
+        .uri(&format!("/api/v1/admin/policies/{}/capacity", policy.id))
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), actix_web::http::StatusCode::OK);
+    let body: Value = test::read_body_json(resp).await;
+
+    assert_eq!(body["code"], 0);
+    let data = &body["data"];
+    assert_eq!(data["policy_id"], policy.id);
+    assert_eq!(data["driver_type"], "local");
+    assert_eq!(data["blob_count"], 1);
+    assert_eq!(data["blob_total_bytes"], blob.size);
+    assert_eq!(data["capacity"]["status"], "supported");
+    assert_eq!(data["capacity"]["source"], "local_filesystem");
+    assert!(
+        data["capacity"]["total_bytes"]
+            .as_i64()
+            .expect("total bytes should be present")
+            > 0
+    );
+    assert!(
+        data["capacity"]["available_bytes"]
+            .as_i64()
+            .expect("available bytes should be present")
+            > 0
     );
 }
 

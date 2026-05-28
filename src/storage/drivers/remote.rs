@@ -4,10 +4,12 @@ use crate::entities::{managed_follower, storage_policy};
 use crate::errors::{AsterError, Result};
 use crate::storage::driver::{BlobMetadata, PresignedDownloadOptions, StorageDriver};
 use crate::storage::error::{StorageErrorKind, storage_driver_error};
-use crate::storage::extensions::{ListStorageDriver, PresignedStorageDriver, StreamUploadDriver};
+use crate::storage::extensions::{
+    ListStorageDriver, PresignedStorageDriver, StorageCapacityInfo, StreamUploadDriver,
+};
 use crate::storage::multipart::MultipartStorageDriver;
 use crate::storage::object_key;
-use crate::storage::remote_protocol::RemoteStorageClient;
+use crate::storage::remote_protocol::{RemoteStorageCapabilities, RemoteStorageClient};
 use async_trait::async_trait;
 use sha2::{Digest, Sha256};
 use std::path::Path;
@@ -49,12 +51,14 @@ impl AsyncRead for HashingReader {
 pub struct RemoteDriver {
     client: RemoteStorageClient,
     base_path: String,
+    supports_capacity: bool,
 }
 
 impl RemoteDriver {
     const MULTIPART_UPLOADS_PREFIX: &str = "uploads";
 
     pub fn new(policy: &storage_policy::Model, follower: &managed_follower::Model) -> Result<Self> {
+        let capabilities = RemoteStorageCapabilities::from_stored_json(&follower.last_capabilities);
         Ok(Self {
             client: RemoteStorageClient::new(
                 &follower.base_url,
@@ -62,6 +66,7 @@ impl RemoteDriver {
                 &follower.secret_key,
             )?,
             base_path: policy.base_path.trim_matches('/').to_string(),
+            supports_capacity: capabilities.supports_capacity,
         })
     }
 
@@ -133,6 +138,16 @@ impl StorageDriver for RemoteDriver {
 
     async fn metadata(&self, path: &str) -> Result<BlobMetadata> {
         self.client.metadata(&self.object_key(path)).await
+    }
+
+    async fn capacity_info(&self) -> Result<StorageCapacityInfo> {
+        if !self.supports_capacity {
+            return Err(storage_driver_error(
+                StorageErrorKind::Unsupported,
+                "remote storage node does not support capacity observability",
+            ));
+        }
+        self.client.capacity_info().await
     }
 
     fn as_list(&self) -> Option<&dyn ListStorageDriver> {
@@ -409,6 +424,13 @@ mod tests {
     }
 
     fn build_follower(base_url: &str) -> managed_follower::Model {
+        build_follower_with_capabilities(base_url, "{}")
+    }
+
+    fn build_follower_with_capabilities(
+        base_url: &str,
+        last_capabilities: &str,
+    ) -> managed_follower::Model {
         let now = chrono::Utc::now();
         managed_follower::Model {
             id: 7,
@@ -417,7 +439,7 @@ mod tests {
             access_key: "access-key".to_string(),
             secret_key: "secret-key".to_string(),
             is_enabled: true,
-            last_capabilities: "{}".to_string(),
+            last_capabilities: last_capabilities.to_string(),
             last_error: String::new(),
             last_checked_at: None,
             created_at: now,
@@ -428,6 +450,18 @@ mod tests {
     fn build_driver(base_url: &str, base_path: &str) -> RemoteDriver {
         RemoteDriver::new(&build_policy(base_path), &build_follower(base_url))
             .expect("remote driver should build")
+    }
+
+    fn build_driver_with_capabilities(
+        base_url: &str,
+        base_path: &str,
+        last_capabilities: &str,
+    ) -> RemoteDriver {
+        RemoteDriver::new(
+            &build_policy(base_path),
+            &build_follower_with_capabilities(base_url, last_capabilities),
+        )
+        .expect("remote driver should build")
     }
 
     async fn spawn_list_server(
@@ -642,6 +676,66 @@ mod tests {
         reader.read_to_end(&mut body).await.unwrap();
 
         assert_eq!(body, b"world");
+        handle.stop(true).await;
+        let _ = task.await;
+    }
+
+    #[tokio::test]
+    async fn v3_remote_driver_can_use_v2_node_without_capacity_support() {
+        async fn get_object(query: web::Query<HashMap<String, String>>) -> HttpResponse {
+            assert!(query.get("offset").is_none());
+            assert!(query.get("length").is_none());
+            HttpResponse::Ok().body("v2-compatible")
+        }
+
+        let listener = std::net::TcpListener::bind(("127.0.0.1", 0))
+            .expect("test remote listener should bind");
+        let addr = listener
+            .local_addr()
+            .expect("test remote listener should expose local addr");
+        let server = HttpServer::new(move || {
+            App::new().route(
+                "/api/v1/internal/storage/objects/base/file.txt",
+                web::get().to(get_object),
+            )
+        })
+        .listen(listener)
+        .expect("test remote server should listen")
+        .run();
+        let handle = server.handle();
+        let task = tokio::spawn(server);
+        let driver = build_driver_with_capabilities(
+            &format!("http://127.0.0.1:{}", addr.port()),
+            "base",
+            r#"{
+                "protocol_version":"v2",
+                "min_supported_protocol_version":"v2",
+                "supports_stream_upload":true,
+                "supports_list":true,
+                "supports_range_read":true
+            }"#,
+        );
+
+        let body = driver
+            .get("file.txt")
+            .await
+            .expect("v3 client should keep v2 object operations usable");
+        assert_eq!(body, b"v2-compatible");
+
+        let capacity_error = driver
+            .capacity_info()
+            .await
+            .expect_err("v2 nodes should not expose v3 capacity endpoint");
+        assert_eq!(
+            capacity_error.storage_error_kind(),
+            Some(StorageErrorKind::Unsupported)
+        );
+        assert!(
+            capacity_error
+                .message()
+                .contains("does not support capacity observability")
+        );
+
         handle.stop(true).await;
         let _ = task.await;
     }

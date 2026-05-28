@@ -16,6 +16,8 @@ import {
 	AdminTableRow as TableRow,
 } from "@/components/common/AdminTable";
 import { AdminTableList } from "@/components/common/AdminTableList";
+import { UserIdentity } from "@/components/common/UserIdentity";
+import { UserIdentityGroup } from "@/components/common/UserIdentityGroup";
 import { AdminLayout } from "@/components/layout/AdminLayout";
 import { AdminPageHeader } from "@/components/layout/AdminPageHeader";
 import { AdminPageShell } from "@/components/layout/AdminPageShell";
@@ -54,6 +56,7 @@ import { adminFileService } from "@/services/adminService";
 import type { AdminFileBlobSortBy, AdminFileSortBy } from "@/types/adminSort";
 import type {
 	AdminFileBlobDetail,
+	AdminFileBlobHealth,
 	AdminFileBlobInfo,
 	AdminFileDetail,
 	AdminFileInfo,
@@ -140,6 +143,14 @@ function hashPreview(hash?: string | null) {
 
 function displayValue(value: string | number | null | undefined) {
 	return value == null || value === "" ? "-" : value;
+}
+
+function blobHealthLabelKey(health: AdminFileBlobHealth) {
+	return `admin_blob_health_${health}` as const;
+}
+
+function blobHealthVariant(health: AdminFileBlobHealth) {
+	return health === "healthy" ? "outline" : "destructive";
 }
 
 function fileBlobSummary(file: AdminFileInfo | null) {
@@ -273,6 +284,12 @@ function FileDetailDialog({
 								label={t("admin_mime_type")}
 								value={displayValue(file.mime_type)}
 							/>
+							<div className="border-b border-border/50 py-2 text-sm last:border-b-0">
+								<div className="mb-2 text-muted-foreground">
+									{t("admin_uploaded_by")}
+								</div>
+								<UserIdentity user={file.created_by} />
+							</div>
 							<DetailRow
 								label={t("admin_storage_path")}
 								value={displayValue(fileBlobSummary(file)?.storage_path)}
@@ -355,6 +372,31 @@ function BlobDetailDialog({
 							/>
 							<DetailRow label={t("admin_ref_count")} value={blob.ref_count} />
 							<DetailRow
+								label={t("admin_actual_ref_count")}
+								value={blob.actual_ref_count}
+							/>
+							<DetailRow
+								label={t("admin_file_ref_count")}
+								value={blob.file_ref_count}
+							/>
+							<DetailRow
+								label={t("admin_version_ref_count")}
+								value={blob.version_ref_count}
+							/>
+							<DetailRow
+								label={t("admin_blob_health")}
+								value={t(blobHealthLabelKey(blob.health))}
+							/>
+							<div className="border-b border-border/50 py-2 text-sm last:border-b-0">
+								<div className="mb-2 text-muted-foreground">
+									{t("admin_uploaded_by")}
+								</div>
+								<UserIdentityGroup
+									users={blob.uploaders}
+									total={blob.uploader_count}
+								/>
+							</div>
+							<DetailRow
 								label={t("admin_storage_path")}
 								value={blob.storage_path}
 							/>
@@ -375,6 +417,11 @@ function BlobDetailDialog({
 												<div className="mt-1 font-mono text-xs text-muted-foreground">
 													#{file.id} · {formatBytes(file.size)}
 												</div>
+												<UserIdentity
+													user={file.created_by}
+													className="mt-2"
+													size="sm"
+												/>
 											</div>
 										))
 									) : (
@@ -825,7 +872,7 @@ function AdminFilesPageView({ kind }: { kind: AdminFilesPageKind }) {
 				<AdminTableList
 					loading={loading}
 					items={items}
-					columns={isFiles ? 8 : 7}
+					columns={isFiles ? 9 : 9}
 					rows={6}
 					emptyIcon={
 						<Icon name={isFiles ? "File" : "HardDrive"} className="size-10" />
@@ -881,6 +928,7 @@ function AdminFilesPageView({ kind }: { kind: AdminFilesPageKind }) {
 											{t("admin_policy_id")}
 										</AdminSortableTableHead>
 										<TableHead>{t("admin_hash")}</TableHead>
+										<TableHead>{t("admin_uploaded_by")}</TableHead>
 										<TableHead>{t("core:status")}</TableHead>
 										<AdminSortableTableHead
 											sortKey="updated_at"
@@ -925,6 +973,8 @@ function AdminFilesPageView({ kind }: { kind: AdminFilesPageKind }) {
 										>
 											{t("admin_ref_count")}
 										</AdminSortableTableHead>
+										<TableHead>{t("admin_blob_health")}</TableHead>
+										<TableHead>{t("admin_uploaded_by")}</TableHead>
 										<TableHead>{t("admin_hash_kind")}</TableHead>
 										<TableHead>{t("admin_storage_path")}</TableHead>
 									</>
@@ -1032,6 +1082,9 @@ function FileRow({
 				</div>
 			</TableCell>
 			<TableCell>
+				<UserIdentity user={file.created_by} />
+			</TableCell>
+			<TableCell>
 				<div className={ADMIN_TABLE_BADGE_CELL_CLASS}>
 					<Badge variant="outline">
 						{file.deleted_at
@@ -1086,7 +1139,24 @@ function BlobRow({
 				<span className={ADMIN_TABLE_MONO_TEXT_CLASS}>{blob.policy_id}</span>
 			</TableCell>
 			<TableCell>
-				<span className={ADMIN_TABLE_MONO_TEXT_CLASS}>{blob.ref_count}</span>
+				<div className={ADMIN_TABLE_STACKED_CELL_CLASS}>
+					<span className={ADMIN_TABLE_MONO_TEXT_CLASS}>{blob.ref_count}</span>
+					<span className="text-xs text-muted-foreground">
+						{t("admin_blob_actual_ref_count_short", {
+							count: blob.actual_ref_count,
+						})}
+					</span>
+				</div>
+			</TableCell>
+			<TableCell>
+				<div className={ADMIN_TABLE_BADGE_CELL_CLASS}>
+					<Badge variant={blobHealthVariant(blob.health)}>
+						{t(blobHealthLabelKey(blob.health))}
+					</Badge>
+				</div>
+			</TableCell>
+			<TableCell>
+				<UserIdentityGroup users={blob.uploaders} total={blob.uploader_count} />
 			</TableCell>
 			<TableCell>
 				<div className={ADMIN_TABLE_BADGE_CELL_CLASS}>

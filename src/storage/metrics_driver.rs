@@ -307,6 +307,13 @@ impl StorageDriver for MetricsStorageDriver {
         result
     }
 
+    async fn capacity_info(&self) -> Result<super::extensions::StorageCapacityInfo> {
+        let started_at = Instant::now();
+        let result = self.inner.capacity_info().await;
+        self.record("capacity_info", &result, started_at);
+        result
+    }
+
     fn as_presigned(&self) -> Option<&dyn super::extensions::PresignedStorageDriver> {
         self.inner.as_presigned()
     }

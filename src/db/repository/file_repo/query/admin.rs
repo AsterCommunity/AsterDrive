@@ -2,6 +2,7 @@ use sea_orm::{
     ColumnTrait, Condition, ConnectionTrait, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder,
     QuerySelect,
 };
+use std::collections::{BTreeMap, HashMap};
 
 use crate::api::pagination::{AdminFileSortBy, SortOrder};
 use crate::db::repository::search_query::lower_like_condition;
@@ -22,6 +23,12 @@ pub struct AdminFileFilters<'a> {
     pub deleted: Option<bool>,
     pub sort_by: AdminFileSortBy,
     pub sort_order: SortOrder,
+}
+
+#[derive(Debug, Clone)]
+pub struct AdminBlobUploaderRef {
+    pub blob_id: i64,
+    pub user_id: i64,
 }
 
 pub async fn find_admin_files_paginated<C: ConnectionTrait>(
@@ -106,6 +113,40 @@ pub async fn find_by_blob_id<C: ConnectionTrait>(db: &C, blob_id: i64) -> Result
         .all(db)
         .await
         .map_err(AsterError::from)
+}
+
+pub async fn find_admin_blob_uploader_refs_for_blobs<C: ConnectionTrait>(
+    db: &C,
+    blob_ids: &[i64],
+) -> Result<HashMap<i64, Vec<AdminBlobUploaderRef>>> {
+    if blob_ids.is_empty() {
+        return Ok(HashMap::new());
+    }
+
+    let rows = File::find()
+        .select_only()
+        .column(file::Column::BlobId)
+        .column(file::Column::CreatedByUserId)
+        .filter(file::Column::BlobId.is_in(blob_ids.iter().copied()))
+        .filter(file::Column::CreatedByUserId.is_not_null())
+        .group_by(file::Column::BlobId)
+        .group_by(file::Column::CreatedByUserId)
+        .order_by_asc(file::Column::BlobId)
+        .order_by_asc(file::Column::CreatedByUserId)
+        .into_tuple::<(i64, i64)>()
+        .all(db)
+        .await
+        .map_err(AsterError::from)?;
+
+    let mut grouped = BTreeMap::<i64, Vec<AdminBlobUploaderRef>>::new();
+    for (blob_id, user_id) in rows {
+        grouped
+            .entry(blob_id)
+            .or_default()
+            .push(AdminBlobUploaderRef { blob_id, user_id });
+    }
+
+    Ok(grouped.into_iter().collect())
 }
 
 fn apply_admin_file_order(

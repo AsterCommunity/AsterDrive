@@ -1,4 +1,6 @@
 // Re-export generated types for convenience
+// IMPORTANT: Agent code should import from this file instead of api.generated.ts to avoid coupling to the codegen tool and to allow manual additions of types as needed.
+// It is strictly prohibited to directly add new fields in this document.
 import type {
 	operations as ApiOperations,
 	components,
@@ -216,9 +218,7 @@ export type TeamAuditEntryInfo = components["schemas"]["TeamAuditEntryInfo"];
 export type TeamAuditPage =
 	components["schemas"]["OffsetPage_TeamAuditEntryInfo"];
 export type TeamMemberPage = components["schemas"]["TeamMemberPage"];
-export type BackgroundTaskKind =
-	| components["schemas"]["BackgroundTaskKind"]
-	| "archive_preview_generate";
+export type BackgroundTaskKind = components["schemas"]["BackgroundTaskKind"];
 export type BackgroundTaskStatus =
 	components["schemas"]["BackgroundTaskStatus"];
 export type AdminUserListQuery = OperationQuery<"list_users">;
@@ -242,6 +242,7 @@ export type AdminFileSortBy = components["schemas"]["AdminFileSortBy"];
 export type AdminFileBlobSortBy = components["schemas"]["AdminFileBlobSortBy"];
 export type AdminFileBlobHashKind =
 	components["schemas"]["AdminFileBlobHashKind"];
+export type AdminFileBlobHealth = components["schemas"]["AdminFileBlobHealth"];
 export type AdminFileBlobSummary =
 	components["schemas"]["AdminFileBlobSummary"];
 export type AdminFileInfo = components["schemas"]["AdminFileInfo"];
@@ -306,6 +307,7 @@ export type RemovedCountResponse =
 export type ResetUserPasswordRequest =
 	components["schemas"]["ResetUserPasswordReq"];
 export type StoragePolicy = components["schemas"]["StoragePolicy"];
+export type StoragePolicyCapacityInfo = OperationData<"get_policy_capacity">;
 export type StoragePolicyPage =
 	components["schemas"]["OffsetPage_StoragePolicy"];
 export type CreateStoragePolicyMigrationRequest =
@@ -328,18 +330,9 @@ export type PolicyGroupUserMigrationResult =
 export type StoragePolicyGroupPage =
 	components["schemas"]["OffsetPage_StoragePolicyGroupInfo"];
 export type AdminShareListQuery = OperationQuery<"list_all_shares">;
-export type AdminTaskListQuery = Omit<
-	OperationQuery<"admin_list_tasks">,
-	"kind"
-> & {
-	kind?: BackgroundTaskKind | null;
-};
-export type AdminTaskCleanupRequest = Omit<
-	components["schemas"]["AdminTaskCleanupReq"],
-	"kind"
-> & {
-	kind?: BackgroundTaskKind | null;
-};
+export type AdminTaskListQuery = OperationQuery<"admin_list_tasks">;
+export type AdminTaskCleanupRequest =
+	components["schemas"]["AdminTaskCleanupReq"];
 export type AdminLockListQuery = OperationQuery<"list_locks">;
 export type ConfigActionType = components["schemas"]["ConfigActionType"];
 export type ConfigSchemaItem = components["schemas"]["ConfigSchemaItem"];

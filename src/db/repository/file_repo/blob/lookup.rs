@@ -24,6 +24,12 @@ pub struct StoragePolicyBlobSummary {
 }
 
 #[derive(Debug, Clone, FromQueryResult)]
+pub struct StoragePolicyMissingBlobSummary {
+    pub count: i64,
+    pub total_size: i64,
+}
+
+#[derive(Debug, Clone, FromQueryResult)]
 pub struct StoragePolicyBlobHashKindSummary {
     pub content_sha256_count: i64,
     pub opaque_count: i64,
@@ -195,6 +201,47 @@ pub async fn count_matching_hashes_between_policies<C: ConnectionTrait>(
         .map_err(AsterError::from)?
         .map(|row| row.count)
         .ok_or_else(|| AsterError::internal_error("matching hash count query returned no row"))
+}
+
+pub async fn summarize_missing_blobs_between_policies<C: ConnectionTrait>(
+    db: &C,
+    source_policy_id: i64,
+    target_policy_id: i64,
+) -> Result<StoragePolicyMissingBlobSummary> {
+    let backend = db.get_database_backend();
+    let sql = match backend {
+        DbBackend::Postgres => {
+            r#"SELECT COUNT(*) AS count, COALESCE(SUM(source.size), 0) AS total_size
+               FROM file_blobs source
+               WHERE source.policy_id = $1
+                 AND NOT EXISTS (
+                    SELECT 1 FROM file_blobs target
+                    WHERE target.policy_id = $2
+                      AND target.hash = source.hash
+                      AND target.size = source.size
+                 )"#
+        }
+        DbBackend::MySql | DbBackend::Sqlite | _ => {
+            r#"SELECT COUNT(*) AS count, COALESCE(SUM(source.size), 0) AS total_size
+               FROM file_blobs source
+               WHERE source.policy_id = ?
+                 AND NOT EXISTS (
+                    SELECT 1 FROM file_blobs target
+                    WHERE target.policy_id = ?
+                      AND target.hash = source.hash
+                      AND target.size = source.size
+                 )"#
+        }
+    };
+    StoragePolicyMissingBlobSummary::find_by_statement(sea_orm::Statement::from_sql_and_values(
+        backend,
+        sql,
+        [source_policy_id.into(), target_policy_id.into()],
+    ))
+    .one(db)
+    .await
+    .map_err(AsterError::from)?
+    .ok_or_else(|| AsterError::internal_error("missing blob summary query returned no row"))
 }
 
 pub async fn create_blob<C: ConnectionTrait>(

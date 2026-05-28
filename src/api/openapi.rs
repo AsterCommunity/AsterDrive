@@ -252,6 +252,7 @@ use utoipa::{Modify, OpenApi};
         crate::api::routes::admin::policies::list_policies,
         crate::api::routes::admin::policies::create_policy,
         crate::api::routes::admin::policies::get_policy,
+        crate::api::routes::admin::policies::get_policy_capacity,
         crate::api::routes::admin::policies::update_policy,
         crate::api::routes::admin::policies::delete_policy,
         crate::api::routes::admin::policies::test_policy_connection,

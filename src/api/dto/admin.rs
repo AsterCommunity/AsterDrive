@@ -555,6 +555,7 @@ pub struct AdminFileInfo {
     pub owner_user_id: Option<i64>,
     pub created_by_user_id: Option<i64>,
     pub created_by_username: String,
+    pub created_by: Option<crate::services::user_service::UserSummary>,
     pub mime_type: String,
     pub extension: String,
     pub compound_extension: Option<String>,
@@ -598,6 +599,16 @@ pub enum AdminFileBlobHashKind {
     Opaque,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
+#[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
+#[serde(rename_all = "snake_case")]
+pub enum AdminFileBlobHealth {
+    Healthy,
+    Orphan,
+    RefCountMismatch,
+    CleanupClaimed,
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct AdminFileBlobInfo {
@@ -615,6 +626,12 @@ pub struct AdminFileBlobInfo {
     #[cfg_attr(all(debug_assertions, feature = "openapi"), schema(value_type = String))]
     pub updated_at: DateTime<Utc>,
     pub hash_kind: AdminFileBlobHashKind,
+    pub file_ref_count: i64,
+    pub version_ref_count: i64,
+    pub actual_ref_count: i64,
+    pub health: AdminFileBlobHealth,
+    pub uploader_count: i64,
+    pub uploaders: Vec<crate::services::user_service::UserSummary>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -625,6 +642,9 @@ pub struct AdminFileBlobReferenceFile {
     pub folder_id: Option<i64>,
     pub team_id: Option<i64>,
     pub owner_user_id: Option<i64>,
+    pub created_by_user_id: Option<i64>,
+    pub created_by_username: String,
+    pub created_by: Option<crate::services::user_service::UserSummary>,
     pub size: i64,
     pub mime_type: String,
     #[cfg_attr(all(debug_assertions, feature = "openapi"), schema(value_type = String))]

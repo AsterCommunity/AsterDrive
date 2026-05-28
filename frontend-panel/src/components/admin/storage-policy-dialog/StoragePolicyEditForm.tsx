@@ -5,6 +5,7 @@ import {
 	LimitsFields,
 	LocalContentDedupField,
 	PolicyBasePathField,
+	PolicyCapacityCard,
 	PolicyNameField,
 	PolicySectionIntro,
 	PolicySummaryCard,
@@ -19,7 +20,7 @@ import {
 } from "@/components/admin/StoragePolicyDialogFields";
 import type { PolicyFormData } from "@/components/admin/storagePolicyDialogShared";
 import { cn } from "@/lib/utils";
-import type { RemoteNodeInfo } from "@/types/api";
+import type { RemoteNodeInfo, StoragePolicyCapacityInfo } from "@/types/api";
 import type {
 	StoragePolicyFieldChangeHandler,
 	StoragePolicySummaryItem,
@@ -33,6 +34,8 @@ interface StoragePolicyEditFormProps {
 	currentStorageOption: StoragePolicyDriverOption;
 	endpointValidationMessage: string | null;
 	form: PolicyFormData;
+	policyCapacity: StoragePolicyCapacityInfo | null;
+	policyCapacityLoading: boolean;
 	onFieldChange: StoragePolicyFieldChangeHandler;
 	onSyncNormalizedS3Form: () => void;
 	remoteNodes: RemoteNodeInfo[];
@@ -47,6 +50,8 @@ export function StoragePolicyEditForm({
 	currentStorageOption,
 	endpointValidationMessage,
 	form,
+	policyCapacity,
+	policyCapacityLoading,
 	onFieldChange,
 	onSyncNormalizedS3Form,
 	remoteNodes,
@@ -65,6 +70,11 @@ export function StoragePolicyEditForm({
 					description={t("policy_editor_summary_desc")}
 					formName={form.name}
 					items={summaryItems}
+					t={t}
+				/>
+				<PolicyCapacityCard
+					capacity={policyCapacity}
+					loading={policyCapacityLoading}
 					t={t}
 				/>
 			</div>

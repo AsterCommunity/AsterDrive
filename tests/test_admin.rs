@@ -12,7 +12,9 @@ use std::io::Cursor;
 use std::os::unix::fs::PermissionsExt;
 
 use aster_drive::db::repository::{audit_log_repo, background_task_repo, lock_repo, policy_repo};
-use aster_drive::entities::{audit_log, background_task, file, file_blob, resource_lock};
+use aster_drive::entities::{
+    audit_log, background_task, file, file_blob, file_version, resource_lock,
+};
 use aster_drive::types::{
     AuditAction, BackgroundTaskKind, BackgroundTaskStatus, EntityType, StoredLockOwnerInfo,
     StoredTaskPayload, StoredTaskResult,
@@ -54,6 +56,24 @@ fn json_i64_values(items: &[Value], key: &str) -> Vec<i64> {
                 .unwrap_or_else(|| panic!("{key} should be an integer in {item}"))
         })
         .collect()
+}
+
+fn assert_blob_ref_health(
+    blob: &Value,
+    recorded_ref_count: i64,
+    file_ref_count: i64,
+    version_ref_count: i64,
+    health: &str,
+) {
+    assert_eq!(blob["ref_count"], recorded_ref_count, "{blob}");
+    assert_eq!(blob["file_ref_count"], file_ref_count, "{blob}");
+    assert_eq!(blob["version_ref_count"], version_ref_count, "{blob}");
+    assert_eq!(
+        blob["actual_ref_count"],
+        file_ref_count + version_ref_count,
+        "{blob}"
+    );
+    assert_eq!(blob["health"], health, "{blob}");
 }
 
 fn avatar_upload_payload() -> (String, Vec<u8>) {
@@ -342,6 +362,7 @@ async fn test_admin_files_and_file_blobs_observability() {
     assert_eq!(files.len(), 2);
     let names = json_string_values(files, "name");
     assert_eq!(names, vec!["admin-copy.txt", "admin-report.txt"]);
+    assert_eq!(files[0]["created_by"]["username"], "fileobserver");
     assert_eq!(
         files[0]["blob"]["policy_id"].as_i64().unwrap(),
         default_policy.id
@@ -355,6 +376,7 @@ async fn test_admin_files_and_file_blobs_observability() {
     let filtered_files = filtered_body["data"]["items"].as_array().unwrap();
     assert_eq!(filtered_body["data"]["total"], 1);
     assert_eq!(filtered_files[0]["id"], report_id);
+    assert_eq!(filtered_files[0]["created_by"]["username"], "fileobserver");
 
     let blob_id = filtered_files[0]["blob_id"].as_i64().unwrap();
     let copy_detail: Value =
@@ -395,6 +417,10 @@ async fn test_admin_files_and_file_blobs_observability() {
     );
     assert_eq!(detail_body["data"]["id"], report_id);
     assert_eq!(detail_body["data"]["name"], "admin-report.txt");
+    assert_eq!(
+        detail_body["data"]["created_by"]["username"],
+        "fileobserver"
+    );
     assert_eq!(detail_body["data"]["versions"].as_array().unwrap().len(), 1);
     assert_eq!(detail_body["data"]["versions"][0]["blob_id"], blob_id);
     assert_eq!(detail_body["data"]["versions"][0]["blob"]["id"], blob_id);
@@ -463,16 +489,21 @@ async fn test_admin_files_and_file_blobs_observability() {
     );
     let blobs = blobs_body["data"]["items"].as_array().unwrap();
     assert!(blobs.iter().any(|blob| blob["id"] == blob_id));
+    let observed_blob = blobs.iter().find(|blob| blob["id"] == blob_id).unwrap();
+    assert_eq!(observed_blob["uploader_count"], 1);
+    assert_eq!(observed_blob["uploaders"][0]["username"], "fileobserver");
     let content_blob = blobs
         .iter()
         .find(|blob| blob["id"] == content_hash_blob.id)
         .unwrap();
     assert_eq!(content_blob["hash_kind"], "content_sha256");
+    assert_blob_ref_health(content_blob, 0, 0, 0, "orphan");
     let opaque_item = blobs
         .iter()
         .find(|blob| blob["id"] == opaque_blob.id)
         .unwrap();
     assert_eq!(opaque_item["hash_kind"], "opaque");
+    assert_blob_ref_health(opaque_item, 0, 0, 0, "orphan");
 
     let blob_filter_body: Value = admin_get_json!(
         app,
@@ -488,15 +519,209 @@ async fn test_admin_files_and_file_blobs_observability() {
         &format!("/api/v1/admin/file-blobs/{blob_id}")
     );
     assert_eq!(blob_detail_body["data"]["id"], blob_id);
+    assert_blob_ref_health(&blob_detail_body["data"], 1, 1, 1, "ref_count_mismatch");
     let reference_file_ids =
         json_i64_values(blob_detail_body["data"]["files"].as_array().unwrap(), "id");
     assert_eq!(reference_file_ids, vec![copy_id]);
+    assert_eq!(blob_detail_body["data"]["uploader_count"], 1);
+    assert_eq!(
+        blob_detail_body["data"]["uploaders"][0]["username"],
+        "fileobserver"
+    );
+    assert_eq!(
+        blob_detail_body["data"]["files"][0]["created_by"]["username"],
+        "fileobserver"
+    );
     let version_refs = blob_detail_body["data"]["file_versions"]
         .as_array()
         .unwrap();
     assert_eq!(version_refs.len(), 1);
     assert_eq!(version_refs[0]["file_id"], report_id);
     assert_eq!(version_refs[0]["version"], 1);
+}
+
+#[actix_web::test]
+async fn test_admin_file_blob_health_states_and_reference_boundaries() {
+    let state = common::setup().await;
+    let app = create_test_app!(state.clone());
+    let (admin_token, _) = register_and_login!(app);
+    let default_policy = policy_repo::find_default(state.reader_db())
+        .await
+        .unwrap()
+        .unwrap();
+    admin_create_user!(
+        app,
+        admin_token,
+        "blobhealth",
+        "blobhealth@example.com",
+        "password123"
+    );
+    let (user_token, _) = login_user!(app, "blobhealth", "password123");
+
+    let live_file_id = upload_test_file_named!(app, user_token, "blob-health-live.txt");
+    let live_file_body: Value = admin_get_json!(
+        app,
+        admin_token,
+        &format!("/api/v1/admin/files/{live_file_id}")
+    );
+    let live_blob_id = live_file_body["data"]["blob_id"].as_i64().unwrap();
+    let live_blob_detail: Value = admin_get_json!(
+        app,
+        admin_token,
+        &format!("/api/v1/admin/file-blobs/{live_blob_id}")
+    );
+    assert_blob_ref_health(&live_blob_detail["data"], 1, 1, 0, "healthy");
+
+    let now = Utc::now();
+    let version_only_blob = file_blob::ActiveModel {
+        hash: Set("version-only-hash".to_string()),
+        size: Set(33),
+        policy_id: Set(default_policy.id),
+        storage_path: Set("admin/version-only.bin".to_string()),
+        thumbnail_path: Set(None),
+        thumbnail_processor: Set(None),
+        thumbnail_version: Set(None),
+        ref_count: Set(1),
+        created_at: Set(now),
+        updated_at: Set(now),
+        ..Default::default()
+    }
+    .insert(state.writer_db())
+    .await
+    .expect("version-only blob should insert");
+    file_version::ActiveModel {
+        file_id: Set(live_file_id),
+        blob_id: Set(version_only_blob.id),
+        version: Set(99),
+        size: Set(33),
+        created_at: Set(now),
+        ..Default::default()
+    }
+    .insert(state.writer_db())
+    .await
+    .expect("version-only ref should insert");
+    let version_only_detail: Value = admin_get_json!(
+        app,
+        admin_token,
+        &format!("/api/v1/admin/file-blobs/{}", version_only_blob.id)
+    );
+    assert_blob_ref_health(&version_only_detail["data"], 1, 0, 1, "healthy");
+    assert_eq!(
+        version_only_detail["data"]["file_versions"][0]["file_id"],
+        live_file_id
+    );
+
+    let mismatch_blob = file_blob::ActiveModel {
+        hash: Set("ref-mismatch-hash".to_string()),
+        size: Set(44),
+        policy_id: Set(default_policy.id),
+        storage_path: Set("admin/ref-mismatch.bin".to_string()),
+        thumbnail_path: Set(None),
+        thumbnail_processor: Set(None),
+        thumbnail_version: Set(None),
+        ref_count: Set(7),
+        created_at: Set(now),
+        updated_at: Set(now),
+        ..Default::default()
+    }
+    .insert(state.writer_db())
+    .await
+    .expect("mismatch blob should insert");
+    file::ActiveModel {
+        id: Set(live_file_id),
+        blob_id: Set(mismatch_blob.id),
+        updated_at: Set(now),
+        ..Default::default()
+    }
+    .update(state.writer_db())
+    .await
+    .expect("file should repoint to mismatch blob");
+    let mismatch_detail: Value = admin_get_json!(
+        app,
+        admin_token,
+        &format!("/api/v1/admin/file-blobs/{}", mismatch_blob.id)
+    );
+    assert_blob_ref_health(&mismatch_detail["data"], 7, 1, 0, "ref_count_mismatch");
+
+    let cleanup_claimed_blob = file_blob::ActiveModel {
+        hash: Set("cleanup-claimed-hash".to_string()),
+        size: Set(55),
+        policy_id: Set(default_policy.id),
+        storage_path: Set("admin/cleanup-claimed.bin".to_string()),
+        thumbnail_path: Set(None),
+        thumbnail_processor: Set(None),
+        thumbnail_version: Set(None),
+        ref_count: Set(-1),
+        created_at: Set(now),
+        updated_at: Set(now),
+        ..Default::default()
+    }
+    .insert(state.writer_db())
+    .await
+    .expect("cleanup-claimed blob should insert");
+    let cleanup_detail: Value = admin_get_json!(
+        app,
+        admin_token,
+        &format!("/api/v1/admin/file-blobs/{}", cleanup_claimed_blob.id)
+    );
+    assert_blob_ref_health(&cleanup_detail["data"], -1, 0, 0, "cleanup_claimed");
+
+    let orphan_blob = file_blob::ActiveModel {
+        hash: Set("orphan-health-hash".to_string()),
+        size: Set(66),
+        policy_id: Set(default_policy.id),
+        storage_path: Set("admin/orphan-health.bin".to_string()),
+        thumbnail_path: Set(Some("thumbs/orphan-health.webp".to_string())),
+        thumbnail_processor: Set(Some("test-processor".to_string())),
+        thumbnail_version: Set(Some("test-version".to_string())),
+        ref_count: Set(0),
+        created_at: Set(now),
+        updated_at: Set(now),
+        ..Default::default()
+    }
+    .insert(state.writer_db())
+    .await
+    .expect("orphan blob should insert");
+    let orphan_detail: Value = admin_get_json!(
+        app,
+        admin_token,
+        &format!("/api/v1/admin/file-blobs/{}", orphan_blob.id)
+    );
+    assert_blob_ref_health(&orphan_detail["data"], 0, 0, 0, "orphan");
+    assert_eq!(
+        orphan_detail["data"]["thumbnail_path"],
+        "thumbs/orphan-health.webp"
+    );
+    assert_eq!(
+        orphan_detail["data"]["thumbnail_processor"],
+        "test-processor"
+    );
+    assert_eq!(orphan_detail["data"]["thumbnail_version"], "test-version");
+
+    let list_body: Value = admin_get_json!(
+        app,
+        admin_token,
+        &format!(
+            "/api/v1/admin/file-blobs?policy_id={}&sort_by=id&sort_order=asc&limit=100",
+            default_policy.id
+        )
+    );
+    let blobs = list_body["data"]["items"].as_array().unwrap();
+    let mismatch_item = blobs
+        .iter()
+        .find(|blob| blob["id"] == mismatch_blob.id)
+        .unwrap();
+    assert_blob_ref_health(mismatch_item, 7, 1, 0, "ref_count_mismatch");
+    let cleanup_item = blobs
+        .iter()
+        .find(|blob| blob["id"] == cleanup_claimed_blob.id)
+        .unwrap();
+    assert_blob_ref_health(cleanup_item, -1, 0, 0, "cleanup_claimed");
+    let orphan_item = blobs
+        .iter()
+        .find(|blob| blob["id"] == orphan_blob.id)
+        .unwrap();
+    assert_blob_ref_health(orphan_item, 0, 0, 0, "orphan");
 }
 
 #[actix_web::test]

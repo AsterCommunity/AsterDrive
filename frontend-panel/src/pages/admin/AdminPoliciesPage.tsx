@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
@@ -52,6 +52,7 @@ import type {
 	DriverType,
 	RemoteNodeInfo,
 	StoragePolicy,
+	StoragePolicyCapacityInfo,
 	StoragePolicyMigrationDryRun,
 } from "@/types/api";
 import { ApiSubcode } from "@/types/api-helpers";
@@ -127,6 +128,10 @@ export default function AdminPoliciesPage() {
 	const [editingPolicy, setEditingPolicy] = useState<StoragePolicy | null>(
 		null,
 	);
+	const [policyCapacity, setPolicyCapacity] =
+		useState<StoragePolicyCapacityInfo | null>(null);
+	const [policyCapacityLoading, setPolicyCapacityLoading] = useState(false);
+	const policyCapacityRequestSerial = useRef(0);
 	const [remoteNodes, setRemoteNodes] = useState<RemoteNodeInfo[]>(
 		() => readAdminRemoteNodeLookup() ?? [],
 	);
@@ -286,7 +291,10 @@ export default function AdminPoliciesPage() {
 	};
 
 	const resetDialogState = () => {
+		policyCapacityRequestSerial.current += 1;
 		saveConfirmDialogProps.onOpenChange(false);
+		setPolicyCapacity(null);
+		setPolicyCapacityLoading(false);
 		setValidatedConnectionKey(null);
 		setCreateStep(0);
 		setCreateStepTouched(false);
@@ -341,8 +349,28 @@ export default function AdminPoliciesPage() {
 		setEditingId(policy.id);
 		setEditingPolicy(policy);
 		resetDialogState();
+		const capacityRequestSerial = ++policyCapacityRequestSerial.current;
+		setPolicyCapacityLoading(true);
 		setForm(getPolicyForm(policy));
 		void refreshRemoteNodeLookup();
+		void adminPolicyService
+			.getCapacity(policy.id)
+			.then((capacity) => {
+				if (capacityRequestSerial === policyCapacityRequestSerial.current) {
+					setPolicyCapacity(capacity);
+				}
+			})
+			.catch((error) => {
+				if (capacityRequestSerial === policyCapacityRequestSerial.current) {
+					handleApiError(error);
+					setPolicyCapacity(null);
+				}
+			})
+			.finally(() => {
+				if (capacityRequestSerial === policyCapacityRequestSerial.current) {
+					setPolicyCapacityLoading(false);
+				}
+			});
 		setDialogOpen(true);
 	};
 
@@ -753,6 +781,8 @@ export default function AdminPoliciesPage() {
 					dialogOpen={dialogOpen}
 					editMode={editingId !== null}
 					form={form}
+					policyCapacity={policyCapacity}
+					policyCapacityLoading={policyCapacityLoading}
 					remoteNodes={remoteNodes}
 					submitting={submitting}
 					createStep={createStep}

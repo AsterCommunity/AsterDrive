@@ -4,6 +4,7 @@ use sea_orm::{
     ActiveModelTrait, ColumnTrait, ConnectionTrait, EntityTrait, ExprTrait, PaginatorTrait,
     QueryFilter, QueryOrder, QuerySelect, sea_query::Expr,
 };
+use std::collections::HashMap;
 
 use crate::entities::file_version::{self, Entity as FileVersion};
 use crate::errors::{AsterError, Result};
@@ -180,6 +181,27 @@ pub async fn count_blob_refs_from_versions<C: ConnectionTrait>(
         .select_only()
         .column(file_version::Column::BlobId)
         .column_as(Expr::col(file_version::Column::Id).count(), "ref_count")
+        .group_by(file_version::Column::BlobId)
+        .into_tuple::<(i64, i64)>()
+        .all(db)
+        .await
+        .map_err(AsterError::from)?;
+    Ok(rows.into_iter().collect())
+}
+
+/// 批量统计指定 blob 当前被历史版本引用的次数。
+pub async fn count_blob_refs_from_versions_for_blobs<C: ConnectionTrait>(
+    db: &C,
+    blob_ids: &[i64],
+) -> Result<HashMap<i64, i64>> {
+    if blob_ids.is_empty() {
+        return Ok(HashMap::new());
+    }
+    let rows = FileVersion::find()
+        .select_only()
+        .column(file_version::Column::BlobId)
+        .column_as(Expr::col(file_version::Column::Id).count(), "ref_count")
+        .filter(file_version::Column::BlobId.is_in(blob_ids.iter().copied()))
         .group_by(file_version::Column::BlobId)
         .into_tuple::<(i64, i64)>()
         .all(db)

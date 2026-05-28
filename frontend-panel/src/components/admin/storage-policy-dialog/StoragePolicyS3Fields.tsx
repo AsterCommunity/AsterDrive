@@ -104,11 +104,11 @@ export function S3UploadStrategyField({
 }: SharedFieldProps) {
 	const options = [
 		{
-			label: t("s3_upload_strategy_relay_stream"),
+			label: t("upload_strategy_relay_stream"),
 			value: "relay_stream",
 		},
 		{
-			label: t("s3_upload_strategy_presigned"),
+			label: t("upload_strategy_presigned"),
 			value: "presigned",
 		},
 	] satisfies ReadonlyArray<SelectOption<S3UploadStrategy>>;
@@ -122,8 +122,8 @@ export function S3UploadStrategyField({
 			onChange={(value) => onFieldChange("s3_upload_strategy", value)}
 			description={t(
 				form.s3_upload_strategy === "relay_stream"
-					? "s3_upload_strategy_relay_stream_desc"
-					: "s3_upload_strategy_presigned_desc",
+					? "upload_strategy_relay_stream_desc"
+					: "upload_strategy_presigned_desc",
 			)}
 		/>
 	);
@@ -136,11 +136,11 @@ export function S3DownloadStrategyField({
 }: SharedFieldProps) {
 	const options = [
 		{
-			label: t("s3_download_strategy_relay_stream"),
+			label: t("download_strategy_relay_stream"),
 			value: "relay_stream",
 		},
 		{
-			label: t("s3_download_strategy_presigned"),
+			label: t("download_strategy_presigned"),
 			value: "presigned",
 		},
 	] satisfies ReadonlyArray<SelectOption<S3DownloadStrategy>>;
@@ -154,8 +154,8 @@ export function S3DownloadStrategyField({
 			onChange={(value) => onFieldChange("s3_download_strategy", value)}
 			description={t(
 				form.s3_download_strategy === "relay_stream"
-					? "s3_download_strategy_relay_stream_desc"
-					: "s3_download_strategy_presigned_desc",
+					? "download_strategy_relay_stream_desc"
+					: "download_strategy_presigned_desc",
 			)}
 		/>
 	);

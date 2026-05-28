@@ -5,7 +5,7 @@ use sea_orm::{ActiveModelTrait, Set};
 
 use crate::api::pagination::{AdminPolicySortBy, OffsetPage, SortOrder, load_offset_page};
 use crate::api::subcode::ApiSubcode;
-use crate::db::repository::{managed_follower_repo, policy_group_repo, policy_repo};
+use crate::db::repository::{file_repo, managed_follower_repo, policy_group_repo, policy_repo};
 use crate::entities::storage_policy;
 use crate::errors::{AsterError, MapAsterErr, Result, validation_error_with_subcode};
 use crate::runtime::{PrimaryAppState, PrimaryRuntimeState};
@@ -15,7 +15,8 @@ use crate::types::{
 };
 
 use super::models::{
-    CreateStoragePolicyInput, StoragePolicy, StoragePolicyConnectionInput, UpdateStoragePolicyInput,
+    CreateStoragePolicyInput, StoragePolicy, StoragePolicyCapacityInfo,
+    StoragePolicyConnectionInput, UpdateStoragePolicyInput,
 };
 use super::shared::{
     SYSTEM_STORAGE_POLICY_ID, ensure_singleton_group_for_policy, lock_default_group_assignment,
@@ -93,6 +94,48 @@ pub async fn get(state: &PrimaryAppState, id: i64) -> Result<StoragePolicy> {
     policy_repo::find_by_id(state.reader_db(), id)
         .await
         .map(Into::into)
+}
+
+pub async fn capacity_info(state: &PrimaryAppState, id: i64) -> Result<StoragePolicyCapacityInfo> {
+    let policy = policy_repo::find_by_id(state.reader_db(), id).await?;
+    let driver = state.driver_registry.get_driver(&policy)?;
+    let blob_summary = file_repo::summarize_blobs_by_policy(state.reader_db(), policy.id).await?;
+    let capacity = capacity_info_or_status(driver.as_ref(), policy.driver_type).await;
+    Ok(StoragePolicyCapacityInfo {
+        policy_id: policy.id,
+        driver_type: policy.driver_type,
+        blob_count: blob_summary.count,
+        blob_total_bytes: blob_summary.total_size,
+        capacity,
+    })
+}
+
+pub(crate) async fn capacity_info_or_status(
+    driver: &dyn crate::storage::StorageDriver,
+    driver_type: DriverType,
+) -> crate::storage::StorageCapacityInfo {
+    match driver.capacity_info().await {
+        Ok(capacity) => capacity,
+        Err(error)
+            if error.storage_error_kind()
+                == Some(crate::storage::StorageErrorKind::Unsupported) =>
+        {
+            crate::storage::StorageCapacityInfo::unsupported(format!(
+                "{}_driver",
+                driver_type_name(driver_type)
+            ))
+        }
+        Err(error) => {
+            tracing::warn!(
+                driver_type = driver_type_name(driver_type),
+                "storage capacity observability failed: {error}"
+            );
+            crate::storage::StorageCapacityInfo::unavailable(format!(
+                "{}_driver",
+                driver_type_name(driver_type)
+            ))
+        }
+    }
 }
 
 pub async fn create(

@@ -8,6 +8,7 @@ import type {
 	AdminFileBlobInfo,
 	AdminFileDetail,
 	AdminFileInfo,
+	UserSummary,
 } from "@/types/api";
 
 const mockState = vi.hoisted(() => ({
@@ -204,7 +205,7 @@ vi.mock("@/components/layout/AdminPageShell", () => ({
 }));
 
 vi.mock("@/components/ui/badge", () => ({
-	Badge: ({ children }: { children: React.ReactNode }) => (
+	Badge: ({ children }: { children: React.ReactNode; variant?: string }) => (
 		<span>{children}</span>
 	),
 }));
@@ -394,6 +395,23 @@ vi.mock("@/services/adminService", () => ({
 	},
 }));
 
+function createUserSummary(overrides: Partial<UserSummary> = {}): UserSummary {
+	return {
+		id: 1,
+		profile: {
+			avatar: {
+				source: "none",
+				url_1024: null,
+				url_512: null,
+				version: 0,
+			},
+			display_name: "Root User",
+		},
+		username: "root",
+		...overrides,
+	};
+}
+
 function createFile(overrides: Partial<AdminFileInfo> = {}): AdminFileInfo {
 	return {
 		blob: {
@@ -406,6 +424,7 @@ function createFile(overrides: Partial<AdminFileInfo> = {}): AdminFileInfo {
 		blob_id: 9,
 		compound_extension: null,
 		created_at: "2026-05-01T00:00:00Z",
+		created_by: createUserSummary(),
 		created_by_user_id: 1,
 		created_by_username: "root",
 		deleted_at: null,
@@ -454,9 +473,12 @@ function createBlob(
 	overrides: Partial<AdminFileBlobInfo> = {},
 ): AdminFileBlobInfo {
 	return {
+		actual_ref_count: 2,
 		created_at: "2026-05-01T00:00:00Z",
+		file_ref_count: 1,
 		hash: "fedcba9876543210fedcba",
 		hash_kind: "content_sha256",
+		health: "healthy",
 		id: 31,
 		policy_id: 4,
 		ref_count: 2,
@@ -466,6 +488,9 @@ function createBlob(
 		thumbnail_processor: null,
 		thumbnail_version: null,
 		updated_at: "2026-05-01T01:00:00Z",
+		uploader_count: 1,
+		uploaders: [createUserSummary()],
+		version_ref_count: 1,
 		...overrides,
 	};
 }
@@ -487,6 +512,9 @@ function createBlobDetail(
 		files: [
 			{
 				created_at: "2026-05-01T00:10:00Z",
+				created_by: createUserSummary(),
+				created_by_user_id: 1,
+				created_by_username: "root",
 				deleted_at: null,
 				folder_id: 2,
 				id: 21,
@@ -557,6 +585,8 @@ describe("AdminFilesPage", () => {
 		expect(screen.getByText("report.txt")).toBeInTheDocument();
 		expect(screen.getByText("bytes:4096")).toBeInTheDocument();
 		expect(screen.getByText("abcdef1234...abcdef")).toBeInTheDocument();
+		expect(screen.getByText("Root User")).toBeInTheDocument();
+		expect(screen.getByText("@root")).toBeInTheDocument();
 		expect(screen.getByText("select:live")).toBeInTheDocument();
 
 		fireEvent.change(screen.getByPlaceholderText("admin_policy_id"), {
@@ -595,6 +625,7 @@ describe("AdminFilesPage", () => {
 		expect(await screen.findByText("admin_file_versions")).toBeInTheDocument();
 		expect(screen.getByText(/v2/)).toBeInTheDocument();
 		expect(screen.getByText(/version-hash/)).toBeInTheDocument();
+		expect(screen.getAllByText("Root User").length).toBeGreaterThan(1);
 	});
 
 	it("lists blobs with numeric filters and opens blob details", async () => {
@@ -620,6 +651,11 @@ describe("AdminFilesPage", () => {
 		});
 		expect(screen.getByText("fedcba9876...fedcba")).toBeInTheDocument();
 		expect(screen.getByText("admin_hash_kind_content")).toBeInTheDocument();
+		expect(screen.getByText("admin_blob_health_healthy")).toBeInTheDocument();
+		expect(screen.getByText("Root User")).toBeInTheDocument();
+		expect(
+			screen.getByText("admin_blob_actual_ref_count_short"),
+		).toBeInTheDocument();
 
 		fireEvent.change(screen.getByPlaceholderText("admin_storage_path"), {
 			target: { value: "fe/dc" },
@@ -650,7 +686,109 @@ describe("AdminFilesPage", () => {
 		expect(await screen.findByText("Blob #31")).toBeInTheDocument();
 		expect(screen.getByText("admin_blob_files")).toBeInTheDocument();
 		expect(screen.getByText("admin_blob_versions")).toBeInTheDocument();
+		expect(screen.getAllByText("Root User").length).toBeGreaterThan(1);
+		expect(
+			screen.getAllByText("admin_blob_health_healthy").length,
+		).toBeGreaterThan(0);
+		expect(screen.getByText("admin_actual_ref_count")).toBeInTheDocument();
 		expect(screen.getAllByText(/#45/).length).toBeGreaterThan(0);
+	});
+
+	it("renders every blob health state with reference counters", async () => {
+		mockState.listBlobs.mockResolvedValue({
+			items: [
+				createBlob({
+					actual_ref_count: 1,
+					health: "healthy",
+					id: 41,
+					ref_count: 1,
+				}),
+				createBlob({
+					actual_ref_count: 0,
+					file_ref_count: 0,
+					health: "orphan",
+					id: 42,
+					ref_count: 0,
+					version_ref_count: 0,
+				}),
+				createBlob({
+					actual_ref_count: 1,
+					file_ref_count: 1,
+					health: "ref_count_mismatch",
+					id: 43,
+					ref_count: 7,
+					version_ref_count: 0,
+				}),
+				createBlob({
+					actual_ref_count: 0,
+					file_ref_count: 0,
+					health: "cleanup_claimed",
+					id: 44,
+					ref_count: -1,
+					version_ref_count: 0,
+				}),
+			],
+			total: 4,
+		});
+
+		renderPage("blobs", "/admin/file-blobs");
+
+		expect(
+			await screen.findByText("admin_blob_health_healthy"),
+		).toBeInTheDocument();
+		expect(screen.getByText("admin_blob_health_orphan")).toBeInTheDocument();
+		expect(
+			screen.getByText("admin_blob_health_ref_count_mismatch"),
+		).toBeInTheDocument();
+		expect(
+			screen.getByText("admin_blob_health_cleanup_claimed"),
+		).toBeInTheDocument();
+		expect(
+			screen.getAllByText("admin_blob_actual_ref_count_short").length,
+		).toBe(4);
+	});
+
+	it("shows blob detail reference counter boundaries", async () => {
+		mockState.getBlob.mockResolvedValueOnce(
+			createBlobDetail({
+				actual_ref_count: 3,
+				file_ref_count: 2,
+				health: "ref_count_mismatch",
+				ref_count: 9,
+				uploader_count: 3,
+				uploaders: [
+					createUserSummary(),
+					createUserSummary({
+						id: 2,
+						profile: {
+							avatar: {
+								source: "none",
+								url_1024: null,
+								url_512: null,
+								version: 0,
+							},
+							display_name: "Second User",
+						},
+						username: "second",
+					}),
+				],
+				version_ref_count: 1,
+			}),
+		);
+
+		renderPage("blobs");
+		fireEvent.click(await screen.findByText("fedcba9876...fedcba"));
+
+		expect(await screen.findByText("Blob #31")).toBeInTheDocument();
+		expect(screen.getByText("admin_actual_ref_count")).toBeInTheDocument();
+		expect(screen.getByText("admin_file_ref_count")).toBeInTheDocument();
+		expect(screen.getByText("admin_version_ref_count")).toBeInTheDocument();
+		expect(
+			screen.getAllByText("admin_blob_health_ref_count_mismatch").length,
+		).toBeGreaterThan(0);
+		expect(screen.getByText("9")).toBeInTheDocument();
+		expect(screen.getByText("3")).toBeInTheDocument();
+		expect(screen.getByText("+1")).toBeInTheDocument();
 	});
 
 	it("reports detail loading failures through the shared API error handler", async () => {

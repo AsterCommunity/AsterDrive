@@ -8,6 +8,7 @@ use tokio::io::AsyncRead;
 use tokio_util::io::{ReaderStream, StreamReader};
 
 use crate::errors::{AsterError, Result};
+use crate::storage::StorageCapacityInfo;
 use crate::storage::driver::{BlobMetadata, PresignedDownloadOptions};
 use crate::storage::error::{StorageErrorKind, storage_driver_error};
 use crate::utils::OUTBOUND_HTTP_USER_AGENT;
@@ -20,9 +21,9 @@ use super::errors::{
 };
 use super::models::{
     ApiEnvelope, RemoteBindingSyncRequest, RemoteCreateIngressProfileRequest,
-    RemoteIngressProfileInfo, RemoteStorageCapabilities, RemoteStorageComposeRequest,
-    RemoteStorageComposeResponse, RemoteStorageListResponse, RemoteStorageObjectMetadata,
-    RemoteUpdateIngressProfileRequest,
+    RemoteIngressProfileInfo, RemoteStorageCapabilities, RemoteStorageCapacityResponse,
+    RemoteStorageComposeRequest, RemoteStorageComposeResponse, RemoteStorageListResponse,
+    RemoteStorageObjectMetadata, RemoteUpdateIngressProfileRequest,
 };
 use super::{
     INTERNAL_AUTH_ACCESS_KEY_HEADER, INTERNAL_AUTH_NONCE_HEADER, INTERNAL_AUTH_SIGNATURE_HEADER,
@@ -285,6 +286,35 @@ impl RemoteStorageClient {
             ));
         }
         Ok(envelope.data.unwrap_or_default().items)
+    }
+
+    pub async fn capacity_info(&self) -> Result<StorageCapacityInfo> {
+        let url = self.url_for_path(&format!("{INTERNAL_STORAGE_BASE_PATH}/capacity"))?;
+        let response = self
+            .signed_request(Method::GET, url, None)
+            .send()
+            .await
+            .map_err(map_reqwest_error)?;
+        let body = ensure_success(response, "get remote storage capacity").await?;
+        let envelope: ApiEnvelope<RemoteStorageCapacityResponse> = serde_json::from_slice(&body)
+            .map_err(|e| {
+                storage_driver_error(
+                    StorageErrorKind::Misconfigured,
+                    format!("decode remote storage capacity response: {e}"),
+                )
+            })?;
+        if envelope.code != 0 {
+            return Err(storage_driver_error(
+                remote_api_error_kind(envelope.code).unwrap_or(StorageErrorKind::Unknown),
+                format!("remote storage capacity failed: {}", envelope.msg),
+            ));
+        }
+        envelope.data.map(|data| data.capacity).ok_or_else(|| {
+            storage_driver_error(
+                StorageErrorKind::Misconfigured,
+                "remote storage capacity response missing data",
+            )
+        })
     }
 
     pub async fn sync_binding(&self, binding: &RemoteBindingSyncRequest) -> Result<()> {

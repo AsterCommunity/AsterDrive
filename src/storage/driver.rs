@@ -148,6 +148,17 @@ pub trait StorageDriver: Send + Sync {
         None
     }
 
+    /// 获取容量观测信息。
+    ///
+    /// 不支持容量查询的驱动必须明确返回 `StorageErrorKind::Unsupported`，不要静默
+    /// 猜测或 panic。调用方可把该错误转换成用户可见的 `unsupported` 状态。
+    async fn capacity_info(&self) -> Result<super::extensions::StorageCapacityInfo> {
+        Err(super::error::storage_driver_error(
+            super::StorageErrorKind::Unsupported,
+            "storage driver does not support capacity observability",
+        ))
+    }
+
     /// 获取 multipart upload 支持（S3 特有）
     ///
     /// 通过 downcast 获取 MultipartStorageDriver，用于分片上传。
@@ -269,5 +280,25 @@ mod tests {
         assert!(driver.as_local_path().is_none());
         assert!(driver.as_native_thumbnail().is_none());
         assert!(driver.as_multipart().is_none());
+    }
+
+    #[tokio::test]
+    async fn default_capacity_info_returns_unsupported_error() {
+        let driver = MemoryDriver::new(b"data");
+
+        let error = driver
+            .capacity_info()
+            .await
+            .expect_err("default capacity observability should be unsupported");
+
+        assert_eq!(
+            error.storage_error_kind(),
+            Some(crate::storage::StorageErrorKind::Unsupported)
+        );
+        assert!(
+            error
+                .message()
+                .contains("does not support capacity observability")
+        );
     }
 }

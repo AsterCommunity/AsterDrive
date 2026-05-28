@@ -17,9 +17,10 @@ pub use models::{
     REMOTE_BROWSER_PRESIGNED_CORS_PUT_EXPOSE_HEADERS, RemoteBindingSyncRequest,
     RemoteCreateIngressProfileRequest, RemoteCreateLocalIngressProfileRequest,
     RemoteCreateS3IngressProfileRequest, RemoteIngressProfileInfo,
-    RemoteStorageBrowserCorsContract, RemoteStorageCapabilities, RemoteStorageComposeRequest,
-    RemoteStorageComposeResponse, RemoteStorageFeatureFlags, RemoteStorageListResponse,
-    RemoteStorageObjectMetadata, RemoteStorageProtocolLimits, RemoteUpdateIngressProfileRequest,
+    RemoteStorageBrowserCorsContract, RemoteStorageCapabilities, RemoteStorageCapacityResponse,
+    RemoteStorageComposeRequest, RemoteStorageComposeResponse, RemoteStorageFeatureFlags,
+    RemoteStorageListResponse, RemoteStorageObjectMetadata, RemoteStorageProtocolLimits,
+    RemoteUpdateIngressProfileRequest,
 };
 
 pub const INTERNAL_STORAGE_BASE_PATH: &str = "/api/v1/internal/storage";

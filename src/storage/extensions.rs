@@ -5,9 +5,58 @@
 use crate::errors::Result;
 use crate::storage::driver::{PresignedDownloadOptions, StoragePathVisitor};
 use async_trait::async_trait;
+use chrono::{DateTime, Utc};
+use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::time::Duration;
 use tokio::io::AsyncRead;
+#[cfg(all(debug_assertions, feature = "openapi"))]
+use utoipa::ToSchema;
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
+#[serde(rename_all = "snake_case")]
+pub enum StorageCapacityStatus {
+    Supported,
+    Unsupported,
+    Unavailable,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
+pub struct StorageCapacityInfo {
+    pub status: StorageCapacityStatus,
+    pub total_bytes: Option<i64>,
+    pub available_bytes: Option<i64>,
+    pub used_bytes: Option<i64>,
+    pub source: String,
+    #[cfg_attr(all(debug_assertions, feature = "openapi"), schema(value_type = String))]
+    pub observed_at: DateTime<Utc>,
+}
+
+impl StorageCapacityInfo {
+    pub fn unsupported(source: impl Into<String>) -> Self {
+        Self {
+            status: StorageCapacityStatus::Unsupported,
+            total_bytes: None,
+            available_bytes: None,
+            used_bytes: None,
+            source: source.into(),
+            observed_at: Utc::now(),
+        }
+    }
+
+    pub fn unavailable(source: impl Into<String>) -> Self {
+        Self {
+            status: StorageCapacityStatus::Unavailable,
+            total_bytes: None,
+            available_bytes: None,
+            used_bytes: None,
+            source: source.into(),
+            observed_at: Utc::now(),
+        }
+    }
+}
 
 /// Presigned URL 支持（S3/R2/OSS/remote follower 等）
 #[async_trait]

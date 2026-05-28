@@ -3,7 +3,11 @@ import { StoragePolicyDialog } from "@/components/admin/StoragePolicyDialog";
 import type { PolicyFormData } from "@/components/admin/storagePolicyDialogShared";
 import type { ConfirmDialogProps } from "@/components/common/ConfirmDialog";
 import { ConfirmDialog } from "@/components/common/ConfirmDialog";
-import type { DriverType, RemoteNodeInfo } from "@/types/api";
+import type {
+	DriverType,
+	RemoteNodeInfo,
+	StoragePolicyCapacityInfo,
+} from "@/types/api";
 
 interface PolicyDialogsProps {
 	createStep: number;
@@ -22,6 +26,8 @@ interface PolicyDialogsProps {
 	editMode: boolean;
 	endpointValidationMessage: string | null;
 	form: PolicyFormData;
+	policyCapacity: StoragePolicyCapacityInfo | null;
+	policyCapacityLoading: boolean;
 	remoteNodes: RemoteNodeInfo[];
 	onCreateBack: () => void;
 	onCreateNext: () => void;
@@ -53,6 +59,8 @@ export function PolicyDialogs({
 	editMode,
 	endpointValidationMessage,
 	form,
+	policyCapacity,
+	policyCapacityLoading,
 	remoteNodes,
 	onCreateBack,
 	onCreateNext,
@@ -94,6 +102,8 @@ export function PolicyDialogs({
 				open={dialogOpen}
 				mode={editMode ? "edit" : "create"}
 				form={form}
+				policyCapacity={policyCapacity}
+				policyCapacityLoading={policyCapacityLoading}
 				remoteNodes={remoteNodes}
 				submitting={submitting}
 				createStep={createStep}
