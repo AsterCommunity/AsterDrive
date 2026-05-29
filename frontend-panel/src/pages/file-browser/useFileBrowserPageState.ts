@@ -29,9 +29,12 @@ interface FileBrowserLocationState {
 interface UseFileBrowserPageStateOptions {
 	displayFiles: FileListItem[];
 	displayFolders: FolderListItem[];
-	folderId: number | null;
-	folderName?: string;
 	loadPreviewApps: () => Promise<void>;
+	navigationTarget: {
+		folderId: number | null;
+		folderName?: string;
+		workspaceKey: string;
+	};
 	navigateTo: (folderId: number | null, folderName?: string) => Promise<void>;
 	previewAppsLoaded: boolean;
 	refresh: () => Promise<void>;
@@ -41,9 +44,8 @@ interface UseFileBrowserPageStateOptions {
 export function useFileBrowserPageState({
 	displayFiles,
 	displayFolders,
-	folderId,
-	folderName,
 	loadPreviewApps,
+	navigationTarget,
 	navigateTo,
 	previewAppsLoaded,
 	refresh,
@@ -76,8 +78,10 @@ export function useFileBrowserPageState({
 	useEffect(() => {
 		setInfoPanelOpen(false);
 		setInfoTarget(null);
-		navigateTo(folderId, folderName).catch(handleApiError);
-	}, [folderId, folderName, navigateTo]);
+		navigateTo(navigationTarget.folderId, navigationTarget.folderName).catch(
+			handleApiError,
+		);
+	}, [navigateTo, navigationTarget]);
 
 	useEffect(() => {
 		if (previewAppsLoaded) return;

@@ -831,6 +831,7 @@ describe("TasksPage", () => {
 						blob_hash: "hash-b",
 						blob_id: 12,
 						kind: "media_metadata_extract",
+						media_kind: "audio",
 						source_file_name: "song.flac",
 						source_mime_type: "audio/flac",
 					} as never,

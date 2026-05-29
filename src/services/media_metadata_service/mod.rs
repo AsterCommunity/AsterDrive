@@ -66,14 +66,16 @@ pub struct MediaMetadataExtractTaskPayload {
     pub blob_hash: String,
     pub source_file_name: String,
     pub source_mime_type: String,
-    pub kind: MediaMetadataKind,
+    #[serde(alias = "kind")]
+    pub media_kind: MediaMetadataKind,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(utoipa::ToSchema))]
 pub struct MediaMetadataExtractTaskResult {
     pub blob_id: i64,
-    pub kind: MediaMetadataKind,
+    #[serde(alias = "kind")]
+    pub media_kind: MediaMetadataKind,
     pub status: MediaMetadataStatus,
     pub parser: String,
 }

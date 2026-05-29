@@ -75,6 +75,7 @@ const KNOWN_STATUS_TEXT_KEYS: Record<string, string> = {
 	"Media metadata failed": "status_text_media_metadata_failed",
 	"Media metadata ready": "status_text_media_metadata_ready",
 	"Media metadata unsupported": "status_text_media_metadata_unsupported",
+	"Migration completed": "status_text_storage_migration_completed",
 	"Storage migration completed": "status_text_storage_migration_completed",
 	"Task artifact cleanup failed": "status_text_task_cleanup_failed",
 	"Task panicked": "status_text_task_panicked",
@@ -100,6 +101,21 @@ function translateWithFallback(
 ) {
 	const translated = t(key, values);
 	return translated === key ? fallback : translated;
+}
+
+function translateFirstWithFallback(
+	t: TaskTranslate,
+	keys: string[],
+	values: Record<string, number | string> | undefined,
+	fallback: string,
+) {
+	for (const key of keys) {
+		const translated = t(key, values);
+		if (translated !== key) {
+			return translated;
+		}
+	}
+	return fallback;
 }
 
 function fallbackTitleFromId(prefix: string, id: number) {
@@ -133,14 +149,37 @@ function formatFileOrBlobLabel(
 	return trimmed ? trimmed : formatBlobLabel(t, blobId);
 }
 
-function formatMediaProcessorName(t: TaskTranslate, processor: string) {
-	const key = `tasks:media_processor_${processor}`;
-	return translateWithFallback(
-		t,
-		key,
-		undefined,
-		processor.replaceAll("_", " "),
+const MEDIA_PROCESSOR_KEY_ALIASES: Record<string, string> = {
+	asterdrive_built_in: "images",
+	asterdrive_built_in_audio: "lofty",
+	native: "storage_native",
+	storage_native_processor: "storage_native",
+};
+
+function normalizeMediaProcessorKey(processor: string) {
+	return processor
+		.trim()
+		.toLowerCase()
+		.replace(/[^a-z0-9]+/g, "_")
+		.replace(/^_+|_+$/g, "");
+}
+
+function formatMediaProcessorName(
+	t: TaskTranslate,
+	processor: string,
+	fallback = processor.replaceAll("_", " "),
+) {
+	const normalized = normalizeMediaProcessorKey(processor);
+	const candidates = [
+		processor,
+		normalized,
+		MEDIA_PROCESSOR_KEY_ALIASES[normalized],
+		normalized ? `storage_${normalized}` : undefined,
+	].filter((candidate): candidate is string => Boolean(candidate));
+	const keys = [...new Set(candidates)].map(
+		(candidate) => `tasks:media_processor_${candidate}`,
 	);
+	return translateFirstWithFallback(t, keys, undefined, fallback);
 }
 
 function formatMediaMetadataKind(t: TaskTranslate, kind: string | undefined) {
@@ -237,7 +276,7 @@ export function formatTaskDisplayNameFromRaw(
 		}
 		case "archive_preview_generate": {
 			const match = displayName.match(
-				/^Generate archive preview for file #(\d+) blob #(\d+) .+$/,
+				/^Generate archive preview for file #(\d+) blob #(\d+)(?:\s+.*)?$/,
 			);
 			if (match) {
 				return translateWithFallback(
@@ -259,7 +298,7 @@ export function formatTaskDisplayNameFromRaw(
 					"tasks:task_name_thumbnail_generate_blob_with_processor",
 					{
 						blob: formatBlobLabel(t, Number(match[1])),
-						processor: match[2],
+						processor: formatMediaProcessorName(t, match[2], match[2]),
 					},
 					displayName,
 				);
@@ -295,7 +334,7 @@ export function formatTaskDisplayNameFromRaw(
 			break;
 		case "storage_policy_temp_cleanup": {
 			const match = displayName.match(
-				/^Clean deleted storage policy #(\d+) temporary uploads$/,
+				/^Clean (?:deleted )?storage policy #(\d+) temporary uploads$/,
 			);
 			if (match) {
 				return translateWithFallback(
@@ -473,13 +512,19 @@ function formatKnownStatusText(t: TaskTranslate, text: string) {
 		}
 	}
 
-	const healthMatch = text.match(/^([a-z_]+)=(healthy|degraded|unhealthy):/);
+	const healthMatch = text.match(
+		/^([a-z_]+)=(healthy|degraded|unhealthy):(.*)$/,
+	);
 	if (healthMatch) {
-		const components = formatHealthComponentStatus(
+		const componentStatus = formatHealthComponentStatus(
 			t,
 			healthMatch[1],
 			healthMatch[2],
 		);
+		const detail = healthMatch[3]?.trim();
+		const components = detail
+			? `${componentStatus}: ${detail}`
+			: componentStatus;
 		return translateWithFallback(
 			t,
 			"tasks:runtime_system_health_issue_detail",
@@ -717,6 +762,22 @@ export function formatTaskDisplayName(t: TaskTranslate, task: TaskInfo) {
 				{
 					processor: formatMediaProcessorName(t, task.payload.processor),
 					source,
+				},
+				task.display_name,
+			);
+		}
+		case "media_metadata_extract": {
+			const source = formatFileOrBlobLabel(
+				t,
+				task.payload.source_file_name,
+				task.payload.blob_id,
+			);
+			return translateWithFallback(
+				t,
+				"tasks:task_name_media_metadata_extract_blob",
+				{
+					blob: source,
+					kind: formatMediaMetadataKind(t, task.payload.media_kind),
 				},
 				task.display_name,
 			);

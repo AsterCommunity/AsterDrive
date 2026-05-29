@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useParams, useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
@@ -11,6 +11,7 @@ import { handleApiError } from "@/hooks/useApiError";
 import { useKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";
 import { usePageTitle } from "@/hooks/usePageTitle";
 import { runWhenIdle } from "@/lib/idleTask";
+import { workspaceKey } from "@/lib/workspace";
 import { FileBrowserDialogs } from "@/pages/file-browser/FileBrowserDialogs";
 import { FileBrowserToolbar } from "@/pages/file-browser/FileBrowserToolbar";
 import { FileBrowserWorkspace } from "@/pages/file-browser/FileBrowserWorkspace";
@@ -24,6 +25,7 @@ import { useMediaQuery } from "@/pages/file-browser/useMediaQuery";
 import { fileService } from "@/services/fileService";
 import { useFileStore } from "@/stores/fileStore";
 import { usePreviewAppStore } from "@/stores/previewAppStore";
+import { useWorkspaceStore } from "@/stores/workspaceStore";
 
 export default function FileBrowserPage() {
 	const { t } = useTranslation(["files", "tasks"]);
@@ -31,6 +33,17 @@ export default function FileBrowserPage() {
 	const [searchParams] = useSearchParams();
 	const folderId = params.folderId ? Number(params.folderId) : null;
 	const folderName = searchParams.get("name") ?? undefined;
+	const currentWorkspaceKey = useWorkspaceStore((s) =>
+		workspaceKey(s.workspace),
+	);
+	const navigationTarget = useMemo(
+		() => ({
+			folderId,
+			folderName,
+			workspaceKey: currentWorkspaceKey,
+		}),
+		[currentWorkspaceKey, folderId, folderName],
+	);
 
 	const navigateTo = useFileStore((s) => s.navigateTo);
 	const refresh = useFileStore((s) => s.refresh);
@@ -141,9 +154,8 @@ export default function FileBrowserPage() {
 	} = useFileBrowserPageState({
 		displayFiles,
 		displayFolders,
-		folderId,
-		folderName,
 		loadPreviewApps,
+		navigationTarget,
 		navigateTo,
 		previewAppsLoaded,
 		refresh,

@@ -159,6 +159,7 @@ export function useAdminTeamDetailData({
 			return;
 		}
 
+		setTeam(null);
 		void loadTeamDetail(teamId);
 	}, [loadTeamDetail, open, teamId]);
 

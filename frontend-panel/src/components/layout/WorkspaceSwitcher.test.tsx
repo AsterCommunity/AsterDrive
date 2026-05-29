@@ -170,13 +170,16 @@ vi.mock("@/components/ui/dropdown-menu", () => {
 		},
 		DropdownMenuRadioItem: ({
 			children,
+			closeOnClick,
 			value,
 		}: {
 			children: React.ReactNode;
+			closeOnClick?: boolean;
 			value: string;
 		}) => (
 			<button
 				type="button"
+				data-close-on-click={String(closeOnClick ?? true)}
 				data-value={value}
 				onClick={() => mockRadioState.onValueChange?.(value)}
 			>
@@ -214,6 +217,9 @@ describe("WorkspaceSwitcher", () => {
 			"data-value",
 			"personal",
 		);
+		expect(
+			screen.getByRole("button", { name: /^translated:my_drive/ }),
+		).toHaveAttribute("data-close-on-click", "false");
 		expect(
 			screen.getByRole("textbox", {
 				name: "translated:workspace_search_placeholder",

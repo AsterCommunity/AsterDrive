@@ -80,6 +80,9 @@ const mockState = vi.hoisted(() => ({
 	toastError: vi.fn(),
 	toastSuccess: vi.fn(),
 	useKeyboardShortcuts: vi.fn(),
+	workspace: {
+		kind: "personal" as const,
+	} as { kind: "personal" } | { kind: "team"; teamId: number },
 }));
 
 class MockIntersectionObserver {
@@ -874,13 +877,18 @@ vi.mock("@/stores/musicPlayerStore", () => ({
 
 vi.mock("@/stores/workspaceStore", () => ({
 	bindWorkspaceService: <T extends object>(
-		factory: (workspace: { kind: "personal" }) => T,
-	) => factory({ kind: "personal" }),
+		factory: (
+			workspace: { kind: "personal" } | { kind: "team"; teamId: number },
+		) => T,
+	) => factory(mockState.workspace),
 	useWorkspaceStore: Object.assign(
-		<T,>(selector: (state: { workspace: { kind: "personal" } }) => T) =>
-			selector({ workspace: { kind: "personal" } }),
+		<T,>(
+			selector: (state: {
+				workspace: { kind: "personal" } | { kind: "team"; teamId: number };
+			}) => T,
+		) => selector({ workspace: mockState.workspace }),
 		{
-			getState: () => ({ workspace: { kind: "personal" } }),
+			getState: () => ({ workspace: mockState.workspace }),
 		},
 	),
 }));
@@ -986,6 +994,7 @@ describe("FileBrowserPage", () => {
 		mockState.toastError.mockReset();
 		mockState.toastSuccess.mockReset();
 		mockState.useKeyboardShortcuts.mockReset();
+		mockState.workspace = { kind: "personal" };
 
 		mockState.params = { folderId: "12" };
 		mockState.previewAppStore.isLoaded = false;
@@ -1189,6 +1198,34 @@ describe("FileBrowserPage", () => {
 			expect(mockState.store.navigateTo).toHaveBeenCalledWith(12, "Projects");
 		});
 		expect(within(leftSlot).getByText("FolderOpen")).toBeInTheDocument();
+	});
+
+	it("reloads the current folder when the workspace changes without a folder route change", async () => {
+		mockState.params = { folderId: undefined };
+		mockState.location = { pathname: "/teams/1", search: "", state: null };
+		mockState.searchParams = new URLSearchParams();
+		mockState.workspace = { kind: "team", teamId: 1 };
+		mockState.store.breadcrumb = [{ id: null, name: "Root" }];
+		mockState.store.currentFolderId = null;
+
+		const { rerender } = render(<FileBrowserPage />);
+
+		await waitFor(() => {
+			expect(mockState.store.navigateTo).toHaveBeenCalledWith(null, undefined);
+		});
+
+		mockState.location = { pathname: "/teams/2", search: "", state: null };
+		mockState.workspace = { kind: "team", teamId: 2 };
+		rerender(<FileBrowserPage />);
+
+		await waitFor(() => {
+			expect(
+				mockState.store.navigateTo.mock.calls.filter(
+					([nextFolderId, nextFolderName]) =>
+						nextFolderId === null && nextFolderName === undefined,
+				),
+			).toHaveLength(2);
+		});
 	});
 
 	it("collapses deep breadcrumbs on small screens to root ellipsis current", async () => {

@@ -49,6 +49,7 @@ function WorkspaceMenuItem({
 }) {
 	return (
 		<DropdownMenuRadioItem
+			closeOnClick={false}
 			value={value}
 			className="min-h-10 rounded-xl py-1.5 pr-8 pl-2"
 		>
