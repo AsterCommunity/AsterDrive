@@ -31,13 +31,13 @@ use super::super::{
     is_task_lease_lost, is_task_lease_renewal_timed_out, mark_task_progress, mark_task_succeeded,
     prepare_task_temp_dir, task_scope,
 };
-use super::common::{
-    build_folder_display_path, create_unique_folder_in_scope, ends_with_ignore_ascii_case,
-};
+use super::common::{build_folder_display_path, create_unique_folder_in_scope};
+use crate::services::archive_service::format::{ArchiveFormat, detect_archive_extract_format};
 use import::materialize_archive_extract_stage;
 use staging::{
     ArchiveExtractLimits, ArchiveExtractPolicyResolver, ArchiveExtractStageOptions,
-    StageZipArchiveForExtractParams, download_file_to_temp, stage_zip_archive_for_extract,
+    StageArchiveForExtractParams, download_file_to_temp, stage_seven_zip_archive_for_extract,
+    stage_zip_archive_for_extract,
 };
 
 pub(crate) async fn create_archive_extract_task_in_scope(
@@ -97,7 +97,7 @@ pub(super) async fn process_archive_extract_task(
         let source_file =
             workspace_storage_service::verify_file_access(state, scope, payload.file_id).await?;
         workspace_storage_service::ensure_active_file_scope(&source_file, scope)?;
-        ensure_extract_source_supported(&source_file)?;
+        let archive_format = ensure_extract_source_supported(&source_file)?;
         if let Some(target_folder_id) = payload.target_folder_id {
             workspace_storage_service::verify_folder_access(state, scope, target_folder_id).await?;
         }
@@ -124,7 +124,7 @@ pub(super) async fn process_archive_extract_task(
         ensure_source_archive_allowed(source_file.size, max_staging_bytes, extract_limits)?;
         let task_temp_dir = prepare_task_temp_dir(state, lease_guard.lease()).await?;
         let task_temp_path = Path::new(&task_temp_dir);
-        let source_archive_path = task_temp_path.join("source.zip");
+        let source_archive_path = task_temp_path.join(archive_format.temp_file_name());
         let stage_root = task_temp_path.join("extract");
         tokio::fs::create_dir_all(&stage_root)
             .await
@@ -157,18 +157,21 @@ pub(super) async fn process_archive_extract_task(
         };
         let (staged, mut steps) = tokio::task::spawn_blocking(move || {
             let mut steps = steps_for_worker;
-            let staged = stage_zip_archive_for_extract(
-                StageZipArchiveForExtractParams {
-                    handle: &handle,
-                    db: &db,
-                    policy_snapshot: policy_snapshot.as_ref(),
-                    lease_guard: &lease_guard_for_worker,
-                    archive_path: &source_archive_path_for_worker,
-                    stage_root: &stage_root_for_worker,
-                    options: stage_options,
-                },
-                &mut steps,
-            )?;
+            let stage_params = StageArchiveForExtractParams {
+                handle: &handle,
+                db: &db,
+                policy_snapshot: policy_snapshot.as_ref(),
+                lease_guard: &lease_guard_for_worker,
+                archive_path: &source_archive_path_for_worker,
+                stage_root: &stage_root_for_worker,
+                options: stage_options,
+            };
+            let staged = match archive_format {
+                ArchiveFormat::Zip => stage_zip_archive_for_extract(stage_params, &mut steps)?,
+                ArchiveFormat::SevenZip => {
+                    stage_seven_zip_archive_for_extract(stage_params, &mut steps)?
+                }
+            };
             Ok::<_, AsterError>((staged, steps))
         })
         .await
@@ -394,14 +397,10 @@ async fn cleanup_created_extract_root(
     }
 }
 
-fn ensure_extract_source_supported(source_file: &file::Model) -> Result<()> {
-    if ends_with_ignore_ascii_case(&source_file.name, ".zip") {
-        Ok(())
-    } else {
-        Err(AsterError::validation_error(
-            "online extract currently supports .zip files only",
-        ))
-    }
+fn ensure_extract_source_supported(source_file: &file::Model) -> Result<ArchiveFormat> {
+    detect_archive_extract_format(source_file).ok_or_else(|| {
+        AsterError::validation_error("online extract currently supports .zip and .7z files only")
+    })
 }
 
 fn resolve_extract_output_folder_name(
@@ -417,20 +416,14 @@ fn resolve_extract_output_folder_name(
 }
 
 fn default_extract_output_folder_name(source_file_name: &str) -> String {
-    if let Some(stripped) = strip_zip_extension(source_file_name)
-        && !stripped.is_empty()
-    {
-        return stripped.to_string();
+    for archive_format in [ArchiveFormat::Zip, ArchiveFormat::SevenZip] {
+        if let Some(stripped) = archive_format.strip_extension(source_file_name)
+            && !stripped.is_empty()
+        {
+            return stripped.to_string();
+        }
     }
     format!("extracted-{}", Utc::now().format("%Y%m%d-%H%M%S"))
-}
-
-fn strip_zip_extension(name: &str) -> Option<&str> {
-    if ends_with_ignore_ascii_case(name, ".zip") && name.len() > 4 {
-        Some(&name[..name.len() - 4])
-    } else {
-        None
-    }
 }
 
 fn ensure_source_archive_allowed(

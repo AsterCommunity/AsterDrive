@@ -766,6 +766,7 @@ dependencies = [
  "webauthn-rs",
  "webauthn-rs-proto",
  "xmltree",
+ "zesven",
  "zip 8.6.0",
 ]
 
@@ -1953,6 +1954,12 @@ checksum = "9481c1c90cbf2ac953f07c8d4a58aa3945c425b7185c9154d67a65e4230da511"
 dependencies = [
  "cfg-if",
 ]
+
+[[package]]
+name = "crc64fast"
+version = "1.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "26bb92ecea20291efcf0009e2713d64b7e327dedb8ce780545250f24075429e2"
 
 [[package]]
 name = "crossbeam-channel"
@@ -3863,6 +3870,15 @@ name = "lru-slab"
 version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "112b39cec0b298b6c1999fee3e31427f74f676e4cb9879ed1a121b43661a4154"
+
+[[package]]
+name = "lzma-rust2"
+version = "0.15.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e20f57f9918e5bd7bc58c22cdd70a6afc7375d4dd9683af5f2b34bd3d2bba619"
+dependencies = [
+ "sha2 0.10.9",
+]
 
 [[package]]
 name = "mac_address"
@@ -8264,6 +8280,20 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.117",
+]
+
+[[package]]
+name = "zesven"
+version = "1.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e7b0c084f871f92cfaf001f5783b2faa6837af58ea1bc394ebdd37cf856a8120"
+dependencies = [
+ "crc32fast",
+ "crc64fast",
+ "filetime",
+ "log",
+ "lzma-rust2",
+ "thiserror 2.0.18",
 ]
 
 [[package]]

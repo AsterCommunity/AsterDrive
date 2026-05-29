@@ -254,7 +254,7 @@ function createProtectedBuiltinPreviewAppDraft(
 	}
 
 	if (key === "builtin.archive") {
-		return { ...base, extensions: ["zip"] };
+		return { ...base, extensions: ["zip", "7z"] };
 	}
 
 	return base;

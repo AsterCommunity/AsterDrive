@@ -4,19 +4,20 @@ use std::path::PathBuf;
 use encoding_rs::{BIG5, EUC_KR, SHIFT_JIS, WINDOWS_1252};
 use oem_cp::{code_table::ENCODING_TABLE_CP850, encode_string_checked};
 
+use crate::services::archive_service::scan::ArchiveScanEntry;
 use crate::services::archive_service::test_utils::{
     crc32, create_single_file_zip_with_raw_name, push_u16, push_u32,
 };
 
-use super::path::normalize_archive_entry_path;
+use super::super::path::normalize_archive_entry_path;
 use super::*;
 use zip::HasZipMetadata;
 
 const ZIP_UTF8_NAME_FLAG: u16 = 0x0800;
 const ZIP_UNICODE_PATH_EXTRA_FIELD: u16 = 0x7075;
 
-fn scan_limits() -> ZipScanLimits {
-    ZipScanLimits {
+fn scan_limits() -> ArchiveScanLimits {
+    ArchiveScanLimits {
         max_uncompressed_bytes: 1024 * 1024,
         max_entries: 100,
         max_files: 100,
@@ -271,7 +272,7 @@ fn scan_error_with_encoding(bytes: Vec<u8>, filename_encoding: ArchiveFilenameEn
 fn scan_entries_with_encoding(
     bytes: Vec<u8>,
     filename_encoding: ArchiveFilenameEncoding,
-) -> Result<Vec<ZipScanEntry>> {
+) -> Result<Vec<ArchiveScanEntry>> {
     let cursor = Cursor::new(bytes);
     let mut archive = zip::ZipArchive::new(cursor).expect("zip should open");
 
@@ -280,7 +281,7 @@ fn scan_entries_with_encoding(
         scan_limits(),
         None,
         filename_encoding,
-        ZipScanNamePolicy::StrictAsterName,
+        ArchiveScanNamePolicy::StrictAsterName,
         |_| Ok(()),
     )
     .map(|result| result.entries)
@@ -289,7 +290,7 @@ fn scan_entries_with_encoding(
 fn scan_preview_entries_with_encoding(
     bytes: Vec<u8>,
     filename_encoding: ArchiveFilenameEncoding,
-) -> Result<Vec<ZipScanEntry>> {
+) -> Result<Vec<ArchiveScanEntry>> {
     let cursor = Cursor::new(bytes);
     let mut archive = zip::ZipArchive::new(cursor).expect("zip should open");
 
@@ -298,7 +299,7 @@ fn scan_preview_entries_with_encoding(
         scan_limits(),
         None,
         filename_encoding,
-        ZipScanNamePolicy::PreviewDisplayName,
+        ArchiveScanNamePolicy::PreviewDisplayName,
         |_| Ok(()),
     )
     .map(|result| result.entries)
@@ -314,7 +315,7 @@ fn scan_error_for(entries: &[(&str, Option<&[u8]>)]) -> String {
         scan_limits(),
         None,
         ArchiveFilenameEncoding::Auto,
-        ZipScanNamePolicy::StrictAsterName,
+        ArchiveScanNamePolicy::StrictAsterName,
         |_| Ok(()),
     )
     .expect_err("scan should reject archive")
@@ -336,7 +337,7 @@ fn scan_allows_explicit_parent_directory_after_child_file() {
         scan_limits(),
         None,
         ArchiveFilenameEncoding::Auto,
-        ZipScanNamePolicy::StrictAsterName,
+        ArchiveScanNamePolicy::StrictAsterName,
         |_| Ok(()),
     )
     .expect("parent directory after child file should be valid");
@@ -515,7 +516,7 @@ fn normalize_archive_entry_path_rejects_unsafe_boundaries() {
         "../escape.txt",
         "a/../../escape.txt",
     ] {
-        let error = normalize_archive_entry_path(path, ZipScanNamePolicy::StrictAsterName)
+        let error = normalize_archive_entry_path(path, ArchiveScanNamePolicy::StrictAsterName)
             .expect_err("unsafe archive path should be rejected");
         assert!(
             error.message().contains("unsafe path"),
@@ -528,17 +529,17 @@ fn normalize_archive_entry_path_rejects_unsafe_boundaries() {
 #[test]
 fn normalize_archive_entry_path_keeps_valid_relative_boundaries() {
     assert_eq!(
-        normalize_archive_entry_path("folder/C/file.txt", ZipScanNamePolicy::StrictAsterName)
+        normalize_archive_entry_path("folder/C/file.txt", ArchiveScanNamePolicy::StrictAsterName)
             .expect("plain relative path should be valid"),
         PathBuf::from("folder").join("C").join("file.txt")
     );
     assert_eq!(
-        normalize_archive_entry_path("folder/../safe.txt", ZipScanNamePolicy::StrictAsterName)
+        normalize_archive_entry_path("folder/../safe.txt", ArchiveScanNamePolicy::StrictAsterName)
             .expect("contained parent traversal should normalize safely"),
         PathBuf::from("safe.txt")
     );
     assert_eq!(
-        normalize_archive_entry_path("./folder//file.txt", ZipScanNamePolicy::StrictAsterName)
+        normalize_archive_entry_path("./folder//file.txt", ArchiveScanNamePolicy::StrictAsterName)
             .expect("current and empty path components should be ignored"),
         PathBuf::from("folder").join("file.txt")
     );
@@ -607,7 +608,7 @@ fn scan_rejects_implicit_directory_limit_overflow() {
         limits,
         None,
         ArchiveFilenameEncoding::Auto,
-        ZipScanNamePolicy::StrictAsterName,
+        ArchiveScanNamePolicy::StrictAsterName,
         |_| Ok(()),
     )
     .expect_err("implicit directories should count toward directory limit");
@@ -621,8 +622,9 @@ fn scan_rejects_implicit_directory_limit_overflow() {
 
 #[test]
 fn scan_deadline_rejects_expired_deadline() {
-    let error = ensure_zip_scan_deadline(Some(Instant::now() - std::time::Duration::from_secs(1)))
-        .expect_err("expired deadline should reject scan");
+    let error =
+        ensure_archive_scan_deadline(Some(Instant::now() - std::time::Duration::from_secs(1)))
+            .expect_err("expired deadline should reject scan");
 
     assert_eq!(error.message(), "archive scan exceeded server time limit");
 }

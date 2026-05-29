@@ -123,10 +123,12 @@ pub(super) async fn process_archive_preview_task(
         )?;
         let source_file = file_repo::find_by_id(state.writer_db(), payload.file_id).await?;
         ensure_source_file_matches_payload(&source_file, &payload)?;
-        archive_preview_service::ensure_archive_preview_source_supported(&source_file)?;
+        let archive_format =
+            archive_preview_service::ensure_archive_preview_source_supported(&source_file)?;
         let limits = archive_preview_service::ArchivePreviewLimits::from_runtime_config(
             &state.runtime_config,
             crate::types::ArchiveFilenameEncoding::Auto,
+            archive_format,
         )?;
         if limits.task_signature != payload.limit_signature {
             return Err(archive_preview_service::archive_preview_validation_error(
@@ -174,7 +176,8 @@ pub(super) async fn process_archive_preview_task(
             )
             .await?;
             let task_temp_dir = prepare_task_temp_dir(state, lease_guard.lease()).await?;
-            let source_archive_path = std::path::Path::new(&task_temp_dir).join("source.zip");
+            let source_archive_path =
+                std::path::Path::new(&task_temp_dir).join(archive_format.temp_file_name());
             archive_preview_service::download_blob_to_temp(
                 state,
                 &source_file,

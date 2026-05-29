@@ -108,10 +108,11 @@ fn failed_task_subcode(message: &str) -> Option<ApiSubcode> {
 fn preview_test_limits() -> ArchivePreviewLimits {
     let raw_signature = "raw-test".to_string();
     ArchivePreviewLimits {
+        archive_format: ArchiveFormat::Zip,
         max_source_bytes: 1024 * 1024,
         max_manifest_bytes: 64 * 1024,
         max_duration_secs: 10,
-        scan_limits: ZipScanLimits {
+        scan_limits: ArchiveScanLimits {
             max_uncompressed_bytes: 1024 * 1024,
             max_entries: 100,
             max_files: 100,
@@ -122,7 +123,7 @@ fn preview_test_limits() -> ArchivePreviewLimits {
             max_entry_compression_ratio: 100,
         },
         raw_signature: raw_signature.clone(),
-        task_signature: format!("{raw_signature};entries=100;files=100;dirs=100"),
+        task_signature: format!("{raw_signature};format=zip;entries=100;files=100;dirs=100"),
         filename_encoding: ArchiveFilenameEncoding::Auto,
     }
 }
@@ -233,7 +234,7 @@ fn map_failed_task_error_reads_persisted_subcode_without_text_matching() {
         error.api_error_subcode(),
         Some(ApiSubcode::ArchivePreviewInvalidZip)
     );
-    assert_eq!(error.message(), "invalid zip archive");
+    assert_eq!(error.message(), "invalid archive");
 }
 
 #[test]
@@ -246,6 +247,7 @@ fn serialized_cache_uses_current_raw_schema_and_signature() {
 
     assert_eq!(RAW_CACHE_SCHEMA_VERSION, 1);
     assert_eq!(ZIP_RAW_MANIFEST_CACHE_NAME, "zip_raw_manifest.v1");
+    assert_eq!(SEVEN_ZIP_RAW_MANIFEST_CACHE_NAME, "7z_raw_manifest.v1");
     assert_eq!(value["schema_version"], 1);
     assert_eq!(value["limit_signature"], "raw-limits");
     assert!(value.get("filename_encoding").is_none());
@@ -259,12 +261,16 @@ fn serialized_cache_uses_current_raw_schema_and_signature() {
 #[test]
 fn raw_signature_ignores_display_encoding() {
     let runtime_config = crate::config::RuntimeConfig::default();
-    let auto =
-        ArchivePreviewLimits::from_runtime_config(&runtime_config, ArchiveFilenameEncoding::Auto)
-            .expect("auto limits should build");
+    let auto = ArchivePreviewLimits::from_runtime_config(
+        &runtime_config,
+        ArchiveFilenameEncoding::Auto,
+        ArchiveFormat::Zip,
+    )
+    .expect("auto limits should build");
     let gb18030 = ArchivePreviewLimits::from_runtime_config(
         &runtime_config,
         ArchiveFilenameEncoding::Gb18030,
+        ArchiveFormat::Zip,
     )
     .expect("GB18030 limits should build");
 
@@ -275,18 +281,24 @@ fn raw_signature_ignores_display_encoding() {
 #[test]
 fn raw_signature_ignores_display_count_limits_but_tracks_source_safety_limits() {
     let runtime_config = crate::config::RuntimeConfig::default();
-    let baseline =
-        ArchivePreviewLimits::from_runtime_config(&runtime_config, ArchiveFilenameEncoding::Auto)
-            .expect("baseline limits should build");
+    let baseline = ArchivePreviewLimits::from_runtime_config(
+        &runtime_config,
+        ArchiveFilenameEncoding::Auto,
+        ArchiveFormat::Zip,
+    )
+    .expect("baseline limits should build");
 
     apply_runtime_config_value(
         &runtime_config,
         crate::config::definitions::ARCHIVE_PREVIEW_MAX_ENTRIES_KEY,
         "1",
     );
-    let reduced_count =
-        ArchivePreviewLimits::from_runtime_config(&runtime_config, ArchiveFilenameEncoding::Auto)
-            .expect("reduced count limits should build");
+    let reduced_count = ArchivePreviewLimits::from_runtime_config(
+        &runtime_config,
+        ArchiveFilenameEncoding::Auto,
+        ArchiveFormat::Zip,
+    )
+    .expect("reduced count limits should build");
     assert_eq!(baseline.raw_signature, reduced_count.raw_signature);
     assert_ne!(baseline.task_signature, reduced_count.task_signature);
 
@@ -295,9 +307,12 @@ fn raw_signature_ignores_display_count_limits_but_tracks_source_safety_limits() 
         crate::config::definitions::ARCHIVE_PREVIEW_MAX_SOURCE_BYTES_KEY,
         "1",
     );
-    let reduced_source =
-        ArchivePreviewLimits::from_runtime_config(&runtime_config, ArchiveFilenameEncoding::Auto)
-            .expect("reduced source limits should build");
+    let reduced_source = ArchivePreviewLimits::from_runtime_config(
+        &runtime_config,
+        ArchiveFilenameEncoding::Auto,
+        ArchiveFormat::Zip,
+    )
+    .expect("reduced source limits should build");
     assert_ne!(baseline.raw_signature, reduced_source.raw_signature);
 }
 
@@ -498,6 +513,10 @@ fn map_failed_task_error_preserves_archive_preview_subcodes() {
     );
     assert_eq!(
         failed_task_subcode("invalid zip archive"),
+        Some(ApiSubcode::ArchivePreviewInvalidZip)
+    );
+    assert_eq!(
+        failed_task_subcode("invalid 7z archive"),
         Some(ApiSubcode::ArchivePreviewInvalidZip)
     );
     assert_eq!(

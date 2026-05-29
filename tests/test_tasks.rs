@@ -261,6 +261,36 @@ fn create_stored_zip_bytes(entries: &[(&str, Option<&[u8]>)]) -> Vec<u8> {
     zip.finish().expect("zip writer should finish").into_inner()
 }
 
+fn create_7z_bytes(entries: &[(&str, Option<&[u8]>)]) -> Vec<u8> {
+    let cursor = Cursor::new(Vec::new());
+    let mut writer = zesven::Writer::create(cursor).expect("7z writer should start");
+
+    for (path, content) in entries {
+        match content {
+            Some(bytes) => {
+                writer
+                    .add_bytes(
+                        zesven::ArchivePath::new(path).expect("7z file path should be valid"),
+                        bytes,
+                    )
+                    .expect("7z file entry should be writable");
+            }
+            None => {
+                writer
+                    .add_directory(
+                        zesven::ArchivePath::new(path.trim_end_matches('/'))
+                            .expect("7z directory path should be valid"),
+                        zesven::write::EntryMeta::directory(),
+                    )
+                    .expect("7z directory entry should be writable");
+            }
+        }
+    }
+
+    let (_, cursor) = writer.finish_into_inner().expect("7z writer should finish");
+    cursor.into_inner()
+}
+
 fn create_stored_zip_bytes_with_raw_name(
     placeholder_name: &str,
     raw_name: &[u8],
@@ -508,6 +538,23 @@ async fn run_failing_personal_archive_extract_with_options(
     max_attempts: &str,
     assert_retry_rejected: bool,
 ) -> Value {
+    run_failing_personal_archive_extract_with_filename(
+        archive_bytes,
+        "security-check.zip",
+        config_overrides,
+        max_attempts,
+        assert_retry_rejected,
+    )
+    .await
+}
+
+async fn run_failing_personal_archive_extract_with_filename(
+    archive_bytes: Vec<u8>,
+    file_name: &str,
+    config_overrides: Vec<(&str, String)>,
+    max_attempts: &str,
+    assert_retry_rejected: bool,
+) -> Value {
     let state = common::setup().await;
     let app = create_test_app!(state.clone());
 
@@ -530,7 +577,7 @@ async fn run_failing_personal_archive_extract_with_options(
         .uri("/api/v1/files/new")
         .insert_header(("Cookie", common::access_cookie_header(&token)))
         .insert_header(common::csrf_header_for(&token))
-        .set_json(serde_json::json!({ "name": "security-check.zip", "folder_id": null }))
+        .set_json(serde_json::json!({ "name": file_name, "folder_id": null }))
         .to_request();
     let resp = test::call_service(&app, req).await;
     assert_eq!(resp.status(), 201);
@@ -2791,6 +2838,114 @@ async fn test_team_archive_extract_task_creates_team_folder_tree() {
 }
 
 #[actix_web::test]
+async fn test_archive_extract_task_extracts_7z_archive() {
+    let state = common::setup().await;
+    let app = create_test_app!(state.clone());
+    let (token, _) = register_and_login!(app);
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/files/new")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({ "name": "bundle.7z", "folder_id": null }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 201);
+    let body: Value = test::read_body_json(resp).await;
+    let archive_file_id = body["data"]["id"].as_i64().unwrap();
+
+    let archive_bytes = create_7z_bytes(&[
+        ("docs", None),
+        ("docs/note.txt", Some("7z extract payload".as_bytes())),
+        ("docs/second.txt", Some("second 7z payload".as_bytes())),
+        ("root.txt", Some("root 7z payload".as_bytes())),
+    ]);
+    let req = test::TestRequest::put()
+        .uri(&format!("/api/v1/files/{archive_file_id}/content"))
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .insert_header(("Content-Type", "application/octet-stream"))
+        .set_payload(archive_bytes)
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+
+    let req = test::TestRequest::post()
+        .uri(&format!("/api/v1/files/{archive_file_id}/extract"))
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({}))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+    let body: Value = test::read_body_json(resp).await;
+    let task_id = body["data"]["id"].as_i64().unwrap();
+
+    let stats = aster_drive::services::task_service::drain(&state)
+        .await
+        .expect("task drain should succeed");
+    assert_eq!(stats.succeeded, 1);
+
+    let req = test::TestRequest::get()
+        .uri(&format!("/api/v1/tasks/{task_id}"))
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(body["data"]["status"], "succeeded");
+
+    let result = read_task_result(&body);
+    let extracted_root_id = result["target_folder_id"].as_i64().unwrap();
+    assert_eq!(result["target_folder_name"], "bundle");
+
+    let req = test::TestRequest::get()
+        .uri(&format!("/api/v1/folders/{extracted_root_id}"))
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+    let body: Value = test::read_body_json(resp).await;
+    let docs_folder = body["data"]["folders"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|folder| folder["name"] == "docs")
+        .expect("docs folder should exist");
+    let docs_folder_id = docs_folder["id"].as_i64().unwrap();
+
+    let req = test::TestRequest::get()
+        .uri(&format!("/api/v1/folders/{docs_folder_id}"))
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+    let body: Value = test::read_body_json(resp).await;
+    let files = body["data"]["files"].as_array().unwrap();
+    let mut file_names = files
+        .iter()
+        .map(|file| file["name"].as_str().unwrap().to_string())
+        .collect::<Vec<_>>();
+    file_names.sort();
+    assert_eq!(file_names, vec!["note.txt", "second.txt"]);
+
+    let req = test::TestRequest::get()
+        .uri(&format!("/api/v1/folders/{extracted_root_id}"))
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+    let body: Value = test::read_body_json(resp).await;
+    let root_files = body["data"]["files"].as_array().unwrap();
+    assert_eq!(root_files.len(), 1);
+    assert_eq!(root_files[0]["name"], "root.txt");
+}
+
+#[actix_web::test]
 async fn test_archive_extract_task_publishes_single_storage_change_event() {
     let state = common::setup().await;
     let mut storage_events = state.storage_change_tx.subscribe();
@@ -3648,6 +3803,30 @@ async fn test_archive_extract_task_rejects_display_only_entry_names() {
             .expect("failed task should record last error")
             .contains("forbidden character ':'"),
         "extract must still reject archive entries that cannot become AsterDrive names"
+    );
+}
+
+#[actix_web::test]
+async fn test_archive_extract_task_rejects_7z_display_only_entry_names() {
+    let archive_bytes = create_7z_bytes(&[(
+        "folder/name:with-colon.txt",
+        Some(b"not importable".as_slice()),
+    )]);
+    let body = run_failing_personal_archive_extract_with_filename(
+        archive_bytes,
+        "security-check.7z",
+        Vec::new(),
+        "1",
+        false,
+    )
+    .await;
+
+    assert!(
+        body["data"]["last_error"]
+            .as_str()
+            .expect("failed task should record last error")
+            .contains("forbidden character ':'"),
+        "7z extract must reject archive entries that cannot become AsterDrive names"
     );
 }
 

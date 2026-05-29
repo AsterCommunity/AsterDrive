@@ -12,32 +12,30 @@ use crate::types::ArchiveFilenameEncoding;
 
 mod encoding;
 mod entry;
-mod path;
-mod types;
 
+use super::path::{
+    ensure_archive_entry_path_not_conflicting, insert_directory_path_with_limit,
+    normalize_archive_entry_path, validate_archive_entry_compression_ratio,
+    validate_archive_entry_path_limits, validate_total_archive_compression_ratio,
+};
+use super::scan::{
+    ArchiveRawScanEntry, ArchiveRawScanResult, ArchiveScanEntryKind, ArchiveScanLimits,
+    ArchiveScanNamePolicy, ArchiveScanResult, ensure_archive_scan_deadline,
+};
 use encoding::{decode_zip_entry_name, decode_zip_entry_name_parts};
 use entry::{
     build_scan_entry, build_scan_entry_from_parts, format_zip_datetime, map_zip_entry_error,
     validate_zip_entry_supported,
 };
-use path::{
-    ensure_archive_entry_path_not_conflicting, insert_directory_path_with_limit,
-    normalize_archive_entry_path, validate_archive_entry_compression_ratio,
-    validate_archive_entry_path_limits, validate_total_archive_compression_ratio,
-};
-pub(crate) use types::{
-    ZipRawScanEntry, ZipRawScanResult, ZipScanEntry, ZipScanEntryKind, ZipScanLimits,
-    ZipScanNamePolicy, ZipScanResult,
-};
 
 pub(crate) fn scan_zip_archive<R, F>(
     archive: &mut zip::ZipArchive<R>,
-    limits: ZipScanLimits,
+    limits: ArchiveScanLimits,
     deadline: Option<Instant>,
     filename_encoding: ArchiveFilenameEncoding,
-    name_policy: ZipScanNamePolicy,
+    name_policy: ArchiveScanNamePolicy,
     mut ensure_file_size_allowed: F,
-) -> Result<ZipScanResult>
+) -> Result<ArchiveScanResult>
 where
     R: Read + Seek,
     F: FnMut(i64) -> Result<()>,
@@ -60,12 +58,12 @@ where
     let mut entries = Vec::with_capacity(archive.len());
 
     for index in 0..archive.len() {
-        ensure_zip_scan_deadline(deadline)?;
+        ensure_archive_scan_deadline(deadline)?;
         let entry = archive.by_index_raw(index).map_err(map_zip_entry_error)?;
         let decoded_name = decode_zip_entry_name(&entry, filename_encoding)?;
         validate_zip_entry_supported(&entry, &decoded_name)?;
-        if matches!(name_policy, ZipScanNamePolicy::PreviewDisplayName)
-            && normalize_archive_entry_path(&decoded_name, ZipScanNamePolicy::StrictAsterName)
+        if matches!(name_policy, ArchiveScanNamePolicy::PreviewDisplayName)
+            && normalize_archive_entry_path(&decoded_name, ArchiveScanNamePolicy::StrictAsterName)
                 .is_err()
         {
             extract_compatible = false;
@@ -85,7 +83,7 @@ where
             entries.push(build_scan_entry(
                 index,
                 relative_path,
-                ZipScanEntryKind::Directory,
+                ArchiveScanEntryKind::Directory,
                 0,
                 0,
                 entry.last_modified(),
@@ -130,7 +128,7 @@ where
         entries.push(build_scan_entry(
             index,
             relative_path,
-            ZipScanEntryKind::File,
+            ArchiveScanEntryKind::File,
             entry_size,
             crate::utils::numbers::u64_to_i64(
                 entry.compressed_size(),
@@ -146,7 +144,7 @@ where
         limits.max_compression_ratio,
     )?;
 
-    Ok(ZipScanResult {
+    Ok(ArchiveScanResult {
         entry_count,
         file_count,
         directory_count: directory_paths.len().try_into().map_aster_err_with(|| {
@@ -160,9 +158,9 @@ where
 
 pub(crate) fn scan_zip_archive_raw<R>(
     archive: &mut zip::ZipArchive<R>,
-    limits: ZipScanLimits,
+    limits: ArchiveScanLimits,
     deadline: Option<Instant>,
-) -> Result<ZipRawScanResult>
+) -> Result<ArchiveRawScanResult>
 where
     R: Read + Seek,
 {
@@ -181,7 +179,7 @@ where
     let mut entries = Vec::with_capacity(archive.len());
 
     for index in 0..archive.len() {
-        ensure_zip_scan_deadline(deadline)?;
+        ensure_archive_scan_deadline(deadline)?;
         let entry = archive.by_index_raw(index).map_err(map_zip_entry_error)?;
         validate_zip_entry_supported(&entry, entry.name())?;
         let raw_name = entry.name_raw().to_vec();
@@ -198,12 +196,12 @@ where
                     directory_count, limits.max_directories
                 )));
             }
-            entries.push(ZipRawScanEntry {
+            entries.push(ArchiveRawScanEntry {
                 index,
                 raw_name,
                 display_name,
                 zip_utf8,
-                kind: ZipScanEntryKind::Directory,
+                kind: ArchiveScanEntryKind::Directory,
                 size: 0,
                 compressed_size: 0,
                 modified_at: entry.last_modified().and_then(format_zip_datetime),
@@ -240,12 +238,12 @@ where
             limits.max_entry_compression_ratio,
             Path::new(entry.name()),
         )?;
-        entries.push(ZipRawScanEntry {
+        entries.push(ArchiveRawScanEntry {
             index,
             raw_name,
             display_name,
             zip_utf8,
-            kind: ZipScanEntryKind::File,
+            kind: ArchiveScanEntryKind::File,
             size: entry_size,
             compressed_size: crate::utils::numbers::u64_to_i64(
                 entry.compressed_size(),
@@ -261,7 +259,7 @@ where
         limits.max_compression_ratio,
     )?;
 
-    Ok(ZipRawScanResult {
+    Ok(ArchiveRawScanResult {
         entry_count,
         file_count,
         directory_count,
@@ -271,13 +269,13 @@ where
 }
 
 pub(crate) fn build_zip_scan_result_from_raw_entries<F>(
-    raw_entries: &[ZipRawScanEntry],
-    limits: ZipScanLimits,
+    raw_entries: &[ArchiveRawScanEntry],
+    limits: ArchiveScanLimits,
     deadline: Option<Instant>,
     filename_encoding: ArchiveFilenameEncoding,
-    name_policy: ZipScanNamePolicy,
+    name_policy: ArchiveScanNamePolicy,
     mut ensure_file_size_allowed: F,
-) -> Result<ZipScanResult>
+) -> Result<ArchiveScanResult>
 where
     F: FnMut(i64) -> Result<()>,
 {
@@ -300,15 +298,15 @@ where
     let mut entries = Vec::with_capacity(raw_entries.len());
 
     for raw_entry in raw_entries {
-        ensure_zip_scan_deadline(deadline)?;
+        ensure_archive_scan_deadline(deadline)?;
         let decoded_name = decode_zip_entry_name_parts(
             &raw_entry.raw_name,
             &raw_entry.display_name,
             raw_entry.zip_utf8,
             filename_encoding,
         )?;
-        if matches!(name_policy, ZipScanNamePolicy::PreviewDisplayName)
-            && normalize_archive_entry_path(&decoded_name, ZipScanNamePolicy::StrictAsterName)
+        if matches!(name_policy, ArchiveScanNamePolicy::PreviewDisplayName)
+            && normalize_archive_entry_path(&decoded_name, ArchiveScanNamePolicy::StrictAsterName)
                 .is_err()
         {
             extract_compatible = false;
@@ -328,7 +326,7 @@ where
             entries.push(build_scan_entry_from_parts(
                 raw_entry.index,
                 relative_path,
-                ZipScanEntryKind::Directory,
+                ArchiveScanEntryKind::Directory,
                 0,
                 0,
                 raw_entry.modified_at.clone(),
@@ -377,7 +375,7 @@ where
         entries.push(build_scan_entry_from_parts(
             raw_entry.index,
             relative_path,
-            ZipScanEntryKind::File,
+            ArchiveScanEntryKind::File,
             raw_entry.size,
             raw_entry.compressed_size,
             raw_entry.modified_at.clone(),
@@ -390,7 +388,7 @@ where
         limits.max_compression_ratio,
     )?;
 
-    Ok(ZipScanResult {
+    Ok(ArchiveScanResult {
         entry_count,
         file_count,
         directory_count: directory_paths.len().try_into().map_aster_err_with(|| {
@@ -400,17 +398,6 @@ where
         extract_compatible,
         entries,
     })
-}
-
-pub(crate) fn ensure_zip_scan_deadline(deadline: Option<Instant>) -> Result<()> {
-    if let Some(deadline) = deadline
-        && Instant::now() > deadline
-    {
-        return Err(AsterError::validation_error(
-            "archive scan exceeded server time limit",
-        ));
-    }
-    Ok(())
 }
 
 #[cfg(test)]

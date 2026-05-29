@@ -1,10 +1,10 @@
 {
-	"archive_preview_title": "ZIP 内容",
+	"archive_preview_title": "压缩包内容",
 	"archive_preview_generating": "正在生成压缩包预览...",
 	"archive_preview_generated_at": "扫描于 {{date}}",
 	"archive_preview_truncated": "已截断",
 	"archive_preview_items": "项目",
-	"archive_preview_zip_entries": "ZIP 条目",
+	"archive_preview_zip_entries": "压缩包条目",
 	"archive_preview_files": "文件",
 	"archive_preview_folders": "文件夹",
 	"archive_preview_uncompressed": "解压后大小",
@@ -27,10 +27,10 @@
 	"archive_preview_empty": "这个压缩包没有可显示的条目。",
 	"archive_preview_no_matches": "没有匹配的压缩包条目。",
 	"archive_preview_disabled": "管理员尚未启用压缩包预览。",
-	"archive_preview_unsupported_type": "压缩包预览目前只支持 ZIP 文件。",
+	"archive_preview_unsupported_type": "压缩包预览目前只支持 ZIP 和 7z 文件。",
 	"archive_preview_source_too_large": "这个压缩包超过了管理员设置的预览大小上限。",
-	"archive_preview_invalid_zip": "这个文件不是有效的 ZIP 压缩包。",
-	"archive_preview_encoding_failed": "当前文件名编码无法解析这个 ZIP，请切换文件名编码后重试。",
+	"archive_preview_invalid_zip": "这个文件不是有效的压缩包。",
+	"archive_preview_encoding_failed": "当前文件名编码无法解析这个压缩包，请切换文件名编码后重试。",
 	"archive_preview_rejected": "这个压缩包不符合服务器的预览限制。",
 	"archive_preview_extract_unsupported_entry_names": "这个压缩包包含当前系统不支持解压的文件名，但仍可预览内容。"
 }

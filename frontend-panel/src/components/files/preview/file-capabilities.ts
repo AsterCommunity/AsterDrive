@@ -61,13 +61,16 @@ function isSvgFile(file: PreviewableFileLike) {
 	return ext === "svg" || file.mime_type === "image/svg+xml";
 }
 
-function isZipArchive(file: PreviewableFileLike) {
+function isSupportedArchivePreviewFile(file: PreviewableFileLike) {
 	const { ext } = getExtension(file.name);
 	const mime = file.mime_type.toLowerCase();
 	return (
 		ext === "zip" ||
+		ext === "7z" ||
 		mime === "application/zip" ||
-		mime === "application/x-zip-compressed"
+		mime === "application/x-zip-compressed" ||
+		mime === "application/x-7z" ||
+		mime === "application/x-7z-compressed"
 	);
 }
 
@@ -306,7 +309,7 @@ function detectBuiltinFilePreviewProfile(
 			options: BUILTIN_PREVIEW_OPTIONS.xml,
 		};
 	}
-	if (isZipArchive(file) || typeInfo.category === "archive") {
+	if (isSupportedArchivePreviewFile(file) || typeInfo.category === "archive") {
 		return {
 			category: "archive",
 			isBlobPreview: false,

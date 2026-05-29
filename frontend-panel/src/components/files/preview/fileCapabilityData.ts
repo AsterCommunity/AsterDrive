@@ -333,6 +333,10 @@ export const PREFIX_TYPE_INFO: Array<
 		"application/x-7z",
 		{ category: "archive", icon: "FileZip", color: "text-yellow-600" },
 	],
+	[
+		"application/x-7z-compressed",
+		{ category: "archive", icon: "FileZip", color: "text-yellow-600" },
+	],
 ];
 
 export const DEFAULT_TYPE_INFO: FileTypeInfo = {
