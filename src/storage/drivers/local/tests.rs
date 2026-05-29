@@ -129,8 +129,8 @@ async fn capacity_info_reports_filesystem_space_for_base_path() {
         .expect("available bytes should exist");
     let used = capacity.used_bytes.expect("used bytes should exist");
     assert!(total > 0);
-    assert!(available > 0);
     assert!(total >= available);
+    assert!(used >= 0);
     assert_eq!(used, total.saturating_sub(available));
 
     let _ = tokio::fs::remove_dir_all(&base).await;

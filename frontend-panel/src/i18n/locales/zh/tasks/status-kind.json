@@ -11,9 +11,11 @@
 	"kind_thumbnail_generate": "缩略图生成",
 	"kind_trash_purge_all": "回收站清空",
 	"kind_storage_policy_migration": "存储策略迁移",
+	"kind_blob_maintenance": "Blob 维护",
 	"kind_system_runtime": "系统运行任务",
 	"status_text_label": "状态",
 	"storage_migration_migrated_blobs": "已迁移对象",
+	"storage_migration_renamed_opaque_blobs": "已重命名 Opaque Key",
 	"storage_migration_skipped_blobs": "已跳过对象",
 	"storage_migration_failed_blobs": "失败对象",
 	"storage_migration_migrated_bytes": "字节数"

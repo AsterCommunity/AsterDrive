@@ -545,6 +545,37 @@ async fn test_storage_migration_capacity_preflight_uses_estimated_copy_bytes() {
 }
 
 #[actix_web::test]
+async fn test_storage_migration_dry_run_does_not_match_opaque_blob_keys() {
+    let state = common::setup().await;
+    let app = create_test_app!(state.clone());
+    let (token, _) = register_and_login!(app);
+    let source = create_local_policy(&state, "source-opaque-dry-run").await;
+    let target = create_local_policy(&state, "target-opaque-dry-run").await;
+    let source_blob =
+        create_opaque_blob_with_object(&state, &source, "opaque-shared-key", b"same", 1).await;
+    create_opaque_blob_with_object(&state, &target, "opaque-shared-key", b"same", 1).await;
+
+    let missing_summary = file_repo::summarize_missing_blobs_between_policies(
+        state.writer_db(),
+        source.id,
+        target.id,
+    )
+    .await
+    .expect("missing blob summary should load");
+    assert_eq!(missing_summary.count, 1);
+    assert_eq!(missing_summary.total_size, source_blob.size);
+
+    let (status, body) = dry_run_migration_via_api(&app, &token, source.id, target.id).await;
+
+    assert_eq!(status, actix_web::http::StatusCode::OK);
+    let data = &body["data"];
+    assert_eq!(data["opaque_blob_count"], 1);
+    assert_eq!(data["opaque_key_conflict_count"], 1);
+    assert_eq!(data["target_matching_blob_count"], 0);
+    assert_eq!(data["estimated_copy_blob_count"], 1);
+}
+
+#[actix_web::test]
 async fn test_storage_policy_capacity_api_reports_local_filesystem_capacity() {
     let state = common::setup().await;
     let app = create_test_app!(state.clone());
@@ -780,6 +811,10 @@ async fn test_storage_migration_moves_opaque_local_blob_key_without_content_hash
         .await
         .expect("task should exist");
     assert_eq!(task.status, BackgroundTaskStatus::Succeeded);
+    let checkpoint = storage_migration_checkpoint_repo::get_by_task_id(state.writer_db(), task_id)
+        .await
+        .expect("checkpoint should exist");
+    assert_eq!(checkpoint.renamed_opaque_blobs, 0);
 }
 
 #[tokio::test]
@@ -1109,6 +1144,141 @@ async fn test_storage_migration_merges_when_target_blob_already_exists() {
     assert_eq!(checkpoint.migrated_blobs, 0);
     assert_eq!(checkpoint.merged_blobs, 1);
     assert_eq!(checkpoint.migrated_bytes, 10);
+}
+
+#[actix_web::test]
+async fn test_storage_migration_fails_when_content_hash_matches_but_size_differs() {
+    let state = common::setup().await;
+    let app = create_test_app!(state.clone());
+    let (token, _) = register_and_login!(app);
+    let source = create_local_policy(&state, "source-hash-size-mismatch").await;
+    let target = create_local_policy(&state, "target-hash-size-mismatch").await;
+    let source_blob = create_blob_with_object(&state, &source, b"same-hash-source", 1).await;
+    let target_blob = create_blob_with_object(&state, &target, b"x", 1).await;
+    let mut target_update: file_blob::ActiveModel = target_blob.into();
+    target_update.hash = Set(source_blob.hash.clone());
+    target_update
+        .update(state.writer_db())
+        .await
+        .expect("target hash should be forced for boundary test");
+
+    let body = create_migration_task_via_api(&app, &token, source.id, target.id, false).await;
+    let task_id = body["data"]["id"].as_i64().expect("task id should exist");
+    let stats = task_service::drain(&state)
+        .await
+        .expect("migration task should drain");
+    assert_eq!(stats.failed, 1);
+
+    let task = background_task_repo::find_by_id(state.writer_db(), task_id)
+        .await
+        .expect("task should exist");
+    assert_eq!(task.status, BackgroundTaskStatus::Failed);
+    let last_error = task
+        .last_error
+        .as_deref()
+        .expect("failed task should store last_error");
+    assert!(
+        last_error.contains("target blob record does not match source blob"),
+        "{last_error}"
+    );
+    let source_after = file_repo::find_blob_by_id(state.writer_db(), source_blob.id)
+        .await
+        .expect("source blob should remain");
+    assert_eq!(source_after.policy_id, source.id);
+}
+
+#[actix_web::test]
+async fn test_storage_migration_does_not_merge_opaque_blob_key_with_same_size() {
+    let state = common::setup().await;
+    let app = create_test_app!(state.clone());
+    let (token, _) = register_and_login!(app);
+    let source = create_local_policy(&state, "source-opaque-same-size").await;
+    let target = create_local_policy(&state, "target-opaque-same-size").await;
+    let source_blob =
+        create_opaque_blob_with_object(&state, &source, "opaque-shared-same-size", b"source", 1)
+            .await;
+    let target_blob =
+        create_opaque_blob_with_object(&state, &target, "opaque-shared-same-size", b"target", 1)
+            .await;
+    create_file_for_blob(&state, source_blob.id, "opaque-source.txt").await;
+
+    let body = create_migration_task_via_api(&app, &token, source.id, target.id, false).await;
+    let task_id = body["data"]["id"].as_i64().expect("task id should exist");
+    let stats = task_service::drain(&state)
+        .await
+        .expect("opaque same-size migration task should drain");
+    assert_eq!(stats.succeeded, 1);
+
+    let migrated = file_repo::find_blob_by_id(state.writer_db(), source_blob.id)
+        .await
+        .expect("source blob row should be moved, not merged");
+    assert_eq!(migrated.policy_id, target.id);
+    assert_ne!(migrated.hash, target_blob.hash);
+    assert!(migrated.hash.starts_with("migration-"));
+    assert_ne!(migrated.storage_path, target_blob.storage_path);
+    let migrated_bytes =
+        tokio::fs::read(std::path::Path::new(&target.base_path).join(&migrated.storage_path))
+            .await
+            .expect("migrated opaque object should exist");
+    assert_eq!(migrated_bytes, b"source");
+    let target_bytes =
+        tokio::fs::read(std::path::Path::new(&target.base_path).join(&target_blob.storage_path))
+            .await
+            .expect("existing opaque target object should remain");
+    assert_eq!(target_bytes, b"target");
+
+    let checkpoint = storage_migration_checkpoint_repo::get_by_task_id(state.writer_db(), task_id)
+        .await
+        .expect("checkpoint should exist");
+    assert_eq!(checkpoint.migrated_blobs, 1);
+    assert_eq!(checkpoint.merged_blobs, 0);
+    assert_eq!(checkpoint.renamed_opaque_blobs, 1);
+}
+
+#[actix_web::test]
+async fn test_storage_migration_does_not_merge_opaque_blob_key_with_different_size() {
+    let state = common::setup().await;
+    let app = create_test_app!(state.clone());
+    let (token, _) = register_and_login!(app);
+    let source = create_local_policy(&state, "source-opaque-different-size").await;
+    let target = create_local_policy(&state, "target-opaque-different-size").await;
+    let source_blob = create_opaque_blob_with_object(
+        &state,
+        &source,
+        "opaque-shared-different-size",
+        b"source-long",
+        1,
+    )
+    .await;
+    let target_blob = create_opaque_blob_with_object(
+        &state,
+        &target,
+        "opaque-shared-different-size",
+        b"target",
+        1,
+    )
+    .await;
+
+    let body = create_migration_task_via_api(&app, &token, source.id, target.id, false).await;
+    let task_id = body["data"]["id"].as_i64().expect("task id should exist");
+    let stats = task_service::drain(&state)
+        .await
+        .expect("opaque different-size migration task should drain");
+    assert_eq!(stats.succeeded, 1);
+
+    let migrated = file_repo::find_blob_by_id(state.writer_db(), source_blob.id)
+        .await
+        .expect("source blob row should be moved, not merged");
+    assert_eq!(migrated.policy_id, target.id);
+    assert_ne!(migrated.hash, target_blob.hash);
+    assert!(migrated.hash.starts_with("migration-"));
+    assert_eq!(migrated.size, source_blob.size);
+    let checkpoint = storage_migration_checkpoint_repo::get_by_task_id(state.writer_db(), task_id)
+        .await
+        .expect("checkpoint should exist");
+    assert_eq!(checkpoint.migrated_blobs, 1);
+    assert_eq!(checkpoint.merged_blobs, 0);
+    assert_eq!(checkpoint.renamed_opaque_blobs, 1);
 }
 
 #[actix_web::test]

@@ -25,6 +25,8 @@ pub(super) const TASK_STEP_CLEANUP_OBJECTS: &str = "cleanup_objects";
 pub(super) const TASK_STEP_PURGE_TRASH: &str = "purge_trash";
 pub(super) const TASK_STEP_SCAN_BLOBS: &str = "scan_blobs";
 pub(super) const TASK_STEP_MIGRATE_BLOBS: &str = "migrate_blobs";
+pub(super) const TASK_STEP_CHECK_BLOBS: &str = "check_blobs";
+pub(super) const TASK_STEP_RECONCILE_REFS: &str = "reconcile_refs";
 pub(super) const TASK_STEP_FINISH: &str = "finish";
 
 #[derive(Debug, Clone, Copy)]
@@ -171,6 +173,32 @@ fn task_step_specs(kind: BackgroundTaskKind) -> &'static [TaskStepSpec] {
                 title: "Finish migration",
             },
         ],
+        BackgroundTaskKind::BlobMaintenance => &[
+            TaskStepSpec {
+                key: TASK_STEP_WAITING,
+                title: "Waiting",
+            },
+            TaskStepSpec {
+                key: TASK_STEP_SCAN_BLOBS,
+                title: "Load blob records",
+            },
+            TaskStepSpec {
+                key: TASK_STEP_CHECK_BLOBS,
+                title: "Check storage objects",
+            },
+            TaskStepSpec {
+                key: TASK_STEP_RECONCILE_REFS,
+                title: "Reconcile references",
+            },
+            TaskStepSpec {
+                key: TASK_STEP_CLEANUP_OBJECTS,
+                title: "Clean orphan blobs",
+            },
+            TaskStepSpec {
+                key: TASK_STEP_FINISH,
+                title: "Finish maintenance",
+            },
+        ],
         BackgroundTaskKind::SystemRuntime => &[],
     }
 }
@@ -277,6 +305,22 @@ pub(super) fn set_task_step_succeeded(
     } else if step.progress_total > 0 {
         step.progress_current = step.progress_total;
     }
+    Ok(())
+}
+
+pub(super) fn set_task_step_skipped(
+    steps: &mut [TaskStepInfo],
+    key: &str,
+    detail: Option<&str>,
+) -> Result<()> {
+    let now = Utc::now();
+    let step = find_task_step_mut(steps, key)?;
+    step.status = TaskStepStatus::Skipped;
+    if step.started_at.is_none() {
+        step.started_at = Some(now);
+    }
+    step.finished_at = Some(now);
+    step.detail = detail.map(str::to_string);
     Ok(())
 }
 

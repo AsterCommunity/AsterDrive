@@ -43,6 +43,7 @@
 - `DELETE /trash`
 - `DELETE /teams/{team_id}/trash`
 - `POST /admin/storage-migrations`
+- `POST /admin/file-blobs/maintenance`
 
 另外，系统内部还会创建或记录：
 
@@ -50,11 +51,26 @@
 - `media_metadata_extract`
 - `storage_policy_migration`
 - `storage_policy_temp_cleanup`
+- `blob_maintenance`
 - `system_runtime`
 
 缩略图和媒体元数据任务虽然常由用户访问接口触发，但仍按 blob 级缓存任务处理，通常没有创建者，API 返回的 `creator` 为 `null`，普通用户 `/tasks` 列表通常看不到；管理员可以在 `/api/v1/admin/tasks` 看全部任务。
 
 `storage_policy_migration` 是管理员通过 `/api/v1/admin/storage-migrations` 创建的后台任务，负责把一个存储策略下的 blob 迁移到另一个策略。它有独立的 checkpoint，可通过 `/api/v1/admin/storage-migrations/{task_id}/resume` 继续执行。
+
+迁移任务的 `result` 是 `StoragePolicyMigrationTaskResult`，当前包括：
+
+- `source_policy_id`
+- `target_policy_id`
+- `scanned_blobs`
+- `migrated_blobs`
+- `merged_blobs`
+- `skipped_blobs`
+- `failed_blobs`
+- `migrated_bytes`
+- `renamed_opaque_blobs`
+
+`renamed_opaque_blobs` 表示执行阶段遇到目标策略已有相同 opaque key 的源 blob 数量。Opaque key 不代表内容哈希，不能跨策略合并；这类 blob 会复制到目标策略的新 `migration-...` key，并在 checkpoint / result 中累计。
 
 `storage_policy_temp_cleanup` 只在管理员用 `DELETE /admin/policies/{id}?force=true` 强制删除存储策略，且仍有临时对象或 multipart upload 需要延后清理时创建。它会先等待预签名 URL 的安全窗口过期，再按删除前保存的策略快照清理对象。
 
@@ -112,7 +128,7 @@
 
 ## 当前任务类型
 
-当前代码里的 `BackgroundTaskKind` 有九种：
+当前代码里的 `BackgroundTaskKind` 有十种：
 
 - `archive_extract`
 - `archive_compress`
@@ -122,6 +138,7 @@
 - `trash_purge_all`
 - `storage_policy_temp_cleanup`
 - `storage_policy_migration`
+- `blob_maintenance`
 - `system_runtime`
 
 当前 `BackgroundTaskStatus` 有六种：
@@ -142,6 +159,7 @@
 - `trash_purge_all`：异步清空个人或团队回收站，完成后发布一次 `sync.required` 存储变更事件
 - `storage_policy_temp_cleanup`：强制删除存储策略后，兜底清理遗留的临时对象和 multipart upload
 - `storage_policy_migration`：管理员发起的跨策略 blob 迁移任务，支持 checkpoint 恢复
+- `blob_maintenance`：管理员发起的 blob 维护任务，支持完整性检查、引用计数修复和孤儿 blob 清理
 
 ## `POST /tasks/{id}/retry`
 
@@ -162,5 +180,6 @@
 - `/files/{id}/archive-preview` 和公开分享归档预览接口第一次命中未生成缓存时，会创建 `archive_preview_generate`；接口本身返回 `202`，前端应稍后重试原接口，而不是轮询任务详情作为唯一入口
 - `DELETE /trash` 和团队对应接口不会同步清空回收站，而是创建 `trash_purge_all` 任务并返回 `TaskInfo`
 - `/admin/storage-migrations/dry-run` 只做预检查，不创建任务；`POST /admin/storage-migrations` 才会创建 `storage_policy_migration`
+- `POST /admin/file-blobs/maintenance` 会创建 `blob_maintenance`，`integrity_check` 不写入 blob，`ref_count_reconcile` 只修正引用计数，`orphan_cleanup` 会先重新核算引用再清理仍然无引用的 blob
 
 所以如果你只用了下载 ticket 打包链路，任务列表为空是正常现象；如果你用了压缩 / 解压链路，列表就应该能看到对应任务。

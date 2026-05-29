@@ -44,6 +44,7 @@ async fn insert_task(
         BackgroundTaskKind::TrashPurgeAll => "trash-purge-all",
         BackgroundTaskKind::StoragePolicyTempCleanup => "storage-policy-temp-cleanup",
         BackgroundTaskKind::StoragePolicyMigration => "storage-policy-migration",
+        BackgroundTaskKind::BlobMaintenance => "blob-maintenance",
         BackgroundTaskKind::SystemRuntime => "task-cleanup",
     };
     let payload_json = match kind {
@@ -109,6 +110,10 @@ async fn insert_task(
             "plan_hash": "hash",
             "source_policy_updated_at": "2026-01-01T00:00:00Z",
             "target_policy_updated_at": "2026-01-01T00:00:00Z",
+        }),
+        BackgroundTaskKind::BlobMaintenance => serde_json::json!({
+            "action": "integrity_check",
+            "blob_ids": [1],
         }),
         BackgroundTaskKind::SystemRuntime => serde_json::json!({
             "task_name": task_name,

@@ -19,6 +19,7 @@ const mockState = vi.hoisted(() => ({
 	deletePolicy: vi.fn(),
 	handleApiError: vi.fn(),
 	items: [] as Array<Record<string, unknown>>,
+	listPolicies: vi.fn(),
 	listRemoteNodes: vi.fn(),
 	loading: false,
 	navigate: vi.fn(),
@@ -513,7 +514,7 @@ vi.mock("@/services/adminService", () => ({
 			driver_type: "local",
 			policy_id: 1,
 		})),
-		list: vi.fn(),
+		list: (...args: unknown[]) => mockState.listPolicies(...args),
 		listAll: async () => mockState.items,
 		testConnection: (...args: unknown[]) => mockState.testConnection(...args),
 		testParams: (...args: unknown[]) => mockState.testParams(...args),
@@ -578,6 +579,7 @@ describe("AdminPoliciesPage", () => {
 		mockState.handleApiError.mockReset();
 		invalidateAdminRemoteNodeLookup();
 		mockState.items = [];
+		mockState.listPolicies.mockReset();
 		mockState.listRemoteNodes.mockReset();
 		mockState.loading = false;
 		mockState.navigate.mockReset();
@@ -607,6 +609,7 @@ describe("AdminPoliciesPage", () => {
 			content_sha256_blob_count: 2,
 			delete_source_after_success_supported: false,
 			estimated_copy_blob_count: 4,
+			opaque_key_conflict_count: 0,
 			opaque_blob_count: 3,
 			source_blob_count: 5,
 			source_policy_id: 1,
@@ -633,6 +636,10 @@ describe("AdminPoliciesPage", () => {
 		mockState.listRemoteNodes.mockImplementation(async () => ({
 			items: mockState.remoteNodes,
 			total: mockState.remoteNodes.length,
+		}));
+		mockState.listPolicies.mockImplementation(async () => ({
+			items: mockState.items,
+			total: mockState.total || mockState.items.length,
 		}));
 		mockState.testConnection.mockResolvedValue(undefined);
 		mockState.testParams.mockResolvedValue(undefined);
@@ -682,17 +689,62 @@ describe("AdminPoliciesPage", () => {
 		expect(s3Badge).toHaveClass("bg-blue-500/10", "text-blue-600");
 	});
 
+	it("updates pagination offset from the policy pager", () => {
+		mockState.items = [createPolicy({ id: 1, name: "Default Local" })];
+		mockState.total = 45;
+
+		render(<AdminPoliciesPage />);
+
+		const buttons = screen.getAllByRole("button");
+		fireEvent.click(buttons[buttons.length - 1]);
+
+		expect(mockState.setSearchParams).toHaveBeenLastCalledWith(
+			new URLSearchParams("offset=20"),
+			{ replace: true },
+		);
+	});
+
 	it("checks a storage policy migration plan before creating the task", async () => {
 		mockState.items = [
 			createPolicy({ id: 1, name: "Hot Local" }),
-			createPolicy({ id: 2, name: "Archive S3", driver_type: "s3" }),
+			createPolicy({
+				id: 2,
+				name: "Archive Local",
+				driver_type: "local",
+				root_path: "./archive",
+			}),
 		];
+		mockState.dryRunMigration.mockResolvedValueOnce({
+			can_start: true,
+			content_sha256_blob_count: 2,
+			delete_source_after_success_supported: false,
+			estimated_copy_blob_count: 4,
+			opaque_blob_count: 3,
+			opaque_key_conflict_count: 1,
+			source_blob_count: 5,
+			source_policy_id: 1,
+			source_total_bytes: 1536,
+			target_capacity: {
+				available_bytes: 4096,
+				observed_at: new Date().toISOString(),
+				source: "local_filesystem",
+				status: "supported",
+				total_bytes: 8192,
+				used_bytes: 4096,
+			},
+			target_capacity_check: "ok",
+			target_connection_ok: true,
+			target_matching_blob_count: 1,
+			target_policy_id: 2,
+			target_supports_stream_upload: true,
+			warnings: ["opaque_key_conflict"],
+		});
 
 		render(<AdminPoliciesPage />);
 
 		await openMigrationDialog();
 		expect(screen.getAllByText("#1 · Hot Local").length).toBeGreaterThan(1);
-		expect(screen.getAllByText("#2 · Archive S3").length).toBeGreaterThan(1);
+		expect(screen.getAllByText("#2 · Archive Local").length).toBeGreaterThan(1);
 		expect(
 			screen.getByRole("button", { name: /policy_migration_submit/ }),
 		).toBeDisabled();
@@ -712,6 +764,12 @@ describe("AdminPoliciesPage", () => {
 			screen.getByText("policy_migration_dry_run_title"),
 		).toBeInTheDocument();
 		expect(screen.getByText("policy_migration_can_start")).toBeInTheDocument();
+		expect(
+			screen.getByText("policy_migration_capacity_available_of_total"),
+		).toBeInTheDocument();
+		expect(
+			screen.getByText("policy_migration_warning_opaque_key_conflict"),
+		).toBeInTheDocument();
 
 		fireEvent.click(
 			screen.getByRole("button", { name: /policy_migration_submit/ }),
@@ -768,6 +826,28 @@ describe("AdminPoliciesPage", () => {
 
 		expect(
 			screen.getByRole("button", { name: /policy_migration_action/ }),
+		).toBeDisabled();
+	});
+
+	it("clears a matching migration target when the source changes", async () => {
+		mockState.items = [
+			createPolicy({ id: 1, name: "Hot Local" }),
+			createPolicy({ id: 2, name: "Archive S3", driver_type: "s3" }),
+			createPolicy({ id: 3, name: "Cold S3", driver_type: "s3" }),
+		];
+
+		render(<AdminPoliciesPage />);
+
+		await openMigrationDialog();
+		fireEvent.click(
+			screen.getAllByRole("button", { name: "select-item:2" })[0],
+		);
+
+		expect(
+			screen.getByRole("button", { name: /policy_migration_dry_run/ }),
+		).toBeDisabled();
+		expect(
+			screen.getByRole("button", { name: /policy_migration_submit/ }),
 		).toBeDisabled();
 	});
 
@@ -842,6 +922,34 @@ describe("AdminPoliciesPage", () => {
 		expect(screen.getByText("tenant-a/archive")).toBeInTheDocument();
 		await waitFor(() => {
 			expect(screen.getByText("Edge East")).toBeInTheDocument();
+		});
+	});
+
+	it("refreshes policies and reports refresh failures", async () => {
+		mockState.items = [createPolicy({ id: 4, name: "Refresh Me" })];
+		mockState.remoteNodes = [{ id: 8, name: "Edge Refresh" }];
+
+		render(<AdminPoliciesPage />);
+
+		fireEvent.click(screen.getByRole("button", { name: /core:refresh/ }));
+
+		await waitFor(() => {
+			expect(mockState.listPolicies).toHaveBeenCalledWith({
+				limit: 20,
+				offset: 0,
+				sort_by: "created_at",
+				sort_order: "desc",
+			});
+		});
+		expect(mockState.listRemoteNodes).toHaveBeenCalled();
+		expect(screen.getByText("Refresh Me")).toBeInTheDocument();
+
+		const error = new Error("refresh failed");
+		mockState.listPolicies.mockRejectedValueOnce(error);
+		fireEvent.click(screen.getByRole("button", { name: /core:refresh/ }));
+
+		await waitFor(() => {
+			expect(mockState.handleApiError).toHaveBeenCalledWith(error);
 		});
 	});
 

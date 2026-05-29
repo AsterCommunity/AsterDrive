@@ -11,9 +11,9 @@ pub use crate::api::dto::admin::{
     AdminAuditLogSortQuery, AdminCreateTeamReq, AdminFileBlobListQuery, AdminFileListQuery,
     AdminListQuery, AdminLockListQuery, AdminPatchTeamReq, AdminPolicyGroupListQuery,
     AdminPolicyListQuery, AdminRemoteNodeListQuery, AdminShareListQuery, AdminTaskCleanupReq,
-    AdminTaskListQuery, AdminTeamListQuery, AdminUserListQuery, CreatePolicyGroupReq,
-    CreatePolicyReq, CreateRemoteNodeReq, CreateStoragePolicyMigrationReq, CreateUserReq,
-    DeletePolicyQuery, DryRunStoragePolicyMigrationReq, ExecuteConfigActionReq,
+    AdminTaskListQuery, AdminTeamListQuery, AdminUserListQuery, CreateBlobMaintenanceTaskReq,
+    CreatePolicyGroupReq, CreatePolicyReq, CreateRemoteNodeReq, CreateStoragePolicyMigrationReq,
+    CreateUserReq, DeletePolicyQuery, DryRunStoragePolicyMigrationReq, ExecuteConfigActionReq,
     ExecuteConfigActionResp, MigratePolicyGroupUsersReq, PatchPolicyGroupReq, PatchPolicyReq,
     PatchRemoteNodeReq, PatchUserReq, PolicyGroupItemReq, ResetUserPasswordReq, SetConfigReq,
     TestPolicyParamsReq, TestRemoteNodeParamsReq,
@@ -44,7 +44,9 @@ pub use external_auth::{
     list_external_auth_provider_kinds, list_external_auth_providers, test_external_auth_provider,
     test_external_auth_provider_params, update_external_auth_provider,
 };
-pub use files::{get_file, get_file_blob, list_file_blobs, list_files};
+pub use files::{
+    create_blob_maintenance_task, get_file, get_file_blob, list_file_blobs, list_files,
+};
 pub use locks::{cleanup_expired_locks, force_unlock, list_locks};
 pub use overview::get_overview;
 pub use policies::{
@@ -217,6 +219,10 @@ pub fn routes(
                     .route("/files", web::get().to(list_files))
                     .route("/files/{id}", web::get().to(get_file))
                     .route("/file-blobs", web::get().to(list_file_blobs))
+                    .route(
+                        "/file-blobs/maintenance",
+                        web::post().to(create_blob_maintenance_task),
+                    )
                     .route("/file-blobs/{id}", web::get().to(get_file_blob))
                     // tasks
                     .route(

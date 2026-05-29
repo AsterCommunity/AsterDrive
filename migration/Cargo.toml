@@ -21,6 +21,7 @@ path = "src/main.rs"
 required-features = ["cli"]
 
 [dependencies]
+serde_json = "1"
 tokio = { version = "1", features = ["macros", "rt", "rt-multi-thread"] }
 
 [dependencies.sea-orm-migration]

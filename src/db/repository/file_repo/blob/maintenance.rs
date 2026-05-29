@@ -197,9 +197,14 @@ pub async fn move_blob_policy_if_current<C: ConnectionTrait>(
     blob_id: i64,
     source_policy_id: i64,
     target_policy_id: i64,
+    target_hash: &str,
     target_path: &str,
 ) -> Result<bool> {
     let result = FileBlob::update_many()
+        .col_expr(
+            file_blob::Column::Hash,
+            Expr::value(target_hash.to_string()),
+        )
         .col_expr(file_blob::Column::PolicyId, Expr::value(target_policy_id))
         .col_expr(
             file_blob::Column::StoragePath,

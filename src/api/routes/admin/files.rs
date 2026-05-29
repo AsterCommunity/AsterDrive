@@ -1,14 +1,17 @@
-//! 管理员 API 路由：`files` / `file-blobs` observability。
+//! 管理员 API 路由：`files` / `file-blobs` observability and maintenance.
 
-use crate::api::dto::admin::{AdminFileBlobListQuery, AdminFileListQuery};
+use crate::api::dto::admin::{
+    AdminFileBlobListQuery, AdminFileListQuery, CreateBlobMaintenanceTaskReq,
+};
+use crate::api::dto::validate_request;
 use crate::api::pagination::LimitOffsetQuery;
 #[cfg(all(debug_assertions, feature = "openapi"))]
 use crate::api::pagination::OffsetPage;
 use crate::api::response::ApiResponse;
 use crate::errors::Result;
 use crate::runtime::PrimaryAppState;
-use crate::services::admin_file_service;
-use actix_web::{HttpResponse, web};
+use crate::services::{admin_file_service, audit_service, auth_service::Claims, task_service};
+use actix_web::{HttpRequest, HttpResponse, web};
 
 #[api_docs_macros::path(
     get,
@@ -100,4 +103,50 @@ pub async fn get_file_blob(
 ) -> Result<HttpResponse> {
     let blob = admin_file_service::get_blob(&state, *path).await?;
     Ok(HttpResponse::Ok().json(ApiResponse::ok(blob)))
+}
+
+#[api_docs_macros::path(
+    post,
+    path = "/api/v1/admin/file-blobs/maintenance",
+    tag = "admin",
+    operation_id = "admin_create_blob_maintenance_task",
+    request_body = CreateBlobMaintenanceTaskReq,
+    responses(
+        (status = 200, description = "Blob maintenance task created", body = inline(ApiResponse<task_service::TaskInfo>)),
+        (status = 400, description = "Validation error"),
+        (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
+        (status = 403, description = "Forbidden"),
+        (status = 404, description = crate::api::constants::OPENAPI_NOT_FOUND),
+    ),
+    security(("bearer" = [])),
+)]
+pub async fn create_blob_maintenance_task(
+    state: web::Data<PrimaryAppState>,
+    claims: web::ReqData<Claims>,
+    req: HttpRequest,
+    body: web::Json<CreateBlobMaintenanceTaskReq>,
+) -> Result<HttpResponse> {
+    validate_request(&*body)?;
+    let task = task_service::create_blob_maintenance_task_for_admin(
+        &state,
+        claims.user_id,
+        body.action,
+        body.blob_ids.clone(),
+    )
+    .await?;
+    let ctx = audit_service::AuditContext::from_request(&req, &claims);
+    audit_service::log(
+        &state,
+        &ctx,
+        audit_service::AuditAction::AdminCreateBlobMaintenanceTask,
+        audit_service::AuditEntityType::Task,
+        Some(task.id),
+        Some(&task.display_name),
+        audit_service::details(audit_service::AdminBlobMaintenanceAuditDetails {
+            action: body.action,
+            blob_ids: body.blob_ids.as_deref(),
+        }),
+    )
+    .await;
+    Ok(HttpResponse::Ok().json(ApiResponse::ok(task)))
 }

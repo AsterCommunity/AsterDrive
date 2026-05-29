@@ -136,14 +136,15 @@ export function PolicyCapacityCard({
 		typeof available === "number" &&
 		typeof total === "number" &&
 		total > 0
-			? {
-					blob: (Math.min(Math.max(blobTotalBytes, 0), total) / total) * 100,
-					other:
-						(Math.min(Math.max(used - Math.max(blobTotalBytes, 0), 0), total) /
-							total) *
-						100,
-					available: (Math.min(Math.max(available, 0), total) / total) * 100,
-				}
+			? (() => {
+					const blobClamped = Math.min(Math.max(blobTotalBytes, 0), used);
+					return {
+						blob: (blobClamped / total) * 100,
+						other:
+							(Math.min(Math.max(used - blobClamped, 0), total) / total) * 100,
+						available: (Math.min(Math.max(available, 0), total) / total) * 100,
+					};
+				})()
 			: null;
 
 	return (

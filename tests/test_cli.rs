@@ -23,7 +23,7 @@ use aster_drive::types::{
     VerificationPurpose,
 };
 use chrono::{Duration, Utc};
-use migration::Migrator;
+use migration::{CurrentMigrator, Migrator, MigratorTrait};
 use sea_orm::{
     ActiveModelTrait, ConnectionTrait, DatabaseConnection, DbBackend, EntityTrait, Set, Statement,
 };
@@ -1078,6 +1078,105 @@ async fn test_migrations_use_current_baseline_for_fresh_install() {
         migration::current_migration_names(),
         "fresh install should stamp all current migrations"
     );
+}
+
+#[tokio::test]
+async fn test_migration_backfills_storage_migration_result_renamed_opaque_count() {
+    let database_url =
+        setup_empty_database_url("asterdrive-cli-storage-migration-result-backfill-test").await;
+    let db = db::connect_with_metrics(
+        &DatabaseConfig {
+            url: database_url,
+            pool_size: 1,
+            retry_count: 0,
+        },
+        aster_drive::metrics_core::NoopMetrics::arc(),
+    )
+    .await
+    .unwrap();
+
+    let migration_count_before_opaque_backfill = u32::try_from(
+        migration::current_migration_names()
+            .iter()
+            .position(|name| name.contains("add_storage_migration_opaque_rename_count"))
+            .expect("opaque rename count migration should exist"),
+    )
+    .expect("migration count should fit u32");
+    CurrentMigrator::up(&db, Some(migration_count_before_opaque_backfill))
+        .await
+        .unwrap();
+
+    let old_result = serde_json::json!({
+        "source_policy_id": 1,
+        "target_policy_id": 2,
+        "scanned_blobs": 3,
+        "migrated_blobs": 2,
+        "merged_blobs": 1,
+        "skipped_blobs": 0,
+        "failed_blobs": 0,
+        "migrated_bytes": 4096
+    });
+    let now = Utc::now();
+    aster_drive::entities::background_task::ActiveModel {
+        kind: Set(aster_drive::types::BackgroundTaskKind::StoragePolicyMigration),
+        status: Set(aster_drive::types::BackgroundTaskStatus::Succeeded),
+        creator_user_id: Set(None),
+        team_id: Set(None),
+        share_id: Set(None),
+        display_name: Set("legacy storage migration".to_string()),
+        payload_json: Set(aster_drive::types::StoredTaskPayload::from(
+            serde_json::json!({
+                "source_policy_id": 1,
+                "target_policy_id": 2,
+                "delete_source_after_success": false,
+                "plan_hash": "0".repeat(64),
+                "source_policy_updated_at": now,
+                "target_policy_updated_at": now
+            })
+            .to_string(),
+        )),
+        result_json: Set(Some(aster_drive::types::StoredTaskResult::from(
+            old_result.to_string(),
+        ))),
+        steps_json: Set(None),
+        progress_current: Set(3),
+        progress_total: Set(3),
+        status_text: Set(None),
+        attempt_count: Set(1),
+        max_attempts: Set(3),
+        next_run_at: Set(now),
+        processing_token: Set(0),
+        processing_started_at: Set(None),
+        last_heartbeat_at: Set(None),
+        lease_expires_at: Set(None),
+        started_at: Set(Some(now)),
+        finished_at: Set(Some(now)),
+        last_error: Set(None),
+        failure_can_retry: Set(None),
+        expires_at: Set(now + Duration::hours(24)),
+        created_at: Set(now),
+        updated_at: Set(now),
+        ..Default::default()
+    }
+    .insert(&db)
+    .await
+    .unwrap();
+
+    CurrentMigrator::up(&db, None).await.unwrap();
+
+    let task = aster_drive::entities::background_task::Entity::find()
+        .one(&db)
+        .await
+        .unwrap()
+        .expect("legacy task should remain");
+    let result = task
+        .result_json
+        .as_ref()
+        .expect("legacy task result should remain");
+    let parsed: aster_drive::services::task_service::StoragePolicyMigrationTaskResult =
+        serde_json::from_str(result.as_ref())
+            .expect("backfilled storage migration result should match current schema");
+    assert_eq!(parsed.renamed_opaque_blobs, 0);
 }
 
 #[tokio::test]

@@ -76,7 +76,7 @@ const CREATE_LAST_STEP = 2;
 const POLICY_UPLOAD_SESSION_BLOCKER_SUBCODE =
 	ApiSubcode.PolicyUploadSessionsExist;
 
-export default function AdminPoliciesPage() {
+function useAdminPoliciesPageContent() {
 	const { t } = useTranslation("admin");
 	usePageTitle(t("policies"));
 	const navigate = useNavigate();
@@ -816,4 +816,8 @@ export default function AdminPoliciesPage() {
 			</AdminPageShell>
 		</AdminLayout>
 	);
+}
+
+export default function AdminPoliciesPage() {
+	return useAdminPoliciesPageContent();
 }

@@ -145,6 +145,13 @@ pub struct AdminTaskCleanupAuditDetails {
 }
 
 #[derive(Serialize)]
+pub struct AdminBlobMaintenanceAuditDetails<'a> {
+    pub action: crate::services::task_service::BlobMaintenanceAction,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub blob_ids: Option<&'a [i64]>,
+}
+
+#[derive(Serialize)]
 pub struct ShareBatchDeleteDetails<'a> {
     pub share_ids: &'a [i64],
     pub succeeded: u32,

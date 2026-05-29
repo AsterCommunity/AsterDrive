@@ -26,6 +26,7 @@ pub struct CheckpointDelta {
     pub skipped_blobs: i64,
     pub failed_blobs: i64,
     pub migrated_bytes: i64,
+    pub renamed_opaque_blobs: i64,
 }
 
 pub async fn create<C: ConnectionTrait>(
@@ -46,6 +47,7 @@ pub async fn create<C: ConnectionTrait>(
         skipped_blobs: Set(0),
         failed_blobs: Set(0),
         migrated_bytes: Set(0),
+        renamed_opaque_blobs: Set(0),
         last_error: Set(None),
         created_at: Set(now),
         updated_at: Set(now),
@@ -117,6 +119,11 @@ pub async fn advance<C: ConnectionTrait>(
             storage_migration_checkpoint::Column::MigratedBytes,
             Expr::col(storage_migration_checkpoint::Column::MigratedBytes)
                 .add(delta.migrated_bytes),
+        )
+        .col_expr(
+            storage_migration_checkpoint::Column::RenamedOpaqueBlobs,
+            Expr::col(storage_migration_checkpoint::Column::RenamedOpaqueBlobs)
+                .add(delta.renamed_opaque_blobs),
         )
         .col_expr(
             storage_migration_checkpoint::Column::LastError,

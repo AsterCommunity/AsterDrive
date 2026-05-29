@@ -113,6 +113,8 @@ pub enum BackgroundTaskKind {
     StoragePolicyTempCleanup,
     #[sea_orm(string_value = "storage_policy_migration")]
     StoragePolicyMigration,
+    #[sea_orm(string_value = "blob_maintenance")]
+    BlobMaintenance,
     #[sea_orm(string_value = "system_runtime")]
     SystemRuntime,
 }
@@ -128,6 +130,7 @@ impl BackgroundTaskKind {
             Self::TrashPurgeAll => "trash_purge_all",
             Self::StoragePolicyTempCleanup => "storage_policy_temp_cleanup",
             Self::StoragePolicyMigration => "storage_policy_migration",
+            Self::BlobMaintenance => "blob_maintenance",
             Self::SystemRuntime => "system_runtime",
         }
     }
@@ -233,6 +236,7 @@ mod tests {
                 BackgroundTaskKind::StoragePolicyMigration,
                 "storage_policy_migration",
             ),
+            (BackgroundTaskKind::BlobMaintenance, "blob_maintenance"),
             (BackgroundTaskKind::SystemRuntime, "system_runtime"),
         ];
 

@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	adminConfigService,
 	adminExternalAuthService,
+	adminFileService,
 	adminLockService,
 	adminOverviewService,
 	adminPolicyGroupService,
@@ -331,11 +332,15 @@ describe("adminService", () => {
 		});
 		expect(mockState.delete).toHaveBeenNthCalledWith(3, "/admin/policies/3");
 		expect(mockState.post).toHaveBeenNthCalledWith(4, "/admin/policies/3/test");
+		expect(mockState.get).toHaveBeenNthCalledWith(
+			4,
+			"/admin/policies/3/capacity",
+		);
 		expect(mockState.post).toHaveBeenNthCalledWith(5, "/admin/policies/test", {
 			driver_type: "s3",
 			endpoint: "https://example.com",
 		});
-		expect(mockState.get).toHaveBeenNthCalledWith(4, "/admin/remote-nodes/6");
+		expect(mockState.get).toHaveBeenNthCalledWith(5, "/admin/remote-nodes/6");
 		expect(mockState.post).toHaveBeenNthCalledWith(6, "/admin/remote-nodes", {
 			name: "Remote A",
 			base_url: "https://remote.example.com",
@@ -369,15 +374,15 @@ describe("adminService", () => {
 			"/admin/remote-nodes/6/enrollment-token",
 		);
 		expect(mockState.get).toHaveBeenNthCalledWith(
-			5,
+			6,
 			"/admin/external-auth/provider-kinds",
 		);
 		expect(mockState.get).toHaveBeenNthCalledWith(
-			6,
+			7,
 			"/admin/external-auth/providers?limit=20&offset=0",
 		);
 		expect(mockState.get).toHaveBeenNthCalledWith(
-			7,
+			8,
 			"/admin/external-auth/providers/15",
 		);
 		expect(mockState.post).toHaveBeenNthCalledWith(
@@ -409,7 +414,7 @@ describe("adminService", () => {
 			"/admin/external-auth/providers/15",
 		);
 
-		expect(mockState.get).toHaveBeenNthCalledWith(8, "/admin/policy-groups/4");
+		expect(mockState.get).toHaveBeenNthCalledWith(9, "/admin/policy-groups/4");
 		expect(mockState.post).toHaveBeenNthCalledWith(12, "/admin/policy-groups", {
 			name: "Default Group",
 			items: [{ policy_id: 3, priority: 1 }],
@@ -437,13 +442,13 @@ describe("adminService", () => {
 		expect(mockState.delete).toHaveBeenNthCalledWith(8, "/admin/locks/12");
 		expect(mockState.delete).toHaveBeenNthCalledWith(9, "/admin/locks/expired");
 
-		expect(mockState.get).toHaveBeenNthCalledWith(9, "/admin/config/schema");
+		expect(mockState.get).toHaveBeenNthCalledWith(10, "/admin/config/schema");
 		expect(mockState.get).toHaveBeenNthCalledWith(
-			10,
+			11,
 			"/admin/config/template-variables",
 		);
 		expect(mockState.get).toHaveBeenNthCalledWith(
-			11,
+			12,
 			"/admin/config/mail.host",
 		);
 		expect(mockState.put).toHaveBeenCalledWith("/admin/config/mail.host", {
@@ -515,6 +520,30 @@ describe("adminService", () => {
 			target_policy_id: 9,
 			delete_source_after_success: false,
 		});
+	});
+
+	it("creates blob maintenance tasks", () => {
+		adminFileService.createBlobMaintenanceTask({
+			action: "orphan_cleanup",
+			blob_ids: [31, 32],
+		});
+		adminFileService.createBlobMaintenanceTask({
+			action: "ref_count_reconcile",
+		});
+
+		expect(mockState.post).toHaveBeenCalledWith(
+			"/admin/file-blobs/maintenance",
+			{
+				action: "orphan_cleanup",
+				blob_ids: [31, 32],
+			},
+		);
+		expect(mockState.post).toHaveBeenCalledWith(
+			"/admin/file-blobs/maintenance",
+			{
+				action: "ref_count_reconcile",
+			},
+		);
 	});
 
 	it("checks and resumes storage policy migrations", () => {

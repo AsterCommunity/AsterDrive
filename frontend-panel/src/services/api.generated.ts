@@ -4329,7 +4329,7 @@ export interface components {
          * @description 审计日志动作
          * @enum {string}
          */
-        AuditAction: "admin_create_user" | "admin_force_delete_user" | "admin_create_team" | "admin_create_policy_group" | "admin_archive_team" | "admin_restore_team" | "admin_revoke_user_sessions" | "admin_reset_user_password" | "admin_reset_user_mfa" | "admin_update_team" | "admin_update_user" | "admin_delete_policy_group" | "admin_migrate_policy_group_users" | "admin_update_policy_group" | "admin_create_policy" | "admin_update_policy" | "admin_delete_policy" | "admin_delete_config" | "admin_delete_share" | "admin_force_unlock" | "admin_cleanup_expired_locks" | "admin_cleanup_tasks" | "admin_create_remote_node" | "admin_update_remote_node" | "admin_delete_remote_node" | "admin_test_remote_node" | "admin_create_remote_node_enrollment_token" | "admin_create_remote_ingress_profile" | "admin_update_remote_ingress_profile" | "admin_delete_remote_ingress_profile" | "admin_create_external_auth_provider" | "admin_update_external_auth_provider" | "admin_delete_external_auth_provider" | "admin_test_external_auth_provider" | "batch_copy" | "batch_delete" | "batch_move" | "config_action_execute" | "config_update" | "file_copy" | "file_create" | "file_delete" | "file_download" | "file_direct_link_create" | "file_edit" | "file_move" | "file_rename" | "file_upload" | "file_preview_link_create" | "file_wopi_open" | "file_upload_cancel" | "file_restore" | "file_purge" | "file_lock" | "file_unlock" | "file_version_restore" | "file_version_delete" | "folder_copy" | "folder_create" | "folder_delete" | "folder_move" | "folder_policy_change" | "folder_rename" | "folder_restore" | "folder_purge" | "folder_lock" | "folder_unlock" | "property_set" | "property_delete" | "share_batch_delete" | "share_create" | "share_delete" | "share_update" | "system_setup" | "team_archive" | "team_cleanup_expired" | "team_create" | "team_member_add" | "team_member_remove" | "team_member_update" | "team_restore" | "team_update" | "task_retry" | "archive_compress" | "archive_extract" | "archive_download" | "trash_purge_all" | "remote_enrollment_redeem" | "remote_enrollment_ack" | "user_revoke_other_sessions" | "user_revoke_session" | "user_update_preferences" | "user_update_profile" | "user_upload_avatar" | "user_set_avatar_source" | "user_update_wopi_info" | "webdav_account_create" | "webdav_account_delete" | "webdav_account_toggle" | "user_change_password" | "user_confirm_password_reset" | "user_confirm_email_change" | "user_confirm_registration" | "user_login" | "user_logout" | "user_mfa_enable" | "user_mfa_disable" | "user_mfa_recovery_codes_regenerate" | "user_mfa_email_code_send" | "user_mfa_challenge_success" | "user_mfa_challenge_failed" | "user_passkey_delete" | "user_passkey_login" | "user_passkey_register" | "user_passkey_rename" | "user_external_auth_login" | "user_external_auth_link" | "user_external_auth_unlink" | "user_refresh_token_reuse_detected" | "user_request_email_change" | "user_request_password_reset" | "user_register" | "user_resend_email_change" | "user_resend_registration";
+        AuditAction: "admin_create_user" | "admin_force_delete_user" | "admin_create_team" | "admin_create_policy_group" | "admin_archive_team" | "admin_restore_team" | "admin_revoke_user_sessions" | "admin_reset_user_password" | "admin_reset_user_mfa" | "admin_update_team" | "admin_update_user" | "admin_delete_policy_group" | "admin_migrate_policy_group_users" | "admin_update_policy_group" | "admin_create_policy" | "admin_update_policy" | "admin_delete_policy" | "admin_delete_config" | "admin_delete_share" | "admin_force_unlock" | "admin_cleanup_expired_locks" | "admin_cleanup_tasks" | "admin_create_blob_maintenance_task" | "admin_create_remote_node" | "admin_update_remote_node" | "admin_delete_remote_node" | "admin_test_remote_node" | "admin_create_remote_node_enrollment_token" | "admin_create_remote_ingress_profile" | "admin_update_remote_ingress_profile" | "admin_delete_remote_ingress_profile" | "admin_create_external_auth_provider" | "admin_update_external_auth_provider" | "admin_delete_external_auth_provider" | "admin_test_external_auth_provider" | "batch_copy" | "batch_delete" | "batch_move" | "config_action_execute" | "config_update" | "file_copy" | "file_create" | "file_delete" | "file_download" | "file_direct_link_create" | "file_edit" | "file_move" | "file_rename" | "file_upload" | "file_preview_link_create" | "file_wopi_open" | "file_upload_cancel" | "file_restore" | "file_purge" | "file_lock" | "file_unlock" | "file_version_restore" | "file_version_delete" | "folder_copy" | "folder_create" | "folder_delete" | "folder_move" | "folder_policy_change" | "folder_rename" | "folder_restore" | "folder_purge" | "folder_lock" | "folder_unlock" | "property_set" | "property_delete" | "share_batch_delete" | "share_create" | "share_delete" | "share_update" | "system_setup" | "team_archive" | "team_cleanup_expired" | "team_create" | "team_member_add" | "team_member_remove" | "team_member_update" | "team_restore" | "team_update" | "task_retry" | "archive_compress" | "archive_extract" | "archive_download" | "trash_purge_all" | "remote_enrollment_redeem" | "remote_enrollment_ack" | "user_revoke_other_sessions" | "user_revoke_session" | "user_update_preferences" | "user_update_profile" | "user_upload_avatar" | "user_set_avatar_source" | "user_update_wopi_info" | "webdav_account_create" | "webdav_account_delete" | "webdav_account_toggle" | "user_change_password" | "user_confirm_password_reset" | "user_confirm_email_change" | "user_confirm_registration" | "user_login" | "user_logout" | "user_mfa_enable" | "user_mfa_disable" | "user_mfa_recovery_codes_regenerate" | "user_mfa_email_code_send" | "user_mfa_challenge_success" | "user_mfa_challenge_failed" | "user_passkey_delete" | "user_passkey_login" | "user_passkey_register" | "user_passkey_rename" | "user_external_auth_login" | "user_external_auth_link" | "user_external_auth_unlink" | "user_refresh_token_reuse_detected" | "user_request_email_change" | "user_request_password_reset" | "user_register" | "user_resend_email_change" | "user_resend_registration";
         /**
          * @description 审计日志实体类型
          * @enum {string}
@@ -4389,7 +4389,7 @@ export interface components {
          * @description 后台任务类型
          * @enum {string}
          */
-        BackgroundTaskKind: "archive_extract" | "archive_compress" | "archive_preview_generate" | "thumbnail_generate" | "media_metadata_extract" | "trash_purge_all" | "storage_policy_temp_cleanup" | "storage_policy_migration" | "system_runtime";
+        BackgroundTaskKind: "archive_extract" | "archive_compress" | "archive_preview_generate" | "thumbnail_generate" | "media_metadata_extract" | "trash_purge_all" | "storage_policy_temp_cleanup" | "storage_policy_migration" | "blob_maintenance" | "system_runtime";
         /**
          * @description 后台任务状态
          * @enum {string}
@@ -4436,6 +4436,29 @@ export interface components {
             failed: number;
             /** Format: int32 */
             succeeded: number;
+        };
+        /** @enum {string} */
+        BlobMaintenanceAction: "integrity_check" | "ref_count_reconcile" | "orphan_cleanup";
+        BlobMaintenanceTaskPayload: {
+            action: components["schemas"]["BlobMaintenanceAction"];
+            blob_ids?: number[] | null;
+        };
+        BlobMaintenanceTaskResult: {
+            action: components["schemas"]["BlobMaintenanceAction"];
+            /** Format: int64 */
+            checked_objects: number;
+            /** Format: int64 */
+            missing_objects: number;
+            /** Format: int64 */
+            orphan_blobs_deleted: number;
+            /** Format: int64 */
+            ref_counts_fixed: number;
+            /** Format: int64 */
+            scanned_blobs: number;
+            /** Format: int64 */
+            size_mismatches: number;
+            /** Format: int64 */
+            skipped_blobs: number;
         };
         /**
          * @description Preferred gesture for opening items in the browser.
@@ -6373,6 +6396,8 @@ export interface components {
             /** Format: int64 */
             migrated_bytes: number;
             /** Format: int64 */
+            renamed_opaque_blobs: number;
+            /** Format: int64 */
             scanned_blobs: number;
             /** Format: int64 */
             skipped_blobs: number;
@@ -6508,6 +6533,9 @@ export interface components {
         }) | (components["schemas"]["StoragePolicyMigrationTaskPayload"] & {
             /** @enum {string} */
             kind: "storage_policy_migration";
+        }) | (components["schemas"]["BlobMaintenanceTaskPayload"] & {
+            /** @enum {string} */
+            kind: "blob_maintenance";
         }) | (components["schemas"]["RuntimeTaskPayload"] & {
             /** @enum {string} */
             kind: "system_runtime";
@@ -6536,6 +6564,9 @@ export interface components {
         }) | (components["schemas"]["StoragePolicyMigrationTaskResult"] & {
             /** @enum {string} */
             kind: "storage_policy_migration";
+        }) | (components["schemas"]["BlobMaintenanceTaskResult"] & {
+            /** @enum {string} */
+            kind: "blob_maintenance";
         }) | (components["schemas"]["RuntimeTaskResult"] & {
             /** @enum {string} */
             kind: "system_runtime";
@@ -6553,7 +6584,7 @@ export interface components {
             title: string;
         };
         /** @enum {string} */
-        TaskStepStatus: "pending" | "active" | "succeeded" | "failed" | "canceled";
+        TaskStepStatus: "pending" | "active" | "succeeded" | "failed" | "skipped" | "canceled";
         TeamAuditEntryInfo: {
             action: components["schemas"]["AuditAction"];
             actor?: null | components["schemas"]["UserSummary"];
@@ -10323,6 +10354,8 @@ export interface operations {
                             estimated_copy_blob_count: number;
                             /** Format: int64 */
                             opaque_blob_count: number;
+                            /** Format: int64 */
+                            opaque_key_conflict_count: number;
                             /** Format: int64 */
                             source_blob_count: number;
                             /** Format: int64 */

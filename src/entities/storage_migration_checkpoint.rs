@@ -19,6 +19,7 @@ pub struct Model {
     pub skipped_blobs: i64,
     pub failed_blobs: i64,
     pub migrated_bytes: i64,
+    pub renamed_opaque_blobs: i64,
     pub last_error: Option<String>,
     pub created_at: DateTimeUtc,
     pub updated_at: DateTimeUtc,

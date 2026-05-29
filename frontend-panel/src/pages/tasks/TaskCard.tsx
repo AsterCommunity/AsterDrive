@@ -5,13 +5,11 @@ import { Card } from "@/components/ui/card";
 import { Icon, type IconName } from "@/components/ui/icon";
 import type { TaskInfo } from "@/types/api";
 import { AnimatedTaskDetails } from "./AnimatedTaskDetails";
-import {
-	TaskDetailsContent,
-	TaskStepsPreview,
-	taskHasExpandableDetails,
-} from "./TaskDetailsPanel";
+import { TaskDetailsContent, TaskStepsPreview } from "./TaskDetailsPanel";
+import { taskHasExpandableDetails } from "./taskDetails";
 import {
 	currentTaskStep,
+	formatTaskDisplayName,
 	formatTaskKind,
 	formatTaskStatus,
 	parseTaskResult,
@@ -62,6 +60,7 @@ function summaryParts(
 	t: (key: string, options?: Record<string, unknown>) => string,
 	task: TaskInfo,
 ): SummaryPart[] {
+	const displayName = formatTaskDisplayName(t, task);
 	switch (task.payload.kind) {
 		case "archive_extract":
 			return [
@@ -142,7 +141,7 @@ function summaryParts(
 					icon: "FileImage",
 					key: "source-file",
 					kind: "chip",
-					value: task.payload.source_file_name || task.display_name,
+					value: task.payload.source_file_name || displayName,
 				},
 			];
 		case "trash_purge_all":
@@ -201,7 +200,7 @@ function summaryParts(
 				},
 			];
 		default:
-			return [{ key: "display-name", kind: "text", value: task.display_name }];
+			return [{ key: "display-name", kind: "text", value: displayName }];
 	}
 }
 

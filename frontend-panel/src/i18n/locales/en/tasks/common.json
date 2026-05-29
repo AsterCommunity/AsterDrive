@@ -26,6 +26,11 @@
 	"summary_policy_id": "Policy #{{id}}",
 	"summary_cleanup_temp_files": "Clean storage temporary files",
 	"summary_system_runtime": "Run system task {{name}}",
+	"blob_maintenance_scope_all": "all blobs",
+	"blob_maintenance_scope_selected": "{{count}} blob(s)",
+	"blob_maintenance_integrity_check_name": "Check integrity for {{scope}}",
+	"blob_maintenance_ref_count_reconcile_name": "Reconcile references for {{scope}}",
+	"blob_maintenance_orphan_cleanup_name": "Clean orphan blobs for {{scope}}",
 	"summary_root_folder": "My files",
 	"task_progress_title": "Task progress",
 	"task_details_title": "Task details"

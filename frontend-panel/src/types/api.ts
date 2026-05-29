@@ -255,6 +255,10 @@ export type AdminFileBlobReferenceFile =
 export type AdminFileBlobReferenceVersion =
 	components["schemas"]["AdminFileBlobReferenceVersion"];
 export type AdminFileBlobDetail = components["schemas"]["AdminFileBlobDetail"];
+export type BlobMaintenanceAction =
+	components["schemas"]["BlobMaintenanceAction"];
+export type CreateBlobMaintenanceTaskRequest =
+	components["schemas"]["BlobMaintenanceTaskPayload"];
 export type AdminFileListQuery = OperationQuery<"admin_list_files">;
 export type AdminFileBlobListQuery = OperationQuery<"admin_list_file_blobs">;
 export type AdminFilePage = components["schemas"]["OffsetPage_AdminFileInfo"];

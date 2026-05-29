@@ -180,6 +180,10 @@ fn audit_action_strings_match_existing_contract() {
         ),
         (AuditAction::AdminCleanupTasks, "admin_cleanup_tasks"),
         (
+            AuditAction::AdminCreateBlobMaintenanceTask,
+            "admin_create_blob_maintenance_task",
+        ),
+        (
             AuditAction::AdminCreateRemoteNode,
             "admin_create_remote_node",
         ),

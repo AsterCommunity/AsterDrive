@@ -57,6 +57,7 @@ export function stepStatusTextClass(status: TaskStepStatus) {
 			return "text-foreground";
 		case "failed":
 			return "text-destructive";
+		case "skipped":
 		case "canceled":
 		case "pending":
 			return "text-muted-foreground";
@@ -84,6 +85,8 @@ export function stepConnectorClass(status: TaskStepStatus) {
 			return "bg-primary/35";
 		case "failed":
 			return "bg-destructive/35";
+		case "skipped":
+			return "bg-border/40";
 		case "canceled":
 			return "bg-border/60";
 		case "pending":
@@ -99,6 +102,8 @@ export function stepCircleClass(status: TaskStepStatus) {
 			return "border-primary/40 bg-primary/12 text-foreground";
 		case "failed":
 			return "border-destructive/50 bg-destructive/10 text-destructive";
+		case "skipped":
+			return "border-border/60 bg-muted/20 text-muted-foreground";
 		case "canceled":
 			return "border-border/70 bg-muted/35 text-muted-foreground";
 		case "pending":
@@ -110,6 +115,8 @@ export function stepCircleLabel(index: number, status: TaskStepStatus) {
 	switch (status) {
 		case "failed":
 			return "!";
+		case "skipped":
+			return String(index + 1);
 		case "canceled":
 			return "X";
 		default:
@@ -160,10 +167,38 @@ export function formatTaskKind(t: TaskTranslate, kind: BackgroundTaskKind) {
 			return t("tasks:kind_trash_purge_all");
 		case "storage_policy_migration":
 			return t("tasks:kind_storage_policy_migration");
+		case "blob_maintenance":
+			return t("tasks:kind_blob_maintenance");
 		case "system_runtime":
 			return t("tasks:kind_system_runtime");
 		default:
 			return String(kind).replaceAll("_", " ");
+	}
+}
+
+export function formatTaskDisplayName(t: TaskTranslate, task: TaskInfo) {
+	switch (task.payload.kind) {
+		case "blob_maintenance": {
+			const scope =
+				task.payload.blob_ids && task.payload.blob_ids.length > 0
+					? t("tasks:blob_maintenance_scope_selected", {
+							count: task.payload.blob_ids.length,
+						})
+					: t("tasks:blob_maintenance_scope_all");
+			switch (task.payload.action) {
+				case "integrity_check":
+					return t("tasks:blob_maintenance_integrity_check_name", { scope });
+				case "ref_count_reconcile":
+					return t("tasks:blob_maintenance_ref_count_reconcile_name", {
+						scope,
+					});
+				case "orphan_cleanup":
+					return t("tasks:blob_maintenance_orphan_cleanup_name", { scope });
+			}
+			return task.display_name;
+		}
+		default:
+			return task.display_name;
 	}
 }
 
@@ -177,6 +212,8 @@ export function formatTaskStepStatus(t: TaskTranslate, status: TaskStepStatus) {
 			return t("tasks:step_status_succeeded");
 		case "failed":
 			return t("tasks:step_status_failed");
+		case "skipped":
+			return t("tasks:step_status_skipped");
 		case "canceled":
 			return t("tasks:step_status_canceled");
 	}

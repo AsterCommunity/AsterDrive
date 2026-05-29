@@ -5,7 +5,7 @@ mod common;
 
 use actix_web::{App, test, web};
 use chrono::{Duration, Utc};
-use sea_orm::{ActiveModelTrait, IntoActiveModel, Set};
+use sea_orm::{ActiveModelTrait, ColumnTrait, EntityTrait, IntoActiveModel, QueryFilter, Set};
 use serde_json::Value;
 use std::io::{Cursor, Read, Write};
 use std::path::Path;
@@ -14,8 +14,8 @@ use tokio::sync::broadcast;
 use aster_drive::config::operations::{
     BACKGROUND_TASK_ARCHIVE_MAX_CONCURRENCY_KEY, BACKGROUND_TASK_THUMBNAIL_MAX_CONCURRENCY_KEY,
 };
-use aster_drive::db::repository::background_task_repo;
-use aster_drive::entities::background_task;
+use aster_drive::db::repository::{background_task_repo, file_repo};
+use aster_drive::entities::{background_task, file_blob};
 use aster_drive::services::task_service::{
     self, RuntimeSystemHealthComponent, RuntimeSystemHealthResult, RuntimeSystemHealthStatus,
     RuntimeTaskRunOutcome,
@@ -1217,6 +1217,299 @@ async fn test_dispatch_due_fast_continues_archive_lane_with_backlog() {
     assert_eq!(stats.failed, 3);
     assert_eq!(stats.retried, 0);
     assert_eq!(stats.succeeded, 0);
+}
+
+#[actix_web::test]
+async fn test_blob_maintenance_integrity_check_reports_missing_and_size_mismatch() {
+    let state = common::setup().await;
+    let app = create_test_app!(state.clone());
+    let (token, _) = register_and_login!(app);
+    let file_id = upload_test_file_named!(app, token, "blob-integrity.txt");
+    let file = file_repo::find_by_id(state.writer_db(), file_id)
+        .await
+        .expect("uploaded file should load");
+    let healthy_blob = file_repo::find_blob_by_id(state.writer_db(), file.blob_id)
+        .await
+        .expect("uploaded blob should load");
+    let now = Utc::now();
+    let missing_blob = file_blob::ActiveModel {
+        hash: Set("missing-integrity-hash".to_string()),
+        size: Set(12),
+        policy_id: Set(healthy_blob.policy_id),
+        storage_path: Set("admin-maintenance/missing.bin".to_string()),
+        thumbnail_path: Set(None),
+        thumbnail_processor: Set(None),
+        thumbnail_version: Set(None),
+        ref_count: Set(0),
+        created_at: Set(now),
+        updated_at: Set(now),
+        ..Default::default()
+    }
+    .insert(state.writer_db())
+    .await
+    .expect("missing blob should insert");
+    let mismatch_blob = file_blob::ActiveModel {
+        hash: Set("mismatch-integrity-hash".to_string()),
+        size: Set(999),
+        policy_id: Set(healthy_blob.policy_id),
+        storage_path: Set(healthy_blob.storage_path.clone()),
+        thumbnail_path: Set(None),
+        thumbnail_processor: Set(None),
+        thumbnail_version: Set(None),
+        ref_count: Set(0),
+        created_at: Set(now),
+        updated_at: Set(now),
+        ..Default::default()
+    }
+    .insert(state.writer_db())
+    .await
+    .expect("mismatch blob should insert");
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/admin/file-blobs/maintenance")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({
+            "action": "integrity_check",
+            "blob_ids": [healthy_blob.id, missing_blob.id, mismatch_blob.id]
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+    let body: Value = test::read_body_json(resp).await;
+    let task_id = body["data"]["id"].as_i64().unwrap();
+
+    let stats = task_service::drain(&state)
+        .await
+        .expect("blob maintenance task should drain");
+    assert_eq!(stats.succeeded, 1);
+    assert_eq!(stats.failed, 0);
+
+    let task = background_task_repo::find_by_id(state.writer_db(), task_id)
+        .await
+        .expect("task should load");
+    assert_eq!(task.status, BackgroundTaskStatus::Succeeded);
+    let result: Value = serde_json::from_str(task.result_json.unwrap().as_ref())
+        .expect("blob maintenance result should parse");
+    assert_eq!(result["action"], "integrity_check");
+    assert_eq!(result["scanned_blobs"], 3);
+    assert_eq!(result["checked_objects"], 3);
+    assert_eq!(result["missing_objects"], 1);
+    assert_eq!(result["size_mismatches"], 1);
+    assert_eq!(result["ref_counts_fixed"], 0);
+    assert_eq!(result["orphan_blobs_deleted"], 0);
+}
+
+#[actix_web::test]
+async fn test_blob_maintenance_ref_count_reconcile_fixes_current_and_version_refs() {
+    let state = common::setup().await;
+    let app = create_test_app!(state.clone());
+    let (token, _) = register_and_login!(app);
+    let file_id = upload_test_file_named!(app, token, "blob-reconcile.txt");
+    let file = file_repo::find_by_id(state.writer_db(), file_id)
+        .await
+        .expect("uploaded file should load");
+    let mut blob = file_repo::find_blob_by_id(state.writer_db(), file.blob_id)
+        .await
+        .expect("uploaded blob should load")
+        .into_active_model();
+    blob.ref_count = Set(7);
+    let blob = blob
+        .update(state.writer_db())
+        .await
+        .expect("blob ref_count should update");
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/admin/file-blobs/maintenance")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({
+            "action": "ref_count_reconcile",
+            "blob_ids": [blob.id]
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+
+    let stats = task_service::drain(&state)
+        .await
+        .expect("blob maintenance task should drain");
+    assert_eq!(stats.succeeded, 1);
+    assert_eq!(stats.failed, 0);
+
+    let fixed = file_repo::find_blob_by_id(state.writer_db(), blob.id)
+        .await
+        .expect("blob should remain");
+    assert_eq!(fixed.ref_count, 1);
+    let task = background_task::Entity::find()
+        .filter(background_task::Column::Kind.eq(BackgroundTaskKind::BlobMaintenance))
+        .one(state.writer_db())
+        .await
+        .expect("task query should succeed")
+        .expect("blob maintenance task should exist");
+    let result: Value = serde_json::from_str(task.result_json.unwrap().as_ref())
+        .expect("blob maintenance result should parse");
+    assert_eq!(result["action"], "ref_count_reconcile");
+    assert_eq!(result["ref_counts_fixed"], 1);
+    assert_eq!(result["orphan_blobs_deleted"], 0);
+}
+
+#[actix_web::test]
+async fn test_blob_maintenance_ref_count_reconcile_without_targets_scans_all_blobs() {
+    let state = common::setup().await;
+    let app = create_test_app!(state.clone());
+    let (token, _) = register_and_login!(app);
+    let first_file_id = upload_test_file_named!(app, token, "blob-reconcile-all-a.txt");
+    let second_file_id = upload_test_file_named!(app, token, "blob-reconcile-all-b.txt");
+    let first_file = file_repo::find_by_id(state.writer_db(), first_file_id)
+        .await
+        .expect("first uploaded file should load");
+    let second_file = file_repo::find_by_id(state.writer_db(), second_file_id)
+        .await
+        .expect("second uploaded file should load");
+
+    for blob_id in [first_file.blob_id, second_file.blob_id] {
+        let mut blob = file_repo::find_blob_by_id(state.writer_db(), blob_id)
+            .await
+            .expect("uploaded blob should load")
+            .into_active_model();
+        blob.ref_count = Set(9);
+        blob.update(state.writer_db())
+            .await
+            .expect("blob ref_count should update");
+    }
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/admin/file-blobs/maintenance")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({
+            "action": "ref_count_reconcile"
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+
+    let stats = task_service::drain(&state)
+        .await
+        .expect("blob maintenance task should drain");
+    assert_eq!(stats.succeeded, 1);
+    assert_eq!(stats.failed, 0);
+
+    for blob_id in [first_file.blob_id, second_file.blob_id] {
+        let fixed = file_repo::find_blob_by_id(state.writer_db(), blob_id)
+            .await
+            .expect("blob should remain");
+        assert_eq!(fixed.ref_count, 1);
+    }
+
+    let task = background_task::Entity::find()
+        .filter(background_task::Column::Kind.eq(BackgroundTaskKind::BlobMaintenance))
+        .one(state.writer_db())
+        .await
+        .expect("task query should succeed")
+        .expect("blob maintenance task should exist");
+    let result: Value = serde_json::from_str(task.result_json.unwrap().as_ref())
+        .expect("blob maintenance result should parse");
+    assert_eq!(result["action"], "ref_count_reconcile");
+    assert_eq!(result["scanned_blobs"], 2);
+    assert_eq!(result["ref_counts_fixed"], 2);
+}
+
+#[actix_web::test]
+async fn test_blob_maintenance_orphan_cleanup_removes_unreferenced_blob_only() {
+    let state = common::setup().await;
+    let app = create_test_app!(state.clone());
+    let (token, _) = register_and_login!(app);
+    let file_id = upload_test_file_named!(app, token, "blob-orphan-keep.txt");
+    let file = file_repo::find_by_id(state.writer_db(), file_id)
+        .await
+        .expect("uploaded file should load");
+    let referenced_blob = file_repo::find_blob_by_id(state.writer_db(), file.blob_id)
+        .await
+        .expect("uploaded blob should load");
+    let policy = state
+        .policy_snapshot
+        .get_policy_or_err(referenced_blob.policy_id)
+        .expect("default policy should load");
+    let driver = state
+        .driver_registry
+        .get_driver(&policy)
+        .expect("driver should resolve");
+    let orphan_path = "admin-maintenance/orphan-cleanup.txt";
+    driver
+        .put(orphan_path, b"orphan content")
+        .await
+        .expect("orphan object should be stored");
+    let now = Utc::now();
+    let orphan_blob = file_blob::ActiveModel {
+        hash: Set("orphan-cleanup-hash".to_string()),
+        size: Set(14),
+        policy_id: Set(referenced_blob.policy_id),
+        storage_path: Set(orphan_path.to_string()),
+        thumbnail_path: Set(None),
+        thumbnail_processor: Set(None),
+        thumbnail_version: Set(None),
+        ref_count: Set(0),
+        created_at: Set(now),
+        updated_at: Set(now),
+        ..Default::default()
+    }
+    .insert(state.writer_db())
+    .await
+    .expect("orphan blob should insert");
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/admin/file-blobs/maintenance")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({
+            "action": "orphan_cleanup",
+            "blob_ids": [orphan_blob.id, referenced_blob.id]
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+
+    let stats = task_service::drain(&state)
+        .await
+        .expect("blob maintenance task should drain");
+    assert_eq!(stats.succeeded, 1);
+    assert_eq!(stats.failed, 0);
+
+    assert!(
+        matches!(
+            file_repo::find_blob_by_id(state.writer_db(), orphan_blob.id).await,
+            Err(aster_drive::errors::AsterError::RecordNotFound(_))
+        ),
+        "orphan blob row should be deleted"
+    );
+    assert!(
+        !driver
+            .exists(orphan_path)
+            .await
+            .expect("orphan object existence should be checkable"),
+        "orphan object should be deleted"
+    );
+    assert!(
+        file_repo::find_blob_by_id(state.writer_db(), referenced_blob.id)
+            .await
+            .is_ok(),
+        "referenced blob should remain"
+    );
+
+    let task = background_task::Entity::find()
+        .filter(background_task::Column::Kind.eq(BackgroundTaskKind::BlobMaintenance))
+        .one(state.writer_db())
+        .await
+        .expect("task query should succeed")
+        .expect("blob maintenance task should exist");
+    let result: Value = serde_json::from_str(task.result_json.unwrap().as_ref())
+        .expect("blob maintenance result should parse");
+    assert_eq!(result["action"], "orphan_cleanup");
+    assert_eq!(result["ref_counts_fixed"], 0);
+    assert_eq!(result["orphan_blobs_deleted"], 1);
+    assert_eq!(result["skipped_blobs"], 1);
 }
 
 #[actix_web::test]

@@ -56,6 +56,7 @@ struct BlobMigrationOutcome {
     skipped: i64,
     failed: i64,
     migrated_bytes: i64,
+    renamed_opaque_blobs: i64,
 }
 
 struct StoragePolicyMigrationPreflight {
@@ -215,6 +216,12 @@ async fn build_storage_policy_migration_preflight(
     )
     .await?;
     let target_matching_blob_count = summary.count.saturating_sub(missing_summary.count);
+    let opaque_key_conflict_count = file_repo::count_opaque_hash_conflicts_between_policies(
+        state.writer_db(),
+        input.source_policy_id,
+        input.target_policy_id,
+    )
+    .await?;
     let target_capacity = crate::services::policy_service::capacity_info_or_status(
         target_driver.as_ref(),
         target_policy.driver_type,
@@ -244,6 +251,7 @@ async fn build_storage_policy_migration_preflight(
             opaque_blob_count: hash_kinds.opaque_count,
             target_matching_blob_count,
             estimated_copy_blob_count: missing_summary.count,
+            opaque_key_conflict_count,
             target_supports_stream_upload,
             target_connection_ok: true,
             target_capacity_check,
@@ -526,6 +534,7 @@ pub(super) async fn process_storage_policy_migration_task(
         skipped_blobs: checkpoint.skipped_blobs,
         failed_blobs: checkpoint.failed_blobs,
         migrated_bytes: checkpoint.migrated_bytes,
+        renamed_opaque_blobs: checkpoint.renamed_opaque_blobs,
     };
     let result_json = serialize_task_result(&result)?;
     set_task_step_succeeded(
@@ -593,13 +602,22 @@ async fn migrate_one_blob(
         .await;
     }
 
-    let target_path = crate::utils::storage_path_from_blob_key(&latest.hash);
-    let target_blob =
+    let content_hash = is_content_sha256_blob_key(&latest.hash);
+    let existing_target_blob =
         file_repo::find_blob_by_hash(state.writer_db(), &latest.hash, target_policy_id).await?;
-    if let Some(target_blob) = target_blob {
-        verify_existing_target(target_driver, &target_blob, &latest.hash, latest.size).await?;
-        return merge_blob_records(state, task_id, latest, target_blob).await;
+    if let Some(target_blob) = existing_target_blob.as_ref()
+        && content_hash
+    {
+        verify_existing_target(target_driver, target_blob, &latest.hash, latest.size).await?;
+        return merge_blob_records(state, task_id, latest, target_blob.clone()).await;
     }
+    let renamed_opaque_blob = !content_hash && existing_target_blob.is_some();
+    let target_hash = if content_hash || !renamed_opaque_blob {
+        latest.hash.clone()
+    } else {
+        format!("migration-{}", uuid::Uuid::new_v4())
+    };
+    let target_path = crate::utils::storage_path_from_blob_key(&target_hash);
 
     copy_blob_streaming(
         state,
@@ -616,6 +634,7 @@ async fn migrate_one_blob(
             latest.id,
             source_policy_id,
             target_policy_id,
+            &target_hash,
             &target_path,
         )
         .await?;
@@ -624,6 +643,7 @@ async fn migrate_one_blob(
                 scanned: 1,
                 migrated: 1,
                 migrated_bytes: latest.size,
+                renamed_opaque_blobs: if renamed_opaque_blob { 1 } else { 0 },
                 ..Default::default()
             }
         } else {
@@ -752,6 +772,7 @@ fn checkpoint_delta(
         skipped_blobs: outcome.skipped,
         failed_blobs: outcome.failed,
         migrated_bytes: outcome.migrated_bytes,
+        renamed_opaque_blobs: outcome.renamed_opaque_blobs,
     }
 }
 

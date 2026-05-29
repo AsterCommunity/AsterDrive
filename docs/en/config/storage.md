@@ -37,6 +37,40 @@ Typical admin-console workflow:
 
 If you are migrating existing data, do not directly change the old policy path, bucket, endpoint, or follower node to the new location. Create the target policy first, use `Admin -> Storage Policies -> Migrate Data` to create a migration task, and only then adjust policy groups.
 
+## Capacity Observation and Migration Preflight
+
+The storage policy edit dialog shows current capacity observation:
+
+| Policy type | Capacity behavior |
+| --- | --- |
+| `local` | Reads total, available, and used bytes from the filesystem that contains the policy base directory |
+| `s3` | Shows unsupported; the standard S3-compatible API does not expose a unified, reliable bucket free-capacity interface |
+| `remote` | Asks the follower's real ingress target through the internal remote storage protocol. If the follower ingress target is local, filesystem capacity is usually available. If the ingress target is S3, it is also shown as unsupported. |
+
+During data migration, preflight compares the target policy's available capacity with the estimated bytes that still need to be copied. It does not simply use the source policy's total size. Content SHA-256 blobs that already exist in the target policy are treated as reusable and are excluded from the estimated copy size.
+
+Capacity check statuses:
+
+| Status | Meaning | Blocks migration task creation |
+| --- | --- | --- |
+| Sufficient | Target available capacity is greater than or equal to estimated copy bytes | No |
+| Insufficient | Target is confirmed to have too little capacity | Yes |
+| Unsupported | The driver has no reliable capacity interface, such as S3 | No, but the UI warns you to confirm capacity |
+| Unavailable | This capacity check failed or returned incomplete information | No, but the UI warns you to confirm capacity |
+
+## Blob Matching Rules During Storage Migration
+
+Migration processes blobs, not individual file records. To avoid incorrect merges, AsterDrive separates two kinds of blob keys:
+
+| Type | Detection | Migration matching rule |
+| --- | --- | --- |
+| Content SHA-256 | 64 hexadecimal characters | If the target policy already has the same hash and size, AsterDrive verifies the target object and then merges references |
+| Opaque key | Any other blob key | Never participates in cross-policy matching, and is not merged even if key and size are the same |
+
+If a content SHA-256 hash matches but the size differs, the migration fails and leaves the source blob unchanged. This usually indicates inconsistent database or object-storage state and should be investigated by an administrator.
+
+If an opaque key already exists in the target policy, the migration does not overwrite the target object and does not merge the source blob into the target blob. AsterDrive generates a new `migration-...` key for the source blob, copies the object to a new path under the target policy, and records the count as renamed opaque keys in the task result.
+
 ## Common Storage Policy Options
 
 | Item | Purpose |
@@ -243,10 +277,13 @@ Before the task is created, the page runs `Check Plan`:
 - count source-policy objects and total size
 - probe whether the target policy can be written
 - check whether the target supports stream upload required for migration
-- try to verify target free capacity
-- estimate how many objects already exist on the target and can be reused
+- estimate how many objects already exist on the target and can be reused, then calculate the bytes that still need to be copied
+- try to verify whether the target has enough free capacity for those remaining bytes
+- count opaque key conflicts
 
-If the capacity check is unavailable, it does not always mean migration is impossible. It means the current driver cannot reliably report free space. Before creating the real task, confirm target capacity yourself.
+Only confirmed insufficient capacity blocks migration task creation. If the capacity check is unsupported or unavailable, it does not always mean migration is impossible. It means the current driver cannot reliably report free space. Before creating the real task, confirm target capacity yourself.
+
+If the plan shows opaque key conflicts, the source and target policies contain identical opaque blob keys. Opaque keys are not content hashes and cannot be reused across policies. During execution, AsterDrive assigns those source objects new `migration-...` keys and records the renamed count in the task result.
 
 After the task is created, check progress under `Admin -> Tasks`. The task row shows a summary first; expand it to see detailed phases, checkpoints, and errors. For large migrations, reserve a maintenance window and avoid writing many new files to the source policy while migration is running.
 

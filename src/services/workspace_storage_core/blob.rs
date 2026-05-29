@@ -3,7 +3,7 @@ use sea_orm::{ConnectionTrait, Set};
 
 use crate::db::repository::file_repo;
 use crate::entities::file_blob;
-use crate::errors::Result;
+use crate::errors::{AsterError, Result};
 
 pub(crate) async fn create_nondedup_blob_with_key<C: ConnectionTrait>(
     db: &C,
@@ -12,6 +12,12 @@ pub(crate) async fn create_nondedup_blob_with_key<C: ConnectionTrait>(
     blob_key: &str,
     storage_path: &str,
 ) -> Result<file_blob::Model> {
+    if is_content_sha256_blob_key(blob_key) {
+        return Err(AsterError::validation_error(
+            "non-deduplicated blob keys must not be 64-character hexadecimal content hashes",
+        ));
+    }
+
     let now = Utc::now();
 
     file_repo::create_blob(
@@ -28,6 +34,10 @@ pub(crate) async fn create_nondedup_blob_with_key<C: ConnectionTrait>(
         },
     )
     .await
+}
+
+fn is_content_sha256_blob_key(blob_key: &str) -> bool {
+    blob_key.len() == 64 && blob_key.bytes().all(|byte| byte.is_ascii_hexdigit())
 }
 
 pub(crate) async fn create_nondedup_blob<C: ConnectionTrait>(
@@ -84,4 +94,20 @@ async fn create_opaque_nondedup_blob<C: ConnectionTrait>(
         },
     )
     .await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_content_sha256_blob_key;
+
+    #[test]
+    fn nondedup_blob_key_guard_rejects_content_hash_shape() {
+        assert!(is_content_sha256_blob_key(
+            "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+        ));
+        assert!(!is_content_sha256_blob_key(
+            "s3-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+        ));
+        assert!(!is_content_sha256_blob_key("0123456789abcdef"));
+    }
 }

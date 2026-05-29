@@ -30,8 +30,9 @@ import { cn } from "@/lib/utils";
 import {
 	TaskDetailsContent,
 	TaskStepsPreview,
-	taskHasExpandableDetails,
 } from "@/pages/tasks/TaskDetailsPanel";
+import { taskHasExpandableDetails } from "@/pages/tasks/taskDetails";
+import { formatTaskDisplayName } from "@/pages/tasks/taskPresentation";
 import type { AdminTaskSortBy } from "@/types/adminSort";
 import type {
 	BackgroundTaskKind,
@@ -212,7 +213,7 @@ export function AdminTaskTable({
 									<TableCell>
 										<div className={ADMIN_TABLE_TEXT_CELL_CLASS}>
 											<span className="truncate text-sm font-medium text-foreground">
-												{task.display_name}
+												{formatTaskDisplayName(t, task)}
 											</span>
 										</div>
 									</TableCell>
@@ -282,7 +283,7 @@ export function AdminTaskTable({
 					>
 						<DialogHeader className="shrink-0 border-b px-6 pt-5 pb-4 pr-14 max-lg:px-4 max-lg:pt-4">
 							<DialogTitle className="truncate text-lg">
-								{detailTask.display_name}
+								{formatTaskDisplayName(t, detailTask)}
 							</DialogTitle>
 							<div className="flex flex-wrap items-center gap-2 pt-1 text-xs text-muted-foreground">
 								<span className={ADMIN_TABLE_MONO_TEXT_CLASS}>

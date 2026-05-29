@@ -4,6 +4,7 @@
 	"step_status_active": "进行中",
 	"step_status_succeeded": "已完成",
 	"step_status_failed": "失败",
+	"step_status_skipped": "已跳过",
 	"step_status_canceled": "已取消",
 	"step_archive_compress_waiting": "等待执行",
 	"step_archive_compress_prepare_sources": "准备归档内容",
@@ -28,5 +29,11 @@
 	"step_storage_policy_migration_scan_blobs": "扫描源对象",
 	"step_storage_policy_migration_migrate_blobs": "迁移对象",
 	"step_storage_policy_migration_finalize": "收尾处理",
-	"step_storage_policy_migration_finish": "迁移完成"
+	"step_storage_policy_migration_finish": "迁移完成",
+	"step_blob_maintenance_waiting": "等待执行",
+	"step_blob_maintenance_scan_blobs": "加载 Blob 记录",
+	"step_blob_maintenance_check_blobs": "检查存储对象",
+	"step_blob_maintenance_reconcile_refs": "核对引用计数",
+	"step_blob_maintenance_cleanup_objects": "清理孤儿 Blob",
+	"step_blob_maintenance_finish": "维护完成"
 }

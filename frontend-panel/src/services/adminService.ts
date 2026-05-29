@@ -33,6 +33,7 @@ import type {
 	AdminUserListQuery,
 	ConfigActionType,
 	ConfigSchemaItem,
+	CreateBlobMaintenanceTaskRequest,
 	CreateExternalAuthProviderInput,
 	CreatePolicyGroupRequest,
 	CreatePolicyRequest,
@@ -537,6 +538,9 @@ export const adminFileService = {
 
 	getBlob: (id: number) =>
 		api.get<AdminFileBlobDetail>(`/admin/file-blobs/${id}`),
+
+	createBlobMaintenanceTask: (body: CreateBlobMaintenanceTaskRequest) =>
+		api.post<TaskInfo>("/admin/file-blobs/maintenance", body),
 };
 
 export const adminTaskService = {

@@ -103,6 +103,7 @@ pub async fn reconcile_blob_state(state: &PrimaryAppState) -> Result<BlobMainten
         let blobs = file_repo::find_blobs_paginated(
             state.writer_db(),
             last_blob_id,
+            None,
             BLOB_RECONCILE_BATCH_SIZE,
         )
         .await?;

@@ -675,6 +675,14 @@ pub struct AdminFileBlobDetail {
     pub file_versions: Vec<AdminFileBlobReferenceVersion>,
 }
 
+#[derive(Debug, Deserialize, Validate)]
+#[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
+pub struct CreateBlobMaintenanceTaskReq {
+    pub action: crate::services::task_service::BlobMaintenanceAction,
+    #[validate(length(min = 1, max = 1000, message = "blob_ids must contain 1 to 1000 items"))]
+    pub blob_ids: Option<Vec<i64>>,
+}
+
 /// Create a team (admin operation).
 #[derive(Debug, Deserialize, Validate)]
 #[validate(schema(function = "validate_admin_team_target"))]

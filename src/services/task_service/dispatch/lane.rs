@@ -28,10 +28,11 @@ const THUMBNAIL_TASK_KINDS: [BackgroundTaskKind; 2] = [
 ];
 const STORAGE_MIGRATION_TASK_KINDS: [BackgroundTaskKind; 1] =
     [BackgroundTaskKind::StoragePolicyMigration];
-const FALLBACK_TASK_KINDS: [BackgroundTaskKind; 3] = [
+const FALLBACK_TASK_KINDS: [BackgroundTaskKind; 4] = [
     BackgroundTaskKind::SystemRuntime,
     BackgroundTaskKind::StoragePolicyTempCleanup,
     BackgroundTaskKind::TrashPurgeAll,
+    BackgroundTaskKind::BlobMaintenance,
 ];
 pub(super) const TASK_LANES: [TaskLane; 4] = [
     TaskLane::Archive,
@@ -93,6 +94,7 @@ pub(super) fn task_lane(kind: BackgroundTaskKind) -> TaskLane {
         BackgroundTaskKind::StoragePolicyMigration => TaskLane::StorageMigration,
         BackgroundTaskKind::StoragePolicyTempCleanup
         | BackgroundTaskKind::TrashPurgeAll
+        | BackgroundTaskKind::BlobMaintenance
         | BackgroundTaskKind::SystemRuntime => TaskLane::Fallback,
     }
 }

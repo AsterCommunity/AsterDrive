@@ -21,6 +21,7 @@ pub enum TaskStepStatus {
     Active,
     Succeeded,
     Failed,
+    Skipped,
     Canceled,
 }
 
@@ -297,6 +298,38 @@ pub struct StoragePolicyMigrationTaskResult {
     pub skipped_blobs: i64,
     pub failed_blobs: i64,
     pub migrated_bytes: i64,
+    #[serde(default)]
+    pub renamed_opaque_blobs: i64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
+#[serde(rename_all = "snake_case")]
+pub enum BlobMaintenanceAction {
+    IntegrityCheck,
+    RefCountReconcile,
+    OrphanCleanup,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
+pub struct BlobMaintenanceTaskPayload {
+    pub action: BlobMaintenanceAction,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub blob_ids: Option<Vec<i64>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
+pub struct BlobMaintenanceTaskResult {
+    pub action: BlobMaintenanceAction,
+    pub scanned_blobs: i64,
+    pub checked_objects: i64,
+    pub missing_objects: i64,
+    pub size_mismatches: i64,
+    pub ref_counts_fixed: i64,
+    pub orphan_blobs_deleted: i64,
+    pub skipped_blobs: i64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -327,6 +360,7 @@ pub struct StoragePolicyMigrationDryRun {
     pub opaque_blob_count: i64,
     pub target_matching_blob_count: i64,
     pub estimated_copy_blob_count: i64,
+    pub opaque_key_conflict_count: i64,
     pub target_supports_stream_upload: bool,
     pub target_connection_ok: bool,
     pub target_capacity_check: StoragePolicyMigrationCapacityCheck,
@@ -348,6 +382,7 @@ pub enum TaskPayload {
     TrashPurgeAll(TrashPurgeAllTaskPayload),
     StoragePolicyTempCleanup(StoragePolicyTempCleanupTaskPayloadInfo),
     StoragePolicyMigration(StoragePolicyMigrationTaskPayload),
+    BlobMaintenance(BlobMaintenanceTaskPayload),
     SystemRuntime(RuntimeTaskPayload),
 }
 
@@ -363,6 +398,7 @@ pub enum TaskResult {
     TrashPurgeAll(TrashPurgeAllTaskResult),
     StoragePolicyTempCleanup(StoragePolicyTempCleanupTaskResult),
     StoragePolicyMigration(StoragePolicyMigrationTaskResult),
+    BlobMaintenance(BlobMaintenanceTaskResult),
     SystemRuntime(RuntimeTaskResult),
 }
 
@@ -440,6 +476,9 @@ pub(super) fn parse_task_payload_info(task: &background_task::Model) -> Result<T
         BackgroundTaskKind::StoragePolicyMigration => Ok(TaskPayload::StoragePolicyMigration(
             parse_task_payload(task)?,
         )),
+        BackgroundTaskKind::BlobMaintenance => {
+            Ok(TaskPayload::BlobMaintenance(parse_task_payload(task)?))
+        }
         BackgroundTaskKind::SystemRuntime => {
             Ok(TaskPayload::SystemRuntime(parse_task_payload(task)?))
         }
@@ -519,6 +558,15 @@ pub(super) fn parse_task_result_info(task: &background_task::Model) -> Result<Op
             )))
         }
         BackgroundTaskKind::StoragePolicyMigration => Ok(Some(TaskResult::StoragePolicyMigration(
+            serde_json::from_str(raw.as_ref()).map_err(|error| {
+                AsterError::internal_error(format!(
+                    "parse result for task #{} ({}): {error}",
+                    task.id,
+                    task.kind.to_value()
+                ))
+            })?,
+        ))),
+        BackgroundTaskKind::BlobMaintenance => Ok(Some(TaskResult::BlobMaintenance(
             serde_json::from_str(raw.as_ref()).map_err(|error| {
                 AsterError::internal_error(format!(
                     "parse result for task #{} ({}): {error}",

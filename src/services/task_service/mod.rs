@@ -5,6 +5,7 @@
 //! 覆盖新 worker 的结果。
 
 mod archive;
+mod blob_maintenance;
 mod dispatch;
 mod media_metadata;
 mod retry;
@@ -44,6 +45,7 @@ pub(crate) use archive::{
     create_archive_compress_task_in_scope, create_archive_extract_task_in_scope,
     prepare_archive_download_in_scope, stream_archive_download_in_scope,
 };
+pub(crate) use blob_maintenance::create_blob_maintenance_task_for_admin;
 pub use dispatch::{DispatchStats, cleanup_expired, dispatch_due, drain};
 pub(crate) use media_metadata::ensure_media_metadata_task;
 pub use runtime::{RuntimeTaskRunOutcome, record_runtime_task_run};
@@ -58,6 +60,7 @@ pub(crate) use trash::create_trash_purge_all_task_in_scope;
 pub use types::{
     ArchiveCompressTaskPayload, ArchiveCompressTaskResult, ArchiveExtractTaskPayload,
     ArchiveExtractTaskResult, ArchivePreviewTaskPayload, ArchivePreviewTaskResult,
+    BlobMaintenanceAction, BlobMaintenanceTaskPayload, BlobMaintenanceTaskResult,
     CreateArchiveCompressTaskParams, CreateArchiveExtractTaskParams, CreateArchiveTaskParams,
     MediaMetadataExtractTaskPayload, MediaMetadataExtractTaskResult, RuntimeSystemHealthComponent,
     RuntimeSystemHealthResult, RuntimeSystemHealthStatus, RuntimeTaskPayload, RuntimeTaskResult,
@@ -696,7 +699,9 @@ pub(super) fn task_lease_expires_at(
 
 fn configured_task_max_attempts(state: &PrimaryAppState, kind: BackgroundTaskKind) -> i32 {
     match kind {
-        BackgroundTaskKind::SystemRuntime | BackgroundTaskKind::ThumbnailGenerate => 1,
+        BackgroundTaskKind::SystemRuntime
+        | BackgroundTaskKind::ThumbnailGenerate
+        | BackgroundTaskKind::BlobMaintenance => 1,
         BackgroundTaskKind::MediaMetadataExtract => 3,
         BackgroundTaskKind::ArchiveCompress
         | BackgroundTaskKind::ArchiveExtract

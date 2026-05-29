@@ -138,6 +138,10 @@ Here you can:
 - Choose `relay_stream` or `presigned` for S3
 - Create a storage policy data migration task that copies existing objects from a source policy to a target policy
 
+When editing an existing policy, the left side shows the current capacity observation. `local` policies read total, available, and used bytes from the underlying filesystem; `remote` policies ask the follower for the real ingress target capacity; S3-compatible storage does not expose a standardized, reliable bucket free-capacity API, so it is shown as unsupported instead of using guessed values.
+
+Before creating a migration task, `Migrate Data` runs a preflight check. The plan shows source object count, source bytes, estimated objects to copy, target objects already present, capacity check result, and opaque key conflict count. Capacity only blocks task creation when the target is confirmed to be insufficient. If the target driver does not support capacity observation or the check is temporarily unavailable, the UI shows a warning but still allows the migration.
+
 For policies already used by files, do not directly modify options that decide the real storage location, such as `base_path`, `bucket`, `endpoint`, or the bound follower node. To move locations, create the target policy first, use `Migrate Data` in the page to run preflight checks and create a background migration task, then switch policy groups after completion is confirmed.
 
 ## Follower Nodes
@@ -270,6 +274,8 @@ This page is best for:
 Cleaning historical tasks only handles completed, failed, or canceled records. Queued, processing, and retrying tasks are not deleted.
 
 For storage policy data migration tasks, the expanded details are usually more important. Start with the summary row to see whether the task failed, then expand it to check whether it stopped during preflight, copy, verification, or commit.
+
+After a migration succeeds, task details show migrated objects, skipped objects, failed objects, migrated bytes, and renamed opaque keys. Renamed opaque keys mean that the source policy had opaque blob keys that already existed in the target policy. AsterDrive did not merge them across policies; it copied the source object to a new key under the target policy to avoid overwriting or incorrectly reusing the existing target object.
 
 ## Locks
 

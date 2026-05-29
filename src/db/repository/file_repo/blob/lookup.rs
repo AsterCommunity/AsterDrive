@@ -57,6 +57,16 @@ pub struct AdminFileBlobFilters<'a> {
     pub sort_order: SortOrder,
 }
 
+fn content_sha256_sql_condition(backend: DbBackend, column: &str) -> String {
+    match backend {
+        DbBackend::Postgres => format!("{column} ~ '^[0-9A-Fa-f]{{64}}$'"),
+        DbBackend::MySql => format!("{column} REGEXP '^[0-9A-Fa-f]{{64}}$'"),
+        DbBackend::Sqlite | _ => {
+            format!("length({column}) = 64 AND {column} NOT GLOB '*[^0-9A-Fa-f]*'")
+        }
+    }
+}
+
 // `find_or_create_blob()` only retries short-lived races:
 // 1. another transaction inserted the same (hash, policy_id) row but has not become visible yet;
 // 2. a cleanup worker deleted a zero-ref blob after we read it but before we bumped ref_count.
@@ -182,31 +192,6 @@ fn matching_target_blob_exists_query(target_policy_id: i64) -> sea_orm::sea_quer
         .to_owned()
 }
 
-pub async fn summarize_missing_blobs_between_policies<C: ConnectionTrait>(
-    db: &C,
-    source_policy_id: i64,
-    target_policy_id: i64,
-) -> Result<StoragePolicyMissingBlobSummary> {
-    let backend = db.get_database_backend();
-    FileBlob::find()
-        .select_only()
-        .column_as(Expr::col(file_blob::Column::Id).count(), "count")
-        .column_as(file_blob_size_sum_as_i64_expr(backend), "total_size")
-        .filter(file_blob::Column::PolicyId.eq(source_policy_id))
-        .filter(Expr::not_exists(matching_target_blob_exists_query(
-            target_policy_id,
-        )))
-        .into_tuple::<(i64, Option<i64>)>()
-        .one(db)
-        .await
-        .map_err(AsterError::from)?
-        .map(|(count, total_size)| StoragePolicyMissingBlobSummary {
-            count,
-            total_size: total_size.unwrap_or(0),
-        })
-        .ok_or_else(|| AsterError::internal_error("missing blob summary query returned no row"))
-}
-
 pub async fn summarize_blob_hash_kinds_by_policy<C: ConnectionTrait>(
     db: &C,
     policy_id: i64,
@@ -246,24 +231,29 @@ pub async fn count_matching_hashes_between_policies<C: ConnectionTrait>(
     target_policy_id: i64,
 ) -> Result<i64> {
     let backend = db.get_database_backend();
+    let content_hash_condition = content_sha256_sql_condition(backend, "source.hash");
     let sql = match backend {
         DbBackend::Postgres => {
-            r#"SELECT COUNT(*) AS count
+            format!(
+                r#"SELECT COUNT(*) AS count
                FROM file_blobs source
                INNER JOIN file_blobs target
                  ON target.hash = source.hash
                 AND target.size = source.size
                 AND target.policy_id = $2
-               WHERE source.policy_id = $1"#
+               WHERE source.policy_id = $1 AND {content_hash_condition}"#
+            )
         }
         DbBackend::MySql | DbBackend::Sqlite | _ => {
-            r#"SELECT COUNT(*) AS count
+            format!(
+                r#"SELECT COUNT(*) AS count
                FROM file_blobs source
                INNER JOIN file_blobs target
                  ON target.hash = source.hash
                 AND target.size = source.size
                 AND target.policy_id = ?
-               WHERE source.policy_id = ?"#
+               WHERE source.policy_id = ? AND {content_hash_condition}"#
+            )
         }
     };
     let statement = match backend {
@@ -284,6 +274,97 @@ pub async fn count_matching_hashes_between_policies<C: ConnectionTrait>(
         .map_err(AsterError::from)?
         .map(|row| row.count)
         .ok_or_else(|| AsterError::internal_error("matching hash count query returned no row"))
+}
+
+pub async fn count_opaque_hash_conflicts_between_policies<C: ConnectionTrait>(
+    db: &C,
+    source_policy_id: i64,
+    target_policy_id: i64,
+) -> Result<i64> {
+    let backend = db.get_database_backend();
+    let content_hash_condition = content_sha256_sql_condition(backend, "source.hash");
+    let sql = match backend {
+        DbBackend::Postgres => format!(
+            r#"SELECT COUNT(*) AS count
+               FROM file_blobs source
+               WHERE source.policy_id = $1
+                 AND NOT ({content_hash_condition})
+                 AND EXISTS (
+                    SELECT 1 FROM file_blobs target
+                    WHERE target.policy_id = $2
+                      AND target.hash = source.hash
+                 )"#
+        ),
+        DbBackend::MySql | DbBackend::Sqlite | _ => format!(
+            r#"SELECT COUNT(*) AS count
+               FROM file_blobs source
+               WHERE source.policy_id = ?
+                 AND NOT ({content_hash_condition})
+                 AND EXISTS (
+                    SELECT 1 FROM file_blobs target
+                    WHERE target.policy_id = ?
+                      AND target.hash = source.hash
+                 )"#
+        ),
+    };
+    CountRow::find_by_statement(sea_orm::Statement::from_sql_and_values(
+        backend,
+        sql,
+        [source_policy_id.into(), target_policy_id.into()],
+    ))
+    .one(db)
+    .await
+    .map_err(AsterError::from)?
+    .map(|row| row.count)
+    .ok_or_else(|| AsterError::internal_error("opaque hash conflict count query returned no row"))
+}
+
+pub async fn summarize_missing_blobs_between_policies<C: ConnectionTrait>(
+    db: &C,
+    source_policy_id: i64,
+    target_policy_id: i64,
+) -> Result<StoragePolicyMissingBlobSummary> {
+    let backend = db.get_database_backend();
+    let content_hash_condition = content_sha256_sql_condition(backend, "source.hash");
+    let sql = match backend {
+        DbBackend::Postgres => {
+            format!(
+                r#"SELECT COUNT(*) AS count, COALESCE(SUM(source.size), 0) AS total_size
+               FROM file_blobs source
+               WHERE source.policy_id = $1
+                 AND NOT EXISTS (
+                    SELECT 1 FROM file_blobs target
+                    WHERE target.policy_id = $2
+                      AND target.hash = source.hash
+                      AND target.size = source.size
+                      AND {content_hash_condition}
+                 )"#
+            )
+        }
+        DbBackend::MySql | DbBackend::Sqlite | _ => {
+            format!(
+                r#"SELECT COUNT(*) AS count, COALESCE(SUM(source.size), 0) AS total_size
+               FROM file_blobs source
+               WHERE source.policy_id = ?
+                 AND NOT EXISTS (
+                    SELECT 1 FROM file_blobs target
+                    WHERE target.policy_id = ?
+                      AND target.hash = source.hash
+                      AND target.size = source.size
+                      AND {content_hash_condition}
+                 )"#
+            )
+        }
+    };
+    StoragePolicyMissingBlobSummary::find_by_statement(sea_orm::Statement::from_sql_and_values(
+        backend,
+        sql,
+        [source_policy_id.into(), target_policy_id.into()],
+    ))
+    .one(db)
+    .await
+    .map_err(AsterError::from)?
+    .ok_or_else(|| AsterError::internal_error("missing blob summary query returned no row"))
 }
 
 pub async fn create_blob<C: ConnectionTrait>(
@@ -467,6 +548,7 @@ pub async fn find_blobs_by_ids<C: ConnectionTrait>(
 pub async fn find_blobs_paginated<C: ConnectionTrait>(
     db: &C,
     after_id: Option<i64>,
+    max_id: Option<i64>,
     limit: u64,
 ) -> Result<Vec<file_blob::Model>> {
     let mut query = FileBlob::find()
@@ -474,6 +556,9 @@ pub async fn find_blobs_paginated<C: ConnectionTrait>(
         .limit(limit);
     if let Some(last_id) = after_id {
         query = query.filter(file_blob::Column::Id.gt(last_id));
+    }
+    if let Some(max_id) = max_id {
+        query = query.filter(file_blob::Column::Id.lte(max_id));
     }
     query.all(db).await.map_err(AsterError::from)
 }

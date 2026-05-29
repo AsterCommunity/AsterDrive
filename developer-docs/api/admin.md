@@ -34,6 +34,7 @@
 | `GET` | `/admin/policies` | 列出全部存储策略 |
 | `POST` | `/admin/policies` | 创建存储策略 |
 | `GET` | `/admin/policies/{id}` | 读取策略详情 |
+| `GET` | `/admin/policies/{id}/capacity` | 读取策略容量观测状态 |
 | `PATCH` | `/admin/policies/{id}` | 更新策略 |
 | `DELETE` | `/admin/policies/{id}` | 删除策略 |
 | `POST` | `/admin/policies/{id}/test` | 测试已保存策略 |
@@ -69,6 +70,10 @@
 - `driver_type = "remote"` 时需要绑定 `remote_node_id`，远端节点本身通过 `/admin/remote-nodes` 管理
 - 当前 `PATCH` 不能修改 `driver_type`
 - `GET /admin/policies` 支持 `limit`、`offset`、`sort_by`、`sort_order`
+- `GET /admin/policies/{id}/capacity` 返回 `StoragePolicyCapacityInfo`，其中 `capacity.status` 为 `supported` / `unsupported` / `unavailable`：
+  - Local 驱动通过文件系统容量接口返回 `total_bytes`、`available_bytes`、`used_bytes`
+  - S3 驱动明确返回 `StorageErrorKind::Unsupported`，服务层转换成 `unsupported` 状态，不伪造 bucket 容量
+  - Remote 驱动通过 follower 内部协议 `/internal/storage/capacity` 转发实际接收落点的容量能力
 - `DELETE /admin/policies/{id}` 支持 `?force=true`；这只会强制清理仍引用该策略的上传 session，仍有 blob 或策略组项引用时照样拒绝删除。若清理后还有临时对象或 multipart upload 需要延后处理，会创建 `storage_policy_temp_cleanup` 后台任务
 
 ## 存储迁移
@@ -96,9 +101,13 @@
 - `source_policy_id` 和 `target_policy_id` 都必须大于 0，而且不能相同
 - `delete_source_after_success` 目前只保留在请求体里，第一版实现会直接拒绝 `true`
 - `dry-run` 会检查目标策略是否支持 stream upload，并尝试对目标存储做一次写删探测
+- `dry-run` 会返回 `target_capacity_check` 和 `target_capacity`。容量判断使用预计仍需复制的 blob 总字节数，不使用源策略总字节数；目标已有的 content SHA-256 blob 不计入预计复制量。
+- `target_capacity_check = "insufficient"` 会阻止创建任务；`unsupported` 和 `unavailable` 只会进入 warnings，调用方需要提示管理员自行确认目标容量。
+- `dry-run` 会返回 `opaque_key_conflict_count`，表示源策略 opaque blob key 在目标策略已经存在，执行时需要为这些源 blob 生成新的迁移 key。
 - 任务本身会落到 `BackgroundTaskKind::StoragePolicyMigration`
 - 这类任务有独立 checkpoint，恢复入口只接受该 kind
-- 迁移任务完成后，结果里会包含扫描、迁移、合并、跳过、失败和迁移字节数
+- 迁移任务完成后，结果里会包含扫描、迁移、合并、跳过、失败、迁移字节数和 `renamed_opaque_blobs`
+- 跨策略匹配只允许 content SHA-256 blob 参与：`hash` 必须是 64 位十六进制，且目标 blob 的 `hash` 和 `size` 都匹配。Opaque blob 永不跨策略 merge；如果目标策略已有同 opaque key，执行阶段会把源 blob 改成新的 `migration-...` key 并复制到新路径。
 
 ## 远端节点
 
@@ -182,9 +191,9 @@
 - `require_email_verified` 打开后，未验证邮箱的外部身份需要走 `/auth/external-auth/email-verification/*`
 - 创建、更新、删除和测试都会写管理员审计日志
 
-## 文件与 Blob 可观测
+## 文件与 Blob 管理
 
-这组接口是管理员侧的只读观测入口，不是业务 API。
+这组接口是管理员侧的文件 / blob 观测与维护入口，不是业务 API。
 
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
@@ -192,13 +201,18 @@
 | `GET` | `/admin/files/{id}` | 查看单个文件和该文件的版本摘要 |
 | `GET` | `/admin/file-blobs` | 查看 blob 记录、hash 类型和引用计数 |
 | `GET` | `/admin/file-blobs/{id}` | 查看单个 blob 的文件与版本引用 |
+| `POST` | `/admin/file-blobs/maintenance` | 为指定 blob 创建维护任务 |
 
 当前实现注意点：
 
 - `GET /admin/files` 支持 `name`、`blob_id`、`policy_id`、`owner_user_id`、`team_id`、`deleted`、`limit`、`offset`、`sort_by`、`sort_order`
 - `GET /admin/file-blobs` 支持 `hash`、`policy_id`、`storage_path`、`ref_count_min`、`ref_count_max`、`size_min`、`size_max`、`limit`、`offset`、`sort_by`、`sort_order`
 - `hash_kind` 只是观测派生字段：64 位十六进制 SHA-256 记为 `content_sha256`，其他值记为 `opaque`
-- 这两组接口都走只读查询，不会触发写入
+- `POST /admin/file-blobs/maintenance` 请求体为 `{ "action": "...", "blob_ids": [...] }`，`blob_ids` 可省略；提供时必须非空且当前最多 1000 个
+- `action` 支持 `integrity_check`、`ref_count_reconcile`、`orphan_cleanup`
+- `integrity_check` 只检查对象是否存在以及对象大小是否和 blob 记录一致，不修改 blob
+- `ref_count_reconcile` 会按当前文件和文件版本引用重新计算并修正 `ref_count`
+- `orphan_cleanup` 会先重新计算引用，再只清理实际引用数和 `ref_count` 都为 0 的孤儿 blob
 
 ## 策略组
 

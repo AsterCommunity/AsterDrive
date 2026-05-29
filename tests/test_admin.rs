@@ -725,6 +725,156 @@ async fn test_admin_file_blob_health_states_and_reference_boundaries() {
 }
 
 #[actix_web::test]
+async fn test_admin_create_blob_maintenance_task_audits_and_deduplicates_targets() {
+    let state = common::setup().await;
+    let app = create_test_app!(state.clone());
+    let (admin_token, _) = register_and_login!(app);
+    admin_create_user!(
+        app,
+        admin_token,
+        "blobmaint",
+        "blobmaint@example.com",
+        "password123"
+    );
+    let (user_token, _) = login_user!(app, "blobmaint", "password123");
+    let file_id = upload_test_file_named!(app, user_token, "blob-maintenance.txt");
+    let file = aster_drive::db::repository::file_repo::find_by_id(state.writer_db(), file_id)
+        .await
+        .expect("uploaded file should load");
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/admin/file-blobs/maintenance")
+        .insert_header(("Cookie", common::access_cookie_header(&admin_token)))
+        .insert_header(common::csrf_header_for(&admin_token))
+        .set_json(serde_json::json!({
+            "action": "integrity_check",
+            "blob_ids": [file.blob_id, file.blob_id]
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(body["data"]["kind"], "blob_maintenance");
+    assert_eq!(body["data"]["payload"]["kind"], "blob_maintenance");
+    assert_eq!(body["data"]["payload"]["action"], "integrity_check");
+    assert_eq!(
+        body["data"]["payload"]["blob_ids"]
+            .as_array()
+            .expect("blob_ids should be an array")
+            .len(),
+        1
+    );
+
+    let audit_entries = audit_log_repo::find_with_filters(
+        state.reader_db(),
+        audit_log_repo::AuditLogQuery {
+            user_id: None,
+            action: Some(AuditAction::AdminCreateBlobMaintenanceTask.as_str()),
+            entity_type: Some(aster_drive::types::AuditEntityType::Task.as_str()),
+            entity_id: body["data"]["id"].as_i64(),
+            after: None,
+            before: None,
+            limit: 10,
+            offset: 0,
+            sort_by: aster_drive::api::pagination::AdminAuditLogSortBy::CreatedAt,
+            sort_order: aster_drive::api::pagination::SortOrder::Desc,
+        },
+    )
+    .await
+    .expect("audit query should succeed")
+    .0;
+    assert_eq!(audit_entries.len(), 1);
+    assert!(
+        audit_entries[0]
+            .details
+            .as_deref()
+            .unwrap_or_default()
+            .contains("\"integrity_check\"")
+    );
+}
+
+#[actix_web::test]
+async fn test_admin_create_blob_maintenance_task_without_targets_scans_all_blobs() {
+    let state = common::setup().await;
+    let app = create_test_app!(state.clone());
+    let (admin_token, _) = register_and_login!(app);
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/admin/file-blobs/maintenance")
+        .insert_header(("Cookie", common::access_cookie_header(&admin_token)))
+        .insert_header(common::csrf_header_for(&admin_token))
+        .set_json(serde_json::json!({
+            "action": "ref_count_reconcile"
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(body["data"]["kind"], "blob_maintenance");
+    assert_eq!(body["data"]["payload"]["action"], "ref_count_reconcile");
+    assert!(
+        body["data"]["payload"].get("blob_ids").is_none()
+            || body["data"]["payload"]["blob_ids"].is_null(),
+        "omitted blob_ids should represent full blob maintenance scope"
+    );
+    assert_eq!(
+        body["data"]["display_name"],
+        "Reconcile references for all blobs"
+    );
+}
+
+#[actix_web::test]
+async fn test_admin_blob_maintenance_task_rejects_invalid_targets_and_permissions() {
+    let state = common::setup().await;
+    let app = create_test_app!(state.clone());
+    let (admin_token, _) = register_and_login!(app);
+    admin_create_user!(
+        app,
+        admin_token,
+        "blobmaintplain",
+        "blobmaintplain@example.com",
+        "password123"
+    );
+    let (plain_token, _) = login_user!(app, "blobmaintplain", "password123");
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/admin/file-blobs/maintenance")
+        .insert_header(("Cookie", common::access_cookie_header(&plain_token)))
+        .insert_header(common::csrf_header_for(&plain_token))
+        .set_json(serde_json::json!({
+            "action": "integrity_check",
+            "blob_ids": [1]
+        }))
+        .to_request();
+    let err = test::try_call_service(&app, req).await.unwrap_err();
+    assert_eq!(err.error_response().status(), 403);
+
+    for (payload, expected_status) in [
+        (
+            serde_json::json!({"action":"integrity_check","blob_ids":[]}),
+            400,
+        ),
+        (
+            serde_json::json!({"action":"integrity_check","blob_ids":[-1]}),
+            400,
+        ),
+        (
+            serde_json::json!({"action":"integrity_check","blob_ids":[999999]}),
+            404,
+        ),
+    ] {
+        let req = test::TestRequest::post()
+            .uri("/api/v1/admin/file-blobs/maintenance")
+            .insert_header(("Cookie", common::access_cookie_header(&admin_token)))
+            .insert_header(common::csrf_header_for(&admin_token))
+            .set_json(payload)
+            .to_request();
+        let err = test::try_call_service(&app, req).await.unwrap_err();
+        assert_eq!(err.error_response().status(), expected_status);
+    }
+}
+
+#[actix_web::test]
 async fn test_admin_files_endpoints_reject_unauthorized_and_non_admin() {
     let state = common::setup().await;
     let app = create_test_app!(state);
@@ -2548,6 +2698,9 @@ async fn test_admin_tasks_cleanup_uses_explicit_finished_before() {
             BackgroundTaskKind::StoragePolicyMigration => StoredTaskPayload(
                 r#"{"source_policy_id":1,"target_policy_id":2,"delete_source_after_success":false,"plan_hash":"hash","source_policy_updated_at":"2026-01-01T00:00:00Z","target_policy_updated_at":"2026-01-01T00:00:00Z"}"#
                     .to_string(),
+            ),
+            BackgroundTaskKind::BlobMaintenance => StoredTaskPayload(
+                r#"{"action":"integrity_check","blob_ids":[1]}"#.to_string(),
             ),
             BackgroundTaskKind::TrashPurgeAll => {
                 StoredTaskPayload(r#"{}"#.to_string())

@@ -1,7 +1,8 @@
 import type { SetStateAction } from "react";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useSearchParams } from "react-router-dom";
+import { toast } from "sonner";
 import { AdminOffsetPagination } from "@/components/admin/AdminOffsetPagination";
 import {
 	ADMIN_INTERACTIVE_TABLE_ROW_CLASS,
@@ -16,6 +17,7 @@ import {
 	AdminTableRow as TableRow,
 } from "@/components/common/AdminTable";
 import { AdminTableList } from "@/components/common/AdminTableList";
+import { ConfirmDialog } from "@/components/common/ConfirmDialog";
 import { UserIdentity } from "@/components/common/UserIdentity";
 import { UserIdentityGroup } from "@/components/common/UserIdentityGroup";
 import { AdminLayout } from "@/components/layout/AdminLayout";
@@ -29,6 +31,12 @@ import {
 	DialogHeader,
 	DialogTitle,
 } from "@/components/ui/dialog";
+import {
+	DropdownMenu,
+	DropdownMenuContent,
+	DropdownMenuItem,
+	DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Icon } from "@/components/ui/icon";
 import { Input } from "@/components/ui/input";
 import {
@@ -60,10 +68,28 @@ import type {
 	AdminFileBlobInfo,
 	AdminFileDetail,
 	AdminFileInfo,
+	BlobMaintenanceAction,
 } from "@/types/api";
 
 type AdminFilesPageKind = "files" | "blobs";
 type DeletedFilter = "__all__" | "live" | "deleted";
+type ManagedFileQuery = {
+	deleted: DeletedFilter;
+	offset: number;
+	ownerUserId?: number;
+	pageSize: (typeof PAGE_SIZE_OPTIONS)[number];
+	policyId?: number;
+	refCountMax?: number;
+	refCountMin?: number;
+	secondaryId?: number;
+	sizeMax?: number;
+	sizeMin?: number;
+	sortBy: AdminFileSortBy | AdminFileBlobSortBy;
+	sortOrder: SortOrder;
+	storagePath: string;
+	teamId?: number;
+	text: string;
+};
 
 const PAGE_SIZE_OPTIONS = [20, 50, 100] as const;
 const DEFAULT_PAGE_SIZE = 20 as const;
@@ -136,6 +162,12 @@ function deletedToQuery(value: DeletedFilter) {
 	return undefined;
 }
 
+function deletedFilterLabelKey(value: DeletedFilter) {
+	if (value === "live") return "admin_deleted_live";
+	if (value === "deleted") return "admin_deleted_deleted";
+	return "admin_deleted_all";
+}
+
 function hashPreview(hash?: string | null) {
 	if (!hash) return "-";
 	return hash.length > 18 ? `${hash.slice(0, 10)}...${hash.slice(-6)}` : hash;
@@ -159,37 +191,22 @@ function fileBlobSummary(file: AdminFileInfo | null) {
 
 function buildManagedSearchParams({
 	kind,
+	deleted,
 	offset,
+	ownerUserId,
 	pageSize,
+	policyId,
+	refCountMax,
+	refCountMin,
+	secondaryId,
+	sizeMax,
+	sizeMin,
 	sortBy,
 	sortOrder,
-	text,
-	policyId,
-	secondaryId,
-	ownerUserId,
+	storagePath,
 	teamId,
-	deleted,
-	refCountMin,
-	refCountMax,
-	sizeMin,
-	sizeMax,
-}: {
-	kind: AdminFilesPageKind;
-	offset: number;
-	pageSize: (typeof PAGE_SIZE_OPTIONS)[number];
-	sortBy: AdminFileSortBy | AdminFileBlobSortBy;
-	sortOrder: SortOrder;
-	text: string;
-	policyId?: number;
-	secondaryId?: number;
-	ownerUserId?: number;
-	teamId?: number;
-	deleted?: DeletedFilter;
-	refCountMin?: number;
-	refCountMax?: number;
-	sizeMin?: number;
-	sizeMax?: number;
-}) {
+	text,
+}: ManagedFileQuery & { kind: AdminFilesPageKind }) {
 	const isFiles = kind === "files";
 	return buildOffsetPaginationSearchParams({
 		offset,
@@ -197,11 +214,8 @@ function buildManagedSearchParams({
 		defaultPageSize: DEFAULT_PAGE_SIZE,
 		extraParams: {
 			[isFiles ? "name" : "hash"]: text.trim() || undefined,
-			[isFiles ? "blobId" : "storagePath"]: isFiles
-				? secondaryId
-				: text.trim()
-					? undefined
-					: undefined,
+			blobId: isFiles ? secondaryId : undefined,
+			storagePath: !isFiles ? storagePath.trim() || undefined : undefined,
 			ownerUserId: isFiles ? ownerUserId : undefined,
 			teamId: isFiles ? teamId : undefined,
 			policyId,
@@ -218,6 +232,47 @@ function buildManagedSearchParams({
 			sortOrder: sortOrder !== DEFAULT_SORT_ORDER ? sortOrder : undefined,
 		},
 	});
+}
+
+function readManagedFileQuery(
+	kind: AdminFilesPageKind,
+	searchParams: URLSearchParams,
+): ManagedFileQuery {
+	const isFiles = kind === "files";
+	return {
+		deleted: parseDeletedFilter(searchParams.get("deleted")),
+		offset: normalizeOffset(parseOffsetSearchParam(searchParams.get("offset"))),
+		ownerUserId: parseOptionalNumber(searchParams.get("ownerUserId")),
+		pageSize: parsePageSizeSearchParam(
+			searchParams.get("pageSize"),
+			PAGE_SIZE_OPTIONS,
+			DEFAULT_PAGE_SIZE,
+		),
+		policyId: parseOptionalNumber(searchParams.get("policyId")),
+		refCountMax: parseOptionalNumber(searchParams.get("refCountMax")),
+		refCountMin: parseOptionalNumber(searchParams.get("refCountMin")),
+		secondaryId: parseOptionalNumber(searchParams.get("blobId")),
+		sizeMax: parseOptionalNumber(searchParams.get("sizeMax")),
+		sizeMin: parseOptionalNumber(searchParams.get("sizeMin")),
+		sortBy: isFiles
+			? parseSortSearchParam(
+					searchParams.get("sortBy"),
+					FILE_SORT_OPTIONS,
+					DEFAULT_FILE_SORT_BY,
+				)
+			: parseSortSearchParam(
+					searchParams.get("sortBy"),
+					BLOB_SORT_OPTIONS,
+					DEFAULT_BLOB_SORT_BY,
+				),
+		sortOrder: parseSortOrderSearchParam(
+			searchParams.get("sortOrder"),
+			DEFAULT_SORT_ORDER,
+		),
+		storagePath: searchParams.get("storagePath") ?? "",
+		teamId: parseOptionalNumber(searchParams.get("teamId")),
+		text: searchParams.get(isFiles ? "name" : "hash") ?? "",
+	};
 }
 
 function mergeManagedSearchParams(
@@ -345,12 +400,20 @@ function BlobDetailDialog({
 	blob,
 	open,
 	onOpenChange,
+	onCreateMaintenanceTask,
+	maintenanceAction,
 }: {
 	blob: AdminFileBlobDetail | null;
 	open: boolean;
 	onOpenChange: (open: boolean) => void;
+	onCreateMaintenanceTask: (
+		action: BlobMaintenanceAction,
+		blobIds: number[],
+	) => Promise<void>;
+	maintenanceAction: BlobMaintenanceAction | null;
 }) {
 	const { t } = useTranslation("admin");
+	const isBusy = maintenanceAction !== null;
 	return (
 		<Dialog open={open} onOpenChange={onOpenChange}>
 			<DialogContent className="max-h-[min(860px,calc(100vh-2rem))] overflow-y-auto sm:max-w-[760px]">
@@ -361,6 +424,41 @@ function BlobDetailDialog({
 				</DialogHeader>
 				{blob ? (
 					<div className="space-y-4">
+						<div className="flex flex-wrap gap-2">
+							<Button
+								variant="outline"
+								size="sm"
+								disabled={isBusy}
+								onClick={() =>
+									void onCreateMaintenanceTask("integrity_check", [blob.id])
+								}
+							>
+								<Icon name="Shield" className="size-4" />
+								{t("admin_blob_action_integrity_check")}
+							</Button>
+							<Button
+								variant="outline"
+								size="sm"
+								disabled={isBusy}
+								onClick={() =>
+									void onCreateMaintenanceTask("ref_count_reconcile", [blob.id])
+								}
+							>
+								<Icon name="ArrowsClockwise" className="size-4" />
+								{t("admin_blob_action_reconcile_refs")}
+							</Button>
+							<Button
+								variant={blob.health === "orphan" ? "destructive" : "outline"}
+								size="sm"
+								disabled={isBusy || blob.health !== "orphan"}
+								onClick={() =>
+									void onCreateMaintenanceTask("orphan_cleanup", [blob.id])
+								}
+							>
+								<Icon name="Trash" className="size-4" />
+								{t("admin_blob_action_cleanup_orphan")}
+							</Button>
+						</div>
 						<div className="rounded-lg border border-border/60 p-3">
 							<DetailRow label={t("id")} value={blob.id} />
 							<DetailRow label={t("admin_hash")} value={blob.hash} />
@@ -466,85 +564,67 @@ function BlobDetailDialog({
 }
 
 export default function AdminFilesPage({ kind }: { kind: AdminFilesPageKind }) {
-	return <AdminFilesPageView key={kind} kind={kind} />;
+	return <AdminFilesPageContent key={kind} kind={kind} />;
 }
 
-function AdminFilesPageView({ kind }: { kind: AdminFilesPageKind }) {
+function AdminFilesPageContent({ kind }: { kind: AdminFilesPageKind }) {
+	return useAdminFilesPageContent(kind);
+}
+
+function useAdminFilesPageContent(kind: AdminFilesPageKind) {
 	const { t } = useTranslation("admin");
 	const isFiles = kind === "files";
 	usePageTitle(isFiles ? t("admin_files") : t("admin_file_blobs"));
 	const [searchParams, setSearchParams] = useSearchParams();
-	const [offset, setOffsetState] = useState(
-		normalizeOffset(parseOffsetSearchParam(searchParams.get("offset"))),
-	);
-	const [pageSize, setPageSize] = useState<(typeof PAGE_SIZE_OPTIONS)[number]>(
-		parsePageSizeSearchParam(
-			searchParams.get("pageSize"),
-			PAGE_SIZE_OPTIONS,
-			DEFAULT_PAGE_SIZE,
-		),
-	);
-	const [text, setText] = useState(
-		searchParams.get(isFiles ? "name" : "hash") ?? "",
-	);
-	const [policyId, setPolicyId] = useState<number | undefined>(
-		parseOptionalNumber(searchParams.get("policyId")),
-	);
-	const [secondaryId, setSecondaryId] = useState<number | undefined>(
-		parseOptionalNumber(searchParams.get("blobId")),
-	);
-	const [ownerUserId, setOwnerUserId] = useState<number | undefined>(
-		parseOptionalNumber(searchParams.get("ownerUserId")),
-	);
-	const [teamId, setTeamId] = useState<number | undefined>(
-		parseOptionalNumber(searchParams.get("teamId")),
-	);
-	const [storagePath, setStoragePath] = useState(
-		searchParams.get("storagePath") ?? "",
-	);
-	const [deleted, setDeleted] = useState<DeletedFilter>(
-		parseDeletedFilter(searchParams.get("deleted")),
-	);
-	const [refCountMin, setRefCountMin] = useState<number | undefined>(
-		parseOptionalNumber(searchParams.get("refCountMin")),
-	);
-	const [refCountMax, setRefCountMax] = useState<number | undefined>(
-		parseOptionalNumber(searchParams.get("refCountMax")),
-	);
-	const [sizeMin, setSizeMin] = useState<number | undefined>(
-		parseOptionalNumber(searchParams.get("sizeMin")),
-	);
-	const [sizeMax, setSizeMax] = useState<number | undefined>(
-		parseOptionalNumber(searchParams.get("sizeMax")),
-	);
-	const [sortBy, setSortBy] = useState<AdminFileSortBy | AdminFileBlobSortBy>(
-		isFiles
-			? parseSortSearchParam(
-					searchParams.get("sortBy"),
-					FILE_SORT_OPTIONS,
-					DEFAULT_FILE_SORT_BY,
-				)
-			: parseSortSearchParam(
-					searchParams.get("sortBy"),
-					BLOB_SORT_OPTIONS,
-					DEFAULT_BLOB_SORT_BY,
-				),
-	);
-	const [sortOrder, setSortOrder] = useState<SortOrder>(
-		parseSortOrderSearchParam(
-			searchParams.get("sortOrder"),
-			DEFAULT_SORT_ORDER,
-		),
-	);
+	const fileQuery = readManagedFileQuery(kind, searchParams);
+	const {
+		deleted,
+		offset,
+		ownerUserId,
+		pageSize,
+		policyId,
+		refCountMax,
+		refCountMin,
+		secondaryId,
+		sizeMax,
+		sizeMin,
+		sortBy,
+		sortOrder,
+		storagePath,
+		teamId,
+		text,
+	} = fileQuery;
 	const [fileDetail, setFileDetail] = useState<AdminFileDetail | null>(null);
 	const [blobDetail, setBlobDetail] = useState<AdminFileBlobDetail | null>(
 		null,
 	);
-	const lastWrittenSearchRef = useRef<string | null>(null);
+	const [maintenanceAction, setMaintenanceAction] =
+		useState<BlobMaintenanceAction | null>(null);
+	const [fullMaintenanceAction, setFullMaintenanceAction] =
+		useState<BlobMaintenanceAction | null>(null);
+	const maintenanceLockRef = useRef(false);
+	const setFileQuery = useCallback(
+		(updates: Partial<ManagedFileQuery>) => {
+			const nextManagedSearchParams = buildManagedSearchParams({
+				kind,
+				...fileQuery,
+				...updates,
+			});
+			setSearchParams(
+				mergeManagedSearchParams(searchParams, nextManagedSearchParams),
+				{
+					replace: true,
+				},
+			);
+		},
+		[fileQuery, kind, searchParams, setSearchParams],
+	);
 	const setOffset = (value: SetStateAction<number>) => {
-		setOffsetState((current) =>
-			normalizeOffset(typeof value === "function" ? value(current) : value),
-		);
+		setFileQuery({
+			offset: normalizeOffset(
+				typeof value === "function" ? value(offset) : value,
+			),
+		});
 	};
 	const activeFilterCount =
 		(text.trim() ? 1 : 0) +
@@ -558,58 +638,6 @@ function AdminFilesPageView({ kind }: { kind: AdminFilesPageKind }) {
 		(!isFiles && refCountMax != null ? 1 : 0) +
 		(!isFiles && sizeMin != null ? 1 : 0) +
 		(!isFiles && sizeMax != null ? 1 : 0);
-
-	useEffect(() => {
-		const nextManagedSearchParams = buildManagedSearchParams({
-			kind,
-			offset,
-			pageSize,
-			sortBy,
-			sortOrder,
-			text,
-			policyId,
-			secondaryId,
-			ownerUserId,
-			teamId,
-			deleted,
-			refCountMin,
-			refCountMax,
-			sizeMin,
-			sizeMax,
-		});
-		if (!isFiles && storagePath.trim()) {
-			nextManagedSearchParams.set("storagePath", storagePath.trim());
-		}
-		const nextSearch = nextManagedSearchParams.toString();
-		if (nextSearch === lastWrittenSearchRef.current) return;
-		lastWrittenSearchRef.current = nextSearch;
-		setSearchParams(
-			mergeManagedSearchParams(searchParams, nextManagedSearchParams),
-			{
-				replace: true,
-			},
-		);
-	}, [
-		deleted,
-		isFiles,
-		kind,
-		offset,
-		ownerUserId,
-		pageSize,
-		policyId,
-		refCountMax,
-		refCountMin,
-		searchParams,
-		secondaryId,
-		setSearchParams,
-		sizeMax,
-		sizeMin,
-		sortBy,
-		sortOrder,
-		storagePath,
-		teamId,
-		text,
-	]);
 
 	const { items, loading, reload, total } = useApiList<
 		AdminFileInfo | AdminFileBlobInfo
@@ -666,30 +694,32 @@ function AdminFilesPageView({ kind }: { kind: AdminFilesPageKind }) {
 	const handlePageSizeChange = (value: string | null) => {
 		const next = parsePageSizeOption(value, PAGE_SIZE_OPTIONS);
 		if (next == null) return;
-		setPageSize(next);
-		setOffset(0);
+		setFileQuery({ offset: 0, pageSize: next });
 	};
-	const handleSortChange = (
-		nextSortBy: AdminFileSortBy | AdminFileBlobSortBy,
-		nextOrder: SortOrder,
-	) => {
-		setSortBy(nextSortBy);
-		setSortOrder(nextOrder);
-		setOffset(0);
-	};
+	const handleSortChange = useCallback(
+		(
+			nextSortBy: AdminFileSortBy | AdminFileBlobSortBy,
+			nextOrder: SortOrder,
+		) => {
+			setFileQuery({ offset: 0, sortBy: nextSortBy, sortOrder: nextOrder });
+		},
+		[setFileQuery],
+	);
 	const resetFilters = () => {
-		setText("");
-		setPolicyId(undefined);
-		setSecondaryId(undefined);
-		setOwnerUserId(undefined);
-		setTeamId(undefined);
-		setStoragePath("");
-		setDeleted("__all__");
-		setRefCountMin(undefined);
-		setRefCountMax(undefined);
-		setSizeMin(undefined);
-		setSizeMax(undefined);
-		setOffset(0);
+		setFileQuery({
+			deleted: "__all__",
+			offset: 0,
+			ownerUserId: undefined,
+			policyId: undefined,
+			refCountMax: undefined,
+			refCountMin: undefined,
+			secondaryId: undefined,
+			sizeMax: undefined,
+			sizeMin: undefined,
+			storagePath: "",
+			teamId: undefined,
+			text: "",
+		});
 	};
 	const openFileDetail = async (id: number) => {
 		try {
@@ -705,11 +735,146 @@ function AdminFilesPageView({ kind }: { kind: AdminFilesPageKind }) {
 			handleApiError(error);
 		}
 	};
+	const createMaintenanceTask = async (
+		action: BlobMaintenanceAction,
+		blobIds?: number[],
+	) => {
+		if (maintenanceLockRef.current) return;
+		maintenanceLockRef.current = true;
+		setMaintenanceAction(action);
+		try {
+			const task = await adminFileService.createBlobMaintenanceTask({
+				action,
+				...(blobIds ? { blob_ids: blobIds } : {}),
+			});
+			toast.success(t("admin_blob_maintenance_task_created", { id: task.id }));
+			await reload();
+			if (blobDetail) {
+				await openBlobDetail(blobDetail.id);
+			}
+		} catch (error) {
+			handleApiError(error);
+		} finally {
+			maintenanceLockRef.current = false;
+			setMaintenanceAction(null);
+		}
+	};
 
 	const pageSizeOptions = PAGE_SIZE_OPTIONS.map((size) => ({
 		label: t("page_size_option", { count: size }),
 		value: String(size),
 	}));
+	const selectedFullMaintenanceAction = fullMaintenanceAction;
+	const isMaintenanceBusy =
+		maintenanceAction !== null || maintenanceLockRef.current;
+	const adminTableEmptyIcon = useMemo(
+		() => <Icon name={isFiles ? "File" : "HardDrive"} className="size-10" />,
+		[isFiles],
+	);
+	const adminTableHeaderRow = useMemo(
+		() => (
+			<TableHeader>
+				<TableRow>
+					<AdminSortableTableHead
+						className="w-16"
+						sortKey="id"
+						sortBy={sortBy}
+						sortOrder={sortOrder}
+						onSortChange={handleSortChange}
+					>
+						{t("id")}
+					</AdminSortableTableHead>
+					{isFiles ? (
+						<>
+							<AdminSortableTableHead
+								sortKey="name"
+								sortBy={sortBy}
+								sortOrder={sortOrder}
+								onSortChange={handleSortChange}
+							>
+								{t("core:name")}
+							</AdminSortableTableHead>
+							<AdminSortableTableHead
+								sortKey="size"
+								sortBy={sortBy}
+								sortOrder={sortOrder}
+								onSortChange={handleSortChange}
+							>
+								{t("admin_size")}
+							</AdminSortableTableHead>
+							<AdminSortableTableHead
+								sortKey="blob_id"
+								sortBy={sortBy}
+								sortOrder={sortOrder}
+								onSortChange={handleSortChange}
+							>
+								{t("admin_blob_id")}
+							</AdminSortableTableHead>
+							<AdminSortableTableHead
+								sortKey="policy_id"
+								sortBy={sortBy}
+								sortOrder={sortOrder}
+								onSortChange={handleSortChange}
+							>
+								{t("admin_policy_id")}
+							</AdminSortableTableHead>
+							<TableHead>{t("admin_hash")}</TableHead>
+							<TableHead>{t("admin_uploaded_by")}</TableHead>
+							<TableHead>{t("core:status")}</TableHead>
+							<AdminSortableTableHead
+								sortKey="updated_at"
+								sortBy={sortBy}
+								sortOrder={sortOrder}
+								onSortChange={handleSortChange}
+							>
+								{t("admin_updated")}
+							</AdminSortableTableHead>
+						</>
+					) : (
+						<>
+							<AdminSortableTableHead
+								sortKey="hash"
+								sortBy={sortBy}
+								sortOrder={sortOrder}
+								onSortChange={handleSortChange}
+							>
+								{t("admin_hash")}
+							</AdminSortableTableHead>
+							<AdminSortableTableHead
+								sortKey="size"
+								sortBy={sortBy}
+								sortOrder={sortOrder}
+								onSortChange={handleSortChange}
+							>
+								{t("admin_size")}
+							</AdminSortableTableHead>
+							<AdminSortableTableHead
+								sortKey="policy_id"
+								sortBy={sortBy}
+								sortOrder={sortOrder}
+								onSortChange={handleSortChange}
+							>
+								{t("admin_policy_id")}
+							</AdminSortableTableHead>
+							<AdminSortableTableHead
+								sortKey="ref_count"
+								sortBy={sortBy}
+								sortOrder={sortOrder}
+								onSortChange={handleSortChange}
+							>
+								{t("admin_ref_count")}
+							</AdminSortableTableHead>
+							<TableHead>{t("admin_blob_health")}</TableHead>
+							<TableHead>{t("admin_uploaded_by")}</TableHead>
+							<TableHead>{t("admin_hash_kind")}</TableHead>
+							<TableHead>{t("admin_storage_path")}</TableHead>
+						</>
+					)}
+				</TableRow>
+			</TableHeader>
+		),
+		[handleSortChange, isFiles, sortBy, sortOrder, t],
+	);
 
 	return (
 		<AdminLayout>
@@ -720,10 +885,53 @@ function AdminFilesPageView({ kind }: { kind: AdminFilesPageKind }) {
 						isFiles ? t("admin_files_intro") : t("admin_file_blobs_intro")
 					}
 					actions={
-						<Button variant="outline" size="sm" onClick={() => void reload()}>
-							<Icon name="ArrowClockwise" className="size-4" />
-							{t("core:refresh")}
-						</Button>
+						<div className="flex flex-wrap items-center justify-end gap-2">
+							{!isFiles ? (
+								<DropdownMenu>
+									<DropdownMenuTrigger
+										render={
+											<Button
+												variant="outline"
+												size="sm"
+												disabled={isMaintenanceBusy}
+											>
+												<Icon name="Wrench" className="size-4" />
+												{t("admin_blob_full_maintenance")}
+											</Button>
+										}
+									/>
+									<DropdownMenuContent align="end" className="w-56">
+										<DropdownMenuItem
+											onClick={() =>
+												setFullMaintenanceAction("integrity_check")
+											}
+										>
+											<Icon name="Shield" className="size-4" />
+											{t("admin_blob_action_integrity_check")}
+										</DropdownMenuItem>
+										<DropdownMenuItem
+											onClick={() =>
+												setFullMaintenanceAction("ref_count_reconcile")
+											}
+										>
+											<Icon name="ArrowsClockwise" className="size-4" />
+											{t("admin_blob_action_reconcile_refs")}
+										</DropdownMenuItem>
+										<DropdownMenuItem
+											variant="destructive"
+											onClick={() => setFullMaintenanceAction("orphan_cleanup")}
+										>
+											<Icon name="Trash" className="size-4" />
+											{t("admin_blob_action_cleanup_orphan")}
+										</DropdownMenuItem>
+									</DropdownMenuContent>
+								</DropdownMenu>
+							) : null}
+							<Button variant="outline" size="sm" onClick={() => void reload()}>
+								<Icon name="ArrowClockwise" className="size-4" />
+								{t("core:refresh")}
+							</Button>
+						</div>
 					}
 					toolbar={
 						<>
@@ -735,8 +943,7 @@ function AdminFilesPageView({ kind }: { kind: AdminFilesPageKind }) {
 								<Input
 									value={text}
 									onChange={(event) => {
-										setText(event.target.value);
-										setOffset(0);
+										setFileQuery({ offset: 0, text: event.target.value });
 									}}
 									placeholder={
 										isFiles
@@ -749,8 +956,10 @@ function AdminFilesPageView({ kind }: { kind: AdminFilesPageKind }) {
 							<Input
 								value={optionalNumberValue(policyId)}
 								onChange={(event) => {
-									setPolicyId(parseOptionalNumber(event.target.value));
-									setOffset(0);
+									setFileQuery({
+										offset: 0,
+										policyId: parseOptionalNumber(event.target.value),
+									});
 								}}
 								placeholder={t("admin_policy_id")}
 								className={`${ADMIN_CONTROL_HEIGHT_CLASS} w-32`}
@@ -760,8 +969,10 @@ function AdminFilesPageView({ kind }: { kind: AdminFilesPageKind }) {
 									<Input
 										value={optionalNumberValue(secondaryId)}
 										onChange={(event) => {
-											setSecondaryId(parseOptionalNumber(event.target.value));
-											setOffset(0);
+											setFileQuery({
+												offset: 0,
+												secondaryId: parseOptionalNumber(event.target.value),
+											});
 										}}
 										placeholder={t("admin_blob_id")}
 										className={`${ADMIN_CONTROL_HEIGHT_CLASS} w-32`}
@@ -769,8 +980,10 @@ function AdminFilesPageView({ kind }: { kind: AdminFilesPageKind }) {
 									<Input
 										value={optionalNumberValue(ownerUserId)}
 										onChange={(event) => {
-											setOwnerUserId(parseOptionalNumber(event.target.value));
-											setOffset(0);
+											setFileQuery({
+												offset: 0,
+												ownerUserId: parseOptionalNumber(event.target.value),
+											});
 										}}
 										placeholder={t("admin_owner_user_id")}
 										className={`${ADMIN_CONTROL_HEIGHT_CLASS} w-36`}
@@ -778,8 +991,10 @@ function AdminFilesPageView({ kind }: { kind: AdminFilesPageKind }) {
 									<Input
 										value={optionalNumberValue(teamId)}
 										onChange={(event) => {
-											setTeamId(parseOptionalNumber(event.target.value));
-											setOffset(0);
+											setFileQuery({
+												offset: 0,
+												teamId: parseOptionalNumber(event.target.value),
+											});
 										}}
 										placeholder={t("admin_team_id")}
 										className={`${ADMIN_CONTROL_HEIGHT_CLASS} w-32`}
@@ -787,22 +1002,26 @@ function AdminFilesPageView({ kind }: { kind: AdminFilesPageKind }) {
 									<Select
 										value={deleted}
 										onValueChange={(value) => {
-											setDeleted(parseDeletedFilter(value));
-											setOffset(0);
+											setFileQuery({
+												deleted: parseDeletedFilter(value),
+												offset: 0,
+											});
 										}}
 									>
 										<SelectTrigger width="compact">
-											<SelectValue />
+											<SelectValue>
+												{t(deletedFilterLabelKey(deleted))}
+											</SelectValue>
 										</SelectTrigger>
 										<SelectContent>
 											<SelectItem value="__all__">
-												{t("admin_deleted_all")}
+												{t(deletedFilterLabelKey("__all__"))}
 											</SelectItem>
 											<SelectItem value="live">
-												{t("admin_deleted_live")}
+												{t(deletedFilterLabelKey("live"))}
 											</SelectItem>
 											<SelectItem value="deleted">
-												{t("admin_deleted_deleted")}
+												{t(deletedFilterLabelKey("deleted"))}
 											</SelectItem>
 										</SelectContent>
 									</Select>
@@ -812,8 +1031,10 @@ function AdminFilesPageView({ kind }: { kind: AdminFilesPageKind }) {
 									<Input
 										value={storagePath}
 										onChange={(event) => {
-											setStoragePath(event.target.value);
-											setOffset(0);
+											setFileQuery({
+												offset: 0,
+												storagePath: event.target.value,
+											});
 										}}
 										placeholder={t("admin_storage_path")}
 										className={`${ADMIN_CONTROL_HEIGHT_CLASS} w-48`}
@@ -821,8 +1042,10 @@ function AdminFilesPageView({ kind }: { kind: AdminFilesPageKind }) {
 									<Input
 										value={optionalNumberValue(refCountMin)}
 										onChange={(event) => {
-											setRefCountMin(parseOptionalNumber(event.target.value));
-											setOffset(0);
+											setFileQuery({
+												offset: 0,
+												refCountMin: parseOptionalNumber(event.target.value),
+											});
 										}}
 										placeholder={t("admin_ref_count_min")}
 										className={`${ADMIN_CONTROL_HEIGHT_CLASS} w-36`}
@@ -830,8 +1053,10 @@ function AdminFilesPageView({ kind }: { kind: AdminFilesPageKind }) {
 									<Input
 										value={optionalNumberValue(refCountMax)}
 										onChange={(event) => {
-											setRefCountMax(parseOptionalNumber(event.target.value));
-											setOffset(0);
+											setFileQuery({
+												offset: 0,
+												refCountMax: parseOptionalNumber(event.target.value),
+											});
 										}}
 										placeholder={t("admin_ref_count_max")}
 										className={`${ADMIN_CONTROL_HEIGHT_CLASS} w-36`}
@@ -839,8 +1064,10 @@ function AdminFilesPageView({ kind }: { kind: AdminFilesPageKind }) {
 									<Input
 										value={optionalNumberValue(sizeMin)}
 										onChange={(event) => {
-											setSizeMin(parseOptionalNumber(event.target.value));
-											setOffset(0);
+											setFileQuery({
+												offset: 0,
+												sizeMin: parseOptionalNumber(event.target.value),
+											});
 										}}
 										placeholder={t("admin_size_min")}
 										className={`${ADMIN_CONTROL_HEIGHT_CLASS} w-32`}
@@ -848,8 +1075,10 @@ function AdminFilesPageView({ kind }: { kind: AdminFilesPageKind }) {
 									<Input
 										value={optionalNumberValue(sizeMax)}
 										onChange={(event) => {
-											setSizeMax(parseOptionalNumber(event.target.value));
-											setOffset(0);
+											setFileQuery({
+												offset: 0,
+												sizeMax: parseOptionalNumber(event.target.value),
+											});
 										}}
 										placeholder={t("admin_size_max")}
 										className={`${ADMIN_CONTROL_HEIGHT_CLASS} w-32`}
@@ -874,114 +1103,12 @@ function AdminFilesPageView({ kind }: { kind: AdminFilesPageKind }) {
 					items={items}
 					columns={isFiles ? 9 : 9}
 					rows={6}
-					emptyIcon={
-						<Icon name={isFiles ? "File" : "HardDrive"} className="size-10" />
-					}
+					emptyIcon={adminTableEmptyIcon}
 					emptyTitle={isFiles ? t("admin_no_files") : t("admin_no_blobs")}
 					emptyDescription={
 						isFiles ? t("admin_no_files_desc") : t("admin_no_blobs_desc")
 					}
-					headerRow={
-						<TableHeader>
-							<TableRow>
-								<AdminSortableTableHead
-									className="w-16"
-									sortKey="id"
-									sortBy={sortBy}
-									sortOrder={sortOrder}
-									onSortChange={handleSortChange}
-								>
-									{t("id")}
-								</AdminSortableTableHead>
-								{isFiles ? (
-									<>
-										<AdminSortableTableHead
-											sortKey="name"
-											sortBy={sortBy}
-											sortOrder={sortOrder}
-											onSortChange={handleSortChange}
-										>
-											{t("core:name")}
-										</AdminSortableTableHead>
-										<AdminSortableTableHead
-											sortKey="size"
-											sortBy={sortBy}
-											sortOrder={sortOrder}
-											onSortChange={handleSortChange}
-										>
-											{t("admin_size")}
-										</AdminSortableTableHead>
-										<AdminSortableTableHead
-											sortKey="blob_id"
-											sortBy={sortBy}
-											sortOrder={sortOrder}
-											onSortChange={handleSortChange}
-										>
-											{t("admin_blob_id")}
-										</AdminSortableTableHead>
-										<AdminSortableTableHead
-											sortKey="policy_id"
-											sortBy={sortBy}
-											sortOrder={sortOrder}
-											onSortChange={handleSortChange}
-										>
-											{t("admin_policy_id")}
-										</AdminSortableTableHead>
-										<TableHead>{t("admin_hash")}</TableHead>
-										<TableHead>{t("admin_uploaded_by")}</TableHead>
-										<TableHead>{t("core:status")}</TableHead>
-										<AdminSortableTableHead
-											sortKey="updated_at"
-											sortBy={sortBy}
-											sortOrder={sortOrder}
-											onSortChange={handleSortChange}
-										>
-											{t("admin_updated")}
-										</AdminSortableTableHead>
-									</>
-								) : (
-									<>
-										<AdminSortableTableHead
-											sortKey="hash"
-											sortBy={sortBy}
-											sortOrder={sortOrder}
-											onSortChange={handleSortChange}
-										>
-											{t("admin_hash")}
-										</AdminSortableTableHead>
-										<AdminSortableTableHead
-											sortKey="size"
-											sortBy={sortBy}
-											sortOrder={sortOrder}
-											onSortChange={handleSortChange}
-										>
-											{t("admin_size")}
-										</AdminSortableTableHead>
-										<AdminSortableTableHead
-											sortKey="policy_id"
-											sortBy={sortBy}
-											sortOrder={sortOrder}
-											onSortChange={handleSortChange}
-										>
-											{t("admin_policy_id")}
-										</AdminSortableTableHead>
-										<AdminSortableTableHead
-											sortKey="ref_count"
-											sortBy={sortBy}
-											sortOrder={sortOrder}
-											onSortChange={handleSortChange}
-										>
-											{t("admin_ref_count")}
-										</AdminSortableTableHead>
-										<TableHead>{t("admin_blob_health")}</TableHead>
-										<TableHead>{t("admin_uploaded_by")}</TableHead>
-										<TableHead>{t("admin_hash_kind")}</TableHead>
-										<TableHead>{t("admin_storage_path")}</TableHead>
-									</>
-								)}
-							</TableRow>
-						</TableHeader>
-					}
+					headerRow={adminTableHeaderRow}
 					renderRow={(item) =>
 						isFiles ? (
 							<FileRow
@@ -1001,7 +1128,7 @@ function AdminFilesPageView({ kind }: { kind: AdminFilesPageKind }) {
 				<AdminOffsetPagination
 					currentPage={currentPage}
 					nextDisabled={offset + pageSize >= total}
-					onNext={() => setOffset(offset + pageSize)}
+					onNext={() => setOffset((current) => current + pageSize)}
 					onPageSizeChange={handlePageSizeChange}
 					onPrevious={() => setOffset(Math.max(0, offset - pageSize))}
 					pageSize={String(pageSize)}
@@ -1021,8 +1148,37 @@ function AdminFilesPageView({ kind }: { kind: AdminFilesPageKind }) {
 			<BlobDetailDialog
 				blob={blobDetail}
 				open={blobDetail !== null}
+				maintenanceAction={
+					isMaintenanceBusy ? (maintenanceAction ?? "integrity_check") : null
+				}
 				onOpenChange={(open) => {
 					if (!open) setBlobDetail(null);
+				}}
+				onCreateMaintenanceTask={createMaintenanceTask}
+			/>
+			<ConfirmDialog
+				open={selectedFullMaintenanceAction !== null}
+				onOpenChange={(open) => {
+					if (!open) setFullMaintenanceAction(null);
+				}}
+				title={t("admin_blob_full_maintenance_confirm_title")}
+				description={
+					selectedFullMaintenanceAction
+						? t(
+								`admin_blob_full_maintenance_confirm_desc_${selectedFullMaintenanceAction}`,
+							)
+						: undefined
+				}
+				confirmLabel={t("admin_blob_full_maintenance_confirm")}
+				variant={
+					selectedFullMaintenanceAction === "orphan_cleanup"
+						? "destructive"
+						: "default"
+				}
+				onConfirm={() => {
+					if (!selectedFullMaintenanceAction) return;
+					void createMaintenanceTask(selectedFullMaintenanceAction);
+					setFullMaintenanceAction(null);
 				}}
 			/>
 		</AdminLayout>
@@ -1087,9 +1243,7 @@ function FileRow({
 			<TableCell>
 				<div className={ADMIN_TABLE_BADGE_CELL_CLASS}>
 					<Badge variant="outline">
-						{file.deleted_at
-							? t("admin_deleted_deleted")
-							: t("admin_deleted_live")}
+						{t(deletedFilterLabelKey(file.deleted_at ? "deleted" : "live"))}
 					</Badge>
 				</div>
 			</TableCell>

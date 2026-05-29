@@ -12,10 +12,10 @@ mod tests;
 pub use crate::types::{AuditAction, AuditEntityType};
 pub use context::{AuditContext, AuditRequestInfo};
 pub use details::{
-    AdminCreateUserDetails, AdminForceDeleteUserDetails, AdminTaskCleanupAuditDetails,
-    AdminUpdateUserDetails, ArchiveSelectionAuditDetails, AuthSessionAuditDetails,
-    BatchDeleteDetails, BatchTransferDetails, ConfigActionDetails, ConfigUpdateDetails,
-    FileAccessTokenAuditDetails, FileVersionAuditDetails, LockAuditDetails,
+    AdminBlobMaintenanceAuditDetails, AdminCreateUserDetails, AdminForceDeleteUserDetails,
+    AdminTaskCleanupAuditDetails, AdminUpdateUserDetails, ArchiveSelectionAuditDetails,
+    AuthSessionAuditDetails, BatchDeleteDetails, BatchTransferDetails, ConfigActionDetails,
+    ConfigUpdateDetails, FileAccessTokenAuditDetails, FileVersionAuditDetails, LockAuditDetails,
     LockCleanupAuditDetails, PolicyGroupAuditDetails, PolicyGroupMigrationDetails,
     PropertyAuditDetails, RemoteIngressProfileAuditDetails, RemoteNodeAuditDetails,
     ShareBatchDeleteDetails, ShareUpdateDetails, StoragePolicyAuditDetails, TaskRetryAuditDetails,

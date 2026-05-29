@@ -26,6 +26,11 @@
 	"summary_policy_id": "策略 #{{id}}",
 	"summary_cleanup_temp_files": "清理存储临时文件",
 	"summary_system_runtime": "执行系统任务 {{name}}",
+	"blob_maintenance_scope_all": "全部 Blob",
+	"blob_maintenance_scope_selected": "{{count}} 个 Blob",
+	"blob_maintenance_integrity_check_name": "检查{{scope}}完整性",
+	"blob_maintenance_ref_count_reconcile_name": "核对{{scope}}引用计数",
+	"blob_maintenance_orphan_cleanup_name": "清理{{scope}}孤儿对象",
 	"summary_root_folder": "我的文件",
 	"task_progress_title": "任务进度",
 	"task_details_title": "任务详情"

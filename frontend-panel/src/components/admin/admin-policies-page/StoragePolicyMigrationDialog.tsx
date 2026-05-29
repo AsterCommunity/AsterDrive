@@ -201,7 +201,7 @@ export function StoragePolicyMigrationDialog({
 										: t("policy_migration_cannot_start")}
 								</span>
 							</div>
-							<div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+							<div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
 								{[
 									{
 										label: t("policy_migration_source_objects"),
@@ -218,6 +218,10 @@ export function StoragePolicyMigrationDialog({
 									{
 										label: t("policy_migration_target_matching"),
 										value: dryRun.target_matching_blob_count,
+									},
+									{
+										label: t("policy_migration_opaque_key_conflicts"),
+										value: dryRun.opaque_key_conflict_count,
 									},
 								].map((item) => (
 									<div

@@ -31,6 +31,7 @@
 	"policy_migration_source_size": "源数据大小",
 	"policy_migration_estimated_copy": "需复制",
 	"policy_migration_target_matching": "目标已存在",
+	"policy_migration_opaque_key_conflicts": "Opaque Key 冲突",
 	"policy_migration_target_probe": "目标探测",
 	"policy_migration_stream_upload": "流式上传",
 	"policy_migration_capacity_check": "容量检查",

@@ -1,5 +1,6 @@
-import type { FormEvent, SetStateAction } from "react";
-import { useEffect, useRef, useState } from "react";
+import type { TFunction } from "i18next";
+import type { FormEvent, ReactNode, SetStateAction } from "react";
+import { useReducer } from "react";
 import { useTranslation } from "react-i18next";
 import { useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
@@ -30,6 +31,7 @@ import {
 	parseSortSearchParam,
 	type SortOrder,
 } from "@/lib/pagination";
+import { formatTaskKind as formatSharedTaskKind } from "@/pages/tasks/taskPresentation";
 import { adminTaskService } from "@/services/adminService";
 import type { AdminTaskSortBy } from "@/types/adminSort";
 import type {
@@ -68,6 +70,7 @@ const TASK_KIND_FILTER_VALUES = [
 	"thumbnail_generate",
 	"trash_purge_all",
 	"storage_policy_migration",
+	"blob_maintenance",
 	"system_runtime",
 ] as const;
 const TASK_STATUS_FILTER_VALUES = [
@@ -95,6 +98,32 @@ type TaskCleanupRequest = {
 	kind?: BackgroundTaskKind;
 	status?: (typeof TASK_TERMINAL_STATUS_FILTER_VALUES)[number];
 };
+type ManagedTaskQuery = {
+	offset: number;
+	pageSize: (typeof TASK_PAGE_SIZE_OPTIONS)[number];
+	kind: TaskKindFilter;
+	status: TaskStatusFilter;
+	sortBy: AdminTaskSortBy;
+	sortOrder: SortOrder;
+};
+type AdminTasksUiState = {
+	cleanupDialogOpen: boolean;
+	cleanupFinishedBefore: string;
+	cleanupKindFilter: TaskKindFilter;
+	cleanupStatusFilter: TaskTerminalStatusFilter;
+	cleanupSubmitting: boolean;
+	detailDialogTaskId: number | null;
+	resumingStorageMigrationTaskId: number | null;
+};
+type AdminTasksUiAction =
+	| { open: boolean; type: "set_cleanup_dialog_open" }
+	| { taskId: number | null; type: "set_detail_dialog_task" }
+	| { taskId: number | null; type: "set_resuming_storage_migration_task" }
+	| { value: string; type: "set_cleanup_finished_before" }
+	| { value: TaskKindFilter; type: "set_cleanup_kind_filter" }
+	| { value: TaskTerminalStatusFilter; type: "set_cleanup_status_filter" }
+	| { submitting: boolean; type: "set_cleanup_submitting" }
+	| { type: "reset_cleanup_conditions" };
 
 function normalizeOffset(offset: number) {
 	return Math.max(0, Math.floor(offset));
@@ -123,14 +152,7 @@ function buildManagedTaskSearchParams({
 	status,
 	sortBy,
 	sortOrder,
-}: {
-	offset: number;
-	pageSize: (typeof TASK_PAGE_SIZE_OPTIONS)[number];
-	kind: TaskKindFilter;
-	status: TaskStatusFilter;
-	sortBy: AdminTaskSortBy;
-	sortOrder: SortOrder;
-}) {
+}: ManagedTaskQuery) {
 	return buildOffsetPaginationSearchParams({
 		offset,
 		pageSize,
@@ -144,8 +166,8 @@ function buildManagedTaskSearchParams({
 	});
 }
 
-function getManagedTaskSearchString(searchParams: URLSearchParams) {
-	return buildManagedTaskSearchParams({
+function readManagedTaskQuery(searchParams: URLSearchParams): ManagedTaskQuery {
+	return {
 		offset: normalizeOffset(parseOffsetSearchParam(searchParams.get("offset"))),
 		pageSize: parsePageSizeSearchParam(
 			searchParams.get("pageSize"),
@@ -163,7 +185,7 @@ function getManagedTaskSearchString(searchParams: URLSearchParams) {
 			searchParams.get("sortOrder"),
 			DEFAULT_TASK_SORT_ORDER,
 		),
-	}).toString();
+	};
 }
 
 function mergeManagedTaskSearchParams(
@@ -188,133 +210,192 @@ function defaultCleanupFinishedBeforeValue() {
 	);
 }
 
-export default function AdminTasksPage() {
+function createInitialAdminTasksUiState(): AdminTasksUiState {
+	return {
+		cleanupDialogOpen: false,
+		cleanupFinishedBefore: defaultCleanupFinishedBeforeValue(),
+		cleanupKindFilter: "__all__",
+		cleanupStatusFilter: "__all__",
+		cleanupSubmitting: false,
+		detailDialogTaskId: null,
+		resumingStorageMigrationTaskId: null,
+	};
+}
+
+function adminTasksUiReducer(
+	state: AdminTasksUiState,
+	action: AdminTasksUiAction,
+): AdminTasksUiState {
+	switch (action.type) {
+		case "set_cleanup_dialog_open":
+			return { ...state, cleanupDialogOpen: action.open };
+		case "set_detail_dialog_task":
+			return { ...state, detailDialogTaskId: action.taskId };
+		case "set_resuming_storage_migration_task":
+			return { ...state, resumingStorageMigrationTaskId: action.taskId };
+		case "set_cleanup_finished_before":
+			return { ...state, cleanupFinishedBefore: action.value };
+		case "set_cleanup_kind_filter":
+			return { ...state, cleanupKindFilter: action.value };
+		case "set_cleanup_status_filter":
+			return { ...state, cleanupStatusFilter: action.value };
+		case "set_cleanup_submitting":
+			return { ...state, cleanupSubmitting: action.submitting };
+		case "reset_cleanup_conditions":
+			return {
+				...state,
+				cleanupFinishedBefore: defaultCleanupFinishedBeforeValue(),
+				cleanupKindFilter: "__all__",
+				cleanupStatusFilter: "__all__",
+			};
+	}
+}
+
+function formatTaskStatusLabel(t: TFunction, status: BackgroundTaskStatus) {
+	switch (status) {
+		case "pending":
+			return t("tasks:status_pending");
+		case "processing":
+			return t("tasks:status_processing");
+		case "retry":
+			return t("tasks:status_retry");
+		case "succeeded":
+			return t("tasks:status_succeeded");
+		case "failed":
+			return t("tasks:status_failed");
+		case "canceled":
+			return t("tasks:status_canceled");
+	}
+}
+
+function formatAdminTaskKind(t: TFunction, kind: BackgroundTaskKind) {
+	return formatSharedTaskKind(t, kind);
+}
+
+function formatAdminTaskSource(t: TFunction, task: TaskInfo): ReactNode {
+	if (task.team_id != null) {
+		return t("admin:overview_background_tasks_source_team", {
+			id: task.team_id,
+		});
+	}
+	if (task.creator) {
+		return <UserIdentity user={task.creator} />;
+	}
+	return t("admin:overview_background_tasks_source_system");
+}
+
+function buildTaskKindFilterOptions(t: TFunction) {
+	return [
+		{ label: t("admin:all_task_types"), value: "__all__" },
+		...TASK_KIND_FILTER_VALUES.map((value) => ({
+			label: formatAdminTaskKind(t, value),
+			value,
+		})),
+	] satisfies ReadonlyArray<{ label: string; value: string }>;
+}
+
+function buildTaskStatusFilterOptions(t: TFunction) {
+	return [
+		{ label: t("admin:all_task_statuses"), value: "__all__" },
+		...TASK_STATUS_FILTER_VALUES.map((value) => ({
+			label: formatTaskStatusLabel(t, value),
+			value,
+		})),
+	] satisfies ReadonlyArray<{ label: string; value: string }>;
+}
+
+function buildCleanupStatusFilterOptions(t: TFunction) {
+	return [
+		{ label: t("admin:all_completed_task_statuses"), value: "__all__" },
+		...TASK_TERMINAL_STATUS_FILTER_VALUES.map((value) => ({
+			label: formatTaskStatusLabel(t, value),
+			value,
+		})),
+	] satisfies ReadonlyArray<{ label: string; value: string }>;
+}
+
+function buildCleanupRequest(
+	cleanupFinishedBefore: string,
+	cleanupKindFilter: TaskKindFilter,
+	cleanupStatusFilter: TaskTerminalStatusFilter,
+): TaskCleanupRequest | null {
+	const finishedBefore = toIsoDateTime(cleanupFinishedBefore);
+	if (finishedBefore == null) {
+		return null;
+	}
+	return {
+		finished_before: finishedBefore,
+		...(cleanupKindFilter !== "__all__" ? { kind: cleanupKindFilter } : {}),
+		...(cleanupStatusFilter !== "__all__"
+			? { status: cleanupStatusFilter }
+			: {}),
+	};
+}
+
+function describeCleanupConditions(
+	t: TFunction,
+	request: TaskCleanupRequest | null,
+) {
+	if (request == null) {
+		return t("admin:task_cleanup_confirm_desc_invalid");
+	}
+	return t("admin:task_cleanup_confirm_desc", {
+		finishedBefore: formatDateTime(request.finished_before),
+		kind:
+			request.kind != null
+				? formatAdminTaskKind(t, request.kind)
+				: t("admin:all_task_types"),
+		status:
+			request.status != null
+				? formatTaskStatusLabel(t, request.status)
+				: t("admin:all_completed_task_statuses"),
+	});
+}
+
+function useAdminTasksPageContent() {
 	const { t } = useTranslation(["admin", "tasks", "core"]);
 	usePageTitle(t("admin:tasks"));
 	const [searchParams, setSearchParams] = useSearchParams();
-	const [offset, setOffsetState] = useState(
-		normalizeOffset(parseOffsetSearchParam(searchParams.get("offset"))),
+	const taskQuery = readManagedTaskQuery(searchParams);
+	const {
+		kind: kindFilter,
+		offset,
+		pageSize,
+		sortBy,
+		sortOrder,
+		status: statusFilter,
+	} = taskQuery;
+	const [uiState, dispatchUi] = useReducer(
+		adminTasksUiReducer,
+		undefined,
+		createInitialAdminTasksUiState,
 	);
-	const [pageSize, setPageSize] = useState<
-		(typeof TASK_PAGE_SIZE_OPTIONS)[number]
-	>(
-		parsePageSizeSearchParam(
-			searchParams.get("pageSize"),
-			TASK_PAGE_SIZE_OPTIONS,
-			DEFAULT_TASK_PAGE_SIZE,
-		),
-	);
-	const [kindFilter, setKindFilter] = useState<TaskKindFilter>(
-		parseTaskKindSearchParam(searchParams.get("kind")),
-	);
-	const [statusFilter, setStatusFilter] = useState<TaskStatusFilter>(
-		parseTaskStatusSearchParam(searchParams.get("status")),
-	);
-	const [sortBy, setSortBy] = useState<AdminTaskSortBy>(
-		parseSortSearchParam(
-			searchParams.get("sortBy"),
-			TASK_SORT_BY_OPTIONS,
-			DEFAULT_TASK_SORT_BY,
-		),
-	);
-	const [sortOrder, setSortOrder] = useState<SortOrder>(
-		parseSortOrderSearchParam(
-			searchParams.get("sortOrder"),
-			DEFAULT_TASK_SORT_ORDER,
-		),
-	);
-	const [cleanupDialogOpen, setCleanupDialogOpen] = useState(false);
-	const [detailDialogTaskId, setDetailDialogTaskId] = useState<number | null>(
-		null,
-	);
-	const [resumingStorageMigrationTaskId, setResumingStorageMigrationTaskId] =
-		useState<number | null>(null);
-	const [cleanupFinishedBefore, setCleanupFinishedBefore] = useState(
-		defaultCleanupFinishedBeforeValue,
-	);
-	const [cleanupKindFilter, setCleanupKindFilter] =
-		useState<TaskKindFilter>("__all__");
-	const [cleanupStatusFilter, setCleanupStatusFilter] =
-		useState<TaskTerminalStatusFilter>("__all__");
-	const [cleanupSubmitting, setCleanupSubmitting] = useState(false);
-	const lastWrittenSearchRef = useRef<string | null>(null);
-	const setOffset = (value: SetStateAction<number>) => {
-		setOffsetState((current) =>
-			normalizeOffset(typeof value === "function" ? value(current) : value),
-		);
-	};
-
-	useEffect(() => {
-		const managedSearch = getManagedTaskSearchString(searchParams);
-		if (managedSearch === lastWrittenSearchRef.current) {
-			return;
-		}
-
-		const nextOffset = normalizeOffset(
-			parseOffsetSearchParam(searchParams.get("offset")),
-		);
-		const nextPageSize = parsePageSizeSearchParam(
-			searchParams.get("pageSize"),
-			TASK_PAGE_SIZE_OPTIONS,
-			DEFAULT_TASK_PAGE_SIZE,
-		);
-		const nextKind = parseTaskKindSearchParam(searchParams.get("kind"));
-		const nextStatus = parseTaskStatusSearchParam(searchParams.get("status"));
-		const nextSortBy = parseSortSearchParam(
-			searchParams.get("sortBy"),
-			TASK_SORT_BY_OPTIONS,
-			DEFAULT_TASK_SORT_BY,
-		);
-		const nextSortOrder = parseSortOrderSearchParam(
-			searchParams.get("sortOrder"),
-			DEFAULT_TASK_SORT_ORDER,
-		);
-
-		setOffsetState((prev) => (prev === nextOffset ? prev : nextOffset));
-		setPageSize((prev) => (prev === nextPageSize ? prev : nextPageSize));
-		setKindFilter((prev) => (prev === nextKind ? prev : nextKind));
-		setStatusFilter((prev) => (prev === nextStatus ? prev : nextStatus));
-		setSortBy((prev) => (prev === nextSortBy ? prev : nextSortBy));
-		setSortOrder((prev) => (prev === nextSortOrder ? prev : nextSortOrder));
-	}, [searchParams]);
-
-	useEffect(() => {
+	const {
+		cleanupDialogOpen,
+		cleanupFinishedBefore,
+		cleanupKindFilter,
+		cleanupStatusFilter,
+		cleanupSubmitting,
+		detailDialogTaskId,
+		resumingStorageMigrationTaskId,
+	} = uiState;
+	const setTaskQuery = (updates: Partial<ManagedTaskQuery>) => {
 		const nextManagedSearchParams = buildManagedTaskSearchParams({
-			offset,
-			pageSize,
-			kind: kindFilter,
-			status: statusFilter,
-			sortBy,
-			sortOrder,
+			...taskQuery,
+			...updates,
 		});
-		const nextSearch = nextManagedSearchParams.toString();
-		const currentSearch = getManagedTaskSearchString(searchParams);
-		if (
-			currentSearch !== lastWrittenSearchRef.current &&
-			currentSearch !== nextSearch
-		) {
-			return;
-		}
-
-		lastWrittenSearchRef.current = nextSearch;
-		if (nextSearch === currentSearch) {
-			return;
-		}
-
 		setSearchParams(
 			mergeManagedTaskSearchParams(searchParams, nextManagedSearchParams),
 			{ replace: true },
 		);
-	}, [
-		kindFilter,
-		offset,
-		pageSize,
-		searchParams,
-		setSearchParams,
-		sortBy,
-		sortOrder,
-		statusFilter,
-	]);
+	};
+	const setOffset = (value: SetStateAction<number>) => {
+		setTaskQuery({
+			offset: normalizeOffset(
+				typeof value === "function" ? value(offset) : value,
+			),
+		});
+	};
 
 	const { items, loading, reload, total } = useApiList(
 		() =>
@@ -329,15 +410,6 @@ export default function AdminTasksPage() {
 		[kindFilter, offset, pageSize, sortBy, sortOrder, statusFilter],
 	);
 
-	useEffect(() => {
-		if (detailDialogTaskId == null) {
-			return;
-		}
-		if (!items.some((task) => task.id === detailDialogTaskId)) {
-			setDetailDialogTaskId(null);
-		}
-	}, [detailDialogTaskId, items]);
-
 	const activeFilterCount =
 		(kindFilter !== "__all__" ? 1 : 0) + (statusFilter !== "__all__" ? 1 : 0);
 	const hasServerFilters = activeFilterCount > 0;
@@ -345,155 +417,61 @@ export default function AdminTasksPage() {
 	const currentPage = Math.floor(offset / pageSize) + 1;
 	const prevPageDisabled = offset === 0;
 	const nextPageDisabled = offset + pageSize >= total;
+	const visibleDetailTaskId =
+		detailDialogTaskId != null &&
+		items.some((task) => task.id === detailDialogTaskId)
+			? detailDialogTaskId
+			: null;
 	const pageSizeOptions = TASK_PAGE_SIZE_OPTIONS.map((size) => ({
 		label: t("admin:page_size_option", { count: size }),
 		value: String(size),
 	}));
 
-	const formatTaskStatus = (status: BackgroundTaskStatus) => {
-		switch (status) {
-			case "pending":
-				return t("tasks:status_pending");
-			case "processing":
-				return t("tasks:status_processing");
-			case "retry":
-				return t("tasks:status_retry");
-			case "succeeded":
-				return t("tasks:status_succeeded");
-			case "failed":
-				return t("tasks:status_failed");
-			case "canceled":
-				return t("tasks:status_canceled");
-		}
-	};
-
-	const formatTaskKind = (kind: BackgroundTaskKind) => {
-		switch (kind) {
-			case "archive_extract":
-				return t("tasks:kind_archive_extract");
-			case "archive_compress":
-				return t("tasks:kind_archive_compress");
-			case "archive_preview_generate":
-				return t("tasks:kind_archive_preview_generate");
-			case "thumbnail_generate":
-				return t("tasks:kind_thumbnail_generate");
-			case "trash_purge_all":
-				return t("tasks:kind_trash_purge_all");
-			case "storage_policy_migration":
-				return t("tasks:kind_storage_policy_migration");
-			case "system_runtime":
-				return t("tasks:kind_system_runtime");
-			default:
-				return String(kind).replaceAll("_", " ");
-		}
-	};
-
-	const formatTaskSource = (task: TaskInfo) => {
-		if (task.team_id != null) {
-			return t("admin:overview_background_tasks_source_team", {
-				id: task.team_id,
-			});
-		}
-		if (task.creator) {
-			return <UserIdentity user={task.creator} />;
-		}
-		return t("admin:overview_background_tasks_source_system");
-	};
-
-	const taskKindFilterOptions = [
-		{ label: t("admin:all_task_types"), value: "__all__" },
-		...TASK_KIND_FILTER_VALUES.map((value) => ({
-			label: formatTaskKind(value),
-			value,
-		})),
-	] satisfies ReadonlyArray<{ label: string; value: string }>;
-	const taskStatusFilterOptions = [
-		{ label: t("admin:all_task_statuses"), value: "__all__" },
-		...TASK_STATUS_FILTER_VALUES.map((value) => ({
-			label: formatTaskStatus(value),
-			value,
-		})),
-	] satisfies ReadonlyArray<{ label: string; value: string }>;
-	const cleanupStatusFilterOptions = [
-		{ label: t("admin:all_completed_task_statuses"), value: "__all__" },
-		...TASK_TERMINAL_STATUS_FILTER_VALUES.map((value) => ({
-			label: formatTaskStatus(value),
-			value,
-		})),
-	] satisfies ReadonlyArray<{ label: string; value: string }>;
+	const taskKindFilterOptions = buildTaskKindFilterOptions(t);
+	const taskStatusFilterOptions = buildTaskStatusFilterOptions(t);
+	const cleanupStatusFilterOptions = buildCleanupStatusFilterOptions(t);
 
 	const resetFilters = () => {
-		setKindFilter("__all__");
-		setStatusFilter("__all__");
-		setOffset(0);
+		setTaskQuery({ kind: "__all__", offset: 0, status: "__all__" });
 	};
 
 	const resetCleanupConditions = () => {
-		setCleanupFinishedBefore(defaultCleanupFinishedBeforeValue());
-		setCleanupKindFilter("__all__");
-		setCleanupStatusFilter("__all__");
+		dispatchUi({ type: "reset_cleanup_conditions" });
 	};
 
 	const handlePageSizeChange = (value: string | null) => {
 		const next = parsePageSizeOption(value, TASK_PAGE_SIZE_OPTIONS);
 		if (next == null) return;
-		setPageSize(next);
-		setOffset(0);
+		setTaskQuery({ offset: 0, pageSize: next });
 	};
 
 	const handleKindFilterChange = (value: string | null) => {
-		setKindFilter(
-			value === "__all__" ? "__all__" : parseTaskKindSearchParam(value),
-		);
-		setOffset(0);
+		setTaskQuery({
+			kind: value === "__all__" ? "__all__" : parseTaskKindSearchParam(value),
+			offset: 0,
+		});
 	};
 
 	const handleStatusFilterChange = (value: string | null) => {
-		setStatusFilter(
-			value === "__all__" ? "__all__" : parseTaskStatusSearchParam(value),
-		);
-		setOffset(0);
+		setTaskQuery({
+			offset: 0,
+			status:
+				value === "__all__" ? "__all__" : parseTaskStatusSearchParam(value),
+		});
 	};
 
 	const handleSortChange = (
 		nextSortBy: AdminTaskSortBy,
 		nextOrder: SortOrder,
 	) => {
-		setSortBy(nextSortBy);
-		setSortOrder(nextOrder);
-		setOffset(0);
+		setTaskQuery({ offset: 0, sortBy: nextSortBy, sortOrder: nextOrder });
 	};
 
-	const cleanupRequest = (() => {
-		const finishedBefore = toIsoDateTime(cleanupFinishedBefore);
-		if (finishedBefore == null) {
-			return null;
-		}
-		return {
-			finished_before: finishedBefore,
-			...(cleanupKindFilter !== "__all__" ? { kind: cleanupKindFilter } : {}),
-			...(cleanupStatusFilter !== "__all__"
-				? { status: cleanupStatusFilter }
-				: {}),
-		} satisfies TaskCleanupRequest;
-	})();
-
-	const describeCleanupConditions = (request: TaskCleanupRequest | null) => {
-		if (request == null) {
-			return t("admin:task_cleanup_confirm_desc_invalid");
-		}
-		return t("admin:task_cleanup_confirm_desc", {
-			finishedBefore: formatDateTime(request.finished_before),
-			kind:
-				request.kind != null
-					? formatTaskKind(request.kind)
-					: t("admin:all_task_types"),
-			status:
-				request.status != null
-					? formatTaskStatus(request.status)
-					: t("admin:all_completed_task_statuses"),
-		});
-	};
+	const cleanupRequest = buildCleanupRequest(
+		cleanupFinishedBefore,
+		cleanupKindFilter,
+		cleanupStatusFilter,
+	);
 
 	const handleCleanupSubmit = async (event: FormEvent<HTMLFormElement>) => {
 		event.preventDefault();
@@ -501,11 +479,11 @@ export default function AdminTasksPage() {
 			return;
 		}
 
-		setCleanupSubmitting(true);
+		dispatchUi({ submitting: true, type: "set_cleanup_submitting" });
 		try {
 			const result = await adminTaskService.cleanupCompleted(cleanupRequest);
 			toast.success(t("admin:tasks_cleaned", { count: result.removed }));
-			setCleanupDialogOpen(false);
+			dispatchUi({ open: false, type: "set_cleanup_dialog_open" });
 			if (offset !== 0) {
 				setOffset(0);
 			} else {
@@ -514,7 +492,7 @@ export default function AdminTasksPage() {
 		} catch (error) {
 			handleApiError(error);
 		} finally {
-			setCleanupSubmitting(false);
+			dispatchUi({ submitting: false, type: "set_cleanup_submitting" });
 		}
 	};
 
@@ -523,7 +501,10 @@ export default function AdminTasksPage() {
 			return;
 		}
 
-		setResumingStorageMigrationTaskId(taskId);
+		dispatchUi({
+			taskId,
+			type: "set_resuming_storage_migration_task",
+		});
 		try {
 			await adminTaskService.resumeStoragePolicyMigration(taskId);
 			toast.success(t("admin:storage_migration_resume_queued"));
@@ -531,7 +512,10 @@ export default function AdminTasksPage() {
 		} catch (error) {
 			handleApiError(error);
 		} finally {
-			setResumingStorageMigrationTaskId(null);
+			dispatchUi({
+				taskId: null,
+				type: "set_resuming_storage_migration_task",
+			});
 		}
 	};
 
@@ -547,7 +531,9 @@ export default function AdminTasksPage() {
 								variant="outline"
 								size="sm"
 								className={ADMIN_CONTROL_HEIGHT_CLASS}
-								onClick={() => setCleanupDialogOpen(true)}
+								onClick={() =>
+									dispatchUi({ open: true, type: "set_cleanup_dialog_open" })
+								}
 								disabled={cleanupSubmitting}
 							>
 								<Icon name="Trash" className="mr-1 size-3.5" />
@@ -607,13 +593,23 @@ export default function AdminTasksPage() {
 				) : (
 					<AdminTaskTable
 						items={items}
-						detailTaskId={detailDialogTaskId}
-						formatTaskKind={formatTaskKind}
-						formatTaskSource={formatTaskSource}
-						formatTaskStatus={formatTaskStatus}
-						onOpenDetail={setDetailDialogTaskId}
+						detailTaskId={visibleDetailTaskId}
+						formatTaskKind={(kind) => formatAdminTaskKind(t, kind)}
+						formatTaskSource={(task) => formatAdminTaskSource(t, task)}
+						formatTaskStatus={(status) => formatTaskStatusLabel(t, status)}
+						onOpenDetail={(taskId) =>
+							dispatchUi({
+								taskId,
+								type: "set_detail_dialog_task",
+							})
+						}
 						onOpenDetailChange={(open) => {
-							if (!open) setDetailDialogTaskId(null);
+							if (!open) {
+								dispatchUi({
+									taskId: null,
+									type: "set_detail_dialog_task",
+								});
+							}
 						}}
 						onResumeStorageMigration={(taskId) =>
 							void handleResumeStorageMigration(taskId)
@@ -642,26 +638,37 @@ export default function AdminTasksPage() {
 			</AdminPageShell>
 
 			<AdminTaskCleanupDialog
-				description={describeCleanupConditions(cleanupRequest)}
+				description={describeCleanupConditions(t, cleanupRequest)}
 				finishedBefore={cleanupFinishedBefore}
 				kindFilter={cleanupKindFilter}
 				kindOptions={taskKindFilterOptions}
-				onFinishedBeforeChange={setCleanupFinishedBefore}
-				onKindFilterChange={(value) =>
-					setCleanupKindFilter(
-						value == null || value === "__all__"
-							? "__all__"
-							: parseTaskKindSearchParam(value),
-					)
+				onFinishedBeforeChange={(value) =>
+					dispatchUi({
+						type: "set_cleanup_finished_before",
+						value,
+					})
 				}
-				onOpenChange={setCleanupDialogOpen}
+				onKindFilterChange={(value) =>
+					dispatchUi({
+						type: "set_cleanup_kind_filter",
+						value:
+							value == null || value === "__all__"
+								? "__all__"
+								: parseTaskKindSearchParam(value),
+					})
+				}
+				onOpenChange={(open) =>
+					dispatchUi({ open, type: "set_cleanup_dialog_open" })
+				}
 				onResetConditions={resetCleanupConditions}
 				onStatusFilterChange={(value) =>
-					setCleanupStatusFilter(
-						value == null || value === "__all__"
-							? "__all__"
-							: (value as TaskTerminalStatusFilter),
-					)
+					dispatchUi({
+						type: "set_cleanup_status_filter",
+						value:
+							value == null || value === "__all__"
+								? "__all__"
+								: (value as TaskTerminalStatusFilter),
+					})
 				}
 				onSubmit={handleCleanupSubmit}
 				open={cleanupDialogOpen}
@@ -672,4 +679,8 @@ export default function AdminTasksPage() {
 			/>
 		</AdminLayout>
 	);
+}
+
+export default function AdminTasksPage() {
+	return useAdminTasksPageContent();
 }

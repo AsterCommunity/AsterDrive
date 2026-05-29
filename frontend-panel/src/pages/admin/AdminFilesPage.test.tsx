@@ -12,6 +12,7 @@ import type {
 } from "@/types/api";
 
 const mockState = vi.hoisted(() => ({
+	createBlobMaintenanceTask: vi.fn(),
 	getBlob: vi.fn(),
 	getFile: vi.fn(),
 	handleApiError: vi.fn(),
@@ -171,6 +172,36 @@ vi.mock("@/components/common/AdminTableList", () => ({
 		),
 }));
 
+vi.mock("@/components/common/ConfirmDialog", () => ({
+	ConfirmDialog: ({
+		confirmLabel,
+		description,
+		onConfirm,
+		onOpenChange,
+		open,
+		title,
+	}: {
+		confirmLabel?: string;
+		description?: string;
+		onConfirm: () => void;
+		onOpenChange?: (open: boolean) => void;
+		open: boolean;
+		title: string;
+	}) =>
+		open ? (
+			<div>
+				<h2>{title}</h2>
+				{description ? <p>{description}</p> : null}
+				<button type="button" onClick={() => onOpenChange?.(false)}>
+					close-confirm
+				</button>
+				<button type="button" onClick={onConfirm}>
+					{confirmLabel ?? "confirm"}
+				</button>
+			</div>
+		) : null,
+}));
+
 vi.mock("@/components/layout/AdminLayout", () => ({
 	AdminLayout: ({ children }: { children: React.ReactNode }) => (
 		<div>{children}</div>
@@ -255,6 +286,27 @@ vi.mock("@/components/ui/dialog", () => ({
 	DialogTitle: ({ children }: { children: React.ReactNode }) => (
 		<h2>{children}</h2>
 	),
+}));
+
+vi.mock("@/components/ui/dropdown-menu", () => ({
+	DropdownMenu: ({ children }: { children: React.ReactNode }) => (
+		<div>{children}</div>
+	),
+	DropdownMenuContent: ({ children }: { children: React.ReactNode }) => (
+		<div>{children}</div>
+	),
+	DropdownMenuItem: ({
+		children,
+		onClick,
+	}: {
+		children: React.ReactNode;
+		onClick?: () => void;
+	}) => (
+		<button type="button" onClick={onClick}>
+			{children}
+		</button>
+	),
+	DropdownMenuTrigger: ({ render }: { render: React.ReactNode }) => render,
 }));
 
 vi.mock("@/components/ui/icon", () => ({
@@ -388,6 +440,8 @@ vi.mock("@/lib/format", () => ({
 
 vi.mock("@/services/adminService", () => ({
 	adminFileService: {
+		createBlobMaintenanceTask: (...args: unknown[]) =>
+			mockState.createBlobMaintenanceTask(...args),
 		getBlob: (...args: unknown[]) => mockState.getBlob(...args),
 		getFile: (...args: unknown[]) => mockState.getFile(...args),
 		listBlobs: (...args: unknown[]) => mockState.listBlobs(...args),
@@ -547,12 +601,14 @@ function renderPage(kind: "files" | "blobs", initialEntry = "/admin/files") {
 
 describe("AdminFilesPage", () => {
 	beforeEach(() => {
+		mockState.createBlobMaintenanceTask.mockReset();
 		mockState.getBlob.mockReset();
 		mockState.getFile.mockReset();
 		mockState.handleApiError.mockReset();
 		mockState.listBlobs.mockReset();
 		mockState.listFiles.mockReset();
 
+		mockState.createBlobMaintenanceTask.mockResolvedValue({ id: 9001 });
 		mockState.getBlob.mockResolvedValue(createBlobDetail());
 		mockState.getFile.mockResolvedValue(createFileDetail());
 		mockState.listBlobs.mockResolvedValue({
@@ -588,6 +644,8 @@ describe("AdminFilesPage", () => {
 		expect(screen.getByText("Root User")).toBeInTheDocument();
 		expect(screen.getByText("@root")).toBeInTheDocument();
 		expect(screen.getByText("select:live")).toBeInTheDocument();
+		expect(screen.getAllByText("admin_deleted_live").length).toBeGreaterThan(0);
+		expect(screen.queryByText("__all__")).not.toBeInTheDocument();
 
 		fireEvent.change(screen.getByPlaceholderText("admin_policy_id"), {
 			target: { value: "3" },
@@ -626,6 +684,21 @@ describe("AdminFilesPage", () => {
 		expect(screen.getByText(/v2/)).toBeInTheDocument();
 		expect(screen.getByText(/version-hash/)).toBeInTheDocument();
 		expect(screen.getAllByText("Root User").length).toBeGreaterThan(1);
+	});
+
+	it("opens file details from keyboard activation", async () => {
+		renderPage("files");
+
+		const fileCell = await screen.findByText("report.txt");
+		const row = fileCell.closest("tr");
+		if (!row) {
+			throw new Error("Expected file row");
+		}
+		fireEvent.keyDown(row, { key: "Enter" });
+
+		await waitFor(() => {
+			expect(mockState.getFile).toHaveBeenCalledWith(21);
+		});
 	});
 
 	it("lists blobs with numeric filters and opens blob details", async () => {
@@ -692,6 +765,94 @@ describe("AdminFilesPage", () => {
 		).toBeGreaterThan(0);
 		expect(screen.getByText("admin_actual_ref_count")).toBeInTheDocument();
 		expect(screen.getAllByText(/#45/).length).toBeGreaterThan(0);
+	});
+
+	it("updates blob range filters, pagination, and detail dialog visibility", async () => {
+		mockState.listBlobs
+			.mockResolvedValueOnce({
+				items: [createBlob()],
+				total: 45,
+			})
+			.mockResolvedValue({
+				items: [createBlob()],
+				total: 45,
+			});
+
+		renderPage("blobs", "/admin/file-blobs?offset=20");
+
+		await waitFor(() => {
+			expect(mockState.listBlobs).toHaveBeenCalledWith({
+				hash: undefined,
+				limit: 20,
+				offset: 20,
+				policy_id: undefined,
+				ref_count_max: undefined,
+				ref_count_min: undefined,
+				size_max: undefined,
+				size_min: undefined,
+				sort_by: "created_at",
+				sort_order: "desc",
+				storage_path: undefined,
+			});
+		});
+
+		fireEvent.click(screen.getByText("next"));
+		await waitFor(() => {
+			expect(screen.getByTestId("location-search").textContent).toContain(
+				"offset=40",
+			);
+		});
+
+		fireEvent.change(screen.getByPlaceholderText("admin_ref_count_max"), {
+			target: { value: "5" },
+		});
+		fireEvent.change(screen.getByPlaceholderText("admin_size_min"), {
+			target: { value: "1024" },
+		});
+
+		await waitFor(() => {
+			expect(mockState.listBlobs).toHaveBeenLastCalledWith({
+				hash: undefined,
+				limit: 20,
+				offset: 0,
+				policy_id: undefined,
+				ref_count_max: 5,
+				ref_count_min: undefined,
+				size_max: undefined,
+				size_min: 1024,
+				sort_by: "created_at",
+				sort_order: "desc",
+				storage_path: undefined,
+			});
+		});
+
+		await waitFor(() => {
+			expect(screen.getByTestId("location-search").textContent).not.toContain(
+				"offset=40",
+			);
+		});
+
+		fireEvent.click(await screen.findByText("fedcba9876...fedcba"));
+		expect(await screen.findByText("Blob #31")).toBeInTheDocument();
+		fireEvent.click(screen.getByText("close"));
+		await waitFor(() => {
+			expect(screen.queryByText("Blob #31")).not.toBeInTheDocument();
+		});
+	});
+
+	it("opens blob details from keyboard activation", async () => {
+		renderPage("blobs");
+
+		const blobCell = await screen.findByText("fedcba9876...fedcba");
+		const row = blobCell.closest("tr");
+		if (!row) {
+			throw new Error("Expected blob row");
+		}
+		fireEvent.keyDown(row, { key: " " });
+
+		await waitFor(() => {
+			expect(mockState.getBlob).toHaveBeenCalledWith(31);
+		});
 	});
 
 	it("renders every blob health state with reference counters", async () => {
@@ -789,6 +950,163 @@ describe("AdminFilesPage", () => {
 		expect(screen.getByText("9")).toBeInTheDocument();
 		expect(screen.getByText("3")).toBeInTheDocument();
 		expect(screen.getByText("+1")).toBeInTheDocument();
+	});
+
+	it("creates blob maintenance tasks from blob detail actions", async () => {
+		renderPage("blobs");
+		fireEvent.click(await screen.findByText("fedcba9876...fedcba"));
+
+		expect(await screen.findByText("Blob #31")).toBeInTheDocument();
+		fireEvent.click(
+			screen.getAllByRole("button", {
+				name: /admin_blob_action_integrity_check/,
+			})[1],
+		);
+
+		await waitFor(() => {
+			expect(mockState.createBlobMaintenanceTask).toHaveBeenCalledWith({
+				action: "integrity_check",
+				blob_ids: [31],
+			});
+		});
+		expect(
+			screen.getAllByRole("button", {
+				name: /admin_blob_action_cleanup_orphan/,
+			})[1],
+		).toBeDisabled();
+	});
+
+	it("creates full blob maintenance tasks from the page action menu", async () => {
+		renderPage("blobs");
+
+		fireEvent.click(
+			await screen.findByRole("button", {
+				name: /admin_blob_action_reconcile_refs/,
+			}),
+		);
+		expect(
+			screen.getByText(
+				"admin_blob_full_maintenance_confirm_desc_ref_count_reconcile",
+			),
+		).toBeInTheDocument();
+		fireEvent.click(
+			screen.getByRole("button", {
+				name: "admin_blob_full_maintenance_confirm",
+			}),
+		);
+
+		await waitFor(() => {
+			expect(mockState.createBlobMaintenanceTask).toHaveBeenCalledWith({
+				action: "ref_count_reconcile",
+			});
+		});
+	});
+
+	it("can cancel and confirm destructive full blob maintenance", async () => {
+		renderPage("blobs");
+
+		fireEvent.click(
+			await screen.findByRole("button", {
+				name: /admin_blob_action_cleanup_orphan/,
+			}),
+		);
+		expect(
+			screen.getByText(
+				"admin_blob_full_maintenance_confirm_desc_orphan_cleanup",
+			),
+		).toBeInTheDocument();
+		fireEvent.click(screen.getByText("close-confirm"));
+		expect(
+			screen.queryByText(
+				"admin_blob_full_maintenance_confirm_desc_orphan_cleanup",
+			),
+		).not.toBeInTheDocument();
+
+		fireEvent.click(
+			screen.getByRole("button", {
+				name: /admin_blob_action_cleanup_orphan/,
+			}),
+		);
+		fireEvent.click(
+			screen.getByRole("button", {
+				name: "admin_blob_full_maintenance_confirm",
+			}),
+		);
+
+		await waitFor(() => {
+			expect(mockState.createBlobMaintenanceTask).toHaveBeenCalledWith({
+				action: "orphan_cleanup",
+			});
+		});
+	});
+
+	it("only enables orphan cleanup for orphan blobs", async () => {
+		mockState.listBlobs.mockResolvedValue({
+			items: [
+				createBlob({
+					actual_ref_count: 0,
+					file_ref_count: 0,
+					health: "orphan",
+					id: 32,
+					ref_count: 0,
+					version_ref_count: 0,
+				}),
+			],
+			total: 1,
+		});
+		mockState.getBlob.mockResolvedValueOnce(
+			createBlobDetail({
+				actual_ref_count: 0,
+				file_ref_count: 0,
+				health: "orphan",
+				id: 32,
+				ref_count: 0,
+				version_ref_count: 0,
+			}),
+		);
+
+		renderPage("blobs");
+		const blobCell = await screen.findByText("fedcba9876...fedcba");
+		fireEvent.click(blobCell);
+		await waitFor(() => {
+			expect(mockState.getBlob).toHaveBeenCalledWith(32);
+		});
+		expect(await screen.findByText("Blob #32")).toBeInTheDocument();
+
+		const cleanupButton = (
+			await screen.findAllByRole("button", {
+				name: /admin_blob_action_cleanup_orphan/,
+			})
+		)[1];
+		expect(cleanupButton).toBeEnabled();
+		fireEvent.click(cleanupButton);
+
+		await waitFor(() => {
+			expect(mockState.createBlobMaintenanceTask).toHaveBeenCalledWith({
+				action: "orphan_cleanup",
+				blob_ids: [32],
+			});
+		});
+	});
+
+	it("reports blob maintenance action failures through the shared API error handler", async () => {
+		const error = new Error("maintenance failed");
+		mockState.createBlobMaintenanceTask.mockRejectedValueOnce(error);
+
+		renderPage("blobs");
+		fireEvent.click(await screen.findByText("fedcba9876...fedcba"));
+		expect(await screen.findByText("Blob #31")).toBeInTheDocument();
+		fireEvent.click(
+			(
+				await screen.findAllByRole("button", {
+					name: /admin_blob_action_integrity_check/,
+				})
+			)[1],
+		);
+
+		await waitFor(() => {
+			expect(mockState.handleApiError).toHaveBeenCalledWith(error);
+		});
 	});
 
 	it("reports detail loading failures through the shared API error handler", async () => {

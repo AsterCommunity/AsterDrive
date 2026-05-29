@@ -1,12 +1,7 @@
-import type {
-	S3DownloadStrategy,
-	S3UploadStrategy,
-} from "@/components/admin/storagePolicyDialogShared";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ADMIN_CONTROL_HEIGHT_CLASS } from "@/lib/constants";
-import type { SelectOption, SharedFieldProps } from "./StoragePolicyFieldTypes";
-import { StrategySelectField } from "./StoragePolicyStrategyFields";
+import type { SharedFieldProps } from "./StoragePolicyFieldTypes";
 
 export function S3ConnectionFields({
 	bucketError,
@@ -94,69 +89,5 @@ export function S3ConnectionFields({
 				</div>
 			</div>
 		</>
-	);
-}
-
-export function S3UploadStrategyField({
-	form,
-	onFieldChange,
-	t,
-}: SharedFieldProps) {
-	const options = [
-		{
-			label: t("upload_strategy_relay_stream"),
-			value: "relay_stream",
-		},
-		{
-			label: t("upload_strategy_presigned"),
-			value: "presigned",
-		},
-	] satisfies ReadonlyArray<SelectOption<S3UploadStrategy>>;
-
-	return (
-		<StrategySelectField
-			id="s3_upload_strategy"
-			label={t("s3_upload_strategy")}
-			options={options}
-			value={form.s3_upload_strategy}
-			onChange={(value) => onFieldChange("s3_upload_strategy", value)}
-			description={t(
-				form.s3_upload_strategy === "relay_stream"
-					? "upload_strategy_relay_stream_desc"
-					: "upload_strategy_presigned_desc",
-			)}
-		/>
-	);
-}
-
-export function S3DownloadStrategyField({
-	form,
-	onFieldChange,
-	t,
-}: SharedFieldProps) {
-	const options = [
-		{
-			label: t("download_strategy_relay_stream"),
-			value: "relay_stream",
-		},
-		{
-			label: t("download_strategy_presigned"),
-			value: "presigned",
-		},
-	] satisfies ReadonlyArray<SelectOption<S3DownloadStrategy>>;
-
-	return (
-		<StrategySelectField
-			id="s3_download_strategy"
-			label={t("s3_download_strategy")}
-			options={options}
-			value={form.s3_download_strategy}
-			onChange={(value) => onFieldChange("s3_download_strategy", value)}
-			description={t(
-				form.s3_download_strategy === "relay_stream"
-					? "download_strategy_relay_stream_desc"
-					: "download_strategy_presigned_desc",
-			)}
-		/>
 	);
 }

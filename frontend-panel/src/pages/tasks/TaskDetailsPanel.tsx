@@ -16,16 +16,6 @@ import {
 	stepStatusTextClass,
 } from "./taskPresentation";
 
-export function taskHasExpandableDetails(task: TaskInfo) {
-	return (
-		task.steps.length > 0 ||
-		task.last_error !== null ||
-		(task.status === "succeeded" &&
-			(parseTaskResult(task) !== null ||
-				parseStoragePolicyMigrationResult(task) !== null))
-	);
-}
-
 export function TaskStepsPreview({ task }: { task: TaskInfo }) {
 	const { t } = useTranslation(["core", "tasks"]);
 	const activeStep = currentTaskStep(task);
@@ -179,11 +169,15 @@ export function TaskDetailsContent({ task }: { task: TaskInfo }) {
 			) : null}
 			{task.status === "succeeded" && parsedStorageMigrationResult ? (
 				<div className="rounded-lg border bg-muted/20 p-3 text-sm">
-					<div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+					<div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
 						{[
 							{
 								label: t("tasks:storage_migration_migrated_blobs"),
 								value: parsedStorageMigrationResult.migrated_blobs ?? 0,
+							},
+							{
+								label: t("tasks:storage_migration_renamed_opaque_blobs"),
+								value: parsedStorageMigrationResult.renamed_opaque_blobs ?? 0,
 							},
 							{
 								label: t("tasks:storage_migration_skipped_blobs"),

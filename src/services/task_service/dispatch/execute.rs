@@ -12,6 +12,7 @@ use crate::runtime::PrimaryAppState;
 use crate::types::BackgroundTaskKind;
 
 use super::super::archive;
+use super::super::blob_maintenance;
 use super::super::media_metadata;
 use super::super::retry::{TaskRetryClass, TaskRetryPolicy};
 use super::super::runtime;
@@ -312,6 +313,9 @@ async fn process_task(
         BackgroundTaskKind::StoragePolicyMigration => {
             storage_migration::process_storage_policy_migration_task(state, task, lease_guard).await
         }
+        BackgroundTaskKind::BlobMaintenance => {
+            blob_maintenance::process_blob_maintenance_task(state, task, lease_guard).await
+        }
         BackgroundTaskKind::SystemRuntime => Err(crate::errors::AsterError::internal_error(
             format!("system runtime task #{} should not be dispatched", task.id),
         )),
@@ -350,6 +354,7 @@ pub(super) fn task_retry_class(kind: BackgroundTaskKind, error: &AsterError) -> 
         BackgroundTaskKind::StoragePolicyMigration => {
             super::super::retry::default_retry_class(error)
         }
+        BackgroundTaskKind::BlobMaintenance => super::super::retry::default_retry_class(error),
         BackgroundTaskKind::SystemRuntime => runtime::RuntimeRetryPolicy::retry_class(error),
     }
 }

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useReducer } from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
@@ -15,39 +15,91 @@ import { taskService } from "@/services/taskService";
 import { useWorkspaceStore } from "@/stores/workspaceStore";
 import type { TaskInfo } from "@/types/api";
 import { TaskCard } from "./tasks/TaskCard";
-import { taskHasExpandableDetails } from "./tasks/TaskDetailsPanel";
+import { taskHasExpandableDetails } from "./tasks/taskDetails";
 import { ACTIVE_TASK_STATUSES } from "./tasks/taskPresentation";
 
 const PAGE_SIZE = 20;
 const TASK_POLL_INTERVAL_MS = 3000;
+
+type TasksPageState = {
+	expandedTaskIds: Set<number>;
+	loading: boolean;
+	page: number;
+	retryingTaskId: number | null;
+	tasks: TaskInfo[];
+	total: number;
+};
+
+type TasksPageAction =
+	| { type: "load_finish"; tasks: TaskInfo[]; total: number }
+	| { type: "loading"; loading: boolean }
+	| { type: "page"; page: number }
+	| { type: "retrying"; taskId: number | null }
+	| { type: "toggle_details"; taskId: number };
+
+const initialTasksPageState: TasksPageState = {
+	expandedTaskIds: new Set(),
+	loading: true,
+	page: 0,
+	retryingTaskId: null,
+	tasks: [],
+	total: 0,
+};
+
+function tasksPageReducer(
+	state: TasksPageState,
+	action: TasksPageAction,
+): TasksPageState {
+	switch (action.type) {
+		case "load_finish":
+			return {
+				...state,
+				tasks: action.tasks,
+				total: action.total,
+			};
+		case "loading":
+			return { ...state, loading: action.loading };
+		case "page":
+			return { ...state, page: action.page };
+		case "retrying":
+			return { ...state, retryingTaskId: action.taskId };
+		case "toggle_details": {
+			const expandedTaskIds = new Set(state.expandedTaskIds);
+			if (expandedTaskIds.has(action.taskId)) {
+				expandedTaskIds.delete(action.taskId);
+			} else {
+				expandedTaskIds.add(action.taskId);
+			}
+			return { ...state, expandedTaskIds };
+		}
+	}
+}
 
 export default function TasksPage() {
 	const { t } = useTranslation(["core", "tasks"]);
 	const navigate = useNavigate();
 	const workspace = useWorkspaceStore((s) => s.workspace);
 	usePageTitle(t("tasks:title"));
-	const [page, setPage] = useState(0);
-	const [loading, setLoading] = useState(true);
-	const [tasks, setTasks] = useState<TaskInfo[]>([]);
-	const [total, setTotal] = useState(0);
-	const [expandedTaskIds, setExpandedTaskIds] = useState<Set<number>>(
-		() => new Set(),
-	);
-	const [retryingTaskId, setRetryingTaskId] = useState<number | null>(null);
+	const [state, dispatch] = useReducer(tasksPageReducer, initialTasksPageState);
+	const { expandedTaskIds, loading, page, retryingTaskId, tasks, total } =
+		state;
 
 	const loadPage = useCallback(
 		async (targetPage: number, options?: { silent?: boolean }) => {
 			const silent = options?.silent ?? false;
 			try {
 				if (!silent) {
-					setLoading(true);
+					dispatch({ loading: true, type: "loading" });
 				}
 				const data = await taskService.listInWorkspace({
 					limit: PAGE_SIZE,
 					offset: targetPage * PAGE_SIZE,
 				});
-				setTasks(data.items);
-				setTotal(data.total);
+				dispatch({
+					tasks: data.items,
+					total: data.total,
+					type: "load_finish",
+				});
 				return data;
 			} catch (error) {
 				if (!silent) {
@@ -56,7 +108,7 @@ export default function TasksPage() {
 				return null;
 			} finally {
 				if (!silent) {
-					setLoading(false);
+					dispatch({ loading: false, type: "loading" });
 				}
 			}
 		},
@@ -84,60 +136,26 @@ export default function TasksPage() {
 		return () => window.clearInterval(timer);
 	}, [hasActiveTasks, loadPage, page]);
 
-	useEffect(() => {
-		setExpandedTaskIds((prev) => {
-			if (prev.size === 0) {
-				return prev;
-			}
-
-			const expandableTaskIds = new Set(
-				tasks
-					.filter((task) => taskHasExpandableDetails(task))
-					.map((task) => task.id),
-			);
-			const next = new Set<number>();
-			let changed = false;
-
-			for (const taskId of prev) {
-				if (expandableTaskIds.has(taskId)) {
-					next.add(taskId);
-				} else {
-					changed = true;
-				}
-			}
-
-			return changed ? next : prev;
-		});
-	}, [tasks]);
-
 	const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
 	const handleRetry = useCallback(
 		async (taskId: number) => {
 			try {
-				setRetryingTaskId(taskId);
+				dispatch({ taskId, type: "retrying" });
 				await taskService.retryTask(taskId);
 				toast.success(t("tasks:retry_success"));
 				await loadPage(page, { silent: true });
 			} catch (error) {
 				handleApiError(error);
 			} finally {
-				setRetryingTaskId(null);
+				dispatch({ taskId: null, type: "retrying" });
 			}
 		},
 		[loadPage, page, t],
 	);
 
 	const toggleTaskDetails = useCallback((taskId: number) => {
-		setExpandedTaskIds((prev) => {
-			const next = new Set(prev);
-			if (next.has(taskId)) {
-				next.delete(taskId);
-			} else {
-				next.add(taskId);
-			}
-			return next;
-		});
+		dispatch({ taskId, type: "toggle_details" });
 	}, []);
 
 	const openTaskTargetFolder = useCallback(
@@ -201,7 +219,10 @@ export default function TasksPage() {
 								<TaskCard
 									key={task.id}
 									task={task}
-									detailsExpanded={expandedTaskIds.has(task.id)}
+									detailsExpanded={
+										expandedTaskIds.has(task.id) &&
+										taskHasExpandableDetails(task)
+									}
 									retrying={retryingTaskId === task.id}
 									onOpenTargetFolder={openTaskTargetFolder}
 									onRetry={(taskId) => void handleRetry(taskId)}
@@ -224,7 +245,12 @@ export default function TasksPage() {
 								<Button
 									variant="outline"
 									size="sm"
-									onClick={() => setPage((current) => Math.max(0, current - 1))}
+									onClick={() =>
+										dispatch({
+											page: Math.max(0, page - 1),
+											type: "page",
+										})
+									}
 									disabled={page === 0}
 								>
 									{t("tasks:prev_page")}
@@ -233,7 +259,10 @@ export default function TasksPage() {
 									variant="outline"
 									size="sm"
 									onClick={() =>
-										setPage((current) => Math.min(totalPages - 1, current + 1))
+										dispatch({
+											page: Math.min(totalPages - 1, page + 1),
+											type: "page",
+										})
 									}
 									disabled={page >= totalPages - 1}
 								>

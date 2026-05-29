@@ -162,6 +162,10 @@ fn postgres_batch_decrement_blob_ref_counts_sql_uses_floor_case_update() {
 fn postgres_move_blob_policy_if_current_sql_uses_policy_cas() {
     let sql = crate::entities::file_blob::Entity::update_many()
         .col_expr(
+            file_blob::Column::Hash,
+            sea_orm::sea_query::Expr::value("hash".to_string()),
+        )
+        .col_expr(
             file_blob::Column::PolicyId,
             sea_orm::sea_query::Expr::value(2),
         )
@@ -177,4 +181,5 @@ fn postgres_move_blob_policy_if_current_sql_uses_policy_cas() {
     assert!(sql.contains(r#""id" = 9"#), "{sql}");
     assert!(sql.contains(r#""policy_id" = 1"#), "{sql}");
     assert!(sql.contains(r#""policy_id" = 2"#), "{sql}");
+    assert!(sql.contains(r#""hash" = 'hash'"#), "{sql}");
 }

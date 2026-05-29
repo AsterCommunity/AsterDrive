@@ -4,6 +4,7 @@
 	"step_status_active": "In progress",
 	"step_status_succeeded": "Completed",
 	"step_status_failed": "Failed",
+	"step_status_skipped": "Skipped",
 	"step_status_canceled": "Canceled",
 	"step_archive_compress_waiting": "Waiting",
 	"step_archive_compress_prepare_sources": "Prepare archive sources",
@@ -28,5 +29,11 @@
 	"step_storage_policy_migration_scan_blobs": "Scan source objects",
 	"step_storage_policy_migration_migrate_blobs": "Migrate objects",
 	"step_storage_policy_migration_finalize": "Finalize migration",
-	"step_storage_policy_migration_finish": "Finish migration"
+	"step_storage_policy_migration_finish": "Finish migration",
+	"step_blob_maintenance_waiting": "Waiting",
+	"step_blob_maintenance_scan_blobs": "Load blob records",
+	"step_blob_maintenance_check_blobs": "Check storage objects",
+	"step_blob_maintenance_reconcile_refs": "Reconcile ref counts",
+	"step_blob_maintenance_cleanup_objects": "Clean orphan blobs",
+	"step_blob_maintenance_finish": "Finish maintenance"
 }

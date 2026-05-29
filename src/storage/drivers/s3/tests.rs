@@ -88,7 +88,7 @@ async fn capacity_info_returns_unsupported_without_s3_request() {
         .status(200)
         .body(SdkBody::empty())
         .expect("unused mocked response");
-    let (driver, _request) = mocked_driver(response);
+    let (driver, request) = mocked_driver(response);
 
     let err = driver
         .capacity_info()
@@ -100,6 +100,7 @@ async fn capacity_info_returns_unsupported_without_s3_request() {
         Some(StorageErrorKind::Unsupported)
     );
     assert!(err.message().contains("does not expose standardized"));
+    request.expect_no_request();
 }
 
 fn assert_storage_driver_error(err: AsterError, expected_kind: StorageErrorKind) {

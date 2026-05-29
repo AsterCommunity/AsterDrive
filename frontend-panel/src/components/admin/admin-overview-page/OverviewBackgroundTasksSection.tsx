@@ -16,6 +16,7 @@ import { Icon } from "@/components/ui/icon";
 import { PAGE_SECTION_PADDING_CLASS } from "@/lib/constants";
 import { formatDateAbsolute, formatDateAbsoluteWithOffset } from "@/lib/format";
 import { cn } from "@/lib/utils";
+import { formatTaskKind as formatSharedTaskKind } from "@/pages/tasks/taskPresentation";
 import type {
 	AdminOverview,
 	BackgroundTaskKind,
@@ -57,22 +58,7 @@ export function OverviewBackgroundTasksSection({
 	};
 
 	const formatBackgroundTaskKind = (kind: BackgroundTaskKind) => {
-		switch (kind) {
-			case "archive_extract":
-				return t("tasks:kind_archive_extract");
-			case "archive_compress":
-				return t("tasks:kind_archive_compress");
-			case "archive_preview_generate":
-				return t("tasks:kind_archive_preview_generate");
-			case "thumbnail_generate":
-				return t("tasks:kind_thumbnail_generate");
-			case "trash_purge_all":
-				return t("tasks:kind_trash_purge_all");
-			case "system_runtime":
-				return t("tasks:kind_system_runtime");
-			default:
-				return String(kind).replaceAll("_", " ");
-		}
+		return formatSharedTaskKind(t, kind);
 	};
 
 	const formatBackgroundTaskSource = (task: BackgroundTaskEvent) => {

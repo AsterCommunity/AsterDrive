@@ -89,6 +89,7 @@ import {
 	PiWarningCircle,
 	PiWifiHigh,
 	PiWifiX,
+	PiWrench,
 	PiX,
 } from "react-icons/pi";
 
@@ -182,6 +183,7 @@ export type IconName =
 	| "Warning"
 	| "WifiHigh"
 	| "WifiX"
+	| "Wrench"
 	| "X";
 
 const iconMap: Record<IconName, ComponentType<{ className?: string }>> = {
@@ -274,6 +276,7 @@ const iconMap: Record<IconName, ComponentType<{ className?: string }>> = {
 	Warning: PiWarning,
 	WifiHigh: PiWifiHigh,
 	WifiX: PiWifiX,
+	Wrench: PiWrench,
 	X: PiX,
 };
 
