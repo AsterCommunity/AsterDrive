@@ -13,7 +13,7 @@ use crate::db::repository::background_task_repo;
 use crate::entities::{background_task, file};
 use crate::errors::{AsterError, MapAsterErr, Result};
 use crate::runtime::PrimaryAppState;
-use crate::services::archive_service::format::{ArchiveFormat, detect_archive_extract_format};
+use crate::services::archive_service::format::{ArchiveFormat, detect_supported_archive_format};
 use crate::services::{
     storage_change_service,
     task_service::{
@@ -394,7 +394,7 @@ async fn cleanup_created_extract_root(
 }
 
 fn ensure_extract_source_supported(source_file: &file::Model) -> Result<ArchiveFormat> {
-    detect_archive_extract_format(source_file).ok_or_else(|| {
+    detect_supported_archive_format(source_file).ok_or_else(|| {
         AsterError::validation_error("online extract currently supports .zip files only")
     })
 }

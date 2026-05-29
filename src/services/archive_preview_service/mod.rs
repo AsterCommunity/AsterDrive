@@ -12,7 +12,7 @@ use crate::errors::{
     AsterError, MapAsterErr, Result, auth_forbidden_with_subcode, validation_error_with_subcode,
 };
 use crate::runtime::PrimaryAppState;
-use crate::services::archive_service::format::{ArchiveFormat, detect_archive_preview_format};
+use crate::services::archive_service::format::{ArchiveFormat, detect_supported_archive_format};
 use crate::services::archive_service::io::copy_async_reader_to_writer_with_expected_size;
 use crate::services::archive_service::scan::ArchiveScanLimits;
 use crate::services::workspace_storage_service::WorkspaceStorageScope;
@@ -278,7 +278,7 @@ pub(crate) async fn download_blob_to_temp(
 pub(crate) fn ensure_archive_preview_source_supported(
     source_file: &file::Model,
 ) -> Result<ArchiveFormat> {
-    detect_archive_preview_format(source_file).ok_or_else(|| {
+    detect_supported_archive_format(source_file).ok_or_else(|| {
         archive_preview_validation_error(
             ApiSubcode::ArchivePreviewUnsupportedType,
             "archive preview currently supports .zip files only",
