@@ -1,11 +1,7 @@
 use chrono::Utc;
 use sea_orm::{
-    ActiveModelTrait, ColumnTrait, ConnectionTrait, DbBackend, EntityTrait, ExprTrait,
-    FromQueryResult, PaginatorTrait, QueryFilter, QueryOrder, QuerySelect, Set, TryInsertResult,
-    sea_query::{
-        BinOper, Expr, Func, Query, SimpleExpr, extension::postgres::PgBinOper,
-        extension::sqlite::SqliteExpr,
-    },
+    ActiveModelTrait, ColumnTrait, ConnectionTrait, DbBackend, EntityTrait, FromQueryResult,
+    PaginatorTrait, QueryFilter, QueryOrder, QuerySelect, Set, TryInsertResult,
 };
 
 use crate::api::pagination::{AdminFileBlobSortBy, SortOrder};
@@ -77,49 +73,6 @@ fn content_sha256_sql_condition(backend: DbBackend, column: &str) -> String {
 const FIND_OR_CREATE_BLOB_MAX_ATTEMPTS: usize = 7;
 const FIND_OR_CREATE_BLOB_INITIAL_DELAY_MS: u64 = 5;
 const FIND_OR_CREATE_BLOB_MAX_DELAY_MS: u64 = 80;
-const MISSING_BLOB_TARGET_ALIAS: &str = "target";
-
-fn file_blob_size_sum_as_i64_expr(backend: DbBackend) -> SimpleExpr {
-    sum_as_i64_expr(backend, Expr::col(file_blob::Column::Size))
-}
-
-fn sum_as_i64_expr(backend: DbBackend, expr: SimpleExpr) -> SimpleExpr {
-    let type_name = match backend {
-        DbBackend::Postgres => "bigint",
-        DbBackend::MySql => "signed",
-        _ => "integer",
-    };
-    expr.sum().cast_as(type_name)
-}
-
-fn content_sha256_hash_condition(backend: DbBackend) -> SimpleExpr {
-    match backend {
-        DbBackend::Postgres => Expr::col(file_blob::Column::Hash)
-            .binary(PgBinOper::Regex, Expr::value("^[0-9A-Fa-f]{64}$")),
-        DbBackend::MySql => Expr::col(file_blob::Column::Hash)
-            .binary(BinOper::Custom("REGEXP"), Expr::value("^[0-9A-Fa-f]{64}$")),
-        DbBackend::Sqlite | _ => Func::char_length(Expr::col(file_blob::Column::Hash))
-            .eq(64)
-            .and(
-                Expr::col(file_blob::Column::Hash)
-                    .glob(Expr::value("*[^0-9A-Fa-f]*"))
-                    .not(),
-            ),
-    }
-}
-
-fn content_sha256_hash_kind_count_expr(backend: DbBackend, matched_value: i32) -> SimpleExpr {
-    let unmatched_value = if matched_value == 1 { 0 } else { 1 };
-    sum_as_i64_expr(
-        backend,
-        Expr::case(
-            content_sha256_hash_condition(backend),
-            Expr::value(matched_value),
-        )
-        .finally(Expr::value(unmatched_value))
-        .into(),
-    )
-}
 
 pub async fn find_blob_by_hash<C: ConnectionTrait>(
     db: &C,
@@ -155,41 +108,26 @@ pub async fn summarize_blobs_by_policy<C: ConnectionTrait>(
     policy_id: i64,
 ) -> Result<StoragePolicyBlobSummary> {
     let backend = db.get_database_backend();
-    FileBlob::find()
-        .select_only()
-        .column_as(Expr::col(file_blob::Column::Id).count(), "count")
-        .column_as(file_blob_size_sum_as_i64_expr(backend), "total_size")
-        .filter(file_blob::Column::PolicyId.eq(policy_id))
-        .into_tuple::<(i64, Option<i64>)>()
-        .one(db)
-        .await
-        .map_err(AsterError::from)?
-        .map(|(count, total_size)| StoragePolicyBlobSummary {
-            count,
-            total_size: total_size.unwrap_or(0),
-        })
-        .ok_or_else(|| {
-            AsterError::internal_error("storage policy blob summary query returned no row")
-        })
-}
-
-fn matching_target_blob_exists_query(target_policy_id: i64) -> sea_orm::sea_query::SelectStatement {
-    Query::select()
-        .expr(Expr::value(1i32))
-        .from_as(file_blob::Entity, MISSING_BLOB_TARGET_ALIAS)
-        .and_where(
-            Expr::col((MISSING_BLOB_TARGET_ALIAS, file_blob::Column::PolicyId))
-                .eq(target_policy_id),
-        )
-        .and_where(
-            Expr::col((MISSING_BLOB_TARGET_ALIAS, file_blob::Column::Hash))
-                .eq(Expr::col((file_blob::Entity, file_blob::Column::Hash))),
-        )
-        .and_where(
-            Expr::col((MISSING_BLOB_TARGET_ALIAS, file_blob::Column::Size))
-                .eq(Expr::col((file_blob::Entity, file_blob::Column::Size))),
-        )
-        .to_owned()
+    let sql = match backend {
+        DbBackend::Postgres => {
+            r#"SELECT COUNT(*) AS count, COALESCE(SUM(size), 0) AS total_size FROM file_blobs WHERE policy_id = $1"#
+        }
+        DbBackend::MySql => {
+            "SELECT COUNT(*) AS count, COALESCE(SUM(size), 0) AS total_size FROM file_blobs WHERE policy_id = ?"
+        }
+        DbBackend::Sqlite | _ => {
+            "SELECT COUNT(*) AS count, COALESCE(SUM(size), 0) AS total_size FROM file_blobs WHERE policy_id = ?"
+        }
+    };
+    StoragePolicyBlobSummary::find_by_statement(sea_orm::Statement::from_sql_and_values(
+        backend,
+        sql,
+        [policy_id.into()],
+    ))
+    .one(db)
+    .await
+    .map_err(AsterError::from)?
+    .ok_or_else(|| AsterError::internal_error("storage policy blob summary query returned no row"))
 }
 
 pub async fn summarize_blob_hash_kinds_by_policy<C: ConnectionTrait>(
@@ -197,27 +135,31 @@ pub async fn summarize_blob_hash_kinds_by_policy<C: ConnectionTrait>(
     policy_id: i64,
 ) -> Result<StoragePolicyBlobHashKindSummary> {
     let backend = db.get_database_backend();
-    FileBlob::find()
-        .select_only()
-        .column_as(
-            content_sha256_hash_kind_count_expr(backend, 1),
-            "content_sha256_count",
-        )
-        .column_as(
-            content_sha256_hash_kind_count_expr(backend, 0),
-            "opaque_count",
-        )
-        .filter(file_blob::Column::PolicyId.eq(policy_id))
-        .into_tuple::<(Option<i64>, Option<i64>)>()
+    let condition = match backend {
+        DbBackend::Postgres => "hash ~ '^[0-9A-Fa-f]{64}$'",
+        DbBackend::MySql => "hash REGEXP '^[0-9A-Fa-f]{64}$'",
+        DbBackend::Sqlite | _ => "length(hash) = 64 AND hash NOT GLOB '*[^0-9A-Fa-f]*'",
+    };
+    let sql = format!(
+        "SELECT \
+            COALESCE(SUM(CASE WHEN {condition} THEN 1 ELSE 0 END), 0) AS content_sha256_count, \
+            COALESCE(SUM(CASE WHEN {condition} THEN 0 ELSE 1 END), 0) AS opaque_count \
+         FROM file_blobs WHERE policy_id = ?"
+    );
+    let statement = match backend {
+        DbBackend::Postgres => sea_orm::Statement::from_sql_and_values(
+            backend,
+            sql.replace("policy_id = ?", "policy_id = $1"),
+            [policy_id.into()],
+        ),
+        DbBackend::MySql | DbBackend::Sqlite | _ => {
+            sea_orm::Statement::from_sql_and_values(backend, sql, [policy_id.into()])
+        }
+    };
+    StoragePolicyBlobHashKindSummary::find_by_statement(statement)
         .one(db)
         .await
         .map_err(AsterError::from)?
-        .map(
-            |(content_sha256_count, opaque_count)| StoragePolicyBlobHashKindSummary {
-                content_sha256_count: content_sha256_count.unwrap_or(0),
-                opaque_count: opaque_count.unwrap_or(0),
-            },
-        )
         .ok_or_else(|| {
             AsterError::internal_error(
                 "storage policy blob hash kind summary query returned no row",
