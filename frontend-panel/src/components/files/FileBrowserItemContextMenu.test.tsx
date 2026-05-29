@@ -318,6 +318,36 @@ describe("FileBrowserItemContextMenu", () => {
 		expect(mockState.browserContext.onInfo).toHaveBeenCalledWith("file", 2);
 	});
 
+	it("allows archive extraction for 7z files", () => {
+		render(
+			<FileBrowserItemContextMenu
+				item={{ id: 3, name: "bundle.7z", is_locked: false } as never}
+				isFolder={false}
+			>
+				<div>file</div>
+			</FileBrowserItemContextMenu>,
+		);
+
+		fireEvent.click(screen.getByRole("button", { name: "extract" }));
+
+		expect(mockState.browserContext.onArchiveExtract).toHaveBeenCalledWith(3);
+	});
+
+	it("does not expose archive extraction for unsupported file names", () => {
+		render(
+			<FileBrowserItemContextMenu
+				item={{ id: 4, name: "notes.txt", is_locked: false } as never}
+				isFolder={false}
+			>
+				<div>file</div>
+			</FileBrowserItemContextMenu>,
+		);
+
+		expect(
+			screen.queryByRole("button", { name: "extract" }),
+		).not.toBeInTheDocument();
+	});
+
 	it("uses batch actions when the current item belongs to a multi-selection", () => {
 		const batchActions = {
 			count: 3,

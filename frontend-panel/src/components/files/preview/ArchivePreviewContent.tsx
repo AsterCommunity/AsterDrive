@@ -36,6 +36,7 @@ import type {
 	ArchiveFilenameEncoding,
 	ArchivePreviewManifest,
 } from "@/types/api";
+import { getArchivePreviewFormatCapabilities } from "./archivePreviewFormatCapabilities";
 import type {
 	ArchiveBrowserEntry,
 	ArchivePreviewErrorKind,
@@ -44,7 +45,7 @@ import {
 	buildArchiveBreadcrumb,
 	displayParentForEntry,
 	entryDepth,
-	formatZipModifiedAt,
+	formatArchiveModifiedAt,
 	getArchiveEntryPath,
 	parentPathForArchivePath,
 } from "./archivePreviewUtils";
@@ -139,7 +140,7 @@ function ArchiveEntryRow({
 				{isDirectory ? "-" : formatBytes(entry.size)}
 			</TableCell>
 			<TableCell className="w-40 truncate text-right text-muted-foreground max-md:hidden">
-				{formatZipModifiedAt(entry.modified_at)}
+				{formatArchiveModifiedAt(entry.modified_at)}
 			</TableCell>
 		</TableRow>
 	);
@@ -165,6 +166,9 @@ function ArchivePreviewToolbar({
 	onFilenameEncodingChange: (value: string | null) => void;
 }) {
 	const { t } = useTranslation("files");
+	const formatCapabilities = getArchivePreviewFormatCapabilities(
+		manifest?.format,
+	);
 
 	return (
 		<div className="flex shrink-0 flex-wrap items-center gap-2 border-border/60 border-b bg-muted/25 px-3 py-2 dark:bg-muted/15">
@@ -195,29 +199,31 @@ function ArchivePreviewToolbar({
 					</Button>
 				) : null}
 			</div>
-			<div className="flex items-center gap-2">
-				<span className="text-muted-foreground text-xs">
-					{t("archive_preview_filename_encoding")}
-				</span>
-				<Select
-					value={filenameEncoding}
-					onValueChange={onFilenameEncodingChange}
-				>
-					<SelectTrigger
-						aria-label={t("archive_preview_filename_encoding")}
-						className="h-7 w-[7.75rem] border-border/60 bg-background/70 text-xs shadow-none dark:bg-background/25"
+			{formatCapabilities.filenameEncoding ? (
+				<div className="flex items-center gap-2">
+					<span className="text-muted-foreground text-xs">
+						{t("archive_preview_filename_encoding")}
+					</span>
+					<Select
+						value={filenameEncoding}
+						onValueChange={onFilenameEncodingChange}
 					>
-						<SelectValue />
-					</SelectTrigger>
-					<SelectContent>
-						{archiveFilenameEncodingOptions.map((value) => (
-							<SelectItem key={value} value={value}>
-								{t(`archive_preview_encoding_${value}`)}
-							</SelectItem>
-						))}
-					</SelectContent>
-				</Select>
-			</div>
+						<SelectTrigger
+							aria-label={t("archive_preview_filename_encoding")}
+							className="h-7 w-[7.75rem] border-border/60 bg-background/70 text-xs shadow-none dark:bg-background/25"
+						>
+							<SelectValue />
+						</SelectTrigger>
+						<SelectContent>
+							{archiveFilenameEncodingOptions.map((value) => (
+								<SelectItem key={value} value={value}>
+									{t(`archive_preview_encoding_${value}`)}
+								</SelectItem>
+							))}
+						</SelectContent>
+					</Select>
+				</div>
+			) : null}
 			{manifest ? (
 				<div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
 					<ArchiveSummaryItem
@@ -395,7 +401,7 @@ function ArchivePreviewFooter({
 				value={formatBytes(manifest.total_uncompressed_size)}
 			/>
 			<ArchiveSummaryItem
-				label={t("archive_preview_zip_entries")}
+				label={t("archive_preview_entries")}
 				value={formatNumber(manifest.entry_count)}
 			/>
 			<span className="text-muted-foreground">
@@ -412,7 +418,7 @@ function archivePreviewErrorMessageKey(error: ArchivePreviewErrorKind | null) {
 	if (error === "encoding") return "archive_preview_encoding_failed";
 	if (error === "unsupported") return "archive_preview_unsupported_type";
 	if (error === "sourceTooLarge") return "archive_preview_source_too_large";
-	if (error === "invalid") return "archive_preview_invalid_zip";
+	if (error === "invalid") return "archive_preview_invalid_archive";
 	if (error === "rejected") return "archive_preview_rejected";
 	return "preview_load_failed";
 }

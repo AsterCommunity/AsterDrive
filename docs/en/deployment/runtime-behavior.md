@@ -36,7 +36,7 @@ The built-in system settings written on first startup cover these categories:
 - WebDAV
 - Audit Logs
 
-`Storage and Retention` also includes switches and limits for read-only ZIP archive preview, disabled by default. `Runtime and Scheduling` includes background task lane concurrency, idle backoff, and share-page audio/video stream playback session lifetime.
+`Storage and Retention` also includes switches and limits for read-only archive preview, disabled by default. `Runtime and Scheduling` includes background task lane concurrency, idle backoff, and share-page audio/video stream playback session lifetime.
 
 Default background task frequencies:
 

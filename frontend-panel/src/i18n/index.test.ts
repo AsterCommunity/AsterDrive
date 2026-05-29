@@ -82,7 +82,7 @@ describe("i18n", () => {
 		await module.ensureI18nNamespaces(["admin", "files", "settings"], "zh");
 
 		expect(i18n.t("files:upload_success")).toBe("上传完成");
-		expect(i18n.t("files:archive_preview_title")).toBe("ZIP 内容");
+		expect(i18n.t("files:archive_preview_title")).toBe("压缩包内容");
 		expect(i18n.t("settings:settings_passkeys_section")).toBe("Passkey");
 		expect(i18n.t("admin:overview_total_users")).toBe("总用户数");
 		expect(i18n.t("admin:preview_apps_provider_archive")).toBe("压缩包");

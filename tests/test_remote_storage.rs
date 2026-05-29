@@ -137,8 +137,8 @@ async fn spawn_reverse_tunnel_primary_server(
     let state_for_server = state.clone();
     let server = HttpServer::new(move || {
         App::new()
-            .app_data(web::PayloadConfig::new(10 * 1024 * 1024))
-            .app_data(web::JsonConfig::default().limit(1024 * 1024))
+            .app_data(web::PayloadConfig::new(REMOTE_TUNNEL_JSON_LIMIT))
+            .app_data(web::JsonConfig::default().limit(REMOTE_TUNNEL_JSON_LIMIT))
             .app_data(web::Data::new(state_for_server.clone()))
             .service(
                 web::scope("/api/v1").service(aster_drive::api::routes::remote_tunnel::routes()),
@@ -1913,9 +1913,10 @@ async fn test_remote_node_probe_rejects_incompatible_protocol_version() {
         Some(aster_drive::storage::StorageErrorKind::Misconfigured)
     );
     assert!(error.message().contains("protocol incompatible"));
-    assert!(error.message().contains(&format!(
+    let expected_protocol_range = format!(
         "local supports {INTERNAL_STORAGE_MIN_SUPPORTED_PROTOCOL_VERSION_LABEL}-{INTERNAL_STORAGE_PROTOCOL_VERSION_LABEL}"
-    )));
+    );
+    assert!(error.message().contains(&expected_protocol_range));
 
     let stored = managed_follower_repo::find_by_id(state.writer_db(), node.id)
         .await
@@ -1991,9 +1992,9 @@ async fn test_remote_node_probe_rejects_presigned_download_when_range_cors_missi
             .last_error
             .contains("browser CORS contract is incomplete")
     );
-    assert!(stored.last_capabilities.contains(&format!(
-        "\"protocol_version\":\"{INTERNAL_STORAGE_PROTOCOL_VERSION_LABEL}\""
-    )));
+    let expected_protocol_marker =
+        format!("\"protocol_version\":\"{INTERNAL_STORAGE_PROTOCOL_VERSION_LABEL}\"");
+    assert!(stored.last_capabilities.contains(&expected_protocol_marker));
 
     capabilities_server.stop().await;
 }

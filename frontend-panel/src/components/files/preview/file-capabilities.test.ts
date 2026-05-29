@@ -506,6 +506,10 @@ describe("file preview capabilities", () => {
 			name: "data.zip",
 			mime_type: "application/octet-stream",
 		};
+		const sevenZip = {
+			name: "data.7z",
+			mime_type: "application/octet-stream",
+		};
 
 		expect(detectFilePreviewProfile(unknown).isEditableText).toBe(true);
 		expect(detectFilePreviewProfile(unknown).options).toEqual([
@@ -528,6 +532,23 @@ describe("file preview capabilities", () => {
 		expect(detectFilePreviewProfile(archive).defaultMode).toBe(
 			"builtin.archive",
 		);
+		expect(detectFilePreviewProfile(sevenZip).defaultMode).toBe(
+			"builtin.archive",
+		);
+	});
+
+	it("does not expose archive preview for unsupported archive MIME types", () => {
+		const rar = {
+			name: "bundle.rar",
+			mime_type: "application/x-rar",
+		};
+
+		expect(getFileTypeInfo(rar)).toMatchObject({ category: "archive" });
+		expect(detectFilePreviewProfile(rar)).toMatchObject({
+			category: "archive",
+			defaultMode: null,
+			options: [],
+		});
 	});
 
 	it("uses configured builtins as defaults when their built-in bindings match", () => {

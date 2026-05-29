@@ -101,17 +101,14 @@ impl StorageDriver for PreviewMemoryRangeDriver {
     }
 }
 
-fn failed_task_subcode(message: &str) -> Option<ApiSubcode> {
-    map_failed_task_error(Some(message)).api_error_subcode()
-}
-
 fn preview_test_limits() -> ArchivePreviewLimits {
     let raw_signature = "raw-test".to_string();
     ArchivePreviewLimits {
+        archive_format: ArchiveFormat::Zip,
         max_source_bytes: 1024 * 1024,
         max_manifest_bytes: 64 * 1024,
         max_duration_secs: 10,
-        scan_limits: ZipScanLimits {
+        scan_limits: ArchiveScanLimits {
             max_uncompressed_bytes: 1024 * 1024,
             max_entries: 100,
             max_files: 100,
@@ -122,7 +119,7 @@ fn preview_test_limits() -> ArchivePreviewLimits {
             max_entry_compression_ratio: 100,
         },
         raw_signature: raw_signature.clone(),
-        task_signature: format!("{raw_signature};entries=100;files=100;dirs=100"),
+        task_signature: format!("{raw_signature};format=zip;entries=100;files=100;dirs=100"),
         filename_encoding: ArchiveFilenameEncoding::Auto,
     }
 }
@@ -207,11 +204,12 @@ fn preview_test_raw_manifest() -> ArchiveRawManifest {
         file_count: 1,
         directory_count: 0,
         total_uncompressed_size: 5,
+        total_compressed_base: 5,
         entries: vec![ArchiveRawEntry {
             index: 0,
             raw_name: base64::engine::general_purpose::STANDARD.encode(b"readme.txt"),
             display_name: "readme.txt".to_string(),
-            zip_utf8: false,
+            raw_name_utf8: false,
             kind: ArchivePreviewEntryKind::File,
             size: 5,
             compressed_size: 5,
@@ -223,7 +221,7 @@ fn preview_test_raw_manifest() -> ArchiveRawManifest {
 #[test]
 fn map_failed_task_error_reads_persisted_subcode_without_text_matching() {
     let stored = crate::errors::encode_api_error_subcode_message(
-        ApiSubcode::ArchivePreviewInvalidZip,
+        ApiSubcode::ArchivePreviewInvalidArchive,
         "worker changed this wording".to_string(),
     );
 
@@ -231,9 +229,9 @@ fn map_failed_task_error_reads_persisted_subcode_without_text_matching() {
 
     assert_eq!(
         error.api_error_subcode(),
-        Some(ApiSubcode::ArchivePreviewInvalidZip)
+        Some(ApiSubcode::ArchivePreviewInvalidArchive)
     );
-    assert_eq!(error.message(), "invalid zip archive");
+    assert_eq!(error.message(), "invalid archive");
 }
 
 #[test]
@@ -244,27 +242,100 @@ fn serialized_cache_uses_current_raw_schema_and_signature() {
     let value: serde_json::Value =
         serde_json::from_str(&serialized).expect("cache should parse as JSON");
 
-    assert_eq!(RAW_CACHE_SCHEMA_VERSION, 1);
-    assert_eq!(ZIP_RAW_MANIFEST_CACHE_NAME, "zip_raw_manifest.v1");
-    assert_eq!(value["schema_version"], 1);
+    assert_eq!(RAW_CACHE_SCHEMA_VERSION, 2);
+    assert_eq!(ZIP_RAW_MANIFEST_CACHE_NAME, "zip_raw_manifest.v2");
+    assert_eq!(SEVEN_ZIP_RAW_MANIFEST_CACHE_NAME, "7z_raw_manifest.v2");
+    assert_eq!(value["schema_version"], 2);
     assert_eq!(value["limit_signature"], "raw-limits");
     assert!(value.get("filename_encoding").is_none());
-    assert_eq!(value["manifest"]["schema_version"], 1);
+    assert_eq!(value["manifest"]["schema_version"], 2);
     assert_eq!(
         value["manifest"]["entries"][0]["raw_name"],
         "cmVhZG1lLnR4dA=="
     );
+    assert_eq!(value["manifest"]["entries"][0]["raw_name_utf8"], false);
+    assert!(value["manifest"]["entries"][0].get("zip_utf8").is_none());
+}
+
+#[test]
+fn legacy_raw_entry_cache_accepts_zip_utf8_and_missing_raw_name_utf8() {
+    let legacy_with_zip_utf8 = r#"{
+        "schema_version": 2,
+        "source_blob_id": 9,
+        "source_hash": "hash",
+        "limit_signature": "raw-limits",
+        "manifest": {
+            "schema_version": 2,
+            "format": "zip",
+            "source_blob_id": 9,
+            "source_hash": "hash",
+            "generated_at": "2026-01-02T03:04:05Z",
+            "entry_count": 1,
+            "file_count": 1,
+            "directory_count": 0,
+            "total_uncompressed_size": 5,
+            "total_compressed_base": 5,
+            "entries": [{
+                "index": 0,
+                "raw_name": "cmVhZG1lLnR4dA==",
+                "display_name": "readme.txt",
+                "zip_utf8": false,
+                "kind": "file",
+                "size": 5,
+                "compressed_size": 5,
+                "modified_at": null
+            }]
+        }
+    }"#;
+    let cached: super::model::CachedArchiveRawManifest = serde_json::from_str(legacy_with_zip_utf8)
+        .expect("legacy cache with zip_utf8 should deserialize");
+    assert!(!cached.manifest.entries[0].raw_name_utf8);
+
+    let legacy_without_utf8 = r#"{
+        "schema_version": 2,
+        "source_blob_id": 9,
+        "source_hash": "hash",
+        "limit_signature": "raw-limits",
+        "manifest": {
+            "schema_version": 2,
+            "format": "zip",
+            "source_blob_id": 9,
+            "source_hash": "hash",
+            "generated_at": "2026-01-02T03:04:05Z",
+            "entry_count": 1,
+            "file_count": 1,
+            "directory_count": 0,
+            "total_uncompressed_size": 5,
+            "total_compressed_base": 5,
+            "entries": [{
+                "index": 0,
+                "raw_name": "cmVhZG1lLnR4dA==",
+                "display_name": "readme.txt",
+                "kind": "file",
+                "size": 5,
+                "compressed_size": 5,
+                "modified_at": null
+            }]
+        }
+    }"#;
+    let cached: super::model::CachedArchiveRawManifest = serde_json::from_str(legacy_without_utf8)
+        .expect("legacy cache without utf8 flag should deserialize");
+    assert!(!cached.manifest.entries[0].raw_name_utf8);
 }
 
 #[test]
 fn raw_signature_ignores_display_encoding() {
     let runtime_config = crate::config::RuntimeConfig::default();
-    let auto =
-        ArchivePreviewLimits::from_runtime_config(&runtime_config, ArchiveFilenameEncoding::Auto)
-            .expect("auto limits should build");
+    let auto = ArchivePreviewLimits::from_runtime_config(
+        &runtime_config,
+        ArchiveFilenameEncoding::Auto,
+        ArchiveFormat::Zip,
+    )
+    .expect("auto limits should build");
     let gb18030 = ArchivePreviewLimits::from_runtime_config(
         &runtime_config,
         ArchiveFilenameEncoding::Gb18030,
+        ArchiveFormat::Zip,
     )
     .expect("GB18030 limits should build");
 
@@ -275,18 +346,24 @@ fn raw_signature_ignores_display_encoding() {
 #[test]
 fn raw_signature_ignores_display_count_limits_but_tracks_source_safety_limits() {
     let runtime_config = crate::config::RuntimeConfig::default();
-    let baseline =
-        ArchivePreviewLimits::from_runtime_config(&runtime_config, ArchiveFilenameEncoding::Auto)
-            .expect("baseline limits should build");
+    let baseline = ArchivePreviewLimits::from_runtime_config(
+        &runtime_config,
+        ArchiveFilenameEncoding::Auto,
+        ArchiveFormat::Zip,
+    )
+    .expect("baseline limits should build");
 
     apply_runtime_config_value(
         &runtime_config,
         crate::config::definitions::ARCHIVE_PREVIEW_MAX_ENTRIES_KEY,
         "1",
     );
-    let reduced_count =
-        ArchivePreviewLimits::from_runtime_config(&runtime_config, ArchiveFilenameEncoding::Auto)
-            .expect("reduced count limits should build");
+    let reduced_count = ArchivePreviewLimits::from_runtime_config(
+        &runtime_config,
+        ArchiveFilenameEncoding::Auto,
+        ArchiveFormat::Zip,
+    )
+    .expect("reduced count limits should build");
     assert_eq!(baseline.raw_signature, reduced_count.raw_signature);
     assert_ne!(baseline.task_signature, reduced_count.task_signature);
 
@@ -295,9 +372,12 @@ fn raw_signature_ignores_display_count_limits_but_tracks_source_safety_limits() 
         crate::config::definitions::ARCHIVE_PREVIEW_MAX_SOURCE_BYTES_KEY,
         "1",
     );
-    let reduced_source =
-        ArchivePreviewLimits::from_runtime_config(&runtime_config, ArchiveFilenameEncoding::Auto)
-            .expect("reduced source limits should build");
+    let reduced_source = ArchivePreviewLimits::from_runtime_config(
+        &runtime_config,
+        ArchiveFilenameEncoding::Auto,
+        ArchiveFormat::Zip,
+    )
+    .expect("reduced source limits should build");
     assert_ne!(baseline.raw_signature, reduced_source.raw_signature);
 }
 
@@ -380,13 +460,89 @@ async fn raw_manifest_can_be_redecoded_without_rescanning_storage() {
 }
 
 #[test]
+fn seven_zip_raw_manifest_ignores_zip_filename_encoding_on_replay() {
+    let entry_name = "docs/测试.txt";
+    let raw_manifest = ArchiveRawManifest {
+        format: ArchiveFormat::SevenZip.as_str().to_string(),
+        entry_count: 1,
+        file_count: 1,
+        directory_count: 1,
+        total_uncompressed_size: 5,
+        total_compressed_base: 64,
+        entries: vec![ArchiveRawEntry {
+            index: 0,
+            raw_name: base64::engine::general_purpose::STANDARD.encode(entry_name.as_bytes()),
+            display_name: entry_name.to_string(),
+            raw_name_utf8: true,
+            kind: ArchivePreviewEntryKind::File,
+            size: 5,
+            compressed_size: 64,
+            modified_at: None,
+        }],
+        ..preview_test_raw_manifest()
+    };
+    let mut limits = preview_test_limits_with_encoding(ArchiveFilenameEncoding::Cp437);
+    limits.archive_format = ArchiveFormat::SevenZip;
+
+    let manifest = build_manifest_from_raw(7, &raw_manifest, &limits)
+        .expect("7z raw manifest should replay independently of ZIP filename encoding");
+
+    assert_eq!(manifest.format, "7z");
+    assert_eq!(manifest.entries[0].path, entry_name);
+    assert_eq!(manifest.entries[0].name, "测试.txt");
+}
+
+#[test]
+fn seven_zip_raw_manifest_falls_back_to_legacy_compressed_base() {
+    let raw_manifest = ArchiveRawManifest {
+        format: ArchiveFormat::SevenZip.as_str().to_string(),
+        entry_count: 2,
+        file_count: 2,
+        directory_count: 0,
+        total_uncompressed_size: 10,
+        total_compressed_base: 0,
+        entries: vec![
+            ArchiveRawEntry {
+                index: 0,
+                raw_name: base64::engine::general_purpose::STANDARD.encode(b"first.txt"),
+                display_name: "first.txt".to_string(),
+                raw_name_utf8: true,
+                kind: ArchivePreviewEntryKind::File,
+                size: 5,
+                compressed_size: 64,
+                modified_at: None,
+            },
+            ArchiveRawEntry {
+                index: 1,
+                raw_name: base64::engine::general_purpose::STANDARD.encode(b"second.txt"),
+                display_name: "second.txt".to_string(),
+                raw_name_utf8: true,
+                kind: ArchivePreviewEntryKind::File,
+                size: 5,
+                compressed_size: 64,
+                modified_at: None,
+            },
+        ],
+        ..preview_test_raw_manifest()
+    };
+    let mut limits = preview_test_limits();
+    limits.archive_format = ArchiveFormat::SevenZip;
+
+    let manifest = build_manifest_from_raw(7, &raw_manifest, &limits)
+        .expect("legacy 7z raw cache should infer the source compressed base");
+
+    assert_eq!(manifest.format, "7z");
+    assert_eq!(manifest.entries.len(), 2);
+}
+
+#[test]
 fn raw_manifest_preserves_utf8_flag_validation_on_redecode() {
     let raw_manifest = ArchiveRawManifest {
         entries: vec![ArchiveRawEntry {
             index: 0,
             raw_name: base64::engine::general_purpose::STANDARD.encode(b"\x82ber.txt"),
             display_name: "�ber.txt".to_string(),
-            zip_utf8: true,
+            raw_name_utf8: true,
             kind: ArchivePreviewEntryKind::File,
             size: 5,
             compressed_size: 5,
@@ -414,7 +570,7 @@ fn raw_manifest_cache_can_be_redecoded_after_count_limits_are_lowered() {
         index: 1,
         raw_name: base64::engine::general_purpose::STANDARD.encode(b"second.txt"),
         display_name: "second.txt".to_string(),
-        zip_utf8: false,
+        raw_name_utf8: false,
         kind: ArchivePreviewEntryKind::File,
         size: 5,
         compressed_size: 5,
@@ -447,7 +603,7 @@ fn raw_manifest_cache_trims_entries_to_property_limit() {
                 "x".repeat(512)
             )),
             display_name: format!("very-long-cache-entry-{index:04}.txt"),
-            zip_utf8: false,
+            raw_name_utf8: false,
             kind: ArchivePreviewEntryKind::File,
             size: 1,
             compressed_size: 1,
@@ -487,34 +643,6 @@ fn manifest_from_truncated_raw_cache_keeps_totals_and_marks_truncated() {
 }
 
 #[test]
-fn map_failed_task_error_preserves_archive_preview_subcodes() {
-    assert_eq!(
-        failed_task_subcode("archive preview currently supports .zip files only"),
-        Some(ApiSubcode::ArchivePreviewUnsupportedType)
-    );
-    assert_eq!(
-        failed_task_subcode("source archive size 135064658 exceeds archive preview limit 67108864"),
-        Some(ApiSubcode::ArchivePreviewSourceTooLarge)
-    );
-    assert_eq!(
-        failed_task_subcode("invalid zip archive"),
-        Some(ApiSubcode::ArchivePreviewInvalidZip)
-    );
-    assert_eq!(
-        failed_task_subcode("archive preview manifest for file #1 exceeds server limit 64 bytes"),
-        Some(ApiSubcode::ArchivePreviewManifestTooLarge)
-    );
-    assert_eq!(
-        failed_task_subcode("source archive size mismatch: declared 3 bytes, downloaded 2 bytes"),
-        Some(ApiSubcode::ArchivePreviewSourceSizeMismatch)
-    );
-    assert_eq!(
-        failed_task_subcode("archive contains 2 entries, exceeds server limit 1"),
-        Some(ApiSubcode::ArchivePreviewRejected)
-    );
-}
-
-#[test]
 fn map_failed_task_error_falls_back_to_unavailable_when_unknown() {
     let error = map_failed_task_error(Some("worker disappeared"));
 
@@ -541,6 +669,9 @@ async fn bounded_copy_accepts_exact_size_and_preserves_bytes() {
         &mut output,
         3,
         "source archive",
+        |message| {
+            archive_preview_validation_error(ApiSubcode::ArchivePreviewSourceSizeMismatch, message)
+        },
     )
     .await
     .expect("exact-size stream should copy");
@@ -559,6 +690,9 @@ async fn bounded_copy_rejects_short_and_long_streams() {
         &mut short_output,
         1,
         "source archive",
+        |message| {
+            archive_preview_validation_error(ApiSubcode::ArchivePreviewSourceSizeMismatch, message)
+        },
     )
     .await
     .expect_err("short stream should fail");
@@ -581,6 +715,9 @@ async fn bounded_copy_rejects_short_and_long_streams() {
         &mut long_output,
         3,
         "source archive",
+        |message| {
+            archive_preview_validation_error(ApiSubcode::ArchivePreviewSourceSizeMismatch, message)
+        },
     )
     .await
     .expect_err("long stream should fail");

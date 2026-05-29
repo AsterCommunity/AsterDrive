@@ -55,7 +55,7 @@ export function classifyArchivePreviewError(
 	}
 	if (
 		error.code === ErrorCode.BadRequest &&
-		subcode === ApiSubcode.ArchivePreviewInvalidZip
+		subcode === ApiSubcode.ArchivePreviewInvalidArchive
 	) {
 		return "invalid";
 	}
@@ -69,28 +69,6 @@ export function classifyArchivePreviewError(
 		return "rejected";
 	}
 
-	// Older servers did not attach subcodes yet.
-	if (
-		error.code === ErrorCode.Forbidden &&
-		message.includes("archive preview") &&
-		message.includes("disabled")
-	) {
-		return "disabled";
-	}
-	if (
-		error.code === ErrorCode.BadRequest &&
-		message.includes("archive preview") &&
-		message.includes(".zip")
-	) {
-		return "unsupported";
-	}
-	if (
-		error.code === ErrorCode.BadRequest &&
-		message.includes("source archive size") &&
-		message.includes("archive preview limit")
-	) {
-		return "sourceTooLarge";
-	}
 	if (
 		error.code === ErrorCode.BadRequest &&
 		isArchiveFilenameEncodingError(message)
@@ -105,7 +83,7 @@ export function entryDepth(path: string) {
 	return path.split("/").filter(Boolean).length - 1;
 }
 
-export function formatZipModifiedAt(value: string | null | undefined) {
+export function formatArchiveModifiedAt(value: string | null | undefined) {
 	if (!value) return "";
 	return formatDateTime(value);
 }

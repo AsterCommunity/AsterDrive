@@ -299,22 +299,22 @@ The file is still being assembled from chunks on the server. **This is not an er
 
 Wait a few seconds and retry complete. Large files take longer to assemble because the server merges chunks and calculates SHA256. Do not retry repeatedly right away.
 
-### ZIP Archive Preview Suberrors
+### Archive Preview Suberrors
 
-ZIP preview errors usually hang under `bad_request` or `forbidden`. Check `error.code`:
+archive preview errors usually hang under `bad_request` or `forbidden`. Check `error.code`:
 
-- `archive_preview.disabled`: global ZIP preview switch is not enabled
-- `archive_preview.user_disabled`: ZIP preview for logged-in users is not enabled
-- `archive_preview.share_disabled`: ZIP preview for share pages is not enabled
-- `archive_preview.unsupported_type`: current file is not a supported ZIP
-- `archive_preview.source_too_large`: source ZIP exceeds preview size limit
-- `archive_preview.invalid_zip`: ZIP is damaged or invalid
+- `archive_preview.disabled`: global archive preview switch is not enabled
+- `archive_preview.user_disabled`: archive preview for logged-in users is not enabled
+- `archive_preview.share_disabled`: archive preview for share pages is not enabled
+- `archive_preview.unsupported_type`: current file is not a supported archive format
+- `archive_preview.source_too_large`: source archive exceeds preview size limit
+- `archive_preview.invalid_archive`: archive is damaged or invalid
 - `archive_preview.manifest_too_large`: generated listing exceeds manifest size limit
 - `archive_preview.source_size_mismatch`: source file size differs from the record during scanning; usually re-upload or check underlying storage
 - `archive_preview.rejected`: background task refused to run, probably because the file changed, permission changed, or runtime limits are no longer satisfied
 
 If the first open only shows "generating", that is not an error. Wait for `archive preview generation` in `Admin -> Tasks` / `Task Center` to finish, then open again.  
-If the UI says the current filename encoding cannot parse this ZIP, switch `Filename encoding` in the ZIP preview toolbar and retry. This kind of prompt may not have a separate backend error code.
+If the UI says the current filename encoding cannot parse this ZIP, switch `Filename encoding` in the archive preview toolbar and retry. This kind of prompt may not have a separate backend error code.
 
 ---
 

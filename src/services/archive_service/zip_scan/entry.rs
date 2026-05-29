@@ -3,7 +3,7 @@ use std::path::PathBuf;
 
 use crate::errors::{AsterError, Result};
 
-use super::{ZipScanEntry, ZipScanEntryKind};
+use super::super::scan::{ArchiveScanEntry, ArchiveScanEntryKind};
 
 const UNIX_FILE_TYPE_MASK: u32 = 0o170000;
 const UNIX_REGULAR_FILE_MODE: u32 = 0o100000;
@@ -24,11 +24,11 @@ pub(super) fn map_zip_entry_error(error: zip::result::ZipError) -> AsterError {
 pub(super) fn build_scan_entry(
     index: usize,
     relative_path: PathBuf,
-    kind: ZipScanEntryKind,
+    kind: ArchiveScanEntryKind,
     size: i64,
     compressed_size: i64,
     modified_at: Option<zip::DateTime>,
-) -> Result<ZipScanEntry> {
+) -> Result<ArchiveScanEntry> {
     build_scan_entry_from_parts(
         index,
         relative_path,
@@ -42,11 +42,11 @@ pub(super) fn build_scan_entry(
 pub(super) fn build_scan_entry_from_parts(
     index: usize,
     relative_path: PathBuf,
-    kind: ZipScanEntryKind,
+    kind: ArchiveScanEntryKind,
     size: i64,
     compressed_size: i64,
     modified_at: Option<String>,
-) -> Result<ZipScanEntry> {
+) -> Result<ArchiveScanEntry> {
     let path = relative_path.to_string_lossy().to_string();
     let name = relative_path
         .file_name()
@@ -57,7 +57,7 @@ pub(super) fn build_scan_entry_from_parts(
         (!parent.as_os_str().is_empty()).then(|| parent.to_string_lossy().to_string())
     });
 
-    Ok(ZipScanEntry {
+    Ok(ArchiveScanEntry {
         index,
         relative_path,
         path,

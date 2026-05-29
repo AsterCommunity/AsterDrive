@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { useFileBrowserContext } from "@/components/files/FileBrowserContext";
 import { FileContextMenu } from "@/components/files/FileContextMenu";
+import { isExtractableArchiveFileName } from "@/lib/archiveFormats";
 import { useFileStore } from "@/stores/fileStore";
 import type { FileListItem, FolderListItem } from "@/types/api";
 
@@ -119,7 +120,7 @@ export function FileBrowserItemContextMenu({
 			}
 			onDownload={() => onDownload(item.id, item.name)}
 			onArchiveExtract={
-				onArchiveExtract && item.name.toLowerCase().endsWith(".zip")
+				onArchiveExtract && isExtractableArchiveFileName(item.name)
 					? () => onArchiveExtract(item.id)
 					: undefined
 			}

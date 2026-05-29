@@ -2,6 +2,7 @@ import {
 	getBuiltinPreviewAppIconUrl,
 	PREVIEW_APP_ICON_URLS,
 } from "@/components/common/previewAppIconUrls";
+import { isSupportedArchivePreviewFile } from "@/lib/archiveFormats";
 import { BUILTIN_TABLE_PREVIEW_APP_KEY } from "@/lib/tablePreview";
 import type {
 	PreviewAppProvider,
@@ -59,16 +60,6 @@ export function getFileExtension(file: PreviewableFileLike) {
 function isSvgFile(file: PreviewableFileLike) {
 	const { ext } = getExtension(file.name);
 	return ext === "svg" || file.mime_type === "image/svg+xml";
-}
-
-function isZipArchive(file: PreviewableFileLike) {
-	const { ext } = getExtension(file.name);
-	const mime = file.mime_type.toLowerCase();
-	return (
-		ext === "zip" ||
-		mime === "application/zip" ||
-		mime === "application/x-zip-compressed"
-	);
 }
 
 export function getEditorLanguage(file: PreviewableFileLike): string {
@@ -306,7 +297,7 @@ function detectBuiltinFilePreviewProfile(
 			options: BUILTIN_PREVIEW_OPTIONS.xml,
 		};
 	}
-	if (isZipArchive(file) || typeInfo.category === "archive") {
+	if (isSupportedArchivePreviewFile(file)) {
 		return {
 			category: "archive",
 			isBlobPreview: false,

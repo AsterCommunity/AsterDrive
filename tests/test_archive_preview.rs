@@ -1,4 +1,4 @@
-//! 集成测试：ZIP 压缩包只读预览。
+//! 集成测试：压缩包只读预览。
 
 #[macro_use]
 mod common;
@@ -33,6 +33,36 @@ fn create_stored_zip_bytes(entries: &[(&str, Option<&[u8]>)]) -> Vec<u8> {
     }
 
     zip.finish().expect("zip writer should finish").into_inner()
+}
+
+fn create_7z_bytes(entries: &[(&str, Option<&[u8]>)]) -> Vec<u8> {
+    let cursor = Cursor::new(Vec::new());
+    let mut writer = zesven::Writer::create(cursor).expect("7z writer should start");
+
+    for (path, content) in entries {
+        match content {
+            Some(bytes) => {
+                writer
+                    .add_bytes(
+                        zesven::ArchivePath::new(path).expect("7z file path should be valid"),
+                        bytes,
+                    )
+                    .expect("7z file entry should be writable");
+            }
+            None => {
+                writer
+                    .add_directory(
+                        zesven::ArchivePath::new(path.trim_end_matches('/'))
+                            .expect("7z directory path should be valid"),
+                        zesven::write::EntryMeta::directory(),
+                    )
+                    .expect("7z directory entry should be writable");
+            }
+        }
+    }
+
+    let (_, cursor) = writer.finish_into_inner().expect("7z writer should finish");
+    cursor.into_inner()
 }
 
 fn create_stored_zip_bytes_with_raw_name(
@@ -479,7 +509,7 @@ async fn test_archive_preview_returns_manifest_and_caches_it() {
         EntityType::File,
         file_id,
         "system.archive_preview",
-        "zip_raw_manifest.v1",
+        "zip_raw_manifest.v2",
     )
     .await
     .expect("cache lookup should succeed");
@@ -534,6 +564,91 @@ async fn test_archive_preview_returns_manifest_and_caches_it() {
     );
     let second_body: Value = test::read_body_json(resp).await;
     assert_eq!(second_body["data"]["entries"], data["entries"]);
+}
+
+#[actix_web::test]
+async fn test_archive_preview_returns_7z_manifest_and_caches_it() {
+    let state = common::setup().await;
+    enable_archive_preview(&state, true, false).await;
+    let app = create_test_app!(state.clone());
+    let (token, _) = register_and_login!(app);
+    let file_id = upload_bytes(
+        &app,
+        &token,
+        "bundle.7z",
+        "application/x-7z-compressed",
+        create_7z_bytes(&[
+            ("docs", None),
+            ("docs/readme.txt", Some(b"hello".as_slice())),
+            ("docs/测试.txt", Some(b"hello".as_slice())),
+        ]),
+    )
+    .await;
+
+    let resp = request_personal_archive_preview(&app, &token, file_id).await;
+    assert_eq!(resp.status(), StatusCode::ACCEPTED);
+    aster_drive::services::task_service::drain(&state)
+        .await
+        .expect("archive preview task should drain");
+
+    let resp = request_personal_archive_preview(&app, &token, file_id).await;
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body: Value = test::read_body_json(resp).await;
+    let data = &body["data"];
+    assert_eq!(data["format"], "7z");
+    assert_eq!(data["entry_count"], 3);
+    assert_eq!(data["file_count"], 2);
+    assert_eq!(data["directory_count"], 1);
+    assert!(
+        data["entries"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|entry| entry["path"] == "docs/readme.txt"
+                && entry["parent"] == "docs"
+                && entry["kind"] == "file"
+                && entry["size"] == 5)
+    );
+    assert!(
+        data["entries"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|entry| entry["path"] == "docs/测试.txt"
+                && entry["parent"] == "docs"
+                && entry["kind"] == "file")
+    );
+
+    let cached = property_repo::find_by_key(
+        state.writer_db(),
+        EntityType::File,
+        file_id,
+        "system.archive_preview",
+        "7z_raw_manifest.v2",
+    )
+    .await
+    .expect("cache lookup should succeed");
+    assert!(
+        cached.is_some(),
+        "7z archive preview manifest should be cached"
+    );
+
+    let tasks_before_replay = archive_preview_tasks(&state).await.len();
+    let resp =
+        request_personal_archive_preview_with_encoding(&app, &token, file_id, Some("cp437")).await;
+    let tasks_after_replay = archive_preview_tasks(&state).await.len();
+    assert_eq!(tasks_after_replay, tasks_before_replay);
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body: Value = test::read_body_json(resp).await;
+    let encoded_data = &body["data"];
+    assert!(
+        encoded_data["entries"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|entry| entry["path"] == "docs/测试.txt"),
+        "7z preview cache replay should ignore ZIP filename encoding overrides"
+    );
 }
 
 #[actix_web::test]
@@ -719,7 +834,7 @@ async fn test_archive_preview_limit_reduction_keeps_generated_cache() {
 }
 
 #[actix_web::test]
-async fn test_archive_preview_rejects_non_zip_and_source_limit() {
+async fn test_archive_preview_rejects_unsupported_type_and_source_limit() {
     let state = common::setup().await;
     enable_archive_preview(&state, true, false).await;
     aster_drive::services::config_service::set(&state, "archive_preview_max_source_bytes", "1", 1)
@@ -774,7 +889,40 @@ async fn test_archive_preview_rejects_non_zip_and_source_limit() {
 }
 
 #[actix_web::test]
-async fn test_archive_preview_reports_invalid_zip_with_subcode() {
+async fn test_archive_preview_rejects_7z_source_limit() {
+    let state = common::setup().await;
+    enable_archive_preview(&state, true, false).await;
+    aster_drive::services::config_service::set(&state, "archive_preview_max_source_bytes", "1", 1)
+        .await
+        .expect("archive preview source limit should update");
+    let app = create_test_app!(state.clone());
+    let (token, _) = register_and_login!(app);
+
+    let file_id = upload_bytes(
+        &app,
+        &token,
+        "too-large.7z",
+        "application/x-7z-compressed",
+        create_7z_bytes(&[("payload.txt", Some(b"payload".as_slice()))]),
+    )
+    .await;
+    let req = test::TestRequest::get()
+        .uri(&format!("/api/v1/files/{file_id}/archive-preview"))
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(body["error"]["subcode"], "archive_preview.source_too_large");
+    assert!(
+        archive_preview_tasks(&state).await.is_empty(),
+        "oversized 7z sources should fail before task creation"
+    );
+}
+
+#[actix_web::test]
+async fn test_archive_preview_reports_invalid_archive_with_subcode() {
     let state = common::setup().await;
     enable_archive_preview(&state, true, false).await;
     let app = create_test_app!(state.clone());
@@ -797,7 +945,7 @@ async fn test_archive_preview_reports_invalid_zip_with_subcode() {
     let resp = request_personal_archive_preview(&app, &token, file_id).await;
     assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
     let body: Value = test::read_body_json(resp).await;
-    assert_eq!(body["error"]["subcode"], "archive_preview.invalid_zip");
+    assert_eq!(body["error"]["subcode"], "archive_preview.invalid_archive");
 }
 
 #[actix_web::test]
@@ -830,7 +978,7 @@ async fn test_archive_preview_failed_task_is_reused_as_friendly_error_without_re
     assert!(
         task.last_error
             .as_deref()
-            .is_some_and(|error| error.contains("invalid zip archive"))
+            .is_some_and(|error| error.contains("invalid archive"))
     );
     let steps: Value = serde_json::from_str(
         task.steps_json
@@ -851,7 +999,7 @@ async fn test_archive_preview_failed_task_is_reused_as_friendly_error_without_re
     let resp = request_personal_archive_preview(&app, &token, file_id).await;
     assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
     let body: Value = test::read_body_json(resp).await;
-    assert_eq!(body["error"]["subcode"], "archive_preview.invalid_zip");
+    assert_eq!(body["error"]["subcode"], "archive_preview.invalid_archive");
     assert_eq!(
         archive_preview_tasks(&state).await.len(),
         1,
@@ -982,7 +1130,7 @@ async fn test_archive_preview_caps_high_manifest_limit_to_cache_storage_limit() 
         EntityType::File,
         file_id,
         "system.archive_preview",
-        "zip_raw_manifest.v1",
+        "zip_raw_manifest.v2",
     )
     .await
     .expect("cache lookup should succeed")

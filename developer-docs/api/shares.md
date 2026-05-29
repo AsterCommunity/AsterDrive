@@ -79,7 +79,7 @@
 | `GET` | `/s/{token}` | 读取分享公开信息 |
 | `POST` | `/s/{token}/verify` | 校验分享密码 |
 | `POST` | `/s/{token}/preview-link` | 为分享文件生成短期预览链接 |
-| `GET` | `/s/{token}/archive-preview` | 为分享文件获取 ZIP 归档预览清单 |
+| `GET` | `/s/{token}/archive-preview` | 为分享文件获取归档预览清单 |
 | `POST` | `/s/{token}/stream-session` | 为分享文件生成短期流式播放 session |
 | `GET` | `/s/{token}/download` | 下载分享文件 |
 | `GET` | `/s/{token}/stream/{session_token}/{filename}` | 使用 stream session 流式读取分享文件 |
@@ -87,7 +87,7 @@
 | `GET` | `/s/{token}/folders/{folder_id}/content` | 浏览分享目录树中的子目录 |
 | `GET` | `/s/{token}/files/{file_id}/download` | 下载分享文件夹中的子文件 |
 | `POST` | `/s/{token}/files/{file_id}/preview-link` | 为分享目录树中的子文件生成短期预览链接 |
-| `GET` | `/s/{token}/files/{file_id}/archive-preview` | 为分享目录树中的子文件获取 ZIP 归档预览清单 |
+| `GET` | `/s/{token}/files/{file_id}/archive-preview` | 为分享目录树中的子文件获取归档预览清单 |
 | `POST` | `/s/{token}/files/{file_id}/stream-session` | 为分享目录树中的子文件生成短期流式播放 session |
 | `GET` | `/s/{token}/thumbnail` | 获取分享文件缩略图 |
 | `GET` | `/s/{token}/image-preview` | 获取分享文件图片预览 WebP |
@@ -103,7 +103,7 @@
 - `/preview-link` 和 `/files/{file_id}/preview-link` 也会校验这枚 Cookie；受密码保护的分享必须先过 `/verify`
 - `/download` 只适用于文件分享
 - `/preview-link` 只适用于文件分享；返回的 `PreviewLinkInfo.path` 最终指向根路径 `/pv/{token}/{filename}`
-- `/archive-preview` 只适用于 ZIP 文件分享；缓存未生成时返回 `202` 并排队 `archive_preview_generate` 任务
+- `/archive-preview` 适用于支持的归档文件分享；缓存未生成时返回 `202` 并排队 `archive_preview_generate` 任务
 - `/archive-preview` 和 `/files/{file_id}/archive-preview` 支持 `filename_encoding` query，取值与登录态文件接口一致：`auto`、`utf8`、`gb18030`、`cp437`、`cp850`、`shift_jis`、`big5`、`euc_kr`、`windows_1252`
 - `/stream-session` 只适用于文件分享；返回的 `ShareStreamSessionInfo.path` 最终指向 `/api/v1/s/{token}/stream/{session_token}/{filename}`
 - `/media-metadata` 只适用于文件分享；缓存未生成时返回 `202` 并排队 `media_metadata_extract` 任务
@@ -112,7 +112,7 @@
 - `/folders/{folder_id}/content` 用于继续浏览分享目录树中的子目录
 - `/files/{file_id}/download` 用于下载分享文件夹树中的子文件
 - `/files/{file_id}/preview-link` 用于分享目录树里子文件的短期预览
-- `/files/{file_id}/archive-preview` 用于分享目录树里子 ZIP 文件的只读预览
+- `/files/{file_id}/archive-preview` 用于分享目录树里子归档文件的只读预览
 - `/files/{file_id}/stream-session` 用于分享目录树里子文件的短期流式播放 session
 - `/thumbnail` 只适用于服务端当前支持生成缩略图的文件分享
 - `/files/{file_id}/thumbnail` 只适用于分享目录树中服务端当前支持生成缩略图的文件

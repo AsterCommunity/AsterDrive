@@ -106,6 +106,8 @@ pub(crate) struct ArchiveRawManifest {
     pub(crate) file_count: i64,
     pub(crate) directory_count: i64,
     pub(super) total_uncompressed_size: i64,
+    #[serde(default)]
+    pub(super) total_compressed_base: u64,
     pub(super) entries: Vec<ArchiveRawEntry>,
 }
 
@@ -120,7 +122,8 @@ pub(super) struct ArchiveRawEntry {
     pub(super) index: usize,
     pub(super) raw_name: String,
     pub(super) display_name: String,
-    pub(super) zip_utf8: bool,
+    #[serde(default, alias = "zip_utf8")]
+    pub(super) raw_name_utf8: bool,
     pub(super) kind: ArchivePreviewEntryKind,
     pub(super) size: i64,
     pub(super) compressed_size: i64,

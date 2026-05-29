@@ -136,7 +136,7 @@ On first startup, AsterDrive will automatically:
 - folders, breadcrumbs, list/grid views, search, multi-select, and batch operations
 - file upload, folder upload, download, rename, move, copy, delete, restore, and purge
 - archive download, online archive compression/extraction, and background task progress
-- thumbnails, browser-native previews, ZIP manifest preview, and configurable external preview apps
+- thumbnails, browser-native previews, read-only ZIP/7z archive manifest previews, and configurable external preview apps
 - Monaco-based text editing, lock awareness, version history, restore, and version deletion
 
 ### Workspaces and sharing

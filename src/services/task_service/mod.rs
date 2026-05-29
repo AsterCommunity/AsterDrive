@@ -851,8 +851,8 @@ mod tests {
             started_at: None,
             finished_at: Some(now),
             last_error: Some(crate::errors::encode_api_error_subcode_message(
-                ApiSubcode::ArchivePreviewInvalidZip,
-                "invalid zip archive".to_string(),
+                ApiSubcode::ArchivePreviewInvalidArchive,
+                "invalid archive".to_string(),
             )),
             failure_can_retry: Some(false),
             expires_at: now + Duration::hours(1),
@@ -862,7 +862,7 @@ mod tests {
 
         let info = build_task_info_with_creator(task, None).expect("task info should build");
 
-        assert_eq!(info.last_error.as_deref(), Some("invalid zip archive"));
+        assert_eq!(info.last_error.as_deref(), Some("invalid archive"));
     }
 
     #[test]

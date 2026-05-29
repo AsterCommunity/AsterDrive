@@ -21,7 +21,7 @@ Admin -> System Settings
 | Passkey, MFA, external login, or external identity binding is unexpected | Site Configuration / Admin -> External Authentication / Authentication and Cookies | Then check [login and sessions](/en/config/auth) |
 | Mail cannot be received, or links are wrong | Mail Delivery | Then check [mail](/en/config/mail) |
 | Browser blocks cross-origin API calls | Network Access | First confirm it is not a `Public Site URL` issue |
-| Background tasks, thumbnails, ZIP preview, or trash retention behaves abnormally | Runtime and Scheduling / Storage and Retention | Then check [operations CLI](/en/deployment/ops-cli) |
+| Background tasks, thumbnails, archive preview, or trash retention behaves abnormally | Runtime and Scheduling / Storage and Retention | Then check [operations CLI](/en/deployment/ops-cli) |
 | Audio/video playback links on share pages expire too quickly or too slowly | Runtime and Scheduling | Then check [sharing and public access](/en/guide/sharing) |
 | WebDAV global switch, system-file blocking, or connection behavior is abnormal | WebDAV | Then check [WebDAV](/en/config/webdav) |
 | You need to see who changed what | Audit Logs | Then check [admin console](/en/guide/admin-console#audit-logs) |
@@ -33,7 +33,7 @@ Admin -> System Settings
 | Make share links, mail links, WebDAV addresses, and online previews point to the correct domain | `Site Configuration -> Public Site URL` |
 | Change the title, logo, or favicon shown on login and share pages | `Site Configuration` |
 | Add external preview or WOPI opening methods for Office files | `Site Configuration -> Preview Apps` |
-| Enable or limit read-only ZIP archive preview | `Storage and Retention -> Archive Preview` |
+| Enable or limit read-only archive preview | `Storage and Retention -> Archive Preview` |
 | Connect OIDC / SSO login providers | `Admin -> External Authentication` |
 | Disable public registration | `User Management -> Allow Public User Registration` |
 | Change the default quota for new users, then recheck actual team quotas after creating teams | `Storage and Retention -> New User Default Storage Quota` |
@@ -59,7 +59,7 @@ Admin -> System Settings
 - **Mail Delivery** - SMTP, sender, test mail, registration activation/email-change/password reset/external login email verification/login email code mail templates
 - **Network Access** - Browser cross-site access rules (CORS)
 - **Runtime and Scheduling** - Mail queue, background tasks, task-lane concurrency, share streaming playback sessions, periodic cleanup, low-level consistency checks, follower node health checks, list limits
-- **Storage and Retention** - Trash, version history, default quotas, task artifacts, online extraction staging, ZIP archive preview, media processing
+- **Storage and Retention** - Trash, version history, default quotas, task artifacts, online extraction staging, archive preview, media processing
 - **WebDAV** - Global switch and common system-file blocking
 - **Audit Logs** - Switch and retention time
 - **Custom Configuration**, **Other** - Advanced scenarios only
@@ -186,7 +186,7 @@ You can also tune:
 
 - Background task idle backoff maximum
 - Default background task concurrency limit
-- Concurrency limit for archive tasks: online compression, online extraction, and ZIP preview
+- Concurrency limit for archive tasks: online compression, online extraction, and archive preview
 - Thumbnail generation task concurrency limit
 - Maximum background task attempts
 - Share download rollback queue capacity
@@ -196,7 +196,7 @@ You can also tune:
 - Task list page size limit
 
 If there are no obvious performance issues, queue backlogs, or follower node detection delays, keep the defaults.  
-If you increase background task concurrency, online compression, online extraction, ZIP preview, and thumbnail tasks can run together more easily, and CPU, memory, and I/O pressure will increase with them.
+If you increase background task concurrency, online compression, online extraction, archive preview, and thumbnail tasks can run together more easily, and CPU, memory, and I/O pressure will increase with them.
 
 Audio and video on share pages create a short-lived streaming playback session first to support Range playback. The default TTL is `3` hours, configurable from `5` minutes to `24` hours. Longer TTLs work better for long background music playback; shorter TTLs reduce the access window after a link leak.
 
@@ -212,13 +212,13 @@ This group decides "how long data is kept" and "how much space new objects get b
 | Task retention | `24` hours |
 | New user default storage quota | `0` (unlimited) |
 | Online extraction staging size limit | `2 GiB` |
-| ZIP archive preview global switch | Disabled |
-| ZIP archive preview user-side switch | Disabled |
-| ZIP archive preview share-side switch | Disabled |
-| ZIP archive preview source file size limit | `64 MiB` |
-| ZIP archive preview entry count limit | `2000` |
-| ZIP archive preview manifest size limit | `64 KiB` |
-| ZIP archive preview scan duration limit | `30` seconds |
+| Archive preview global switch | Disabled |
+| Archive preview user-side switch | Disabled |
+| Archive preview share-side switch | Disabled |
+| Archive preview source file size limit | `64 MiB` |
+| Archive preview entry count limit | `2000` |
+| Archive preview manifest size limit | `64 KiB` |
+| Archive preview scan duration limit | `30` seconds |
 | Thumbnail source file size limit | `64 MiB` |
 
 ::: warning Default quotas affect only new objects
@@ -229,19 +229,19 @@ This group decides "how long data is kept" and "how much space new objects get b
 
 :::
 
-### ZIP Archive Preview
+### Archive Preview
 
-Archive preview is read-only. It scans only the ZIP directory listing and generates a manifest; it does not extract the archive into the user's folder. It is not the same thing as "online extraction".
+Archive preview is read-only. It scans metadata from supported archive formats and generates a manifest; it does not extract the archive into the user's folder. It is not the same thing as "online extraction".
 
 This group has three layers of switches:
 
-- **Enable ZIP Archive Preview**: global switch
-- **Enable ZIP Preview for Users**: whether logged-in users can preview archives in personal and team spaces
-- **Enable ZIP Preview for Shares**: whether public share pages can preview archives after passing password and share-scope checks
+- **Enable Archive Preview**: global switch
+- **Enable Archive Preview for Users**: whether logged-in users can preview archives in personal and team spaces
+- **Enable Archive Preview for Shares**: whether public share pages can preview archives after passing password and share-scope checks
 
-All three are disabled by default. Enable them only when users really need to inspect ZIP contents, especially the share-side switch. It lets visitors see metadata such as internal file names, directory structure, sizes, and modified times.
+All three are disabled by default. Enable them only when users really need to inspect archive contents, especially the share-side switch. It lets visitors see metadata such as internal file names, directory structure, sizes, and modified times.
 
-Limits control source ZIP size, entry count, returned manifest size, and single-scan duration. When a ZIP is opened for the first time and the manifest has not been cached, the system creates an `archive_preview_generate` background task. After generation completes, reopening reuses the cached manifest.
+Limits control source archive size, entry count, returned manifest size, and single-scan duration. When an archive is opened for the first time and the manifest has not been cached, the system creates an `archive_preview_generate` background task. After generation completes, reopening reuses the cached manifest.
 
 When users switch `filename encoding` in the preview toolbar, AsterDrive rereads or regenerates the manifest with the selected encoding. This is for old ZIP files or ZIP file names created across language environments that display as garbled text. It does not modify the original archive.
 
@@ -337,7 +337,7 @@ If you want to later investigate "who deleted files, who created shares, who cha
 | Trash, team archive, task artifact, audit log retention | Background cleanup tasks work with the new rules |
 | Version history limit | Applied when new versions are produced later |
 | Online extraction staging limit | Applied to online extraction tasks created later |
-| ZIP archive preview switches and limits | Applied to later requests and new `archive_preview_generate` tasks |
+| Archive preview switches and limits | Applied to later requests and new `archive_preview_generate` tasks |
 | Thumbnail source file size limit | Applied to files entering thumbnail tasks later |
 | Media processor switches, commands, extension bindings | Applied to files entering thumbnail tasks later |
 | Media metadata switch, size limit, processor binding | Applied to files entering media metadata tasks later; existing caches are not automatically rescanned because configuration changed |

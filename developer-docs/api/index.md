@@ -200,7 +200,7 @@
 
 - 上传与版本：见 [文件](./files.md)
 - MFA、Passkey、外部认证和登录会话：见 [认证](./auth.md)
-- ZIP 归档只读预览：见 [文件](./files.md)、[分享](./shares.md) 和 [后台任务](./tasks.md)
+- 归档只读预览：见 [文件](./files.md)、[分享](./shares.md) 和 [后台任务](./tasks.md)
 - 批量删除 / 移动 / 复制 / 打包：见 [批量操作](./batch.md)
 - 回收站恢复与清理：见 [回收站](./trash.md)
 - 搜索、文件分类和扩展名筛选：见 [搜索](./search.md)

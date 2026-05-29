@@ -102,7 +102,7 @@ Separate by preview type:
 - Office files: depends on the preview method you use.
   - If using an external previewer, first check whether binding is correct under `Admin -> System Settings -> Site Configuration -> Preview Applications`.
   - If using WOPI (Collabora / OnlyOffice), confirm the WOPI service can reverse-access AsterDrive's public site origin.
-- ZIP archives: first check the global switch and user/share-side switches under `Admin -> System Settings -> Storage and Retention -> Archive Preview`, then check whether `Archive Preview Generation` failed under `Admin -> Tasks`.
+- Archive previews: first check the global switch and user/share-side switches under `Admin -> System Settings -> Storage and Retention -> Archive Preview`, then check whether `Archive Preview Generation` failed under `Admin -> Tasks`.
 
 WOPI integration details are in [File Editing](/en/guide/editing).
 

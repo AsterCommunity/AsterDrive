@@ -326,7 +326,7 @@ Commonly changed items include:
 - Default quota for new users
 - Task retention and thumbnail source file size limit
 - Online extraction staging size limit
-- ZIP archive preview switches and limits
+- Archive preview switches and limits
 - Media processors, vips / ffmpeg / ffprobe commands, and extension bindings
 - Mail queue, background task, and periodic cleanup frequency
 - Background task lane concurrency limits, maximum attempts, and system health check interval

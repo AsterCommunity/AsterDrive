@@ -7,8 +7,8 @@ use crate::types::EntityType;
 
 use super::model::{ArchiveRawManifest, CachedArchiveRawManifest, CachedArchiveRawManifestRef};
 use super::{
-    ArchivePreviewLimits, CACHE_NAMESPACE, ENTITY_PROPERTY_VALUE_MAX_BYTES, FORMAT_ZIP,
-    RAW_CACHE_SCHEMA_VERSION, ZIP_RAW_MANIFEST_CACHE_NAME, archive_preview_validation_error,
+    ArchivePreviewLimits, CACHE_NAMESPACE, ENTITY_PROPERTY_VALUE_MAX_BYTES,
+    RAW_CACHE_SCHEMA_VERSION, archive_preview_validation_error,
 };
 
 pub(super) async fn load_cached_raw_manifest(
@@ -22,7 +22,7 @@ pub(super) async fn load_cached_raw_manifest(
         EntityType::File,
         source_file.id,
         CACHE_NAMESPACE,
-        ZIP_RAW_MANIFEST_CACHE_NAME,
+        limits.archive_format.raw_manifest_cache_name(),
     )
     .await?
     else {
@@ -49,7 +49,7 @@ pub(super) async fn load_cached_raw_manifest(
         && cached.source_hash == blob.hash
         && cached.limit_signature == limits.raw_signature
         && cached.manifest.schema_version == RAW_CACHE_SCHEMA_VERSION
-        && cached.manifest.format == FORMAT_ZIP
+        && cached.manifest.format == limits.archive_format.as_str()
     {
         return Ok(Some(cached.manifest));
     }
@@ -81,7 +81,7 @@ pub(crate) async fn store_cached_manifest(
         EntityType::File,
         source_file.id,
         CACHE_NAMESPACE,
-        ZIP_RAW_MANIFEST_CACHE_NAME,
+        limits.archive_format.raw_manifest_cache_name(),
         Some(&serialized),
     )
     .await?;

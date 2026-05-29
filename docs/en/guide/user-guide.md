@@ -112,7 +112,7 @@ Many common files can open directly on the web page, such as:
 - CSV / TSV
 - JSON
 - XML
-- ZIP archive listings
+- Archive listings
 - Plain text and common code files
 
 Text files can usually be edited directly. When saving, the system automatically:
@@ -127,7 +127,7 @@ The most common scenario is handing Office files to an external previewer or WOP
 Whether such entries appear depends on whether the administrator configured a corresponding preview app for the current file type.  
 If your `docx`, `xlsx`, or `pptx` file does not show an extra open method, the site has usually not connected that file type to a usable external service yet.
 
-ZIP archive preview is a read-only listing preview. It shows only directories, files, sizes, and modification times inside the archive. It does not extract the archive into the current folder and cannot download a single file inside the archive. The first time you open a ZIP, it may show generation in progress until the background task finishes and the listing is displayed.
+Archive preview is a read-only listing preview. It shows only directories, files, sizes, and modification times inside the archive. It does not extract the archive into the current folder and cannot download a single file inside the archive. The first time you open an archive, it may show generation in progress until the background task finishes and the listing is displayed.
 
 If filenames inside the ZIP look garbled, switch `Filename encoding` in the preview toolbar. Try `Auto` first. If it does not work, choose based on the archive source, such as `GB18030`, `CP437`, `Shift_JIS`, or `Big5`. This choice only affects listing display and does not modify the archive itself.
 
@@ -150,7 +150,7 @@ In the current UI, the most common actions that enter `Task Center` include:
 - Package downloading a folder
 - Online compression after selecting a batch of files or folders
 - Online extraction of an archive
-- Generating a listing the first time a ZIP archive preview opens
+- Generating a listing the first time an archive preview opens
 - Emptying the whole trash
 
 If the site later adds other background file tasks, they will appear here in the same way.
@@ -203,7 +203,7 @@ If you share a single file, the dialog can also switch to `Direct link` mode. Di
 
 When playing audio or video on a share page, the system creates a short-lived playback session, valid for about 3 hours by default. This session is only for the browser player. The share link's own password, expiration time, and download count limits still apply normally.
 
-If the administrator enables share-side ZIP preview, visitors can also view a read-only listing of ZIP contents on the share page. If the share has a password, visitors must pass password verification before seeing the listing.
+If the administrator enables share-side archive preview, visitors can also view a read-only listing of supported archive contents on the share page. If the share has a password, visitors must pass password verification before seeing the listing.
 
 ## My Shares
 

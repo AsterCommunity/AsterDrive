@@ -49,13 +49,13 @@ Default behavior:
 
 This is not the share link expiration time. The share link's password, expiration time, and maximum download count still apply normally.
 
-## ZIP Archive Preview on Share Pages
+## Archive Preview on Share Pages
 
-If the administrator enables share-side ZIP preview, public share pages can show a read-only listing of a ZIP archive.
+If the administrator enables share-side archive preview, public share pages can show a read-only listing of a supported archive.
 
 Key points:
 
-- ZIP only
+- ZIP and 7z
 - Shows directories, files, sizes, and modification times
 - Does not extract the archive into the user's folder
 - Does not provide downloads for individual files inside the archive
@@ -63,9 +63,9 @@ Key points:
 
 If filenames inside the ZIP look garbled, switch `Filename encoding` in the preview toolbar. Common options include `Auto`, `UTF-8`, `GB18030`, `CP437`, `Shift_JIS`, `Big5`, and others. Switching only affects list display and does not modify the archive file.
 
-If the share has a password, visitors must pass password verification before seeing the ZIP listing. When accessing a ZIP through a folder share, the system also verifies that the ZIP really belongs to the shared scope.
+If the share has a password, visitors must pass password verification before seeing the archive listing. When accessing an archive through a folder share, the system also verifies that the archive really belongs to the shared scope.
 
-Administrators do not enable share-side ZIP preview by default because it exposes metadata such as internal filenames and directory structure. Enable it from `Admin -> System Settings -> Storage and Retention -> Archive Preview` only when you need this capability.
+Administrators do not enable share-side archive preview by default because it exposes metadata such as internal filenames and directory structure. Enable it from `Admin -> System Settings -> Storage and Retention -> Archive Preview` only when you need this capability.
 
 ## File Shares vs Folder Shares
 

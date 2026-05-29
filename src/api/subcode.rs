@@ -47,7 +47,7 @@ define_api_subcodes! {
     ArchivePreviewUserDisabled => "archive_preview.user_disabled",
     ArchivePreviewShareDisabled => "archive_preview.share_disabled",
     ArchivePreviewSourceTooLarge => "archive_preview.source_too_large",
-    ArchivePreviewInvalidZip => "archive_preview.invalid_zip",
+    ArchivePreviewInvalidArchive => "archive_preview.invalid_archive",
     ArchivePreviewManifestTooLarge => "archive_preview.manifest_too_large",
     ArchivePreviewUnsupportedType => "archive_preview.unsupported_type",
     ArchivePreviewRejected => "archive_preview.rejected",

@@ -24,6 +24,7 @@ use aster_drive::types::{BackgroundTaskKind, BackgroundTaskStatus, StoredTaskPay
 
 const OLD_BACKGROUND_TASK_DISPLAY_NAME_LIMIT: usize = 255;
 const EXPANDED_BACKGROUND_TASK_DISPLAY_NAME_LIMIT: usize = 512;
+const ENCRYPTED_7Z_ENTRY_FIXTURE: &[u8] = include_bytes!("fixtures/archives/encrypted-entry.7z");
 
 macro_rules! register_user {
     ($app:expr, $db:expr, $mail_sender:expr, $username:expr, $email:expr, $password:expr) => {{
@@ -259,6 +260,126 @@ fn create_stored_zip_bytes(entries: &[(&str, Option<&[u8]>)]) -> Vec<u8> {
     }
 
     zip.finish().expect("zip writer should finish").into_inner()
+}
+
+fn create_7z_bytes(entries: &[(&str, Option<&[u8]>)]) -> Vec<u8> {
+    let cursor = Cursor::new(Vec::new());
+    let mut writer = zesven::Writer::create(cursor).expect("7z writer should start");
+
+    for (path, content) in entries {
+        match content {
+            Some(bytes) => {
+                writer
+                    .add_bytes(
+                        zesven::ArchivePath::new(path).expect("7z file path should be valid"),
+                        bytes,
+                    )
+                    .expect("7z file entry should be writable");
+            }
+            None => {
+                writer
+                    .add_directory(
+                        zesven::ArchivePath::new(path.trim_end_matches('/'))
+                            .expect("7z directory path should be valid"),
+                        zesven::write::EntryMeta::directory(),
+                    )
+                    .expect("7z directory entry should be writable");
+            }
+        }
+    }
+
+    let (_, cursor) = writer.finish_into_inner().expect("7z writer should finish");
+    cursor.into_inner()
+}
+
+fn create_7z_bytes_with_anti_item(path: &str) -> Vec<u8> {
+    let cursor = Cursor::new(Vec::new());
+    let mut writer = zesven::Writer::create(cursor).expect("7z writer should start");
+    writer
+        .add_anti_item(zesven::ArchivePath::new(path).expect("7z anti path should be valid"))
+        .expect("7z anti item should be writable");
+
+    let (_, cursor) = writer.finish_into_inner().expect("7z writer should finish");
+    cursor.into_inner()
+}
+
+fn create_7z_bytes_with_patched_name(original_name: &str, patched_name: &str) -> Vec<u8> {
+    assert_eq!(
+        original_name.encode_utf16().count(),
+        patched_name.encode_utf16().count(),
+        "patched 7z name must keep the UTF-16 length unchanged"
+    );
+    let mut bytes = create_7z_bytes(&[(original_name, Some(b"payload".as_slice()))]);
+    let original = utf16le_null_terminated(original_name);
+    let patched = utf16le_null_terminated(patched_name);
+    let offset = bytes
+        .windows(original.len())
+        .position(|window| window == original.as_slice())
+        .expect("7z encoded file name should be present");
+    bytes[offset..offset + patched.len()].copy_from_slice(&patched);
+    refresh_7z_header_checksums(&mut bytes);
+    bytes
+}
+
+fn create_7z_bytes_with_tampered_packed_data() -> Vec<u8> {
+    let payload = vec![b'a'; 4096];
+    let mut bytes = create_7z_bytes(&[("payload.txt", Some(&payload))]);
+    let next_header_start: usize = (32 + read_u64_le(&bytes, 12))
+        .try_into()
+        .expect("test 7z next header offset should fit usize");
+    assert!(
+        next_header_start > 32,
+        "test 7z archive should contain a packed stream before the next header"
+    );
+
+    let packed_stream_offset = 32 + ((next_header_start - 32) / 2);
+    bytes[packed_stream_offset] ^= 0x55;
+    bytes
+}
+
+fn refresh_7z_header_checksums(bytes: &mut [u8]) {
+    let next_header_offset = read_u64_le(bytes, 12);
+    let next_header_size = read_u64_le(bytes, 20);
+    let next_header_start: usize = (32 + next_header_offset)
+        .try_into()
+        .expect("test 7z next header offset should fit usize");
+    let next_header_size: usize = next_header_size
+        .try_into()
+        .expect("test 7z next header size should fit usize");
+    let next_header_crc = crc32(&bytes[next_header_start..next_header_start + next_header_size]);
+    bytes[28..32].copy_from_slice(&next_header_crc.to_le_bytes());
+
+    let start_header_crc = crc32(&bytes[12..32]);
+    bytes[8..12].copy_from_slice(&start_header_crc.to_le_bytes());
+}
+
+fn read_u64_le(bytes: &[u8], offset: usize) -> u64 {
+    u64::from_le_bytes(
+        bytes[offset..offset + 8]
+            .try_into()
+            .expect("test 7z header should contain u64"),
+    )
+}
+
+fn utf16le_null_terminated(value: &str) -> Vec<u8> {
+    let mut bytes = Vec::new();
+    for code_unit in value.encode_utf16() {
+        bytes.extend_from_slice(&code_unit.to_le_bytes());
+    }
+    bytes.extend_from_slice(&0_u16.to_le_bytes());
+    bytes
+}
+
+fn crc32(bytes: &[u8]) -> u32 {
+    let mut crc = 0xffff_ffff_u32;
+    for byte in bytes {
+        crc ^= u32::from(*byte);
+        for _ in 0..8 {
+            let mask = 0_u32.wrapping_sub(crc & 1);
+            crc = (crc >> 1) ^ (0xedb8_8320 & mask);
+        }
+    }
+    !crc
 }
 
 fn create_stored_zip_bytes_with_raw_name(
@@ -508,6 +629,23 @@ async fn run_failing_personal_archive_extract_with_options(
     max_attempts: &str,
     assert_retry_rejected: bool,
 ) -> Value {
+    run_failing_personal_archive_extract_with_filename(
+        archive_bytes,
+        "security-check.zip",
+        config_overrides,
+        max_attempts,
+        assert_retry_rejected,
+    )
+    .await
+}
+
+async fn run_failing_personal_archive_extract_with_filename(
+    archive_bytes: Vec<u8>,
+    file_name: &str,
+    config_overrides: Vec<(&str, String)>,
+    max_attempts: &str,
+    assert_retry_rejected: bool,
+) -> Value {
     let state = common::setup().await;
     let app = create_test_app!(state.clone());
 
@@ -530,7 +668,7 @@ async fn run_failing_personal_archive_extract_with_options(
         .uri("/api/v1/files/new")
         .insert_header(("Cookie", common::access_cookie_header(&token)))
         .insert_header(common::csrf_header_for(&token))
-        .set_json(serde_json::json!({ "name": "security-check.zip", "folder_id": null }))
+        .set_json(serde_json::json!({ "name": file_name, "folder_id": null }))
         .to_request();
     let resp = test::call_service(&app, req).await;
     assert_eq!(resp.status(), 201);
@@ -594,6 +732,20 @@ async fn run_failing_personal_archive_extract_with_options(
     );
 
     body
+}
+
+async fn run_failing_personal_7z_archive_extract(
+    archive_bytes: Vec<u8>,
+    config_overrides: Vec<(&str, String)>,
+) -> Value {
+    run_failing_personal_archive_extract_with_filename(
+        archive_bytes,
+        "security-check.7z",
+        config_overrides,
+        "1",
+        false,
+    )
+    .await
 }
 
 fn create_zip_bytes_with_tampered_declared_size(
@@ -2791,6 +2943,144 @@ async fn test_team_archive_extract_task_creates_team_folder_tree() {
 }
 
 #[actix_web::test]
+async fn test_archive_extract_task_extracts_7z_archive() {
+    let state = common::setup().await;
+    let app = create_test_app!(state.clone());
+    let (token, _) = register_and_login!(app);
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/files/new")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({ "name": "bundle.7z", "folder_id": null }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 201);
+    let body: Value = test::read_body_json(resp).await;
+    let archive_file_id = body["data"]["id"].as_i64().unwrap();
+
+    let archive_bytes = create_7z_bytes(&[
+        ("docs", None),
+        ("docs/note.txt", Some("7z extract payload".as_bytes())),
+        ("docs/second.txt", Some("second 7z payload".as_bytes())),
+        ("root.txt", Some("root 7z payload".as_bytes())),
+    ]);
+    let req = test::TestRequest::put()
+        .uri(&format!("/api/v1/files/{archive_file_id}/content"))
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .insert_header(("Content-Type", "application/octet-stream"))
+        .set_payload(archive_bytes)
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+
+    let req = test::TestRequest::post()
+        .uri(&format!("/api/v1/files/{archive_file_id}/extract"))
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({}))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+    let body: Value = test::read_body_json(resp).await;
+    let task_id = body["data"]["id"].as_i64().unwrap();
+
+    let stats = aster_drive::services::task_service::drain(&state)
+        .await
+        .expect("task drain should succeed");
+    assert_eq!(stats.succeeded, 1);
+
+    let req = test::TestRequest::get()
+        .uri(&format!("/api/v1/tasks/{task_id}"))
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(body["data"]["status"], "succeeded");
+
+    let result = read_task_result(&body);
+    let extracted_root_id = result["target_folder_id"].as_i64().unwrap();
+    assert_eq!(result["target_folder_name"], "bundle");
+
+    let req = test::TestRequest::get()
+        .uri(&format!("/api/v1/folders/{extracted_root_id}"))
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+    let body: Value = test::read_body_json(resp).await;
+    let docs_folder = body["data"]["folders"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|folder| folder["name"] == "docs")
+        .expect("docs folder should exist");
+    let docs_folder_id = docs_folder["id"].as_i64().unwrap();
+
+    let req = test::TestRequest::get()
+        .uri(&format!("/api/v1/folders/{docs_folder_id}"))
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+    let body: Value = test::read_body_json(resp).await;
+    let files = body["data"]["files"].as_array().unwrap();
+    let note_file_id = files
+        .iter()
+        .find(|file| file["name"] == "note.txt")
+        .and_then(|file| file["id"].as_i64())
+        .expect("docs/note.txt should exist");
+    let second_file_id = files
+        .iter()
+        .find(|file| file["name"] == "second.txt")
+        .and_then(|file| file["id"].as_i64())
+        .expect("docs/second.txt should exist");
+    let mut file_names = files
+        .iter()
+        .map(|file| file["name"].as_str().unwrap().to_string())
+        .collect::<Vec<_>>();
+    file_names.sort();
+    assert_eq!(file_names, vec!["note.txt", "second.txt"]);
+
+    let req = test::TestRequest::get()
+        .uri(&format!("/api/v1/folders/{extracted_root_id}"))
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+    let body: Value = test::read_body_json(resp).await;
+    let root_files = body["data"]["files"].as_array().unwrap();
+    assert_eq!(root_files.len(), 1);
+    assert_eq!(root_files[0]["name"], "root.txt");
+    let root_file_id = root_files[0]["id"].as_i64().unwrap();
+
+    for (file_id, expected) in [
+        (note_file_id, b"7z extract payload".as_slice()),
+        (second_file_id, b"second 7z payload".as_slice()),
+        (root_file_id, b"root 7z payload".as_slice()),
+    ] {
+        let req = test::TestRequest::get()
+            .uri(&format!("/api/v1/files/{file_id}/download"))
+            .insert_header(("Cookie", common::access_cookie_header(&token)))
+            .insert_header(common::csrf_header_for(&token))
+            .to_request();
+        let resp = assert_response_status(
+            test::call_service(&app, req).await,
+            actix_web::http::StatusCode::OK,
+        )
+        .await;
+        let bytes = test::read_body(resp).await;
+        assert_eq!(bytes.as_ref(), expected);
+    }
+}
+
+#[actix_web::test]
 async fn test_archive_extract_task_publishes_single_storage_change_event() {
     let state = common::setup().await;
     let mut storage_events = state.storage_change_tx.subscribe();
@@ -3648,6 +3938,150 @@ async fn test_archive_extract_task_rejects_display_only_entry_names() {
             .expect("failed task should record last error")
             .contains("forbidden character ':'"),
         "extract must still reject archive entries that cannot become AsterDrive names"
+    );
+}
+
+#[actix_web::test]
+async fn test_archive_extract_task_rejects_7z_display_only_entry_names() {
+    let archive_bytes = create_7z_bytes(&[(
+        "folder/name:with-colon.txt",
+        Some(b"not importable".as_slice()),
+    )]);
+    let body = run_failing_personal_archive_extract_with_filename(
+        archive_bytes,
+        "security-check.7z",
+        Vec::new(),
+        "1",
+        false,
+    )
+    .await;
+
+    assert!(
+        body["data"]["last_error"]
+            .as_str()
+            .expect("failed task should record last error")
+            .contains("forbidden character ':'"),
+        "7z extract must reject archive entries that cannot become AsterDrive names"
+    );
+}
+
+#[actix_web::test]
+async fn test_archive_extract_task_rejects_7z_encrypted_entries() {
+    let body =
+        run_failing_personal_7z_archive_extract(ENCRYPTED_7Z_ENTRY_FIXTURE.to_vec(), Vec::new())
+            .await;
+
+    assert!(
+        body["data"]["last_error"]
+            .as_str()
+            .expect("failed task should record last error")
+            .contains("encrypted"),
+        "7z extract must reject encrypted entries"
+    );
+}
+
+#[actix_web::test]
+async fn test_archive_extract_task_rejects_7z_path_traversal() {
+    let archive_bytes = create_7z_bytes_with_patched_name("safe-path.txt", "../escape.txt");
+    let body = run_failing_personal_7z_archive_extract(archive_bytes, Vec::new()).await;
+    let last_error = body["data"]["last_error"]
+        .as_str()
+        .expect("failed task should record last error");
+
+    assert!(
+        last_error.contains("unsafe path") || last_error.contains("path traversal"),
+        "7z path traversal error should be surfaced: {last_error}"
+    );
+}
+
+#[actix_web::test]
+async fn test_archive_extract_task_rejects_7z_too_many_entries() {
+    let archive_bytes = create_7z_bytes(&[
+        ("first.txt", Some(b"first".as_slice())),
+        ("second.txt", Some(b"second".as_slice())),
+    ]);
+    let body = run_failing_personal_7z_archive_extract(
+        archive_bytes,
+        vec![("archive_extract_max_entries", "1".to_string())],
+    )
+    .await;
+    let last_error = body["data"]["last_error"]
+        .as_str()
+        .expect("failed task should record last error");
+
+    assert!(
+        last_error.contains("entries")
+            || last_error.contains("entry count")
+            || last_error.contains("too many pack streams"),
+        "7z entry limit error should be surfaced: {last_error}"
+    );
+}
+
+#[actix_web::test]
+async fn test_archive_extract_task_rejects_7z_high_total_compression_ratio() {
+    let first = vec![b'a'; 4096];
+    let second = vec![b'b'; 4096];
+    let archive_bytes =
+        create_7z_bytes(&[("first.txt", Some(&first)), ("second.txt", Some(&second))]);
+    let body = run_failing_personal_7z_archive_extract(
+        archive_bytes,
+        vec![
+            (
+                "archive_extract_max_entry_compression_ratio",
+                "1000".to_string(),
+            ),
+            ("archive_extract_max_compression_ratio", "2".to_string()),
+        ],
+    )
+    .await;
+    let last_error = body["data"]["last_error"]
+        .as_str()
+        .expect("failed task should record last error");
+
+    assert!(
+        last_error.contains("total compression ratio")
+            || last_error.contains("Compression ratio")
+            || last_error.contains("compression ratio"),
+        "7z compression ratio error should be surfaced: {last_error}"
+    );
+}
+
+#[actix_web::test]
+async fn test_archive_extract_task_rejects_7z_anti_items() {
+    let archive_bytes = create_7z_bytes_with_anti_item("deleted.txt");
+    let body = run_failing_personal_7z_archive_extract(archive_bytes, Vec::new()).await;
+
+    assert!(
+        body["data"]["last_error"]
+            .as_str()
+            .expect("failed task should record last error")
+            .contains("anti-item"),
+        "7z anti-item error should be surfaced"
+    );
+}
+
+#[actix_web::test]
+async fn test_archive_extract_task_rejects_7z_packed_data_tampering_after_preflight() {
+    let archive_bytes = create_7z_bytes_with_tampered_packed_data();
+    let body = run_failing_personal_7z_archive_extract(archive_bytes, Vec::new()).await;
+    let last_error = body["data"]["last_error"]
+        .as_str()
+        .expect("failed task should record last error");
+
+    assert_task_steps(
+        &body,
+        &[
+            ("waiting", "succeeded"),
+            ("download_source", "succeeded"),
+            ("extract_archive", "failed"),
+            ("import_result", "pending"),
+        ],
+    );
+    assert!(
+        last_error.contains("invalid 7z archive entry")
+            || last_error.contains("CRC")
+            || last_error.contains("checksum"),
+        "7z packed data tampering should fail during extraction: {last_error}"
     );
 }
 

@@ -355,7 +355,7 @@
 | `POST` | `/admin/teams` | 创建团队并指定初始团队管理员 |
 | `GET` | `/admin/teams/{id}` | 读取团队详情 |
 | `PATCH` | `/admin/teams/{id}` | 更新团队名称、描述、策略组 |
-| `DELETE` | `/admin/teams/{id}` | 归档团队 |
+| `DELETE` | `/admin/teams/{id}` |归档团队 |
 | `POST` | `/admin/teams/{id}/restore` | 恢复已归档团队 |
 | `GET` | `/admin/teams/{id}/audit-logs` | 查看团队审计记录 |
 | `GET` | `/admin/teams/{id}/members` | 分页查看团队成员 |

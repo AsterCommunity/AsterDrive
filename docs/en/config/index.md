@@ -12,7 +12,7 @@ First identify which layer you need to change, then open the corresponding page.
 ## What Layers Are There?
 
 - **`config.toml`** - Decides how the service starts: listen address, node mode, database, logging, WebDAV prefix, network trust, and rate limiting
-- **`Admin -> System Settings`** - Site-wide rules: public site URL, branding, registration/login, mail, CORS, task scheduling, share streaming playback, media processing, ZIP preview, trash, version history, WOPI, WebDAV switch, and audit logs
+- **`Admin -> System Settings`** - Site-wide rules: public site URL, branding, registration/login, mail, CORS, task scheduling, share streaming playback, media processing, archive preview, trash, version history, WOPI, WebDAV switch, and audit logs
 - **`Admin -> External Authentication`** - External identity providers: OIDC / SSO login entries, redirect URIs, account binding, and auto-create policies
 - **`Admin -> Storage Policies`** - Where files are actually stored, and which upload method is used
 - **`Admin -> Policy Groups`** - Which storage route different users, teams, or file sizes use
@@ -28,7 +28,7 @@ Start service
   |     Responsible for: listen address, database, logging, WebDAV prefix, node mode
   |
   +-- System settings in the database
-  |     Responsible for: site, registration, cookies, mail, share streaming playback, ZIP preview, trash, WOPI, audit
+  |     Responsible for: site, registration, cookies, mail, share streaming playback, archive preview, trash, WOPI, audit
   |
   +-- External authentication providers
   |     Responsible for: OIDC / SSO login entries, binding rules between external identities and local accounts
@@ -51,7 +51,7 @@ Anything the service must know before startup usually belongs in `config.toml`. 
 | Change listen address, port, worker count, temporary directories, or primary / follower mode | [Server](/en/config/server) |
 | Change database address, connection pool, or startup retries | [Database](/en/config/database) |
 | Pin the login signing secret, MFA encryption key, or first plain-HTTP bootstrap | [Login and Sessions](/en/config/auth) |
-| Public site URL, branding, registration, cookies, tokens, scheduling, share streaming playback, ZIP preview, trash, versions, quotas, WOPI, WebDAV, audit | [Runtime System Settings](/en/config/runtime) |
+| Public site URL, branding, registration, cookies, tokens, scheduling, share streaming playback, archive preview, trash, versions, quotas, WOPI, WebDAV, audit | [Runtime System Settings](/en/config/runtime) |
 | Connect OIDC / SSO external login and manage external identity providers | [Login and Sessions](/en/config/auth) / [Admin Console](/en/guide/admin-console#external-authentication) |
 | Configure SMTP, send test mail, or edit mail templates | [Mail](/en/config/mail) |
 | Decide where files are stored and how uploads/downloads work | [Storage Policies](/en/config/storage) |
@@ -138,7 +138,7 @@ One-time bootstrap inputs such as enrollment tokens can be removed after success
 - Disable the HTTPS requirement for cookies only in plain-HTTP test environments
 - When capacity is tight, shorten retention for trash, historical versions, and task artifacts
 - If thumbnails do not behave as expected, check `Storage and Retention -> Media Processing`
-- If you need ZIP manifest preview, check `Storage and Retention -> Archive Preview`
+- If you need archive manifest preview, check `Storage and Retention -> Archive Preview`
 - If you need online preview such as OnlyOffice, adjust `Site Configuration -> Preview Apps`
 - When connecting follower nodes, after enrollment succeeds, create the default ingress target in the follower node details
 :::

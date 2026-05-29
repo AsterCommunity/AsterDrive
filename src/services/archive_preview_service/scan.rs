@@ -8,9 +8,16 @@ use chrono::Utc;
 use crate::api::subcode::ApiSubcode;
 use crate::entities::{file, file_blob};
 use crate::errors::{AsterError, MapAsterErr, Result};
+use crate::services::archive_service::format::ArchiveFormat;
 use crate::services::archive_service::range_reader::StorageRangeReader;
+use crate::services::archive_service::scan::{
+    ArchiveRawScanEntry, ArchiveScanEntryKind, ArchiveScanLimits, ArchiveScanNamePolicy,
+};
+use crate::services::archive_service::seven_zip_scan::{
+    build_seven_zip_scan_result_from_raw_entries, open_seven_zip_streaming_archive,
+    scan_seven_zip_archive_raw,
+};
 use crate::services::archive_service::zip_scan::{
-    ZipRawScanEntry, ZipScanEntryKind, ZipScanLimits, ZipScanNamePolicy,
     build_zip_scan_result_from_raw_entries, scan_zip_archive_raw,
 };
 use crate::storage::StorageDriver;
@@ -21,9 +28,9 @@ use super::model::{
     ArchivePreviewManifest, ArchiveRawEntry, ArchiveRawManifest,
 };
 use super::{
-    ArchivePreviewLimits, CACHE_SCHEMA_VERSION, ENTITY_PROPERTY_VALUE_MAX_BYTES, FORMAT_ZIP,
-    RAW_CACHE_SCHEMA_VERSION, archive_preview_validation_error, map_archive_open_error,
-    map_archive_preview_scan_error,
+    ArchivePreviewLimits, CACHE_SCHEMA_VERSION, ENTITY_PROPERTY_VALUE_MAX_BYTES,
+    RAW_CACHE_SCHEMA_VERSION, archive_preview_validation_error, map_archive_preview_scan_error,
+    map_zip_preview_open_error,
 };
 
 pub(crate) async fn scan_manifest_from_temp(
@@ -37,6 +44,7 @@ pub(crate) async fn scan_manifest_from_temp(
         source_file.id,
         blob.id,
         blob.hash.clone(),
+        crate::utils::numbers::i64_to_u64(source_file.size, "source archive size")?,
         limits,
         move || {
             let file = std::fs::File::open(&path).map_aster_err_ctx(
@@ -62,6 +70,7 @@ pub(crate) async fn scan_manifest_from_storage_range(
         source_file.id,
         blob.id,
         blob.hash.clone(),
+        source_size,
         limits,
         move || {
             Ok(StorageRangeReader::new(
@@ -79,6 +88,7 @@ async fn scan_manifest_with_reader<R, F>(
     source_file_id: i64,
     source_blob_id: i64,
     source_hash: String,
+    source_archive_size: u64,
     limits: &ArchivePreviewLimits,
     make_reader: F,
 ) -> Result<ArchiveRawManifest>
@@ -87,6 +97,7 @@ where
     F: FnOnce() -> Result<R> + Send + 'static,
 {
     let scan_limits = limits.scan_limits;
+    let archive_format = limits.archive_format;
     let raw_signature = limits.raw_signature.clone();
     let deadline =
         Instant::now().checked_add(std::time::Duration::from_secs(limits.max_duration_secs));
@@ -95,9 +106,20 @@ where
 
     let manifest = tokio::task::spawn_blocking(move || {
         let reader = make_reader()?;
-        let mut archive = zip::ZipArchive::new(reader).map_err(map_archive_open_error)?;
-        let scanned = scan_zip_archive_raw(&mut archive, scan_limits, deadline)
-            .map_err(map_archive_preview_scan_error)?;
+        let scanned = match archive_format {
+            ArchiveFormat::Zip => {
+                let mut archive =
+                    zip::ZipArchive::new(reader).map_err(map_zip_preview_open_error)?;
+                scan_zip_archive_raw(&mut archive, scan_limits, deadline)
+                    .map_err(map_archive_preview_scan_error)?
+            }
+            ArchiveFormat::SevenZip => {
+                let archive = open_seven_zip_streaming_archive(reader, scan_limits)
+                    .map_err(map_seven_zip_preview_open_error)?;
+                scan_seven_zip_archive_raw(&archive, scan_limits, source_archive_size, deadline)
+                    .map_err(map_archive_preview_scan_error)?
+            }
+        };
         let entries = scanned
             .entries
             .into_iter()
@@ -106,7 +128,7 @@ where
 
         Ok::<_, AsterError>(ArchiveRawManifest {
             schema_version: RAW_CACHE_SCHEMA_VERSION,
-            format: FORMAT_ZIP.to_string(),
+            format: archive_format.as_str().to_string(),
             source_blob_id,
             source_hash: manifest_source_hash,
             generated_at,
@@ -123,6 +145,7 @@ where
                 "archive preview directory count",
             )?,
             total_uncompressed_size: scanned.total_uncompressed_bytes,
+            total_compressed_base: scanned.total_compressed_base,
             entries,
         })
     })
@@ -140,15 +163,15 @@ where
     )
 }
 
-fn raw_entry_to_cache_entry(entry: ZipRawScanEntry) -> Result<ArchiveRawEntry> {
+fn raw_entry_to_cache_entry(entry: ArchiveRawScanEntry) -> Result<ArchiveRawEntry> {
     Ok(ArchiveRawEntry {
         index: entry.index,
         raw_name: base64::engine::general_purpose::STANDARD.encode(entry.raw_name),
         display_name: entry.display_name,
-        zip_utf8: entry.zip_utf8,
+        raw_name_utf8: entry.raw_name_utf8,
         kind: match entry.kind {
-            ZipScanEntryKind::File => ArchivePreviewEntryKind::File,
-            ZipScanEntryKind::Directory => ArchivePreviewEntryKind::Directory,
+            ArchiveScanEntryKind::File => ArchivePreviewEntryKind::File,
+            ArchiveScanEntryKind::Directory => ArchivePreviewEntryKind::Directory,
         },
         size: entry.size,
         compressed_size: entry.compressed_size,
@@ -156,18 +179,18 @@ fn raw_entry_to_cache_entry(entry: ZipRawScanEntry) -> Result<ArchiveRawEntry> {
     })
 }
 
-fn cache_entry_to_raw_scan_entry(entry: &ArchiveRawEntry) -> Result<ZipRawScanEntry> {
+fn cache_entry_to_raw_scan_entry(entry: &ArchiveRawEntry) -> Result<ArchiveRawScanEntry> {
     let raw_name = base64::engine::general_purpose::STANDARD
         .decode(&entry.raw_name)
         .map_aster_err_ctx("decode archive raw entry name", AsterError::internal_error)?;
-    Ok(ZipRawScanEntry {
+    Ok(ArchiveRawScanEntry {
         index: entry.index,
         raw_name,
         display_name: entry.display_name.clone(),
-        zip_utf8: entry.zip_utf8,
+        raw_name_utf8: entry.raw_name_utf8,
         kind: match entry.kind {
-            ArchivePreviewEntryKind::File => ZipScanEntryKind::File,
-            ArchivePreviewEntryKind::Directory => ZipScanEntryKind::Directory,
+            ArchivePreviewEntryKind::File => ArchiveScanEntryKind::File,
+            ArchivePreviewEntryKind::Directory => ArchiveScanEntryKind::Directory,
         },
         size: entry.size,
         compressed_size: entry.compressed_size,
@@ -180,20 +203,32 @@ pub(super) fn build_manifest_from_raw(
     raw_manifest: &ArchiveRawManifest,
     limits: &ArchivePreviewLimits,
 ) -> Result<ArchivePreviewManifest> {
+    debug_assert_eq!(raw_manifest.format, limits.archive_format.as_str());
+
     let raw_entries = raw_manifest
         .entries
         .iter()
         .map(cache_entry_to_raw_scan_entry)
         .collect::<Result<Vec<_>>>()?;
     let scan_limits = cached_raw_display_scan_limits(raw_manifest, &raw_entries, limits)?;
-    let scanned = build_zip_scan_result_from_raw_entries(
-        &raw_entries,
-        scan_limits,
-        None,
-        limits.filename_encoding,
-        ZipScanNamePolicy::PreviewDisplayName,
-        |_| Ok(()),
-    )
+    let scanned = match limits.archive_format {
+        ArchiveFormat::Zip => build_zip_scan_result_from_raw_entries(
+            &raw_entries,
+            scan_limits,
+            None,
+            limits.filename_encoding,
+            ArchiveScanNamePolicy::PreviewDisplayName,
+            |_| Ok(()),
+        ),
+        ArchiveFormat::SevenZip => build_seven_zip_scan_result_from_raw_entries(
+            &raw_entries,
+            seven_zip_total_compressed_base(raw_manifest, &raw_entries)?,
+            scan_limits,
+            None,
+            ArchiveScanNamePolicy::PreviewDisplayName,
+            |_| Ok(()),
+        ),
+    }
     .map_err(map_archive_preview_scan_error)?;
     let entry_count = max_i64_u64_count(
         raw_manifest.entry_count,
@@ -228,8 +263,8 @@ pub(super) fn build_manifest_from_raw(
             name: entry.name,
             parent: entry.parent,
             kind: match entry.kind {
-                ZipScanEntryKind::File => ArchivePreviewEntryKind::File,
-                ZipScanEntryKind::Directory => ArchivePreviewEntryKind::Directory,
+                ArchiveScanEntryKind::File => ArchivePreviewEntryKind::File,
+                ArchiveScanEntryKind::Directory => ArchivePreviewEntryKind::Directory,
             },
             size: entry.size,
             compressed_size: entry.compressed_size,
@@ -239,7 +274,7 @@ pub(super) fn build_manifest_from_raw(
 
     let manifest = ArchivePreviewManifest {
         schema_version: CACHE_SCHEMA_VERSION,
-        format: FORMAT_ZIP.to_string(),
+        format: raw_manifest.format.clone(),
         source_blob_id: raw_manifest.source_blob_id,
         source_hash: raw_manifest.source_hash.clone(),
         generated_at: raw_manifest.generated_at.clone(),
@@ -255,11 +290,46 @@ pub(super) fn build_manifest_from_raw(
     fit_manifest_to_limit(source_file_id, manifest, limits.max_manifest_bytes)
 }
 
+fn seven_zip_total_compressed_base(
+    raw_manifest: &ArchiveRawManifest,
+    raw_entries: &[ArchiveRawScanEntry],
+) -> Result<u64> {
+    if raw_manifest.total_compressed_base > 0 {
+        return Ok(raw_manifest.total_compressed_base);
+    }
+
+    raw_entries.iter().try_fold(0_u64, |base, entry| {
+        if entry.kind.is_dir() {
+            return Ok(base);
+        }
+        let compressed_size = crate::utils::numbers::i64_to_u64(
+            entry.compressed_size,
+            "archive entry compressed size",
+        )?;
+        Ok(base.max(compressed_size))
+    })
+}
+
+fn map_seven_zip_preview_open_error(error: AsterError) -> AsterError {
+    if matches!(error, AsterError::ValidationError(_))
+        && error
+            .message()
+            .to_ascii_lowercase()
+            .contains("invalid 7z archive")
+    {
+        return archive_preview_validation_error(
+            ApiSubcode::ArchivePreviewInvalidArchive,
+            "invalid archive",
+        );
+    }
+    map_archive_preview_scan_error(error)
+}
+
 fn cached_raw_display_scan_limits(
     raw_manifest: &ArchiveRawManifest,
-    raw_entries: &[ZipRawScanEntry],
+    raw_entries: &[ArchiveRawScanEntry],
     limits: &ArchivePreviewLimits,
-) -> Result<ZipScanLimits> {
+) -> Result<ArchiveScanLimits> {
     let mut scan_limits = limits.scan_limits;
     let cached_entry_count =
         crate::utils::numbers::usize_to_u64(raw_entries.len(), "archive cached raw entry count")?;

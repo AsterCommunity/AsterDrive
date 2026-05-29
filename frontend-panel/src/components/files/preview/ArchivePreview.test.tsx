@@ -112,6 +112,11 @@ const manifest: ArchivePreviewManifest = {
 	],
 };
 
+const sevenZipManifest: ArchivePreviewManifest = {
+	...manifest,
+	format: "7z",
+};
+
 describe("ArchivePreview", () => {
 	it("shows unavailable state without a loader", () => {
 		render(<ArchivePreview />);
@@ -134,7 +139,7 @@ describe("ArchivePreview", () => {
 		expect(
 			within(itemSummary as HTMLElement).getByText("num:3"),
 		).toBeInTheDocument();
-		expect(screen.getByText("archive_preview_zip_entries")).toBeInTheDocument();
+		expect(screen.getByText("archive_preview_entries")).toBeInTheDocument();
 		expect(screen.getByText("bytes:12")).toBeInTheDocument();
 		expect(screen.queryByText("readme.txt")).not.toBeInTheDocument();
 
@@ -237,7 +242,7 @@ describe("ArchivePreview", () => {
 		expect(screen.getByText("archive_preview_no_matches")).toBeInTheDocument();
 	});
 
-	it("counts visible items separately from raw zip entries", async () => {
+	it("counts visible items separately from raw archive entries", async () => {
 		const loadManifest = vi.fn(async () => ({
 			...manifest,
 			entry_count: 146,
@@ -249,14 +254,26 @@ describe("ArchivePreview", () => {
 		expect(await screen.findByText("docs")).toBeInTheDocument();
 		expect(screen.getByText("archive_preview_items")).toBeInTheDocument();
 		expect(screen.getByText("num:165")).toBeInTheDocument();
-		expect(screen.getByText("archive_preview_zip_entries")).toBeInTheDocument();
-		const zipEntrySummary = screen.getByText(
-			"archive_preview_zip_entries",
+		expect(screen.getByText("archive_preview_entries")).toBeInTheDocument();
+		const archiveEntrySummary = screen.getByText(
+			"archive_preview_entries",
 		).parentElement;
-		expect(zipEntrySummary).not.toBeNull();
+		expect(archiveEntrySummary).not.toBeNull();
 		expect(
-			within(zipEntrySummary as HTMLElement).getByText("num:146"),
+			within(archiveEntrySummary as HTMLElement).getByText("num:146"),
 		).toBeInTheDocument();
+	});
+
+	it("hides filename encoding selector for formats that do not use it", async () => {
+		const loadManifest = vi.fn(async () => sevenZipManifest);
+		render(<ArchivePreview loadManifest={loadManifest} />);
+
+		expect(await screen.findByText("docs")).toBeInTheDocument();
+		expect(
+			screen.queryByRole("button", {
+				name: "archive_preview_filename_encoding",
+			}),
+		).not.toBeInTheDocument();
 	});
 
 	it("shows retry UI when loading fails", async () => {
@@ -493,7 +510,7 @@ describe("ArchivePreview", () => {
 	it.each([
 		[
 			ApiSubcode.ArchivePreviewUnsupportedType,
-			"archive preview currently supports .zip files only",
+			"archive preview currently supports .zip and .7z files only",
 			"archive_preview_unsupported_type",
 		],
 		[
@@ -502,9 +519,9 @@ describe("ArchivePreview", () => {
 			"archive_preview_source_too_large",
 		],
 		[
-			ApiSubcode.ArchivePreviewInvalidZip,
-			"invalid zip archive",
-			"archive_preview_invalid_zip",
+			ApiSubcode.ArchivePreviewInvalidArchive,
+			"invalid archive",
+			"archive_preview_invalid_archive",
 		],
 		[
 			ApiSubcode.ArchivePreviewRejected,
@@ -559,51 +576,6 @@ describe("ArchivePreview", () => {
 		expect(
 			screen.getByRole("button", { name: "archive_preview_filename_encoding" }),
 		).toBeInTheDocument();
-		expect(
-			screen.queryByRole("button", { name: "preview_retry" }),
-		).not.toBeInTheDocument();
-	});
-
-	it.each([
-		[
-			"archive preview currently supports .zip files only",
-			"archive_preview_unsupported_type",
-		],
-		[
-			"source archive size 135064658 exceeds archive preview limit 67108864",
-			"archive_preview_source_too_large",
-		],
-	])("keeps old-server validation message %s friendly", async (message, messageKey) => {
-		const loadManifest = vi.fn(async () => {
-			throw new ApiError(ErrorCode.BadRequest, message, {
-				internalCode: "E005",
-			});
-		});
-		render(<ArchivePreview loadManifest={loadManifest} />);
-
-		await waitFor(() => {
-			expect(screen.getByText(messageKey)).toBeInTheDocument();
-		});
-		expect(
-			screen.queryByRole("button", { name: "preview_retry" }),
-		).not.toBeInTheDocument();
-	});
-
-	it("keeps old-server disabled messages friendly", async () => {
-		const loadManifest = vi.fn(async () => {
-			throw new ApiError(
-				ErrorCode.Forbidden,
-				"archive preview is disabled by administrator",
-				{
-					internalCode: "E013",
-				},
-			);
-		});
-		render(<ArchivePreview loadManifest={loadManifest} />);
-
-		await waitFor(() => {
-			expect(screen.getByText("archive_preview_disabled")).toBeInTheDocument();
-		});
 		expect(
 			screen.queryByRole("button", { name: "preview_retry" }),
 		).not.toBeInTheDocument();

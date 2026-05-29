@@ -668,7 +668,7 @@ pub static ALL_CONFIGS: &[ConfigDef] = &[
         requires_restart: false,
         is_sensitive: false,
         category: "storage.archive_extract",
-        description: "Maximum source ZIP file bytes accepted for online archive extraction",
+        description: "Maximum source archive file bytes accepted for online archive extraction",
     },
     ConfigDef {
         key: ARCHIVE_EXTRACT_MAX_STAGING_BYTES_KEY,
@@ -804,7 +804,7 @@ pub static ALL_CONFIGS: &[ConfigDef] = &[
         requires_restart: false,
         is_sensitive: false,
         category: "storage.archive_preview",
-        description: "Master switch for read-only ZIP archive preview",
+        description: "Master switch for read-only archive preview",
     },
     ConfigDef {
         key: ARCHIVE_PREVIEW_USER_ENABLED_KEY,
@@ -815,7 +815,7 @@ pub static ALL_CONFIGS: &[ConfigDef] = &[
         requires_restart: false,
         is_sensitive: false,
         category: "storage.archive_preview",
-        description: "Allow signed-in users to preview ZIP manifests for personal and team files",
+        description: "Allow signed-in users to preview archive manifests for personal and team files",
     },
     ConfigDef {
         key: ARCHIVE_PREVIEW_SHARE_ENABLED_KEY,
@@ -826,7 +826,7 @@ pub static ALL_CONFIGS: &[ConfigDef] = &[
         requires_restart: false,
         is_sensitive: false,
         category: "storage.archive_preview",
-        description: "Allow public share pages to preview ZIP manifests after share access checks",
+        description: "Allow public share pages to preview archive manifests after share access checks",
     },
     ConfigDef {
         key: ARCHIVE_PREVIEW_MAX_SOURCE_BYTES_KEY,
@@ -839,7 +839,7 @@ pub static ALL_CONFIGS: &[ConfigDef] = &[
         requires_restart: false,
         is_sensitive: false,
         category: "storage.archive_preview",
-        description: "Maximum source ZIP file bytes accepted for read-only archive preview",
+        description: "Maximum source archive bytes accepted for read-only archive preview",
     },
     ConfigDef {
         key: ARCHIVE_PREVIEW_MAX_ENTRIES_KEY,
@@ -850,7 +850,7 @@ pub static ALL_CONFIGS: &[ConfigDef] = &[
         requires_restart: false,
         is_sensitive: false,
         category: "storage.archive_preview",
-        description: "Maximum number of ZIP central-directory entries accepted for archive preview",
+        description: "Maximum number of archive entries accepted for archive preview",
     },
     ConfigDef {
         key: ARCHIVE_PREVIEW_MAX_MANIFEST_BYTES_KEY,
@@ -863,7 +863,7 @@ pub static ALL_CONFIGS: &[ConfigDef] = &[
         requires_restart: false,
         is_sensitive: false,
         category: "storage.archive_preview",
-        description: "Maximum serialized ZIP preview manifest bytes returned to clients",
+        description: "Maximum serialized archive preview manifest bytes returned to clients",
     },
     ConfigDef {
         key: ARCHIVE_PREVIEW_MAX_DURATION_SECS_KEY,
@@ -876,7 +876,7 @@ pub static ALL_CONFIGS: &[ConfigDef] = &[
         requires_restart: false,
         is_sensitive: false,
         category: "storage.archive_preview",
-        description: "Maximum wall-clock seconds allowed for one ZIP preview scan",
+        description: "Maximum wall-clock seconds allowed for one archive preview scan",
     },
     ConfigDef {
         key: ARCHIVE_BUILD_MAX_ENTRIES_KEY,

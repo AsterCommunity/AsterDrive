@@ -26,12 +26,12 @@ pub(super) fn decode_zip_entry_name<R: Read>(
 pub(super) fn decode_zip_entry_name_parts(
     raw: &[u8],
     display_name: &str,
-    zip_utf8: bool,
+    raw_name_utf8: bool,
     filename_encoding: ArchiveFilenameEncoding,
 ) -> Result<String> {
     match filename_encoding {
         ArchiveFilenameEncoding::Auto => {
-            decode_zip_entry_name_auto_parts(raw, display_name, zip_utf8)
+            decode_zip_entry_name_auto_parts(raw, display_name, raw_name_utf8)
         }
         ArchiveFilenameEncoding::Utf8 => decode_zip_entry_name_utf8(raw, display_name),
         ArchiveFilenameEncoding::Gb18030 => decode_gb18030(raw).ok_or_else(|| {
@@ -64,9 +64,9 @@ pub(super) fn decode_zip_entry_name_parts(
 fn decode_zip_entry_name_auto_parts(
     raw: &[u8],
     display_name: &str,
-    zip_utf8: bool,
+    raw_name_utf8: bool,
 ) -> Result<String> {
-    if zip_utf8 {
+    if raw_name_utf8 {
         return decode_zip_entry_name_utf8(raw, display_name);
     }
 
