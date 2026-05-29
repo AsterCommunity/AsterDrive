@@ -91,7 +91,7 @@ export function AdminTeamDetailOverviewSection({
 					{t("core:refresh")}
 				</Button>
 			</div>
-			{detailLoading && !team ? (
+			{detailLoading || !team ? (
 				<SkeletonTable columns={2} rows={4} />
 			) : (
 				<form

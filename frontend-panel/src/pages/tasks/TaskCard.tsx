@@ -9,9 +9,11 @@ import { TaskDetailsContent, TaskStepsPreview } from "./TaskDetailsPanel";
 import { taskHasExpandableDetails } from "./taskDetails";
 import {
 	currentTaskStep,
+	formatRuntimeTaskName,
 	formatTaskDisplayName,
 	formatTaskKind,
 	formatTaskStatus,
+	formatTaskStatusText,
 	parseTaskResult,
 	statusBadgeVariant,
 	taskMetaTextClass,
@@ -61,6 +63,24 @@ function summaryParts(
 	task: TaskInfo,
 ): SummaryPart[] {
 	const displayName = formatTaskDisplayName(t, task);
+	if (task.kind === "media_metadata_extract") {
+		const payload = task.payload as unknown as {
+			source_file_name?: string;
+		};
+		return [
+			{
+				key: "action",
+				kind: "text",
+				value: t("tasks:summary_extract_metadata_for"),
+			},
+			{
+				icon: "Info",
+				key: "source-file",
+				kind: "chip",
+				value: payload.source_file_name || displayName,
+			},
+		];
+	}
 	switch (task.payload.kind) {
 		case "archive_extract":
 			return [
@@ -195,7 +215,7 @@ function summaryParts(
 					key: "action",
 					kind: "text",
 					value: t("tasks:summary_system_runtime", {
-						name: task.payload.task_name,
+						name: formatRuntimeTaskName(t, task.payload.task_name),
 					}),
 				},
 			];
@@ -226,6 +246,12 @@ export function TaskCard({
 	const activeStep = currentTaskStep(task);
 	const activeStepDetail = activeStep?.detail?.trim() ?? null;
 	const statusText = task.status_text?.trim() ?? null;
+	const localizedActiveStepDetail = formatTaskStatusText(
+		t,
+		activeStepDetail,
+		task,
+	);
+	const localizedStatusText = formatTaskStatusText(t, statusText, task);
 	const summaryTimestamp = taskSummaryTimestamp(t, task);
 	const detailsSectionId = `task-details-${task.id}`;
 	const hasExpandableDetails = taskHasExpandableDetails(task);
@@ -233,9 +259,9 @@ export function TaskCard({
 	const taskSummaryText =
 		statusText && activeStepDetail
 			? statusText.toLocaleLowerCase() === activeStepDetail.toLocaleLowerCase()
-				? activeStepDetail
-				: statusText
-			: statusText || activeStepDetail;
+				? localizedActiveStepDetail
+				: localizedStatusText
+			: localizedStatusText || localizedActiveStepDetail;
 
 	return (
 		<Card className="gap-0 p-0">

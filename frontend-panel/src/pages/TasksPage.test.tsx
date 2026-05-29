@@ -887,18 +887,22 @@ describe("TasksPage", () => {
 		expect(
 			screen.getByText("tasks:summary_generate_thumbnail_for"),
 		).toBeInTheDocument();
-		expect(screen.getByText("Extract media metadata")).toBeInTheDocument();
-		expect(screen.getByText("media metadata extract")).toBeInTheDocument();
+		expect(screen.getByText("song.flac")).toBeInTheDocument();
+		expect(
+			screen.getByText("tasks:kind_media_metadata_extract"),
+		).toBeInTheDocument();
 		expect(
 			screen.getByText("tasks:summary_cleanup_temp_files"),
 		).toBeInTheDocument();
-		expect(screen.getByText("storage policy temp cleanup")).toBeInTheDocument();
+		expect(
+			screen.getByText("tasks:kind_storage_policy_temp_cleanup"),
+		).toBeInTheDocument();
 		expect(
 			screen.getByText("tasks:summary_system_runtime"),
 		).toBeInTheDocument();
 		expect(screen.getByText("tasks:kind_system_runtime")).toBeInTheDocument();
 		expect(screen.getAllByText("icon:FileImage").length).toBeGreaterThan(0);
-		expect(screen.getByText("icon:Info")).toBeInTheDocument();
+		expect(screen.getAllByText("icon:Info").length).toBeGreaterThan(0);
 		expect(screen.getByText("icon:Clock")).toBeInTheDocument();
 		expect(screen.getByText("icon:Gear")).toBeInTheDocument();
 	});

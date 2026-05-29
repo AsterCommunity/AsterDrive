@@ -4,7 +4,9 @@ import {
 	buildTaskTimeline,
 	currentTaskStep,
 	formatProgressCounts,
+	formatTaskDetail,
 	formatTaskDisplayName,
+	formatTaskDisplayNameFromRaw,
 	formatTaskKind,
 	formatTaskStepStatus,
 	formatTaskStepTitle,
@@ -38,6 +40,10 @@ function t(key: string, values?: Record<string, number | string>) {
 		"tasks:blob_maintenance_integrity_check_name": `Check integrity for ${values?.scope}`,
 		"tasks:blob_maintenance_ref_count_reconcile_name": `Reconcile references for ${values?.scope}`,
 		"tasks:blob_maintenance_orphan_cleanup_name": `Clean orphan blobs for ${values?.scope}`,
+		"tasks:runtime_task_system_health_check": "System health check",
+		"tasks:runtime_task_trash_cleanup": "Trash cleanup",
+		"tasks:status_text_deleted_completed_upload_sessions": `Deleted ${values?.count} completed sessions (${values?.broken} broken)`,
+		"tasks:status_text_system_healthy": "System healthy",
 		"tasks:step_storage_policy_migration_prepare_sources":
 			"Prepare source policy",
 		"tasks:step_storage_policy_migration_scan_blobs": "Scan source blobs",
@@ -149,6 +155,52 @@ describe("taskPresentation storage policy migration", () => {
 				}),
 			),
 		).toBe("Backend maintenance name");
+	});
+
+	it("localizes system runtime names from structured payloads and raw display names", () => {
+		expect(
+			formatTaskDisplayName(
+				t,
+				createTask({
+					display_name: "Backend trash cleanup",
+					kind: "system_runtime",
+					payload: {
+						kind: "system_runtime",
+						task_name: "trash-cleanup",
+					},
+				}),
+			),
+		).toBe("Trash cleanup");
+		expect(
+			formatTaskDisplayName(
+				t,
+				createTask({
+					display_name: "Custom runtime task",
+					kind: "system_runtime",
+					payload: {
+						kind: "system_runtime",
+						task_name: "custom-runtime-task",
+					},
+				}),
+			),
+		).toBe("Custom runtime task");
+		expect(
+			formatTaskDisplayNameFromRaw(t, "system_runtime", "System health check"),
+		).toBe("System health check");
+	});
+
+	it("localizes stable backend status detail text", () => {
+		expect(
+			formatTaskDetail(t, createTask({ status_text: "system healthy" })),
+		).toBe("System healthy");
+		expect(
+			formatTaskDetail(
+				t,
+				createTask({
+					status_text: "deleted 14 completed sessions (0 broken)",
+				}),
+			),
+		).toBe("Deleted 14 completed sessions (0 broken)");
 	});
 
 	it("covers task presentation utility branches", () => {
