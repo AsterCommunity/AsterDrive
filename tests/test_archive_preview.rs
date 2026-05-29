@@ -862,6 +862,39 @@ async fn test_archive_preview_rejects_non_zip_and_source_limit() {
 }
 
 #[actix_web::test]
+async fn test_archive_preview_rejects_7z_source_limit() {
+    let state = common::setup().await;
+    enable_archive_preview(&state, true, false).await;
+    aster_drive::services::config_service::set(&state, "archive_preview_max_source_bytes", "1", 1)
+        .await
+        .expect("archive preview source limit should update");
+    let app = create_test_app!(state.clone());
+    let (token, _) = register_and_login!(app);
+
+    let file_id = upload_bytes(
+        &app,
+        &token,
+        "too-large.7z",
+        "application/x-7z-compressed",
+        create_7z_bytes(&[("payload.txt", Some(b"payload".as_slice()))]),
+    )
+    .await;
+    let req = test::TestRequest::get()
+        .uri(&format!("/api/v1/files/{file_id}/archive-preview"))
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(body["error"]["subcode"], "archive_preview.source_too_large");
+    assert!(
+        archive_preview_tasks(&state).await.is_empty(),
+        "oversized 7z sources should fail before task creation"
+    );
+}
+
+#[actix_web::test]
 async fn test_archive_preview_reports_invalid_zip_with_subcode() {
     let state = common::setup().await;
     enable_archive_preview(&state, true, false).await;

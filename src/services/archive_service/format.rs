@@ -28,7 +28,7 @@ impl ArchiveFormat {
         }
     }
 
-    pub(crate) fn strip_extension<'a>(self, name: &'a str) -> Option<&'a str> {
+    pub(crate) fn strip_extension(self, name: &str) -> Option<&str> {
         let extension = match self {
             Self::Zip => ".zip",
             Self::SevenZip => ".7z",
@@ -42,6 +42,8 @@ impl ArchiveFormat {
 }
 
 pub(crate) fn detect_archive_extract_format(source_file: &file::Model) -> Option<ArchiveFormat> {
+    // Extraction intentionally trusts only the stored filename extension; client-supplied MIME
+    // types are easier to spoof and should not widen the executable archive surface.
     if ends_with_ignore_ascii_case(&source_file.name, ".zip") {
         return Some(ArchiveFormat::Zip);
     }
