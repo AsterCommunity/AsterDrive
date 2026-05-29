@@ -63,7 +63,8 @@ export function AdminTeamDetailOverviewSection({
 	team,
 }: OverviewSectionProps) {
 	const { t } = useTranslation(["admin", "core", "settings"]);
-	const formDisabled = saving || archiving || restoring || !canMutateTeam;
+	const formDisabled =
+		detailLoading || saving || archiving || restoring || !canMutateTeam;
 
 	return (
 		<section className="rounded-2xl border bg-background/60 p-6">
@@ -91,7 +92,7 @@ export function AdminTeamDetailOverviewSection({
 					{t("core:refresh")}
 				</Button>
 			</div>
-			{detailLoading && !team ? (
+			{!team ? (
 				<SkeletonTable columns={2} rows={4} />
 			) : (
 				<form

@@ -5129,14 +5129,14 @@ export interface components {
             blob_hash: string;
             /** Format: int64 */
             blob_id: number;
-            kind: components["schemas"]["MediaMetadataKind"];
+            media_kind: components["schemas"]["MediaMetadataKind"];
             source_file_name: string;
             source_mime_type: string;
         };
         MediaMetadataExtractTaskResult: {
             /** Format: int64 */
             blob_id: number;
-            kind: components["schemas"]["MediaMetadataKind"];
+            media_kind: components["schemas"]["MediaMetadataKind"];
             parser: string;
             status: components["schemas"]["MediaMetadataStatus"];
         };

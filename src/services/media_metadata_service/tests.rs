@@ -130,6 +130,41 @@ fn tiny_png_bytes() -> Vec<u8> {
     bytes
 }
 
+#[test]
+fn media_metadata_task_payload_alias_reads_legacy_kind_but_serializes_media_kind() {
+    let payload: MediaMetadataExtractTaskPayload = serde_json::from_str(
+		r#"{"blob_id":7,"blob_hash":"hash","source_file_name":"song.flac","source_mime_type":"audio/flac","kind":"audio"}"#,
+	)
+	.expect("legacy media metadata task payload should deserialize");
+
+    assert_eq!(payload.media_kind, MediaMetadataKind::Audio);
+
+    let serialized =
+        serde_json::to_value(&payload).expect("media metadata task payload should serialize");
+    assert_eq!(serialized["media_kind"], "audio");
+    assert!(
+        serialized.get("kind").is_none(),
+        "serialized task payload should not expose the legacy alias"
+    );
+}
+
+#[test]
+fn media_metadata_task_result_alias_reads_legacy_kind_but_serializes_media_kind() {
+    let result: MediaMetadataExtractTaskResult =
+        serde_json::from_str(r#"{"blob_id":7,"kind":"audio","status":"ready","parser":"lofty"}"#)
+            .expect("legacy media metadata task result should deserialize");
+
+    assert_eq!(result.media_kind, MediaMetadataKind::Audio);
+
+    let serialized =
+        serde_json::to_value(&result).expect("media metadata task result should serialize");
+    assert_eq!(serialized["media_kind"], "audio");
+    assert!(
+        serialized.get("kind").is_none(),
+        "serialized task result should not expose the legacy alias"
+    );
+}
+
 fn tiff_like_raw_with_large_tail() -> Vec<u8> {
     let mut bytes = Vec::new();
     bytes.extend_from_slice(b"II");

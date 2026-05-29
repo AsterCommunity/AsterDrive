@@ -31,6 +31,7 @@
 	"audit_action_admin_force_unlock": "管理员强制解锁",
 	"audit_action_admin_cleanup_expired_locks": "管理员清理过期锁",
 	"audit_action_admin_cleanup_tasks": "管理员清理任务",
+	"audit_action_admin_create_blob_maintenance_task": "管理员创建 Blob 维护任务",
 	"audit_action_admin_create_remote_node": "管理员创建远程节点",
 	"audit_action_admin_update_remote_node": "管理员更新远程节点",
 	"audit_action_admin_delete_remote_node": "管理员删除远程节点",

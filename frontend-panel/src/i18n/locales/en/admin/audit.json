@@ -31,6 +31,7 @@
 	"audit_action_admin_force_unlock": "Admin forced unlock",
 	"audit_action_admin_cleanup_expired_locks": "Admin cleaned expired locks",
 	"audit_action_admin_cleanup_tasks": "Admin cleaned tasks",
+	"audit_action_admin_create_blob_maintenance_task": "Admin created blob maintenance task",
 	"audit_action_admin_create_remote_node": "Admin created remote node",
 	"audit_action_admin_update_remote_node": "Admin updated remote node",
 	"audit_action_admin_delete_remote_node": "Admin deleted remote node",

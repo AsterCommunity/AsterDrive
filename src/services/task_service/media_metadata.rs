@@ -81,7 +81,7 @@ pub(crate) async fn ensure_media_metadata_task(
         blob_hash: blob.hash.clone(),
         source_file_name: source_file.name.clone(),
         source_mime_type: source_file.mime_type.clone(),
-        kind,
+        media_kind: kind,
     };
     let payload_json = serialize_task_payload(&payload)?;
     let steps_json = serialize_task_steps(&initial_task_steps(
@@ -192,17 +192,17 @@ pub(super) async fn process_media_metadata_extract_task(
         &blob,
         &payload.source_file_name,
         &payload.source_mime_type,
-        payload.kind,
+        payload.media_kind,
     )
     .await
     {
         Ok(extracted) => extracted,
         Err(error) => media_metadata_service::ExtractedMediaMetadata {
-            kind: payload.kind,
+            kind: payload.media_kind,
             status: MediaMetadataStatus::Failed,
             metadata: None,
             error_message: Some(media_metadata_service::cache_error_message(&error)),
-            parser: parser_name_for_kind(payload.kind).to_string(),
+            parser: parser_name_for_kind(payload.media_kind).to_string(),
             parser_version: "1".to_string(),
         },
     };
@@ -241,7 +241,7 @@ pub(super) async fn process_media_metadata_extract_task(
 
     let result_json = serialize_task_result(&MediaMetadataExtractTaskResult {
         blob_id: blob.id,
-        kind: record.kind,
+        media_kind: record.kind,
         status: record.status,
         parser: record.parser.clone(),
     })?;

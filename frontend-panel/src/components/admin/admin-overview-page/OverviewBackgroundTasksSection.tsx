@@ -16,7 +16,11 @@ import { Icon } from "@/components/ui/icon";
 import { PAGE_SECTION_PADDING_CLASS } from "@/lib/constants";
 import { formatDateAbsolute, formatDateAbsoluteWithOffset } from "@/lib/format";
 import { cn } from "@/lib/utils";
-import { formatTaskKind as formatSharedTaskKind } from "@/pages/tasks/taskPresentation";
+import {
+	formatTaskKind as formatSharedTaskKind,
+	formatTaskDisplayNameFromRaw,
+	formatTaskStatusText,
+} from "@/pages/tasks/taskPresentation";
 import type {
 	AdminOverview,
 	BackgroundTaskKind,
@@ -100,7 +104,9 @@ export function OverviewBackgroundTasksSection({
 					<TableBody>
 						{overview.recent_background_tasks.map((task) => {
 							const duration = formatOverviewRuntimeDuration(task.duration_ms);
-							const detail = task.last_error ?? task.status_text ?? "---";
+							const detail =
+								formatTaskStatusText(t, task.last_error ?? task.status_text) ??
+								"---";
 
 							return (
 								<TableRow key={task.id}>
@@ -115,7 +121,11 @@ export function OverviewBackgroundTasksSection({
 									<TableCell>
 										<div className="flex flex-col gap-1">
 											<span className="text-sm font-medium">
-												{task.display_name}
+												{formatTaskDisplayNameFromRaw(
+													t,
+													task.kind,
+													task.display_name,
+												)}
 											</span>
 											<span className="text-xs text-muted-foreground">
 												{formatBackgroundTaskKind(task.kind)}

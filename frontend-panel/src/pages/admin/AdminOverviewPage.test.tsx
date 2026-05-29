@@ -599,6 +599,53 @@ describe("AdminOverviewPage", () => {
 		expect(screen.queryByText(/^duration:/)).not.toBeInTheDocument();
 	});
 
+	it("shows background task team and creator sources and prefers errors over status text", async () => {
+		const overview = createOverview();
+		overview.recent_background_tasks = [
+			{
+				created_at: "2026-03-29T09:20:00Z",
+				creator: createUserSummary(12, "builder", "Build User"),
+				display_name: "Compress export.zip",
+				duration_ms: 500,
+				finished_at: "2026-03-29T09:21:00Z",
+				id: 20,
+				kind: "archive_compress",
+				last_error: "archive failed",
+				started_at: "2026-03-29T09:20:58Z",
+				status: "failed",
+				status_text: "archive succeeded",
+				team_id: null,
+				updated_at: "2026-03-29T09:21:00Z",
+			},
+			{
+				created_at: "2026-03-29T09:22:00Z",
+				creator: createUserSummary(13, "ignored", "Ignored User"),
+				display_name: "Extract team.zip",
+				duration_ms: 1000,
+				finished_at: null,
+				id: 21,
+				kind: "archive_extract",
+				last_error: null,
+				started_at: "2026-03-29T09:22:10Z",
+				status: "processing",
+				status_text: null,
+				team_id: 44,
+				updated_at: "2026-03-29T09:22:10Z",
+			},
+		];
+		mockState.get.mockResolvedValueOnce(overview);
+
+		render(<AdminOverviewPage />);
+
+		expect(await screen.findByText("Compress export.zip")).toBeInTheDocument();
+		expect(screen.getByText("archive failed")).toBeInTheDocument();
+		expect(screen.queryByText("archive succeeded")).not.toBeInTheDocument();
+		expect(screen.getByText("Build User")).toBeInTheDocument();
+		expect(screen.getByText("Extract team.zip")).toBeInTheDocument();
+		expect(screen.getByText("source:team:44")).toBeInTheDocument();
+		expect(screen.queryByText("Ignored User")).not.toBeInTheDocument();
+	});
+
 	it("hides noisy component summaries when system health is healthy", async () => {
 		const overview = createOverview();
 		overview.system_health = {

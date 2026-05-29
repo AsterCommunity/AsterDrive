@@ -32,7 +32,10 @@ import {
 	TaskStepsPreview,
 } from "@/pages/tasks/TaskDetailsPanel";
 import { taskHasExpandableDetails } from "@/pages/tasks/taskDetails";
-import { formatTaskDisplayName } from "@/pages/tasks/taskPresentation";
+import {
+	formatTaskDetail,
+	formatTaskDisplayName,
+} from "@/pages/tasks/taskPresentation";
 import type { AdminTaskSortBy } from "@/types/adminSort";
 import type {
 	BackgroundTaskKind,
@@ -73,10 +76,6 @@ function getTaskStatusBadgeClass(status: BackgroundTaskStatus) {
 
 function taskExecutionAt(task: TaskInfo) {
 	return task.started_at ?? task.created_at;
-}
-
-function taskDetail(task: TaskInfo) {
-	return task.last_error ?? task.status_text ?? "-";
 }
 
 function canResumeStorageMigration(task: TaskInfo) {
@@ -177,6 +176,7 @@ export function AdminTaskTable({
 							const expandable = taskHasExpandableDetails(task);
 							const detailContentId = `admin-task-detail-${task.id}`;
 							const detailOpen = detailTaskId === task.id;
+							const detail = formatTaskDetail(t, task);
 
 							return (
 								<TableRow
@@ -261,9 +261,9 @@ export function AdminTaskTable({
 										<div className={ADMIN_TABLE_TEXT_CELL_CLASS}>
 											<span
 												className="truncate text-xs text-muted-foreground"
-												title={taskDetail(task)}
+												title={detail}
 											>
-												{taskDetail(task)}
+												{detail}
 											</span>
 										</div>
 									</TableCell>
