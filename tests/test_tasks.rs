@@ -646,25 +646,6 @@ async fn run_failing_personal_archive_extract_with_filename(
     max_attempts: &str,
     assert_retry_rejected: bool,
 ) -> Value {
-    run_failing_personal_archive_extract_with_filename_and_retry_state(
-        archive_bytes,
-        file_name,
-        config_overrides,
-        max_attempts,
-        Some(false),
-        assert_retry_rejected,
-    )
-    .await
-}
-
-async fn run_failing_personal_archive_extract_with_filename_and_retry_state(
-    archive_bytes: Vec<u8>,
-    file_name: &str,
-    config_overrides: Vec<(&str, String)>,
-    max_attempts: &str,
-    expected_can_retry: Option<bool>,
-    assert_retry_rejected: bool,
-) -> Value {
     let state = common::setup().await;
     let app = create_test_app!(state.clone());
 
@@ -732,9 +713,7 @@ async fn run_failing_personal_archive_extract_with_filename_and_retry_state(
     let body: Value = test::read_body_json(resp).await;
     assert_eq!(body["data"]["status"], "failed");
     assert_eq!(body["data"]["attempt_count"], 1);
-    if let Some(expected_can_retry) = expected_can_retry {
-        assert_eq!(body["data"]["can_retry"], expected_can_retry);
-    }
+    assert_eq!(body["data"]["can_retry"], false);
     if assert_retry_rejected {
         let req = test::TestRequest::post()
             .uri(&format!("/api/v1/tasks/{task_id}/retry"))
@@ -4054,15 +4033,7 @@ async fn test_archive_extract_task_rejects_7z_anti_items() {
 #[actix_web::test]
 async fn test_archive_extract_task_rejects_7z_packed_data_tampering_after_preflight() {
     let archive_bytes = create_7z_bytes_with_tampered_packed_data();
-    let body = run_failing_personal_archive_extract_with_filename_and_retry_state(
-        archive_bytes,
-        "security-check.7z",
-        Vec::new(),
-        "1",
-        None,
-        false,
-    )
-    .await;
+    let body = run_failing_personal_7z_archive_extract(archive_bytes, Vec::new()).await;
     let last_error = body["data"]["last_error"]
         .as_str()
         .expect("failed task should record last error");
@@ -4077,8 +4048,7 @@ async fn test_archive_extract_task_rejects_7z_packed_data_tampering_after_prefli
         ],
     );
     assert!(
-        last_error.contains("read 7z archive stream chunk")
-            || last_error.contains("invalid 7z archive entry")
+        last_error.contains("invalid 7z archive entry")
             || last_error.contains("CRC")
             || last_error.contains("checksum"),
         "7z packed data tampering should fail during extraction: {last_error}"

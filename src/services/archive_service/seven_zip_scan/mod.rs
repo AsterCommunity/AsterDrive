@@ -272,6 +272,135 @@ where
     })
 }
 
+pub(crate) fn build_seven_zip_scan_result_from_raw_entries<F>(
+    raw_entries: &[ArchiveRawScanEntry],
+    limits: ArchiveScanLimits,
+    deadline: Option<Instant>,
+    name_policy: ArchiveScanNamePolicy,
+    mut ensure_file_size_allowed: F,
+) -> Result<ArchiveScanResult>
+where
+    F: FnMut(i64) -> Result<()>,
+{
+    let entry_count =
+        crate::utils::numbers::usize_to_u64(raw_entries.len(), "archive entry count")?;
+    if entry_count > limits.max_entries {
+        return Err(AsterError::validation_error(format!(
+            "archive contains {} entries, exceeds server limit {}",
+            entry_count, limits.max_entries
+        )));
+    }
+
+    let mut total_uncompressed_bytes = 0_i64;
+    let mut total_compressed_bytes = 0_u64;
+    let mut file_count = 0_u64;
+    let mut extract_compatible = true;
+    let mut seen_paths = HashSet::new();
+    let mut directory_paths = HashSet::new();
+    let mut file_paths = HashSet::new();
+    let mut entries = Vec::with_capacity(raw_entries.len());
+
+    for raw_entry in raw_entries {
+        ensure_archive_scan_deadline(deadline)?;
+        let entry_path = decode_seven_zip_raw_entry_name(raw_entry)?;
+        if matches!(name_policy, ArchiveScanNamePolicy::PreviewDisplayName)
+            && normalize_archive_entry_path(&entry_path, ArchiveScanNamePolicy::StrictAsterName)
+                .is_err()
+        {
+            extract_compatible = false;
+        }
+        let relative_path = normalize_archive_entry_path(&entry_path, name_policy)?;
+        validate_archive_entry_path_limits(&relative_path, limits)?;
+        ensure_archive_entry_path_not_conflicting(
+            &relative_path,
+            raw_entry.kind.is_dir(),
+            &mut seen_paths,
+            &directory_paths,
+            &file_paths,
+        )?;
+
+        if raw_entry.kind.is_dir() {
+            insert_directory_path_with_limit(&relative_path, &mut directory_paths, limits)?;
+            entries.push(build_scan_entry_from_parts(
+                raw_entry.index,
+                relative_path,
+                ArchiveScanEntryKind::Directory,
+                0,
+                0,
+                raw_entry.modified_at.clone(),
+            )?);
+            continue;
+        }
+
+        if let Some(parent) = relative_path.parent()
+            && !parent.as_os_str().is_empty()
+        {
+            insert_directory_path_with_limit(parent, &mut directory_paths, limits)?;
+        }
+        file_count = file_count
+            .checked_add(1)
+            .ok_or_else(|| AsterError::internal_error("archive file count overflow"))?;
+        if file_count > limits.max_files {
+            return Err(AsterError::validation_error(format!(
+                "archive contains {} files, exceeds server limit {}",
+                file_count, limits.max_files
+            )));
+        }
+
+        ensure_file_size_allowed(raw_entry.size)?;
+        let entry_size = crate::utils::numbers::i64_to_u64(raw_entry.size, "archive entry size")?;
+        let compressed_size = crate::utils::numbers::i64_to_u64(
+            raw_entry.compressed_size,
+            "archive entry compressed size",
+        )?;
+        validate_archive_entry_compression_ratio(
+            entry_size,
+            compressed_size,
+            limits.max_entry_compression_ratio,
+            &relative_path,
+        )?;
+        total_uncompressed_bytes = total_uncompressed_bytes
+            .checked_add(raw_entry.size)
+            .ok_or_else(|| AsterError::internal_error("archive extract size overflow"))?;
+        if total_uncompressed_bytes > limits.max_uncompressed_bytes {
+            return Err(AsterError::validation_error(format!(
+                "archive uncompressed size {} exceeds server limit {}",
+                total_uncompressed_bytes, limits.max_uncompressed_bytes
+            )));
+        }
+        total_compressed_bytes = total_compressed_bytes
+            .checked_add(compressed_size)
+            .ok_or_else(|| AsterError::internal_error("archive compressed size overflow"))?;
+
+        file_paths.insert(relative_path.clone());
+        entries.push(build_scan_entry_from_parts(
+            raw_entry.index,
+            relative_path,
+            ArchiveScanEntryKind::File,
+            raw_entry.size,
+            raw_entry.compressed_size,
+            raw_entry.modified_at.clone(),
+        )?);
+    }
+
+    validate_total_archive_compression_ratio(
+        total_uncompressed_bytes,
+        total_compressed_bytes,
+        limits.max_compression_ratio,
+    )?;
+
+    Ok(ArchiveScanResult {
+        entry_count,
+        file_count,
+        directory_count: directory_paths.len().try_into().map_aster_err_with(|| {
+            AsterError::internal_error("directory count exceeds u64 range")
+        })?,
+        total_uncompressed_bytes,
+        extract_compatible,
+        entries,
+    })
+}
+
 pub(crate) fn open_seven_zip_streaming_archive<R>(
     reader: R,
     limits: ArchiveScanLimits,
@@ -385,6 +514,24 @@ fn build_scan_entry(
     compressed_size: i64,
     modified_at: Option<SystemTime>,
 ) -> Result<ArchiveScanEntry> {
+    build_scan_entry_from_parts(
+        index,
+        relative_path,
+        kind,
+        size,
+        compressed_size,
+        modified_at.map(format_system_time),
+    )
+}
+
+fn build_scan_entry_from_parts(
+    index: usize,
+    relative_path: PathBuf,
+    kind: ArchiveScanEntryKind,
+    size: i64,
+    compressed_size: i64,
+    modified_at: Option<String>,
+) -> Result<ArchiveScanEntry> {
     let path = relative_path.to_string_lossy().to_string();
     let name = relative_path
         .file_name()
@@ -404,8 +551,19 @@ fn build_scan_entry(
         kind,
         size,
         compressed_size,
-        modified_at: modified_at.map(format_system_time),
+        modified_at,
     })
+}
+
+fn decode_seven_zip_raw_entry_name(raw_entry: &ArchiveRawScanEntry) -> Result<String> {
+    std::str::from_utf8(&raw_entry.raw_name)
+        .map(|name| name.to_string())
+        .map_err(|_| {
+            AsterError::validation_error(format!(
+                "archive entry '{}' filename is not valid UTF-8",
+                raw_entry.display_name
+            ))
+        })
 }
 
 fn compressed_size_for_manifest(source_archive_size: u64) -> Result<i64> {

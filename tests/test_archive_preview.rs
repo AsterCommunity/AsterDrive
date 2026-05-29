@@ -580,6 +580,7 @@ async fn test_archive_preview_returns_7z_manifest_and_caches_it() {
         create_7z_bytes(&[
             ("docs", None),
             ("docs/readme.txt", Some(b"hello".as_slice())),
+            ("docs/测试.txt", Some(b"hello".as_slice())),
         ]),
     )
     .await;
@@ -595,8 +596,8 @@ async fn test_archive_preview_returns_7z_manifest_and_caches_it() {
     let body: Value = test::read_body_json(resp).await;
     let data = &body["data"];
     assert_eq!(data["format"], "7z");
-    assert_eq!(data["entry_count"], 2);
-    assert_eq!(data["file_count"], 1);
+    assert_eq!(data["entry_count"], 3);
+    assert_eq!(data["file_count"], 2);
     assert_eq!(data["directory_count"], 1);
     assert!(
         data["entries"]
@@ -607,6 +608,15 @@ async fn test_archive_preview_returns_7z_manifest_and_caches_it() {
                 && entry["parent"] == "docs"
                 && entry["kind"] == "file"
                 && entry["size"] == 5)
+    );
+    assert!(
+        data["entries"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|entry| entry["path"] == "docs/测试.txt"
+                && entry["parent"] == "docs"
+                && entry["kind"] == "file")
     );
 
     let cached = property_repo::find_by_key(
@@ -621,6 +631,20 @@ async fn test_archive_preview_returns_7z_manifest_and_caches_it() {
     assert!(
         cached.is_some(),
         "7z archive preview manifest should be cached"
+    );
+
+    let resp =
+        request_personal_archive_preview_with_encoding(&app, &token, file_id, Some("cp437")).await;
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body: Value = test::read_body_json(resp).await;
+    let encoded_data = &body["data"];
+    assert!(
+        encoded_data["entries"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|entry| entry["path"] == "docs/测试.txt"),
+        "7z preview cache replay should ignore ZIP filename encoding overrides"
     );
 }
 

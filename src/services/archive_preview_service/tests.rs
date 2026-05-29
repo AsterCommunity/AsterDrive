@@ -395,6 +395,38 @@ async fn raw_manifest_can_be_redecoded_without_rescanning_storage() {
 }
 
 #[test]
+fn seven_zip_raw_manifest_ignores_zip_filename_encoding_on_replay() {
+    let entry_name = "docs/测试.txt";
+    let raw_manifest = ArchiveRawManifest {
+        format: ArchiveFormat::SevenZip.as_str().to_string(),
+        entry_count: 1,
+        file_count: 1,
+        directory_count: 1,
+        total_uncompressed_size: 5,
+        entries: vec![ArchiveRawEntry {
+            index: 0,
+            raw_name: base64::engine::general_purpose::STANDARD.encode(entry_name.as_bytes()),
+            display_name: entry_name.to_string(),
+            zip_utf8: true,
+            kind: ArchivePreviewEntryKind::File,
+            size: 5,
+            compressed_size: 64,
+            modified_at: None,
+        }],
+        ..preview_test_raw_manifest()
+    };
+    let mut limits = preview_test_limits_with_encoding(ArchiveFilenameEncoding::Cp437);
+    limits.archive_format = ArchiveFormat::SevenZip;
+
+    let manifest = build_manifest_from_raw(7, &raw_manifest, &limits)
+        .expect("7z raw manifest should replay independently of ZIP filename encoding");
+
+    assert_eq!(manifest.format, "7z");
+    assert_eq!(manifest.entries[0].path, entry_name);
+    assert_eq!(manifest.entries[0].name, "测试.txt");
+}
+
+#[test]
 fn raw_manifest_preserves_utf8_flag_validation_on_redecode() {
     let raw_manifest = ArchiveRawManifest {
         entries: vec![ArchiveRawEntry {

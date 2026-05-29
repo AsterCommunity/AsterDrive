@@ -14,7 +14,8 @@ use crate::services::archive_service::scan::{
     ArchiveRawScanEntry, ArchiveScanEntryKind, ArchiveScanLimits, ArchiveScanNamePolicy,
 };
 use crate::services::archive_service::seven_zip_scan::{
-    open_seven_zip_streaming_archive, scan_seven_zip_archive_raw,
+    build_seven_zip_scan_result_from_raw_entries, open_seven_zip_streaming_archive,
+    scan_seven_zip_archive_raw,
 };
 use crate::services::archive_service::zip_scan::{
     build_zip_scan_result_from_raw_entries, scan_zip_archive_raw,
@@ -206,14 +207,23 @@ pub(super) fn build_manifest_from_raw(
         .map(cache_entry_to_raw_scan_entry)
         .collect::<Result<Vec<_>>>()?;
     let scan_limits = cached_raw_display_scan_limits(raw_manifest, &raw_entries, limits)?;
-    let scanned = build_zip_scan_result_from_raw_entries(
-        &raw_entries,
-        scan_limits,
-        None,
-        limits.filename_encoding,
-        ArchiveScanNamePolicy::PreviewDisplayName,
-        |_| Ok(()),
-    )
+    let scanned = match limits.archive_format {
+        ArchiveFormat::Zip => build_zip_scan_result_from_raw_entries(
+            &raw_entries,
+            scan_limits,
+            None,
+            limits.filename_encoding,
+            ArchiveScanNamePolicy::PreviewDisplayName,
+            |_| Ok(()),
+        ),
+        ArchiveFormat::SevenZip => build_seven_zip_scan_result_from_raw_entries(
+            &raw_entries,
+            scan_limits,
+            None,
+            ArchiveScanNamePolicy::PreviewDisplayName,
+            |_| Ok(()),
+        ),
+    }
     .map_err(map_archive_preview_scan_error)?;
     let entry_count = max_i64_u64_count(
         raw_manifest.entry_count,

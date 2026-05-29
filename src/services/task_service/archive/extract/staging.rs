@@ -844,10 +844,7 @@ where
         ensure_archive_scan_deadline(deadline)?;
         let read = block_reader
             .read_entry_data(&mut buffer)
-            .map_aster_err_ctx(
-                "read 7z archive stream chunk",
-                AsterError::storage_driver_error,
-            )?;
+            .map_err(map_seven_zip_stream_read_error)?;
         if read == 0 {
             break;
         }
@@ -874,6 +871,20 @@ where
     }
 
     Ok(copied)
+}
+
+fn map_seven_zip_stream_read_error(error: std::io::Error) -> AsterError {
+    if let Some(source) = error
+        .get_ref()
+        .and_then(|source| source.downcast_ref::<AsterError>())
+    {
+        return source.clone();
+    }
+
+    // SolidBlockStreamReader reports decoder/checksum failures as io::Error. The archive is
+    // already downloaded to a local temp file here, so non-Aster read errors are invalid archive
+    // data rather than retryable remote storage failures.
+    AsterError::validation_error(format!("invalid 7z archive entry: {error}"))
 }
 
 fn create_empty_seven_zip_stage_file(
