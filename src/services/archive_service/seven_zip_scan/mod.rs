@@ -10,21 +10,21 @@ use zesven::{StreamingArchive, StreamingConfig};
 
 use crate::errors::{AsterError, MapAsterErr, Result};
 
-use super::zip_scan::path::{
+use super::path::{
     ensure_archive_entry_path_not_conflicting, insert_directory_path_with_limit,
     normalize_archive_entry_path, validate_archive_entry_compression_ratio,
     validate_archive_entry_path_limits, validate_total_archive_compression_ratio,
 };
-use super::zip_scan::{
-    ZipRawScanEntry, ZipRawScanResult, ZipScanEntry, ZipScanEntryKind, ZipScanLimits,
-    ZipScanNamePolicy, ZipScanResult, ensure_zip_scan_deadline,
+use super::scan::{
+    ArchiveRawScanEntry, ArchiveRawScanResult, ArchiveScanEntry, ArchiveScanEntryKind,
+    ArchiveScanLimits, ArchiveScanNamePolicy, ArchiveScanResult, ensure_archive_scan_deadline,
 };
 
 const UNIX_FILE_TYPE_MASK: u32 = 0o170000;
 const UNIX_REGULAR_FILE_MODE: u32 = 0o100000;
 const UNIX_DIRECTORY_MODE: u32 = 0o040000;
 
-pub(crate) fn seven_zip_streaming_config(limits: ZipScanLimits) -> Result<StreamingConfig> {
+pub(crate) fn seven_zip_streaming_config(limits: ArchiveScanLimits) -> Result<StreamingConfig> {
     let max_entries =
         crate::utils::numbers::u64_to_usize(limits.max_entries, "archive entry count")?;
     let max_ratio: u32 = limits
@@ -42,12 +42,12 @@ pub(crate) fn seven_zip_streaming_config(limits: ZipScanLimits) -> Result<Stream
 
 pub(crate) fn scan_seven_zip_archive<R, F>(
     archive: &StreamingArchive<R>,
-    limits: ZipScanLimits,
+    limits: ArchiveScanLimits,
     source_archive_size: u64,
     deadline: Option<Instant>,
-    name_policy: ZipScanNamePolicy,
+    name_policy: ArchiveScanNamePolicy,
     mut ensure_file_size_allowed: F,
-) -> Result<ZipScanResult>
+) -> Result<ArchiveScanResult>
 where
     R: Read + Seek + Send,
     F: FnMut(i64) -> Result<()>,
@@ -71,11 +71,12 @@ where
     let mut scanned_entries = Vec::with_capacity(entries.len());
 
     for (index, entry) in entries.iter().enumerate() {
-        ensure_zip_scan_deadline(deadline)?;
+        ensure_archive_scan_deadline(deadline)?;
         validate_seven_zip_entry_supported(entry)?;
         let entry_path = entry.path.as_str();
-        if matches!(name_policy, ZipScanNamePolicy::PreviewDisplayName)
-            && normalize_archive_entry_path(entry_path, ZipScanNamePolicy::StrictAsterName).is_err()
+        if matches!(name_policy, ArchiveScanNamePolicy::PreviewDisplayName)
+            && normalize_archive_entry_path(entry_path, ArchiveScanNamePolicy::StrictAsterName)
+                .is_err()
         {
             extract_compatible = false;
         }
@@ -94,7 +95,7 @@ where
             scanned_entries.push(build_scan_entry(
                 index,
                 relative_path,
-                ZipScanEntryKind::Directory,
+                ArchiveScanEntryKind::Directory,
                 0,
                 0,
                 entry.modified(),
@@ -139,7 +140,7 @@ where
         scanned_entries.push(build_scan_entry(
             index,
             relative_path,
-            ZipScanEntryKind::File,
+            ArchiveScanEntryKind::File,
             entry_size,
             compressed_size_for_manifest(source_archive_size)?,
             entry.modified(),
@@ -152,7 +153,7 @@ where
         limits.max_compression_ratio,
     )?;
 
-    Ok(ZipScanResult {
+    Ok(ArchiveScanResult {
         entry_count,
         file_count,
         directory_count: directory_paths.len().try_into().map_aster_err_with(|| {
@@ -166,10 +167,10 @@ where
 
 pub(crate) fn scan_seven_zip_archive_raw<R>(
     archive: &StreamingArchive<R>,
-    limits: ZipScanLimits,
+    limits: ArchiveScanLimits,
     source_archive_size: u64,
     deadline: Option<Instant>,
-) -> Result<ZipRawScanResult>
+) -> Result<ArchiveRawScanResult>
 where
     R: Read + Seek + Send,
 {
@@ -189,7 +190,7 @@ where
     let mut raw_entries = Vec::with_capacity(entries.len());
 
     for (index, entry) in entries.iter().enumerate() {
-        ensure_zip_scan_deadline(deadline)?;
+        ensure_archive_scan_deadline(deadline)?;
         validate_seven_zip_entry_supported(entry)?;
         let entry_path = entry.path.as_str();
         let raw_name = entry_path.as_bytes().to_vec();
@@ -205,12 +206,12 @@ where
                     directory_count, limits.max_directories
                 )));
             }
-            raw_entries.push(ZipRawScanEntry {
+            raw_entries.push(ArchiveRawScanEntry {
                 index,
                 raw_name,
                 display_name,
                 zip_utf8: true,
-                kind: ZipScanEntryKind::Directory,
+                kind: ArchiveScanEntryKind::Directory,
                 size: 0,
                 compressed_size: 0,
                 modified_at: entry.modified().map(format_system_time),
@@ -244,12 +245,12 @@ where
                 total_uncompressed_bytes, limits.max_uncompressed_bytes
             )));
         }
-        raw_entries.push(ZipRawScanEntry {
+        raw_entries.push(ArchiveRawScanEntry {
             index,
             raw_name,
             display_name,
             zip_utf8: true,
-            kind: ZipScanEntryKind::File,
+            kind: ArchiveScanEntryKind::File,
             size: entry_size,
             compressed_size: compressed_size_for_manifest(source_archive_size)?,
             modified_at: entry.modified().map(format_system_time),
@@ -262,7 +263,7 @@ where
         limits.max_compression_ratio,
     )?;
 
-    Ok(ZipRawScanResult {
+    Ok(ArchiveRawScanResult {
         entry_count,
         file_count,
         directory_count,
@@ -273,7 +274,7 @@ where
 
 pub(crate) fn open_seven_zip_streaming_archive<R>(
     reader: R,
-    limits: ZipScanLimits,
+    limits: ArchiveScanLimits,
 ) -> Result<StreamingArchive<R>>
 where
     R: Read + Seek + Send,
@@ -379,11 +380,11 @@ fn validate_seven_zip_entry_supported(entry: &zesven::Entry) -> Result<()> {
 fn build_scan_entry(
     index: usize,
     relative_path: PathBuf,
-    kind: ZipScanEntryKind,
+    kind: ArchiveScanEntryKind,
     size: i64,
     compressed_size: i64,
     modified_at: Option<SystemTime>,
-) -> Result<ZipScanEntry> {
+) -> Result<ArchiveScanEntry> {
     let path = relative_path.to_string_lossy().to_string();
     let name = relative_path
         .file_name()
@@ -394,7 +395,7 @@ fn build_scan_entry(
         (!parent.as_os_str().is_empty()).then(|| parent.to_string_lossy().to_string())
     });
 
-    Ok(ZipScanEntry {
+    Ok(ArchiveScanEntry {
         index,
         relative_path,
         path,

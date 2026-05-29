@@ -3,11 +3,11 @@ use std::path::{Path, PathBuf};
 
 use crate::errors::{AsterError, Result};
 
-use super::{ZipScanLimits, ZipScanNamePolicy};
+use super::scan::{ArchiveScanLimits, ArchiveScanNamePolicy};
 
 pub(crate) fn validate_archive_entry_path_limits(
     relative_path: &Path,
-    limits: ZipScanLimits,
+    limits: ArchiveScanLimits,
 ) -> Result<()> {
     let depth = crate::utils::numbers::usize_to_u64(
         relative_path.components().count(),
@@ -100,7 +100,7 @@ pub(crate) fn ensure_archive_entry_path_not_conflicting(
 pub(crate) fn insert_directory_path_with_limit(
     path: &Path,
     directory_paths: &mut HashSet<PathBuf>,
-    limits: ZipScanLimits,
+    limits: ArchiveScanLimits,
 ) -> Result<()> {
     let mut current = PathBuf::new();
     for component in path.components() {
@@ -186,7 +186,7 @@ fn compression_ratio_exceeds(
 
 pub(crate) fn normalize_archive_entry_path(
     path: &str,
-    name_policy: ZipScanNamePolicy,
+    name_policy: ArchiveScanNamePolicy,
 ) -> Result<PathBuf> {
     if path.contains('\0')
         || path.starts_with('/')
@@ -226,10 +226,10 @@ pub(crate) fn normalize_archive_entry_path(
     Ok(normalized)
 }
 
-fn normalize_archive_entry_name(name: &str, name_policy: ZipScanNamePolicy) -> Result<String> {
+fn normalize_archive_entry_name(name: &str, name_policy: ArchiveScanNamePolicy) -> Result<String> {
     match name_policy {
-        ZipScanNamePolicy::StrictAsterName => crate::utils::normalize_validate_name(name),
-        ZipScanNamePolicy::PreviewDisplayName => normalize_preview_entry_name(name),
+        ArchiveScanNamePolicy::StrictAsterName => crate::utils::normalize_validate_name(name),
+        ArchiveScanNamePolicy::PreviewDisplayName => normalize_preview_entry_name(name),
     }
 }
 

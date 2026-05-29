@@ -13,7 +13,7 @@ use crate::errors::{
 };
 use crate::runtime::PrimaryAppState;
 use crate::services::archive_service::format::{ArchiveFormat, detect_archive_preview_format};
-use crate::services::archive_service::zip_scan::ZipScanLimits;
+use crate::services::archive_service::scan::ArchiveScanLimits;
 use crate::services::workspace_storage_service::WorkspaceStorageScope;
 use crate::services::{share_service, task_service, workspace_storage_service};
 use crate::types::ArchiveFilenameEncoding;
@@ -72,7 +72,7 @@ pub(crate) struct ArchivePreviewLimits {
     pub(crate) max_source_bytes: i64,
     pub(crate) max_manifest_bytes: usize,
     pub(crate) max_duration_secs: u64,
-    pub(crate) scan_limits: ZipScanLimits,
+    pub(crate) scan_limits: ArchiveScanLimits,
     pub(crate) raw_signature: String,
     pub(crate) task_signature: String,
     pub(crate) filename_encoding: ArchiveFilenameEncoding,
@@ -192,7 +192,7 @@ impl ArchivePreviewLimits {
         archive_format: ArchiveFormat,
     ) -> Result<Self> {
         let preview_max_entries = operations::archive_preview_max_entries(runtime_config);
-        let scan_limits = ZipScanLimits {
+        let scan_limits = ArchiveScanLimits {
             max_uncompressed_bytes: operations::archive_extract_max_uncompressed_bytes(
                 runtime_config,
             ),

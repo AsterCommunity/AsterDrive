@@ -14,13 +14,14 @@ use crate::db::repository::file_repo;
 use crate::entities::file;
 use crate::errors::{AsterError, MapAsterErr, Result};
 use crate::runtime::PrimaryAppState;
+use crate::services::archive_service::scan::{
+    ArchiveScanEntry, ArchiveScanLimits, ArchiveScanNamePolicy, ensure_archive_scan_deadline,
+};
 use crate::services::archive_service::seven_zip_scan::{
     map_seven_zip_entry_error, open_seven_zip_streaming_archive, scan_seven_zip_archive,
     seven_zip_streaming_config,
 };
-use crate::services::archive_service::zip_scan::{
-    ZipScanEntry, ZipScanLimits, ZipScanNamePolicy, ensure_zip_scan_deadline, scan_zip_archive,
-};
+use crate::services::archive_service::zip_scan::scan_zip_archive;
 use crate::services::task_service::TaskStepInfo;
 use crate::services::workspace_storage_service::{self, WorkspaceStorageScope};
 use crate::storage::PolicySnapshot;
@@ -48,7 +49,7 @@ struct SevenZipStreamPosition {
 
 #[derive(Debug, Clone, Copy)]
 struct SevenZipFileWork<'a> {
-    manifest_entry: &'a ZipScanEntry,
+    manifest_entry: &'a ArchiveScanEntry,
     stream_position: Option<SevenZipStreamPosition>,
 }
 
@@ -132,8 +133,8 @@ impl ArchiveExtractLimits {
         Instant::now().checked_add(std::time::Duration::from_secs(self.max_duration_secs))
     }
 
-    fn scan_limits(self) -> ZipScanLimits {
-        ZipScanLimits {
+    fn scan_limits(self) -> ArchiveScanLimits {
+        ArchiveScanLimits {
             max_uncompressed_bytes: self.max_uncompressed_bytes,
             max_entries: self.max_entries,
             max_files: self.max_files,
@@ -224,7 +225,7 @@ pub(super) fn stage_zip_archive_for_extract(
         options.limits.scan_limits(),
         deadline,
         options.filename_encoding,
-        ZipScanNamePolicy::StrictAsterName,
+        ArchiveScanNamePolicy::StrictAsterName,
         |entry_size| {
             options
                 .policy_resolver
@@ -285,7 +286,7 @@ pub(super) fn stage_zip_archive_for_extract(
 
     for manifest_entry in &preflight.entries {
         lease_guard.ensure_active()?;
-        ensure_zip_scan_deadline(deadline)?;
+        ensure_archive_scan_deadline(deadline)?;
         let mut entry = archive
             .by_index(manifest_entry.index)
             .map_aster_err_with(|| AsterError::validation_error("invalid zip archive entry"))?;
@@ -420,7 +421,7 @@ pub(super) fn stage_seven_zip_archive_for_extract(
         scan_limits,
         source_archive_size,
         deadline,
-        ZipScanNamePolicy::StrictAsterName,
+        ArchiveScanNamePolicy::StrictAsterName,
         |entry_size| {
             options
                 .policy_resolver
@@ -601,7 +602,7 @@ fn seven_zip_entry_stream_positions(
 }
 
 fn seven_zip_file_work<'a>(
-    preflight_entries: &'a [ZipScanEntry],
+    preflight_entries: &'a [ArchiveScanEntry],
     archive_entries: &[zesven::Entry],
     stream_positions: &[Option<SevenZipStreamPosition>],
 ) -> Result<Vec<SevenZipFileWork<'a>>> {
@@ -644,7 +645,7 @@ fn extract_seven_zip_file_work<R>(
     total_progress: i64,
     max_files: u64,
     deadline: Option<Instant>,
-    scan_limits: ZipScanLimits,
+    scan_limits: ArchiveScanLimits,
 ) -> Result<()>
 where
     R: Read + Seek + Send,
@@ -652,7 +653,7 @@ where
     let mut work_index = 0_usize;
     while work_index < file_work.len() {
         lease_guard.ensure_active()?;
-        ensure_zip_scan_deadline(deadline)?;
+        ensure_archive_scan_deadline(deadline)?;
         let work = file_work[work_index];
 
         if work.manifest_entry.kind.is_dir() {
@@ -690,7 +691,7 @@ where
 
         while work_index < file_work.len() {
             lease_guard.ensure_active()?;
-            ensure_zip_scan_deadline(deadline)?;
+            ensure_archive_scan_deadline(deadline)?;
             let work = file_work[work_index];
             if work.manifest_entry.kind.is_dir() {
                 create_seven_zip_stage_output(stage_root, work.manifest_entry)?;
@@ -741,7 +742,7 @@ where
     Ok(())
 }
 
-fn seven_zip_stream_reader_config(limits: ZipScanLimits) -> Result<zesven::StreamingConfig> {
+fn seven_zip_stream_reader_config(limits: ArchiveScanLimits) -> Result<zesven::StreamingConfig> {
     seven_zip_streaming_config(limits)
 }
 
@@ -749,7 +750,7 @@ fn seven_zip_stream_reader_config(limits: ZipScanLimits) -> Result<zesven::Strea
 fn extract_seven_zip_block_stream_entry<R>(
     block_reader: &mut SolidBlockStreamReader<'_, R>,
     stream_position: SevenZipStreamPosition,
-    manifest_entry: &ZipScanEntry,
+    manifest_entry: &ArchiveScanEntry,
     stage_root: &Path,
     handle: &tokio::runtime::Handle,
     db: &sea_orm::DatabaseConnection,
@@ -840,7 +841,7 @@ where
 
     loop {
         lease_guard.ensure_active()?;
-        ensure_zip_scan_deadline(deadline)?;
+        ensure_archive_scan_deadline(deadline)?;
         let read = block_reader
             .read_entry_data(&mut buffer)
             .map_aster_err_ctx(
@@ -877,7 +878,7 @@ where
 
 fn create_empty_seven_zip_stage_file(
     stage_root: &Path,
-    manifest_entry: &ZipScanEntry,
+    manifest_entry: &ArchiveScanEntry,
 ) -> Result<u64> {
     if manifest_entry.size != 0 {
         return Err(AsterError::validation_error("invalid 7z archive entry"));
@@ -888,7 +889,7 @@ fn create_empty_seven_zip_stage_file(
 
 fn create_seven_zip_stage_output(
     stage_root: &Path,
-    manifest_entry: &ZipScanEntry,
+    manifest_entry: &ArchiveScanEntry,
 ) -> Result<Option<std::fs::File>> {
     let target_path = Path::new(stage_root).join(&manifest_entry.relative_path);
     if manifest_entry.kind.is_dir() {
@@ -980,7 +981,7 @@ fn ensure_seven_zip_entry_count_matches_preflight(
 
 fn ensure_archive_entry_matches_preflight<R: Read>(
     entry: &zip::read::ZipFile<'_, R>,
-    manifest_entry: &ZipScanEntry,
+    manifest_entry: &ArchiveScanEntry,
 ) -> Result<()> {
     let is_dir = entry.is_dir();
     if is_dir != manifest_entry.kind.is_dir() {
@@ -1003,7 +1004,7 @@ fn ensure_archive_entry_matches_preflight<R: Read>(
 
 fn ensure_seven_zip_entry_matches_preflight(
     entry: &zesven::Entry,
-    manifest_entry: &ZipScanEntry,
+    manifest_entry: &ArchiveScanEntry,
 ) -> Result<()> {
     let is_dir = entry.is_directory;
     if is_dir != manifest_entry.kind.is_dir() {

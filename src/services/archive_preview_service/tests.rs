@@ -112,7 +112,7 @@ fn preview_test_limits() -> ArchivePreviewLimits {
         max_source_bytes: 1024 * 1024,
         max_manifest_bytes: 64 * 1024,
         max_duration_secs: 10,
-        scan_limits: ZipScanLimits {
+        scan_limits: ArchiveScanLimits {
             max_uncompressed_bytes: 1024 * 1024,
             max_entries: 100,
             max_files: 100,

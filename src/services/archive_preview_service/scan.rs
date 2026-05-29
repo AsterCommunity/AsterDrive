@@ -10,11 +10,13 @@ use crate::entities::{file, file_blob};
 use crate::errors::{AsterError, MapAsterErr, Result};
 use crate::services::archive_service::format::ArchiveFormat;
 use crate::services::archive_service::range_reader::StorageRangeReader;
+use crate::services::archive_service::scan::{
+    ArchiveRawScanEntry, ArchiveScanEntryKind, ArchiveScanLimits, ArchiveScanNamePolicy,
+};
 use crate::services::archive_service::seven_zip_scan::{
     open_seven_zip_streaming_archive, scan_seven_zip_archive_raw,
 };
 use crate::services::archive_service::zip_scan::{
-    ZipRawScanEntry, ZipScanEntryKind, ZipScanLimits, ZipScanNamePolicy,
     build_zip_scan_result_from_raw_entries, scan_zip_archive_raw,
 };
 use crate::storage::StorageDriver;
@@ -158,15 +160,15 @@ where
     )
 }
 
-fn raw_entry_to_cache_entry(entry: ZipRawScanEntry) -> Result<ArchiveRawEntry> {
+fn raw_entry_to_cache_entry(entry: ArchiveRawScanEntry) -> Result<ArchiveRawEntry> {
     Ok(ArchiveRawEntry {
         index: entry.index,
         raw_name: base64::engine::general_purpose::STANDARD.encode(entry.raw_name),
         display_name: entry.display_name,
         zip_utf8: entry.zip_utf8,
         kind: match entry.kind {
-            ZipScanEntryKind::File => ArchivePreviewEntryKind::File,
-            ZipScanEntryKind::Directory => ArchivePreviewEntryKind::Directory,
+            ArchiveScanEntryKind::File => ArchivePreviewEntryKind::File,
+            ArchiveScanEntryKind::Directory => ArchivePreviewEntryKind::Directory,
         },
         size: entry.size,
         compressed_size: entry.compressed_size,
@@ -174,18 +176,18 @@ fn raw_entry_to_cache_entry(entry: ZipRawScanEntry) -> Result<ArchiveRawEntry> {
     })
 }
 
-fn cache_entry_to_raw_scan_entry(entry: &ArchiveRawEntry) -> Result<ZipRawScanEntry> {
+fn cache_entry_to_raw_scan_entry(entry: &ArchiveRawEntry) -> Result<ArchiveRawScanEntry> {
     let raw_name = base64::engine::general_purpose::STANDARD
         .decode(&entry.raw_name)
         .map_aster_err_ctx("decode archive raw entry name", AsterError::internal_error)?;
-    Ok(ZipRawScanEntry {
+    Ok(ArchiveRawScanEntry {
         index: entry.index,
         raw_name,
         display_name: entry.display_name.clone(),
         zip_utf8: entry.zip_utf8,
         kind: match entry.kind {
-            ArchivePreviewEntryKind::File => ZipScanEntryKind::File,
-            ArchivePreviewEntryKind::Directory => ZipScanEntryKind::Directory,
+            ArchivePreviewEntryKind::File => ArchiveScanEntryKind::File,
+            ArchivePreviewEntryKind::Directory => ArchiveScanEntryKind::Directory,
         },
         size: entry.size,
         compressed_size: entry.compressed_size,
@@ -209,7 +211,7 @@ pub(super) fn build_manifest_from_raw(
         scan_limits,
         None,
         limits.filename_encoding,
-        ZipScanNamePolicy::PreviewDisplayName,
+        ArchiveScanNamePolicy::PreviewDisplayName,
         |_| Ok(()),
     )
     .map_err(map_archive_preview_scan_error)?;
@@ -246,8 +248,8 @@ pub(super) fn build_manifest_from_raw(
             name: entry.name,
             parent: entry.parent,
             kind: match entry.kind {
-                ZipScanEntryKind::File => ArchivePreviewEntryKind::File,
-                ZipScanEntryKind::Directory => ArchivePreviewEntryKind::Directory,
+                ArchiveScanEntryKind::File => ArchivePreviewEntryKind::File,
+                ArchiveScanEntryKind::Directory => ArchivePreviewEntryKind::Directory,
             },
             size: entry.size,
             compressed_size: entry.compressed_size,
@@ -290,9 +292,9 @@ fn map_seven_zip_preview_open_error(error: AsterError) -> AsterError {
 
 fn cached_raw_display_scan_limits(
     raw_manifest: &ArchiveRawManifest,
-    raw_entries: &[ZipRawScanEntry],
+    raw_entries: &[ArchiveRawScanEntry],
     limits: &ArchivePreviewLimits,
-) -> Result<ZipScanLimits> {
+) -> Result<ArchiveScanLimits> {
     let mut scan_limits = limits.scan_limits;
     let cached_entry_count =
         crate::utils::numbers::usize_to_u64(raw_entries.len(), "archive cached raw entry count")?;
