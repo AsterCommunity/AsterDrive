@@ -555,7 +555,7 @@ fn apply_admin_blob_order(
     }
 }
 
-fn sum_blob_size_as_i64_expr(backend: DbBackend) -> sea_orm::sea_query::SimpleExpr {
+pub(super) fn sum_blob_size_as_i64_expr(backend: DbBackend) -> sea_orm::sea_query::SimpleExpr {
     let type_name = match backend {
         DbBackend::Postgres => "bigint",
         DbBackend::MySql => "signed",

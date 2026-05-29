@@ -1,4 +1,4 @@
-use super::lookup::find_or_create_blob_retry_delay;
+use super::lookup::{find_or_create_blob_retry_delay, sum_blob_size_as_i64_expr};
 use super::ref_count::{
     blob_ref_count_decrement_expr, blob_ref_count_increment_expr, normalize_blob_ref_count_deltas,
 };
@@ -71,10 +71,7 @@ fn summarize_blobs_by_policy_sql_uses_seaorm_aggregate_query() {
     let statement = crate::entities::file_blob::Entity::find()
         .select_only()
         .column_as(Expr::col(file_blob::Column::Id).count(), "count")
-        .column_as(
-            Expr::col(file_blob::Column::Size).sum().cast_as("bigint"),
-            "total_size",
-        )
+        .column_as(sum_blob_size_as_i64_expr(DbBackend::Postgres), "total_size")
         .filter(file_blob::Column::PolicyId.eq(42))
         .build(DbBackend::Postgres);
 
