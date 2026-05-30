@@ -281,7 +281,7 @@ async fn test_thumbnail_task_creation_triggers_dispatch_wakeup() {
 #[actix_web::test]
 async fn test_thumbnail_returns_202_when_not_ready() {
     let state = common::setup().await;
-    let app = create_test_app!(state);
+    let app = create_test_app!(state.clone());
     let (token, _) = register_and_login!(app);
 
     let file_id = upload_file_bytes!(app, token, "test.png", "image/png", tiny_png());
@@ -294,6 +294,16 @@ async fn test_thumbnail_returns_202_when_not_ready() {
             .and_then(|value| value.to_str().ok()),
         Some("2")
     );
+
+    let task = latest_thumbnail_task(&state, file_id).await;
+    assert_eq!(task.progress_current, 0);
+    assert_eq!(task.progress_total, 4);
+    assert_eq!(task.max_attempts, 1);
+    let steps: Vec<Value> = serde_json::from_str(task.steps_json.as_ref().unwrap().as_ref())
+        .expect("thumbnail task steps should be valid json");
+    assert_eq!(steps.len(), 4);
+    assert_eq!(steps[0]["key"], "waiting");
+    assert_eq!(steps[1]["key"], "inspect_source");
 }
 
 #[actix_web::test]

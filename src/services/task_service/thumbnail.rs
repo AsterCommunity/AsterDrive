@@ -1,8 +1,5 @@
 //! 后台任务服务子模块：`thumbnail`。
 
-use chrono::Utc;
-use sea_orm::Set;
-
 use crate::db::repository::background_task_repo;
 use crate::entities::{background_task, file_blob};
 use crate::errors::{AsterError, Result};
@@ -12,16 +9,15 @@ use crate::storage::StorageErrorKind;
 use crate::types::{BackgroundTaskKind, BackgroundTaskStatus};
 
 use super::retry::{TaskRetryClass, TaskRetryPolicy};
-use super::spec::{self, BackgroundTaskSpec, ThumbnailGenerateTask, decode_payload_as};
+use super::spec::{self, ThumbnailGenerateTask, decode_payload_as};
 use super::steps::{
     TASK_STEP_INSPECT_SOURCE, TASK_STEP_PERSIST_THUMBNAIL, TASK_STEP_RENDER_THUMBNAIL,
-    TASK_STEP_WAITING, parse_task_steps_json, serialize_task_steps, set_task_step_active,
-    set_task_step_succeeded,
+    TASK_STEP_WAITING, parse_task_steps_json, set_task_step_active, set_task_step_succeeded,
 };
 use super::types::{ThumbnailGenerateTaskPayload, ThumbnailGenerateTaskResult};
 use super::{
-    TaskLeaseGuard, mark_task_progress, mark_task_succeeded, task_expiration_from,
-    truncate_display_name,
+    TaskLeaseGuard, TypedTaskCreate, insert_typed_task_record, mark_task_progress,
+    mark_task_succeeded,
 };
 
 pub(super) struct ThumbnailRetryPolicy;
@@ -87,7 +83,6 @@ pub(crate) async fn ensure_thumbnail_task(
         }
     }
 
-    let now = Utc::now();
     let payload = ThumbnailGenerateTaskPayload {
         blob_id: blob.id,
         blob_hash: blob.hash.clone(),
@@ -95,43 +90,10 @@ pub(crate) async fn ensure_thumbnail_task(
         source_mime_type: source_mime_type.to_string(),
         processor,
     };
-    let payload_json = spec::serialize_payload::<ThumbnailGenerateTask>(&payload)?;
-    let steps_json = serialize_task_steps(
-        &crate::services::task_service::registry::initial_task_steps(ThumbnailGenerateTask::KIND),
-    )?;
-    background_task_repo::create(
+    insert_typed_task_record(
+        state,
         state.writer_db(),
-        background_task::ActiveModel {
-            kind: Set(ThumbnailGenerateTask::KIND),
-            status: Set(BackgroundTaskStatus::Pending),
-            creator_user_id: Set(None),
-            team_id: Set(None),
-            share_id: Set(None),
-            display_name: Set(truncate_display_name(&display_name)),
-            payload_json: Set(payload_json),
-            result_json: Set(None),
-            steps_json: Set(Some(steps_json)),
-            progress_current: Set(0),
-            progress_total: Set(4),
-            status_text: Set(None),
-            attempt_count: Set(0),
-            max_attempts: Set(crate::services::task_service::registry::max_attempts(
-                state,
-                ThumbnailGenerateTask::KIND,
-            )),
-            next_run_at: Set(now),
-            processing_token: Set(0),
-            processing_started_at: Set(None),
-            last_heartbeat_at: Set(None),
-            lease_expires_at: Set(None),
-            started_at: Set(None),
-            finished_at: Set(None),
-            last_error: Set(None),
-            expires_at: Set(task_expiration_from(state, now)),
-            created_at: Set(now),
-            updated_at: Set(now),
-            ..Default::default()
-        },
+        TypedTaskCreate::<ThumbnailGenerateTask>::new(display_name, payload).progress(0, 4),
     )
     .await?;
 

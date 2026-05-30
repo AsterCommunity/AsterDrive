@@ -1568,7 +1568,12 @@ async fn test_record_runtime_task_run_persists_system_runtime_event() {
     assert_eq!(recorded.status, BackgroundTaskStatus::Succeeded);
     assert_eq!(recorded.display_name, "Trash cleanup");
     assert_eq!(recorded.max_attempts, 1);
+    assert_eq!(recorded.progress_current, 1);
+    assert_eq!(recorded.progress_total, 1);
+    assert!(recorded.steps_json.is_none());
     assert!(recorded.lease_expires_at.is_none());
+    assert_eq!(recorded.started_at, Some(started_at));
+    assert_eq!(recorded.finished_at, Some(finished_at));
     assert_eq!(
         serde_json::from_str::<Value>(recorded.payload_json.as_ref())
             .expect("runtime payload should be valid json")["task_name"],
@@ -1706,6 +1711,11 @@ async fn test_record_runtime_task_run_keeps_health_failure_history_before_recove
     .await
     .expect("failed system health event should be recorded")
     .expect("failed system health should create a record");
+
+    assert_eq!(failed.progress_current, 0);
+    assert_eq!(failed.progress_total, 1);
+    assert!(failed.steps_json.is_none());
+    assert_eq!(failed.failure_can_retry, Some(false));
 
     let recovered = task_service::record_runtime_task_run(
         &state,

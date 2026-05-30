@@ -3,8 +3,6 @@
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
-use chrono::Utc;
-use sea_orm::Set;
 use tokio::io::{AsyncRead, AsyncReadExt, ReadBuf};
 
 use crate::db::repository::{
@@ -15,11 +13,11 @@ use crate::entities::{background_task, file_blob, storage_policy};
 use crate::errors::{AsterError, MapAsterErr, Result};
 use crate::runtime::PrimaryAppState;
 use crate::storage::driver::StorageDriver;
-use crate::types::{BackgroundTaskKind, BackgroundTaskStatus};
+use crate::types::BackgroundTaskKind;
 use crate::utils::hash::{new_sha256, sha256_digest_to_hex, sha256_hex};
 use crate::utils::numbers::u64_to_i64;
 
-use super::spec::{self, BackgroundTaskSpec, StoragePolicyMigrationTask, decode_payload_as};
+use super::spec::{self, StoragePolicyMigrationTask, decode_payload_as};
 use super::steps::{
     TASK_STEP_FINISH, TASK_STEP_MIGRATE_BLOBS, TASK_STEP_PREPARE_SOURCES, TASK_STEP_SCAN_BLOBS,
     TASK_STEP_WAITING, parse_task_steps_json, set_task_step_active, set_task_step_succeeded,
@@ -30,8 +28,8 @@ use super::types::{
     StoragePolicyMigrationTaskResult,
 };
 use super::{
-    TaskLeaseGuard, mark_task_progress, mark_task_succeeded, serialize_task_steps,
-    task_expiration_from, task_scope, truncate_display_name,
+    TaskLeaseGuard, TypedTaskCreate, insert_typed_task_record, mark_task_progress,
+    mark_task_succeeded, task_scope,
 };
 
 const MIGRATION_BATCH_SIZE: u64 = 100;
@@ -109,50 +107,17 @@ pub(crate) async fn create_storage_policy_migration_task(
             ));
         }
 
-        let now = Utc::now();
-        let task = background_task_repo::create(
+        let task = insert_typed_task_record(
+            state,
             txn,
-            background_task::ActiveModel {
-                kind: Set(StoragePolicyMigrationTask::KIND),
-                status: Set(BackgroundTaskStatus::Pending),
-                creator_user_id: Set(Some(input.creator_user_id)),
-                team_id: Set(None),
-                share_id: Set(None),
-                display_name: Set(truncate_display_name(&format!(
+            TypedTaskCreate::<StoragePolicyMigrationTask>::new(
+                format!(
                     "Migrate storage policy #{} to #{}",
                     input.source_policy_id, input.target_policy_id
-                ))),
-                payload_json: Set(spec::serialize_payload::<StoragePolicyMigrationTask>(
-                    &payload,
-                )?),
-                result_json: Set(None),
-                steps_json: Set(Some(serialize_task_steps(
-                    &crate::services::task_service::registry::initial_task_steps(
-                        StoragePolicyMigrationTask::KIND,
-                    ),
-                )?)),
-                progress_current: Set(0),
-                progress_total: Set(0),
-                status_text: Set(None),
-                attempt_count: Set(0),
-                max_attempts: Set(crate::services::task_service::registry::max_attempts(
-                    state,
-                    StoragePolicyMigrationTask::KIND,
-                )),
-                next_run_at: Set(now),
-                processing_token: Set(0),
-                processing_started_at: Set(None),
-                last_heartbeat_at: Set(None),
-                lease_expires_at: Set(None),
-                started_at: Set(None),
-                finished_at: Set(None),
-                last_error: Set(None),
-                failure_can_retry: Set(None),
-                expires_at: Set(task_expiration_from(state, now)),
-                created_at: Set(now),
-                updated_at: Set(now),
-                ..Default::default()
-            },
+                ),
+                payload.clone(),
+            )
+            .creator_user_id(Some(input.creator_user_id)),
         )
         .await?;
         storage_migration_checkpoint_repo::create(

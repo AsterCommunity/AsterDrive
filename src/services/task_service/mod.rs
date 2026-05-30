@@ -22,7 +22,7 @@ mod types;
 
 use chrono::{Duration, Utc};
 use parking_lot::Mutex;
-use sea_orm::{DatabaseConnection, Set};
+use sea_orm::{ConnectionTrait, DatabaseConnection, Set};
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration as StdDuration, Instant};
@@ -39,7 +39,7 @@ use crate::services::{
     profile_service, user_service,
     workspace_storage_service::{self, WorkspaceStorageScope},
 };
-use crate::types::{BackgroundTaskKind, BackgroundTaskStatus, StoredTaskResult};
+use crate::types::{BackgroundTaskKind, BackgroundTaskStatus, StoredTaskResult, StoredTaskSteps};
 use crate::utils::numbers::{i64_to_i32, i64_to_u64};
 
 pub(crate) use archive::ensure_archive_preview_task;
@@ -466,47 +466,223 @@ fn task_can_retry(task: &background_task::Model) -> bool {
     task.status == BackgroundTaskStatus::Failed && task.failure_can_retry.unwrap_or(true)
 }
 
+pub(in crate::services::task_service) struct TypedTaskCreate<S: BackgroundTaskSpec> {
+    display_name: String,
+    payload: S::Payload,
+    creator_user_id: Option<i64>,
+    team_id: Option<i64>,
+    share_id: Option<i64>,
+    status: BackgroundTaskStatus,
+    result_json: Option<StoredTaskResult>,
+    include_steps: bool,
+    progress_current: i64,
+    progress_total: i64,
+    status_text: Option<String>,
+    max_attempts: Option<i32>,
+    next_run_at: chrono::DateTime<Utc>,
+    processing_started_at: Option<chrono::DateTime<Utc>>,
+    last_heartbeat_at: Option<chrono::DateTime<Utc>>,
+    lease_expires_at: Option<chrono::DateTime<Utc>>,
+    started_at: Option<chrono::DateTime<Utc>>,
+    finished_at: Option<chrono::DateTime<Utc>>,
+    last_error: Option<String>,
+    failure_can_retry: Option<bool>,
+    expires_at_anchor: chrono::DateTime<Utc>,
+    created_at: chrono::DateTime<Utc>,
+    updated_at: chrono::DateTime<Utc>,
+}
+
+impl<S: BackgroundTaskSpec> TypedTaskCreate<S> {
+    pub(in crate::services::task_service) fn new(
+        display_name: impl Into<String>,
+        payload: S::Payload,
+    ) -> Self {
+        let now = Utc::now();
+        Self {
+            display_name: display_name.into(),
+            payload,
+            creator_user_id: None,
+            team_id: None,
+            share_id: None,
+            status: BackgroundTaskStatus::Pending,
+            result_json: None,
+            include_steps: true,
+            progress_current: 0,
+            progress_total: 0,
+            status_text: None,
+            max_attempts: None,
+            next_run_at: now,
+            processing_started_at: None,
+            last_heartbeat_at: None,
+            lease_expires_at: None,
+            started_at: None,
+            finished_at: None,
+            last_error: None,
+            failure_can_retry: None,
+            expires_at_anchor: now,
+            created_at: now,
+            updated_at: now,
+        }
+    }
+
+    pub(in crate::services::task_service) fn in_scope(
+        mut self,
+        scope: WorkspaceStorageScope,
+    ) -> Self {
+        self.creator_user_id = Some(scope.actor_user_id());
+        self.team_id = scope.team_id();
+        self
+    }
+
+    pub(in crate::services::task_service) fn creator_user_id(
+        mut self,
+        creator_user_id: Option<i64>,
+    ) -> Self {
+        self.creator_user_id = creator_user_id;
+        self
+    }
+
+    pub(in crate::services::task_service) fn next_run_at(
+        mut self,
+        next_run_at: chrono::DateTime<Utc>,
+    ) -> Self {
+        self.next_run_at = next_run_at;
+        self.expires_at_anchor = next_run_at;
+        self
+    }
+
+    pub(in crate::services::task_service) fn progress(mut self, current: i64, total: i64) -> Self {
+        self.progress_current = current;
+        self.progress_total = total;
+        self
+    }
+
+    pub(in crate::services::task_service) fn status_text(mut self, status_text: String) -> Self {
+        self.status_text = Some(status_text);
+        self
+    }
+
+    pub(in crate::services::task_service) fn status(
+        mut self,
+        status: BackgroundTaskStatus,
+    ) -> Self {
+        self.status = status;
+        self
+    }
+
+    pub(in crate::services::task_service) fn result(mut self, result: &S::Result) -> Result<Self> {
+        self.result_json = Some(spec::serialize_result::<S>(result)?);
+        Ok(self)
+    }
+
+    pub(in crate::services::task_service) fn without_steps(mut self) -> Self {
+        self.include_steps = false;
+        self
+    }
+
+    pub(in crate::services::task_service) fn started_at(
+        mut self,
+        started_at: chrono::DateTime<Utc>,
+    ) -> Self {
+        self.started_at = Some(started_at);
+        self.created_at = started_at;
+        self
+    }
+
+    pub(in crate::services::task_service) fn finished_at(
+        mut self,
+        finished_at: chrono::DateTime<Utc>,
+    ) -> Self {
+        self.finished_at = Some(finished_at);
+        self.next_run_at = finished_at;
+        self.expires_at_anchor = finished_at;
+        self.updated_at = finished_at;
+        self
+    }
+
+    pub(in crate::services::task_service) fn last_error(
+        mut self,
+        last_error: Option<String>,
+    ) -> Self {
+        self.last_error = last_error;
+        self
+    }
+
+    pub(in crate::services::task_service) fn failure_can_retry(
+        mut self,
+        failure_can_retry: Option<bool>,
+    ) -> Self {
+        self.failure_can_retry = failure_can_retry;
+        self
+    }
+
+    fn steps_json(&self) -> Result<Option<StoredTaskSteps>> {
+        if self.include_steps {
+            serialize_task_steps(&registry::initial_task_steps(S::KIND)).map(Some)
+        } else {
+            Ok(None)
+        }
+    }
+
+    fn into_active_model(self, state: &PrimaryAppState) -> Result<background_task::ActiveModel> {
+        let payload_json = spec::serialize_payload::<S>(&self.payload)?;
+        let steps_json = self.steps_json()?;
+
+        Ok(background_task::ActiveModel {
+            kind: Set(S::KIND),
+            status: Set(self.status),
+            creator_user_id: Set(self.creator_user_id),
+            team_id: Set(self.team_id),
+            share_id: Set(self.share_id),
+            display_name: Set(truncate_display_name(&self.display_name)),
+            payload_json: Set(payload_json),
+            result_json: Set(self.result_json),
+            steps_json: Set(steps_json),
+            progress_current: Set(self.progress_current),
+            progress_total: Set(self.progress_total),
+            status_text: Set(self.status_text),
+            attempt_count: Set(0),
+            max_attempts: Set(self
+                .max_attempts
+                .unwrap_or_else(|| registry::max_attempts(state, S::KIND))),
+            next_run_at: Set(self.next_run_at),
+            processing_token: Set(0),
+            processing_started_at: Set(self.processing_started_at),
+            last_heartbeat_at: Set(self.last_heartbeat_at),
+            lease_expires_at: Set(self.lease_expires_at),
+            started_at: Set(self.started_at),
+            finished_at: Set(self.finished_at),
+            last_error: Set(self.last_error),
+            failure_can_retry: Set(self.failure_can_retry),
+            expires_at: Set(task_expiration_from(state, self.expires_at_anchor)),
+            created_at: Set(self.created_at),
+            updated_at: Set(self.updated_at),
+            ..Default::default()
+        })
+    }
+}
+
+pub(in crate::services::task_service) async fn insert_typed_task_record<
+    C: ConnectionTrait,
+    S: BackgroundTaskSpec,
+>(
+    state: &PrimaryAppState,
+    db: &C,
+    request: TypedTaskCreate<S>,
+) -> Result<background_task::Model> {
+    background_task_repo::create(db, request.into_active_model(state)?).await
+}
+
 pub(in crate::services::task_service) async fn create_typed_task_record<S: BackgroundTaskSpec>(
     state: &PrimaryAppState,
     scope: WorkspaceStorageScope,
     display_name: &str,
     payload: &S::Payload,
 ) -> Result<background_task::Model> {
-    let now = Utc::now();
-    let payload_json = spec::serialize_payload::<S>(payload)?;
-    let steps_json = serialize_task_steps(&registry::initial_task_steps(S::KIND))?;
-    let display_name = truncate_display_name(display_name);
-
-    let task = background_task_repo::create(
+    let task = insert_typed_task_record(
+        state,
         state.writer_db(),
-        background_task::ActiveModel {
-            kind: Set(S::KIND),
-            status: Set(BackgroundTaskStatus::Pending),
-            creator_user_id: Set(Some(scope.actor_user_id())),
-            team_id: Set(scope.team_id()),
-            share_id: Set(None),
-            display_name: Set(display_name),
-            payload_json: Set(payload_json),
-            result_json: Set(None),
-            steps_json: Set(Some(steps_json)),
-            progress_current: Set(0),
-            progress_total: Set(0),
-            status_text: Set(None),
-            attempt_count: Set(0),
-            max_attempts: Set(registry::max_attempts(state, S::KIND)),
-            next_run_at: Set(now),
-            processing_token: Set(0),
-            processing_started_at: Set(None),
-            last_heartbeat_at: Set(None),
-            lease_expires_at: Set(None),
-            started_at: Set(None),
-            finished_at: Set(None),
-            last_error: Set(None),
-            expires_at: Set(task_expiration_from(state, now)),
-            created_at: Set(now),
-            updated_at: Set(now),
-            ..Default::default()
-        },
+        TypedTaskCreate::<S>::new(display_name, payload.clone()).in_scope(scope),
     )
     .await?;
     state.wake_background_task_dispatcher();
