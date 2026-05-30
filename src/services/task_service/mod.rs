@@ -3,6 +3,23 @@
 //! 这里既管理用户可见的异步任务，也记录系统周期任务的执行结果。关键设计点是：
 //! 任务状态留在数据库里，dispatcher 通过 lease + fencing token 防止旧 worker
 //! 覆盖新 worker 的结果。
+//!
+//! ## 架构约束
+//!
+//! 后台任务的业务模块不要直接拼 `background_task::ActiveModel`，也不要手写
+//! `payload_json` / `result_json`。任务类型、payload/result 编解码、初始 steps、
+//! lane、max attempts、retry policy 和 process 入口都应先落到 `spec::BackgroundTaskSpec`，
+//! 再通过 `registry` 和本模块的 typed create helpers 使用。
+//!
+//! 新增一种后台任务时，正常流程是：
+//! 1. 在 `types.rs` 定义强类型 payload/result。
+//! 2. 在 `spec.rs` 实现一个 `BackgroundTaskSpec`，声明 kind、steps、lane、process 等。
+//! 3. 在 `registry.rs` 注册该 spec。
+//! 4. 创建任务时使用 `create_typed_task_record` 或 `insert_typed_task_record`。
+//!
+//! 这样做是为了避免同一种任务同时存在“强类型路径”和“手写 JSON/ActiveModel 路径”。
+//! 如果绕过这些入口，后续很容易出现 payload 缺字段、steps 不一致、max attempts
+//! 和 dispatcher 行为分叉的问题。
 
 mod archive;
 mod blob_maintenance;
@@ -493,6 +510,16 @@ pub(in crate::services::task_service) struct TypedTaskCreate<S: BackgroundTaskSp
 }
 
 impl<S: BackgroundTaskSpec> TypedTaskCreate<S> {
+    /// 构造一条后台任务记录的 typed insert request。
+    ///
+    /// 这里故意只接收 `S::Payload`，不接收已经序列化好的 JSON。这样所有创建路径
+    /// 都会通过 `BackgroundTaskSpec` 获得 kind、payload 编码、steps 和 max attempts。
+    /// 普通用户可见任务优先用 `create_typed_task_record`；需要事务、延迟调度、
+    /// runtime 记录或特殊状态时，用这个 builder 再交给 `insert_typed_task_record`。
+    ///
+    /// 如果你发现自己准备在业务模块里直接调用 `background_task_repo::create`，
+    /// 先停一下：大概率应该给这个 builder 增加一个很小的 override，而不是复制
+    /// 一整份 `background_task::ActiveModel`。
     pub(in crate::services::task_service) fn new(
         display_name: impl Into<String>,
         payload: S::Payload,

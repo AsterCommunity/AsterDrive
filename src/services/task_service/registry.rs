@@ -1,4 +1,11 @@
 //! Background task spec registry.
+//!
+//! 这个文件只做一件事：把 `BackgroundTaskKind` 映射到对应的 typed spec，
+//! 然后把所有需要跨层复用的行为统一从 spec 往外转发。
+//!
+//! 也就是说，dispatch、presentation、payload/result 解码、初始 steps、lane、
+//! max attempts 和 retry class 都不应该在上层各自重复写一份 kind match。
+//! 如果要给后台任务增加一种新 kind，先改 `spec.rs`，再在这里注册即可。
 
 use crate::entities::background_task;
 use crate::errors::{AsterError, Result};
