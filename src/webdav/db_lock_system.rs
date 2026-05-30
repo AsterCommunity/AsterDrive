@@ -149,7 +149,10 @@ impl DavLockSystem for DbLockSystem {
                 entity_type: sea_orm::Set(entity_type),
                 entity_id: sea_orm::Set(entity_id),
                 path: sea_orm::Set(path_str.clone()),
-                owner_id: sea_orm::Set(None), // WebDAV 没有 user_id（用 principal 代替）
+                // WebDAV 协议层用 token 判定持锁者；业务存储层用 owner_id
+                // 区分“自己的锁”和“其他用户的锁”，否则 Finder 持锁 PUT 会被
+                // workspace_storage_service 误判为被其他用户锁定。
+                owner_id: sea_orm::Set(Some(self.user_id)),
                 owner_info: sea_orm::Set(
                     crate::services::lock_service::serialize_resource_lock_owner_info(
                         owner_info.as_ref(),
@@ -442,7 +445,8 @@ fn model_to_dav_lock(lock: &resource_lock::Model) -> DavLock {
     DavLock {
         token: lock.token.clone(),
         path: Box::new(dav_path),
-        principal: lock.owner_id.map(|id| id.to_string()),
+        // owner_id 是 AsterDrive 内部 actor，不要作为 WebDAV principal 暴露。
+        principal: None,
         owner: lock_owner_xml(lock)
             .as_deref()
             .and_then(deserialize_element)

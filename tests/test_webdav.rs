@@ -650,6 +650,105 @@ async fn test_webdav_real_http_expected_length_mismatch_does_not_create_empty_fi
 }
 
 #[actix_web::test]
+async fn test_webdav_real_http_put_with_own_lock_overwrites_placeholder() {
+    let state = common::setup().await;
+    let (username, password) = seed_real_webdav_account(&state).await;
+    let server = start_real_webdav_server(state).await;
+    let client = reqwest::Client::new();
+    let url = format!("{}/webdav/finder-locked-overwrite.jar", server.base_url);
+
+    let placeholder = client
+        .put(&url)
+        .basic_auth(&username, Some(&password))
+        .header(reqwest::header::CONTENT_LENGTH, "0")
+        .body(Vec::<u8>::new())
+        .send()
+        .await
+        .expect("Finder-style placeholder PUT should receive a response");
+    assert!(
+        placeholder.status() == reqwest::StatusCode::CREATED
+            || placeholder.status() == reqwest::StatusCode::NO_CONTENT,
+        "placeholder PUT should create or overwrite the file, got {}",
+        placeholder.status()
+    );
+
+    let lock_body = r#"<?xml version="1.0" encoding="utf-8" ?>
+<D:lockinfo xmlns:D="DAV:">
+  <D:lockscope><D:exclusive/></D:lockscope>
+  <D:locktype><D:write/></D:locktype>
+  <D:owner><D:href>finder</D:href></D:owner>
+</D:lockinfo>"#;
+    let lock = client
+        .request(reqwest::Method::from_bytes(b"LOCK").unwrap(), &url)
+        .basic_auth(&username, Some(&password))
+        .header(reqwest::header::CONTENT_TYPE, "application/xml")
+        .header("Timeout", "Second-3600")
+        .body(lock_body)
+        .send()
+        .await
+        .expect("LOCK before Finder overwrite should receive a response");
+    assert_eq!(lock.status(), reqwest::StatusCode::OK);
+    let lock_token = lock
+        .headers()
+        .get("Lock-Token")
+        .and_then(|value| value.to_str().ok())
+        .expect("LOCK response should include Lock-Token")
+        .to_string();
+    let submitted_lock_token = lock_token.trim_matches(|c| c == '<' || c == '>');
+
+    let data: Vec<u8> = (0..=251).cycle().take(128 * 1024 + 31).collect();
+    let overwrite = client
+        .put(&url)
+        .basic_auth(&username, Some(&password))
+        .header(reqwest::header::CONTENT_TYPE, "application/octet-stream")
+        .header(reqwest::header::CONTENT_LENGTH, data.len().to_string())
+        .header("If", format!("(<{submitted_lock_token}>)"))
+        .body(data.clone())
+        .send()
+        .await
+        .expect("PUT with own WebDAV lock token should receive a response");
+    let overwrite_status = overwrite.status();
+    let overwrite_body = overwrite
+        .text()
+        .await
+        .expect("locked overwrite response body should be readable");
+    assert!(
+        overwrite_status == reqwest::StatusCode::CREATED
+            || overwrite_status == reqwest::StatusCode::NO_CONTENT,
+        "PUT with own WebDAV lock token should overwrite the placeholder, got {overwrite_status}: {overwrite_body}"
+    );
+
+    let get = client
+        .get(&url)
+        .basic_auth(&username, Some(&password))
+        .send()
+        .await
+        .expect("GET after locked overwrite should receive a response");
+    assert_eq!(get.status(), reqwest::StatusCode::OK);
+    let bytes = get
+        .bytes()
+        .await
+        .expect("GET after locked overwrite body should read");
+    assert_eq!(bytes.as_ref(), data.as_slice());
+
+    let unlock = client
+        .request(reqwest::Method::from_bytes(b"UNLOCK").unwrap(), &url)
+        .basic_auth(&username, Some(&password))
+        .header("Lock-Token", lock_token)
+        .send()
+        .await
+        .expect("UNLOCK after locked overwrite should receive a response");
+    assert!(
+        unlock.status() == reqwest::StatusCode::NO_CONTENT
+            || unlock.status() == reqwest::StatusCode::OK,
+        "UNLOCK should succeed after locked overwrite, got {}",
+        unlock.status()
+    );
+
+    server.stop().await;
+}
+
+#[actix_web::test]
 async fn test_webdav_real_http_large_chunked_put_uses_webdav_payload_limit() {
     let state = common::setup().await;
     let (username, password) = seed_real_webdav_account(&state).await;
