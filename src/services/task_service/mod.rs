@@ -1165,6 +1165,7 @@ mod tests {
             ),
             result_json: Some(StoredTaskResult(
                 serde_json::json!({
+                    "duration_ms": 12,
                     "system_health": {
                         "status": "degraded",
                         "components": [
