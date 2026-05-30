@@ -15,6 +15,7 @@ use tracing::Instrument;
 use super::FollowerAppState;
 use super::PrimaryAppState;
 use crate::services::share_service::ShareDownloadRollbackWorker;
+use crate::services::task_service::SystemRuntimeTaskKind;
 use crate::utils::numbers::u128_to_u64;
 
 const BACKGROUND_TASK_SHUTDOWN_GRACE: Duration = Duration::from_secs(30);
@@ -169,7 +170,7 @@ impl BackgroundTasks {
 /// the next run. Panics are caught inside the loop so one failed iteration
 /// does not kill the whole periodic worker.
 async fn spawn_periodic<F, I, Fut>(
-    name: &'static str,
+    name: SystemRuntimeTaskKind,
     interval_fn: I,
     jitter_cap: Option<Duration>,
     shutdown_token: CancellationToken,
@@ -180,12 +181,13 @@ async fn spawn_periodic<F, I, Fut>(
     F: Fn(web::Data<PrimaryAppState>) -> Fut + Send + Sync + 'static,
     Fut: Future<Output = crate::services::task_service::RuntimeTaskRunOutcome> + Send + 'static,
 {
+    let task_name = name.as_str();
     // 每轮迭代独立 span，并发清理任务在 trace 里可按 task.name 区分。
     // 必须用 `Instrument::instrument` 而非 `Span::enter`：后者返回的 guard
     // 跨 await 会被 drop（tracing 文档警告），span 只对同步段生效，
     // 而我们的 task_fn 全是 async 跨 await 的。
     run_periodic_iteration(name, &state, &task_fn)
-        .instrument(tracing::info_span!("bg_task", task.name = name))
+        .instrument(tracing::info_span!("bg_task", task.name = task_name))
         .await;
 
     loop {
@@ -201,19 +203,20 @@ async fn spawn_periodic<F, I, Fut>(
         }
 
         run_periodic_iteration(name, &state, &task_fn)
-            .instrument(tracing::info_span!("bg_task", task.name = name))
+            .instrument(tracing::info_span!("bg_task", task.name = task_name))
             .await;
     }
 }
 
 async fn run_periodic_iteration<F, Fut>(
-    name: &'static str,
+    name: SystemRuntimeTaskKind,
     state: &web::Data<PrimaryAppState>,
     task_fn: &F,
 ) where
     F: Fn(web::Data<PrimaryAppState>) -> Fut + Send + Sync + 'static,
     Fut: Future<Output = crate::services::task_service::RuntimeTaskRunOutcome> + Send + 'static,
 {
+    let task_name = name.as_str();
     let started_at = Utc::now();
     let s = state.clone();
     let outcome = match AssertUnwindSafe(task_fn(s)).catch_unwind().await {
@@ -226,7 +229,7 @@ async fn run_periodic_iteration<F, Fut>(
             } else {
                 "unknown panic payload".to_string()
             };
-            tracing::error!("background task '{name}' panicked: {panic_message}");
+            tracing::error!("background task '{task_name}' panicked: {panic_message}");
             crate::services::task_service::RuntimeTaskRunOutcome::failed(
                 Some("Task panicked".to_string()),
                 panic_message,
@@ -248,7 +251,7 @@ async fn run_periodic_iteration<F, Fut>(
     )
     .await
     {
-        tracing::warn!("failed to record runtime task '{name}': {error}");
+        tracing::warn!("failed to record runtime task '{task_name}': {error}");
     }
 }
 
@@ -263,7 +266,7 @@ async fn spawn_background_task_dispatcher(
     let iteration = run_background_task_dispatch_iteration(&state)
         .instrument(tracing::info_span!(
             "bg_task",
-            task.name = "background-task-dispatch"
+            task.name = SystemRuntimeTaskKind::BackgroundTaskDispatch.as_str()
         ))
         .await;
     backoff.record_iteration(
@@ -296,7 +299,7 @@ async fn spawn_background_task_dispatcher(
         let iteration = run_background_task_dispatch_iteration(&state)
             .instrument(tracing::info_span!(
                 "bg_task",
-                task.name = "background-task-dispatch"
+                task.name = SystemRuntimeTaskKind::BackgroundTaskDispatch.as_str()
             ))
             .await;
         backoff.record_iteration(
@@ -349,7 +352,7 @@ async fn run_background_task_dispatch_iteration(
 
     if let Err(error) = crate::services::task_service::record_runtime_task_run(
         state.get_ref(),
-        "background-task-dispatch",
+        SystemRuntimeTaskKind::BackgroundTaskDispatch,
         started_at,
         finished_at,
         &outcome,
@@ -459,7 +462,7 @@ pub fn spawn_primary_background_tasks(
     );
 
     tasks.push(spawn_periodic(
-        "mail-outbox-dispatch",
+        SystemRuntimeTaskKind::MailOutboxDispatch,
         mail_outbox_dispatch_interval,
         None,
         shutdown_token.clone(),
@@ -497,7 +500,7 @@ pub fn spawn_primary_background_tasks(
     ));
 
     tasks.push(spawn_periodic(
-        "upload-cleanup",
+        SystemRuntimeTaskKind::UploadCleanup,
         maintenance_cleanup_interval,
         Some(MAINTENANCE_CLEANUP_JITTER_CAP),
         shutdown_token.clone(),
@@ -523,7 +526,7 @@ pub fn spawn_primary_background_tasks(
     ));
 
     tasks.push(spawn_periodic(
-        "completed-upload-cleanup",
+        SystemRuntimeTaskKind::CompletedUploadCleanup,
         maintenance_cleanup_interval,
         Some(MAINTENANCE_CLEANUP_JITTER_CAP),
         shutdown_token.clone(),
@@ -559,7 +562,7 @@ pub fn spawn_primary_background_tasks(
 
     // Full-table blob reconciliation is intentionally less frequent than lightweight cleanups.
     tasks.push(spawn_periodic(
-        "blob-reconcile",
+        SystemRuntimeTaskKind::BlobReconcile,
         blob_reconcile_interval,
         None,
         shutdown_token.clone(),
@@ -590,7 +593,7 @@ pub fn spawn_primary_background_tasks(
     ));
 
     tasks.push(spawn_periodic(
-        "system-health-check",
+        SystemRuntimeTaskKind::SystemHealthCheck,
         system_health_check_interval,
         None,
         shutdown_token.clone(),
@@ -614,7 +617,7 @@ pub fn spawn_primary_background_tasks(
     ));
 
     tasks.push(spawn_periodic(
-        "trash-cleanup",
+        SystemRuntimeTaskKind::TrashCleanup,
         maintenance_cleanup_interval,
         Some(MAINTENANCE_CLEANUP_JITTER_CAP),
         shutdown_token.clone(),
@@ -640,7 +643,7 @@ pub fn spawn_primary_background_tasks(
     ));
 
     tasks.push(spawn_periodic(
-        "team-archive-cleanup",
+        SystemRuntimeTaskKind::TeamArchiveCleanup,
         maintenance_cleanup_interval,
         Some(MAINTENANCE_CLEANUP_JITTER_CAP),
         shutdown_token.clone(),
@@ -666,7 +669,7 @@ pub fn spawn_primary_background_tasks(
     ));
 
     tasks.push(spawn_periodic(
-        "lock-cleanup",
+        SystemRuntimeTaskKind::LockCleanup,
         maintenance_cleanup_interval,
         Some(MAINTENANCE_CLEANUP_JITTER_CAP),
         shutdown_token.clone(),
@@ -692,7 +695,7 @@ pub fn spawn_primary_background_tasks(
     ));
 
     tasks.push(spawn_periodic(
-        "auth-session-cleanup",
+        SystemRuntimeTaskKind::AuthSessionCleanup,
         maintenance_cleanup_interval,
         Some(MAINTENANCE_CLEANUP_JITTER_CAP),
         shutdown_token.clone(),
@@ -718,7 +721,7 @@ pub fn spawn_primary_background_tasks(
     ));
 
     tasks.push(spawn_periodic(
-        "external-auth-flow-cleanup",
+        SystemRuntimeTaskKind::ExternalAuthFlowCleanup,
         maintenance_cleanup_interval,
         Some(MAINTENANCE_CLEANUP_JITTER_CAP),
         shutdown_token.clone(),
@@ -744,7 +747,7 @@ pub fn spawn_primary_background_tasks(
     ));
 
     tasks.push(spawn_periodic(
-        "mfa-flow-cleanup",
+        SystemRuntimeTaskKind::MfaFlowCleanup,
         maintenance_cleanup_interval,
         Some(MAINTENANCE_CLEANUP_JITTER_CAP),
         shutdown_token.clone(),
@@ -770,7 +773,7 @@ pub fn spawn_primary_background_tasks(
     ));
 
     tasks.push(spawn_periodic(
-        "audit-cleanup",
+        SystemRuntimeTaskKind::AuditCleanup,
         maintenance_cleanup_interval,
         Some(MAINTENANCE_CLEANUP_JITTER_CAP),
         shutdown_token.clone(),
@@ -795,7 +798,7 @@ pub fn spawn_primary_background_tasks(
     ));
 
     tasks.push(spawn_periodic(
-        "task-cleanup",
+        SystemRuntimeTaskKind::TaskCleanup,
         maintenance_cleanup_interval,
         Some(MAINTENANCE_CLEANUP_JITTER_CAP),
         shutdown_token.clone(),
@@ -823,7 +826,7 @@ pub fn spawn_primary_background_tasks(
     ));
 
     tasks.push(spawn_periodic(
-        "wopi-session-cleanup",
+        SystemRuntimeTaskKind::WopiSessionCleanup,
         maintenance_cleanup_interval,
         Some(MAINTENANCE_CLEANUP_JITTER_CAP),
         shutdown_token,
@@ -1240,9 +1243,11 @@ mod tests {
     async fn run_periodic_iteration_records_successful_runtime_outcome() {
         let state = setup_state().await;
 
-        run_periodic_iteration("unit-success", &state, &|_| async {
-            RuntimeTaskRunOutcome::succeeded(Some("ok".to_string()))
-        })
+        run_periodic_iteration(
+            SystemRuntimeTaskKind::MailOutboxDispatch,
+            &state,
+            &|_| async { RuntimeTaskRunOutcome::succeeded(Some("ok".to_string())) },
+        )
         .await;
 
         let tasks = crate::entities::background_task::Entity::find()
@@ -1250,7 +1255,7 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(tasks.len(), 1);
-        assert_eq!(tasks[0].display_name, "unit success");
+        assert_eq!(tasks[0].display_name, "Mail outbox dispatch");
         assert_eq!(
             tasks[0].status,
             crate::types::BackgroundTaskStatus::Succeeded
@@ -1266,9 +1271,11 @@ mod tests {
     async fn run_periodic_iteration_catches_panics_and_records_failure() {
         let state = setup_state().await;
 
-        run_periodic_iteration("unit-panic", &state, &|_| async {
-            panic!("runtime task exploded")
-        })
+        run_periodic_iteration(
+            SystemRuntimeTaskKind::BackgroundTaskDispatch,
+            &state,
+            &|_| async { panic!("runtime task exploded") },
+        )
         .await;
 
         let tasks = crate::entities::background_task::Entity::find()
@@ -1276,7 +1283,7 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(tasks.len(), 1);
-        assert_eq!(tasks[0].display_name, "unit panic");
+        assert_eq!(tasks[0].display_name, "Background task dispatch");
         assert_eq!(tasks[0].status, crate::types::BackgroundTaskStatus::Failed);
         assert_eq!(tasks[0].status_text.as_deref(), Some("Task panicked"));
         assert_eq!(

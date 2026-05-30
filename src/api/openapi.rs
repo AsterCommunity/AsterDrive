@@ -418,6 +418,9 @@ use utoipa::{Modify, OpenApi};
             crate::services::task_service::TaskPayload,
             crate::services::task_service::TaskResult,
             crate::services::task_service::TaskInfo,
+            crate::services::task_service::TaskPresentation,
+            crate::services::task_service::TaskPresentationCode,
+            crate::services::task_service::TaskPresentationMessage,
             crate::services::task_service::TaskStepInfo,
             crate::services::task_service::TaskStepStatus,
             crate::types::BackgroundTaskKind,
@@ -533,7 +536,7 @@ use utoipa::{Modify, OpenApi};
             crate::services::mfa_service::MfaSensitiveActionRequest,
             crate::services::mfa_service::MfaChallengeMethod,
             crate::types::MfaMethod,
-            crate::types::MfaFactorMethod,
+            crate::types::MfaPersistentFactorMethod,
 
             // api::routes::admin / services::{config_service,policy_service,preview_app_service} / entities::storage_policy_group：后台配置与存储策略模型。
             crate::entities::storage_policy_group::Model,

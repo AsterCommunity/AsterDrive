@@ -2,6 +2,7 @@
 
 use sea_orm::ActiveEnum;
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 #[cfg(all(debug_assertions, feature = "openapi"))]
 use utoipa::ToSchema;
 
@@ -12,6 +13,8 @@ use crate::types::{
     ArchiveFilenameEncoding, BackgroundTaskKind, BackgroundTaskStatus, DriverType,
     RemoteNodeTransportMode, StoredTaskPayload, StoredTaskResult,
 };
+
+use super::runtime::SystemRuntimeTaskKind;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
@@ -38,6 +41,75 @@ pub struct TaskStepInfo {
     pub started_at: Option<chrono::DateTime<chrono::Utc>>,
     #[cfg_attr(all(debug_assertions, feature = "openapi"), schema(value_type = Option<String>))]
     pub finished_at: Option<chrono::DateTime<chrono::Utc>>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
+#[serde(rename_all = "snake_case")]
+pub enum TaskPresentationCode {
+    BlobMaintenanceIntegrityCheckName,
+    BlobMaintenanceOrphanCleanupName,
+    BlobMaintenanceRefCountReconcileName,
+    RuntimeSystemHealthIssueDetail,
+    RuntimeTaskAuditCleanup,
+    RuntimeTaskAuthSessionCleanup,
+    RuntimeTaskBackgroundTaskDispatch,
+    RuntimeTaskBlobReconcile,
+    RuntimeTaskCompletedUploadCleanup,
+    RuntimeTaskExternalAuthFlowCleanup,
+    RuntimeTaskLockCleanup,
+    RuntimeTaskMailOutboxDispatch,
+    RuntimeTaskMfaFlowCleanup,
+    RuntimeTaskRemoteNodeHealthTest,
+    RuntimeTaskSystemHealthCheck,
+    RuntimeTaskTaskCleanup,
+    RuntimeTaskTeamArchiveCleanup,
+    RuntimeTaskTrashCleanup,
+    RuntimeTaskUploadCleanup,
+    RuntimeTaskWopiSessionCleanup,
+    StatusTextArchiveExtracted,
+    StatusTextArchivePreviewReady,
+    StatusTextArchiveReady,
+    StatusTextBlobMaintenanceFinished,
+    StatusTextMediaMetadataFailed,
+    StatusTextMediaMetadataReady,
+    StatusTextMediaMetadataUnsupported,
+    StatusTextStorageMigrationCompleted,
+    StatusTextSystemHealthy,
+    StatusTextTemporaryUploadCleanupFinished,
+    StatusTextThumbnailAlreadyAvailable,
+    StatusTextThumbnailReady,
+    StatusTextTrashPurged,
+    StatusTextWaitingPresignedUrlExpiry,
+    TaskNameArchiveCompress,
+    TaskNameArchiveExtract,
+    TaskNameArchivePreviewGenerate,
+    TaskNameArchivePreviewGenerateFileId,
+    TaskNameMediaMetadataExtractBlob,
+    TaskNameMediaMetadataExtractSource,
+    TaskNameStoragePolicyMigration,
+    TaskNameStoragePolicyTempCleanup,
+    TaskNameStoragePolicyTempCleanupPolicyId,
+    TaskNameThumbnailGenerate,
+    TaskNameThumbnailGenerateBlobWithProcessor,
+    TaskNameTrashPurgeAll,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
+pub struct TaskPresentationMessage {
+    pub code: TaskPresentationCode,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub params: BTreeMap<String, serde_json::Value>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
+pub struct TaskPresentation {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub title: Option<TaskPresentationMessage>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub status: Option<TaskPresentationMessage>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -127,10 +199,84 @@ pub struct ArchivePreviewTaskResult {
     pub truncated: bool,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RuntimeTaskName {
+    Known(SystemRuntimeTaskKind),
+    Legacy(String),
+}
+
+impl RuntimeTaskName {
+    pub fn as_str(&self) -> &str {
+        match self {
+            Self::Known(kind) => kind.as_str(),
+            Self::Legacy(value) => value.as_str(),
+        }
+    }
+
+    pub fn display_name(&self) -> String {
+        match self {
+            Self::Known(kind) => kind.display_name().to_string(),
+            Self::Legacy(value) => value.replace('-', " "),
+        }
+    }
+
+    pub fn known(&self) -> Option<SystemRuntimeTaskKind> {
+        match self {
+            Self::Known(kind) => Some(*kind),
+            Self::Legacy(_) => None,
+        }
+    }
+}
+
+impl From<SystemRuntimeTaskKind> for RuntimeTaskName {
+    fn from(value: SystemRuntimeTaskKind) -> Self {
+        Self::Known(value)
+    }
+}
+
+impl From<String> for RuntimeTaskName {
+    fn from(value: String) -> Self {
+        SystemRuntimeTaskKind::from_wire_value(&value)
+            .map(Self::Known)
+            .unwrap_or(Self::Legacy(value))
+    }
+}
+
+impl From<&str> for RuntimeTaskName {
+    fn from(value: &str) -> Self {
+        Self::from(value.to_string())
+    }
+}
+
+impl std::fmt::Display for RuntimeTaskName {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(self.as_str())
+    }
+}
+
+impl Serialize for RuntimeTaskName {
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serializer.serialize_str(self.as_str())
+    }
+}
+
+impl<'de> Deserialize<'de> for RuntimeTaskName {
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        String::deserialize(deserializer).map(Self::from)
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct RuntimeTaskPayload {
-    pub task_name: String,
+    #[cfg_attr(all(debug_assertions, feature = "openapi"), schema(value_type = String))]
+    pub task_name: RuntimeTaskName,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -418,6 +564,8 @@ pub struct TaskInfo {
     pub progress_total: i64,
     pub progress_percent: i32,
     pub status_text: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub presentation: Option<TaskPresentation>,
     pub attempt_count: i32,
     pub max_attempts: i32,
     pub last_error: Option<String>,

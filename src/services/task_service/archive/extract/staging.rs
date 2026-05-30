@@ -15,7 +15,8 @@ use crate::services::{
     archive_service::{
         io::copy_async_reader_to_writer_with_expected_size,
         scan::{
-            ArchiveScanEntry, ArchiveScanLimits, ArchiveScanNamePolicy, ensure_archive_scan_deadline,
+            ArchiveScanEntry, ArchiveScanLimits, ArchiveScanNamePolicy,
+            ensure_archive_scan_deadline,
         },
         zip_scan::scan_zip_archive,
     },

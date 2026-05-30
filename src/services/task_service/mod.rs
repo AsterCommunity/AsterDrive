@@ -8,6 +8,7 @@ mod archive;
 mod blob_maintenance;
 mod dispatch;
 mod media_metadata;
+mod presentation;
 mod retry;
 mod runtime;
 mod steps;
@@ -39,6 +40,7 @@ use crate::services::{
 };
 use crate::types::{BackgroundTaskKind, BackgroundTaskStatus, StoredTaskResult};
 use crate::utils::numbers::{i64_to_i32, i64_to_u64};
+use presentation::build_task_presentation;
 
 pub(crate) use archive::ensure_archive_preview_task;
 pub(crate) use archive::{
@@ -48,7 +50,7 @@ pub(crate) use archive::{
 pub(crate) use blob_maintenance::create_blob_maintenance_task_for_admin;
 pub use dispatch::{DispatchStats, cleanup_expired, dispatch_due, drain};
 pub(crate) use media_metadata::ensure_media_metadata_task;
-pub use runtime::{RuntimeTaskRunOutcome, record_runtime_task_run};
+pub use runtime::{RuntimeTaskRunOutcome, SystemRuntimeTaskKind, record_runtime_task_run};
 use steps::{initial_task_steps, parse_task_steps_json, serialize_task_steps};
 pub(crate) use storage_migration::{
     CreateStoragePolicyMigrationInput, create_storage_policy_migration_task,
@@ -63,11 +65,12 @@ pub use types::{
     BlobMaintenanceAction, BlobMaintenanceTaskPayload, BlobMaintenanceTaskResult,
     CreateArchiveCompressTaskParams, CreateArchiveExtractTaskParams, CreateArchiveTaskParams,
     MediaMetadataExtractTaskPayload, MediaMetadataExtractTaskResult, RuntimeSystemHealthComponent,
-    RuntimeSystemHealthResult, RuntimeSystemHealthStatus, RuntimeTaskPayload, RuntimeTaskResult,
-    StoragePolicyMigrationCapacityCheck, StoragePolicyMigrationDryRun,
+    RuntimeSystemHealthResult, RuntimeSystemHealthStatus, RuntimeTaskName, RuntimeTaskPayload,
+    RuntimeTaskResult, StoragePolicyMigrationCapacityCheck, StoragePolicyMigrationDryRun,
     StoragePolicyMigrationTaskPayload, StoragePolicyMigrationTaskResult, TaskInfo, TaskPayload,
-    TaskResult, TaskStepInfo, TaskStepStatus, ThumbnailGenerateTaskPayload,
-    ThumbnailGenerateTaskResult, TrashPurgeAllTaskPayload, TrashPurgeAllTaskResult,
+    TaskPresentation, TaskPresentationCode, TaskPresentationMessage, TaskResult, TaskStepInfo,
+    TaskStepStatus, ThumbnailGenerateTaskPayload, ThumbnailGenerateTaskResult,
+    TrashPurgeAllTaskPayload, TrashPurgeAllTaskResult,
 };
 use types::{parse_task_payload_info, parse_task_result_info, serialize_task_payload};
 
@@ -413,8 +416,10 @@ fn build_task_info_with_creator(
     let kind = task.kind;
     let payload = parse_task_payload_info(&task)?;
     let result = parse_task_result_info(&task)?;
-    let steps = parse_task_steps_json(task.steps_json.as_ref().map(|raw| raw.as_ref()), kind)?;
     let can_retry = task_can_retry(&task);
+    let status_text = task.status_text;
+    let presentation = build_task_presentation(&payload, result.as_ref(), task.status);
+    let steps = parse_task_steps_json(task.steps_json.as_ref().map(|raw| raw.as_ref()), kind)?;
 
     Ok(TaskInfo {
         id: task.id,
@@ -427,7 +432,8 @@ fn build_task_info_with_creator(
         progress_current: task.progress_current,
         progress_total: task.progress_total,
         progress_percent,
-        status_text: task.status_text,
+        status_text,
+        presentation,
         attempt_count: task.attempt_count,
         max_attempts: task.max_attempts,
         last_error: task
@@ -444,6 +450,18 @@ fn build_task_info_with_creator(
         created_at: task.created_at,
         updated_at: task.updated_at,
     })
+}
+
+pub(crate) fn build_task_presentation_for_model(
+    task: &background_task::Model,
+) -> Result<Option<TaskPresentation>> {
+    let payload = parse_task_payload_info(task)?;
+    let result = parse_task_result_info(task)?;
+    Ok(build_task_presentation(
+        &payload,
+        result.as_ref(),
+        task.status,
+    ))
 }
 
 fn task_can_retry(task: &background_task::Model) -> bool {
@@ -793,8 +811,11 @@ mod tests {
     };
     use crate::api::subcode::ApiSubcode;
     use crate::entities::background_task;
+    use crate::services::task_service::TaskPresentationCode;
     use crate::services::workspace_storage_service::WorkspaceStorageScope;
-    use crate::types::{BackgroundTaskKind, BackgroundTaskStatus, StoredTaskPayload};
+    use crate::types::{
+        BackgroundTaskKind, BackgroundTaskStatus, StoredTaskPayload, StoredTaskResult,
+    };
     use chrono::{Duration, Utc};
 
     #[test]
@@ -863,6 +884,344 @@ mod tests {
         let info = build_task_info_with_creator(task, None).expect("task info should build");
 
         assert_eq!(info.last_error.as_deref(), Some("invalid archive"));
+    }
+
+    #[test]
+    fn task_info_includes_structured_thumbnail_presentation_from_result() {
+        let now = Utc::now();
+        let task = background_task::Model {
+            id: 44,
+            kind: BackgroundTaskKind::ThumbnailGenerate,
+            status: BackgroundTaskStatus::Succeeded,
+            creator_user_id: None,
+            team_id: None,
+            share_id: None,
+            display_name: "Generate thumbnail for blob #42 via AsterDrive built-in".to_string(),
+            payload_json: StoredTaskPayload(
+                serde_json::json!({
+                    "blob_id": 42,
+                    "blob_hash": "hash-42",
+                    "source_file_name": "",
+                    "source_mime_type": "image/png",
+                    "processor": "images"
+                })
+                .to_string(),
+            ),
+            result_json: Some(StoredTaskResult(
+                serde_json::json!({
+                    "blob_id": 42,
+                    "thumbnail_path": "thumbnails/42.webp",
+                    "thumbnail_processor": "images",
+                    "thumbnail_version": "1",
+                    "processor": "images",
+                    "reused_existing_thumbnail": false
+                })
+                .to_string(),
+            )),
+            steps_json: None,
+            progress_current: 4,
+            progress_total: 4,
+            status_text: Some("backend changed this sentence".to_string()),
+            attempt_count: 1,
+            max_attempts: 1,
+            next_run_at: now,
+            processing_token: 0,
+            processing_started_at: None,
+            last_heartbeat_at: None,
+            lease_expires_at: None,
+            started_at: Some(now),
+            finished_at: Some(now),
+            last_error: None,
+            failure_can_retry: None,
+            expires_at: now + Duration::hours(1),
+            created_at: now,
+            updated_at: now,
+        };
+
+        let info = build_task_info_with_creator(task, None).expect("task info should build");
+        let presentation = info
+            .presentation
+            .as_ref()
+            .expect("presentation should exist");
+        let title = presentation.title.as_ref().expect("title should exist");
+        let status = presentation.status.as_ref().expect("status should exist");
+
+        assert_eq!(
+            title.code,
+            TaskPresentationCode::TaskNameThumbnailGenerateBlobWithProcessor
+        );
+        assert_eq!(title.params["blobId"], serde_json::json!(42));
+        assert_eq!(title.params["processor"], serde_json::json!("images"));
+        assert_eq!(status.code, TaskPresentationCode::StatusTextThumbnailReady);
+    }
+
+    #[test]
+    fn task_info_leaves_runtime_summary_status_to_fallback() {
+        let now = Utc::now();
+        let task = background_task::Model {
+            id: 45,
+            kind: BackgroundTaskKind::SystemRuntime,
+            status: BackgroundTaskStatus::Succeeded,
+            creator_user_id: None,
+            team_id: None,
+            share_id: None,
+            display_name: "Completed upload cleanup".to_string(),
+            payload_json: StoredTaskPayload(
+                serde_json::json!({
+                    "task_name": "completed-upload-cleanup"
+                })
+                .to_string(),
+            ),
+            result_json: Some(StoredTaskResult(
+                serde_json::json!({
+                    "duration_ms": 12,
+                    "summary": "deleted 3 completed sessions (1 broken)"
+                })
+                .to_string(),
+            )),
+            steps_json: None,
+            progress_current: 1,
+            progress_total: 1,
+            status_text: Some("deleted 3 completed sessions (1 broken)".to_string()),
+            attempt_count: 0,
+            max_attempts: 1,
+            next_run_at: now,
+            processing_token: 0,
+            processing_started_at: None,
+            last_heartbeat_at: None,
+            lease_expires_at: None,
+            started_at: Some(now),
+            finished_at: Some(now),
+            last_error: None,
+            failure_can_retry: None,
+            expires_at: now + Duration::hours(1),
+            created_at: now,
+            updated_at: now,
+        };
+
+        let info = build_task_info_with_creator(task, None).expect("task info should build");
+        let presentation = info
+            .presentation
+            .as_ref()
+            .expect("presentation should exist");
+        let title = presentation.title.as_ref().expect("title should exist");
+
+        assert_eq!(
+            title.code,
+            TaskPresentationCode::RuntimeTaskCompletedUploadCleanup
+        );
+        assert!(title.params.is_empty());
+        assert!(
+            presentation.status.is_none(),
+            "runtime text summaries are legacy display text and should use frontend fallback"
+        );
+    }
+
+    #[test]
+    fn task_info_leaves_legacy_runtime_task_name_to_raw_title_fallback() {
+        let now = Utc::now();
+        let task = background_task::Model {
+            id: 47,
+            kind: BackgroundTaskKind::SystemRuntime,
+            status: BackgroundTaskStatus::Succeeded,
+            creator_user_id: None,
+            team_id: None,
+            share_id: None,
+            display_name: "Legacy runtime task".to_string(),
+            payload_json: StoredTaskPayload(
+                serde_json::json!({
+                    "task_name": "legacy-runtime-task"
+                })
+                .to_string(),
+            ),
+            result_json: Some(StoredTaskResult(
+                serde_json::json!({
+                    "duration_ms": 12,
+                    "summary": "legacy summary"
+                })
+                .to_string(),
+            )),
+            steps_json: None,
+            progress_current: 1,
+            progress_total: 1,
+            status_text: Some("legacy summary".to_string()),
+            attempt_count: 0,
+            max_attempts: 1,
+            next_run_at: now,
+            processing_token: 0,
+            processing_started_at: None,
+            last_heartbeat_at: None,
+            lease_expires_at: None,
+            started_at: Some(now),
+            finished_at: Some(now),
+            last_error: None,
+            failure_can_retry: None,
+            expires_at: now + Duration::hours(1),
+            created_at: now,
+            updated_at: now,
+        };
+
+        let info = build_task_info_with_creator(task, None).expect("task info should build");
+        let presentation = info
+            .presentation
+            .as_ref()
+            .expect("presentation should exist");
+
+        assert!(
+            presentation.title.is_none(),
+            "unknown legacy runtime task names should not be parsed into structured title codes"
+        );
+        assert!(
+            presentation.status.is_none(),
+            "runtime text summaries are legacy display text and should use frontend fallback"
+        );
+    }
+
+    #[test]
+    fn task_presentation_does_not_parse_static_status_text_for_business_tasks() {
+        let now = Utc::now();
+        let task = background_task::Model {
+            id: 46,
+            kind: BackgroundTaskKind::StoragePolicyTempCleanup,
+            status: BackgroundTaskStatus::Pending,
+            creator_user_id: None,
+            team_id: None,
+            share_id: None,
+            display_name: "Clean deleted storage policy #7 temporary uploads".to_string(),
+            payload_json: StoredTaskPayload(
+                serde_json::json!({
+                    "policy": {
+                        "id": 7,
+                        "name": "Deleted policy",
+                        "driver_type": "local",
+                        "endpoint": "",
+                        "bucket": "",
+                        "access_key": "",
+                        "secret_key": "",
+                        "base_path": "/tmp/storage",
+                        "remote_node_id": null,
+                        "max_file_size": 0,
+                        "allowed_types": "[]",
+                        "options": "{}",
+                        "is_default": false,
+                        "chunk_size": 5242880
+                    },
+                    "remote_node": null,
+                    "temp_keys": ["uploads/a.tmp"],
+                    "multipart_uploads": []
+                })
+                .to_string(),
+            ),
+            result_json: None,
+            steps_json: None,
+            progress_current: 0,
+            progress_total: 0,
+            status_text: Some("backend can freely rename this sentence".to_string()),
+            attempt_count: 0,
+            max_attempts: 1,
+            next_run_at: now,
+            processing_token: 0,
+            processing_started_at: None,
+            last_heartbeat_at: None,
+            lease_expires_at: None,
+            started_at: None,
+            finished_at: None,
+            last_error: None,
+            failure_can_retry: None,
+            expires_at: now + Duration::hours(1),
+            created_at: now,
+            updated_at: now,
+        };
+
+        let info = build_task_info_with_creator(task, None).expect("task info should build");
+        let status = info
+            .presentation
+            .as_ref()
+            .and_then(|presentation| presentation.status.as_ref())
+            .expect("pending temp cleanup should have a structured status");
+
+        assert_eq!(
+            status.code,
+            TaskPresentationCode::StatusTextWaitingPresignedUrlExpiry
+        );
+    }
+
+    #[test]
+    fn task_info_uses_structured_system_health_issue_presentation() {
+        let now = Utc::now();
+        let task = background_task::Model {
+            id: 48,
+            kind: BackgroundTaskKind::SystemRuntime,
+            status: BackgroundTaskStatus::Succeeded,
+            creator_user_id: None,
+            team_id: None,
+            share_id: None,
+            display_name: "System health check".to_string(),
+            payload_json: StoredTaskPayload(
+                serde_json::json!({
+                    "task_name": "system-health-check"
+                })
+                .to_string(),
+            ),
+            result_json: Some(StoredTaskResult(
+                serde_json::json!({
+                    "system_health": {
+                        "status": "degraded",
+                        "components": [
+                            {
+                                "name": "database",
+                                "status": "degraded",
+                                "message": "lagging"
+                            },
+                            {
+                                "name": "cache",
+                                "status": "healthy",
+                                "message": ""
+                            }
+                        ]
+                    }
+                })
+                .to_string(),
+            )),
+            steps_json: None,
+            progress_current: 1,
+            progress_total: 1,
+            status_text: Some("database=degraded: lagging".to_string()),
+            attempt_count: 0,
+            max_attempts: 1,
+            next_run_at: now,
+            processing_token: 0,
+            processing_started_at: None,
+            last_heartbeat_at: None,
+            lease_expires_at: None,
+            started_at: Some(now),
+            finished_at: Some(now),
+            last_error: None,
+            failure_can_retry: None,
+            expires_at: now + Duration::hours(1),
+            created_at: now,
+            updated_at: now,
+        };
+
+        let info = build_task_info_with_creator(task, None).expect("task info should build");
+        let presentation = info
+            .presentation
+            .as_ref()
+            .expect("presentation should exist");
+        let status = presentation.status.as_ref().expect("status should exist");
+
+        assert_eq!(
+            status.code,
+            TaskPresentationCode::RuntimeSystemHealthIssueDetail
+        );
+        assert_eq!(status.params["status"], serde_json::json!("degraded"));
+        let components = status.params["components"]
+            .as_array()
+            .expect("components should be an array");
+        assert_eq!(components.len(), 1);
+        assert_eq!(components[0]["name"], serde_json::json!("database"));
+        assert_eq!(components[0]["status"], serde_json::json!("degraded"));
+        assert_eq!(components[0]["message"], serde_json::json!("lagging"));
     }
 
     #[test]

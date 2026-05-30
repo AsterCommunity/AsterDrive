@@ -18,8 +18,9 @@ import { formatDateAbsolute, formatDateAbsoluteWithOffset } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import {
 	formatTaskKind as formatSharedTaskKind,
-	formatTaskDisplayNameFromRaw,
-	formatTaskStatusText,
+	formatTaskPresentationStatus,
+	formatTaskPresentationTitle,
+	trimTaskStatus,
 } from "@/pages/tasks/taskPresentation";
 import type {
 	AdminOverview,
@@ -105,7 +106,9 @@ export function OverviewBackgroundTasksSection({
 						{overview.recent_background_tasks.map((task) => {
 							const duration = formatOverviewRuntimeDuration(task.duration_ms);
 							const detail =
-								formatTaskStatusText(t, task.last_error ?? task.status_text) ??
+								task.last_error?.trim() ||
+								formatTaskPresentationStatus(t, task) ||
+								trimTaskStatus(task.status_text) ||
 								"---";
 
 							return (
@@ -121,11 +124,8 @@ export function OverviewBackgroundTasksSection({
 									<TableCell>
 										<div className="flex flex-col gap-1">
 											<span className="text-sm font-medium">
-												{formatTaskDisplayNameFromRaw(
-													t,
-													task.kind,
-													task.display_name,
-												)}
+												{formatTaskPresentationTitle(t, task) ??
+													task.display_name}
 											</span>
 											<span className="text-xs text-muted-foreground">
 												{formatBackgroundTaskKind(task.kind)}

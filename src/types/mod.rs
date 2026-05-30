@@ -19,8 +19,8 @@ mod user;
 pub use archive::ArchiveFilenameEncoding;
 pub use audit::{AuditAction, AuditEntityType};
 pub use auth::{
-    ExternalAuthProtocol, ExternalAuthProviderKind, MfaFactorMethod, MfaFirstFactor, MfaMethod,
-    TokenType, VerificationChannel, VerificationPurpose,
+    ExternalAuthProtocol, ExternalAuthProviderKind, MfaFirstFactor, MfaMethod,
+    MfaPersistentFactorMethod, TokenType, VerificationChannel, VerificationPurpose,
 };
 pub use config::{SystemConfigSource, SystemConfigValueType};
 pub use entity::EntityType;

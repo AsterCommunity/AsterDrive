@@ -18,7 +18,7 @@ use aster_drive::entities::{
     mfa_factor, mfa_login_flow, mfa_recovery_code, mfa_totp_setup_flow, passkey, storage_policy,
 };
 use aster_drive::types::{
-    DriverType, MfaFactorMethod, MfaFirstFactor, StoredPasskeyCredential,
+    DriverType, MfaFirstFactor, MfaPersistentFactorMethod, StoredPasskeyCredential,
     StoredStoragePolicyAllowedTypes, StoredStoragePolicyOptions, VerificationChannel,
     VerificationPurpose,
 };
@@ -261,7 +261,7 @@ async fn seed_mfa_fixture(db: &DatabaseConnection) {
         db,
         mfa_factor::ActiveModel {
             user_id: Set(user.id),
-            method: Set(MfaFactorMethod::Totp),
+            method: Set(MfaPersistentFactorMethod::Totp),
             name: Set("Migrated TOTP".to_string()),
             secret_ciphertext: Set("migrate-factor-secret-ciphertext".to_string()),
             secret_version: Set(1),

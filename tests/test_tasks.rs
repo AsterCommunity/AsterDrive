@@ -18,7 +18,7 @@ use aster_drive::db::repository::{background_task_repo, file_repo};
 use aster_drive::entities::{background_task, file_blob};
 use aster_drive::services::task_service::{
     self, RuntimeSystemHealthComponent, RuntimeSystemHealthResult, RuntimeSystemHealthStatus,
-    RuntimeTaskRunOutcome,
+    RuntimeTaskName, RuntimeTaskPayload, RuntimeTaskRunOutcome, SystemRuntimeTaskKind,
 };
 use aster_drive::types::{BackgroundTaskKind, BackgroundTaskStatus, StoredTaskPayload};
 
@@ -1555,7 +1555,7 @@ async fn test_record_runtime_task_run_persists_system_runtime_event() {
 
     let recorded = task_service::record_runtime_task_run(
         &state,
-        "trash-cleanup",
+        SystemRuntimeTaskKind::TrashCleanup,
         started_at,
         finished_at,
         &RuntimeTaskRunOutcome::succeeded(Some("cleaned up 3 expired trash entries".to_string())),
@@ -1581,41 +1581,32 @@ async fn test_record_runtime_task_run_persists_system_runtime_event() {
 }
 
 #[actix_web::test]
-async fn test_record_runtime_task_run_truncates_overlong_task_name_on_utf8_boundary() {
-    let state = common::setup().await;
-    let started_at = Utc::now() - Duration::seconds(1);
-    let finished_at = Utc::now();
-    let overlong_task_name = format!(
+async fn test_runtime_task_payload_keeps_known_and_legacy_task_names() {
+    let known: RuntimeTaskPayload =
+        serde_json::from_value(serde_json::json!({ "task_name": "trash-cleanup" }))
+            .expect("known runtime payload should deserialize");
+    assert_eq!(
+        known.task_name,
+        RuntimeTaskName::Known(SystemRuntimeTaskKind::TrashCleanup)
+    );
+    assert_eq!(known.task_name.display_name(), "Trash cleanup");
+
+    let legacy_name = format!(
         "{}猫{}",
         "runtime-".repeat(64),
-        "suffix-that-should-be-truncated"
+        "suffix-that-used-to-be-accepted"
     );
-
-    let recorded = task_service::record_runtime_task_run(
-        &state,
-        &overlong_task_name,
-        started_at,
-        finished_at,
-        &RuntimeTaskRunOutcome::succeeded(Some("runtime task completed".to_string())),
-    )
-    .await
-    .expect("runtime task event should be recorded")
-    .expect("runtime task event should not be quiet");
-
-    assert_eq!(recorded.kind, BackgroundTaskKind::SystemRuntime);
+    let legacy: RuntimeTaskPayload =
+        serde_json::from_value(serde_json::json!({ "task_name": legacy_name }))
+            .expect("legacy runtime payload should deserialize");
     assert_eq!(
-        recorded.display_name.len(),
-        EXPANDED_BACKGROUND_TASK_DISPLAY_NAME_LIMIT
+        legacy.task_name,
+        RuntimeTaskName::Legacy(legacy_name.clone())
     );
-    assert!(
-        recorded
-            .display_name
-            .is_char_boundary(recorded.display_name.len())
-    );
-    assert!(recorded.display_name.starts_with("runtime "));
-    assert!(
-        recorded.display_name.len() < overlong_task_name.replace('-', " ").len(),
-        "stored runtime task display name should be truncated"
+    assert!(legacy.task_name.display_name().starts_with("runtime "));
+    assert_eq!(
+        serde_json::to_value(&legacy).expect("legacy payload should serialize")["task_name"],
+        legacy_name
     );
 }
 
@@ -1627,7 +1618,7 @@ async fn test_record_runtime_task_run_skips_quiet_outcome() {
 
     let recorded = task_service::record_runtime_task_run(
         &state,
-        "background-task-dispatch",
+        SystemRuntimeTaskKind::BackgroundTaskDispatch,
         started_at,
         finished_at,
         &RuntimeTaskRunOutcome::quiet(),
@@ -1650,7 +1641,7 @@ async fn test_record_runtime_task_run_refreshes_latest_healthy_system_check() {
 
     let first = task_service::record_runtime_task_run(
         &state,
-        "system-health-check",
+        SystemRuntimeTaskKind::SystemHealthCheck,
         first_started_at,
         first_finished_at,
         &RuntimeTaskRunOutcome::succeeded_with_system_health(
@@ -1666,7 +1657,7 @@ async fn test_record_runtime_task_run_refreshes_latest_healthy_system_check() {
     let second_finished_at = utc_now_at_db_precision();
     let second = task_service::record_runtime_task_run(
         &state,
-        "system-health-check",
+        SystemRuntimeTaskKind::SystemHealthCheck,
         second_started_at,
         second_finished_at,
         &RuntimeTaskRunOutcome::succeeded_with_system_health(
@@ -1696,7 +1687,7 @@ async fn test_record_runtime_task_run_keeps_health_failure_history_before_recove
     let state = common::setup().await;
     let failed = task_service::record_runtime_task_run(
         &state,
-        "system-health-check",
+        SystemRuntimeTaskKind::SystemHealthCheck,
         Utc::now() - Duration::seconds(5),
         Utc::now() - Duration::seconds(4),
         &RuntimeTaskRunOutcome::failed_with_system_health(
@@ -1718,7 +1709,7 @@ async fn test_record_runtime_task_run_keeps_health_failure_history_before_recove
 
     let recovered = task_service::record_runtime_task_run(
         &state,
-        "system-health-check",
+        SystemRuntimeTaskKind::SystemHealthCheck,
         Utc::now() - Duration::seconds(1),
         Utc::now(),
         &RuntimeTaskRunOutcome::succeeded_with_system_health(

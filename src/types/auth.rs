@@ -86,7 +86,15 @@ impl ExternalAuthProviderKind {
     }
 }
 
-/// TODO: MFA 因子类型。MVP 只把 TOTP 作为持久化 factor。
+/// 持久化 MFA factor 类型。
+///
+/// 这个枚举只描述会长期绑定到用户账号、并保存进 `mfa_factors.method` 的认证因子。
+/// 目前只有 TOTP，因为它需要保存加密后的共享密钥并支持启用/删除等管理操作。
+///
+/// 注意不要把登录挑战里的临时验证方式加到这里：
+/// - 恢复码独立保存在 `mfa_recovery_codes`，不是 factor 行；
+/// - 邮箱验证码独立保存在 `mfa_email_codes`，是某次登录 flow 的短期 challenge code；
+/// - 如果只是“本次 MFA challenge 可以用什么验证”，应使用下面的 `MfaMethod`。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, EnumIter, DeriveActiveEnum, Serialize, Deserialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 #[cfg_attr(
@@ -95,12 +103,12 @@ impl ExternalAuthProviderKind {
 )]
 #[sea_orm(rs_type = "String", db_type = "String(StringLen::N(16))")]
 #[serde(rename_all = "snake_case")]
-pub enum MfaFactorMethod {
+pub enum MfaPersistentFactorMethod {
     #[sea_orm(string_value = "totp")]
     Totp,
 }
 
-impl MfaFactorMethod {
+impl MfaPersistentFactorMethod {
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Totp => "totp",
@@ -109,6 +117,11 @@ impl MfaFactorMethod {
 }
 
 /// MFA challenge 可用验证方法。
+///
+/// 这个枚举描述“某一次登录 flow 允许用户拿什么来完成第二步验证”。
+/// 它可以包含持久化 factor 之外的短期方法，所以范围比 `MfaPersistentFactorMethod` 更宽。
+/// 例如 `EmailCode` 只代表当前登录 flow 中发送到已验证邮箱的一次性验证码，
+/// 不代表用户有一个持久化的 email MFA factor。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 #[cfg_attr(

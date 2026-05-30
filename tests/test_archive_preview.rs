@@ -750,6 +750,28 @@ async fn test_archive_preview_rejects_unsupported_type_and_source_limit() {
         "unsupported files should fail before task creation"
     );
 
+    let mime_only_zip_id = upload_bytes(
+        &app,
+        &token,
+        "archive-by-mime.bin",
+        "application/zip",
+        b"not a zip".to_vec(),
+    )
+    .await;
+    let req = test::TestRequest::get()
+        .uri(&format!("/api/v1/files/{mime_only_zip_id}/archive-preview"))
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(body["error"]["subcode"], "archive_preview.unsupported_type");
+    assert!(
+        archive_preview_tasks(&state).await.is_empty(),
+        "MIME-only ZIP files should fail before source limit checks or task creation"
+    );
+
     let zip_id = upload_bytes(
         &app,
         &token,

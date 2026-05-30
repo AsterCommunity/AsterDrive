@@ -61,4 +61,16 @@ describe("audit i18n formatting", () => {
 			"border-border",
 		);
 	});
+
+	it("falls back to the neutral palette for uncategorized actions", () => {
+		expect(getAuditActionBadgeClass("admin_create_user")).toContain(
+			"border-border",
+		);
+		expect(getAuditActionBadgeClass("team_member_add")).toContain(
+			"border-border",
+		);
+		expect(getAuditActionBadgeClass("unknown_action")).toContain(
+			"border-border",
+		);
+	});
 });

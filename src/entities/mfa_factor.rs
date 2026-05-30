@@ -1,11 +1,16 @@
 //! SeaORM 实体定义：`mfa_factors`。
+//!
+//! 这张表只保存用户长期绑定的 MFA factor。当前唯一的持久化 factor 是 TOTP，
+//! 因为它需要保存加密后的共享密钥、记录启用时间和最近使用时间。
+//! 登录邮箱验证码不属于这张表；它是每次登录 flow 生成的短期 challenge code，
+//! 保存在 `mfa_email_codes`。
 
 use sea_orm::entity::prelude::*;
 use serde::{Deserialize, Serialize};
 #[cfg(all(debug_assertions, feature = "openapi"))]
 use utoipa::ToSchema;
 
-use crate::types::MfaFactorMethod;
+use crate::types::MfaPersistentFactorMethod;
 
 #[derive(Clone, Debug, PartialEq, DeriveEntityModel, Serialize, Deserialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
@@ -14,8 +19,10 @@ pub struct Model {
     #[sea_orm(primary_key)]
     pub id: i64,
     pub user_id: i64,
-    pub method: MfaFactorMethod,
+    /// 长期 factor 的方法类型。不要在这里加入 `email_code` 这类临时 challenge 方法。
+    pub method: MfaPersistentFactorMethod,
     pub name: String,
+    /// TOTP 共享密钥的密文；AAD 绑定 user_id 和持久化 factor method。
     #[serde(skip_serializing)]
     pub secret_ciphertext: String,
     #[serde(skip_serializing)]

@@ -7,6 +7,7 @@ use crate::db::repository::background_task_repo;
 use crate::entities::background_task;
 use crate::errors::{AsterError, Result};
 use crate::runtime::PrimaryAppState;
+use crate::services::task_service::TaskPresentationCode;
 use crate::types::{BackgroundTaskKind, BackgroundTaskStatus};
 
 use super::retry::{TaskRetryClass, TaskRetryPolicy};
@@ -16,13 +17,126 @@ use super::types::{
 };
 use super::{task_expiration_from, truncate_display_name, truncate_error, truncate_status_text};
 
-const SYSTEM_HEALTH_TASK_NAME: &str = "system-health-check";
-
 pub(super) struct RuntimeRetryPolicy;
 
 impl TaskRetryPolicy for RuntimeRetryPolicy {
     fn retry_class(_error: &AsterError) -> TaskRetryClass {
         TaskRetryClass::Never
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum SystemRuntimeTaskKind {
+    MailOutboxDispatch,
+    BackgroundTaskDispatch,
+    UploadCleanup,
+    CompletedUploadCleanup,
+    BlobReconcile,
+    SystemHealthCheck,
+    RemoteNodeHealthTest,
+    TrashCleanup,
+    TeamArchiveCleanup,
+    LockCleanup,
+    AuthSessionCleanup,
+    ExternalAuthFlowCleanup,
+    MfaFlowCleanup,
+    AuditCleanup,
+    TaskCleanup,
+    WopiSessionCleanup,
+}
+
+impl SystemRuntimeTaskKind {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::MailOutboxDispatch => "mail-outbox-dispatch",
+            Self::BackgroundTaskDispatch => "background-task-dispatch",
+            Self::UploadCleanup => "upload-cleanup",
+            Self::CompletedUploadCleanup => "completed-upload-cleanup",
+            Self::BlobReconcile => "blob-reconcile",
+            Self::SystemHealthCheck => "system-health-check",
+            Self::RemoteNodeHealthTest => "remote-node-health-test",
+            Self::TrashCleanup => "trash-cleanup",
+            Self::TeamArchiveCleanup => "team-archive-cleanup",
+            Self::LockCleanup => "lock-cleanup",
+            Self::AuthSessionCleanup => "auth-session-cleanup",
+            Self::ExternalAuthFlowCleanup => "external-auth-flow-cleanup",
+            Self::MfaFlowCleanup => "mfa-flow-cleanup",
+            Self::AuditCleanup => "audit-cleanup",
+            Self::TaskCleanup => "task-cleanup",
+            Self::WopiSessionCleanup => "wopi-session-cleanup",
+        }
+    }
+
+    pub const fn display_name(self) -> &'static str {
+        match self {
+            Self::MailOutboxDispatch => "Mail outbox dispatch",
+            Self::BackgroundTaskDispatch => "Background task dispatch",
+            Self::UploadCleanup => "Upload cleanup",
+            Self::CompletedUploadCleanup => "Completed upload cleanup",
+            Self::BlobReconcile => "Blob reconcile",
+            Self::SystemHealthCheck => "System health check",
+            Self::RemoteNodeHealthTest => "Remote node health test",
+            Self::TrashCleanup => "Trash cleanup",
+            Self::TeamArchiveCleanup => "Team archive cleanup",
+            Self::LockCleanup => "Lock cleanup",
+            Self::AuthSessionCleanup => "Auth session cleanup",
+            Self::ExternalAuthFlowCleanup => "External auth flow cleanup",
+            Self::MfaFlowCleanup => "MFA flow cleanup",
+            Self::AuditCleanup => "Audit log cleanup",
+            Self::TaskCleanup => "Task artifact cleanup",
+            Self::WopiSessionCleanup => "WOPI session cleanup",
+        }
+    }
+
+    pub const fn presentation_code(self) -> TaskPresentationCode {
+        match self {
+            Self::MailOutboxDispatch => TaskPresentationCode::RuntimeTaskMailOutboxDispatch,
+            Self::BackgroundTaskDispatch => TaskPresentationCode::RuntimeTaskBackgroundTaskDispatch,
+            Self::UploadCleanup => TaskPresentationCode::RuntimeTaskUploadCleanup,
+            Self::CompletedUploadCleanup => TaskPresentationCode::RuntimeTaskCompletedUploadCleanup,
+            Self::BlobReconcile => TaskPresentationCode::RuntimeTaskBlobReconcile,
+            Self::SystemHealthCheck => TaskPresentationCode::RuntimeTaskSystemHealthCheck,
+            Self::RemoteNodeHealthTest => TaskPresentationCode::RuntimeTaskRemoteNodeHealthTest,
+            Self::TrashCleanup => TaskPresentationCode::RuntimeTaskTrashCleanup,
+            Self::TeamArchiveCleanup => TaskPresentationCode::RuntimeTaskTeamArchiveCleanup,
+            Self::LockCleanup => TaskPresentationCode::RuntimeTaskLockCleanup,
+            Self::AuthSessionCleanup => TaskPresentationCode::RuntimeTaskAuthSessionCleanup,
+            Self::ExternalAuthFlowCleanup => {
+                TaskPresentationCode::RuntimeTaskExternalAuthFlowCleanup
+            }
+            Self::MfaFlowCleanup => TaskPresentationCode::RuntimeTaskMfaFlowCleanup,
+            Self::AuditCleanup => TaskPresentationCode::RuntimeTaskAuditCleanup,
+            Self::TaskCleanup => TaskPresentationCode::RuntimeTaskTaskCleanup,
+            Self::WopiSessionCleanup => TaskPresentationCode::RuntimeTaskWopiSessionCleanup,
+        }
+    }
+
+    pub fn from_wire_value(value: &str) -> Option<Self> {
+        match value {
+            "mail-outbox-dispatch" => Some(Self::MailOutboxDispatch),
+            "background-task-dispatch" => Some(Self::BackgroundTaskDispatch),
+            "upload-cleanup" => Some(Self::UploadCleanup),
+            "completed-upload-cleanup" => Some(Self::CompletedUploadCleanup),
+            "blob-reconcile" => Some(Self::BlobReconcile),
+            "system-health-check" => Some(Self::SystemHealthCheck),
+            "remote-node-health-test" => Some(Self::RemoteNodeHealthTest),
+            "trash-cleanup" => Some(Self::TrashCleanup),
+            "team-archive-cleanup" => Some(Self::TeamArchiveCleanup),
+            "lock-cleanup" => Some(Self::LockCleanup),
+            "auth-session-cleanup" => Some(Self::AuthSessionCleanup),
+            "external-auth-flow-cleanup" => Some(Self::ExternalAuthFlowCleanup),
+            "mfa-flow-cleanup" => Some(Self::MfaFlowCleanup),
+            "audit-cleanup" => Some(Self::AuditCleanup),
+            "task-cleanup" => Some(Self::TaskCleanup),
+            "wopi-session-cleanup" => Some(Self::WopiSessionCleanup),
+            _ => None,
+        }
+    }
+}
+
+impl std::fmt::Display for SystemRuntimeTaskKind {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(self.as_str())
     }
 }
 
@@ -119,7 +233,7 @@ impl RuntimeTaskRunOutcome {
 
 pub async fn record_runtime_task_run(
     state: &PrimaryAppState,
-    task_name: &str,
+    task_name: SystemRuntimeTaskKind,
     started_at: DateTime<Utc>,
     finished_at: DateTime<Utc>,
     outcome: &RuntimeTaskRunOutcome,
@@ -131,7 +245,7 @@ pub async fn record_runtime_task_run(
     }
 
     let payload_json = serialize_task_payload(&RuntimeTaskPayload {
-        task_name: task_name.to_string(),
+        task_name: task_name.into(),
     })?;
     let summary = outcome.summary().map(truncate_status_text);
     let last_error = outcome.error().map(truncate_error);
@@ -144,7 +258,7 @@ pub async fn record_runtime_task_run(
     if should_refresh_latest_success(task_name, outcome)
         && let Some(existing) = background_task_repo::find_latest_system_runtime_by_task_name(
             state.writer_db(),
-            task_name,
+            task_name.as_str(),
         )
         .await?
         && existing.status == BackgroundTaskStatus::Succeeded
@@ -178,7 +292,7 @@ pub async fn record_runtime_task_run(
             creator_user_id: Set(None),
             team_id: Set(None),
             share_id: Set(None),
-            display_name: Set(truncate_display_name(&runtime_task_display_name(task_name))),
+            display_name: Set(truncate_display_name(task_name.display_name())),
             payload_json: Set(payload_json),
             result_json: Set(Some(result_json)),
             steps_json: Set(None),
@@ -215,8 +329,11 @@ pub async fn record_runtime_task_run(
     Ok(Some(task))
 }
 
-fn should_refresh_latest_success(task_name: &str, outcome: &RuntimeTaskRunOutcome) -> bool {
-    task_name == SYSTEM_HEALTH_TASK_NAME
+fn should_refresh_latest_success(
+    task_name: SystemRuntimeTaskKind,
+    outcome: &RuntimeTaskRunOutcome,
+) -> bool {
+    task_name == SystemRuntimeTaskKind::SystemHealthCheck
         && matches!(
             outcome,
             RuntimeTaskRunOutcome::Succeeded {
@@ -227,24 +344,4 @@ fn should_refresh_latest_success(task_name: &str, outcome: &RuntimeTaskRunOutcom
                 ..
             }
         )
-}
-
-fn runtime_task_display_name(task_name: &str) -> String {
-    match task_name {
-        "mail-outbox-dispatch" => "Mail outbox dispatch".to_string(),
-        "background-task-dispatch" => "Background task dispatch".to_string(),
-        "upload-cleanup" => "Upload cleanup".to_string(),
-        "completed-upload-cleanup" => "Completed upload cleanup".to_string(),
-        "blob-reconcile" => "Blob reconcile".to_string(),
-        "system-health-check" => "System health check".to_string(),
-        "remote-node-health-test" => "Remote node health test".to_string(),
-        "trash-cleanup" => "Trash cleanup".to_string(),
-        "team-archive-cleanup" => "Team archive cleanup".to_string(),
-        "lock-cleanup" => "Lock cleanup".to_string(),
-        "external-auth-flow-cleanup" => "External auth flow cleanup".to_string(),
-        "audit-cleanup" => "Audit log cleanup".to_string(),
-        "task-cleanup" => "Task artifact cleanup".to_string(),
-        "wopi-session-cleanup" => "WOPI session cleanup".to_string(),
-        _ => task_name.replace('-', " "),
-    }
 }

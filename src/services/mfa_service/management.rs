@@ -16,10 +16,12 @@ use crate::errors::{
 };
 use crate::runtime::PrimaryAppState;
 use crate::services::{audit_service, auth_service};
-use crate::types::MfaFactorMethod;
+use crate::types::MfaPersistentFactorMethod;
 use crate::utils::numbers::u64_to_i64;
 
-use super::{MFA_SETUP_FLOW_TTL_SECS, crypto, factor_method_label, now_utc, recovery_codes, totp};
+use super::{
+    MFA_SETUP_FLOW_TTL_SECS, crypto, now_utc, persistent_factor_method_label, recovery_codes, totp,
+};
 
 #[derive(Debug, Clone, Serialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(utoipa::ToSchema))]
@@ -33,7 +35,8 @@ pub struct MfaStatus {
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(utoipa::ToSchema))]
 pub struct MfaFactorInfo {
     pub id: i64,
-    pub method: MfaFactorMethod,
+    /// 只返回长期持久化 factor。恢复码和邮箱验证码不会出现在 MFA factor 列表里。
+    pub method: MfaPersistentFactorMethod,
     pub name: String,
     #[cfg_attr(all(debug_assertions, feature = "openapi"), schema(value_type = String))]
     pub enabled_at: chrono::DateTime<Utc>,
@@ -189,7 +192,7 @@ pub async fn verify_totp_setup(
             ));
         }
 
-        let factor_aad = crypto::factor_aad(user_id, MfaFactorMethod::Totp.as_str());
+        let factor_aad = crypto::factor_aad(user_id, MfaPersistentFactorMethod::Totp.as_str());
         let encrypted_secret = crypto::encrypt_secret(
             &state.config.auth.mfa_secret_key,
             factor_aad.as_bytes(),
@@ -206,7 +209,7 @@ pub async fn verify_totp_setup(
             &txn,
             mfa_factor::ActiveModel {
                 user_id: Set(user_id),
-                method: Set(MfaFactorMethod::Totp),
+                method: Set(MfaPersistentFactorMethod::Totp),
                 name: Set(name),
                 secret_ciphertext: Set(encrypted_secret),
                 secret_version: Set(1),
@@ -388,7 +391,7 @@ async fn verify_sensitive_mfa_code<C: sea_orm::ConnectionTrait>(
     if looks_like_totp_code(code)
         && let Some(factor) = mfa_factor_repo::find_totp_for_user(db, user_id).await?
     {
-        let aad = crypto::factor_aad(user_id, factor_method_label(factor.method));
+        let aad = crypto::factor_aad(user_id, persistent_factor_method_label(factor.method));
         let secret = crypto::decrypt_secret(
             &state.config.auth.mfa_secret_key,
             aad.as_bytes(),

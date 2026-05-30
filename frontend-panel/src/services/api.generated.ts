@@ -3692,6 +3692,7 @@ export interface components {
             id: number;
             kind: components["schemas"]["BackgroundTaskKind"];
             last_error?: string | null;
+            presentation?: null | components["schemas"]["TaskPresentation"];
             started_at?: string | null;
             status: components["schemas"]["BackgroundTaskStatus"];
             status_text?: string | null;
@@ -5177,6 +5178,11 @@ export interface components {
         };
         /**
          * @description MFA challenge 可用验证方法。
+         *
+         *     这个枚举描述“某一次登录 flow 允许用户拿什么来完成第二步验证”。
+         *     它可以包含持久化 factor 之外的短期方法，所以范围比 `MfaPersistentFactorMethod` 更宽。
+         *     例如 `EmailCode` 只代表当前登录 flow 中发送到已验证邮箱的一次性验证码，
+         *     不代表用户有一个持久化的 email MFA factor。
          * @enum {string}
          */
         MfaChallengeMethodType: "totp" | "recovery_code" | "email_code";
@@ -5206,11 +5212,20 @@ export interface components {
             /** Format: int64 */
             id: number;
             last_used_at?: string | null;
+            /** @description 只返回长期持久化 factor。恢复码和邮箱验证码不会出现在 MFA factor 列表里。 */
             method: components["schemas"]["MfaPersistentFactorType"];
             name: string;
         };
         /**
-         * @description TODO: MFA 因子类型。MVP 只把 TOTP 作为持久化 factor。
+         * @description 持久化 MFA factor 类型。
+         *
+         *     这个枚举只描述会长期绑定到用户账号、并保存进 `mfa_factors.method` 的认证因子。
+         *     目前只有 TOTP，因为它需要保存加密后的共享密钥并支持启用/删除等管理操作。
+         *
+         *     注意不要把登录挑战里的临时验证方式加到这里：
+         *     - 恢复码独立保存在 `mfa_recovery_codes`，不是 factor 行；
+         *     - 邮箱验证码独立保存在 `mfa_email_codes`，是某次登录 flow 的短期 challenge code；
+         *     - 如果只是“本次 MFA challenge 可以用什么验证”，应使用下面的 `MfaMethod`。
          * @enum {string}
          */
         MfaPersistentFactorType: "totp";
@@ -5603,6 +5618,7 @@ export interface components {
                 /** Format: int32 */
                 max_attempts: number;
                 payload: components["schemas"]["TaskPayload"];
+                presentation?: null | components["schemas"]["TaskPresentation"];
                 /** Format: int64 */
                 progress_current: number;
                 /** Format: int32 */
@@ -6510,6 +6526,7 @@ export interface components {
             /** Format: int32 */
             max_attempts: number;
             payload: components["schemas"]["TaskPayload"];
+            presentation?: null | components["schemas"]["TaskPresentation"];
             /** Format: int64 */
             progress_current: number;
             /** Format: int32 */
@@ -6558,6 +6575,18 @@ export interface components {
             /** @enum {string} */
             kind: "system_runtime";
         });
+        TaskPresentation: {
+            status?: null | components["schemas"]["TaskPresentationMessage"];
+            title?: null | components["schemas"]["TaskPresentationMessage"];
+        };
+        /** @enum {string} */
+        TaskPresentationCode: "blob_maintenance_integrity_check_name" | "blob_maintenance_orphan_cleanup_name" | "blob_maintenance_ref_count_reconcile_name" | "runtime_system_health_issue_detail" | "runtime_task_audit_cleanup" | "runtime_task_auth_session_cleanup" | "runtime_task_background_task_dispatch" | "runtime_task_blob_reconcile" | "runtime_task_completed_upload_cleanup" | "runtime_task_external_auth_flow_cleanup" | "runtime_task_lock_cleanup" | "runtime_task_mail_outbox_dispatch" | "runtime_task_mfa_flow_cleanup" | "runtime_task_remote_node_health_test" | "runtime_task_system_health_check" | "runtime_task_task_cleanup" | "runtime_task_team_archive_cleanup" | "runtime_task_trash_cleanup" | "runtime_task_upload_cleanup" | "runtime_task_wopi_session_cleanup" | "status_text_archive_extracted" | "status_text_archive_preview_ready" | "status_text_archive_ready" | "status_text_blob_maintenance_finished" | "status_text_media_metadata_failed" | "status_text_media_metadata_ready" | "status_text_media_metadata_unsupported" | "status_text_storage_migration_completed" | "status_text_system_healthy" | "status_text_temporary_upload_cleanup_finished" | "status_text_thumbnail_already_available" | "status_text_thumbnail_ready" | "status_text_trash_purged" | "status_text_waiting_presigned_url_expiry" | "task_name_archive_compress" | "task_name_archive_extract" | "task_name_archive_preview_generate" | "task_name_archive_preview_generate_file_id" | "task_name_media_metadata_extract_blob" | "task_name_media_metadata_extract_source" | "task_name_storage_policy_migration" | "task_name_storage_policy_temp_cleanup" | "task_name_storage_policy_temp_cleanup_policy_id" | "task_name_thumbnail_generate" | "task_name_thumbnail_generate_blob_with_processor" | "task_name_trash_purge_all";
+        TaskPresentationMessage: {
+            code: components["schemas"]["TaskPresentationCode"];
+            params?: {
+                [key: string]: unknown;
+            };
+        };
         TaskResult: (components["schemas"]["ArchiveCompressTaskResult"] & {
             /** @enum {string} */
             kind: "archive_compress";
@@ -10307,6 +10336,7 @@ export interface operations {
                             /** Format: int32 */
                             max_attempts: number;
                             payload: components["schemas"]["TaskPayload"];
+                            presentation?: null | components["schemas"]["TaskPresentation"];
                             /** Format: int64 */
                             progress_current: number;
                             /** Format: int32 */
@@ -10465,6 +10495,7 @@ export interface operations {
                             /** Format: int32 */
                             max_attempts: number;
                             payload: components["schemas"]["TaskPayload"];
+                            presentation?: null | components["schemas"]["TaskPresentation"];
                             /** Format: int64 */
                             progress_current: number;
                             /** Format: int32 */
@@ -10559,6 +10590,7 @@ export interface operations {
                                 /** Format: int32 */
                                 max_attempts: number;
                                 payload: components["schemas"]["TaskPayload"];
+                                presentation?: null | components["schemas"]["TaskPresentation"];
                                 /** Format: int64 */
                                 progress_current: number;
                                 /** Format: int32 */
@@ -13751,6 +13783,7 @@ export interface operations {
                             /** Format: int32 */
                             max_attempts: number;
                             payload: components["schemas"]["TaskPayload"];
+                            presentation?: null | components["schemas"]["TaskPresentation"];
                             /** Format: int64 */
                             progress_current: number;
                             /** Format: int32 */
@@ -15044,6 +15077,7 @@ export interface operations {
                             /** Format: int32 */
                             max_attempts: number;
                             payload: components["schemas"]["TaskPayload"];
+                            presentation?: null | components["schemas"]["TaskPresentation"];
                             /** Format: int64 */
                             progress_current: number;
                             /** Format: int32 */
@@ -17912,6 +17946,7 @@ export interface operations {
                                 /** Format: int32 */
                                 max_attempts: number;
                                 payload: components["schemas"]["TaskPayload"];
+                                presentation?: null | components["schemas"]["TaskPresentation"];
                                 /** Format: int64 */
                                 progress_current: number;
                                 /** Format: int32 */
@@ -17987,6 +18022,7 @@ export interface operations {
                             /** Format: int32 */
                             max_attempts: number;
                             payload: components["schemas"]["TaskPayload"];
+                            presentation?: null | components["schemas"]["TaskPresentation"];
                             /** Format: int64 */
                             progress_current: number;
                             /** Format: int32 */
@@ -18062,6 +18098,7 @@ export interface operations {
                             /** Format: int32 */
                             max_attempts: number;
                             payload: components["schemas"]["TaskPayload"];
+                            presentation?: null | components["schemas"]["TaskPresentation"];
                             /** Format: int64 */
                             progress_current: number;
                             /** Format: int32 */
@@ -18841,6 +18878,7 @@ export interface operations {
                             /** Format: int32 */
                             max_attempts: number;
                             payload: components["schemas"]["TaskPayload"];
+                            presentation?: null | components["schemas"]["TaskPresentation"];
                             /** Format: int64 */
                             progress_current: number;
                             /** Format: int32 */
@@ -20351,6 +20389,7 @@ export interface operations {
                             /** Format: int32 */
                             max_attempts: number;
                             payload: components["schemas"]["TaskPayload"];
+                            presentation?: null | components["schemas"]["TaskPresentation"];
                             /** Format: int64 */
                             progress_current: number;
                             /** Format: int32 */
@@ -22036,6 +22075,7 @@ export interface operations {
                                 /** Format: int32 */
                                 max_attempts: number;
                                 payload: components["schemas"]["TaskPayload"];
+                                presentation?: null | components["schemas"]["TaskPresentation"];
                                 /** Format: int64 */
                                 progress_current: number;
                                 /** Format: int32 */
@@ -22120,6 +22160,7 @@ export interface operations {
                             /** Format: int32 */
                             max_attempts: number;
                             payload: components["schemas"]["TaskPayload"];
+                            presentation?: null | components["schemas"]["TaskPresentation"];
                             /** Format: int64 */
                             progress_current: number;
                             /** Format: int32 */
@@ -22204,6 +22245,7 @@ export interface operations {
                             /** Format: int32 */
                             max_attempts: number;
                             payload: components["schemas"]["TaskPayload"];
+                            presentation?: null | components["schemas"]["TaskPresentation"];
                             /** Format: int64 */
                             progress_current: number;
                             /** Format: int32 */
@@ -22354,6 +22396,7 @@ export interface operations {
                             /** Format: int32 */
                             max_attempts: number;
                             payload: components["schemas"]["TaskPayload"];
+                            presentation?: null | components["schemas"]["TaskPresentation"];
                             /** Format: int64 */
                             progress_current: number;
                             /** Format: int32 */
@@ -22569,6 +22612,7 @@ export interface operations {
                             /** Format: int32 */
                             max_attempts: number;
                             payload: components["schemas"]["TaskPayload"];
+                            presentation?: null | components["schemas"]["TaskPresentation"];
                             /** Format: int64 */
                             progress_current: number;
                             /** Format: int32 */

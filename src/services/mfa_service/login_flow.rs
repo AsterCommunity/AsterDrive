@@ -22,7 +22,7 @@ use crate::services::{
     auth_service, mail_service,
     mail_template::{self, MailTemplatePayload},
 };
-use crate::types::{MfaFactorMethod, MfaFirstFactor, MfaMethod};
+use crate::types::{MfaFirstFactor, MfaMethod, MfaPersistentFactorMethod};
 use crate::utils::hash;
 use crate::utils::numbers::{i64_to_u64, u64_to_i64};
 
@@ -452,7 +452,7 @@ async fn verify_totp<C: sea_orm::ConnectionTrait>(
             "TOTP factor is not enabled",
         ));
     };
-    let aad = crypto::factor_aad(user.id, MfaFactorMethod::Totp.as_str());
+    let aad = crypto::factor_aad(user.id, MfaPersistentFactorMethod::Totp.as_str());
     let secret = crypto::decrypt_secret(
         &state.config.auth.mfa_secret_key,
         aad.as_bytes(),
@@ -474,6 +474,8 @@ async fn verify_email_code<C: ConnectionTrait>(
     now: chrono::DateTime<Utc>,
 ) -> Result<bool> {
     let code = code.trim();
+    // 邮箱验证码是登录 challenge 方法，不是持久化 factor。
+    // 每次校验前都重新确认策略可用，避免管理员关闭配置后旧 flow 继续使用 email code。
     let policy = RuntimeEmailCodeLoginPolicy::from_runtime_config(&state.runtime_config);
     if !email_code_policy_ready(state, &policy) {
         return Err(auth_mfa_failed_with_subcode(
@@ -518,6 +520,8 @@ async fn available_challenge_methods<C: ConnectionTrait>(
     state: &PrimaryAppState,
     user: &user::Model,
 ) -> Result<Vec<MfaMethod>> {
+    // Challenge method 是“这次登录可以怎么过第二步”，范围比持久化 factor 更宽。
+    // TOTP 来自 `mfa_factors`；恢复码和邮箱验证码分别来自独立表/运行时策略。
     let totp_enabled = mfa_factor_repo::find_totp_for_user(db, user.id)
         .await?
         .is_some();

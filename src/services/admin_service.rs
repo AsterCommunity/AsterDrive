@@ -14,14 +14,15 @@ use crate::db::repository::{
 use crate::errors::{AsterError, MapAsterErr, Result};
 use crate::runtime::PrimaryAppState;
 use crate::services::{
-    audit_service, profile_service, task_service::RuntimeSystemHealthStatus, user_service,
+    audit_service, profile_service,
+    task_service::{RuntimeSystemHealthStatus, SystemRuntimeTaskKind},
+    user_service,
 };
 use crate::types::{BackgroundTaskKind, BackgroundTaskStatus, UserStatus};
 use crate::utils::numbers::u32_to_usize;
 
 type DateTimeUtc = DateTime<Utc>;
 
-const SYSTEM_HEALTH_TASK_NAME: &str = "system-health-check";
 const DEFAULT_DAYS: u32 = 7;
 const MAX_DAYS: u32 = 90;
 const DEFAULT_EVENT_LIMIT: u64 = 8;
@@ -100,6 +101,8 @@ pub struct AdminBackgroundTaskEvent {
     pub creator: Option<user_service::UserSummary>,
     pub team_id: Option<i64>,
     pub status_text: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub presentation: Option<crate::services::task_service::TaskPresentation>,
     pub last_error: Option<String>,
     #[cfg_attr(all(debug_assertions, feature = "openapi"), schema(value_type = String))]
     pub created_at: DateTimeUtc,
@@ -235,7 +238,7 @@ pub async fn get_overview(
         build_daily_reports(state, today, days, timezone),
         background_task_repo::find_latest_system_runtime_by_task_name(
             state.reader_db(),
-            SYSTEM_HEALTH_TASK_NAME
+            SystemRuntimeTaskKind::SystemHealthCheck.as_str()
         ),
     )?;
     let today_report = daily_reports
@@ -332,16 +335,16 @@ async fn build_background_task_events(
     )
     .await?;
 
-    Ok(tasks
+    tasks
         .into_iter()
         .map(|task| build_background_task_event(task, &creators))
-        .collect())
+        .collect()
 }
 
 fn build_background_task_event(
     task: crate::entities::background_task::Model,
     creators: &HashMap<i64, user_service::UserSummary>,
-) -> AdminBackgroundTaskEvent {
+) -> Result<AdminBackgroundTaskEvent> {
     let duration_ms = match (task.started_at, task.finished_at) {
         (Some(started_at), Some(finished_at)) => Some(std::cmp::max(
             (finished_at - started_at).num_milliseconds(),
@@ -349,8 +352,20 @@ fn build_background_task_event(
         )),
         _ => None,
     };
+    let presentation = match crate::services::task_service::build_task_presentation_for_model(&task)
+    {
+        Ok(presentation) => presentation,
+        Err(error) => {
+            tracing::warn!(
+                task_id = task.id,
+                error = %error,
+                "failed to build background task presentation for admin overview"
+            );
+            None
+        }
+    };
 
-    AdminBackgroundTaskEvent {
+    Ok(AdminBackgroundTaskEvent {
         id: task.id,
         kind: task.kind,
         status: task.status,
@@ -360,13 +375,14 @@ fn build_background_task_event(
             .and_then(|user_id| creators.get(&user_id).cloned()),
         team_id: task.team_id,
         status_text: task.status_text,
+        presentation,
         last_error: task.last_error,
         created_at: task.created_at,
         started_at: task.started_at,
         finished_at: task.finished_at,
         updated_at: task.updated_at,
         duration_ms,
-    }
+    })
 }
 
 fn build_system_health_summary(
@@ -483,21 +499,28 @@ async fn build_daily_reports(
             continue;
         };
         let report = &mut reports[report_index];
-        record_audit_action(report, action.as_str());
+        let action = audit_service::AuditAction::from_str_name(&action);
+        record_audit_action(report, action);
     }
 
     Ok(reports)
 }
 
-fn record_audit_action(report: &mut AdminOverviewDailyReport, action: &str) {
+fn record_audit_action(
+    report: &mut AdminOverviewDailyReport,
+    action: Option<audit_service::AuditAction>,
+) {
     report.total_events += 1;
 
     match action {
-        "user_login" => report.sign_ins += 1,
-        "user_register" | "admin_create_user" => report.new_users += 1,
-        "file_upload" => report.uploads += 1,
-        "share_create" => report.share_creations += 1,
-        "batch_delete" | "file_delete" | "folder_delete" => report.deletions += 1,
+        Some(audit_service::AuditAction::UserLogin) => report.sign_ins += 1,
+        Some(audit_service::AuditAction::UserRegister)
+        | Some(audit_service::AuditAction::AdminCreateUser) => report.new_users += 1,
+        Some(audit_service::AuditAction::FileUpload) => report.uploads += 1,
+        Some(audit_service::AuditAction::ShareCreate) => report.share_creations += 1,
+        Some(audit_service::AuditAction::BatchDelete)
+        | Some(audit_service::AuditAction::FileDelete)
+        | Some(audit_service::AuditAction::FolderDelete) => report.deletions += 1,
         _ => {}
     }
 }
@@ -525,7 +548,7 @@ fn start_of_local_day(date: NaiveDate, timezone: Tz) -> Result<DateTimeUtc> {
 
 #[cfg(test)]
 mod tests {
-    use super::{AdminOverviewDailyReport, record_audit_action};
+    use super::{AdminOverviewDailyReport, audit_service, record_audit_action};
 
     fn empty_report() -> AdminOverviewDailyReport {
         AdminOverviewDailyReport {
@@ -544,15 +567,16 @@ mod tests {
         let mut report = empty_report();
 
         for action in [
-            "user_login",
-            "user_register",
-            "admin_create_user",
-            "file_upload",
-            "share_create",
-            "batch_delete",
-            "file_delete",
-            "folder_delete",
-            "ignored",
+            Some(audit_service::AuditAction::UserLogin),
+            Some(audit_service::AuditAction::UserRegister),
+            Some(audit_service::AuditAction::AdminCreateUser),
+            Some(audit_service::AuditAction::FileUpload),
+            Some(audit_service::AuditAction::ShareCreate),
+            Some(audit_service::AuditAction::BatchDelete),
+            Some(audit_service::AuditAction::FileDelete),
+            Some(audit_service::AuditAction::FolderDelete),
+            Some(audit_service::AuditAction::ConfigUpdate),
+            None,
         ] {
             record_audit_action(&mut report, action);
         }
@@ -562,6 +586,6 @@ mod tests {
         assert_eq!(report.uploads, 1);
         assert_eq!(report.share_creations, 1);
         assert_eq!(report.deletions, 3);
-        assert_eq!(report.total_events, 9);
+        assert_eq!(report.total_events, 10);
     }
 }

@@ -1,5 +1,5 @@
 import type { ChangeEvent } from "react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useReducer, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
@@ -33,6 +33,58 @@ import type { TeamInfo } from "@/types/api";
 
 type WorkspaceSwitcherVariant = "topbar" | "sidebar";
 const TEAM_SEARCH_LIMIT = 50;
+const WORKSPACE_SWITCHER_RESTORE_OPEN_MS = 5_000;
+const workspaceSwitcherRestoreOpenUntil: Record<
+	WorkspaceSwitcherVariant,
+	number
+> = {
+	sidebar: 0,
+	topbar: 0,
+};
+
+function shouldRestoreWorkspaceSwitcherOpen(variant: WorkspaceSwitcherVariant) {
+	return Date.now() <= workspaceSwitcherRestoreOpenUntil[variant];
+}
+
+interface TeamSearchState {
+	query: string;
+	searchedTeams: TeamInfo[] | null;
+}
+
+type TeamSearchAction =
+	| { type: "queryChanged"; value: string }
+	| { type: "searchFailed"; query: string }
+	| { type: "searchSucceeded"; query: string; teams: TeamInfo[] };
+
+const initialTeamSearchState: TeamSearchState = {
+	query: "",
+	searchedTeams: null,
+};
+
+function teamSearchReducer(
+	state: TeamSearchState,
+	action: TeamSearchAction,
+): TeamSearchState {
+	switch (action.type) {
+		case "queryChanged":
+			return {
+				query: action.value,
+				searchedTeams: null,
+			};
+		case "searchFailed":
+			if (state.query.trim() !== action.query) return state;
+			return {
+				...state,
+				searchedTeams: [],
+			};
+		case "searchSucceeded":
+			if (state.query.trim() !== action.query) return state;
+			return {
+				...state,
+				searchedTeams: action.teams,
+			};
+	}
+}
 
 function WorkspaceMenuItem({
 	active,
@@ -87,28 +139,33 @@ export function WorkspaceSwitcher({
 	const workspace = useWorkspaceStore((state) => state.workspace);
 	const teams = useTeamStore((state) => state.teams);
 	const loadingTeams = useTeamStore((state) => state.loading);
-	const [teamQuery, setTeamQuery] = useState("");
-	const [searchedTeams, setSearchedTeams] = useState<TeamInfo[] | null>(null);
-	const [searchLoading, setSearchLoading] = useState(false);
-	const normalizedTeamQuery = teamQuery.trim();
+	const [menuOpen, setMenuOpen] = useState(() =>
+		shouldRestoreWorkspaceSwitcherOpen(variant),
+	);
+	const [teamSearchState, dispatchTeamSearch] = useReducer(
+		teamSearchReducer,
+		initialTeamSearchState,
+	);
+	const normalizedTeamQuery = teamSearchState.query.trim();
 	const hasTeamQuery = normalizedTeamQuery.length > 0;
 
 	useEffect(() => {
 		if (!normalizedTeamQuery) {
-			setSearchedTeams(null);
-			setSearchLoading(false);
 			return;
 		}
 
 		let active = true;
-		setSearchLoading(true);
 
 		const timer = window.setTimeout(() => {
 			teamService
 				.list({ keyword: normalizedTeamQuery, limit: TEAM_SEARCH_LIMIT })
 				.then((nextTeams) => {
 					if (active) {
-						setSearchedTeams(nextTeams);
+						dispatchTeamSearch({
+							type: "searchSucceeded",
+							query: normalizedTeamQuery,
+							teams: nextTeams,
+						});
 					}
 				})
 				.catch((error) => {
@@ -116,12 +173,10 @@ export function WorkspaceSwitcher({
 						return;
 					}
 					logger.warn("Failed to search teams", error);
-					setSearchedTeams([]);
-				})
-				.finally(() => {
-					if (active) {
-						setSearchLoading(false);
-					}
+					dispatchTeamSearch({
+						type: "searchFailed",
+						query: normalizedTeamQuery,
+					});
 				});
 		}, 250);
 
@@ -135,8 +190,8 @@ export function WorkspaceSwitcher({
 		? (teams.find((team) => team.id === workspace.teamId) ?? null)
 		: null;
 	const visibleTeams = useMemo(
-		() => (hasTeamQuery ? (searchedTeams ?? []) : teams),
-		[hasTeamQuery, searchedTeams, teams],
+		() => (hasTeamQuery ? (teamSearchState.searchedTeams ?? []) : teams),
+		[hasTeamQuery, teamSearchState.searchedTeams, teams],
 	);
 	const currentLabel = isTeamWorkspace(workspace)
 		? (activeTeam?.name ??
@@ -145,34 +200,47 @@ export function WorkspaceSwitcher({
 	const currentWorkspaceKey = workspaceKey(workspace);
 	const triggerLabel = t("workspace_switcher_label", { name: currentLabel });
 
+	const handleMenuOpenChange = (open: boolean) => {
+		if (!open) {
+			workspaceSwitcherRestoreOpenUntil[variant] = 0;
+		}
+		setMenuOpen(open);
+	};
+
 	const handleSelectWorkspace = (nextWorkspace: Workspace) => {
 		if (workspaceEquals(workspace, nextWorkspace)) {
 			return;
 		}
+		workspaceSwitcherRestoreOpenUntil[variant] =
+			Date.now() + WORKSPACE_SWITCHER_RESTORE_OPEN_MS;
+		setMenuOpen(true);
 		navigate(workspaceRootPath(nextWorkspace));
 	};
 	const handleManageTeams = () => {
+		workspaceSwitcherRestoreOpenUntil[variant] = 0;
+		setMenuOpen(false);
 		navigate("/settings/teams");
 	};
 	const handleTeamQueryChange = (event: ChangeEvent<HTMLInputElement>) => {
-		setTeamQuery(event.target.value);
-		setSearchedTeams(null);
+		dispatchTeamSearch({
+			type: "queryChanged",
+			value: event.target.value,
+		});
 	};
-	const searchPending = hasTeamQuery && searchedTeams === null;
-	const isLoadingTeamOptions = loadingTeams || searchLoading || searchPending;
+	const searchPending = hasTeamQuery && teamSearchState.searchedTeams === null;
+	const isLoadingTeamOptions = loadingTeams || searchPending;
 	const showLoadingState =
 		(loadingTeams && teams.length === 0 && !hasTeamQuery) || searchPending;
 	const showEmptyTeamsState =
 		!loadingTeams && teams.length === 0 && !hasTeamQuery;
 	const showNoMatchesState =
 		hasTeamQuery &&
-		!searchLoading &&
-		searchedTeams !== null &&
+		teamSearchState.searchedTeams !== null &&
 		visibleTeams.length === 0;
 	const isSidebarVariant = variant === "sidebar";
 
 	return (
-		<DropdownMenu>
+		<DropdownMenu open={menuOpen} onOpenChange={handleMenuOpenChange}>
 			<DropdownMenuTrigger
 				render={
 					<Button
@@ -224,9 +292,13 @@ export function WorkspaceSwitcher({
 							className="-translate-y-1/2 absolute top-1/2 left-3 size-3.5 text-muted-foreground"
 						/>
 						<Input
-							value={teamQuery}
+							value={teamSearchState.query}
 							onChange={handleTeamQueryChange}
-							onKeyDown={(event) => event.stopPropagation()}
+							onKeyDown={(event) => {
+								if (event.key !== "Tab") {
+									event.stopPropagation();
+								}
+							}}
 							placeholder={t("workspace_search_placeholder")}
 							aria-label={t("workspace_search_placeholder")}
 							className="h-9 rounded-xl border-transparent bg-muted/35 pr-3 pl-9 text-sm shadow-none focus-visible:bg-background"

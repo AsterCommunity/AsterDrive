@@ -6,8 +6,8 @@ import {
 	formatProgressCounts,
 	formatTaskDetail,
 	formatTaskDisplayName,
-	formatTaskDisplayNameFromRaw,
 	formatTaskKind,
+	formatTaskStatus,
 	formatTaskStepStatus,
 	formatTaskStepTitle,
 	parseStoragePolicyMigrationResult,
@@ -35,43 +35,38 @@ function t(key: string, values?: Record<string, number | string>) {
 		"tasks:timeline_failed_label": "Failed",
 		"tasks:timeline_canceled_label": "Canceled",
 		"tasks:timeline_finished_label": "Finished",
-		"tasks:blob_maintenance_scope_all": "all blobs",
-		"tasks:blob_maintenance_scope_selected": `${values?.count} blob(s)`,
-		"tasks:blob_maintenance_integrity_check_name": `Check integrity for ${values?.scope}`,
-		"tasks:blob_maintenance_ref_count_reconcile_name": `Reconcile references for ${values?.scope}`,
-		"tasks:blob_maintenance_orphan_cleanup_name": `Clean orphan blobs for ${values?.scope}`,
+		"tasks:blob_maintenance_integrity_check_name": "Check blob integrity",
+		"tasks:blob_maintenance_ref_count_reconcile_name":
+			"Reconcile blob references",
+		"tasks:blob_maintenance_orphan_cleanup_name": "Clean orphan blobs",
 		"tasks:runtime_task_system_health_check": "System health check",
 		"tasks:runtime_task_trash_cleanup": "Trash cleanup",
+		"tasks:runtime_system_health_issue_detail": `Issues: ${values?.components}`,
 		"tasks:runtime_health_component_database": "Database",
 		"tasks:runtime_health_component_remote_nodes": "Remote nodes",
-		"tasks:runtime_health_status_degraded": "Degraded",
-		"tasks:runtime_health_status_healthy": "Healthy",
-		"tasks:runtime_health_status_unhealthy": "Unhealthy",
-		"tasks:runtime_health_component_status": `${values?.component} is ${values?.status}`,
-		"tasks:runtime_system_health_issue_detail": `Issues: ${values?.components}`,
-		"tasks:status_text_deleted_completed_upload_sessions": `Deleted ${values?.count} completed sessions (${values?.broken} broken)`,
-		"tasks:status_text_blob_reconcile_finished": `Fixed ${values?.fixed}, deleted ${values?.deleted}`,
-		"tasks:status_text_cleaned_expired_auth_sessions": `Cleaned ${values?.count} auth sessions`,
-		"tasks:status_text_cleaned_expired_external_auth_flows": `Cleaned ${values?.count} external auth flows`,
-		"tasks:status_text_cleaned_expired_locks": `Cleaned ${values?.count} locks`,
-		"tasks:status_text_cleaned_expired_mfa_flows": `Cleaned ${values?.count} MFA flows`,
-		"tasks:status_text_cleaned_expired_task_artifacts": `Cleaned ${values?.count} task artifacts`,
-		"tasks:status_text_cleaned_expired_wopi_sessions": `Cleaned ${values?.count} WOPI sessions`,
+		"tasks:runtime_health_component_status": `${values?.component} ${values?.status}`,
+		"tasks:runtime_health_status_degraded": "degraded",
+		"tasks:runtime_health_status_unhealthy": "unhealthy",
 		"tasks:status_text_storage_migration_completed":
 			"Localized storage migration completed",
 		"tasks:status_text_system_healthy": "System healthy",
+		"tasks:status_text_archive_ready": `Archive ready: ${values?.name}`,
+		"tasks:status_text_archive_extracted": `Extracted to ${values?.name}`,
+		"tasks:status_text_thumbnail_ready": "Thumbnail ready",
+		"tasks:status_text_waiting_presigned_url_expiry":
+			"Waiting for presigned URLs to expire",
 		"tasks:task_name_archive_compress": `Compress ${values?.name}`,
 		"tasks:task_name_archive_extract": `Extract ${values?.name}`,
 		"tasks:task_name_archive_preview_generate_file_id": `Preview file ${values?.fileId} blob ${values?.blobId}`,
-		"tasks:media_metadata_kind_audio": "audio",
-		"tasks:media_processor_storage_native": "Localized storage-native",
-		"tasks:task_name_media_metadata_extract_blob": `Extract ${values?.kind} metadata for ${values?.blob}`,
-		"tasks:task_name_storage_policy_migration": `Migrate ${values?.source} to ${values?.target}`,
-		"tasks:task_name_storage_policy_temp_cleanup_policy_id": `Cleanup ${values?.policy}`,
-		"tasks:task_name_thumbnail_generate_blob_with_processor": `Thumbnail ${values?.blob} via ${values?.processor}`,
+		"tasks:task_name_archive_preview_generate": `Preview ${values?.name}`,
+		"tasks:task_name_media_metadata_extract_blob": `Extract ${values?.kind} metadata for Blob #${values?.blobId}`,
+		"tasks:task_name_media_metadata_extract_source": `Extract ${values?.kind} metadata for ${values?.source}`,
+		"tasks:task_name_storage_policy_migration": `Migrate Policy #${values?.sourcePolicyId} to Policy #${values?.targetPolicyId}`,
+		"tasks:task_name_storage_policy_temp_cleanup": `Cleanup ${values?.policy}`,
+		"tasks:task_name_storage_policy_temp_cleanup_policy_id": `Cleanup Policy #${values?.policyId}`,
+		"tasks:task_name_thumbnail_generate": `Thumbnail ${values?.source} via ${values?.processor}`,
+		"tasks:task_name_thumbnail_generate_blob_with_processor": `Thumbnail Blob #${values?.blobId} via ${values?.processor}`,
 		"tasks:task_name_trash_purge_all": "Empty trash",
-		"tasks:summary_policy_id": `Policy #${values?.id}`,
-		"tasks:task_name_blob_id": `Blob #${values?.id}`,
 		"tasks:step_storage_policy_migration_prepare_sources":
 			"Prepare source policy",
 		"tasks:step_storage_policy_migration_scan_blobs": "Scan source blobs",
@@ -121,6 +116,275 @@ function createTask(overrides: Partial<TaskInfo> = {}): TaskInfo {
 	};
 }
 
+describe("taskPresentation structured presentation", () => {
+	it("uses structured title messages before payloads or backend text", () => {
+		expect(
+			formatTaskDisplayName(
+				t,
+				createTask({
+					display_name: "Backend renamed title",
+					kind: "thumbnail_generate",
+					payload: {
+						blob_hash: "hash-old",
+						blob_id: 11,
+						kind: "thumbnail_generate",
+						processor: "images",
+						source_file_name: "old.png",
+						source_mime_type: "image/png",
+					},
+					presentation: {
+						title: {
+							code: "task_name_thumbnail_generate_blob_with_processor",
+							params: {
+								blobId: 42,
+								processor: "storage_native",
+							},
+						},
+					},
+				}),
+			),
+		).toBe("Thumbnail Blob #42 via storage_native");
+		expect(
+			formatTaskDisplayName(
+				t,
+				createTask({
+					display_name: "Backend preview fallback",
+					kind: "archive_preview_generate",
+					payload: {
+						blob_hash: "hash-preview",
+						file_id: 5,
+						kind: "archive_preview_generate",
+						limit_signature: "sig",
+						source_blob_id: 6,
+						source_file_name: "old.zip",
+					},
+					presentation: {
+						title: {
+							code: "task_name_archive_preview_generate",
+							params: {
+								name: "logs.zip",
+							},
+						},
+					},
+				}),
+			),
+		).toBe("Preview logs.zip");
+		expect(
+			formatTaskDisplayName(
+				t,
+				createTask({
+					display_name: "Backend cleanup fallback",
+					kind: "storage_policy_temp_cleanup",
+					payload: {
+						driver_type: "local",
+						kind: "storage_policy_temp_cleanup",
+						multipart_upload_count: 0,
+						policy_id: 7,
+						policy_name: "old policy",
+						temp_key_count: 1,
+					},
+					presentation: {
+						title: {
+							code: "task_name_storage_policy_temp_cleanup",
+							params: {
+								policy: "Archive policy",
+								policyId: 9,
+							},
+						},
+					},
+				}),
+			),
+		).toBe("Cleanup Archive policy");
+	});
+
+	it("uses structured status messages before status_text parsing", () => {
+		expect(
+			formatTaskDetail(
+				t,
+				createTask({
+					status_text: "backend changed this sentence",
+					presentation: {
+						status: {
+							code: "status_text_archive_ready",
+							params: {
+								name: "structured.zip",
+							},
+						},
+					},
+				}),
+			),
+		).toBe("Archive ready: structured.zip");
+		expect(
+			formatTaskDetail(
+				t,
+				createTask({
+					status_text: "backend renamed archive result",
+					presentation: {
+						status: {
+							code: "status_text_thumbnail_ready",
+							params: {
+								name: "bundle.zip",
+							},
+						},
+					},
+				}),
+			),
+		).toBe("Thumbnail ready");
+		expect(
+			formatTaskDetail(
+				t,
+				createTask({
+					status_text: "remote_nodes=unhealthy: stale detail",
+					presentation: {
+						status: {
+							code: "runtime_system_health_issue_detail",
+							params: {
+								components: [
+									{
+										message: "lagging",
+										name: "database",
+										status: "degraded",
+									},
+								],
+								status: "degraded",
+							},
+						},
+					},
+				}),
+			),
+		).toBe("Issues: Database degraded: lagging");
+		expect(
+			formatTaskDetail(
+				t,
+				createTask({
+					status_text: "system unhealthy",
+					presentation: {
+						status: {
+							code: "runtime_system_health_issue_detail",
+							params: {
+								components: [],
+								status: "unhealthy",
+							},
+						},
+					},
+				}),
+			),
+		).toBe("Issues: unhealthy");
+		expect(
+			formatTaskDetail(
+				t,
+				createTask({
+					status_text: "backend fallback detail",
+					presentation: {
+						status: {
+							code: "runtime_system_health_issue_detail",
+							params: {
+								components: [
+									{
+										message: "ignored because status is missing",
+										name: "database",
+									},
+								],
+							},
+						},
+					},
+				}),
+			),
+		).toBe("backend fallback detail");
+		expect(
+			formatTaskDetail(
+				t,
+				createTask({
+					status_text: "backend fallback detail",
+					presentation: {
+						status: {
+							code: "runtime_system_health_issue_detail",
+							params: {
+								components: [
+									{
+										message: "ignored because name is not a string",
+										name: 42,
+										status: "degraded",
+									},
+								],
+								status: 7,
+							},
+						},
+					},
+				}),
+			),
+		).toBe("backend fallback detail");
+	});
+
+	it("falls back safely for unknown or missing structured messages", () => {
+		expect(
+			formatTaskDisplayName(
+				t,
+				createTask({
+					display_name: "Backend custom title",
+					presentation: {
+						title: {
+							code: "future_task_title" as never,
+							params: {
+								anything: 1,
+							},
+						},
+					},
+				}),
+			),
+		).toBe("Backend custom title");
+		expect(
+			formatTaskDetail(
+				t,
+				createTask({
+					presentation: {
+						status: {
+							code: "future_status_code" as never,
+							params: {
+								anything: 1,
+							},
+						},
+					},
+					status_text: "custom backend status",
+				}),
+			),
+		).toBe("custom backend status");
+		expect(
+			formatTaskDetail(
+				t,
+				createTask({
+					display_name: "Backend title",
+					presentation: {
+						title: {
+							code: "task_name_thumbnail_generate_blob_with_processor",
+							params: {
+								processor: "storage_native",
+							},
+						},
+					},
+					status_text: "Migration completed",
+				}),
+			),
+		).toBe("Migration completed");
+		expect(
+			formatTaskDisplayName(
+				t,
+				createTask({
+					display_name: "Backend raw title",
+					presentation: {
+						title: {
+							code: "task_name_archive_compress",
+							params: {
+								name: { nested: "not accepted" },
+							},
+						},
+					},
+				}),
+			),
+		).toBe("Backend raw title");
+	});
+});
+
 describe("taskPresentation storage policy migration", () => {
 	it("formats the storage policy migration kind", () => {
 		expect(formatTaskKind(t, "storage_policy_migration")).toBe(
@@ -128,7 +392,7 @@ describe("taskPresentation storage policy migration", () => {
 		);
 	});
 
-	it("localizes blob maintenance display names from structured payloads", () => {
+	it("keeps raw display names when presentation is absent", () => {
 		expect(
 			formatTaskDisplayName(
 				t,
@@ -185,7 +449,25 @@ describe("taskPresentation storage policy migration", () => {
 		).toBe("Backend maintenance name");
 	});
 
-	it("localizes system runtime names from structured payloads and raw display names", () => {
+	it("localizes system runtime names only from structured presentation", () => {
+		expect(
+			formatTaskDisplayName(
+				t,
+				createTask({
+					display_name: "Backend system health fallback",
+					kind: "system_runtime",
+					payload: {
+						kind: "system_runtime",
+						task_name: "system-health-check",
+					},
+					presentation: {
+						title: {
+							code: "runtime_task_system_health_check",
+						},
+					},
+				}),
+			),
+		).toBe("System health check");
 		expect(
 			formatTaskDisplayName(
 				t,
@@ -198,7 +480,7 @@ describe("taskPresentation storage policy migration", () => {
 					},
 				}),
 			),
-		).toBe("Trash cleanup");
+		).toBe("Backend trash cleanup");
 		expect(
 			formatTaskDisplayName(
 				t,
@@ -212,29 +494,9 @@ describe("taskPresentation storage policy migration", () => {
 				}),
 			),
 		).toBe("Custom runtime task");
-		expect(
-			formatTaskDisplayNameFromRaw(
-				(key, values) =>
-					key === "tasks:runtime_task_system_health_check"
-						? "Localized system health check"
-						: t(key, values),
-				"system_runtime",
-				"System health check",
-			),
-		).toBe("Localized system health check");
-		expect(
-			formatTaskDisplayNameFromRaw(t, "system_runtime", "unknown runtime"),
-		).toBe("unknown runtime");
-		expect(
-			formatTaskDisplayNameFromRaw(
-				t,
-				"system_runtime",
-				"Task artifact cleanup",
-			),
-		).toBe("Task artifact cleanup");
 	});
 
-	it("localizes media metadata display names from structured payloads", () => {
+	it("keeps raw media metadata display names without structured presentation", () => {
 		expect(
 			formatTaskDisplayName(
 				t,
@@ -251,7 +513,7 @@ describe("taskPresentation storage policy migration", () => {
 					},
 				}),
 			),
-		).toBe("Extract audio metadata for song.flac");
+		).toBe("Extract audio metadata for blob #12");
 		expect(
 			formatTaskDisplayName(
 				t,
@@ -268,113 +530,13 @@ describe("taskPresentation storage policy migration", () => {
 					},
 				}),
 			),
-		).toBe("Extract audio metadata for Blob #12");
+		).toBe("Extract audio metadata for blob #12");
 	});
 
-	it("localizes raw task display names from backend naming conventions", () => {
-		expect(
-			formatTaskDisplayNameFromRaw(t, "archive_extract", "Extract logs.zip"),
-		).toBe("Extract logs.zip");
-		expect(
-			formatTaskDisplayNameFromRaw(
-				t,
-				"archive_compress",
-				"Compress export.zip",
-			),
-		).toBe("Compress export.zip");
-		expect(
-			formatTaskDisplayNameFromRaw(
-				t,
-				"archive_preview_generate",
-				"Generate archive preview for file #7 blob #9 logs.zip",
-			),
-		).toBe("Preview file 7 blob 9");
-		expect(
-			formatTaskDisplayNameFromRaw(
-				t,
-				"archive_preview_generate",
-				"Generate archive preview for file #7 blob #9",
-			),
-		).toBe("Preview file 7 blob 9");
-		expect(
-			formatTaskDisplayNameFromRaw(
-				t,
-				"thumbnail_generate",
-				"Generate thumbnail for blob #11 via storage_native",
-			),
-		).toBe("Thumbnail Blob #11 via Localized storage-native");
-		expect(
-			formatTaskDisplayNameFromRaw(
-				t,
-				"thumbnail_generate",
-				"Generate thumbnail for blob #11 via native",
-			),
-		).toBe("Thumbnail Blob #11 via Localized storage-native");
-		expect(
-			formatTaskDisplayNameFromRaw(
-				t,
-				"media_metadata_extract",
-				"Extract audio metadata for blob #12",
-			),
-		).toBe("Extract audio metadata for Blob #12");
-		expect(
-			formatTaskDisplayNameFromRaw(t, "trash_purge_all", "Empty trash"),
-		).toBe("Empty trash");
-		expect(
-			formatTaskDisplayNameFromRaw(
-				t,
-				"storage_policy_temp_cleanup",
-				"Clean deleted storage policy #5 temporary uploads",
-			),
-		).toBe("Cleanup Policy #5");
-		expect(
-			formatTaskDisplayNameFromRaw(
-				t,
-				"storage_policy_temp_cleanup",
-				"Clean storage policy #5 temporary uploads",
-			),
-		).toBe("Cleanup Policy #5");
-		expect(
-			formatTaskDisplayNameFromRaw(
-				t,
-				"storage_policy_migration",
-				"Migrate storage policy #1 to #2",
-			),
-		).toBe("Migrate Policy #1 to Policy #2");
-		expect(
-			formatTaskDisplayNameFromRaw(
-				t,
-				"blob_maintenance",
-				"Check integrity for 3 blob(s)",
-			),
-		).toBe("Check integrity for 3 blob(s)");
-		expect(
-			formatTaskDisplayNameFromRaw(
-				t,
-				"blob_maintenance",
-				"Reconcile references for all blobs",
-			),
-		).toBe("Reconcile references for all blobs");
-		expect(
-			formatTaskDisplayNameFromRaw(
-				t,
-				"blob_maintenance",
-				"Clean orphan blobs for custom scope",
-			),
-		).toBe("Clean orphan blobs for custom scope");
-		expect(
-			formatTaskDisplayNameFromRaw(
-				t,
-				"thumbnail_generate",
-				"backend custom name",
-			),
-		).toBe("backend custom name");
-	});
-
-	it("localizes stable backend status detail text", () => {
+	it("falls back to raw backend status detail text", () => {
 		expect(
 			formatTaskDetail(t, createTask({ status_text: "system healthy" })),
-		).toBe("System healthy");
+		).toBe("system healthy");
 		expect(
 			formatTaskDetail(
 				t,
@@ -382,7 +544,7 @@ describe("taskPresentation storage policy migration", () => {
 					status_text: "deleted 14 completed sessions (0 broken)",
 				}),
 			),
-		).toBe("Deleted 14 completed sessions (0 broken)");
+		).toBe("deleted 14 completed sessions (0 broken)");
 		expect(
 			formatTaskDetail(
 				t,
@@ -390,55 +552,55 @@ describe("taskPresentation storage policy migration", () => {
 					status_text: "fixed 3 ref counts, deleted 2 orphan blobs",
 				}),
 			),
-		).toBe("Fixed 3, deleted 2");
+		).toBe("fixed 3 ref counts, deleted 2 orphan blobs");
 		expect(
 			formatTaskDetail(
 				t,
 				createTask({ status_text: "cleaned up 4 expired auth sessions" }),
 			),
-		).toBe("Cleaned 4 auth sessions");
+		).toBe("cleaned up 4 expired auth sessions");
 		expect(
 			formatTaskDetail(
 				t,
 				createTask({ status_text: "cleaned up 5 expired external auth flows" }),
 			),
-		).toBe("Cleaned 5 external auth flows");
+		).toBe("cleaned up 5 expired external auth flows");
 		expect(
 			formatTaskDetail(
 				t,
 				createTask({ status_text: "cleaned up 6 expired MFA flows" }),
 			),
-		).toBe("Cleaned 6 MFA flows");
+		).toBe("cleaned up 6 expired MFA flows");
 		expect(
 			formatTaskDetail(
 				t,
 				createTask({ status_text: "cleaned up 7 expired locks" }),
 			),
-		).toBe("Cleaned 7 locks");
+		).toBe("cleaned up 7 expired locks");
 		expect(
 			formatTaskDetail(
 				t,
 				createTask({ status_text: "cleaned up 8 expired task artifacts" }),
 			),
-		).toBe("Cleaned 8 task artifacts");
+		).toBe("cleaned up 8 expired task artifacts");
 		expect(
 			formatTaskDetail(
 				t,
 				createTask({ status_text: "cleaned up 9 expired WOPI sessions" }),
 			),
-		).toBe("Cleaned 9 WOPI sessions");
+		).toBe("cleaned up 9 expired WOPI sessions");
 		expect(
 			formatTaskDetail(t, createTask({ status_text: "Migration completed" })),
-		).toBe("Localized storage migration completed");
+		).toBe("Migration completed");
 		expect(
 			formatTaskDetail(
 				t,
 				createTask({ status_text: "remote_nodes=unhealthy: failed" }),
 			),
-		).toBe("Issues: Remote nodes is Unhealthy: failed");
+		).toBe("remote_nodes=unhealthy: failed");
 		expect(
 			formatTaskDetail(t, createTask({ status_text: "database=degraded:" })),
-		).toBe("Issues: Database is Degraded");
+		).toBe("database=degraded:");
 		expect(
 			formatTaskDetail(t, createTask({ status_text: "custom detail" })),
 		).toBe("custom detail");
@@ -447,64 +609,23 @@ describe("taskPresentation storage policy migration", () => {
 		).toBe("empty");
 	});
 
-	it("formats system runtime health results before generic status text", () => {
+	it("does not derive system runtime health text from result payloads", () => {
 		expect(
 			formatTaskDetail(
 				t,
 				createTask({
-					kind: "system_runtime",
-					payload: { kind: "system_runtime", task_name: "system-health-check" },
-					result: {
-						kind: "system_runtime",
-						system_health: {
-							components: [{ name: "database", status: "healthy" }],
-							status: "healthy",
-						},
-						task_name: "system-health-check",
-					} as never,
-					status_text: "database=unhealthy: stale detail",
+					status_text: "  backend detail  ",
 				}),
 			),
-		).toBe("System healthy");
+		).toBe("backend detail");
 		expect(
 			formatTaskDetail(
 				t,
 				createTask({
-					kind: "system_runtime",
-					payload: { kind: "system_runtime", task_name: "system-health-check" },
-					result: {
-						kind: "system_runtime",
-						system_health: {
-							components: [
-								{ name: "database", status: "healthy" },
-								{ name: "remote_nodes", status: "degraded" },
-							],
-							status: "degraded",
-						},
-						task_name: "system-health-check",
-					} as never,
 					status_text: "remote_nodes=degraded: slow",
 				}),
 			),
-		).toBe("Issues: Remote nodes is Degraded");
-		expect(
-			formatTaskDetail(
-				t,
-				createTask({
-					kind: "system_runtime",
-					payload: { kind: "system_runtime", task_name: "system-health-check" },
-					result: {
-						kind: "system_runtime",
-						system_health: {
-							components: [],
-							status: "unhealthy",
-						},
-						task_name: "system-health-check",
-					} as never,
-					status_text: "system unhealthy",
-				}),
-			),
-		).toBe("Issues: Unhealthy");
+		).toBe("remote_nodes=degraded: slow");
 	});
 
 	it("covers task presentation utility branches", () => {
@@ -512,11 +633,16 @@ describe("taskPresentation storage policy migration", () => {
 		expect(statusBadgeVariant("succeeded")).toBe("default");
 		expect(statusBadgeVariant("failed")).toBe("destructive");
 		expect(statusBadgeVariant("canceled")).toBe("outline");
+		expect(statusBadgeVariant("pending")).toBe("secondary");
+		expect(statusBadgeVariant("processing")).toBe("secondary");
 		expect(taskMetaTextClass("processing")).toBe("text-primary");
+		expect(taskMetaTextClass("retry")).toBe("text-primary");
 		expect(taskMetaTextClass("succeeded")).toBe("text-foreground");
 		expect(taskMetaTextClass("failed")).toBe("text-destructive");
 		expect(taskMetaTextClass("pending")).toBe("text-muted-foreground");
+		expect(taskMetaTextClass("canceled")).toBe("text-muted-foreground");
 		expect(stepCircleLabel(2, "failed")).toBe("!");
+		expect(stepCircleLabel(2, "skipped")).toBe("3");
 		expect(stepCircleLabel(2, "canceled")).toBe("X");
 		expect(stepCircleLabel(2, "pending")).toBe("3");
 		expect(stepStatusTextClass("active")).toBe("text-primary");
@@ -550,6 +676,12 @@ describe("taskPresentation storage policy migration", () => {
 		expect(formatTaskStepStatus(t, "canceled")).toBe(
 			"tasks:step_status_canceled",
 		);
+		expect(formatTaskStatus(t, "pending")).toBe("tasks:status_pending");
+		expect(formatTaskStatus(t, "processing")).toBe("tasks:status_processing");
+		expect(formatTaskStatus(t, "retry")).toBe("tasks:status_retry");
+		expect(formatTaskStatus(t, "succeeded")).toBe("tasks:status_succeeded");
+		expect(formatTaskStatus(t, "failed")).toBe("tasks:status_failed");
+		expect(formatTaskStatus(t, "canceled")).toBe("tasks:status_canceled");
 		expect(formatProgressCounts(1200, 3400)).toBe("1,200 / 3,400");
 		expect(
 			stepProgressPercent({
@@ -645,6 +777,15 @@ describe("taskPresentation storage policy migration", () => {
 			taskSummaryTimestamp(
 				t,
 				createTask({
+					finished_at: "2026-04-17T00:02:00Z",
+					status: "succeeded",
+				}),
+			),
+		).toMatch(/^Finished /);
+		expect(
+			taskSummaryTimestamp(
+				t,
+				createTask({
 					finished_at: null,
 					status: "succeeded",
 					started_at: "2026-04-17T00:01:00Z",
@@ -728,6 +869,25 @@ describe("taskPresentation storage policy migration", () => {
 				}),
 			).map((entry) => entry.label),
 		).toEqual(["Created", "Canceled"]);
+		expect(
+			buildTaskTimeline(
+				t,
+				createTask({
+					finished_at: "2026-04-17T00:02:00Z",
+					started_at: "2026-04-17T00:01:00Z",
+					status: "failed",
+				}),
+			).map((entry) => entry.label),
+		).toEqual(["Created", "Started", "Failed"]);
+		expect(
+			buildTaskTimeline(
+				t,
+				createTask({
+					finished_at: "2026-04-17T00:02:00Z",
+					status: "succeeded",
+				}),
+			).map((entry) => entry.label),
+		).toEqual(["Created", "Finished"]);
 	});
 
 	it("translates known storage migration steps and falls back to backend titles", () => {
@@ -845,6 +1005,7 @@ describe("taskPresentation storage policy migration", () => {
 	});
 
 	it("parses archive task results and ignores non-archive results", () => {
+		expect(parseTaskResult(createTask())).toBeNull();
 		expect(
 			parseTaskResult(
 				createTask({

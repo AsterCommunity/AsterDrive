@@ -8,7 +8,7 @@ use sea_orm::{
 
 use crate::entities::mfa_factor::{self, Entity as MfaFactor};
 use crate::errors::{AsterError, Result};
-use crate::types::MfaFactorMethod;
+use crate::types::MfaPersistentFactorMethod;
 
 pub async fn create<C: ConnectionTrait>(
     db: &C,
@@ -33,9 +33,11 @@ pub async fn find_totp_for_user<C: ConnectionTrait>(
     db: &C,
     user_id: i64,
 ) -> Result<Option<mfa_factor::Model>> {
+    // `mfa_factors` 只承载长期绑定的 factor；目前只有 TOTP 会出现在这里。
+    // 邮箱验证码走 `mfa_email_code_repo`，不要把它作为 factor method 查询。
     MfaFactor::find()
         .filter(mfa_factor::Column::UserId.eq(user_id))
-        .filter(mfa_factor::Column::Method.eq(MfaFactorMethod::Totp))
+        .filter(mfa_factor::Column::Method.eq(MfaPersistentFactorMethod::Totp))
         .one(db)
         .await
         .map_err(AsterError::from)

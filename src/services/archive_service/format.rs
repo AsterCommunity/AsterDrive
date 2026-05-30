@@ -36,27 +36,10 @@ impl ArchiveFormat {
     }
 }
 
-pub(crate) fn detect_archive_extract_format(source_file: &file::Model) -> Option<ArchiveFormat> {
-    // Extraction intentionally trusts only the stored filename extension; client-supplied MIME
+pub(crate) fn detect_supported_archive_format(source_file: &file::Model) -> Option<ArchiveFormat> {
+    // Archive actions intentionally trust only the stored filename extension; client-supplied MIME
     // types are easier to spoof and should not widen the executable archive surface.
     if ends_with_ignore_ascii_case(&source_file.name, ".zip") {
-        return Some(ArchiveFormat::Zip);
-    }
-    None
-}
-
-pub(crate) fn detect_archive_preview_format(source_file: &file::Model) -> Option<ArchiveFormat> {
-    let mime = source_file.mime_type.to_ascii_lowercase();
-    if ends_with_ignore_ascii_case(&source_file.name, ".zip") {
-        return Some(ArchiveFormat::Zip);
-    }
-    if ends_with_ignore_ascii_case(&source_file.name, ".7z") {
-        return None;
-    }
-    if matches!(
-        mime.as_str(),
-        "application/zip" | "application/x-zip-compressed"
-    ) {
         return Some(ArchiveFormat::Zip);
     }
     None
@@ -97,17 +80,19 @@ mod tests {
     }
 
     #[test]
-    fn detect_archive_preview_format_prefers_extension_over_mime() {
+    fn archive_format_detection_uses_same_extension_only_rules_for_preview_and_extract() {
+        let zip_by_name = source_file("bundle.zip", "application/x-7z-compressed");
+        let zip_by_mime_only = source_file("bundle.bin", "application/zip");
+        let seven_zip_with_zip_mime = source_file("bundle.7z", "application/zip");
+
         assert_eq!(
-            detect_archive_preview_format(&source_file("bundle.7z", "application/zip")),
-            None
-        );
-        assert_eq!(
-            detect_archive_preview_format(&source_file(
-                "bundle.zip",
-                "application/x-7z-compressed"
-            )),
+            detect_supported_archive_format(&zip_by_name),
             Some(ArchiveFormat::Zip)
+        );
+        assert_eq!(detect_supported_archive_format(&zip_by_mime_only), None);
+        assert_eq!(
+            detect_supported_archive_format(&seven_zip_with_zip_mime),
+            None
         );
     }
 }

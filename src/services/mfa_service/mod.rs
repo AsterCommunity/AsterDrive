@@ -9,7 +9,7 @@ pub mod totp;
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 
-use crate::types::{MfaFactorMethod, MfaMethod};
+use crate::types::{MfaMethod, MfaPersistentFactorMethod};
 
 pub use login_flow::{
     MfaChallengeStart, PrimaryLoginCompletion, cleanup_expired_flows,
@@ -93,8 +93,8 @@ fn now_utc() -> chrono::DateTime<Utc> {
     Utc::now()
 }
 
-fn factor_method_label(method: MfaFactorMethod) -> &'static str {
+fn persistent_factor_method_label(method: MfaPersistentFactorMethod) -> &'static str {
     match method {
-        MfaFactorMethod::Totp => "totp",
+        MfaPersistentFactorMethod::Totp => "totp",
     }
 }
