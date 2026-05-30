@@ -111,12 +111,15 @@ async fn admin_provider_kind_api_drives_create_contract() {
     let kinds = body["data"]
         .as_array()
         .expect("provider kind list should be an array");
-    assert_eq!(kinds.len(), 1);
-    assert_eq!(kinds[0]["kind"], "oidc");
-    assert_eq!(kinds[0]["protocol"], "oidc");
-    assert_eq!(kinds[0]["default_scopes"], "openid email profile");
-    assert_eq!(kinds[0]["supports_discovery"], true);
-    assert_eq!(kinds[0]["supports_pkce"], true);
+    assert_eq!(kinds.len(), 2);
+    let oidc = kinds
+        .iter()
+        .find(|kind| kind["kind"] == "oidc")
+        .expect("OIDC kind should be listed");
+    assert_eq!(oidc["protocol"], "oidc");
+    assert_eq!(oidc["default_scopes"], "openid email profile");
+    assert_eq!(oidc["supports_discovery"], true);
+    assert_eq!(oidc["supports_pkce"], true);
 
     let req = test::TestRequest::post()
         .uri("/api/v1/admin/external-auth/providers")

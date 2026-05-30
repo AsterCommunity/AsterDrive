@@ -254,6 +254,7 @@ function buildZhNav() {
       items: [
         { text: '管理后台', link: '/guide/admin-console' },
         { text: '配置总览', link: '/config/' },
+        { text: '外部认证', link: '/config/external-auth' },
         { text: '系统设置', link: '/config/runtime' },
         { text: '存储策略', link: '/config/storage' },
         { text: '存储策略后端', link: '/storage/' },
@@ -317,6 +318,7 @@ function buildEnNav() {
       items: [
         { text: 'Admin Console', link: '/en/guide/admin-console' },
         { text: 'Configuration Overview', link: '/en/config/' },
+        { text: 'External Authentication', link: '/en/config/external-auth' },
         { text: 'System Settings', link: '/en/config/runtime' },
         { text: 'Storage Policies', link: '/en/config/storage' },
         { text: 'Storage Backends', link: '/en/storage/' },
@@ -383,6 +385,7 @@ function buildZhSidebar() {
         { text: '服务器', link: '/config/server' },
         { text: '数据库', link: '/config/database' },
         { text: '登录与会话', link: '/config/auth' },
+        { text: '外部认证', link: '/config/external-auth' },
         { text: '系统设置', link: '/config/runtime' },
         { text: '邮件', link: '/config/mail' },
         { text: '存储策略', link: '/config/storage' },
@@ -470,6 +473,7 @@ function buildEnSidebar() {
         { text: 'Server', link: '/en/config/server' },
         { text: 'Database', link: '/en/config/database' },
         { text: 'Login and Sessions', link: '/en/config/auth' },
+        { text: 'External Authentication', link: '/en/config/external-auth' },
         { text: 'System Settings', link: '/en/config/runtime' },
         { text: 'Mail', link: '/en/config/mail' },
         { text: 'Storage Policies', link: '/en/config/storage' },

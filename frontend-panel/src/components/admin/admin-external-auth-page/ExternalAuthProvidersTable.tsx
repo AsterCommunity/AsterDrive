@@ -113,11 +113,11 @@ export function ExternalAuthProvidersTable({
 								</TableCell>
 								<TableCell>
 									<div className={ADMIN_TABLE_TEXT_CELL_CLASS}>
-										<div className="mr-3 flex size-8 shrink-0 items-center justify-center rounded-lg bg-white shadow-xs ring-1 ring-black/5 dark:bg-zinc-950 dark:ring-white/10">
+										<div className="mr-3 flex size-10 shrink-0 items-center justify-center rounded-xl bg-white shadow-xs ring-1 ring-black/5">
 											<ExternalAuthProviderIcon
 												kind={provider.provider_kind}
 												iconUrl={provider.icon_url}
-												className="size-5"
+												className="max-h-7 max-w-7"
 											/>
 										</div>
 										<div className={ADMIN_TABLE_STACKED_CELL_CLASS}>

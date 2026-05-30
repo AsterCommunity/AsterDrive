@@ -135,6 +135,8 @@ export function formFromProvider(
 
 function kindFallbackLabel(kind: ExternalAuthProviderKind) {
 	switch (kind) {
+		case "generic_oauth2":
+			return "Generic OAuth2";
 		case "oidc":
 			return "OpenID Connect";
 	}
@@ -267,8 +269,15 @@ function effectiveClaim(value: string | null | undefined, fallback: string) {
 	return value?.trim() || fallback;
 }
 
+export function defaultScopesForKind(
+	kind: AdminExternalAuthProviderKindInfo | null | undefined,
+) {
+	return kind?.default_scopes?.trim() || DEFAULT_SCOPES;
+}
+
 export function createPayload(
 	form: ExternalAuthProviderFormData,
+	selectedKind?: AdminExternalAuthProviderKindInfo | null,
 ): CreateExternalAuthProviderInput {
 	const allowedDomains = parseAllowedDomains(form.allowedDomains);
 	return {
@@ -289,7 +298,7 @@ export function createPayload(
 		issuer_url: nullableText(form.issuerUrl),
 		provider_kind: form.providerKind,
 		require_email_verified: form.requireEmailVerified,
-		scopes: form.scopes.trim() || DEFAULT_SCOPES,
+		scopes: form.scopes.trim() || defaultScopesForKind(selectedKind),
 		subject_claim: nullableText(form.subjectClaim),
 		token_url: nullableText(form.tokenUrl),
 		userinfo_url: nullableText(form.userinfoUrl),
@@ -299,6 +308,7 @@ export function createPayload(
 
 export function updatePayload(
 	form: ExternalAuthProviderFormData,
+	selectedKind?: AdminExternalAuthProviderKindInfo | null,
 ): UpdateExternalAuthProviderInput {
 	const allowedDomains = parseAllowedDomains(form.allowedDomains);
 	return {
@@ -320,7 +330,7 @@ export function updatePayload(
 		icon_url: nullableText(form.iconUrl),
 		issuer_url: nullableText(form.issuerUrl),
 		require_email_verified: form.requireEmailVerified,
-		scopes: form.scopes.trim() || DEFAULT_SCOPES,
+		scopes: form.scopes.trim() || defaultScopesForKind(selectedKind),
 		subject_claim: nullableText(form.subjectClaim),
 		token_url: nullableText(form.tokenUrl),
 		userinfo_url: nullableText(form.userinfoUrl),
@@ -330,6 +340,7 @@ export function updatePayload(
 
 export function testParamsPayload(
 	form: ExternalAuthProviderFormData,
+	selectedKind?: AdminExternalAuthProviderKindInfo | null,
 ): ExternalAuthProviderTestParamsInput {
 	return {
 		authorization_url: nullableText(form.authorizationUrl),
@@ -337,7 +348,7 @@ export function testParamsPayload(
 		client_secret: nullableSecretText(form.clientSecret),
 		issuer_url: nullableText(form.issuerUrl),
 		provider_kind: form.providerKind,
-		scopes: form.scopes.trim() || DEFAULT_SCOPES,
+		scopes: form.scopes.trim() || defaultScopesForKind(selectedKind),
 		token_url: nullableText(form.tokenUrl),
 		userinfo_url: nullableText(form.userinfoUrl),
 	};
@@ -360,7 +371,9 @@ function formClientSecretChanged(
 export function formConnectionChanged(
 	form: ExternalAuthProviderFormData,
 	provider: AdminExternalAuthProviderInfo,
+	selectedKind?: AdminExternalAuthProviderKindInfo | null,
 ) {
+	const defaultScopes = defaultScopesForKind(selectedKind);
 	return (
 		form.providerKind !== provider.provider_kind ||
 		normalizeConnectionValue(form.issuerUrl) !==
@@ -373,8 +386,8 @@ export function formConnectionChanged(
 			normalizeConnectionValue(provider.userinfo_url) ||
 		normalizeConnectionValue(form.clientId) !==
 			normalizeConnectionValue(provider.client_id) ||
-		(form.scopes.trim() || DEFAULT_SCOPES) !==
-			(provider.scopes.trim() || DEFAULT_SCOPES) ||
+		(form.scopes.trim() || defaultScopes) !==
+			(provider.scopes.trim() || defaultScopes) ||
 		formClientSecretChanged(form, provider)
 	);
 }

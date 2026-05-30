@@ -4790,7 +4790,7 @@ export interface components {
          * @description 外部认证提供商类型。
          * @enum {string}
          */
-        ExternalAuthProviderKind: "oidc";
+        ExternalAuthProviderKind: "oidc" | "generic_oauth2";
         ExternalAuthProviderTestCheck: {
             message: string;
             name: string;

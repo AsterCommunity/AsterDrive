@@ -1,0 +1,490 @@
+//! 集成测试：`generic_oauth2` 外部认证 provider。
+
+#[macro_use]
+mod common;
+
+mod external_auth;
+
+use actix_web::test;
+use aster_drive::db::repository::external_auth_provider_repo;
+use aster_drive::entities::external_auth_identity;
+use external_auth::oauth2::*;
+use sea_orm::{ActiveModelTrait, ActiveValue::Set, EntityTrait, IntoActiveModel};
+use serde_json::Value;
+
+#[actix_web::test]
+async fn admin_provider_kind_api_includes_generic_oauth2_contract() {
+    let state = common::setup().await;
+    let app = create_test_app!(state);
+    let (admin_token, _) = register_and_login!(app);
+
+    let req = test::TestRequest::get()
+        .uri("/api/v1/admin/external-auth/provider-kinds")
+        .insert_header(("Cookie", common::access_cookie_header(&admin_token)))
+        .insert_header(common::csrf_header_for(&admin_token))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+    let body: Value = test::read_body_json(resp).await;
+    let kinds = body["data"]
+        .as_array()
+        .expect("provider kind list should be an array");
+    assert_eq!(kinds.len(), 2);
+    let oauth2 = kinds
+        .iter()
+        .find(|kind| kind["kind"] == "generic_oauth2")
+        .expect("generic OAuth2 kind should be listed");
+    assert_eq!(oauth2["protocol"], "oauth2");
+    assert_eq!(oauth2["default_scopes"], "openid email profile");
+    assert_eq!(oauth2["issuer_url_required"], false);
+    assert_eq!(oauth2["manual_endpoint_configuration_supported"], true);
+    assert_eq!(oauth2["authorization_url_required"], true);
+    assert_eq!(oauth2["token_url_required"], true);
+    assert_eq!(oauth2["userinfo_url_required"], true);
+    assert_eq!(oauth2["supports_discovery"], false);
+    assert_eq!(oauth2["supports_pkce"], true);
+}
+
+#[actix_web::test]
+async fn admin_create_and_test_generic_oauth2_provider_requires_manual_endpoints() {
+    let (mock_provider, server) = start_mock_oauth2_provider().await;
+    let state = common::setup().await;
+    let app = create_test_app!(state);
+    let (admin_token, _) = register_and_login!(app);
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/admin/external-auth/providers")
+        .insert_header(("Cookie", common::access_cookie_header(&admin_token)))
+        .insert_header(common::csrf_header_for(&admin_token))
+        .set_json(serde_json::json!({
+            "provider_kind": "generic_oauth2",
+            "display_name": "Broken OAuth2",
+            "client_id": TEST_CLIENT_ID
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 400);
+
+    let created = create_oauth2_provider_with(
+        &app,
+        &admin_token,
+        TestOAuth2ProviderOptions::mock(&mock_provider.base_url),
+    )
+    .await;
+    assert_eq!(created["data"]["provider_kind"], "generic_oauth2");
+    assert_eq!(created["data"]["protocol"], "oauth2");
+    assert_eq!(created["data"]["issuer_url"], Value::Null);
+    assert_eq!(created["data"]["client_secret"], "***REDACTED***");
+    assert_eq!(created["data"]["client_secret_configured"], true);
+    assert_eq!(created["data"]["scopes"], "read:user user:email");
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/admin/external-auth/providers/test")
+        .insert_header(("Cookie", common::access_cookie_header(&admin_token)))
+        .insert_header(common::csrf_header_for(&admin_token))
+        .set_json(serde_json::json!({
+            "provider_kind": "generic_oauth2",
+            "authorization_url": format!("{}/authorize", mock_provider.base_url),
+            "token_url": format!("{}/token", mock_provider.base_url),
+            "userinfo_url": format!("{}/userinfo", mock_provider.base_url),
+            "client_id": TEST_CLIENT_ID,
+            "client_secret": TEST_CLIENT_SECRET,
+            "scopes": "read:user user:email"
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(body["data"]["provider"], "Generic OAuth2");
+    assert_eq!(body["data"]["issuer"], Value::Null);
+    assert_eq!(
+        body["data"]["authorization_endpoint"],
+        format!("{}/authorize", mock_provider.base_url)
+    );
+    assert_eq!(body["data"]["jwks_key_count"], Value::Null);
+    assert_eq!(body["data"]["checks"][0]["name"], "manual_endpoints");
+    assert_eq!(body["data"]["checks"][1]["name"], "authorization_code");
+
+    server.stop(true).await;
+}
+
+#[actix_web::test]
+async fn start_login_builds_oauth2_authorization_url_with_default_scopes_without_nonce() {
+    let (mock_provider, server) = start_mock_oauth2_provider().await;
+    let state = common::setup().await;
+    configure_oauth2_public_site_url(&state);
+    let app = create_test_app!(state);
+    let (admin_token, _) = register_and_login!(app);
+    let created = create_oauth2_provider_with(
+        &app,
+        &admin_token,
+        TestOAuth2ProviderOptions::mock(&mock_provider.base_url),
+    )
+    .await;
+    let provider_key = created_provider_key(&created);
+
+    let state_value = start_oauth2_login(&app, &mock_provider, &provider_key, "/files").await;
+    let authorize_request = mock_provider.last_authorize_request();
+    assert_eq!(authorize_request.response_type, "code");
+    assert_eq!(authorize_request.client_id, TEST_CLIENT_ID);
+    assert_eq!(
+        authorize_request.redirect_uri,
+        format!(
+            "http://localhost:8080/api/v1/auth/external-auth/generic_oauth2/{provider_key}/callback"
+        )
+    );
+    assert_eq!(
+        authorize_request.scope.as_deref(),
+        Some("read:user user:email")
+    );
+    assert_eq!(authorize_request.state, state_value);
+    assert_eq!(
+        authorize_request.code_challenge_method.as_deref(),
+        Some("S256")
+    );
+    assert!(
+        authorize_request
+            .code_challenge
+            .as_deref()
+            .is_some_and(|value| !value.is_empty())
+    );
+    assert_eq!(authorize_request.nonce, None);
+
+    server.stop(true).await;
+}
+
+#[actix_web::test]
+async fn create_provider_without_scopes_uses_logto_compatible_oauth2_default() {
+    let (mock_provider, server) = start_mock_oauth2_provider().await;
+    let state = common::setup().await;
+    configure_oauth2_public_site_url(&state);
+    let app = create_test_app!(state);
+    let (admin_token, _) = register_and_login!(app);
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/admin/external-auth/providers")
+        .insert_header(("Cookie", common::access_cookie_header(&admin_token)))
+        .insert_header(common::csrf_header_for(&admin_token))
+        .set_json(serde_json::json!({
+            "provider_kind": "generic_oauth2",
+            "display_name": "Default Scope OAuth2",
+            "authorization_url": format!("{}/authorize", mock_provider.base_url),
+            "token_url": format!("{}/token", mock_provider.base_url),
+            "userinfo_url": format!("{}/userinfo", mock_provider.base_url),
+            "client_id": TEST_CLIENT_ID,
+            "client_secret": TEST_CLIENT_SECRET
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 201);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(body["data"]["scopes"], "openid email profile");
+    let provider_key = created_provider_key(&body);
+
+    start_oauth2_login(&app, &mock_provider, &provider_key, "/").await;
+    let authorize_request = mock_provider.last_authorize_request();
+    assert_eq!(
+        authorize_request.scope.as_deref(),
+        Some("openid email profile")
+    );
+    assert_eq!(authorize_request.nonce, None);
+
+    server.stop(true).await;
+}
+
+#[actix_web::test]
+async fn finish_callback_exchanges_code_fetches_userinfo_and_issues_cookies() {
+    let (mock_provider, server) = start_mock_oauth2_provider().await;
+    let state = common::setup().await;
+    configure_oauth2_public_site_url(&state);
+    let app = create_test_app!(state.clone());
+    let (admin_token, _) = register_and_login!(app);
+    let created = create_oauth2_provider_with(
+        &app,
+        &admin_token,
+        TestOAuth2ProviderOptions {
+            auto_provision_enabled: true,
+            ..TestOAuth2ProviderOptions::mock(&mock_provider.base_url)
+        },
+    )
+    .await;
+    let provider_key = created_provider_key(&created);
+
+    let state_value =
+        start_oauth2_login(&app, &mock_provider, &provider_key, "/settings/security").await;
+    let resp = finish_oauth2_callback(&app, &provider_key, &state_value).await;
+    assert_eq!(resp.status(), 302);
+    assert_eq!(
+        resp.headers()
+            .get("Location")
+            .and_then(|value| value.to_str().ok()),
+        Some("http://localhost:8080/settings/security")
+    );
+    assert!(common::extract_cookie(&resp, "aster_access").is_some());
+    assert!(common::extract_cookie(&resp, "aster_refresh").is_some());
+    assert!(common::extract_cookie(&resp, "aster_csrf").is_some());
+
+    let identities = external_auth_identity::Entity::find()
+        .all(state.writer_db())
+        .await
+        .expect("identities should query");
+    assert_eq!(identities.len(), 1);
+    assert_eq!(identities[0].identity_namespace, mock_provider.base_url);
+    assert_eq!(identities[0].subject, "oauth2-subject-1");
+    assert_eq!(
+        identities[0].email_snapshot.as_deref(),
+        Some("oauth2-user@example.com")
+    );
+    assert_eq!(
+        mock_provider.token_auth_observations(),
+        vec![TokenAuthObservation::Post]
+    );
+
+    server.stop(true).await;
+}
+
+#[actix_web::test]
+async fn finish_callback_uses_single_client_secret_post_token_request() {
+    let (mock_provider, server) = start_mock_oauth2_provider().await;
+    let state = common::setup().await;
+    configure_oauth2_public_site_url(&state);
+    let app = create_test_app!(state);
+    let (admin_token, _) = register_and_login!(app);
+    let created = create_oauth2_provider_with(
+        &app,
+        &admin_token,
+        TestOAuth2ProviderOptions {
+            auto_provision_enabled: true,
+            ..TestOAuth2ProviderOptions::mock(&mock_provider.base_url)
+        },
+    )
+    .await;
+    let provider_key = created_provider_key(&created);
+
+    let state_value = start_oauth2_login(&app, &mock_provider, &provider_key, "/").await;
+    let resp = finish_oauth2_callback(&app, &provider_key, &state_value).await;
+    assert_eq!(resp.status(), 302);
+    assert!(common::extract_cookie(&resp, "aster_access").is_some());
+    assert_eq!(
+        mock_provider.token_auth_observations(),
+        vec![TokenAuthObservation::Post]
+    );
+
+    server.stop(true).await;
+}
+
+#[actix_web::test]
+async fn finish_callback_supports_public_client_token_request() {
+    let (mock_provider, server) = start_mock_oauth2_provider().await;
+    mock_provider.set_expected_token_auth(TokenAuthObservation::None);
+    let state = common::setup().await;
+    configure_oauth2_public_site_url(&state);
+    let app = create_test_app!(state);
+    let (admin_token, _) = register_and_login!(app);
+    let created = create_oauth2_provider_with(
+        &app,
+        &admin_token,
+        TestOAuth2ProviderOptions {
+            auto_provision_enabled: true,
+            client_secret: None,
+            ..TestOAuth2ProviderOptions::mock(&mock_provider.base_url)
+        },
+    )
+    .await;
+    assert_eq!(created["data"]["client_secret"], Value::Null);
+    assert_eq!(created["data"]["client_secret_configured"], false);
+    let provider_key = created_provider_key(&created);
+
+    let state_value = start_oauth2_login(&app, &mock_provider, &provider_key, "/").await;
+    let resp = finish_oauth2_callback(&app, &provider_key, &state_value).await;
+    assert_eq!(resp.status(), 302);
+    assert!(common::extract_cookie(&resp, "aster_access").is_some());
+    assert_eq!(
+        mock_provider.token_auth_observations(),
+        vec![TokenAuthObservation::None]
+    );
+
+    server.stop(true).await;
+}
+
+#[actix_web::test]
+async fn finish_callback_rejects_state_replay() {
+    let (mock_provider, server) = start_mock_oauth2_provider().await;
+    let state = common::setup().await;
+    configure_oauth2_public_site_url(&state);
+    let app = create_test_app!(state);
+    let (admin_token, _) = register_and_login!(app);
+    let created = create_oauth2_provider_with(
+        &app,
+        &admin_token,
+        TestOAuth2ProviderOptions {
+            auto_provision_enabled: true,
+            ..TestOAuth2ProviderOptions::mock(&mock_provider.base_url)
+        },
+    )
+    .await;
+    let provider_key = created_provider_key(&created);
+
+    let state_value = start_oauth2_login(&app, &mock_provider, &provider_key, "/").await;
+    let resp = finish_oauth2_callback(&app, &provider_key, &state_value).await;
+    assert_eq!(resp.status(), 302);
+    assert!(common::extract_cookie(&resp, "aster_access").is_some());
+
+    let resp = finish_oauth2_callback(&app, &provider_key, &state_value).await;
+    assert_oauth2_error_redirect(&resp);
+
+    server.stop(true).await;
+}
+
+#[actix_web::test]
+async fn finish_callback_rejects_userinfo_missing_subject() {
+    let (mock_provider, server) = start_mock_oauth2_provider().await;
+    mock_provider.set_subject(None);
+    let state = common::setup().await;
+    configure_oauth2_public_site_url(&state);
+    let app = create_test_app!(state.clone());
+    let (admin_token, _) = register_and_login!(app);
+    let created = create_oauth2_provider_with(
+        &app,
+        &admin_token,
+        TestOAuth2ProviderOptions {
+            auto_provision_enabled: true,
+            ..TestOAuth2ProviderOptions::mock(&mock_provider.base_url)
+        },
+    )
+    .await;
+    let provider_key = created_provider_key(&created);
+
+    let state_value = start_oauth2_login(&app, &mock_provider, &provider_key, "/").await;
+    let resp = finish_oauth2_callback(&app, &provider_key, &state_value).await;
+    assert_oauth2_error_redirect(&resp);
+    let identities = external_auth_identity::Entity::find()
+        .all(state.writer_db())
+        .await
+        .expect("identities should query");
+    assert!(identities.is_empty());
+
+    server.stop(true).await;
+}
+
+#[actix_web::test]
+async fn unverified_email_does_not_auto_link_existing_user() {
+    let (mock_provider, server) = start_mock_oauth2_provider().await;
+    mock_provider.set_subject(Some("unverified-auto-link"));
+    mock_provider.set_email(Some("linked@example.com"));
+    mock_provider.set_email_verified(Some(false));
+
+    let state = common::setup().await;
+    configure_oauth2_public_site_url(&state);
+    let app = create_test_app!(state.clone());
+    let (admin_token, _) = register_and_login!(app);
+    let _linked_user_id = admin_create_user!(
+        app,
+        admin_token,
+        "linked-user",
+        "linked@example.com",
+        "password123"
+    );
+    let created = create_oauth2_provider_with(
+        &app,
+        &admin_token,
+        TestOAuth2ProviderOptions {
+            auto_link_verified_email_enabled: true,
+            require_email_verified: false,
+            ..TestOAuth2ProviderOptions::mock(&mock_provider.base_url)
+        },
+    )
+    .await;
+    let provider_key = created_provider_key(&created);
+
+    let state_value = start_oauth2_login(&app, &mock_provider, &provider_key, "/").await;
+    let resp = finish_oauth2_callback(&app, &provider_key, &state_value).await;
+    let flow_token = oauth2_email_required_flow(&resp);
+    assert!(!flow_token.is_empty());
+    let identities = external_auth_identity::Entity::find()
+        .all(state.writer_db())
+        .await
+        .expect("identities should query");
+    assert!(identities.is_empty());
+
+    server.stop(true).await;
+}
+
+#[actix_web::test]
+async fn finish_callback_rejects_flow_after_provider_disabled() {
+    let (mock_provider, server) = start_mock_oauth2_provider().await;
+    let state = common::setup().await;
+    configure_oauth2_public_site_url(&state);
+    let app = create_test_app!(state.clone());
+    let (admin_token, _) = register_and_login!(app);
+    let created = create_oauth2_provider_with(
+        &app,
+        &admin_token,
+        TestOAuth2ProviderOptions::mock(&mock_provider.base_url),
+    )
+    .await;
+    let provider_key = created_provider_key(&created);
+    let provider_id = created["data"]["id"].as_i64().unwrap();
+
+    let state_value = start_oauth2_login(&app, &mock_provider, &provider_key, "/").await;
+    let mut provider = external_auth_provider_repo::find_by_id(state.writer_db(), provider_id)
+        .await
+        .expect("provider should query")
+        .into_active_model();
+    provider.enabled = Set(false);
+    provider
+        .update(state.writer_db())
+        .await
+        .expect("provider should update");
+
+    let resp = finish_oauth2_callback(&app, &provider_key, &state_value).await;
+    assert_oauth2_error_redirect(&resp);
+
+    server.stop(true).await;
+}
+
+#[actix_web::test]
+async fn finish_callback_rejects_disabled_user_with_existing_identity() {
+    let (mock_provider, server) = start_mock_oauth2_provider().await;
+    mock_provider.set_subject(Some("disabled-user-subject"));
+
+    let state = common::setup().await;
+    configure_oauth2_public_site_url(&state);
+    let app = create_test_app!(state.clone());
+    let (admin_token, _) = register_and_login!(app);
+    let disabled_user_id = admin_create_user!(
+        app,
+        admin_token,
+        "disabled-user",
+        "disabled-oauth2@example.com",
+        "password123"
+    );
+    disable_user(&state, disabled_user_id).await;
+
+    let provider_model =
+        external_auth_provider_model("oauth2-disabled", &mock_provider.base_url, true)
+            .insert(state.writer_db())
+            .await
+            .expect("provider should insert");
+    external_auth_identity::ActiveModel {
+        user_id: Set(disabled_user_id),
+        provider_id: Set(provider_model.id),
+        identity_namespace: Set(mock_provider.base_url.clone()),
+        subject: Set("disabled-user-subject".to_string()),
+        email_snapshot: Set(Some("disabled-oauth2@example.com".to_string())),
+        display_name_snapshot: Set(None),
+        created_at: Set(chrono::Utc::now()),
+        updated_at: Set(chrono::Utc::now()),
+        last_login_at: Set(None),
+        ..Default::default()
+    }
+    .insert(state.writer_db())
+    .await
+    .expect("identity should insert");
+
+    let state_value = start_oauth2_login(&app, &mock_provider, "oauth2-disabled", "/").await;
+    let resp = finish_oauth2_callback(&app, "oauth2-disabled", &state_value).await;
+    assert_oauth2_error_redirect(&resp);
+
+    server.stop(true).await;
+}

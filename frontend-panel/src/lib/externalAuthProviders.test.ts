@@ -9,6 +9,9 @@ describe("external auth provider helpers", () => {
 		expect(externalAuthKindIconPath("oidc")).toBe(
 			"/static/external-auth/openid-seeklogo.svg",
 		);
+		expect(externalAuthKindIconPath("generic_oauth2")).toBe(
+			"/static/external-auth/oauth_logo.svg",
+		);
 		expect(externalAuthKindIconPath("unknown" as never)).toBe("");
 	});
 

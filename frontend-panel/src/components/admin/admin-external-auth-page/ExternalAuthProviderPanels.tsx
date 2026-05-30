@@ -13,7 +13,7 @@ import { ExternalAuthClaimFields } from "./ExternalAuthClaimFields";
 import { ExternalAuthConnectionFields } from "./ExternalAuthConnectionFields";
 import {
 	CallbackUrlField,
-	DEFAULT_SCOPES,
+	defaultScopesForKind,
 	type ExternalAuthProviderFieldChange,
 	type ExternalAuthProviderFormData,
 	ExternalAuthProviderIcon,
@@ -202,9 +202,7 @@ export function ExternalAuthSummaryPanel({
 						{t("external_auth_provider_scopes")}
 					</dt>
 					<dd className="mt-1 break-words text-xs">
-						{form.scopes.trim() ||
-							selectedKind?.default_scopes ||
-							DEFAULT_SCOPES}
+						{form.scopes.trim() || defaultScopesForKind(selectedKind)}
 					</dd>
 				</div>
 				<div>
@@ -263,13 +261,16 @@ export function ExternalAuthProviderKindPanel({
 						onClick={() => onProviderKindChange(kind.kind)}
 						className={
 							form.providerKind === kind.kind
-								? "rounded-2xl border border-primary bg-primary/5 p-5 text-left shadow-sm transition"
-								: "rounded-2xl border border-border bg-background p-5 text-left transition hover:border-primary/40 hover:bg-muted/20"
+								? "rounded-3xl border border-primary bg-primary/5 p-5 text-left shadow-sm transition"
+								: "rounded-3xl border border-border bg-background p-5 text-left transition hover:border-primary/40 hover:bg-muted/20"
 						}
 					>
 						<div className="flex items-start gap-4">
-							<div className="flex size-12 shrink-0 items-center justify-center rounded-2xl bg-white shadow-xs ring-1 ring-black/5 dark:bg-zinc-950 dark:ring-white/10">
-								<ExternalAuthProviderIcon kind={kind.kind} className="size-8" />
+							<div className="flex size-16 shrink-0 items-center justify-center rounded-2xl bg-white shadow-sm ring-1 ring-black/5">
+								<ExternalAuthProviderIcon
+									kind={kind.kind}
+									className="max-h-10 max-w-10"
+								/>
 							</div>
 							<div className="min-w-0 flex-1">
 								<div className="flex flex-wrap items-center gap-2">
@@ -450,7 +451,7 @@ export function ExternalAuthProviderRulesPanel({
 					<Input
 						id="external-auth-provider-scopes"
 						value={form.scopes}
-						placeholder={selectedKind?.default_scopes ?? DEFAULT_SCOPES}
+						placeholder={defaultScopesForKind(selectedKind)}
 						onChange={(event) => onFieldChange("scopes", event.target.value)}
 					/>
 					<p className="text-xs text-muted-foreground">

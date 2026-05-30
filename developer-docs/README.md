@@ -8,6 +8,7 @@
 
 - [架构概览](./architecture.md)
 - [关键模块设计说明](./module-designs.md)
+- [外部认证模块](./external-auth.md)
 - [API 概览](./api/index.md)
 - [测试与数据库后端](./testing.md)
 

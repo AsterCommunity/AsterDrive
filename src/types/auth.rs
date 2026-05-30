@@ -39,18 +39,23 @@ pub enum VerificationPurpose {
 pub enum ExternalAuthProviderKind {
     #[sea_orm(string_value = "oidc")]
     Oidc,
+    #[serde(rename = "generic_oauth2")]
+    #[sea_orm(string_value = "generic_oauth2")]
+    GenericOAuth2,
 }
 
 impl ExternalAuthProviderKind {
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Oidc => "oidc",
+            Self::GenericOAuth2 => "generic_oauth2",
         }
     }
 
     pub fn parse(value: &str) -> Option<Self> {
         match value {
             "oidc" => Some(Self::Oidc),
+            "generic_oauth2" => Some(Self::GenericOAuth2),
             _ => None,
         }
     }
@@ -82,6 +87,7 @@ impl ExternalAuthProviderKind {
     pub fn default_protocol(self) -> ExternalAuthProtocol {
         match self {
             Self::Oidc => ExternalAuthProtocol::Oidc,
+            Self::GenericOAuth2 => ExternalAuthProtocol::OAuth2,
         }
     }
 }

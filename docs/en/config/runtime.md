@@ -34,7 +34,7 @@ Admin -> System Settings
 | Change the title, logo, or favicon shown on login and share pages | `Site Configuration` |
 | Add external preview or WOPI opening methods for Office files | `Site Configuration -> Preview Apps` |
 | Enable or limit read-only archive preview | `Storage and Retention -> Archive Preview` |
-| Connect OIDC / SSO login providers | `Admin -> External Authentication` |
+| Connect OIDC / Generic OAuth2 / SSO login providers | `Admin -> External Authentication` |
 | Disable public registration | `User Management -> Allow Public User Registration` |
 | Change the default quota for new users, then recheck actual team quotas after creating teams | `Storage and Retention -> New User Default Storage Quota` |
 | Tune cookie security requirements and Access / Refresh Token TTLs | `Authentication and Cookies` |

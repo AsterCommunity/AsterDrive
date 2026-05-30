@@ -50,13 +50,13 @@ vi.mock("@/components/common/ConfirmDialog", () => ({
 		title: string;
 	}) =>
 		open ? (
-			<div role="dialog">
+			<dialog open>
 				<h2>{title}</h2>
 				<p>{description}</p>
 				<button type="button" onClick={onConfirm}>
 					{confirmLabel}
 				</button>
-			</div>
+			</dialog>
 		) : null,
 }));
 
@@ -488,6 +488,81 @@ describe("AdminExternalAuthPage", () => {
 		).toBeInTheDocument();
 		expect(
 			screen.queryByLabelText("external_auth_provider_display_name"),
+		).not.toBeInTheDocument();
+	});
+
+	it("ignores stale provider kind results after closing the create dialog", async () => {
+		let resolveStaleKinds:
+			| ((value: Awaited<ReturnType<typeof mockState.listKinds>>) => void)
+			| undefined;
+		mockState.listKinds
+			.mockResolvedValueOnce([])
+			.mockImplementationOnce(
+				() =>
+					new Promise((resolve) => {
+						resolveStaleKinds = resolve;
+					}),
+			)
+			.mockResolvedValueOnce([
+				{
+					authorization_url_required: true,
+					default_scopes: "openid email profile",
+					description: "Generic OAuth2 authorization-code sign-in.",
+					display_name: "Generic OAuth2",
+					issuer_url_required: false,
+					kind: "generic_oauth2",
+					manual_endpoint_configuration_supported: true,
+					protocol: "oauth2",
+					supports_discovery: false,
+					supports_email_verified_claim: true,
+					supports_pkce: true,
+					token_url_required: true,
+					userinfo_url_required: true,
+				},
+			]);
+
+		render(
+			<MemoryRouter initialEntries={["/admin/external-auth"]}>
+				<AdminExternalAuthPage />
+			</MemoryRouter>,
+		);
+
+		await waitFor(() => expect(mockState.listKinds).toHaveBeenCalledTimes(1));
+		const createButtons = screen.getAllByRole("button", {
+			name: /external_auth_provider_create/,
+		});
+		fireEvent.click(createButtons[createButtons.length - 1]);
+		await waitFor(() => expect(mockState.listKinds).toHaveBeenCalledTimes(2));
+		fireEvent.click(screen.getByRole("button", { name: "core:cancel" }));
+
+		resolveStaleKinds?.([
+			{
+				authorization_url_required: false,
+				default_scopes: "openid email profile",
+				description: "OpenID Connect authorization-code sign-in.",
+				display_name: "OpenID Connect",
+				issuer_url_required: true,
+				kind: "oidc",
+				manual_endpoint_configuration_supported: false,
+				protocol: "oidc",
+				supports_discovery: true,
+				supports_email_verified_claim: true,
+				supports_pkce: true,
+				token_url_required: false,
+				userinfo_url_required: false,
+			},
+		]);
+		await Promise.resolve();
+
+		fireEvent.click(createButtons[createButtons.length - 1]);
+		await screen.findByText("Generic OAuth2");
+		fireEvent.click(screen.getByRole("button", { name: "policy_wizard_next" }));
+
+		expect(
+			screen.getByLabelText("external_auth_provider_authorization_url"),
+		).toBeInTheDocument();
+		expect(
+			screen.queryByLabelText("external_auth_provider_issuer_url"),
 		).not.toBeInTheDocument();
 	});
 

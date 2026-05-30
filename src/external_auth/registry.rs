@@ -4,6 +4,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, OnceLock};
 
 use super::driver::{ExternalAuthProviderDescriptor, ExternalAuthProviderDriver};
+use super::providers::oauth2::OAuth2ProviderDriver;
 use super::providers::oidc::OidcProviderDriver;
 use crate::errors::{AsterError, Result};
 use crate::types::ExternalAuthProviderKind;
@@ -18,6 +19,7 @@ impl ExternalAuthProviderRegistry {
             drivers: HashMap::new(),
         };
         registry.register(OidcProviderDriver::new());
+        registry.register(OAuth2ProviderDriver::new());
         registry
     }
 
@@ -154,8 +156,7 @@ mod tests {
         registry.register(TestOidcDriver);
 
         assert!(registry.contains(ExternalAuthProviderKind::Oidc));
-        let kinds = registry.supported_kinds().collect::<Vec<_>>();
-        assert_eq!(kinds, vec![ExternalAuthProviderKind::Oidc]);
+        assert!(registry.contains(ExternalAuthProviderKind::GenericOAuth2));
     }
 
     #[test]

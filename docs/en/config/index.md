@@ -13,7 +13,7 @@ First identify which layer you need to change, then open the corresponding page.
 
 - **`config.toml`** - Decides how the service starts: listen address, node mode, database, logging, WebDAV prefix, network trust, and rate limiting
 - **`Admin -> System Settings`** - Site-wide rules: public site URL, branding, registration/login, mail, CORS, task scheduling, share streaming playback, media processing, archive preview, trash, version history, WOPI, WebDAV switch, and audit logs
-- **`Admin -> External Authentication`** - External identity providers: OIDC / SSO login entries, redirect URIs, account binding, and auto-create policies
+- **`Admin -> External Authentication`** - External identity providers: OIDC / Generic OAuth2 / SSO login entries, redirect URIs, account binding, and auto-create policies
 - **`Admin -> Storage Policies`** - Where files are actually stored, and which upload method is used
 - **`Admin -> Policy Groups`** - Which storage route different users, teams, or file sizes use
 - **`Admin -> Follower Nodes`** - How the primary connects to followers, and where the follower receives objects by default
@@ -31,7 +31,7 @@ Start service
   |     Responsible for: site, registration, cookies, mail, share streaming playback, archive preview, trash, WOPI, audit
   |
   +-- External authentication providers
-  |     Responsible for: OIDC / SSO login entries, binding rules between external identities and local accounts
+  |     Responsible for: OIDC / Generic OAuth2 / SSO login entries, binding rules between external identities and local accounts
   |
   +-- Storage policies + policy groups
   |     Responsible for: file placement, upload method, user/team routing
@@ -52,7 +52,7 @@ Anything the service must know before startup usually belongs in `config.toml`. 
 | Change database address, connection pool, or startup retries | [Database](/en/config/database) |
 | Pin the login signing secret, MFA encryption key, or first plain-HTTP bootstrap | [Login and Sessions](/en/config/auth) |
 | Public site URL, branding, registration, cookies, tokens, scheduling, share streaming playback, archive preview, trash, versions, quotas, WOPI, WebDAV, audit | [Runtime System Settings](/en/config/runtime) |
-| Connect OIDC / SSO external login and manage external identity providers | [Login and Sessions](/en/config/auth) / [Admin Console](/en/guide/admin-console#external-authentication) |
+| Connect OIDC / Generic OAuth2 / SSO external login and manage external identity providers | [External Authentication](/en/config/external-auth) / [Login and Sessions](/en/config/auth) |
 | Configure SMTP, send test mail, or edit mail templates | [Mail](/en/config/mail) |
 | Decide where files are stored and how uploads/downloads work | [Storage Policies](/en/config/storage) |
 | Follow a tutorial for S3 / MinIO / R2 backends | [Storage Policy Backends](/en/storage/) |
@@ -134,7 +134,7 @@ One-time bootstrap inputs such as enrollment tokens can be removed after success
 ::: tip Easy-to-miss items before going online
 - Before exposing the site publicly, set `Public Site URL`; add multiple public domains one by one and put the default origin first
 - Before enabling registration, password recovery, or email address changes, verify that mail can be sent
-- Before enabling external authentication, set `Public Site URL` correctly, then copy the redirect URI from `Admin -> External Authentication`
+- Before enabling external authentication, set `Public Site URL` correctly, then copy the redirect URI from `Admin -> External Authentication`; see [External Authentication](/en/config/external-auth) for details
 - Disable the HTTPS requirement for cookies only in plain-HTTP test environments
 - When capacity is tight, shorten retention for trash, historical versions, and task artifacts
 - If thumbnails do not behave as expected, check `Storage and Retention -> Media Processing`

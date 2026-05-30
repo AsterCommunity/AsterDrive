@@ -6,6 +6,7 @@ import {
 	callbackUrl,
 	connectionRequirementsMissing,
 	createPayload,
+	defaultScopesForKind,
 	emptyForm,
 	formatTestResultSummary,
 	formClaimSummary,
@@ -144,6 +145,25 @@ function kind(
 	};
 }
 
+function oauth2Kind(
+	overrides: Partial<AdminExternalAuthProviderKindInfo> = {},
+): AdminExternalAuthProviderKindInfo {
+	return kind({
+		authorization_url_required: true,
+		default_scopes: "openid email profile",
+		description: "OAuth2 sign-in.",
+		display_name: "Generic OAuth2",
+		issuer_url_required: false,
+		kind: "generic_oauth2",
+		manual_endpoint_configuration_supported: true,
+		protocol: "oauth2",
+		supports_discovery: false,
+		token_url_required: true,
+		userinfo_url_required: true,
+		...overrides,
+	});
+}
+
 describe("admin external auth shared helpers", () => {
 	it("normalizes domains and payload text fields", () => {
 		expect(parseAllowedDomains(" @Example.COM, example.com\nTeam.io ")).toEqual(
@@ -192,6 +212,33 @@ describe("admin external auth shared helpers", () => {
 		});
 	});
 
+	it("uses provider descriptor defaults for generic OAuth2 scopes", () => {
+		const descriptor = oauth2Kind();
+		const form = {
+			...emptyForm,
+			authorizationUrl: "https://idp.example.com/authorize",
+			clientId: "client-123",
+			displayName: "Generic OAuth2",
+			providerKind: "generic_oauth2" as const,
+			scopes: " ",
+			tokenUrl: "https://idp.example.com/token",
+			userinfoUrl: "https://idp.example.com/userinfo",
+		};
+
+		expect(defaultScopesForKind(descriptor)).toBe("openid email profile");
+		expect(createPayload(form, descriptor)).toMatchObject({
+			provider_kind: "generic_oauth2",
+			scopes: "openid email profile",
+		});
+		expect(updatePayload(form, descriptor)).toMatchObject({
+			scopes: "openid email profile",
+		});
+		expect(testParamsPayload(form, descriptor)).toMatchObject({
+			provider_kind: "generic_oauth2",
+			scopes: "openid email profile",
+		});
+	});
+
 	it("maps saved providers into editable forms and detects connection changes", () => {
 		const saved = provider();
 		const form = formFromProvider(saved);
@@ -216,6 +263,23 @@ describe("admin external auth shared helpers", () => {
 			formConnectionChanged(
 				{ ...form, clientSecret: "" },
 				provider({ client_secret_configured: false }),
+			),
+		).toBe(false);
+		expect(
+			formConnectionChanged(
+				{
+					...form,
+					clientSecret: "***REDACTED***",
+					providerKind: "generic_oauth2",
+					scopes: "",
+				},
+				provider({
+					client_secret_configured: true,
+					provider_kind: "generic_oauth2",
+					protocol: "oauth2",
+					scopes: "openid email profile",
+				}),
+				oauth2Kind(),
 			),
 		).toBe(false);
 	});
@@ -263,6 +327,9 @@ describe("admin external auth shared helpers", () => {
 
 		expect(kindDisplayName(translate as never, "oidc", [])).toBe(
 			"OpenID Connect",
+		);
+		expect(kindDisplayName(translate as never, "generic_oauth2", [])).toBe(
+			"Generic OAuth2",
 		);
 		expect(kindDescription(translate as never, kind())).toBe("OIDC sign-in.");
 		expect(securityModeLabel(translate as never, provider())).toBe(

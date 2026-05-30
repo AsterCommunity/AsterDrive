@@ -3,6 +3,7 @@
 pub mod driver;
 pub mod providers;
 pub mod registry;
+pub(crate) mod url;
 
 pub use crate::types::{ExternalAuthProtocol, ExternalAuthProviderKind};
 pub use driver::{
