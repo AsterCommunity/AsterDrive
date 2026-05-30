@@ -146,7 +146,7 @@ Administrators can connect external identity providers here:
 Admin -> External Authentication
 ```
 
-AsterDrive currently includes OpenID Connect support. After creating a provider, the login page shows the corresponding external login entry. The administrator must register the generated redirect URI on the identity provider side.
+AsterDrive currently includes OpenID Connect and Generic OAuth2 support. After creating a provider, the login page shows the corresponding external login entry. The administrator must register the generated redirect URI on the identity provider side. See [External Authentication](/en/config/external-auth) for the full setup guide.
 
 The relationship between external identities and local users is determined by provider rules:
 

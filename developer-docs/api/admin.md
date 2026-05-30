@@ -155,7 +155,7 @@
 
 ## 外部认证提供商
 
-外部认证 provider 由管理员配置，匿名登录入口只读取启用后的公开摘要。当前支持的 provider kind 是 `oidc`。
+外部认证 provider 由管理员配置，匿名登录入口只读取启用后的公开摘要。当前支持的 provider kind 是 `oidc` 和 `generic_oauth2`。
 
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
@@ -187,15 +187,38 @@
 }
 ```
 
+创建 Generic OAuth2 provider 示例：
+
+```json
+{
+  "provider_kind": "generic_oauth2",
+  "display_name": "Logto",
+  "icon_url": "/static/external-auth/oauth_logo.svg",
+  "issuer_url": "https://id.example.com",
+  "authorization_url": "https://id.example.com/oidc/auth",
+  "token_url": "https://id.example.com/oidc/token",
+  "userinfo_url": "https://id.example.com/oidc/me",
+  "client_id": "asterdrive",
+  "client_secret": "secret",
+  "scopes": "openid email profile",
+  "enabled": true,
+  "auto_provision_enabled": false,
+  "auto_link_verified_email_enabled": false,
+  "require_email_verified": true
+}
+```
+
 当前实现注意点：
 
 - provider `key` 由服务端生成，登录路径使用 `/auth/external-auth/{kind}/{provider}/start`
 - `issuer_url`、`authorization_url`、`token_url`、`userinfo_url` 必须是 HTTPS，localhost 例外；fragment 不允许
-- 支持 OIDC discovery；也支持在 provider kind 允许时手动配置 endpoint
+- `oidc` 支持 discovery；`generic_oauth2` 要手动配置 authorization、token 和 userinfo endpoint
+- provider kind 的能力、默认 scope 和字段要求来自 `GET /admin/external-auth/provider-kinds`
 - `client_secret` 在读取详情时会脱敏为 `***REDACTED***`，同时返回 `client_secret_configured`
 - `auto_provision_enabled` 允许外部身份自动创建本地用户；`allowed_domains` 可限制邮箱域名
 - `auto_link_verified_email_enabled` 允许用已验证邮箱自动绑定已有本地用户
 - `require_email_verified` 打开后，未验证邮箱的外部身份需要走 `/auth/external-auth/email-verification/*`
+- Generic OAuth2 有 `client_secret` 时使用 `client_secret_post` 发起一次 token exchange；不会为了探测认证方式重放 authorization code
 - 创建、更新、删除和测试都会写管理员审计日志
 
 ## 文件与 Blob 管理
