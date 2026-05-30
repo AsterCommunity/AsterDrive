@@ -16,6 +16,7 @@ pub const TEST_CLIENT_SECRET: &str = "super-secret";
 
 pub struct TestOAuth2ProviderOptions {
     pub base_url: String,
+    pub client_secret: Option<String>,
     pub enabled: bool,
     pub auto_provision_enabled: bool,
     pub auto_link_verified_email_enabled: bool,
@@ -27,6 +28,7 @@ impl TestOAuth2ProviderOptions {
     pub fn mock(base_url: &str) -> Self {
         Self {
             base_url: base_url.to_string(),
+            client_secret: Some(TEST_CLIENT_SECRET.to_string()),
             enabled: true,
             auto_provision_enabled: false,
             auto_link_verified_email_enabled: false,
@@ -50,30 +52,33 @@ where
     B: MessageBody,
     E: std::fmt::Debug,
 {
+    let mut payload = serde_json::json!({
+        "provider_kind": "generic_oauth2",
+        "display_name": "Generic OAuth2",
+        "authorization_url": format!("{}/authorize", options.base_url),
+        "token_url": format!("{}/token", options.base_url),
+        "userinfo_url": format!("{}/userinfo", options.base_url),
+        "client_id": TEST_CLIENT_ID,
+        "scopes": "read:user user:email",
+        "enabled": options.enabled,
+        "auto_provision_enabled": options.auto_provision_enabled,
+        "auto_link_verified_email_enabled": options.auto_link_verified_email_enabled,
+        "require_email_verified": options.require_email_verified,
+        "subject_claim": "id",
+        "username_claim": "login",
+        "display_name_claim": "name",
+        "email_claim": "email",
+        "email_verified_claim": "email_verified",
+        "allowed_domains": options.allowed_domains
+    });
+    if let Some(client_secret) = options.client_secret {
+        payload["client_secret"] = serde_json::json!(client_secret);
+    }
     let req = test::TestRequest::post()
         .uri("/api/v1/admin/external-auth/providers")
         .insert_header(("Cookie", common::access_cookie_header(admin_token)))
         .insert_header(common::csrf_header_for(admin_token))
-        .set_json(serde_json::json!({
-            "provider_kind": "generic_oauth2",
-            "display_name": "Generic OAuth2",
-            "authorization_url": format!("{}/authorize", options.base_url),
-            "token_url": format!("{}/token", options.base_url),
-            "userinfo_url": format!("{}/userinfo", options.base_url),
-            "client_id": TEST_CLIENT_ID,
-            "client_secret": TEST_CLIENT_SECRET,
-            "scopes": "read:user user:email",
-            "enabled": options.enabled,
-            "auto_provision_enabled": options.auto_provision_enabled,
-            "auto_link_verified_email_enabled": options.auto_link_verified_email_enabled,
-            "require_email_verified": options.require_email_verified,
-            "subject_claim": "id",
-            "username_claim": "login",
-            "display_name_claim": "name",
-            "email_claim": "email",
-            "email_verified_claim": "email_verified",
-            "allowed_domains": options.allowed_domains
-        }))
+        .set_json(payload)
         .to_request();
     let resp = test::call_service(app, req).await;
     assert_eq!(resp.status(), 201);

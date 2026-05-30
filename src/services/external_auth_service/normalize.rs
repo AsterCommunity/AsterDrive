@@ -1,6 +1,7 @@
 use crate::config::site_url;
 use crate::entities::external_auth_provider;
 use crate::errors::{AsterError, MapAsterErr, Result};
+use crate::external_auth::url::{is_https_or_loopback_http, parse_url};
 use crate::runtime::PrimaryAppState;
 use crate::services::auth_service;
 use crate::types::{ExternalAuthProtocol, ExternalAuthProviderKind, NullablePatch};
@@ -156,16 +157,11 @@ fn normalize_optional_url(
         )));
     }
     let parse_context = format!("invalid external auth {field}");
-    let parsed =
-        url::Url::parse(trimmed).map_aster_err_ctx(&parse_context, AsterError::validation_error)?;
-    match parsed.scheme() {
-        "https" => {}
-        "http" if parsed.host_str().is_some_and(is_loopback_host) => {}
-        _ => {
-            return Err(AsterError::validation_error(format!(
-                "external auth {field} must use HTTPS, except localhost"
-            )));
-        }
+    let parsed = parse_url(trimmed, &parse_context, AsterError::validation_error)?;
+    if !is_https_or_loopback_http(&parsed) {
+        return Err(AsterError::validation_error(format!(
+            "external auth {field} must use HTTPS, except localhost"
+        )));
     }
     if parsed.fragment().is_some() {
         return Err(AsterError::validation_error(format!(
@@ -196,18 +192,15 @@ pub(super) fn normalize_icon_url_input(value: Option<String>) -> Result<Option<S
     if trimmed.starts_with('/') && !trimmed.starts_with("//") {
         return Ok(Some(trimmed.to_string()));
     }
-    let parsed = url::Url::parse(trimmed).map_aster_err_ctx(
+    let parsed = parse_url(
+        trimmed,
         "invalid external auth icon_url",
         AsterError::validation_error,
     )?;
-    match parsed.scheme() {
-        "https" => {}
-        "http" if parsed.host_str().is_some_and(is_loopback_host) => {}
-        _ => {
-            return Err(AsterError::validation_error(
-                "external auth icon_url must be a root-relative path or HTTPS URL, except localhost",
-            ));
-        }
+    if !is_https_or_loopback_http(&parsed) {
+        return Err(AsterError::validation_error(
+            "external auth icon_url must be a root-relative path or HTTPS URL, except localhost",
+        ));
     }
     if parsed.fragment().is_some() {
         return Err(AsterError::validation_error(
@@ -232,7 +225,8 @@ pub(super) fn normalize_issuer_url_input(
         }
         return Ok(None);
     };
-    let parsed = url::Url::parse(&issuer).map_aster_err_ctx(
+    let parsed = parse_url(
+        &issuer,
         "invalid external auth issuer_url",
         AsterError::validation_error,
     )?;
@@ -260,10 +254,6 @@ pub(super) fn normalize_manual_endpoint_input(
         return Err(AsterError::validation_error(format!("{field} is required")));
     }
     Ok(endpoint)
-}
-
-fn is_loopback_host(host: &str) -> bool {
-    host == "localhost" || host == "127.0.0.1" || host == "::1"
 }
 
 pub(super) fn normalize_allowed_domains(value: Option<Vec<String>>) -> Result<Option<String>> {

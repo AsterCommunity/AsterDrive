@@ -178,7 +178,7 @@ AsterDrive 的管理后台**故意做得不"全功能"**。
 - 填写显示名称、图标、Issuer URL、Client ID 和可选 Client Secret
 - 为通用 OAuth2 手动填写 Authorization、Token 和 UserInfo endpoint
 - 复制 AsterDrive 生成的重定向 URI，并登记到身份提供商侧
-- 测试 discovery、JWKS 或手动 endpoint 是否可达
+- 校验提供商配置；OIDC 会加载 discovery/JWKS，通用 OAuth2 只校验格式和必填项（不探活 authorization/token/userinfo endpoint）
 - 限制允许登录的邮箱域名
 - 调整 claim 映射，例如用户名、显示名、邮箱、邮箱验证状态
 - 控制是否要求身份提供商返回已验证邮箱

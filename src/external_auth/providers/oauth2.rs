@@ -15,6 +15,7 @@ use crate::external_auth::driver::{
     ExternalAuthProviderConfig, ExternalAuthProviderDescriptor, ExternalAuthProviderDriver,
     ExternalAuthProviderTestCheck, ExternalAuthProviderTestResult,
 };
+use crate::external_auth::url::{has_http_scheme, parse_url};
 use crate::services::auth_service;
 use crate::types::{ExternalAuthProtocol, ExternalAuthProviderKind};
 use crate::utils::{OUTBOUND_HTTP_USER_AGENT, id};
@@ -109,8 +110,11 @@ impl ExternalAuthProviderDriver for OAuth2ProviderDriver {
             "authorization_url",
             AsterError::config_error,
         )?;
-        let mut authorization_url = Url::parse(authorization_url)
-            .map_aster_err_ctx("invalid OAuth2 authorization_url", AsterError::config_error)?;
+        let mut authorization_url = validate_url(
+            authorization_url,
+            "authorization_url",
+            AsterError::config_error,
+        )?;
         let state = format!("oauth2_{}", id::new_short_token());
         let pkce_verifier = build_pkce_verifier();
         let pkce_challenge = build_pkce_challenge(&pkce_verifier);
@@ -235,7 +239,13 @@ fn require_url<'a>(
 }
 
 fn validate_url(value: &str, field: &str, error_fn: fn(String) -> AsterError) -> Result<Url> {
-    Url::parse(value).map_aster_err_ctx(&format!("invalid OAuth2 {field}"), error_fn)
+    let parsed = parse_url(value, &format!("invalid OAuth2 {field}"), error_fn)?;
+    if !has_http_scheme(&parsed) {
+        return Err(error_fn(format!(
+            "unsupported URL scheme for OAuth2 {field}, only http/https allowed"
+        )));
+    }
+    Ok(parsed)
 }
 
 fn build_pkce_verifier() -> String {
@@ -414,7 +424,6 @@ async fn fetch_userinfo(
         .get(userinfo_url)
         .bearer_auth(access_token)
         .header(header::ACCEPT, "application/json")
-        .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
         .send()
         .await
         .map_aster_err_ctx(
@@ -629,6 +638,17 @@ mod tests {
 
         assert_eq!(profile.subject, "github-1");
         assert!(!profile.email_verified);
+    }
+
+    #[test]
+    fn validate_url_rejects_non_http_schemes() {
+        let err = validate_url("file:///tmp/token", "token_url", AsterError::config_error)
+            .expect_err("non-http OAuth2 URL should be rejected");
+
+        assert!(
+            err.to_string()
+                .contains("unsupported URL scheme for OAuth2 token_url")
+        );
     }
 
     #[test]

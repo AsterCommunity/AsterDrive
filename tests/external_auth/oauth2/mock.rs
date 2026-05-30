@@ -16,6 +16,7 @@ pub enum TokenAuthObservation {
 pub struct MockOAuth2Provider {
     pub base_url: String,
     authorization_requests: Arc<Mutex<Vec<AuthorizeRequest>>>,
+    expected_token_auth: Arc<Mutex<TokenAuthObservation>>,
     token_auth_observations: Arc<Mutex<Vec<TokenAuthObservation>>>,
     profile_subject: Arc<Mutex<Option<String>>>,
     profile_email: Arc<Mutex<Option<String>>>,
@@ -49,6 +50,7 @@ impl MockOAuth2Provider {
         Self {
             base_url: String::new(),
             authorization_requests: Arc::new(Mutex::new(Vec::new())),
+            expected_token_auth: Arc::new(Mutex::new(TokenAuthObservation::Post)),
             token_auth_observations: Arc::new(Mutex::new(Vec::new())),
             profile_subject: Arc::new(Mutex::new(Some("oauth2-subject-1".to_string()))),
             profile_email: Arc::new(Mutex::new(Some("oauth2-user@example.com".to_string()))),
@@ -75,6 +77,13 @@ impl MockOAuth2Provider {
             .lock()
             .expect("token auth observations lock should not be poisoned")
             .clone()
+    }
+
+    pub fn set_expected_token_auth(&self, expected: TokenAuthObservation) {
+        *self
+            .expected_token_auth
+            .lock()
+            .expect("expected token auth lock should not be poisoned") = expected;
     }
 
     pub fn set_subject(&self, subject: Option<&str>) {
@@ -192,13 +201,33 @@ async fn mock_token(
         .expect("token auth observations lock should not be poisoned")
         .push(auth_observation);
 
-    if auth_observation != TokenAuthObservation::Post {
+    let expected_auth = *provider
+        .expected_token_auth
+        .lock()
+        .expect("expected token auth lock should not be poisoned");
+    if auth_observation != expected_auth {
         return HttpResponse::Unauthorized().json(serde_json::json!({
             "error": "invalid_client"
         }));
     }
-    assert_eq!(request.client_id.as_deref(), Some(TEST_CLIENT_ID));
-    assert_eq!(request.client_secret.as_deref(), Some(TEST_CLIENT_SECRET));
+    match expected_auth {
+        TokenAuthObservation::Basic => {
+            assert_eq!(
+                basic_credentials(&req),
+                Some((TEST_CLIENT_ID.to_string(), TEST_CLIENT_SECRET.to_string()))
+            );
+            assert_eq!(request.client_id, None);
+            assert_eq!(request.client_secret, None);
+        }
+        TokenAuthObservation::Post => {
+            assert_eq!(request.client_id.as_deref(), Some(TEST_CLIENT_ID));
+            assert_eq!(request.client_secret.as_deref(), Some(TEST_CLIENT_SECRET));
+        }
+        TokenAuthObservation::None => {
+            assert_eq!(request.client_id.as_deref(), Some(TEST_CLIENT_ID));
+            assert_eq!(request.client_secret, None);
+        }
+    }
 
     HttpResponse::Ok().json(serde_json::json!({
         "access_token": "mock-access-token",
