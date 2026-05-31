@@ -383,7 +383,7 @@ vi.mock("@/components/ui/dialog", () => ({
 		open?: boolean;
 	}) => (open ? <div>{children}</div> : null),
 	DialogContent: ({ children }: { children: React.ReactNode }) => (
-		<div role="dialog">{children}</div>
+		<dialog open>{children}</dialog>
 	),
 	DialogDescription: ({ children }: { children: React.ReactNode }) => (
 		<p>{children}</p>
@@ -401,13 +401,11 @@ vi.mock("@/components/ui/dialog", () => ({
 
 vi.mock("@/components/ui/switch", () => ({
 	Switch: ({
-		"aria-invalid": ariaInvalid,
 		checked,
 		disabled,
 		id,
 		onCheckedChange,
 	}: {
-		"aria-invalid"?: boolean;
 		checked: boolean;
 		disabled?: boolean;
 		id?: string;
@@ -416,7 +414,6 @@ vi.mock("@/components/ui/switch", () => ({
 		<button
 			type="button"
 			id={id}
-			aria-invalid={ariaInvalid}
 			aria-label={`switch:${id ?? "config"}:${checked}`}
 			disabled={disabled}
 			onClick={() => {
