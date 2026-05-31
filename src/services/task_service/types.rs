@@ -505,8 +505,9 @@ pub struct CreateOfflineDownloadTaskParams {
     /// Source URL validated by `parse_and_validate_source_url`; only `http://`
     /// and `https://` URLs with a host are accepted. Local or executable
     /// schemes such as `file://`, `javascript:`, and `data:` are rejected.
-    /// Credentials and query parameters may be present in the submitted URL,
-    /// but display paths are derived through `redact_url_for_display`.
+    /// Credentials in the URL userinfo component are rejected so they are not
+    /// persisted in task payloads; query parameters are accepted, but display
+    /// paths are derived through `redact_url_for_display`.
     pub url: String,
     /// Optional target filename. Empty values are ignored; non-empty values
     /// must pass `normalize_validate_name`, so path separators and unsafe

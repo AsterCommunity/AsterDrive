@@ -22,7 +22,8 @@ use crate::services::{
     folder_service,
     task_service::{
         TaskInfo, TaskLeaseGuard, cleanup_task_temp_dir_for_task, create_typed_task_record,
-        get_task_in_scope, mark_task_progress, mark_task_succeeded, prepare_task_temp_dir,
+        get_task_in_scope, is_task_lease_lost, is_task_lease_renewal_timed_out, mark_task_progress,
+        mark_task_succeeded, prepare_task_temp_dir,
         spec::{self, OfflineDownloadTask, decode_payload_as},
         steps::{
             TASK_STEP_DOWNLOAD_SOURCE, TASK_STEP_STORE_RESULT, TASK_STEP_VALIDATE_SOURCE,
@@ -36,10 +37,11 @@ use crate::services::{
     },
     workspace_storage_service::{self, WorkspaceStorageScope},
 };
-use crate::utils::numbers::{u64_to_i64, usize_to_i64, usize_to_u32};
+use crate::utils::numbers::{i64_to_u64, u64_to_i64, u128_to_u64, usize_to_i64, usize_to_u32};
 
 const OFFLINE_DOWNLOAD_TEMP_FILE_NAME: &str = "source";
 const PROGRESS_UPDATE_INTERVAL: StdDuration = StdDuration::from_millis(800);
+const THROTTLED_DOWNLOAD_TIMEOUT_SLACK_SECS: u64 = 30;
 
 pub(crate) async fn create_offline_download_task_in_scope(
     state: &PrimaryAppState,
@@ -54,6 +56,8 @@ pub(crate) async fn create_offline_download_task_in_scope(
     }
 
     let payload = OfflineDownloadTaskPayload {
+        // TODO: Move raw source URLs out of persistent task payloads once
+        // short-lived encrypted task secret storage exists.
         url: request.url.as_str().to_string(),
         filename: request.filename,
         target_folder_id: request.target_folder_id,
@@ -81,177 +85,200 @@ pub(super) async fn process_offline_download_task(
     task: &background_task::Model,
     lease_guard: TaskLeaseGuard,
 ) -> Result<()> {
-    let scope = task_scope(task)?;
-    let payload = decode_payload_as::<OfflineDownloadTask>(task)?;
-    let mut steps =
-        parse_task_steps_json(task.steps_json.as_ref().map(|raw| raw.as_ref()), task.kind)?;
-    set_task_step_succeeded(
-        &mut steps,
-        TASK_STEP_WAITING,
-        Some("Worker claimed task"),
-        None,
-    )?;
-    set_task_step_active(
-        &mut steps,
-        TASK_STEP_VALIDATE_SOURCE,
-        Some("Validating source URL"),
-        None,
-    )?;
-    mark_task_progress(
-        state,
-        &lease_guard,
-        0,
-        0,
-        Some("Validating source URL"),
-        &steps,
-    )
-    .await?;
-
-    if let Some(target_folder_id) = payload.target_folder_id {
-        workspace_storage_service::verify_folder_access(state, scope, target_folder_id).await?;
-    }
-    let source_url = parse_and_validate_source_url(&payload.url)?;
-    let source_display_url = payload
-        .source_display_url
-        .clone()
-        .unwrap_or_else(|| redact_url_for_display(&source_url));
-    let task_temp_dir = prepare_task_temp_dir(state, lease_guard.lease()).await?;
-    let temp_path = Path::new(&task_temp_dir).join(OFFLINE_DOWNLOAD_TEMP_FILE_NAME);
-    let max_bytes = operations::offline_download_max_file_size_bytes(&state.runtime_config);
-    let max_bytes_per_sec = operations::offline_download_max_bytes_per_sec(&state.runtime_config);
-    let timeout = StdDuration::from_secs(
-        operations::offline_download_request_timeout_secs(&state.runtime_config).max(1),
-    );
-    let mut engine = BuiltinHttpOfflineDownloadEngine::new(max_bytes, timeout);
-
-    set_task_step_succeeded(
-        &mut steps,
-        TASK_STEP_VALIDATE_SOURCE,
-        Some("Source URL accepted"),
-        None,
-    )?;
-    set_task_step_active(
-        &mut steps,
-        TASK_STEP_DOWNLOAD_SOURCE,
-        Some("Downloading source file"),
-        None,
-    )?;
-    mark_task_progress(
-        state,
-        &lease_guard,
-        0,
-        0,
-        Some("Downloading source file"),
-        &steps,
-    )
-    .await?;
-
-    let downloaded = engine
-        .download(
+    let result = async {
+        let scope = task_scope(task)?;
+        let payload = decode_payload_as::<OfflineDownloadTask>(task)?;
+        let mut steps =
+            parse_task_steps_json(task.steps_json.as_ref().map(|raw| raw.as_ref()), task.kind)?;
+        set_task_step_succeeded(
+            &mut steps,
+            TASK_STEP_WAITING,
+            Some("Worker claimed task"),
+            None,
+        )?;
+        set_task_step_active(
+            &mut steps,
+            TASK_STEP_VALIDATE_SOURCE,
+            Some("Validating source URL"),
+            None,
+        )?;
+        mark_task_progress(
             state,
             &lease_guard,
-            OfflineDownloadStartRequest {
-                url: source_url,
-                temp_path: temp_path.clone(),
-                expected_sha256: payload.expected_sha256.clone(),
-                max_bytes_per_sec,
-            },
-            &mut steps,
+            0,
+            0,
+            Some("Validating source URL"),
+            &steps,
         )
         .await?;
 
-    set_task_step_succeeded(
-        &mut steps,
-        TASK_STEP_DOWNLOAD_SOURCE,
-        Some("Source file downloaded"),
-        Some((downloaded.bytes_written, downloaded.progress_total())),
-    )?;
-    set_task_step_active(
-        &mut steps,
-        TASK_STEP_VERIFY_SOURCE,
-        Some("Verifying downloaded file"),
-        Some((downloaded.bytes_written, downloaded.progress_total())),
-    )?;
-    mark_task_progress(
-        state,
-        &lease_guard,
-        downloaded.bytes_written,
-        downloaded.progress_total(),
-        Some("Verifying downloaded file"),
-        &steps,
-    )
-    .await?;
-    set_task_step_succeeded(
-        &mut steps,
-        TASK_STEP_VERIFY_SOURCE,
-        Some("Downloaded file verified"),
-        Some((downloaded.bytes_written, downloaded.progress_total())),
-    )?;
+        if let Some(target_folder_id) = payload.target_folder_id {
+            workspace_storage_service::verify_folder_access(state, scope, target_folder_id).await?;
+        }
+        let source_url = parse_and_validate_source_url(&payload.url)?;
+        let source_display_url = payload
+            .source_display_url
+            .clone()
+            .unwrap_or_else(|| redact_url_for_display(&source_url));
+        let task_temp_dir = prepare_task_temp_dir(state, lease_guard.lease()).await?;
+        let temp_path = Path::new(&task_temp_dir).join(OFFLINE_DOWNLOAD_TEMP_FILE_NAME);
+        let max_bytes = operations::offline_download_max_file_size_bytes(&state.runtime_config);
+        let max_bytes_per_sec =
+            operations::offline_download_max_bytes_per_sec(&state.runtime_config);
+        let timeout = StdDuration::from_secs(
+            operations::offline_download_request_timeout_secs(&state.runtime_config).max(1),
+        );
+        let timeout =
+            effective_offline_download_request_timeout(timeout, max_bytes, max_bytes_per_sec)?;
+        let mut engine = BuiltinHttpOfflineDownloadEngine::new(max_bytes, timeout);
 
-    let filename = resolve_offline_download_filename(
-        payload.filename.as_deref(),
-        downloaded.response_filename.as_deref(),
-        &downloaded.final_url,
-    )?;
-    set_task_step_active(
-        &mut steps,
-        TASK_STEP_STORE_RESULT,
-        Some("Importing file to workspace"),
-        Some((downloaded.bytes_written, downloaded.progress_total())),
-    )?;
-    mark_task_progress(
-        state,
-        &lease_guard,
-        downloaded.bytes_written,
-        downloaded.progress_total(),
-        Some("Importing file to workspace"),
-        &steps,
-    )
-    .await?;
+        set_task_step_succeeded(
+            &mut steps,
+            TASK_STEP_VALIDATE_SOURCE,
+            Some("Source URL accepted"),
+            None,
+        )?;
+        set_task_step_active(
+            &mut steps,
+            TASK_STEP_DOWNLOAD_SOURCE,
+            Some("Downloading source file"),
+            None,
+        )?;
+        mark_task_progress(
+            state,
+            &lease_guard,
+            0,
+            0,
+            Some("Downloading source file"),
+            &steps,
+        )
+        .await?;
 
-    let stored = workspace_storage_service::store_from_temp_internal(
-        state,
-        workspace_storage_service::StoreFromTempParams::new(
-            scope,
-            payload.target_folder_id,
-            &filename,
-            &temp_path.to_string_lossy(),
+        let downloaded = engine
+            .download(
+                state,
+                &lease_guard,
+                OfflineDownloadStartRequest {
+                    url: source_url,
+                    temp_path: temp_path.clone(),
+                    expected_sha256: payload.expected_sha256.clone(),
+                    max_bytes_per_sec,
+                },
+                &mut steps,
+            )
+            .await?;
+
+        set_task_step_succeeded(
+            &mut steps,
+            TASK_STEP_DOWNLOAD_SOURCE,
+            Some("Source file downloaded"),
+            Some((downloaded.bytes_written, downloaded.progress_total())),
+        )?;
+        set_task_step_active(
+            &mut steps,
+            TASK_STEP_VERIFY_SOURCE,
+            Some("Verifying downloaded file"),
+            Some((downloaded.bytes_written, downloaded.progress_total())),
+        )?;
+        mark_task_progress(
+            state,
+            &lease_guard,
             downloaded.bytes_written,
-        ),
-        workspace_storage_service::StoreFromTempHints {
-            precomputed_hash: Some(&downloaded.sha256),
-            ..Default::default()
-        },
-        workspace_storage_service::NewFileMode::ResolveUnique,
-        true,
-    )
-    .await?;
-    cleanup_task_temp_dir_for_task(state, task.id).await?;
-    set_task_step_succeeded(
-        &mut steps,
-        TASK_STEP_STORE_RESULT,
-        Some(&format!("Imported as {}", stored.name)),
-        Some((downloaded.bytes_written, downloaded.progress_total())),
-    )?;
-    let result_json = spec::serialize_result::<OfflineDownloadTask>(&OfflineDownloadTaskResult {
-        file_id: stored.id,
-        file_name: stored.name.clone(),
-        folder_id: stored.folder_id,
-        file_path: build_download_result_path(state, scope, &stored).await?,
-        source_display_url,
-        content_length: downloaded.bytes_written,
-        sha256: downloaded.sha256.clone(),
-    })?;
-    mark_task_succeeded(
-        state,
-        &lease_guard,
-        Some(&result_json),
-        downloaded.bytes_written,
-        downloaded.progress_total(),
-        Some("Offline download imported"),
-        &steps,
-    )
-    .await
+            downloaded.progress_total(),
+            Some("Verifying downloaded file"),
+            &steps,
+        )
+        .await?;
+        set_task_step_succeeded(
+            &mut steps,
+            TASK_STEP_VERIFY_SOURCE,
+            Some("Downloaded file verified"),
+            Some((downloaded.bytes_written, downloaded.progress_total())),
+        )?;
+
+        let filename = resolve_offline_download_filename(
+            payload.filename.as_deref(),
+            downloaded.response_filename.as_deref(),
+            &downloaded.final_url,
+        )?;
+        set_task_step_active(
+            &mut steps,
+            TASK_STEP_STORE_RESULT,
+            Some("Importing file to workspace"),
+            Some((downloaded.bytes_written, downloaded.progress_total())),
+        )?;
+        mark_task_progress(
+            state,
+            &lease_guard,
+            downloaded.bytes_written,
+            downloaded.progress_total(),
+            Some("Importing file to workspace"),
+            &steps,
+        )
+        .await?;
+
+        let stored = workspace_storage_service::store_from_temp_internal(
+            state,
+            workspace_storage_service::StoreFromTempParams::new(
+                scope,
+                payload.target_folder_id,
+                &filename,
+                &temp_path.to_string_lossy(),
+                downloaded.bytes_written,
+            ),
+            workspace_storage_service::StoreFromTempHints {
+                precomputed_hash: Some(&downloaded.sha256),
+                ..Default::default()
+            },
+            workspace_storage_service::NewFileMode::ResolveUnique,
+            true,
+        )
+        .await?;
+        cleanup_task_temp_dir_for_task(state, task.id).await?;
+        set_task_step_succeeded(
+            &mut steps,
+            TASK_STEP_STORE_RESULT,
+            Some(&format!("Imported as {}", stored.name)),
+            Some((downloaded.bytes_written, downloaded.progress_total())),
+        )?;
+        let result_json =
+            spec::serialize_result::<OfflineDownloadTask>(&OfflineDownloadTaskResult {
+                file_id: stored.id,
+                file_name: stored.name.clone(),
+                folder_id: stored.folder_id,
+                file_path: build_download_result_path(state, scope, &stored).await?,
+                source_display_url,
+                content_length: downloaded.bytes_written,
+                sha256: downloaded.sha256.clone(),
+            })?;
+        mark_task_succeeded(
+            state,
+            &lease_guard,
+            Some(&result_json),
+            downloaded.bytes_written,
+            downloaded.progress_total(),
+            Some("Offline download imported"),
+            &steps,
+        )
+        .await
+    }
+    .await;
+
+    match result {
+        Ok(()) => Ok(()),
+        Err(error) => {
+            if !is_task_lease_lost(&error)
+                && !is_task_lease_renewal_timed_out(&error)
+                && let Err(cleanup_error) = cleanup_task_temp_dir_for_task(state, task.id).await
+            {
+                tracing::warn!(
+                    task_id = task.id,
+                    "failed to cleanup offline download temp dir after error: {cleanup_error}"
+                );
+            }
+            Err(error)
+        }
+    }
 }
 
 pub(super) struct OfflineDownloadRetryPolicy;
@@ -515,7 +542,33 @@ fn parse_and_validate_source_url(raw: &str) -> Result<Url> {
             "offline download url must include a host",
         ));
     }
+    if !url.username().is_empty() || url.password().is_some() {
+        return Err(AsterError::validation_error(
+            "offline download url must not include credentials",
+        ));
+    }
     Ok(url)
+}
+
+fn effective_offline_download_request_timeout(
+    configured_timeout: StdDuration,
+    max_bytes: i64,
+    max_bytes_per_sec: Option<u64>,
+) -> Result<StdDuration> {
+    let Some(max_bytes_per_sec) = max_bytes_per_sec else {
+        return Ok(configured_timeout);
+    };
+    if max_bytes <= 0 || max_bytes_per_sec == 0 {
+        return Ok(configured_timeout);
+    }
+
+    let max_bytes = i64_to_u64(max_bytes, "offline download max file size")?;
+    let expected_secs =
+        (u128::from(max_bytes) + u128::from(max_bytes_per_sec) - 1) / u128::from(max_bytes_per_sec);
+    let expected_secs =
+        expected_secs.saturating_add(u128::from(THROTTLED_DOWNLOAD_TIMEOUT_SLACK_SECS));
+    let expected_secs = u128_to_u64(expected_secs, "offline download effective timeout")?;
+    Ok(configured_timeout.max(StdDuration::from_secs(expected_secs)))
 }
 
 async fn resolve_source_host(url: &Url) -> Result<ResolvedSourceHost> {
@@ -821,6 +874,37 @@ mod tests {
         assert!(parse_and_validate_source_url("ftp://example.com/file").is_err());
         assert!(parse_and_validate_source_url("file:///etc/passwd").is_err());
         assert!(parse_and_validate_source_url("https://").is_err());
+        assert!(parse_and_validate_source_url("https://user@example.com/file").is_err());
+        assert!(parse_and_validate_source_url("https://:secret@example.com/file").is_err());
+    }
+
+    #[test]
+    fn effective_timeout_accounts_for_local_rate_limit() {
+        let configured = StdDuration::from_secs(600);
+
+        assert_eq!(
+            effective_offline_download_request_timeout(configured, 1024 * 1024 * 1024, None)
+                .unwrap(),
+            configured
+        );
+        assert_eq!(
+            effective_offline_download_request_timeout(
+                configured,
+                1024 * 1024 * 1024,
+                Some(1024 * 1024)
+            )
+            .unwrap(),
+            StdDuration::from_secs(1024 + THROTTLED_DOWNLOAD_TIMEOUT_SLACK_SECS)
+        );
+        assert_eq!(
+            effective_offline_download_request_timeout(
+                StdDuration::from_secs(1200),
+                1024 * 1024 * 1024,
+                Some(1024 * 1024)
+            )
+            .unwrap(),
+            StdDuration::from_secs(1200)
+        );
     }
 
     #[test]
