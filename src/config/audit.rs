@@ -6,8 +6,7 @@ use crate::types::AuditAction;
 pub const DEFAULT_AUDIT_LOG_ENABLED: bool = true;
 // Ceiling division: AuditAction::COUNT is the number of action bits, and
 // u64::BITS is each word's capacity, yielding the required u64 word count.
-pub const AUDIT_ACTION_MASK_WORDS: usize =
-    (AuditAction::COUNT + u64::BITS as usize - 1) / u64::BITS as usize;
+pub const AUDIT_ACTION_MASK_WORDS: usize = AuditAction::COUNT.div_ceil(u64::BITS as usize);
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AuditLogRuntimeSettings {

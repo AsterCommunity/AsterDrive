@@ -2958,7 +2958,7 @@ describe("AdminSettingsPage", () => {
 		});
 	});
 
-	it("searches enum set options with missing groups without crashing", async () => {
+	it("searches enum set options with empty groups without crashing", async () => {
 		mockState.listConfigs.mockResolvedValueOnce({
 			items: [
 				createConfig({
@@ -2982,10 +2982,11 @@ describe("AdminSettingsPage", () => {
 						value: "user_login",
 					},
 					{
+						group: "",
 						label_i18n_key: "audit_action_file_download",
 						value: "file_download",
 					},
-				] as ConfigSchemaItem["options"],
+				],
 			}),
 		]);
 
@@ -2998,6 +2999,7 @@ describe("AdminSettingsPage", () => {
 			target: { value: "other" },
 		});
 
+		// Empty option groups are normalized to the "other" group for search and display.
 		expect(screen.getByText("User logged in")).toBeInTheDocument();
 		expect(screen.getByText("Downloaded file")).toBeInTheDocument();
 	});
