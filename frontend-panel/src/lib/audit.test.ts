@@ -32,6 +32,7 @@ describe("audit i18n formatting", () => {
 		const t = createT({
 			"admin:audit_action_file_delete": "Deleted file",
 			"admin:audit_action_offline_download": "Created link import task",
+			"admin:audit_action_follower_object_write": "Follower wrote object",
 			"admin:audit_action_team_webdav_account_create":
 				"Created team WebDAV account",
 			"admin:audit_action_webdav_account_create": "Created WebDAV account",
@@ -41,6 +42,9 @@ describe("audit i18n formatting", () => {
 		expect(formatAuditAction(t, "file_delete")).toBe("Deleted file");
 		expect(formatAuditAction(t, "offline_download")).toBe(
 			"Created link import task",
+		);
+		expect(formatAuditAction(t, "follower_object_write")).toBe(
+			"Follower wrote object",
 		);
 		expect(formatAuditAction(t, "webdav_account_create")).toBe(
 			"Created WebDAV account",

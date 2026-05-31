@@ -141,6 +141,10 @@ macro_rules! define_audit_action_list {
             UserRegister,
             UserResendEmailChange,
             UserResendRegistration,
+            // Follower actions are written to the follower node's own audit table.
+            // The primary admin audit page will not see them unless follower logs are
+            // queried directly or aggregated later, so keep them distinct from
+            // primary-side Admin* remote management actions.
             FollowerBindingSync,
             FollowerObjectRead,
             FollowerObjectWrite,

@@ -58,6 +58,9 @@ function resolveAuditTranslation(
 
 export function formatAuditAction(t: TFunction, action: AuditAction | string) {
 	const value = String(action);
+	// Follower audit rows normally live in a follower node's own database rather
+	// than the primary admin audit feed. Keep translations here so direct follower
+	// views or future aggregation do not expose raw action names.
 	return (
 		resolveAuditTranslation(t, `audit_action_${value}`, "admin") ??
 		resolveAuditTranslation(t, value, "settings", value) ??
