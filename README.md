@@ -21,6 +21,10 @@
   <a href="docs/deployment/docker.md"><img alt="Docker" src="https://img.shields.io/badge/docker-deployment-2496ED?style=for-the-badge&logo=docker&logoColor=white"></a>
 </p>
 
+<p align="center">
+  <img src="assets/Readme/Screenshot-English.webp" alt="AsterDrive English screenshot" width="1280" />
+</p>
+
 ## What is AsterDrive?
 
 AsterDrive is an MIT-licensed self-hosted file service for people who want control over where files live and how they move through the system. It is built around the core drive workflow: upload reliably, organize folders, recover mistakes, share access, connect WebDAV clients, open Office files through WOPI-compatible services, and route objects to the right storage backend.

@@ -21,6 +21,10 @@
   <a href="docs/deployment/docker.md"><img alt="Docker 部署" src="https://img.shields.io/badge/docker-deployment-2496ED?style=for-the-badge&logo=docker&logoColor=white"></a>
 </p>
 
+<p align="center">
+  <img src="assets/Readme/Screenshot-Chinese.webp" alt="AsterDrive 中文截图" width="1280" />
+</p>
+
 ## AsterDrive 是什么？
 
 AsterDrive 是一个 MIT 协议的自托管文件服务，适合想掌控文件存放位置、传输路径和运维边界的人。它围绕云盘最核心的工作流设计：可靠上传、整理文件夹、误删恢复、分享访问、接入 WebDAV 客户端、通过 WOPI 兼容服务打开 Office 文件，并把对象路由到合适的存储后端。

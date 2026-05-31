@@ -7,4 +7,4 @@
 style = "conventional"
 types = ["feat", "fix", "docs", "style", "refactor", "perf", "test", "chore", "ci"]
 template = "{type}({scope}): {subject}"
-extra_prompt = "请使用中文书写 commit 信息，一句话总起后分点描述功能。"
+extra_prompt = "Please write the commit message in English. Start with a brief summary and then describe the functions in detail."
