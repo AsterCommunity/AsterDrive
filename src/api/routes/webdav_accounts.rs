@@ -206,16 +206,18 @@ pub async fn create_team_account(
     )
     .await?;
     let ctx = audit_service::AuditContext::from_request(&req, &claims);
-    audit_service::log(
+    audit_service::log_with_details(
         &state,
         &ctx,
         audit_service::AuditAction::TeamWebdavAccountCreate,
         crate::services::audit_service::AuditEntityType::WebdavAccount,
         Some(result.id),
         Some(&result.username),
-        audit_service::details(serde_json::json!({
-            "team_id": path.team_id,
-        })),
+        || {
+            audit_service::details(serde_json::json!({
+                "team_id": path.team_id,
+            }))
+        },
     )
     .await;
     Ok(HttpResponse::Created().json(ApiResponse::ok(result)))
@@ -246,16 +248,18 @@ pub async fn delete_team_account(
     webdav_account_service::delete_for_team(&state, path.account_id, claims.user_id, path.team_id)
         .await?;
     let ctx = audit_service::AuditContext::from_request(&req, &claims);
-    audit_service::log(
+    audit_service::log_with_details(
         &state,
         &ctx,
         audit_service::AuditAction::TeamWebdavAccountDelete,
         crate::services::audit_service::AuditEntityType::WebdavAccount,
         Some(path.account_id),
         None,
-        audit_service::details(serde_json::json!({
-            "team_id": path.team_id,
-        })),
+        || {
+            audit_service::details(serde_json::json!({
+                "team_id": path.team_id,
+            }))
+        },
     )
     .await;
     Ok(HttpResponse::Ok().json(ApiResponse::<()>::ok_empty()))
@@ -291,17 +295,19 @@ pub async fn toggle_team_account(
     )
     .await?;
     let ctx = audit_service::AuditContext::from_request(&req, &claims);
-    audit_service::log(
+    audit_service::log_with_details(
         &state,
         &ctx,
         audit_service::AuditAction::TeamWebdavAccountToggle,
         crate::services::audit_service::AuditEntityType::WebdavAccount,
         Some(account.id),
         Some(&account.username),
-        audit_service::details(serde_json::json!({
-            "team_id": path.team_id,
-            "is_active": account.is_active,
-        })),
+        || {
+            audit_service::details(serde_json::json!({
+                "team_id": path.team_id,
+                "is_active": account.is_active,
+            }))
+        },
     )
     .await;
     Ok(HttpResponse::Ok().json(ApiResponse::ok(account)))
@@ -362,16 +368,18 @@ pub async fn toggle_account(
 ) -> Result<HttpResponse> {
     let account = webdav_account_service::toggle_active(&state, *path, claims.user_id).await?;
     let ctx = audit_service::AuditContext::from_request(&req, &claims);
-    audit_service::log(
+    audit_service::log_with_details(
         &state,
         &ctx,
         audit_service::AuditAction::WebdavAccountToggle,
         crate::services::audit_service::AuditEntityType::WebdavAccount,
         Some(account.id),
         Some(&account.username),
-        audit_service::details(serde_json::json!({
-            "is_active": account.is_active,
-        })),
+        || {
+            audit_service::details(serde_json::json!({
+                "is_active": account.is_active,
+            }))
+        },
     )
     .await;
     Ok(HttpResponse::Ok().json(ApiResponse::ok(account)))

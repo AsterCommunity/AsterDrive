@@ -24,7 +24,7 @@ pub enum SystemConfigValue {
 
 impl SystemConfigValue {
     fn from_storage(value_type: SystemConfigValueType, value: String) -> Self {
-        if value_type != SystemConfigValueType::StringArray {
+        if !value_type.is_string_list() {
             return Self::String(value);
         }
 
@@ -33,7 +33,8 @@ impl SystemConfigValue {
             Err(error) => {
                 tracing::warn!(
                     error = %error,
-                    "invalid stored string_array config value; returning an empty array"
+                    value_type = %value_type,
+                    "invalid stored string list config value; returning an empty array"
                 );
                 Self::StringArray(Vec::new())
             }
@@ -49,19 +50,25 @@ impl SystemConfigValue {
 
     pub fn to_storage_for_type(&self, value_type: SystemConfigValueType) -> Result<String> {
         match (value_type, self) {
-            (SystemConfigValueType::StringArray, Self::StringArray(values)) => {
-                serde_json::to_string(values).map_err(|error| {
-                    AsterError::internal_error(format!(
-                        "failed to serialize string_array config value: {error}"
-                    ))
-                })
-            }
-            (SystemConfigValueType::StringArray, Self::String(_)) => Err(
-                AsterError::validation_error("string_array config value must be a JSON array"),
-            ),
+            (
+                SystemConfigValueType::StringArray | SystemConfigValueType::StringEnumSet,
+                Self::StringArray(values),
+            ) => serde_json::to_string(values).map_err(|error| {
+                AsterError::internal_error(format!(
+                    "failed to serialize {} config value: {error}",
+                    value_type.as_str()
+                ))
+            }),
+            (
+                SystemConfigValueType::StringArray | SystemConfigValueType::StringEnumSet,
+                Self::String(_),
+            ) => Err(AsterError::validation_error(format!(
+                "{} config value must be a JSON array",
+                value_type.as_str()
+            ))),
             (_, Self::String(value)) => Ok(value.clone()),
             (_, Self::StringArray(_)) => Err(AsterError::validation_error(
-                "string array values are only supported for string_array config keys",
+                "string array values are only supported for string_array and string_enum_set config keys",
             )),
         }
     }
@@ -70,7 +77,7 @@ impl SystemConfigValue {
         match self {
             Self::String(value) => value.clone(),
             Self::StringArray(values) => serde_json::to_string(values)
-                .unwrap_or_else(|_| "<invalid string_array value>".to_string()),
+                .unwrap_or_else(|_| "<invalid string list value>".to_string()),
         }
     }
 }
@@ -271,21 +278,24 @@ async fn audit_config_update(
     audit_ctx: &AuditContext,
     config: &system_config::Model,
 ) {
-    let audit_value = if config.is_sensitive {
-        "***REDACTED***".to_string()
-    } else {
-        SystemConfigValue::from_storage(config.value_type, config.value.clone()).to_audit_string()
-    };
-    audit_service::log(
+    audit_service::log_with_details(
         state,
         audit_ctx,
         audit_service::AuditAction::ConfigUpdate,
         audit_service::AuditEntityType::SystemConfig,
         Some(config.id),
         Some(&config.key),
-        audit_service::details(audit_service::ConfigUpdateDetails {
-            value: &audit_value,
-        }),
+        || {
+            let audit_value = if config.is_sensitive {
+                "***REDACTED***".to_string()
+            } else {
+                SystemConfigValue::from_storage(config.value_type, config.value.clone())
+                    .to_audit_string()
+            };
+            audit_service::details(audit_service::ConfigUpdateDetails {
+                value: &audit_value,
+            })
+        },
     )
     .await;
 }

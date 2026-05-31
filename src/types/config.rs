@@ -16,6 +16,8 @@ pub enum SystemConfigValueType {
     Multiline,
     #[sea_orm(string_value = "string_array")]
     StringArray,
+    #[sea_orm(string_value = "string_enum_set")]
+    StringEnumSet,
     #[sea_orm(string_value = "number")]
     Number,
     #[sea_orm(string_value = "boolean")]
@@ -28,6 +30,7 @@ impl SystemConfigValueType {
             Self::String => "string",
             Self::Multiline => "multiline",
             Self::StringArray => "string_array",
+            Self::StringEnumSet => "string_enum_set",
             Self::Number => "number",
             Self::Boolean => "boolean",
         }
@@ -38,6 +41,7 @@ impl SystemConfigValueType {
             "string" => Some(Self::String),
             "multiline" => Some(Self::Multiline),
             "string_array" => Some(Self::StringArray),
+            "string_enum_set" => Some(Self::StringEnumSet),
             "number" => Some(Self::Number),
             "boolean" => Some(Self::Boolean),
             _ => None,
@@ -50,6 +54,14 @@ impl SystemConfigValueType {
 
     pub const fn is_string_array(self) -> bool {
         matches!(self, Self::StringArray)
+    }
+
+    pub const fn is_string_enum_set(self) -> bool {
+        matches!(self, Self::StringEnumSet)
+    }
+
+    pub const fn is_string_list(self) -> bool {
+        matches!(self, Self::StringArray | Self::StringEnumSet)
     }
 }
 
@@ -104,6 +116,7 @@ mod tests {
             (SystemConfigValueType::String, "string"),
             (SystemConfigValueType::Multiline, "multiline"),
             (SystemConfigValueType::StringArray, "string_array"),
+            (SystemConfigValueType::StringEnumSet, "string_enum_set"),
             (SystemConfigValueType::Number, "number"),
             (SystemConfigValueType::Boolean, "boolean"),
         ];
@@ -123,6 +136,13 @@ mod tests {
 
         assert!(SystemConfigValueType::StringArray.is_string_array());
         assert!(!SystemConfigValueType::Boolean.is_string_array());
+
+        assert!(SystemConfigValueType::StringEnumSet.is_string_enum_set());
+        assert!(!SystemConfigValueType::StringArray.is_string_enum_set());
+
+        assert!(SystemConfigValueType::StringArray.is_string_list());
+        assert!(SystemConfigValueType::StringEnumSet.is_string_list());
+        assert!(!SystemConfigValueType::String.is_string_list());
     }
 
     #[test]

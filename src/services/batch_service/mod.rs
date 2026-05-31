@@ -74,19 +74,21 @@ pub(crate) async fn batch_delete_in_scope_with_audit(
 ) -> Result<BatchResult> {
     validate_batch_ids(file_ids, folder_ids)?;
     let result = delete::batch_delete_in_scope(state, scope, file_ids, folder_ids).await?;
-    audit_service::log(
+    audit_service::log_with_details(
         state,
         audit_ctx,
         audit_service::AuditAction::BatchDelete,
         audit_service::AuditEntityType::Batch,
         None,
         None,
-        audit_service::details(audit_service::BatchDeleteDetails {
-            file_ids,
-            folder_ids,
-            succeeded: result.succeeded,
-            failed: result.failed,
-        }),
+        || {
+            audit_service::details(audit_service::BatchDeleteDetails {
+                file_ids,
+                folder_ids,
+                succeeded: result.succeeded,
+                failed: result.failed,
+            })
+        },
     )
     .await;
     Ok(result)
@@ -103,20 +105,22 @@ pub(crate) async fn batch_move_in_scope_with_audit(
     validate_batch_ids(file_ids, folder_ids)?;
     let result =
         movement::batch_move_in_scope(state, scope, file_ids, folder_ids, target_folder_id).await?;
-    audit_service::log(
+    audit_service::log_with_details(
         state,
         audit_ctx,
         audit_service::AuditAction::BatchMove,
         audit_service::AuditEntityType::Batch,
         None,
         None,
-        audit_service::details(audit_service::BatchTransferDetails {
-            file_ids,
-            folder_ids,
-            target_folder_id,
-            succeeded: result.succeeded,
-            failed: result.failed,
-        }),
+        || {
+            audit_service::details(audit_service::BatchTransferDetails {
+                file_ids,
+                folder_ids,
+                target_folder_id,
+                succeeded: result.succeeded,
+                failed: result.failed,
+            })
+        },
     )
     .await;
     Ok(result)
@@ -133,20 +137,22 @@ pub(crate) async fn batch_copy_in_scope_with_audit(
     validate_batch_ids(file_ids, folder_ids)?;
     let result =
         copy::batch_copy_in_scope(state, scope, file_ids, folder_ids, target_folder_id).await?;
-    audit_service::log(
+    audit_service::log_with_details(
         state,
         audit_ctx,
         audit_service::AuditAction::BatchCopy,
         audit_service::AuditEntityType::Batch,
         None,
         None,
-        audit_service::details(audit_service::BatchTransferDetails {
-            file_ids,
-            folder_ids,
-            target_folder_id,
-            succeeded: result.succeeded,
-            failed: result.failed,
-        }),
+        || {
+            audit_service::details(audit_service::BatchTransferDetails {
+                file_ids,
+                folder_ids,
+                target_folder_id,
+                succeeded: result.succeeded,
+                failed: result.failed,
+            })
+        },
     )
     .await;
     Ok(result)

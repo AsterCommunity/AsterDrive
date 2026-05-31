@@ -518,19 +518,21 @@ pub(crate) async fn archive_download_ticket_response(
     )
     .await?;
     let ctx = AuditContext::from_request(req, claims);
-    audit_service::log(
+    audit_service::log_with_details(
         state,
         &ctx,
         audit_service::AuditAction::ArchiveDownload,
         crate::services::audit_service::AuditEntityType::StreamTicket,
         None,
         Some(&ticket.token),
-        audit_service::details(audit_service::ArchiveSelectionAuditDetails {
-            file_ids: &body.file_ids,
-            folder_ids: &body.folder_ids,
-            archive_name: body.archive_name.as_deref(),
-            target_folder_id: None,
-        }),
+        || {
+            audit_service::details(audit_service::ArchiveSelectionAuditDetails {
+                file_ids: &body.file_ids,
+                folder_ids: &body.folder_ids,
+                archive_name: body.archive_name.as_deref(),
+                target_folder_id: None,
+            })
+        },
     )
     .await;
 
@@ -557,19 +559,21 @@ pub(crate) async fn archive_compress_response(
     )
     .await?;
     let ctx = AuditContext::from_request(req, claims);
-    audit_service::log(
+    audit_service::log_with_details(
         state,
         &ctx,
         audit_service::AuditAction::ArchiveCompress,
         crate::services::audit_service::AuditEntityType::Task,
         Some(task.id),
         Some(&task.display_name),
-        audit_service::details(audit_service::ArchiveSelectionAuditDetails {
-            file_ids: &body.file_ids,
-            folder_ids: &body.folder_ids,
-            archive_name: body.archive_name.as_deref(),
-            target_folder_id: body.target_folder_id,
-        }),
+        || {
+            audit_service::details(audit_service::ArchiveSelectionAuditDetails {
+                file_ids: &body.file_ids,
+                folder_ids: &body.folder_ids,
+                archive_name: body.archive_name.as_deref(),
+                target_folder_id: body.target_folder_id,
+            })
+        },
     )
     .await;
     Ok(HttpResponse::Ok().json(ApiResponse::ok(task)))

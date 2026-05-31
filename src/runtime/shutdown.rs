@@ -1,6 +1,8 @@
 //! 运行时子模块：`shutdown`。
 
 use super::tasks::BackgroundTasks;
+use crate::runtime::PrimaryAppState;
+use crate::services::audit_service;
 use sea_orm::DatabaseConnection;
 
 /// 等待 SIGINT 或 SIGTERM 信号，然后进行优雅关闭
@@ -45,6 +47,20 @@ pub async fn perform_shutdown(background_tasks: BackgroundTasks, db: DatabaseCon
         tracing::info!("database connection closed");
     }
     tracing::info!("shutdown complete");
+}
+
+/// 记录主服务器关闭事件；follower 没有完整运行时审计配置，暂不写生命周期审计。
+pub async fn record_primary_server_shutdown(state: &PrimaryAppState) {
+    audit_service::log(
+        state,
+        &audit_service::AuditContext::system(),
+        audit_service::AuditAction::ServerShutdown,
+        audit_service::AuditEntityType::SystemConfig,
+        None,
+        None,
+        None,
+    )
+    .await;
 }
 
 #[cfg(test)]

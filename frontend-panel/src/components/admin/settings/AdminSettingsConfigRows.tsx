@@ -26,6 +26,7 @@ import {
 	isNumberType,
 	isSizeConfig,
 	isStringArrayType,
+	isStringEnumSetType,
 	type NewCustomDraft,
 	parseWholeNumber,
 	SIZE_DISPLAY_UNITS,
@@ -48,10 +49,49 @@ import {
 import { Switch } from "@/components/ui/switch";
 import { normalizePublicSiteUrl } from "@/lib/publicSiteUrl";
 import { cn } from "@/lib/utils";
-import type { SystemConfig } from "@/types/api";
+import type { ConfigSchemaOption, SystemConfig } from "@/types/api";
 
 const PUBLIC_SITE_URL_KEY = "public_site_url";
 const AUTH_EMAIL_CODE_LOGIN_ENABLED_KEY = "auth_email_code_login_enabled";
+
+function resolveSettingTranslation(
+	t: (key: string, options?: Record<string, unknown>) => string,
+	key: string,
+	fallback: string,
+) {
+	const translated = t(key);
+	return translated === key ? fallback : translated;
+}
+
+function formatEnumGroupLabel(
+	t: (key: string, options?: Record<string, unknown>) => string,
+	group: string,
+) {
+	return resolveSettingTranslation(
+		t,
+		`settings_enum_group_${group}`,
+		group
+			.split(/[._-]+/)
+			.filter(Boolean)
+			.map((part) => part[0]?.toUpperCase() + part.slice(1))
+			.join(" "),
+	);
+}
+
+function formatEnumOptionLabel(
+	t: (key: string, options?: Record<string, unknown>) => string,
+	option: ConfigSchemaOption,
+) {
+	return resolveSettingTranslation(
+		t,
+		option.label_i18n_key,
+		option.value
+			.split("_")
+			.filter(Boolean)
+			.map((part) => part[0]?.toUpperCase() + part.slice(1))
+			.join(" "),
+	);
+}
 
 function FieldMeta({ config }: { config: SystemConfig }) {
 	const {
@@ -285,6 +325,225 @@ function StringArrayConfigControl({
 	);
 }
 
+function StringEnumSetConfigControl({
+	config,
+	draftValue,
+	hasError,
+}: {
+	config: SystemConfig;
+	draftValue: string[];
+	hasError?: boolean;
+}) {
+	const { getSystemConfigSchema, t, updateDraftValue } =
+		useAdminSettingsCategoryContent();
+	const [query, setQuery] = useState("");
+	const schema = getSystemConfigSchema(config);
+	const options = schema?.options ?? [];
+	const selectedValues = new Set(draftValue);
+	const normalizedQuery = query.trim().toLocaleLowerCase();
+	const optionLabels = options.map((option) => ({
+		option,
+		label: formatEnumOptionLabel(t, option),
+	}));
+	const filteredOptions = normalizedQuery
+		? optionLabels.filter(
+				({ label, option }) =>
+					label.toLocaleLowerCase().includes(normalizedQuery) ||
+					option.value.toLocaleLowerCase().includes(normalizedQuery) ||
+					option.group.toLocaleLowerCase().includes(normalizedQuery),
+			)
+		: optionLabels;
+	const groupedOptions = filteredOptions.reduce(
+		(groups, item) => {
+			const group = item.option.group || "other";
+			if (!groups[group]) {
+				groups[group] = [];
+			}
+			groups[group].push(item);
+			return groups;
+		},
+		{} as Record<string, Array<{ option: ConfigSchemaOption; label: string }>>,
+	);
+	const visibleValues = filteredOptions.map(({ option }) => option.value);
+	const selectedVisibleCount = visibleValues.filter((value) =>
+		selectedValues.has(value),
+	).length;
+	const selectedCount = draftValue.length;
+	const totalCount = options.length;
+
+	const setSelected = (values: string[]) => {
+		// Preserve backend option order so diffs and saved JSON stay stable.
+		const allowedValues = new Set(options.map((option) => option.value));
+		const nextValues = values.filter((value, index) => {
+			return allowedValues.has(value) && values.indexOf(value) === index;
+		});
+		updateDraftValue(config.key, nextValues);
+	};
+
+	const toggleValue = (value: string) => {
+		if (selectedValues.has(value)) {
+			setSelected(draftValue.filter((item) => item !== value));
+			return;
+		}
+		// New selections are inserted by schema order, not click order.
+		const orderedValues = options
+			.map((option) => option.value)
+			.filter(
+				(optionValue) =>
+					optionValue === value || selectedValues.has(optionValue),
+			);
+		setSelected(orderedValues);
+	};
+
+	const selectVisible = () => {
+		const nextValues = new Set(draftValue);
+		for (const value of visibleValues) {
+			nextValues.add(value);
+		}
+		setSelected(
+			options
+				.map((option) => option.value)
+				.filter((value) => nextValues.has(value)),
+		);
+	};
+
+	return (
+		<div className="w-full max-w-5xl space-y-3">
+			<div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+				<div className="relative min-w-0 flex-1">
+					<Icon
+						name="MagnifyingGlass"
+						className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
+					/>
+					<Input
+						className="pl-9"
+						value={query}
+						aria-invalid={hasError ? true : undefined}
+						onChange={(event) => setQuery(event.target.value)}
+						placeholder={t("settings_enum_set_search_placeholder")}
+					/>
+				</div>
+				<div className="flex shrink-0 flex-wrap items-center gap-2">
+					<Button
+						type="button"
+						variant="outline"
+						size="sm"
+						onClick={selectVisible}
+					>
+						<Icon name="ListChecks" className="size-3.5" />
+						{t("settings_enum_set_select_visible")}
+					</Button>
+					<Button
+						type="button"
+						variant="outline"
+						size="sm"
+						onClick={() => setSelected(options.map((option) => option.value))}
+					>
+						<Icon name="Check" className="size-3.5" />
+						{t("settings_enum_set_select_all")}
+					</Button>
+					<Button
+						type="button"
+						variant="ghost"
+						size="sm"
+						onClick={() => setSelected([])}
+					>
+						<Icon name="X" className="size-3.5" />
+						{t("settings_enum_set_clear")}
+					</Button>
+				</div>
+			</div>
+
+			<div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+				<span>
+					{t("settings_enum_set_selected_count", {
+						count: selectedCount,
+						total: totalCount,
+					})}
+				</span>
+				{normalizedQuery ? (
+					<span>
+						{t("settings_enum_set_visible_count", {
+							count: filteredOptions.length,
+							selected: selectedVisibleCount,
+						})}
+					</span>
+				) : null}
+			</div>
+
+			{options.length === 0 ? (
+				<p className="text-sm text-muted-foreground">
+					{t("settings_enum_set_no_options")}
+				</p>
+			) : filteredOptions.length === 0 ? (
+				<p className="text-sm text-muted-foreground">
+					{t("settings_enum_set_no_matches")}
+				</p>
+			) : (
+				<div className="max-h-[34rem] overflow-y-auto rounded-md border">
+					{Object.entries(groupedOptions).map(([group, items]) => {
+						const selectedInGroup = items.filter(({ option }) =>
+							selectedValues.has(option.value),
+						).length;
+
+						return (
+							<section key={group} className="border-b last:border-b-0">
+								<div className="sticky top-0 z-10 flex items-center justify-between gap-3 border-b bg-background/95 px-3 py-2 backdrop-blur">
+									<p className="text-xs font-semibold uppercase tracking-normal text-muted-foreground">
+										{formatEnumGroupLabel(t, group)}
+									</p>
+									<span className="text-xs text-muted-foreground">
+										{selectedInGroup}/{items.length}
+									</span>
+								</div>
+								<div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3">
+									{items.map(({ option, label }) => {
+										const checked = selectedValues.has(option.value);
+										return (
+											<button
+												key={option.value}
+												type="button"
+												className={cn(
+													"flex min-h-11 items-center gap-2 border-b px-3 py-2 text-left text-sm transition-colors last:border-b-0 sm:border-r sm:[&:nth-child(2n)]:border-r-0 xl:[&:nth-child(2n)]:border-r xl:[&:nth-child(3n)]:border-r-0",
+													checked
+														? "bg-primary/5 text-foreground"
+														: "hover:bg-muted/50",
+												)}
+												aria-pressed={checked}
+												onClick={() => toggleValue(option.value)}
+											>
+												<span
+													className={cn(
+														"flex size-4 shrink-0 items-center justify-center rounded border",
+														checked
+															? "border-primary bg-primary text-primary-foreground"
+															: "border-border bg-background",
+													)}
+													aria-hidden="true"
+												>
+													{checked ? (
+														<Icon name="Check" className="size-3" />
+													) : null}
+												</span>
+												<span className="min-w-0">
+													<span className="block truncate">{label}</span>
+													<span className="block truncate font-mono text-xs text-muted-foreground">
+														{option.value}
+													</span>
+												</span>
+											</button>
+										);
+									})}
+								</div>
+							</section>
+						);
+					})}
+				</div>
+			)}
+		</div>
+	);
+}
+
 function ScaledNumberInputControl({
 	config,
 	draftValue,
@@ -438,6 +697,7 @@ function ConfigInputControl({
 	const isSensitive = getConfigIsSensitive(config);
 	const multiline = isMultilineType(valueType);
 	const stringArray = isStringArrayType(valueType);
+	const stringEnumSet = isStringEnumSetType(valueType);
 	const brandingPreviewAppearance = isBrandingAssetConfig(config)
 		? getBrandingAssetPreviewAppearance(config)
 		: null;
@@ -501,6 +761,16 @@ function ConfigInputControl({
 				config={config}
 				draftValue={configValueToStringArray(draftValue)}
 				fullWidth={fullWidth}
+				hasError={hasError}
+			/>
+		);
+	}
+
+	if (stringEnumSet) {
+		return (
+			<StringEnumSetConfigControl
+				config={config}
+				draftValue={configValueToStringArray(draftValue)}
 				hasError={hasError}
 			/>
 		);

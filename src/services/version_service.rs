@@ -308,14 +308,14 @@ pub async fn restore_version_with_audit(
     audit_ctx: &AuditContext,
 ) -> Result<FileInfo> {
     let file = restore_version(state, file_id, version_id, user_id).await?;
-    audit_service::log(
+    audit_service::log_with_details(
         state,
         audit_ctx,
         audit_service::AuditAction::FileVersionRestore,
         crate::services::audit_service::AuditEntityType::File,
         Some(file.id),
         Some(&file.name),
-        audit_service::details(audit_service::FileVersionAuditDetails { version_id }),
+        || audit_service::details(audit_service::FileVersionAuditDetails { version_id }),
     )
     .await;
     Ok(file)
@@ -350,14 +350,14 @@ pub async fn restore_version_for_team_with_audit(
     audit_ctx: &AuditContext,
 ) -> Result<FileInfo> {
     let file = restore_version_for_team(state, team_id, file_id, version_id, user_id).await?;
-    audit_service::log(
+    audit_service::log_with_details(
         state,
         audit_ctx,
         audit_service::AuditAction::FileVersionRestore,
         crate::services::audit_service::AuditEntityType::File,
         Some(file.id),
         Some(&file.name),
-        audit_service::details(audit_service::FileVersionAuditDetails { version_id }),
+        || audit_service::details(audit_service::FileVersionAuditDetails { version_id }),
     )
     .await;
     Ok(file)
@@ -394,14 +394,14 @@ pub async fn delete_version_with_audit(
     .await?;
     let _version = load_version_for_file(state.writer_db(), file_id, version_id).await?;
     delete_version(state, file_id, version_id, user_id).await?;
-    audit_service::log(
+    audit_service::log_with_details(
         state,
         audit_ctx,
         audit_service::AuditAction::FileVersionDelete,
         crate::services::audit_service::AuditEntityType::File,
         Some(file.id),
         Some(&file.name),
-        audit_service::details(audit_service::FileVersionAuditDetails { version_id }),
+        || audit_service::details(audit_service::FileVersionAuditDetails { version_id }),
     )
     .await;
     Ok(())
@@ -445,14 +445,14 @@ pub async fn delete_version_for_team_with_audit(
     .await?;
     let _version = load_version_for_file(state.writer_db(), file_id, version_id).await?;
     delete_version_for_team(state, team_id, file_id, version_id, user_id).await?;
-    audit_service::log(
+    audit_service::log_with_details(
         state,
         audit_ctx,
         audit_service::AuditAction::FileVersionDelete,
         crate::services::audit_service::AuditEntityType::File,
         Some(file.id),
         Some(&file.name),
-        audit_service::details(audit_service::FileVersionAuditDetails { version_id }),
+        || audit_service::details(audit_service::FileVersionAuditDetails { version_id }),
     )
     .await;
     Ok(())

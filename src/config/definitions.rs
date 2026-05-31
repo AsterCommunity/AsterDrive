@@ -194,6 +194,7 @@ pub const AVATAR_DIR_KEY: &str = "avatar_dir";
 // ── Audit keys ───────────────────────────────────────────────────────────────
 pub const AUDIT_LOG_ENABLED_KEY: &str = "audit_log_enabled";
 pub const AUDIT_LOG_RETENTION_DAYS_KEY: &str = "audit_log_retention_days";
+pub const AUDIT_LOG_RECORDED_ACTIONS_KEY: &str = "audit_log_recorded_actions";
 
 // ── WebDAV keys ──────────────────────────────────────────────────────────────
 pub const WEBDAV_ENABLED_KEY: &str = "webdav_enabled";
@@ -1082,6 +1083,17 @@ pub static ALL_CONFIGS: &[ConfigDef] = &[
         is_sensitive: false,
         category: CONFIG_CATEGORY_AUDIT,
         description: "Days before audit log entries are permanently deleted",
+    },
+    ConfigDef {
+        key: AUDIT_LOG_RECORDED_ACTIONS_KEY,
+        label_i18n_key: "settings_item_audit_log_recorded_actions_label",
+        description_i18n_key: "settings_item_audit_log_recorded_actions_desc",
+        value_type: SystemConfigValueType::StringEnumSet,
+        default_fn: crate::config::audit::default_recorded_actions_value,
+        requires_restart: false,
+        is_sensitive: false,
+        category: CONFIG_CATEGORY_AUDIT,
+        description: "Audit actions that should be recorded",
     },
     // ── Mail ──────────────────────────────────────────────
     ConfigDef {

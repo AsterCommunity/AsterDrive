@@ -245,17 +245,19 @@ pub async fn cleanup_expired_archived_teams(state: &PrimaryAppState) -> Result<u
             tracing::warn!(team_id, "failed to delete expired archived team: {err}");
             continue;
         }
-        audit_service::log(
+        audit_service::log_with_details(
             state,
             &ctx,
             audit_service::AuditAction::TeamCleanupExpired,
             crate::services::audit_service::AuditEntityType::Team,
             Some(team_id),
             Some(&team_name),
-            audit_service::details(audit_service::TeamCleanupAuditDetails {
-                archived_at,
-                retention_days,
-            }),
+            || {
+                audit_service::details(audit_service::TeamCleanupAuditDetails {
+                    archived_at,
+                    retention_days,
+                })
+            },
         )
         .await;
         deleted += 1;

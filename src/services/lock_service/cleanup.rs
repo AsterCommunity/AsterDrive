@@ -61,14 +61,14 @@ pub async fn cleanup_expired_with_audit(
     audit_ctx: &AuditContext,
 ) -> Result<u64> {
     let count = cleanup_expired(state).await?;
-    audit_service::log(
+    audit_service::log_with_details(
         state,
         audit_ctx,
         audit_service::AuditAction::AdminCleanupExpiredLocks,
         crate::services::audit_service::AuditEntityType::ResourceLock,
         None,
         None,
-        audit_service::details(audit_service::LockCleanupAuditDetails { removed: count }),
+        || audit_service::details(audit_service::LockCleanupAuditDetails { removed: count }),
     )
     .await;
     Ok(count)

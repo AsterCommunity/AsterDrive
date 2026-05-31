@@ -4,6 +4,7 @@ use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 
 use crate::config::RuntimeConfig;
+use crate::config::audit;
 use crate::config::auth_runtime;
 use crate::config::avatar;
 use crate::config::bool_like::parse_bool_like;
@@ -72,10 +73,11 @@ pub fn validate_value_type(value_type: SystemConfigValueType, value: &str) -> Re
                 ));
             }
         }
-        SystemConfigValueType::StringArray => {
+        SystemConfigValueType::StringArray | SystemConfigValueType::StringEnumSet => {
             serde_json::from_str::<Vec<String>>(trimmed).map_err(|err| {
                 AsterError::validation_error(format!(
-                    "string_array config must be a JSON array of strings: {err}"
+                    "{} config must be a JSON array of strings: {err}",
+                    value_type.as_str()
                 ))
             })?;
         }
@@ -90,6 +92,9 @@ where
 {
     match key {
         avatar::AVATAR_DIR_KEY => avatar::normalize_avatar_dir_config_value(value),
+        audit::AUDIT_LOG_RECORDED_ACTIONS_KEY => {
+            audit::normalize_recorded_actions_config_value(value)
+        }
         auth_runtime::AUTH_COOKIE_SECURE_KEY => {
             auth_runtime::normalize_cookie_secure_config_value(value)
         }
@@ -282,6 +287,49 @@ mod tests {
         assert!(validate_value_type(SystemConfigValueType::Boolean, " yes ").is_err());
         assert!(validate_value_type(SystemConfigValueType::Number, "42").is_ok());
         assert!(validate_value_type(SystemConfigValueType::Number, "nope").is_err());
+        assert!(validate_value_type(SystemConfigValueType::StringArray, r#"["a"]"#).is_ok());
+        assert!(validate_value_type(SystemConfigValueType::StringArray, r#""a""#).is_err());
+        assert!(validate_value_type(SystemConfigValueType::StringEnumSet, r#"["a"]"#).is_ok());
+        assert!(validate_value_type(SystemConfigValueType::StringEnumSet, r#""a""#).is_err());
+    }
+
+    #[test]
+    fn normalize_system_value_validates_audit_action_scope() {
+        let lookup = HashMap::new();
+        assert_eq!(
+            normalize_system_value(
+                &lookup,
+                crate::config::audit::AUDIT_LOG_RECORDED_ACTIONS_KEY,
+                r#"["file_upload","user_login"]"#
+            )
+            .unwrap(),
+            r#"["file_upload","user_login"]"#
+        );
+        assert!(
+            normalize_system_value(
+                &lookup,
+                crate::config::audit::AUDIT_LOG_RECORDED_ACTIONS_KEY,
+                r#"["unknown_action"]"#
+            )
+            .is_err()
+        );
+        assert!(
+            normalize_system_value(
+                &lookup,
+                crate::config::audit::AUDIT_LOG_RECORDED_ACTIONS_KEY,
+                r#"["user_login","user_login"]"#
+            )
+            .is_err()
+        );
+        assert_eq!(
+            normalize_system_value(
+                &lookup,
+                crate::config::audit::AUDIT_LOG_RECORDED_ACTIONS_KEY,
+                "[]"
+            )
+            .unwrap(),
+            "[]"
+        );
     }
 
     #[test]

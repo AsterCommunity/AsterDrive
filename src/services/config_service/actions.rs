@@ -91,17 +91,19 @@ pub async fn execute_action_with_audit(
     audit_ctx: &AuditContext,
 ) -> Result<ConfigActionResult> {
     let action_result = execute_action(state, input).await?;
-    audit_service::log(
+    audit_service::log_with_details(
         state,
         audit_ctx,
         audit_service::AuditAction::ConfigActionExecute,
         audit_service::AuditEntityType::SystemConfig,
         None,
         Some(input.key),
-        audit_service::details(audit_service::ConfigActionDetails {
-            action: input.action.as_str(),
-            target_email: action_result.target_email.as_deref(),
-        }),
+        || {
+            audit_service::details(audit_service::ConfigActionDetails {
+                action: input.action.as_str(),
+                target_email: action_result.target_email.as_deref(),
+            })
+        },
     )
     .await;
     Ok(action_result)

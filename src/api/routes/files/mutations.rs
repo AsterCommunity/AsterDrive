@@ -543,19 +543,21 @@ pub(crate) async fn extract_archive_response(
     .await?;
     let ctx = AuditContext::from_request(req, claims);
     let file_ids = [file_id];
-    audit_service::log(
+    audit_service::log_with_details(
         state,
         &ctx,
         audit_service::AuditAction::ArchiveExtract,
         crate::services::audit_service::AuditEntityType::Task,
         Some(task.id),
         Some(&task.display_name),
-        audit_service::details(audit_service::ArchiveSelectionAuditDetails {
-            file_ids: &file_ids,
-            folder_ids: &[],
-            archive_name: body.output_folder_name.as_deref(),
-            target_folder_id: body.target_folder_id,
-        }),
+        || {
+            audit_service::details(audit_service::ArchiveSelectionAuditDetails {
+                file_ids: &file_ids,
+                folder_ids: &[],
+                archive_name: body.output_folder_name.as_deref(),
+                target_folder_id: body.target_folder_id,
+            })
+        },
     )
     .await;
     Ok(HttpResponse::Ok().json(ApiResponse::ok(task)))

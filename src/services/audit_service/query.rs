@@ -12,6 +12,7 @@ use crate::types::TeamMemberRole;
 use super::filters::AuditLogFilters;
 use super::manager::flush_global_audit_log_manager;
 use super::models::{AuditLogEntry, TeamAuditEntryInfo};
+use super::presentation::build_audit_presentation;
 
 const DEFAULT_RETENTION_DAYS: i64 = 90;
 
@@ -75,6 +76,14 @@ async fn build_audit_entries(
             continue;
         };
 
+        let presentation = build_audit_presentation(
+            model.action,
+            entity_type,
+            model.entity_id,
+            model.entity_name.as_deref(),
+            model.details.as_deref(),
+        );
+
         items.push(AuditLogEntry {
             id: model.id,
             user: users.get(&model.user_id).cloned(),
@@ -83,6 +92,7 @@ async fn build_audit_entries(
             entity_id: model.entity_id,
             entity_name: model.entity_name,
             details: model.details,
+            presentation,
             ip_address: model.ip_address,
             user_agent: model.user_agent,
             created_at: model.created_at,
@@ -117,6 +127,7 @@ fn build_team_audit_entry(
     entry: audit_log::Model,
     users: &HashMap<i64, user_service::UserSummary>,
 ) -> TeamAuditEntryInfo {
+    let entity_type = crate::types::AuditEntityType::from_str_name(&entry.entity_type);
     let parsed_details = entry
         .details
         .as_deref()
@@ -143,6 +154,15 @@ fn build_team_audit_entry(
     TeamAuditEntryInfo {
         id: entry.id,
         action: entry.action,
+        presentation: entity_type.and_then(|entity_type| {
+            build_audit_presentation(
+                entry.action,
+                entity_type,
+                entry.entity_id,
+                entry.entity_name.as_deref(),
+                entry.details.as_deref(),
+            )
+        }),
         actor: users.get(&entry.user_id).cloned(),
         created_at: entry.created_at,
         member: member_user_id.and_then(|member_user_id| users.get(&member_user_id).cloned()),

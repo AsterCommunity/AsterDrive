@@ -134,16 +134,18 @@ pub async fn patch_profile(
     let profile =
         profile_service::update_profile(&state, claims.user_id, body.display_name.clone()).await?;
     let ctx = AuditContext::from_request(&req, &claims);
-    audit_service::log(
+    audit_service::log_with_details(
         &state,
         &ctx,
         audit_service::AuditAction::UserUpdateProfile,
         crate::services::audit_service::AuditEntityType::User,
         Some(claims.user_id),
         None,
-        audit_service::details(audit_service::UserProfileAuditDetails {
-            display_name: profile.display_name.as_deref(),
-        }),
+        || {
+            audit_service::details(audit_service::UserProfileAuditDetails {
+                display_name: profile.display_name.as_deref(),
+            })
+        },
     )
     .await;
     Ok(HttpResponse::Ok().json(ApiResponse::ok(profile)))
@@ -204,20 +206,22 @@ pub async fn put_avatar_source(
 ) -> Result<HttpResponse> {
     let profile = profile_service::set_avatar_source(&state, claims.user_id, body.source).await?;
     let ctx = AuditContext::from_request(&req, &claims);
-    audit_service::log(
+    audit_service::log_with_details(
         &state,
         &ctx,
         audit_service::AuditAction::UserSetAvatarSource,
         crate::services::audit_service::AuditEntityType::User,
         Some(claims.user_id),
         None,
-        audit_service::details(audit_service::UserAvatarSourceAuditDetails {
-            source: match body.source {
-                crate::types::AvatarSource::None => "none",
-                crate::types::AvatarSource::Gravatar => "gravatar",
-                crate::types::AvatarSource::Upload => "upload",
-            },
-        }),
+        || {
+            audit_service::details(audit_service::UserAvatarSourceAuditDetails {
+                source: match body.source {
+                    crate::types::AvatarSource::None => "none",
+                    crate::types::AvatarSource::Gravatar => "gravatar",
+                    crate::types::AvatarSource::Upload => "upload",
+                },
+            })
+        },
     )
     .await;
     Ok(HttpResponse::Ok().json(ApiResponse::ok(profile)))

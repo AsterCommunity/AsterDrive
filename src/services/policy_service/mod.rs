@@ -50,14 +50,14 @@ pub async fn create_with_audit(
     audit_ctx: &AuditContext,
 ) -> Result<StoragePolicy> {
     let policy = create(state, input).await?;
-    audit_service::log(
+    audit_service::log_with_details(
         state,
         audit_ctx,
         audit_service::AuditAction::AdminCreatePolicy,
         crate::services::audit_service::AuditEntityType::StoragePolicy,
         Some(policy.id),
         Some(&policy.name),
-        policy_audit_details(&policy),
+        || policy_audit_details(&policy),
     )
     .await;
     Ok(policy)
@@ -70,14 +70,14 @@ pub async fn update_with_audit(
     audit_ctx: &AuditContext,
 ) -> Result<StoragePolicy> {
     let policy = update(state, id, input).await?;
-    audit_service::log(
+    audit_service::log_with_details(
         state,
         audit_ctx,
         audit_service::AuditAction::AdminUpdatePolicy,
         crate::services::audit_service::AuditEntityType::StoragePolicy,
         Some(policy.id),
         Some(&policy.name),
-        policy_audit_details(&policy),
+        || policy_audit_details(&policy),
     )
     .await;
     Ok(policy)
@@ -91,14 +91,14 @@ pub async fn delete_with_audit(
 ) -> Result<()> {
     let policy = get(state, id).await?;
     delete(state, id, force).await?;
-    audit_service::log(
+    audit_service::log_with_details(
         state,
         audit_ctx,
         audit_service::AuditAction::AdminDeletePolicy,
         crate::services::audit_service::AuditEntityType::StoragePolicy,
         Some(policy.id),
         Some(&policy.name),
-        policy_audit_details(&policy),
+        || policy_audit_details(&policy),
     )
     .await;
     Ok(())
@@ -110,18 +110,20 @@ pub async fn create_group_with_audit(
     audit_ctx: &AuditContext,
 ) -> Result<StoragePolicyGroupInfo> {
     let group = create_group(state, input).await?;
-    audit_service::log(
+    audit_service::log_with_details(
         state,
         audit_ctx,
         audit_service::AuditAction::AdminCreatePolicyGroup,
         crate::services::audit_service::AuditEntityType::PolicyGroup,
         Some(group.id),
         Some(&group.name),
-        audit_service::details(audit_service::PolicyGroupAuditDetails {
-            is_default: group.is_default,
-            is_enabled: group.is_enabled,
-            item_count: group.items.len(),
-        }),
+        || {
+            audit_service::details(audit_service::PolicyGroupAuditDetails {
+                is_default: group.is_default,
+                is_enabled: group.is_enabled,
+                item_count: group.items.len(),
+            })
+        },
     )
     .await;
     Ok(group)
@@ -134,18 +136,20 @@ pub async fn update_group_with_audit(
     audit_ctx: &AuditContext,
 ) -> Result<StoragePolicyGroupInfo> {
     let group = update_group(state, id, input).await?;
-    audit_service::log(
+    audit_service::log_with_details(
         state,
         audit_ctx,
         audit_service::AuditAction::AdminUpdatePolicyGroup,
         crate::services::audit_service::AuditEntityType::PolicyGroup,
         Some(group.id),
         Some(&group.name),
-        audit_service::details(audit_service::PolicyGroupAuditDetails {
-            is_default: group.is_default,
-            is_enabled: group.is_enabled,
-            item_count: group.items.len(),
-        }),
+        || {
+            audit_service::details(audit_service::PolicyGroupAuditDetails {
+                is_default: group.is_default,
+                is_enabled: group.is_enabled,
+                item_count: group.items.len(),
+            })
+        },
     )
     .await;
     Ok(group)
@@ -158,18 +162,20 @@ pub async fn delete_group_with_audit(
 ) -> Result<()> {
     let group = get_group(state, id).await?;
     delete_group(state, id).await?;
-    audit_service::log(
+    audit_service::log_with_details(
         state,
         audit_ctx,
         audit_service::AuditAction::AdminDeletePolicyGroup,
         crate::services::audit_service::AuditEntityType::PolicyGroup,
         Some(group.id),
         Some(&group.name),
-        audit_service::details(audit_service::PolicyGroupAuditDetails {
-            is_default: group.is_default,
-            is_enabled: group.is_enabled,
-            item_count: group.items.len(),
-        }),
+        || {
+            audit_service::details(audit_service::PolicyGroupAuditDetails {
+                is_default: group.is_default,
+                is_enabled: group.is_enabled,
+                item_count: group.items.len(),
+            })
+        },
     )
     .await;
     Ok(())
@@ -184,21 +190,23 @@ pub async fn migrate_group_users_with_audit(
     let source_group = get_group(state, source_group_id).await?;
     let target_group = get_group(state, target_group_id).await?;
     let result = migrate_group_users(state, source_group_id, target_group_id).await?;
-    audit_service::log(
+    audit_service::log_with_details(
         state,
         audit_ctx,
         audit_service::AuditAction::AdminMigratePolicyGroupUsers,
         crate::services::audit_service::AuditEntityType::PolicyGroup,
         Some(source_group.id),
         Some(&source_group.name),
-        audit_service::details(audit_service::PolicyGroupMigrationDetails {
-            source_group_id: source_group.id,
-            source_group_name: &source_group.name,
-            target_group_id: target_group.id,
-            target_group_name: &target_group.name,
-            affected_users: result.affected_users,
-            migrated_assignments: result.migrated_assignments,
-        }),
+        || {
+            audit_service::details(audit_service::PolicyGroupMigrationDetails {
+                source_group_id: source_group.id,
+                source_group_name: &source_group.name,
+                target_group_id: target_group.id,
+                target_group_name: &target_group.name,
+                affected_users: result.affected_users,
+                migrated_assignments: result.migrated_assignments,
+            })
+        },
     )
     .await;
     Ok(result)

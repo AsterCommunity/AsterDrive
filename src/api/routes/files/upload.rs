@@ -241,18 +241,20 @@ pub async fn cancel_upload(
 ) -> Result<HttpResponse> {
     upload_service::cancel_upload(&state, &path.upload_id, claims.user_id).await?;
     let ctx = AuditContext::from_request(&req, &claims);
-    crate::services::audit_service::log(
+    crate::services::audit_service::log_with_details(
         &state,
         &ctx,
         crate::services::audit_service::AuditAction::FileUploadCancel,
         crate::services::audit_service::AuditEntityType::UploadSession,
         None,
         Some(&path.upload_id),
-        crate::services::audit_service::details(
-            crate::services::audit_service::UploadCancelAuditDetails {
-                upload_id: &path.upload_id,
-            },
-        ),
+        || {
+            crate::services::audit_service::details(
+                crate::services::audit_service::UploadCancelAuditDetails {
+                    upload_id: &path.upload_id,
+                },
+            )
+        },
     )
     .await;
     Ok(HttpResponse::Ok().json(ApiResponse::<()>::ok_empty()))
@@ -534,18 +536,20 @@ pub(crate) async fn team_cancel_upload(
     let (team_id, upload_id) = path.into_inner();
     upload_service::cancel_upload_for_team(&state, team_id, &upload_id, claims.user_id).await?;
     let ctx = AuditContext::from_request(&req, &claims);
-    crate::services::audit_service::log(
+    crate::services::audit_service::log_with_details(
         &state,
         &ctx,
         crate::services::audit_service::AuditAction::FileUploadCancel,
         crate::services::audit_service::AuditEntityType::UploadSession,
         None,
         Some(&upload_id),
-        crate::services::audit_service::details(
-            crate::services::audit_service::UploadCancelAuditDetails {
-                upload_id: &upload_id,
-            },
-        ),
+        || {
+            crate::services::audit_service::details(
+                crate::services::audit_service::UploadCancelAuditDetails {
+                    upload_id: &upload_id,
+                },
+            )
+        },
     )
     .await;
     Ok(HttpResponse::Ok().json(ApiResponse::<()>::ok_empty()))

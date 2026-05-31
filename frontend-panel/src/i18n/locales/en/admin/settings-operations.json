@@ -36,5 +36,7 @@
 	"settings_item_audit_log_enabled_label": "Enable audit logging",
 	"settings_item_audit_log_enabled_desc": "Controls whether administrative and security-relevant actions are recorded. When disabled, no new audit records will be written.",
 	"settings_item_audit_log_retention_days_label": "Audit log retention window",
-	"settings_item_audit_log_retention_days_desc": "How long audit log entries are kept before they are permanently deleted."
+	"settings_item_audit_log_retention_days_desc": "How long audit log entries are kept before they are permanently deleted.",
+	"settings_item_audit_log_recorded_actions_label": "Recorded audit actions",
+	"settings_item_audit_log_recorded_actions_desc": "Choose which audit actions are written. Empty means audit logging is enabled but no actions are recorded."
 }

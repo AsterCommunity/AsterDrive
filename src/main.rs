@@ -215,6 +215,8 @@ async fn run_primary_http_server(
     let http_shutdown_token = CancellationToken::new();
     let state = web::Data::new(state);
     let task_state = state.clone();
+    let server_state = state.clone();
+    let app_state = state.clone();
     let app_shutdown_token = web::Data::new(http_shutdown_token.clone());
     let metrics = web::Data::new(state.metrics.clone());
     let server = HttpServer::new(move || {
@@ -227,7 +229,7 @@ async fn run_primary_http_server(
             .wrap(aster_drive::api::middleware::security_headers::default_headers())
             .app_data(actix_web::web::PayloadConfig::new(10 * 1024 * 1024))
             .app_data(actix_web::web::JsonConfig::default().limit(1024 * 1024))
-            .app_data(state.clone())
+            .app_data(app_state.clone())
             .app_data(metrics.clone())
             .app_data(app_shutdown_token.clone())
             .configure(move |cfg| aster_drive::api::configure_primary(cfg, &db))
@@ -246,6 +248,16 @@ async fn run_primary_http_server(
         task_state,
         share_download_rollback_worker,
     );
+    aster_drive::services::audit_service::log(
+        server_state.as_ref(),
+        &aster_drive::services::audit_service::AuditContext::system(),
+        aster_drive::services::audit_service::AuditAction::ServerStart,
+        aster_drive::services::audit_service::AuditEntityType::SystemConfig,
+        None,
+        None,
+        None,
+    )
+    .await;
     tokio::spawn(async move {
         aster_drive::runtime::shutdown::wait_for_signal().await;
         http_shutdown_token.cancel();
@@ -254,6 +266,7 @@ async fn run_primary_http_server(
 
     let server_result = server.await;
     tracing::info!("server stopped");
+    aster_drive::runtime::shutdown::record_primary_server_shutdown(state.as_ref()).await;
     aster_drive::runtime::shutdown::perform_shutdown(background_tasks, shutdown_db).await;
     server_result
 }

@@ -5,7 +5,7 @@ import { UserIdentity } from "@/components/common/UserIdentity";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
-import { formatAuditAction } from "@/lib/audit";
+import { formatAuditDetail, formatAuditSummary } from "@/lib/audit";
 import { formatDateAbsolute } from "@/lib/format";
 import { formatTeamAuditSummary } from "@/lib/team";
 import type { TeamAuditEntryInfo, TeamMemberRole } from "@/types/api";
@@ -63,7 +63,9 @@ export function TeamManageAuditSection({
 				<>
 					<div className="space-y-3">
 						{auditEntries.map((entry) => {
-							const summary = formatTeamAuditSummary(entry, roleLabel);
+							const summary =
+								formatAuditDetail(t, entry) ??
+								formatTeamAuditSummary(entry, roleLabel);
 
 							return (
 								<div
@@ -74,7 +76,7 @@ export function TeamManageAuditSection({
 										<div className="space-y-2">
 											<div className="flex flex-wrap items-center gap-2">
 												<Badge variant="outline">
-													{formatAuditAction(t, entry.action)}
+													{formatAuditSummary(t, entry)}
 												</Badge>
 												<UserIdentity user={entry.actor} />
 											</div>

@@ -98,14 +98,14 @@ pub async fn create_external_auth_provider(
 ) -> Result<HttpResponse> {
     let provider = external_auth_service::create_provider(&state, body.into_inner()).await?;
     let ctx = audit_service::AuditContext::from_request(&req, &claims);
-    audit_service::log(
+    audit_service::log_with_details(
         &state,
         &ctx,
         audit_service::AuditAction::AdminCreateExternalAuthProvider,
         crate::services::audit_service::AuditEntityType::ExternalAuthProvider,
         Some(provider.id),
         Some(&provider.key),
-        external_auth_provider_audit_details(&provider),
+        || external_auth_provider_audit_details(&provider),
     )
     .await;
     Ok(HttpResponse::Created().json(ApiResponse::ok(provider)))
@@ -158,14 +158,14 @@ pub async fn update_external_auth_provider(
 ) -> Result<HttpResponse> {
     let provider = external_auth_service::update_provider(&state, *path, body.into_inner()).await?;
     let ctx = audit_service::AuditContext::from_request(&req, &claims);
-    audit_service::log(
+    audit_service::log_with_details(
         &state,
         &ctx,
         audit_service::AuditAction::AdminUpdateExternalAuthProvider,
         crate::services::audit_service::AuditEntityType::ExternalAuthProvider,
         Some(provider.id),
         Some(&provider.key),
-        external_auth_provider_audit_details(&provider),
+        || external_auth_provider_audit_details(&provider),
     )
     .await;
     Ok(HttpResponse::Ok().json(ApiResponse::ok(provider)))
@@ -194,14 +194,14 @@ pub async fn delete_external_auth_provider(
     let provider = external_auth_service::get_admin_provider(&state, *path).await?;
     external_auth_service::delete_provider(&state, *path).await?;
     let ctx = audit_service::AuditContext::from_request(&req, &claims);
-    audit_service::log(
+    audit_service::log_with_details(
         &state,
         &ctx,
         audit_service::AuditAction::AdminDeleteExternalAuthProvider,
         crate::services::audit_service::AuditEntityType::ExternalAuthProvider,
         Some(provider.id),
         Some(&provider.key),
-        external_auth_provider_audit_details(&provider),
+        || external_auth_provider_audit_details(&provider),
     )
     .await;
     Ok(HttpResponse::Ok().json(ApiResponse::<()>::ok_empty()))
@@ -232,18 +232,20 @@ pub async fn test_external_auth_provider_params(
     let result = external_auth_service::test_provider_params(&state, input).await;
     let success = result.is_ok();
     let ctx = audit_service::AuditContext::from_request(&req, &claims);
-    audit_service::log(
+    audit_service::log_with_details(
         &state,
         &ctx,
         audit_service::AuditAction::AdminTestExternalAuthProvider,
         crate::services::audit_service::AuditEntityType::ExternalAuthProvider,
         None,
         Some("draft"),
-        audit_service::details(ExternalAuthProviderTestParamsAuditDetails {
-            provider_kind,
-            key: "draft",
-            success,
-        }),
+        || {
+            audit_service::details(ExternalAuthProviderTestParamsAuditDetails {
+                provider_kind,
+                key: "draft",
+                success,
+            })
+        },
     )
     .await;
     let result = result?;
@@ -274,14 +276,14 @@ pub async fn test_external_auth_provider(
     let provider = external_auth_service::get_admin_provider(&state, *path).await?;
     let result = external_auth_service::test_provider(&state, *path).await?;
     let ctx = audit_service::AuditContext::from_request(&req, &claims);
-    audit_service::log(
+    audit_service::log_with_details(
         &state,
         &ctx,
         audit_service::AuditAction::AdminTestExternalAuthProvider,
         crate::services::audit_service::AuditEntityType::ExternalAuthProvider,
         Some(provider.id),
         Some(&provider.key),
-        external_auth_provider_audit_details(&provider),
+        || external_auth_provider_audit_details(&provider),
     )
     .await;
     Ok(HttpResponse::Ok().json(ApiResponse::ok(result)))

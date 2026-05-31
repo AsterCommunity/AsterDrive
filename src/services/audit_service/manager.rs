@@ -276,7 +276,12 @@ impl AuditLogManager {
         write_audit_batch(&self.db, &mut models).await;
     }
 }
-pub async fn log(
+
+pub fn should_record(state: &PrimaryAppState, action: AuditAction) -> bool {
+    state.should_record_audit_action(action)
+}
+
+async fn record_prechecked(
     state: &PrimaryAppState,
     ctx: &AuditContext,
     action: AuditAction,
@@ -285,14 +290,7 @@ pub async fn log(
     entity_name: Option<&str>,
     details: Option<serde_json::Value>,
 ) {
-    // 检查运行时配置
-    if matches!(
-        state.runtime_config.get_bool("audit_log_enabled"),
-        Some(false)
-    ) {
-        return;
-    }
-
+    // Callers must pass the action-scope check before we allocate the DB model.
     let model = audit_log::ActiveModel {
         id: Default::default(),
         user_id: Set(ctx.user_id),
@@ -311,4 +309,58 @@ pub async fn log(
     } else {
         write_audit_model(state.writer_db(), model).await;
     }
+}
+
+pub async fn log(
+    state: &PrimaryAppState,
+    ctx: &AuditContext,
+    action: AuditAction,
+    entity_type: AuditEntityType,
+    entity_id: Option<i64>,
+    entity_name: Option<&str>,
+    details: Option<serde_json::Value>,
+) {
+    if !should_record(state, action) {
+        return;
+    }
+
+    record_prechecked(
+        state,
+        ctx,
+        action,
+        entity_type,
+        entity_id,
+        entity_name,
+        details,
+    )
+    .await;
+}
+
+pub async fn log_with_details<F>(
+    state: &PrimaryAppState,
+    ctx: &AuditContext,
+    action: AuditAction,
+    entity_type: AuditEntityType,
+    entity_id: Option<i64>,
+    entity_name: Option<&str>,
+    details: F,
+) where
+    F: FnOnce() -> Option<serde_json::Value>,
+{
+    if !should_record(state, action) {
+        return;
+    }
+
+    // Details can be expensive to serialize, so build them only after scope filtering.
+    let details = details();
+    record_prechecked(
+        state,
+        ctx,
+        action,
+        entity_type,
+        entity_id,
+        entity_name,
+        details,
+    )
+    .await;
 }

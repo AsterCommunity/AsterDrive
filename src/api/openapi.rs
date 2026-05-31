@@ -408,6 +408,8 @@ use utoipa::{Modify, OpenApi};
             // services::admin_service / services::audit_service / services::task_service：后台概览、审计与后台任务细节模型。
             crate::services::audit_service::AuditLogFilterQuery,
             crate::services::audit_service::AuditLogEntry,
+            crate::services::audit_service::AuditPresentation,
+            crate::services::audit_service::AuditPresentationMessage,
             crate::services::audit_service::TeamAuditEntryInfo,
             crate::services::admin_service::AdminOverviewQuery,
             crate::services::admin_service::AdminOverview,
@@ -576,6 +578,7 @@ use utoipa::{Modify, OpenApi};
             crate::api::routes::admin::ExecuteConfigActionResp,
             crate::services::config_service::SystemConfig,
             crate::services::config_service::ConfigSchemaItem,
+            crate::services::config_service::ConfigSchemaOption,
             crate::services::config_service::TemplateVariableItem,
             crate::services::config_service::TemplateVariableGroup,
             crate::services::config_service::ConfigActionType,

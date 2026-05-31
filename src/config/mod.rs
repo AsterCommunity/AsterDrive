@@ -1,5 +1,6 @@
 //! 配置模块导出与全局入口。
 
+pub mod audit;
 pub mod auth_runtime;
 pub mod avatar;
 pub mod bool_like;

@@ -451,18 +451,20 @@ pub async fn delete_other_sessions(
         &claims,
         &state.config.network_trust.trusted_proxies,
     );
-    audit_service::log(
+    audit_service::log_with_details(
         &state,
         &ctx,
         audit_service::AuditAction::UserRevokeOtherSessions,
         crate::services::audit_service::AuditEntityType::AuthSession,
         None,
         None,
-        audit_service::details(audit_service::AuthSessionAuditDetails {
-            session_id: None,
-            removed: Some(removed),
-            revoked_current: false,
-        }),
+        || {
+            audit_service::details(audit_service::AuthSessionAuditDetails {
+                session_id: None,
+                removed: Some(removed),
+                revoked_current: false,
+            })
+        },
     )
     .await;
     Ok(HttpResponse::Ok().json(ApiResponse::ok(RemovedCountResponse { removed })))
@@ -500,18 +502,20 @@ pub async fn delete_session(
         &claims,
         &state.config.network_trust.trusted_proxies,
     );
-    audit_service::log(
+    audit_service::log_with_details(
         &state,
         &ctx,
         audit_service::AuditAction::UserRevokeSession,
         crate::services::audit_service::AuditEntityType::AuthSession,
         None,
         Some(path.as_str()),
-        audit_service::details(audit_service::AuthSessionAuditDetails {
-            session_id: Some(path.as_str()),
-            removed: None,
-            revoked_current,
-        }),
+        || {
+            audit_service::details(audit_service::AuthSessionAuditDetails {
+                session_id: Some(path.as_str()),
+                removed: None,
+                revoked_current,
+            })
+        },
     )
     .await;
 

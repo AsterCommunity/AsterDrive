@@ -15,7 +15,7 @@ pub use public::{
     get_public_media_data_support, get_public_preview_apps, get_public_thumbnail_support,
 };
 pub use schema::{
-    ConfigSchemaItem, TemplateVariableGroup, TemplateVariableItem, get_schema,
+    ConfigSchemaItem, ConfigSchemaOption, TemplateVariableGroup, TemplateVariableItem, get_schema,
     list_template_variable_groups,
 };
 pub use system::{

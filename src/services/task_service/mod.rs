@@ -349,17 +349,19 @@ pub(crate) async fn retry_task_in_scope_with_audit(
 ) -> Result<TaskInfo> {
     let previous = get_task_in_scope(state, scope, task_id).await?;
     let task = retry_task_in_scope(state, scope, task_id).await?;
-    audit_service::log(
+    audit_service::log_with_details(
         state,
         audit_ctx,
         audit_service::AuditAction::TaskRetry,
         crate::services::audit_service::AuditEntityType::Task,
         Some(task.id),
         Some(&task.display_name),
-        audit_service::details(audit_service::TaskRetryAuditDetails {
-            kind: format!("{:?}", previous.kind),
-            previous_attempt_count: previous.attempt_count,
-        }),
+        || {
+            audit_service::details(audit_service::TaskRetryAuditDetails {
+                kind: format!("{:?}", previous.kind),
+                previous_attempt_count: previous.attempt_count,
+            })
+        },
     )
     .await;
     Ok(task)

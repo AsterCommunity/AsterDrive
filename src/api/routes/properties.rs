@@ -101,18 +101,20 @@ pub async fn set_prop(
     .await?;
     let ctx = audit_service::AuditContext::from_request(&req, &claims);
     let property_name = format!("{}:{}", body.namespace, body.name);
-    audit_service::log(
+    audit_service::log_with_details(
         &state,
         &ctx,
         audit_service::AuditAction::PropertySet,
         audit_service::AuditEntityType::from_entity_type(path.entity_type),
         Some(path.entity_id),
         Some(&property_name),
-        audit_service::details(audit_service::PropertyAuditDetails {
-            entity_type: path.entity_type.as_str(),
-            namespace: &body.namespace,
-            name: &body.name,
-        }),
+        || {
+            audit_service::details(audit_service::PropertyAuditDetails {
+                entity_type: path.entity_type.as_str(),
+                namespace: &body.namespace,
+                name: &body.name,
+            })
+        },
     )
     .await;
     Ok(HttpResponse::Ok().json(ApiResponse::ok(prop)))
@@ -156,18 +158,20 @@ pub async fn delete_prop(
     .await?;
     let ctx = audit_service::AuditContext::from_request(&req, &claims);
     let property_name = format!("{}:{}", path.namespace, path.name);
-    audit_service::log(
+    audit_service::log_with_details(
         &state,
         &ctx,
         audit_service::AuditAction::PropertyDelete,
         audit_service::AuditEntityType::from_entity_type(path.entity_type),
         Some(path.entity_id),
         Some(&property_name),
-        audit_service::details(audit_service::PropertyAuditDetails {
-            entity_type: path.entity_type.as_str(),
-            namespace: &path.namespace,
-            name: &path.name,
-        }),
+        || {
+            audit_service::details(audit_service::PropertyAuditDetails {
+                entity_type: path.entity_type.as_str(),
+                namespace: &path.namespace,
+                name: &path.name,
+            })
+        },
     )
     .await;
     Ok(HttpResponse::Ok().json(ApiResponse::<()>::ok_empty()))

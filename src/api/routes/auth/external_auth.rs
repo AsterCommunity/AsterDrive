@@ -251,20 +251,22 @@ async fn external_auth_login_json_response(
 ) -> Result<HttpResponse> {
     let result = result.into();
     let audit_ctx = audit_info.to_context(result.primary_login.user.id);
-    audit_service::log(
+    audit_service::log_with_details(
         state,
         &audit_ctx,
         audit_service::AuditAction::UserExternalAuthLogin,
         crate::services::audit_service::AuditEntityType::ExternalAuthIdentity,
         None,
         Some(&result.primary_login.provider_key),
-        audit_service::details(ExternalAuthLoginAuditDetails {
-            provider_key: &result.primary_login.provider_key,
-            issuer: &result.primary_login.issuer,
-            subject: &result.primary_login.subject,
-            linked: result.primary_login.linked,
-            auto_provisioned: result.primary_login.auto_provisioned,
-        }),
+        || {
+            audit_service::details(ExternalAuthLoginAuditDetails {
+                provider_key: &result.primary_login.provider_key,
+                issuer: &result.primary_login.issuer,
+                subject: &result.primary_login.subject,
+                linked: result.primary_login.linked,
+                auto_provisioned: result.primary_login.auto_provisioned,
+            })
+        },
     )
     .await;
 
@@ -279,20 +281,22 @@ async fn external_auth_login_redirect_response(
 ) -> Result<HttpResponse> {
     let result = result.into();
     let audit_ctx = audit_info.to_context(result.primary_login.user.id);
-    audit_service::log(
+    audit_service::log_with_details(
         state,
         &audit_ctx,
         audit_service::AuditAction::UserExternalAuthLogin,
         crate::services::audit_service::AuditEntityType::ExternalAuthIdentity,
         None,
         Some(&result.primary_login.provider_key),
-        audit_service::details(ExternalAuthLoginAuditDetails {
-            provider_key: &result.primary_login.provider_key,
-            issuer: &result.primary_login.issuer,
-            subject: &result.primary_login.subject,
-            linked: result.primary_login.linked,
-            auto_provisioned: result.primary_login.auto_provisioned,
-        }),
+        || {
+            audit_service::details(ExternalAuthLoginAuditDetails {
+                provider_key: &result.primary_login.provider_key,
+                issuer: &result.primary_login.issuer,
+                subject: &result.primary_login.subject,
+                linked: result.primary_login.linked,
+                auto_provisioned: result.primary_login.auto_provisioned,
+            })
+        },
     )
     .await;
 

@@ -173,6 +173,9 @@ export type TeamShareListQuery = OperationQuery<"list_team_shares">;
 // Admin, storage, and WebDAV
 export type AuditAction = components["schemas"]["AuditAction"];
 export type AuditEntityType = components["schemas"]["AuditEntityType"];
+export type AuditPresentation = components["schemas"]["AuditPresentation"];
+export type AuditPresentationMessage =
+	components["schemas"]["AuditPresentationMessage"];
 export type AuditLogEntry = components["schemas"]["AuditLogEntry"];
 export type AuditLogPage = components["schemas"]["OffsetPage_AuditLogEntry"];
 export type AdminAuditLogSortBy = components["schemas"]["AdminAuditLogSortBy"];
@@ -349,6 +352,7 @@ export type AdminTaskCleanupRequest =
 export type AdminLockListQuery = OperationQuery<"list_locks">;
 export type ConfigActionType = components["schemas"]["ConfigActionType"];
 export type ConfigSchemaItem = components["schemas"]["ConfigSchemaItem"];
+export type ConfigSchemaOption = components["schemas"]["ConfigSchemaOption"];
 export type AdminConfigListQuery = OperationQuery<"list_config">;
 export type ExecuteConfigActionRequest =
 	components["schemas"]["ExecuteConfigActionReq"];

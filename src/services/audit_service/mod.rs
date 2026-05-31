@@ -5,6 +5,7 @@ mod details;
 mod filters;
 mod manager;
 mod models;
+mod presentation;
 mod query;
 #[cfg(test)]
 mod tests;
@@ -25,8 +26,8 @@ pub use details::{
 };
 pub use filters::{AuditLogFilterQuery, AuditLogFilters};
 pub use manager::{
-    flush_global_audit_log_manager, init_global_audit_log_manager, log,
-    shutdown_global_audit_log_manager,
+    flush_global_audit_log_manager, init_global_audit_log_manager, log, log_with_details,
+    should_record, shutdown_global_audit_log_manager,
 };
-pub use models::{AuditLogEntry, TeamAuditEntryInfo};
+pub use models::{AuditLogEntry, AuditPresentation, AuditPresentationMessage, TeamAuditEntryInfo};
 pub use query::{cleanup_expired, query, query_team_entries};

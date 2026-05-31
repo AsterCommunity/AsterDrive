@@ -14,8 +14,9 @@ import { AdminSurface } from "@/components/layout/AdminSurface";
 import { Badge } from "@/components/ui/badge";
 import { Icon } from "@/components/ui/icon";
 import {
-	formatAuditAction,
-	formatAuditEntityType,
+	formatAuditSummary,
+	formatAuditTarget,
+	formatAuditTargetType,
 	getAuditActionBadgeClass,
 } from "@/lib/audit";
 import { PAGE_SECTION_PADDING_CLASS } from "@/lib/constants";
@@ -73,7 +74,7 @@ export function OverviewRecentEventsSection({
 										variant="outline"
 										className={getAuditActionBadgeClass(event.action)}
 									>
-										{formatAuditAction(t, event.action)}
+										{formatAuditSummary(t, event)}
 									</Badge>
 								</TableCell>
 								<TableCell>
@@ -82,11 +83,10 @@ export function OverviewRecentEventsSection({
 								<TableCell>
 									<div className="flex flex-col gap-1">
 										<span className="text-sm">
-											{event.entity_name ??
-												formatAuditEntityType(t, event.entity_type)}
+											{formatAuditTarget(t, event)}
 										</span>
 										<span className="text-xs text-muted-foreground">
-											{formatAuditEntityType(t, event.entity_type)}
+											{formatAuditTargetType(t, event)}
 										</span>
 									</div>
 								</TableCell>

@@ -7,6 +7,158 @@ use utoipa::ToSchema;
 
 use super::EntityType;
 
+macro_rules! define_audit_action_list {
+    ($macro:ident) => {
+        $macro! {
+            AdminCreateUser,
+            AdminForceDeleteUser,
+            AdminCreateTeam,
+            AdminCreatePolicyGroup,
+            AdminArchiveTeam,
+            AdminRestoreTeam,
+            AdminRevokeUserSessions,
+            AdminResetUserPassword,
+            AdminResetUserMfa,
+            AdminUpdateTeam,
+            AdminUpdateUser,
+            AdminDeletePolicyGroup,
+            AdminMigratePolicyGroupUsers,
+            AdminUpdatePolicyGroup,
+            AdminCreatePolicy,
+            AdminUpdatePolicy,
+            AdminDeletePolicy,
+            AdminDeleteConfig,
+            AdminDeleteShare,
+            AdminForceUnlock,
+            AdminCleanupExpiredLocks,
+            AdminCleanupTasks,
+            AdminCreateBlobMaintenanceTask,
+            AdminCreateRemoteNode,
+            AdminUpdateRemoteNode,
+            AdminDeleteRemoteNode,
+            AdminTestRemoteNode,
+            AdminCreateRemoteNodeEnrollmentToken,
+            AdminCreateRemoteIngressProfile,
+            AdminUpdateRemoteIngressProfile,
+            AdminDeleteRemoteIngressProfile,
+            AdminCreateExternalAuthProvider,
+            AdminUpdateExternalAuthProvider,
+            AdminDeleteExternalAuthProvider,
+            AdminTestExternalAuthProvider,
+            BatchCopy,
+            BatchDelete,
+            BatchMove,
+            ConfigActionExecute,
+            ConfigUpdate,
+            FileCopy,
+            FileCreate,
+            FileDelete,
+            FileDownload,
+            FileDirectLinkCreate,
+            FileEdit,
+            FileMove,
+            FileRename,
+            FileUpload,
+            FilePreviewLinkCreate,
+            FileWopiOpen,
+            FileUploadCancel,
+            FileRestore,
+            FilePurge,
+            FileLock,
+            FileUnlock,
+            FileVersionRestore,
+            FileVersionDelete,
+            FolderCopy,
+            FolderCreate,
+            FolderDelete,
+            FolderMove,
+            FolderPolicyChange,
+            FolderRename,
+            FolderRestore,
+            FolderPurge,
+            FolderLock,
+            FolderUnlock,
+            PropertySet,
+            PropertyDelete,
+            ShareBatchDelete,
+            ShareCreate,
+            ShareDelete,
+            ShareUpdate,
+            SystemSetup,
+            ServerStart,
+            ServerShutdown,
+            TeamArchive,
+            TeamCleanupExpired,
+            TeamCreate,
+            TeamMemberAdd,
+            TeamMemberRemove,
+            TeamMemberUpdate,
+            TeamRestore,
+            TeamUpdate,
+            TaskRetry,
+            ArchiveCompress,
+            ArchiveExtract,
+            ArchiveDownload,
+            TrashPurgeAll,
+            RemoteEnrollmentRedeem,
+            RemoteEnrollmentAck,
+            UserRevokeOtherSessions,
+            UserRevokeSession,
+            UserUpdatePreferences,
+            UserUpdateProfile,
+            UserUploadAvatar,
+            UserSetAvatarSource,
+            UserUpdateWopiInfo,
+            WebdavAccountCreate,
+            WebdavAccountDelete,
+            WebdavAccountToggle,
+            TeamWebdavAccountCreate,
+            TeamWebdavAccountDelete,
+            TeamWebdavAccountToggle,
+            UserChangePassword,
+            UserConfirmPasswordReset,
+            UserConfirmEmailChange,
+            UserConfirmRegistration,
+            UserLogin,
+            UserLogout,
+            UserMfaEnable,
+            UserMfaDisable,
+            UserMfaRecoveryCodesRegenerate,
+            UserMfaEmailCodeSend,
+            UserMfaChallengeSuccess,
+            UserMfaChallengeFailed,
+            UserPasskeyDelete,
+            UserPasskeyLogin,
+            UserPasskeyRegister,
+            UserPasskeyRename,
+            UserExternalAuthLogin,
+            UserExternalAuthLink,
+            UserExternalAuthUnlink,
+            UserRefreshTokenReuseDetected,
+            UserRequestEmailChange,
+            UserRequestPasswordReset,
+            UserRegister,
+            UserResendEmailChange,
+            UserResendRegistration,
+        }
+    };
+}
+
+macro_rules! audit_action_count {
+    ($($variant:ident),+ $(,)?) => {
+        <[()]>::len(&[$(audit_action_count!(@unit $variant)),+])
+    };
+    (@unit $variant:ident) => {
+        ()
+    };
+}
+
+macro_rules! audit_action_all {
+    ($($variant:ident),+ $(,)?) => {
+        [$(AuditAction::$variant,)+]
+    };
+}
+
 macro_rules! define_audit_entity_type {
     ($($variant:ident => $name:literal),+ $(,)?) => {
         /// 审计日志实体类型
@@ -137,7 +289,9 @@ impl std::error::Error for ParseAuditEntityTypeError {}
 
 #[cfg(test)]
 mod tests {
-    use super::{AUDIT_ENTITY_TYPE_NAMES, AuditEntityType};
+    use std::collections::HashSet;
+
+    use super::{AUDIT_ENTITY_TYPE_NAMES, AuditAction, AuditEntityType};
 
     #[test]
     fn audit_entity_type_round_trips_string_names() {
@@ -166,6 +320,34 @@ mod tests {
 
         assert_eq!(AuditEntityType::from_str_name("unknown"), None);
         assert!(serde_json::from_value::<AuditEntityType>(serde_json::json!("unknown")).is_err());
+    }
+
+    #[test]
+    fn audit_action_all_covers_every_stable_index() {
+        assert_eq!(AuditAction::COUNT, AuditAction::ALL.len());
+        let mut indexes = HashSet::new();
+        let mut names = HashSet::new();
+
+        for (expected_index, action) in AuditAction::ALL.iter().copied().enumerate() {
+            assert_eq!(action.index(), expected_index);
+            assert!(indexes.insert(action.index()));
+            assert!(names.insert(action.as_str()));
+            assert_eq!(AuditAction::from_str_name(action.as_str()), Some(action));
+            assert_eq!(
+                serde_json::to_value(action).expect("audit action serializes"),
+                serde_json::json!(action.as_str())
+            );
+            assert_eq!(
+                serde_json::from_value::<AuditAction>(serde_json::json!(action.as_str()))
+                    .expect("audit action deserializes"),
+                action
+            );
+        }
+
+        assert_eq!(indexes.len(), AuditAction::COUNT);
+        assert_eq!(names.len(), AuditAction::COUNT);
+        assert_eq!(AuditAction::from_str_name("unknown"), None);
+        assert!(serde_json::from_value::<AuditAction>(serde_json::json!("unknown")).is_err());
     }
 }
 
@@ -325,6 +507,10 @@ pub enum AuditAction {
     ShareUpdate,
     #[sea_orm(string_value = "system_setup")]
     SystemSetup,
+    #[sea_orm(string_value = "server_start")]
+    ServerStart,
+    #[sea_orm(string_value = "server_shutdown")]
+    ServerShutdown,
     #[sea_orm(string_value = "team_archive")]
     TeamArchive,
     #[sea_orm(string_value = "team_cleanup_expired")]
@@ -434,6 +620,144 @@ pub enum AuditAction {
 }
 
 impl AuditAction {
+    pub const COUNT: usize = define_audit_action_list!(audit_action_count);
+    pub const ALL: [Self; Self::COUNT] = define_audit_action_list!(audit_action_all);
+
+    pub const fn index(self) -> usize {
+        match self {
+            Self::AdminCreateUser => 0,
+            Self::AdminForceDeleteUser => 1,
+            Self::AdminCreateTeam => 2,
+            Self::AdminCreatePolicyGroup => 3,
+            Self::AdminArchiveTeam => 4,
+            Self::AdminRestoreTeam => 5,
+            Self::AdminRevokeUserSessions => 6,
+            Self::AdminResetUserPassword => 7,
+            Self::AdminResetUserMfa => 8,
+            Self::AdminUpdateTeam => 9,
+            Self::AdminUpdateUser => 10,
+            Self::AdminDeletePolicyGroup => 11,
+            Self::AdminMigratePolicyGroupUsers => 12,
+            Self::AdminUpdatePolicyGroup => 13,
+            Self::AdminCreatePolicy => 14,
+            Self::AdminUpdatePolicy => 15,
+            Self::AdminDeletePolicy => 16,
+            Self::AdminDeleteConfig => 17,
+            Self::AdminDeleteShare => 18,
+            Self::AdminForceUnlock => 19,
+            Self::AdminCleanupExpiredLocks => 20,
+            Self::AdminCleanupTasks => 21,
+            Self::AdminCreateBlobMaintenanceTask => 22,
+            Self::AdminCreateRemoteNode => 23,
+            Self::AdminUpdateRemoteNode => 24,
+            Self::AdminDeleteRemoteNode => 25,
+            Self::AdminTestRemoteNode => 26,
+            Self::AdminCreateRemoteNodeEnrollmentToken => 27,
+            Self::AdminCreateRemoteIngressProfile => 28,
+            Self::AdminUpdateRemoteIngressProfile => 29,
+            Self::AdminDeleteRemoteIngressProfile => 30,
+            Self::AdminCreateExternalAuthProvider => 31,
+            Self::AdminUpdateExternalAuthProvider => 32,
+            Self::AdminDeleteExternalAuthProvider => 33,
+            Self::AdminTestExternalAuthProvider => 34,
+            Self::BatchCopy => 35,
+            Self::BatchDelete => 36,
+            Self::BatchMove => 37,
+            Self::ConfigActionExecute => 38,
+            Self::ConfigUpdate => 39,
+            Self::FileCopy => 40,
+            Self::FileCreate => 41,
+            Self::FileDelete => 42,
+            Self::FileDownload => 43,
+            Self::FileDirectLinkCreate => 44,
+            Self::FileEdit => 45,
+            Self::FileMove => 46,
+            Self::FileRename => 47,
+            Self::FileUpload => 48,
+            Self::FilePreviewLinkCreate => 49,
+            Self::FileWopiOpen => 50,
+            Self::FileUploadCancel => 51,
+            Self::FileRestore => 52,
+            Self::FilePurge => 53,
+            Self::FileLock => 54,
+            Self::FileUnlock => 55,
+            Self::FileVersionRestore => 56,
+            Self::FileVersionDelete => 57,
+            Self::FolderCopy => 58,
+            Self::FolderCreate => 59,
+            Self::FolderDelete => 60,
+            Self::FolderMove => 61,
+            Self::FolderPolicyChange => 62,
+            Self::FolderRename => 63,
+            Self::FolderRestore => 64,
+            Self::FolderPurge => 65,
+            Self::FolderLock => 66,
+            Self::FolderUnlock => 67,
+            Self::PropertySet => 68,
+            Self::PropertyDelete => 69,
+            Self::ShareBatchDelete => 70,
+            Self::ShareCreate => 71,
+            Self::ShareDelete => 72,
+            Self::ShareUpdate => 73,
+            Self::SystemSetup => 74,
+            Self::ServerStart => 75,
+            Self::ServerShutdown => 76,
+            Self::TeamArchive => 77,
+            Self::TeamCleanupExpired => 78,
+            Self::TeamCreate => 79,
+            Self::TeamMemberAdd => 80,
+            Self::TeamMemberRemove => 81,
+            Self::TeamMemberUpdate => 82,
+            Self::TeamRestore => 83,
+            Self::TeamUpdate => 84,
+            Self::TaskRetry => 85,
+            Self::ArchiveCompress => 86,
+            Self::ArchiveExtract => 87,
+            Self::ArchiveDownload => 88,
+            Self::TrashPurgeAll => 89,
+            Self::RemoteEnrollmentRedeem => 90,
+            Self::RemoteEnrollmentAck => 91,
+            Self::UserRevokeOtherSessions => 92,
+            Self::UserRevokeSession => 93,
+            Self::UserUpdatePreferences => 94,
+            Self::UserUpdateProfile => 95,
+            Self::UserUploadAvatar => 96,
+            Self::UserSetAvatarSource => 97,
+            Self::UserUpdateWopiInfo => 98,
+            Self::WebdavAccountCreate => 99,
+            Self::WebdavAccountDelete => 100,
+            Self::WebdavAccountToggle => 101,
+            Self::TeamWebdavAccountCreate => 102,
+            Self::TeamWebdavAccountDelete => 103,
+            Self::TeamWebdavAccountToggle => 104,
+            Self::UserChangePassword => 105,
+            Self::UserConfirmPasswordReset => 106,
+            Self::UserConfirmEmailChange => 107,
+            Self::UserConfirmRegistration => 108,
+            Self::UserLogin => 109,
+            Self::UserLogout => 110,
+            Self::UserMfaEnable => 111,
+            Self::UserMfaDisable => 112,
+            Self::UserMfaRecoveryCodesRegenerate => 113,
+            Self::UserMfaEmailCodeSend => 114,
+            Self::UserMfaChallengeSuccess => 115,
+            Self::UserMfaChallengeFailed => 116,
+            Self::UserPasskeyDelete => 117,
+            Self::UserPasskeyLogin => 118,
+            Self::UserPasskeyRegister => 119,
+            Self::UserPasskeyRename => 120,
+            Self::UserExternalAuthLogin => 121,
+            Self::UserExternalAuthLink => 122,
+            Self::UserExternalAuthUnlink => 123,
+            Self::UserRefreshTokenReuseDetected => 124,
+            Self::UserRequestEmailChange => 125,
+            Self::UserRequestPasswordReset => 126,
+            Self::UserRegister => 127,
+            Self::UserResendEmailChange => 128,
+            Self::UserResendRegistration => 129,
+        }
+    }
+
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::AdminCreateUser => "admin_create_user",
@@ -513,6 +837,8 @@ impl AuditAction {
             Self::ShareDelete => "share_delete",
             Self::ShareUpdate => "share_update",
             Self::SystemSetup => "system_setup",
+            Self::ServerStart => "server_start",
+            Self::ServerShutdown => "server_shutdown",
             Self::TeamArchive => "team_archive",
             Self::TeamCleanupExpired => "team_cleanup_expired",
             Self::TeamCreate => "team_create",
@@ -648,6 +974,8 @@ impl AuditAction {
             "share_delete" => Some(Self::ShareDelete),
             "share_update" => Some(Self::ShareUpdate),
             "system_setup" => Some(Self::SystemSetup),
+            "server_start" => Some(Self::ServerStart),
+            "server_shutdown" => Some(Self::ServerShutdown),
             "team_archive" => Some(Self::TeamArchive),
             "team_cleanup_expired" => Some(Self::TeamCleanupExpired),
             "team_create" => Some(Self::TeamCreate),
@@ -702,6 +1030,132 @@ impl AuditAction {
             "user_resend_email_change" => Some(Self::UserResendEmailChange),
             "user_resend_registration" => Some(Self::UserResendRegistration),
             _ => None,
+        }
+    }
+
+    pub const fn group(self) -> &'static str {
+        match self {
+            Self::AdminCreateUser
+            | Self::AdminForceDeleteUser
+            | Self::AdminCreateTeam
+            | Self::AdminCreatePolicyGroup
+            | Self::AdminArchiveTeam
+            | Self::AdminRestoreTeam
+            | Self::AdminRevokeUserSessions
+            | Self::AdminResetUserPassword
+            | Self::AdminResetUserMfa
+            | Self::AdminUpdateTeam
+            | Self::AdminUpdateUser
+            | Self::AdminDeletePolicyGroup
+            | Self::AdminMigratePolicyGroupUsers
+            | Self::AdminUpdatePolicyGroup
+            | Self::AdminCreatePolicy
+            | Self::AdminUpdatePolicy
+            | Self::AdminDeletePolicy
+            | Self::AdminDeleteConfig
+            | Self::AdminDeleteShare
+            | Self::AdminForceUnlock
+            | Self::AdminCleanupExpiredLocks
+            | Self::AdminCleanupTasks
+            | Self::AdminCreateBlobMaintenanceTask => "admin",
+            Self::AdminCreateRemoteNode
+            | Self::AdminUpdateRemoteNode
+            | Self::AdminDeleteRemoteNode
+            | Self::AdminTestRemoteNode
+            | Self::AdminCreateRemoteNodeEnrollmentToken
+            | Self::RemoteEnrollmentRedeem
+            | Self::RemoteEnrollmentAck => "remote",
+            Self::AdminCreateRemoteIngressProfile
+            | Self::AdminUpdateRemoteIngressProfile
+            | Self::AdminDeleteRemoteIngressProfile => "remote_ingress",
+            Self::AdminCreateExternalAuthProvider
+            | Self::AdminUpdateExternalAuthProvider
+            | Self::AdminDeleteExternalAuthProvider
+            | Self::AdminTestExternalAuthProvider
+            | Self::UserExternalAuthLogin
+            | Self::UserExternalAuthLink
+            | Self::UserExternalAuthUnlink => "external_auth",
+            Self::BatchCopy | Self::BatchDelete | Self::BatchMove => "batch",
+            Self::ConfigActionExecute | Self::ConfigUpdate => "config",
+            Self::FileCopy
+            | Self::FileCreate
+            | Self::FileDelete
+            | Self::FileDownload
+            | Self::FileDirectLinkCreate
+            | Self::FileEdit
+            | Self::FileMove
+            | Self::FileRename
+            | Self::FileUpload
+            | Self::FilePreviewLinkCreate
+            | Self::FileWopiOpen
+            | Self::FileUploadCancel
+            | Self::FileRestore
+            | Self::FilePurge
+            | Self::FileLock
+            | Self::FileUnlock
+            | Self::FileVersionRestore
+            | Self::FileVersionDelete => "file",
+            Self::FolderCopy
+            | Self::FolderCreate
+            | Self::FolderDelete
+            | Self::FolderMove
+            | Self::FolderPolicyChange
+            | Self::FolderRename
+            | Self::FolderRestore
+            | Self::FolderPurge
+            | Self::FolderLock
+            | Self::FolderUnlock => "folder",
+            Self::PropertySet | Self::PropertyDelete => "property",
+            Self::ShareBatchDelete | Self::ShareCreate | Self::ShareDelete | Self::ShareUpdate => {
+                "share"
+            }
+            Self::SystemSetup | Self::ServerStart | Self::ServerShutdown => "system",
+            Self::TeamArchive
+            | Self::TeamCleanupExpired
+            | Self::TeamCreate
+            | Self::TeamMemberAdd
+            | Self::TeamMemberRemove
+            | Self::TeamMemberUpdate
+            | Self::TeamRestore
+            | Self::TeamUpdate => "team",
+            Self::TaskRetry => "task",
+            Self::ArchiveCompress | Self::ArchiveExtract | Self::ArchiveDownload => "archive",
+            Self::TrashPurgeAll => "trash",
+            Self::UserRevokeOtherSessions
+            | Self::UserRevokeSession
+            | Self::UserUpdatePreferences
+            | Self::UserUpdateProfile
+            | Self::UserUploadAvatar
+            | Self::UserSetAvatarSource
+            | Self::UserUpdateWopiInfo => "user",
+            Self::WebdavAccountCreate
+            | Self::WebdavAccountDelete
+            | Self::WebdavAccountToggle
+            | Self::TeamWebdavAccountCreate
+            | Self::TeamWebdavAccountDelete
+            | Self::TeamWebdavAccountToggle => "webdav",
+            Self::UserChangePassword
+            | Self::UserConfirmPasswordReset
+            | Self::UserConfirmEmailChange
+            | Self::UserConfirmRegistration
+            | Self::UserLogin
+            | Self::UserLogout
+            | Self::UserMfaEnable
+            | Self::UserMfaDisable
+            | Self::UserMfaRecoveryCodesRegenerate
+            | Self::UserMfaEmailCodeSend
+            | Self::UserMfaChallengeSuccess
+            | Self::UserMfaChallengeFailed
+            | Self::UserPasskeyDelete
+            | Self::UserPasskeyLogin
+            | Self::UserPasskeyRegister
+            | Self::UserPasskeyRename
+            | Self::UserRefreshTokenReuseDetected
+            | Self::UserRequestEmailChange
+            | Self::UserRequestPasswordReset
+            | Self::UserRegister
+            | Self::UserResendEmailChange
+            | Self::UserResendRegistration => "auth",
         }
     }
 }

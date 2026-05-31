@@ -133,14 +133,14 @@ pub async fn create_remote_node(
     validate_request(&*body)?;
     let node = managed_follower_service::create(&state, body.into_inner().into()).await?;
     let ctx = audit_service::AuditContext::from_request(&req, &claims);
-    audit_service::log(
+    audit_service::log_with_details(
         &state,
         &ctx,
         audit_service::AuditAction::AdminCreateRemoteNode,
         crate::services::audit_service::AuditEntityType::RemoteNode,
         Some(node.id),
         Some(&node.name),
-        remote_node_audit_details(&node),
+        || remote_node_audit_details(&node),
     )
     .await;
     Ok(HttpResponse::Created().json(ApiResponse::ok(node)))
@@ -193,14 +193,14 @@ pub async fn update_remote_node(
     validate_request(&*body)?;
     let node = managed_follower_service::update(&state, *path, body.into_inner().into()).await?;
     let ctx = audit_service::AuditContext::from_request(&req, &claims);
-    audit_service::log(
+    audit_service::log_with_details(
         &state,
         &ctx,
         audit_service::AuditAction::AdminUpdateRemoteNode,
         crate::services::audit_service::AuditEntityType::RemoteNode,
         Some(node.id),
         Some(&node.name),
-        remote_node_audit_details(&node),
+        || remote_node_audit_details(&node),
     )
     .await;
     Ok(HttpResponse::Ok().json(ApiResponse::ok(node)))
@@ -229,14 +229,14 @@ pub async fn delete_remote_node(
     let node = managed_follower_service::get(&state, *path).await?;
     managed_follower_service::delete(&state, *path).await?;
     let ctx = audit_service::AuditContext::from_request(&req, &claims);
-    audit_service::log(
+    audit_service::log_with_details(
         &state,
         &ctx,
         audit_service::AuditAction::AdminDeleteRemoteNode,
         crate::services::audit_service::AuditEntityType::RemoteNode,
         Some(node.id),
         Some(&node.name),
-        remote_node_audit_details(&node),
+        || remote_node_audit_details(&node),
     )
     .await;
     Ok(HttpResponse::Ok().json(ApiResponse::<()>::ok_empty()))
@@ -266,14 +266,14 @@ pub async fn test_remote_node(
 ) -> Result<HttpResponse> {
     let node = managed_follower_service::test_connection(&state, *path).await?;
     let ctx = audit_service::AuditContext::from_request(&req, &claims);
-    audit_service::log(
+    audit_service::log_with_details(
         &state,
         &ctx,
         audit_service::AuditAction::AdminTestRemoteNode,
         crate::services::audit_service::AuditEntityType::RemoteNode,
         Some(node.id),
         Some(&node.name),
-        remote_node_audit_details(&node),
+        || remote_node_audit_details(&node),
     )
     .await;
     Ok(HttpResponse::Ok().json(ApiResponse::ok(node)))
@@ -325,16 +325,18 @@ pub async fn create_remote_node_enrollment_token(
     let command =
         managed_follower_enrollment_service::create_enrollment_command(&state, *path).await?;
     let ctx = audit_service::AuditContext::from_request(&req, &claims);
-    audit_service::log(
+    audit_service::log_with_details(
         &state,
         &ctx,
         audit_service::AuditAction::AdminCreateRemoteNodeEnrollmentToken,
         crate::services::audit_service::AuditEntityType::RemoteNode,
         Some(command.remote_node_id),
         Some(&command.remote_node_name),
-        audit_service::details(serde_json::json!({
-            "expires_at": command.expires_at,
-        })),
+        || {
+            audit_service::details(serde_json::json!({
+                "expires_at": command.expires_at,
+            }))
+        },
     )
     .await;
     Ok(HttpResponse::Created().json(ApiResponse::ok(command)))
@@ -389,18 +391,20 @@ pub async fn create_remote_node_ingress_profile(
     let profile =
         managed_ingress_profile_service::create_remote(&state, *path, body.into_inner()).await?;
     let ctx = audit_service::AuditContext::from_request(&req, &claims);
-    audit_service::log(
+    audit_service::log_with_details(
         &state,
         &ctx,
         audit_service::AuditAction::AdminCreateRemoteIngressProfile,
         crate::services::audit_service::AuditEntityType::RemoteIngressProfile,
         Some(*path),
         Some(&profile.profile_key),
-        audit_service::details(audit_service::RemoteIngressProfileAuditDetails {
-            profile_key: &profile.profile_key,
-            driver_type: driver_type_audit_name(profile.driver_type),
-            is_default: profile.is_default,
-        }),
+        || {
+            audit_service::details(audit_service::RemoteIngressProfileAuditDetails {
+                profile_key: &profile.profile_key,
+                driver_type: driver_type_audit_name(profile.driver_type),
+                is_default: profile.is_default,
+            })
+        },
     )
     .await;
     Ok(HttpResponse::Created().json(ApiResponse::ok(profile)))
@@ -437,18 +441,20 @@ pub async fn update_remote_node_ingress_profile(
         managed_ingress_profile_service::update_remote(&state, id, &profile_key, body.into_inner())
             .await?;
     let ctx = audit_service::AuditContext::from_request(&req, &claims);
-    audit_service::log(
+    audit_service::log_with_details(
         &state,
         &ctx,
         audit_service::AuditAction::AdminUpdateRemoteIngressProfile,
         crate::services::audit_service::AuditEntityType::RemoteIngressProfile,
         Some(id),
         Some(&profile.profile_key),
-        audit_service::details(audit_service::RemoteIngressProfileAuditDetails {
-            profile_key: &profile.profile_key,
-            driver_type: driver_type_audit_name(profile.driver_type),
-            is_default: profile.is_default,
-        }),
+        || {
+            audit_service::details(audit_service::RemoteIngressProfileAuditDetails {
+                profile_key: &profile.profile_key,
+                driver_type: driver_type_audit_name(profile.driver_type),
+                is_default: profile.is_default,
+            })
+        },
     )
     .await;
     Ok(HttpResponse::Ok().json(ApiResponse::ok(profile)))
@@ -481,16 +487,18 @@ pub async fn delete_remote_node_ingress_profile(
     let (id, profile_key) = path.into_inner();
     managed_ingress_profile_service::delete_remote(&state, id, &profile_key).await?;
     let ctx = audit_service::AuditContext::from_request(&req, &claims);
-    audit_service::log(
+    audit_service::log_with_details(
         &state,
         &ctx,
         audit_service::AuditAction::AdminDeleteRemoteIngressProfile,
         crate::services::audit_service::AuditEntityType::RemoteIngressProfile,
         Some(id),
         Some(&profile_key),
-        audit_service::details(serde_json::json!({
-            "profile_key": &profile_key,
-        })),
+        || {
+            audit_service::details(serde_json::json!({
+                "profile_key": &profile_key,
+            }))
+        },
     )
     .await;
     Ok(HttpResponse::Ok().json(ApiResponse::<()>::ok_empty()))

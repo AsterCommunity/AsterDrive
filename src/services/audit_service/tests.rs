@@ -1,6 +1,9 @@
 use actix_web::test as actix_test;
 use sea_orm::{ColumnTrait, EntityTrait, PaginatorTrait, QueryFilter, Set};
-use std::sync::Arc;
+use std::sync::{
+    Arc,
+    atomic::{AtomicUsize, Ordering},
+};
 use std::time::{Duration, Instant};
 
 use super::AuditAction;
@@ -271,6 +274,8 @@ fn audit_action_strings_match_existing_contract() {
         (AuditAction::ShareDelete, "share_delete"),
         (AuditAction::ShareUpdate, "share_update"),
         (AuditAction::SystemSetup, "system_setup"),
+        (AuditAction::ServerStart, "server_start"),
+        (AuditAction::ServerShutdown, "server_shutdown"),
         (AuditAction::TeamArchive, "team_archive"),
         (AuditAction::TeamCleanupExpired, "team_cleanup_expired"),
         (AuditAction::TeamCreate, "team_create"),
@@ -431,6 +436,82 @@ async fn log_writes_synchronously_without_global_manager() {
         .await
         .expect("audit query should succeed");
     assert_eq!(count, 1);
+}
+
+#[tokio::test]
+async fn log_with_details_skips_details_when_action_scope_excludes_action() {
+    let db = in_memory_db().await;
+
+    let runtime_config = std::sync::Arc::new(crate::config::RuntimeConfig::new());
+    runtime_config.apply(crate::entities::system_config::Model {
+        id: 1,
+        key: crate::config::audit::AUDIT_LOG_RECORDED_ACTIONS_KEY.to_string(),
+        value: r#"["user_login"]"#.to_string(),
+        value_type: crate::types::SystemConfigValueType::StringEnumSet,
+        requires_restart: false,
+        is_sensitive: false,
+        source: crate::types::SystemConfigSource::System,
+        namespace: String::new(),
+        category: crate::config::definitions::CONFIG_CATEGORY_AUDIT.to_string(),
+        description: String::new(),
+        updated_at: chrono::Utc::now(),
+        updated_by: None,
+    });
+    let cache = crate::cache::create_cache(&crate::config::CacheConfig {
+        enabled: false,
+        ..Default::default()
+    })
+    .await;
+    let (storage_change_tx, _) = tokio::sync::broadcast::channel(
+        crate::services::storage_change_service::STORAGE_CHANGE_CHANNEL_CAPACITY,
+    );
+    let share_download_rollback =
+        crate::services::share_service::spawn_detached_share_download_rollback_queue(
+            db.clone(),
+            crate::config::operations::DEFAULT_SHARE_DOWNLOAD_ROLLBACK_QUEUE_CAPACITY,
+        );
+    let state = crate::runtime::PrimaryAppState {
+        db_handles: crate::db::DbHandles::single(db.clone()),
+        driver_registry: std::sync::Arc::new(crate::storage::DriverRegistry::noop()),
+        runtime_config,
+        policy_snapshot: std::sync::Arc::new(crate::storage::PolicySnapshot::new()),
+        config: std::sync::Arc::new(crate::config::Config::default()),
+        cache,
+        metrics: crate::metrics_core::NoopMetrics::arc(),
+        mail_sender: crate::services::mail_service::memory_sender(),
+        storage_change_tx,
+        share_download_rollback,
+        background_task_dispatch_wakeup:
+            crate::runtime::PrimaryAppState::new_background_task_dispatch_wakeup(),
+        remote_protocol: crate::runtime::PrimaryAppState::new_remote_protocol(),
+    };
+    let calls = AtomicUsize::new(0);
+
+    super::log_with_details(
+        &state,
+        &AuditContext {
+            user_id: 42,
+            ip_address: None,
+            user_agent: None,
+        },
+        AuditAction::FileUpload,
+        crate::services::audit_service::AuditEntityType::File,
+        Some(7),
+        Some("report.txt"),
+        || {
+            calls.fetch_add(1, Ordering::SeqCst);
+            Some(serde_json::json!({"should": "not happen"}))
+        },
+    )
+    .await;
+
+    assert_eq!(calls.load(Ordering::SeqCst), 0);
+    let count = audit_log::Entity::find()
+        .filter(audit_log::Column::Action.eq(AuditAction::FileUpload))
+        .count(&db)
+        .await
+        .expect("audit query should succeed");
+    assert_eq!(count, 0);
 }
 
 #[tokio::test]

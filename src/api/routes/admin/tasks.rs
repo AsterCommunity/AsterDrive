@@ -75,19 +75,21 @@ pub async fn cleanup_tasks(
     )
     .await?;
     let ctx = audit_service::AuditContext::from_request(&req, &claims);
-    audit_service::log(
+    audit_service::log_with_details(
         &state,
         &ctx,
         audit_service::AuditAction::AdminCleanupTasks,
         crate::services::audit_service::AuditEntityType::Task,
         None,
         None,
-        audit_service::details(audit_service::AdminTaskCleanupAuditDetails {
-            removed,
-            finished_before: body.finished_before,
-            kind: body.kind,
-            status: body.status,
-        }),
+        || {
+            audit_service::details(audit_service::AdminTaskCleanupAuditDetails {
+                removed,
+                finished_before: body.finished_before,
+                kind: body.kind,
+                status: body.status,
+            })
+        },
     )
     .await;
     Ok(HttpResponse::Ok().json(ApiResponse::ok(RemovedCountResponse { removed })))

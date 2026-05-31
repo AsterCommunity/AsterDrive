@@ -508,7 +508,7 @@ async fn record_refresh_reuse_detection(
     // normal browser races, not confirmed compromise signals.
     invalidate_auth_snapshot_cache(state, user_id).await;
     tracing::warn!(user_id, reused_jti, "{log_message}");
-    audit_service::log(
+    audit_service::log_with_details(
         state,
         &AuditContext {
             user_id,
@@ -519,7 +519,7 @@ async fn record_refresh_reuse_detection(
         crate::services::audit_service::AuditEntityType::User,
         Some(user_id),
         None,
-        audit_service::details(RefreshTokenReuseAuditDetails { reused_jti }),
+        || audit_service::details(RefreshTokenReuseAuditDetails { reused_jti }),
     )
     .await;
     Ok(())

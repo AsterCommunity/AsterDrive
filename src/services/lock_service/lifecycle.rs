@@ -174,17 +174,19 @@ pub async fn force_unlock_with_audit(
         .await?
         .ok_or_else(|| AsterError::record_not_found("lock not found"))?;
     force_unlock(state, lock_id).await?;
-    audit_service::log(
+    audit_service::log_with_details(
         state,
         audit_ctx,
         audit_service::AuditAction::AdminForceUnlock,
         crate::services::audit_service::AuditEntityType::ResourceLock,
         Some(lock_id),
         Some(&lock.path),
-        audit_service::details(audit_service::LockAuditDetails {
-            entity_type: lock.entity_type,
-            entity_id: lock.entity_id,
-        }),
+        || {
+            audit_service::details(audit_service::LockAuditDetails {
+                entity_type: lock.entity_type,
+                entity_id: lock.entity_id,
+            })
+        },
     )
     .await;
     Ok(())

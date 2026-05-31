@@ -2,16 +2,24 @@ import type { TFunction } from "i18next";
 import { describe, expect, it } from "vitest";
 import {
 	formatAuditAction,
+	formatAuditDetail,
 	formatAuditEntityType,
+	formatAuditSummary,
+	formatAuditTarget,
+	formatAuditTargetType,
 	getAuditActionBadgeClass,
 } from "@/lib/audit";
+import type { AuditLogEntry } from "@/types/api";
 
 function createT(translations: Record<string, string> = {}) {
 	return ((key: string, options?: Record<string, unknown>) => {
 		const namespace = typeof options?.ns === "string" ? options.ns : "admin";
 		const translated = translations[`${namespace}:${key}`] ?? translations[key];
 		if (translated) {
-			return translated;
+			return translated.replace(/\{\{\s*(\w+)\s*\}\}/g, (match, param) => {
+				const value = options?.[param];
+				return value === undefined || value === null ? match : String(value);
+			});
 		}
 		return typeof options?.defaultValue === "string"
 			? options.defaultValue
@@ -81,5 +89,58 @@ describe("audit i18n formatting", () => {
 		expect(getAuditActionBadgeClass("unknown_action")).toContain(
 			"border-border",
 		);
+	});
+
+	it("prefers structured presentation messages when they are available", () => {
+		const t = createT({
+			"admin:audit_entity_type_file": "File",
+			"admin:audit_presentation_config_value_updated":
+				"Value changed to {{value}}",
+			"admin:audit_presentation_file": "{{name}} · File",
+			"admin:audit_presentation_file_upload": "Uploaded via presentation",
+		});
+		const entry = {
+			action: "file_upload",
+			entity_name: "legacy.txt",
+			entity_type: "folder",
+			presentation: {
+				detail: {
+					code: "config_value_updated",
+					params: { value: "enabled" },
+				},
+				summary: { code: "file_upload" },
+				target: {
+					code: "file",
+					params: { name: "report.pdf" },
+				},
+			},
+		} as AuditLogEntry;
+
+		expect(formatAuditSummary(t, entry)).toBe("Uploaded via presentation");
+		expect(formatAuditTarget(t, entry)).toBe("report.pdf · File");
+		expect(formatAuditTargetType(t, entry)).toBe("File");
+		expect(formatAuditDetail(t, entry)).toBe("Value changed to enabled");
+	});
+
+	it("falls back safely when presentation codes are unknown or missing", () => {
+		const t = createT({
+			"admin:audit_action_file_delete": "Deleted file",
+			"admin:audit_entity_type_file": "File",
+		});
+		const entry = {
+			action: "file_delete",
+			entity_name: null,
+			entity_type: "file",
+			presentation: {
+				detail: { code: "unknown_detail" },
+				summary: { code: "unknown_summary" },
+				target: { code: "unknown_target" },
+			},
+		} as AuditLogEntry;
+
+		expect(formatAuditSummary(t, entry)).toBe("Deleted file");
+		expect(formatAuditTarget(t, entry)).toBe("File");
+		expect(formatAuditTargetType(t, entry)).toBe("File");
+		expect(formatAuditDetail(t, entry)).toBeUndefined();
 	});
 });

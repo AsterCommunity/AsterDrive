@@ -209,6 +209,10 @@ export function isStringArrayType(valueType: SystemConfigValueType) {
 	return valueType === "string_array";
 }
 
+export function isStringEnumSetType(valueType: SystemConfigValueType) {
+	return valueType === "string_enum_set";
+}
+
 export function configValueToString(value: ConfigDraftValue | undefined) {
 	return typeof value === "string" ? value : "";
 }

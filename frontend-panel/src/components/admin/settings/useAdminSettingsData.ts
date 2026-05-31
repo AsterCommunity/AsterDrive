@@ -12,12 +12,15 @@ import {
 	buildDraftValues,
 	configDraftValuesEqual,
 	configValueToString,
+	configValueToStringArray,
 	type DraftValues,
 	formatSubcategoryLabel,
 	getConfigDescription,
+	getConfigValueType,
 	getMailTemplateGroupId,
 	getMailTemplateGroupOrderIndex,
 	getSubcategoryGroupKey,
+	isStringEnumSetType,
 	isSystemConfigSource,
 	type NewCustomDraft,
 	normalizeCategory,
@@ -312,6 +315,11 @@ export function useAdminSettingsData({
 		[resolveSchemaTranslation, schemaMap],
 	);
 
+	const getSystemConfigSchema = useCallback(
+		(config: SystemConfig) => schemaMap.get(config.key),
+		[schemaMap],
+	);
+
 	const mailTemplateVariableGroups = useMemo(
 		() =>
 			[...templateVariableGroups]
@@ -560,8 +568,34 @@ export function useAdminSettingsData({
 			);
 		}
 
+		for (const config of configs) {
+			if (!isStringEnumSetType(getConfigValueType(config))) {
+				continue;
+			}
+			const schema = schemaMap.get(config.key);
+			const options = schema?.options ?? [];
+			const allowedValues = new Set(options.map((option) => option.value));
+			const selectedValues = configValueToStringArray(
+				draftValueByKey(config.key),
+			);
+			const seen = new Set<string>();
+			const invalidValue = selectedValues.find((value) => {
+				if (seen.has(value)) {
+					return true;
+				}
+				seen.add(value);
+				return !allowedValues.has(value);
+			});
+			if (invalidValue) {
+				errors.set(
+					config.key,
+					t("settings_enum_set_invalid_value", { value: invalidValue }),
+				);
+			}
+		}
+
 		return errors;
-	}, [configsByKey, draftValues, t]);
+	}, [configs, configsByKey, draftValues, schemaMap, t]);
 
 	const changedCount =
 		changedExistingConfigs.length +
@@ -811,6 +845,7 @@ export function useAdminSettingsData({
 		getDraftValueByKey,
 		getSystemConfigDescription,
 		getSystemConfigLabel,
+		getSystemConfigSchema,
 		getTemplateVariableDescription,
 		getTemplateVariableGroupLabel,
 		getTemplateVariableLabel,

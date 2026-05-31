@@ -5,18 +5,21 @@ use std::collections::HashMap;
 use parking_lot::RwLock;
 use sea_orm::ConnectionTrait;
 
+use crate::config::audit::{self, AuditLogRuntimeSettings};
 use crate::db::repository::config_repo;
 use crate::entities::system_config;
 use crate::errors::Result;
 
 pub struct RuntimeConfig {
     snapshot: RwLock<HashMap<String, system_config::Model>>,
+    audit_log_settings: RwLock<AuditLogRuntimeSettings>,
 }
 
 impl RuntimeConfig {
     pub fn new() -> Self {
         Self {
             snapshot: RwLock::new(HashMap::new()),
+            audit_log_settings: RwLock::new(AuditLogRuntimeSettings::default()),
         }
     }
 
@@ -26,7 +29,9 @@ impl RuntimeConfig {
             .into_iter()
             .map(|config| (config.key.clone(), config))
             .collect();
+        let audit_log_settings = build_audit_log_settings(&snapshot);
         *self.snapshot.write() = snapshot;
+        *self.audit_log_settings.write() = audit_log_settings;
         Ok(())
     }
 
@@ -59,6 +64,10 @@ impl RuntimeConfig {
         self.get_bool(key).unwrap_or(default)
     }
 
+    pub fn should_record_audit_action(&self, action: crate::types::AuditAction) -> bool {
+        self.audit_log_settings.read().should_record(action)
+    }
+
     pub fn get_i64_or(&self, key: &str, default: i64) -> i64 {
         self.get_i64(key).unwrap_or(default)
     }
@@ -74,11 +83,19 @@ impl RuntimeConfig {
             return;
         }
 
+        let is_audit_runtime_key = audit::is_audit_runtime_key(&config.key);
         snapshot.insert(config.key.clone(), config);
+        if is_audit_runtime_key {
+            *self.audit_log_settings.write() = build_audit_log_settings(&snapshot);
+        }
     }
 
     pub fn remove(&self, key: &str) {
-        self.snapshot.write().remove(key);
+        let mut snapshot = self.snapshot.write();
+        snapshot.remove(key);
+        if audit::is_audit_runtime_key(key) {
+            *self.audit_log_settings.write() = build_audit_log_settings(&snapshot);
+        }
     }
 }
 
@@ -94,6 +111,18 @@ fn parse_bool(value: &str) -> Option<bool> {
         "false" | "0" | "no" | "off" => Some(false),
         _ => None,
     }
+}
+
+fn build_audit_log_settings(
+    snapshot: &HashMap<String, system_config::Model>,
+) -> AuditLogRuntimeSettings {
+    let enabled = snapshot
+        .get(audit::AUDIT_LOG_ENABLED_KEY)
+        .map(|config| config.value.as_str());
+    let actions = snapshot
+        .get(audit::AUDIT_LOG_RECORDED_ACTIONS_KEY)
+        .map(|config| config.value.as_str());
+    AuditLogRuntimeSettings::from_raw_values(enabled, actions)
 }
 
 #[cfg(test)]
@@ -174,6 +203,28 @@ mod tests {
             runtime_config.get("gravatar_base_url").as_deref(),
             Some("https://mirror.example.com/avatar")
         );
+    }
+
+    #[tokio::test]
+    async fn reload_and_apply_keep_precompiled_audit_scope_current() {
+        let db = setup_db().await;
+        let runtime_config = RuntimeConfig::new();
+        runtime_config.reload(&db).await.unwrap();
+
+        assert!(runtime_config.should_record_audit_action(crate::types::AuditAction::FileDownload));
+
+        runtime_config.apply(model(
+            "audit_log_recorded_actions",
+            r#"["user_login"]"#,
+            false,
+        ));
+        assert!(runtime_config.should_record_audit_action(crate::types::AuditAction::UserLogin));
+        assert!(
+            !runtime_config.should_record_audit_action(crate::types::AuditAction::FileDownload)
+        );
+
+        runtime_config.apply(model("audit_log_enabled", "false", false));
+        assert!(!runtime_config.should_record_audit_action(crate::types::AuditAction::UserLogin));
     }
 
     #[tokio::test]

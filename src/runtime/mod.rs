@@ -95,6 +95,10 @@ impl PrimaryAppState {
         self.background_task_dispatch_wakeup.notify_one();
     }
 
+    pub fn should_record_audit_action(&self, action: crate::types::AuditAction) -> bool {
+        self.runtime_config.should_record_audit_action(action)
+    }
+
     pub fn follower_view(&self) -> FollowerAppState {
         FollowerAppState::from(self)
     }

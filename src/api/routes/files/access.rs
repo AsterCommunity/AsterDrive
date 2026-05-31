@@ -685,17 +685,19 @@ pub(crate) async fn direct_link_response(
     let file = file_service::get_info_in_scope(state, scope, file_id).await?;
     let token = direct_link_service::create_token_in_scope(state, scope, file_id).await?;
     let ctx = AuditContext::from_request(req, claims);
-    audit_service::log(
+    audit_service::log_with_details(
         state,
         &ctx,
         audit_service::AuditAction::FileDirectLinkCreate,
         crate::services::audit_service::AuditEntityType::File,
         Some(file.id),
         Some(&file.name),
-        audit_service::details(audit_service::FileAccessTokenAuditDetails {
-            source: "direct_link",
-            app_key: None,
-        }),
+        || {
+            audit_service::details(audit_service::FileAccessTokenAuditDetails {
+                source: "direct_link",
+                app_key: None,
+            })
+        },
     )
     .await;
     Ok(HttpResponse::Ok().json(ApiResponse::ok(token)))
@@ -721,17 +723,19 @@ pub(crate) async fn preview_link_response(
     )
     .await?;
     let ctx = AuditContext::from_request(req, claims);
-    audit_service::log(
+    audit_service::log_with_details(
         state,
         &ctx,
         audit_service::AuditAction::FilePreviewLinkCreate,
         crate::services::audit_service::AuditEntityType::File,
         Some(file.id),
         Some(&file.name),
-        audit_service::details(audit_service::FileAccessTokenAuditDetails {
-            source: "preview_link",
-            app_key: None,
-        }),
+        || {
+            audit_service::details(audit_service::FileAccessTokenAuditDetails {
+                source: "preview_link",
+                app_key: None,
+            })
+        },
     )
     .await;
     Ok(HttpResponse::Ok().json(ApiResponse::ok(link)))
@@ -759,17 +763,19 @@ pub(crate) async fn open_wopi_response(
     )
     .await?;
     let ctx = AuditContext::from_request(req, claims);
-    audit_service::log(
+    audit_service::log_with_details(
         state,
         &ctx,
         audit_service::AuditAction::FileWopiOpen,
         crate::services::audit_service::AuditEntityType::File,
         Some(file.id),
         Some(&file.name),
-        audit_service::details(audit_service::FileAccessTokenAuditDetails {
-            source: "wopi",
-            app_key: Some(app_key),
-        }),
+        || {
+            audit_service::details(audit_service::FileAccessTokenAuditDetails {
+                source: "wopi",
+                app_key: Some(app_key),
+            })
+        },
     )
     .await;
     Ok(HttpResponse::Ok().json(ApiResponse::ok(session)))

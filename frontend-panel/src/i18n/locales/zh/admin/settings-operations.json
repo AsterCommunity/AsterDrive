@@ -36,5 +36,7 @@
 	"settings_item_audit_log_enabled_label": "启用审计日志",
 	"settings_item_audit_log_enabled_desc": "控制是否记录后台操作等审计事件。关闭后将不会继续产生新的审计记录。",
 	"settings_item_audit_log_retention_days_label": "审计日志保留时长",
-	"settings_item_audit_log_retention_days_desc": "审计日志在被永久删除前最多保留多久。"
+	"settings_item_audit_log_retention_days_desc": "审计日志在被永久删除前最多保留多久。",
+	"settings_item_audit_log_recorded_actions_label": "记录的审计操作范围",
+	"settings_item_audit_log_recorded_actions_desc": "选择哪些审计操作会被写入日志。空集合表示审计日志开关开启，但不记录任何操作。"
 }

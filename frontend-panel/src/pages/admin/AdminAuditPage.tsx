@@ -41,8 +41,10 @@ import { useApiList } from "@/hooks/useApiList";
 import { usePageTitle } from "@/hooks/usePageTitle";
 import {
 	AUDIT_ENTITY_TYPE_FILTER_VALUES,
-	formatAuditAction,
 	formatAuditEntityType,
+	formatAuditSummary,
+	formatAuditTarget,
+	formatAuditTargetType,
 	getAuditActionBadgeClass,
 	isAuditEntityType,
 } from "@/lib/audit";
@@ -520,21 +522,21 @@ export default function AdminAuditPage() {
 													variant="outline"
 													className={getAuditActionBadgeClass(item.action)}
 												>
-													{formatAuditAction(t, item.action)}
+													{formatAuditSummary(t, item)}
 												</Badge>
 											</div>
 										</TableCell>
 										<TableCell>
 											<div className={ADMIN_TABLE_TEXT_CELL_CLASS}>
 												<span className="text-sm text-muted-foreground">
-													{formatAuditEntityType(t, item.entity_type)}
+													{formatAuditTargetType(t, item)}
 												</span>
 											</div>
 										</TableCell>
 										<TableCell>
 											<div className={ADMIN_TABLE_TEXT_CELL_CLASS}>
 												<span className="truncate text-sm text-muted-foreground">
-													{item.entity_name ?? "---"}
+													{formatAuditTarget(t, item)}
 												</span>
 											</div>
 										</TableCell>

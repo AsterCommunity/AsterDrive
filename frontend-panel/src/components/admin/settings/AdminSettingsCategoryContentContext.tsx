@@ -6,7 +6,7 @@ import type {
 	SystemSubcategoryGroup,
 	TimeDisplayUnitValue,
 } from "@/components/admin/settings/adminSettingsContentShared";
-import type { SystemConfig } from "@/types/api";
+import type { ConfigSchemaItem, SystemConfig } from "@/types/api";
 
 type TranslationFn = (key: string, options?: Record<string, unknown>) => string;
 
@@ -34,6 +34,7 @@ export interface AdminSettingsCategoryContentProps {
 	getSubcategoryLabel: (category: string, subcategory?: string) => string;
 	getSystemConfigDescription: (config: SystemConfig) => string | undefined;
 	getSystemConfigLabel: (config: SystemConfig) => string;
+	getSystemConfigSchema: (config: SystemConfig) => ConfigSchemaItem | undefined;
 	handleBuildWopiDiscoveryPreviewConfig: (options: {
 		discoveryUrl: string;
 		value: string;

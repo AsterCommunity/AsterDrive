@@ -104,6 +104,20 @@ const translationMap: Record<string, string> = {
 		"Media processing registry",
 	settings_item_media_processing_registry_json_desc:
 		"Choose which media processors are enabled and bind extensions as needed. Built-in AsterDrive processors act as the final fallback when enabled.",
+	settings_enum_set_clear: "Clear",
+	settings_enum_set_no_matches: "No matching actions.",
+	settings_enum_set_no_options: "No options.",
+	settings_enum_set_search_placeholder: "Search actions...",
+	settings_enum_set_select_all: "Select all",
+	settings_enum_set_select_visible: "Select visible",
+	settings_enum_set_selected_count: "Selected {{count}} / {{total}}",
+	settings_enum_set_visible_count: "Visible {{count}}, selected {{selected}}",
+	settings_enum_set_invalid_value: "Invalid enum value {{value}}",
+	settings_enum_group_auth: "Auth",
+	settings_enum_group_file: "File",
+	audit_action_file_download: "Downloaded file",
+	audit_action_file_upload: "Uploaded file",
+	audit_action_user_login: "User logged in",
 	media_processing_editor_title: "media_processing_editor_title",
 	media_processing_editor_desc: "media_processing_editor_desc",
 	media_processing_editor_validation_title:
@@ -609,6 +623,9 @@ function getMockConfigSource(key: string): SystemConfigSource {
 }
 
 function getMockConfigValueType(key: string): SystemConfigValueType {
+	if (key === "audit_log_recorded_actions") {
+		return "string_enum_set";
+	}
 	if (key === "storage.enabled") {
 		return "boolean";
 	}
@@ -2874,6 +2891,69 @@ describe("AdminSettingsPage", () => {
 			expect(mockState.setConfig).toHaveBeenCalledWith(
 				"webdav_block_system_file_patterns",
 				[".DS_Store", "Thumbs.db"],
+			);
+		});
+	});
+
+	it("edits fixed string enum sets with grouped checkboxes and saves selected values", async () => {
+		mockState.listConfigs.mockResolvedValueOnce({
+			items: [
+				createConfig({
+					category: "audit",
+					key: "audit_log_recorded_actions",
+					value: ["user_login", "file_download"],
+					value_type: "string_enum_set",
+				}),
+			],
+		});
+		mockState.schema.mockResolvedValueOnce([
+			createSchemaItem({
+				category: "audit",
+				key: "audit_log_recorded_actions",
+				label_i18n_key: "settings_item_audit_log_recorded_actions_label",
+				value_type: "string_enum_set",
+				options: [
+					{
+						group: "auth",
+						label_i18n_key: "audit_action_user_login",
+						value: "user_login",
+					},
+					{
+						group: "file",
+						label_i18n_key: "audit_action_file_download",
+						value: "file_download",
+					},
+					{
+						group: "file",
+						label_i18n_key: "audit_action_file_upload",
+						value: "file_upload",
+					},
+				],
+			}),
+		]);
+
+		render(<AdminSettingsPage section="audit" />);
+
+		expect(await screen.findByText("User logged in")).toBeInTheDocument();
+		expect(screen.getByText("Downloaded file")).toBeInTheDocument();
+		expect(screen.getByText("Uploaded file")).toBeInTheDocument();
+		expect(
+			screen.getByText("Selected {{count}} / {{total}}"),
+		).toBeInTheDocument();
+
+		fireEvent.change(screen.getByPlaceholderText("Search actions..."), {
+			target: { value: "upload" },
+		});
+		expect(screen.queryByText("User logged in")).not.toBeInTheDocument();
+		expect(screen.getByText("Uploaded file")).toBeInTheDocument();
+
+		fireEvent.click(screen.getByText("Uploaded file"));
+		fireEvent.click(screen.getByRole("button", { name: "save_changes" }));
+
+		await waitFor(() => {
+			expect(mockState.setConfig).toHaveBeenCalledWith(
+				"audit_log_recorded_actions",
+				["user_login", "file_download", "file_upload"],
 			);
 		});
 	});

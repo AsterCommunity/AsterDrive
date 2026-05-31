@@ -658,7 +658,7 @@ impl DavFileSystem for AsterDavFs {
 
                 if status.is_success() {
                     let entity_type_label = entity_type.as_str();
-                    audit_service::log(
+                    audit_service::log_with_details(
                         &self.state,
                         &self.audit_ctx,
                         if set {
@@ -669,11 +669,13 @@ impl DavFileSystem for AsterDavFs {
                         audit_service::AuditEntityType::from_entity_type(entity_type),
                         Some(entity_id),
                         None,
-                        audit_service::details(audit_service::PropertyAuditDetails {
-                            entity_type: entity_type_label,
-                            namespace: ns,
-                            name: &prop.name,
-                        }),
+                        || {
+                            audit_service::details(audit_service::PropertyAuditDetails {
+                                entity_type: entity_type_label,
+                                namespace: ns,
+                                name: &prop.name,
+                            })
+                        },
                     )
                     .await;
                 }

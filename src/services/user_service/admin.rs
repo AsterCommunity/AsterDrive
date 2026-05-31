@@ -56,21 +56,23 @@ pub async fn create_with_audit(
     audit_ctx: &AuditContext,
 ) -> Result<super::models::UserInfo> {
     let user = create(state, username, email, password).await?;
-    audit_service::log(
+    audit_service::log_with_details(
         state,
         audit_ctx,
         audit_service::AuditAction::AdminCreateUser,
         crate::services::audit_service::AuditEntityType::User,
         Some(user.id),
         Some(&user.username),
-        audit_service::details(audit_service::AdminCreateUserDetails {
-            email: &user.email,
-            email_verified: user.email_verified,
-            role: user.role,
-            status: user.status,
-            storage_quota: user.storage_quota,
-            policy_group_id: user.policy_group_id,
-        }),
+        || {
+            audit_service::details(audit_service::AdminCreateUserDetails {
+                email: &user.email,
+                email_verified: user.email_verified,
+                role: user.role,
+                status: user.status,
+                storage_quota: user.storage_quota,
+                policy_group_id: user.policy_group_id,
+            })
+        },
     )
     .await;
     Ok(user)
@@ -209,20 +211,22 @@ pub async fn update_with_audit(
     audit_ctx: &AuditContext,
 ) -> Result<super::models::UserInfo> {
     let user = update(state, input).await?;
-    audit_service::log(
+    audit_service::log_with_details(
         state,
         audit_ctx,
         audit_service::AuditAction::AdminUpdateUser,
         crate::services::audit_service::AuditEntityType::User,
         Some(user.id),
         Some(&user.username),
-        audit_service::details(audit_service::AdminUpdateUserDetails {
-            email_verified: user.email_verified,
-            role: user.role,
-            status: user.status,
-            storage_quota: user.storage_quota,
-            policy_group_id: user.policy_group_id,
-        }),
+        || {
+            audit_service::details(audit_service::AdminUpdateUserDetails {
+                email_verified: user.email_verified,
+                role: user.role,
+                status: user.status,
+                storage_quota: user.storage_quota,
+                policy_group_id: user.policy_group_id,
+            })
+        },
     )
     .await;
     Ok(user)
@@ -351,21 +355,23 @@ pub async fn force_delete_with_audit(
     audit_ctx: &AuditContext,
 ) -> Result<ForceDeleteSummary> {
     let summary = force_delete(state, target_user_id).await?;
-    audit_service::log(
+    audit_service::log_with_details(
         state,
         audit_ctx,
         audit_service::AuditAction::AdminForceDeleteUser,
         crate::services::audit_service::AuditEntityType::User,
         Some(summary.user_id),
         Some(&summary.username),
-        audit_service::details(audit_service::AdminForceDeleteUserDetails {
-            file_count: summary.file_count,
-            folder_count: summary.folder_count,
-            share_count: summary.share_count,
-            webdav_account_count: summary.webdav_account_count,
-            upload_session_count: summary.upload_session_count,
-            lock_count: summary.lock_count,
-        }),
+        || {
+            audit_service::details(audit_service::AdminForceDeleteUserDetails {
+                file_count: summary.file_count,
+                folder_count: summary.folder_count,
+                share_count: summary.share_count,
+                webdav_account_count: summary.webdav_account_count,
+                upload_session_count: summary.upload_session_count,
+                lock_count: summary.lock_count,
+            })
+        },
     )
     .await;
     Ok(summary)

@@ -135,17 +135,19 @@ pub async fn create_blob_maintenance_task(
     )
     .await?;
     let ctx = audit_service::AuditContext::from_request(&req, &claims);
-    audit_service::log(
+    audit_service::log_with_details(
         &state,
         &ctx,
         audit_service::AuditAction::AdminCreateBlobMaintenanceTask,
         audit_service::AuditEntityType::Task,
         Some(task.id),
         Some(&task.display_name),
-        audit_service::details(audit_service::AdminBlobMaintenanceAuditDetails {
-            action: body.action,
-            blob_ids: body.blob_ids.as_deref(),
-        }),
+        || {
+            audit_service::details(audit_service::AdminBlobMaintenanceAuditDetails {
+                action: body.action,
+                blob_ids: body.blob_ids.as_deref(),
+            })
+        },
     )
     .await;
     Ok(HttpResponse::Ok().json(ApiResponse::ok(task)))

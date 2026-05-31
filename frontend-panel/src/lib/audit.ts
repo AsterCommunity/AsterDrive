@@ -1,5 +1,11 @@
 import type { TFunction } from "i18next";
-import type { AuditAction, AuditEntityType } from "@/types/api";
+import type {
+	AuditAction,
+	AuditEntityType,
+	AuditLogEntry,
+	AuditPresentationMessage,
+	TeamAuditEntryInfo,
+} from "@/types/api";
 
 export const AUDIT_ENTITY_TYPE_FILTER_VALUES = [
 	"auth_session",
@@ -135,4 +141,125 @@ export function formatAuditEntityType(
 			entityType,
 		) ?? entityType
 	);
+}
+
+type AuditPresentationEntry = Pick<
+	AuditLogEntry | TeamAuditEntryInfo,
+	"action" | "presentation"
+>;
+
+function presentationParams(
+	message: AuditPresentationMessage | undefined | null,
+) {
+	return message?.params && typeof message.params === "object"
+		? (message.params as Record<string, unknown>)
+		: {};
+}
+
+function stringParam(
+	params: Record<string, unknown>,
+	key: string,
+): string | undefined {
+	const value = params[key];
+	if (typeof value === "string") {
+		return value;
+	}
+	if (typeof value === "number" || typeof value === "boolean") {
+		return String(value);
+	}
+	return undefined;
+}
+
+function formatAuditPresentationMessage(
+	t: TFunction,
+	message: AuditPresentationMessage | undefined | null,
+	fallback?: string,
+) {
+	if (!message?.code) {
+		return fallback;
+	}
+
+	const params = presentationParams(message);
+	const direct = resolveAuditTranslation(
+		t,
+		`audit_presentation_${message.code}`,
+		"admin",
+	);
+	if (direct) {
+		return t(`audit_presentation_${message.code}`, {
+			ns: "admin",
+			defaultValue: direct,
+			...params,
+		});
+	}
+
+	if (message.code.startsWith("audit_action_")) {
+		// Old backend responses may already use an action code here; keep that path working.
+		return resolveAuditTranslation(t, message.code, "admin", fallback);
+	}
+
+	const actionLabel = resolveAuditTranslation(
+		t,
+		`audit_action_${message.code}`,
+		"admin",
+	);
+	if (actionLabel) {
+		return actionLabel;
+	}
+
+	const entityLabel = resolveAuditTranslation(
+		t,
+		`audit_entity_type_${message.code}`,
+		"admin",
+	);
+	if (entityLabel) {
+		const name = stringParam(params, "name");
+		return name ? `${name} · ${entityLabel}` : entityLabel;
+	}
+
+	return fallback;
+}
+
+export function formatAuditSummary(
+	t: TFunction,
+	entry: AuditPresentationEntry,
+) {
+	return (
+		formatAuditPresentationMessage(t, entry.presentation?.summary) ??
+		formatAuditAction(t, entry.action)
+	);
+}
+
+export function formatAuditTarget(
+	t: TFunction,
+	entry: Pick<AuditLogEntry, "entity_name" | "entity_type" | "presentation">,
+) {
+	return (
+		formatAuditPresentationMessage(t, entry.presentation?.target) ??
+		entry.entity_name ??
+		formatAuditEntityType(t, entry.entity_type)
+	);
+}
+
+export function formatAuditTargetType(
+	t: TFunction,
+	entry: Pick<AuditLogEntry, "entity_type" | "presentation">,
+) {
+	const targetCode = entry.presentation?.target?.code;
+	if (targetCode) {
+		// A structured target type is only trustworthy when it resolves to a known entity type.
+		const translatedTargetType = resolveAuditTranslation(
+			t,
+			`audit_entity_type_${targetCode}`,
+			"admin",
+		);
+		if (translatedTargetType) {
+			return translatedTargetType;
+		}
+	}
+	return formatAuditEntityType(t, entry.entity_type);
+}
+
+export function formatAuditDetail(t: TFunction, entry: AuditPresentationEntry) {
+	return formatAuditPresentationMessage(t, entry.presentation?.detail);
 }
