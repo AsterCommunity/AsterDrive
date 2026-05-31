@@ -3,20 +3,79 @@ import type { AdminSettingsCategorySummary } from "@/components/admin/settings/A
 import { formatSubcategoryLabel } from "@/components/admin/settings/adminSettingsContentShared";
 import type { IconName } from "@/components/ui/icon";
 
-export const ADMIN_SETTINGS_CATEGORY_ORDER = [
-	"site",
-	"user",
-	"auth",
-	"mail",
-	"network",
-	"runtime",
-	"storage",
-	"file_processing",
-	"webdav",
-	"audit",
-	"custom",
-	"other",
-] as const;
+const CATEGORY_META = {
+	site: {
+		icon: "Gear",
+		labelKey: "settings_category_site",
+		descKey: "settings_category_site_desc",
+	},
+	user: {
+		icon: "User",
+		labelKey: "settings_category_user",
+		descKey: "settings_category_user_desc",
+	},
+	auth: {
+		icon: "Shield",
+		labelKey: "settings_category_auth",
+		descKey: "settings_category_auth_desc",
+	},
+	mail: {
+		icon: "EnvelopeSimple",
+		labelKey: "settings_category_mail",
+		descKey: "settings_category_mail_desc",
+	},
+	network: {
+		icon: "Globe",
+		labelKey: "settings_category_network",
+		descKey: "settings_category_network_desc",
+	},
+	runtime: {
+		icon: "Gauge",
+		labelKey: "settings_category_runtime",
+		descKey: "settings_category_runtime_desc",
+	},
+	storage: {
+		icon: "HardDrive",
+		labelKey: "settings_category_storage",
+		descKey: "settings_category_storage_desc",
+	},
+	file_processing: {
+		icon: "Cpu",
+		labelKey: "settings_category_file_processing",
+		descKey: "settings_category_file_processing_desc",
+	},
+	webdav: {
+		icon: "FolderOpen",
+		labelKey: "settings_category_webdav",
+		descKey: "settings_category_webdav_desc",
+	},
+	audit: {
+		icon: "Scroll",
+		labelKey: "settings_category_audit",
+		descKey: "settings_category_audit_desc",
+	},
+	custom: {
+		icon: "BracketsCurly",
+		labelKey: "settings_category_custom",
+		descKey: "custom_config_intro",
+	},
+	other: {
+		icon: "Grid",
+		labelKey: "settings_category_other",
+		descKey: "settings_category_other_desc",
+	},
+} as const satisfies Record<
+	string,
+	{
+		descKey?: string;
+		icon: IconName;
+		labelKey: string;
+	}
+>;
+
+export const ADMIN_SETTINGS_CATEGORY_ORDER = Object.keys(
+	CATEGORY_META,
+) as (keyof typeof CATEGORY_META)[];
 
 export type AdminSettingsTab = (typeof ADMIN_SETTINGS_CATEGORY_ORDER)[number];
 
@@ -31,132 +90,32 @@ export type AdminSettingsTranslationFn = (
 ) => string;
 
 export function getAdminSettingsCategoryIcon(category: string): IconName {
-	switch (category) {
-		case "user":
-			return "User";
-		case "auth":
-			return "Shield";
-		case "network":
-			return "Globe";
-		case "runtime":
-			return "Gauge";
-		case "mail":
-			return "EnvelopeSimple";
-		case "storage":
-			return "HardDrive";
-		case "file_processing":
-			return "Cpu";
-		case "webdav":
-			return "FolderOpen";
-		case "audit":
-			return "Scroll";
-		case "site":
-			return "Gear";
-		case "custom":
-			return "BracketsCurly";
-		default:
-			return "Grid";
-	}
+	return CATEGORY_META[category as keyof typeof CATEGORY_META]?.icon ?? "Grid";
 }
 
 export function getAdminSettingsSectionTitle(
 	section: AdminSettingsTab,
 	t: AdminSettingsTranslationFn,
 ) {
-	switch (section) {
-		case "user":
-			return t("settings_category_user");
-		case "auth":
-			return t("settings_category_auth");
-		case "network":
-			return t("settings_category_network");
-		case "runtime":
-			return t("settings_category_runtime");
-		case "mail":
-			return t("settings_category_mail");
-		case "storage":
-			return t("settings_category_storage");
-		case "file_processing":
-			return t("settings_category_file_processing");
-		case "webdav":
-			return t("settings_category_webdav");
-		case "audit":
-			return t("settings_category_audit");
-		case "custom":
-			return t("settings_category_custom");
-		case "other":
-			return t("settings_category_other");
-		default:
-			return t("settings_category_site");
-	}
+	const meta = CATEGORY_META[section as keyof typeof CATEGORY_META];
+	return t(meta?.labelKey ?? CATEGORY_META.site.labelKey);
 }
 
 function getAdminSettingsCategoryLabel(
 	category: string,
 	t: AdminSettingsTranslationFn,
 ) {
-	switch (category) {
-		case "user":
-			return t("settings_category_user");
-		case "auth":
-			return t("settings_category_auth");
-		case "network":
-			return t("settings_category_network");
-		case "runtime":
-			return t("settings_category_runtime");
-		case "mail":
-			return t("settings_category_mail");
-		case "storage":
-			return t("settings_category_storage");
-		case "file_processing":
-			return t("settings_category_file_processing");
-		case "webdav":
-			return t("settings_category_webdav");
-		case "audit":
-			return t("settings_category_audit");
-		case "site":
-			return t("settings_category_site");
-		case "custom":
-			return t("settings_category_custom");
-		case "other":
-			return t("settings_category_other");
-		default:
-			return category;
-	}
+	const meta = CATEGORY_META[category as keyof typeof CATEGORY_META];
+	return meta ? t(meta.labelKey) : category;
 }
 
 function getAdminSettingsCategoryDescription(
 	category: string,
 	t: AdminSettingsTranslationFn,
 ) {
-	switch (category) {
-		case "user":
-			return t("settings_category_user_desc");
-		case "auth":
-			return t("settings_category_auth_desc");
-		case "network":
-			return t("settings_category_network_desc");
-		case "runtime":
-			return t("settings_category_runtime_desc");
-		case "mail":
-			return t("settings_category_mail_desc");
-		case "storage":
-			return t("settings_category_storage_desc");
-		case "file_processing":
-			return t("settings_category_file_processing_desc");
-		case "webdav":
-			return t("settings_category_webdav_desc");
-		case "audit":
-			return t("settings_category_audit_desc");
-		case "site":
-			return t("settings_category_site_desc");
-		case "custom":
-			return t("custom_config_intro");
-		case "other":
-			return t("settings_category_other_desc");
-		default:
-			return undefined;
-	}
+	const descKey =
+		CATEGORY_META[category as keyof typeof CATEGORY_META]?.descKey;
+	return descKey ? t(descKey) : undefined;
 }
 
 export function useAdminSettingsCategoryMetadata({

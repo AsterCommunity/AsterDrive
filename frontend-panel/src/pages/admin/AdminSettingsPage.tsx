@@ -5,7 +5,10 @@ import {
 	MailTemplateVariablesDialog,
 	TestEmailDialog,
 } from "@/components/admin/settings/AdminSettingsDialogs";
-import { AdminSettingsLoadedContent } from "@/components/admin/settings/AdminSettingsLoadedContent";
+import {
+	type AdminSettingsCategoryContentBaseProps,
+	AdminSettingsLoadedContent,
+} from "@/components/admin/settings/AdminSettingsLoadedContent";
 import { AdminSettingsSaveBar } from "@/components/admin/settings/AdminSettingsSaveBar";
 import {
 	ADMIN_SETTINGS_CATEGORY_INDEX,
@@ -15,7 +18,6 @@ import {
 	useAdminSettingsCategoryMetadata,
 	useAdminSettingsContentLabels,
 } from "@/components/admin/settings/adminSettingsCategoryMetadata";
-import { useAdminSettingsCategoryContentProps } from "@/components/admin/settings/useAdminSettingsCategoryContentProps";
 import { useAdminSettingsData } from "@/components/admin/settings/useAdminSettingsData";
 import { useAdminSettingsNavigation } from "@/components/admin/settings/useAdminSettingsNavigation";
 import { useAdminSettingsSaveBar } from "@/components/admin/settings/useAdminSettingsSaveBar";
@@ -209,7 +211,7 @@ export default function AdminSettingsPage({
 		[navigate],
 	);
 
-	const categoryContentProps = useAdminSettingsCategoryContentProps({
+	const categoryContentProps: AdminSettingsCategoryContentBaseProps = {
 		activeTab,
 		addCustomDraftRow,
 		configValidationErrors,
@@ -250,7 +252,7 @@ export default function AdminSettingsPage({
 		updateDraftValue,
 		updateNewCustomRow,
 		visibleCustomConfigs,
-	});
+	};
 
 	return (
 		<AdminLayout>

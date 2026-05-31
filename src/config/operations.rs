@@ -638,10 +638,17 @@ mod tests {
         share_stream_session_ttl_secs, task_list_max_limit, team_member_list_max_limit,
     };
     use crate::config::RuntimeConfig;
+    use crate::config::definitions::{ALL_CONFIGS, CONFIG_CATEGORY_RUNTIME_MAINTENANCE};
     use crate::entities::system_config;
     use chrono::Utc;
 
     fn config_model(key: &str, value: &str) -> system_config::Model {
+        let category = ALL_CONFIGS
+            .iter()
+            .find(|def| def.key == key)
+            .map(|def| def.category)
+            .unwrap_or(CONFIG_CATEGORY_RUNTIME_MAINTENANCE);
+
         system_config::Model {
             id: 1,
             key: key.to_string(),
@@ -651,7 +658,7 @@ mod tests {
             is_sensitive: false,
             source: crate::types::SystemConfigSource::System,
             namespace: String::new(),
-            category: crate::config::definitions::CONFIG_CATEGORY_RUNTIME_MAINTENANCE.to_string(),
+            category: category.to_string(),
             description: "test".to_string(),
             updated_at: Utc::now(),
             updated_by: None,

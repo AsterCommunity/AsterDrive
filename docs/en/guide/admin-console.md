@@ -304,7 +304,7 @@ The current page shows these groups:
 
 - Site Configuration
 - User Management
-- Authentication and Cookie
+- Authentication and Cookies
 - Mail Delivery
 - Network Access
 - Runtime
