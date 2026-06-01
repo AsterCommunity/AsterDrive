@@ -10,6 +10,7 @@
 | --- | --- | --- |
 | `GET` | `/public/branding` | 读取登录页、公开页和匿名入口需要的品牌配置 |
 | `GET` | `/public/preview-apps` | 读取匿名态可见的预览应用注册表 |
+| `GET` | `/public/custom-config` | 读取当前身份可见的自定义配置条目 |
 | `GET` | `/public/thumbnail-support` | 读取当前匿名态可见的缩略图扩展名能力 |
 | `GET` | `/public/media-data-support` | 读取当前匿名态可见的媒体元数据能力 |
 | `POST` | `/public/remote-enrollment/redeem` | follower 用 enrollment token 兑换远端节点绑定信息 |
@@ -94,6 +95,36 @@
   - `wopi` 预览器常见字段有 `mode`、`action` / `action_url` / `action_url_template`、`discovery_url`
 - 前端文件预览、公开分享预览和 WOPI 集成入口都会依赖这份注册表，而不是把预览器信息硬编码在前端里
 - 管理员当前可以通过 `/api/v1/admin/config/frontend_preview_apps_json` 维护这份注册表
+
+## `GET /public/custom-config`
+
+这条接口返回当前请求身份可见的自定义配置，使用统一 JSON 包装：
+
+```json
+{
+  "code": 0,
+  "msg": "",
+  "data": {
+    "entries": {
+      "my-frontend.theme.primary_color": "#6366f1",
+      "my-frontend.feature.enable_beta_tab": "true"
+    }
+  }
+}
+```
+
+要点：
+
+- 只返回 `source = "custom"` 的条目
+- 只返回 `entries` 里的 key/value，不暴露 `id`、`source`、`updated_by` 等后台字段
+- 接口响应带 `Cache-Control: public, max-age=60`
+- 可见度分三档：
+  - `private`：仅管理员可在后台看到，不会出现在此公开接口里
+  - `public`：匿名即可读取
+  - `authenticated`：需要带有效访问 token 才会返回
+- 如果请求没有 token，接口只返回 `public` 条目
+- 如果请求显式携带无效 token，接口返回 401，而不是静默降级成匿名
+- 这条接口适合给自定义前端读取主题、开关、展示文案和其他非敏感消费者配置
 
 ## `GET /public/thumbnail-support`
 

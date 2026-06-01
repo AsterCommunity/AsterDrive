@@ -10,6 +10,7 @@ Public configuration endpoints use `Cache-Control: public, max-age=60`. Thumbnai
 | --- | --- | --- |
 | `GET` | `/public/branding` | Read branding config for login, public pages, and anonymous entries |
 | `GET` | `/public/preview-apps` | Read the anonymous-visible preview-app registry |
+| `GET` | `/public/custom-config` | Read custom config entries visible to the current identity |
 | `GET` | `/public/thumbnail-support` | Read public thumbnail extension support |
 | `GET` | `/public/media-data-support` | Read public media metadata support |
 | `POST` | `/public/remote-enrollment/redeem` | Follower redeems an enrollment token for remote-node binding information |
@@ -82,6 +83,36 @@ Key points:
 - disabled apps are filtered out
 - frontend preview, public-share preview, and WOPI launch flows depend on this registry instead of hardcoding previewers in the frontend
 - admins can currently maintain this registry through `/api/v1/admin/config/frontend_preview_apps_json`
+
+## `GET /public/custom-config`
+
+This endpoint returns the custom configuration visible to the current request identity, wrapped in the standard JSON envelope:
+
+```json
+{
+  "code": 0,
+  "msg": "",
+  "data": {
+    "entries": {
+      "my-frontend.theme.primary_color": "#6366f1",
+      "my-frontend.feature.enable_beta_tab": "true"
+    }
+  }
+}
+```
+
+Notes:
+
+- only `source = "custom"` entries are returned
+- only the `entries` key/value map is exposed; internal admin fields such as `id`, `source`, and `updated_by` are not returned
+- the response uses `Cache-Control: public, max-age=60`
+- visibility has three levels:
+  - `private`: admin-only, never returned by this endpoint
+  - `public`: readable without login
+  - `authenticated`: returned only when the request carries a valid access token
+- requests without a token only receive `public` entries
+- requests that explicitly carry an invalid token return 401 instead of silently falling back to anonymous behavior
+- this endpoint is intended for frontend-consumed configuration such as theme values, feature switches, and non-sensitive copy
 
 ## `GET /public/thumbnail-support`
 

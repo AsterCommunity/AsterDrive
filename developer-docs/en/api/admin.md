@@ -309,6 +309,20 @@ Admin team creation can create a team for another user and give that user the in
 
 Runtime config entries defined by the system cannot be deleted; custom entries can. The single source of truth for system config definitions is `src/config/definitions.rs`.
 
+Custom runtime config entries also have a `visibility` field:
+
+| Visibility | Behavior |
+| --- | --- |
+| `private` | Admin-only; never returned by `/api/v1/public/custom-config` |
+| `public` | Readable without login |
+| `authenticated` | Returned only when the request carries a valid access token |
+
+The field only applies to `source = "custom"` entries. Built-in system configuration cannot be made public through it. When omitted, new custom entries default to `private`.
+
+`GET /admin/config` now includes `visibility` in addition to `id`, `key`, `value`, `source`, `namespace`, `updated_at`, and `updated_by`. Sensitive values are still redacted as `***REDACTED***`.
+
+The frontend custom-configuration read path is documented in [Public API](./public.md) under `GET /public/custom-config`. That endpoint only returns the key/value map visible to the current request identity and does not expose admin-only fields.
+
 Admin task APIs can see system tasks and blob-level cache tasks that ordinary users normally cannot see.
 
 ## Operational notes

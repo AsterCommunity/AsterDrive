@@ -586,6 +586,18 @@
 - 这个列表不是 CORS 白名单；浏览器跨域访问仍然由 `cors_allowed_origins` 控制
 - 这个列表会参与 Cookie 认证写操作的 same-site CSRF 来源信任判断
 
+### 自定义配置可见度
+
+`system_config` 里的自定义配置支持 `visibility` 字段，用来控制消费侧是否能通过公开接口读取：
+
+| 可见度 | 行为 |
+| --- | --- |
+| `private` | 仅管理员可见，不会返回给 `/api/v1/public/custom-config` |
+| `public` | 匿名即可读取 |
+| `authenticated` | 需要有效访问 token 才会返回 |
+
+`visibility` 只对 `source = "custom"` 的条目生效。系统内置配置不会使用这字段，也不允许通过它改成公开条目。省略该字段时，新建自定义配置默认是 `private`。
+
 `GET /admin/config` 当前也支持：
 
 - `limit`
@@ -603,7 +615,7 @@
 - `requires_restart`
 - `is_sensitive`
 
-`GET /admin/config` 返回的是实际配置项分页，字段还会包含 `id`、`key`、`value`、`source`、`namespace`、`updated_at` 和 `updated_by`。敏感配置项的 `value` 会被脱敏成 `***REDACTED***`。
+`GET /admin/config` 返回的是实际配置项分页，字段还会包含 `id`、`key`、`value`、`source`、`visibility`、`namespace`、`updated_at` 和 `updated_by`。敏感配置项的 `value` 会被脱敏成 `***REDACTED***`。
 
 前端管理后台就是靠它动态渲染设置页，而不是写死每个配置项。
 
@@ -621,6 +633,8 @@
 - `file_processing.archive_extract` / `file_processing.archive_preview` / `file_processing.archive_build` / `file_processing.offline_download` / `file_processing.media`：压缩包、链接导入和媒体处理
 - `webdav` / `audit`：WebDAV 和审计日志
 
+和自定义前端相关的公开读取接口见 [公共接口](./public.md) 里的 `GET /public/custom-config`。那里只会返回当前身份可见的自定义配置条目，不会暴露管理端字段。
+
 旧的前端设置路径 `/admin/settings/general` 和 `/admin/settings/operations` 只保留为跳转兼容，不应再作为 `system_config.category` 写入。新增系统配置时必须使用已登记分区；如果确实需要新增分区，要同时补允许列表、前端路由 / 图标以及 zh/en 标题和描述文案。分类完整性测试会拦住未登记分区和缺少二级分区文案的配置。
 
 ### 读取模板变量
@@ -631,9 +645,12 @@
 
 ```json
 {
-  "value": "14"
+  "value": "14",
+  "visibility": "public"
 }
 ```
+
+`visibility` 只允许对自定义配置使用。系统内置配置仍然只能写 `value`。
 
 ### 执行配置动作
 

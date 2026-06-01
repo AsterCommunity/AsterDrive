@@ -79,24 +79,56 @@ Use your frontend's identifier as `namespace` (preferably with `-`) to avoid con
 These prefixes may be occupied by future system configuration. A private namespace such as `my-frontend.` / `acme-panel.` is safest.
 :::
 
-### Read and Write API
+### Public Read API
 
-Custom configuration and system configuration use **the same Admin API**. The difference is the `source` field:
+Custom frontends should read consumer-side custom configuration from the public read-only endpoint:
+
+| Operation | Endpoint |
+| --- | --- |
+| Read custom configuration visible to the current identity | `GET /api/v1/public/custom-config` |
+
+Response example:
+
+```json
+{
+  "code": 0,
+  "msg": "",
+  "data": {
+    "entries": {
+      "my-frontend.theme.primary_color": "#6366f1",
+      "my-frontend.feature.enable_beta_tab": "true"
+    }
+  }
+}
+```
+
+This endpoint only returns entries with `source="custom"`, and only exposes key/value pairs under `entries`. Internal `system_config` fields such as `id`, `source`, and `updated_by` are not exposed to the frontend. Responses use `Cache-Control: public, max-age=60`.
+
+Custom configuration has three visibility levels:
+
+| Visibility | Behavior |
+| --- | --- |
+| `private` | Visible only in the admin console; never returned by the public read endpoint |
+| `public` | Readable without login through `/api/v1/public/custom-config` |
+| `authenticated` | Returned only when the request carries a valid access token |
+
+If the request has no token, the endpoint returns only `public` entries. If the request explicitly carries an invalid token, the endpoint returns 401 instead of silently falling back to anonymous behavior.
+
+### Admin API
+
+Custom configuration and system configuration use **the same Admin API**. The difference is the `source` field; custom entries also have `visibility`:
 
 | Operation | Endpoint |
 | --- | --- |
 | List all configuration (paginated) | `GET /api/v1/admin/config` |
 | Read one key | `GET /api/v1/admin/config/{key}` |
-| Write / update | `PUT /api/v1/admin/config/{key}` body `{"value": "..."}` |
+| Write / update | `PUT /api/v1/admin/config/{key}` body `{"value": "...", "visibility": "public"}` |
 | Delete | `DELETE /api/v1/admin/config/{key}` |
 
-::: tip Current permission boundary
-Admin configuration APIs are **administrator-only**. If you want regular users to read some custom configuration, such as theme colors, current options are limited to:
+`visibility` is only accepted for custom configuration. Built-in system configuration cannot be made public through this field. When omitted, new custom configuration defaults to `private`, so existing or accidentally created entries are not exposed unexpectedly.
 
-1. Pre-inject values through placeholders in `index.html` (requires extending the backend placeholder set; not exposed yet)
-2. Or let your frontend call administrator-only APIs after login
-
-If you need a "public read-only" configuration channel, open a request in [GitHub Issues](https://github.com/AptS-1547/AsterDrive/issues). We are willing to design it together.
+::: tip Do not put secrets in public configuration
+Both `public` and `authenticated` are frontend-consumed visibility levels. Do not store API secrets, private keys, permanent tokens, or backend credentials there. For third-party services, prefer backend proxying or short-lived credentials.
 :::
 
 ### Batch Operations from CLI
@@ -117,8 +149,8 @@ Example input file:
 
 ```json
 [
-  { "key": "my-frontend.theme.primary_color", "value": "#6366f1" },
-  { "key": "my-frontend.feature.enable_beta_tab", "value": "true" }
+  { "key": "my-frontend.theme.primary_color", "value": "#6366f1", "visibility": "public" },
+  { "key": "my-frontend.feature.enable_beta_tab", "value": "true", "visibility": "authenticated" }
 ]
 ```
 
