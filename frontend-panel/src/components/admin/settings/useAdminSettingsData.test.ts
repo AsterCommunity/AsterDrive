@@ -14,6 +14,7 @@ import type {
 	SystemConfig,
 	SystemConfigSource,
 	SystemConfigValueType,
+	SystemConfigVisibility,
 } from "@/types/api";
 
 const mockState = vi.hoisted(() => ({
@@ -139,6 +140,7 @@ function createConfig(overrides: Partial<SystemConfig> = {}): SystemConfig {
 		updated_by: null,
 		value: ["https://old.example.com"],
 		value_type: "string_array",
+		visibility: "private",
 		...overrides,
 	};
 }
@@ -351,7 +353,11 @@ describe("useAdminSettingsData", () => {
 		mockState.thumbnailSupportLoad.mockResolvedValue(undefined);
 		mockState.deleteConfig.mockResolvedValue(undefined);
 		mockState.setConfig.mockImplementation(
-			(key: string, value: string | string[]) =>
+			(
+				key: string,
+				value: string | string[],
+				visibility?: SystemConfigVisibility,
+			) =>
 				Promise.resolve(
 					createConfig({
 						category: getConfigCategory(key),
@@ -359,6 +365,7 @@ describe("useAdminSettingsData", () => {
 						source: getMockConfigSource(key),
 						value,
 						value_type: getMockConfigValueType(key),
+						visibility: visibility ?? "private",
 					}),
 				),
 		);
@@ -408,6 +415,52 @@ describe("useAdminSettingsData", () => {
 
 		expect(mockState.setConfig).not.toHaveBeenCalled();
 		expect(mockState.deleteConfig).not.toHaveBeenCalled();
+	});
+
+	it("saves custom config visibility for existing and new custom rows", async () => {
+		const { result } = renderUseAdminSettingsData();
+
+		await waitFor(() => expect(result.current.loading).toBe(false));
+
+		const existingConfig = result.current.visibleCustomConfigs.find(
+			(config) => config.key === "custom.theme",
+		);
+		expect(existingConfig).toBeDefined();
+
+		act(() => {
+			result.current.updateCustomVisibilityDraft(
+				"custom.theme",
+				"authenticated",
+			);
+			result.current.appendCustomDraftRow();
+		});
+
+		const [row] = result.current.newCustomRows;
+		expect(row).toBeDefined();
+
+		act(() => {
+			result.current.updateNewCustomRow(row.id, "key", "custom.banner");
+			result.current.updateNewCustomRow(row.id, "value", "visible");
+			result.current.updateNewCustomRow(row.id, "visibility", "public");
+		});
+
+		expect(result.current.changedCount).toBe(2);
+		expect(result.current.hasValidationError).toBe(false);
+
+		await act(async () => {
+			await result.current.handleSaveAll();
+		});
+
+		expect(mockState.setConfig).toHaveBeenCalledWith(
+			"custom.theme",
+			"ocean",
+			"authenticated",
+		);
+		expect(mockState.setConfig).toHaveBeenCalledWith(
+			"custom.banner",
+			"visible",
+			"public",
+		);
 	});
 
 	it("surfaces preview app parse issues for invalid drafts", async () => {
@@ -641,7 +694,11 @@ describe("useAdminSettingsData", () => {
 			MEDIA_PROCESSING_CONFIG_KEY,
 			nextMediaProcessingValue,
 		);
-		expect(mockState.setConfig).toHaveBeenCalledWith("custom.accent", "sunset");
+		expect(mockState.setConfig).toHaveBeenCalledWith(
+			"custom.accent",
+			"sunset",
+			"private",
+		);
 		expect(onPublicSiteUrlChanged).toHaveBeenCalledWith([
 			"https://next.example.com",
 		]);

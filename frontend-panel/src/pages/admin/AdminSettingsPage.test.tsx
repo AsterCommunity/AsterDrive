@@ -15,6 +15,7 @@ import type {
 	SystemConfig,
 	SystemConfigSource,
 	SystemConfigValueType,
+	SystemConfigVisibility,
 	TemplateVariableGroup,
 } from "@/types/api";
 
@@ -565,6 +566,7 @@ function createConfig(overrides: Partial<SystemConfig> = {}): SystemConfig {
 		updated_by: null,
 		value: "true",
 		value_type: "boolean",
+		visibility: "private",
 		...overrides,
 	};
 }
@@ -715,16 +717,22 @@ describe("AdminSettingsPage", () => {
 		mockState.templateVariables.mockResolvedValue([
 			createTemplateVariableGroup(),
 		]);
-		mockState.setConfig.mockImplementation((key: string, value: string) =>
-			Promise.resolve(
-				createConfig({
-					category: getMockConfigCategory(key),
-					key,
-					source: getMockConfigSource(key),
-					value,
-					value_type: getMockConfigValueType(key),
-				}),
-			),
+		mockState.setConfig.mockImplementation(
+			(
+				key: string,
+				value: string,
+				visibility?: SystemConfigVisibility,
+			) =>
+				Promise.resolve(
+					createConfig({
+						category: getMockConfigCategory(key),
+						key,
+						source: getMockConfigSource(key),
+						value,
+						value_type: getMockConfigValueType(key),
+						visibility: visibility ?? "private",
+					}),
+				),
 		);
 		mockState.deleteConfig.mockResolvedValue(undefined);
 	});
@@ -3155,7 +3163,33 @@ describe("AdminSettingsPage", () => {
 		expect(mockState.deleteConfig).not.toHaveBeenCalled();
 	});
 
-	it("stages custom config creation and deletion until the shared save button is clicked", async () => {
+	it("saves visibility changes for existing custom config rows", async () => {
+		render(<AdminSettingsPage section="custom" />);
+
+		await screen.findByDisplayValue("ocean");
+
+		fireEvent.change(screen.getAllByLabelText("custom_config_visibility")[0], {
+			target: { value: "authenticated" },
+		});
+
+		expect(
+			await screen.findByText("settings_save_notice:1"),
+		).toBeInTheDocument();
+
+		fireEvent.click(screen.getByRole("button", { name: "save_changes" }));
+
+		await waitFor(() => {
+			expect(mockState.setConfig).toHaveBeenCalledWith(
+				"custom.theme",
+				"ocean",
+				"authenticated",
+			);
+		});
+		expect(mockState.deleteConfig).not.toHaveBeenCalled();
+		expect(mockState.toastSuccess).toHaveBeenCalledWith("settings_saved");
+	});
+
+	it("stages custom config creation, visibility, and deletion until the shared save button is clicked", async () => {
 		render(<AdminSettingsPage section="custom" />);
 
 		await screen.findByDisplayValue("ocean");
@@ -3175,6 +3209,9 @@ describe("AdminSettingsPage", () => {
 				target: { value: "sunset" },
 			},
 		);
+		fireEvent.change(screen.getAllByLabelText("custom_config_visibility")[0], {
+			target: { value: "public" },
+		});
 
 		expect(
 			await screen.findByText("settings_save_notice:2"),
@@ -3187,6 +3224,7 @@ describe("AdminSettingsPage", () => {
 			expect(mockState.setConfig).toHaveBeenCalledWith(
 				"custom.accent",
 				"sunset",
+				"public",
 			);
 		});
 		expect(mockState.toastSuccess).toHaveBeenCalledWith("settings_saved");

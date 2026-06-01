@@ -795,13 +795,13 @@ export function useAdminSettingsData({
 
 			for (const config of orderedChangedConfigs) {
 				const nextValue = getDraftValue(config);
-				const savedConfig = await adminConfigService.set(
-					config.key,
-					nextValue,
-					isSystemConfigSource(config.source)
-						? undefined
-						: getCustomVisibilityDraft(config),
-				);
+				const savedConfig = isSystemConfigSource(config.source)
+					? await adminConfigService.set(config.key, nextValue)
+					: await adminConfigService.set(
+							config.key,
+							nextValue,
+							getCustomVisibilityDraft(config),
+						);
 				nextConfigsByKey.set(
 					config.key,
 					savedConfig.key === config.key
