@@ -8,7 +8,7 @@ use crate::runtime::PrimaryAppState;
 use crate::services::{
     audit_service, auth_service, config_service, managed_follower_enrollment_service,
 };
-use actix_web::{HttpRequest, HttpResponse, web};
+use actix_web::{HttpRequest, HttpResponse, http::header, web};
 use serde::Deserialize;
 #[cfg(all(debug_assertions, feature = "openapi"))]
 use utoipa::ToSchema;
@@ -90,6 +90,12 @@ pub async fn get_custom_config(
     let include_authenticated = request_has_valid_access_token(&state, &req).await?;
     let custom_config =
         config_service::get_public_custom_config(&state, include_authenticated).await?;
+    if include_authenticated {
+        return Ok(HttpResponse::Ok()
+            .insert_header((header::CACHE_CONTROL, "private, max-age=60"))
+            .insert_header((header::VARY, "Authorization, Cookie"))
+            .json(ApiResponse::ok(custom_config)));
+    }
     Ok(public_config_response(custom_config))
 }
 

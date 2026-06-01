@@ -56,51 +56,53 @@ async function fetchPublicCustomConfigWithRequest(request: APIRequestContext) {
 		data: PublicCustomConfig;
 	};
 	expect(payload.code).toBe(0);
-	return {
-		cacheControl: response.headers()["cache-control"],
-		config: payload.data,
-	};
+	expect(response.headers()["cache-control"]).toBe("public, max-age=60");
+	return payload.data;
 }
 
-test.describe.serial("Public custom config E2E", () => {
-	test("exposes only custom entries allowed for the current request identity", async ({
-		page,
-		request,
-	}) => {
-		await authenticate(page, request);
-
-		const suffix = uniqueName("custom-config").replaceAll("-", "_");
-		const publicKey = `e2e.${suffix}_public`;
-		const authenticatedKey = `e2e.${suffix}_authenticated`;
-		const privateKey = `e2e.${suffix}_private`;
-
-		await setCustomConfig(page, publicKey, "public-value", "public");
-		await setCustomConfig(
+test.describe
+	.serial("Public custom config E2E", () => {
+		test("exposes only custom entries allowed for the current request identity", async ({
 			page,
-			authenticatedKey,
-			"authenticated-value",
-			"authenticated",
-		);
-		await setCustomConfig(page, privateKey, "private-value", "private");
+			request,
+		}) => {
+			await authenticate(page, request);
 
-		const authenticated = await fetchPublicCustomConfigInPage(page);
-		expect(authenticated.cacheControl).toBe("public, max-age=60");
-		expect(authenticated.config.entries[publicKey]).toBe("public-value");
-		expect(authenticated.config.entries[authenticatedKey]).toBe(
-			"authenticated-value",
-		);
-		expect(authenticated.config.entries[privateKey]).toBeUndefined();
+			const suffix = uniqueName("custom-config").replaceAll("-", "_");
+			const publicKey = `e2e.${suffix}_public`;
+			const authenticatedKey = `e2e.${suffix}_authenticated`;
+			const privateKey = `e2e.${suffix}_private`;
 
-		const anonymous = await fetchPublicCustomConfigWithRequest(request);
-		expect(anonymous.config.entries[publicKey]).toBe("public-value");
-		expect(anonymous.config.entries[authenticatedKey]).toBeUndefined();
-		expect(anonymous.config.entries[privateKey]).toBeUndefined();
+			await setCustomConfig(page, publicKey, "public-value", "public");
+			await setCustomConfig(
+				page,
+				authenticatedKey,
+				"authenticated-value",
+				"authenticated",
+			);
+			await setCustomConfig(page, privateKey, "private-value", "private");
 
-		const invalidTokenResult = await request.get("/api/v1/public/custom-config", {
-			headers: {
-				Authorization: "Bearer invalid.token.value",
-			},
+			const authenticated = await fetchPublicCustomConfigInPage(page);
+			expect(authenticated.cacheControl).toBe("private, max-age=60");
+			expect(authenticated.config.entries[publicKey]).toBe("public-value");
+			expect(authenticated.config.entries[authenticatedKey]).toBe(
+				"authenticated-value",
+			);
+			expect(authenticated.config.entries[privateKey]).toBeUndefined();
+
+			const anonymous = await fetchPublicCustomConfigWithRequest(request);
+			expect(anonymous.entries[publicKey]).toBe("public-value");
+			expect(anonymous.entries[authenticatedKey]).toBeUndefined();
+			expect(anonymous.entries[privateKey]).toBeUndefined();
+
+			const invalidTokenResult = await request.get(
+				"/api/v1/public/custom-config",
+				{
+					headers: {
+						Authorization: "Bearer invalid.token.value",
+					},
+				},
+			);
+			expect(invalidTokenResult.status()).toBe(401);
 		});
-		expect(invalidTokenResult.status()).toBe(401);
 	});
-});

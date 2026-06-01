@@ -718,11 +718,7 @@ describe("AdminSettingsPage", () => {
 			createTemplateVariableGroup(),
 		]);
 		mockState.setConfig.mockImplementation(
-			(
-				key: string,
-				value: string,
-				visibility?: SystemConfigVisibility,
-			) =>
+			(key: string, value: string, visibility?: SystemConfigVisibility) =>
 				Promise.resolve(
 					createConfig({
 						category: getMockConfigCategory(key),

@@ -122,9 +122,8 @@ pub async fn find_visible_custom<C: ConnectionTrait>(
     let mut visibility_filter =
         Condition::any().add(system_config::Column::Visibility.eq(SystemConfigVisibility::Public));
     if include_authenticated {
-        visibility_filter = visibility_filter.add(
-            system_config::Column::Visibility.eq(SystemConfigVisibility::Authenticated),
-        );
+        visibility_filter = visibility_filter
+            .add(system_config::Column::Visibility.eq(SystemConfigVisibility::Authenticated));
     }
 
     SystemConfig::find()
@@ -178,7 +177,9 @@ pub async fn upsert_with_options<C: ConnectionTrait>(
     updated_by: Option<i64>,
 ) -> Result<system_config::Model> {
     let now = Utc::now();
-    let active = find_definition(key)
+    let definition = find_definition(key);
+    let is_custom_key = definition.is_none();
+    let active = definition
         .map(|def| build_system_active_model(def, value.to_string(), now, updated_by))
         .unwrap_or_else(|| {
             build_custom_active_model(
@@ -210,7 +211,7 @@ pub async fn upsert_with_options<C: ConnectionTrait>(
             .ok_or_else(|| AsterError::record_not_found(format!("config key '{key}'")))?;
         let mut active: system_config::ActiveModel = existing.into();
         active.value = Set(value.to_string());
-        if let Some(visibility) = visibility {
+        if is_custom_key && let Some(visibility) = visibility {
             active.visibility = Set(visibility);
         }
         active.updated_at = Set(now);

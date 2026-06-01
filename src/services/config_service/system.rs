@@ -208,14 +208,9 @@ pub async fn set_with_visibility(
     }
     validate_config_dependencies(state, key, &normalized_value)?;
 
-    let changed = upsert_config_and_apply_dependents(
-        state,
-        key,
-        &normalized_value,
-        visibility,
-        updated_by,
-    )
-    .await?;
+    let changed =
+        upsert_config_and_apply_dependents(state, key, &normalized_value, visibility, updated_by)
+            .await?;
     let config = changed
         .iter()
         .find(|item| item.key == key)
@@ -288,14 +283,12 @@ pub async fn set_with_audit_and_visibility(
     }
     validate_config_dependencies(state, key, &normalized_value)?;
 
-    let changed = upsert_config_and_apply_dependents(
-        state,
-        key,
-        &normalized_value,
-        visibility,
-        updated_by,
-    )
-    .await?;
+    let prior_visibility = config_repo::find_by_key(state.reader_db(), key)
+        .await?
+        .map(|config| config.visibility);
+    let changed =
+        upsert_config_and_apply_dependents(state, key, &normalized_value, visibility, updated_by)
+            .await?;
     let config = changed
         .iter()
         .find(|item| item.key == key)
@@ -304,7 +297,12 @@ pub async fn set_with_audit_and_visibility(
 
     for changed_config in &changed {
         invalidate_dependent_public_config_caches(&changed_config.key);
-        audit_config_update(state, audit_ctx, changed_config).await;
+        let audit_prior_visibility = if changed_config.key == key {
+            prior_visibility
+        } else {
+            Some(changed_config.visibility)
+        };
+        audit_config_update(state, audit_ctx, changed_config, audit_prior_visibility).await;
     }
 
     Ok(config.into())
@@ -314,6 +312,7 @@ async fn audit_config_update(
     state: &PrimaryAppState,
     audit_ctx: &AuditContext,
     config: &system_config::Model,
+    prior_visibility: Option<SystemConfigVisibility>,
 ) {
     audit_service::log_with_details(
         state,
@@ -331,6 +330,8 @@ async fn audit_config_update(
             };
             audit_service::details(audit_service::ConfigUpdateDetails {
                 value: &audit_value,
+                visibility: config.visibility,
+                prior_visibility,
             })
         },
     )
@@ -379,7 +380,8 @@ async fn upsert_config_and_apply_dependents(
     let txn = crate::db::transaction::begin(state.writer_db()).await?;
     let result = async {
         let saved =
-            config_repo::upsert_with_options(&txn, key, value, visibility, Some(updated_by)).await?;
+            config_repo::upsert_with_options(&txn, key, value, visibility, Some(updated_by))
+                .await?;
         let mut changed = vec![apply_system_config_definition(saved)];
         if key != auth_runtime::AUTH_EMAIL_CODE_LOGIN_ENABLED_KEY
             && mail_config_change_disables_email_code_mfa(state, key, value)

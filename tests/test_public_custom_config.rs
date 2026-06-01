@@ -45,6 +45,16 @@ async fn get_public_custom_config(
     }
     let resp = test::call_service(app, req.to_request()).await;
     assert_eq!(resp.status(), 200);
+    assert_eq!(
+        resp.headers()
+            .get("Cache-Control")
+            .and_then(|value| value.to_str().ok()),
+        if token.is_some() {
+            Some("private, max-age=60")
+        } else {
+            Some("public, max-age=60")
+        }
+    );
     test::read_body_json(resp).await
 }
 
@@ -54,14 +64,8 @@ async fn test_public_custom_config_filters_by_visibility_and_authentication() {
     let app = create_test_app!(state);
     let (token, _) = register_and_login!(app);
 
-    let public_body = set_custom_config(
-        &app,
-        &token,
-        "custom.public_theme",
-        "nebula",
-        "public",
-    )
-    .await;
+    let public_body =
+        set_custom_config(&app, &token, "custom.public_theme", "nebula", "public").await;
     assert_eq!(public_body["data"]["visibility"], "public");
 
     let authenticated_body = set_custom_config(
@@ -74,29 +78,15 @@ async fn test_public_custom_config_filters_by_visibility_and_authentication() {
     .await;
     assert_eq!(authenticated_body["data"]["visibility"], "authenticated");
 
-    let private_body = set_custom_config(
-        &app,
-        &token,
-        "custom.private_secret",
-        "hidden",
-        "private",
-    )
-    .await;
+    let private_body =
+        set_custom_config(&app, &token, "custom.private_secret", "hidden", "private").await;
     assert_eq!(private_body["data"]["visibility"], "private");
 
-    let req = test::TestRequest::get()
-        .uri("/api/v1/public/custom-config")
-        .to_request();
-    let resp = test::call_service(&app, req).await;
-    assert_eq!(resp.status(), 200);
+    let anonymous_body = get_public_custom_config(&app, None).await;
     assert_eq!(
-        resp.headers()
-            .get("Cache-Control")
-            .and_then(|value| value.to_str().ok()),
-        Some("public, max-age=60")
+        anonymous_body["data"]["entries"]["custom.public_theme"],
+        "nebula"
     );
-    let anonymous_body: Value = test::read_body_json(resp).await;
-    assert_eq!(anonymous_body["data"]["entries"]["custom.public_theme"], "nebula");
     assert!(
         anonymous_body["data"]["entries"]
             .get("custom.authenticated_flag")
@@ -108,13 +98,7 @@ async fn test_public_custom_config_filters_by_visibility_and_authentication() {
             .is_none()
     );
 
-    let req = test::TestRequest::get()
-        .uri("/api/v1/public/custom-config")
-        .insert_header(("Authorization", format!("Bearer {token}")))
-        .to_request();
-    let resp = test::call_service(&app, req).await;
-    assert_eq!(resp.status(), 200);
-    let authenticated_body: Value = test::read_body_json(resp).await;
+    let authenticated_body = get_public_custom_config(&app, Some(&token)).await;
     assert_eq!(
         authenticated_body["data"]["entries"]["custom.public_theme"],
         "nebula"

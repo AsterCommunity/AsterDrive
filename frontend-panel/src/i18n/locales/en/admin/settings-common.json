@@ -132,7 +132,7 @@
 	"custom_config_validation_error": "Fix empty or duplicate custom config keys before saving.",
 	"custom_config_delete_staged": "These custom config entries are marked for deletion and will only be removed after you save.",
 	"custom_config_visibility": "Visibility",
-	"custom_config_visibility_private": "Private",
+	"custom_config_visibility_private": "Admins only",
 	"custom_config_visibility_public": "Public",
 	"custom_config_visibility_authenticated": "Signed-in users",
 	"edit_config": "Edit Config",

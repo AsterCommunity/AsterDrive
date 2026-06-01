@@ -212,10 +212,7 @@ mod tests {
         let cases = [
             (SystemConfigVisibility::Private, "private"),
             (SystemConfigVisibility::Public, "public"),
-            (
-                SystemConfigVisibility::Authenticated,
-                "authenticated",
-            ),
+            (SystemConfigVisibility::Authenticated, "authenticated"),
         ];
 
         for (visibility, name) in cases {

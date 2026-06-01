@@ -132,7 +132,7 @@
 	"custom_config_validation_error": "请先修正自定义配置中的空键名或重复键，然后再保存。",
 	"custom_config_delete_staged": "这些自定义配置已标记删除，点击保存后才会真正生效。",
 	"custom_config_visibility": "可见度",
-	"custom_config_visibility_private": "仅后台",
+	"custom_config_visibility_private": "仅管理员",
 	"custom_config_visibility_public": "公开",
 	"custom_config_visibility_authenticated": "登录用户",
 	"edit_config": "编辑配置",
