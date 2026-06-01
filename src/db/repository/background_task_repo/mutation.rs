@@ -315,6 +315,54 @@ pub async fn mark_retry<C: ConnectionTrait>(
     Ok(result.rows_affected == 1)
 }
 
+pub async fn release_processing<C: ConnectionTrait>(
+    db: &C,
+    id: i64,
+    processing_token: i64,
+    now: DateTime<Utc>,
+    status: BackgroundTaskStatus,
+) -> Result<bool> {
+    if !matches!(
+        status,
+        BackgroundTaskStatus::Pending | BackgroundTaskStatus::Retry
+    ) {
+        return Err(AsterError::internal_error(
+            "released background task status must be pending or retry",
+        ));
+    }
+
+    let result = BackgroundTask::update_many()
+        .col_expr(
+            background_task::Column::Status,
+            Expr::value(status.to_value()),
+        )
+        .col_expr(background_task::Column::NextRunAt, Expr::value(now))
+        .col_expr(
+            background_task::Column::ProcessingStartedAt,
+            Expr::value(Option::<DateTime<Utc>>::None),
+        )
+        .col_expr(
+            background_task::Column::LastHeartbeatAt,
+            Expr::value(Option::<DateTime<Utc>>::None),
+        )
+        .col_expr(
+            background_task::Column::LeaseExpiresAt,
+            Expr::value(Option::<DateTime<Utc>>::None),
+        )
+        .col_expr(
+            background_task::Column::StatusText,
+            Expr::value(Option::<String>::None),
+        )
+        .col_expr(background_task::Column::UpdatedAt, Expr::value(now))
+        .filter(background_task::Column::Id.eq(id))
+        .filter(background_task::Column::Status.eq(BackgroundTaskStatus::Processing))
+        .filter(background_task::Column::ProcessingToken.eq(processing_token))
+        .exec(db)
+        .await
+        .map_err(AsterError::from)?;
+    Ok(result.rows_affected == 1)
+}
+
 pub struct TaskFailureUpdate<'a> {
     pub id: i64,
     pub processing_token: i64,

@@ -1,6 +1,7 @@
 use super::{
     AdminTaskFilters, TerminalTaskCleanupFilters, count_active_processing_by_kinds,
     delete_terminal_by_filters, find_paginated_all_filtered, list_claimable_by_kinds,
+    release_processing,
 };
 use crate::api::pagination::{AdminTaskSortBy, SortOrder};
 use crate::config::DatabaseConfig;
@@ -174,6 +175,124 @@ async fn set_task_lease(
         .update(db)
         .await
         .expect("background task test lease should update")
+}
+
+#[tokio::test]
+async fn release_processing_requeues_task_without_counting_attempt() {
+    let db = build_test_db().await;
+    let now = Utc::now();
+    let task = insert_task(
+        &db,
+        BackgroundTaskKind::OfflineDownload,
+        BackgroundTaskStatus::Processing,
+        None,
+        now,
+    )
+    .await;
+    let mut active: background_task::ActiveModel = task.clone().into();
+    active.processing_token = Set(7);
+    active.processing_started_at = Set(Some(now));
+    active.last_heartbeat_at = Set(Some(now));
+    active.lease_expires_at = Set(Some(now + Duration::seconds(60)));
+    active.status_text = Set(Some("Downloading source file".to_string()));
+    let task = active
+        .update(&db)
+        .await
+        .expect("processing task should update");
+    let released_at = now + Duration::seconds(5);
+
+    let released = release_processing(
+        &db,
+        task.id,
+        task.processing_token,
+        released_at,
+        BackgroundTaskStatus::Retry,
+    )
+    .await
+    .expect("processing task should release");
+
+    assert!(released);
+    let stored = background_task::Entity::find_by_id(task.id)
+        .one(&db)
+        .await
+        .expect("released task should load")
+        .expect("released task should exist");
+    assert_eq!(stored.status, BackgroundTaskStatus::Retry);
+    assert_eq!(stored.attempt_count, 0);
+    assert_eq!(stored.next_run_at, released_at);
+    assert_eq!(stored.processing_started_at, None);
+    assert_eq!(stored.last_heartbeat_at, None);
+    assert_eq!(stored.lease_expires_at, None);
+    assert_eq!(stored.status_text, None);
+}
+
+#[tokio::test]
+async fn release_processing_rejects_terminal_target_status() {
+    let db = build_test_db().await;
+    let now = Utc::now();
+    let task = insert_task(
+        &db,
+        BackgroundTaskKind::OfflineDownload,
+        BackgroundTaskStatus::Processing,
+        None,
+        now,
+    )
+    .await;
+
+    let error = release_processing(
+        &db,
+        task.id,
+        task.processing_token,
+        now,
+        BackgroundTaskStatus::Succeeded,
+    )
+    .await
+    .expect_err("release target status must be non-terminal and dispatchable");
+
+    assert!(error.message().contains("pending or retry"));
+}
+
+#[tokio::test]
+async fn release_processing_uses_processing_token_fence() {
+    let db = build_test_db().await;
+    let now = Utc::now();
+    let task = insert_task(
+        &db,
+        BackgroundTaskKind::OfflineDownload,
+        BackgroundTaskStatus::Processing,
+        None,
+        now,
+    )
+    .await;
+    let mut active: background_task::ActiveModel = task.clone().into();
+    active.processing_token = Set(7);
+    active.processing_started_at = Set(Some(now));
+    active.last_heartbeat_at = Set(Some(now));
+    active.lease_expires_at = Set(Some(now + Duration::seconds(60)));
+    let task = active
+        .update(&db)
+        .await
+        .expect("processing task should update");
+
+    let released = release_processing(
+        &db,
+        task.id,
+        task.processing_token + 1,
+        now + Duration::seconds(5),
+        BackgroundTaskStatus::Retry,
+    )
+    .await
+    .expect("stale token release should not fail DB execution");
+
+    assert!(!released);
+    let stored = background_task::Entity::find_by_id(task.id)
+        .one(&db)
+        .await
+        .expect("task should load")
+        .expect("task should exist");
+    assert_eq!(stored.status, BackgroundTaskStatus::Processing);
+    assert_eq!(stored.processing_token, task.processing_token);
+    assert_eq!(stored.lease_expires_at, task.lease_expires_at);
 }
 
 #[tokio::test]

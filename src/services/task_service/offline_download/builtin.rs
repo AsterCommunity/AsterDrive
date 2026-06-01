@@ -52,11 +52,15 @@ impl OfflineDownloadEngine for BuiltinHttpOfflineDownloadEngine {
                 "build offline download HTTP client",
                 AsterError::internal_error,
             )?;
-        let response = client
-            .get(request.url.clone())
-            .send()
-            .await
-            .map_aster_err_ctx("request offline download source", transient_storage_error)?;
+        let response = tokio::select! {
+            biased;
+            shutdown = lease_guard.shutdown_requested() => {
+                shutdown?;
+                unreachable!("shutdown_requested only resolves when shutdown is requested");
+            }
+            response = client.get(request.url.clone()).send() => response,
+        }
+        .map_aster_err_ctx("request offline download source", transient_storage_error)?;
         let status = response.status();
         if status.is_redirection() {
             return Err(AsterError::validation_error(
@@ -90,7 +94,18 @@ impl OfflineDownloadEngine for BuiltinHttpOfflineDownloadEngine {
             .unwrap_or_else(Instant::now);
         let rate_limiter = OfflineDownloadRateLimiter::new(request.max_bytes_per_sec);
 
-        while let Some(chunk) = stream.next().await {
+        loop {
+            let chunk = tokio::select! {
+                biased;
+                shutdown = lease_guard.shutdown_requested() => {
+                    shutdown?;
+                    unreachable!("shutdown_requested only resolves when shutdown is requested");
+                }
+                chunk = stream.next() => chunk,
+            };
+            let Some(chunk) = chunk else {
+                break;
+            };
             lease_guard.ensure_active()?;
             let chunk =
                 chunk.map_aster_err_ctx("read offline download body", transient_storage_error)?;

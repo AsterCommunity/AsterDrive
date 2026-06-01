@@ -11,6 +11,7 @@ mod maintenance;
 mod tests;
 
 use futures::stream::{self, StreamExt};
+use tokio_util::sync::CancellationToken;
 
 use crate::errors::Result;
 use crate::runtime::PrimaryAppState;
@@ -63,11 +64,18 @@ pub(super) struct TaskDispatchOutcome {
 }
 
 pub async fn dispatch_due(state: &PrimaryAppState) -> Result<DispatchStats> {
+    dispatch_due_with_shutdown(state, CancellationToken::new()).await
+}
+
+pub(crate) async fn dispatch_due_with_shutdown(
+    state: &PrimaryAppState,
+    shutdown_token: CancellationToken,
+) -> Result<DispatchStats> {
     let mut stats = DispatchStats::default();
     let lane_results = stream::iter(
         task_lane_configs(state)
             .into_iter()
-            .map(|lane_config| dispatch_lane(state, lane_config)),
+            .map(|lane_config| dispatch_lane(state, lane_config, shutdown_token.clone())),
     )
     .buffer_unordered(TASK_LANES.len())
     .collect::<Vec<_>>()
@@ -114,10 +122,15 @@ async fn refresh_pending_metric(state: &PrimaryAppState) {
 async fn dispatch_lane(
     state: &PrimaryAppState,
     lane_config: TaskLaneConfig,
+    shutdown_token: CancellationToken,
 ) -> Result<DispatchStats> {
     let mut total = DispatchStats::default();
 
     loop {
+        if shutdown_token.is_cancelled() {
+            break;
+        }
+
         let claimed_tasks = claim_due_for_lane(state, lane_config).await?;
         if claimed_tasks.is_empty() {
             break;
@@ -125,7 +138,7 @@ async fn dispatch_lane(
 
         let claimed = claimed_tasks.len();
         total.claimed += claimed;
-        total.add(run_claimed_tasks(state, claimed_tasks).await?);
+        total.add(run_claimed_tasks(state, claimed_tasks, shutdown_token.clone()).await?);
 
         if !lane_config.fast_continue {
             break;

@@ -263,7 +263,7 @@ async fn spawn_background_task_dispatcher(
         background_task_dispatch_interval(&state),
         background_task_dispatch_idle_max_interval(&state),
     );
-    let iteration = run_background_task_dispatch_iteration(&state)
+    let iteration = run_background_task_dispatch_iteration(&state, shutdown_token.clone())
         .instrument(tracing::info_span!(
             "bg_task",
             task.name = SystemRuntimeTaskKind::BackgroundTaskDispatch.as_str()
@@ -296,7 +296,7 @@ async fn spawn_background_task_dispatcher(
             break;
         }
 
-        let iteration = run_background_task_dispatch_iteration(&state)
+        let iteration = run_background_task_dispatch_iteration(&state, shutdown_token.clone())
             .instrument(tracing::info_span!(
                 "bg_task",
                 task.name = SystemRuntimeTaskKind::BackgroundTaskDispatch.as_str()
@@ -313,41 +313,41 @@ async fn spawn_background_task_dispatcher(
 
 async fn run_background_task_dispatch_iteration(
     state: &web::Data<PrimaryAppState>,
+    shutdown_token: CancellationToken,
 ) -> BackgroundTaskDispatchIteration {
     let started_at = Utc::now();
-    let (iteration, outcome) =
-        match AssertUnwindSafe(crate::services::task_service::dispatch_due(state.get_ref()))
-            .catch_unwind()
-            .await
-        {
-            Ok(result) => {
-                let iteration = match &result {
-                    Ok(stats) if stats.has_activity() => BackgroundTaskDispatchIteration::active(),
-                    Ok(_) => BackgroundTaskDispatchIteration::idle(),
-                    Err(_) => BackgroundTaskDispatchIteration::failed(),
-                };
-                (iteration, background_task_dispatch_outcome(result))
-            }
-            Err(panic) => {
-                let panic_message = if let Some(message) = panic.downcast_ref::<&str>() {
-                    (*message).to_string()
-                } else if let Some(message) = panic.downcast_ref::<String>() {
-                    message.clone()
-                } else {
-                    "unknown panic payload".to_string()
-                };
-                tracing::error!(
-                    "background task 'background-task-dispatch' panicked: {panic_message}"
-                );
-                (
-                    BackgroundTaskDispatchIteration::failed(),
-                    crate::services::task_service::RuntimeTaskRunOutcome::failed(
-                        Some("Task panicked".to_string()),
-                        panic_message,
-                    ),
-                )
-            }
-        };
+    let (iteration, outcome) = match AssertUnwindSafe(
+        crate::services::task_service::dispatch_due_with_shutdown(state.get_ref(), shutdown_token),
+    )
+    .catch_unwind()
+    .await
+    {
+        Ok(result) => {
+            let iteration = match &result {
+                Ok(stats) if stats.has_activity() => BackgroundTaskDispatchIteration::active(),
+                Ok(_) => BackgroundTaskDispatchIteration::idle(),
+                Err(_) => BackgroundTaskDispatchIteration::failed(),
+            };
+            (iteration, background_task_dispatch_outcome(result))
+        }
+        Err(panic) => {
+            let panic_message = if let Some(message) = panic.downcast_ref::<&str>() {
+                (*message).to_string()
+            } else if let Some(message) = panic.downcast_ref::<String>() {
+                message.clone()
+            } else {
+                "unknown panic payload".to_string()
+            };
+            tracing::error!("background task 'background-task-dispatch' panicked: {panic_message}");
+            (
+                BackgroundTaskDispatchIteration::failed(),
+                crate::services::task_service::RuntimeTaskRunOutcome::failed(
+                    Some("Task panicked".to_string()),
+                    panic_message,
+                ),
+            )
+        }
+    };
     let finished_at = Utc::now();
 
     if let Err(error) = crate::services::task_service::record_runtime_task_run(

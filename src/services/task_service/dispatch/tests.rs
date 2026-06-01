@@ -14,10 +14,12 @@ use crate::entities::background_task;
 use crate::errors::AsterError;
 use crate::services::task_service::{
     TaskLease, TaskLeaseGuard, is_task_lease_lost, is_task_lease_renewal_timed_out,
+    is_task_worker_shutdown_requested,
 };
 use crate::storage::error::{StorageErrorKind, storage_driver_error};
 use crate::types::{BackgroundTaskKind, BackgroundTaskStatus, StoredTaskPayload};
 use migration::Migrator;
+use tokio_util::sync::CancellationToken;
 
 use super::claim::{TaskClaimCandidate, available_lane_capacity, claim_candidates_for_lane};
 use super::execute::{evaluate_heartbeat_result, run_with_concurrency_limit, task_retry_class};
@@ -380,6 +382,54 @@ async fn evaluate_heartbeat_result_stops_worker_after_renewal_timeout() {
         evaluate_heartbeat_result(&lease_guard, Err(AsterError::database_operation("boom")))
             .expect_err("expired renewal window should stop the worker");
     assert!(is_task_lease_renewal_timed_out(&error));
+}
+
+#[tokio::test]
+async fn task_lease_guard_reports_shutdown_request() {
+    let lease = TaskLease::new(42, 7);
+    let shutdown_token = CancellationToken::new();
+    let lease_guard = TaskLeaseGuard::with_shutdown_token(lease, shutdown_token.clone());
+
+    shutdown_token.cancel();
+
+    let error = lease_guard
+        .ensure_active()
+        .expect_err("cancelled shutdown token should stop the worker");
+    assert!(is_task_worker_shutdown_requested(&error));
+
+    let error = lease_guard
+        .ensure_active()
+        .expect_err("shutdown termination should remain sticky");
+    assert!(is_task_worker_shutdown_requested(&error));
+}
+
+#[tokio::test]
+async fn task_lease_guard_sleep_wakes_on_shutdown() {
+    let lease = TaskLease::new(42, 7);
+    let shutdown_token = CancellationToken::new();
+    let lease_guard = TaskLeaseGuard::with_shutdown_token(lease, shutdown_token.clone());
+
+    shutdown_token.cancel();
+
+    let error = lease_guard
+        .sleep_or_shutdown(Duration::from_secs(60))
+        .await
+        .expect_err("cancelled shutdown token should interrupt sleeps");
+    assert!(is_task_worker_shutdown_requested(&error));
+}
+
+#[tokio::test]
+async fn task_lease_guard_sleep_without_shutdown_token_completes_normally() {
+    let lease = TaskLease::new(42, 7);
+    let lease_guard = TaskLeaseGuard::with_renewal_timeout(lease, Duration::from_secs(60));
+
+    tokio::time::timeout(
+        Duration::from_millis(50),
+        lease_guard.sleep_or_shutdown(Duration::from_millis(1)),
+    )
+    .await
+    .expect("sleep without shutdown token should complete")
+    .expect("sleep without shutdown token should not report shutdown");
 }
 
 #[test]

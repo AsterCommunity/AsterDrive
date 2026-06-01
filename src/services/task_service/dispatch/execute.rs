@@ -4,6 +4,7 @@ use chrono::{Duration, Utc};
 use futures::stream::{self, StreamExt};
 use sea_orm::ActiveEnum;
 use tokio::time::MissedTickBehavior;
+use tokio_util::sync::CancellationToken;
 
 use super::{
     DispatchStats, TASK_HEARTBEAT_INTERVAL_SECS, TaskDispatchOutcome, TaskLease, TaskLeaseGuard,
@@ -19,11 +20,12 @@ use crate::services::task_service::{
     retry::TaskRetryClass,
     steps::{mark_active_step_failed, parse_task_steps_json, serialize_task_steps},
 };
-use crate::types::BackgroundTaskKind;
+use crate::types::{BackgroundTaskKind, BackgroundTaskStatus};
 
 pub(super) async fn run_claimed_tasks(
     state: &PrimaryAppState,
     mut claimed_tasks: Vec<(background_task::Model, TaskLease)>,
+    shutdown_token: CancellationToken,
 ) -> Result<DispatchStats> {
     let concurrency = claimed_tasks.len().max(1);
     claimed_tasks.sort_by_key(|(task, _)| (task.created_at, task.id));
@@ -32,7 +34,8 @@ pub(super) async fn run_claimed_tasks(
     // 这里直接把本批已认领任务全部放出去；fast_continue lane 会在本批结束后继续补位。
     let results = run_with_concurrency_limit(claimed_tasks, concurrency, |(task, lease)| {
         let state = state.clone();
-        async move { process_claimed_task(&state, task, lease).await }
+        let shutdown_token = shutdown_token.clone();
+        async move { process_claimed_task(&state, task, lease, shutdown_token).await }
     })
     .await;
     let mut stats = DispatchStats::default();
@@ -59,12 +62,13 @@ async fn process_claimed_task(
     state: &PrimaryAppState,
     task: background_task::Model,
     lease: TaskLease,
+    shutdown_token: CancellationToken,
 ) -> Result<TaskDispatchOutcome> {
     let mut heartbeat =
         tokio::time::interval(std::time::Duration::from_secs(TASK_HEARTBEAT_INTERVAL_SECS));
     heartbeat.set_missed_tick_behavior(MissedTickBehavior::Delay);
     heartbeat.tick().await;
-    let lease_guard = TaskLeaseGuard::new(lease);
+    let lease_guard = TaskLeaseGuard::with_shutdown_token(lease, shutdown_token);
 
     // 外层 select! 同时盯两件事：
     // 1. 真实业务流程是否完成；
@@ -114,11 +118,17 @@ async fn process_claimed_task(
         Err(error) => {
             // lease 丢失 / 续约超时代表“这条执行流已经过期”，不是业务失败。
             // 这时不要再把任务改成 Failed/Retry，否则旧 worker 可能覆盖新 lease 的结果。
-            if is_task_lease_lost(&error) || is_task_lease_renewal_timed_out(&error) {
+            if is_task_lease_lost(&error)
+                || is_task_lease_renewal_timed_out(&error)
+                || super::super::is_task_worker_shutdown_requested(&error)
+            {
+                if super::super::is_task_worker_shutdown_requested(&error) {
+                    release_task_for_shutdown(state, task.id, lease.processing_token).await?;
+                }
                 tracing::info!(
                     task_id = task.id,
                     processing_token = lease.processing_token,
-                    "background task worker stopped because its lease is no longer active; skipping stale completion"
+                    "background task worker stopped before completion; skipping stale completion"
                 );
                 return Ok(TaskDispatchOutcome::default());
             }
@@ -210,6 +220,25 @@ async fn process_claimed_task(
             }
         }
     }
+}
+
+async fn release_task_for_shutdown(
+    state: &PrimaryAppState,
+    task_id: i64,
+    processing_token: i64,
+) -> Result<()> {
+    let released = background_task_repo::release_processing(
+        state.writer_db(),
+        task_id,
+        processing_token,
+        Utc::now(),
+        BackgroundTaskStatus::Retry,
+    )
+    .await?;
+    if released {
+        state.wake_background_task_dispatcher();
+    }
+    Ok(())
 }
 
 fn record_task_metric(state: &PrimaryAppState, kind: BackgroundTaskKind, status: &'static str) {

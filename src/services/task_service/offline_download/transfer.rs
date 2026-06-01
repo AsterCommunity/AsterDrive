@@ -38,14 +38,16 @@ impl OfflineDownloadRateLimiter {
             let batch = NonZeroU32::new(batch).ok_or_else(|| {
                 AsterError::internal_error("offline download throttle batch cannot be zero")
             })?;
-            limiter
-                .limiter
-                .until_n_ready(batch)
-                .await
-                .map_aster_err_ctx(
-                    "reserve offline download throttle capacity",
-                    AsterError::internal_error,
-                )?;
+            tokio::select! {
+                biased;
+                shutdown = lease_guard.shutdown_requested() => shutdown?,
+                result = limiter.limiter.until_n_ready(batch) => {
+                    result.map_aster_err_ctx(
+                        "reserve offline download throttle capacity",
+                        AsterError::internal_error,
+                    )?;
+                }
+            }
             remaining -= batch.get();
         }
         Ok(())

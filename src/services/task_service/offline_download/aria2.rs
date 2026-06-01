@@ -5,7 +5,6 @@ use async_trait::async_trait;
 use serde::{Deserialize, Serialize, de::DeserializeOwned, ser::SerializeSeq};
 use sha2::Digest;
 use tokio::io::AsyncReadExt;
-use tokio::time::sleep;
 use url::Url;
 
 use crate::config::operations;
@@ -214,7 +213,14 @@ impl Aria2OfflineDownloadEngine {
                 ));
             }
 
-            let status = self.client.tell_status(gid).await?;
+            let status = tokio::select! {
+                biased;
+                shutdown = lease_guard.shutdown_requested() => {
+                    shutdown?;
+                    unreachable!("shutdown_requested only resolves when shutdown is requested");
+                }
+                status = self.client.tell_status(gid) => status?,
+            };
             let completed = parse_aria2_length(&status.completed_length, "aria2 completedLength")?;
             ensure_download_size_allowed(completed, self.max_bytes)?;
             let total = parse_aria2_length(&status.total_length, "aria2 totalLength")?;
@@ -269,7 +275,9 @@ impl Aria2OfflineDownloadEngine {
                 }
             }
 
-            sleep(ARIA2_STATUS_POLL_INTERVAL).await;
+            lease_guard
+                .sleep_or_shutdown(ARIA2_STATUS_POLL_INTERVAL)
+                .await?;
         }
 
         let bytes_written = downloaded_file_size(&request.temp_path).await?;
