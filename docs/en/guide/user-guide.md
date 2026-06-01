@@ -187,7 +187,7 @@ When creating the task, you can fill in:
 
 Link import creates a background task. It does not block the page. Check progress in the current workspace's `Task Center`; tasks created in a team space only appear in that team's task center.
 
-Administrators can limit the maximum file size, per-task download speed, number of concurrent link-import tasks, and request timeout. They can also choose the built-in downloader or an administrator-managed aria2 engine. When a limit is exceeded, the task fails and the task details show the reason.
+Administrators can limit the maximum file size, per-task download speed, number of concurrent link-import tasks, and request timeout. They can also enable the built-in downloader, an administrator-managed aria2 engine, or both in fallback order through the link-import engine registry. If all engines are disabled, new link-import tasks are rejected. When a limit is exceeded, the task fails and the task details show the reason.
 
 The UI shows the speed limit in MB/s because it is easier for most users to understand than Mbps. The backend setting still uses bytes-per-second internally.
 

@@ -5,6 +5,7 @@ use std::collections::BTreeMap;
 #[cfg(all(debug_assertions, feature = "openapi"))]
 use utoipa::ToSchema;
 
+use crate::config::operations;
 use crate::services::user_service;
 use crate::types::{
     ArchiveFilenameEncoding, BackgroundTaskKind, BackgroundTaskStatus, DriverType,
@@ -88,8 +89,11 @@ pub enum TaskPresentationCode {
     TaskNameMediaMetadataExtractBlob,
     TaskNameMediaMetadataExtractSource,
     TaskNameOfflineDownloadSource,
+    TaskNameOfflineDownloadSourceWithEngine,
     TaskNameOfflineDownloadTargetFolder,
+    TaskNameOfflineDownloadTargetFolderWithEngine,
     TaskNameOfflineDownloadUrl,
+    TaskNameOfflineDownloadUrlWithEngine,
     TaskNameStoragePolicyMigration,
     TaskNameStoragePolicyTempCleanup,
     TaskNameStoragePolicyTempCleanupPolicyId,
@@ -579,6 +583,11 @@ pub struct OfflineDownloadTaskResult {
     pub content_length: i64,
     /// Final SHA-256 digest in lowercase hexadecimal.
     pub sha256: String,
+    /// Actual engine used for the final successful transfer. Legacy task
+    /// results may not have this field.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(all(debug_assertions, feature = "openapi"), schema(value_type = Option<String>))]
+    pub download_engine: Option<operations::OfflineDownloadEngine>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]

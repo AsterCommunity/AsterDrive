@@ -13,6 +13,7 @@ use crate::config::cors;
 use crate::config::definitions::{ALL_CONFIGS, ConfigDef};
 use crate::config::mail;
 use crate::config::media_processing;
+use crate::config::offline_download;
 use crate::config::operations;
 use crate::config::site_url;
 use crate::config::wopi;
@@ -208,6 +209,9 @@ where
         }
         media_processing::MEDIA_PROCESSING_REGISTRY_JSON_KEY => {
             media_processing::normalize_media_processing_registry_config_value(value)
+        }
+        operations::OFFLINE_DOWNLOAD_ENGINE_REGISTRY_JSON_KEY => {
+            offline_download::normalize_offline_download_engine_registry_config_value(value)
         }
         mail::MAIL_SMTP_HOST_KEY => mail::normalize_smtp_host_config_value(value),
         mail::MAIL_SMTP_PORT_KEY => mail::normalize_smtp_port_config_value(value),

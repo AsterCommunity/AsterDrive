@@ -68,7 +68,9 @@ pub(crate) use archive::{
 pub(crate) use blob_maintenance::create_blob_maintenance_task_for_admin;
 pub use dispatch::{DispatchStats, cleanup_expired, dispatch_due, drain};
 pub(crate) use media_metadata::ensure_media_metadata_task;
-pub(crate) use offline_download::create_offline_download_task_in_scope;
+pub(crate) use offline_download::{
+    ProbeAria2RpcInput, create_offline_download_task_in_scope, probe_aria2_rpc,
+};
 use registry::{build_task_presentation, decode_task_payload, decode_task_result};
 pub(crate) use runtime::find_latest_system_runtime_by_task_name;
 pub use runtime::{RuntimeTaskRunOutcome, SystemRuntimeTaskKind, record_runtime_task_run};
@@ -443,7 +445,14 @@ fn build_task_info_with_creator(
     let result = decode_task_result_or_none(&task);
     let can_retry = task_can_retry(&task);
     let status_text = task.status_text;
-    let presentation = build_task_presentation(kind, &payload, result.as_ref(), task.status)?;
+    let presentation_context = task_presentation_context(kind, task.runtime_json.as_ref());
+    let presentation = build_task_presentation(
+        kind,
+        &payload,
+        result.as_ref(),
+        task.status,
+        presentation_context,
+    )?;
     let steps = parse_task_steps_json(task.steps_json.as_ref().map(|raw| raw.as_ref()), kind)?;
 
     Ok(TaskInfo {
@@ -482,7 +491,27 @@ pub(crate) fn build_task_presentation_for_model(
 ) -> Result<Option<TaskPresentation>> {
     let payload = decode_task_payload(task)?;
     let result = decode_task_result_or_none(task);
-    build_task_presentation(task.kind, &payload, result.as_ref(), task.status)
+    build_task_presentation(
+        task.kind,
+        &payload,
+        result.as_ref(),
+        task.status,
+        task_presentation_context(task.kind, task.runtime_json.as_ref()),
+    )
+}
+
+fn task_presentation_context(
+    kind: BackgroundTaskKind,
+    runtime_json: Option<&crate::types::StoredTaskRuntime>,
+) -> presentation::TaskPresentationContext {
+    match kind {
+        BackgroundTaskKind::OfflineDownload => presentation::TaskPresentationContext {
+            selected_offline_download_engine: offline_download::selected_engine_from_runtime_json(
+                runtime_json.map(|value| value.as_ref()),
+            ),
+        },
+        _ => presentation::TaskPresentationContext::default(),
+    }
 }
 
 fn decode_task_result_or_none(task: &background_task::Model) -> Option<TaskResult> {
@@ -830,6 +859,30 @@ pub(super) async fn set_task_runtime_json(
     }
 }
 
+pub(super) async fn set_task_display_name(
+    state: &PrimaryAppState,
+    lease_guard: &TaskLeaseGuard,
+    display_name: &str,
+) -> Result<()> {
+    let lease = lease_guard.lease();
+    let now = Utc::now();
+    let display_name = truncate_display_name(display_name);
+    if background_task_repo::set_display_name(
+        state.writer_db(),
+        lease.task_id,
+        lease.processing_token,
+        &display_name,
+        now,
+    )
+    .await?
+    {
+        lease_guard.record_renewed();
+        Ok(())
+    } else {
+        Err(lease_guard.mark_lost())
+    }
+}
+
 pub(super) async fn mark_task_succeeded(
     state: &PrimaryAppState,
     lease_guard: &TaskLeaseGuard,
@@ -1031,15 +1084,17 @@ mod tests {
         truncate_error, validate_admin_task_cleanup_status,
     };
     use crate::api::subcode::ApiSubcode;
+    use crate::config::operations::OfflineDownloadEngine;
     use crate::entities::background_task;
     use crate::services::task_service::spec::{self, SystemRuntimeTask};
     use crate::services::task_service::{
         RuntimeSystemHealthComponent, RuntimeSystemHealthResult, RuntimeSystemHealthStatus,
-        RuntimeTaskResult, TaskPresentationCode,
+        RuntimeTaskResult, TaskPresentationCode, TaskResult,
     };
     use crate::services::workspace_storage_service::WorkspaceStorageScope;
     use crate::types::{
         BackgroundTaskKind, BackgroundTaskStatus, StoredTaskPayload, StoredTaskResult,
+        StoredTaskRuntime,
     };
     use chrono::{Duration, Utc};
 
@@ -1180,6 +1235,145 @@ mod tests {
         assert_eq!(title.params["blobId"], serde_json::json!(42));
         assert_eq!(title.params["processor"], serde_json::json!("images"));
         assert_eq!(status.code, TaskPresentationCode::StatusTextThumbnailReady);
+    }
+
+    #[test]
+    fn task_info_includes_offline_download_engine_presentation_from_runtime() {
+        let now = Utc::now();
+        let task = background_task::Model {
+            id: 46,
+            kind: BackgroundTaskKind::OfflineDownload,
+            status: BackgroundTaskStatus::Processing,
+            creator_user_id: Some(7),
+            team_id: None,
+            share_id: None,
+            display_name: "Import from https://example.com/file.bin via aria2".to_string(),
+            payload_json: StoredTaskPayload(
+                serde_json::json!({
+                    "url": "https://example.com/file.bin",
+                    "target_folder_id": 34,
+                    "source_display_url": "https://example.com/file.bin"
+                })
+                .to_string(),
+            ),
+            result_json: None,
+            runtime_json: Some(StoredTaskRuntime(
+                serde_json::json!({
+                    "engine": "aria2",
+                    "aria2": {
+                        "gid": "abc123",
+                        "processing_token": 9
+                    }
+                })
+                .to_string(),
+            )),
+            steps_json: None,
+            progress_current: 0,
+            progress_total: 0,
+            status_text: Some("Downloading source file".to_string()),
+            attempt_count: 1,
+            max_attempts: 3,
+            next_run_at: now,
+            processing_token: 9,
+            processing_started_at: Some(now),
+            last_heartbeat_at: Some(now),
+            lease_expires_at: Some(now + Duration::minutes(1)),
+            started_at: Some(now),
+            finished_at: None,
+            last_error: None,
+            failure_can_retry: None,
+            expires_at: now + Duration::hours(1),
+            created_at: now,
+            updated_at: now,
+        };
+
+        let info = build_task_info_with_creator(task, None).expect("task info should build");
+        let title = info
+            .presentation
+            .as_ref()
+            .and_then(|presentation| presentation.title.as_ref())
+            .expect("title should exist");
+
+        assert_eq!(
+            title.code,
+            TaskPresentationCode::TaskNameOfflineDownloadTargetFolderWithEngine
+        );
+        assert_eq!(title.params["targetFolderId"], serde_json::json!(34));
+        assert_eq!(title.params["engine"], serde_json::json!("aria2"));
+    }
+
+    #[test]
+    fn task_info_includes_offline_download_engine_presentation_from_result() {
+        let now = Utc::now();
+        let task = background_task::Model {
+            id: 48,
+            kind: BackgroundTaskKind::OfflineDownload,
+            status: BackgroundTaskStatus::Succeeded,
+            creator_user_id: Some(7),
+            team_id: None,
+            share_id: None,
+            display_name: "Import report.html from link via AsterDrive built-in".to_string(),
+            payload_json: StoredTaskPayload(
+                serde_json::json!({
+                    "url": "https://example.com/report.html",
+                    "filename": "report.html",
+                    "source_display_url": "https://example.com/report.html"
+                })
+                .to_string(),
+            ),
+            result_json: Some(StoredTaskResult(
+                serde_json::json!({
+                    "file_id": 72,
+                    "file_name": "report.html",
+                    "folder_id": null,
+                    "file_path": "/report.html",
+                    "source_display_url": "https://example.com/report.html",
+                    "content_length": 128,
+                    "sha256": "0".repeat(64),
+                    "download_engine": "builtin"
+                })
+                .to_string(),
+            )),
+            runtime_json: None,
+            steps_json: None,
+            progress_current: 128,
+            progress_total: 128,
+            status_text: Some("Offline download imported".to_string()),
+            attempt_count: 1,
+            max_attempts: 3,
+            next_run_at: now,
+            processing_token: 0,
+            processing_started_at: Some(now),
+            last_heartbeat_at: Some(now),
+            lease_expires_at: None,
+            started_at: Some(now),
+            finished_at: Some(now),
+            last_error: None,
+            failure_can_retry: None,
+            expires_at: now + Duration::hours(1),
+            created_at: now,
+            updated_at: now,
+        };
+
+        let info = build_task_info_with_creator(task, None).expect("task info should build");
+        let title = info
+            .presentation
+            .as_ref()
+            .and_then(|presentation| presentation.title.as_ref())
+            .expect("title should exist");
+
+        assert_eq!(
+            title.code,
+            TaskPresentationCode::TaskNameOfflineDownloadSourceWithEngine
+        );
+        assert_eq!(title.params["filename"], serde_json::json!("report.html"));
+        assert_eq!(title.params["engine"], serde_json::json!("builtin"));
+
+        let result = match info.result.expect("result should exist") {
+            TaskResult::OfflineDownload(result) => result,
+            other => panic!("unexpected result: {other:?}"),
+        };
+        assert_eq!(result.download_engine, Some(OfflineDownloadEngine::Builtin));
     }
 
     #[test]

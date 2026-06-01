@@ -6,6 +6,10 @@ import {
 	type MediaProcessingEditorConfig,
 } from "@/components/admin/mediaProcessingConfigEditorShared";
 import {
+	defaultOfflineDownloadEngineConfig,
+	OFFLINE_DOWNLOAD_ENGINE_REGISTRY_KEY,
+} from "@/components/admin/offlineDownloadEngineRegistryShared";
+import {
 	PREVIEW_APP_PROTECTED_BUILTIN_KEYS,
 	PREVIEW_APPS_CONFIG_KEY,
 } from "@/components/admin/previewAppsConfigEditorShared";
@@ -36,6 +40,12 @@ const mockState = vi.hoisted(() => ({
 	thumbnailSupportLoad: vi.fn(),
 	toastSuccess: vi.fn(),
 }));
+
+const OFFLINE_DOWNLOAD_ARIA2_RPC_URL_KEY = "offline_download_aria2_rpc_url";
+const OFFLINE_DOWNLOAD_ARIA2_RPC_SECRET_KEY =
+	"offline_download_aria2_rpc_secret";
+const OFFLINE_DOWNLOAD_ARIA2_REQUEST_TIMEOUT_SECS_KEY =
+	"offline_download_aria2_request_timeout_secs";
 
 vi.mock("sonner", () => ({
 	toast: {
@@ -260,6 +270,29 @@ function createBaseConfigs() {
 			value: "1073741824",
 			value_type: "number",
 		}),
+		createConfig({
+			category: "file_processing.offline_download",
+			key: OFFLINE_DOWNLOAD_ENGINE_REGISTRY_KEY,
+			value: JSON.stringify(defaultOfflineDownloadEngineConfig(), null, 2),
+			value_type: "multiline",
+		}),
+		createConfig({
+			category: "file_processing.offline_download",
+			key: OFFLINE_DOWNLOAD_ARIA2_RPC_URL_KEY,
+			value: "http://saved-aria2:6800/jsonrpc",
+		}),
+		createConfig({
+			category: "file_processing.offline_download",
+			is_sensitive: true,
+			key: OFFLINE_DOWNLOAD_ARIA2_RPC_SECRET_KEY,
+			value: "***REDACTED***",
+		}),
+		createConfig({
+			category: "file_processing.offline_download",
+			key: OFFLINE_DOWNLOAD_ARIA2_REQUEST_TIMEOUT_SECS_KEY,
+			value: "10",
+			value_type: "number",
+		}),
 	];
 }
 
@@ -286,6 +319,10 @@ function getConfigCategory(key: string) {
 	if (key.startsWith("custom")) return "custom";
 	if (key === PREVIEW_APPS_CONFIG_KEY) return "site.preview";
 	if (key === MEDIA_PROCESSING_CONFIG_KEY) return "file_processing.media";
+	if (key === OFFLINE_DOWNLOAD_ENGINE_REGISTRY_KEY)
+		return "file_processing.offline_download";
+	if (key.startsWith("offline_download_aria2_"))
+		return "file_processing.offline_download";
 	if (key.startsWith("media_metadata_")) return "file_processing.media";
 	return "site";
 }
@@ -296,10 +333,15 @@ function getMockConfigSource(key: string): SystemConfigSource {
 
 function getMockConfigValueType(key: string): SystemConfigValueType {
 	if (key === "public_site_url") return "string_array";
-	if (key === PREVIEW_APPS_CONFIG_KEY || key === MEDIA_PROCESSING_CONFIG_KEY)
+	if (
+		key === PREVIEW_APPS_CONFIG_KEY ||
+		key === MEDIA_PROCESSING_CONFIG_KEY ||
+		key === OFFLINE_DOWNLOAD_ENGINE_REGISTRY_KEY
+	)
 		return "multiline";
 	if (key === "media_metadata_enabled") return "boolean";
 	if (key === "media_metadata_max_source_bytes") return "number";
+	if (key === OFFLINE_DOWNLOAD_ARIA2_REQUEST_TIMEOUT_SECS_KEY) return "number";
 	return "string";
 }
 
@@ -477,6 +519,31 @@ describe("useAdminSettingsData", () => {
 		expect(result.current.previewAppsValidationIssues).toEqual([
 			{ key: "preview_apps_error_parse" },
 		]);
+	});
+
+	it("blocks saving when offline download engine registry is invalid", async () => {
+		const { result } = renderUseAdminSettingsData();
+
+		await waitFor(() => expect(result.current.loading).toBe(false));
+
+		act(() => {
+			result.current.updateDraftValue(
+				OFFLINE_DOWNLOAD_ENGINE_REGISTRY_KEY,
+				"{",
+			);
+		});
+
+		expect(result.current.changedCount).toBe(1);
+		expect(result.current.hasValidationError).toBe(true);
+		expect(result.current.validationMessage).toBe(
+			"offline_download_engine_validation_error",
+		);
+
+		await act(async () => {
+			await result.current.handleSaveAll();
+		});
+
+		expect(mockState.setConfig).not.toHaveBeenCalled();
 	});
 
 	it("blocks saving when staged CORS values enable credentials with a wildcard origin", async () => {
@@ -827,6 +894,135 @@ describe("useAdminSettingsData", () => {
 		);
 		expect(mockState.toastSuccess).toHaveBeenCalledWith(
 			"ffprobe command '/opt/bin/ffprobe-custom' is available",
+		);
+	});
+
+	it("tests aria2 RPC against current unsaved drafts", async () => {
+		mockState.actionConfig.mockResolvedValueOnce({
+			message: "aria2 RPC ready: version 1.37.0, 12 enabled features",
+		});
+		const { result } = renderUseAdminSettingsData();
+
+		await waitFor(() => expect(result.current.loading).toBe(false));
+
+		const registryDraft = JSON.stringify(
+			{
+				version: 1,
+				engines: [
+					{ kind: "aria2", enabled: true },
+					{ kind: "builtin", enabled: true },
+				],
+			},
+			null,
+			2,
+		);
+
+		act(() => {
+			result.current.updateDraftValue(
+				OFFLINE_DOWNLOAD_ARIA2_RPC_URL_KEY,
+				"http://draft-aria2:6800/jsonrpc",
+			);
+			result.current.updateDraftValue(
+				OFFLINE_DOWNLOAD_ARIA2_RPC_SECRET_KEY,
+				"draft-secret",
+			);
+			result.current.updateDraftValue(
+				OFFLINE_DOWNLOAD_ARIA2_REQUEST_TIMEOUT_SECS_KEY,
+				"3",
+			);
+		});
+
+		await act(async () => {
+			await result.current.handleTestAria2Rpc(registryDraft);
+		});
+
+		expect(mockState.actionConfig).toHaveBeenCalledWith(
+			OFFLINE_DOWNLOAD_ENGINE_REGISTRY_KEY,
+			expect.objectContaining({
+				action: "test_aria2_rpc",
+				draft_values: expect.objectContaining({
+					[OFFLINE_DOWNLOAD_ENGINE_REGISTRY_KEY]: registryDraft,
+					[OFFLINE_DOWNLOAD_ARIA2_RPC_URL_KEY]:
+						"http://draft-aria2:6800/jsonrpc",
+					[OFFLINE_DOWNLOAD_ARIA2_RPC_SECRET_KEY]: "draft-secret",
+					[OFFLINE_DOWNLOAD_ARIA2_REQUEST_TIMEOUT_SECS_KEY]: "3",
+				}),
+				value: registryDraft,
+			}),
+		);
+		expect(mockState.toastSuccess).toHaveBeenCalledWith(
+			"aria2 RPC ready: version 1.37.0, 12 enabled features",
+		);
+	});
+
+	it("tests aria2 RPC with saved config when there are no offline download drafts", async () => {
+		mockState.actionConfig.mockResolvedValueOnce({
+			message: "aria2 RPC ready: version 1.37.0, 12 enabled features",
+		});
+		const { result } = renderUseAdminSettingsData();
+
+		await waitFor(() => expect(result.current.loading).toBe(false));
+
+		const savedRegistry = result.current.configs.find(
+			(config) => config.key === OFFLINE_DOWNLOAD_ENGINE_REGISTRY_KEY,
+		)?.value as string;
+
+		await act(async () => {
+			await result.current.handleTestAria2Rpc(savedRegistry);
+		});
+
+		expect(mockState.actionConfig).toHaveBeenCalledWith(
+			OFFLINE_DOWNLOAD_ENGINE_REGISTRY_KEY,
+			{
+				action: "test_aria2_rpc",
+				draft_values: {},
+			},
+		);
+		expect(mockState.toastSuccess).toHaveBeenCalledWith(
+			"aria2 RPC ready: version 1.37.0, 12 enabled features",
+		);
+	});
+
+	it("does not send the redacted aria2 secret when only other draft fields changed", async () => {
+		mockState.actionConfig.mockResolvedValueOnce({
+			message: "aria2 RPC ready: version 1.37.0, 12 enabled features",
+		});
+		const { result } = renderUseAdminSettingsData();
+
+		await waitFor(() => expect(result.current.loading).toBe(false));
+
+		const savedRegistry = result.current.configs.find(
+			(config) => config.key === OFFLINE_DOWNLOAD_ENGINE_REGISTRY_KEY,
+		)?.value as string;
+
+		act(() => {
+			result.current.updateDraftValue(
+				OFFLINE_DOWNLOAD_ARIA2_RPC_URL_KEY,
+				"http://draft-aria2:6800/jsonrpc",
+			);
+		});
+
+		await act(async () => {
+			await result.current.handleTestAria2Rpc(savedRegistry);
+		});
+
+		expect(mockState.actionConfig).toHaveBeenCalledWith(
+			OFFLINE_DOWNLOAD_ENGINE_REGISTRY_KEY,
+			{
+				action: "test_aria2_rpc",
+				draft_values: {
+					[OFFLINE_DOWNLOAD_ARIA2_RPC_URL_KEY]:
+						"http://draft-aria2:6800/jsonrpc",
+				},
+			},
+		);
+		expect(mockState.actionConfig).not.toHaveBeenCalledWith(
+			OFFLINE_DOWNLOAD_ENGINE_REGISTRY_KEY,
+			expect.objectContaining({
+				draft_values: expect.objectContaining({
+					[OFFLINE_DOWNLOAD_ARIA2_RPC_SECRET_KEY]: "***REDACTED***",
+				}),
+			}),
 		);
 	});
 

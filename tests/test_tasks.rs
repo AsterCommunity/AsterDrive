@@ -16,7 +16,7 @@ use aster_drive::config::operations::{
     OFFLINE_DOWNLOAD_ARIA2_MAX_CONNECTION_PER_SERVER_KEY,
     OFFLINE_DOWNLOAD_ARIA2_REQUEST_TIMEOUT_SECS_KEY, OFFLINE_DOWNLOAD_ARIA2_RPC_SECRET_KEY,
     OFFLINE_DOWNLOAD_ARIA2_RPC_URL_KEY, OFFLINE_DOWNLOAD_ARIA2_SPLIT_KEY,
-    OFFLINE_DOWNLOAD_ENGINE_KEY, OFFLINE_DOWNLOAD_MAX_FILE_SIZE_BYTES_KEY,
+    OFFLINE_DOWNLOAD_ENGINE_REGISTRY_JSON_KEY, OFFLINE_DOWNLOAD_MAX_FILE_SIZE_BYTES_KEY,
     OFFLINE_DOWNLOAD_MAX_MB_PER_SEC_KEY, OFFLINE_DOWNLOAD_REQUEST_TIMEOUT_SECS_KEY,
 };
 use aster_drive::db::repository::{background_task_repo, file_repo};
@@ -899,12 +899,55 @@ async fn assert_response_status(
 }
 
 #[actix_web::test]
+async fn test_offline_download_disabled_registry_rejects_task_creation() {
+    let state = common::setup().await;
+    aster_drive::services::config_service::set(
+        &state,
+        OFFLINE_DOWNLOAD_ENGINE_REGISTRY_JSON_KEY,
+        r#"{"version":1,"engines":[{"kind":"builtin","enabled":false},{"kind":"aria2","enabled":false}]}"#,
+        1,
+    )
+    .await
+    .expect("offline download registry should update");
+
+    let app = create_test_app!(state.clone());
+    let (token, _) = register_and_login!(app);
+    let req = test::TestRequest::post()
+        .uri("/api/v1/tasks/offline-download")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({
+            "url": "https://example.com/",
+            "filename": "disabled.html"
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    let resp = assert_response_status(resp, actix_web::http::StatusCode::BAD_REQUEST).await;
+    let body: Value = test::read_body_json(resp).await;
+    assert!(
+        body["msg"]
+            .as_str()
+            .is_some_and(|message| message.contains("no download engine is enabled")),
+        "disabled offline download should return a clear validation error: {body}"
+    );
+    assert_eq!(
+        background_task_repo::count_pending_or_retry(state.writer_db())
+            .await
+            .expect("background task count should load"),
+        0
+    );
+}
+
+#[actix_web::test]
 async fn test_offline_download_aria2_engine_imports_example_com_e2e() {
     let state = common::setup().await;
     let aria2 = start_aria2_context(&state.config.server.temp_dir).await;
 
     for (key, value) in [
-        (OFFLINE_DOWNLOAD_ENGINE_KEY, "aria2"),
+        (
+            OFFLINE_DOWNLOAD_ENGINE_REGISTRY_JSON_KEY,
+            r#"{"version":1,"engines":[{"kind":"aria2","enabled":true},{"kind":"builtin","enabled":false}]}"#,
+        ),
         (OFFLINE_DOWNLOAD_ARIA2_RPC_URL_KEY, aria2.rpc_url.as_str()),
         (
             OFFLINE_DOWNLOAD_ARIA2_RPC_SECRET_KEY,
@@ -951,6 +994,10 @@ async fn test_offline_download_aria2_engine_imports_example_com_e2e() {
         .await
         .expect("aria2 offline download task should load");
     assert_eq!(task.status, BackgroundTaskStatus::Succeeded);
+    assert_eq!(
+        task.display_name,
+        "Import aria2-example.html from link via aria2"
+    );
     let runtime_json = task
         .runtime_json
         .as_ref()
@@ -988,6 +1035,7 @@ async fn test_offline_download_aria2_engine_imports_example_com_e2e() {
             .as_str()
             .is_some_and(|sha256| sha256.len() == 64)
     );
+    assert_eq!(result["download_engine"], "aria2");
     let file_id = result["file_id"]
         .as_i64()
         .expect("offline download result should include file_id");
@@ -1012,6 +1060,14 @@ async fn test_offline_download_aria2_engine_imports_example_com_e2e() {
     assert_eq!(resp.status(), 200);
     let task_info: Value = test::read_body_json(resp).await;
     assert_eq!(task_info["data"]["status"], "succeeded");
+    assert_eq!(
+        task_info["data"]["presentation"]["title"]["code"],
+        "task_name_offline_download_source_with_engine"
+    );
+    assert_eq!(
+        task_info["data"]["presentation"]["title"]["params"]["engine"],
+        "aria2"
+    );
     assert!(
         task_info["data"].get("runtime_json").is_none(),
         "runtime_json is internal state and should not leak through TaskInfo"

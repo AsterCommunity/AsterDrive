@@ -148,6 +148,8 @@ export const ApiSubcode = {
 	StorageUnknown: "storage.unknown",
 	TaskLeaseLost: "task.lease_lost",
 	TaskLeaseRenewalTimedOut: "task.lease_renewal_timed_out",
+	OfflineDownloadAria2RpcAuthFailed: "offline_download.aria2_rpc_auth_failed",
+	OfflineDownloadAria2RpcProbeFailed: "offline_download.aria2_rpc_probe_failed",
 	TeamMemberExists: "team.member_exists",
 	ThumbnailFormatGuessFailed: "thumbnail.format_guess_failed",
 	ThumbnailDecodeFailed: "thumbnail.decode_failed",

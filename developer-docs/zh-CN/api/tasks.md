@@ -90,9 +90,9 @@
 }
 ```
 
-其中 `filename`、`target_folder_id` 和 `expected_sha256` 都可省略。服务端会把源地址脱敏后写入 `payload.source_display_url`，任务完成后 `result` 会包含导入后的 `file_id`、`file_name`、`folder_id`、`file_path`、`source_display_url`、`content_length` 和实际 `sha256`。
+其中 `filename`、`target_folder_id` 和 `expected_sha256` 都可省略。服务端会把源地址脱敏后写入 `payload.source_display_url`，任务完成后 `result` 会包含导入后的 `file_id`、`file_name`、`folder_id`、`file_path`、`source_display_url`、`content_length`、实际 `sha256` 和 `download_engine`。
 
-链接导入引擎由管理员运行时配置决定，任务 API 不需要也不能指定引擎。无论使用内置下载器还是 aria2，引擎切换都不会改变任务类型、创建请求体、`payload` 和 `result` 结构。aria2 执行期的 GID 会作为内部运行时元数据写入 `background_tasks.runtime_json`，用于失败诊断和恢复边界，不作为公开 API 字段返回。
+链接导入引擎由管理员运行时注册表决定，任务 API 不需要也不能指定引擎。注册表可以启用内置下载器、aria2 或二者按顺序兜底；如果所有引擎都关闭，创建请求会在插入后台任务前被拒绝。无论使用哪个引擎，引擎切换都不会改变任务类型、创建请求体和 `payload` 结构。任务运行中会把当前选中的引擎写入内部 runtime metadata，成功后写入 `result.download_engine`，这样任务展示可以显示实际使用的下载器。aria2 执行期的 GID 也会作为内部运行时元数据写入 `background_tasks.runtime_json`，用于失败诊断和恢复边界，不作为公开 API 字段返回。
 
 ## 分页
 
@@ -142,6 +142,7 @@
 - `creator` 是创建者用户摘要；系统运行任务和缩略图任务通常为 `null`
 - `payload` / `result` 已经是结构化对象，不再是旧文档里说的 `payload_json` / `result_json`
 - 执行期内部状态不会出现在 `TaskInfo` 里；例如 aria2 引擎的 GID 会持久化在 `background_tasks.runtime_json`，但不会放进 `payload` 或 `result`
+- 离线下载成功后的 `result.download_engine` 是公开的下载器名称，不是 aria2 内部状态
 - `steps` 会给出更细的阶段状态、阶段进度和阶段文案
 - `can_retry = true` 目前只在 `status = failed` 且失败类型允许手动重试时出现
 - `progress_total <= 0` 时，成功任务的 `progress_percent` 会直接视为 `100`

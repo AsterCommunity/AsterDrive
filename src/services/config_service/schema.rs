@@ -1,4 +1,7 @@
-use crate::config::definitions::{ALL_CONFIGS, AUDIT_LOG_RECORDED_ACTIONS_KEY};
+use crate::config::definitions::{
+    ALL_CONFIGS, AUDIT_LOG_RECORDED_ACTIONS_KEY, OFFLINE_DOWNLOAD_ENGINE_KEY,
+};
+use crate::config::operations::OfflineDownloadEngine;
 use crate::types::{AuditAction, SystemConfigValueType};
 use serde::Serialize;
 #[cfg(all(debug_assertions, feature = "openapi"))]
@@ -63,6 +66,17 @@ pub fn get_schema() -> Vec<ConfigSchemaItem> {
 
 fn config_schema_options(key: &str) -> Vec<ConfigSchemaOption> {
     match key {
+        OFFLINE_DOWNLOAD_ENGINE_KEY => OfflineDownloadEngine::ALL
+            .iter()
+            .map(|engine| ConfigSchemaOption {
+                value: engine.as_str().to_string(),
+                label_i18n_key: format!(
+                    "settings_offline_download_engine_option_{}",
+                    engine.as_str()
+                ),
+                group: "offline_download_engine".to_string(),
+            })
+            .collect(),
         // Keep enum-set options backend-authored so the UI cannot drift from AuditAction.
         AUDIT_LOG_RECORDED_ACTIONS_KEY => AuditAction::ALL
             .iter()
@@ -99,6 +113,7 @@ pub fn list_template_variable_groups() -> Vec<TemplateVariableGroup> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::operations::OfflineDownloadEngine;
 
     #[test]
     fn audit_recorded_actions_schema_options_cover_all_actions() {
@@ -118,5 +133,25 @@ mod tests {
             );
             assert_eq!(option.group, action.group());
         }
+    }
+
+    #[test]
+    fn offline_download_engine_schema_options_follow_engine_registry() {
+        let item = get_schema()
+            .into_iter()
+            .find(|item| item.key == OFFLINE_DOWNLOAD_ENGINE_KEY)
+            .expect("legacy offline download engine config should be in schema");
+
+        let expected = OfflineDownloadEngine::ALL
+            .into_iter()
+            .map(|engine| engine.as_str())
+            .collect::<Vec<_>>();
+        let actual = item
+            .options
+            .iter()
+            .map(|option| option.value.as_str())
+            .collect::<Vec<_>>();
+
+        assert_eq!(actual, expected);
     }
 }

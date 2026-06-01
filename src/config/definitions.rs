@@ -148,6 +148,7 @@ pub const OFFLINE_DOWNLOAD_MAX_MB_PER_SEC_KEY: &str = "offline_download_max_mb_p
 pub const OFFLINE_DOWNLOAD_MAX_CONCURRENCY_KEY: &str = "offline_download_max_concurrency";
 pub const OFFLINE_DOWNLOAD_REQUEST_TIMEOUT_SECS_KEY: &str = "offline_download_request_timeout_secs";
 pub const OFFLINE_DOWNLOAD_ENGINE_KEY: &str = "offline_download_engine";
+pub const OFFLINE_DOWNLOAD_ENGINE_REGISTRY_JSON_KEY: &str = "offline_download_engine_registry_json";
 pub const OFFLINE_DOWNLOAD_ARIA2_RPC_URL_KEY: &str = "offline_download_aria2_rpc_url";
 pub const OFFLINE_DOWNLOAD_ARIA2_RPC_SECRET_KEY: &str = "offline_download_aria2_rpc_secret";
 pub const OFFLINE_DOWNLOAD_ARIA2_REQUEST_TIMEOUT_SECS_KEY: &str =
@@ -730,6 +731,17 @@ pub static ALL_CONFIGS: &[ConfigDef] = &[
         is_sensitive: false,
         category: CONFIG_CATEGORY_FILE_PROCESSING_OFFLINE_DOWNLOAD,
         description: "Offline download engine: builtin or aria2. builtin remains the default self-contained engine.",
+    },
+    ConfigDef {
+        key: OFFLINE_DOWNLOAD_ENGINE_REGISTRY_JSON_KEY,
+        label_i18n_key: "settings_item_offline_download_engine_registry_json_label",
+        description_i18n_key: "settings_item_offline_download_engine_registry_json_desc",
+        value_type: SystemConfigValueType::Multiline,
+        default_fn: crate::config::offline_download::default_offline_download_engine_registry_json,
+        requires_restart: false,
+        is_sensitive: false,
+        category: CONFIG_CATEGORY_FILE_PROCESSING_OFFLINE_DOWNLOAD,
+        description: "Ordered offline download engine registry. Enabled engines are tried in order; an empty enabled set disables link import.",
     },
     ConfigDef {
         key: OFFLINE_DOWNLOAD_MAX_FILE_SIZE_BYTES_KEY,

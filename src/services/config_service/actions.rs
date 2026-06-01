@@ -1,10 +1,11 @@
-use crate::config::{mail, media_processing};
+use crate::api::subcode::ApiSubcode;
+use crate::config::{mail, media_processing, operations};
 use crate::db::repository::user_repo;
-use crate::errors::{AsterError, MapAsterErr, Result};
+use crate::errors::{AsterError, MapAsterErr, Result, validation_error_with_subcode};
 use crate::runtime::PrimaryAppState;
 use crate::services::{
     audit_service::{self, AuditContext},
-    mail_service, media_processing_service, preview_app_service, wopi_service,
+    mail_service, media_processing_service, preview_app_service, task_service, wopi_service,
 };
 use reqwest::Url;
 use serde::{Deserialize, Serialize};
@@ -26,6 +27,7 @@ pub enum ConfigActionType {
     TestVipsCli,
     TestFfmpegCli,
     TestFfprobeCli,
+    TestAria2Rpc,
 }
 
 impl ConfigActionType {
@@ -36,6 +38,7 @@ impl ConfigActionType {
             Self::TestVipsCli => "test_vips_cli",
             Self::TestFfmpegCli => "test_ffmpeg_cli",
             Self::TestFfprobeCli => "test_ffprobe_cli",
+            Self::TestAria2Rpc => "test_aria2_rpc",
         }
     }
 }
@@ -52,6 +55,7 @@ pub struct ExecuteConfigActionInput<'a> {
     pub key: &'a str,
     pub action: ConfigActionType,
     pub actor_user_id: i64,
+    pub draft_values: Option<&'a BTreeMap<String, String>>,
     pub target_email: Option<&'a str>,
     pub value: Option<&'a str>,
     pub discovery_url: Option<&'a str>,
@@ -65,6 +69,7 @@ pub async fn execute_action(
         key,
         action,
         actor_user_id,
+        draft_values,
         target_email,
         value,
         discovery_url,
@@ -78,6 +83,9 @@ pub async fn execute_action(
         }
         media_processing::MEDIA_PROCESSING_REGISTRY_JSON_KEY => {
             execute_media_processing_action(state, action, actor_user_id, value).await
+        }
+        operations::OFFLINE_DOWNLOAD_ENGINE_REGISTRY_JSON_KEY => {
+            execute_offline_download_action(state, action, actor_user_id, value, draft_values).await
         }
         _ => Err(AsterError::record_not_found(format!(
             "config action target '{key}'"
@@ -107,6 +115,118 @@ pub async fn execute_action_with_audit(
     )
     .await;
     Ok(action_result)
+}
+
+async fn execute_offline_download_action(
+    state: &PrimaryAppState,
+    action: ConfigActionType,
+    actor_user_id: i64,
+    value: Option<&str>,
+    draft_values: Option<&BTreeMap<String, String>>,
+) -> Result<ConfigActionResult> {
+    match action {
+        ConfigActionType::TestAria2Rpc => {
+            if let Some(value) = value {
+                crate::config::offline_download::parse_offline_download_engine_registry_config_value(
+                    value,
+                )?;
+            }
+
+            let rpc_url = offline_download_action_config_value(
+                state,
+                draft_values,
+                operations::OFFLINE_DOWNLOAD_ARIA2_RPC_URL_KEY,
+            )
+            .map(|value| operations::normalize_offline_download_aria2_rpc_url_config_value(&value))
+            .transpose()?
+            .filter(|value| !value.trim().is_empty())
+            .ok_or_else(|| {
+                AsterError::validation_error(
+                    "offline_download_aria2_rpc_url is required to test aria2 RPC",
+                )
+            })?;
+            let rpc_secret = offline_download_action_config_value(
+                state,
+                draft_values,
+                operations::OFFLINE_DOWNLOAD_ARIA2_RPC_SECRET_KEY,
+            )
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty());
+            let request_timeout = offline_download_action_config_value(
+                state,
+                draft_values,
+                operations::OFFLINE_DOWNLOAD_ARIA2_REQUEST_TIMEOUT_SECS_KEY,
+            )
+            .map(|value| {
+                operations::normalize_interval_config_value(
+                    operations::OFFLINE_DOWNLOAD_ARIA2_REQUEST_TIMEOUT_SECS_KEY,
+                    &value,
+                )
+            })
+            .transpose()?
+            .and_then(|value| value.parse::<u64>().ok())
+            .unwrap_or_else(|| {
+                operations::offline_download_aria2_request_timeout_secs(&state.runtime_config)
+            })
+            .max(1);
+            let request_timeout = std::time::Duration::from_secs(request_timeout);
+
+            tracing::debug!(
+                actor_user_id,
+                action = %action.as_str(),
+                rpc_url = %rpc_url,
+                "config: executing offline download action"
+            );
+
+            let message = task_service::probe_aria2_rpc(task_service::ProbeAria2RpcInput {
+                rpc_url,
+                rpc_secret,
+                request_timeout,
+            })
+            .await
+            .map_err(aria2_rpc_probe_error)?;
+
+            Ok(ConfigActionResult {
+                message,
+                target_email: None,
+                value: None,
+            })
+        }
+        _ => Err(AsterError::validation_error(format!(
+            "action '{}' is not supported for '{}'",
+            action.as_str(),
+            operations::OFFLINE_DOWNLOAD_ENGINE_REGISTRY_JSON_KEY
+        ))),
+    }
+}
+
+fn offline_download_action_config_value(
+    state: &PrimaryAppState,
+    draft_values: Option<&BTreeMap<String, String>>,
+    key: &str,
+) -> Option<String> {
+    draft_values
+        .and_then(|values| values.get(key))
+        .cloned()
+        .or_else(|| state.runtime_config.get(key))
+}
+
+fn aria2_rpc_probe_error(error: AsterError) -> AsterError {
+    if error.api_error_subcode() == Some(ApiSubcode::OfflineDownloadAria2RpcAuthFailed) {
+        return validation_error_with_subcode(
+            ApiSubcode::OfflineDownloadAria2RpcAuthFailed,
+            "aria2 RPC authentication failed: check offline_download_aria2_rpc_secret",
+        );
+    }
+
+    let message = error
+        .message()
+        .strip_prefix("transient: ")
+        .unwrap_or_else(|| error.message());
+    validation_error_with_subcode(
+        ApiSubcode::OfflineDownloadAria2RpcProbeFailed,
+        format!("aria2 RPC probe failed: {message}"),
+    )
 }
 
 async fn execute_mail_action(

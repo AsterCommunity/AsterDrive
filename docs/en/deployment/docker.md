@@ -120,20 +120,22 @@ export ASTERDRIVE_ARIA2_RPC_SECRET="$(openssl rand -hex 24)"
 docker compose --profile aria2 up -d
 ```
 
-Then open `Admin -> System Settings -> File Processing -> Link Import` and set these runtime config values:
+Then open `Admin -> System Settings -> File Processing -> Link Import` and enable `aria2` in the link-import engine registry. If you want the built-in downloader as fallback, keep `builtin` enabled after `aria2`; if you want aria2 only, disable `builtin`. You can also disable both engines, which disables new link-import tasks. Then set these runtime config values:
 
 | Config key | Value |
 | --- | --- |
-| `offline_download_engine` | `aria2` |
 | `offline_download_aria2_rpc_url` | `http://aria2:6800/jsonrpc` |
 | `offline_download_aria2_rpc_secret` | the value of `ASTERDRIVE_ARIA2_RPC_SECRET` above |
+
+After saving, use **Test aria2** in the link-import engine registry. The server calls `aria2.getVersion` with the current RPC URL and secret to confirm AsterDrive can reach the aria2 JSON-RPC endpoint.
 
 You can also write the SQLite runtime config from the CLI during a maintenance window:
 
 ```bash
 docker compose exec asterdrive /usr/local/bin/aster_drive \
   config --database-url "sqlite:///data/asterdrive.db?mode=rwc" \
-  set --key offline_download_engine --value aria2
+  set --key offline_download_engine_registry_json \
+  --value '{"version":1,"engines":[{"kind":"aria2","enabled":true},{"kind":"builtin","enabled":true}]}'
 
 docker compose exec asterdrive /usr/local/bin/aster_drive \
   config --database-url "sqlite:///data/asterdrive.db?mode=rwc" \

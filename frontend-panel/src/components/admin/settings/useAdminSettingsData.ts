@@ -5,6 +5,10 @@ import {
 	MEDIA_PROCESSING_CONFIG_KEY,
 } from "@/components/admin/mediaProcessingConfigEditorShared";
 import {
+	getOfflineDownloadEngineConfigIssuesFromString,
+	OFFLINE_DOWNLOAD_ENGINE_REGISTRY_KEY,
+} from "@/components/admin/offlineDownloadEngineRegistryShared";
+import {
 	getPreviewAppsConfigIssuesFromString,
 	PREVIEW_APPS_CONFIG_KEY,
 } from "@/components/admin/previewAppsConfigEditorShared";
@@ -59,6 +63,18 @@ const PUBLIC_SITE_URL_KEY = "public_site_url";
 const CORS_ALLOWED_ORIGINS_KEY = "cors_allowed_origins";
 const CORS_ALLOW_CREDENTIALS_KEY = "cors_allow_credentials";
 const AUTH_EMAIL_CODE_LOGIN_ENABLED_KEY = "auth_email_code_login_enabled";
+const LEGACY_OFFLINE_DOWNLOAD_ENGINE_KEY = "offline_download_engine";
+const OFFLINE_DOWNLOAD_ARIA2_RPC_URL_KEY = "offline_download_aria2_rpc_url";
+const OFFLINE_DOWNLOAD_ARIA2_RPC_SECRET_KEY =
+	"offline_download_aria2_rpc_secret";
+const OFFLINE_DOWNLOAD_ARIA2_REQUEST_TIMEOUT_SECS_KEY =
+	"offline_download_aria2_request_timeout_secs";
+const OFFLINE_DOWNLOAD_ACTION_DRAFT_KEYS = [
+	OFFLINE_DOWNLOAD_ENGINE_REGISTRY_KEY,
+	OFFLINE_DOWNLOAD_ARIA2_RPC_URL_KEY,
+	OFFLINE_DOWNLOAD_ARIA2_RPC_SECRET_KEY,
+	OFFLINE_DOWNLOAD_ARIA2_REQUEST_TIMEOUT_SECS_KEY,
+];
 const PUBLIC_BRANDING_CONFIG_KEYS = new Set([
 	PUBLIC_SITE_URL_KEY,
 	"allow_user_registration",
@@ -73,6 +89,21 @@ const MEDIA_DATA_SUPPORT_CONFIG_KEYS = new Set([
 	"media_metadata_enabled",
 	"media_metadata_max_source_bytes",
 ]);
+
+function configValueForKey(
+	configsByKey: Map<string, SystemConfig>,
+	key: string,
+) {
+	return configsByKey.get(key)?.value as DraftValues[string] | undefined;
+}
+
+function draftValueChangedForKey(
+	configsByKey: Map<string, SystemConfig>,
+	key: string,
+	value: DraftValues[string] | undefined,
+) {
+	return !configDraftValuesEqual(value, configValueForKey(configsByKey, key));
+}
 
 type TranslationFn = (key: string, options?: Record<string, unknown>) => string;
 
@@ -241,6 +272,50 @@ export function useAdminSettingsData({
 		}
 	}, []);
 
+	const handleTestAria2Rpc = useCallback(
+		async (value: string) => {
+			try {
+				const draftConfigMap = new Map(
+					configs.map((config) => [config.key, config] as const),
+				);
+				const draftValuesForAction = Object.fromEntries(
+					OFFLINE_DOWNLOAD_ACTION_DRAFT_KEYS.flatMap((key) => {
+						const draftValue =
+							key === OFFLINE_DOWNLOAD_ENGINE_REGISTRY_KEY
+								? value
+								: draftValues[key];
+						if (
+							draftValue == null ||
+							!draftValueChangedForKey(draftConfigMap, key, draftValue)
+						) {
+							return [];
+						}
+						return [[key, configValueToString(draftValue)]];
+					}),
+				);
+				const registryValueChanged = draftValueChangedForKey(
+					draftConfigMap,
+					OFFLINE_DOWNLOAD_ENGINE_REGISTRY_KEY,
+					value,
+				);
+
+				const response = await adminConfigService.action(
+					OFFLINE_DOWNLOAD_ENGINE_REGISTRY_KEY,
+					{
+						action: "test_aria2_rpc" satisfies ConfigActionType,
+						draft_values: draftValuesForAction,
+						...(registryValueChanged ? { value } : {}),
+					},
+				);
+				toast.success(response.message);
+			} catch (error) {
+				handleApiError(error);
+				throw error;
+			}
+		},
+		[configs, draftValues],
+	);
+
 	const load = useCallback(async (options?: { showLoading?: boolean }) => {
 		const showLoading = options?.showLoading ?? true;
 
@@ -374,13 +449,24 @@ export function useAdminSettingsData({
 		setActiveTemplateVariableGroupCode(getMailTemplateGroupId(config.key));
 	}, []);
 
-	const systemConfigs = useMemo(
-		() =>
-			configs
-				.filter((config) => isSystemConfigSource(config.source))
-				.sort(sortConfigsByKey),
-		[configs],
-	);
+	const systemConfigs = useMemo(() => {
+		const hasOfflineDownloadRegistry = configs.some(
+			(config) =>
+				isSystemConfigSource(config.source) &&
+				config.key === OFFLINE_DOWNLOAD_ENGINE_REGISTRY_KEY,
+		);
+
+		return configs
+			.filter(
+				(config) =>
+					isSystemConfigSource(config.source) &&
+					!(
+						hasOfflineDownloadRegistry &&
+						config.key === LEGACY_OFFLINE_DOWNLOAD_ENGINE_KEY
+					),
+			)
+			.sort(sortConfigsByKey);
+	}, [configs]);
 
 	const customConfigs = useMemo(
 		() =>
@@ -551,6 +637,21 @@ export function useAdminSettingsData({
 		);
 	}, [configs, draftValues]);
 
+	const offlineDownloadEngineValidationIssues = useMemo(() => {
+		const config = configs.find(
+			(item) => item.key === OFFLINE_DOWNLOAD_ENGINE_REGISTRY_KEY,
+		);
+		if (!config) {
+			return [];
+		}
+
+		return getOfflineDownloadEngineConfigIssuesFromString(
+			configValueToString(
+				draftValues[config.key] ?? (config.value as DraftValues[string]),
+			),
+		);
+	}, [configs, draftValues]);
+
 	const configValidationErrors = useMemo(() => {
 		const errors = new Map<string, string>();
 		const draftValueByKey = (key: string) =>
@@ -617,6 +718,7 @@ export function useAdminSettingsData({
 		newCustomRowErrors.size > 0 ||
 		previewAppsValidationIssues.length > 0 ||
 		mediaProcessingValidationIssues.length > 0 ||
+		offlineDownloadEngineValidationIssues.length > 0 ||
 		configValidationErrors.size > 0;
 	const hasUnsavedChanges = changedCount > 0;
 	const hasAnyConfig = configs.length > 0;
@@ -624,11 +726,13 @@ export function useAdminSettingsData({
 		configValidationErrors.values().next().value ??
 		(mediaProcessingValidationIssues.length > 0
 			? t("media_processing_validation_error")
-			: previewAppsValidationIssues.length > 0
-				? t("preview_apps_validation_error")
-				: newCustomRowErrors.size > 0
-					? t("custom_config_validation_error")
-					: undefined);
+			: offlineDownloadEngineValidationIssues.length > 0
+				? t("offline_download_engine_validation_error")
+				: previewAppsValidationIssues.length > 0
+					? t("preview_apps_validation_error")
+					: newCustomRowErrors.size > 0
+						? t("custom_config_validation_error")
+						: undefined);
 
 	const getDraftValue = useCallback(
 		(config: SystemConfig) =>
@@ -895,6 +999,7 @@ export function useAdminSettingsData({
 		getTemplateVariableGroupLabel,
 		getTemplateVariableLabel,
 		handleBuildWopiDiscoveryPreviewConfig,
+		handleTestAria2Rpc,
 		handleTestFfmpegCliCommand,
 		handleTestFfprobeCliCommand,
 		handleSaveAll,

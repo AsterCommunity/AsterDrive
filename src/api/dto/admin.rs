@@ -265,6 +265,7 @@ pub struct SetConfigReq {
 pub struct ExecuteConfigActionReq {
     pub action: crate::services::config_service::ConfigActionType,
     pub discovery_url: Option<String>,
+    pub draft_values: Option<std::collections::BTreeMap<String, String>>,
     pub target_email: Option<String>,
     pub value: Option<String>,
 }

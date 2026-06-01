@@ -4,6 +4,7 @@ use crate::config::RuntimeConfig;
 use crate::config::bool_like::parse_bool_like;
 use crate::errors::{AsterError, Result};
 use crate::utils::numbers::{u64_to_i64, u64_to_usize, usize_to_u64};
+use serde::{Deserialize, Serialize};
 
 pub use crate::config::definitions::{
     ARCHIVE_BUILD_MAX_ENTRIES_KEY, ARCHIVE_BUILD_MAX_TEMP_BYTES_KEY,
@@ -28,11 +29,12 @@ pub use crate::config::definitions::{
     OFFLINE_DOWNLOAD_ARIA2_MAX_CONNECTION_PER_SERVER_KEY,
     OFFLINE_DOWNLOAD_ARIA2_REQUEST_TIMEOUT_SECS_KEY, OFFLINE_DOWNLOAD_ARIA2_RPC_SECRET_KEY,
     OFFLINE_DOWNLOAD_ARIA2_RPC_URL_KEY, OFFLINE_DOWNLOAD_ARIA2_SPLIT_KEY,
-    OFFLINE_DOWNLOAD_ENGINE_KEY, OFFLINE_DOWNLOAD_MAX_CONCURRENCY_KEY,
-    OFFLINE_DOWNLOAD_MAX_FILE_SIZE_BYTES_KEY, OFFLINE_DOWNLOAD_MAX_MB_PER_SEC_KEY,
-    OFFLINE_DOWNLOAD_REQUEST_TIMEOUT_SECS_KEY, REMOTE_NODE_HEALTH_TEST_INTERVAL_SECS_KEY,
-    SHARE_DOWNLOAD_ROLLBACK_QUEUE_CAPACITY_KEY, SHARE_STREAM_SESSION_TTL_SECS_KEY,
-    TASK_LIST_MAX_LIMIT_KEY, TEAM_MEMBER_LIST_MAX_LIMIT_KEY, THUMBNAIL_MAX_SOURCE_BYTES_KEY,
+    OFFLINE_DOWNLOAD_ENGINE_KEY, OFFLINE_DOWNLOAD_ENGINE_REGISTRY_JSON_KEY,
+    OFFLINE_DOWNLOAD_MAX_CONCURRENCY_KEY, OFFLINE_DOWNLOAD_MAX_FILE_SIZE_BYTES_KEY,
+    OFFLINE_DOWNLOAD_MAX_MB_PER_SEC_KEY, OFFLINE_DOWNLOAD_REQUEST_TIMEOUT_SECS_KEY,
+    REMOTE_NODE_HEALTH_TEST_INTERVAL_SECS_KEY, SHARE_DOWNLOAD_ROLLBACK_QUEUE_CAPACITY_KEY,
+    SHARE_STREAM_SESSION_TTL_SECS_KEY, TASK_LIST_MAX_LIMIT_KEY, TEAM_MEMBER_LIST_MAX_LIMIT_KEY,
+    THUMBNAIL_MAX_SOURCE_BYTES_KEY,
 };
 
 pub const DEFAULT_MAIL_OUTBOX_DISPATCH_INTERVAL_SECS: u64 = 5;
@@ -95,27 +97,43 @@ pub const DEFAULT_ARCHIVE_BUILD_MAX_TEMP_BYTES: u64 = 2 * 1024 * 1024 * 1024;
 
 pub const MAX_LIST_PAGE_LIMIT: u64 = 1000;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum OfflineDownloadEngine {
     Builtin,
     Aria2,
 }
 
 impl OfflineDownloadEngine {
+    pub const ALL: [Self; 2] = [Self::Builtin, Self::Aria2];
+
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::Builtin => "builtin",
             Self::Aria2 => "aria2",
         }
     }
+
+    pub const fn default_enabled(self) -> bool {
+        match self {
+            Self::Builtin => true,
+            Self::Aria2 => false,
+        }
+    }
+
+    pub const fn display_name(self) -> &'static str {
+        match self {
+            Self::Builtin => "AsterDrive built-in",
+            Self::Aria2 => "aria2",
+        }
+    }
 }
 
 pub fn parse_offline_download_engine(value: &str) -> Option<OfflineDownloadEngine> {
-    match value.trim().to_ascii_lowercase().as_str() {
-        "builtin" => Some(OfflineDownloadEngine::Builtin),
-        "aria2" => Some(OfflineDownloadEngine::Aria2),
-        _ => None,
-    }
+    let value = value.trim().to_ascii_lowercase();
+    OfflineDownloadEngine::ALL
+        .into_iter()
+        .find(|engine| engine.as_str() == value)
 }
 
 pub fn normalize_interval_config_value(key: &str, value: &str) -> Result<String> {
@@ -438,6 +456,25 @@ pub fn offline_download_engine(runtime_config: &RuntimeConfig) -> OfflineDownloa
         .as_deref()
         .and_then(parse_offline_download_engine)
         .unwrap_or(OfflineDownloadEngine::Builtin)
+}
+
+pub fn offline_download_enabled_engines(
+    runtime_config: &RuntimeConfig,
+) -> Vec<OfflineDownloadEngine> {
+    if let Some(registry) = runtime_config.get(OFFLINE_DOWNLOAD_ENGINE_REGISTRY_JSON_KEY) {
+        match crate::config::offline_download::enabled_offline_download_engines_from_registry_value(
+            &registry,
+        ) {
+            Ok(engines) => return engines,
+            Err(error) => {
+                tracing::warn!(
+                    "invalid offline_download_engine_registry_json runtime config; falling back to offline_download_engine: {error}"
+                );
+            }
+        }
+    }
+
+    vec![offline_download_engine(runtime_config)]
 }
 
 pub fn offline_download_max_bytes_per_sec(runtime_config: &RuntimeConfig) -> Option<u64> {
@@ -833,6 +870,7 @@ mod tests {
         DEFAULT_SHARE_DOWNLOAD_ROLLBACK_QUEUE_CAPACITY, DEFAULT_SHARE_STREAM_SESSION_TTL_SECS,
         DEFAULT_TASK_LIST_MAX_LIMIT, DEFAULT_TEAM_MEMBER_LIST_MAX_LIMIT,
         MAX_SHARE_STREAM_SESSION_TTL_SECS, MIN_SHARE_STREAM_SESSION_TTL_SECS,
+        OFFLINE_DOWNLOAD_ENGINE_KEY, OFFLINE_DOWNLOAD_ENGINE_REGISTRY_JSON_KEY,
         OFFLINE_DOWNLOAD_MAX_CONCURRENCY_KEY, OFFLINE_DOWNLOAD_MAX_MB_PER_SEC_KEY,
         REMOTE_NODE_HEALTH_TEST_INTERVAL_SECS_KEY, SHARE_DOWNLOAD_ROLLBACK_QUEUE_CAPACITY_KEY,
         SHARE_STREAM_SESSION_TTL_SECS_KEY, TASK_LIST_MAX_LIMIT_KEY, TEAM_MEMBER_LIST_MAX_LIMIT_KEY,
@@ -844,10 +882,10 @@ mod tests {
         normalize_attempts_config_value, normalize_bool_config_value, normalize_bytes_config_value,
         normalize_concurrency_config_value, normalize_interval_config_value,
         normalize_list_max_limit_config_value, normalize_non_negative_u64_config_value,
-        normalize_share_stream_session_ttl_config_value, offline_download_max_bytes_per_sec,
-        offline_download_max_concurrency, remote_node_health_test_interval_secs,
-        share_download_rollback_queue_capacity, share_stream_session_ttl_secs, task_list_max_limit,
-        team_member_list_max_limit,
+        normalize_share_stream_session_ttl_config_value, offline_download_enabled_engines,
+        offline_download_max_bytes_per_sec, offline_download_max_concurrency,
+        remote_node_health_test_interval_secs, share_download_rollback_queue_capacity,
+        share_stream_session_ttl_secs, task_list_max_limit, team_member_list_max_limit,
     };
     use crate::config::RuntimeConfig;
     use crate::config::definitions::{ALL_CONFIGS, CONFIG_CATEGORY_RUNTIME_MAINTENANCE};
@@ -1315,6 +1353,43 @@ mod tests {
                 &(MAX_SHARE_STREAM_SESSION_TTL_SECS + 1).to_string(),
             )
             .is_err()
+        );
+    }
+
+    #[test]
+    fn offline_download_enabled_engines_reads_registry_order_and_all_disabled() {
+        let runtime_config = RuntimeConfig::new();
+        runtime_config.apply(config_model(
+            OFFLINE_DOWNLOAD_ENGINE_REGISTRY_JSON_KEY,
+            r#"{"version":1,"engines":[{"kind":"aria2","enabled":true},{"kind":"builtin","enabled":true}]}"#,
+        ));
+        assert_eq!(
+            offline_download_enabled_engines(&runtime_config),
+            vec![
+                super::OfflineDownloadEngine::Aria2,
+                super::OfflineDownloadEngine::Builtin
+            ]
+        );
+
+        runtime_config.apply(config_model(
+            OFFLINE_DOWNLOAD_ENGINE_REGISTRY_JSON_KEY,
+            r#"{"version":1,"engines":[{"kind":"aria2","enabled":false},{"kind":"builtin","enabled":false}]}"#,
+        ));
+        assert!(offline_download_enabled_engines(&runtime_config).is_empty());
+    }
+
+    #[test]
+    fn offline_download_enabled_engines_falls_back_to_legacy_engine_on_invalid_registry() {
+        let runtime_config = RuntimeConfig::new();
+        runtime_config.apply(config_model(OFFLINE_DOWNLOAD_ENGINE_KEY, "aria2"));
+        runtime_config.apply(config_model(
+            OFFLINE_DOWNLOAD_ENGINE_REGISTRY_JSON_KEY,
+            r#"{"version":999,"engines":[]}"#,
+        ));
+
+        assert_eq!(
+            offline_download_enabled_engines(&runtime_config),
+            vec![super::OfflineDownloadEngine::Aria2]
         );
     }
 

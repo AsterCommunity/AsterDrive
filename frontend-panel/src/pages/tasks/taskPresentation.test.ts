@@ -61,6 +61,7 @@ function t(key: string, values?: Record<string, number | string>) {
 		"tasks:task_name_archive_preview_generate": `Preview ${values?.name}`,
 		"tasks:task_name_media_metadata_extract_blob": `Extract ${values?.kind} metadata for Blob #${values?.blobId}`,
 		"tasks:task_name_media_metadata_extract_source": `Extract ${values?.kind} metadata for ${values?.source}`,
+		"tasks:task_name_offline_download_target_folder_with_engine": `Import from ${values?.source} to folder #${values?.targetFolderId} via ${values?.engine}`,
 		"tasks:task_name_storage_policy_migration": `Migrate Policy #${values?.sourcePolicyId} to Policy #${values?.targetPolicyId}`,
 		"tasks:task_name_storage_policy_temp_cleanup": `Cleanup ${values?.policy}`,
 		"tasks:task_name_storage_policy_temp_cleanup_policy_id": `Cleanup Policy #${values?.policyId}`,
@@ -195,6 +196,30 @@ describe("taskPresentation structured presentation", () => {
 				}),
 			),
 		).toBe("Cleanup Archive policy");
+		expect(
+			formatTaskDisplayName(
+				t,
+				createTask({
+					display_name: "Import from https://example.com/file.bin via aria2",
+					kind: "offline_download",
+					payload: {
+						kind: "offline_download",
+						source_display_url: "https://example.com/file.bin",
+						target_folder_id: 34,
+					},
+					presentation: {
+						title: {
+							code: "task_name_offline_download_target_folder_with_engine",
+							params: {
+								engine: "aria2",
+								source: "https://example.com/file.bin",
+								targetFolderId: 34,
+							},
+						},
+					},
+				}),
+			),
+		).toBe("Import from https://example.com/file.bin to folder #34 via aria2");
 	});
 
 	it("uses structured status messages before status_text parsing", () => {

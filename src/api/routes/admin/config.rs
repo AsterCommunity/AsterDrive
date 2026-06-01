@@ -180,6 +180,7 @@ pub async fn execute_config_action(
             key: &key,
             action: body.action,
             actor_user_id: claims.user_id,
+            draft_values: body.draft_values.as_ref(),
             target_email: body.target_email.as_deref(),
             value: body.value.as_deref(),
             discovery_url: body.discovery_url.as_deref(),

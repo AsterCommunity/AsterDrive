@@ -519,6 +519,7 @@
 - `share_download_rollback_queue_capacity`
 - `share_stream_session_ttl_secs`
 - `offline_download_engine`
+- `offline_download_engine_registry_json`
 - `offline_download_max_file_size_bytes`
 - `offline_download_max_mb_per_sec`
 - `offline_download_max_concurrency`
@@ -563,9 +564,11 @@
 
 `POST /admin/config/media_processing_registry_json/action` 支持 `test_vips_cli`、`test_ffmpeg_cli` 和 `test_ffprobe_cli`，会用当前草稿注册表或已保存注册表里的命令执行探测，适用于二进制文件改名、不在 PATH 下，或安装在自定义路径的环境。
 
-链接导入由 `offline_download_*` 键控制。`offline_download_engine` 可选 `builtin` 或 `aria2`，默认 `builtin`；文件大小、单任务速度上限、任务并发数和请求超时对两种引擎都生效。速度键 `offline_download_max_mb_per_sec` 的单位是 MB/s，值为 `0` 表示不限速；在 aria2 引擎下会映射为单任务的 `max-download-limit`，不是全局 daemon 限速。
+链接导入由 `offline_download_*` 键控制。当前主要入口是结构化的 `offline_download_engine_registry_json`：它按顺序保存 `builtin` 和 `aria2` 引擎条目，并用 `enabled` 控制是否参与执行。启用多个引擎时会按注册表顺序尝试；全部关闭时链接导入被禁用。旧的 `offline_download_engine` 单值配置仍作为注册表缺失或无效时的兼容兜底。
 
-`offline_download_aria2_rpc_url`、`offline_download_aria2_rpc_secret`、`offline_download_aria2_request_timeout_secs`、`offline_download_aria2_split`、`offline_download_aria2_max_connection_per_server` 和 `offline_download_aria2_lowest_speed_limit_bytes_per_sec` 只在 `offline_download_engine = aria2` 时使用。RPC URL 只能是 HTTP(S) 且不能带账号密码；RPC secret 是敏感配置，读取时会脱敏。AsterDrive 不透传任意 aria2 参数，只暴露这些管理员控制的安全子集。启用 aria2 时，AsterDrive 仍会在派发前校验 HTTP/HTTPS URL，但 aria2 守护进程会自行 DNS 解析和出站连接；部署时应隔离 aria2 网络，并限制 JSON-RPC 端点只允许 AsterDrive 访问。
+文件大小、单任务速度上限、任务并发数和请求超时对所有引擎都生效。速度键 `offline_download_max_mb_per_sec` 的单位是 MB/s，值为 `0` 表示不限速；在 aria2 引擎下会映射为单任务的 `max-download-limit`，不是全局 daemon 限速。
+
+`offline_download_aria2_rpc_url`、`offline_download_aria2_rpc_secret`、`offline_download_aria2_request_timeout_secs`、`offline_download_aria2_split`、`offline_download_aria2_max_connection_per_server` 和 `offline_download_aria2_lowest_speed_limit_bytes_per_sec` 只在 aria2 引擎启用时使用。RPC URL 只能是 HTTP(S) 且不能带账号密码；RPC secret 是敏感配置，读取时会脱敏。AsterDrive 不透传任意 aria2 参数，只暴露这些管理员控制的安全子集。管理端可以对 `offline_download_engine_registry_json` 执行 `test_aria2_rpc` action，服务端会调用 `aria2.getVersion` 探测 RPC 地址、密钥和连通性。配置 action 可以通过 `value` 和 `draft_values` 携带未保存的前端草稿，所以 aria2 探测会使用当前草稿里的注册表、RPC 地址、密钥和超时，而不是只能测试已保存值。RPC 密钥错误会返回 `error.code = "offline_download.aria2_rpc_auth_failed"`；其他探测失败会返回 `error.code = "offline_download.aria2_rpc_probe_failed"`，不会复用 storage driver 错误码。启用 aria2 时，AsterDrive 仍会在派发前校验 HTTP/HTTPS URL，但 aria2 守护进程会自行 DNS 解析和出站连接；部署时应隔离 aria2 网络，并限制 JSON-RPC 端点只允许 AsterDrive 访问。
 
 内置引擎会把下载流式写入临时文件，再校验 SHA-256 并导入工作空间，不会把整文件先塞进内存。
 

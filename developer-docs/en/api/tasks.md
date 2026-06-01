@@ -84,9 +84,9 @@ Opaque keys are not content hashes and are never merged across policies. If the 
 }
 ```
 
-`filename`, `target_folder_id`, and `expected_sha256` are optional. The server stores a redacted source URL in `payload.source_display_url`. On success, `result` includes the imported `file_id`, `file_name`, `folder_id`, `file_path`, `source_display_url`, `content_length`, and actual `sha256`.
+`filename`, `target_folder_id`, and `expected_sha256` are optional. The server stores a redacted source URL in `payload.source_display_url`. On success, `result` includes the imported `file_id`, `file_name`, `folder_id`, `file_path`, `source_display_url`, `content_length`, actual `sha256`, and `download_engine`.
 
-The link-import engine is selected by administrator runtime config, not by the task request body. Switching between the built-in downloader and aria2 does not change the task kind, create request, `payload`, or `result` shape. When aria2 is used, the execution GID is persisted as internal runtime metadata in `background_tasks.runtime_json` for diagnostics and recovery boundaries; it is not a public API field.
+The link-import engines are selected by the administrator runtime registry, not by the task request body. The registry can enable the built-in downloader, aria2, or both in fallback order; if all engines are disabled, create requests are rejected before a background task is inserted. Switching engines does not change the task kind, create request, or `payload` shape. The selected engine is persisted in internal runtime metadata while the task is running and in `result.download_engine` after success, so task presentation can show the actual downloader used. When aria2 is used, the execution GID is also persisted in `background_tasks.runtime_json` for diagnostics and recovery boundaries; runtime metadata is not exposed as a public API field.
 
 ## Pagination
 
@@ -131,7 +131,7 @@ Lists and details return `TaskInfo`, with fields such as:
 - `created_at`
 - `updated_at`
 
-`payload` and `result` are structured objects, not the old `payload_json` / `result_json` fields. Internal execution state is not exposed through `TaskInfo`; for example, the aria2 engine persists its GID in `background_tasks.runtime_json`, not in `payload` or `result`. `steps` gives per-stage state and progress. `can_retry = true` appears only for failed tasks that allow manual retry.
+`payload` and `result` are structured objects, not the old `payload_json` / `result_json` fields. Internal execution state is not exposed through `TaskInfo`; for example, the aria2 engine persists its GID in `background_tasks.runtime_json`, not in `payload` or `result`. The public offline-download result may include `download_engine`, but this is the selected engine name, not aria2 internal state. `steps` gives per-stage state and progress. `can_retry = true` appears only for failed tasks that allow manual retry.
 
 ## Current task kinds and statuses
 

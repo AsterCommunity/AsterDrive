@@ -120,20 +120,22 @@ export ASTERDRIVE_ARIA2_RPC_SECRET="$(openssl rand -hex 24)"
 docker compose --profile aria2 up -d
 ```
 
-然后到 `管理 -> 系统设置 -> 文件处理 -> 链接导入`，把这些运行时配置改成：
+然后到 `管理 -> 系统设置 -> 文件处理 -> 链接导入`，在“链接导入引擎注册表”里启用 `aria2`。如果希望内置下载器兜底，就同时保留 `builtin` 启用并排在 `aria2` 后面；如果只想使用 aria2，就关闭 `builtin`。也可以把两个引擎都关闭，这会关闭新的链接导入任务。然后把这些运行时配置改成：
 
 | 配置项 | 值 |
 | --- | --- |
-| `offline_download_engine` | `aria2` |
 | `offline_download_aria2_rpc_url` | `http://aria2:6800/jsonrpc` |
 | `offline_download_aria2_rpc_secret` | 上面 `ASTERDRIVE_ARIA2_RPC_SECRET` 的值 |
+
+保存后可以在“链接导入引擎注册表”里点“测试 aria2”。服务端会用当前 RPC 地址和密钥调用 `aria2.getVersion`，用于确认 AsterDrive 到 aria2 JSON-RPC 的连通性。
 
 也可以在停机窗口里用 CLI 写入 SQLite 运行时配置：
 
 ```bash
 docker compose exec asterdrive /usr/local/bin/aster_drive \
   config --database-url "sqlite:///data/asterdrive.db?mode=rwc" \
-  set --key offline_download_engine --value aria2
+  set --key offline_download_engine_registry_json \
+  --value '{"version":1,"engines":[{"kind":"aria2","enabled":true},{"kind":"builtin","enabled":true}]}'
 
 docker compose exec asterdrive /usr/local/bin/aster_drive \
   config --database-url "sqlite:///data/asterdrive.db?mode=rwc" \

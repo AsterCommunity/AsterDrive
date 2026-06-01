@@ -4,6 +4,7 @@ use std::collections::BTreeMap;
 
 use serde_json::{Value, json};
 
+use crate::config::operations;
 use crate::types::{
     BackgroundTaskStatus, MediaMetadataKind, MediaMetadataStatus, MediaProcessorKind,
 };
@@ -21,14 +22,24 @@ pub(super) fn build_task_presentation(
     payload: &TaskPayload,
     result: Option<&TaskResult>,
     status: BackgroundTaskStatus,
+    context: TaskPresentationContext,
 ) -> Option<TaskPresentation> {
-    let title = title_message(payload);
+    let title = title_message(payload, result, context);
     let status = status_message(payload, result, status);
 
     Some(TaskPresentation { title, status })
 }
 
-fn title_message(payload: &TaskPayload) -> Option<TaskPresentationMessage> {
+#[derive(Debug, Clone, Copy, Default)]
+pub(super) struct TaskPresentationContext {
+    pub(super) selected_offline_download_engine: Option<operations::OfflineDownloadEngine>,
+}
+
+fn title_message(
+    payload: &TaskPayload,
+    result: Option<&TaskResult>,
+    context: TaskPresentationContext,
+) -> Option<TaskPresentationMessage> {
     match payload {
         TaskPayload::ArchiveCompress(payload) => Some(PresentationMessage::ArchiveCompressTitle {
             name: payload.archive_name.clone(),
@@ -107,21 +118,29 @@ fn title_message(payload: &TaskPayload) -> Option<TaskPresentationMessage> {
                 .and_then(|blob_ids| (!blob_ids.is_empty()).then_some(blob_ids.len())),
         }),
         TaskPayload::OfflineDownload(payload) => {
+            let engine = match result {
+                Some(TaskResult::OfflineDownload(result)) => result.download_engine,
+                _ => None,
+            }
+            .or(context.selected_offline_download_engine);
             if let Some(filename) = payload.filename.as_deref().map(str::trim)
                 && !filename.is_empty()
             {
                 Some(PresentationMessage::OfflineDownloadSourceTitle {
                     filename: filename.to_string(),
                     source: payload.source_display_url.clone(),
+                    engine,
                 })
             } else if let Some(target_folder_id) = payload.target_folder_id {
                 Some(PresentationMessage::OfflineDownloadTargetFolderTitle {
                     source: payload.source_display_url.clone(),
                     target_folder_id,
+                    engine,
                 })
             } else {
                 Some(PresentationMessage::OfflineDownloadUrlTitle {
                     source: payload.source_display_url.clone(),
+                    engine,
                 })
             }
         }
@@ -323,13 +342,16 @@ enum PresentationMessage {
     OfflineDownloadSourceTitle {
         filename: String,
         source: String,
+        engine: Option<operations::OfflineDownloadEngine>,
     },
     OfflineDownloadTargetFolderTitle {
         source: String,
         target_folder_id: i64,
+        engine: Option<operations::OfflineDownloadEngine>,
     },
     OfflineDownloadUrlTitle {
         source: String,
+        engine: Option<operations::OfflineDownloadEngine>,
     },
     RuntimeTaskTitle {
         kind: SystemRuntimeTaskKind,
@@ -481,24 +503,58 @@ impl From<PresentationMessage> for TaskPresentationMessage {
             PresentationMessage::RuntimeTaskTitle { kind } => {
                 (kind.presentation_code(), BTreeMap::new())
             }
-            PresentationMessage::OfflineDownloadSourceTitle { filename, source } => (
-                Code::TaskNameOfflineDownloadSource,
-                params([("filename", json!(filename)), ("source", json!(source))]),
-            ),
+            PresentationMessage::OfflineDownloadSourceTitle {
+                filename,
+                source,
+                engine,
+            } => match engine {
+                Some(engine) => (
+                    Code::TaskNameOfflineDownloadSourceWithEngine,
+                    params([
+                        ("filename", json!(filename)),
+                        ("source", json!(source)),
+                        ("engine", json!(engine.as_str())),
+                    ]),
+                ),
+                None => (
+                    Code::TaskNameOfflineDownloadSource,
+                    params([("filename", json!(filename)), ("source", json!(source))]),
+                ),
+            },
             PresentationMessage::OfflineDownloadTargetFolderTitle {
                 source,
                 target_folder_id,
-            } => (
-                Code::TaskNameOfflineDownloadTargetFolder,
-                params([
-                    ("source", json!(source)),
-                    ("targetFolderId", json!(target_folder_id)),
-                ]),
-            ),
-            PresentationMessage::OfflineDownloadUrlTitle { source } => (
-                Code::TaskNameOfflineDownloadUrl,
-                params([("source", json!(source))]),
-            ),
+                engine,
+            } => match engine {
+                Some(engine) => (
+                    Code::TaskNameOfflineDownloadTargetFolderWithEngine,
+                    params([
+                        ("source", json!(source)),
+                        ("targetFolderId", json!(target_folder_id)),
+                        ("engine", json!(engine.as_str())),
+                    ]),
+                ),
+                None => (
+                    Code::TaskNameOfflineDownloadTargetFolder,
+                    params([
+                        ("source", json!(source)),
+                        ("targetFolderId", json!(target_folder_id)),
+                    ]),
+                ),
+            },
+            PresentationMessage::OfflineDownloadUrlTitle { source, engine } => match engine {
+                Some(engine) => (
+                    Code::TaskNameOfflineDownloadUrlWithEngine,
+                    params([
+                        ("source", json!(source)),
+                        ("engine", json!(engine.as_str())),
+                    ]),
+                ),
+                None => (
+                    Code::TaskNameOfflineDownloadUrl,
+                    params([("source", json!(source))]),
+                ),
+            },
             PresentationMessage::ArchiveReadyStatus {
                 name,
                 target_file_id,

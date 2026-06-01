@@ -3,7 +3,7 @@
 #[macro_use]
 mod common;
 
-use actix_web::test;
+use actix_web::{App, HttpResponse, HttpServer, test, web};
 use chrono::{Duration, Utc};
 use sea_orm::{ActiveModelTrait, Set};
 use serde_json::Value;
@@ -3587,6 +3587,229 @@ async fn test_admin_config_action_tests_media_processing_ffprobe_command_from_dr
         fake_ffprobe
             .parent()
             .expect("fake ffprobe script should have a parent directory"),
+    );
+}
+
+async fn spawn_aria2_bad_request_server() -> String {
+    let listener =
+        std::net::TcpListener::bind(("127.0.0.1", 0)).expect("aria2 probe test server should bind");
+    let port = listener
+        .local_addr()
+        .expect("aria2 probe test server address should resolve")
+        .port();
+    let server = HttpServer::new(|| {
+        App::new().default_service(web::to(|| async { HttpResponse::BadRequest().finish() }))
+    })
+    .listen(listener)
+    .expect("aria2 probe test server should listen")
+    .run();
+    actix_web::rt::spawn(server);
+    format!("http://127.0.0.1:{port}/jsonrpc")
+}
+
+async fn spawn_aria2_unauthorized_server() -> String {
+    let listener = std::net::TcpListener::bind(("127.0.0.1", 0))
+        .expect("aria2 unauthorized test server should bind");
+    let port = listener
+        .local_addr()
+        .expect("aria2 unauthorized test server address should resolve")
+        .port();
+    let server = HttpServer::new(|| {
+        App::new().default_service(web::to(|| async {
+            HttpResponse::BadRequest().json(serde_json::json!({
+                "jsonrpc": "2.0",
+                "id": "asterdrive-test",
+                "error": {
+                    "code": 1,
+                    "message": "Unauthorized"
+                }
+            }))
+        }))
+    })
+    .listen(listener)
+    .expect("aria2 unauthorized test server should listen")
+    .run();
+    actix_web::rt::spawn(server);
+    format!("http://127.0.0.1:{port}/jsonrpc")
+}
+
+async fn spawn_aria2_secret_check_server(expected_secret: &'static str) -> String {
+    let listener = std::net::TcpListener::bind(("127.0.0.1", 0))
+        .expect("aria2 secret-check test server should bind");
+    let port = listener
+        .local_addr()
+        .expect("aria2 secret-check test server address should resolve")
+        .port();
+    let server = HttpServer::new(move || {
+        App::new().default_service(web::to(move |body: web::Json<Value>| async move {
+            let expected = format!("token:{expected_secret}");
+            let received = body["params"]
+                .as_array()
+                .and_then(|params| params.first())
+                .and_then(|value| value.as_str());
+            if received == Some(expected.as_str()) {
+                return HttpResponse::Ok().json(serde_json::json!({
+                    "jsonrpc": "2.0",
+                    "id": body["id"].clone(),
+                    "result": {
+                        "version": "1.37.0-test",
+                        "enabledFeatures": []
+                    }
+                }));
+            }
+
+            HttpResponse::BadRequest().json(serde_json::json!({
+                "jsonrpc": "2.0",
+                "id": body["id"].clone(),
+                "error": {
+                    "code": 1,
+                    "message": "Unauthorized"
+                }
+            }))
+        }))
+    })
+    .listen(listener)
+    .expect("aria2 secret-check test server should listen")
+    .run();
+    actix_web::rt::spawn(server);
+    format!("http://127.0.0.1:{port}/jsonrpc")
+}
+
+#[actix_web::test]
+async fn test_admin_config_action_tests_aria2_rpc_from_draft_and_returns_probe_code() {
+    let state = common::setup().await;
+    let app = create_test_app!(state);
+    let (token, _) = register_and_login!(app);
+    let rpc_url = spawn_aria2_bad_request_server().await;
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/admin/config/offline_download_engine_registry_json/action")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({
+            "action": "test_aria2_rpc",
+            "value": r#"{"version":1,"engines":[{"kind":"aria2","enabled":true},{"kind":"builtin","enabled":true}]}"#,
+            "draft_values": {
+                "offline_download_engine_registry_json": r#"{"version":1,"engines":[{"kind":"aria2","enabled":true},{"kind":"builtin","enabled":true}]}"#,
+                "offline_download_aria2_rpc_url": rpc_url,
+                "offline_download_aria2_rpc_secret": "draft-secret",
+                "offline_download_aria2_request_timeout_secs": "2"
+            }
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 400);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(body["code"], 1000);
+    assert_eq!(
+        body["error"]["code"],
+        "offline_download.aria2_rpc_probe_failed"
+    );
+    assert_eq!(
+        body["error"]["subcode"],
+        "offline_download.aria2_rpc_probe_failed"
+    );
+    let message = body["msg"]
+        .as_str()
+        .expect("aria2 probe failure should return a message");
+    assert!(message.contains("aria2 RPC probe failed"));
+    assert!(message.contains("HTTP 400 Bad Request"));
+    assert!(!message.contains("Storage Driver Error"));
+}
+
+#[actix_web::test]
+async fn test_admin_config_action_tests_aria2_rpc_wrong_secret_returns_auth_code() {
+    let state = common::setup().await;
+    let app = create_test_app!(state);
+    let (token, _) = register_and_login!(app);
+    let rpc_url = spawn_aria2_unauthorized_server().await;
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/admin/config/offline_download_engine_registry_json/action")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({
+            "action": "test_aria2_rpc",
+            "value": r#"{"version":1,"engines":[{"kind":"aria2","enabled":true},{"kind":"builtin","enabled":true}]}"#,
+            "draft_values": {
+                "offline_download_engine_registry_json": r#"{"version":1,"engines":[{"kind":"aria2","enabled":true},{"kind":"builtin","enabled":true}]}"#,
+                "offline_download_aria2_rpc_url": rpc_url,
+                "offline_download_aria2_rpc_secret": "wrong-secret",
+                "offline_download_aria2_request_timeout_secs": "2"
+            }
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 400);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(
+        body["error"]["code"],
+        "offline_download.aria2_rpc_auth_failed"
+    );
+    assert_eq!(
+        body["error"]["subcode"],
+        "offline_download.aria2_rpc_auth_failed"
+    );
+    let message = body["msg"]
+        .as_str()
+        .expect("aria2 auth failure should return a message");
+    assert!(message.contains("authentication failed"));
+    assert!(message.contains("offline_download_aria2_rpc_secret"));
+    assert!(!message.contains("HTTP 400"));
+    assert!(!message.contains("Storage Driver Error"));
+}
+
+#[actix_web::test]
+async fn test_admin_config_action_tests_aria2_rpc_uses_redacted_secret_when_sent_as_draft() {
+    let state = common::setup().await;
+    let rpc_url = spawn_aria2_secret_check_server("***REDACTED***").await;
+    aster_drive::services::config_service::set(
+        &state,
+        "offline_download_aria2_rpc_url",
+        &rpc_url,
+        1,
+    )
+    .await
+    .expect("saved aria2 RPC URL should update");
+    aster_drive::services::config_service::set(
+        &state,
+        "offline_download_aria2_rpc_secret",
+        "saved-secret",
+        1,
+    )
+    .await
+    .expect("saved aria2 RPC secret should update");
+    aster_drive::services::config_service::set(
+        &state,
+        "offline_download_aria2_request_timeout_secs",
+        "2",
+        1,
+    )
+    .await
+    .expect("saved aria2 RPC timeout should update");
+
+    let app = create_test_app!(state);
+    let (token, _) = register_and_login!(app);
+    let req = test::TestRequest::post()
+        .uri("/api/v1/admin/config/offline_download_engine_registry_json/action")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({
+            "action": "test_aria2_rpc",
+            "draft_values": {
+                "offline_download_aria2_rpc_url": rpc_url,
+                "offline_download_aria2_rpc_secret": "***REDACTED***"
+            }
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(body["code"], 0);
+    assert!(
+        body["data"]["message"]
+            .as_str()
+            .is_some_and(|message| message.contains("aria2 RPC ready"))
     );
 }
 

@@ -1,6 +1,8 @@
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import { MediaProcessingConfigEditor } from "@/components/admin/MediaProcessingConfigEditor";
 import { MEDIA_PROCESSING_CONFIG_KEY } from "@/components/admin/mediaProcessingConfigEditorShared";
+import { OfflineDownloadEngineRegistryEditor } from "@/components/admin/OfflineDownloadEngineRegistryEditor";
+import { OFFLINE_DOWNLOAD_ENGINE_REGISTRY_KEY } from "@/components/admin/offlineDownloadEngineRegistryShared";
 import { PreviewAppsConfigEditor } from "@/components/admin/PreviewAppsConfigEditor";
 import { PREVIEW_APPS_CONFIG_KEY } from "@/components/admin/previewAppsConfigEditorShared";
 import { useAdminSettingsCategoryContent } from "@/components/admin/settings/AdminSettingsCategoryContentContext";
@@ -56,7 +58,7 @@ import type {
 } from "@/types/api";
 
 const PUBLIC_SITE_URL_KEY = "public_site_url";
-const AUTH_EMAIL_CODE_LOGIN_ENABLED_KEY = "auth_email_code_login_enabled";
+const EMAIL_CODE_LOGIN_ENABLED_CONFIG_KEY = "auth_email_code_login_enabled";
 const CUSTOM_VISIBILITY_OPTIONS: SystemConfigVisibility[] = [
 	"private",
 	"public",
@@ -126,7 +128,7 @@ function FieldMeta({ config }: { config: SystemConfig }) {
 	const showTemplateVariableLink =
 		config.category === "mail.template" && config.key.endsWith("_html");
 	const showEmailCodeMailSettingsLink =
-		config.key === AUTH_EMAIL_CODE_LOGIN_ENABLED_KEY;
+		config.key === EMAIL_CODE_LOGIN_ENABLED_CONFIG_KEY;
 
 	return (
 		<div className="space-y-1">
@@ -401,12 +403,12 @@ function StringEnumSetConfigControl({
 			return;
 		}
 		// New selections are inserted by schema order, not click order.
-		const orderedValues = options
-			.map((option) => option.value)
-			.filter(
-				(optionValue) =>
-					optionValue === value || selectedValues.has(optionValue),
-			);
+		const orderedValues: string[] = [];
+		for (const option of options) {
+			if (option.value === value || selectedValues.has(option.value)) {
+				orderedValues.push(option.value);
+			}
+		}
 		setSelected(orderedValues);
 	};
 
@@ -415,11 +417,13 @@ function StringEnumSetConfigControl({
 		for (const value of visibleValues) {
 			nextValues.add(value);
 		}
-		setSelected(
-			options
-				.map((option) => option.value)
-				.filter((value) => nextValues.has(value)),
-		);
+		const orderedValues: string[] = [];
+		for (const option of options) {
+			if (nextValues.has(option.value)) {
+				orderedValues.push(option.value);
+			}
+		}
+		setSelected(orderedValues);
 	};
 
 	return (
@@ -589,14 +593,8 @@ function ScaledNumberInputControl({
 		availableUnits.find((unit) => unit.value === displayUnits[config.key]) ??
 		preferredUnit;
 	const displayValue = formatDisplayValue(draftValue, selectedUnit);
-	const [editingValue, setEditingValue] = useState(displayValue);
+	const [editingValue, setEditingValue] = useState("");
 	const [focused, setFocused] = useState(false);
-
-	useEffect(() => {
-		if (!focused) {
-			setEditingValue(displayValue);
-		}
-	}, [displayValue, focused]);
 
 	if (hasInvalidDraftValue) {
 		return null;
@@ -650,7 +648,6 @@ function ScaledNumberInputControl({
 				}}
 				onBlur={() => {
 					setFocused(false);
-					setEditingValue(displayValue);
 				}}
 				placeholder={t("config_value")}
 			/>
@@ -701,6 +698,7 @@ function ConfigInputControl({
 	const {
 		editorTheme,
 		handleBuildWopiDiscoveryPreviewConfig,
+		handleTestAria2Rpc,
 		handleTestFfmpegCliCommand,
 		handleTestFfprobeCliCommand,
 		handleTestVipsCliCommand,
@@ -764,6 +762,16 @@ function ConfigInputControl({
 				onTestFfmpegCliCommand={handleTestFfmpegCliCommand}
 				onTestFfprobeCliCommand={handleTestFfprobeCliCommand}
 				onTestVipsCliCommand={handleTestVipsCliCommand}
+				value={draftStringValue}
+				onChange={(nextValue) => updateDraftValue(config.key, nextValue)}
+			/>
+		);
+	}
+
+	if (config.key === OFFLINE_DOWNLOAD_ENGINE_REGISTRY_KEY) {
+		return (
+			<OfflineDownloadEngineRegistryEditor
+				onTestAria2Rpc={handleTestAria2Rpc}
 				value={draftStringValue}
 				onChange={(nextValue) => updateDraftValue(config.key, nextValue)}
 			/>
@@ -898,7 +906,7 @@ export function SystemConfigRow({ config }: { config: SystemConfig }) {
 	const valueType = getConfigValueType(config);
 	const error = configValidationErrors.get(config.key);
 	const isEmailCodeLoginToggle =
-		config.key === AUTH_EMAIL_CODE_LOGIN_ENABLED_KEY;
+		config.key === EMAIL_CODE_LOGIN_ENABLED_CONFIG_KEY;
 	const emailCodeMailReady = isEmailCodeLoginToggle
 		? isMailDeliveryConfigReady(getDraftValueByKey)
 		: true;

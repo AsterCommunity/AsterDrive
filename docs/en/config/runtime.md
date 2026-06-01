@@ -244,7 +244,7 @@ This group controls features that read, scan, transform, or temporarily unpack f
 | Archive preview entry count limit | `2000` |
 | Archive preview manifest size limit | `64 KiB` |
 | Archive preview scan duration limit | `30` seconds |
-| Link import engine | `builtin` |
+| Link import engine registry | `builtin` enabled, `aria2` disabled |
 | Link import file size limit | `1 GiB` |
 | Link import download speed limit | `5` MB/s (`0` still means unlimited) |
 | Link import concurrency limit | `1` |
@@ -296,9 +296,9 @@ This group now has these key settings:
 - **Link import download speed limit**: the maximum average speed per task, shown in MB/s in the UI; `0` means unlimited
 - **Link import concurrency limit**: how many link-import tasks may run at the same time
 - **Link import request timeout**: how long a single external HTTP/HTTPS request may run
-- **Link import engine**: `builtin` keeps the self-contained Rust downloader, while `aria2` delegates to an administrator-managed aria2 JSON-RPC daemon
+- **Link import engine registry**: enables `builtin` and `aria2` download engines in priority order; when multiple engines are enabled, they are tried in order, and when all engines are disabled, link import is disabled
 - **aria2 RPC timeout**: the timeout for a single aria2 JSON-RPC call; it does not replace the overall download timeout
-- **aria2 split / per-server connections / low-speed limit**: safe, administrator-controlled subsets of aria2 options used only when the engine is `aria2`
+- **aria2 split / per-server connections / low-speed limit**: safe, administrator-controlled subsets of aria2 options used only when the `aria2` engine is enabled
 
 Default values are chosen to be usable while avoiding unlimited outbound bandwidth by default:
 
@@ -306,7 +306,7 @@ Default values are chosen to be usable while avoiding unlimited outbound bandwid
 - Download speed limit: `5` MB/s; set `0` for unlimited
 - Concurrency limit: `1`
 - Request timeout: `600` seconds
-- Engine: `builtin`
+- Link import engine registry: `builtin` enabled, `aria2` disabled
 - aria2 RPC timeout: `10` seconds
 - aria2 split: `5`
 - aria2 per-server connections: `5`
@@ -314,7 +314,7 @@ Default values are chosen to be usable while avoiding unlimited outbound bandwid
 
 Link import supports only HTTP/HTTPS, does not follow redirects, and rejects hosts that resolve to loopback, private, link-local, multicast, documentation, or metadata ranges. This prevents the server from being used as an internal-network probe. The built-in engine streams the download into a temporary file and does not buffer the whole file in memory; SHA-256 verification and workspace import happen only after the download completes.
 
-When the engine is `aria2`, AsterDrive still validates the source URL before dispatching the task, but the aria2 daemon performs its own DNS resolution and outbound connection. Operators should isolate the daemon at the network layer and keep its RPC endpoint restricted to AsterDrive.
+When the `aria2` engine is enabled, AsterDrive still validates the source URL before dispatching the task, but the aria2 daemon performs its own DNS resolution and outbound connection. Operators should isolate the daemon at the network layer and keep its RPC endpoint restricted to AsterDrive. The admin link-import engine registry can run an aria2 RPC probe; the server calls `aria2.getVersion` to verify the RPC URL, secret, and reachability.
 
 ### Media Processing
 
@@ -414,7 +414,7 @@ The primary node's service startup and shutdown are also recorded as audit event
 | Online extraction staging limit | Applied to online extraction tasks created later |
 | Online extraction source, uncompressed size, entry count, path depth, compression ratio, and duration limits | Applied to online extraction tasks created later |
 | Archive build entry, total source size, and output size limits | Applied to online compression and archive download tasks created later |
-| Link import engine, file size, speed, concurrency, request timeout, and aria2 parameters | Applied to link-import tasks created later |
+| Link import engine registry, file size, speed, concurrency, request timeout, and aria2 parameters | Applied to link-import tasks created later |
 | Archive preview switches and limits | Applied to later requests and new `archive_preview_generate` tasks |
 | Thumbnail source file size limit | Applied to files entering thumbnail tasks later |
 | Media processor switches, commands, extension bindings | Applied to files entering thumbnail tasks later |

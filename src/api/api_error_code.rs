@@ -213,6 +213,10 @@ define_api_error_codes! {
     TaskLeaseLost => "task.lease_lost",
     TaskLeaseRenewalTimedOut => "task.lease_renewal_timed_out",
 
+    // offline download: external download engine probes and setup failures.
+    OfflineDownloadAria2RpcAuthFailed => "offline_download.aria2_rpc_auth_failed",
+    OfflineDownloadAria2RpcProbeFailed => "offline_download.aria2_rpc_probe_failed",
+
     // team member repository: member uniqueness conflicts.
     TeamMemberExists => "team.member_exists",
 

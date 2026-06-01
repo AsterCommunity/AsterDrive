@@ -12,6 +12,7 @@ use crate::errors::{AsterError, Result};
 use crate::runtime::PrimaryAppState;
 use crate::types::{BackgroundTaskKind, BackgroundTaskStatus};
 
+use super::presentation::TaskPresentationContext;
 use super::retry::TaskRetryClass;
 use super::spec::{
     ArchiveCompressTask, ArchiveExtractTask, ArchivePreviewGenerateTask, BlobMaintenanceTask,
@@ -67,8 +68,9 @@ pub(super) fn build_task_presentation(
     payload: &TaskPayload,
     result: Option<&TaskResult>,
     status: BackgroundTaskStatus,
+    context: TaskPresentationContext,
 ) -> Result<Option<TaskPresentation>> {
-    spec_for_kind(kind).presentation(payload, result, status)
+    spec_for_kind(kind).presentation(payload, result, status, context)
 }
 
 pub(super) fn task_retry_class(kind: BackgroundTaskKind, error: &AsterError) -> TaskRetryClass {

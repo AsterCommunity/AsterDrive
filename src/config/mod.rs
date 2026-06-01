@@ -11,6 +11,7 @@ mod loader;
 pub mod mail;
 pub mod media_processing;
 pub mod node_mode;
+pub mod offline_download;
 pub mod operations;
 mod runtime_config;
 mod schema;

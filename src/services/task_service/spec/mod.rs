@@ -155,6 +155,7 @@ pub(super) trait ErasedBackgroundTaskSpec: Sync {
         payload: &TaskPayload,
         result: Option<&TaskResult>,
         status: BackgroundTaskStatus,
+        context: presentation::TaskPresentationContext,
     ) -> Result<Option<TaskPresentation>>;
 
     fn retry_class(&self, error: &AsterError) -> TaskRetryClass;
@@ -206,9 +207,10 @@ where
         payload: &TaskPayload,
         result: Option<&TaskResult>,
         status: BackgroundTaskStatus,
+        context: presentation::TaskPresentationContext,
     ) -> Result<Option<TaskPresentation>> {
         Ok(presentation::build_task_presentation(
-            payload, result, status,
+            payload, result, status, context,
         ))
     }
 
