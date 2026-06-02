@@ -930,7 +930,7 @@ mod tests {
     use crate::services::task_service::{DispatchStats, RuntimeTaskRunOutcome};
     use chrono::Utc;
     use migration::Migrator;
-    use sea_orm::EntityTrait;
+    use sea_orm::{ActiveModelTrait, EntityTrait, Set};
     use std::sync::Arc;
 
     async fn setup_state() -> web::Data<PrimaryAppState> {
@@ -1135,6 +1135,84 @@ mod tests {
                 Some("Background task dispatch failed".to_string()),
                 "Internal Server Error: dispatcher crashed",
             )
+        );
+    }
+
+    async fn insert_pending_system_runtime_task(
+        state: &web::Data<PrimaryAppState>,
+    ) -> crate::entities::background_task::Model {
+        let now = Utc::now();
+        crate::entities::background_task::ActiveModel {
+            kind: Set(crate::types::BackgroundTaskKind::SystemRuntime),
+            status: Set(crate::types::BackgroundTaskStatus::Pending),
+            creator_user_id: Set(None),
+            team_id: Set(None),
+            share_id: Set(None),
+            display_name: Set("dispatch runtime task".to_string()),
+            payload_json: Set(crate::types::StoredTaskPayload(
+                serde_json::json!({"task_name": "background-task-dispatch"}).to_string(),
+            )),
+            result_json: Set(None),
+            runtime_json: Set(None),
+            steps_json: Set(None),
+            progress_current: Set(0),
+            progress_total: Set(1),
+            status_text: Set(None),
+            attempt_count: Set(0),
+            max_attempts: Set(1),
+            next_run_at: Set(now - chrono::Duration::seconds(1)),
+            processing_token: Set(0),
+            processing_started_at: Set(None),
+            last_heartbeat_at: Set(None),
+            lease_expires_at: Set(None),
+            started_at: Set(None),
+            finished_at: Set(None),
+            last_error: Set(None),
+            failure_can_retry: Set(None),
+            expires_at: Set(now + chrono::Duration::hours(1)),
+            created_at: Set(now),
+            updated_at: Set(now),
+            ..Default::default()
+        }
+        .insert(state.writer_db())
+        .await
+        .expect("pending runtime task should insert")
+    }
+
+    #[tokio::test]
+    async fn background_task_dispatch_iteration_is_idle_for_empty_queue() {
+        let state = setup_state().await;
+
+        let iteration =
+            run_background_task_dispatch_iteration(&state, CancellationToken::new()).await;
+
+        assert_eq!(iteration, BackgroundTaskDispatchIteration::idle());
+        let tasks = crate::entities::background_task::Entity::find()
+            .all(state.writer_db())
+            .await
+            .unwrap();
+        assert!(tasks.is_empty());
+    }
+
+    #[tokio::test]
+    async fn background_task_dispatch_iteration_is_active_when_task_was_processed() {
+        let state = setup_state().await;
+        let task = insert_pending_system_runtime_task(&state).await;
+
+        let iteration =
+            run_background_task_dispatch_iteration(&state, CancellationToken::new()).await;
+
+        assert_eq!(iteration, BackgroundTaskDispatchIteration::active());
+        let stored =
+            crate::db::repository::background_task_repo::find_by_id(state.writer_db(), task.id)
+                .await
+                .unwrap();
+        assert_eq!(stored.status, crate::types::BackgroundTaskStatus::Failed);
+        assert!(
+            stored
+                .last_error
+                .as_deref()
+                .is_some_and(|error| error.contains("should not be dispatched"))
         );
     }
 

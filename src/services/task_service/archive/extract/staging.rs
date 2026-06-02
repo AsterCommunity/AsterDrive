@@ -540,6 +540,68 @@ mod tests {
     use super::copy_async_reader_to_writer_with_execution_and_expected_size;
 
     #[tokio::test]
+    async fn source_archive_copy_writes_bytes_when_declared_size_matches() {
+        let context = TaskExecutionContext::new(TaskLease::new(42, 7), CancellationToken::new());
+        let mut reader = &b"archive bytes"[..];
+        let mut writer = Vec::new();
+
+        let copied = copy_async_reader_to_writer_with_execution_and_expected_size(
+            &context,
+            &mut reader,
+            &mut writer,
+            13,
+            "source archive",
+        )
+        .await
+        .expect("matching source archive size should copy successfully");
+
+        assert_eq!(copied, 13);
+        assert_eq!(writer, b"archive bytes");
+    }
+
+    #[tokio::test]
+    async fn source_archive_copy_rejects_stream_larger_than_declared_size() {
+        let context = TaskExecutionContext::new(TaskLease::new(42, 7), CancellationToken::new());
+        let mut reader = &b"too large"[..];
+        let mut writer = Vec::new();
+
+        let error = copy_async_reader_to_writer_with_execution_and_expected_size(
+            &context,
+            &mut reader,
+            &mut writer,
+            3,
+            "source archive",
+        )
+        .await
+        .expect_err("source archive larger than declared size should fail");
+
+        assert!(
+            error
+                .message()
+                .contains("source archive expands beyond declared size")
+        );
+    }
+
+    #[tokio::test]
+    async fn source_archive_copy_rejects_stream_smaller_than_declared_size() {
+        let context = TaskExecutionContext::new(TaskLease::new(42, 7), CancellationToken::new());
+        let mut reader = &b"short"[..];
+        let mut writer = Vec::new();
+
+        let error = copy_async_reader_to_writer_with_execution_and_expected_size(
+            &context,
+            &mut reader,
+            &mut writer,
+            8,
+            "source archive",
+        )
+        .await
+        .expect_err("source archive smaller than declared size should fail");
+
+        assert!(error.message().contains("source archive size mismatch"));
+    }
+
+    #[tokio::test]
     async fn source_archive_copy_stops_on_shutdown_before_reading() {
         let shutdown_token = CancellationToken::new();
         let context = TaskExecutionContext::new(TaskLease::new(42, 7), shutdown_token.clone());

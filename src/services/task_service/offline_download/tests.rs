@@ -1,16 +1,17 @@
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use std::path::PathBuf;
 
-use reqwest::header::CONTENT_LENGTH;
+use reqwest::header::{CONTENT_LENGTH, HeaderValue};
 use serde::Deserialize;
 use serde_json::Value;
 use serde_json::json;
+use tokio_util::sync::CancellationToken;
 use url::Url;
 
 use super::aria2::{
     Aria2AddUriOptions, Aria2DownloadFailureClass, Aria2DownloadStatus, Aria2OfflineDownloadEngine,
     Aria2RpcCallError, Aria2RpcClient, Aria2RpcMethod, Aria2RpcParam, Aria2TellStatus,
-    aria2_rpc_error_is_missing_download, aria2_rpc_error_is_unauthorized,
+    Aria2TellStatusKey, aria2_rpc_error_is_missing_download, aria2_rpc_error_is_unauthorized,
     classify_aria2_download_failure, parse_aria2_length, parse_aria2_rpc_error_response,
     prepare_aria2_output_dir,
 };
@@ -22,6 +23,9 @@ use super::runtime::{
 };
 use super::source::validate_public_download_ip;
 use super::*;
+use crate::services::task_service::{
+    TaskExecutionContext, TaskLease, is_task_worker_shutdown_requested,
+};
 
 fn request(url: &str) -> CreateOfflineDownloadTaskParams {
     CreateOfflineDownloadTaskParams {
@@ -152,12 +156,80 @@ fn offline_download_rate_limiter_uses_one_second_batch_cap() {
 #[test]
 fn declared_content_length_ignores_invalid_values() {
     let mut headers = reqwest::header::HeaderMap::new();
-    headers.insert(
-        CONTENT_LENGTH,
-        reqwest::header::HeaderValue::from_static("not-a-number"),
-    );
+    headers.insert(CONTENT_LENGTH, HeaderValue::from_static("not-a-number"));
 
     assert_eq!(declared_content_length(&headers).unwrap(), None);
+}
+
+#[test]
+fn declared_content_length_handles_missing_valid_and_oversized_values() {
+    let mut headers = reqwest::header::HeaderMap::new();
+    assert_eq!(declared_content_length(&headers).unwrap(), None);
+
+    headers.insert(CONTENT_LENGTH, HeaderValue::from_static("42"));
+    assert_eq!(declared_content_length(&headers).unwrap(), Some(42));
+
+    headers.insert(
+        CONTENT_LENGTH,
+        HeaderValue::from_static("9223372036854775808"),
+    );
+    assert_eq!(declared_content_length(&headers).unwrap(), None);
+}
+
+#[test]
+fn verify_expected_sha256_accepts_absent_or_matching_hash_only() {
+    let hash = "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789";
+
+    verify_expected_sha256(None, hash).unwrap();
+    verify_expected_sha256(Some(hash), hash).unwrap();
+
+    let error = verify_expected_sha256(
+        Some("1111111111111111111111111111111111111111111111111111111111111111"),
+        hash,
+    )
+    .expect_err("mismatched expected hash should fail verification");
+    assert!(error.message().contains("offline download sha256 mismatch"));
+}
+
+#[test]
+fn ensure_download_size_allowed_rejects_values_above_limit() {
+    ensure_download_size_allowed(1024, 1024).unwrap();
+
+    let error = ensure_download_size_allowed(1025, 1024)
+        .expect_err("download larger than configured limit should fail");
+    assert!(error.message().contains("exceeds server limit"));
+}
+
+#[test]
+fn transient_storage_error_marks_error_as_retryable_text() {
+    let error = transient_storage_error("remote timeout");
+
+    assert!(
+        matches!(error, AsterError::StorageDriverError(message) if message == "transient: remote timeout")
+    );
+}
+
+#[tokio::test]
+async fn offline_download_throttle_returns_immediately_when_unconfigured() {
+    let context = TaskExecutionContext::new(TaskLease::new(42, 7), CancellationToken::new());
+
+    OfflineDownloadRateLimiter::throttle(None, 1024, &context)
+        .await
+        .unwrap();
+}
+
+#[tokio::test]
+async fn offline_download_throttle_stops_on_shutdown_before_reserving_capacity() {
+    let shutdown_token = CancellationToken::new();
+    let context = TaskExecutionContext::new(TaskLease::new(42, 7), shutdown_token.clone());
+    let limiter = OfflineDownloadRateLimiter::new(Some(1)).unwrap();
+
+    shutdown_token.cancel();
+
+    let error = OfflineDownloadRateLimiter::throttle(Some(&limiter), 1, &context)
+        .await
+        .expect_err("cancelled task should not wait for throttle capacity");
+    assert!(is_task_worker_shutdown_requested(&error));
 }
 
 #[test]
@@ -383,6 +455,45 @@ fn aria2_add_uri_params_match_json_rpc_shape() {
                 "max-connection-per-server": "1",
                 "max-download-limit": "1024"
             }
+        ])
+    );
+}
+
+#[test]
+fn aria2_tell_status_params_request_only_required_keys() {
+    let client = Aria2RpcClient::new(
+        "http://127.0.0.1:6800/jsonrpc",
+        None,
+        StdDuration::from_secs(1),
+    )
+    .unwrap();
+    let keys = [
+        Aria2TellStatusKey::Gid,
+        Aria2TellStatusKey::Status,
+        Aria2TellStatusKey::TotalLength,
+        Aria2TellStatusKey::CompletedLength,
+        Aria2TellStatusKey::DownloadSpeed,
+        Aria2TellStatusKey::ErrorCode,
+        Aria2TellStatusKey::ErrorMessage,
+    ];
+
+    assert_eq!(
+        serde_json::to_value(client.params(
+            Aria2RpcParam::String("gid-1"),
+            Some(Aria2RpcParam::TellStatusKeys(&keys))
+        ))
+        .unwrap(),
+        json!([
+            "gid-1",
+            [
+                "gid",
+                "status",
+                "totalLength",
+                "completedLength",
+                "downloadSpeed",
+                "errorCode",
+                "errorMessage"
+            ]
         ])
     );
 }
