@@ -1,13 +1,15 @@
 use super::*;
-use crate::storage::driver::{PresignedDownloadOptions, StorageDriver};
 use crate::storage::error::StorageErrorKind;
-use crate::storage::extensions::{ListStorageDriver, PresignedStorageDriver, StreamUploadDriver};
-use crate::storage::multipart::MultipartStorageDriver;
 use crate::storage::remote_protocol::{
     PRESIGNED_AUTH_ACCESS_KEY_QUERY, PRESIGNED_AUTH_SIGNATURE_QUERY,
     PRESIGNED_RESPONSE_CACHE_CONTROL_QUERY, PRESIGNED_RESPONSE_CONTENT_DISPOSITION_QUERY,
     PRESIGNED_RESPONSE_CONTENT_TYPE_QUERY,
 };
+use crate::storage::traits::driver::{PresignedDownloadOptions, StorageDriver};
+use crate::storage::traits::extensions::{
+    ListStorageDriver, PresignedStorageDriver, StreamUploadDriver,
+};
+use crate::storage::traits::multipart::MultipartStorageDriver;
 use actix_web::{App, HttpResponse, HttpServer, web};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};

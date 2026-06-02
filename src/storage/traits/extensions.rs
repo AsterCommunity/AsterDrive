@@ -3,7 +3,8 @@
 //! 将可选能力从核心 StorageDriver 分离，避免每个驱动被迫实现不需要的功能。
 
 use crate::errors::Result;
-use crate::storage::driver::{PresignedDownloadOptions, StoragePathVisitor};
+use crate::storage::traits::driver::{PresignedDownloadOptions, StoragePathVisitor};
+use crate::types::{MediaMetadataKind, MediaMetadataPayload};
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -141,48 +142,30 @@ pub trait NativeThumbnailStorageDriver: Send + Sync {
     ) -> Result<Option<Vec<u8>>>;
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum NativePreviewMode {
-    HtmlDocument,
-    PdfDocument,
-    ImagePage { page: i32 },
-}
-
 #[derive(Debug, Clone)]
-pub struct NativePreviewRequest {
+pub struct NativeMediaMetadataRequest {
     pub storage_path: String,
     pub source_file_name: String,
     pub source_mime_type: String,
-    pub mode: NativePreviewMode,
-    pub expires: Duration,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
-#[serde(rename_all = "snake_case")]
-pub enum NativePreviewOpenMode {
-    Iframe,
-    NewTab,
+    pub kind: MediaMetadataKind,
 }
 
 #[derive(Debug, Clone)]
-pub struct NativePreviewResult {
-    pub url: String,
-    pub provider: String,
-    pub expires_at: DateTime<Utc>,
-    pub cache_key: Option<String>,
-    pub version: Option<String>,
-    pub open_mode: NativePreviewOpenMode,
+pub struct NativeMediaMetadataResult {
+    pub kind: MediaMetadataKind,
+    pub metadata: MediaMetadataPayload,
+    pub parser: String,
+    pub parser_version: String,
 }
 
-/// 存储侧外部预览 / 文件解析支持（COS CI、未来的对象存储文档处理等）
+/// 存储侧原生媒体信息解析支持（COS CI videoinfo 等）。
 #[async_trait]
-pub trait NativePreviewStorageDriver: Send + Sync {
-    /// 返回 `None` 表示该驱动当前不支持这个对象、MIME 或请求模式。
-    async fn create_native_preview(
+pub trait NativeMediaMetadataStorageDriver: Send + Sync {
+    /// 返回 `None` 表示该驱动当前不支持这个对象、MIME 或 metadata kind。
+    async fn get_native_media_metadata(
         &self,
-        request: &NativePreviewRequest,
-    ) -> Result<Option<NativePreviewResult>>;
+        request: &NativeMediaMetadataRequest,
+    ) -> Result<Option<NativeMediaMetadataResult>>;
 }
 
 /// 为所有 StorageDriver 提供 StreamUploadDriver 的默认实现
@@ -202,7 +185,7 @@ pub mod fallback {
         _size: i64,
     ) -> Result<String>
     where
-        D: crate::storage::driver::StorageDriver + ?Sized,
+        D: crate::storage::traits::driver::StorageDriver + ?Sized,
     {
         // 创建临时文件
         let temp_dir = std::env::temp_dir();
@@ -252,7 +235,7 @@ pub mod fallback {
 mod tests {
     use super::fallback::put_reader_with_temp_file;
     use crate::errors::Result;
-    use crate::storage::driver::{BlobMetadata, StorageDriver};
+    use crate::storage::traits::driver::{BlobMetadata, StorageDriver};
     use async_trait::async_trait;
     use std::collections::HashSet;
     use std::path::PathBuf;

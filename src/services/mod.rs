@@ -26,7 +26,6 @@ pub mod master_binding_service;
 pub mod media_metadata_service;
 pub mod media_processing_service;
 pub mod mfa_service;
-pub mod native_preview_service;
 pub mod node_enrollment_service;
 pub mod passkey_service;
 pub mod policy_service;

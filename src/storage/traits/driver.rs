@@ -149,10 +149,12 @@ pub trait StorageDriver: Send + Sync {
         None
     }
 
-    /// 获取存储侧外部预览 / 文件解析支持
+    /// 获取存储侧原生媒体信息解析支持
     ///
-    /// COS CI 等驱动返回 Some；普通 S3、本地存储等返回 None。
-    fn as_native_preview(&self) -> Option<&dyn super::extensions::NativePreviewStorageDriver> {
+    /// COS CI videoinfo 等驱动返回 Some；普通 S3、本地存储等返回 None。
+    fn as_native_media_metadata(
+        &self,
+    ) -> Option<&dyn super::extensions::NativeMediaMetadataStorageDriver> {
         None
     }
 
@@ -161,8 +163,8 @@ pub trait StorageDriver: Send + Sync {
     /// 不支持容量查询的驱动必须明确返回 `StorageErrorKind::Unsupported`，不要静默
     /// 猜测或 panic。调用方可把该错误转换成用户可见的 `unsupported` 状态。
     async fn capacity_info(&self) -> Result<super::extensions::StorageCapacityInfo> {
-        Err(super::error::storage_driver_error(
-            super::StorageErrorKind::Unsupported,
+        Err(crate::storage::error::storage_driver_error(
+            crate::storage::StorageErrorKind::Unsupported,
             "storage driver does not support capacity observability",
         ))
     }

@@ -12,7 +12,7 @@ use crate::db::transaction;
 use crate::entities::{background_task, file_blob, storage_policy};
 use crate::errors::{AsterError, MapAsterErr, Result};
 use crate::runtime::PrimaryAppState;
-use crate::storage::driver::StorageDriver;
+use crate::storage::StorageDriver;
 use crate::types::BackgroundTaskKind;
 use crate::utils::hash::{new_sha256, sha256_digest_to_hex, sha256_hex};
 use crate::utils::numbers::u64_to_i64;
@@ -25,7 +25,7 @@ use super::steps::{
 use super::types::{
     StoragePolicyMigrationCapacityCheck, StoragePolicyMigrationDryRun,
     StoragePolicyMigrationDryRunWarning, StoragePolicyMigrationTaskPayload,
-    StoragePolicyMigrationTaskResult,
+    StoragePolicyMigrationTaskResult, TaskInfo,
 };
 use super::{
     TaskExecutionContext, TypedTaskCreate, insert_typed_task_record, mark_task_progress,
@@ -75,7 +75,7 @@ struct StoragePolicyMigrationPreflight {
 pub(crate) async fn create_storage_policy_migration_task(
     state: &PrimaryAppState,
     input: CreateStoragePolicyMigrationInput,
-) -> Result<super::TaskInfo> {
+) -> Result<TaskInfo> {
     let preflight = build_storage_policy_migration_preflight(state, input).await?;
     if !preflight.dry_run.can_start {
         return Err(AsterError::validation_error(
@@ -312,7 +312,7 @@ pub(crate) async fn resume_storage_policy_migration_for_admin(
     state: &PrimaryAppState,
     task_id: i64,
     audit_ctx: &crate::services::audit_service::AuditContext,
-) -> Result<super::TaskInfo> {
+) -> Result<TaskInfo> {
     let task = background_task_repo::find_by_id(state.writer_db(), task_id).await?;
     if task.kind != BackgroundTaskKind::StoragePolicyMigration {
         return Err(AsterError::validation_error(

@@ -149,13 +149,6 @@ pub struct OpenWopiRequest {
     pub app_key: String,
 }
 
-/// Open file with a storage-native preview provider.
-#[derive(Deserialize)]
-#[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
-pub struct OpenNativePreviewRequest {
-    pub app_key: String,
-}
-
 // ── Versions ───────────────────────────────────────────────────────────────
 
 /// Path parameters for file version operations.

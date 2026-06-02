@@ -13,8 +13,8 @@ use crate::errors::{
     validation_error_with_subcode,
 };
 use crate::runtime::PrimaryAppState;
+use crate::storage::MultipartStorageDriver;
 use crate::storage::StorageErrorKind;
-use crate::storage::multipart::MultipartStorageDriver;
 use crate::types::UploadSessionStatus;
 use crate::utils::{id, paths};
 

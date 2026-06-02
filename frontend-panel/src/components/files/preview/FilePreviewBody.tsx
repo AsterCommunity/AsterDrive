@@ -7,14 +7,12 @@ import type {
 	ArchivePreviewManifest,
 	FileInfo,
 	FileListItem,
-	NativePreviewSession,
 	PreviewLinkInfo,
 	ShareStreamSessionInfo,
 } from "@/types/api";
 import { BlobImagePreview } from "./BlobImagePreview";
 import type { detectFilePreviewProfile } from "./file-capabilities";
 import { MusicPreview } from "./MusicPreview";
-import { NativePreview } from "./NativePreview";
 import { PreviewLoadingState } from "./PreviewLoadingState";
 import { PreviewUnavailable } from "./PreviewUnavailable";
 import type { OpenWithOption } from "./types";
@@ -70,9 +68,6 @@ interface FilePreviewBodyProps {
 	thumbnailPath?: string;
 	getOptionLabel: (option: OpenWithOption) => string;
 	previewLinkFactory?: () => Promise<PreviewLinkInfo>;
-	nativePreviewSessionFactory?: (
-		appKey: string,
-	) => Promise<NativePreviewSession>;
 	archivePreviewFactory?: (options?: {
 		signal?: AbortSignal;
 		filenameEncoding?: ArchiveFilenameEncoding;
@@ -97,7 +92,6 @@ export function FilePreviewBody({
 	thumbnailPath,
 	getOptionLabel,
 	previewLinkFactory,
-	nativePreviewSessionFactory,
 	archivePreviewFactory,
 	loadMusicBackendMetadata,
 	mediaStreamLinkFactory,
@@ -186,18 +180,6 @@ export function FilePreviewBody({
 				label={getOptionLabel(activeOption)}
 				rawConfig={activeOption.config ?? null}
 				sessionResource={wopiSessionResource}
-			/>
-		);
-	}
-
-	if (activeOption.mode === "native_preview") {
-		if (!nativePreviewSessionFactory) {
-			return <PreviewUnavailable />;
-		}
-		return (
-			<NativePreview
-				label={getOptionLabel(activeOption)}
-				createSession={() => nativePreviewSessionFactory(activeOption.key)}
 			/>
 		);
 	}

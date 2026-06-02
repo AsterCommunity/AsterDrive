@@ -178,8 +178,13 @@ async fn preview_verified_file(
         ));
     }
 
-    task_service::ensure_archive_preview_task(state, source_file, &blob, &limits.task_signature)
-        .await?;
+    task_service::archive::ensure_archive_preview_task(
+        state,
+        source_file,
+        &blob,
+        &limits.task_signature,
+    )
+    .await?;
     Ok(ArchivePreviewManifestLookup::Pending)
 }
 

@@ -18,7 +18,7 @@ use crate::entities::{file, file_blob, storage_policy, user};
 use crate::runtime::PrimaryAppState;
 use crate::services::mail_service;
 use crate::services::workspace_storage_service::WorkspaceStorageScope;
-use crate::storage::driver::BlobMetadata;
+use crate::storage::BlobMetadata;
 use crate::storage::{DriverRegistry, PolicySnapshot, StorageDriver};
 use crate::types::{
     DriverType, StoredStoragePolicyAllowedTypes, StoredStoragePolicyOptions, UserRole, UserStatus,

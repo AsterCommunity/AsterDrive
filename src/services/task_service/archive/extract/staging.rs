@@ -20,9 +20,10 @@ use crate::services::{
         zip_scan::scan_zip_archive,
     },
     task_service::{
-        TaskExecutionContext, TaskStepInfo,
+        TaskExecutionContext,
         archive::common::copy_reader_to_writer_with_execution_and_expected_size,
         steps::{TASK_STEP_EXTRACT_ARCHIVE, set_task_step_active, set_task_step_succeeded},
+        types::TaskStepInfo,
         update_task_progress_db,
     },
     workspace_storage_service::{self, WorkspaceStorageScope},

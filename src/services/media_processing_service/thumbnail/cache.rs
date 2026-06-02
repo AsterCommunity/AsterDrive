@@ -200,8 +200,8 @@ mod tests {
     use super::read_thumbnail_from_path;
     use crate::errors::Result;
     use crate::storage::StorageErrorKind;
-    use crate::storage::driver::{BlobMetadata, StorageDriver};
     use crate::storage::error::storage_driver_error;
+    use crate::storage::{BlobMetadata, StorageDriver};
     use async_trait::async_trait;
     use std::sync::{
         Arc,

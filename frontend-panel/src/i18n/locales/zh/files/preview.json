@@ -6,11 +6,6 @@
 	"preview_not_available_desc": "可先下载该文件，或稍后尝试其他打开方式。",
 	"preview_enter_fullscreen": "占满窗口",
 	"preview_exit_fullscreen": "还原窗口",
-	"native_preview_loading": "正在打开 {{label}}...",
-	"native_preview_unavailable": "无法创建原生预览",
-	"native_preview_unavailable_desc": "当前文件或存储策略不支持这个原生预览方式。",
-	"native_preview_external_desc": "{{label}} 需要在新标签页中打开。",
-	"native_preview_open": "打开 {{label}}",
 	"table_parse_failed": "表格解析失败",
 	"table_truncated": "文件较大，仅显示前 {{count}} 行。",
 	"structured_parse_failed": "结构化解析失败，建议切回源码视图。"

@@ -158,7 +158,7 @@ async fn cleanup_empty_local_blob_dirs(prefix_dir: &Path, root_dir: &Path) {
 }
 
 pub(crate) async fn cleanup_preuploaded_blob_upload(
-    driver: &dyn crate::storage::driver::StorageDriver,
+    driver: &dyn crate::storage::StorageDriver,
     prepared: &PreparedNonDedupBlobUpload,
     reason: &str,
 ) {
@@ -198,7 +198,7 @@ pub(crate) async fn cleanup_preuploaded_blob_upload(
 }
 
 pub(crate) async fn upload_temp_file_to_prepared_blob(
-    driver: &dyn crate::storage::driver::StorageDriver,
+    driver: &dyn crate::storage::StorageDriver,
     prepared: &PreparedNonDedupBlobUpload,
     temp_path: &str,
 ) -> Result<()> {
@@ -218,7 +218,7 @@ pub(crate) async fn upload_temp_file_to_prepared_blob(
 }
 
 pub(crate) async fn upload_temp_file_to_prepared_blob_cancellable(
-    driver: &dyn crate::storage::driver::StorageDriver,
+    driver: &dyn crate::storage::StorageDriver,
     prepared: &PreparedNonDedupBlobUpload,
     temp_path: &str,
     operation_context: &StorageOperationContext,
@@ -388,7 +388,7 @@ async fn cleanup_local_prepared_blob(
 }
 
 pub(crate) async fn upload_reader_to_prepared_blob(
-    driver: &dyn crate::storage::driver::StorageDriver,
+    driver: &dyn crate::storage::StorageDriver,
     prepared: &PreparedNonDedupBlobUpload,
     reader: Box<dyn AsyncRead + Unpin + Send + Sync>,
     size: i64,
@@ -409,7 +409,7 @@ pub(crate) async fn upload_reader_to_prepared_blob(
 }
 
 async fn upload_reader_to_prepared_blob_with_context(
-    driver: &dyn crate::storage::driver::StorageDriver,
+    driver: &dyn crate::storage::StorageDriver,
     prepared: &PreparedNonDedupBlobUpload,
     reader: Box<dyn AsyncRead + Unpin + Send + Sync>,
     size: i64,

@@ -10,7 +10,7 @@ use crate::services::upload_service::shared::{
     UniqueUuidAttempt, abort_created_multipart_upload_after_init_error, with_unique_upload_id,
 };
 use crate::services::workspace_storage_service::{self, WorkspaceStorageScope};
-use crate::storage::multipart::MultipartStorageDriver;
+use crate::storage::MultipartStorageDriver;
 use crate::types::{UploadMode, UploadSessionStatus};
 
 #[derive(Debug)]

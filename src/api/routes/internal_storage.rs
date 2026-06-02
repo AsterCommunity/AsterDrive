@@ -5,7 +5,6 @@ use crate::api::response::ApiResponse;
 use crate::errors::{AsterError, Result};
 use crate::runtime::FollowerAppState;
 use crate::services::{audit_service, managed_ingress_profile_service, master_binding_service};
-use crate::storage::driver::{BlobMetadata, StorageDriver};
 use crate::storage::object_key;
 use crate::storage::remote_protocol::{
     INTERNAL_AUTH_SIGNATURE_HEADER, PRESIGNED_AUTH_ACCESS_KEY_QUERY, RemoteBindingSyncRequest,
@@ -13,6 +12,7 @@ use crate::storage::remote_protocol::{
     RemoteStorageComposeRequest, RemoteStorageComposeResponse, RemoteStorageListResponse,
     RemoteStorageObjectMetadata, RemoteUpdateIngressProfileRequest,
 };
+use crate::storage::{BlobMetadata, StorageDriver};
 use actix_web::http::StatusCode;
 use actix_web::{HttpRequest, HttpResponse, dev::HttpServiceFactory, web};
 use futures::StreamExt;

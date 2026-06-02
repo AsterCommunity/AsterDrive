@@ -1,6 +1,6 @@
 use crate::api::subcode::ApiSubcode;
 use crate::errors::{Result, precondition_failed_with_subcode};
-use crate::storage::{StorageDriver, extensions::NativeThumbnailRequest};
+use crate::storage::{NativeThumbnailRequest, StorageDriver};
 
 use crate::entities::file_blob;
 

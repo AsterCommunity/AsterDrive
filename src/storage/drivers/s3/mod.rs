@@ -25,6 +25,31 @@ pub struct S3Driver {
     base_path: String,
 }
 
+#[derive(Debug, Clone, Copy)]
+pub struct S3DriverOptions {
+    pub force_path_style: bool,
+}
+
+impl S3DriverOptions {
+    pub const fn path_style() -> Self {
+        Self {
+            force_path_style: true,
+        }
+    }
+
+    pub const fn virtual_hosted_style() -> Self {
+        Self {
+            force_path_style: false,
+        }
+    }
+}
+
+impl Default for S3DriverOptions {
+    fn default() -> Self {
+        Self::path_style()
+    }
+}
+
 impl S3Driver {
     pub fn validate_policy(policy: &storage_policy::Model) -> Result<()> {
         normalize_s3_endpoint_and_bucket(&policy.endpoint, &policy.bucket)
@@ -45,6 +70,13 @@ impl S3Driver {
     }
 
     pub fn new(policy: &storage_policy::Model) -> Result<Self> {
+        Self::new_with_options(policy, S3DriverOptions::default())
+    }
+
+    pub fn new_with_options(
+        policy: &storage_policy::Model,
+        driver_options: S3DriverOptions,
+    ) -> Result<Self> {
         Self::validate_policy(policy)?;
         let normalized = normalize_s3_endpoint_and_bucket(&policy.endpoint, &policy.bucket)
             .map_err(Self::rewrap_message_as_storage_error)?;
@@ -69,7 +101,7 @@ impl S3Driver {
             .region(Region::new("auto"))
             .credentials_provider(credentials)
             .timeout_config(timeout_config)
-            .force_path_style(true);
+            .force_path_style(driver_options.force_path_style);
 
         if !normalized.endpoint.is_empty() {
             config_builder = config_builder.endpoint_url(&normalized.endpoint);

@@ -1,8 +1,8 @@
 use async_trait::async_trait;
 
 use crate::errors::{AsterError, MapAsterErr, Result};
-use crate::storage::driver::StoragePathVisitor;
-use crate::storage::extensions::ListStorageDriver;
+use crate::storage::traits::driver::StoragePathVisitor;
+use crate::storage::traits::extensions::ListStorageDriver;
 
 use super::LocalDriver;
 

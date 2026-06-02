@@ -1186,7 +1186,7 @@ async fn test_migration_backfills_storage_migration_result_renamed_opaque_count(
         .result_json
         .as_ref()
         .expect("legacy task result should remain");
-    let parsed: aster_drive::services::task_service::StoragePolicyMigrationTaskResult =
+    let parsed: aster_drive::services::task_service::types::StoragePolicyMigrationTaskResult =
         serde_json::from_str(result.as_ref())
             .expect("backfilled storage migration result should match current schema");
     assert_eq!(parsed.renamed_opaque_blobs, 0);

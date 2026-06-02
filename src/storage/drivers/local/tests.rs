@@ -1,7 +1,7 @@
 use super::paths::sanitize_relative_path;
-use crate::storage::driver::{StorageDriver, StoragePathVisitor};
 use crate::storage::drivers::local::promote::PromoteLocalFileOutcome;
-use crate::storage::extensions::{
+use crate::storage::traits::driver::{StorageDriver, StoragePathVisitor};
+use crate::storage::traits::extensions::{
     ListStorageDriver, LocalPathStorageDriver, StorageCapacityStatus,
 };
 use std::path::{Path, PathBuf};

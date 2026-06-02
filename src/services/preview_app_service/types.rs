@@ -42,7 +42,6 @@ pub enum PreviewAppProvider {
     Builtin,
     UrlTemplate,
     Wopi,
-    NativePreview,
 }
 
 impl PreviewAppProvider {
@@ -51,7 +50,6 @@ impl PreviewAppProvider {
             Self::Builtin => "builtin",
             Self::UrlTemplate => "url_template",
             Self::Wopi => "wopi",
-            Self::NativePreview => "native_preview",
         }
     }
 }
@@ -66,7 +64,6 @@ impl<'de> Deserialize<'de> for PreviewAppProvider {
             "builtin" => Ok(Self::Builtin),
             "url_template" => Ok(Self::UrlTemplate),
             "wopi" => Ok(Self::Wopi),
-            "native_preview" => Ok(Self::NativePreview),
             other => Err(serde::de::Error::custom(format!(
                 "unsupported preview app provider '{other}'",
             ))),

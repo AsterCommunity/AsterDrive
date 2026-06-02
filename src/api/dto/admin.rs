@@ -688,7 +688,7 @@ pub struct AdminFileBlobDetail {
 #[derive(Debug, Deserialize, Validate)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct CreateBlobMaintenanceTaskReq {
-    pub action: crate::services::task_service::BlobMaintenanceAction,
+    pub action: crate::services::task_service::types::BlobMaintenanceAction,
     #[validate(length(min = 1, max = 1000, message = "blob_ids must contain 1 to 1000 items"))]
     pub blob_ids: Option<Vec<i64>>,
 }

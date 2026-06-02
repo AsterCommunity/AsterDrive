@@ -1303,7 +1303,7 @@ async fn test_storage_migration_empty_source_succeeds_with_zero_counts() {
     assert_eq!(task.progress_current, 0);
     assert_eq!(task.progress_total, 0);
 
-    let result: aster_drive::services::task_service::StoragePolicyMigrationTaskResult =
+    let result: aster_drive::services::task_service::types::StoragePolicyMigrationTaskResult =
         serde_json::from_str(
             task.result_json
                 .as_ref()

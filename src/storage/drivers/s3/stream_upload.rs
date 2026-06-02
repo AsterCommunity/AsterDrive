@@ -10,7 +10,7 @@ use tokio::io::AsyncRead;
 use tokio_util::io::ReaderStream;
 
 use crate::errors::{AsterError, MapAsterErr, Result};
-use crate::storage::extensions::StreamUploadDriver;
+use crate::storage::traits::extensions::StreamUploadDriver;
 use crate::utils::numbers;
 
 use super::S3Driver;

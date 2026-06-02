@@ -187,7 +187,7 @@ pub async fn archive_download(
     operation_id = "batch_archive_compress",
     request_body = ArchiveCompressReq,
     responses(
-        (status = 200, description = "Archive compress task created", body = inline(ApiResponse<task_service::TaskInfo>)),
+        (status = 200, description = "Archive compress task created", body = inline(ApiResponse<task_service::types::TaskInfo>)),
         (status = 400, description = "Invalid request"),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
     ),
@@ -385,7 +385,7 @@ pub(crate) async fn team_archive_download(
     params(("team_id" = i64, Path, description = "Team ID")),
     request_body = ArchiveCompressReq,
     responses(
-        (status = 200, description = "Team archive compress task created", body = inline(ApiResponse<task_service::TaskInfo>)),
+        (status = 200, description = "Team archive compress task created", body = inline(ApiResponse<task_service::types::TaskInfo>)),
         (status = 400, description = "Invalid request"),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
         (status = 403, description = "Forbidden"),
@@ -510,7 +510,7 @@ pub(crate) async fn archive_download_ticket_response(
     let ticket = stream_ticket_service::create_archive_download_ticket_in_scope(
         state,
         scope,
-        &task_service::CreateArchiveTaskParams {
+        &task_service::types::CreateArchiveTaskParams {
             file_ids: body.file_ids.clone(),
             folder_ids: body.folder_ids.clone(),
             archive_name: body.archive_name.clone(),
@@ -547,10 +547,10 @@ pub(crate) async fn archive_compress_response(
     body: &ArchiveCompressReq,
 ) -> Result<HttpResponse> {
     validate_request(body)?;
-    let task = task_service::create_archive_compress_task_in_scope(
+    let task = task_service::archive::create_archive_compress_task_in_scope(
         state,
         scope,
-        task_service::CreateArchiveCompressTaskParams {
+        task_service::types::CreateArchiveCompressTaskParams {
             file_ids: body.file_ids.clone(),
             folder_ids: body.folder_ids.clone(),
             archive_name: body.archive_name.clone(),
@@ -587,5 +587,5 @@ pub(crate) async fn archive_download_stream_response(
     let params =
         stream_ticket_service::resolve_archive_download_ticket_in_scope(state, scope, token)
             .await?;
-    task_service::stream_archive_download_in_scope(state, scope, params).await
+    task_service::archive::stream_archive_download_in_scope(state, scope, params).await
 }

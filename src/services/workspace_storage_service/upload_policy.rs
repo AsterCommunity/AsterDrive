@@ -102,7 +102,7 @@ mod tests {
     use crate::entities::storage_policy;
     use crate::types::{
         DriverType, RemoteUploadStrategy, S3UploadStrategy, StoredStoragePolicyAllowedTypes,
-        UploadMode,
+        UploadMode, parse_storage_policy_options,
     };
     use chrono::Utc;
 
@@ -180,6 +180,36 @@ mod tests {
     fn s3_presigned_uses_presigned_modes() {
         let policy = mock_policy(
             DriverType::S3,
+            1024,
+            r#"{"s3_upload_strategy":"presigned"}"#,
+        );
+        let transport = resolve_policy_upload_transport(&policy);
+
+        assert_eq!(
+            transport,
+            PolicyUploadTransport::S3(S3UploadStrategy::Presigned)
+        );
+        assert_eq!(
+            transport.resolve_init_mode(&policy, 5_242_880),
+            UploadMode::Presigned
+        );
+        assert_eq!(
+            transport.resolve_init_mode(&policy, 5_242_881),
+            UploadMode::PresignedMultipart
+        );
+        assert!(!transport.supports_streaming_direct_upload(&policy, 1024));
+        assert!(!transport.uses_relay_multipart_tracking());
+    }
+
+    #[test]
+    fn tencent_cos_presigned_uses_s3_presigned_modes() {
+        let options = parse_storage_policy_options(r#"{"s3_upload_strategy":"presigned"}"#);
+        assert_eq!(
+            options.effective_s3_upload_strategy(),
+            S3UploadStrategy::Presigned
+        );
+        let policy = mock_policy(
+            DriverType::TencentCos,
             1024,
             r#"{"s3_upload_strategy":"presigned"}"#,
         );

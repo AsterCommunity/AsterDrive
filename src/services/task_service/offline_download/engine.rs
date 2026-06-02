@@ -7,6 +7,7 @@ use url::Url;
 use crate::config::operations;
 use crate::errors::{AsterError, Result};
 use crate::runtime::PrimaryAppState;
+use crate::services::task_service::types::TaskStepInfo;
 
 use super::super::steps::{TASK_STEP_DOWNLOAD_SOURCE, set_task_step_active};
 use super::super::{
@@ -82,14 +83,14 @@ pub(in crate::services::task_service) trait OfflineDownloadEngine {
         state: &PrimaryAppState,
         context: &TaskExecutionContext,
         request: OfflineDownloadStartRequest,
-        steps: &mut [super::super::TaskStepInfo],
+        steps: &mut [TaskStepInfo],
     ) -> Result<OfflineDownloadComplete>;
 }
 
 pub(super) async fn download_with_enabled_engines(
     state: &PrimaryAppState,
     context: &TaskExecutionContext,
-    steps: &mut [super::super::TaskStepInfo],
+    steps: &mut [TaskStepInfo],
     selection: OfflineDownloadEngineSelection<'_>,
     request: OfflineDownloadStartRequest,
 ) -> Result<OfflineDownloadComplete> {

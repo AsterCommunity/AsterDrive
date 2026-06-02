@@ -1,7 +1,7 @@
 use async_trait::async_trait;
 
 use crate::errors::Result;
-use crate::storage::extensions::ListStorageDriver;
+use crate::storage::traits::extensions::ListStorageDriver;
 
 use super::RemoteDriver;
 

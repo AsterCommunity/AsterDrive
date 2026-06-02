@@ -7,7 +7,7 @@ use crate::db::repository::file_repo;
 use crate::entities::{storage_policy, user};
 use crate::runtime::PrimaryAppState;
 use crate::services::mail_service;
-use crate::storage::driver::BlobMetadata;
+use crate::storage::BlobMetadata;
 use crate::storage::{DriverRegistry, PolicySnapshot, StorageDriver, StreamUploadDriver};
 use crate::types::{DriverType, UserRole, UserStatus};
 use crate::webdav::dav::DavFile;

@@ -118,7 +118,7 @@ pub(super) async fn persist_temp_store(
 
 async fn stage_temp_blob_before_transaction(
     blob_plan: &TempBlobPlan,
-    driver: &dyn crate::storage::driver::StorageDriver,
+    driver: &dyn crate::storage::StorageDriver,
     size: i64,
     temp_path: &str,
     operation_context: &StorageOperationContext,
@@ -142,7 +142,7 @@ async fn stage_temp_blob_before_transaction(
 async fn rollback_staged_dedup_blob(
     state: &PrimaryAppState,
     blob_plan: &TempBlobPlan,
-    driver: &dyn crate::storage::driver::StorageDriver,
+    driver: &dyn crate::storage::StorageDriver,
     policy_id: i64,
 ) {
     let TempBlobPlan::Dedup(target) = blob_plan else {

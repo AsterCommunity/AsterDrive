@@ -38,7 +38,7 @@ Administrators should separate three entry points first: the admin UI, runtime s
 - [System Settings](/en/config/runtime): site, registration, cookies, mail, scheduling, trash, WOPI, and audit logs
 - [External Authentication](/en/config/external-auth): connect OpenID Connect, Generic OAuth2, Logto, or temporary GitHub login
 - [Storage Policies](/en/config/storage): local storage, S3 / MinIO, follower nodes, policy groups, and existing data migration
-- [Storage Policy Backends](/en/storage/): configure the real storage targets behind S3 / MinIO / R2 and similar backends
+- [Storage Backend Details](/en/storage/): backend-specific tutorials and options for S3-compatible storage, Tencent COS, and local disk
 - [Follower Nodes](./remote-nodes): connect another AsterDrive instance as a remote storage backend
 - [Custom Frontend](./custom-frontend): replace frontend assets, inject custom configuration, and handle CSP
 

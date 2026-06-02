@@ -10,10 +10,9 @@ use crate::runtime::PrimaryAppState;
 use crate::services::{
     folder_service,
     task_service::{
-        TaskExecutionContext, TaskInfo, cleanup_task_temp_dir_for_task_in_root,
-        create_typed_task_record, get_task_in_scope, is_task_lease_lost,
-        is_task_lease_renewal_timed_out, mark_task_progress, mark_task_succeeded,
-        prepare_task_temp_dir_in_root,
+        TaskExecutionContext, cleanup_task_temp_dir_for_task_in_root, create_typed_task_record,
+        get_task_in_scope, is_task_lease_lost, is_task_lease_renewal_timed_out, mark_task_progress,
+        mark_task_succeeded, prepare_task_temp_dir_in_root,
         spec::{self, OfflineDownloadTask, decode_payload_as},
         steps::{
             TASK_STEP_DOWNLOAD_SOURCE, TASK_STEP_STORE_RESULT, TASK_STEP_VALIDATE_SOURCE,
@@ -23,6 +22,7 @@ use crate::services::{
         task_scope,
         types::{
             CreateOfflineDownloadTaskParams, OfflineDownloadTaskPayload, OfflineDownloadTaskResult,
+            TaskInfo,
         },
     },
     workspace_storage_service::{self, WorkspaceStorageScope},

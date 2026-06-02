@@ -2,12 +2,12 @@ use async_trait::async_trait;
 use tokio::io::AsyncRead;
 
 use crate::errors::Result;
-use crate::storage::driver::{BlobMetadata, StorageDriver};
 use crate::storage::error::{StorageErrorKind, storage_driver_error};
-use crate::storage::extensions::{
+use crate::storage::traits::driver::{BlobMetadata, StorageDriver};
+use crate::storage::traits::extensions::{
     ListStorageDriver, PresignedStorageDriver, StorageCapacityInfo, StreamUploadDriver,
 };
-use crate::storage::multipart::MultipartStorageDriver;
+use crate::storage::traits::multipart::MultipartStorageDriver;
 
 use super::RemoteDriver;
 

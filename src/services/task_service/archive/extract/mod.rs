@@ -17,7 +17,7 @@ use crate::services::archive_service::format::{ArchiveFormat, detect_supported_a
 use crate::services::{
     storage_change_service,
     task_service::{
-        TaskExecutionContext, TaskInfo, TaskLease, cleanup_task_temp_dir_for_task_kind,
+        TaskExecutionContext, TaskLease, cleanup_task_temp_dir_for_task_kind,
         create_typed_task_record, get_task_in_scope, is_task_lease_lost,
         is_task_lease_renewal_timed_out, mark_task_progress, mark_task_succeeded,
         prepare_task_temp_dir,
@@ -29,6 +29,7 @@ use crate::services::{
         task_scope,
         types::{
             ArchiveExtractTaskPayload, ArchiveExtractTaskResult, CreateArchiveExtractTaskParams,
+            TaskInfo,
         },
     },
     workspace_storage_service::{self, WorkspaceStorageScope},

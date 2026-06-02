@@ -25,7 +25,7 @@ const FilePreview = lazy(async () => {
 	return { default: module.FilePreview };
 });
 
-function SharePreviewElement({
+export function SharePreviewElement({
 	info,
 	token,
 	previewFile,
@@ -53,7 +53,52 @@ function SharePreviewElement({
 		}
 	}, [loadMediaDataSupport, mediaDataSupportLoaded]);
 
-	const createMediaStreamLink = () => {
+	const createPreviewLink = useCallback(() => {
+		if (!retainedPreviewFile || !info) {
+			return Promise.reject(new Error("share preview link is unavailable"));
+		}
+		return info.share_type === "file"
+			? shareService.createPreviewLink(token)
+			: shareService.createFolderFilePreviewLink(token, retainedPreviewFile.id);
+	}, [info, retainedPreviewFile, token]);
+
+	const loadArchivePreview = useCallback(
+		(options?: Parameters<typeof shareService.getArchivePreview>[1]) => {
+			if (!retainedPreviewFile || !info) {
+				return Promise.reject(
+					new Error("share archive preview is unavailable"),
+				);
+			}
+			return info.share_type === "file"
+				? shareService.getArchivePreview(token, options)
+				: shareService.getFolderFileArchivePreview(
+						token,
+						retainedPreviewFile.id,
+						options,
+					);
+		},
+		[info, retainedPreviewFile, token],
+	);
+
+	const loadMusicBackendMetadata = useCallback(
+		(signal?: AbortSignal) => {
+			if (!retainedPreviewFile || !info) {
+				return Promise.reject(new Error("share media metadata is unavailable"));
+			}
+			return info.share_type === "file"
+				? shareService
+						.getMediaMetadata(token, { signal })
+						.then((metadata) => backendAudioMetadataToTrackMetadata(metadata))
+				: shareService
+						.getFolderFileMediaMetadata(token, retainedPreviewFile.id, {
+							signal,
+						})
+						.then((metadata) => backendAudioMetadataToTrackMetadata(metadata));
+		},
+		[info, retainedPreviewFile, token],
+	);
+
+	const createMediaStreamLink = useCallback(() => {
 		if (!retainedPreviewFile || !info) {
 			return Promise.reject(new Error("share media stream is unavailable"));
 		}
@@ -63,7 +108,7 @@ function SharePreviewElement({
 					token,
 					retainedPreviewFile.id,
 				);
-	};
+	}, [info, retainedPreviewFile, token]);
 
 	if (!retainedPreviewFile) {
 		return null;
@@ -98,53 +143,12 @@ function SharePreviewElement({
 							)
 				}
 				editable={false}
-				previewLinkFactory={() =>
-					info?.share_type === "file"
-						? shareService.createPreviewLink(token)
-						: shareService.createFolderFilePreviewLink(
-								token,
-								retainedPreviewFile.id,
-							)
-				}
-				nativePreviewSessionFactory={(appKey) =>
-					info?.share_type === "file"
-						? shareService.createNativePreviewSession(token, appKey)
-						: shareService.createFolderFileNativePreviewSession(
-								token,
-								retainedPreviewFile.id,
-								appKey,
-							)
-				}
-				archivePreviewFactory={(options) =>
-					info?.share_type === "file"
-						? shareService.getArchivePreview(token, options)
-						: shareService.getFolderFileArchivePreview(
-								token,
-								retainedPreviewFile.id,
-								options,
-							)
-				}
+				previewLinkFactory={createPreviewLink}
+				archivePreviewFactory={loadArchivePreview}
 				loadMusicBackendMetadata={
 					mediaDataSupportLoaded &&
 					supportsAudioMediaData(retainedPreviewFile, mediaDataSupport)
-						? (signal) =>
-								info?.share_type === "file"
-									? shareService
-											.getMediaMetadata(token, { signal })
-											.then((metadata) =>
-												backendAudioMetadataToTrackMetadata(metadata),
-											)
-									: shareService
-											.getFolderFileMediaMetadata(
-												token,
-												retainedPreviewFile.id,
-												{
-													signal,
-												},
-											)
-											.then((metadata) =>
-												backendAudioMetadataToTrackMetadata(metadata),
-											)
+						? loadMusicBackendMetadata
 						: undefined
 				}
 				mediaStreamLinkFactory={createMediaStreamLink}

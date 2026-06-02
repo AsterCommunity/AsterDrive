@@ -105,17 +105,12 @@ fn default_preview_apps_serialize_and_parse() {
                 .get("zh")
                 .is_some_and(|label| label == "压缩包预览")
     }));
-    assert!(parsed.apps.iter().any(|app| {
-        app.key == "builtin.tencent_cos_ci"
-            && app.provider == PreviewAppProvider::NativePreview
-            && app.config.mode == Some(PreviewOpenMode::Iframe)
-            && app.extensions.iter().any(|extension| extension == "docx")
-            && app.extensions.iter().any(|extension| extension == "pdf")
-            && app
-                .labels
-                .get("zh")
-                .is_some_and(|label| label == "腾讯云 COS 数据万象")
-    }));
+    assert!(
+        !parsed
+            .apps
+            .iter()
+            .any(|app| app.key == "builtin.tencent_cos_ci")
+    );
 }
 
 #[test]
@@ -163,41 +158,7 @@ fn preview_apps_json_is_normalized_and_pretty_printed() {
 }
 
 #[test]
-fn native_preview_app_is_normalized() {
-    let mut config = default_public_preview_apps();
-    config.apps.push(PublicPreviewAppDefinition {
-        key: " custom.native ".to_string(),
-        provider: PreviewAppProvider::NativePreview,
-        icon: "/static/preview-apps/file.svg".to_string(),
-        enabled: true,
-        labels: std::collections::BTreeMap::from([(" EN ".to_string(), " Native ".to_string())]),
-        extensions: vec![" DOCX ".to_string(), ".pdf".to_string(), "docx".to_string()],
-        config: PublicPreviewAppConfig {
-            mode: Some(PreviewOpenMode::NewTab),
-            ..Default::default()
-        },
-    });
-
-    let normalized = normalize_public_preview_apps_config_value(
-        &serde_json::to_string(&config).expect("config should serialize"),
-    )
-    .expect("native preview config should normalize");
-    let normalized_json: Value = serde_json::from_str(&normalized).unwrap();
-
-    assert!(
-        normalized_json["apps"]
-            .as_array()
-            .is_some_and(|apps| apps.iter().any(|app| {
-                app["key"] == "custom.native"
-                    && app["provider"] == "native_preview"
-                    && app["config"]["mode"] == "new_tab"
-                    && app["extensions"] == json!(["docx", "pdf"])
-            }))
-    );
-}
-
-#[test]
-fn native_preview_app_requires_mode() {
+fn preview_apps_reject_native_preview_provider() {
     let raw = json!({
         "version": 2,
         "apps": [
@@ -217,7 +178,7 @@ fn native_preview_app_requires_mode() {
     assert!(
         error
             .message()
-            .contains("native_preview provider requires config.mode"),
+            .contains("unsupported preview app provider 'native_preview'"),
         "unexpected error: {}",
         error.message()
     );

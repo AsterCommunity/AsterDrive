@@ -79,7 +79,7 @@ async fn init_presigned_s3_upload(
 async fn init_presigned_s3_single_upload(
     state: &PrimaryAppState,
     ctx: &InitUploadContext,
-    driver: &dyn crate::storage::driver::StorageDriver,
+    driver: &dyn crate::storage::StorageDriver,
 ) -> Result<InitUploadResponse> {
     with_unique_upload_id(|upload_id| async {
         let temp_key = format!("files/{upload_id}");
@@ -184,7 +184,7 @@ async fn init_relay_stream_s3_upload(
 }
 
 async fn presigned_put_url(
-    driver: &dyn crate::storage::driver::StorageDriver,
+    driver: &dyn crate::storage::StorageDriver,
     temp_key: &str,
 ) -> Result<String> {
     let presigned_driver = driver

@@ -183,14 +183,6 @@ fn validate_preview_app_config(app: &mut PublicPreviewAppDefinition) -> Result<(
             app.config.discovery_url =
                 normalize_optional_non_empty("discovery_url", app.config.discovery_url.take());
         }
-        PreviewAppProvider::NativePreview => {
-            if app.config.mode.is_none() {
-                return Err(AsterError::validation_error(format!(
-                    "preview app '{}' native_preview provider requires config.mode",
-                    app.key
-                )));
-            }
-        }
     }
 
     Ok(())

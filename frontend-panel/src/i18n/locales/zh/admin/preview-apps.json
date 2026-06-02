@@ -111,7 +111,6 @@
 	"preview_apps_provider_code": "源码",
 	"preview_apps_provider_url_template": "URL 模板",
 	"preview_apps_provider_wopi": "WOPI",
-	"preview_apps_provider_native_preview": "存储原生预览",
 	"preview_apps_provider_label": "提供方类型",
 	"preview_apps_error_parse": "当前草稿无法解析成预览应用配置 JSON。",
 	"preview_apps_error_version_mismatch": "预览应用配置版本必须保持为 {{version}}。",
@@ -125,7 +124,6 @@
 	"preview_apps_error_url_template_required": "URL 模板应用 {{index}} 必须填写 URL 模板。",
 	"preview_apps_error_wopi_mode_required": "WOPI 应用 {{index}} 必须填写打开模式。",
 	"preview_apps_error_wopi_target_required": "WOPI 应用 {{index}} 必须填写 action URL 或 discovery URL。",
-	"preview_apps_error_native_preview_mode_required": "存储原生预览应用 {{index}} 必须填写打开模式。",
 	"preview_apps_error_rule_apps_required": "规则 {{index}} 至少要引用一个应用。",
 	"preview_apps_error_rule_unknown_app": "规则 {{index}} 引用了不存在的应用「{{appKey}}」。",
 	"preview_apps_error_rule_default_missing": "规则 {{index}} 的默认应用「{{appKey}}」必须同时出现在该规则的应用列表里。",
@@ -147,9 +145,5 @@
 	"preview_apps_wopi_hint_title": "WOPI 会话说明",
 	"preview_apps_wopi_hint_desc": "这里的配置只负责声明 WOPI 主机页面的解析方式。文件真正打开或编辑时，后端仍然负责创建启动会话、签发访问令牌，并控制锁语义。",
 	"preview_apps_wopi_hint_body": "这里可以填写固定的启动地址，也可以提供 Discovery URL。OnlyOffice 这类客户端最终使用的启动地址、令牌时效和 WOPI 锁/编辑语义，仍然由后端统一处理。",
-	"preview_apps_native_preview_mode": "存储原生打开模式",
-	"preview_apps_native_preview_mode_desc": "控制存储服务生成的预览页面是在当前弹窗内嵌打开，还是跳转到新标签页。",
-	"preview_apps_native_preview_mode_iframe": "内嵌 iframe",
-	"preview_apps_native_preview_mode_new_tab": "新标签页",
 	"preview_apps_provider_archive": "压缩包"
 }

@@ -350,9 +350,14 @@ async fn load_or_enqueue_thumbnail(
             thumbnail_version: Some(thumbnail.thumbnail_version),
         })),
         None => {
-            task_service::ensure_thumbnail_task(state, &blob, &file.name, &file.mime_type)
-                .await
-                .map_err(media_processing_service::map_thumbnail_request_error)?;
+            task_service::thumbnail::ensure_thumbnail_task(
+                state,
+                &blob,
+                &file.name,
+                &file.mime_type,
+            )
+            .await
+            .map_err(media_processing_service::map_thumbnail_request_error)?;
             Ok(None)
         }
     }

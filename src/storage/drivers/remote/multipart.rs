@@ -9,8 +9,8 @@ use tokio::io::{AsyncRead, ReadBuf};
 
 use crate::errors::{AsterError, Result};
 use crate::storage::error::{StorageErrorKind, storage_driver_error};
-use crate::storage::extensions::ListStorageDriver;
-use crate::storage::multipart::MultipartStorageDriver;
+use crate::storage::traits::extensions::ListStorageDriver;
+use crate::storage::traits::multipart::MultipartStorageDriver;
 
 use super::RemoteDriver;
 

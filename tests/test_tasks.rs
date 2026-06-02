@@ -23,8 +23,11 @@ use aster_drive::config::operations::{
 use aster_drive::db::repository::{background_task_repo, file_repo};
 use aster_drive::entities::{background_task, file_blob};
 use aster_drive::services::task_service::{
-    self, RuntimeSystemHealthComponent, RuntimeSystemHealthResult, RuntimeSystemHealthStatus,
-    RuntimeTaskName, RuntimeTaskPayload, RuntimeTaskRunOutcome, SystemRuntimeTaskKind,
+    self, RuntimeTaskRunOutcome, SystemRuntimeTaskKind,
+    types::{
+        RuntimeSystemHealthComponent, RuntimeSystemHealthResult, RuntimeSystemHealthStatus,
+        RuntimeTaskName, RuntimeTaskPayload,
+    },
 };
 use aster_drive::types::{BackgroundTaskKind, BackgroundTaskStatus, StoredTaskPayload};
 
@@ -784,7 +787,7 @@ async fn insert_pending_dispatch_task(
         BackgroundTaskKind::ArchiveCompress => (
             "dispatch-archive.zip",
             serde_json::to_string(
-                &aster_drive::services::task_service::ArchiveCompressTaskPayload {
+                &aster_drive::services::task_service::types::ArchiveCompressTaskPayload {
                     file_ids: Vec::new(),
                     folder_ids: Vec::new(),
                     archive_name: "dispatch-archive.zip".to_string(),
@@ -2898,7 +2901,7 @@ async fn test_retry_task_reloads_max_attempts_from_runtime_config() {
 
     let now = Utc::now();
     let payload_json = serde_json::to_string(
-        &aster_drive::services::task_service::ArchiveCompressTaskPayload {
+        &aster_drive::services::task_service::types::ArchiveCompressTaskPayload {
             file_ids: Vec::new(),
             folder_ids: Vec::new(),
             archive_name: "retry-bundle.zip".to_string(),

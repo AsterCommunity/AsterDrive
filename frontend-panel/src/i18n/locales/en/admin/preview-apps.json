@@ -112,7 +112,6 @@
 	"preview_apps_provider_code": "Code",
 	"preview_apps_provider_url_template": "URL Template",
 	"preview_apps_provider_wopi": "WOPI",
-	"preview_apps_provider_native_preview": "Storage-native preview",
 	"preview_apps_provider_label": "Provider Type",
 	"preview_apps_error_parse": "The current draft could not be parsed as preview app config JSON.",
 	"preview_apps_error_version_mismatch": "The preview app config version must stay at {{version}}.",
@@ -126,7 +125,6 @@
 	"preview_apps_error_url_template_required": "URL template app {{index}} must define a URL template.",
 	"preview_apps_error_wopi_mode_required": "WOPI app {{index}} must define an open mode.",
 	"preview_apps_error_wopi_target_required": "WOPI app {{index}} must define an action URL or a discovery URL.",
-	"preview_apps_error_native_preview_mode_required": "Storage-native preview app {{index}} must define an open mode.",
 	"preview_apps_error_rule_apps_required": "Rule {{index}} must reference at least one app.",
 	"preview_apps_error_rule_unknown_app": "Rule {{index}} references missing app \"{{appKey}}\".",
 	"preview_apps_error_rule_default_missing": "Rule {{index}} default app \"{{appKey}}\" must also be selected in that rule.",
@@ -147,9 +145,5 @@
 	"preview_apps_wopi_discovery_url_desc": "Optional discovery endpoint used to resolve the host page dynamically.",
 	"preview_apps_wopi_hint_title": "WOPI session notes",
 	"preview_apps_wopi_hint_desc": "This config only declares how the WOPI host should be resolved. The backend still creates the launch session, signs the access token, and controls lock behavior when the file is opened or edited.",
-	"preview_apps_wopi_hint_body": "Use either a fixed action URL or a discovery URL here. Clients such as OnlyOffice still depend on the backend for the final launch URL, token lifetime, and WOPI lock/editing semantics.",
-	"preview_apps_native_preview_mode": "Storage-native open mode",
-	"preview_apps_native_preview_mode_desc": "Controls whether the storage-generated preview page stays embedded in the dialog or opens in a new tab.",
-	"preview_apps_native_preview_mode_iframe": "Embedded iframe",
-	"preview_apps_native_preview_mode_new_tab": "New tab"
+	"preview_apps_wopi_hint_body": "Use either a fixed action URL or a discovery URL here. Clients such as OnlyOffice still depend on the backend for the final launch URL, token lifetime, and WOPI lock/editing semantics."
 }

@@ -1,7 +1,8 @@
 //! StorageDriver metrics decorator.
 
-use super::driver::{BlobMetadata, StorageDriver};
-use super::multipart::MultipartStorageDriver;
+use super::traits::driver::{BlobMetadata, StorageDriver};
+use super::traits::extensions;
+use super::traits::multipart::MultipartStorageDriver;
 use crate::errors::Result;
 use crate::metrics_core::SharedMetricsRecorder;
 use crate::types::DriverType;
@@ -307,38 +308,40 @@ impl StorageDriver for MetricsStorageDriver {
         result
     }
 
-    async fn capacity_info(&self) -> Result<super::extensions::StorageCapacityInfo> {
+    async fn capacity_info(&self) -> Result<extensions::StorageCapacityInfo> {
         let started_at = Instant::now();
         let result = self.inner.capacity_info().await;
         self.record("capacity_info", &result, started_at);
         result
     }
 
-    fn as_presigned(&self) -> Option<&dyn super::extensions::PresignedStorageDriver> {
+    fn as_presigned(&self) -> Option<&dyn extensions::PresignedStorageDriver> {
         self.inner.as_presigned()
     }
 
-    fn as_list(&self) -> Option<&dyn super::extensions::ListStorageDriver> {
+    fn as_list(&self) -> Option<&dyn extensions::ListStorageDriver> {
         self.inner.as_list()
     }
 
-    fn as_stream_upload(&self) -> Option<&dyn super::extensions::StreamUploadDriver> {
+    fn as_stream_upload(&self) -> Option<&dyn extensions::StreamUploadDriver> {
         self.inner.as_stream_upload()
     }
 
-    fn as_local_path(&self) -> Option<&dyn super::extensions::LocalPathStorageDriver> {
+    fn as_local_path(&self) -> Option<&dyn extensions::LocalPathStorageDriver> {
         self.inner.as_local_path()
     }
 
-    fn as_native_thumbnail(&self) -> Option<&dyn super::extensions::NativeThumbnailStorageDriver> {
+    fn as_native_thumbnail(&self) -> Option<&dyn extensions::NativeThumbnailStorageDriver> {
         self.inner.as_native_thumbnail()
     }
 
-    fn as_native_preview(&self) -> Option<&dyn super::extensions::NativePreviewStorageDriver> {
-        self.inner.as_native_preview()
+    fn as_native_media_metadata(
+        &self,
+    ) -> Option<&dyn extensions::NativeMediaMetadataStorageDriver> {
+        self.inner.as_native_media_metadata()
     }
 
-    fn as_multipart(&self) -> Option<&dyn super::multipart::MultipartStorageDriver> {
+    fn as_multipart(&self) -> Option<&dyn MultipartStorageDriver> {
         self.multipart.as_deref()
     }
 }

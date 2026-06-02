@@ -14,7 +14,7 @@ pub mod versions;
 
 pub use self::access::{
     download, get_archive_preview, get_direct_link, get_file, get_image_preview,
-    get_media_metadata, get_preview_link, get_thumbnail, open_native_preview, open_wopi,
+    get_media_metadata, get_preview_link, get_thumbnail, open_wopi,
 };
 pub use self::mutations::{
     CopyFileReq, CreateEmptyRequest, ExtractArchiveRequest, PatchFileReq, SetLockReq, copy_file,
@@ -33,7 +33,7 @@ pub(crate) use self::access::{
     archive_preview_manifest_response, archive_preview_pending_response, image_preview_response,
     team_download, team_get_archive_preview, team_get_direct_link, team_get_file,
     team_get_image_preview, team_get_media_metadata, team_get_preview_link, team_get_thumbnail,
-    team_open_native_preview, team_open_wopi, thumbnail_response,
+    team_open_wopi, thumbnail_response,
 };
 pub(crate) use self::mutations::{
     team_copy_file, team_create_empty, team_delete_file, team_extract_archive, team_patch_file,
@@ -81,10 +81,6 @@ pub fn routes(
         .route("/{id}/direct-link", web::get().to(get_direct_link))
         .route("/{id}/preview-link", web::post().to(get_preview_link))
         .route("/{id}/wopi/open", web::post().to(open_wopi))
-        .route(
-            "/{id}/native-preview/open",
-            web::post().to(open_native_preview),
-        )
         .route("/{id}/download", web::get().to(download))
         .route("/{id}/thumbnail", web::get().to(get_thumbnail))
         .route("/{id}/image-preview", web::get().to(get_image_preview))
@@ -140,10 +136,6 @@ pub fn team_routes() -> actix_web::Scope {
         .route("/{id}/direct-link", web::get().to(team_get_direct_link))
         .route("/{id}/preview-link", web::post().to(team_get_preview_link))
         .route("/{id}/wopi/open", web::post().to(team_open_wopi))
-        .route(
-            "/{id}/native-preview/open",
-            web::post().to(team_open_native_preview),
-        )
         .route("/{id}/thumbnail", web::get().to(team_get_thumbnail))
         .route("/{id}/image-preview", web::get().to(team_get_image_preview))
         .route(

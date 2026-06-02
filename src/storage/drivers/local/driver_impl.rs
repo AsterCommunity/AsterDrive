@@ -2,8 +2,8 @@ use async_trait::async_trait;
 use tokio::io::{AsyncRead, AsyncSeekExt};
 
 use crate::errors::{AsterError, MapAsterErr, Result};
-use crate::storage::driver::{BlobMetadata, StorageDriver};
-use crate::storage::extensions::{
+use crate::storage::traits::driver::{BlobMetadata, StorageDriver};
+use crate::storage::traits::extensions::{
     ListStorageDriver, LocalPathStorageDriver, StorageCapacityInfo, StorageCapacityStatus,
     StreamUploadDriver,
 };

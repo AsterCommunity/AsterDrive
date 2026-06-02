@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use crate::entities::managed_ingress_profile;
-use crate::storage::driver::StorageDriver;
+use crate::storage::StorageDriver;
 use crate::storage::remote_protocol::RemoteIngressProfileInfo;
 
 #[derive(Clone)]

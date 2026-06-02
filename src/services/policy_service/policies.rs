@@ -68,8 +68,9 @@ fn validate_connection_credentials(
 ) -> Result<()> {
     match driver_type {
         DriverType::S3 | DriverType::TencentCos => {
-            validate_connection_secret(access_key, "access_key", "S3-compatible")?;
-            validate_connection_secret(secret_key, "secret_key", "S3-compatible")?;
+            let driver = driver_type_name(driver_type);
+            validate_connection_secret(access_key, "access_key", driver)?;
+            validate_connection_secret(secret_key, "secret_key", driver)?;
         }
         DriverType::Local | DriverType::Remote => {}
     }
@@ -268,7 +269,7 @@ pub async fn delete(state: &PrimaryAppState, id: i64, force: bool) -> Result<()>
         }
 
         let cleanup = crate::services::upload_service::force_cleanup_by_policy(state, id).await?;
-        let cleanup_task = crate::services::task_service::create_storage_policy_temp_cleanup_task(
+        let cleanup_task = crate::services::task_service::storage_policy_cleanup::create_storage_policy_temp_cleanup_task(
             state,
             &policy,
             &cleanup.deferred_temp_keys,
@@ -507,7 +508,7 @@ pub async fn test_connection_params<S: PrimaryRuntimeState>(
         updated_at: chrono::Utc::now(),
     };
 
-    let driver: Box<dyn crate::storage::driver::StorageDriver> = match driver_type {
+    let driver: Box<dyn crate::storage::StorageDriver> = match driver_type {
         DriverType::Local => Box::new(LocalDriver::new(&fake_policy)?),
         DriverType::Remote => {
             let remote_node_id = fake_policy.remote_node_id.ok_or_else(|| {
@@ -557,7 +558,7 @@ async fn ensure_remote_transport_supports_policy_options<C: sea_orm::ConnectionT
 }
 
 async fn probe_storage_driver(
-    driver: &dyn crate::storage::driver::StorageDriver,
+    driver: &dyn crate::storage::StorageDriver,
     write_error_context: &'static str,
 ) -> Result<()> {
     let test_path = format!("_aster_connection_test-{}", uuid::Uuid::new_v4());

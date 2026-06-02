@@ -6,7 +6,7 @@ use crate::config::{CacheConfig, Config, DatabaseConfig, RuntimeConfig};
 use crate::entities::{file, file_blob, storage_policy, user};
 use crate::runtime::PrimaryAppState;
 use crate::services::mail_service;
-use crate::storage::driver::{BlobMetadata, StoragePathVisitor};
+use crate::storage::{BlobMetadata, StoragePathVisitor};
 use crate::storage::{
     DriverRegistry, ListStorageDriver, LocalPathStorageDriver, PolicySnapshot, StorageDriver,
     StreamUploadDriver,

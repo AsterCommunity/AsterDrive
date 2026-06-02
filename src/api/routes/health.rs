@@ -158,7 +158,7 @@ mod tests {
     use crate::entities::storage_policy;
     use crate::runtime::PrimaryAppState;
     use crate::services::mail_service;
-    use crate::storage::driver::BlobMetadata;
+    use crate::storage::BlobMetadata;
     use crate::storage::{DriverRegistry, PolicySnapshot, StorageDriver};
     use crate::types::{DriverType, StoredStoragePolicyAllowedTypes, StoredStoragePolicyOptions};
     use actix_web::{body, http::StatusCode, web};

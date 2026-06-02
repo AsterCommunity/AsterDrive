@@ -1,7 +1,7 @@
 use std::path::Path;
 
 use crate::errors::{AsterError, MapAsterErr, Result};
-use crate::storage::driver::StorageDriver;
+use crate::storage::traits::driver::StorageDriver;
 use crate::utils::numbers;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

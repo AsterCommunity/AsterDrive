@@ -2,7 +2,7 @@ use async_trait::async_trait;
 use tokio::io::{AsyncRead, AsyncWriteExt};
 
 use crate::errors::{AsterError, MapAsterErr, Result};
-use crate::storage::extensions::StreamUploadDriver;
+use crate::storage::traits::extensions::StreamUploadDriver;
 use crate::utils::numbers;
 
 use super::LocalDriver;

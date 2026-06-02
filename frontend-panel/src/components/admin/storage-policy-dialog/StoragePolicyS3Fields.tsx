@@ -19,6 +19,15 @@ export function S3ConnectionFields({
 	onSyncNormalizedS3Form: () => void;
 	showCreateValidation?: boolean;
 }) {
+	const endpointHintKey =
+		form.driver_type === "tencent_cos"
+			? "cos_endpoint_hint"
+			: "s3_endpoint_hint";
+	const endpointPlaceholder =
+		form.driver_type === "tencent_cos"
+			? "https://<bucket-appid>.cos.<region>.myqcloud.com"
+			: "https://s3.amazonaws.com";
+
 	return (
 		<>
 			<div className="space-y-2">
@@ -30,14 +39,14 @@ export function S3ConnectionFields({
 					onBlur={onSyncNormalizedS3Form}
 					aria-invalid={endpointValidationMessage ? true : undefined}
 					className={ADMIN_CONTROL_HEIGHT_CLASS}
-					placeholder="https://s3.amazonaws.com"
+					placeholder={endpointPlaceholder}
 				/>
 				{endpointValidationMessage ? (
 					<p className="text-xs text-destructive">
 						{endpointValidationMessage}
 					</p>
 				) : null}
-				<p className="text-xs text-muted-foreground">{t("s3_endpoint_hint")}</p>
+				<p className="text-xs text-muted-foreground">{t(endpointHintKey)}</p>
 			</div>
 			<div className="space-y-2">
 				<Label htmlFor="bucket">{t("bucket")}</Label>

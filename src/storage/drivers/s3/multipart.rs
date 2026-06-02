@@ -8,7 +8,7 @@ use tokio::io::AsyncRead;
 
 use crate::errors::{MapAsterErr, Result};
 use crate::storage::error::{StorageErrorKind, storage_driver_error};
-use crate::storage::multipart::MultipartStorageDriver;
+use crate::storage::traits::multipart::MultipartStorageDriver;
 
 use super::S3Driver;
 use super::presigned::clamp_presign_ttl;

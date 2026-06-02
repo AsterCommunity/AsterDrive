@@ -59,9 +59,10 @@ struct StreamTicketPayload {
 pub(crate) async fn create_archive_download_ticket_in_scope(
     state: &PrimaryAppState,
     scope: WorkspaceStorageScope,
-    params: &task_service::CreateArchiveTaskParams,
+    params: &task_service::types::CreateArchiveTaskParams,
 ) -> Result<StreamTicketInfo> {
-    let prepared = task_service::prepare_archive_download_in_scope(state, scope, params).await?;
+    let prepared =
+        task_service::archive::prepare_archive_download_in_scope(state, scope, params).await?;
     let expires_at = Utc::now() + Duration::seconds(STREAM_TICKET_TTL_SECS);
     let token = format!("st_{}", crate::utils::id::new_short_token());
     let payload = StreamTicketPayload {
@@ -89,7 +90,7 @@ pub(crate) async fn resolve_archive_download_ticket_in_scope(
     state: &PrimaryAppState,
     scope: WorkspaceStorageScope,
     token: &str,
-) -> Result<task_service::CreateArchiveTaskParams> {
+) -> Result<task_service::types::CreateArchiveTaskParams> {
     let cache_key = cache_key(token);
     let payload = load_ticket(state, &cache_key)
         .await
@@ -109,7 +110,7 @@ pub(crate) async fn resolve_archive_download_ticket_in_scope(
             file_ids,
             folder_ids,
             archive_name,
-        } => Ok(task_service::CreateArchiveTaskParams {
+        } => Ok(task_service::types::CreateArchiveTaskParams {
             file_ids,
             folder_ids,
             archive_name: Some(archive_name),

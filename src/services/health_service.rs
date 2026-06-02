@@ -4,7 +4,7 @@ use crate::cache::CacheBackend;
 use crate::config::CacheConfig;
 use crate::errors::{AsterError, MapAsterErr, Result};
 use crate::runtime::{FollowerRuntimeState, PrimaryRuntimeState};
-use crate::services::task_service::{
+use crate::services::task_service::types::{
     RuntimeSystemHealthComponent, RuntimeSystemHealthResult, RuntimeSystemHealthStatus,
 };
 use crate::services::{managed_follower_service, task_service};
@@ -317,7 +317,7 @@ mod tests {
     use crate::cache::CacheBackend;
     use crate::config::CacheConfig;
     use crate::errors::{AsterError, Result};
-    use crate::services::task_service::{RuntimeSystemHealthStatus, RuntimeTaskRunOutcome};
+    use crate::services::task_service::{RuntimeTaskRunOutcome, types::RuntimeSystemHealthStatus};
     use async_trait::async_trait;
 
     struct FakeCache {

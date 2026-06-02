@@ -11,15 +11,15 @@ use async_trait::async_trait;
 use bytes::Bytes;
 use tokio::io::AsyncRead;
 
-use super::s3::S3Driver;
+use super::s3::{S3Driver, S3DriverOptions};
 use crate::entities::storage_policy;
 use crate::errors::Result;
-use crate::storage::driver::{BlobMetadata, StorageDriver};
-use crate::storage::extensions::{
-    ListStorageDriver, NativePreviewStorageDriver, NativeThumbnailStorageDriver,
+use crate::storage::traits::driver::{BlobMetadata, StorageDriver};
+use crate::storage::traits::extensions::{
+    ListStorageDriver, NativeMediaMetadataStorageDriver, NativeThumbnailStorageDriver,
     PresignedStorageDriver, StorageCapacityInfo, StreamUploadDriver,
 };
-use crate::storage::multipart::MultipartStorageDriver;
+use crate::storage::traits::multipart::MultipartStorageDriver;
 
 pub struct S3CompatibleDriver {
     inner: Arc<S3Driver>,
@@ -31,8 +31,15 @@ impl S3CompatibleDriver {
     }
 
     pub fn new(policy: &storage_policy::Model) -> Result<Self> {
+        Self::new_with_s3_options(policy, S3DriverOptions::default())
+    }
+
+    pub fn new_with_s3_options(
+        policy: &storage_policy::Model,
+        options: S3DriverOptions,
+    ) -> Result<Self> {
         Ok(Self {
-            inner: Arc::new(S3Driver::new(policy)?),
+            inner: Arc::new(S3Driver::new_with_options(policy, options)?),
         })
     }
 
@@ -56,7 +63,7 @@ pub trait S3CompatibleProvider: Send + Sync {
         None
     }
 
-    fn as_provider_native_preview(&self) -> Option<&dyn NativePreviewStorageDriver> {
+    fn as_provider_native_media_metadata(&self) -> Option<&dyn NativeMediaMetadataStorageDriver> {
         None
     }
 }
@@ -141,8 +148,8 @@ where
         self.as_provider_native_thumbnail()
     }
 
-    fn as_native_preview(&self) -> Option<&dyn NativePreviewStorageDriver> {
-        self.as_provider_native_preview()
+    fn as_native_media_metadata(&self) -> Option<&dyn NativeMediaMetadataStorageDriver> {
+        self.as_provider_native_media_metadata()
     }
 
     async fn capacity_info(&self) -> Result<StorageCapacityInfo> {
@@ -283,7 +290,6 @@ mod tests {
         assert!(driver.as_stream_upload().is_some());
         assert!(driver.as_multipart().is_some());
         assert!(driver.as_native_thumbnail().is_none());
-        assert!(driver.as_native_preview().is_none());
     }
 
     #[tokio::test]

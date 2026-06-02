@@ -1,11 +1,12 @@
 use super::S3Driver;
+use super::S3DriverOptions;
 use super::presigned::{MAX_PRESIGN_TTL, clamp_presign_ttl};
 use crate::entities::storage_policy;
 use crate::errors::AsterError;
-use crate::storage::driver::{StorageDriver, StoragePathVisitor};
 use crate::storage::error::StorageErrorKind;
-use crate::storage::extensions::{ListStorageDriver, PresignedStorageDriver};
-use crate::storage::multipart::MultipartStorageDriver;
+use crate::storage::traits::driver::{StorageDriver, StoragePathVisitor};
+use crate::storage::traits::extensions::{ListStorageDriver, PresignedStorageDriver};
+use crate::storage::traits::multipart::MultipartStorageDriver;
 use crate::types::{StoragePolicyOptions, serialize_storage_policy_options};
 use aws_sdk_s3::config::{BehaviorVersion, Credentials, Region};
 use aws_smithy_http_client::test_util::{ReplayEvent, StaticReplayClient, capture_request};
@@ -208,6 +209,36 @@ fn new_applies_timeout_config_from_policy_options() {
         timeout_config.operation_timeout(),
         Some(Duration::from_secs(1_200))
     );
+}
+
+#[tokio::test]
+async fn presigned_put_url_uses_configured_addressing_style() {
+    let path_style_driver = S3Driver::new(&sample_policy("https://s3.example.test", "bucket"))
+        .expect("path-style driver");
+    let virtual_hosted_driver = S3Driver::new_with_options(
+        &sample_policy("https://s3.example.test", "bucket"),
+        S3DriverOptions::virtual_hosted_style(),
+    )
+    .expect("virtual-hosted driver");
+
+    let path_style = path_style_driver
+        .presigned_put_url("folder/file.txt", Duration::from_secs(60))
+        .await
+        .expect("path-style presign")
+        .expect("path-style URL");
+    let virtual_hosted = virtual_hosted_driver
+        .presigned_put_url("folder/file.txt", Duration::from_secs(60))
+        .await
+        .expect("virtual-hosted presign")
+        .expect("virtual-hosted URL");
+
+    let path_style = url::Url::parse(&path_style).expect("path-style URL parse");
+    let virtual_hosted = url::Url::parse(&virtual_hosted).expect("virtual-hosted URL parse");
+
+    assert_eq!(path_style.host_str(), Some("s3.example.test"));
+    assert_eq!(path_style.path(), "/bucket/folder/file.txt");
+    assert_eq!(virtual_hosted.host_str(), Some("bucket.s3.example.test"));
+    assert_eq!(virtual_hosted.path(), "/folder/file.txt");
 }
 
 #[tokio::test]
@@ -502,7 +533,7 @@ async fn presigned_url_includes_download_response_overrides() {
         .presigned_url(
             "folder/file name.txt",
             Duration::from_secs(60),
-            crate::storage::driver::PresignedDownloadOptions {
+            crate::storage::traits::driver::PresignedDownloadOptions {
                 response_cache_control: Some("private, max-age=60".to_string()),
                 response_content_disposition: Some(
                     "attachment; filename=\"file name.txt\"".to_string(),

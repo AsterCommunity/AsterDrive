@@ -17,7 +17,6 @@ import { cn } from "@/lib/utils";
 import {
 	formatPreviewAppsDelimitedInput,
 	getPreviewAppProvider,
-	isNativePreviewApp,
 	isTablePreviewAppKey,
 	isUrlTemplatePreviewApp,
 	isWopiPreviewApp,
@@ -45,6 +44,9 @@ interface PreviewAppEditorFieldsProps {
 	) => void;
 	onOpenUrlTemplateVariables: () => void;
 }
+
+type UpdateApp = PreviewAppEditorFieldsProps["updateApp"];
+type UpdateDraft = PreviewAppEditorFieldsProps["updateDraft"];
 
 function getTablePreviewDelimiterLabel(
 	delimiter: TablePreviewDelimiterValue,
@@ -75,6 +77,8 @@ function EditorField({
 	);
 }
 
+const TABLE_PREVIEW_DELIMITERS = ["auto", ",", "\t", ";", "|"] as const;
+
 export function PreviewAppEditorFields({
 	app,
 	index,
@@ -86,22 +90,88 @@ export function PreviewAppEditorFields({
 }: PreviewAppEditorFieldsProps) {
 	return (
 		<div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+			<PreviewAppIdentityFields
+				app={app}
+				index={index}
+				protectedBuiltin={protectedBuiltin}
+				t={t}
+				updateDraft={updateDraft}
+			/>
+			{!protectedBuiltin ? (
+				<PreviewAppProviderField
+					app={app}
+					index={index}
+					t={t}
+					updateApp={updateApp}
+				/>
+			) : null}
+			<PreviewAppLabelFields
+				app={app}
+				index={index}
+				t={t}
+				updateApp={updateApp}
+			/>
+			<PreviewAppExtensionsField
+				app={app}
+				index={index}
+				t={t}
+				updateApp={updateApp}
+			/>
+			{isTablePreviewAppKey(app.key) ? (
+				<TableDelimiterField
+					app={app}
+					index={index}
+					t={t}
+					updateApp={updateApp}
+				/>
+			) : null}
+			{isUrlTemplatePreviewApp(app) ? (
+				<UrlTemplateFields
+					app={app}
+					index={index}
+					onOpenUrlTemplateVariables={onOpenUrlTemplateVariables}
+					t={t}
+					updateApp={updateApp}
+				/>
+			) : null}
+			{isWopiPreviewApp(app) ? (
+				<WopiFields app={app} index={index} t={t} updateApp={updateApp} />
+			) : null}
+		</div>
+	);
+}
+
+interface PreviewAppFieldGroupProps {
+	app: PreviewAppsEditorApp;
+	index: number;
+	t: Translate;
+	updateApp: UpdateApp;
+}
+
+function PreviewAppIdentityFields({
+	app,
+	index,
+	protectedBuiltin,
+	t,
+	updateDraft,
+}: Omit<PreviewAppFieldGroupProps, "updateApp"> & {
+	protectedBuiltin: boolean;
+	updateDraft: UpdateDraft;
+}) {
+	return (
+		<>
 			<EditorField label={t("preview_apps_key_label")}>
 				<Input
 					disabled={protectedBuiltin}
 					value={app.key}
 					onChange={(event) => {
 						const nextKey = event.target.value;
-						updateDraft((current) => {
-							return {
-								...current,
-								apps: current.apps.map((candidate, appIndex) =>
-									appIndex === index
-										? { ...candidate, key: nextKey }
-										: candidate,
-								),
-							};
-						});
+						updateDraft((current) => ({
+							...current,
+							apps: current.apps.map((candidate, appIndex) =>
+								appIndex === index ? { ...candidate, key: nextKey } : candidate,
+							),
+						}));
 					}}
 				/>
 				{protectedBuiltin ? (
@@ -116,71 +186,82 @@ export function PreviewAppEditorFields({
 			>
 				<Input
 					value={app.icon}
-					onChange={(event) =>
-						updateApp(index, (current) => ({
+					onChange={(event) => {
+						const nextIcon = event.target.value;
+						updateDraft((current) => ({
 							...current,
-							icon: event.target.value,
-						}))
-					}
+							apps: current.apps.map((candidate, appIndex) =>
+								appIndex === index
+									? { ...candidate, icon: nextIcon }
+									: candidate,
+							),
+						}));
+					}}
 				/>
 			</EditorField>
-			{!protectedBuiltin ? (
-				<EditorField label={t("preview_apps_provider_label")}>
-					<Select
-						items={[
-							{
-								label: t("preview_apps_provider_url_template"),
-								value: "url_template",
-							},
-							{
-								label: t("preview_apps_provider_wopi"),
-								value: "wopi",
-							},
-							{
-								label: t("preview_apps_provider_native_preview"),
-								value: "native_preview",
-							},
-						]}
-						value={getPreviewAppProvider(app.provider) || "url_template"}
-						onValueChange={(provider) =>
-							updateApp(index, (current) => ({
-								...current,
-								provider:
-									provider === "wopi"
-										? "wopi"
-										: provider === "native_preview"
-											? "native_preview"
-											: "url_template",
-								config: {
-									...current.config,
-									mode:
-										typeof current.config.mode === "string"
-											? current.config.mode
-											: "iframe",
-								},
-							}))
-						}
-					>
-						<SelectTrigger
-							size="sm"
-							aria-label={t("preview_apps_provider_label")}
-						>
-							<SelectValue />
-						</SelectTrigger>
-						<SelectContent>
-							<SelectItem value="url_template">
-								{t("preview_apps_provider_url_template")}
-							</SelectItem>
-							<SelectItem value="wopi">
-								{t("preview_apps_provider_wopi")}
-							</SelectItem>
-							<SelectItem value="native_preview">
-								{t("preview_apps_provider_native_preview")}
-							</SelectItem>
-						</SelectContent>
-					</Select>
-				</EditorField>
-			) : null}
+		</>
+	);
+}
+
+function PreviewAppProviderField({
+	app,
+	index,
+	t,
+	updateApp,
+}: PreviewAppFieldGroupProps) {
+	const providerOptions = [
+		{
+			label: t("preview_apps_provider_url_template"),
+			value: "url_template",
+		},
+		{
+			label: t("preview_apps_provider_wopi"),
+			value: "wopi",
+		},
+	];
+
+	return (
+		<EditorField label={t("preview_apps_provider_label")}>
+			<Select
+				items={providerOptions}
+				value={getPreviewAppProvider(app.provider) || "url_template"}
+				onValueChange={(provider) =>
+					updateApp(index, (current) => ({
+						...current,
+						provider: provider === "wopi" ? "wopi" : "url_template",
+						config: {
+							...current.config,
+							mode:
+								typeof current.config.mode === "string"
+									? current.config.mode
+									: "iframe",
+						},
+					}))
+				}
+			>
+				<SelectTrigger size="sm" aria-label={t("preview_apps_provider_label")}>
+					<SelectValue />
+				</SelectTrigger>
+				<SelectContent>
+					{providerOptions.map((option) => (
+						<SelectItem key={option.value} value={option.value}>
+							{option.label}
+						</SelectItem>
+					))}
+				</SelectContent>
+			</Select>
+		</EditorField>
+	);
+}
+
+function PreviewAppLabelFields({
+	app,
+	index,
+	t,
+	updateApp,
+}: PreviewAppFieldGroupProps) {
+	return (
+		<>
 			<EditorField label={t("preview_apps_label_zh_label")}>
 				<Input
 					value={app.labels.zh ?? ""}
@@ -209,323 +290,305 @@ export function PreviewAppEditorFields({
 					}
 				/>
 			</EditorField>
+		</>
+	);
+}
+
+function PreviewAppExtensionsField({
+	app,
+	index,
+	t,
+	updateApp,
+}: PreviewAppFieldGroupProps) {
+	return (
+		<EditorField
+			className="md:col-span-2 xl:col-span-2"
+			label={t("preview_apps_matches_extensions")}
+			description={t("preview_apps_list_input_hint")}
+		>
+			<DelimitedListInput
+				placeholder={t("preview_apps_matches_extensions_placeholder")}
+				values={app.extensions}
+				formatValue={formatPreviewAppsDelimitedInput}
+				parseValue={parsePreviewAppsDelimitedInput}
+				onValueChange={(extensions) =>
+					updateApp(index, (current) => ({
+						...current,
+						extensions,
+					}))
+				}
+			/>
+		</EditorField>
+	);
+}
+
+function TableDelimiterField({
+	app,
+	index,
+	t,
+	updateApp,
+}: PreviewAppFieldGroupProps) {
+	const delimiterOptions = TABLE_PREVIEW_DELIMITERS.map((delimiter) => ({
+		label: getTablePreviewDelimiterLabel(delimiter, t),
+		value: delimiter,
+	}));
+
+	return (
+		<EditorField label={t("preview_apps_table_delimiter")}>
+			<Select
+				items={delimiterOptions}
+				value={normalizeTablePreviewDelimiter(app.config.delimiter)}
+				onValueChange={(delimiter) =>
+					updateApp(index, (current) => ({
+						...current,
+						config: {
+							...current.config,
+							delimiter: normalizeTablePreviewDelimiter(delimiter),
+						},
+					}))
+				}
+			>
+				<SelectTrigger size="sm" aria-label={t("preview_apps_table_delimiter")}>
+					<SelectValue />
+				</SelectTrigger>
+				<SelectContent>
+					{delimiterOptions.map((option) => (
+						<SelectItem key={option.value} value={option.value}>
+							{option.label}
+						</SelectItem>
+					))}
+				</SelectContent>
+			</Select>
+		</EditorField>
+	);
+}
+
+function UrlTemplateFields({
+	app,
+	index,
+	onOpenUrlTemplateVariables,
+	t,
+	updateApp,
+}: PreviewAppFieldGroupProps & {
+	onOpenUrlTemplateVariables: () => void;
+}) {
+	return (
+		<>
+			<PreviewModeField
+				ariaLabel={t("preview_apps_url_template_mode")}
+				index={index}
+				label={t("preview_apps_url_template_mode")}
+				options={[
+					{
+						label: t("preview_apps_url_template_mode_iframe"),
+						value: "iframe",
+					},
+					{
+						label: t("preview_apps_url_template_mode_new_tab"),
+						value: "new_tab",
+					},
+				]}
+				value={app.config.mode}
+				updateApp={updateApp}
+			/>
 			<EditorField
 				className="md:col-span-2 xl:col-span-2"
-				label={t("preview_apps_matches_extensions")}
-				description={t("preview_apps_list_input_hint")}
+				label={t("preview_apps_url_template_url")}
+				description={
+					<div className="space-y-2">
+						<p>{t("preview_apps_url_template_variables_hint")}</p>
+						<button
+							type="button"
+							className="w-fit text-left text-primary underline-offset-4 transition-colors hover:text-primary/80 hover:underline"
+							onClick={onOpenUrlTemplateVariables}
+						>
+							{t("preview_apps_url_template_variables_link")}
+						</button>
+					</div>
+				}
 			>
-				<DelimitedListInput
-					placeholder={t("preview_apps_matches_extensions_placeholder")}
-					values={app.extensions}
-					formatValue={formatPreviewAppsDelimitedInput}
-					parseValue={parsePreviewAppsDelimitedInput}
-					onValueChange={(extensions) =>
+				<Input
+					value={
+						typeof app.config.url_template === "string"
+							? app.config.url_template
+							: ""
+					}
+					onChange={(event) =>
 						updateApp(index, (current) => ({
 							...current,
-							extensions,
+							config: {
+								...current.config,
+								url_template: event.target.value,
+							},
 						}))
 					}
 				/>
 			</EditorField>
-			{isTablePreviewAppKey(app.key) ? (
-				<EditorField label={t("preview_apps_table_delimiter")}>
-					<Select
-						items={[
-							{
-								label: getTablePreviewDelimiterLabel("auto", t),
-								value: "auto",
+			<EditorField
+				className="md:col-span-2 xl:col-span-3"
+				label={t("preview_apps_url_template_allowed_origins")}
+			>
+				<DelimitedListInput
+					values={
+						Array.isArray(app.config.allowed_origins)
+							? app.config.allowed_origins.filter(
+									(value): value is string => typeof value === "string",
+								)
+							: []
+					}
+					formatValue={formatPreviewAppsDelimitedInput}
+					parseValue={parsePreviewAppsDelimitedInput}
+					onValueChange={(allowedOrigins) =>
+						updateApp(index, (current) => ({
+							...current,
+							config: {
+								...current.config,
+								allowed_origins: allowedOrigins,
 							},
-							{
-								label: getTablePreviewDelimiterLabel(",", t),
-								value: ",",
-							},
-							{
-								label: getTablePreviewDelimiterLabel("\t", t),
-								value: "\t",
-							},
-							{
-								label: getTablePreviewDelimiterLabel(";", t),
-								value: ";",
-							},
-							{
-								label: getTablePreviewDelimiterLabel("|", t),
-								value: "|",
-							},
-						]}
-						value={normalizeTablePreviewDelimiter(app.config.delimiter)}
-						onValueChange={(delimiter) =>
-							updateApp(index, (current) => ({
-								...current,
-								config: {
-									...current.config,
-									delimiter: normalizeTablePreviewDelimiter(delimiter),
-								},
-							}))
-						}
-					>
-						<SelectTrigger
-							size="sm"
-							aria-label={t("preview_apps_table_delimiter")}
-						>
-							<SelectValue />
-						</SelectTrigger>
-						<SelectContent>
-							{(["auto", ",", "\t", ";", "|"] as const).map((delimiter) => (
-								<SelectItem key={delimiter} value={delimiter}>
-									{getTablePreviewDelimiterLabel(delimiter, t)}
-								</SelectItem>
-							))}
-						</SelectContent>
-					</Select>
-				</EditorField>
-			) : null}
-			{isUrlTemplatePreviewApp(app) ? (
-				<>
-					<EditorField label={t("preview_apps_url_template_mode")}>
-						<Select
-							items={[
-								{
-									label: t("preview_apps_url_template_mode_iframe"),
-									value: "iframe",
-								},
-								{
-									label: t("preview_apps_url_template_mode_new_tab"),
-									value: "new_tab",
-								},
-							]}
-							value={
-								typeof app.config.mode === "string" ? app.config.mode : "iframe"
-							}
-							onValueChange={(mode) =>
-								updateApp(index, (current) => ({
-									...current,
-									config: {
-										...current.config,
-										mode: mode ?? "iframe",
-									},
-								}))
-							}
-						>
-							<SelectTrigger
-								size="sm"
-								aria-label={t("preview_apps_url_template_mode")}
-							>
-								<SelectValue />
-							</SelectTrigger>
-							<SelectContent>
-								<SelectItem value="iframe">
-									{t("preview_apps_url_template_mode_iframe")}
-								</SelectItem>
-								<SelectItem value="new_tab">
-									{t("preview_apps_url_template_mode_new_tab")}
-								</SelectItem>
-							</SelectContent>
-						</Select>
-					</EditorField>
-					<EditorField
-						className="md:col-span-2 xl:col-span-2"
-						label={t("preview_apps_url_template_url")}
-						description={
-							<div className="space-y-2">
-								<p>{t("preview_apps_url_template_variables_hint")}</p>
-								<button
-									type="button"
-									className="w-fit text-left text-primary underline-offset-4 transition-colors hover:text-primary/80 hover:underline"
-									onClick={onOpenUrlTemplateVariables}
-								>
-									{t("preview_apps_url_template_variables_link")}
-								</button>
-							</div>
-						}
-					>
-						<Input
-							value={
-								typeof app.config.url_template === "string"
-									? app.config.url_template
-									: ""
-							}
-							onChange={(event) =>
-								updateApp(index, (current) => ({
-									...current,
-									config: {
-										...current.config,
-										url_template: event.target.value,
-									},
-								}))
-							}
-						/>
-					</EditorField>
-					<EditorField
-						className="md:col-span-2 xl:col-span-3"
-						label={t("preview_apps_url_template_allowed_origins")}
-					>
-						<DelimitedListInput
-							values={
-								Array.isArray(app.config.allowed_origins)
-									? app.config.allowed_origins.filter(
-											(value): value is string => typeof value === "string",
-										)
-									: []
-							}
-							formatValue={formatPreviewAppsDelimitedInput}
-							parseValue={parsePreviewAppsDelimitedInput}
-							onValueChange={(allowedOrigins) =>
-								updateApp(index, (current) => ({
-									...current,
-									config: {
-										...current.config,
-										allowed_origins: allowedOrigins,
-									},
-								}))
-							}
-						/>
-					</EditorField>
-				</>
-			) : null}
-			{isWopiPreviewApp(app) ? (
-				<>
-					<EditorField
-						label={t("preview_apps_wopi_mode")}
-						description={t("preview_apps_wopi_mode_desc")}
-					>
-						<Select
-							items={[
-								{
-									label: t("preview_apps_wopi_mode_iframe"),
-									value: "iframe",
-								},
-								{
-									label: t("preview_apps_wopi_mode_new_tab"),
-									value: "new_tab",
-								},
-							]}
-							value={
-								typeof app.config.mode === "string" ? app.config.mode : "iframe"
-							}
-							onValueChange={(mode) =>
-								updateApp(index, (current) => ({
-									...current,
-									config: {
-										...current.config,
-										mode: mode ?? "iframe",
-									},
-								}))
-							}
-						>
-							<SelectTrigger size="sm" aria-label={t("preview_apps_wopi_mode")}>
-								<SelectValue />
-							</SelectTrigger>
-							<SelectContent>
-								<SelectItem value="iframe">
-									{t("preview_apps_wopi_mode_iframe")}
-								</SelectItem>
-								<SelectItem value="new_tab">
-									{t("preview_apps_wopi_mode_new_tab")}
-								</SelectItem>
-							</SelectContent>
-						</Select>
-					</EditorField>
-					<EditorField
-						className="md:col-span-2 xl:col-span-2"
-						label={t("preview_apps_wopi_action_url")}
-						description={t("preview_apps_wopi_action_url_desc")}
-					>
-						<Input
-							value={
-								typeof app.config.action_url === "string"
-									? app.config.action_url
-									: ""
-							}
-							onChange={(event) =>
-								updateApp(index, (current) => ({
-									...current,
-									config: {
-										...current.config,
-										action_url: event.target.value,
-									},
-								}))
-							}
-						/>
-					</EditorField>
-					<EditorField
-						className="md:col-span-2 xl:col-span-2"
-						label={t("preview_apps_wopi_discovery_url")}
-						description={t("preview_apps_wopi_discovery_url_desc")}
-					>
-						<Input
-							value={
-								typeof app.config.discovery_url === "string"
-									? app.config.discovery_url
-									: ""
-							}
-							onChange={(event) =>
-								updateApp(index, (current) => ({
-									...current,
-									config: {
-										...current.config,
-										discovery_url: event.target.value,
-									},
-								}))
-							}
-						/>
-					</EditorField>
-					<EditorField
-						className="md:col-span-2 xl:col-span-2"
-						label={t("preview_apps_wopi_hint_title")}
-						description={t("preview_apps_wopi_hint_desc")}
-					>
-						<div className="rounded-xl border border-border/50 bg-muted/20 px-3 py-2 text-sm text-muted-foreground">
-							{t("preview_apps_wopi_hint_body")}
-						</div>
-					</EditorField>
-				</>
-			) : null}
-			{isNativePreviewApp(app) ? (
-				<EditorField
-					label={t("preview_apps_native_preview_mode")}
-					description={t("preview_apps_native_preview_mode_desc")}
-				>
-					<Select
-						items={[
-							{
-								label: t("preview_apps_native_preview_mode_iframe"),
-								value: "iframe",
-							},
-							{
-								label: t("preview_apps_native_preview_mode_new_tab"),
-								value: "new_tab",
-							},
-						]}
-						value={
-							typeof app.config.mode === "string" ? app.config.mode : "iframe"
-						}
-						onValueChange={(mode) =>
-							updateApp(index, (current) => ({
-								...current,
-								config: {
-									...current.config,
-									mode: mode ?? "iframe",
-								},
-							}))
-						}
-					>
-						<SelectTrigger
-							size="sm"
-							aria-label={t("preview_apps_native_preview_mode")}
-						>
-							<SelectValue />
-						</SelectTrigger>
-						<SelectContent>
-							<SelectItem value="iframe">
-								{t("preview_apps_native_preview_mode_iframe")}
-							</SelectItem>
-							<SelectItem value="new_tab">
-								{t("preview_apps_native_preview_mode_new_tab")}
-							</SelectItem>
-						</SelectContent>
-					</Select>
-				</EditorField>
-			) : null}
-		</div>
+						}))
+					}
+				/>
+			</EditorField>
+		</>
+	);
+}
+
+function WopiFields({ app, index, t, updateApp }: PreviewAppFieldGroupProps) {
+	return (
+		<>
+			<PreviewModeField
+				ariaLabel={t("preview_apps_wopi_mode")}
+				description={t("preview_apps_wopi_mode_desc")}
+				index={index}
+				label={t("preview_apps_wopi_mode")}
+				options={[
+					{
+						label: t("preview_apps_wopi_mode_iframe"),
+						value: "iframe",
+					},
+					{
+						label: t("preview_apps_wopi_mode_new_tab"),
+						value: "new_tab",
+					},
+				]}
+				value={app.config.mode}
+				updateApp={updateApp}
+			/>
+			<ConfigTextField
+				app={app}
+				configKey="action_url"
+				description={t("preview_apps_wopi_action_url_desc")}
+				index={index}
+				label={t("preview_apps_wopi_action_url")}
+				updateApp={updateApp}
+			/>
+			<ConfigTextField
+				app={app}
+				configKey="discovery_url"
+				description={t("preview_apps_wopi_discovery_url_desc")}
+				index={index}
+				label={t("preview_apps_wopi_discovery_url")}
+				updateApp={updateApp}
+			/>
+			<EditorField
+				className="md:col-span-2 xl:col-span-2"
+				label={t("preview_apps_wopi_hint_title")}
+				description={t("preview_apps_wopi_hint_desc")}
+			>
+				<div className="rounded-xl border border-border/50 bg-muted/20 px-3 py-2 text-sm text-muted-foreground">
+					{t("preview_apps_wopi_hint_body")}
+				</div>
+			</EditorField>
+		</>
+	);
+}
+
+interface PreviewModeFieldProps {
+	ariaLabel: string;
+	description?: ReactNode;
+	index: number;
+	label: string;
+	options: { label: string; value: string }[];
+	value: unknown;
+	updateApp: UpdateApp;
+}
+
+function PreviewModeField({
+	ariaLabel,
+	description,
+	index,
+	label,
+	options,
+	value,
+	updateApp,
+}: PreviewModeFieldProps) {
+	return (
+		<EditorField label={label} description={description}>
+			<Select
+				items={options}
+				value={typeof value === "string" ? value : "iframe"}
+				onValueChange={(mode) =>
+					updateApp(index, (current) => ({
+						...current,
+						config: {
+							...current.config,
+							mode: mode ?? "iframe",
+						},
+					}))
+				}
+			>
+				<SelectTrigger size="sm" aria-label={ariaLabel}>
+					<SelectValue />
+				</SelectTrigger>
+				<SelectContent>
+					{options.map((option) => (
+						<SelectItem key={option.value} value={option.value}>
+							{option.label}
+						</SelectItem>
+					))}
+				</SelectContent>
+			</Select>
+		</EditorField>
+	);
+}
+
+interface ConfigTextFieldProps {
+	app: PreviewAppsEditorApp;
+	configKey: "action_url" | "discovery_url";
+	description: string;
+	index: number;
+	label: string;
+	updateApp: UpdateApp;
+}
+
+function ConfigTextField({
+	app,
+	configKey,
+	description,
+	index,
+	label,
+	updateApp,
+}: ConfigTextFieldProps) {
+	return (
+		<EditorField
+			className="md:col-span-2 xl:col-span-2"
+			label={label}
+			description={description}
+		>
+			<Input
+				value={
+					typeof app.config[configKey] === "string" ? app.config[configKey] : ""
+				}
+				onChange={(event) =>
+					updateApp(index, (current) => ({
+						...current,
+						config: {
+							...current.config,
+							[configKey]: event.target.value,
+						},
+					}))
+				}
+			/>
+		</EditorField>
 	);
 }

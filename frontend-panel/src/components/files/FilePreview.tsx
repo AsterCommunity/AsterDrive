@@ -5,7 +5,6 @@ import type {
 	ArchivePreviewManifest,
 	FileInfo,
 	FileListItem,
-	NativePreviewSession,
 	PreviewLinkInfo,
 	ShareStreamSessionInfo,
 	WopiLaunchSession,
@@ -28,9 +27,6 @@ interface FilePreviewProps {
 	loadMusicBackendMetadata?: MusicPlayerTrack["loadBackendMetadata"];
 	mediaStreamLinkFactory?: () => Promise<ShareStreamSessionInfo>;
 	wopiSessionFactory?: (appKey: string) => Promise<WopiLaunchSession>;
-	nativePreviewSessionFactory?: (
-		appKey: string,
-	) => Promise<NativePreviewSession>;
 	open?: boolean;
 	openMode?: "auto" | "direct" | "picker";
 }
@@ -49,7 +45,6 @@ export function FilePreview({
 	loadMusicBackendMetadata,
 	mediaStreamLinkFactory,
 	wopiSessionFactory,
-	nativePreviewSessionFactory,
 	open = true,
 	openMode,
 }: FilePreviewProps) {
@@ -69,7 +64,6 @@ export function FilePreview({
 			loadMusicBackendMetadata={loadMusicBackendMetadata}
 			mediaStreamLinkFactory={mediaStreamLinkFactory}
 			wopiSessionFactory={wopiSessionFactory}
-			nativePreviewSessionFactory={nativePreviewSessionFactory}
 			openMode={openMode}
 		/>
 	);

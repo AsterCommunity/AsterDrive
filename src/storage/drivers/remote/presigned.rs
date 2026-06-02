@@ -3,9 +3,9 @@ use std::time::Duration;
 use async_trait::async_trait;
 
 use crate::errors::Result;
-use crate::storage::driver::PresignedDownloadOptions;
 use crate::storage::error::{StorageErrorKind, storage_driver_error};
-use crate::storage::extensions::PresignedStorageDriver;
+use crate::storage::traits::driver::PresignedDownloadOptions;
+use crate::storage::traits::extensions::PresignedStorageDriver;
 
 use super::RemoteDriver;
 

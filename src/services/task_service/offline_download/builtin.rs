@@ -7,6 +7,7 @@ use tokio::io::AsyncWriteExt;
 
 use crate::errors::{AsterError, MapAsterErr, Result};
 use crate::runtime::PrimaryAppState;
+use crate::services::task_service::types::TaskStepInfo;
 use crate::utils::numbers::usize_to_i64;
 
 use super::super::steps::{TASK_STEP_DOWNLOAD_SOURCE, set_task_step_active};
@@ -39,7 +40,7 @@ impl OfflineDownloadEngine for BuiltinHttpOfflineDownloadEngine {
         state: &PrimaryAppState,
         context: &TaskExecutionContext,
         request: OfflineDownloadStartRequest,
-        steps: &mut [super::super::TaskStepInfo],
+        steps: &mut [TaskStepInfo],
     ) -> Result<OfflineDownloadComplete> {
         let lease_guard = context.lease_guard();
         let resolved = resolve_source_host(&request.url).await?;

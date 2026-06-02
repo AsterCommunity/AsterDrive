@@ -15,7 +15,7 @@ use crate::errors::{AsterError, MapAsterErr, Result};
 use crate::runtime::PrimaryAppState;
 use crate::services::{
     audit_service, profile_service,
-    task_service::{RuntimeSystemHealthStatus, SystemRuntimeTaskKind},
+    task_service::{SystemRuntimeTaskKind, types::RuntimeSystemHealthStatus},
     user_service,
 };
 use crate::types::{BackgroundTaskKind, BackgroundTaskStatus, UserStatus};
@@ -102,7 +102,7 @@ pub struct AdminBackgroundTaskEvent {
     pub team_id: Option<i64>,
     pub status_text: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub presentation: Option<crate::services::task_service::TaskPresentation>,
+    pub presentation: Option<crate::services::task_service::types::TaskPresentation>,
     pub last_error: Option<String>,
     #[cfg_attr(all(debug_assertions, feature = "openapi"), schema(value_type = String))]
     pub created_at: DateTimeUtc,
@@ -236,7 +236,7 @@ pub async fn get_overview(
         file_repo::sum_blob_bytes(state.reader_db()),
         share_repo::count_all(state.reader_db()),
         build_daily_reports(state, today, days, timezone),
-        crate::services::task_service::find_latest_system_runtime_by_task_name(
+        crate::services::task_service::runtime::find_latest_system_runtime_by_task_name(
             state,
             SystemRuntimeTaskKind::SystemHealthCheck,
         ),
@@ -439,7 +439,7 @@ fn build_system_health_summary(
 
 fn parse_runtime_task_result(
     task: &crate::entities::background_task::Model,
-) -> Option<crate::services::task_service::RuntimeTaskResult> {
+) -> Option<crate::services::task_service::types::RuntimeTaskResult> {
     let raw = task.result_json.as_ref()?;
     match serde_json::from_str(raw.as_ref()) {
         Ok(result) => Some(result),

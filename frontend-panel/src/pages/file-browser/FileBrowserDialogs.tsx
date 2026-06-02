@@ -158,12 +158,6 @@ export function FileBrowserDialogs({
 					wopiSessionFactory={(appKey) =>
 						fileService.createWopiSession(retainedPreviewState.file.id, appKey)
 					}
-					nativePreviewSessionFactory={(appKey) =>
-						fileService.createNativePreviewSession(
-							retainedPreviewState.file.id,
-							appKey,
-						)
-					}
 				/>
 			) : null}
 

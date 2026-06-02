@@ -3,12 +3,12 @@ use aws_sdk_s3::primitives::ByteStream;
 use tokio::io::AsyncRead;
 
 use crate::errors::{MapAsterErr, Result};
-use crate::storage::driver::{BlobMetadata, StorageDriver};
 use crate::storage::error::{StorageErrorKind, storage_driver_error};
-use crate::storage::extensions::{
+use crate::storage::traits::driver::{BlobMetadata, StorageDriver};
+use crate::storage::traits::extensions::{
     ListStorageDriver, PresignedStorageDriver, StorageCapacityInfo, StreamUploadDriver,
 };
-use crate::storage::multipart::MultipartStorageDriver;
+use crate::storage::traits::multipart::MultipartStorageDriver;
 use crate::utils::numbers;
 
 use super::S3Driver;

@@ -3,8 +3,8 @@
 #[macro_use]
 mod common;
 
-use aster_drive::storage::driver::{PresignedDownloadOptions, StorageDriver};
 use aster_drive::storage::drivers::s3::S3Driver;
+use aster_drive::storage::{PresignedDownloadOptions, StorageDriver};
 use aster_drive::storage::{PresignedStorageDriver, StreamUploadDriver};
 use testcontainers::{GenericImage, ImageExt, runners::AsyncRunner};
 

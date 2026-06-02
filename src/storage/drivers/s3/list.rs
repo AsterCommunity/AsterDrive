@@ -1,7 +1,7 @@
 use async_trait::async_trait;
 
 use crate::errors::Result;
-use crate::storage::extensions::ListStorageDriver;
+use crate::storage::traits::extensions::ListStorageDriver;
 
 use super::S3Driver;
 
@@ -55,7 +55,7 @@ impl ListStorageDriver for S3Driver {
     async fn scan_paths(
         &self,
         prefix: Option<&str>,
-        visitor: &mut dyn crate::storage::driver::StoragePathVisitor,
+        visitor: &mut dyn crate::storage::traits::driver::StoragePathVisitor,
     ) -> Result<()> {
         let full_prefix = prefix
             .map(|prefix| self.full_key(prefix))

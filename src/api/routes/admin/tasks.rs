@@ -18,7 +18,7 @@ use actix_web::{HttpRequest, HttpResponse, web};
     operation_id = "admin_list_tasks",
     params(LimitOffsetQuery, AdminTaskListQuery),
     responses(
-        (status = 200, description = "All background tasks", body = inline(ApiResponse<OffsetPage<task_service::TaskInfo>>)),
+        (status = 200, description = "All background tasks", body = inline(ApiResponse<OffsetPage<task_service::types::TaskInfo>>)),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
         (status = 403, description = "Forbidden"),
     ),

@@ -10,7 +10,7 @@ use crate::services::upload_service::shared::{
     cleanup_upload_temp_dir, run_upload_completion_stage,
 };
 use crate::services::workspace_storage_service::{self, PreparedNonDedupBlobUpload};
-use crate::storage::driver::StorageDriver;
+use crate::storage::StorageDriver;
 use crate::types::{DriverType, UploadSessionStatus};
 use crate::utils::numbers::usize_to_i64;
 use crate::utils::paths;

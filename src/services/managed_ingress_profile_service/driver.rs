@@ -4,7 +4,7 @@ use std::sync::Arc;
 use crate::entities::{managed_ingress_profile, storage_policy};
 use crate::errors::{AsterError, MapAsterErr, Result};
 use crate::runtime::FollowerRuntimeState;
-use crate::storage::driver::StorageDriver;
+use crate::storage::StorageDriver;
 use crate::storage::drivers::{local::LocalDriver, s3::S3Driver};
 use crate::types::{DriverType, StoredStoragePolicyAllowedTypes, StoredStoragePolicyOptions};
 
@@ -65,10 +65,9 @@ fn managed_ingress_unsupported_driver_error(driver_type: DriverType) -> AsterErr
     AsterError::validation_error(format!(
         "managed ingress profiles do not support the {} driver",
         match driver_type {
-            DriverType::Local => "local",
-            DriverType::S3 => "s3",
             DriverType::TencentCos => "tencent_cos",
             DriverType::Remote => "remote",
+            other => other.as_str(),
         }
     ))
 }

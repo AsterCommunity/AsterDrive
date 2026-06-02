@@ -1,6 +1,13 @@
 //! 认证 API 路由聚合入口。
 
-pub use crate::api::dto::auth::*;
+pub use crate::api::dto::auth::{
+    ActionMessageResp, AuthTokenResp, ChangePasswordReq, CheckResp,
+    ContactVerificationConfirmQuery, LoginReq, LoginResponse, MeQuery, PasskeyLoginFinishReq,
+    PasskeyLoginStartReq, PasskeyRegisterFinishReq, PasskeyRegisterStartReq,
+    PasswordResetConfirmReq, PasswordResetRequestReq, PatchPasskeyReq, RegisterReq,
+    RequestEmailChangeReq, ResendRegisterActivationReq, SetupReq, UpdateAvatarSourceReq,
+    UpdateProfileReq,
+};
 use crate::api::middleware::auth::JwtAuth;
 use crate::api::middleware::rate_limit;
 use crate::api::request_auth::access_token;

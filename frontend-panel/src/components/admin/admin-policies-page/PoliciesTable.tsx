@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import {
 	ADMIN_INTERACTIVE_TABLE_ROW_CLASS,
@@ -50,6 +51,68 @@ export function PoliciesTable({
 	sortOrder,
 }: PoliciesTableProps) {
 	const { t } = useTranslation("admin");
+	const headerRow = useMemo(
+		() => (
+			<TableHeader>
+				<TableRow>
+					<AdminSortableTableHead
+						className="w-16"
+						sortKey="id"
+						sortBy={sortBy}
+						sortOrder={sortOrder}
+						onSortChange={onSortChange}
+					>
+						{t("id")}
+					</AdminSortableTableHead>
+					<AdminSortableTableHead
+						sortKey="name"
+						sortBy={sortBy}
+						sortOrder={sortOrder}
+						onSortChange={onSortChange}
+					>
+						{t("core:name")}
+					</AdminSortableTableHead>
+					<AdminSortableTableHead
+						sortKey="driver_type"
+						sortBy={sortBy}
+						sortOrder={sortOrder}
+						onSortChange={onSortChange}
+					>
+						{t("driver_type")}
+					</AdminSortableTableHead>
+					<AdminSortableTableHead
+						sortKey="endpoint"
+						sortBy={sortBy}
+						sortOrder={sortOrder}
+						onSortChange={onSortChange}
+					>
+						{t("endpoint_path")}
+					</AdminSortableTableHead>
+					<AdminSortableTableHead
+						sortKey="bucket"
+						sortBy={sortBy}
+						sortOrder={sortOrder}
+						onSortChange={onSortChange}
+					>
+						{t("bucket")}
+					</AdminSortableTableHead>
+					<AdminSortableTableHead
+						className="w-20"
+						sortKey="is_default"
+						sortBy={sortBy}
+						sortOrder={sortOrder}
+						onSortChange={onSortChange}
+					>
+						{t("is_default")}
+					</AdminSortableTableHead>
+					<TableHead className={ADMIN_TABLE_ACTIONS_WIDTH_CLASS}>
+						{t("core:actions")}
+					</TableHead>
+				</TableRow>
+			</TableHeader>
+		),
+		[onSortChange, sortBy, sortOrder, t],
+	);
 
 	return (
 		<AdminTableList
@@ -59,65 +122,7 @@ export function PoliciesTable({
 			rows={6}
 			emptyTitle={t("no_policies")}
 			emptyDescription={t("no_policies_desc")}
-			headerRow={
-				<TableHeader>
-					<TableRow>
-						<AdminSortableTableHead
-							className="w-16"
-							sortKey="id"
-							sortBy={sortBy}
-							sortOrder={sortOrder}
-							onSortChange={onSortChange}
-						>
-							{t("id")}
-						</AdminSortableTableHead>
-						<AdminSortableTableHead
-							sortKey="name"
-							sortBy={sortBy}
-							sortOrder={sortOrder}
-							onSortChange={onSortChange}
-						>
-							{t("core:name")}
-						</AdminSortableTableHead>
-						<AdminSortableTableHead
-							sortKey="driver_type"
-							sortBy={sortBy}
-							sortOrder={sortOrder}
-							onSortChange={onSortChange}
-						>
-							{t("driver_type")}
-						</AdminSortableTableHead>
-						<AdminSortableTableHead
-							sortKey="endpoint"
-							sortBy={sortBy}
-							sortOrder={sortOrder}
-							onSortChange={onSortChange}
-						>
-							{t("endpoint_path")}
-						</AdminSortableTableHead>
-						<AdminSortableTableHead
-							sortKey="bucket"
-							sortBy={sortBy}
-							sortOrder={sortOrder}
-							onSortChange={onSortChange}
-						>
-							{t("bucket")}
-						</AdminSortableTableHead>
-						<AdminSortableTableHead
-							className="w-20"
-							sortKey="is_default"
-							sortBy={sortBy}
-							sortOrder={sortOrder}
-							onSortChange={onSortChange}
-						>
-							{t("is_default")}
-						</AdminSortableTableHead>
-						<TableHead className={ADMIN_TABLE_ACTIONS_WIDTH_CLASS}>
-							{t("core:actions")}
-						</TableHead>
-					</TableRow>
-				</TableHeader>
-			}
+			headerRow={headerRow}
 			renderRow={(policy) => {
 				const isDeleting = deletingPolicyId === policy.id;
 				const deleteLabel = isDeleting

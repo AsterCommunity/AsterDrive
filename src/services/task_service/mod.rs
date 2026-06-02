@@ -20,23 +20,31 @@
 //! 这样做是为了避免同一种任务同时存在“强类型路径”和“手写 JSON/ActiveModel 路径”。
 //! 如果绕过这些入口，后续很容易出现 payload 缺字段、steps 不一致、max attempts
 //! 和 dispatcher 行为分叉的问题。
+//!
+//! ## 导出约定
+//!
+//! 根模块只保留任务查询/重试、dispatcher、system runtime 这类稳定服务入口。
+//! payload/result/列表 DTO 统一从 `task_service::types` 导入；各任务族的创建入口
+//! 从对应子模块导入，例如 `task_service::archive`、`task_service::thumbnail`、
+//! `task_service::storage_migration`。不要把新的任务类型或内部 helper 继续 re-export
+//! 到根模块。
 
-mod archive;
-mod blob_maintenance;
-mod dispatch;
-mod media_metadata;
-mod offline_download;
+pub(crate) mod archive;
+pub(crate) mod blob_maintenance;
+pub(crate) mod dispatch;
+pub(crate) mod media_metadata;
+pub(crate) mod offline_download;
 mod presentation;
 mod registry;
 mod retry;
-mod runtime;
+pub(crate) mod runtime;
 mod spec;
 mod steps;
-mod storage_migration;
-mod storage_policy_cleanup;
-mod thumbnail;
-mod trash;
-mod types;
+pub(crate) mod storage_migration;
+pub(crate) mod storage_policy_cleanup;
+pub(crate) mod thumbnail;
+pub(crate) mod trash;
+pub mod types;
 
 use chrono::{Duration, Utc};
 use parking_lot::Mutex;
@@ -61,45 +69,12 @@ use crate::services::{
 use crate::types::{BackgroundTaskKind, BackgroundTaskStatus, StoredTaskResult, StoredTaskSteps};
 use crate::utils::numbers::{i64_to_i32, i64_to_u64};
 
-pub(crate) use archive::ensure_archive_preview_task;
-pub(crate) use archive::{
-    create_archive_compress_task_in_scope, create_archive_extract_task_in_scope,
-    prepare_archive_download_in_scope, stream_archive_download_in_scope,
-};
-pub(crate) use blob_maintenance::create_blob_maintenance_task_for_admin;
-pub(crate) use dispatch::dispatch_due_with_shutdown;
 pub use dispatch::{DispatchStats, cleanup_expired, dispatch_due, drain};
-pub(crate) use media_metadata::ensure_media_metadata_task;
-pub(crate) use offline_download::{
-    ProbeAria2RpcInput, create_offline_download_task_in_scope, probe_aria2_rpc,
-};
 use registry::{build_task_presentation, decode_task_payload, decode_task_result};
-pub(crate) use runtime::find_latest_system_runtime_by_task_name;
 pub use runtime::{RuntimeTaskRunOutcome, SystemRuntimeTaskKind, record_runtime_task_run};
 use spec::BackgroundTaskSpec;
 use steps::{parse_task_steps_json, serialize_task_steps};
-pub(crate) use storage_migration::{
-    CreateStoragePolicyMigrationInput, create_storage_policy_migration_task,
-    dry_run_storage_policy_migration, resume_storage_policy_migration_for_admin,
-};
-pub(crate) use storage_policy_cleanup::create_storage_policy_temp_cleanup_task;
-pub(crate) use thumbnail::ensure_thumbnail_task;
-pub(crate) use trash::create_trash_purge_all_task_in_scope;
-pub use types::{
-    ArchiveCompressTaskPayload, ArchiveCompressTaskResult, ArchiveExtractTaskPayload,
-    ArchiveExtractTaskResult, ArchivePreviewTaskPayload, ArchivePreviewTaskResult,
-    BlobMaintenanceAction, BlobMaintenanceTaskPayload, BlobMaintenanceTaskResult,
-    CreateArchiveCompressTaskParams, CreateArchiveExtractTaskParams, CreateArchiveTaskParams,
-    CreateOfflineDownloadTaskParams, MediaMetadataExtractTaskPayload,
-    MediaMetadataExtractTaskResult, OfflineDownloadTaskPayload, OfflineDownloadTaskPayloadInfo,
-    OfflineDownloadTaskResult, RuntimeSystemHealthComponent, RuntimeSystemHealthResult,
-    RuntimeSystemHealthStatus, RuntimeTaskName, RuntimeTaskPayload, RuntimeTaskResult,
-    StoragePolicyMigrationCapacityCheck, StoragePolicyMigrationDryRun,
-    StoragePolicyMigrationTaskPayload, StoragePolicyMigrationTaskResult, TaskInfo, TaskPayload,
-    TaskPresentation, TaskPresentationCode, TaskPresentationMessage, TaskResult, TaskStepInfo,
-    TaskStepStatus, ThumbnailGenerateTaskPayload, ThumbnailGenerateTaskResult,
-    TrashPurgeAllTaskPayload, TrashPurgeAllTaskResult,
-};
+use types::{TaskInfo, TaskPresentation, TaskResult, TaskStepInfo};
 
 pub(super) const DEFAULT_TASK_RETENTION_HOURS: i64 = 24;
 pub(super) const TASK_HEARTBEAT_INTERVAL_SECS: u64 = 10;
@@ -1231,7 +1206,7 @@ mod tests {
     use crate::config::operations::OfflineDownloadEngine;
     use crate::entities::background_task;
     use crate::services::task_service::spec::{self, SystemRuntimeTask};
-    use crate::services::task_service::{
+    use crate::services::task_service::types::{
         RuntimeSystemHealthComponent, RuntimeSystemHealthResult, RuntimeSystemHealthStatus,
         RuntimeTaskResult, TaskPresentationCode, TaskResult,
     };
@@ -1933,7 +1908,7 @@ mod tests {
     fn typed_task_create_truncates_status_text_and_last_error() {
         let long_status_text = "s".repeat(TASK_STATUS_TEXT_MAX_LEN + 7);
         let long_error = "e".repeat(TASK_LAST_ERROR_MAX_LEN + 7);
-        let payload = crate::services::task_service::ThumbnailGenerateTaskPayload {
+        let payload = crate::services::task_service::types::ThumbnailGenerateTaskPayload {
             blob_id: 42,
             blob_hash: "hash-42".to_string(),
             source_file_name: "image.png".to_string(),

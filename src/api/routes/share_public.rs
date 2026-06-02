@@ -1,6 +1,6 @@
 //! API 路由：`share_public`。
 
-use crate::api::dto::files::{ArchivePreviewQuery, OpenNativePreviewRequest};
+use crate::api::dto::files::ArchivePreviewQuery;
 use crate::api::dto::share_public::DirectLinkQuery;
 pub use crate::api::dto::share_public::VerifyPasswordReq;
 use crate::api::middleware::rate_limit;
@@ -14,8 +14,7 @@ use crate::runtime::PrimaryAppState;
 use crate::services::file_service::ResolvedDownloadRange;
 use crate::services::{
     archive_preview_service, direct_link_service, file_service, media_metadata_service,
-    native_preview_service, preview_link_service, profile_service, share_service,
-    share_stream_service,
+    preview_link_service, profile_service, share_service, share_stream_service,
 };
 use actix_governor::Governor;
 use actix_web::http::header;
@@ -124,10 +123,6 @@ pub fn routes(
                 .route(web::post().to(verify_password)),
         )
         .route("/{token}/preview-link", web::post().to(create_preview_link))
-        .route(
-            "/{token}/native-preview/open",
-            web::post().to(open_native_preview),
-        )
         .route("/{token}/archive-preview", web::get().to(archive_preview))
         .route("/{token}/download", web::get().to(download_shared))
         .route(
@@ -137,10 +132,6 @@ pub fn routes(
         .route(
             "/{token}/files/{file_id}/preview-link",
             web::post().to(create_folder_file_preview_link),
-        )
-        .route(
-            "/{token}/files/{file_id}/native-preview/open",
-            web::post().to(open_folder_file_native_preview),
         )
         .route(
             "/{token}/files/{file_id}/archive-preview",
@@ -285,35 +276,6 @@ pub async fn create_preview_link(
     )
     .await?;
     Ok(HttpResponse::Ok().json(ApiResponse::ok(link)))
-}
-
-#[api_docs_macros::path(
-    post,
-    path = "/api/v1/s/{token}/native-preview/open",
-    tag = "shares",
-    operation_id = "open_shared_file_with_native_preview",
-    params(("token" = String, Path, description = "Share token")),
-    request_body = OpenNativePreviewRequest,
-    responses(
-        (status = 200, description = "Storage-native preview session", body = inline(ApiResponse<native_preview_service::NativePreviewSession>)),
-        (status = 400, description = "Native preview unsupported for this file or policy"),
-        (status = 403, description = "Password required or download limit"),
-        (status = 404, description = "Share not found"),
-    ),
-)]
-pub async fn open_native_preview(
-    state: web::Data<PrimaryAppState>,
-    path: web::Path<String>,
-    req: actix_web::HttpRequest,
-    body: web::Json<OpenNativePreviewRequest>,
-) -> Result<HttpResponse> {
-    let token = path.into_inner();
-    let cookie_value = share_cookie_value(&req, &token);
-    share_service::check_share_password_cookie(&state, &token, cookie_value.as_deref()).await?;
-
-    let session =
-        native_preview_service::create_for_shared_file(&state, &token, &body.app_key).await?;
-    Ok(HttpResponse::Ok().json(ApiResponse::ok(session)))
 }
 
 #[api_docs_macros::path(
@@ -615,43 +577,6 @@ pub async fn create_folder_file_preview_link(
     )
     .await?;
     Ok(HttpResponse::Ok().json(ApiResponse::ok(link)))
-}
-
-#[api_docs_macros::path(
-    post,
-    path = "/api/v1/s/{token}/files/{file_id}/native-preview/open",
-    tag = "shares",
-    operation_id = "open_shared_folder_file_with_native_preview",
-    params(
-        ("token" = String, Path, description = "Share token"),
-        ("file_id" = i64, Path, description = "File ID inside shared folder")
-    ),
-    request_body = OpenNativePreviewRequest,
-    responses(
-        (status = 200, description = "Storage-native preview session", body = inline(ApiResponse<native_preview_service::NativePreviewSession>)),
-        (status = 400, description = "Native preview unsupported for this file or policy"),
-        (status = 403, description = "Password required or file outside shared folder"),
-        (status = 404, description = "Share or file not found"),
-    )
-)]
-pub async fn open_folder_file_native_preview(
-    state: web::Data<PrimaryAppState>,
-    path: web::Path<(String, i64)>,
-    req: actix_web::HttpRequest,
-    body: web::Json<OpenNativePreviewRequest>,
-) -> Result<HttpResponse> {
-    let (token, file_id) = path.into_inner();
-    let cookie_value = share_cookie_value(&req, &token);
-    share_service::check_share_password_cookie(&state, &token, cookie_value.as_deref()).await?;
-
-    let session = native_preview_service::create_for_shared_folder_file(
-        &state,
-        &token,
-        file_id,
-        &body.app_key,
-    )
-    .await?;
-    Ok(HttpResponse::Ok().json(ApiResponse::ok(session)))
 }
 
 #[api_docs_macros::path(

@@ -16,7 +16,7 @@ use actix_web::{HttpResponse, web};
     operation_id = "create_storage_policy_migration",
     request_body = CreateStoragePolicyMigrationReq,
     responses(
-        (status = 200, description = "Storage policy migration task created", body = inline(ApiResponse<task_service::TaskInfo>)),
+        (status = 200, description = "Storage policy migration task created", body = inline(ApiResponse<task_service::types::TaskInfo>)),
         (status = 400, description = "Validation error"),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
         (status = 403, description = "Forbidden"),
@@ -29,9 +29,9 @@ pub async fn create_storage_policy_migration(
     body: web::Json<CreateStoragePolicyMigrationReq>,
 ) -> Result<HttpResponse> {
     validate_request(&*body)?;
-    let task = task_service::create_storage_policy_migration_task(
+    let task = task_service::storage_migration::create_storage_policy_migration_task(
         &state,
-        task_service::CreateStoragePolicyMigrationInput {
+        task_service::storage_migration::CreateStoragePolicyMigrationInput {
             source_policy_id: body.source_policy_id,
             target_policy_id: body.target_policy_id,
             delete_source_after_success: body.delete_source_after_success,
@@ -49,7 +49,7 @@ pub async fn create_storage_policy_migration(
     operation_id = "dry_run_storage_policy_migration",
     request_body = DryRunStoragePolicyMigrationReq,
     responses(
-        (status = 200, description = "Storage policy migration preflight", body = inline(ApiResponse<task_service::StoragePolicyMigrationDryRun>)),
+        (status = 200, description = "Storage policy migration preflight", body = inline(ApiResponse<task_service::types::StoragePolicyMigrationDryRun>)),
         (status = 400, description = "Validation error"),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
         (status = 403, description = "Forbidden"),
@@ -62,9 +62,9 @@ pub async fn dry_run_storage_policy_migration(
     body: web::Json<DryRunStoragePolicyMigrationReq>,
 ) -> Result<HttpResponse> {
     validate_request(&*body)?;
-    let dry_run = task_service::dry_run_storage_policy_migration(
+    let dry_run = task_service::storage_migration::dry_run_storage_policy_migration(
         &state,
-        task_service::CreateStoragePolicyMigrationInput {
+        task_service::storage_migration::CreateStoragePolicyMigrationInput {
             source_policy_id: body.source_policy_id,
             target_policy_id: body.target_policy_id,
             delete_source_after_success: body.delete_source_after_success,
@@ -82,7 +82,7 @@ pub async fn dry_run_storage_policy_migration(
     operation_id = "resume_storage_policy_migration",
     params(("task_id" = i64, Path, description = "Storage policy migration task ID")),
     responses(
-        (status = 200, description = "Storage policy migration reset for checkpoint resume", body = inline(ApiResponse<task_service::TaskInfo>)),
+        (status = 200, description = "Storage policy migration reset for checkpoint resume", body = inline(ApiResponse<task_service::types::TaskInfo>)),
         (status = 400, description = "Task is not retryable"),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
         (status = 403, description = "Forbidden"),
@@ -97,6 +97,9 @@ pub async fn resume_storage_policy_migration(
     path: web::Path<i64>,
 ) -> Result<HttpResponse> {
     let ctx = AuditContext::from_request(&req, &claims);
-    let task = task_service::resume_storage_policy_migration_for_admin(&state, *path, &ctx).await?;
+    let task = task_service::storage_migration::resume_storage_policy_migration_for_admin(
+        &state, *path, &ctx,
+    )
+    .await?;
     Ok(HttpResponse::Ok().json(ApiResponse::ok(task)))
 }

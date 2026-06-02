@@ -166,7 +166,7 @@ pub async fn purge_one(
     tag = "trash",
     operation_id = "purge_all_trash",
     responses(
-        (status = 200, description = "Trash purge task created", body = inline(ApiResponse<task_service::TaskInfo>)),
+        (status = 200, description = "Trash purge task created", body = inline(ApiResponse<task_service::types::TaskInfo>)),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
     ),
     security(("bearer" = [])),
@@ -179,7 +179,7 @@ pub async fn purge_all(
     let scope = WorkspaceStorageScope::Personal {
         user_id: claims.user_id,
     };
-    let task = task_service::create_trash_purge_all_task_in_scope(&state, scope).await?;
+    let task = task_service::trash::create_trash_purge_all_task_in_scope(&state, scope).await?;
     let ctx = audit_service::AuditContext::from_request(&req, &claims);
     audit_service::log(
         &state,
@@ -340,7 +340,7 @@ pub(crate) async fn team_purge_one(
     operation_id = "purge_all_team_trash",
     params(("team_id" = i64, Path, description = "Team ID")),
     responses(
-        (status = 200, description = "Team trash purge task created", body = inline(ApiResponse<task_service::TaskInfo>)),
+        (status = 200, description = "Team trash purge task created", body = inline(ApiResponse<task_service::types::TaskInfo>)),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
         (status = 403, description = "Forbidden"),
     ),
@@ -357,7 +357,7 @@ pub(crate) async fn team_purge_all(
         team_id,
         actor_user_id: claims.user_id,
     };
-    let task = task_service::create_trash_purge_all_task_in_scope(&state, scope).await?;
+    let task = task_service::trash::create_trash_purge_all_task_in_scope(&state, scope).await?;
     let ctx = audit_service::AuditContext::from_request(&req, &claims);
     audit_service::log(
         &state,

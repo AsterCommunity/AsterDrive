@@ -10,6 +10,7 @@ use url::Url;
 use crate::config::operations;
 use crate::errors::{AsterError, MapAsterErr, Result};
 use crate::runtime::PrimaryAppState;
+use crate::services::task_service::types::TaskStepInfo;
 use crate::storage::error::{StorageErrorKind, storage_driver_error_with_subcode};
 use crate::utils::numbers::u64_to_i64;
 
@@ -108,7 +109,7 @@ impl OfflineDownloadEngine for Aria2OfflineDownloadEngine {
         state: &PrimaryAppState,
         context: &TaskExecutionContext,
         request: OfflineDownloadStartRequest,
-        steps: &mut [super::super::TaskStepInfo],
+        steps: &mut [TaskStepInfo],
     ) -> Result<OfflineDownloadComplete> {
         let lease_guard = context.lease_guard();
         resolve_source_host(&request.url).await?;
@@ -223,7 +224,7 @@ impl Aria2OfflineDownloadEngine {
         state: &PrimaryAppState,
         context: &TaskExecutionContext,
         request: &OfflineDownloadStartRequest,
-        steps: &mut [super::super::TaskStepInfo],
+        steps: &mut [TaskStepInfo],
         gid: &str,
     ) -> Result<OfflineDownloadComplete> {
         let lease_guard = context.lease_guard();

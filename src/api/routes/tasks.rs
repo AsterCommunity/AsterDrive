@@ -53,7 +53,7 @@ pub fn team_routes() -> actix_web::Scope {
     operation_id = "list_tasks",
     params(LimitOffsetQuery),
     responses(
-        (status = 200, description = "Background tasks", body = inline(ApiResponse<OffsetPage<task_service::TaskInfo>>)),
+        (status = 200, description = "Background tasks", body = inline(ApiResponse<OffsetPage<task_service::types::TaskInfo>>)),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
     ),
     security(("bearer" = [])),
@@ -80,7 +80,7 @@ pub async fn list_tasks(
     operation_id = "get_task",
     params(("id" = i64, Path, description = "Task ID")),
     responses(
-        (status = 200, description = "Task details", body = inline(ApiResponse<task_service::TaskInfo>)),
+        (status = 200, description = "Task details", body = inline(ApiResponse<task_service::types::TaskInfo>)),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
         (status = 404, description = "Task not found"),
     ),
@@ -108,7 +108,7 @@ pub async fn get_task(
     operation_id = "retry_task",
     params(("id" = i64, Path, description = "Task ID")),
     responses(
-        (status = 200, description = "Task reset for retry", body = inline(ApiResponse<task_service::TaskInfo>)),
+        (status = 200, description = "Task reset for retry", body = inline(ApiResponse<task_service::types::TaskInfo>)),
         (status = 400, description = "Task is not retryable"),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
         (status = 404, description = "Task not found"),
@@ -138,9 +138,9 @@ pub async fn retry_task(
     path = "/api/v1/tasks/offline-download",
     tag = "tasks",
     operation_id = "create_offline_download_task",
-    request_body = task_service::CreateOfflineDownloadTaskParams,
+    request_body = task_service::types::CreateOfflineDownloadTaskParams,
     responses(
-        (status = 200, description = "Offline download task created", body = inline(ApiResponse<task_service::TaskInfo>)),
+        (status = 200, description = "Offline download task created", body = inline(ApiResponse<task_service::types::TaskInfo>)),
         (status = 400, description = "Invalid offline download request"),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
     ),
@@ -150,7 +150,7 @@ pub async fn create_offline_download(
     state: web::Data<PrimaryAppState>,
     claims: web::ReqData<Claims>,
     req: HttpRequest,
-    body: web::Json<task_service::CreateOfflineDownloadTaskParams>,
+    body: web::Json<task_service::types::CreateOfflineDownloadTaskParams>,
 ) -> Result<HttpResponse> {
     create_offline_download_response(
         &state,
@@ -174,7 +174,7 @@ pub async fn create_offline_download(
         LimitOffsetQuery
     ),
     responses(
-        (status = 200, description = "Team tasks", body = inline(ApiResponse<OffsetPage<task_service::TaskInfo>>)),
+        (status = 200, description = "Team tasks", body = inline(ApiResponse<OffsetPage<task_service::types::TaskInfo>>)),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
         (status = 403, description = "Forbidden"),
     ),
@@ -199,7 +199,7 @@ pub(crate) async fn team_list_tasks(
         ("id" = i64, Path, description = "Task ID")
     ),
     responses(
-        (status = 200, description = "Team task details", body = inline(ApiResponse<task_service::TaskInfo>)),
+        (status = 200, description = "Team task details", body = inline(ApiResponse<task_service::types::TaskInfo>)),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
         (status = 403, description = "Forbidden"),
         (status = 404, description = "Task not found"),
@@ -225,7 +225,7 @@ pub(crate) async fn team_get_task(
         ("id" = i64, Path, description = "Task ID")
     ),
     responses(
-        (status = 200, description = "Team task reset for retry", body = inline(ApiResponse<task_service::TaskInfo>)),
+        (status = 200, description = "Team task reset for retry", body = inline(ApiResponse<task_service::types::TaskInfo>)),
         (status = 400, description = "Task is not retryable"),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
         (status = 403, description = "Forbidden"),
@@ -250,9 +250,9 @@ pub(crate) async fn team_retry_task(
     tag = "teams",
     operation_id = "create_team_offline_download_task",
     params(("team_id" = i64, Path, description = "Team ID")),
-    request_body = task_service::CreateOfflineDownloadTaskParams,
+    request_body = task_service::types::CreateOfflineDownloadTaskParams,
     responses(
-        (status = 200, description = "Team offline download task created", body = inline(ApiResponse<task_service::TaskInfo>)),
+        (status = 200, description = "Team offline download task created", body = inline(ApiResponse<task_service::types::TaskInfo>)),
         (status = 400, description = "Invalid offline download request"),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
         (status = 403, description = "Forbidden"),
@@ -264,7 +264,7 @@ pub(crate) async fn team_create_offline_download(
     claims: web::ReqData<Claims>,
     req: HttpRequest,
     path: web::Path<i64>,
-    body: web::Json<task_service::CreateOfflineDownloadTaskParams>,
+    body: web::Json<task_service::types::CreateOfflineDownloadTaskParams>,
 ) -> Result<HttpResponse> {
     create_offline_download_response(
         &state,
@@ -316,10 +316,12 @@ pub(crate) async fn create_offline_download_response(
     claims: &Claims,
     req: &HttpRequest,
     scope: WorkspaceStorageScope,
-    body: task_service::CreateOfflineDownloadTaskParams,
+    body: task_service::types::CreateOfflineDownloadTaskParams,
 ) -> Result<HttpResponse> {
     let ctx = AuditContext::from_request(req, claims);
-    let task = task_service::create_offline_download_task_in_scope(state, scope, body).await?;
+    let task =
+        task_service::offline_download::create_offline_download_task_in_scope(state, scope, body)
+            .await?;
     audit_service::log_with_details(
         state,
         &ctx,
@@ -331,11 +333,11 @@ pub(crate) async fn create_offline_download_response(
             audit_service::details(serde_json::json!({
                 "task_id": task.id,
                 "target_folder_id": match &task.payload {
-                    task_service::TaskPayload::OfflineDownload(payload) => payload.target_folder_id,
+                    task_service::types::TaskPayload::OfflineDownload(payload) => payload.target_folder_id,
                     _ => None,
                 },
                 "source": match &task.payload {
-                    task_service::TaskPayload::OfflineDownload(payload) => payload.source_display_url.clone(),
+                    task_service::types::TaskPayload::OfflineDownload(payload) => payload.source_display_url.clone(),
                     _ => "external link".to_string(),
                 },
             }))

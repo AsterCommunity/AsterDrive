@@ -178,11 +178,13 @@ async fn execute_offline_download_action(
                 "config: executing offline download action"
             );
 
-            let message = task_service::probe_aria2_rpc(task_service::ProbeAria2RpcInput {
-                rpc_url,
-                rpc_secret,
-                request_timeout,
-            })
+            let message = task_service::offline_download::probe_aria2_rpc(
+                task_service::offline_download::ProbeAria2RpcInput {
+                    rpc_url,
+                    rpc_secret,
+                    request_timeout,
+                },
+            )
             .await
             .map_err(aria2_rpc_probe_error)?;
 

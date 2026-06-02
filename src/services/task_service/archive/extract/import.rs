@@ -8,10 +8,11 @@ use crate::errors::{AsterError, MapAsterErr, Result};
 use crate::runtime::PrimaryAppState;
 use crate::services::{
     task_service::{
-        TaskExecutionContext, TaskStepInfo,
+        TaskExecutionContext,
         archive::common::create_folder_exact_in_scope,
         mark_task_progress,
         steps::{TASK_STEP_IMPORT_RESULT, set_task_step_active},
+        types::TaskStepInfo,
     },
     workspace_storage_service,
     workspace_storage_service::WorkspaceStorageScope,

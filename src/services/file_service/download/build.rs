@@ -9,7 +9,7 @@ use crate::services::file_service::{
     inline_sandbox_csp, requires_inline_sandbox,
 };
 use crate::services::workspace_storage_service::WorkspaceStorageScope;
-use crate::storage::driver::PresignedDownloadOptions;
+use crate::storage::PresignedDownloadOptions;
 use crate::types::{
     DriverType, RemoteDownloadStrategy, S3DownloadStrategy, parse_storage_policy_options,
 };

@@ -6,7 +6,7 @@ use crate::entities::master_binding;
 use crate::errors::{AsterError, Result, precondition_failed_with_subcode};
 use crate::runtime::FollowerRuntimeState;
 use crate::services::managed_ingress_profile_service;
-use crate::storage::driver::StorageDriver;
+use crate::storage::StorageDriver;
 use crate::storage::remote_protocol::{
     INTERNAL_AUTH_ACCESS_KEY_HEADER, INTERNAL_AUTH_NONCE_HEADER, INTERNAL_AUTH_NONCE_TTL_SECS,
     INTERNAL_AUTH_SIGNATURE_HEADER, INTERNAL_AUTH_SKEW_SECS, INTERNAL_AUTH_TIMESTAMP_HEADER,

@@ -1,14 +1,14 @@
 //! 存储子模块：`registry`。
 
 use super::StorageErrorKind;
-use super::driver::StorageDriver;
 use super::drivers::local::LocalDriver;
 use super::drivers::remote::RemoteDriver;
 use super::drivers::s3::S3Driver;
 use super::drivers::tencent_cos::TencentCosDriver;
 use super::error::storage_driver_error;
 use super::metrics_driver::{MetricsMultipartStorageDriver, MetricsStorageDriver};
-use super::multipart::MultipartStorageDriver;
+use super::traits::driver::StorageDriver;
+use super::traits::multipart::MultipartStorageDriver;
 use crate::api::subcode::ApiSubcode;
 use crate::db::repository::{managed_follower_repo, master_binding_repo};
 use crate::entities::storage_policy;
@@ -160,7 +160,7 @@ impl DriverRegistry {
             .cloned()
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, debug_assertions))]
     pub fn insert_for_test(&self, policy_id: i64, driver: Arc<dyn StorageDriver>) {
         self.drivers.insert(
             policy_id,
@@ -175,7 +175,7 @@ impl DriverRegistry {
     ///
     /// This intentionally bypasses metrics wrapping so tests can rely on the
     /// provided `Arc<S3Driver>` being the stored storage and multipart object.
-    #[cfg(test)]
+    #[cfg(any(test, debug_assertions))]
     pub fn insert_s3_for_test(&self, policy_id: i64, driver: Arc<S3Driver>) {
         let storage: Arc<dyn StorageDriver> = driver.clone();
         let multipart: Arc<dyn MultipartStorageDriver> = driver;
@@ -361,7 +361,10 @@ mod tests {
             panic!("not used")
         }
 
-        async fn metadata(&self, _path: &str) -> Result<crate::storage::driver::BlobMetadata> {
+        async fn metadata(
+            &self,
+            _path: &str,
+        ) -> Result<crate::storage::traits::driver::BlobMetadata> {
             panic!("not used")
         }
 

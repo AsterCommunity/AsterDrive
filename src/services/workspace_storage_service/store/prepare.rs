@@ -16,7 +16,7 @@ use crate::services::workspace_storage_service::{
     resolve_policy_for_size, upload_temp_file_to_prepared_blob,
     upload_temp_file_to_prepared_blob_cancellable, verify_file_access,
 };
-use crate::storage::driver::StorageDriver;
+use crate::storage::StorageDriver;
 
 pub(super) struct PreparedStoreFromTemp {
     pub scope: WorkspaceStorageScope,

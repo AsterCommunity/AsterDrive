@@ -4,7 +4,7 @@ use crate::db::repository::file_repo;
 use crate::entities::{file, file_blob, storage_policy, user};
 use crate::runtime::PrimaryAppState;
 use crate::services::{mail_service, policy_service};
-use crate::storage::driver::BlobMetadata;
+use crate::storage::BlobMetadata;
 use crate::storage::{DriverRegistry, PolicySnapshot, StorageDriver, StreamUploadDriver};
 use crate::types::{
     DriverType, S3UploadStrategy, StoragePolicyOptions, StoredStoragePolicyAllowedTypes, UserRole,

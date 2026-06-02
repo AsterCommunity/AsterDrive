@@ -394,10 +394,19 @@ function useAdminPoliciesPageContent() {
 					...prev,
 					storage_native_processing_enabled: enabled,
 					thumbnail_processor: enabled ? "storage_native" : null,
+					// Enabling storage-native processing seeds thumbnail_extensions with
+					// DEFAULT_STORAGE_NATIVE_THUMBNAIL_EXTENSIONS, but leaves
+					// media_metadata_extensions empty to avoid accidental billable metadata calls.
 					thumbnail_extensions: enabled
 						? prev.thumbnail_extensions.length > 0
 							? prev.thumbnail_extensions
 							: [...DEFAULT_STORAGE_NATIVE_THUMBNAIL_EXTENSIONS]
+						: [],
+					storage_native_media_metadata_enabled: enabled
+						? prev.storage_native_media_metadata_enabled
+						: false,
+					media_metadata_extensions: enabled
+						? (prev.media_metadata_extensions ?? [])
 						: [],
 				};
 			}
@@ -422,6 +431,14 @@ function useAdminPoliciesPageContent() {
 						driverType === "tencent_cos" ? prev.thumbnail_processor : null,
 					thumbnail_extensions:
 						driverType === "tencent_cos" ? prev.thumbnail_extensions : [],
+					storage_native_media_metadata_enabled:
+						driverType === "tencent_cos"
+							? prev.storage_native_media_metadata_enabled
+							: false,
+					media_metadata_extensions:
+						driverType === "tencent_cos"
+							? (prev.media_metadata_extensions ?? [])
+							: [],
 				};
 			}
 
@@ -437,6 +454,8 @@ function useAdminPoliciesPageContent() {
 					storage_native_processing_enabled: false,
 					thumbnail_processor: null,
 					thumbnail_extensions: [],
+					storage_native_media_metadata_enabled: false,
+					media_metadata_extensions: [],
 					remote_download_strategy: "relay_stream",
 					remote_upload_strategy: "relay_stream",
 				};
@@ -453,6 +472,8 @@ function useAdminPoliciesPageContent() {
 				storage_native_processing_enabled: false,
 				thumbnail_processor: null,
 				thumbnail_extensions: [],
+				storage_native_media_metadata_enabled: false,
+				media_metadata_extensions: [],
 				remote_download_strategy: "relay_stream",
 				remote_upload_strategy: "relay_stream",
 				s3_upload_strategy: "relay_stream",

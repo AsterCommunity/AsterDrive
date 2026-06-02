@@ -7,17 +7,25 @@ import {
 } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { FOLDER_LIMIT } from "@/lib/constants";
-import ShareViewPage from "@/pages/ShareViewPage";
+import ShareViewPage, { SharePreviewElement } from "@/pages/ShareViewPage";
 import { ApiError } from "@/services/http";
 import { ErrorCode } from "@/types/api-helpers";
 
 const TEST_SHARE_PASSWORD = "TEST_PASSWORD";
+
+interface CapturedPreviewFactories {
+	archivePreviewFactory?: () => Promise<unknown>;
+	loadMusicBackendMetadata?: (signal?: AbortSignal) => Promise<unknown>;
+	mediaStreamLinkFactory?: () => Promise<unknown>;
+	previewLinkFactory?: () => Promise<unknown>;
+}
 
 const mockState = vi.hoisted(() => ({
 	downloadFolderFileUrl: vi.fn(
 		(token: string, fileId: number) =>
 			`https://download/${token}/files/${fileId}`,
 	),
+	previewFactories: null as CapturedPreviewFactories | null,
 	downloadFolderPath: vi.fn(
 		(token: string, fileId: number) => `/s/${token}/files/${fileId}/download`,
 	),
@@ -304,8 +312,15 @@ vi.mock("@/components/files/FilePreview", () => ({
 		mediaStreamLinkFactory?: () => Promise<unknown>;
 		onClose?: () => void;
 		previewLinkFactory?: () => Promise<unknown>;
-	}) =>
-		open ? (
+	}) => {
+		mockState.previewFactories = {
+			archivePreviewFactory,
+			loadMusicBackendMetadata,
+			mediaStreamLinkFactory,
+			previewLinkFactory,
+		};
+
+		return open ? (
 			<div>
 				<div
 					data-testid="file-preview"
@@ -321,28 +336,44 @@ vi.mock("@/components/files/FilePreview", () => ({
 						Boolean(mediaStreamLinkFactory),
 					)}
 				/>
-				<button type="button" onClick={() => void previewLinkFactory?.()}>
+				<button
+					type="button"
+					onClick={() => {
+						void previewLinkFactory?.();
+					}}
+				>
 					call-preview-link
 				</button>
-				<button type="button" onClick={() => void archivePreviewFactory?.()}>
+				<button
+					type="button"
+					onClick={() => {
+						void archivePreviewFactory?.();
+					}}
+				>
 					call-archive-preview
 				</button>
 				<button
 					type="button"
-					onClick={() =>
-						void loadMusicBackendMetadata?.(new AbortController().signal)
-					}
+					onClick={() => {
+						void loadMusicBackendMetadata?.(new AbortController().signal);
+					}}
 				>
 					call-music-metadata
 				</button>
-				<button type="button" onClick={() => void mediaStreamLinkFactory?.()}>
+				<button
+					type="button"
+					onClick={() => {
+						void mediaStreamLinkFactory?.();
+					}}
+				>
 					call-stream-link
 				</button>
 				<button type="button" onClick={onClose}>
 					close-preview
 				</button>
 			</div>
-		) : null,
+		) : null;
+	},
 }));
 
 vi.mock("@/components/files/FileThumbnail", () => ({
@@ -571,6 +602,7 @@ vi.mock("@/services/shareService", () => ({
 describe("ShareViewPage", () => {
 	beforeEach(() => {
 		mockState.downloadFolderFileUrl.mockClear();
+		mockState.previewFactories = null;
 		mockState.createFolderFilePreviewLink.mockClear();
 		mockState.downloadFolderPath.mockClear();
 		mockState.downloadPath.mockClear();
@@ -620,6 +652,29 @@ describe("ShareViewPage", () => {
 		});
 	});
 
+	async function collectPreviewFactoryErrors() {
+		const factories = mockState.previewFactories;
+		if (!factories) {
+			throw new Error("collectPreviewFactoryErrors: preview factories missing");
+		}
+
+		const errors: string[] = [];
+		const promises = [
+			factories.previewLinkFactory?.(),
+			factories.archivePreviewFactory?.(),
+			factories.loadMusicBackendMetadata?.(new AbortController().signal),
+			factories.mediaStreamLinkFactory?.(),
+		];
+		for (const promise of promises) {
+			if (promise) {
+				await promise.catch((error: Error) => {
+					errors.push(error.message);
+				});
+			}
+		}
+		return errors;
+	}
+
 	it("renders an unavailable panel for expired shares", async () => {
 		mockState.getInfo.mockRejectedValueOnce(
 			new ApiError(ErrorCode.ShareExpired, "expired"),
@@ -629,6 +684,36 @@ describe("ShareViewPage", () => {
 
 		expect(await screen.findByText("errors:share_expired")).toBeInTheDocument();
 		expect(screen.getByText("unavailable")).toBeInTheDocument();
+	});
+
+	it("guards retained preview factories while share info is unavailable", async () => {
+		render(
+			<SharePreviewElement
+				info={null}
+				token="share-token"
+				previewFile={
+					{
+						id: 77,
+						mime_type: "audio/mpeg",
+						name: "orphaned-preview.mp3",
+						size: 77,
+					} as never
+				}
+				onClose={vi.fn()}
+			/>,
+		);
+
+		expect(await screen.findByTestId("file-preview")).toHaveAttribute(
+			"data-name",
+			"orphaned-preview.mp3",
+		);
+
+		await expect(collectPreviewFactoryErrors()).resolves.toEqual([
+			"share preview link is unavailable",
+			"share archive preview is unavailable",
+			"share media metadata is unavailable",
+			"share media stream is unavailable",
+		]);
 	});
 
 	it("maps share load errors to the public unavailable panel", async () => {
@@ -906,6 +991,36 @@ describe("ShareViewPage", () => {
 			expect(mockState.createStreamSession).toHaveBeenCalledWith("share-token");
 		});
 		expect(mockState.getMediaMetadata).not.toHaveBeenCalled();
+
+		fireEvent.click(screen.getByRole("button", { name: /files:download/i }));
+
+		expect(mockState.downloadUrl).toHaveBeenCalledWith("share-token");
+		expect(mockState.openWindow).toHaveBeenCalledWith(
+			"https://download/share-token",
+			"_blank",
+		);
+	});
+
+	it("renders file shares without preview when mime_type is missing", async () => {
+		mockState.getInfo.mockResolvedValueOnce({
+			download_count: 0,
+			has_password: false,
+			name: "Unknown.bin",
+			shared_by: {
+				avatar: null,
+				name: "Alice Example",
+			},
+			share_type: "file",
+		} as never);
+
+		render(<ShareViewPage />);
+
+		expect(await screen.findByText("Unknown.bin")).toBeInTheDocument();
+		expect(screen.getByText("File")).toBeInTheDocument();
+		expect(screen.queryByTestId("file-thumbnail")).not.toBeInTheDocument();
+		expect(
+			screen.queryByRole("button", { name: /files:preview/i }),
+		).not.toBeInTheDocument();
 
 		fireEvent.click(screen.getByRole("button", { name: /files:download/i }));
 

@@ -9,7 +9,7 @@ use crate::services::upload_service::shared::{
     run_upload_completion_stage, upload_completion_error_is_retryable,
 };
 use crate::services::workspace_storage_service;
-use crate::storage::driver::StorageDriver;
+use crate::storage::StorageDriver;
 use crate::types::UploadSessionStatus;
 use crate::utils::numbers::u64_to_i64;
 
@@ -359,7 +359,7 @@ async fn complete_s3_multipart_upload_session(
 mod tests {
     use super::copy_presigned_object_to_final_key;
     use crate::errors::Result;
-    use crate::storage::driver::{BlobMetadata, StorageDriver};
+    use crate::storage::{BlobMetadata, StorageDriver};
     use async_trait::async_trait;
     use std::sync::{Arc, Mutex};
     use tokio::io::AsyncRead;

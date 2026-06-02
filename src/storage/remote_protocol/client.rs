@@ -9,8 +9,8 @@ use tokio::io::AsyncRead;
 
 use crate::errors::Result;
 use crate::storage::StorageCapacityInfo;
-use crate::storage::driver::{BlobMetadata, PresignedDownloadOptions};
 use crate::storage::error::{StorageErrorKind, storage_driver_error};
+use crate::storage::traits::driver::{BlobMetadata, PresignedDownloadOptions};
 
 use super::errors::remote_api_error_kind;
 use super::models::{

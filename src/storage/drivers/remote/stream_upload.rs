@@ -5,7 +5,7 @@ use tokio::io::AsyncRead;
 
 use crate::errors::{AsterError, Result};
 use crate::storage::error::{StorageErrorKind, storage_driver_error};
-use crate::storage::extensions::StreamUploadDriver;
+use crate::storage::traits::extensions::StreamUploadDriver;
 
 use super::RemoteDriver;
 

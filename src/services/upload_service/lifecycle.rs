@@ -11,7 +11,7 @@ use crate::services::upload_service::shared::{
     UploadStorageErrorClass, classify_upload_storage_error, cleanup_upload_temp_dir,
     mark_session_failed_with_expiration, upload_storage_error_class_label,
 };
-use crate::storage::driver::StorageDriver;
+use crate::storage::StorageDriver;
 use crate::types::UploadSessionStatus;
 use crate::utils::numbers::usize_to_u32;
 

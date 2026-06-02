@@ -33,11 +33,16 @@ export const DEFAULT_STORAGE_NATIVE_THUMBNAIL_EXTENSIONS = [
 	"gif",
 ];
 
+const SAFE_STORAGE_NATIVE_EXTENSION_PATTERN = /^[a-z0-9_-]{1,32}$/;
+
 export function normalizeThumbnailExtensions(values: string[]) {
 	const normalized: string[] = [];
 	for (const value of values) {
 		const extension = value.trim().replace(/^\.+/, "").toLowerCase();
-		if (extension && !normalized.includes(extension)) {
+		if (
+			SAFE_STORAGE_NATIVE_EXTENSION_PATTERN.test(extension) &&
+			!normalized.includes(extension)
+		) {
 			normalized.push(extension);
 		}
 	}
@@ -62,8 +67,10 @@ export interface PolicyFormData {
 	s3_upload_strategy: S3UploadStrategy;
 	s3_download_strategy: S3DownloadStrategy;
 	storage_native_processing_enabled: boolean;
+	storage_native_media_metadata_enabled?: boolean;
 	thumbnail_processor: StoragePolicyOptions["thumbnail_processor"];
 	thumbnail_extensions: string[];
+	media_metadata_extensions?: string[];
 }
 
 function parseRemoteNodeId(value: string): number | undefined {
@@ -126,6 +133,15 @@ export function buildPolicyOptions(form: PolicyFormData): StoragePolicyOptions {
 				form.thumbnail_extensions,
 			);
 		}
+		if (form.storage_native_media_metadata_enabled) {
+			options.storage_native_media_metadata_enabled = true;
+			const mediaMetadataExtensions = normalizeThumbnailExtensions(
+				form.media_metadata_extensions ?? [],
+			);
+			if (mediaMetadataExtensions.length > 0) {
+				options.media_metadata_extensions = mediaMetadataExtensions;
+			}
+		}
 	}
 
 	return options;
@@ -166,6 +182,13 @@ export function getPolicyForm(policy: StoragePolicy): PolicyFormData {
 		thumbnail_extensions:
 			options.storage_native_processing_enabled === true
 				? (options.thumbnail_extensions ?? [])
+				: [],
+		storage_native_media_metadata_enabled:
+			options.storage_native_processing_enabled === true &&
+			options.storage_native_media_metadata_enabled === true,
+		media_metadata_extensions:
+			options.storage_native_processing_enabled === true
+				? (options.media_metadata_extensions ?? [])
 				: [],
 	};
 }
@@ -331,6 +354,8 @@ export const emptyForm: PolicyFormData = {
 	s3_upload_strategy: "relay_stream",
 	s3_download_strategy: "relay_stream",
 	storage_native_processing_enabled: false,
+	storage_native_media_metadata_enabled: false,
 	thumbnail_processor: null,
 	thumbnail_extensions: [],
+	media_metadata_extensions: [],
 };

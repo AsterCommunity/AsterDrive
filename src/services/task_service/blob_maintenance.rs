@@ -22,6 +22,7 @@ use super::steps::{
 };
 use super::types::{
     BlobMaintenanceAction, BlobMaintenanceTaskPayload, BlobMaintenanceTaskResult, TaskInfo,
+    TaskStepInfo,
 };
 use super::{
     TaskExecutionContext, create_typed_task_record, mark_task_progress, mark_task_succeeded,
@@ -198,7 +199,7 @@ pub(super) async fn process_blob_maintenance_task(
 async fn run_integrity_check(
     state: &PrimaryAppState,
     context: &TaskExecutionContext,
-    steps: &mut [super::TaskStepInfo],
+    steps: &mut [TaskStepInfo],
     target_scope: &BlobTargetScope<'_>,
     total: i64,
     result: &mut BlobMaintenanceTaskResult,
@@ -272,7 +273,7 @@ async fn run_integrity_check(
 async fn run_ref_count_reconcile(
     state: &PrimaryAppState,
     context: &TaskExecutionContext,
-    steps: &mut [super::TaskStepInfo],
+    steps: &mut [TaskStepInfo],
     target_scope: &BlobTargetScope<'_>,
     total: i64,
     result: &mut BlobMaintenanceTaskResult,
@@ -370,7 +371,7 @@ async fn run_ref_count_reconcile(
 async fn run_orphan_cleanup(
     state: &PrimaryAppState,
     context: &TaskExecutionContext,
-    steps: &mut [super::TaskStepInfo],
+    steps: &mut [TaskStepInfo],
     target_scope: &BlobTargetScope<'_>,
     total: i64,
     result: &mut BlobMaintenanceTaskResult,
@@ -739,7 +740,7 @@ fn normalize_blob_ids(blob_ids: Vec<i64>) -> Result<Vec<i64>> {
     Ok(normalized)
 }
 
-fn skip_reconcile_and_cleanup_steps(steps: &mut [super::TaskStepInfo]) -> Result<()> {
+fn skip_reconcile_and_cleanup_steps(steps: &mut [TaskStepInfo]) -> Result<()> {
     set_task_step_skipped(
         steps,
         TASK_STEP_RECONCILE_REFS,

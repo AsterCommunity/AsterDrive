@@ -6,7 +6,7 @@ use crate::db::repository::background_task_repo;
 use crate::entities::background_task;
 use crate::errors::Result;
 use crate::runtime::PrimaryAppState;
-use crate::services::task_service::TaskPresentationCode;
+use crate::services::task_service::types::TaskPresentationCode;
 use crate::types::{BackgroundTaskStatus, StoredTaskPayload};
 
 use super::spec::{self, SystemRuntimeTask};

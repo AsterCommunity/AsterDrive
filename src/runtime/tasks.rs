@@ -328,7 +328,10 @@ async fn run_background_task_dispatch_iteration(
 ) -> BackgroundTaskDispatchIteration {
     let started_at = Utc::now();
     let (iteration, outcome) = match AssertUnwindSafe(
-        crate::services::task_service::dispatch_due_with_shutdown(state.get_ref(), shutdown_token),
+        crate::services::task_service::dispatch::dispatch_due_with_shutdown(
+            state.get_ref(),
+            shutdown_token,
+        ),
     )
     .catch_unwind()
     .await

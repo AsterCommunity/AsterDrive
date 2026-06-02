@@ -70,8 +70,8 @@ impl Default for RemoteProtocolRuntime {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::storage::driver::PresignedDownloadOptions;
     use crate::storage::error::StorageErrorKind;
+    use crate::storage::traits::driver::PresignedDownloadOptions;
     use std::time::Duration;
 
     fn build_node(

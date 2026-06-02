@@ -72,19 +72,6 @@ pub fn default_public_preview_apps() -> PublicPreviewAppsConfig {
                     ..Default::default()
                 },
             ),
-            native_preview_app(
-                "builtin.tencent_cos_ci",
-                PREVIEW_APP_ICON_FILE,
-                labels(("en", "Tencent COS CI"), ("zh", "腾讯云 COS 数据万象")),
-                &[
-                    "doc", "docx", "xls", "xlsx", "ppt", "pptx", "pdf", "txt", "rtf", "odt", "ods",
-                    "odp",
-                ],
-                PublicPreviewAppConfig {
-                    mode: Some(PreviewOpenMode::Iframe),
-                    ..Default::default()
-                },
-            ),
             builtin_app(
                 "builtin.markdown",
                 PREVIEW_APP_ICON_MARKDOWN,
@@ -175,23 +162,6 @@ fn url_template_app(
 ) -> PublicPreviewAppDefinition {
     app_with_config(
         PreviewAppProvider::UrlTemplate,
-        key,
-        icon,
-        labels,
-        extensions,
-        config,
-    )
-}
-
-fn native_preview_app(
-    key: &str,
-    icon: &str,
-    labels: BTreeMap<String, String>,
-    extensions: &[&str],
-    config: PublicPreviewAppConfig,
-) -> PublicPreviewAppDefinition {
-    app_with_config(
-        PreviewAppProvider::NativePreview,
         key,
         icon,
         labels,

@@ -1,52 +1,24 @@
 //! 共享领域类型定义。
+//!
+//! 子模块公开表达类型来源，`facade` 只维护 `crate::types::{...}` 的稳定兼容入口。
+//! 新增类型默认先放在具体子模块；只有跨实体、repo、service 或 API 边界长期共享
+//! 的类型，才加入根 facade。
 
-mod archive;
-mod audit;
-mod auth;
-mod config;
-mod entity;
-mod file_category;
-mod mail;
-mod media_metadata;
-mod passkey;
-mod patch;
-mod preferences;
-mod storage_policy;
-mod task;
-mod team;
-mod user;
+pub mod archive;
+pub mod audit;
+pub mod auth;
+pub mod config;
+pub mod entity;
+mod facade;
+pub mod file_category;
+pub mod mail;
+pub mod media_metadata;
+pub mod passkey;
+pub mod patch;
+pub mod preferences;
+pub mod storage_policy;
+pub mod task;
+pub mod team;
+pub mod user;
 
-pub use archive::ArchiveFilenameEncoding;
-pub use audit::{AuditAction, AuditEntityType};
-pub use auth::{
-    ExternalAuthProtocol, ExternalAuthProviderKind, MfaFirstFactor, MfaMethod,
-    MfaPersistentFactorMethod, TokenType, VerificationChannel, VerificationPurpose,
-};
-pub use config::{SystemConfigSource, SystemConfigValueType, SystemConfigVisibility};
-pub use entity::EntityType;
-pub use file_category::FileCategory;
-pub use mail::{MailOutboxStatus, MailTemplateCode, StoredMailPayload};
-pub use media_metadata::{
-    AudioMediaMetadata, ImageMediaMetadata, MediaMetadataKind, MediaMetadataPayload,
-    MediaMetadataStatus, StoredMediaMetadataPayload, VideoMediaMetadata,
-};
-pub use passkey::StoredPasskeyCredential;
-pub use patch::{NullablePatch, deserialize_nullable_patch_option};
-pub use preferences::{
-    BrowserOpenMode, ColorPreset, Language, PrefViewMode, StoredUserConfig, ThemeMode, UserConfig,
-    UserPreferences,
-};
-pub use storage_policy::{
-    DriverType, MediaProcessorKind, RemoteDownloadStrategy, RemoteNodeTransportMode,
-    RemoteUploadStrategy, S3_MULTIPART_MIN_PART_SIZE, S3DownloadStrategy, S3UploadStrategy,
-    StoragePolicyOptions, StoredStoragePolicyAllowedTypes, StoredStoragePolicyOptions, UploadMode,
-    UploadSessionStatus, effective_s3_multipart_chunk_size, parse_storage_policy_allowed_types,
-    parse_storage_policy_options, serialize_storage_policy_allowed_types,
-    serialize_storage_policy_options,
-};
-pub use task::{
-    BackgroundTaskKind, BackgroundTaskStatus, StoredLockOwnerInfo, StoredTaskPayload,
-    StoredTaskResult, StoredTaskRuntime, StoredTaskSteps,
-};
-pub use team::TeamMemberRole;
-pub use user::{AvatarSource, UserRole, UserStatus};
+pub use facade::*;
