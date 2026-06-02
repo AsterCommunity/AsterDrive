@@ -39,6 +39,7 @@ fn link_to_info(
         provider_key: provider.key.clone(),
         provider_kind: provider.provider_kind,
         provider_display_name: provider.display_name.clone(),
+        provider_icon_url: provider.icon_url.clone(),
         issuer: identity.identity_namespace,
         subject: identity.subject,
         email_snapshot: identity.email_snapshot,

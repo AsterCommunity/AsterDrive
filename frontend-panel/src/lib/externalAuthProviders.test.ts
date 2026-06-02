@@ -10,7 +10,10 @@ describe("external auth provider helpers", () => {
 			"/static/external-auth/openid-seeklogo.svg",
 		);
 		expect(externalAuthKindIconPath("generic_oauth2")).toBe(
-			"/static/external-auth/oauth_logo.svg",
+			"/static/external-auth/oauth-logo.svg",
+		);
+		expect(externalAuthKindIconPath("github")).toBe(
+			"/static/external-auth/github-logo.svg",
 		);
 		expect(externalAuthKindIconPath("unknown" as never)).toBe("");
 	});

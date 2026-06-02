@@ -155,6 +155,26 @@ function kind(
 	};
 }
 
+function githubKind(
+	overrides: Partial<AdminExternalAuthProviderKindInfo> = {},
+): AdminExternalAuthProviderKindInfo {
+	return kind({
+		authorization_url_required: false,
+		default_scopes: "read:user user:email",
+		description: "GitHub sign-in.",
+		display_name: "GitHub",
+		issuer_url_required: false,
+		kind: "github",
+		manual_endpoint_configuration_supported: false,
+		protocol: "oauth2",
+		supports_discovery: false,
+		supports_email_verified_claim: false,
+		token_url_required: false,
+		userinfo_url_required: false,
+		...overrides,
+	});
+}
+
 function provider(
 	overrides: Partial<AdminExternalAuthProviderInfo> = {},
 ): AdminExternalAuthProviderInfo {
@@ -423,6 +443,42 @@ describe("ExternalAuthProviderPanels", () => {
 		);
 	});
 
+	it("renders GitHub fixed endpoint guidance in the identity panel", () => {
+		render(
+			<ExternalAuthProviderIdentityPanel
+				connectionMissing={false}
+				createStepTouched={false}
+				currentCallbackUrl=""
+				form={form({
+					providerKind: "github",
+					scopes: "read:user user:email",
+				})}
+				identityMissing={false}
+				isCreate
+				onCopyCallbackUrl={vi.fn()}
+				onFieldChange={vi.fn()}
+				onTestConnection={vi.fn().mockResolvedValue(true)}
+				provider={null}
+				providerKindLabel="GitHub"
+				selectedKind={githubKind()}
+				showIssuerUrl={false}
+				showManualEndpoints={false}
+				testDisabled={false}
+				testResult={null}
+			/>,
+		);
+
+		expect(
+			screen.getByText("external_auth_provider_github_fixed_title"),
+		).toBeInTheDocument();
+		expect(
+			screen.getByText("https://api.github.com/user/emails"),
+		).toBeInTheDocument();
+		expect(
+			screen.queryByLabelText("external_auth_provider_authorization_url"),
+		).not.toBeInTheDocument();
+	});
+
 	it("wires rules and claim fields, including email-verified support", () => {
 		const onFieldChange = vi.fn();
 		const view = render(
@@ -473,6 +529,26 @@ describe("ExternalAuthProviderPanels", () => {
 		);
 		expect(
 			screen.queryByLabelText("external_auth_provider_email_verified_claim"),
+		).not.toBeInTheDocument();
+	});
+
+	it("renders GitHub fixed claims instead of editable claim mapping", () => {
+		render(
+			<ExternalAuthProviderRulesPanel
+				form={form({ providerKind: "github" })}
+				onFieldChange={vi.fn()}
+				selectedKind={githubKind()}
+			/>,
+		);
+
+		expect(
+			screen.getByText("external_auth_provider_github_claims_title"),
+		).toBeInTheDocument();
+		expect(
+			screen.getByText("primary && verified from /user/emails"),
+		).toBeInTheDocument();
+		expect(
+			screen.queryByLabelText("external_auth_provider_subject_claim"),
 		).not.toBeInTheDocument();
 	});
 

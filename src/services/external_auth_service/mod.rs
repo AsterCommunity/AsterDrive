@@ -127,6 +127,7 @@ pub struct ExternalAuthLinkInfo {
     pub provider_key: String,
     pub provider_kind: ExternalAuthProviderKind,
     pub provider_display_name: String,
+    pub provider_icon_url: Option<String>,
     pub issuer: String,
     pub subject: String,
     pub email_snapshot: Option<String>,

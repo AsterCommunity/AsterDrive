@@ -4858,6 +4858,7 @@ export interface components {
             issuer: string;
             last_login_at?: string | null;
             provider_display_name: string;
+            provider_icon_url?: string | null;
             /** Format: int64 */
             provider_id: number;
             provider_key: string;
@@ -4879,7 +4880,7 @@ export interface components {
          * @description 外部认证提供商类型。
          * @enum {string}
          */
-        ExternalAuthProviderKind: "oidc" | "generic_oauth2";
+        ExternalAuthProviderKind: "oidc" | "generic_oauth2" | "github";
         ExternalAuthProviderTestCheck: {
             message: string;
             name: string;
@@ -12373,6 +12374,7 @@ export interface operations {
                             issuer: string;
                             last_login_at?: string | null;
                             provider_display_name: string;
+                            provider_icon_url?: string | null;
                             /** Format: int64 */
                             provider_id: number;
                             provider_key: string;
