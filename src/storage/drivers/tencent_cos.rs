@@ -12,6 +12,7 @@ use percent_encoding::{AsciiSet, CONTROLS, percent_encode};
 use sha1::{Digest, Sha1};
 use url::Url;
 
+use super::s3::S3DriverOptions;
 use super::s3_compatible::{S3CompatibleDriver, S3CompatibleProvider};
 use super::s3_config::normalize_s3_endpoint_and_bucket;
 use crate::entities::storage_policy;
@@ -98,7 +99,14 @@ impl TencentCosDriver {
         Self::validate_policy(policy)?;
         let normalized = normalize_s3_endpoint_and_bucket(&policy.endpoint, &policy.bucket)
             .map_err(Self::rewrap_message_as_storage_error)?;
-        let storage = S3CompatibleDriver::new(policy)?;
+        let mut storage_policy = policy.clone();
+        storage_policy.endpoint =
+            cos_virtual_hosted_s3_endpoint(&normalized.endpoint, &normalized.bucket)?;
+        storage_policy.bucket = normalized.bucket.clone();
+        let storage = S3CompatibleDriver::new_with_s3_options(
+            &storage_policy,
+            S3DriverOptions::virtual_hosted_style(),
+        )?;
 
         Ok(Self {
             storage,
@@ -248,6 +256,27 @@ impl S3CompatibleProvider for TencentCosDriver {
     }
 }
 
+fn cos_virtual_hosted_s3_endpoint(endpoint: &str, bucket: &str) -> Result<String> {
+    let mut url = Url::parse(endpoint)
+        .map_aster_err_ctx("parse COS endpoint", AsterError::storage_driver_error)?;
+    let host = url
+        .host_str()
+        .ok_or_else(|| {
+            storage_driver_error(StorageErrorKind::Misconfigured, "COS endpoint missing host")
+        })?
+        .to_string();
+
+    if let Some(root_host) = host.strip_prefix(&format!("{bucket}.")) {
+        url.set_host(Some(root_host)).map_aster_err_ctx(
+            "build COS S3 API endpoint",
+            AsterError::storage_driver_error,
+        )?;
+    }
+    url.set_query(None);
+    url.set_fragment(None);
+    Ok(String::from(url).trim_end_matches('/').to_string())
+}
+
 fn canonical_param_list(params: &[(&str, &str)]) -> String {
     let mut names = params
         .iter()
@@ -377,6 +406,15 @@ impl NativeThumbnailStorageDriver for TencentCosDriver {
             request.max_width,
             request.max_height,
         )?;
+        if let Ok(parsed_url) = Url::parse(&url) {
+            tracing::debug!(
+                processor = "storage_native",
+                provider = COS_NATIVE_PREVIEW_PROVIDER,
+                host = parsed_url.host_str(),
+                path = parsed_url.path(),
+                "requesting COS native thumbnail"
+            );
+        }
         let response = reqwest::Client::new()
             .get(url)
             .send()
@@ -387,6 +425,12 @@ impl NativeThumbnailStorageDriver for TencentCosDriver {
             )?;
         let status = response.status();
         if !status.is_success() {
+            tracing::debug!(
+                processor = "storage_native",
+                provider = COS_NATIVE_PREVIEW_PROVIDER,
+                http_status = %status,
+                "COS native thumbnail request returned non-success status"
+            );
             return Err(storage_driver_error(
                 if status == reqwest::StatusCode::NOT_FOUND {
                     StorageErrorKind::NotFound
@@ -472,6 +516,28 @@ mod tests {
             "bucket-1250000000",
         ))
         .expect("COS endpoint should pass");
+    }
+
+    #[test]
+    fn cos_virtual_hosted_s3_endpoint_strips_bucket_host() {
+        let endpoint = cos_virtual_hosted_s3_endpoint(
+            "https://bucket-1250000000.cos.ap-guangzhou.myqcloud.com",
+            "bucket-1250000000",
+        )
+        .expect("COS S3 endpoint");
+
+        assert_eq!(endpoint, "https://cos.ap-guangzhou.myqcloud.com");
+    }
+
+    #[test]
+    fn cos_virtual_hosted_s3_endpoint_keeps_root_host() {
+        let endpoint = cos_virtual_hosted_s3_endpoint(
+            "https://cos.ap-guangzhou.myqcloud.com",
+            "bucket-1250000000",
+        )
+        .expect("COS S3 endpoint");
+
+        assert_eq!(endpoint, "https://cos.ap-guangzhou.myqcloud.com");
     }
 
     #[test]
@@ -563,9 +629,9 @@ mod tests {
         assert!(sign.contains("q-sign-algorithm=sha1"));
         assert!(sign.contains("q-ak=AKIDEXAMPLE"));
         assert!(sign.contains("q-header-list=host"));
-        assert!(sign.contains(
-            "q-url-param-list=imagemogr2%2fthumbnail%2f320x240%3e%2fformat%2fwebp"
-        ));
+        assert!(
+            sign.contains("q-url-param-list=imagemogr2%2fthumbnail%2f320x240%3e%2fformat%2fwebp")
+        );
         assert!(sign.contains("q-signature="));
     }
 

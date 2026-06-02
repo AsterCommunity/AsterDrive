@@ -11,7 +11,7 @@ use async_trait::async_trait;
 use bytes::Bytes;
 use tokio::io::AsyncRead;
 
-use super::s3::S3Driver;
+use super::s3::{S3Driver, S3DriverOptions};
 use crate::entities::storage_policy;
 use crate::errors::Result;
 use crate::storage::driver::{BlobMetadata, StorageDriver};
@@ -31,8 +31,15 @@ impl S3CompatibleDriver {
     }
 
     pub fn new(policy: &storage_policy::Model) -> Result<Self> {
+        Self::new_with_s3_options(policy, S3DriverOptions::default())
+    }
+
+    pub fn new_with_s3_options(
+        policy: &storage_policy::Model,
+        options: S3DriverOptions,
+    ) -> Result<Self> {
         Ok(Self {
-            inner: Arc::new(S3Driver::new(policy)?),
+            inner: Arc::new(S3Driver::new_with_options(policy, options)?),
         })
     }
 
