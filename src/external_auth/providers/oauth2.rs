@@ -215,7 +215,12 @@ impl ExternalAuthProviderDriver for OAuth2ProviderDriver {
     }
 }
 
-fn oauth2_http_client() -> Result<reqwest::Client> {
+/// Builds the outbound HTTP client shared by Generic OAuth2 and specialized
+/// OAuth2-backed providers such as GitHub.
+///
+/// GitHub rejects API calls without a User-Agent header, so keep the project
+/// user agent on the shared client instead of setting it per request.
+pub(super) fn oauth2_http_client() -> Result<reqwest::Client> {
     reqwest::ClientBuilder::new()
         .redirect(reqwest::redirect::Policy::none())
         .timeout(std::time::Duration::from_secs(TOKEN_ENDPOINT_TIMEOUT_SECS))
@@ -227,7 +232,7 @@ fn oauth2_http_client() -> Result<reqwest::Client> {
         )
 }
 
-fn require_url<'a>(
+pub(super) fn require_url<'a>(
     value: Option<&'a str>,
     field: &str,
     error_fn: fn(String) -> AsterError,
@@ -238,7 +243,11 @@ fn require_url<'a>(
         .ok_or_else(|| error_fn(format!("OAuth2 provider missing {field}")))
 }
 
-fn validate_url(value: &str, field: &str, error_fn: fn(String) -> AsterError) -> Result<Url> {
+pub(super) fn validate_url(
+    value: &str,
+    field: &str,
+    error_fn: fn(String) -> AsterError,
+) -> Result<Url> {
     let parsed = parse_url(value, &format!("invalid OAuth2 {field}"), error_fn)?;
     if !has_http_scheme(&parsed) {
         return Err(error_fn(format!(
@@ -260,7 +269,7 @@ fn build_pkce_challenge(verifier: &str) -> String {
     base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(digest)
 }
 
-async fn exchange_code_for_token(
+pub(super) async fn exchange_code_for_token(
     http_client: &reqwest::Client,
     provider: &ExternalAuthProviderConfig,
     code: &str,
@@ -358,7 +367,10 @@ async fn send_token_request(
     )
 }
 
-async fn oauth2_endpoint_error(response: reqwest::Response, context: &str) -> AsterError {
+pub(super) async fn oauth2_endpoint_error(
+    response: reqwest::Response,
+    context: &str,
+) -> AsterError {
     let status = response.status();
     let www_authenticate = response
         .headers()
@@ -409,7 +421,7 @@ fn sanitize_error_fragment(value: &str) -> String {
         .to_string()
 }
 
-async fn fetch_userinfo(
+pub(super) async fn fetch_userinfo(
     http_client: &reqwest::Client,
     provider: &ExternalAuthProviderConfig,
     access_token: &str,
@@ -439,7 +451,7 @@ async fn fetch_userinfo(
     )
 }
 
-fn profile_from_userinfo(
+pub(super) fn profile_from_userinfo(
     provider: &ExternalAuthProviderConfig,
     userinfo: &Value,
 ) -> Result<ExternalAuthProfile> {

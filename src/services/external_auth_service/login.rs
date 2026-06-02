@@ -141,6 +141,8 @@ pub async fn finish_callback(
         .await?;
 
     if external_auth_claims_missing_email(&user_claims) {
+        // Existing bindings are keyed by issuer + subject, so they may sign in
+        // even when the current callback cannot provide an email snapshot.
         if let Some(resolved) =
             resolve_existing_external_auth_identity(state.writer_db(), &user_claims, Utc::now())
                 .await?
@@ -157,6 +159,13 @@ pub async fn finish_callback(
                         auto_provisioned: resolved.auto_provisioned,
                     },
                 },
+            ));
+        }
+        if provider.provider_kind == ExternalAuthProviderKind::GitHub
+            && provider.require_email_verified
+        {
+            return Err(AsterError::auth_forbidden(
+                "GitHub provider requires a verified primary email",
             ));
         }
         let pending = create_pending_email_verification_flow(

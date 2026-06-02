@@ -42,6 +42,9 @@ pub enum ExternalAuthProviderKind {
     #[serde(rename = "generic_oauth2")]
     #[sea_orm(string_value = "generic_oauth2")]
     GenericOAuth2,
+    #[serde(rename = "github")]
+    #[sea_orm(string_value = "github")]
+    GitHub,
 }
 
 impl ExternalAuthProviderKind {
@@ -49,6 +52,7 @@ impl ExternalAuthProviderKind {
         match self {
             Self::Oidc => "oidc",
             Self::GenericOAuth2 => "generic_oauth2",
+            Self::GitHub => "github",
         }
     }
 
@@ -56,6 +60,7 @@ impl ExternalAuthProviderKind {
         match value {
             "oidc" => Some(Self::Oidc),
             "generic_oauth2" => Some(Self::GenericOAuth2),
+            "github" => Some(Self::GitHub),
             _ => None,
         }
     }
@@ -88,6 +93,7 @@ impl ExternalAuthProviderKind {
         match self {
             Self::Oidc => ExternalAuthProtocol::Oidc,
             Self::GenericOAuth2 => ExternalAuthProtocol::OAuth2,
+            Self::GitHub => ExternalAuthProtocol::OAuth2,
         }
     }
 }

@@ -1,4 +1,5 @@
 use actix_web::{App, HttpRequest, HttpResponse, HttpServer, Responder, web};
+use aster_drive::utils::OUTBOUND_HTTP_USER_AGENT;
 use base64::Engine as _;
 use serde::Deserialize;
 use std::sync::{Arc, Mutex};
@@ -21,6 +22,15 @@ pub struct MockOAuth2Provider {
     profile_subject: Arc<Mutex<Option<String>>>,
     profile_email: Arc<Mutex<Option<String>>>,
     profile_email_verified: Arc<Mutex<Option<bool>>>,
+    github_emails: Arc<Mutex<Vec<GitHubEmailEntry>>>,
+    github_emails_status: Arc<Mutex<actix_web::http::StatusCode>>,
+}
+
+#[derive(Clone, Debug)]
+pub struct GitHubEmailEntry {
+    pub email: String,
+    pub primary: bool,
+    pub verified: bool,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -55,6 +65,12 @@ impl MockOAuth2Provider {
             profile_subject: Arc::new(Mutex::new(Some("oauth2-subject-1".to_string()))),
             profile_email: Arc::new(Mutex::new(Some("oauth2-user@example.com".to_string()))),
             profile_email_verified: Arc::new(Mutex::new(Some(true))),
+            github_emails: Arc::new(Mutex::new(vec![GitHubEmailEntry {
+                email: "github-primary@example.com".to_string(),
+                primary: true,
+                verified: true,
+            }])),
+            github_emails_status: Arc::new(Mutex::new(actix_web::http::StatusCode::OK)),
         }
     }
 
@@ -107,6 +123,20 @@ impl MockOAuth2Provider {
             .expect("email verified lock should not be poisoned") = verified;
     }
 
+    pub fn set_github_emails(&self, emails: Vec<GitHubEmailEntry>) {
+        *self
+            .github_emails
+            .lock()
+            .expect("GitHub emails lock should not be poisoned") = emails;
+    }
+
+    pub fn set_github_emails_status(&self, status: actix_web::http::StatusCode) {
+        *self
+            .github_emails_status
+            .lock()
+            .expect("GitHub emails status lock should not be poisoned") = status;
+    }
+
     fn userinfo_payload(&self) -> serde_json::Value {
         let subject = self
             .profile_subject
@@ -137,6 +167,26 @@ impl MockOAuth2Provider {
         }
         payload
     }
+
+    fn github_emails_payload(&self) -> serde_json::Value {
+        let emails = self
+            .github_emails
+            .lock()
+            .expect("GitHub emails lock should not be poisoned")
+            .clone();
+        serde_json::Value::Array(
+            emails
+                .into_iter()
+                .map(|entry| {
+                    serde_json::json!({
+                        "email": entry.email,
+                        "primary": entry.primary,
+                        "verified": entry.verified
+                    })
+                })
+                .collect(),
+        )
+    }
 }
 
 pub async fn start_mock_oauth2_provider() -> (MockOAuth2Provider, actix_web::dev::ServerHandle) {
@@ -156,6 +206,8 @@ pub async fn start_mock_oauth2_provider() -> (MockOAuth2Provider, actix_web::dev
             .route("/authorize", web::get().to(mock_authorize))
             .route("/token", web::post().to(mock_token))
             .route("/userinfo", web::get().to(mock_userinfo))
+            .route("/user", web::get().to(mock_userinfo))
+            .route("/user/emails", web::get().to(mock_github_emails))
     })
     .listen(listener)
     .expect("mock OAuth2 server should listen")
@@ -270,4 +322,32 @@ async fn mock_userinfo(
         .and_then(|value| value.to_str().ok());
     assert_eq!(auth, Some("Bearer mock-access-token"));
     HttpResponse::Ok().json(provider.userinfo_payload())
+}
+
+async fn mock_github_emails(
+    provider: web::Data<MockOAuth2Provider>,
+    req: HttpRequest,
+) -> impl Responder {
+    let auth = req
+        .headers()
+        .get("Authorization")
+        .and_then(|value| value.to_str().ok());
+    assert_eq!(auth, Some("Bearer mock-access-token"));
+    let user_agent = req
+        .headers()
+        .get("User-Agent")
+        .and_then(|value| value.to_str().ok());
+    // GitHub rejects API requests without a User-Agent; keep the mock strict so
+    // the provider cannot regress silently.
+    assert_eq!(user_agent, Some(OUTBOUND_HTTP_USER_AGENT));
+    let status = *provider
+        .github_emails_status
+        .lock()
+        .expect("GitHub emails status lock should not be poisoned");
+    if !status.is_success() {
+        return HttpResponse::build(status).json(serde_json::json!({
+            "message": "mock GitHub emails error"
+        }));
+    }
+    HttpResponse::Ok().json(provider.github_emails_payload())
 }

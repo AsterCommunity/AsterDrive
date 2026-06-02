@@ -24,6 +24,7 @@ import {
 	formConnectionChanged,
 	formFromProvider,
 	getManagedExternalAuthSearchString,
+	isGitHubProviderKind,
 	mergeManagedExternalAuthSearchParams,
 	normalizeOffset,
 	requiredFieldsMissing,
@@ -98,6 +99,7 @@ type AdminExternalAuthUiAction =
 	| SetExternalAuthFormFieldAction
 	| {
 			kind: ExternalAuthProviderKind;
+			patch?: Partial<ExternalAuthProviderFormData>;
 			scopes: string;
 			type: "set_provider_kind";
 	  }
@@ -218,6 +220,7 @@ function adminExternalAuthUiReducer(
 				...state,
 				form: {
 					...state.form,
+					...action.patch,
 					providerKind: action.kind,
 					scopes: action.scopes,
 				},
@@ -473,8 +476,29 @@ export function useAdminExternalAuthPageController() {
 
 	const setProviderKind = (kind: ExternalAuthProviderKind) => {
 		const descriptor = providerKinds.find((item) => item.kind === kind);
+		const patch: Partial<ExternalAuthProviderFormData> = isGitHubProviderKind(
+			descriptor ?? kind,
+		)
+			? {
+					authorizationUrl: "",
+					avatarUrlClaim: "",
+					displayName: form.displayName.trim() ? form.displayName : "GitHub",
+					displayNameClaim: "",
+					emailClaim: "",
+					emailVerifiedClaim: "",
+					groupsClaim: "",
+					iconUrl: "",
+					issuerUrl: "",
+					requireEmailVerified: true,
+					subjectClaim: "",
+					tokenUrl: "",
+					userinfoUrl: "",
+					usernameClaim: "",
+				}
+			: {};
 		dispatchUi({
 			kind,
+			patch,
 			scopes: descriptor?.default_scopes || defaultScopesForKind(descriptor),
 			type: "set_provider_kind",
 		});

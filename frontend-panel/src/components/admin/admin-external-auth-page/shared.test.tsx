@@ -164,6 +164,26 @@ function oauth2Kind(
 	});
 }
 
+function githubKind(
+	overrides: Partial<AdminExternalAuthProviderKindInfo> = {},
+): AdminExternalAuthProviderKindInfo {
+	return kind({
+		authorization_url_required: false,
+		default_scopes: "read:user user:email",
+		description: "GitHub sign-in.",
+		display_name: "GitHub",
+		issuer_url_required: false,
+		kind: "github",
+		manual_endpoint_configuration_supported: false,
+		protocol: "oauth2",
+		supports_discovery: false,
+		supports_email_verified_claim: false,
+		token_url_required: false,
+		userinfo_url_required: false,
+		...overrides,
+	});
+}
+
 describe("admin external auth shared helpers", () => {
 	it("normalizes domains and payload text fields", () => {
 		expect(parseAllowedDomains(" @Example.COM, example.com\nTeam.io ")).toEqual(
@@ -237,6 +257,36 @@ describe("admin external auth shared helpers", () => {
 			provider_kind: "generic_oauth2",
 			scopes: "openid email profile",
 		});
+	});
+
+	it("uses GitHub descriptor defaults and fixed summaries", () => {
+		const descriptor = githubKind();
+		const form = {
+			...emptyForm,
+			clientId: "client-123",
+			displayName: "GitHub",
+			providerKind: "github",
+			scopes: " ",
+		};
+
+		expect(defaultScopesForKind(descriptor)).toBe("read:user user:email");
+		expect(createPayload(form, descriptor)).toMatchObject({
+			authorization_url: null,
+			provider_kind: "github",
+			scopes: "read:user user:email",
+			token_url: null,
+			userinfo_url: null,
+		});
+		expect(connectionRequirementsMissing(form, descriptor)).toBe(false);
+		expect(formConnectionSummary(form, descriptor)).toContain(
+			"https://api.github.com/user/emails",
+		);
+		expect(formClaimSummary(form, descriptor)).toBe(
+			"subject=id · username=login · display=name · email=primary && verified from /user/emails",
+		);
+		expect(callbackUrl("github", "github")).toBe(
+			"https://app.example.com/api/v1/auth/external-auth/github/github/callback",
+		);
 	});
 
 	it("maps saved providers into editable forms and detects connection changes", () => {
@@ -331,6 +381,7 @@ describe("admin external auth shared helpers", () => {
 		expect(kindDisplayName(translate as never, "generic_oauth2", [])).toBe(
 			"Generic OAuth2",
 		);
+		expect(kindDisplayName(translate as never, "github", [])).toBe("GitHub");
 		expect(kindDescription(translate as never, kind())).toBe("OIDC sign-in.");
 		expect(securityModeLabel(translate as never, provider())).toBe(
 			"external_auth_provider_mode_manual",

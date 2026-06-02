@@ -187,7 +187,7 @@ Generic OAuth2 example:
 {
   "provider_kind": "generic_oauth2",
   "display_name": "Logto",
-  "icon_url": "/static/external-auth/oauth_logo.svg",
+  "icon_url": "/static/external-auth/oauth-logo.svg",
   "issuer_url": "https://id.example.com",
   "authorization_url": "https://id.example.com/oidc/auth",
   "token_url": "https://id.example.com/oidc/token",

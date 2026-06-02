@@ -5,7 +5,9 @@ export function externalAuthKindIconPath(
 ): string {
 	switch (kind) {
 		case "generic_oauth2":
-			return "/static/external-auth/oauth_logo.svg";
+			return "/static/external-auth/oauth-logo.svg";
+		case "github":
+			return "/static/external-auth/github-logo.svg";
 		case "oidc":
 			return "/static/external-auth/openid-seeklogo.svg";
 	}

@@ -95,6 +95,7 @@ describe("authService", () => {
 			issuer: "https://idp.example.com",
 			last_login_at: null,
 			provider_display_name: "Example IDP",
+			provider_icon_url: "/static/external-auth/example.svg",
 			provider_id: 1,
 			provider_kind: "oidc",
 			provider_key: "example",

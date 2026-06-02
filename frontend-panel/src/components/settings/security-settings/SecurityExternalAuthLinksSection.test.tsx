@@ -128,11 +128,21 @@ function link(
 		issuer: "https://idp.example.com",
 		last_login_at: null,
 		provider_display_name: "Example IDP",
+		provider_icon_url: "/static/external-auth/example.svg",
 		provider_key: "example",
+		provider_kind: "oidc",
 		subject: "subject-1234567890abcdef",
 		updated_at: "2026-05-01T08:00:00Z",
 		...overrides,
 	};
+}
+
+function imageBySrc(src: string) {
+	return (
+		Array.from(document.querySelectorAll("img")).find(
+			(image) => image.getAttribute("src") === src,
+		) ?? null
+	);
 }
 
 describe("SecurityExternalAuthLinksSection", () => {
@@ -272,5 +282,125 @@ describe("SecurityExternalAuthLinksSection", () => {
 			expect(mockState.handleApiError).toHaveBeenCalledWith(error);
 		});
 		expect(screen.getByText("Example IDP")).toBeInTheDocument();
+	});
+
+	it("uses the configured provider icon before kind defaults", async () => {
+		mockState.authService.listExternalAuthLinks.mockResolvedValue([
+			link({
+				provider_icon_url: "https://cdn.example.com/idp.svg",
+				provider_kind: "github",
+			}),
+		]);
+
+		render(<SecurityExternalAuthLinksSection />);
+
+		await screen.findByText("Example IDP");
+		expect(imageBySrc("https://cdn.example.com/idp.svg")).toHaveAttribute(
+			"src",
+			"https://cdn.example.com/idp.svg",
+		);
+		expect(imageBySrc("/static/external-auth/github-logo.svg")).toBeNull();
+	});
+
+	it("falls back to the provider kind icon when the configured icon is absent or invalid", async () => {
+		mockState.authService.listExternalAuthLinks.mockResolvedValue([
+			link({
+				id: 1,
+				provider_display_name: "GitHub",
+				provider_icon_url: null,
+				provider_kind: "github",
+			}),
+			link({
+				id: 2,
+				provider_display_name: "Invalid Icon IDP",
+				provider_icon_url: "javascript:alert(1)",
+				provider_kind: "oidc",
+			}),
+		]);
+
+		render(<SecurityExternalAuthLinksSection />);
+
+		await screen.findByText("GitHub");
+		expect(screen.getByText("Invalid Icon IDP")).toBeInTheDocument();
+		expect(imageBySrc("/static/external-auth/github-logo.svg")).toHaveAttribute(
+			"src",
+			"/static/external-auth/github-logo.svg",
+		);
+		expect(
+			imageBySrc("/static/external-auth/openid-seeklogo.svg"),
+		).toHaveAttribute("src", "/static/external-auth/openid-seeklogo.svg");
+		expect(imageBySrc("javascript:alert(1)")).toBeNull();
+	});
+
+	it("falls back to the provider kind icon when the configured icon contains whitespace", async () => {
+		mockState.authService.listExternalAuthLinks.mockResolvedValue([
+			link({
+				provider_icon_url: "/static/external-auth/custom icon.svg",
+				provider_kind: "generic_oauth2",
+			}),
+		]);
+
+		render(<SecurityExternalAuthLinksSection />);
+
+		await screen.findByText("Example IDP");
+		expect(imageBySrc("/static/external-auth/oauth-logo.svg")).toHaveAttribute(
+			"src",
+			"/static/external-auth/oauth-logo.svg",
+		);
+		expect(imageBySrc("/static/external-auth/custom icon.svg")).toBeNull();
+	});
+
+	it("falls back from a broken configured icon to the provider kind icon", async () => {
+		mockState.authService.listExternalAuthLinks.mockResolvedValue([
+			link({
+				provider_icon_url: "/broken-provider-icon.svg",
+				provider_kind: "github",
+			}),
+		]);
+
+		render(<SecurityExternalAuthLinksSection />);
+
+		await screen.findByText("Example IDP");
+		const icon = imageBySrc("/broken-provider-icon.svg");
+		expect(icon).toHaveAttribute("src", "/broken-provider-icon.svg");
+
+		if (!icon) {
+			throw new Error("configured provider icon not found");
+		}
+		fireEvent.error(icon);
+
+		await waitFor(() => {
+			expect(
+				imageBySrc("/static/external-auth/github-logo.svg"),
+			).toHaveAttribute("src", "/static/external-auth/github-logo.svg");
+		});
+	});
+
+	it("falls back to the generic icon when the provider kind icon also fails to load", async () => {
+		mockState.authService.listExternalAuthLinks.mockResolvedValue([
+			link({
+				provider_icon_url: null,
+				provider_kind: "github",
+			}),
+		]);
+
+		render(<SecurityExternalAuthLinksSection />);
+
+		await screen.findByText("Example IDP");
+		const icon = imageBySrc("/static/external-auth/github-logo.svg");
+		expect(icon).toHaveAttribute(
+			"src",
+			"/static/external-auth/github-logo.svg",
+		);
+
+		if (!icon) {
+			throw new Error("provider kind icon not found");
+		}
+		fireEvent.error(icon);
+
+		await waitFor(() => {
+			expect(screen.getByText("Globe")).toBeInTheDocument();
+		});
+		expect(imageBySrc("/static/external-auth/github-logo.svg")).toBeNull();
 	});
 });

@@ -35,6 +35,18 @@ export const STANDARD_CLAIMS = {
 	subjectClaim: "sub",
 	usernameClaim: "preferred_username",
 } as const;
+export const GITHUB_FIXED_ENDPOINTS = {
+	authorizationUrl: "https://github.com/login/oauth/authorize",
+	tokenUrl: "https://github.com/login/oauth/access_token",
+	userinfoUrl: "https://api.github.com/user",
+	userEmailsUrl: "https://api.github.com/user/emails",
+} as const;
+export const GITHUB_CLAIMS = {
+	displayNameClaim: "name",
+	emailClaim: "primary && verified from /user/emails",
+	subjectClaim: "id",
+	usernameClaim: "login",
+} as const;
 export const EXTERNAL_AUTH_PAGE_SIZE_OPTIONS = [10, 20, 50] as const;
 export const DEFAULT_EXTERNAL_AUTH_PAGE_SIZE = 20 as const;
 const EXTERNAL_AUTH_MANAGED_QUERY_KEYS = ["offset", "pageSize"] as const;
@@ -137,9 +149,21 @@ function kindFallbackLabel(kind: ExternalAuthProviderKind) {
 	switch (kind) {
 		case "generic_oauth2":
 			return "Generic OAuth2";
+		case "github":
+			return "GitHub";
 		case "oidc":
 			return "OpenID Connect";
 	}
+}
+
+export function isGitHubProviderKind(
+	kind:
+		| AdminExternalAuthProviderKindInfo
+		| ExternalAuthProviderKind
+		| null
+		| undefined,
+) {
+	return (typeof kind === "string" ? kind : kind?.kind) === "github";
 }
 
 function localizedProviderKindText(
@@ -587,6 +611,9 @@ export function formConnectionSummary(
 	form: ExternalAuthProviderFormData,
 	selectedKind: AdminExternalAuthProviderKindInfo | null,
 ) {
+	if (isGitHubProviderKind(selectedKind ?? form.providerKind)) {
+		return `authorization: ${GITHUB_FIXED_ENDPOINTS.authorizationUrl} · token: ${GITHUB_FIXED_ENDPOINTS.tokenUrl} · userinfo: ${GITHUB_FIXED_ENDPOINTS.userinfoUrl} · emails: ${GITHUB_FIXED_ENDPOINTS.userEmailsUrl}`;
+	}
 	const items = [
 		form.issuerUrl.trim() ? `issuer: ${form.issuerUrl.trim()}` : null,
 		selectedKind?.manual_endpoint_configuration_supported &&
@@ -611,6 +638,9 @@ export function formClaimSummary(
 	form: ExternalAuthProviderFormData,
 	selectedKind: AdminExternalAuthProviderKindInfo | null,
 ) {
+	if (isGitHubProviderKind(selectedKind ?? form.providerKind)) {
+		return `subject=${GITHUB_CLAIMS.subjectClaim} · username=${GITHUB_CLAIMS.usernameClaim} · display=${GITHUB_CLAIMS.displayNameClaim} · email=${GITHUB_CLAIMS.emailClaim}`;
+	}
 	const claims = [
 		`subject=${effectiveClaim(form.subjectClaim, STANDARD_CLAIMS.subjectClaim)}`,
 		`username=${effectiveClaim(form.usernameClaim, STANDARD_CLAIMS.usernameClaim)}`,

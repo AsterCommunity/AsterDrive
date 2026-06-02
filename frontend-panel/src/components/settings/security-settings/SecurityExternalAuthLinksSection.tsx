@@ -8,6 +8,10 @@ import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
 import { handleApiError } from "@/hooks/useApiError";
 import { useConfirmDialog } from "@/hooks/useConfirmDialog";
+import {
+	externalAuthKindIconPath,
+	normalizeExternalAuthIconUrl,
+} from "@/lib/externalAuthProviders";
 import { formatDateAbsolute, formatDateAbsoluteWithOffset } from "@/lib/format";
 import { authService } from "@/services/authService";
 import type { ExternalAuthLinkInfo } from "@/types/api";
@@ -20,6 +24,38 @@ function shortSubject(value: string) {
 function optionalLabel(value: string | null | undefined, fallback: string) {
 	const trimmed = value?.trim();
 	return trimmed ? trimmed : fallback;
+}
+
+function ExternalAuthLinkIcon({ link }: { link: ExternalAuthLinkInfo }) {
+	const configuredIcon = normalizeExternalAuthIconUrl(link.provider_icon_url);
+	const kindIcon = externalAuthKindIconPath(link.provider_kind);
+	const effectiveIcon = configuredIcon || kindIcon;
+	const [iconSrc, setIconSrc] = useState(effectiveIcon);
+
+	useEffect(() => {
+		setIconSrc(effectiveIcon);
+	}, [effectiveIcon]);
+
+	if (iconSrc) {
+		return (
+			<img
+				src={iconSrc}
+				alt=""
+				aria-hidden="true"
+				className="size-5 object-contain"
+				onError={(event) => {
+					event.currentTarget.onerror = null;
+					if (configuredIcon && iconSrc === configuredIcon && kindIcon) {
+						setIconSrc(kindIcon);
+						return;
+					}
+					setIconSrc("");
+				}}
+			/>
+		);
+	}
+
+	return <Icon name="Globe" className="size-4" />;
 }
 
 export function SecurityExternalAuthLinksSection() {
@@ -130,8 +166,8 @@ export function SecurityExternalAuthLinksSection() {
 								<div className="flex flex-col gap-3">
 									<div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
 										<div className="flex min-w-0 items-center gap-2">
-											<div className="rounded-lg border bg-background p-2 text-primary">
-												<Icon name="Globe" className="size-4" />
+											<div className="flex size-9 shrink-0 items-center justify-center rounded-lg border bg-background text-primary">
+												<ExternalAuthLinkIcon link={link} />
 											</div>
 											<div className="min-w-0 flex-1 space-y-1">
 												<p className="truncate text-sm font-semibold">
