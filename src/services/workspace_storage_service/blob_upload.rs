@@ -13,8 +13,6 @@ use super::{
     create_s3_nondedup_blob,
 };
 
-const LOCAL_COPY_BUF_SIZE: usize = 1024 * 1024;
-
 #[derive(Debug, Clone)]
 pub(crate) enum PreparedNonDedupBlobUpload {
     Local {
@@ -319,46 +317,23 @@ async fn copy_temp_file_to_local_prepared_blob(
     link_error: std::io::Error,
     operation_context: &StorageOperationContext,
 ) -> Result<()> {
-    use tokio::io::{AsyncReadExt, AsyncWriteExt};
-
     operation_context.checkpoint()?;
-    let mut source = tokio::fs::File::open(temp_path).await.map_err(|error| {
+    let copied = crate::storage::drivers::local::copy_file_with_checkpoint(
+        Path::new(temp_path),
+        full_path,
+        || operation_context.checkpoint(),
+        "local upload",
+    )
+    .await
+    .map_err(|error| {
         AsterError::storage_driver_error(format!(
-            "open local upload source after hardlink failed ({link_error}): {error}"
+            "copy local upload after hardlink failed ({link_error}): {}",
+            error.message()
         ))
     })?;
-    let mut target = tokio::fs::File::create(full_path).await.map_aster_err_ctx(
-        "create local upload target",
-        AsterError::storage_driver_error,
-    )?;
-    let mut buf = vec![0_u8; LOCAL_COPY_BUF_SIZE];
-    let mut copied = 0_i64;
-
-    loop {
-        operation_context.checkpoint()?;
-        let read = source
-            .read(&mut buf)
-            .await
-            .map_aster_err_ctx("read local upload source", AsterError::storage_driver_error)?;
-        if read == 0 {
-            break;
-        }
-        target.write_all(&buf[..read]).await.map_aster_err_ctx(
-            "write local upload target",
-            AsterError::storage_driver_error,
-        )?;
-        let read = i64::try_from(read).map_err(|_| {
-            AsterError::storage_driver_error("local upload read size exceeds i64 range")
-        })?;
-        copied = copied
-            .checked_add(read)
-            .ok_or_else(|| AsterError::storage_driver_error("local upload copy size overflow"))?;
-    }
-    target.flush().await.map_aster_err_ctx(
-        "flush local upload target",
-        AsterError::storage_driver_error,
-    )?;
-    operation_context.checkpoint()?;
+    let copied = i64::try_from(copied).map_err(|_| {
+        AsterError::storage_driver_error("local upload copied size exceeds i64 range")
+    })?;
 
     if copied != size {
         return Err(AsterError::storage_driver_error(format!(

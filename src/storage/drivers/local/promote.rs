@@ -4,8 +4,6 @@ use crate::errors::{AsterError, MapAsterErr, Result};
 use crate::storage::driver::StorageDriver;
 use crate::utils::numbers;
 
-const LOCAL_COPY_BUF_SIZE: usize = 1024 * 1024;
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PromoteLocalFileOutcome {
     Created,
@@ -184,43 +182,14 @@ async fn copy_file_to_temp(
     expected_size: u64,
     checkpoint: impl Fn() -> Result<()>,
 ) -> Result<()> {
-    use tokio::io::{AsyncReadExt, AsyncWriteExt};
-
     checkpoint()?;
-    let mut source = tokio::fs::File::open(local_path)
-        .await
-        .map_aster_err_ctx("open local dedup source", AsterError::storage_driver_error)?;
-    let mut target = tokio::fs::File::create(temp_path)
-        .await
-        .map_aster_err_ctx("create local dedup temp", AsterError::storage_driver_error)?;
-    let mut buf = vec![0_u8; LOCAL_COPY_BUF_SIZE];
-    let mut copied = 0_u64;
-
-    loop {
-        checkpoint()?;
-        let read = source
-            .read(&mut buf)
-            .await
-            .map_aster_err_ctx("read local dedup source", AsterError::storage_driver_error)?;
-        if read == 0 {
-            break;
-        }
-        target
-            .write_all(&buf[..read])
-            .await
-            .map_aster_err_ctx("write local dedup temp", AsterError::storage_driver_error)?;
-        let read = u64::try_from(read).map_err(|_| {
-            AsterError::storage_driver_error("local dedup read size exceeds u64 range")
-        })?;
-        copied = copied
-            .checked_add(read)
-            .ok_or_else(|| AsterError::storage_driver_error("local dedup copy size overflow"))?;
-    }
-    target
-        .flush()
-        .await
-        .map_aster_err_ctx("flush local dedup temp", AsterError::storage_driver_error)?;
-    checkpoint()?;
+    let copied = super::copy_file_with_checkpoint(
+        Path::new(local_path),
+        temp_path,
+        checkpoint,
+        "local dedup",
+    )
+    .await?;
 
     if copied != expected_size {
         return Err(AsterError::storage_driver_error(format!(

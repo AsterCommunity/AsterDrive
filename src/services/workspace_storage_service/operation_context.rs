@@ -6,6 +6,9 @@ use tokio::io::{AsyncRead, ReadBuf};
 
 use crate::errors::Result;
 
+const CANCELLATION_CHECK_EAGER_READS: u32 = 8;
+const CANCELLATION_CHECK_READ_INTERVAL: u32 = 64;
+
 pub(crate) trait StorageCancellationCheck: Send + Sync {
     fn checkpoint(&self) -> Result<()>;
 }
@@ -49,22 +52,24 @@ impl StorageOperationContext {
         &self,
         reader: Box<dyn AsyncRead + Unpin + Send>,
     ) -> Box<dyn AsyncRead + Unpin + Send + Sync> {
-        let reader: Box<dyn AsyncRead + Unpin + Send + Sync> = Box::new(SyncRead::new(reader));
+        let reader: Box<dyn AsyncRead + Unpin + Send + Sync> =
+            Box::new(SendToSyncReader::new(reader));
         match &self.cancellation {
             Some(cancellation) => Box::new(CancellationAwareReader {
                 inner: reader,
                 cancellation: cancellation.clone(),
+                read_count: 0,
             }),
             None => reader,
         }
     }
 }
 
-struct SyncRead {
+struct SendToSyncReader {
     inner: Mutex<Box<dyn AsyncRead + Unpin + Send>>,
 }
 
-impl SyncRead {
+impl SendToSyncReader {
     fn new(inner: Box<dyn AsyncRead + Unpin + Send>) -> Self {
         Self {
             inner: Mutex::new(inner),
@@ -72,7 +77,7 @@ impl SyncRead {
     }
 }
 
-impl AsyncRead for SyncRead {
+impl AsyncRead for SendToSyncReader {
     fn poll_read(
         self: Pin<&mut Self>,
         cx: &mut Context<'_>,
@@ -80,32 +85,51 @@ impl AsyncRead for SyncRead {
     ) -> Poll<std::io::Result<()>> {
         match self.inner.lock() {
             Ok(mut inner) => Pin::new(&mut *inner).poll_read(cx, buf),
-            Err(_) => Poll::Ready(Err(std::io::Error::other("sync reader mutex poisoned"))),
+            Err(_) => Poll::Ready(Err(std::io::Error::other(
+                "send-to-sync reader mutex poisoned",
+            ))),
         }
     }
 }
 
-impl Unpin for SyncRead {}
+impl Unpin for SendToSyncReader {}
 
 struct CancellationAwareReader {
     inner: Box<dyn AsyncRead + Unpin + Send + Sync>,
     cancellation: Arc<dyn StorageCancellationCheck>,
+    read_count: u32,
 }
 
 impl AsyncRead for CancellationAwareReader {
     fn poll_read(
-        mut self: Pin<&mut Self>,
+        self: Pin<&mut Self>,
         cx: &mut Context<'_>,
         buf: &mut ReadBuf<'_>,
     ) -> Poll<std::io::Result<()>> {
-        if let Err(error) = self.cancellation.checkpoint() {
+        let this = self.get_mut();
+        if should_check_cancellation(this.read_count)
+            && let Err(error) = this.cancellation.checkpoint()
+        {
             return Poll::Ready(Err(std::io::Error::new(
                 std::io::ErrorKind::Interrupted,
                 error.to_string(),
             )));
         }
-        Pin::new(&mut self.inner).poll_read(cx, buf)
+
+        let before = buf.filled().len();
+        let poll = Pin::new(&mut this.inner).poll_read(cx, buf);
+        if let Poll::Ready(Ok(())) = &poll
+            && buf.filled().len() > before
+        {
+            this.read_count = this.read_count.wrapping_add(1);
+        }
+        poll
     }
 }
 
 impl Unpin for CancellationAwareReader {}
+
+fn should_check_cancellation(read_count: u32) -> bool {
+    read_count < CANCELLATION_CHECK_EAGER_READS
+        || read_count.is_multiple_of(CANCELLATION_CHECK_READ_INTERVAL)
+}
