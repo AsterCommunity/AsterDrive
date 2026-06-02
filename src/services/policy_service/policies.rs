@@ -68,8 +68,9 @@ fn validate_connection_credentials(
 ) -> Result<()> {
     match driver_type {
         DriverType::S3 | DriverType::TencentCos => {
-            validate_connection_secret(access_key, "access_key", "S3-compatible")?;
-            validate_connection_secret(secret_key, "secret_key", "S3-compatible")?;
+            let driver = driver_type_name(driver_type);
+            validate_connection_secret(access_key, "access_key", driver)?;
+            validate_connection_secret(secret_key, "secret_key", driver)?;
         }
         DriverType::Local | DriverType::Remote => {}
     }

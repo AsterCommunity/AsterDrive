@@ -547,10 +547,12 @@ function createPolicy(overrides: Record<string, unknown> = {}) {
 	};
 }
 
-function openCreateWizard(driver: "local" | "s3" = "local") {
+function openCreateWizard(driver: "local" | "s3" | "tencent_cos" = "local") {
 	fireEvent.click(screen.getByRole("button", { name: /new_policy/i }));
 	if (driver === "s3") {
 		fireEvent.click(screen.getByRole("button", { name: /^S3\b/ }));
+	} else if (driver === "tencent_cos") {
+		fireEvent.click(screen.getByRole("button", { name: /Tencent COS/ }));
 	}
 	fireEvent.click(screen.getByRole("button", { name: "policy_wizard_next" }));
 }
@@ -1224,6 +1226,101 @@ describe("AdminPoliciesPage", () => {
 				secret_key: undefined,
 			});
 		});
+	});
+
+	it("creates a Tencent COS policy with storage-native thumbnail and media info rules", async () => {
+		render(<AdminPoliciesPage />);
+
+		openCreateWizard("tencent_cos");
+
+		fireEvent.change(screen.getByLabelText("core:name"), {
+			target: { value: "COS Media" },
+		});
+		fireEvent.change(screen.getByLabelText("endpoint"), {
+			target: { value: "https://cos.ap-guangzhou.myqcloud.com" },
+		});
+		fireEvent.change(screen.getByLabelText("bucket"), {
+			target: { value: "media-1250000000" },
+		});
+		fireEvent.change(screen.getByLabelText("Access Key"), {
+			target: { value: "AKID" },
+		});
+		fireEvent.change(screen.getByLabelText("Secret Key"), {
+			target: { value: "SECRET" },
+		});
+
+		fireEvent.click(
+			screen.getByRole("button", { name: "policy_wizard_review" }),
+		);
+
+		expect(
+			screen.getByText("policy_storage_native_section_title"),
+		).toBeInTheDocument();
+		fireEvent.click(
+			screen.getByRole("button", {
+				name: "switch:storage_native_processing_enabled:false",
+			}),
+		);
+		expect(
+			screen.getByLabelText("storage_native_thumbnail_extensions"),
+		).toHaveDisplayValue("jpg, jpeg, png, webp, gif");
+
+		fireEvent.change(
+			screen.getByLabelText("storage_native_thumbnail_extensions"),
+			{
+				target: { value: " .PNG ,jpg, .png , webp" },
+			},
+		);
+		fireEvent.click(
+			screen.getByRole("button", {
+				name: "switch:storage_native_media_metadata_enabled:false",
+			}),
+		);
+		fireEvent.change(
+			screen.getByLabelText("storage_native_media_metadata_extensions"),
+			{
+				target: { value: " .MP4 ,mov, mp4" },
+			},
+		);
+
+		fireEvent.click(screen.getByRole("button", { name: /core:create/i }));
+
+		await waitFor(() => {
+			expect(mockState.testParams).toHaveBeenCalledWith({
+				access_key: "AKID",
+				base_path: undefined,
+				bucket: "media-1250000000",
+				driver_type: "tencent_cos",
+				endpoint: "https://cos.ap-guangzhou.myqcloud.com",
+				remote_node_id: undefined,
+				secret_key: "SECRET",
+			});
+		});
+		await waitFor(() => {
+			expect(mockState.create).toHaveBeenCalledWith({
+				access_key: "AKID",
+				base_path: "",
+				bucket: "media-1250000000",
+				chunk_size: 5 * 1024 * 1024,
+				driver_type: "tencent_cos",
+				endpoint: "https://cos.ap-guangzhou.myqcloud.com",
+				is_default: false,
+				max_file_size: undefined,
+				name: "COS Media",
+				options: {
+					media_metadata_extensions: ["mp4", "mov"],
+					s3_download_strategy: "relay_stream",
+					s3_upload_strategy: "relay_stream",
+					storage_native_media_metadata_enabled: true,
+					storage_native_processing_enabled: true,
+					thumbnail_extensions: ["png", "jpg", "webp"],
+					thumbnail_processor: "storage_native",
+				},
+				remote_node_id: undefined,
+				secret_key: "SECRET",
+			});
+		});
+		expect(mockState.toastSuccess).toHaveBeenCalledWith("policy_created");
 	});
 
 	it("tests remote policy params and creates a bound remote policy", async () => {

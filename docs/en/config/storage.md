@@ -23,7 +23,7 @@ If you change nothing, new users are automatically bound to the default policy g
 | --- | --- | --- |
 | `local` | Files are stored in a local directory | [Local disk](/en/storage/local) |
 | `s3` | Files are stored in S3 or S3-compatible object storage, such as MinIO / R2 / B2 / OSS | [S3 / MinIO / R2](/en/storage/s3-minio-r2) |
-| `tencent_cos` | Files are stored in Tencent COS; base object operations reuse S3-compatible behavior, with additional Tencent-native capabilities such as COS CI | [Tencent COS](/en/storage/tencent-cos) |
+| `tencent_cos` | Files are stored in Tencent COS; base object operations reuse S3-compatible behavior, with additional Tencent-native capabilities such as COS CI (Cloud Infinite / 数据万象). See the Tencent COS tutorial for what COS CI provides and when it may be billed. | [Tencent COS](/en/storage/tencent-cos) |
 | `remote` | Files are written to another AsterDrive follower node through the internal remote storage protocol | [Follower Node Storage Policy](/en/storage/remote-follower) |
 
 ## Storage Policies vs Policy Groups
@@ -55,7 +55,7 @@ If you are migrating existing data, do not directly change the old policy path, 
 ::: warning Storage-native processing can incur provider charges
 `Storage-native processing` is a master switch on each storage policy. AsterDrive only calls native data-processing features exposed by the resolved storage driver after this switch is enabled. For Tencent COS policies, this maps to COS CI.
 
-AsterDrive caches generated thumbnails, media information, and similar derivatives so they are not processed on every view, but the first generation and provider-side processing requests can still incur charges. For Tencent COS setup, suffix rules, and free-quota notes, see the [Tencent COS storage policy tutorial](/en/storage/tencent-cos).
+AsterDrive caches generated thumbnails, media information, and similar derivatives so they are not processed on every view, but initial generation and subsequent provider-side processing requests may incur charges from your cloud provider. For Tencent COS setup, suffix rules, and free-quota notes, see the [Tencent COS storage policy tutorial](/en/storage/tencent-cos).
 :::
 
 ## How to Choose Between the Four Storage Types

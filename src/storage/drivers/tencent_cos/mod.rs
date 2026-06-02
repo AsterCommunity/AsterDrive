@@ -51,7 +51,9 @@ impl TencentCosDriver {
         }
         let endpoint = Url::parse(&normalized.endpoint)
             .map_aster_err_ctx("parse COS endpoint", AsterError::storage_driver_error)?;
-        let host = endpoint.host_str().unwrap_or_default();
+        let host = endpoint.host_str().ok_or_else(|| {
+            storage_driver_error(StorageErrorKind::Misconfigured, "COS endpoint missing host")
+        })?;
         if !host.ends_with(".myqcloud.com") {
             return Err(storage_driver_error(
                 StorageErrorKind::Misconfigured,

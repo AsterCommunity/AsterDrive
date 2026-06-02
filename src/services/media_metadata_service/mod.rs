@@ -190,11 +190,18 @@ pub async fn extract_for_blob(
         ));
     }
 
-    if let Some(extracted) =
-        try_extract_storage_native_metadata(state, blob, source_file_name, source_mime_type, kind)
-            .await?
+    match try_extract_storage_native_metadata(state, blob, source_file_name, source_mime_type, kind)
+        .await
     {
-        return Ok(extracted);
+        Ok(Some(extracted)) => return Ok(extracted),
+        Ok(None) => {}
+        Err(error) => {
+            tracing::warn!(
+                blob_id = blob.id,
+                ?kind,
+                "storage-native media metadata extraction failed; falling back to configured processor: {error}"
+            );
+        }
     }
 
     match kind {
@@ -246,9 +253,14 @@ async fn try_extract_storage_native_metadata(
 
     let policy = state.policy_snapshot.get_policy_or_err(blob.policy_id)?;
     let driver = state.driver_registry.get_driver(&policy)?;
-    let native = driver.as_native_media_metadata().ok_or_else(|| {
-        AsterError::storage_driver_error("storage driver does not support native media metadata")
-    })?;
+    let Some(native) = driver.as_native_media_metadata() else {
+        tracing::warn!(
+            policy_id = policy.id,
+            blob_id = blob.id,
+            "storage driver native media metadata capability disappeared after match check"
+        );
+        return Ok(None);
+    };
     let Some(result) = native
         .get_native_media_metadata(&crate::storage::NativeMediaMetadataRequest {
             storage_path: blob.storage_path.clone(),

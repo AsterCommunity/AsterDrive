@@ -265,7 +265,7 @@ If this is added later, it should use its own explicit switch and suffix list in
 
 ## 8. Free Quotas and Billing Boundaries
 
-References checked on: 2026-06-03.
+References last checked: 2026-06-02. Always confirm against Tencent Cloud's latest pages before enabling billing-sensitive features.
 
 Under Tencent Cloud's current public pricing pages:
 

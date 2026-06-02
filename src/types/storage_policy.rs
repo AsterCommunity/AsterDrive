@@ -312,7 +312,8 @@ impl StoragePolicyOptions {
     }
 
     pub fn storage_native_processing_enabled(&self) -> bool {
-        self.storage_native_processing_enabled.unwrap_or(false)
+        self.storage_native_processing_enabled
+            .unwrap_or(self.thumbnail_processor == Some(MediaProcessorKind::StorageNative))
     }
 
     pub fn uses_storage_native_media_metadata(&self) -> bool {
@@ -659,9 +660,9 @@ mod tests {
     }
 
     #[test]
-    fn storage_native_thumbnail_requires_processing_switch() {
+    fn storage_native_thumbnail_rejects_explicit_disabled_processing_switch() {
         let options = parse_storage_policy_options(
-            r#"{"thumbnail_processor":"storage_native","thumbnail_extensions":["png"]}"#,
+            r#"{"storage_native_processing_enabled":false,"thumbnail_processor":"storage_native","thumbnail_extensions":["png"]}"#,
         );
         let error = options.validate().unwrap_err();
         assert!(
@@ -669,6 +670,19 @@ mod tests {
                 .to_string()
                 .contains("storage_native_processing_enabled is required")
         );
+    }
+
+    #[test]
+    fn storage_native_thumbnail_preserves_legacy_missing_processing_switch() {
+        let options = parse_storage_policy_options(
+            r#"{"thumbnail_processor":"storage_native","thumbnail_extensions":["png"]}"#,
+        );
+
+        options
+            .validate()
+            .expect("legacy storage-native thumbnail options should remain valid");
+        assert!(options.storage_native_processing_enabled());
+        assert!(options.uses_storage_native_thumbnail());
     }
 
     #[test]

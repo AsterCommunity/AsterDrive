@@ -180,7 +180,7 @@ fn build_public_media_data_support(
             }
             Ok(_) => {}
             Err(error) => {
-                tracing::debug!(
+                tracing::warn!(
                     policy_id = policy.id,
                     "skip storage-native media metadata public support for policy: {error}"
                 );
@@ -192,6 +192,8 @@ fn build_public_media_data_support(
         return support;
     }
 
+    // Public support is a capability union: an extension listed here means at
+    // least one enabled policy can resolve it, not that every policy can.
     merge_storage_native_media_metadata_support(
         &mut support.kinds.audio,
         &storage_native_extensions,
@@ -262,7 +264,7 @@ fn hash_policy_snapshot_for_public_support(state: &PrimaryAppState, hasher: &mut
     policies.sort_by_key(|policy| policy.id);
     for policy in policies {
         policy.id.hash(hasher);
-        format!("{:?}", policy.driver_type).hash(hasher);
+        policy.driver_type.as_str().hash(hasher);
         policy.endpoint.hash(hasher);
         policy.bucket.hash(hasher);
         policy.base_path.hash(hasher);

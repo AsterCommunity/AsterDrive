@@ -79,7 +79,7 @@ Common fields:
 | --- | --- |
 | Base path | `/srv/asterdrive/data` |
 | Single-file size limit | `0` means unlimited |
-| Chunk size | The default is usually fine |
+| Chunk size | Default: `5,242,880` bytes (5 MB). Increase it, for example to 16-64 MB, for large-file-heavy workloads to reduce chunk metadata and improve throughput; decrease it only for small-file-heavy or memory-constrained environments. |
 | Content deduplication | Disabled by default |
 
 Before or after saving, use the admin-console connection test to confirm that the directory is readable and writable.

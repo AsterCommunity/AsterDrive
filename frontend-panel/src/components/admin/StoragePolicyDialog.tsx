@@ -50,6 +50,22 @@ interface StoragePolicyDialogProps {
 	onSyncNormalizedS3Form: () => void;
 }
 
+interface StorageNativeLabelOptions {
+	enabled: boolean;
+	extensions: string[];
+	disabledLabel: string;
+}
+
+function getStorageNativeLabel({
+	enabled,
+	extensions,
+	disabledLabel,
+}: StorageNativeLabelOptions) {
+	return enabled && extensions.length > 0
+		? extensions.join(", ")
+		: disabledLabel;
+}
+
 export function StoragePolicyDialog(props: StoragePolicyDialogProps) {
 	return useStoragePolicyDialogContent(props);
 }
@@ -197,18 +213,39 @@ function useStoragePolicyDialogContent({
 	const contentDedupLabel = form.content_dedup
 		? t("policy_wizard_enabled")
 		: t("policy_wizard_disabled");
-	const storageNativeThumbnailExtensionsLabel =
-		form.storage_native_processing_enabled &&
-		form.thumbnail_processor === "storage_native" &&
-		form.thumbnail_extensions.length > 0
-			? form.thumbnail_extensions.join(", ")
-			: t("policy_wizard_disabled");
-	const storageNativeMediaMetadataExtensionsLabel =
-		form.storage_native_processing_enabled &&
-		form.storage_native_media_metadata_enabled &&
-		(form.media_metadata_extensions ?? []).length > 0
-			? (form.media_metadata_extensions ?? []).join(", ")
-			: t("policy_wizard_disabled");
+	const storageNativeThumbnailExtensionsLabel = getStorageNativeLabel({
+		enabled:
+			form.storage_native_processing_enabled &&
+			form.thumbnail_processor === "storage_native",
+		extensions: form.thumbnail_extensions,
+		disabledLabel: t("policy_wizard_disabled"),
+	});
+	const storageNativeMediaMetadataExtensionsLabel = getStorageNativeLabel({
+		enabled:
+			form.storage_native_processing_enabled &&
+			form.storage_native_media_metadata_enabled === true,
+		extensions: form.media_metadata_extensions ?? [],
+		disabledLabel: t("policy_wizard_disabled"),
+	});
+	const cosNativeSummaryItems =
+		form.driver_type === "tencent_cos"
+			? [
+					{
+						label: t("storage_native_processing_enabled"),
+						value: form.storage_native_processing_enabled
+							? t("policy_wizard_enabled")
+							: t("policy_wizard_disabled"),
+					},
+					{
+						label: t("storage_native_thumbnail_extensions"),
+						value: storageNativeThumbnailExtensionsLabel,
+					},
+					{
+						label: t("storage_native_media_metadata_extensions"),
+						value: storageNativeMediaMetadataExtensionsLabel,
+					},
+				]
+			: [];
 	const createSummaryItems = [
 		{ label: t("driver_type"), value: currentStorageOption.title },
 		{
@@ -257,24 +294,7 @@ function useStoragePolicyDialogContent({
 						label: t("s3_download_strategy"),
 						value: s3DownloadStrategyLabel,
 					},
-					...(form.driver_type === "tencent_cos"
-						? [
-								{
-									label: t("storage_native_processing_enabled"),
-									value: form.storage_native_processing_enabled
-										? t("policy_wizard_enabled")
-										: t("policy_wizard_disabled"),
-								},
-								{
-									label: t("storage_native_thumbnail_extensions"),
-									value: storageNativeThumbnailExtensionsLabel,
-								},
-								{
-									label: t("storage_native_media_metadata_extensions"),
-									value: storageNativeMediaMetadataExtensionsLabel,
-								},
-							]
-						: []),
+					...cosNativeSummaryItems,
 				]
 			: []),
 		...(form.driver_type === "remote"

@@ -33,11 +33,16 @@ export const DEFAULT_STORAGE_NATIVE_THUMBNAIL_EXTENSIONS = [
 	"gif",
 ];
 
+const SAFE_STORAGE_NATIVE_EXTENSION_PATTERN = /^[a-z0-9_-]{1,32}$/;
+
 export function normalizeThumbnailExtensions(values: string[]) {
 	const normalized: string[] = [];
 	for (const value of values) {
 		const extension = value.trim().replace(/^\.+/, "").toLowerCase();
-		if (extension && !normalized.includes(extension)) {
+		if (
+			SAFE_STORAGE_NATIVE_EXTENSION_PATTERN.test(extension) &&
+			!normalized.includes(extension)
+		) {
 			normalized.push(extension);
 		}
 	}

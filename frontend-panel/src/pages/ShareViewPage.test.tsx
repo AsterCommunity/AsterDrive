@@ -916,6 +916,36 @@ describe("ShareViewPage", () => {
 		);
 	});
 
+	it("renders file shares without preview actions when file metadata is incomplete", async () => {
+		mockState.getInfo.mockResolvedValueOnce({
+			download_count: 0,
+			has_password: false,
+			name: "Unknown.bin",
+			shared_by: {
+				avatar: null,
+				name: "Alice Example",
+			},
+			share_type: "file",
+		} as never);
+
+		render(<ShareViewPage />);
+
+		expect(await screen.findByText("Unknown.bin")).toBeInTheDocument();
+		expect(screen.getByText("File")).toBeInTheDocument();
+		expect(screen.queryByTestId("file-thumbnail")).not.toBeInTheDocument();
+		expect(
+			screen.queryByRole("button", { name: /files:preview/i }),
+		).not.toBeInTheDocument();
+
+		fireEvent.click(screen.getByRole("button", { name: /files:download/i }));
+
+		expect(mockState.downloadUrl).toHaveBeenCalledWith("share-token");
+		expect(mockState.openWindow).toHaveBeenCalledWith(
+			"https://download/share-token",
+			"_blank",
+		);
+	});
+
 	it("loads media data support when the preview element has not bootstrapped it", async () => {
 		mockState.mediaDataSupportStore.isLoaded = false;
 		mockState.getInfo.mockResolvedValueOnce({

@@ -65,10 +65,9 @@ fn managed_ingress_unsupported_driver_error(driver_type: DriverType) -> AsterErr
     AsterError::validation_error(format!(
         "managed ingress profiles do not support the {} driver",
         match driver_type {
-            DriverType::Local => "local",
-            DriverType::S3 => "s3",
             DriverType::TencentCos => "tencent_cos",
             DriverType::Remote => "remote",
+            other => other.as_str(),
         }
     ))
 }

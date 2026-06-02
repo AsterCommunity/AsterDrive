@@ -270,7 +270,7 @@ describe("storagePolicyDialogShared", () => {
 			s3_download_strategy: "relay_stream" as const,
 			storage_native_processing_enabled: true,
 			thumbnail_processor: "storage_native" as const,
-			thumbnail_extensions: [" .PNG ", "jpg", ".png"],
+			thumbnail_extensions: [" .PNG ", "jpg", ".png", "../../etc/passwd"],
 		};
 
 		expect(buildCreatePolicyPayload(baseForm).options).toEqual({
@@ -295,7 +295,7 @@ describe("storagePolicyDialogShared", () => {
 		});
 	});
 
-	it("does not persist native thumbnail suffixes when storage-native processing is disabled", () => {
+	it("does not persist any storage-native options when storage-native processing is disabled", () => {
 		const payload = buildCreatePolicyPayload({
 			name: "Plain S3",
 			driver_type: "s3",
@@ -383,7 +383,13 @@ describe("storagePolicyDialogShared", () => {
 			storage_native_media_metadata_enabled: true,
 			thumbnail_processor: "storage_native",
 			thumbnail_extensions: ["jpg"],
-			media_metadata_extensions: [" .MP4 ", "mp4", ".Mov", ""],
+			media_metadata_extensions: [
+				" .MP4 ",
+				"mp4",
+				".Mov",
+				"",
+				"../../etc/passwd",
+			],
 		});
 
 		expect(payload.options).toMatchObject({

@@ -394,6 +394,9 @@ function useAdminPoliciesPageContent() {
 					...prev,
 					storage_native_processing_enabled: enabled,
 					thumbnail_processor: enabled ? "storage_native" : null,
+					// Enabling storage-native processing seeds thumbnail_extensions with
+					// DEFAULT_STORAGE_NATIVE_THUMBNAIL_EXTENSIONS, but leaves
+					// media_metadata_extensions empty to avoid accidental billable metadata calls.
 					thumbnail_extensions: enabled
 						? prev.thumbnail_extensions.length > 0
 							? prev.thumbnail_extensions
