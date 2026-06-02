@@ -40,10 +40,11 @@ export function GlobalSearchHeader({
 	return (
 		<div className="border-b bg-background/95 px-4 py-3">
 			<div className="flex items-center gap-3">
-				<div className="flex size-10 shrink-0 items-center justify-center rounded-2xl bg-primary/8 text-primary">
-					<Icon name="MagnifyingGlass" className="size-5" />
-				</div>
-				<div className="min-w-0 flex-1">
+				<div className="relative min-w-0 flex-1">
+					<Icon
+						name="MagnifyingGlass"
+						className="-translate-y-1/2 absolute top-1/2 left-3 size-4 text-foreground/55"
+					/>
 					<Input
 						ref={inputRef}
 						value={query}
@@ -57,7 +58,7 @@ export function GlobalSearchHeader({
 						placeholder={t("search:placeholder")}
 						autoComplete="off"
 						spellCheck={false}
-						className="h-11 border-none bg-transparent px-0 text-base shadow-none focus-visible:border-none focus-visible:ring-0"
+						className="h-11 rounded-xl border-border/70 bg-muted/35 pr-3 pl-9 text-base shadow-none focus-visible:bg-background"
 					/>
 				</div>
 				<Button

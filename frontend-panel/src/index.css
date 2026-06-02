@@ -50,6 +50,7 @@
 }
 
 :root {
+	color-scheme: light;
 	--background: oklch(0.986 0.002 255);
 	--foreground: oklch(0.205 0.012 255);
 	--card: oklch(1 0 0);
@@ -82,9 +83,12 @@
 	--sidebar-accent-foreground: oklch(0.235 0.04 258);
 	--sidebar-border: oklch(0.89 0.006 255);
 	--sidebar-ring: oklch(0.56 0.185 264);
+	--scrollbar-thumb: oklch(0.62 0.012 255 / 48%);
+	--scrollbar-thumb-hover: oklch(0.52 0.014 255 / 68%);
 }
 
 .dark {
+	color-scheme: dark;
 	--background: oklch(0.17 0.018 255);
 	--foreground: oklch(0.952 0.008 255);
 	--card: oklch(0.215 0.021 255);
@@ -116,6 +120,8 @@
 	--sidebar-accent-foreground: oklch(0.96 0.01 255);
 	--sidebar-border: oklch(1 0 0 / 11%);
 	--sidebar-ring: oklch(0.67 0.18 259.815);
+	--scrollbar-thumb: oklch(0.72 0.018 255 / 38%);
+	--scrollbar-thumb-hover: oklch(0.82 0.014 255 / 58%);
 }
 
 /* Theme color presets */
@@ -210,6 +216,31 @@
 @layer base {
 	* {
 		@apply border-border outline-ring/50;
+	}
+	@supports not selector(::-webkit-scrollbar) {
+		* {
+			scrollbar-color: var(--scrollbar-thumb) transparent;
+			scrollbar-width: thin;
+		}
+	}
+	*::-webkit-scrollbar {
+		width: 0.625rem;
+		height: 0.625rem;
+	}
+	*::-webkit-scrollbar-track {
+		background: transparent;
+	}
+	*::-webkit-scrollbar-thumb {
+		border: 0.1875rem solid transparent;
+		border-radius: 999px;
+		background-color: var(--scrollbar-thumb);
+		background-clip: content-box;
+	}
+	*::-webkit-scrollbar-thumb:hover {
+		background-color: var(--scrollbar-thumb-hover);
+	}
+	*::-webkit-scrollbar-corner {
+		background: transparent;
 	}
 	body {
 		@apply bg-background text-foreground;
