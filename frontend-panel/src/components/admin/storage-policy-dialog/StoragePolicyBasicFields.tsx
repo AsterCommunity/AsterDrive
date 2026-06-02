@@ -110,10 +110,7 @@ export function StorageNativeProcessingField({
 							id="storage_native_thumbnail_extensions"
 							value={thumbnailExtensionsValue}
 							onChange={(e) =>
-								onFieldChange(
-									"thumbnail_extensions",
-									e.target.value.split(",").map((value) => value.trim()),
-								)
+								onFieldChange("thumbnail_extensions", e.target.value.split(","))
 							}
 							className={ADMIN_CONTROL_HEIGHT_CLASS}
 							placeholder="jpg, jpeg, png, webp, gif"
@@ -150,7 +147,7 @@ export function StorageNativeProcessingField({
 									onChange={(e) =>
 										onFieldChange(
 											"media_metadata_extensions",
-											e.target.value.split(",").map((value) => value.trim()),
+											e.target.value.split(","),
 										)
 									}
 									className={ADMIN_CONTROL_HEIGHT_CLASS}

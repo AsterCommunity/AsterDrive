@@ -44,14 +44,10 @@ impl NativeMediaMetadataStorageDriver for TencentCosDriver {
         }
 
         let url = self.signed_ci_media_info_url(&request.storage_path)?;
-        let response = reqwest::Client::new()
-            .get(url)
-            .send()
-            .await
-            .map_aster_err_ctx(
-                "COS native media metadata request",
-                AsterError::storage_driver_error,
-            )?;
+        let response = self.client.get(url).send().await.map_aster_err_ctx(
+            "COS native media metadata request",
+            AsterError::storage_driver_error,
+        )?;
         let status = response.status();
         if !status.is_success() {
             return Err(storage_driver_error(

@@ -23,12 +23,14 @@ use crate::storage::object_key;
 use crate::storage::traits::extensions::{
     NativeMediaMetadataStorageDriver, NativeThumbnailStorageDriver,
 };
+use crate::utils::OUTBOUND_HTTP_USER_AGENT;
 
 pub(super) const COS_NATIVE_PROCESSING_PROVIDER: &str = "tencent_cos_ci";
 pub(super) const MAX_COS_THUMBNAIL_TTL: Duration = Duration::from_secs(5 * 60);
 
 pub struct TencentCosDriver {
     storage: S3CompatibleDriver,
+    client: reqwest::Client,
     endpoint: String,
     bucket: String,
     access_key: String,
@@ -71,9 +73,11 @@ impl TencentCosDriver {
             &storage_policy,
             S3DriverOptions::virtual_hosted_style(),
         )?;
+        let client = cos_ci_http_client(policy)?;
 
         Ok(Self {
             storage,
+            client,
             endpoint: normalized.endpoint,
             bucket: normalized.bucket,
             access_key: policy.access_key.clone(),
@@ -93,6 +97,18 @@ impl TencentCosDriver {
     fn full_key(&self, path: &str) -> String {
         object_key::join_key_prefix(&self.base_path, path)
     }
+}
+
+fn cos_ci_http_client(policy: &storage_policy::Model) -> Result<reqwest::Client> {
+    let options = crate::types::parse_storage_policy_options(policy.options.as_ref());
+    reqwest::Client::builder()
+        .connect_timeout(options.effective_s3_connect_timeout())
+        .read_timeout(options.effective_s3_read_timeout())
+        .timeout(options.effective_s3_operation_timeout())
+        .redirect(reqwest::redirect::Policy::none())
+        .user_agent(OUTBOUND_HTTP_USER_AGENT)
+        .build()
+        .map_aster_err_ctx("build COS CI HTTP client", AsterError::storage_driver_error)
 }
 
 impl S3CompatibleProvider for TencentCosDriver {

@@ -68,14 +68,10 @@ impl NativeThumbnailStorageDriver for TencentCosDriver {
                 "requesting COS native thumbnail"
             );
         }
-        let response = reqwest::Client::new()
-            .get(url)
-            .send()
-            .await
-            .map_aster_err_ctx(
-                "COS native thumbnail request",
-                AsterError::storage_driver_error,
-            )?;
+        let response = self.client.get(url).send().await.map_aster_err_ctx(
+            "COS native thumbnail request",
+            AsterError::storage_driver_error,
+        )?;
         let status = response.status();
         if !status.is_success() {
             tracing::debug!(

@@ -87,7 +87,7 @@ impl TencentCosDriver {
         let path_for_sign = url.path().to_string();
         let url_param_list = canonical_param_list(params);
         let http_params = canonical_params(params);
-        let http_headers = format!("host={}", percent_encode_lower(host));
+        let http_headers = format!("host={}", percent_encode_path(host));
         let http_string = format!("get\n{path_for_sign}\n{http_params}\n{http_headers}\n");
         let string_to_sign = format!(
             "{COS_SIGN_ALGORITHM}\n{key_time}\n{}\n",
@@ -135,7 +135,7 @@ pub(super) fn cos_virtual_hosted_s3_endpoint(endpoint: &str, bucket: &str) -> Re
 fn canonical_param_list(params: &[(&str, &str)]) -> String {
     let mut names = params
         .iter()
-        .map(|(key, _)| percent_encode_query_lower(key))
+        .map(|(key, _)| percent_encode_query_key(key))
         .collect::<Vec<_>>();
     names.sort();
     names.join(";")
@@ -146,8 +146,8 @@ fn canonical_params(params: &[(&str, &str)]) -> String {
         .iter()
         .map(|(key, value)| {
             (
-                percent_encode_query_lower(key),
-                percent_encode_query_lower(value),
+                percent_encode_query_key(key),
+                percent_encode_query_value(value),
             )
         })
         .collect::<Vec<_>>();
@@ -159,16 +159,18 @@ fn canonical_params(params: &[(&str, &str)]) -> String {
         .join("&")
 }
 
-fn percent_encode_lower(value: &str) -> String {
-    percent_encode(value.as_bytes(), COS_PATH_ENCODE_SET)
+fn percent_encode_path(value: &str) -> String {
+    percent_encode(value.as_bytes(), COS_PATH_ENCODE_SET).to_string()
+}
+
+fn percent_encode_query_key(value: &str) -> String {
+    percent_encode(value.as_bytes(), COS_QUERY_ENCODE_SET)
         .to_string()
         .to_ascii_lowercase()
 }
 
-fn percent_encode_query_lower(value: &str) -> String {
-    percent_encode(value.as_bytes(), COS_QUERY_ENCODE_SET)
-        .to_string()
-        .to_ascii_lowercase()
+fn percent_encode_query_value(value: &str) -> String {
+    percent_encode(value.as_bytes(), COS_QUERY_ENCODE_SET).to_string()
 }
 
 fn sha1_hex(bytes: &[u8]) -> String {
@@ -182,4 +184,29 @@ fn hmac_sha1_hex(key: &[u8], message: &[u8]) -> Result<String> {
         .map_aster_err_ctx("COS HMAC-SHA1 key", AsterError::storage_driver_error)?;
     mac.update(message);
     Ok(hex::encode(mac.finalize().into_bytes()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{canonical_param_list, canonical_params};
+
+    #[test]
+    fn canonical_cos_params_lowercase_encoded_keys_but_not_values() {
+        let params = [
+            ("imageMogr2/thumbnail/320x240>/format/webp", ""),
+            (
+                "response-content-disposition",
+                "attachment; filename=\"报告 1.pdf\"",
+            ),
+        ];
+
+        assert_eq!(
+            canonical_param_list(&params),
+            "imagemogr2%2fthumbnail%2f320x240%3e%2fformat%2fwebp;response-content-disposition"
+        );
+        assert_eq!(
+            canonical_params(&params),
+            "imagemogr2%2fthumbnail%2f320x240%3e%2fformat%2fwebp=&response-content-disposition=attachment%3B%20filename%3D%22%E6%8A%A5%E5%91%8A%201.pdf%22"
+        );
+    }
 }
