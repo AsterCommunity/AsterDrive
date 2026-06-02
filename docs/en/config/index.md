@@ -56,7 +56,7 @@ Anything the service must know before startup usually belongs in `config.toml`. 
 | Configure SMTP, send test mail, or edit mail templates | [Mail](/en/config/mail) |
 | Configure link import, the built-in downloader, or aria2 offline download | [Offline Download](/en/config/offline-download) |
 | Decide where files are stored and how uploads/downloads work | [Storage Policies](/en/config/storage) |
-| Follow a tutorial for S3 / MinIO / R2 backends | [Storage Policy Backends](/en/storage/) |
+| Follow a tutorial for S3 / MinIO / R2 / Tencent COS backends | [Storage Policy Backends](/en/storage/) |
 | Decide which storage route different users/teams use | [Storage Policies](/en/config/storage) |
 | Connect a follower node and configure the default ingress target | [Follower Nodes](/en/guide/remote-nodes) |
 | Change the WebDAV path or hard WebDAV upload limit | [WebDAV](/en/config/webdav) |

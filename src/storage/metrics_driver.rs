@@ -335,6 +335,12 @@ impl StorageDriver for MetricsStorageDriver {
         self.inner.as_native_thumbnail()
     }
 
+    fn as_native_media_metadata(
+        &self,
+    ) -> Option<&dyn extensions::NativeMediaMetadataStorageDriver> {
+        self.inner.as_native_media_metadata()
+    }
+
     fn as_native_preview(&self) -> Option<&dyn extensions::NativePreviewStorageDriver> {
         self.inner.as_native_preview()
     }

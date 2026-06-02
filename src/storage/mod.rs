@@ -17,7 +17,8 @@ pub use traits::driver::{
     driver_type_supports_native_thumbnail,
 };
 pub use traits::{
-    ListStorageDriver, LocalPathStorageDriver, MultipartStorageDriver, NativePreviewMode,
+    ListStorageDriver, LocalPathStorageDriver, MultipartStorageDriver, NativeMediaMetadataRequest,
+    NativeMediaMetadataResult, NativeMediaMetadataStorageDriver, NativePreviewMode,
     NativePreviewOpenMode, NativePreviewRequest, NativePreviewResult, NativePreviewStorageDriver,
     NativeThumbnailRequest, NativeThumbnailStorageDriver, PresignedStorageDriver,
     StorageCapacityInfo, StorageCapacityStatus, StreamUploadDriver,

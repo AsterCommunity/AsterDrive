@@ -115,7 +115,9 @@ function useStoragePolicyDialogContent({
 					? t("policy_wizard_step_remote_title")
 					: t("policy_wizard_step_local_title"),
 			description: isS3CompatibleDriver(form.driver_type)
-				? t("policy_wizard_step_connection_desc")
+				? form.driver_type === "tencent_cos"
+					? t("policy_wizard_step_tencent_cos_connection_desc")
+					: t("policy_wizard_step_connection_desc")
 				: form.driver_type === "remote"
 					? t("policy_wizard_step_remote_desc")
 					: t("policy_wizard_step_local_desc"),
@@ -201,6 +203,12 @@ function useStoragePolicyDialogContent({
 		form.thumbnail_extensions.length > 0
 			? form.thumbnail_extensions.join(", ")
 			: t("policy_wizard_disabled");
+	const storageNativeMediaMetadataExtensionsLabel =
+		form.storage_native_processing_enabled &&
+		form.storage_native_media_metadata_enabled &&
+		(form.media_metadata_extensions ?? []).length > 0
+			? (form.media_metadata_extensions ?? []).join(", ")
+			: t("policy_wizard_disabled");
 	const createSummaryItems = [
 		{ label: t("driver_type"), value: currentStorageOption.title },
 		{
@@ -260,6 +268,10 @@ function useStoragePolicyDialogContent({
 								{
 									label: t("storage_native_thumbnail_extensions"),
 									value: storageNativeThumbnailExtensionsLabel,
+								},
+								{
+									label: t("storage_native_media_metadata_extensions"),
+									value: storageNativeMediaMetadataExtensionsLabel,
 								},
 							]
 						: []),

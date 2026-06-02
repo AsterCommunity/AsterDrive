@@ -114,7 +114,9 @@ pub async fn get_for_file(state: &PrimaryAppState, f: &file::Model) -> Result<Me
     };
 
     let blob = file_repo::find_blob_by_id(state.reader_db(), f.blob_id).await?;
-    if media_metadata_processor_for_file_name(&state.runtime_config, kind, &f.name).is_none() {
+    if media_metadata_processor_for_file_name(&state.runtime_config, kind, &f.name).is_none()
+        && !storage_native_media_metadata_matches_file(state, &blob, &f.name, kind)?
+    {
         return Ok(MediaMetadataLookup::Ready(unsupported_kind_metadata_info(
             &blob,
             kind,
@@ -176,6 +178,7 @@ pub async fn extract_for_blob(
 ) -> Result<ExtractedMediaMetadata> {
     if media_metadata_processor_for_file_name(&state.runtime_config, kind, source_file_name)
         .is_none()
+        && !storage_native_media_metadata_matches_file(state, blob, source_file_name, kind)?
     {
         return Ok(unsupported_extract_result(
             kind,
@@ -185,6 +188,13 @@ pub async fn extract_for_blob(
                 source_file_name
             ),
         ));
+    }
+
+    if let Some(extracted) =
+        try_extract_storage_native_metadata(state, blob, source_file_name, source_mime_type, kind)
+            .await?
+    {
+        return Ok(extracted);
     }
 
     match kind {
@@ -198,6 +208,67 @@ pub async fn extract_for_blob(
             extract_video_metadata(state, blob, source_file_name, source_mime_type).await
         }
     }
+}
+
+fn storage_native_media_metadata_matches_file(
+    state: &PrimaryAppState,
+    blob: &file_blob::Model,
+    source_file_name: &str,
+    kind: MediaMetadataKind,
+) -> Result<bool> {
+    if kind == MediaMetadataKind::Image {
+        return Ok(false);
+    }
+
+    let policy = state.policy_snapshot.get_policy_or_err(blob.policy_id)?;
+    let options = crate::types::parse_storage_policy_options(policy.options.as_ref());
+    if !options.storage_native_media_metadata_matches_file_name(source_file_name) {
+        return Ok(false);
+    }
+
+    Ok(state
+        .driver_registry
+        .get_driver(&policy)?
+        .as_native_media_metadata()
+        .is_some())
+}
+
+async fn try_extract_storage_native_metadata(
+    state: &PrimaryAppState,
+    blob: &file_blob::Model,
+    source_file_name: &str,
+    source_mime_type: &str,
+    kind: MediaMetadataKind,
+) -> Result<Option<ExtractedMediaMetadata>> {
+    if !storage_native_media_metadata_matches_file(state, blob, source_file_name, kind)? {
+        return Ok(None);
+    }
+
+    let policy = state.policy_snapshot.get_policy_or_err(blob.policy_id)?;
+    let driver = state.driver_registry.get_driver(&policy)?;
+    let native = driver.as_native_media_metadata().ok_or_else(|| {
+        AsterError::storage_driver_error("storage driver does not support native media metadata")
+    })?;
+    let Some(result) = native
+        .get_native_media_metadata(&crate::storage::NativeMediaMetadataRequest {
+            storage_path: blob.storage_path.clone(),
+            source_file_name: source_file_name.to_string(),
+            source_mime_type: source_mime_type.to_string(),
+            kind,
+        })
+        .await?
+    else {
+        return Ok(None);
+    };
+
+    Ok(Some(ExtractedMediaMetadata {
+        kind: result.kind,
+        status: MediaMetadataStatus::Ready,
+        metadata: Some(result.metadata),
+        error_message: None,
+        parser: result.parser,
+        parser_version: result.parser_version,
+    }))
 }
 
 pub async fn persist_extracted(

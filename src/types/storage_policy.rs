@@ -271,6 +271,10 @@ pub struct StoragePolicyOptions {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub storage_native_processing_enabled: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub storage_native_media_metadata_enabled: Option<bool>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub media_metadata_extensions: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     #[validate(range(min = 1, message = "s3_connect_timeout_secs must be greater than 0"))]
     pub s3_connect_timeout_secs: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -311,9 +315,19 @@ impl StoragePolicyOptions {
         self.storage_native_processing_enabled.unwrap_or(false)
     }
 
+    pub fn uses_storage_native_media_metadata(&self) -> bool {
+        self.storage_native_processing_enabled() && self.storage_native_media_metadata_enabled()
+    }
+
+    pub fn storage_native_media_metadata_enabled(&self) -> bool {
+        self.storage_native_media_metadata_enabled.unwrap_or(false)
+    }
+
     pub fn normalize_in_place(&mut self) {
         self.thumbnail_extensions =
             normalize_storage_policy_thumbnail_extensions(&self.thumbnail_extensions);
+        self.media_metadata_extensions =
+            normalize_storage_policy_media_metadata_extensions(&self.media_metadata_extensions);
     }
 
     pub fn normalized(mut self) -> Self {
@@ -329,6 +343,20 @@ impl StoragePolicyOptions {
         file_extension_suffix(file_name)
             .map(|extension| {
                 self.thumbnail_extensions
+                    .iter()
+                    .any(|candidate| candidate == &extension)
+            })
+            .unwrap_or(false)
+    }
+
+    pub fn storage_native_media_metadata_matches_file_name(&self, file_name: &str) -> bool {
+        if !self.uses_storage_native_media_metadata() {
+            return false;
+        }
+
+        file_extension_suffix(file_name)
+            .map(|extension| {
+                self.media_metadata_extensions
                     .iter()
                     .any(|candidate| candidate == &extension)
             })
@@ -385,6 +413,10 @@ fn normalize_storage_policy_thumbnail_extensions(values: &[String]) -> Vec<Strin
     normalized
 }
 
+fn normalize_storage_policy_media_metadata_extensions(values: &[String]) -> Vec<String> {
+    normalize_storage_policy_thumbnail_extensions(values)
+}
+
 fn normalize_thumbnail_extension(value: &str) -> Option<String> {
     let normalized = value.trim().trim_start_matches('.').to_ascii_lowercase();
     (!normalized.is_empty()).then_some(normalized)
@@ -395,6 +427,11 @@ fn has_normalizable_thumbnail_extension(values: &[String]) -> bool {
     values
         .iter()
         .any(|value| !value.trim().trim_start_matches('.').is_empty())
+}
+
+#[inline]
+fn has_normalizable_media_metadata_extension(values: &[String]) -> bool {
+    has_normalizable_thumbnail_extension(values)
 }
 
 fn file_extension_suffix(file_name: &str) -> Option<String> {
@@ -411,6 +448,8 @@ fn validate_storage_policy_options(
         value.thumbnail_processor == Some(MediaProcessorKind::StorageNative);
     let has_thumbnail_extensions =
         has_normalizable_thumbnail_extension(&value.thumbnail_extensions);
+    let has_media_metadata_extensions =
+        has_normalizable_media_metadata_extension(&value.media_metadata_extensions);
 
     if has_storage_native_thumbnail_processor && !value.storage_native_processing_enabled() {
         let mut error = ValidationError::new("invalid");
@@ -432,6 +471,22 @@ fn validate_storage_policy_options(
         let mut error = ValidationError::new("invalid");
         error.message =
             Some("thumbnail_extensions requires thumbnail_processor 'storage_native'".into());
+        return Err(error);
+    }
+
+    if value.storage_native_media_metadata_enabled() && !value.storage_native_processing_enabled() {
+        let mut error = ValidationError::new("invalid");
+        error.message = Some(
+            "storage_native_processing_enabled is required for storage_native media metadata"
+                .into(),
+        );
+        return Err(error);
+    }
+
+    if has_media_metadata_extensions && !value.uses_storage_native_media_metadata() {
+        let mut error = ValidationError::new("invalid");
+        error.message =
+            Some("media_metadata_extensions requires storage_native_media_metadata_enabled".into());
         return Err(error);
     }
 
@@ -628,6 +683,57 @@ mod tests {
     }
 
     #[test]
+    fn storage_native_media_metadata_requires_processing_switch() {
+        let options =
+            parse_storage_policy_options(r#"{"storage_native_media_metadata_enabled":true}"#);
+        let error = options.validate().unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("storage_native_processing_enabled is required")
+        );
+    }
+
+    #[test]
+    fn storage_native_media_metadata_allows_empty_extensions() {
+        let options = parse_storage_policy_options(
+            r#"{"storage_native_processing_enabled":true,"storage_native_media_metadata_enabled":true}"#,
+        );
+        options
+            .validate()
+            .expect("empty suffix list should be allowed");
+        assert!(options.uses_storage_native_media_metadata());
+        assert!(!options.storage_native_media_metadata_matches_file_name("clip.mp4"));
+    }
+
+    #[test]
+    fn media_metadata_extensions_require_storage_native_media_metadata() {
+        let options = parse_storage_policy_options(
+            r#"{"storage_native_processing_enabled":true,"media_metadata_extensions":["mp4"]}"#,
+        );
+        let error = options.validate().unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("media_metadata_extensions requires")
+        );
+    }
+
+    #[test]
+    fn storage_native_media_metadata_matches_file_name_by_extension() {
+        let options = parse_storage_policy_options(
+            r#"{"storage_native_processing_enabled":true,"storage_native_media_metadata_enabled":true,"media_metadata_extensions":[" .MP4 ","mp4",".Mov","","  "]}"#,
+        );
+        assert_eq!(
+            options.media_metadata_extensions,
+            vec!["mp4".to_string(), "mov".to_string()]
+        );
+        assert!(options.storage_native_media_metadata_matches_file_name("clip.MP4"));
+        assert!(options.storage_native_media_metadata_matches_file_name("movie.mov"));
+        assert!(!options.storage_native_media_metadata_matches_file_name("cover.png"));
+    }
+
+    #[test]
     fn storage_native_thumbnail_matches_file_name_by_extension() {
         let options = parse_storage_policy_options(
             r#"{"storage_native_processing_enabled":true,"thumbnail_processor":"storage_native","thumbnail_extensions":["png","heic"]}"#,
@@ -731,13 +837,15 @@ mod tests {
                 storage_native_processing_enabled: Some(true),
                 thumbnail_processor: Some(MediaProcessorKind::StorageNative),
                 thumbnail_extensions: vec![".PNG".to_string(), "png".to_string()],
+                storage_native_media_metadata_enabled: Some(true),
+                media_metadata_extensions: vec![".MP4".to_string(), "mp4".to_string()],
                 ..Default::default()
             })
             .unwrap(),
         );
         assert_eq!(
             json,
-            r#"{"thumbnail_processor":"storage_native","thumbnail_extensions":["png"],"storage_native_processing_enabled":true}"#
+            r#"{"thumbnail_processor":"storage_native","thumbnail_extensions":["png"],"storage_native_processing_enabled":true,"storage_native_media_metadata_enabled":true,"media_metadata_extensions":["mp4"]}"#
         );
 
         let json = serde_json::to_string(&StoragePolicyOptions {

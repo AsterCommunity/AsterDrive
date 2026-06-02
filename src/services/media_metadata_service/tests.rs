@@ -13,7 +13,10 @@ use super::audio::parse_audio_metadata_from_reader;
 use super::image::parse_image_metadata_with_reader_factory;
 use super::source::PreparedRangeMediaMetadataSource;
 use super::*;
-use crate::storage::StorageDriver;
+use crate::storage::{
+    NativeMediaMetadataRequest, NativeMediaMetadataResult, NativeMediaMetadataStorageDriver,
+    StorageDriver,
+};
 
 struct RangeOnlyDriver {
     data: Vec<u8>,
@@ -30,6 +33,70 @@ impl RangeOnlyDriver {
             range_bytes_requested: AtomicUsize::new(0),
             stream_calls: AtomicUsize::new(0),
         }
+    }
+}
+
+struct NativeMetadataDriver {
+    calls: AtomicUsize,
+    payload: MediaMetadataPayload,
+}
+
+impl NativeMetadataDriver {
+    fn new(payload: MediaMetadataPayload) -> Self {
+        Self {
+            calls: AtomicUsize::new(0),
+            payload,
+        }
+    }
+}
+
+#[async_trait]
+impl StorageDriver for NativeMetadataDriver {
+    async fn put(&self, path: &str, _data: &[u8]) -> Result<String> {
+        Ok(path.to_string())
+    }
+
+    async fn get(&self, _path: &str) -> Result<Vec<u8>> {
+        Ok(Vec::new())
+    }
+
+    async fn get_stream(&self, _path: &str) -> Result<Box<dyn AsyncRead + Unpin + Send>> {
+        Ok(Box::new(Cursor::new(Vec::new())))
+    }
+
+    async fn delete(&self, _path: &str) -> Result<()> {
+        Ok(())
+    }
+
+    async fn exists(&self, _path: &str) -> Result<bool> {
+        Ok(true)
+    }
+
+    async fn metadata(&self, _path: &str) -> Result<crate::storage::BlobMetadata> {
+        Ok(crate::storage::BlobMetadata {
+            size: 0,
+            content_type: None,
+        })
+    }
+
+    fn as_native_media_metadata(&self) -> Option<&dyn NativeMediaMetadataStorageDriver> {
+        Some(self)
+    }
+}
+
+#[async_trait]
+impl NativeMediaMetadataStorageDriver for NativeMetadataDriver {
+    async fn get_native_media_metadata(
+        &self,
+        request: &NativeMediaMetadataRequest,
+    ) -> Result<Option<NativeMediaMetadataResult>> {
+        self.calls.fetch_add(1, Ordering::SeqCst);
+        Ok(Some(NativeMediaMetadataResult {
+            kind: request.kind,
+            metadata: self.payload.clone(),
+            parser: "native-test".to_string(),
+            parser_version: "1".to_string(),
+        }))
     }
 }
 
@@ -325,6 +392,96 @@ async fn image_extract_uses_range_source_for_efficient_remote_driver() {
     assert_eq!(driver.stream_calls.load(Ordering::SeqCst), 0);
 }
 
+#[tokio::test]
+async fn storage_native_media_metadata_extracts_when_policy_suffix_matches() {
+    let driver = Arc::new(NativeMetadataDriver::new(MediaMetadataPayload::Video(
+        VideoMediaMetadata {
+            duration_ms: Some(42_000),
+            width: Some(1920),
+            height: Some(1080),
+            ..Default::default()
+        },
+    )));
+    let state = test_state_with_driver_and_options(
+        driver.clone(),
+        crate::types::StoragePolicyOptions {
+            storage_native_processing_enabled: Some(true),
+            storage_native_media_metadata_enabled: Some(true),
+            media_metadata_extensions: vec!["mp4".to_string()],
+            ..Default::default()
+        },
+    )
+    .await;
+    let blob = file_blob::Model {
+        policy_id: 1,
+        ..test_blob(1024)
+    };
+
+    let extracted = extract_for_blob(
+        &state,
+        &blob,
+        "clip.mp4",
+        "video/mp4",
+        MediaMetadataKind::Video,
+    )
+    .await
+    .expect("storage-native metadata should extract");
+
+    assert_eq!(extracted.status, MediaMetadataStatus::Ready);
+    assert_eq!(extracted.parser, "native-test");
+    match extracted.metadata {
+        Some(MediaMetadataPayload::Video(metadata)) => {
+            assert_eq!(metadata.duration_ms, Some(42_000));
+            assert_eq!(metadata.width, Some(1920));
+        }
+        other => panic!("expected video metadata, got {other:?}"),
+    }
+    assert_eq!(driver.calls.load(Ordering::SeqCst), 1);
+}
+
+#[tokio::test]
+async fn storage_native_media_metadata_does_not_run_for_unmatched_suffix_or_images() {
+    let driver = Arc::new(NativeMetadataDriver::new(MediaMetadataPayload::Video(
+        VideoMediaMetadata::default(),
+    )));
+    let state = test_state_with_driver_and_options(
+        driver.clone(),
+        crate::types::StoragePolicyOptions {
+            storage_native_processing_enabled: Some(true),
+            storage_native_media_metadata_enabled: Some(true),
+            media_metadata_extensions: vec!["mov".to_string(), "png".to_string()],
+            ..Default::default()
+        },
+    )
+    .await;
+    let blob = file_blob::Model {
+        policy_id: 1,
+        ..test_blob(1024)
+    };
+
+    let extracted = extract_for_blob(
+        &state,
+        &blob,
+        "clip.mp4",
+        "video/mp4",
+        MediaMetadataKind::Video,
+    )
+    .await
+    .expect("unmatched storage-native metadata should return unsupported");
+
+    assert_eq!(extracted.status, MediaMetadataStatus::Unsupported);
+    assert_eq!(driver.calls.load(Ordering::SeqCst), 0);
+    assert!(
+        !storage_native_media_metadata_matches_file(
+            &state,
+            &blob,
+            "photo.png",
+            MediaMetadataKind::Image,
+        )
+        .expect("image storage-native metadata match should evaluate")
+    );
+}
+
 #[test]
 fn audio_metadata_does_not_read_embedded_cover_art() {
     let metadata = parse_audio_metadata_from_reader(
@@ -339,6 +496,13 @@ fn audio_metadata_does_not_read_embedded_cover_art() {
 }
 
 async fn test_state_with_driver(driver: Arc<dyn StorageDriver>) -> PrimaryAppState {
+    test_state_with_driver_and_options(driver, crate::types::StoragePolicyOptions::default()).await
+}
+
+async fn test_state_with_driver_and_options(
+    driver: Arc<dyn StorageDriver>,
+    options: crate::types::StoragePolicyOptions,
+) -> PrimaryAppState {
     let db = crate::db::connect_with_metrics(
         &crate::config::DatabaseConfig {
             url: "sqlite::memory:".to_string(),
@@ -366,7 +530,8 @@ async fn test_state_with_driver(driver: Arc<dyn StorageDriver>) -> PrimaryAppSta
         remote_node_id: Set(None),
         max_file_size: Set(0),
         allowed_types: Set(crate::types::StoredStoragePolicyAllowedTypes::empty()),
-        options: Set(crate::types::StoredStoragePolicyOptions::empty()),
+        options: Set(crate::types::serialize_storage_policy_options(&options)
+            .expect("test storage policy options should serialize")),
         is_default: Set(true),
         chunk_size: Set(5_242_880),
         created_at: Set(now),

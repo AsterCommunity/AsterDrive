@@ -51,8 +51,10 @@ describe("storagePolicyDialogShared", () => {
 			s3_upload_strategy: "relay_stream",
 			s3_download_strategy: "relay_stream",
 			storage_native_processing_enabled: true,
+			storage_native_media_metadata_enabled: false,
 			thumbnail_processor: "storage_native",
 			thumbnail_extensions: ["png", "jpg"],
+			media_metadata_extensions: [],
 		});
 	});
 
@@ -312,13 +314,81 @@ describe("storagePolicyDialogShared", () => {
 			s3_upload_strategy: "relay_stream",
 			s3_download_strategy: "relay_stream",
 			storage_native_processing_enabled: false,
+			storage_native_media_metadata_enabled: true,
 			thumbnail_processor: "storage_native",
 			thumbnail_extensions: ["png"],
+			media_metadata_extensions: ["mp4"],
 		});
 
 		expect(payload.options).toEqual({
 			s3_upload_strategy: "relay_stream",
 			s3_download_strategy: "relay_stream",
+		});
+	});
+
+	it("preserves storage-native media metadata switch with empty suffixes", () => {
+		const payload = buildCreatePolicyPayload({
+			name: "COS Metadata",
+			driver_type: "tencent_cos",
+			endpoint: "https://cos.ap-guangzhou.myqcloud.com",
+			bucket: "bucket-1250000000",
+			access_key: "AKID",
+			secret_key: "SECRET",
+			base_path: "",
+			remote_node_id: "",
+			max_file_size: "",
+			chunk_size: "5",
+			is_default: false,
+			content_dedup: false,
+			remote_download_strategy: "relay_stream",
+			remote_upload_strategy: "relay_stream",
+			s3_upload_strategy: "relay_stream",
+			s3_download_strategy: "relay_stream",
+			storage_native_processing_enabled: true,
+			storage_native_media_metadata_enabled: true,
+			thumbnail_processor: "storage_native",
+			thumbnail_extensions: ["jpg"],
+			media_metadata_extensions: [],
+		});
+
+		expect(payload.options).toEqual({
+			s3_upload_strategy: "relay_stream",
+			s3_download_strategy: "relay_stream",
+			storage_native_processing_enabled: true,
+			thumbnail_processor: "storage_native",
+			thumbnail_extensions: ["jpg"],
+			storage_native_media_metadata_enabled: true,
+		});
+	});
+
+	it("normalizes storage-native media metadata suffixes per policy", () => {
+		const payload = buildCreatePolicyPayload({
+			name: "COS Metadata",
+			driver_type: "tencent_cos",
+			endpoint: "https://cos.ap-guangzhou.myqcloud.com",
+			bucket: "bucket-1250000000",
+			access_key: "AKID",
+			secret_key: "SECRET",
+			base_path: "",
+			remote_node_id: "",
+			max_file_size: "",
+			chunk_size: "5",
+			is_default: false,
+			content_dedup: false,
+			remote_download_strategy: "relay_stream",
+			remote_upload_strategy: "relay_stream",
+			s3_upload_strategy: "relay_stream",
+			s3_download_strategy: "relay_stream",
+			storage_native_processing_enabled: true,
+			storage_native_media_metadata_enabled: true,
+			thumbnail_processor: "storage_native",
+			thumbnail_extensions: ["jpg"],
+			media_metadata_extensions: [" .MP4 ", "mp4", ".Mov", ""],
+		});
+
+		expect(payload.options).toMatchObject({
+			storage_native_media_metadata_enabled: true,
+			media_metadata_extensions: ["mp4", "mov"],
 		});
 	});
 });

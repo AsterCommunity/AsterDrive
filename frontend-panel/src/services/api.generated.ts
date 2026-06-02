@@ -6642,6 +6642,7 @@ export interface components {
         };
         StoragePolicyOptions: {
             content_dedup?: boolean | null;
+            media_metadata_extensions?: string[];
             remote_download_strategy?: null | components["schemas"]["RemoteDownloadStrategy"];
             remote_upload_strategy?: null | components["schemas"]["RemoteUploadStrategy"];
             /** Format: int64 */
@@ -6652,6 +6653,7 @@ export interface components {
             /** Format: int64 */
             s3_read_timeout_secs?: number | null;
             s3_upload_strategy?: null | components["schemas"]["S3UploadStrategy"];
+            storage_native_media_metadata_enabled?: boolean | null;
             storage_native_processing_enabled?: boolean | null;
             thumbnail_extensions?: string[];
             thumbnail_processor?: null | components["schemas"]["MediaProcessorKind"];

@@ -149,6 +149,15 @@ pub trait StorageDriver: Send + Sync {
         None
     }
 
+    /// 获取存储侧原生媒体信息解析支持
+    ///
+    /// COS CI videoinfo 等驱动返回 Some；普通 S3、本地存储等返回 None。
+    fn as_native_media_metadata(
+        &self,
+    ) -> Option<&dyn super::extensions::NativeMediaMetadataStorageDriver> {
+        None
+    }
+
     /// 获取存储侧外部预览 / 文件解析支持
     ///
     /// COS CI 等驱动返回 Some；普通 S3、本地存储等返回 None。

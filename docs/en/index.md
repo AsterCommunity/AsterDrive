@@ -54,7 +54,7 @@ Start from [User Guides](/en/guide/). Regular users should first read the [User 
 
 Read [Admin Console](/en/guide/admin-console) first, then [Configuration Overview](/en/config/). AsterDrive configuration is split into startup configuration, admin-console runtime settings, storage policies, policy groups, storage policy backends, and the external network environment. It is much clearer when viewed by layer.
 
-If you are connecting S3 / MinIO / R2, see [Storage Policy Backends](/en/storage/).
+If you are connecting S3 / MinIO / R2 / Tencent COS, see [Storage Policy Backends](/en/storage/).
 
 ### I Need to Go Live or Troubleshoot
 

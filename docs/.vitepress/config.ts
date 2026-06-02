@@ -404,7 +404,9 @@ function buildZhSidebar() {
       collapsed: true,
       items: [
         { text: '后端总览', link: '/storage/' },
+        { text: '本地磁盘', link: '/storage/local' },
         { text: 'S3 / MinIO / R2', link: '/storage/s3-minio-r2' },
+        { text: '腾讯云 COS', link: '/storage/tencent-cos' },
         { text: '远程节点', link: '/storage/remote-follower' }
       ]
     },
@@ -494,7 +496,9 @@ function buildEnSidebar() {
       collapsed: true,
       items: [
         { text: 'Backend Overview', link: '/en/storage/' },
+        { text: 'Local Disk', link: '/en/storage/local' },
         { text: 'S3 / MinIO / R2', link: '/en/storage/s3-minio-r2' },
+        { text: 'Tencent COS', link: '/en/storage/tencent-cos' },
         { text: 'Follower Nodes', link: '/en/storage/remote-follower' }
       ]
     },

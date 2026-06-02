@@ -16,8 +16,8 @@ use crate::entities::storage_policy;
 use crate::errors::Result;
 use crate::storage::traits::driver::{BlobMetadata, StorageDriver};
 use crate::storage::traits::extensions::{
-    ListStorageDriver, NativePreviewStorageDriver, NativeThumbnailStorageDriver,
-    PresignedStorageDriver, StorageCapacityInfo, StreamUploadDriver,
+    ListStorageDriver, NativeMediaMetadataStorageDriver, NativePreviewStorageDriver,
+    NativeThumbnailStorageDriver, PresignedStorageDriver, StorageCapacityInfo, StreamUploadDriver,
 };
 use crate::storage::traits::multipart::MultipartStorageDriver;
 
@@ -60,6 +60,10 @@ pub trait S3CompatibleProvider: Send + Sync {
     fn s3_compatible_driver(&self) -> &S3CompatibleDriver;
 
     fn as_provider_native_thumbnail(&self) -> Option<&dyn NativeThumbnailStorageDriver> {
+        None
+    }
+
+    fn as_provider_native_media_metadata(&self) -> Option<&dyn NativeMediaMetadataStorageDriver> {
         None
     }
 
@@ -146,6 +150,10 @@ where
 
     fn as_native_thumbnail(&self) -> Option<&dyn NativeThumbnailStorageDriver> {
         self.as_provider_native_thumbnail()
+    }
+
+    fn as_native_media_metadata(&self) -> Option<&dyn NativeMediaMetadataStorageDriver> {
+        self.as_provider_native_media_metadata()
     }
 
     fn as_native_preview(&self) -> Option<&dyn NativePreviewStorageDriver> {

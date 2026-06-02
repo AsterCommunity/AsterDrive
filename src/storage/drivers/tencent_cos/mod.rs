@@ -3,6 +3,7 @@
 //! 基础对象读写复用 S3 兼容驱动；COS/CI 文档预览使用 COS 原生 query
 //! 签名，因为 CI 处理参数必须参与签名，不能追加在普通 S3 presigned URL 后面。
 
+mod native_media_metadata;
 mod native_preview;
 mod native_thumbnail;
 mod signing;
@@ -21,7 +22,7 @@ use crate::errors::{AsterError, MapAsterErr, Result};
 use crate::storage::error::{StorageErrorKind, storage_driver_error};
 use crate::storage::object_key;
 use crate::storage::traits::extensions::{
-    NativePreviewStorageDriver, NativeThumbnailStorageDriver,
+    NativeMediaMetadataStorageDriver, NativePreviewStorageDriver, NativeThumbnailStorageDriver,
 };
 
 pub(super) const COS_NATIVE_PREVIEW_PROVIDER: &str = "tencent_cos_ci";
@@ -107,6 +108,10 @@ impl S3CompatibleProvider for TencentCosDriver {
     }
 
     fn as_provider_native_thumbnail(&self) -> Option<&dyn NativeThumbnailStorageDriver> {
+        Some(self)
+    }
+
+    fn as_provider_native_media_metadata(&self) -> Option<&dyn NativeMediaMetadataStorageDriver> {
         Some(self)
     }
 }

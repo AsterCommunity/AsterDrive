@@ -4,6 +4,7 @@
 
 use crate::errors::Result;
 use crate::storage::traits::driver::{PresignedDownloadOptions, StoragePathVisitor};
+use crate::types::{MediaMetadataKind, MediaMetadataPayload};
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -139,6 +140,32 @@ pub trait NativeThumbnailStorageDriver: Send + Sync {
         &self,
         request: &NativeThumbnailRequest,
     ) -> Result<Option<Vec<u8>>>;
+}
+
+#[derive(Debug, Clone)]
+pub struct NativeMediaMetadataRequest {
+    pub storage_path: String,
+    pub source_file_name: String,
+    pub source_mime_type: String,
+    pub kind: MediaMetadataKind,
+}
+
+#[derive(Debug, Clone)]
+pub struct NativeMediaMetadataResult {
+    pub kind: MediaMetadataKind,
+    pub metadata: MediaMetadataPayload,
+    pub parser: String,
+    pub parser_version: String,
+}
+
+/// 存储侧原生媒体信息解析支持（COS CI videoinfo 等）。
+#[async_trait]
+pub trait NativeMediaMetadataStorageDriver: Send + Sync {
+    /// 返回 `None` 表示该驱动当前不支持这个对象、MIME 或 metadata kind。
+    async fn get_native_media_metadata(
+        &self,
+        request: &NativeMediaMetadataRequest,
+    ) -> Result<Option<NativeMediaMetadataResult>>;
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

@@ -97,7 +97,7 @@ pub async fn get_public_media_data_support(
         return cached;
     }
 
-    let support = media_processing::public_media_data_support(&state.runtime_config);
+    let support = build_public_media_data_support(state);
     PUBLIC_MEDIA_DATA_SUPPORT_CACHE
         .insert(cache_key, support.clone())
         .await;
@@ -157,6 +157,73 @@ fn build_public_thumbnail_support(
     support
 }
 
+fn build_public_media_data_support(
+    state: &PrimaryAppState,
+) -> media_processing::PublicMediaDataSupport {
+    let mut support = media_processing::public_media_data_support(&state.runtime_config);
+    if !support.enabled {
+        return support;
+    }
+
+    let mut storage_native_extensions = BTreeSet::new();
+    for policy in state.policy_snapshot.all_policies() {
+        let options = parse_storage_policy_options(policy.options.as_ref());
+        if !options.uses_storage_native_media_metadata()
+            || options.media_metadata_extensions.is_empty()
+        {
+            continue;
+        }
+
+        match state.driver_registry.get_driver(&policy) {
+            Ok(driver) if driver.as_native_media_metadata().is_some() => {
+                storage_native_extensions.extend(options.media_metadata_extensions);
+            }
+            Ok(_) => {}
+            Err(error) => {
+                tracing::debug!(
+                    policy_id = policy.id,
+                    "skip storage-native media metadata public support for policy: {error}"
+                );
+            }
+        }
+    }
+
+    if storage_native_extensions.is_empty() {
+        return support;
+    }
+
+    merge_storage_native_media_metadata_support(
+        &mut support.kinds.audio,
+        &storage_native_extensions,
+    );
+    merge_storage_native_media_metadata_support(
+        &mut support.kinds.video,
+        &storage_native_extensions,
+    );
+    support
+}
+
+fn merge_storage_native_media_metadata_support(
+    kind_support: &mut media_processing::PublicMediaDataKindSupport,
+    storage_native_extensions: &BTreeSet<String>,
+) {
+    if kind_support.enabled
+        && kind_support.match_kind == media_processing::PublicMediaDataSupportMatch::Any
+    {
+        return;
+    }
+
+    let mut extensions = kind_support
+        .extensions
+        .iter()
+        .cloned()
+        .collect::<BTreeSet<_>>();
+    extensions.extend(storage_native_extensions.iter().cloned());
+    kind_support.enabled = !extensions.is_empty();
+    kind_support.match_kind = media_processing::PublicMediaDataSupportMatch::Extensions;
+    kind_support.extensions = extensions.into_iter().collect();
+}
+
 fn public_media_data_support_cache_key(state: &PrimaryAppState) -> String {
     let mut hasher = DefaultHasher::new();
     state
@@ -171,6 +238,7 @@ fn public_media_data_support_cache_key(state: &PrimaryAppState) -> String {
         .runtime_config
         .get(operations::MEDIA_METADATA_MAX_SOURCE_BYTES_KEY)
         .hash(&mut hasher);
+    hash_policy_snapshot_for_public_support(state, &mut hasher);
 
     format!(
         "{PUBLIC_MEDIA_DATA_SUPPORT_CACHE_KEY}:{:x}",
@@ -184,18 +252,21 @@ fn public_thumbnail_support_cache_key(state: &PrimaryAppState) -> String {
         .runtime_config
         .get(media_processing::MEDIA_PROCESSING_REGISTRY_JSON_KEY)
         .hash(&mut hasher);
+    hash_policy_snapshot_for_public_support(state, &mut hasher);
 
+    format!("{PUBLIC_THUMBNAIL_SUPPORT_CACHE_KEY}:{:x}", hasher.finish())
+}
+
+fn hash_policy_snapshot_for_public_support(state: &PrimaryAppState, hasher: &mut DefaultHasher) {
     let mut policies = state.policy_snapshot.all_policies();
     policies.sort_by_key(|policy| policy.id);
     for policy in policies {
-        policy.id.hash(&mut hasher);
-        format!("{:?}", policy.driver_type).hash(&mut hasher);
-        policy.endpoint.hash(&mut hasher);
-        policy.bucket.hash(&mut hasher);
-        policy.base_path.hash(&mut hasher);
-        policy.remote_node_id.hash(&mut hasher);
-        policy.options.as_ref().hash(&mut hasher);
+        policy.id.hash(hasher);
+        format!("{:?}", policy.driver_type).hash(hasher);
+        policy.endpoint.hash(hasher);
+        policy.bucket.hash(hasher);
+        policy.base_path.hash(hasher);
+        policy.remote_node_id.hash(hasher);
+        policy.options.as_ref().hash(hasher);
     }
-
-    format!("{PUBLIC_THUMBNAIL_SUPPORT_CACHE_KEY}:{:x}", hasher.finish())
 }

@@ -1,5 +1,5 @@
 ---
-description: Overview of AsterDrive storage policy backends, covering the configuration flow for local disks, S3 / MinIO / R2, and follower node storage.
+description: Overview of AsterDrive storage policy backends, covering the configuration flow for local disks, S3 / MinIO / R2, Tencent COS, and follower node storage.
 ---
 
 # Storage Policy Backends
@@ -10,7 +10,7 @@ These tutorials are organized by backend type: how to prepare the external servi
 
 AsterDrive has two layers of concepts:
 
-- **Storage policy**: where files are ultimately written, such as a local disk, S3 / MinIO / R2, or a follower node
+- **Storage policy**: where files are ultimately written, such as a local disk, S3 / MinIO / R2, Tencent COS, or a follower node
 - **Policy group**: which storage policy a user or team upload matches, based on rules
 
 If you only want to understand the overall model, start with [Storage Policies](/en/config/storage).  
@@ -20,8 +20,9 @@ If you have already decided which backend to connect, use the tutorials here.
 
 | Backend | Best for | Tutorial |
 | --- | --- | --- |
-| Local disk | Single-node setups, NAS, small teams, minimum dependencies | For now, see [Storage Policies](/en/config/storage#local) |
+| Local disk | Single-node setups, NAS, small teams, minimum dependencies | [Local disk](/en/storage/local) |
 | S3 / MinIO / R2 | Object storage, large files, external buckets, cloud storage | [S3 / MinIO / R2](/en/storage/s3-minio-r2) |
+| Tencent COS | Tencent object storage, COS CI, per-policy native processing | [Tencent COS](/en/storage/tencent-cos) |
 | Follower node | The control plane stays on the primary node, while real objects are written to another AsterDrive node | [Follower Node Storage Policy](/en/storage/remote-follower) |
 
 ## General Configuration Flow
