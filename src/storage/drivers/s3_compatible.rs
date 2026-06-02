@@ -16,8 +16,8 @@ use crate::entities::storage_policy;
 use crate::errors::Result;
 use crate::storage::traits::driver::{BlobMetadata, StorageDriver};
 use crate::storage::traits::extensions::{
-    ListStorageDriver, NativeMediaMetadataStorageDriver, NativePreviewStorageDriver,
-    NativeThumbnailStorageDriver, PresignedStorageDriver, StorageCapacityInfo, StreamUploadDriver,
+    ListStorageDriver, NativeMediaMetadataStorageDriver, NativeThumbnailStorageDriver,
+    PresignedStorageDriver, StorageCapacityInfo, StreamUploadDriver,
 };
 use crate::storage::traits::multipart::MultipartStorageDriver;
 
@@ -64,10 +64,6 @@ pub trait S3CompatibleProvider: Send + Sync {
     }
 
     fn as_provider_native_media_metadata(&self) -> Option<&dyn NativeMediaMetadataStorageDriver> {
-        None
-    }
-
-    fn as_provider_native_preview(&self) -> Option<&dyn NativePreviewStorageDriver> {
         None
     }
 }
@@ -154,10 +150,6 @@ where
 
     fn as_native_media_metadata(&self) -> Option<&dyn NativeMediaMetadataStorageDriver> {
         self.as_provider_native_media_metadata()
-    }
-
-    fn as_native_preview(&self) -> Option<&dyn NativePreviewStorageDriver> {
-        self.as_provider_native_preview()
     }
 
     async fn capacity_info(&self) -> Result<StorageCapacityInfo> {
@@ -298,7 +290,6 @@ mod tests {
         assert!(driver.as_stream_upload().is_some());
         assert!(driver.as_multipart().is_some());
         assert!(driver.as_native_thumbnail().is_none());
-        assert!(driver.as_native_preview().is_none());
     }
 
     #[tokio::test]

@@ -11,7 +11,6 @@ import type {
 	FolderContents,
 	FolderListParams,
 	MediaMetadataInfo,
-	NativePreviewSession,
 	PreviewLinkInfo,
 	ShareInfo,
 	ShareListQuery,
@@ -71,11 +70,6 @@ export function createShareService(workspace: Workspace) {
 		createPreviewLink: (token: string) =>
 			api.post<PreviewLinkInfo>(`/s/${token}/preview-link`),
 
-		createNativePreviewSession: (token: string, appKey: string) =>
-			api.post<NativePreviewSession>(`/s/${token}/native-preview/open`, {
-				app_key: appKey,
-			}),
-
 		getArchivePreview: (
 			token: string,
 			options?: ArchivePreviewRequestOptions,
@@ -106,18 +100,6 @@ export function createShareService(workspace: Workspace) {
 
 		createFolderFilePreviewLink: (token: string, fileId: number) =>
 			api.post<PreviewLinkInfo>(`/s/${token}/files/${fileId}/preview-link`),
-
-		createFolderFileNativePreviewSession: (
-			token: string,
-			fileId: number,
-			appKey: string,
-		) =>
-			api.post<NativePreviewSession>(
-				`/s/${token}/files/${fileId}/native-preview/open`,
-				{
-					app_key: appKey,
-				},
-			),
 
 		getFolderFileArchivePreview: (
 			token: string,

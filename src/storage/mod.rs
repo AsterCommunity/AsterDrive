@@ -18,10 +18,9 @@ pub use traits::driver::{
 };
 pub use traits::{
     ListStorageDriver, LocalPathStorageDriver, MultipartStorageDriver, NativeMediaMetadataRequest,
-    NativeMediaMetadataResult, NativeMediaMetadataStorageDriver, NativePreviewMode,
-    NativePreviewOpenMode, NativePreviewRequest, NativePreviewResult, NativePreviewStorageDriver,
-    NativeThumbnailRequest, NativeThumbnailStorageDriver, PresignedStorageDriver,
-    StorageCapacityInfo, StorageCapacityStatus, StreamUploadDriver,
+    NativeMediaMetadataResult, NativeMediaMetadataStorageDriver, NativeThumbnailRequest,
+    NativeThumbnailStorageDriver, PresignedStorageDriver, StorageCapacityInfo,
+    StorageCapacityStatus, StreamUploadDriver,
 };
 
 // 内部 re-export 供宏和错误处理使用

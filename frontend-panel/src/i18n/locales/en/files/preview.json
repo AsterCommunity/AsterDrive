@@ -6,11 +6,6 @@
 	"preview_not_available_desc": "Download the file, or try another open mode later.",
 	"preview_enter_fullscreen": "Fill window",
 	"preview_exit_fullscreen": "Restore window",
-	"native_preview_loading": "Opening {{label}}...",
-	"native_preview_unavailable": "Native preview is unavailable",
-	"native_preview_unavailable_desc": "This file or storage policy does not support this native preview method.",
-	"native_preview_external_desc": "{{label}} needs to open in a new tab.",
-	"native_preview_open": "Open {{label}}",
 	"table_parse_failed": "Failed to parse table",
 	"table_truncated": "This file is large. Only the first {{count}} rows are shown.",
 	"structured_parse_failed": "Failed to parse structured content. Try switching back to source view."

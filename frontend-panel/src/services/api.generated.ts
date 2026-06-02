@@ -5403,16 +5403,6 @@ export interface components {
             /** Format: int64 */
             view_count: number;
         };
-        /** @enum {string} */
-        NativePreviewOpenMode: "iframe" | "new_tab";
-        NativePreviewSession: {
-            action_url: string;
-            cache_key?: string | null;
-            expires_at: string;
-            mode: components["schemas"]["NativePreviewOpenMode"];
-            provider: string;
-            version?: string | null;
-        };
         /**
          * @description Presentation-safe offline download payload used by task list views.
          *
@@ -5904,10 +5894,6 @@ export interface components {
             /** Format: int64 */
             total: number;
         };
-        /** @description Open file with a storage-native preview provider. */
-        OpenNativePreviewRequest: {
-            app_key: string;
-        };
         /** @description WOPI open file request. */
         OpenWopiRequest: {
             app_key: string;
@@ -6046,7 +6032,7 @@ export interface components {
             part_numbers: number[];
         };
         /** @enum {string} */
-        PreviewAppProvider: "builtin" | "url_template" | "wopi" | "native_preview";
+        PreviewAppProvider: "builtin" | "url_template" | "wopi";
         PreviewLinkInfo: {
             expires_at: string;
             /** Format: int32 */

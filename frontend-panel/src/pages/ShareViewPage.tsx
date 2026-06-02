@@ -62,24 +62,6 @@ function SharePreviewElement({
 			: shareService.createFolderFilePreviewLink(token, retainedPreviewFile.id);
 	}, [info, retainedPreviewFile, token]);
 
-	const createNativePreviewSession = useCallback(
-		(appKey: string) => {
-			if (!retainedPreviewFile || !info) {
-				return Promise.reject(
-					new Error("share native preview session is unavailable"),
-				);
-			}
-			return info.share_type === "file"
-				? shareService.createNativePreviewSession(token, appKey)
-				: shareService.createFolderFileNativePreviewSession(
-						token,
-						retainedPreviewFile.id,
-						appKey,
-					);
-		},
-		[info, retainedPreviewFile, token],
-	);
-
 	const loadArchivePreview = useCallback(
 		(options?: Parameters<typeof shareService.getArchivePreview>[1]) => {
 			if (!retainedPreviewFile || !info) {
@@ -162,7 +144,6 @@ function SharePreviewElement({
 				}
 				editable={false}
 				previewLinkFactory={createPreviewLink}
-				nativePreviewSessionFactory={createNativePreviewSession}
 				archivePreviewFactory={loadArchivePreview}
 				loadMusicBackendMetadata={
 					mediaDataSupportLoaded &&

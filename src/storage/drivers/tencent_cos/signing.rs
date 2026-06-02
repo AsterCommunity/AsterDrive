@@ -1,5 +1,3 @@
-use std::time::Duration;
-
 use hmac::{Hmac, KeyInit, Mac};
 use percent_encoding::{AsciiSet, CONTROLS, percent_encode};
 use sha1::{Digest, Sha1};
@@ -132,22 +130,6 @@ pub(super) fn cos_virtual_hosted_s3_endpoint(endpoint: &str, bucket: &str) -> Re
     url.set_query(None);
     url.set_fragment(None);
     Ok(String::from(url).trim_end_matches('/').to_string())
-}
-
-pub(super) fn clamp_cos_ttl(requested: Duration, max: Duration, label: &str) -> Duration {
-    if requested > max {
-        tracing::warn!(
-            requested_secs = requested.as_secs(),
-            max_secs = max.as_secs(),
-            "COS native {label} TTL exceeds max, clamping"
-        );
-        max
-    } else if requested.is_zero() {
-        tracing::warn!("COS native {label} zero TTL requested, falling back to max");
-        max
-    } else {
-        requested
-    }
 }
 
 fn canonical_param_list(params: &[(&str, &str)]) -> String {

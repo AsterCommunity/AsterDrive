@@ -27,6 +27,7 @@ import type {
 } from "./types";
 
 type ConfiguredPreviewApp = PublicPreviewAppDefinition;
+type SupportedPreviewAppProvider = PreviewAppProvider;
 
 function mergeOpenWithOptions(...groups: OpenWithOption[][]): OpenWithOption[] {
 	const merged: OpenWithOption[] = [];
@@ -413,7 +414,7 @@ function getConfiguredPreviewIcon(
 
 function getConfiguredPreviewProvider(
 	app: ConfiguredPreviewApp,
-): PreviewAppProvider | null {
+): SupportedPreviewAppProvider | null {
 	const provider = app.provider.trim().toLowerCase();
 	if (provider === "builtin") {
 		return "builtin";
@@ -424,9 +425,6 @@ function getConfiguredPreviewProvider(
 	if (provider === "url_template") {
 		return "url_template";
 	}
-	if (provider === "native_preview") {
-		return "native_preview";
-	}
 	return null;
 }
 
@@ -436,7 +434,7 @@ function isConfiguredPreviewAppEnabled(app: ConfiguredPreviewApp) {
 
 function getConfiguredPreviewMode(
 	key: string,
-	provider: PreviewAppProvider,
+	provider: SupportedPreviewAppProvider,
 ): OpenWithOption["mode"] | null {
 	if (provider === "url_template") {
 		return "url_template";
@@ -444,10 +442,6 @@ function getConfiguredPreviewMode(
 
 	if (provider === "wopi") {
 		return "wopi";
-	}
-
-	if (provider === "native_preview") {
-		return "native_preview";
 	}
 
 	switch (key) {

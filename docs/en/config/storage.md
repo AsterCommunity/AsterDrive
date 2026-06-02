@@ -55,7 +55,7 @@ If you are migrating existing data, do not directly change the old policy path, 
 ::: warning Storage-native processing can incur provider charges
 `Storage-native processing` is a master switch on each storage policy. AsterDrive only calls native data-processing features exposed by the resolved storage driver after this switch is enabled. For Tencent COS policies, this maps to COS CI.
 
-AsterDrive caches generated thumbnails, media information, and similar derivatives so they are not processed on every view, but the first generation, document-preview entry creation, and provider-side processing requests can still incur charges. For Tencent COS setup, suffix rules, and free-quota notes, see the [Tencent COS storage policy tutorial](/en/storage/tencent-cos).
+AsterDrive caches generated thumbnails, media information, and similar derivatives so they are not processed on every view, but the first generation and provider-side processing requests can still incur charges. For Tencent COS setup, suffix rules, and free-quota notes, see the [Tencent COS storage policy tutorial](/en/storage/tencent-cos).
 :::
 
 ## How to Choose Between the Four Storage Types

@@ -31,8 +31,7 @@ export type PreviewProviderKind =
 	| "code"
 	| "archive"
 	| "wopi"
-	| "url_template"
-	| "native_preview";
+	| "url_template";
 
 export interface OpenWithOption {
 	key: string;

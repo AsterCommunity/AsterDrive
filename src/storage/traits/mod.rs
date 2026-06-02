@@ -10,9 +10,8 @@ pub use driver::{
 };
 pub use extensions::{
     ListStorageDriver, LocalPathStorageDriver, NativeMediaMetadataRequest,
-    NativeMediaMetadataResult, NativeMediaMetadataStorageDriver, NativePreviewMode,
-    NativePreviewOpenMode, NativePreviewRequest, NativePreviewResult, NativePreviewStorageDriver,
-    NativeThumbnailRequest, NativeThumbnailStorageDriver, PresignedStorageDriver,
-    StorageCapacityInfo, StorageCapacityStatus, StreamUploadDriver,
+    NativeMediaMetadataResult, NativeMediaMetadataStorageDriver, NativeThumbnailRequest,
+    NativeThumbnailStorageDriver, PresignedStorageDriver, StorageCapacityInfo,
+    StorageCapacityStatus, StreamUploadDriver,
 };
 pub use multipart::MultipartStorageDriver;

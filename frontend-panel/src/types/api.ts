@@ -148,10 +148,6 @@ export type DirectLinkQuery = components["schemas"]["DirectLinkQuery"];
 export type FileSearchItem = components["schemas"]["FileSearchItem"];
 export type MyShareInfo = components["schemas"]["MyShareInfo"];
 export type PreviewLinkInfo = components["schemas"]["PreviewLinkInfo"];
-export type NativePreviewOpenMode =
-	components["schemas"]["NativePreviewOpenMode"];
-export type NativePreviewSession =
-	components["schemas"]["NativePreviewSession"];
 export type ShareStreamSessionInfo =
 	components["schemas"]["ShareStreamSessionInfo"];
 export type SearchParams = components["schemas"]["SearchParams"];

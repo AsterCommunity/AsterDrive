@@ -17,7 +17,6 @@ import { cn } from "@/lib/utils";
 import {
 	formatPreviewAppsDelimitedInput,
 	getPreviewAppProvider,
-	isNativePreviewApp,
 	isTablePreviewAppKey,
 	isUrlTemplatePreviewApp,
 	isWopiPreviewApp,
@@ -139,14 +138,6 @@ export function PreviewAppEditorFields({
 			{isWopiPreviewApp(app) ? (
 				<WopiFields app={app} index={index} t={t} updateApp={updateApp} />
 			) : null}
-			{isNativePreviewApp(app) ? (
-				<NativePreviewFields
-					app={app}
-					index={index}
-					t={t}
-					updateApp={updateApp}
-				/>
-			) : null}
 		</div>
 	);
 }
@@ -224,10 +215,6 @@ function PreviewAppProviderField({
 			label: t("preview_apps_provider_wopi"),
 			value: "wopi",
 		},
-		{
-			label: t("preview_apps_provider_native_preview"),
-			value: "native_preview",
-		},
 	];
 
 	return (
@@ -238,12 +225,7 @@ function PreviewAppProviderField({
 				onValueChange={(provider) =>
 					updateApp(index, (current) => ({
 						...current,
-						provider:
-							provider === "wopi"
-								? "wopi"
-								: provider === "native_preview"
-									? "native_preview"
-									: "url_template",
+						provider: provider === "wopi" ? "wopi" : "url_template",
 						config: {
 							...current.config,
 							mode:
@@ -515,34 +497,6 @@ function WopiFields({ app, index, t, updateApp }: PreviewAppFieldGroupProps) {
 				</div>
 			</EditorField>
 		</>
-	);
-}
-
-function NativePreviewFields({
-	app,
-	index,
-	t,
-	updateApp,
-}: PreviewAppFieldGroupProps) {
-	return (
-		<PreviewModeField
-			ariaLabel={t("preview_apps_native_preview_mode")}
-			description={t("preview_apps_native_preview_mode_desc")}
-			index={index}
-			label={t("preview_apps_native_preview_mode")}
-			options={[
-				{
-					label: t("preview_apps_native_preview_mode_iframe"),
-					value: "iframe",
-				},
-				{
-					label: t("preview_apps_native_preview_mode_new_tab"),
-					value: "new_tab",
-				},
-			]}
-			value={app.config.mode}
-			updateApp={updateApp}
-		/>
 	);
 }
 

@@ -158,13 +158,6 @@ pub trait StorageDriver: Send + Sync {
         None
     }
 
-    /// 获取存储侧外部预览 / 文件解析支持
-    ///
-    /// COS CI 等驱动返回 Some；普通 S3、本地存储等返回 None。
-    fn as_native_preview(&self) -> Option<&dyn super::extensions::NativePreviewStorageDriver> {
-        None
-    }
-
     /// 获取容量观测信息。
     ///
     /// 不支持容量查询的驱动必须明确返回 `StorageErrorKind::Unsupported`，不要静默

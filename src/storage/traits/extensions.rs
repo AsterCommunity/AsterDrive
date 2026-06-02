@@ -168,50 +168,6 @@ pub trait NativeMediaMetadataStorageDriver: Send + Sync {
     ) -> Result<Option<NativeMediaMetadataResult>>;
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum NativePreviewMode {
-    HtmlDocument,
-    PdfDocument,
-    ImagePage { page: i32 },
-}
-
-#[derive(Debug, Clone)]
-pub struct NativePreviewRequest {
-    pub storage_path: String,
-    pub source_file_name: String,
-    pub source_mime_type: String,
-    pub mode: NativePreviewMode,
-    pub expires: Duration,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
-#[serde(rename_all = "snake_case")]
-pub enum NativePreviewOpenMode {
-    Iframe,
-    NewTab,
-}
-
-#[derive(Debug, Clone)]
-pub struct NativePreviewResult {
-    pub url: String,
-    pub provider: String,
-    pub expires_at: DateTime<Utc>,
-    pub cache_key: Option<String>,
-    pub version: Option<String>,
-    pub open_mode: NativePreviewOpenMode,
-}
-
-/// 存储侧外部预览 / 文件解析支持（COS CI、未来的对象存储文档处理等）
-#[async_trait]
-pub trait NativePreviewStorageDriver: Send + Sync {
-    /// 返回 `None` 表示该驱动当前不支持这个对象、MIME 或请求模式。
-    async fn create_native_preview(
-        &self,
-        request: &NativePreviewRequest,
-    ) -> Result<Option<NativePreviewResult>>;
-}
-
 /// 为所有 StorageDriver 提供 StreamUploadDriver 的默认实现
 ///
 /// 此模块提供基于临时文件的通用实现，供不支持原生流式上传的驱动使用。

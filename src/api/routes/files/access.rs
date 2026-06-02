@@ -1,6 +1,6 @@
 //! 文件 API 路由：`access`。
 
-use crate::api::dto::files::{ArchivePreviewQuery, OpenNativePreviewRequest, OpenWopiRequest};
+use crate::api::dto::files::{ArchivePreviewQuery, OpenWopiRequest};
 use crate::api::response::ApiResponse;
 use crate::api::routes::team_scope;
 use crate::errors::Result;
@@ -10,7 +10,7 @@ use crate::services::{
     audit_service::{self, AuditContext},
     auth_service::Claims,
     direct_link_service, file_service, media_metadata_service, media_processing_service,
-    native_preview_service, preview_link_service, wopi_service,
+    preview_link_service, wopi_service,
     workspace_models::FileInfo,
     workspace_storage_service::WorkspaceStorageScope,
 };
@@ -170,41 +170,6 @@ pub async fn open_wopi(
     body: web::Json<OpenWopiRequest>,
 ) -> Result<HttpResponse> {
     open_wopi_response(
-        &state,
-        &claims,
-        &req,
-        WorkspaceStorageScope::Personal {
-            user_id: claims.user_id,
-        },
-        *path,
-        &body.app_key,
-    )
-    .await
-}
-
-#[api_docs_macros::path(
-    post,
-    path = "/api/v1/files/{id}/native-preview/open",
-    tag = "files",
-    operation_id = "open_file_with_native_preview",
-    params(("id" = i64, Path, description = "File ID")),
-    request_body = OpenNativePreviewRequest,
-    responses(
-        (status = 200, description = "Storage-native preview session", body = inline(ApiResponse<native_preview_service::NativePreviewSession>)),
-        (status = 400, description = "Native preview unsupported for this file or policy"),
-        (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
-        (status = 404, description = "File not found"),
-    ),
-    security(("bearer" = [])),
-)]
-pub async fn open_native_preview(
-    state: web::Data<PrimaryAppState>,
-    claims: web::ReqData<Claims>,
-    req: HttpRequest,
-    path: web::Path<i64>,
-    body: web::Json<OpenNativePreviewRequest>,
-) -> Result<HttpResponse> {
-    open_native_preview_response(
         &state,
         &claims,
         &req,
@@ -518,44 +483,6 @@ pub(crate) async fn team_open_wopi(
 }
 
 #[api_docs_macros::path(
-    post,
-    path = "/api/v1/teams/{team_id}/files/{id}/native-preview/open",
-    tag = "teams",
-    operation_id = "open_team_file_with_native_preview",
-    params(
-        ("team_id" = i64, Path, description = "Team ID"),
-        ("id" = i64, Path, description = "File ID")
-    ),
-    request_body = OpenNativePreviewRequest,
-    responses(
-        (status = 200, description = "Team storage-native preview session", body = inline(ApiResponse<native_preview_service::NativePreviewSession>)),
-        (status = 400, description = "Native preview unsupported for this file or policy"),
-        (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
-        (status = 403, description = "Forbidden"),
-        (status = 404, description = "File not found"),
-    ),
-    security(("bearer" = [])),
-)]
-pub(crate) async fn team_open_native_preview(
-    state: web::Data<PrimaryAppState>,
-    claims: web::ReqData<Claims>,
-    req: HttpRequest,
-    path: web::Path<(i64, i64)>,
-    body: web::Json<OpenNativePreviewRequest>,
-) -> Result<HttpResponse> {
-    let (team_id, file_id) = path.into_inner();
-    open_native_preview_response(
-        &state,
-        &claims,
-        &req,
-        team_scope(team_id, claims.user_id),
-        file_id,
-        &body.app_key,
-    )
-    .await
-}
-
-#[api_docs_macros::path(
     get,
     path = "/api/v1/teams/{team_id}/files/{id}/thumbnail",
     tag = "teams",
@@ -846,36 +773,6 @@ pub(crate) async fn open_wopi_response(
         || {
             audit_service::details(audit_service::FileAccessTokenAuditDetails {
                 source: "wopi",
-                app_key: Some(app_key),
-            })
-        },
-    )
-    .await;
-    Ok(HttpResponse::Ok().json(ApiResponse::ok(session)))
-}
-
-pub(crate) async fn open_native_preview_response(
-    state: &PrimaryAppState,
-    claims: &Claims,
-    req: &HttpRequest,
-    scope: WorkspaceStorageScope,
-    file_id: i64,
-    app_key: &str,
-) -> Result<HttpResponse> {
-    let file = file_service::get_info_in_scope(state, scope, file_id).await?;
-    let session =
-        native_preview_service::create_for_file_in_scope(state, scope, file_id, app_key).await?;
-    let ctx = AuditContext::from_request(req, claims);
-    audit_service::log_with_details(
-        state,
-        &ctx,
-        audit_service::AuditAction::FilePreviewLinkCreate,
-        crate::services::audit_service::AuditEntityType::File,
-        Some(file.id),
-        Some(&file.name),
-        || {
-            audit_service::details(audit_service::FileAccessTokenAuditDetails {
-                source: "native_preview",
                 app_key: Some(app_key),
             })
         },

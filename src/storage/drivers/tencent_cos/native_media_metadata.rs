@@ -276,7 +276,11 @@ fn child_duration_ms(element: &Element, names: &[&str]) -> Option<u64> {
         if !seconds.is_finite() || seconds <= 0.0 {
             return None;
         }
-        u64::try_from((seconds * 1000.0).round() as i128).ok()
+        crate::utils::numbers::f64_seconds_to_u64_millis(
+            seconds,
+            "COS native media metadata duration",
+        )
+        .ok()
     })
 }
 
@@ -290,8 +294,11 @@ fn xml_name_matches(actual: &str, expected: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::parse_cos_media_info_xml;
+    use std::io::Cursor;
+
+    use super::{child_duration_ms, parse_cos_media_info_xml};
     use crate::types::{MediaMetadataKind, MediaMetadataPayload};
+    use xmltree::Element;
 
     #[test]
     fn parses_cos_video_media_info_xml() {
@@ -376,5 +383,20 @@ mod tests {
         assert_eq!(metadata.channels, Some(2));
         assert_eq!(metadata.audio_bitrate, Some(128_000));
         assert_eq!(metadata.overall_bitrate, Some(130_000));
+    }
+
+    #[test]
+    fn parses_cos_duration_with_checked_rounding_and_rejects_invalid_values() {
+        let rounded = Element::parse(Cursor::new(
+            br#"<Video><Duration>1.2345</Duration></Video>"#.as_slice(),
+        ))
+        .unwrap();
+        assert_eq!(child_duration_ms(&rounded, &["Duration"]), Some(1235));
+
+        for value in ["0", "-1", "NaN", "not-a-number"] {
+            let xml = format!("<Video><Duration>{value}</Duration></Video>");
+            let element = Element::parse(Cursor::new(xml.as_bytes())).unwrap();
+            assert_eq!(child_duration_ms(&element, &["Duration"]), None);
+        }
     }
 }

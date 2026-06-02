@@ -160,7 +160,7 @@ impl DriverRegistry {
             .cloned()
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, debug_assertions))]
     pub fn insert_for_test(&self, policy_id: i64, driver: Arc<dyn StorageDriver>) {
         self.drivers.insert(
             policy_id,
@@ -175,7 +175,7 @@ impl DriverRegistry {
     ///
     /// This intentionally bypasses metrics wrapping so tests can rely on the
     /// provided `Arc<S3Driver>` being the stored storage and multipart object.
-    #[cfg(test)]
+    #[cfg(any(test, debug_assertions))]
     pub fn insert_s3_for_test(&self, policy_id: i64, driver: Arc<S3Driver>) {
         let storage: Arc<dyn StorageDriver> = driver.clone();
         let multipart: Arc<dyn MultipartStorageDriver> = driver;

@@ -14,7 +14,7 @@ Tencent COS is suitable when:
 
 - You already use Tencent COS and want AsterDrive to write directly into a COS bucket
 - You have many or large files and want object storage to carry capacity and bandwidth
-- You want to enable Tencent-native COS CI features per storage policy, such as image thumbnails, media-info parsing, or document preview
+- You want to enable Tencent-native COS CI features per storage policy, such as image thumbnails or media-info parsing
 - You want the frontend and admin console to clearly show "Tencent COS" instead of hiding it under a generic S3-compatible backend
 
 If you only need generic S3-compatible object storage and do not need Tencent COS CI features, use the [S3 / MinIO / R2 storage policy tutorial](/en/storage/s3-minio-r2) instead.
@@ -67,7 +67,6 @@ Creating only a COS storage policy is not enough. When users or teams upload fil
 | Bind a policy group to a user | `Admin -> Users -> User Details` |
 | Bind a policy group to a team | `Admin -> Teams -> Team Details` |
 | Configure global media processing | `Admin -> System Settings -> File Processing` |
-| Configure preview apps | `Admin -> System Settings -> Preview Apps` |
 
 ## 1. Prepare the Bucket and Prefix
 
@@ -101,7 +100,7 @@ At minimum, it needs to cover:
 - Multipart-upload related operations
 - Necessary access to the target bucket / prefix
 
-If you enable COS CI, also confirm that the credential can make the corresponding CI processing requests, such as image processing, media-info parsing, or document preview. Permission names and console entries may change with Tencent Cloud product updates; follow Tencent Cloud's latest documentation and console hints.
+If you enable COS CI, also confirm that the credential can make the corresponding CI processing requests, such as image processing or media-info parsing. Permission names and console entries may change with Tencent Cloud product updates; follow Tencent Cloud's latest documentation and console hints.
 
 ## 3. Choose Upload and Download Modes First
 
@@ -260,9 +259,13 @@ Do not blindly add every possible suffix. AsterDrive caches media information, b
 
 ### Document Preview
 
-COS document preview is controlled by preview-app configuration and whether the policy driver supports native preview. Do not enable document HTML preview for broad suffix sets by default, especially before confirming Tencent Cloud's billing rules.
+AsterDrive currently does not provide COS document HTML preview and does not call COS document-preview APIs from storage policies. This is intentionally kept out of the current implementation because Tencent Cloud's current public pricing pages do not list a free quota for document HTML preview, so a broad suffix configuration could create uncontrolled costs.
+
+If this is added later, it should use its own explicit switch and suffix list instead of being opened only through the current storage-native processing master switch.
 
 ## 8. Free Quotas and Billing Boundaries
+
+References checked on: 2026-06-03.
 
 Under Tencent Cloud's current public pricing pages:
 
@@ -271,9 +274,17 @@ Under Tencent Cloud's current public pricing pages:
 | Basic image processing | 10 TB monthly free quota | Native image thumbnails use this; usage outside the free-quota rules is billed by Tencent Cloud |
 | Video media-info retrieval | 6000 requests / 2 months after first use | Native media-info parsing uses COS `GetMediainfo` / `ci-process=videoinfo` |
 | Video snapshot | 6000 requests / 2 months after first use | If COS video thumbnails are enabled later, evaluate this quota first |
-| Document HTML preview | No free quota | Do not enable broadly before confirming costs |
+| Document HTML preview | No free quota | Not currently implemented in AsterDrive; if added later, it needs a separate switch |
 
 Tencent Cloud pricing, free quotas, expiration rules, and region differences may change. Before production launch, check Tencent Cloud's latest COS / COS CI pricing pages and console prompts.
+
+References:
+
+- [Tencent Cloud COS CI free quotas](https://cloud.tencent.com/document/product/460/36381)
+- [Tencent Cloud COS CI basic image processing pricing](https://cloud.tencent.com/document/product/460/47483)
+- [Tencent Cloud COS CI media processing pricing](https://cloud.tencent.com/document/product/460/58120)
+- [Tencent Cloud COS CI document processing pricing](https://cloud.tencent.com/document/product/460/58121)
+- [Tencent Cloud COS CI media-info API](https://cloud.tencent.com/document/product/460/49284)
 
 ## 9. Create a Test Policy Group
 

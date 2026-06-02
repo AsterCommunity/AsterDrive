@@ -6,7 +6,7 @@ use crate::errors::{AsterError, MapAsterErr, Result};
 use crate::storage::error::{StorageErrorKind, storage_driver_error};
 use crate::storage::traits::extensions::{NativeThumbnailRequest, NativeThumbnailStorageDriver};
 
-use super::{COS_NATIVE_PREVIEW_PROVIDER, MAX_COS_THUMBNAIL_TTL, TencentCosDriver};
+use super::{COS_NATIVE_PROCESSING_PROVIDER, MAX_COS_THUMBNAIL_TTL, TencentCosDriver};
 
 impl TencentCosDriver {
     pub(super) fn signed_ci_thumbnail_url(
@@ -62,7 +62,7 @@ impl NativeThumbnailStorageDriver for TencentCosDriver {
         if let Ok(parsed_url) = Url::parse(&url) {
             tracing::debug!(
                 processor = "storage_native",
-                provider = COS_NATIVE_PREVIEW_PROVIDER,
+                provider = COS_NATIVE_PROCESSING_PROVIDER,
                 host = parsed_url.host_str(),
                 path = parsed_url.path(),
                 "requesting COS native thumbnail"
@@ -80,7 +80,7 @@ impl NativeThumbnailStorageDriver for TencentCosDriver {
         if !status.is_success() {
             tracing::debug!(
                 processor = "storage_native",
-                provider = COS_NATIVE_PREVIEW_PROVIDER,
+                provider = COS_NATIVE_PROCESSING_PROVIDER,
                 http_status = %status,
                 "COS native thumbnail request returned non-success status"
             );

@@ -16,7 +16,6 @@ import type {
 	FolderInfo,
 	FolderListParams,
 	MediaMetadataInfo,
-	NativePreviewSession,
 	PreviewLinkInfo,
 	TaskInfo,
 	WopiLaunchSession,
@@ -103,14 +102,6 @@ export function createFileService(workspace: Workspace) {
 		createWopiSession: (id: number, appKey: string) =>
 			api.post<WopiLaunchSession>(
 				buildWorkspacePath(workspace, `/files/${id}/wopi/open`),
-				{
-					app_key: appKey,
-				},
-			),
-
-		createNativePreviewSession: (id: number, appKey: string) =>
-			api.post<NativePreviewSession>(
-				buildWorkspacePath(workspace, `/files/${id}/native-preview/open`),
 				{
 					app_key: appKey,
 				},
