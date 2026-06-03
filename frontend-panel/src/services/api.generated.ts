@@ -4880,7 +4880,7 @@ export interface components {
          * @description 外部认证提供商类型。
          * @enum {string}
          */
-        ExternalAuthProviderKind: "oidc" | "generic_oauth2" | "github";
+        ExternalAuthProviderKind: "oidc" | "generic_oauth2" | "github" | "google";
         ExternalAuthProviderTestCheck: {
             message: string;
             name: string;

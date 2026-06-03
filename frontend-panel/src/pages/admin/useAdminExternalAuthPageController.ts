@@ -25,6 +25,7 @@ import {
 	formFromProvider,
 	getManagedExternalAuthSearchString,
 	isGitHubProviderKind,
+	isGoogleProviderKind,
 	mergeManagedExternalAuthSearchParams,
 	normalizeOffset,
 	requiredFieldsMissing,
@@ -476,8 +477,9 @@ export function useAdminExternalAuthPageController() {
 
 	const setProviderKind = (kind: ExternalAuthProviderKind) => {
 		const descriptor = providerKinds.find((item) => item.kind === kind);
+		const selectedProviderKind = descriptor ?? kind;
 		const patch: Partial<ExternalAuthProviderFormData> = isGitHubProviderKind(
-			descriptor ?? kind,
+			selectedProviderKind,
 		)
 			? {
 					authorizationUrl: "",
@@ -495,7 +497,24 @@ export function useAdminExternalAuthPageController() {
 					userinfoUrl: "",
 					usernameClaim: "",
 				}
-			: {};
+			: isGoogleProviderKind(selectedProviderKind)
+				? {
+						authorizationUrl: "",
+						avatarUrlClaim: "",
+						displayName: form.displayName.trim() ? form.displayName : "Google",
+						displayNameClaim: "",
+						emailClaim: "",
+						emailVerifiedClaim: "",
+						groupsClaim: "",
+						iconUrl: "",
+						issuerUrl: "",
+						requireEmailVerified: true,
+						subjectClaim: "",
+						tokenUrl: "",
+						userinfoUrl: "",
+						usernameClaim: "",
+					}
+				: {};
 		dispatchUi({
 			kind,
 			patch,

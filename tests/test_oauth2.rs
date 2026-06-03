@@ -30,7 +30,7 @@ async fn admin_provider_kind_api_includes_generic_oauth2_contract() {
     let kinds = body["data"]
         .as_array()
         .expect("provider kind list should be an array");
-    assert_eq!(kinds.len(), 3);
+    assert_eq!(kinds.len(), 4);
     let oauth2 = kinds
         .iter()
         .find(|kind| kind["kind"] == "generic_oauth2")

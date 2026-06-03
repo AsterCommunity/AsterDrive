@@ -175,6 +175,26 @@ function githubKind(
 	});
 }
 
+function googleKind(
+	overrides: Partial<AdminExternalAuthProviderKindInfo> = {},
+): AdminExternalAuthProviderKindInfo {
+	return kind({
+		authorization_url_required: false,
+		default_scopes: "openid profile email",
+		description: "Google sign-in.",
+		display_name: "Google",
+		issuer_url_required: false,
+		kind: "google",
+		manual_endpoint_configuration_supported: false,
+		protocol: "oidc",
+		supports_discovery: true,
+		supports_email_verified_claim: true,
+		token_url_required: false,
+		userinfo_url_required: false,
+		...overrides,
+	});
+}
+
 function provider(
 	overrides: Partial<AdminExternalAuthProviderInfo> = {},
 ): AdminExternalAuthProviderInfo {
@@ -479,6 +499,48 @@ describe("ExternalAuthProviderPanels", () => {
 		).not.toBeInTheDocument();
 	});
 
+	it("renders Google fixed OIDC guidance in the identity panel", () => {
+		render(
+			<ExternalAuthProviderIdentityPanel
+				connectionMissing={false}
+				createStepTouched={false}
+				currentCallbackUrl=""
+				form={form({
+					providerKind: "google",
+					scopes: "openid profile email",
+				})}
+				identityMissing={false}
+				isCreate
+				onCopyCallbackUrl={vi.fn()}
+				onFieldChange={vi.fn()}
+				onTestConnection={vi.fn().mockResolvedValue(true)}
+				provider={null}
+				providerKindLabel="Google"
+				selectedKind={googleKind()}
+				showIssuerUrl={false}
+				showManualEndpoints={false}
+				testDisabled={false}
+				testResult={null}
+			/>,
+		);
+
+		expect(
+			screen.getByText("external_auth_provider_google_fixed_title"),
+		).toBeInTheDocument();
+		expect(screen.getByText("https://accounts.google.com")).toBeInTheDocument();
+		expect(
+			screen.getByText(
+				"https://accounts.google.com/.well-known/openid-configuration",
+			),
+		).toBeInTheDocument();
+		expect(
+			screen.queryByLabelText("external_auth_provider_issuer_url"),
+		).not.toBeInTheDocument();
+		expect(
+			screen.queryByLabelText("external_auth_provider_authorization_url"),
+		).not.toBeInTheDocument();
+	});
+
 	it("wires rules and claim fields, including email-verified support", () => {
 		const onFieldChange = vi.fn();
 		const view = render(
@@ -547,6 +609,25 @@ describe("ExternalAuthProviderPanels", () => {
 		expect(
 			screen.getByText("primary && verified from /user/emails"),
 		).toBeInTheDocument();
+		expect(
+			screen.queryByLabelText("external_auth_provider_subject_claim"),
+		).not.toBeInTheDocument();
+	});
+
+	it("renders Google fixed claims instead of editable claim mapping", () => {
+		render(
+			<ExternalAuthProviderRulesPanel
+				form={form({ providerKind: "google" })}
+				onFieldChange={vi.fn()}
+				selectedKind={googleKind()}
+			/>,
+		);
+
+		expect(
+			screen.getByText("external_auth_provider_google_claims_title"),
+		).toBeInTheDocument();
+		expect(screen.getByText("email_verified")).toBeInTheDocument();
+		expect(screen.getByText("picture")).toBeInTheDocument();
 		expect(
 			screen.queryByLabelText("external_auth_provider_subject_claim"),
 		).not.toBeInTheDocument();

@@ -21,7 +21,11 @@ import {
 	formConnectionSummary,
 	GITHUB_CLAIMS,
 	GITHUB_FIXED_ENDPOINTS,
+	GOOGLE_CLAIMS,
+	GOOGLE_DISCOVERY_URL,
+	GOOGLE_ISSUER_URL,
 	isGitHubProviderKind,
+	isGoogleProviderKind,
 	kindDescription,
 	kindDisplayName,
 	parseAllowedDomains,
@@ -168,6 +172,7 @@ export function ExternalAuthSummaryPanel({
 	const summaryConnection = formConnectionSummary(form, selectedKind);
 	const summaryClaims = formClaimSummary(form, selectedKind);
 	const isGitHub = isGitHubProviderKind(selectedKind ?? providerKind);
+	const isGoogle = isGoogleProviderKind(selectedKind ?? providerKind);
 
 	return (
 		<section className="rounded-2xl border border-border/70 bg-background/70 p-5">
@@ -202,6 +207,16 @@ export function ExternalAuthSummaryPanel({
 						</dt>
 						<dd className="mt-1 text-xs leading-5 text-muted-foreground">
 							{t("external_auth_provider_github_email_desc")}
+						</dd>
+					</div>
+				) : null}
+				{isGoogle ? (
+					<div className="rounded-lg border border-border/70 bg-muted/30 p-3">
+						<dt className="text-xs font-medium">
+							{t("external_auth_provider_google_email_title")}
+						</dt>
+						<dd className="mt-1 text-xs leading-5 text-muted-foreground">
+							{t("external_auth_provider_google_email_desc")}
 						</dd>
 					</div>
 				) : null}
@@ -372,6 +387,46 @@ function GitHubProviderInfoPanel() {
 	);
 }
 
+function GoogleProviderInfoPanel() {
+	const { t } = useTranslation("admin");
+
+	return (
+		<div className="md:col-span-2 rounded-xl border border-border/70 bg-muted/25 p-4">
+			<div className="flex items-start gap-3">
+				<div className="flex size-11 shrink-0 items-center justify-center rounded-lg bg-white shadow-sm ring-1 ring-black/5">
+					<ExternalAuthProviderIcon kind="google" className="max-h-7 max-w-7" />
+				</div>
+				<div className="min-w-0 flex-1">
+					<p className="text-sm font-medium">
+						{t("external_auth_provider_google_fixed_title")}
+					</p>
+					<p className="mt-1 text-xs leading-5 text-muted-foreground">
+						{t("external_auth_provider_google_fixed_desc")}
+					</p>
+				</div>
+			</div>
+			<dl className="mt-3 grid gap-2 text-xs sm:grid-cols-2">
+				<div className="min-w-0">
+					<dt className="text-muted-foreground">
+						{t("external_auth_provider_issuer_url")}
+					</dt>
+					<dd className="truncate font-mono" title={GOOGLE_ISSUER_URL}>
+						{GOOGLE_ISSUER_URL}
+					</dd>
+				</div>
+				<div className="min-w-0">
+					<dt className="text-muted-foreground">
+						{t("external_auth_provider_google_discovery_url")}
+					</dt>
+					<dd className="truncate font-mono" title={GOOGLE_DISCOVERY_URL}>
+						{GOOGLE_DISCOVERY_URL}
+					</dd>
+				</div>
+			</dl>
+		</div>
+	);
+}
+
 interface ExternalAuthProviderIdentityPanelProps {
 	connectionMissing: boolean;
 	createStepTouched: boolean;
@@ -411,6 +466,7 @@ export function ExternalAuthProviderIdentityPanel({
 }: ExternalAuthProviderIdentityPanelProps) {
 	const { t } = useTranslation("admin");
 	const isGitHub = isGitHubProviderKind(selectedKind);
+	const isGoogle = isGoogleProviderKind(selectedKind);
 
 	return (
 		<section className="rounded-2xl border border-border/70 bg-background/70 p-5">
@@ -475,6 +531,7 @@ export function ExternalAuthProviderIdentityPanel({
 					showManualEndpoints={showManualEndpoints}
 				/>
 				{isGitHub ? <GitHubProviderInfoPanel /> : null}
+				{isGoogle ? <GoogleProviderInfoPanel /> : null}
 				<ExternalAuthConnectionTestPanel
 					disabled={testDisabled}
 					onTestConnection={onTestConnection}
@@ -545,6 +602,53 @@ function GitHubClaimInfoPanel() {
 	);
 }
 
+function GoogleClaimInfoPanel() {
+	const { t } = useTranslation("admin");
+
+	return (
+		<div className="md:col-span-2 rounded-xl border border-border/70 bg-muted/25 p-4">
+			<p className="text-sm font-medium">
+				{t("external_auth_provider_google_claims_title")}
+			</p>
+			<p className="mt-1 text-xs leading-5 text-muted-foreground">
+				{t("external_auth_provider_google_claims_desc")}
+			</p>
+			<dl className="mt-3 grid gap-2 text-xs sm:grid-cols-2">
+				<div>
+					<dt className="text-muted-foreground">
+						{t("external_auth_provider_subject_claim")}
+					</dt>
+					<dd className="font-mono">{GOOGLE_CLAIMS.subjectClaim}</dd>
+				</div>
+				<div>
+					<dt className="text-muted-foreground">
+						{t("external_auth_provider_display_name_claim")}
+					</dt>
+					<dd className="font-mono">{GOOGLE_CLAIMS.displayNameClaim}</dd>
+				</div>
+				<div>
+					<dt className="text-muted-foreground">
+						{t("external_auth_provider_email_claim")}
+					</dt>
+					<dd className="font-mono">{GOOGLE_CLAIMS.emailClaim}</dd>
+				</div>
+				<div>
+					<dt className="text-muted-foreground">
+						{t("external_auth_provider_email_verified_claim")}
+					</dt>
+					<dd className="font-mono">{GOOGLE_CLAIMS.emailVerifiedClaim}</dd>
+				</div>
+				<div>
+					<dt className="text-muted-foreground">
+						{t("external_auth_provider_avatar_url_claim")}
+					</dt>
+					<dd className="font-mono">{GOOGLE_CLAIMS.avatarUrlClaim}</dd>
+				</div>
+			</dl>
+		</div>
+	);
+}
+
 interface ExternalAuthProviderRulesPanelProps {
 	form: ExternalAuthProviderFormData;
 	onFieldChange: ExternalAuthProviderFieldChange;
@@ -558,6 +662,7 @@ export function ExternalAuthProviderRulesPanel({
 }: ExternalAuthProviderRulesPanelProps) {
 	const { t } = useTranslation("admin");
 	const isGitHub = isGitHubProviderKind(selectedKind);
+	const isGoogle = isGoogleProviderKind(selectedKind);
 
 	return (
 		<section className="rounded-2xl border border-border/70 bg-background/70 p-5">
@@ -602,6 +707,8 @@ export function ExternalAuthProviderRulesPanel({
 				</div>
 				{isGitHub ? (
 					<GitHubClaimInfoPanel />
+				) : isGoogle ? (
+					<GoogleClaimInfoPanel />
 				) : (
 					<ExternalAuthClaimFields
 						form={form}

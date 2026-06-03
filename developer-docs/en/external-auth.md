@@ -15,10 +15,11 @@ External authentication lets users sign in through external identity providers s
 | Service | `src/services/external_auth_service/` | Provider config, login flow, identity binding, and account provisioning |
 | Entity / repo | `src/entities/external_auth_*`, `src/db/repository/external_auth_*` | Persistent provider and identity storage |
 | Driver trait | `src/external_auth/driver.rs` | Shared driver interface and descriptors |
-| Driver registry | `src/external_auth/registry.rs` | Registers `oidc`, `generic_oauth2`, and `github` |
+| Driver registry | `src/external_auth/registry.rs` | Registers `oidc`, `generic_oauth2`, `github`, and `google` |
 | OIDC driver | `src/external_auth/providers/oidc.rs` | Discovery, PKCE, nonce, and ID token validation |
 | Generic OAuth2 driver | `src/external_auth/providers/oauth2.rs` | Manual endpoints, PKCE, token exchange, and UserInfo claim mapping |
 | GitHub driver | `src/external_auth/providers/github.rs` | Reuses the OAuth2 driver, fixes GitHub endpoints, and fetches the verified primary email from `/user/emails` |
+| Google driver | `src/external_auth/providers/google.rs` | Reuses the OIDC driver, fixes Google Accounts issuer, default scopes, and claim semantics |
 
 ## Supported provider kinds
 
@@ -27,6 +28,7 @@ Current supported provider kinds are:
 - `oidc`
 - `generic_oauth2`
 - `github`
+- `google`
 
 All provider kinds are configured by admins and shown on the login page only after being enabled.
 
@@ -35,6 +37,7 @@ All provider kinds are configured by admins and shown on the login page only aft
 | `oidc` | `oidc` | `openid email profile` | `issuer_url` discovery |
 | `generic_oauth2` | `oauth2` | `openid email profile` | Admin-configured authorization / token / userinfo URLs |
 | `github` | `oauth2` | `read:user user:email` | Fixed GitHub authorization / token / user / user-emails URLs |
+| `google` | `oidc` | `openid profile email` | Fixed Google Accounts issuer / discovery |
 
 ## High-level flow
 
@@ -104,6 +107,34 @@ The admin UI also has GitHub-specific behavior:
 - the default icon is `/static/external-auth/github-logo.svg`
 - the login entry, admin provider list, and `settings/security` linked-identity list prefer the configured icon and fall back to the provider-kind default icon
 
+### Google
+
+`google` is a dedicated provider kind. Its wire value is `google`.
+
+It follows the same dedicated-wrapper pattern as GitHub, but reuses the generic OIDC driver instead of the OAuth2 driver.
+
+Fixed behavior:
+
+- protocol is `oidc`
+- issuer defaults to `https://accounts.google.com`
+- discovery is fixed to `https://accounts.google.com/.well-known/openid-configuration`
+- default scopes are `openid profile email`
+- subject is fixed to the ID token `sub`
+- display name is fixed to the ID token `name`
+- email is fixed to the ID token `email`
+- email verification is fixed to the ID token `email_verified`
+- avatar URL claim is preset to the ID token `picture`
+- manual authorization / token / userinfo endpoints are not supported
+
+The Google provider still allows tests to pass a loopback issuer so integration tests can use the local mock OIDC server; the production admin UI does not expose the issuer input. External identities must be linked by the stable `sub`, not by email. Google API / Google Drive authorization is a later resource-access capability and should not be mixed into the login provider's default scopes.
+
+The admin UI also has Google-specific behavior:
+
+- create / edit panels show fixed issuer and discovery guidance instead of editable issuer / endpoint fields
+- rules panels show fixed claims instead of editable claim mapping
+- the default icon is `/static/external-auth/google-logo.svg`
+- the login entry, admin provider list, and `settings/security` linked-identity list prefer the configured icon and fall back to the provider-kind default icon
+
 ## Account provisioning and binding
 
 The service supports several account-resolution paths:
@@ -135,12 +166,14 @@ Key tests cover:
 - password binding
 - unlinking external identities
 - GitHub verified-primary-email handling and `/user.email` bypass prevention
+- Google fixed descriptor defaults, `sub` stability, email changes not creating new identities, and `email_verified=false` / missing / non-boolean rejection
 
 Useful commands:
 
 - `cargo test --test test_oauth2`
 - `cargo test --test test_oidc`
 - `cargo test --lib external_auth::providers::github`
+- `cargo test --lib external_auth::providers::google`
 - `cargo clippy --lib --tests -- -D warnings`
 
 Frontend provider-kind, form, summary, and stale-request tests live under:
@@ -152,5 +185,5 @@ Frontend provider-kind, form, summary, and stale-request tests live under:
 
 - Generic OAuth2 currently has no explicit client-auth-method setting; it supports public clients and `client_secret_post`.
 - Generic OAuth2 does not validate ID tokens because it consumes only access token + UserInfo.
-- Microsoft and Google can currently be configured manually through OIDC. Manual Microsoft configuration should prefer a concrete tenant issuer because the current OIDC driver strictly requires the ID token issuer to equal the provider `issuer_url`. Dedicated Microsoft / Google presets are tracked in <https://github.com/AptS-1547/AsterDrive/issues/263> and <https://github.com/AptS-1547/AsterDrive/issues/265>.
+- Microsoft can currently be configured manually through OIDC. Manual Microsoft configuration should prefer a concrete tenant issuer because the current OIDC driver strictly requires the ID token issuer to equal the provider `issuer_url`. The dedicated Microsoft preset is tracked in <https://github.com/AptS-1547/AsterDrive/issues/263>.
 - `groups_claim` and `avatar_url_claim` exist in the provider configuration model, but the login resolver currently persists identity, email, display name, and username snapshots only.

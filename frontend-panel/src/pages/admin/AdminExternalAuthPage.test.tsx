@@ -460,6 +460,119 @@ describe("AdminExternalAuthPage", () => {
 		});
 	});
 
+	it("applies Google create-dialog defaults and hides manual OIDC fields", async () => {
+		mockState.listKinds.mockResolvedValue([
+			{
+				authorization_url_required: false,
+				default_scopes: "openid email profile",
+				description: "OpenID Connect authorization-code sign-in.",
+				display_name: "OpenID Connect",
+				issuer_url_required: true,
+				kind: "oidc",
+				manual_endpoint_configuration_supported: false,
+				protocol: "oidc",
+				supports_discovery: true,
+				supports_email_verified_claim: true,
+				supports_pkce: true,
+				token_url_required: false,
+				userinfo_url_required: false,
+			},
+			{
+				authorization_url_required: false,
+				default_scopes: "openid profile email",
+				description: "Google OpenID Connect sign-in.",
+				display_name: "Google",
+				issuer_url_required: false,
+				kind: "google",
+				manual_endpoint_configuration_supported: false,
+				protocol: "oidc",
+				supports_discovery: true,
+				supports_email_verified_claim: true,
+				supports_pkce: true,
+				token_url_required: false,
+				userinfo_url_required: false,
+			},
+		]);
+		mockState.create.mockResolvedValue(
+			savedProvider({
+				display_name: "Google",
+				issuer_url: null,
+				key: "google",
+				provider_kind: "google",
+				scopes: "openid profile email",
+			}),
+		);
+
+		render(
+			<MemoryRouter initialEntries={["/admin/external-auth"]}>
+				<AdminExternalAuthPage />
+			</MemoryRouter>,
+		);
+
+		await waitFor(() => expect(mockState.listKinds).toHaveBeenCalled());
+		const createButtons = screen.getAllByRole("button", {
+			name: /external_auth_provider_create/,
+		});
+		fireEvent.click(createButtons[createButtons.length - 1]);
+		fireEvent.click(screen.getByRole("button", { name: /Google/ }));
+		fireEvent.click(screen.getByRole("button", { name: "policy_wizard_next" }));
+
+		expect(screen.getByDisplayValue("Google")).toHaveAttribute(
+			"id",
+			"external-auth-provider-display-name",
+		);
+		expect(
+			screen.queryByLabelText("external_auth_provider_issuer_url"),
+		).not.toBeInTheDocument();
+		expect(
+			screen.queryByLabelText("external_auth_provider_authorization_url"),
+		).not.toBeInTheDocument();
+		expect(
+			screen.getByText("external_auth_provider_google_fixed_title"),
+		).toBeInTheDocument();
+
+		fireEvent.change(
+			screen.getByLabelText("external_auth_provider_client_id"),
+			{
+				target: { value: "google-client" },
+			},
+		);
+		fireEvent.click(
+			screen.getByRole("button", { name: "policy_wizard_review" }),
+		);
+		expect(screen.getByText("openid profile email")).toBeInTheDocument();
+		expect(
+			screen.getByText("external_auth_provider_google_claims_title"),
+		).toBeInTheDocument();
+
+		const submitButtons = screen.getAllByRole("button", {
+			name: /external_auth_provider_create/,
+		});
+		fireEvent.click(submitButtons[submitButtons.length - 1]);
+
+		await waitFor(() => expect(mockState.create).toHaveBeenCalledTimes(1));
+		expect(mockState.create).toHaveBeenCalledWith(
+			expect.objectContaining({
+				authorization_url: null,
+				client_id: "google-client",
+				display_name: "Google",
+				issuer_url: null,
+				provider_kind: "google",
+				scopes: "openid profile email",
+				token_url: null,
+				userinfo_url: null,
+			}),
+		);
+		expect(
+			await screen.findByText("external_auth_provider_created_callback_title"),
+		).toBeInTheDocument();
+		expect(
+			screen.getByText(
+				/\/api\/v1\/auth\/external-auth\/google\/google\/callback/,
+			),
+		).toBeInTheDocument();
+	});
+
 	it("keeps the create wizard on the type step when no provider kinds are available", async () => {
 		const loadKindsError = new Error("provider kinds unavailable");
 		mockState.listKinds

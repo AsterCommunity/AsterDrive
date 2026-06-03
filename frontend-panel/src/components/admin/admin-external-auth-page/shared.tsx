@@ -47,6 +47,16 @@ export const GITHUB_CLAIMS = {
 	subjectClaim: "id",
 	usernameClaim: "login",
 } as const;
+export const GOOGLE_ISSUER_URL = "https://accounts.google.com";
+export const GOOGLE_DISCOVERY_URL =
+	"https://accounts.google.com/.well-known/openid-configuration";
+export const GOOGLE_CLAIMS = {
+	avatarUrlClaim: "picture",
+	displayNameClaim: "name",
+	emailClaim: "email",
+	emailVerifiedClaim: "email_verified",
+	subjectClaim: "sub",
+} as const;
 export const EXTERNAL_AUTH_PAGE_SIZE_OPTIONS = [10, 20, 50] as const;
 export const DEFAULT_EXTERNAL_AUTH_PAGE_SIZE = 20 as const;
 const EXTERNAL_AUTH_MANAGED_QUERY_KEYS = ["offset", "pageSize"] as const;
@@ -151,6 +161,8 @@ function kindFallbackLabel(kind: ExternalAuthProviderKind) {
 			return "Generic OAuth2";
 		case "github":
 			return "GitHub";
+		case "google":
+			return "Google";
 		case "oidc":
 			return "OpenID Connect";
 	}
@@ -164,6 +176,16 @@ export function isGitHubProviderKind(
 		| undefined,
 ) {
 	return (typeof kind === "string" ? kind : kind?.kind) === "github";
+}
+
+export function isGoogleProviderKind(
+	kind:
+		| AdminExternalAuthProviderKindInfo
+		| ExternalAuthProviderKind
+		| null
+		| undefined,
+) {
+	return (typeof kind === "string" ? kind : kind?.kind) === "google";
 }
 
 function localizedProviderKindText(
@@ -569,6 +591,9 @@ export function mergeManagedExternalAuthSearchParams(
 export function shouldShowIssuerUrl(
 	kind: AdminExternalAuthProviderKindInfo | null,
 ) {
+	if (isGoogleProviderKind(kind)) {
+		return false;
+	}
 	return Boolean(kind?.supports_discovery || kind?.issuer_url_required);
 }
 
@@ -614,6 +639,9 @@ export function formConnectionSummary(
 	if (isGitHubProviderKind(selectedKind ?? form.providerKind)) {
 		return `authorization: ${GITHUB_FIXED_ENDPOINTS.authorizationUrl} · token: ${GITHUB_FIXED_ENDPOINTS.tokenUrl} · userinfo: ${GITHUB_FIXED_ENDPOINTS.userinfoUrl} · emails: ${GITHUB_FIXED_ENDPOINTS.userEmailsUrl}`;
 	}
+	if (isGoogleProviderKind(selectedKind ?? form.providerKind)) {
+		return `issuer: ${GOOGLE_ISSUER_URL} · discovery: ${GOOGLE_DISCOVERY_URL}`;
+	}
 	const items = [
 		form.issuerUrl.trim() ? `issuer: ${form.issuerUrl.trim()}` : null,
 		selectedKind?.manual_endpoint_configuration_supported &&
@@ -640,6 +668,9 @@ export function formClaimSummary(
 ) {
 	if (isGitHubProviderKind(selectedKind ?? form.providerKind)) {
 		return `subject=${GITHUB_CLAIMS.subjectClaim} · username=${GITHUB_CLAIMS.usernameClaim} · display=${GITHUB_CLAIMS.displayNameClaim} · email=${GITHUB_CLAIMS.emailClaim}`;
+	}
+	if (isGoogleProviderKind(selectedKind ?? form.providerKind)) {
+		return `subject=${GOOGLE_CLAIMS.subjectClaim} · display=${GOOGLE_CLAIMS.displayNameClaim} · email=${GOOGLE_CLAIMS.emailClaim} · email_verified=${GOOGLE_CLAIMS.emailVerifiedClaim} · avatar=${GOOGLE_CLAIMS.avatarUrlClaim}`;
 	}
 	const claims = [
 		`subject=${effectiveClaim(form.subjectClaim, STANDARD_CLAIMS.subjectClaim)}`,

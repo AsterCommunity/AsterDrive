@@ -24,6 +24,7 @@ import {
 	providerPrimaryEndpoint,
 	requiredFieldsMissing,
 	securityModeLabel,
+	shouldShowIssuerUrl,
 	testParamsPayload,
 	updatePayload,
 } from "@/components/admin/admin-external-auth-page/shared";
@@ -184,6 +185,26 @@ function githubKind(
 	});
 }
 
+function googleKind(
+	overrides: Partial<AdminExternalAuthProviderKindInfo> = {},
+): AdminExternalAuthProviderKindInfo {
+	return kind({
+		authorization_url_required: false,
+		default_scopes: "openid profile email",
+		description: "Google sign-in.",
+		display_name: "Google",
+		issuer_url_required: false,
+		kind: "google",
+		manual_endpoint_configuration_supported: false,
+		protocol: "oidc",
+		supports_discovery: true,
+		supports_email_verified_claim: true,
+		token_url_required: false,
+		userinfo_url_required: false,
+		...overrides,
+	});
+}
+
 describe("admin external auth shared helpers", () => {
 	it("normalizes domains and payload text fields", () => {
 		expect(parseAllowedDomains(" @Example.COM, example.com\nTeam.io ")).toEqual(
@@ -289,6 +310,38 @@ describe("admin external auth shared helpers", () => {
 		);
 	});
 
+	it("uses Google descriptor defaults and fixed OIDC summaries", () => {
+		const descriptor = googleKind();
+		const form = {
+			...emptyForm,
+			clientId: "client-123",
+			displayName: "Google",
+			providerKind: "google",
+			scopes: " ",
+		};
+
+		expect(defaultScopesForKind(descriptor)).toBe("openid profile email");
+		expect(createPayload(form, descriptor)).toMatchObject({
+			authorization_url: null,
+			issuer_url: null,
+			provider_kind: "google",
+			scopes: "openid profile email",
+			token_url: null,
+			userinfo_url: null,
+		});
+		expect(connectionRequirementsMissing(form, descriptor)).toBe(false);
+		expect(shouldShowIssuerUrl(descriptor)).toBe(false);
+		expect(formConnectionSummary(form, descriptor)).toBe(
+			"issuer: https://accounts.google.com · discovery: https://accounts.google.com/.well-known/openid-configuration",
+		);
+		expect(formClaimSummary(form, descriptor)).toBe(
+			"subject=sub · display=name · email=email · email_verified=email_verified · avatar=picture",
+		);
+		expect(callbackUrl("google", "google")).toBe(
+			"https://app.example.com/api/v1/auth/external-auth/google/google/callback",
+		);
+	});
+
 	it("maps saved providers into editable forms and detects connection changes", () => {
 		const saved = provider();
 		const form = formFromProvider(saved);
@@ -382,6 +435,7 @@ describe("admin external auth shared helpers", () => {
 			"Generic OAuth2",
 		);
 		expect(kindDisplayName(translate as never, "github", [])).toBe("GitHub");
+		expect(kindDisplayName(translate as never, "google", [])).toBe("Google");
 		expect(kindDescription(translate as never, kind())).toBe("OIDC sign-in.");
 		expect(securityModeLabel(translate as never, provider())).toBe(
 			"external_auth_provider_mode_manual",

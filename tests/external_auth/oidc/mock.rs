@@ -32,7 +32,7 @@ pub struct MockOidcProvider {
     authorization_requests: Arc<Mutex<Vec<AuthorizeRequest>>>,
     token_subject: Arc<Mutex<String>>,
     token_email: Arc<Mutex<Option<String>>>,
-    token_email_verified: Arc<Mutex<bool>>,
+    token_email_verified: Arc<Mutex<Option<serde_json::Value>>>,
     token_audience: Arc<Mutex<String>>,
     token_nonce_override: Arc<Mutex<Option<String>>>,
     token_issuer_override: Arc<Mutex<Option<String>>>,
@@ -69,7 +69,7 @@ impl MockOidcProvider {
             authorization_requests: Arc::new(Mutex::new(Vec::new())),
             token_subject: Arc::new(Mutex::new("oidc-subject-1".to_string())),
             token_email: Arc::new(Mutex::new(Some("oidc-user@example.com".to_string()))),
-            token_email_verified: Arc::new(Mutex::new(true)),
+            token_email_verified: Arc::new(Mutex::new(Some(serde_json::json!(true)))),
             token_audience: Arc::new(Mutex::new(TEST_CLIENT_ID.to_string())),
             token_nonce_override: Arc::new(Mutex::new(None)),
             token_issuer_override: Arc::new(Mutex::new(None)),
@@ -122,7 +122,22 @@ impl MockOidcProvider {
         *self
             .token_email_verified
             .lock()
-            .expect("email verified lock should not be poisoned") = verified;
+            .expect("email verified lock should not be poisoned") =
+            Some(serde_json::json!(verified));
+    }
+
+    pub fn set_email_verified_claim(&self, value: serde_json::Value) {
+        *self
+            .token_email_verified
+            .lock()
+            .expect("email verified lock should not be poisoned") = Some(value);
+    }
+
+    pub fn clear_email_verified_claim(&self) {
+        *self
+            .token_email_verified
+            .lock()
+            .expect("email verified lock should not be poisoned") = None;
     }
 
     pub fn set_audience(&self, audience: &str) {
@@ -172,10 +187,11 @@ impl MockOidcProvider {
             .lock()
             .expect("email lock should not be poisoned")
             .clone();
-        let email_verified = *self
+        let email_verified = self
             .token_email_verified
             .lock()
-            .expect("email verified lock should not be poisoned");
+            .expect("email verified lock should not be poisoned")
+            .clone();
         let audience = self
             .token_audience
             .lock()
@@ -200,7 +216,9 @@ impl MockOidcProvider {
         });
         if let Some(email) = email {
             claims["email"] = serde_json::json!(email);
-            claims["email_verified"] = serde_json::json!(email_verified);
+            if let Some(email_verified) = email_verified {
+                claims["email_verified"] = email_verified;
+            }
         }
         let mut header = Header::new(Algorithm::RS256);
         header.kid = Some(TEST_KID.to_string());
