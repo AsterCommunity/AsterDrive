@@ -53,6 +53,7 @@
 	"runtime_task_blob_reconcile": "Blob reconcile",
 	"runtime_task_completed_upload_cleanup": "Completed upload cleanup",
 	"runtime_task_external_auth_flow_cleanup": "External auth flow cleanup",
+	"runtime_task_google_drive_oauth_flow_cleanup": "Google Drive OAuth flow cleanup",
 	"runtime_task_lock_cleanup": "Lock cleanup",
 	"runtime_task_mail_outbox_dispatch": "Mail outbox dispatch",
 	"runtime_task_mfa_flow_cleanup": "MFA flow cleanup",

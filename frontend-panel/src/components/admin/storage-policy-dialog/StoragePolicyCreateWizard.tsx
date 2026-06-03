@@ -1,6 +1,7 @@
 import { useTranslation } from "react-i18next";
 import {
 	DefaultPolicyToggle,
+	GoogleDriveConnectionFields,
 	LimitsFields,
 	LocalContentDedupField,
 	PolicyBasePathField,
@@ -33,6 +34,8 @@ import type {
 
 interface StoragePolicyCreateWizardProps {
 	createBucketError: string | null;
+	createGoogleDriveClientIdError: string | null;
+	createGoogleDriveClientSecretError: string | null;
 	createNameError: string | null;
 	createRemoteNodeError: string | null;
 	createStep: number;
@@ -53,6 +56,8 @@ interface StoragePolicyCreateWizardProps {
 
 export function StoragePolicyCreateWizard({
 	createBucketError,
+	createGoogleDriveClientIdError,
+	createGoogleDriveClientSecretError,
 	createNameError,
 	createRemoteNodeError,
 	createStep,
@@ -109,6 +114,10 @@ export function StoragePolicyCreateWizard({
 						) : createStep === 1 ? (
 							<ConnectionStep
 								createBucketError={createBucketError}
+								createGoogleDriveClientIdError={createGoogleDriveClientIdError}
+								createGoogleDriveClientSecretError={
+									createGoogleDriveClientSecretError
+								}
 								createNameError={createNameError}
 								createRemoteNodeError={createRemoteNodeError}
 								currentStorageOption={currentStorageOption}
@@ -282,6 +291,8 @@ function DriverSelectionStep({
 
 interface ConnectionStepProps {
 	createBucketError: string | null;
+	createGoogleDriveClientIdError: string | null;
+	createGoogleDriveClientSecretError: string | null;
 	createNameError: string | null;
 	createRemoteNodeError: string | null;
 	currentStorageOption: StoragePolicyDriverOption;
@@ -295,6 +306,8 @@ interface ConnectionStepProps {
 
 function ConnectionStep({
 	createBucketError,
+	createGoogleDriveClientIdError,
+	createGoogleDriveClientSecretError,
 	createNameError,
 	createRemoteNodeError,
 	currentStorageOption,
@@ -332,6 +345,16 @@ function ConnectionStep({
 						form={form}
 						error={createRemoteNodeError}
 						remoteNodes={remoteNodes}
+						showCreateValidation
+						t={t}
+						onFieldChange={onFieldChange}
+					/>
+				) : form.driver_type === "google_drive" ? (
+					<GoogleDriveConnectionFields
+						form={form}
+						clientIdError={createGoogleDriveClientIdError}
+						clientSecretError={createGoogleDriveClientSecretError}
+						isCreateMode
 						showCreateValidation
 						t={t}
 						onFieldChange={onFieldChange}
@@ -381,7 +404,9 @@ function DriverHelperPanel({
 						: t("policy_wizard_s3_helper")
 					: driverType === "remote"
 						? t("policy_wizard_remote_helper")
-						: t("policy_wizard_local_helper")}
+						: driverType === "google_drive"
+							? t("policy_wizard_google_drive_helper")
+							: t("policy_wizard_local_helper")}
 			</p>
 		</div>
 	);
@@ -502,7 +527,11 @@ function DriverBehaviorFields({
 		);
 	}
 
-	return (
-		<LocalContentDedupField form={form} t={t} onFieldChange={onFieldChange} />
-	);
+	if (form.driver_type === "local") {
+		return (
+			<LocalContentDedupField form={form} t={t} onFieldChange={onFieldChange} />
+		);
+	}
+
+	return null;
 }

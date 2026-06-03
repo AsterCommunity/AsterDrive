@@ -65,6 +65,11 @@ use utoipa::{Modify, OpenApi};
         crate::api::routes::auth::profile::put_avatar_source,
         crate::api::routes::auth::profile::get_self_avatar,
 
+        // Google Drive storage policy：管理员托管 Google Drive 存储后端授权。
+        crate::api::routes::google_drive_storage::get_policy_auth_status,
+        crate::api::routes::google_drive_storage::start_policy_auth,
+        crate::api::routes::google_drive_storage::finish_policy_auth_callback,
+
         // health：用于存活探针和就绪探针，给网关和运维检查服务状态。
         crate::api::routes::health::health,
         crate::api::routes::health::primary_ready,

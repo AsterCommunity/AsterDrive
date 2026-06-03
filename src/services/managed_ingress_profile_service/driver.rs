@@ -29,7 +29,7 @@ pub(in crate::services::managed_ingress_profile_service) fn validate_driver_from
             )
         }
         DriverType::S3 => S3Driver::validate_policy(&policy),
-        DriverType::TencentCos | DriverType::Remote => {
+        DriverType::TencentCos | DriverType::Remote | DriverType::GoogleDrive => {
             Err(managed_ingress_unsupported_driver_error(policy.driver_type))
         }
     }
@@ -55,7 +55,7 @@ pub(in crate::services::managed_ingress_profile_service) fn build_driver_from_pr
             Ok(Arc::new(LocalDriver::new(&policy)?))
         }
         DriverType::S3 => Ok(Arc::new(S3Driver::new(&policy)?)),
-        DriverType::TencentCos | DriverType::Remote => {
+        DriverType::TencentCos | DriverType::Remote | DriverType::GoogleDrive => {
             Err(managed_ingress_unsupported_driver_error(policy.driver_type))
         }
     }
@@ -67,6 +67,7 @@ fn managed_ingress_unsupported_driver_error(driver_type: DriverType) -> AsterErr
         match driver_type {
             DriverType::TencentCos => "tencent_cos",
             DriverType::Remote => "remote",
+            DriverType::GoogleDrive => "google_drive",
             other => other.as_str(),
         }
     ))
@@ -84,7 +85,7 @@ fn build_policy_model<S: FollowerRuntimeState>(
         .to_string_lossy()
         .into_owned(),
         DriverType::S3 => profile.base_path.clone(),
-        DriverType::TencentCos | DriverType::Remote => String::new(),
+        DriverType::TencentCos | DriverType::Remote | DriverType::GoogleDrive => String::new(),
     };
 
     Ok(storage_policy::Model {

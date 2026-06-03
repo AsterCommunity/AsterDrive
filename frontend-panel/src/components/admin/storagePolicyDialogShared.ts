@@ -5,6 +5,7 @@ import {
 import type {
 	CreatePolicyRequest,
 	DriverType,
+	GoogleDriveUploadStrategy,
 	RemoteDownloadStrategy,
 	RemoteUploadStrategy,
 	S3DownloadStrategy,
@@ -15,6 +16,7 @@ import type {
 } from "@/types/api";
 
 export type {
+	GoogleDriveUploadStrategy,
 	RemoteDownloadStrategy,
 	RemoteUploadStrategy,
 	S3DownloadStrategy,
@@ -68,6 +70,10 @@ export interface PolicyFormData {
 	s3_download_strategy: S3DownloadStrategy;
 	storage_native_processing_enabled: boolean;
 	storage_native_media_metadata_enabled?: boolean;
+	google_drive_upload_strategy: GoogleDriveUploadStrategy;
+	google_drive_root_folder_id: string;
+	google_drive_shared_drive_id: string;
+	google_drive_use_app_data_folder: boolean;
 	thumbnail_processor: StoragePolicyOptions["thumbnail_processor"];
 	thumbnail_extensions: string[];
 	media_metadata_extensions?: string[];
@@ -106,6 +112,32 @@ export function getEffectiveRemoteUploadStrategy(
 	return options.remote_upload_strategy ?? "relay_stream";
 }
 
+export function getEffectiveGoogleDriveUploadStrategy(
+	options: StoragePolicyOptions,
+): GoogleDriveUploadStrategy {
+	return options.google_drive_upload_strategy ?? "resumable";
+}
+
+export function formatGoogleDriveLocationLabel({
+	rootFolderId,
+	rootLabel,
+	sharedDriveId,
+	useAppDataFolder,
+}: {
+	rootFolderId?: string | null;
+	rootLabel: string;
+	sharedDriveId?: string | null;
+	useAppDataFolder?: boolean | null;
+}): string {
+	if (useAppDataFolder === true) {
+		return "appDataFolder";
+	}
+
+	const root = rootFolderId?.trim() || rootLabel;
+	const sharedDrive = sharedDriveId?.trim();
+	return sharedDrive ? `${sharedDrive} / ${root}` : root;
+}
+
 export function buildPolicyOptions(form: PolicyFormData): StoragePolicyOptions {
 	const options: StoragePolicyOptions = {};
 
@@ -118,6 +150,21 @@ export function buildPolicyOptions(form: PolicyFormData): StoragePolicyOptions {
 			remote_download_strategy: form.remote_download_strategy,
 			remote_upload_strategy: form.remote_upload_strategy,
 		});
+	} else if (form.driver_type === "google_drive") {
+		Object.assign(options, {
+			google_drive_upload_strategy: form.google_drive_upload_strategy,
+		});
+		if (form.google_drive_root_folder_id.trim()) {
+			options.google_drive_root_folder_id =
+				form.google_drive_root_folder_id.trim();
+		}
+		if (form.google_drive_shared_drive_id.trim()) {
+			options.google_drive_shared_drive_id =
+				form.google_drive_shared_drive_id.trim();
+		}
+		if (form.google_drive_use_app_data_folder) {
+			options.google_drive_use_app_data_folder = true;
+		}
 	} else {
 		Object.assign(options, {
 			s3_upload_strategy: form.s3_upload_strategy,
@@ -173,6 +220,12 @@ export function getPolicyForm(policy: StoragePolicy): PolicyFormData {
 		remote_upload_strategy: getEffectiveRemoteUploadStrategy(options),
 		s3_upload_strategy: getEffectiveS3UploadStrategy(options),
 		s3_download_strategy: getEffectiveS3DownloadStrategy(options),
+		google_drive_upload_strategy:
+			getEffectiveGoogleDriveUploadStrategy(options),
+		google_drive_root_folder_id: options.google_drive_root_folder_id ?? "",
+		google_drive_shared_drive_id: options.google_drive_shared_drive_id ?? "",
+		google_drive_use_app_data_folder:
+			options.google_drive_use_app_data_folder === true,
 		storage_native_processing_enabled:
 			options.storage_native_processing_enabled === true,
 		thumbnail_processor:
@@ -310,6 +363,21 @@ export function hasConnectionFieldChanges(
 		);
 	}
 
+	if (normalizedForm.driver_type === "google_drive") {
+		const options = editingPolicy.options;
+		return (
+			normalizedForm.base_path !== editingPolicy.base_path ||
+			normalizedForm.access_key !== "" ||
+			normalizedForm.secret_key !== "" ||
+			normalizedForm.google_drive_root_folder_id.trim() !==
+				(options.google_drive_root_folder_id ?? "") ||
+			normalizedForm.google_drive_shared_drive_id.trim() !==
+				(options.google_drive_shared_drive_id ?? "") ||
+			normalizedForm.google_drive_use_app_data_folder !==
+				(options.google_drive_use_app_data_folder === true)
+		);
+	}
+
 	return normalizedForm.base_path !== editingPolicy.base_path;
 }
 
@@ -324,6 +392,12 @@ export function getPolicyConnectionTestKey(form: PolicyFormData) {
 		secret_key: normalizedForm.secret_key,
 		base_path: normalizedForm.base_path,
 		remote_node_id: parseRemoteNodeId(normalizedForm.remote_node_id),
+		google_drive_root_folder_id:
+			normalizedForm.google_drive_root_folder_id.trim(),
+		google_drive_shared_drive_id:
+			normalizedForm.google_drive_shared_drive_id.trim(),
+		google_drive_use_app_data_folder:
+			normalizedForm.google_drive_use_app_data_folder,
 	});
 }
 
@@ -355,6 +429,10 @@ export const emptyForm: PolicyFormData = {
 	s3_download_strategy: "relay_stream",
 	storage_native_processing_enabled: false,
 	storage_native_media_metadata_enabled: false,
+	google_drive_upload_strategy: "resumable",
+	google_drive_root_folder_id: "",
+	google_drive_shared_drive_id: "",
+	google_drive_use_app_data_folder: false,
 	thumbnail_processor: null,
 	thumbnail_extensions: [],
 	media_metadata_extensions: [],

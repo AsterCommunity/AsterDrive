@@ -396,13 +396,13 @@ async fn driver_builder_rejects_remote_managed_ingress_profiles() {
     assert!(
         validate_error
             .message()
-            .contains("do not support the remote driver")
+            .contains("do not support this driver type")
     );
     let build_error = expect_aster_err(build_driver_from_profile(&state, &profile));
     assert!(
         build_error
             .message()
-            .contains("do not support the remote driver")
+            .contains("do not support this driver type")
     );
 }
 

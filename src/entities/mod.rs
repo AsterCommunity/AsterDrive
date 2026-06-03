@@ -15,6 +15,7 @@ pub mod file_blob;
 pub mod file_version;
 pub mod folder;
 pub mod follower_enrollment_session;
+pub mod google_drive_oauth_flow;
 pub mod mail_outbox;
 pub mod managed_follower;
 pub mod managed_ingress_profile;

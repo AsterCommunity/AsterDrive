@@ -24,6 +24,8 @@ pub enum DriverType {
     TencentCos,
     #[sea_orm(string_value = "remote")]
     Remote,
+    #[sea_orm(string_value = "google_drive")]
+    GoogleDrive,
 }
 
 impl DriverType {
@@ -33,6 +35,7 @@ impl DriverType {
             Self::S3 => "s3",
             Self::TencentCos => "tencent_cos",
             Self::Remote => "remote",
+            Self::GoogleDrive => "google_drive",
         }
     }
 }
@@ -119,6 +122,15 @@ pub enum RemoteUploadStrategy {
     RelayStream,
     /// 浏览器通过 presigned URL 直接把对象写到从节点
     Presigned,
+}
+
+/// Google Drive 上传策略（存储策略 options JSON）
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
+#[serde(rename_all = "snake_case")]
+pub enum GoogleDriveUploadStrategy {
+    /// 服务端通过 Google Drive resumable upload 流式写入
+    Resumable,
 }
 
 /// Remote node transport mode.
@@ -262,6 +274,26 @@ pub struct StoragePolicyOptions {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub remote_upload_strategy: Option<RemoteUploadStrategy>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub google_drive_upload_strategy: Option<GoogleDriveUploadStrategy>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub google_drive_root_folder_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub google_drive_shared_drive_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub google_drive_use_app_data_folder: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub google_drive_refresh_token: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub google_drive_account_email: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub google_drive_account_name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub google_drive_account_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub google_drive_token_status: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub google_drive_last_error: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     #[validate(custom(function = "validate_storage_policy_thumbnail_processor"))]
     pub thumbnail_processor: Option<MediaProcessorKind>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -304,6 +336,24 @@ impl StoragePolicyOptions {
     pub fn effective_remote_upload_strategy(&self) -> RemoteUploadStrategy {
         self.remote_upload_strategy
             .unwrap_or(RemoteUploadStrategy::RelayStream)
+    }
+
+    pub fn effective_google_drive_upload_strategy(&self) -> GoogleDriveUploadStrategy {
+        self.google_drive_upload_strategy
+            .unwrap_or(GoogleDriveUploadStrategy::Resumable)
+    }
+
+    pub fn google_drive_authorized(&self) -> bool {
+        self.google_drive_refresh_token
+            .as_deref()
+            .is_some_and(|value| !value.trim().is_empty())
+    }
+
+    pub fn google_drive_account_label(&self) -> Option<&str> {
+        self.google_drive_account_email
+            .as_deref()
+            .or(self.google_drive_account_name.as_deref())
+            .filter(|value| !value.trim().is_empty())
     }
 
     pub fn uses_storage_native_thumbnail(&self) -> bool {
@@ -606,6 +656,24 @@ mod tests {
         assert_eq!(
             options.effective_remote_download_strategy(),
             RemoteDownloadStrategy::RelayStream
+        );
+    }
+
+    #[test]
+    fn google_drive_upload_strategy_defaults_to_resumable() {
+        let options = StoragePolicyOptions::default();
+        assert_eq!(
+            options.effective_google_drive_upload_strategy(),
+            super::GoogleDriveUploadStrategy::Resumable
+        );
+    }
+
+    #[test]
+    fn driver_type_serializes_with_database_wire_values() {
+        assert_eq!(serde_json::to_string(&DriverType::S3).unwrap(), r#""s3""#);
+        assert_eq!(
+            serde_json::to_string(&DriverType::GoogleDrive).unwrap(),
+            r#""google_drive""#
         );
     }
 

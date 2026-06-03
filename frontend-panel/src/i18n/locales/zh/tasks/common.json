@@ -53,6 +53,7 @@
 	"runtime_task_blob_reconcile": "Blob 状态核对",
 	"runtime_task_completed_upload_cleanup": "已完成上传会话清理",
 	"runtime_task_external_auth_flow_cleanup": "外部认证流程清理",
+	"runtime_task_google_drive_oauth_flow_cleanup": "Google Drive OAuth 流程清理",
 	"runtime_task_lock_cleanup": "资源锁清理",
 	"runtime_task_mail_outbox_dispatch": "邮件发件箱调度",
 	"runtime_task_mfa_flow_cleanup": "MFA 流程清理",

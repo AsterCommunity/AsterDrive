@@ -14,7 +14,7 @@ use crate::services::storage_change_service;
 
 use super::{
     NewFileMode, PreparedNonDedupBlobUpload, WorkspaceStorageScope, check_quota,
-    cleanup_preuploaded_blob_upload, create_new_file_from_blob,
+    cleanup_preuploaded_blob_upload, create_google_drive_nondedup_blob, create_new_file_from_blob,
     create_new_file_from_blob_with_actor_username, create_nondedup_blob,
     create_remote_nondedup_blob, create_s3_nondedup_blob, local_content_dedup_enabled,
     persist_preuploaded_blob, resolve_policy_for_size, update_storage_used, verify_file_access,
@@ -160,6 +160,10 @@ pub(crate) async fn create_empty(
             crate::types::DriverType::Remote => {
                 let upload_id = crate::utils::id::new_uuid();
                 create_remote_nondedup_blob(&txn, EMPTY_SIZE, policy.id, &upload_id).await?
+            }
+            crate::types::DriverType::GoogleDrive => {
+                let upload_id = crate::utils::id::new_uuid();
+                create_google_drive_nondedup_blob(&txn, EMPTY_SIZE, policy.id, &upload_id).await?
             }
         };
         driver.put(&blob.storage_path, &[]).await?;

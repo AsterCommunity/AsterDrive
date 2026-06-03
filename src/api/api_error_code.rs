@@ -195,6 +195,14 @@ define_api_error_codes! {
     ExternalAuthProviderDisabled => "external_auth.provider_disabled",
     ExternalAuthPolicyDenied => "external_auth.policy_denied",
 
+    // Google Drive storage backend: authorization and remote status failures.
+    GoogleDriveMisconfigured => "google_drive.misconfigured",
+    GoogleDriveConnectionExpired => "google_drive.connection_expired",
+    GoogleDrivePermissionDenied => "google_drive.permission_denied",
+    GoogleDriveRemoteNotFound => "google_drive.remote_not_found",
+    GoogleDriveRateLimited => "google_drive.rate_limited",
+    GoogleDriveTransient => "google_drive.transient",
+
     // offline download: external download engine probes and setup failures.
     OfflineDownloadAria2RpcAuthFailed => "offline_download.aria2_rpc_auth_failed",
     OfflineDownloadAria2RpcProbeFailed => "offline_download.aria2_rpc_probe_failed",

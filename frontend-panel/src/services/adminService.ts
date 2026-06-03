@@ -46,6 +46,9 @@ import type {
 	ExecuteConfigActionResponse,
 	ExternalAuthProviderTestParamsInput,
 	ExternalAuthProviderTestResult,
+	GoogleDrivePolicyAuthStatus,
+	GoogleDriveStartPolicyAuthRequest,
+	GoogleDriveStartPolicyAuthResponse,
 	LockPage,
 	MigratePolicyGroupUsersRequest,
 	PolicyGroupUserMigrationResult,
@@ -292,6 +295,17 @@ export const adminPolicyService = {
 
 	testParams: (data: TestPolicyParamsRequest) =>
 		api.post<void>("/admin/policies/test", data),
+
+	getGoogleDriveAuthStatus: (id: number) =>
+		api.get<GoogleDrivePolicyAuthStatus>(
+			`/admin/policies/google-drive/${id}/auth/status`,
+		),
+
+	startGoogleDriveAuth: (id: number, data: GoogleDriveStartPolicyAuthRequest) =>
+		api.post<GoogleDriveStartPolicyAuthResponse>(
+			`/admin/policies/google-drive/${id}/auth/start`,
+			data,
+		),
 
 	createMigration: (data: CreateStoragePolicyMigrationRequest) =>
 		api.post<TaskInfo>("/admin/storage-migrations", data),

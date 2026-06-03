@@ -173,6 +173,24 @@ function useAdminPoliciesPageContent() {
 	);
 
 	useEffect(() => {
+		const googleDriveStatus = searchParams.get("google_drive");
+		if (googleDriveStatus == null) {
+			return;
+		}
+
+		if (googleDriveStatus === "success") {
+			toast.success(t("google_drive_auth_completed"));
+		} else {
+			toast.error(t("google_drive_auth_failed"));
+		}
+
+		const nextParams = new URLSearchParams(searchParams);
+		nextParams.delete("google_drive");
+		nextParams.delete("code");
+		setSearchParams(nextParams, { replace: true });
+	}, [searchParams, setSearchParams, t]);
+
+	useEffect(() => {
 		setSearchParams(
 			buildOffsetPaginationSearchParams({
 				offset,
@@ -439,6 +457,9 @@ function useAdminPoliciesPageContent() {
 						driverType === "tencent_cos"
 							? (prev.media_metadata_extensions ?? [])
 							: [],
+					google_drive_root_folder_id: "",
+					google_drive_shared_drive_id: "",
+					google_drive_use_app_data_folder: false,
 				};
 			}
 
@@ -458,6 +479,30 @@ function useAdminPoliciesPageContent() {
 					media_metadata_extensions: [],
 					remote_download_strategy: "relay_stream",
 					remote_upload_strategy: "relay_stream",
+					google_drive_root_folder_id: "",
+					google_drive_shared_drive_id: "",
+					google_drive_use_app_data_folder: false,
+				};
+			}
+
+			if (driverType === "google_drive") {
+				return {
+					...prev,
+					driver_type: driverType,
+					endpoint: "",
+					bucket: "",
+					access_key: "",
+					secret_key: "",
+					remote_node_id: "",
+					content_dedup: false,
+					remote_download_strategy: "relay_stream",
+					remote_upload_strategy: "relay_stream",
+					s3_upload_strategy: "relay_stream",
+					s3_download_strategy: "relay_stream",
+					google_drive_upload_strategy: "resumable",
+					google_drive_root_folder_id: "",
+					google_drive_shared_drive_id: "",
+					google_drive_use_app_data_folder: false,
 				};
 			}
 
@@ -478,6 +523,9 @@ function useAdminPoliciesPageContent() {
 				remote_upload_strategy: "relay_stream",
 				s3_upload_strategy: "relay_stream",
 				s3_download_strategy: "relay_stream",
+				google_drive_root_folder_id: "",
+				google_drive_shared_drive_id: "",
+				google_drive_use_app_data_folder: false,
 			};
 		});
 	};
@@ -503,7 +551,12 @@ function useAdminPoliciesPageContent() {
 			hasConnectionFieldChanges(currentForm, editingPolicy);
 
 		try {
-			if (shouldUseParamTest) {
+			if (currentForm.driver_type === "google_drive") {
+				if (editingId == null) {
+					return false;
+				}
+				await adminPolicyService.testConnection(editingId);
+			} else if (shouldUseParamTest) {
 				await adminPolicyService.testParams(
 					buildPolicyTestPayload(currentForm),
 				);
@@ -634,6 +687,13 @@ function useAdminPoliciesPageContent() {
 		}
 
 		if (form.driver_type === "remote" && !form.remote_node_id) {
+			return;
+		}
+
+		if (
+			form.driver_type === "google_drive" &&
+			(!form.access_key.trim() || !form.secret_key.trim())
+		) {
 			return;
 		}
 
@@ -837,6 +897,7 @@ function useAdminPoliciesPageContent() {
 					forceDeletePolicyName={forceDeletePolicyName}
 					dialogOpen={dialogOpen}
 					editMode={editingId !== null}
+					editingPolicyId={editingId}
 					form={form}
 					policyCapacity={policyCapacity}
 					policyCapacityLoading={policyCapacityLoading}

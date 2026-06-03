@@ -3,6 +3,7 @@ import {
 	buildCreatePolicyPayload,
 	buildPolicyTestPayload,
 	buildUpdatePolicyPayload,
+	formatGoogleDriveLocationLabel,
 	getPolicyForm,
 	hasConnectionFieldChanges,
 } from "@/components/admin/storagePolicyDialogShared";
@@ -53,6 +54,10 @@ describe("storagePolicyDialogShared", () => {
 			s3_download_strategy: "relay_stream",
 			storage_native_processing_enabled: true,
 			storage_native_media_metadata_enabled: false,
+			google_drive_upload_strategy: "resumable",
+			google_drive_root_folder_id: "",
+			google_drive_shared_drive_id: "",
+			google_drive_use_app_data_folder: false,
 			thumbnail_processor: "storage_native",
 			thumbnail_extensions: ["png", "jpg"],
 			media_metadata_extensions: [],
@@ -79,6 +84,10 @@ describe("storagePolicyDialogShared", () => {
 				s3_upload_strategy: "presigned",
 				s3_download_strategy: "relay_stream",
 				storage_native_processing_enabled: false,
+				google_drive_upload_strategy: "resumable",
+				google_drive_root_folder_id: "",
+				google_drive_shared_drive_id: "",
+				google_drive_use_app_data_folder: false,
 				thumbnail_processor: null,
 				thumbnail_extensions: [],
 			}),
@@ -120,6 +129,10 @@ describe("storagePolicyDialogShared", () => {
 				s3_upload_strategy: "relay_stream",
 				s3_download_strategy: "presigned",
 				storage_native_processing_enabled: false,
+				google_drive_upload_strategy: "resumable",
+				google_drive_root_folder_id: "",
+				google_drive_shared_drive_id: "",
+				google_drive_use_app_data_folder: false,
 				thumbnail_processor: null,
 				thumbnail_extensions: [],
 			}),
@@ -158,6 +171,10 @@ describe("storagePolicyDialogShared", () => {
 				s3_upload_strategy: "relay_stream",
 				s3_download_strategy: "relay_stream",
 				storage_native_processing_enabled: false,
+				google_drive_upload_strategy: "resumable",
+				google_drive_root_folder_id: "",
+				google_drive_shared_drive_id: "",
+				google_drive_use_app_data_folder: false,
 				thumbnail_processor: null,
 				thumbnail_extensions: [],
 			}),
@@ -198,6 +215,10 @@ describe("storagePolicyDialogShared", () => {
 				s3_upload_strategy: "relay_stream",
 				s3_download_strategy: "relay_stream",
 				storage_native_processing_enabled: false,
+				google_drive_upload_strategy: "resumable",
+				google_drive_root_folder_id: "",
+				google_drive_shared_drive_id: "",
+				google_drive_use_app_data_folder: false,
 				thumbnail_processor: null,
 				thumbnail_extensions: [],
 			}),
@@ -231,6 +252,10 @@ describe("storagePolicyDialogShared", () => {
 			s3_upload_strategy: "relay_stream" as const,
 			s3_download_strategy: "relay_stream" as const,
 			storage_native_processing_enabled: true,
+			google_drive_upload_strategy: "resumable" as const,
+			google_drive_root_folder_id: "",
+			google_drive_shared_drive_id: "",
+			google_drive_use_app_data_folder: false,
 			thumbnail_processor: "storage_native" as const,
 			thumbnail_extensions: ["png", "jpg"],
 		};
@@ -476,5 +501,77 @@ describe("storagePolicyDialogShared", () => {
 		expect(
 			hasConnectionFieldChanges({ ...s3Form, secret_key: "SECRET" }, s3Policy),
 		).toBe(true);
+	});
+
+	it("builds Google Drive payloads with policy-level OAuth options", () => {
+		expect(
+			buildCreatePolicyPayload({
+				name: "Drive",
+				driver_type: "google_drive",
+				endpoint: "",
+				bucket: "",
+				access_key: "client-id",
+				secret_key: "client-secret",
+				base_path: "drive-prefix",
+				remote_node_id: "",
+				max_file_size: "",
+				chunk_size: "8",
+				is_default: false,
+				content_dedup: false,
+				remote_download_strategy: "relay_stream",
+				remote_upload_strategy: "relay_stream",
+				s3_upload_strategy: "relay_stream",
+				s3_download_strategy: "relay_stream",
+				storage_native_processing_enabled: false,
+				google_drive_upload_strategy: "resumable",
+				google_drive_root_folder_id: " folder-1 ",
+				google_drive_shared_drive_id: " shared-drive-1 ",
+				google_drive_use_app_data_folder: false,
+				thumbnail_processor: null,
+				thumbnail_extensions: [],
+			}),
+		).toEqual({
+			name: "Drive",
+			driver_type: "google_drive",
+			endpoint: "",
+			bucket: "",
+			access_key: "client-id",
+			secret_key: "client-secret",
+			base_path: "drive-prefix",
+			max_file_size: undefined,
+			chunk_size: 8 * 1024 * 1024,
+			is_default: false,
+			options: {
+				google_drive_upload_strategy: "resumable",
+				google_drive_root_folder_id: "folder-1",
+				google_drive_shared_drive_id: "shared-drive-1",
+			},
+		});
+	});
+
+	it("formats Google Drive shared drive locations with an optional root folder", () => {
+		expect(
+			formatGoogleDriveLocationLabel({
+				rootFolderId: "folder-1",
+				rootLabel: "root",
+				sharedDriveId: "shared-drive-1",
+				useAppDataFolder: false,
+			}),
+		).toBe("shared-drive-1 / folder-1");
+		expect(
+			formatGoogleDriveLocationLabel({
+				rootLabel: "root",
+				sharedDriveId: "shared-drive-1",
+				useAppDataFolder: false,
+			}),
+		).toBe("shared-drive-1 / root");
+		expect(
+			formatGoogleDriveLocationLabel({
+				rootFolderId: "folder-1",
+				rootLabel: "root",
+				sharedDriveId: "shared-drive-1",
+				useAppDataFolder: true,
+			}),
+		).toBe("appDataFolder");
 	});
 });

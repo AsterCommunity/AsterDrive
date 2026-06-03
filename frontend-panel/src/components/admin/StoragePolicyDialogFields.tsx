@@ -16,6 +16,10 @@ export type {
 	Translate,
 } from "@/components/admin/storage-policy-dialog/StoragePolicyFieldTypes";
 export {
+	GoogleDriveAuthorizationPanel,
+	GoogleDriveConnectionFields,
+} from "@/components/admin/storage-policy-dialog/StoragePolicyGoogleDriveFields";
+export {
 	RemoteDownloadStrategyField,
 	RemoteNodeField,
 	RemoteRulesHelper,

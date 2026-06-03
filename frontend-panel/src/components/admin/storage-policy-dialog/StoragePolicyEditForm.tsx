@@ -2,6 +2,8 @@ import { useTranslation } from "react-i18next";
 import {
 	DefaultPolicyToggle,
 	DriverTypeBadge,
+	GoogleDriveAuthorizationPanel,
+	GoogleDriveConnectionFields,
 	LimitsFields,
 	LocalContentDedupField,
 	PolicyBasePathField,
@@ -36,6 +38,7 @@ interface StoragePolicyEditFormProps {
 	createRemoteNodeError: string | null;
 	currentDriverBadgeClass: string;
 	currentStorageOption: StoragePolicyDriverOption;
+	editingPolicyId: number | null;
 	endpointValidationMessage: string | null;
 	form: PolicyFormData;
 	policyCapacity: StoragePolicyCapacityInfo | null;
@@ -52,6 +55,7 @@ export function StoragePolicyEditForm({
 	createRemoteNodeError,
 	currentDriverBadgeClass,
 	currentStorageOption,
+	editingPolicyId,
 	endpointValidationMessage,
 	form,
 	policyCapacity,
@@ -150,6 +154,24 @@ export function StoragePolicyEditForm({
 							<RemoteRulesHelper t={t} />
 						</div>
 					</section>
+				) : form.driver_type === "google_drive" ? (
+					<section className="rounded-2xl border border-border/70 bg-background/70 p-5">
+						<PolicySectionIntro
+							title={t("policy_editor_google_drive_title")}
+							description={t("policy_editor_google_drive_desc")}
+						/>
+						<div className="space-y-4">
+							<GoogleDriveConnectionFields
+								form={form}
+								clientIdError={null}
+								clientSecretError={null}
+								isCreateMode={false}
+								t={t}
+								onFieldChange={onFieldChange}
+							/>
+							<GoogleDriveAuthorizationPanel policyId={editingPolicyId} t={t} />
+						</div>
+					</section>
 				) : null}
 
 				<section className="rounded-2xl border border-border/70 bg-background/70 p-5">
@@ -184,13 +206,13 @@ export function StoragePolicyEditForm({
 									onFieldChange={onFieldChange}
 								/>
 							</>
-						) : (
+						) : form.driver_type === "local" ? (
 							<LocalContentDedupField
 								form={form}
 								t={t}
 								onFieldChange={onFieldChange}
 							/>
-						)}
+						) : null}
 						<LimitsFields form={form} t={t} onFieldChange={onFieldChange} />
 						<DefaultPolicyToggle
 							form={form}

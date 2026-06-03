@@ -9,8 +9,8 @@ use crate::errors::{AsterError, MapAsterErr, Result};
 use crate::types::DriverType;
 
 use super::{
-    StorageOperationContext, create_nondedup_blob_with_key, create_remote_nondedup_blob,
-    create_s3_nondedup_blob,
+    StorageOperationContext, create_google_drive_nondedup_blob, create_nondedup_blob_with_key,
+    create_remote_nondedup_blob, create_s3_nondedup_blob,
 };
 
 #[derive(Debug, Clone)]
@@ -34,6 +34,12 @@ pub(crate) enum PreparedNonDedupBlobUpload {
         size: i64,
         policy_id: i64,
     },
+    GoogleDrive {
+        upload_id: String,
+        storage_path: String,
+        size: i64,
+        policy_id: i64,
+    },
 }
 
 impl PreparedNonDedupBlobUpload {
@@ -41,7 +47,8 @@ impl PreparedNonDedupBlobUpload {
         match self {
             Self::Local { storage_path, .. }
             | Self::S3 { storage_path, .. }
-            | Self::Remote { storage_path, .. } => storage_path,
+            | Self::Remote { storage_path, .. }
+            | Self::GoogleDrive { storage_path, .. } => storage_path,
         }
     }
 }
@@ -73,6 +80,15 @@ pub(crate) fn prepare_non_dedup_blob_upload(
         DriverType::Remote => {
             let upload_id = crate::utils::id::new_uuid();
             PreparedNonDedupBlobUpload::Remote {
+                storage_path: format!("files/{upload_id}"),
+                upload_id,
+                size,
+                policy_id: policy.id,
+            }
+        }
+        DriverType::GoogleDrive => {
+            let upload_id = crate::utils::id::new_uuid();
+            PreparedNonDedupBlobUpload::GoogleDrive {
                 storage_path: format!("files/{upload_id}"),
                 upload_id,
                 size,
@@ -186,7 +202,9 @@ pub(crate) async fn cleanup_preuploaded_blob_upload(
                 cleanup_empty_local_blob_dirs(parent, base_path).await;
             }
         }
-        PreparedNonDedupBlobUpload::S3 { .. } | PreparedNonDedupBlobUpload::Remote { .. } => {
+        PreparedNonDedupBlobUpload::S3 { .. }
+        | PreparedNonDedupBlobUpload::Remote { .. }
+        | PreparedNonDedupBlobUpload::GoogleDrive { .. } => {
             if let Err(cleanup_err) = driver.delete(prepared.storage_path()).await {
                 tracing::warn!(
                     storage_path = %prepared.storage_path(),
@@ -440,7 +458,8 @@ fn prepared_size(prepared: &PreparedNonDedupBlobUpload) -> i64 {
     match prepared {
         PreparedNonDedupBlobUpload::Local { size, .. }
         | PreparedNonDedupBlobUpload::S3 { size, .. }
-        | PreparedNonDedupBlobUpload::Remote { size, .. } => *size,
+        | PreparedNonDedupBlobUpload::Remote { size, .. }
+        | PreparedNonDedupBlobUpload::GoogleDrive { size, .. } => *size,
     }
 }
 
@@ -468,5 +487,11 @@ pub(crate) async fn persist_preuploaded_blob<C: ConnectionTrait>(
             policy_id,
             ..
         } => create_remote_nondedup_blob(db, *size, *policy_id, upload_id).await,
+        PreparedNonDedupBlobUpload::GoogleDrive {
+            upload_id,
+            size,
+            policy_id,
+            ..
+        } => create_google_drive_nondedup_blob(db, *size, *policy_id, upload_id).await,
     }
 }

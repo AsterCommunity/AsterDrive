@@ -24,6 +24,7 @@ interface PolicyDialogsProps {
 	forceDeletePolicyName: string;
 	dialogOpen: boolean;
 	editMode: boolean;
+	editingPolicyId: number | null;
 	endpointValidationMessage: string | null;
 	form: PolicyFormData;
 	policyCapacity: StoragePolicyCapacityInfo | null;
@@ -57,6 +58,7 @@ export function PolicyDialogs({
 	forceDeletePolicyName,
 	dialogOpen,
 	editMode,
+	editingPolicyId,
 	endpointValidationMessage,
 	form,
 	policyCapacity,
@@ -101,6 +103,7 @@ export function PolicyDialogs({
 			<StoragePolicyDialog
 				open={dialogOpen}
 				mode={editMode ? "edit" : "create"}
+				editingPolicyId={editingPolicyId}
 				form={form}
 				policyCapacity={policyCapacity}
 				policyCapacityLoading={policyCapacityLoading}

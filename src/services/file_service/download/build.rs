@@ -153,7 +153,7 @@ pub(crate) async fn build_download_outcome_with_disposition_and_range(
             DriverType::Remote => {
                 options.effective_remote_download_strategy() == RemoteDownloadStrategy::Presigned
             }
-            DriverType::Local => false,
+            DriverType::Local | DriverType::GoogleDrive => false,
         };
 
     if should_presign {

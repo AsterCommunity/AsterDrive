@@ -86,6 +86,13 @@ pub struct StoragePolicyCapacityInfo {
 
 impl From<storage_policy::Model> for StoragePolicy {
     fn from(model: storage_policy::Model) -> Self {
+        let mut options = parse_storage_policy_options(model.options.as_ref());
+        options.google_drive_refresh_token = options
+            .google_drive_refresh_token
+            .as_deref()
+            .is_some_and(|value| !value.trim().is_empty())
+            .then(|| "__configured__".to_string());
+
         Self {
             id: model.id,
             name: model.name,
@@ -96,7 +103,7 @@ impl From<storage_policy::Model> for StoragePolicy {
             remote_node_id: model.remote_node_id,
             max_file_size: model.max_file_size,
             allowed_types: parse_storage_policy_allowed_types(model.allowed_types.as_ref()),
-            options: parse_storage_policy_options(model.options.as_ref()),
+            options,
             is_default: model.is_default,
             chunk_size: model.chunk_size,
             created_at: model.created_at,

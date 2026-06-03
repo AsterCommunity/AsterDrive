@@ -297,6 +297,8 @@ export type RemoteDownloadStrategy =
 	components["schemas"]["RemoteDownloadStrategy"];
 export type RemoteUploadStrategy =
 	components["schemas"]["RemoteUploadStrategy"];
+export type GoogleDriveUploadStrategy =
+	components["schemas"]["GoogleDriveUploadStrategy"];
 export type ResourceLockOwnerInfo =
 	components["schemas"]["ResourceLockOwnerInfo"];
 export type S3UploadStrategy = components["schemas"]["S3UploadStrategy"];
@@ -324,6 +326,12 @@ export type ResetUserPasswordRequest =
 	components["schemas"]["ResetUserPasswordReq"];
 export type StoragePolicy = components["schemas"]["StoragePolicy"];
 export type StoragePolicyCapacityInfo = OperationData<"get_policy_capacity">;
+export type GoogleDrivePolicyAuthStatus =
+	OperationData<"get_google_drive_policy_auth_status">;
+export type GoogleDriveStartPolicyAuthRequest =
+	components["schemas"]["GoogleDriveStartPolicyAuthRequest"];
+export type GoogleDriveStartPolicyAuthResponse =
+	OperationData<"start_google_drive_policy_auth">;
 export type StoragePolicyPage =
 	components["schemas"]["OffsetPage_StoragePolicy"];
 export type CreateStoragePolicyMigrationRequest =

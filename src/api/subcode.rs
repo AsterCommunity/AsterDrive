@@ -90,6 +90,13 @@ define_api_subcodes! {
 
     FolderNameConflict => "folder.name_conflict",
 
+    GoogleDriveMisconfigured => "google_drive.misconfigured",
+    GoogleDriveConnectionExpired => "google_drive.connection_expired",
+    GoogleDrivePermissionDenied => "google_drive.permission_denied",
+    GoogleDriveRemoteNotFound => "google_drive.remote_not_found",
+    GoogleDriveRateLimited => "google_drive.rate_limited",
+    GoogleDriveTransient => "google_drive.transient",
+
     LockNotOwner => "lock.not_owner",
 
     ShareScopeDenied => "share.scope_denied",

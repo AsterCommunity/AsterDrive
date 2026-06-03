@@ -2,6 +2,7 @@ import { useEffect, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import type { StoragePolicyDriverOption } from "@/components/admin/StoragePolicyDialogFields";
 import {
+	formatGoogleDriveLocationLabel,
 	isS3CompatibleDriver,
 	type PolicyFormData,
 } from "@/components/admin/storagePolicyDialogShared";
@@ -28,6 +29,7 @@ import { StoragePolicyTestConnectionButton } from "./storage-policy-dialog/Stora
 interface StoragePolicyDialogProps {
 	open: boolean;
 	mode: "create" | "edit";
+	editingPolicyId: number | null;
 	form: PolicyFormData;
 	policyCapacity: StoragePolicyCapacityInfo | null;
 	policyCapacityLoading: boolean;
@@ -73,6 +75,7 @@ export function StoragePolicyDialog(props: StoragePolicyDialogProps) {
 function useStoragePolicyDialogContent({
 	open,
 	mode,
+	editingPolicyId,
 	form,
 	policyCapacity,
 	policyCapacityLoading,
@@ -118,6 +121,12 @@ function useStoragePolicyDialogContent({
 			description: t("policy_wizard_remote_storage_desc"),
 			iconSrc: "/static/storage/asterdrive-node.svg",
 		},
+		{
+			type: "google_drive",
+			title: t("driver_type_google_drive"),
+			description: t("policy_wizard_google_drive_storage_desc"),
+			iconSrc: "/static/preview-apps/google-drive.svg",
+		},
 	];
 	const createSteps: StoragePolicyDialogStep[] = [
 		{
@@ -129,14 +138,18 @@ function useStoragePolicyDialogContent({
 				? t("policy_wizard_step_connection_title")
 				: form.driver_type === "remote"
 					? t("policy_wizard_step_remote_title")
-					: t("policy_wizard_step_local_title"),
+					: form.driver_type === "google_drive"
+						? t("policy_wizard_step_google_drive_title")
+						: t("policy_wizard_step_local_title"),
 			description: isS3CompatibleDriver(form.driver_type)
 				? form.driver_type === "tencent_cos"
 					? t("policy_wizard_step_tencent_cos_connection_desc")
 					: t("policy_wizard_step_connection_desc")
 				: form.driver_type === "remote"
 					? t("policy_wizard_step_remote_desc")
-					: t("policy_wizard_step_local_desc"),
+					: form.driver_type === "google_drive"
+						? t("policy_wizard_step_google_drive_desc")
+						: t("policy_wizard_step_local_desc"),
 		},
 		{
 			title: t("policy_wizard_step_rules_title"),
@@ -171,7 +184,9 @@ function useStoragePolicyDialogContent({
 				? "border-cyan-500/60 bg-cyan-500/10 text-cyan-700 dark:text-cyan-300"
 				: form.driver_type === "remote"
 					? "border-amber-500/60 bg-amber-500/10 text-amber-600 dark:text-amber-300"
-					: "border-emerald-500/60 bg-emerald-500/10 text-emerald-600 dark:text-emerald-300";
+					: form.driver_type === "google_drive"
+						? "border-sky-500/60 bg-sky-500/10 text-sky-600 dark:text-sky-300"
+						: "border-emerald-500/60 bg-emerald-500/10 text-emerald-600 dark:text-emerald-300";
 	const createNameError =
 		isCreateMode && createStep === 1 && createStepTouched && !form.name.trim()
 			? t("policy_wizard_name_required")
@@ -191,6 +206,22 @@ function useStoragePolicyDialogContent({
 		form.driver_type === "remote" &&
 		!form.remote_node_id
 			? t("policy_wizard_remote_node_required")
+			: null;
+	const createGoogleDriveClientIdError =
+		isCreateMode &&
+		createStep === 1 &&
+		createStepTouched &&
+		form.driver_type === "google_drive" &&
+		!form.access_key.trim()
+			? t("policy_wizard_google_drive_client_id_required")
+			: null;
+	const createGoogleDriveClientSecretError =
+		isCreateMode &&
+		createStep === 1 &&
+		createStepTouched &&
+		form.driver_type === "google_drive" &&
+		!form.secret_key.trim()
+			? t("policy_wizard_google_drive_client_secret_required")
 			: null;
 	const selectedRemoteNode =
 		remoteNodes.find((node) => String(node.id) === form.remote_node_id) ?? null;
@@ -246,6 +277,12 @@ function useStoragePolicyDialogContent({
 					},
 				]
 			: [];
+	const googleDriveRootLabel = formatGoogleDriveLocationLabel({
+		rootFolderId: form.google_drive_root_folder_id,
+		rootLabel: t("core:root"),
+		sharedDriveId: form.google_drive_shared_drive_id,
+		useAppDataFolder: form.google_drive_use_app_data_folder,
+	});
 	const createSummaryItems = [
 		{ label: t("driver_type"), value: currentStorageOption.title },
 		{
@@ -315,6 +352,18 @@ function useStoragePolicyDialogContent({
 					},
 				]
 			: []),
+		...(form.driver_type === "google_drive"
+			? [
+					{
+						label: t("google_drive_root"),
+						value: googleDriveRootLabel,
+					},
+					{
+						label: t("google_drive_upload_strategy"),
+						value: t("google_drive_upload_strategy_resumable"),
+					},
+				]
+			: []),
 	];
 	useEffect(() => {
 		if (!open || !isCreateMode) {
@@ -349,6 +398,10 @@ function useStoragePolicyDialogContent({
 						{isCreateMode ? (
 							<StoragePolicyCreateWizard
 								createBucketError={createBucketError}
+								createGoogleDriveClientIdError={createGoogleDriveClientIdError}
+								createGoogleDriveClientSecretError={
+									createGoogleDriveClientSecretError
+								}
 								createNameError={createNameError}
 								createRemoteNodeError={createRemoteNodeError}
 								createStep={createStep}
@@ -373,6 +426,7 @@ function useStoragePolicyDialogContent({
 								createRemoteNodeError={createRemoteNodeError}
 								currentDriverBadgeClass={currentDriverBadgeClass}
 								currentStorageOption={currentStorageOption}
+								editingPolicyId={editingPolicyId}
 								endpointValidationMessage={endpointValidationMessage}
 								form={form}
 								policyCapacity={policyCapacity}
@@ -403,10 +457,12 @@ function useStoragePolicyDialogContent({
 							{isCreateMode ? (
 								createStep === createLastStep ? (
 									<>
-										<StoragePolicyTestConnectionButton
-											onTest={onRunConnectionTest}
-											disabled={submitting}
-										/>
+										{form.driver_type === "google_drive" ? null : (
+											<StoragePolicyTestConnectionButton
+												onTest={onRunConnectionTest}
+												disabled={submitting}
+											/>
+										)}
 										<Button
 											type="button"
 											className={ADMIN_CONTROL_HEIGHT_CLASS}

@@ -24,6 +24,7 @@ pub fn driver_type_supports_native_thumbnail(driver_type: DriverType) -> bool {
         DriverType::S3 => false,
         DriverType::TencentCos => true,
         DriverType::Remote => false,
+        DriverType::GoogleDrive => false,
     }
 }
 
@@ -240,6 +241,9 @@ mod tests {
             DriverType::TencentCos
         ));
         assert!(!driver_type_supports_native_thumbnail(DriverType::Remote));
+        assert!(!driver_type_supports_native_thumbnail(
+            DriverType::GoogleDrive
+        ));
     }
 
     #[tokio::test]

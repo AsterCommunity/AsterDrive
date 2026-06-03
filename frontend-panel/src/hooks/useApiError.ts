@@ -85,6 +85,12 @@ const errorSubcodeKeys: Partial<Record<ApiSubcodeType, string>> = {
 	[ApiSubcode.FileEtagMismatch]: "errors:file_etag_mismatch",
 	[ApiSubcode.FileNameConflict]: "errors:file_name_conflict",
 	[ApiSubcode.FolderNameConflict]: "errors:folder_name_conflict",
+	[ApiSubcode.GoogleDriveMisconfigured]: "errors:storage_misconfigured",
+	[ApiSubcode.GoogleDriveConnectionExpired]: "errors:storage_auth_failed",
+	[ApiSubcode.GoogleDrivePermissionDenied]: "errors:storage_permission_denied",
+	[ApiSubcode.GoogleDriveRemoteNotFound]: "errors:storage_not_found",
+	[ApiSubcode.GoogleDriveRateLimited]: "errors:storage_rate_limited",
+	[ApiSubcode.GoogleDriveTransient]: "errors:storage_transient_failure",
 	[ApiSubcode.UploadFieldReadFailed]: "errors:upload_field_read_failed",
 	[ApiSubcode.UploadRequestBodyReadFailed]:
 		"errors:upload_request_body_read_failed",

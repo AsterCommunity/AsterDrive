@@ -77,6 +77,7 @@ pub(super) fn normalize_connection_fields(
     match driver_type {
         DriverType::Local => Ok((endpoint.trim().to_string(), bucket.trim().to_string())),
         DriverType::Remote => Ok((String::new(), String::new())),
+        DriverType::GoogleDrive => Ok((String::new(), String::new())),
         DriverType::S3 | DriverType::TencentCos => {
             let normalized = normalize_s3_endpoint_and_bucket(endpoint, bucket)?;
             Ok((normalized.endpoint, normalized.bucket))
@@ -109,7 +110,7 @@ pub(super) async fn validate_remote_binding<C: sea_orm::ConnectionTrait>(
             }
             Ok(Some(remote_node_id))
         }
-        DriverType::Local | DriverType::S3 | DriverType::TencentCos => {
+        DriverType::Local | DriverType::S3 | DriverType::TencentCos | DriverType::GoogleDrive => {
             if remote_node_id.is_some() {
                 return Err(AsterError::validation_error(
                     "remote_node_id is only valid for remote storage policies",

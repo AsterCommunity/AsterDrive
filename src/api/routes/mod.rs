@@ -8,6 +8,7 @@ pub mod batch;
 pub mod files;
 pub mod folders;
 pub mod frontend;
+pub mod google_drive_storage;
 pub mod health;
 pub mod internal_storage;
 pub mod properties;

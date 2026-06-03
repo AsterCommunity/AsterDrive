@@ -67,6 +67,7 @@ const COPY_TABLE_ORDER: &[&str] = &[
     "external_auth_identities",
     "external_auth_login_flows",
     "external_auth_email_verification_flows",
+    "google_drive_oauth_flows",
     "master_bindings",
     "managed_ingress_profiles",
     "system_config",

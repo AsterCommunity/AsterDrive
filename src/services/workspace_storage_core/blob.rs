@@ -69,6 +69,15 @@ pub(crate) async fn create_remote_nondedup_blob<C: ConnectionTrait>(
     create_opaque_nondedup_blob(db, size, policy_id, "remote", upload_id).await
 }
 
+pub(crate) async fn create_google_drive_nondedup_blob<C: ConnectionTrait>(
+    db: &C,
+    size: i64,
+    policy_id: i64,
+    upload_id: &str,
+) -> Result<file_blob::Model> {
+    create_opaque_nondedup_blob(db, size, policy_id, "google_drive", upload_id).await
+}
+
 async fn create_opaque_nondedup_blob<C: ConnectionTrait>(
     db: &C,
     size: i64,

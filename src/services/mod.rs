@@ -12,6 +12,7 @@ pub mod direct_link_service;
 pub mod external_auth_service;
 pub mod file_service;
 pub mod folder_service;
+pub mod google_drive_storage_service;
 pub mod health_service;
 pub mod integrity_service;
 pub mod lock_service;

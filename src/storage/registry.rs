@@ -1,6 +1,7 @@
 //! 存储子模块：`registry`。
 
 use super::StorageErrorKind;
+use super::drivers::google_drive::GoogleDriveDriver;
 use super::drivers::local::LocalDriver;
 use super::drivers::remote::RemoteDriver;
 use super::drivers::s3::S3Driver;
@@ -264,6 +265,10 @@ impl DriverRegistry {
                 let storage: Arc<dyn StorageDriver> = driver.clone();
                 let multipart: Arc<dyn MultipartStorageDriver> = driver;
                 Ok(self.build_entry(policy.driver_type, storage, Some(multipart)))
+            }
+            DriverType::GoogleDrive => {
+                let driver: Arc<dyn StorageDriver> = Arc::new(GoogleDriveDriver::new(policy)?);
+                Ok(self.build_entry(policy.driver_type, driver, None))
             }
         }
     }

@@ -324,6 +324,54 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/admin/policies/google-drive/oauth/callback": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["finish_google_drive_policy_auth"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/policies/google-drive/{policy_id}/auth/start": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["start_google_drive_policy_auth"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/policies/google-drive/{policy_id}/auth/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["get_google_drive_policy_auth_status"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/admin/policies/test": {
         parameters: {
             query?: never;
@@ -4149,7 +4197,7 @@ export interface components {
         /** @enum {string} */
         AdminUserSortBy: "id" | "username" | "email" | "role" | "status" | "storage_used" | "storage_quota" | "created_at" | "updated_at";
         /** @enum {string} */
-        ApiErrorCode: "success" | "bad_request" | "not_found" | "internal_server_error" | "database.error" | "config.error" | "endpoint.not_found" | "rate_limited" | "mail.not_configured" | "mail.delivery_failed" | "conflict" | "auth.failed" | "auth.token_expired" | "auth.token_invalid" | "forbidden" | "auth.pending_activation" | "auth.contact_verification_invalid" | "auth.contact_verification_expired" | "auth.token_missing" | "auth.credentials_failed" | "auth.mfa_failed" | "auth.refresh_token_stale" | "auth.refresh_token_reuse_detected" | "file.not_found" | "file.too_large" | "file.type_not_allowed" | "file.upload_failed" | "upload.session_not_found" | "upload.session_expired" | "upload.chunk_failed" | "upload.assembly_failed" | "thumbnail.failed" | "resource.locked" | "precondition_failed" | "upload.assembling" | "storage.policy_not_found" | "storage.driver_error" | "storage.quota_exceeded" | "storage.unsupported_driver" | "storage.auth_failed" | "storage.permission_denied" | "storage.misconfigured" | "storage.object_not_found" | "storage.rate_limited" | "storage.transient_failure" | "storage.precondition_failed" | "storage.operation_unsupported" | "folder.not_found" | "share.not_found" | "share.expired" | "share.password_required" | "share.download_limit_reached" | "archive_preview.disabled" | "archive_preview.user_disabled" | "archive_preview.share_disabled" | "archive_preview.source_too_large" | "archive_preview.invalid_archive" | "archive_preview.manifest_too_large" | "archive_preview.unsupported_type" | "archive_preview.rejected" | "archive_preview.source_size_mismatch" | "auth.username_exists" | "auth.email_exists" | "auth.identifier_exists" | "auth.admin_required" | "auth.account_disabled" | "auth.request_source_untrusted" | "auth.request_origin_untrusted" | "auth.request_referer_untrusted" | "auth.request_source_missing" | "auth.session_user_mismatch" | "auth.csrf_cookie_missing" | "auth.csrf_header_missing" | "auth.csrf_token_invalid" | "auth.registration_disabled" | "auth.mfa_flow_invalid" | "auth.mfa_flow_expired" | "auth.mfa_code_invalid" | "auth.mfa_attempts_exceeded" | "auth.mfa_factor_required" | "auth.mfa_factor_already_exists" | "auth.mfa_recovery_code_used" | "auth.mfa_email_code_required" | "auth.mfa_email_code_expired" | "avatar.file_required" | "avatar.upload_read_failed" | "avatar.processor_unavailable" | "avatar.empty_image" | "avatar.render_failed" | "avatar.output_invalid" | "file.name_conflict" | "file.etag_mismatch" | "file.modified_during_write" | "folder.name_conflict" | "lock.not_owner" | "share.scope_denied" | "managed_ingress.binding_mismatch" | "managed_ingress.default_delete_requires_replacement" | "managed_ingress.default_error" | "managed_ingress.default_missing" | "managed_ingress.default_not_applied" | "managed_ingress.default_update_requires_replacement" | "managed_ingress.driver_unsupported" | "managed_ingress.local_path_invalid" | "managed_ingress.required" | "managed_ingress.single_primary_required" | "master_binding.disabled" | "passkey.name_invalid" | "passkey.name_too_long" | "passkey.not_discoverable" | "team.not_member" | "team.owner_required" | "team.admin_or_owner_required" | "policy.upload_sessions_exist" | "workspace.scope_denied" | "external_auth.provider_disabled" | "external_auth.policy_denied" | "offline_download.aria2_rpc_auth_failed" | "offline_download.aria2_rpc_probe_failed" | "remote_node.disabled" | "remote_node.enrollment_required" | "remote_node.unique_conflict" | "storage.auth" | "storage.not_found" | "storage.permission" | "storage.precondition" | "storage.transient" | "storage.unsupported" | "storage.unknown" | "task.lease_lost" | "task.lease_renewal_timed_out" | "task.worker_shutdown_requested" | "team.member_exists" | "thumbnail.format_guess_failed" | "thumbnail.decode_failed" | "thumbnail.encode_failed" | "thumbnail.source_open_failed" | "thumbnail.source_stream_failed" | "thumbnail.task_panicked" | "thumbnail.source_too_large" | "thumbnail.processor_unavailable" | "thumbnail.render_failed" | "thumbnail.output_invalid" | "thumbnail.source_temp_create_failed" | "thumbnail.source_temp_flush_failed" | "thumbnail.source_temp_copy_failed" | "wopi.public_site_url_required" | "wopi.app_disabled" | "wopi.request_origin_untrusted" | "wopi.request_referer_untrusted" | "upload.temp_dir_create_failed" | "upload.temp_file_create_failed" | "upload.temp_file_write_failed" | "upload.temp_file_flush_failed" | "upload.request_body_read_failed" | "upload.request_body_size_overflow" | "upload.request_size_mismatch" | "upload.hash_temp_open_failed" | "upload.hash_temp_read_failed" | "upload.field_read_failed" | "upload.local_staging_path_resolve_failed" | "upload.local_staging_dir_create_failed" | "upload.local_staging_file_create_failed" | "upload.local_staging_write_failed" | "upload.local_staging_flush_failed" | "upload.direct_relay_write_failed" | "upload.direct_relay_shutdown_failed" | "upload.direct_relay_task_failed" | "upload.body_size_overflow" | "upload.declared_size_invalid" | "upload.empty_file" | "upload.chunk_persist_failed" | "upload.chunk_relay_failed" | "upload.chunk_transport_mismatch" | "upload.chunk_session_invalid" | "upload.chunk_number_out_of_range" | "upload.chunk_size_mismatch" | "upload.chunk_too_large" | "upload.chunk_size_overflow" | "upload.status_conflict" | "upload.completed_file_missing" | "upload.previous_failure" | "upload.parts_required" | "upload.incomplete_chunks" | "upload.incomplete_parts" | "upload.missing_part" | "upload.temp_object_missing" | "upload.temp_object_size_mismatch" | "upload.final_object_size_mismatch" | "upload.session_corrupted" | "upload.part_numbers_empty" | "upload.part_numbers_too_many" | "upload.part_number_out_of_range" | "upload.assembly_io_failed" | "upload.assembly_size_overflow" | "webdav.username_exists" | "wopi.max_expected_size_exceeded" | "validation.request_origin_invalid" | "validation.request_referer_invalid" | "validation.request_host_invalid" | "validation.request_scheme_invalid" | "validation.request_header_value_invalid" | "validation.system_already_initialized";
+        ApiErrorCode: "success" | "bad_request" | "not_found" | "internal_server_error" | "database.error" | "config.error" | "endpoint.not_found" | "rate_limited" | "mail.not_configured" | "mail.delivery_failed" | "conflict" | "auth.failed" | "auth.token_expired" | "auth.token_invalid" | "forbidden" | "auth.pending_activation" | "auth.contact_verification_invalid" | "auth.contact_verification_expired" | "auth.token_missing" | "auth.credentials_failed" | "auth.mfa_failed" | "auth.refresh_token_stale" | "auth.refresh_token_reuse_detected" | "file.not_found" | "file.too_large" | "file.type_not_allowed" | "file.upload_failed" | "upload.session_not_found" | "upload.session_expired" | "upload.chunk_failed" | "upload.assembly_failed" | "thumbnail.failed" | "resource.locked" | "precondition_failed" | "upload.assembling" | "storage.policy_not_found" | "storage.driver_error" | "storage.quota_exceeded" | "storage.unsupported_driver" | "storage.auth_failed" | "storage.permission_denied" | "storage.misconfigured" | "storage.object_not_found" | "storage.rate_limited" | "storage.transient_failure" | "storage.precondition_failed" | "storage.operation_unsupported" | "folder.not_found" | "share.not_found" | "share.expired" | "share.password_required" | "share.download_limit_reached" | "archive_preview.disabled" | "archive_preview.user_disabled" | "archive_preview.share_disabled" | "archive_preview.source_too_large" | "archive_preview.invalid_archive" | "archive_preview.manifest_too_large" | "archive_preview.unsupported_type" | "archive_preview.rejected" | "archive_preview.source_size_mismatch" | "auth.username_exists" | "auth.email_exists" | "auth.identifier_exists" | "auth.admin_required" | "auth.account_disabled" | "auth.request_source_untrusted" | "auth.request_origin_untrusted" | "auth.request_referer_untrusted" | "auth.request_source_missing" | "auth.session_user_mismatch" | "auth.csrf_cookie_missing" | "auth.csrf_header_missing" | "auth.csrf_token_invalid" | "auth.registration_disabled" | "auth.mfa_flow_invalid" | "auth.mfa_flow_expired" | "auth.mfa_code_invalid" | "auth.mfa_attempts_exceeded" | "auth.mfa_factor_required" | "auth.mfa_factor_already_exists" | "auth.mfa_recovery_code_used" | "auth.mfa_email_code_required" | "auth.mfa_email_code_expired" | "avatar.file_required" | "avatar.upload_read_failed" | "avatar.processor_unavailable" | "avatar.empty_image" | "avatar.render_failed" | "avatar.output_invalid" | "file.name_conflict" | "file.etag_mismatch" | "file.modified_during_write" | "folder.name_conflict" | "lock.not_owner" | "share.scope_denied" | "managed_ingress.binding_mismatch" | "managed_ingress.default_delete_requires_replacement" | "managed_ingress.default_error" | "managed_ingress.default_missing" | "managed_ingress.default_not_applied" | "managed_ingress.default_update_requires_replacement" | "managed_ingress.driver_unsupported" | "managed_ingress.local_path_invalid" | "managed_ingress.required" | "managed_ingress.single_primary_required" | "master_binding.disabled" | "passkey.name_invalid" | "passkey.name_too_long" | "passkey.not_discoverable" | "team.not_member" | "team.owner_required" | "team.admin_or_owner_required" | "policy.upload_sessions_exist" | "workspace.scope_denied" | "external_auth.provider_disabled" | "external_auth.policy_denied" | "google_drive.misconfigured" | "google_drive.connection_expired" | "google_drive.permission_denied" | "google_drive.remote_not_found" | "google_drive.rate_limited" | "google_drive.transient" | "offline_download.aria2_rpc_auth_failed" | "offline_download.aria2_rpc_probe_failed" | "remote_node.disabled" | "remote_node.enrollment_required" | "remote_node.unique_conflict" | "storage.auth" | "storage.not_found" | "storage.permission" | "storage.precondition" | "storage.transient" | "storage.unsupported" | "storage.unknown" | "task.lease_lost" | "task.lease_renewal_timed_out" | "task.worker_shutdown_requested" | "team.member_exists" | "thumbnail.format_guess_failed" | "thumbnail.decode_failed" | "thumbnail.encode_failed" | "thumbnail.source_open_failed" | "thumbnail.source_stream_failed" | "thumbnail.task_panicked" | "thumbnail.source_too_large" | "thumbnail.processor_unavailable" | "thumbnail.render_failed" | "thumbnail.output_invalid" | "thumbnail.source_temp_create_failed" | "thumbnail.source_temp_flush_failed" | "thumbnail.source_temp_copy_failed" | "wopi.public_site_url_required" | "wopi.app_disabled" | "wopi.request_origin_untrusted" | "wopi.request_referer_untrusted" | "upload.temp_dir_create_failed" | "upload.temp_file_create_failed" | "upload.temp_file_write_failed" | "upload.temp_file_flush_failed" | "upload.request_body_read_failed" | "upload.request_body_size_overflow" | "upload.request_size_mismatch" | "upload.hash_temp_open_failed" | "upload.hash_temp_read_failed" | "upload.field_read_failed" | "upload.local_staging_path_resolve_failed" | "upload.local_staging_dir_create_failed" | "upload.local_staging_file_create_failed" | "upload.local_staging_write_failed" | "upload.local_staging_flush_failed" | "upload.direct_relay_write_failed" | "upload.direct_relay_shutdown_failed" | "upload.direct_relay_task_failed" | "upload.body_size_overflow" | "upload.declared_size_invalid" | "upload.empty_file" | "upload.chunk_persist_failed" | "upload.chunk_relay_failed" | "upload.chunk_transport_mismatch" | "upload.chunk_session_invalid" | "upload.chunk_number_out_of_range" | "upload.chunk_size_mismatch" | "upload.chunk_too_large" | "upload.chunk_size_overflow" | "upload.status_conflict" | "upload.completed_file_missing" | "upload.previous_failure" | "upload.parts_required" | "upload.incomplete_chunks" | "upload.incomplete_parts" | "upload.missing_part" | "upload.temp_object_missing" | "upload.temp_object_size_mismatch" | "upload.final_object_size_mismatch" | "upload.session_corrupted" | "upload.part_numbers_empty" | "upload.part_numbers_too_many" | "upload.part_number_out_of_range" | "upload.assembly_io_failed" | "upload.assembly_size_overflow" | "webdav.username_exists" | "wopi.max_expected_size_exceeded" | "validation.request_origin_invalid" | "validation.request_referer_invalid" | "validation.request_host_invalid" | "validation.request_scheme_invalid" | "validation.request_header_value_invalid" | "validation.system_already_initialized";
         ApiErrorInfo: {
             code: components["schemas"]["ApiErrorCode"];
             internal_code: string;
@@ -4260,7 +4308,7 @@ export interface components {
             msg: string;
         };
         /** @enum {string} */
-        ApiSubcode: "archive_preview.disabled" | "archive_preview.user_disabled" | "archive_preview.share_disabled" | "archive_preview.source_too_large" | "archive_preview.invalid_archive" | "archive_preview.manifest_too_large" | "archive_preview.unsupported_type" | "archive_preview.rejected" | "archive_preview.source_size_mismatch" | "auth.username_exists" | "auth.email_exists" | "auth.identifier_exists" | "auth.admin_required" | "auth.account_disabled" | "auth.request_source_untrusted" | "auth.request_origin_untrusted" | "auth.request_referer_untrusted" | "auth.request_source_missing" | "auth.session_user_mismatch" | "auth.csrf_cookie_missing" | "auth.csrf_header_missing" | "auth.csrf_token_invalid" | "auth.registration_disabled" | "auth.mfa_flow_invalid" | "auth.mfa_flow_expired" | "auth.mfa_code_invalid" | "auth.mfa_attempts_exceeded" | "auth.mfa_factor_required" | "auth.mfa_factor_already_exists" | "auth.mfa_recovery_code_used" | "auth.mfa_email_code_required" | "auth.mfa_email_code_expired" | "avatar.file_required" | "avatar.upload_read_failed" | "avatar.processor_unavailable" | "avatar.empty_image" | "avatar.render_failed" | "avatar.output_invalid" | "file.name_conflict" | "file.etag_mismatch" | "file.modified_during_write" | "folder.name_conflict" | "lock.not_owner" | "share.scope_denied" | "managed_ingress.binding_mismatch" | "managed_ingress.default_delete_requires_replacement" | "managed_ingress.default_error" | "managed_ingress.default_missing" | "managed_ingress.default_not_applied" | "managed_ingress.default_update_requires_replacement" | "managed_ingress.driver_unsupported" | "managed_ingress.local_path_invalid" | "managed_ingress.required" | "managed_ingress.single_primary_required" | "master_binding.disabled" | "passkey.name_invalid" | "passkey.name_too_long" | "passkey.not_discoverable" | "team.not_member" | "team.owner_required" | "team.admin_or_owner_required" | "policy.upload_sessions_exist" | "workspace.scope_denied" | "external_auth.provider_disabled" | "external_auth.policy_denied" | "offline_download.aria2_rpc_auth_failed" | "offline_download.aria2_rpc_probe_failed" | "remote_node.disabled" | "remote_node.enrollment_required" | "remote_node.unique_conflict" | "storage.auth" | "storage.misconfigured" | "storage.not_found" | "storage.permission" | "storage.precondition" | "storage.rate_limited" | "storage.transient" | "storage.unsupported" | "storage.unknown" | "task.lease_lost" | "task.lease_renewal_timed_out" | "task.worker_shutdown_requested" | "team.member_exists" | "thumbnail.format_guess_failed" | "thumbnail.decode_failed" | "thumbnail.encode_failed" | "thumbnail.source_open_failed" | "thumbnail.source_stream_failed" | "thumbnail.task_panicked" | "thumbnail.source_too_large" | "thumbnail.processor_unavailable" | "thumbnail.render_failed" | "thumbnail.output_invalid" | "thumbnail.source_temp_create_failed" | "thumbnail.source_temp_flush_failed" | "thumbnail.source_temp_copy_failed" | "wopi.public_site_url_required" | "wopi.app_disabled" | "wopi.request_origin_untrusted" | "wopi.request_referer_untrusted" | "upload.temp_dir_create_failed" | "upload.temp_file_create_failed" | "upload.temp_file_write_failed" | "upload.temp_file_flush_failed" | "upload.request_body_read_failed" | "upload.request_body_size_overflow" | "upload.request_size_mismatch" | "upload.hash_temp_open_failed" | "upload.hash_temp_read_failed" | "upload.field_read_failed" | "upload.local_staging_path_resolve_failed" | "upload.local_staging_dir_create_failed" | "upload.local_staging_file_create_failed" | "upload.local_staging_write_failed" | "upload.local_staging_flush_failed" | "upload.direct_relay_write_failed" | "upload.direct_relay_shutdown_failed" | "upload.direct_relay_task_failed" | "upload.body_size_overflow" | "upload.declared_size_invalid" | "upload.empty_file" | "upload.chunk_persist_failed" | "upload.chunk_relay_failed" | "upload.chunk_transport_mismatch" | "upload.chunk_session_invalid" | "upload.chunk_number_out_of_range" | "upload.chunk_size_mismatch" | "upload.chunk_too_large" | "upload.chunk_size_overflow" | "upload.status_conflict" | "upload.completed_file_missing" | "upload.previous_failure" | "upload.parts_required" | "upload.incomplete_chunks" | "upload.incomplete_parts" | "upload.missing_part" | "upload.temp_object_missing" | "upload.temp_object_size_mismatch" | "upload.final_object_size_mismatch" | "upload.session_corrupted" | "upload.part_numbers_empty" | "upload.part_numbers_too_many" | "upload.part_number_out_of_range" | "upload.assembly_io_failed" | "upload.assembly_size_overflow" | "webdav.username_exists" | "wopi.max_expected_size_exceeded" | "validation.request_origin_invalid" | "validation.request_referer_invalid" | "validation.request_host_invalid" | "validation.request_scheme_invalid" | "validation.request_header_value_invalid" | "validation.system_already_initialized";
+        ApiSubcode: "archive_preview.disabled" | "archive_preview.user_disabled" | "archive_preview.share_disabled" | "archive_preview.source_too_large" | "archive_preview.invalid_archive" | "archive_preview.manifest_too_large" | "archive_preview.unsupported_type" | "archive_preview.rejected" | "archive_preview.source_size_mismatch" | "auth.username_exists" | "auth.email_exists" | "auth.identifier_exists" | "auth.admin_required" | "auth.account_disabled" | "auth.request_source_untrusted" | "auth.request_origin_untrusted" | "auth.request_referer_untrusted" | "auth.request_source_missing" | "auth.session_user_mismatch" | "auth.csrf_cookie_missing" | "auth.csrf_header_missing" | "auth.csrf_token_invalid" | "auth.registration_disabled" | "auth.mfa_flow_invalid" | "auth.mfa_flow_expired" | "auth.mfa_code_invalid" | "auth.mfa_attempts_exceeded" | "auth.mfa_factor_required" | "auth.mfa_factor_already_exists" | "auth.mfa_recovery_code_used" | "auth.mfa_email_code_required" | "auth.mfa_email_code_expired" | "avatar.file_required" | "avatar.upload_read_failed" | "avatar.processor_unavailable" | "avatar.empty_image" | "avatar.render_failed" | "avatar.output_invalid" | "file.name_conflict" | "file.etag_mismatch" | "file.modified_during_write" | "folder.name_conflict" | "google_drive.misconfigured" | "google_drive.connection_expired" | "google_drive.permission_denied" | "google_drive.remote_not_found" | "google_drive.rate_limited" | "google_drive.transient" | "lock.not_owner" | "share.scope_denied" | "managed_ingress.binding_mismatch" | "managed_ingress.default_delete_requires_replacement" | "managed_ingress.default_error" | "managed_ingress.default_missing" | "managed_ingress.default_not_applied" | "managed_ingress.default_update_requires_replacement" | "managed_ingress.driver_unsupported" | "managed_ingress.local_path_invalid" | "managed_ingress.required" | "managed_ingress.single_primary_required" | "master_binding.disabled" | "passkey.name_invalid" | "passkey.name_too_long" | "passkey.not_discoverable" | "team.not_member" | "team.owner_required" | "team.admin_or_owner_required" | "policy.upload_sessions_exist" | "workspace.scope_denied" | "external_auth.provider_disabled" | "external_auth.policy_denied" | "offline_download.aria2_rpc_auth_failed" | "offline_download.aria2_rpc_probe_failed" | "remote_node.disabled" | "remote_node.enrollment_required" | "remote_node.unique_conflict" | "storage.auth" | "storage.misconfigured" | "storage.not_found" | "storage.permission" | "storage.precondition" | "storage.rate_limited" | "storage.transient" | "storage.unsupported" | "storage.unknown" | "task.lease_lost" | "task.lease_renewal_timed_out" | "task.worker_shutdown_requested" | "team.member_exists" | "thumbnail.format_guess_failed" | "thumbnail.decode_failed" | "thumbnail.encode_failed" | "thumbnail.source_open_failed" | "thumbnail.source_stream_failed" | "thumbnail.task_panicked" | "thumbnail.source_too_large" | "thumbnail.processor_unavailable" | "thumbnail.render_failed" | "thumbnail.output_invalid" | "thumbnail.source_temp_create_failed" | "thumbnail.source_temp_flush_failed" | "thumbnail.source_temp_copy_failed" | "wopi.public_site_url_required" | "wopi.app_disabled" | "wopi.request_origin_untrusted" | "wopi.request_referer_untrusted" | "upload.temp_dir_create_failed" | "upload.temp_file_create_failed" | "upload.temp_file_write_failed" | "upload.temp_file_flush_failed" | "upload.request_body_read_failed" | "upload.request_body_size_overflow" | "upload.request_size_mismatch" | "upload.hash_temp_open_failed" | "upload.hash_temp_read_failed" | "upload.field_read_failed" | "upload.local_staging_path_resolve_failed" | "upload.local_staging_dir_create_failed" | "upload.local_staging_file_create_failed" | "upload.local_staging_write_failed" | "upload.local_staging_flush_failed" | "upload.direct_relay_write_failed" | "upload.direct_relay_shutdown_failed" | "upload.direct_relay_task_failed" | "upload.body_size_overflow" | "upload.declared_size_invalid" | "upload.empty_file" | "upload.chunk_persist_failed" | "upload.chunk_relay_failed" | "upload.chunk_transport_mismatch" | "upload.chunk_session_invalid" | "upload.chunk_number_out_of_range" | "upload.chunk_size_mismatch" | "upload.chunk_too_large" | "upload.chunk_size_overflow" | "upload.status_conflict" | "upload.completed_file_missing" | "upload.previous_failure" | "upload.parts_required" | "upload.incomplete_chunks" | "upload.incomplete_parts" | "upload.missing_part" | "upload.temp_object_missing" | "upload.temp_object_size_mismatch" | "upload.final_object_size_mismatch" | "upload.session_corrupted" | "upload.part_numbers_empty" | "upload.part_numbers_too_many" | "upload.part_number_out_of_range" | "upload.assembly_io_failed" | "upload.assembly_size_overflow" | "webdav.username_exists" | "wopi.max_expected_size_exceeded" | "validation.request_origin_invalid" | "validation.request_referer_invalid" | "validation.request_host_invalid" | "validation.request_scheme_invalid" | "validation.request_header_value_invalid" | "validation.system_already_initialized";
         /** @description Request an archive compression task for the selected files and folders. */
         ArchiveCompressReq: {
             archive_name?: string | null;
@@ -4782,7 +4830,7 @@ export interface components {
          * @description 存储驱动类型
          * @enum {string}
          */
-        DriverType: "local" | "s3" | "tencent_cos" | "remote";
+        DriverType: "local" | "s3" | "tencent_cos" | "remote" | "google_drive";
         /** @description Check a storage policy migration plan without creating a task. */
         DryRunStoragePolicyMigrationReq: {
             delete_source_after_success?: boolean;
@@ -5101,6 +5149,14 @@ export interface components {
             sort_by?: null | components["schemas"]["SortBy"];
             sort_order?: null | components["schemas"]["SortOrder"];
         };
+        GoogleDriveStartPolicyAuthRequest: {
+            return_path?: string | null;
+        };
+        /**
+         * @description Google Drive 上传策略（存储策略 options JSON）
+         * @enum {string}
+         */
+        GoogleDriveUploadStrategy: "resumable";
         HealthResponse: {
             build_time: string;
             status: string;
@@ -6630,6 +6686,16 @@ export interface components {
         StoragePolicyOptions: {
             content_dedup?: boolean | null;
             media_metadata_extensions?: string[];
+            google_drive_account_email?: string | null;
+            google_drive_account_id?: string | null;
+            google_drive_account_name?: string | null;
+            google_drive_last_error?: string | null;
+            google_drive_refresh_token?: string | null;
+            google_drive_root_folder_id?: string | null;
+            google_drive_shared_drive_id?: string | null;
+            google_drive_token_status?: string | null;
+            google_drive_upload_strategy?: null | components["schemas"]["GoogleDriveUploadStrategy"];
+            google_drive_use_app_data_folder?: boolean | null;
             remote_download_strategy?: null | components["schemas"]["RemoteDownloadStrategy"];
             remote_upload_strategy?: null | components["schemas"]["RemoteUploadStrategy"];
             /** Format: int64 */
@@ -6779,7 +6845,7 @@ export interface components {
             title?: null | components["schemas"]["TaskPresentationMessage"];
         };
         /** @enum {string} */
-        TaskPresentationCode: "blob_maintenance_integrity_check_name" | "blob_maintenance_orphan_cleanup_name" | "blob_maintenance_ref_count_reconcile_name" | "runtime_system_health_issue_detail" | "runtime_task_audit_cleanup" | "runtime_task_auth_session_cleanup" | "runtime_task_background_task_dispatch" | "runtime_task_blob_reconcile" | "runtime_task_completed_upload_cleanup" | "runtime_task_external_auth_flow_cleanup" | "runtime_task_lock_cleanup" | "runtime_task_mail_outbox_dispatch" | "runtime_task_mfa_flow_cleanup" | "runtime_task_remote_node_health_test" | "runtime_task_system_health_check" | "runtime_task_task_cleanup" | "runtime_task_team_archive_cleanup" | "runtime_task_trash_cleanup" | "runtime_task_upload_cleanup" | "runtime_task_wopi_session_cleanup" | "status_text_archive_extracted" | "status_text_archive_preview_ready" | "status_text_archive_ready" | "status_text_blob_maintenance_finished" | "status_text_media_metadata_failed" | "status_text_media_metadata_ready" | "status_text_media_metadata_unsupported" | "status_text_offline_download_imported" | "status_text_offline_download_downloaded" | "status_text_offline_download_verified" | "status_text_storage_migration_completed" | "status_text_system_healthy" | "status_text_temporary_upload_cleanup_finished" | "status_text_thumbnail_already_available" | "status_text_thumbnail_ready" | "status_text_trash_purged" | "status_text_waiting_presigned_url_expiry" | "task_name_archive_compress" | "task_name_archive_extract" | "task_name_archive_preview_generate" | "task_name_archive_preview_generate_file_id" | "task_name_media_metadata_extract_blob" | "task_name_media_metadata_extract_source" | "task_name_offline_download_source" | "task_name_offline_download_source_with_engine" | "task_name_offline_download_target_folder" | "task_name_offline_download_target_folder_with_engine" | "task_name_offline_download_url" | "task_name_offline_download_url_with_engine" | "task_name_storage_policy_migration" | "task_name_storage_policy_temp_cleanup" | "task_name_storage_policy_temp_cleanup_policy_id" | "task_name_thumbnail_generate" | "task_name_thumbnail_generate_blob_with_processor" | "task_name_trash_purge_all";
+        TaskPresentationCode: "blob_maintenance_integrity_check_name" | "blob_maintenance_orphan_cleanup_name" | "blob_maintenance_ref_count_reconcile_name" | "runtime_system_health_issue_detail" | "runtime_task_audit_cleanup" | "runtime_task_auth_session_cleanup" | "runtime_task_background_task_dispatch" | "runtime_task_blob_reconcile" | "runtime_task_completed_upload_cleanup" | "runtime_task_external_auth_flow_cleanup" | "runtime_task_google_drive_oauth_flow_cleanup" | "runtime_task_lock_cleanup" | "runtime_task_mail_outbox_dispatch" | "runtime_task_mfa_flow_cleanup" | "runtime_task_remote_node_health_test" | "runtime_task_system_health_check" | "runtime_task_task_cleanup" | "runtime_task_team_archive_cleanup" | "runtime_task_trash_cleanup" | "runtime_task_upload_cleanup" | "runtime_task_wopi_session_cleanup" | "status_text_archive_extracted" | "status_text_archive_preview_ready" | "status_text_archive_ready" | "status_text_blob_maintenance_finished" | "status_text_media_metadata_failed" | "status_text_media_metadata_ready" | "status_text_media_metadata_unsupported" | "status_text_offline_download_imported" | "status_text_offline_download_downloaded" | "status_text_offline_download_verified" | "status_text_storage_migration_completed" | "status_text_system_healthy" | "status_text_temporary_upload_cleanup_finished" | "status_text_thumbnail_already_available" | "status_text_thumbnail_ready" | "status_text_trash_purged" | "status_text_waiting_presigned_url_expiry" | "task_name_archive_compress" | "task_name_archive_extract" | "task_name_archive_preview_generate" | "task_name_archive_preview_generate_file_id" | "task_name_media_metadata_extract_blob" | "task_name_media_metadata_extract_source" | "task_name_offline_download_source" | "task_name_offline_download_source_with_engine" | "task_name_offline_download_target_folder" | "task_name_offline_download_target_folder_with_engine" | "task_name_offline_download_url" | "task_name_offline_download_url_with_engine" | "task_name_storage_policy_migration" | "task_name_storage_policy_temp_cleanup" | "task_name_storage_policy_temp_cleanup_policy_id" | "task_name_thumbnail_generate" | "task_name_thumbnail_generate_blob_with_processor" | "task_name_trash_purge_all";
         TaskPresentationMessage: {
             code: components["schemas"]["TaskPresentationCode"];
             params?: {
@@ -8937,6 +9003,129 @@ export interface operations {
                             /** Format: int64 */
                             remote_node_id?: number | null;
                             updated_at: string;
+                        };
+                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        msg: string;
+                    };
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    finish_google_drive_policy_auth: {
+        parameters: {
+            query?: {
+                code?: string | null;
+                state?: string | null;
+                error?: string | null;
+                error_description?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Invalid Google Drive callback redirected to admin policies */
+            302: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    start_google_drive_policy_auth: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Storage policy ID */
+                policy_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["GoogleDriveStartPolicyAuthRequest"];
+            };
+        };
+        responses: {
+            /** @description Google Drive authorization URL */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        code: components["schemas"]["ErrorCode"];
+                        data?: {
+                            authorization_url: string;
+                        };
+                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        msg: string;
+                    };
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    get_google_drive_policy_auth_status: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Storage policy ID */
+                policy_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Google Drive policy authorization status */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        code: components["schemas"]["ErrorCode"];
+                        data?: {
+                            account_email?: string | null;
+                            account_id?: string | null;
+                            account_name?: string | null;
+                            authorized: boolean;
+                            last_error?: string | null;
+                            /** Format: int64 */
+                            policy_id: number;
+                            root: string;
+                            token_status?: string | null;
                         };
                         error?: null | components["schemas"]["ApiErrorInfo"];
                         msg: string;

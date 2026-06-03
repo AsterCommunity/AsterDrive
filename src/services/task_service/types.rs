@@ -55,6 +55,7 @@ pub enum TaskPresentationCode {
     RuntimeTaskBlobReconcile,
     RuntimeTaskCompletedUploadCleanup,
     RuntimeTaskExternalAuthFlowCleanup,
+    RuntimeTaskGoogleDriveOauthFlowCleanup,
     RuntimeTaskLockCleanup,
     RuntimeTaskMailOutboxDispatch,
     RuntimeTaskMfaFlowCleanup,

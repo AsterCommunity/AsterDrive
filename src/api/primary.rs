@@ -14,6 +14,7 @@ pub fn configure_primary(cfg: &mut web::ServiceConfig, db: &sea_orm::DatabaseCon
             .service(routes::auth::routes(rl, network_trust))
             .service(routes::files::routes(rl, network_trust))
             .service(routes::folders::routes(rl, network_trust))
+            .service(routes::google_drive_storage::routes(rl, network_trust))
             .service(routes::admin::routes(rl, network_trust))
             .service(routes::shares::routes(rl, network_trust))
             .service(routes::share_public::routes(rl, network_trust))

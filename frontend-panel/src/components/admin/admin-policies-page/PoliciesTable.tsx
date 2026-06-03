@@ -1,5 +1,6 @@
 import { useMemo } from "react";
 import { useTranslation } from "react-i18next";
+import { formatGoogleDriveLocationLabel } from "@/components/admin/storagePolicyDialogShared";
 import {
 	ADMIN_INTERACTIVE_TABLE_ROW_CLASS,
 	ADMIN_TABLE_BADGE_CELL_CLASS,
@@ -128,6 +129,22 @@ export function PoliciesTable({
 				const deleteLabel = isDeleting
 					? t("policy_deleting")
 					: t("delete_policy");
+				const driverLabel =
+					policy.driver_type === "local"
+						? t("driver_type_local")
+						: policy.driver_type === "remote"
+							? t("driver_type_remote")
+							: policy.driver_type === "tencent_cos"
+								? t("driver_type_tencent_cos")
+								: policy.driver_type === "google_drive"
+									? t("driver_type_google_drive")
+									: t("driver_type_s3");
+				const googleDriveRoot = formatGoogleDriveLocationLabel({
+					rootFolderId: policy.options.google_drive_root_folder_id,
+					rootLabel: t("core:root"),
+					sharedDriveId: policy.options.google_drive_shared_drive_id,
+					useAppDataFolder: policy.options.google_drive_use_app_data_folder,
+				});
 
 				return (
 					<TableRow
@@ -164,13 +181,7 @@ export function PoliciesTable({
 									variant="outline"
 									className={getPolicyDriverBadgeClass(policy.driver_type)}
 								>
-									{policy.driver_type === "local"
-										? t("driver_type_local")
-										: policy.driver_type === "remote"
-											? t("driver_type_remote")
-											: policy.driver_type === "tencent_cos"
-												? t("driver_type_tencent_cos")
-												: t("driver_type_s3")}
+									{driverLabel}
 								</Badge>
 							</div>
 						</TableCell>
@@ -181,7 +192,9 @@ export function PoliciesTable({
 										? policy.base_path || "./data"
 										: policy.driver_type === "remote"
 											? policy.base_path || t("core:root")
-											: policy.endpoint}
+											: policy.driver_type === "google_drive"
+												? policy.base_path || t("core:root")
+												: policy.endpoint}
 								</span>
 							</div>
 						</TableCell>
@@ -193,7 +206,9 @@ export function PoliciesTable({
 											? (remoteNodeNameById.get(policy.remote_node_id) ??
 												`#${policy.remote_node_id}`)
 											: "-"
-										: policy.bucket || "-"}
+										: policy.driver_type === "google_drive"
+											? googleDriveRoot
+											: policy.bucket || "-"}
 								</span>
 							</div>
 						</TableCell>

@@ -47,6 +47,7 @@ pub enum SystemRuntimeTaskKind {
     LockCleanup,
     AuthSessionCleanup,
     ExternalAuthFlowCleanup,
+    GoogleDriveOauthFlowCleanup,
     MfaFlowCleanup,
     AuditCleanup,
     TaskCleanup,
@@ -68,6 +69,7 @@ impl SystemRuntimeTaskKind {
             Self::LockCleanup => "lock-cleanup",
             Self::AuthSessionCleanup => "auth-session-cleanup",
             Self::ExternalAuthFlowCleanup => "external-auth-flow-cleanup",
+            Self::GoogleDriveOauthFlowCleanup => "google-drive-oauth-flow-cleanup",
             Self::MfaFlowCleanup => "mfa-flow-cleanup",
             Self::AuditCleanup => "audit-cleanup",
             Self::TaskCleanup => "task-cleanup",
@@ -89,6 +91,7 @@ impl SystemRuntimeTaskKind {
             Self::LockCleanup => "Lock cleanup",
             Self::AuthSessionCleanup => "Auth session cleanup",
             Self::ExternalAuthFlowCleanup => "External auth flow cleanup",
+            Self::GoogleDriveOauthFlowCleanup => "Google Drive OAuth flow cleanup",
             Self::MfaFlowCleanup => "MFA flow cleanup",
             Self::AuditCleanup => "Audit log cleanup",
             Self::TaskCleanup => "Task artifact cleanup",
@@ -112,6 +115,9 @@ impl SystemRuntimeTaskKind {
             Self::ExternalAuthFlowCleanup => {
                 TaskPresentationCode::RuntimeTaskExternalAuthFlowCleanup
             }
+            Self::GoogleDriveOauthFlowCleanup => {
+                TaskPresentationCode::RuntimeTaskGoogleDriveOauthFlowCleanup
+            }
             Self::MfaFlowCleanup => TaskPresentationCode::RuntimeTaskMfaFlowCleanup,
             Self::AuditCleanup => TaskPresentationCode::RuntimeTaskAuditCleanup,
             Self::TaskCleanup => TaskPresentationCode::RuntimeTaskTaskCleanup,
@@ -133,6 +139,7 @@ impl SystemRuntimeTaskKind {
             "lock-cleanup" => Some(Self::LockCleanup),
             "auth-session-cleanup" => Some(Self::AuthSessionCleanup),
             "external-auth-flow-cleanup" => Some(Self::ExternalAuthFlowCleanup),
+            "google-drive-oauth-flow-cleanup" => Some(Self::GoogleDriveOauthFlowCleanup),
             "mfa-flow-cleanup" => Some(Self::MfaFlowCleanup),
             "audit-cleanup" => Some(Self::AuditCleanup),
             "task-cleanup" => Some(Self::TaskCleanup),

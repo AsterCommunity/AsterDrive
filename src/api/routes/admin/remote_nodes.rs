@@ -26,6 +26,7 @@ fn driver_type_audit_name(driver_type: DriverType) -> &'static str {
         DriverType::S3 => "s3",
         DriverType::TencentCos => "tencent_cos",
         DriverType::Remote => "remote",
+        DriverType::GoogleDrive => "google_drive",
     }
 }
 

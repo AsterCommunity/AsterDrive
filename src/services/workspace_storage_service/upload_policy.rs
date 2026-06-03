@@ -9,13 +9,14 @@ pub(crate) enum PolicyUploadTransport {
     Local,
     S3(S3UploadStrategy),
     Remote(RemoteUploadStrategy),
+    GoogleDrive,
 }
 
 impl PolicyUploadTransport {
     pub(crate) fn effective_chunk_size(self, policy: &storage_policy::Model) -> i64 {
         match self {
             Self::S3(_) => effective_s3_multipart_chunk_size(policy.chunk_size),
-            Self::Local | Self::Remote(_) => policy.chunk_size,
+            Self::Local | Self::Remote(_) | Self::GoogleDrive => policy.chunk_size,
         }
     }
 
@@ -57,6 +58,7 @@ impl PolicyUploadTransport {
             // 则由 `resolve_init_mode` 单独决定。
             Self::Remote(RemoteUploadStrategy::RelayStream)
             | Self::Remote(RemoteUploadStrategy::Presigned) => true,
+            Self::GoogleDrive => true,
         }
     }
 
@@ -65,6 +67,7 @@ impl PolicyUploadTransport {
             self,
             Self::S3(S3UploadStrategy::RelayStream)
                 | Self::Remote(RemoteUploadStrategy::RelayStream)
+                | Self::GoogleDrive
         )
     }
 
@@ -86,6 +89,7 @@ pub(crate) fn resolve_policy_upload_transport(
         DriverType::Remote => {
             PolicyUploadTransport::Remote(options.effective_remote_upload_strategy())
         }
+        DriverType::GoogleDrive => PolicyUploadTransport::GoogleDrive,
     }
 }
 

@@ -9,7 +9,7 @@ use crate::db::repository::{file_repo, managed_follower_repo, policy_group_repo,
 use crate::entities::storage_policy;
 use crate::errors::{AsterError, MapAsterErr, Result, validation_error_with_subcode};
 use crate::runtime::{PrimaryAppState, PrimaryRuntimeState};
-use crate::storage::drivers::tencent_cos::TencentCosDriver;
+use crate::storage::drivers::{google_drive::google_drive_scopes, tencent_cos::TencentCosDriver};
 use crate::types::{
     DriverType, StoragePolicyOptions, StoredStoragePolicyAllowedTypes, StoredStoragePolicyOptions,
     parse_storage_policy_options,
@@ -31,6 +31,7 @@ fn driver_type_name(driver_type: DriverType) -> &'static str {
         DriverType::S3 => "s3",
         DriverType::TencentCos => "tencent_cos",
         DriverType::Remote => "remote",
+        DriverType::GoogleDrive => "google_drive",
     }
 }
 
@@ -79,9 +80,54 @@ fn validate_connection_credentials(
             validate_connection_secret(access_key, "access_key", driver)?;
             validate_connection_secret(secret_key, "secret_key", driver)?;
         }
+        DriverType::GoogleDrive => {
+            validate_connection_secret(access_key, "access_key", "Google Drive")?;
+            validate_connection_secret(secret_key, "secret_key", "Google Drive")?;
+        }
         DriverType::Local | DriverType::Remote => {}
     }
     Ok(())
+}
+
+fn preserve_google_drive_authorization(
+    driver_type: DriverType,
+    existing: &StoragePolicyOptions,
+    next: &mut StoragePolicyOptions,
+) {
+    if driver_type != DriverType::GoogleDrive {
+        return;
+    }
+    if next
+        .google_drive_refresh_token
+        .as_deref()
+        .is_none_or(|value| value.trim().is_empty() || value == "__configured__")
+    {
+        next.google_drive_refresh_token = existing.google_drive_refresh_token.clone();
+    }
+    if next.google_drive_account_email.is_none() {
+        next.google_drive_account_email = existing.google_drive_account_email.clone();
+    }
+    if next.google_drive_account_name.is_none() {
+        next.google_drive_account_name = existing.google_drive_account_name.clone();
+    }
+    if next.google_drive_account_id.is_none() {
+        next.google_drive_account_id = existing.google_drive_account_id.clone();
+    }
+    if next.google_drive_token_status.is_none() {
+        next.google_drive_token_status = existing.google_drive_token_status.clone();
+    }
+    if next.google_drive_last_error.is_none() {
+        next.google_drive_last_error = existing.google_drive_last_error.clone();
+    }
+}
+
+fn clear_google_drive_authorization(options: &mut StoragePolicyOptions) {
+    options.google_drive_refresh_token = None;
+    options.google_drive_account_email = None;
+    options.google_drive_account_name = None;
+    options.google_drive_account_id = None;
+    options.google_drive_token_status = None;
+    options.google_drive_last_error = None;
 }
 
 pub async fn list_paginated(
@@ -175,7 +221,8 @@ pub async fn create(
     let remote_node_id =
         validate_remote_binding(state.writer_db(), driver_type, remote_node_id).await?;
     let allowed_types = allowed_types.unwrap_or_default();
-    let options = options.unwrap_or_default().normalized();
+    let mut options = options.unwrap_or_default().normalized();
+    clear_google_drive_authorization(&mut options);
     let serialized_options = serialize_options(&options)?;
     let chunk_size = chunk_size.unwrap_or(5_242_880);
     ensure_storage_native_thumbnail_supported(driver_type, &options)?;
@@ -359,6 +406,9 @@ pub async fn update(
     let final_secret_key = secret_key
         .clone()
         .unwrap_or_else(|| existing_secret_key.clone());
+    let google_drive_credentials_changed = existing.driver_type == DriverType::GoogleDrive
+        && (final_access_key.trim() != existing_access_key.trim()
+            || final_secret_key.trim() != existing_secret_key.trim());
     let (normalized_endpoint, normalized_bucket) =
         normalize_connection_fields(existing.driver_type, &final_endpoint, &final_bucket)?;
     validate_connection_credentials(existing.driver_type, &final_access_key, &final_secret_key)?;
@@ -369,7 +419,23 @@ pub async fn update(
     )
     .await?;
     let options_provided = options.is_some();
-    let final_options = options.unwrap_or(existing_options).normalized();
+    let mut final_options = options
+        .unwrap_or_else(|| existing_options.clone())
+        .normalized();
+    clear_google_drive_authorization(&mut final_options);
+    let google_drive_scopes_changed = existing.driver_type == DriverType::GoogleDrive
+        && google_drive_scopes(&existing_options) != google_drive_scopes(&final_options);
+    let google_drive_authorization_context_changed =
+        google_drive_credentials_changed || google_drive_scopes_changed;
+    if google_drive_authorization_context_changed {
+        clear_google_drive_authorization(&mut final_options);
+    } else {
+        preserve_google_drive_authorization(
+            existing.driver_type,
+            &existing_options,
+            &mut final_options,
+        );
+    }
     let serialized_final_options = serialize_options(&final_options)?;
     ensure_storage_native_thumbnail_supported(existing.driver_type, &final_options)?;
     ensure_remote_transport_supports_policy_options(
@@ -428,7 +494,7 @@ pub async fn update(
     if let Some(v) = allowed_types {
         active.allowed_types = Set(serialize_allowed_types(&v)?);
     }
-    if options_provided {
+    if options_provided || google_drive_authorization_context_changed {
         active.options = Set(serialized_final_options);
     }
     active.updated_at = Set(Utc::now());
@@ -479,6 +545,7 @@ pub async fn test_connection_params<S: PrimaryRuntimeState>(
     state: &S,
     input: StoragePolicyConnectionInput,
 ) -> Result<()> {
+    use crate::storage::drivers::google_drive::GoogleDriveDriver;
     use crate::storage::drivers::local::LocalDriver;
     use crate::storage::drivers::s3::S3Driver;
 
@@ -531,6 +598,7 @@ pub async fn test_connection_params<S: PrimaryRuntimeState>(
         }
         DriverType::S3 => Box::new(S3Driver::new(&fake_policy)?),
         DriverType::TencentCos => Box::new(TencentCosDriver::new(&fake_policy)?),
+        DriverType::GoogleDrive => Box::new(GoogleDriveDriver::new(&fake_policy)?),
     };
 
     probe_storage_driver(driver.as_ref(), "connection test failed").await
@@ -584,4 +652,60 @@ async fn probe_storage_driver(
             AsterError::storage_driver_error,
         )?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        clear_google_drive_authorization, google_drive_scopes, preserve_google_drive_authorization,
+    };
+    use crate::types::{DriverType, StoragePolicyOptions};
+
+    #[test]
+    fn google_drive_authorization_snapshot_is_preserved_from_existing_options() {
+        let existing = StoragePolicyOptions {
+            google_drive_refresh_token: Some("encrypted-refresh-token".to_string()),
+            google_drive_account_email: Some("admin@example.com".to_string()),
+            google_drive_account_name: Some("Admin".to_string()),
+            google_drive_account_id: Some("account-id".to_string()),
+            google_drive_token_status: Some("authorized".to_string()),
+            google_drive_last_error: Some("old error".to_string()),
+            ..Default::default()
+        };
+        let mut next = StoragePolicyOptions {
+            google_drive_refresh_token: Some("client-supplied-token".to_string()),
+            google_drive_account_email: Some("client@example.com".to_string()),
+            ..Default::default()
+        };
+
+        clear_google_drive_authorization(&mut next);
+        preserve_google_drive_authorization(DriverType::GoogleDrive, &existing, &mut next);
+
+        assert_eq!(
+            next.google_drive_refresh_token.as_deref(),
+            Some("encrypted-refresh-token")
+        );
+        assert_eq!(
+            next.google_drive_account_email.as_deref(),
+            Some("admin@example.com")
+        );
+        assert_eq!(next.google_drive_account_name.as_deref(), Some("Admin"));
+        assert_eq!(next.google_drive_account_id.as_deref(), Some("account-id"));
+        assert_eq!(
+            next.google_drive_token_status.as_deref(),
+            Some("authorized")
+        );
+        assert_eq!(next.google_drive_last_error.as_deref(), Some("old error"));
+    }
+
+    #[test]
+    fn google_drive_app_data_folder_changes_required_scope() {
+        let existing = StoragePolicyOptions::default();
+        let next = StoragePolicyOptions {
+            google_drive_use_app_data_folder: Some(true),
+            ..Default::default()
+        };
+
+        assert_ne!(google_drive_scopes(&existing), google_drive_scopes(&next));
+    }
 }
