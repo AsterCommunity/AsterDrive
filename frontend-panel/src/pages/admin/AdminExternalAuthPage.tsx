@@ -8,7 +8,6 @@ import { SkeletonTable } from "@/components/common/SkeletonTable";
 import { AdminLayout } from "@/components/layout/AdminLayout";
 import { AdminPageHeader } from "@/components/layout/AdminPageHeader";
 import { AdminPageShell } from "@/components/layout/AdminPageShell";
-import { AdminSurface } from "@/components/layout/AdminSurface";
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
 import { ADMIN_CONTROL_HEIGHT_CLASS } from "@/lib/constants";
@@ -30,7 +29,6 @@ export default function AdminExternalAuthPage() {
 		dialogOpen,
 		dialogProps,
 		editingProvider,
-		enabledCount,
 		form,
 		goCreateBack,
 		goCreateNext,
@@ -45,7 +43,6 @@ export default function AdminExternalAuthPage() {
 		pageSize,
 		pageSizeOptions,
 		prevPageDisabled,
-		providerKindCount,
 		providerKinds,
 		providers,
 		requestConfirm,
@@ -96,27 +93,6 @@ export default function AdminExternalAuthPage() {
 						</>
 					}
 				/>
-
-				<div className="grid gap-4 md:grid-cols-3">
-					<AdminSurface className="flex-none p-4">
-						<p className="text-xs text-muted-foreground">
-							{t("external_auth_providers_total")}
-						</p>
-						<p className="mt-1 text-2xl font-semibold">{total}</p>
-					</AdminSurface>
-					<AdminSurface className="flex-none p-4">
-						<p className="text-xs text-muted-foreground">
-							{t("external_auth_providers_enabled_page")}
-						</p>
-						<p className="mt-1 text-2xl font-semibold">{enabledCount}</p>
-					</AdminSurface>
-					<AdminSurface className="flex-none p-4">
-						<p className="text-xs text-muted-foreground">
-							{t("external_auth_provider_kinds_supported")}
-						</p>
-						<p className="mt-1 text-2xl font-semibold">{providerKindCount}</p>
-					</AdminSurface>
-				</div>
 
 				{testResult ? (
 					<div className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950/50 dark:text-emerald-200">

@@ -45,6 +45,15 @@ pub enum ExternalAuthProviderKind {
     #[serde(rename = "github")]
     #[sea_orm(string_value = "github")]
     GitHub,
+    #[serde(rename = "google")]
+    #[sea_orm(string_value = "google")]
+    Google,
+    #[serde(rename = "microsoft")]
+    #[sea_orm(string_value = "microsoft")]
+    Microsoft,
+    #[serde(rename = "qq")]
+    #[sea_orm(string_value = "qq")]
+    Qq,
 }
 
 impl ExternalAuthProviderKind {
@@ -53,6 +62,9 @@ impl ExternalAuthProviderKind {
             Self::Oidc => "oidc",
             Self::GenericOAuth2 => "generic_oauth2",
             Self::GitHub => "github",
+            Self::Google => "google",
+            Self::Microsoft => "microsoft",
+            Self::Qq => "qq",
         }
     }
 
@@ -61,6 +73,9 @@ impl ExternalAuthProviderKind {
             "oidc" => Some(Self::Oidc),
             "generic_oauth2" => Some(Self::GenericOAuth2),
             "github" => Some(Self::GitHub),
+            "google" => Some(Self::Google),
+            "microsoft" => Some(Self::Microsoft),
+            "qq" => Some(Self::Qq),
             _ => None,
         }
     }
@@ -94,6 +109,9 @@ impl ExternalAuthProviderKind {
             Self::Oidc => ExternalAuthProtocol::Oidc,
             Self::GenericOAuth2 => ExternalAuthProtocol::OAuth2,
             Self::GitHub => ExternalAuthProtocol::OAuth2,
+            Self::Google => ExternalAuthProtocol::Oidc,
+            Self::Microsoft => ExternalAuthProtocol::Oidc,
+            Self::Qq => ExternalAuthProtocol::OAuth2,
         }
     }
 }

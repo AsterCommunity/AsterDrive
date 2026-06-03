@@ -55,13 +55,13 @@ vi.mock("@/components/common/ConfirmDialog", () => ({
 		title: string;
 	}) =>
 		open ? (
-			<div role="dialog">
+			<dialog open>
 				<h2>{title}</h2>
 				<p>{description}</p>
 				<button type="button" onClick={onConfirm}>
 					{confirmLabel}
 				</button>
-			</div>
+			</dialog>
 		) : null,
 }));
 
@@ -330,6 +330,24 @@ describe("SecurityExternalAuthLinksSection", () => {
 			imageBySrc("/static/external-auth/openid-seeklogo.svg"),
 		).toHaveAttribute("src", "/static/external-auth/openid-seeklogo.svg");
 		expect(imageBySrc("javascript:alert(1)")).toBeNull();
+	});
+
+	it("uses the QQ provider kind icon when no configured icon is present", async () => {
+		mockState.authService.listExternalAuthLinks.mockResolvedValue([
+			link({
+				provider_display_name: "QQ",
+				provider_icon_url: null,
+				provider_kind: "qq",
+			}),
+		]);
+
+		render(<SecurityExternalAuthLinksSection />);
+
+		await screen.findByText("QQ");
+		expect(imageBySrc("/static/external-auth/qq-logo.svg")).toHaveAttribute(
+			"src",
+			"/static/external-auth/qq-logo.svg",
+		);
 	});
 
 	it("falls back to the provider kind icon when the configured icon contains whitespace", async () => {

@@ -25,6 +25,10 @@ import {
 	formFromProvider,
 	getManagedExternalAuthSearchString,
 	isGitHubProviderKind,
+	isGoogleProviderKind,
+	isMicrosoftProviderKind,
+	isQqProviderKind,
+	MICROSOFT_DEFAULT_TENANT,
 	mergeManagedExternalAuthSearchParams,
 	normalizeOffset,
 	requiredFieldsMissing,
@@ -154,6 +158,66 @@ function resetDialogFields(state: AdminExternalAuthUiState) {
 	};
 }
 
+function initialProviderKindPatch(
+	kind: AdminExternalAuthProviderKindInfo | undefined,
+): Partial<ExternalAuthProviderFormData> {
+	if (!kind) {
+		return {};
+	}
+	if (isMicrosoftProviderKind(kind) || isQqProviderKind(kind)) {
+		return {
+			requireEmailVerified: false,
+		};
+	}
+	return {};
+}
+
+function dedicatedProviderKindPatch(
+	displayName: string,
+	fallbackDisplayName: string,
+	requireEmailVerified: boolean,
+): Partial<ExternalAuthProviderFormData> {
+	return {
+		authorizationUrl: "",
+		avatarUrlClaim: "",
+		displayName: displayName.trim() ? displayName : fallbackDisplayName,
+		displayNameClaim: "",
+		emailClaim: "",
+		emailVerifiedClaim: "",
+		groupsClaim: "",
+		iconUrl: "",
+		issuerUrl: "",
+		requireEmailVerified,
+		subjectClaim: "",
+		tokenUrl: "",
+		userinfoUrl: "",
+		usernameClaim: "",
+	};
+}
+
+function providerKindPatch(
+	kind: AdminExternalAuthProviderKindInfo | ExternalAuthProviderKind,
+	displayName: string,
+): Partial<ExternalAuthProviderFormData> {
+	if (isGitHubProviderKind(kind)) {
+		return dedicatedProviderKindPatch(displayName, "GitHub", true);
+	}
+	if (isGoogleProviderKind(kind)) {
+		return dedicatedProviderKindPatch(displayName, "Google", true);
+	}
+	if (isMicrosoftProviderKind(kind)) {
+		return {
+			...dedicatedProviderKindPatch(displayName, "Microsoft", false),
+			microsoftTenantMode: MICROSOFT_DEFAULT_TENANT,
+			microsoftTenant: MICROSOFT_DEFAULT_TENANT,
+		};
+	}
+	if (isQqProviderKind(kind)) {
+		return dedicatedProviderKindPatch(displayName, "QQ", false);
+	}
+	return {};
+}
+
 function adminExternalAuthUiReducer(
 	state: AdminExternalAuthUiState,
 	action: AdminExternalAuthUiAction,
@@ -175,6 +239,7 @@ function adminExternalAuthUiReducer(
 				form: nextKind
 					? {
 							...state.form,
+							...initialProviderKindPatch(nextKind),
 							providerKind: nextKind.kind,
 							scopes: defaultScopesForKind(nextKind),
 						}
@@ -307,11 +372,6 @@ export function useAdminExternalAuthPageController() {
 			normalizeOffset(typeof value === "function" ? value(current) : value),
 		);
 	}, []);
-	const enabledCount = useMemo(
-		() => providers.filter((provider) => provider.enabled).length,
-		[providers],
-	);
-	const providerKindCount = providerKinds.length;
 	const selectedKind = useMemo(
 		() =>
 			providerKinds.find((kind) => kind.kind === form.providerKind) ??
@@ -476,26 +536,8 @@ export function useAdminExternalAuthPageController() {
 
 	const setProviderKind = (kind: ExternalAuthProviderKind) => {
 		const descriptor = providerKinds.find((item) => item.kind === kind);
-		const patch: Partial<ExternalAuthProviderFormData> = isGitHubProviderKind(
-			descriptor ?? kind,
-		)
-			? {
-					authorizationUrl: "",
-					avatarUrlClaim: "",
-					displayName: form.displayName.trim() ? form.displayName : "GitHub",
-					displayNameClaim: "",
-					emailClaim: "",
-					emailVerifiedClaim: "",
-					groupsClaim: "",
-					iconUrl: "",
-					issuerUrl: "",
-					requireEmailVerified: true,
-					subjectClaim: "",
-					tokenUrl: "",
-					userinfoUrl: "",
-					usernameClaim: "",
-				}
-			: {};
+		const selectedProviderKind = descriptor ?? kind;
+		const patch = providerKindPatch(selectedProviderKind, form.displayName);
 		dispatchUi({
 			kind,
 			patch,
@@ -520,6 +562,7 @@ export function useAdminExternalAuthPageController() {
 		dispatchUi({
 			form: {
 				...emptyForm,
+				...initialProviderKindPatch(firstKind),
 				providerKind: firstKind?.kind ?? "oidc",
 				scopes: defaultScopesForKind(firstKind),
 			},
@@ -725,7 +768,6 @@ export function useAdminExternalAuthPageController() {
 		dialogOpen,
 		dialogProps,
 		editingProvider,
-		enabledCount,
 		form,
 		goCreateBack,
 		goCreateNext,
@@ -740,7 +782,6 @@ export function useAdminExternalAuthPageController() {
 		pageSize,
 		pageSizeOptions,
 		prevPageDisabled,
-		providerKindCount,
 		providerKinds,
 		providers,
 		requestConfirm,

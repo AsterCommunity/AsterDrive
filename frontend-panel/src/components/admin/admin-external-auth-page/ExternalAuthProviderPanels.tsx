@@ -3,6 +3,13 @@ import { TestConnectionButton } from "@/components/admin/TestConnectionButton";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+	Select,
+	SelectContent,
+	SelectItem,
+	SelectTrigger,
+	SelectValue,
+} from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import type {
 	AdminExternalAuthProviderInfo,
@@ -20,12 +27,20 @@ import {
 	formClaimSummary,
 	formConnectionSummary,
 	GITHUB_CLAIMS,
-	GITHUB_FIXED_ENDPOINTS,
+	GOOGLE_CLAIMS,
 	isGitHubProviderKind,
+	isGoogleProviderKind,
+	isMicrosoftProviderKind,
+	isQqProviderKind,
 	kindDescription,
 	kindDisplayName,
+	MICROSOFT_CLAIMS,
+	MICROSOFT_CUSTOM_TENANT_MODE,
+	MICROSOFT_TENANT_PRESETS,
+	type MicrosoftTenantMode,
 	parseAllowedDomains,
 	providerIconSummary,
+	QQ_CLAIMS,
 } from "./shared";
 
 interface ExternalAuthAccessPolicyPanelProps {
@@ -168,6 +183,9 @@ export function ExternalAuthSummaryPanel({
 	const summaryConnection = formConnectionSummary(form, selectedKind);
 	const summaryClaims = formClaimSummary(form, selectedKind);
 	const isGitHub = isGitHubProviderKind(selectedKind ?? providerKind);
+	const isGoogle = isGoogleProviderKind(selectedKind ?? providerKind);
+	const isMicrosoft = isMicrosoftProviderKind(selectedKind ?? providerKind);
+	const isQq = isQqProviderKind(selectedKind ?? providerKind);
 
 	return (
 		<section className="rounded-2xl border border-border/70 bg-background/70 p-5">
@@ -202,6 +220,36 @@ export function ExternalAuthSummaryPanel({
 						</dt>
 						<dd className="mt-1 text-xs leading-5 text-muted-foreground">
 							{t("external_auth_provider_github_email_desc")}
+						</dd>
+					</div>
+				) : null}
+				{isGoogle ? (
+					<div className="rounded-lg border border-border/70 bg-muted/30 p-3">
+						<dt className="text-xs font-medium">
+							{t("external_auth_provider_google_email_title")}
+						</dt>
+						<dd className="mt-1 text-xs leading-5 text-muted-foreground">
+							{t("external_auth_provider_google_email_desc")}
+						</dd>
+					</div>
+				) : null}
+				{isMicrosoft ? (
+					<div className="rounded-lg border border-border/70 bg-muted/30 p-3">
+						<dt className="text-xs font-medium">
+							{t("external_auth_provider_microsoft_email_title")}
+						</dt>
+						<dd className="mt-1 text-xs leading-5 text-muted-foreground">
+							{t("external_auth_provider_microsoft_email_desc")}
+						</dd>
+					</div>
+				) : null}
+				{isQq ? (
+					<div className="rounded-lg border border-border/70 bg-muted/30 p-3">
+						<dt className="text-xs font-medium">
+							{t("external_auth_provider_qq_email_title")}
+						</dt>
+						<dd className="mt-1 text-xs leading-5 text-muted-foreground">
+							{t("external_auth_provider_qq_email_desc")}
 						</dd>
 					</div>
 				) : null}
@@ -304,74 +352,6 @@ export function ExternalAuthProviderKindPanel({
 	);
 }
 
-function GitHubProviderInfoPanel() {
-	const { t } = useTranslation("admin");
-
-	return (
-		<div className="md:col-span-2 rounded-xl border border-border/70 bg-muted/25 p-4">
-			<div className="flex items-start gap-3">
-				<div className="flex size-11 shrink-0 items-center justify-center rounded-lg bg-white shadow-sm ring-1 ring-black/5">
-					<ExternalAuthProviderIcon kind="github" className="max-h-7 max-w-7" />
-				</div>
-				<div className="min-w-0 flex-1">
-					<p className="text-sm font-medium">
-						{t("external_auth_provider_github_fixed_title")}
-					</p>
-					<p className="mt-1 text-xs leading-5 text-muted-foreground">
-						{t("external_auth_provider_github_fixed_desc")}
-					</p>
-				</div>
-			</div>
-			<dl className="mt-3 grid gap-2 text-xs sm:grid-cols-2">
-				<div className="min-w-0">
-					<dt className="text-muted-foreground">
-						{t("external_auth_provider_authorization_url")}
-					</dt>
-					<dd
-						className="truncate font-mono"
-						title={GITHUB_FIXED_ENDPOINTS.authorizationUrl}
-					>
-						{GITHUB_FIXED_ENDPOINTS.authorizationUrl}
-					</dd>
-				</div>
-				<div className="min-w-0">
-					<dt className="text-muted-foreground">
-						{t("external_auth_provider_token_url")}
-					</dt>
-					<dd
-						className="truncate font-mono"
-						title={GITHUB_FIXED_ENDPOINTS.tokenUrl}
-					>
-						{GITHUB_FIXED_ENDPOINTS.tokenUrl}
-					</dd>
-				</div>
-				<div className="min-w-0">
-					<dt className="text-muted-foreground">
-						{t("external_auth_provider_userinfo_url")}
-					</dt>
-					<dd
-						className="truncate font-mono"
-						title={GITHUB_FIXED_ENDPOINTS.userinfoUrl}
-					>
-						{GITHUB_FIXED_ENDPOINTS.userinfoUrl}
-					</dd>
-				</div>
-				<div className="min-w-0">
-					<dt className="text-muted-foreground">
-						{t("external_auth_provider_github_user_emails_url")}
-					</dt>
-					<dd
-						className="truncate font-mono"
-						title={GITHUB_FIXED_ENDPOINTS.userEmailsUrl}
-					>
-						{GITHUB_FIXED_ENDPOINTS.userEmailsUrl}
-					</dd>
-				</div>
-			</dl>
-		</div>
-	);
-}
-
 interface ExternalAuthProviderIdentityPanelProps {
 	connectionMissing: boolean;
 	createStepTouched: boolean;
@@ -410,7 +390,19 @@ export function ExternalAuthProviderIdentityPanel({
 	testResult,
 }: ExternalAuthProviderIdentityPanelProps) {
 	const { t } = useTranslation("admin");
-	const isGitHub = isGitHubProviderKind(selectedKind);
+	const isMicrosoft = isMicrosoftProviderKind(selectedKind);
+	const microsoftTenantOptions = isMicrosoft
+		? [
+				...MICROSOFT_TENANT_PRESETS.map((value) => ({
+					label: t(`external_auth_provider_microsoft_tenant_${value}`),
+					value,
+				})),
+				{
+					label: t("external_auth_provider_microsoft_tenant_custom"),
+					value: MICROSOFT_CUSTOM_TENANT_MODE,
+				},
+			]
+		: [];
 
 	return (
 		<section className="rounded-2xl border border-border/70 bg-background/70 p-5">
@@ -465,6 +457,64 @@ export function ExternalAuthProviderIdentityPanel({
 						{t("external_auth_provider_icon_url_hint")}
 					</p>
 				</div>
+				{isMicrosoft ? (
+					<div className="space-y-2 md:col-span-2">
+						<Label htmlFor="external-auth-provider-microsoft-tenant-mode">
+							{t("external_auth_provider_microsoft_tenant")}
+						</Label>
+						<Select
+							items={microsoftTenantOptions}
+							value={form.microsoftTenantMode}
+							onValueChange={(value) => {
+								const tenantMode = value as MicrosoftTenantMode;
+								onFieldChange("microsoftTenantMode", tenantMode);
+								onFieldChange(
+									"microsoftTenant",
+									tenantMode === MICROSOFT_CUSTOM_TENANT_MODE ? "" : tenantMode,
+								);
+							}}
+						>
+							<SelectTrigger id="external-auth-provider-microsoft-tenant-mode">
+								<SelectValue />
+							</SelectTrigger>
+							<SelectContent>
+								{microsoftTenantOptions.map((option) => (
+									<SelectItem key={option.value} value={option.value}>
+										{option.label}
+									</SelectItem>
+								))}
+							</SelectContent>
+						</Select>
+						<p className="text-xs text-muted-foreground">
+							{t("external_auth_provider_microsoft_tenant_hint")}
+						</p>
+					</div>
+				) : null}
+				{isMicrosoft &&
+				form.microsoftTenantMode === MICROSOFT_CUSTOM_TENANT_MODE ? (
+					<div className="space-y-2 md:col-span-2">
+						<Label htmlFor="external-auth-provider-microsoft-custom-tenant">
+							{t("external_auth_provider_microsoft_tenant_custom_label")}
+						</Label>
+						<Input
+							id="external-auth-provider-microsoft-custom-tenant"
+							value={form.microsoftTenant}
+							placeholder="11111111-2222-3333-4444-555555555555"
+							maxLength={256}
+							aria-invalid={
+								createStepTouched && !form.microsoftTenant.trim()
+									? true
+									: undefined
+							}
+							onChange={(event) =>
+								onFieldChange("microsoftTenant", event.target.value)
+							}
+						/>
+						<p className="text-xs text-muted-foreground">
+							{t("external_auth_provider_microsoft_tenant_custom_hint")}
+						</p>
+					</div>
+				) : null}
 				<ExternalAuthConnectionFields
 					createStepTouched={createStepTouched}
 					form={form}
@@ -474,7 +524,6 @@ export function ExternalAuthProviderIdentityPanel({
 					showIssuerUrl={showIssuerUrl}
 					showManualEndpoints={showManualEndpoints}
 				/>
-				{isGitHub ? <GitHubProviderInfoPanel /> : null}
 				<ExternalAuthConnectionTestPanel
 					disabled={testDisabled}
 					onTestConnection={onTestConnection}
@@ -545,6 +594,123 @@ function GitHubClaimInfoPanel() {
 	);
 }
 
+function GoogleClaimInfoPanel() {
+	const { t } = useTranslation("admin");
+
+	return (
+		<div className="md:col-span-2 rounded-xl border border-border/70 bg-muted/25 p-4">
+			<p className="text-sm font-medium">
+				{t("external_auth_provider_google_claims_title")}
+			</p>
+			<p className="mt-1 text-xs leading-5 text-muted-foreground">
+				{t("external_auth_provider_google_claims_desc")}
+			</p>
+			<dl className="mt-3 grid gap-2 text-xs sm:grid-cols-2">
+				<div>
+					<dt className="text-muted-foreground">
+						{t("external_auth_provider_subject_claim")}
+					</dt>
+					<dd className="font-mono">{GOOGLE_CLAIMS.subjectClaim}</dd>
+				</div>
+				<div>
+					<dt className="text-muted-foreground">
+						{t("external_auth_provider_display_name_claim")}
+					</dt>
+					<dd className="font-mono">{GOOGLE_CLAIMS.displayNameClaim}</dd>
+				</div>
+				<div>
+					<dt className="text-muted-foreground">
+						{t("external_auth_provider_email_claim")}
+					</dt>
+					<dd className="font-mono">{GOOGLE_CLAIMS.emailClaim}</dd>
+				</div>
+				<div>
+					<dt className="text-muted-foreground">
+						{t("external_auth_provider_email_verified_claim")}
+					</dt>
+					<dd className="font-mono">{GOOGLE_CLAIMS.emailVerifiedClaim}</dd>
+				</div>
+				<div>
+					<dt className="text-muted-foreground">
+						{t("external_auth_provider_avatar_url_claim")}
+					</dt>
+					<dd className="font-mono">{GOOGLE_CLAIMS.avatarUrlClaim}</dd>
+				</div>
+			</dl>
+		</div>
+	);
+}
+
+function MicrosoftClaimInfoPanel() {
+	const { t } = useTranslation("admin");
+
+	return (
+		<div className="md:col-span-2 rounded-xl border border-border/70 bg-muted/25 p-4">
+			<p className="text-sm font-medium">
+				{t("external_auth_provider_microsoft_claims_title")}
+			</p>
+			<p className="mt-1 text-xs leading-5 text-muted-foreground">
+				{t("external_auth_provider_microsoft_claims_desc")}
+			</p>
+			<dl className="mt-3 grid gap-2 text-xs sm:grid-cols-2">
+				<div>
+					<dt className="text-muted-foreground">
+						{t("external_auth_provider_subject_claim")}
+					</dt>
+					<dd className="font-mono">{MICROSOFT_CLAIMS.subjectClaim}</dd>
+				</div>
+				<div>
+					<dt className="text-muted-foreground">
+						{t("external_auth_provider_display_name_claim")}
+					</dt>
+					<dd className="font-mono">{MICROSOFT_CLAIMS.displayNameClaim}</dd>
+				</div>
+				<div>
+					<dt className="text-muted-foreground">
+						{t("external_auth_provider_email_claim")}
+					</dt>
+					<dd className="font-mono">{MICROSOFT_CLAIMS.emailClaim}</dd>
+				</div>
+			</dl>
+		</div>
+	);
+}
+
+function QqClaimInfoPanel() {
+	const { t } = useTranslation("admin");
+
+	return (
+		<div className="md:col-span-2 rounded-xl border border-border/70 bg-muted/25 p-4">
+			<p className="text-sm font-medium">
+				{t("external_auth_provider_qq_claims_title")}
+			</p>
+			<p className="mt-1 text-xs leading-5 text-muted-foreground">
+				{t("external_auth_provider_qq_claims_desc")}
+			</p>
+			<dl className="mt-3 grid gap-2 text-xs sm:grid-cols-2">
+				<div>
+					<dt className="text-muted-foreground">
+						{t("external_auth_provider_subject_claim")}
+					</dt>
+					<dd className="font-mono">{QQ_CLAIMS.subjectClaim}</dd>
+				</div>
+				<div>
+					<dt className="text-muted-foreground">
+						{t("external_auth_provider_display_name_claim")}
+					</dt>
+					<dd className="font-mono">{QQ_CLAIMS.displayNameClaim}</dd>
+				</div>
+				<div>
+					<dt className="text-muted-foreground">
+						{t("external_auth_provider_email_claim")}
+					</dt>
+					<dd className="font-mono">{QQ_CLAIMS.emailClaim}</dd>
+				</div>
+			</dl>
+		</div>
+	);
+}
+
 interface ExternalAuthProviderRulesPanelProps {
 	form: ExternalAuthProviderFormData;
 	onFieldChange: ExternalAuthProviderFieldChange;
@@ -558,6 +724,9 @@ export function ExternalAuthProviderRulesPanel({
 }: ExternalAuthProviderRulesPanelProps) {
 	const { t } = useTranslation("admin");
 	const isGitHub = isGitHubProviderKind(selectedKind);
+	const isGoogle = isGoogleProviderKind(selectedKind);
+	const isMicrosoft = isMicrosoftProviderKind(selectedKind);
+	const isQq = isQqProviderKind(selectedKind);
 
 	return (
 		<section className="rounded-2xl border border-border/70 bg-background/70 p-5">
@@ -602,6 +771,12 @@ export function ExternalAuthProviderRulesPanel({
 				</div>
 				{isGitHub ? (
 					<GitHubClaimInfoPanel />
+				) : isGoogle ? (
+					<GoogleClaimInfoPanel />
+				) : isMicrosoft ? (
+					<MicrosoftClaimInfoPanel />
+				) : isQq ? (
+					<QqClaimInfoPanel />
 				) : (
 					<ExternalAuthClaimFields
 						form={form}

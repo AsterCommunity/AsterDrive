@@ -26,8 +26,8 @@ const OIDC_ISSUER_MAX_LEN: usize = 512;
 const OIDC_SUBJECT_MAX_LEN: usize = 255;
 const OIDC_SNAPSHOT_MAX_LEN: usize = 255;
 
-type OidcHttpClient = reqwest::Client;
-type OidcClient = CoreClient<
+pub(super) type OidcHttpClient = reqwest::Client;
+pub(super) type OidcClient = CoreClient<
     EndpointSet,
     EndpointNotSet,
     EndpointNotSet,
@@ -75,29 +75,7 @@ impl ExternalAuthProviderDriver for OidcProviderDriver {
         redirect_uri: &str,
     ) -> Result<ExternalAuthAuthorizationStart> {
         let client = build_client(provider, redirect_uri).await?;
-        let (pkce_challenge, pkce_verifier) = PkceCodeChallenge::new_random_sha256();
-
-        let mut request = client
-            .authorize_url(
-                CoreAuthenticationFlow::AuthorizationCode,
-                CsrfToken::new_random,
-                Nonce::new_random,
-            )
-            .set_pkce_challenge(pkce_challenge);
-
-        for scope in provider.scopes.split_whitespace() {
-            if scope != "openid" {
-                request = request.add_scope(Scope::new(scope.to_string()));
-            }
-        }
-
-        let (authorization_url, csrf_state, nonce) = request.url();
-        Ok(ExternalAuthAuthorizationStart {
-            authorization_url: authorization_url.to_string(),
-            state: csrf_state.secret().clone(),
-            nonce: Some(nonce.secret().clone()),
-            pkce_verifier: Some(pkce_verifier.secret().clone()),
-        })
+        start_authorization_with_oidc_client(provider, client)
     }
 
     async fn exchange_callback(
@@ -188,7 +166,36 @@ impl ExternalAuthProviderDriver for OidcProviderDriver {
     }
 }
 
-fn oidc_http_client() -> Result<OidcHttpClient> {
+pub(super) fn start_authorization_with_oidc_client(
+    provider: &ExternalAuthProviderConfig,
+    client: OidcClient,
+) -> Result<ExternalAuthAuthorizationStart> {
+    let (pkce_challenge, pkce_verifier) = PkceCodeChallenge::new_random_sha256();
+
+    let mut request = client
+        .authorize_url(
+            CoreAuthenticationFlow::AuthorizationCode,
+            CsrfToken::new_random,
+            Nonce::new_random,
+        )
+        .set_pkce_challenge(pkce_challenge);
+
+    for scope in provider.scopes.split_whitespace() {
+        if scope != "openid" {
+            request = request.add_scope(Scope::new(scope.to_string()));
+        }
+    }
+
+    let (authorization_url, csrf_state, nonce) = request.url();
+    Ok(ExternalAuthAuthorizationStart {
+        authorization_url: authorization_url.to_string(),
+        state: csrf_state.secret().clone(),
+        nonce: Some(nonce.secret().clone()),
+        pkce_verifier: Some(pkce_verifier.secret().clone()),
+    })
+}
+
+pub(super) fn oidc_http_client() -> Result<OidcHttpClient> {
     reqwest::ClientBuilder::new()
         .redirect(reqwest::redirect::Policy::none())
         .timeout(std::time::Duration::from_secs(15))
@@ -200,7 +207,7 @@ fn oidc_http_client() -> Result<OidcHttpClient> {
         )
 }
 
-async fn build_client(
+pub(super) async fn build_client(
     provider: &ExternalAuthProviderConfig,
     redirect_uri: &str,
 ) -> Result<OidcClient> {
@@ -225,7 +232,9 @@ async fn build_client(
     .set_redirect_uri(redirect_uri))
 }
 
-async fn discover_provider(provider: &ExternalAuthProviderConfig) -> Result<CoreProviderMetadata> {
+pub(super) async fn discover_provider(
+    provider: &ExternalAuthProviderConfig,
+) -> Result<CoreProviderMetadata> {
     let http_client = oidc_http_client()?;
     let issuer = IssuerUrl::new(provider.require_issuer_url()?.to_string())
         .map_aster_err_ctx("invalid OIDC issuer URL", AsterError::validation_error)?;
@@ -267,7 +276,7 @@ fn normalize_optional_snapshot(value: Option<String>) -> Option<String> {
         .map(|value| truncate_to_utf8_boundary(&value, OIDC_SNAPSHOT_MAX_LEN))
 }
 
-fn profile_from_id_token(
+pub(super) fn profile_from_id_token(
     claims: &openidconnect::core::CoreIdTokenClaims,
 ) -> Result<ExternalAuthProfile> {
     let display_name = normalize_optional_snapshot(

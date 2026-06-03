@@ -30,7 +30,7 @@ async fn admin_provider_kind_api_includes_generic_oauth2_contract() {
     let kinds = body["data"]
         .as_array()
         .expect("provider kind list should be an array");
-    assert_eq!(kinds.len(), 3);
+    assert_eq!(kinds.len(), 6);
     let oauth2 = kinds
         .iter()
         .find(|kind| kind["kind"] == "generic_oauth2")
@@ -59,6 +59,21 @@ async fn admin_provider_kind_api_includes_generic_oauth2_contract() {
     assert_eq!(github["supports_discovery"], false);
     assert_eq!(github["supports_pkce"], true);
     assert_eq!(github["supports_email_verified_claim"], false);
+
+    let qq = kinds
+        .iter()
+        .find(|kind| kind["kind"] == "qq")
+        .expect("QQ kind should be listed");
+    assert_eq!(qq["protocol"], "oauth2");
+    assert_eq!(qq["default_scopes"], "get_user_info");
+    assert_eq!(qq["issuer_url_required"], false);
+    assert_eq!(qq["manual_endpoint_configuration_supported"], false);
+    assert_eq!(qq["authorization_url_required"], false);
+    assert_eq!(qq["token_url_required"], false);
+    assert_eq!(qq["userinfo_url_required"], false);
+    assert_eq!(qq["supports_discovery"], false);
+    assert_eq!(qq["supports_pkce"], true);
+    assert_eq!(qq["supports_email_verified_claim"], false);
 }
 
 #[actix_web::test]
@@ -193,6 +208,80 @@ async fn admin_create_and_test_github_provider_uses_fixed_endpoints() {
     );
     assert_eq!(body["data"]["checks"][0]["name"], "github_endpoints");
     assert_eq!(body["data"]["checks"][1]["name"], "verified_primary_email");
+}
+
+#[actix_web::test]
+async fn admin_create_and_test_qq_provider_uses_fixed_endpoints_and_defaults() {
+    let state = common::setup().await;
+    let app = create_test_app!(state);
+    let (admin_token, _) = register_and_login!(app);
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/admin/external-auth/providers")
+        .insert_header(("Cookie", common::access_cookie_header(&admin_token)))
+        .insert_header(common::csrf_header_for(&admin_token))
+        .set_json(serde_json::json!({
+            "provider_kind": "qq",
+            "display_name": "QQ",
+            "authorization_url": "https://qq.example.test/oauth2.0/authorize",
+            "client_id": TEST_CLIENT_ID
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 400);
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/admin/external-auth/providers")
+        .insert_header(("Cookie", common::access_cookie_header(&admin_token)))
+        .insert_header(common::csrf_header_for(&admin_token))
+        .set_json(serde_json::json!({
+            "provider_kind": "qq",
+            "display_name": "QQ",
+            "client_id": TEST_CLIENT_ID,
+            "client_secret": TEST_CLIENT_SECRET
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 201);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(body["data"]["provider_kind"], "qq");
+    assert_eq!(body["data"]["protocol"], "oauth2");
+    assert_eq!(body["data"]["authorization_url"], Value::Null);
+    assert_eq!(body["data"]["token_url"], Value::Null);
+    assert_eq!(body["data"]["userinfo_url"], Value::Null);
+    assert_eq!(body["data"]["scopes"], "get_user_info");
+    assert_eq!(body["data"]["require_email_verified"], false);
+    assert_eq!(body["data"]["auto_link_verified_email_enabled"], false);
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/admin/external-auth/providers/test")
+        .insert_header(("Cookie", common::access_cookie_header(&admin_token)))
+        .insert_header(common::csrf_header_for(&admin_token))
+        .set_json(serde_json::json!({
+            "provider_kind": "qq",
+            "client_id": TEST_CLIENT_ID,
+            "client_secret": TEST_CLIENT_SECRET
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(body["data"]["provider"], "QQ");
+    assert_eq!(body["data"]["issuer"], format!("qq:{TEST_CLIENT_ID}"));
+    assert_eq!(
+        body["data"]["authorization_endpoint"],
+        "https://graph.qq.com/oauth2.0/authorize"
+    );
+    assert_eq!(
+        body["data"]["token_endpoint"],
+        "https://graph.qq.com/oauth2.0/token"
+    );
+    assert_eq!(
+        body["data"]["userinfo_endpoint"],
+        "https://graph.qq.com/user/get_user_info"
+    );
+    assert_eq!(body["data"]["checks"][0]["name"], "qq_endpoints");
+    assert_eq!(body["data"]["checks"][1]["name"], "qq_openid");
 }
 
 #[actix_web::test]
@@ -575,6 +664,158 @@ async fn github_rejects_user_emails_api_failure() {
         .await
         .expect("identities should query");
     assert!(identities.is_empty());
+
+    server.stop(true).await;
+}
+
+#[actix_web::test]
+async fn qq_callback_fetches_openid_and_userinfo_then_requires_email_verification() {
+    let (mock_provider, server) = start_mock_oauth2_provider().await;
+    let state = common::setup().await;
+    configure_oauth2_public_site_url(&state);
+    let app = create_test_app!(state.clone());
+    let provider_model =
+        qq_external_auth_provider_model("qq-mock", &mock_provider.base_url, true, false)
+            .insert(state.writer_db())
+            .await
+            .expect("QQ provider should insert");
+
+    let state_value = start_qq_login(&app, &mock_provider, &provider_model.key, "/files").await;
+    let authorize_request = mock_provider.last_authorize_request();
+    assert_eq!(authorize_request.response_type, "code");
+    assert_eq!(authorize_request.client_id, TEST_CLIENT_ID);
+    assert_eq!(
+        authorize_request.redirect_uri,
+        format!(
+            "http://localhost:8080/api/v1/auth/external-auth/qq/{}/callback",
+            provider_model.key
+        )
+    );
+    assert_eq!(authorize_request.scope.as_deref(), Some("get_user_info"));
+    assert_eq!(authorize_request.state, state_value);
+    assert_eq!(
+        authorize_request.code_challenge_method.as_deref(),
+        Some("S256")
+    );
+
+    let resp = finish_qq_callback(&app, &provider_model.key, &state_value).await;
+    let flow_token = oauth2_email_required_flow(&resp);
+    assert!(!flow_token.is_empty());
+    let identities = external_auth_identity::Entity::find()
+        .all(state.writer_db())
+        .await
+        .expect("identities should query");
+    assert!(identities.is_empty());
+    assert_eq!(
+        mock_provider.token_auth_observations(),
+        vec![TokenAuthObservation::Post]
+    );
+
+    server.stop(true).await;
+}
+
+#[actix_web::test]
+async fn qq_existing_identity_can_login_without_email() {
+    let (mock_provider, server) = start_mock_oauth2_provider().await;
+    let state = common::setup().await;
+    configure_oauth2_public_site_url(&state);
+    let app = create_test_app!(state.clone());
+    let (admin_token, _) = register_and_login!(app);
+    let linked_user_id = admin_create_user!(
+        app,
+        admin_token,
+        "qq-linked",
+        "qq-linked@example.com",
+        "password123"
+    );
+    let provider_model =
+        qq_external_auth_provider_model("qq-bound-no-email", &mock_provider.base_url, true, true)
+            .insert(state.writer_db())
+            .await
+            .expect("QQ provider should insert");
+    external_auth_identity::ActiveModel {
+        user_id: Set(linked_user_id),
+        provider_id: Set(provider_model.id),
+        identity_namespace: Set(format!("qq:{TEST_CLIENT_ID}")),
+        subject: Set("qq-openid-1".to_string()),
+        email_snapshot: Set(None),
+        display_name_snapshot: Set(Some("Linked QQ User".to_string())),
+        created_at: Set(chrono::Utc::now()),
+        updated_at: Set(chrono::Utc::now()),
+        last_login_at: Set(None),
+        ..Default::default()
+    }
+    .insert(state.writer_db())
+    .await
+    .expect("identity should insert");
+
+    let state_value = start_qq_login(&app, &mock_provider, &provider_model.key, "/files").await;
+    let resp = finish_qq_callback(&app, &provider_model.key, &state_value).await;
+    assert_eq!(resp.status(), 302);
+    assert_eq!(
+        resp.headers()
+            .get("Location")
+            .and_then(|value| value.to_str().ok()),
+        Some("http://localhost:8080/files")
+    );
+    assert!(common::extract_cookie(&resp, "aster_access").is_some());
+
+    server.stop(true).await;
+}
+
+#[actix_web::test]
+async fn qq_rejects_openid_client_id_mismatch() {
+    let (mock_provider, server) = start_mock_oauth2_provider().await;
+    mock_provider.set_qq_openid_client_id("different-client");
+    let state = common::setup().await;
+    configure_oauth2_public_site_url(&state);
+    let app = create_test_app!(state.clone());
+    let provider_model =
+        qq_external_auth_provider_model("qq-client-mismatch", &mock_provider.base_url, true, false)
+            .insert(state.writer_db())
+            .await
+            .expect("QQ provider should insert");
+
+    let state_value = start_qq_login(&app, &mock_provider, &provider_model.key, "/").await;
+    let resp = finish_qq_callback(&app, &provider_model.key, &state_value).await;
+    assert_oauth2_error_redirect(&resp);
+
+    server.stop(true).await;
+}
+
+#[actix_web::test]
+async fn qq_rejects_missing_openid_and_userinfo_errors() {
+    let (mock_provider, server) = start_mock_oauth2_provider().await;
+    mock_provider.set_qq_openid("");
+    let state = common::setup().await;
+    configure_oauth2_public_site_url(&state);
+    let app = create_test_app!(state.clone());
+    let provider_model =
+        qq_external_auth_provider_model("qq-missing-openid", &mock_provider.base_url, true, false)
+            .insert(state.writer_db())
+            .await
+            .expect("QQ provider should insert");
+
+    let state_value = start_qq_login(&app, &mock_provider, &provider_model.key, "/").await;
+    let resp = finish_qq_callback(&app, &provider_model.key, &state_value).await;
+    assert_oauth2_error_redirect(&resp);
+
+    server.stop(true).await;
+
+    let (mock_provider, server) = start_mock_oauth2_provider().await;
+    mock_provider.set_qq_userinfo_error(100030, "mock userinfo error");
+    let state = common::setup().await;
+    configure_oauth2_public_site_url(&state);
+    let app = create_test_app!(state.clone());
+    let provider_model =
+        qq_external_auth_provider_model("qq-userinfo-error", &mock_provider.base_url, true, false)
+            .insert(state.writer_db())
+            .await
+            .expect("QQ provider should insert");
+
+    let state_value = start_qq_login(&app, &mock_provider, &provider_model.key, "/").await;
+    let resp = finish_qq_callback(&app, &provider_model.key, &state_value).await;
+    assert_oauth2_error_redirect(&resp);
 
     server.stop(true).await;
 }

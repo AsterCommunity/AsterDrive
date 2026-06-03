@@ -8,6 +8,12 @@ export function externalAuthKindIconPath(
 			return "/static/external-auth/oauth-logo.svg";
 		case "github":
 			return "/static/external-auth/github-logo.svg";
+		case "google":
+			return "/static/external-auth/google-logo.svg";
+		case "microsoft":
+			return "/static/external-auth/microsoft-logo.svg";
+		case "qq":
+			return "/static/external-auth/qq-logo.svg";
 		case "oidc":
 			return "/static/external-auth/openid-seeklogo.svg";
 	}

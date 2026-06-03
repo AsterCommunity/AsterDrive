@@ -215,6 +215,64 @@ where
     test::call_service(app, req).await
 }
 
+pub async fn start_qq_login<S, B, E>(
+    app: &S,
+    mock_provider: &mock::MockOAuth2Provider,
+    provider_key: &str,
+    return_path: &str,
+) -> String
+where
+    S: actix_web::dev::Service<
+            actix_http::Request,
+            Response = actix_web::dev::ServiceResponse<B>,
+            Error = E,
+        >,
+    B: MessageBody,
+    E: std::fmt::Debug,
+{
+    let req = test::TestRequest::post()
+        .uri(&format!(
+            "/api/v1/auth/external-auth/qq/{provider_key}/start"
+        ))
+        .insert_header(("Origin", TEST_BROWSER_ORIGIN))
+        .set_json(serde_json::json!({ "return_path": return_path }))
+        .to_request();
+    let resp = test::call_service(app, req).await;
+    assert_eq!(resp.status(), 200);
+    let body: Value = test::read_body_json(resp).await;
+    let auth_url = body["data"]["authorization_url"]
+        .as_str()
+        .expect("authorization url should be returned");
+    reqwest::get(auth_url)
+        .await
+        .expect("mock authorize request should succeed");
+    mock_provider.last_authorize_request().state
+}
+
+pub async fn finish_qq_callback<S, B, E>(
+    app: &S,
+    provider_key: &str,
+    state_value: &str,
+) -> ServiceResponse<B>
+where
+    S: actix_web::dev::Service<
+            actix_http::Request,
+            Response = actix_web::dev::ServiceResponse<B>,
+            Error = E,
+        >,
+    B: MessageBody,
+    E: std::fmt::Debug,
+{
+    let callback = format!(
+        "/api/v1/auth/external-auth/qq/{provider_key}/callback?code=mock-code&state={state_value}"
+    );
+    let req = test::TestRequest::get()
+        .uri(&callback)
+        .peer_addr("127.0.0.1:12345".parse().unwrap())
+        .to_request();
+    test::call_service(app, req).await
+}
+
 pub fn assert_oauth2_error_redirect<B>(resp: &ServiceResponse<B>) {
     assert_eq!(resp.status(), 302);
     let location = resp
@@ -305,6 +363,44 @@ pub fn github_external_auth_provider_model(
         auto_provision_enabled: Set(true),
         auto_link_verified_email_enabled: Set(false),
         require_email_verified: Set(true),
+        subject_claim: Set(None),
+        username_claim: Set(None),
+        display_name_claim: Set(None),
+        email_claim: Set(None),
+        email_verified_claim: Set(None),
+        groups_claim: Set(None),
+        avatar_url_claim: Set(None),
+        allowed_domains: Set(None),
+        created_at: Set(now),
+        updated_at: Set(now),
+        ..Default::default()
+    }
+}
+
+pub fn qq_external_auth_provider_model(
+    key: &str,
+    base_url: &str,
+    enabled: bool,
+    require_email_verified: bool,
+) -> external_auth_provider::ActiveModel {
+    let now = Utc::now();
+    external_auth_provider::ActiveModel {
+        key: Set(key.to_string()),
+        display_name: Set(format!("{key} provider")),
+        icon_url: Set(None),
+        provider_kind: Set(aster_drive::types::ExternalAuthProviderKind::Qq),
+        protocol: Set(aster_drive::types::ExternalAuthProtocol::OAuth2),
+        issuer_url: Set(None),
+        authorization_url: Set(Some(format!("{base_url}/authorize"))),
+        token_url: Set(Some(format!("{base_url}/qq/token"))),
+        userinfo_url: Set(Some(format!("{base_url}/qq/get_user_info"))),
+        client_id: Set(TEST_CLIENT_ID.to_string()),
+        client_secret: Set(Some(TEST_CLIENT_SECRET.to_string())),
+        scopes: Set("get_user_info".to_string()),
+        enabled: Set(enabled),
+        auto_provision_enabled: Set(true),
+        auto_link_verified_email_enabled: Set(true),
+        require_email_verified: Set(require_email_verified),
         subject_claim: Set(None),
         username_claim: Set(None),
         display_name_claim: Set(None),

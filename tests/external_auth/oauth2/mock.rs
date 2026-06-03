@@ -24,6 +24,11 @@ pub struct MockOAuth2Provider {
     profile_email_verified: Arc<Mutex<Option<bool>>>,
     github_emails: Arc<Mutex<Vec<GitHubEmailEntry>>>,
     github_emails_status: Arc<Mutex<actix_web::http::StatusCode>>,
+    qq_openid: Arc<Mutex<String>>,
+    qq_openid_client_id: Arc<Mutex<String>>,
+    qq_userinfo_ret: Arc<Mutex<i64>>,
+    qq_userinfo_msg: Arc<Mutex<String>>,
+    qq_nickname: Arc<Mutex<String>>,
 }
 
 #[derive(Clone, Debug)]
@@ -55,6 +60,30 @@ struct TokenRequest {
     code_verifier: Option<String>,
 }
 
+#[derive(Debug, Deserialize)]
+struct QqTokenRequest {
+    grant_type: String,
+    client_id: String,
+    client_secret: Option<String>,
+    code: String,
+    redirect_uri: String,
+    code_verifier: Option<String>,
+    fmt: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct QqOpenIdRequest {
+    access_token: String,
+    fmt: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct QqUserInfoRequest {
+    access_token: String,
+    oauth_consumer_key: String,
+    openid: String,
+}
+
 impl MockOAuth2Provider {
     fn new() -> Self {
         Self {
@@ -71,6 +100,11 @@ impl MockOAuth2Provider {
                 verified: true,
             }])),
             github_emails_status: Arc::new(Mutex::new(actix_web::http::StatusCode::OK)),
+            qq_openid: Arc::new(Mutex::new("qq-openid-1".to_string())),
+            qq_openid_client_id: Arc::new(Mutex::new(TEST_CLIENT_ID.to_string())),
+            qq_userinfo_ret: Arc::new(Mutex::new(0)),
+            qq_userinfo_msg: Arc::new(Mutex::new(String::new())),
+            qq_nickname: Arc::new(Mutex::new("QQ Test User".to_string())),
         }
     }
 
@@ -135,6 +169,31 @@ impl MockOAuth2Provider {
             .github_emails_status
             .lock()
             .expect("GitHub emails status lock should not be poisoned") = status;
+    }
+
+    pub fn set_qq_openid(&self, openid: &str) {
+        *self
+            .qq_openid
+            .lock()
+            .expect("QQ openid lock should not be poisoned") = openid.to_string();
+    }
+
+    pub fn set_qq_openid_client_id(&self, client_id: &str) {
+        *self
+            .qq_openid_client_id
+            .lock()
+            .expect("QQ openid client id lock should not be poisoned") = client_id.to_string();
+    }
+
+    pub fn set_qq_userinfo_error(&self, ret: i64, msg: &str) {
+        *self
+            .qq_userinfo_ret
+            .lock()
+            .expect("QQ userinfo ret lock should not be poisoned") = ret;
+        *self
+            .qq_userinfo_msg
+            .lock()
+            .expect("QQ userinfo msg lock should not be poisoned") = msg.to_string();
     }
 
     fn userinfo_payload(&self) -> serde_json::Value {
@@ -208,6 +267,9 @@ pub async fn start_mock_oauth2_provider() -> (MockOAuth2Provider, actix_web::dev
             .route("/userinfo", web::get().to(mock_userinfo))
             .route("/user", web::get().to(mock_userinfo))
             .route("/user/emails", web::get().to(mock_github_emails))
+            .route("/qq/token", web::get().to(mock_qq_token))
+            .route("/qq/me", web::get().to(mock_qq_openid))
+            .route("/qq/get_user_info", web::get().to(mock_qq_userinfo))
     })
     .listen(listener)
     .expect("mock OAuth2 server should listen")
@@ -350,4 +412,89 @@ async fn mock_github_emails(
         }));
     }
     HttpResponse::Ok().json(provider.github_emails_payload())
+}
+
+async fn mock_qq_token(
+    provider: web::Data<MockOAuth2Provider>,
+    query: web::Query<QqTokenRequest>,
+) -> impl Responder {
+    let request = query.into_inner();
+    assert_eq!(request.grant_type, "authorization_code");
+    assert_eq!(request.client_id, TEST_CLIENT_ID);
+    assert_eq!(request.client_secret.as_deref(), Some(TEST_CLIENT_SECRET));
+    assert_eq!(request.code, "mock-code");
+    assert!(!request.redirect_uri.is_empty());
+    assert!(
+        request
+            .code_verifier
+            .as_deref()
+            .is_some_and(|value| !value.is_empty()),
+        "QQ token request should include PKCE code_verifier"
+    );
+    assert_eq!(request.fmt, "json");
+    provider
+        .token_auth_observations
+        .lock()
+        .expect("token auth observations lock should not be poisoned")
+        .push(TokenAuthObservation::Post);
+    HttpResponse::Ok().json(serde_json::json!({
+        "access_token": "mock-qq-access-token",
+        "expires_in": "7776000"
+    }))
+}
+
+async fn mock_qq_openid(
+    provider: web::Data<MockOAuth2Provider>,
+    query: web::Query<QqOpenIdRequest>,
+) -> impl Responder {
+    let request = query.into_inner();
+    assert_eq!(request.access_token, "mock-qq-access-token");
+    assert_eq!(request.fmt, "json");
+    HttpResponse::Ok().json(serde_json::json!({
+        "client_id": provider
+            .qq_openid_client_id
+            .lock()
+            .expect("QQ openid client id lock should not be poisoned")
+            .clone(),
+        "openid": provider
+            .qq_openid
+            .lock()
+            .expect("QQ openid lock should not be poisoned")
+            .clone()
+    }))
+}
+
+async fn mock_qq_userinfo(
+    provider: web::Data<MockOAuth2Provider>,
+    query: web::Query<QqUserInfoRequest>,
+) -> impl Responder {
+    let request = query.into_inner();
+    assert_eq!(request.access_token, "mock-qq-access-token");
+    assert_eq!(request.oauth_consumer_key, TEST_CLIENT_ID);
+    assert_eq!(
+        request.openid,
+        provider
+            .qq_openid
+            .lock()
+            .expect("QQ openid lock should not be poisoned")
+            .as_str()
+    );
+    let ret = *provider
+        .qq_userinfo_ret
+        .lock()
+        .expect("QQ userinfo ret lock should not be poisoned");
+    HttpResponse::Ok().json(serde_json::json!({
+        "ret": ret,
+        "msg": provider
+            .qq_userinfo_msg
+            .lock()
+            .expect("QQ userinfo msg lock should not be poisoned")
+            .clone(),
+        "nickname": provider
+            .qq_nickname
+            .lock()
+            .expect("QQ nickname lock should not be poisoned")
+            .clone(),
+        "figureurl_qq_2": "https://q.qlogo.cn/qqapp/100000001/qq-openid-1/100"
+    }))
 }

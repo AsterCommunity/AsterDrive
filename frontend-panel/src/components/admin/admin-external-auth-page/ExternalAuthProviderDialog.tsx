@@ -90,8 +90,10 @@ export function ExternalAuthProviderDialog({
 		providerKinds[0] ??
 		null;
 	const providerKindLabel = kindDisplayName(t, providerKind, providerKinds);
+	const showOptionalGenericIssuer =
+		selectedKind?.kind === "generic_oauth2" && Boolean(form.issuerUrl.trim());
 	const showIssuerUrl = Boolean(
-		shouldShowIssuerUrl(selectedKind) || form.issuerUrl.trim(),
+		shouldShowIssuerUrl(selectedKind) || showOptionalGenericIssuer,
 	);
 	const showManualEndpoints = Boolean(
 		shouldShowManualEndpoints(selectedKind) ||

@@ -5,6 +5,7 @@ use crate::api::pagination::{OffsetPage, load_offset_page};
 use crate::db::repository::external_auth_provider_repo;
 use crate::entities::external_auth_provider;
 use crate::errors::{AsterError, Result};
+use crate::external_auth::providers::microsoft::normalize_microsoft_tenant_or_issuer_url;
 use crate::external_auth::{ExternalAuthProviderConfig, registry};
 use crate::runtime::PrimaryAppState;
 use crate::types::{ExternalAuthProviderKind, NullablePatch};
@@ -128,7 +129,11 @@ fn external_auth_provider_config_from_test_params(
         key: "draft".to_string(),
         provider_kind: input.provider_kind,
         protocol: descriptor.protocol,
-        issuer_url: normalize_issuer_url_input(input.issuer_url, descriptor.issuer_url_required)?,
+        issuer_url: normalize_provider_issuer_url_input(
+            input.provider_kind,
+            input.issuer_url,
+            descriptor.issuer_url_required,
+        )?,
         authorization_url: normalize_manual_endpoint_input(
             input.authorization_url,
             "authorization_url",
@@ -184,6 +189,24 @@ fn map_driver_test_result(
             })
             .collect(),
     }
+}
+
+fn normalize_provider_issuer_url_input(
+    provider_kind: ExternalAuthProviderKind,
+    value: Option<String>,
+    required: bool,
+) -> Result<Option<String>> {
+    if provider_kind == ExternalAuthProviderKind::Microsoft {
+        return normalize_microsoft_tenant_or_issuer_url(value);
+    }
+    normalize_issuer_url_input(value, required)
+}
+
+fn default_require_email_verified(provider_kind: ExternalAuthProviderKind) -> bool {
+    !matches!(
+        provider_kind,
+        ExternalAuthProviderKind::Microsoft | ExternalAuthProviderKind::Qq
+    )
 }
 
 pub async fn list_public_providers(
@@ -282,7 +305,11 @@ pub async fn create_provider(
     .to_string();
     let display_name = normalize_required(&input.display_name, "display_name", 128)?;
     let icon_url = normalize_icon_url_input(input.icon_url)?;
-    let issuer_url = normalize_issuer_url_input(input.issuer_url, descriptor.issuer_url_required)?;
+    let issuer_url = normalize_provider_issuer_url_input(
+        input.provider_kind,
+        input.issuer_url,
+        descriptor.issuer_url_required,
+    )?;
     let authorization_url = normalize_manual_endpoint_input(
         input.authorization_url,
         "authorization_url",
@@ -327,7 +354,9 @@ pub async fn create_provider(
         auto_link_verified_email_enabled: Set(input
             .auto_link_verified_email_enabled
             .unwrap_or(false)),
-        require_email_verified: Set(input.require_email_verified.unwrap_or(true)),
+        require_email_verified: Set(input
+            .require_email_verified
+            .unwrap_or_else(|| default_require_email_verified(input.provider_kind))),
         subject_claim: Set(normalize_optional_claim(
             input.subject_claim,
             "subject_claim",
@@ -384,7 +413,8 @@ pub async fn update_provider(
         active.icon_url = Set(normalize_icon_url_input(icon_url)?);
     }
     if let Some(issuer_url) = input.issuer_url.and_then(nullable_patch_to_update) {
-        active.issuer_url = Set(normalize_issuer_url_input(
+        active.issuer_url = Set(normalize_provider_issuer_url_input(
+            existing.provider_kind,
             issuer_url,
             descriptor.issuer_url_required,
         )?);

@@ -1,4 +1,5 @@
 import { fireEvent, render, screen } from "@testing-library/react";
+import * as React from "react";
 import { describe, expect, it, vi } from "vitest";
 import {
 	ExternalAuthAccessPolicyPanel,
@@ -90,6 +91,63 @@ vi.mock("@/components/ui/label", () => ({
 	}) => <label htmlFor={htmlFor}>{children}</label>,
 }));
 
+vi.mock("@/components/ui/select", () => {
+	const SelectContext = React.createContext<{
+		items?: Array<{ label: string; value: string }>;
+		onValueChange?: (value: string) => void;
+		value?: string;
+	}>({});
+	return {
+		Select: ({
+			children,
+			items,
+			onValueChange,
+			value,
+		}: {
+			children: React.ReactNode;
+			items?: Array<{ label: string; value: string }>;
+			onValueChange?: (value: string) => void;
+			value?: string;
+		}) => (
+			<SelectContext.Provider value={{ items, onValueChange, value }}>
+				{children}
+			</SelectContext.Provider>
+		),
+		SelectContent: () => null,
+		SelectItem: ({
+			children,
+			value,
+		}: {
+			children: React.ReactNode;
+			value: string;
+		}) => <option value={value}>{children}</option>,
+		SelectTrigger: ({
+			children,
+			id,
+		}: {
+			children: React.ReactNode;
+			id?: string;
+		}) => {
+			const { items, onValueChange, value } = React.use(SelectContext);
+			return (
+				<select
+					id={id}
+					value={value}
+					onChange={(event) => onValueChange?.(event.target.value)}
+				>
+					{children}
+					{items?.map((item) => (
+						<option key={item.value} value={item.value}>
+							{item.label}
+						</option>
+					))}
+				</select>
+			);
+		},
+		SelectValue: () => null,
+	};
+});
+
 vi.mock("@/components/ui/switch", () => ({
 	Switch: ({
 		checked,
@@ -165,6 +223,66 @@ function githubKind(
 		display_name: "GitHub",
 		issuer_url_required: false,
 		kind: "github",
+		manual_endpoint_configuration_supported: false,
+		protocol: "oauth2",
+		supports_discovery: false,
+		supports_email_verified_claim: false,
+		token_url_required: false,
+		userinfo_url_required: false,
+		...overrides,
+	});
+}
+
+function googleKind(
+	overrides: Partial<AdminExternalAuthProviderKindInfo> = {},
+): AdminExternalAuthProviderKindInfo {
+	return kind({
+		authorization_url_required: false,
+		default_scopes: "openid profile email",
+		description: "Google sign-in.",
+		display_name: "Google",
+		issuer_url_required: false,
+		kind: "google",
+		manual_endpoint_configuration_supported: false,
+		protocol: "oidc",
+		supports_discovery: true,
+		supports_email_verified_claim: true,
+		token_url_required: false,
+		userinfo_url_required: false,
+		...overrides,
+	});
+}
+
+function microsoftKind(
+	overrides: Partial<AdminExternalAuthProviderKindInfo> = {},
+): AdminExternalAuthProviderKindInfo {
+	return kind({
+		authorization_url_required: false,
+		default_scopes: "openid profile email",
+		description: "Microsoft sign-in.",
+		display_name: "Microsoft",
+		issuer_url_required: false,
+		kind: "microsoft",
+		manual_endpoint_configuration_supported: false,
+		protocol: "oidc",
+		supports_discovery: true,
+		supports_email_verified_claim: false,
+		token_url_required: false,
+		userinfo_url_required: false,
+		...overrides,
+	});
+}
+
+function qqKind(
+	overrides: Partial<AdminExternalAuthProviderKindInfo> = {},
+): AdminExternalAuthProviderKindInfo {
+	return kind({
+		authorization_url_required: false,
+		default_scopes: "get_user_info",
+		description: "QQ sign-in.",
+		display_name: "QQ",
+		issuer_url_required: false,
+		kind: "qq",
 		manual_endpoint_configuration_supported: false,
 		protocol: "oauth2",
 		supports_discovery: false,
@@ -443,7 +561,7 @@ describe("ExternalAuthProviderPanels", () => {
 		);
 	});
 
-	it("renders GitHub fixed endpoint guidance in the identity panel", () => {
+	it("hides manual endpoint fields for GitHub in the identity panel", () => {
 		render(
 			<ExternalAuthProviderIdentityPanel
 				connectionMissing={false}
@@ -469,14 +587,222 @@ describe("ExternalAuthProviderPanels", () => {
 		);
 
 		expect(
-			screen.getByText("external_auth_provider_github_fixed_title"),
-		).toBeInTheDocument();
-		expect(
-			screen.getByText("https://api.github.com/user/emails"),
-		).toBeInTheDocument();
+			screen.queryByText("external_auth_provider_github_fixed_title"),
+		).not.toBeInTheDocument();
 		expect(
 			screen.queryByLabelText("external_auth_provider_authorization_url"),
 		).not.toBeInTheDocument();
+	});
+
+	it("hides issuer and manual endpoint fields for Google in the identity panel", () => {
+		render(
+			<ExternalAuthProviderIdentityPanel
+				connectionMissing={false}
+				createStepTouched={false}
+				currentCallbackUrl=""
+				form={form({
+					providerKind: "google",
+					scopes: "openid profile email",
+				})}
+				identityMissing={false}
+				isCreate
+				onCopyCallbackUrl={vi.fn()}
+				onFieldChange={vi.fn()}
+				onTestConnection={vi.fn().mockResolvedValue(true)}
+				provider={null}
+				providerKindLabel="Google"
+				selectedKind={googleKind()}
+				showIssuerUrl={false}
+				showManualEndpoints={false}
+				testDisabled={false}
+				testResult={null}
+			/>,
+		);
+
+		expect(
+			screen.queryByText("external_auth_provider_google_fixed_title"),
+		).not.toBeInTheDocument();
+		expect(
+			screen.queryByLabelText("external_auth_provider_issuer_url"),
+		).not.toBeInTheDocument();
+		expect(
+			screen.queryByLabelText("external_auth_provider_authorization_url"),
+		).not.toBeInTheDocument();
+	});
+
+	it("hides manual endpoint fields for QQ in the identity panel", () => {
+		render(
+			<ExternalAuthProviderIdentityPanel
+				connectionMissing={false}
+				createStepTouched={false}
+				currentCallbackUrl=""
+				form={form({
+					providerKind: "qq",
+					scopes: "get_user_info",
+				})}
+				identityMissing={false}
+				isCreate
+				onCopyCallbackUrl={vi.fn()}
+				onFieldChange={vi.fn()}
+				onTestConnection={vi.fn().mockResolvedValue(true)}
+				provider={null}
+				providerKindLabel="QQ"
+				selectedKind={qqKind()}
+				showIssuerUrl={false}
+				showManualEndpoints={false}
+				testDisabled={false}
+				testResult={null}
+			/>,
+		);
+
+		expect(
+			screen.queryByText("external_auth_provider_qq_fixed_title"),
+		).not.toBeInTheDocument();
+		expect(
+			screen.queryByLabelText("external_auth_provider_authorization_url"),
+		).not.toBeInTheDocument();
+	});
+
+	it("renders Microsoft tenant OIDC guidance in the identity panel", () => {
+		const onFieldChange = vi.fn();
+
+		render(
+			<ExternalAuthProviderIdentityPanel
+				connectionMissing={false}
+				createStepTouched={false}
+				currentCallbackUrl=""
+				form={form({
+					microsoftTenant: "organizations",
+					microsoftTenantMode: "organizations",
+					providerKind: "microsoft",
+					scopes: "openid profile email",
+				})}
+				identityMissing={false}
+				isCreate
+				onCopyCallbackUrl={vi.fn()}
+				onFieldChange={onFieldChange}
+				onTestConnection={vi.fn().mockResolvedValue(true)}
+				provider={null}
+				providerKindLabel="Microsoft"
+				selectedKind={microsoftKind()}
+				showIssuerUrl={false}
+				showManualEndpoints={false}
+				testDisabled={false}
+				testResult={null}
+			/>,
+		);
+
+		const tenantSelect = screen.getByLabelText(
+			"external_auth_provider_microsoft_tenant",
+		);
+		expect(tenantSelect).toHaveValue("organizations");
+		expect(
+			screen.queryByText("external_auth_provider_microsoft_fixed_title"),
+		).not.toBeInTheDocument();
+		expect(
+			screen.queryByText(
+				"https://login.microsoftonline.com/organizations/v2.0",
+			),
+		).not.toBeInTheDocument();
+		expect(
+			screen.queryByText(
+				"https://login.microsoftonline.com/organizations/v2.0/.well-known/openid-configuration",
+			),
+		).not.toBeInTheDocument();
+		expect(
+			screen.queryByLabelText("external_auth_provider_issuer_url"),
+		).not.toBeInTheDocument();
+		expect(
+			screen.queryByLabelText("external_auth_provider_authorization_url"),
+		).not.toBeInTheDocument();
+
+		fireEvent.change(tenantSelect, { target: { value: "consumers" } });
+		expect(onFieldChange).toHaveBeenCalledWith(
+			"microsoftTenantMode",
+			"consumers",
+		);
+		expect(onFieldChange).toHaveBeenCalledWith("microsoftTenant", "consumers");
+
+		fireEvent.change(tenantSelect, { target: { value: "custom" } });
+		expect(onFieldChange).toHaveBeenCalledWith("microsoftTenantMode", "custom");
+		expect(onFieldChange).toHaveBeenCalledWith("microsoftTenant", "");
+	});
+
+	it("renders Microsoft custom tenant input when custom mode is selected", () => {
+		const onFieldChange = vi.fn();
+
+		render(
+			<ExternalAuthProviderIdentityPanel
+				connectionMissing={false}
+				createStepTouched
+				currentCallbackUrl=""
+				form={form({
+					microsoftTenant: "",
+					microsoftTenantMode: "custom",
+					providerKind: "microsoft",
+					scopes: "openid profile email",
+				})}
+				identityMissing={false}
+				isCreate
+				onCopyCallbackUrl={vi.fn()}
+				onFieldChange={onFieldChange}
+				onTestConnection={vi.fn().mockResolvedValue(true)}
+				provider={null}
+				providerKindLabel="Microsoft"
+				selectedKind={microsoftKind()}
+				showIssuerUrl={false}
+				showManualEndpoints={false}
+				testDisabled={false}
+				testResult={null}
+			/>,
+		);
+
+		const customInput = screen.getByLabelText(
+			"external_auth_provider_microsoft_tenant_custom_label",
+		);
+		expect(customInput).toHaveAttribute("aria-invalid", "true");
+
+		fireEvent.change(customInput, {
+			target: { value: "11111111-2222-3333-4444-555555555555" },
+		});
+		expect(onFieldChange).toHaveBeenCalledWith(
+			"microsoftTenant",
+			"11111111-2222-3333-4444-555555555555",
+		);
+	});
+
+	it("does not mark a filled Microsoft custom tenant as invalid", () => {
+		render(
+			<ExternalAuthProviderIdentityPanel
+				connectionMissing={false}
+				createStepTouched
+				currentCallbackUrl=""
+				form={form({
+					microsoftTenant: "11111111-2222-3333-4444-555555555555",
+					microsoftTenantMode: "custom",
+					providerKind: "microsoft",
+					scopes: "openid profile email",
+				})}
+				identityMissing={false}
+				isCreate
+				onCopyCallbackUrl={vi.fn()}
+				onFieldChange={vi.fn()}
+				onTestConnection={vi.fn().mockResolvedValue(true)}
+				provider={null}
+				providerKindLabel="Microsoft"
+				selectedKind={microsoftKind()}
+				showIssuerUrl={false}
+				showManualEndpoints={false}
+				testDisabled={false}
+				testResult={null}
+			/>,
+		);
+
+		expect(
+			screen.getByLabelText(
+				"external_auth_provider_microsoft_tenant_custom_label",
+			),
+		).not.toHaveAttribute("aria-invalid");
 	});
 
 	it("wires rules and claim fields, including email-verified support", () => {
@@ -549,6 +875,71 @@ describe("ExternalAuthProviderPanels", () => {
 		).toBeInTheDocument();
 		expect(
 			screen.queryByLabelText("external_auth_provider_subject_claim"),
+		).not.toBeInTheDocument();
+	});
+
+	it("renders Google fixed claims instead of editable claim mapping", () => {
+		render(
+			<ExternalAuthProviderRulesPanel
+				form={form({ providerKind: "google" })}
+				onFieldChange={vi.fn()}
+				selectedKind={googleKind()}
+			/>,
+		);
+
+		expect(
+			screen.getByText("external_auth_provider_google_claims_title"),
+		).toBeInTheDocument();
+		expect(screen.getByText("email_verified")).toBeInTheDocument();
+		expect(screen.getByText("picture")).toBeInTheDocument();
+		expect(
+			screen.queryByLabelText("external_auth_provider_subject_claim"),
+		).not.toBeInTheDocument();
+	});
+
+	it("renders Microsoft fixed claims instead of editable claim mapping", () => {
+		render(
+			<ExternalAuthProviderRulesPanel
+				form={form({ providerKind: "microsoft" })}
+				onFieldChange={vi.fn()}
+				selectedKind={microsoftKind()}
+			/>,
+		);
+
+		expect(
+			screen.getByText("external_auth_provider_microsoft_claims_title"),
+		).toBeInTheDocument();
+		expect(screen.getByText("sub")).toBeInTheDocument();
+		expect(screen.getByText("name")).toBeInTheDocument();
+		expect(screen.getByText("email")).toBeInTheDocument();
+		expect(
+			screen.queryByLabelText("external_auth_provider_subject_claim"),
+		).not.toBeInTheDocument();
+		expect(
+			screen.queryByLabelText("external_auth_provider_email_verified_claim"),
+		).not.toBeInTheDocument();
+	});
+
+	it("renders QQ fixed claims instead of editable claim mapping", () => {
+		render(
+			<ExternalAuthProviderRulesPanel
+				form={form({ providerKind: "qq", scopes: "get_user_info" })}
+				onFieldChange={vi.fn()}
+				selectedKind={qqKind()}
+			/>,
+		);
+
+		expect(
+			screen.getByText("external_auth_provider_qq_claims_title"),
+		).toBeInTheDocument();
+		expect(screen.getByText("openid")).toBeInTheDocument();
+		expect(screen.getByText("nickname")).toBeInTheDocument();
+		expect(screen.getByText("not returned")).toBeInTheDocument();
+		expect(
+			screen.queryByLabelText("external_auth_provider_subject_claim"),
+		).not.toBeInTheDocument();
+		expect(
+			screen.queryByLabelText("external_auth_provider_email_verified_claim"),
 		).not.toBeInTheDocument();
 	});
 
