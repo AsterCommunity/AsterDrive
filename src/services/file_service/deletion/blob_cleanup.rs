@@ -123,6 +123,12 @@ async fn cleanup_claimed_blob(state: &PrimaryAppState, current_blob: &file_blob:
             blob_id = current_blob.id,
             "failed to delete thumbnail during blob cleanup: {error}"
         );
+        // Keep the blob row until every derived object is gone. If we deleted
+        // the primary object and row after a thumbnail delete failure, that
+        // thumbnail would become an untracked storage object with no normal
+        // maintenance path left to retry it.
+        restore_cleanup_claim(state, current_blob.id, "thumbnail delete error").await;
+        return false;
     }
 
     let Some(policy) = state.policy_snapshot.get_policy(current_blob.policy_id) else {

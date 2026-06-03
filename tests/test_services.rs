@@ -5,6 +5,38 @@ mod common;
 
 use aster_drive::services::file_service::StoreFromTempRequest;
 use std::collections::BTreeSet;
+#[cfg(unix)]
+use std::os::unix::fs::PermissionsExt;
+
+#[cfg(unix)]
+struct DirModeGuard {
+    path: std::path::PathBuf,
+    mode: u32,
+}
+
+#[cfg(unix)]
+impl DirModeGuard {
+    fn set_read_only(path: impl Into<std::path::PathBuf>) -> Self {
+        let path = path.into();
+        let metadata = std::fs::metadata(&path).unwrap();
+        let mode = metadata.permissions().mode();
+        let mut perms = metadata.permissions();
+        perms.set_mode(0o555);
+        std::fs::set_permissions(&path, perms).unwrap();
+        Self { path, mode }
+    }
+}
+
+#[cfg(unix)]
+impl Drop for DirModeGuard {
+    fn drop(&mut self) {
+        if let Ok(metadata) = std::fs::metadata(&self.path) {
+            let mut perms = metadata.permissions();
+            perms.set_mode(self.mode);
+            let _ = std::fs::set_permissions(&self.path, perms);
+        }
+    }
+}
 
 fn assert_share_target_check_violation(db: &sea_orm::DatabaseConnection, err: &sea_orm::DbErr) {
     let message = err.to_string();
@@ -2865,6 +2897,127 @@ async fn test_team_archive_cleanup_deletes_expired_team_data() {
         .unwrap()
         .is_empty()
     );
+}
+
+#[cfg(unix)]
+#[actix_web::test]
+async fn test_team_archive_cleanup_keeps_team_when_upload_temp_delete_fails() {
+    use chrono::{Duration, Utc};
+    use sea_orm::{IntoActiveModel, Set};
+
+    let state = common::setup().await;
+    let owner = aster_drive::services::auth_service::register(
+        &state,
+        "cleanupfail",
+        "cleanup-fail-owner@example.com",
+        "password123",
+    )
+    .await
+    .unwrap();
+    let team = aster_drive::services::team_service::create_team(
+        &state,
+        owner.id,
+        aster_drive::services::team_service::CreateTeamInput {
+            name: "Cleanup Failure Team".to_string(),
+            description: None,
+        },
+    )
+    .await
+    .unwrap();
+
+    let policy = aster_drive::db::repository::policy_repo::find_default(state.writer_db())
+        .await
+        .unwrap()
+        .expect("default policy should exist");
+    let driver = state.driver_registry.get_driver(&policy).unwrap();
+    let upload_id = uuid::Uuid::new_v4().to_string();
+    let temp_key = format!("tmp/team-cleanup-fails/{upload_id}.bin");
+    driver.put(&temp_key, b"stale team upload").await.unwrap();
+    let now = Utc::now();
+    aster_drive::db::repository::upload_session_repo::create(
+        state.writer_db(),
+        aster_drive::entities::upload_session::ActiveModel {
+            id: Set(upload_id.clone()),
+            user_id: Set(owner.id),
+            team_id: Set(Some(team.id)),
+            frontend_client_id: Set(None),
+            filename: Set("pending.bin".to_string()),
+            total_size: Set(10),
+            chunk_size: Set(10),
+            total_chunks: Set(1),
+            received_count: Set(0),
+            folder_id: Set(None),
+            policy_id: Set(policy.id),
+            status: Set(aster_drive::types::UploadSessionStatus::Uploading),
+            s3_temp_key: Set(Some(temp_key.clone())),
+            s3_multipart_id: Set(None),
+            file_id: Set(None),
+            created_at: Set(now),
+            expires_at: Set(now + Duration::hours(1)),
+            updated_at: Set(now),
+        },
+    )
+    .await
+    .unwrap();
+
+    aster_drive::services::team_service::archive_team(&state, team.id, owner.id)
+        .await
+        .unwrap();
+    let mut archived_team =
+        aster_drive::db::repository::team_repo::find_by_id(state.writer_db(), team.id)
+            .await
+            .unwrap()
+            .into_active_model();
+    archived_team.archived_at = Set(Some(Utc::now() - Duration::days(8)));
+    archived_team.updated_at = Set(Utc::now() - Duration::days(8));
+    aster_drive::db::repository::team_repo::update(state.writer_db(), archived_team)
+        .await
+        .unwrap();
+
+    let object_parent = std::path::Path::new(&policy.base_path)
+        .join(&temp_key)
+        .parent()
+        .unwrap()
+        .to_path_buf();
+    let guard = DirModeGuard::set_read_only(object_parent);
+
+    let deleted = aster_drive::services::team_service::cleanup_expired_archived_teams(&state)
+        .await
+        .unwrap();
+
+    assert_eq!(deleted, 0);
+    assert!(
+        aster_drive::db::repository::team_repo::find_by_id(state.writer_db(), team.id)
+            .await
+            .is_ok(),
+        "team row must remain until upload temp cleanup can be retried"
+    );
+    assert!(
+        aster_drive::db::repository::upload_session_repo::find_by_id(state.writer_db(), &upload_id)
+            .await
+            .is_ok(),
+        "upload session must remain as the retry handle for the stale temp object"
+    );
+    assert!(driver.exists(&temp_key).await.unwrap());
+
+    drop(guard);
+
+    let deleted = aster_drive::services::team_service::cleanup_expired_archived_teams(&state)
+        .await
+        .unwrap();
+
+    assert_eq!(deleted, 1);
+    assert!(
+        aster_drive::db::repository::team_repo::find_by_id(state.writer_db(), team.id)
+            .await
+            .is_err()
+    );
+    assert!(
+        aster_drive::db::repository::upload_session_repo::find_by_id(state.writer_db(), &upload_id)
+            .await
+            .is_err()
+    );
+    assert!(!driver.exists(&temp_key).await.unwrap());
 }
 
 #[actix_web::test]

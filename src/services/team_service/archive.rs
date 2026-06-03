@@ -36,9 +36,10 @@ fn load_team_archive_retention_days(state: &PrimaryAppState) -> i64 {
 async fn cleanup_team_upload_sessions(
     state: &PrimaryAppState,
     sessions: &[upload_session::Model],
-) -> Result<()> {
+) -> Result<bool> {
     let mut cleaned_temp_objects = 0u64;
     let mut aborted_multipart_uploads = 0u64;
+    let mut incomplete_cleanups = 0u64;
     for session in sessions {
         let Some(temp_key) = session.s3_temp_key.as_deref() else {
             continue;
@@ -50,6 +51,7 @@ async fn cleanup_team_upload_sessions(
                 temp_key,
                 "failed to load storage policy while cleaning team upload session"
             );
+            incomplete_cleanups += 1;
             continue;
         };
         let Ok(driver) = state.driver_registry.get_driver(&policy) else {
@@ -59,6 +61,7 @@ async fn cleanup_team_upload_sessions(
                 temp_key,
                 "failed to resolve storage driver while cleaning team upload session"
             );
+            incomplete_cleanups += 1;
             continue;
         };
 
@@ -73,17 +76,19 @@ async fn cleanup_team_upload_sessions(
                             upload_id = %session.id,
                             "failed to abort team multipart upload during cleanup: {err}"
                         );
+                        incomplete_cleanups += 1;
                     } else {
                         aborted_multipart_uploads += 1;
                     }
+                } else if cleanup_team_temp_object(driver.as_ref(), session, temp_key).await {
+                    cleaned_temp_objects += 1;
+                } else {
+                    incomplete_cleanups += 1;
                 }
-            } else if let Err(err) = driver.delete(temp_key).await {
-                tracing::warn!(
-                    upload_id = %session.id,
-                    "failed to delete team temp upload object during cleanup: {err}"
-                );
-            } else {
+            } else if cleanup_team_temp_object(driver.as_ref(), session, temp_key).await {
                 cleaned_temp_objects += 1;
+            } else {
+                incomplete_cleanups += 1;
             }
         }
 
@@ -97,10 +102,40 @@ async fn cleanup_team_upload_sessions(
             upload_session_count = sessions.len(),
             cleaned_temp_objects,
             aborted_multipart_uploads,
+            incomplete_cleanups,
             "cleaned team upload sessions"
         );
     }
-    Ok(())
+    Ok(incomplete_cleanups == 0)
+}
+
+async fn cleanup_team_temp_object(
+    driver: &dyn crate::storage::StorageDriver,
+    session: &upload_session::Model,
+    temp_key: &str,
+) -> bool {
+    match driver.delete(temp_key).await {
+        Ok(()) => true,
+        Err(err) => match driver.exists(temp_key).await {
+            Ok(false) => true,
+            Ok(true) => {
+                tracing::warn!(
+                    upload_id = %session.id,
+                    temp_key,
+                    "failed to delete team temp upload object during cleanup: {err}"
+                );
+                false
+            }
+            Err(exists_err) => {
+                tracing::warn!(
+                    upload_id = %session.id,
+                    temp_key,
+                    "failed to delete team temp upload object and verify existence during cleanup: delete_error={err}, exists_error={exists_err}"
+                );
+                false
+            }
+        },
+    }
 }
 
 fn is_missing_cleanup_target(err: &AsterError) -> bool {
@@ -193,7 +228,13 @@ async fn force_delete_archived_team(state: &PrimaryAppState, team: team::Model) 
         "force deleting archived team"
     );
     let upload_sessions = upload_session_repo::find_by_team(state.writer_db(), team_id).await?;
-    cleanup_team_upload_sessions(state, &upload_sessions).await?;
+    if !cleanup_team_upload_sessions(state, &upload_sessions).await? {
+        // Upload sessions are the only durable handles for temp objects. Abort
+        // the team delete before removing those rows so the next cleanup run can retry.
+        return Err(AsterError::storage_driver_error(
+            "team upload session cleanup incomplete",
+        ));
+    }
 
     purge_archived_team_files(state, &team).await?;
 

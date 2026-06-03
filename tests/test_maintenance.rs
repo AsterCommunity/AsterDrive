@@ -315,6 +315,70 @@ async fn test_cleanup_expired_completed_upload_sessions_removes_broken_completed
     assert!(!driver.exists(temp_key).await.unwrap());
 }
 
+#[cfg(unix)]
+#[actix_web::test]
+async fn test_cleanup_expired_completed_upload_sessions_keeps_session_when_temp_delete_fails() {
+    use aster_drive::db::repository::upload_session_repo;
+    use aster_drive::services::{auth_service, maintenance_service};
+
+    let state = common::setup().await;
+    let user = auth_service::register(&state, "maintfail1", "maintfail1@test.com", "password123")
+        .await
+        .unwrap();
+    let policy = default_policy(&state).await;
+    let driver = state.driver_registry.get_driver(&policy).unwrap();
+    let temp_key = "tmp/delete-fails/broken-completed.bin";
+    driver.put(temp_key, b"stale upload").await.unwrap();
+
+    create_upload_session(
+        &state,
+        user.id,
+        UploadSessionSpec::new(
+            "broken-completed-delete-fails",
+            aster_drive::types::UploadSessionStatus::Completed,
+            Utc::now() - Duration::hours(1),
+        )
+        .s3(Some(temp_key), None),
+    )
+    .await;
+
+    let object_parent = std::path::Path::new(&policy.base_path)
+        .join(temp_key)
+        .parent()
+        .unwrap()
+        .to_path_buf();
+    let guard = DirModeGuard::set_read_only(object_parent);
+
+    let stats = maintenance_service::cleanup_expired_completed_upload_sessions(&state)
+        .await
+        .unwrap();
+
+    assert_eq!(stats.completed_sessions_deleted, 0);
+    assert_eq!(stats.broken_completed_sessions_deleted, 0);
+    assert!(
+        upload_session_repo::find_by_id(state.writer_db(), "broken-completed-delete-fails")
+            .await
+            .is_ok(),
+        "session row must remain so the stale remote object has a retry handle"
+    );
+    assert!(driver.exists(temp_key).await.unwrap());
+
+    drop(guard);
+
+    let stats = maintenance_service::cleanup_expired_completed_upload_sessions(&state)
+        .await
+        .unwrap();
+
+    assert_eq!(stats.completed_sessions_deleted, 1);
+    assert_eq!(stats.broken_completed_sessions_deleted, 1);
+    assert!(
+        upload_session_repo::find_by_id(state.writer_db(), "broken-completed-delete-fails")
+            .await
+            .is_err()
+    );
+    assert!(!driver.exists(temp_key).await.unwrap());
+}
+
 #[actix_web::test]
 async fn test_cleanup_expired_completed_upload_sessions_keeps_live_blob() {
     use aster_drive::db::repository::{file_repo, upload_session_repo};
@@ -366,6 +430,57 @@ async fn test_cleanup_expired_completed_upload_sessions_keeps_live_blob() {
             .is_ok()
     );
     assert!(driver.exists(&blob.storage_path).await.unwrap());
+}
+
+#[actix_web::test]
+async fn test_cleanup_expired_completed_upload_sessions_removes_stale_temp_for_completed_file() {
+    use aster_drive::db::repository::{file_repo, upload_session_repo};
+    use aster_drive::services::{auth_service, maintenance_service};
+
+    let state = common::setup().await;
+    let user = auth_service::register(&state, "maintuser2b", "maint2b@test.com", "password123")
+        .await
+        .unwrap();
+    let file = store_test_file(&state, user.id, "presigned-kept.txt", b"kept blob").await;
+    let blob = file_repo::find_blob_by_id(state.writer_db(), file.blob_id)
+        .await
+        .unwrap();
+    let policy = default_policy(&state).await;
+    let driver = state.driver_registry.get_driver(&policy).unwrap();
+    let temp_key = "tmp/completed-file-stale-temp.bin";
+    driver.put(temp_key, b"stale temp").await.unwrap();
+
+    create_upload_session(
+        &state,
+        user.id,
+        UploadSessionSpec::new(
+            "completed-file-stale-temp",
+            aster_drive::types::UploadSessionStatus::Completed,
+            Utc::now() - Duration::hours(1),
+        )
+        .s3(Some(temp_key), None)
+        .file_id(file.id),
+    )
+    .await;
+
+    let stats = maintenance_service::cleanup_expired_completed_upload_sessions(&state)
+        .await
+        .unwrap();
+
+    assert_eq!(stats.completed_sessions_deleted, 1);
+    assert_eq!(stats.broken_completed_sessions_deleted, 0);
+    assert!(
+        upload_session_repo::find_by_id(state.writer_db(), "completed-file-stale-temp")
+            .await
+            .is_err()
+    );
+    assert!(
+        file_repo::find_blob_by_id(state.writer_db(), blob.id)
+            .await
+            .is_ok()
+    );
+    assert!(driver.exists(&blob.storage_path).await.unwrap());
+    assert!(!driver.exists(temp_key).await.unwrap());
 }
 
 #[actix_web::test]

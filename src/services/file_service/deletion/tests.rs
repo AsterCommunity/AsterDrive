@@ -27,6 +27,8 @@ use crate::types::{
 #[derive(Clone, Default)]
 struct TrackingDeleteDriver {
     objects: Arc<Mutex<HashSet<String>>>,
+    fail_delete_paths: Arc<Mutex<HashSet<String>>>,
+    delete_attempts: Arc<Mutex<Vec<String>>>,
     delete_calls: Arc<AtomicUsize>,
 }
 
@@ -38,8 +40,22 @@ impl TrackingDeleteDriver {
             .insert(path.to_string());
     }
 
+    fn fail_delete_for(&self, path: &str) {
+        self.fail_delete_paths
+            .lock()
+            .expect("tracking delete driver lock should succeed")
+            .insert(path.to_string());
+    }
+
     fn delete_calls(&self) -> usize {
         self.delete_calls.load(Ordering::SeqCst)
+    }
+
+    fn delete_attempts(&self) -> Vec<String> {
+        self.delete_attempts
+            .lock()
+            .expect("tracking delete driver lock should succeed")
+            .clone()
     }
 
     fn contains(&self, path: &str) -> bool {
@@ -70,6 +86,20 @@ impl StorageDriver for TrackingDeleteDriver {
 
     async fn delete(&self, path: &str) -> crate::errors::Result<()> {
         self.delete_calls.fetch_add(1, Ordering::SeqCst);
+        self.delete_attempts
+            .lock()
+            .expect("tracking delete driver lock should succeed")
+            .push(path.to_string());
+        if self
+            .fail_delete_paths
+            .lock()
+            .expect("tracking delete driver lock should succeed")
+            .contains(path)
+        {
+            return Err(crate::errors::AsterError::storage_driver_error(format!(
+                "forced delete failure for {path}"
+            )));
+        }
         self.objects
             .lock()
             .expect("tracking delete driver lock should succeed")
@@ -391,6 +421,67 @@ async fn cleanup_unreferenced_blob_skips_cleanup_claimed_blob() {
     assert_eq!(
         reloaded_blob.ref_count,
         file_repo::BLOB_CLEANUP_CLAIMED_REF_COUNT
+    );
+}
+
+#[tokio::test]
+async fn cleanup_unreferenced_blob_keeps_row_and_primary_object_when_thumbnail_delete_fails() {
+    let (state, _user, policy, driver) = build_deletion_test_state().await;
+    let blob = create_blob(
+        state.writer_db(),
+        policy.id,
+        "files/thumbnail-delete-failed.bin",
+        9,
+        0,
+    )
+    .await;
+    let thumbnail_path = "thumbs/thumbnail-delete-failed.webp";
+    let mut active_blob: file_blob::ActiveModel = blob.clone().into();
+    active_blob.thumbnail_path = Set(Some(thumbnail_path.to_string()));
+    let blob = active_blob
+        .update(state.writer_db())
+        .await
+        .expect("test blob thumbnail metadata should update");
+    driver.insert_object(&blob.storage_path);
+    driver.insert_object(thumbnail_path);
+    driver.fail_delete_for(thumbnail_path);
+
+    let cleaned = cleanup_unreferenced_blob(&state, &blob).await;
+
+    assert!(
+        !cleaned,
+        "cleanup must report failure when a derived thumbnail object cannot be deleted"
+    );
+    let reloaded_blob = file_blob::Entity::find_by_id(blob.id)
+        .one(state.writer_db())
+        .await
+        .expect("blob lookup should succeed")
+        .expect("blob row should remain for a later cleanup retry");
+    assert_eq!(
+        reloaded_blob.ref_count, 0,
+        "failed cleanup should release the cleanup claim instead of leaving the blob stuck"
+    );
+    assert_eq!(
+        reloaded_blob.thumbnail_path.as_deref(),
+        Some(thumbnail_path),
+        "thumbnail metadata should remain so the next cleanup retry still knows the derived object"
+    );
+    assert!(
+        driver.contains(&blob.storage_path),
+        "primary blob object must remain when thumbnail cleanup fails"
+    );
+    assert!(
+        driver.contains(thumbnail_path),
+        "failed thumbnail object should remain tracked for retry"
+    );
+    let attempts = driver.delete_attempts();
+    assert!(
+        attempts.iter().any(|path| path == thumbnail_path),
+        "cleanup should attempt to delete the thumbnail object first"
+    );
+    assert!(
+        !attempts.iter().any(|path| path == &blob.storage_path),
+        "primary object delete must not be attempted after thumbnail cleanup fails"
     );
 }
 
