@@ -109,12 +109,16 @@ impl ExternalAuthProviderDriver for QqProviderDriver {
         callback: ExternalAuthCallback,
     ) -> Result<ExternalAuthProfile> {
         let provider = qq_oauth2_config(provider);
+        let pkce_verifier = callback.pkce_verifier.ok_or_else(|| {
+            AsterError::database_operation("stored QQ OAuth2 PKCE verifier is missing")
+        })?;
         let http_client = oauth2_http_client()?;
         let access_token = exchange_qq_code_for_token(
             &http_client,
             &provider,
             &callback.code,
             &callback.redirect_uri,
+            &pkce_verifier,
         )
         .await?;
         let openid = fetch_qq_openid(&http_client, &provider, &access_token).await?;
@@ -191,6 +195,9 @@ fn qq_oauth2_config(provider: &ExternalAuthProviderConfig) -> ExternalAuthProvid
         qq_identity_namespace(&provider)
             .unwrap_or_else(|_| format!("{QQ_NAMESPACE_PREFIX}{}", provider.client_id.trim())),
     );
+    // Admin create/update rejects manual QQ endpoints through the descriptor.
+    // Non-empty values are kept only for integration tests that inject a local
+    // QQ-compatible mock server instead of calling the real QQ Connect API.
     provider.authorization_url = provider
         .authorization_url
         .filter(|value| !value.trim().is_empty())
@@ -222,6 +229,7 @@ async fn exchange_qq_code_for_token(
     provider: &ExternalAuthProviderConfig,
     code: &str,
     redirect_uri: &str,
+    pkce_verifier: &str,
 ) -> Result<String> {
     let token_url = provider
         .token_url
@@ -242,6 +250,9 @@ async fn exchange_qq_code_for_token(
         }
         query.append_pair("code", code);
         query.append_pair("redirect_uri", redirect_uri);
+        // QQ Connect docs do not list PKCE, but authorization uses the shared
+        // OAuth2 driver which sends a code_challenge, so keep the token request paired.
+        query.append_pair("code_verifier", pkce_verifier);
         query.append_pair("fmt", "json");
     }
     let response = http_client
@@ -384,11 +395,22 @@ fn qq_openid_url(provider: &ExternalAuthProviderConfig) -> Result<reqwest::Url> 
     if token_url == QQ_TOKEN_URL {
         return validate_url(QQ_OPENID_URL, "openid_url", AsterError::config_error);
     }
-    let mut parsed = validate_url(token_url, "openid_url", AsterError::config_error)?;
-    parsed.set_path("/qq/me");
-    parsed.set_query(None);
-    parsed.set_fragment(None);
-    Ok(parsed)
+    let parsed = validate_url(token_url, "openid_url", AsterError::config_error)?;
+    qq_openid_url_from_token_url(parsed)
+}
+
+fn qq_openid_url_from_token_url(mut token_url: reqwest::Url) -> Result<reqwest::Url> {
+    {
+        let mut paths = token_url
+            .path_segments_mut()
+            .map_err(|_| AsterError::config_error("invalid QQ token URL"))?;
+        paths.pop_if_empty();
+        paths.pop();
+        paths.push("me");
+    }
+    token_url.set_query(None);
+    token_url.set_fragment(None);
+    Ok(token_url)
 }
 
 fn validate_qq_openid(value: &str) -> Result<String> {
@@ -518,6 +540,16 @@ mod tests {
 
         assert_eq!(qq_identity_namespace(&first).unwrap(), "qq:100000001");
         assert_eq!(qq_identity_namespace(&second).unwrap(), "qq:200000002");
+    }
+
+    #[test]
+    fn qq_openid_url_preserves_mock_path_prefix() {
+        let openid_url = qq_openid_url_from_token_url(
+            reqwest::Url::parse("http://127.0.0.1:3000/prefix/qq/token?fmt=json#fragment").unwrap(),
+        )
+        .unwrap();
+
+        assert_eq!(openid_url.as_str(), "http://127.0.0.1:3000/prefix/qq/me");
     }
 
     #[test]

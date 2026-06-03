@@ -67,6 +67,7 @@ struct QqTokenRequest {
     client_secret: Option<String>,
     code: String,
     redirect_uri: String,
+    code_verifier: Option<String>,
     fmt: String,
 }
 
@@ -423,6 +424,13 @@ async fn mock_qq_token(
     assert_eq!(request.client_secret.as_deref(), Some(TEST_CLIENT_SECRET));
     assert_eq!(request.code, "mock-code");
     assert!(!request.redirect_uri.is_empty());
+    assert!(
+        request
+            .code_verifier
+            .as_deref()
+            .is_some_and(|value| !value.is_empty()),
+        "QQ token request should include PKCE code_verifier"
+    );
     assert_eq!(request.fmt, "json");
     provider
         .token_auth_observations

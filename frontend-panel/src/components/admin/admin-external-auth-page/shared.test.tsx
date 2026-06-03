@@ -586,6 +586,21 @@ describe("admin external auth shared helpers", () => {
 		expect(connectionRequirementsMissing(emptyForm, manualKind)).toBe(true);
 		expect(connectionRequirementsMissing(form, manualKind)).toBe(false);
 		expect(
+			connectionRequirementsMissing({ ...form, issuerUrl: "" }, kind()),
+		).toBe(true);
+		expect(
+			connectionRequirementsMissing(
+				{ ...form, authorizationUrl: "" },
+				manualKind,
+			),
+		).toBe(true);
+		expect(
+			connectionRequirementsMissing({ ...form, tokenUrl: "" }, manualKind),
+		).toBe(true);
+		expect(
+			connectionRequirementsMissing({ ...form, userinfoUrl: "" }, manualKind),
+		).toBe(true);
+		expect(
 			requiredFieldsMissing({ ...form, displayName: "" }, manualKind),
 		).toBe(true);
 		expect(formConnectionSummary(form, manualKind)).toBe(

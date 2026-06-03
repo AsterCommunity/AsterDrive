@@ -128,7 +128,7 @@ vi.mock("@/components/ui/select", () => {
 			children: React.ReactNode;
 			id?: string;
 		}) => {
-			const { items, onValueChange, value } = React.useContext(SelectContext);
+			const { items, onValueChange, value } = React.use(SelectContext);
 			return (
 				<select
 					id={id}
@@ -722,6 +722,10 @@ describe("ExternalAuthProviderPanels", () => {
 			"consumers",
 		);
 		expect(onFieldChange).toHaveBeenCalledWith("microsoftTenant", "consumers");
+
+		fireEvent.change(tenantSelect, { target: { value: "custom" } });
+		expect(onFieldChange).toHaveBeenCalledWith("microsoftTenantMode", "custom");
+		expect(onFieldChange).toHaveBeenCalledWith("microsoftTenant", "");
 	});
 
 	it("renders Microsoft custom tenant input when custom mode is selected", () => {
@@ -765,6 +769,40 @@ describe("ExternalAuthProviderPanels", () => {
 			"microsoftTenant",
 			"11111111-2222-3333-4444-555555555555",
 		);
+	});
+
+	it("does not mark a filled Microsoft custom tenant as invalid", () => {
+		render(
+			<ExternalAuthProviderIdentityPanel
+				connectionMissing={false}
+				createStepTouched
+				currentCallbackUrl=""
+				form={form({
+					microsoftTenant: "11111111-2222-3333-4444-555555555555",
+					microsoftTenantMode: "custom",
+					providerKind: "microsoft",
+					scopes: "openid profile email",
+				})}
+				identityMissing={false}
+				isCreate
+				onCopyCallbackUrl={vi.fn()}
+				onFieldChange={vi.fn()}
+				onTestConnection={vi.fn().mockResolvedValue(true)}
+				provider={null}
+				providerKindLabel="Microsoft"
+				selectedKind={microsoftKind()}
+				showIssuerUrl={false}
+				showManualEndpoints={false}
+				testDisabled={false}
+				testResult={null}
+			/>,
+		);
+
+		expect(
+			screen.getByLabelText(
+				"external_auth_provider_microsoft_tenant_custom_label",
+			),
+		).not.toHaveAttribute("aria-invalid");
 	});
 
 	it("wires rules and claim fields, including email-verified support", () => {

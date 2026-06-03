@@ -66,7 +66,7 @@ impl ExternalAuthProviderDriver for MicrosoftProviderDriver {
         provider: &ExternalAuthProviderConfig,
         redirect_uri: &str,
     ) -> Result<ExternalAuthAuthorizationStart> {
-        let provider = microsoft_oidc_config(provider);
+        let provider = microsoft_oidc_config(provider)?;
         let client = build_microsoft_client(&provider, redirect_uri).await?;
         start_authorization_with_oidc_client(&provider, client)
     }
@@ -76,14 +76,14 @@ impl ExternalAuthProviderDriver for MicrosoftProviderDriver {
         provider: &ExternalAuthProviderConfig,
         callback: ExternalAuthCallback,
     ) -> Result<ExternalAuthProfile> {
-        exchange_microsoft_callback(&microsoft_oidc_config(provider), callback).await
+        exchange_microsoft_callback(&microsoft_oidc_config(provider)?, callback).await
     }
 
     async fn test_provider(
         &self,
         provider: &ExternalAuthProviderConfig,
     ) -> Result<ExternalAuthProviderTestResult> {
-        test_microsoft_provider(&microsoft_oidc_config(provider)).await
+        test_microsoft_provider(&microsoft_oidc_config(provider)?).await
     }
 }
 
@@ -115,12 +115,13 @@ pub fn normalize_microsoft_tenant_or_issuer_url(value: Option<String>) -> Result
 ///
 /// Tests may still inject a loopback issuer so local mock OIDC servers can
 /// exercise the callback path without pretending to be Microsoft.
-fn microsoft_oidc_config(provider: &ExternalAuthProviderConfig) -> ExternalAuthProviderConfig {
+fn microsoft_oidc_config(
+    provider: &ExternalAuthProviderConfig,
+) -> Result<ExternalAuthProviderConfig> {
     let mut provider = provider.clone();
     provider.provider_kind = ExternalAuthProviderKind::Microsoft;
     provider.protocol = ExternalAuthProtocol::Oidc;
-    provider.issuer_url = normalize_microsoft_tenant_or_issuer_url(provider.issuer_url.clone())
-        .unwrap_or_else(|_| Some(microsoft_issuer_url_for_tenant(MICROSOFT_DEFAULT_TENANT)));
+    provider.issuer_url = normalize_microsoft_tenant_or_issuer_url(provider.issuer_url.clone())?;
     provider.authorization_url = None;
     provider.token_url = None;
     provider.userinfo_url = None;
@@ -136,7 +137,7 @@ fn microsoft_oidc_config(provider: &ExternalAuthProviderConfig) -> ExternalAuthP
     provider.email_claim = provider.email_claim.or_else(|| Some("email".to_string()));
     provider.email_verified_claim = None;
     provider.avatar_url_claim = None;
-    provider
+    Ok(provider)
 }
 
 async fn exchange_microsoft_callback(
@@ -299,12 +300,21 @@ fn microsoft_discovery_url(configured_issuer: &str) -> Result<reqwest::Url> {
             AsterError::validation_error,
         );
     }
-    issuer
-        .join(".well-known/openid-configuration")
-        .map_aster_err_ctx(
-            "invalid Microsoft discovery URL",
-            AsterError::validation_error,
-        )
+    append_well_known_openid_configuration(issuer)
+}
+
+fn append_well_known_openid_configuration(mut issuer: reqwest::Url) -> Result<reqwest::Url> {
+    {
+        let mut paths = issuer
+            .path_segments_mut()
+            .map_err(|_| AsterError::validation_error("invalid Microsoft issuer URL"))?;
+        paths.pop_if_empty();
+        paths.push(".well-known");
+        paths.push("openid-configuration");
+    }
+    issuer.set_query(None);
+    issuer.set_fragment(None);
+    Ok(issuer)
 }
 
 fn validate_microsoft_discovery_issuer(
@@ -502,7 +512,7 @@ mod tests {
 
     #[test]
     fn microsoft_config_uses_default_common_issuer_and_claims() {
-        let config = microsoft_oidc_config(&provider());
+        let config = microsoft_oidc_config(&provider()).unwrap();
 
         assert_eq!(config.provider_kind, ExternalAuthProviderKind::Microsoft);
         assert_eq!(config.protocol, ExternalAuthProtocol::Oidc);
@@ -561,6 +571,14 @@ mod tests {
     }
 
     #[test]
+    fn microsoft_config_rejects_invalid_issuer_instead_of_falling_back_to_common() {
+        let mut provider = provider();
+        provider.issuer_url = Some("https://login.example.com/common/v2.0".to_string());
+
+        assert!(microsoft_oidc_config(&provider).is_err());
+    }
+
+    #[test]
     fn microsoft_discovery_url_keeps_the_v2_metadata_path() {
         assert_eq!(
             microsoft_discovery_url("https://login.microsoftonline.com/common/v2.0")
@@ -577,6 +595,12 @@ mod tests {
             format!(
                 "https://login.microsoftonline.com/{TENANT_ID}/v2.0/.well-known/openid-configuration"
             )
+        );
+        assert_eq!(
+            microsoft_discovery_url("http://127.0.0.1:3000/mock/tenant/v2.0")
+                .unwrap()
+                .as_str(),
+            "http://127.0.0.1:3000/mock/tenant/v2.0/.well-known/openid-configuration"
         );
     }
 

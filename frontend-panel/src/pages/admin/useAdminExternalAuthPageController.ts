@@ -172,6 +172,52 @@ function initialProviderKindPatch(
 	return {};
 }
 
+function dedicatedProviderKindPatch(
+	displayName: string,
+	fallbackDisplayName: string,
+	requireEmailVerified: boolean,
+): Partial<ExternalAuthProviderFormData> {
+	return {
+		authorizationUrl: "",
+		avatarUrlClaim: "",
+		displayName: displayName.trim() ? displayName : fallbackDisplayName,
+		displayNameClaim: "",
+		emailClaim: "",
+		emailVerifiedClaim: "",
+		groupsClaim: "",
+		iconUrl: "",
+		issuerUrl: "",
+		requireEmailVerified,
+		subjectClaim: "",
+		tokenUrl: "",
+		userinfoUrl: "",
+		usernameClaim: "",
+	};
+}
+
+function providerKindPatch(
+	kind: AdminExternalAuthProviderKindInfo | ExternalAuthProviderKind,
+	displayName: string,
+): Partial<ExternalAuthProviderFormData> {
+	if (isGitHubProviderKind(kind)) {
+		return dedicatedProviderKindPatch(displayName, "GitHub", true);
+	}
+	if (isGoogleProviderKind(kind)) {
+		return dedicatedProviderKindPatch(displayName, "Google", true);
+	}
+	if (isMicrosoftProviderKind(kind)) {
+		return {
+			...dedicatedProviderKindPatch(displayName, "Microsoft", false),
+			microsoftTenantMode: MICROSOFT_DEFAULT_TENANT,
+			microsoftTenant: MICROSOFT_DEFAULT_TENANT,
+		};
+	}
+	if (isQqProviderKind(kind)) {
+		return dedicatedProviderKindPatch(displayName, "QQ", false);
+	}
+	return {};
+}
+
 function adminExternalAuthUiReducer(
 	state: AdminExternalAuthUiState,
 	action: AdminExternalAuthUiAction,
@@ -491,81 +537,7 @@ export function useAdminExternalAuthPageController() {
 	const setProviderKind = (kind: ExternalAuthProviderKind) => {
 		const descriptor = providerKinds.find((item) => item.kind === kind);
 		const selectedProviderKind = descriptor ?? kind;
-		const patch: Partial<ExternalAuthProviderFormData> = isGitHubProviderKind(
-			selectedProviderKind,
-		)
-			? {
-					authorizationUrl: "",
-					avatarUrlClaim: "",
-					displayName: form.displayName.trim() ? form.displayName : "GitHub",
-					displayNameClaim: "",
-					emailClaim: "",
-					emailVerifiedClaim: "",
-					groupsClaim: "",
-					iconUrl: "",
-					issuerUrl: "",
-					requireEmailVerified: true,
-					subjectClaim: "",
-					tokenUrl: "",
-					userinfoUrl: "",
-					usernameClaim: "",
-				}
-			: isGoogleProviderKind(selectedProviderKind)
-				? {
-						authorizationUrl: "",
-						avatarUrlClaim: "",
-						displayName: form.displayName.trim() ? form.displayName : "Google",
-						displayNameClaim: "",
-						emailClaim: "",
-						emailVerifiedClaim: "",
-						groupsClaim: "",
-						iconUrl: "",
-						issuerUrl: "",
-						requireEmailVerified: true,
-						subjectClaim: "",
-						tokenUrl: "",
-						userinfoUrl: "",
-						usernameClaim: "",
-					}
-				: isMicrosoftProviderKind(selectedProviderKind)
-					? {
-							authorizationUrl: "",
-							avatarUrlClaim: "",
-							displayName: form.displayName.trim()
-								? form.displayName
-								: "Microsoft",
-							displayNameClaim: "",
-							emailClaim: "",
-							emailVerifiedClaim: "",
-							groupsClaim: "",
-							iconUrl: "",
-							issuerUrl: "",
-							microsoftTenantMode: MICROSOFT_DEFAULT_TENANT,
-							microsoftTenant: MICROSOFT_DEFAULT_TENANT,
-							requireEmailVerified: false,
-							subjectClaim: "",
-							tokenUrl: "",
-							userinfoUrl: "",
-							usernameClaim: "",
-						}
-					: isQqProviderKind(selectedProviderKind)
-						? {
-								authorizationUrl: "",
-								avatarUrlClaim: "",
-								displayName: form.displayName.trim() ? form.displayName : "QQ",
-								displayNameClaim: "",
-								emailClaim: "",
-								emailVerifiedClaim: "",
-								groupsClaim: "",
-								iconUrl: "",
-								issuerUrl: "",
-								requireEmailVerified: false,
-								subjectClaim: "",
-								tokenUrl: "",
-								userinfoUrl: "",
-								usernameClaim: "",
-							}
-						: {};
+		const patch = providerKindPatch(selectedProviderKind, form.displayName);
 		dispatchUi({
 			kind,
 			patch,

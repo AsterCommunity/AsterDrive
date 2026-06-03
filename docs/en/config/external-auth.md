@@ -52,6 +52,13 @@ Before creating the AsterDrive provider, create an application / OAuth client in
 | Google | Google Cloud Console `APIs & Services -> Credentials -> Create Credentials -> OAuth client ID` | OAuth client Authorized redirect URIs |
 | Microsoft | Microsoft Entra admin center / Azure portal `App registrations -> New registration` | Add a `Web` redirect URI on the Authentication page; Supported account types should match the tenant choice in AsterDrive |
 
+Common Microsoft Supported account types mapping:
+
+- AsterDrive tenant `consumers`: choose "Personal Microsoft accounts only"
+- AsterDrive tenant `organizations`: choose "Accounts in any organizational directory"
+- AsterDrive tenant as a concrete tenant ID: choose accounts in that directory, or choose a multi-tenant organizational option and restrict the tenant in AsterDrive
+- AsterDrive tenant `common`: choose "Accounts in any organizational directory and personal Microsoft accounts"
+
 If the identity provider asks for an application type, a login provider is usually a Web application / Confidential client. Leave Client Secret blank only when you know the provider supports public clients and does not require a secret.
 
 ## Common Fields
@@ -210,14 +217,7 @@ Notes:
 
 QQ uses the dedicated `qq` provider. It does not need to be configured as Generic OAuth2 with manual endpoints. QQ Connect website sign-in is not OIDC: there is no discovery, ID token, JWKS, or nonce. AsterDrive follows the QQ OAuth2 flow by exchanging the code for an access token, fetching `openid`, then reading the user profile.
 
-Registration entry points:
-
-- QQ Connect management center: <https://connect.qq.com/manage.html>
-- QQ authorization-code token guide: <https://wiki.connect.qq.com/%E4%BD%BF%E7%94%A8authorization_code%E8%8E%B7%E5%8F%96access_token>
-- QQ OpenID guide: <https://wiki.connect.qq.com/%E8%8E%B7%E5%8F%96%E7%94%A8%E6%88%B7openid_oauth2-0>
-- QQ user profile guide: <https://wiki.connect.qq.com/get_user_info>
-
-Create a website application in QQ Connect, then copy its App ID and App Key. After saving the AsterDrive provider, register the displayed callback URL as the QQ Connect application callback URL / callback domain.
+Create a website application in the QQ Connect management center <https://connect.qq.com/manage.html>, then copy its App ID and App Key. After saving the AsterDrive provider, register the displayed callback URL as the QQ Connect application callback URL / callback domain. See QQ Connect documentation for OAuth2 setup details.
 
 ```text
 Provider kind: QQ
@@ -236,10 +236,8 @@ Email: not returned
 Notes:
 
 - The admin form does not require QQ authorization / token / openid / userinfo endpoints
-- Token and OpenID requests explicitly include `fmt=json` so QQ does not return form-urlencoded data or JSONP
 - `openid` is scoped to the QQ App ID; AsterDrive uses `qq:{client_id}` as the identity namespace to avoid cross-app identity mixing
-- QQ does not return email and does not declare verified email; first sign-in usually enters email verification or local account binding
-- Do not enable auto-link by verified email expecting QQ to link accounts automatically; QQ has no verified-email signal
+- QQ does not return email and does not declare verified email; first sign-in usually enters email verification or local account binding, so do not expect verified-email auto-linking to work
 
 </details>
 
@@ -248,12 +246,7 @@ Notes:
 
 Google uses the dedicated `google` provider. It no longer needs to be configured as generic OIDC with a manual issuer:
 
-Registration entry points:
-
-- Google Cloud Console Credentials: <https://console.cloud.google.com/apis/credentials>
-- Google official OAuth client guide: <https://developers.google.com/identity/protocols/oauth2/web-server#creatingcred>
-
-Create an OAuth client ID with Web application as the application type, then add the AsterDrive-generated callback URL to Authorized redirect URIs. You usually also need to configure the OAuth consent screen before first use.
+Create an OAuth client ID in Google Cloud Console Credentials <https://console.cloud.google.com/apis/credentials>, choose Web application as the application type, then add the AsterDrive-generated callback URL to Authorized redirect URIs. You usually also need to configure the OAuth consent screen before first use.
 
 ```text
 Provider kind: Google
@@ -271,7 +264,7 @@ Notes:
 
 - The admin form does not require Google issuer / discovery / authorization / token / userinfo endpoints
 - External identities must be linked by `sub`, not email
-- Google API / Google Drive access is a separate OAuth authorization feature and should not be mixed into the login provider's default scopes
+- For later Google Drive access, create a separate OAuth client / authorization flow and do not add `drive.*` scopes to the login provider
 
 </details>
 
@@ -280,13 +273,7 @@ Notes:
 
 Microsoft uses the dedicated `microsoft` provider. It signs users in through OIDC; do not switch it to Generic OAuth2 just because the endpoints contain `/oauth2/`. OAuth2 access tokens are only needed later when AsterDrive needs to access Microsoft Graph or similar protected resources.
 
-Registration entry points:
-
-- Microsoft Entra admin center: <https://entra.microsoft.com/#view/Microsoft_AAD_RegisteredApps/ApplicationsListBlade>
-- Azure portal: <https://portal.azure.com/#view/Microsoft_AAD_RegisteredApps/ApplicationsListBlade>
-- Official registration guide: <https://learn.microsoft.com/en-us/entra/identity-platform/quickstart-register-app>
-
-Recommended full flow:
+Create the app in Microsoft Entra admin center <https://entra.microsoft.com/#view/Microsoft_AAD_RegisteredApps/ApplicationsListBlade> or Azure portal <https://portal.azure.com/#view/Microsoft_AAD_RegisteredApps/ApplicationsListBlade>. Recommended flow:
 
 1. Choose the Tenant in the AsterDrive Microsoft provider form first.
 
@@ -331,11 +318,11 @@ Email verified claim: not used
 
 Tenant may be a concrete tenant ID, `organizations`, `consumers`, or `common`. Multi-tenant entries may return an ID token issuer for the concrete tenant; AsterDrive validates that issuer using Microsoft issuer rules instead of requiring it to literally equal the `common` / `organizations` / `consumers` issuer. Microsoft does not always return an `email` claim, and its email claim should not be treated like GitHub's verified primary email semantics; if email is missing, use the existing email-verification / account-binding flow. Microsoft Graph permissions are later resource-access authorization and should not be mixed into the login provider's default scopes.
 
-If the callback fails with `AADSTS9002346`, the App registration Supported account types usually do not match the AsterDrive tenant setting. For example, when the app is configured for personal Microsoft Account users only, set the AsterDrive tenant to `consumers`; when organization accounts should sign in, allow the matching organization account type in the app and use a concrete tenant ID or `organizations`.
-
-If the callback fails with `AADSTS7000215` / `Invalid client secret provided`, the Azure `Secret ID` was usually entered as the Client Secret. Create a new client secret and paste its generated `Value` into AsterDrive.
-
-If the callback fails with `AADSTS90023` / `Public clients can't send a client secret`, the callback URL was registered under a public/native client platform, or the app is being treated as a public client. Move the Redirect URI to the `Authentication -> Web` platform, keep the Client Secret in AsterDrive, and start a fresh Microsoft login from the login page instead of refreshing the old callback URL.
+::: warning Common pitfalls / reminders
+- `AADSTS9002346`: Supported account types do not match the AsterDrive tenant. Use the tenant mapping above.
+- `AADSTS7000215`: the Azure `Secret ID` was usually entered as the Client Secret. Create a new client secret and paste its generated `Value` into AsterDrive.
+- `AADSTS90023`: the Redirect URI is registered under `Public client/native (mobile and desktop)`. Move that Redirect URI to `Authentication -> Web`, keep the Client Secret in AsterDrive, and start a fresh Microsoft login from the login page instead of refreshing the old callback URL.
+:::
 
 </details>
 
@@ -365,7 +352,7 @@ Check Client ID, Client Secret, Token URL, and redirect URI. Generic OAuth2 uses
 
 For Microsoft `AADSTS7000215`, first check that Client Secret is the `Value` from `Certificates & secrets -> Client secrets`, not the `Secret ID`. If the `Value` is no longer visible, create a new secret.
 
-For Microsoft `AADSTS90023`, check that the App registration Redirect URI is under the `Authentication -> Web` platform. AsterDrive sends a Client Secret during token exchange, so it cannot use the `Public client/native (mobile and desktop)` platform.
+For Microsoft `AADSTS90023`, the Redirect URI is registered under `Public client/native (mobile and desktop)`. Move that Redirect URI to the `Authentication -> Web` platform, keep the Client Secret in AsterDrive, and start a fresh Microsoft login from the login page instead of reusing or refreshing the old callback URL.
 
 ### Missing subject
 

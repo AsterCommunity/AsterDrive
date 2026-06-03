@@ -52,6 +52,13 @@ https://drive.example.com/api/v1/auth/external-auth/{kind}/{provider}/callback
 | Google | Google Cloud Console 的 `APIs & Services -> Credentials -> Create Credentials -> OAuth client ID` | OAuth client 的 Authorized redirect URIs |
 | Microsoft | Microsoft Entra admin center / Azure portal 的 `App registrations -> New registration` | Authentication 页面添加 `Web` redirect URI；Supported account types 要和 AsterDrive 的 tenant 选择一致 |
 
+Microsoft Supported account types 和 AsterDrive tenant 的常用对应关系：
+
+- AsterDrive tenant `consumers`：选择 “Personal Microsoft accounts only”
+- AsterDrive tenant `organizations`：选择 “Accounts in any organizational directory”
+- AsterDrive tenant 为具体 tenant ID：选择该目录内账号，或选择多租户组织账号后只在 AsterDrive 限定该 tenant ID
+- AsterDrive tenant `common`：选择 “Accounts in any organizational directory and personal Microsoft accounts”
+
 如果身份提供商要求应用类型，登录 provider 通常选择 Web application / Confidential client；只在你明确知道 provider 支持 public client 且不需要 secret 时才留空 Client Secret。
 
 ## 通用字段
@@ -210,14 +217,7 @@ Email: 固定从 /user/emails 筛选 primary=true 且 verified=true 的邮箱
 
 QQ 使用专用 `qq` provider，不需要把它当 Generic OAuth2 手动配置端点。QQ 互联网站登录不是 OIDC：没有 discovery、ID Token、JWKS 或 nonce；AsterDrive 会按 QQ OAuth2 流程先换取 access token，再获取 `openid`，最后读取用户资料。
 
-申请入口：
-
-- QQ 互联管理中心: <https://connect.qq.com/manage.html>
-- QQ 授权码换 token 文档: <https://wiki.connect.qq.com/%E4%BD%BF%E7%94%A8authorization_code%E8%8E%B7%E5%8F%96access_token>
-- QQ 获取 OpenID 文档: <https://wiki.connect.qq.com/%E8%8E%B7%E5%8F%96%E7%94%A8%E6%88%B7openid_oauth2-0>
-- QQ 获取用户资料文档: <https://wiki.connect.qq.com/get_user_info>
-
-在 QQ 互联里创建网站应用，拿到 App ID 和 App Key。AsterDrive 保存 provider 后会显示 callback URL，把它登记到 QQ 互联应用的回调地址 / 回调域名配置里。
+在 QQ 互联管理中心 <https://connect.qq.com/manage.html> 创建网站应用，拿到 App ID 和 App Key。AsterDrive 保存 provider 后会显示 callback URL，把它登记到 QQ 互联应用的回调地址 / 回调域名配置里。OAuth2 细节可参考 QQ 互联文档。
 
 ```text
 Provider kind: QQ
@@ -236,10 +236,8 @@ Email: 不返回
 注意：
 
 - 后台表单不需要填写 QQ authorization / token / openid / userinfo endpoint
-- Token 和 OpenID 请求会显式带 `fmt=json`，避免 QQ 默认返回 form-urlencoded 或 JSONP
 - `openid` 是 QQ App ID 维度的身份，AsterDrive 使用 `qq:{client_id}` 作为身份命名空间，避免不同 QQ 应用之间混绑
-- QQ 不返回邮箱，也不会声明邮箱已验证；首次登录通常会进入邮箱补验或本地账号绑定流程
-- 不要开启“按已验证邮箱自动绑定”来期待 QQ 自动绑定邮箱，它没有可用的已验证邮箱信号
+- QQ 不返回邮箱，也不会声明邮箱已验证；首次登录通常会进入邮箱补验或本地账号绑定流程，不要期待它按已验证邮箱自动绑定
 
 </details>
 
@@ -248,12 +246,7 @@ Email: 不返回
 
 Google 使用专用 `google` provider，不需要把它当普通 OIDC 手动配置 issuer：
 
-申请入口：
-
-- Google Cloud Console Credentials: <https://console.cloud.google.com/apis/credentials>
-- Google 官方 OAuth client 说明: <https://developers.google.com/identity/protocols/oauth2/web-server#creatingcred>
-
-创建 OAuth client ID 时选择 Web application，把 AsterDrive 生成的 callback URL 填到 Authorized redirect URIs。首次使用前通常还需要配置 OAuth consent screen。
+在 Google Cloud Console Credentials <https://console.cloud.google.com/apis/credentials> 创建 OAuth client ID，应用类型选择 Web application，把 AsterDrive 生成的 callback URL 填到 Authorized redirect URIs。首次使用前通常还需要配置 OAuth consent screen。
 
 ```text
 Provider kind: Google
@@ -271,7 +264,7 @@ Avatar URL claim: 固定读取 ID Token picture
 
 - 后台表单不需要填写 Google issuer / discovery / authorization / token / userinfo endpoint
 - 外部身份必须用 `sub` 绑定，不要用 email 做唯一标识
-- Google API / Google Drive 访问属于额外 OAuth 授权能力，不应混进登录 provider 的默认 scopes
+- 如果后续要接 Google Drive，请单独创建资源访问用 OAuth client / 授权流程，不要把 `drive.*` scopes 加到登录 provider
 
 </details>
 
@@ -280,13 +273,7 @@ Avatar URL claim: 固定读取 ID Token picture
 
 Microsoft 使用专用 `microsoft` provider。它按 OIDC 接入，不要为了登录改成 Generic OAuth2；OAuth2 access token 只在后续需要访问 Microsoft Graph 等资源时才需要。
 
-申请入口：
-
-- Microsoft Entra admin center: <https://entra.microsoft.com/#view/Microsoft_AAD_RegisteredApps/ApplicationsListBlade>
-- Azure portal: <https://portal.azure.com/#view/Microsoft_AAD_RegisteredApps/ApplicationsListBlade>
-- 官方注册说明: <https://learn.microsoft.com/en-us/entra/identity-platform/quickstart-register-app>
-
-推荐完整流程：
+在 Microsoft Entra admin center <https://entra.microsoft.com/#view/Microsoft_AAD_RegisteredApps/ApplicationsListBlade> 或 Azure portal <https://portal.azure.com/#view/Microsoft_AAD_RegisteredApps/ApplicationsListBlade> 创建应用。推荐流程：
 
 1. 先在 AsterDrive 的 Microsoft provider 表单里选择 Tenant。
 
@@ -331,11 +318,11 @@ Email verified claim: 不使用
 
 Tenant 可填具体 tenant ID，也可填 `organizations`、`consumers` 或 `common`。多租户入口返回的 ID Token issuer 可能是具体 tenant，AsterDrive 会按 Microsoft issuer 规则校验，不要求它逐字等于 `common` / `organizations` / `consumers` issuer。Microsoft 的 `email` claim 不保证一定存在，也不要默认套用 GitHub 的 verified primary email 语义；邮箱缺失时按现有邮箱补验 / 绑定流程处理。Microsoft Graph 权限属于后续资源访问授权，不应混入登录 provider 的默认 scopes。
 
-如果回调报 `AADSTS9002346`，通常是 App registration 的 Supported account types 和 AsterDrive tenant 不匹配。例如应用被配置为只允许个人 Microsoft Account 登录时，AsterDrive tenant 应填 `consumers`；如果要让组织账号登录，应用需要允许对应组织目录账号，并使用具体 tenant ID 或 `organizations`。
-
-如果回调报 `AADSTS7000215` / `Invalid client secret provided`，通常是把 Azure 的 `Secret ID` 填成了 Client Secret。请新建 client secret，并把创建时显示的 `Value` 填入 AsterDrive。
-
-如果回调报 `AADSTS90023` / `Public clients can't send a client secret`，说明 callback URL 被登记在 public/native client 平台，或应用被当成 public client 使用。把 Redirect URI 改到 `Authentication -> Web` 平台，并保留 AsterDrive 里的 Client Secret；然后重新从登录页发起一次新的 Microsoft 登录，不要刷新旧 callback URL。
+::: warning 常见坑 / 提醒
+- `AADSTS9002346`：Supported account types 和 AsterDrive tenant 不匹配。按上面的 tenant 对应关系调整。
+- `AADSTS7000215`：通常是把 Azure 的 `Secret ID` 填成了 Client Secret。请新建 client secret，并把创建时显示的 `Value` 填入 AsterDrive。
+- `AADSTS90023`：Redirect URI 被登记在 `Public client/native (mobile and desktop)` 平台。把该 Redirect URI 移到 `Authentication -> Web`，保留 AsterDrive 的 Client Secret，然后从登录页重新发起 Microsoft 登录，不要刷新旧 callback URL。
+:::
 
 </details>
 
@@ -365,7 +352,7 @@ Generic OAuth2 当前只发起一次 token exchange，避免重放一次性 auth
 
 Microsoft 报 `AADSTS7000215` 时，优先检查 Client Secret 是否填的是 `Certificates & secrets -> Client secrets` 里的 `Value`，不是 `Secret ID`。如果 `Value` 已经看不到，只能新建 secret。
 
-Microsoft 报 `AADSTS90023` 时，检查 App registration 的 Redirect URI 是否添加在 `Authentication -> Web` 平台。AsterDrive 带 Client Secret 换 token，不能使用 `Public client/native (mobile and desktop)` 平台。
+Microsoft 报 `AADSTS90023` 时，说明 Redirect URI 被登记在 `Public client/native (mobile and desktop)` 平台。把该 Redirect URI 移到 `Authentication -> Web` 平台，保留 AsterDrive 的 Client Secret，然后从登录页重新发起 Microsoft 登录，不要复用或刷新旧 callback URL。
 
 ### 缺少 subject
 

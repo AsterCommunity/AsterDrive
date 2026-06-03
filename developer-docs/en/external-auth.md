@@ -212,8 +212,8 @@ Deployment-facing documentation should tell admins where to create each applicat
 - Logto example: Logto Cloud Console <https://cloud.logto.io/>; self-hosted deployments use `https://<logto-host>/console`.
 - GitHub: personal account <https://github.com/settings/developers>; organizations use `https://github.com/organizations/{org}/settings/applications`.
 - QQ: QQ Connect management center <https://connect.qq.com/manage.html>, create a website application, then register the AsterDrive callback URL.
-- Google: Google Cloud Console Credentials <https://console.cloud.google.com/apis/credentials>.
-- Microsoft: Microsoft Entra admin center <https://entra.microsoft.com/#view/Microsoft_AAD_RegisteredApps/ApplicationsListBlade> or Azure portal <https://portal.azure.com/#view/Microsoft_AAD_RegisteredApps/ApplicationsListBlade>, then add a Web redirect URI on the Authentication page and copy the client secret `Value` after creating it under Certificates & secrets.
+- Google: Google Cloud Console Credentials <https://console.cloud.google.com/apis/credentials>; create an OAuth client ID, choose Web application, open the OAuth client ID, and add the AsterDrive callback under Authorized redirect URIs.
+- Microsoft: Microsoft Entra admin center <https://entra.microsoft.com/#view/Microsoft_AAD_RegisteredApps/ApplicationsListBlade> or Azure portal <https://portal.azure.com/#view/Microsoft_AAD_RegisteredApps/ApplicationsListBlade>; open the app, go to Authentication, choose Add a platform -> Web, paste the AsterDrive callback into Redirect URIs, then create a client secret under Certificates & secrets and copy its generated `Value`.
 
 All entries should use the AsterDrive-generated `/api/v1/auth/external-auth/{kind}/{provider}/callback` as the redirect URI.
 

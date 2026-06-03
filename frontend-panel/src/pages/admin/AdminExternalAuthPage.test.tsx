@@ -215,7 +215,7 @@ vi.mock("@/components/ui/select", () => {
 			children: React.ReactNode;
 			id?: string;
 		}) => {
-			const { items, onValueChange, value } = React.useContext(SelectContext);
+			const { items, onValueChange, value } = React.use(SelectContext);
 			return (
 				<select
 					id={id}
@@ -910,6 +910,48 @@ describe("AdminExternalAuthPage", () => {
 		).not.toBeInTheDocument();
 	});
 
+	it("applies provider kind defaults loaded after opening the create dialog", async () => {
+		mockState.listKinds.mockResolvedValueOnce([]).mockResolvedValueOnce([
+			{
+				authorization_url_required: false,
+				default_scopes: "get_user_info",
+				description: "QQ Connect OAuth2 sign-in.",
+				display_name: "QQ",
+				issuer_url_required: false,
+				kind: "qq",
+				manual_endpoint_configuration_supported: false,
+				protocol: "oauth2",
+				supports_discovery: false,
+				supports_email_verified_claim: false,
+				supports_pkce: true,
+				token_url_required: false,
+				userinfo_url_required: false,
+			},
+		]);
+
+		render(
+			<MemoryRouter initialEntries={["/admin/external-auth"]}>
+				<AdminExternalAuthPage />
+			</MemoryRouter>,
+		);
+
+		await waitFor(() => expect(mockState.listKinds).toHaveBeenCalledTimes(1));
+		const createButtons = screen.getAllByRole("button", {
+			name: /external_auth_provider_create/,
+		});
+		fireEvent.click(createButtons[createButtons.length - 1]);
+
+		await screen.findByText("QQ");
+		fireEvent.click(screen.getByRole("button", { name: "policy_wizard_next" }));
+
+		expect(
+			screen.queryByLabelText("external_auth_provider_issuer_url"),
+		).not.toBeInTheDocument();
+		expect(
+			screen.getByLabelText("external_auth_provider_client_id"),
+		).toBeInTheDocument();
+	});
+
 	it("ignores stale provider kind results after closing the create dialog", async () => {
 		let resolveStaleKinds:
 			| ((value: Awaited<ReturnType<typeof mockState.listKinds>>) => void)
@@ -1052,6 +1094,34 @@ describe("AdminExternalAuthPage", () => {
 		expect(mockState.testParams).not.toHaveBeenCalled();
 	});
 
+	it("tests a provider from the providers list and shows the result summary", async () => {
+		mockState.list.mockResolvedValue({
+			items: [savedProvider()],
+			limit: 20,
+			offset: 0,
+			total: 1,
+		});
+
+		render(
+			<MemoryRouter initialEntries={["/admin/external-auth"]}>
+				<AdminExternalAuthPage />
+			</MemoryRouter>,
+		);
+
+		await screen.findByText("Example IDP");
+		fireEvent.click(
+			screen.getByRole("button", { name: "external_auth_provider_test" }),
+		);
+
+		await waitFor(() => expect(mockState.test).toHaveBeenCalledWith(1));
+		expect(mockState.toastSuccess).toHaveBeenCalledWith(
+			"external_auth_provider_test_success",
+		);
+		expect(
+			await screen.findByText("external_auth_provider_test_check_ok"),
+		).toBeInTheDocument();
+	});
+
 	it("hides derived issuer URL when editing a Microsoft provider", async () => {
 		mockState.listKinds.mockResolvedValue([
 			{
@@ -1156,6 +1226,42 @@ describe("AdminExternalAuthPage", () => {
 			}),
 		);
 		expect(mockState.test).not.toHaveBeenCalled();
+	});
+
+	it("reports draft connection test failures while creating", async () => {
+		const testError = new Error("draft test failed");
+		mockState.testParams.mockRejectedValueOnce(testError);
+
+		render(
+			<MemoryRouter initialEntries={["/admin/external-auth"]}>
+				<AdminExternalAuthPage />
+			</MemoryRouter>,
+		);
+
+		await waitFor(() => expect(mockState.listKinds).toHaveBeenCalled());
+		const createButtons = screen.getAllByRole("button", {
+			name: /external_auth_provider_create/,
+		});
+		fireEvent.click(createButtons[createButtons.length - 1]);
+		fireEvent.click(screen.getByRole("button", { name: "policy_wizard_next" }));
+		fireEvent.change(
+			screen.getByLabelText("external_auth_provider_issuer_url"),
+			{
+				target: { value: "https://idp.example.com" },
+			},
+		);
+		fireEvent.change(
+			screen.getByLabelText("external_auth_provider_client_id"),
+			{
+				target: { value: "client-123" },
+			},
+		);
+
+		fireEvent.click(screen.getByRole("button", { name: "test_connection" }));
+
+		await waitFor(() => {
+			expect(mockState.handleApiError).toHaveBeenCalledWith(testError);
+		});
 	});
 
 	it("shows one readable provider kind badge in the providers list", async () => {
@@ -1373,6 +1479,38 @@ describe("AdminExternalAuthPage", () => {
 		).not.toBeInTheDocument();
 	});
 
+	it("keeps the edit dialog open and reports update failures", async () => {
+		const updateError = new Error("update failed");
+		mockState.list.mockResolvedValue({
+			items: [savedProvider()],
+			limit: 20,
+			offset: 0,
+			total: 1,
+		});
+		mockState.update.mockRejectedValueOnce(updateError);
+
+		render(
+			<MemoryRouter initialEntries={["/admin/external-auth"]}>
+				<AdminExternalAuthPage />
+			</MemoryRouter>,
+		);
+
+		await screen.findByText("Example IDP");
+		fireEvent.click(screen.getByText("Example IDP"));
+		fireEvent.change(
+			screen.getByLabelText("external_auth_provider_display_name"),
+			{
+				target: { value: "Updated IDP" },
+			},
+		);
+		fireEvent.click(screen.getByRole("button", { name: "save_changes" }));
+
+		await waitFor(() => {
+			expect(mockState.handleApiError).toHaveBeenCalledWith(updateError);
+		});
+		expect(screen.getByText("external_auth_provider_edit")).toBeInTheDocument();
+	});
+
 	it("handles test, update, delete, and list loading failures through the shared error handler", async () => {
 		const loadError = new Error("load failed");
 		mockState.listKinds.mockRejectedValueOnce(loadError);
@@ -1418,6 +1556,42 @@ describe("AdminExternalAuthPage", () => {
 		expect(mockState.list).toHaveBeenLastCalledWith({
 			limit: 20,
 			offset: 0,
+		});
+	});
+
+	it("reports provider row test and delete failures", async () => {
+		const testError = new Error("provider test failed");
+		const deleteError = new Error("delete failed");
+		mockState.list.mockResolvedValue({
+			items: [savedProvider()],
+			limit: 20,
+			offset: 0,
+			total: 1,
+		});
+		mockState.test.mockRejectedValueOnce(testError);
+		mockState.deleteProvider.mockRejectedValueOnce(deleteError);
+
+		render(
+			<MemoryRouter initialEntries={["/admin/external-auth"]}>
+				<AdminExternalAuthPage />
+			</MemoryRouter>,
+		);
+
+		await screen.findByText("Example IDP");
+		fireEvent.click(
+			screen.getByRole("button", { name: "external_auth_provider_test" }),
+		);
+		await waitFor(() => {
+			expect(mockState.handleApiError).toHaveBeenCalledWith(testError);
+		});
+
+		fireEvent.click(
+			screen.getByRole("button", { name: "external_auth_provider_delete" }),
+		);
+		fireEvent.click(screen.getByRole("button", { name: "core:delete" }));
+
+		await waitFor(() => {
+			expect(mockState.handleApiError).toHaveBeenCalledWith(deleteError);
 		});
 	});
 
