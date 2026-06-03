@@ -3,12 +3,14 @@
 #[macro_use]
 mod common;
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::io::Cursor;
 use std::sync::Arc;
+use std::time::Duration;
 
 use actix_web::test;
 use async_trait::async_trait;
+use bytes::Bytes;
 use chrono::Utc;
 use parking_lot::Mutex;
 use sea_orm::{ActiveModelTrait, ColumnTrait, EntityTrait, QueryFilter, Set};
@@ -23,7 +25,9 @@ use aster_drive::entities::{file, file_blob, file_version, storage_policy};
 use aster_drive::errors::{AsterError, MapAsterErr, Result};
 use aster_drive::runtime::PrimaryAppState;
 use aster_drive::services::task_service;
-use aster_drive::storage::{BlobMetadata, StorageDriver, StreamUploadDriver};
+use aster_drive::storage::{
+    BlobMetadata, MultipartStorageDriver, StorageDriver, StorageErrorKind, StreamUploadDriver,
+};
 use aster_drive::types::{
     BackgroundTaskStatus, DriverType, FileCategory, StoredStoragePolicyAllowedTypes,
     StoredStoragePolicyOptions,
@@ -156,6 +160,358 @@ impl StreamUploadDriver for FailingStreamUploadDriver {
         Err(AsterError::storage_driver_error(
             "simulated timeout after remote write",
         ))
+    }
+}
+
+#[derive(Clone, Copy)]
+enum MultipartCompleteMode {
+    Success,
+    TransientErrorAfterWrite,
+    CorruptObjectAfterWrite,
+}
+
+#[derive(Clone, Copy)]
+enum MultipartPartFailure {
+    TransientAttempts {
+        part_number: i32,
+        remaining_failures: usize,
+    },
+    Permanent {
+        part_number: i32,
+    },
+}
+
+struct MultipartUploadState {
+    path: String,
+    parts: BTreeMap<i32, Vec<u8>>,
+    aborted: bool,
+}
+
+#[derive(Default)]
+struct MultipartMigrationDriverState {
+    objects: HashMap<String, Vec<u8>>,
+    uploads: HashMap<String, MultipartUploadState>,
+    next_upload_id: usize,
+    part_attempts: HashMap<i32, usize>,
+    uploaded_part_sizes: Vec<usize>,
+    put_reader_calls: usize,
+    complete_calls: usize,
+    abort_calls: usize,
+    delete_calls: usize,
+    complete_mode: Option<MultipartCompleteMode>,
+    part_failure: Option<MultipartPartFailure>,
+}
+
+#[derive(Clone, Default)]
+struct MultipartMigrationTestDriver {
+    state: Arc<Mutex<MultipartMigrationDriverState>>,
+}
+
+impl MultipartMigrationTestDriver {
+    fn fail_part_transient_once(part_number: i32) -> Self {
+        let driver = Self::default();
+        driver.state.lock().part_failure = Some(MultipartPartFailure::TransientAttempts {
+            part_number,
+            remaining_failures: 1,
+        });
+        driver
+    }
+
+    fn fail_part_permanently(part_number: i32) -> Self {
+        let driver = Self::default();
+        driver.state.lock().part_failure = Some(MultipartPartFailure::Permanent { part_number });
+        driver
+    }
+
+    fn complete_transient_after_write() -> Self {
+        let driver = Self::default();
+        driver.state.lock().complete_mode = Some(MultipartCompleteMode::TransientErrorAfterWrite);
+        driver
+    }
+
+    fn complete_with_corrupt_object() -> Self {
+        let driver = Self::default();
+        driver.state.lock().complete_mode = Some(MultipartCompleteMode::CorruptObjectAfterWrite);
+        driver
+    }
+
+    fn object_bytes(&self, path: &str) -> Option<Vec<u8>> {
+        self.state.lock().objects.get(path).cloned()
+    }
+
+    fn uploaded_part_sizes(&self) -> Vec<usize> {
+        self.state.lock().uploaded_part_sizes.clone()
+    }
+
+    fn part_attempt_count(&self, part_number: i32) -> usize {
+        self.state
+            .lock()
+            .part_attempts
+            .get(&part_number)
+            .copied()
+            .unwrap_or_default()
+    }
+
+    fn put_reader_calls(&self) -> usize {
+        self.state.lock().put_reader_calls
+    }
+
+    fn complete_calls(&self) -> usize {
+        self.state.lock().complete_calls
+    }
+
+    fn abort_calls(&self) -> usize {
+        self.state.lock().abort_calls
+    }
+
+    fn delete_calls(&self) -> usize {
+        self.state.lock().delete_calls
+    }
+}
+
+#[async_trait]
+impl StorageDriver for MultipartMigrationTestDriver {
+    async fn put(&self, path: &str, data: &[u8]) -> Result<String> {
+        self.state
+            .lock()
+            .objects
+            .insert(path.to_string(), data.to_vec());
+        Ok(path.to_string())
+    }
+
+    async fn get(&self, path: &str) -> Result<Vec<u8>> {
+        self.state
+            .lock()
+            .objects
+            .get(path)
+            .cloned()
+            .ok_or_else(|| AsterError::storage_driver_error(format!("missing object {path}")))
+    }
+
+    async fn get_stream(&self, path: &str) -> Result<Box<dyn AsyncRead + Unpin + Send>> {
+        Ok(Box::new(Cursor::new(self.get(path).await?)))
+    }
+
+    async fn delete(&self, path: &str) -> Result<()> {
+        let mut state = self.state.lock();
+        state.delete_calls += 1;
+        state.objects.remove(path);
+        Ok(())
+    }
+
+    async fn exists(&self, path: &str) -> Result<bool> {
+        Ok(self.state.lock().objects.contains_key(path))
+    }
+
+    async fn metadata(&self, path: &str) -> Result<BlobMetadata> {
+        let size = self
+            .state
+            .lock()
+            .objects
+            .get(path)
+            .map(Vec::len)
+            .ok_or_else(|| AsterError::storage_driver_error(format!("missing object {path}")))?;
+        Ok(BlobMetadata {
+            size: usize_to_u64(size, "test multipart object size")?,
+            content_type: None,
+        })
+    }
+
+    fn as_stream_upload(&self) -> Option<&dyn StreamUploadDriver> {
+        Some(self)
+    }
+
+    fn as_multipart(&self) -> Option<&dyn MultipartStorageDriver> {
+        Some(self)
+    }
+}
+
+#[async_trait]
+impl StreamUploadDriver for MultipartMigrationTestDriver {
+    async fn put_reader(
+        &self,
+        storage_path: &str,
+        mut reader: Box<dyn AsyncRead + Unpin + Send + Sync>,
+        _size: i64,
+    ) -> Result<String> {
+        let mut bytes = Vec::new();
+        reader.read_to_end(&mut bytes).await.map_aster_err_ctx(
+            "read unexpected stream upload",
+            AsterError::storage_driver_error,
+        )?;
+        let mut state = self.state.lock();
+        state.put_reader_calls += 1;
+        state.objects.insert(storage_path.to_string(), bytes);
+        Ok(storage_path.to_string())
+    }
+
+    async fn put_file(&self, storage_path: &str, local_path: &str) -> Result<String> {
+        let bytes = tokio::fs::read(local_path)
+            .await
+            .map_aster_err(AsterError::storage_driver_error)?;
+        let mut state = self.state.lock();
+        state.put_reader_calls += 1;
+        state.objects.insert(storage_path.to_string(), bytes);
+        Ok(storage_path.to_string())
+    }
+}
+
+#[async_trait]
+impl MultipartStorageDriver for MultipartMigrationTestDriver {
+    async fn create_multipart_upload(&self, path: &str) -> Result<String> {
+        let mut state = self.state.lock();
+        state.next_upload_id += 1;
+        let upload_id = format!("upload-{}", state.next_upload_id);
+        state.uploads.insert(
+            upload_id.clone(),
+            MultipartUploadState {
+                path: path.to_string(),
+                parts: BTreeMap::new(),
+                aborted: false,
+            },
+        );
+        Ok(upload_id)
+    }
+
+    async fn presigned_upload_part_url(
+        &self,
+        _path: &str,
+        _upload_id: &str,
+        _part_number: i32,
+        _expires: Duration,
+    ) -> Result<String> {
+        Err(aster_drive::storage::error::storage_driver_error(
+            StorageErrorKind::Unsupported,
+            "test driver does not presign multipart parts",
+        ))
+    }
+
+    async fn complete_multipart_upload(
+        &self,
+        path: &str,
+        upload_id: &str,
+        parts: Vec<(i32, String)>,
+    ) -> Result<()> {
+        let mut state = self.state.lock();
+        state.complete_calls += 1;
+        let upload = state.uploads.get(upload_id).ok_or_else(|| {
+            AsterError::storage_driver_error(format!("missing upload {upload_id}"))
+        })?;
+        assert_eq!(upload.path, path);
+        assert!(
+            !upload.aborted,
+            "aborted multipart upload must not complete"
+        );
+
+        let mut assembled = Vec::new();
+        for (part_number, _etag) in parts {
+            let part = upload.parts.get(&part_number).ok_or_else(|| {
+                AsterError::storage_driver_error(format!("missing part {part_number}"))
+            })?;
+            assembled.extend_from_slice(part);
+        }
+
+        let complete_mode = state
+            .complete_mode
+            .unwrap_or(MultipartCompleteMode::Success);
+        let stored = match complete_mode {
+            MultipartCompleteMode::Success | MultipartCompleteMode::TransientErrorAfterWrite => {
+                assembled
+            }
+            MultipartCompleteMode::CorruptObjectAfterWrite => vec![0xA5; assembled.len()],
+        };
+        state.objects.insert(path.to_string(), stored);
+
+        if matches!(
+            complete_mode,
+            MultipartCompleteMode::TransientErrorAfterWrite
+        ) {
+            return Err(aster_drive::storage::error::storage_driver_error(
+                StorageErrorKind::Transient,
+                "simulated complete timeout after object write",
+            ));
+        }
+        Ok(())
+    }
+
+    async fn upload_multipart_part(
+        &self,
+        path: &str,
+        upload_id: &str,
+        part_number: i32,
+        data: &[u8],
+    ) -> Result<String> {
+        self.upload_multipart_part_bytes(path, upload_id, part_number, Bytes::copy_from_slice(data))
+            .await
+    }
+
+    async fn upload_multipart_part_bytes(
+        &self,
+        path: &str,
+        upload_id: &str,
+        part_number: i32,
+        data: Bytes,
+    ) -> Result<String> {
+        let mut state = self.state.lock();
+        let attempts = state.part_attempts.entry(part_number).or_default();
+        *attempts += 1;
+        let attempt = *attempts;
+
+        let failure = match state.part_failure.as_mut() {
+            Some(MultipartPartFailure::TransientAttempts {
+                part_number: failing_part,
+                remaining_failures,
+            }) if *failing_part == part_number && *remaining_failures > 0 => {
+                *remaining_failures -= 1;
+                Some(aster_drive::storage::error::storage_driver_error(
+                    StorageErrorKind::Transient,
+                    "simulated transient multipart part failure",
+                ))
+            }
+            Some(MultipartPartFailure::Permanent {
+                part_number: failing_part,
+            }) if *failing_part == part_number => {
+                Some(aster_drive::storage::error::storage_driver_error(
+                    StorageErrorKind::Permission,
+                    "simulated permanent multipart part failure",
+                ))
+            }
+            _ => None,
+        };
+        if let Some(error) = failure {
+            return Err(error);
+        }
+
+        let upload = state.uploads.get_mut(upload_id).ok_or_else(|| {
+            AsterError::storage_driver_error(format!("missing upload {upload_id}"))
+        })?;
+        assert_eq!(upload.path, path);
+        assert!(
+            !upload.aborted,
+            "aborted multipart upload must not accept parts"
+        );
+        upload.parts.insert(part_number, data.to_vec());
+        state.uploaded_part_sizes.push(data.len());
+        Ok(format!("etag-{part_number}-{attempt}"))
+    }
+
+    async fn abort_multipart_upload(&self, path: &str, upload_id: &str) -> Result<()> {
+        let mut state = self.state.lock();
+        state.abort_calls += 1;
+        let upload = state.uploads.get_mut(upload_id).ok_or_else(|| {
+            AsterError::storage_driver_error(format!("missing upload {upload_id}"))
+        })?;
+        assert_eq!(upload.path, path);
+        upload.aborted = true;
+        Ok(())
+    }
+
+    async fn list_uploaded_parts(&self, _path: &str, upload_id: &str) -> Result<Vec<i32>> {
+        let state = self.state.lock();
+        let upload = state.uploads.get(upload_id).ok_or_else(|| {
+            AsterError::storage_driver_error(format!("missing upload {upload_id}"))
+        })?;
+        Ok(upload.parts.keys().copied().collect())
     }
 }
 
@@ -336,6 +692,12 @@ async fn s3_object_exists(endpoint: &str, bucket: &str, key: &str) -> bool {
 
 fn policy_object_key(policy: &storage_policy::Model, storage_path: &str) -> String {
     format!("{}/{}", policy.base_path.trim_matches('/'), storage_path)
+}
+
+fn multipart_test_bytes(size: usize) -> Vec<u8> {
+    (0..size)
+        .map(|index| u8::try_from(index % 251).expect("test byte pattern should fit u8"))
+        .collect()
 }
 
 async fn create_blob_with_object(
@@ -1731,6 +2093,209 @@ async fn test_storage_migration_stream_upload_error_does_not_delete_referenced_t
         .expect("referenced target blob row should remain");
     assert_eq!(referenced_after.policy_id, target.id);
     assert_eq!(referenced_after.storage_path, target_path);
+}
+
+#[actix_web::test]
+async fn test_storage_migration_large_blob_uses_multipart_upload() {
+    let state = common::setup().await;
+    let app = create_test_app!(state.clone());
+    let (token, _) = register_and_login!(app);
+    let source = create_local_policy(&state, "source-multipart-success").await;
+    let target = create_local_policy(&state, "target-multipart-success").await;
+    let target_driver = MultipartMigrationTestDriver::default();
+    state
+        .driver_registry
+        .insert_for_test(target.id, Arc::new(target_driver.clone()));
+    let bytes = multipart_test_bytes(5 * 1024 * 1024 + 17);
+    let blob = create_blob_with_object(&state, &source, &bytes, 1).await;
+    create_file_for_blob(&state, blob.id, "multipart-success.7z").await;
+
+    let body = create_migration_task_via_api(&app, &token, source.id, target.id, false).await;
+    let task_id = body["data"]["id"].as_i64().expect("task id should exist");
+    let target_path = aster_drive::utils::storage_path_from_blob_key(&blob.hash);
+    let stats = task_service::drain(&state)
+        .await
+        .expect("multipart migration task should drain");
+    assert_eq!(stats.succeeded, 1);
+
+    let migrated = file_repo::find_blob_by_id(state.writer_db(), blob.id)
+        .await
+        .expect("blob should remain after multipart migration");
+    assert_eq!(migrated.policy_id, target.id);
+    assert_eq!(target_driver.put_reader_calls(), 0);
+    assert_eq!(
+        target_driver.uploaded_part_sizes(),
+        vec![5 * 1024 * 1024, 17]
+    );
+    assert_eq!(
+        target_driver.object_bytes(&target_path),
+        Some(bytes.clone())
+    );
+
+    let task = background_task_repo::find_by_id(state.writer_db(), task_id)
+        .await
+        .expect("task should exist");
+    assert_eq!(task.status, BackgroundTaskStatus::Succeeded);
+    let checkpoint = storage_migration_checkpoint_repo::get_by_task_id(state.writer_db(), task_id)
+        .await
+        .expect("checkpoint should exist");
+    assert_eq!(checkpoint.stage, "complete");
+    assert_eq!(checkpoint.migrated_blobs, 1);
+    assert_eq!(checkpoint.migrated_bytes, blob.size);
+}
+
+#[actix_web::test]
+async fn test_storage_migration_multipart_retries_transient_part_upload() {
+    let state = common::setup().await;
+    let app = create_test_app!(state.clone());
+    let (token, _) = register_and_login!(app);
+    let source = create_local_policy(&state, "source-multipart-retry").await;
+    let target = create_local_policy(&state, "target-multipart-retry").await;
+    let target_driver = MultipartMigrationTestDriver::fail_part_transient_once(1);
+    state
+        .driver_registry
+        .insert_for_test(target.id, Arc::new(target_driver.clone()));
+    let bytes = multipart_test_bytes(5 * 1024 * 1024 + 3);
+    let blob = create_blob_with_object(&state, &source, &bytes, 1).await;
+    create_file_for_blob(&state, blob.id, "multipart-retry.7z").await;
+
+    create_migration_task_via_api(&app, &token, source.id, target.id, false).await;
+    let target_path = aster_drive::utils::storage_path_from_blob_key(&blob.hash);
+    let stats = task_service::drain(&state)
+        .await
+        .expect("multipart retry migration task should drain");
+    assert_eq!(stats.succeeded, 1);
+
+    assert_eq!(target_driver.part_attempt_count(1), 2);
+    assert_eq!(target_driver.part_attempt_count(2), 1);
+    assert_eq!(target_driver.abort_calls(), 0);
+    assert_eq!(target_driver.object_bytes(&target_path), Some(bytes));
+    let migrated = file_repo::find_blob_by_id(state.writer_db(), blob.id)
+        .await
+        .expect("blob should move after retry succeeds");
+    assert_eq!(migrated.policy_id, target.id);
+}
+
+#[actix_web::test]
+async fn test_storage_migration_multipart_part_failure_aborts_and_keeps_source_blob() {
+    let state = common::setup().await;
+    let app = create_test_app!(state.clone());
+    let (token, _) = register_and_login!(app);
+    let source = create_local_policy(&state, "source-multipart-part-fail").await;
+    let target = create_local_policy(&state, "target-multipart-part-fail").await;
+    let target_driver = MultipartMigrationTestDriver::fail_part_permanently(2);
+    state
+        .driver_registry
+        .insert_for_test(target.id, Arc::new(target_driver.clone()));
+    let bytes = multipart_test_bytes(5 * 1024 * 1024 + 9);
+    let blob = create_blob_with_object(&state, &source, &bytes, 1).await;
+    create_file_for_blob(&state, blob.id, "multipart-part-fail.7z").await;
+
+    let body = create_migration_task_via_api(&app, &token, source.id, target.id, false).await;
+    let task_id = body["data"]["id"].as_i64().expect("task id should exist");
+    let target_path = aster_drive::utils::storage_path_from_blob_key(&blob.hash);
+    let stats = task_service::drain(&state)
+        .await
+        .expect("multipart failing task should drain");
+    assert_eq!(stats.failed, 1);
+
+    let task = background_task_repo::find_by_id(state.writer_db(), task_id)
+        .await
+        .expect("task should exist");
+    assert_eq!(task.status, BackgroundTaskStatus::Failed);
+    assert!(
+        task.last_error
+            .as_deref()
+            .expect("failed task should store last_error")
+            .contains("simulated permanent multipart part failure")
+    );
+    assert_eq!(target_driver.abort_calls(), 1);
+    assert_eq!(target_driver.complete_calls(), 0);
+    assert_eq!(target_driver.object_bytes(&target_path), None);
+    let source_blob = file_repo::find_blob_by_id(state.writer_db(), blob.id)
+        .await
+        .expect("source blob row should remain when multipart part fails");
+    assert_eq!(source_blob.policy_id, source.id);
+}
+
+#[actix_web::test]
+async fn test_storage_migration_multipart_complete_timeout_accepts_existing_object() {
+    let state = common::setup().await;
+    let app = create_test_app!(state.clone());
+    let (token, _) = register_and_login!(app);
+    let source = create_local_policy(&state, "source-multipart-complete-timeout").await;
+    let target = create_local_policy(&state, "target-multipart-complete-timeout").await;
+    let target_driver = MultipartMigrationTestDriver::complete_transient_after_write();
+    state
+        .driver_registry
+        .insert_for_test(target.id, Arc::new(target_driver.clone()));
+    let bytes = multipart_test_bytes(5 * 1024 * 1024 + 11);
+    let blob = create_blob_with_object(&state, &source, &bytes, 1).await;
+    create_file_for_blob(&state, blob.id, "multipart-complete-timeout.7z").await;
+
+    create_migration_task_via_api(&app, &token, source.id, target.id, false).await;
+    let target_path = aster_drive::utils::storage_path_from_blob_key(&blob.hash);
+    let stats = task_service::drain(&state)
+        .await
+        .expect("multipart complete-timeout task should drain");
+    assert_eq!(stats.succeeded, 1);
+
+    assert_eq!(target_driver.complete_calls(), 1);
+    assert_eq!(target_driver.abort_calls(), 0);
+    assert_eq!(target_driver.object_bytes(&target_path), Some(bytes));
+    let migrated = file_repo::find_blob_by_id(state.writer_db(), blob.id)
+        .await
+        .expect("blob should move when complete timeout is proven successful");
+    assert_eq!(migrated.policy_id, target.id);
+}
+
+#[actix_web::test]
+async fn test_storage_migration_multipart_verification_failure_cleans_object_and_rolls_back_row() {
+    let state = common::setup().await;
+    let app = create_test_app!(state.clone());
+    let (token, _) = register_and_login!(app);
+    let source = create_local_policy(&state, "source-multipart-verify-fail").await;
+    let target = create_local_policy(&state, "target-multipart-verify-fail").await;
+    let target_driver = MultipartMigrationTestDriver::complete_with_corrupt_object();
+    state
+        .driver_registry
+        .insert_for_test(target.id, Arc::new(target_driver.clone()));
+    let bytes = multipart_test_bytes(5 * 1024 * 1024 + 5);
+    let blob = create_blob_with_object(&state, &source, &bytes, 1).await;
+    create_file_for_blob(&state, blob.id, "multipart-verify-fail.7z").await;
+
+    let body = create_migration_task_via_api(&app, &token, source.id, target.id, false).await;
+    let task_id = body["data"]["id"].as_i64().expect("task id should exist");
+    let target_path = aster_drive::utils::storage_path_from_blob_key(&blob.hash);
+    let stats = task_service::drain(&state)
+        .await
+        .expect("multipart verification failure task should drain");
+    assert_eq!(stats.failed, 1);
+
+    let task = background_task_repo::find_by_id(state.writer_db(), task_id)
+        .await
+        .expect("task should exist");
+    assert_eq!(task.status, BackgroundTaskStatus::Failed);
+    assert!(
+        task.last_error
+            .as_deref()
+            .expect("failed task should store last_error")
+            .contains("target object hash mismatch")
+    );
+    assert_eq!(target_driver.abort_calls(), 0);
+    assert_eq!(target_driver.delete_calls(), 2);
+    assert_eq!(target_driver.object_bytes(&target_path), None);
+    let source_blob = file_repo::find_blob_by_id(state.writer_db(), blob.id)
+        .await
+        .expect("source blob row should remain after verification failure");
+    assert_eq!(source_blob.policy_id, source.id);
+
+    let checkpoint = storage_migration_checkpoint_repo::get_by_task_id(state.writer_db(), task_id)
+        .await
+        .expect("checkpoint should exist");
+    assert_eq!(checkpoint.stage, "migrate_blobs");
+    assert_eq!(checkpoint.last_processed_blob_id, 0);
+    assert_eq!(checkpoint.migrated_blobs, 0);
 }
 
 #[actix_web::test]

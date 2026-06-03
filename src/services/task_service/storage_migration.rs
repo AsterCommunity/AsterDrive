@@ -3,6 +3,7 @@
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
+use bytes::Bytes;
 use tokio::io::{AsyncRead, AsyncReadExt, ReadBuf};
 
 use crate::db::repository::{
@@ -12,10 +13,10 @@ use crate::db::transaction;
 use crate::entities::{background_task, file_blob, storage_policy};
 use crate::errors::{AsterError, MapAsterErr, Result};
 use crate::runtime::PrimaryAppState;
-use crate::storage::StorageDriver;
+use crate::storage::{MultipartStorageDriver, StorageDriver, StorageErrorKind};
 use crate::types::BackgroundTaskKind;
 use crate::utils::hash::{new_sha256, sha256_digest_to_hex, sha256_hex};
-use crate::utils::numbers::u64_to_i64;
+use crate::utils::numbers::{bytes_to_usize, u64_to_i64};
 
 use super::spec::{self, StoragePolicyMigrationTask, decode_payload_as};
 use super::steps::{
@@ -33,6 +34,10 @@ use super::{
 };
 
 const MIGRATION_BATCH_SIZE: u64 = 100;
+const MIGRATION_MULTIPART_MIN_PART_SIZE: i64 = 5 * 1024 * 1024;
+const MIGRATION_MULTIPART_PREFERRED_MAX_PART_SIZE: i64 = 64 * 1024 * 1024;
+const MIGRATION_MULTIPART_MAX_PARTS: i64 = 10_000;
+const MIGRATION_MULTIPART_PART_UPLOAD_MAX_ATTEMPTS: usize = 3;
 const CHECKPOINT_STAGE_PREPARE_POLICIES: &str = "prepare_policies";
 const CHECKPOINT_STAGE_MIGRATE_BLOBS: &str = "migrate_blobs";
 const CHECKPOINT_STAGE_COMPLETE: &str = "complete";
@@ -62,6 +67,7 @@ struct BlobMigrationContext<'a> {
     task_id: i64,
     source_policy_id: i64,
     target_policy_id: i64,
+    target_multipart_part_size: i64,
     source_driver: &'a dyn StorageDriver,
     target_driver: &'a dyn StorageDriver,
 }
@@ -425,6 +431,7 @@ pub(super) async fn process_storage_policy_migration_task(
         task_id: task.id,
         source_policy_id: payload.source_policy_id,
         target_policy_id: payload.target_policy_id,
+        target_multipart_part_size: target_policy.chunk_size,
         source_driver: source_driver.as_ref(),
         target_driver: target_driver.as_ref(),
     };
@@ -552,6 +559,7 @@ async fn migrate_one_blob(
         task_id,
         source_policy_id,
         target_policy_id,
+        target_multipart_part_size,
         source_driver,
         target_driver,
     } = *migration;
@@ -618,6 +626,7 @@ async fn migrate_one_blob(
         source_driver,
         target_driver,
         target_policy_id,
+        target_multipart_part_size,
         &latest,
         &target_path,
     )
@@ -776,10 +785,32 @@ async fn copy_blob_streaming(
     source_driver: &dyn StorageDriver,
     target_driver: &dyn StorageDriver,
     target_policy_id: i64,
+    target_multipart_part_size: i64,
     blob: &file_blob::Model,
     target_path: &str,
 ) -> Result<()> {
     context.ensure_active()?;
+    if let Some(multipart) = target_driver.as_multipart()
+        && should_use_multipart_migration(blob.size, target_multipart_part_size)?
+    {
+        // Large single PUT streams are not safely retryable: the S3 SDK cannot
+        // clone an in-flight reader after a timeout. Multipart migration keeps
+        // each retryable unit bounded and aborts the upload before the blob row
+        // is moved if any part fails.
+        return copy_blob_multipart(
+            state,
+            context,
+            source_driver,
+            target_driver,
+            multipart,
+            target_policy_id,
+            target_multipart_part_size,
+            blob,
+            target_path,
+        )
+        .await;
+    }
+
     let source_stream = source_driver.get_stream(&blob.storage_path).await?;
     context.ensure_active()?;
     let hashing_reader = HashingReader::new(source_stream, context.clone());
@@ -820,6 +851,249 @@ async fn copy_blob_streaming(
     }
 
     Ok(())
+}
+
+async fn copy_blob_multipart(
+    state: &PrimaryAppState,
+    context: &TaskExecutionContext,
+    source_driver: &dyn StorageDriver,
+    target_driver: &dyn StorageDriver,
+    multipart: &dyn MultipartStorageDriver,
+    target_policy_id: i64,
+    target_multipart_part_size: i64,
+    blob: &file_blob::Model,
+    target_path: &str,
+) -> Result<()> {
+    context.ensure_active()?;
+    let mut source_stream = source_driver.get_stream(&blob.storage_path).await?;
+    let part_size = migration_multipart_part_size(blob.size, target_multipart_part_size)?;
+    let upload_id = multipart.create_multipart_upload(target_path).await?;
+    let mut completed_parts = Vec::new();
+    let mut hasher = new_sha256();
+    let mut remaining = blob.size;
+    let mut part_number = 1_i32;
+    let mut completed = false;
+
+    let result = async {
+        while remaining > 0 {
+            context.ensure_active()?;
+            let current_part_size = remaining.min(part_size);
+            let part_bytes =
+                read_multipart_part(&mut source_stream, current_part_size, &mut hasher).await?;
+            let etag = upload_multipart_part_with_retry(
+                multipart,
+                target_path,
+                &upload_id,
+                part_number,
+                part_bytes,
+            )
+            .await?;
+            completed_parts.push((part_number, etag));
+            remaining -= current_part_size;
+            part_number = part_number.checked_add(1).ok_or_else(|| {
+                AsterError::internal_error("storage migration multipart part number overflow")
+            })?;
+        }
+
+        ensure_source_stream_finished(&mut source_stream).await?;
+        context.ensure_active()?;
+        complete_migration_multipart_upload(
+            context,
+            target_driver,
+            multipart,
+            target_path,
+            &upload_id,
+            completed_parts,
+            blob.size,
+        )
+        .await?;
+        completed = true;
+
+        let copied_hash = sha256_digest_to_hex(&sha2::Digest::finalize(hasher));
+        if is_content_sha256_blob_key(&blob.hash) && copied_hash != blob.hash {
+            return Err(AsterError::storage_driver_error(format!(
+                "copied blob hash mismatch for blob #{}",
+                blob.id
+            )));
+        }
+        verify_target_object(context, target_driver, target_path, &copied_hash, blob.size).await
+    }
+    .await;
+
+    if let Err(error) = result {
+        if !completed {
+            abort_migration_multipart_upload(multipart, target_path, &upload_id).await;
+        }
+        cleanup_failed_target_object(state, context, target_driver, target_policy_id, target_path)
+            .await;
+        return Err(error);
+    }
+
+    Ok(())
+}
+
+fn should_use_multipart_migration(blob_size: i64, configured_part_size: i64) -> Result<bool> {
+    if blob_size < 0 {
+        return Err(AsterError::internal_error(format!(
+            "storage migration blob size cannot be negative: {blob_size}"
+        )));
+    }
+    Ok(blob_size > migration_multipart_part_size(blob_size, configured_part_size)?)
+}
+
+fn migration_multipart_part_size(blob_size: i64, configured_part_size: i64) -> Result<i64> {
+    if blob_size < 0 {
+        return Err(AsterError::internal_error(format!(
+            "storage migration blob size cannot be negative: {blob_size}"
+        )));
+    }
+    let configured_part_size = configured_part_size
+        .max(MIGRATION_MULTIPART_MIN_PART_SIZE)
+        .min(MIGRATION_MULTIPART_PREFERRED_MAX_PART_SIZE);
+    let count_limited_part_size = if blob_size == 0 {
+        MIGRATION_MULTIPART_MIN_PART_SIZE
+    } else {
+        blob_size
+            .checked_add(MIGRATION_MULTIPART_MAX_PARTS - 1)
+            .ok_or_else(|| {
+                AsterError::internal_error("storage migration multipart size overflow")
+            })?
+            / MIGRATION_MULTIPART_MAX_PARTS
+    };
+    // Prefer bounded memory during migration, but S3-compatible providers cap
+    // multipart uploads at 10,000 parts, so extremely large blobs may need a
+    // larger part size to stay within the protocol limit.
+    Ok(configured_part_size.max(count_limited_part_size))
+}
+
+async fn read_multipart_part(
+    stream: &mut Box<dyn AsyncRead + Unpin + Send>,
+    expected_size: i64,
+    hasher: &mut sha2::Sha256,
+) -> Result<Bytes> {
+    let expected_size = bytes_to_usize(expected_size, "storage migration multipart part size")?;
+    let mut data = Vec::with_capacity(expected_size);
+    let mut buffer = vec![0_u8; 64 * 1024];
+    while data.len() < expected_size {
+        let read_len = buffer.len().min(expected_size - data.len());
+        let read = stream
+            .read(&mut buffer[..read_len])
+            .await
+            .map_aster_err_ctx(
+                "read source object multipart part",
+                AsterError::storage_driver_error,
+            )?;
+        if read == 0 {
+            return Err(AsterError::storage_driver_error(format!(
+                "source object ended before expected multipart part size {expected_size}"
+            )));
+        }
+        sha2::Digest::update(hasher, &buffer[..read]);
+        data.extend_from_slice(&buffer[..read]);
+    }
+    Ok(Bytes::from(data))
+}
+
+async fn ensure_source_stream_finished(
+    stream: &mut Box<dyn AsyncRead + Unpin + Send>,
+) -> Result<()> {
+    let mut extra = [0_u8; 1];
+    let read = stream.read(&mut extra).await.map_aster_err_ctx(
+        "read source object after expected multipart size",
+        AsterError::storage_driver_error,
+    )?;
+    if read > 0 {
+        return Err(AsterError::storage_driver_error(
+            "source object exceeds expected blob size",
+        ));
+    }
+    Ok(())
+}
+
+async fn upload_multipart_part_with_retry(
+    multipart: &dyn MultipartStorageDriver,
+    target_path: &str,
+    upload_id: &str,
+    part_number: i32,
+    part_bytes: Bytes,
+) -> Result<String> {
+    for attempt in 1..=MIGRATION_MULTIPART_PART_UPLOAD_MAX_ATTEMPTS {
+        match multipart
+            .upload_multipart_part_bytes(target_path, upload_id, part_number, part_bytes.clone())
+            .await
+        {
+            Ok(etag) => return Ok(etag),
+            Err(error)
+                if storage_error_is_retryable(&error)
+                    && attempt < MIGRATION_MULTIPART_PART_UPLOAD_MAX_ATTEMPTS =>
+            {
+                tracing::warn!(
+                    target_path,
+                    part_number,
+                    attempt,
+                    error = %error,
+                    "storage migration multipart part upload failed; retrying"
+                );
+                tokio::time::sleep(std::time::Duration::from_millis(
+                    200_u64.saturating_mul(u64::try_from(attempt).unwrap_or(u64::MAX)),
+                ))
+                .await;
+            }
+            Err(error) => return Err(error),
+        }
+    }
+    Err(AsterError::internal_error(
+        "storage migration multipart retry loop exhausted unexpectedly",
+    ))
+}
+
+async fn complete_migration_multipart_upload(
+    context: &TaskExecutionContext,
+    target_driver: &dyn StorageDriver,
+    multipart: &dyn MultipartStorageDriver,
+    target_path: &str,
+    upload_id: &str,
+    completed_parts: Vec<(i32, String)>,
+    expected_size: i64,
+) -> Result<()> {
+    if let Err(error) = multipart
+        .complete_multipart_upload(target_path, upload_id, completed_parts)
+        .await
+    {
+        if storage_error_is_retryable(&error)
+            && let Ok(metadata) = target_driver.metadata(target_path).await
+            && u64_to_i64(metadata.size, "completed multipart object size")? == expected_size
+        {
+            context.ensure_active()?;
+            return Ok(());
+        }
+        return Err(error);
+    }
+    Ok(())
+}
+
+async fn abort_migration_multipart_upload(
+    multipart: &dyn MultipartStorageDriver,
+    target_path: &str,
+    upload_id: &str,
+) {
+    if let Err(error) = multipart
+        .abort_multipart_upload(target_path, upload_id)
+        .await
+    {
+        tracing::warn!(
+            target_path,
+            upload_id,
+            "failed to abort storage migration multipart upload: {error}"
+        );
+    }
+}
+
+fn storage_error_is_retryable(error: &AsterError) -> bool {
+    matches!(
+        error.storage_error_kind(),
+        Some(StorageErrorKind::Transient | StorageErrorKind::RateLimited)
+    )
 }
 
 async fn cleanup_failed_target_object(
