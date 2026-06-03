@@ -594,3 +594,258 @@ fn sanitize_error_fragment(value: &str) -> String {
         .trim()
         .to_string()
 }
+
+#[cfg(test)]
+mod tests {
+    use chrono::Utc;
+    use reqwest::StatusCode;
+    use serde_json::json;
+
+    use super::{
+        DEFAULT_RETURN_PATH, GoogleDriveErrorResponse, GoogleDrivePolicyAuthSettings,
+        build_authorization_url, build_pkce_challenge, google_drive_error_is_auth_failure,
+        google_drive_error_is_rate_limited, normalize_optional_snapshot, normalize_return_path,
+        policy_auth_settings, sanitize_error_fragment, state_hash,
+    };
+    use crate::api::subcode::ApiSubcode;
+    use crate::entities::storage_policy;
+    use crate::types::{
+        DriverType, StoragePolicyOptions, StoredStoragePolicyAllowedTypes,
+        StoredStoragePolicyOptions, serialize_storage_policy_options,
+    };
+
+    fn provider_error(value: serde_json::Value) -> GoogleDriveErrorResponse {
+        serde_json::from_value(value).expect("provider error should deserialize")
+    }
+
+    fn google_drive_policy(
+        access_key: impl Into<String>,
+        secret_key: impl Into<String>,
+        options: StoragePolicyOptions,
+    ) -> storage_policy::Model {
+        let now = Utc::now();
+        storage_policy::Model {
+            id: 42,
+            name: "Google Drive".to_string(),
+            driver_type: DriverType::GoogleDrive,
+            endpoint: String::new(),
+            bucket: String::new(),
+            access_key: access_key.into(),
+            secret_key: secret_key.into(),
+            base_path: String::new(),
+            remote_node_id: None,
+            max_file_size: 0,
+            allowed_types: StoredStoragePolicyAllowedTypes::empty(),
+            options: serialize_storage_policy_options(&options).expect("options should serialize"),
+            is_default: false,
+            chunk_size: 0,
+            created_at: now,
+            updated_at: now,
+        }
+    }
+
+    #[test]
+    fn normalize_return_path_defaults_and_trims_site_paths() {
+        assert_eq!(normalize_return_path(None).unwrap(), DEFAULT_RETURN_PATH);
+        assert_eq!(
+            normalize_return_path(Some(" ")).unwrap(),
+            DEFAULT_RETURN_PATH
+        );
+        assert_eq!(
+            normalize_return_path(Some(" /admin/policies?google_drive=done ")).unwrap(),
+            "/admin/policies?google_drive=done"
+        );
+    }
+
+    #[test]
+    fn normalize_return_path_rejects_external_or_ambiguous_paths() {
+        assert!(normalize_return_path(Some("https://example.test/admin")).is_err());
+        assert!(normalize_return_path(Some("//example.test/admin")).is_err());
+        assert!(normalize_return_path(Some("/admin\\policies")).is_err());
+        assert!(normalize_return_path(Some(&format!("/{}", "x".repeat(2049)))).is_err());
+    }
+
+    #[test]
+    fn pkce_challenge_uses_sha256_urlsafe_base64() {
+        assert_eq!(
+            build_pkce_challenge("test-verifier"),
+            "JBbiqONGWPaAmwXk_8bT6UnlPfrn65D32eZlJS-zGG0"
+        );
+    }
+
+    #[test]
+    fn authorization_url_contains_required_oauth_parameters() {
+        let settings = GoogleDrivePolicyAuthSettings {
+            client_id: "client-id".to_string(),
+            client_secret: "client-secret".to_string(),
+            scopes: "scope-a scope-b".to_string(),
+        };
+        let url = build_authorization_url(
+            &settings,
+            "https://app.example.test/api/v1/admin/policies/google-drive/oauth/callback",
+            "state-token",
+            "test-verifier",
+        )
+        .expect("authorization url should build");
+        let parsed = url::Url::parse(&url).expect("authorization url should parse");
+        let query = parsed
+            .query_pairs()
+            .into_owned()
+            .collect::<std::collections::HashMap<_, _>>();
+
+        assert_eq!(
+            parsed.as_str().split('?').next().unwrap(),
+            "https://accounts.google.com/o/oauth2/v2/auth"
+        );
+        assert_eq!(query.get("response_type").map(String::as_str), Some("code"));
+        assert_eq!(
+            query.get("client_id").map(String::as_str),
+            Some("client-id")
+        );
+        assert_eq!(
+            query.get("scope").map(String::as_str),
+            Some("scope-a scope-b")
+        );
+        assert_eq!(query.get("state").map(String::as_str), Some("state-token"));
+        assert_eq!(
+            query.get("code_challenge").map(String::as_str),
+            Some("JBbiqONGWPaAmwXk_8bT6UnlPfrn65D32eZlJS-zGG0")
+        );
+        assert_eq!(
+            query.get("code_challenge_method").map(String::as_str),
+            Some("S256")
+        );
+        assert_eq!(
+            query.get("access_type").map(String::as_str),
+            Some("offline")
+        );
+        assert_eq!(query.get("prompt").map(String::as_str), Some("consent"));
+        assert_eq!(
+            query.get("include_granted_scopes").map(String::as_str),
+            Some("true")
+        );
+    }
+
+    #[test]
+    fn policy_auth_settings_trim_credentials_and_use_current_scope() {
+        let policy = google_drive_policy(
+            " client-id ",
+            " client-secret ",
+            StoragePolicyOptions {
+                google_drive_use_app_data_folder: Some(true),
+                ..Default::default()
+            },
+        );
+        let options = StoragePolicyOptions {
+            google_drive_use_app_data_folder: Some(true),
+            ..Default::default()
+        };
+        let settings = policy_auth_settings(&policy, &options).unwrap();
+
+        assert_eq!(settings.client_id, "client-id");
+        assert_eq!(settings.client_secret, "client-secret");
+        assert!(settings.scopes.contains("drive.appdata"));
+        assert!(!settings.scopes.contains("/auth/drive "));
+    }
+
+    #[test]
+    fn policy_auth_settings_reject_missing_credentials_with_google_subcode() {
+        let missing_client = google_drive_policy(" ", "secret", StoragePolicyOptions::default());
+        let error = match policy_auth_settings(&missing_client, &StoragePolicyOptions::default()) {
+            Ok(_) => panic!("missing client id should fail"),
+            Err(error) => error,
+        };
+        assert_eq!(
+            error.api_error_subcode(),
+            Some(ApiSubcode::GoogleDriveMisconfigured)
+        );
+
+        let missing_secret = google_drive_policy("client", " ", StoragePolicyOptions::default());
+        let error = match policy_auth_settings(&missing_secret, &StoragePolicyOptions::default()) {
+            Ok(_) => panic!("missing client secret should fail"),
+            Err(error) => error,
+        };
+        assert_eq!(
+            error.api_error_subcode(),
+            Some(ApiSubcode::GoogleDriveMisconfigured)
+        );
+    }
+
+    #[test]
+    fn google_drive_error_reason_helpers_cover_token_and_quota_errors() {
+        let auth_error = provider_error(json!({
+            "error": "invalid_client",
+            "error_description": "Bad client"
+        }));
+        assert!(google_drive_error_is_auth_failure(
+            StatusCode::BAD_REQUEST,
+            "Google Drive token exchange",
+            Some(&auth_error),
+        ));
+        assert!(!google_drive_error_is_auth_failure(
+            StatusCode::BAD_REQUEST,
+            "Google Drive userinfo request",
+            Some(&auth_error),
+        ));
+
+        let quota_error = provider_error(json!({
+            "error": {
+                "errors": [
+                    {
+                        "reason": "dailyLimitExceeded",
+                        "message": "Daily limit exceeded"
+                    }
+                ]
+            }
+        }));
+        assert!(google_drive_error_is_rate_limited(Some(&quota_error)));
+    }
+
+    #[test]
+    fn sanitize_error_fragment_removes_control_chars_and_truncates() {
+        let sanitized = sanitize_error_fragment(&format!(" ok\n{}\t", "x".repeat(300)));
+
+        assert!(!sanitized.contains('\n'));
+        assert!(!sanitized.contains('\t'));
+        assert_eq!(sanitized.len(), 255);
+        assert!(sanitized.starts_with("ok"));
+    }
+
+    #[test]
+    fn normalize_optional_snapshot_trims_blank_values_and_caps_length() {
+        assert_eq!(
+            normalize_optional_snapshot(Some(" admin@example.com ")).as_deref(),
+            Some("admin@example.com")
+        );
+        assert_eq!(normalize_optional_snapshot(Some(" ")), None);
+        assert_eq!(
+            normalize_optional_snapshot(Some(&"x".repeat(300)))
+                .expect("snapshot should exist")
+                .len(),
+            255
+        );
+    }
+
+    #[test]
+    fn state_hash_is_deterministic_and_not_raw_state() {
+        let hash = state_hash("state-token");
+
+        assert_eq!(hash, state_hash("state-token"));
+        assert_ne!(hash, "state-token");
+        assert_eq!(hash.len(), 64);
+    }
+
+    #[test]
+    fn google_drive_policy_helper_serializes_options() {
+        let policy = google_drive_policy(
+            "client",
+            "secret",
+            StoragePolicyOptions {
+                google_drive_root_folder_id: Some("root-folder".to_string()),
+                ..Default::default()
+            },
+        );
+
+        assert_ne!(policy.options, StoredStoragePolicyOptions::empty());
+    }
+}

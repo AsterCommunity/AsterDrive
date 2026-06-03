@@ -1006,18 +1006,216 @@ fn sanitize_error_fragment(value: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashMap;
+
     use futures::TryStreamExt;
     use reqwest::StatusCode;
     use serde_json::json;
 
     use super::{
-        APP_PROPERTY_POLICY_ID, GoogleDriveErrorResponse, SizedReaderStream,
-        google_drive_error_is_auth_failure, google_drive_error_is_rate_limited,
-        google_drive_managed_file_query, google_drive_upload_content_range,
+        APP_PROPERTY_MANAGED, APP_PROPERTY_POLICY_ID, APP_PROPERTY_STORAGE_PATH, DEFAULT_MIME_TYPE,
+        GoogleDriveDriver, GoogleDriveErrorResponse, GoogleDriveFile, REQUIRED_DRIVE_APPDATA_SCOPE,
+        REQUIRED_DRIVE_SCOPE, REQUIRED_USERINFO_EMAIL_SCOPE, REQUIRED_USERINFO_PROFILE_SCOPE,
+        SizedReaderStream, decrypt_token, encrypt_token, google_drive_error_is_auth_failure,
+        google_drive_error_is_rate_limited, google_drive_managed_file_query,
+        google_drive_object_name, google_drive_parent_id, google_drive_scopes,
+        google_drive_upload_content_range, normalize_optional,
     };
+    use crate::storage::traits::extensions::StreamUploadDriver;
+    use crate::types::StoragePolicyOptions;
+
+    fn test_driver() -> GoogleDriveDriver {
+        GoogleDriveDriver {
+            client: reqwest::Client::new(),
+            client_id: "client-id".to_string(),
+            client_secret: "client-secret".to_string(),
+            refresh_token: "refresh-token".to_string(),
+            parent_id: "parent-id".to_string(),
+            shared_drive_id: Some("shared-drive-id".to_string()),
+            use_app_data_folder: false,
+            policy_id: 42,
+        }
+    }
 
     fn provider_error(value: serde_json::Value) -> GoogleDriveErrorResponse {
         serde_json::from_value(value).expect("provider error should deserialize")
+    }
+
+    fn managed_file(path: &str, policy_id: i64) -> GoogleDriveFile {
+        GoogleDriveFile {
+            id: "file-id".to_string(),
+            name: Some("blob.bin".to_string()),
+            size: Some("12".to_string()),
+            mime_type: Some(DEFAULT_MIME_TYPE.to_string()),
+            app_properties: HashMap::from([
+                (APP_PROPERTY_MANAGED.to_string(), "true".to_string()),
+                (APP_PROPERTY_STORAGE_PATH.to_string(), path.to_string()),
+                (APP_PROPERTY_POLICY_ID.to_string(), policy_id.to_string()),
+            ]),
+        }
+    }
+
+    #[test]
+    fn google_drive_scopes_use_drive_or_appdata_space() {
+        let scopes = google_drive_scopes(&StoragePolicyOptions::default());
+        let scope_values = scopes.split_whitespace().collect::<Vec<_>>();
+
+        assert!(scope_values.contains(&REQUIRED_DRIVE_SCOPE));
+        assert!(scope_values.contains(&REQUIRED_USERINFO_EMAIL_SCOPE));
+        assert!(scope_values.contains(&REQUIRED_USERINFO_PROFILE_SCOPE));
+        assert!(!scope_values.contains(&REQUIRED_DRIVE_APPDATA_SCOPE));
+
+        let appdata_scopes = google_drive_scopes(&StoragePolicyOptions {
+            google_drive_use_app_data_folder: Some(true),
+            ..Default::default()
+        });
+        let appdata_scope_values = appdata_scopes.split_whitespace().collect::<Vec<_>>();
+
+        assert!(appdata_scope_values.contains(&REQUIRED_DRIVE_APPDATA_SCOPE));
+        assert!(!appdata_scope_values.contains(&REQUIRED_DRIVE_SCOPE));
+    }
+
+    #[test]
+    fn google_drive_parent_id_prefers_appdata_then_root_then_shared_drive() {
+        let root_options = StoragePolicyOptions {
+            google_drive_root_folder_id: Some(" root-folder ".to_string()),
+            google_drive_shared_drive_id: Some("shared-drive".to_string()),
+            ..Default::default()
+        };
+        assert_eq!(google_drive_parent_id(&root_options), "root-folder");
+
+        let shared_drive_options = StoragePolicyOptions {
+            google_drive_root_folder_id: Some(" ".to_string()),
+            google_drive_shared_drive_id: Some(" shared-drive ".to_string()),
+            ..Default::default()
+        };
+        assert_eq!(
+            google_drive_parent_id(&shared_drive_options),
+            "shared-drive"
+        );
+
+        let appdata_options = StoragePolicyOptions {
+            google_drive_use_app_data_folder: Some(true),
+            google_drive_root_folder_id: Some("root-folder".to_string()),
+            google_drive_shared_drive_id: Some("shared-drive".to_string()),
+            ..Default::default()
+        };
+        assert_eq!(google_drive_parent_id(&appdata_options), "appDataFolder");
+
+        assert_eq!(
+            google_drive_parent_id(&StoragePolicyOptions::default()),
+            "root"
+        );
+    }
+
+    #[test]
+    fn normalize_optional_trims_blank_values() {
+        assert_eq!(
+            normalize_optional(&Some(" value ".to_string())).as_deref(),
+            Some("value")
+        );
+        assert_eq!(normalize_optional(&Some(" ".to_string())), None);
+        assert_eq!(normalize_optional(&None), None);
+    }
+
+    #[test]
+    fn google_drive_object_name_uses_last_non_empty_path_part() {
+        assert_eq!(google_drive_object_name("aa/bb/blob.bin"), "blob.bin");
+        assert_eq!(google_drive_object_name("aa/bb/"), "bb");
+        assert_eq!(google_drive_object_name(""), "asterdrive-blob");
+        assert_eq!(google_drive_object_name(&"x".repeat(300)), "x".repeat(255));
+    }
+
+    #[test]
+    fn metadata_body_includes_managed_app_properties_and_parent_for_create() {
+        let driver = test_driver();
+        let body = driver.metadata_body("aa/bb/blob.bin", true);
+
+        assert_eq!(body["name"], "blob.bin");
+        assert_eq!(body["mimeType"], DEFAULT_MIME_TYPE);
+        assert_eq!(body["parents"], json!(["parent-id"]));
+        assert_eq!(body["appProperties"][APP_PROPERTY_MANAGED], json!("true"));
+        assert_eq!(
+            body["appProperties"][APP_PROPERTY_STORAGE_PATH],
+            json!("aa/bb/blob.bin")
+        );
+        assert_eq!(body["appProperties"][APP_PROPERTY_POLICY_ID], json!("42"));
+    }
+
+    #[test]
+    fn metadata_body_omits_parent_for_update() {
+        let body = test_driver().metadata_body("aa/bb/blob.bin", false);
+
+        assert!(body.get("parents").is_none());
+    }
+
+    #[test]
+    fn append_upload_query_params_respects_appdata_space() {
+        let driver = test_driver();
+        let mut url = reqwest::Url::parse("https://example.test/upload").unwrap();
+        driver.append_upload_query_params(&mut url);
+
+        let query = url.query().expect("query params should be present");
+        assert!(query.contains("uploadType=resumable"));
+        assert!(query.contains("supportsAllDrives=true"));
+
+        let mut appdata_driver = test_driver();
+        appdata_driver.use_app_data_folder = true;
+        let mut appdata_url = reqwest::Url::parse("https://example.test/upload").unwrap();
+        appdata_driver.append_upload_query_params(&mut appdata_url);
+
+        let appdata_query = appdata_url.query().expect("query params should be present");
+        assert!(appdata_query.contains("uploadType=resumable"));
+        assert!(!appdata_query.contains("supportsAllDrives=true"));
+    }
+
+    #[test]
+    fn file_is_managed_path_requires_path_policy_and_marker_match() {
+        let driver = test_driver();
+
+        assert!(driver.file_is_managed_path(&managed_file("aa/blob.bin", 42), "aa/blob.bin"));
+        assert!(!driver.file_is_managed_path(&managed_file("aa/blob.bin", 7), "aa/blob.bin"));
+        assert!(!driver.file_is_managed_path(&managed_file("other.bin", 42), "aa/blob.bin"));
+
+        let mut unmanaged = managed_file("aa/blob.bin", 42);
+        unmanaged
+            .app_properties
+            .insert(APP_PROPERTY_MANAGED.to_string(), "false".to_string());
+        assert!(!driver.file_is_managed_path(&unmanaged, "aa/blob.bin"));
+    }
+
+    #[test]
+    fn token_ciphertext_is_bound_to_aad() {
+        let ciphertext = encrypt_token(
+            "master-secret",
+            b"google_drive_storage_policy:42:refresh_token",
+            "refresh-token",
+        )
+        .expect("token should encrypt");
+
+        assert_eq!(
+            decrypt_token(
+                "master-secret",
+                b"google_drive_storage_policy:42:refresh_token",
+                &ciphertext,
+            )
+            .expect("token should decrypt"),
+            "refresh-token"
+        );
+        assert!(
+            decrypt_token(
+                "master-secret",
+                b"google_drive_storage_policy:7:refresh_token",
+                &ciphertext,
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn token_ciphertext_rejects_invalid_format() {
+        assert!(decrypt_token("master-secret", b"aad", "v1:bad").is_err());
+        assert!(decrypt_token("master-secret", b"aad", "v2:nonce:ciphertext").is_err());
     }
 
     #[test]
@@ -1064,11 +1262,26 @@ mod tests {
 
     #[test]
     fn managed_file_query_filters_policy_id() {
-        let query = google_drive_managed_file_query("root", "path/it's.bin", 42);
+        let query = google_drive_managed_file_query("root\\folder", "path/it's.bin", 42);
 
         assert!(query.contains(APP_PROPERTY_POLICY_ID));
         assert!(query.contains("value='42'"));
+        assert!(query.contains("root\\\\folder"));
         assert!(query.contains("path/it\\'s.bin"));
+    }
+
+    #[tokio::test]
+    async fn put_reader_rejects_negative_size_before_network_request() {
+        let error = test_driver()
+            .put_reader(
+                "aa/blob.bin",
+                Box::new(std::io::Cursor::new(Vec::<u8>::new())),
+                -1,
+            )
+            .await
+            .expect_err("negative size should fail");
+
+        assert!(error.message().contains("non-negative"));
     }
 
     #[tokio::test]
