@@ -232,7 +232,7 @@ pub struct StoredThumbnail {
 }
 
 pub struct ImagePreviewData {
-    pub data: Vec<u8>,
+    pub data: Bytes,
     pub image_preview_processor: String,
     pub image_preview_version: String,
 }

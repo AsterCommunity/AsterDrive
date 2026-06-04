@@ -153,6 +153,10 @@ pub fn normalize_concurrency_config_value(key: &str, value: &str) -> Result<Stri
     Ok(parsed.to_string())
 }
 
+pub fn normalize_queue_capacity_config_value(key: &str, value: &str) -> Result<String> {
+    normalize_positive_u64_config_value(key, value)
+}
+
 pub fn normalize_attempts_config_value(key: &str, value: &str) -> Result<String> {
     normalize_positive_i32_config_value(key, value)
 }
@@ -932,7 +936,7 @@ mod tests {
         normalize_attempts_config_value, normalize_bool_config_value, normalize_bytes_config_value,
         normalize_concurrency_config_value, normalize_interval_config_value,
         normalize_list_max_limit_config_value, normalize_non_negative_u64_config_value,
-        normalize_offline_download_temp_dir_config_value,
+        normalize_offline_download_temp_dir_config_value, normalize_queue_capacity_config_value,
         normalize_share_stream_session_ttl_config_value, offline_download_enabled_engines,
         offline_download_max_bytes_per_sec, offline_download_max_concurrency,
         offline_download_temp_dir, read_concurrency, remote_node_health_test_interval_secs,
@@ -1456,6 +1460,14 @@ mod tests {
             .is_err()
         );
         assert_eq!(
+            normalize_queue_capacity_config_value(
+                SHARE_DOWNLOAD_ROLLBACK_QUEUE_CAPACITY_KEY,
+                &DEFAULT_SHARE_DOWNLOAD_ROLLBACK_QUEUE_CAPACITY.to_string()
+            )
+            .unwrap(),
+            DEFAULT_SHARE_DOWNLOAD_ROLLBACK_QUEUE_CAPACITY.to_string()
+        );
+        assert_eq!(
             normalize_attempts_config_value("test_attempts", "3").unwrap(),
             "3"
         );
@@ -1485,6 +1497,10 @@ mod tests {
         );
         assert!(normalize_interval_config_value("test_interval", "0").is_err());
         assert!(normalize_concurrency_config_value("test_concurrency", "0").is_err());
+        assert!(
+            normalize_queue_capacity_config_value(SHARE_DOWNLOAD_ROLLBACK_QUEUE_CAPACITY_KEY, "0")
+                .is_err()
+        );
         assert!(normalize_attempts_config_value("test_attempts", "0").is_err());
         assert!(normalize_bytes_config_value("test_bytes", "-1").is_err());
         assert!(normalize_list_max_limit_config_value("test_limit", "1001").is_err());

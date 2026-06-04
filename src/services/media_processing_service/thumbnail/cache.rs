@@ -196,7 +196,7 @@ async fn read_thumbnail_from_path(
         },
     }
 
-    let mut stream = match driver.get_range(path, 0, Some(range_limit)).await {
+    let stream = match driver.get_range(path, 0, Some(range_limit)).await {
         Ok(stream) => stream,
         Err(error) if error.storage_error_kind() == Some(StorageErrorKind::NotFound) => {
             return Ok(None);
@@ -216,10 +216,14 @@ async fn read_thumbnail_from_path(
     };
 
     let mut data = Vec::new();
-    stream.read_to_end(&mut data).await.map_aster_err_ctx(
-        "read cached thumbnail range",
-        AsterError::storage_driver_error,
-    )?;
+    stream
+        .take(range_limit)
+        .read_to_end(&mut data)
+        .await
+        .map_aster_err_ctx(
+            "read cached thumbnail range",
+            AsterError::storage_driver_error,
+        )?;
 
     if data.len() > max_cached_thumbnail_bytes {
         tracing::warn!(
@@ -303,11 +307,26 @@ mod tests {
         async fn get_range(
             &self,
             _path: &str,
-            _offset: u64,
-            _length: Option<u64>,
+            offset: u64,
+            length: Option<u64>,
         ) -> Result<Box<dyn AsyncRead + Unpin + Send>> {
             self.range_calls.fetch_add(1, Ordering::SeqCst);
-            Ok(Box::new(std::io::Cursor::new(vec![b'x'; self.data_len])))
+            let expected_length = MAX_CACHED_THUMBNAIL_BYTES
+                .checked_add(1)
+                .expect("thumbnail range limit should not overflow");
+            assert_eq!(offset, 0);
+            assert_eq!(length, Some(expected_length));
+            let offset = u64_to_usize(offset, "test thumbnail range offset")
+                .expect("thumbnail range offset should fit usize");
+            let length = length
+                .map(|value| {
+                    u64_to_usize(value, "test thumbnail range length")
+                        .expect("thumbnail range length should fit usize")
+                })
+                .unwrap_or(self.data_len);
+            let end = offset.saturating_add(length).min(self.data_len);
+            let returned_len = end.saturating_sub(offset);
+            Ok(Box::new(std::io::Cursor::new(vec![b'x'; returned_len])))
         }
 
         async fn delete(&self, _path: &str) -> Result<()> {

@@ -77,8 +77,10 @@ async fn cleanup_team_upload_sessions(
                             "failed to abort team multipart upload during cleanup: {err}"
                         );
                         incomplete_cleanups += 1;
-                    } else {
+                    } else if cleanup_team_temp_object(driver.as_ref(), session, temp_key).await {
                         aborted_multipart_uploads += 1;
+                    } else {
+                        incomplete_cleanups += 1;
                     }
                 } else if cleanup_team_temp_object(driver.as_ref(), session, temp_key).await {
                     cleaned_temp_objects += 1;

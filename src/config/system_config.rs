@@ -174,7 +174,7 @@ where
             operations::normalize_concurrency_config_value(key, value)
         }
         operations::SHARE_DOWNLOAD_ROLLBACK_QUEUE_CAPACITY_KEY => {
-            operations::normalize_concurrency_config_value(key, value)
+            operations::normalize_queue_capacity_config_value(key, value)
         }
         operations::BACKGROUND_TASK_MAX_ATTEMPTS_KEY => {
             operations::normalize_attempts_config_value(key, value)
@@ -280,8 +280,9 @@ pub fn apply_definition(mut config: system_config::Model) -> system_config::Mode
 mod tests {
     use super::{apply_definition, normalize_system_value, validate_value_type};
     use crate::config::operations::{
+        BACKGROUND_TASK_MAX_CONCURRENCY_KEY, DEFAULT_SHARE_DOWNLOAD_ROLLBACK_QUEUE_CAPACITY,
         MAX_SHARE_STREAM_SESSION_TTL_SECS, MIN_SHARE_STREAM_SESSION_TTL_SECS,
-        SHARE_STREAM_SESSION_TTL_SECS_KEY,
+        SHARE_DOWNLOAD_ROLLBACK_QUEUE_CAPACITY_KEY, SHARE_STREAM_SESSION_TTL_SECS_KEY,
     };
     use crate::entities::system_config;
     use crate::types::{SystemConfigSource, SystemConfigValueType};
@@ -354,6 +355,23 @@ mod tests {
             )
             .unwrap(),
             "[]"
+        );
+    }
+
+    #[test]
+    fn normalize_system_value_uses_capacity_limit_for_share_download_rollback_queue() {
+        let lookup = HashMap::new();
+        assert_eq!(
+            normalize_system_value(
+                &lookup,
+                SHARE_DOWNLOAD_ROLLBACK_QUEUE_CAPACITY_KEY,
+                &DEFAULT_SHARE_DOWNLOAD_ROLLBACK_QUEUE_CAPACITY.to_string(),
+            )
+            .unwrap(),
+            DEFAULT_SHARE_DOWNLOAD_ROLLBACK_QUEUE_CAPACITY.to_string()
+        );
+        assert!(
+            normalize_system_value(&lookup, BACKGROUND_TASK_MAX_CONCURRENCY_KEY, "1024").is_err()
         );
     }
 

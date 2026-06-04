@@ -19,7 +19,7 @@ pub struct ThumbnailResult {
 }
 
 pub struct ImagePreviewResult {
-    pub data: Vec<u8>,
+    pub data: Bytes,
     pub blob_hash: String,
     pub image_preview_processor: String,
     pub image_preview_version: String,

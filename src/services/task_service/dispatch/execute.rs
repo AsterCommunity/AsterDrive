@@ -80,11 +80,13 @@ async fn process_claimed_task(
         lease_guard.clone(),
         heartbeat_stop.clone(),
     );
+    let heartbeat_cancel_guard = heartbeat_stop.clone().drop_guard();
 
     let task_result = match context.ensure_active() {
         Ok(()) => registry::process_task(state, &task, context).await,
         Err(error) => Err(error),
     };
+    drop(heartbeat_cancel_guard);
     stop_task_heartbeat(heartbeat_stop, heartbeat_handle).await;
 
     match task_result {

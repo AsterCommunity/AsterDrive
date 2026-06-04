@@ -1,6 +1,7 @@
 use crate::entities::file_blob;
 use crate::errors::Result;
 use crate::runtime::PrimaryAppState;
+use bytes::Bytes;
 
 use crate::services::media_processing_service::resolve::build_thumbnail_context;
 use crate::services::media_processing_service::shared::ImagePreviewData;
@@ -32,7 +33,7 @@ pub async fn generate_and_store_image_preview(
             "image preview cache hit"
         );
         return Ok(ImagePreviewData {
-            data: data.to_vec(),
+            data,
             image_preview_processor: preview_processor,
             image_preview_version: preview_version,
         });
@@ -66,7 +67,7 @@ pub async fn generate_and_store_image_preview(
     }
 
     Ok(ImagePreviewData {
-        data: webp_bytes,
+        data: Bytes::from(webp_bytes),
         image_preview_processor: preview_processor,
         image_preview_version: preview_version,
     })

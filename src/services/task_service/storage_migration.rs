@@ -959,25 +959,12 @@ async fn read_multipart_part(
     hasher: &mut sha2::Sha256,
 ) -> Result<Bytes> {
     let expected_size = bytes_to_usize(expected_size, "storage migration multipart part size")?;
-    let mut data = Vec::with_capacity(expected_size);
-    let mut buffer = vec![0_u8; 64 * 1024];
-    while data.len() < expected_size {
-        let read_len = buffer.len().min(expected_size - data.len());
-        let read = stream
-            .read(&mut buffer[..read_len])
-            .await
-            .map_aster_err_ctx(
-                "read source object multipart part",
-                AsterError::storage_driver_error,
-            )?;
-        if read == 0 {
-            return Err(AsterError::storage_driver_error(format!(
-                "source object ended before expected multipart part size {expected_size}"
-            )));
-        }
-        sha2::Digest::update(hasher, &buffer[..read]);
-        data.extend_from_slice(&buffer[..read]);
-    }
+    let mut data = vec![0_u8; expected_size];
+    stream.read_exact(&mut data).await.map_aster_err_ctx(
+        "read source object multipart part",
+        AsterError::storage_driver_error,
+    )?;
+    sha2::Digest::update(hasher, &data);
     Ok(Bytes::from(data))
 }
 

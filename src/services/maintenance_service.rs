@@ -329,8 +329,6 @@ async fn cleanup_completed_session_stale_temp_object(
                 }
             }
         }
-
-        return false;
     }
 
     delete_completed_stale_temp_object(&*driver, session, temp_key).await

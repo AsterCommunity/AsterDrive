@@ -1135,7 +1135,7 @@ mod tests {
     #[actix_web::test]
     async fn image_preview_response_returns_ok_with_etag_and_cache_headers() {
         let result = ImagePreviewResult {
-            data: vec![1, 2, 3],
+            data: bytes::Bytes::from_static(&[1, 2, 3]),
             blob_hash: "abc".repeat(21) + "a",
             image_preview_processor: "images".to_string(),
             image_preview_version: "1".to_string(),
@@ -1169,7 +1169,7 @@ mod tests {
     #[actix_web::test]
     async fn image_preview_response_respects_if_none_match() {
         let result = ImagePreviewResult {
-            data: vec![1, 2, 3],
+            data: bytes::Bytes::from_static(&[1, 2, 3]),
             blob_hash: "abc".repeat(21) + "a",
             image_preview_processor: "images".to_string(),
             image_preview_version: "1".to_string(),
