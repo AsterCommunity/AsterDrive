@@ -69,6 +69,7 @@ pub const AUTH_CONTACT_VERIFICATION_RESEND_COOLDOWN_SECS_KEY: &str =
 pub const AUTH_PASSWORD_RESET_REQUEST_COOLDOWN_SECS_KEY: &str =
     "auth_password_reset_request_cooldown_secs";
 pub const AUTH_EMAIL_CODE_LOGIN_ENABLED_KEY: &str = "auth_email_code_login_enabled";
+pub const AUTH_PASSKEY_LOGIN_ENABLED_KEY: &str = "auth_passkey_login_enabled";
 pub const AUTH_EMAIL_CODE_LOGIN_ALLOW_TOTP_FALLBACK_KEY: &str =
     "auth_email_code_login_allow_totp_fallback";
 pub const AUTH_EMAIL_CODE_LOGIN_TTL_SECS_KEY: &str = "auth_email_code_login_ttl_secs";
@@ -1206,6 +1207,17 @@ pub static ALL_CONFIGS: &[ConfigDef] = &[
         is_sensitive: false,
         category: CONFIG_CATEGORY_USER_REGISTRATION,
         description: "Whether newly registered users must activate their account by email before signing in",
+    },
+    ConfigDef {
+        key: AUTH_PASSKEY_LOGIN_ENABLED_KEY,
+        label_i18n_key: "settings_item_auth_passkey_login_enabled_label",
+        description_i18n_key: "settings_item_auth_passkey_login_enabled_desc",
+        value_type: SystemConfigValueType::Boolean,
+        default_fn: || "true".to_string(),
+        requires_restart: false,
+        is_sensitive: false,
+        category: CONFIG_CATEGORY_USER_REGISTRATION,
+        description: "Allow users to sign in with already registered passkeys; disabling this keeps credentials but blocks passkey login",
     },
     ConfigDef {
         key: AVATAR_DIR_KEY,

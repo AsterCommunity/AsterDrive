@@ -70,11 +70,11 @@ async fn bootstrap_public_site_url_from_setup(
 )]
 pub async fn check(state: web::Data<PrimaryAppState>) -> Result<HttpResponse> {
     let has_users = auth_service::check_auth_state(&state).await?;
-    let allow_user_registration =
-        RuntimeAuthPolicy::from_runtime_config(&state.runtime_config).allow_user_registration;
+    let auth_policy = RuntimeAuthPolicy::from_runtime_config(&state.runtime_config);
     Ok(HttpResponse::Ok().json(ApiResponse::ok(CheckResp {
         has_users,
-        allow_user_registration,
+        allow_user_registration: auth_policy.allow_user_registration,
+        passkey_login_enabled: auth_policy.passkey_login_enabled,
     })))
 }
 

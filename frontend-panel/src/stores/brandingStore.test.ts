@@ -47,6 +47,7 @@ describe("brandingStore", () => {
 	it("loads public branding once and applies it", async () => {
 		mockState.getBranding.mockResolvedValue({
 			allow_user_registration: false,
+			passkey_login_enabled: false,
 			title: "Nebula Drive",
 			description: "Team storage",
 			favicon_url: "https://cdn.example.com/icon.png",
@@ -75,6 +76,7 @@ describe("brandingStore", () => {
 		);
 		expect(useBrandingStore.getState()).toMatchObject({
 			allowUserRegistration: false,
+			passkeyLoginEnabled: false,
 			isLoaded: true,
 			branding: expect.objectContaining({
 				title: "Nebula Drive",
@@ -92,6 +94,7 @@ describe("brandingStore", () => {
 	it("hydrates cached branding immediately and revalidates it", async () => {
 		const cachedBranding = {
 			allow_user_registration: true,
+			passkey_login_enabled: true,
 			title: "Cached Drive",
 			description: "Cached description",
 			favicon_url: "/cached.svg",
@@ -101,6 +104,7 @@ describe("brandingStore", () => {
 		};
 		const freshBranding = {
 			allow_user_registration: false,
+			passkey_login_enabled: false,
 			title: "Fresh Drive",
 			description: "Fresh description",
 			favicon_url: "/fresh.svg",
@@ -120,6 +124,7 @@ describe("brandingStore", () => {
 
 		expect(useBrandingStore.getState()).toMatchObject({
 			allowUserRegistration: true,
+			passkeyLoginEnabled: true,
 			branding: expect.objectContaining({
 				title: "Cached Drive",
 			}),
@@ -133,6 +138,7 @@ describe("brandingStore", () => {
 		expect(mockState.getBranding).toHaveBeenCalledTimes(1);
 		expect(useBrandingStore.getState()).toMatchObject({
 			allowUserRegistration: false,
+			passkeyLoginEnabled: false,
 			branding: expect.objectContaining({
 				title: "Fresh Drive",
 			}),
@@ -151,6 +157,7 @@ describe("brandingStore", () => {
 			JSON.stringify({
 				branding: {
 					allow_user_registration: true,
+					passkey_login_enabled: false,
 					title: "Cached Drive",
 					description: "Cached description",
 					favicon_url: "/cached.svg",
@@ -170,8 +177,41 @@ describe("brandingStore", () => {
 		expect(mockState.loggerWarn).toHaveBeenCalledTimes(1);
 		expect(useBrandingStore.getState()).toMatchObject({
 			isLoaded: true,
+			passkeyLoginEnabled: false,
 			branding: expect.objectContaining({
 				title: "Cached Drive",
+			}),
+		});
+	});
+
+	it("treats legacy cached branding without passkey policy as enabled", async () => {
+		localStorage.setItem(
+			"aster-cached-branding",
+			JSON.stringify({
+				branding: {
+					allow_user_registration: true,
+					title: "Legacy Cached Drive",
+					description: "Cached description",
+					favicon_url: "/cached.svg",
+					wordmark_dark_url: "/cached-dark.svg",
+					wordmark_light_url: "/cached-light.svg",
+					site_urls: ["https://cached.example.com"],
+				},
+				cachedAt: Date.now(),
+			}),
+		);
+		mockState.getBranding.mockRejectedValueOnce(new Error("offline"));
+
+		const { useBrandingStore } = await loadBrandingStoreModule();
+
+		await useBrandingStore.getState().load();
+
+		expect(useBrandingStore.getState()).toMatchObject({
+			allowUserRegistration: true,
+			isLoaded: true,
+			passkeyLoginEnabled: true,
+			branding: expect.objectContaining({
+				title: "Legacy Cached Drive",
 			}),
 		});
 	});
@@ -200,6 +240,7 @@ describe("brandingStore", () => {
 		);
 		expect(useBrandingStore.getState()).toMatchObject({
 			allowUserRegistration: true,
+			passkeyLoginEnabled: true,
 			isLoaded: true,
 			branding: expect.objectContaining({
 				title: "AsterDrive",

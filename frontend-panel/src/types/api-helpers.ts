@@ -88,6 +88,7 @@ export const ApiSubcode = {
 	AuthCsrfCookieMissing: "auth.csrf_cookie_missing",
 	AuthCsrfHeaderMissing: "auth.csrf_header_missing",
 	AuthCsrfTokenInvalid: "auth.csrf_token_invalid",
+	AuthPasskeyLoginDisabled: "auth.passkey_login_disabled",
 	AuthRegistrationDisabled: "auth.registration_disabled",
 	AuthMfaFlowInvalid: "auth.mfa_flow_invalid",
 	AuthMfaFlowExpired: "auth.mfa_flow_expired",

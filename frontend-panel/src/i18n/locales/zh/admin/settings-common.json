@@ -11,7 +11,7 @@
 	"settings_subcategory_mail_config_desc": "SMTP 连接、发件人身份和事务邮件测试投递。",
 	"settings_subcategory_mail_template": "邮件模版",
 	"settings_subcategory_mail_template_desc": "注册激活、密码重置、邮箱改绑等邮件的主题与 HTML 正文。可在对应 HTML 正文旁查看魔法变量。",
-	"settings_subcategory_user_registration_and_login_desc": "注册开放、激活流程和邮箱验证码登录相关设置。",
+	"settings_subcategory_user_registration_and_login_desc": "注册开放、激活流程、Passkey 登录和邮箱验证码登录相关设置。",
 	"settings_subcategory_user_avatar_desc": "头像存储位置、上传大小上限和 Gravatar 代理来源等设置。",
 	"settings_section_expand": "展开",
 	"settings_section_collapse": "收起",

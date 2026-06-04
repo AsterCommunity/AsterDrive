@@ -1421,6 +1421,10 @@ async fn test_check_reports_public_registration_flag() {
         aster_drive::config::auth_runtime::AUTH_ALLOW_USER_REGISTRATION_KEY,
         "false",
     ));
+    state.runtime_config.apply(common::system_config_model(
+        aster_drive::config::auth_runtime::AUTH_PASSKEY_LOGIN_ENABLED_KEY,
+        "false",
+    ));
     let app = create_test_app!(state);
 
     let req = test::TestRequest::post()
@@ -1444,6 +1448,7 @@ async fn test_check_reports_public_registration_flag() {
     let body: Value = test::read_body_json(resp).await;
     assert_eq!(body["data"]["has_users"], true);
     assert_eq!(body["data"]["allow_user_registration"], false);
+    assert_eq!(body["data"]["passkey_login_enabled"], false);
 }
 
 #[actix_web::test]
@@ -4043,6 +4048,112 @@ async fn test_passkey_login_without_identifier() {
     assert!(common::extract_cookie(&resp, "aster_access").is_some());
     let body: Value = test::read_body_json(resp).await;
     assert_eq!(body["code"], 0);
+}
+
+#[actix_web::test]
+async fn test_passkey_login_policy_disables_start_and_finish_without_deleting_credentials() {
+    let state = common::setup_with_memory_cache().await;
+    configure_passkey_public_site_url(&state);
+    let app = create_test_app!(state.clone());
+    let (access, _) = register_and_login!(app);
+
+    let (mut softpasskey, passkey) = register_test_passkey(&app, &access, "Laptop").await;
+    let user_id = testuser_id(state.writer_db()).await;
+    let passkey_id = passkey["id"].as_i64().unwrap();
+    let stored_passkey = passkey_repo::find_by_id_for_user(state.writer_db(), passkey_id, user_id)
+        .await
+        .unwrap()
+        .expect("registered passkey should remain stored");
+
+    let (flow_id, challenge) = passkey_login_start(&app, Some("testuser")).await;
+    let (challenge, user_handle) = allow_test_passkey_credential(challenge, &stored_passkey);
+    let mut credential = softpasskey
+        .do_authentication(Url::parse(TEST_BROWSER_ORIGIN).unwrap(), challenge)
+        .expect("soft passkey authentication should succeed");
+    credential.response.user_handle = Some(user_handle.as_bytes().to_vec());
+    let credential = serde_json::to_value(credential).expect("credential should serialize");
+
+    state.runtime_config.apply(common::system_config_model(
+        aster_drive::config::auth_runtime::AUTH_PASSKEY_LOGIN_ENABLED_KEY,
+        "false",
+    ));
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/auth/passkeys/login/start")
+        .insert_header(("Origin", TEST_BROWSER_ORIGIN))
+        .peer_addr("127.0.0.1:12345".parse().unwrap())
+        .set_json(serde_json::json!({ "identifier": "testuser" }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 403);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(body["code"], 2003);
+    assert_eq!(
+        body["msg"],
+        "passkey login is disabled by administrator policy"
+    );
+    assert_eq!(body["error"]["code"], "auth.passkey_login_disabled");
+    assert_eq!(body["error"]["subcode"], "auth.passkey_login_disabled");
+
+    let resp = passkey_login_finish(&app, &flow_id, credential).await;
+    assert_eq!(resp.status(), 403);
+    assert!(common::extract_cookie(&resp, "aster_access").is_none());
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(body["error"]["code"], "auth.passkey_login_disabled");
+
+    let stored_after_disable =
+        passkey_repo::find_by_id_for_user(state.writer_db(), passkey_id, user_id)
+            .await
+            .unwrap();
+    assert!(
+        stored_after_disable.is_some(),
+        "disabling passkey login must not delete registered credentials"
+    );
+}
+
+#[actix_web::test]
+async fn test_passkey_login_policy_hot_update_reenables_login() {
+    let state = common::setup_with_memory_cache().await;
+    configure_passkey_public_site_url(&state);
+    let app = create_test_app!(state.clone());
+    let (access, _) = register_and_login!(app);
+
+    let (mut softpasskey, passkey) = register_test_passkey(&app, &access, "Laptop").await;
+    let user_id = testuser_id(state.writer_db()).await;
+    let passkey_id = passkey["id"].as_i64().unwrap();
+    let stored_passkey = passkey_repo::find_by_id_for_user(state.writer_db(), passkey_id, user_id)
+        .await
+        .unwrap()
+        .expect("registered passkey should remain stored");
+
+    state.runtime_config.apply(common::system_config_model(
+        aster_drive::config::auth_runtime::AUTH_PASSKEY_LOGIN_ENABLED_KEY,
+        "false",
+    ));
+    let req = test::TestRequest::post()
+        .uri("/api/v1/auth/passkeys/login/start")
+        .insert_header(("Origin", TEST_BROWSER_ORIGIN))
+        .peer_addr("127.0.0.1:12345".parse().unwrap())
+        .set_json(serde_json::json!({ "conditional": true }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 403);
+
+    state.runtime_config.apply(common::system_config_model(
+        aster_drive::config::auth_runtime::AUTH_PASSKEY_LOGIN_ENABLED_KEY,
+        "true",
+    ));
+    let (flow_id, challenge) = passkey_login_start(&app, Some("testuser")).await;
+    let (challenge, user_handle) = allow_test_passkey_credential(challenge, &stored_passkey);
+    let mut credential = softpasskey
+        .do_authentication(Url::parse(TEST_BROWSER_ORIGIN).unwrap(), challenge)
+        .expect("soft passkey authentication should succeed");
+    credential.response.user_handle = Some(user_handle.as_bytes().to_vec());
+    let credential = serde_json::to_value(credential).expect("credential should serialize");
+
+    let resp = passkey_login_finish(&app, &flow_id, credential).await;
+    assert_eq!(resp.status(), 200);
+    assert!(common::extract_cookie(&resp, "aster_access").is_some());
 }
 
 #[actix_web::test]

@@ -13,10 +13,12 @@ use webauthn_rs_proto::{ResidentKeyRequirement, UserVerificationPolicy};
 
 use crate::api::subcode::ApiSubcode;
 use crate::cache::CacheExt;
-use crate::config::{branding, site_url};
+use crate::config::{auth_runtime::RuntimeAuthPolicy, branding, site_url};
 use crate::db::repository::{passkey_repo, user_repo};
 use crate::entities::{passkey, user};
-use crate::errors::{AsterError, MapAsterErr, Result, validation_error_with_subcode};
+use crate::errors::{
+    AsterError, MapAsterErr, Result, auth_forbidden_with_subcode, validation_error_with_subcode,
+};
 use crate::runtime::PrimaryAppState;
 use crate::services::auth_service::{self, LoginResult, is_email_verified};
 use crate::types::StoredPasskeyCredential;
@@ -275,6 +277,17 @@ fn build_webauthn(state: &PrimaryAppState) -> Result<Webauthn> {
     }
 
     builder.build().map_err(webauthn_config_error)
+}
+
+fn ensure_passkey_login_enabled(state: &PrimaryAppState) -> Result<()> {
+    if RuntimeAuthPolicy::from_runtime_config(&state.runtime_config).passkey_login_enabled {
+        return Ok(());
+    }
+
+    Err(auth_forbidden_with_subcode(
+        ApiSubcode::AuthPasskeyLoginDisabled,
+        "passkey login is disabled by administrator policy",
+    ))
 }
 
 async fn store_registration_challenge(
@@ -573,6 +586,7 @@ pub async fn start_login(
     identifier: Option<&str>,
     conditional: bool,
 ) -> Result<PasskeyLoginStartResp> {
+    ensure_passkey_login_enabled(state)?;
     let webauthn = build_webauthn(state)?;
     let (mut options, auth_state) = webauthn
         .start_discoverable_authentication()
@@ -600,6 +614,7 @@ pub async fn finish_login(
     ip_address: Option<&str>,
     user_agent: Option<&str>,
 ) -> Result<LoginResult> {
+    ensure_passkey_login_enabled(state)?;
     let webauthn = build_webauthn(state)?;
     let challenge = take_login_challenge(state, flow_id).await?;
     let credential = parse_login_credential(credential)?;

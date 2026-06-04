@@ -19,6 +19,8 @@
 	"settings_item_auth_contact_verification_resend_cooldown_secs_desc": "The minimum wait between verification email resend attempts for the same user.",
 	"settings_item_auth_email_code_login_enabled_label": "Require email-code MFA",
 	"settings_item_auth_email_code_login_enabled_desc": "When enabled and SMTP mail is configured, verified-email users without TOTP must enter an 8-digit email code after the password or external sign-in step. Configure the SMTP host and sender address in Mail Settings first; SMTP username and password must both be filled or both left blank.",
+	"settings_item_auth_passkey_login_enabled_label": "Allow passkey sign-in",
+	"settings_item_auth_passkey_login_enabled_desc": "Controls whether users can complete login with registered passkeys. Disabling it does not delete existing passkeys; they can be used again after this setting is re-enabled.",
 	"email_code_mfa_mail_config_required": "Complete mail delivery settings first: SMTP host and sender address are required, and SMTP username and password must both be filled or both left blank.",
 	"email_code_mfa_mail_settings_link": "Go to Mail Settings",
 	"settings_item_auth_email_code_login_allow_totp_fallback_label": "Allow email fallback for TOTP",

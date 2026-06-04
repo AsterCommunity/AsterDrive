@@ -289,6 +289,25 @@ async fn test_admin_scope_allows_admin_users() {
         "settings_item_auth_register_activation_enabled_desc"
     );
 
+    let passkey_login_toggle = body["data"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|item| item["key"] == "auth_passkey_login_enabled")
+        .unwrap();
+    assert_eq!(
+        passkey_login_toggle["label_i18n_key"],
+        "settings_item_auth_passkey_login_enabled_label"
+    );
+    assert_eq!(
+        passkey_login_toggle["description_i18n_key"],
+        "settings_item_auth_passkey_login_enabled_desc"
+    );
+    assert_eq!(
+        passkey_login_toggle["category"],
+        "user.registration_and_login"
+    );
+
     let branding_title = body["data"]
         .as_array()
         .unwrap()

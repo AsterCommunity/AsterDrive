@@ -19,6 +19,8 @@
 	"settings_item_auth_contact_verification_resend_cooldown_secs_desc": "控制同一用户两次重发验证邮件之间至少要间隔多久。",
 	"settings_item_auth_email_code_login_enabled_label": "要求邮箱验证码 MFA",
 	"settings_item_auth_email_code_login_enabled_desc": "启用且 SMTP 邮件配置完整后，已验证邮箱且未启用 TOTP 的用户在密码或外部身份登录后，需要再输入 8 位邮箱验证码。请先在邮件设置中确认 SMTP 主机和发件人地址，SMTP 用户名和密码必须同时填写或同时留空。",
+	"settings_item_auth_passkey_login_enabled_label": "允许使用 Passkey 登录",
+	"settings_item_auth_passkey_login_enabled_desc": "控制用户是否可以用已注册的 Passkey 完成登录。关闭后不会删除已有 Passkey，重新开启后仍可继续使用。",
 	"email_code_mfa_mail_config_required": "需要先完成邮件投递配置：SMTP 主机和发件人地址不能为空，SMTP 用户名和密码必须同时填写或同时留空。",
 	"email_code_mfa_mail_settings_link": "前往邮件设置",
 	"settings_item_auth_email_code_login_allow_totp_fallback_label": "允许 TOTP 使用邮箱兜底",

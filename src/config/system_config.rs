@@ -106,7 +106,8 @@ where
             auth_runtime::normalize_register_activation_enabled_config_value(value)
         }
         auth_runtime::AUTH_EMAIL_CODE_LOGIN_ENABLED_KEY
-        | auth_runtime::AUTH_EMAIL_CODE_LOGIN_ALLOW_TOTP_FALLBACK_KEY => {
+        | auth_runtime::AUTH_EMAIL_CODE_LOGIN_ALLOW_TOTP_FALLBACK_KEY
+        | auth_runtime::AUTH_PASSKEY_LOGIN_ENABLED_KEY => {
             auth_runtime::normalize_email_code_login_bool_config_value(key, value)
         }
         auth_runtime::AUTH_ACCESS_TOKEN_TTL_SECS_KEY

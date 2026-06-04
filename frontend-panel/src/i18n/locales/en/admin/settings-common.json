@@ -11,7 +11,7 @@
 	"settings_subcategory_mail_config_desc": "SMTP connectivity, sender identity, and test delivery for transactional email.",
 	"settings_subcategory_mail_template": "Mail templates",
 	"settings_subcategory_mail_template_desc": "Subjects and HTML bodies for registration, password reset, and email change messages. View magic variables next to the corresponding HTML body field.",
-	"settings_subcategory_user_registration_and_login_desc": "Sign-up availability, activation flow, and email-code login settings.",
+	"settings_subcategory_user_registration_and_login_desc": "Sign-up availability, activation flow, passkey login, and email-code login settings.",
 	"settings_subcategory_user_avatar_desc": "Avatar storage location, upload size cap, and Gravatar proxy origin settings.",
 	"settings_section_expand": "Expand",
 	"settings_section_collapse": "Collapse",
