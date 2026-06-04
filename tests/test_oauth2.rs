@@ -8,7 +8,7 @@ mod external_auth;
 use actix_web::http::StatusCode;
 use actix_web::test;
 use aster_drive::db::repository::external_auth_provider_repo;
-use aster_drive::entities::external_auth_identity;
+use aster_drive::entities::{external_auth_identity, user};
 use external_auth::oauth2::*;
 use sea_orm::{ActiveModelTrait, ActiveValue::Set, EntityTrait, IntoActiveModel};
 use serde_json::Value;
@@ -414,6 +414,52 @@ async fn finish_callback_exchanges_code_fetches_userinfo_and_issues_cookies() {
     assert_eq!(
         mock_provider.token_auth_observations(),
         vec![TokenAuthObservation::Post]
+    );
+
+    server.stop(true).await;
+}
+
+#[actix_web::test]
+async fn local_email_policy_does_not_apply_to_oauth2_auto_provision() {
+    let (mock_provider, server) = start_mock_oauth2_provider().await;
+    let state = common::setup().await;
+    configure_oauth2_public_site_url(&state);
+    let app = create_test_app!(state.clone());
+    let (admin_token, _) = register_and_login!(app);
+    state.runtime_config.apply(common::system_config_model(
+        aster_drive::config::local_email_policy::AUTH_LOCAL_EMAIL_ALLOWLIST_KEY,
+        r#"["other.test"]"#,
+    ));
+    state.runtime_config.apply(common::system_config_model(
+        aster_drive::config::local_email_policy::AUTH_LOCAL_EMAIL_BLOCKLIST_KEY,
+        r#"["example.com"]"#,
+    ));
+    let created = create_oauth2_provider_with(
+        &app,
+        &admin_token,
+        TestOAuth2ProviderOptions {
+            auto_provision_enabled: true,
+            allowed_domains: vec!["example.com".to_string()],
+            ..TestOAuth2ProviderOptions::mock(&mock_provider.base_url)
+        },
+    )
+    .await;
+    let provider_key = created_provider_key(&created);
+
+    let state_value = start_oauth2_login(&app, &mock_provider, &provider_key, "/").await;
+    let resp = finish_oauth2_callback(&app, &provider_key, &state_value).await;
+    assert_eq!(resp.status(), 302);
+    assert!(common::extract_cookie(&resp, "aster_access").is_some());
+
+    let provisioned = user::Entity::find()
+        .all(state.writer_db())
+        .await
+        .expect("users should query");
+    assert!(
+        provisioned
+            .iter()
+            .any(|user| user.email == "oauth2-user@example.com"),
+        "OAuth2 auto-provision should not be denied by local email policy"
     );
 
     server.stop(true).await;

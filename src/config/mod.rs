@@ -8,6 +8,7 @@ pub mod branding;
 pub mod cors;
 pub mod definitions;
 mod loader;
+pub mod local_email_policy;
 pub mod mail;
 pub mod media_processing;
 pub mod node_mode;

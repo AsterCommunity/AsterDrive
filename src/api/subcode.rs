@@ -68,6 +68,8 @@ define_api_subcodes! {
     AuthCsrfTokenInvalid => "auth.csrf_token_invalid",
     AuthPasskeyLoginDisabled => "auth.passkey_login_disabled",
     AuthRegistrationDisabled => "auth.registration_disabled",
+    AuthEmailBlocked => "auth.email_blocked",
+    AuthEmailNotAllowlisted => "auth.email_not_allowlisted",
     AuthMfaFlowInvalid => "auth.mfa_flow_invalid",
     AuthMfaFlowExpired => "auth.mfa_flow_expired",
     AuthMfaCodeInvalid => "auth.mfa_code_invalid",

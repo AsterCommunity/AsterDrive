@@ -77,6 +77,8 @@ pub const AUTH_EMAIL_CODE_LOGIN_RESEND_COOLDOWN_SECS_KEY: &str =
     "auth_email_code_login_resend_cooldown_secs";
 pub const AUTH_ALLOW_USER_REGISTRATION_KEY: &str = "auth_allow_user_registration";
 pub const AUTH_REGISTER_ACTIVATION_ENABLED_KEY: &str = "auth_register_activation_enabled";
+pub const AUTH_LOCAL_EMAIL_ALLOWLIST_KEY: &str = "auth_local_email_allowlist";
+pub const AUTH_LOCAL_EMAIL_BLOCKLIST_KEY: &str = "auth_local_email_blocklist";
 
 // ── CORS keys ────────────────────────────────────────────────────────────────
 pub const CORS_ENABLED_KEY: &str = "cors_enabled";
@@ -1207,6 +1209,28 @@ pub static ALL_CONFIGS: &[ConfigDef] = &[
         is_sensitive: false,
         category: CONFIG_CATEGORY_USER_REGISTRATION,
         description: "Whether newly registered users must activate their account by email before signing in",
+    },
+    ConfigDef {
+        key: AUTH_LOCAL_EMAIL_ALLOWLIST_KEY,
+        label_i18n_key: "settings_item_auth_local_email_allowlist_label",
+        description_i18n_key: "settings_item_auth_local_email_allowlist_desc",
+        value_type: SystemConfigValueType::StringArray,
+        default_fn: empty_string_array_default,
+        requires_restart: false,
+        is_sensitive: false,
+        category: CONFIG_CATEGORY_USER_REGISTRATION,
+        description: "Allowed local-account email addresses and exact domains. Empty means no allowlist restriction. Applies to local registration and local email changes only",
+    },
+    ConfigDef {
+        key: AUTH_LOCAL_EMAIL_BLOCKLIST_KEY,
+        label_i18n_key: "settings_item_auth_local_email_blocklist_label",
+        description_i18n_key: "settings_item_auth_local_email_blocklist_desc",
+        value_type: SystemConfigValueType::StringArray,
+        default_fn: empty_string_array_default,
+        requires_restart: false,
+        is_sensitive: false,
+        category: CONFIG_CATEGORY_USER_REGISTRATION,
+        description: "Blocked local-account email addresses and exact domains. Blocklist wins over allowlist. Applies to local registration and local email changes only",
     },
     ConfigDef {
         key: AUTH_PASSKEY_LOGIN_ENABLED_KEY,
