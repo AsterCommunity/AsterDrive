@@ -13,11 +13,12 @@ use crate::webdav::dav::{
     DavFileSystem, DavLockSystem, DavMetaData, DavPath, DavProp, FsError, ReadDirMeta,
 };
 use crate::webdav::locks::{lockdiscovery_element, supportedlock_element};
+use crate::webdav::protocol::{self, Depth};
 use crate::webdav::{
     child_elements, child_relative_path, dav_element, display_name, ensure_unlocked,
     format_creation_date, format_http_date, fs, fs_error_response, href_for_dav_path,
-    href_for_relative, multi_status, parse_propfind_depth, request_path, status_element,
-    text_element, xml_response,
+    href_for_relative, multi_status, request_path, status_element, text_element, xml_bytes,
+    xml_response,
 };
 
 struct RequestedProp {
@@ -90,7 +91,7 @@ pub(crate) async fn handle_propfind(
         Ok(v) => v,
         Err(resp) => return resp,
     };
-    let depth = match parse_propfind_depth(req.headers()) {
+    let depth = match protocol::parse_propfind_depth(req.headers()) {
         Ok(depth) => depth,
         Err(resp) => return resp,
     };
@@ -230,7 +231,7 @@ async fn collect_propfind_resources(
     dav_fs: &fs::AsterDavFs,
     path: &DavPath,
     relative: &str,
-    depth: u8,
+    depth: Depth,
 ) -> Result<Vec<PropfindResource>, FsError> {
     let root_meta = dav_fs.metadata(path).await?;
     let root_is_dir = root_meta.is_dir();
@@ -240,7 +241,7 @@ async fn collect_propfind_resources(
         meta: root_meta,
     }];
 
-    if depth == 1 && root_is_dir {
+    if depth == Depth::One && root_is_dir {
         let entries = dav_fs.read_dir(path, ReadDirMeta::Data).await?;
         pin_mut!(entries);
         while let Some(entry) = entries.next().await {
@@ -497,7 +498,7 @@ fn prop_from_xml(prop: &Element) -> DavProp {
         name: prop.name.clone(),
         prefix: prop.prefix.clone(),
         namespace: prop.namespace.clone(),
-        xml: prop.get_text().map(|text| text.into_owned().into_bytes()),
+        xml: xml_bytes(prop).ok(),
     }
 }
 
@@ -521,14 +522,29 @@ fn prop_element(prop: &DavProp, requested: Option<&RequestedProp>) -> Element {
             .attributes
             .insert(format!("xmlns:{prefix}"), namespace.to_string());
     }
-    if let Some(xml) = &prop.xml
-        && !xml.is_empty()
-    {
-        element
-            .children
-            .push(XMLNode::Text(String::from_utf8_lossy(xml).into_owned()));
-    }
+    append_stored_property_content(&mut element, prop);
     element
+}
+
+fn append_stored_property_content(element: &mut Element, prop: &DavProp) {
+    let Some(xml) = &prop.xml else {
+        return;
+    };
+    if xml.is_empty() {
+        return;
+    }
+
+    if let Ok(stored) = Element::parse(Cursor::new(xml))
+        && stored.name == prop.name
+        && stored.namespace.as_deref() == prop.namespace.as_deref()
+    {
+        element.children.extend(stored.children);
+        return;
+    }
+
+    element
+        .children
+        .push(XMLNode::Text(String::from_utf8_lossy(xml).into_owned()));
 }
 
 fn is_root_resource(resource: &PropfindResource) -> bool {

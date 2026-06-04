@@ -140,6 +140,59 @@ impl AsterDavFs {
         .await;
         Ok(stream)
     }
+
+    pub(crate) async fn copy_dir_shallow(
+        &self,
+        from: &DavPath,
+        to: &DavPath,
+    ) -> Result<(), FsError> {
+        let node = path_resolver::resolve_path_cached_in_scope(
+            &self.state,
+            self.scope,
+            from,
+            self.root_folder_id,
+        )
+        .await?;
+        let src_folder = match node {
+            ResolvedNode::Folder(folder) => folder,
+            _ => return Err(FsError::Forbidden),
+        };
+
+        let (dest_parent_id, dest_name) = path_resolver::resolve_parent_cached_in_scope(
+            &self.state,
+            self.scope,
+            to,
+            self.root_folder_id,
+        )
+        .await?;
+
+        let state = self.app_state();
+        let created = folder_service::create_in_scope_with_audit(
+            &state,
+            self.scope(),
+            &dest_name,
+            dest_parent_id,
+            &self.audit_ctx,
+        )
+        .await
+        .map_err(to_fs_error)?;
+        audit_service::log(
+            &state,
+            &self.audit_ctx,
+            audit_service::AuditAction::FolderCopy,
+            crate::services::audit_service::AuditEntityType::Folder,
+            Some(created.id),
+            Some(&created.name),
+            Some(serde_json::json!({
+                "source": "webdav",
+                "depth": "0",
+                "source_folder_id": src_folder.id,
+            })),
+        )
+        .await;
+
+        Ok(())
+    }
 }
 
 impl DavFileSystem for AsterDavFs {

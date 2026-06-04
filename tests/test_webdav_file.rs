@@ -187,7 +187,7 @@ async fn test_aster_dav_fs_reports_quota_and_roundtrips_custom_props() {
                     name: "color".to_string(),
                     prefix: None,
                     namespace: Some("urn:aster:test".to_string()),
-                    xml: Some(b"blue".to_vec()),
+                    xml: Some(b"<A:color xmlns:A=\"urn:aster:test\">blue</A:color>".to_vec()),
                 },
             )],
         )
@@ -237,7 +237,12 @@ async fn test_aster_dav_fs_reports_quota_and_roundtrips_custom_props() {
 
     let props_with_content = dav_fs.get_props(&file_path, true).await.unwrap();
     assert_eq!(props_with_content.len(), 1);
-    assert_eq!(props_with_content[0].xml.as_deref(), Some(&b"blue"[..]));
+    assert!(
+        props_with_content[0]
+            .xml
+            .as_deref()
+            .is_some_and(|xml| String::from_utf8_lossy(xml).contains(">blue<"))
+    );
 
     let remove_results = dav_fs
         .patch_props(

@@ -509,6 +509,7 @@ async fn propfind_href_is_percent_encoded_and_xml_parseable() {
     let req = actix_web::test::TestRequest::default()
         .method(actix_web::http::Method::from_bytes(b"PROPFIND").expect("valid method"))
         .uri(&encoded_uri)
+        .insert_header((header::HeaderName::from_static("depth"), "0"))
         .to_http_request();
 
     let response = handle_propfind(&req, &dav_fs, &lock_system, "/webdav", &[]).await;

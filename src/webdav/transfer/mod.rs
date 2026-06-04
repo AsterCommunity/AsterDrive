@@ -157,8 +157,8 @@ pub(crate) async fn handle_put(
 
 fn content_length_hint(headers: &header::HeaderMap) -> Option<u64> {
     headers
-        .get(header::CONTENT_LENGTH)
-        .or_else(|| headers.get("X-Expected-Entity-Length"))
+        .get("X-Expected-Entity-Length")
+        .or_else(|| headers.get(header::CONTENT_LENGTH))
         .and_then(|value| value.to_str().ok())
         .and_then(|value| value.trim().parse::<u64>().ok())
 }

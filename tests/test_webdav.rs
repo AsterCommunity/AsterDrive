@@ -338,6 +338,25 @@ async fn test_webdav_propfind_root() {
 }
 
 #[actix_web::test]
+async fn test_webdav_propfind_missing_depth_rejects_unsupported_infinity_default() {
+    let app = setup_with_webdav!();
+
+    let (token, _) = register_and_login!(app);
+    let auth = create_webdav_basic_auth!(app, token);
+
+    let req = test::TestRequest::with_uri("/webdav/")
+        .method(actix_web::http::Method::from_bytes(b"PROPFIND").unwrap())
+        .insert_header(("Authorization", auth))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(
+        resp.status(),
+        501,
+        "missing PROPFIND Depth defaults to infinity and must not silently become Depth: 0"
+    );
+}
+
+#[actix_web::test]
 async fn test_webdav_mkcol_and_list() {
     let app = setup_with_webdav!();
 
@@ -1684,6 +1703,101 @@ async fn test_webdav_copy_folder_recursively() {
 }
 
 #[actix_web::test]
+async fn test_webdav_copy_folder_depth_zero_copies_collection_without_children() {
+    let app = setup_with_webdav!();
+    let (token, _) = register_and_login!(app);
+    let auth = create_webdav_basic_auth!(app, token);
+
+    for uri in ["/webdav/shallow-src/", "/webdav/shallow-src/sub/"] {
+        let req = test::TestRequest::with_uri(uri)
+            .method(actix_web::http::Method::from_bytes(b"MKCOL").unwrap())
+            .insert_header(("Authorization", auth.clone()))
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(resp.status(), 201);
+    }
+
+    let req = test::TestRequest::put()
+        .uri("/webdav/shallow-src/sub/nested.txt")
+        .insert_header(("Authorization", auth.clone()))
+        .set_payload("depth zero should not copy this")
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert!(resp.status() == 201 || resp.status() == 204);
+
+    let req = test::TestRequest::with_uri("/webdav/shallow-src/")
+        .method(actix_web::http::Method::from_bytes(b"COPY").unwrap())
+        .insert_header(("Authorization", auth.clone()))
+        .insert_header(("Destination", "/webdav/shallow-dst/"))
+        .insert_header(("Depth", "0"))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert!(
+        resp.status() == 201 || resp.status() == 204,
+        "COPY Depth: 0 folder should create the destination collection, got {}",
+        resp.status()
+    );
+
+    let req = test::TestRequest::with_uri("/webdav/shallow-dst/")
+        .method(actix_web::http::Method::from_bytes(b"PROPFIND").unwrap())
+        .insert_header(("Authorization", auth.clone()))
+        .insert_header(("Depth", "0"))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 207);
+
+    let req = test::TestRequest::get()
+        .uri("/webdav/shallow-dst/sub/nested.txt")
+        .insert_header(("Authorization", auth.clone()))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(
+        resp.status(),
+        404,
+        "COPY Depth: 0 must not copy collection descendants"
+    );
+}
+
+#[actix_web::test]
+async fn test_webdav_move_and_delete_reject_non_infinity_depth_headers() {
+    let app = setup_with_webdav!();
+    let (token, _) = register_and_login!(app);
+    let auth = create_webdav_basic_auth!(app, token);
+
+    let req = test::TestRequest::put()
+        .uri("/webdav/depth-move.txt")
+        .insert_header(("Authorization", auth.clone()))
+        .set_payload("move")
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert!(resp.status() == 201 || resp.status() == 204);
+
+    let req = test::TestRequest::with_uri("/webdav/depth-move.txt")
+        .method(actix_web::http::Method::from_bytes(b"MOVE").unwrap())
+        .insert_header(("Authorization", auth.clone()))
+        .insert_header(("Destination", "/webdav/depth-moved.txt"))
+        .insert_header(("Depth", "0"))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 400);
+
+    let req = test::TestRequest::delete()
+        .uri("/webdav/depth-move.txt")
+        .insert_header(("Authorization", auth.clone()))
+        .insert_header(("Depth", "0"))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 400);
+
+    let req = test::TestRequest::get()
+        .uri("/webdav/depth-move.txt")
+        .insert_header(("Authorization", auth.clone()))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+}
+
+#[actix_web::test]
 async fn test_webdav_move_overwrites_existing_destination() {
     let app = setup_with_webdav!();
     let (token, _) = register_and_login!(app);
@@ -2195,6 +2309,68 @@ async fn test_webdav_custom_property_roundtrip() {
 }
 
 #[actix_web::test]
+async fn test_webdav_custom_property_preserves_xml_subtree() {
+    let app = setup_with_webdav!();
+    let (token, _) = register_and_login!(app);
+    let auth = create_webdav_basic_auth!(app, token);
+
+    let req = test::TestRequest::put()
+        .uri("/webdav/props-xml.txt")
+        .insert_header(("Authorization", auth.clone()))
+        .set_payload("props")
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert!(resp.status() == 201 || resp.status() == 204);
+
+    let set_body = r#"<?xml version="1.0" encoding="utf-8" ?>
+<D:propertyupdate xmlns:D="DAV:" xmlns:A="urn:aster:" xmlns:B="urn:aster:child">
+  <D:set>
+    <D:prop>
+      <A:complex>
+        <B:item key="one">alpha</B:item>
+        <B:item key="two"><B:nested>beta</B:nested></B:item>
+      </A:complex>
+    </D:prop>
+  </D:set>
+</D:propertyupdate>"#;
+    let req = test::TestRequest::with_uri("/webdav/props-xml.txt")
+        .method(actix_web::http::Method::from_bytes(b"PROPPATCH").unwrap())
+        .insert_header(("Authorization", auth.clone()))
+        .insert_header(("Content-Type", "application/xml"))
+        .set_payload(set_body)
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 207);
+
+    let propfind_body = r#"<?xml version="1.0" encoding="utf-8" ?>
+<D:propfind xmlns:D="DAV:" xmlns:A="urn:aster:">
+  <D:prop>
+    <A:complex />
+  </D:prop>
+</D:propfind>"#;
+    let req = test::TestRequest::with_uri("/webdav/props-xml.txt")
+        .method(actix_web::http::Method::from_bytes(b"PROPFIND").unwrap())
+        .insert_header(("Authorization", auth.clone()))
+        .insert_header(("Depth", "0"))
+        .insert_header(("Content-Type", "application/xml"))
+        .set_payload(propfind_body)
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 207);
+    let body = test::read_body(resp).await;
+    let xml = String::from_utf8_lossy(&body);
+    assert!(
+        xml.contains("urn:aster:child")
+            && xml.contains("key=\"one\"")
+            && xml.contains("alpha")
+            && xml.contains("nested")
+            && xml.contains("beta"),
+        "complex dead property XML subtree should roundtrip: {xml}"
+    );
+    Element::parse(Cursor::new(xml.as_bytes())).expect("PROPFIND response XML should parse");
+}
+
+#[actix_web::test]
 async fn test_webdav_proppatch_rejects_dav_namespace_changes() {
     let app = setup_with_webdav!();
     let (token, _) = register_and_login!(app);
@@ -2553,7 +2729,7 @@ async fn test_webdav_lock_unlock() {
 }
 
 #[actix_web::test]
-async fn test_webdav_lock_missing_path_returns_not_found_instead_of_locked() {
+async fn test_webdav_lock_missing_file_creates_locked_empty_resource() {
     let app = setup_with_webdav!();
     let (token, _) = register_and_login!(app);
     let auth = create_webdav_basic_auth!(app, token);
@@ -2567,17 +2743,71 @@ async fn test_webdav_lock_missing_path_returns_not_found_instead_of_locked() {
 
     let req = test::TestRequest::with_uri("/webdav/missing-lock-target.txt")
         .method(actix_web::http::Method::from_bytes(b"LOCK").unwrap())
-        .insert_header(("Authorization", auth))
+        .insert_header(("Authorization", auth.clone()))
         .insert_header(("Content-Type", "application/xml"))
         .insert_header(("Timeout", "Second-3600"))
+        .insert_header(("Depth", "0"))
         .set_payload(lock_body)
         .to_request();
     let resp = test::call_service(&app, req).await;
     assert_eq!(
         resp.status(),
-        404,
-        "LOCK on a missing path should return 404 instead of 423"
+        201,
+        "LOCK on a missing file URL should create a locked empty resource"
     );
+    let lock_token = resp
+        .headers()
+        .get("Lock-Token")
+        .and_then(|value| value.to_str().ok())
+        .expect("LOCK response should include Lock-Token")
+        .to_string();
+
+    let req = test::TestRequest::get()
+        .uri("/webdav/missing-lock-target.txt")
+        .insert_header(("Authorization", auth.clone()))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+    let body = test::read_body(resp).await;
+    assert!(
+        body.is_empty(),
+        "locked empty resource should be zero bytes"
+    );
+
+    let req = test::TestRequest::put()
+        .uri("/webdav/missing-lock-target.txt")
+        .insert_header(("Authorization", auth.clone()))
+        .set_payload("blocked")
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(
+        resp.status(),
+        423,
+        "PUT without the lock token should not overwrite locked empty resource"
+    );
+
+    let submitted_lock_token = lock_token.trim_matches(|c| c == '<' || c == '>');
+    let req = test::TestRequest::put()
+        .uri("/webdav/missing-lock-target.txt")
+        .insert_header(("Authorization", auth.clone()))
+        .insert_header(("If", format!("(<{submitted_lock_token}>)")))
+        .set_payload("written after lock")
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert!(
+        resp.status() == 201 || resp.status() == 204,
+        "PUT with own lock token should overwrite locked empty resource, got {}",
+        resp.status()
+    );
+
+    let req = test::TestRequest::get()
+        .uri("/webdav/missing-lock-target.txt")
+        .insert_header(("Authorization", auth.clone()))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+    let body = test::read_body(resp).await;
+    assert_eq!(String::from_utf8_lossy(&body), "written after lock");
 }
 
 #[actix_web::test]

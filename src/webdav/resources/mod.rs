@@ -5,9 +5,10 @@ use actix_web::{HttpRequest, HttpResponse, web};
 use futures::StreamExt;
 
 use crate::webdav::dav::{DavFileSystem, DavLockSystem, DavPath, FsError};
+use crate::webdav::protocol::{self, Depth};
 use crate::webdav::{
-    decode_relative_path, decoded_path_string, ensure_system_file_name_allowed, ensure_unlocked,
-    fs, fs_error_response, href_for_relative, request_path, system_file,
+    decoded_path_string, ensure_system_file_name_allowed, ensure_unlocked, fs, fs_error_response,
+    href_for_relative, request_path, system_file,
 };
 
 pub(crate) async fn handle_mkcol(
@@ -59,6 +60,10 @@ pub(crate) async fn handle_delete(
     lock_system: &dyn DavLockSystem,
     prefix: &str,
 ) -> HttpResponse {
+    if let Err(resp) = protocol::parse_delete_depth(req.headers()) {
+        return resp;
+    }
+
     let (path, _) = match request_path(req, prefix) {
         Ok(v) => v,
         Err(resp) => return resp,
@@ -99,12 +104,24 @@ pub(crate) async fn handle_copy_move(
     system_file_policy: &system_file::SystemFileBlockPolicy,
     is_move: bool,
 ) -> HttpResponse {
+    let depth = if is_move {
+        match protocol::parse_move_depth(req.headers()) {
+            Ok(depth) => depth,
+            Err(resp) => return resp,
+        }
+    } else {
+        match protocol::parse_copy_depth(req.headers()) {
+            Ok(depth) => depth,
+            Err(resp) => return resp,
+        }
+    };
+
     let (source, source_relative) = match request_path(req, prefix) {
         Ok(v) => v,
         Err(resp) => return resp,
     };
 
-    let destination_relative = match destination_relative_path(req, prefix) {
+    let destination_relative = match protocol::destination_relative_path(req.headers(), prefix) {
         Ok(path) => path,
         Err(resp) => return resp,
     };
@@ -129,13 +146,19 @@ pub(crate) async fn handle_copy_move(
         return resp;
     }
 
+    let source_meta = match dav_fs.metadata(&source).await {
+        Ok(meta) => meta,
+        Err(err) => return fs_error_response(err),
+    };
     let destination_exists = dav_fs.metadata(&destination).await.is_ok();
-    if !overwrite_enabled(req.headers()) && destination_exists {
+    if !protocol::overwrite_enabled(req.headers()) && destination_exists {
         return HttpResponse::PreconditionFailed().finish();
     }
 
     let result = if is_move {
         dav_fs.rename(&source, &destination).await
+    } else if source_meta.is_dir() && depth == Depth::Zero {
+        dav_fs.copy_dir_shallow(&source, &destination).await
     } else {
         dav_fs.copy(&source, &destination).await
     };
@@ -185,35 +208,6 @@ async fn ensure_parent_exists(dav_fs: &fs::AsterDavFs, relative: &str) -> Result
     }
 }
 
-fn destination_relative_path(req: &HttpRequest, prefix: &str) -> Result<String, HttpResponse> {
-    let raw = req
-        .headers()
-        .get("Destination")
-        .and_then(|value| value.to_str().ok())
-        .ok_or_else(|| HttpResponse::BadRequest().body("Missing Destination header"))?;
-    let path = if raw.starts_with("http://") || raw.starts_with("https://") {
-        let uri: http::Uri = raw
-            .parse()
-            .map_err(|_| HttpResponse::BadRequest().body("Invalid Destination header"))?;
-        uri.path().to_string()
-    } else {
-        raw.to_string()
-    };
-    let relative = path
-        .strip_prefix(prefix)
-        .filter(|_| {
-            path == prefix
-                || path
-                    .as_bytes()
-                    .get(prefix.len())
-                    .is_some_and(|byte| *byte == b'/')
-        })
-        .ok_or_else(|| {
-            HttpResponse::BadRequest().body("Destination must stay under WebDAV prefix")
-        })?;
-    decode_relative_path(relative).map(|(_, relative)| relative)
-}
-
 fn parent_relative_path(relative: &str) -> Option<String> {
     if relative == "/" {
         return None;
@@ -227,13 +221,6 @@ fn parent_relative_path(relative: &str) -> Option<String> {
         return Some("/".to_string());
     }
     Some(format!("/{}/", segments[..segments.len() - 1].join("/")))
-}
-
-fn overwrite_enabled(headers: &header::HeaderMap) -> bool {
-    headers
-        .get("Overwrite")
-        .and_then(|value| value.to_str().ok())
-        .is_none_or(|value| !value.eq_ignore_ascii_case("F"))
 }
 
 #[cfg(test)]

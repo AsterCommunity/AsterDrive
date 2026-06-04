@@ -11,6 +11,7 @@ mod locks;
 pub mod metadata;
 pub mod path_resolver;
 mod props;
+mod protocol;
 mod resources;
 pub mod system_file;
 mod transfer;
@@ -220,7 +221,7 @@ async fn collect_xml_payload(
 fn handle_options() -> HttpResponse {
     HttpResponse::Ok()
         .insert_header((header::ALLOW, allow_header_value()))
-        .insert_header(("DAV", "1, 2, version-control"))
+        .insert_header(("DAV", "1, version-control"))
         .insert_header(("MS-Author-Via", "DAV"))
         .finish()
 }
@@ -243,7 +244,7 @@ pub(crate) async fn ensure_unlocked(
     deep: bool,
     headers: &header::HeaderMap,
 ) -> Result<(), HttpResponse> {
-    let tokens = locks::submitted_lock_tokens(headers);
+    let tokens = protocol::submitted_lock_tokens(headers);
     match lock_system.check(path, None, false, deep, &tokens).await {
         Ok(()) => Ok(()),
         Err(_) => Err(HttpResponse::Locked().finish()),
@@ -273,16 +274,6 @@ fn normalize_relative_path(path: &str) -> String {
         path.to_string()
     } else {
         format!("/{path}")
-    }
-}
-
-pub(crate) fn parse_propfind_depth(headers: &header::HeaderMap) -> Result<u8, HttpResponse> {
-    match headers.get("Depth").and_then(|value| value.to_str().ok()) {
-        Some("0") => Ok(0),
-        Some("1") => Ok(1),
-        Some("infinity") => Err(HttpResponse::NotImplemented().finish()),
-        Some(_) => Err(HttpResponse::BadRequest().finish()),
-        None => Ok(0),
     }
 }
 

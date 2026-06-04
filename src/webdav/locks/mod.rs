@@ -7,7 +7,8 @@ use actix_web::http::{StatusCode, header};
 use actix_web::{HttpRequest, HttpResponse};
 use xmltree::{Element, XMLNode};
 
-use crate::webdav::dav::{DavFileSystem, DavLock, DavLockSystem, FsError};
+use crate::webdav::dav::{DavFileSystem, DavLock, DavLockSystem, FsError, OpenOptions};
+use crate::webdav::protocol::{self, Depth};
 use crate::webdav::{
     XML_CONTENT_TYPE, child_elements, dav_element, encode_href, fs, fs_error_response,
     request_path, text_element, xml_bytes,
@@ -26,7 +27,7 @@ pub(crate) async fn handle_lock(
     };
 
     if body.is_empty() {
-        let tokens = submitted_lock_tokens(req.headers());
+        let tokens = protocol::submitted_lock_tokens(req.headers());
         if tokens.len() != 1 {
             return HttpResponse::BadRequest().finish();
         }
@@ -47,7 +48,7 @@ pub(crate) async fn handle_lock(
         return lock_response(lock, StatusCode::OK);
     }
 
-    let depth = match parse_lock_depth(req.headers()) {
+    let depth = match protocol::parse_lock_depth(req.headers()) {
         Ok(depth) => depth,
         Err(resp) => return resp,
     };
@@ -84,15 +85,10 @@ pub(crate) async fn handle_lock(
         return HttpResponse::BadRequest().finish();
     }
 
-    match dav_fs.metadata(&path).await {
-        Ok(_) => {}
-        Err(FsError::NotFound) => {
-            // 现有锁系统只能锁定已解析到数据库实体的资源；
-            // 对不存在路径直接返回 404，避免误报成 423 Locked。
-            return HttpResponse::NotFound().finish();
-        }
+    let resource_existed = match ensure_lock_target_exists(dav_fs, &path, depth).await {
+        Ok(resource_existed) => resource_existed,
         Err(err) => return fs_error_response(err),
-    }
+    };
 
     let lock = match lock_system
         .lock(
@@ -101,7 +97,7 @@ pub(crate) async fn handle_lock(
             owner.as_ref(),
             parse_timeout(req.headers()),
             shared.unwrap_or(false),
-            depth,
+            depth.is_infinity(),
         )
         .await
     {
@@ -109,7 +105,12 @@ pub(crate) async fn handle_lock(
         Err(_) => return HttpResponse::Locked().finish(),
     };
 
-    lock_response(lock, StatusCode::OK)
+    let status = if resource_existed {
+        StatusCode::OK
+    } else {
+        StatusCode::CREATED
+    };
+    lock_response(lock, status)
 }
 
 pub(crate) async fn handle_unlock(
@@ -136,14 +137,6 @@ pub(crate) async fn handle_unlock(
     }
 }
 
-fn parse_lock_depth(headers: &header::HeaderMap) -> Result<bool, HttpResponse> {
-    match headers.get("Depth").and_then(|value| value.to_str().ok()) {
-        None | Some("infinity") => Ok(true),
-        Some("0") => Ok(false),
-        Some(_) => Err(HttpResponse::BadRequest().finish()),
-    }
-}
-
 fn parse_timeout(headers: &header::HeaderMap) -> Option<Duration> {
     let raw = headers
         .get("Timeout")
@@ -156,36 +149,33 @@ fn parse_timeout(headers: &header::HeaderMap) -> Option<Duration> {
     Some(Duration::from_secs(seconds))
 }
 
-pub(crate) fn submitted_lock_tokens(headers: &header::HeaderMap) -> Vec<String> {
-    let mut tokens = Vec::new();
-
-    if let Some(token) = headers
-        .get("Lock-Token")
-        .and_then(|value| value.to_str().ok())
-        .map(|value| value.trim().trim_matches(|c| c == '<' || c == '>'))
-        .filter(|token| !token.is_empty())
-    {
-        tokens.push(token.to_string());
-    }
-
-    if let Some(if_header) = headers.get("If").and_then(|value| value.to_str().ok()) {
-        let mut rest = if_header;
-        while let Some(start) = rest.find('<') {
-            let next = &rest[start + 1..];
-            let Some(end) = next.find('>') else {
-                break;
-            };
-            let token = &next[..end];
-            if !token.is_empty() {
-                tokens.push(token.to_string());
-            }
-            rest = &next[end + 1..];
+async fn ensure_lock_target_exists(
+    dav_fs: &fs::AsterDavFs,
+    path: &crate::webdav::dav::DavPath,
+    depth: Depth,
+) -> Result<bool, FsError> {
+    let _ = depth;
+    match dav_fs.metadata(path).await {
+        Ok(_) => Ok(true),
+        Err(FsError::NotFound) if !path.is_collection() => {
+            let mut file = dav_fs
+                .open(
+                    path,
+                    OpenOptions {
+                        write: true,
+                        create: true,
+                        truncate: true,
+                        size: Some(0),
+                        ..OpenOptions::default()
+                    },
+                )
+                .await?;
+            file.flush().await?;
+            Ok(false)
         }
+        Err(FsError::NotFound) => Err(FsError::NotFound),
+        Err(err) => Err(err),
     }
-
-    tokens.sort();
-    tokens.dedup();
-    tokens
 }
 
 pub(crate) fn supportedlock_element() -> Element {
