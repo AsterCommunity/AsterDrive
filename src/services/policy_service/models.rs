@@ -107,10 +107,11 @@ impl From<storage_policy::Model> for StoragePolicy {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
-pub struct PolicyGroupUserMigrationResult {
+pub struct PolicyGroupAssignmentMigrationResult {
     pub source_group_id: i64,
     pub target_group_id: i64,
     pub affected_users: u64,
+    pub affected_teams: u64,
     pub migrated_assignments: u64,
 }
 

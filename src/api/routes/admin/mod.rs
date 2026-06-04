@@ -14,7 +14,7 @@ pub use crate::api::dto::admin::{
     AdminTaskListQuery, AdminTeamListQuery, AdminUserListQuery, CreateBlobMaintenanceTaskReq,
     CreatePolicyGroupReq, CreatePolicyReq, CreateRemoteNodeReq, CreateStoragePolicyMigrationReq,
     CreateUserReq, DeletePolicyQuery, DryRunStoragePolicyMigrationReq, ExecuteConfigActionReq,
-    ExecuteConfigActionResp, MigratePolicyGroupUsersReq, PatchPolicyGroupReq, PatchPolicyReq,
+    ExecuteConfigActionResp, MigratePolicyGroupAssignmentsReq, PatchPolicyGroupReq, PatchPolicyReq,
     PatchRemoteNodeReq, PatchUserReq, PolicyGroupItemReq, ResetUserPasswordReq, SetConfigReq,
     TestPolicyParamsReq, TestRemoteNodeParamsReq,
 };
@@ -52,7 +52,7 @@ pub use overview::get_overview;
 pub use policies::{
     create_policy, create_policy_group, delete_policy, delete_policy_group, get_policy,
     get_policy_capacity, get_policy_group, list_policies, list_policy_groups,
-    migrate_policy_group_users, test_policy_connection, test_policy_params, update_policy,
+    migrate_policy_group_assignments, test_policy_connection, test_policy_params, update_policy,
     update_policy_group,
 };
 pub use remote_nodes::{
@@ -175,8 +175,8 @@ pub fn routes(
                     .route("/policy-groups/{id}", web::patch().to(update_policy_group))
                     .route("/policy-groups/{id}", web::delete().to(delete_policy_group))
                     .route(
-                        "/policy-groups/{id}/migrate-users",
-                        web::post().to(migrate_policy_group_users),
+                        "/policy-groups/{id}/migrate-assignments",
+                        web::post().to(migrate_policy_group_assignments),
                     )
                     // users
                     .route("/users", web::get().to(list_users))

@@ -21,7 +21,7 @@
 	"audit_action_admin_update_team": "Admin updated team",
 	"audit_action_admin_update_user": "Admin updated user",
 	"audit_action_admin_delete_policy_group": "Admin deleted policy group",
-	"audit_action_admin_migrate_policy_group_users": "Admin migrated policy group users",
+	"audit_action_admin_migrate_policy_group_users": "Admin migrated policy group bindings",
 	"audit_action_admin_update_policy_group": "Admin updated policy group",
 	"audit_action_admin_create_policy": "Admin created storage policy",
 	"audit_action_admin_update_policy": "Admin updated storage policy",

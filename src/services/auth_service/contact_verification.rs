@@ -4,6 +4,7 @@ use chrono::Utc;
 use sea_orm::{ActiveModelTrait, IntoActiveModel, Set};
 
 use crate::config::branding;
+use crate::config::local_email_policy::LocalEmailPolicy;
 use crate::db::repository::{contact_verification_token_repo, user_repo};
 use crate::errors::{AsterError, MapAsterErr, Result};
 use crate::runtime::PrimaryAppState;
@@ -46,6 +47,7 @@ pub async fn request_email_change(
         ));
     }
 
+    LocalEmailPolicy::from_runtime_config(&state.runtime_config).check(&normalized_email)?;
     ensure_email_available(state.writer_db(), &normalized_email, Some(existing.id)).await?;
     if existing.pending_email.as_deref() == Some(normalized_email.as_str()) {
         ensure_resend_allowed(
@@ -110,6 +112,8 @@ pub async fn resend_email_change(
         ));
     }
 
+    LocalEmailPolicy::from_runtime_config(&state.runtime_config)
+        .check_not_blocked(&pending_email)?;
     ensure_email_available(state.writer_db(), &pending_email, Some(user.id)).await?;
     if !resend_allowed(
         state,

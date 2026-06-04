@@ -240,8 +240,8 @@ function PolicyGroupActions({
 							size="icon"
 							className={ADMIN_ICON_BUTTON_CLASS}
 							onClick={() => onOpenMigration(group)}
-							aria-label={t("migrate_policy_group_users")}
-							title={t("migrate_policy_group_users")}
+							aria-label={t("migrate_policy_group_assignments")}
+							title={t("migrate_policy_group_assignments")}
 							disabled={total <= 1 || isDeleting}
 						>
 							<Icon name="ArrowsClockwise" className="size-3.5" />

@@ -60,6 +60,8 @@ import type {
 
 const PUBLIC_SITE_URL_KEY = "public_site_url";
 const EMAIL_CODE_LOGIN_ENABLED_CONFIG_KEY = "auth_email_code_login_enabled";
+const AUTH_LOCAL_EMAIL_ALLOWLIST_KEY = "auth_local_email_allowlist";
+const AUTH_LOCAL_EMAIL_BLOCKLIST_KEY = "auth_local_email_blocklist";
 const CUSTOM_VISIBILITY_OPTIONS: SystemConfigVisibility[] = [
 	"private",
 	"public",
@@ -193,28 +195,39 @@ function StringArrayConfigControl({
 }) {
 	const { t, updateDraftValue } = useAdminSettingsCategoryContent();
 	const isPublicSiteUrl = config.key === PUBLIC_SITE_URL_KEY;
+	const isLocalEmailPolicy =
+		config.key === AUTH_LOCAL_EMAIL_ALLOWLIST_KEY ||
+		config.key === AUTH_LOCAL_EMAIL_BLOCKLIST_KEY;
 	const itemLabel = t(
-		isPublicSiteUrl
-			? "public_site_url_origin_label"
-			: "settings_string_array_item_label",
+		isLocalEmailPolicy
+			? "local_email_policy_item_label"
+			: isPublicSiteUrl
+				? "public_site_url_origin_label"
+				: "settings_string_array_item_label",
 	);
 	const addLabel = t(
-		isPublicSiteUrl
-			? "public_site_url_add_origin"
-			: "settings_string_array_add_item",
+		isLocalEmailPolicy
+			? "local_email_policy_add_item"
+			: isPublicSiteUrl
+				? "public_site_url_add_origin"
+				: "settings_string_array_add_item",
 	);
 	const addCurrentOriginLabel = t("public_site_url_add_current_origin");
 	const removeLabel = t(
-		isPublicSiteUrl
-			? "public_site_url_remove_origin"
-			: "settings_string_array_remove_item",
+		isLocalEmailPolicy
+			? "local_email_policy_remove_item"
+			: isPublicSiteUrl
+				? "public_site_url_remove_origin"
+				: "settings_string_array_remove_item",
 	);
 	const primaryLabel = isPublicSiteUrl
 		? t("public_site_url_primary_origin")
 		: null;
 	const placeholder = isPublicSiteUrl
 		? "https://drive.example.com"
-		: t("config_value");
+		: isLocalEmailPolicy
+			? t("local_email_policy_placeholder")
+			: t("config_value");
 	const rows = draftValue.length > 0 ? draftValue : [""];
 	const nextRowIdRef = useRef(0);
 	const rowIdsRef = useRef<string[]>([]);

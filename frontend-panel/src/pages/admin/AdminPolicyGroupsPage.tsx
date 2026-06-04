@@ -49,7 +49,7 @@ import {
 import { adminPolicyGroupService } from "@/services/adminService";
 import type { AdminPolicyGroupSortBy } from "@/types/adminSort";
 import type {
-	PolicyGroupUserMigrationResult,
+	PolicyGroupAssignmentMigrationResult,
 	StoragePolicyGroup,
 } from "@/types/api";
 
@@ -71,12 +71,14 @@ const DEFAULT_POLICY_GROUP_SORT_ORDER = "desc" as const satisfies SortOrder;
 
 function getMigrationSuccessMessage(
 	t: ReturnType<typeof useTranslation>["t"],
-	result: PolicyGroupUserMigrationResult,
+	result: PolicyGroupAssignmentMigrationResult,
 	sourceName: string,
 	targetName: string,
 ) {
 	return t("policy_group_migration_success", {
-		affected: result.affected_users,
+		users: result.affected_users,
+		teams: result.affected_teams,
+		total: result.migrated_assignments,
 		source: sourceName,
 		target: targetName,
 	});
@@ -528,7 +530,7 @@ export default function AdminPolicyGroupsPage() {
 		try {
 			setMigrationSubmitting(true);
 			setMigrationError(null);
-			const result = await adminPolicyGroupService.migrateUsers(
+			const result = await adminPolicyGroupService.migrateAssignments(
 				migrationSourceGroup.id,
 				{ target_group_id: targetGroupId },
 			);

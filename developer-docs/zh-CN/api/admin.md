@@ -253,7 +253,7 @@
 | `GET` | `/admin/policy-groups/{id}` | 读取策略组详情 |
 | `PATCH` | `/admin/policy-groups/{id}` | 更新策略组 |
 | `DELETE` | `/admin/policy-groups/{id}` | 删除策略组 |
-| `POST` | `/admin/policy-groups/{id}/migrate-users` | 把用户批量迁移到另一个策略组 |
+| `POST` | `/admin/policy-groups/{id}/migrate-assignments` | 迁移用户与团队的策略组绑定（仅更新 `policy_group_id`），响应统计分别返回受影响用户数、团队数与总绑定数 |
 
 创建示例：
 
@@ -286,7 +286,7 @@
 - 同一组里 `policy_id` 和 `priority` 都不能重复
 - `is_default = true` 的组必须保持启用
 - 已被用户或团队绑定的策略组不能直接删掉；被绑定时也不能随便禁用
-- `/migrate-users` 只迁移 `users.policy_group_id`，不会替你改团队绑定
+- `/migrate-assignments` 会同时迁移用户和团队的策略组绑定，仅更新各自的 `policy_group_id`；响应中的 `affected_users`、`affected_teams`、`migrated_assignments` 分别表示受影响用户数、团队数与总绑定数
 - `GET /admin/policy-groups` 支持 `limit`、`offset`、`sort_by`、`sort_order`
 
 迁移请求体很简单：

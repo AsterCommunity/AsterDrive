@@ -11,7 +11,9 @@ use std::io::Cursor;
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
 
-use aster_drive::db::repository::{audit_log_repo, background_task_repo, lock_repo, policy_repo};
+use aster_drive::db::repository::{
+    audit_log_repo, background_task_repo, lock_repo, policy_repo, team_repo, user_repo,
+};
 use aster_drive::entities::{
     audit_log, background_task, file, file_blob, file_version, resource_lock,
 };
@@ -287,6 +289,63 @@ async fn test_admin_scope_allows_admin_users() {
     assert_eq!(
         register_activation_toggle["description_i18n_key"],
         "settings_item_auth_register_activation_enabled_desc"
+    );
+
+    let passkey_login_toggle = body["data"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|item| item["key"] == "auth_passkey_login_enabled")
+        .unwrap();
+    assert_eq!(
+        passkey_login_toggle["label_i18n_key"],
+        "settings_item_auth_passkey_login_enabled_label"
+    );
+    assert_eq!(
+        passkey_login_toggle["description_i18n_key"],
+        "settings_item_auth_passkey_login_enabled_desc"
+    );
+    assert_eq!(
+        passkey_login_toggle["category"],
+        "user.registration_and_login"
+    );
+
+    let local_email_allowlist = body["data"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|item| item["key"] == "auth_local_email_allowlist")
+        .unwrap();
+    assert_eq!(
+        local_email_allowlist["label_i18n_key"],
+        "settings_item_auth_local_email_allowlist_label"
+    );
+    assert_eq!(
+        local_email_allowlist["description_i18n_key"],
+        "settings_item_auth_local_email_allowlist_desc"
+    );
+    assert_eq!(
+        local_email_allowlist["category"],
+        "user.registration_and_login"
+    );
+
+    let local_email_blocklist = body["data"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|item| item["key"] == "auth_local_email_blocklist")
+        .unwrap();
+    assert_eq!(
+        local_email_blocklist["label_i18n_key"],
+        "settings_item_auth_local_email_blocklist_label"
+    );
+    assert_eq!(
+        local_email_blocklist["description_i18n_key"],
+        "settings_item_auth_local_email_blocklist_desc"
+    );
+    assert_eq!(
+        local_email_blocklist["category"],
+        "user.registration_and_login"
     );
 
     let branding_title = body["data"]
@@ -1906,6 +1965,184 @@ async fn test_admin_policy_groups_support_explicit_sorting() {
     let groups = body["data"]["items"].as_array().unwrap();
     assert_eq!(groups[0]["name"], "Policy Group Sort Alpha");
     assert_eq!(groups[0]["is_enabled"], false);
+}
+
+#[actix_web::test]
+async fn test_admin_policy_group_migration_updates_users_and_teams() {
+    let state = common::setup().await;
+    let default_policy_id = policy_repo::find_default(state.writer_db())
+        .await
+        .unwrap()
+        .expect("default policy should exist")
+        .id;
+    let source_group = aster_drive::services::policy_service::create_group(
+        &state,
+        aster_drive::services::policy_service::CreateStoragePolicyGroupInput {
+            name: "Migration Source Group".to_string(),
+            description: Some("source assignments".to_string()),
+            is_enabled: true,
+            is_default: false,
+            items: vec![
+                aster_drive::services::policy_service::StoragePolicyGroupItemInput {
+                    policy_id: default_policy_id,
+                    priority: 1,
+                    min_file_size: 0,
+                    max_file_size: 0,
+                },
+            ],
+        },
+    )
+    .await
+    .expect("source policy group should be created");
+    let target_group = aster_drive::services::policy_service::create_group(
+        &state,
+        aster_drive::services::policy_service::CreateStoragePolicyGroupInput {
+            name: "Migration Target Group".to_string(),
+            description: Some("target assignments".to_string()),
+            is_enabled: true,
+            is_default: false,
+            items: vec![
+                aster_drive::services::policy_service::StoragePolicyGroupItemInput {
+                    policy_id: default_policy_id,
+                    priority: 1,
+                    min_file_size: 0,
+                    max_file_size: 0,
+                },
+            ],
+        },
+    )
+    .await
+    .expect("target policy group should be created");
+    let app = create_test_app!(state.clone());
+    let (admin_token, _) = register_and_login!(app);
+
+    let migrated_user_id = admin_create_user!(
+        app,
+        admin_token,
+        "pgmigrateduser",
+        "policy-group-migrated-user@example.com",
+        "password123"
+    );
+    let req = test::TestRequest::patch()
+        .uri(&format!("/api/v1/admin/users/{migrated_user_id}"))
+        .insert_header(("Cookie", common::access_cookie_header(&admin_token)))
+        .insert_header(common::csrf_header_for(&admin_token))
+        .set_json(serde_json::json!({
+            "policy_group_id": source_group.id
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+
+    admin_create_user!(
+        app,
+        admin_token,
+        "pgactiveadm",
+        "policy-group-active-team-admin@example.com",
+        "password123"
+    );
+    admin_create_user!(
+        app,
+        admin_token,
+        "pgarchadm",
+        "policy-group-archived-team-admin@example.com",
+        "password123"
+    );
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/admin/teams")
+        .insert_header(("Cookie", common::access_cookie_header(&admin_token)))
+        .insert_header(common::csrf_header_for(&admin_token))
+        .set_json(serde_json::json!({
+            "name": "Policy Group Active Team",
+            "description": "active team should migrate",
+            "admin_identifier": "pgactiveadm",
+            "storage_quota": 0,
+            "policy_group_id": source_group.id
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 201);
+    let body: Value = test::read_body_json(resp).await;
+    let active_team_id = body["data"]["id"].as_i64().unwrap();
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/admin/teams")
+        .insert_header(("Cookie", common::access_cookie_header(&admin_token)))
+        .insert_header(common::csrf_header_for(&admin_token))
+        .set_json(serde_json::json!({
+            "name": "Policy Group Archived Team",
+            "description": "archived team should still migrate",
+            "admin_identifier": "pgarchadm",
+            "storage_quota": 0,
+            "policy_group_id": source_group.id
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 201);
+    let body: Value = test::read_body_json(resp).await;
+    let archived_team_id = body["data"]["id"].as_i64().unwrap();
+
+    let req = test::TestRequest::delete()
+        .uri(&format!("/api/v1/admin/teams/{archived_team_id}"))
+        .insert_header(("Cookie", common::access_cookie_header(&admin_token)))
+        .insert_header(common::csrf_header_for(&admin_token))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+
+    let req = test::TestRequest::post()
+        .uri(&format!(
+            "/api/v1/admin/policy-groups/{}/migrate-assignments",
+            source_group.id
+        ))
+        .insert_header(("Cookie", common::access_cookie_header(&admin_token)))
+        .insert_header(common::csrf_header_for(&admin_token))
+        .set_json(serde_json::json!({
+            "target_group_id": target_group.id
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(body["code"], 0, "{body}");
+    assert_eq!(body["data"]["affected_users"], 1);
+    assert_eq!(body["data"]["affected_teams"], 2);
+    assert_eq!(body["data"]["migrated_assignments"], 3);
+
+    let req = test::TestRequest::post()
+        .uri(&format!(
+            "/api/v1/admin/policy-groups/{}/migrate-assignments",
+            source_group.id
+        ))
+        .insert_header(("Cookie", common::access_cookie_header(&admin_token)))
+        .insert_header(common::csrf_header_for(&admin_token))
+        .set_json(serde_json::json!({
+            "target_group_id": target_group.id
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(body["code"], 0, "{body}");
+    assert_eq!(body["data"]["affected_users"], 0);
+    assert_eq!(body["data"]["affected_teams"], 0);
+    assert_eq!(body["data"]["migrated_assignments"], 0);
+
+    let migrated_user = user_repo::find_by_id(state.writer_db(), migrated_user_id)
+        .await
+        .expect("migrated user should exist");
+    assert_eq!(migrated_user.policy_group_id, Some(target_group.id));
+    let active_team = team_repo::find_by_id(state.writer_db(), active_team_id)
+        .await
+        .expect("active team should exist");
+    assert_eq!(active_team.policy_group_id, Some(target_group.id));
+    assert!(active_team.archived_at.is_none());
+    let archived_team = team_repo::find_by_id(state.writer_db(), archived_team_id)
+        .await
+        .expect("archived team should exist");
+    assert_eq!(archived_team.policy_group_id, Some(target_group.id));
+    assert!(archived_team.archived_at.is_some());
 }
 
 #[actix_web::test]

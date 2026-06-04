@@ -29,6 +29,7 @@ pub struct ResendRegisterActivationReq {
 pub struct CheckResp {
     pub has_users: bool,
     pub allow_user_registration: bool,
+    pub passkey_login_enabled: bool,
 }
 
 /// Initial system setup (first admin account).

@@ -302,8 +302,8 @@ export type ResourceLockOwnerInfo =
 export type S3UploadStrategy = components["schemas"]["S3UploadStrategy"];
 export type StoragePolicyOptions =
 	components["schemas"]["StoragePolicyOptions"];
-export type MigratePolicyGroupUsersRequest =
-	components["schemas"]["MigratePolicyGroupUsersReq"];
+export type MigratePolicyGroupAssignmentsRequest =
+	components["schemas"]["MigratePolicyGroupAssignmentsReq"];
 export type PolicyGroupItemRequest =
 	components["schemas"]["PolicyGroupItemReq"];
 export type AdminPolicyGroupListQuery = OperationQuery<"list_policy_groups">;
@@ -349,8 +349,8 @@ export type StoragePolicyGroupItem =
 	components["schemas"]["StoragePolicyGroupItemInfo"];
 export type StoragePolicyGroup =
 	components["schemas"]["StoragePolicyGroupInfo"];
-export type PolicyGroupUserMigrationResult =
-	components["schemas"]["PolicyGroupUserMigrationResult"];
+export type PolicyGroupAssignmentMigrationResult =
+	components["schemas"]["PolicyGroupAssignmentMigrationResult"];
 export type StoragePolicyGroupPage =
 	components["schemas"]["OffsetPage_StoragePolicyGroupInfo"];
 export type AdminShareListQuery = OperationQuery<"list_all_shares">;

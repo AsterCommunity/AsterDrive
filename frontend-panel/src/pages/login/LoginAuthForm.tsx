@@ -88,6 +88,7 @@ interface LoginAuthFormProps {
 	externalAuthBusyProvider: string | null;
 	externalAuthLoading: boolean;
 	externalAuthProviders: ExternalAuthPublicProvider[];
+	passkeyLoginEnabled: boolean;
 	passkeySubmitting: boolean;
 	passkeySupported: boolean;
 	registrationClosed: boolean;
@@ -128,6 +129,7 @@ export function LoginAuthForm({
 	externalAuthBusyProvider,
 	externalAuthLoading,
 	externalAuthProviders,
+	passkeyLoginEnabled,
 	passkeySubmitting,
 	passkeySupported,
 	registrationClosed,
@@ -187,7 +189,11 @@ export function LoginAuthForm({
 					onChange={(event) => onIdentifierChange(event.target.value)}
 					required
 					autoFocus
-					autoComplete={mode === "login" ? "username webauthn" : "username"}
+					autoComplete={
+						mode === "login" && passkeyLoginEnabled
+							? "username webauthn"
+							: "username"
+					}
 					className={cn(
 						"h-10",
 						errors.identifier &&
@@ -288,25 +294,31 @@ export function LoginAuthForm({
 
 			{mode === "login" ? (
 				<div className="mt-3 space-y-2">
-					<Button
-						type="button"
-						variant="outline"
-						className="h-10 w-full"
-						disabled={checking || authMethodBusy || !passkeySupported}
-						onClick={onPasskeyLogin}
-					>
-						{passkeySubmitting ? (
-							<Icon name="Spinner" className="mr-2 size-4 animate-spin" />
-						) : (
-							<Icon name="Shield" className="mr-2 size-4" />
-						)}
-						{passkeySubmitting ? t("passkey_signing_in") : t("passkey_sign_in")}
-					</Button>
-					{passkeySupported ? null : (
-						<p className="text-center text-xs text-muted-foreground">
-							{t("passkey_unsupported")}
-						</p>
-					)}
+					{passkeyLoginEnabled ? (
+						<>
+							<Button
+								type="button"
+								variant="outline"
+								className="h-10 w-full"
+								disabled={checking || authMethodBusy || !passkeySupported}
+								onClick={onPasskeyLogin}
+							>
+								{passkeySubmitting ? (
+									<Icon name="Spinner" className="mr-2 size-4 animate-spin" />
+								) : (
+									<Icon name="Shield" className="mr-2 size-4" />
+								)}
+								{passkeySubmitting
+									? t("passkey_signing_in")
+									: t("passkey_sign_in")}
+							</Button>
+							{passkeySupported ? null : (
+								<p className="text-center text-xs text-muted-foreground">
+									{t("passkey_unsupported")}
+								</p>
+							)}
+						</>
+					) : null}
 					{externalAuthLoading ? (
 						<div className="flex h-10 items-center justify-center rounded-md border border-dashed text-sm text-muted-foreground">
 							<Icon name="Spinner" className="mr-2 size-4 animate-spin" />

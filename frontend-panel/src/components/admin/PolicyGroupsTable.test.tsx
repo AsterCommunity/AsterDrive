@@ -334,7 +334,7 @@ describe("PolicyGroupsTable", () => {
 		});
 		fireEvent.click(
 			screen.getAllByRole("button", {
-				name: "migrate_policy_group_users",
+				name: "migrate_policy_group_assignments",
 			})[0],
 		);
 		fireEvent.click(
@@ -371,7 +371,7 @@ describe("PolicyGroupsTable", () => {
 		);
 
 		const migrationButton = screen.getByRole("button", {
-			name: "migrate_policy_group_users",
+			name: "migrate_policy_group_assignments",
 		});
 		const deleteButton = screen.getByRole("button", {
 			name: "delete_policy_group",

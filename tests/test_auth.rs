@@ -23,6 +23,7 @@ use webauthn_rs_proto::{AllowCredentials, Mediation, ResidentKeyRequirement};
 
 const TEST_BROWSER_ORIGIN: &str = "http://localhost:8080";
 const TEST_PUBLIC_SITE_ORIGIN: &str = "https://pan.esaps.net";
+const ONE_SECOND_WINDOW_ELAPSED: Duration = Duration::from_millis(1100);
 
 struct RefreshHookGuard {
     _hook: auth_service::test_support::RefreshRotationTestHook,
@@ -247,6 +248,23 @@ fn configure_passkey_public_site_url(state: &aster_drive::runtime::PrimaryAppSta
     state.runtime_config.apply(common::system_config_model(
         aster_drive::config::site_url::PUBLIC_SITE_URL_KEY,
         r#"["http://localhost:8080"]"#,
+    ));
+}
+
+fn configure_local_email_policy(
+    state: &aster_drive::runtime::PrimaryAppState,
+    allowlist: &[&str],
+    blocklist: &[&str],
+) {
+    let allowlist = serde_json::to_string(allowlist).expect("allowlist should serialize");
+    let blocklist = serde_json::to_string(blocklist).expect("blocklist should serialize");
+    state.runtime_config.apply(common::system_config_model(
+        aster_drive::config::local_email_policy::AUTH_LOCAL_EMAIL_ALLOWLIST_KEY,
+        &allowlist,
+    ));
+    state.runtime_config.apply(common::system_config_model(
+        aster_drive::config::local_email_policy::AUTH_LOCAL_EMAIL_BLOCKLIST_KEY,
+        &blocklist,
     ));
 }
 
@@ -1421,6 +1439,10 @@ async fn test_check_reports_public_registration_flag() {
         aster_drive::config::auth_runtime::AUTH_ALLOW_USER_REGISTRATION_KEY,
         "false",
     ));
+    state.runtime_config.apply(common::system_config_model(
+        aster_drive::config::auth_runtime::AUTH_PASSKEY_LOGIN_ENABLED_KEY,
+        "false",
+    ));
     let app = create_test_app!(state);
 
     let req = test::TestRequest::post()
@@ -1444,6 +1466,7 @@ async fn test_check_reports_public_registration_flag() {
     let body: Value = test::read_body_json(resp).await;
     assert_eq!(body["data"]["has_users"], true);
     assert_eq!(body["data"]["allow_user_registration"], false);
+    assert_eq!(body["data"]["passkey_login_enabled"], false);
 }
 
 #[actix_web::test]
@@ -1482,6 +1505,312 @@ async fn test_register_is_blocked_when_public_registration_is_disabled() {
     assert_eq!(body["msg"], "new user registration is disabled");
     assert_eq!(body["error"]["code"], "auth.registration_disabled");
     assert_eq!(body["error"]["internal_code"], "E013");
+}
+
+#[actix_web::test]
+async fn test_local_email_policy_allows_registration_when_lists_are_empty() {
+    let state = common::setup().await;
+    configure_local_email_policy(&state, &[], &[]);
+    let app = create_test_app!(state);
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/auth/setup")
+        .peer_addr("127.0.0.1:12345".parse().unwrap())
+        .set_json(serde_json::json!({
+            "username": "adminuser",
+            "email": "admin@example.com",
+            "password": "secret123"
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 201);
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/auth/register")
+        .peer_addr("127.0.0.1:12345".parse().unwrap())
+        .set_json(serde_json::json!({
+            "username": "openuser",
+            "email": "open@anywhere.test",
+            "password": "password123"
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 201);
+}
+
+#[actix_web::test]
+async fn test_local_email_policy_allows_registration_by_exact_domain_allowlist() {
+    let state = common::setup().await;
+    configure_local_email_policy(&state, &["example.com"], &[]);
+    let app = create_test_app!(state);
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/auth/setup")
+        .peer_addr("127.0.0.1:12345".parse().unwrap())
+        .set_json(serde_json::json!({
+            "username": "adminuser",
+            "email": "admin@outside.test",
+            "password": "secret123"
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 201);
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/auth/register")
+        .peer_addr("127.0.0.1:12345".parse().unwrap())
+        .set_json(serde_json::json!({
+            "username": "aliceuser",
+            "email": "Alice@Example.COM",
+            "password": "password123"
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 201);
+}
+
+#[actix_web::test]
+async fn test_local_email_policy_rejects_registration_outside_allowlist() {
+    let state = common::setup().await;
+    configure_local_email_policy(&state, &["example.com"], &[]);
+    let app = create_test_app!(state);
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/auth/setup")
+        .peer_addr("127.0.0.1:12345".parse().unwrap())
+        .set_json(serde_json::json!({
+            "username": "adminuser",
+            "email": "admin@outside.test",
+            "password": "secret123"
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 201);
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/auth/register")
+        .peer_addr("127.0.0.1:12345".parse().unwrap())
+        .set_json(serde_json::json!({
+            "username": "bobuser",
+            "email": "bob@other.test",
+            "password": "password123"
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 400);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(
+        body["msg"],
+        "email address is not allowed by local account policy"
+    );
+    assert_eq!(body["error"]["code"], "auth.email_not_allowlisted");
+    assert_eq!(body["error"]["subcode"], "auth.email_not_allowlisted");
+}
+
+#[actix_web::test]
+async fn test_local_email_policy_allows_registration_by_full_email_allowlist_only() {
+    let state = common::setup().await;
+    configure_local_email_policy(&state, &["alice@example.com"], &[]);
+    let app = create_test_app!(state);
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/auth/setup")
+        .peer_addr("127.0.0.1:12345".parse().unwrap())
+        .set_json(serde_json::json!({
+            "username": "adminuser",
+            "email": "admin@outside.test",
+            "password": "secret123"
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 201);
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/auth/register")
+        .peer_addr("127.0.0.1:12345".parse().unwrap())
+        .set_json(serde_json::json!({
+            "username": "aliceuser",
+            "email": "ALICE@example.com",
+            "password": "password123"
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 201);
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/auth/register")
+        .peer_addr("127.0.0.1:12345".parse().unwrap())
+        .set_json(serde_json::json!({
+            "username": "bobuser",
+            "email": "bob@example.com",
+            "password": "password123"
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 400);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(body["error"]["code"], "auth.email_not_allowlisted");
+}
+
+#[actix_web::test]
+async fn test_local_email_policy_blocks_registration_by_domain_and_email() {
+    let state = common::setup().await;
+    configure_local_email_policy(&state, &[], &["tempmail.test", "blocked@example.com"]);
+    let app = create_test_app!(state);
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/auth/setup")
+        .peer_addr("127.0.0.1:12345".parse().unwrap())
+        .set_json(serde_json::json!({
+            "username": "adminuser",
+            "email": "admin@example.com",
+            "password": "secret123"
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 201);
+
+    for (username, email) in [
+        ("tempuser", "user@tempmail.test"),
+        ("blockeduser", "BLOCKED@example.com"),
+    ] {
+        let req = test::TestRequest::post()
+            .uri("/api/v1/auth/register")
+            .peer_addr("127.0.0.1:12345".parse().unwrap())
+            .set_json(serde_json::json!({
+                "username": username,
+                "email": email,
+                "password": "password123"
+            }))
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(resp.status(), 400);
+        let body: Value = test::read_body_json(resp).await;
+        assert_eq!(
+            body["msg"],
+            "email address is blocked by local account policy"
+        );
+        assert_eq!(body["error"]["code"], "auth.email_blocked");
+        assert_eq!(body["error"]["subcode"], "auth.email_blocked");
+    }
+}
+
+#[actix_web::test]
+async fn test_local_email_policy_blocklist_wins_over_allowlist() {
+    let state = common::setup().await;
+    configure_local_email_policy(&state, &["example.com"], &["blocked@example.com"]);
+    let app = create_test_app!(state);
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/auth/setup")
+        .peer_addr("127.0.0.1:12345".parse().unwrap())
+        .set_json(serde_json::json!({
+            "username": "adminuser",
+            "email": "admin@outside.test",
+            "password": "secret123"
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 201);
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/auth/register")
+        .peer_addr("127.0.0.1:12345".parse().unwrap())
+        .set_json(serde_json::json!({
+            "username": "aliceuser",
+            "email": "alice@example.com",
+            "password": "password123"
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 201);
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/auth/register")
+        .peer_addr("127.0.0.1:12345".parse().unwrap())
+        .set_json(serde_json::json!({
+            "username": "blockeduser",
+            "email": "blocked@example.com",
+            "password": "password123"
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 400);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(body["error"]["code"], "auth.email_blocked");
+}
+
+#[actix_web::test]
+async fn test_local_email_policy_does_not_match_subdomains_for_registration() {
+    let state = common::setup().await;
+    configure_local_email_policy(&state, &["example.com"], &[]);
+    let app = create_test_app!(state);
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/auth/setup")
+        .peer_addr("127.0.0.1:12345".parse().unwrap())
+        .set_json(serde_json::json!({
+            "username": "adminuser",
+            "email": "admin@outside.test",
+            "password": "secret123"
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 201);
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/auth/register")
+        .peer_addr("127.0.0.1:12345".parse().unwrap())
+        .set_json(serde_json::json!({
+            "username": "subuser",
+            "email": "user@sub.example.com",
+            "password": "password123"
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 400);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(body["error"]["code"], "auth.email_not_allowlisted");
+}
+
+#[actix_web::test]
+async fn test_setup_bypasses_local_email_policy() {
+    let state = common::setup().await;
+    configure_local_email_policy(&state, &["example.com"], &["blocked.test"]);
+    let app = create_test_app!(state);
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/auth/setup")
+        .peer_addr("127.0.0.1:12345".parse().unwrap())
+        .set_json(serde_json::json!({
+            "username": "adminuser",
+            "email": "admin@blocked.test",
+            "password": "secret123"
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 201);
+}
+
+#[actix_web::test]
+async fn test_admin_create_user_bypasses_local_email_policy() {
+    let state = common::setup().await;
+    configure_local_email_policy(&state, &["example.com"], &["blocked.test"]);
+    let app = create_test_app!(state.clone());
+
+    let (admin_token, _refresh) = register_and_login!(app);
+    let user_id = admin_create_user_with_credentials!(
+        app,
+        admin_token,
+        "manageduser",
+        "managed@blocked.test",
+        "password123"
+    );
+
+    let user = user_repo::find_by_id(state.writer_db(), user_id)
+        .await
+        .expect("user lookup should succeed");
+    assert_eq!(user.email, "managed@blocked.test");
 }
 
 #[actix_web::test]
@@ -1629,6 +1958,58 @@ async fn test_register_resend_is_generic_for_unknown_identifier_and_cooldown() {
 }
 
 #[actix_web::test]
+async fn test_register_activation_resend_ignores_allowlist_but_rejects_blocklist() {
+    let state = common::setup().await;
+    let db = state.writer_db().clone();
+    let mail_sender = state.mail_sender.clone();
+    let runtime_config = state.runtime_config.clone();
+    state.runtime_config.apply(common::system_config_model(
+        aster_drive::config::auth_runtime::AUTH_CONTACT_VERIFICATION_RESEND_COOLDOWN_SECS_KEY,
+        "1",
+    ));
+    let app = create_test_app!(state.clone());
+
+    let _ = register_and_login!(app);
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/auth/register")
+        .peer_addr("127.0.0.1:12345".parse().unwrap())
+        .set_json(serde_json::json!({
+            "username": "pendinguser",
+            "email": "pendinguser@example.com",
+            "password": "password123"
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 201);
+    common::flush_mail_outbox_with(&db, &runtime_config, &mail_sender).await;
+
+    tokio::time::sleep(ONE_SECOND_WINDOW_ELAPSED).await;
+    configure_local_email_policy(&state, &["other.test"], &[]);
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/auth/register/resend")
+        .peer_addr("127.0.0.1:12345".parse().unwrap())
+        .set_json(serde_json::json!({ "identifier": "pendinguser" }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+
+    tokio::time::sleep(ONE_SECOND_WINDOW_ELAPSED).await;
+    configure_local_email_policy(&state, &["other.test"], &["pendinguser@example.com"]);
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/auth/register/resend")
+        .peer_addr("127.0.0.1:12345".parse().unwrap())
+        .set_json(serde_json::json!({ "identifier": "pendinguser" }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 400);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(body["error"]["code"], "auth.email_blocked");
+}
+
+#[actix_web::test]
 async fn test_email_change_confirmation_redirects_and_notifies_previous_email() {
     let state = common::setup().await;
     let db = state.writer_db().clone();
@@ -1693,6 +2074,103 @@ async fn test_email_change_confirmation_redirects_and_notifies_previous_email() 
             .text_body
             .contains("updated@example.com")
     );
+}
+
+#[actix_web::test]
+async fn test_local_email_policy_applies_to_email_change_request() {
+    let state = common::setup().await;
+    configure_local_email_policy(&state, &["example.com"], &["blocked@example.com"]);
+    let app = create_test_app!(state);
+
+    let (access, _refresh) = register_and_login!(app);
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/auth/email/change")
+        .insert_header(("Cookie", common::access_cookie_header(&access)))
+        .insert_header(common::csrf_header_for(&access))
+        .set_json(serde_json::json!({
+            "new_email": "updated@example.com"
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/auth/email/change")
+        .insert_header(("Cookie", common::access_cookie_header(&access)))
+        .insert_header(common::csrf_header_for(&access))
+        .set_json(serde_json::json!({
+            "new_email": "blocked@example.com"
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 400);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(body["error"]["code"], "auth.email_blocked");
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/auth/email/change")
+        .insert_header(("Cookie", common::access_cookie_header(&access)))
+        .insert_header(common::csrf_header_for(&access))
+        .set_json(serde_json::json!({
+            "new_email": "updated@other.test"
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 400);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(body["error"]["code"], "auth.email_not_allowlisted");
+}
+
+#[actix_web::test]
+async fn test_email_change_resend_ignores_allowlist_but_rejects_blocklist() {
+    let state = common::setup().await;
+    let db = state.writer_db().clone();
+    let mail_sender = state.mail_sender.clone();
+    let runtime_config = state.runtime_config.clone();
+    let app = create_test_app!(state.clone());
+
+    let (access, _refresh) = register_and_login!(app);
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/auth/email/change")
+        .insert_header(("Cookie", common::access_cookie_header(&access)))
+        .insert_header(common::csrf_header_for(&access))
+        .set_json(serde_json::json!({
+            "new_email": "pending@example.com"
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+    common::flush_mail_outbox_with(&db, &runtime_config, &mail_sender).await;
+
+    state.runtime_config.apply(common::system_config_model(
+        aster_drive::config::auth_runtime::AUTH_CONTACT_VERIFICATION_RESEND_COOLDOWN_SECS_KEY,
+        "1",
+    ));
+    tokio::time::sleep(ONE_SECOND_WINDOW_ELAPSED).await;
+    configure_local_email_policy(&state, &["other.test"], &[]);
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/auth/email/change/resend")
+        .insert_header(("Cookie", common::access_cookie_header(&access)))
+        .insert_header(common::csrf_header_for(&access))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+
+    configure_local_email_policy(&state, &["other.test"], &["pending@example.com"]);
+    tokio::time::sleep(ONE_SECOND_WINDOW_ELAPSED).await;
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/auth/email/change/resend")
+        .insert_header(("Cookie", common::access_cookie_header(&access)))
+        .insert_header(common::csrf_header_for(&access))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 400);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(body["error"]["code"], "auth.email_blocked");
 }
 
 #[actix_web::test]
@@ -2768,7 +3246,7 @@ async fn test_auth_sessions_list_and_revoke_specific_device() {
         .jti
         .clone()
         .expect("current refresh token should carry jti");
-    tokio::time::sleep(Duration::from_secs(1)).await;
+    tokio::time::sleep(ONE_SECOND_WINDOW_ELAPSED).await;
 
     let req = test::TestRequest::post()
         .uri("/api/v1/auth/login")
@@ -2877,9 +3355,9 @@ async fn test_auth_sessions_can_revoke_other_devices() {
         .jti
         .clone()
         .expect("current refresh token should carry jti");
-    tokio::time::sleep(Duration::from_secs(1)).await;
+    tokio::time::sleep(ONE_SECOND_WINDOW_ELAPSED).await;
     let (_, refresh_b) = login_user_with_auth_cookies!(app, "testuser", "password123");
-    tokio::time::sleep(Duration::from_secs(1)).await;
+    tokio::time::sleep(ONE_SECOND_WINDOW_ELAPSED).await;
     let (_, refresh_c) = login_user_with_auth_cookies!(app, "testuser", "password123");
 
     let req = test::TestRequest::delete()
@@ -4043,6 +4521,112 @@ async fn test_passkey_login_without_identifier() {
     assert!(common::extract_cookie(&resp, "aster_access").is_some());
     let body: Value = test::read_body_json(resp).await;
     assert_eq!(body["code"], 0);
+}
+
+#[actix_web::test]
+async fn test_passkey_login_policy_disables_start_and_finish_without_deleting_credentials() {
+    let state = common::setup_with_memory_cache().await;
+    configure_passkey_public_site_url(&state);
+    let app = create_test_app!(state.clone());
+    let (access, _) = register_and_login!(app);
+
+    let (mut softpasskey, passkey) = register_test_passkey(&app, &access, "Laptop").await;
+    let user_id = testuser_id(state.writer_db()).await;
+    let passkey_id = passkey["id"].as_i64().unwrap();
+    let stored_passkey = passkey_repo::find_by_id_for_user(state.writer_db(), passkey_id, user_id)
+        .await
+        .unwrap()
+        .expect("registered passkey should remain stored");
+
+    let (flow_id, challenge) = passkey_login_start(&app, Some("testuser")).await;
+    let (challenge, user_handle) = allow_test_passkey_credential(challenge, &stored_passkey);
+    let mut credential = softpasskey
+        .do_authentication(Url::parse(TEST_BROWSER_ORIGIN).unwrap(), challenge)
+        .expect("soft passkey authentication should succeed");
+    credential.response.user_handle = Some(user_handle.as_bytes().to_vec());
+    let credential = serde_json::to_value(credential).expect("credential should serialize");
+
+    state.runtime_config.apply(common::system_config_model(
+        aster_drive::config::auth_runtime::AUTH_PASSKEY_LOGIN_ENABLED_KEY,
+        "false",
+    ));
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/auth/passkeys/login/start")
+        .insert_header(("Origin", TEST_BROWSER_ORIGIN))
+        .peer_addr("127.0.0.1:12345".parse().unwrap())
+        .set_json(serde_json::json!({ "identifier": "testuser" }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 403);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(body["code"], 2003);
+    assert_eq!(
+        body["msg"],
+        "passkey login is disabled by administrator policy"
+    );
+    assert_eq!(body["error"]["code"], "auth.passkey_login_disabled");
+    assert_eq!(body["error"]["subcode"], "auth.passkey_login_disabled");
+
+    let resp = passkey_login_finish(&app, &flow_id, credential).await;
+    assert_eq!(resp.status(), 403);
+    assert!(common::extract_cookie(&resp, "aster_access").is_none());
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(body["error"]["code"], "auth.passkey_login_disabled");
+
+    let stored_after_disable =
+        passkey_repo::find_by_id_for_user(state.writer_db(), passkey_id, user_id)
+            .await
+            .unwrap();
+    assert!(
+        stored_after_disable.is_some(),
+        "disabling passkey login must not delete registered credentials"
+    );
+}
+
+#[actix_web::test]
+async fn test_passkey_login_policy_hot_update_reenables_login() {
+    let state = common::setup_with_memory_cache().await;
+    configure_passkey_public_site_url(&state);
+    let app = create_test_app!(state.clone());
+    let (access, _) = register_and_login!(app);
+
+    let (mut softpasskey, passkey) = register_test_passkey(&app, &access, "Laptop").await;
+    let user_id = testuser_id(state.writer_db()).await;
+    let passkey_id = passkey["id"].as_i64().unwrap();
+    let stored_passkey = passkey_repo::find_by_id_for_user(state.writer_db(), passkey_id, user_id)
+        .await
+        .unwrap()
+        .expect("registered passkey should remain stored");
+
+    state.runtime_config.apply(common::system_config_model(
+        aster_drive::config::auth_runtime::AUTH_PASSKEY_LOGIN_ENABLED_KEY,
+        "false",
+    ));
+    let req = test::TestRequest::post()
+        .uri("/api/v1/auth/passkeys/login/start")
+        .insert_header(("Origin", TEST_BROWSER_ORIGIN))
+        .peer_addr("127.0.0.1:12345".parse().unwrap())
+        .set_json(serde_json::json!({ "conditional": true }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 403);
+
+    state.runtime_config.apply(common::system_config_model(
+        aster_drive::config::auth_runtime::AUTH_PASSKEY_LOGIN_ENABLED_KEY,
+        "true",
+    ));
+    let (flow_id, challenge) = passkey_login_start(&app, Some("testuser")).await;
+    let (challenge, user_handle) = allow_test_passkey_credential(challenge, &stored_passkey);
+    let mut credential = softpasskey
+        .do_authentication(Url::parse(TEST_BROWSER_ORIGIN).unwrap(), challenge)
+        .expect("soft passkey authentication should succeed");
+    credential.response.user_handle = Some(user_handle.as_bytes().to_vec());
+    let credential = serde_json::to_value(credential).expect("credential should serialize");
+
+    let resp = passkey_login_finish(&app, &flow_id, credential).await;
+    assert_eq!(resp.status(), 200);
+    assert!(common::extract_cookie(&resp, "aster_access").is_some());
 }
 
 #[actix_web::test]

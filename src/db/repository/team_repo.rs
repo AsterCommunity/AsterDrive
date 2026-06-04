@@ -259,6 +259,27 @@ pub async fn count_active_by_policy_group<C: ConnectionTrait>(
         .map_err(AsterError::from)
 }
 
+pub async fn migrate_policy_group_assignments<C: ConnectionTrait>(
+    db: &C,
+    source_group_id: i64,
+    target_group_id: i64,
+    now: chrono::DateTime<chrono::Utc>,
+) -> Result<u64> {
+    // Include archived teams as well: they can later be restored, and restoring
+    // a team should not resurrect an obsolete or deleted policy group binding.
+    let result = Team::update_many()
+        .col_expr(
+            team::Column::PolicyGroupId,
+            Expr::value(Some(target_group_id)),
+        )
+        .col_expr(team::Column::UpdatedAt, Expr::value(now))
+        .filter(team::Column::PolicyGroupId.eq(source_group_id))
+        .exec(db)
+        .await
+        .map_err(AsterError::from)?;
+    Ok(result.rows_affected)
+}
+
 pub async fn check_quota<C: ConnectionTrait>(db: &C, team_id: i64, needed_size: i64) -> Result<()> {
     let team = find_active_by_id(db, team_id).await?;
     let projected_storage_used = team.storage_used.checked_add(needed_size).ok_or_else(|| {

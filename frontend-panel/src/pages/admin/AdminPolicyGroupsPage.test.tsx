@@ -14,7 +14,7 @@ const mockState = vi.hoisted(() => ({
 	handleApiError: vi.fn(),
 	listGroups: vi.fn(),
 	listPolicies: vi.fn(),
-	migrateUsers: vi.fn(),
+	migrateAssignments: vi.fn(),
 	policies: [] as Array<Record<string, unknown>>,
 	searchParams: "",
 	setSearchParams: vi.fn(),
@@ -492,7 +492,8 @@ vi.mock("@/services/adminService", () => ({
 
 			return allGroups;
 		},
-		migrateUsers: (...args: unknown[]) => mockState.migrateUsers(...args),
+		migrateAssignments: (...args: unknown[]) =>
+			mockState.migrateAssignments(...args),
 		update: (...args: unknown[]) => mockState.updateGroup(...args),
 	},
 	adminPolicyService: {
@@ -552,7 +553,7 @@ describe("AdminPolicyGroupsPage", () => {
 		mockState.handleApiError.mockReset();
 		mockState.listGroups.mockReset();
 		mockState.listPolicies.mockReset();
-		mockState.migrateUsers.mockReset();
+		mockState.migrateAssignments.mockReset();
 		mockState.policies = [createPolicy()];
 		mockState.searchParams = "";
 		mockState.setSearchParams.mockReset();
@@ -585,7 +586,8 @@ describe("AdminPolicyGroupsPage", () => {
 				};
 			},
 		);
-		mockState.migrateUsers.mockResolvedValue({
+		mockState.migrateAssignments.mockResolvedValue({
+			affected_teams: 1,
 			affected_users: 2,
 			migrated_assignments: 3,
 			source_group_id: 1,
@@ -740,7 +742,7 @@ describe("AdminPolicyGroupsPage", () => {
 		render(<AdminPolicyGroupsPage />);
 
 		const migrateButtons = await screen.findAllByRole("button", {
-			name: "migrate_policy_group_users",
+			name: "migrate_policy_group_assignments",
 		});
 		fireEvent.click(migrateButtons[0]);
 
@@ -755,7 +757,7 @@ describe("AdminPolicyGroupsPage", () => {
 		);
 
 		await waitFor(() => {
-			expect(mockState.migrateUsers).toHaveBeenCalledWith(1, {
+			expect(mockState.migrateAssignments).toHaveBeenCalledWith(1, {
 				target_group_id: 2,
 			});
 		});
@@ -776,7 +778,7 @@ describe("AdminPolicyGroupsPage", () => {
 		render(<AdminPolicyGroupsPage />);
 
 		const migrateButton = await screen.findByRole("button", {
-			name: "migrate_policy_group_users",
+			name: "migrate_policy_group_assignments",
 		});
 		expect(migrateButton).not.toBeDisabled();
 
@@ -796,7 +798,7 @@ describe("AdminPolicyGroupsPage", () => {
 		);
 
 		await waitFor(() => {
-			expect(mockState.migrateUsers).toHaveBeenCalledWith(21, {
+			expect(mockState.migrateAssignments).toHaveBeenCalledWith(21, {
 				target_group_id: 1,
 			});
 		});
@@ -808,7 +810,7 @@ describe("AdminPolicyGroupsPage", () => {
 		render(<AdminPolicyGroupsPage />);
 
 		const migrateButton = await screen.findByRole("button", {
-			name: "migrate_policy_group_users",
+			name: "migrate_policy_group_assignments",
 		});
 
 		expect(migrateButton).toBeDisabled();

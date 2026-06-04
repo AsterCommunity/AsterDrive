@@ -237,10 +237,10 @@ pub struct PatchPolicyGroupReq {
     pub items: Option<Vec<PolicyGroupItemReq>>,
 }
 
-/// Migrate all users from one policy group to another.
+/// Migrate all user and team assignments from one policy group to another.
 #[derive(Clone, Deserialize, Validate)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
-pub struct MigratePolicyGroupUsersReq {
+pub struct MigratePolicyGroupAssignmentsReq {
     #[validate(range(min = 1, message = "target_group_id must be greater than 0"))]
     pub target_group_id: i64,
 }

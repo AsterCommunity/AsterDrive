@@ -12,10 +12,10 @@ use crate::types::DriverType;
 
 pub use groups::{
     create_group, delete_group, ensure_policy_groups_seeded, get_group, list_groups_paginated,
-    migrate_group_users, update_group,
+    migrate_group_assignments, update_group,
 };
 pub use models::{
-    CreateStoragePolicyGroupInput, CreateStoragePolicyInput, PolicyGroupUserMigrationResult,
+    CreateStoragePolicyGroupInput, CreateStoragePolicyInput, PolicyGroupAssignmentMigrationResult,
     StoragePolicy, StoragePolicyCapacityInfo, StoragePolicyConnectionInput, StoragePolicyGroupInfo,
     StoragePolicyGroupItemInfo, StoragePolicyGroupItemInput, StoragePolicySummaryInfo,
     UpdateStoragePolicyGroupInput, UpdateStoragePolicyInput,
@@ -182,15 +182,15 @@ pub async fn delete_group_with_audit(
     Ok(())
 }
 
-pub async fn migrate_group_users_with_audit(
+pub async fn migrate_group_assignments_with_audit(
     state: &PrimaryAppState,
     source_group_id: i64,
     target_group_id: i64,
     audit_ctx: &AuditContext,
-) -> Result<PolicyGroupUserMigrationResult> {
+) -> Result<PolicyGroupAssignmentMigrationResult> {
     let source_group = get_group(state, source_group_id).await?;
     let target_group = get_group(state, target_group_id).await?;
-    let result = migrate_group_users(state, source_group_id, target_group_id).await?;
+    let result = migrate_group_assignments(state, source_group_id, target_group_id).await?;
     audit_service::log_with_details(
         state,
         audit_ctx,
@@ -205,6 +205,7 @@ pub async fn migrate_group_users_with_audit(
                 target_group_id: target_group.id,
                 target_group_name: &target_group.name,
                 affected_users: result.affected_users,
+                affected_teams: result.affected_teams,
                 migrated_assignments: result.migrated_assignments,
             })
         },

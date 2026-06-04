@@ -6,6 +6,7 @@ use crate::api::subcode::ApiSubcode;
 use crate::config::{
     auth_runtime::{RuntimeAuthPolicy, RuntimeContactVerificationPolicy},
     branding,
+    local_email_policy::LocalEmailPolicy,
 };
 use crate::db::repository::user_repo;
 use crate::errors::{Result, auth_forbidden_with_subcode, validation_error_with_subcode};
@@ -71,6 +72,8 @@ pub async fn register(
             .map(AuthUserInfo::from);
     }
 
+    LocalEmailPolicy::from_runtime_config(&state.runtime_config).check(email)?;
+
     let policy = RuntimeContactVerificationPolicy::from_runtime_config(&state.runtime_config);
     let site_name = branding::title_or_default(&state.runtime_config);
     let txn = crate::db::transaction::begin(state.writer_db()).await?;
@@ -132,6 +135,8 @@ pub async fn resend_register_activation(
     if !user.status.is_active() || is_email_verified(&user) {
         return Ok(None);
     }
+
+    LocalEmailPolicy::from_runtime_config(&state.runtime_config).check_not_blocked(&user.email)?;
 
     if !resend_allowed(
         state,

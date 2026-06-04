@@ -64,6 +64,7 @@ pub struct PolicyGroupMigrationDetails<'a> {
     pub target_group_id: i64,
     pub target_group_name: &'a str,
     pub affected_users: u64,
+    pub affected_teams: u64,
     pub migrated_assignments: u64,
 }
 

@@ -25,6 +25,7 @@ interface BrandingState {
 	allowUserRegistration: boolean;
 	branding: AppliedBranding;
 	isLoaded: boolean;
+	passkeyLoginEnabled: boolean;
 	siteUrl: string | null;
 	invalidate: () => void;
 	load: (options?: { force?: boolean }) => Promise<void>;
@@ -45,10 +46,14 @@ function isPublicBranding(value: unknown): value is PublicBranding {
 		return false;
 	}
 
+	const passkeyLoginEnabled = value.passkey_login_enabled;
+
 	return (
 		typeof value.allow_user_registration === "boolean" &&
 		typeof value.description === "string" &&
 		typeof value.favicon_url === "string" &&
+		(passkeyLoginEnabled === undefined ||
+			typeof passkeyLoginEnabled === "boolean") &&
 		isStringArray(value.site_urls) &&
 		typeof value.title === "string" &&
 		typeof value.wordmark_dark_url === "string" &&
@@ -126,6 +131,7 @@ function applyPublicBranding(publicBranding: PublicBranding) {
 		allowUserRegistration: publicBranding.allow_user_registration ?? true,
 		branding,
 		isLoaded: true,
+		passkeyLoginEnabled: publicBranding.passkey_login_enabled ?? true,
 		siteUrl,
 	};
 }
@@ -144,6 +150,7 @@ export const useBrandingStore = create<BrandingState>((set, get) => ({
 	allowUserRegistration: initialPublicBranding?.allow_user_registration ?? true,
 	branding: initialBranding,
 	isLoaded: initialPublicBranding !== null,
+	passkeyLoginEnabled: initialPublicBranding?.passkey_login_enabled ?? true,
 	siteUrl: initialSiteUrl,
 
 	invalidate: () => {
@@ -153,6 +160,7 @@ export const useBrandingStore = create<BrandingState>((set, get) => ({
 			allowUserRegistration: true,
 			branding: DEFAULT_BRANDING,
 			isLoaded: false,
+			passkeyLoginEnabled: true,
 			siteUrl: null,
 		});
 	},
@@ -179,6 +187,7 @@ export const useBrandingStore = create<BrandingState>((set, get) => ({
 					allowUserRegistration: true,
 					branding: fallbackBranding,
 					isLoaded: true,
+					passkeyLoginEnabled: true,
 					siteUrl: null,
 				});
 			} finally {

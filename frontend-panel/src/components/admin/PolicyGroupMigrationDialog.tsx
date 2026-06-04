@@ -55,7 +55,7 @@ export function PolicyGroupMigrationDialog({
 		<Dialog open={open} onOpenChange={onOpenChange}>
 			<DialogContent className="sm:max-w-lg">
 				<DialogHeader>
-					<DialogTitle>{t("migrate_policy_group_users")}</DialogTitle>
+					<DialogTitle>{t("migrate_policy_group_assignments")}</DialogTitle>
 					<DialogDescription>
 						{t("policy_group_migration_desc")}
 					</DialogDescription>

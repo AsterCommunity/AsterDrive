@@ -47,8 +47,8 @@ import type {
 	ExternalAuthProviderTestParamsInput,
 	ExternalAuthProviderTestResult,
 	LockPage,
-	MigratePolicyGroupUsersRequest,
-	PolicyGroupUserMigrationResult,
+	MigratePolicyGroupAssignmentsRequest,
+	PolicyGroupAssignmentMigrationResult,
 	RemoteCreateIngressProfileRequest,
 	RemoteEnrollmentCommandInfo,
 	RemoteIngressProfileInfo,
@@ -475,9 +475,12 @@ export const adminPolicyGroupService = {
 
 	delete: (id: number) => api.delete<void>(`/admin/policy-groups/${id}`),
 
-	migrateUsers: (id: number, data: MigratePolicyGroupUsersRequest) =>
-		api.post<PolicyGroupUserMigrationResult>(
-			`/admin/policy-groups/${id}/migrate-users`,
+	migrateAssignments: (
+		id: number,
+		data: MigratePolicyGroupAssignmentsRequest,
+	) =>
+		api.post<PolicyGroupAssignmentMigrationResult>(
+			`/admin/policy-groups/${id}/migrate-assignments`,
 			data,
 		),
 };

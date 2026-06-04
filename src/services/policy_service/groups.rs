@@ -10,7 +10,7 @@ use crate::errors::{AsterError, MapAsterErr, Result};
 use crate::runtime::PrimaryAppState;
 
 use super::models::{
-    CreateStoragePolicyGroupInput, PolicyGroupUserMigrationResult, StoragePolicyGroupInfo,
+    CreateStoragePolicyGroupInput, PolicyGroupAssignmentMigrationResult, StoragePolicyGroupInfo,
     UpdateStoragePolicyGroupInput,
 };
 use super::shared::{
@@ -309,11 +309,11 @@ pub async fn delete_group(state: &PrimaryAppState, id: i64) -> Result<()> {
     Ok(())
 }
 
-pub async fn migrate_group_users(
+pub async fn migrate_group_assignments(
     state: &PrimaryAppState,
     source_group_id: i64,
     target_group_id: i64,
-) -> Result<PolicyGroupUserMigrationResult> {
+) -> Result<PolicyGroupAssignmentMigrationResult> {
     if source_group_id == target_group_id {
         return Err(AsterError::validation_error(
             "source and target storage policy groups must be different",
@@ -325,7 +325,7 @@ pub async fn migrate_group_users(
         policy_group_repo::find_group_by_id(state.writer_db(), target_group_id).await?;
     if !target_group.is_enabled {
         return Err(AsterError::validation_error(
-            "cannot migrate users to a disabled storage policy group",
+            "cannot migrate assignments to a disabled storage policy group",
         ));
     }
     if policy_group_repo::find_group_items(state.writer_db(), target_group_id)
@@ -333,35 +333,41 @@ pub async fn migrate_group_users(
         .is_empty()
     {
         return Err(AsterError::validation_error(
-            "cannot migrate users to a storage policy group without policies",
+            "cannot migrate assignments to a storage policy group without policies",
         ));
     }
 
+    let now = Utc::now();
     let txn = crate::db::transaction::begin(state.writer_db()).await?;
-    let migrated_assignments = user_repo::migrate_policy_group_assignments(
-        &txn,
-        source_group_id,
-        target_group_id,
-        Utc::now(),
-    )
-    .await
-    .map_aster_err(AsterError::database_operation)?;
+    let affected_users =
+        user_repo::migrate_policy_group_assignments(&txn, source_group_id, target_group_id, now)
+            .await
+            .map_aster_err(AsterError::database_operation)?;
+    let affected_teams =
+        team_repo::migrate_policy_group_assignments(&txn, source_group_id, target_group_id, now)
+            .await
+            .map_aster_err(AsterError::database_operation)?;
 
     crate::db::transaction::commit(txn).await?;
+    let migrated_assignments = affected_users.checked_add(affected_teams).ok_or_else(|| {
+        AsterError::internal_error("policy group migration assignment count overflow")
+    })?;
     if migrated_assignments == 0 {
-        return Ok(PolicyGroupUserMigrationResult {
+        return Ok(PolicyGroupAssignmentMigrationResult {
             source_group_id,
             target_group_id,
             affected_users: 0,
+            affected_teams: 0,
             migrated_assignments: 0,
         });
     }
     state.policy_snapshot.reload(state.writer_db()).await?;
 
-    Ok(PolicyGroupUserMigrationResult {
+    Ok(PolicyGroupAssignmentMigrationResult {
         source_group_id,
         target_group_id,
-        affected_users: migrated_assignments,
+        affected_users,
+        affected_teams,
         migrated_assignments,
     })
 }

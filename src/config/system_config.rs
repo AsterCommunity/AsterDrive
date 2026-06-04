@@ -11,6 +11,7 @@ use crate::config::bool_like::parse_bool_like;
 use crate::config::branding;
 use crate::config::cors;
 use crate::config::definitions::{ALL_CONFIGS, ConfigDef};
+use crate::config::local_email_policy;
 use crate::config::mail;
 use crate::config::media_processing;
 use crate::config::offline_download;
@@ -106,7 +107,8 @@ where
             auth_runtime::normalize_register_activation_enabled_config_value(value)
         }
         auth_runtime::AUTH_EMAIL_CODE_LOGIN_ENABLED_KEY
-        | auth_runtime::AUTH_EMAIL_CODE_LOGIN_ALLOW_TOTP_FALLBACK_KEY => {
+        | auth_runtime::AUTH_EMAIL_CODE_LOGIN_ALLOW_TOTP_FALLBACK_KEY
+        | auth_runtime::AUTH_PASSKEY_LOGIN_ENABLED_KEY => {
             auth_runtime::normalize_email_code_login_bool_config_value(key, value)
         }
         auth_runtime::AUTH_ACCESS_TOKEN_TTL_SECS_KEY
@@ -119,6 +121,10 @@ where
         | auth_runtime::AUTH_PASSWORD_RESET_REQUEST_COOLDOWN_SECS_KEY
         | auth_runtime::AUTH_CONTACT_VERIFICATION_RESEND_COOLDOWN_SECS_KEY => {
             auth_runtime::normalize_token_ttl_config_value(key, value)
+        }
+        local_email_policy::AUTH_LOCAL_EMAIL_ALLOWLIST_KEY
+        | local_email_policy::AUTH_LOCAL_EMAIL_BLOCKLIST_KEY => {
+            local_email_policy::normalize_local_email_policy_config_value(key, value)
         }
         cors::CORS_ENABLED_KEY => cors::normalize_enabled_config_value(value),
         cors::CORS_ALLOWED_ORIGINS_KEY => {

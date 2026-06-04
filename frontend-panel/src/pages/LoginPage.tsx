@@ -41,6 +41,7 @@ import {
 } from "@/services/authService";
 import { ApiError } from "@/services/http";
 import { useAuthStore } from "@/stores/authStore";
+import { useBrandingStore } from "@/stores/brandingStore";
 import type { ExternalAuthPublicProvider } from "@/types/api";
 import { ErrorCode } from "@/types/api-helpers";
 import { LoginPageView } from "./login/LoginPageView";
@@ -93,6 +94,9 @@ function useLoginPageController() {
 	const navigate = useNavigate();
 	const refreshUser = useAuthStore((s) => s.refreshUser);
 	const syncSession = useAuthStore((s) => s.syncSession);
+	const publicPasskeyLoginEnabled = useBrandingStore(
+		(s) => s.passkeyLoginEnabled,
+	);
 	const conditionalPasskeyAbortRef = useRef<AbortController | null>(null);
 	const conditionalPasskeySupportedRef = useRef(false);
 
@@ -116,6 +120,9 @@ function useLoginPageController() {
 		string | null
 	>(null);
 	const [passkeySupported] = useState(() => isWebAuthnSupported());
+	const [checkedPasskeyLoginEnabled, setCheckedPasskeyLoginEnabled] = useState<
+		boolean | null
+	>(null);
 	const [registrationClosed, setRegistrationClosed] = useState(false);
 	const [exiting, setExiting] = useState(false);
 	const [errors, setErrors] = useState<Record<string, string>>({});
@@ -170,6 +177,9 @@ function useLoginPageController() {
 								? t("create_admin")
 								: "";
 	usePageTitle(modeActionText || t("sign_in"));
+	const passkeyLoginEnabled =
+		checkedPasskeyLoginEnabled ?? publicPasskeyLoginEnabled;
+	const canUsePasskeyLogin = passkeyLoginEnabled && passkeySupported;
 	const isSubmitDisabled =
 		submitting ||
 		passkeySubmitting ||
@@ -351,6 +361,7 @@ function useLoginPageController() {
 				}
 
 				setRegistrationClosed(result.allow_user_registration === false);
+				setCheckedPasskeyLoginEnabled(result.passkey_login_enabled !== false);
 				setMode("login");
 			})
 			.catch(() => {
@@ -398,6 +409,11 @@ function useLoginPageController() {
 	useEffect(() => {
 		let cancelled = false;
 
+		if (!passkeyLoginEnabled) {
+			conditionalPasskeySupportedRef.current = false;
+			return;
+		}
+
 		void isConditionalPasskeyLoginAvailable()
 			.then((available) => {
 				if (!cancelled) {
@@ -414,7 +430,7 @@ function useLoginPageController() {
 		return () => {
 			cancelled = true;
 		};
-	}, []);
+	}, [passkeyLoginEnabled]);
 
 	// ── Live validation ──
 
@@ -665,7 +681,7 @@ function useLoginPageController() {
 	);
 
 	const handlePasskeyLogin = async () => {
-		if (!passkeySupported || mode !== "login") {
+		if (!canUsePasskeyLogin || mode !== "login") {
 			toast.error(t("passkey_unsupported"));
 			return;
 		}
@@ -722,6 +738,7 @@ function useLoginPageController() {
 			showPasswordResetRequest ||
 			externalAuthRecoveryFlow ||
 			pendingActivation ||
+			!passkeyLoginEnabled ||
 			!conditionalPasskeySupportedRef.current
 		) {
 			return;
@@ -778,6 +795,7 @@ function useLoginPageController() {
 		mode,
 		externalAuthRecoveryFlow,
 		mfaChallenge,
+		passkeyLoginEnabled,
 		pendingActivation,
 		showPasswordResetRequest,
 	]);
@@ -1014,6 +1032,7 @@ function useLoginPageController() {
 		mode,
 		modeActionText,
 		passkeySubmitting,
+		passkeyLoginEnabled,
 		passkeySupported,
 		password,
 		passwordResetPanel,

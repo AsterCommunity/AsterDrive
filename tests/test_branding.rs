@@ -37,6 +37,7 @@ async fn test_public_branding_returns_defaults() {
     );
     assert_eq!(body["data"]["site_urls"], Value::Array(vec![]));
     assert_eq!(body["data"]["allow_user_registration"], true);
+    assert_eq!(body["data"]["passkey_login_enabled"], true);
 }
 
 #[actix_web::test]
@@ -51,6 +52,7 @@ async fn test_public_branding_uses_admin_updated_values() {
             serde_json::json!(["https://drive.example.com", "https://panel.example.com"]),
         ),
         ("auth_allow_user_registration", serde_json::json!("false")),
+        ("auth_passkey_login_enabled", serde_json::json!("false")),
         ("branding_title", serde_json::json!("Nebula Drive")),
         (
             "branding_description",
@@ -105,6 +107,7 @@ async fn test_public_branding_uses_admin_updated_values() {
         serde_json::json!(["https://drive.example.com", "https://panel.example.com"])
     );
     assert_eq!(body["data"]["allow_user_registration"], false);
+    assert_eq!(body["data"]["passkey_login_enabled"], false);
 }
 
 #[actix_web::test]

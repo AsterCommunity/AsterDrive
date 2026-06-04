@@ -1218,7 +1218,7 @@ async fn test_cannot_disable_or_delete_policy_group_assigned_to_team() {
 }
 
 #[actix_web::test]
-async fn test_migrate_policy_group_users_moves_assignments_and_preserves_default() {
+async fn test_migrate_policy_group_assignments_moves_assignments_and_preserves_default() {
     use aster_drive::services::auth_service;
 
     let state = common::setup().await;
@@ -1344,7 +1344,7 @@ async fn test_migrate_policy_group_users_moves_assignments_and_preserves_default
 
     let req = test::TestRequest::post()
         .uri(&format!(
-            "/api/v1/admin/policy-groups/{source_group_id}/migrate-users"
+            "/api/v1/admin/policy-groups/{source_group_id}/migrate-assignments"
         ))
         .insert_header(("Cookie", common::access_cookie_header(&token)))
         .insert_header(common::csrf_header_for(&token))
@@ -1358,6 +1358,7 @@ async fn test_migrate_policy_group_users_moves_assignments_and_preserves_default
     assert_eq!(body["data"]["source_group_id"], source_group_id);
     assert_eq!(body["data"]["target_group_id"], target_group_id);
     assert_eq!(body["data"]["affected_users"], 1);
+    assert_eq!(body["data"]["affected_teams"], 0);
     assert_eq!(body["data"]["migrated_assignments"], 1);
 
     let req = test::TestRequest::get()
@@ -1405,7 +1406,7 @@ async fn test_migrate_policy_group_users_moves_assignments_and_preserves_default
 }
 
 #[actix_web::test]
-async fn test_cannot_migrate_policy_group_users_to_disabled_group() {
+async fn test_cannot_migrate_policy_group_assignments_to_disabled_group() {
     let state = common::setup().await;
     let app = create_test_app!(state);
     let (token, _) = register_and_login!(app);
@@ -1470,7 +1471,7 @@ async fn test_cannot_migrate_policy_group_users_to_disabled_group() {
 
     let req = test::TestRequest::post()
         .uri(&format!(
-            "/api/v1/admin/policy-groups/{source_group_id}/migrate-users"
+            "/api/v1/admin/policy-groups/{source_group_id}/migrate-assignments"
         ))
         .insert_header(("Cookie", common::access_cookie_header(&token)))
         .insert_header(common::csrf_header_for(&token))
@@ -1483,7 +1484,7 @@ async fn test_cannot_migrate_policy_group_users_to_disabled_group() {
     let body: Value = test::read_body_json(resp).await;
     assert_eq!(
         body["msg"],
-        "cannot migrate users to a disabled storage policy group"
+        "cannot migrate assignments to a disabled storage policy group"
     );
 }
 

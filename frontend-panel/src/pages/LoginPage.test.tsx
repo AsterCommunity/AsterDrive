@@ -66,6 +66,7 @@ const mockState = vi.hoisted(() => ({
 	allowUserRegistration: true,
 	conditionalPasskeySupported: false,
 	forceEnableDisabledButtons: false,
+	passkeyLoginEnabled: true,
 	finishPasskeyLogin: vi.fn(),
 	getPasskeyCredential: vi.fn(),
 	locationAssign: vi.fn(),
@@ -392,6 +393,7 @@ vi.mock("@/stores/brandingStore", () => ({
 				wordmarkDarkUrl: string;
 				wordmarkLightUrl: string;
 			};
+			passkeyLoginEnabled: boolean;
 		}) => unknown,
 	) =>
 		selector({
@@ -401,6 +403,7 @@ vi.mock("@/stores/brandingStore", () => ({
 				wordmarkDarkUrl: "/static/asterdrive/asterdrive-dark.svg",
 				wordmarkLightUrl: "/static/asterdrive/asterdrive-light.svg",
 			},
+			passkeyLoginEnabled: mockState.passkeyLoginEnabled,
 		}),
 }));
 
@@ -421,6 +424,7 @@ describe("LoginPage", () => {
 		mockState.conditionalPasskeyError = null;
 		mockState.conditionalPasskeySupported = false;
 		mockState.forceEnableDisabledButtons = false;
+		mockState.passkeyLoginEnabled = true;
 		mockState.check.mockReset();
 		mockState.finishPasskeyLogin.mockReset();
 		mockState.getPasskeyCredential.mockReset();
@@ -485,6 +489,7 @@ describe("LoginPage", () => {
 		mockState.check.mockResolvedValue({
 			has_users: true,
 			allow_user_registration: true,
+			passkey_login_enabled: true,
 		});
 		useThemeStore.setState({ resolvedTheme: "light" });
 	});
@@ -1002,6 +1007,57 @@ describe("LoginPage", () => {
 		);
 		expect(passkeyButton).toBeDisabled();
 		expect(screen.getByText("passkey_unsupported")).toBeInTheDocument();
+	});
+
+	it("hides passkey login and WebAuthn autocomplete when the public policy disables it", async () => {
+		mockState.webAuthnSupported = true;
+		mockState.conditionalPasskeySupported = true;
+		mockState.passkeyLoginEnabled = false;
+		mockState.check.mockResolvedValueOnce({
+			has_users: true,
+			allow_user_registration: true,
+			passkey_login_enabled: false,
+		});
+
+		render(<LoginPage />);
+
+		await screen.findByRole("button", { name: "sign_in" });
+		expect(screen.getByLabelText("email_or_username")).toHaveAttribute(
+			"autocomplete",
+			"username",
+		);
+		expect(
+			screen.queryByRole("button", { name: /passkey_sign_in/ }),
+		).not.toBeInTheDocument();
+		expect(screen.queryByText("passkey_unsupported")).not.toBeInTheDocument();
+		await waitFor(() => {
+			expect(mockState.startPasskeyLogin).not.toHaveBeenCalled();
+		});
+	});
+
+	it("uses the auth check response to stop conditional passkey login even when cached branding still allows it", async () => {
+		mockState.webAuthnSupported = true;
+		mockState.conditionalPasskeySupported = true;
+		mockState.passkeyLoginEnabled = true;
+		mockState.check.mockResolvedValueOnce({
+			has_users: true,
+			allow_user_registration: true,
+			passkey_login_enabled: false,
+		});
+
+		render(<LoginPage />);
+
+		await screen.findByRole("button", { name: "sign_in" });
+		expect(screen.getByLabelText("email_or_username")).toHaveAttribute(
+			"autocomplete",
+			"username",
+		);
+		expect(
+			screen.queryByRole("button", { name: /passkey_sign_in/ }),
+		).not.toBeInTheDocument();
+		await waitFor(() => {
+			expect(mockState.startPasskeyLogin).not.toHaveBeenCalled();
+		});
 	});
 
 	it("handles passkey support detection failures and blocked explicit passkey requests", async () => {
@@ -1799,6 +1855,7 @@ describe("LoginPage", () => {
 		mockState.check.mockResolvedValueOnce({
 			has_users: false,
 			allow_user_registration: true,
+			passkey_login_enabled: true,
 		});
 
 		render(<LoginPage />);
@@ -1841,6 +1898,7 @@ describe("LoginPage", () => {
 		mockState.check.mockResolvedValueOnce({
 			has_users: false,
 			allow_user_registration: true,
+			passkey_login_enabled: true,
 		});
 
 		render(<LoginPage />);
@@ -1854,6 +1912,7 @@ describe("LoginPage", () => {
 		mockState.check.mockResolvedValueOnce({
 			has_users: true,
 			allow_user_registration: true,
+			passkey_login_enabled: true,
 		});
 
 		render(<LoginPage />);
@@ -1900,6 +1959,7 @@ describe("LoginPage", () => {
 		mockState.check.mockResolvedValueOnce({
 			has_users: true,
 			allow_user_registration: true,
+			passkey_login_enabled: true,
 		});
 		mockState.register.mockResolvedValueOnce({ email_verified: true });
 
@@ -1997,6 +2057,7 @@ describe("LoginPage", () => {
 		mockState.check.mockResolvedValueOnce({
 			has_users: true,
 			allow_user_registration: true,
+			passkey_login_enabled: true,
 		});
 
 		render(<LoginPage />);
@@ -2078,6 +2139,7 @@ describe("LoginPage", () => {
 		mockState.check.mockResolvedValueOnce({
 			has_users: true,
 			allow_user_registration: true,
+			passkey_login_enabled: true,
 		});
 
 		render(<LoginPage />);
@@ -2120,6 +2182,7 @@ describe("LoginPage", () => {
 		mockState.check.mockResolvedValueOnce({
 			has_users: true,
 			allow_user_registration: false,
+			passkey_login_enabled: true,
 		});
 
 		render(<LoginPage />);

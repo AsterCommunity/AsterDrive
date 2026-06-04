@@ -279,7 +279,7 @@ describe("adminService", () => {
 			items: [{ policy_id: 3, priority: 1 }],
 		});
 		adminPolicyGroupService.update(4, { is_default: true });
-		adminPolicyGroupService.migrateUsers(4, { target_group_id: 8 });
+		adminPolicyGroupService.migrateAssignments(4, { target_group_id: 8 });
 		adminPolicyGroupService.delete(4);
 
 		adminShareService.delete(11);
@@ -428,7 +428,7 @@ describe("adminService", () => {
 		);
 		expect(mockState.post).toHaveBeenNthCalledWith(
 			13,
-			"/admin/policy-groups/4/migrate-users",
+			"/admin/policy-groups/4/migrate-assignments",
 			{
 				target_group_id: 8,
 			},

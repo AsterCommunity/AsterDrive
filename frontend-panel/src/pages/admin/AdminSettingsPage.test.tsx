@@ -46,6 +46,10 @@ const translationMap: Record<string, string> = {
 	settings_item_auth_email_code_login_enabled_desc:
 		"Email-code MFA requires complete mail delivery settings.",
 	settings_item_auth_email_code_login_enabled_label: "Require email-code MFA",
+	local_email_policy_add_item: "Add email or domain",
+	local_email_policy_item_label: "Email or domain",
+	local_email_policy_placeholder: "example.com or alice@example.com",
+	local_email_policy_remove_item: "Remove email or domain",
 	public_site_url_add_current_origin: "public_site_url_add_current_origin",
 	settings_time_unit_label: "Time unit",
 	settings_time_unit_seconds: "Seconds",
@@ -633,6 +637,12 @@ function getMockConfigSource(key: string): SystemConfigSource {
 function getMockConfigValueType(key: string): SystemConfigValueType {
 	if (key === "audit_log_recorded_actions") {
 		return "string_enum_set";
+	}
+	if (
+		key === "auth_local_email_allowlist" ||
+		key === "auth_local_email_blocklist"
+	) {
+		return "string_array";
 	}
 	if (key === "storage.enabled") {
 		return "boolean";
@@ -2985,6 +2995,62 @@ describe("AdminSettingsPage", () => {
 			expect(mockState.setConfig).toHaveBeenCalledWith(
 				"webdav_block_system_file_patterns",
 				[".DS_Store", "Thumbs.db"],
+			);
+		});
+	});
+
+	it("edits local email policy configs with email-specific labels and placeholder", async () => {
+		mockState.listConfigs.mockResolvedValueOnce({
+			items: [
+				createConfig({
+					category: "user.registration_and_login",
+					key: "auth_local_email_allowlist",
+					value: ["example.com"],
+					value_type: "string_array",
+				}),
+			],
+		});
+		mockState.schema.mockResolvedValueOnce([
+			createSchemaItem({
+				category: "user.registration_and_login",
+				key: "auth_local_email_allowlist",
+				label_i18n_key: "settings_item_auth_local_email_allowlist_label",
+				value_type: "string_array",
+			}),
+		]);
+
+		render(<AdminSettingsPage section="user" />);
+
+		const firstEntry = await screen.findByLabelText("Email or domain 1");
+		expect(firstEntry).toHaveValue("example.com");
+
+		fireEvent.click(
+			screen.getByRole("button", { name: "Add email or domain" }),
+		);
+		const secondEntry = screen.getByLabelText("Email or domain 2");
+		expect(secondEntry).toHaveAttribute(
+			"placeholder",
+			"example.com or alice@example.com",
+		);
+		fireEvent.change(secondEntry, {
+			target: { value: "alice@example.com" },
+		});
+
+		fireEvent.click(
+			screen.getAllByRole("button", {
+				name: "Remove email or domain",
+			})[0],
+		);
+		expect(screen.getByLabelText("Email or domain 1")).toHaveValue(
+			"alice@example.com",
+		);
+
+		fireEvent.click(screen.getByRole("button", { name: "save_changes" }));
+
+		await waitFor(() => {
+			expect(mockState.setConfig).toHaveBeenCalledWith(
+				"auth_local_email_allowlist",
+				["alice@example.com"],
 			);
 		});
 	});

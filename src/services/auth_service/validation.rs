@@ -26,17 +26,7 @@ pub(crate) fn validate_username(username: &str) -> Result<()> {
 }
 
 pub(crate) fn validate_email(email: &str) -> Result<()> {
-    if email.len() > 254 {
-        return Err(AsterError::validation_error("email is too long"));
-    }
-    let parts: Vec<&str> = email.splitn(2, '@').collect();
-    if parts.len() != 2 || parts[0].is_empty() || parts[1].is_empty() {
-        return Err(AsterError::validation_error("invalid email format"));
-    }
-    if !parts[1].contains('.') {
-        return Err(AsterError::validation_error("invalid email format"));
-    }
-    Ok(())
+    crate::utils::email::validate_email(email)
 }
 
 pub(crate) fn validate_password(password: &str) -> Result<()> {
@@ -60,7 +50,5 @@ pub(super) fn normalize_username(username: &str) -> Result<String> {
 }
 
 pub(super) fn normalize_email(email: &str) -> Result<String> {
-    let normalized = email.trim();
-    validate_email(normalized)?;
-    Ok(normalized.to_string())
+    crate::utils::email::normalize_email(email)
 }

@@ -21,7 +21,7 @@
 	"audit_action_admin_update_team": "管理员更新团队",
 	"audit_action_admin_update_user": "管理员更新用户",
 	"audit_action_admin_delete_policy_group": "管理员删除策略组",
-	"audit_action_admin_migrate_policy_group_users": "管理员迁移策略组用户",
+	"audit_action_admin_migrate_policy_group_users": "管理员迁移策略组绑定",
 	"audit_action_admin_update_policy_group": "管理员更新策略组",
 	"audit_action_admin_create_policy": "管理员创建存储策略",
 	"audit_action_admin_update_policy": "管理员更新存储策略",

@@ -53,6 +53,7 @@ pub struct PublicBranding {
     pub wordmark_light_url: String,
     pub site_urls: Vec<String>,
     pub allow_user_registration: bool,
+    pub passkey_login_enabled: bool,
 }
 
 #[derive(Serialize)]
@@ -71,6 +72,7 @@ pub fn get_public_branding(state: &PrimaryAppState) -> PublicBranding {
         wordmark_light_url: branding::wordmark_light_url_or_default(&state.runtime_config),
         site_urls: site_url::public_site_urls(&state.runtime_config),
         allow_user_registration: auth_policy.allow_user_registration,
+        passkey_login_enabled: auth_policy.passkey_login_enabled,
     }
 }
 

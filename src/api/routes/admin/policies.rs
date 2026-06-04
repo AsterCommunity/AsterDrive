@@ -2,7 +2,7 @@
 
 use crate::api::dto::admin::{
     AdminPolicyGroupListQuery, AdminPolicyListQuery, CreatePolicyGroupReq, CreatePolicyReq,
-    DeletePolicyQuery, MigratePolicyGroupUsersReq, PatchPolicyGroupReq, PatchPolicyReq,
+    DeletePolicyQuery, MigratePolicyGroupAssignmentsReq, PatchPolicyGroupReq, PatchPolicyReq,
     PolicyGroupItemReq, TestPolicyParamsReq,
 };
 use crate::api::dto::validate_request;
@@ -467,13 +467,13 @@ pub async fn delete_policy_group(
 
 #[api_docs_macros::path(
     post,
-    path = "/api/v1/admin/policy-groups/{id}/migrate-users",
+    path = "/api/v1/admin/policy-groups/{id}/migrate-assignments",
     tag = "admin",
-    operation_id = "migrate_policy_group_users",
+    operation_id = "migrate_policy_group_assignments",
     params(("id" = i64, Path, description = "Source policy group ID")),
-    request_body = MigratePolicyGroupUsersReq,
+    request_body = MigratePolicyGroupAssignmentsReq,
     responses(
-        (status = 200, description = "Policy group users migrated", body = inline(ApiResponse<crate::services::policy_service::PolicyGroupUserMigrationResult>)),
+        (status = 200, description = "Policy group assignments migrated", body = inline(ApiResponse<crate::services::policy_service::PolicyGroupAssignmentMigrationResult>)),
         (status = 400, description = "Bad Request"),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
         (status = 403, description = "Forbidden"),
@@ -481,17 +481,21 @@ pub async fn delete_policy_group(
     ),
     security(("bearer" = [])),
 )]
-pub async fn migrate_policy_group_users(
+pub async fn migrate_policy_group_assignments(
     state: web::Data<PrimaryAppState>,
     claims: web::ReqData<Claims>,
     req: HttpRequest,
     path: web::Path<i64>,
-    body: web::Json<MigratePolicyGroupUsersReq>,
+    body: web::Json<MigratePolicyGroupAssignmentsReq>,
 ) -> Result<HttpResponse> {
     validate_request(&*body)?;
     let ctx = audit_service::AuditContext::from_request(&req, &claims);
-    let result =
-        policy_service::migrate_group_users_with_audit(&state, *path, body.target_group_id, &ctx)
-            .await?;
+    let result = policy_service::migrate_group_assignments_with_audit(
+        &state,
+        *path,
+        body.target_group_id,
+        &ctx,
+    )
+    .await?;
     Ok(HttpResponse::Ok().json(ApiResponse::ok(result)))
 }
