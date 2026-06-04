@@ -4,6 +4,8 @@ use std::process::{Command, Output, Stdio};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use bytes::Bytes;
+
 use crate::config::media_processing as media_processing_config;
 use crate::errors::{AsterError, Result};
 use crate::storage::StorageDriver;
@@ -217,7 +219,7 @@ impl ResolvedMediaProcessor {
 }
 
 pub struct ThumbnailData {
-    pub data: Vec<u8>,
+    pub data: Bytes,
     pub thumbnail_processor: String,
     pub thumbnail_version: String,
 }

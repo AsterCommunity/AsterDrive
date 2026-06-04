@@ -169,64 +169,6 @@ async fn ensure_empty_body(payload: &mut web::Payload) -> Result<(), HttpRespons
     Ok(())
 }
 
-#[cfg(test)]
-mod tests {
-    use super::ensure_empty_body;
-    use actix_web::FromRequest;
-    use actix_web::http::StatusCode;
-    use actix_web::web;
-    use bytes::Bytes;
-
-    async fn payload_from_bytes(bytes: Bytes) -> web::Payload {
-        let (req, mut dev_payload) = actix_web::test::TestRequest::default()
-            .set_payload(bytes)
-            .to_http_parts();
-        web::Payload::from_request(&req, &mut dev_payload)
-            .await
-            .expect("test payload should extract")
-    }
-
-    #[actix_web::test]
-    async fn ensure_empty_body_accepts_empty_payload() {
-        let mut payload = payload_from_bytes(Bytes::new()).await;
-
-        ensure_empty_body(&mut payload)
-            .await
-            .expect("empty MKCOL body should be accepted");
-    }
-
-    #[actix_web::test]
-    async fn ensure_empty_body_ignores_empty_chunks() {
-        let mut payload = payload_from_bytes(Bytes::new()).await;
-
-        ensure_empty_body(&mut payload)
-            .await
-            .expect("empty MKCOL body chunks should be accepted");
-    }
-
-    #[actix_web::test]
-    async fn ensure_empty_body_rejects_first_non_empty_chunk() {
-        let mut payload = payload_from_bytes(Bytes::from_static(b"x")).await;
-
-        let response = ensure_empty_body(&mut payload)
-            .await
-            .expect_err("non-empty MKCOL body should be rejected");
-
-        assert_eq!(response.status(), StatusCode::UNSUPPORTED_MEDIA_TYPE);
-    }
-
-    #[actix_web::test]
-    async fn ensure_empty_body_stops_after_first_non_empty_chunk() {
-        let mut payload = payload_from_bytes(Bytes::from(vec![b'x'; 2 * 1024 * 1024])).await;
-
-        let response = ensure_empty_body(&mut payload)
-            .await
-            .expect_err("large non-empty MKCOL body should be rejected");
-
-        assert_eq!(response.status(), StatusCode::UNSUPPORTED_MEDIA_TYPE);
-    }
-}
-
 async fn ensure_parent_exists(dav_fs: &fs::AsterDavFs, relative: &str) -> Result<(), HttpResponse> {
     let Some(parent) = parent_relative_path(relative) else {
         return Err(HttpResponse::MethodNotAllowed().finish());
@@ -292,4 +234,62 @@ fn overwrite_enabled(headers: &header::HeaderMap) -> bool {
         .get("Overwrite")
         .and_then(|value| value.to_str().ok())
         .is_none_or(|value| !value.eq_ignore_ascii_case("F"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ensure_empty_body;
+    use actix_web::FromRequest;
+    use actix_web::http::StatusCode;
+    use actix_web::web;
+    use bytes::Bytes;
+
+    async fn payload_from_bytes(bytes: Bytes) -> web::Payload {
+        let (req, mut dev_payload) = actix_web::test::TestRequest::default()
+            .set_payload(bytes)
+            .to_http_parts();
+        web::Payload::from_request(&req, &mut dev_payload)
+            .await
+            .expect("test payload should extract")
+    }
+
+    #[actix_web::test]
+    async fn ensure_empty_body_accepts_empty_payload() {
+        let mut payload = payload_from_bytes(Bytes::new()).await;
+
+        ensure_empty_body(&mut payload)
+            .await
+            .expect("empty MKCOL body should be accepted");
+    }
+
+    #[actix_web::test]
+    async fn ensure_empty_body_ignores_empty_chunks() {
+        let mut payload = payload_from_bytes(Bytes::new()).await;
+
+        ensure_empty_body(&mut payload)
+            .await
+            .expect("empty MKCOL body chunks should be accepted");
+    }
+
+    #[actix_web::test]
+    async fn ensure_empty_body_rejects_first_non_empty_chunk() {
+        let mut payload = payload_from_bytes(Bytes::from_static(b"x")).await;
+
+        let response = ensure_empty_body(&mut payload)
+            .await
+            .expect_err("non-empty MKCOL body should be rejected");
+
+        assert_eq!(response.status(), StatusCode::UNSUPPORTED_MEDIA_TYPE);
+    }
+
+    #[actix_web::test]
+    async fn ensure_empty_body_stops_after_first_non_empty_chunk() {
+        let mut payload = payload_from_bytes(Bytes::from(vec![b'x'; 2 * 1024 * 1024])).await;
+
+        let response = ensure_empty_body(&mut payload)
+            .await
+            .expect_err("large non-empty MKCOL body should be rejected");
+
+        assert_eq!(response.status(), StatusCode::UNSUPPORTED_MEDIA_TYPE);
+    }
 }

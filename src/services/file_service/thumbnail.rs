@@ -6,12 +6,13 @@ use crate::runtime::PrimaryAppState;
 use crate::services::{
     media_processing_service, task_service, workspace_storage_service::WorkspaceStorageScope,
 };
+use bytes::Bytes;
 
 use super::get_info_in_scope;
 
 /// 缩略图查询结果：有数据直接返回，正在生成则标记 pending
 pub struct ThumbnailResult {
-    pub data: Vec<u8>,
+    pub data: Bytes,
     pub blob_hash: String,
     pub thumbnail_processor: Option<String>,
     pub thumbnail_version: Option<String>,

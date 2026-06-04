@@ -32,7 +32,7 @@ pub async fn generate_and_store_image_preview(
             "image preview cache hit"
         );
         return Ok(ImagePreviewData {
-            data,
+            data: data.to_vec(),
             image_preview_processor: preview_processor,
             image_preview_version: preview_version,
         });

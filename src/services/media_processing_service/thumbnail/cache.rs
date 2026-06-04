@@ -1,10 +1,13 @@
 use std::collections::BTreeSet;
 use std::sync::Arc;
 
+use bytes::Bytes;
+use tokio::io::AsyncReadExt;
+
 use crate::config::operations;
 use crate::db::repository::file_repo;
 use crate::entities::file_blob;
-use crate::errors::Result;
+use crate::errors::{AsterError, MapAsterErr, Result};
 use crate::runtime::PrimaryAppState;
 use crate::storage::{StorageDriver, StorageErrorKind};
 use crate::utils::numbers::u64_to_usize;
@@ -146,7 +149,7 @@ pub(super) async fn load_thumbnail_from_path(
     driver: &Arc<dyn StorageDriver>,
     path: &str,
     clear_metadata_on_missing: bool,
-) -> Result<Option<Vec<u8>>> {
+) -> Result<Option<Bytes>> {
     let thumbnail = read_thumbnail_from_path(blob.id, driver, path).await?;
     if thumbnail.is_none() && clear_metadata_on_missing {
         clear_thumbnail_metadata(state, blob).await;
@@ -158,9 +161,12 @@ async fn read_thumbnail_from_path(
     blob_id: i64,
     driver: &Arc<dyn StorageDriver>,
     path: &str,
-) -> Result<Option<Vec<u8>>> {
+) -> Result<Option<Bytes>> {
     let max_cached_thumbnail_bytes =
         u64_to_usize(MAX_CACHED_THUMBNAIL_BYTES, "cached thumbnail size limit")?;
+    let range_limit = MAX_CACHED_THUMBNAIL_BYTES
+        .checked_add(1)
+        .ok_or_else(|| AsterError::internal_error("cached thumbnail range limit overflow"))?;
     match driver.metadata(path).await {
         Ok(metadata) if metadata.size > MAX_CACHED_THUMBNAIL_BYTES => {
             tracing::warn!(
@@ -190,32 +196,42 @@ async fn read_thumbnail_from_path(
         },
     }
 
-    match driver.get(path).await {
-        Ok(data) if data.len() <= max_cached_thumbnail_bytes => Ok(Some(data)),
-        Ok(data) => {
-            tracing::warn!(
-                blob_id,
-                path,
-                size = data.len(),
-                max_size = MAX_CACHED_THUMBNAIL_BYTES,
-                "ignoring oversized cached thumbnail"
-            );
-            Ok(None)
+    let mut stream = match driver.get_range(path, 0, Some(range_limit)).await {
+        Ok(stream) => stream,
+        Err(error) if error.storage_error_kind() == Some(StorageErrorKind::NotFound) => {
+            return Ok(None);
         }
-        Err(error) if error.storage_error_kind() == Some(StorageErrorKind::NotFound) => Ok(None),
         Err(error) => match driver.exists(path).await {
-            Ok(false) => Ok(None),
-            Ok(true) => Err(error),
+            Ok(false) => return Ok(None),
+            Ok(true) => return Err(error),
             Err(exists_error) => {
                 tracing::warn!(
                     blob_id,
                     path,
-                    "thumbnail get failed and existence recheck also failed: {exists_error}"
+                    "thumbnail range read failed and existence recheck also failed: {exists_error}"
                 );
-                Err(error)
+                return Err(error);
             }
         },
+    };
+
+    let mut data = Vec::new();
+    stream.read_to_end(&mut data).await.map_aster_err_ctx(
+        "read cached thumbnail range",
+        AsterError::storage_driver_error,
+    )?;
+
+    if data.len() > max_cached_thumbnail_bytes {
+        tracing::warn!(
+            blob_id,
+            path,
+            size = data.len(),
+            max_size = MAX_CACHED_THUMBNAIL_BYTES,
+            "ignoring oversized cached thumbnail"
+        );
+        return Ok(None);
     }
+    Ok(Some(Bytes::from(data)))
 }
 
 async fn clear_thumbnail_metadata(state: &PrimaryAppState, blob: &file_blob::Model) {
@@ -266,6 +282,7 @@ mod tests {
         data_len: usize,
         exists_calls: AtomicUsize,
         get_calls: AtomicUsize,
+        range_calls: AtomicUsize,
     }
 
     #[async_trait]
@@ -281,6 +298,16 @@ mod tests {
 
         async fn get_stream(&self, _path: &str) -> Result<Box<dyn AsyncRead + Unpin + Send>> {
             unreachable!()
+        }
+
+        async fn get_range(
+            &self,
+            _path: &str,
+            _offset: u64,
+            _length: Option<u64>,
+        ) -> Result<Box<dyn AsyncRead + Unpin + Send>> {
+            self.range_calls.fetch_add(1, Ordering::SeqCst);
+            Ok(Box::new(std::io::Cursor::new(vec![b'x'; self.data_len])))
         }
 
         async fn delete(&self, _path: &str) -> Result<()> {
@@ -313,6 +340,7 @@ mod tests {
             data_len: 0,
             exists_calls: AtomicUsize::new(0),
             get_calls: AtomicUsize::new(0),
+            range_calls: AtomicUsize::new(0),
         });
 
         let loaded =
@@ -323,6 +351,7 @@ mod tests {
         assert!(loaded.is_none());
         assert_eq!(driver.exists_calls.load(Ordering::SeqCst), 0);
         assert_eq!(driver.get_calls.load(Ordering::SeqCst), 0);
+        assert_eq!(driver.range_calls.load(Ordering::SeqCst), 0);
     }
 
     #[tokio::test]
@@ -334,6 +363,7 @@ mod tests {
             data_len: max_size,
             exists_calls: AtomicUsize::new(0),
             get_calls: AtomicUsize::new(0),
+            range_calls: AtomicUsize::new(0),
         });
 
         let loaded =
@@ -342,7 +372,8 @@ mod tests {
                 .expect("thumbnail at cache size limit should load");
 
         assert_eq!(loaded.expect("cache hit expected").len(), max_size);
-        assert_eq!(driver.get_calls.load(Ordering::SeqCst), 1);
+        assert_eq!(driver.get_calls.load(Ordering::SeqCst), 0);
+        assert_eq!(driver.range_calls.load(Ordering::SeqCst), 1);
     }
 
     #[tokio::test]
@@ -352,6 +383,7 @@ mod tests {
             data_len: 1,
             exists_calls: AtomicUsize::new(0),
             get_calls: AtomicUsize::new(0),
+            range_calls: AtomicUsize::new(0),
         });
 
         let loaded =
@@ -361,6 +393,7 @@ mod tests {
 
         assert!(loaded.is_none());
         assert_eq!(driver.get_calls.load(Ordering::SeqCst), 0);
+        assert_eq!(driver.range_calls.load(Ordering::SeqCst), 0);
     }
 
     #[tokio::test]
@@ -372,6 +405,7 @@ mod tests {
             data_len: max_size + 1,
             exists_calls: AtomicUsize::new(0),
             get_calls: AtomicUsize::new(0),
+            range_calls: AtomicUsize::new(0),
         });
 
         let loaded =
@@ -380,6 +414,7 @@ mod tests {
                 .expect("oversized thumbnail read should be ignored");
 
         assert!(loaded.is_none());
-        assert_eq!(driver.get_calls.load(Ordering::SeqCst), 1);
+        assert_eq!(driver.get_calls.load(Ordering::SeqCst), 0);
+        assert_eq!(driver.range_calls.load(Ordering::SeqCst), 1);
     }
 }

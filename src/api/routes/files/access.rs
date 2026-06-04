@@ -1193,7 +1193,7 @@ mod tests {
     #[actix_web::test]
     async fn thumbnail_response_respects_if_none_match() {
         let result = ThumbnailResult {
-            data: vec![1, 2, 3],
+            data: web::Bytes::from_static(&[1, 2, 3]),
             blob_hash: "abc".repeat(21) + "a",
             thumbnail_processor: Some("images".to_string()),
             thumbnail_version: Some("1".to_string()),
