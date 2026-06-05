@@ -12,7 +12,7 @@ use crate::webdav::protocol::{self, Depth};
 use crate::webdav::{
     XML_CONTENT_TYPE, child_elements, dav_element, encode_href, fs, fs_error_response,
     href_for_dav_path, lock_token_matches_request_uri_response, lock_token_submitted_response,
-    request_path, text_element, xml_bytes,
+    request_origin, request_path, text_element, xml_bytes,
 };
 
 pub(crate) async fn handle_lock(
@@ -32,9 +32,7 @@ pub(crate) async fn handle_lock(
             Ok(timeout) => timeout,
             Err(resp) => return resp,
         };
-        let connection = req.connection_info();
-        let request_scheme = connection.scheme().to_string();
-        let request_host = connection.host().to_string();
+        let (request_scheme, request_host) = request_origin(req);
         if let Err(resp) = protocol::ensure_if_header(
             req.headers(),
             dav_fs,

@@ -9,7 +9,7 @@ use crate::services::file_service;
 use crate::webdav::dav::{DavFileSystem, DavLockSystem, FsError, OpenOptions};
 use crate::webdav::{
     ensure_parent_unlocked, ensure_system_file_name_allowed, ensure_unlocked, fs,
-    fs_error_response, href_for_relative, protocol, request_path, system_file,
+    fs_error_response, href_for_relative, protocol, request_origin, request_path, system_file,
 };
 use protocol::HttpEtagPrecondition;
 
@@ -26,9 +26,7 @@ pub(crate) async fn handle_get_head(
         Ok(v) => v,
         Err(resp) => return resp,
     };
-    let connection = req.connection_info();
-    let request_scheme = connection.scheme().to_string();
-    let request_host = connection.host().to_string();
+    let (request_scheme, request_host) = request_origin(req);
     if let Err(resp) = protocol::ensure_if_header(
         req.headers(),
         dav_fs,
@@ -168,9 +166,7 @@ pub(crate) async fn handle_put(
         Err(err) => return fs_error_response(err),
     };
 
-    let connection = req.connection_info();
-    let request_scheme = connection.scheme().to_string();
-    let request_host = connection.host().to_string();
+    let (request_scheme, request_host) = request_origin(req);
     if let Err(resp) = protocol::ensure_if_header(
         req.headers(),
         dav_fs,

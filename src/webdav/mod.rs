@@ -317,6 +317,14 @@ pub(crate) fn request_path(
     decode_relative_path(req.path().strip_prefix(prefix).unwrap_or(req.path()))
 }
 
+pub(crate) fn request_origin(req: &HttpRequest) -> (String, String) {
+    let connection = req.connection_info();
+    (
+        connection.scheme().to_string(),
+        connection.host().to_string(),
+    )
+}
+
 pub(crate) fn decode_relative_path(relative: &str) -> Result<(DavPath, String), HttpResponse> {
     let normalized = normalize_relative_path(relative);
     let path = DavPath::new(&normalized)

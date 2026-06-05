@@ -18,8 +18,8 @@ use crate::webdav::protocol::{self, Depth};
 use crate::webdav::{
     child_elements, child_relative_path, dav_element, display_name, ensure_unlocked,
     format_creation_date, format_http_date, fs, fs_error_response, href_for_dav_path,
-    href_for_relative, multi_status, request_path, status_element, text_element, xml_bytes,
-    xml_response,
+    href_for_relative, multi_status, request_origin, request_path, status_element, text_element,
+    xml_bytes, xml_response,
 };
 
 #[derive(Clone)]
@@ -97,9 +97,7 @@ pub(crate) async fn handle_propfind(
         Ok(v) => v,
         Err(resp) => return resp,
     };
-    let connection = req.connection_info();
-    let request_scheme = connection.scheme().to_string();
-    let request_host = connection.host().to_string();
+    let (request_scheme, request_host) = request_origin(req);
     if let Err(resp) = protocol::ensure_if_header(
         req.headers(),
         dav_fs,
@@ -182,9 +180,7 @@ pub(crate) async fn handle_proppatch(
         return HttpResponse::Forbidden()
             .body("PROPPATCH on the WebDAV mount root is not supported");
     }
-    let connection = req.connection_info();
-    let request_scheme = connection.scheme().to_string();
-    let request_host = connection.host().to_string();
+    let (request_scheme, request_host) = request_origin(req);
     if let Err(resp) = protocol::ensure_if_header(
         req.headers(),
         dav_fs,

@@ -40,6 +40,19 @@ struct ClientCommandOutput {
     stderr: String,
 }
 
+struct RcloneWebdavClient {
+    server: RunningWebdavServer,
+    work_dir: PathBuf,
+    _work_dir_guard: aster_drive::utils::raii::TempDirGuard,
+    config_path: PathBuf,
+}
+
+impl RcloneWebdavClient {
+    async fn stop(self) {
+        self.server.stop().await;
+    }
+}
+
 fn webdav_test_username(label: &str) -> String {
     format!("client-dav-{label}-{}", uuid::Uuid::new_v4().simple())
 }
@@ -254,8 +267,16 @@ fn rclone_base_args(config_path: &Path) -> Vec<String> {
 }
 
 async fn run_rclone(config_path: &Path, args: &[&str]) -> ClientCommandOutput {
+    run_rclone_args(
+        config_path,
+        args.iter().map(|arg| (*arg).to_string()).collect(),
+    )
+    .await
+}
+
+async fn run_rclone_args(config_path: &Path, args: Vec<String>) -> ClientCommandOutput {
     let mut full_args = rclone_base_args(config_path);
-    full_args.extend(args.iter().map(|arg| (*arg).to_string()));
+    full_args.extend(args);
     run_client_command("rclone", full_args, None).await
 }
 
@@ -269,16 +290,108 @@ async fn obscure_rclone_password(password: &str) -> String {
     output.stdout.trim().to_string()
 }
 
-#[actix_web::test]
-#[ignore = "requires the rclone binary, add -- --ignored to run"]
-async fn test_webdav_rclone_client_roundtrip() {
+async fn write_rclone_config(config_path: &Path, base_url: &str, username: &str, password: &str) {
+    let obscured_password = obscure_rclone_password(password).await;
+    std::fs::write(
+        config_path,
+        format!(
+            "[asterdav]\ntype = webdav\nurl = {base_url}/webdav\nvendor = other\nuser = {username}\npass = {obscured_password}\n"
+        ),
+    )
+    .expect("rclone config should be written");
+}
+
+async fn setup_rclone_webdav_client(label: &str) -> RcloneWebdavClient {
     let state = common::setup().await;
     let (username, password) = seed_real_webdav_account(&state).await;
     let server = start_real_webdav_server(state).await;
-    let (work_dir, _work_dir_guard) = temp_dir("asterdrive-rclone-webdav-e2e");
+    let (work_dir, work_dir_guard) = temp_dir(label);
     let config_path = work_dir.join("rclone.conf");
-    let source_path = work_dir.join("source.txt");
-    let downloaded_path = work_dir.join("downloaded.txt");
+
+    write_rclone_config(&config_path, &server.base_url, &username, &password).await;
+
+    RcloneWebdavClient {
+        server,
+        work_dir,
+        _work_dir_guard: work_dir_guard,
+        config_path,
+    }
+}
+
+fn write_netrc_credentials(work_dir: &Path, username: &str, password: &str) -> PathBuf {
+    let netrc_path = work_dir.join(".netrc");
+    std::fs::write(
+        &netrc_path,
+        format!("machine 127.0.0.1\nlogin {username}\npassword {password}\n"),
+    )
+    .expect("WebDAV client netrc file should be written");
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+
+        std::fs::set_permissions(&netrc_path, std::fs::Permissions::from_mode(0o600))
+            .expect("WebDAV client netrc permissions should be restricted");
+    }
+
+    netrc_path
+}
+
+fn remote_path(path: &str) -> String {
+    format!("asterdav:{path}")
+}
+
+fn ascii_pattern_bytes(len: usize) -> Vec<u8> {
+    const PATTERN: &[u8] = b"0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz-_.";
+    (0..len)
+        .map(|index| PATTERN[index % PATTERN.len()])
+        .collect()
+}
+
+fn assert_listing_contains(listing: &str, expected: &str) {
+    assert!(
+        listing.lines().any(|line| line == expected),
+        "listing should contain {expected:?}\nlisting:\n{listing}"
+    );
+}
+
+fn assert_listing_not_contains(listing: &str, unexpected: &str) {
+    assert!(
+        listing.lines().all(|line| line != unexpected),
+        "listing should not contain {unexpected:?}\nlisting:\n{listing}"
+    );
+}
+
+fn curl_base_args(netrc_path: &Path) -> Vec<String> {
+    vec![
+        "--silent".to_string(),
+        "--show-error".to_string(),
+        "--fail-with-body".to_string(),
+        "--netrc-file".to_string(),
+        path_arg(netrc_path),
+    ]
+}
+
+async fn run_curl(netrc_path: &Path, args: Vec<String>) -> ClientCommandOutput {
+    let mut full_args = curl_base_args(netrc_path);
+    full_args.extend(args);
+    run_client_command("curl", full_args, None).await
+}
+
+fn header_value(headers: &str, name: &str) -> Option<String> {
+    headers.lines().find_map(|line| {
+        let (header_name, value) = line.split_once(':')?;
+        header_name
+            .eq_ignore_ascii_case(name)
+            .then(|| value.trim().to_string())
+    })
+}
+
+#[actix_web::test]
+#[ignore = "requires the rclone binary, add -- --ignored to run"]
+async fn test_webdav_rclone_client_roundtrip() {
+    let client = setup_rclone_webdav_client("asterdrive-rclone-webdav-e2e").await;
+    let source_path = client.work_dir.join("source.txt");
+    let downloaded_path = client.work_dir.join("downloaded.txt");
     let dir_name = unique_name("rclone-dir");
     let original_remote = format!("asterdav:{dir_name}/hello world.txt");
     let copied_remote = format!("asterdav:{dir_name}/copied.txt");
@@ -286,44 +399,51 @@ async fn test_webdav_rclone_client_roundtrip() {
     let content = "AsterDrive rclone WebDAV compatibility\nline two\n";
 
     std::fs::write(&source_path, content).expect("rclone source file should be written");
-    let obscured_password = obscure_rclone_password(&password).await;
-    std::fs::write(
-        &config_path,
-        format!(
-            "[asterdav]\ntype = webdav\nurl = {}/webdav\nvendor = other\nuser = {}\npass = {}\n",
-            server.base_url, username, obscured_password
-        ),
-    )
-    .expect("rclone config should be written");
 
-    let root_listing = run_rclone(&config_path, &["lsf", "asterdav:"]).await;
+    let root_listing = run_rclone(&client.config_path, &["lsf", "asterdav:"]).await;
     assert!(
         !root_listing.stdout.contains(&dir_name),
         "fresh rclone test directory should not already exist: {}",
         root_listing.stdout
     );
 
-    run_rclone(&config_path, &["mkdir", &format!("asterdav:{dir_name}")]).await;
     run_rclone(
-        &config_path,
+        &client.config_path,
+        &["mkdir", &format!("asterdav:{dir_name}")],
+    )
+    .await;
+    run_rclone(
+        &client.config_path,
         &["copyto", &path_arg(&source_path), &original_remote],
     )
     .await;
 
-    let listing = run_rclone(&config_path, &["lsf", &format!("asterdav:{dir_name}")]).await;
+    let listing = run_rclone(
+        &client.config_path,
+        &["lsf", &format!("asterdav:{dir_name}")],
+    )
+    .await;
     assert!(
         listing.stdout.contains("hello world.txt"),
         "rclone listing should include uploaded file: {}",
         listing.stdout
     );
 
-    let cat = run_rclone(&config_path, &["cat", &original_remote]).await;
+    let cat = run_rclone(&client.config_path, &["cat", &original_remote]).await;
     assert_eq!(cat.stdout, content, "rclone should read uploaded bytes");
 
-    run_rclone(&config_path, &["copyto", &original_remote, &copied_remote]).await;
-    run_rclone(&config_path, &["moveto", &copied_remote, &moved_remote]).await;
     run_rclone(
-        &config_path,
+        &client.config_path,
+        &["copyto", &original_remote, &copied_remote],
+    )
+    .await;
+    run_rclone(
+        &client.config_path,
+        &["moveto", &copied_remote, &moved_remote],
+    )
+    .await;
+    run_rclone(
+        &client.config_path,
         &["copyto", &moved_remote, &path_arg(&downloaded_path)],
     )
     .await;
@@ -331,16 +451,378 @@ async fn test_webdav_rclone_client_roundtrip() {
         std::fs::read_to_string(&downloaded_path).expect("rclone downloaded file should read");
     assert_eq!(downloaded, content);
 
-    run_rclone(&config_path, &["deletefile", &moved_remote]).await;
-    run_rclone(&config_path, &["deletefile", &original_remote]).await;
-    run_rclone(&config_path, &["rmdir", &format!("asterdav:{dir_name}")]).await;
+    run_rclone(&client.config_path, &["deletefile", &moved_remote]).await;
+    run_rclone(&client.config_path, &["deletefile", &original_remote]).await;
+    run_rclone(
+        &client.config_path,
+        &["rmdir", &format!("asterdav:{dir_name}")],
+    )
+    .await;
 
-    let root_listing = run_rclone(&config_path, &["lsf", "asterdav:"]).await;
+    let root_listing = run_rclone(&client.config_path, &["lsf", "asterdav:"]).await;
     assert!(
         !root_listing.stdout.contains(&dir_name),
         "rclone cleanup should remove test directory: {}",
         root_listing.stdout
     );
+
+    client.stop().await;
+}
+
+#[actix_web::test]
+#[ignore = "requires the rclone binary, add -- --ignored to run"]
+async fn test_webdav_rclone_sync_tree_updates_deletes_and_downloads() {
+    let client = setup_rclone_webdav_client("asterdrive-rclone-sync-webdav-e2e").await;
+    let source_dir = client.work_dir.join("sync-source");
+    let download_dir = client.work_dir.join("sync-download");
+    let remote_dir = unique_name("rclone-sync-dir");
+    let remote = remote_path(&remote_dir);
+
+    std::fs::create_dir_all(source_dir.join("nested/empty-child"))
+        .expect("rclone sync source directories should be created");
+    std::fs::write(source_dir.join("root.txt"), "root v1\n")
+        .expect("rclone root source file should be written");
+    std::fs::write(source_dir.join("nested/alpha.txt"), "alpha v1\n")
+        .expect("rclone nested source file should be written");
+    std::fs::write(
+        source_dir.join("nested/name with spaces #1.txt"),
+        "special v1\n",
+    )
+    .expect("rclone special-name source file should be written");
+
+    let source_arg = path_arg(&source_dir);
+    run_rclone(
+        &client.config_path,
+        &["sync", "--create-empty-src-dirs", &source_arg, &remote],
+    )
+    .await;
+
+    let listing = run_rclone(&client.config_path, &["lsf", "-R", &remote]).await;
+    assert_listing_contains(&listing.stdout, "root.txt");
+    assert_listing_contains(&listing.stdout, "nested/");
+    assert_listing_contains(&listing.stdout, "nested/alpha.txt");
+    assert_listing_contains(&listing.stdout, "nested/empty-child/");
+    assert_listing_contains(&listing.stdout, "nested/name with spaces #1.txt");
+
+    run_rclone(
+        &client.config_path,
+        &["check", "--size-only", &source_arg, &remote],
+    )
+    .await;
+
+    std::fs::write(source_dir.join("root.txt"), "root v2 with more bytes\n")
+        .expect("rclone updated root source file should be written");
+    std::fs::remove_file(source_dir.join("nested/alpha.txt"))
+        .expect("rclone removed source file should be deleted locally");
+    std::fs::write(source_dir.join("nested/beta.txt"), "beta v2\n")
+        .expect("rclone added nested source file should be written");
+    std::fs::create_dir_all(source_dir.join("new-empty"))
+        .expect("rclone new empty source directory should be created");
+
+    run_rclone(
+        &client.config_path,
+        &["sync", "--create-empty-src-dirs", &source_arg, &remote],
+    )
+    .await;
+
+    let updated_listing = run_rclone(&client.config_path, &["lsf", "-R", &remote]).await;
+    assert_listing_contains(&updated_listing.stdout, "root.txt");
+    assert_listing_contains(&updated_listing.stdout, "nested/beta.txt");
+    assert_listing_contains(&updated_listing.stdout, "nested/name with spaces #1.txt");
+    assert_listing_contains(&updated_listing.stdout, "new-empty/");
+    assert_listing_not_contains(&updated_listing.stdout, "nested/alpha.txt");
+
+    let cat = run_rclone(&client.config_path, &["cat", &format!("{remote}/root.txt")]).await;
+    assert_eq!(cat.stdout, "root v2 with more bytes\n");
+
+    let download_arg = path_arg(&download_dir);
+    run_rclone(&client.config_path, &["sync", &remote, &download_arg]).await;
+    let downloaded_root = std::fs::read_to_string(download_dir.join("root.txt"))
+        .expect("rclone downloaded root file should be readable");
+    assert_eq!(downloaded_root, "root v2 with more bytes\n");
+    let downloaded_special =
+        std::fs::read_to_string(download_dir.join("nested/name with spaces #1.txt"))
+            .expect("rclone downloaded special-name file should be readable");
+    assert_eq!(downloaded_special, "special v1\n");
+    assert!(
+        !download_dir.join("nested/alpha.txt").exists(),
+        "rclone download should not resurrect a remote file deleted by sync"
+    );
+
+    run_rclone(&client.config_path, &["purge", &remote]).await;
+    client.stop().await;
+}
+
+#[actix_web::test]
+#[ignore = "requires the rclone binary, add -- --ignored to run"]
+async fn test_webdav_rclone_server_side_recursive_copy_and_move() {
+    let client =
+        setup_rclone_webdav_client("asterdrive-rclone-recursive-copy-move-webdav-e2e").await;
+    let source_dir = client.work_dir.join("tree-source");
+    let root_dir = unique_name("rclone-tree-dir");
+    let source_remote = remote_path(&format!("{root_dir}/source"));
+    let copied_remote = remote_path(&format!("{root_dir}/copied"));
+    let moved_remote = remote_path(&format!("{root_dir}/moved"));
+
+    std::fs::create_dir_all(source_dir.join("sub/deep"))
+        .expect("rclone recursive source directories should be created");
+    std::fs::write(source_dir.join("top.txt"), "top file\n")
+        .expect("rclone top source file should be written");
+    std::fs::write(source_dir.join("sub/deep/nested.txt"), "nested file\n")
+        .expect("rclone nested source file should be written");
+
+    let source_arg = path_arg(&source_dir);
+    run_rclone(&client.config_path, &["copy", &source_arg, &source_remote]).await;
+
+    run_rclone(
+        &client.config_path,
+        &["copyto", &source_remote, &copied_remote],
+    )
+    .await;
+    let copied_listing = run_rclone(&client.config_path, &["lsf", "-R", &copied_remote]).await;
+    assert_listing_contains(&copied_listing.stdout, "top.txt");
+    assert_listing_contains(&copied_listing.stdout, "sub/deep/nested.txt");
+    let copied_nested = run_rclone(
+        &client.config_path,
+        &["cat", &format!("{copied_remote}/sub/deep/nested.txt")],
+    )
+    .await;
+    assert_eq!(copied_nested.stdout, "nested file\n");
+
+    run_rclone(
+        &client.config_path,
+        &["moveto", &copied_remote, &moved_remote],
+    )
+    .await;
+    let root_listing = run_rclone(&client.config_path, &["lsf", &remote_path(&root_dir)]).await;
+    assert_listing_contains(&root_listing.stdout, "source/");
+    assert_listing_contains(&root_listing.stdout, "moved/");
+    assert_listing_not_contains(&root_listing.stdout, "copied/");
+
+    let moved_top = run_rclone(
+        &client.config_path,
+        &["cat", &format!("{moved_remote}/top.txt")],
+    )
+    .await;
+    assert_eq!(moved_top.stdout, "top file\n");
+    let original_top = run_rclone(
+        &client.config_path,
+        &["cat", &format!("{source_remote}/top.txt")],
+    )
+    .await;
+    assert_eq!(
+        original_top.stdout, "top file\n",
+        "server-side COPY must leave the original tree intact"
+    );
+
+    run_rclone(&client.config_path, &["purge", &remote_path(&root_dir)]).await;
+    client.stop().await;
+}
+
+#[actix_web::test]
+#[ignore = "requires the rclone binary, add -- --ignored to run"]
+async fn test_webdav_rclone_special_names_stat_and_range_reads() {
+    let client = setup_rclone_webdav_client("asterdrive-rclone-special-webdav-e2e").await;
+    let source_path = client.work_dir.join("range-source.txt");
+    let remote_dir = unique_name("rclone-special-dir");
+    let nested_remote = remote_path(&format!("{remote_dir}/space dir"));
+    let file_remote = format!("{nested_remote}/range file #1 +plus.txt");
+    let data = ascii_pattern_bytes(8193);
+
+    std::fs::write(&source_path, &data).expect("rclone range source file should be written");
+    run_rclone(&client.config_path, &["mkdir", &remote_path(&remote_dir)]).await;
+    run_rclone(&client.config_path, &["mkdir", &nested_remote]).await;
+    run_rclone(
+        &client.config_path,
+        &["copyto", &path_arg(&source_path), &file_remote],
+    )
+    .await;
+
+    let listing = run_rclone(
+        &client.config_path,
+        &["lsf", "--format", "sp", "--separator", "|", &nested_remote],
+    )
+    .await;
+    assert_listing_contains(&listing.stdout, "8193|range file #1 +plus.txt");
+
+    let head = run_rclone(&client.config_path, &["cat", "--head", "32", &file_remote]).await;
+    assert_eq!(head.stdout.as_bytes(), &data[..32]);
+
+    let middle = run_rclone(
+        &client.config_path,
+        &["cat", "--offset", "1024", "--count", "257", &file_remote],
+    )
+    .await;
+    assert_eq!(middle.stdout.as_bytes(), &data[1024..1281]);
+
+    let tail = run_rclone(&client.config_path, &["cat", "--tail", "41", &file_remote]).await;
+    assert_eq!(tail.stdout.as_bytes(), &data[data.len() - 41..]);
+
+    run_rclone(&client.config_path, &["deletefile", &file_remote]).await;
+    run_rclone(&client.config_path, &["rmdir", &nested_remote]).await;
+    run_rclone(&client.config_path, &["rmdir", &remote_path(&remote_dir)]).await;
+    client.stop().await;
+}
+
+#[actix_web::test]
+#[ignore = "requires the curl binary, add -- --ignored to run"]
+async fn test_webdav_curl_client_methods_ranges_and_locks() {
+    let state = common::setup().await;
+    let (username, password) = seed_real_webdav_account(&state).await;
+    let server = start_real_webdav_server(state).await;
+    let (work_dir, _work_dir_guard) = temp_dir("asterdrive-curl-webdav-e2e");
+    let netrc_path = write_netrc_credentials(&work_dir, &username, &password);
+    let upload_path = work_dir.join("curl-upload.txt");
+    let range_headers_path = work_dir.join("range.headers");
+    let range_body_path = work_dir.join("range.body");
+    let lock_body_path = work_dir.join("lock.xml");
+    let lock_headers_path = work_dir.join("lock.headers");
+    let dir_name = unique_name("curl-dir");
+    let dir_url = format!("{}/webdav/{dir_name}", server.base_url);
+    let source_url = format!("{dir_url}/source.txt");
+    let copied_url = format!("{dir_url}/copied.txt");
+    let moved_url = format!("{dir_url}/moved.txt");
+    let content = "curl WebDAV compatibility payload\nsecond line\nthird line\n";
+
+    std::fs::write(&upload_path, content).expect("curl upload file should be written");
+    std::fs::write(
+        &lock_body_path,
+        r#"<?xml version="1.0" encoding="utf-8" ?>
+<D:lockinfo xmlns:D="DAV:">
+  <D:lockscope><D:exclusive/></D:lockscope>
+  <D:locktype><D:write/></D:locktype>
+  <D:owner><D:href>curl-client</D:href></D:owner>
+</D:lockinfo>"#,
+    )
+    .expect("curl LOCK body should be written");
+
+    run_curl(
+        &netrc_path,
+        vec!["-X".to_string(), "MKCOL".to_string(), format!("{dir_url}/")],
+    )
+    .await;
+    run_curl(
+        &netrc_path,
+        vec![
+            "--upload-file".to_string(),
+            path_arg(&upload_path),
+            source_url.clone(),
+        ],
+    )
+    .await;
+
+    run_curl(
+        &netrc_path,
+        vec![
+            "-H".to_string(),
+            "Range: bytes=5-18".to_string(),
+            "-D".to_string(),
+            path_arg(&range_headers_path),
+            "-o".to_string(),
+            path_arg(&range_body_path),
+            source_url.clone(),
+        ],
+    )
+    .await;
+    let range_headers =
+        std::fs::read_to_string(&range_headers_path).expect("curl range headers should read");
+    assert!(
+        range_headers.contains("206"),
+        "curl range GET should receive 206 Partial Content headers:\n{range_headers}"
+    );
+    let expected_content_range = format!("bytes 5-18/{}", content.len());
+    assert_eq!(
+        header_value(&range_headers, "Content-Range").as_deref(),
+        Some(expected_content_range.as_str())
+    );
+    let range_body =
+        std::fs::read_to_string(&range_body_path).expect("curl range response body should read");
+    assert_eq!(range_body, &content[5..=18]);
+
+    run_curl(
+        &netrc_path,
+        vec![
+            "-X".to_string(),
+            "COPY".to_string(),
+            "-H".to_string(),
+            format!("Destination: {copied_url}"),
+            source_url.clone(),
+        ],
+    )
+    .await;
+    run_curl(
+        &netrc_path,
+        vec![
+            "-X".to_string(),
+            "MOVE".to_string(),
+            "-H".to_string(),
+            format!("Destination: {moved_url}"),
+            copied_url.clone(),
+        ],
+    )
+    .await;
+    let moved = run_curl(&netrc_path, vec![moved_url.clone()]).await;
+    assert_eq!(
+        moved.stdout, content,
+        "curl should read the resource after COPY then MOVE"
+    );
+
+    run_curl(
+        &netrc_path,
+        vec![
+            "-X".to_string(),
+            "LOCK".to_string(),
+            "-H".to_string(),
+            "Content-Type: application/xml".to_string(),
+            "-H".to_string(),
+            "Timeout: Second-3600".to_string(),
+            "--data-binary".to_string(),
+            format!("@{}", path_arg(&lock_body_path)),
+            "-D".to_string(),
+            path_arg(&lock_headers_path),
+            moved_url.clone(),
+        ],
+    )
+    .await;
+    let lock_headers =
+        std::fs::read_to_string(&lock_headers_path).expect("curl LOCK headers should read");
+    let lock_token = header_value(&lock_headers, "Lock-Token")
+        .unwrap_or_else(|| panic!("LOCK response should include Lock-Token:\n{lock_headers}"));
+    assert!(
+        lock_token.starts_with('<') && lock_token.ends_with('>'),
+        "LOCK token should be enclosed for direct use in UNLOCK: {lock_token}"
+    );
+
+    run_curl(
+        &netrc_path,
+        vec![
+            "-X".to_string(),
+            "UNLOCK".to_string(),
+            "-H".to_string(),
+            format!("Lock-Token: {lock_token}"),
+            moved_url.clone(),
+        ],
+    )
+    .await;
+    run_curl(
+        &netrc_path,
+        vec!["-X".to_string(), "DELETE".to_string(), moved_url],
+    )
+    .await;
+    run_curl(
+        &netrc_path,
+        vec!["-X".to_string(), "DELETE".to_string(), source_url],
+    )
+    .await;
+    run_curl(
+        &netrc_path,
+        vec![
+            "-X".to_string(),
+            "DELETE".to_string(),
+            format!("{dir_url}/"),
+        ],
+    )
+    .await;
 
     server.stop().await;
 }
@@ -362,19 +844,7 @@ async fn test_webdav_cadaver_client_roundtrip() {
     std::fs::write(&rc_path, "").expect("cadaver rc file should be written");
     std::fs::write(&source_path, content).expect("cadaver source file should be written");
 
-    let netrc_path = work_dir.join(".netrc");
-    std::fs::write(
-        &netrc_path,
-        format!("machine 127.0.0.1\nlogin {username}\npassword {password}\n"),
-    )
-    .expect("cadaver netrc file should be written");
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-
-        std::fs::set_permissions(&netrc_path, std::fs::Permissions::from_mode(0o600))
-            .expect("cadaver netrc permissions should be restricted");
-    }
+    write_netrc_credentials(&work_dir, &username, &password);
 
     let endpoint =
         reqwest::Url::parse(&format!("{}/webdav/", server.base_url)).expect("valid WebDAV URL");

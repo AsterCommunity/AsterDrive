@@ -11,7 +11,7 @@ use crate::webdav::{
     child_relative_path, dav_element, decoded_path_string, ensure_parent_unlocked,
     ensure_system_file_name_allowed, ensure_unlocked, fs, fs_error_response, href_for_dav_path,
     href_for_relative, lock_token_submitted_element, multi_status, parent_relative_path,
-    request_path, status_element, system_file, text_element, xml_response,
+    request_origin, request_path, status_element, system_file, text_element, xml_response,
 };
 
 #[derive(Clone)]
@@ -30,6 +30,21 @@ struct DavChild {
 struct PartialMutationOutcome {
     failures: Vec<MultiStatusFailure>,
     destination_exists: bool,
+}
+
+struct PartialMutationContext<'a> {
+    dav_fs: &'a fs::AsterDavFs,
+    lock_system: &'a dyn DavLockSystem,
+    req: &'a HttpRequest,
+    prefix: &'a str,
+    is_move: bool,
+}
+
+struct PartialMutationNode<'a> {
+    source: &'a DavPath,
+    source_relative: &'a str,
+    destination: &'a DavPath,
+    destination_relative: &'a str,
 }
 
 pub(crate) async fn handle_mkcol(
@@ -58,9 +73,7 @@ pub(crate) async fn handle_mkcol(
     if let Err(resp) = ensure_parent_exists(dav_fs, &relative).await {
         return resp;
     }
-    let connection = req.connection_info();
-    let request_scheme = connection.scheme().to_string();
-    let request_host = connection.host().to_string();
+    let (request_scheme, request_host) = request_origin(req);
     if let Err(resp) = protocol::ensure_if_header(
         req.headers(),
         dav_fs,
@@ -144,9 +157,7 @@ pub(crate) async fn handle_delete(
     ) {
         return resp;
     }
-    let connection = req.connection_info();
-    let request_scheme = connection.scheme().to_string();
-    let request_host = connection.host().to_string();
+    let (request_scheme, request_host) = request_origin(req);
     if let Err(resp) = protocol::ensure_if_header(
         req.headers(),
         dav_fs,
@@ -236,9 +247,7 @@ pub(crate) async fn handle_copy_move(
         Err(resp) => return resp,
     };
 
-    let connection = req.connection_info();
-    let request_scheme = connection.scheme().to_string();
-    let request_host = connection.host().to_string();
+    let (request_scheme, request_host) = request_origin(req);
     let destination_relative = match protocol::destination_relative_path(
         req.headers(),
         prefix,
@@ -383,18 +392,24 @@ pub(crate) async fn handle_copy_move(
         let destination_conflicts =
             unsubmitted_lock_conflicts(lock_system, &destination, true, prefix, req).await;
         if !source_conflicts.is_empty() || !destination_conflicts.is_empty() {
-            let outcome = match partial_recursive_copy_move(
+            let ctx = PartialMutationContext {
                 dav_fs,
                 lock_system,
                 req,
                 prefix,
-                &source,
-                &source_relative,
-                &destination,
-                &destination_relative,
+                is_move,
+            };
+            let root = PartialMutationNode {
+                source: &source,
+                source_relative: &source_relative,
+                destination: &destination,
+                destination_relative: &destination_relative,
+            };
+            let outcome = match partial_recursive_copy_move(
+                &ctx,
+                root,
                 destination_exists,
                 destination_is_collection,
-                is_move,
             )
             .await
             {
@@ -411,12 +426,11 @@ pub(crate) async fn handle_copy_move(
         }
     }
 
-    if destination_deep {
-        if let Some(resp) =
+    if destination_deep
+        && let Some(resp) =
             locked_multi_status_response(lock_system, &destination, true, prefix, req).await
-        {
-            return resp;
-        }
+    {
+        return resp;
     }
 
     let result = if is_move {
@@ -459,9 +473,7 @@ async fn locked_multi_status_response(
     req: &HttpRequest,
 ) -> Option<HttpResponse> {
     let mut conflicts = lock_system.conflicting_locks(path, deep).await;
-    let connection = req.connection_info();
-    let request_scheme = connection.scheme().to_string();
-    let request_host = connection.host().to_string();
+    let (request_scheme, request_host) = request_origin(req);
     conflicts.retain(|lock| {
         let href = href_for_dav_path(prefix, &lock.path);
         let tokens = protocol::submitted_lock_tokens_for_path(
@@ -523,9 +535,7 @@ async fn unsubmitted_lock_conflicts(
     req: &HttpRequest,
 ) -> Vec<crate::webdav::dav::DavLock> {
     let mut conflicts = lock_system.conflicting_locks(path, deep).await;
-    let connection = req.connection_info();
-    let request_scheme = connection.scheme().to_string();
-    let request_host = connection.host().to_string();
+    let (request_scheme, request_host) = request_origin(req);
     conflicts.retain(|lock| {
         let href = href_for_dav_path(prefix, &lock.path);
         let tokens = protocol::submitted_lock_tokens_for_path(
@@ -540,72 +550,54 @@ async fn unsubmitted_lock_conflicts(
 }
 
 async fn partial_recursive_copy_move(
-    dav_fs: &fs::AsterDavFs,
-    lock_system: &dyn DavLockSystem,
-    req: &HttpRequest,
-    prefix: &str,
-    source: &DavPath,
-    source_relative: &str,
-    destination: &DavPath,
-    destination_relative: &str,
+    ctx: &PartialMutationContext<'_>,
+    root: PartialMutationNode<'_>,
     destination_exists: bool,
     destination_is_collection: bool,
-    is_move: bool,
 ) -> Result<PartialMutationOutcome, FsError> {
     let mut failures = Vec::new();
     if destination_exists && !destination_is_collection {
-        dav_fs.remove_file(destination).await?;
+        ctx.dav_fs.remove_file(root.destination).await?;
     } else if destination_exists && destination_is_collection {
-        let conflicts = collect_lock_failures(lock_system, req, prefix, destination, true).await;
+        let conflicts = collect_lock_failures(ctx, root.destination, true).await;
         if !conflicts.is_empty() {
             failures.extend(conflicts);
         }
     }
 
     if !destination_exists {
-        dav_fs.copy_dir_shallow(source, destination).await?;
+        ctx.dav_fs
+            .copy_dir_shallow(root.source, root.destination)
+            .await?;
     }
 
-    let source_children = collect_children(dav_fs, source, source_relative).await?;
+    let source_children = collect_children(ctx.dav_fs, root.source, root.source_relative).await?;
     for child in source_children {
-        let dest_relative =
-            replace_relative_prefix(&child.relative, source_relative, destination_relative);
+        let dest_relative = replace_relative_prefix(
+            &child.relative,
+            root.source_relative,
+            root.destination_relative,
+        );
         let dest_path = DavPath::new(&dest_relative).map_err(|_| FsError::BadRequest)?;
+        let child_node = PartialMutationNode {
+            source: &child.path,
+            source_relative: &child.relative,
+            destination: &dest_path,
+            destination_relative: &dest_relative,
+        };
         if child.is_dir {
-            partial_recursive_copy_move_dir(
-                dav_fs,
-                lock_system,
-                req,
-                prefix,
-                &child.path,
-                &child.relative,
-                &dest_path,
-                &dest_relative,
-                is_move,
-                &mut failures,
-            )
-            .await?;
+            partial_recursive_copy_move_dir(ctx, child_node, &mut failures).await?;
         } else {
-            partial_copy_move_file(
-                dav_fs,
-                lock_system,
-                req,
-                prefix,
-                &child.path,
-                &dest_path,
-                is_move,
-                &mut failures,
-            )
-            .await?;
+            partial_copy_move_file(ctx, child_node, &mut failures).await?;
         }
     }
 
-    if is_move {
-        let remaining = collect_children(dav_fs, source, source_relative).await?;
+    if ctx.is_move {
+        let remaining = collect_children(ctx.dav_fs, root.source, root.source_relative).await?;
         if remaining.is_empty() {
-            dav_fs.remove_dir(source).await?;
-            if lock_system.delete(source).await.is_err() {
-                tracing::warn!(path = %source_relative, "failed to delete WebDAV locks after partial move");
+            ctx.dav_fs.remove_dir(root.source).await?;
+            if ctx.lock_system.delete(root.source).await.is_err() {
+                tracing::warn!(path = %root.source_relative, "failed to delete WebDAV locks after partial move");
             }
         }
     }
@@ -617,90 +609,70 @@ async fn partial_recursive_copy_move(
 }
 
 fn partial_recursive_copy_move_dir<'a>(
-    dav_fs: &'a fs::AsterDavFs,
-    lock_system: &'a dyn DavLockSystem,
-    req: &'a HttpRequest,
-    prefix: &'a str,
-    source: &'a DavPath,
-    source_relative: &'a str,
-    destination: &'a DavPath,
-    destination_relative: &'a str,
-    is_move: bool,
+    ctx: &'a PartialMutationContext<'a>,
+    node: PartialMutationNode<'a>,
     failures: &'a mut Vec<MultiStatusFailure>,
 ) -> futures::future::LocalBoxFuture<'a, Result<(), FsError>> {
     Box::pin(async move {
-        if is_move {
-            let conflicts = collect_lock_failures(lock_system, req, prefix, source, true).await;
+        if ctx.is_move {
+            let conflicts = collect_lock_failures(ctx, node.source, true).await;
             if !conflicts.is_empty() {
                 failures.extend(conflicts);
                 return Ok(());
             }
         }
 
-        let dest_meta = match dav_fs.metadata(destination).await {
+        let dest_meta = match ctx.dav_fs.metadata(node.destination).await {
             Ok(meta) => Some(meta),
             Err(FsError::NotFound) => None,
             Err(err) => return Err(err),
         };
         if dest_meta.as_ref().is_some_and(|meta| !meta.is_dir()) {
-            let conflicts =
-                collect_lock_failures(lock_system, req, prefix, destination, false).await;
+            let conflicts = collect_lock_failures(ctx, node.destination, false).await;
             if !conflicts.is_empty() {
                 failures.extend(conflicts);
                 return Ok(());
             }
-            dav_fs.remove_file(destination).await?;
+            ctx.dav_fs.remove_file(node.destination).await?;
         } else if dest_meta.as_ref().is_some_and(|meta| meta.is_dir()) {
-            let conflicts =
-                collect_lock_failures(lock_system, req, prefix, destination, true).await;
+            let conflicts = collect_lock_failures(ctx, node.destination, true).await;
             if !conflicts.is_empty() {
                 failures.extend(conflicts);
                 return Ok(());
             }
         } else {
-            dav_fs.copy_dir_shallow(source, destination).await?;
+            ctx.dav_fs
+                .copy_dir_shallow(node.source, node.destination)
+                .await?;
         }
 
-        let children = collect_children(dav_fs, source, source_relative).await?;
+        let children = collect_children(ctx.dav_fs, node.source, node.source_relative).await?;
         for child in children {
-            let dest_relative =
-                replace_relative_prefix(&child.relative, source_relative, destination_relative);
+            let dest_relative = replace_relative_prefix(
+                &child.relative,
+                node.source_relative,
+                node.destination_relative,
+            );
             let dest_path = DavPath::new(&dest_relative).map_err(|_| FsError::BadRequest)?;
+            let child_node = PartialMutationNode {
+                source: &child.path,
+                source_relative: &child.relative,
+                destination: &dest_path,
+                destination_relative: &dest_relative,
+            };
             if child.is_dir {
-                partial_recursive_copy_move_dir(
-                    dav_fs,
-                    lock_system,
-                    req,
-                    prefix,
-                    &child.path,
-                    &child.relative,
-                    &dest_path,
-                    &dest_relative,
-                    is_move,
-                    failures,
-                )
-                .await?;
+                partial_recursive_copy_move_dir(ctx, child_node, failures).await?;
             } else {
-                partial_copy_move_file(
-                    dav_fs,
-                    lock_system,
-                    req,
-                    prefix,
-                    &child.path,
-                    &dest_path,
-                    is_move,
-                    failures,
-                )
-                .await?;
+                partial_copy_move_file(ctx, child_node, failures).await?;
             }
         }
 
-        if is_move {
-            let remaining = collect_children(dav_fs, source, source_relative).await?;
+        if ctx.is_move {
+            let remaining = collect_children(ctx.dav_fs, node.source, node.source_relative).await?;
             if remaining.is_empty() {
-                dav_fs.remove_dir(source).await?;
-                if lock_system.delete(source).await.is_err() {
-                    tracing::warn!(path = %source_relative, "failed to delete WebDAV locks after partial move");
+                ctx.dav_fs.remove_dir(node.source).await?;
+                if ctx.lock_system.delete(node.source).await.is_err() {
+                    tracing::warn!(path = %node.source_relative, "failed to delete WebDAV locks after partial move");
                 }
             }
         }
@@ -710,46 +682,39 @@ fn partial_recursive_copy_move_dir<'a>(
 }
 
 async fn partial_copy_move_file(
-    dav_fs: &fs::AsterDavFs,
-    lock_system: &dyn DavLockSystem,
-    req: &HttpRequest,
-    prefix: &str,
-    source: &DavPath,
-    destination: &DavPath,
-    is_move: bool,
+    ctx: &PartialMutationContext<'_>,
+    node: PartialMutationNode<'_>,
     failures: &mut Vec<MultiStatusFailure>,
 ) -> Result<(), FsError> {
-    if is_move {
-        let conflicts = collect_lock_failures(lock_system, req, prefix, source, false).await;
+    if ctx.is_move {
+        let conflicts = collect_lock_failures(ctx, node.source, false).await;
         if !conflicts.is_empty() {
             failures.extend(conflicts);
             return Ok(());
         }
     }
-    let dest_conflicts = collect_lock_failures(lock_system, req, prefix, destination, false).await;
+    let dest_conflicts = collect_lock_failures(ctx, node.destination, false).await;
     if !dest_conflicts.is_empty() {
         failures.extend(dest_conflicts);
         return Ok(());
     }
-    if is_move {
-        dav_fs.rename(source, destination).await?;
-        if lock_system.delete(source).await.is_err() {
-            tracing::warn!(path = %decoded_path_string(source), "failed to delete WebDAV locks after partial file move");
+    if ctx.is_move {
+        ctx.dav_fs.rename(node.source, node.destination).await?;
+        if ctx.lock_system.delete(node.source).await.is_err() {
+            tracing::warn!(path = %decoded_path_string(node.source), "failed to delete WebDAV locks after partial file move");
         }
     } else {
-        dav_fs.copy(source, destination).await?;
+        ctx.dav_fs.copy(node.source, node.destination).await?;
     }
     Ok(())
 }
 
 async fn collect_lock_failures(
-    lock_system: &dyn DavLockSystem,
-    req: &HttpRequest,
-    prefix: &str,
+    ctx: &PartialMutationContext<'_>,
     path: &DavPath,
     deep: bool,
 ) -> Vec<MultiStatusFailure> {
-    unsubmitted_lock_conflicts(lock_system, path, deep, prefix, req)
+    unsubmitted_lock_conflicts(ctx.lock_system, path, deep, ctx.prefix, ctx.req)
         .await
         .into_iter()
         .map(|lock| MultiStatusFailure {
