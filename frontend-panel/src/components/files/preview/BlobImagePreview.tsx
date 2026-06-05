@@ -1,6 +1,8 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useBlobUrl } from "@/hooks/useBlobUrl";
+import { useFrontendConfigStore } from "@/stores/frontendConfigStore";
+import type { PublicImagePreviewPreference } from "@/types/api";
 import { PreviewError } from "./PreviewError";
 import { PreviewLoadingState } from "./PreviewLoadingState";
 import type { PreviewableFileLike } from "./types";
@@ -30,6 +32,26 @@ function isHeifPreview(file: PreviewableFileLike) {
 	);
 }
 
+type ImagePreviewSource = "original" | "backend_preview";
+
+function chooseInitialPreviewSource(
+	file: PreviewableFileLike,
+	fallbackPath: string | undefined,
+	preference: PublicImagePreviewPreference,
+): ImagePreviewSource {
+	if (!fallbackPath) return "original";
+	if (isHeifPreview(file)) return "backend_preview";
+	return preference === "preview_first" ? "backend_preview" : "original";
+}
+
+function otherPreviewSource(
+	source: ImagePreviewSource,
+	fallbackPath: string | undefined,
+): ImagePreviewSource | null {
+	if (!fallbackPath) return null;
+	return source === "original" ? "backend_preview" : "original";
+}
+
 export function BlobImagePreview({
 	file,
 	fallbackPath,
@@ -37,24 +59,55 @@ export function BlobImagePreview({
 	path,
 }: BlobImagePreviewProps) {
 	const { t } = useTranslation("files");
+	const imagePreviewPreference = useFrontendConfigStore(
+		(state) => state.imagePreviewPreference,
+	);
 	const previewKey = `${file.name}\u0000${file.mime_type}\u0000${path}\u0000${
 		fallbackPath ?? ""
-	}`;
+	}\u0000${imagePreviewPreference}`;
+	const initialSource = chooseInitialPreviewSource(
+		file,
+		fallbackPath,
+		imagePreviewPreference,
+	);
+	const [fallbackAttemptKey, setFallbackAttemptKey] = useState<string | null>(
+		null,
+	);
+	const shouldUseAlternateSource = fallbackAttemptKey === previewKey;
+	const alternateSource = otherPreviewSource(initialSource, fallbackPath);
+	const activeSource =
+		shouldUseAlternateSource && alternateSource
+			? alternateSource
+			: initialSource;
+	const activePath =
+		activeSource === "backend_preview" ? (fallbackPath ?? path) : path;
+	const { blobUrl, error, loading, retry } = useBlobUrl(activePath);
+	const canTryAlternateSource =
+		!shouldUseAlternateSource && alternateSource !== null;
 	const [imageRenderFailedKey, setImageRenderFailedKey] = useState<
 		string | null
 	>(null);
-	const shouldPreferBackendPreview =
-		Boolean(fallbackPath) && isHeifPreview(file);
-	const imageRenderFailed = imageRenderFailedKey === previewKey;
-	const activePath = shouldPreferBackendPreview ? (fallbackPath ?? path) : path;
-	const { blobUrl, error, loading, retry } = useBlobUrl(activePath);
+	const imageRenderFailed =
+		imageRenderFailedKey === `${previewKey}\u0000${activeSource ?? ""}`;
+
+	useEffect(() => {
+		if (!loading && (error || !blobUrl) && canTryAlternateSource) {
+			setFallbackAttemptKey(previewKey);
+		}
+	}, [blobUrl, canTryAlternateSource, error, loading, previewKey]);
 
 	const handleImageError = () => {
-		setImageRenderFailedKey(previewKey);
+		if (canTryAlternateSource) {
+			setImageRenderFailedKey(null);
+			setFallbackAttemptKey(previewKey);
+			return;
+		}
+		setImageRenderFailedKey(`${previewKey}\u0000${activeSource}`);
 	};
 
 	const handleRetry = () => {
 		setImageRenderFailedKey(null);
+		setFallbackAttemptKey(null);
 		retry();
 	};
 
@@ -65,6 +118,11 @@ export function BlobImagePreview({
 	}
 
 	if (error || !blobUrl || imageRenderFailed) {
+		if ((error || !blobUrl) && canTryAlternateSource) {
+			return (
+				<PreviewLoadingState text={t("loading_preview")} className="h-full" />
+			);
+		}
 		return <PreviewError onRetry={handleRetry} />;
 	}
 

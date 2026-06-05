@@ -1,5 +1,6 @@
 use crate::config::definitions::{
-    ALL_CONFIGS, AUDIT_LOG_RECORDED_ACTIONS_KEY, OFFLINE_DOWNLOAD_ENGINE_KEY,
+    ALL_CONFIGS, AUDIT_LOG_RECORDED_ACTIONS_KEY, FRONTEND_IMAGE_PREVIEW_PREFERENCE_KEY,
+    OFFLINE_DOWNLOAD_ENGINE_KEY,
 };
 use crate::config::operations::OfflineDownloadEngine;
 use crate::types::{AuditAction, SystemConfigValueType};
@@ -66,6 +67,14 @@ pub fn get_schema() -> Vec<ConfigSchemaItem> {
 
 fn config_schema_options(key: &str) -> Vec<ConfigSchemaOption> {
     match key {
+        FRONTEND_IMAGE_PREVIEW_PREFERENCE_KEY => ["original_first", "preview_first"]
+            .into_iter()
+            .map(|value| ConfigSchemaOption {
+                value: value.to_string(),
+                label_i18n_key: format!("settings_image_preview_preference_option_{value}"),
+                group: "image_preview_preference".to_string(),
+            })
+            .collect(),
         OFFLINE_DOWNLOAD_ENGINE_KEY => OfflineDownloadEngine::ALL
             .iter()
             .map(|engine| ConfigSchemaOption {
@@ -153,5 +162,21 @@ mod tests {
             .collect::<Vec<_>>();
 
         assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn image_preview_preference_schema_options_cover_supported_values() {
+        let item = get_schema()
+            .into_iter()
+            .find(|item| item.key == FRONTEND_IMAGE_PREVIEW_PREFERENCE_KEY)
+            .expect("image preview preference config should be in schema");
+
+        let actual = item
+            .options
+            .iter()
+            .map(|option| option.value.as_str())
+            .collect::<Vec<_>>();
+
+        assert_eq!(actual, ["original_first", "preview_first"]);
     }
 }

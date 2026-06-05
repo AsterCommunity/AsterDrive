@@ -11,8 +11,9 @@ pub use actions::{
 };
 pub(crate) use public::invalidate_public_thumbnail_support_cache;
 pub use public::{
-    PUBLIC_CONFIG_CACHE_CONTROL, PublicBranding, PublicCustomConfig, get_public_branding,
-    get_public_custom_config, get_public_media_data_support, get_public_preview_apps,
+    PUBLIC_CONFIG_CACHE_CONTROL, PublicBranding, PublicCustomConfig, PublicFrontendConfig,
+    PublicFrontendMediaConfig, get_public_branding, get_public_custom_config,
+    get_public_frontend_config, get_public_media_data_support, get_public_preview_apps,
     get_public_thumbnail_support,
 };
 pub use schema::{

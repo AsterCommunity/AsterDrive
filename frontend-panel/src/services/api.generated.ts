@@ -2169,6 +2169,38 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/public/frontend-config": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["get_public_frontend_config"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/public/media-data-support": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["get_public_media_data_support"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/public/preview-apps": {
         parameters: {
             query?: never;
@@ -2211,6 +2243,22 @@ export interface paths {
         get?: never;
         put?: never;
         post: operations["redeem_remote_enrollment"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/public/thumbnail-support": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["get_public_thumbnail_support"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -4990,7 +5038,11 @@ export interface components {
             owner_user_id?: number | null;
             /** Format: int64 */
             size: number;
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description Total quota bytes for the file detail view: current `size` plus all
+             *     historical version sizes. `size` is only the current version size.
+             */
             storage_used?: number | null;
             /** Format: int64 */
             team_id?: number | null;
@@ -5111,7 +5163,11 @@ export interface components {
             parent_id?: number | null;
             /** Format: int64 */
             policy_id?: number | null;
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description Recursive quota bytes for the folder detail view: all live files in the
+             *     folder tree, including current file sizes plus historical versions.
+             */
             storage_used?: number | null;
             /** Format: int64 */
             team_id?: number | null;
@@ -6105,6 +6161,17 @@ export interface components {
             wordmark_dark_url: string;
             wordmark_light_url: string;
         };
+        PublicFrontendConfig: {
+            branding: components["schemas"]["PublicBranding"];
+            media: components["schemas"]["PublicFrontendMediaConfig"];
+            /** Format: int32 */
+            version: number;
+        };
+        PublicFrontendMediaConfig: {
+            image_preview_preference: components["schemas"]["PublicImagePreviewPreference"];
+        };
+        /** @enum {string} */
+        PublicImagePreviewPreference: "preview_first" | "original_first";
         PublicMediaDataKindSupport: {
             enabled: boolean;
             extensions?: string[];
@@ -14369,7 +14436,11 @@ export interface operations {
                             owner_user_id?: number | null;
                             /** Format: int64 */
                             size: number;
-                            /** Format: int64 */
+                            /**
+                             * Format: int64
+                             * @description Total quota bytes for the file detail view: current `size` plus all
+                             *     historical version sizes. `size` is only the current version size.
+                             */
                             storage_used?: number | null;
                             /** Format: int64 */
                             team_id?: number | null;
@@ -14444,7 +14515,11 @@ export interface operations {
                             owner_user_id?: number | null;
                             /** Format: int64 */
                             size: number;
-                            /** Format: int64 */
+                            /**
+                             * Format: int64
+                             * @description Total quota bytes for the file detail view: current `size` plus all
+                             *     historical version sizes. `size` is only the current version size.
+                             */
                             storage_used?: number | null;
                             /** Format: int64 */
                             team_id?: number | null;
@@ -14683,7 +14758,11 @@ export interface operations {
                             owner_user_id?: number | null;
                             /** Format: int64 */
                             size: number;
-                            /** Format: int64 */
+                            /**
+                             * Format: int64
+                             * @description Total quota bytes for the file detail view: current `size` plus all
+                             *     historical version sizes. `size` is only the current version size.
+                             */
                             storage_used?: number | null;
                             /** Format: int64 */
                             team_id?: number | null;
@@ -14853,7 +14932,11 @@ export interface operations {
                             owner_user_id?: number | null;
                             /** Format: int64 */
                             size: number;
-                            /** Format: int64 */
+                            /**
+                             * Format: int64
+                             * @description Total quota bytes for the file detail view: current `size` plus all
+                             *     historical version sizes. `size` is only the current version size.
+                             */
                             storage_used?: number | null;
                             /** Format: int64 */
                             team_id?: number | null;
@@ -14961,7 +15044,11 @@ export interface operations {
                             owner_user_id?: number | null;
                             /** Format: int64 */
                             size: number;
-                            /** Format: int64 */
+                            /**
+                             * Format: int64
+                             * @description Total quota bytes for the file detail view: current `size` plus all
+                             *     historical version sizes. `size` is only the current version size.
+                             */
                             storage_used?: number | null;
                             /** Format: int64 */
                             team_id?: number | null;
@@ -15125,7 +15212,11 @@ export interface operations {
                             owner_user_id?: number | null;
                             /** Format: int64 */
                             size: number;
-                            /** Format: int64 */
+                            /**
+                             * Format: int64
+                             * @description Total quota bytes for the file detail view: current `size` plus all
+                             *     historical version sizes. `size` is only the current version size.
+                             */
                             storage_used?: number | null;
                             /** Format: int64 */
                             team_id?: number | null;
@@ -15212,7 +15303,11 @@ export interface operations {
                             owner_user_id?: number | null;
                             /** Format: int64 */
                             size: number;
-                            /** Format: int64 */
+                            /**
+                             * Format: int64
+                             * @description Total quota bytes for the file detail view: current `size` plus all
+                             *     historical version sizes. `size` is only the current version size.
+                             */
                             storage_used?: number | null;
                             /** Format: int64 */
                             team_id?: number | null;
@@ -15521,7 +15616,11 @@ export interface operations {
                             owner_user_id?: number | null;
                             /** Format: int64 */
                             size: number;
-                            /** Format: int64 */
+                            /**
+                             * Format: int64
+                             * @description Total quota bytes for the file detail view: current `size` plus all
+                             *     historical version sizes. `size` is only the current version size.
+                             */
                             storage_used?: number | null;
                             /** Format: int64 */
                             team_id?: number | null;
@@ -15853,7 +15952,11 @@ export interface operations {
                             owner_user_id?: number | null;
                             /** Format: int64 */
                             size: number;
-                            /** Format: int64 */
+                            /**
+                             * Format: int64
+                             * @description Total quota bytes for the file detail view: current `size` plus all
+                             *     historical version sizes. `size` is only the current version size.
+                             */
                             storage_used?: number | null;
                             /** Format: int64 */
                             team_id?: number | null;
@@ -16030,7 +16133,11 @@ export interface operations {
                             parent_id?: number | null;
                             /** Format: int64 */
                             policy_id?: number | null;
-                            /** Format: int64 */
+                            /**
+                             * Format: int64
+                             * @description Recursive quota bytes for the folder detail view: all live files in the
+                             *     folder tree, including current file sizes plus historical versions.
+                             */
                             storage_used?: number | null;
                             /** Format: int64 */
                             team_id?: number | null;
@@ -16190,7 +16297,11 @@ export interface operations {
                             parent_id?: number | null;
                             /** Format: int64 */
                             policy_id?: number | null;
-                            /** Format: int64 */
+                            /**
+                             * Format: int64
+                             * @description Recursive quota bytes for the folder detail view: all live files in the
+                             *     folder tree, including current file sizes plus historical versions.
+                             */
                             storage_used?: number | null;
                             /** Format: int64 */
                             team_id?: number | null;
@@ -16303,7 +16414,11 @@ export interface operations {
                             parent_id?: number | null;
                             /** Format: int64 */
                             policy_id?: number | null;
-                            /** Format: int64 */
+                            /**
+                             * Format: int64
+                             * @description Recursive quota bytes for the folder detail view: all live files in the
+                             *     folder tree, including current file sizes plus historical versions.
+                             */
                             storage_used?: number | null;
                             /** Format: int64 */
                             team_id?: number | null;
@@ -16366,7 +16481,11 @@ export interface operations {
                             parent_id?: number | null;
                             /** Format: int64 */
                             policy_id?: number | null;
-                            /** Format: int64 */
+                            /**
+                             * Format: int64
+                             * @description Recursive quota bytes for the folder detail view: all live files in the
+                             *     folder tree, including current file sizes plus historical versions.
+                             */
                             storage_used?: number | null;
                             /** Format: int64 */
                             team_id?: number | null;
@@ -16433,7 +16552,11 @@ export interface operations {
                             parent_id?: number | null;
                             /** Format: int64 */
                             policy_id?: number | null;
-                            /** Format: int64 */
+                            /**
+                             * Format: int64
+                             * @description Recursive quota bytes for the folder detail view: all live files in the
+                             *     folder tree, including current file sizes plus historical versions.
+                             */
                             storage_used?: number | null;
                             /** Format: int64 */
                             team_id?: number | null;
@@ -16659,6 +16782,68 @@ export interface operations {
             };
         };
     };
+    get_public_frontend_config: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Public frontend bootstrap config */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        code: components["schemas"]["ErrorCode"];
+                        data?: {
+                            branding: components["schemas"]["PublicBranding"];
+                            media: components["schemas"]["PublicFrontendMediaConfig"];
+                            /** Format: int32 */
+                            version: number;
+                        };
+                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        msg: string;
+                    };
+                };
+            };
+        };
+    };
+    get_public_media_data_support: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Public media metadata support config */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        code: components["schemas"]["ErrorCode"];
+                        data?: {
+                            enabled: boolean;
+                            kinds: components["schemas"]["PublicMediaDataKindsSupport"];
+                            /** Format: int64 */
+                            max_source_bytes: number;
+                            /** Format: int32 */
+                            version: number;
+                        };
+                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        msg: string;
+                    };
+                };
+            };
+        };
+    };
     get_public_preview_apps: {
         parameters: {
             query?: never;
@@ -16730,6 +16915,35 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ApiResponse_RemoteEnrollmentBootstrap"];
+                };
+            };
+        };
+    };
+    get_public_thumbnail_support: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Public thumbnail support config */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        code: components["schemas"]["ErrorCode"];
+                        data?: {
+                            extensions?: string[];
+                            /** Format: int32 */
+                            version: number;
+                        };
+                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        msg: string;
+                    };
                 };
             };
         };
@@ -19630,7 +19844,11 @@ export interface operations {
                             owner_user_id?: number | null;
                             /** Format: int64 */
                             size: number;
-                            /** Format: int64 */
+                            /**
+                             * Format: int64
+                             * @description Total quota bytes for the file detail view: current `size` plus all
+                             *     historical version sizes. `size` is only the current version size.
+                             */
                             storage_used?: number | null;
                             /** Format: int64 */
                             team_id?: number | null;
@@ -19708,7 +19926,11 @@ export interface operations {
                             owner_user_id?: number | null;
                             /** Format: int64 */
                             size: number;
-                            /** Format: int64 */
+                            /**
+                             * Format: int64
+                             * @description Total quota bytes for the file detail view: current `size` plus all
+                             *     historical version sizes. `size` is only the current version size.
+                             */
                             storage_used?: number | null;
                             /** Format: int64 */
                             team_id?: number | null;
@@ -20010,7 +20232,11 @@ export interface operations {
                             owner_user_id?: number | null;
                             /** Format: int64 */
                             size: number;
-                            /** Format: int64 */
+                            /**
+                             * Format: int64
+                             * @description Total quota bytes for the file detail view: current `size` plus all
+                             *     historical version sizes. `size` is only the current version size.
+                             */
                             storage_used?: number | null;
                             /** Format: int64 */
                             team_id?: number | null;
@@ -20207,7 +20433,11 @@ export interface operations {
                             owner_user_id?: number | null;
                             /** Format: int64 */
                             size: number;
-                            /** Format: int64 */
+                            /**
+                             * Format: int64
+                             * @description Total quota bytes for the file detail view: current `size` plus all
+                             *     historical version sizes. `size` is only the current version size.
+                             */
                             storage_used?: number | null;
                             /** Format: int64 */
                             team_id?: number | null;
@@ -20333,7 +20563,11 @@ export interface operations {
                             owner_user_id?: number | null;
                             /** Format: int64 */
                             size: number;
-                            /** Format: int64 */
+                            /**
+                             * Format: int64
+                             * @description Total quota bytes for the file detail view: current `size` plus all
+                             *     historical version sizes. `size` is only the current version size.
+                             */
                             storage_used?: number | null;
                             /** Format: int64 */
                             team_id?: number | null;
@@ -20508,7 +20742,11 @@ export interface operations {
                             owner_user_id?: number | null;
                             /** Format: int64 */
                             size: number;
-                            /** Format: int64 */
+                            /**
+                             * Format: int64
+                             * @description Total quota bytes for the file detail view: current `size` plus all
+                             *     historical version sizes. `size` is only the current version size.
+                             */
                             storage_used?: number | null;
                             /** Format: int64 */
                             team_id?: number | null;
@@ -20604,7 +20842,11 @@ export interface operations {
                             owner_user_id?: number | null;
                             /** Format: int64 */
                             size: number;
-                            /** Format: int64 */
+                            /**
+                             * Format: int64
+                             * @description Total quota bytes for the file detail view: current `size` plus all
+                             *     historical version sizes. `size` is only the current version size.
+                             */
                             storage_used?: number | null;
                             /** Format: int64 */
                             team_id?: number | null;
@@ -20958,7 +21200,11 @@ export interface operations {
                             owner_user_id?: number | null;
                             /** Format: int64 */
                             size: number;
-                            /** Format: int64 */
+                            /**
+                             * Format: int64
+                             * @description Total quota bytes for the file detail view: current `size` plus all
+                             *     historical version sizes. `size` is only the current version size.
+                             */
                             storage_used?: number | null;
                             /** Format: int64 */
                             team_id?: number | null;
@@ -21344,7 +21590,11 @@ export interface operations {
                             owner_user_id?: number | null;
                             /** Format: int64 */
                             size: number;
-                            /** Format: int64 */
+                            /**
+                             * Format: int64
+                             * @description Total quota bytes for the file detail view: current `size` plus all
+                             *     historical version sizes. `size` is only the current version size.
+                             */
                             storage_used?: number | null;
                             /** Format: int64 */
                             team_id?: number | null;
@@ -21550,7 +21800,11 @@ export interface operations {
                             parent_id?: number | null;
                             /** Format: int64 */
                             policy_id?: number | null;
-                            /** Format: int64 */
+                            /**
+                             * Format: int64
+                             * @description Recursive quota bytes for the folder detail view: all live files in the
+                             *     folder tree, including current file sizes plus historical versions.
+                             */
                             storage_used?: number | null;
                             /** Format: int64 */
                             team_id?: number | null;
@@ -21737,7 +21991,11 @@ export interface operations {
                             parent_id?: number | null;
                             /** Format: int64 */
                             policy_id?: number | null;
-                            /** Format: int64 */
+                            /**
+                             * Format: int64
+                             * @description Recursive quota bytes for the folder detail view: all live files in the
+                             *     folder tree, including current file sizes plus historical versions.
+                             */
                             storage_used?: number | null;
                             /** Format: int64 */
                             team_id?: number | null;
@@ -21868,7 +22126,11 @@ export interface operations {
                             parent_id?: number | null;
                             /** Format: int64 */
                             policy_id?: number | null;
-                            /** Format: int64 */
+                            /**
+                             * Format: int64
+                             * @description Recursive quota bytes for the folder detail view: all live files in the
+                             *     folder tree, including current file sizes plus historical versions.
+                             */
                             storage_used?: number | null;
                             /** Format: int64 */
                             team_id?: number | null;
@@ -21940,7 +22202,11 @@ export interface operations {
                             parent_id?: number | null;
                             /** Format: int64 */
                             policy_id?: number | null;
-                            /** Format: int64 */
+                            /**
+                             * Format: int64
+                             * @description Recursive quota bytes for the folder detail view: all live files in the
+                             *     folder tree, including current file sizes plus historical versions.
+                             */
                             storage_used?: number | null;
                             /** Format: int64 */
                             team_id?: number | null;
@@ -22016,7 +22282,11 @@ export interface operations {
                             parent_id?: number | null;
                             /** Format: int64 */
                             policy_id?: number | null;
-                            /** Format: int64 */
+                            /**
+                             * Format: int64
+                             * @description Recursive quota bytes for the folder detail view: all live files in the
+                             *     folder tree, including current file sizes plus historical versions.
+                             */
                             storage_used?: number | null;
                             /** Format: int64 */
                             team_id?: number | null;

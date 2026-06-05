@@ -1,8 +1,9 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { BlobImagePreview } from "@/components/files/preview/BlobImagePreview";
 
 const mockState = vi.hoisted(() => ({
+	imagePreviewPreference: "original_first",
 	retry: vi.fn(),
 	useBlobUrl: vi.fn(),
 }));
@@ -17,10 +18,20 @@ vi.mock("@/hooks/useBlobUrl", () => ({
 	useBlobUrl: (...args: unknown[]) => mockState.useBlobUrl(...args),
 }));
 
+vi.mock("@/stores/frontendConfigStore", () => ({
+	useFrontendConfigStore: (
+		selector: (state: { imagePreviewPreference: string }) => unknown,
+	) =>
+		selector({
+			imagePreviewPreference: mockState.imagePreviewPreference,
+		}),
+}));
+
 const file = { name: "preview.png", mime_type: "image/png" };
 
 describe("BlobImagePreview", () => {
 	beforeEach(() => {
+		mockState.imagePreviewPreference = "original_first";
 		mockState.retry.mockReset();
 		mockState.useBlobUrl.mockReset();
 		mockState.useBlobUrl.mockReturnValue({
@@ -165,7 +176,50 @@ describe("BlobImagePreview", () => {
 		expect(mockState.useBlobUrl).toHaveBeenCalledWith("/files/2/image-preview");
 	});
 
-	it("does not switch ordinary images to the backend preview on render errors", () => {
+	it("uses the original image first when the public preference is original_first", () => {
+		render(
+			<BlobImagePreview
+				file={file}
+				path="/files/1/download"
+				fallbackPath="/files/1/image-preview"
+			/>,
+		);
+
+		expect(mockState.useBlobUrl).toHaveBeenCalledWith("/files/1/download");
+	});
+
+	it("uses the backend preview first when the public preference is preview_first", () => {
+		mockState.imagePreviewPreference = "preview_first";
+
+		render(
+			<BlobImagePreview
+				file={file}
+				path="/files/1/download"
+				fallbackPath="/files/1/image-preview"
+			/>,
+		);
+
+		expect(mockState.useBlobUrl).toHaveBeenCalledWith("/files/1/image-preview");
+	});
+
+	it("uses the original path when preview_first has no backend preview path", () => {
+		mockState.imagePreviewPreference = "preview_first";
+
+		render(<BlobImagePreview file={file} path="/files/1/download" />);
+
+		expect(mockState.useBlobUrl).toHaveBeenCalledWith("/files/1/download");
+	});
+
+	it("switches ordinary images to the backend preview on render errors", async () => {
+		mockState.useBlobUrl.mockImplementation((path: string) => ({
+			blobUrl: path.includes("image-preview")
+				? "blob:fallback"
+				: "blob:original",
+			error: false,
+			loading: false,
+			retry: mockState.retry,
+		}));
+
 		render(
 			<BlobImagePreview
 				file={file}
@@ -176,17 +230,78 @@ describe("BlobImagePreview", () => {
 
 		fireEvent.error(screen.getByRole("img", { name: "preview.png" }));
 
-		expect(mockState.useBlobUrl).toHaveBeenLastCalledWith("/files/1/download");
-		expect(screen.getByText("preview_load_failed")).toBeInTheDocument();
+		await waitFor(() =>
+			expect(mockState.useBlobUrl).toHaveBeenLastCalledWith(
+				"/files/1/image-preview",
+			),
+		);
+		expect(screen.getByRole("img", { name: "preview.png" })).toHaveAttribute(
+			"src",
+			"blob:fallback",
+		);
 	});
 
-	it("shows the retry state when the HEIC backend preview cannot render", () => {
+	it("switches to the original when preview_first backend preview loading fails", async () => {
+		mockState.imagePreviewPreference = "preview_first";
+		mockState.useBlobUrl.mockImplementation((path: string) => ({
+			blobUrl: path.includes("image-preview") ? null : "blob:original",
+			error: path.includes("image-preview"),
+			loading: false,
+			retry: mockState.retry,
+		}));
+
+		render(
+			<BlobImagePreview
+				file={file}
+				path="/files/1/download"
+				fallbackPath="/files/1/image-preview"
+			/>,
+		);
+
+		await waitFor(() =>
+			expect(mockState.useBlobUrl).toHaveBeenLastCalledWith(
+				"/files/1/download",
+			),
+		);
+		expect(screen.getByRole("img", { name: "preview.png" })).toHaveAttribute(
+			"src",
+			"blob:original",
+		);
+	});
+
+	it("shows the retry state after both preview sources fail", async () => {
 		mockState.useBlobUrl.mockReturnValue({
-			blobUrl: "blob:fallback",
-			error: false,
+			blobUrl: null,
+			error: true,
 			loading: false,
 			retry: mockState.retry,
 		});
+
+		render(
+			<BlobImagePreview
+				file={file}
+				path="/files/1/download"
+				fallbackPath="/files/1/image-preview"
+			/>,
+		);
+
+		await waitFor(() =>
+			expect(mockState.useBlobUrl).toHaveBeenLastCalledWith(
+				"/files/1/image-preview",
+			),
+		);
+		expect(screen.getByText("preview_load_failed")).toBeInTheDocument();
+	});
+
+	it("falls back to the original when the HEIC backend preview cannot render", async () => {
+		mockState.useBlobUrl.mockImplementation((path: string) => ({
+			blobUrl: path.includes("image-preview")
+				? "blob:fallback"
+				: "blob:original",
+			error: false,
+			loading: false,
+			retry: mockState.retry,
+		}));
 
 		render(
 			<BlobImagePreview
@@ -198,6 +313,14 @@ describe("BlobImagePreview", () => {
 
 		fireEvent.error(screen.getByRole("img", { name: "photo.heic" }));
 
-		expect(screen.getByText("preview_load_failed")).toBeInTheDocument();
+		await waitFor(() =>
+			expect(mockState.useBlobUrl).toHaveBeenLastCalledWith(
+				"/files/1/download",
+			),
+		);
+		expect(screen.getByRole("img", { name: "photo.heic" })).toHaveAttribute(
+			"src",
+			"blob:original",
+		);
 	});
 });

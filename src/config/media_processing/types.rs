@@ -117,7 +117,6 @@ pub struct PublicMediaDataKindSupport {
     pub enabled: bool,
     #[serde(rename = "match")]
     pub match_kind: PublicMediaDataSupportMatch,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub extensions: Vec<String>,
 }
 
@@ -136,6 +135,31 @@ pub struct PublicMediaDataSupport {
     pub enabled: bool,
     pub max_source_bytes: i64,
     pub kinds: PublicMediaDataKindsSupport,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+#[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
+pub enum PublicImagePreviewPreference {
+    PreviewFirst,
+    OriginalFirst,
+}
+
+impl PublicImagePreviewPreference {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::PreviewFirst => "preview_first",
+            Self::OriginalFirst => "original_first",
+        }
+    }
+
+    pub fn from_config_value(value: &str) -> Self {
+        match value.trim() {
+            "preview_first" => Self::PreviewFirst,
+            "original_first" => Self::OriginalFirst,
+            _ => Self::OriginalFirst,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]

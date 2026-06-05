@@ -11,14 +11,17 @@ import {
 	setPublicSiteUrls,
 } from "@/lib/publicSiteUrl";
 import { adminConfigService } from "@/services/adminService";
-import { useBrandingStore } from "@/stores/brandingStore";
+import {
+	setFrontendSiteUrlState,
+	useFrontendConfigStore,
+} from "@/stores/frontendConfigStore";
 
 const PUBLIC_SITE_URL_KEY = "public_site_url";
 const ADMIN_SITE_SETTINGS_PATH = "/admin/settings/site";
 
 function syncPublicSiteUrlRuntime(value: string[] | null | undefined) {
 	const siteUrl = setPublicSiteUrls(value);
-	useBrandingStore.setState({ siteUrl });
+	setFrontendSiteUrlState(siteUrl);
 	return getPublicSiteUrls();
 }
 
@@ -43,8 +46,10 @@ function normalizeConfigValue(value: unknown) {
 export function AdminSiteUrlMismatchPrompt() {
 	const { t } = useTranslation("admin");
 	const navigate = useNavigate();
-	const isBrandingLoaded = useBrandingStore((state) => state.isLoaded);
-	const configuredSiteUrl = useBrandingStore((state) => state.siteUrl);
+	const isFrontendConfigLoaded = useFrontendConfigStore(
+		(state) => state.isLoaded,
+	);
+	const configuredSiteUrl = useFrontendConfigStore((state) => state.siteUrl);
 	const siteUrlPromptCheckedRef = useRef(false);
 	const [siteUrlMismatchDialogOpen, setSiteUrlMismatchDialogOpen] =
 		useState(false);
@@ -63,7 +68,7 @@ export function AdminSiteUrlMismatchPrompt() {
 	useEffect(() => {
 		if (
 			siteUrlPromptCheckedRef.current ||
-			!isBrandingLoaded ||
+			!isFrontendConfigLoaded ||
 			typeof window === "undefined"
 		) {
 			return;
@@ -110,7 +115,7 @@ export function AdminSiteUrlMismatchPrompt() {
 		return () => {
 			cancelled = true;
 		};
-	}, [isBrandingLoaded, navigate]);
+	}, [isFrontendConfigLoaded, navigate]);
 
 	const handleUpdatePublicSiteUrl = useCallback(async () => {
 		if (!siteUrlMismatchCurrentOrigin) {

@@ -5,7 +5,7 @@ import AdminRemoteNodesPage from "@/pages/admin/AdminRemoteNodesPage";
 
 const mockState = vi.hoisted(() => ({
 	clipboard: vi.fn(),
-	brandingSiteUrl: null as string | null,
+	frontendConfigSiteUrl: null as string | null,
 	handleApiError: vi.fn(),
 	reload: vi.fn(),
 	searchParams: "",
@@ -392,12 +392,12 @@ vi.mock("@/services/adminService", () => ({
 	adminRemoteNodeService: adminRemoteNodeServiceMocks,
 }));
 
-vi.mock("@/stores/brandingStore", () => ({
-	useBrandingStore: (
+vi.mock("@/stores/frontendConfigStore", () => ({
+	useFrontendConfigStore: (
 		selector: (state: { siteUrl: string | null }) => unknown,
 	) =>
 		selector({
-			siteUrl: mockState.brandingSiteUrl,
+			siteUrl: mockState.frontendConfigSiteUrl,
 		}),
 }));
 
@@ -409,7 +409,7 @@ describe("AdminRemoteNodesPage", () => {
 	beforeEach(() => {
 		mockState.clipboard.mockReset();
 		mockState.clipboard.mockResolvedValue(undefined);
-		mockState.brandingSiteUrl = null;
+		mockState.frontendConfigSiteUrl = null;
 		mockState.handleApiError.mockReset();
 		mockState.reload.mockReset();
 		mockState.searchParams = "";
@@ -505,7 +505,7 @@ describe("AdminRemoteNodesPage", () => {
 	});
 
 	it("opens the create dialog when the primary public site URL is set", () => {
-		mockState.brandingSiteUrl = "https://drive.example.com";
+		mockState.frontendConfigSiteUrl = "https://drive.example.com";
 
 		renderPage();
 
@@ -518,7 +518,7 @@ describe("AdminRemoteNodesPage", () => {
 	});
 
 	it("creates a remote node, prepares enrollment, copies and verifies the command", async () => {
-		mockState.brandingSiteUrl = "https://drive.example.com";
+		mockState.frontendConfigSiteUrl = "https://drive.example.com";
 		mockState.useApiList.mockReturnValue({
 			items: [],
 			loading: false,

@@ -36,7 +36,7 @@ import {
 import { isImeComposingKeyEvent } from "@/lib/keyboard";
 import { setPublicSiteUrls } from "@/lib/publicSiteUrl";
 import { useAuthStore } from "@/stores/authStore";
-import { useBrandingStore } from "@/stores/brandingStore";
+import { setFrontendSiteUrlState } from "@/stores/frontendConfigStore";
 import { useThemeStore } from "@/stores/themeStore";
 
 const MOBILE_BREAKPOINT = 768;
@@ -48,7 +48,7 @@ const SAVE_BAR_EXIT_DURATION_MS = 140;
 
 function syncPublicSiteUrlsRuntime(value: string[] | null | undefined) {
 	const siteUrl = setPublicSiteUrls(value);
-	useBrandingStore.setState({ siteUrl });
+	setFrontendSiteUrlState(siteUrl);
 }
 
 export default function AdminSettingsPage({

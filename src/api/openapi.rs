@@ -71,7 +71,10 @@ use utoipa::{Modify, OpenApi};
 
         // public：登录前也能读取的公开站点配置，例如品牌信息和预览应用列表。
         crate::api::routes::public::get_branding,
+        crate::api::routes::public::get_frontend_config,
         crate::api::routes::public::get_preview_apps,
+        crate::api::routes::public::get_thumbnail_support,
+        crate::api::routes::public::get_media_data_support,
         crate::api::routes::public::redeem_remote_enrollment,
         crate::api::routes::public::ack_remote_enrollment,
 
@@ -587,6 +590,9 @@ use utoipa::{Modify, OpenApi};
             crate::services::config_service::TemplateVariableGroup,
             crate::services::config_service::ConfigActionType,
             crate::services::config_service::PublicBranding,
+            crate::services::config_service::PublicFrontendConfig,
+            crate::services::config_service::PublicFrontendMediaConfig,
+            crate::config::media_processing::PublicImagePreviewPreference,
             crate::config::media_processing::PublicMediaDataKindSupport,
             crate::config::media_processing::PublicMediaDataKindsSupport,
             crate::config::media_processing::PublicMediaDataSupport,

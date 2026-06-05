@@ -49,7 +49,7 @@ import {
 	readAdminTemplateVariablesCache,
 } from "@/lib/adminConfigMetadataCache";
 import { adminConfigService } from "@/services/adminService";
-import { useBrandingStore } from "@/stores/brandingStore";
+import { useFrontendConfigStore } from "@/stores/frontendConfigStore";
 import { useMediaDataSupportStore } from "@/stores/mediaDataSupportStore";
 import { usePreviewAppStore } from "@/stores/previewAppStore";
 import { useThumbnailSupportStore } from "@/stores/thumbnailSupportStore";
@@ -86,6 +86,10 @@ const PUBLIC_BRANDING_CONFIG_KEYS = new Set([
 	"branding_favicon_url",
 	"branding_wordmark_dark_url",
 	"branding_wordmark_light_url",
+]);
+const FRONTEND_CONFIG_KEYS = new Set([
+	...PUBLIC_BRANDING_CONFIG_KEYS,
+	"frontend_image_preview_preference",
 ]);
 const MEDIA_DATA_SUPPORT_CONFIG_KEYS = new Set([
 	MEDIA_PROCESSING_CONFIG_KEY,
@@ -898,8 +902,8 @@ export function useAdminSettingsData({
 			const mediaDataSupportChanged = changedExistingConfigs.some((config) =>
 				MEDIA_DATA_SUPPORT_CONFIG_KEYS.has(config.key),
 			);
-			const publicBrandingChanged = changedExistingConfigs.some((config) =>
-				PUBLIC_BRANDING_CONFIG_KEYS.has(config.key),
+			const frontendConfigChanged = changedExistingConfigs.some((config) =>
+				FRONTEND_CONFIG_KEYS.has(config.key),
 			);
 			const nextConfigsByKey = new Map(
 				configs.map((config) => [config.key, config] as const),
@@ -956,9 +960,9 @@ export function useAdminSettingsData({
 			if (Array.isArray(nextPublicSiteUrl)) {
 				onPublicSiteUrlChanged(nextPublicSiteUrl);
 			}
-			if (publicBrandingChanged) {
-				useBrandingStore.getState().invalidate();
-				void useBrandingStore.getState().load({ force: true });
+			if (frontendConfigChanged) {
+				useFrontendConfigStore.getState().invalidate();
+				void useFrontendConfigStore.getState().load({ force: true });
 			}
 			if (previewAppsChanged) {
 				usePreviewAppStore.getState().invalidate();

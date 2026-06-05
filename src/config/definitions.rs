@@ -113,6 +113,7 @@ pub const THUMBNAIL_MAX_SOURCE_BYTES_KEY: &str = "thumbnail_max_source_bytes";
 pub const MEDIA_METADATA_ENABLED_KEY: &str = "media_metadata_enabled";
 pub const MEDIA_METADATA_MAX_SOURCE_BYTES_KEY: &str = "media_metadata_max_source_bytes";
 pub const MEDIA_PROCESSING_REGISTRY_JSON_KEY: &str = "media_processing_registry_json";
+pub const FRONTEND_IMAGE_PREVIEW_PREFERENCE_KEY: &str = "frontend_image_preview_preference";
 pub const THUMBNAIL_DEFAULT_PROCESSOR_KEY: &str = "thumbnail_default_processor";
 pub const THUMBNAIL_VIPS_CLI_ENABLED_KEY: &str = "thumbnail_vips_cli_enabled";
 pub const THUMBNAIL_VIPS_COMMAND_KEY: &str = "thumbnail_vips_command";
@@ -1186,6 +1187,17 @@ pub static ALL_CONFIGS: &[ConfigDef] = &[
         is_sensitive: false,
         category: CONFIG_CATEGORY_FILE_PROCESSING_MEDIA,
         description: "Unified media processing registry for thumbnail and metadata processors",
+    },
+    ConfigDef {
+        key: FRONTEND_IMAGE_PREVIEW_PREFERENCE_KEY,
+        label_i18n_key: "settings_item_frontend_image_preview_preference_label",
+        description_i18n_key: "settings_item_frontend_image_preview_preference_desc",
+        value_type: SystemConfigValueType::String,
+        default_fn: || "original_first".to_string(),
+        requires_restart: false,
+        is_sensitive: false,
+        category: CONFIG_CATEGORY_FILE_PROCESSING_MEDIA,
+        description: "Default web frontend image preview strategy: original_first or preview_first",
     },
     // ── User ───────────────────────────────────────────────
     ConfigDef {

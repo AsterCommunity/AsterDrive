@@ -29,7 +29,7 @@ import {
 	type SortOrder,
 } from "@/lib/pagination";
 import { adminRemoteNodeService } from "@/services/adminService";
-import { useBrandingStore } from "@/stores/brandingStore";
+import { useFrontendConfigStore } from "@/stores/frontendConfigStore";
 import type { AdminRemoteNodeSortBy } from "@/types/adminSort";
 import type {
 	RemoteCreateIngressProfileRequest,
@@ -64,7 +64,7 @@ function requiresDirectIngressProfileBaseUrl(node: RemoteNodeInfo) {
 export function useAdminRemoteNodesPageController() {
 	const { t } = useTranslation("admin");
 	usePageTitle(t("remote_nodes"));
-	const primarySiteUrl = useBrandingStore((state) => state.siteUrl);
+	const primarySiteUrl = useFrontendConfigStore((state) => state.siteUrl);
 	const [searchParams, setSearchParams] = useSearchParams();
 	const [offset, setOffset] = useState(() =>
 		parseOffsetSearchParam(searchParams.get("offset")),
