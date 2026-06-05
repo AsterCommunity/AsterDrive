@@ -1,6 +1,6 @@
 [package]
 name = "aster_drive"
-version = "0.2.6"
+version = "0.2.7-test-do-not-use-in-production.2"
 description = "A self-hosted cloud storage solution."
 authors = [
     "AptS-1547 <apts-1547@esaps.net>",
@@ -57,6 +57,14 @@ cli = ["server", "dep:clap"]
 metrics = ["server", "dep:prometheus", "dep:sysinfo"]
 openapi = ["dep:utoipa", "dep:utoipa-swagger-ui", "api-docs-macros/openapi"]
 full = ["server", "cli", "metrics", "openapi"]
+jemalloc = ["dep:tikv-jemallocator"]
+jemalloc-stats = [
+    "jemalloc",
+    "tikv-jemallocator/stats",
+    "dep:tikv-jemalloc-ctl",
+    "tikv-jemalloc-ctl/stats",
+]
+jemalloc-profiling = ["jemalloc-stats", "tikv-jemallocator/profiling"]
 
 [dependencies]
 actix-governor = "0.10"
@@ -123,6 +131,8 @@ tokio-util = { version = "0.7", features = ["io", "io-util"] }
 toml = "1.1"
 toml_edit = "0.25"
 tiff = "0.11.3"
+tikv-jemallocator = { version = "0.7", optional = true }
+tikv-jemalloc-ctl = { version = "0.7", optional = true }
 tracing = { version = "0.1.44", default-features = false}
 tracing-appender = "0.2.5"
 tracing-subscriber = { version = "0.3.23", default-features = false, features = ["ansi", "env-filter", "fmt", "json"] }

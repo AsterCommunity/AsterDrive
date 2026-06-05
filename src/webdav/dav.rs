@@ -266,5 +266,7 @@ pub trait DavLockSystem: Send + Sync {
 
     fn discover(&self, path: &DavPath) -> LsFuture<'_, Vec<DavLock>>;
 
+    fn conflicting_locks(&self, path: &DavPath, deep: bool) -> LsFuture<'_, Vec<DavLock>>;
+
     fn delete(&self, path: &DavPath) -> LsFuture<'_, Result<(), ()>>;
 }

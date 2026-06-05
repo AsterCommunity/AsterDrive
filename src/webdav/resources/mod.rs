@@ -1,14 +1,51 @@
 //! WebDAV resource mutation handlers: MKCOL, DELETE, COPY, MOVE.
 
-use actix_web::http::header;
+use actix_web::http::{StatusCode, header};
 use actix_web::{HttpRequest, HttpResponse, web};
-use futures::StreamExt;
+use futures::{StreamExt, pin_mut};
+use xmltree::XMLNode;
 
-use crate::webdav::dav::{DavFileSystem, DavLockSystem, DavPath, FsError};
+use crate::webdav::dav::{DavFileSystem, DavLockSystem, DavPath, FsError, ReadDirMeta};
+use crate::webdav::protocol::{self, Depth};
 use crate::webdav::{
-    decode_relative_path, decoded_path_string, ensure_system_file_name_allowed, ensure_unlocked,
-    fs, fs_error_response, href_for_relative, request_path, system_file,
+    child_relative_path, dav_element, decoded_path_string, ensure_parent_unlocked,
+    ensure_system_file_name_allowed, ensure_unlocked, fs, fs_error_response, href_for_dav_path,
+    href_for_relative, lock_token_submitted_element, multi_status, parent_relative_path,
+    request_origin, request_path, status_element, system_file, text_element, xml_response,
 };
+
+#[derive(Clone)]
+struct MultiStatusFailure {
+    path: DavPath,
+    status: StatusCode,
+    lock_path: Option<DavPath>,
+}
+
+struct DavChild {
+    path: DavPath,
+    relative: String,
+    is_dir: bool,
+}
+
+struct PartialMutationOutcome {
+    failures: Vec<MultiStatusFailure>,
+    destination_exists: bool,
+}
+
+struct PartialMutationContext<'a> {
+    dav_fs: &'a fs::AsterDavFs,
+    lock_system: &'a dyn DavLockSystem,
+    req: &'a HttpRequest,
+    prefix: &'a str,
+    is_move: bool,
+}
+
+struct PartialMutationNode<'a> {
+    source: &'a DavPath,
+    source_relative: &'a str,
+    destination: &'a DavPath,
+    destination_relative: &'a str,
+}
 
 pub(crate) async fn handle_mkcol(
     req: &HttpRequest,
@@ -36,7 +73,43 @@ pub(crate) async fn handle_mkcol(
     if let Err(resp) = ensure_parent_exists(dav_fs, &relative).await {
         return resp;
     }
-    if let Err(resp) = ensure_unlocked(lock_system, &path, false, req.headers()).await {
+    let (request_scheme, request_host) = request_origin(req);
+    if let Err(resp) = protocol::ensure_if_header(
+        req.headers(),
+        dav_fs,
+        lock_system,
+        &path,
+        prefix,
+        &request_scheme,
+        &request_host,
+    )
+    .await
+    {
+        return resp;
+    }
+    if let Err(resp) = ensure_unlocked(
+        lock_system,
+        &path,
+        false,
+        prefix,
+        req.headers(),
+        &request_scheme,
+        &request_host,
+    )
+    .await
+    {
+        return resp;
+    }
+    if let Err(resp) = ensure_parent_unlocked(
+        lock_system,
+        &relative,
+        prefix,
+        req.headers(),
+        &request_scheme,
+        &request_host,
+    )
+    .await
+    {
         return resp;
     }
 
@@ -59,7 +132,12 @@ pub(crate) async fn handle_delete(
     lock_system: &dyn DavLockSystem,
     prefix: &str,
 ) -> HttpResponse {
-    let (path, _) = match request_path(req, prefix) {
+    let depth = match protocol::parse_delete_depth(req.headers()) {
+        Ok(depth) => depth,
+        Err(resp) => return resp,
+    };
+
+    let (path, relative) = match request_path(req, prefix) {
         Ok(v) => v,
         Err(resp) => return resp,
     };
@@ -68,7 +146,60 @@ pub(crate) async fn handle_delete(
         Ok(meta) => meta,
         Err(err) => return fs_error_response(err),
     };
-    if let Err(resp) = ensure_unlocked(lock_system, &path, true, req.headers()).await {
+    if meta.is_dir() && !depth.is_infinity() {
+        return HttpResponse::BadRequest().finish();
+    }
+    if let Err(resp) = protocol::evaluate_http_etag_preconditions(
+        req.headers(),
+        true,
+        meta.etag().as_deref(),
+        false,
+    ) {
+        return resp;
+    }
+    let (request_scheme, request_host) = request_origin(req);
+    if let Err(resp) = protocol::ensure_if_header(
+        req.headers(),
+        dav_fs,
+        lock_system,
+        &path,
+        prefix,
+        &request_scheme,
+        &request_host,
+    )
+    .await
+    {
+        return resp;
+    }
+    if meta.is_dir() {
+        if let Some(resp) =
+            locked_multi_status_response(lock_system, &path, true, prefix, req).await
+        {
+            return resp;
+        }
+    } else if let Err(resp) = ensure_unlocked(
+        lock_system,
+        &path,
+        false,
+        prefix,
+        req.headers(),
+        &request_scheme,
+        &request_host,
+    )
+    .await
+    {
+        return resp;
+    }
+    if let Err(resp) = ensure_parent_unlocked(
+        lock_system,
+        &relative,
+        prefix,
+        req.headers(),
+        &request_scheme,
+        &request_host,
+    )
+    .await
+    {
         return resp;
     }
 
@@ -99,16 +230,34 @@ pub(crate) async fn handle_copy_move(
     system_file_policy: &system_file::SystemFileBlockPolicy,
     is_move: bool,
 ) -> HttpResponse {
+    let depth = if is_move {
+        match protocol::parse_move_depth(req.headers()) {
+            Ok(depth) => depth,
+            Err(resp) => return resp,
+        }
+    } else {
+        match protocol::parse_copy_depth(req.headers()) {
+            Ok(depth) => depth,
+            Err(resp) => return resp,
+        }
+    };
+
     let (source, source_relative) = match request_path(req, prefix) {
         Ok(v) => v,
         Err(resp) => return resp,
     };
 
-    let destination_relative = match destination_relative_path(req, prefix) {
+    let (request_scheme, request_host) = request_origin(req);
+    let destination_relative = match protocol::destination_relative_path(
+        req.headers(),
+        prefix,
+        &request_scheme,
+        &request_host,
+    ) {
         Ok(path) => path,
         Err(resp) => return resp,
     };
-    if source_relative == destination_relative {
+    if same_resource_path(&source_relative, &destination_relative) {
         return HttpResponse::Forbidden().finish();
     }
     if let Err(resp) = ensure_system_file_name_allowed(system_file_policy, &destination_relative) {
@@ -122,20 +271,172 @@ pub(crate) async fn handle_copy_move(
         Ok(path) => path,
         Err(_) => return HttpResponse::BadRequest().body("Invalid destination path"),
     };
-    if is_move && let Err(resp) = ensure_unlocked(lock_system, &source, true, req.headers()).await {
+
+    let source_meta = match dav_fs.metadata(&source).await {
+        Ok(meta) => meta,
+        Err(err) => return fs_error_response(err),
+    };
+    if let Err(resp) = protocol::evaluate_http_etag_preconditions(
+        req.headers(),
+        true,
+        source_meta.etag().as_deref(),
+        false,
+    ) {
         return resp;
     }
-    if let Err(resp) = ensure_unlocked(lock_system, &destination, true, req.headers()).await {
+    if source_meta.is_dir() {
+        if is_move && !depth.is_infinity() {
+            return HttpResponse::BadRequest().finish();
+        }
+        if !is_move && depth == Depth::One {
+            return HttpResponse::BadRequest().finish();
+        }
+    }
+    let recursive_collection_copy_or_move =
+        source_meta.is_dir() && (is_move || depth != Depth::Zero);
+    if recursive_collection_copy_or_move
+        && is_descendant_path(&source_relative, &destination_relative)
+    {
+        return HttpResponse::Forbidden().finish();
+    }
+    if let Err(resp) = protocol::ensure_if_header(
+        req.headers(),
+        dav_fs,
+        lock_system,
+        &source,
+        prefix,
+        &request_scheme,
+        &request_host,
+    )
+    .await
+    {
+        return resp;
+    }
+    if is_move
+        && let Err(resp) = ensure_unlocked(
+            lock_system,
+            &source,
+            false,
+            prefix,
+            req.headers(),
+            &request_scheme,
+            &request_host,
+        )
+        .await
+    {
+        return resp;
+    }
+    if is_move
+        && let Err(resp) = ensure_parent_unlocked(
+            lock_system,
+            &source_relative,
+            prefix,
+            req.headers(),
+            &request_scheme,
+            &request_host,
+        )
+        .await
+    {
         return resp;
     }
 
-    let destination_exists = dav_fs.metadata(&destination).await.is_ok();
-    if !overwrite_enabled(req.headers()) && destination_exists {
+    let destination_meta = match dav_fs.metadata(&destination).await {
+        Ok(meta) => Some(meta),
+        Err(FsError::NotFound) => None,
+        Err(err) => return fs_error_response(err),
+    };
+    let destination_exists = destination_meta.is_some();
+    let overwrite = match protocol::parse_overwrite(req.headers()) {
+        Ok(overwrite) => overwrite,
+        Err(resp) => return resp,
+    };
+    if !overwrite && destination_exists {
         return HttpResponse::PreconditionFailed().finish();
+    }
+    let destination_is_collection = destination_meta.as_ref().is_some_and(|meta| meta.is_dir());
+    let destination_deep =
+        destination_is_collection || source_meta.is_dir() && (is_move || depth != Depth::Zero);
+    if !destination_deep
+        && let Err(resp) = ensure_unlocked(
+            lock_system,
+            &destination,
+            false,
+            prefix,
+            req.headers(),
+            &request_scheme,
+            &request_host,
+        )
+        .await
+    {
+        return resp;
+    }
+    if let Err(resp) = ensure_parent_unlocked(
+        lock_system,
+        &destination_relative,
+        prefix,
+        req.headers(),
+        &request_scheme,
+        &request_host,
+    )
+    .await
+    {
+        return resp;
+    }
+
+    if recursive_collection_copy_or_move {
+        let source_conflicts = if is_move {
+            unsubmitted_lock_conflicts(lock_system, &source, true, prefix, req).await
+        } else {
+            Vec::new()
+        };
+        let destination_conflicts =
+            unsubmitted_lock_conflicts(lock_system, &destination, true, prefix, req).await;
+        if !source_conflicts.is_empty() || !destination_conflicts.is_empty() {
+            let ctx = PartialMutationContext {
+                dav_fs,
+                lock_system,
+                req,
+                prefix,
+                is_move,
+            };
+            let root = PartialMutationNode {
+                source: &source,
+                source_relative: &source_relative,
+                destination: &destination,
+                destination_relative: &destination_relative,
+            };
+            let outcome = match partial_recursive_copy_move(
+                &ctx,
+                root,
+                destination_exists,
+                destination_is_collection,
+            )
+            .await
+            {
+                Ok(outcome) => outcome,
+                Err(err) => return fs_error_response(err),
+            };
+            if !outcome.failures.is_empty() {
+                return multi_status_failure_response(prefix, &outcome.failures);
+            }
+            if outcome.destination_exists {
+                return no_store_response(StatusCode::NO_CONTENT);
+            }
+            return no_store_response(StatusCode::CREATED);
+        }
+    }
+
+    if destination_deep
+        && let Some(resp) =
+            locked_multi_status_response(lock_system, &destination, true, prefix, req).await
+    {
+        return resp;
     }
 
     let result = if is_move {
         dav_fs.rename(&source, &destination).await
+    } else if source_meta.is_dir() && depth == Depth::Zero {
+        dav_fs.copy_dir_shallow(&source, &destination).await
     } else {
         dav_fs.copy(&source, &destination).await
     };
@@ -149,16 +450,358 @@ pub(crate) async fn handle_copy_move(
                 );
             }
             if destination_exists {
-                HttpResponse::NoContent().finish()
+                no_store_response(StatusCode::NO_CONTENT)
             } else {
-                HttpResponse::Created().finish()
+                no_store_response(StatusCode::CREATED)
             }
         }
         Err(err) => fs_error_response(err),
     }
 }
 
-async fn ensure_empty_body(payload: &mut web::Payload) -> Result<(), HttpResponse> {
+fn no_store_response(status: StatusCode) -> HttpResponse {
+    HttpResponse::build(status)
+        .insert_header((header::CACHE_CONTROL, "no-store"))
+        .finish()
+}
+
+async fn locked_multi_status_response(
+    lock_system: &dyn DavLockSystem,
+    path: &DavPath,
+    deep: bool,
+    prefix: &str,
+    req: &HttpRequest,
+) -> Option<HttpResponse> {
+    let mut conflicts = lock_system.conflicting_locks(path, deep).await;
+    let (request_scheme, request_host) = request_origin(req);
+    conflicts.retain(|lock| {
+        let href = href_for_dav_path(prefix, &lock.path);
+        let tokens = protocol::submitted_lock_tokens_for_path(
+            req.headers(),
+            &href,
+            &request_scheme,
+            &request_host,
+        );
+        !tokens.iter().any(|token| token == &lock.token)
+    });
+    if conflicts.is_empty() {
+        return None;
+    }
+
+    Some(multi_status_locked_response(prefix, &conflicts))
+}
+
+fn multi_status_locked_response(
+    prefix: &str,
+    locks: &[crate::webdav::dav::DavLock],
+) -> HttpResponse {
+    let mut multistatus = dav_element("multistatus");
+    multistatus
+        .attributes
+        .insert("xmlns:D".to_string(), "DAV:".to_string());
+
+    for lock in locks {
+        let mut response = dav_element("response");
+        response.children.push(XMLNode::Element(text_element(
+            "D:href",
+            &href_for_dav_path(prefix, &lock.path),
+        )));
+        response
+            .children
+            .push(XMLNode::Element(status_element(StatusCode::LOCKED)));
+        let mut error = dav_element("error");
+        error
+            .children
+            .push(XMLNode::Element(lock_token_submitted_element(
+                prefix, &lock.path,
+            )));
+        response.children.push(XMLNode::Element(error));
+        multistatus.children.push(XMLNode::Element(response));
+    }
+
+    let mut response = xml_response(multistatus, multi_status());
+    response.headers_mut().insert(
+        header::CACHE_CONTROL,
+        header::HeaderValue::from_static("no-store"),
+    );
+    response
+}
+
+async fn unsubmitted_lock_conflicts(
+    lock_system: &dyn DavLockSystem,
+    path: &DavPath,
+    deep: bool,
+    prefix: &str,
+    req: &HttpRequest,
+) -> Vec<crate::webdav::dav::DavLock> {
+    let mut conflicts = lock_system.conflicting_locks(path, deep).await;
+    let (request_scheme, request_host) = request_origin(req);
+    conflicts.retain(|lock| {
+        let href = href_for_dav_path(prefix, &lock.path);
+        let tokens = protocol::submitted_lock_tokens_for_path(
+            req.headers(),
+            &href,
+            &request_scheme,
+            &request_host,
+        );
+        !tokens.iter().any(|token| token == &lock.token)
+    });
+    conflicts
+}
+
+async fn partial_recursive_copy_move(
+    ctx: &PartialMutationContext<'_>,
+    root: PartialMutationNode<'_>,
+    destination_exists: bool,
+    destination_is_collection: bool,
+) -> Result<PartialMutationOutcome, FsError> {
+    let mut failures = Vec::new();
+    if destination_exists && !destination_is_collection {
+        ctx.dav_fs.remove_file(root.destination).await?;
+    } else if destination_exists && destination_is_collection {
+        let conflicts = collect_lock_failures(ctx, root.destination, false).await;
+        if !conflicts.is_empty() {
+            failures.extend(conflicts);
+            return Ok(PartialMutationOutcome {
+                failures,
+                destination_exists,
+            });
+        }
+    }
+
+    if !destination_exists {
+        ctx.dav_fs
+            .copy_dir_shallow(root.source, root.destination)
+            .await?;
+    }
+
+    let source_children = collect_children(ctx.dav_fs, root.source, root.source_relative).await?;
+    for child in source_children {
+        let dest_relative = replace_relative_prefix(
+            &child.relative,
+            root.source_relative,
+            root.destination_relative,
+        );
+        let dest_path = DavPath::new(&dest_relative).map_err(|_| FsError::BadRequest)?;
+        let child_node = PartialMutationNode {
+            source: &child.path,
+            source_relative: &child.relative,
+            destination: &dest_path,
+            destination_relative: &dest_relative,
+        };
+        if child.is_dir {
+            partial_recursive_copy_move_dir(ctx, child_node, &mut failures).await?;
+        } else {
+            partial_copy_move_file(ctx, child_node, &mut failures).await?;
+        }
+    }
+
+    if ctx.is_move {
+        let remaining = collect_children(ctx.dav_fs, root.source, root.source_relative).await?;
+        if remaining.is_empty() {
+            ctx.dav_fs.remove_dir(root.source).await?;
+            if ctx.lock_system.delete(root.source).await.is_err() {
+                tracing::warn!(path = %root.source_relative, "failed to delete WebDAV locks after partial move");
+            }
+        }
+    }
+
+    Ok(PartialMutationOutcome {
+        failures,
+        destination_exists,
+    })
+}
+
+fn partial_recursive_copy_move_dir<'a>(
+    ctx: &'a PartialMutationContext<'a>,
+    node: PartialMutationNode<'a>,
+    failures: &'a mut Vec<MultiStatusFailure>,
+) -> futures::future::LocalBoxFuture<'a, Result<(), FsError>> {
+    Box::pin(async move {
+        if ctx.is_move {
+            let conflicts = collect_lock_failures(ctx, node.source, true).await;
+            if !conflicts.is_empty() {
+                failures.extend(conflicts);
+                return Ok(());
+            }
+        }
+
+        let dest_meta = match ctx.dav_fs.metadata(node.destination).await {
+            Ok(meta) => Some(meta),
+            Err(FsError::NotFound) => None,
+            Err(err) => return Err(err),
+        };
+        if dest_meta.as_ref().is_some_and(|meta| !meta.is_dir()) {
+            let conflicts = collect_lock_failures(ctx, node.destination, false).await;
+            if !conflicts.is_empty() {
+                failures.extend(conflicts);
+                return Ok(());
+            }
+            ctx.dav_fs.remove_file(node.destination).await?;
+        } else if dest_meta.as_ref().is_some_and(|meta| meta.is_dir()) {
+            let conflicts = collect_lock_failures(ctx, node.destination, true).await;
+            if !conflicts.is_empty() {
+                failures.extend(conflicts);
+                return Ok(());
+            }
+        } else {
+            ctx.dav_fs
+                .copy_dir_shallow(node.source, node.destination)
+                .await?;
+        }
+
+        let children = collect_children(ctx.dav_fs, node.source, node.source_relative).await?;
+        for child in children {
+            let dest_relative = replace_relative_prefix(
+                &child.relative,
+                node.source_relative,
+                node.destination_relative,
+            );
+            let dest_path = DavPath::new(&dest_relative).map_err(|_| FsError::BadRequest)?;
+            let child_node = PartialMutationNode {
+                source: &child.path,
+                source_relative: &child.relative,
+                destination: &dest_path,
+                destination_relative: &dest_relative,
+            };
+            if child.is_dir {
+                partial_recursive_copy_move_dir(ctx, child_node, failures).await?;
+            } else {
+                partial_copy_move_file(ctx, child_node, failures).await?;
+            }
+        }
+
+        if ctx.is_move {
+            let remaining = collect_children(ctx.dav_fs, node.source, node.source_relative).await?;
+            if remaining.is_empty() {
+                ctx.dav_fs.remove_dir(node.source).await?;
+                if ctx.lock_system.delete(node.source).await.is_err() {
+                    tracing::warn!(path = %node.source_relative, "failed to delete WebDAV locks after partial move");
+                }
+            }
+        }
+
+        Ok(())
+    })
+}
+
+async fn partial_copy_move_file(
+    ctx: &PartialMutationContext<'_>,
+    node: PartialMutationNode<'_>,
+    failures: &mut Vec<MultiStatusFailure>,
+) -> Result<(), FsError> {
+    if ctx.is_move {
+        let conflicts = collect_lock_failures(ctx, node.source, false).await;
+        if !conflicts.is_empty() {
+            failures.extend(conflicts);
+            return Ok(());
+        }
+    }
+    let dest_conflicts = collect_lock_failures(ctx, node.destination, false).await;
+    if !dest_conflicts.is_empty() {
+        failures.extend(dest_conflicts);
+        return Ok(());
+    }
+    if ctx.is_move {
+        ctx.dav_fs.rename(node.source, node.destination).await?;
+        if ctx.lock_system.delete(node.source).await.is_err() {
+            tracing::warn!(path = %decoded_path_string(node.source), "failed to delete WebDAV locks after partial file move");
+        }
+    } else {
+        ctx.dav_fs.copy(node.source, node.destination).await?;
+    }
+    Ok(())
+}
+
+async fn collect_lock_failures(
+    ctx: &PartialMutationContext<'_>,
+    path: &DavPath,
+    deep: bool,
+) -> Vec<MultiStatusFailure> {
+    unsubmitted_lock_conflicts(ctx.lock_system, path, deep, ctx.prefix, ctx.req)
+        .await
+        .into_iter()
+        .map(|lock| MultiStatusFailure {
+            path: (*lock.path).clone(),
+            status: StatusCode::LOCKED,
+            lock_path: Some((*lock.path).clone()),
+        })
+        .collect()
+}
+
+async fn collect_children(
+    dav_fs: &fs::AsterDavFs,
+    path: &DavPath,
+    relative: &str,
+) -> Result<Vec<DavChild>, FsError> {
+    let entries = dav_fs.read_dir(path, ReadDirMeta::Data).await?;
+    pin_mut!(entries);
+    let mut children = Vec::new();
+    while let Some(entry) = entries.next().await {
+        let entry = entry?;
+        let meta = entry.metadata().await?;
+        let child_relative = child_relative_path(relative, &entry.name(), meta.is_dir());
+        let child_path = DavPath::new(&child_relative).map_err(|_| FsError::GeneralFailure)?;
+        children.push(DavChild {
+            path: child_path,
+            relative: child_relative,
+            is_dir: meta.is_dir(),
+        });
+    }
+    Ok(children)
+}
+
+fn replace_relative_prefix(path: &str, source_prefix: &str, destination_prefix: &str) -> String {
+    let source_prefix = source_prefix.trim_end_matches('/');
+    let destination_prefix = destination_prefix.trim_end_matches('/');
+    let suffix = path
+        .strip_prefix(source_prefix)
+        .filter(|suffix| suffix.is_empty() || suffix.starts_with('/'))
+        .unwrap_or(path);
+    if suffix.is_empty() {
+        format!("{destination_prefix}/")
+    } else {
+        format!("{destination_prefix}{suffix}")
+    }
+}
+
+fn multi_status_failure_response(prefix: &str, failures: &[MultiStatusFailure]) -> HttpResponse {
+    let mut multistatus = dav_element("multistatus");
+    multistatus
+        .attributes
+        .insert("xmlns:D".to_string(), "DAV:".to_string());
+
+    for failure in failures {
+        let mut response = dav_element("response");
+        response.children.push(XMLNode::Element(text_element(
+            "D:href",
+            &href_for_dav_path(prefix, &failure.path),
+        )));
+        response
+            .children
+            .push(XMLNode::Element(status_element(failure.status)));
+        if failure.status == StatusCode::LOCKED {
+            let lock_path = failure.lock_path.as_ref().unwrap_or(&failure.path);
+            let mut error = dav_element("error");
+            error
+                .children
+                .push(XMLNode::Element(lock_token_submitted_element(
+                    prefix, lock_path,
+                )));
+            response.children.push(XMLNode::Element(error));
+        }
+        multistatus.children.push(XMLNode::Element(response));
+    }
+
+    let mut response = xml_response(multistatus, multi_status());
+    response.headers_mut().insert(
+        header::CACHE_CONTROL,
+        header::HeaderValue::from_static("no-store"),
+    );
+    response
+}
+
+pub(crate) async fn ensure_empty_body(payload: &mut web::Payload) -> Result<(), HttpResponse> {
     while let Some(chunk) = payload.next().await {
         let chunk =
             chunk.map_err(|_| HttpResponse::BadRequest().body("Failed to read request body"))?;
@@ -185,60 +828,34 @@ async fn ensure_parent_exists(dav_fs: &fs::AsterDavFs, relative: &str) -> Result
     }
 }
 
-fn destination_relative_path(req: &HttpRequest, prefix: &str) -> Result<String, HttpResponse> {
-    let raw = req
-        .headers()
-        .get("Destination")
-        .and_then(|value| value.to_str().ok())
-        .ok_or_else(|| HttpResponse::BadRequest().body("Missing Destination header"))?;
-    let path = if raw.starts_with("http://") || raw.starts_with("https://") {
-        let uri: http::Uri = raw
-            .parse()
-            .map_err(|_| HttpResponse::BadRequest().body("Invalid Destination header"))?;
-        uri.path().to_string()
+fn same_resource_path(left: &str, right: &str) -> bool {
+    resource_identity_path(left) == resource_identity_path(right)
+}
+
+fn is_descendant_path(parent: &str, child: &str) -> bool {
+    let parent = resource_identity_path(parent);
+    let child = resource_identity_path(child);
+    if parent == "/" || parent == child {
+        return false;
+    }
+    let parent_prefix = format!("{parent}/");
+    child.starts_with(&parent_prefix)
+}
+
+fn resource_identity_path(path: &str) -> String {
+    let trimmed = path.trim_end_matches('/');
+    if trimmed.is_empty() {
+        "/".to_string()
     } else {
-        raw.to_string()
-    };
-    let relative = path
-        .strip_prefix(prefix)
-        .filter(|_| {
-            path == prefix
-                || path
-                    .as_bytes()
-                    .get(prefix.len())
-                    .is_some_and(|byte| *byte == b'/')
-        })
-        .ok_or_else(|| {
-            HttpResponse::BadRequest().body("Destination must stay under WebDAV prefix")
-        })?;
-    decode_relative_path(relative).map(|(_, relative)| relative)
-}
-
-fn parent_relative_path(relative: &str) -> Option<String> {
-    if relative == "/" {
-        return None;
+        trimmed.to_string()
     }
-    let trimmed = relative.trim_end_matches('/');
-    let segments: Vec<_> = trimmed
-        .split('/')
-        .filter(|segment| !segment.is_empty())
-        .collect();
-    if segments.len() <= 1 {
-        return Some("/".to_string());
-    }
-    Some(format!("/{}/", segments[..segments.len() - 1].join("/")))
-}
-
-fn overwrite_enabled(headers: &header::HeaderMap) -> bool {
-    headers
-        .get("Overwrite")
-        .and_then(|value| value.to_str().ok())
-        .is_none_or(|value| !value.eq_ignore_ascii_case("F"))
 }
 
 #[cfg(test)]
 mod tests {
-    use super::ensure_empty_body;
+    use super::{
+        ensure_empty_body, is_descendant_path, replace_relative_prefix, same_resource_path,
+    };
     use actix_web::FromRequest;
     use actix_web::http::StatusCode;
     use actix_web::web;
@@ -291,5 +908,49 @@ mod tests {
             .expect_err("large non-empty MKCOL body should be rejected");
 
         assert_eq!(response.status(), StatusCode::UNSUPPORTED_MEDIA_TYPE);
+    }
+
+    #[test]
+    fn resource_identity_ignores_collection_trailing_slash() {
+        assert!(same_resource_path("/docs", "/docs/"));
+        assert!(same_resource_path("/", "/"));
+        assert!(!same_resource_path("/docs", "/docs/sub"));
+    }
+
+    #[test]
+    fn descendant_identity_requires_path_boundary() {
+        assert!(is_descendant_path("/docs", "/docs/sub"));
+        assert!(is_descendant_path("/docs/", "/docs/sub/file.txt"));
+        assert!(!is_descendant_path("/docs", "/docs"));
+        assert!(!is_descendant_path("/docs", "/docs2/sub"));
+        assert!(!is_descendant_path("/", "/docs"));
+    }
+
+    #[test]
+    fn replace_relative_prefix_strips_only_one_source_prefix() {
+        assert_eq!(
+            replace_relative_prefix("/docs/docs/file.txt", "/docs", "/archive"),
+            "/archive/docs/file.txt"
+        );
+    }
+
+    #[test]
+    fn replace_relative_prefix_handles_collection_root_and_trailing_slashes() {
+        assert_eq!(
+            replace_relative_prefix("/docs/", "/docs/", "/archive/"),
+            "/archive/"
+        );
+        assert_eq!(
+            replace_relative_prefix("/docs/sub/", "/docs/", "/archive/"),
+            "/archive/sub/"
+        );
+    }
+
+    #[test]
+    fn replace_relative_prefix_leaves_unmatched_paths_attached_to_destination_prefix() {
+        assert_eq!(
+            replace_relative_prefix("/docs2/file.txt", "/docs", "/archive"),
+            "/archive/docs2/file.txt"
+        );
     }
 }

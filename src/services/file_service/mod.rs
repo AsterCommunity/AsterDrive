@@ -58,6 +58,7 @@ pub(crate) use transfer::{
     BatchDuplicateFileRecordSpec, BatchDuplicateFileRecordTargetSpec,
     batch_duplicate_file_records_to_mixed_folders_in_scope,
     batch_duplicate_file_records_with_specs_in_scope, copy_file_in_scope,
+    duplicate_file_record_in_scope,
 };
 pub use transfer::{batch_duplicate_file_records, copy_file, duplicate_file_record};
 

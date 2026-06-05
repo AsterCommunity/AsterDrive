@@ -26,6 +26,13 @@ pub(crate) struct ActiveWopiLock {
     pub(crate) payload: Option<WopiLockPayload>,
 }
 
+#[derive(Debug, Clone)]
+pub(crate) enum ActiveWopiLockState {
+    None,
+    Single(ActiveWopiLock),
+    Conflict(WopiConflict),
+}
+
 pub async fn get_lock(
     state: &PrimaryAppState,
     file_id: i64,
@@ -33,20 +40,17 @@ pub async fn get_lock(
     request_source: WopiRequestSource<'_>,
 ) -> Result<WopiGetLockResult> {
     let resolved = resolve_access_token(state, file_id, access_token, request_source).await?;
-    let Some(active_lock) = load_active_lock(state, resolved.file.id).await? else {
-        return Ok(WopiGetLockResult::Success {
+    match load_active_lock(state, resolved.file.id).await? {
+        ActiveWopiLockState::None => Ok(WopiGetLockResult::Success {
             current_lock: String::new(),
-        });
-    };
-
-    match active_lock.payload {
-        Some(payload) => Ok(WopiGetLockResult::Success {
-            current_lock: payload.lock,
         }),
-        None => Ok(WopiGetLockResult::Conflict(WopiConflict {
-            current_lock: Some(String::new()),
-            reason: "file is locked outside WOPI".to_string(),
-        })),
+        ActiveWopiLockState::Single(active_lock) => match active_lock.payload {
+            Some(payload) => Ok(WopiGetLockResult::Success {
+                current_lock: payload.lock,
+            }),
+            None => Ok(WopiGetLockResult::Conflict(outside_wopi_lock_conflict())),
+        },
+        ActiveWopiLockState::Conflict(conflict) => Ok(WopiGetLockResult::Conflict(conflict)),
     }
 }
 
@@ -60,38 +64,50 @@ pub async fn lock_file(
 ) -> Result<WopiLockOperationResult> {
     let resolved = resolve_access_token(state, file_id, access_token, request_source).await?;
     let lock_value = normalize_wopi_lock_header("X-WOPI-Lock", requested_lock)?;
-    let active_lock = load_active_lock(state, resolved.file.id).await?;
+    match load_active_lock(state, resolved.file.id).await? {
+        ActiveWopiLockState::None => {}
+        ActiveWopiLockState::Single(active_lock) => {
+            if let Some(payload) = active_lock.payload {
+                // WOPI lock 是“文件 + opaque lock ID”，不是“文件 + 用户/app”。
+                // 官方 key concepts 明确要求 lock 不能绑定到特定用户。
+                if payload.lock == lock_value {
+                    refresh_lock_model(state, active_lock.lock).await?;
+                    log_wopi_lock_action(
+                        state,
+                        request_info,
+                        resolved.payload.actor_user_id,
+                        audit_service::AuditAction::FileLock,
+                        &resolved.file,
+                    )
+                    .await;
+                    return Ok(WopiLockOperationResult::Success);
+                }
 
-    if let Some(active_lock) = active_lock {
-        if let Some(payload) = active_lock.payload {
-            // WOPI lock 是“文件 + opaque lock ID”，不是“文件 + 用户/app”。
-            // 官方 key concepts 明确要求 lock 不能绑定到特定用户。
-            if payload.lock == lock_value {
-                refresh_lock_model(state, active_lock.lock).await?;
-                log_wopi_lock_action(
-                    state,
-                    request_info,
-                    resolved.payload.actor_user_id,
-                    audit_service::AuditAction::FileLock,
-                    &resolved.file,
-                )
-                .await;
-                return Ok(WopiLockOperationResult::Success);
+                return Ok(WopiLockOperationResult::Conflict(WopiConflict {
+                    current_lock: Some(payload.lock),
+                    reason: "file is locked by another WOPI session".to_string(),
+                }));
             }
 
-            return Ok(WopiLockOperationResult::Conflict(WopiConflict {
-                current_lock: Some(payload.lock),
-                reason: "file is locked by another WOPI session".to_string(),
-            }));
+            return Ok(WopiLockOperationResult::Conflict(
+                outside_wopi_lock_conflict(),
+            ));
         }
-
-        return Ok(WopiLockOperationResult::Conflict(WopiConflict {
-            current_lock: Some(String::new()),
-            reason: "file is locked outside WOPI".to_string(),
-        }));
+        ActiveWopiLockState::Conflict(conflict) => {
+            return Ok(WopiLockOperationResult::Conflict(conflict));
+        }
     }
 
-    create_wopi_lock(state, &resolved.payload, &resolved.file, &lock_value).await?;
+    match create_wopi_lock(state, &resolved.payload, &resolved.file, &lock_value).await {
+        Ok(()) => {}
+        Err(error) => {
+            return map_create_wopi_lock_error(error, || {
+                concurrent_wopi_lock_conflict(state, resolved.file.id)
+            })
+            .await;
+        }
+    }
+
     log_wopi_lock_action(
         state,
         request_info,
@@ -115,11 +131,17 @@ pub async fn unlock_and_relock_file(
     let resolved = resolve_access_token(state, file_id, access_token, request_source).await?;
     let new_lock = normalize_wopi_lock_header("X-WOPI-Lock", requested_lock)?;
     let old_lock = normalize_wopi_lock_header("X-WOPI-OldLock", old_lock)?;
-    let Some(active_lock) = load_active_lock(state, resolved.file.id).await? else {
-        return Ok(WopiLockOperationResult::Conflict(WopiConflict {
-            current_lock: Some(String::new()),
-            reason: "file is not locked".to_string(),
-        }));
+    let active_lock = match load_active_lock(state, resolved.file.id).await? {
+        ActiveWopiLockState::None => {
+            return Ok(WopiLockOperationResult::Conflict(WopiConflict {
+                current_lock: Some(String::new()),
+                reason: "file is not locked".to_string(),
+            }));
+        }
+        ActiveWopiLockState::Single(active_lock) => active_lock,
+        ActiveWopiLockState::Conflict(conflict) => {
+            return Ok(WopiLockOperationResult::Conflict(conflict));
+        }
     };
 
     match active_lock.payload {
@@ -139,10 +161,9 @@ pub async fn unlock_and_relock_file(
             current_lock: Some(payload.lock),
             reason: "WOPI lock mismatch".to_string(),
         })),
-        None => Ok(WopiLockOperationResult::Conflict(WopiConflict {
-            current_lock: Some(String::new()),
-            reason: "file is locked outside WOPI".to_string(),
-        })),
+        None => Ok(WopiLockOperationResult::Conflict(
+            outside_wopi_lock_conflict(),
+        )),
     }
 }
 
@@ -156,11 +177,17 @@ pub async fn refresh_lock(
 ) -> Result<WopiLockOperationResult> {
     let resolved = resolve_access_token(state, file_id, access_token, request_source).await?;
     let lock_value = normalize_wopi_lock_header("X-WOPI-Lock", requested_lock)?;
-    let Some(active_lock) = load_active_lock(state, resolved.file.id).await? else {
-        return Ok(WopiLockOperationResult::Conflict(WopiConflict {
-            current_lock: Some(String::new()),
-            reason: "file is not locked".to_string(),
-        }));
+    let active_lock = match load_active_lock(state, resolved.file.id).await? {
+        ActiveWopiLockState::None => {
+            return Ok(WopiLockOperationResult::Conflict(WopiConflict {
+                current_lock: Some(String::new()),
+                reason: "file is not locked".to_string(),
+            }));
+        }
+        ActiveWopiLockState::Single(active_lock) => active_lock,
+        ActiveWopiLockState::Conflict(conflict) => {
+            return Ok(WopiLockOperationResult::Conflict(conflict));
+        }
     };
 
     match active_lock.payload {
@@ -180,10 +207,9 @@ pub async fn refresh_lock(
             current_lock: Some(payload.lock),
             reason: "WOPI lock mismatch".to_string(),
         })),
-        None => Ok(WopiLockOperationResult::Conflict(WopiConflict {
-            current_lock: Some(String::new()),
-            reason: "file is locked outside WOPI".to_string(),
-        })),
+        None => Ok(WopiLockOperationResult::Conflict(
+            outside_wopi_lock_conflict(),
+        )),
     }
 }
 
@@ -197,23 +223,28 @@ pub async fn unlock_file(
 ) -> Result<WopiLockOperationResult> {
     let resolved = resolve_access_token(state, file_id, access_token, request_source).await?;
     let lock_value = normalize_wopi_lock_header("X-WOPI-Lock", requested_lock)?;
-    let Some(active_lock) = load_active_lock(state, resolved.file.id).await? else {
-        return Ok(WopiLockOperationResult::Conflict(WopiConflict {
-            current_lock: Some(String::new()),
-            reason: "file is not locked".to_string(),
-        }));
+    let active_lock = match load_active_lock(state, resolved.file.id).await? {
+        ActiveWopiLockState::None => {
+            return Ok(WopiLockOperationResult::Conflict(WopiConflict {
+                current_lock: Some(String::new()),
+                reason: "file is not locked".to_string(),
+            }));
+        }
+        ActiveWopiLockState::Single(active_lock) => active_lock,
+        ActiveWopiLockState::Conflict(conflict) => {
+            return Ok(WopiLockOperationResult::Conflict(conflict));
+        }
     };
 
     match active_lock.payload {
         Some(payload) if payload.lock == lock_value => {
-            lock_service::set_entity_locked(
+            lock_repo::delete_by_id(state.writer_db(), active_lock.lock.id).await?;
+            lock_service::clear_entity_locked_if_unlocked(
                 state.writer_db(),
                 EntityType::File,
                 resolved.file.id,
-                false,
             )
             .await?;
-            lock_repo::delete_by_id(state.writer_db(), active_lock.lock.id).await?;
             log_wopi_lock_action(
                 state,
                 request_info,
@@ -228,10 +259,9 @@ pub async fn unlock_file(
             current_lock: Some(payload.lock),
             reason: "WOPI lock mismatch".to_string(),
         })),
-        None => Ok(WopiLockOperationResult::Conflict(WopiConflict {
-            current_lock: Some(String::new()),
-            reason: "file is locked outside WOPI".to_string(),
-        })),
+        None => Ok(WopiLockOperationResult::Conflict(
+            outside_wopi_lock_conflict(),
+        )),
     }
 }
 
@@ -260,11 +290,13 @@ pub(crate) async fn ensure_wopi_lock_matches(
     file_id: i64,
     requested_lock: Option<&str>,
 ) -> Result<Option<WopiConflict>> {
-    let Some(active_lock) = load_active_lock(state, file_id).await? else {
-        return Ok(None);
-    };
-
-    ensure_active_wopi_lock_matches(&active_lock, requested_lock)
+    match load_active_lock(state, file_id).await? {
+        ActiveWopiLockState::None => Ok(None),
+        ActiveWopiLockState::Single(active_lock) => {
+            ensure_active_wopi_lock_matches(&active_lock, requested_lock)
+        }
+        ActiveWopiLockState::Conflict(conflict) => Ok(Some(conflict)),
+    }
 }
 
 pub(crate) async fn ensure_wopi_putfile_lock_matches(
@@ -272,18 +304,22 @@ pub(crate) async fn ensure_wopi_putfile_lock_matches(
     file: &file::Model,
     requested_lock: Option<&str>,
 ) -> Result<Option<WopiConflict>> {
-    let Some(active_lock) = load_active_lock(state, file.id).await? else {
-        if file.size == 0 {
-            return Ok(None);
+    match load_active_lock(state, file.id).await? {
+        ActiveWopiLockState::None => {
+            if file.size == 0 {
+                return Ok(None);
+            }
+
+            Ok(Some(WopiConflict {
+                current_lock: Some(String::new()),
+                reason: "existing file requires a WOPI lock".to_string(),
+            }))
         }
-
-        return Ok(Some(WopiConflict {
-            current_lock: Some(String::new()),
-            reason: "existing file requires a WOPI lock".to_string(),
-        }));
-    };
-
-    ensure_active_wopi_lock_matches(&active_lock, requested_lock)
+        ActiveWopiLockState::Single(active_lock) => {
+            ensure_active_wopi_lock_matches(&active_lock, requested_lock)
+        }
+        ActiveWopiLockState::Conflict(conflict) => Ok(Some(conflict)),
+    }
 }
 
 fn ensure_active_wopi_lock_matches(
@@ -291,10 +327,7 @@ fn ensure_active_wopi_lock_matches(
     requested_lock: Option<&str>,
 ) -> Result<Option<WopiConflict>> {
     let Some(lock_payload) = active_lock.payload.as_ref() else {
-        return Ok(Some(WopiConflict {
-            current_lock: Some(String::new()),
-            reason: "file is locked outside WOPI".to_string(),
-        }));
+        return Ok(Some(outside_wopi_lock_conflict()));
     };
 
     let requested_lock = requested_lock
@@ -315,26 +348,38 @@ fn ensure_active_wopi_lock_matches(
 pub(crate) async fn load_active_lock(
     state: &PrimaryAppState,
     file_id: i64,
-) -> Result<Option<ActiveWopiLock>> {
-    let Some(lock) =
-        lock_repo::find_by_entity(state.writer_db(), EntityType::File, file_id).await?
-    else {
-        return Ok(None);
-    };
+) -> Result<ActiveWopiLockState> {
+    let mut active_locks = Vec::new();
+    let now = Utc::now();
 
-    if let Some(timeout_at) = lock.timeout_at
-        && timeout_at < Utc::now()
-    {
-        lock_repo::delete_by_id(state.writer_db(), lock.id).await?;
-        lock_service::set_entity_locked(state.writer_db(), EntityType::File, file_id, false)
-            .await?;
-        return Ok(None);
+    for lock in lock_repo::find_all_by_entity(state.writer_db(), EntityType::File, file_id).await? {
+        if lock.timeout_at.is_some_and(|timeout_at| timeout_at < now) {
+            lock_repo::delete_by_id(state.writer_db(), lock.id).await?;
+            continue;
+        }
+
+        active_locks.push(ActiveWopiLock {
+            payload: parse_wopi_lock_payload(&lock)?,
+            lock,
+        });
     }
 
-    Ok(Some(ActiveWopiLock {
-        payload: parse_wopi_lock_payload(&lock)?,
-        lock,
-    }))
+    if active_locks.is_empty() {
+        lock_service::clear_entity_locked_if_unlocked(state.writer_db(), EntityType::File, file_id)
+            .await?;
+        return Ok(ActiveWopiLockState::None);
+    }
+
+    if active_locks.len() > 1 || active_locks.iter().any(|active| active.payload.is_none()) {
+        return Ok(ActiveWopiLockState::Conflict(outside_wopi_lock_conflict()));
+    }
+
+    Ok(ActiveWopiLockState::Single(
+        active_locks
+            .into_iter()
+            .next()
+            .ok_or_else(|| AsterError::internal_error("active WOPI lock disappeared"))?,
+    ))
 }
 
 pub(crate) fn active_wopi_lock_value(active_lock: &ActiveWopiLock) -> Option<String> {
@@ -350,34 +395,62 @@ async fn create_wopi_lock(
     file: &file::Model,
     requested_lock: &str,
 ) -> Result<()> {
-    let path =
-        lock_service::resolve_entity_path(state.writer_db(), EntityType::File, file.id).await?;
-    let now = Utc::now();
-    let timeout_at = now + Duration::seconds(wopi::lock_ttl_secs(&state.runtime_config));
     let owner_info = lock_service::ResourceLockOwnerInfo::Wopi(lock_service::WopiLockOwnerInfo {
         app_key: payload.app_key.clone(),
         lock: requested_lock.to_string(),
     });
 
-    let model = resource_lock::ActiveModel {
-        token: Set(format!("wopi:{}", uuid::Uuid::new_v4())),
-        entity_type: Set(EntityType::File),
-        entity_id: Set(file.id),
-        path: Set(path),
-        owner_id: Set(Some(payload.actor_user_id)),
-        owner_info: Set(lock_service::serialize_resource_lock_owner_info(Some(
-            &owner_info,
-        ))?),
-        timeout_at: Set(Some(timeout_at)),
-        shared: Set(false),
-        deep: Set(false),
-        created_at: Set(now),
-        ..Default::default()
-    };
-
-    lock_repo::create(state.writer_db(), model).await?;
-    lock_service::set_entity_locked(state.writer_db(), EntityType::File, file.id, true).await?;
+    lock_service::lock(
+        state,
+        EntityType::File,
+        file.id,
+        Some(payload.actor_user_id),
+        Some(owner_info),
+        Some(Duration::seconds(wopi::lock_ttl_secs(
+            &state.runtime_config,
+        ))),
+    )
+    .await?;
     Ok(())
+}
+
+async fn concurrent_wopi_lock_conflict(
+    state: &PrimaryAppState,
+    file_id: i64,
+) -> Result<WopiConflict> {
+    match load_active_lock(state, file_id).await? {
+        ActiveWopiLockState::Single(active_lock) => Ok(WopiConflict {
+            current_lock: Some(active_wopi_lock_value(&active_lock).unwrap_or_default()),
+            reason: "file is locked by another WOPI session".to_string(),
+        }),
+        ActiveWopiLockState::Conflict(conflict) => Ok(conflict),
+        ActiveWopiLockState::None => Ok(WopiConflict {
+            current_lock: Some(String::new()),
+            reason: "file lock conflicted with a concurrent request".to_string(),
+        }),
+    }
+}
+
+fn outside_wopi_lock_conflict() -> WopiConflict {
+    WopiConflict {
+        current_lock: Some(String::new()),
+        reason: "file is locked outside WOPI".to_string(),
+    }
+}
+
+async fn map_create_wopi_lock_error<F, Fut>(
+    error: AsterError,
+    conflict_loader: F,
+) -> Result<WopiLockOperationResult>
+where
+    F: FnOnce() -> Fut,
+    Fut: std::future::Future<Output = Result<WopiConflict>>,
+{
+    if matches!(error, AsterError::ResourceLocked(_)) {
+        return Ok(WopiLockOperationResult::Conflict(conflict_loader().await?));
+    }
+
+    Err(error)
 }
 
 async fn refresh_lock_model(state: &PrimaryAppState, lock: resource_lock::Model) -> Result<()> {
@@ -447,4 +520,47 @@ fn normalize_wopi_lock_header(header_name: &str, value: &str) -> Result<String> 
         )));
     }
     Ok(trimmed.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn create_lock_resource_locked_error_maps_to_wopi_conflict() {
+        let result = map_create_wopi_lock_error(
+            AsterError::resource_locked("resource is already locked"),
+            || async {
+                Ok(WopiConflict {
+                    current_lock: Some("lock-a".to_string()),
+                    reason: "file is locked by another WOPI session".to_string(),
+                })
+            },
+        )
+        .await
+        .expect("resource locked should map to WOPI conflict");
+
+        match result {
+            WopiLockOperationResult::Conflict(conflict) => {
+                assert_eq!(conflict.current_lock.as_deref(), Some("lock-a"));
+                assert!(conflict.reason.contains("another WOPI session"));
+            }
+            WopiLockOperationResult::Success => panic!("expected WOPI conflict"),
+        }
+    }
+
+    #[tokio::test]
+    async fn create_lock_non_resource_locked_error_is_propagated() {
+        let error =
+            map_create_wopi_lock_error(AsterError::database_operation("insert failed"), || async {
+                Ok(WopiConflict {
+                    current_lock: Some("lock-a".to_string()),
+                    reason: "unused".to_string(),
+                })
+            })
+            .await
+            .expect_err("non-lock errors should propagate");
+
+        assert!(matches!(error, AsterError::DatabaseOperation(_)));
+    }
 }

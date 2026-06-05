@@ -171,6 +171,34 @@ async fn build_lock_test_state() -> (PrimaryAppState, user::Model, file::Model) 
     (state, user, file)
 }
 
+async fn insert_lock_for_test(
+    state: &PrimaryAppState,
+    file: &file::Model,
+    token: &str,
+    owner_id: i64,
+    timeout_at: Option<chrono::DateTime<Utc>>,
+) -> resource_lock::Model {
+    let now = Utc::now();
+    lock_repo::create(
+        state.writer_db(),
+        resource_lock::ActiveModel {
+            token: Set(token.to_string()),
+            entity_type: Set(EntityType::File),
+            entity_id: Set(file.id),
+            path: Set("/lock-target.txt".to_string()),
+            owner_id: Set(Some(owner_id)),
+            owner_info: Set(None),
+            timeout_at: Set(timeout_at),
+            shared: Set(false),
+            deep: Set(false),
+            created_at: Set(now),
+            ..Default::default()
+        },
+    )
+    .await
+    .expect("test lock should insert")
+}
+
 #[test]
 fn serializes_and_deserializes_wopi_owner_payload() {
     let owner_info = ResourceLockOwnerInfo::Wopi(WopiLockOwnerInfo {
@@ -365,4 +393,122 @@ async fn clear_entity_locked_if_unlocked_clears_flag_when_no_lock_remains() {
         !reloaded_file.is_locked,
         "is_locked should be cleared once no lock row remains"
     );
+}
+
+#[tokio::test]
+async fn unlock_as_entity_owner_removes_all_locks_and_clears_flag() {
+    let (state, user, file) = build_lock_test_state().await;
+    insert_lock_for_test(&state, &file, "owner-lock", user.id, None).await;
+    insert_lock_for_test(&state, &file, "foreign-lock", user.id + 1, None).await;
+    set_entity_locked(state.writer_db(), EntityType::File, file.id, true)
+        .await
+        .expect("file should be marked locked");
+
+    unlock(&state, EntityType::File, file.id, user.id)
+        .await
+        .expect("entity owner should unlock all locks");
+
+    let locks = lock_repo::find_all_by_entity(state.writer_db(), EntityType::File, file.id)
+        .await
+        .expect("locks should load");
+    assert!(locks.is_empty());
+    let reloaded_file = file_repo::find_by_id(state.writer_db(), file.id)
+        .await
+        .expect("file should reload");
+    assert!(!reloaded_file.is_locked);
+}
+
+#[tokio::test]
+async fn unlock_as_lock_owner_removes_only_own_locks_when_no_foreign_active_lock_exists() {
+    let (state, user, file) = build_lock_test_state().await;
+    let lock_owner_id = user.id + 1;
+    insert_lock_for_test(&state, &file, "own-lock", lock_owner_id, None).await;
+    insert_lock_for_test(
+        &state,
+        &file,
+        "expired-foreign-lock",
+        user.id + 2,
+        Some(Utc::now() - Duration::seconds(30)),
+    )
+    .await;
+    set_entity_locked(state.writer_db(), EntityType::File, file.id, true)
+        .await
+        .expect("file should be marked locked");
+
+    unlock(&state, EntityType::File, file.id, lock_owner_id)
+        .await
+        .expect("lock owner should remove own locks");
+
+    let locks = lock_repo::find_all_by_entity(state.writer_db(), EntityType::File, file.id)
+        .await
+        .expect("locks should load");
+    assert!(locks.is_empty(), "expired foreign locks should be pruned");
+    let reloaded_file = file_repo::find_by_id(state.writer_db(), file.id)
+        .await
+        .expect("file should reload");
+    assert!(
+        !reloaded_file.is_locked,
+        "is_locked should clear after own and expired locks are removed"
+    );
+}
+
+#[tokio::test]
+async fn unlock_prunes_only_expired_locks_and_clears_stale_locked_flag() {
+    let (state, user, file) = build_lock_test_state().await;
+    insert_lock_for_test(
+        &state,
+        &file,
+        "expired-lock",
+        user.id + 1,
+        Some(Utc::now() - Duration::seconds(30)),
+    )
+    .await;
+    set_entity_locked(state.writer_db(), EntityType::File, file.id, true)
+        .await
+        .expect("file should be marked locked");
+
+    unlock(&state, EntityType::File, file.id, user.id + 2)
+        .await
+        .expect("expired-only locks should be pruned without ownership failure");
+
+    let locks = lock_repo::find_all_by_entity(state.writer_db(), EntityType::File, file.id)
+        .await
+        .expect("locks should load");
+    assert!(locks.is_empty(), "expired lock rows should be deleted");
+    let reloaded_file = file_repo::find_by_id(state.writer_db(), file.id)
+        .await
+        .expect("file should reload");
+    assert!(
+        !reloaded_file.is_locked,
+        "stale is_locked should be cleared after expired lock cleanup"
+    );
+}
+
+#[tokio::test]
+async fn unlock_as_lock_owner_rejects_foreign_active_locks_without_deleting_anything() {
+    let (state, user, file) = build_lock_test_state().await;
+    let lock_owner_id = user.id + 1;
+    let own_lock = insert_lock_for_test(&state, &file, "own-lock", lock_owner_id, None).await;
+    let foreign_lock = insert_lock_for_test(&state, &file, "foreign-lock", user.id + 2, None).await;
+    set_entity_locked(state.writer_db(), EntityType::File, file.id, true)
+        .await
+        .expect("file should be marked locked");
+
+    let error = unlock(&state, EntityType::File, file.id, lock_owner_id)
+        .await
+        .expect_err("foreign active lock should block non-owner unlock");
+
+    assert!(matches!(error, crate::errors::AsterError::AuthForbidden(_)));
+    let locks = lock_repo::find_all_by_entity(state.writer_db(), EntityType::File, file.id)
+        .await
+        .expect("locks should load");
+    let lock_ids: std::collections::BTreeSet<i64> = locks.iter().map(|lock| lock.id).collect();
+    assert_eq!(
+        lock_ids,
+        [own_lock.id, foreign_lock.id].into_iter().collect()
+    );
+    let reloaded_file = file_repo::find_by_id(state.writer_db(), file.id)
+        .await
+        .expect("file should reload");
+    assert!(reloaded_file.is_locked);
 }

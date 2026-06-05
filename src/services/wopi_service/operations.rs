@@ -17,8 +17,8 @@ use bytes::BytesMut;
 use futures::StreamExt;
 
 use super::locks::{
-    active_wopi_lock_value, ensure_wopi_lock_matches, ensure_wopi_putfile_lock_matches,
-    load_active_lock,
+    ActiveWopiLockState, active_wopi_lock_value, ensure_wopi_lock_matches,
+    ensure_wopi_putfile_lock_matches, load_active_lock,
 };
 use super::session::{resolve_access_token, scope_from_payload};
 use super::targets::{
@@ -273,16 +273,28 @@ pub async fn put_relative_file(
                         ));
                     }
 
-                    if let Some(active_lock) = load_active_lock(state, existing.id).await? {
-                        return Ok(WopiPutRelativeResult::Conflict(
-                            super::types::WopiPutRelativeConflict {
-                                current_lock: Some(
-                                    active_wopi_lock_value(&active_lock).unwrap_or_default(),
-                                ),
-                                reason: "target file is locked".to_string(),
-                                valid_target: None,
-                            },
-                        ));
+                    match load_active_lock(state, existing.id).await? {
+                        ActiveWopiLockState::None => {}
+                        ActiveWopiLockState::Single(active_lock) => {
+                            return Ok(WopiPutRelativeResult::Conflict(
+                                super::types::WopiPutRelativeConflict {
+                                    current_lock: Some(
+                                        active_wopi_lock_value(&active_lock).unwrap_or_default(),
+                                    ),
+                                    reason: "target file is locked".to_string(),
+                                    valid_target: None,
+                                },
+                            ));
+                        }
+                        ActiveWopiLockState::Conflict(conflict) => {
+                            return Ok(WopiPutRelativeResult::Conflict(
+                                super::types::WopiPutRelativeConflict {
+                                    current_lock: conflict.current_lock,
+                                    reason: conflict.reason,
+                                    valid_target: None,
+                                },
+                            ));
+                        }
                     }
 
                     let target = store_relative_target_from_stream(

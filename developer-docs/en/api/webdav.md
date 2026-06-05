@@ -99,6 +99,7 @@ Limits:
 
 - `REPORT version-tree` supports files only
 - this is not a full DeltaV server, only the minimal useful subset
+- the `/webdav/` mount root is a virtual entry point, not a persisted folder entity. `PROPFIND /webdav/` may list contents and read live DAV properties, but `PROPPATCH /webdav/` explicitly returns `403 Forbidden`; custom dead properties are supported only on concrete files or folders.
 
 ## Authentication and runtime switches
 

@@ -8,15 +8,17 @@ use tokio_util::io::ReaderStream;
 use crate::services::file_service;
 use crate::webdav::dav::{DavFileSystem, DavLockSystem, FsError, OpenOptions};
 use crate::webdav::{
-    ensure_system_file_name_allowed, ensure_unlocked, fs, fs_error_response, href_for_relative,
-    request_path, system_file,
+    ensure_parent_unlocked, ensure_system_file_name_allowed, ensure_unlocked, fs,
+    fs_error_response, href_for_relative, protocol, request_origin, request_path, system_file,
 };
+use protocol::HttpEtagPrecondition;
 
 const CHUNK_SIZE: usize = 16 * 1024;
 
 pub(crate) async fn handle_get_head(
     req: &HttpRequest,
     dav_fs: &fs::AsterDavFs,
+    lock_system: &dyn DavLockSystem,
     prefix: &str,
     head_only: bool,
 ) -> HttpResponse {
@@ -24,6 +26,20 @@ pub(crate) async fn handle_get_head(
         Ok(v) => v,
         Err(resp) => return resp,
     };
+    let (request_scheme, request_host) = request_origin(req);
+    if let Err(resp) = protocol::ensure_if_header(
+        req.headers(),
+        dav_fs,
+        lock_system,
+        &path,
+        prefix,
+        &request_scheme,
+        &request_host,
+    )
+    .await
+    {
+        return resp;
+    }
 
     let meta = match dav_fs.metadata(&path).await {
         Ok(meta) => meta,
@@ -32,17 +48,37 @@ pub(crate) async fn handle_get_head(
     if meta.is_dir() {
         return HttpResponse::MethodNotAllowed().finish();
     }
+    match protocol::evaluate_http_etag_preconditions(
+        req.headers(),
+        true,
+        meta.etag().as_deref(),
+        true,
+    ) {
+        Ok(HttpEtagPrecondition::Proceed) => {}
+        Ok(HttpEtagPrecondition::NotModified) => {
+            let mut response = HttpResponse::NotModified();
+            if let Some(etag) = meta.etag() {
+                response.insert_header((header::ETAG, format!("\"{etag}\"")));
+            }
+            return response.finish();
+        }
+        Err(resp) => return resp,
+    }
 
     let content_type = mime_guess::from_path(relative.trim_end_matches('/'))
         .first_or_octet_stream()
         .essence_str()
         .to_string();
-    let range = match file_service::parse_range_header(
-        req.headers().get(header::RANGE),
-        i64::try_from(meta.len()).unwrap_or(i64::MAX),
-    ) {
-        Ok(range) => range,
-        Err(_) => return HttpResponse::RangeNotSatisfiable().finish(),
+    let range = if head_only {
+        None
+    } else {
+        match file_service::parse_range_header(
+            req.headers().get(header::RANGE),
+            i64::try_from(meta.len()).unwrap_or(i64::MAX),
+        ) {
+            Ok(range) => range,
+            Err(_) => return range_not_satisfiable_response(meta.len()),
+        }
     };
     let (status, content_length, content_range) = match range {
         Some(range) => (
@@ -84,6 +120,13 @@ pub(crate) async fn handle_get_head(
     response.streaming(ReaderStream::with_capacity(stream, CHUNK_SIZE))
 }
 
+fn range_not_satisfiable_response(length: u64) -> HttpResponse {
+    HttpResponse::RangeNotSatisfiable()
+        .insert_header((header::CONTENT_RANGE, format!("bytes */{length}")))
+        .insert_header(("Accept-Ranges", "bytes"))
+        .finish()
+}
+
 pub(crate) async fn handle_put(
     req: &HttpRequest,
     dav_fs: &fs::AsterDavFs,
@@ -100,12 +143,67 @@ pub(crate) async fn handle_put(
         return resp;
     }
     let existed = match dav_fs.metadata(&path).await {
-        Ok(_) => true,
-        Err(FsError::NotFound) => false,
+        Ok(meta) if meta.is_dir() => return HttpResponse::MethodNotAllowed().finish(),
+        Ok(meta) => {
+            if let Err(resp) = protocol::evaluate_http_etag_preconditions(
+                req.headers(),
+                true,
+                meta.etag().as_deref(),
+                false,
+            ) {
+                return resp;
+            }
+            true
+        }
+        Err(FsError::NotFound) => {
+            if let Err(resp) =
+                protocol::evaluate_http_etag_preconditions(req.headers(), false, None, false)
+            {
+                return resp;
+            }
+            false
+        }
         Err(err) => return fs_error_response(err),
     };
 
-    if let Err(resp) = ensure_unlocked(lock_system, &path, false, req.headers()).await {
+    let (request_scheme, request_host) = request_origin(req);
+    if let Err(resp) = protocol::ensure_if_header(
+        req.headers(),
+        dav_fs,
+        lock_system,
+        &path,
+        prefix,
+        &request_scheme,
+        &request_host,
+    )
+    .await
+    {
+        return resp;
+    }
+    if let Err(resp) = ensure_unlocked(
+        lock_system,
+        &path,
+        false,
+        prefix,
+        req.headers(),
+        &request_scheme,
+        &request_host,
+    )
+    .await
+    {
+        return resp;
+    }
+    if !existed
+        && let Err(resp) = ensure_parent_unlocked(
+            lock_system,
+            &relative,
+            prefix,
+            req.headers(),
+            &request_scheme,
+            &request_host,
+        )
+        .await
+    {
         return resp;
     }
 
@@ -157,10 +255,15 @@ pub(crate) async fn handle_put(
 
 fn content_length_hint(headers: &header::HeaderMap) -> Option<u64> {
     headers
-        .get(header::CONTENT_LENGTH)
-        .or_else(|| headers.get("X-Expected-Entity-Length"))
+        .get("X-Expected-Entity-Length")
         .and_then(|value| value.to_str().ok())
         .and_then(|value| value.trim().parse::<u64>().ok())
+        .or_else(|| {
+            headers
+                .get(header::CONTENT_LENGTH)
+                .and_then(|value| value.to_str().ok())
+                .and_then(|value| value.trim().parse::<u64>().ok())
+        })
 }
 
 fn header_equals(headers: &header::HeaderMap, name: header::HeaderName, expected: &str) -> bool {
@@ -168,4 +271,54 @@ fn header_equals(headers: &header::HeaderMap, name: header::HeaderName, expected
         .get(name)
         .and_then(|value| value.to_str().ok())
         .is_some_and(|value| value.trim() == expected)
+}
+
+#[cfg(test)]
+mod tests {
+    use actix_web::http::header::{self, HeaderMap, HeaderName, HeaderValue};
+
+    use super::content_length_hint;
+
+    fn expected_entity_length_header() -> HeaderName {
+        HeaderName::from_static("x-expected-entity-length")
+    }
+
+    #[test]
+    fn content_length_hint_prefers_valid_expected_entity_length() {
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            expected_entity_length_header(),
+            HeaderValue::from_static(" 8 "),
+        );
+        headers.insert(header::CONTENT_LENGTH, HeaderValue::from_static("4"));
+
+        assert_eq!(content_length_hint(&headers), Some(8));
+    }
+
+    #[test]
+    fn content_length_hint_falls_back_to_content_length_when_expected_is_invalid() {
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            expected_entity_length_header(),
+            HeaderValue::from_static("invalid"),
+        );
+        headers.insert(header::CONTENT_LENGTH, HeaderValue::from_static("4"));
+
+        assert_eq!(content_length_hint(&headers), Some(4));
+    }
+
+    #[test]
+    fn content_length_hint_returns_none_when_no_header_can_be_parsed() {
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            expected_entity_length_header(),
+            HeaderValue::from_static("-1"),
+        );
+        headers.insert(
+            header::CONTENT_LENGTH,
+            HeaderValue::from_static("not-a-number"),
+        );
+
+        assert_eq!(content_length_hint(&headers), None);
+    }
 }

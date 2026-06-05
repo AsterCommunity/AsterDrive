@@ -99,6 +99,7 @@ http://localhost:3000/webdav
 
 - `REPORT version-tree` 只支持文件
 - 当前不是完整 DeltaV 服务器，只是最小可用子集
+- `/webdav/` 挂载根只是一个虚拟入口，不是持久化的文件夹实体。`PROPFIND /webdav/` 可以列目录和读取 live DAV 属性，但 `PROPPATCH /webdav/` 明确返回 `403 Forbidden`；自定义 dead properties 只支持具体文件或文件夹。
 
 ## 认证与运行时开关
 

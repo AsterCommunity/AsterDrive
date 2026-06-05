@@ -5,7 +5,7 @@ use crate::db::repository::{file_repo, folder_repo, lock_repo};
 use crate::errors::{AsterError, Result};
 use crate::types::EntityType;
 
-pub(in crate::services::lock_service) async fn clear_entity_locked_if_unlocked(
+pub(crate) async fn clear_entity_locked_if_unlocked(
     db: &impl ConnectionTrait,
     entity_type: EntityType,
     entity_id: i64,

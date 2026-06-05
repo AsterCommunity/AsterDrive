@@ -251,6 +251,14 @@ impl DavLockSystem for NoopLockSystem {
         Box::pin(async { Vec::new() })
     }
 
+    fn conflicting_locks(
+        &self,
+        _path: &crate::webdav::dav::DavPath,
+        _deep: bool,
+    ) -> LsFuture<'_, Vec<DavLock>> {
+        Box::pin(async { Vec::new() })
+    }
+
     fn delete(&self, _path: &crate::webdav::dav::DavPath) -> LsFuture<'_, Result<(), ()>> {
         Box::pin(async { Ok(()) })
     }
@@ -470,7 +478,8 @@ async fn handle_get_returns_response_before_consuming_the_storage_stream() {
     let req = actix_web::test::TestRequest::get()
         .uri("/webdav/streamed.txt")
         .to_http_request();
-    let response = handle_get_head(&req, &dav_fs, "/webdav", false).await;
+    let lock_system = NoopLockSystem;
+    let response = handle_get_head(&req, &dav_fs, &lock_system, "/webdav", false).await;
 
     assert_eq!(response.status(), StatusCode::OK);
     assert_eq!(
@@ -509,6 +518,7 @@ async fn propfind_href_is_percent_encoded_and_xml_parseable() {
     let req = actix_web::test::TestRequest::default()
         .method(actix_web::http::Method::from_bytes(b"PROPFIND").expect("valid method"))
         .uri(&encoded_uri)
+        .insert_header((header::HeaderName::from_static("depth"), "0"))
         .to_http_request();
 
     let response = handle_propfind(&req, &dav_fs, &lock_system, "/webdav", &[]).await;
@@ -678,7 +688,8 @@ async fn handle_head_does_not_open_the_storage_stream() {
         .method(actix_web::http::Method::HEAD)
         .uri("/webdav/head.txt")
         .to_http_request();
-    let response = handle_get_head(&req, &dav_fs, "/webdav", true).await;
+    let lock_system = NoopLockSystem;
+    let response = handle_get_head(&req, &dav_fs, &lock_system, "/webdav", true).await;
 
     assert_eq!(response.status(), StatusCode::OK);
     assert_eq!(

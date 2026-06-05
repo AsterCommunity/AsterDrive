@@ -4,8 +4,8 @@
 mod common;
 
 use actix_web::test;
-use chrono::{Duration, Utc};
-use sea_orm::{ActiveModelTrait, Set};
+use chrono::{DateTime, Duration, Utc};
+use sea_orm::{ActiveModelTrait, ConnectionTrait, Set};
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
 
@@ -13,12 +13,13 @@ use aster_drive::api::middleware::security_headers::{
     REFERRER_POLICY_VALUE, X_CONTENT_TYPE_OPTIONS_VALUE, X_FRAME_OPTIONS_VALUE,
 };
 use aster_drive::config::{RuntimeConfig, site_url::PUBLIC_SITE_URL_KEY};
-use aster_drive::db::repository::{user_repo, wopi_session_repo};
-use aster_drive::entities::wopi_session;
+use aster_drive::db::repository::{lock_repo, user_repo, wopi_session_repo};
+use aster_drive::entities::{resource_lock, wopi_session};
 use aster_drive::services::preview_app_service::{
     PREVIEW_APPS_CONFIG_KEY, PreviewAppProvider, PreviewOpenMode, PublicPreviewAppConfig,
     PublicPreviewAppDefinition, default_public_preview_apps,
 };
+use aster_drive::types::{EntityType, StoredLockOwnerInfo};
 
 const TEST_WOPI_APP_KEY: &str = "custom.onlyoffice";
 const TEST_WOPI_ALT_APP_KEY: &str = "custom.onlyoffice.alt";
@@ -172,6 +173,84 @@ fn parse_wopi_result_url(url: &str) -> (i64, String) {
         .find_map(|(key, value)| (key == "access_token").then(|| value.into_owned()))
         .expect("put-relative url should carry access_token");
     (file_id, access_token)
+}
+
+fn stored_wopi_owner(lock_value: &str) -> StoredLockOwnerInfo {
+    StoredLockOwnerInfo(
+        json!({
+            "kind": "wopi",
+            "app_key": TEST_WOPI_APP_KEY,
+            "lock": lock_value,
+        })
+        .to_string(),
+    )
+}
+
+fn stored_text_owner(value: &str) -> StoredLockOwnerInfo {
+    StoredLockOwnerInfo(
+        json!({
+            "kind": "text",
+            "value": value,
+        })
+        .to_string(),
+    )
+}
+
+async fn insert_test_resource_lock<C: ConnectionTrait>(
+    db: &C,
+    file_id: i64,
+    token_label: &str,
+    owner_info: Option<StoredLockOwnerInfo>,
+    timeout_at: Option<DateTime<Utc>>,
+) -> resource_lock::Model {
+    let now = Utc::now();
+    lock_repo::create(
+        db,
+        resource_lock::ActiveModel {
+            token: Set(format!("urn:uuid:{token_label}-{}", uuid::Uuid::new_v4())),
+            entity_type: Set(EntityType::File),
+            entity_id: Set(file_id),
+            path: Set(format!("/wopi/{file_id}/{token_label}")),
+            owner_id: Set(None),
+            owner_info: Set(owner_info),
+            timeout_at: Set(timeout_at),
+            shared: Set(false),
+            deep: Set(false),
+            created_at: Set(now),
+            ..Default::default()
+        },
+    )
+    .await
+    .expect("test resource lock should insert")
+}
+
+async fn insert_active_wopi_locks<C: ConnectionTrait>(db: &C, file_id: i64, lock_values: &[&str]) {
+    for lock_value in lock_values {
+        insert_test_resource_lock(
+            db,
+            file_id,
+            lock_value,
+            Some(stored_wopi_owner(lock_value)),
+            Some(Utc::now() + Duration::minutes(30)),
+        )
+        .await;
+    }
+}
+
+fn assert_outside_wopi_conflict<B>(resp: &actix_web::dev::ServiceResponse<B>) {
+    assert_eq!(resp.status(), 409);
+    assert_eq!(
+        resp.headers()
+            .get("X-WOPI-Lock")
+            .and_then(|value| value.to_str().ok()),
+        Some("")
+    );
+    assert!(
+        resp.headers()
+            .get("X-WOPI-LockFailureReason")
+            .and_then(|value| value.to_str().ok())
+            .is_some_and(|value| value.contains("outside WOPI"))
+    );
 }
 
 #[actix_web::test]
@@ -598,6 +677,113 @@ async fn test_wopi_get_lock_returns_active_lock_value() {
 }
 
 #[actix_web::test]
+async fn test_wopi_get_lock_returns_outside_conflict_when_multiple_active_locks_exist() {
+    let state = common::setup().await;
+    configure_test_wopi_runtime(&state);
+    let db = state.writer_db().clone();
+    let app = create_test_app!(state);
+
+    let (access_cookie, _) = register_and_login!(app);
+    let file_id = upload_test_file_named!(app, access_cookie, "report 1.docx");
+    let launch = open_wopi_session!(
+        app,
+        access_cookie,
+        &format!("/api/v1/files/{file_id}/wopi/open"),
+        TEST_WOPI_APP_KEY
+    );
+    let wopi_access_token = launch["data"]["access_token"].as_str().unwrap();
+
+    insert_active_wopi_locks(&db, file_id, &["lock-a", "lock-b"]).await;
+
+    let req = test::TestRequest::post()
+        .uri(&wopi_file_query(file_id, wopi_access_token))
+        .insert_header(("Origin", TEST_WOPI_ORIGIN))
+        .insert_header(("X-WOPI-Override", "GET_LOCK"))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_outside_wopi_conflict(&resp);
+}
+
+#[actix_web::test]
+async fn test_wopi_get_lock_returns_outside_conflict_for_single_non_wopi_lock() {
+    let state = common::setup().await;
+    configure_test_wopi_runtime(&state);
+    let db = state.writer_db().clone();
+    let app = create_test_app!(state);
+
+    let (access_cookie, _) = register_and_login!(app);
+    let file_id = upload_test_file_named!(app, access_cookie, "report 1.docx");
+    let launch = open_wopi_session!(
+        app,
+        access_cookie,
+        &format!("/api/v1/files/{file_id}/wopi/open"),
+        TEST_WOPI_APP_KEY
+    );
+    let wopi_access_token = launch["data"]["access_token"].as_str().unwrap();
+    insert_test_resource_lock(
+        &db,
+        file_id,
+        "manual-lock",
+        Some(stored_text_owner("manual lock")),
+        Some(Utc::now() + Duration::minutes(30)),
+    )
+    .await;
+
+    let req = test::TestRequest::post()
+        .uri(&wopi_file_query(file_id, wopi_access_token))
+        .insert_header(("Origin", TEST_WOPI_ORIGIN))
+        .insert_header(("X-WOPI-Override", "GET_LOCK"))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_outside_wopi_conflict(&resp);
+}
+
+#[actix_web::test]
+async fn test_wopi_get_lock_prunes_expired_locks_and_returns_empty_current_lock() {
+    let state = common::setup().await;
+    configure_test_wopi_runtime(&state);
+    let db = state.writer_db().clone();
+    let app = create_test_app!(state);
+
+    let (access_cookie, _) = register_and_login!(app);
+    let file_id = upload_test_file_named!(app, access_cookie, "report 1.docx");
+    let launch = open_wopi_session!(
+        app,
+        access_cookie,
+        &format!("/api/v1/files/{file_id}/wopi/open"),
+        TEST_WOPI_APP_KEY
+    );
+    let wopi_access_token = launch["data"]["access_token"].as_str().unwrap();
+    insert_test_resource_lock(
+        &db,
+        file_id,
+        "expired-wopi-lock",
+        Some(stored_wopi_owner("expired-lock")),
+        Some(Utc::now() - Duration::minutes(1)),
+    )
+    .await;
+
+    let req = test::TestRequest::post()
+        .uri(&wopi_file_query(file_id, wopi_access_token))
+        .insert_header(("Origin", TEST_WOPI_ORIGIN))
+        .insert_header(("X-WOPI-Override", "GET_LOCK"))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+    assert_eq!(
+        resp.headers()
+            .get("X-WOPI-Lock")
+            .and_then(|value| value.to_str().ok()),
+        Some("")
+    );
+
+    let locks = lock_repo::find_all_by_entity(&db, EntityType::File, file_id)
+        .await
+        .expect("locks should load");
+    assert!(locks.is_empty(), "expired WOPI lock rows should be deleted");
+}
+
+#[actix_web::test]
 async fn test_wopi_unlock_and_relock_replaces_active_lock() {
     let state = common::setup().await;
     configure_test_wopi_runtime(&state);
@@ -833,6 +1019,35 @@ async fn test_wopi_put_file_returns_conflict_for_lock_mismatch() {
 }
 
 #[actix_web::test]
+async fn test_wopi_put_file_returns_outside_conflict_when_multiple_active_locks_exist() {
+    let state = common::setup().await;
+    configure_test_wopi_runtime(&state);
+    let db = state.writer_db().clone();
+    let app = create_test_app!(state);
+
+    let (access_cookie, _) = register_and_login!(app);
+    let file_id = upload_test_file_named!(app, access_cookie, "report 1.docx");
+    let launch = open_wopi_session!(
+        app,
+        access_cookie,
+        &format!("/api/v1/files/{file_id}/wopi/open"),
+        TEST_WOPI_APP_KEY
+    );
+    let wopi_access_token = launch["data"]["access_token"].as_str().unwrap();
+    insert_active_wopi_locks(&db, file_id, &["lock-a", "lock-b"]).await;
+
+    let req = test::TestRequest::post()
+        .uri(&wopi_contents_query(file_id, wopi_access_token))
+        .insert_header(("Origin", TEST_WOPI_ORIGIN))
+        .insert_header(("X-WOPI-Override", "PUT"))
+        .insert_header(("X-WOPI-Lock", "lock-a"))
+        .set_payload("should conflict")
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_outside_wopi_conflict(&resp);
+}
+
+#[actix_web::test]
 async fn test_wopi_put_file_requires_lock_header_when_wopi_lock_exists() {
     let state = common::setup().await;
     configure_test_wopi_runtime(&state);
@@ -901,6 +1116,34 @@ async fn test_wopi_refresh_lock_without_active_lock_returns_conflict() {
             .and_then(|value| value.to_str().ok())
             .is_some_and(|value| value.contains("not locked"))
     );
+}
+
+#[actix_web::test]
+async fn test_wopi_refresh_lock_returns_outside_conflict_when_multiple_active_locks_exist() {
+    let state = common::setup().await;
+    configure_test_wopi_runtime(&state);
+    let db = state.writer_db().clone();
+    let app = create_test_app!(state);
+
+    let (access_cookie, _) = register_and_login!(app);
+    let file_id = upload_test_file_named!(app, access_cookie, "report 1.docx");
+    let launch = open_wopi_session!(
+        app,
+        access_cookie,
+        &format!("/api/v1/files/{file_id}/wopi/open"),
+        TEST_WOPI_APP_KEY
+    );
+    let wopi_access_token = launch["data"]["access_token"].as_str().unwrap();
+    insert_active_wopi_locks(&db, file_id, &["lock-a", "lock-b"]).await;
+
+    let req = test::TestRequest::post()
+        .uri(&wopi_file_query(file_id, wopi_access_token))
+        .insert_header(("Origin", TEST_WOPI_ORIGIN))
+        .insert_header(("X-WOPI-Override", "REFRESH_LOCK"))
+        .insert_header(("X-WOPI-Lock", "lock-a"))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_outside_wopi_conflict(&resp);
 }
 
 #[actix_web::test]
@@ -985,6 +1228,43 @@ async fn test_wopi_unlock_returns_conflict_for_lock_mismatch() {
             .get("X-WOPI-LockFailureReason")
             .and_then(|value| value.to_str().ok())
             .is_some_and(|value| value.contains("mismatch"))
+    );
+}
+
+#[actix_web::test]
+async fn test_wopi_unlock_returns_outside_conflict_when_multiple_active_locks_exist() {
+    let state = common::setup().await;
+    configure_test_wopi_runtime(&state);
+    let db = state.writer_db().clone();
+    let app = create_test_app!(state);
+
+    let (access_cookie, _) = register_and_login!(app);
+    let file_id = upload_test_file_named!(app, access_cookie, "report 1.docx");
+    let launch = open_wopi_session!(
+        app,
+        access_cookie,
+        &format!("/api/v1/files/{file_id}/wopi/open"),
+        TEST_WOPI_APP_KEY
+    );
+    let wopi_access_token = launch["data"]["access_token"].as_str().unwrap();
+    insert_active_wopi_locks(&db, file_id, &["lock-a", "lock-b"]).await;
+
+    let req = test::TestRequest::post()
+        .uri(&wopi_file_query(file_id, wopi_access_token))
+        .insert_header(("Origin", TEST_WOPI_ORIGIN))
+        .insert_header(("X-WOPI-Override", "UNLOCK"))
+        .insert_header(("X-WOPI-Lock", "lock-a"))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_outside_wopi_conflict(&resp);
+
+    let locks = lock_repo::find_all_by_entity(&db, EntityType::File, file_id)
+        .await
+        .expect("locks should load");
+    assert_eq!(
+        locks.len(),
+        2,
+        "ambiguous WOPI unlock must not delete any active lock"
     );
 }
 
@@ -1283,6 +1563,47 @@ async fn test_wopi_put_relative_overwrite_returns_conflict_when_target_is_locked
             .get("X-WOPI-LockFailureReason")
             .and_then(|value| value.to_str().ok())
             .is_some_and(|value| value.contains("locked"))
+    );
+}
+
+#[actix_web::test]
+async fn test_wopi_put_relative_overwrite_returns_outside_conflict_when_target_has_multiple_locks()
+{
+    let state = common::setup().await;
+    configure_test_wopi_runtime(&state);
+    let db = state.writer_db().clone();
+    let app = create_test_app!(state);
+
+    let (access_cookie, _) = register_and_login!(app);
+    let file_id = upload_test_file_named!(app, access_cookie, "report 1.docx");
+    let target_file_id = upload_test_file_named!(app, access_cookie, "copy.docx");
+    let launch = open_wopi_session!(
+        app,
+        access_cookie,
+        &format!("/api/v1/files/{file_id}/wopi/open"),
+        TEST_WOPI_APP_KEY
+    );
+    let wopi_access_token = launch["data"]["access_token"].as_str().unwrap();
+    insert_active_wopi_locks(&db, target_file_id, &["target-lock-a", "target-lock-b"]).await;
+
+    let req = test::TestRequest::post()
+        .uri(&wopi_file_query(file_id, wopi_access_token))
+        .insert_header(("Origin", TEST_WOPI_ORIGIN))
+        .insert_header(("X-WOPI-Override", "PUT_RELATIVE"))
+        .insert_header(("X-WOPI-RelativeTarget", "copy.docx"))
+        .insert_header(("X-WOPI-OverwriteRelativeTarget", "true"))
+        .set_payload("should conflict")
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_outside_wopi_conflict(&resp);
+
+    let locks = lock_repo::find_all_by_entity(&db, EntityType::File, target_file_id)
+        .await
+        .expect("target locks should load");
+    assert_eq!(
+        locks.len(),
+        2,
+        "PUT_RELATIVE must leave ambiguous target locks untouched"
     );
 }
 

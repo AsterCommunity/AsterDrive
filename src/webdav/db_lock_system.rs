@@ -4,10 +4,10 @@ use std::io::Cursor;
 use std::time::{Duration, SystemTime};
 
 use chrono::Utc;
-use sea_orm::DatabaseConnection;
+use sea_orm::{ConnectionTrait, DatabaseConnection};
 use xmltree::Element;
 
-use crate::db::repository::lock_repo;
+use crate::db::repository::{file_repo, folder_repo, lock_repo};
 use crate::entities::resource_lock;
 use crate::runtime::PrimaryAppState;
 use crate::services::audit_service::{self, AuditContext};
@@ -99,123 +99,138 @@ impl DavLockSystem for DbLockSystem {
         let timeout_dur = timeout;
 
         Box::pin(async move {
-            let now = Utc::now();
+            let txn = crate::db::transaction::begin(&self.db)
+                .await
+                .map_err(|_| empty_dav_lock(&path_owned))?;
+            let result = async {
+                let now = Utc::now();
 
-            // 解析路径到 entity
-            let (entity_type, entity_id) =
-                resolve_path_to_entity(&self.db, self.scope, self.root_folder_id, &path_str)
+                let (entity_type, entity_id) =
+                    resolve_path_to_entity(&txn, self.scope, self.root_folder_id, &path_str)
+                        .await
+                        .map_err(|_| empty_dav_lock(&path_owned))?;
+                lock_target_entity(&txn, entity_type, entity_id)
                     .await
                     .map_err(|_| empty_dav_lock(&path_owned))?;
 
-            // 检查是否已锁
-            if let Some(existing) = lock_repo::find_by_entity(&self.db, entity_type, entity_id)
-                .await
-                .unwrap_or(None)
-            {
-                let is_expired = existing.timeout_at.is_some_and(|t| t < now);
-                if !is_expired {
-                    return Err(model_to_dav_lock(&existing));
+                let mut overlapping = find_overlapping_locks(&txn, &path_str, deep)
+                    .await
+                    .map_err(|_| empty_dav_lock(&path_owned))?;
+                overlapping.sort_by_key(|lock| lock.id);
+
+                for existing in overlapping {
+                    if existing
+                        .timeout_at
+                        .is_some_and(|timeout_at| timeout_at < now)
+                    {
+                        delete_lock_and_sync_flag(&txn, &existing).await;
+                        continue;
+                    }
+
+                    if !shared || !existing.shared {
+                        return Err(model_to_dav_lock(&existing));
+                    }
                 }
-                // 过期锁：清理
-                if let Err(e) = lock_repo::delete_by_entity(&self.db, entity_type, entity_id).await
-                {
-                    tracing::warn!(
-                        "failed to cleanup expired lock for {entity_type:?}#{entity_id}: {e}"
-                    );
-                }
-                // 重置 is_locked
-                if let Err(e) = crate::services::lock_service::set_entity_locked(
-                    &self.db,
+
+                let token = format!("urn:uuid:{}", uuid::Uuid::new_v4());
+                let timeout_at =
+                    timeout_dur.and_then(|d| chrono::Duration::from_std(d).ok().map(|cd| now + cd));
+                let owner_info = owner_xml.clone().map(|xml| {
+                    crate::services::lock_service::ResourceLockOwnerInfo::Webdav(
+                        crate::services::lock_service::WebdavLockOwnerInfo { xml },
+                    )
+                });
+
+                let model = resource_lock::ActiveModel {
+                    token: sea_orm::Set(token.clone()),
+                    entity_type: sea_orm::Set(entity_type),
+                    entity_id: sea_orm::Set(entity_id),
+                    path: sea_orm::Set(path_str.clone()),
+                    // WebDAV 协议层用 token 判定持锁者；业务存储层用 owner_id
+                    // 区分“自己的锁”和“其他用户的锁”，否则 Finder 持锁 PUT 会被
+                    // workspace_storage_service 误判为被其他用户锁定。
+                    owner_id: sea_orm::Set(Some(self.scope.actor_user_id())),
+                    owner_info: sea_orm::Set(
+                        crate::services::lock_service::serialize_resource_lock_owner_info(
+                            owner_info.as_ref(),
+                        )
+                        .map_err(|_| empty_dav_lock(&path_owned))?,
+                    ),
+                    timeout_at: sea_orm::Set(timeout_at),
+                    shared: sea_orm::Set(shared),
+                    deep: sea_orm::Set(deep),
+                    created_at: sea_orm::Set(now),
+                    ..Default::default()
+                };
+
+                lock_repo::create(&txn, model)
+                    .await
+                    .map_err(|_| empty_dav_lock(&path_owned))?;
+                crate::services::lock_service::set_entity_locked(
+                    &txn,
                     entity_type,
                     entity_id,
-                    false,
+                    true,
                 )
-                .await
-                {
-                    tracing::warn!("failed to sync is_locked for {entity_type:?}#{entity_id}: {e}");
-                }
-            }
-
-            let token = format!("urn:uuid:{}", uuid::Uuid::new_v4());
-            let timeout_at =
-                timeout_dur.and_then(|d| chrono::Duration::from_std(d).ok().map(|cd| now + cd));
-            let owner_info = owner_xml.clone().map(|xml| {
-                crate::services::lock_service::ResourceLockOwnerInfo::Webdav(
-                    crate::services::lock_service::WebdavLockOwnerInfo { xml },
-                )
-            });
-
-            let model = resource_lock::ActiveModel {
-                token: sea_orm::Set(token.clone()),
-                entity_type: sea_orm::Set(entity_type),
-                entity_id: sea_orm::Set(entity_id),
-                path: sea_orm::Set(path_str.clone()),
-                // WebDAV 协议层用 token 判定持锁者；业务存储层用 owner_id
-                // 区分“自己的锁”和“其他用户的锁”，否则 Finder 持锁 PUT 会被
-                // workspace_storage_service 误判为被其他用户锁定。
-                owner_id: sea_orm::Set(Some(self.scope.actor_user_id())),
-                owner_info: sea_orm::Set(
-                    crate::services::lock_service::serialize_resource_lock_owner_info(
-                        owner_info.as_ref(),
-                    )
-                    .map_err(|_| empty_dav_lock(&path_owned))?,
-                ),
-                timeout_at: sea_orm::Set(timeout_at),
-                shared: sea_orm::Set(shared),
-                deep: sea_orm::Set(deep),
-                created_at: sea_orm::Set(now),
-                ..Default::default()
-            };
-
-            lock_repo::create(&self.db, model)
                 .await
                 .map_err(|_| empty_dav_lock(&path_owned))?;
 
-            // 同步 is_locked
-            if let Err(e) = crate::services::lock_service::set_entity_locked(
-                &self.db,
-                entity_type,
-                entity_id,
-                true,
-            )
-            .await
-            {
-                tracing::warn!("failed to sync is_locked for {entity_type:?}#{entity_id}: {e}");
+                Ok((
+                    DavLock {
+                        token,
+                        path: Box::new(path_owned.clone()),
+                        principal: principal_owned,
+                        owner: owner_clone.map(Box::new),
+                        timeout_at: timeout_dur.map(|d| SystemTime::now() + d),
+                        timeout: timeout_dur,
+                        shared,
+                        deep,
+                    },
+                    entity_type,
+                    entity_id,
+                ))
             }
-            self.log_lock_action(entity_type, entity_id, true).await;
+            .await;
 
-            Ok(DavLock {
-                token,
-                path: Box::new(path_owned),
-                principal: principal_owned,
-                owner: owner_clone.map(Box::new),
-                timeout_at: timeout_dur.map(|d| SystemTime::now() + d),
-                timeout: timeout_dur,
-                shared,
-                deep,
-            })
+            match result {
+                Ok((lock, entity_type, entity_id)) => {
+                    crate::db::transaction::commit(txn)
+                        .await
+                        .map_err(|_| empty_dav_lock(&path_owned))?;
+                    self.log_lock_action(entity_type, entity_id, true).await;
+                    Ok(lock)
+                }
+                Err(conflict) => {
+                    if let Err(error) = crate::db::transaction::rollback(txn).await {
+                        tracing::warn!(error = %error, "failed to rollback WebDAV lock transaction");
+                    }
+                    Err(conflict)
+                }
+            }
         })
     }
 
-    fn unlock(&self, _path: &DavPath, token: &str) -> LsFuture<'_, Result<(), ()>> {
+    fn unlock(&self, path: &DavPath, token: &str) -> LsFuture<'_, Result<(), ()>> {
         let token_owned = token.to_string();
+        let path_str = normalize_path(path);
         Box::pin(async move {
             // 查锁拿 entity 信息
             let lock = lock_repo::find_by_token(&self.db, &token_owned)
                 .await
                 .map_err(|_| ())?
                 .ok_or(())?;
+            if !unlock_request_targets_lock_scope(&lock.path, lock.deep, &path_str) {
+                return Err(());
+            }
 
             lock_repo::delete_by_token(&self.db, &token_owned)
                 .await
                 .map_err(|_| ())?;
 
-            // 同步 is_locked
-            if let Err(e) = crate::services::lock_service::set_entity_locked(
+            if let Err(e) = crate::services::lock_service::clear_entity_locked_if_unlocked(
                 &self.db,
                 lock.entity_type,
                 lock.entity_id,
-                false,
             )
             .await
             {
@@ -235,6 +250,7 @@ impl DavLockSystem for DbLockSystem {
     ) -> LsFuture<'_, Result<DavLock, ()>> {
         let token_owned = token.to_string();
         let path_clone = path.clone();
+        let path_str = normalize_path(path);
         let timeout_dur = timeout;
 
         Box::pin(async move {
@@ -246,6 +262,9 @@ impl DavLockSystem for DbLockSystem {
                 .await
                 .map_err(|_| ())?
                 .ok_or(())?;
+            if !unlock_request_targets_lock_scope(&lock.path, lock.deep, &path_str) {
+                return Err(());
+            }
             self.log_lock_action(lock.entity_type, lock.entity_id, true)
                 .await;
             let owner = lock_owner_xml(&lock)
@@ -298,12 +317,10 @@ impl DavLockSystem for DbLockSystem {
             all_locks.sort_by_key(|l| l.id);
             all_locks.dedup_by_key(|l| l.id);
 
-            // 持有任何一个锁就通过
+            all_locks.retain(|lock| lock_paths_overlap(&lock.path, lock.deep, &path_str, deep));
+
             let holds_any = all_locks.iter().any(|lock| {
-                if lock.timeout_at.is_some_and(|t| t < now) {
-                    return false;
-                }
-                tokens.contains(&lock.token)
+                lock.timeout_at.is_none_or(|t| t >= now) && tokens.contains(&lock.token)
             });
 
             if holds_any {
@@ -313,16 +330,6 @@ impl DavLockSystem for DbLockSystem {
             // 检查冲突
             for lock in &all_locks {
                 if lock.timeout_at.is_some_and(|t| t < now) {
-                    continue;
-                }
-
-                let is_ancestor = lock.path != path_str;
-                if is_ancestor && !lock.deep {
-                    continue;
-                }
-
-                let is_descendant = lock.path.starts_with(&path_str) && lock.path != path_str;
-                if is_descendant && !deep {
                     continue;
                 }
 
@@ -351,31 +358,36 @@ impl DavLockSystem for DbLockSystem {
         })
     }
 
+    fn conflicting_locks(&self, path: &DavPath, deep: bool) -> LsFuture<'_, Vec<DavLock>> {
+        let path_str = normalize_path(path);
+
+        Box::pin(async move {
+            let now = Utc::now();
+            find_overlapping_locks(&self.db, &path_str, deep)
+                .await
+                .unwrap_or_default()
+                .iter()
+                .filter(|lock| lock.timeout_at.is_none_or(|timeout_at| timeout_at >= now))
+                .map(model_to_dav_lock)
+                .collect()
+        })
+    }
+
     fn delete(&self, path: &DavPath) -> LsFuture<'_, Result<(), ()>> {
         let path_str = normalize_path(path);
         Box::pin(async move {
-            // 查出所有要删的锁（需要重置 is_locked）
             let locks = lock_repo::find_by_path_prefix(&self.db, &path_str)
                 .await
                 .unwrap_or_default();
 
-            for lock in &locks {
-                if let Err(e) = crate::services::lock_service::set_entity_locked(
-                    &self.db,
-                    lock.entity_type,
-                    lock.entity_id,
-                    false,
-                )
-                .await
-                {
-                    tracing::warn!("failed to sync is_locked during lock delete: {e}");
+            for lock in locks {
+                if !lock_path_is_under(&path_str, &lock.path) {
+                    continue;
                 }
+                delete_lock_and_sync_flag(&self.db, &lock).await;
             }
 
-            lock_repo::delete_by_path_prefix(&self.db, &path_str)
-                .await
-                .map(|_| ())
-                .map_err(|_| ())
+            Ok(())
         })
     }
 }
@@ -413,8 +425,8 @@ fn path_ancestors(path: &str) -> Vec<String> {
 }
 
 /// 从 WebDAV 路径解析出 (entity_type, entity_id)
-async fn resolve_path_to_entity(
-    db: &sea_orm::DatabaseConnection,
+async fn resolve_path_to_entity<C: ConnectionTrait>(
+    db: &C,
     scope: WorkspaceStorageScope,
     root_folder_id: Option<i64>,
     path: &str,
@@ -425,6 +437,101 @@ async fn resolve_path_to_entity(
         Ok(ResolvedNode::Folder(f)) => Ok((EntityType::Folder, f.id)),
         _ => Err(()),
     }
+}
+
+async fn lock_target_entity<C: ConnectionTrait>(
+    db: &C,
+    entity_type: EntityType,
+    entity_id: i64,
+) -> crate::errors::Result<()> {
+    match entity_type {
+        EntityType::File => {
+            file_repo::lock_by_id(db, entity_id).await?;
+        }
+        EntityType::Folder => {
+            folder_repo::lock_by_id(db, entity_id).await?;
+        }
+    }
+    Ok(())
+}
+
+async fn find_overlapping_locks<C: ConnectionTrait>(
+    db: &C,
+    path: &str,
+    deep: bool,
+) -> crate::errors::Result<Vec<resource_lock::Model>> {
+    let ancestor_paths = path_ancestors(path);
+    let mut locks = lock_repo::find_ancestors(db, &ancestor_paths).await?;
+
+    let descendants = lock_repo::find_by_path_prefix(db, path).await?;
+    locks.extend(descendants);
+    locks.sort_by_key(|lock| lock.id);
+    locks.dedup_by_key(|lock| lock.id);
+    locks.retain(|lock| lock_paths_overlap(&lock.path, lock.deep, path, deep));
+    Ok(locks)
+}
+
+async fn delete_lock_and_sync_flag<C: ConnectionTrait>(db: &C, lock: &resource_lock::Model) {
+    if let Err(error) = lock_repo::delete_by_id(db, lock.id).await {
+        tracing::warn!(lock_id = lock.id, error = %error, "failed to delete WebDAV lock");
+        return;
+    }
+    if let Err(error) = crate::services::lock_service::clear_entity_locked_if_unlocked(
+        db,
+        lock.entity_type,
+        lock.entity_id,
+    )
+    .await
+    {
+        tracing::warn!(
+            lock_id = lock.id,
+            entity_type = ?lock.entity_type,
+            entity_id = lock.entity_id,
+            error = %error,
+            "failed to sync is_locked after WebDAV lock deletion"
+        );
+    }
+}
+
+fn lock_paths_overlap(
+    existing_path: &str,
+    existing_deep: bool,
+    requested_path: &str,
+    requested_deep: bool,
+) -> bool {
+    if existing_path == requested_path {
+        return true;
+    }
+    if path_is_ancestor(existing_path, requested_path) {
+        return existing_deep;
+    }
+    if path_is_ancestor(requested_path, existing_path) {
+        return requested_deep;
+    }
+    false
+}
+
+fn lock_path_is_under(parent: &str, child: &str) -> bool {
+    parent == child || path_is_ancestor(parent, child)
+}
+
+fn unlock_request_targets_lock_scope(lock_path: &str, lock_deep: bool, request_path: &str) -> bool {
+    lock_path == request_path || lock_deep && path_is_ancestor(lock_path, request_path)
+}
+
+fn path_is_ancestor(parent: &str, child: &str) -> bool {
+    if parent == child {
+        return false;
+    }
+    if parent == "/" {
+        return child.starts_with('/');
+    }
+    if parent.ends_with('/') {
+        return child.starts_with(parent);
+    }
+    child
+        .strip_prefix(parent)
+        .is_some_and(|suffix| suffix.starts_with('/'))
 }
 
 fn empty_dav_lock(path: &DavPath) -> DavLock {

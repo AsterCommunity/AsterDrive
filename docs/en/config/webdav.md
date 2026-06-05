@@ -76,6 +76,8 @@ A WebDAV dedicated account has independently managed password and scope. Losing 
 https://your-domain/webdav/
 ```
 
+The `/webdav/` mount root exists only as an entry point and listing boundary; it is not a real folder row in the database. Clients may use `PROPFIND` on it to list the root directory, but `PROPPATCH /webdav/` cannot write custom dead properties and explicitly returns `403 Forbidden`. Custom properties must target a concrete file or folder.
+
 If you change `prefix` to `/dav`, change the client address too:
 
 ```text
