@@ -53,6 +53,7 @@ function t(key: string, values?: Record<string, number | string>) {
 		"tasks:status_text_archive_ready": `Archive ready: ${values?.name}`,
 		"tasks:status_text_archive_extracted": `Extracted to ${values?.name}`,
 		"tasks:status_text_thumbnail_ready": "Thumbnail ready",
+		"tasks:status_text_image_preview_ready": "Image preview ready",
 		"tasks:status_text_waiting_presigned_url_expiry":
 			"Waiting for presigned URLs to expire",
 		"tasks:task_name_archive_compress": `Compress ${values?.name}`,
@@ -67,6 +68,8 @@ function t(key: string, values?: Record<string, number | string>) {
 		"tasks:task_name_storage_policy_temp_cleanup_policy_id": `Cleanup Policy #${values?.policyId}`,
 		"tasks:task_name_thumbnail_generate": `Thumbnail ${values?.source} via ${values?.processor}`,
 		"tasks:task_name_thumbnail_generate_blob_with_processor": `Thumbnail Blob #${values?.blobId} via ${values?.processor}`,
+		"tasks:task_name_image_preview_generate": `Image preview ${values?.source} via ${values?.processor}`,
+		"tasks:task_name_image_preview_generate_blob_with_processor": `Image preview Blob #${values?.blobId} via ${values?.processor}`,
 		"tasks:task_name_trash_purge_all": "Empty trash",
 		"tasks:step_storage_policy_migration_prepare_sources":
 			"Prepare source policy",
@@ -76,6 +79,7 @@ function t(key: string, values?: Record<string, number | string>) {
 		"tasks:step_thumbnail_generate_inspect_source": "Inspect source file",
 		"tasks:step_thumbnail_generate_render_thumbnail": "Render thumbnail",
 		"tasks:step_thumbnail_generate_persist_thumbnail": "Save thumbnail",
+		"tasks:kind_image_preview_generate": "Image preview generation",
 	};
 	return translations[key] ?? key;
 }
@@ -145,6 +149,32 @@ describe("taskPresentation structured presentation", () => {
 				}),
 			),
 		).toBe("Thumbnail Blob #42 via storage_native");
+		expect(
+			formatTaskDisplayName(
+				t,
+				createTask({
+					display_name: "Backend image preview title",
+					kind: "image_preview_generate" as never,
+					payload: {
+						blob_hash: "hash-old",
+						blob_id: 11,
+						kind: "image_preview_generate",
+						processor: "images",
+						source_file_name: "old.png",
+						source_mime_type: "image/png",
+					} as never,
+					presentation: {
+						title: {
+							code: "task_name_image_preview_generate_blob_with_processor" as never,
+							params: {
+								blobId: 42,
+								processor: "images",
+							},
+						},
+					},
+				}),
+			),
+		).toBe("Image preview Blob #42 via images");
 		expect(
 			formatTaskDisplayName(
 				t,
@@ -255,6 +285,20 @@ describe("taskPresentation structured presentation", () => {
 				}),
 			),
 		).toBe("Thumbnail ready");
+		expect(
+			formatTaskDetail(
+				t,
+				createTask({
+					status_text: "backend changed this image preview sentence",
+					presentation: {
+						status: {
+							code: "status_text_image_preview_ready" as never,
+							params: {},
+						},
+					},
+				}),
+			),
+		).toBe("Image preview ready");
 		expect(
 			formatTaskDetail(
 				t,
@@ -414,6 +458,9 @@ describe("taskPresentation storage policy migration", () => {
 	it("formats the storage policy migration kind", () => {
 		expect(formatTaskKind(t, "storage_policy_migration")).toBe(
 			"Storage policy migration",
+		);
+		expect(formatTaskKind(t, "image_preview_generate" as never)).toBe(
+			"Image preview generation",
 		);
 	});
 

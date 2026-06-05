@@ -391,6 +391,12 @@ export type PublicMediaDataSupport =
 	components["schemas"]["PublicMediaDataSupport"];
 export type PublicMediaDataSupportMatch =
 	components["schemas"]["PublicMediaDataSupportMatch"];
+export type PublicImagePreviewPreference =
+	components["schemas"]["PublicImagePreviewPreference"];
+export type PublicFrontendMediaConfig =
+	components["schemas"]["PublicFrontendMediaConfig"];
+export type PublicFrontendConfig =
+	components["schemas"]["PublicFrontendConfig"];
 export type SystemConfig = components["schemas"]["SystemConfig"];
 export type SystemConfigPage = components["schemas"]["OffsetPage_SystemConfig"];
 export type SystemConfigSource = components["schemas"]["SystemConfigSource"];

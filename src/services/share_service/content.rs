@@ -383,7 +383,7 @@ pub async fn get_shared_thumbnail(
 pub async fn get_shared_image_preview(
     state: &PrimaryAppState,
     token: &str,
-) -> Result<file_service::ImagePreviewResult> {
+) -> Result<Option<file_service::ImagePreviewResult>> {
     let share = load_valid_share(state, token).await?;
     tracing::debug!(share_id = share.id, "loading shared image preview");
     let file = load_share_file_resource(state, &share).await?;
@@ -431,7 +431,7 @@ pub async fn get_shared_folder_file_image_preview(
     state: &PrimaryAppState,
     token: &str,
     file_id: i64,
-) -> Result<file_service::ImagePreviewResult> {
+) -> Result<Option<file_service::ImagePreviewResult>> {
     let (_, file) = load_shared_folder_file_target(state, token, file_id).await?;
     tracing::debug!(
         file_id = file.id,

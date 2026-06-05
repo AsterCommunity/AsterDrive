@@ -4,6 +4,7 @@ import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { FilePreviewBody } from "./FilePreviewBody";
 import { FilePreviewMethodChooser } from "./FilePreviewMethodChooser";
 import { FilePreviewPanel } from "./FilePreviewPanel";
+import { ImagePreviewPanel } from "./ImagePreviewPanel";
 import { UnsavedChangesGuard } from "./UnsavedChangesGuard";
 import {
 	type FilePreviewDialogProps,
@@ -59,9 +60,12 @@ export function FilePreviewDialog({
 			>
 				<DialogContent
 					animated={
-						model.showOpenMethodChooser ? true : model.isDialogAnimationEnabled
+						model.showOpenMethodChooser || model.isImagePreview
+							? true
+							: model.isDialogAnimationEnabled
 					}
 					keepMounted
+					overlayClassName={model.dialogOverlayClassName}
 					showCloseButton={false}
 					className={model.dialogContentClassName}
 				>
@@ -80,6 +84,27 @@ export function FilePreviewDialog({
 							chooseOpenMethodLabel={t("files:choose_open_method")}
 							closeLabel={t("core:close")}
 							moreOpenMethodsLabel={t("files:more_open_methods")}
+						/>
+					) : model.activeOption?.mode === "image" ? (
+						<ImagePreviewPanel
+							file={file}
+							allOptionsCount={model.allOptions.length}
+							downloadPath={model.resolvedDownloadPath}
+							imagePreviewPath={model.resolvedImagePreviewPath}
+							isExpanded={model.isExpanded}
+							onChooseOpenMethod={model.handleOpenMethodPickerOpen}
+							onToggleExpand={model.handleExpandToggle}
+							onClose={model.closeWithGuard}
+							chooseOpenMethodLabel={t("files:choose_open_method")}
+							enterFullscreenLabel={t("files:preview_enter_fullscreen")}
+							exitFullscreenLabel={t("files:preview_exit_fullscreen")}
+							closeLabel={t("core:close")}
+							fitToWindowLabel={t("files:preview_fit_to_window")}
+							previewSourceLabel={t("files:preview_source_preview")}
+							originalSourceLabel={t("files:preview_source_original")}
+							rotateRightLabel={t("files:preview_rotate_right")}
+							zoomInLabel={t("files:preview_zoom_in")}
+							zoomOutLabel={t("files:preview_zoom_out")}
 						/>
 					) : (
 						<FilePreviewPanel

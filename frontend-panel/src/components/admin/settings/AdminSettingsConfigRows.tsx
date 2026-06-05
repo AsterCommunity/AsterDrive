@@ -570,6 +570,52 @@ function StringEnumSetConfigControl({
 	);
 }
 
+function StringEnumConfigControl({
+	config,
+	draftValue,
+	hasError,
+}: {
+	config: SystemConfig;
+	draftValue: string;
+	hasError?: boolean;
+}) {
+	const { getSystemConfigSchema, t, updateDraftValue } =
+		useAdminSettingsCategoryContent();
+	const options = getSystemConfigSchema(config)?.options ?? [];
+
+	return (
+		<Select
+			items={options.map((option) => ({
+				label: formatEnumOptionLabel(t, option),
+				value: option.value,
+			}))}
+			value={draftValue}
+			onValueChange={(value) => {
+				if (value !== null) {
+					updateDraftValue(config.key, value);
+				}
+			}}
+		>
+			<SelectTrigger
+				id={config.key}
+				width="fit"
+				className="min-w-52"
+				aria-invalid={hasError ? true : undefined}
+				aria-label={getConfigDescription(config) || config.key}
+			>
+				<SelectValue />
+			</SelectTrigger>
+			<SelectContent>
+				{options.map((option) => (
+					<SelectItem key={option.value} value={option.value}>
+						{formatEnumOptionLabel(t, option)}
+					</SelectItem>
+				))}
+			</SelectContent>
+		</Select>
+	);
+}
+
 function ScaledNumberInputControl({
 	config,
 	draftValue,
@@ -704,6 +750,7 @@ function ConfigInputControl({
 }) {
 	const {
 		editorTheme,
+		getSystemConfigSchema,
 		handleBuildWopiDiscoveryPreviewConfig,
 		handleTestAria2Rpc,
 		handleTestFfmpegCliCommand,
@@ -723,6 +770,9 @@ function ConfigInputControl({
 	const multiline = isMultilineType(valueType);
 	const stringArray = isStringArrayType(valueType);
 	const stringEnumSet = isStringEnumSetType(valueType);
+	const schema = getSystemConfigSchema(config);
+	const stringEnum =
+		valueType === "string" && (schema?.options?.length ?? 0) > 0;
 	const brandingPreviewAppearance = isBrandingAssetConfig(config)
 		? getBrandingAssetPreviewAppearance(config)
 		: null;
@@ -806,6 +856,16 @@ function ConfigInputControl({
 			<StringEnumSetConfigControl
 				config={config}
 				draftValue={configValueToStringArray(draftValue)}
+				hasError={hasError}
+			/>
+		);
+	}
+
+	if (stringEnum) {
+		return (
+			<StringEnumConfigControl
+				config={config}
+				draftValue={draftStringValue}
 				hasError={hasError}
 			/>
 		);

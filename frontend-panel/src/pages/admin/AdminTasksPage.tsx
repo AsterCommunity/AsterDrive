@@ -63,18 +63,20 @@ const TASK_SORT_BY_OPTIONS = [
 ] as const satisfies readonly AdminTaskSortBy[];
 const DEFAULT_TASK_SORT_BY = "updated_at" as const satisfies AdminTaskSortBy;
 const DEFAULT_TASK_SORT_ORDER = "desc" as const satisfies SortOrder;
+type KnownTaskKind = BackgroundTaskKind | "image_preview_generate";
 const TASK_KIND_FILTER_VALUES = [
 	"archive_extract",
 	"archive_compress",
 	"archive_preview_generate",
 	"thumbnail_generate",
+	"image_preview_generate",
 	"media_metadata_extract",
 	"trash_purge_all",
 	"storage_policy_temp_cleanup",
 	"storage_policy_migration",
 	"blob_maintenance",
 	"system_runtime",
-] as const;
+] as const satisfies readonly KnownTaskKind[];
 const TASK_STATUS_FILTER_VALUES = [
 	"pending",
 	"processing",
@@ -90,14 +92,14 @@ const TASK_TERMINAL_STATUS_FILTER_VALUES = [
 ] as const;
 const DEFAULT_TASK_CLEANUP_LOOKBACK_HOURS = 24;
 
-type TaskKindFilter = "__all__" | BackgroundTaskKind;
+type TaskKindFilter = "__all__" | KnownTaskKind;
 type TaskStatusFilter = "__all__" | BackgroundTaskStatus;
 type TaskTerminalStatusFilter =
 	| "__all__"
 	| (typeof TASK_TERMINAL_STATUS_FILTER_VALUES)[number];
 type TaskCleanupRequest = {
 	finished_before: string;
-	kind?: BackgroundTaskKind;
+	kind?: KnownTaskKind;
 	status?: (typeof TASK_TERMINAL_STATUS_FILTER_VALUES)[number];
 };
 type ManagedTaskQuery = {
@@ -135,7 +137,7 @@ function parseTaskKindSearchParam(value: string | null): TaskKindFilter {
 	return TASK_KIND_FILTER_VALUES.includes(
 		value as (typeof TASK_KIND_FILTER_VALUES)[number],
 	)
-		? (value as BackgroundTaskKind)
+		? (value as KnownTaskKind)
 		: "__all__";
 }
 
@@ -274,6 +276,10 @@ function formatAdminTaskKind(t: TFunction, kind: BackgroundTaskKind) {
 	return formatSharedTaskKind(t, kind);
 }
 
+function formatKnownTaskKind(t: TFunction, kind: KnownTaskKind) {
+	return formatSharedTaskKind(t, kind as BackgroundTaskKind);
+}
+
 function formatAdminTaskSource(t: TFunction, task: TaskInfo): ReactNode {
 	if (task.team_id != null) {
 		return t("admin:overview_background_tasks_source_team", {
@@ -290,7 +296,7 @@ function buildTaskKindFilterOptions(t: TFunction) {
 	return [
 		{ label: t("admin:all_task_types"), value: "__all__" },
 		...TASK_KIND_FILTER_VALUES.map((value) => ({
-			label: formatAdminTaskKind(t, value),
+			label: formatKnownTaskKind(t, value),
 			value,
 		})),
 	] satisfies ReadonlyArray<{ label: string; value: string }>;
@@ -345,7 +351,7 @@ function describeCleanupConditions(
 		finishedBefore: formatDateTime(request.finished_before),
 		kind:
 			request.kind != null
-				? formatAdminTaskKind(t, request.kind)
+				? formatKnownTaskKind(t, request.kind)
 				: t("admin:all_task_types"),
 		status:
 			request.status != null
@@ -404,7 +410,9 @@ function useAdminTasksPageContent() {
 			adminTaskService.list({
 				limit: pageSize,
 				offset,
-				...(kindFilter !== "__all__" ? { kind: kindFilter } : {}),
+				...(kindFilter !== "__all__"
+					? { kind: kindFilter as BackgroundTaskKind }
+					: {}),
 				...(statusFilter !== "__all__" ? { status: statusFilter } : {}),
 				sort_by: sortBy,
 				sort_order: sortOrder,
@@ -483,7 +491,13 @@ function useAdminTasksPageContent() {
 
 		dispatchUi({ submitting: true, type: "set_cleanup_submitting" });
 		try {
-			const result = await adminTaskService.cleanupCompleted(cleanupRequest);
+			const result = await adminTaskService.cleanupCompleted({
+				...cleanupRequest,
+				kind:
+					cleanupRequest.kind != null
+						? (cleanupRequest.kind as BackgroundTaskKind)
+						: undefined,
+			});
 			toast.success(t("admin:tasks_cleaned", { count: result.removed }));
 			dispatchUi({ open: false, type: "set_cleanup_dialog_open" });
 			if (offset !== 0) {

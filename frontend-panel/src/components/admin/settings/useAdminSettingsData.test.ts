@@ -23,9 +23,9 @@ import type {
 
 const mockState = vi.hoisted(() => ({
 	actionConfig: vi.fn(),
-	brandingInvalidate: vi.fn(),
-	brandingLoad: vi.fn(),
 	deleteConfig: vi.fn(),
+	frontendConfigInvalidate: vi.fn(),
+	frontendConfigLoad: vi.fn(),
 	handleApiError: vi.fn(),
 	mediaDataSupportInvalidate: vi.fn(),
 	mediaDataSupportLoad: vi.fn(),
@@ -99,15 +99,15 @@ vi.mock("@/stores/previewAppStore", () => {
 	return { usePreviewAppStore };
 });
 
-vi.mock("@/stores/brandingStore", () => {
-	const useBrandingStore = Object.assign(vi.fn(), {
+vi.mock("@/stores/frontendConfigStore", () => {
+	const useFrontendConfigStore = Object.assign(vi.fn(), {
 		getState: () => ({
-			invalidate: mockState.brandingInvalidate,
-			load: mockState.brandingLoad,
+			invalidate: mockState.frontendConfigInvalidate,
+			load: mockState.frontendConfigLoad,
 		}),
 	});
 
-	return { useBrandingStore };
+	return { useFrontendConfigStore };
 });
 
 vi.mock("@/stores/thumbnailSupportStore", () => {
@@ -368,9 +368,9 @@ describe("useAdminSettingsData", () => {
 		);
 		invalidateAdminConfigMetadataCache();
 		mockState.actionConfig.mockReset();
-		mockState.brandingInvalidate.mockReset();
-		mockState.brandingLoad.mockReset();
 		mockState.deleteConfig.mockReset();
+		mockState.frontendConfigInvalidate.mockReset();
+		mockState.frontendConfigLoad.mockReset();
 		mockState.handleApiError.mockReset();
 		mockState.listConfigs.mockReset();
 		mockState.previewInvalidate.mockReset();
@@ -391,7 +391,7 @@ describe("useAdminSettingsData", () => {
 		mockState.schema.mockResolvedValue([]);
 		mockState.templateVariables.mockResolvedValue([]);
 		mockState.previewLoad.mockResolvedValue(undefined);
-		mockState.brandingLoad.mockResolvedValue(undefined);
+		mockState.frontendConfigLoad.mockResolvedValue(undefined);
 		mockState.thumbnailSupportLoad.mockResolvedValue(undefined);
 		mockState.deleteConfig.mockResolvedValue(undefined);
 		mockState.setConfig.mockImplementation(
@@ -831,8 +831,8 @@ describe("useAdminSettingsData", () => {
 		expect(onPublicSiteUrlChanged).toHaveBeenCalledWith([
 			"https://next.example.com",
 		]);
-		expect(mockState.brandingInvalidate).toHaveBeenCalledTimes(1);
-		expect(mockState.brandingLoad).toHaveBeenCalledWith({ force: true });
+		expect(mockState.frontendConfigInvalidate).toHaveBeenCalledTimes(1);
+		expect(mockState.frontendConfigLoad).toHaveBeenCalledWith({ force: true });
 		expect(mockState.previewInvalidate).toHaveBeenCalledTimes(1);
 		expect(mockState.previewLoad).toHaveBeenCalledWith({ force: true });
 		expect(mockState.thumbnailSupportInvalidate).toHaveBeenCalledTimes(1);
@@ -854,7 +854,7 @@ describe("useAdminSettingsData", () => {
 		).toEqual(["custom.accent"]);
 	});
 
-	it("reloads branding but not preview or thumbnail stores when only public_site_url changes", async () => {
+	it("reloads frontend config but not preview or thumbnail stores when only public_site_url changes", async () => {
 		const { onPublicSiteUrlChanged, result } = renderUseAdminSettingsData();
 
 		await waitFor(() => expect(result.current.loading).toBe(false));
@@ -875,8 +875,8 @@ describe("useAdminSettingsData", () => {
 		expect(onPublicSiteUrlChanged).toHaveBeenCalledWith([
 			"https://only-public.example.com",
 		]);
-		expect(mockState.brandingInvalidate).toHaveBeenCalledTimes(1);
-		expect(mockState.brandingLoad).toHaveBeenCalledWith({ force: true });
+		expect(mockState.frontendConfigInvalidate).toHaveBeenCalledTimes(1);
+		expect(mockState.frontendConfigLoad).toHaveBeenCalledWith({ force: true });
 		expect(mockState.previewInvalidate).not.toHaveBeenCalled();
 		expect(mockState.previewLoad).not.toHaveBeenCalled();
 		expect(mockState.thumbnailSupportInvalidate).not.toHaveBeenCalled();

@@ -237,6 +237,13 @@ pub struct ImagePreviewData {
     pub image_preview_version: String,
 }
 
+pub struct StoredImagePreview {
+    pub image_preview_path: String,
+    pub image_preview_processor: String,
+    pub image_preview_version: String,
+    pub reused_existing_preview: bool,
+}
+
 #[derive(Debug)]
 pub struct ProcessedAvatar {
     pub small_bytes: Vec<u8>,

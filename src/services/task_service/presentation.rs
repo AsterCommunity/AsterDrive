@@ -75,6 +75,21 @@ fn title_message(
                 })
             }
         }
+        TaskPayload::ImagePreviewGenerate(payload) => {
+            let source_file_name = payload.source_file_name.trim();
+            if source_file_name.is_empty() {
+                Some(PresentationMessage::ImagePreviewGenerateBlobTitle {
+                    blob_id: payload.blob_id,
+                    processor: payload.processor,
+                })
+            } else {
+                Some(PresentationMessage::ImagePreviewGenerateSourceTitle {
+                    source: source_file_name.to_string(),
+                    blob_id: payload.blob_id,
+                    processor: payload.processor,
+                })
+            }
+        }
         TaskPayload::MediaMetadataExtract(payload) => {
             let source_file_name = payload.source_file_name.trim();
             if source_file_name.is_empty() {
@@ -187,6 +202,11 @@ fn status_message_from_result(result: &TaskResult) -> Option<TaskPresentationMes
             PresentationMessage::ThumbnailAlreadyAvailableStatus
         } else {
             PresentationMessage::ThumbnailReadyStatus
+        }),
+        TaskResult::ImagePreviewGenerate(result) => Some(if result.reused_existing_preview {
+            PresentationMessage::ImagePreviewAlreadyAvailableStatus
+        } else {
+            PresentationMessage::ImagePreviewReadyStatus
         }),
         TaskResult::MediaMetadataExtract(result) => {
             Some(PresentationMessage::MediaMetadataStatus {
@@ -314,6 +334,15 @@ enum PresentationMessage {
         blob_id: i64,
         processor: MediaProcessorKind,
     },
+    ImagePreviewGenerateSourceTitle {
+        source: String,
+        blob_id: i64,
+        processor: MediaProcessorKind,
+    },
+    ImagePreviewGenerateBlobTitle {
+        blob_id: i64,
+        processor: MediaProcessorKind,
+    },
     MediaMetadataExtractSourceTitle {
         source: String,
         blob_id: i64,
@@ -371,6 +400,8 @@ enum PresentationMessage {
     ArchivePreviewReadyStatus,
     ThumbnailAlreadyAvailableStatus,
     ThumbnailReadyStatus,
+    ImagePreviewAlreadyAvailableStatus,
+    ImagePreviewReadyStatus,
     MediaMetadataStatus {
         status: MediaMetadataStatus,
     },
@@ -440,6 +471,25 @@ impl From<PresentationMessage> for TaskPresentationMessage {
             ),
             PresentationMessage::ThumbnailGenerateBlobTitle { blob_id, processor } => (
                 Code::TaskNameThumbnailGenerateBlobWithProcessor,
+                params([
+                    ("blobId", json!(blob_id)),
+                    ("processor", json!(processor.as_str())),
+                ]),
+            ),
+            PresentationMessage::ImagePreviewGenerateSourceTitle {
+                source,
+                blob_id,
+                processor,
+            } => (
+                Code::TaskNameImagePreviewGenerate,
+                params([
+                    ("source", json!(source)),
+                    ("blobId", json!(blob_id)),
+                    ("processor", json!(processor.as_str())),
+                ]),
+            ),
+            PresentationMessage::ImagePreviewGenerateBlobTitle { blob_id, processor } => (
+                Code::TaskNameImagePreviewGenerateBlobWithProcessor,
                 params([
                     ("blobId", json!(blob_id)),
                     ("processor", json!(processor.as_str())),
@@ -591,6 +641,13 @@ impl From<PresentationMessage> for TaskPresentationMessage {
             }
             PresentationMessage::ThumbnailReadyStatus => {
                 (Code::StatusTextThumbnailReady, BTreeMap::new())
+            }
+            PresentationMessage::ImagePreviewAlreadyAvailableStatus => (
+                Code::StatusTextImagePreviewAlreadyAvailable,
+                BTreeMap::new(),
+            ),
+            PresentationMessage::ImagePreviewReadyStatus => {
+                (Code::StatusTextImagePreviewReady, BTreeMap::new())
             }
             PresentationMessage::MediaMetadataStatus { status } => {
                 (media_metadata_status_code(status), BTreeMap::new())

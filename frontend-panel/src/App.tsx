@@ -9,11 +9,14 @@ import i18n from "@/i18n";
 import { runWhenIdle } from "@/lib/idleTask";
 import { router } from "@/router";
 import { useAuthStore } from "@/stores/authStore";
-import { useBrandingStore } from "@/stores/brandingStore";
 import {
 	resolveActiveDisplayTimeZone,
 	useDisplayTimeZoneStore,
 } from "@/stores/displayTimeZoneStore";
+import {
+	initFrontendConfigRuntime,
+	useFrontendConfigStore,
+} from "@/stores/frontendConfigStore";
 import { useMediaDataSupportStore } from "@/stores/mediaDataSupportStore";
 import { usePreviewAppStore } from "@/stores/previewAppStore";
 import { useThemeStore } from "@/stores/themeStore";
@@ -24,7 +27,8 @@ function shouldSkipInitialAuthCheck(pathname: string) {
 }
 
 function loadPublicConfig() {
-	void useBrandingStore.getState().load();
+	initFrontendConfigRuntime();
+	void useFrontendConfigStore.getState().load();
 	const cancelDeferredLoads = runWhenIdle(
 		() => {
 			void usePreviewAppStore.getState().load();

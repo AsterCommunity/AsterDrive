@@ -384,8 +384,8 @@ vi.mock("@/lib/webauthn", () => ({
 	WebAuthnUnsupportedError: MockWebAuthnUnsupportedError,
 }));
 
-vi.mock("@/stores/brandingStore", () => ({
-	useBrandingStore: (
+vi.mock("@/stores/frontendConfigStore", () => ({
+	useFrontendConfigStore: (
 		selector: (state: {
 			allowUserRegistration: boolean;
 			branding: {

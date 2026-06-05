@@ -41,7 +41,7 @@ import {
 } from "@/services/authService";
 import { ApiError } from "@/services/http";
 import { useAuthStore } from "@/stores/authStore";
-import { useBrandingStore } from "@/stores/brandingStore";
+import { useFrontendConfigStore } from "@/stores/frontendConfigStore";
 import type { ExternalAuthPublicProvider } from "@/types/api";
 import { ErrorCode } from "@/types/api-helpers";
 import { LoginPageView } from "./login/LoginPageView";
@@ -94,7 +94,7 @@ function useLoginPageController() {
 	const navigate = useNavigate();
 	const refreshUser = useAuthStore((s) => s.refreshUser);
 	const syncSession = useAuthStore((s) => s.syncSession);
-	const publicPasskeyLoginEnabled = useBrandingStore(
+	const publicPasskeyLoginEnabled = useFrontendConfigStore(
 		(s) => s.passkeyLoginEnabled,
 	);
 	const conditionalPasskeyAbortRef = useRef<AbortController | null>(null);

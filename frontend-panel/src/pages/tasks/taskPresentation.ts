@@ -317,7 +317,7 @@ export function formatTaskStatus(
 }
 
 export function formatTaskKind(t: TaskTranslate, kind: BackgroundTaskKind) {
-	switch (kind) {
+	switch (String(kind)) {
 		case "archive_extract":
 			return t("tasks:kind_archive_extract");
 		case "archive_compress":
@@ -326,6 +326,8 @@ export function formatTaskKind(t: TaskTranslate, kind: BackgroundTaskKind) {
 			return t("tasks:kind_archive_preview_generate");
 		case "thumbnail_generate":
 			return t("tasks:kind_thumbnail_generate");
+		case "image_preview_generate":
+			return t("tasks:kind_image_preview_generate");
 		case "media_metadata_extract":
 			return t("tasks:kind_media_metadata_extract");
 		case "trash_purge_all":

@@ -69,6 +69,8 @@ pub enum TaskPresentationCode {
     StatusTextArchivePreviewReady,
     StatusTextArchiveReady,
     StatusTextBlobMaintenanceFinished,
+    StatusTextImagePreviewAlreadyAvailable,
+    StatusTextImagePreviewReady,
     StatusTextMediaMetadataFailed,
     StatusTextMediaMetadataReady,
     StatusTextMediaMetadataUnsupported,
@@ -86,6 +88,8 @@ pub enum TaskPresentationCode {
     TaskNameArchiveExtract,
     TaskNameArchivePreviewGenerate,
     TaskNameArchivePreviewGenerateFileId,
+    TaskNameImagePreviewGenerate,
+    TaskNameImagePreviewGenerateBlobWithProcessor,
     TaskNameMediaMetadataExtractBlob,
     TaskNameMediaMetadataExtractSource,
     TaskNameOfflineDownloadSource,
@@ -323,6 +327,17 @@ pub struct ThumbnailGenerateTaskPayload {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
+pub struct ImagePreviewGenerateTaskPayload {
+    pub blob_id: i64,
+    pub blob_hash: String,
+    #[serde(default)]
+    pub source_file_name: String,
+    pub source_mime_type: String,
+    pub processor: crate::types::MediaProcessorKind,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct TrashPurgeAllTaskPayload {}
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -430,6 +445,17 @@ pub struct ThumbnailGenerateTaskResult {
     pub thumbnail_version: String,
     pub processor: crate::types::MediaProcessorKind,
     pub reused_existing_thumbnail: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
+pub struct ImagePreviewGenerateTaskResult {
+    pub blob_id: i64,
+    pub image_preview_path: String,
+    pub image_preview_processor: String,
+    pub image_preview_version: String,
+    pub processor: crate::types::MediaProcessorKind,
+    pub reused_existing_preview: bool,
 }
 
 pub use crate::services::media_metadata_service::{
@@ -636,6 +662,7 @@ pub enum TaskPayload {
     ArchiveExtract(ArchiveExtractTaskPayload),
     ArchivePreviewGenerate(ArchivePreviewTaskPayload),
     ThumbnailGenerate(ThumbnailGenerateTaskPayload),
+    ImagePreviewGenerate(ImagePreviewGenerateTaskPayload),
     MediaMetadataExtract(MediaMetadataExtractTaskPayload),
     TrashPurgeAll(TrashPurgeAllTaskPayload),
     StoragePolicyTempCleanup(StoragePolicyTempCleanupTaskPayloadInfo),
@@ -653,6 +680,7 @@ pub enum TaskResult {
     ArchiveExtract(ArchiveExtractTaskResult),
     ArchivePreviewGenerate(ArchivePreviewTaskResult),
     ThumbnailGenerate(ThumbnailGenerateTaskResult),
+    ImagePreviewGenerate(ImagePreviewGenerateTaskResult),
     MediaMetadataExtract(MediaMetadataExtractTaskResult),
     TrashPurgeAll(TrashPurgeAllTaskResult),
     StoragePolicyTempCleanup(StoragePolicyTempCleanupTaskResult),

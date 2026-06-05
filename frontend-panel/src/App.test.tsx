@@ -10,7 +10,7 @@ const mockState = vi.hoisted(() => ({
 		isChecking: false,
 		user: null as { role?: string } | null,
 	},
-	brandingLoad: vi.fn(),
+	frontendConfigLoad: vi.fn(),
 	displayTimeZoneStore: {
 		preference: "browser",
 	},
@@ -72,10 +72,10 @@ vi.mock("@/components/music/MusicPlayerHost", () => ({
 	MusicPlayerHost: () => <div data-testid="music-player-host" />,
 }));
 
-vi.mock("@/stores/brandingStore", () => ({
-	useBrandingStore: {
+vi.mock("@/stores/frontendConfigStore", () => ({
+	useFrontendConfigStore: {
 		getState: () => ({
-			load: mockState.brandingLoad,
+			load: mockState.frontendConfigLoad,
 		}),
 	},
 }));
@@ -142,7 +142,7 @@ describe("App", () => {
 		mockState.authStore.isChecking = false;
 		mockState.authStore.user = null;
 		mockState.displayTimeZoneStore.preference = "browser";
-		mockState.brandingLoad.mockReset();
+		mockState.frontendConfigLoad.mockReset();
 		mockState.previewAppsLoad.mockReset();
 		mockState.mediaDataSupportLoad.mockReset();
 		mockState.setAuthState.mockReset();
@@ -162,7 +162,7 @@ describe("App", () => {
 
 		render(<App />);
 
-		expect(mockState.brandingLoad).toHaveBeenCalledTimes(1);
+		expect(mockState.frontendConfigLoad).toHaveBeenCalledTimes(1);
 		expect(mockState.previewAppsLoad).not.toHaveBeenCalled();
 		expect(mockState.thumbnailSupportLoad).not.toHaveBeenCalled();
 		expect(mockState.mediaDataSupportLoad).not.toHaveBeenCalled();
@@ -184,7 +184,7 @@ describe("App", () => {
 
 		render(<App />);
 
-		expect(mockState.brandingLoad).toHaveBeenCalledTimes(1);
+		expect(mockState.frontendConfigLoad).toHaveBeenCalledTimes(1);
 		expect(mockState.previewAppsLoad).not.toHaveBeenCalled();
 		expect(mockState.thumbnailSupportLoad).not.toHaveBeenCalled();
 		expect(mockState.mediaDataSupportLoad).not.toHaveBeenCalled();
@@ -196,7 +196,7 @@ describe("App", () => {
 		vi.useFakeTimers();
 		render(<App />);
 
-		expect(mockState.brandingLoad).toHaveBeenCalledTimes(1);
+		expect(mockState.frontendConfigLoad).toHaveBeenCalledTimes(1);
 		expect(mockState.previewAppsLoad).not.toHaveBeenCalled();
 		expect(mockState.thumbnailSupportLoad).not.toHaveBeenCalled();
 		expect(mockState.mediaDataSupportLoad).not.toHaveBeenCalled();
@@ -214,7 +214,7 @@ describe("App", () => {
 		document.dispatchEvent(new Event("visibilitychange"));
 		vi.advanceTimersByTime(300_000);
 
-		expect(mockState.brandingLoad).toHaveBeenCalledTimes(1);
+		expect(mockState.frontendConfigLoad).toHaveBeenCalledTimes(1);
 		expect(mockState.previewAppsLoad).toHaveBeenCalledTimes(1);
 		expect(mockState.thumbnailSupportLoad).toHaveBeenCalledTimes(1);
 		expect(mockState.mediaDataSupportLoad).toHaveBeenCalledTimes(1);
@@ -231,7 +231,7 @@ describe("App", () => {
 
 		vi.advanceTimersByTime(300_000);
 
-		expect(mockState.brandingLoad).toHaveBeenCalledTimes(1);
+		expect(mockState.frontendConfigLoad).toHaveBeenCalledTimes(1);
 		expect(mockState.previewAppsLoad).toHaveBeenCalledTimes(1);
 		expect(mockState.thumbnailSupportLoad).toHaveBeenCalledTimes(1);
 		expect(mockState.mediaDataSupportLoad).toHaveBeenCalledTimes(1);

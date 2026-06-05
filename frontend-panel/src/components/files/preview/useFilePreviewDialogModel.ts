@@ -59,6 +59,7 @@ interface FilePreviewDialogModelInput
 interface DialogState {
 	confirmOpen: boolean;
 	forceOpenMethodChooser: boolean;
+	hasManualExpanded: boolean;
 	hasConfirmedInitialMode: boolean;
 	isDialogAnimationEnabled: boolean;
 	isDirty: boolean;
@@ -79,12 +80,13 @@ type DialogStateAction =
 	| { type: "selectOpenMethod"; mode: OpenWithMode }
 	| { type: "openMethodPicker" }
 	| { type: "discardChanges" }
-	| { type: "toggleExpanded" }
+	| { type: "setExpanded"; expanded: boolean }
 	| { type: "disableDialogAnimation" };
 
 const initialDialogState: DialogState = {
 	confirmOpen: false,
 	forceOpenMethodChooser: false,
+	hasManualExpanded: false,
 	hasConfirmedInitialMode: false,
 	isDialogAnimationEnabled: true,
 	isDirty: false,
@@ -103,6 +105,7 @@ function dialogStateReducer(
 				return {
 					...state,
 					forceOpenMethodChooser: false,
+					hasManualExpanded: false,
 					hasConfirmedInitialMode: false,
 					isExpanded: false,
 					mode: action.mode,
@@ -146,12 +149,17 @@ function dialogStateReducer(
 				confirmOpen: false,
 				isDirty: false,
 			};
-		case "toggleExpanded":
-			return {
-				...state,
-				isDialogAnimationEnabled: false,
-				isExpanded: !state.isExpanded,
-			};
+		// First image auto-expand also marks expansion as manual so later identical
+		// actions are skipped and close/open animation does not replay.
+		case "setExpanded":
+			return state.isExpanded === action.expanded && state.hasManualExpanded
+				? state
+				: {
+						...state,
+						hasManualExpanded: true,
+						isDialogAnimationEnabled: false,
+						isExpanded: action.expanded,
+					};
 		case "disableDialogAnimation":
 			return state.isDialogAnimationEnabled
 				? { ...state, isDialogAnimationEnabled: false }
@@ -447,6 +455,9 @@ export function useFilePreviewDialogModel({
 		activeOption?.mode === "table" ||
 		((activeOption?.mode === "url_template" || activeOption?.mode === "wopi") &&
 			getEmbeddedOptionMode(activeOption) !== "new_tab");
+	const isImagePreview = activeOption?.mode === "image";
+	const isExpanded =
+		isImagePreview && !state.hasManualExpanded ? true : state.isExpanded;
 
 	const closeWithGuard = useCallback(() => {
 		if (state.isDirty) {
@@ -470,8 +481,8 @@ export function useFilePreviewDialogModel({
 	}, [onClose]);
 
 	const handleExpandToggle = useCallback(() => {
-		dispatch({ type: "toggleExpanded" });
-	}, []);
+		dispatch({ type: "setExpanded", expanded: !isExpanded });
+	}, [isExpanded]);
 
 	useEffect(() => {
 		if (!open || showOpenMethodChooser || !state.isDialogAnimationEnabled) {
@@ -507,12 +518,17 @@ export function useFilePreviewDialogModel({
 		? "flex max-h-[min(90vh,calc(100vh-2rem))] w-[min(96vw,32rem)] max-w-[min(96vw,32rem)] flex-col gap-0 overflow-hidden p-0 sm:max-w-[min(96vw,32rem)]"
 		: [
 				"flex max-h-[90vh] w-[min(96vw,1200px)] max-w-[min(96vw,1200px)] flex-col gap-0 overflow-hidden p-0 sm:max-w-[min(96vw,1200px)]",
-				(fillsViewportHeight || state.isExpanded) && "h-[90vh]",
-				state.isExpanded &&
+				(fillsViewportHeight || isImagePreview || isExpanded) && "h-[90vh]",
+				isImagePreview &&
+					"group/image-preview border-zinc-900 bg-zinc-950 shadow-black/35 duration-200 data-open:zoom-in-95 data-closed:zoom-out-95",
+				isExpanded &&
 					"top-0 left-0 h-screen w-screen max-h-screen max-w-none translate-x-0 translate-y-0 rounded-none sm:max-w-none",
 			]
 				.filter(Boolean)
 				.join(" ");
+	const dialogOverlayClassName = isImagePreview
+		? "bg-zinc-950/88 duration-200 supports-backdrop-filter:backdrop-blur-xs dark:bg-zinc-950/88"
+		: undefined;
 	const formattedCategory: "json" | "xml" =
 		profile?.category === "xml" || getFileExtension(file) === "xml"
 			? "xml"
@@ -525,6 +541,7 @@ export function useFilePreviewDialogModel({
 		allOptions,
 		closeWithGuard,
 		dialogContentClassName,
+		dialogOverlayClassName,
 		editable,
 		fillsViewportHeight,
 		formattedCategory,
@@ -537,7 +554,8 @@ export function useFilePreviewDialogModel({
 		hiddenOptions,
 		isDirty: state.isDirty,
 		isDialogAnimationEnabled: state.isDialogAnimationEnabled,
-		isExpanded: state.isExpanded,
+		isExpanded,
+		isImagePreview,
 		previewAppsLoaded,
 		profile,
 		resolvedDownloadPath,

@@ -46,6 +46,8 @@
 	"task_name_storage_policy_temp_cleanup_policy_id": "Clean temporary uploads for Policy #{{policyId}}",
 	"task_name_thumbnail_generate": "Generate thumbnail for {{source}} via {{processor}}",
 	"task_name_thumbnail_generate_blob_with_processor": "Generate thumbnail for Blob #{{blobId}} via {{processor}}",
+	"task_name_image_preview_generate": "Generate image preview for {{source}} via {{processor}}",
+	"task_name_image_preview_generate_blob_with_processor": "Generate image preview for Blob #{{blobId}} via {{processor}}",
 	"task_name_trash_purge_all": "Empty trash",
 	"runtime_task_audit_cleanup": "Audit log cleanup",
 	"runtime_task_auth_session_cleanup": "Auth session cleanup",

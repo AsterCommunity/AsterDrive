@@ -34,9 +34,8 @@ import {
 	ADMIN_SETTINGS_SAVE_BAR_MIN_RESERVED_HEIGHT_MOBILE_PX,
 } from "@/lib/constants";
 import { isImeComposingKeyEvent } from "@/lib/keyboard";
-import { setPublicSiteUrls } from "@/lib/publicSiteUrl";
+import { syncPublicSiteUrlsAndUpdateStore } from "@/lib/publicSiteUrlRuntime";
 import { useAuthStore } from "@/stores/authStore";
-import { useBrandingStore } from "@/stores/brandingStore";
 import { useThemeStore } from "@/stores/themeStore";
 
 const MOBILE_BREAKPOINT = 768;
@@ -45,11 +44,6 @@ const COMPACT_NAV_TAB_GAP = 8;
 const COMPACT_NAV_OVERFLOW_GAP = 12;
 const SAVE_BAR_ENTER_DURATION_MS = 180;
 const SAVE_BAR_EXIT_DURATION_MS = 140;
-
-function syncPublicSiteUrlsRuntime(value: string[] | null | undefined) {
-	const siteUrl = setPublicSiteUrls(value);
-	useBrandingStore.setState({ siteUrl });
-}
 
 export default function AdminSettingsPage({
 	section = ADMIN_SETTINGS_CATEGORY_ORDER[0],
@@ -120,7 +114,7 @@ export default function AdminSettingsPage({
 		visibleCustomConfigs,
 	} = useAdminSettingsData({
 		currentUserEmail,
-		onPublicSiteUrlChanged: syncPublicSiteUrlsRuntime,
+		onPublicSiteUrlChanged: syncPublicSiteUrlsAndUpdateStore,
 		t,
 	});
 

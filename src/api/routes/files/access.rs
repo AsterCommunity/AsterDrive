@@ -285,6 +285,7 @@ pub async fn get_media_metadata(
     params(("id" = i64, Path, description = "File ID")),
     responses(
         (status = 200, description = "Image preview (WebP)"),
+        (status = 202, description = "Image preview is being generated"),
         (status = 304, description = "Image preview not modified"),
         (status = 400, description = "Image preview not supported for this file type"),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
@@ -524,6 +525,7 @@ pub(crate) async fn team_get_thumbnail(
     ),
     responses(
         (status = 200, description = "Team image preview (WebP)"),
+        (status = 202, description = "Image preview is being generated"),
         (status = 304, description = "Image preview not modified"),
         (status = 400, description = "Image preview not supported for this file type"),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
@@ -840,11 +842,16 @@ pub(crate) async fn get_image_preview_response(
         .get("If-None-Match")
         .and_then(|value| value.to_str().ok());
     let result = file_service::get_image_preview_data_in_scope(state, scope, file_id).await?;
-    Ok(image_preview_response(
-        result,
-        if_none_match,
-        "private, max-age=0, must-revalidate".to_string(),
-    ))
+    match result {
+        Some(result) => Ok(image_preview_response(
+            result,
+            if_none_match,
+            "private, max-age=0, must-revalidate".to_string(),
+        )),
+        None => Ok(HttpResponse::Accepted()
+            .insert_header((header::RETRY_AFTER, "2"))
+            .json(ApiResponse::<()>::ok_empty())),
+    }
 }
 
 pub(crate) async fn get_media_metadata_response(
@@ -921,7 +928,7 @@ mod tests {
     use super::{image_preview_response, thumbnail_response};
     use crate::cache;
     use crate::config::{CacheConfig, Config, DatabaseConfig, RateLimitConfig, RuntimeConfig};
-    use crate::db::repository::file_repo;
+    use crate::db::repository::{background_task_repo, file_repo};
     use crate::entities::{file, file_blob, storage_policy, user};
     use crate::runtime::PrimaryAppState;
     use crate::services::file_service::{ImagePreviewResult, ThumbnailResult};
@@ -930,8 +937,8 @@ mod tests {
     use crate::storage::drivers::local::LocalDriver;
     use crate::storage::{DriverRegistry, PolicySnapshot};
     use crate::types::{
-        DriverType, StoredStoragePolicyAllowedTypes, StoredStoragePolicyOptions, UserRole,
-        UserStatus,
+        BackgroundTaskKind, BackgroundTaskStatus, DriverType, StoredStoragePolicyAllowedTypes,
+        StoredStoragePolicyOptions, UserRole, UserStatus,
     };
     use actix_web::body;
     use actix_web::http::{StatusCode, header};
@@ -1214,9 +1221,71 @@ mod tests {
     }
 
     #[actix_web::test]
-    async fn get_image_preview_route_returns_webp_and_honors_if_none_match() {
+    async fn get_image_preview_route_enqueues_background_task_on_cache_miss() {
         let (state, user, file) = build_image_preview_route_state().await;
         let token = access_token_for(&state, &user).await;
+        let app = test::init_service(App::new().app_data(web::Data::new(state.clone())).service(
+            web::scope("/api/v1").service(crate::api::routes::files::routes(
+                &RateLimitConfig {
+                    enabled: false,
+                    ..Default::default()
+                },
+                &crate::config::NetworkTrustConfig::default(),
+            )),
+        ))
+        .await;
+
+        let response = test::call_service(
+            &app,
+            test::TestRequest::get()
+                .uri(&format!("/api/v1/files/{}/image-preview", file.id))
+                .insert_header((header::AUTHORIZATION, format!("Bearer {token}")))
+                .to_request(),
+        )
+        .await;
+
+        let info = crate::services::file_service::get_info(&state, file.id, user.id)
+            .await
+            .expect("image preview route file info should load");
+        assert_eq!(response.status(), StatusCode::ACCEPTED);
+        assert_eq!(response.headers().get(header::RETRY_AFTER).unwrap(), "2");
+        let task = background_task_repo::find_latest_by_kind_and_display_name(
+            state.writer_db(),
+            BackgroundTaskKind::ImagePreviewGenerate,
+            &format!(
+                "Generate image preview for blob #{} via AsterDrive built-in",
+                info.blob_id
+            ),
+        )
+        .await
+        .expect("image preview task lookup should succeed")
+        .expect("image preview cache miss should enqueue a task");
+        assert_eq!(task.status, BackgroundTaskStatus::Pending);
+        let body = body::to_bytes(response.into_body())
+            .await
+            .expect("image preview 202 response body should read");
+        assert!(!body.is_empty());
+    }
+
+    #[actix_web::test]
+    async fn get_image_preview_route_returns_cached_webp_and_honors_if_none_match() {
+        let (state, user, file) = build_image_preview_route_state().await;
+        let token = access_token_for(&state, &user).await;
+        let info = crate::services::file_service::get_info(&state, file.id, user.id)
+            .await
+            .expect("image preview route file info should load");
+        let blob = file_repo::find_blob_by_id(state.writer_db(), info.blob_id)
+            .await
+            .expect("image preview route blob should load");
+        media_processing_service::generate_and_store_image_preview(
+            &state,
+            &blob,
+            &info.name,
+            &info.mime_type,
+        )
+        .await
+        .expect("image preview route cache should pre-generate");
+
         let app = test::init_service(App::new().app_data(web::Data::new(state.clone())).service(
             web::scope("/api/v1").service(crate::api::routes::files::routes(
                 &RateLimitConfig {

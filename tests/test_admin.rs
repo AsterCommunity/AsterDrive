@@ -2979,6 +2979,10 @@ async fn test_admin_tasks_cleanup_uses_explicit_finished_before() {
                 r#"{"blob_id":1,"blob_hash":"hash","source_file_name":"image.png","source_mime_type":"image/png","processor":"images"}"#
                     .to_string(),
             ),
+            BackgroundTaskKind::ImagePreviewGenerate => StoredTaskPayload(
+                r#"{"blob_id":1,"blob_hash":"hash","source_file_name":"image.png","source_mime_type":"image/png","processor":"images"}"#
+                    .to_string(),
+            ),
             BackgroundTaskKind::MediaMetadataExtract => StoredTaskPayload(
                 r#"{"blob_id":1,"blob_hash":"hash","source_file_name":"image.png","source_mime_type":"image/png","media_kind":"image"}"#
                     .to_string(),

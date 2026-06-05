@@ -43,18 +43,20 @@ function DialogContent({
 	children,
 	animated = true,
 	keepMounted = false,
+	overlayClassName,
 	showCloseButton = true,
 	...props
 }: DialogPrimitive.Popup.Props & {
 	animated?: boolean;
 	keepMounted?: boolean;
+	overlayClassName?: string;
 	showCloseButton?: boolean;
 }) {
 	const { t } = useTranslation();
 
 	return (
 		<DialogPortal keepMounted={keepMounted}>
-			<DialogOverlay />
+			<DialogOverlay className={overlayClassName} />
 			<DialogPrimitive.Popup
 				data-slot="dialog-content"
 				data-theme-surface="overlay"

@@ -448,6 +448,99 @@ describe("useFilePreviewDialogModel", () => {
 		expect(result.current.activeMode).toBe("builtin.image");
 	});
 
+	it("defaults image previews to fullscreen with image-only overlay styling", () => {
+		mockState.detectFilePreviewProfile.mockReturnValue(
+			profile({
+				category: "image",
+				defaultMode: "builtin.image",
+				isBlobPreview: true,
+				isEditableText: false,
+				isTextBased: false,
+				options: [
+					{
+						icon: "FileImage",
+						key: "builtin.image",
+						labelKey: "open_with_image",
+						mode: "image",
+					},
+				],
+			}),
+		);
+
+		const { result } = renderModel({
+			file: file({
+				extension: "png",
+				file_category: "image",
+				mime_type: "image/png",
+				name: "photo.png",
+			}),
+			openMode: "direct",
+		});
+
+		expect(result.current.isImagePreview).toBe(true);
+		expect(result.current.isExpanded).toBe(true);
+		expect(result.current.dialogContentClassName.split(/\s+/)).toEqual(
+			expect.arrayContaining([
+				"group/image-preview",
+				"top-0",
+				"left-0",
+				"h-screen",
+				"w-screen",
+				"rounded-none",
+			]),
+		);
+		expect(result.current.dialogOverlayClassName).toContain("bg-zinc-950/88");
+	});
+
+	it("allows image previews to be restored without auto-expanding again", () => {
+		mockState.detectFilePreviewProfile.mockReturnValue(
+			profile({
+				category: "image",
+				defaultMode: "builtin.image",
+				isBlobPreview: true,
+				isEditableText: false,
+				isTextBased: false,
+				options: [
+					{
+						icon: "FileImage",
+						key: "builtin.image",
+						labelKey: "open_with_image",
+						mode: "image",
+					},
+				],
+			}),
+		);
+
+		const { result } = renderModel({
+			file: file({
+				extension: "png",
+				file_category: "image",
+				mime_type: "image/png",
+				name: "photo.png",
+			}),
+			openMode: "direct",
+		});
+
+		expect(result.current.isExpanded).toBe(true);
+
+		act(() => {
+			result.current.handleExpandToggle();
+		});
+
+		expect(result.current.isExpanded).toBe(false);
+		expect(result.current.dialogContentClassName.split(/\s+/)).not.toContain(
+			"top-0",
+		);
+		expect(result.current.dialogOverlayClassName).toContain("bg-zinc-950/88");
+	});
+
+	it("does not apply image overlay styling to non-image previews", () => {
+		const { result } = renderModel({ openMode: "direct" });
+
+		expect(result.current.isImagePreview).toBe(false);
+		expect(result.current.dialogOverlayClassName).toBeUndefined();
+	});
+
 	it("guards close while dirty, discards changes, and routes chooser close directly", () => {
 		const { onClose, result } = renderModel({ openMode: "direct" });
 

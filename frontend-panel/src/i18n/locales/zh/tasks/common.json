@@ -46,6 +46,8 @@
 	"task_name_storage_policy_temp_cleanup_policy_id": "清理策略 #{{policyId}} 的临时上传对象",
 	"task_name_thumbnail_generate": "为 {{source}} 生成缩略图（{{processor}}）",
 	"task_name_thumbnail_generate_blob_with_processor": "为 Blob #{{blobId}} 生成缩略图（{{processor}}）",
+	"task_name_image_preview_generate": "为 {{source}} 生成图片预览（{{processor}}）",
+	"task_name_image_preview_generate_blob_with_processor": "为 Blob #{{blobId}} 生成图片预览（{{processor}}）",
 	"task_name_trash_purge_all": "清空回收站",
 	"runtime_task_audit_cleanup": "审计日志清理",
 	"runtime_task_auth_session_cleanup": "认证会话清理",

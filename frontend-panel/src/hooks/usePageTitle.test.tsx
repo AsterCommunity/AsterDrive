@@ -1,7 +1,7 @@
 import { act, render, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it } from "vitest";
 import { DEFAULT_BRANDING } from "@/lib/branding";
-import { useBrandingStore } from "@/stores/brandingStore";
+import { useFrontendConfigStore } from "@/stores/frontendConfigStore";
 import { usePageTitle } from "./usePageTitle";
 
 function TitleProbe({ title }: { title: string }) {
@@ -12,7 +12,7 @@ function TitleProbe({ title }: { title: string }) {
 describe("usePageTitle", () => {
 	beforeEach(() => {
 		document.title = "";
-		useBrandingStore.setState((state) => ({
+		useFrontendConfigStore.setState((state) => ({
 			...state,
 			branding: DEFAULT_BRANDING,
 			isLoaded: false,
@@ -30,7 +30,7 @@ describe("usePageTitle", () => {
 		render(<TitleProbe title="Settings" />);
 
 		act(() => {
-			useBrandingStore.setState((state) => ({
+			useFrontendConfigStore.setState((state) => ({
 				...state,
 				branding: {
 					...state.branding,

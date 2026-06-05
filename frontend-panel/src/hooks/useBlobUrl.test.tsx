@@ -590,4 +590,97 @@ describe("useBlobUrl", () => {
 		second.unmount();
 		clearBlobUrlCache();
 	});
+
+	it("starts preview fetches without waiting for queued thumbnail fetches", async () => {
+		const firstThumbnailResponse = deferred<{
+			status: number;
+			data: Blob;
+			headers: Record<string, string>;
+		}>();
+		const secondThumbnailResponse = deferred<{
+			status: number;
+			data: Blob;
+			headers: Record<string, string>;
+		}>();
+		const previewResponse = deferred<{
+			status: number;
+			data: Blob;
+			headers: Record<string, string>;
+		}>();
+		mockState.get.mockImplementation((path: string) => {
+			if (path === "/thumb-1") return firstThumbnailResponse.promise;
+			if (path === "/thumb-2") return secondThumbnailResponse.promise;
+			if (path === "/image-preview") return previewResponse.promise;
+			throw new Error(`unexpected path ${path}`);
+		});
+		const { clearBlobUrlCache, useBlobUrl } = await loadHookModule();
+
+		const firstThumbnail = renderHook(() =>
+			useBlobUrl("/thumb-1", { lane: "thumbnail" }),
+		);
+		const secondThumbnail = renderHook(() =>
+			useBlobUrl("/thumb-2", { lane: "thumbnail" }),
+		);
+		const preview = renderHook(() =>
+			useBlobUrl("/image-preview", { lane: "preview" }),
+		);
+
+		await waitFor(() => {
+			expect(mockState.get).toHaveBeenCalledTimes(2);
+		});
+		expect(mockState.get).toHaveBeenCalledWith("/thumb-1", {
+			headers: {},
+			responseType: "blob",
+			validateStatus: expect.any(Function),
+		});
+		expect(mockState.get).toHaveBeenCalledWith("/image-preview", {
+			headers: {},
+			responseType: "blob",
+			validateStatus: expect.any(Function),
+		});
+		expect(mockState.get).not.toHaveBeenCalledWith(
+			"/thumb-2",
+			expect.anything(),
+		);
+
+		previewResponse.resolve({
+			status: 200,
+			data: new Blob(["preview"]),
+			headers: { etag: '"etag-preview"' },
+		});
+		await waitFor(() => {
+			expect(preview.result.current.blobUrl).toBe("blob:1");
+		});
+
+		firstThumbnailResponse.resolve({
+			status: 200,
+			data: new Blob(["image-1"]),
+			headers: { etag: '"etag-1"' },
+		});
+		await waitFor(() => {
+			expect(firstThumbnail.result.current.blobUrl).toBe("blob:2");
+		});
+		await waitFor(() => {
+			expect(mockState.get).toHaveBeenCalledTimes(3);
+		});
+		expect(mockState.get).toHaveBeenNthCalledWith(3, "/thumb-2", {
+			headers: {},
+			responseType: "blob",
+			validateStatus: expect.any(Function),
+		});
+
+		secondThumbnailResponse.resolve({
+			status: 200,
+			data: new Blob(["image-2"]),
+			headers: { etag: '"etag-2"' },
+		});
+		await waitFor(() => {
+			expect(secondThumbnail.result.current.blobUrl).toBe("blob:3");
+		});
+
+		firstThumbnail.unmount();
+		secondThumbnail.unmount();
+		preview.unmount();
+		clearBlobUrlCache();
+	});
 });

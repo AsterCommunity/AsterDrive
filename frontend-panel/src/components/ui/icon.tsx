@@ -56,6 +56,8 @@ import {
 	PiLock,
 	PiLockOpen,
 	PiMagnifyingGlass,
+	PiMagnifyingGlassMinus,
+	PiMagnifyingGlassPlus,
 	PiMinus,
 	PiMonitor,
 	PiMoon,
@@ -152,6 +154,8 @@ export type IconName =
 	| "Lock"
 	| "LockOpen"
 	| "MagnifyingGlass"
+	| "MagnifyingGlassMinus"
+	| "MagnifyingGlassPlus"
 	| "Monitor"
 	| "Moon"
 	| "Minus"
@@ -247,6 +251,8 @@ const iconMap: Record<IconName, ComponentType<{ className?: string }>> = {
 	Lock: PiLock,
 	LockOpen: PiLockOpen,
 	MagnifyingGlass: PiMagnifyingGlass,
+	MagnifyingGlassMinus: PiMagnifyingGlassMinus,
+	MagnifyingGlassPlus: PiMagnifyingGlassPlus,
 	Monitor: PiMonitor,
 	Moon: PiMoon,
 	Minus: PiMinus,

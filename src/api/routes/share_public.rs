@@ -803,6 +803,7 @@ pub async fn shared_thumbnail(
     params(("token" = String, Path, description = "Share token")),
     responses(
         (status = 200, description = "Image preview (WebP)"),
+        (status = 202, description = "Image preview is being generated"),
         (status = 304, description = "Image preview not modified"),
         (status = 400, description = "Image preview not supported for this file type"),
         (status = 403, description = "Password required"),
@@ -826,11 +827,14 @@ pub async fn shared_image_preview(
         .get("If-None-Match")
         .and_then(|value| value.to_str().ok());
 
-    Ok(files::image_preview_response(
-        result,
-        if_none_match,
-        "public, max-age=0, must-revalidate".to_string(),
-    ))
+    match result {
+        Some(result) => Ok(files::image_preview_response(
+            result,
+            if_none_match,
+            "public, max-age=0, must-revalidate".to_string(),
+        )),
+        None => Ok(thumbnail_pending_response()),
+    }
 }
 
 #[api_docs_macros::path(
@@ -945,6 +949,7 @@ pub async fn shared_folder_file_media_metadata(
     ),
     responses(
         (status = 200, description = "Image preview (WebP)"),
+        (status = 202, description = "Image preview is being generated"),
         (status = 304, description = "Image preview not modified"),
         (status = 400, description = "Image preview not supported for this file type"),
         (status = 403, description = "Password required or file outside shared scope"),
@@ -969,18 +974,261 @@ pub async fn shared_folder_file_image_preview(
         .get("If-None-Match")
         .and_then(|value| value.to_str().ok());
 
-    Ok(files::image_preview_response(
-        result,
-        if_none_match,
-        "public, max-age=0, must-revalidate".to_string(),
-    ))
+    match result {
+        Some(result) => Ok(files::image_preview_response(
+            result,
+            if_none_match,
+            "public, max-age=0, must-revalidate".to_string(),
+        )),
+        None => Ok(thumbnail_pending_response()),
+    }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::direct_routes;
-    use crate::config::{NetworkTrustConfig, RateLimitConfig};
-    use actix_web::{App, HttpResponse, http::StatusCode, test, web};
+    use super::{direct_routes, routes};
+    use crate::cache;
+    use crate::config::{CacheConfig, Config, DatabaseConfig, NetworkTrustConfig, RateLimitConfig};
+    use crate::db::repository::{background_task_repo, file_repo, folder_repo};
+    use crate::entities::{file, file_blob, folder, storage_policy, user};
+    use crate::runtime::PrimaryAppState;
+    use crate::services::{mail_service, media_processing_service, share_service};
+    use crate::storage::drivers::local::LocalDriver;
+    use crate::storage::{DriverRegistry, PolicySnapshot, StorageDriver};
+    use crate::types::{
+        BackgroundTaskKind, BackgroundTaskStatus, DriverType, StoredStoragePolicyAllowedTypes,
+        StoredStoragePolicyOptions, UserRole, UserStatus,
+    };
+    use actix_web::body;
+    use actix_web::http::{StatusCode, header};
+    use actix_web::{App, HttpResponse, test, web};
+    use chrono::Utc;
+    use image::codecs::png::PngEncoder;
+    use image::{ColorType, ImageEncoder};
+    use migration::Migrator;
+    use sea_orm::{ActiveModelTrait, Set};
+    use std::io::Cursor;
+    use std::sync::Arc;
+
+    fn tiny_png() -> Vec<u8> {
+        let mut buf = Cursor::new(Vec::new());
+        let encoder = PngEncoder::new(&mut buf);
+        encoder
+            .write_image(&[255, 0, 0], 1, 1, ColorType::Rgb8.into())
+            .expect("test png should encode");
+        buf.into_inner()
+    }
+
+    fn image_preview_blob_hash() -> String {
+        crate::utils::hash::sha256_hex(&tiny_png())
+    }
+
+    async fn build_share_image_preview_route_state()
+    -> (PrimaryAppState, user::Model, file::Model, folder::Model) {
+        let temp_root = std::env::temp_dir().join(format!(
+            "asterdrive-share-image-preview-route-{}",
+            uuid::Uuid::new_v4()
+        ));
+        tokio::fs::create_dir_all(&temp_root)
+            .await
+            .expect("share image preview route temp root should exist");
+
+        let db = crate::db::connect_with_metrics(
+            &DatabaseConfig {
+                url: "sqlite::memory:".to_string(),
+                pool_size: 1,
+                retry_count: 0,
+            },
+            crate::metrics_core::NoopMetrics::arc(),
+        )
+        .await
+        .expect("share image preview route database should connect");
+        Migrator::up(&db, None)
+            .await
+            .expect("share image preview route migrations should succeed");
+
+        let now = Utc::now();
+        let storage_root = temp_root.join("storage");
+        tokio::fs::create_dir_all(&storage_root)
+            .await
+            .expect("share image preview route storage root should exist");
+        let policy = storage_policy::ActiveModel {
+            name: Set("Share Image Preview Route Policy".to_string()),
+            driver_type: Set(DriverType::Local),
+            endpoint: Set(String::new()),
+            bucket: Set(String::new()),
+            access_key: Set(String::new()),
+            secret_key: Set(String::new()),
+            base_path: Set(storage_root.to_string_lossy().into_owned()),
+            max_file_size: Set(0),
+            allowed_types: Set(StoredStoragePolicyAllowedTypes::empty()),
+            options: Set(StoredStoragePolicyOptions::empty()),
+            is_default: Set(true),
+            chunk_size: Set(5_242_880),
+            created_at: Set(now),
+            updated_at: Set(now),
+            ..Default::default()
+        }
+        .insert(&db)
+        .await
+        .expect("share image preview route policy should insert");
+
+        let user = user::ActiveModel {
+            username: Set("share-preview-route-user".to_string()),
+            email: Set("share-preview-route@example.com".to_string()),
+            password_hash: Set("unused".to_string()),
+            role: Set(UserRole::User),
+            status: Set(UserStatus::Active),
+            session_version: Set(1),
+            email_verified_at: Set(Some(now)),
+            pending_email: Set(None),
+            storage_used: Set(0),
+            storage_quota: Set(0),
+            policy_group_id: Set(None),
+            created_at: Set(now),
+            updated_at: Set(now),
+            config: Set(None),
+            ..Default::default()
+        }
+        .insert(&db)
+        .await
+        .expect("share image preview route user should insert");
+
+        let source_bytes = tiny_png();
+        let source_hash = crate::utils::hash::sha256_hex(&source_bytes);
+        let driver = Arc::new(
+            LocalDriver::new(&policy).expect("share image preview route local driver should build"),
+        );
+        let source_path = "objects/source.png";
+        driver
+            .put(source_path, &source_bytes)
+            .await
+            .expect("share image preview route source object should write");
+        let blob = file_repo::create_blob(
+            &db,
+            file_blob::ActiveModel {
+                hash: Set(source_hash),
+                size: Set(crate::utils::numbers::usize_to_i64(
+                    source_bytes.len(),
+                    "share image preview route source size",
+                )
+                .expect("share image preview route source size should fit i64")),
+                policy_id: Set(policy.id),
+                storage_path: Set(source_path.to_string()),
+                thumbnail_path: Set(None),
+                thumbnail_processor: Set(None),
+                thumbnail_version: Set(None),
+                ref_count: Set(1),
+                created_at: Set(now),
+                updated_at: Set(now),
+                ..Default::default()
+            },
+        )
+        .await
+        .expect("share image preview route blob should insert");
+
+        let folder = folder_repo::create(
+            &db,
+            folder::ActiveModel {
+                name: Set("shared-folder".to_string()),
+                parent_id: Set(None),
+                team_id: Set(None),
+                owner_user_id: Set(Some(user.id)),
+                created_by_user_id: Set(Some(user.id)),
+                created_by_username: Set(user.username.clone()),
+                policy_id: Set(None),
+                created_at: Set(now),
+                updated_at: Set(now),
+                deleted_at: Set(None),
+                is_locked: Set(false),
+                ..Default::default()
+            },
+        )
+        .await
+        .expect("share image preview route folder should insert");
+
+        let file = file_repo::create_with_blob(
+            &db,
+            file_repo::CreateFileWithBlobInput {
+                name: "source.png",
+                folder_id: Some(folder.id),
+                team_id: None,
+                blob_id: blob.id,
+                size: blob.size,
+                owner_user_id: Some(user.id),
+                created_by_user_id: Some(user.id),
+                created_by_username: &user.username,
+                mime_type: "image/png",
+                now,
+            },
+        )
+        .await
+        .expect("share image preview route file should insert");
+
+        let policy_snapshot = Arc::new(PolicySnapshot::new());
+        policy_snapshot
+            .reload(&db)
+            .await
+            .expect("share image preview route policy snapshot should reload");
+        let driver_registry = Arc::new(DriverRegistry::noop());
+        driver_registry.insert_for_test(policy.id, driver);
+
+        let runtime_config = Arc::new(crate::config::RuntimeConfig::new());
+        let cache = cache::create_cache(&CacheConfig {
+            enabled: false,
+            ..Default::default()
+        })
+        .await;
+        let mut config = Config::default();
+        config.server.temp_dir = temp_root.join(".tmp").to_string_lossy().into_owned();
+        config.server.upload_temp_dir = temp_root.join(".uploads").to_string_lossy().into_owned();
+
+        let (storage_change_tx, _) = tokio::sync::broadcast::channel(
+            crate::services::storage_change_service::STORAGE_CHANGE_CHANNEL_CAPACITY,
+        );
+        let share_download_rollback =
+            crate::services::share_service::spawn_detached_share_download_rollback_queue(
+                db.clone(),
+                crate::config::operations::share_download_rollback_queue_capacity(&runtime_config),
+            );
+
+        let state = PrimaryAppState {
+            db_handles: crate::db::DbHandles::single(db),
+            driver_registry,
+            runtime_config: runtime_config.clone(),
+            policy_snapshot,
+            config: Arc::new(config),
+            cache,
+            metrics: crate::metrics_core::NoopMetrics::arc(),
+            mail_sender: mail_service::runtime_sender(runtime_config),
+            storage_change_tx,
+            share_download_rollback,
+            background_task_dispatch_wakeup:
+                crate::runtime::PrimaryAppState::new_background_task_dispatch_wakeup(),
+            remote_protocol: crate::runtime::PrimaryAppState::new_remote_protocol(),
+        };
+
+        (state, user, file, folder)
+    }
+
+    async fn init_share_app(
+        state: PrimaryAppState,
+    ) -> impl actix_web::dev::Service<
+        actix_http::Request,
+        Response = actix_web::dev::ServiceResponse,
+        Error = actix_web::Error,
+    > {
+        test::init_service(App::new().app_data(web::Data::new(state)).service(
+            web::scope("/api/v1").service(routes(
+                &RateLimitConfig {
+                    enabled: false,
+                    ..Default::default()
+                },
+                &NetworkTrustConfig::default(),
+            )),
+        ))
+        .await
+    }
 
     #[actix_web::test]
     async fn direct_routes_do_not_shadow_later_root_services() {
@@ -1001,5 +1249,174 @@ mod tests {
         let resp = test::call_service(&app, req).await;
 
         assert_eq!(resp.status(), StatusCode::OK);
+    }
+
+    #[actix_web::test]
+    async fn shared_image_preview_enqueues_background_task_on_cache_miss() {
+        let (state, user, file, _) = build_share_image_preview_route_state().await;
+        let share = share_service::create_share(
+            &state,
+            user.id,
+            share_service::ShareTarget::file(file.id),
+            None,
+            None,
+            0,
+        )
+        .await
+        .expect("file share should create");
+        let app = init_share_app(state.clone()).await;
+
+        let response = test::call_service(
+            &app,
+            test::TestRequest::get()
+                .uri(&format!("/api/v1/s/{}/image-preview", share.token))
+                .to_request(),
+        )
+        .await;
+
+        assert_eq!(response.status(), StatusCode::ACCEPTED);
+        assert_eq!(response.headers().get(header::RETRY_AFTER).unwrap(), "2");
+        let task = background_task_repo::find_latest_by_kind_and_display_name(
+            state.writer_db(),
+            BackgroundTaskKind::ImagePreviewGenerate,
+            &format!(
+                "Generate image preview for blob #{} via AsterDrive built-in",
+                file.blob_id
+            ),
+        )
+        .await
+        .expect("image preview task lookup should succeed")
+        .expect("image preview cache miss should enqueue a task");
+        assert_eq!(task.status, BackgroundTaskStatus::Pending);
+        let body = body::to_bytes(response.into_body())
+            .await
+            .expect("shared image preview 202 body should read");
+        assert!(body.is_empty());
+    }
+
+    #[actix_web::test]
+    async fn shared_image_preview_returns_cached_webp_and_honors_if_none_match() {
+        let (state, user, file, _) = build_share_image_preview_route_state().await;
+        let share = share_service::create_share(
+            &state,
+            user.id,
+            share_service::ShareTarget::file(file.id),
+            None,
+            None,
+            0,
+        )
+        .await
+        .expect("file share should create");
+        let blob = file_repo::find_blob_by_id(state.writer_db(), file.blob_id)
+            .await
+            .expect("share image preview route blob should load");
+        media_processing_service::generate_and_store_image_preview(
+            &state,
+            &blob,
+            &file.name,
+            &file.mime_type,
+        )
+        .await
+        .expect("share image preview route cache should pre-generate");
+        let app = init_share_app(state.clone()).await;
+
+        let response = test::call_service(
+            &app,
+            test::TestRequest::get()
+                .uri(&format!("/api/v1/s/{}/image-preview", share.token))
+                .to_request(),
+        )
+        .await;
+
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(
+            response.headers().get(header::CONTENT_TYPE).unwrap(),
+            "image/webp"
+        );
+        assert_eq!(
+            response.headers().get(header::CACHE_CONTROL).unwrap(),
+            "public, max-age=0, must-revalidate"
+        );
+        let etag = response
+            .headers()
+            .get(header::ETAG)
+            .expect("shared image preview response should include ETag")
+            .to_str()
+            .expect("shared image preview ETag should be valid header")
+            .to_string();
+        let expected_etag = format!(
+            "\"{}\"",
+            media_processing_service::image_preview_etag_value_for(
+                &image_preview_blob_hash(),
+                crate::services::thumbnail_service::IMAGES_THUMBNAIL_PROCESSOR_NAMESPACE,
+                crate::services::thumbnail_service::CURRENT_IMAGE_PREVIEW_VERSION,
+            )
+        );
+        assert_eq!(etag, expected_etag);
+        let body = body::to_bytes(response.into_body())
+            .await
+            .expect("shared image preview route response body should read");
+        assert!(!body.is_empty());
+
+        let not_modified = test::call_service(
+            &app,
+            test::TestRequest::get()
+                .uri(&format!("/api/v1/s/{}/image-preview", share.token))
+                .insert_header((header::IF_NONE_MATCH, etag))
+                .to_request(),
+        )
+        .await;
+
+        assert_eq!(not_modified.status(), StatusCode::NOT_MODIFIED);
+        assert_eq!(
+            not_modified.headers().get(header::CACHE_CONTROL).unwrap(),
+            "public, max-age=0, must-revalidate"
+        );
+        let body = body::to_bytes(not_modified.into_body())
+            .await
+            .expect("shared image preview route 304 response body should read");
+        assert!(body.is_empty());
+    }
+
+    #[actix_web::test]
+    async fn shared_folder_file_image_preview_enqueues_background_task_on_cache_miss() {
+        let (state, user, file, folder) = build_share_image_preview_route_state().await;
+        let share = share_service::create_share(
+            &state,
+            user.id,
+            share_service::ShareTarget::folder(folder.id),
+            None,
+            None,
+            0,
+        )
+        .await
+        .expect("folder share should create");
+        let app = init_share_app(state.clone()).await;
+
+        let response = test::call_service(
+            &app,
+            test::TestRequest::get()
+                .uri(&format!(
+                    "/api/v1/s/{}/files/{}/image-preview",
+                    share.token, file.id
+                ))
+                .to_request(),
+        )
+        .await;
+
+        assert_eq!(response.status(), StatusCode::ACCEPTED);
+        assert_eq!(response.headers().get(header::RETRY_AFTER).unwrap(), "2");
+        let task = background_task_repo::find_latest_by_kind_and_display_name(
+            state.writer_db(),
+            BackgroundTaskKind::ImagePreviewGenerate,
+            &format!(
+                "Generate image preview for blob #{} via AsterDrive built-in",
+                file.blob_id
+            ),
+        )
+        .await
+        .expect("folder image preview task lookup should succeed")
+        .expect("folder image preview cache miss should enqueue a task");
+        assert_eq!(task.status, BackgroundTaskStatus::Pending);
     }
 }

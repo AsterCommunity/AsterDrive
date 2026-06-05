@@ -1,4 +1,5 @@
 use crate::config::branding;
+use crate::config::definitions::FRONTEND_IMAGE_PREVIEW_PREFERENCE_KEY;
 use crate::config::site_url;
 use crate::config::{auth_runtime, media_processing, operations};
 use crate::db::repository::config_repo;
@@ -58,6 +59,20 @@ pub struct PublicBranding {
 
 #[derive(Serialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
+pub struct PublicFrontendMediaConfig {
+    pub image_preview_preference: media_processing::PublicImagePreviewPreference,
+}
+
+#[derive(Serialize)]
+#[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
+pub struct PublicFrontendConfig {
+    pub version: i32,
+    pub branding: PublicBranding,
+    pub media: PublicFrontendMediaConfig,
+}
+
+#[derive(Serialize)]
+#[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct PublicCustomConfig {
     pub entries: BTreeMap<String, String>,
 }
@@ -73,6 +88,23 @@ pub fn get_public_branding(state: &PrimaryAppState) -> PublicBranding {
         site_urls: site_url::public_site_urls(&state.runtime_config),
         allow_user_registration: auth_policy.allow_user_registration,
         passkey_login_enabled: auth_policy.passkey_login_enabled,
+    }
+}
+
+pub fn get_public_frontend_config(state: &PrimaryAppState) -> PublicFrontendConfig {
+    PublicFrontendConfig {
+        version: 1,
+        branding: get_public_branding(state),
+        media: PublicFrontendMediaConfig {
+            image_preview_preference:
+                media_processing::PublicImagePreviewPreference::from_config_value(
+                    state
+                        .runtime_config
+                        .get(FRONTEND_IMAGE_PREVIEW_PREFERENCE_KEY)
+                        .as_deref()
+                        .unwrap_or("original_first"),
+                ),
+        },
     }
 }
 

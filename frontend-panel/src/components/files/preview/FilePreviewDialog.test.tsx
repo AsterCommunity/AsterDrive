@@ -101,13 +101,22 @@ vi.mock("@/components/ui/dialog", () => ({
 	DialogContent: ({
 		children,
 		className,
+		overlayClassName,
 	}: {
 		children: React.ReactNode;
 		className?: string;
+		overlayClassName?: string;
 	}) => (
-		<div data-testid="dialog-content" className={className}>
-			{children}
-		</div>
+		<>
+			<div
+				data-testid="dialog-overlay"
+				className={overlayClassName}
+				aria-hidden="true"
+			/>
+			<div data-testid="dialog-content" className={className}>
+				{children}
+			</div>
+		</>
 	),
 	DialogHeader: ({
 		children,
@@ -815,7 +824,7 @@ describe("FilePreviewDialog", () => {
 		});
 	});
 
-	it("lets image previews size to content without forcing a fixed-height work area", async () => {
+	it("opens image previews in the fullscreen media viewer with a dark overlay", async () => {
 		mockState.profile = {
 			category: "image",
 			defaultMode: "builtin.image",
@@ -844,12 +853,26 @@ describe("FilePreviewDialog", () => {
 		expect(
 			await screen.findByRole("img", { name: "tall-image.png" }),
 		).toHaveAttribute("src", "blob:/files/7/download");
-		expect(
-			screen.getByTestId("dialog-content").className.split(/\s+/),
-		).not.toContain("h-[90vh]");
+		expect(screen.getByRole("img", { name: "tall-image.png" })).toHaveAttribute(
+			"data-fill-container",
+			"true",
+		);
+		expect(screen.getByTestId("dialog-content").className.split(/\s+/)).toEqual(
+			expect.arrayContaining([
+				"group/image-preview",
+				"top-0",
+				"left-0",
+				"h-screen",
+				"w-screen",
+				"rounded-none",
+			]),
+		);
+		expect(screen.getByTestId("dialog-overlay").className).toContain(
+			"bg-zinc-950/88",
+		);
 	});
 
-	it("expands image previews into a full-width preview surface", async () => {
+	it("restores image previews out of fullscreen without forcing fullscreen again", async () => {
 		mockState.profile = {
 			category: "image",
 			defaultMode: "builtin.image",
@@ -877,18 +900,24 @@ describe("FilePreviewDialog", () => {
 
 		expect(
 			await screen.findByRole("img", { name: "wide-image.png" }),
-		).toHaveAttribute("data-fill-container", "false");
+		).toHaveAttribute("data-fill-container", "true");
 
 		fireEvent.click(
 			screen.getByRole("button", {
-				name: "files:preview_enter_fullscreen",
+				name: "files:preview_exit_fullscreen",
 			}),
 		);
 
+		expect(
+			screen.getByRole("button", { name: "files:preview_enter_fullscreen" }),
+		).toBeInTheDocument();
 		expect(screen.getByRole("img", { name: "wide-image.png" })).toHaveAttribute(
 			"data-fill-container",
 			"true",
 		);
+		expect(
+			screen.getByTestId("dialog-content").className.split(/\s+/),
+		).not.toContain("top-0");
 	});
 
 	it("auto-opens hybrid svg previews directly and still allows switching modes", async () => {

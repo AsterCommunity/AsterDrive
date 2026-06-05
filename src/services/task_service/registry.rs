@@ -16,9 +16,10 @@ use super::presentation::TaskPresentationContext;
 use super::retry::TaskRetryClass;
 use super::spec::{
     ArchiveCompressTask, ArchiveExtractTask, ArchivePreviewGenerateTask, BlobMaintenanceTask,
-    ErasedBackgroundTaskSpec, MediaMetadataExtractTask, OfflineDownloadTask,
-    StoragePolicyMigrationTask, StoragePolicyTempCleanupTask, SystemRuntimeTask, TaskProcessFuture,
-    TaskSpecAdapter, ThumbnailGenerateTask, TrashPurgeAllTask,
+    ErasedBackgroundTaskSpec, ImagePreviewGenerateTask, MediaMetadataExtractTask,
+    OfflineDownloadTask, StoragePolicyMigrationTask, StoragePolicyTempCleanupTask,
+    SystemRuntimeTask, TaskProcessFuture, TaskSpecAdapter, ThumbnailGenerateTask,
+    TrashPurgeAllTask,
 };
 use super::steps::initial_task_steps_from_specs;
 use super::types::{TaskPayload, TaskPresentation, TaskResult, TaskStepInfo};
@@ -29,6 +30,7 @@ static ARCHIVE_EXTRACT: TaskSpecAdapter<ArchiveExtractTask> = TaskSpecAdapter::n
 static ARCHIVE_PREVIEW_GENERATE: TaskSpecAdapter<ArchivePreviewGenerateTask> =
     TaskSpecAdapter::new();
 static THUMBNAIL_GENERATE: TaskSpecAdapter<ThumbnailGenerateTask> = TaskSpecAdapter::new();
+static IMAGE_PREVIEW_GENERATE: TaskSpecAdapter<ImagePreviewGenerateTask> = TaskSpecAdapter::new();
 static MEDIA_METADATA_EXTRACT: TaskSpecAdapter<MediaMetadataExtractTask> = TaskSpecAdapter::new();
 static TRASH_PURGE_ALL: TaskSpecAdapter<TrashPurgeAllTask> = TaskSpecAdapter::new();
 static STORAGE_POLICY_TEMP_CLEANUP: TaskSpecAdapter<StoragePolicyTempCleanupTask> =
@@ -45,6 +47,7 @@ pub(super) fn spec_for_kind(kind: BackgroundTaskKind) -> &'static dyn ErasedBack
         BackgroundTaskKind::ArchiveExtract => &ARCHIVE_EXTRACT,
         BackgroundTaskKind::ArchivePreviewGenerate => &ARCHIVE_PREVIEW_GENERATE,
         BackgroundTaskKind::ThumbnailGenerate => &THUMBNAIL_GENERATE,
+        BackgroundTaskKind::ImagePreviewGenerate => &IMAGE_PREVIEW_GENERATE,
         BackgroundTaskKind::MediaMetadataExtract => &MEDIA_METADATA_EXTRACT,
         BackgroundTaskKind::TrashPurgeAll => &TRASH_PURGE_ALL,
         BackgroundTaskKind::StoragePolicyTempCleanup => &STORAGE_POLICY_TEMP_CLEANUP,
@@ -108,6 +111,7 @@ pub(in crate::services::task_service) fn task_lane_kinds(
         ],
         TaskLane::Thumbnail => &[
             BackgroundTaskKind::ThumbnailGenerate,
+            BackgroundTaskKind::ImagePreviewGenerate,
             BackgroundTaskKind::MediaMetadataExtract,
         ],
         TaskLane::OfflineDownload => &[BackgroundTaskKind::OfflineDownload],
@@ -134,6 +138,7 @@ mod tests {
             BackgroundTaskKind::ArchiveExtract,
             BackgroundTaskKind::ArchivePreviewGenerate,
             BackgroundTaskKind::ThumbnailGenerate,
+            BackgroundTaskKind::ImagePreviewGenerate,
             BackgroundTaskKind::MediaMetadataExtract,
             BackgroundTaskKind::TrashPurgeAll,
             BackgroundTaskKind::StoragePolicyTempCleanup,
@@ -153,6 +158,7 @@ mod tests {
             BackgroundTaskKind::ArchiveExtract,
             BackgroundTaskKind::ArchivePreviewGenerate,
             BackgroundTaskKind::ThumbnailGenerate,
+            BackgroundTaskKind::ImagePreviewGenerate,
             BackgroundTaskKind::MediaMetadataExtract,
             BackgroundTaskKind::TrashPurgeAll,
             BackgroundTaskKind::StoragePolicyTempCleanup,

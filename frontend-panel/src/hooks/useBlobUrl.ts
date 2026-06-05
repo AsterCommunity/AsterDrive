@@ -3,7 +3,7 @@ import { config } from "@/config/app";
 import { logger } from "@/lib/logger";
 import { api } from "@/services/http";
 
-type BlobFetchLane = "default" | "thumbnail";
+type BlobFetchLane = "default" | "preview" | "thumbnail";
 
 interface BlobCacheEntry {
 	blob?: Blob;
@@ -41,6 +41,7 @@ interface BlobUrlOptions {
 const BLOB_URL_REVOKE_DELAY = 30_000;
 const BLOB_FETCH_LIMITS: Record<BlobFetchLane, number> = {
 	default: 6,
+	preview: 3,
 	thumbnail: 1,
 };
 const PERSISTED_THUMBNAIL_CACHE_NAME = "aster-thumbnail-blobs-v1";
@@ -50,10 +51,12 @@ const blobUrlCache = new Map<string, BlobCacheEntry>();
 const blobUrlListeners = new Map<string, Set<() => void>>();
 const pendingBlobFetches: Record<BlobFetchLane, Array<() => void>> = {
 	default: [],
+	preview: [],
 	thumbnail: [],
 };
 const activeBlobFetches: Record<BlobFetchLane, number> = {
 	default: 0,
+	preview: 0,
 	thumbnail: 0,
 };
 

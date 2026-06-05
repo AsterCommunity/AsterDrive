@@ -8,6 +8,7 @@ use crate::services::task_service::{
     },
     thumbnail,
     types::{
+        ImagePreviewGenerateTaskPayload, ImagePreviewGenerateTaskResult,
         MediaMetadataExtractTaskPayload, MediaMetadataExtractTaskResult,
         ThumbnailGenerateTaskPayload, ThumbnailGenerateTaskResult,
     },
@@ -61,6 +62,20 @@ define_task_spec!(
     steps = THUMBNAIL_STEPS,
     lane = TaskLane::Thumbnail,
     process = thumbnail::process_thumbnail_generate_task,
+    max_attempts = 1,
+    retry = thumbnail::ThumbnailRetryPolicy
+);
+
+define_task_spec!(
+    ImagePreviewGenerateTask,
+    ImagePreviewGenerate,
+    ImagePreviewGenerateTaskPayload,
+    ImagePreviewGenerateTaskResult,
+    ImagePreviewGenerate,
+    ImagePreviewGenerate,
+    steps = THUMBNAIL_STEPS,
+    lane = TaskLane::Thumbnail,
+    process = thumbnail::process_image_preview_generate_task,
     max_attempts = 1,
     retry = thumbnail::ThumbnailRetryPolicy
 );

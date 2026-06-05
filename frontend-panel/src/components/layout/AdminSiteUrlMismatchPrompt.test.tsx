@@ -4,7 +4,7 @@ import { AdminSiteUrlMismatchPrompt } from "@/components/layout/AdminSiteUrlMism
 import { setPublicSiteUrls } from "@/lib/publicSiteUrl";
 
 const mockState = vi.hoisted(() => ({
-	brandingLoaded: false,
+	frontendConfigLoaded: false,
 	getConfig: vi.fn(),
 	handleApiError: vi.fn(),
 	loggerWarn: vi.fn(),
@@ -93,22 +93,20 @@ vi.mock("@/services/adminService", () => ({
 	},
 }));
 
-vi.mock("@/stores/brandingStore", () => {
-	const useBrandingStore = ((
+vi.mock("@/stores/frontendConfigStore", () => {
+	const useFrontendConfigStore = ((
 		selector: (state: { isLoaded: boolean; siteUrl: string | null }) => unknown,
 	) =>
 		selector({
-			isLoaded: mockState.brandingLoaded,
+			isLoaded: mockState.frontendConfigLoaded,
 			siteUrl: mockState.siteUrl,
-		})) as unknown as typeof import("@/stores/brandingStore").useBrandingStore;
+		})) as unknown as typeof import("@/stores/frontendConfigStore").useFrontendConfigStore;
 
-	useBrandingStore.setState = (partial: { siteUrl?: string | null }) => {
-		if ("siteUrl" in partial) {
-			mockState.siteUrl = partial.siteUrl ?? null;
-		}
+	const setFrontendSiteUrlState = (siteUrl: string | null) => {
+		mockState.siteUrl = siteUrl;
 	};
 
-	return { useBrandingStore };
+	return { setFrontendSiteUrlState, useFrontendConfigStore };
 });
 
 describe("AdminSiteUrlMismatchPrompt", () => {
@@ -117,7 +115,7 @@ describe("AdminSiteUrlMismatchPrompt", () => {
 			configurable: true,
 			value: defaultLocation,
 		});
-		mockState.brandingLoaded = false;
+		mockState.frontendConfigLoaded = false;
 		mockState.getConfig.mockReset();
 		mockState.handleApiError.mockReset();
 		mockState.loggerWarn.mockReset();
@@ -137,7 +135,7 @@ describe("AdminSiteUrlMismatchPrompt", () => {
 	});
 
 	it("does not reopen while the admin route shell stays mounted", async () => {
-		mockState.brandingLoaded = true;
+		mockState.frontendConfigLoaded = true;
 		mockState.siteUrl = "https://configured.example.com";
 
 		const { rerender } = render(<AdminRouteShell page="Users" />);
@@ -160,7 +158,7 @@ describe("AdminSiteUrlMismatchPrompt", () => {
 	});
 
 	it("shows the prompt again after leaving admin and can update the config", async () => {
-		mockState.brandingLoaded = true;
+		mockState.frontendConfigLoaded = true;
 		mockState.siteUrl = "https://configured.example.com";
 
 		const { unmount } = render(<AdminSiteUrlMismatchPrompt />);
@@ -199,7 +197,7 @@ describe("AdminSiteUrlMismatchPrompt", () => {
 	});
 
 	it("does not prompt when the current origin exists in the configured origin list", async () => {
-		mockState.brandingLoaded = true;
+		mockState.frontendConfigLoaded = true;
 		mockState.siteUrl = "http://localhost:3000";
 		mockState.getConfig.mockResolvedValue({
 			key: "public_site_url",
@@ -219,7 +217,7 @@ describe("AdminSiteUrlMismatchPrompt", () => {
 	});
 
 	it("normalizes legacy single-string public site urls", async () => {
-		mockState.brandingLoaded = true;
+		mockState.frontendConfigLoaded = true;
 		mockState.siteUrl = null;
 		mockState.getConfig.mockResolvedValue({
 			key: "public_site_url",
@@ -243,8 +241,8 @@ describe("AdminSiteUrlMismatchPrompt", () => {
 		).toBeInTheDocument();
 	});
 
-	it("uses the live admin config instead of stale public branding cache", async () => {
-		mockState.brandingLoaded = true;
+	it("uses the live admin config instead of stale frontend config cache", async () => {
+		mockState.frontendConfigLoaded = true;
 		mockState.siteUrl = null;
 		mockState.getConfig.mockResolvedValue({
 			key: "public_site_url",
@@ -265,7 +263,7 @@ describe("AdminSiteUrlMismatchPrompt", () => {
 	});
 
 	it("keeps the prompt when no origins are configured", async () => {
-		mockState.brandingLoaded = true;
+		mockState.frontendConfigLoaded = true;
 		mockState.siteUrl = null;
 		mockState.getConfig.mockResolvedValue({
 			key: "public_site_url",
@@ -288,7 +286,7 @@ describe("AdminSiteUrlMismatchPrompt", () => {
 				origin: "http://localhost:5174",
 			},
 		});
-		mockState.brandingLoaded = true;
+		mockState.frontendConfigLoaded = true;
 		mockState.siteUrl = "http://localhost:3000";
 		mockState.getConfig.mockResolvedValue({
 			key: "public_site_url",

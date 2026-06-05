@@ -1357,6 +1357,79 @@ mod tests {
     }
 
     #[test]
+    fn task_info_includes_structured_image_preview_presentation_from_result() {
+        let now = Utc::now();
+        let task = background_task::Model {
+            id: 45,
+            kind: BackgroundTaskKind::ImagePreviewGenerate,
+            status: BackgroundTaskStatus::Succeeded,
+            creator_user_id: None,
+            team_id: None,
+            share_id: None,
+            display_name: "Generate image preview for blob #42 via AsterDrive built-in".to_string(),
+            payload_json: StoredTaskPayload(
+                serde_json::json!({
+                    "blob_id": 42,
+                    "blob_hash": "hash-42",
+                    "source_file_name": "",
+                    "source_mime_type": "image/png",
+                    "processor": "images"
+                })
+                .to_string(),
+            ),
+            result_json: Some(StoredTaskResult(
+                serde_json::json!({
+                    "blob_id": 42,
+                    "image_preview_path": "previews/42.webp",
+                    "image_preview_processor": "images",
+                    "image_preview_version": "1",
+                    "processor": "images",
+                    "reused_existing_preview": false
+                })
+                .to_string(),
+            )),
+            runtime_json: None,
+            steps_json: None,
+            progress_current: 4,
+            progress_total: 4,
+            status_text: Some("backend changed this sentence".to_string()),
+            attempt_count: 1,
+            max_attempts: 1,
+            next_run_at: now,
+            processing_token: 0,
+            processing_started_at: None,
+            last_heartbeat_at: None,
+            lease_expires_at: None,
+            started_at: Some(now),
+            finished_at: Some(now),
+            last_error: None,
+            failure_can_retry: None,
+            expires_at: now + Duration::hours(1),
+            created_at: now,
+            updated_at: now,
+        };
+
+        let info = build_task_info_with_creator(task, None).expect("task info should build");
+        let presentation = info
+            .presentation
+            .as_ref()
+            .expect("presentation should exist");
+        let title = presentation.title.as_ref().expect("title should exist");
+        let status = presentation.status.as_ref().expect("status should exist");
+
+        assert_eq!(
+            title.code,
+            TaskPresentationCode::TaskNameImagePreviewGenerateBlobWithProcessor
+        );
+        assert_eq!(title.params["blobId"], serde_json::json!(42));
+        assert_eq!(title.params["processor"], serde_json::json!("images"));
+        assert_eq!(
+            status.code,
+            TaskPresentationCode::StatusTextImagePreviewReady
+        );
+    }
+
+    #[test]
     fn task_info_includes_offline_download_engine_presentation_from_runtime() {
         let now = Utc::now();
         let task = background_task::Model {

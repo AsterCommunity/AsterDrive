@@ -127,6 +127,8 @@ pub enum BackgroundTaskKind {
     ArchivePreviewGenerate,
     #[sea_orm(string_value = "thumbnail_generate")]
     ThumbnailGenerate,
+    #[sea_orm(string_value = "image_preview_generate")]
+    ImagePreviewGenerate,
     #[sea_orm(string_value = "media_metadata_extract")]
     MediaMetadataExtract,
     #[sea_orm(string_value = "trash_purge_all")]
@@ -150,6 +152,7 @@ impl BackgroundTaskKind {
             Self::ArchiveCompress => "archive_compress",
             Self::ArchivePreviewGenerate => "archive_preview_generate",
             Self::ThumbnailGenerate => "thumbnail_generate",
+            Self::ImagePreviewGenerate => "image_preview_generate",
             Self::MediaMetadataExtract => "media_metadata_extract",
             Self::TrashPurgeAll => "trash_purge_all",
             Self::StoragePolicyTempCleanup => "storage_policy_temp_cleanup",
@@ -253,6 +256,10 @@ mod tests {
                 "archive_preview_generate",
             ),
             (BackgroundTaskKind::ThumbnailGenerate, "thumbnail_generate"),
+            (
+                BackgroundTaskKind::ImagePreviewGenerate,
+                "image_preview_generate",
+            ),
             (
                 BackgroundTaskKind::MediaMetadataExtract,
                 "media_metadata_extract",

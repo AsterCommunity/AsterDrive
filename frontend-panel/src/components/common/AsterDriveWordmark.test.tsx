@@ -2,13 +2,13 @@ import { render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it } from "vitest";
 import { AsterDriveWordmark } from "@/components/common/AsterDriveWordmark";
 import { DEFAULT_BRANDING } from "@/lib/branding";
-import { useBrandingStore } from "@/stores/brandingStore";
+import { useFrontendConfigStore } from "@/stores/frontendConfigStore";
 import { useThemeStore } from "@/stores/themeStore";
 
 describe("AsterDriveWordmark", () => {
 	beforeEach(() => {
 		document.documentElement.classList.remove("dark");
-		useBrandingStore.setState((state) => ({
+		useFrontendConfigStore.setState((state) => ({
 			...state,
 			branding: DEFAULT_BRANDING,
 		}));
@@ -57,7 +57,7 @@ describe("AsterDriveWordmark", () => {
 	});
 
 	it("uses configured branding wordmark URLs", () => {
-		useBrandingStore.setState((state) => ({
+		useFrontendConfigStore.setState((state) => ({
 			...state,
 			branding: {
 				...state.branding,

@@ -18,7 +18,8 @@ use super::shared::{StoredThumbnail, ThumbnailContext, ThumbnailData};
 
 pub use cache::delete_thumbnail;
 pub(crate) use cache::delete_thumbnail_with_driver;
-pub use preview::generate_and_store_image_preview;
+pub(crate) use preview::generate_and_store_image_preview_with_processor;
+pub use preview::{generate_and_store_image_preview, load_image_preview_if_exists};
 pub use probe::probe_ffmpeg_cli_command;
 
 pub async fn load_thumbnail_if_exists(

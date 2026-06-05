@@ -31,6 +31,7 @@ pub struct AckRemoteEnrollmentReq {
 pub fn routes() -> impl actix_web::dev::HttpServiceFactory + use<> {
     web::scope("/public")
         .route("/branding", web::get().to(get_branding))
+        .route("/frontend-config", web::get().to(get_frontend_config))
         .route("/preview-apps", web::get().to(get_preview_apps))
         .route("/custom-config", web::get().to(get_custom_config))
         .route("/thumbnail-support", web::get().to(get_thumbnail_support))
@@ -54,9 +55,24 @@ pub fn routes() -> impl actix_web::dev::HttpServiceFactory + use<> {
         (status = 200, description = "Public branding config", body = inline(ApiResponse<config_service::PublicBranding>)),
     ),
 )]
+// TODO(0.3.0): remove this legacy endpoint after clients migrate to /public/frontend-config.
 pub async fn get_branding(state: web::Data<PrimaryAppState>) -> Result<HttpResponse> {
     let branding = config_service::get_public_branding(&state);
     Ok(public_config_response(branding))
+}
+
+#[api_docs_macros::path(
+    get,
+    path = "/api/v1/public/frontend-config",
+    tag = "public",
+    operation_id = "get_public_frontend_config",
+    responses(
+        (status = 200, description = "Public frontend bootstrap config", body = inline(ApiResponse<config_service::PublicFrontendConfig>)),
+    ),
+)]
+pub async fn get_frontend_config(state: web::Data<PrimaryAppState>) -> Result<HttpResponse> {
+    let config = config_service::get_public_frontend_config(&state);
+    Ok(public_config_response(config))
 }
 
 #[api_docs_macros::path(
