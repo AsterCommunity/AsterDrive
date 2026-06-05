@@ -107,6 +107,15 @@ async fn test_db_lock_system_deep_lock_supports_check_refresh_discover_and_delet
     assert!(refreshed.owner.is_some());
     assert_eq!(refreshed.timeout, Some(Duration::from_secs(30)));
 
+    let unrelated_path = DavPath::new("/unrelated.txt").unwrap();
+    assert!(
+        lock_system
+            .refresh(&unrelated_path, &lock.token, Some(Duration::from_secs(45)))
+            .await
+            .is_err(),
+        "LOCK refresh must target the locked resource or a resource covered by a deep lock"
+    );
+
     let persisted = lock_repo::find_by_token(state.writer_db(), &lock.token)
         .await
         .unwrap()
@@ -216,6 +225,21 @@ async fn test_db_lock_system_replaces_expired_locks_and_rejects_active_conflicts
             .unlock(&file_path, "missing-token")
             .await
             .is_err()
+    );
+    let other_path = DavPath::new("/other-expired.txt").unwrap();
+    assert!(
+        lock_system
+            .unlock(&other_path, &replacement.token)
+            .await
+            .is_err(),
+        "UNLOCK must target the locked resource or a resource covered by a deep lock"
+    );
+    assert!(
+        lock_repo::find_by_token(state.writer_db(), &replacement.token)
+            .await
+            .unwrap()
+            .is_some(),
+        "failed UNLOCK on an unrelated path must not delete the lock"
     );
 
     lock_system

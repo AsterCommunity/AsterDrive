@@ -8,9 +8,9 @@ use xmltree::XMLNode;
 use crate::webdav::dav::{DavFileSystem, DavLockSystem, DavPath, FsError};
 use crate::webdav::protocol::{self, Depth};
 use crate::webdav::{
-    dav_element, decoded_path_string, ensure_system_file_name_allowed, ensure_unlocked, fs,
-    fs_error_response, href_for_dav_path, href_for_relative, multi_status, request_path,
-    status_element, system_file, text_element, xml_response,
+    dav_element, decoded_path_string, ensure_parent_unlocked, ensure_system_file_name_allowed,
+    ensure_unlocked, fs, fs_error_response, href_for_dav_path, href_for_relative, multi_status,
+    parent_relative_path, request_path, status_element, system_file, text_element, xml_response,
 };
 
 pub(crate) async fn handle_mkcol(
@@ -39,7 +39,45 @@ pub(crate) async fn handle_mkcol(
     if let Err(resp) = ensure_parent_exists(dav_fs, &relative).await {
         return resp;
     }
-    if let Err(resp) = ensure_unlocked(lock_system, &path, false, prefix, req.headers()).await {
+    let connection = req.connection_info();
+    let request_scheme = connection.scheme().to_string();
+    let request_host = connection.host().to_string();
+    if let Err(resp) = protocol::ensure_if_header(
+        req.headers(),
+        dav_fs,
+        lock_system,
+        &path,
+        prefix,
+        &request_scheme,
+        &request_host,
+    )
+    .await
+    {
+        return resp;
+    }
+    if let Err(resp) = ensure_unlocked(
+        lock_system,
+        &path,
+        false,
+        prefix,
+        req.headers(),
+        &request_scheme,
+        &request_host,
+    )
+    .await
+    {
+        return resp;
+    }
+    if let Err(resp) = ensure_parent_unlocked(
+        lock_system,
+        &relative,
+        prefix,
+        req.headers(),
+        &request_scheme,
+        &request_host,
+    )
+    .await
+    {
         return resp;
     }
 
@@ -62,11 +100,12 @@ pub(crate) async fn handle_delete(
     lock_system: &dyn DavLockSystem,
     prefix: &str,
 ) -> HttpResponse {
-    if let Err(resp) = protocol::parse_delete_depth(req.headers()) {
-        return resp;
-    }
+    let depth = match protocol::parse_delete_depth(req.headers()) {
+        Ok(depth) => depth,
+        Err(resp) => return resp,
+    };
 
-    let (path, _) = match request_path(req, prefix) {
+    let (path, relative) = match request_path(req, prefix) {
         Ok(v) => v,
         Err(resp) => return resp,
     };
@@ -75,14 +114,53 @@ pub(crate) async fn handle_delete(
         Ok(meta) => meta,
         Err(err) => return fs_error_response(err),
     };
+    if meta.is_dir() && !depth.is_infinity() {
+        return HttpResponse::BadRequest().finish();
+    }
+    let connection = req.connection_info();
+    let request_scheme = connection.scheme().to_string();
+    let request_host = connection.host().to_string();
+    if let Err(resp) = protocol::ensure_if_header(
+        req.headers(),
+        dav_fs,
+        lock_system,
+        &path,
+        prefix,
+        &request_scheme,
+        &request_host,
+    )
+    .await
+    {
+        return resp;
+    }
     if meta.is_dir() {
         if let Some(resp) =
             locked_multi_status_response(lock_system, &path, true, prefix, req).await
         {
             return resp;
         }
-    } else if let Err(resp) =
-        ensure_unlocked(lock_system, &path, false, prefix, req.headers()).await
+    } else if let Err(resp) = ensure_unlocked(
+        lock_system,
+        &path,
+        false,
+        prefix,
+        req.headers(),
+        &request_scheme,
+        &request_host,
+    )
+    .await
+    {
+        return resp;
+    }
+    if let Err(resp) = ensure_parent_unlocked(
+        lock_system,
+        &relative,
+        prefix,
+        req.headers(),
+        &request_scheme,
+        &request_host,
+    )
+    .await
     {
         return resp;
     }
@@ -131,11 +209,19 @@ pub(crate) async fn handle_copy_move(
         Err(resp) => return resp,
     };
 
-    let destination_relative = match protocol::destination_relative_path(req.headers(), prefix) {
+    let connection = req.connection_info();
+    let request_scheme = connection.scheme().to_string();
+    let request_host = connection.host().to_string();
+    let destination_relative = match protocol::destination_relative_path(
+        req.headers(),
+        prefix,
+        &request_scheme,
+        &request_host,
+    ) {
         Ok(path) => path,
         Err(resp) => return resp,
     };
-    if source_relative == destination_relative {
+    if same_resource_path(&source_relative, &destination_relative) {
         return HttpResponse::Forbidden().finish();
     }
     if let Err(resp) = ensure_system_file_name_allowed(system_file_policy, &destination_relative) {
@@ -154,6 +240,34 @@ pub(crate) async fn handle_copy_move(
         Ok(meta) => meta,
         Err(err) => return fs_error_response(err),
     };
+    if source_meta.is_dir() {
+        if is_move && !depth.is_infinity() {
+            return HttpResponse::BadRequest().finish();
+        }
+        if !is_move && depth == Depth::One {
+            return HttpResponse::BadRequest().finish();
+        }
+    }
+    let recursive_collection_copy_or_move =
+        source_meta.is_dir() && (is_move || depth != Depth::Zero);
+    if recursive_collection_copy_or_move
+        && is_descendant_path(&source_relative, &destination_relative)
+    {
+        return HttpResponse::Forbidden().finish();
+    }
+    if let Err(resp) = protocol::ensure_if_header(
+        req.headers(),
+        dav_fs,
+        lock_system,
+        &source,
+        prefix,
+        &request_scheme,
+        &request_host,
+    )
+    .await
+    {
+        return resp;
+    }
     if is_move && source_meta.is_dir() {
         if let Some(resp) =
             locked_multi_status_response(lock_system, &source, true, prefix, req).await
@@ -161,26 +275,79 @@ pub(crate) async fn handle_copy_move(
             return resp;
         }
     } else if is_move
-        && let Err(resp) = ensure_unlocked(lock_system, &source, false, prefix, req.headers()).await
+        && let Err(resp) = ensure_unlocked(
+            lock_system,
+            &source,
+            false,
+            prefix,
+            req.headers(),
+            &request_scheme,
+            &request_host,
+        )
+        .await
     {
         return resp;
     }
-    let destination_deep = source_meta.is_dir() && (is_move || depth != Depth::Zero);
+    if is_move
+        && let Err(resp) = ensure_parent_unlocked(
+            lock_system,
+            &source_relative,
+            prefix,
+            req.headers(),
+            &request_scheme,
+            &request_host,
+        )
+        .await
+    {
+        return resp;
+    }
+
+    let destination_meta = match dav_fs.metadata(&destination).await {
+        Ok(meta) => Some(meta),
+        Err(FsError::NotFound) => None,
+        Err(err) => return fs_error_response(err),
+    };
+    let destination_exists = destination_meta.is_some();
+    let overwrite = match protocol::parse_overwrite(req.headers()) {
+        Ok(overwrite) => overwrite,
+        Err(resp) => return resp,
+    };
+    if !overwrite && destination_exists {
+        return HttpResponse::PreconditionFailed().finish();
+    }
+    let destination_is_collection = destination_meta.as_ref().is_some_and(|meta| meta.is_dir());
+    let destination_deep =
+        destination_is_collection || source_meta.is_dir() && (is_move || depth != Depth::Zero);
     if destination_deep {
         if let Some(resp) =
             locked_multi_status_response(lock_system, &destination, true, prefix, req).await
         {
             return resp;
         }
-    } else if let Err(resp) =
-        ensure_unlocked(lock_system, &destination, false, prefix, req.headers()).await
+    } else if let Err(resp) = ensure_unlocked(
+        lock_system,
+        &destination,
+        false,
+        prefix,
+        req.headers(),
+        &request_scheme,
+        &request_host,
+    )
+    .await
     {
         return resp;
     }
-
-    let destination_exists = dav_fs.metadata(&destination).await.is_ok();
-    if !protocol::overwrite_enabled(req.headers()) && destination_exists {
-        return HttpResponse::PreconditionFailed().finish();
+    if let Err(resp) = ensure_parent_unlocked(
+        lock_system,
+        &destination_relative,
+        prefix,
+        req.headers(),
+        &request_scheme,
+        &request_host,
+    )
+    .await
+    {
+        return resp;
     }
 
     let result = if is_move {
@@ -200,13 +367,19 @@ pub(crate) async fn handle_copy_move(
                 );
             }
             if destination_exists {
-                HttpResponse::NoContent().finish()
+                no_store_response(StatusCode::NO_CONTENT)
             } else {
-                HttpResponse::Created().finish()
+                no_store_response(StatusCode::CREATED)
             }
         }
         Err(err) => fs_error_response(err),
     }
+}
+
+fn no_store_response(status: StatusCode) -> HttpResponse {
+    HttpResponse::build(status)
+        .insert_header((header::CACHE_CONTROL, "no-store"))
+        .finish()
 }
 
 async fn locked_multi_status_response(
@@ -217,9 +390,17 @@ async fn locked_multi_status_response(
     req: &HttpRequest,
 ) -> Option<HttpResponse> {
     let mut conflicts = lock_system.conflicting_locks(path, deep).await;
+    let connection = req.connection_info();
+    let request_scheme = connection.scheme().to_string();
+    let request_host = connection.host().to_string();
     conflicts.retain(|lock| {
         let href = href_for_dav_path(prefix, &lock.path);
-        let tokens = protocol::submitted_lock_tokens_for_path(req.headers(), &href);
+        let tokens = protocol::submitted_lock_tokens_for_path(
+            req.headers(),
+            &href,
+            &request_scheme,
+            &request_host,
+        );
         !tokens.iter().any(|token| token == &lock.token)
     });
     if conflicts.is_empty() {
@@ -250,10 +431,15 @@ fn multi_status_locked_response(
         multistatus.children.push(XMLNode::Element(response));
     }
 
-    xml_response(multistatus, multi_status())
+    let mut response = xml_response(multistatus, multi_status());
+    response.headers_mut().insert(
+        header::CACHE_CONTROL,
+        header::HeaderValue::from_static("no-store"),
+    );
+    response
 }
 
-async fn ensure_empty_body(payload: &mut web::Payload) -> Result<(), HttpResponse> {
+pub(crate) async fn ensure_empty_body(payload: &mut web::Payload) -> Result<(), HttpResponse> {
     while let Some(chunk) = payload.next().await {
         let chunk =
             chunk.map_err(|_| HttpResponse::BadRequest().body("Failed to read request body"))?;
@@ -280,24 +466,32 @@ async fn ensure_parent_exists(dav_fs: &fs::AsterDavFs, relative: &str) -> Result
     }
 }
 
-fn parent_relative_path(relative: &str) -> Option<String> {
-    if relative == "/" {
-        return None;
+fn same_resource_path(left: &str, right: &str) -> bool {
+    resource_identity_path(left) == resource_identity_path(right)
+}
+
+fn is_descendant_path(parent: &str, child: &str) -> bool {
+    let parent = resource_identity_path(parent);
+    let child = resource_identity_path(child);
+    if parent == "/" || parent == child {
+        return false;
     }
-    let trimmed = relative.trim_end_matches('/');
-    let segments: Vec<_> = trimmed
-        .split('/')
-        .filter(|segment| !segment.is_empty())
-        .collect();
-    if segments.len() <= 1 {
-        return Some("/".to_string());
+    let parent_prefix = format!("{parent}/");
+    child.starts_with(&parent_prefix)
+}
+
+fn resource_identity_path(path: &str) -> String {
+    let trimmed = path.trim_end_matches('/');
+    if trimmed.is_empty() {
+        "/".to_string()
+    } else {
+        trimmed.to_string()
     }
-    Some(format!("/{}/", segments[..segments.len() - 1].join("/")))
 }
 
 #[cfg(test)]
 mod tests {
-    use super::ensure_empty_body;
+    use super::{ensure_empty_body, is_descendant_path, same_resource_path};
     use actix_web::FromRequest;
     use actix_web::http::StatusCode;
     use actix_web::web;
@@ -350,5 +544,21 @@ mod tests {
             .expect_err("large non-empty MKCOL body should be rejected");
 
         assert_eq!(response.status(), StatusCode::UNSUPPORTED_MEDIA_TYPE);
+    }
+
+    #[test]
+    fn resource_identity_ignores_collection_trailing_slash() {
+        assert!(same_resource_path("/docs", "/docs/"));
+        assert!(same_resource_path("/", "/"));
+        assert!(!same_resource_path("/docs", "/docs/sub"));
+    }
+
+    #[test]
+    fn descendant_identity_requires_path_boundary() {
+        assert!(is_descendant_path("/docs", "/docs/sub"));
+        assert!(is_descendant_path("/docs/", "/docs/sub/file.txt"));
+        assert!(!is_descendant_path("/docs", "/docs"));
+        assert!(!is_descendant_path("/docs", "/docs2/sub"));
+        assert!(!is_descendant_path("/", "/docs"));
     }
 }

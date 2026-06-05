@@ -27,8 +27,33 @@ pub(crate) async fn handle_lock(
     };
 
     if body.is_empty() {
+        let timeout = match parse_timeout(req.headers()) {
+            Ok(timeout) => timeout,
+            Err(resp) => return resp,
+        };
+        let connection = req.connection_info();
+        let request_scheme = connection.scheme().to_string();
+        let request_host = connection.host().to_string();
+        if let Err(resp) = protocol::ensure_if_header(
+            req.headers(),
+            dav_fs,
+            lock_system,
+            &path,
+            prefix,
+            &request_scheme,
+            &request_host,
+        )
+        .await
+        {
+            return resp;
+        }
         let request_href = href_for_dav_path(prefix, &path);
-        let tokens = protocol::submitted_lock_tokens_for_path(req.headers(), &request_href);
+        let tokens = protocol::submitted_lock_tokens_for_path(
+            req.headers(),
+            &request_href,
+            &request_scheme,
+            &request_host,
+        );
         if tokens.len() != 1 {
             return HttpResponse::BadRequest().finish();
         }
@@ -39,16 +64,17 @@ pub(crate) async fn handle_lock(
         {
             return HttpResponse::PreconditionFailed().finish();
         }
-        let lock = match lock_system
-            .refresh(&path, &tokens[0], parse_timeout(req.headers()))
-            .await
-        {
+        let lock = match lock_system.refresh(&path, &tokens[0], timeout).await {
             Ok(lock) => lock,
             Err(_) => return HttpResponse::PreconditionFailed().finish(),
         };
-        return lock_response(lock, StatusCode::OK);
+        return lock_response(lock, StatusCode::OK, prefix, false);
     }
 
+    let timeout = match parse_timeout(req.headers()) {
+        Ok(timeout) => timeout,
+        Err(resp) => return resp,
+    };
     let depth = match protocol::parse_lock_depth(req.headers()) {
         Ok(depth) => depth,
         Err(resp) => return resp,
@@ -58,7 +84,7 @@ pub(crate) async fn handle_lock(
         Ok(tree) => tree,
         Err(_) => return HttpResponse::BadRequest().body("Invalid XML body"),
     };
-    if tree.name != "lockinfo" {
+    if !is_dav_element(&tree, "lockinfo") {
         return HttpResponse::BadRequest().body("Invalid LOCK body");
     }
 
@@ -67,18 +93,28 @@ pub(crate) async fn handle_lock(
     let mut write_lock = false;
     for elem in child_elements(&tree) {
         match elem.name.as_str() {
-            "lockscope" => {
-                let scope = child_elements(elem).next().map(|child| child.name.as_str());
+            "lockscope" if is_dav_element(elem, "lockscope") => {
+                let children = child_elements(elem).collect::<Vec<_>>();
+                if children.len() != 1 {
+                    return HttpResponse::BadRequest().finish();
+                }
+                let scope = children.first().map(|child| child.name.as_str());
                 match scope {
-                    Some("exclusive") => shared = Some(false),
-                    Some("shared") => shared = Some(true),
+                    Some("exclusive") if is_dav_element(children[0], "exclusive") => {
+                        shared = Some(false)
+                    }
+                    Some("shared") if is_dav_element(children[0], "shared") => shared = Some(true),
                     _ => return HttpResponse::BadRequest().finish(),
                 }
             }
-            "locktype" => {
-                write_lock = child_elements(elem).any(|child| child.name == "write");
+            "locktype" if is_dav_element(elem, "locktype") => {
+                let children = child_elements(elem).collect::<Vec<_>>();
+                if children.len() != 1 || !is_dav_element(children[0], "write") {
+                    return HttpResponse::BadRequest().finish();
+                }
+                write_lock = true;
             }
-            "owner" => owner = Some(elem.clone()),
+            "owner" if is_dav_element(elem, "owner") => owner = Some(elem.clone()),
             _ => return HttpResponse::BadRequest().finish(),
         }
     }
@@ -96,7 +132,7 @@ pub(crate) async fn handle_lock(
             &path,
             None,
             owner.as_ref(),
-            parse_timeout(req.headers()),
+            timeout,
             shared.unwrap_or(false),
             depth.is_infinity(),
         )
@@ -111,7 +147,7 @@ pub(crate) async fn handle_lock(
     } else {
         StatusCode::CREATED
     };
-    lock_response(lock, status)
+    lock_response(lock, status, prefix, true)
 }
 
 pub(crate) async fn handle_unlock(
@@ -123,31 +159,60 @@ pub(crate) async fn handle_unlock(
         Ok(v) => v,
         Err(resp) => return resp,
     };
-    let token = match req
-        .headers()
-        .get("Lock-Token")
-        .and_then(|value| value.to_str().ok())
-    {
-        Some(token) => token.trim().trim_matches(|c| c == '<' || c == '>'),
+    let token = match req.headers().get("Lock-Token") {
+        Some(token) => match parse_lock_token_header(token) {
+            Ok(token) => token,
+            Err(resp) => return resp,
+        },
         None => return HttpResponse::BadRequest().finish(),
     };
 
-    match lock_system.unlock(&path, token).await {
+    match lock_system.unlock(&path, &token).await {
         Ok(()) => HttpResponse::NoContent().finish(),
         Err(()) => HttpResponse::Conflict().finish(),
     }
 }
 
-fn parse_timeout(headers: &header::HeaderMap) -> Option<Duration> {
-    let raw = headers
-        .get("Timeout")
-        .and_then(|value| value.to_str().ok())?;
-    let candidate = raw.split(',').map(str::trim).next()?;
-    if candidate.eq_ignore_ascii_case("Infinite") {
-        return None;
+fn parse_lock_token_header(value: &header::HeaderValue) -> Result<String, HttpResponse> {
+    let raw = value
+        .to_str()
+        .map_err(|_| HttpResponse::BadRequest().body("Invalid Lock-Token header"))?
+        .trim();
+    let Some(token) = raw
+        .strip_prefix('<')
+        .and_then(|value| value.strip_suffix('>'))
+    else {
+        return Err(HttpResponse::BadRequest().body("Invalid Lock-Token header"));
+    };
+    if token.is_empty() || token.contains(['<', '>']) {
+        return Err(HttpResponse::BadRequest().body("Invalid Lock-Token header"));
     }
-    let seconds = candidate.strip_prefix("Second-")?.parse::<u64>().ok()?;
-    Some(Duration::from_secs(seconds))
+    Ok(token.to_string())
+}
+
+fn parse_timeout(headers: &header::HeaderMap) -> Result<Option<Duration>, HttpResponse> {
+    let Some(raw) = headers.get("Timeout") else {
+        return Ok(None);
+    };
+    let raw = raw
+        .to_str()
+        .map_err(|_| HttpResponse::BadRequest().body("Invalid Timeout header"))?;
+    for candidate in raw
+        .split(',')
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        if candidate.eq_ignore_ascii_case("Infinite") {
+            return Ok(None);
+        }
+        if let Some(seconds) = candidate
+            .strip_prefix("Second-")
+            .and_then(|seconds| seconds.parse::<u64>().ok())
+        {
+            return Ok(Some(Duration::from_secs(seconds)));
+        }
+    }
+    Err(HttpResponse::BadRequest().body("Invalid Timeout header"))
 }
 
 async fn ensure_lock_target_exists(
@@ -211,17 +276,17 @@ pub(crate) fn supportedlock_element() -> Element {
     supported
 }
 
-pub(crate) fn lockdiscovery_element(locks: &[DavLock]) -> Element {
+pub(crate) fn lockdiscovery_element(locks: &[DavLock], prefix: &str) -> Element {
     let mut discovery = dav_element("lockdiscovery");
     for lock in locks {
         discovery
             .children
-            .push(XMLNode::Element(active_lock_element(lock)));
+            .push(XMLNode::Element(active_lock_element(lock, prefix)));
     }
     discovery
 }
 
-fn active_lock_element(lock: &DavLock) -> Element {
+fn active_lock_element(lock: &DavLock, prefix: &str) -> Element {
     let mut active = dav_element("activelock");
 
     let mut lockscope = dav_element("lockscope");
@@ -265,15 +330,28 @@ fn active_lock_element(lock: &DavLock) -> Element {
     }));
     active.children.push(XMLNode::Element(depth));
 
+    let mut lockroot = dav_element("lockroot");
+    lockroot.children.push(XMLNode::Element(text_element(
+        "D:href",
+        &href_for_dav_path(prefix, &lock.path),
+    )));
+    active.children.push(XMLNode::Element(lockroot));
+
     active
 }
 
-fn lock_response(lock: DavLock, status: StatusCode) -> HttpResponse {
+fn lock_response(
+    lock: DavLock,
+    status: StatusCode,
+    prefix: &str,
+    include_lock_token_header: bool,
+) -> HttpResponse {
     let mut prop = dav_element("prop");
     prop.attributes
         .insert("xmlns:D".to_string(), "DAV:".to_string());
     prop.children.push(XMLNode::Element(lockdiscovery_element(
         std::slice::from_ref(&lock),
+        prefix,
     )));
 
     let body = match xml_bytes(&prop) {
@@ -281,8 +359,13 @@ fn lock_response(lock: DavLock, status: StatusCode) -> HttpResponse {
         Err(resp) => return resp,
     };
 
-    HttpResponse::build(status)
-        .insert_header(("Lock-Token", format!("<{}>", lock.token)))
-        .content_type(XML_CONTENT_TYPE)
-        .body(body)
+    let mut response = HttpResponse::build(status);
+    if include_lock_token_header {
+        response.insert_header(("Lock-Token", format!("<{}>", lock.token)));
+    }
+    response.content_type(XML_CONTENT_TYPE).body(body)
+}
+
+fn is_dav_element(element: &Element, local_name: &str) -> bool {
+    element.name == local_name && element.namespace.as_deref() == Some("DAV:")
 }

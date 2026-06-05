@@ -478,7 +478,8 @@ async fn handle_get_returns_response_before_consuming_the_storage_stream() {
     let req = actix_web::test::TestRequest::get()
         .uri("/webdav/streamed.txt")
         .to_http_request();
-    let response = handle_get_head(&req, &dav_fs, "/webdav", false).await;
+    let lock_system = NoopLockSystem;
+    let response = handle_get_head(&req, &dav_fs, &lock_system, "/webdav", false).await;
 
     assert_eq!(response.status(), StatusCode::OK);
     assert_eq!(
@@ -687,7 +688,8 @@ async fn handle_head_does_not_open_the_storage_stream() {
         .method(actix_web::http::Method::HEAD)
         .uri("/webdav/head.txt")
         .to_http_request();
-    let response = handle_get_head(&req, &dav_fs, "/webdav", true).await;
+    let lock_system = NoopLockSystem;
+    let response = handle_get_head(&req, &dav_fs, &lock_system, "/webdav", true).await;
 
     assert_eq!(response.status(), StatusCode::OK);
     assert_eq!(

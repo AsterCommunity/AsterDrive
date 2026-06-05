@@ -8,15 +8,17 @@ use tokio_util::io::ReaderStream;
 use crate::services::file_service;
 use crate::webdav::dav::{DavFileSystem, DavLockSystem, FsError, OpenOptions};
 use crate::webdav::{
-    ensure_system_file_name_allowed, ensure_unlocked, fs, fs_error_response, href_for_relative,
-    request_path, system_file,
+    ensure_parent_unlocked, ensure_system_file_name_allowed, ensure_unlocked, fs,
+    fs_error_response, href_for_relative, protocol, request_path, system_file,
 };
+use protocol::HttpEtagPrecondition;
 
 const CHUNK_SIZE: usize = 16 * 1024;
 
 pub(crate) async fn handle_get_head(
     req: &HttpRequest,
     dav_fs: &fs::AsterDavFs,
+    lock_system: &dyn DavLockSystem,
     prefix: &str,
     head_only: bool,
 ) -> HttpResponse {
@@ -24,6 +26,22 @@ pub(crate) async fn handle_get_head(
         Ok(v) => v,
         Err(resp) => return resp,
     };
+    let connection = req.connection_info();
+    let request_scheme = connection.scheme().to_string();
+    let request_host = connection.host().to_string();
+    if let Err(resp) = protocol::ensure_if_header(
+        req.headers(),
+        dav_fs,
+        lock_system,
+        &path,
+        prefix,
+        &request_scheme,
+        &request_host,
+    )
+    .await
+    {
+        return resp;
+    }
 
     let meta = match dav_fs.metadata(&path).await {
         Ok(meta) => meta,
@@ -32,17 +50,37 @@ pub(crate) async fn handle_get_head(
     if meta.is_dir() {
         return HttpResponse::MethodNotAllowed().finish();
     }
+    match protocol::evaluate_http_etag_preconditions(
+        req.headers(),
+        true,
+        meta.etag().as_deref(),
+        true,
+    ) {
+        Ok(HttpEtagPrecondition::Proceed) => {}
+        Ok(HttpEtagPrecondition::NotModified) => {
+            let mut response = HttpResponse::NotModified();
+            if let Some(etag) = meta.etag() {
+                response.insert_header((header::ETAG, format!("\"{etag}\"")));
+            }
+            return response.finish();
+        }
+        Err(resp) => return resp,
+    }
 
     let content_type = mime_guess::from_path(relative.trim_end_matches('/'))
         .first_or_octet_stream()
         .essence_str()
         .to_string();
-    let range = match file_service::parse_range_header(
-        req.headers().get(header::RANGE),
-        i64::try_from(meta.len()).unwrap_or(i64::MAX),
-    ) {
-        Ok(range) => range,
-        Err(_) => return HttpResponse::RangeNotSatisfiable().finish(),
+    let range = if head_only {
+        None
+    } else {
+        match file_service::parse_range_header(
+            req.headers().get(header::RANGE),
+            i64::try_from(meta.len()).unwrap_or(i64::MAX),
+        ) {
+            Ok(range) => range,
+            Err(_) => return range_not_satisfiable_response(meta.len()),
+        }
     };
     let (status, content_length, content_range) = match range {
         Some(range) => (
@@ -84,6 +122,13 @@ pub(crate) async fn handle_get_head(
     response.streaming(ReaderStream::with_capacity(stream, CHUNK_SIZE))
 }
 
+fn range_not_satisfiable_response(length: u64) -> HttpResponse {
+    HttpResponse::RangeNotSatisfiable()
+        .insert_header((header::CONTENT_RANGE, format!("bytes */{length}")))
+        .insert_header(("Accept-Ranges", "bytes"))
+        .finish()
+}
+
 pub(crate) async fn handle_put(
     req: &HttpRequest,
     dav_fs: &fs::AsterDavFs,
@@ -100,12 +145,69 @@ pub(crate) async fn handle_put(
         return resp;
     }
     let existed = match dav_fs.metadata(&path).await {
-        Ok(_) => true,
-        Err(FsError::NotFound) => false,
+        Ok(meta) if meta.is_dir() => return HttpResponse::MethodNotAllowed().finish(),
+        Ok(meta) => {
+            if let Err(resp) = protocol::evaluate_http_etag_preconditions(
+                req.headers(),
+                true,
+                meta.etag().as_deref(),
+                false,
+            ) {
+                return resp;
+            }
+            true
+        }
+        Err(FsError::NotFound) => {
+            if let Err(resp) =
+                protocol::evaluate_http_etag_preconditions(req.headers(), false, None, false)
+            {
+                return resp;
+            }
+            false
+        }
         Err(err) => return fs_error_response(err),
     };
 
-    if let Err(resp) = ensure_unlocked(lock_system, &path, false, prefix, req.headers()).await {
+    let connection = req.connection_info();
+    let request_scheme = connection.scheme().to_string();
+    let request_host = connection.host().to_string();
+    if let Err(resp) = protocol::ensure_if_header(
+        req.headers(),
+        dav_fs,
+        lock_system,
+        &path,
+        prefix,
+        &request_scheme,
+        &request_host,
+    )
+    .await
+    {
+        return resp;
+    }
+    if let Err(resp) = ensure_unlocked(
+        lock_system,
+        &path,
+        false,
+        prefix,
+        req.headers(),
+        &request_scheme,
+        &request_host,
+    )
+    .await
+    {
+        return resp;
+    }
+    if !existed
+        && let Err(resp) = ensure_parent_unlocked(
+            lock_system,
+            &relative,
+            prefix,
+            req.headers(),
+            &request_scheme,
+            &request_host,
+        )
+        .await
+    {
         return resp;
     }
 

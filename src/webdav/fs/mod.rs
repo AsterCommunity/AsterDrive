@@ -1,6 +1,6 @@
 //! WebDAV 子模块：`fs`。
 
-use std::pin::Pin;
+use std::{collections::HashMap, pin::Pin};
 
 use futures::stream;
 use tokio::io::AsyncRead;
@@ -9,7 +9,7 @@ use crate::db::repository::{file_repo, folder_repo, property_repo, team_repo, us
 use crate::runtime::PrimaryAppState;
 use crate::services::{
     audit_service::{self, AuditContext},
-    file_service, folder_service, property_service, webdav_service,
+    file_service, folder_service, property_service, storage_change_service, webdav_service,
     workspace_storage_service::WorkspaceStorageScope,
 };
 use crate::types::{EntityType, NullablePatch};
@@ -167,6 +167,15 @@ impl AsterDavFs {
         .await?;
 
         let state = self.app_state();
+        delete_existing_destination_for_overwrite(
+            &state,
+            self.scope(),
+            dest_parent_id,
+            &dest_name,
+            &self.audit_ctx,
+        )
+        .await?;
+
         let created = folder_service::create_in_scope_with_audit(
             &state,
             self.scope(),
@@ -176,6 +185,14 @@ impl AsterDavFs {
         )
         .await
         .map_err(to_fs_error)?;
+        copy_visible_entity_properties(
+            &state,
+            EntityType::Folder,
+            src_folder.id,
+            EntityType::Folder,
+            created.id,
+        )
+        .await?;
         audit_service::log(
             &state,
             &self.audit_ctx,
@@ -435,28 +452,17 @@ impl DavFileSystem for AsterDavFs {
             .await?;
 
             let state = self.app_state();
+            delete_existing_destination_for_overwrite(
+                &state,
+                self.scope(),
+                dest_parent_id,
+                &dest_name,
+                &self.audit_ctx,
+            )
+            .await?;
 
             match node {
                 ResolvedNode::File(f) => {
-                    // 如果目标已有同名文件，先删除（WebDAV MOVE 覆盖语义）
-                    if let Some(existing) = find_file_by_name_in_scope(
-                        &self.state,
-                        self.scope,
-                        dest_parent_id,
-                        &dest_name,
-                    )
-                    .await?
-                    {
-                        file_service::delete_in_scope_with_audit(
-                            &state,
-                            self.scope(),
-                            existing.id,
-                            &self.audit_ctx,
-                        )
-                        .await
-                        .map_err(to_fs_error)?;
-                    }
-
                     file_service::update_in_scope_with_audit(
                         &state,
                         self.scope(),
@@ -506,32 +512,45 @@ impl DavFileSystem for AsterDavFs {
             .await?;
 
             let state = self.app_state();
+            delete_existing_destination_for_overwrite(
+                &state,
+                self.scope(),
+                dest_parent_id,
+                &dest_name,
+                &self.audit_ctx,
+            )
+            .await?;
 
             match node {
                 ResolvedNode::File(f) => {
-                    // WebDAV COPY 覆盖语义：目标已存在先删除
-                    if let Some(existing) = find_file_by_name_in_scope(
-                        &self.state,
-                        self.scope,
+                    let copied = file_service::duplicate_file_record_in_scope(
+                        &state,
+                        self.scope(),
+                        &f,
                         dest_parent_id,
                         &dest_name,
                     )
-                    .await?
-                    {
-                        file_service::delete_in_scope_with_audit(
-                            &state,
+                    .await
+                    .map_err(to_fs_error)?;
+                    copy_visible_entity_properties(
+                        &state,
+                        EntityType::File,
+                        f.id,
+                        EntityType::File,
+                        copied.id,
+                    )
+                    .await?;
+                    storage_change_service::publish(
+                        &state,
+                        storage_change_service::StorageChangeEvent::new(
+                            storage_change_service::StorageChangeKind::FileCreated,
                             self.scope(),
-                            existing.id,
-                            &self.audit_ctx,
+                            vec![copied.id],
+                            vec![],
+                            vec![copied.folder_id],
                         )
-                        .await
-                        .map_err(to_fs_error)?;
-                    }
-
-                    let copied =
-                        file_service::duplicate_file_record(&state, &f, dest_parent_id, &dest_name)
-                            .await
-                            .map_err(to_fs_error)?;
+                        .with_storage_delta(copied.size),
+                    );
                     audit_service::log(
                         &state,
                         &self.audit_ctx,
@@ -553,6 +572,8 @@ impl DavFileSystem for AsterDavFs {
                     )
                     .await
                     .map_err(to_fs_error)?;
+                    copy_visible_properties_for_copied_tree(&state, self.scope(), f.id, copied.id)
+                        .await?;
                     audit_service::log(
                         &state,
                         &self.audit_ctx,
@@ -668,21 +689,40 @@ impl DavFileSystem for AsterDavFs {
                     .await
                     .ok_or(FsError::NotFound)?;
 
-            let mut results = Vec::new();
-
-            for (set, prop) in patches {
+            let mut protected_failure = false;
+            for (_, prop) in &patches {
                 let ns = prop.namespace.as_deref().unwrap_or("");
-
-                // DAV: 与 system.* 命名空间只读，后者用于内部缓存/派生属性。
                 if property_service::is_protected_namespace(ns) {
-                    results.push((http::StatusCode::FORBIDDEN, prop));
-                    continue;
+                    protected_failure = true;
+                    break;
                 }
+            }
 
-                let status = if set {
+            if protected_failure {
+                return Ok(patches
+                    .into_iter()
+                    .map(|(_, prop)| {
+                        let ns = prop.namespace.as_deref().unwrap_or("");
+                        let status = if property_service::is_protected_namespace(ns) {
+                            http::StatusCode::FORBIDDEN
+                        } else {
+                            http::StatusCode::FAILED_DEPENDENCY
+                        };
+                        (status, prop)
+                    })
+                    .collect());
+            }
+
+            let txn = crate::db::transaction::begin(self.state.writer_db())
+                .await
+                .map_err(|_| FsError::GeneralFailure)?;
+
+            for (set, prop) in &patches {
+                let ns = prop.namespace.as_deref().unwrap_or("");
+                if *set {
                     let value = prop.xml.as_ref().map(|x| String::from_utf8_lossy(x));
-                    match property_repo::upsert(
-                        self.state.writer_db(),
+                    property_repo::upsert(
+                        &txn,
                         entity_type,
                         entity_id,
                         ns,
@@ -690,53 +730,47 @@ impl DavFileSystem for AsterDavFs {
                         value.as_deref(),
                     )
                     .await
-                    {
-                        Ok(_) => http::StatusCode::OK,
-                        Err(_) => http::StatusCode::INTERNAL_SERVER_ERROR,
-                    }
+                    .map_err(|_| FsError::GeneralFailure)?;
                 } else {
-                    match property_repo::delete_prop(
-                        self.state.writer_db(),
-                        entity_type,
-                        entity_id,
-                        ns,
-                        &prop.name,
-                    )
-                    .await
-                    {
-                        Ok(_) => http::StatusCode::OK,
-                        Err(_) => http::StatusCode::INTERNAL_SERVER_ERROR,
-                    }
-                };
-
-                if status.is_success() {
-                    let entity_type_label = entity_type.as_str();
-                    audit_service::log_with_details(
-                        &self.state,
-                        &self.audit_ctx,
-                        if set {
-                            audit_service::AuditAction::PropertySet
-                        } else {
-                            audit_service::AuditAction::PropertyDelete
-                        },
-                        audit_service::AuditEntityType::from_entity_type(entity_type),
-                        Some(entity_id),
-                        None,
-                        || {
-                            audit_service::details(audit_service::PropertyAuditDetails {
-                                entity_type: entity_type_label,
-                                namespace: ns,
-                                name: &prop.name,
-                            })
-                        },
-                    )
-                    .await;
+                    property_repo::delete_prop(&txn, entity_type, entity_id, ns, &prop.name)
+                        .await
+                        .map_err(|_| FsError::GeneralFailure)?;
                 }
-
-                results.push((status, prop));
             }
 
-            Ok(results)
+            crate::db::transaction::commit(txn)
+                .await
+                .map_err(|_| FsError::GeneralFailure)?;
+
+            for (set, prop) in &patches {
+                let ns = prop.namespace.as_deref().unwrap_or("");
+                let entity_type_label = entity_type.as_str();
+                audit_service::log_with_details(
+                    &self.state,
+                    &self.audit_ctx,
+                    if *set {
+                        audit_service::AuditAction::PropertySet
+                    } else {
+                        audit_service::AuditAction::PropertyDelete
+                    },
+                    audit_service::AuditEntityType::from_entity_type(entity_type),
+                    Some(entity_id),
+                    None,
+                    || {
+                        audit_service::details(audit_service::PropertyAuditDetails {
+                            entity_type: entity_type_label,
+                            namespace: ns,
+                            name: &prop.name,
+                        })
+                    },
+                )
+                .await;
+            }
+
+            Ok(patches
+                .into_iter()
+                .map(|(_, prop)| (http::StatusCode::OK, prop))
+                .collect())
         })
     }
 }
@@ -755,6 +789,162 @@ async fn resolve_entity(
     }
 }
 
+async fn copy_visible_entity_properties(
+    state: &PrimaryAppState,
+    src_entity_type: EntityType,
+    src_entity_id: i64,
+    dest_entity_type: EntityType,
+    dest_entity_id: i64,
+) -> Result<(), FsError> {
+    let props = property_repo::find_by_entity(state.writer_db(), src_entity_type, src_entity_id)
+        .await
+        .map_err(|_| FsError::GeneralFailure)?;
+
+    for prop in props {
+        if property_service::is_protected_namespace(&prop.namespace) {
+            continue;
+        }
+        property_repo::upsert(
+            state.writer_db(),
+            dest_entity_type,
+            dest_entity_id,
+            &prop.namespace,
+            &prop.name,
+            prop.value.as_deref(),
+        )
+        .await
+        .map_err(|_| FsError::GeneralFailure)?;
+    }
+
+    Ok(())
+}
+
+async fn load_child_folders_in_scope(
+    state: &PrimaryAppState,
+    scope: WorkspaceStorageScope,
+    parent_ids: &[i64],
+) -> Result<Vec<crate::entities::folder::Model>, FsError> {
+    match scope {
+        WorkspaceStorageScope::Personal { user_id } => {
+            folder_repo::find_children_in_parents(state.writer_db(), user_id, parent_ids).await
+        }
+        WorkspaceStorageScope::Team { team_id, .. } => {
+            folder_repo::find_team_children_in_parents(state.writer_db(), team_id, parent_ids).await
+        }
+    }
+    .map_err(|_| FsError::GeneralFailure)
+}
+
+async fn load_files_in_folders_in_scope(
+    state: &PrimaryAppState,
+    scope: WorkspaceStorageScope,
+    folder_ids: &[i64],
+) -> Result<Vec<crate::entities::file::Model>, FsError> {
+    match scope {
+        WorkspaceStorageScope::Personal { user_id } => {
+            file_repo::find_by_folders(state.writer_db(), user_id, folder_ids).await
+        }
+        WorkspaceStorageScope::Team { team_id, .. } => {
+            file_repo::find_by_team_folders(state.writer_db(), team_id, folder_ids).await
+        }
+    }
+    .map_err(|_| FsError::GeneralFailure)
+}
+
+async fn copy_visible_properties_for_copied_tree(
+    state: &PrimaryAppState,
+    scope: WorkspaceStorageScope,
+    src_root_id: i64,
+    dest_root_id: i64,
+) -> Result<(), FsError> {
+    let mut frontier = vec![(src_root_id, dest_root_id)];
+
+    while !frontier.is_empty() {
+        for (src_folder_id, dest_folder_id) in &frontier {
+            copy_visible_entity_properties(
+                state,
+                EntityType::Folder,
+                *src_folder_id,
+                EntityType::Folder,
+                *dest_folder_id,
+            )
+            .await?;
+        }
+
+        let src_folder_ids: Vec<i64> = frontier.iter().map(|(src, _)| *src).collect();
+        let dest_folder_ids: Vec<i64> = frontier.iter().map(|(_, dest)| *dest).collect();
+        let dest_parent_by_src: HashMap<i64, i64> = frontier.iter().copied().collect();
+
+        let (src_files, dest_files, src_children, dest_children) = tokio::try_join!(
+            load_files_in_folders_in_scope(state, scope, &src_folder_ids),
+            load_files_in_folders_in_scope(state, scope, &dest_folder_ids),
+            load_child_folders_in_scope(state, scope, &src_folder_ids),
+            load_child_folders_in_scope(state, scope, &dest_folder_ids),
+        )?;
+
+        let dest_file_by_parent_and_name: HashMap<(i64, String), i64> = dest_files
+            .into_iter()
+            .filter_map(|file| {
+                file.folder_id
+                    .map(|folder_id| ((folder_id, file.name), file.id))
+            })
+            .collect();
+
+        for src_file in src_files {
+            let Some(src_parent_id) = src_file.folder_id else {
+                return Err(FsError::GeneralFailure);
+            };
+            let Some(dest_parent_id) = dest_parent_by_src.get(&src_parent_id).copied() else {
+                return Err(FsError::GeneralFailure);
+            };
+            let Some(dest_file_id) = dest_file_by_parent_and_name
+                .get(&(dest_parent_id, src_file.name.clone()))
+                .copied()
+            else {
+                return Err(FsError::GeneralFailure);
+            };
+            copy_visible_entity_properties(
+                state,
+                EntityType::File,
+                src_file.id,
+                EntityType::File,
+                dest_file_id,
+            )
+            .await?;
+        }
+
+        let dest_child_by_parent_and_name: HashMap<(i64, String), i64> = dest_children
+            .into_iter()
+            .filter_map(|folder| {
+                folder
+                    .parent_id
+                    .map(|parent_id| ((parent_id, folder.name), folder.id))
+            })
+            .collect();
+
+        let mut next_frontier = Vec::with_capacity(src_children.len());
+        for src_child in src_children {
+            let Some(src_parent_id) = src_child.parent_id else {
+                return Err(FsError::GeneralFailure);
+            };
+            let Some(dest_parent_id) = dest_parent_by_src.get(&src_parent_id).copied() else {
+                return Err(FsError::GeneralFailure);
+            };
+            let Some(dest_child_id) = dest_child_by_parent_and_name
+                .get(&(dest_parent_id, src_child.name.clone()))
+                .copied()
+            else {
+                return Err(FsError::GeneralFailure);
+            };
+            next_frontier.push((src_child.id, dest_child_id));
+        }
+
+        frontier = next_frontier;
+    }
+
+    Ok(())
+}
+
 async fn find_file_by_name_in_scope(
     state: &PrimaryAppState,
     scope: WorkspaceStorageScope,
@@ -771,6 +961,56 @@ async fn find_file_by_name_in_scope(
         }
     }
     .map_err(|_| FsError::GeneralFailure)
+}
+
+async fn find_folder_by_name_in_scope(
+    state: &PrimaryAppState,
+    scope: WorkspaceStorageScope,
+    parent_id: Option<i64>,
+    name: &str,
+) -> Result<Option<crate::entities::folder::Model>, FsError> {
+    match scope {
+        WorkspaceStorageScope::Personal { user_id } => {
+            folder_repo::find_by_name_in_parent(state.writer_db(), user_id, parent_id, name).await
+        }
+        WorkspaceStorageScope::Team { team_id, .. } => {
+            folder_repo::find_by_name_in_team_parent(state.writer_db(), team_id, parent_id, name)
+                .await
+        }
+    }
+    .map_err(|_| FsError::GeneralFailure)
+}
+
+async fn delete_existing_destination_for_overwrite(
+    state: &PrimaryAppState,
+    scope: WorkspaceStorageScope,
+    parent_id: Option<i64>,
+    name: &str,
+    audit_ctx: &AuditContext,
+) -> Result<(), FsError> {
+    if let Some(existing) = find_file_by_name_in_scope(state, scope, parent_id, name).await? {
+        file_service::delete_in_scope_with_audit(state, scope, existing.id, audit_ctx)
+            .await
+            .map_err(to_fs_error)?;
+    }
+
+    if let Some(existing) = find_folder_by_name_in_scope(state, scope, parent_id, name).await? {
+        webdav_service::recursive_soft_delete_in_scope(state, scope, existing.id)
+            .await
+            .map_err(to_fs_error)?;
+        audit_service::log(
+            state,
+            audit_ctx,
+            audit_service::AuditAction::FolderDelete,
+            crate::services::audit_service::AuditEntityType::Folder,
+            Some(existing.id),
+            Some(&existing.name),
+            Some(serde_json::json!({ "source": "webdav", "overwrite": true })),
+        )
+        .await;
+    }
+
+    Ok(())
 }
 
 /// AsterError → FsError 映射

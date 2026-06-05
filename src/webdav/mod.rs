@@ -89,7 +89,10 @@ pub async fn webdav_handler(
     );
 
     match req.method().as_str() {
-        "OPTIONS" => handle_options(),
+        "OPTIONS" => match resources::ensure_empty_body(&mut payload).await {
+            Ok(()) => handle_options(),
+            Err(resp) => resp,
+        },
         "REPORT" => match collect_xml_payload(&mut payload, webdav.xml_payload_limit).await {
             Ok(body) => {
                 deltav::handle_report(
@@ -126,8 +129,14 @@ pub async fn webdav_handler(
             }
             Err(resp) => resp,
         },
-        "GET" => transfer::handle_get_head(&req, &dav_fs, &webdav.prefix, false).await,
-        "HEAD" => transfer::handle_get_head(&req, &dav_fs, &webdav.prefix, true).await,
+        "GET" => {
+            transfer::handle_get_head(&req, &dav_fs, lock_system.as_ref(), &webdav.prefix, false)
+                .await
+        }
+        "HEAD" => {
+            transfer::handle_get_head(&req, &dav_fs, lock_system.as_ref(), &webdav.prefix, true)
+                .await
+        }
         "PUT" => {
             let system_file_policy =
                 system_file::SystemFileBlockPolicy::from_runtime_config(&state.runtime_config);
@@ -154,42 +163,54 @@ pub async fn webdav_handler(
             )
             .await
         }
-        "DELETE" => {
-            resources::handle_delete(&req, &dav_fs, lock_system.as_ref(), &webdav.prefix).await
-        }
-        "COPY" => {
-            let system_file_policy =
-                system_file::SystemFileBlockPolicy::from_runtime_config(&state.runtime_config);
-            resources::handle_copy_move(
-                &req,
-                &dav_fs,
-                lock_system.as_ref(),
-                &webdav.prefix,
-                &system_file_policy,
-                false,
-            )
-            .await
-        }
-        "MOVE" => {
-            let system_file_policy =
-                system_file::SystemFileBlockPolicy::from_runtime_config(&state.runtime_config);
-            resources::handle_copy_move(
-                &req,
-                &dav_fs,
-                lock_system.as_ref(),
-                &webdav.prefix,
-                &system_file_policy,
-                true,
-            )
-            .await
-        }
+        "DELETE" => match resources::ensure_empty_body(&mut payload).await {
+            Ok(()) => {
+                resources::handle_delete(&req, &dav_fs, lock_system.as_ref(), &webdav.prefix).await
+            }
+            Err(resp) => resp,
+        },
+        "COPY" => match resources::ensure_empty_body(&mut payload).await {
+            Ok(()) => {
+                let system_file_policy =
+                    system_file::SystemFileBlockPolicy::from_runtime_config(&state.runtime_config);
+                resources::handle_copy_move(
+                    &req,
+                    &dav_fs,
+                    lock_system.as_ref(),
+                    &webdav.prefix,
+                    &system_file_policy,
+                    false,
+                )
+                .await
+            }
+            Err(resp) => resp,
+        },
+        "MOVE" => match resources::ensure_empty_body(&mut payload).await {
+            Ok(()) => {
+                let system_file_policy =
+                    system_file::SystemFileBlockPolicy::from_runtime_config(&state.runtime_config);
+                resources::handle_copy_move(
+                    &req,
+                    &dav_fs,
+                    lock_system.as_ref(),
+                    &webdav.prefix,
+                    &system_file_policy,
+                    true,
+                )
+                .await
+            }
+            Err(resp) => resp,
+        },
         "LOCK" => match collect_xml_payload(&mut payload, webdav.xml_payload_limit).await {
             Ok(body) => {
                 locks::handle_lock(&req, &dav_fs, lock_system.as_ref(), &webdav.prefix, &body).await
             }
             Err(resp) => resp,
         },
-        "UNLOCK" => locks::handle_unlock(&req, lock_system.as_ref(), &webdav.prefix).await,
+        "UNLOCK" => match resources::ensure_empty_body(&mut payload).await {
+            Ok(()) => locks::handle_unlock(&req, lock_system.as_ref(), &webdav.prefix).await,
+            Err(resp) => resp,
+        },
         _ => HttpResponse::MethodNotAllowed()
             .insert_header((header::ALLOW, allow_header_value()))
             .finish(),
@@ -221,7 +242,7 @@ async fn collect_xml_payload(
 fn handle_options() -> HttpResponse {
     HttpResponse::Ok()
         .insert_header((header::ALLOW, allow_header_value()))
-        .insert_header(("DAV", "1, version-control"))
+        .insert_header(("DAV", "1, 2, version-control"))
         .insert_header(("MS-Author-Via", "DAV"))
         .finish()
 }
@@ -244,13 +265,45 @@ pub(crate) async fn ensure_unlocked(
     deep: bool,
     prefix: &str,
     headers: &header::HeaderMap,
+    request_scheme: &str,
+    request_host: &str,
 ) -> Result<(), HttpResponse> {
     let request_href = href_for_dav_path(prefix, path);
-    let tokens = protocol::submitted_lock_tokens_for_path(headers, &request_href);
+    let tokens = protocol::submitted_lock_tokens_for_path(
+        headers,
+        &request_href,
+        request_scheme,
+        request_host,
+    );
     match lock_system.check(path, None, false, deep, &tokens).await {
         Ok(()) => Ok(()),
         Err(_) => Err(HttpResponse::Locked().finish()),
     }
+}
+
+pub(crate) async fn ensure_parent_unlocked(
+    lock_system: &dyn DavLockSystem,
+    relative: &str,
+    prefix: &str,
+    headers: &header::HeaderMap,
+    request_scheme: &str,
+    request_host: &str,
+) -> Result<(), HttpResponse> {
+    let Some(parent) = parent_relative_path(relative) else {
+        return Ok(());
+    };
+    let parent_path = DavPath::new(&parent)
+        .map_err(|_| HttpResponse::BadRequest().body("Invalid request path"))?;
+    ensure_unlocked(
+        lock_system,
+        &parent_path,
+        false,
+        prefix,
+        headers,
+        request_scheme,
+        request_host,
+    )
+    .await
 }
 
 pub(crate) fn request_path(
@@ -365,6 +418,21 @@ pub(crate) fn display_name(relative: &str) -> &str {
             .next()
             .unwrap_or("")
     }
+}
+
+pub(crate) fn parent_relative_path(relative: &str) -> Option<String> {
+    if relative == "/" {
+        return None;
+    }
+    let trimmed = relative.trim_end_matches('/');
+    let segments: Vec<_> = trimmed
+        .split('/')
+        .filter(|segment| !segment.is_empty())
+        .collect();
+    if segments.len() <= 1 {
+        return Some("/".to_string());
+    }
+    Some(format!("/{}/", segments[..segments.len() - 1].join("/")))
 }
 
 pub(crate) fn fs_error_response(err: FsError) -> HttpResponse {

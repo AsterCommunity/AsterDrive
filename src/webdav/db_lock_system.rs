@@ -210,14 +210,18 @@ impl DavLockSystem for DbLockSystem {
         })
     }
 
-    fn unlock(&self, _path: &DavPath, token: &str) -> LsFuture<'_, Result<(), ()>> {
+    fn unlock(&self, path: &DavPath, token: &str) -> LsFuture<'_, Result<(), ()>> {
         let token_owned = token.to_string();
+        let path_str = normalize_path(path);
         Box::pin(async move {
             // 查锁拿 entity 信息
             let lock = lock_repo::find_by_token(&self.db, &token_owned)
                 .await
                 .map_err(|_| ())?
                 .ok_or(())?;
+            if !unlock_request_targets_lock_scope(&lock.path, lock.deep, &path_str) {
+                return Err(());
+            }
 
             lock_repo::delete_by_token(&self.db, &token_owned)
                 .await
@@ -246,6 +250,7 @@ impl DavLockSystem for DbLockSystem {
     ) -> LsFuture<'_, Result<DavLock, ()>> {
         let token_owned = token.to_string();
         let path_clone = path.clone();
+        let path_str = normalize_path(path);
         let timeout_dur = timeout;
 
         Box::pin(async move {
@@ -257,6 +262,9 @@ impl DavLockSystem for DbLockSystem {
                 .await
                 .map_err(|_| ())?
                 .ok_or(())?;
+            if !unlock_request_targets_lock_scope(&lock.path, lock.deep, &path_str) {
+                return Err(());
+            }
             self.log_lock_action(lock.entity_type, lock.entity_id, true)
                 .await;
             let owner = lock_owner_xml(&lock)
@@ -505,6 +513,10 @@ fn lock_paths_overlap(
 
 fn lock_path_is_under(parent: &str, child: &str) -> bool {
     parent == child || path_is_ancestor(parent, child)
+}
+
+fn unlock_request_targets_lock_scope(lock_path: &str, lock_deep: bool, request_path: &str) -> bool {
+    lock_path == request_path || lock_deep && path_is_ancestor(lock_path, request_path)
 }
 
 fn path_is_ancestor(parent: &str, child: &str) -> bool {
