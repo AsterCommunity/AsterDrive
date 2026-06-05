@@ -45,7 +45,7 @@ pub fn is_any_duplicate_name_error(err: &AsterError) -> bool {
 }
 
 #[derive(Clone, Copy)]
-pub(super) enum FileScope {
+pub(crate) enum FileScope {
     Personal { user_id: i64 },
     Team { team_id: i64 },
 }

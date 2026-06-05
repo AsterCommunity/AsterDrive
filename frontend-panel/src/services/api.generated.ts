@@ -4936,7 +4936,7 @@ export interface components {
             /** @description 排序字段值（序列化为字符串） */
             value: string;
         };
-        FileInfo: {
+        FileEntity: {
             /** Format: int64 */
             blob_id: number;
             /**
@@ -4964,6 +4964,34 @@ export interface components {
             owner_user_id?: number | null;
             /** Format: int64 */
             size: number;
+            /** Format: int64 */
+            team_id?: number | null;
+            updated_at: string;
+        };
+        FileInfo: {
+            /** Format: int64 */
+            blob_id: number;
+            compound_extension?: string | null;
+            created_at: string;
+            /** Format: int64 */
+            created_by_user_id?: number | null;
+            created_by_username: string;
+            deleted_at?: string | null;
+            extension: string;
+            file_category: components["schemas"]["FileCategory"];
+            /** Format: int64 */
+            folder_id?: number | null;
+            /** Format: int64 */
+            id: number;
+            is_locked: boolean;
+            mime_type: string;
+            name: string;
+            /** Format: int64 */
+            owner_user_id?: number | null;
+            /** Format: int64 */
+            size: number;
+            /** Format: int64 */
+            storage_used?: number | null;
             /** Format: int64 */
             team_id?: number | null;
             updated_at: string;
@@ -5047,7 +5075,7 @@ export interface components {
             folders_total: number;
             next_file_cursor?: null | components["schemas"]["FileCursor"];
         };
-        FolderInfo: {
+        FolderEntity: {
             created_at: string;
             /** Format: int64 */
             created_by_user_id?: number | null;
@@ -5063,6 +5091,28 @@ export interface components {
             parent_id?: number | null;
             /** Format: int64 */
             policy_id?: number | null;
+            /** Format: int64 */
+            team_id?: number | null;
+            updated_at: string;
+        };
+        FolderInfo: {
+            created_at: string;
+            /** Format: int64 */
+            created_by_user_id?: number | null;
+            created_by_username: string;
+            deleted_at?: string | null;
+            /** Format: int64 */
+            id: number;
+            is_locked: boolean;
+            name: string;
+            /** Format: int64 */
+            owner_user_id?: number | null;
+            /** Format: int64 */
+            parent_id?: number | null;
+            /** Format: int64 */
+            policy_id?: number | null;
+            /** Format: int64 */
+            storage_used?: number | null;
             /** Format: int64 */
             team_id?: number | null;
             updated_at: string;
@@ -14320,6 +14370,8 @@ export interface operations {
                             /** Format: int64 */
                             size: number;
                             /** Format: int64 */
+                            storage_used?: number | null;
+                            /** Format: int64 */
                             team_id?: number | null;
                             updated_at: string;
                         };
@@ -14392,6 +14444,8 @@ export interface operations {
                             owner_user_id?: number | null;
                             /** Format: int64 */
                             size: number;
+                            /** Format: int64 */
+                            storage_used?: number | null;
                             /** Format: int64 */
                             team_id?: number | null;
                             updated_at: string;
@@ -14630,6 +14684,8 @@ export interface operations {
                             /** Format: int64 */
                             size: number;
                             /** Format: int64 */
+                            storage_used?: number | null;
+                            /** Format: int64 */
                             team_id?: number | null;
                             updated_at: string;
                         };
@@ -14798,6 +14854,8 @@ export interface operations {
                             /** Format: int64 */
                             size: number;
                             /** Format: int64 */
+                            storage_used?: number | null;
+                            /** Format: int64 */
                             team_id?: number | null;
                             updated_at: string;
                         };
@@ -14903,6 +14961,8 @@ export interface operations {
                             owner_user_id?: number | null;
                             /** Format: int64 */
                             size: number;
+                            /** Format: int64 */
+                            storage_used?: number | null;
                             /** Format: int64 */
                             team_id?: number | null;
                             updated_at: string;
@@ -15066,6 +15126,8 @@ export interface operations {
                             /** Format: int64 */
                             size: number;
                             /** Format: int64 */
+                            storage_used?: number | null;
+                            /** Format: int64 */
                             team_id?: number | null;
                             updated_at: string;
                         };
@@ -15150,6 +15212,8 @@ export interface operations {
                             owner_user_id?: number | null;
                             /** Format: int64 */
                             size: number;
+                            /** Format: int64 */
+                            storage_used?: number | null;
                             /** Format: int64 */
                             team_id?: number | null;
                             updated_at: string;
@@ -15457,6 +15521,8 @@ export interface operations {
                             owner_user_id?: number | null;
                             /** Format: int64 */
                             size: number;
+                            /** Format: int64 */
+                            storage_used?: number | null;
                             /** Format: int64 */
                             team_id?: number | null;
                             updated_at: string;
@@ -15788,6 +15854,8 @@ export interface operations {
                             /** Format: int64 */
                             size: number;
                             /** Format: int64 */
+                            storage_used?: number | null;
+                            /** Format: int64 */
                             team_id?: number | null;
                             updated_at: string;
                         };
@@ -15963,6 +16031,8 @@ export interface operations {
                             /** Format: int64 */
                             policy_id?: number | null;
                             /** Format: int64 */
+                            storage_used?: number | null;
+                            /** Format: int64 */
                             team_id?: number | null;
                             updated_at: string;
                         };
@@ -16121,6 +16191,8 @@ export interface operations {
                             /** Format: int64 */
                             policy_id?: number | null;
                             /** Format: int64 */
+                            storage_used?: number | null;
+                            /** Format: int64 */
                             team_id?: number | null;
                             updated_at: string;
                         };
@@ -16232,6 +16304,8 @@ export interface operations {
                             /** Format: int64 */
                             policy_id?: number | null;
                             /** Format: int64 */
+                            storage_used?: number | null;
+                            /** Format: int64 */
                             team_id?: number | null;
                             updated_at: string;
                         };
@@ -16292,6 +16366,8 @@ export interface operations {
                             parent_id?: number | null;
                             /** Format: int64 */
                             policy_id?: number | null;
+                            /** Format: int64 */
+                            storage_used?: number | null;
                             /** Format: int64 */
                             team_id?: number | null;
                             updated_at: string;
@@ -16357,6 +16433,8 @@ export interface operations {
                             parent_id?: number | null;
                             /** Format: int64 */
                             policy_id?: number | null;
+                            /** Format: int64 */
+                            storage_used?: number | null;
                             /** Format: int64 */
                             team_id?: number | null;
                             updated_at: string;
@@ -19553,6 +19631,8 @@ export interface operations {
                             /** Format: int64 */
                             size: number;
                             /** Format: int64 */
+                            storage_used?: number | null;
+                            /** Format: int64 */
                             team_id?: number | null;
                             updated_at: string;
                         };
@@ -19628,6 +19708,8 @@ export interface operations {
                             owner_user_id?: number | null;
                             /** Format: int64 */
                             size: number;
+                            /** Format: int64 */
+                            storage_used?: number | null;
                             /** Format: int64 */
                             team_id?: number | null;
                             updated_at: string;
@@ -19929,6 +20011,8 @@ export interface operations {
                             /** Format: int64 */
                             size: number;
                             /** Format: int64 */
+                            storage_used?: number | null;
+                            /** Format: int64 */
                             team_id?: number | null;
                             updated_at: string;
                         };
@@ -20124,6 +20208,8 @@ export interface operations {
                             /** Format: int64 */
                             size: number;
                             /** Format: int64 */
+                            storage_used?: number | null;
+                            /** Format: int64 */
                             team_id?: number | null;
                             updated_at: string;
                         };
@@ -20247,6 +20333,8 @@ export interface operations {
                             owner_user_id?: number | null;
                             /** Format: int64 */
                             size: number;
+                            /** Format: int64 */
+                            storage_used?: number | null;
                             /** Format: int64 */
                             team_id?: number | null;
                             updated_at: string;
@@ -20421,6 +20509,8 @@ export interface operations {
                             /** Format: int64 */
                             size: number;
                             /** Format: int64 */
+                            storage_used?: number | null;
+                            /** Format: int64 */
                             team_id?: number | null;
                             updated_at: string;
                         };
@@ -20514,6 +20604,8 @@ export interface operations {
                             owner_user_id?: number | null;
                             /** Format: int64 */
                             size: number;
+                            /** Format: int64 */
+                            storage_used?: number | null;
                             /** Format: int64 */
                             team_id?: number | null;
                             updated_at: string;
@@ -20866,6 +20958,8 @@ export interface operations {
                             owner_user_id?: number | null;
                             /** Format: int64 */
                             size: number;
+                            /** Format: int64 */
+                            storage_used?: number | null;
                             /** Format: int64 */
                             team_id?: number | null;
                             updated_at: string;
@@ -21251,6 +21345,8 @@ export interface operations {
                             /** Format: int64 */
                             size: number;
                             /** Format: int64 */
+                            storage_used?: number | null;
+                            /** Format: int64 */
                             team_id?: number | null;
                             updated_at: string;
                         };
@@ -21455,6 +21551,8 @@ export interface operations {
                             /** Format: int64 */
                             policy_id?: number | null;
                             /** Format: int64 */
+                            storage_used?: number | null;
+                            /** Format: int64 */
                             team_id?: number | null;
                             updated_at: string;
                         };
@@ -21640,6 +21738,8 @@ export interface operations {
                             /** Format: int64 */
                             policy_id?: number | null;
                             /** Format: int64 */
+                            storage_used?: number | null;
+                            /** Format: int64 */
                             team_id?: number | null;
                             updated_at: string;
                         };
@@ -21769,6 +21869,8 @@ export interface operations {
                             /** Format: int64 */
                             policy_id?: number | null;
                             /** Format: int64 */
+                            storage_used?: number | null;
+                            /** Format: int64 */
                             team_id?: number | null;
                             updated_at: string;
                         };
@@ -21838,6 +21940,8 @@ export interface operations {
                             parent_id?: number | null;
                             /** Format: int64 */
                             policy_id?: number | null;
+                            /** Format: int64 */
+                            storage_used?: number | null;
                             /** Format: int64 */
                             team_id?: number | null;
                             updated_at: string;
@@ -21912,6 +22016,8 @@ export interface operations {
                             parent_id?: number | null;
                             /** Format: int64 */
                             policy_id?: number | null;
+                            /** Format: int64 */
+                            storage_used?: number | null;
                             /** Format: int64 */
                             team_id?: number | null;
                             updated_at: string;

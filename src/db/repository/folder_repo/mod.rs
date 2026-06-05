@@ -6,6 +6,7 @@ mod path;
 mod query;
 mod trash;
 
+pub(crate) use common::FolderScope;
 pub use common::{
     duplicate_name_error, duplicate_name_message, is_any_duplicate_name_error,
     is_duplicate_name_error, is_name_conflict_db_err, map_bulk_name_db_err, map_name_db_err,
@@ -15,6 +16,7 @@ pub use mutation::{
 };
 pub(crate) use path::{find_ancestor_models, find_team_ancestor_models};
 pub use path::{find_ancestors, resolve_path_chain};
+pub(crate) use query::find_child_ids_in_parents;
 pub use query::{
     find_all_children, find_all_children_in_parents, find_all_files_in_folder, find_by_id,
     find_by_ids, find_by_ids_in_personal_scope, find_by_ids_in_team_scope, find_by_name_in_parent,

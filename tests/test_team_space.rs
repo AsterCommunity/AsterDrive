@@ -236,6 +236,7 @@ async fn test_team_space_upload_browse_download_and_personal_separation() {
     assert_eq!(body["data"]["name"], "Docs");
     assert!(body["data"]["created_at"].is_string());
     assert_eq!(body["data"]["team_id"], team_id);
+    assert_eq!(body["data"]["storage_used"], "hello team".len() as i64);
 
     let req = test::TestRequest::get()
         .uri("/api/v1/folders")
@@ -1325,7 +1326,26 @@ async fn test_team_versions_enforce_scope_and_membership() {
     assert_eq!(body["data"].as_array().unwrap().len(), 1);
     let version_id = body["data"][0]["id"].as_i64().unwrap();
 
+    let req = test::TestRequest::get()
+        .uri(&format!("/api/v1/teams/{team_id}/files/{file_id}"))
+        .insert_header(("Cookie", common::access_cookie_header(&owner_token)))
+        .insert_header(common::csrf_header_for(&owner_token))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(body["data"]["size"], "team-v2".len() as i64);
+    assert_eq!(
+        body["data"]["storage_used"],
+        ("team-v1".len() + "team-v2".len()) as i64
+    );
+
     for req in [
+        test::TestRequest::get()
+            .uri(&format!("/api/v1/files/{file_id}"))
+            .insert_header(("Cookie", common::access_cookie_header(&owner_token)))
+            .insert_header(common::csrf_header_for(&owner_token))
+            .to_request(),
         test::TestRequest::get()
             .uri(&format!("/api/v1/files/{file_id}/versions"))
             .insert_header(("Cookie", common::access_cookie_header(&owner_token)))
@@ -1349,6 +1369,11 @@ async fn test_team_versions_enforce_scope_and_membership() {
     }
 
     for req in [
+        test::TestRequest::get()
+            .uri(&format!("/api/v1/teams/{team_id}/files/{file_id}"))
+            .insert_header(("Cookie", common::access_cookie_header(&outsider_token)))
+            .insert_header(common::csrf_header_for(&outsider_token))
+            .to_request(),
         test::TestRequest::get()
             .uri(&format!("/api/v1/teams/{team_id}/files/{file_id}/versions"))
             .insert_header(("Cookie", common::access_cookie_header(&outsider_token)))

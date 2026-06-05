@@ -8,7 +8,7 @@ use utoipa::ToSchema;
 
 #[derive(Clone, Debug, PartialEq, DeriveEntityModel, Serialize, Deserialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
-#[cfg_attr(all(debug_assertions, feature = "openapi"), schema(as = FileInfo))]
+#[cfg_attr(all(debug_assertions, feature = "openapi"), schema(as = FileEntity))]
 #[sea_orm(table_name = "files")]
 pub struct Model {
     #[sea_orm(primary_key)]

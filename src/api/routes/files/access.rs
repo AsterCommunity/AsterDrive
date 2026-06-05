@@ -11,7 +11,6 @@ use crate::services::{
     auth_service::Claims,
     direct_link_service, file_service, media_metadata_service, media_processing_service,
     preview_link_service, wopi_service,
-    workspace_models::FileInfo,
     workspace_storage_service::WorkspaceStorageScope,
 };
 use actix_web::http::header;
@@ -322,7 +321,7 @@ pub async fn get_image_preview(
         ("id" = i64, Path, description = "File ID")
     ),
     responses(
-        (status = 200, description = "Team file info", body = inline(ApiResponse<FileInfo>)),
+        (status = 200, description = "Team file info", body = inline(ApiResponse<crate::services::workspace_models::FileInfo>)),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
         (status = 403, description = "Forbidden"),
         (status = 404, description = "File not found"),
@@ -612,8 +611,8 @@ pub(crate) async fn get_file_response(
     scope: WorkspaceStorageScope,
     file_id: i64,
 ) -> Result<HttpResponse> {
-    let file = file_service::get_info_in_scope(state, scope, file_id).await?;
-    Ok(HttpResponse::Ok().json(ApiResponse::ok(FileInfo::from(file))))
+    let file = file_service::get_info_with_storage_used_in_scope(state, scope, file_id).await?;
+    Ok(HttpResponse::Ok().json(ApiResponse::ok(file)))
 }
 
 pub(crate) async fn archive_preview_response(

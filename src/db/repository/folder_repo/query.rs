@@ -146,6 +146,29 @@ pub async fn find_team_children_in_parents<C: ConnectionTrait>(
     find_children_in_parents_in_scope(db, FolderScope::Team { team_id }, parent_ids).await
 }
 
+/// 详情占用统计专用的轻量子目录查询。
+///
+/// 只返回子目录 id；调用方按当前 BFS 层分批调用，避免为了统计占用空间加载完整
+/// folder 记录或累计整棵树的目录模型。
+pub(crate) async fn find_child_ids_in_parents<C: ConnectionTrait>(
+    db: &C,
+    scope: FolderScope,
+    parent_ids: &[i64],
+) -> Result<Vec<i64>> {
+    if parent_ids.is_empty() {
+        return Ok(vec![]);
+    }
+    Folder::find()
+        .select_only()
+        .column(folder::Column::Id)
+        .filter(active_scope_condition(scope))
+        .filter(folder::Column::ParentId.is_in(parent_ids.iter().copied()))
+        .into_tuple::<i64>()
+        .all(db)
+        .await
+        .map_err(AsterError::from)
+}
+
 /// 查询子文件夹（排除已删除，分页）
 async fn find_children_paginated_in_scope<C: ConnectionTrait>(
     db: &C,

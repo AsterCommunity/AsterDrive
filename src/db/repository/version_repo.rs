@@ -1,19 +1,73 @@
 //! 仓储模块：`version_repo`。
 
 use sea_orm::{
-    ActiveModelTrait, ColumnTrait, ConnectionTrait, EntityTrait, ExprTrait, PaginatorTrait,
-    QueryFilter, QueryOrder, QuerySelect, sea_query::Expr,
+    ActiveModelTrait, ColumnTrait, ConnectionTrait, DbBackend, EntityTrait, ExprTrait,
+    PaginatorTrait, QueryFilter, QueryOrder, QuerySelect, sea_query::Expr,
 };
 use std::collections::HashMap;
 
 use crate::entities::file_version::{self, Entity as FileVersion};
 use crate::errors::{AsterError, Result};
 
+fn sum_version_size_as_i64_expr(backend: DbBackend) -> sea_orm::sea_query::SimpleExpr {
+    let type_name = match backend {
+        DbBackend::Postgres => "bigint",
+        DbBackend::MySql => "signed",
+        DbBackend::Sqlite => "integer",
+        other => {
+            tracing::warn!(
+                backend = ?other,
+                "unknown database backend for file version size sum cast; using integer"
+            );
+            "integer"
+        }
+    };
+    Expr::col(file_version::Column::Size)
+        .sum()
+        .cast_as(type_name)
+}
+
 pub async fn create<C: ConnectionTrait>(
     db: &C,
     model: file_version::ActiveModel,
 ) -> Result<file_version::Model> {
     model.insert(db).await.map_err(AsterError::from)
+}
+
+pub async fn sum_sizes_by_file_id<C: ConnectionTrait>(db: &C, file_id: i64) -> Result<i64> {
+    Ok(FileVersion::find()
+        .select_only()
+        .column_as(
+            sum_version_size_as_i64_expr(db.get_database_backend()),
+            "sum",
+        )
+        .filter(file_version::Column::FileId.eq(file_id))
+        .into_tuple::<Option<i64>>()
+        .one(db)
+        .await
+        .map_err(AsterError::from)?
+        .flatten()
+        .unwrap_or(0))
+}
+
+pub async fn sum_sizes_by_file_ids<C: ConnectionTrait>(db: &C, file_ids: &[i64]) -> Result<i64> {
+    if file_ids.is_empty() {
+        return Ok(0);
+    }
+
+    Ok(FileVersion::find()
+        .select_only()
+        .column_as(
+            sum_version_size_as_i64_expr(db.get_database_backend()),
+            "sum",
+        )
+        .filter(file_version::Column::FileId.is_in(file_ids.iter().copied()))
+        .into_tuple::<Option<i64>>()
+        .one(db)
+        .await
+        .map_err(AsterError::from)?
+        .flatten()
+        .unwrap_or(0))
 }
 
 /// 按 file_id 查询所有版本（version DESC）

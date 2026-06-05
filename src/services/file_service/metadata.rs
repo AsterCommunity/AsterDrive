@@ -3,7 +3,7 @@
 use chrono::Utc;
 use sea_orm::{ActiveModelTrait, Set};
 
-use crate::db::repository::file_repo;
+use crate::db::repository::{file_repo, version_repo};
 use crate::entities::file;
 use crate::errors::{AsterError, Result};
 use crate::runtime::PrimaryAppState;
@@ -20,6 +20,22 @@ pub(crate) async fn get_info_in_scope(
     id: i64,
 ) -> Result<file::Model> {
     workspace_storage_service::verify_file_access_for_read(state, scope, id).await
+}
+
+pub(crate) async fn get_info_with_storage_used_in_scope(
+    state: &PrimaryAppState,
+    scope: WorkspaceStorageScope,
+    id: i64,
+) -> Result<FileInfo> {
+    let file = get_info_in_scope(state, scope, id).await?;
+    let version_bytes = version_repo::sum_sizes_by_file_id(state.reader_db(), file.id).await?;
+    let storage_used = file.size.checked_add(version_bytes).ok_or_else(|| {
+        AsterError::internal_error(format!(
+            "file storage_used overflow while reading file #{}",
+            file.id
+        ))
+    })?;
+    Ok(FileInfo::from_model_with_storage_used(file, storage_used))
 }
 
 pub(crate) async fn update_in_scope(
@@ -113,9 +129,8 @@ pub(crate) async fn update_in_scope(
 
 /// 获取文件信息
 pub async fn get_info(state: &PrimaryAppState, id: i64, user_id: i64) -> Result<FileInfo> {
-    get_info_in_scope(state, WorkspaceStorageScope::Personal { user_id }, id)
+    get_info_with_storage_used_in_scope(state, WorkspaceStorageScope::Personal { user_id }, id)
         .await
-        .map(Into::into)
 }
 
 /// 更新文件（重命名/移动）

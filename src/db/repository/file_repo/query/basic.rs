@@ -10,6 +10,8 @@ use crate::db::repository::file_repo::common::{
     FileScope, active_scope_condition, apply_folder_condition, scope_condition,
 };
 
+pub(crate) type FileIdSize = (i64, i64);
+
 fn sum_as_i64_expr(
     backend: DbBackend,
     column: impl sea_orm::sea_query::IntoColumnRef + Copy,
@@ -132,6 +134,38 @@ pub async fn find_by_team_folders<C: ConnectionTrait>(
     folder_ids: &[i64],
 ) -> Result<Vec<file::Model>> {
     find_by_folders_in_scope(db, FileScope::Team { team_id }, folder_ids).await
+}
+
+/// 详情占用统计专用的轻量 cursor 查询。
+///
+/// 只返回 `(file_id, size)`，并按 `files.id` 做 cursor 分页；调用方应逐页累加并释放
+/// `file_ids`，避免打开大目录详情时把整棵树的文件记录或所有文件 ID 留在内存里。
+pub(crate) async fn find_id_size_by_folders<C: ConnectionTrait>(
+    db: &C,
+    scope: FileScope,
+    folder_ids: &[i64],
+    after_id: Option<i64>,
+    limit: u64,
+) -> Result<Vec<FileIdSize>> {
+    if folder_ids.is_empty() || limit == 0 {
+        return Ok(vec![]);
+    }
+    let mut query = File::find()
+        .select_only()
+        .column(file::Column::Id)
+        .column(file::Column::Size)
+        .filter(active_scope_condition(scope))
+        .filter(file::Column::FolderId.is_in(folder_ids.iter().copied()))
+        .order_by_asc(file::Column::Id)
+        .limit(limit);
+    if let Some(after_id) = after_id {
+        query = query.filter(file::Column::Id.gt(after_id));
+    }
+    query
+        .into_tuple::<FileIdSize>()
+        .all(db)
+        .await
+        .map_err(AsterError::from)
 }
 
 /// 批量查询多个文件夹下的文件（含已删除）

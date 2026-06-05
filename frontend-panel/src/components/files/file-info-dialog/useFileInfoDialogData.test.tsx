@@ -76,6 +76,7 @@ function fileInfo(overrides: Partial<FileInfo> = {}): FileInfo {
 		name: "Song.mp3",
 		owner_user_id: 1,
 		size: 128,
+		storage_used: 128,
 		team_id: null,
 		updated_at: "2026-01-02T00:00:00Z",
 		...overrides,
@@ -110,6 +111,7 @@ function folderInfo(overrides: Partial<FolderInfo> = {}): FolderInfo {
 		owner_user_id: 1,
 		parent_id: null,
 		policy_id: null,
+		storage_used: 0,
 		team_id: null,
 		updated_at: "2026-02-02T00:00:00Z",
 		...overrides,
@@ -249,6 +251,39 @@ describe("useFileInfoDialogData", () => {
 		expect(result.current.resolvedFile).toBeNull();
 		expect(result.current.resolvedFolder).toBeNull();
 		expect(result.current.childCount).toBeNull();
+	});
+
+	it("refreshes legacy detail records that do not include storage usage", async () => {
+		const renderedFile = {
+			...fileInfo({ name: "Legacy.mp3", storage_used: undefined }),
+		};
+		delete renderedFile.storage_used;
+		const renderedFolder = {
+			...folderInfo({ name: "Legacy Folder", storage_used: undefined }),
+		};
+		delete renderedFolder.storage_used;
+		mockState.getFile.mockResolvedValueOnce(
+			fileInfo({ name: "Resolved Legacy.mp3", storage_used: 256 }),
+		);
+		mockState.getFolderInfo.mockResolvedValueOnce(
+			folderInfo({ name: "Resolved Legacy Folder", storage_used: 512 }),
+		);
+		mockState.getMediaMetadata.mockResolvedValueOnce(audioMetadata());
+
+		const { result } = renderHook(() =>
+			useFileInfoDialogData({
+				open: true,
+				renderedFile,
+				renderedFolder,
+			}),
+		);
+
+		await waitFor(() => {
+			expect(result.current.resolvedFile?.storage_used).toBe(256);
+			expect(result.current.resolvedFolder?.storage_used).toBe(512);
+		});
+		expect(mockState.getFile).toHaveBeenCalledWith(7);
+		expect(mockState.getFolderInfo).toHaveBeenCalledWith(3);
 	});
 
 	it("loads media support before requesting metadata and resets unsupported files", () => {

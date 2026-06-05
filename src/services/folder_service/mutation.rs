@@ -1,11 +1,16 @@
 //! 文件夹服务子模块：`mutation`。
+//!
+//! 这里负责文件夹的写操作以及详情页的派生信息：
+//! - 创建、软删除、更新/移动、锁定状态。
+//! - 为个人空间和团队空间共用同一套 scope-aware 实现。
+//! - 详情接口额外计算 `storage_used`，但列表接口不走这段递归统计。
 
 use std::collections::BTreeSet;
 
 use chrono::Utc;
 use sea_orm::{ActiveModelTrait, ConnectionTrait, Set};
 
-use crate::db::repository::{file_repo, folder_repo};
+use crate::db::repository::{file_repo, folder_repo, version_repo};
 use crate::entities::{file, folder};
 use crate::errors::{AsterError, Result};
 use crate::runtime::PrimaryAppState;
@@ -17,6 +22,132 @@ use crate::services::{
 use crate::types::NullablePatch;
 
 use super::{collect_folder_tree_in_scope, ensure_folder_model_in_scope};
+
+const STORAGE_USED_VERSION_SUM_CHUNK_SIZE: usize = 500;
+const STORAGE_USED_FOLDER_QUERY_CHUNK_SIZE: usize = 500;
+const STORAGE_USED_FILE_PAGE_SIZE: u64 = 500;
+
+/// `storage_used` 是配额口径，不是物理 blob 占用。
+///
+/// 文件夹统计需要把当前文件大小和历史版本大小都加进去；这里用 checked add，
+/// 避免极端脏数据把 i64 加爆后静默回绕。`context` 用闭包是因为正常路径不会溢出，
+/// 不该在热循环里为每个文件提前分配错误消息字符串。
+fn add_checked<F, D>(total: &mut i64, value: i64, context: F) -> Result<()>
+where
+    F: FnOnce() -> D,
+    D: std::fmt::Display,
+{
+    *total = total.checked_add(value).ok_or_else(|| {
+        AsterError::internal_error(format!("folder storage_used overflow: {}", context()))
+    })?;
+    Ok(())
+}
+
+/// 读取一批文件夹下的活跃文件 id 和当前大小。
+///
+/// 只查 `(id, size)`，并通过 `after_id` 做 cursor 分页；调用方处理完当前页后
+/// 立即释放 file ids，避免大目录详情把整棵树文件记录压进内存。
+async fn load_file_id_size_page(
+    state: &PrimaryAppState,
+    scope: WorkspaceStorageScope,
+    folder_ids: &[i64],
+    after_id: Option<i64>,
+) -> Result<Vec<file_repo::FileIdSize>> {
+    let file_scope = match scope {
+        WorkspaceStorageScope::Personal { user_id } => file_repo::FileScope::Personal { user_id },
+        WorkspaceStorageScope::Team { team_id, .. } => file_repo::FileScope::Team { team_id },
+    };
+    file_repo::find_id_size_by_folders(
+        state.reader_db(),
+        file_scope,
+        folder_ids,
+        after_id,
+        STORAGE_USED_FILE_PAGE_SIZE,
+    )
+    .await
+}
+
+/// 读取当前 BFS 层的下一层子目录 id。
+///
+/// 这里同样只拿 id，不加载完整 folder model；详情页只需要继续向下遍历。
+async fn load_child_folder_ids(
+    state: &PrimaryAppState,
+    scope: WorkspaceStorageScope,
+    folder_ids: &[i64],
+) -> Result<Vec<i64>> {
+    let folder_scope = match scope {
+        WorkspaceStorageScope::Personal { user_id } => {
+            folder_repo::FolderScope::Personal { user_id }
+        }
+        WorkspaceStorageScope::Team { team_id, .. } => folder_repo::FolderScope::Team { team_id },
+    };
+    folder_repo::find_child_ids_in_parents(state.reader_db(), folder_scope, folder_ids).await
+}
+
+/// 递归计算文件夹详情页展示的占用空间。
+///
+/// 算法是分层 BFS：
+/// - `frontier` 是当前层文件夹 id，按固定 chunk 查询，避免过大的 `IN (...)`。
+/// - 每个 chunk 内的文件按 `files.id` cursor 分页，避免 `Vec<i64>` 随目录规模膨胀。
+/// - 当前文件大小即时累加；版本大小按当前页 file ids 分块汇总。
+/// - 子目录 id 进入下一层，再重复。
+///
+/// 这段逻辑刻意不复用 `collect_folder_tree_in_scope()`：那个 helper 会收集完整树，
+/// 删除/复制场景可以接受，详情页统计大目录时不该这么做。
+async fn compute_folder_storage_used(
+    state: &PrimaryAppState,
+    scope: WorkspaceStorageScope,
+    folder_id: i64,
+) -> Result<i64> {
+    let mut total = 0i64;
+    let mut frontier = vec![folder_id];
+
+    while !frontier.is_empty() {
+        frontier.sort_unstable();
+        frontier.dedup();
+        let mut next_frontier = Vec::new();
+
+        for folder_chunk in frontier.chunks(STORAGE_USED_FOLDER_QUERY_CHUNK_SIZE) {
+            let mut after_file_id = None;
+            loop {
+                let files =
+                    load_file_id_size_page(state, scope, folder_chunk, after_file_id).await?;
+                if files.is_empty() {
+                    break;
+                }
+
+                let mut file_ids = Vec::with_capacity(files.len());
+                for (file_id, size) in &files {
+                    add_checked(&mut total, *size, || {
+                        format!("current file bytes for file #{file_id}")
+                    })?;
+                    file_ids.push(*file_id);
+                }
+                after_file_id = files.last().map(|(file_id, _)| *file_id);
+
+                for file_id_chunk in file_ids.chunks(STORAGE_USED_VERSION_SUM_CHUNK_SIZE) {
+                    let version_bytes =
+                        version_repo::sum_sizes_by_file_ids(state.reader_db(), file_id_chunk)
+                            .await?;
+                    add_checked(&mut total, version_bytes, || {
+                        format!("version bytes for folder #{folder_id}")
+                    })?;
+                }
+
+                if files.len() < STORAGE_USED_FILE_PAGE_SIZE as usize {
+                    break;
+                }
+            }
+
+            let child_ids = load_child_folder_ids(state, scope, folder_chunk).await?;
+            next_frontier.extend(child_ids);
+        }
+
+        frontier = next_frontier;
+    }
+
+    Ok(total)
+}
 
 pub(crate) async fn create_in_scope(
     state: &PrimaryAppState,
@@ -124,6 +255,8 @@ pub(crate) async fn delete_in_scope(
     tracing::debug!(scope = ?scope, folder_id, "soft deleting folder tree");
     let now = Utc::now();
 
+    // 删除整棵树时先锁目录树，再确认树结构没有变化；否则并发移动/创建子目录
+    // 可能导致只删除到遍历时看到的一部分节点。
     let (folder, file_count, folder_count) =
         crate::db::transaction::with_transaction(state.writer_db(), async |txn| {
             let folder = folder_repo::lock_by_id(txn, folder_id).await?;
@@ -177,6 +310,20 @@ pub(crate) async fn get_info_in_scope(
     workspace_storage_service::verify_folder_access_for_read(state, scope, folder_id).await
 }
 
+pub(crate) async fn get_info_with_storage_used_in_scope(
+    state: &PrimaryAppState,
+    scope: WorkspaceStorageScope,
+    folder_id: i64,
+) -> Result<FolderInfo> {
+    // 先走普通详情权限校验；`storage_used` 只在用户确实能读这个文件夹时计算。
+    let folder = get_info_in_scope(state, scope, folder_id).await?;
+    let storage_used = compute_folder_storage_used(state, scope, folder_id).await?;
+    Ok(FolderInfo::from_model_with_storage_used(
+        folder,
+        storage_used,
+    ))
+}
+
 pub(crate) async fn update_in_scope(
     state: &PrimaryAppState,
     scope: WorkspaceStorageScope,
@@ -217,6 +364,7 @@ pub(crate) async fn update_in_scope(
         };
         let initial_target_chain =
             load_folder_chain_in_scope(txn, scope, preview_target_parent).await?;
+        // 固定按 id 顺序加锁，降低多个移动操作互相等待时形成死锁的概率。
         let mut lock_ids = vec![id];
         lock_ids.extend(initial_target_chain.iter().map(|folder| folder.id));
         lock_folder_ids_in_order(txn, &lock_ids).await?;
@@ -233,6 +381,7 @@ pub(crate) async fn update_in_scope(
             NullablePatch::Value(pid) => Some(pid),
         };
         let target_chain = load_folder_chain_in_scope(txn, scope, target_parent).await?;
+        // 目标父目录链里不能出现自己，否则会制造目录环。
         if target_chain.iter().any(|folder| folder.id == id) {
             return Err(AsterError::validation_error(
                 "cannot move folder into its own subfolder",
@@ -317,6 +466,8 @@ async fn collect_locked_folder_tree_in_scope<C: ConnectionTrait>(
 ) -> Result<(Vec<file::Model>, Vec<i64>)> {
     const MAX_STABILIZATION_ATTEMPTS: usize = 8;
 
+    // 第一次遍历拿候选树，锁住目录后再遍历确认；如果目录树在加锁前后变了，
+    // 重新来一轮。这样软删除不会漏掉并发插入/移动进来的子目录。
     for _ in 0..MAX_STABILIZATION_ATTEMPTS {
         let (_files, folder_ids) =
             collect_folder_tree_in_scope(db, scope, folder_id, false).await?;
@@ -341,6 +492,7 @@ async fn load_folder_chain_in_scope<C: ConnectionTrait>(
     scope: WorkspaceStorageScope,
     start_id: Option<i64>,
 ) -> Result<Vec<folder::Model>> {
+    // 从目标父目录一路向根走，用于校验 scope、检测环，以及决定移动时要锁哪些目录。
     let mut chain = Vec::new();
     let mut seen = BTreeSet::new();
     let mut cursor = start_id;

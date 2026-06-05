@@ -159,6 +159,27 @@ describe("FileInfoDialog", () => {
 		mockState.getFolderInfo.mockReset();
 		mockState.getMediaMetadata.mockReset();
 		mockState.listFolder.mockReset();
+		mockState.getFile.mockResolvedValue({
+			blob_id: 88,
+			created_at: "2026-01-01T00:00:00Z",
+			file_category: "document",
+			id: 1,
+			is_locked: false,
+			mime_type: "text/plain",
+			name: "resolved.txt",
+			size: 512,
+			storage_used: 512,
+			updated_at: "2026-01-02T00:00:00Z",
+		});
+		mockState.getFolderInfo.mockResolvedValue({
+			created_at: "2026-02-01T00:00:00Z",
+			id: 3,
+			is_locked: false,
+			name: "Projects",
+			policy_id: null,
+			storage_used: 0,
+			updated_at: "2026-02-02T00:00:00Z",
+		});
 		mockState.mediaDataSupportStore.isLoaded = true;
 		mockState.mediaDataSupportStore.load.mockReset();
 	});
@@ -177,6 +198,7 @@ describe("FileInfoDialog", () => {
 						mime_type: "text/markdown",
 						name: "notes.md",
 						size: 512,
+						storage_used: 1536,
 						updated_at: "2026-01-02T00:00:00Z",
 					} as never
 				}
@@ -190,6 +212,7 @@ describe("FileInfoDialog", () => {
 			"thumbnail:notes.md:lg",
 		);
 		expect(screen.getAllByText("bytes:512").length).toBe(2);
+		expect(screen.getByText("bytes:1536")).toBeInTheDocument();
 		expect(screen.getByText("text/markdown")).toBeInTheDocument();
 		expect(screen.getByText("date:2026-01-01T00:00:00Z")).toBeInTheDocument();
 		expect(screen.getByText("date:2026-01-02T00:00:00Z")).toBeInTheDocument();
@@ -222,6 +245,7 @@ describe("FileInfoDialog", () => {
 			is_locked: false,
 			name: "Projects",
 			policy_id: null,
+			storage_used: 4096,
 			updated_at: "2026-02-02T00:00:00Z",
 		});
 		mockState.listFolder.mockImplementationOnce(
@@ -258,6 +282,7 @@ describe("FileInfoDialog", () => {
 		resolveList?.({ files_total: 5, folders_total: 2 });
 
 		expect((await screen.findAllByText("folders:2 files:5")).length).toBe(2);
+		expect(screen.getByText("bytes:4096")).toBeInTheDocument();
 	});
 
 	it("shows shared status for folder list items", async () => {
@@ -267,6 +292,7 @@ describe("FileInfoDialog", () => {
 			is_locked: false,
 			name: "Projects",
 			policy_id: null,
+			storage_used: 4096,
 			updated_at: "2026-02-02T00:00:00Z",
 		});
 		mockState.listFolder.mockResolvedValueOnce({
@@ -302,6 +328,7 @@ describe("FileInfoDialog", () => {
 				is_locked: true,
 				name: "Archive",
 				policy_id: 12,
+				storage_used: 8192,
 				updated_at: "2026-03-02T00:00:00Z",
 			})
 			.mockRejectedValueOnce(new Error("unavailable"));
@@ -346,6 +373,7 @@ describe("FileInfoDialog", () => {
 			mime_type: "text/markdown",
 			name: "notes.md",
 			size: 512,
+			storage_used: 2048,
 			updated_at: "2026-01-02T00:00:00Z",
 		});
 
@@ -371,6 +399,7 @@ describe("FileInfoDialog", () => {
 		expect(
 			await screen.findByText("date:2026-01-01T00:00:00Z"),
 		).toBeInTheDocument();
+		expect(screen.getByText("bytes:2048")).toBeInTheDocument();
 	});
 
 	it("shows image EXIF metadata in the details panel", async () => {

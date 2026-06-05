@@ -94,11 +94,20 @@ function buildOverviewRows({
 	t: ReturnType<typeof useTranslation>["t"];
 }): DetailRow[] {
 	if (renderedFile) {
+		const fileStorageUsed = activeFile?.storage_used;
 		return [
 			{ label: t("info_type"), value: t("core:file") },
 			{
 				label: t("info_size"),
 				value: formatBytes((activeFile ?? renderedFile).size),
+			},
+			{
+				label: t("info_storage_used"),
+				value: formatValueOrFallback(
+					fileStorageUsed != null ? formatBytes(fileStorageUsed) : null,
+					fileDetailsLoading,
+					loadingText,
+				),
 			},
 			{
 				label: t("info_mime"),
@@ -125,8 +134,17 @@ function buildOverviewRows({
 		return [];
 	}
 
+	const folderStorageUsed = activeFolder?.storage_used;
 	return [
 		{ label: t("info_type"), value: t("core:folder") },
+		{
+			label: t("info_storage_used"),
+			value: formatValueOrFallback(
+				folderStorageUsed != null ? formatBytes(folderStorageUsed) : null,
+				folderDetailsLoading,
+				loadingText,
+			),
+		},
 		{
 			label: t("info_children"),
 			value:

@@ -24,6 +24,7 @@ pub use blob::{
     sum_blob_bytes_by_policy, summarize_blob_hash_kinds_by_policy, summarize_blobs_by_policy,
     summarize_missing_blobs_between_policies,
 };
+pub(crate) use common::FileScope;
 pub use common::{
     duplicate_name_error, duplicate_name_message, is_any_duplicate_name_error,
     is_duplicate_name_error, is_name_conflict_db_err, map_bulk_name_db_err, map_name_db_err,
@@ -42,6 +43,7 @@ pub use query::{
     find_by_team_folders, lock_by_id, resolve_unique_filename, resolve_unique_team_filename,
     sum_live_file_bytes,
 };
+pub(crate) use query::{FileIdSize, find_id_size_by_folders};
 pub use trash::{
     delete, delete_many, find_all_by_team, find_all_by_team_paginated, find_all_by_user,
     find_all_by_user_paginated, find_deleted_by_user, find_deleted_in_folder, find_expired_deleted,

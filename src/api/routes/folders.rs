@@ -12,7 +12,7 @@ use crate::errors::Result;
 use crate::runtime::PrimaryAppState;
 use crate::services::{
     audit_service::AuditContext, auth_service::Claims, folder_service,
-    workspace_models::FolderInfo, workspace_storage_service::WorkspaceStorageScope,
+    workspace_storage_service::WorkspaceStorageScope,
 };
 use actix_governor::Governor;
 use actix_web::middleware::Condition;
@@ -366,7 +366,7 @@ pub(crate) async fn team_list_root(
     params(("team_id" = i64, Path, description = "Team ID")),
     request_body = CreateFolderReq,
     responses(
-        (status = 201, description = "Team folder created", body = inline(ApiResponse<FolderInfo>)),
+        (status = 201, description = "Team folder created", body = inline(ApiResponse<crate::services::workspace_models::FolderInfo>)),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
         (status = 403, description = "Forbidden"),
     ),
@@ -433,7 +433,7 @@ pub(crate) async fn team_list_folder(
         ("id" = i64, Path, description = "Folder ID")
     ),
     responses(
-        (status = 200, description = "Team folder info", body = inline(ApiResponse<FolderInfo>)),
+        (status = 200, description = "Team folder info", body = inline(ApiResponse<crate::services::workspace_models::FolderInfo>)),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
         (status = 403, description = "Forbidden"),
         (status = 404, description = "Folder not found"),
@@ -520,7 +520,7 @@ pub(crate) async fn team_delete_folder(
     ),
     request_body = PatchFolderReq,
     responses(
-        (status = 200, description = "Team folder updated", body = inline(ApiResponse<FolderInfo>)),
+        (status = 200, description = "Team folder updated", body = inline(ApiResponse<crate::services::workspace_models::FolderInfo>)),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
         (status = 403, description = "Forbidden"),
         (status = 404, description = "Folder not found"),
@@ -557,7 +557,7 @@ pub(crate) async fn team_patch_folder(
     ),
     request_body = CopyFolderReq,
     responses(
-        (status = 201, description = "Team folder copied", body = inline(ApiResponse<FolderInfo>)),
+        (status = 201, description = "Team folder copied", body = inline(ApiResponse<crate::services::workspace_models::FolderInfo>)),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
         (status = 403, description = "Forbidden"),
         (status = 404, description = "Folder not found"),
@@ -594,7 +594,7 @@ pub(crate) async fn team_copy_folder(
     ),
     request_body = SetLockReq,
     responses(
-        (status = 200, description = "Lock state updated", body = inline(ApiResponse<FolderInfo>)),
+        (status = 200, description = "Lock state updated", body = inline(ApiResponse<crate::services::workspace_models::FolderInfo>)),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
         (status = 403, description = "Forbidden"),
         (status = 404, description = "Folder not found"),
@@ -660,8 +660,9 @@ pub(crate) async fn get_folder_info_response(
     scope: WorkspaceStorageScope,
     folder_id: i64,
 ) -> Result<HttpResponse> {
-    let folder = folder_service::get_info_in_scope(state, scope, folder_id).await?;
-    Ok(HttpResponse::Ok().json(ApiResponse::ok(FolderInfo::from(folder))))
+    let folder =
+        folder_service::get_info_with_storage_used_in_scope(state, scope, folder_id).await?;
+    Ok(HttpResponse::Ok().json(ApiResponse::ok(folder)))
 }
 
 pub(crate) async fn delete_folder_response(

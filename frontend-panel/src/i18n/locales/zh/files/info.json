@@ -2,6 +2,7 @@
 	"info": "详细信息",
 	"info_name": "名称",
 	"info_size": "大小",
+	"info_storage_used": "占用空间",
 	"info_type": "类型",
 	"info_mime": "MIME 类型",
 	"info_created": "创建时间",
