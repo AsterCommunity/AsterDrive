@@ -124,9 +124,7 @@ export function AdminSiteUrlMismatchPrompt() {
 				PUBLIC_SITE_URL_KEY,
 				nextValue,
 			);
-			syncPublicSiteUrlsAndUpdateStore(
-				Array.isArray(savedConfig.value) ? savedConfig.value : [],
-			);
+			syncPublicSiteUrlsAndUpdateStore(normalizeConfigValue(savedConfig.value));
 			toast.success(t("settings_saved"));
 		} catch (error) {
 			handleApiError(error);

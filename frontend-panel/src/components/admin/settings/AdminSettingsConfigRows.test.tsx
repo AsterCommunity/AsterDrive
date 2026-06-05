@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import { type ReactNode, use } from "react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	type AdminSettingsCategoryContentProps,
 	AdminSettingsCategoryContentProvider,
@@ -25,6 +25,8 @@ const mockState = vi.hoisted(() => ({
 	navigateToMailSettings: vi.fn(),
 	openTemplateVariablesDialog: vi.fn(),
 }));
+
+const originalLocation = window.location;
 
 vi.mock("@/components/admin/MediaProcessingConfigEditor", () => ({
 	MediaProcessingConfigEditor: () => (
@@ -240,6 +242,13 @@ describe("AdminSettingsConfigRows", () => {
 		mockState.removeNewCustomRow.mockReset();
 		mockState.navigateToMailSettings.mockReset();
 		mockState.openTemplateVariablesDialog.mockReset();
+	});
+
+	afterEach(() => {
+		Object.defineProperty(window, "location", {
+			configurable: true,
+			value: originalLocation,
+		});
 	});
 
 	it("adds the current origin to an empty public site URL row", () => {
