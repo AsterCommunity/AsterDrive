@@ -639,9 +639,13 @@ impl<'a> IfHeaderParser<'a> {
 
     fn consume_not(&mut self) -> bool {
         let rest = &self.input[self.pos..];
-        let Some(after_not) = rest.strip_prefix("Not") else {
+        let Some(candidate) = rest.get(..3) else {
             return false;
         };
+        if !candidate.eq_ignore_ascii_case("not") {
+            return false;
+        }
+        let after_not = &rest[3..];
         if after_not
             .chars()
             .next()
@@ -649,7 +653,7 @@ impl<'a> IfHeaderParser<'a> {
         {
             return false;
         }
-        self.pos += "Not".len();
+        self.pos += 3;
         true
     }
 
@@ -974,6 +978,29 @@ mod tests {
                 },
             ]
         );
+    }
+
+    #[test]
+    fn if_header_parser_accepts_case_insensitive_not_keyword() {
+        let headers = headers("If", r#"(nOt <urn:uuid:one>)"#);
+        let parsed = parse_if_header(&headers)
+            .expect("If header should parse")
+            .expect("If header should exist");
+
+        assert_eq!(
+            parsed.groups[0].lists[0].conditions,
+            [IfStateCondition::Token {
+                value: "urn:uuid:one".to_string(),
+                negated: true,
+            }]
+        );
+    }
+
+    #[test]
+    fn if_header_parser_does_not_consume_not_prefix_without_separator() {
+        let headers = headers("If", r#"(Notified <urn:uuid:one>)"#);
+
+        assert!(parse_if_header(&headers).is_err());
     }
 
     #[test]
