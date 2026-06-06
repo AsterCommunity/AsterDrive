@@ -13,7 +13,7 @@ use serde::Serialize;
 use utoipa::ToSchema;
 
 use crate::cache::CacheBackend;
-use crate::runtime::PrimaryRuntimeState;
+use crate::runtime::StorageChangeRuntimeState;
 use crate::services::workspace_storage_service::{WorkspaceResourceScope, WorkspaceStorageScope};
 
 pub const STORAGE_CHANGE_CHANNEL_CAPACITY: usize = 1024;
@@ -206,7 +206,7 @@ impl StorageChangeEvent {
     }
 }
 
-pub fn publish<S: PrimaryRuntimeState>(state: &S, event: StorageChangeEvent) {
+pub fn publish<S: StorageChangeRuntimeState>(state: &S, event: StorageChangeEvent) {
     invalidate_storage_change_caches(state.cache().clone(), event.kind);
     if let Err(e) = state.storage_change_tx().send(event) {
         tracing::debug!("skip storage change broadcast without listeners: {e}");

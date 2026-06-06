@@ -6,12 +6,12 @@ use crate::db::repository::{
 };
 use crate::entities::{external_auth_identity, external_auth_provider};
 use crate::errors::Result;
-use crate::runtime::PrimaryAppState;
+use crate::runtime::SharedRuntimeState;
 
 use super::ExternalAuthLinkInfo;
 
 pub async fn list_links(
-    state: &PrimaryAppState,
+    state: &impl SharedRuntimeState,
     user_id: i64,
 ) -> Result<Vec<ExternalAuthLinkInfo>> {
     let identities = external_auth_identity_repo::list_for_user(state.writer_db(), user_id).await?;
@@ -50,11 +50,15 @@ fn link_to_info(
     }
 }
 
-pub async fn delete_link(state: &PrimaryAppState, user_id: i64, id: i64) -> Result<bool> {
+pub async fn delete_link(
+    state: &impl SharedRuntimeState,
+    user_id: i64,
+    id: i64,
+) -> Result<bool> {
     external_auth_identity_repo::delete_for_user(state.writer_db(), id, user_id).await
 }
 
-pub async fn cleanup_expired_flows(state: &PrimaryAppState) -> Result<u64> {
+pub async fn cleanup_expired_flows(state: &impl SharedRuntimeState) -> Result<u64> {
     let now = Utc::now();
     let login_flows =
         external_auth_login_flow_repo::cleanup_expired(state.writer_db(), now).await?;

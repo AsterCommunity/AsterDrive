@@ -3,7 +3,7 @@
 use crate::db::repository::managed_follower_repo;
 use crate::entities::managed_follower;
 use crate::errors::{AsterError, Result};
-use crate::runtime::{PrimaryRuntimeState, SharedRuntimeState};
+use crate::runtime::{RemoteProtocolRuntimeState, SharedRuntimeState};
 use crate::storage::error::{StorageErrorKind, storage_driver_error};
 use chrono::Utc;
 use futures::StreamExt as _;
@@ -63,7 +63,7 @@ pub struct RemoteTunnelInfo {
     pub last_seen_at: Option<chrono::DateTime<Utc>>,
 }
 
-pub async fn poll<S: PrimaryRuntimeState>(
+pub async fn poll<S: RemoteProtocolRuntimeState>(
     state: &S,
     remote_node: &managed_follower::Model,
 ) -> Result<RemoteTunnelPollResponse> {
@@ -91,7 +91,7 @@ pub async fn poll<S: PrimaryRuntimeState>(
     Ok(RemoteTunnelPollResponse { request })
 }
 
-pub async fn complete<S: PrimaryRuntimeState>(
+pub async fn complete<S: RemoteProtocolRuntimeState>(
     state: &S,
     remote_node: &managed_follower::Model,
     response: RemoteTunnelResponse,
@@ -124,8 +124,8 @@ pub async fn complete<S: PrimaryRuntimeState>(
     }
 }
 
-pub async fn connect_stream(
-    state: &crate::runtime::PrimaryAppState,
+pub async fn connect_stream<S: RemoteProtocolRuntimeState>(
+    state: &S,
     remote_node: managed_follower::Model,
     mut session: actix_ws::Session,
     mut stream: actix_ws::MessageStream,
@@ -228,7 +228,7 @@ pub async fn connect_stream(
     Ok(())
 }
 
-pub fn tunnel_info_for_node<S: PrimaryRuntimeState>(
+pub fn tunnel_info_for_node<S: RemoteProtocolRuntimeState>(
     state: &S,
     node: &managed_follower::Model,
 ) -> RemoteTunnelInfo {

@@ -9,7 +9,7 @@ use crate::external_auth::providers::microsoft::{
     normalize_microsoft_tenant_input, normalize_microsoft_tenant_or_issuer_url,
 };
 use crate::external_auth::{ExternalAuthProviderConfig, registry};
-use crate::runtime::PrimaryAppState;
+use crate::runtime::SharedRuntimeState;
 use crate::types::{
     ExternalAuthProviderKind, ExternalAuthProviderOptions, MicrosoftExternalAuthProviderOptions,
     NullablePatch, serialize_external_auth_provider_options,
@@ -378,7 +378,7 @@ fn default_require_email_verified(provider_kind: ExternalAuthProviderKind) -> bo
 }
 
 pub async fn list_public_providers(
-    state: &PrimaryAppState,
+    state: &impl SharedRuntimeState,
 ) -> Result<Vec<ExternalAuthPublicProvider>> {
     Ok(external_auth_provider_repo::find_enabled(state.writer_db())
         .await?
@@ -389,7 +389,7 @@ pub async fn list_public_providers(
 }
 
 pub async fn list_public_providers_by_kind(
-    state: &PrimaryAppState,
+    state: &impl SharedRuntimeState,
     provider_kind: ExternalAuthProviderKind,
 ) -> Result<Vec<ExternalAuthPublicProvider>> {
     Ok(
@@ -403,7 +403,7 @@ pub async fn list_public_providers_by_kind(
 }
 
 pub async fn list_admin_providers(
-    state: &PrimaryAppState,
+    state: &impl SharedRuntimeState,
     limit: u64,
     offset: u64,
 ) -> Result<OffsetPage<AdminExternalAuthProviderInfo>> {
@@ -434,7 +434,7 @@ pub fn list_provider_kinds() -> Vec<ExternalAuthProviderKindInfo> {
 }
 
 pub async fn get_admin_provider(
-    state: &PrimaryAppState,
+    state: &impl SharedRuntimeState,
     id: i64,
 ) -> Result<AdminExternalAuthProviderInfo> {
     let provider = external_auth_provider_repo::find_by_id(state.writer_db(), id).await?;
@@ -447,7 +447,7 @@ pub async fn get_admin_provider(
 }
 
 pub async fn create_provider(
-    state: &PrimaryAppState,
+    state: &impl SharedRuntimeState,
     input: CreateExternalAuthProviderInput,
 ) -> Result<AdminExternalAuthProviderInfo> {
     let driver = registry::default_registry().get_driver(input.provider_kind)?;
@@ -565,7 +565,7 @@ pub async fn create_provider(
 }
 
 pub async fn update_provider(
-    state: &PrimaryAppState,
+    state: &impl SharedRuntimeState,
     id: i64,
     input: UpdateExternalAuthProviderInput,
 ) -> Result<AdminExternalAuthProviderInfo> {
@@ -681,7 +681,7 @@ pub async fn update_provider(
     provider_to_admin(provider)
 }
 
-pub async fn delete_provider(state: &PrimaryAppState, id: i64) -> Result<()> {
+pub async fn delete_provider(state: &impl SharedRuntimeState, id: i64) -> Result<()> {
     let provider = external_auth_provider_repo::find_by_id(state.writer_db(), id).await?;
     if !registry::default_registry().contains(provider.provider_kind) {
         return Err(AsterError::record_not_found(format!(
@@ -692,7 +692,7 @@ pub async fn delete_provider(state: &PrimaryAppState, id: i64) -> Result<()> {
 }
 
 pub async fn test_provider(
-    state: &PrimaryAppState,
+    state: &impl SharedRuntimeState,
     id: i64,
 ) -> Result<ExternalAuthProviderTestResult> {
     let provider = external_auth_provider_repo::find_by_id(state.writer_db(), id).await?;
@@ -705,7 +705,7 @@ pub async fn test_provider(
 }
 
 pub async fn test_provider_params(
-    _state: &PrimaryAppState,
+    _state: &impl SharedRuntimeState,
     input: ExternalAuthProviderTestParamsInput,
 ) -> Result<ExternalAuthProviderTestResult> {
     let provider = external_auth_provider_config_from_test_params(input)?;

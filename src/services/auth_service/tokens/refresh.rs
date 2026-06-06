@@ -45,7 +45,7 @@ use crate::api::subcode::ApiSubcode;
 use crate::db::repository::{auth_session_repo, user_repo};
 use crate::entities::auth_session;
 use crate::errors::{AsterError, Result, auth_forbidden_with_subcode};
-use crate::runtime::PrimaryAppState;
+use crate::runtime::SharedRuntimeState;
 use crate::services::audit_service::{self, AuditContext};
 use crate::services::auth_service::Claims;
 use crate::services::auth_service::session::{
@@ -386,7 +386,7 @@ async fn classify_refresh_reuse_in_transaction<C: ConnectionTrait>(
 
 async fn rotate_refresh_in_transaction<C: ConnectionTrait>(
     db: &C,
-    state: &PrimaryAppState,
+    state: &impl SharedRuntimeState,
     claims: &Claims,
     refresh_jti: &str,
     ip_address: Option<&str>,
@@ -497,7 +497,7 @@ async fn rotate_refresh_in_transaction<C: ConnectionTrait>(
 }
 
 async fn record_refresh_reuse_detection(
-    state: &PrimaryAppState,
+    state: &impl SharedRuntimeState,
     user_id: i64,
     reused_jti: &str,
     log_message: &'static str,
@@ -526,7 +526,7 @@ async fn record_refresh_reuse_detection(
 }
 
 async fn finish_refresh_rejection(
-    state: &PrimaryAppState,
+    state: &impl SharedRuntimeState,
     rejection: RefreshRejection,
     reuse_log_message: &'static str,
 ) -> Result<(String, String)> {
@@ -557,7 +557,7 @@ async fn finish_refresh_rejection(
 }
 
 async fn finish_refresh_outcome(
-    state: &PrimaryAppState,
+    state: &impl SharedRuntimeState,
     claims: &Claims,
     refresh_jti: &str,
     outcome: RefreshRotationOutcome,
@@ -619,7 +619,7 @@ async fn finish_refresh_outcome(
 }
 
 pub async fn refresh_tokens(
-    state: &PrimaryAppState,
+    state: &impl SharedRuntimeState,
     refresh: &str,
     ip_address: Option<&str>,
     user_agent: Option<&str>,
@@ -629,7 +629,7 @@ pub async fn refresh_tokens(
         // order intact: verify JWT cheaply first, acquire the per-JTI lock second,
         // then do all authoritative state checks in the transaction.
         tracing::debug!("refreshing auth tokens");
-        let claims = verify_token(refresh, &state.config.auth.jwt_secret)?;
+        let claims = verify_token(refresh, &state.config().auth.jwt_secret)?;
         ensure_token_type(&claims, TokenType::Refresh)?;
         let refresh_jti = claims
             .jti
@@ -667,7 +667,7 @@ pub async fn refresh_tokens(
     result
 }
 
-fn record_refresh_metric(state: &PrimaryAppState, result: &Result<(String, String)>) {
+fn record_refresh_metric(state: &impl SharedRuntimeState, result: &Result<(String, String)>) {
     let (status, reason) = match result {
         Ok(_) => ("success", "ok"),
         Err(AsterError::AuthTokenExpired(_)) => ("failure", "expired"),
@@ -678,7 +678,7 @@ fn record_refresh_metric(state: &PrimaryAppState, result: &Result<(String, Strin
         Err(AsterError::RateLimited(_)) => ("failure", "rate_limited"),
         Err(_) => ("failure", "error"),
     };
-    state.metrics.record_auth_event("refresh", status, reason);
+    state.metrics().record_auth_event("refresh", status, reason);
 }
 
 #[cfg(debug_assertions)]

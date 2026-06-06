@@ -14,7 +14,7 @@ use crate::entities::{mfa_factor, mfa_totp_setup_flow};
 use crate::errors::{
     AsterError, Result, auth_forbidden_with_subcode, auth_mfa_failed_with_subcode,
 };
-use crate::runtime::PrimaryAppState;
+use crate::runtime::SharedRuntimeState;
 use crate::services::{audit_service, auth_service};
 use crate::types::MfaPersistentFactorMethod;
 use crate::utils::numbers::u64_to_i64;
@@ -74,7 +74,7 @@ pub struct MfaSensitiveActionRequest {
     pub code: Option<String>,
 }
 
-pub async fn get_status(state: &PrimaryAppState, user_id: i64) -> Result<MfaStatus> {
+pub async fn get_status(state: &impl SharedRuntimeState, user_id: i64) -> Result<MfaStatus> {
     let factors = mfa_factor_repo::list_for_user(state.writer_db(), user_id)
         .await?
         .into_iter()
@@ -90,7 +90,7 @@ pub async fn get_status(state: &PrimaryAppState, user_id: i64) -> Result<MfaStat
 }
 
 pub async fn start_totp_setup(
-    state: &PrimaryAppState,
+    state: &impl SharedRuntimeState,
     user_id: i64,
 ) -> Result<TotpSetupStartResponse> {
     let user = user_repo::find_by_id(state.writer_db(), user_id).await?;
@@ -112,7 +112,7 @@ pub async fn start_totp_setup(
     let flow_token = format!("mfs_{}", crate::utils::id::new_short_token());
     let aad = crypto::setup_flow_aad(user_id);
     let encrypted =
-        crypto::encrypt_secret(&state.config.auth.mfa_secret_key, aad.as_bytes(), &secret)?;
+        crypto::encrypt_secret(&state.config().auth.mfa_secret_key, aad.as_bytes(), &secret)?;
     let now = now_utc();
     let ttl = u64_to_i64(MFA_SETUP_FLOW_TTL_SECS, "mfa setup flow ttl")?;
     mfa_totp_setup_flow_repo::create(
@@ -130,7 +130,7 @@ pub async fn start_totp_setup(
     )
     .await?;
 
-    let issuer = branding::title_or_default(&state.runtime_config);
+    let issuer = branding::title_or_default(state.runtime_config());
     let account = if user.email.is_empty() {
         user.username.as_str()
     } else {
@@ -145,7 +145,7 @@ pub async fn start_totp_setup(
 }
 
 pub async fn verify_totp_setup(
-    state: &PrimaryAppState,
+    state: &impl SharedRuntimeState,
     user_id: i64,
     input: TotpSetupFinishRequest,
     audit_ctx: &audit_service::AuditContext,
@@ -176,7 +176,7 @@ pub async fn verify_totp_setup(
         }
         let aad = crypto::setup_flow_aad(user_id);
         let secret = crypto::decrypt_secret(
-            &state.config.auth.mfa_secret_key,
+            &state.config().auth.mfa_secret_key,
             aad.as_bytes(),
             &flow.secret_ciphertext,
         )?;
@@ -194,7 +194,7 @@ pub async fn verify_totp_setup(
 
         let factor_aad = crypto::factor_aad(user_id, MfaPersistentFactorMethod::Totp.as_str());
         let encrypted_secret = crypto::encrypt_secret(
-            &state.config.auth.mfa_secret_key,
+            &state.config().auth.mfa_secret_key,
             factor_aad.as_bytes(),
             &secret,
         )?;
@@ -252,7 +252,7 @@ pub async fn verify_totp_setup(
 }
 
 pub async fn delete_factor(
-    state: &PrimaryAppState,
+    state: &impl SharedRuntimeState,
     user_id: i64,
     factor_id: i64,
     input: MfaSensitiveActionRequest,
@@ -295,7 +295,7 @@ pub async fn delete_factor(
 }
 
 pub async fn regenerate_recovery_codes(
-    state: &PrimaryAppState,
+    state: &impl SharedRuntimeState,
     user_id: i64,
     input: MfaSensitiveActionRequest,
     audit_ctx: &audit_service::AuditContext,
@@ -331,7 +331,7 @@ pub async fn regenerate_recovery_codes(
 }
 
 pub async fn reset_user_mfa(
-    state: &PrimaryAppState,
+    state: &impl SharedRuntimeState,
     user_id: i64,
     audit_ctx: &audit_service::AuditContext,
 ) -> Result<()> {
@@ -378,7 +378,7 @@ pub async fn reset_user_mfa(
 
 async fn verify_sensitive_mfa_code<C: sea_orm::ConnectionTrait>(
     db: &C,
-    state: &PrimaryAppState,
+    state: &impl SharedRuntimeState,
     user_id: i64,
     code: Option<&str>,
 ) -> Result<()> {
@@ -393,7 +393,7 @@ async fn verify_sensitive_mfa_code<C: sea_orm::ConnectionTrait>(
     {
         let aad = crypto::factor_aad(user_id, persistent_factor_method_label(factor.method));
         let secret = crypto::decrypt_secret(
-            &state.config.auth.mfa_secret_key,
+            &state.config().auth.mfa_secret_key,
             aad.as_bytes(),
             &factor.secret_ciphertext,
         )?;

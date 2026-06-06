@@ -15,7 +15,7 @@ use crate::db::repository::{
 };
 use crate::entities::{mfa_email_code, mfa_login_flow, user};
 use crate::errors::{AsterError, Result, auth_mfa_failed_with_subcode};
-use crate::runtime::PrimaryAppState;
+use crate::runtime::{MailRuntimeState, SharedRuntimeState};
 use crate::services::{
     audit_service,
     audit_service::AuditRequestInfo,
@@ -60,7 +60,7 @@ struct MfaChallengeAttempt {
 }
 
 pub async fn complete_primary_login_or_start_mfa(
-    state: &PrimaryAppState,
+    state: &impl SharedRuntimeState,
     user: &user::Model,
     first_factor: MfaFirstFactor,
     return_path: Option<&str>,
@@ -95,7 +95,7 @@ pub async fn complete_primary_login_or_start_mfa(
 }
 
 pub async fn create_login_flow(
-    state: &PrimaryAppState,
+    state: &impl SharedRuntimeState,
     user: &user::Model,
     first_factor: MfaFirstFactor,
     return_path: Option<&str>,
@@ -133,7 +133,7 @@ pub async fn create_login_flow(
     })
 }
 
-pub async fn cleanup_expired_flows(state: &PrimaryAppState) -> Result<u64> {
+pub async fn cleanup_expired_flows(state: &impl SharedRuntimeState) -> Result<u64> {
     let now = Utc::now();
     let email_codes = mfa_email_code_repo::cleanup_expired(state.writer_db(), now).await?;
     let login_flows = mfa_login_flow_repo::cleanup_expired(state.writer_db(), now).await?;
@@ -142,7 +142,7 @@ pub async fn cleanup_expired_flows(state: &PrimaryAppState) -> Result<u64> {
 }
 
 pub async fn send_email_code(
-    state: &PrimaryAppState,
+    state: &impl MailRuntimeState,
     flow_token: &str,
     audit_info: &AuditRequestInfo,
 ) -> Result<MfaEmailCodeSendResponse> {
@@ -151,7 +151,7 @@ pub async fn send_email_code(
         return Err(flow_invalid("missing MFA flow token"));
     }
 
-    let policy = RuntimeEmailCodeLoginPolicy::from_runtime_config(&state.runtime_config);
+    let policy = RuntimeEmailCodeLoginPolicy::from_runtime_config(state.runtime_config());
     if !email_code_policy_ready(state, &policy) {
         return Err(AsterError::mail_not_configured(
             "email code login requires mail configuration and auth settings",
@@ -232,7 +232,7 @@ pub async fn send_email_code(
     let payload = MailTemplatePayload::login_email_code(
         &user.username,
         &code,
-        &branding::title_or_default(&state.runtime_config),
+        &branding::title_or_default(state.runtime_config()),
         &format_email_code_expires_in(effective_expires_in),
     );
     let stored = match payload.to_stored() {
@@ -243,7 +243,7 @@ pub async fn send_email_code(
         }
     };
     let rendered =
-        match mail_template::render(&state.runtime_config, payload.template_code(), &stored) {
+        match mail_template::render(state.runtime_config(), payload.template_code(), &stored) {
             Ok(rendered) => rendered,
             Err(error) => {
                 consume_email_code_after_mail_failure(state, record.id).await;
@@ -281,7 +281,10 @@ pub async fn send_email_code(
     })
 }
 
-async fn consume_email_code_after_mail_failure(state: &PrimaryAppState, record_id: i64) {
+async fn consume_email_code_after_mail_failure(
+    state: &impl SharedRuntimeState,
+    record_id: i64,
+) {
     if let Err(cleanup_error) =
         mfa_email_code_repo::consume(state.writer_db(), record_id, Utc::now()).await
     {
@@ -294,7 +297,7 @@ async fn consume_email_code_after_mail_failure(state: &PrimaryAppState, record_i
 }
 
 pub async fn verify_challenge(
-    state: &PrimaryAppState,
+    state: &impl SharedRuntimeState,
     flow_token: &str,
     method: MfaMethod,
     code: &str,
@@ -441,7 +444,7 @@ pub async fn verify_challenge(
 
 async fn verify_totp<C: sea_orm::ConnectionTrait>(
     db: &C,
-    state: &PrimaryAppState,
+    state: &impl SharedRuntimeState,
     user: &user::Model,
     code: &str,
     now: chrono::DateTime<Utc>,
@@ -454,7 +457,7 @@ async fn verify_totp<C: sea_orm::ConnectionTrait>(
     };
     let aad = crypto::factor_aad(user.id, MfaPersistentFactorMethod::Totp.as_str());
     let secret = crypto::decrypt_secret(
-        &state.config.auth.mfa_secret_key,
+        &state.config().auth.mfa_secret_key,
         aad.as_bytes(),
         &factor.secret_ciphertext,
     )?;
@@ -467,7 +470,7 @@ async fn verify_totp<C: sea_orm::ConnectionTrait>(
 
 async fn verify_email_code<C: ConnectionTrait>(
     db: &C,
-    state: &PrimaryAppState,
+    state: &impl SharedRuntimeState,
     flow: &mfa_login_flow::Model,
     user: &user::Model,
     code: &str,
@@ -476,7 +479,7 @@ async fn verify_email_code<C: ConnectionTrait>(
     let code = code.trim();
     // 邮箱验证码是登录 challenge 方法，不是持久化 factor。
     // 每次校验前都重新确认策略可用，避免管理员关闭配置后旧 flow 继续使用 email code。
-    let policy = RuntimeEmailCodeLoginPolicy::from_runtime_config(&state.runtime_config);
+    let policy = RuntimeEmailCodeLoginPolicy::from_runtime_config(state.runtime_config());
     if !email_code_policy_ready(state, &policy) {
         return Err(auth_mfa_failed_with_subcode(
             ApiSubcode::AuthMfaFactorRequired,
@@ -517,7 +520,7 @@ async fn verify_email_code<C: ConnectionTrait>(
 
 async fn available_challenge_methods<C: ConnectionTrait>(
     db: &C,
-    state: &PrimaryAppState,
+    state: &impl SharedRuntimeState,
     user: &user::Model,
 ) -> Result<Vec<MfaMethod>> {
     // Challenge method 是“这次登录可以怎么过第二步”，范围比持久化 factor 更宽。
@@ -530,7 +533,7 @@ async fn available_challenge_methods<C: ConnectionTrait>(
     } else {
         false
     };
-    let policy = RuntimeEmailCodeLoginPolicy::from_runtime_config(&state.runtime_config);
+    let policy = RuntimeEmailCodeLoginPolicy::from_runtime_config(state.runtime_config());
     let email_available = auth_service::is_email_verified(user)
         && email_code_policy_ready(state, &policy)
         && (!totp_enabled || policy.allow_totp_fallback);
@@ -548,9 +551,12 @@ async fn available_challenge_methods<C: ConnectionTrait>(
     Ok(methods)
 }
 
-fn email_code_policy_ready(state: &PrimaryAppState, policy: &RuntimeEmailCodeLoginPolicy) -> bool {
+fn email_code_policy_ready(
+    state: &impl SharedRuntimeState,
+    policy: &RuntimeEmailCodeLoginPolicy,
+) -> bool {
     policy.enabled
-        && RuntimeMailSettings::from_runtime_config(&state.runtime_config).is_ready_for_delivery()
+        && RuntimeMailSettings::from_runtime_config(state.runtime_config()).is_ready_for_delivery()
 }
 
 fn generate_email_code() -> String {

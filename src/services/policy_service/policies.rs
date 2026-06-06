@@ -8,7 +8,7 @@ use crate::api::subcode::ApiSubcode;
 use crate::db::repository::{file_repo, managed_follower_repo, policy_group_repo, policy_repo};
 use crate::entities::storage_policy;
 use crate::errors::{AsterError, MapAsterErr, Result, validation_error_with_subcode};
-use crate::runtime::{PrimaryAppState, PrimaryRuntimeState};
+use crate::runtime::{PrimaryAppState, RemoteProtocolRuntimeState, SharedRuntimeState};
 use crate::storage::drivers::tencent_cos::TencentCosDriver;
 use crate::types::{
     DriverType, StoragePolicyOptions, StoredStoragePolicyAllowedTypes, StoredStoragePolicyOptions,
@@ -458,7 +458,7 @@ pub async fn update(
         .map(Into::into)
 }
 
-pub async fn test_default_connection<S: PrimaryRuntimeState>(state: &S) -> Result<()> {
+pub async fn test_default_connection<S: SharedRuntimeState>(state: &S) -> Result<()> {
     let policy = state
         .policy_snapshot()
         .system_default_policy()
@@ -469,13 +469,13 @@ pub async fn test_default_connection<S: PrimaryRuntimeState>(state: &S) -> Resul
     probe_storage_driver(driver.as_ref(), "default storage readiness probe failed").await
 }
 
-pub async fn test_connection<S: PrimaryRuntimeState>(state: &S, id: i64) -> Result<()> {
+pub async fn test_connection<S: SharedRuntimeState>(state: &S, id: i64) -> Result<()> {
     let policy = policy_repo::find_by_id(state.writer_db(), id).await?;
     let driver = state.driver_registry().get_driver(&policy)?;
     probe_storage_driver(driver.as_ref(), "write test failed").await
 }
 
-pub async fn test_connection_params<S: PrimaryRuntimeState>(
+pub async fn test_connection_params<S: RemoteProtocolRuntimeState>(
     state: &S,
     input: StoragePolicyConnectionInput,
 ) -> Result<()> {

@@ -10,7 +10,7 @@ use crate::config::{
 };
 use crate::db::repository::user_repo;
 use crate::errors::{Result, auth_forbidden_with_subcode, validation_error_with_subcode};
-use crate::runtime::PrimaryAppState;
+use crate::runtime::SharedRuntimeState;
 use crate::services::{mail_outbox_service, mail_template::MailTemplatePayload};
 use crate::types::{UserRole, UserStatus, VerificationPurpose};
 
@@ -21,7 +21,7 @@ use super::shared::{
 use super::{AuthUserInfo, UserAuditInfo, is_email_verified, user_audit_info};
 
 pub async fn create_user_by_admin(
-    state: &PrimaryAppState,
+    state: &impl SharedRuntimeState,
     username: &str,
     email: &str,
     password: &str,
@@ -41,19 +41,19 @@ pub async fn create_user_by_admin(
     .await?;
     if let Some(policy_group_id) = user.policy_group_id {
         state
-            .policy_snapshot
+            .policy_snapshot()
             .set_user_policy_group(user.id, policy_group_id);
     }
     Ok(AuthUserInfo::from(user))
 }
 
 pub async fn register(
-    state: &PrimaryAppState,
+    state: &impl SharedRuntimeState,
     username: &str,
     email: &str,
     password: &str,
 ) -> Result<AuthUserInfo> {
-    let auth_policy = RuntimeAuthPolicy::from_runtime_config(&state.runtime_config);
+    let auth_policy = RuntimeAuthPolicy::from_runtime_config(state.runtime_config());
     tracing::debug!(
         registration_enabled = auth_policy.allow_user_registration,
         activation_enabled = auth_policy.register_activation_enabled,
@@ -72,10 +72,10 @@ pub async fn register(
             .map(AuthUserInfo::from);
     }
 
-    LocalEmailPolicy::from_runtime_config(&state.runtime_config).check(email)?;
+    LocalEmailPolicy::from_runtime_config(state.runtime_config()).check(email)?;
 
-    let policy = RuntimeContactVerificationPolicy::from_runtime_config(&state.runtime_config);
-    let site_name = branding::title_or_default(&state.runtime_config);
+    let policy = RuntimeContactVerificationPolicy::from_runtime_config(state.runtime_config());
+    let site_name = branding::title_or_default(state.runtime_config());
     let txn = crate::db::transaction::begin(state.writer_db()).await?;
     let email_verified_at = (!auth_policy.register_activation_enabled).then_some(Utc::now());
     let user = create_user_with_role(
@@ -111,7 +111,7 @@ pub async fn register(
     crate::db::transaction::commit(txn).await?;
     if let Some(policy_group_id) = user.policy_group_id {
         state
-            .policy_snapshot
+            .policy_snapshot()
             .set_user_policy_group(user.id, policy_group_id);
     }
 
@@ -125,7 +125,7 @@ pub async fn register(
 }
 
 pub async fn resend_register_activation(
-    state: &PrimaryAppState,
+    state: &impl SharedRuntimeState,
     identifier: &str,
 ) -> Result<Option<UserAuditInfo>> {
     let Some(user) = find_user_by_identifier(state.writer_db(), identifier).await? else {
@@ -136,7 +136,7 @@ pub async fn resend_register_activation(
         return Ok(None);
     }
 
-    LocalEmailPolicy::from_runtime_config(&state.runtime_config).check_not_blocked(&user.email)?;
+    LocalEmailPolicy::from_runtime_config(state.runtime_config()).check_not_blocked(&user.email)?;
 
     if !resend_allowed(
         state,
@@ -152,8 +152,8 @@ pub async fn resend_register_activation(
         );
         return Ok(None);
     }
-    let policy = RuntimeContactVerificationPolicy::from_runtime_config(&state.runtime_config);
-    let site_name = branding::title_or_default(&state.runtime_config);
+    let policy = RuntimeContactVerificationPolicy::from_runtime_config(state.runtime_config());
+    let site_name = branding::title_or_default(state.runtime_config());
 
     let txn = crate::db::transaction::begin(state.writer_db()).await?;
     let token = match issue_contact_verification_token(
@@ -181,12 +181,12 @@ pub async fn resend_register_activation(
     Ok(Some(user_audit_info(&user)))
 }
 
-pub async fn check_auth_state(state: &PrimaryAppState) -> Result<bool> {
+pub async fn check_auth_state(state: &impl SharedRuntimeState) -> Result<bool> {
     Ok(user_repo::count_all(state.writer_db()).await? > 0)
 }
 
 pub async fn setup(
-    state: &PrimaryAppState,
+    state: &impl SharedRuntimeState,
     username: &str,
     email: &str,
     password: &str,

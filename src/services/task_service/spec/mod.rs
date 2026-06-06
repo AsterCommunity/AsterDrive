@@ -21,6 +21,7 @@ use std::pin::Pin;
 use sea_orm::ActiveEnum;
 use serde::{Serialize, de::DeserializeOwned};
 
+use crate::config::{RuntimeConfig, operations};
 use crate::entities::background_task;
 use crate::errors::{AsterError, Result};
 use crate::runtime::PrimaryAppState;
@@ -32,7 +33,6 @@ use super::presentation;
 use super::retry::{TaskRetryClass, default_retry_class};
 use super::steps::TaskStepSpec;
 use super::types::{TaskPayload, TaskPresentation, TaskResult};
-use crate::config::operations;
 
 pub(super) type TaskProcessFuture<'a> = Pin<Box<dyn Future<Output = Result<()>> + Send + 'a>>;
 
@@ -46,8 +46,8 @@ pub(super) trait BackgroundTaskSpec {
 
     fn lane() -> TaskLane;
 
-    fn max_attempts(state: &PrimaryAppState) -> i32 {
-        operations::background_task_max_attempts(&state.runtime_config)
+    fn max_attempts(runtime_config: &RuntimeConfig) -> i32 {
+        operations::background_task_max_attempts(runtime_config)
     }
 
     fn wrap_payload(payload: Self::Payload) -> TaskPayload;
@@ -144,7 +144,7 @@ pub(super) trait ErasedBackgroundTaskSpec: Sync {
 
     fn lane(&self) -> TaskLane;
 
-    fn max_attempts(&self, state: &PrimaryAppState) -> i32;
+    fn max_attempts(&self, runtime_config: &RuntimeConfig) -> i32;
 
     fn decode_payload(&self, task: &background_task::Model) -> Result<TaskPayload>;
 
@@ -188,8 +188,8 @@ where
         S::lane()
     }
 
-    fn max_attempts(&self, state: &PrimaryAppState) -> i32 {
-        S::max_attempts(state)
+    fn max_attempts(&self, runtime_config: &RuntimeConfig) -> i32 {
+        S::max_attempts(runtime_config)
     }
 
     fn decode_payload(&self, task: &background_task::Model) -> Result<TaskPayload> {
@@ -281,8 +281,8 @@ macro_rules! define_task_spec {
             }
 
             $(
-                fn max_attempts(state: &$crate::runtime::PrimaryAppState) -> i32 {
-                    let _ = state;
+                fn max_attempts(runtime_config: &$crate::config::RuntimeConfig) -> i32 {
+                    let _ = runtime_config;
                     $max_attempts
                 }
             )?

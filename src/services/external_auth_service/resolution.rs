@@ -9,7 +9,7 @@ use crate::entities::{
 };
 use crate::errors::{AsterError, Result, auth_forbidden_with_subcode};
 use crate::external_auth::ExternalAuthProfile;
-use crate::runtime::PrimaryAppState;
+use crate::runtime::SharedRuntimeState;
 use crate::services::auth_service;
 use crate::types::{UserRole, UserStatus};
 use crate::utils::hash;
@@ -231,12 +231,12 @@ pub(super) async fn link_external_auth_identity_to_authenticated_user<
 }
 
 async fn create_external_auth_user_and_identity(
-    state: &PrimaryAppState,
+    state: &impl SharedRuntimeState,
     provider: &external_auth_provider::Model,
     claims: &ExternalAuthUserClaims,
     now: chrono::DateTime<Utc>,
 ) -> Result<ResolvedExternalAuthUser> {
-    let auth_policy = RuntimeAuthPolicy::from_runtime_config(&state.runtime_config);
+    let auth_policy = RuntimeAuthPolicy::from_runtime_config(state.runtime_config());
     if !auth_policy.allow_user_registration {
         return Err(auth_forbidden_with_subcode(
             ApiSubcode::AuthRegistrationDisabled,
@@ -295,7 +295,7 @@ async fn create_external_auth_user_and_identity(
                 crate::db::transaction::commit(txn).await?;
                 if let Some(policy_group_id) = user.policy_group_id {
                     state
-                        .policy_snapshot
+                        .policy_snapshot()
                         .set_user_policy_group(user.id, policy_group_id);
                 }
                 return Ok(ResolvedExternalAuthUser {
@@ -322,12 +322,12 @@ async fn create_external_auth_user_and_identity(
 
 async fn create_external_auth_user_and_identity_in_connection<C: sea_orm::ConnectionTrait>(
     db: &C,
-    state: &PrimaryAppState,
+    state: &impl SharedRuntimeState,
     provider: &external_auth_provider::Model,
     claims: &ExternalAuthUserClaims,
     now: chrono::DateTime<Utc>,
 ) -> Result<user::Model> {
-    let auth_policy = RuntimeAuthPolicy::from_runtime_config(&state.runtime_config);
+    let auth_policy = RuntimeAuthPolicy::from_runtime_config(state.runtime_config());
     if !auth_policy.allow_user_registration {
         return Err(auth_forbidden_with_subcode(
             ApiSubcode::AuthRegistrationDisabled,
@@ -389,7 +389,7 @@ async fn create_external_auth_user_and_identity_in_connection<C: sea_orm::Connec
 
 pub(super) async fn resolve_external_auth_user_with_verified_email<C: sea_orm::ConnectionTrait>(
     db: &C,
-    state: &PrimaryAppState,
+    state: &impl SharedRuntimeState,
     provider: &external_auth_provider::Model,
     claims: &ExternalAuthUserClaims,
     now: chrono::DateTime<Utc>,
@@ -457,7 +457,7 @@ pub(super) async fn resolve_external_auth_user_with_verified_email<C: sea_orm::C
 }
 
 pub(super) async fn resolve_external_auth_user(
-    state: &PrimaryAppState,
+    state: &impl SharedRuntimeState,
     provider: &external_auth_provider::Model,
     claims: &ExternalAuthUserClaims,
 ) -> Result<Option<ResolvedExternalAuthUser>> {
@@ -514,7 +514,7 @@ pub(super) async fn resolve_external_auth_user(
     }
 
     if provider.auto_provision_enabled {
-        let auth_policy = RuntimeAuthPolicy::from_runtime_config(&state.runtime_config);
+        let auth_policy = RuntimeAuthPolicy::from_runtime_config(state.runtime_config());
         let Some(email) = claims.email.as_deref().filter(|email| !email.is_empty()) else {
             return Ok(None);
         };

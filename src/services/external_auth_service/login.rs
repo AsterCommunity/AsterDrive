@@ -5,7 +5,7 @@ use crate::db::repository::{external_auth_login_flow_repo, external_auth_provide
 use crate::entities::external_auth_login_flow;
 use crate::errors::{AsterError, Result};
 use crate::external_auth::{ExternalAuthCallback, registry};
-use crate::runtime::PrimaryAppState;
+use crate::runtime::SharedRuntimeState;
 use crate::types::ExternalAuthProviderKind;
 use crate::utils::numbers::u64_to_i64;
 
@@ -22,7 +22,7 @@ use super::{
 };
 
 pub async fn start_login(
-    state: &PrimaryAppState,
+    state: &impl SharedRuntimeState,
     req: &actix_web::HttpRequest,
     provider_kind: ExternalAuthProviderKind,
     provider_key: &str,
@@ -75,7 +75,7 @@ pub async fn start_login(
 }
 
 pub async fn finish_callback(
-    state: &PrimaryAppState,
+    state: &impl SharedRuntimeState,
     provider_kind: ExternalAuthProviderKind,
     provider_key: &str,
     query: &ExternalAuthCallbackQuery,

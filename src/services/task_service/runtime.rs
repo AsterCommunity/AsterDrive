@@ -5,7 +5,7 @@ use chrono::{DateTime, Utc};
 use crate::db::repository::background_task_repo;
 use crate::entities::background_task;
 use crate::errors::Result;
-use crate::runtime::PrimaryAppState;
+use crate::runtime::SharedRuntimeState;
 use crate::services::task_service::types::TaskPresentationCode;
 use crate::types::{BackgroundTaskStatus, StoredTaskPayload};
 
@@ -25,7 +25,7 @@ pub(crate) fn system_runtime_payload_json(
 }
 
 pub(crate) async fn find_latest_system_runtime_by_task_name(
-    state: &PrimaryAppState,
+    state: &impl SharedRuntimeState,
     task_name: SystemRuntimeTaskKind,
 ) -> Result<Option<background_task::Model>> {
     let payload_json = system_runtime_payload_json(task_name)?;
@@ -240,7 +240,7 @@ impl RuntimeTaskRunOutcome {
 }
 
 pub async fn record_runtime_task_run(
-    state: &PrimaryAppState,
+    state: &impl SharedRuntimeState,
     task_name: SystemRuntimeTaskKind,
     started_at: DateTime<Utc>,
     finished_at: DateTime<Utc>,

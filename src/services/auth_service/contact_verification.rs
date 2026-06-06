@@ -7,7 +7,7 @@ use crate::config::branding;
 use crate::config::local_email_policy::LocalEmailPolicy;
 use crate::db::repository::{contact_verification_token_repo, user_repo};
 use crate::errors::{AsterError, MapAsterErr, Result};
-use crate::runtime::PrimaryAppState;
+use crate::runtime::SharedRuntimeState;
 use crate::services::{mail_outbox_service, mail_template::MailTemplatePayload};
 use crate::types::VerificationPurpose;
 use crate::utils::hash;
@@ -25,7 +25,7 @@ use super::{
 };
 
 pub async fn request_email_change(
-    state: &PrimaryAppState,
+    state: &impl SharedRuntimeState,
     user_id: i64,
     new_email: &str,
 ) -> Result<AuthUserInfo> {
@@ -47,7 +47,7 @@ pub async fn request_email_change(
         ));
     }
 
-    LocalEmailPolicy::from_runtime_config(&state.runtime_config).check(&normalized_email)?;
+    LocalEmailPolicy::from_runtime_config(state.runtime_config()).check(&normalized_email)?;
     ensure_email_available(state.writer_db(), &normalized_email, Some(existing.id)).await?;
     if existing.pending_email.as_deref() == Some(normalized_email.as_str()) {
         ensure_resend_allowed(
@@ -60,9 +60,9 @@ pub async fn request_email_change(
     }
 
     let policy = crate::config::auth_runtime::RuntimeContactVerificationPolicy::from_runtime_config(
-        &state.runtime_config,
+        state.runtime_config(),
     );
-    let site_name = branding::title_or_default(&state.runtime_config);
+    let site_name = branding::title_or_default(state.runtime_config());
     let txn = crate::db::transaction::begin(state.writer_db()).await?;
     let mut active = existing.into_active_model();
     active.pending_email = Set(Some(normalized_email.clone()));
@@ -94,7 +94,7 @@ pub async fn request_email_change(
 }
 
 pub async fn resend_email_change(
-    state: &PrimaryAppState,
+    state: &impl SharedRuntimeState,
     user_id: i64,
 ) -> Result<Option<UserAuditInfo>> {
     let user = user_repo::find_by_id(state.writer_db(), user_id).await?;
@@ -112,7 +112,7 @@ pub async fn resend_email_change(
         ));
     }
 
-    LocalEmailPolicy::from_runtime_config(&state.runtime_config)
+    LocalEmailPolicy::from_runtime_config(state.runtime_config())
         .check_not_blocked(&pending_email)?;
     ensure_email_available(state.writer_db(), &pending_email, Some(user.id)).await?;
     if !resend_allowed(
@@ -130,9 +130,9 @@ pub async fn resend_email_change(
         return Ok(None);
     }
     let policy = crate::config::auth_runtime::RuntimeContactVerificationPolicy::from_runtime_config(
-        &state.runtime_config,
+        state.runtime_config(),
     );
-    let site_name = branding::title_or_default(&state.runtime_config);
+    let site_name = branding::title_or_default(state.runtime_config());
 
     let txn = crate::db::transaction::begin(state.writer_db()).await?;
     let token = match issue_contact_verification_token(
@@ -161,7 +161,7 @@ pub async fn resend_email_change(
 }
 
 pub async fn request_password_reset(
-    state: &PrimaryAppState,
+    state: &impl SharedRuntimeState,
     email: &str,
 ) -> Result<PasswordResetRequestResult> {
     tracing::debug!("requesting password reset");
@@ -185,9 +185,9 @@ pub async fn request_password_reset(
     }
 
     let policy = crate::config::auth_runtime::RuntimeContactVerificationPolicy::from_runtime_config(
-        &state.runtime_config,
+        state.runtime_config(),
     );
-    let site_name = branding::title_or_default(&state.runtime_config);
+    let site_name = branding::title_or_default(state.runtime_config());
     let txn = crate::db::transaction::begin(state.writer_db()).await?;
     let token = match issue_contact_verification_token(
         &txn,
@@ -222,7 +222,7 @@ pub async fn request_password_reset(
 }
 
 pub async fn confirm_password_reset(
-    state: &PrimaryAppState,
+    state: &impl SharedRuntimeState,
     token: &str,
     new_password: &str,
 ) -> Result<AuthUserInfo> {
@@ -273,7 +273,7 @@ pub async fn confirm_password_reset(
     }
 
     let updated = update_password_in_connection(&txn, existing_user, new_password).await?;
-    let site_name = branding::title_or_default(&state.runtime_config);
+    let site_name = branding::title_or_default(state.runtime_config());
     mail_outbox_service::enqueue(
         &txn,
         &updated.email,
@@ -292,7 +292,7 @@ pub async fn confirm_password_reset(
 }
 
 pub async fn confirm_contact_verification(
-    state: &PrimaryAppState,
+    state: &impl SharedRuntimeState,
     token: &str,
 ) -> Result<ContactVerificationConfirmResult> {
     tracing::debug!("confirming contact verification");
@@ -326,7 +326,7 @@ pub async fn confirm_contact_verification(
         return Err(AsterError::auth_forbidden("account is disabled"));
     }
     let username = existing_user.username.clone();
-    let site_name = branding::title_or_default(&state.runtime_config);
+    let site_name = branding::title_or_default(state.runtime_config());
     let previous_email = (purpose == VerificationPurpose::ContactChange
         && existing_user.email != target)
         .then(|| existing_user.email.clone());
@@ -413,6 +413,8 @@ pub async fn confirm_contact_verification(
     })
 }
 
-pub async fn cleanup_expired_contact_verification_tokens(state: &PrimaryAppState) -> Result<u64> {
+pub async fn cleanup_expired_contact_verification_tokens(
+    state: &impl SharedRuntimeState,
+) -> Result<u64> {
     contact_verification_token_repo::delete_expired(state.writer_db()).await
 }

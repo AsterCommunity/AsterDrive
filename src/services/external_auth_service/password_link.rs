@@ -4,7 +4,7 @@ use crate::db::repository::{
     external_auth_email_verification_flow_repo, external_auth_provider_repo,
 };
 use crate::errors::{AsterError, Result};
-use crate::runtime::PrimaryAppState;
+use crate::runtime::SharedRuntimeState;
 use crate::services::auth_service;
 use crate::utils::hash;
 
@@ -19,7 +19,7 @@ use super::{
 const DUMMY_PASSWORD_HASH: &str = "$argon2id$v=19$m=19456,t=2,p=1$c29tZXNhbHRmb3JkdW1teQ$uLpdZ2ciOQUUMGrye7Tyvz/vZ/saqtJiqQBvovmG6ms";
 
 pub async fn link_with_password(
-    state: &PrimaryAppState,
+    state: &impl SharedRuntimeState,
     input: ExternalAuthPasswordLinkRequest,
     _ip_address: Option<&str>,
     _user_agent: Option<&str>,

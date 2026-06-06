@@ -7,7 +7,7 @@ use crate::api::subcode::ApiSubcode;
 use crate::cache::CacheExt;
 use crate::db::repository::{auth_session_repo, user_repo};
 use crate::errors::{AsterError, MapAsterErr, Result, auth_forbidden_with_subcode};
-use crate::runtime::PrimaryAppState;
+use crate::runtime::SharedRuntimeState;
 
 use super::{AUTH_SNAPSHOT_TTL, AuthSessionInfo, AuthSnapshot, UserAuditInfo, user_audit_info};
 
@@ -15,9 +15,9 @@ fn auth_snapshot_cache_key(user_id: i64) -> String {
     format!("auth_snapshot:{user_id}")
 }
 
-pub async fn get_auth_snapshot(state: &PrimaryAppState, user_id: i64) -> Result<AuthSnapshot> {
+pub async fn get_auth_snapshot(state: &impl SharedRuntimeState, user_id: i64) -> Result<AuthSnapshot> {
     let cache_key = auth_snapshot_cache_key(user_id);
-    if let Some(snapshot) = state.cache.get(&cache_key).await {
+    if let Some(snapshot) = state.cache().get(&cache_key).await {
         tracing::debug!(user_id, "auth snapshot cache hit");
         return Ok(snapshot);
     }
@@ -25,15 +25,15 @@ pub async fn get_auth_snapshot(state: &PrimaryAppState, user_id: i64) -> Result<
     let user = user_repo::find_by_id(state.reader_db(), user_id).await?;
     let snapshot = AuthSnapshot::from_user(&user);
     state
-        .cache
+        .cache()
         .set(&cache_key, &snapshot, Some(AUTH_SNAPSHOT_TTL))
         .await;
     tracing::debug!(user_id, "auth snapshot cache miss");
     Ok(snapshot)
 }
 
-pub async fn invalidate_auth_snapshot_cache(state: &PrimaryAppState, user_id: i64) {
-    state.cache.delete(&auth_snapshot_cache_key(user_id)).await;
+pub async fn invalidate_auth_snapshot_cache(state: &impl SharedRuntimeState, user_id: i64) {
+    state.cache().delete(&auth_snapshot_cache_key(user_id)).await;
 }
 
 pub(crate) async fn purge_all_auth_sessions_in_connection<C: ConnectionTrait>(
@@ -45,7 +45,7 @@ pub(crate) async fn purge_all_auth_sessions_in_connection<C: ConnectionTrait>(
 }
 
 pub async fn list_auth_sessions(
-    state: &PrimaryAppState,
+    state: &impl SharedRuntimeState,
     user_id: i64,
     current_refresh_jti: Option<&str>,
 ) -> Result<Vec<AuthSessionInfo>> {
@@ -69,7 +69,7 @@ pub async fn list_auth_sessions(
 }
 
 pub async fn revoke_auth_session(
-    state: &PrimaryAppState,
+    state: &impl SharedRuntimeState,
     user_id: i64,
     session_id: &str,
     current_refresh_jti: Option<&str>,
@@ -100,7 +100,7 @@ pub async fn revoke_auth_session(
 }
 
 pub async fn revoke_other_auth_sessions(
-    state: &PrimaryAppState,
+    state: &impl SharedRuntimeState,
     user_id: i64,
     current_refresh_jti: &str,
 ) -> Result<u64> {
@@ -141,11 +141,14 @@ pub async fn revoke_other_auth_sessions(
     }
 }
 
-pub async fn cleanup_expired_auth_sessions(state: &PrimaryAppState) -> Result<u64> {
+pub async fn cleanup_expired_auth_sessions(state: &impl SharedRuntimeState) -> Result<u64> {
     auth_session_repo::delete_expired(state.writer_db()).await
 }
 
-pub async fn revoke_user_sessions(state: &PrimaryAppState, user_id: i64) -> Result<UserAuditInfo> {
+pub async fn revoke_user_sessions(
+    state: &impl SharedRuntimeState,
+    user_id: i64,
+) -> Result<UserAuditInfo> {
     tracing::debug!(user_id, "revoking user sessions");
     let txn = crate::db::transaction::begin(state.writer_db()).await?;
     let result = async {

@@ -14,7 +14,7 @@ use tokio::time::timeout;
 use crate::config::RuntimeConfig;
 use crate::config::{mail, site_url};
 use crate::errors::{AsterError, MapAsterErr, Result};
-use crate::runtime::PrimaryAppState;
+use crate::runtime::MailRuntimeState;
 use crate::services::mail_template::RenderedMail;
 use crate::utils::id;
 
@@ -175,11 +175,11 @@ impl MailSender for RuntimeMailSender {
 }
 
 pub async fn send_rendered(
-    state: &PrimaryAppState,
+    state: &impl MailRuntimeState,
     to: MailRecipient,
     rendered: RenderedMail,
 ) -> Result<()> {
-    send_rendered_with(&state.runtime_config, &state.mail_sender, to, rendered).await
+    send_rendered_with(state.runtime_config(), state.mail_sender(), to, rendered).await
 }
 
 pub async fn send_rendered_with(
@@ -212,12 +212,12 @@ pub async fn send_rendered_with(
 }
 
 pub async fn send_test_email(
-    state: &PrimaryAppState,
+    state: &impl MailRuntimeState,
     email: &str,
     triggered_by: Option<&str>,
 ) -> Result<()> {
     let timestamp = Utc::now().to_rfc3339();
-    let site_url = site_url::public_site_url(&state.runtime_config)
+    let site_url = site_url::public_site_url(state.runtime_config())
         .unwrap_or_else(|| "(not configured)".to_string());
     let triggered_by = triggered_by.unwrap_or("admin");
     tracing::debug!(

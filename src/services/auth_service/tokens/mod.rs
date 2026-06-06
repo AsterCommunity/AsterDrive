@@ -8,7 +8,7 @@ use crate::config::auth_runtime::RuntimeAuthPolicy;
 use crate::db::repository::auth_session_repo;
 use crate::entities::{auth_session, user};
 use crate::errors::{AsterError, MapAsterErr, Result};
-use crate::runtime::PrimaryAppState;
+use crate::runtime::SharedRuntimeState;
 use crate::types::TokenType;
 use crate::utils::numbers::{i64_to_u64, u64_to_i64, u64_to_usize};
 
@@ -50,7 +50,7 @@ fn ensure_session_current(claims: &Claims, snapshot: AuthSnapshot) -> Result<()>
 }
 
 async fn authenticate_token(
-    state: &PrimaryAppState,
+    state: &impl SharedRuntimeState,
     token: &str,
     expected_type: TokenType,
 ) -> Result<(Claims, AuthSnapshot)> {
@@ -58,7 +58,7 @@ async fn authenticate_token(
         expected_type = expected_type.as_str(),
         "authenticating token"
     );
-    let claims = verify_token(token, &state.config.auth.jwt_secret)?;
+    let claims = verify_token(token, &state.config().auth.jwt_secret)?;
     ensure_token_type(&claims, expected_type)?;
 
     let snapshot = get_auth_snapshot(state, claims.user_id).await?;
@@ -78,14 +78,14 @@ async fn authenticate_token(
 }
 
 pub async fn authenticate_access_token(
-    state: &PrimaryAppState,
+    state: &impl SharedRuntimeState,
     token: &str,
 ) -> Result<(Claims, AuthSnapshot)> {
     authenticate_token(state, token, TokenType::Access).await
 }
 
 pub async fn authenticate_refresh_token(
-    state: &PrimaryAppState,
+    state: &impl SharedRuntimeState,
     token: &str,
 ) -> Result<(Claims, AuthSnapshot)> {
     authenticate_token(state, token, TokenType::Refresh).await
@@ -156,7 +156,7 @@ async fn persist_auth_session<C: ConnectionTrait>(
 
 pub async fn issue_tokens_for_user_in_connection<C: ConnectionTrait>(
     db: &C,
-    state: &PrimaryAppState,
+    state: &impl SharedRuntimeState,
     user: &user::Model,
     ip_address: Option<&str>,
     user_agent: Option<&str>,
@@ -167,23 +167,23 @@ pub async fn issue_tokens_for_user_in_connection<C: ConnectionTrait>(
 }
 
 fn issue_tokens_for_session_id(
-    state: &PrimaryAppState,
+    state: &impl SharedRuntimeState,
     user_id: i64,
     session_version: i64,
     session_id: Option<&str>,
 ) -> Result<IssuedTokens> {
-    let auth_policy = RuntimeAuthPolicy::from_runtime_config(&state.runtime_config);
+    let auth_policy = RuntimeAuthPolicy::from_runtime_config(state.runtime_config());
     issue_tokens(
         user_id,
         session_version,
-        &state.config.auth.jwt_secret,
+        &state.config().auth.jwt_secret,
         auth_policy,
         session_id,
     )
 }
 
 pub async fn issue_tokens_for_session(
-    state: &PrimaryAppState,
+    state: &impl SharedRuntimeState,
     user_id: i64,
     session_version: i64,
     ip_address: Option<&str>,
@@ -195,7 +195,7 @@ pub async fn issue_tokens_for_session(
 }
 
 pub async fn issue_tokens_for_user(
-    state: &PrimaryAppState,
+    state: &impl SharedRuntimeState,
     user: &user::Model,
     ip_address: Option<&str>,
     user_agent: Option<&str>,
@@ -204,8 +204,8 @@ pub async fn issue_tokens_for_user(
         .await
 }
 
-pub async fn revoke_refresh_token(state: &PrimaryAppState, token: &str) -> Result<bool> {
-    let claims = match verify_token(token, &state.config.auth.jwt_secret) {
+pub async fn revoke_refresh_token(state: &impl SharedRuntimeState, token: &str) -> Result<bool> {
+    let claims = match verify_token(token, &state.config().auth.jwt_secret) {
         Ok(claims) => claims,
         Err(AsterError::AuthTokenExpired(_) | AsterError::AuthTokenInvalid(_)) => return Ok(false),
         Err(error) => return Err(error),

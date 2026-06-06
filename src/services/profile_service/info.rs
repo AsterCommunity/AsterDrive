@@ -8,7 +8,7 @@ use serde::Serialize;
 use utoipa::ToSchema;
 
 use crate::entities::{user, user_profile};
-use crate::runtime::PrimaryAppState;
+use crate::runtime::SharedRuntimeState;
 use crate::types::AvatarSource;
 
 use super::shared::{AVATAR_SIZE_LG, AVATAR_SIZE_SM, stored_avatar_prefix};
@@ -37,9 +37,9 @@ pub struct UserProfileInfo {
     pub avatar: AvatarInfo,
 }
 
-pub fn resolve_gravatar_base_url(state: &PrimaryAppState) -> String {
+pub fn resolve_gravatar_base_url(state: &impl SharedRuntimeState) -> String {
     let base_url = state
-        .runtime_config
+        .runtime_config()
         .get_string_or("gravatar_base_url", DEFAULT_GRAVATAR_BASE_URL);
 
     if base_url.trim().is_empty() {
@@ -166,7 +166,7 @@ pub fn build_share_public_avatar_info(
 }
 
 pub async fn get_profile_info_map(
-    state: &PrimaryAppState,
+    state: &impl SharedRuntimeState,
     users: &[user::Model],
     audience: AvatarAudience,
 ) -> crate::errors::Result<HashMap<i64, UserProfileInfo>> {

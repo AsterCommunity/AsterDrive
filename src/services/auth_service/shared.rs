@@ -11,7 +11,7 @@ use crate::config::auth_runtime::RuntimeContactVerificationPolicy;
 use crate::db::repository::{contact_verification_token_repo, user_repo};
 use crate::entities::{contact_verification_token, user};
 use crate::errors::{AsterError, MapAsterErr, Result, validation_error_with_subcode};
-use crate::runtime::PrimaryAppState;
+use crate::runtime::SharedRuntimeState;
 use crate::services::mail_service;
 use crate::types::{UserRole, UserStatus, VerificationChannel, VerificationPurpose};
 use crate::utils::hash;
@@ -183,7 +183,7 @@ pub(crate) struct CreateUserWithRoleInput<'a> {
 
 pub(crate) async fn create_user_with_role<C: ConnectionTrait>(
     db: &C,
-    state: &PrimaryAppState,
+    state: &impl SharedRuntimeState,
     input: CreateUserWithRoleInput<'_>,
 ) -> Result<user::Model> {
     let CreateUserWithRoleInput {
@@ -207,16 +207,16 @@ pub(crate) async fn create_user_with_role<C: ConnectionTrait>(
     let now = Utc::now();
 
     let default_quota = state
-        .runtime_config
+        .runtime_config()
         .get_i64("default_storage_quota")
         .unwrap_or_else(|| {
-            if let Some(raw) = state.runtime_config.get("default_storage_quota") {
+            if let Some(raw) = state.runtime_config().get("default_storage_quota") {
                 tracing::warn!("invalid default_storage_quota value '{}', using 0", raw);
             }
             0
         });
     let default_policy_group_id = state
-        .policy_snapshot
+        .policy_snapshot()
         .system_default_policy_group()
         .map(|group| group.id)
         .ok_or_else(|| {
@@ -257,7 +257,7 @@ pub(crate) async fn create_user_with_role<C: ConnectionTrait>(
 }
 
 pub(super) async fn create_first_admin(
-    state: &PrimaryAppState,
+    state: &impl SharedRuntimeState,
     username: &str,
     email: &str,
     password: &str,
@@ -279,7 +279,7 @@ pub(super) async fn create_first_admin(
     .inspect(|user| {
         if let Some(policy_group_id) = user.policy_group_id {
             state
-                .policy_snapshot
+                .policy_snapshot()
                 .set_user_policy_group(user.id, policy_group_id);
         }
     })
@@ -328,7 +328,7 @@ pub(super) async fn issue_contact_verification_token<C: ConnectionTrait>(
 }
 
 pub(super) async fn ensure_resend_allowed<C: ConnectionTrait>(
-    state: &PrimaryAppState,
+    state: &impl SharedRuntimeState,
     db: &C,
     user_id: i64,
     purpose: VerificationPurpose,
@@ -337,7 +337,7 @@ pub(super) async fn ensure_resend_allowed<C: ConnectionTrait>(
         return Ok(());
     }
 
-    let policy = RuntimeContactVerificationPolicy::from_runtime_config(&state.runtime_config);
+    let policy = RuntimeContactVerificationPolicy::from_runtime_config(state.runtime_config());
     let remaining = policy.resend_cooldown_secs.max(1);
     Err(AsterError::rate_limited(format!(
         "please wait {remaining} seconds before resending",
@@ -345,12 +345,12 @@ pub(super) async fn ensure_resend_allowed<C: ConnectionTrait>(
 }
 
 pub(super) async fn resend_allowed<C: ConnectionTrait>(
-    state: &PrimaryAppState,
+    state: &impl SharedRuntimeState,
     db: &C,
     user_id: i64,
     purpose: VerificationPurpose,
 ) -> Result<bool> {
-    let policy = RuntimeContactVerificationPolicy::from_runtime_config(&state.runtime_config);
+    let policy = RuntimeContactVerificationPolicy::from_runtime_config(state.runtime_config());
     let Some(latest) = contact_verification_token_repo::find_latest_active_for_user(
         db,
         user_id,
@@ -371,11 +371,11 @@ pub(super) async fn resend_allowed<C: ConnectionTrait>(
 }
 
 pub(super) async fn password_reset_request_allowed<C: ConnectionTrait>(
-    state: &PrimaryAppState,
+    state: &impl SharedRuntimeState,
     db: &C,
     user_id: i64,
 ) -> Result<bool> {
-    let policy = RuntimeContactVerificationPolicy::from_runtime_config(&state.runtime_config);
+    let policy = RuntimeContactVerificationPolicy::from_runtime_config(state.runtime_config());
     let Some(latest) = contact_verification_token_repo::find_latest_active_for_user(
         db,
         user_id,

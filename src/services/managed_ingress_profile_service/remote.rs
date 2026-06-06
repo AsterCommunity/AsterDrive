@@ -1,11 +1,11 @@
 use crate::errors::Result;
-use crate::runtime::PrimaryRuntimeState;
+use crate::runtime::RemoteProtocolRuntimeState;
 use crate::services::managed_follower_service;
 use crate::storage::remote_protocol::{
     RemoteCreateIngressProfileRequest, RemoteIngressProfileInfo, RemoteUpdateIngressProfileRequest,
 };
 
-pub async fn list_remote<S: PrimaryRuntimeState>(
+pub async fn list_remote<S: RemoteProtocolRuntimeState>(
     state: &S,
     remote_node_id: i64,
 ) -> Result<Vec<RemoteIngressProfileInfo>> {
@@ -15,7 +15,7 @@ pub async fn list_remote<S: PrimaryRuntimeState>(
         .await
 }
 
-pub async fn create_remote<S: PrimaryRuntimeState>(
+pub async fn create_remote<S: RemoteProtocolRuntimeState>(
     state: &S,
     remote_node_id: i64,
     input: RemoteCreateIngressProfileRequest,
@@ -26,7 +26,7 @@ pub async fn create_remote<S: PrimaryRuntimeState>(
         .await
 }
 
-pub async fn update_remote<S: PrimaryRuntimeState>(
+pub async fn update_remote<S: RemoteProtocolRuntimeState>(
     state: &S,
     remote_node_id: i64,
     profile_key: &str,
@@ -38,7 +38,7 @@ pub async fn update_remote<S: PrimaryRuntimeState>(
         .await
 }
 
-pub async fn delete_remote<S: PrimaryRuntimeState>(
+pub async fn delete_remote<S: RemoteProtocolRuntimeState>(
     state: &S,
     remote_node_id: i64,
     profile_key: &str,
@@ -60,7 +60,7 @@ pub async fn delete_remote<S: PrimaryRuntimeState>(
     Ok(())
 }
 
-async fn remote_client_for_node<S: PrimaryRuntimeState>(
+async fn remote_client_for_node<S: RemoteProtocolRuntimeState>(
     state: &S,
     remote_node_id: i64,
 ) -> Result<crate::storage::remote_protocol::RemoteStorageClient> {

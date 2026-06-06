@@ -7,6 +7,7 @@
 //! max attempts 和 retry class 都不应该在上层各自重复写一份 kind match。
 //! 如果要给后台任务增加一种新 kind，先改 `spec.rs`，再在这里注册即可。
 
+use crate::config::RuntimeConfig;
 use crate::entities::background_task;
 use crate::errors::{AsterError, Result};
 use crate::runtime::PrimaryAppState;
@@ -92,8 +93,8 @@ pub(super) fn initial_task_steps(kind: BackgroundTaskKind) -> Vec<TaskStepInfo> 
     initial_task_steps_from_specs(spec_for_kind(kind).step_specs())
 }
 
-pub(super) fn max_attempts(state: &PrimaryAppState, kind: BackgroundTaskKind) -> i32 {
-    spec_for_kind(kind).max_attempts(state)
+pub(super) fn max_attempts(runtime_config: &RuntimeConfig, kind: BackgroundTaskKind) -> i32 {
+    spec_for_kind(kind).max_attempts(runtime_config)
 }
 
 pub(in crate::services::task_service) fn task_lane(kind: BackgroundTaskKind) -> TaskLane {

@@ -4,7 +4,7 @@ use crate::config::site_url;
 use crate::db::repository::{follower_enrollment_session_repo, managed_follower_repo};
 use crate::entities::follower_enrollment_session;
 use crate::errors::{AsterError, Result};
-use crate::runtime::PrimaryRuntimeState;
+use crate::runtime::SharedRuntimeState;
 use chrono::{Duration, Utc};
 use sea_orm::Set;
 use serde::{Deserialize, Serialize};
@@ -44,7 +44,7 @@ pub struct RemoteEnrollmentBootstrap {
     pub ack_token: String,
 }
 
-pub async fn create_enrollment_command<S: PrimaryRuntimeState>(
+pub async fn create_enrollment_command<S: SharedRuntimeState>(
     state: &S,
     remote_node_id: i64,
 ) -> Result<RemoteEnrollmentCommandInfo> {
@@ -107,7 +107,7 @@ pub async fn create_enrollment_command<S: PrimaryRuntimeState>(
     })
 }
 
-pub async fn redeem_enrollment_token<S: PrimaryRuntimeState>(
+pub async fn redeem_enrollment_token<S: SharedRuntimeState>(
     state: &S,
     token: &str,
 ) -> Result<RemoteEnrollmentBootstrap> {
@@ -159,7 +159,7 @@ pub async fn redeem_enrollment_token<S: PrimaryRuntimeState>(
     .await
 }
 
-pub async fn ack_enrollment_token<S: PrimaryRuntimeState>(
+pub async fn ack_enrollment_token<S: SharedRuntimeState>(
     state: &S,
     ack_token: &str,
 ) -> Result<()> {

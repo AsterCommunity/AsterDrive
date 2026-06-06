@@ -2,7 +2,7 @@ use crate::api::pagination::{OffsetPage, load_offset_page};
 use crate::db::repository::user_repo;
 use crate::entities::user;
 use crate::errors::Result;
-use crate::runtime::PrimaryAppState;
+use crate::runtime::SharedRuntimeState;
 use crate::services::{auth_service, profile_service};
 use std::collections::{HashMap, HashSet};
 
@@ -24,7 +24,7 @@ pub fn to_user_summary_with_profile(
 }
 
 pub async fn to_user_summary(
-    state: &PrimaryAppState,
+    state: &impl SharedRuntimeState,
     user: &user::Model,
     audience: profile_service::AvatarAudience,
 ) -> Result<UserSummary> {
@@ -35,7 +35,7 @@ pub async fn to_user_summary(
 }
 
 pub async fn user_summaries_by_ids(
-    state: &PrimaryAppState,
+    state: &impl SharedRuntimeState,
     user_ids: &[i64],
     audience: profile_service::AvatarAudience,
 ) -> Result<HashMap<i64, UserSummary>> {
@@ -66,7 +66,7 @@ pub async fn user_summaries_by_ids(
 }
 
 pub async fn user_summary_by_id(
-    state: &PrimaryAppState,
+    state: &impl SharedRuntimeState,
     user_id: i64,
     audience: profile_service::AvatarAudience,
 ) -> Result<Option<UserSummary>> {
@@ -78,7 +78,7 @@ pub async fn user_summary_by_id(
 }
 
 pub async fn to_user_info(
-    state: &PrimaryAppState,
+    state: &impl SharedRuntimeState,
     user: &user::Model,
     audience: profile_service::AvatarAudience,
 ) -> Result<UserInfo> {
@@ -101,7 +101,7 @@ pub async fn to_user_info(
 }
 
 pub async fn to_user_infos(
-    state: &PrimaryAppState,
+    state: &impl SharedRuntimeState,
     users: Vec<user::Model>,
     audience: profile_service::AvatarAudience,
 ) -> Result<Vec<UserInfo>> {
@@ -131,7 +131,7 @@ pub async fn to_user_infos(
 }
 
 pub async fn get_me(
-    state: &PrimaryAppState,
+    state: &impl SharedRuntimeState,
     user_id: i64,
     access_token_expires_at: i64,
 ) -> Result<MeResponse> {
@@ -163,7 +163,7 @@ pub async fn get_me(
 }
 
 pub async fn get_me_partial(
-    state: &PrimaryAppState,
+    state: &impl SharedRuntimeState,
     user_id: i64,
     access_token_expires_at: i64,
     fields: MeResponseFields,
@@ -202,13 +202,13 @@ pub async fn get_me_partial(
     })
 }
 
-pub async fn get_self_info(state: &PrimaryAppState, user_id: i64) -> Result<UserInfo> {
+pub async fn get_self_info(state: &impl SharedRuntimeState, user_id: i64) -> Result<UserInfo> {
     let user = user_repo::find_by_id(state.reader_db(), user_id).await?;
     to_user_info(state, &user, profile_service::AvatarAudience::SelfUser).await
 }
 
 pub async fn list_paginated(
-    state: &PrimaryAppState,
+    state: &impl SharedRuntimeState,
     limit: u64,
     offset: u64,
     filters: UserListFilters,
@@ -238,7 +238,7 @@ pub async fn list_paginated(
     ))
 }
 
-pub async fn get(state: &PrimaryAppState, id: i64) -> Result<UserInfo> {
+pub async fn get(state: &impl SharedRuntimeState, id: i64) -> Result<UserInfo> {
     let user = user_repo::find_by_id(state.reader_db(), id).await?;
     to_user_info(state, &user, profile_service::AvatarAudience::AdminUser).await
 }

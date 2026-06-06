@@ -7,7 +7,7 @@ use crate::entities::{follower_enrollment_session, managed_follower};
 use crate::errors::{
     AsterError, Result, precondition_failed_with_subcode, validation_error_with_subcode,
 };
-use crate::runtime::PrimaryRuntimeState;
+use crate::runtime::RemoteProtocolRuntimeState;
 use crate::storage::error::{StorageErrorKind, storage_driver_error};
 use crate::storage::remote_protocol::{
     RemoteBindingSyncRequest, RemoteStorageCapabilities, RemoteStorageClient,
@@ -59,7 +59,7 @@ pub struct RemoteNodeInfo {
 }
 
 impl RemoteNodeInfo {
-    fn from_model<S: PrimaryRuntimeState>(
+    fn from_model<S: RemoteProtocolRuntimeState>(
         state: &S,
         model: managed_follower::Model,
         enrollment_status: RemoteNodeEnrollmentStatus,
@@ -126,7 +126,7 @@ enum RemoteNodeHealthTestOutcome {
     Failed,
 }
 
-pub async fn list_paginated<S: PrimaryRuntimeState>(
+pub async fn list_paginated<S: RemoteProtocolRuntimeState>(
     state: &S,
     limit: u64,
     offset: u64,
@@ -161,12 +161,12 @@ pub async fn list_paginated<S: PrimaryRuntimeState>(
     Ok(OffsetPage::new(items, page.total, page.limit, page.offset))
 }
 
-pub async fn get<S: PrimaryRuntimeState>(state: &S, id: i64) -> Result<RemoteNodeInfo> {
+pub async fn get<S: RemoteProtocolRuntimeState>(state: &S, id: i64) -> Result<RemoteNodeInfo> {
     let model = managed_follower_repo::find_by_id(state.writer_db(), id).await?;
     remote_node_info(state, model).await
 }
 
-pub async fn create<S: PrimaryRuntimeState>(
+pub async fn create<S: RemoteProtocolRuntimeState>(
     state: &S,
     input: CreateRemoteNodeInput,
 ) -> Result<RemoteNodeInfo> {
@@ -197,7 +197,7 @@ pub async fn create<S: PrimaryRuntimeState>(
     remote_node_info(state, created).await
 }
 
-pub async fn update<S: PrimaryRuntimeState>(
+pub async fn update<S: RemoteProtocolRuntimeState>(
     state: &S,
     id: i64,
     input: UpdateRemoteNodeInput,
@@ -250,7 +250,7 @@ pub async fn update<S: PrimaryRuntimeState>(
     remote_node_info(state, updated).await
 }
 
-pub async fn delete<S: PrimaryRuntimeState>(state: &S, id: i64) -> Result<()> {
+pub async fn delete<S: RemoteProtocolRuntimeState>(state: &S, id: i64) -> Result<()> {
     tracing::debug!(remote_node_id = id, "deleting remote node");
     let policy_refs = policy_repo::count_by_remote_node_id(state.writer_db(), id).await?;
     if policy_refs > 0 {
@@ -264,7 +264,10 @@ pub async fn delete<S: PrimaryRuntimeState>(state: &S, id: i64) -> Result<()> {
     Ok(())
 }
 
-pub async fn test_connection<S: PrimaryRuntimeState>(state: &S, id: i64) -> Result<RemoteNodeInfo> {
+pub async fn test_connection<S: RemoteProtocolRuntimeState>(
+    state: &S,
+    id: i64,
+) -> Result<RemoteNodeInfo> {
     let node = require_completed_enrollment(state, id).await?;
     let probed = probe_and_persist_node(state, &node).await?;
     if let Some(error) = probed.probe_error {
@@ -273,7 +276,7 @@ pub async fn test_connection<S: PrimaryRuntimeState>(state: &S, id: i64) -> Resu
     remote_node_info(state, probed.model).await
 }
 
-pub async fn require_completed_enrollment<S: PrimaryRuntimeState>(
+pub async fn require_completed_enrollment<S: RemoteProtocolRuntimeState>(
     state: &S,
     remote_node_id: i64,
 ) -> Result<managed_follower::Model> {
@@ -293,7 +296,7 @@ pub async fn test_connection_params(
     probe_connection(&input).await
 }
 
-async fn remote_node_info<S: PrimaryRuntimeState>(
+async fn remote_node_info<S: RemoteProtocolRuntimeState>(
     state: &S,
     model: managed_follower::Model,
 ) -> Result<RemoteNodeInfo> {
@@ -301,7 +304,7 @@ async fn remote_node_info<S: PrimaryRuntimeState>(
     Ok(RemoteNodeInfo::from_model(state, model, enrollment_status))
 }
 
-async fn enrollment_statuses_for_nodes<S: PrimaryRuntimeState>(
+async fn enrollment_statuses_for_nodes<S: RemoteProtocolRuntimeState>(
     state: &S,
     node_ids: &[i64],
 ) -> Result<HashMap<i64, RemoteNodeEnrollmentStatus>> {
@@ -338,7 +341,7 @@ async fn enrollment_statuses_for_nodes<S: PrimaryRuntimeState>(
         .collect())
 }
 
-async fn enrollment_status_for_node<S: PrimaryRuntimeState>(
+async fn enrollment_status_for_node<S: RemoteProtocolRuntimeState>(
     state: &S,
     node_id: i64,
 ) -> Result<RemoteNodeEnrollmentStatus> {
@@ -386,7 +389,7 @@ fn enrollment_status_from_latest(
     RemoteNodeEnrollmentStatus::Pending
 }
 
-pub async fn run_health_tests<S: PrimaryRuntimeState>(
+pub async fn run_health_tests<S: RemoteProtocolRuntimeState>(
     state: &S,
 ) -> Result<RemoteNodeHealthTestStats> {
     let nodes = managed_follower_repo::find_all(state.writer_db()).await?;
@@ -434,14 +437,14 @@ async fn probe_connection(input: &TestRemoteNodeInput) -> Result<RemoteStorageCa
     client.probe_capabilities().await
 }
 
-pub(crate) fn remote_storage_client_for_node<S: PrimaryRuntimeState>(
+pub(crate) fn remote_storage_client_for_node<S: RemoteProtocolRuntimeState>(
     state: &S,
     node: &managed_follower::Model,
 ) -> Result<crate::storage::remote_protocol::RemoteStorageClient> {
     state.remote_protocol().client_for_node(node)
 }
 
-async fn policy_requirements_for_node<S: PrimaryRuntimeState>(
+async fn policy_requirements_for_node<S: RemoteProtocolRuntimeState>(
     state: &S,
     remote_node_id: i64,
 ) -> Result<Vec<(i64, crate::types::StoragePolicyOptions)>> {
@@ -457,7 +460,7 @@ async fn policy_requirements_for_node<S: PrimaryRuntimeState>(
         .collect())
 }
 
-async fn ensure_transport_change_keeps_referencing_policies_valid<S: PrimaryRuntimeState>(
+async fn ensure_transport_change_keeps_referencing_policies_valid<S: RemoteProtocolRuntimeState>(
     state: &S,
     remote_node_id: i64,
     transport_mode: RemoteNodeTransportMode,
@@ -481,7 +484,7 @@ async fn ensure_transport_change_keeps_referencing_policies_valid<S: PrimaryRunt
     Ok(())
 }
 
-async fn probe_and_persist_node<S: PrimaryRuntimeState>(
+async fn probe_and_persist_node<S: RemoteProtocolRuntimeState>(
     state: &S,
     node: &managed_follower::Model,
 ) -> Result<ProbedRemoteNode> {
@@ -541,7 +544,7 @@ async fn probe_and_persist_node<S: PrimaryRuntimeState>(
     Ok(ProbedRemoteNode { model, probe_error })
 }
 
-async fn run_health_test_for_node<S: PrimaryRuntimeState>(
+async fn run_health_test_for_node<S: RemoteProtocolRuntimeState>(
     state: &S,
     node: managed_follower::Model,
     enrollment_status: RemoteNodeEnrollmentStatus,
@@ -622,7 +625,7 @@ fn normalize_non_blank(field: &str, value: &str) -> Result<String> {
     Ok(trimmed.to_string())
 }
 
-async fn refresh_registry<S: PrimaryRuntimeState>(state: &S) -> Result<()> {
+async fn refresh_registry<S: RemoteProtocolRuntimeState>(state: &S) -> Result<()> {
     state.policy_snapshot().reload(state.writer_db()).await?;
     state
         .driver_registry()
@@ -632,7 +635,7 @@ async fn refresh_registry<S: PrimaryRuntimeState>(state: &S) -> Result<()> {
     Ok(())
 }
 
-async fn sync_remote_binding_config<S: PrimaryRuntimeState>(
+async fn sync_remote_binding_config<S: RemoteProtocolRuntimeState>(
     state: &S,
     node: &managed_follower::Model,
 ) -> Result<()> {
@@ -649,7 +652,7 @@ async fn sync_remote_binding_config<S: PrimaryRuntimeState>(
         .await
 }
 
-async fn sync_remote_binding_config_with_timeout<S: PrimaryRuntimeState>(
+async fn sync_remote_binding_config_with_timeout<S: RemoteProtocolRuntimeState>(
     state: &S,
     node: &managed_follower::Model,
     timeout: Duration,

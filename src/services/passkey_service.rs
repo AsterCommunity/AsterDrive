@@ -19,7 +19,7 @@ use crate::entities::{passkey, user};
 use crate::errors::{
     AsterError, MapAsterErr, Result, auth_forbidden_with_subcode, validation_error_with_subcode,
 };
-use crate::runtime::PrimaryAppState;
+use crate::runtime::SharedRuntimeState;
 use crate::services::auth_service::{self, LoginResult, is_email_verified};
 use crate::types::StoredPasskeyCredential;
 use crate::utils::{
@@ -238,8 +238,8 @@ fn rp_id_from_origin(origin: &url::Url) -> Result<String> {
     Ok(host.to_string())
 }
 
-fn primary_public_origin(state: &PrimaryAppState) -> Result<String> {
-    let origin = site_url::public_site_url(&state.runtime_config).ok_or_else(|| {
+fn primary_public_origin(state: &impl SharedRuntimeState) -> Result<String> {
+    let origin = site_url::public_site_url(state.runtime_config()).ok_or_else(|| {
         AsterError::validation_error(
             "public_site_url must be configured before enabling passkey authentication",
         )
@@ -258,12 +258,12 @@ fn primary_public_origin(state: &PrimaryAppState) -> Result<String> {
     }
 }
 
-fn build_webauthn(state: &PrimaryAppState) -> Result<Webauthn> {
-    let origins = site_url::public_site_urls(&state.runtime_config);
+fn build_webauthn(state: &impl SharedRuntimeState) -> Result<Webauthn> {
+    let origins = site_url::public_site_urls(state.runtime_config());
     let primary_origin = primary_public_origin(state)?;
     let primary = url::Url::parse(&primary_origin).map_aster_err(webauthn_config_error)?;
     let rp_id = rp_id_from_origin(&primary)?;
-    let rp_name = branding::title_or_default(&state.runtime_config);
+    let rp_name = branding::title_or_default(state.runtime_config());
     let mut builder = WebauthnBuilder::new(&rp_id, &primary)
         .map_err(webauthn_config_error)?
         .rp_name(&rp_name);
@@ -279,8 +279,8 @@ fn build_webauthn(state: &PrimaryAppState) -> Result<Webauthn> {
     builder.build().map_err(webauthn_config_error)
 }
 
-fn ensure_passkey_login_enabled(state: &PrimaryAppState) -> Result<()> {
-    if RuntimeAuthPolicy::from_runtime_config(&state.runtime_config).passkey_login_enabled {
+fn ensure_passkey_login_enabled(state: &impl SharedRuntimeState) -> Result<()> {
+    if RuntimeAuthPolicy::from_runtime_config(state.runtime_config()).passkey_login_enabled {
         return Ok(());
     }
 
@@ -291,12 +291,12 @@ fn ensure_passkey_login_enabled(state: &PrimaryAppState) -> Result<()> {
 }
 
 async fn store_registration_challenge(
-    state: &PrimaryAppState,
+    state: &impl SharedRuntimeState,
     flow_id: &str,
     challenge: &PasskeyRegistrationChallenge,
 ) {
     state
-        .cache
+        .cache()
         .set(
             &registration_cache_key(flow_id),
             challenge,
@@ -306,25 +306,25 @@ async fn store_registration_challenge(
 }
 
 async fn take_registration_challenge(
-    state: &PrimaryAppState,
+    state: &impl SharedRuntimeState,
     flow_id: &str,
 ) -> Result<PasskeyRegistrationChallenge> {
     let key = registration_cache_key(flow_id);
     let challenge =
-        state.cache.get(&key).await.ok_or_else(|| {
+        state.cache().get(&key).await.ok_or_else(|| {
             AsterError::auth_token_invalid("passkey registration challenge expired")
         })?;
-    state.cache.delete(&key).await;
+    state.cache().delete(&key).await;
     Ok(challenge)
 }
 
 async fn store_login_challenge(
-    state: &PrimaryAppState,
+    state: &impl SharedRuntimeState,
     flow_id: &str,
     challenge: &PasskeyAuthenticationChallenge,
 ) {
     state
-        .cache
+        .cache()
         .set(
             &login_cache_key(flow_id),
             challenge,
@@ -334,16 +334,16 @@ async fn store_login_challenge(
 }
 
 async fn take_login_challenge(
-    state: &PrimaryAppState,
+    state: &impl SharedRuntimeState,
     flow_id: &str,
 ) -> Result<PasskeyAuthenticationChallenge> {
     let key = login_cache_key(flow_id);
     let challenge = state
-        .cache
+        .cache()
         .get(&key)
         .await
         .ok_or_else(|| AsterError::auth_token_invalid("passkey login challenge expired"))?;
-    state.cache.delete(&key).await;
+    state.cache().delete(&key).await;
     Ok(challenge)
 }
 
@@ -444,14 +444,17 @@ fn map_unique_passkey_err(err: DbErr) -> AsterError {
     AsterError::from(err)
 }
 
-pub async fn list_passkeys(state: &PrimaryAppState, user_id: i64) -> Result<Vec<PasskeyInfo>> {
+pub async fn list_passkeys(
+    state: &impl SharedRuntimeState,
+    user_id: i64,
+) -> Result<Vec<PasskeyInfo>> {
     passkey_repo::list_for_user(state.writer_db(), user_id)
         .await
         .map(|items| items.into_iter().map(model_to_info).collect())
 }
 
 pub async fn start_registration(
-    state: &PrimaryAppState,
+    state: &impl SharedRuntimeState,
     user_id: i64,
     name: Option<&str>,
 ) -> Result<PasskeyRegisterStartResp> {
@@ -499,7 +502,7 @@ pub async fn start_registration(
 }
 
 pub async fn finish_registration(
-    state: &PrimaryAppState,
+    state: &impl SharedRuntimeState,
     user_id: i64,
     flow_id: &str,
     credential: serde_json::Value,
@@ -562,7 +565,7 @@ pub async fn finish_registration(
 }
 
 pub async fn rename_passkey(
-    state: &PrimaryAppState,
+    state: &impl SharedRuntimeState,
     user_id: i64,
     id: i64,
     name: &str,
@@ -577,12 +580,16 @@ pub async fn rename_passkey(
     Ok(model_to_info(passkey))
 }
 
-pub async fn delete_passkey(state: &PrimaryAppState, user_id: i64, id: i64) -> Result<bool> {
+pub async fn delete_passkey(
+    state: &impl SharedRuntimeState,
+    user_id: i64,
+    id: i64,
+) -> Result<bool> {
     passkey_repo::delete_for_user(state.writer_db(), id, user_id).await
 }
 
 pub async fn start_login(
-    state: &PrimaryAppState,
+    state: &impl SharedRuntimeState,
     identifier: Option<&str>,
     conditional: bool,
 ) -> Result<PasskeyLoginStartResp> {
@@ -608,7 +615,7 @@ pub async fn start_login(
 }
 
 pub async fn finish_login(
-    state: &PrimaryAppState,
+    state: &impl SharedRuntimeState,
     flow_id: &str,
     credential: serde_json::Value,
     ip_address: Option<&str>,

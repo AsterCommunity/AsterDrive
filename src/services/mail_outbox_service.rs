@@ -9,7 +9,7 @@ use crate::config::RuntimeConfig;
 use crate::db::repository::mail_outbox_repo;
 use crate::entities::mail_outbox;
 use crate::errors::Result;
-use crate::runtime::PrimaryAppState;
+use crate::runtime::MailRuntimeState;
 use crate::services::{
     mail_service,
     mail_service::MailSender,
@@ -73,8 +73,8 @@ pub(crate) async fn enqueue<C: ConnectionTrait>(
     .await
 }
 
-pub async fn dispatch_due(state: &PrimaryAppState) -> Result<DispatchStats> {
-    dispatch_due_with(state.writer_db(), &state.runtime_config, &state.mail_sender).await
+pub async fn dispatch_due(state: &impl MailRuntimeState) -> Result<DispatchStats> {
+    dispatch_due_with(state.writer_db(), state.runtime_config(), state.mail_sender()).await
 }
 
 pub async fn dispatch_due_with(
@@ -184,8 +184,8 @@ pub async fn dispatch_due_with(
     Ok(stats)
 }
 
-pub async fn drain(state: &PrimaryAppState) -> Result<DispatchStats> {
-    drain_with(state.writer_db(), &state.runtime_config, &state.mail_sender).await
+pub async fn drain(state: &impl MailRuntimeState) -> Result<DispatchStats> {
+    drain_with(state.writer_db(), state.runtime_config(), state.mail_sender()).await
 }
 
 pub async fn drain_with(

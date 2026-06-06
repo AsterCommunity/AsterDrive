@@ -62,11 +62,32 @@ pub trait SharedRuntimeState {
     fn metrics(&self) -> &SharedMetricsRecorder;
 }
 
-pub trait PrimaryRuntimeState: SharedRuntimeState {
+pub trait MailRuntimeState: SharedRuntimeState {
     fn mail_sender(&self) -> &Arc<dyn MailSender>;
+}
+
+pub trait StorageChangeRuntimeState: SharedRuntimeState {
     fn storage_change_tx(&self) -> &tokio::sync::broadcast::Sender<StorageChangeEvent>;
+}
+
+pub trait ShareDownloadRuntimeState: SharedRuntimeState {
     fn share_download_rollback(&self) -> &ShareDownloadRollbackQueue;
+}
+
+pub trait RemoteProtocolRuntimeState: SharedRuntimeState {
     fn remote_protocol(&self) -> &Arc<RemoteProtocolRuntime>;
+}
+
+pub trait PrimaryRuntimeState:
+    MailRuntimeState
+    + StorageChangeRuntimeState
+    + ShareDownloadRuntimeState
+    + RemoteProtocolRuntimeState
+{
+}
+
+pub trait TaskRuntimeState: SharedRuntimeState {
+    fn wake_background_task_dispatcher(&self);
 }
 
 pub trait FollowerRuntimeState: SharedRuntimeState {}
@@ -167,21 +188,35 @@ impl SharedRuntimeState for PrimaryAppState {
     }
 }
 
-impl PrimaryRuntimeState for PrimaryAppState {
+impl PrimaryRuntimeState for PrimaryAppState {}
+
+impl MailRuntimeState for PrimaryAppState {
     fn mail_sender(&self) -> &Arc<dyn MailSender> {
         &self.mail_sender
     }
+}
 
+impl StorageChangeRuntimeState for PrimaryAppState {
     fn storage_change_tx(&self) -> &tokio::sync::broadcast::Sender<StorageChangeEvent> {
         &self.storage_change_tx
     }
+}
 
+impl ShareDownloadRuntimeState for PrimaryAppState {
     fn share_download_rollback(&self) -> &ShareDownloadRollbackQueue {
         &self.share_download_rollback
     }
+}
 
+impl RemoteProtocolRuntimeState for PrimaryAppState {
     fn remote_protocol(&self) -> &Arc<RemoteProtocolRuntime> {
         &self.remote_protocol
+    }
+}
+
+impl TaskRuntimeState for PrimaryAppState {
+    fn wake_background_task_dispatcher(&self) {
+        self.background_task_dispatch_wakeup.notify_one();
     }
 }
 
@@ -255,21 +290,35 @@ impl<T: SharedRuntimeState> SharedRuntimeState for web::Data<T> {
     }
 }
 
-impl<T: PrimaryRuntimeState> PrimaryRuntimeState for web::Data<T> {
+impl<T: PrimaryRuntimeState> PrimaryRuntimeState for web::Data<T> {}
+
+impl<T: MailRuntimeState> MailRuntimeState for web::Data<T> {
     fn mail_sender(&self) -> &Arc<dyn MailSender> {
         self.get_ref().mail_sender()
     }
+}
 
+impl<T: StorageChangeRuntimeState> StorageChangeRuntimeState for web::Data<T> {
     fn storage_change_tx(&self) -> &tokio::sync::broadcast::Sender<StorageChangeEvent> {
         self.get_ref().storage_change_tx()
     }
+}
 
+impl<T: ShareDownloadRuntimeState> ShareDownloadRuntimeState for web::Data<T> {
     fn share_download_rollback(&self) -> &ShareDownloadRollbackQueue {
         self.get_ref().share_download_rollback()
     }
+}
 
+impl<T: RemoteProtocolRuntimeState> RemoteProtocolRuntimeState for web::Data<T> {
     fn remote_protocol(&self) -> &Arc<RemoteProtocolRuntime> {
         self.get_ref().remote_protocol()
+    }
+}
+
+impl<T: TaskRuntimeState> TaskRuntimeState for web::Data<T> {
+    fn wake_background_task_dispatcher(&self) {
+        self.get_ref().wake_background_task_dispatcher();
     }
 }
 
@@ -277,7 +326,11 @@ impl<T: FollowerRuntimeState> FollowerRuntimeState for web::Data<T> {}
 
 #[cfg(test)]
 mod tests {
-    use super::{FollowerRuntimeState, PrimaryAppState, PrimaryRuntimeState, SharedRuntimeState};
+    use super::{
+        FollowerRuntimeState, MailRuntimeState, PrimaryAppState, PrimaryRuntimeState,
+        RemoteProtocolRuntimeState, ShareDownloadRuntimeState, SharedRuntimeState,
+        StorageChangeRuntimeState, TaskRuntimeState,
+    };
     use crate::config::{CacheConfig, Config, RuntimeConfig};
     use crate::services::share_service::build_share_download_rollback_queue;
     use crate::storage::{DriverRegistry, PolicySnapshot};
@@ -394,6 +447,10 @@ mod tests {
         );
         assert!(Arc::ptr_eq(&state.runtime_config, data.runtime_config()));
         assert!(Arc::ptr_eq(&state.mail_sender, data.mail_sender()));
+        assert!(Arc::ptr_eq(
+            &state.mail_sender,
+            MailRuntimeState::mail_sender(&data)
+        ));
         assert!(Arc::ptr_eq(&state.driver_registry, data.driver_registry()));
         assert!(Arc::ptr_eq(
             &state.policy_snapshot,
@@ -407,7 +464,22 @@ mod tests {
             state.storage_change_tx.receiver_count(),
             data.storage_change_tx().receiver_count()
         );
+        assert_eq!(
+            state.storage_change_tx.receiver_count(),
+            StorageChangeRuntimeState::storage_change_tx(&data).receiver_count()
+        );
         let _ = data.share_download_rollback();
+        let _ = ShareDownloadRuntimeState::share_download_rollback(&data);
+        assert!(Arc::ptr_eq(
+            &state.remote_protocol,
+            RemoteProtocolRuntimeState::remote_protocol(&data)
+        ));
+
+        let notified = state.background_task_dispatch_wakeup.notified();
+        TaskRuntimeState::wake_background_task_dispatcher(&data);
+        tokio::time::timeout(std::time::Duration::from_secs(1), notified)
+            .await
+            .expect("web::Data task runtime state should notify dispatcher");
     }
 
     #[tokio::test]

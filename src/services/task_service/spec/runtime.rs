@@ -1,4 +1,5 @@
 use super::{BackgroundTaskSpec, TaskProcessFuture};
+use crate::config::RuntimeConfig;
 use crate::entities::background_task;
 use crate::errors::AsterError;
 use crate::runtime::PrimaryAppState;
@@ -29,7 +30,7 @@ impl BackgroundTaskSpec for SystemRuntimeTask {
         TaskLane::Fallback
     }
 
-    fn max_attempts(_state: &PrimaryAppState) -> i32 {
+    fn max_attempts(_runtime_config: &RuntimeConfig) -> i32 {
         1
     }
 

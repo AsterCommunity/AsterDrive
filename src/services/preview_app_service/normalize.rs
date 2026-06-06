@@ -3,7 +3,7 @@
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 
 use crate::errors::{AsterError, Result};
-use crate::runtime::PrimaryAppState;
+use crate::runtime::SharedRuntimeState;
 
 use super::{
     DEFAULT_TABLE_PREVIEW_DELIMITER, PREVIEW_APPS_CONFIG_KEY, PREVIEW_APPS_VERSION,
@@ -37,8 +37,8 @@ pub fn public_preview_apps_config_has_missing_required_builtins(value: &str) -> 
         .any(|key| !keys.contains(*key)))
 }
 
-pub fn get_public_preview_apps(state: &PrimaryAppState) -> PublicPreviewAppsConfig {
-    let Some(raw) = state.runtime_config.get(PREVIEW_APPS_CONFIG_KEY) else {
+pub fn get_public_preview_apps(state: &impl SharedRuntimeState) -> PublicPreviewAppsConfig {
+    let Some(raw) = state.runtime_config().get(PREVIEW_APPS_CONFIG_KEY) else {
         return default_public_preview_apps();
     };
 

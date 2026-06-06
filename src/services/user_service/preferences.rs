@@ -6,7 +6,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use crate::db::repository::user_repo;
 use crate::entities::user;
 use crate::errors::{AsterError, MapAsterErr, Result};
-use crate::runtime::PrimaryAppState;
+use crate::runtime::SharedRuntimeState;
 use crate::types::{StoredUserConfig, UserConfig};
 
 use super::models::{UpdatePreferencesReq, UserPreferences};
@@ -32,7 +32,7 @@ pub fn parse_preferences(user: &user::Model) -> Option<UserPreferences> {
 
 /// 读取用户的偏好设置（按 ID 查询后解析）。
 pub async fn get_preferences(
-    state: &PrimaryAppState,
+    state: &impl SharedRuntimeState,
     user_id: i64,
 ) -> Result<Option<UserPreferences>> {
     let user = user_repo::find_by_id(state.writer_db(), user_id).await?;
@@ -111,7 +111,7 @@ fn normalize_custom_preference_removals(remove_custom_keys: Vec<String>) -> Resu
 
 /// 将用户配置写回 DB。空配置会清空 `users.config`。
 async fn save_user_config(
-    state: &PrimaryAppState,
+    state: &impl SharedRuntimeState,
     user: user::Model,
     config: &UserConfig,
 ) -> Result<()> {
@@ -128,7 +128,7 @@ async fn save_user_config(
 
 /// 合并更新偏好设置（只更新非 None 字段），返回完整 UserPreferences。
 pub async fn update_preferences(
-    state: &PrimaryAppState,
+    state: &impl SharedRuntimeState,
     user_id: i64,
     patch: UpdatePreferencesReq,
 ) -> Result<UserPreferences> {

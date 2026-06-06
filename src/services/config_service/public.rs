@@ -3,7 +3,7 @@ use crate::config::site_url;
 use crate::config::{auth_runtime, media_processing, operations};
 use crate::db::repository::config_repo;
 use crate::errors::Result;
-use crate::runtime::PrimaryAppState;
+use crate::runtime::SharedRuntimeState;
 use crate::services::preview_app_service;
 use crate::storage::{
     driver_type_supports_native_media_metadata, driver_type_supports_native_thumbnail,
@@ -76,40 +76,41 @@ pub struct PublicCustomConfig {
     pub entries: BTreeMap<String, String>,
 }
 
-pub fn get_public_branding(state: &PrimaryAppState) -> PublicBranding {
-    let auth_policy = auth_runtime::RuntimeAuthPolicy::from_runtime_config(&state.runtime_config);
+pub fn get_public_branding(state: &impl SharedRuntimeState) -> PublicBranding {
+    let runtime_config = state.runtime_config();
+    let auth_policy = auth_runtime::RuntimeAuthPolicy::from_runtime_config(runtime_config);
     PublicBranding {
-        title: branding::title_or_default(&state.runtime_config),
-        description: branding::description_or_default(&state.runtime_config),
-        favicon_url: branding::favicon_url_or_default(&state.runtime_config),
-        wordmark_dark_url: branding::wordmark_dark_url_or_default(&state.runtime_config),
-        wordmark_light_url: branding::wordmark_light_url_or_default(&state.runtime_config),
-        site_urls: site_url::public_site_urls(&state.runtime_config),
+        title: branding::title_or_default(runtime_config),
+        description: branding::description_or_default(runtime_config),
+        favicon_url: branding::favicon_url_or_default(runtime_config),
+        wordmark_dark_url: branding::wordmark_dark_url_or_default(runtime_config),
+        wordmark_light_url: branding::wordmark_light_url_or_default(runtime_config),
+        site_urls: site_url::public_site_urls(runtime_config),
         allow_user_registration: auth_policy.allow_user_registration,
         passkey_login_enabled: auth_policy.passkey_login_enabled,
     }
 }
 
-pub fn get_public_frontend_config(state: &PrimaryAppState) -> PublicFrontendConfig {
+pub fn get_public_frontend_config(state: &impl SharedRuntimeState) -> PublicFrontendConfig {
     PublicFrontendConfig {
         version: 1,
         branding: get_public_branding(state),
         media: PublicFrontendMediaConfig {
             image_preview_preference: operations::frontend_image_preview_preference(
-                &state.runtime_config,
+                state.runtime_config(),
             ),
         },
     }
 }
 
 pub fn get_public_preview_apps(
-    state: &PrimaryAppState,
+    state: &impl SharedRuntimeState,
 ) -> preview_app_service::PublicPreviewAppsConfig {
     preview_app_service::get_public_preview_apps(state)
 }
 
 pub async fn get_public_custom_config(
-    state: &PrimaryAppState,
+    state: &impl SharedRuntimeState,
     include_authenticated: bool,
 ) -> Result<PublicCustomConfig> {
     let entries = config_repo::find_visible_custom(state.reader_db(), include_authenticated)
@@ -121,7 +122,7 @@ pub async fn get_public_custom_config(
 }
 
 pub async fn get_public_media_data_support(
-    state: &PrimaryAppState,
+    state: &impl SharedRuntimeState,
 ) -> media_processing::PublicMediaDataSupport {
     let cache_key = public_media_data_support_cache_key(state);
     if let Some(cached) = PUBLIC_MEDIA_DATA_SUPPORT_CACHE.get(&cache_key).await {
@@ -140,7 +141,7 @@ pub(crate) fn invalidate_public_media_data_support_cache() {
 }
 
 pub async fn get_public_thumbnail_support(
-    state: &PrimaryAppState,
+    state: &impl SharedRuntimeState,
 ) -> media_processing::PublicThumbnailSupport {
     let cache_key = public_thumbnail_support_cache_key(state);
     if let Some(cached) = PUBLIC_THUMBNAIL_SUPPORT_CACHE.get(&cache_key).await {
@@ -159,9 +160,9 @@ pub(crate) fn invalidate_public_thumbnail_support_cache() {
 }
 
 fn build_public_thumbnail_support(
-    state: &PrimaryAppState,
+    state: &impl SharedRuntimeState,
 ) -> media_processing::PublicThumbnailSupport {
-    let mut support = media_processing::public_thumbnail_support(&state.runtime_config);
+    let mut support = media_processing::public_thumbnail_support(state.runtime_config());
     let mut extensions = support.extensions.iter().cloned().collect::<BTreeSet<_>>();
     let mut image_thumbnail_extensions = support
         .image_thumbnail
@@ -170,7 +171,7 @@ fn build_public_thumbnail_support(
         .cloned()
         .collect::<BTreeSet<_>>();
 
-    for policy in state.policy_snapshot.all_policies() {
+    for policy in state.policy_snapshot().all_policies() {
         let options = parse_storage_policy_options(policy.options.as_ref());
         if !options.uses_storage_native_thumbnail() || options.thumbnail_extensions.is_empty() {
             continue;
@@ -193,15 +194,15 @@ fn build_public_thumbnail_support(
 }
 
 fn build_public_media_data_support(
-    state: &PrimaryAppState,
+    state: &impl SharedRuntimeState,
 ) -> media_processing::PublicMediaDataSupport {
-    let mut support = media_processing::public_media_data_support(&state.runtime_config);
+    let mut support = media_processing::public_media_data_support(state.runtime_config());
     if !support.enabled {
         return support;
     }
 
     let mut storage_native_extensions = BTreeSet::new();
-    for policy in state.policy_snapshot.all_policies() {
+    for policy in state.policy_snapshot().all_policies() {
         let options = parse_storage_policy_options(policy.options.as_ref());
         if !options.uses_storage_native_media_metadata()
             || options.media_metadata_extensions.is_empty()
@@ -253,18 +254,18 @@ fn merge_storage_native_media_metadata_support(
     kind_support.extensions = extensions.into_iter().collect();
 }
 
-fn public_media_data_support_cache_key(state: &PrimaryAppState) -> String {
+fn public_media_data_support_cache_key(state: &impl SharedRuntimeState) -> String {
     let mut hasher = DefaultHasher::new();
     state
-        .runtime_config
+        .runtime_config()
         .get(media_processing::MEDIA_PROCESSING_REGISTRY_JSON_KEY)
         .hash(&mut hasher);
     state
-        .runtime_config
+        .runtime_config()
         .get(operations::MEDIA_METADATA_ENABLED_KEY)
         .hash(&mut hasher);
     state
-        .runtime_config
+        .runtime_config()
         .get(operations::MEDIA_METADATA_MAX_SOURCE_BYTES_KEY)
         .hash(&mut hasher);
     hash_policy_snapshot_for_public_support(state, &mut hasher);
@@ -275,10 +276,10 @@ fn public_media_data_support_cache_key(state: &PrimaryAppState) -> String {
     )
 }
 
-fn public_thumbnail_support_cache_key(state: &PrimaryAppState) -> String {
+fn public_thumbnail_support_cache_key(state: &impl SharedRuntimeState) -> String {
     let mut hasher = DefaultHasher::new();
     state
-        .runtime_config
+        .runtime_config()
         .get(media_processing::MEDIA_PROCESSING_REGISTRY_JSON_KEY)
         .hash(&mut hasher);
     hash_policy_snapshot_for_public_support(state, &mut hasher);
@@ -286,8 +287,8 @@ fn public_thumbnail_support_cache_key(state: &PrimaryAppState) -> String {
     format!("{PUBLIC_THUMBNAIL_SUPPORT_CACHE_KEY}:{:x}", hasher.finish())
 }
 
-fn hash_policy_snapshot_for_public_support(state: &PrimaryAppState, hasher: &mut DefaultHasher) {
-    let mut policies = state.policy_snapshot.all_policies();
+fn hash_policy_snapshot_for_public_support(state: &impl SharedRuntimeState, hasher: &mut DefaultHasher) {
+    let mut policies = state.policy_snapshot().all_policies();
     policies.sort_by_key(|policy| policy.id);
     for policy in policies {
         policy.id.hash(hasher);

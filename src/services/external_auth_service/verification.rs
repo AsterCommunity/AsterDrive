@@ -8,7 +8,7 @@ use crate::db::repository::{
 };
 use crate::entities::{external_auth_email_verification_flow, external_auth_provider};
 use crate::errors::{AsterError, Result, auth_forbidden_with_subcode};
-use crate::runtime::PrimaryAppState;
+use crate::runtime::SharedRuntimeState;
 use crate::services::{mail_outbox_service, mail_service, mail_template::MailTemplatePayload};
 use crate::utils::numbers::u64_to_i64;
 
@@ -41,7 +41,7 @@ fn format_mail_duration_seconds(total_secs: i64) -> String {
 }
 
 pub(super) async fn create_pending_email_verification_flow(
-    state: &PrimaryAppState,
+    state: &impl SharedRuntimeState,
     provider: &external_auth_provider::Model,
     claims: &ExternalAuthUserClaims,
     return_path: Option<String>,
@@ -80,7 +80,7 @@ pub(super) async fn create_pending_email_verification_flow(
 }
 
 pub async fn start_email_verification(
-    state: &PrimaryAppState,
+    state: &impl SharedRuntimeState,
     input: ExternalAuthEmailVerificationStartRequest,
 ) -> Result<ExternalAuthEmailVerificationStartResponse> {
     let flow_token = normalize_flow_token(&input.flow_token)?;
@@ -126,7 +126,7 @@ pub async fn start_email_verification(
             }
         }
         None => {
-            let auth_policy = RuntimeAuthPolicy::from_runtime_config(&state.runtime_config);
+            let auth_policy = RuntimeAuthPolicy::from_runtime_config(state.runtime_config());
             if !auth_policy.allow_user_registration {
                 return Err(auth_forbidden_with_subcode(
                     ApiSubcode::AuthRegistrationDisabled,
@@ -139,7 +139,7 @@ pub async fn start_email_verification(
     let verification_token = mail_service::build_verification_token();
     let verification_token_hash = token_hash(&verification_token);
     let provider_name = provider.display_name.clone();
-    let site_name = branding::title_or_default(&state.runtime_config);
+    let site_name = branding::title_or_default(state.runtime_config());
     let expires_in = format_mail_duration_seconds((flow.expires_at - now).num_seconds());
     let txn = crate::db::transaction::begin(state.writer_db()).await?;
     let result = async {
@@ -186,7 +186,7 @@ pub async fn start_email_verification(
 }
 
 pub async fn confirm_email_verification(
-    state: &PrimaryAppState,
+    state: &impl SharedRuntimeState,
     token: &str,
     _ip_address: Option<&str>,
     _user_agent: Option<&str>,
@@ -242,7 +242,7 @@ pub async fn confirm_email_verification(
                 && let Some(policy_group_id) = resolved.user.policy_group_id
             {
                 state
-                    .policy_snapshot
+                    .policy_snapshot()
                     .set_user_policy_group(resolved.user.id, policy_group_id);
             }
             resolved

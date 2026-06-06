@@ -3,7 +3,7 @@
 use crate::api::subcode::ApiSubcode;
 use crate::db::repository::user_repo;
 use crate::errors::{AsterError, Result, auth_forbidden_with_subcode};
-use crate::runtime::PrimaryAppState;
+use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::utils::hash;
 
 use super::session::{invalidate_auth_snapshot_cache, purge_all_auth_sessions_in_connection};
@@ -78,7 +78,7 @@ pub async fn login(
     outcome
 }
 
-fn record_login_metric(state: &PrimaryAppState, result: &Result<PrimaryLoginCompletion>) {
+fn record_login_metric(state: &impl SharedRuntimeState, result: &Result<PrimaryLoginCompletion>) {
     let (status, reason) = match result {
         Ok(_) => ("success", "ok"),
         Err(AsterError::AuthInvalidCredentials(_)) => ("failure", "invalid_credentials"),
@@ -87,11 +87,11 @@ fn record_login_metric(state: &PrimaryAppState, result: &Result<PrimaryLoginComp
         Err(AsterError::RateLimited(_)) => ("failure", "rate_limited"),
         Err(_) => ("failure", "error"),
     };
-    state.metrics.record_auth_event("login", status, reason);
+    state.metrics().record_auth_event("login", status, reason);
 }
 
 pub async fn change_password(
-    state: &PrimaryAppState,
+    state: &impl SharedRuntimeState,
     user_id: i64,
     current_password: &str,
     new_password: &str,
@@ -114,7 +114,7 @@ pub async fn change_password(
 }
 
 pub async fn set_password(
-    state: &PrimaryAppState,
+    state: &impl SharedRuntimeState,
     user_id: i64,
     new_password: &str,
 ) -> Result<AuthUserInfo> {

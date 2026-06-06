@@ -6,7 +6,7 @@ use sea_orm::Set;
 use crate::db::repository::{user_profile_repo, user_repo};
 use crate::entities::{user, user_profile};
 use crate::errors::{AsterError, Result};
-use crate::runtime::PrimaryAppState;
+use crate::runtime::SharedRuntimeState;
 
 use super::info::{AvatarAudience, UserProfileInfo, build_profile_info, resolve_gravatar_base_url};
 use super::shared::default_profile_active_model;
@@ -28,7 +28,7 @@ fn normalize_display_name(value: &str) -> Result<Option<String>> {
 }
 
 pub async fn get_profile_info(
-    state: &PrimaryAppState,
+    state: &impl SharedRuntimeState,
     user: &user::Model,
     audience: AvatarAudience,
 ) -> Result<UserProfileInfo> {
@@ -43,7 +43,7 @@ pub async fn get_profile_info(
 }
 
 pub async fn update_profile(
-    state: &PrimaryAppState,
+    state: &impl SharedRuntimeState,
     user_id: i64,
     display_name: Option<String>,
 ) -> Result<UserProfileInfo> {
@@ -98,7 +98,10 @@ pub async fn update_profile(
     ))
 }
 
-pub async fn get_wopi_user_info(state: &PrimaryAppState, user_id: i64) -> Result<Option<String>> {
+pub async fn get_wopi_user_info(
+    state: &impl SharedRuntimeState,
+    user_id: i64,
+) -> Result<Option<String>> {
     Ok(
         user_profile_repo::find_by_user_id(state.reader_db(), user_id)
             .await?
@@ -107,7 +110,7 @@ pub async fn get_wopi_user_info(state: &PrimaryAppState, user_id: i64) -> Result
 }
 
 pub async fn update_wopi_user_info(
-    state: &PrimaryAppState,
+    state: &impl SharedRuntimeState,
     user_id: i64,
     wopi_user_info: String,
 ) -> Result<()> {

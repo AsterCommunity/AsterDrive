@@ -3,7 +3,7 @@
 use crate::db::repository::{file_repo, folder_repo, property_repo};
 use crate::entities::entity_property;
 use crate::errors::{AsterError, Result};
-use crate::runtime::PrimaryAppState;
+use crate::runtime::SharedRuntimeState;
 use crate::services::{file_service, folder_service};
 use crate::types::EntityType;
 use serde::Serialize;
@@ -60,7 +60,7 @@ fn ensure_user_namespace_mutable(namespace: &str) -> Result<()> {
 
 /// 验证实体归属并返回
 async fn verify_ownership(
-    state: &PrimaryAppState,
+    state: &impl SharedRuntimeState,
     entity_type: EntityType,
     entity_id: i64,
     user_id: i64,
@@ -86,7 +86,7 @@ async fn verify_ownership(
 
 /// 列出实体的所有属性
 pub async fn list(
-    state: &PrimaryAppState,
+    state: &impl SharedRuntimeState,
     entity_type: EntityType,
     entity_id: i64,
     user_id: i64,
@@ -104,7 +104,7 @@ pub async fn list(
 
 /// 设置（新增/更新）属性
 pub async fn set(
-    state: &PrimaryAppState,
+    state: &impl SharedRuntimeState,
     entity_type: EntityType,
     entity_id: i64,
     user_id: i64,
@@ -147,7 +147,7 @@ pub async fn set(
 
 /// 删除单个属性
 pub async fn delete(
-    state: &PrimaryAppState,
+    state: &impl SharedRuntimeState,
     entity_type: EntityType,
     entity_id: i64,
     user_id: i64,

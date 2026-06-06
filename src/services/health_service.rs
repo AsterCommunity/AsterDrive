@@ -3,7 +3,7 @@
 use crate::cache::CacheBackend;
 use crate::config::CacheConfig;
 use crate::errors::{AsterError, MapAsterErr, Result};
-use crate::runtime::{FollowerRuntimeState, PrimaryRuntimeState};
+use crate::runtime::{FollowerRuntimeState, RemoteProtocolRuntimeState, SharedRuntimeState};
 use crate::services::task_service::types::{
     RuntimeSystemHealthComponent, RuntimeSystemHealthResult, RuntimeSystemHealthStatus,
 };
@@ -210,7 +210,7 @@ pub async fn ping_database(db: &DatabaseConnection) -> Result<()> {
         .map_aster_err(AsterError::database_operation)
 }
 
-pub async fn check_primary_ready<S: PrimaryRuntimeState>(state: &S) -> Result<()> {
+pub async fn check_primary_ready<S: SharedRuntimeState>(state: &S) -> Result<()> {
     let policy = state
         .policy_snapshot()
         .system_default_policy()
@@ -225,7 +225,7 @@ pub async fn check_follower_ready<S: FollowerRuntimeState>(state: &S) -> Result<
     crate::services::master_binding_service::assert_follower_ready(state).await
 }
 
-pub async fn run_primary_system_health_checks<S: PrimaryRuntimeState>(
+pub async fn run_primary_system_health_checks<S: RemoteProtocolRuntimeState>(
     state: &S,
 ) -> SystemHealthReport {
     let mut components = Vec::with_capacity(3);
@@ -244,7 +244,7 @@ async fn check_database_component(db: &DatabaseConnection) -> HealthComponentRep
     }
 }
 
-async fn check_cache_component<S: PrimaryRuntimeState>(state: &S) -> HealthComponentReport {
+async fn check_cache_component<S: SharedRuntimeState>(state: &S) -> HealthComponentReport {
     check_cache_backend(&state.config().cache, state.cache().as_ref()).await
 }
 
@@ -281,7 +281,9 @@ async fn check_cache_backend(
     )
 }
 
-async fn check_remote_nodes_component<S: PrimaryRuntimeState>(state: &S) -> HealthComponentReport {
+async fn check_remote_nodes_component<S: RemoteProtocolRuntimeState>(
+    state: &S,
+) -> HealthComponentReport {
     match managed_follower_service::run_health_tests(state).await {
         Ok(stats) if stats.failed > 0 => HealthComponentReport::unhealthy(
             "remote_nodes",

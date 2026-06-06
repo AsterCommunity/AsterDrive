@@ -60,7 +60,7 @@ use crate::config::operations;
 use crate::db::repository::background_task_repo;
 use crate::entities::background_task;
 use crate::errors::{AsterError, Result, precondition_failed_with_subcode};
-use crate::runtime::PrimaryAppState;
+use crate::runtime::{PrimaryAppState, SharedRuntimeState, TaskRuntimeState};
 use crate::services::{
     audit_service::{self, AuditContext},
     profile_service, user_service,
@@ -393,7 +393,10 @@ pub(crate) async fn retry_task_in_scope(
     get_task_in_scope(state, scope, task_id).await
 }
 
-async fn retry_task_record(state: &PrimaryAppState, task: &background_task::Model) -> Result<()> {
+async fn retry_task_record(
+    state: &impl TaskRuntimeState,
+    task: &background_task::Model,
+) -> Result<()> {
     if task.status != BackgroundTaskStatus::Failed {
         return Err(AsterError::validation_error(
             "only failed tasks can be retried",
@@ -409,7 +412,7 @@ async fn retry_task_record(state: &PrimaryAppState, task: &background_task::Mode
     // 手动重试会复用同一条任务记录，而不是新建“子任务”。
     // 这样前端和审计侧只需要跟踪一个稳定 task_id。
     let steps_json = serialize_task_steps(&registry::initial_task_steps(task.kind))?;
-    let max_attempts = registry::max_attempts(state, task.kind);
+    let max_attempts = registry::max_attempts(state.runtime_config().as_ref(), task.kind);
 
     let now = Utc::now();
     if !background_task_repo::reset_for_manual_retry(
@@ -781,7 +784,10 @@ impl<S: BackgroundTaskSpec> TypedTaskCreate<S> {
         self.last_error.as_deref().map(truncate_error)
     }
 
-    fn into_active_model(self, state: &PrimaryAppState) -> Result<background_task::ActiveModel> {
+    fn into_active_model(
+        self,
+        state: &impl SharedRuntimeState,
+    ) -> Result<background_task::ActiveModel> {
         let payload_json = spec::serialize_payload::<S>(&self.payload)?;
         let steps_json = self.steps_json()?;
         let status_text = self.status_text_for_insert();
@@ -802,7 +808,10 @@ impl<S: BackgroundTaskSpec> TypedTaskCreate<S> {
             progress_total: Set(self.progress_total),
             status_text: Set(status_text),
             attempt_count: Set(0),
-            max_attempts: Set(registry::max_attempts(state, S::KIND)),
+            max_attempts: Set(registry::max_attempts(
+                state.runtime_config().as_ref(),
+                S::KIND,
+            )),
             next_run_at: Set(self.next_run_at),
             processing_token: Set(0),
             processing_started_at: Set(None),
@@ -824,7 +833,7 @@ pub(in crate::services::task_service) async fn insert_typed_task_record<
     C: ConnectionTrait,
     S: BackgroundTaskSpec,
 >(
-    state: &PrimaryAppState,
+    state: &impl SharedRuntimeState,
     db: &C,
     request: TypedTaskCreate<S>,
 ) -> Result<background_task::Model> {
@@ -832,7 +841,7 @@ pub(in crate::services::task_service) async fn insert_typed_task_record<
 }
 
 pub(in crate::services::task_service) async fn create_typed_task_record<S: BackgroundTaskSpec>(
-    state: &PrimaryAppState,
+    state: &impl TaskRuntimeState,
     scope: WorkspaceStorageScope,
     display_name: &str,
     payload: &S::Payload,
@@ -1043,21 +1052,21 @@ pub(super) async fn cleanup_task_temp_dir_for_lease_in_root(
 }
 
 pub(super) async fn cleanup_task_temp_dir_for_task(
-    state: &PrimaryAppState,
+    state: &impl SharedRuntimeState,
     task_id: i64,
 ) -> Result<()> {
-    cleanup_task_temp_dir_for_task_in_root(&state.config.server.temp_dir, task_id).await
+    cleanup_task_temp_dir_for_task_in_root(&state.config().server.temp_dir, task_id).await
 }
 
 pub(super) async fn cleanup_task_temp_dir_for_task_kind(
-    state: &PrimaryAppState,
+    state: &impl SharedRuntimeState,
     kind: BackgroundTaskKind,
     task_id: i64,
 ) -> Result<()> {
     cleanup_task_temp_dir_for_task(state, task_id).await?;
     if kind == BackgroundTaskKind::OfflineDownload
-        && let Some(temp_root) = operations::offline_download_temp_dir(&state.runtime_config)
-        && temp_root != state.config.server.temp_dir
+        && let Some(temp_root) = operations::offline_download_temp_dir(state.runtime_config())
+        && temp_root != state.config().server.temp_dir
     {
         cleanup_task_temp_dir_for_task_in_root(&temp_root, task_id).await?;
     }
@@ -1098,7 +1107,7 @@ fn ensure_task_in_scope(task: &background_task::Model, scope: WorkspaceStorageSc
 }
 
 pub(super) fn task_expiration_from(
-    state: &PrimaryAppState,
+    state: &impl SharedRuntimeState,
     now: chrono::DateTime<chrono::Utc>,
 ) -> chrono::DateTime<chrono::Utc> {
     now + Duration::hours(load_task_retention_hours(state))
@@ -1119,8 +1128,8 @@ fn validate_admin_task_cleanup_status(status: Option<BackgroundTaskStatus>) -> R
     Ok(())
 }
 
-fn load_task_retention_hours(state: &PrimaryAppState) -> i64 {
-    let Some(raw) = state.runtime_config.get("task_retention_hours") else {
+fn load_task_retention_hours(state: &impl SharedRuntimeState) -> i64 {
+    let Some(raw) = state.runtime_config().get("task_retention_hours") else {
         return DEFAULT_TASK_RETENTION_HOURS;
     };
     match raw.parse::<i64>() {

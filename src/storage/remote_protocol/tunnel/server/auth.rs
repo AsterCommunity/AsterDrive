@@ -1,7 +1,7 @@
 use crate::db::repository::managed_follower_repo;
 use crate::entities::managed_follower;
 use crate::errors::{AsterError, Result};
-use crate::runtime::PrimaryRuntimeState;
+use crate::runtime::SharedRuntimeState;
 
 use hmac::Mac;
 
@@ -11,7 +11,7 @@ use crate::storage::remote_protocol::{
     internal_request_mac, sign_internal_request,
 };
 
-pub async fn authorize_tunnel_request<S: PrimaryRuntimeState>(
+pub async fn authorize_tunnel_request<S: SharedRuntimeState>(
     state: &S,
     method: &actix_web::http::Method,
     path_and_query: &str,
