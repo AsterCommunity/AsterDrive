@@ -128,7 +128,7 @@ pub(crate) fn destination_relative_path(
             if !scheme.eq_ignore_ascii_case(request_scheme)
                 || !authority.as_str().eq_ignore_ascii_case(request_host)
             {
-                return Err(responses::bad_gateway_text(
+                return Err(responses::bad_request_text(
                     "Destination must stay on this WebDAV server",
                 ));
             }
@@ -730,8 +730,9 @@ mod tests {
     use actix_web::http::header::{HeaderMap, HeaderName, HeaderValue};
 
     use super::{
-        Depth, IfHeader, IfStateCondition, parse_copy_depth, parse_delete_depth, parse_if_header,
-        parse_lock_depth, parse_move_depth, parse_propfind_depth, submitted_lock_tokens_for_path,
+        Depth, IfHeader, IfStateCondition, destination_relative_path, parse_copy_depth,
+        parse_delete_depth, parse_if_header, parse_lock_depth, parse_move_depth,
+        parse_propfind_depth, submitted_lock_tokens_for_path,
     };
 
     fn headers(name: &'static str, value: &'static str) -> HeaderMap {
@@ -741,6 +742,13 @@ mod tests {
             HeaderValue::from_static(value),
         );
         headers
+    }
+
+    async fn response_body(response: actix_web::HttpResponse) -> String {
+        let bytes = actix_web::body::to_bytes(response.into_body())
+            .await
+            .expect("response body should be readable");
+        String::from_utf8(bytes.to_vec()).expect("response body should be utf-8")
     }
 
     #[test]
@@ -838,6 +846,95 @@ mod tests {
         );
         assert!(parse_move_depth(&headers("Depth", "invalid")).is_err());
         assert!(parse_delete_depth(&headers("Depth", "invalid")).is_err());
+    }
+
+    #[test]
+    fn destination_accepts_relative_and_matching_absolute_urls() {
+        let relative = destination_relative_path(
+            &headers("Destination", "/webdav/folder/file%20name.txt"),
+            "/webdav",
+            "https",
+            "dav.example",
+        )
+        .expect("relative destination under prefix should parse");
+        assert_eq!(relative, "/folder/file name.txt");
+
+        let absolute = destination_relative_path(
+            &headers(
+                "Destination",
+                "HTTPS://DAV.EXAMPLE/webdav/folder/file%20name.txt",
+            ),
+            "/webdav",
+            "https",
+            "dav.example",
+        )
+        .expect("matching absolute destination should parse case-insensitively");
+        assert_eq!(absolute, "/folder/file name.txt");
+    }
+
+    #[actix_web::test]
+    async fn destination_rejects_missing_malformed_or_relative_reference_values() {
+        let response =
+            destination_relative_path(&HeaderMap::new(), "/webdav", "https", "dav.example")
+                .expect_err("missing Destination should be rejected");
+        assert_eq!(response.status(), actix_web::http::StatusCode::BAD_REQUEST);
+        assert_eq!(response_body(response).await, "Missing Destination header");
+
+        let response = destination_relative_path(
+            &headers("Destination", "not-an-absolute-path"),
+            "/webdav",
+            "https",
+            "dav.example",
+        )
+        .expect_err("relative-reference Destination should be rejected");
+        assert_eq!(response.status(), actix_web::http::StatusCode::BAD_REQUEST);
+        assert_eq!(response_body(response).await, "Invalid Destination header");
+
+        let mut invalid_utf8 = HeaderMap::new();
+        invalid_utf8.insert(
+            HeaderName::from_static("destination"),
+            HeaderValue::from_bytes(&[0xff]).expect("test header value should be constructible"),
+        );
+        let response = destination_relative_path(&invalid_utf8, "/webdav", "https", "dav.example")
+            .expect_err("non-utf8 Destination should be rejected");
+        assert_eq!(response.status(), actix_web::http::StatusCode::BAD_REQUEST);
+        assert_eq!(response_body(response).await, "Invalid Destination header");
+    }
+
+    #[actix_web::test]
+    async fn destination_rejects_cross_origin_and_out_of_prefix_targets() {
+        for destination in [
+            "http://dav.example/webdav/file.txt",
+            "https://other.example/webdav/file.txt",
+        ] {
+            let response = destination_relative_path(
+                &headers("Destination", destination),
+                "/webdav",
+                "https",
+                "dav.example",
+            )
+            .expect_err("cross-origin Destination should be rejected");
+            assert_eq!(response.status(), actix_web::http::StatusCode::BAD_REQUEST);
+            assert_eq!(
+                response_body(response).await,
+                "Destination must stay on this WebDAV server"
+            );
+        }
+
+        for destination in ["/webdavish/file.txt", "/outside/file.txt"] {
+            let response = destination_relative_path(
+                &headers("Destination", destination),
+                "/webdav",
+                "https",
+                "dav.example",
+            )
+            .expect_err("Destination outside prefix should be rejected");
+            assert_eq!(response.status(), actix_web::http::StatusCode::BAD_REQUEST);
+            assert_eq!(
+                response_body(response).await,
+                "Destination must stay under WebDAV prefix"
+            );
+        }
     }
 
     #[test]

@@ -36,6 +36,17 @@ pub(crate) fn xml_response(root: Element, status: StatusCode) -> HttpResponse {
     }
 }
 
+pub(crate) fn xml_response_builder(
+    root: Element,
+    status: StatusCode,
+) -> Result<(HttpResponseBuilder, Vec<u8>), HttpResponse> {
+    xml_bytes(&root).map(|body| {
+        let mut builder = build(status);
+        builder.content_type(XML_CONTENT_TYPE);
+        (builder, body)
+    })
+}
+
 pub(crate) fn xml_body(status: StatusCode, body: Vec<u8>) -> HttpResponse {
     build(status).content_type(XML_CONTENT_TYPE).body(body)
 }
@@ -111,10 +122,6 @@ pub(crate) fn service_unavailable_text(body: &'static str) -> HttpResponse {
 
 pub(crate) fn unsupported_media_type() -> HttpResponse {
     empty(StatusCode::UNSUPPORTED_MEDIA_TYPE)
-}
-
-pub(crate) fn bad_gateway_text(body: &'static str) -> HttpResponse {
-    text(StatusCode::BAD_GATEWAY, body)
 }
 
 pub(crate) fn payload_too_large_text(body: &'static str) -> HttpResponse {
@@ -221,7 +228,7 @@ mod tests {
         lock_token_matches_request_uri_response, lock_token_submitted_response, method_not_allowed,
         no_store, propfind_finite_depth_response, range_not_satisfiable, request_body_read_error,
         system_file_name_blocked, text, unauthorized, unsupported_root_proppatch, with_no_store,
-        xml_body_too_large, xml_response,
+        xml_body_too_large, xml_response, xml_response_builder,
     };
     use crate::webdav::dav::{DavPath, FsError};
     use crate::webdav::dav_element;
@@ -275,6 +282,32 @@ mod tests {
         assert!(text_response.headers().get(header::CACHE_CONTROL).is_none());
         assert_eq!(xml_response.status(), StatusCode::MULTI_STATUS);
         assert!(xml_response.headers().get(header::CACHE_CONTROL).is_none());
+    }
+
+    #[actix_web::test]
+    async fn xml_response_builder_allows_headers_before_body() {
+        let (mut builder, body) = match xml_response_builder(dav_element("prop"), StatusCode::OK) {
+            Ok(parts) => parts,
+            Err(response) => panic!(
+                "xml response builder should serialize test XML, got {}",
+                response.status()
+            ),
+        };
+        builder.insert_header(("Lock-Token", "<urn:uuid:test>"));
+        let response = builder.body(body);
+
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(
+            response.headers().get(header::CONTENT_TYPE),
+            Some(&header::HeaderValue::from_static(XML_CONTENT_TYPE))
+        );
+        assert_eq!(
+            response.headers().get("Lock-Token"),
+            Some(&header::HeaderValue::from_static("<urn:uuid:test>"))
+        );
+
+        let body = body_text(response).await;
+        assert!(body.contains("<D:prop"), "{body}");
     }
 
     #[test]

@@ -272,10 +272,10 @@ export function useImagePreviewTransform({
 
 	useEffect(() => {
 		if (gesturesEnabled) return;
-		pointers.clear();
+		pointersRef.current?.clear();
 		dragStartRef.current = null;
 		pinchStartRef.current = null;
-	}, [gesturesEnabled, pointers]);
+	}, [gesturesEnabled]);
 
 	useEffect(() => {
 		const handleResize = () => {

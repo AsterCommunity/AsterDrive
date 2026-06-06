@@ -252,7 +252,7 @@ async fn test_deltav_version_control_file() {
     assert_eq!(resp.status(), 200);
 }
 
-// ── VERSION-CONTROL：文件夹返回 409 ─────────────────────────
+// ── VERSION-CONTROL：文件夹返回 405 ─────────────────────────
 
 #[actix_web::test]
 async fn test_deltav_version_control_folder() {
@@ -271,7 +271,7 @@ async fn test_deltav_version_control_folder() {
         .insert_header(("Authorization", auth.clone()))
         .to_request();
     let resp: actix_web::dev::ServiceResponse = test::call_service(&app, req).await;
-    assert_eq!(resp.status(), 409);
+    assert_eq!(resp.status(), 405);
 }
 
 // ── VERSION-CONTROL：不存在返回 404 ─────────────────────────

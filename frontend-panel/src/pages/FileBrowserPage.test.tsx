@@ -97,6 +97,8 @@ const mockState = vi.hoisted(() => ({
 	},
 	toastError: vi.fn(),
 	toastSuccess: vi.fn(),
+	triggerFileUpload: vi.fn(),
+	triggerFolderUpload: vi.fn(),
 	useKeyboardShortcuts: vi.fn(),
 	workspace: {
 		kind: "personal" as const,
@@ -668,8 +670,8 @@ vi.mock("@/components/files/UploadArea", () => ({
 		}>;
 	}) {
 		useImperativeHandle(ref, () => ({
-			triggerFileUpload: vi.fn(),
-			triggerFolderUpload: vi.fn(),
+			triggerFileUpload: mockState.triggerFileUpload,
+			triggerFolderUpload: mockState.triggerFolderUpload,
 		}));
 		return <div>{children}</div>;
 	},
@@ -1080,6 +1082,8 @@ describe("FileBrowserPage", () => {
 		mockState.store.setViewMode.mockReset();
 		mockState.toastError.mockReset();
 		mockState.toastSuccess.mockReset();
+		mockState.triggerFileUpload.mockReset();
+		mockState.triggerFolderUpload.mockReset();
 		mockState.useKeyboardShortcuts.mockReset();
 		mockState.workspace = { kind: "personal" };
 
@@ -1513,6 +1517,24 @@ describe("FileBrowserPage", () => {
 		expect(
 			await screen.findByText("offline-download:Projects"),
 		).toBeInTheDocument();
+	});
+
+	it("opens create dialogs and triggers uploads from folder action menus", async () => {
+		render(<FileBrowserPage />);
+
+		fireEvent.click(screen.getAllByRole("button", { name: /new_file/ })[0]);
+		fireEvent.click(screen.getAllByRole("button", { name: /new_folder/ })[0]);
+
+		expect(await screen.findByText("create-file-dialog")).toBeInTheDocument();
+		expect(screen.getByText("create-folder-dialog")).toBeInTheDocument();
+
+		fireEvent.click(screen.getAllByRole("button", { name: /upload_file/ })[0]);
+		fireEvent.click(
+			screen.getAllByRole("button", { name: /upload_folder/ })[0],
+		);
+
+		expect(mockState.triggerFileUpload).toHaveBeenCalledTimes(1);
+		expect(mockState.triggerFolderUpload).toHaveBeenCalledTimes(1);
 	});
 
 	it("copies files and folders through the batch target dialog and refreshes after success", async () => {

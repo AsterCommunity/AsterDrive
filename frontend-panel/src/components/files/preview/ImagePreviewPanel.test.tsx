@@ -259,6 +259,32 @@ describe("ImagePreviewPanel", () => {
 		expect(onNavigateImage).toHaveBeenCalledTimes(2);
 	});
 
+	it("does not navigate with arrow keys from editable targets", () => {
+		const previousFile = { ...file, id: 6, name: "previous.png" };
+		const nextFile = { ...file, id: 8, name: "next.png" };
+		const onNavigateImage = vi.fn();
+		renderPanel({
+			previousImageFile: previousFile,
+			nextImageFile: nextFile,
+			onNavigateImage,
+		});
+
+		const input = document.createElement("input");
+		const textarea = document.createElement("textarea");
+		const editable = document.createElement("div");
+		Object.defineProperty(editable, "isContentEditable", {
+			configurable: true,
+			value: true,
+		});
+		document.body.append(input, textarea, editable);
+
+		fireEvent.keyDown(input, { key: "ArrowLeft" });
+		fireEvent.keyDown(textarea, { key: "ArrowRight" });
+		fireEvent.keyDown(editable, { key: "ArrowLeft" });
+
+		expect(onNavigateImage).not.toHaveBeenCalled();
+	});
+
 	it("renders only available image navigation directions", () => {
 		const previousFile = { ...file, id: 6, name: "previous.png" };
 		const nextFile = { ...file, id: 8, name: "next.png" };
@@ -638,6 +664,11 @@ describe("ImagePreviewPanel", () => {
 			clientY: 180,
 			pointerId: 1,
 		});
+		fireEvent.pointerUp(surface, {
+			clientX: 220,
+			clientY: 180,
+			pointerId: 1,
+		});
 
 		expect(
 			screen.getByRole("button", { name: "Fit to window" }),
@@ -707,6 +738,51 @@ describe("ImagePreviewPanel", () => {
 		expect(
 			screen.getByRole("button", { name: "Fit to window" }),
 		).toHaveTextContent("125%");
+	});
+
+	it("clears active pointers when gestures are disabled for a new image", () => {
+		const { rerender } = render(<ImagePreviewPanel {...panelProps()} />);
+		mockImageGeometry();
+		const surface = getGestureSurface();
+		fireEvent.pointerDown(surface, {
+			clientX: 180,
+			clientY: 150,
+			pointerId: 1,
+		});
+		fireEvent.pointerDown(surface, {
+			clientX: 220,
+			clientY: 150,
+			pointerId: 2,
+		});
+
+		rerender(
+			<ImagePreviewPanel
+				{...panelProps({
+					file: { ...file, id: 8, name: "next.png" },
+					downloadPath: "/files/8/download",
+					imagePreviewPath: "/files/8/image-preview",
+				})}
+			/>,
+		);
+		loadPanelImage();
+		const nextSurface = getGestureSurface();
+		fireEvent.pointerDown(nextSurface, {
+			clientX: 200,
+			clientY: 150,
+			pointerId: 3,
+		});
+		fireEvent.pointerMove(nextSurface, {
+			clientX: 360,
+			clientY: 230,
+			pointerId: 3,
+		});
+
+		expect(
+			screen.getByRole("button", { name: "Fit to window" }),
+		).toHaveTextContent("100%");
+		expect(mockState.blobProps?.imageStyle?.transform).toContain(
+			"translate3d(0px, 0px, 0)",
+		);
 	});
 
 	it("zooms with meta wheel and keeps the pointer anchor in bounds", () => {

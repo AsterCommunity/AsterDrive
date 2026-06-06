@@ -188,7 +188,7 @@ describe("BlobImagePreview", () => {
 		).not.toBeInTheDocument();
 	});
 
-	it("keeps avif on the backend preview path instead of treating it as browser-renderable", () => {
+	it("tries avif directly and falls back to the backend preview if rendering fails", () => {
 		mockState.imagePreviewPreference = "original_first";
 		mockState.useBlobUrl.mockImplementation((path: string | null) => ({
 			blobUrl: path?.includes("image-preview")
@@ -209,15 +209,26 @@ describe("BlobImagePreview", () => {
 
 		expect(screen.getByRole("img", { name: "modern.avif" })).toHaveAttribute(
 			"src",
-			"blob:medium",
+			"blob:original",
 		);
+		expect(mockState.useBlobUrl).toHaveBeenCalledWith("/files/1/download", {
+			lane: "default",
+		});
+		expect(mockState.useBlobUrl).not.toHaveBeenCalledWith(
+			"/files/1/image-preview",
+			{ lane: "preview" },
+		);
+
+		fireEvent.error(screen.getByRole("img", { name: "modern.avif" }));
+
 		expect(mockState.useBlobUrl).toHaveBeenCalledWith(
 			"/files/1/image-preview",
 			{ lane: "preview" },
 		);
-		expect(mockState.useBlobUrl).not.toHaveBeenCalledWith("/files/1/download", {
-			lane: "default",
-		});
+		expect(screen.getByRole("img", { name: "modern.avif" })).toHaveAttribute(
+			"src",
+			"blob:medium",
+		);
 		expect(
 			screen.queryByRole("button", { name: "preview_show_original" }),
 		).not.toBeInTheDocument();

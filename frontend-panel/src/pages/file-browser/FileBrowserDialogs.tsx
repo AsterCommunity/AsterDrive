@@ -56,7 +56,7 @@ interface FileBrowserDialogsProps {
 	onOfflineDownloadOpenChange: (open: boolean) => void;
 	onPreviewClose: () => void;
 	onPreviewFileUpdated: () => void | Promise<void>;
-	onPreviewNavigate: (file: FileBrowserPreviewState["file"]) => void;
+	onPreviewNavigate?: (file: FileBrowserPreviewState["file"]) => void;
 	onRenameClose: () => void;
 	onShareClose: () => void;
 	onVersionClose: () => void;
@@ -156,11 +156,15 @@ export function FileBrowserDialogs({
 					onClose={onPreviewClose}
 					onOpenChangeComplete={handleOpenChangeComplete}
 					onFileUpdated={onPreviewFileUpdated}
-					imageNavigation={{
-						previousFile: previewImageNavigation?.previousFile,
-						nextFile: previewImageNavigation?.nextFile,
-						onNavigate: onPreviewNavigate,
-					}}
+					imageNavigation={
+						previewImageNavigation && onPreviewNavigate
+							? {
+									previousFile: previewImageNavigation.previousFile,
+									nextFile: previewImageNavigation.nextFile,
+									onNavigate: onPreviewNavigate,
+								}
+							: undefined
+					}
 					previewLinkFactory={() =>
 						fileService.createPreviewLink(retainedPreviewState.file.id)
 					}

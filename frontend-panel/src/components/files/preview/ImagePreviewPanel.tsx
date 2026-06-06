@@ -4,6 +4,7 @@ import { Icon } from "@/components/ui/icon";
 import { useBlobUrl } from "@/hooks/useBlobUrl";
 import { canBrowserRenderImage } from "@/lib/browserImageSupport";
 import { formatBytes } from "@/lib/format";
+import { shouldIgnoreKeyboardTarget } from "@/lib/keyboard";
 import { cn } from "@/lib/utils";
 import { useFrontendConfigStore } from "@/stores/frontendConfigStore";
 import type { FileInfo, FileListItem } from "@/types/api";
@@ -267,6 +268,7 @@ export function ImagePreviewPanel({
 
 		const handleKeyDown = (event: KeyboardEvent) => {
 			if (event.defaultPrevented) return;
+			if (shouldIgnoreKeyboardTarget(event.target)) return;
 			if (event.key === "ArrowLeft" && previousImageFile) {
 				event.preventDefault();
 				onNavigateImage(previousImageFile);

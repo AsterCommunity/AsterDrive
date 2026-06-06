@@ -160,7 +160,10 @@ pub(crate) async fn handle_version_control(
         Ok(ResolvedNode::File(_)) => {
             responses::text(StatusCode::OK, "Already under version control")
         }
-        Ok(_) => error_response(StatusCode::CONFLICT, "Only files support version control"),
+        Ok(_) => error_response(
+            StatusCode::METHOD_NOT_ALLOWED,
+            "Only files support version control",
+        ),
         Err(_) => error_response(StatusCode::NOT_FOUND, "Not Found"),
     }
 }

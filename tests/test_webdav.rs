@@ -2827,8 +2827,14 @@ async fn test_webdav_copy_rejects_absolute_destination_on_other_host() {
     let resp = test::call_service(&app, req).await;
     assert_eq!(
         resp.status(),
-        502,
+        400,
         "absolute Destination URIs for another host must not be treated as local paths"
+    );
+    let body = test::read_body(resp).await;
+    let body_text = String::from_utf8_lossy(&body);
+    assert!(
+        body_text.contains("Destination must stay on this WebDAV server"),
+        "Destination host mismatch should keep the existing error text: {body_text}"
     );
 
     let req = test::TestRequest::get()

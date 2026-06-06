@@ -21,6 +21,27 @@ describe("browserImageSupport", () => {
 				mime_type: "application/octet-stream",
 			}),
 		).toBe(true);
+		expect(
+			canBrowserRenderImage({
+				name: "modern.avif",
+				mime_type: "application/octet-stream",
+			}),
+		).toBe(true);
+		expect(
+			canBrowserRenderImage({ name: "upload", mime_type: "image/avif" }),
+		).toBe(true);
+		expect(
+			canBrowserRenderImage({
+				name: "UPPER.AVIF",
+				mime_type: "application/octet-stream",
+			}),
+		).toBe(true);
+		expect(
+			canBrowserRenderImage({
+				name: "upload",
+				mime_type: " IMAGE/AVIF; codecs=av01 ",
+			}),
+		).toBe(true);
 	});
 
 	it("rejects image formats that need backend conversion first", () => {
@@ -36,17 +57,11 @@ describe("browserImageSupport", () => {
 		expect(
 			canBrowserRenderImage({ name: "scan.tiff", mime_type: "image/tiff" }),
 		).toBe(false);
-		expect(
-			canBrowserRenderImage({ name: "modern.avif", mime_type: "image/avif" }),
-		).toBe(false);
 	});
 
 	it("lets known unsupported extensions override browser-renderable MIME types", () => {
 		expect(
 			canBrowserRenderImage({ name: "capture.NEF", mime_type: "image/jpeg" }),
-		).toBe(false);
-		expect(
-			canBrowserRenderImage({ name: "modern.avif", mime_type: "image/png" }),
 		).toBe(false);
 	});
 
@@ -88,6 +103,12 @@ describe("browserImageSupport", () => {
 			canBrowserRenderImage({
 				name: "upload",
 				mime_type: "application/octet-stream",
+			}),
+		).toBe(false);
+		expect(
+			canBrowserRenderImage({
+				name: "upload",
+				mime_type: null,
 			}),
 		).toBe(false);
 	});

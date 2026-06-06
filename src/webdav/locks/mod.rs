@@ -12,7 +12,7 @@ use crate::webdav::protocol::{self, Depth};
 use crate::webdav::{
     child_elements, dav_element, encode_href, fs, fs_error_response, href_for_dav_path,
     lock_token_matches_request_uri_response, lock_token_submitted_response, request_origin,
-    request_path, responses, text_element, xml_bytes,
+    request_path, responses, text_element,
 };
 
 pub(crate) async fn handle_lock(
@@ -365,18 +365,15 @@ fn lock_response(
         prefix,
     )));
 
-    let body = match xml_bytes(&prop) {
-        Ok(body) => body,
+    let (mut response, body) = match responses::xml_response_builder(prop, status) {
+        Ok(parts) => parts,
         Err(resp) => return resp,
     };
 
-    let mut response = responses::build(status);
     if include_lock_token_header {
         response.insert_header(("Lock-Token", format!("<{}>", lock.token)));
     }
-    response
-        .content_type(responses::XML_CONTENT_TYPE)
-        .body(body)
+    response.body(body)
 }
 
 fn is_dav_element(element: &Element, local_name: &str) -> bool {

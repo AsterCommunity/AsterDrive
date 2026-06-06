@@ -1,4 +1,5 @@
 const BROWSER_RENDERABLE_IMAGE_EXTENSIONS = new Set([
+	"avif",
 	"bmp",
 	"dib",
 	"gif",
@@ -15,7 +16,6 @@ const BROWSER_RENDERABLE_IMAGE_EXTENSIONS = new Set([
 const BROWSER_NON_RENDERABLE_IMAGE_EXTENSIONS = new Set([
 	"3fr",
 	"arw",
-	"avif",
 	"cr2",
 	"cr3",
 	"dng",
@@ -43,6 +43,7 @@ const BROWSER_NON_RENDERABLE_IMAGE_EXTENSIONS = new Set([
 ]);
 
 const BROWSER_RENDERABLE_IMAGE_MIME_TYPES = new Set([
+	"image/avif",
 	"image/bmp",
 	"image/gif",
 	"image/jpg",
