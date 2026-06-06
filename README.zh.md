@@ -225,7 +225,7 @@ cargo run
 
 ### 环境要求
 
-- Rust `1.91.1+`
+- Rust `1.94.0+`
 - Bun
 - Node.js `24+`（当前 Docker 前端构建阶段会用到）
 

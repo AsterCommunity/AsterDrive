@@ -168,7 +168,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 **统计数据**：
 - 529 files changed, 49,170 insertions(+), 8,301 deletions(-)
 - 46 commits
-- Rust Edition 2024, MSRV 1.91.1
+- Rust Edition 2024, MSRV 1.94.0
 
 ## [v0.2.6] - 2026-06-02
 

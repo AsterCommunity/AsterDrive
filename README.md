@@ -225,7 +225,7 @@ The `v0.3` line focuses on richer workspace organization and the foundation for 
 
 ### Requirements
 
-- Rust `1.91.1+`
+- Rust `1.94.0+`
 - Bun
 - Node.js `24+` for the current Docker frontend build stage
 

@@ -10,7 +10,7 @@ authors = [
 repository = "https://github.com/AptS-1547/AsterDrive"
 license = "MIT"
 edition = "2024"
-rust-version = "1.91.1"
+rust-version = "1.94.0"
 
 # 优化配置
 [profile.dev]
