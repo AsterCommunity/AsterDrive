@@ -12,6 +12,7 @@ vi.mock("@/components/files/preview/FilePreviewDialog", () => ({
 		previewLinkFactory,
 		mediaStreamLinkFactory,
 		wopiSessionFactory,
+		imageNavigation,
 	}: {
 		open: boolean;
 		file: { name: string };
@@ -21,6 +22,7 @@ vi.mock("@/components/files/preview/FilePreviewDialog", () => ({
 		previewLinkFactory?: () => Promise<unknown>;
 		mediaStreamLinkFactory?: () => Promise<unknown>;
 		wopiSessionFactory?: (appKey: string) => Promise<unknown>;
+		imageNavigation?: { onNavigate: (file: unknown) => void };
 	}) => (
 		<div
 			data-testid="preview-dialog"
@@ -34,6 +36,7 @@ vi.mock("@/components/files/preview/FilePreviewDialog", () => ({
 				Boolean(mediaStreamLinkFactory),
 			)}
 			data-has-wopi-session-factory={String(Boolean(wopiSessionFactory))}
+			data-has-image-navigation={String(Boolean(imageNavigation))}
 		/>
 	),
 }));
@@ -52,6 +55,11 @@ describe("FilePreview", () => {
 				previewLinkFactory={async () => ({})}
 				mediaStreamLinkFactory={async () => ({})}
 				wopiSessionFactory={async () => ({})}
+				imageNavigation={{
+					previousFile: { id: 6, name: "previous.png" } as never,
+					nextFile: { id: 8, name: "next.png" } as never,
+					onNavigate: vi.fn(),
+				}}
 			/>,
 		);
 
@@ -85,6 +93,10 @@ describe("FilePreview", () => {
 		);
 		expect(screen.getByTestId("preview-dialog")).toHaveAttribute(
 			"data-has-wopi-session-factory",
+			"true",
+		);
+		expect(screen.getByTestId("preview-dialog")).toHaveAttribute(
+			"data-has-image-navigation",
 			"true",
 		);
 	});

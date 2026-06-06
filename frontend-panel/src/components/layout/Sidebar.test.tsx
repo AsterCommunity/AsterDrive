@@ -28,9 +28,7 @@ vi.mock("react-i18next", () => ({
 			if (key === "files:storage_quota") {
 				return `${key}:${options?.used}/${options?.quota}`;
 			}
-			if (key === "files:storage_used") {
-				return `${key}:${options?.used}`;
-			}
+			if (key === "core:unlimited") return "translated:core:unlimited";
 			return `translated:${key}`;
 		},
 	}),
@@ -291,7 +289,7 @@ describe("Sidebar", () => {
 		).toHaveAttribute("data-to", "/settings/teams/42/webdav");
 	});
 
-	it("renders storage used copy when no quota is configured", () => {
+	it("renders unlimited quota copy when no quota is configured", () => {
 		mockState.auth.user = {
 			storage_quota: 0,
 			storage_used: 25,
@@ -301,7 +299,9 @@ describe("Sidebar", () => {
 
 		expect(screen.getByTestId("progress")).toHaveAttribute("data-value", "0");
 		expect(
-			screen.getByText("files:storage_used:formatted:25"),
+			screen.getByText(
+				"files:storage_quota:formatted:25/translated:core:unlimited",
+			),
 		).toBeInTheDocument();
 	});
 

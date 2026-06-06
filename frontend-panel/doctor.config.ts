@@ -1,0 +1,38 @@
+import type { ReactDoctorConfig } from "react-doctor/api";
+
+export default {
+	ignore: {
+		rules: ["react-doctor/no-autofocus"],
+		files: ["dev-dist/**", "dist/**"],
+		overrides: [
+			{
+				files: ["src/components/ui/label.tsx"],
+				rules: ["react-doctor/label-has-associated-control"],
+			},
+			{
+				files: [
+					"src/components/music/MusicPlayerHost.tsx",
+					"src/components/files/preview/VideoPreview.tsx",
+				],
+				rules: ["react-doctor/media-has-caption"],
+			},
+			{
+				files: [
+					"src/components/files/preview/PdfPreview.tsx",
+					"src/components/files/BatchTargetFolderDialog.tsx",
+					"src/components/files/preview/CodePreviewEditor.tsx",
+					"src/components/layout/GlobalSearchDialog.tsx",
+				],
+				rules: ["react-doctor/rendering-hydration-mismatch-time"],
+			},
+			{
+				files: ["src/stores/authStore.ts"],
+				rules: ["react-doctor/server-sequential-independent-await"],
+			},
+			{
+				files: ["src/lib/format.ts", "src/stores/displayTimeZoneStore.ts"],
+				rules: ["react-doctor/js-hoist-intl"],
+			},
+		],
+	},
+} satisfies ReactDoctorConfig;

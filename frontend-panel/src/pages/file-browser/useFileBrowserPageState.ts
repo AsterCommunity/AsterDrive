@@ -155,6 +155,12 @@ export function useFileBrowserPageState({
 		[],
 	);
 
+	const navigatePreviewFile = useCallback((file: FileInfo | FileListItem) => {
+		setPreviewState((current) =>
+			current ? { ...current, file } : { file, openMode: "auto" },
+		);
+	}, []);
+
 	const openShareDialog = useCallback((target: FileBrowserShareTarget) => {
 		void ShareDialog.preload();
 		setShareTarget(target);
@@ -267,6 +273,7 @@ export function useFileBrowserPageState({
 		infoPanelOpen,
 		infoTarget,
 		moveTarget,
+		navigatePreviewFile,
 		openPreview,
 		openRenameDialog,
 		openShareDialog,

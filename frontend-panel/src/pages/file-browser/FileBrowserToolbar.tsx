@@ -22,6 +22,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Icon } from "@/components/ui/icon";
 import { cn } from "@/lib/utils";
+import { CurrentFolderDropdownMenuContent } from "@/pages/file-browser/CurrentFolderActionsMenu";
 import type { FileBrowserSelectionToolbarState } from "@/pages/file-browser/types";
 import type { SortBy, SortOrder } from "@/stores/fileStore/types";
 
@@ -66,6 +67,7 @@ interface FileBrowserToolbarProps {
 	selectionToolbar: FileBrowserSelectionToolbarState | null;
 	sortBy: SortBy;
 	sortOrder: SortOrder;
+	uploadReady: boolean;
 	viewMode: "grid" | "list";
 	onBreadcrumbDragLeave: (event: DragEvent) => void;
 	onBreadcrumbDragOver: (event: DragEvent, index: number) => void;
@@ -74,12 +76,16 @@ interface FileBrowserToolbarProps {
 		index: number,
 		targetFolderId: number | null,
 	) => Promise<void>;
+	onCreateFile: () => void;
+	onCreateFolder: () => void;
 	onNavigateToFolder: (folderId: number | null, folderName: string) => void;
 	onOfflineDownload: () => void;
 	onRefresh: () => void | Promise<void>;
 	onSetSortBy: (value: SortBy) => void;
 	onSetSortOrder: (value: SortOrder) => void;
 	onSetViewMode: (value: "grid" | "list") => void;
+	onTriggerFileUpload: () => void;
+	onTriggerFolderUpload: () => void;
 }
 
 function useSelectionToolbarMotion(
@@ -421,16 +427,21 @@ export function FileBrowserToolbar({
 	selectionToolbar,
 	sortBy,
 	sortOrder,
+	uploadReady,
 	viewMode,
 	onBreadcrumbDragLeave,
 	onBreadcrumbDragOver,
 	onBreadcrumbDrop,
+	onCreateFile,
+	onCreateFolder,
 	onNavigateToFolder,
 	onOfflineDownload,
 	onRefresh,
 	onSetSortBy,
 	onSetSortOrder,
 	onSetViewMode,
+	onTriggerFileUpload,
+	onTriggerFolderUpload,
 }: FileBrowserToolbarProps) {
 	const { t } = useTranslation(["files", "tasks"]);
 	const {
@@ -589,27 +600,31 @@ export function FileBrowserToolbar({
 	);
 	const defaultRight = (
 		<>
-			<Button
-				type="button"
-				size="sm"
-				variant="outline"
-				className="hidden sm:inline-flex"
-				onClick={onOfflineDownload}
-			>
-				<Icon name="LinkSimple" className="size-3.5" />
-				<span>{t("tasks:offline_download_action")}</span>
-			</Button>
-			<Button
-				type="button"
-				size="icon-sm"
-				variant="ghost"
-				className="sm:hidden"
-				onClick={onOfflineDownload}
-				aria-label={t("tasks:offline_download_action")}
-				title={t("tasks:offline_download_action")}
-			>
-				<Icon name="LinkSimple" className="size-4" />
-			</Button>
+			<DropdownMenu>
+				<DropdownMenuTrigger
+					render={
+						<Button
+							type="button"
+							size="icon-sm"
+							variant="ghost"
+							className="sm:hidden"
+							aria-label={t("folder_more_actions")}
+							title={t("folder_more_actions")}
+						>
+							<Icon name="DotsThree" className="size-4" />
+						</Button>
+					}
+				/>
+				<CurrentFolderDropdownMenuContent
+					uploadReady={uploadReady}
+					onCreateFile={onCreateFile}
+					onCreateFolder={onCreateFolder}
+					onOfflineDownload={onOfflineDownload}
+					onRefresh={onRefresh}
+					onTriggerFileUpload={onTriggerFileUpload}
+					onTriggerFolderUpload={onTriggerFolderUpload}
+				/>
+			</DropdownMenu>
 			<SortMenu
 				sortBy={sortBy}
 				sortOrder={sortOrder}

@@ -6,6 +6,8 @@
 	"preview_source_original": "原图",
 	"preview_source_preview": "预览图",
 	"preview_fit_to_window": "适应窗口",
+	"preview_previous_image": "上一张图片",
+	"preview_next_image": "下一张图片",
 	"preview_zoom_in": "放大",
 	"preview_zoom_out": "缩小",
 	"preview_rotate_right": "向右旋转",

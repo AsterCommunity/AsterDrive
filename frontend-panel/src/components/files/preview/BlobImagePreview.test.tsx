@@ -153,6 +153,133 @@ describe("BlobImagePreview", () => {
 		).not.toBeInTheDocument();
 	});
 
+	it("uses the backend preview first when an original-first image is not browser-renderable", () => {
+		mockState.imagePreviewPreference = "original_first";
+		mockState.useBlobUrl.mockImplementation((path: string | null) => ({
+			blobUrl: path?.includes("image-preview")
+				? "blob:medium"
+				: "blob:original",
+			error: false,
+			loading: false,
+			retry: mockState.retry,
+		}));
+
+		render(
+			<BlobImagePreview
+				file={{ name: "capture.nef", mime_type: "image/x-nikon-nef" }}
+				path="/files/1/download"
+				fallbackPath="/files/1/image-preview"
+			/>,
+		);
+
+		expect(screen.getByRole("img", { name: "capture.nef" })).toHaveAttribute(
+			"src",
+			"blob:medium",
+		);
+		expect(mockState.useBlobUrl).toHaveBeenCalledWith(
+			"/files/1/image-preview",
+			{ lane: "preview" },
+		);
+		expect(mockState.useBlobUrl).not.toHaveBeenCalledWith("/files/1/download", {
+			lane: "default",
+		});
+		expect(
+			screen.queryByRole("button", { name: "preview_show_original" }),
+		).not.toBeInTheDocument();
+	});
+
+	it("keeps avif on the backend preview path instead of treating it as browser-renderable", () => {
+		mockState.imagePreviewPreference = "original_first";
+		mockState.useBlobUrl.mockImplementation((path: string | null) => ({
+			blobUrl: path?.includes("image-preview")
+				? "blob:medium"
+				: "blob:original",
+			error: false,
+			loading: false,
+			retry: mockState.retry,
+		}));
+
+		render(
+			<BlobImagePreview
+				file={{ name: "modern.avif", mime_type: "image/avif" }}
+				path="/files/1/download"
+				fallbackPath="/files/1/image-preview"
+			/>,
+		);
+
+		expect(screen.getByRole("img", { name: "modern.avif" })).toHaveAttribute(
+			"src",
+			"blob:medium",
+		);
+		expect(mockState.useBlobUrl).toHaveBeenCalledWith(
+			"/files/1/image-preview",
+			{ lane: "preview" },
+		);
+		expect(mockState.useBlobUrl).not.toHaveBeenCalledWith("/files/1/download", {
+			lane: "default",
+		});
+		expect(
+			screen.queryByRole("button", { name: "preview_show_original" }),
+		).not.toBeInTheDocument();
+	});
+
+	it("uses the original path for non-renderable formats when no backend preview exists", () => {
+		mockState.imagePreviewPreference = "original_first";
+
+		render(
+			<BlobImagePreview
+				file={{ name: "capture.nef", mime_type: "image/x-nikon-nef" }}
+				path="/files/1/download"
+			/>,
+		);
+
+		expect(mockState.useBlobUrl).toHaveBeenCalledWith("/files/1/download", {
+			lane: "default",
+		});
+		expect(
+			screen.queryByRole("button", { name: "preview_show_original" }),
+		).not.toBeInTheDocument();
+	});
+
+	it("falls back to the backend preview when an original-first renderable image fails to render", () => {
+		mockState.imagePreviewPreference = "original_first";
+		mockState.useBlobUrl.mockImplementation((path: string | null) => ({
+			blobUrl: path?.includes("image-preview")
+				? "blob:medium"
+				: "blob:original",
+			error: false,
+			loading: false,
+			retry: mockState.retry,
+		}));
+
+		render(
+			<BlobImagePreview
+				file={file}
+				path="/files/1/download"
+				fallbackPath="/files/1/image-preview"
+			/>,
+		);
+
+		expect(screen.getByRole("img", { name: "preview.png" })).toHaveAttribute(
+			"src",
+			"blob:original",
+		);
+
+		fireEvent.error(screen.getByRole("img", { name: "preview.png" }));
+
+		expect(mockState.useBlobUrl).toHaveBeenCalledWith(
+			"/files/1/image-preview",
+			{ lane: "preview" },
+		);
+		expect(screen.getByRole("img", { name: "preview.png" })).toHaveAttribute(
+			"src",
+			"blob:medium",
+		);
+		expect(
+			screen.queryByRole("button", { name: "preview_show_original" }),
+		).not.toBeInTheDocument();
+	});
+
 	it("uses only the backend preview initially when the public preference is preview_first", () => {
 		mockState.imagePreviewPreference = "preview_first";
 

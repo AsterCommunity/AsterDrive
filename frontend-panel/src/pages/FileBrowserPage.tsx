@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useParams, useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
+import { getImagePreviewNavigation } from "@/components/files/preview/imagePreviewNavigation";
 import {
 	UploadArea,
 	type UploadAreaHandle,
@@ -28,6 +29,7 @@ import { useMediaQuery } from "@/pages/file-browser/useMediaQuery";
 import { fileService } from "@/services/fileService";
 import { useFileStore } from "@/stores/fileStore";
 import { usePreviewAppStore } from "@/stores/previewAppStore";
+import { useThumbnailSupportStore } from "@/stores/thumbnailSupportStore";
 import { useWorkspaceStore } from "@/stores/workspaceStore";
 
 export default function FileBrowserPage() {
@@ -54,6 +56,7 @@ export default function FileBrowserPage() {
 	const search = useFileStore((s) => s.search);
 	const previewAppsLoaded = usePreviewAppStore((s) => s.isLoaded);
 	const loadPreviewApps = usePreviewAppStore((s) => s.load);
+	const thumbnailSupport = useThumbnailSupportStore((s) => s.config);
 	const breadcrumb = useFileStore((s) => s.breadcrumb);
 	const folders = useFileStore((s) => s.folders);
 	const files = useFileStore((s) => s.files);
@@ -139,6 +142,7 @@ export default function FileBrowserPage() {
 		infoPanelOpen,
 		infoTarget,
 		moveTarget,
+		navigatePreviewFile,
 		openPreview,
 		openRenameDialog,
 		openShareDialog,
@@ -287,6 +291,18 @@ export default function FileBrowserPage() {
 	const handleScrollViewportRef = useCallback((node: HTMLDivElement | null) => {
 		setScrollViewport(node);
 	}, []);
+
+	const previewImageNavigation = useMemo(
+		() =>
+			previewState
+				? getImagePreviewNavigation(
+						displayFiles,
+						previewState.file,
+						thumbnailSupport,
+					)
+				: {},
+		[displayFiles, previewState, thumbnailSupport],
+	);
 	const openOfflineDownloadDialog = useCallback(() => {
 		void OfflineDownloadDialogPreloader.preload();
 		setOfflineDownloadOpen(true);
@@ -303,16 +319,23 @@ export default function FileBrowserPage() {
 				selectionToolbar={selectionToolbar}
 				sortBy={sortBy}
 				sortOrder={sortOrder}
+				uploadReady={uploadReady}
 				viewMode={viewMode}
 				onBreadcrumbDragLeave={handleBreadcrumbDragLeave}
 				onBreadcrumbDragOver={handleBreadcrumbDragOver}
 				onBreadcrumbDrop={handleBreadcrumbDrop}
+				onCreateFile={() => setCreateFileOpen(true)}
+				onCreateFolder={() => setCreateFolderOpen(true)}
 				onNavigateToFolder={handleNavigateToFolder}
 				onOfflineDownload={openOfflineDownloadDialog}
 				onRefresh={refresh}
 				onSetSortBy={setSortBy}
 				onSetSortOrder={setSortOrder}
 				onSetViewMode={setViewMode}
+				onTriggerFileUpload={() => uploadAreaRef.current?.triggerFileUpload()}
+				onTriggerFolderUpload={() =>
+					uploadAreaRef.current?.triggerFolderUpload()
+				}
 			/>
 			<FileBrowserWorkspace
 				breadcrumb={breadcrumb}
@@ -374,6 +397,7 @@ export default function FileBrowserPage() {
 				currentFolderName={currentFolderName}
 				moveTarget={moveTarget}
 				offlineDownloadOpen={offlineDownloadOpen}
+				previewImageNavigation={previewImageNavigation}
 				previewState={previewState}
 				renameTarget={renameTarget}
 				shareTarget={shareTarget}
@@ -389,6 +413,7 @@ export default function FileBrowserPage() {
 				onOfflineDownloadOpenChange={setOfflineDownloadOpen}
 				onPreviewClose={() => setPreviewState(null)}
 				onPreviewFileUpdated={refresh}
+				onPreviewNavigate={navigatePreviewFile}
 				onRenameClose={() => setRenameTarget(null)}
 				onShareClose={() => setShareTarget(null)}
 				onVersionClose={() => setVersionTarget(null)}

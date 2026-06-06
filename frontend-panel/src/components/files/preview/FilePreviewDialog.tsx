@@ -26,6 +26,7 @@ export function FilePreviewDialog({
 	loadMusicBackendMetadata,
 	mediaStreamLinkFactory,
 	wopiSessionFactory,
+	imageNavigation,
 	openMode = "auto",
 }: FilePreviewDialogProps) {
 	const { i18n, t } = useTranslation(["core", "files"]);
@@ -95,11 +96,16 @@ export function FilePreviewDialog({
 							onChooseOpenMethod={model.handleOpenMethodPickerOpen}
 							onToggleExpand={model.handleExpandToggle}
 							onClose={model.closeWithGuard}
+							previousImageFile={imageNavigation?.previousFile}
+							nextImageFile={imageNavigation?.nextFile}
+							onNavigateImage={imageNavigation?.onNavigate}
 							chooseOpenMethodLabel={t("files:choose_open_method")}
 							enterFullscreenLabel={t("files:preview_enter_fullscreen")}
 							exitFullscreenLabel={t("files:preview_exit_fullscreen")}
 							closeLabel={t("core:close")}
 							fitToWindowLabel={t("files:preview_fit_to_window")}
+							previousImageLabel={t("files:preview_previous_image")}
+							nextImageLabel={t("files:preview_next_image")}
 							previewSourceLabel={t("files:preview_source_preview")}
 							originalSourceLabel={t("files:preview_source_original")}
 							rotateRightLabel={t("files:preview_rotate_right")}

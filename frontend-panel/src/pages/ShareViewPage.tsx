@@ -1,6 +1,10 @@
-import { lazy, Suspense, useCallback, useEffect } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { useParams } from "react-router-dom";
+import {
+	getImagePreviewNavigation,
+	type ImagePreviewNavigation,
+} from "@/components/files/preview/imagePreviewNavigation";
 import { usePageTitle } from "@/hooks/usePageTitle";
 import { useRetainedDialogValue } from "@/hooks/useRetainedDialogValue";
 import { supportsAudioMediaData } from "@/lib/mediaDataSupport";
@@ -8,7 +12,7 @@ import { backendAudioMetadataToTrackMetadata } from "@/lib/musicPlayer";
 import { shareService } from "@/services/shareService";
 import { useMediaDataSupportStore } from "@/stores/mediaDataSupportStore";
 import { useThumbnailSupportStore } from "@/stores/thumbnailSupportStore";
-import type { FileInfo } from "@/types/api";
+import type { FileInfo, FileListItem } from "@/types/api";
 import { ShareFileView } from "./share-view/ShareFileView";
 import { ShareLoadingSkeleton } from "./share-view/ShareFolderSkeleton";
 import { ShareFolderView } from "./share-view/ShareFolderView";
@@ -30,13 +34,17 @@ export function SharePreviewElement({
 	info,
 	token,
 	previewFile,
+	imageNavigation,
 	onClose,
+	onPreviewNavigate,
 }: Pick<
 	ReturnType<typeof useShareViewPageController>,
 	"info" | "previewFile"
 > & {
 	token: string;
+	imageNavigation?: ImagePreviewNavigation<FileInfo | FileListItem>;
 	onClose: () => void;
+	onPreviewNavigate: (file: FileInfo | FileListItem) => void;
 }) {
 	const mediaDataSupport = useMediaDataSupportStore((state) => state.config);
 	const mediaDataSupportLoaded = useMediaDataSupportStore(
@@ -110,6 +118,17 @@ export function SharePreviewElement({
 					retainedPreviewFile.id,
 				);
 	}, [info, retainedPreviewFile, token]);
+	const filePreviewImageNavigation = useMemo(
+		() =>
+			imageNavigation
+				? {
+						previousFile: imageNavigation.previousFile,
+						nextFile: imageNavigation.nextFile,
+						onNavigate: onPreviewNavigate,
+					}
+				: undefined,
+		[imageNavigation, onPreviewNavigate],
+	);
 
 	if (!retainedPreviewFile) {
 		return null;
@@ -153,6 +172,7 @@ export function SharePreviewElement({
 						: undefined
 				}
 				mediaStreamLinkFactory={createMediaStreamLink}
+				imageNavigation={filePreviewImageNavigation}
 			/>
 		</Suspense>
 	);
@@ -176,6 +196,22 @@ export default function ShareViewPage() {
 		if (thumbnailSupportLoaded) return;
 		void loadThumbnailSupport();
 	}, [loadThumbnailSupport, thumbnailSupportLoaded]);
+	const previewImageNavigation = useMemo(
+		() =>
+			controller.info?.share_type === "folder"
+				? getImagePreviewNavigation(
+						controller.folderContents?.files ?? [],
+						controller.previewFile,
+						thumbnailSupport,
+					)
+				: {},
+		[
+			controller.folderContents?.files,
+			controller.info?.share_type,
+			controller.previewFile,
+			thumbnailSupport,
+		],
+	);
 
 	if (controller.loading) {
 		return <ShareLoadingSkeleton />;
@@ -202,7 +238,9 @@ export default function ShareViewPage() {
 			info={controller.info}
 			token={token}
 			previewFile={controller.previewFile}
+			imageNavigation={previewImageNavigation}
 			onClose={closePreview}
+			onPreviewNavigate={controller.setPreviewFile}
 		/>
 	);
 

@@ -9,16 +9,11 @@ import {
 } from "@/components/files/FileBrowserContext";
 import { FileGrid } from "@/components/files/FileGrid";
 import { FileTable } from "@/components/files/FileTable";
-import {
-	ContextMenu,
-	ContextMenuContent,
-	ContextMenuItem,
-	ContextMenuSeparator,
-	ContextMenuTrigger,
-} from "@/components/ui/context-menu";
+import { ContextMenu, ContextMenuTrigger } from "@/components/ui/context-menu";
 import { Icon } from "@/components/ui/icon";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
+import { CurrentFolderContextMenuContent } from "@/pages/file-browser/CurrentFolderActionsMenu";
 import { FileInfoDialog } from "@/pages/file-browser/fileBrowserLazy";
 import type { FileBrowserInfoTarget } from "@/pages/file-browser/types";
 import type {
@@ -183,40 +178,15 @@ export function FileBrowserWorkspace({
 							)}
 						</ScrollArea>
 					</ContextMenuTrigger>
-					<ContextMenuContent>
-						<ContextMenuItem
-							disabled={!uploadReady}
-							onClick={onTriggerFileUpload}
-						>
-							<Icon name="Upload" className="mr-2 size-4" />
-							{t("upload_file")}
-						</ContextMenuItem>
-						<ContextMenuItem
-							disabled={!uploadReady}
-							onClick={onTriggerFolderUpload}
-						>
-							<Icon name="FolderOpen" className="mr-2 size-4" />
-							{t("upload_folder")}
-						</ContextMenuItem>
-						<ContextMenuSeparator />
-						<ContextMenuItem onClick={onCreateFolder}>
-							<Icon name="FolderPlus" className="mr-2 size-4" />
-							{t("new_folder")}
-						</ContextMenuItem>
-						<ContextMenuItem onClick={onCreateFile}>
-							<Icon name="FilePlus" className="mr-2 size-4" />
-							{t("new_file")}
-						</ContextMenuItem>
-						<ContextMenuItem onClick={onOfflineDownload}>
-							<Icon name="LinkSimple" className="mr-2 size-4" />
-							{t("tasks:offline_download_action")}
-						</ContextMenuItem>
-						<ContextMenuSeparator />
-						<ContextMenuItem onClick={() => void onRefresh()}>
-							<Icon name="ArrowsClockwise" className="mr-2 size-4" />
-							{t("core:refresh")}
-						</ContextMenuItem>
-					</ContextMenuContent>
+					<CurrentFolderContextMenuContent
+						uploadReady={uploadReady}
+						onCreateFile={onCreateFile}
+						onCreateFolder={onCreateFolder}
+						onOfflineDownload={onOfflineDownload}
+						onRefresh={onRefresh}
+						onTriggerFileUpload={onTriggerFileUpload}
+						onTriggerFolderUpload={onTriggerFolderUpload}
+					/>
 				</ContextMenu>
 			</section>
 			<Suspense fallback={null}>

@@ -41,6 +41,24 @@ const mockState = vi.hoisted(() => ({
 		isLoaded: false,
 		load: vi.fn(async () => {}),
 	},
+	thumbnailSupportStore: {
+		config: {
+			audio_thumbnail: { enabled: false, extensions: [] },
+			extensions: ["jpg", "jpeg", "png", "webp"],
+			image_preview: {
+				enabled: true,
+				extensions: ["jpg", "jpeg", "png", "webp"],
+			},
+			image_thumbnail: {
+				enabled: true,
+				extensions: ["jpg", "jpeg", "png", "webp"],
+			},
+			version: 1,
+			video_thumbnail: { enabled: false, extensions: [] },
+		},
+		isLoaded: true,
+		load: vi.fn(async () => {}),
+	},
 	readInternalDragData: vi.fn(),
 	refreshUser: vi.fn(),
 	searchParams: new URLSearchParams("name=Projects"),
@@ -166,6 +184,12 @@ vi.mock("@/stores/previewAppStore", () => ({
 	usePreviewAppStore: (
 		selector: (state: typeof mockState.previewAppStore) => unknown,
 	) => selector(mockState.previewAppStore),
+}));
+
+vi.mock("@/stores/thumbnailSupportStore", () => ({
+	useThumbnailSupportStore: (
+		selector: (state: typeof mockState.thumbnailSupportStore) => unknown,
+	) => selector(mockState.thumbnailSupportStore),
 }));
 
 vi.mock("@/pages/file-browser/useFileBrowserBatchActions", () => ({
@@ -528,15 +552,21 @@ vi.mock("@/components/files/FilePreview", () => ({
 		file,
 		open = true,
 		openMode,
+		imageNavigation,
 		onClose,
 		onFileUpdated,
 		previewLinkFactory,
 		archivePreviewFactory,
 		wopiSessionFactory,
 	}: {
-		file: { name: string };
+		file: { id: number; name: string };
 		open?: boolean;
 		openMode?: string;
+		imageNavigation?: {
+			nextFile?: { id: number; name: string };
+			onNavigate: (file: { id: number; name: string }) => void;
+			previousFile?: { id: number; name: string };
+		};
 		onClose: () => void;
 		onFileUpdated?: () => void;
 		previewLinkFactory?: () => unknown;
@@ -545,7 +575,14 @@ vi.mock("@/components/files/FilePreview", () => ({
 	}) =>
 		open ? (
 			<div>
-				<div>{`preview:${file.name}:${openMode ?? "auto"}`}</div>
+				<div
+					data-testid="file-preview"
+					data-name={file.name}
+					data-next-image={imageNavigation?.nextFile?.name ?? ""}
+					data-previous-image={imageNavigation?.previousFile?.name ?? ""}
+				>
+					{`preview:${file.name}:${openMode ?? "auto"}`}
+				</div>
 				<button type="button" onClick={onClose}>
 					close-preview
 				</button>
@@ -560,6 +597,28 @@ vi.mock("@/components/files/FilePreview", () => ({
 				</button>
 				<button type="button" onClick={() => wopiSessionFactory?.("office")}>
 					create-wopi-session
+				</button>
+				<button
+					type="button"
+					disabled={!imageNavigation?.previousFile}
+					onClick={() => {
+						if (imageNavigation?.previousFile) {
+							imageNavigation.onNavigate(imageNavigation.previousFile);
+						}
+					}}
+				>
+					previous-image
+				</button>
+				<button
+					type="button"
+					disabled={!imageNavigation?.nextFile}
+					onClick={() => {
+						if (imageNavigation?.nextFile) {
+							imageNavigation.onNavigate(imageNavigation.nextFile);
+						}
+					}}
+				>
+					next-image
 				</button>
 			</div>
 		) : null,
@@ -933,6 +992,7 @@ function getFileBrowserContext() {
 		onArchiveExtract: (fileId: number) => void;
 		onDelete: (type: "file" | "folder", id: number) => Promise<void>;
 		onDownload: (fileId: number, fileName: string) => void;
+		onFileClick: (file: Record<string, unknown>) => void;
 		onInfo: (type: "file" | "folder", id: number) => void;
 		onMove: (type: "file" | "folder", id: number) => void;
 		onRename: (type: "file" | "folder", id: number, name: string) => void;
@@ -986,6 +1046,22 @@ describe("FileBrowserPage", () => {
 		};
 		mockState.navigate.mockReset();
 		mockState.previewAppStore.load.mockReset();
+		mockState.thumbnailSupportStore.config = {
+			audio_thumbnail: { enabled: false, extensions: [] },
+			extensions: ["jpg", "jpeg", "png", "webp"],
+			image_preview: {
+				enabled: true,
+				extensions: ["jpg", "jpeg", "png", "webp"],
+			},
+			image_thumbnail: {
+				enabled: true,
+				extensions: ["jpg", "jpeg", "png", "webp"],
+			},
+			version: 1,
+			video_thumbnail: { enabled: false, extensions: [] },
+		};
+		mockState.thumbnailSupportStore.isLoaded = true;
+		mockState.thumbnailSupportStore.load.mockReset();
 		mockState.readInternalDragData.mockReset();
 		mockState.refreshUser.mockReset();
 		mockState.setFileLock.mockReset();
@@ -1097,8 +1173,9 @@ describe("FileBrowserPage", () => {
 
 		fireEvent.click(screen.getByTitle("core:refresh"));
 		const contextRefreshButton = screen
-			.getByText("core:refresh")
-			.closest("button");
+			.getAllByText("core:refresh")
+			.at(-1)
+			?.closest("button");
 		expect(contextRefreshButton).toBeTruthy();
 		if (!contextRefreshButton) {
 			throw new Error("missing context menu refresh button");
@@ -1114,6 +1191,145 @@ describe("FileBrowserPage", () => {
 		expect(
 			await screen.findByText("preview:report.pdf:auto"),
 		).toBeInTheDocument();
+	});
+
+	it("passes adjacent image navigation to the preview and updates the preview file when navigating", async () => {
+		const firstImage = createFile({
+			file_category: "image",
+			id: 10,
+			mime_type: "image/png",
+			name: "first.png",
+		});
+		const documentFile = createFile({
+			file_category: "document",
+			id: 11,
+			mime_type: "application/pdf",
+			name: "notes.pdf",
+		});
+		const secondImage = createFile({
+			file_category: "image",
+			id: 12,
+			mime_type: "image/jpeg",
+			name: "second.jpg",
+		});
+		const rawImage = createFile({
+			id: 13,
+			mime_type: "application/octet-stream",
+			name: "capture.nef",
+		});
+		mockState.thumbnailSupportStore.config = {
+			audio_thumbnail: { enabled: false, extensions: [] },
+			extensions: ["jpg", "jpeg", "nef", "png", "webp"],
+			image_preview: {
+				enabled: true,
+				extensions: ["jpg", "jpeg", "nef", "png", "webp"],
+			},
+			image_thumbnail: {
+				enabled: true,
+				extensions: ["jpg", "jpeg", "nef", "png", "webp"],
+			},
+			version: 1,
+			video_thumbnail: { enabled: false, extensions: [] },
+		};
+		mockState.store.files = [firstImage, documentFile, secondImage, rawImage];
+
+		render(<FileBrowserPage />);
+
+		await waitFor(() => {
+			expect(mockState.store.navigateTo).toHaveBeenCalledWith(12, "Projects");
+		});
+
+		getFileBrowserContext().onFileClick(firstImage);
+
+		expect(await screen.findByTestId("file-preview")).toHaveAttribute(
+			"data-name",
+			"first.png",
+		);
+		expect(screen.getByTestId("file-preview")).toHaveAttribute(
+			"data-previous-image",
+			"capture.nef",
+		);
+		expect(screen.getByTestId("file-preview")).toHaveAttribute(
+			"data-next-image",
+			"second.jpg",
+		);
+
+		fireEvent.click(screen.getByRole("button", { name: "next-image" }));
+		expect(await screen.findByTestId("file-preview")).toHaveAttribute(
+			"data-name",
+			"second.jpg",
+		);
+		expect(screen.getByTestId("file-preview")).toHaveAttribute(
+			"data-previous-image",
+			"first.png",
+		);
+		expect(screen.getByTestId("file-preview")).toHaveAttribute(
+			"data-next-image",
+			"capture.nef",
+		);
+
+		fireEvent.click(screen.getByRole("button", { name: "next-image" }));
+		expect(await screen.findByTestId("file-preview")).toHaveAttribute(
+			"data-name",
+			"capture.nef",
+		);
+		expect(screen.getByTestId("file-preview")).toHaveAttribute(
+			"data-previous-image",
+			"second.jpg",
+		);
+		expect(screen.getByTestId("file-preview")).toHaveAttribute(
+			"data-next-image",
+			"first.png",
+		);
+
+		fireEvent.click(screen.getByRole("button", { name: "previous-image" }));
+		expect(await screen.findByTestId("file-preview")).toHaveAttribute(
+			"data-name",
+			"second.jpg",
+		);
+	});
+
+	it("does not expose image navigation when the current preview file is not in an image queue", async () => {
+		const documentFile = createFile({
+			file_category: "document",
+			id: 21,
+			mime_type: "application/pdf",
+			name: "manual.pdf",
+		});
+		mockState.store.files = [
+			documentFile,
+			createFile({
+				file_category: "image",
+				id: 22,
+				mime_type: "image/png",
+				name: "lonely.png",
+			}),
+		];
+
+		render(<FileBrowserPage />);
+
+		await waitFor(() => {
+			expect(mockState.store.navigateTo).toHaveBeenCalledWith(12, "Projects");
+		});
+
+		getFileBrowserContext().onFileClick(documentFile);
+
+		expect(await screen.findByTestId("file-preview")).toHaveAttribute(
+			"data-name",
+			"manual.pdf",
+		);
+		expect(screen.getByTestId("file-preview")).toHaveAttribute(
+			"data-previous-image",
+			"",
+		);
+		expect(screen.getByTestId("file-preview")).toHaveAttribute(
+			"data-next-image",
+			"",
+		);
+		expect(
+			screen.getByRole("button", { name: "previous-image" }),
+		).toBeDisabled();
+		expect(screen.getByRole("button", { name: "next-image" })).toBeDisabled();
 	});
 
 	it("plays an audio file directly with the current folder music queue", async () => {

@@ -10,6 +10,12 @@ import type {
 	WopiLaunchSession,
 } from "@/types/api";
 
+export interface FilePreviewImageNavigation {
+	nextFile?: FileInfo | FileListItem;
+	onNavigate: (file: FileInfo | FileListItem) => void;
+	previousFile?: FileInfo | FileListItem;
+}
+
 interface FilePreviewProps {
 	file: FileInfo | FileListItem;
 	onClose: () => void;
@@ -27,6 +33,7 @@ interface FilePreviewProps {
 	loadMusicBackendMetadata?: MusicPlayerTrack["loadBackendMetadata"];
 	mediaStreamLinkFactory?: () => Promise<ShareStreamSessionInfo>;
 	wopiSessionFactory?: (appKey: string) => Promise<WopiLaunchSession>;
+	imageNavigation?: FilePreviewImageNavigation;
 	open?: boolean;
 	openMode?: "auto" | "direct" | "picker";
 }
@@ -45,6 +52,7 @@ export function FilePreview({
 	loadMusicBackendMetadata,
 	mediaStreamLinkFactory,
 	wopiSessionFactory,
+	imageNavigation,
 	open = true,
 	openMode,
 }: FilePreviewProps) {
@@ -64,6 +72,7 @@ export function FilePreview({
 			loadMusicBackendMetadata={loadMusicBackendMetadata}
 			mediaStreamLinkFactory={mediaStreamLinkFactory}
 			wopiSessionFactory={wopiSessionFactory}
+			imageNavigation={imageNavigation}
 			openMode={openMode}
 		/>
 	);

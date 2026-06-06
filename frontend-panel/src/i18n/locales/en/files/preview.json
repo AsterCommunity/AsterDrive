@@ -6,6 +6,8 @@
 	"preview_source_original": "Original",
 	"preview_source_preview": "Preview",
 	"preview_fit_to_window": "Fit to window",
+	"preview_previous_image": "Previous image",
+	"preview_next_image": "Next image",
 	"preview_zoom_in": "Zoom in",
 	"preview_zoom_out": "Zoom out",
 	"preview_rotate_right": "Rotate right",

@@ -23,6 +23,10 @@ export function SidebarStorageUsage({
 		return null;
 	}
 
+	const usedLabel = formatBytes(storageUsed);
+	const quotaLabel =
+		storageQuota > 0 ? formatBytes(storageQuota) : t("core:unlimited");
+
 	return (
 		<>
 			<Separator />
@@ -39,14 +43,10 @@ export function SidebarStorageUsage({
 					className="h-1.5"
 				/>
 				<p className="text-xs text-muted-foreground">
-					{storageQuota > 0
-						? t("files:storage_quota", {
-								used: formatBytes(storageUsed),
-								quota: formatBytes(storageQuota),
-							})
-						: t("files:storage_used", {
-								used: formatBytes(storageUsed),
-							})}
+					{t("files:storage_quota", {
+						used: usedLabel,
+						quota: quotaLabel,
+					})}
 				</p>
 			</div>
 		</>

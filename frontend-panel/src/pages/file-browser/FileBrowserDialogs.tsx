@@ -1,5 +1,6 @@
 import { Suspense } from "react";
 import { FilePreview } from "@/components/files/FilePreview";
+import type { ImagePreviewNavigation } from "@/components/files/preview/imagePreviewNavigation";
 import { useRetainedDialogValue } from "@/hooks/useRetainedDialogValue";
 import {
 	ArchiveTaskNameDialog,
@@ -34,6 +35,9 @@ interface FileBrowserDialogsProps {
 	currentFolderName?: string | null;
 	moveTarget: FileBrowserMoveTarget | null;
 	offlineDownloadOpen: boolean;
+	previewImageNavigation?: ImagePreviewNavigation<
+		FileBrowserPreviewState["file"]
+	>;
 	previewState: FileBrowserPreviewState | null;
 	renameTarget: FileBrowserRenameTarget | null;
 	shareTarget: FileBrowserShareTarget | null;
@@ -52,6 +56,7 @@ interface FileBrowserDialogsProps {
 	onOfflineDownloadOpenChange: (open: boolean) => void;
 	onPreviewClose: () => void;
 	onPreviewFileUpdated: () => void | Promise<void>;
+	onPreviewNavigate: (file: FileBrowserPreviewState["file"]) => void;
 	onRenameClose: () => void;
 	onShareClose: () => void;
 	onVersionClose: () => void;
@@ -68,6 +73,7 @@ export function FileBrowserDialogs({
 	currentFolderName,
 	moveTarget,
 	offlineDownloadOpen,
+	previewImageNavigation,
 	previewState,
 	renameTarget,
 	shareTarget,
@@ -83,6 +89,7 @@ export function FileBrowserDialogs({
 	onOfflineDownloadOpenChange,
 	onPreviewClose,
 	onPreviewFileUpdated,
+	onPreviewNavigate,
 	onRenameClose,
 	onShareClose,
 	onVersionClose,
@@ -149,6 +156,11 @@ export function FileBrowserDialogs({
 					onClose={onPreviewClose}
 					onOpenChangeComplete={handleOpenChangeComplete}
 					onFileUpdated={onPreviewFileUpdated}
+					imageNavigation={{
+						previousFile: previewImageNavigation?.previousFile,
+						nextFile: previewImageNavigation?.nextFile,
+						onNavigate: onPreviewNavigate,
+					}}
 					previewLinkFactory={() =>
 						fileService.createPreviewLink(retainedPreviewState.file.id)
 					}

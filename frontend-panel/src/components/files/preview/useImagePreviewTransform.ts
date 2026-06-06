@@ -33,9 +33,13 @@ function midpoint(first: Point, second: Point): Point {
 }
 
 export function useImagePreviewTransform({
+	gestureSurfaceRef,
+	gesturesEnabled = true,
 	imageRef,
 	viewportRef,
 }: {
+	gestureSurfaceRef?: React.RefObject<HTMLDivElement | null>;
+	gesturesEnabled?: boolean;
 	imageRef: React.RefObject<HTMLImageElement | null>;
 	viewportRef: React.RefObject<HTMLDivElement | null>;
 }) {
@@ -156,6 +160,7 @@ export function useImagePreviewTransform({
 
 	const handlePointerDown = useCallback(
 		(event: ReactPointerEvent<HTMLDivElement>) => {
+			if (!gesturesEnabled) return;
 			pointers.set(event.pointerId, {
 				x: event.clientX,
 				y: event.clientY,
@@ -182,11 +187,12 @@ export function useImagePreviewTransform({
 				};
 			}
 		},
-		[imageOffset, pointers, zoom],
+		[gesturesEnabled, imageOffset, pointers, zoom],
 	);
 
 	const handlePointerMove = useCallback(
 		(event: ReactPointerEvent<HTMLDivElement>) => {
+			if (!gesturesEnabled) return;
 			if (!pointers.has(event.pointerId)) return;
 			pointers.set(event.pointerId, {
 				x: event.clientX,
@@ -236,11 +242,12 @@ export function useImagePreviewTransform({
 				setImageOffset(clampOffset(nextOffset, zoom));
 			}
 		},
-		[clampOffset, pointers, zoom],
+		[clampOffset, gesturesEnabled, pointers, zoom],
 	);
 
 	const handlePointerEnd = useCallback(
 		(event: ReactPointerEvent<HTMLDivElement>) => {
+			if (!gesturesEnabled) return;
 			pointers.delete(event.pointerId);
 			if (event.currentTarget.hasPointerCapture(event.pointerId)) {
 				event.currentTarget.releasePointerCapture(event.pointerId);
@@ -260,8 +267,15 @@ export function useImagePreviewTransform({
 			pinchStartRef.current = null;
 			setImageOffset((current) => clampOffset(current, zoom));
 		},
-		[clampOffset, imageOffset, pointers, zoom],
+		[clampOffset, gesturesEnabled, imageOffset, pointers, zoom],
 	);
+
+	useEffect(() => {
+		if (gesturesEnabled) return;
+		pointers.clear();
+		dragStartRef.current = null;
+		pinchStartRef.current = null;
+	}, [gesturesEnabled, pointers]);
 
 	useEffect(() => {
 		const handleResize = () => {
@@ -272,8 +286,9 @@ export function useImagePreviewTransform({
 	}, [clampOffset, zoom]);
 
 	useEffect(() => {
-		const viewport = viewportRef.current;
-		if (!viewport) return;
+		if (!gesturesEnabled) return;
+		const wheelTarget = gestureSurfaceRef?.current ?? viewportRef.current;
+		if (!wheelTarget) return;
 
 		const handleWheel = (event: WheelEvent) => {
 			if (!event.ctrlKey && !event.metaKey) return;
@@ -285,11 +300,11 @@ export function useImagePreviewTransform({
 			});
 		};
 
-		viewport.addEventListener("wheel", handleWheel, { passive: false });
+		wheelTarget.addEventListener("wheel", handleWheel, { passive: false });
 		return () => {
-			viewport.removeEventListener("wheel", handleWheel);
+			wheelTarget.removeEventListener("wheel", handleWheel);
 		};
-	}, [setClampedZoom, viewportRef, zoom]);
+	}, [gestureSurfaceRef, gesturesEnabled, setClampedZoom, viewportRef, zoom]);
 
 	return {
 		canZoomIn,

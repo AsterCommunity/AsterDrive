@@ -2,6 +2,7 @@ import { useCallback, useEffect, useReducer, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
 import { useBlobUrl } from "@/hooks/useBlobUrl";
+import { canBrowserRenderImage } from "@/lib/browserImageSupport";
 import { formatBytes } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { useFrontendConfigStore } from "@/stores/frontendConfigStore";
@@ -16,6 +17,7 @@ import { useImagePreviewTransform } from "./useImagePreviewTransform";
 const ORIGINAL_BUTTON_EXIT_MS = 220;
 const IMAGE_PREVIEW_KEY_SEPARATOR = "\u0000";
 const ORIGINAL_BUTTON_SUCCESS_HOLD_MS = 650;
+const IMAGE_NAVIGATION_KEYDOWN_OPTIONS = { capture: true } as const;
 
 type OriginalButtonAnimationPhase =
 	| "hidden"
@@ -61,14 +63,19 @@ interface ImagePreviewPanelProps {
 	downloadPath: string;
 	imagePreviewPath?: string;
 	isExpanded: boolean;
+	nextImageFile?: FileInfo | FileListItem;
 	onChooseOpenMethod: () => void;
 	onClose: () => void;
+	onNavigateImage?: (file: FileInfo | FileListItem) => void;
 	onToggleExpand: () => void;
+	previousImageFile?: FileInfo | FileListItem;
 	chooseOpenMethodLabel: string;
 	enterFullscreenLabel: string;
 	exitFullscreenLabel: string;
 	closeLabel: string;
 	fitToWindowLabel: string;
+	nextImageLabel: string;
+	previousImageLabel: string;
 	previewSourceLabel: string;
 	originalSourceLabel: string;
 	rotateRightLabel: string;
@@ -82,14 +89,19 @@ export function ImagePreviewPanel({
 	downloadPath,
 	imagePreviewPath,
 	isExpanded,
+	nextImageFile,
 	onChooseOpenMethod,
 	onClose,
+	onNavigateImage,
 	onToggleExpand,
+	previousImageFile,
 	chooseOpenMethodLabel,
 	enterFullscreenLabel,
 	exitFullscreenLabel,
 	closeLabel,
 	fitToWindowLabel,
+	nextImageLabel,
+	previousImageLabel,
 	previewSourceLabel,
 	originalSourceLabel,
 	rotateRightLabel,
@@ -99,26 +111,17 @@ export function ImagePreviewPanel({
 	const imagePreviewPreference = useFrontendConfigStore(
 		(state) => state.imagePreviewPreference,
 	);
+	const originalIsBrowserRenderable = canBrowserRenderImage(file);
+	const hasBackendPreview = imagePreviewPath != null;
 	const initialSource =
-		imagePreviewPreference === "preview_first" && imagePreviewPath != null
+		hasBackendPreview &&
+		(imagePreviewPreference === "preview_first" || !originalIsBrowserRenderable)
 			? "backend_preview"
 			: "original";
-	const imageRef = useRef<HTMLImageElement | null>(null);
-	const viewportRef = useRef<HTMLDivElement | null>(null);
-	const {
-		canZoomIn,
-		canZoomOut,
-		handlePointerDown,
-		handlePointerEnd,
-		handlePointerMove,
-		imageStyle,
-		resetImageTransform,
-		rotateRight,
-		zoom,
-		zoomIn,
-		zoomOut,
-		zoomPercent,
-	} = useImagePreviewTransform({ imageRef, viewportRef });
+	const canRequestOriginal =
+		hasBackendPreview &&
+		imagePreviewPreference === "preview_first" &&
+		originalIsBrowserRenderable;
 	const [originalButtonAnimation, dispatchOriginalButtonAnimation] = useReducer(
 		originalButtonAnimationReducer,
 		initialOriginalButtonAnimationState,
@@ -132,6 +135,9 @@ export function ImagePreviewPanel({
 	const [failedOriginalKey, setFailedOriginalKey] = useState<string | null>(
 		null,
 	);
+	const [loadedImageRenderKey, setLoadedImageRenderKey] = useState<
+		string | null
+	>(null);
 	const previewKey = [
 		file.name,
 		file.mime_type,
@@ -146,25 +152,31 @@ export function ImagePreviewPanel({
 		loading: originalLoading,
 		retry: retryOriginal,
 	} = useBlobUrl(
-		initialSource === "backend_preview" && requestedOriginal
-			? downloadPath
-			: null,
+		canRequestOriginal && requestedOriginal ? downloadPath : null,
 		{ lane: "default" },
 	);
 	const originalReady =
 		requestedOriginal && originalBlobUrl && !originalLoading && !originalError;
 	const originalRenderedSuccessfully = renderedOriginalKey === previewKey;
 	const originalRenderFailed = failedOriginalKey === previewKey;
-	const effectiveSource: ImagePreviewSource =
-		originalReady && !originalRenderFailed ? "original" : initialSource;
-	const effectiveShowOriginalState: ShowOriginalState =
-		initialSource === "backend_preview"
-			? originalRenderedSuccessfully
-				? "success"
-				: requestedOriginal && !originalError && !originalRenderFailed
-					? "loading"
-					: "available"
-			: "hidden";
+	const shouldFallbackToBackendPreview =
+		originalRenderFailed && hasBackendPreview;
+	const effectiveSource: ImagePreviewSource = shouldFallbackToBackendPreview
+		? "backend_preview"
+		: originalReady && !originalRenderFailed
+			? "original"
+			: initialSource;
+	const effectiveShowOriginalState: ShowOriginalState = canRequestOriginal
+		? originalRenderedSuccessfully
+			? "success"
+			: requestedOriginal && !originalError && !originalRenderFailed
+				? "loading"
+				: "available"
+		: "hidden";
+	const activeImageRenderKey = [previewKey, effectiveSource].join(
+		IMAGE_PREVIEW_KEY_SEPARATOR,
+	);
+	const imageGesturesEnabled = loadedImageRenderKey === activeImageRenderKey;
 
 	const sourceLabel =
 		effectiveSource === "backend_preview"
@@ -185,6 +197,9 @@ export function ImagePreviewPanel({
 
 	const handleImageLoad = useCallback(
 		(renderedSource: ImagePreviewSource) => {
+			setLoadedImageRenderKey(
+				[previewKey, renderedSource].join(IMAGE_PREVIEW_KEY_SEPARATOR),
+			);
 			if (renderedSource !== "original") return;
 			setFailedOriginalKey(null);
 			setRenderedOriginalKey(previewKey);
@@ -194,6 +209,7 @@ export function ImagePreviewPanel({
 
 	const handleImageRenderError = useCallback(
 		(failedSource: ImagePreviewSource) => {
+			setLoadedImageRenderKey(null);
 			if (failedSource !== "original") return;
 			setFailedOriginalKey(previewKey);
 			setRenderedOriginalKey(null);
@@ -246,6 +262,35 @@ export function ImagePreviewPanel({
 		};
 	}, [effectiveShowOriginalState, originalButtonAnimation.phase]);
 
+	useEffect(() => {
+		if (!onNavigateImage || (!previousImageFile && !nextImageFile)) return;
+
+		const handleKeyDown = (event: KeyboardEvent) => {
+			if (event.defaultPrevented) return;
+			if (event.key === "ArrowLeft" && previousImageFile) {
+				event.preventDefault();
+				onNavigateImage(previousImageFile);
+				return;
+			}
+			if (event.key === "ArrowRight" && nextImageFile) {
+				event.preventDefault();
+				onNavigateImage(nextImageFile);
+			}
+		};
+
+		window.addEventListener(
+			"keydown",
+			handleKeyDown,
+			IMAGE_NAVIGATION_KEYDOWN_OPTIONS,
+		);
+		return () =>
+			window.removeEventListener(
+				"keydown",
+				handleKeyDown,
+				IMAGE_NAVIGATION_KEYDOWN_OPTIONS,
+			);
+	}, [nextImageFile, onNavigateImage, previousImageFile]);
+
 	const originalButtonVisible =
 		effectiveShowOriginalState === "available" ||
 		effectiveShowOriginalState === "loading" ||
@@ -279,8 +324,109 @@ export function ImagePreviewPanel({
 				onClose={onClose}
 			/>
 
+			<ImagePreviewTransformLayer
+				key={activeImageRenderKey}
+				downloadPath={downloadPath}
+				effectiveShowOriginalState={effectiveShowOriginalState}
+				effectiveSource={effectiveSource}
+				file={file}
+				fitToWindowLabel={fitToWindowLabel}
+				imageGesturesEnabled={imageGesturesEnabled}
+				imagePreviewPath={imagePreviewPath}
+				originalButtonDisabled={originalButtonDisabled}
+				originalButtonIcon={originalButtonIcon}
+				originalButtonVisible={originalButtonVisible}
+				originalSourceLabel={originalSourceLabel}
+				previewKey={previewKey}
+				renderOriginalButton={renderOriginalButton}
+				rotateRightLabel={rotateRightLabel}
+				showOriginal={showOriginal}
+				zoomInLabel={zoomInLabel}
+				zoomOutLabel={zoomOutLabel}
+				onImageLoad={handleImageLoad}
+				onImageRenderError={handleImageRenderError}
+			/>
+
+			<ImagePreviewSideNavigation
+				nextFile={nextImageFile}
+				nextLabel={nextImageLabel}
+				previousFile={previousImageFile}
+				previousLabel={previousImageLabel}
+				onNavigate={onNavigateImage}
+			/>
+		</div>
+	);
+}
+
+function ImagePreviewTransformLayer({
+	downloadPath,
+	effectiveShowOriginalState,
+	effectiveSource,
+	file,
+	fitToWindowLabel,
+	imageGesturesEnabled,
+	imagePreviewPath,
+	originalButtonDisabled,
+	originalButtonIcon,
+	originalButtonVisible,
+	originalSourceLabel,
+	previewKey,
+	renderOriginalButton,
+	rotateRightLabel,
+	showOriginal,
+	zoomInLabel,
+	zoomOutLabel,
+	onImageLoad,
+	onImageRenderError,
+}: {
+	downloadPath: string;
+	effectiveShowOriginalState: ShowOriginalState;
+	effectiveSource: ImagePreviewSource;
+	file: FileInfo | FileListItem;
+	fitToWindowLabel: string;
+	imageGesturesEnabled: boolean;
+	imagePreviewPath?: string;
+	originalButtonDisabled: boolean;
+	originalButtonIcon: "Check" | "Eye" | "Spinner";
+	originalButtonVisible: boolean;
+	originalSourceLabel: string;
+	previewKey: string;
+	renderOriginalButton: boolean;
+	rotateRightLabel: string;
+	showOriginal: () => void;
+	zoomInLabel: string;
+	zoomOutLabel: string;
+	onImageLoad: (renderedSource: ImagePreviewSource) => void;
+	onImageRenderError: (failedSource: ImagePreviewSource) => void;
+}) {
+	const gestureSurfaceRef = useRef<HTMLDivElement | null>(null);
+	const imageRef = useRef<HTMLImageElement | null>(null);
+	const viewportRef = useRef<HTMLDivElement | null>(null);
+	const {
+		canZoomIn,
+		canZoomOut,
+		handlePointerDown,
+		handlePointerEnd,
+		handlePointerMove,
+		imageStyle,
+		resetImageTransform,
+		rotateRight,
+		zoom,
+		zoomIn,
+		zoomOut,
+		zoomPercent,
+	} = useImagePreviewTransform({
+		gestureSurfaceRef,
+		gesturesEnabled: imageGesturesEnabled,
+		imageRef,
+		viewportRef,
+	});
+
+	return (
+		<>
 			<div className="min-h-0 flex-1 scale-[0.985] overflow-hidden opacity-0 transition-[opacity,transform] duration-200 ease-out group-data-open/image-preview:scale-100 group-data-open/image-preview:opacity-100 group-data-closed/image-preview:scale-[0.985] group-data-closed/image-preview:opacity-0">
 				<div
+					ref={gestureSurfaceRef}
 					className={cn(
 						"h-full min-h-0 w-full touch-none select-none overflow-hidden",
 						zoom > 1 ? "cursor-grab active:cursor-grabbing" : "cursor-default",
@@ -299,8 +445,8 @@ export function ImagePreviewPanel({
 						viewportRef={viewportRef}
 						source={effectiveSource}
 						showOriginalButtonPlacement="none"
-						onImageLoad={handleImageLoad}
-						onImageRenderError={handleImageRenderError}
+						onImageLoad={onImageLoad}
+						onImageRenderError={onImageRenderError}
 						viewportClassName="flex h-full min-h-0 w-full items-center justify-center overflow-hidden px-4 py-16 sm:px-8"
 						imageClassName="block max-h-full max-w-full min-w-0 touch-none select-none object-contain"
 						imageStyle={imageStyle}
@@ -329,7 +475,7 @@ export function ImagePreviewPanel({
 				onZoomOut={zoomOut}
 				onFitToWindow={resetImageTransform}
 			/>
-		</div>
+		</>
 	);
 }
 
@@ -391,6 +537,74 @@ function ImagePreviewTopChrome({
 				</div>
 			</div>
 		</div>
+	);
+}
+
+function ImagePreviewSideNavigation({
+	nextFile,
+	nextLabel,
+	onNavigate,
+	previousFile,
+	previousLabel,
+}: {
+	nextFile?: FileInfo | FileListItem;
+	nextLabel: string;
+	onNavigate?: (file: FileInfo | FileListItem) => void;
+	previousFile?: FileInfo | FileListItem;
+	previousLabel: string;
+}) {
+	if (!onNavigate || (!previousFile && !nextFile)) return null;
+
+	return (
+		<div className="pointer-events-none absolute inset-x-0 top-16 bottom-16 z-10 flex items-center justify-between px-2 opacity-0 transition-opacity duration-200 ease-out group-data-open/image-preview:opacity-100 group-data-closed/image-preview:opacity-0 sm:px-4">
+			{previousFile ? (
+				<ImageNavigationButton
+					file={previousFile}
+					icon="CaretLeft"
+					label={previousLabel}
+					onNavigate={onNavigate}
+				/>
+			) : (
+				<span className="size-11" aria-hidden="true" />
+			)}
+			{nextFile ? (
+				<ImageNavigationButton
+					file={nextFile}
+					icon="CaretRight"
+					label={nextLabel}
+					onNavigate={onNavigate}
+				/>
+			) : (
+				<span className="size-11" aria-hidden="true" />
+			)}
+		</div>
+	);
+}
+
+function ImageNavigationButton({
+	file,
+	icon,
+	label,
+	onNavigate,
+}: {
+	file: FileInfo | FileListItem;
+	icon: "CaretLeft" | "CaretRight";
+	label: string;
+	onNavigate: (file: FileInfo | FileListItem) => void;
+}) {
+	return (
+		<Button
+			type="button"
+			variant="ghost"
+			size="icon"
+			aria-label={label}
+			title={file.name}
+			className="pointer-events-auto size-11 rounded-full border border-white/10 bg-black/38 text-white/82 shadow-lg shadow-black/25 backdrop-blur-md hover:bg-white/14 hover:text-white focus-visible:ring-white/40"
+			onClick={() => onNavigate(file)}
+		>
+			<Icon name={icon} className="size-5" />
+			<span className="sr-only">{label}</span>
+		</Button>
 	);
 }
 

@@ -118,11 +118,16 @@ function renderToolbar(
 		onBreadcrumbDragLeave: vi.fn(),
 		onBreadcrumbDragOver: vi.fn(),
 		onBreadcrumbDrop: vi.fn().mockResolvedValue(undefined),
+		onCreateFile: vi.fn(),
+		onCreateFolder: vi.fn(),
 		onNavigateToFolder: vi.fn(),
+		onOfflineDownload: vi.fn(),
 		onRefresh: vi.fn(),
 		onSetSortBy: vi.fn(),
 		onSetSortOrder: vi.fn(),
 		onSetViewMode: vi.fn(),
+		onTriggerFileUpload: vi.fn(),
+		onTriggerFolderUpload: vi.fn(),
 	};
 	const props = {
 		breadcrumb: [
@@ -139,6 +144,7 @@ function renderToolbar(
 		selectionToolbar: null,
 		sortBy: "name",
 		sortOrder: "asc",
+		uploadReady: true,
 		viewMode: "grid",
 		...handlers,
 		...overrides,
@@ -158,6 +164,14 @@ describe("FileBrowserToolbar", () => {
 		fireEvent.click(screen.getByRole("button", { name: "sort-by-updated" }));
 		fireEvent.click(screen.getByRole("button", { name: "sort-order-desc" }));
 		fireEvent.click(screen.getByRole("button", { name: "view-list" }));
+		fireEvent.click(
+			screen.getByRole("button", { name: "folder_more_actions" }),
+		);
+		fireEvent.click(screen.getByText("upload_file"));
+		fireEvent.click(screen.getByText("upload_folder"));
+		fireEvent.click(screen.getByText("new_folder"));
+		fireEvent.click(screen.getByText("new_file"));
+		fireEvent.click(screen.getByText("tasks:offline_download_action"));
 
 		expect(
 			screen.getByRole("button", { name: "core:more" }),
@@ -168,6 +182,11 @@ describe("FileBrowserToolbar", () => {
 		expect(handlers.onSetSortBy).toHaveBeenCalledWith("updated_at");
 		expect(handlers.onSetSortOrder).toHaveBeenCalledWith("desc");
 		expect(handlers.onSetViewMode).toHaveBeenCalledWith("list");
+		expect(handlers.onTriggerFileUpload).toHaveBeenCalledTimes(1);
+		expect(handlers.onTriggerFolderUpload).toHaveBeenCalledTimes(1);
+		expect(handlers.onCreateFolder).toHaveBeenCalledTimes(1);
+		expect(handlers.onCreateFile).toHaveBeenCalledTimes(1);
+		expect(handlers.onOfflineDownload).toHaveBeenCalledTimes(1);
 	});
 
 	it("shows the search summary instead of breadcrumbs while searching", () => {

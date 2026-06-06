@@ -121,6 +121,24 @@ const mockState = vi.hoisted(() => ({
 		isLoaded: false,
 		load: vi.fn(async () => {}),
 	},
+	thumbnailSupportStore: {
+		config: {
+			audio_thumbnail: { enabled: false, extensions: [] },
+			extensions: ["jpg", "jpeg", "png", "webp"],
+			image_preview: {
+				enabled: true,
+				extensions: ["jpg", "jpeg", "png", "webp"],
+			},
+			image_thumbnail: {
+				enabled: true,
+				extensions: ["jpg", "jpeg", "png", "webp"],
+			},
+			version: 1,
+			video_thumbnail: { enabled: false, extensions: [] },
+		},
+		isLoaded: true,
+		load: vi.fn(async () => {}),
+	},
 	toastSuccess: vi.fn(),
 	translate: (key: string, opts?: Record<string, unknown>) => {
 		if (key === "share:expires_date") return `expires:${opts?.date}`;
@@ -225,6 +243,12 @@ vi.mock("@/stores/previewAppStore", () => ({
 	) => selector(mockState.previewAppStore),
 }));
 
+vi.mock("@/stores/thumbnailSupportStore", () => ({
+	useThumbnailSupportStore: (
+		selector: (state: typeof mockState.thumbnailSupportStore) => unknown,
+	) => selector(mockState.thumbnailSupportStore),
+}));
+
 vi.mock("@/stores/musicPlayerStore", () => ({
 	useMusicPlayerStore: (
 		selector: (state: {
@@ -296,18 +320,24 @@ vi.mock("@/components/files/FilePreview", () => ({
 		thumbnailPath,
 		editable,
 		archivePreviewFactory,
+		imageNavigation,
 		loadMusicBackendMetadata,
 		mediaStreamLinkFactory,
 		onClose,
 		previewLinkFactory,
 	}: {
-		file: { name: string };
+		file: { id: number; name: string };
 		open?: boolean;
 		downloadPath?: string;
 		imagePreviewPath?: string;
 		thumbnailPath?: string;
 		editable?: boolean;
 		archivePreviewFactory?: () => Promise<unknown>;
+		imageNavigation?: {
+			nextFile?: { id: number; name: string };
+			onNavigate: (file: { id: number; name: string }) => void;
+			previousFile?: { id: number; name: string };
+		};
 		loadMusicBackendMetadata?: (signal?: AbortSignal) => Promise<unknown>;
 		mediaStreamLinkFactory?: () => Promise<unknown>;
 		onClose?: () => void;
@@ -329,6 +359,8 @@ vi.mock("@/components/files/FilePreview", () => ({
 					data-image-preview-path={imagePreviewPath ?? ""}
 					data-thumbnail-path={thumbnailPath ?? ""}
 					data-editable={String(Boolean(editable))}
+					data-next-image={imageNavigation?.nextFile?.name ?? ""}
+					data-previous-image={imageNavigation?.previousFile?.name ?? ""}
 					data-has-archive-preview-factory={String(
 						Boolean(archivePreviewFactory),
 					)}
@@ -370,6 +402,28 @@ vi.mock("@/components/files/FilePreview", () => ({
 				</button>
 				<button type="button" onClick={onClose}>
 					close-preview
+				</button>
+				<button
+					type="button"
+					disabled={!imageNavigation?.previousFile}
+					onClick={() => {
+						if (imageNavigation?.previousFile) {
+							imageNavigation.onNavigate(imageNavigation.previousFile);
+						}
+					}}
+				>
+					previous-image
+				</button>
+				<button
+					type="button"
+					disabled={!imageNavigation?.nextFile}
+					onClick={() => {
+						if (imageNavigation?.nextFile) {
+							imageNavigation.onNavigate(imageNavigation.nextFile);
+						}
+					}}
+				>
+					next-image
 				</button>
 			</div>
 		) : null;
@@ -631,6 +685,23 @@ describe("ShareViewPage", () => {
 		mockState.previewAppStore.load.mockReset();
 		mockState.previewAppStore.isLoaded = false;
 		mockState.previewAppStore.load.mockResolvedValue(undefined);
+		mockState.thumbnailSupportStore.config = {
+			audio_thumbnail: { enabled: false, extensions: [] },
+			extensions: ["jpg", "jpeg", "png", "webp"],
+			image_preview: {
+				enabled: true,
+				extensions: ["jpg", "jpeg", "png", "webp"],
+			},
+			image_thumbnail: {
+				enabled: true,
+				extensions: ["jpg", "jpeg", "png", "webp"],
+			},
+			version: 1,
+			video_thumbnail: { enabled: false, extensions: [] },
+		};
+		mockState.thumbnailSupportStore.isLoaded = true;
+		mockState.thumbnailSupportStore.load.mockReset();
+		mockState.thumbnailSupportStore.load.mockResolvedValue(undefined);
 		mockState.toastSuccess.mockReset();
 		mockState.verifyPassword.mockReset();
 		mockState.musicPlayTracks.mockReset();
@@ -700,6 +771,7 @@ describe("ShareViewPage", () => {
 					} as never
 				}
 				onClose={vi.fn()}
+				onPreviewNavigate={vi.fn()}
 			/>,
 		);
 
@@ -1244,6 +1316,153 @@ describe("ShareViewPage", () => {
 			"https://download/share-token/files/5",
 			"_blank",
 		);
+	});
+
+	it("passes adjacent image navigation to folder share previews and updates folder-specific paths", async () => {
+		mockState.thumbnailSupportStore.config = {
+			audio_thumbnail: { enabled: false, extensions: [] },
+			extensions: ["jpg", "jpeg", "nef", "png", "webp"],
+			image_preview: {
+				enabled: true,
+				extensions: ["jpg", "jpeg", "nef", "png", "webp"],
+			},
+			image_thumbnail: {
+				enabled: true,
+				extensions: ["jpg", "jpeg", "nef", "png", "webp"],
+			},
+			version: 1,
+			video_thumbnail: { enabled: false, extensions: [] },
+		};
+		mockState.getInfo.mockResolvedValueOnce({
+			has_password: false,
+			name: "Shared Photos",
+			shared_by: {
+				avatar: null,
+				name: "Alice Example",
+			},
+			share_type: "folder",
+		} as never);
+		mockState.listContent.mockResolvedValueOnce({
+			files: [
+				{ id: 10, mime_type: "image/png", name: "first.png", size: 10 },
+				{
+					id: 11,
+					mime_type: "application/pdf",
+					name: "notes.pdf",
+					size: 11,
+				},
+				{ id: 12, mime_type: "image/jpeg", name: "second.jpg", size: 12 },
+				{
+					id: 13,
+					mime_type: "application/octet-stream",
+					name: "capture.nef",
+					size: 13,
+				},
+			],
+			folders: [],
+			next_file_cursor: null,
+		} as never);
+
+		render(<ShareViewPage />);
+
+		expect(await screen.findByText("first.png")).toBeInTheDocument();
+		fireEvent.click(screen.getByRole("button", { name: "preview:first.png" }));
+
+		expect(await screen.findByTestId("file-preview")).toHaveAttribute(
+			"data-name",
+			"first.png",
+		);
+		expect(screen.getByTestId("file-preview")).toHaveAttribute(
+			"data-download-path",
+			"/s/share-token/files/10/download",
+		);
+		expect(screen.getByTestId("file-preview")).toHaveAttribute(
+			"data-previous-image",
+			"capture.nef",
+		);
+		expect(screen.getByTestId("file-preview")).toHaveAttribute(
+			"data-next-image",
+			"second.jpg",
+		);
+
+		fireEvent.click(screen.getByRole("button", { name: "next-image" }));
+		expect(await screen.findByTestId("file-preview")).toHaveAttribute(
+			"data-name",
+			"second.jpg",
+		);
+		expect(screen.getByTestId("file-preview")).toHaveAttribute(
+			"data-download-path",
+			"/s/share-token/files/12/download",
+		);
+		expect(screen.getByTestId("file-preview")).toHaveAttribute(
+			"data-previous-image",
+			"first.png",
+		);
+		expect(screen.getByTestId("file-preview")).toHaveAttribute(
+			"data-next-image",
+			"capture.nef",
+		);
+
+		fireEvent.click(screen.getByRole("button", { name: "next-image" }));
+		expect(await screen.findByTestId("file-preview")).toHaveAttribute(
+			"data-name",
+			"capture.nef",
+		);
+		expect(screen.getByTestId("file-preview")).toHaveAttribute(
+			"data-download-path",
+			"/s/share-token/files/13/download",
+		);
+		expect(screen.getByTestId("file-preview")).toHaveAttribute(
+			"data-previous-image",
+			"second.jpg",
+		);
+		expect(screen.getByTestId("file-preview")).toHaveAttribute(
+			"data-next-image",
+			"first.png",
+		);
+
+		fireEvent.click(screen.getByRole("button", { name: "previous-image" }));
+		expect(await screen.findByTestId("file-preview")).toHaveAttribute(
+			"data-name",
+			"second.jpg",
+		);
+	});
+
+	it("does not expose image navigation for single-file shares", async () => {
+		mockState.getInfo.mockResolvedValueOnce({
+			download_count: 0,
+			has_password: false,
+			mime_type: "image/png",
+			name: "single.png",
+			shared_by: {
+				avatar: null,
+				name: "Alice Example",
+			},
+			share_type: "file",
+			size: 64,
+		} as never);
+
+		render(<ShareViewPage />);
+
+		expect(await screen.findByText("single.png")).toBeInTheDocument();
+		fireEvent.click(screen.getByRole("button", { name: /files:preview/i }));
+
+		expect(await screen.findByTestId("file-preview")).toHaveAttribute(
+			"data-name",
+			"single.png",
+		);
+		expect(screen.getByTestId("file-preview")).toHaveAttribute(
+			"data-previous-image",
+			"",
+		);
+		expect(screen.getByTestId("file-preview")).toHaveAttribute(
+			"data-next-image",
+			"",
+		);
+		expect(
+			screen.getByRole("button", { name: "previous-image" }),
+		).toBeDisabled();
+		expect(screen.getByRole("button", { name: "next-image" })).toBeDisabled();
 	});
 
 	it("keeps current folder contents visible when folder navigation fails", async () => {

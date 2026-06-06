@@ -12,6 +12,7 @@ const mockState = vi.hoisted(() => ({
 	originalBlobUrl: null as string | null,
 	originalError: false,
 	originalLoading: false,
+	previewLoading: false,
 	retry: vi.fn(),
 	useBlobUrl: vi.fn(),
 }));
@@ -36,6 +37,10 @@ vi.mock("@/components/files/preview/BlobImagePreview", () => ({
 			imageStyle,
 			source,
 		};
+		if (mockState.previewLoading) {
+			return <div data-testid="panel-preview-loading" />;
+		}
+
 		return (
 			<div data-testid="panel-preview-viewport" ref={viewportRef}>
 				<img
@@ -76,10 +81,10 @@ const file = {
 	size: 2048,
 };
 
-function renderPanel(
+function panelProps(
 	overrides: Partial<React.ComponentProps<typeof ImagePreviewPanel>> = {},
 ) {
-	const props: React.ComponentProps<typeof ImagePreviewPanel> = {
+	return {
 		file,
 		allOptionsCount: 1,
 		downloadPath: "/files/7/download",
@@ -93,6 +98,8 @@ function renderPanel(
 		exitFullscreenLabel: "Restore window",
 		closeLabel: "Close",
 		fitToWindowLabel: "Fit to window",
+		nextImageLabel: "Next image",
+		previousImageLabel: "Previous image",
 		previewSourceLabel: "Preview",
 		originalSourceLabel: "Original",
 		rotateRightLabel: "Rotate right",
@@ -100,7 +107,12 @@ function renderPanel(
 		zoomOutLabel: "Zoom out",
 		...overrides,
 	};
+}
 
+function renderPanel(
+	overrides: Partial<React.ComponentProps<typeof ImagePreviewPanel>> = {},
+) {
+	const props = panelProps(overrides);
 	render(<ImagePreviewPanel {...props} />);
 	return props;
 }
@@ -112,6 +124,7 @@ describe("ImagePreviewPanel", () => {
 		mockState.originalBlobUrl = null;
 		mockState.originalError = false;
 		mockState.originalLoading = false;
+		mockState.previewLoading = false;
 		mockState.retry.mockReset();
 		mockState.useBlobUrl.mockReset();
 		mockState.useBlobUrl.mockImplementation((path: string | null) => ({
@@ -191,6 +204,219 @@ describe("ImagePreviewPanel", () => {
 		expect(props.onClose).toHaveBeenCalledTimes(1);
 	});
 
+	it("navigates to adjacent images through side buttons and arrow keys", () => {
+		const previousFile = { ...file, id: 6, name: "previous.png" };
+		const nextFile = { ...file, id: 8, name: "next.png" };
+		const onNavigateImage = vi.fn();
+		renderPanel({
+			previousImageFile: previousFile,
+			nextImageFile: nextFile,
+			onNavigateImage,
+		});
+
+		const previousButton = screen.getByRole("button", {
+			name: "Previous image",
+		});
+		const nextButton = screen.getByRole("button", { name: "Next image" });
+
+		expect(previousButton).toHaveAttribute("title", "previous.png");
+		expect(nextButton).toHaveAttribute("title", "next.png");
+
+		fireEvent.click(previousButton);
+		fireEvent.click(nextButton);
+		fireEvent.keyDown(window, { key: "ArrowLeft" });
+		fireEvent.keyDown(window, { key: "ArrowRight" });
+		fireEvent.keyDown(window, { key: "ArrowUp" });
+
+		expect(onNavigateImage).toHaveBeenNthCalledWith(1, previousFile);
+		expect(onNavigateImage).toHaveBeenNthCalledWith(2, nextFile);
+		expect(onNavigateImage).toHaveBeenNthCalledWith(3, previousFile);
+		expect(onNavigateImage).toHaveBeenNthCalledWith(4, nextFile);
+		expect(onNavigateImage).toHaveBeenCalledTimes(4);
+	});
+
+	it("captures image navigation keys before focused controls can stop propagation", () => {
+		const previousFile = { ...file, id: 6, name: "previous.png" };
+		const nextFile = { ...file, id: 8, name: "next.png" };
+		const onNavigateImage = vi.fn();
+		renderPanel({
+			previousImageFile: previousFile,
+			nextImageFile: nextFile,
+			onNavigateImage,
+		});
+		const focusedControl = screen.getByRole("button", { name: "Close" });
+		const stopPropagation = vi.fn((event: KeyboardEvent) => {
+			event.stopPropagation();
+		});
+		focusedControl.addEventListener("keydown", stopPropagation);
+
+		fireEvent.keyDown(focusedControl, { key: "ArrowLeft" });
+		fireEvent.keyDown(focusedControl, { key: "ArrowRight" });
+
+		expect(stopPropagation).toHaveBeenCalledTimes(2);
+		expect(onNavigateImage).toHaveBeenNthCalledWith(1, previousFile);
+		expect(onNavigateImage).toHaveBeenNthCalledWith(2, nextFile);
+		expect(onNavigateImage).toHaveBeenCalledTimes(2);
+	});
+
+	it("renders only available image navigation directions", () => {
+		const previousFile = { ...file, id: 6, name: "previous.png" };
+		const nextFile = { ...file, id: 8, name: "next.png" };
+		const onNavigateImage = vi.fn();
+		const { rerender } = render(
+			<ImagePreviewPanel
+				{...panelProps({
+					previousImageFile: previousFile,
+					onNavigateImage,
+				})}
+			/>,
+		);
+
+		fireEvent.click(screen.getByRole("button", { name: "Previous image" }));
+		fireEvent.keyDown(window, { key: "ArrowRight" });
+		fireEvent.keyDown(window, { key: "ArrowLeft" });
+		expect(
+			screen.queryByRole("button", { name: "Next image" }),
+		).not.toBeInTheDocument();
+		expect(onNavigateImage).toHaveBeenNthCalledWith(1, previousFile);
+		expect(onNavigateImage).toHaveBeenNthCalledWith(2, previousFile);
+
+		rerender(
+			<ImagePreviewPanel
+				{...panelProps({
+					nextImageFile: nextFile,
+					onNavigateImage,
+				})}
+			/>,
+		);
+
+		fireEvent.keyDown(window, { key: "ArrowLeft" });
+		fireEvent.click(screen.getByRole("button", { name: "Next image" }));
+		fireEvent.keyDown(window, { key: "ArrowRight" });
+		expect(
+			screen.queryByRole("button", { name: "Previous image" }),
+		).not.toBeInTheDocument();
+		expect(onNavigateImage).toHaveBeenNthCalledWith(3, nextFile);
+		expect(onNavigateImage).toHaveBeenNthCalledWith(4, nextFile);
+		expect(onNavigateImage).toHaveBeenCalledTimes(4);
+	});
+
+	it("hides side navigation when no navigation callback is available", () => {
+		renderPanel({
+			previousImageFile: { ...file, id: 6, name: "previous.png" },
+			nextImageFile: { ...file, id: 8, name: "next.png" },
+		});
+
+		expect(
+			screen.queryByRole("button", { name: "Previous image" }),
+		).not.toBeInTheDocument();
+		expect(
+			screen.queryByRole("button", { name: "Next image" }),
+		).not.toBeInTheDocument();
+	});
+
+	it("does not navigate with arrow keys when the key event was already handled", () => {
+		const previousFile = { ...file, id: 6, name: "previous.png" };
+		const nextFile = { ...file, id: 8, name: "next.png" };
+		const onNavigateImage = vi.fn();
+		renderPanel({
+			previousImageFile: previousFile,
+			nextImageFile: nextFile,
+			onNavigateImage,
+		});
+
+		const leftEvent = new KeyboardEvent("keydown", {
+			bubbles: true,
+			cancelable: true,
+			key: "ArrowLeft",
+		});
+		leftEvent.preventDefault();
+		window.dispatchEvent(leftEvent);
+
+		const rightEvent = new KeyboardEvent("keydown", {
+			bubbles: true,
+			cancelable: true,
+			key: "ArrowRight",
+		});
+		rightEvent.preventDefault();
+		window.dispatchEvent(rightEvent);
+
+		expect(onNavigateImage).not.toHaveBeenCalled();
+	});
+
+	it("registers and removes image navigation keys in the capture phase", () => {
+		const previousFile = { ...file, id: 6, name: "previous.png" };
+		const addEventListenerSpy = vi.spyOn(window, "addEventListener");
+		const removeEventListenerSpy = vi.spyOn(window, "removeEventListener");
+		const { unmount } = render(
+			<ImagePreviewPanel
+				{...panelProps({
+					previousImageFile: previousFile,
+					onNavigateImage: vi.fn(),
+				})}
+			/>,
+		);
+
+		expect(addEventListenerSpy).toHaveBeenCalledWith(
+			"keydown",
+			expect.any(Function),
+			{ capture: true },
+		);
+		unmount();
+		expect(removeEventListenerSpy).toHaveBeenCalledWith(
+			"keydown",
+			expect.any(Function),
+			{ capture: true },
+		);
+		addEventListenerSpy.mockRestore();
+		removeEventListenerSpy.mockRestore();
+	});
+
+	it("does not register image navigation keys without files or callback", () => {
+		const onNavigateImage = vi.fn();
+		const addEventListenerSpy = vi.spyOn(window, "addEventListener");
+		const removeEventListenerSpy = vi.spyOn(window, "removeEventListener");
+		const { unmount } = render(
+			<ImagePreviewPanel {...panelProps({ onNavigateImage })} />,
+		);
+
+		fireEvent.keyDown(window, { key: "ArrowLeft" });
+		fireEvent.keyDown(window, { key: "ArrowRight" });
+		unmount();
+
+		expect(onNavigateImage).not.toHaveBeenCalled();
+		expect(addEventListenerSpy).not.toHaveBeenCalledWith(
+			"keydown",
+			expect.any(Function),
+		);
+		expect(removeEventListenerSpy).not.toHaveBeenCalledWith(
+			"keydown",
+			expect.any(Function),
+		);
+		addEventListenerSpy.mockRestore();
+		removeEventListenerSpy.mockRestore();
+	});
+
+	it("removes image navigation key handlers after unmount", () => {
+		const previousFile = { ...file, id: 6, name: "previous.png" };
+		const onNavigateImage = vi.fn();
+		const { unmount } = render(
+			<ImagePreviewPanel
+				{...panelProps({
+					previousImageFile: previousFile,
+					onNavigateImage,
+				})}
+			/>,
+		);
+
+		fireEvent.keyDown(window, { key: "ArrowLeft" });
+		unmount();
+		fireEvent.keyDown(window, { key: "ArrowLeft" });
+
+		expect(onNavigateImage).toHaveBeenCalledTimes(1);
+		expect(onNavigateImage).toHaveBeenCalledWith(previousFile);
+	});
+
 	it("uses the original source immediately when preview-first is disabled", () => {
 		mockState.imagePreviewPreference = "original_first";
 
@@ -198,6 +424,43 @@ describe("ImagePreviewPanel", () => {
 
 		expect(screen.getByText("Original")).toBeInTheDocument();
 		expect(mockState.blobProps?.source).toBe("original");
+	});
+
+	it("uses the backend preview first when an original-first image is not browser-renderable", () => {
+		mockState.imagePreviewPreference = "original_first";
+
+		renderPanel({
+			file: {
+				...file,
+				mime_type: "image/x-nikon-nef",
+				name: "capture.nef",
+			},
+		});
+
+		expect(screen.getByText("Preview")).toBeInTheDocument();
+		expect(mockState.blobProps?.source).toBe("backend_preview");
+		expect(
+			screen.queryByRole("button", { name: "Original" }),
+		).not.toBeInTheDocument();
+		expect(mockState.useBlobUrl).not.toHaveBeenCalledWith("/files/7/download", {
+			lane: "default",
+		});
+	});
+
+	it("falls back to the backend preview when an original-first renderable image fails to render", () => {
+		mockState.imagePreviewPreference = "original_first";
+
+		renderPanel();
+
+		expect(screen.getByText("Original")).toBeInTheDocument();
+		expect(mockState.blobProps?.source).toBe("original");
+		fireEvent.error(screen.getByTestId("panel-preview-image"));
+
+		expect(screen.getByText("Preview")).toBeInTheDocument();
+		expect(mockState.blobProps?.source).toBe("backend_preview");
+		expect(
+			screen.queryByRole("button", { name: "Original" }),
+		).not.toBeInTheDocument();
 	});
 
 	it("uses the original source when preview-first has no backend preview path", () => {
@@ -228,6 +491,27 @@ describe("ImagePreviewPanel", () => {
 		expect(
 			screen.getByRole("button", { name: "Fit to window" }),
 		).toHaveTextContent("100%");
+	});
+
+	it("resets the image transform when switching preview sources", () => {
+		const props = panelProps();
+		const { rerender } = render(<ImagePreviewPanel {...props} />);
+
+		fireEvent.click(screen.getByRole("button", { name: "Zoom in" }));
+		expect(
+			screen.getByRole("button", { name: "Fit to window" }),
+		).toHaveTextContent("125%");
+		expect(mockState.blobProps?.imageStyle?.transform).toContain("scale(1.25)");
+
+		fireEvent.click(screen.getByRole("button", { name: "Original" }));
+		mockState.originalBlobUrl = "blob:original";
+		rerender(<ImagePreviewPanel {...props} />);
+
+		expect(mockState.blobProps?.source).toBe("original");
+		expect(
+			screen.getByRole("button", { name: "Fit to window" }),
+		).toHaveTextContent("100%");
+		expect(mockState.blobProps?.imageStyle?.transform).toContain("scale(1)");
 	});
 
 	it("clamps zoom controls at the min and max edges", () => {
@@ -307,6 +591,7 @@ describe("ImagePreviewPanel", () => {
 
 	it("zooms with ctrl wheel and ignores plain scroll", () => {
 		renderPanel();
+		loadPanelImage();
 		const viewport = screen.getByTestId("panel-preview-viewport");
 
 		fireEvent.wheel(viewport, {
@@ -330,6 +615,98 @@ describe("ImagePreviewPanel", () => {
 			screen.getByRole("button", { name: "Fit to window" }),
 		).toHaveTextContent("125%");
 		expect(mockState.blobProps?.imageStyle?.transform).toContain("scale(1.25)");
+	});
+
+	it("ignores wheel and pointer gestures until the image load completes", () => {
+		renderPanel();
+		const viewport = screen.getByTestId("panel-preview-viewport");
+		const surface = getGestureSurface();
+
+		fireEvent.wheel(viewport, {
+			clientX: 200,
+			clientY: 150,
+			ctrlKey: true,
+			deltaY: -100,
+		});
+		fireEvent.pointerDown(surface, {
+			clientX: 100,
+			clientY: 100,
+			pointerId: 1,
+		});
+		fireEvent.pointerMove(surface, {
+			clientX: 220,
+			clientY: 180,
+			pointerId: 1,
+		});
+
+		expect(
+			screen.getByRole("button", { name: "Fit to window" }),
+		).toHaveTextContent("100%");
+		expect(mockState.blobProps?.imageStyle?.transform).toContain("scale(1)");
+		expect(mockState.blobProps?.imageStyle?.transform).toContain(
+			"translate3d(0px, 0px, 0)",
+		);
+
+		loadPanelImage();
+		fireEvent.wheel(viewport, {
+			clientX: 200,
+			clientY: 150,
+			ctrlKey: true,
+			deltaY: -100,
+		});
+
+		expect(
+			screen.getByRole("button", { name: "Fit to window" }),
+		).toHaveTextContent("125%");
+	});
+
+	it("disables gestures for the next image until that image load completes", () => {
+		const props = panelProps();
+		const { rerender } = render(<ImagePreviewPanel {...props} />);
+		const viewport = screen.getByTestId("panel-preview-viewport");
+
+		loadPanelImage();
+		fireEvent.wheel(viewport, {
+			clientX: 200,
+			clientY: 150,
+			ctrlKey: true,
+			deltaY: -100,
+		});
+		expect(
+			screen.getByRole("button", { name: "Fit to window" }),
+		).toHaveTextContent("125%");
+
+		rerender(
+			<ImagePreviewPanel
+				{...panelProps({
+					file: { ...file, id: 8, name: "next.png" },
+					downloadPath: "/files/8/download",
+					imagePreviewPath: "/files/8/image-preview",
+				})}
+			/>,
+		);
+
+		const nextViewport = screen.getByTestId("panel-preview-viewport");
+		fireEvent.wheel(nextViewport, {
+			clientX: 200,
+			clientY: 150,
+			ctrlKey: true,
+			deltaY: -100,
+		});
+		expect(
+			screen.getByRole("button", { name: "Fit to window" }),
+		).toHaveTextContent("100%");
+
+		loadPanelImage();
+		fireEvent.wheel(nextViewport, {
+			clientX: 200,
+			clientY: 150,
+			ctrlKey: true,
+			deltaY: -100,
+		});
+		expect(
+			screen.getByRole("button", { name: "Fit to window" }),
+		).toHaveTextContent("125%");
 	});
 
 	it("zooms with meta wheel and keeps the pointer anchor in bounds", () => {
@@ -369,12 +746,43 @@ describe("ImagePreviewPanel", () => {
 
 		renderPanel();
 
+		expect(addEventListenerSpy).not.toHaveBeenCalledWith(
+			"wheel",
+			expect.any(Function),
+			{ passive: false },
+		);
+		loadPanelImage();
 		expect(addEventListenerSpy).toHaveBeenCalledWith(
 			"wheel",
 			expect.any(Function),
 			{ passive: false },
 		);
 		addEventListenerSpy.mockRestore();
+	});
+
+	it("keeps wheel zoom active when the image viewport appears after loading", () => {
+		mockState.previewLoading = true;
+		const props = panelProps();
+		const { rerender } = render(<ImagePreviewPanel {...props} />);
+		const surface = screen.getByTestId("panel-preview-loading").parentElement;
+		if (!surface) {
+			throw new Error("Image gesture surface not found");
+		}
+
+		mockState.previewLoading = false;
+		rerender(<ImagePreviewPanel {...props} />);
+		mockImageGeometry();
+		fireEvent.wheel(surface, {
+			clientX: 200,
+			clientY: 150,
+			ctrlKey: true,
+			deltaY: -100,
+		});
+
+		expect(
+			screen.getByRole("button", { name: "Fit to window" }),
+		).toHaveTextContent("125%");
+		expect(mockState.blobProps?.imageStyle?.transform).toContain("scale(1.25)");
 	});
 
 	it("does not drag the image while it is fitted", () => {
@@ -622,6 +1030,7 @@ describe("ImagePreviewPanel", () => {
 
 	it("skips releasePointerCapture when the surface no longer owns capture", () => {
 		renderPanel();
+		loadPanelImage();
 		const surface = getGestureSurface();
 		const hasPointerCapture = vi
 			.spyOn(HTMLElement.prototype, "hasPointerCapture")
@@ -648,28 +1057,8 @@ describe("ImagePreviewPanel", () => {
 
 	it("requests the original and renders loading and success states with collapse animation classes", () => {
 		vi.useFakeTimers();
-		const { rerender } = render(
-			<ImagePreviewPanel
-				file={file}
-				allOptionsCount={1}
-				downloadPath="/files/7/download"
-				imagePreviewPath="/files/7/image-preview"
-				isExpanded
-				onChooseOpenMethod={vi.fn()}
-				onClose={vi.fn()}
-				onToggleExpand={vi.fn()}
-				chooseOpenMethodLabel="Choose open method"
-				enterFullscreenLabel="Fill window"
-				exitFullscreenLabel="Restore window"
-				closeLabel="Close"
-				fitToWindowLabel="Fit to window"
-				previewSourceLabel="Preview"
-				originalSourceLabel="Original"
-				rotateRightLabel="Rotate right"
-				zoomInLabel="Zoom in"
-				zoomOutLabel="Zoom out"
-			/>,
-		);
+		const props = panelProps();
+		const { rerender } = render(<ImagePreviewPanel {...props} />);
 
 		expect(screen.getByText("Preview")).toBeInTheDocument();
 		fireEvent.click(screen.getByRole("button", { name: "Original" }));
@@ -682,28 +1071,7 @@ describe("ImagePreviewPanel", () => {
 		expect(loadingButton.querySelector("svg")).toHaveClass("animate-spin");
 
 		mockState.originalBlobUrl = "blob:original";
-		rerender(
-			<ImagePreviewPanel
-				file={file}
-				allOptionsCount={1}
-				downloadPath="/files/7/download"
-				imagePreviewPath="/files/7/image-preview"
-				isExpanded
-				onChooseOpenMethod={vi.fn()}
-				onClose={vi.fn()}
-				onToggleExpand={vi.fn()}
-				chooseOpenMethodLabel="Choose open method"
-				enterFullscreenLabel="Fill window"
-				exitFullscreenLabel="Restore window"
-				closeLabel="Close"
-				fitToWindowLabel="Fit to window"
-				previewSourceLabel="Preview"
-				originalSourceLabel="Original"
-				rotateRightLabel="Rotate right"
-				zoomInLabel="Zoom in"
-				zoomOutLabel="Zoom out"
-			/>,
-		);
+		rerender(<ImagePreviewPanel {...props} />);
 		expect(mockState.blobProps?.source).toBe("original");
 		expect(screen.getByRole("button", { name: "Original" })).toBeDisabled();
 		fireEvent.load(screen.getByTestId("panel-preview-image"));
@@ -736,106 +1104,24 @@ describe("ImagePreviewPanel", () => {
 	});
 
 	it("returns the original button to available when original loading fails", () => {
-		const { rerender } = render(
-			<ImagePreviewPanel
-				file={file}
-				allOptionsCount={1}
-				downloadPath="/files/7/download"
-				imagePreviewPath="/files/7/image-preview"
-				isExpanded
-				onChooseOpenMethod={vi.fn()}
-				onClose={vi.fn()}
-				onToggleExpand={vi.fn()}
-				chooseOpenMethodLabel="Choose open method"
-				enterFullscreenLabel="Fill window"
-				exitFullscreenLabel="Restore window"
-				closeLabel="Close"
-				fitToWindowLabel="Fit to window"
-				previewSourceLabel="Preview"
-				originalSourceLabel="Original"
-				rotateRightLabel="Rotate right"
-				zoomInLabel="Zoom in"
-				zoomOutLabel="Zoom out"
-			/>,
-		);
+		const props = panelProps();
+		const { rerender } = render(<ImagePreviewPanel {...props} />);
 
 		fireEvent.click(screen.getByRole("button", { name: "Original" }));
 		mockState.originalError = true;
-		rerender(
-			<ImagePreviewPanel
-				file={file}
-				allOptionsCount={1}
-				downloadPath="/files/7/download"
-				imagePreviewPath="/files/7/image-preview"
-				isExpanded
-				onChooseOpenMethod={vi.fn()}
-				onClose={vi.fn()}
-				onToggleExpand={vi.fn()}
-				chooseOpenMethodLabel="Choose open method"
-				enterFullscreenLabel="Fill window"
-				exitFullscreenLabel="Restore window"
-				closeLabel="Close"
-				fitToWindowLabel="Fit to window"
-				previewSourceLabel="Preview"
-				originalSourceLabel="Original"
-				rotateRightLabel="Rotate right"
-				zoomInLabel="Zoom in"
-				zoomOutLabel="Zoom out"
-			/>,
-		);
+		rerender(<ImagePreviewPanel {...props} />);
 
 		expect(screen.getByRole("button", { name: "Original" })).toBeEnabled();
 		expect(mockState.blobProps?.source).toBe("backend_preview");
 	});
 
 	it("falls back to the backend preview when the downloaded original cannot render", () => {
-		const { rerender } = render(
-			<ImagePreviewPanel
-				file={file}
-				allOptionsCount={1}
-				downloadPath="/files/7/download"
-				imagePreviewPath="/files/7/image-preview"
-				isExpanded
-				onChooseOpenMethod={vi.fn()}
-				onClose={vi.fn()}
-				onToggleExpand={vi.fn()}
-				chooseOpenMethodLabel="Choose open method"
-				enterFullscreenLabel="Fill window"
-				exitFullscreenLabel="Restore window"
-				closeLabel="Close"
-				fitToWindowLabel="Fit to window"
-				previewSourceLabel="Preview"
-				originalSourceLabel="Original"
-				rotateRightLabel="Rotate right"
-				zoomInLabel="Zoom in"
-				zoomOutLabel="Zoom out"
-			/>,
-		);
+		const props = panelProps();
+		const { rerender } = render(<ImagePreviewPanel {...props} />);
 
 		fireEvent.click(screen.getByRole("button", { name: "Original" }));
 		mockState.originalBlobUrl = "blob:original";
-		rerender(
-			<ImagePreviewPanel
-				file={file}
-				allOptionsCount={1}
-				downloadPath="/files/7/download"
-				imagePreviewPath="/files/7/image-preview"
-				isExpanded
-				onChooseOpenMethod={vi.fn()}
-				onClose={vi.fn()}
-				onToggleExpand={vi.fn()}
-				chooseOpenMethodLabel="Choose open method"
-				enterFullscreenLabel="Fill window"
-				exitFullscreenLabel="Restore window"
-				closeLabel="Close"
-				fitToWindowLabel="Fit to window"
-				previewSourceLabel="Preview"
-				originalSourceLabel="Original"
-				rotateRightLabel="Rotate right"
-				zoomInLabel="Zoom in"
-				zoomOutLabel="Zoom out"
-			/>,
-		);
+		rerender(<ImagePreviewPanel {...props} />);
 
 		expect(mockState.blobProps?.source).toBe("original");
 		fireEvent.error(screen.getByTestId("panel-preview-image"));
@@ -851,6 +1137,10 @@ function getGestureSurface() {
 		throw new Error("Image gesture surface not found");
 	}
 	return surface;
+}
+
+function loadPanelImage() {
+	fireEvent.load(screen.getByTestId("panel-preview-image"));
 }
 
 function mockImageGeometry() {
@@ -878,4 +1168,5 @@ function mockImageGeometry() {
 		configurable: true,
 		value: 200,
 	});
+	loadPanelImage();
 }

@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
 import { useBlobUrl } from "@/hooks/useBlobUrl";
+import { canBrowserRenderImage } from "@/lib/browserImageSupport";
 import { useFrontendConfigStore } from "@/stores/frontendConfigStore";
 import { PreviewError } from "./PreviewError";
 import { PreviewLoadingState } from "./PreviewLoadingState";
@@ -69,10 +70,18 @@ export function BlobImagePreview({
 	const requestedOriginal = requestedOriginalKey === previewKey;
 	const originalRenderedSuccessfully = renderedOriginalKey === previewKey;
 	const originalRenderFailed = failedOriginalKey === previewKey;
+	const hasBackendPreview = fallbackPath != null;
+	const originalIsBrowserRenderable = canBrowserRenderImage(file);
 	const canShowOriginal =
-		imagePreviewPreference === "preview_first" && fallbackPath != null;
+		imagePreviewPreference === "preview_first" &&
+		hasBackendPreview &&
+		originalIsBrowserRenderable;
 	const baseSource: ImagePreviewSource =
-		source ?? (canShowOriginal ? "backend_preview" : "original");
+		source ??
+		(hasBackendPreview &&
+		(imagePreviewPreference === "preview_first" || !originalIsBrowserRenderable)
+			? "backend_preview"
+			: "original");
 	const isControlledSource = source != null;
 	const shouldLoadOriginal =
 		!isControlledSource &&
@@ -89,13 +98,22 @@ export function BlobImagePreview({
 	});
 	const originalReady =
 		shouldLoadOriginal && originalBlobUrl && !originalLoading && !originalError;
-	const displaySource: ImagePreviewSource =
+	const shouldFallbackOriginalRenderToPreview =
+		!isControlledSource &&
+		baseSource === "original" &&
+		originalRenderFailed &&
+		hasBackendPreview;
+	const shouldPromoteReadyOriginal =
 		!isControlledSource &&
 		baseSource === "backend_preview" &&
 		originalReady &&
-		!originalRenderFailed
-			? "original"
-			: baseSource;
+		!originalRenderFailed;
+	const displaySource: ImagePreviewSource =
+		shouldFallbackOriginalRenderToPreview
+			? "backend_preview"
+			: shouldPromoteReadyOriginal
+				? "original"
+				: baseSource;
 	const displayPath: string | null =
 		displaySource === "backend_preview" ? (fallbackPath ?? null) : path;
 	const { blobUrl, error, loading, retry } = useBlobUrl(displayPath, {
@@ -142,7 +160,7 @@ export function BlobImagePreview({
 		if (
 			!isControlledSource &&
 			displaySource === "original" &&
-			canShowOriginal
+			hasBackendPreview
 		) {
 			setFailedOriginalKey(previewKey);
 			setRequestedOriginalKey(null);
