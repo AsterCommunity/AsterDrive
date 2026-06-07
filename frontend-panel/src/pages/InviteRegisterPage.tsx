@@ -267,9 +267,15 @@ function inviteRegisterReducer(
 			return {
 				...state,
 				invitation: null,
+				password: "",
+				passwordError: "",
+				showPassword: false,
 				signedInUser: null,
 				status: "loading",
 				submitting: false,
+				switchingContentVisible: false,
+				username: "",
+				usernameError: "",
 			};
 		case "verifyStatusFailed":
 			return { ...state, status: action.status };
@@ -464,7 +470,6 @@ function InviteRegisterForm({
 						type="button"
 						className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground transition-colors hover:text-foreground"
 						onClick={onTogglePasswordVisibility}
-						tabIndex={-1}
 						aria-label={
 							showPassword ? t("core:hide_password") : t("core:show_password")
 						}
@@ -742,7 +747,11 @@ export default function InviteRegisterPage() {
 	const logout = useAuthStore((state) => state.logout);
 	const initialUserRef = useRef(currentUser);
 	const token = useMemo(() => normalizeToken(params.token), [params.token]);
-	const timers = useMemo<InviteTimers>(() => new Map(), []);
+	const timersRef = useRef<InviteTimers | null>(null);
+	if (timersRef.current === null) {
+		timersRef.current = new Map();
+	}
+	const timers = timersRef.current;
 	const [state, dispatch] = useReducer(
 		inviteRegisterReducer,
 		token,

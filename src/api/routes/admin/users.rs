@@ -112,9 +112,9 @@ pub async fn create_user_invitation(
     audit_service::log(
         state.get_ref(),
         &ctx,
-        audit_service::AuditAction::AdminCreateUser,
-        audit_service::AuditEntityType::User,
-        None,
+        audit_service::AuditAction::AdminCreateInvitation,
+        audit_service::AuditEntityType::Invitation,
+        Some(invitation.id),
         Some(&invitation.email),
         None,
     )
@@ -174,9 +174,9 @@ pub async fn revoke_user_invitation(
     audit_service::log(
         state.get_ref(),
         &ctx,
-        audit_service::AuditAction::AdminUpdateUser,
-        audit_service::AuditEntityType::User,
-        None,
+        audit_service::AuditAction::AdminRevokeInvitation,
+        audit_service::AuditEntityType::Invitation,
+        Some(invitation.id),
         Some(&invitation.email),
         None,
     )

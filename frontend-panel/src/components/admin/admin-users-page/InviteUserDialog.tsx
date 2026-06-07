@@ -51,9 +51,16 @@ export function InviteUserDialog({
 }: InviteUserDialogProps) {
 	const { t } = useTranslation(["admin", "core"]);
 	const invitationUrl = createdInvitation?.invitation_url?.trim() ?? "";
+	const emailErrorId = "invite-user-email-error";
+	const handleOpenChange = (nextOpen: boolean) => {
+		if (inviting && !nextOpen) {
+			return;
+		}
+		onOpenChange(nextOpen);
+	};
 
 	return (
-		<Dialog open={open} onOpenChange={onOpenChange}>
+		<Dialog open={open} onOpenChange={handleOpenChange}>
 			<DialogContent keepMounted className="sm:max-w-md">
 				<form onSubmit={onSubmit} autoComplete="off" className="space-y-4">
 					<DialogHeader>
@@ -76,9 +83,12 @@ export function InviteUserDialog({
 							required
 							className={ADMIN_CONTROL_HEIGHT_CLASS}
 							aria-invalid={!!errors.email}
+							aria-describedby={errors.email ? emailErrorId : undefined}
 						/>
 						{errors.email ? (
-							<p className="text-xs text-destructive">{errors.email}</p>
+							<p id={emailErrorId} className="text-xs text-destructive">
+								{errors.email}
+							</p>
 						) : null}
 					</div>
 					{createdInvitation ? (
@@ -118,7 +128,7 @@ export function InviteUserDialog({
 						<Button
 							type="button"
 							variant="outline"
-							onClick={() => onOpenChange(false)}
+							onClick={() => handleOpenChange(false)}
 							disabled={inviting}
 						>
 							{t("core:cancel")}

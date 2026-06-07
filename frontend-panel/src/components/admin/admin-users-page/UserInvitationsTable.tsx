@@ -27,7 +27,6 @@ import type {
 interface UserInvitationsTableProps {
 	invitations: AdminUserInvitationInfo[];
 	revokingInvitationId: number | null;
-	onCopyLink: (value: string) => void;
 	onRevokeInvitation: (invitation: AdminUserInvitationInfo) => void;
 }
 
@@ -47,7 +46,6 @@ function getInvitationStatusClass(status: UserInvitationStatus) {
 export function UserInvitationsTable({
 	invitations,
 	revokingInvitationId,
-	onCopyLink,
 	onRevokeInvitation,
 }: UserInvitationsTableProps) {
 	const { t } = useTranslation("admin");
@@ -67,7 +65,6 @@ export function UserInvitationsTable({
 				</TableHeader>
 				<TableBody>
 					{invitations.map((invitation) => {
-						const invitationUrl = invitation.invitation_url?.trim() ?? "";
 						const isPending = invitation.status === "pending";
 						const isRevoking = revokingInvitationId === invitation.id;
 						const statusKey = `invitation_status_${invitation.status}`;
@@ -125,17 +122,6 @@ export function UserInvitationsTable({
 								</TableCell>
 								<TableCell>
 									<div className="flex justify-end gap-1">
-										<Button
-											variant="ghost"
-											size="icon"
-											className={ADMIN_ICON_BUTTON_CLASS}
-											onClick={() => onCopyLink(invitationUrl)}
-											aria-label={t("invitation_copy_link")}
-											title={t("invitation_copy_link")}
-											disabled={!invitationUrl}
-										>
-											<Icon name="Copy" className="size-3.5" />
-										</Button>
 										<Button
 											variant="ghost"
 											size="icon"

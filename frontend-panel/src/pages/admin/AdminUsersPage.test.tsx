@@ -672,6 +672,125 @@ describe("AdminUsersPage", () => {
 		expect(screen.queryByText("pending_invitations")).not.toBeInTheDocument();
 	});
 
+	it("invites a user, displays the generated link, copies it, and clears the result on edit", async () => {
+		mockState.createInvitation.mockResolvedValueOnce(
+			createInvitation({
+				email: "invitee@example.com",
+				invitation_url: "https://drive.example.test/invite/generated",
+				mail_queued: true,
+			}),
+		);
+
+		renderPage();
+
+		await waitFor(() => {
+			expect(mockState.list).toHaveBeenCalledTimes(1);
+		});
+
+		fireEvent.click(screen.getByRole("button", { name: /invite_user/i }));
+		fireEvent.change(screen.getByLabelText("email"), {
+			target: { value: "bad" },
+		});
+		fireEvent.click(screen.getByRole("button", { name: /send_invitation/i }));
+
+		expect(mockState.createInvitation).not.toHaveBeenCalled();
+		expect(screen.getByText("email_format")).toBeInTheDocument();
+
+		fireEvent.change(screen.getByLabelText("email"), {
+			target: { value: " invitee@example.com " },
+		});
+		fireEvent.click(screen.getByRole("button", { name: /send_invitation/i }));
+
+		await waitFor(() => {
+			expect(mockState.createInvitation).toHaveBeenCalledWith({
+				email: "invitee@example.com",
+			});
+		});
+		expect(mockState.toastSuccess).toHaveBeenCalledWith("invitation_created");
+		expect(screen.getByText("invitation_mail_queued")).toBeInTheDocument();
+		expect(
+			screen.getByDisplayValue("https://drive.example.test/invite/generated"),
+		).toBeInTheDocument();
+
+		fireEvent.click(
+			screen.getByRole("button", { name: "invitation_copy_link" }),
+		);
+
+		await waitFor(() => {
+			expect(mockState.writeTextToClipboard).toHaveBeenCalledWith(
+				"https://drive.example.test/invite/generated",
+			);
+		});
+		expect(mockState.toastSuccess).toHaveBeenCalledWith("copied_to_clipboard");
+
+		fireEvent.change(screen.getByLabelText("email"), {
+			target: { value: "someone@example.com" },
+		});
+
+		expect(
+			screen.queryByText("invitation_mail_queued"),
+		).not.toBeInTheDocument();
+
+		fireEvent.click(screen.getByRole("button", { name: "cancel" }));
+		expect(screen.queryByLabelText("email")).not.toBeInTheDocument();
+
+		fireEvent.click(screen.getByRole("button", { name: /invite_user/i }));
+		expect(screen.getByLabelText("email")).toHaveValue("");
+	});
+
+	it("updates the URL when paging through users", async () => {
+		mockState.list.mockResolvedValue({
+			items: [createUser()],
+			total: 45,
+		});
+
+		renderPage();
+
+		await waitFor(() => {
+			expect(mockState.list).toHaveBeenCalledWith({
+				keyword: undefined,
+				limit: 20,
+				offset: 0,
+				role: undefined,
+				sort_by: "created_at",
+				sort_order: "desc",
+				status: undefined,
+			});
+		});
+
+		fireEvent.click(screen.getByRole("button", { name: "CaretRight" }));
+
+		await waitFor(() => {
+			expect(screen.getByTestId("location-search").textContent).toBe(
+				"?offset=20",
+			);
+		});
+		expect(mockState.list).toHaveBeenCalledWith({
+			keyword: undefined,
+			limit: 20,
+			offset: 20,
+			role: undefined,
+			sort_by: "created_at",
+			sort_order: "desc",
+			status: undefined,
+		});
+
+		fireEvent.click(screen.getByRole("button", { name: "CaretLeft" }));
+
+		await waitFor(() => {
+			expect(screen.getByTestId("location-search").textContent).toBe("");
+		});
+		expect(mockState.list).toHaveBeenCalledWith({
+			keyword: undefined,
+			limit: 20,
+			offset: 0,
+			role: undefined,
+			sort_by: "created_at",
+			sort_order: "desc",
+			status: undefined,
+		});
+	});
+
 	it("validates the create form, trims inputs, creates the user, and reloads the list", async () => {
 		mockState.list
 			.mockResolvedValueOnce({

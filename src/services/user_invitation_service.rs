@@ -59,7 +59,6 @@ pub async fn create_invitation(
 ) -> Result<AdminUserInvitationInfo> {
     let email = crate::utils::email::normalize_email(email)?;
     LocalEmailPolicy::from_runtime_config(state.runtime_config()).check(&email)?;
-    ensure_email_available(state.writer_db(), &email).await?;
 
     let token = id::new_short_token();
     let token_hash = hash::sha256_hex(token.as_bytes());
@@ -75,6 +74,7 @@ pub async fn create_invitation(
 
     let txn = crate::db::transaction::begin(state.writer_db()).await?;
     let result = async {
+        ensure_email_available(&txn, &email).await?;
         for existing in user_invitation_repo::find_pending_by_email(&txn, &email).await? {
             user_invitation_repo::mark_revoked_if_pending(&txn, existing.id).await?;
         }
@@ -83,7 +83,6 @@ pub async fn create_invitation(
             &txn,
             user_invitation::ActiveModel {
                 email: Set(email.clone()),
-                token: Set(Some(token.clone())),
                 token_hash: Set(token_hash),
                 status: Set(UserInvitationStatus::Pending),
                 invited_by: Set(invited_by),
@@ -131,9 +130,8 @@ pub async fn list_invitations(
     let (items, total) = user_invitation_repo::list(state.writer_db(), limit, offset).await?;
     let mut infos = Vec::with_capacity(items.len());
     for item in items {
-        let invitation = refresh_expired_status(state.writer_db(), item).await?;
-        let invitation_url = copyable_invitation_url(state.runtime_config(), &invitation);
-        infos.push(to_admin_info(invitation, invitation_url, false));
+        let invitation = invitation_list_view(item);
+        infos.push(to_admin_info(invitation, None, false));
     }
     Ok(OffsetPage::new(infos, total, limit, offset))
 }
@@ -149,7 +147,7 @@ pub async fn revoke_invitation(
     }
 
     if !user_invitation_repo::mark_revoked_if_pending(state.writer_db(), invitation.id).await? {
-        return Err(invitation_status_error(UserInvitationStatus::Revoked));
+        return Err(current_invitation_status_error(state.writer_db(), invitation.id).await);
     }
 
     let invitation = user_invitation_repo::find_by_id(state.writer_db(), id).await?;
@@ -200,7 +198,7 @@ pub async fn accept_invitation(
         )
         .await?;
         if !user_invitation_repo::mark_accepted_if_pending(&txn, invitation.id, user.id).await? {
-            return Err(invitation_status_error(UserInvitationStatus::Accepted));
+            return Err(current_invitation_status_error(&txn, invitation.id).await);
         }
         Ok::<_, AsterError>(user)
     }
@@ -243,12 +241,20 @@ async fn refresh_expired_status<C: ConnectionTrait>(
     mut invitation: user_invitation::Model,
 ) -> Result<user_invitation::Model> {
     if invitation.status == UserInvitationStatus::Pending && invitation.expires_at <= Utc::now() {
-        user_invitation_repo::mark_expired_if_pending(db, invitation.id).await?;
+        if !user_invitation_repo::mark_expired_if_pending(db, invitation.id).await? {
+            return user_invitation_repo::find_by_id(db, invitation.id).await;
+        }
         invitation.status = UserInvitationStatus::Expired;
-        invitation.token = None;
         invitation.updated_at = Utc::now();
     }
     Ok(invitation)
+}
+
+fn invitation_list_view(mut invitation: user_invitation::Model) -> user_invitation::Model {
+    if invitation.status == UserInvitationStatus::Pending && invitation.expires_at <= Utc::now() {
+        invitation.status = UserInvitationStatus::Expired;
+    }
+    invitation
 }
 
 async fn ensure_invitation_not_expired<C: ConnectionTrait>(
@@ -258,7 +264,9 @@ async fn ensure_invitation_not_expired<C: ConnectionTrait>(
     if invitation.expires_at > Utc::now() {
         return Ok(());
     }
-    user_invitation_repo::mark_expired_if_pending(db, invitation.id).await?;
+    if !user_invitation_repo::mark_expired_if_pending(db, invitation.id).await? {
+        return Err(current_invitation_status_error(db, invitation.id).await);
+    }
     Err(invitation_status_error(UserInvitationStatus::Expired))
 }
 
@@ -292,20 +300,6 @@ fn invitation_token_hash(token: &str) -> Result<String> {
 
 fn invitation_url(runtime_config: &crate::config::RuntimeConfig, token: &str) -> String {
     site_url::public_app_url_or_path(runtime_config, &format!("/invite/{token}"))
-}
-
-fn copyable_invitation_url(
-    runtime_config: &crate::config::RuntimeConfig,
-    invitation: &user_invitation::Model,
-) -> Option<String> {
-    if invitation.status != UserInvitationStatus::Pending || invitation.expires_at <= Utc::now() {
-        return None;
-    }
-    invitation
-        .token
-        .as_deref()
-        .filter(|token| !token.trim().is_empty())
-        .map(|token| invitation_url(runtime_config, token))
 }
 
 fn format_mail_duration_seconds(total_secs: i64) -> String {
@@ -371,4 +365,11 @@ fn invitation_status_error(status: UserInvitationStatus) -> AsterError {
         ),
     };
     validation_error_with_code(code, message)
+}
+
+async fn current_invitation_status_error<C: ConnectionTrait>(db: &C, id: i64) -> AsterError {
+    match user_invitation_repo::find_by_id(db, id).await {
+        Ok(invitation) => invitation_status_error(invitation.status),
+        Err(error) => error,
+    }
 }

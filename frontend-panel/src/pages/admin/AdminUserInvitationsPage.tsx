@@ -1,5 +1,5 @@
 import type { FormEvent } from "react";
-import { useEffect, useMemo, useReducer } from "react";
+import { useCallback, useEffect, useMemo, useReducer } from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
@@ -44,8 +44,6 @@ type AdminUserInvitationsPageState = {
 	inviteErrors: Partial<CreateUserInvitationRequest>;
 	inviteForm: CreateUserInvitationRequest;
 	inviting: boolean;
-	offset: number;
-	pageSize: InvitationPageSize;
 };
 
 type AdminUserInvitationsPageAction =
@@ -71,10 +69,7 @@ type AdminUserInvitationsPageAction =
 	  }
 	| { type: "inviteFormReset" }
 	| { type: "inviteOpenSet"; open: boolean }
-	| { type: "invitingSet"; inviting: boolean }
-	| { type: "pageSizeChanged"; pageSize: InvitationPageSize }
-	| { type: "offsetChanged"; offset: number }
-	| { type: "offsetIncremented"; delta: number };
+	| { type: "invitingSet"; inviting: boolean };
 
 function normalizeOffset(offset: number) {
 	return Math.max(0, Math.floor(offset));
@@ -84,21 +79,13 @@ function createInitialInviteForm(): CreateUserInvitationRequest {
 	return { email: "" };
 }
 
-function initAdminUserInvitationsPageState(
-	searchParams: URLSearchParams,
-): AdminUserInvitationsPageState {
+function initAdminUserInvitationsPageState(): AdminUserInvitationsPageState {
 	return {
 		createdInvitation: null,
 		inviteDialogOpen: false,
 		inviteErrors: {},
 		inviteForm: createInitialInviteForm(),
 		inviting: false,
-		offset: normalizeOffset(parseOffsetSearchParam(searchParams.get("offset"))),
-		pageSize: parsePageSizeSearchParam(
-			searchParams.get("pageSize"),
-			INVITATION_PAGE_SIZE_OPTIONS,
-			DEFAULT_INVITATION_PAGE_SIZE,
-		),
 	};
 }
 
@@ -157,19 +144,6 @@ function adminUserInvitationsPageReducer(
 			return { ...state, inviteDialogOpen: action.open };
 		case "invitingSet":
 			return { ...state, inviting: action.inviting };
-		case "offsetChanged":
-			return { ...state, offset: normalizeOffset(action.offset) };
-		case "offsetIncremented":
-			return {
-				...state,
-				offset: normalizeOffset(state.offset + action.delta),
-			};
-		case "pageSizeChanged":
-			return {
-				...state,
-				offset: 0,
-				pageSize: action.pageSize,
-			};
 	}
 }
 
@@ -180,7 +154,7 @@ export default function AdminUserInvitationsPage() {
 	const [searchParams, setSearchParams] = useSearchParams();
 	const [state, dispatch] = useReducer(
 		adminUserInvitationsPageReducer,
-		searchParams,
+		undefined,
 		initAdminUserInvitationsPageState,
 	);
 	const {
@@ -189,9 +163,15 @@ export default function AdminUserInvitationsPage() {
 		inviteErrors,
 		inviteForm,
 		inviting,
-		offset,
-		pageSize,
 	} = state;
+	const offset = normalizeOffset(
+		parseOffsetSearchParam(searchParams.get("offset")),
+	);
+	const pageSize = parsePageSizeSearchParam(
+		searchParams.get("pageSize"),
+		INVITATION_PAGE_SIZE_OPTIONS,
+		DEFAULT_INVITATION_PAGE_SIZE,
+	);
 	const {
 		items: invitations,
 		loading,
@@ -212,20 +192,45 @@ export default function AdminUserInvitationsPage() {
 	} = usePendingId<number>();
 
 	useEffect(() => {
-		setSearchParams(
-			buildOffsetPaginationSearchParams({
-				offset,
-				pageSize,
-				defaultPageSize: DEFAULT_INVITATION_PAGE_SIZE,
-			}),
-			{ replace: true },
-		);
-	}, [offset, pageSize, setSearchParams]);
+		const normalizedParams = buildOffsetPaginationSearchParams({
+			offset,
+			pageSize,
+			defaultPageSize: DEFAULT_INVITATION_PAGE_SIZE,
+		});
+
+		if (normalizedParams.toString() !== searchParams.toString()) {
+			setSearchParams(normalizedParams, { replace: true });
+		}
+	}, [offset, pageSize, searchParams, setSearchParams]);
+
+	const setPagination = useCallback(
+		(nextOffset: number, nextPageSize: InvitationPageSize) => {
+			setSearchParams(
+				buildOffsetPaginationSearchParams({
+					offset: normalizeOffset(nextOffset),
+					pageSize: nextPageSize,
+					defaultPageSize: DEFAULT_INVITATION_PAGE_SIZE,
+				}),
+			);
+		},
+		[setSearchParams],
+	);
+
+	useEffect(() => {
+		if (loading || invitations.length > 0 || total === 0) {
+			return;
+		}
+		const lastOffset = Math.floor((total - 1) / pageSize) * pageSize;
+		if (offset !== lastOffset) {
+			setPagination(lastOffset, pageSize);
+		}
+	}, [invitations.length, loading, offset, pageSize, total, setPagination]);
 
 	const totalPages = Math.max(1, Math.ceil(total / pageSize));
 	const currentPage = Math.floor(offset / pageSize) + 1;
 	const prevPageDisabled = offset === 0;
 	const nextPageDisabled = offset + pageSize >= total;
+	const outOfRangeEmptyPage = invitations.length === 0 && total > 0;
 	const pageSizeOptions = INVITATION_PAGE_SIZE_OPTIONS.map((size) => ({
 		label: t("page_size_option", { count: size }),
 		value: String(size),
@@ -287,7 +292,7 @@ export default function AdminUserInvitationsPage() {
 			dispatch({ type: "inviteCreated", invitation });
 			toast.success(t("invitation_created"));
 			if (offset !== 0) {
-				dispatch({ type: "offsetChanged", offset: 0 });
+				setPagination(0, pageSize);
 			} else {
 				await reload();
 			}
@@ -326,7 +331,7 @@ export default function AdminUserInvitationsPage() {
 	const handlePageSizeChange = (value: string | null) => {
 		const next = parsePageSizeOption(value, INVITATION_PAGE_SIZE_OPTIONS);
 		if (next == null) return;
-		dispatch({ type: "pageSizeChanged", pageSize: next });
+		setPagination(0, next);
 	};
 
 	return (
@@ -371,7 +376,7 @@ export default function AdminUserInvitationsPage() {
 					}
 				/>
 
-				{loading ? (
+				{loading || outOfRangeEmptyPage ? (
 					<SkeletonTable columns={6} rows={6} />
 				) : invitations.length === 0 ? (
 					<EmptyState
@@ -391,7 +396,6 @@ export default function AdminUserInvitationsPage() {
 					<UserInvitationsTable
 						invitations={invitations}
 						revokingInvitationId={revokingInvitationId}
-						onCopyLink={(value) => void copyInvitationLink(value)}
 						onRevokeInvitation={(invitation) =>
 							requestRevokeInvitationConfirm(invitation.id)
 						}
@@ -407,12 +411,8 @@ export default function AdminUserInvitationsPage() {
 					onPageSizeChange={handlePageSizeChange}
 					prevDisabled={prevPageDisabled}
 					nextDisabled={nextPageDisabled}
-					onPrevious={() =>
-						dispatch({ type: "offsetIncremented", delta: -pageSize })
-					}
-					onNext={() =>
-						dispatch({ type: "offsetIncremented", delta: pageSize })
-					}
+					onPrevious={() => setPagination(offset - pageSize, pageSize)}
+					onNext={() => setPagination(offset + pageSize, pageSize)}
 				/>
 			</AdminPageShell>
 			<InviteUserDialog

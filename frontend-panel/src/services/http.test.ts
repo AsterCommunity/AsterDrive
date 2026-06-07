@@ -193,6 +193,57 @@ describe("http api helpers", () => {
 		});
 	});
 
+	it("unwraps successful responses from mutating api helpers", async () => {
+		const successResponse = (data: unknown) => ({
+			data: {
+				code: ApiErrorCode.Success,
+				msg: "ok",
+				data,
+			},
+		});
+		mockState.client.post.mockResolvedValue(successResponse({ created: true }));
+		mockState.client.put.mockResolvedValue(successResponse({ replaced: true }));
+		mockState.client.patch.mockResolvedValue(
+			successResponse({ patched: true }),
+		);
+		mockState.client.delete.mockResolvedValue(
+			successResponse({ deleted: true }),
+		);
+
+		const { api } = await loadHttpModule();
+
+		await expect(api.post("/items", { name: "draft" })).resolves.toEqual({
+			created: true,
+		});
+		await expect(api.put("/items/1", { name: "replacement" })).resolves.toEqual(
+			{
+				replaced: true,
+			},
+		);
+		await expect(api.patch("/items/1", { name: "patch" })).resolves.toEqual({
+			patched: true,
+		});
+		await expect(api.delete("/items/1")).resolves.toEqual({
+			deleted: true,
+		});
+		expect(mockState.client.post).toHaveBeenCalledWith(
+			"/items",
+			{ name: "draft" },
+			undefined,
+		);
+		expect(mockState.client.put).toHaveBeenCalledWith(
+			"/items/1",
+			{ name: "replacement" },
+			undefined,
+		);
+		expect(mockState.client.patch).toHaveBeenCalledWith(
+			"/items/1",
+			{ name: "patch" },
+			undefined,
+		);
+		expect(mockState.client.delete).toHaveBeenCalledWith("/items/1", undefined);
+	});
+
 	it("throws ApiError when the backend response code is not success", async () => {
 		mockState.client.get.mockResolvedValue({
 			data: {

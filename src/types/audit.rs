@@ -155,6 +155,8 @@ macro_rules! define_audit_action_list {
             FollowerIngressProfileDelete,
             MailSend,
             MailDeliveryFailed,
+            AdminCreateInvitation,
+            AdminRevokeInvitation,
         }
     };
 }
@@ -227,6 +229,7 @@ define_audit_entity_type! {
     File => "file",
     Folder => "folder",
     Mail => "mail",
+    Invitation => "invitation",
     MfaFactor => "mfa_factor",
     Passkey => "passkey",
     PolicyGroup => "policy_group",
@@ -655,6 +658,10 @@ pub enum AuditAction {
     MailSend,
     #[sea_orm(string_value = "mail_delivery_failed")]
     MailDeliveryFailed,
+    #[sea_orm(string_value = "admin_create_invitation")]
+    AdminCreateInvitation,
+    #[sea_orm(string_value = "admin_revoke_invitation")]
+    AdminRevokeInvitation,
 }
 
 impl AuditAction {
@@ -804,6 +811,8 @@ impl AuditAction {
             Self::FollowerIngressProfileDelete => 138,
             Self::MailSend => 139,
             Self::MailDeliveryFailed => 140,
+            Self::AdminCreateInvitation => 141,
+            Self::AdminRevokeInvitation => 142,
         }
     }
 
@@ -952,6 +961,8 @@ impl AuditAction {
             Self::FollowerIngressProfileDelete => "follower_ingress_profile_delete",
             Self::MailSend => "mail_send",
             Self::MailDeliveryFailed => "mail_delivery_failed",
+            Self::AdminCreateInvitation => "admin_create_invitation",
+            Self::AdminRevokeInvitation => "admin_revoke_invitation",
         }
     }
 
@@ -1100,6 +1111,8 @@ impl AuditAction {
             "follower_ingress_profile_delete" => Some(Self::FollowerIngressProfileDelete),
             "mail_send" => Some(Self::MailSend),
             "mail_delivery_failed" => Some(Self::MailDeliveryFailed),
+            "admin_create_invitation" => Some(Self::AdminCreateInvitation),
+            "admin_revoke_invitation" => Some(Self::AdminRevokeInvitation),
             _ => None,
         }
     }
@@ -1128,7 +1141,9 @@ impl AuditAction {
             | Self::AdminForceUnlock
             | Self::AdminCleanupExpiredLocks
             | Self::AdminCleanupTasks
-            | Self::AdminCreateBlobMaintenanceTask => "admin",
+            | Self::AdminCreateBlobMaintenanceTask
+            | Self::AdminCreateInvitation
+            | Self::AdminRevokeInvitation => "admin",
             Self::AdminCreateRemoteNode
             | Self::AdminUpdateRemoteNode
             | Self::AdminDeleteRemoteNode

@@ -271,6 +271,55 @@ describe("InviteRegisterPage", () => {
 		expect(mockState.acceptInvitation).not.toHaveBeenCalled();
 	});
 
+	it("resets form values and validation errors when the invitation token changes", async () => {
+		mockState.params = { token: "first-token" };
+		mockState.verifyInvitation
+			.mockResolvedValueOnce({
+				email: "first@example.com",
+				expires_at: "2026-06-10T00:00:00Z",
+			})
+			.mockResolvedValueOnce({
+				email: "second@example.com",
+				expires_at: "2026-06-11T00:00:00Z",
+			});
+
+		const { rerender } = render(<InviteRegisterPage />);
+
+		await screen.findByText("first@example.com");
+		fireEvent.change(screen.getByLabelText("username"), {
+			target: { value: "abc" },
+		});
+		fireEvent.change(screen.getByLabelText("password"), {
+			target: { value: "short" },
+		});
+		fireEvent.click(
+			screen.getByRole("button", { name: "invitation_register_submit" }),
+		);
+		expect(await screen.findByText("invalid-username")).toBeInTheDocument();
+		expect(screen.getByText("invalid-password")).toBeInTheDocument();
+
+		mockState.params = { token: "second-token" };
+		rerender(<InviteRegisterPage />);
+
+		expect(await screen.findByText("second@example.com")).toBeInTheDocument();
+		expect(screen.getByLabelText("username")).toHaveValue("");
+		expect(screen.getByLabelText("password")).toHaveValue("");
+		expect(screen.queryByText("invalid-username")).not.toBeInTheDocument();
+		expect(screen.queryByText("invalid-password")).not.toBeInTheDocument();
+		expect(mockState.verifyInvitation).toHaveBeenCalledWith("second-token");
+	});
+
+	it("keeps the password visibility toggle keyboard focusable", async () => {
+		mockState.params = { token: "invite-token" };
+
+		render(<InviteRegisterPage />);
+
+		await screen.findByText("invitation_register_title");
+		expect(
+			screen.getByRole("button", { name: "show_password" }),
+		).not.toHaveAttribute("tabindex", "-1");
+	});
+
 	it.each([
 		["auth.invitation_invalid", "invitation_invalid_title"],
 		["auth.invitation_expired", "invitation_expired_title"],

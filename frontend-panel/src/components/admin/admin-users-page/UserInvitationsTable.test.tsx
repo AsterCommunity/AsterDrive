@@ -118,7 +118,6 @@ function renderTable(
 ) {
 	const defaultProps: React.ComponentProps<typeof UserInvitationsTable> = {
 		invitations: [invitation()],
-		onCopyLink: vi.fn(),
 		onRevokeInvitation: vi.fn(),
 		revokingInvitationId: null,
 	};
@@ -131,7 +130,6 @@ function renderTable(
 
 describe("UserInvitationsTable", () => {
 	it("renders invitation status, dates, accepted user, and enabled pending actions", () => {
-		const onCopyLink = vi.fn();
 		const onRevokeInvitation = vi.fn();
 		const item = invitation({
 			accepted_user_id: 44,
@@ -139,7 +137,6 @@ describe("UserInvitationsTable", () => {
 
 		renderTable({
 			invitations: [item],
-			onCopyLink,
 			onRevokeInvitation,
 		});
 
@@ -148,20 +145,15 @@ describe("UserInvitationsTable", () => {
 		expect(screen.getByText("invitation_accepted_user:44")).toBeInTheDocument();
 		expect(screen.getByText("date:2026-06-10T10:00:00Z")).toBeInTheDocument();
 		expect(screen.getByText("date:2026-06-07T10:00:00Z")).toBeInTheDocument();
-
-		fireEvent.click(
-			screen.getByRole("button", { name: "invitation_copy_link" }),
-		);
-		expect(onCopyLink).toHaveBeenCalledWith(
-			"https://drive.example.test/invite/token",
-		);
+		expect(
+			screen.queryByRole("button", { name: "invitation_copy_link" }),
+		).not.toBeInTheDocument();
 
 		fireEvent.click(screen.getByRole("button", { name: "revoke_invitation" }));
 		expect(onRevokeInvitation).toHaveBeenCalledWith(item);
 	});
 
-	it("disables revoke for non-pending invitations and copy when no link exists", () => {
-		const onCopyLink = vi.fn();
+	it("disables revoke for non-pending invitations", () => {
 		const onRevokeInvitation = vi.fn();
 
 		renderTable({
@@ -172,14 +164,10 @@ describe("UserInvitationsTable", () => {
 					status: "accepted",
 				}),
 			],
-			onCopyLink,
 			onRevokeInvitation,
 		});
 
 		expect(screen.getByText("invitation_status_accepted")).toBeInTheDocument();
-		expect(
-			screen.getByRole("button", { name: "invitation_copy_link" }),
-		).toBeDisabled();
 		expect(
 			screen.getByRole("button", { name: "revoke_invitation" }),
 		).toBeDisabled();

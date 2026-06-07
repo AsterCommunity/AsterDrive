@@ -20,9 +20,9 @@ pub fn validate_email(email: &str) -> Result<()> {
 }
 
 pub fn normalize_email(email: &str) -> Result<String> {
-    let normalized = email.trim();
-    validate_email(normalized)?;
-    Ok(normalized.to_string())
+    let normalized = email.trim().to_ascii_lowercase();
+    validate_email(&normalized)?;
+    Ok(normalized)
 }
 
 pub fn email_domain(email: &str) -> Result<String> {
@@ -50,7 +50,7 @@ mod tests {
     #[test]
     fn email_helpers_keep_existing_normalization_contract() {
         assert_eq!(
-            normalize_email(" alice@example.com ").unwrap(),
+            normalize_email(" Alice@Example.COM ").unwrap(),
             "alice@example.com"
         );
         assert_eq!(email_domain("alice@Example.COM").unwrap(), "example.com");

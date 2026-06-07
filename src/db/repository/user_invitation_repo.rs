@@ -83,7 +83,6 @@ pub async fn mark_revoked_if_pending<C: ConnectionTrait>(db: &C, id: i64) -> Res
             user_invitation::Column::Status,
             Expr::value(UserInvitationStatus::Revoked),
         )
-        .col_expr(user_invitation::Column::Token, Expr::value(None::<String>))
         .col_expr(user_invitation::Column::UpdatedAt, Expr::value(now))
         .col_expr(user_invitation::Column::RevokedAt, Expr::value(Some(now)))
         .filter(user_invitation::Column::Id.eq(id))
@@ -100,7 +99,6 @@ pub async fn mark_expired_if_pending<C: ConnectionTrait>(db: &C, id: i64) -> Res
             user_invitation::Column::Status,
             Expr::value(UserInvitationStatus::Expired),
         )
-        .col_expr(user_invitation::Column::Token, Expr::value(None::<String>))
         .col_expr(user_invitation::Column::UpdatedAt, Expr::value(Utc::now()))
         .filter(user_invitation::Column::Id.eq(id))
         .filter(user_invitation::Column::Status.eq(UserInvitationStatus::Pending))
@@ -121,7 +119,6 @@ pub async fn mark_accepted_if_pending<C: ConnectionTrait>(
             user_invitation::Column::Status,
             Expr::value(UserInvitationStatus::Accepted),
         )
-        .col_expr(user_invitation::Column::Token, Expr::value(None::<String>))
         .col_expr(
             user_invitation::Column::AcceptedUserId,
             Expr::value(Some(accepted_user_id)),
@@ -130,6 +127,7 @@ pub async fn mark_accepted_if_pending<C: ConnectionTrait>(
         .col_expr(user_invitation::Column::UpdatedAt, Expr::value(now))
         .filter(user_invitation::Column::Id.eq(id))
         .filter(user_invitation::Column::Status.eq(UserInvitationStatus::Pending))
+        .filter(user_invitation::Column::ExpiresAt.gt(now))
         .exec(db)
         .await
         .map_err(AsterError::from)?;
