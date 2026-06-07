@@ -38,7 +38,10 @@ async fn load_target_file_name_map(
             .await?
         }
     };
-    Ok(files.into_iter().map(|file| (file.name, file.id)).collect())
+    Ok(files
+        .into_iter()
+        .map(|file| (crate::utils::normalize_name(&file.name), file.id))
+        .collect())
 }
 
 async fn load_target_folder_name_map(
@@ -69,7 +72,7 @@ async fn load_target_folder_name_map(
     };
     Ok(folders
         .into_iter()
-        .map(|folder| (folder.name, folder.id))
+        .map(|folder| (crate::utils::normalize_name(&folder.name), folder.id))
         .collect())
 }
 
@@ -98,15 +101,19 @@ pub(crate) async fn batch_move_in_scope(
     let mut target_folder_names = HashMap::new();
     let mut target_ancestor_ids = HashSet::new();
     if target_error.is_none() {
+        let mut seen_file_lookup_names = HashSet::new();
         let target_file_lookup_names: Vec<String> = normalized_file_ids
             .iter()
             .flat_map(|id| file_map.get(id))
             .map(|file| file.name.clone())
+            .filter(|name| seen_file_lookup_names.insert(name.clone()))
             .collect();
+        let mut seen_folder_lookup_names = HashSet::new();
         let target_folder_lookup_names: Vec<String> = normalized_folder_ids
             .iter()
             .flat_map(|id| folder_map.get(id))
             .map(|folder| folder.name.clone())
+            .filter(|name| seen_folder_lookup_names.insert(name.clone()))
             .collect();
         target_file_names =
             load_target_file_name_map(state, scope, target_folder_id, &target_file_lookup_names)
@@ -150,7 +157,8 @@ pub(crate) async fn batch_move_in_scope(
             result.record_failure("file", id, error.clone());
             continue;
         }
-        if matches!(target_file_names.get(&file.name), Some(existing_id) if *existing_id != file.id)
+        let normalized_name = crate::utils::normalize_name(&file.name);
+        if matches!(target_file_names.get(&normalized_name), Some(existing_id) if *existing_id != file.id)
         {
             result.record_failure(
                 "file",
@@ -168,7 +176,7 @@ pub(crate) async fn batch_move_in_scope(
         if file.folder_id != target_folder_id {
             file_ids_to_move.insert(file.id);
         }
-        target_file_names.insert(file.name.clone(), file.id);
+        target_file_names.insert(normalized_name, file.id);
     }
 
     for &id in &normalized_folder_ids {
@@ -213,7 +221,8 @@ pub(crate) async fn batch_move_in_scope(
             );
             continue;
         }
-        if matches!(target_folder_names.get(&folder.name), Some(existing_id) if *existing_id != folder.id)
+        let normalized_name = crate::utils::normalize_name(&folder.name);
+        if matches!(target_folder_names.get(&normalized_name), Some(existing_id) if *existing_id != folder.id)
         {
             result.record_failure(
                 "folder",
@@ -231,7 +240,7 @@ pub(crate) async fn batch_move_in_scope(
         if folder.parent_id != target_folder_id {
             folder_ids_to_move.insert(folder.id);
         }
-        target_folder_names.insert(folder.name.clone(), folder.id);
+        target_folder_names.insert(normalized_name, folder.id);
     }
 
     if !file_ids_to_move.is_empty() || !folder_ids_to_move.is_empty() {

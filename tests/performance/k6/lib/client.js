@@ -48,7 +48,7 @@ function parseApiBody(response) {
 }
 
 function isSuccessCode(code) {
-	return code === "success" || Number(code) === 0;
+	return code === "success" || code === 0 || code === "0";
 }
 
 export function assertApi(response, context, expectedStatus = 200) {
@@ -113,16 +113,12 @@ export function login(
 }
 
 export function refreshSession(session) {
-	const response = http.post(
-		url("/api/v1/auth/refresh"),
-		null,
-		{
-			headers: {
-				Cookie: `aster_refresh=${session.refreshToken}; aster_csrf=${session.csrfToken}`,
-				"X-CSRF-Token": session.csrfToken,
-			},
+	const response = http.post(url("/api/v1/auth/refresh"), null, {
+		headers: {
+			Cookie: `aster_refresh=${session.refreshToken}; aster_csrf=${session.csrfToken}`,
+			"X-CSRF-Token": session.csrfToken,
 		},
-	);
+	});
 	const body = assertApi(response, "auth.refresh", 200);
 	const accessToken = cookieValue(response, "aster_access");
 	const csrfToken = cookieValue(response, "aster_csrf") || session.csrfToken;
@@ -231,7 +227,13 @@ export function findFileInFolder(session, folderId, filename) {
 
 export function uploadDirect(
 	session,
-	{ filename, content, mimeType = "text/plain", folderId = null, relativePath = null },
+	{
+		filename,
+		content,
+		mimeType = "text/plain",
+		folderId = null,
+		relativePath = null,
+	},
 ) {
 	const payload = {
 		file: http.file(content, filename, mimeType),
@@ -301,24 +303,18 @@ export function completeUpload(session, uploadId) {
 }
 
 export function search(session, query = {}) {
-	const response = http.get(
-		url(`/api/v1/search${buildQuery(query)}`),
-		{
-			headers: authHeaders(session),
-		},
-	);
+	const response = http.get(url(`/api/v1/search${buildQuery(query)}`), {
+		headers: authHeaders(session),
+	});
 	const body = assertApi(response, "search", 200);
 	return { response, body };
 }
 
 export function downloadFile(session, fileId) {
-	const response = http.get(
-		url(`/api/v1/files/${fileId}/download`),
-		{
-			headers: authHeaders(session),
-			responseType: "none",
-		},
-	);
+	const response = http.get(url(`/api/v1/files/${fileId}/download`), {
+		headers: authHeaders(session),
+		responseType: "none",
+	});
 	check(response, {
 		"files.download: status 200": (resp) => resp.status === 200,
 	}) || fail(`files.download failed: ${response.status}`);
@@ -344,12 +340,9 @@ export function batchMove(session, fileIds, folderIds, targetFolderId) {
 }
 
 export function listWebdavAccounts(session) {
-	const response = http.get(
-		url("/api/v1/webdav-accounts?limit=100&offset=0"),
-		{
-			headers: authHeaders(session),
-		},
-	);
+	const response = http.get(url("/api/v1/webdav-accounts?limit=100&offset=0"), {
+		headers: authHeaders(session),
+	});
 	const body = assertApi(response, "webdav.accounts.list", 200);
 	return { response, body };
 }
@@ -358,7 +351,11 @@ export function webdavRequest(
 	method,
 	path,
 	body = null,
-	{ username = benchConfig.webdavUsername, password = benchConfig.webdavPassword, headers = {} } = {},
+	{
+		username = benchConfig.webdavUsername,
+		password = benchConfig.webdavPassword,
+		headers = {},
+	} = {},
 ) {
 	const encodedPath = path
 		.split("/")

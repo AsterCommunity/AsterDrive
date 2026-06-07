@@ -1,9 +1,12 @@
 //! `folder_repo` 仓储子模块：`query`。
 
+use std::collections::HashSet;
+
 use sea_orm::{
     ColumnTrait, ConnectionTrait, DbBackend, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder,
     QuerySelect,
 };
+use unicode_normalization::{UnicodeNormalization, is_nfc, is_nfd};
 
 use crate::api::pagination::{SortBy, SortOrder};
 use crate::entities::folder::{self, Entity as Folder};
@@ -306,16 +309,77 @@ async fn find_by_names_in_parent_in_scope<C: ConnectionTrait>(
     if names.is_empty() {
         return Ok(vec![]);
     }
+    let query_names = add_normalization_query_variants(names);
+    let normalized_names = normalized_non_ascii_names(names);
 
-    Folder::find()
+    let mut folders = Folder::find()
         .filter(apply_parent_condition(
             active_scope_condition(scope),
             parent_id,
         ))
-        .filter(folder::Column::Name.is_in(names.iter().cloned()))
+        .filter(folder::Column::Name.is_in(query_names.iter().cloned()))
         .all(db)
         .await
-        .map_err(AsterError::from)
+        .map_err(AsterError::from)?;
+
+    if !normalized_names.is_empty() {
+        let existing_ids: HashSet<i64> = folders.iter().map(|folder| folder.id).collect();
+        folders.extend(
+            find_children_in_scope(db, scope, parent_id)
+                .await?
+                .into_iter()
+                .filter(|folder| !existing_ids.contains(&folder.id))
+                .filter(|folder| {
+                    normalized_names.contains(&crate::utils::normalize_name(&folder.name))
+                }),
+        );
+    }
+
+    Ok(folders)
+}
+
+fn push_unique_normalization_variant(variants: &mut Vec<String>, variant: &str) {
+    if variants.iter().all(|existing| existing.as_str() != variant) {
+        variants.push(variant.to_string());
+    }
+}
+
+fn push_unique_owned_normalization_variant(variants: &mut Vec<String>, variant: String) {
+    if variants
+        .iter()
+        .all(|existing| existing.as_str() != variant.as_str())
+    {
+        variants.push(variant);
+    }
+}
+
+fn add_normalization_query_variants(names: &[String]) -> std::borrow::Cow<'_, [String]> {
+    if names.iter().all(|name| name.is_ascii()) {
+        return std::borrow::Cow::Borrowed(names);
+    }
+
+    let mut variants = Vec::with_capacity(names.len());
+    for name in names {
+        push_unique_normalization_variant(&mut variants, name);
+        if name.is_ascii() {
+            continue;
+        }
+        if !is_nfc(name) {
+            push_unique_owned_normalization_variant(&mut variants, name.nfc().collect());
+        }
+        if !is_nfd(name) {
+            push_unique_owned_normalization_variant(&mut variants, name.nfd().collect());
+        }
+    }
+    std::borrow::Cow::Owned(variants)
+}
+
+fn normalized_non_ascii_names(names: &[String]) -> HashSet<String> {
+    names
+        .iter()
+        .filter(|name| !name.is_ascii())
+        .map(|name| crate::utils::normalize_name(name))
+        .collect()
 }
 
 pub async fn find_by_name_in_parent<C: ConnectionTrait>(

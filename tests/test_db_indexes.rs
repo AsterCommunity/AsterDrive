@@ -106,6 +106,18 @@ async fn test_directory_lookup_indexes_cover_listing_and_duplicate_name_queries(
         "folders",
     );
 
+    let folder_duplicate_batch = explain_query_plan(
+        state.writer_db(),
+        "SELECT * FROM folders \
+         WHERE owner_user_id = 1 AND name IN ('dup', 'other') AND deleted_at IS NULL AND parent_id = 2",
+    )
+    .await;
+    assert_uses_index(
+        &folder_duplicate_batch,
+        "idx_folders_owner_deleted_parent_name",
+        "folders",
+    );
+
     let file_duplicate = explain_query_plan(
         state.writer_db(),
         "SELECT * FROM files \
@@ -114,6 +126,18 @@ async fn test_directory_lookup_indexes_cover_listing_and_duplicate_name_queries(
     .await;
     assert_uses_index(
         &file_duplicate,
+        "idx_files_owner_deleted_folder_name",
+        "files",
+    );
+
+    let file_duplicate_batch = explain_query_plan(
+        state.writer_db(),
+        "SELECT * FROM files \
+         WHERE owner_user_id = 1 AND name IN ('dup', 'other') AND deleted_at IS NULL AND folder_id = 2",
+    )
+    .await;
+    assert_uses_index(
+        &file_duplicate_batch,
         "idx_files_owner_deleted_folder_name",
         "files",
     );

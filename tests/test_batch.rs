@@ -3,9 +3,11 @@
 #[macro_use]
 mod common;
 use aster_drive::api::api_error_code::ApiErrorCode;
+use aster_drive::entities::{file, folder};
 use aster_drive::runtime::SharedRuntimeState;
 
 use actix_web::test;
+use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, sea_query::Expr};
 use serde_json::Value;
 
 fn upload_named_file(name: &str, content: &str, mime: &str, boundary: &str) -> String {
@@ -491,6 +493,158 @@ async fn test_batch_move_preserves_per_item_conflict_reporting() {
     let resp = test::call_service(&app, req).await;
     let body: Value = test::read_body_json(resp).await;
     assert_eq!(body["data"]["files"].as_array().unwrap().len(), 1);
+}
+
+#[actix_web::test]
+async fn test_batch_move_detects_target_conflicts_without_full_target_listing() {
+    let state = common::setup().await;
+    let db = state.writer_db().clone();
+    let app = create_test_app!(state);
+    let (token, _) = register_and_login!(app);
+
+    macro_rules! create_folder {
+        ($name:expr, $parent_id:expr) => {{
+            let req = test::TestRequest::post()
+                .uri("/api/v1/folders")
+                .insert_header(("Cookie", common::access_cookie_header(&token)))
+                .insert_header(common::csrf_header_for(&token))
+                .set_json(serde_json::json!({ "name": $name, "parent_id": $parent_id }))
+                .to_request();
+            let resp = test::call_service(&app, req).await;
+            assert_eq!(resp.status(), 201);
+            let body: Value = test::read_body_json(resp).await;
+            body["data"]["id"].as_i64().unwrap()
+        }};
+    }
+
+    macro_rules! upload_file {
+        ($folder_id:expr, $name:expr, $content:expr) => {{
+            let boundary = "----TestBoundary123";
+            let payload = upload_named_file($name, $content, "text/plain", boundary);
+            let req = test::TestRequest::post()
+                .uri(&format!("/api/v1/files/upload?folder_id={}", $folder_id))
+                .insert_header(("Cookie", common::access_cookie_header(&token)))
+                .insert_header(common::csrf_header_for(&token))
+                .insert_header((
+                    "Content-Type",
+                    format!("multipart/form-data; boundary={boundary}"),
+                ))
+                .set_payload(payload)
+                .to_request();
+            let resp = test::call_service(&app, req).await;
+            assert_eq!(resp.status(), 201);
+            let body: Value = test::read_body_json(resp).await;
+            body["data"]["id"].as_i64().unwrap()
+        }};
+    }
+
+    let source_id = create_folder!("ConflictSource", Value::Null);
+    let target_id = create_folder!("ConflictTarget", Value::Null);
+
+    for index in 0..20 {
+        upload_file!(
+            target_id,
+            &format!("unrelated-{index}.txt"),
+            &format!("unrelated {index}")
+        );
+        create_folder!(&format!("UnrelatedFolder{index}"), target_id);
+    }
+
+    let target_file_conflict = upload_file!(target_id, "Cafe\u{301}.txt", "existing target file");
+    let target_folder_conflict = create_folder!("Cafe\u{301}Folder", target_id);
+    file::Entity::update_many()
+        .col_expr(file::Column::Name, Expr::value("Cafe\u{301}.txt"))
+        .filter(file::Column::Id.eq(target_file_conflict))
+        .exec(&db)
+        .await
+        .unwrap();
+    folder::Entity::update_many()
+        .col_expr(folder::Column::Name, Expr::value("Cafe\u{301}Folder"))
+        .filter(folder::Column::Id.eq(target_folder_conflict))
+        .exec(&db)
+        .await
+        .unwrap();
+
+    let file_ok = upload_file!(source_id, "file-ok.txt", "move me");
+    let file_conflict = upload_file!(source_id, "Café.txt", "keep me in source");
+    let folder_ok = create_folder!("FolderOk", source_id);
+    let folder_conflict = create_folder!("CaféFolder", source_id);
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/batch/move")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({
+            "file_ids": [file_ok, file_conflict],
+            "folder_ids": [folder_ok, folder_conflict],
+            "target_folder_id": target_id
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(body["data"]["succeeded"], 2);
+    assert_eq!(body["data"]["failed"], 2);
+
+    let errors = body["data"]["errors"].as_array().unwrap();
+    assert!(errors.iter().any(|error| {
+        error["entity_type"] == "file" && error["entity_id"].as_i64() == Some(file_conflict)
+    }));
+    assert!(errors.iter().any(|error| {
+        error["entity_type"] == "folder" && error["entity_id"].as_i64() == Some(folder_conflict)
+    }));
+
+    let req = test::TestRequest::get()
+        .uri(&format!("/api/v1/folders/{target_id}"))
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+    let body: Value = test::read_body_json(resp).await;
+    let target_file_names: Vec<&str> = body["data"]["files"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|item| item["name"].as_str())
+        .collect();
+    let target_folder_names: Vec<&str> = body["data"]["folders"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|item| item["name"].as_str())
+        .collect();
+    assert!(target_file_names.contains(&"file-ok.txt"));
+    assert!(target_file_names.contains(&"Cafe\u{301}.txt"));
+    assert!(target_folder_names.contains(&"FolderOk"));
+    assert!(target_folder_names.contains(&"Cafe\u{301}Folder"));
+    assert!(target_file_names.contains(&"unrelated-19.txt"));
+    assert!(target_folder_names.contains(&"UnrelatedFolder19"));
+
+    let req = test::TestRequest::get()
+        .uri(&format!("/api/v1/folders/{source_id}"))
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+    let body: Value = test::read_body_json(resp).await;
+    let source_file_names: Vec<&str> = body["data"]["files"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|item| item["name"].as_str())
+        .collect();
+    let source_folder_names: Vec<&str> = body["data"]["folders"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|item| item["name"].as_str())
+        .collect();
+    assert!(!source_file_names.contains(&"file-ok.txt"));
+    assert!(source_file_names.contains(&"Café.txt"));
+    assert!(!source_folder_names.contains(&"FolderOk"));
+    assert!(source_folder_names.contains(&"CaféFolder"));
 }
 
 #[actix_web::test]

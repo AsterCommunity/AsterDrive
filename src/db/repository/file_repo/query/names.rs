@@ -104,18 +104,35 @@ pub(super) async fn find_by_names_in_folder_in_scope<C: ConnectionTrait>(
     if names.is_empty() {
         return Ok(vec![]);
     }
+    let query_names = add_normalization_query_variants(names);
+    let normalized_names = normalized_non_ascii_names(names);
 
-    File::find()
+    let mut files = File::find()
         .filter(
             crate::db::repository::file_repo::common::apply_folder_condition(
                 crate::db::repository::file_repo::common::active_scope_condition(scope),
                 folder_id,
             ),
         )
-        .filter(file::Column::Name.is_in(names.iter().cloned()))
+        .filter(file::Column::Name.is_in(query_names.iter().cloned()))
         .all(db)
         .await
-        .map_err(AsterError::from)
+        .map_err(AsterError::from)?;
+
+    if !normalized_names.is_empty() {
+        let existing_ids: HashSet<i64> = files.iter().map(|file| file.id).collect();
+        files.extend(
+            find_by_folder_in_scope(db, scope, folder_id)
+                .await?
+                .into_iter()
+                .filter(|file| !existing_ids.contains(&file.id))
+                .filter(|file| {
+                    normalized_names.contains(&crate::utils::normalize_name(&file.name))
+                }),
+        );
+    }
+
+    Ok(files)
 }
 
 pub(super) async fn find_names_by_names_in_folder_in_scope<C: ConnectionTrait>(
@@ -233,6 +250,14 @@ pub(super) fn normalize_existing_filename(name: String) -> String {
     } else {
         name.nfc().collect()
     }
+}
+
+fn normalized_non_ascii_names(names: &[String]) -> HashSet<String> {
+    names
+        .iter()
+        .filter(|name| !name.is_ascii())
+        .map(|name| crate::utils::normalize_name(name))
+        .collect()
 }
 
 /// 基于当前目录快照建议一个不冲突的文件名：
