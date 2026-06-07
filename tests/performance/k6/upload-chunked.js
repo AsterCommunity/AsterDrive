@@ -1,7 +1,6 @@
 import { sleep } from "k6";
 import { Counter, Trend } from "k6/metrics";
 
-import { benchConfig, durationEnv, intEnv } from "./lib/config.js";
 import {
 	completeUpload,
 	ensureRootFolder,
@@ -11,10 +10,20 @@ import {
 	uniqueName,
 	uploadChunk,
 } from "./lib/client.js";
+import { benchConfig, durationEnv, intEnv } from "./lib/config.js";
 import { createSummary } from "./lib/summary.js";
 
 const flowDuration = new Trend("aster_upload_chunked_flow_duration", true);
+const initDuration = new Trend("aster_upload_chunked_init_duration", true);
 const chunkDuration = new Trend("aster_upload_chunked_chunk_duration", true);
+const completeDuration = new Trend(
+	"aster_upload_chunked_complete_duration",
+	true,
+);
+const clientGapDuration = new Trend(
+	"aster_upload_chunked_client_gap_duration",
+	true,
+);
 const uploadTransferredBytes = new Counter("aster_upload_chunked_bytes");
 const totalBytes = intEnv("ASTER_BENCH_CHUNKED_TOTAL_BYTES", 10 * 1024 * 1024);
 let state;
@@ -51,11 +60,12 @@ export default function (data) {
 
 	state.session = maybeRefreshSession(state.session);
 	const startedAt = Date.now();
-	const { body } = initChunkedUpload(state.session, {
+	const { response: initResponse, body } = initChunkedUpload(state.session, {
 		filename: uniqueName("chunked-upload", "bin"),
 		totalSize: totalBytes,
 		folderId: state.folderId,
 	});
+	initDuration.add(initResponse.timings.duration);
 	const sessionData = body.data;
 	if (sessionData.mode !== "chunked") {
 		throw new Error(
@@ -63,6 +73,7 @@ export default function (data) {
 		);
 	}
 
+	let chunkDurationTotal = 0;
 	for (let index = 0; index < sessionData.total_chunks; index += 1) {
 		const remaining = totalBytes - sessionData.chunk_size * index;
 		const chunkSize =
@@ -76,9 +87,24 @@ export default function (data) {
 			makeChunk(chunkSize, index),
 		);
 		chunkDuration.add(response.timings.duration);
+		chunkDurationTotal += response.timings.duration;
 	}
-	completeUpload(state.session, sessionData.upload_id);
-	flowDuration.add(Date.now() - startedAt);
+	const { response: completeResponse } = completeUpload(
+		state.session,
+		sessionData.upload_id,
+	);
+	completeDuration.add(completeResponse.timings.duration);
+	const flowElapsed = Date.now() - startedAt;
+	flowDuration.add(flowElapsed);
+	clientGapDuration.add(
+		Math.max(
+			0,
+			flowElapsed -
+				initResponse.timings.duration -
+				chunkDurationTotal -
+				completeResponse.timings.duration,
+		),
+	);
 	uploadTransferredBytes.add(totalBytes);
 
 	if (benchConfig.thinkTimeMs > 0) {
@@ -88,6 +114,9 @@ export default function (data) {
 
 export const handleSummary = createSummary("upload-chunked", [
 	"aster_upload_chunked_flow_duration",
+	"aster_upload_chunked_init_duration",
 	"aster_upload_chunked_chunk_duration",
+	"aster_upload_chunked_complete_duration",
+	"aster_upload_chunked_client_gap_duration",
 	"aster_upload_chunked_bytes",
 ]);

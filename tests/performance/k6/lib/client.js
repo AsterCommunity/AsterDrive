@@ -1,7 +1,7 @@
 import { check, fail } from "k6";
+import encoding from "k6/encoding";
 import exec from "k6/execution";
 import http from "k6/http";
-import encoding from "k6/encoding";
 
 import { benchConfig } from "./config.js";
 
@@ -47,13 +47,16 @@ function parseApiBody(response) {
 	}
 }
 
+function isSuccessCode(code) {
+	return code === "success" || Number(code) === 0;
+}
+
 export function assertApi(response, context, expectedStatus = 200) {
 	const body = parseApiBody(response);
 	const success = check(response, {
-		[`${context}: status ${expectedStatus}`]:
-			(resp) => resp.status === expectedStatus,
-		[`${context}: api code 0`]:
-			() => body !== null && Number(body.code) === 0,
+		[`${context}: status ${expectedStatus}`]: (resp) =>
+			resp.status === expectedStatus,
+		[`${context}: api code 0`]: () => body !== null && isSuccessCode(body.code),
 	});
 
 	if (!success) {

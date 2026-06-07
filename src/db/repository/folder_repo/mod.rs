@@ -20,8 +20,9 @@ pub(crate) use query::find_child_ids_in_parents;
 pub use query::{
     find_all_children, find_all_children_in_parents, find_all_files_in_folder, find_by_id,
     find_by_ids, find_by_ids_in_personal_scope, find_by_ids_in_team_scope, find_by_name_in_parent,
-    find_by_name_in_team_parent, find_children, find_children_in_parents, find_children_paginated,
-    find_team_children, find_team_children_in_parents, find_team_children_paginated, lock_by_id,
+    find_by_name_in_team_parent, find_by_names_in_parent, find_by_names_in_team_parent,
+    find_children, find_children_in_parents, find_children_paginated, find_team_children,
+    find_team_children_in_parents, find_team_children_paginated, lock_by_id,
 };
 pub use trash::{
     find_all_by_team, find_all_by_team_paginated, find_all_by_user, find_all_by_user_paginated,

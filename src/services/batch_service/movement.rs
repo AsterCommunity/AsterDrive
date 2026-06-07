@@ -17,6 +17,62 @@ use crate::services::{
 use super::shared::{load_folder_ancestor_ids_in_scope, load_target_folder_in_scope};
 use super::{BatchResult, NormalizedSelection, load_normalized_selection_in_scope};
 
+async fn load_target_file_name_map(
+    state: &PrimaryAppState,
+    scope: WorkspaceStorageScope,
+    target_folder_id: Option<i64>,
+    names: &[String],
+) -> Result<HashMap<String, i64>> {
+    let files = match scope {
+        WorkspaceStorageScope::Personal { user_id } => {
+            file_repo::find_by_names_in_folder(state.reader_db(), user_id, target_folder_id, names)
+                .await?
+        }
+        WorkspaceStorageScope::Team { team_id, .. } => {
+            file_repo::find_by_names_in_team_folder(
+                state.reader_db(),
+                team_id,
+                target_folder_id,
+                names,
+            )
+            .await?
+        }
+    };
+    Ok(files.into_iter().map(|file| (file.name, file.id)).collect())
+}
+
+async fn load_target_folder_name_map(
+    state: &PrimaryAppState,
+    scope: WorkspaceStorageScope,
+    target_folder_id: Option<i64>,
+    names: &[String],
+) -> Result<HashMap<String, i64>> {
+    let folders = match scope {
+        WorkspaceStorageScope::Personal { user_id } => {
+            folder_repo::find_by_names_in_parent(
+                state.reader_db(),
+                user_id,
+                target_folder_id,
+                names,
+            )
+            .await?
+        }
+        WorkspaceStorageScope::Team { team_id, .. } => {
+            folder_repo::find_by_names_in_team_parent(
+                state.reader_db(),
+                team_id,
+                target_folder_id,
+                names,
+            )
+            .await?
+        }
+    };
+    Ok(folders
+        .into_iter()
+        .map(|folder| (folder.name, folder.id))
+        .collect())
+}
+
 pub(crate) async fn batch_move_in_scope(
     state: &PrimaryAppState,
     scope: WorkspaceStorageScope,
@@ -42,18 +98,26 @@ pub(crate) async fn batch_move_in_scope(
     let mut target_folder_names = HashMap::new();
     let mut target_ancestor_ids = HashSet::new();
     if target_error.is_none() {
+        let target_file_lookup_names: Vec<String> = normalized_file_ids
+            .iter()
+            .flat_map(|id| file_map.get(id))
+            .map(|file| file.name.clone())
+            .collect();
+        let target_folder_lookup_names: Vec<String> = normalized_folder_ids
+            .iter()
+            .flat_map(|id| folder_map.get(id))
+            .map(|folder| folder.name.clone())
+            .collect();
         target_file_names =
-            workspace_storage_service::list_files_in_folder(state, scope, target_folder_id)
-                .await?
-                .into_iter()
-                .map(|file| (file.name, file.id))
-                .collect();
-        target_folder_names =
-            workspace_storage_service::list_folders_in_parent(state, scope, target_folder_id)
-                .await?
-                .into_iter()
-                .map(|folder| (folder.name, folder.id))
-                .collect();
+            load_target_file_name_map(state, scope, target_folder_id, &target_file_lookup_names)
+                .await?;
+        target_folder_names = load_target_folder_name_map(
+            state,
+            scope,
+            target_folder_id,
+            &target_folder_lookup_names,
+        )
+        .await?;
         target_ancestor_ids =
             load_folder_ancestor_ids_in_scope(state, scope, target_folder.as_ref()).await?;
     }

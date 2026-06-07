@@ -297,6 +297,27 @@ async fn find_by_name_in_parent_in_scope<C: ConnectionTrait>(
         .find(|folder| crate::utils::normalize_name(&folder.name) == normalized_name))
 }
 
+async fn find_by_names_in_parent_in_scope<C: ConnectionTrait>(
+    db: &C,
+    scope: FolderScope,
+    parent_id: Option<i64>,
+    names: &[String],
+) -> Result<Vec<folder::Model>> {
+    if names.is_empty() {
+        return Ok(vec![]);
+    }
+
+    Folder::find()
+        .filter(apply_parent_condition(
+            active_scope_condition(scope),
+            parent_id,
+        ))
+        .filter(folder::Column::Name.is_in(names.iter().cloned()))
+        .all(db)
+        .await
+        .map_err(AsterError::from)
+}
+
 pub async fn find_by_name_in_parent<C: ConnectionTrait>(
     db: &C,
     user_id: i64,
@@ -306,6 +327,15 @@ pub async fn find_by_name_in_parent<C: ConnectionTrait>(
     find_by_name_in_parent_in_scope(db, FolderScope::Personal { user_id }, parent_id, name).await
 }
 
+pub async fn find_by_names_in_parent<C: ConnectionTrait>(
+    db: &C,
+    user_id: i64,
+    parent_id: Option<i64>,
+    names: &[String],
+) -> Result<Vec<folder::Model>> {
+    find_by_names_in_parent_in_scope(db, FolderScope::Personal { user_id }, parent_id, names).await
+}
+
 pub async fn find_by_name_in_team_parent<C: ConnectionTrait>(
     db: &C,
     team_id: i64,
@@ -313,6 +343,15 @@ pub async fn find_by_name_in_team_parent<C: ConnectionTrait>(
     name: &str,
 ) -> Result<Option<folder::Model>> {
     find_by_name_in_parent_in_scope(db, FolderScope::Team { team_id }, parent_id, name).await
+}
+
+pub async fn find_by_names_in_team_parent<C: ConnectionTrait>(
+    db: &C,
+    team_id: i64,
+    parent_id: Option<i64>,
+    names: &[String],
+) -> Result<Vec<folder::Model>> {
+    find_by_names_in_parent_in_scope(db, FolderScope::Team { team_id }, parent_id, names).await
 }
 
 /// 查找某文件夹下的所有子文件夹（含已删除，递归收集用）
