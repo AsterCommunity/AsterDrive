@@ -360,6 +360,27 @@ describe("authService", () => {
 		await expect(authService.revokeOtherSessions()).resolves.toBe(0);
 	});
 
+	it("uses invitation endpoints and encodes token path segments", () => {
+		const token = "token/with space+plus";
+
+		authService.verifyInvitation(token);
+		authService.acceptInvitation(token, {
+			username: "invitee",
+			password: "password123",
+		});
+
+		expect(mockState.get).toHaveBeenCalledWith(
+			"/auth/invitations/token%2Fwith%20space%2Bplus",
+		);
+		expect(mockState.post).toHaveBeenCalledWith(
+			"/auth/invitations/token%2Fwith%20space%2Bplus/accept",
+			{
+				username: "invitee",
+				password: "password123",
+			},
+		);
+	});
+
 	it("parses login and MFA challenge response variants", async () => {
 		mockState.post.mockImplementation((url: string) => {
 			if (url === "/auth/login") {

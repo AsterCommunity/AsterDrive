@@ -47,6 +47,9 @@ const SKIP_REFRESH_PATHS = [
 
 function shouldSkipRefresh(url: string) {
 	if (SKIP_REFRESH_PATHS.some((path) => url.endsWith(path))) return true;
+	if (url.includes("/auth/invitations/")) {
+		return true;
+	}
 	if (url.includes("/auth/external-auth/") && url.endsWith("/start")) {
 		return true;
 	}

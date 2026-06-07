@@ -21,5 +21,6 @@ pub mod storage_policy;
 pub mod task;
 pub mod team;
 pub mod user;
+pub mod user_invitation;
 
 pub use facade::*;

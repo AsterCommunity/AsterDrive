@@ -46,3 +46,4 @@ pub use super::task::{
 };
 pub use super::team::TeamMemberRole;
 pub use super::user::{AvatarSource, UserRole, UserStatus};
+pub use super::user_invitation::UserInvitationStatus;

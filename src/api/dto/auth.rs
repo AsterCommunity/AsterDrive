@@ -16,6 +16,14 @@ pub struct RegisterReq {
     pub password: String,
 }
 
+/// Accept a user invitation by choosing account credentials.
+#[derive(Deserialize)]
+#[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
+pub struct AcceptUserInvitationReq {
+    pub username: String,
+    pub password: String,
+}
+
 /// Resend registration activation email.
 #[derive(Deserialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]

@@ -10,6 +10,7 @@ import { TeamWorkspaceRoute } from "./TeamWorkspaceRoute";
 
 const LoginPage = lazy(() => import("@/pages/LoginPage"));
 const ResetPasswordPage = lazy(() => import("@/pages/ResetPasswordPage"));
+const InviteRegisterPage = lazy(() => import("@/pages/InviteRegisterPage"));
 const FileBrowserPage = lazy(() => import("@/pages/FileBrowserPage"));
 const AdminOverviewPage = lazy(() => import("@/pages/admin/AdminOverviewPage"));
 const AdminUsersPage = lazy(() => import("@/pages/admin/AdminUsersPage"));
@@ -54,6 +55,15 @@ export const router = createBrowserRouter([
 		element: (
 			<Suspense fallback={<Loading />}>
 				<ResetPasswordPage />
+			</Suspense>
+		),
+	},
+	{
+		path: "/invite/:token",
+		errorElement: <ErrorPage />,
+		element: (
+			<Suspense fallback={<Loading />}>
+				<InviteRegisterPage />
 			</Suspense>
 		),
 	},

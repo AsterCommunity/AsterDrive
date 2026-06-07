@@ -199,9 +199,16 @@ function useLoginPageController() {
 		const externalAuthStatus = searchParams.get("external_auth");
 		const externalAuthMessage = searchParams.get("message");
 		const externalAuthFlow = searchParams.get("flow");
+		const invitationStatus = searchParams.get("invitation");
 		const verification = getContactVerificationRedirectState(search);
 		const passwordReset = getPasswordResetRedirectState(search);
-		if (!verification && !passwordReset && !externalAuthStatus && !mfaStatus) {
+		if (
+			!verification &&
+			!passwordReset &&
+			!externalAuthStatus &&
+			!mfaStatus &&
+			!invitationStatus
+		) {
 			return;
 		}
 
@@ -249,6 +256,12 @@ function useLoginPageController() {
 		if (passwordReset?.status === "success") {
 			toast.success(t("password_reset_success_login"), {
 				id: "password-reset-success-login",
+			});
+		}
+
+		if (invitationStatus === "accepted") {
+			toast.success(t("invitation_accepted_login"), {
+				id: "invitation-accepted-login",
 			});
 		}
 
@@ -308,6 +321,7 @@ function useLoginPageController() {
 		searchParams.delete("mfa");
 		searchParams.delete("code");
 		searchParams.delete("message");
+		searchParams.delete("invitation");
 		searchParams.delete("flow");
 		searchParams.delete("expires_in");
 		searchParams.delete("methods");

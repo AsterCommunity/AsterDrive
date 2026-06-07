@@ -1,7 +1,7 @@
 //! 管理员 API 路由：`users`。
 
 use crate::api::dto::admin::{
-    AdminUserListQuery, CreateUserReq, PatchUserReq, ResetUserPasswordReq,
+    AdminUserListQuery, CreateUserInvitationReq, CreateUserReq, PatchUserReq, ResetUserPasswordReq,
 };
 use crate::api::dto::validate_request;
 use crate::api::pagination::LimitOffsetQuery;
@@ -13,7 +13,7 @@ use crate::runtime::PrimaryAppState;
 use crate::services::{
     audit_service,
     auth_service::{self, Claims},
-    mfa_service, profile_service, user_service,
+    mfa_service, profile_service, user_invitation_service, user_service,
 };
 use actix_web::{HttpRequest, HttpResponse, web};
 
@@ -82,6 +82,106 @@ pub async fn list_users(
     )
     .await?;
     Ok(HttpResponse::Ok().json(ApiResponse::ok(users)))
+}
+
+#[api_docs_macros::path(
+    post,
+    path = "/api/v1/admin/users/invitations",
+    tag = "admin",
+    operation_id = "admin_create_user_invitation",
+    request_body = CreateUserInvitationReq,
+    responses(
+        (status = 201, description = "User invitation created", body = inline(ApiResponse<crate::services::user_invitation_service::AdminUserInvitationInfo>)),
+        (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
+        (status = 403, description = "Forbidden"),
+        (status = 400, description = "Validation error"),
+    ),
+    security(("bearer" = [])),
+)]
+pub async fn create_user_invitation(
+    state: web::Data<PrimaryAppState>,
+    claims: web::ReqData<Claims>,
+    req: HttpRequest,
+    body: web::Json<CreateUserInvitationReq>,
+) -> Result<HttpResponse> {
+    validate_request(&*body)?;
+    let invitation =
+        user_invitation_service::create_invitation(state.get_ref(), &body.email, claims.user_id)
+            .await?;
+    let ctx = audit_service::AuditContext::from_request(&req, &claims);
+    audit_service::log(
+        state.get_ref(),
+        &ctx,
+        audit_service::AuditAction::AdminCreateUser,
+        audit_service::AuditEntityType::User,
+        None,
+        Some(&invitation.email),
+        None,
+    )
+    .await;
+    Ok(HttpResponse::Created().json(ApiResponse::ok(invitation)))
+}
+
+#[api_docs_macros::path(
+    get,
+    path = "/api/v1/admin/users/invitations",
+    tag = "admin",
+    operation_id = "admin_list_user_invitations",
+    params(LimitOffsetQuery),
+    responses(
+        (status = 200, description = "List user invitations", body = inline(ApiResponse<crate::api::pagination::OffsetPage<crate::services::user_invitation_service::AdminUserInvitationInfo>>)),
+        (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
+        (status = 403, description = "Forbidden"),
+    ),
+    security(("bearer" = [])),
+)]
+pub async fn list_user_invitations(
+    state: web::Data<PrimaryAppState>,
+    page: web::Query<LimitOffsetQuery>,
+) -> Result<HttpResponse> {
+    let invitations = user_invitation_service::list_invitations(
+        state.get_ref(),
+        page.limit_or(20, 100),
+        page.offset(),
+    )
+    .await?;
+    Ok(HttpResponse::Ok().json(ApiResponse::ok(invitations)))
+}
+
+#[api_docs_macros::path(
+    post,
+    path = "/api/v1/admin/users/invitations/{id}/revoke",
+    tag = "admin",
+    operation_id = "admin_revoke_user_invitation",
+    params(("id" = i64, Path, description = "Invitation ID")),
+    responses(
+        (status = 200, description = "User invitation revoked", body = inline(ApiResponse<crate::services::user_invitation_service::AdminUserInvitationInfo>)),
+        (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
+        (status = 403, description = "Forbidden"),
+        (status = 400, description = "Invitation cannot be revoked"),
+        (status = 404, description = "Invitation not found"),
+    ),
+    security(("bearer" = [])),
+)]
+pub async fn revoke_user_invitation(
+    state: web::Data<PrimaryAppState>,
+    claims: web::ReqData<Claims>,
+    req: HttpRequest,
+    path: web::Path<i64>,
+) -> Result<HttpResponse> {
+    let invitation = user_invitation_service::revoke_invitation(state.get_ref(), *path).await?;
+    let ctx = audit_service::AuditContext::from_request(&req, &claims);
+    audit_service::log(
+        state.get_ref(),
+        &ctx,
+        audit_service::AuditAction::AdminUpdateUser,
+        audit_service::AuditEntityType::User,
+        None,
+        Some(&invitation.email),
+        None,
+    )
+    .await;
+    Ok(HttpResponse::Ok().json(ApiResponse::ok(invitation)))
 }
 
 #[api_docs_macros::path(

@@ -1,7 +1,7 @@
 //! 认证 API 路由：`public`。
 
 use super::{
-    ActionMessageResp, CheckResp, ContactVerificationConfirmQuery,
+    AcceptUserInvitationReq, ActionMessageResp, CheckResp, ContactVerificationConfirmQuery,
     ContactVerificationRedirectStatus, PasswordResetConfirmReq, PasswordResetRequestReq,
     RegisterReq, ResendRegisterActivationReq, SetupReq, apply_auth_mail_response_floor,
     contact_verification_redirect_response, request_has_active_access_session,
@@ -11,7 +11,7 @@ use crate::config::{auth_runtime::RuntimeAuthPolicy, cors, site_url};
 use crate::errors::{AsterError, Result};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::audit_service::AuditRequestInfo;
-use crate::services::{auth_service, config_service, user_service};
+use crate::services::{auth_service, config_service, user_invitation_service, user_service};
 use crate::types::VerificationPurpose;
 use actix_web::{HttpRequest, HttpResponse, http::header, web};
 
@@ -172,6 +172,66 @@ pub async fn resend_register_activation(
     Ok(HttpResponse::Ok().json(ApiResponse::ok(ActionMessageResp {
         message: "If the account can be reactivated, an activation email will be sent".to_string(),
     })))
+}
+
+#[api_docs_macros::path(
+    get,
+    path = "/api/v1/auth/invitations/{token}",
+    tag = "auth",
+    operation_id = "verify_user_invitation",
+    params(("token" = String, Path, description = "Invitation token")),
+    responses(
+        (status = 200, description = "Invitation is valid", body = inline(ApiResponse<crate::services::user_invitation_service::PublicUserInvitationInfo>)),
+        (status = 400, description = "Invalid invitation"),
+    ),
+)]
+pub async fn verify_user_invitation(
+    state: web::Data<PrimaryAppState>,
+    path: web::Path<String>,
+) -> Result<HttpResponse> {
+    let info = user_invitation_service::verify_public_invitation(state.get_ref(), &path).await?;
+    Ok(HttpResponse::Ok().json(ApiResponse::ok(info)))
+}
+
+#[api_docs_macros::path(
+    post,
+    path = "/api/v1/auth/invitations/{token}/accept",
+    tag = "auth",
+    operation_id = "accept_user_invitation",
+    params(("token" = String, Path, description = "Invitation token")),
+    request_body = AcceptUserInvitationReq,
+    responses(
+        (status = 201, description = "Invitation accepted", body = inline(ApiResponse<crate::api::routes::auth::UserInfo>)),
+        (status = 400, description = "Invalid invitation or validation error"),
+    ),
+)]
+pub async fn accept_user_invitation(
+    state: web::Data<PrimaryAppState>,
+    req: HttpRequest,
+    path: web::Path<String>,
+    body: web::Json<AcceptUserInvitationReq>,
+) -> Result<HttpResponse> {
+    let audit_info = AuditRequestInfo::from_request(&req);
+    let user = user_invitation_service::accept_invitation(
+        state.get_ref(),
+        &path,
+        &body.username,
+        &body.password,
+    )
+    .await?;
+    let audit_ctx = audit_info.to_context(user.id);
+    crate::services::audit_service::log(
+        state.get_ref(),
+        &audit_ctx,
+        crate::services::audit_service::AuditAction::UserRegister,
+        crate::services::audit_service::AuditEntityType::User,
+        Some(user.id),
+        Some(&user.username),
+        None,
+    )
+    .await;
+    let user_info = user_service::get_self_info(state.get_ref(), user.id).await?;
+    Ok(HttpResponse::Created().json(ApiResponse::ok(user_info)))
 }
 
 #[api_docs_macros::path(

@@ -51,6 +51,14 @@ pub struct CreateUserReq {
     pub password: String,
 }
 
+/// Create a new user invitation (admin operation).
+#[derive(Deserialize, Validate)]
+#[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
+pub struct CreateUserInvitationReq {
+    #[validate(custom(function = "crate::api::dto::validation::validate_auth_email"))]
+    pub email: String,
+}
+
 /// Patch an existing user (admin operation).
 #[derive(Deserialize, Validate)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]

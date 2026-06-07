@@ -197,6 +197,8 @@ pub const MAIL_TEMPLATE_EXTERNAL_AUTH_EMAIL_VERIFICATION_HTML_KEY: &str =
 pub const MAIL_TEMPLATE_LOGIN_EMAIL_CODE_SUBJECT_KEY: &str =
     "mail_template_login_email_code_subject";
 pub const MAIL_TEMPLATE_LOGIN_EMAIL_CODE_HTML_KEY: &str = "mail_template_login_email_code_html";
+pub const MAIL_TEMPLATE_USER_INVITATION_SUBJECT_KEY: &str = "mail_template_user_invitation_subject";
+pub const MAIL_TEMPLATE_USER_INVITATION_HTML_KEY: &str = "mail_template_user_invitation_html";
 
 // ── General / branding keys ──────────────────────────────────────────────────
 pub const PUBLIC_SITE_URL_KEY: &str = "public_site_url";
@@ -1623,6 +1625,38 @@ pub static ALL_CONFIGS: &[ConfigDef] = &[
         is_sensitive: false,
         category: CONFIG_CATEGORY_MAIL_TEMPLATE,
         description: "HTML template for login email code messages. Prefer a complete HTML document for best client compatibility",
+    },
+    ConfigDef {
+        key: MAIL_TEMPLATE_USER_INVITATION_SUBJECT_KEY,
+        label_i18n_key: "settings_item_mail_template_user_invitation_subject_label",
+        description_i18n_key: "settings_item_mail_template_user_invitation_subject_desc",
+        value_type: SystemConfigValueType::String,
+        default_fn: || {
+            crate::config::mail::default_template_subject(
+                crate::types::MailTemplateCode::UserInvitation,
+            )
+            .to_string()
+        },
+        requires_restart: false,
+        is_sensitive: false,
+        category: CONFIG_CATEGORY_MAIL_TEMPLATE,
+        description: "Subject template for user invitation emails",
+    },
+    ConfigDef {
+        key: MAIL_TEMPLATE_USER_INVITATION_HTML_KEY,
+        label_i18n_key: "settings_item_mail_template_user_invitation_html_label",
+        description_i18n_key: "settings_item_mail_template_user_invitation_html_desc",
+        value_type: SystemConfigValueType::Multiline,
+        default_fn: || {
+            crate::config::mail::default_template_html(
+                crate::types::MailTemplateCode::UserInvitation,
+            )
+            .to_string()
+        },
+        requires_restart: false,
+        is_sensitive: false,
+        category: CONFIG_CATEGORY_MAIL_TEMPLATE,
+        description: "HTML template for user invitation emails. Prefer a complete HTML document for best client compatibility",
     },
     // ── General ─────────────────────────────────────────────
     ConfigDef {

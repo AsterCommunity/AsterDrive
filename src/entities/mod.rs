@@ -37,6 +37,7 @@ pub mod team_member;
 pub mod upload_session;
 pub mod upload_session_part;
 pub mod user;
+pub mod user_invitation;
 pub mod user_profile;
 pub mod webdav_account;
 pub mod wopi_session;

@@ -35,7 +35,7 @@ pub mod wopi;
 // Re-export commonly used types for convenience
 pub use admin::{AdminCreateTeamReq, AdminListQuery, AdminPatchTeamReq};
 pub use auth::{
-    ActionMessageResp, AuthTokenResp, ChangePasswordReq, CheckResp,
+    AcceptUserInvitationReq, ActionMessageResp, AuthTokenResp, ChangePasswordReq, CheckResp,
     ContactVerificationConfirmQuery, LoginReq, MeQuery, PasswordResetConfirmReq,
     PasswordResetRequestReq, RegisterReq, RequestEmailChangeReq, ResendRegisterActivationReq,
     SetupReq, UpdateAvatarSourceReq, UpdateProfileReq,

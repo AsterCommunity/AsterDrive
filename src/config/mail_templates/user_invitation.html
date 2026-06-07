@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="x-apple-disable-message-reformatting" />
+    <title>You're Invited to {{site_name}}</title>
+  </head>
+  <body
+    style="
+      margin: 0;
+      padding: 0;
+      background-color: #f4f7fb;
+      color: #1f2937;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    "
+  >
+    <div style="margin: 0; padding: 32px 16px; background-color: #f4f7fb;">
+      <div style="max-width: 640px; margin: 0 auto;">
+        <div
+          style="
+            margin: 0 0 16px;
+            font-size: 13px;
+            font-weight: 700;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            color: #2563eb;
+          "
+        >
+          {{site_name}}
+        </div>
+        <div
+          style="
+            background-color: #ffffff;
+            border: 1px solid #dbe4f0;
+            border-radius: 16px;
+            padding: 32px 28px;
+            box-shadow: 0 8px 24px rgba(15, 23, 42, 0.06);
+          "
+        >
+          <h1 style="margin: 0 0 16px; font-size: 24px; line-height: 1.3; color: #0f172a;">
+            Create your account
+          </h1>
+          <p style="margin: 0 0 16px; font-size: 15px; line-height: 1.7;">Hello,</p>
+          <p style="margin: 0 0 16px; font-size: 15px; line-height: 1.7;">
+            An administrator invited {{email}} to join {{site_name}}. Use the secure link below to
+            choose your username and password.
+          </p>
+          <p style="margin: 0 0 24px; font-size: 15px; line-height: 1.7;">
+            This invitation expires in {{expires_in}} and can only be used once.
+          </p>
+          <p style="margin: 0 0 24px;">
+            <a
+              href="{{invitation_url}}"
+              style="
+                display: inline-block;
+                padding: 12px 20px;
+                border-radius: 10px;
+                background-color: #2563eb;
+                color: #ffffff;
+                text-decoration: none;
+                font-size: 15px;
+                font-weight: 600;
+              "
+            >
+              Accept Invitation
+            </a>
+          </p>
+          <p style="margin: 0 0 8px; font-size: 13px; line-height: 1.7; color: #475569;">
+            If the button above does not work, copy and paste this link into your browser:
+          </p>
+          <p style="margin: 0 0 24px; font-size: 13px; line-height: 1.7; word-break: break-all;">
+            <a href="{{invitation_url}}" style="color: #2563eb; text-decoration: underline;">
+              {{invitation_url}}
+            </a>
+          </p>
+          <div
+            style="
+              margin: 0 0 24px;
+              padding: 16px 18px;
+              border-radius: 12px;
+              background-color: #f8fafc;
+              border: 1px solid #e2e8f0;
+            "
+          >
+            <p style="margin: 0; font-size: 13px; line-height: 1.7; color: #475569;">
+              If you were not expecting this invitation, no further action is required. You can
+              safely ignore this message.
+            </p>
+          </div>
+          <p style="margin: 0; font-size: 13px; line-height: 1.7; color: #64748b;">
+            This is an automated security message from {{site_name}}. Please do not reply to this
+            email.
+          </p>
+        </div>
+      </div>
+    </div>
+  </body>
+</html>

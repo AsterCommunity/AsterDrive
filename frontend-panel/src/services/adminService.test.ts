@@ -91,6 +91,7 @@ describe("adminService", () => {
 
 	it("uses bare list endpoints when no query params are provided", () => {
 		adminUserService.list();
+		adminUserService.listInvitations();
 		adminPolicyService.list();
 		adminRemoteNodeService.list();
 		adminPolicyGroupService.list();
@@ -99,12 +100,35 @@ describe("adminService", () => {
 		adminConfigService.list();
 
 		expect(mockState.get).toHaveBeenNthCalledWith(1, "/admin/users");
-		expect(mockState.get).toHaveBeenNthCalledWith(2, "/admin/policies");
-		expect(mockState.get).toHaveBeenNthCalledWith(3, "/admin/remote-nodes");
-		expect(mockState.get).toHaveBeenNthCalledWith(4, "/admin/policy-groups");
-		expect(mockState.get).toHaveBeenNthCalledWith(5, "/admin/shares");
-		expect(mockState.get).toHaveBeenNthCalledWith(6, "/admin/locks");
-		expect(mockState.get).toHaveBeenNthCalledWith(7, "/admin/config");
+		expect(mockState.get).toHaveBeenNthCalledWith(
+			2,
+			"/admin/users/invitations",
+		);
+		expect(mockState.get).toHaveBeenNthCalledWith(3, "/admin/policies");
+		expect(mockState.get).toHaveBeenNthCalledWith(4, "/admin/remote-nodes");
+		expect(mockState.get).toHaveBeenNthCalledWith(5, "/admin/policy-groups");
+		expect(mockState.get).toHaveBeenNthCalledWith(6, "/admin/shares");
+		expect(mockState.get).toHaveBeenNthCalledWith(7, "/admin/locks");
+		expect(mockState.get).toHaveBeenNthCalledWith(8, "/admin/config");
+	});
+
+	it("uses admin user invitation endpoints", () => {
+		adminUserService.listInvitations({ limit: 10, offset: 20 });
+		adminUserService.createInvitation({ email: "invitee@example.com" });
+		adminUserService.revokeInvitation(42);
+
+		expect(mockState.get).toHaveBeenCalledWith(
+			"/admin/users/invitations?limit=10&offset=20",
+		);
+		expect(mockState.post).toHaveBeenNthCalledWith(
+			1,
+			"/admin/users/invitations",
+			{ email: "invitee@example.com" },
+		);
+		expect(mockState.post).toHaveBeenNthCalledWith(
+			2,
+			"/admin/users/invitations/42/revoke",
+		);
 	});
 
 	it("tests external auth provider draft parameters without an id", () => {

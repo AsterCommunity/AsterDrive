@@ -5,6 +5,8 @@ import { useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 import { AdminOffsetPagination } from "@/components/admin/AdminOffsetPagination";
 import { CreateUserDialog } from "@/components/admin/admin-users-page/CreateUserDialog";
+import { InviteUserDialog } from "@/components/admin/admin-users-page/InviteUserDialog";
+import { UserInvitationsTable } from "@/components/admin/admin-users-page/UserInvitationsTable";
 import { UsersTable } from "@/components/admin/admin-users-page/UsersTable";
 import { UsersToolbar } from "@/components/admin/admin-users-page/UsersToolbar";
 import { UserDetailDialog } from "@/components/admin/UserDetailDialog";
@@ -22,6 +24,7 @@ import { useConfirmDialog } from "@/hooks/useConfirmDialog";
 import { usePageTitle } from "@/hooks/usePageTitle";
 import { usePendingId } from "@/hooks/usePendingId";
 import { loadAdminPolicyGroupLookup } from "@/lib/adminPolicyGroupLookup";
+import { writeTextToClipboard } from "@/lib/clipboard";
 import { ADMIN_CONTROL_HEIGHT_CLASS } from "@/lib/constants";
 import { runWhenIdle } from "@/lib/idleTask";
 import {
@@ -37,6 +40,8 @@ import { emailSchema, passwordSchema, usernameSchema } from "@/lib/validation";
 import { adminUserService } from "@/services/adminService";
 import type { AdminUserSortBy } from "@/types/adminSort";
 import type {
+	AdminUserInvitationInfo,
+	CreateUserInvitationRequest,
 	CreateUserReq,
 	UpdateUserRequest,
 	UserRole,
@@ -67,6 +72,7 @@ const USER_SORT_BY_OPTIONS = [
 ] as const satisfies readonly AdminUserSortBy[];
 const DEFAULT_USER_SORT_BY = "created_at" as const satisfies AdminUserSortBy;
 const DEFAULT_USER_SORT_ORDER = "desc" as const satisfies SortOrder;
+const INVITATION_PAGE_SIZE = 10;
 function normalizeOffset(offset: number) {
 	return Math.max(0, Math.floor(offset));
 }
@@ -200,6 +206,16 @@ export default function AdminUsersPage() {
 		email: "",
 		password: "",
 	});
+	const [inviteDialogOpen, setInviteDialogOpen] = useState(false);
+	const [inviting, setInviting] = useState(false);
+	const [inviteErrors, setInviteErrors] = useState<
+		Partial<CreateUserInvitationRequest>
+	>({});
+	const [inviteForm, setInviteForm] = useState<CreateUserInvitationRequest>({
+		email: "",
+	});
+	const [createdInvitation, setCreatedInvitation] =
+		useState<AdminUserInvitationInfo | null>(null);
 	const lastWrittenSearchRef = useRef<string | null>(null);
 	const setOffset = (value: SetStateAction<number>) => {
 		setOffsetState((current) =>
@@ -325,8 +341,26 @@ export default function AdminUsersPage() {
 			statusFilter,
 		],
 	);
+	const {
+		items: invitations,
+		loading: loadingInvitations,
+		reload: reloadInvitations,
+		setItems: setInvitations,
+		total: invitationTotal,
+	} = useApiList(
+		() =>
+			adminUserService.listInvitations({
+				limit: INVITATION_PAGE_SIZE,
+				offset: 0,
+			}),
+		[],
+	);
 	const { pendingId: deletingUserId, runWithPending: runWithDeletingUser } =
 		usePendingId<number>();
+	const {
+		pendingId: revokingInvitationId,
+		runWithPending: runWithRevokingInvitation,
+	} = usePendingId<number>();
 
 	const activeFilterCount =
 		(debouncedKeyword.trim().length > 0 ? 1 : 0) +
@@ -424,6 +458,59 @@ export default function AdminUsersPage() {
 		setCreateForm((prev) => ({ ...prev, [key]: value }));
 	};
 
+	const resetInviteForm = () => {
+		setInviteForm({ email: "" });
+		setInviteErrors({});
+		setCreatedInvitation(null);
+	};
+
+	const validateInviteField = (
+		field: keyof CreateUserInvitationRequest,
+		value: string,
+	) => {
+		const result = emailSchema.safeParse(value);
+		setInviteErrors((prev) => {
+			if (result.success) {
+				const next = { ...prev };
+				delete next[field];
+				return next;
+			}
+			return { ...prev, [field]: result.error.issues[0]?.message ?? "" };
+		});
+	};
+
+	const validateInviteForm = () => {
+		const nextErrors: Partial<CreateUserInvitationRequest> = {};
+		const emailResult = emailSchema.safeParse(inviteForm.email.trim());
+		if (!emailResult.success) {
+			nextErrors.email = emailResult.error.issues[0]?.message ?? "";
+		}
+		setInviteErrors(nextErrors);
+		return Object.keys(nextErrors).length === 0;
+	};
+
+	const handleInviteFormChange = (
+		key: keyof CreateUserInvitationRequest,
+		value: string,
+	) => {
+		setInviteForm((prev) => ({ ...prev, [key]: value }));
+		if (createdInvitation) {
+			setCreatedInvitation(null);
+		}
+	};
+
+	const copyInvitationLink = async (value: string) => {
+		if (!value) {
+			return;
+		}
+		try {
+			await writeTextToClipboard(value);
+			toast.success(t("core:copied_to_clipboard"));
+		} catch (error) {
+			handleApiError(error);
+		}
+	};
+
 	const handleCreateUser = async (event: FormEvent<HTMLFormElement>) => {
 		event.preventDefault();
 		if (!validateCreateForm()) return;
@@ -442,6 +529,25 @@ export default function AdminUsersPage() {
 			handleApiError(e);
 		} finally {
 			setCreating(false);
+		}
+	};
+
+	const handleInviteUser = async (event: FormEvent<HTMLFormElement>) => {
+		event.preventDefault();
+		if (!validateInviteForm()) return;
+		try {
+			setInviting(true);
+			const invitation = await adminUserService.createInvitation({
+				email: inviteForm.email.trim(),
+			});
+			setCreatedInvitation(invitation);
+			setInviteForm({ email: invitation.email });
+			toast.success(t("invitation_created"));
+			await reloadInvitations();
+		} catch (e) {
+			handleApiError(e);
+		} finally {
+			setInviting(false);
 		}
 	};
 
@@ -497,6 +603,29 @@ export default function AdminUsersPage() {
 		() => users.find((user) => user.id === deleteUserId) ?? null,
 		[users, deleteUserId],
 	);
+	const {
+		confirmId: revokeInvitationId,
+		requestConfirm: requestRevokeInvitationConfirm,
+		dialogProps: revokeInvitationDialogProps,
+	} = useConfirmDialog<number>(async (id) => {
+		await runWithRevokingInvitation(id, async () => {
+			try {
+				const invitation = await adminUserService.revokeInvitation(id);
+				setInvitations((prev) =>
+					prev.map((item) => (item.id === id ? invitation : item)),
+				);
+				toast.success(t("invitation_revoked"));
+			} catch (e) {
+				handleApiError(e);
+			}
+		});
+	});
+	const revokeTargetInvitation = useMemo(
+		() =>
+			invitations.find((invitation) => invitation.id === revokeInvitationId) ??
+			null,
+		[invitations, revokeInvitationId],
+	);
 	const roleFilterOptions = [
 		{ label: t("all_roles"), value: "__all__" },
 		{ label: t("role_admin"), value: "admin" },
@@ -520,6 +649,15 @@ export default function AdminUsersPage() {
 					description={t("users_intro")}
 					actions={
 						<>
+							<Button
+								variant="outline"
+								size="sm"
+								className={ADMIN_CONTROL_HEIGHT_CLASS}
+								onClick={() => setInviteDialogOpen(true)}
+							>
+								<Icon name="EnvelopeSimple" className="mr-1 size-4" />
+								{t("invite_user")}
+							</Button>
 							<Button
 								size="sm"
 								className={ADMIN_CONTROL_HEIGHT_CLASS}
@@ -602,6 +740,49 @@ export default function AdminUsersPage() {
 					}
 					onNext={() => setOffset((current) => current + pageSize)}
 				/>
+
+				<div className="mt-6 space-y-3">
+					<div className="flex flex-wrap items-center justify-between gap-3">
+						<div className="min-w-0">
+							<h2 className="text-base font-semibold tracking-tight">
+								{t("invitations")}
+							</h2>
+							<p className="text-sm text-muted-foreground">
+								{t("invitations_desc", { count: invitationTotal })}
+							</p>
+						</div>
+						<Button
+							variant="outline"
+							size="sm"
+							className={ADMIN_CONTROL_HEIGHT_CLASS}
+							onClick={() => void reloadInvitations()}
+							disabled={loadingInvitations}
+						>
+							<Icon
+								name={loadingInvitations ? "Spinner" : "ArrowsClockwise"}
+								className={`mr-1 size-3.5 ${loadingInvitations ? "animate-spin" : ""}`}
+							/>
+							{t("core:refresh")}
+						</Button>
+					</div>
+					{loadingInvitations ? (
+						<SkeletonTable columns={6} rows={4} />
+					) : invitations.length === 0 ? (
+						<EmptyState
+							icon={<Icon name="EnvelopeSimple" className="size-10" />}
+							title={t("no_invitations")}
+						/>
+					) : (
+						<UserInvitationsTable
+							invitations={invitations}
+							revokingInvitationId={revokingInvitationId}
+							onCopyLink={(value) => void copyInvitationLink(value)}
+							onRevokeInvitation={(invitation) =>
+								requestRevokeInvitationConfirm(invitation.id)
+							}
+						/>
+					)}
+				</div>
 			</AdminPageShell>
 			<CreateUserDialog
 				open={createDialogOpen}
@@ -617,6 +798,23 @@ export default function AdminUsersPage() {
 				onFieldChange={handleCreateFormChange}
 				onFieldValidate={validateCreateField}
 				onSubmit={handleCreateUser}
+			/>
+			<InviteUserDialog
+				open={inviteDialogOpen}
+				onOpenChange={(open) => {
+					setInviteDialogOpen(open);
+					if (!open && !inviting) {
+						resetInviteForm();
+					}
+				}}
+				form={inviteForm}
+				errors={inviteErrors}
+				inviting={inviting}
+				createdInvitation={createdInvitation}
+				onCopyLink={(value) => void copyInvitationLink(value)}
+				onFieldChange={handleInviteFormChange}
+				onFieldValidate={validateInviteField}
+				onSubmit={handleInviteUser}
 			/>
 			<UserDetailDialog
 				user={selectedUser}
@@ -635,6 +833,15 @@ export default function AdminUsersPage() {
 						: t("confirm_force_delete")
 				}
 				confirmLabel={t("core:delete")}
+				variant="destructive"
+			/>
+			<ConfirmDialog
+				{...revokeInvitationDialogProps}
+				title={t("revoke_invitation")}
+				description={t("confirm_revoke_invitation", {
+					email: revokeTargetInvitation?.email ?? "",
+				})}
+				confirmLabel={t("revoke_invitation")}
 				variant="destructive"
 			/>
 		</AdminLayout>

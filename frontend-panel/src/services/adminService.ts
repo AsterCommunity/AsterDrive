@@ -30,6 +30,9 @@ import type {
 	AdminTeamMemberListQuery,
 	AdminTeamPage,
 	AdminUpdateTeamRequest,
+	AdminUserInvitationInfo,
+	AdminUserInvitationListQuery,
+	AdminUserInvitationPage,
 	AdminUserListQuery,
 	ConfigActionType,
 	ConfigSchemaItem,
@@ -39,6 +42,7 @@ import type {
 	CreatePolicyRequest,
 	CreateRemoteNodeRequest,
 	CreateStoragePolicyMigrationRequest,
+	CreateUserInvitationRequest,
 	CreateUserReq,
 	DeletePolicyQuery,
 	DryRunStoragePolicyMigrationRequest,
@@ -144,6 +148,20 @@ export const adminUserService = {
 	resetMfa: (id: number) => api.delete<void>(`/admin/users/${id}/mfa`),
 
 	delete: (id: number) => api.delete<void>(`/admin/users/${id}`),
+
+	listInvitations: (params?: AdminUserInvitationListQuery) =>
+		api.get<AdminUserInvitationPage>(
+			withQuery("/admin/users/invitations", {
+				limit: params?.limit,
+				offset: params?.offset,
+			}),
+		),
+
+	createInvitation: (data: CreateUserInvitationRequest) =>
+		api.post<AdminUserInvitationInfo>("/admin/users/invitations", data),
+
+	revokeInvitation: (id: number) =>
+		api.post<AdminUserInvitationInfo>(`/admin/users/invitations/${id}/revoke`),
 };
 
 // --- Teams ---

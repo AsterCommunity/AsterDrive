@@ -1,4 +1,5 @@
 import type {
+	AcceptUserInvitationRequest,
 	ActionMessageResp,
 	ApiResponse,
 	AuthSessionInfo,
@@ -25,6 +26,7 @@ import type {
 	PasswordResetConfirmRequest,
 	PasswordResetRequestRequest,
 	PatchPasskeyRequest,
+	PublicUserInvitationInfo,
 	UpdatePreferencesRequest,
 	UpdateProfileRequest,
 	UserInfo,
@@ -401,6 +403,19 @@ export const authService = {
 
 	confirmPasswordReset: (payload: PasswordResetConfirmRequest) =>
 		api.post<ActionMessageResp>("/auth/password/reset/confirm", payload),
+
+	verifyInvitation: (token: string) =>
+		api.get<PublicUserInvitationInfo>(
+			`/auth/invitations/${encodeURIComponent(token)}`,
+		),
+
+	acceptInvitation: (token: string, payload: AcceptUserInvitationRequest) => {
+		invalidateAuthIdentityCaches();
+		return api.post<UserInfo>(
+			`/auth/invitations/${encodeURIComponent(token)}/accept`,
+			payload,
+		);
+	},
 
 	setup: (username: string, email: string, password: string) => {
 		invalidateAuthIdentityCaches();

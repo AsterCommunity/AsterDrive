@@ -45,6 +45,7 @@ pub mod team_service;
 pub mod thumbnail_service;
 pub mod trash_service;
 pub mod upload_service;
+pub mod user_invitation_service;
 pub mod user_service;
 pub mod version_service;
 pub mod webdav_account_service;

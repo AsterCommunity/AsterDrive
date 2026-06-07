@@ -13,10 +13,10 @@ pub use crate::api::dto::admin::{
     AdminPolicyListQuery, AdminRemoteNodeListQuery, AdminShareListQuery, AdminTaskCleanupReq,
     AdminTaskListQuery, AdminTeamListQuery, AdminUserListQuery, CreateBlobMaintenanceTaskReq,
     CreatePolicyGroupReq, CreatePolicyReq, CreateRemoteNodeReq, CreateStoragePolicyMigrationReq,
-    CreateUserReq, DeletePolicyQuery, DryRunStoragePolicyMigrationReq, ExecuteConfigActionReq,
-    ExecuteConfigActionResp, MigratePolicyGroupAssignmentsReq, PatchPolicyGroupReq, PatchPolicyReq,
-    PatchRemoteNodeReq, PatchUserReq, PolicyGroupItemReq, ResetUserPasswordReq, SetConfigReq,
-    TestPolicyParamsReq, TestRemoteNodeParamsReq,
+    CreateUserInvitationReq, CreateUserReq, DeletePolicyQuery, DryRunStoragePolicyMigrationReq,
+    ExecuteConfigActionReq, ExecuteConfigActionResp, MigratePolicyGroupAssignmentsReq,
+    PatchPolicyGroupReq, PatchPolicyReq, PatchRemoteNodeReq, PatchUserReq, PolicyGroupItemReq,
+    ResetUserPasswordReq, SetConfigReq, TestPolicyParamsReq, TestRemoteNodeParamsReq,
 };
 
 pub(crate) mod audit_logs;
@@ -72,8 +72,9 @@ pub use teams::{
     list_team_members, list_teams, patch_team_member, restore_team, update_team,
 };
 pub use users::{
-    create_user, force_delete_user, get_user, get_user_avatar, list_users, reset_user_mfa,
-    reset_user_password, revoke_user_sessions, update_user,
+    create_user, create_user_invitation, force_delete_user, get_user, get_user_avatar,
+    list_user_invitations, list_users, reset_user_mfa, reset_user_password, revoke_user_invitation,
+    revoke_user_sessions, update_user,
 };
 
 pub fn routes(
@@ -181,6 +182,12 @@ pub fn routes(
                     // users
                     .route("/users", web::get().to(list_users))
                     .route("/users", web::post().to(create_user))
+                    .route("/users/invitations", web::get().to(list_user_invitations))
+                    .route("/users/invitations", web::post().to(create_user_invitation))
+                    .route(
+                        "/users/invitations/{id}/revoke",
+                        web::post().to(revoke_user_invitation),
+                    )
                     .route("/users/{id}", web::get().to(get_user))
                     .route("/users/{id}", web::patch().to(update_user))
                     .route("/users/{id}/password", web::put().to(reset_user_password))

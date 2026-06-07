@@ -1,7 +1,7 @@
 //! 认证 API 路由聚合入口。
 
 pub use crate::api::dto::auth::{
-    ActionMessageResp, AuthTokenResp, ChangePasswordReq, CheckResp,
+    AcceptUserInvitationReq, ActionMessageResp, AuthTokenResp, ChangePasswordReq, CheckResp,
     ContactVerificationConfirmQuery, LoginReq, LoginResponse, MeQuery, PasskeyLoginFinishReq,
     PasskeyLoginStartReq, PasskeyRegisterFinishReq, PasskeyRegisterStartReq,
     PasswordResetConfirmReq, PasswordResetRequestReq, PatchPasskeyReq, RegisterReq,
@@ -45,8 +45,8 @@ pub use self::profile::{
     resend_email_change, upload_avatar,
 };
 pub use self::public::{
-    check, confirm_contact_verification, confirm_password_reset, register, request_password_reset,
-    resend_register_activation, setup,
+    accept_user_invitation, check, confirm_contact_verification, confirm_password_reset, register,
+    request_password_reset, resend_register_activation, setup, verify_user_invitation,
 };
 pub use self::session::{
     delete_other_sessions, delete_session, get_storage_events, list_sessions, login, logout, me,
@@ -93,6 +93,16 @@ pub fn routes(
             web::resource("/register/resend")
                 .wrap(Condition::new(rl.enabled, Governor::new(&auth_limiter)))
                 .route(web::post().to(resend_register_activation)),
+        )
+        .service(
+            web::resource("/invitations/{token}")
+                .wrap(Condition::new(rl.enabled, Governor::new(&auth_limiter)))
+                .route(web::get().to(verify_user_invitation)),
+        )
+        .service(
+            web::resource("/invitations/{token}/accept")
+                .wrap(Condition::new(rl.enabled, Governor::new(&auth_limiter)))
+                .route(web::post().to(accept_user_invitation)),
         )
         .service(
             web::resource("/setup")

@@ -96,6 +96,16 @@ pub struct LoginEmailCodePayload {
     pub lang: String,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct UserInvitationPayload {
+    pub email: String,
+    pub invitation_url: String,
+    #[serde(default = "default_site_name")]
+    pub site_name: String,
+    #[serde(default = "default_user_invitation_expires_in")]
+    pub expires_in: String,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum MailTemplatePayload {
     RegisterActivation(RegisterActivationPayload),
@@ -105,6 +115,7 @@ pub enum MailTemplatePayload {
     ContactChangeNotice(ContactChangeNoticePayload),
     ExternalAuthEmailVerification(ExternalAuthEmailVerificationPayload),
     LoginEmailCode(LoginEmailCodePayload),
+    UserInvitation(UserInvitationPayload),
 }
 
 impl MailTemplatePayload {
@@ -179,6 +190,20 @@ impl MailTemplatePayload {
         })
     }
 
+    pub fn user_invitation(
+        email: &str,
+        invitation_url: &str,
+        site_name: &str,
+        expires_in: &str,
+    ) -> Self {
+        Self::UserInvitation(UserInvitationPayload {
+            email: email.to_string(),
+            invitation_url: invitation_url.to_string(),
+            site_name: site_name.to_string(),
+            expires_in: expires_in.to_string(),
+        })
+    }
+
     pub fn template_code(&self) -> MailTemplateCode {
         match self {
             Self::RegisterActivation(_) => MailTemplateCode::RegisterActivation,
@@ -190,6 +215,7 @@ impl MailTemplatePayload {
                 MailTemplateCode::ExternalAuthEmailVerification
             }
             Self::LoginEmailCode(_) => MailTemplateCode::LoginEmailCode,
+            Self::UserInvitation(_) => MailTemplateCode::UserInvitation,
         }
     }
 
@@ -206,6 +232,7 @@ impl MailTemplatePayload {
                 serialize_payload(payload).map(StoredMailPayload)
             }
             Self::LoginEmailCode(payload) => serialize_payload(payload).map(StoredMailPayload),
+            Self::UserInvitation(payload) => serialize_payload(payload).map(StoredMailPayload),
         }
     }
 
@@ -237,6 +264,10 @@ impl MailTemplatePayload {
                 )?))
             }
             MailTemplateCode::LoginEmailCode => Ok(Self::LoginEmailCode(deserialize_payload(
+                template_code,
+                payload.as_ref(),
+            )?)),
+            MailTemplateCode::UserInvitation => Ok(Self::UserInvitation(deserialize_payload(
                 template_code,
                 payload.as_ref(),
             )?)),
@@ -406,6 +437,31 @@ pub fn list_template_variable_groups() -> Vec<TemplateVariableGroup> {
                 ),
             ],
         ),
+        template_variable_group(
+            MailTemplateCode::UserInvitation,
+            &[
+                placeholder_spec(
+                    "email",
+                    "settings_template_variable_email_label",
+                    "settings_template_variable_email_desc",
+                ),
+                placeholder_spec(
+                    "invitation_url",
+                    "settings_template_variable_invitation_url_label",
+                    "settings_template_variable_invitation_url_desc",
+                ),
+                placeholder_spec(
+                    "site_name",
+                    "settings_template_variable_site_name_label",
+                    "settings_template_variable_site_name_desc",
+                ),
+                placeholder_spec(
+                    "expires_in",
+                    "settings_template_variable_expires_in_label",
+                    "settings_template_variable_expires_in_desc",
+                ),
+            ],
+        ),
     ]
 }
 
@@ -523,6 +579,20 @@ pub fn render(
                 ),
             ],
         },
+        MailTemplatePayload::UserInvitation(payload) => PlaceholderSet {
+            text_values: vec![
+                ("email", payload.email.clone()),
+                ("invitation_url", payload.invitation_url.clone()),
+                ("site_name", payload.site_name.clone()),
+                ("expires_in", payload.expires_in.clone()),
+            ],
+            html_values: vec![
+                ("email", escape_html(&payload.email)),
+                ("invitation_url", escape_html(&payload.invitation_url)),
+                ("site_name", escape_html(&payload.site_name)),
+                ("expires_in", escape_html(&payload.expires_in)),
+            ],
+        },
     };
 
     let subject = render_placeholders(
@@ -563,6 +633,10 @@ fn default_external_auth_expires_in() -> String {
 
 fn default_login_email_code_expires_in() -> String {
     "10 minutes".to_string()
+}
+
+fn default_user_invitation_expires_in() -> String {
+    "72 hours".to_string()
 }
 
 fn default_mail_template_lang() -> String {

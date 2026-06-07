@@ -143,6 +143,10 @@ define_api_error_codes! {
     AuthMfaRecoveryCodeUsed => "auth.mfa_recovery_code_used",
     AuthMfaEmailCodeRequired => "auth.mfa_email_code_required",
     AuthMfaEmailCodeExpired => "auth.mfa_email_code_expired",
+    AuthInvitationInvalid => "auth.invitation_invalid",
+    AuthInvitationExpired => "auth.invitation_expired",
+    AuthInvitationRevoked => "auth.invitation_revoked",
+    AuthInvitationAccepted => "auth.invitation_accepted",
 
     // profile/avatar/media processing: avatar upload and rendering failures.
     AvatarFileRequired => "avatar.file_required",

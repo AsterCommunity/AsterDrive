@@ -51,6 +51,8 @@ export type AuthTokenResp = components["schemas"]["AuthTokenResp"];
 export type CheckResp = components["schemas"]["CheckResp"];
 export type ChangePasswordRequest = components["schemas"]["ChangePasswordReq"];
 export type CreateUserReq = components["schemas"]["CreateUserReq"];
+export type CreateUserInvitationRequest =
+	components["schemas"]["CreateUserInvitationReq"];
 export type MeResponse = components["schemas"]["MeResponse"];
 export type MePartialResponse = components["schemas"]["MePartialResponse"];
 export type MeField = "profile" | "preferences" | "quota" | "session";
@@ -58,6 +60,8 @@ export type PasswordResetConfirmRequest =
 	components["schemas"]["PasswordResetConfirmReq"];
 export type PasswordResetRequestRequest =
 	components["schemas"]["PasswordResetRequestReq"];
+export type AcceptUserInvitationRequest =
+	components["schemas"]["AcceptUserInvitationReq"];
 export type ExternalAuthLinkInfo =
 	components["schemas"]["ExternalAuthLinkInfo"];
 export type ExternalAuthEmailVerificationStartRequest =
@@ -104,6 +108,10 @@ export type UserProfileInfo = components["schemas"]["UserProfileInfo"];
 export type UserRole = components["schemas"]["UserRole"];
 export type UserSummary = components["schemas"]["UserSummary"];
 export type UserStatus = components["schemas"]["UserStatus"];
+export type PublicUserInvitationInfo =
+	components["schemas"]["PublicUserInvitationInfo"];
+export type UserInvitationStatus =
+	components["schemas"]["UserInvitationStatus"];
 export type VerificationPurpose = components["schemas"]["VerificationPurpose"];
 
 // Files, folders, and trash
@@ -243,6 +251,12 @@ export type AdminRemoteNodeSortBy =
 	components["schemas"]["AdminRemoteNodeSortBy"];
 export type AdminShareSortBy = components["schemas"]["AdminShareSortBy"];
 export type AdminTaskSortBy = components["schemas"]["AdminTaskSortBy"];
+export type AdminUserInvitationInfo =
+	components["schemas"]["AdminUserInvitationInfo"];
+export type AdminUserInvitationPage =
+	components["schemas"]["OffsetPage_AdminUserInvitationInfo"];
+export type AdminUserInvitationListQuery =
+	OperationQuery<"admin_list_user_invitations">;
 export type AdminFileSortBy = components["schemas"]["AdminFileSortBy"];
 export type AdminFileBlobSortBy = components["schemas"]["AdminFileBlobSortBy"];
 export type AdminFileBlobHashKind =

@@ -16,6 +16,7 @@ pub use crate::config::definitions::{
     MAIL_TEMPLATE_PASSWORD_RESET_HTML_KEY, MAIL_TEMPLATE_PASSWORD_RESET_NOTICE_HTML_KEY,
     MAIL_TEMPLATE_PASSWORD_RESET_NOTICE_SUBJECT_KEY, MAIL_TEMPLATE_PASSWORD_RESET_SUBJECT_KEY,
     MAIL_TEMPLATE_REGISTER_ACTIVATION_HTML_KEY, MAIL_TEMPLATE_REGISTER_ACTIVATION_SUBJECT_KEY,
+    MAIL_TEMPLATE_USER_INVITATION_HTML_KEY, MAIL_TEMPLATE_USER_INVITATION_SUBJECT_KEY,
 };
 
 pub const DEFAULT_MAIL_SMTP_PORT: u16 = 587;
@@ -83,6 +84,7 @@ pub fn template_subject_key(code: MailTemplateCode) -> &'static str {
             MAIL_TEMPLATE_EXTERNAL_AUTH_EMAIL_VERIFICATION_SUBJECT_KEY
         }
         MailTemplateCode::LoginEmailCode => MAIL_TEMPLATE_LOGIN_EMAIL_CODE_SUBJECT_KEY,
+        MailTemplateCode::UserInvitation => MAIL_TEMPLATE_USER_INVITATION_SUBJECT_KEY,
     }
 }
 
@@ -99,6 +101,7 @@ pub fn template_html_key(code: MailTemplateCode) -> &'static str {
             MAIL_TEMPLATE_EXTERNAL_AUTH_EMAIL_VERIFICATION_HTML_KEY
         }
         MailTemplateCode::LoginEmailCode => MAIL_TEMPLATE_LOGIN_EMAIL_CODE_HTML_KEY,
+        MailTemplateCode::UserInvitation => MAIL_TEMPLATE_USER_INVITATION_HTML_KEY,
     }
 }
 
@@ -131,6 +134,10 @@ pub fn default_template_subject(code: MailTemplateCode) -> &'static str {
             include_str!("mail_templates/login_email_code.subject.txt")
                 .trim_end_matches(['\r', '\n'])
         }
+        MailTemplateCode::UserInvitation => {
+            include_str!("mail_templates/user_invitation.subject.txt")
+                .trim_end_matches(['\r', '\n'])
+        }
     }
 }
 
@@ -158,6 +165,9 @@ pub fn default_template_html(code: MailTemplateCode) -> &'static str {
         }
         MailTemplateCode::LoginEmailCode => {
             include_str!("mail_templates/login_email_code.html").trim_end_matches(['\r', '\n'])
+        }
+        MailTemplateCode::UserInvitation => {
+            include_str!("mail_templates/user_invitation.html").trim_end_matches(['\r', '\n'])
         }
     }
 }
