@@ -3,9 +3,9 @@ mod common;
 use std::any::Any;
 use std::sync::{Arc, Mutex};
 
-use aster_drive::config::{mail, site_url};
+use aster_drive::config::{audit, mail, site_url};
 use aster_drive::db::repository::mail_outbox_repo;
-use aster_drive::entities::mail_outbox;
+use aster_drive::entities::{audit_log, mail_outbox};
 use aster_drive::errors::{AsterError, Result};
 use aster_drive::runtime::SharedRuntimeState;
 use aster_drive::services::{
@@ -13,7 +13,7 @@ use aster_drive::services::{
     mail_service::{self, MailMessage, MailSender},
     mail_template::RenderedMail,
 };
-use aster_drive::types::{MailOutboxStatus, MailTemplateCode, StoredMailPayload};
+use aster_drive::types::{AuditAction, MailOutboxStatus, MailTemplateCode, StoredMailPayload};
 use async_trait::async_trait;
 use chrono::{Duration, Utc};
 use sea_orm::{EntityTrait, Set};
@@ -94,6 +94,31 @@ async fn find_outbox_row(db: &sea_orm::DatabaseConnection, id: i64) -> mail_outb
         .await
         .expect("mail outbox lookup should succeed")
         .expect("mail outbox row should exist")
+}
+
+async fn latest_mail_audit_entry(
+    db: &sea_orm::DatabaseConnection,
+    action: AuditAction,
+) -> audit_log::Model {
+    use sea_orm::{ColumnTrait, QueryFilter, QueryOrder};
+
+    audit_log::Entity::find()
+        .filter(audit_log::Column::Action.eq(action))
+        .order_by_desc(audit_log::Column::Id)
+        .one(db)
+        .await
+        .expect("mail audit lookup should succeed")
+        .expect("mail audit entry should exist")
+}
+
+async fn mail_audit_count(db: &sea_orm::DatabaseConnection, action: AuditAction) -> u64 {
+    use sea_orm::{ColumnTrait, PaginatorTrait, QueryFilter};
+
+    audit_log::Entity::find()
+        .filter(audit_log::Column::Action.eq(action))
+        .count(db)
+        .await
+        .expect("mail audit count should succeed")
 }
 
 #[tokio::test]
@@ -244,6 +269,19 @@ async fn test_mail_outbox_dispatch_sends_due_message_and_clears_payload() {
     assert_eq!(message.to.display_name.as_deref(), Some("User"));
     assert!(message.text_body.contains("alice"));
     assert!(message.text_body.contains("https://drive.example.com"));
+
+    let audit_entry = latest_mail_audit_entry(state.writer_db(), AuditAction::MailSend).await;
+    assert_eq!(audit_entry.user_id, 0);
+    assert_eq!(audit_entry.entity_type, "mail");
+    assert_eq!(audit_entry.entity_id, Some(row.id));
+    assert_eq!(audit_entry.entity_name.as_deref(), Some("mail"));
+    let details: serde_json::Value =
+        serde_json::from_str(audit_entry.details.as_deref().unwrap()).unwrap();
+    assert_eq!(details["to_address"], "user@example.com");
+    assert_eq!(details["template_code"], "register_activation");
+    assert_eq!(details["to_name"], "User");
+    assert_eq!(details["outbox_id"], row.id);
+    assert_eq!(details["attempt_count"], 1);
 }
 
 #[tokio::test]
@@ -315,6 +353,74 @@ async fn test_mail_outbox_dispatch_retries_failed_delivery_with_truncated_error(
     assert_eq!(stored.attempt_count, 1);
     assert!(stored.next_attempt_at > Utc::now());
     assert_eq!(stored.last_error.as_deref().unwrap().chars().count(), 1024);
+    assert_eq!(
+        mail_audit_count(state.writer_db(), AuditAction::MailDeliveryFailed).await,
+        0
+    );
+    assert_eq!(
+        mail_audit_count(state.writer_db(), AuditAction::MailSend).await,
+        0
+    );
+}
+
+#[tokio::test]
+async fn test_mail_outbox_dispatch_success_after_retries_records_current_attempt() {
+    let state = common::setup().await;
+    apply_mail_config(&state);
+    let payload = aster_drive::services::mail_template::MailTemplatePayload::register_activation(
+        "alice",
+        "token-123",
+        "AsterDrive",
+    )
+    .to_stored()
+    .unwrap();
+    let row = mail_outbox_repo::create(
+        state.writer_db(),
+        outbox_model(MailOutboxStatus::Retry, 2, Utc::now(), payload),
+    )
+    .await
+    .unwrap();
+
+    let stats = mail_outbox_service::dispatch_due(&state).await.unwrap();
+
+    assert_eq!(stats.claimed, 1);
+    assert_eq!(stats.sent, 1);
+    let audit_entry = latest_mail_audit_entry(state.writer_db(), AuditAction::MailSend).await;
+    assert_eq!(audit_entry.entity_id, Some(row.id));
+    let details: serde_json::Value =
+        serde_json::from_str(audit_entry.details.as_deref().unwrap()).unwrap();
+    assert_eq!(details["attempt_count"], 3);
+}
+
+#[tokio::test]
+async fn test_mail_outbox_dispatch_respects_mail_audit_action_scope() {
+    let state = common::setup().await;
+    apply_mail_config(&state);
+    state.runtime_config.apply(common::system_config_model(
+        audit::AUDIT_LOG_RECORDED_ACTIONS_KEY,
+        r#"["mail_delivery_failed"]"#,
+    ));
+    let payload = aster_drive::services::mail_template::MailTemplatePayload::register_activation(
+        "alice",
+        "token-123",
+        "AsterDrive",
+    )
+    .to_stored()
+    .unwrap();
+    mail_outbox_repo::create(
+        state.writer_db(),
+        outbox_model(MailOutboxStatus::Pending, 0, Utc::now(), payload),
+    )
+    .await
+    .unwrap();
+
+    let stats = mail_outbox_service::dispatch_due(&state).await.unwrap();
+
+    assert_eq!(stats.sent, 1);
+    assert_eq!(
+        mail_audit_count(state.writer_db(), AuditAction::MailSend).await,
+        0
+    );
 }
 
 #[tokio::test]
@@ -357,6 +463,54 @@ async fn test_mail_outbox_dispatch_marks_final_failure_and_clears_payload() {
         stored.last_error.as_deref(),
         Some("Mail Delivery Failed: smtp unavailable")
     );
+
+    let audit_entry =
+        latest_mail_audit_entry(state.writer_db(), AuditAction::MailDeliveryFailed).await;
+    assert_eq!(audit_entry.user_id, 0);
+    assert_eq!(audit_entry.entity_type, "mail");
+    assert_eq!(audit_entry.entity_id, Some(row.id));
+    let details: serde_json::Value =
+        serde_json::from_str(audit_entry.details.as_deref().unwrap()).unwrap();
+    assert_eq!(details["to_address"], "user@example.com");
+    assert_eq!(details["template_code"], "register_activation");
+    assert_eq!(details["attempt_count"], 6);
+    assert_eq!(details["error"], "Mail Delivery Failed: smtp unavailable");
+}
+
+#[tokio::test]
+async fn test_mail_outbox_final_failure_audit_error_is_truncated() {
+    let state = common::setup().await;
+    apply_mail_config(&state);
+    let payload = aster_drive::services::mail_template::MailTemplatePayload::register_activation(
+        "alice",
+        "token-123",
+        "AsterDrive",
+    )
+    .to_stored()
+    .unwrap();
+    let row = mail_outbox_repo::create(
+        state.writer_db(),
+        outbox_model(MailOutboxStatus::Pending, 5, Utc::now(), payload),
+    )
+    .await
+    .unwrap();
+    let failing = FailingMailSender::new("x".repeat(1_200));
+    let sender: Arc<dyn MailSender> = failing;
+
+    let stats =
+        mail_outbox_service::dispatch_due_with(state.writer_db(), &state.runtime_config, &sender)
+            .await
+            .unwrap();
+
+    assert_eq!(stats.failed, 1);
+    let stored = find_outbox_row(state.writer_db(), row.id).await;
+    assert_eq!(stored.last_error.as_deref().unwrap().chars().count(), 1024);
+
+    let audit_entry =
+        latest_mail_audit_entry(state.writer_db(), AuditAction::MailDeliveryFailed).await;
+    let details: serde_json::Value =
+        serde_json::from_str(audit_entry.details.as_deref().unwrap()).unwrap();
+    assert_eq!(details["error"].as_str().unwrap().chars().count(), 1024);
 }
 
 #[tokio::test]

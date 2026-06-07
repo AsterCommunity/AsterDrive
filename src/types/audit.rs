@@ -153,6 +153,8 @@ macro_rules! define_audit_action_list {
             FollowerIngressProfileCreate,
             FollowerIngressProfileUpdate,
             FollowerIngressProfileDelete,
+            MailSend,
+            MailDeliveryFailed,
         }
     };
 }
@@ -224,6 +226,7 @@ define_audit_entity_type! {
     ExternalAuthProvider => "external_auth_provider",
     File => "file",
     Folder => "folder",
+    Mail => "mail",
     MfaFactor => "mfa_factor",
     Passkey => "passkey",
     PolicyGroup => "policy_group",
@@ -648,6 +651,10 @@ pub enum AuditAction {
     FollowerIngressProfileUpdate,
     #[sea_orm(string_value = "follower_ingress_profile_delete")]
     FollowerIngressProfileDelete,
+    #[sea_orm(string_value = "mail_send")]
+    MailSend,
+    #[sea_orm(string_value = "mail_delivery_failed")]
+    MailDeliveryFailed,
 }
 
 impl AuditAction {
@@ -795,6 +802,8 @@ impl AuditAction {
             Self::FollowerIngressProfileCreate => 136,
             Self::FollowerIngressProfileUpdate => 137,
             Self::FollowerIngressProfileDelete => 138,
+            Self::MailSend => 139,
+            Self::MailDeliveryFailed => 140,
         }
     }
 
@@ -941,6 +950,8 @@ impl AuditAction {
             Self::FollowerIngressProfileCreate => "follower_ingress_profile_create",
             Self::FollowerIngressProfileUpdate => "follower_ingress_profile_update",
             Self::FollowerIngressProfileDelete => "follower_ingress_profile_delete",
+            Self::MailSend => "mail_send",
+            Self::MailDeliveryFailed => "mail_delivery_failed",
         }
     }
 
@@ -1087,6 +1098,8 @@ impl AuditAction {
             "follower_ingress_profile_create" => Some(Self::FollowerIngressProfileCreate),
             "follower_ingress_profile_update" => Some(Self::FollowerIngressProfileUpdate),
             "follower_ingress_profile_delete" => Some(Self::FollowerIngressProfileDelete),
+            "mail_send" => Some(Self::MailSend),
+            "mail_delivery_failed" => Some(Self::MailDeliveryFailed),
             _ => None,
         }
     }
@@ -1223,6 +1236,7 @@ impl AuditAction {
             Self::FollowerIngressProfileCreate
             | Self::FollowerIngressProfileUpdate
             | Self::FollowerIngressProfileDelete => "remote_ingress",
+            Self::MailSend | Self::MailDeliveryFailed => "mail",
         }
     }
 }

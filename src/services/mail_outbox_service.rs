@@ -11,7 +11,7 @@ use crate::entities::mail_outbox;
 use crate::errors::Result;
 use crate::runtime::MailRuntimeState;
 use crate::services::{
-    mail_service,
+    mail_audit_service, mail_service,
     mail_service::MailSender,
     mail_template::{self, MailTemplatePayload},
 };
@@ -106,7 +106,7 @@ pub async fn dispatch_due_with(
         claimed_row.updated_at = claimed_at;
 
         match deliver_one(runtime_config, mail_sender, &claimed_row).await {
-            Ok(()) => {
+            Ok(rendered) => {
                 // SMTP 成功。mark_sent 必须尽一切努力落库——否则 row 会以 Processing 状态
                 // 在 `MAIL_OUTBOX_PROCESSING_STALE_SECS` 后被另一个 worker 再次 claim，
                 // 导致**收件人收到重复邮件**。退避重试把"瞬时 DB 抖动 → 双发"的概率
@@ -114,6 +114,21 @@ pub async fn dispatch_due_with(
                 match mark_sent_with_retry(db, claimed_row.id).await {
                     Ok(true) => {
                         stats.sent += 1;
+                        mail_audit_service::log_send_with_db(
+                            db,
+                            runtime_config,
+                            mail_audit_service::MailAuditInput {
+                                actor_user_id: 0,
+                                to_address: &claimed_row.to_address,
+                                to_name: claimed_row.to_name.as_deref(),
+                                template_code: claimed_row.template_code.as_str(),
+                                subject: Some(&rendered.subject),
+                                outbox_id: Some(claimed_row.id),
+                                attempt_count: Some(claimed_row.attempt_count + 1),
+                                error: None,
+                            },
+                        )
+                        .await;
                     }
                     Ok(false) => {
                         tracing::warn!(
@@ -150,6 +165,21 @@ pub async fn dispatch_due_with(
                     .await?
                     {
                         stats.failed += 1;
+                        mail_audit_service::log_delivery_failed_with_db(
+                            db,
+                            runtime_config,
+                            mail_audit_service::MailAuditInput {
+                                actor_user_id: 0,
+                                to_address: &claimed_row.to_address,
+                                to_name: claimed_row.to_name.as_deref(),
+                                template_code: claimed_row.template_code.as_str(),
+                                subject: None,
+                                outbox_id: Some(claimed_row.id),
+                                attempt_count: Some(attempt_count),
+                                error: Some(&error_message),
+                            },
+                        )
+                        .await;
                     }
                     tracing::warn!(
                         mail_outbox_id = claimed_row.id,
@@ -221,7 +251,7 @@ async fn deliver_one(
     runtime_config: &RuntimeConfig,
     mail_sender: &Arc<dyn MailSender>,
     row: &mail_outbox::Model,
-) -> Result<()> {
+) -> Result<mail_template::RenderedMail> {
     let rendered = mail_template::render(runtime_config, row.template_code, &row.payload_json)?;
     mail_service::send_rendered_with(
         runtime_config,
@@ -230,9 +260,10 @@ async fn deliver_one(
             address: row.to_address.clone(),
             display_name: row.to_name.clone(),
         },
-        rendered,
+        rendered.clone(),
     )
-    .await
+    .await?;
+    Ok(rendered)
 }
 
 fn retry_delay_secs(attempt_count: i32) -> i64 {

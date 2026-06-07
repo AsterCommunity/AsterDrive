@@ -388,6 +388,8 @@ fn audit_action_strings_match_existing_contract() {
             AuditAction::FollowerIngressProfileDelete,
             "follower_ingress_profile_delete",
         ),
+        (AuditAction::MailSend, "mail_send"),
+        (AuditAction::MailDeliveryFailed, "mail_delivery_failed"),
     ];
 
     for (action, expected) in cases {

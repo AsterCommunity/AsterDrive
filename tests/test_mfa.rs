@@ -2,10 +2,15 @@ mod common;
 
 use actix_web::{body::MessageBody, http::StatusCode, test};
 use aster_drive::config::{auth_runtime, mail};
+use aster_drive::entities::audit_log;
 use aster_drive::runtime::SharedRuntimeState;
 use aster_drive::services::mfa_service::totp;
+use aster_drive::types::AuditAction;
 use chrono::{Duration, Utc};
-use sea_orm::{ActiveModelTrait, ColumnTrait, EntityTrait, IntoActiveModel, QueryFilter, Set};
+use sea_orm::{
+    ActiveModelTrait, ColumnTrait, EntityTrait, IntoActiveModel, PaginatorTrait, QueryFilter,
+    QueryOrder, Set,
+};
 use serde_json::Value;
 use std::{any::Any, sync::Arc};
 
@@ -253,6 +258,26 @@ async fn find_mfa_flow_by_token(
         .unwrap()
 }
 
+async fn audit_entries(
+    db: &sea_orm::DatabaseConnection,
+    action: AuditAction,
+) -> Vec<audit_log::Model> {
+    audit_log::Entity::find()
+        .filter(audit_log::Column::Action.eq(action))
+        .order_by_asc(audit_log::Column::Id)
+        .all(db)
+        .await
+        .expect("audit query should succeed")
+}
+
+async fn audit_count(db: &sea_orm::DatabaseConnection, action: AuditAction) -> u64 {
+    audit_log::Entity::find()
+        .filter(audit_log::Column::Action.eq(action))
+        .count(db)
+        .await
+        .expect("audit count should succeed")
+}
+
 #[tokio::test]
 async fn test_password_login_without_mfa_still_sets_cookies() {
     let state = common::setup().await;
@@ -428,6 +453,45 @@ async fn test_email_code_login_send_and_verify_sets_cookies() {
     assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
     let body: Value = test::read_body_json(resp).await;
     assert_eq!(body["code"], "auth.mfa_flow_invalid");
+}
+
+#[tokio::test]
+async fn test_email_code_send_records_mail_delivery_and_security_audits() {
+    let state = common::setup().await;
+    apply_email_code_login_config(&state, false);
+    let db = state.writer_db().clone();
+    let app = create_test_app!(state);
+    register_user(&app, "emailaudit", "emailaudit@example.com", "password123").await;
+
+    let resp = login_raw(&app, "emailaudit", "password123").await;
+    let body: Value = test::read_body_json(resp).await;
+    let flow_token = body["data"]["flow_token"].as_str().unwrap().to_string();
+
+    let resp = send_email_code(&app, &flow_token).await;
+    let status = resp.status();
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(status, StatusCode::OK, "{body:#?}");
+
+    let flow = find_mfa_flow_by_token(&db, &flow_token).await;
+    let mail_entries = audit_entries(&db, AuditAction::MailSend).await;
+    assert_eq!(mail_entries.len(), 1);
+    let mail_entry = &mail_entries[0];
+    assert_eq!(mail_entry.user_id, flow.user_id);
+    assert_eq!(mail_entry.entity_type, "mail");
+    assert_eq!(mail_entry.entity_id, None);
+    let details: Value = serde_json::from_str(mail_entry.details.as_deref().unwrap()).unwrap();
+    assert_eq!(details["to_address"], "emailaudit@example.com");
+    assert_eq!(details["template_code"], "login_email_code");
+    assert_eq!(details["to_name"], "emailaudit");
+    assert!(details.get("outbox_id").is_none());
+    assert!(details.get("attempt_count").is_none());
+    assert!(details.get("error").is_none());
+
+    let security_entries = audit_entries(&db, AuditAction::UserMfaEmailCodeSend).await;
+    assert_eq!(security_entries.len(), 1);
+    assert_eq!(security_entries[0].user_id, flow.user_id);
+    assert_eq!(security_entries[0].entity_type, "mfa_factor");
+    assert_eq!(security_entries[0].entity_id, Some(flow.id));
 }
 
 #[tokio::test]
@@ -644,6 +708,19 @@ async fn test_email_code_delivery_failure_consumes_created_code() {
         .unwrap()
         .unwrap();
     assert!(code_row.consumed_at.is_some());
+
+    let failed_entries = audit_entries(&db, AuditAction::MailDeliveryFailed).await;
+    assert_eq!(failed_entries.len(), 1);
+    let details: Value =
+        serde_json::from_str(failed_entries[0].details.as_deref().unwrap()).unwrap();
+    assert_eq!(details["to_address"], "emailfail@example.com");
+    assert_eq!(details["template_code"], "login_email_code");
+    assert_eq!(
+        details["error"],
+        "Mail Delivery Failed: forced mail delivery failure"
+    );
+    assert_eq!(audit_count(&db, AuditAction::MailSend).await, 0);
+    assert_eq!(audit_count(&db, AuditAction::UserMfaEmailCodeSend).await, 0);
 }
 
 #[tokio::test]

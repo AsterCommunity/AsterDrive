@@ -14,6 +14,7 @@ export const AUDIT_ENTITY_TYPE_FILTER_VALUES = [
 	"external_auth_provider",
 	"file",
 	"folder",
+	"mail",
 	"mfa_factor",
 	"passkey",
 	"policy_group",
@@ -85,6 +86,7 @@ const AUDIT_ACTION_TONES = {
 	file_version_delete: "danger",
 	folder_delete: "danger",
 	folder_purge: "danger",
+	mail_delivery_failed: "danger",
 	property_delete: "danger",
 	share_batch_delete: "danger",
 	share_delete: "danger",
@@ -94,6 +96,7 @@ const AUDIT_ACTION_TONES = {
 	archive_download: "success",
 	file_download: "success",
 	file_upload: "success",
+	mail_send: "success",
 	user_upload_avatar: "success",
 
 	file_direct_link_create: "info",

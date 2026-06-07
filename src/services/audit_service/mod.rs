@@ -18,7 +18,7 @@ pub use details::{
     AuthSessionAuditDetails, BatchDeleteDetails, BatchTransferDetails, ConfigActionDetails,
     ConfigUpdateDetails, FileAccessTokenAuditDetails, FileVersionAuditDetails,
     FollowerBindingAuditDetails, FollowerIngressProfileAuditDetails, FollowerObjectAuditDetails,
-    LockAuditDetails, LockCleanupAuditDetails, PolicyGroupAuditDetails,
+    LockAuditDetails, LockCleanupAuditDetails, MailAuditDetails, PolicyGroupAuditDetails,
     PolicyGroupMigrationDetails, PropertyAuditDetails, RemoteIngressProfileAuditDetails,
     RemoteNodeAuditDetails, ShareBatchDeleteDetails, ShareUpdateDetails, StoragePolicyAuditDetails,
     TaskRetryAuditDetails, TeamAuditDetails, TeamCleanupAuditDetails, TeamMemberAddAuditDetails,
@@ -27,8 +27,9 @@ pub use details::{
 };
 pub use filters::{AuditLogFilterQuery, AuditLogFilters};
 pub use manager::{
-    flush_global_audit_log_manager, init_global_audit_log_manager, log, log_with_details,
-    should_record, shutdown_global_audit_log_manager,
+    AuditLogInput, flush_global_audit_log_manager, init_global_audit_log_manager, log,
+    log_with_db_and_config, log_with_details, should_record, should_record_with_config,
+    shutdown_global_audit_log_manager,
 };
 pub use models::{AuditLogEntry, AuditPresentation, AuditPresentationMessage, TeamAuditEntryInfo};
 pub use query::{cleanup_expired, query, query_team_entries};

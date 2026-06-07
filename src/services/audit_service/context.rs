@@ -7,7 +7,7 @@ pub(super) const MAX_AUDIT_IP_ADDRESS_LEN: usize = 45;
 pub(super) const MAX_AUDIT_USER_AGENT_LEN: usize = 512;
 
 /// 从 HttpRequest 提取的审计上下文
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct AuditContext {
     pub user_id: i64,
     pub ip_address: Option<String>,
@@ -15,7 +15,7 @@ pub struct AuditContext {
 }
 
 /// 从 HttpRequest 提取的请求级审计元信息。
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct AuditRequestInfo {
     pub ip_address: Option<String>,
     pub user_agent: Option<String>,

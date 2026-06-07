@@ -19,7 +19,7 @@ use crate::runtime::{MailRuntimeState, SharedRuntimeState};
 use crate::services::{
     audit_service,
     audit_service::AuditRequestInfo,
-    auth_service, mail_service,
+    auth_service, mail_audit_service, mail_service,
     mail_template::{self, MailTemplatePayload},
 };
 use crate::types::{MfaFirstFactor, MfaMethod, MfaPersistentFactorMethod};
@@ -250,6 +250,8 @@ pub async fn send_email_code(
                 return Err(error);
             }
         };
+    let template_code = payload.template_code();
+    let subject = rendered.subject.clone();
     if let Err(error) = mail_service::send_rendered(
         state,
         mail_service::MailRecipient {
@@ -260,9 +262,40 @@ pub async fn send_email_code(
     )
     .await
     {
+        let error_message = error.to_string();
         consume_email_code_after_mail_failure(state, record.id).await;
+        mail_audit_service::log_delivery_failed_with_db(
+            state.writer_db(),
+            state.runtime_config(),
+            mail_audit_service::MailAuditInput {
+                actor_user_id: user.id,
+                to_address: &user.email,
+                to_name: Some(&user.username),
+                template_code: template_code.as_str(),
+                subject: Some(&subject),
+                outbox_id: None,
+                attempt_count: None,
+                error: Some(&error_message),
+            },
+        )
+        .await;
         return Err(error);
     }
+
+    mail_audit_service::log_send(
+        state,
+        mail_audit_service::MailAuditInput {
+            actor_user_id: user.id,
+            to_address: &user.email,
+            to_name: Some(&user.username),
+            template_code: template_code.as_str(),
+            subject: Some(&subject),
+            outbox_id: None,
+            attempt_count: None,
+            error: None,
+        },
+    )
+    .await;
 
     audit_service::log(
         state,

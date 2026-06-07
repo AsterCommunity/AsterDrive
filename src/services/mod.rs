@@ -15,6 +15,7 @@ pub mod folder_service;
 pub mod health_service;
 pub mod integrity_service;
 pub mod lock_service;
+pub mod mail_audit_service;
 pub mod mail_outbox_service;
 pub mod mail_service;
 pub mod mail_template;

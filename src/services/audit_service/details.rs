@@ -22,6 +22,22 @@ pub struct ConfigActionDetails<'a> {
 }
 
 #[derive(Serialize)]
+pub struct MailAuditDetails<'a> {
+    pub to_address: &'a str,
+    pub template_code: &'a str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub to_name: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub subject: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub outbox_id: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub attempt_count: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<&'a str>,
+}
+
+#[derive(Serialize)]
 pub struct AdminCreateUserDetails<'a> {
     pub email: &'a str,
     pub email_verified: bool,

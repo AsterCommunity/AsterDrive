@@ -115,6 +115,20 @@ fn detail_message(
             copy_param(details, &mut params, "target_email");
             Some(message("config_action_executed", params))
         }
+        AuditAction::MailSend => {
+            copy_param(details, &mut params, "to_address");
+            copy_param(details, &mut params, "template_code");
+            copy_param(details, &mut params, "outbox_id");
+            Some(message("mail_sent", params))
+        }
+        AuditAction::MailDeliveryFailed => {
+            copy_param(details, &mut params, "to_address");
+            copy_param(details, &mut params, "template_code");
+            copy_param(details, &mut params, "outbox_id");
+            copy_param(details, &mut params, "attempt_count");
+            copy_param(details, &mut params, "error");
+            Some(message("mail_delivery_failed", params))
+        }
         AuditAction::TeamMemberAdd => {
             copy_param(details, &mut params, "member_user_id");
             copy_param(details, &mut params, "member_username");
