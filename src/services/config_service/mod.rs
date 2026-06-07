@@ -7,7 +7,7 @@ mod system;
 
 pub use actions::{
     ConfigActionResult, ConfigActionType, ExecuteConfigActionInput, MAIL_CONFIG_ACTION_KEY,
-    execute_action, execute_action_with_audit,
+    execute_action_with_audit,
 };
 pub(crate) use public::invalidate_public_thumbnail_support_cache;
 pub use public::{

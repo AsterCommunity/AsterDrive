@@ -269,6 +269,8 @@ pub async fn send_email_code(
             state.runtime_config(),
             mail_audit_service::MailAuditInput {
                 actor_user_id: user.id,
+                ip_address: audit_info.ip_address.as_deref(),
+                user_agent: audit_info.user_agent.as_deref(),
                 to_address: &user.email,
                 to_name: Some(&user.username),
                 template_code: template_code.as_str(),
@@ -286,6 +288,8 @@ pub async fn send_email_code(
         state,
         mail_audit_service::MailAuditInput {
             actor_user_id: user.id,
+            ip_address: audit_info.ip_address.as_deref(),
+            user_agent: audit_info.user_agent.as_deref(),
             to_address: &user.email,
             to_name: Some(&user.username),
             template_code: template_code.as_str(),

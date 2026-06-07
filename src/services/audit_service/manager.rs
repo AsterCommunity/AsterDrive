@@ -346,12 +346,7 @@ async fn record_prechecked_with_db(
     details: Option<serde_json::Value>,
 ) {
     let model = audit_model(ctx, action, entity_type, entity_id, entity_name, details);
-
-    if let Some(manager) = GLOBAL_AUDIT_LOG_MANAGER.get() {
-        manager.record(model).await;
-    } else {
-        write_audit_model(db, model).await;
-    }
+    write_audit_model(db, model).await;
 }
 
 pub async fn log<S: SharedRuntimeState>(

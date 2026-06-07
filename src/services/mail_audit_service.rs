@@ -5,10 +5,13 @@ use crate::runtime::SharedRuntimeState;
 use crate::services::audit_service::{self, AuditContext};
 
 const MAIL_ENTITY_NAME: &str = "mail";
+const MAX_AUDIT_FIELD_LEN: usize = 1024;
 
 #[derive(Debug, Clone, Copy)]
 pub struct MailAuditInput<'a> {
     pub actor_user_id: i64,
+    pub ip_address: Option<&'a str>,
+    pub user_agent: Option<&'a str>,
     pub to_address: &'a str,
     pub to_name: Option<&'a str>,
     pub template_code: &'a str,
@@ -21,8 +24,8 @@ pub struct MailAuditInput<'a> {
 pub async fn log_send(state: &impl SharedRuntimeState, input: MailAuditInput<'_>) {
     let ctx = AuditContext {
         user_id: input.actor_user_id,
-        ip_address: None,
-        user_agent: None,
+        ip_address: input.ip_address.map(str::to_string),
+        user_agent: input.user_agent.map(str::to_string),
     };
     audit_service::log_with_details(
         state,
@@ -43,8 +46,8 @@ pub async fn log_send_with_db(
 ) {
     let ctx = AuditContext {
         user_id: input.actor_user_id,
-        ip_address: None,
-        user_agent: None,
+        ip_address: input.ip_address.map(str::to_string),
+        user_agent: input.user_agent.map(str::to_string),
     };
     audit_service::log_with_db_and_config(
         db,
@@ -68,8 +71,8 @@ pub async fn log_delivery_failed_with_db(
 ) {
     let ctx = AuditContext {
         user_id: input.actor_user_id,
-        ip_address: None,
-        user_agent: None,
+        ip_address: input.ip_address.map(str::to_string),
+        user_agent: input.user_agent.map(str::to_string),
     };
     audit_service::log_with_db_and_config(
         db,
@@ -87,13 +90,69 @@ pub async fn log_delivery_failed_with_db(
 }
 
 fn mail_details(input: MailAuditInput<'_>) -> Option<serde_json::Value> {
+    let to_name = truncate_audit_field(input.to_name);
+    let subject = truncate_audit_field(input.subject);
+    let error = truncate_audit_field(input.error);
+
     audit_service::details(audit_service::MailAuditDetails {
         to_address: input.to_address,
         template_code: input.template_code,
-        to_name: input.to_name,
-        subject: input.subject,
+        to_name: to_name.as_deref(),
+        subject: subject.as_deref(),
         outbox_id: input.outbox_id,
         attempt_count: input.attempt_count,
-        error: input.error,
+        error: error.as_deref(),
     })
+}
+
+fn truncate_audit_field(value: Option<&str>) -> Option<String> {
+    value.map(|raw| raw.chars().take(MAX_AUDIT_FIELD_LEN).collect())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn mail_details_truncates_variable_fields_without_splitting_utf8() {
+        let long_value = "猫".repeat(MAX_AUDIT_FIELD_LEN + 1);
+        let details = mail_details(MailAuditInput {
+            actor_user_id: 1,
+            ip_address: None,
+            user_agent: None,
+            to_address: "alice@example.com",
+            to_name: Some(&long_value),
+            template_code: "smtp_test",
+            subject: Some(&long_value),
+            outbox_id: None,
+            attempt_count: None,
+            error: Some(&long_value),
+        })
+        .expect("mail audit details should serialize");
+
+        assert_eq!(
+            details["to_name"]
+                .as_str()
+                .expect("to_name should be string")
+                .chars()
+                .count(),
+            MAX_AUDIT_FIELD_LEN
+        );
+        assert_eq!(
+            details["subject"]
+                .as_str()
+                .expect("subject should be string")
+                .chars()
+                .count(),
+            MAX_AUDIT_FIELD_LEN
+        );
+        assert_eq!(
+            details["error"]
+                .as_str()
+                .expect("error should be string")
+                .chars()
+                .count(),
+            MAX_AUDIT_FIELD_LEN
+        );
+    }
 }

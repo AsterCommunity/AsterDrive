@@ -117,18 +117,12 @@ pub fn is_audit_runtime_key(key: &str) -> bool {
 
 fn parse_action_mask_for_runtime(value: &str) -> [u64; AUDIT_ACTION_MASK_WORDS] {
     match parse_recorded_actions_config_value(value) {
-        Ok(actions) => {
-            if is_legacy_full_action_selection(&actions) {
-                return all_actions_mask();
-            }
-
-            actions
-                .into_iter()
-                .fold(empty_action_mask(), |mut mask, action| {
-                    set_mask_bit(&mut mask, action);
-                    mask
-                })
-        }
+        Ok(actions) => actions
+            .into_iter()
+            .fold(empty_action_mask(), |mut mask, action| {
+                set_mask_bit(&mut mask, action);
+                mask
+            }),
         Err(error) => {
             // Bad runtime config should never block logging; fall back to recording everything.
             tracing::warn!(
@@ -138,25 +132,6 @@ fn parse_action_mask_for_runtime(value: &str) -> [u64; AUDIT_ACTION_MASK_WORDS] 
             all_actions_mask()
         }
     }
-}
-
-fn is_legacy_full_action_selection(actions: &[AuditAction]) -> bool {
-    const NEW_MAIL_AUDIT_ACTIONS: [AuditAction; 2] =
-        [AuditAction::MailSend, AuditAction::MailDeliveryFailed];
-
-    let mut selected = [false; AuditAction::COUNT];
-    for action in actions {
-        selected[action.index()] = true;
-    }
-
-    NEW_MAIL_AUDIT_ACTIONS
-        .iter()
-        .all(|action| !selected[action.index()])
-        && AuditAction::ALL
-            .iter()
-            .copied()
-            .filter(|action| !NEW_MAIL_AUDIT_ACTIONS.contains(action))
-            .all(|action| selected[action.index()])
 }
 
 fn parse_string_array(value: &str, value_type: &str) -> Result<Vec<String>> {
@@ -257,7 +232,7 @@ mod tests {
     }
 
     #[test]
-    fn runtime_settings_treat_legacy_full_action_scope_as_full_scope() {
+    fn runtime_settings_preserve_full_scope_missing_mail_actions() {
         let legacy_values: Vec<&'static str> = AuditAction::ALL
             .iter()
             .copied()
@@ -274,8 +249,8 @@ mod tests {
 
         let settings = AuditLogRuntimeSettings::from_raw_values(Some("true"), Some(&legacy_raw));
 
-        assert!(settings.should_record(AuditAction::MailSend));
-        assert!(settings.should_record(AuditAction::MailDeliveryFailed));
+        assert!(!settings.should_record(AuditAction::MailSend));
+        assert!(!settings.should_record(AuditAction::MailDeliveryFailed));
     }
 
     #[test]
