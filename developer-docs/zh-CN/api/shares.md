@@ -124,7 +124,7 @@
 
 ```json
 {
-  "code": 0,
+  "code": "success",
   "msg": "",
   "data": {
     "path": "/api/v1/s/share_token/stream/session_token/audio.mp3",

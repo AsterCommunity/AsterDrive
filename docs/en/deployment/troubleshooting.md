@@ -8,7 +8,7 @@ If your symptom is outside this page's scope, such as a functional bug or data p
 Before troubleshooting, do two things:
 
 1. Check the responses from `/health` and `/health/ready`; they can directly tell you whether the DB is unreachable or the storage backend is not ready.
-2. Check recent logs. AsterDrive errors include `error_code`; comparing against [Error Code Handling](/en/guide/errors) is faster than staring at English error text.
+2. Check recent logs. The top-level `code` in API responses is the public error code; comparing it against [Error Code Handling](/en/guide/errors) is faster than staring at English error text.
 
 ## Service Does Not Start
 
@@ -27,10 +27,10 @@ Check in this order:
 
 `/health` only checks whether the process is alive. `/health/ready` actually pings the database and default storage policy.
 
-Distinguish by the `error_code` in the 503 response:
+Distinguish by the `code` in the 503 response:
 
-- `database_error`: DB cannot connect. Check connection string, network, username, and password first.
-- Storage-related error code: default storage policy cannot start. For S3, check endpoint, credentials, and bucket existence. For local storage, check path permissions.
+- `database.error`: DB cannot connect. Check connection string, network, username, and password first.
+- `storage.*` related error code: default storage policy cannot start. For S3, check endpoint, credentials, and bucket existence. For local storage, check path permissions.
 
 ### Configuration Changes Do Not Take Effect
 
@@ -63,13 +63,13 @@ First identify the stuck stage:
 - Stuck on a specific chunk: usually a network interruption. The frontend retries by itself; check that request's status in browser developer tools.
 - All chunks uploaded but complete does not return: the server is merging and calculating SHA256. Large files take time. Do not immediately retry complete; it will hit the dedup path but waste another merge attempt.
 
-### `upload_session_expired`
+### `upload.session_expired`
 
 Most resumable upload sessions last 24 hours. Single presigned direct-upload sessions for S3 / follower nodes are usually 1 hour. Use the frontend recovery list or the server-returned `expires_at` as the source of truth.
 
 If you plan to upload very large files that may cross days, check network speed before starting. Sessions are not automatically renewed after expiration; you must start again.
 
-### `chunk_upload_failed`
+### `upload.chunk_failed`
 
 The most common cause is a full disk.
 
@@ -79,7 +79,7 @@ Check in this order:
 2. Whether the user's quota is already exhausted.
 3. Whether the default policy / user-bound policy group is disabled.
 
-### `upload_assembling`
+### `upload.assembling`
 
 The backend is merging chunks. This is not an error. Wait a few seconds and retry complete. If it repeats and lasts more than 1 minute, check whether the `data/.uploads` temporary directory has abnormalities.
 
@@ -121,9 +121,9 @@ Most likely causes, ordered by probability:
 
 First distinguish "not verified yet" from "verification failed":
 
-- `share_password_required`: the current request has no valid share password verification cookie. Usually not verified yet, cookie lost, or verification expired.
-- `auth_failed`: submitted password is wrong.
-- `share_expired` / `share_not_found`: same as the previous section, not a password issue.
+- `share.password_required`: the current request has no valid share password verification cookie. Usually not verified yet, cookie lost, or verification expired.
+- `auth.failed`: submitted password is wrong.
+- `share.expired` / `share.not_found`: same as the previous section, not a password issue.
 
 The server caches password verification for 1 hour. After changing the password, **the other party may still access with the old password within 1 hour**. This is intentional behavior, not a bug.
 
@@ -162,7 +162,7 @@ Normal login JWT can also use Bearer authentication, but most WebDAV clients do 
 
 Check the error code:
 
-- `resource_locked`: a file or folder is held by a WebDAV LOCK. Usually another client did not release it, or the previous client crashed without UNLOCK. Wait for lock expiration or unlock manually in the admin panel.
+- `resource.locked`: a file or folder is held by a WebDAV LOCK. Usually another client did not release it, or the previous client crashed without UNLOCK. Wait for lock expiration or unlock manually in the admin panel.
 - `precondition_failed`: the client sent `If-Match` / `If-None-Match`, but the condition was not satisfied. Common when multiple clients edit the same file at once.
 - Quota-related: user quota is full.
 
@@ -253,4 +253,4 @@ Submit an issue in this order:
 3. Paste logs around the symptom, at least 50 lines before and after.
 4. Open an issue in [GitHub Issues](https://github.com/AptS-1547/AsterDrive/issues).
 
-Do not delete the `error_code` field. `error_code` is the fastest clue for locating the problem.
+Do not delete the `code` field from the `/health/ready` JSON. If logs also include a structured `error_code` field, keep that too. These fields are the fastest clues for locating the problem.

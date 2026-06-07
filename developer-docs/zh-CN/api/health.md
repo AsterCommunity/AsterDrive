@@ -19,7 +19,7 @@
 
 ```json
 {
-  "code": 0,
+  "code": "success",
   "msg": "",
   "data": {
     "status": "ok",

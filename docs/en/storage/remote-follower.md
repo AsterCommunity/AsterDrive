@@ -47,7 +47,7 @@ Each layer is responsible for something different:
 | remote storage policy | Which follower node is selected during upload | `Admin -> Storage Policies` |
 | Policy group | Which users / teams / file sizes match this policy | `Admin -> Policy Groups` |
 
-The primary node and follower currently use internal remote storage protocol `v2`. Before creating a remote policy or switching policy groups, have the primary node test the node connection once; the test result includes the protocol version, server version, and capability summary.
+The primary node and follower currently use internal remote storage protocol `v4`, and the current primary requires the follower to support `v4` as well. Before creating a remote policy or switching policy groups, have the primary node test the node connection once; the test result includes the protocol version, server version, and capability summary.
 
 ## 1. Confirm the Follower Node Is Ready
 
@@ -65,7 +65,7 @@ Confirm that the target node meets these conditions:
 - If using direct transport, `base_url` is an address the primary node can access
 - If using reverse tunnel, the tunnel status is online
 - "Test Connection" succeeds
-- The internal protocol version in the capability summary is compatible with the current primary node; currently `v2` is required
+- The internal protocol version in the capability summary is compatible with the current primary node; currently `v4` is required
 - `/health/ready` returns successfully
 
 If `base_url` is empty, only `reverse_tunnel` or `auto` can carry remote traffic. A `direct` node must have an HTTP(S) address reachable by the primary. Before production, confirm that "Test Connection" passes with the current transport mode.
@@ -343,7 +343,7 @@ Check first:
 - Whether the follower is listening on an externally reachable address
 - Whether the reverse proxy or firewall allows the traffic
 - Whether `/health/ready` returns successfully
-- Whether the internal protocol version returned by the follower is compatible with the current primary; the current primary requires `v2`
+- Whether the internal protocol version returned by the follower is compatible with the current primary; the current primary requires `v4`
 
 ### remote Policy Upload Fails
 

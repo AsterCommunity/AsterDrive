@@ -3,16 +3,12 @@
 这一页帮你看懂 AsterDrive 返回的错误：先看哪个字段、用户能不能自己处理、管理员应该去哪里查。
 
 如果你只是普通用户，不需要记住所有错误码。把界面上看到的错误、操作时间和你刚才做了什么发给管理员，通常就够了。
-如果你在写脚本、接 API、排查 WebDAV / WOPI / 远程节点问题，请优先看响应里的 `error.code`。
+如果你在写脚本、接 API、排查 WebDAV / WOPI / 远程节点问题，请优先看响应里的顶层 `code`。
 
-::: warning 0.3.0 错误码迁移
-issue 211 的方向是把公开错误契约收敛成一套：`ApiErrorCode`，也就是响应里的 `error.code`。
+::: tip 0.3.0 错误码契约
+issue 211 已把公开错误契约收敛成一套：顶层 `code: ApiErrorCode`。
 
-当前过渡期，后端会同时保留顶层数字 `code` 和兼容字段 `error.subcode`，避免旧前端、旧脚本和第三方客户端立刻坏掉。新代码应该直接使用 `error.code`；`error.subcode` 只给旧客户端 fallback。
-
-到 0.3.0，`error.subcode` 会停止作为公开 API 字段暴露，`ApiSubcode` 不再作为新的公开错误码来源，旧的 subcode 兼容构造和从消息里编码 / 解析 subcode 的路径会清理掉。客户端文案和业务判断会只以 `error.code` 为 key。
-
-更长期的方向是让 `ApiErrorCode` 替代现在的顶层数字 `code`。在替代完成前，顶层数字 `code` 只应该被当作旧客户端兼容层或粗粒度分类，不要用它区分具体业务原因。
+旧的数字错误码、`error.code`、`error.subcode` 和 `error.internal_code` 不再作为公开 API 响应字段暴露。客户端文案和业务判断都应该直接使用顶层 `code`。
 :::
 
 ## 先看哪个字段
@@ -21,12 +17,9 @@ AsterDrive 的失败响应一般长这样：
 
 ```json
 {
-  "code": 2003,
-  "msg": "untrusted request origin for cookie-authenticated action",
+  "code": "auth.credentials_failed",
+  "msg": "Invalid Credentials",
   "error": {
-    "code": "auth.request_origin_untrusted",
-    "internal_code": "E013",
-    "subcode": "auth.request_origin_untrusted",
     "retryable": false
   }
 }
@@ -36,94 +29,32 @@ AsterDrive 的失败响应一般长这样：
 
 | 字段 | 应该怎么用 |
 | --- | --- |
-| `error.code` | **新的稳定字符串错误码**。前端、SDK、脚本和第三方客户端都应该优先用它做业务判断。 |
+| `code` | **稳定字符串错误码**。前端、SDK、脚本和第三方客户端都应该用它做业务判断。成功时是 `success`。 |
 | `error.retryable` | 是否建议自动重试。`true` 不代表一定成功，只表示这个错误更像临时失败。 |
-| 顶层 `code` | 旧的数字分类码。当前仍然保留，主要给旧客户端兼容，也方便快速判断大类；最终会被 `ApiErrorCode` 替代。 |
 | `msg` | 给人看的诊断说明。不要用它做代码分支，也不要当翻译 key。 |
-| `error.internal_code` | 后端内部错误来源码，主要给日志和开发排障用。普通客户端不要依赖它。 |
-| `error.subcode` | 0.3.0 之前的兼容字段。新代码不要依赖它。 |
 
 报 issue 或向管理员反馈时，优先贴：
 
-1. `error.code`
-2. 顶层数字 `code`
-3. `msg`
-4. 出错时间和你正在做的操作
+1. `code`
+2. `msg`
+3. 出错时间和你正在做的操作
 
 如果只贴一句英文报错，定位会慢很多。
 
-## 数字码只看大类
+## 字符串码看领域
 
-顶层数字 `code` 现在仍然有用，但它更像“错误大类”，不是最精确的业务原因。新客户端不要把它当成长期稳定的主判断字段；最终主字段会是 `ApiErrorCode`。
+`code` 使用稳定的 snake/dot 风格。点号前通常是领域，点号后是具体原因：
 
-| 数字段 | 大类 | 常见稳定字符串码 |
-| --- | --- | --- |
-| `0` | 成功 | `success` |
-| `1xxx` | 通用、服务端、邮件、限流 | `bad_request`、`not_found`、`database.error`、`mail.delivery_failed` |
-| `2xxx` | 登录、会话、权限、MFA | `auth.credentials_failed`、`auth.token_expired`、`forbidden`、`auth.mfa_failed` |
-| `3xxx` | 文件、上传、缩略图、锁 | `file.not_found`、`upload.session_expired`、`thumbnail.failed`、`resource.locked` |
-| `4xxx` | 存储策略、驱动、配额、远程存储 | `storage.quota_exceeded`、`storage.auth_failed`、`storage.transient_failure` |
-| `5xxx` | 文件夹 | `folder.not_found` |
-| `6xxx` | 分享 | `share.expired`、`share.password_required` |
-
-看到一个新错误时，可以先用数字段判断方向，再用 `error.code` 决定具体处理。
-
-如果你的客户端只显示数字码，可以用下面这张表先换算到对应的稳定字符串码：
-
-| 数字 `code` | 对应 `error.code` |
+| 领域 | 常见错误码 |
 | --- | --- |
-| `0` | `success` |
-| `1000` | `bad_request` |
-| `1001` | `not_found` |
-| `1002` | `internal_server_error` |
-| `1003` | `database.error` |
-| `1004` | `config.error` |
-| `1005` | `endpoint.not_found` |
-| `1006` | `rate_limited` |
-| `1007` | `mail.not_configured` |
-| `1008` | `mail.delivery_failed` |
-| `1009` | `conflict` |
-| `2000` | `auth.failed` |
-| `2001` | `auth.token_expired` |
-| `2002` | `auth.token_invalid` |
-| `2003` | `forbidden` |
-| `2004` | `auth.pending_activation` |
-| `2005` | `auth.contact_verification_invalid` |
-| `2006` | `auth.contact_verification_expired` |
-| `2007` | `auth.token_missing` |
-| `2008` | `auth.credentials_failed` |
-| `2009` | `auth.mfa_failed` |
-| `2010` | `auth.refresh_token_stale` |
-| `2011` | `auth.refresh_token_reuse_detected` |
-| `3000` | `file.not_found` |
-| `3001` | `file.too_large` |
-| `3002` | `file.type_not_allowed` |
-| `3003` | `file.upload_failed` |
-| `3004` | `upload.session_not_found` |
-| `3005` | `upload.session_expired` |
-| `3006` | `upload.chunk_failed` |
-| `3007` | `upload.assembly_failed` |
-| `3008` | `thumbnail.failed` |
-| `3009` | `resource.locked` |
-| `3010` | `precondition_failed` |
-| `3011` | `upload.assembling` |
-| `4000` | `storage.policy_not_found` |
-| `4001` | `storage.driver_error` |
-| `4002` | `storage.quota_exceeded` |
-| `4003` | `storage.unsupported_driver` |
-| `4004` | `storage.auth_failed` |
-| `4005` | `storage.permission_denied` |
-| `4006` | `storage.misconfigured` |
-| `4007` | `storage.object_not_found` |
-| `4008` | `storage.rate_limited` |
-| `4009` | `storage.transient_failure` |
-| `4010` | `storage.precondition_failed` |
-| `4011` | `storage.operation_unsupported` |
-| `5000` | `folder.not_found` |
-| `6000` | `share.not_found` |
-| `6001` | `share.expired` |
-| `6002` | `share.password_required` |
-| `6003` | `share.download_limit_reached` |
+| 通用 | `bad_request`、`not_found`、`internal_server_error`、`conflict` |
+| 登录、会话、权限、MFA | `auth.credentials_failed`、`auth.token_expired`、`forbidden`、`auth.mfa_failed` |
+| 文件、上传、缩略图、锁 | `file.not_found`、`upload.session_expired`、`thumbnail.failed`、`resource.locked` |
+| 存储策略、驱动、配额、远程存储 | `storage.quota_exceeded`、`storage.auth_failed`、`storage.transient_failure` |
+| 文件夹 | `folder.not_found` |
+| 分享 | `share.expired`、`share.password_required` |
+
+看到一个新错误时，先用 `code` 的领域判断方向，再按完整字符串决定具体处理。
 
 ## 常见处理入口
 
@@ -140,7 +71,7 @@ AsterDrive 的失败响应一般长这样：
 - `auth.account_disabled`：账号被禁用。普通用户只能联系管理员。
 - `auth.registration_disabled`：站点关闭公开注册。让管理员创建账号，或开启注册。
 
-如果普通登录、Passkey、外部认证和 MFA 混在一起失败，仍然优先看 `error.code`，不要只看页面上的一句“登录失败”。
+如果普通登录、Passkey、外部认证和 MFA 混在一起失败，仍然优先看 `code`，不要只看页面上的一句“登录失败”。
 
 ### MFA 和 Passkey
 
@@ -164,7 +95,7 @@ Passkey 相关错误：
 
 ### 权限、团队和工作空间
 
-顶层 `code = 2003` 或 `error.code = forbidden` 只说明“不能做”，真正原因看更细的 `error.code`：
+`code = "forbidden"` 只说明“不能做”。如果同一类操作需要区分具体原因，响应会返回更细的字符串码：
 
 - `auth.admin_required`：需要管理员权限。
 - `team.not_member`：当前账号不是团队成员。
@@ -233,7 +164,7 @@ Passkey 相关错误：
 
 ### 存储策略、S3 和远程节点
 
-存储类错误通常不是让普通用户多点几次就能解决的。管理员按 `error.code` 处理：
+存储类错误通常不是让普通用户多点几次就能解决的。管理员按 `code` 处理：
 
 - `storage.policy_not_found`：用户、团队或策略组引用了不存在的策略。
 - `storage.quota_exceeded`：用户、团队或系统配额已满。
@@ -475,8 +406,7 @@ WebDAV：
 
 ```text
 我在 2026-06-03 21:10 上传 test.zip 时失败。
-error.code: upload.assembly_failed
-code: 3007
+code: upload.assembly_failed
 msg: ...
 ```
 
@@ -487,4 +417,4 @@ msg: ...
 3. 如果怀疑存储元数据和底层对象不一致，运行 [运维 CLI](/deployment/ops-cli) 里的 `doctor`。
 4. 如果确认是 AsterDrive 问题，在 [GitHub Issues](https://github.com/AptS-1547/AsterDrive/issues) 提交复现步骤和错误响应。
 
-错误码是定位问题最快的入口。优先贴 `error.code`，别只贴一句界面文案。
+错误码是定位问题最快的入口。优先贴 `code`，别只贴一句界面文案。

@@ -210,7 +210,7 @@
 
 ```json
 {
-  "code": 0,
+  "code": "success",
   "msg": "",
   "data": {
     "schema_version": 2,
@@ -254,7 +254,7 @@
 
 ```json
 {
-  "code": 0,
+  "code": "success",
   "msg": "",
   "data": {
     "token": "..."
@@ -281,7 +281,7 @@
 
 ```json
 {
-  "code": 0,
+  "code": "success",
   "msg": "",
   "data": {
     "path": "/pv/...",
@@ -312,7 +312,7 @@
 
 ```json
 {
-  "code": 0,
+  "code": "success",
   "msg": "",
   "data": {
     "access_token": "...",

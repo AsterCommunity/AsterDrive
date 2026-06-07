@@ -91,7 +91,7 @@ Docker 里最省事的做法是挂卷：`-v /path/to/my-dist:/frontend-override:
 
 ```json
 {
-  "code": 0,
+  "code": "success",
   "msg": "",
   "data": {
     "entries": {

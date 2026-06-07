@@ -81,9 +81,11 @@ primary 侧 reverse tunnel 当前入口：
 - `supports_stream_upload`
 - `supports_capacity`
 
-当前协议版本是 `v3`，向后兼容 `v2`，最小支持版本仍是 `v2`。`v3` 在能力协商中声明 `supports_capacity`；兼容窗口内主节点仍可连接不支持容量观测的 `v2` follower。主节点在加载远端策略或刷新绑定时会做能力协商：
+当前协议版本是 `v4`，最小支持版本也是 `v4`。`v4` 和 `v2` / `v3` 不再 wire-compatible：内部存储 JSON 包装里的顶层 `code` 已经从旧数字码改成稳定字符串 `ApiErrorCode`。跨过这个边界时，先同时升级 primary 和 follower，再绑定 remote 策略。
 
-- `protocol_version` / `min_supported_protocol_version` 必须和本地支持区间有交集
+主节点在加载远端策略或刷新绑定时会做能力协商：
+
+- `protocol_version` / `min_supported_protocol_version` 必须和本地支持区间有交集，当前就是 `v4-v4`
 - 基础远端策略要求 `object_get`、`object_head`、`object_put`、`object_delete`、`metadata`、`range_get`、`accept_ranges_header`、`list`、`compose`
 - 如果远端策略启用浏览器预签名下载，`browser_cors` 必须声明允许 `range` 请求头，并暴露 `Accept-Ranges`、`Content-Range`、`Content-Length`
 - 如果远端策略启用浏览器预签名上传，`browser_cors` 必须声明允许 `content-type` 请求头，并暴露 `ETag`
@@ -96,7 +98,7 @@ primary 侧 reverse tunnel 当前入口：
 
 ```json
 {
-  "code": 0,
+  "code": "success",
   "msg": "",
   "data": {
     "capacity": {

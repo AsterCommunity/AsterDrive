@@ -44,7 +44,7 @@
 
 ```json
 {
-  "code": 0,
+  "code": "success",
   "msg": "",
   "data": {}
 }
@@ -52,7 +52,7 @@
 
 字段含义：
 
-- `code`：数字错误码，`0` 表示成功
+- `code`：稳定字符串 `ApiErrorCode`，`success` 表示成功
 - `msg`：错误消息；成功时通常为空
 - `data`：响应体；部分成功接口会省略
 
@@ -60,12 +60,9 @@
 
 ```json
 {
-  "code": 2003,
-  "msg": "untrusted request origin for cookie-authenticated action",
+  "code": "auth.credentials_failed",
+  "msg": "Invalid Credentials",
   "error": {
-    "code": "auth.request_origin_untrusted",
-    "internal_code": "E013",
-    "subcode": "auth.request_origin_untrusted",
     "retryable": false
   }
 }
@@ -73,23 +70,18 @@
 
 错误字段约定：
 
-- 顶层 `code` 是旧的稳定数字大类，用来区分认证、上传、存储、分享等分域。过渡期必须保留，方便旧客户端兼容。
-- `error.code` 是新的稳定字符串错误码，前端、SDK、脚本和第三方客户端都应该优先使用它做业务分支。
-- `error.internal_code` 是后端内部错误枚举码，给日志和排障用，不作为前端业务分支依据。
+- 顶层 `code` 是唯一公开稳定错误码，前端、SDK、脚本和第三方客户端都应该用它做业务分支。
+- `error` 对象只承载行为提示，目前只有 `retryable`。
 - `msg` 是诊断性 fallback 文本，不能作为 i18n key，也不要在客户端用字符串匹配判断业务原因。
-- `error.subcode` 是 0.3.0 前的兼容字段，只给旧客户端 fallback；新代码不要依赖它，也不要新增 `ApiSubcode` 作为公开契约。
-- 新增用户可见错误时，如果同一个数字 `code` / 内部 `internal_code` 会覆盖多个业务原因，必须新增或复用 `ApiErrorCode`，并同步前端 `ApiErrorCode` 常量、`useApiError` 映射和中英文 locale。
-- 辅助函数不要靠错误消息或 label 字符串反推错误码；调用点应显式携带对应 `ApiErrorCode`。过渡期内旧 `*_with_subcode` 兼容函数只允许迁移旧调用点，不要在新代码里继续扩散。
+- 新增用户可见错误时，必须新增或复用 `ApiErrorCode`，并同步前端 `ApiErrorCode` 常量、`useApiError` 映射和中英文 locale。
+- 辅助函数不要靠错误消息或 label 字符串反推错误码；调用点应显式携带对应 `ApiErrorCode`。
 
-### 错误码迁移约定
+### 错误码约定
 
-当前处于 `ApiSubcode` -> `ApiErrorCode` 的过渡期：
-
-- 后端响应必须写 `error.code: ApiErrorCode`。
-- `ApiErrorInfo.subcode` 已用 Rust `#[deprecated(since = "0.3.0")]` 标记，只为旧客户端保留。
-- 所有 subcode 编码、解析、`*_with_subcode` 构造器、`ApiErrorCode::from_subcode` 和远端节点 subcode 透传都必须带 `TODO(0.3.0)`。
-- OpenAPI 必须注册 `ApiErrorCode` 和 `ApiErrorInfo.code`，前端生成 SDK 后通过 `frontend-panel/src/types/api.ts` re-export，不要让业务代码直接依赖 `api.generated.ts`。
-- 0.3.0 清理时删除 `error.subcode` 对外暴露、删除 message 中编码 subcode 的兼容路径，并让客户端文案完全以 `ApiErrorCode` 为 key。
+- 后端响应必须写顶层 `code: ApiErrorCode`。
+- `ApiErrorInfo` 只能公开 `retryable`；不要在 `error` 下重新加入 `code`、`subcode`、`internal_code` 或 `api_code`。
+- OpenAPI 必须注册 `ApiErrorCode`，前端生成 SDK 后通过 `frontend-panel/src/types/api.ts` re-export，不要让业务代码直接依赖 `api.generated.ts`。
+- 客户端文案完全以顶层 `code` 为 key。
 
 新增错误时的判断顺序：
 
@@ -97,7 +89,6 @@
 2. 是否只是日志/排障细节？只更新 `AsterError` 或日志，不新增公开错误码。
 3. 是否需要客户端重试？优先设置 `retryable`，不要用新的错误码表达重试属性。
 4. 是否跨模块复用？wire value 必须带领域前缀，例如 `upload.*`、`auth.*`、`storage.*`。
-5. 是否只是兼容旧数字码或旧 subcode？只放在兼容桥，并标 `TODO(0.3.0)`。
 
 ## 不走统一 JSON 包装的接口
 
@@ -124,18 +115,6 @@
 - primary reverse tunnel WebSocket `/api/v1/internal/remote-tunnel/connect`
 
 公开前端启动配置、公开品牌配置、公开预览应用配置、公开缩略图能力、公开媒体数据能力和公开 enrollment 虽然不需要登录，但仍然是普通 `/api/v1/public/*` JSON 接口。
-
-## 错误码分域
-
-| 范围 | 含义 |
-| --- | --- |
-| `0` | 成功 |
-| `1000-1099` | 通用、数据库、配置、限流、邮件、冲突错误 |
-| `2000-2099` | 认证、授权、激活、联系方式验证错误 |
-| `3000-3099` | 文件、上传 session、分片、锁、缩略图、条件请求错误 |
-| `4000-4099` | 存储策略、配额、驱动、对象存储和存储后端细分错误 |
-| `5000-5099` | 文件夹错误 |
-| `6000-6099` | 分享错误 |
 
 ## 当前支持的认证方式
 

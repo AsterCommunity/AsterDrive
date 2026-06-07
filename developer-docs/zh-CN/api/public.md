@@ -25,7 +25,7 @@
 
 ```json
 {
-  "code": 0,
+  "code": "success",
   "msg": "",
   "data": {
     "title": "AsterDrive",
@@ -70,7 +70,7 @@
 
 ```json
 {
-  "code": 0,
+  "code": "success",
   "msg": "",
   "data": {
     "version": 1,
@@ -105,7 +105,7 @@
 
 ```json
 {
-  "code": 0,
+  "code": "success",
   "msg": "",
   "data": {
     "version": 2,
@@ -143,7 +143,7 @@
 
 ```json
 {
-  "code": 0,
+  "code": "success",
   "msg": "",
   "data": {
     "entries": {
@@ -174,7 +174,7 @@
 
 ```json
 {
-  "code": 0,
+  "code": "success",
   "msg": "",
   "data": {
     "version": 1,
@@ -214,7 +214,7 @@
 
 ```json
 {
-  "code": 0,
+  "code": "success",
   "msg": "",
   "data": {
     "version": 1,
@@ -268,7 +268,7 @@
 
 ```json
 {
-  "code": 0,
+  "code": "success",
   "msg": "",
   "data": {
     "remote_node_id": 7,
@@ -304,7 +304,7 @@
 
 ```json
 {
-  "code": 0,
+  "code": "success",
   "msg": ""
 }
 ```

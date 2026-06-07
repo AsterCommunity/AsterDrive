@@ -3,16 +3,12 @@
 This page helps you understand AsterDrive errors: which field to read first, what a user can retry, and where an administrator should investigate.
 
 Regular users do not need to memorize every code. In most cases, send the visible error, the time, and what you were doing to an administrator.
-If you are writing scripts, integrating with the API, or troubleshooting WebDAV / WOPI / remote nodes, read `error.code` first.
+If you are writing scripts, integrating with the API, or troubleshooting WebDAV / WOPI / remote nodes, read the top-level `code` first.
 
-::: warning 0.3.0 Error Code Migration
-Issue 211 moves the public error contract toward one source: `ApiErrorCode`, exposed as `error.code`.
+::: tip 0.3.0 Error Code Contract
+Issue 211 has converged the public error contract to one source: the top-level `code: ApiErrorCode`.
 
-During the transition, the backend keeps both the top-level numeric `code` and the compatibility field `error.subcode`, so old frontends, scripts, and third-party clients do not break immediately. New code should use `error.code` directly; `error.subcode` is only an old-client fallback.
-
-In 0.3.0, `error.subcode` will stop being exposed as a public API field, `ApiSubcode` will no longer be a source for new public error codes, and legacy subcode constructors plus message-encoded subcode parsing will be removed. Client copy and business logic will key only on `error.code`.
-
-The longer-term direction is for `ApiErrorCode` to replace the current top-level numeric `code`. Until that replacement is complete, treat the top-level numeric `code` only as an old-client compatibility layer or coarse category, not as the precise business reason.
+The old numeric error code, `error.code`, `error.subcode`, and `error.internal_code` are no longer exposed as public API response fields. Client copy and business logic should use the top-level `code` directly.
 :::
 
 ## Which Field To Read
@@ -21,12 +17,9 @@ A failed AsterDrive response usually looks like this:
 
 ```json
 {
-  "code": 2003,
-  "msg": "untrusted request origin for cookie-authenticated action",
+  "code": "auth.credentials_failed",
+  "msg": "Invalid Credentials",
   "error": {
-    "code": "auth.request_origin_untrusted",
-    "internal_code": "E013",
-    "subcode": "auth.request_origin_untrusted",
     "retryable": false
   }
 }
@@ -36,94 +29,32 @@ Field meanings:
 
 | Field | How to use it |
 | --- | --- |
-| `error.code` | **The new stable string error code**. Frontends, SDKs, scripts, and third-party clients should use this for business logic. |
+| `code` | **The stable string error code**. Frontends, SDKs, scripts, and third-party clients should use this for business logic. Successful responses use `success`. |
 | `error.retryable` | Whether automatic retry is suggested. `true` does not guarantee success; it only means the failure is likely temporary. |
-| Top-level `code` | The old numeric category code. It is still returned for compatibility and quick coarse grouping; it will eventually be replaced by `ApiErrorCode`. |
 | `msg` | A human-readable diagnostic message. Do not branch on it and do not use it as an i18n key. |
-| `error.internal_code` | Backend internal error-source code, mainly for logs and debugging. Normal clients should not depend on it. |
-| `error.subcode` | Compatibility field before 0.3.0. New code should not depend on it. |
 
 When reporting an issue or asking an administrator for help, include:
 
-1. `error.code`
-2. Top-level numeric `code`
-3. `msg`
-4. Time and operation that produced the error
+1. `code`
+2. `msg`
+3. Time and operation that produced the error
 
 Only pasting an English message makes the issue harder to locate.
 
-## Numeric Codes Are Categories
+## String Codes Use Domains
 
-The top-level numeric `code` is still useful, but it is now closer to an error category than the exact business reason. New clients should not treat it as the long-term primary decision field; the primary field will be `ApiErrorCode`.
+`code` uses stable snake/dot values. The part before the dot is usually the domain, and the part after the dot is the reason:
 
-| Range | Category | Common stable string codes |
-| --- | --- | --- |
-| `0` | Success | `success` |
-| `1xxx` | Common, server, mail, rate limits | `bad_request`, `not_found`, `database.error`, `mail.delivery_failed` |
-| `2xxx` | Login, sessions, permissions, MFA | `auth.credentials_failed`, `auth.token_expired`, `forbidden`, `auth.mfa_failed` |
-| `3xxx` | Files, uploads, thumbnails, locks | `file.not_found`, `upload.session_expired`, `thumbnail.failed`, `resource.locked` |
-| `4xxx` | Storage policies, drivers, quotas, remote storage | `storage.quota_exceeded`, `storage.auth_failed`, `storage.transient_failure` |
-| `5xxx` | Folders | `folder.not_found` |
-| `6xxx` | Shares | `share.expired`, `share.password_required` |
-
-Use the numeric range for direction, then use `error.code` for the actual handling.
-
-If your client only shows the numeric code, use this table to map it to the corresponding stable string code:
-
-| Numeric `code` | Corresponding `error.code` |
+| Domain | Common codes |
 | --- | --- |
-| `0` | `success` |
-| `1000` | `bad_request` |
-| `1001` | `not_found` |
-| `1002` | `internal_server_error` |
-| `1003` | `database.error` |
-| `1004` | `config.error` |
-| `1005` | `endpoint.not_found` |
-| `1006` | `rate_limited` |
-| `1007` | `mail.not_configured` |
-| `1008` | `mail.delivery_failed` |
-| `1009` | `conflict` |
-| `2000` | `auth.failed` |
-| `2001` | `auth.token_expired` |
-| `2002` | `auth.token_invalid` |
-| `2003` | `forbidden` |
-| `2004` | `auth.pending_activation` |
-| `2005` | `auth.contact_verification_invalid` |
-| `2006` | `auth.contact_verification_expired` |
-| `2007` | `auth.token_missing` |
-| `2008` | `auth.credentials_failed` |
-| `2009` | `auth.mfa_failed` |
-| `2010` | `auth.refresh_token_stale` |
-| `2011` | `auth.refresh_token_reuse_detected` |
-| `3000` | `file.not_found` |
-| `3001` | `file.too_large` |
-| `3002` | `file.type_not_allowed` |
-| `3003` | `file.upload_failed` |
-| `3004` | `upload.session_not_found` |
-| `3005` | `upload.session_expired` |
-| `3006` | `upload.chunk_failed` |
-| `3007` | `upload.assembly_failed` |
-| `3008` | `thumbnail.failed` |
-| `3009` | `resource.locked` |
-| `3010` | `precondition_failed` |
-| `3011` | `upload.assembling` |
-| `4000` | `storage.policy_not_found` |
-| `4001` | `storage.driver_error` |
-| `4002` | `storage.quota_exceeded` |
-| `4003` | `storage.unsupported_driver` |
-| `4004` | `storage.auth_failed` |
-| `4005` | `storage.permission_denied` |
-| `4006` | `storage.misconfigured` |
-| `4007` | `storage.object_not_found` |
-| `4008` | `storage.rate_limited` |
-| `4009` | `storage.transient_failure` |
-| `4010` | `storage.precondition_failed` |
-| `4011` | `storage.operation_unsupported` |
-| `5000` | `folder.not_found` |
-| `6000` | `share.not_found` |
-| `6001` | `share.expired` |
-| `6002` | `share.password_required` |
-| `6003` | `share.download_limit_reached` |
+| Common | `bad_request`, `not_found`, `internal_server_error`, `conflict` |
+| Login, sessions, permissions, MFA | `auth.credentials_failed`, `auth.token_expired`, `forbidden`, `auth.mfa_failed` |
+| Files, uploads, thumbnails, locks | `file.not_found`, `upload.session_expired`, `thumbnail.failed`, `resource.locked` |
+| Storage policies, drivers, quotas, remote storage | `storage.quota_exceeded`, `storage.auth_failed`, `storage.transient_failure` |
+| Folders | `folder.not_found` |
+| Shares | `share.expired`, `share.password_required` |
+
+When you see a new error, use the code domain for direction, then use the complete string for exact handling.
 
 ## Common Paths
 
@@ -140,7 +71,7 @@ If login fails, start here:
 - `auth.account_disabled`: the account is disabled. Regular users must contact an administrator.
 - `auth.registration_disabled`: public registration is disabled. Ask an administrator to create an account or enable registration.
 
-When password login, passkeys, external auth, and MFA overlap, still trust `error.code` first instead of a generic "login failed" message.
+When password login, passkeys, external auth, and MFA overlap, still trust `code` first instead of a generic "login failed" message.
 
 ### MFA And Passkeys
 
@@ -164,7 +95,7 @@ Use HTTPS in production. Many WebAuthn / passkey behaviors do not work as expect
 
 ### Permissions, Teams, And Workspaces
 
-Top-level `code = 2003` or `error.code = forbidden` only means "not allowed". The specific reason is in `error.code`:
+`code = "forbidden"` only means "not allowed". When an operation needs a more specific reason, the response returns a more specific string code:
 
 - `auth.admin_required`: administrator permission required.
 - `team.not_member`: current account is not a member of the team.
@@ -233,7 +164,7 @@ Users can retry once. If it repeats, administrators should check:
 
 ### Storage Policies, S3, And Remote Nodes
 
-Storage errors are usually not solved by clicking retry repeatedly. Administrators should handle them by `error.code`:
+Storage errors are usually not solved by clicking retry repeatedly. Administrators should handle them by `code`:
 
 - `storage.policy_not_found`: user, team, or policy group references a missing policy.
 - `storage.quota_exceeded`: user, team, or system quota is exhausted.
@@ -475,8 +406,7 @@ Regular users can report the problem like this:
 
 ```text
 At 2026-06-03 21:10, uploading test.zip failed.
-error.code: upload.assembly_failed
-code: 3007
+code: upload.assembly_failed
 msg: ...
 ```
 
@@ -487,4 +417,4 @@ Administrators can continue with:
 3. If storage metadata may not match underlying objects, run `doctor` from [Operations CLI](/en/deployment/ops-cli).
 4. If it is likely an AsterDrive bug, open a [GitHub Issue](https://github.com/AptS-1547/AsterDrive/issues) with reproduction steps and the error response.
 
-Error codes are the fastest entry point for diagnosis. Paste `error.code` first, not only the UI message.
+Error codes are the fastest entry point for diagnosis. Paste `code` first, not only the UI message.

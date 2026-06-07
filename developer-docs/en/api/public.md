@@ -25,7 +25,7 @@ Response:
 
 ```json
 {
-  "code": 0,
+  "code": "success",
   "msg": "",
   "data": {
     "title": "AsterDrive",
@@ -59,7 +59,7 @@ This endpoint is the current anonymous bootstrap entry for the frontend applicat
 
 ```json
 {
-  "code": 0,
+  "code": "success",
   "msg": "",
   "data": {
     "version": 1,
@@ -94,7 +94,7 @@ Returns the public preview-app registry:
 
 ```json
 {
-  "code": 0,
+  "code": "success",
   "msg": "",
   "data": {
     "version": 2,
@@ -130,7 +130,7 @@ This endpoint returns the custom configuration visible to the current request id
 
 ```json
 {
-  "code": 0,
+  "code": "success",
   "msg": "",
   "data": {
     "entries": {
@@ -161,7 +161,7 @@ Returns the server's public thumbnail-generation support:
 
 ```json
 {
-  "code": 0,
+  "code": "success",
   "msg": "",
   "data": {
     "version": 1,
@@ -201,7 +201,7 @@ Returns media metadata parsing support:
 
 ```json
 {
-  "code": 0,
+  "code": "success",
   "msg": "",
   "data": {
     "version": 1,
@@ -246,7 +246,7 @@ Response:
 
 ```json
 {
-  "code": 0,
+  "code": "success",
   "msg": "",
   "data": {
     "remote_node_id": 7,
@@ -276,7 +276,7 @@ Success response:
 
 ```json
 {
-  "code": 0,
+  "code": "success",
   "msg": ""
 }
 ```

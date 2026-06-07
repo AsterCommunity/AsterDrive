@@ -2,7 +2,7 @@
 
 ::: tip This page covers `[logging]`
 First decide where logs should go: stdout, journald, or a file. The other options are built around that choice.
-When troubleshooting, look at `error_code` first. It is faster than reading English error text. See [error handling](/en/guide/errors) for the error code reference.
+When troubleshooting, look at the API response `code` first. If runtime logs include a structured `error_code` field, keep it as well. See [error handling](/en/guide/errors) for the error code reference.
 :::
 
 ```toml

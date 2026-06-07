@@ -136,7 +136,7 @@
 
 ```json
 {
-  "code": 0,
+  "code": "success",
   "msg": "",
   "data": {
     "token": "st_xxxxx",

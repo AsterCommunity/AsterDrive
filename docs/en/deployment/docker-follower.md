@@ -198,7 +198,7 @@ Admin -> Follower Nodes
 
 Click "Test Connection". Direct nodes access `base_url`; reverse-tunnel nodes use the outbound channel maintained by the follower, which may need a few dozen seconds after startup before it becomes online. After the test passes, open the follower node details and create a **default receiving target**.
 
-When the connection test passes, the primary also reads the follower's internal storage protocol capabilities. The current internal protocol version is `v2`. If the capability summary says the protocol is incompatible, upgrade the primary or follower before creating remote policies.
+When the connection test passes, the primary also reads the follower's internal storage protocol capabilities. The current internal protocol version is `v4`, and the follower must support `v4`. If the capability summary says the protocol is incompatible, upgrade the primary or follower before creating remote policies.
 
 For the first receiving target, choose:
 

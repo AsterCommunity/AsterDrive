@@ -125,7 +125,7 @@ If the user has TOTP enabled, or email-code MFA is available for the verified em
 
 ```json
 {
-  "code": 0,
+  "code": "success",
   "msg": "",
   "data": {
     "status": "mfa_required",
@@ -166,7 +166,7 @@ Success:
 
 ```json
 {
-  "code": 0,
+  "code": "success",
   "msg": "",
   "data": {
     "expires_in": 300,
@@ -208,7 +208,7 @@ MFA self-management requires login. Persistent factors currently support TOTP. L
 
 ```json
 {
-  "code": 0,
+  "code": "success",
   "msg": "",
   "data": {
     "enabled": true,
@@ -235,7 +235,7 @@ On success, the server returns the factor and recovery codes:
 
 ```json
 {
-  "code": 0,
+  "code": "success",
   "msg": "",
   "data": {
     "factor": {

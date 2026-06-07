@@ -41,7 +41,7 @@ Most JSON APIs use the same wrapper:
 
 ```json
 {
-  "code": 0,
+  "code": "success",
   "msg": "",
   "data": {}
 }
@@ -49,7 +49,7 @@ Most JSON APIs use the same wrapper:
 
 Field meaning:
 
-- `code`: numeric error code, `0` means success
+- `code`: stable string `ApiErrorCode`; `success` means success
 - `msg`: human-readable fallback message
 - `data`: payload, omitted by some successful endpoints
 
@@ -57,28 +57,22 @@ Error responses also include an `error` object:
 
 ```json
 {
-  "code": 2003,
-  "msg": "untrusted request origin for cookie-authenticated action",
+  "code": "auth.credentials_failed",
+  "msg": "Invalid Credentials",
   "error": {
-    "code": "auth.request_origin_untrusted",
-    "internal_code": "E013",
-    "subcode": "auth.request_origin_untrusted",
     "retryable": false
   }
 }
 ```
 
-The important part is that the new stable string error code lives in `error.code`. The old numeric top-level `code` remains for compatibility during the transition.
+The public error contract has one stable code source: the top-level `code`. The nested `error` object only carries behavior hints such as `retryable`.
 
-## Error-code migration
+## Error-code rules
 
-The repository is currently moving from `ApiSubcode` to `ApiErrorCode`.
-
-- The backend response must write `error.code: ApiErrorCode`
-- `ApiErrorInfo.subcode` is deprecated and only kept for older clients
-- Compatibility shims that still mention subcodes must carry `TODO(0.3.0)`
-- OpenAPI should expose `ApiErrorCode` and `ApiErrorInfo.code`
-- New user-visible errors should prefer a stable `ApiErrorCode` instead of inventing string matches in the client
+- Backend responses must write top-level `code: ApiErrorCode`.
+- `ApiErrorInfo` must expose `retryable` only; do not reintroduce `code`, `subcode`, `internal_code`, or `api_code` under `error`.
+- New user-visible errors should add or reuse a stable `ApiErrorCode` instead of relying on message text.
+- Client copy and branching should use `code`, while `msg` remains a human-readable fallback.
 
 ## Non-JSON endpoints
 
@@ -103,18 +97,6 @@ The following responses are raw content instead of `ApiResponse`:
 - primary reverse-tunnel WebSocket `/api/v1/internal/remote-tunnel/connect`
 
 Public frontend bootstrap config, branding, preview-app configuration, thumbnail support, media-data support, and remote enrollment are unauthenticated, but they are still ordinary `/api/v1/public/*` JSON endpoints.
-
-## Error-code ranges
-
-| Range | Meaning |
-| --- | --- |
-| `0` | success |
-| `1000-1099` | general, database, config, rate-limit, mail, conflict |
-| `2000-2099` | authentication, authorization, activation, contact verification |
-| `3000-3099` | file, upload session, chunk, lock, thumbnail, conditional request |
-| `4000-4099` | storage policy, quota, driver, object storage, backend-specific errors |
-| `5000-5099` | folder errors |
-| `6000-6099` | sharing errors |
 
 ## Supported authentication modes
 

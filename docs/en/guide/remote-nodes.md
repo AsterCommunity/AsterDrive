@@ -18,7 +18,7 @@ AsterDrive's remote-node capability essentially lets **another AsterDrive instan
 - **Primary node**: handles login, frontend, admin console, shares, WebDAV, storage policies, and remote-node management
 - **Follower node**: only provides `/health`, `/health/ready`, and the internal remote storage protocol; it accepts object requests signed by the primary node, then writes objects to a follower local directory or S3 according to the **ingress target** pushed by the primary
 
-The current internal remote storage protocol version is `v2`. When the primary tests connectivity and binds remote policies, it reads capability information exposed by the follower, including protocol version range, server version, object read/write capabilities, Range capabilities, compose capabilities, metadata capabilities, and the CORS contract required for browser direct upload.
+The current internal remote storage protocol version is `v4`, and the current primary requires the follower to support `v4` as well. When the primary tests connectivity and binds remote policies, it reads capability information exposed by the follower, including protocol version range, server version, object read/write capabilities, Range capabilities, compose capabilities, metadata capabilities, and the CORS contract required for browser direct upload.
 
 By default, AsterDrive runs in `primary` mode.
 It becomes a follower node only after `[server].start_mode` is changed to `follower`.
@@ -234,7 +234,7 @@ One easy-to-misread detail:
 Before enroll, `/health/ready` returning `503` does not mean the service is broken.
 It is not ready before enrollment by design.
 
-After the connectivity test passes, the primary shows a capability summary in remote node details. At minimum, the protocol version must be compatible with the current primary before you continue creating a remote storage policy. The current primary requires followers to support at least internal protocol `v2`.
+After the connectivity test passes, the primary shows a capability summary in remote node details. At minimum, the protocol version must be compatible with the current primary before you continue creating a remote storage policy. The current primary requires followers to support internal protocol `v4`; `v2` / `v3` followers must be upgraded first.
 
 ## 6. Create an Ingress Target on the Primary
 

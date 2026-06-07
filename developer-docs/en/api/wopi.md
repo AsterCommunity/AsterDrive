@@ -26,7 +26,7 @@ Response is `WopiLaunchSession` inside the unified wrapper:
 
 ```json
 {
-  "code": 0,
+  "code": "success",
   "msg": "",
   "data": {
     "access_token": "...",

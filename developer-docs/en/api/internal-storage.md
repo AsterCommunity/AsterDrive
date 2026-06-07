@@ -81,7 +81,14 @@ Typical fields include:
 - `supports_stream_upload`
 - `supports_capacity`
 
-The current protocol version is `v3`, backward-compatible with `v2`. `v3` adds `supports_capacity` in capability negotiation. During the compatibility window, a primary can still connect to a `v2` follower that lacks capacity observation.
+The current protocol version is `v4`, and the minimum supported version is also `v4`. `v4` is not wire-compatible with `v2` or `v3`: internal storage JSON envelopes now use the stable string `ApiErrorCode` in the top-level `code` field instead of the old numeric code. Upgrade both primary and follower before binding remote policies across this boundary.
+
+During policy loading and binding refresh, the primary validates:
+
+- `protocol_version` / `min_supported_protocol_version` must overlap with the local supported range, currently `v4-v4`
+- Base remote policies require `object_get`, `object_head`, `object_put`, `object_delete`, `metadata`, `range_get`, `accept_ranges_header`, `list`, and `compose`
+- Browser presigned download requires `browser_cors` to allow the `range` request header and expose `Accept-Ranges`, `Content-Range`, and `Content-Length`
+- Browser presigned upload requires `browser_cors` to allow the `content-type` request header and expose `ETag`
 
 ## `GET /capacity`
 
@@ -89,7 +96,7 @@ Returns `StorageCapacityInfo` for the follower's current ingress driver:
 
 ```json
 {
-  "code": 0,
+  "code": "success",
   "msg": "",
   "data": {
     "capacity": {

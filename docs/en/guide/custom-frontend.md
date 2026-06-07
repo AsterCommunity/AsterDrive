@@ -91,7 +91,7 @@ Response example:
 
 ```json
 {
-  "code": 0,
+  "code": "success",
   "msg": "",
   "data": {
     "entries": {
