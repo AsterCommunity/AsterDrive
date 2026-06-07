@@ -2,6 +2,7 @@
 
 #[macro_use]
 mod common;
+use aster_drive::api::api_error_code::ApiErrorCode;
 use aster_drive::runtime::SharedRuntimeState;
 
 use actix_web::test;
@@ -1171,7 +1172,7 @@ async fn test_batch_empty_request() {
     assert_eq!(resp.status(), 400);
     let body: Value = test::read_body_json(resp).await;
     let code = body["code"].as_str().expect("error code should be string");
-    assert_ne!(code, "success");
+    assert_eq!(code, ApiErrorCode::BadRequest.as_str());
 }
 
 #[actix_web::test]
