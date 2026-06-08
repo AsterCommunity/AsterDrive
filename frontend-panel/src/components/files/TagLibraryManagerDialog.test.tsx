@@ -298,6 +298,9 @@ describe("TagLibraryManagerDialog", () => {
 		expect(
 			screen.getByText("tag_delete_confirm_desc:Alpha"),
 		).toBeInTheDocument();
+		expect(
+			screen.queryByText("tag_delete_confirm_desc:Beta"),
+		).not.toBeInTheDocument();
 
 		fireEvent.click(screen.getByRole("button", { name: "delete" }));
 

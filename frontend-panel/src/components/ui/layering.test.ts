@@ -1,9 +1,13 @@
 import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
+const TEST_DIR = dirname(fileURLToPath(import.meta.url));
+const PROJECT_ROOT = resolve(TEST_DIR, "../../..");
+
 function readProjectFile(path: string) {
-	return readFileSync(resolve(process.cwd(), path), "utf8");
+	return readFileSync(resolve(PROJECT_ROOT, path), "utf8");
 }
 
 function readZToken(css: string, token: string) {

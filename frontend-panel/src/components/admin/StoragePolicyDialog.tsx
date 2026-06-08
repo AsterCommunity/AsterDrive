@@ -192,12 +192,12 @@ function useStoragePolicyDialogContent({
 			? t("policy_wizard_bucket_required")
 			: null;
 	const createEndpointError =
-		isCreateMode &&
-		createStep === 1 &&
-		createStepTouched &&
-		isS3CompatibleDriver(form.driver_type) &&
-		!form.endpoint.trim()
-			? t("policy_wizard_endpoint_required")
+		isS3CompatibleDriver(form.driver_type) && !form.endpoint.trim()
+			? isCreateMode
+				? createStep === 1 && createStepTouched
+					? t("policy_wizard_endpoint_required")
+					: null
+				: t("policy_wizard_endpoint_required")
 			: endpointValidationMessage;
 	const createRemoteNodeError =
 		isCreateMode &&

@@ -277,6 +277,36 @@ describe("useStorageChangeEvents", () => {
 		expect(mockState.fileStore.navigateTo).not.toHaveBeenCalled();
 	});
 
+	it("handles sync.required without refreshing on subpath search routes", async () => {
+		window.history.replaceState(null, "", "/asterdrive/search?q=report");
+		const { useStorageChangeEvents } = await import(
+			"@/hooks/useStorageChangeEvents"
+		);
+
+		renderHook(() => useStorageChangeEvents());
+
+		await connectStorageEvents();
+
+		MockEventSource.instances[0]?.emit({
+			kind: "sync.required",
+			workspace: null,
+			file_ids: [],
+			folder_ids: [],
+			affected_parent_ids: [],
+			root_affected: false,
+			affects_quota: true,
+			storage_delta: null,
+			at: "2026-04-08T00:00:00Z",
+		});
+
+		await waitFor(() => {
+			expect(mockState.invalidateBlobUrl).toHaveBeenCalledWith();
+		});
+		expect(mockState.auth.refreshUser).toHaveBeenCalledTimes(1);
+		expect(mockState.teamStore.reload).toHaveBeenCalledWith(100);
+		expect(mockState.fileStore.navigateTo).not.toHaveBeenCalled();
+	});
+
 	it("ignores non-quota events from other workspaces", async () => {
 		mockState.workspace = { kind: "team", teamId: 9 };
 		const { useStorageChangeEvents } = await import(

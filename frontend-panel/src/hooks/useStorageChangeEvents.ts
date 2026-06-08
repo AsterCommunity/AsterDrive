@@ -70,10 +70,10 @@ function isVirtualFileBrowserRoute() {
 
 	const { pathname } = window.location;
 	return (
-		pathname === "/search" ||
-		/^\/teams\/\d+\/search$/.test(pathname) ||
-		/^\/category\/[^/]+$/.test(pathname) ||
-		/^\/teams\/\d+\/category\/[^/]+$/.test(pathname)
+		/(?:^|\/)search$/.test(pathname) ||
+		/(?:^|\/)teams\/\d+\/search$/.test(pathname) ||
+		/(?:^|\/)category\/[^/]+$/.test(pathname) ||
+		/(?:^|\/)teams\/\d+\/category\/[^/]+$/.test(pathname)
 	);
 }
 
