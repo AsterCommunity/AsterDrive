@@ -113,6 +113,57 @@ vi.mock("@/components/files/FileThumbnail", () => ({
 	),
 }));
 
+vi.mock("@/components/files/TagChips", () => ({
+	TagChips: ({
+		empty,
+		tags,
+	}: {
+		empty?: React.ReactNode;
+		tags?: Array<{ id: number; name: string }>;
+	}) =>
+		tags && tags.length > 0 ? (
+			<div>{tags.map((tag) => tag.name).join(",")}</div>
+		) : (
+			empty
+		),
+}));
+
+vi.mock("@/components/files/TagManagerDialog", () => ({
+	TagManagerDialog: ({
+		open,
+		target,
+	}: {
+		open: boolean;
+		target: { name?: string } | null;
+	}) =>
+		open ? (
+			<div data-testid="tag-manager-dialog">{target?.name ?? "no-target"}</div>
+		) : null,
+}));
+
+vi.mock("@/components/ui/button", () => ({
+	Button: ({
+		children,
+		disabled,
+		onClick,
+		type,
+		...props
+	}: React.ButtonHTMLAttributes<HTMLButtonElement>) => (
+		<button
+			{...props}
+			type={type ?? "button"}
+			disabled={disabled}
+			onClick={onClick}
+		>
+			{children}
+		</button>
+	),
+}));
+
+vi.mock("@/components/ui/icon", () => ({
+	Icon: ({ name }: { name: string }) => <span aria-hidden>{name}</span>,
+}));
+
 vi.mock("@/components/ui/dialog", () => ({
 	Dialog: ({ children, open }: { children: React.ReactNode; open: boolean }) =>
 		open ? <div data-testid="dialog">{children}</div> : null,
@@ -222,6 +273,36 @@ describe("FileInfoDialog", () => {
 		expect(mockState.getFolderInfo).not.toHaveBeenCalled();
 		expect(mockState.getMediaMetadata).not.toHaveBeenCalled();
 		expect(mockState.listFolder).not.toHaveBeenCalled();
+	});
+
+	it("shows tags and opens tag management for the active target", () => {
+		render(
+			<FileInfoDialog
+				open
+				onOpenChange={vi.fn()}
+				file={
+					{
+						blob_id: 88,
+						created_at: "2026-01-01T00:00:00Z",
+						id: 1,
+						is_locked: false,
+						mime_type: "text/markdown",
+						name: "notes.md",
+						size: 512,
+						storage_used: 1536,
+						tags: [{ id: 3, name: "Reviewed", color: "#2563eb" }],
+						updated_at: "2026-01-02T00:00:00Z",
+					} as never
+				}
+			/>,
+		);
+
+		expect(screen.getByText("Reviewed")).toBeInTheDocument();
+		fireEvent.click(screen.getByRole("button", { name: "tag_manage" }));
+
+		expect(screen.getByTestId("tag-manager-dialog")).toHaveTextContent(
+			"notes.md",
+		);
 	});
 
 	it("renders nothing when opened without a file or folder target", () => {

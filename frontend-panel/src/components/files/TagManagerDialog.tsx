@@ -73,11 +73,6 @@ function normalizeQuery(value: string) {
 	return value.trim().toLocaleLowerCase();
 }
 
-function tagMatches(tag: TagInfo, query: string) {
-	if (!query) return true;
-	return tag.name.toLocaleLowerCase().includes(query);
-}
-
 function canCreateTag(tags: TagInfo[], name: string) {
 	const normalized = normalizeQuery(name);
 	if (!normalized) return false;
@@ -122,14 +117,30 @@ export function TagManagerDialog({
 			return;
 		}
 
-		let cancelled = false;
-		setLoading(true);
 		setTagsTotal(0);
 		setEntityTags(target.mode === "entity" ? sortTags(target.initialTags) : []);
 		setBatchActions(new Map());
 		setQuery("");
+	}, [open, target]);
+
+	useEffect(() => {
+		if (!open || !target) {
+			return;
+		}
+
+		let cancelled = false;
+		const searchTerm = query.trim();
+		setLoading(true);
+		setTags([]);
+		setTagsTotal(0);
 		tagService
-			.listTags({ params: { limit: TAG_LIBRARY_LIMIT, offset: 0 } })
+			.listTags({
+				params: {
+					limit: TAG_LIBRARY_LIMIT,
+					offset: 0,
+					...(searchTerm ? { q: searchTerm } : {}),
+				},
+			})
 			.then((page) => {
 				if (!cancelled) {
 					setTags(sortTags(page.items));
@@ -146,7 +157,7 @@ export function TagManagerDialog({
 		return () => {
 			cancelled = true;
 		};
-	}, [open, target]);
+	}, [open, query, target]);
 
 	const hasMoreTags = tags.length < tagsTotal;
 	const normalizedQuery = normalizeQuery(query);
@@ -163,10 +174,7 @@ export function TagManagerDialog({
 			),
 		[target],
 	);
-	const filteredTags = useMemo(
-		() => tags.filter((tag) => tagMatches(tag, normalizedQuery)),
-		[normalizedQuery, tags],
-	);
+	const filteredTags = tags;
 	const pendingAddIds = useMemo(
 		() =>
 			new Set(
@@ -197,7 +205,7 @@ export function TagManagerDialog({
 		target?.mode === "entity" && !idsEqual(initialSelectedIds, selectedIds);
 	const batchChanged = target?.mode === "batch" && batchActions.size > 0;
 	const hasDraftChanges = entityChanged || batchChanged;
-	const canCreate = canCreateTag(tags, query);
+	const canCreate = !loading && canCreateTag(tags, query);
 	const createPreviewColor = tagColorFromName(query);
 	const saving = busyKey === "save";
 	const creating = busyKey === "create";
@@ -208,7 +216,11 @@ export function TagManagerDialog({
 		setLoadingMoreTags(true);
 		try {
 			const page = await tagService.listTags({
-				params: { limit: TAG_LIBRARY_LIMIT, offset: tags.length },
+				params: {
+					limit: TAG_LIBRARY_LIMIT,
+					offset: tags.length,
+					...(query.trim() ? { q: query.trim() } : {}),
+				},
 			});
 			setTags((current) => sortTags([...current, ...page.items]));
 			setTagsTotal(page.total);
@@ -217,7 +229,7 @@ export function TagManagerDialog({
 		} finally {
 			setLoadingMoreTags(false);
 		}
-	}, [hasMoreTags, loadingMoreTags, tags.length]);
+	}, [hasMoreTags, loadingMoreTags, query, tags.length]);
 
 	const toggleEntityTag = (tag: TagInfo) => {
 		if (target?.mode !== "entity") return;
@@ -246,9 +258,11 @@ export function TagManagerDialog({
 		const summary = toSummary(tag);
 		setTags((current) =>
 			sortTags(
-				current.map((currentTag) =>
-					currentTag.id === tag.id ? tag : currentTag,
-				),
+				current.some((currentTag) => currentTag.id === tag.id)
+					? current.map((currentTag) =>
+							currentTag.id === tag.id ? tag : currentTag,
+						)
+					: [...current, tag],
 			),
 		);
 		setEntityTags((current) =>
@@ -396,6 +410,7 @@ export function TagManagerDialog({
 									onChange={(event) => setQuery(event.target.value)}
 									placeholder={t("tag_search_placeholder")}
 									className="pl-8"
+									maxLength={64}
 									onKeyDown={(event) => {
 										if (event.key === "Enter" && canCreate) {
 											event.preventDefault();
@@ -651,7 +666,7 @@ export function TagManagerDialog({
 									</p>
 								)}
 
-								{!loading && !normalizedQuery && hasMoreTags ? (
+								{!loading && hasMoreTags ? (
 									<Button
 										type="button"
 										size="sm"

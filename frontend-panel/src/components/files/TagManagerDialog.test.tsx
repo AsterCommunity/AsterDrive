@@ -39,13 +39,42 @@ vi.mock("sonner", () => ({
 
 vi.mock("@/components/files/TagLibraryManagerDialog", () => ({
 	TagLibraryManagerDialog: ({
+		onTagDeleted,
+		onTagUpdated,
 		open,
 	}: {
 		open: boolean;
 		onOpenChange: (open: boolean) => void;
 		onTagDeleted?: (tagId: number) => void;
 		onTagUpdated?: (tag: TagInfo) => void;
-	}) => (open ? <div data-testid="tag-library-manager" /> : null),
+	}) =>
+		open ? (
+			<div data-testid="tag-library-manager">
+				<button
+					type="button"
+					onClick={() =>
+						onTagUpdated?.({
+							id: 1,
+							name: "Alpha Prime",
+							color: "#7c3aed",
+							usage_count: 2,
+							scope_type: "personal",
+							owner_user_id: 1,
+							team_id: null,
+							normalized_name: "alpha prime",
+							sort_order: 0,
+							created_at: "2026-06-08T00:00:00Z",
+							updated_at: "2026-06-08T00:00:00Z",
+						})
+					}
+				>
+					library-update-alpha
+				</button>
+				<button type="button" onClick={() => onTagDeleted?.(1)}>
+					library-delete-alpha
+				</button>
+			</div>
+		) : null,
 }));
 
 vi.mock("@/components/ui/button", () => ({
@@ -85,7 +114,7 @@ vi.mock("@/components/ui/dialog", () => ({
 }));
 
 vi.mock("@/components/ui/icon", () => ({
-	Icon: ({ name }: { name: string }) => <span>{name}</span>,
+	Icon: ({ name }: { name: string }) => <span aria-hidden>{name}</span>,
 }));
 
 vi.mock("@/components/ui/input", () => ({
@@ -155,7 +184,16 @@ describe("TagManagerDialog", () => {
 		mockState.batchAttachTag.mockResolvedValue(undefined);
 		mockState.batchDetachTag.mockResolvedValue(undefined);
 		mockState.createTag.mockResolvedValue(gamma);
-		mockState.listTags.mockResolvedValue({ items: [beta, alpha], total: 2 });
+		mockState.listTags.mockImplementation(
+			({ params }: { params: { q?: string } }) => {
+				const items = [beta, alpha].filter((item) =>
+					params.q
+						? item.name.toLowerCase().includes(params.q.trim().toLowerCase())
+						: true,
+				);
+				return Promise.resolve({ items, total: items.length });
+			},
+		);
 		mockState.replaceEntityTags.mockResolvedValue({ tags: [] });
 	});
 
@@ -221,7 +259,9 @@ describe("TagManagerDialog", () => {
 		fireEvent.change(screen.getByLabelText("tag_search_label"), {
 			target: { value: " Gamma " },
 		});
-		fireEvent.click(screen.getByRole("button", { name: /create:Gamma/ }));
+		fireEvent.click(
+			await screen.findByRole("button", { name: /create:Gamma/ }),
+		);
 		await waitFor(() => {
 			expect(mockState.createTag).toHaveBeenCalledWith({
 				name: "Gamma",
@@ -355,5 +395,62 @@ describe("TagManagerDialog", () => {
 			expect(mockState.handleApiError).toHaveBeenCalledWith(saveError);
 		});
 		expect(onOpenChange).not.toHaveBeenCalledWith(false);
+	});
+
+	it("syncs library edits and deletions into the entity draft", async () => {
+		render(
+			<TagManagerDialog
+				open
+				onOpenChange={vi.fn()}
+				target={{
+					mode: "entity",
+					entityType: "file",
+					entityId: 42,
+					initialTags: [summary(alpha)],
+					name: "report.pdf",
+				}}
+			/>,
+		);
+
+		await screen.findByText("Alpha");
+		fireEvent.click(screen.getByRole("button", { name: "tag_library_manage" }));
+		fireEvent.click(screen.getByText("library-update-alpha"));
+
+		await waitFor(() => {
+			expect(screen.getAllByText("Alpha Prime")).toHaveLength(2);
+		});
+		expect(screen.queryByText("Alpha")).not.toBeInTheDocument();
+
+		fireEvent.click(screen.getByText("library-delete-alpha"));
+
+		await waitFor(() => {
+			expect(screen.queryByText("Alpha Prime")).not.toBeInTheDocument();
+		});
+		expect(screen.getByText("tag_no_tags")).toBeInTheDocument();
+	});
+
+	it("removes deleted library tags from pending batch actions", async () => {
+		render(
+			<TagManagerDialog
+				open
+				onOpenChange={vi.fn()}
+				target={{
+					mode: "batch",
+					count: 2,
+					fileIds: [10],
+					folderIds: [20],
+				}}
+			/>,
+		);
+
+		await screen.findByText("Alpha");
+		fireEvent.click(screen.getByRole("button", { name: /Alpha/ }));
+		expect(await screen.findByText("draft:add=1:remove=0")).toBeInTheDocument();
+
+		fireEvent.click(screen.getByRole("button", { name: "tag_library_manage" }));
+		fireEvent.click(screen.getByText("library-delete-alpha"));
+
+		expect(await screen.findByText("tag_draft_empty")).toBeInTheDocument();
+		expect(screen.getByRole("button", { name: "save" })).toBeDisabled();
 	});
 });

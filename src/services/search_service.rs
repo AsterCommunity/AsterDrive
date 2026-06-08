@@ -6,7 +6,7 @@ use std::collections::HashSet;
 #[cfg(all(debug_assertions, feature = "openapi"))]
 use utoipa::{IntoParams, ToSchema};
 
-use crate::db::repository::search_repo;
+use crate::db::repository::search_repo::{self, TagSearchFilter, TagSearchMatch};
 use crate::errors::{AsterError, Result};
 use crate::runtime::SharedRuntimeState;
 use crate::services::{
@@ -209,30 +209,6 @@ fn parse_tag_ids(params: &SearchParams) -> Result<Vec<i64>> {
     Ok(ids)
 }
 
-fn tag_filter_entity_ids(rows: Vec<i64>, tag_ids: &[i64], tag_match: &str) -> Option<Vec<i64>> {
-    if tag_ids.is_empty() {
-        return None;
-    }
-    if tag_match == "all" {
-        let mut counts = std::collections::HashMap::<i64, usize>::new();
-        for id in rows {
-            *counts.entry(id).or_default() += 1;
-        }
-        let required = tag_ids.len();
-        Some(
-            counts
-                .into_iter()
-                .filter_map(|(id, count)| (count >= required).then_some(id))
-                .collect(),
-        )
-    } else {
-        let mut ids = rows;
-        ids.sort_unstable();
-        ids.dedup();
-        Some(ids)
-    }
-}
-
 fn normalize_file_filters(params: &SearchParams) -> Result<NormalizedFileFilters> {
     let category = params
         .category
@@ -329,29 +305,17 @@ pub(crate) async fn search_in_scope(
     let file_only_filters_present =
         file_filters.category.is_some() || !file_filters.extensions.is_empty();
     let include_folders = search_type != "file" && !file_only_filters_present;
-
-    let (file_tag_entity_ids, folder_tag_entity_ids) = if tag_ids.is_empty() {
-        (None, None)
-    } else {
-        let (file_rows, folder_rows) = tokio::try_join!(
-            tag_service::entity_ids_matching_tags(
-                state,
-                scope,
-                crate::types::EntityType::File,
-                &tag_ids
-            ),
-            tag_service::entity_ids_matching_tags(
-                state,
-                scope,
-                crate::types::EntityType::Folder,
-                &tag_ids
-            ),
-        )?;
-        (
-            tag_filter_entity_ids(file_rows, &tag_ids, tag_match),
-            tag_filter_entity_ids(folder_rows, &tag_ids, tag_match),
-        )
-    };
+    if !tag_ids.is_empty() {
+        tag_service::ensure_tags_readable_in_scope(state, scope, &tag_ids).await?;
+    }
+    let tag_filter = (!tag_ids.is_empty()).then_some(TagSearchFilter {
+        tag_ids: &tag_ids,
+        match_mode: if tag_match == "all" {
+            TagSearchMatch::All
+        } else {
+            TagSearchMatch::Any
+        },
+    });
 
     let (
         files,
@@ -380,7 +344,7 @@ pub(crate) async fn search_in_scope(
                             created_after,
                             created_before,
                             folder_id: params.folder_id,
-                            entity_ids: file_tag_entity_ids.as_deref(),
+                            tag_filter,
                             limit,
                             offset,
                         },
@@ -400,7 +364,7 @@ pub(crate) async fn search_in_scope(
                             created_after,
                             created_before,
                             parent_id: params.folder_id,
-                            entity_ids: folder_tag_entity_ids.as_deref(),
+                            tag_filter,
                             limit,
                             offset,
                         },
@@ -457,7 +421,7 @@ pub(crate) async fn search_in_scope(
                             created_after,
                             created_before,
                             folder_id: params.folder_id,
-                            entity_ids: file_tag_entity_ids.as_deref(),
+                            tag_filter,
                             limit,
                             offset,
                         },
@@ -477,7 +441,7 @@ pub(crate) async fn search_in_scope(
                             created_after,
                             created_before,
                             parent_id: params.folder_id,
-                            entity_ids: folder_tag_entity_ids.as_deref(),
+                            tag_filter,
                             limit,
                             offset,
                         },

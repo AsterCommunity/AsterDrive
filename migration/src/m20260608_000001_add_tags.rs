@@ -60,6 +60,13 @@ async fn create_tags(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
                 )
                 .col(crate::time::utc_date_time_column(manager, Tags::CreatedAt).not_null())
                 .col(crate::time::utc_date_time_column(manager, Tags::UpdatedAt).not_null())
+                .check((
+                    Alias::new("ck_tags_scope_owner"),
+                    Expr::cust(
+                        "(scope_type = 'personal' AND owner_user_id IS NOT NULL AND team_id IS NULL) OR \
+                         (scope_type = 'team' AND team_id IS NOT NULL AND owner_user_id IS NULL)",
+                    ),
+                ))
                 .foreign_key(
                     ForeignKey::create()
                         .name("fk_tags_owner_user_id")

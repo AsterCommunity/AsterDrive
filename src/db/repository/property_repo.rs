@@ -9,6 +9,8 @@ use crate::entities::entity_property::{self, Entity as EntityProperty};
 use crate::errors::{AsterError, Result};
 use crate::types::EntityType;
 
+const ENTITY_PROPERTY_BATCH_CHUNK_SIZE: usize = 500;
+
 /// 查询实体的所有属性
 pub async fn find_by_entity<C: ConnectionTrait>(
     db: &C,
@@ -130,6 +132,85 @@ pub async fn delete_prop<C: ConnectionTrait>(
         .exec(db)
         .await
         .map_err(AsterError::from)?;
+    Ok(())
+}
+
+/// 批量插入同一个属性到多个实体；已有属性保持不变。
+pub async fn insert_many_for_entities<C: ConnectionTrait>(
+    db: &C,
+    entity_type: EntityType,
+    entity_ids: &[i64],
+    namespace: &str,
+    name: &str,
+    value: Option<&str>,
+) -> Result<()> {
+    if entity_ids.is_empty() {
+        return Ok(());
+    }
+
+    let namespace = namespace.to_string();
+    let name = name.to_string();
+    let value = value.map(ToOwned::to_owned);
+
+    for chunk in entity_ids.chunks(ENTITY_PROPERTY_BATCH_CHUNK_SIZE) {
+        let models = chunk
+            .iter()
+            .map(|entity_id| entity_property::ActiveModel {
+                entity_type: Set(entity_type),
+                entity_id: Set(*entity_id),
+                namespace: Set(namespace.clone()),
+                name: Set(name.clone()),
+                value: Set(value.clone()),
+                ..Default::default()
+            })
+            .collect::<Vec<_>>();
+
+        match EntityProperty::insert_many(models)
+            .on_conflict_do_nothing_on([
+                entity_property::Column::EntityType,
+                entity_property::Column::EntityId,
+                entity_property::Column::Namespace,
+                entity_property::Column::Name,
+            ])
+            .exec(db)
+            .await
+            .map_err(AsterError::from)?
+        {
+            TryInsertResult::Inserted(_) | TryInsertResult::Conflicted => {}
+            TryInsertResult::Empty => {
+                return Err(AsterError::internal_error(
+                    "entity property batch insert produced empty insert result",
+                ));
+            }
+        }
+    }
+
+    Ok(())
+}
+
+/// 批量删除多个实体上的同一个属性。
+pub async fn delete_many_for_entities<C: ConnectionTrait>(
+    db: &C,
+    entity_type: EntityType,
+    entity_ids: &[i64],
+    namespace: &str,
+    name: &str,
+) -> Result<()> {
+    if entity_ids.is_empty() {
+        return Ok(());
+    }
+
+    for chunk in entity_ids.chunks(ENTITY_PROPERTY_BATCH_CHUNK_SIZE) {
+        EntityProperty::delete_many()
+            .filter(entity_property::Column::EntityType.eq(entity_type))
+            .filter(entity_property::Column::EntityId.is_in(chunk.iter().copied()))
+            .filter(entity_property::Column::Namespace.eq(namespace))
+            .filter(entity_property::Column::Name.eq(name))
+            .exec(db)
+            .await
+            .map_err(AsterError::from)?;
+    }
+
     Ok(())
 }
 

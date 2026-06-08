@@ -79,6 +79,22 @@ vi.mock("@/components/files/BatchTargetFolderDialog", () => ({
 		) : null,
 }));
 
+vi.mock("@/components/files/TagManagerDialog", () => ({
+	TagManagerDialog: ({
+		open,
+		target,
+	}: {
+		open: boolean;
+		onOpenChange: (open: boolean) => void;
+		target: { count?: number; fileIds?: number[]; folderIds?: number[] } | null;
+	}) =>
+		open ? (
+			<div data-testid="tag-manager-dialog">
+				{`tag-target:${target?.count}:${target?.fileIds?.join(",")}:${target?.folderIds?.join(",")}`}
+			</div>
+		) : null,
+}));
+
 vi.mock("@/hooks/useApiError", () => ({
 	handleApiError: (...args: unknown[]) => mockState.handleApiError(...args),
 }));
@@ -160,6 +176,9 @@ function Harness({
 					</button>
 					<button type="button" onClick={selectionToolbar.onCopy}>
 						copy-selected
+					</button>
+					<button type="button" onClick={selectionToolbar.onManageTags}>
+						manage-tags
 					</button>
 					{selectionToolbar.downloadAction ? (
 						<button
@@ -333,5 +352,20 @@ describe("useFileBrowserBatchActions", () => {
 		});
 		expect(mockState.clearSelection).toHaveBeenCalledTimes(1);
 		expect(mockState.refresh).toHaveBeenCalledTimes(1);
+	});
+
+	it("opens the batch tag manager for selected file and folder ids", () => {
+		mockState.selectedFileIds = new Set([1, 2]);
+		mockState.selectedFolderIds = new Set([5]);
+		mockStore.selectedFileIds = mockState.selectedFileIds;
+		mockStore.selectedFolderIds = mockState.selectedFolderIds;
+
+		render(<Harness />);
+
+		fireEvent.click(screen.getByText("manage-tags"));
+
+		expect(screen.getByTestId("tag-manager-dialog")).toHaveTextContent(
+			"tag-target:3:1,2:5",
+		);
 	});
 });

@@ -66,7 +66,7 @@ export function TagChip({
 					type="button"
 					className="-mr-0.5 flex size-3.5 shrink-0 items-center justify-center rounded-sm text-muted-foreground/75 transition-colors hover:bg-background/80 hover:text-foreground"
 					onClick={onRemove}
-					aria-label={removeLabel}
+					aria-label={removeLabel || "Remove tag"}
 				>
 					<Icon name="X" className="size-3" />
 				</button>
@@ -87,12 +87,13 @@ export function TagChips({
 	tags?: TagSummary[] | null;
 }) {
 	const renderedTags = tags ?? [];
+	const safeMaxVisible = Math.max(0, Math.floor(Number(maxVisible) || 0));
 
 	if (renderedTags.length === 0) {
 		return empty ?? null;
 	}
 
-	const visibleTags = renderedTags.slice(0, maxVisible);
+	const visibleTags = renderedTags.slice(0, safeMaxVisible);
 	const hiddenCount = renderedTags.length - visibleTags.length;
 
 	return (

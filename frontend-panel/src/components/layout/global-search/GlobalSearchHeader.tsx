@@ -166,6 +166,7 @@ export function GlobalSearchHeader({
 						variant="outline"
 						size="sm"
 						onClick={() => onTagMatchChange(tagMatch === "any" ? "all" : "any")}
+						aria-pressed={tagMatch === "any"}
 						className="shrink-0 rounded-full"
 					>
 						{tagMatch === "any"

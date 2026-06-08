@@ -10,6 +10,7 @@ pub const DEFAULT_TAG_LIMIT: u64 = 50;
 #[derive(Deserialize, Validate)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct CreateTagReq {
+    #[validate(length(max = 64, message = "tag name too long (max 64)"))]
     #[validate(custom(function = "validate_tag_name"))]
     pub name: String,
     #[validate(custom(function = "validate_tag_color"))]
@@ -19,6 +20,7 @@ pub struct CreateTagReq {
 #[derive(Deserialize, Validate)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct PatchTagReq {
+    #[validate(length(max = 64, message = "tag name too long (max 64)"))]
     #[validate(custom(function = "validate_tag_name"))]
     pub name: Option<String>,
     #[validate(custom(function = "validate_tag_color"))]

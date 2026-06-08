@@ -2,7 +2,12 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { GlobalSearchDialog } from "@/components/layout/GlobalSearchDialog";
-import type { FileCategory, FileListItem, FolderListItem } from "@/types/api";
+import type {
+	FileCategory,
+	FileListItem,
+	FolderListItem,
+	TagInfo,
+} from "@/types/api";
 
 const mockState = vi.hoisted(() => ({
 	getFile: vi.fn(),
@@ -84,6 +89,46 @@ vi.mock("@/components/files/FileThumbnail", () => ({
 	FileThumbnail: () => <span data-testid="file-thumbnail">thumb</span>,
 }));
 
+vi.mock("@/components/files/TagLibraryManagerDialog", () => ({
+	TagLibraryManagerDialog: ({
+		onTagDeleted,
+		onTagUpdated,
+		open,
+	}: {
+		open: boolean;
+		onOpenChange: (open: boolean) => void;
+		onTagDeleted?: (tagId: number) => void;
+		onTagUpdated?: (tag: TagInfo) => void;
+	}) =>
+		open ? (
+			<div data-testid="tag-library-manager">
+				<button
+					type="button"
+					onClick={() =>
+						onTagUpdated?.({
+							id: 1,
+							name: "Alpha Prime",
+							color: "#7c3aed",
+							usage_count: 2,
+							scope_type: "personal",
+							owner_user_id: 1,
+							team_id: null,
+							normalized_name: "alpha prime",
+							sort_order: 0,
+							created_at: "2026-06-08T00:00:00Z",
+							updated_at: "2026-06-08T00:00:00Z",
+						})
+					}
+				>
+					library-update-alpha
+				</button>
+				<button type="button" onClick={() => onTagDeleted?.(2)}>
+					library-delete-beta
+				</button>
+			</div>
+		) : null,
+}));
+
 function waitForSearchDebounce() {
 	return new Promise((resolve) => window.setTimeout(resolve, 220));
 }
@@ -105,6 +150,22 @@ function fileItem(
 		size: 2048,
 		updated_at: "2026-04-15T12:00:00Z",
 		...overrides,
+	};
+}
+
+function tag(id: number, name: string, color = "#2563eb"): TagInfo {
+	return {
+		id,
+		name,
+		color,
+		usage_count: 0,
+		scope_type: "personal",
+		owner_user_id: 1,
+		team_id: null,
+		normalized_name: name.trim().toLowerCase(),
+		sort_order: 0,
+		created_at: "2026-06-08T00:00:00Z",
+		updated_at: "2026-06-08T00:00:00Z",
 	};
 }
 
@@ -456,6 +517,86 @@ describe("GlobalSearchDialog", () => {
 			);
 		});
 		expect(await screen.findByText("cover-2.jpg")).toBeInTheDocument();
+	});
+
+	it("searches with tag filters and syncs tag library updates", async () => {
+		mockState.listTags.mockResolvedValueOnce({
+			items: [tag(1, "Alpha"), tag(2, "Beta", "#16a34a")],
+			limit: 100,
+			offset: 0,
+			total: 2,
+		});
+		mockState.search.mockResolvedValue({
+			files: [],
+			folders: [],
+			total_files: 0,
+			total_folders: 0,
+		});
+
+		render(<GlobalSearchDialog open onOpenChange={vi.fn()} />);
+
+		expect(
+			await screen.findByRole("button", { name: /Alpha/ }),
+		).toBeInTheDocument();
+		fireEvent.click(screen.getByRole("button", { name: /Alpha/ }));
+		await waitForSearchDebounce();
+
+		await waitFor(() => {
+			expect(mockState.search).toHaveBeenLastCalledWith(
+				{
+					type: "all",
+					tag_ids: "1",
+					tag_match: "any",
+					limit: 10,
+				},
+				{ signal: expect.any(AbortSignal) },
+			);
+		});
+
+		fireEvent.click(screen.getByRole("button", { name: /Beta/ }));
+		await waitForSearchDebounce();
+		fireEvent.click(
+			screen.getByRole("button", { name: "search:tag_match_any" }),
+		);
+		await waitForSearchDebounce();
+
+		await waitFor(() => {
+			expect(mockState.search).toHaveBeenLastCalledWith(
+				{
+					type: "all",
+					tag_ids: "1,2",
+					tag_match: "all",
+					limit: 10,
+				},
+				{ signal: expect.any(AbortSignal) },
+			);
+		});
+
+		fireEvent.click(
+			screen.getByRole("button", { name: /files:tag_library_manage/ }),
+		);
+		fireEvent.click(screen.getByText("library-update-alpha"));
+		expect(
+			screen.getByRole("button", { name: /Alpha Prime/ }),
+		).toBeInTheDocument();
+
+		fireEvent.click(screen.getByText("library-delete-beta"));
+		await waitForSearchDebounce();
+
+		expect(
+			screen.queryByRole("button", { name: /Beta/ }),
+		).not.toBeInTheDocument();
+		await waitFor(() => {
+			expect(mockState.search).toHaveBeenLastCalledWith(
+				{
+					type: "all",
+					tag_ids: "1",
+					tag_match: "all",
+					limit: 10,
+				},
+				{ signal: expect.any(AbortSignal) },
+			);
+		});
 	});
 
 	it("applies an initial category preset when opened from quick views", async () => {

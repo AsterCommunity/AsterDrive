@@ -232,6 +232,55 @@ describe("TagLibraryManagerDialog", () => {
 		expect(mockState.patchTag).not.toHaveBeenCalled();
 	});
 
+	it("saves edits with Enter and cancels delete confirmation", async () => {
+		render(<TagLibraryManagerDialog open onOpenChange={vi.fn()} />);
+
+		await screen.findByText("Alpha");
+		fireEvent.click(screen.getAllByRole("button", { name: "tag_edit" })[0]);
+		fireEvent.change(screen.getByLabelText("tag_name"), {
+			target: { value: "Alpha Prime" },
+		});
+		fireEvent.keyDown(screen.getByLabelText("tag_name"), { key: "Enter" });
+
+		await waitFor(() => {
+			expect(mockState.patchTag).toHaveBeenCalledWith(1, {
+				name: "Alpha Prime",
+			});
+		});
+
+		fireEvent.click(screen.getAllByRole("button", { name: "tag_delete" })[0]);
+		expect(
+			screen.getByText("tag_delete_confirm_desc:Alpha Prime"),
+		).toBeInTheDocument();
+		fireEvent.click(screen.getByRole("button", { name: "cancel" }));
+
+		expect(
+			screen.queryByText("tag_delete_confirm_desc:Alpha Prime"),
+		).not.toBeInTheDocument();
+		expect(mockState.deleteTag).not.toHaveBeenCalled();
+	});
+
+	it("renders empty states for an empty library and empty searches", async () => {
+		mockState.listTags
+			.mockResolvedValueOnce({ items: [], total: 0 })
+			.mockResolvedValueOnce({ items: [], total: 0 });
+
+		render(<TagLibraryManagerDialog open onOpenChange={vi.fn()} />);
+
+		expect(await screen.findByText("tag_library_empty")).toBeInTheDocument();
+
+		fireEvent.change(screen.getByLabelText("tag_search_label"), {
+			target: { value: "missing" },
+		});
+
+		await waitFor(() => {
+			expect(mockState.listTags).toHaveBeenNthCalledWith(2, {
+				params: { limit: 50, offset: 0, q: "missing" },
+			});
+		});
+		expect(await screen.findByText("tag_search_empty")).toBeInTheDocument();
+	});
+
 	it("confirms deletion and updates local state", async () => {
 		const onTagDeleted = vi.fn();
 

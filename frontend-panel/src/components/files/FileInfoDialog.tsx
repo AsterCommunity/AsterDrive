@@ -1,11 +1,4 @@
-import {
-	type Dispatch,
-	type ReactNode,
-	type SetStateAction,
-	useEffect,
-	useMemo,
-	useState,
-} from "react";
+import { type ReactNode, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { TagChips } from "@/components/files/TagChips";
 import {
@@ -263,7 +256,7 @@ function TagsSection({
 	title: string;
 }) {
 	const { t } = useTranslation(["files"]);
-	const [tags, setTags] = useMemoState(initialTags);
+	const [tags, setTags] = useState(initialTags);
 	const [managerOpen, setManagerOpen] = useState(false);
 	const target = useMemo<TagManagerTarget>(
 		() => ({
@@ -274,7 +267,7 @@ function TagsSection({
 			name,
 			onTagsChange: setTags,
 		}),
-		[entityId, entityType, name, setTags, tags],
+		[entityId, entityType, name, tags],
 	);
 
 	return (
@@ -307,14 +300,6 @@ function TagsSection({
 			/>
 		</section>
 	);
-}
-
-function useMemoState<T>(value: T): [T, Dispatch<SetStateAction<T>>] {
-	const [state, setState] = useState(value);
-	useEffect(() => {
-		setState(value);
-	}, [value]);
-	return [state, setState];
 }
 
 export function FileInfoDialog({

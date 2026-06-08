@@ -215,9 +215,11 @@ export function GlobalSearchDialog({
 
 	const handleLibraryTagUpdated = (tag: TagInfo) => {
 		setTags((current) =>
-			current.map((currentTag) =>
-				currentTag.id === tag.id ? tag : currentTag,
-			),
+			current.some((currentTag) => currentTag.id === tag.id)
+				? current.map((currentTag) =>
+						currentTag.id === tag.id ? tag : currentTag,
+					)
+				: [...current, tag],
 		);
 	};
 

@@ -224,7 +224,7 @@ describe("FileBrowserToolbar", () => {
 				onClearSelection: selectionHandlers.onClearSelection,
 				onCopy: selectionHandlers.onCopy,
 				onDelete: selectionHandlers.onDelete,
-				onManageTags: vi.fn(),
+				onManageTags: selectionHandlers.onManageTags,
 				onMove: selectionHandlers.onMove,
 				onToggleDisplayedSelection:
 					selectionHandlers.onToggleDisplayedSelection,
@@ -241,6 +241,7 @@ describe("FileBrowserToolbar", () => {
 		fireEvent.click(screen.getAllByText("selection_select_all_visible")[0]);
 		fireEvent.click(screen.getByRole("button", { name: "move_to" }));
 		fireEvent.click(screen.getAllByText("copy_to")[0]);
+		fireEvent.click(screen.getAllByText("tag_manage")[0]);
 		fireEvent.click(screen.getAllByText("tasks:archive_download_action")[0]);
 		fireEvent.click(screen.getByText("tasks:archive_compress_action"));
 		fireEvent.click(screen.getByText("core:delete"));
@@ -251,6 +252,7 @@ describe("FileBrowserToolbar", () => {
 		);
 		expect(selectionHandlers.onMove).toHaveBeenCalledTimes(1);
 		expect(selectionHandlers.onCopy).toHaveBeenCalledTimes(1);
+		expect(selectionHandlers.onManageTags).toHaveBeenCalledTimes(1);
 		expect(selectionHandlers.onDownload).toHaveBeenCalledTimes(1);
 		expect(selectionHandlers.onArchiveCompress).toHaveBeenCalledTimes(1);
 		expect(selectionHandlers.onDelete).toHaveBeenCalledTimes(1);
@@ -258,6 +260,7 @@ describe("FileBrowserToolbar", () => {
 
 	it("labels the selection download action as a regular download for a single file", () => {
 		const onDownload = vi.fn();
+		const onManageTags = vi.fn();
 
 		renderToolbar({
 			selectionToolbar: {
@@ -271,15 +274,17 @@ describe("FileBrowserToolbar", () => {
 				onClearSelection: vi.fn(),
 				onCopy: vi.fn(),
 				onDelete: vi.fn(),
-				onManageTags: vi.fn(),
+				onManageTags,
 				onMove: vi.fn(),
 				onToggleDisplayedSelection: vi.fn(),
 			},
 		});
 
 		fireEvent.click(screen.getAllByText("download")[0]);
+		fireEvent.click(screen.getAllByText("tag_manage")[0]);
 
 		expect(onDownload).toHaveBeenCalledTimes(1);
+		expect(onManageTags).toHaveBeenCalledTimes(1);
 		expect(
 			screen.queryByText("tasks:archive_download_action"),
 		).not.toBeInTheDocument();

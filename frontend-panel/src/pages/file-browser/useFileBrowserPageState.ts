@@ -28,6 +28,11 @@ import type {
 	FolderListItem,
 } from "@/types/api";
 
+const ENTITY_TYPE_BY_TARGET = {
+	file: "file",
+	folder: "folder",
+} satisfies Record<"file" | "folder", EntityType>;
+
 interface FileBrowserLocationState {
 	searchPreviewFile?: FileListItem;
 }
@@ -261,7 +266,7 @@ export function useFileBrowserPageState({
 			setTagManagerTarget({
 				mode: "entity",
 				entityId: item.id,
-				entityType: type as EntityType,
+				entityType: ENTITY_TYPE_BY_TARGET[type],
 				initialTags: item.tags ?? [],
 				name: item.name,
 				onChanged: refresh,

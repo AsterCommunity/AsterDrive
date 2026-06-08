@@ -6,7 +6,7 @@ use std::collections::{HashMap, HashSet};
 use utoipa::ToSchema;
 
 use crate::api::pagination::{MAX_PAGE_SIZE, OffsetPage, load_offset_page};
-use crate::db::repository::{property_repo, tag_repo};
+use crate::db::repository::{file_repo, folder_repo, property_repo, tag_repo};
 use crate::entities::tag;
 use crate::errors::{AsterError, Result};
 use crate::runtime::SharedRuntimeState;
@@ -18,6 +18,7 @@ use crate::types::{EntityType, TagScopeType};
 
 pub const TAG_PROPERTY_NAMESPACE: &str = "system.tags";
 const MAX_TAGS_PER_ENTITY: usize = 64;
+const BATCH_ENTITY_VERIFY_CHUNK_SIZE: usize = 500;
 
 #[derive(Debug, Clone, Serialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
@@ -479,30 +480,29 @@ pub(crate) async fn batch_attach_in_scope(
     folder_ids: &[i64],
 ) -> Result<()> {
     load_tag_for_write_scope(state, scope, tag_id).await?;
-    verify_entities_for_batch_write(state, scope, file_ids, folder_ids).await?;
+    let file_ids = unique_entity_ids(file_ids);
+    let folder_ids = unique_entity_ids(folder_ids);
+    verify_entities_for_batch_write(state, scope, &file_ids, &folder_ids).await?;
+    let tag_id = tag_id.to_string();
     crate::db::transaction::with_transaction(state.writer_db(), async |txn| {
-        for file_id in file_ids {
-            property_repo::upsert(
-                txn,
-                EntityType::File,
-                *file_id,
-                TAG_PROPERTY_NAMESPACE,
-                &tag_id.to_string(),
-                None,
-            )
-            .await?;
-        }
-        for folder_id in folder_ids {
-            property_repo::upsert(
-                txn,
-                EntityType::Folder,
-                *folder_id,
-                TAG_PROPERTY_NAMESPACE,
-                &tag_id.to_string(),
-                None,
-            )
-            .await?;
-        }
+        property_repo::insert_many_for_entities(
+            txn,
+            EntityType::File,
+            &file_ids,
+            TAG_PROPERTY_NAMESPACE,
+            &tag_id,
+            None,
+        )
+        .await?;
+        property_repo::insert_many_for_entities(
+            txn,
+            EntityType::Folder,
+            &folder_ids,
+            TAG_PROPERTY_NAMESPACE,
+            &tag_id,
+            None,
+        )
+        .await?;
         Ok(())
     })
     .await
@@ -516,28 +516,27 @@ pub(crate) async fn batch_detach_in_scope(
     folder_ids: &[i64],
 ) -> Result<()> {
     load_tag_for_write_scope(state, scope, tag_id).await?;
-    verify_entities_for_batch_write(state, scope, file_ids, folder_ids).await?;
+    let file_ids = unique_entity_ids(file_ids);
+    let folder_ids = unique_entity_ids(folder_ids);
+    verify_entities_for_batch_write(state, scope, &file_ids, &folder_ids).await?;
+    let tag_id = tag_id.to_string();
     crate::db::transaction::with_transaction(state.writer_db(), async |txn| {
-        for file_id in file_ids {
-            property_repo::delete_prop(
-                txn,
-                EntityType::File,
-                *file_id,
-                TAG_PROPERTY_NAMESPACE,
-                &tag_id.to_string(),
-            )
-            .await?;
-        }
-        for folder_id in folder_ids {
-            property_repo::delete_prop(
-                txn,
-                EntityType::Folder,
-                *folder_id,
-                TAG_PROPERTY_NAMESPACE,
-                &tag_id.to_string(),
-            )
-            .await?;
-        }
+        property_repo::delete_many_for_entities(
+            txn,
+            EntityType::File,
+            &file_ids,
+            TAG_PROPERTY_NAMESPACE,
+            &tag_id,
+        )
+        .await?;
+        property_repo::delete_many_for_entities(
+            txn,
+            EntityType::Folder,
+            &folder_ids,
+            TAG_PROPERTY_NAMESPACE,
+            &tag_id,
+        )
+        .await?;
         Ok(())
     })
     .await
@@ -564,6 +563,11 @@ fn unique_ids(ids: &[i64]) -> Result<Vec<i64>> {
     Ok(unique)
 }
 
+fn unique_entity_ids(ids: &[i64]) -> Vec<i64> {
+    let mut seen = HashSet::with_capacity(ids.len());
+    ids.iter().copied().filter(|id| seen.insert(*id)).collect()
+}
+
 async fn ensure_tags_belong_to_scope(
     state: &impl SharedRuntimeState,
     scope: WorkspaceStorageScope,
@@ -586,6 +590,69 @@ async fn ensure_tags_belong_to_scope(
     Ok(())
 }
 
+pub(crate) async fn ensure_tags_readable_in_scope(
+    state: &impl SharedRuntimeState,
+    scope: WorkspaceStorageScope,
+    tag_ids: &[i64],
+) -> Result<()> {
+    require_scope_access(state, scope).await?;
+    ensure_tags_belong_to_scope(state, scope, tag_ids).await
+}
+
+async fn verify_files_for_batch_write(
+    state: &impl SharedRuntimeState,
+    scope: WorkspaceStorageScope,
+    file_ids: &[i64],
+) -> Result<()> {
+    if file_ids.is_empty() {
+        return Ok(());
+    }
+
+    for chunk in file_ids.chunks(BATCH_ENTITY_VERIFY_CHUNK_SIZE) {
+        let files = match scope {
+            WorkspaceStorageScope::Personal { user_id } => {
+                file_repo::find_by_ids_in_personal_scope(state.reader_db(), user_id, chunk).await?
+            }
+            WorkspaceStorageScope::Team { team_id, .. } => {
+                file_repo::find_by_ids_in_team_scope(state.reader_db(), team_id, chunk).await?
+            }
+        };
+        if files.len() != chunk.len() || files.iter().any(|file| file.deleted_at.is_some()) {
+            return Err(AsterError::file_not_found("file not found"));
+        }
+    }
+
+    Ok(())
+}
+
+async fn verify_folders_for_batch_write(
+    state: &impl SharedRuntimeState,
+    scope: WorkspaceStorageScope,
+    folder_ids: &[i64],
+) -> Result<()> {
+    if folder_ids.is_empty() {
+        return Ok(());
+    }
+
+    for chunk in folder_ids.chunks(BATCH_ENTITY_VERIFY_CHUNK_SIZE) {
+        let folders = match scope {
+            WorkspaceStorageScope::Personal { user_id } => {
+                folder_repo::find_by_ids_in_personal_scope(state.reader_db(), user_id, chunk)
+                    .await?
+            }
+            WorkspaceStorageScope::Team { team_id, .. } => {
+                folder_repo::find_by_ids_in_team_scope(state.reader_db(), team_id, chunk).await?
+            }
+        };
+        if folders.len() != chunk.len() || folders.iter().any(|folder| folder.deleted_at.is_some())
+        {
+            return Err(AsterError::record_not_found("folder not found"));
+        }
+    }
+
+    Ok(())
+}
+
 async fn verify_entities_for_batch_write(
     state: &impl SharedRuntimeState,
     scope: WorkspaceStorageScope,
@@ -593,12 +660,8 @@ async fn verify_entities_for_batch_write(
     folder_ids: &[i64],
 ) -> Result<()> {
     require_write_access(state, scope).await?;
-    for file_id in file_ids {
-        verify_file_access_for_read(state, scope, *file_id).await?;
-    }
-    for folder_id in folder_ids {
-        verify_folder_access_for_read(state, scope, *folder_id).await?;
-    }
+    verify_files_for_batch_write(state, scope, file_ids).await?;
+    verify_folders_for_batch_write(state, scope, folder_ids).await?;
     Ok(())
 }
 
@@ -649,21 +712,4 @@ pub(crate) async fn load_entity_tag_map(
         tags.sort_by(|a, b| a.name.cmp(&b.name).then_with(|| a.id.cmp(&b.id)));
     }
     Ok(map)
-}
-
-pub(crate) async fn entity_ids_matching_tags(
-    state: &impl SharedRuntimeState,
-    scope: WorkspaceStorageScope,
-    entity_type: EntityType,
-    tag_ids: &[i64],
-) -> Result<Vec<i64>> {
-    require_scope_access(state, scope).await?;
-    ensure_tags_belong_to_scope(state, scope, tag_ids).await?;
-    property_repo::find_entity_ids_by_tag_ids(
-        state.reader_db(),
-        TAG_PROPERTY_NAMESPACE,
-        entity_type,
-        tag_ids,
-    )
-    .await
 }
