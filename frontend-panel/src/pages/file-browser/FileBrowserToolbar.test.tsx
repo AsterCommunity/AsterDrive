@@ -237,6 +237,16 @@ describe("FileBrowserToolbar", () => {
 			screen.getByTestId("file-browser-mobile-selection-toolbar"),
 		).toBeInTheDocument();
 		expect(
+			screen.getByTestId("file-browser-selection-toolbar").closest(".absolute"),
+		).toHaveClass("top-0", "hidden", "bg-card", "sm:block");
+		expect(screen.getByTestId("file-browser-default-toolbar")).toHaveAttribute(
+			"aria-hidden",
+			"true",
+		);
+		expect(screen.getByTestId("file-browser-default-toolbar")).toHaveAttribute(
+			"inert",
+		);
+		expect(
 			screen.getAllByRole("button", { name: "selection_more_actions" }),
 		).toHaveLength(2);
 
@@ -383,6 +393,12 @@ describe("FileBrowserToolbar", () => {
 			expect(
 				screen.getByTestId("file-browser-selection-toolbar"),
 			).toHaveAttribute("aria-hidden", "true");
+			expect(
+				screen.getByTestId("file-browser-default-toolbar"),
+			).toHaveAttribute("aria-hidden", "false");
+			expect(
+				screen.getByTestId("file-browser-default-toolbar"),
+			).not.toHaveAttribute("inert");
 
 			act(() => {
 				vi.advanceTimersByTime(119);

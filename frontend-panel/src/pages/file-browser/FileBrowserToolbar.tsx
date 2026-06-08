@@ -271,7 +271,13 @@ function FileBrowserSelectionToolbar({
 
 	return (
 		<>
-			<div className="hidden sm:block">
+			<div
+				{...selectionToolbarHiddenProps}
+				className={cn(
+					"absolute inset-x-0 top-0 z-10 hidden bg-card sm:block",
+					selectionToolbarContentClass,
+				)}
+			>
 				<ToolbarBar
 					left={
 						<div
@@ -279,7 +285,6 @@ function FileBrowserSelectionToolbar({
 							{...selectionToolbarHiddenProps}
 							className={cn(
 								"flex min-w-0 flex-1 items-center gap-1.5 sm:gap-2",
-								selectionToolbarContentClass,
 							)}
 						>
 							<Button
@@ -313,10 +318,7 @@ function FileBrowserSelectionToolbar({
 					right={
 						<div
 							{...selectionToolbarHiddenProps}
-							className={cn(
-								"flex items-center gap-1 sm:gap-2",
-								selectionToolbarContentClass,
-							)}
+							className={cn("flex items-center gap-1 sm:gap-2")}
 						>
 							{renderedSelectionToolbar.downloadAction ? (
 								<Button
@@ -569,6 +571,12 @@ export function FileBrowserToolbar({
 		"aria-hidden": isSelectionToolbarExiting,
 		inert: isSelectionToolbarExiting ? (true as const) : undefined,
 	};
+	const shouldHideDefaultToolbar =
+		renderedSelectionToolbar !== null && !isSelectionToolbarExiting;
+	const defaultToolbarHiddenProps = {
+		"aria-hidden": shouldHideDefaultToolbar,
+		inert: shouldHideDefaultToolbar ? (true as const) : undefined,
+	};
 	const defaultLeft = (
 		<>
 			<span className="flex size-7 shrink-0 items-center justify-center rounded-lg bg-accent/55 text-accent-foreground sm:h-8 sm:w-8">
@@ -740,8 +748,13 @@ export function FileBrowserToolbar({
 	);
 
 	return (
-		<>
-			<ToolbarBar left={defaultLeft} right={defaultRight} />
+		<div className="relative">
+			<div
+				data-testid="file-browser-default-toolbar"
+				{...defaultToolbarHiddenProps}
+			>
+				<ToolbarBar left={defaultLeft} right={defaultRight} />
+			</div>
 			{renderedSelectionToolbar ? (
 				<FileBrowserSelectionToolbar
 					renderedSelectionToolbar={renderedSelectionToolbar}
@@ -749,6 +762,6 @@ export function FileBrowserToolbar({
 					selectionToolbarHiddenProps={selectionToolbarHiddenProps}
 				/>
 			) : null}
-		</>
+		</div>
 	);
 }
