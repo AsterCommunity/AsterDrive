@@ -20,11 +20,17 @@ import { useConfirmDialog } from "@/hooks/useConfirmDialog";
 import { usePageTitle } from "@/hooks/usePageTitle";
 import { usePendingAction } from "@/hooks/usePendingAction";
 import { useSelectionShortcuts } from "@/hooks/useSelectionShortcuts";
-import { FOLDER_LIMIT } from "@/lib/constants";
+import {
+	type BottomOverlayOffset,
+	FOLDER_LIMIT,
+	getBottomOverlayPaddingClass,
+} from "@/lib/constants";
 import { formatBatchToast } from "@/lib/formatBatchToast";
 import { subscribeStorageChange } from "@/lib/storageChangeBus";
+import { cn } from "@/lib/utils";
 import { trashService } from "@/services/trashService";
 import { useAuthStore } from "@/stores/authStore";
+import { useUploadAreaControlsStore } from "@/stores/uploadAreaControlsStore";
 import type { TrashContents } from "@/types/api";
 import type { TrashItem } from "@/types/api-helpers";
 
@@ -73,6 +79,9 @@ export default function TrashPage() {
 	const { t } = useTranslation(["core", "files", "admin", "tasks"]);
 	usePageTitle(t("core:trash"));
 	const refreshUser = useAuthStore((s) => s.refreshUser);
+	const uploadPanelPresence = useUploadAreaControlsStore(
+		(s) => s.uploadPanelPresence,
+	);
 	const [contents, setContents] = useState<TrashContents>({
 		files: [],
 		folders: [],
@@ -106,6 +115,15 @@ export default function TrashPage() {
 	const pendingKeys = pendingState?.keys ?? new Set<string>();
 	const pendingOperation = pendingState?.operation ?? null;
 	const isBusy = pendingState !== null || purgeAllPending;
+	const bottomOverlayOffset: BottomOverlayOffset = uploadPanelPresence.open
+		? "expanded"
+		: uploadPanelPresence.visible
+			? "upload-compact"
+			: selectionCount > 0
+				? "selection-compact"
+				: "none";
+	const bottomOverlayPadding =
+		getBottomOverlayPaddingClass(bottomOverlayOffset);
 
 	const TRASH_PAGE_SIZE = 100;
 
@@ -422,7 +440,12 @@ export default function TrashPage() {
 							description={t("files:trash_empty_desc")}
 						/>
 					) : (
-						<ScrollArea className="min-h-0 flex-1">
+						<ScrollArea
+							className="min-h-0 flex-1"
+							viewportProps={{
+								className: cn(bottomOverlayPadding),
+							}}
+						>
 							{viewMode === "grid" ? (
 								<TrashGrid
 									items={items}

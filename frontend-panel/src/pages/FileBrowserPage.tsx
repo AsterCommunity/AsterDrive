@@ -32,6 +32,7 @@ import { fileService } from "@/services/fileService";
 import { useFileStore } from "@/stores/fileStore";
 import { usePreviewAppStore } from "@/stores/previewAppStore";
 import { useThumbnailSupportStore } from "@/stores/thumbnailSupportStore";
+import { useUploadAreaControlsStore } from "@/stores/uploadAreaControlsStore";
 import { useWorkspaceStore } from "@/stores/workspaceStore";
 
 export default function FileBrowserPage() {
@@ -78,6 +79,9 @@ export default function FileBrowserPage() {
 	const setSortBy = useFileStore((s) => s.setSortBy);
 	const setSortOrder = useFileStore((s) => s.setSortOrder);
 	const hasMoreFiles = useFileStore((s) => s.hasMoreFiles());
+	const uploadPanelPresence = useUploadAreaControlsStore(
+		(s) => s.uploadPanelPresence,
+	);
 
 	const isSearching = searchQuery !== null;
 	const displayFolders = isSearching ? searchFolders : folders;
@@ -289,6 +293,13 @@ export default function FileBrowserPage() {
 
 	const isEmpty =
 		!loading && displayFolders.length === 0 && displayFiles.length === 0;
+	const bottomOverlayOffset = uploadPanelPresence.open
+		? "expanded"
+		: uploadPanelPresence.visible
+			? "upload-compact"
+			: selectionToolbar
+				? "selection-compact"
+				: "none";
 	const handleUploadAreaReady = useCallback(
 		(instance: UploadAreaHandle | null) => {
 			uploadAreaRef.current = instance;
@@ -362,6 +373,7 @@ export default function FileBrowserPage() {
 				sentinelRef={sentinelRef}
 				uploadReady={uploadReady}
 				viewMode={viewMode}
+				bottomOverlayOffset={bottomOverlayOffset}
 				onContentDragLeave={handleContentDragLeave}
 				onContentDragOver={handleContentDragOver}
 				onContentDrop={handleContentDrop}

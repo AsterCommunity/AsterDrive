@@ -12,6 +12,10 @@ import { FileTable } from "@/components/files/FileTable";
 import { ContextMenu, ContextMenuTrigger } from "@/components/ui/context-menu";
 import { Icon } from "@/components/ui/icon";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import {
+	type BottomOverlayOffset,
+	getBottomOverlayPaddingClass,
+} from "@/lib/constants";
 import { cn } from "@/lib/utils";
 import { CurrentFolderContextMenuContent } from "@/pages/file-browser/CurrentFolderActionsMenu";
 import { FileInfoDialog } from "@/pages/file-browser/fileBrowserLazy";
@@ -42,6 +46,7 @@ interface FileBrowserWorkspaceProps {
 	sentinelRef: RefObject<HTMLDivElement | null>;
 	uploadReady: boolean;
 	viewMode: "grid" | "list";
+	bottomOverlayOffset?: BottomOverlayOffset;
 	onContentDragLeave: (event: DragEvent<HTMLElement>) => void;
 	onContentDragOver: (event: DragEvent<HTMLElement>) => void;
 	onContentDrop: (event: DragEvent<HTMLElement>) => Promise<void>;
@@ -87,6 +92,7 @@ export function FileBrowserWorkspace({
 	sentinelRef,
 	uploadReady,
 	viewMode,
+	bottomOverlayOffset = "none",
 	onContentDragLeave,
 	onContentDragOver,
 	onContentDrop,
@@ -141,7 +147,15 @@ export function FileBrowserWorkspace({
 				)}
 				<ContextMenu>
 					<ContextMenuTrigger className="flex min-h-0 flex-1 flex-col">
-						<ScrollArea ref={onScrollViewportRef} className="min-h-0 flex-1">
+						<ScrollArea
+							ref={onScrollViewportRef}
+							className="min-h-0 flex-1"
+							viewportProps={{
+								className: cn(
+									getBottomOverlayPaddingClass(bottomOverlayOffset),
+								),
+							}}
+						>
 							{loading ? (
 								viewMode === "grid" ? (
 									<SkeletonFileGrid />

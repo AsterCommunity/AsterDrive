@@ -39,7 +39,7 @@ export function AdminSettingsSaveBar({
 			ref={measureRef}
 			data-testid="settings-save-bar"
 			aria-hidden={!hasUnsavedChanges}
-			className="pointer-events-none fixed right-0 bottom-0 left-0 z-30 px-4 pb-4 md:left-60 md:px-6 md:pb-6"
+			className="pointer-events-none fixed right-0 bottom-0 left-0 z-(--z-fixed) px-4 pb-4 md:left-60 md:px-6 md:pb-6"
 		>
 			<div
 				className={cn(

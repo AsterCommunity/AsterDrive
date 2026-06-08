@@ -16,16 +16,19 @@ vi.mock("@/components/files/FileItemStatusIndicators", () => ({
 		isShared,
 		isLocked,
 		compact,
+		className,
 	}: {
 		isShared?: boolean;
 		isLocked?: boolean;
 		compact?: boolean;
+		className?: string;
 	}) => (
 		<span
 			data-testid="status-indicators"
 			data-shared={String(Boolean(isShared))}
 			data-locked={String(Boolean(isLocked))}
 			data-compact={String(Boolean(compact))}
+			className={className}
 		/>
 	),
 }));
@@ -221,6 +224,27 @@ describe("FileCard", () => {
 
 		expect(onSelect).toHaveBeenCalledTimes(1);
 		expect(onClick).not.toHaveBeenCalled();
+	});
+
+	it("keeps the grid card action menu mobile-only and reclaims desktop status space", () => {
+		const { container } = render(
+			<FileCard
+				item={file as never}
+				isFolder={false}
+				selected={false}
+				onSelect={vi.fn()}
+				onClick={vi.fn()}
+				actionMenu={<button type="button">more</button>}
+			/>,
+		);
+
+		expect(container.querySelector("[data-file-card-action-menu]")).toHaveClass(
+			"sm:hidden",
+		);
+		expect(screen.getByTestId("status-indicators")).toHaveClass(
+			"right-11",
+			"sm:right-2",
+		);
 	});
 
 	it("writes drag data and drag preview metadata on drag start", () => {

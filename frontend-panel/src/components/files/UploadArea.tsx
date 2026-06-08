@@ -43,7 +43,7 @@ export function UploadArea({ children, ref }: UploadAreaProps) {
 			{controls?.isDragging && (
 				<div
 					className={cn(
-						"absolute inset-0 z-50 flex flex-col items-center justify-center rounded-lg border-2 border-dashed border-primary bg-background/80 backdrop-blur-sm",
+						"absolute inset-0 z-(--z-fixed) flex flex-col items-center justify-center rounded-lg border-2 border-dashed border-primary bg-background/80 backdrop-blur-sm",
 					)}
 				>
 					<Icon name="Upload" className="mb-3 size-10 text-primary" />

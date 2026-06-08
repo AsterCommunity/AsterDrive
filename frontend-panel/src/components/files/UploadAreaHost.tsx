@@ -21,6 +21,9 @@ export function UploadAreaHost({ workspace }: UploadAreaHostProps) {
 	const breadcrumb = useFileStore((state) => state.breadcrumb);
 	const refreshUser = useAuthStore((state) => state.refreshUser);
 	const setControls = useUploadAreaControlsStore((state) => state.setControls);
+	const setUploadPanelPresence = useUploadAreaControlsStore(
+		(state) => state.setUploadPanelPresence,
+	);
 	const fileInputRef = useRef<HTMLInputElement | null>(null);
 	const folderInputRef = useRef<HTMLInputElement | null>(null);
 	const resumeFileInputRef = useRef<HTMLInputElement | null>(null);
@@ -94,6 +97,19 @@ export function UploadAreaHost({ workspace }: UploadAreaHostProps) {
 			}
 		};
 	}, [controls, setControls]);
+
+	useEffect(() => {
+		setUploadPanelPresence({
+			open: showUploadPanel && uploadPanelOpen,
+			visible: showUploadPanel,
+		});
+		return () => {
+			setUploadPanelPresence({
+				open: false,
+				visible: false,
+			});
+		};
+	}, [setUploadPanelPresence, showUploadPanel, uploadPanelOpen]);
 
 	const uploadSummary =
 		totalCount === 0

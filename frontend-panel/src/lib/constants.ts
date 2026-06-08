@@ -26,7 +26,32 @@ export const ADMIN_TABLE_ACTIONS_WIDTH_CLASS = "w-24";
 /** 侧栏 / 列表内边距 */
 export const SIDEBAR_SECTION_PADDING_CLASS = "px-2";
 export const PAGE_SECTION_PADDING_CLASS = "px-4 md:px-6";
+export const BOTTOM_FLOATING_BAR_PADDING_CLASS =
+	"pb-[calc(5.5rem+env(safe-area-inset-bottom))]";
+export const BOTTOM_UPLOAD_PANEL_COLLAPSED_PADDING_CLASS =
+	"pb-[calc(7rem+env(safe-area-inset-bottom))]";
+export const BOTTOM_UPLOAD_PANEL_PADDING_CLASS =
+	"pb-[calc(18rem+env(safe-area-inset-bottom))]";
 export const MENU_SECTION_PADDING_CLASS = "px-3";
+
+export type BottomOverlayOffset =
+	| "none"
+	| "selection-compact"
+	| "upload-compact"
+	| "expanded";
+
+export function getBottomOverlayPaddingClass(offset: BottomOverlayOffset) {
+	switch (offset) {
+		case "selection-compact":
+			return BOTTOM_FLOATING_BAR_PADDING_CLASS;
+		case "upload-compact":
+			return BOTTOM_UPLOAD_PANEL_COLLAPSED_PADDING_CLASS;
+		case "expanded":
+			return BOTTOM_UPLOAD_PANEL_PADDING_CLASS;
+		case "none":
+			return undefined;
+	}
+}
 export const SETTINGS_PAGE_CONTENT_PADDING_CLASS =
 	"px-4 pt-4 pb-8 md:px-6 md:pt-6 md:pb-10";
 export const ADMIN_SETTINGS_CONTENT_BASE_BOTTOM_PADDING_MOBILE_PX = 32;

@@ -157,11 +157,14 @@ export function FileCard({
 				compact
 				className={cn(
 					"absolute top-2 flex-col items-end gap-1",
-					actionMenu ? "right-11" : "right-2",
+					actionMenu ? "right-11 sm:right-2" : "right-2",
 				)}
 			/>
 			{actionMenu ? (
-				<div data-file-card-action-menu className="absolute top-2 right-2 z-10">
+				<div
+					data-file-card-action-menu
+					className="absolute top-2 right-2 z-10 sm:hidden"
+				>
 					{actionMenu}
 				</div>
 			) : null}

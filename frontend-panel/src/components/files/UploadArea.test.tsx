@@ -1,5 +1,6 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { useUploadAreaControlsStore } from "@/stores/uploadAreaControlsStore";
 import type { MeField } from "@/types/api";
 
 const appendCompletedPart = vi.fn();
@@ -283,6 +284,11 @@ describe("UploadArea", () => {
 		saveSession.mockReset();
 		uploadChunk.mockReset();
 		uploadPanelSpy.mockReset();
+		useUploadAreaControlsStore.getState().setControls(null);
+		useUploadAreaControlsStore.getState().setUploadPanelPresence({
+			open: false,
+			visible: false,
+		});
 		vi.unstubAllEnvs();
 	});
 
@@ -298,6 +304,31 @@ describe("UploadArea", () => {
 			expect(listRecoverableSessions).toHaveBeenCalledTimes(1);
 		});
 		expect(screen.queryByTestId("upload-panel")).not.toBeInTheDocument();
+	});
+
+	it("keeps the drag overlay in the fixed chrome layer", async () => {
+		useUploadAreaControlsStore.getState().setControls({
+			handleDragEnter: vi.fn(),
+			handleDragLeave: vi.fn(),
+			handleDragOver: vi.fn(),
+			handleDrop: vi.fn(),
+			isDragging: true,
+			triggerFileUpload: vi.fn(),
+			triggerFolderUpload: vi.fn(),
+		});
+		const [{ UploadArea }] = await Promise.all([
+			import("@/components/files/UploadArea"),
+		]);
+
+		render(
+			<UploadArea>
+				<div>drop target</div>
+			</UploadArea>,
+		);
+
+		expect(
+			screen.getByText("files:drop_files_or_folders").parentElement,
+		).toHaveClass("z-(--z-fixed)");
 	});
 
 	it("handles direct uploads through the form-data endpoint", async () => {

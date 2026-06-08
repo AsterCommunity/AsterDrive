@@ -189,11 +189,11 @@ export function HeaderControls({
 				</DropdownMenuTrigger>
 				<DropdownMenuContent
 					align="end"
-					className="w-[18.5rem] min-w-[18.5rem] p-1.5"
+					className="w-[min(22rem,calc(100vw-1.5rem))] min-w-[18.5rem] p-2"
 				>
 					<div className="flex flex-col">
 						<div
-							className={`${profileSectionClass} ${MENU_SECTION_PADDING_CLASS} flex items-center gap-2.5 py-2.5`}
+							className={`${profileSectionClass} ${MENU_SECTION_PADDING_CLASS} flex items-center gap-3 py-3`}
 						>
 							<UserAvatarImage
 								avatar={user?.profile.avatar ?? null}
@@ -201,7 +201,7 @@ export function HeaderControls({
 								size="lg"
 								className="ring-1 ring-border/35"
 							/>
-							<div className="min-w-0 flex-1 space-y-1.5">
+							<div className="min-w-0 flex-1 space-y-2">
 								<div className="flex flex-wrap items-center gap-x-2 gap-y-1">
 									<p className="min-w-0 truncate text-sm font-semibold text-foreground">
 										{userName}

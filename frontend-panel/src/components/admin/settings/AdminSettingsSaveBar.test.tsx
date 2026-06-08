@@ -70,6 +70,9 @@ describe("AdminSettingsSaveBar", () => {
 		);
 
 		expect(screen.getByText("settings_save_notice:3")).toBeInTheDocument();
+		expect(screen.getByTestId("settings-save-bar")).toHaveClass(
+			"z-(--z-fixed)",
+		);
 		expect(screen.getByText("settings_save_hint")).toBeInTheDocument();
 
 		fireEvent.click(screen.getByRole("button", { name: "undo_changes" }));

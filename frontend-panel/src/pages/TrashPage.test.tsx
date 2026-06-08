@@ -2,6 +2,7 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { STORAGE_KEYS } from "@/config/app";
 import TrashPage from "@/pages/TrashPage";
+import { useUploadAreaControlsStore } from "@/stores/uploadAreaControlsStore";
 
 const mockState = vi.hoisted(() => ({
 	formatBatchToast: vi.fn((_: unknown, operation: string) => ({
@@ -314,10 +315,21 @@ vi.mock("@/components/ui/scroll-area", () => ({
 	ScrollArea: ({
 		children,
 		className,
+		viewportProps,
 	}: {
 		children: React.ReactNode;
 		className?: string;
-	}) => <div className={className}>{children}</div>,
+		viewportProps?: {
+			className?: string;
+		};
+	}) => (
+		<div
+			className={className}
+			data-viewport-class={viewportProps?.className ?? ""}
+		>
+			{children}
+		</div>
+	),
 }));
 
 vi.mock("@/hooks/useApiError", () => ({
@@ -395,6 +407,10 @@ describe("TrashPage", () => {
 		mockState.toastError.mockReset();
 		mockState.toastSuccess.mockReset();
 		MockIntersectionObserver.reset();
+		useUploadAreaControlsStore.getState().setUploadPanelPresence({
+			open: false,
+			visible: false,
+		});
 
 		mockState.list.mockResolvedValue(emptyTrashContents());
 		mockState.purgeAll.mockResolvedValue({
@@ -440,6 +456,12 @@ describe("TrashPage", () => {
 		fireEvent.click(screen.getByRole("button", { name: "select:report.pdf" }));
 
 		expect(screen.getByText("batch-count:1")).toBeInTheDocument();
+		expect(
+			screen.getByText("select:report.pdf").closest(".min-h-0"),
+		).toHaveAttribute(
+			"data-viewport-class",
+			expect.stringContaining("pb-[calc(5.5rem"),
+		);
 		fireEvent.click(screen.getByRole("button", { name: "restore-selected" }));
 
 		await waitFor(() => {
@@ -459,6 +481,56 @@ describe("TrashPage", () => {
 			expect(mockState.list).toHaveBeenCalledTimes(2);
 		});
 		expect(mockState.refreshUser).not.toHaveBeenCalled();
+	});
+
+	it("reserves bottom space when the collapsed upload panel is visible", async () => {
+		useUploadAreaControlsStore.getState().setUploadPanelPresence({
+			open: false,
+			visible: true,
+		});
+		mockState.list.mockResolvedValueOnce({
+			files: [fileItem],
+			files_total: 1,
+			folders: [],
+			folders_total: 0,
+			next_file_cursor: null,
+		} as never);
+
+		render(<TrashPage />);
+
+		await screen.findByText("select:report.pdf");
+
+		expect(
+			screen.getByText("select:report.pdf").closest(".min-h-0"),
+		).toHaveAttribute(
+			"data-viewport-class",
+			expect.stringContaining("pb-[calc(7rem"),
+		);
+	});
+
+	it("reserves expanded bottom space when the upload panel is open", async () => {
+		useUploadAreaControlsStore.getState().setUploadPanelPresence({
+			open: true,
+			visible: true,
+		});
+		mockState.list.mockResolvedValueOnce({
+			files: [fileItem],
+			files_total: 1,
+			folders: [],
+			folders_total: 0,
+			next_file_cursor: null,
+		} as never);
+
+		render(<TrashPage />);
+
+		await screen.findByText("select:report.pdf");
+
+		expect(
+			screen.getByText("select:report.pdf").closest(".min-h-0"),
+		).toHaveAttribute(
+			"data-viewport-class",
+			expect.stringContaining("pb-[calc(18rem"),
+		);
 	});
 
 	it("confirms and schedules trash purge without reloading before completion", async () => {

@@ -77,6 +77,9 @@ vi.mock("@/components/ui/scroll-area", () => ({
 	ScrollArea: (props: {
 		children: React.ReactNode;
 		className?: string;
+		viewportProps?: {
+			className?: string;
+		};
 		ref?: (node: HTMLDivElement | null) => void;
 	}) => (
 		<div
@@ -84,6 +87,7 @@ vi.mock("@/components/ui/scroll-area", () => ({
 				props.ref?.(node);
 			}}
 			className={props.className}
+			data-viewport-class={props.viewportProps?.className ?? ""}
 		>
 			{props.children}
 		</div>
@@ -213,7 +217,7 @@ function renderWorkspace(
 		onVersions: vi.fn(),
 	};
 
-	render(
+	const result = render(
 		<FileBrowserWorkspace
 			breadcrumb={[
 				{ id: null, name: "Root" },
@@ -233,12 +237,13 @@ function renderWorkspace(
 			sentinelRef={createRef<HTMLDivElement>()}
 			uploadReady
 			viewMode="grid"
+			bottomOverlayOffset="none"
 			{...handlers}
 			{...overrides}
 		/>,
 	);
 
-	return handlers;
+	return { ...handlers, ...result };
 }
 
 describe("FileBrowserWorkspace", () => {
@@ -301,5 +306,110 @@ describe("FileBrowserWorkspace", () => {
 		expect(handlers.onVersions).toHaveBeenCalledWith(7);
 		expect(handlers.onToggleLock).toHaveBeenCalledWith("file", 7, false);
 		expect(handlers.onInfoPanelOpenChange).toHaveBeenCalledWith(false);
+	});
+
+	it("reserves bottom space for fixed bottom overlays", () => {
+		const view = renderWorkspace({
+			bottomOverlayOffset: "selection-compact",
+		});
+
+		expect(screen.getByText("file-grid").closest(".min-h-0")).toHaveAttribute(
+			"data-viewport-class",
+			expect.stringContaining("pb-[calc(5.5rem"),
+		);
+
+		view.rerender(
+			<FileBrowserWorkspace
+				breadcrumb={[
+					{ id: null, name: "Root" },
+					{ id: 12, name: "Workspace" },
+				]}
+				contentDragOver={false}
+				error={null}
+				fileBrowserContextValue={createContextValue()}
+				hasMoreFiles={false}
+				infoPanelOpen={false}
+				infoTarget={null}
+				isEmpty={false}
+				isSearching={false}
+				loading={false}
+				loadingMore={false}
+				scrollViewport={null}
+				sentinelRef={createRef<HTMLDivElement>()}
+				uploadReady
+				viewMode="grid"
+				bottomOverlayOffset="upload-compact"
+				onContentDragLeave={vi.fn()}
+				onContentDragOver={vi.fn()}
+				onContentDrop={vi.fn().mockResolvedValue(undefined)}
+				onCreateFile={vi.fn()}
+				onCreateFolder={vi.fn()}
+				onDownload={vi.fn()}
+				onInfoPanelOpenChange={vi.fn()}
+				onOpenInfoFolder={vi.fn()}
+				onOfflineDownload={vi.fn()}
+				onPreview={vi.fn()}
+				onRefresh={vi.fn()}
+				onRename={vi.fn()}
+				onScrollViewportRef={vi.fn()}
+				onShare={vi.fn()}
+				onToggleLock={vi.fn().mockResolvedValue(true)}
+				onTriggerFileUpload={vi.fn()}
+				onTriggerFolderUpload={vi.fn()}
+				onVersions={vi.fn()}
+			/>,
+		);
+
+		expect(screen.getByText("file-grid").closest(".min-h-0")).toHaveAttribute(
+			"data-viewport-class",
+			expect.stringContaining("pb-[calc(7rem"),
+		);
+
+		view.rerender(
+			<FileBrowserWorkspace
+				breadcrumb={[
+					{ id: null, name: "Root" },
+					{ id: 12, name: "Workspace" },
+				]}
+				contentDragOver={false}
+				error={null}
+				fileBrowserContextValue={createContextValue()}
+				hasMoreFiles={false}
+				infoPanelOpen={false}
+				infoTarget={null}
+				isEmpty={false}
+				isSearching={false}
+				loading={false}
+				loadingMore={false}
+				scrollViewport={null}
+				sentinelRef={createRef<HTMLDivElement>()}
+				uploadReady
+				viewMode="grid"
+				bottomOverlayOffset="expanded"
+				onContentDragLeave={vi.fn()}
+				onContentDragOver={vi.fn()}
+				onContentDrop={vi.fn().mockResolvedValue(undefined)}
+				onCreateFile={vi.fn()}
+				onCreateFolder={vi.fn()}
+				onDownload={vi.fn()}
+				onInfoPanelOpenChange={vi.fn()}
+				onOpenInfoFolder={vi.fn()}
+				onOfflineDownload={vi.fn()}
+				onPreview={vi.fn()}
+				onRefresh={vi.fn()}
+				onRename={vi.fn()}
+				onScrollViewportRef={vi.fn()}
+				onShare={vi.fn()}
+				onToggleLock={vi.fn().mockResolvedValue(true)}
+				onTriggerFileUpload={vi.fn()}
+				onTriggerFolderUpload={vi.fn()}
+				onVersions={vi.fn()}
+			/>,
+		);
+
+		expect(screen.getByText("file-grid").closest(".min-h-0")).toHaveAttribute(
+			"data-viewport-class",
+			expect.stringContaining("pb-[calc(18rem"),
+		);
 	});
 });

@@ -11,8 +11,14 @@ import { useConfirmDialog } from "@/hooks/useConfirmDialog";
 import { usePageTitle } from "@/hooks/usePageTitle";
 import { useSelectionShortcuts } from "@/hooks/useSelectionShortcuts";
 import { writeTextToClipboard } from "@/lib/clipboard";
-import { PAGE_SECTION_PADDING_CLASS } from "@/lib/constants";
+import {
+	type BottomOverlayOffset,
+	getBottomOverlayPaddingClass,
+	PAGE_SECTION_PADDING_CLASS,
+} from "@/lib/constants";
+import { cn } from "@/lib/utils";
 import { shareService } from "@/services/shareService";
+import { useUploadAreaControlsStore } from "@/stores/uploadAreaControlsStore";
 import type { BatchResult, MyShareInfo } from "@/types/api";
 import { MySharesContent } from "./my-shares/MySharesContent";
 import { MySharesSelectionBar } from "./my-shares/MySharesSelectionBar";
@@ -31,6 +37,9 @@ function openShareLink(share: MyShareInfo) {
 export default function MySharesPage() {
 	const { t } = useTranslation(["core", "share", "errors"]);
 	usePageTitle(t("share:my_shares_title"));
+	const uploadPanelPresence = useUploadAreaControlsStore(
+		(state) => state.uploadPanelPresence,
+	);
 	const {
 		clearSelection,
 		editTarget,
@@ -111,6 +120,13 @@ export default function MySharesPage() {
 	const allSelected = shares.length > 0 && selectedCount === shares.length;
 	const singleDeleteTarget =
 		deleteTargets && deleteTargets.length === 1 ? deleteTargets[0] : null;
+	const bottomOverlayOffset: BottomOverlayOffset = uploadPanelPresence.open
+		? "expanded"
+		: uploadPanelPresence.visible
+			? "upload-compact"
+			: selectedCount > 0
+				? "selection-compact"
+				: "none";
 
 	const selectAll = useCallback(() => {
 		selectShareIds(shares.map((share) => share.id));
@@ -168,7 +184,13 @@ export default function MySharesPage() {
 
 	return (
 		<AppLayout>
-			<div className="flex min-h-0 flex-1 flex-col overflow-auto">
+			<div
+				data-testid="my-shares-scroll-container"
+				className={cn(
+					"flex min-h-0 flex-1 flex-col overflow-auto",
+					getBottomOverlayPaddingClass(bottomOverlayOffset),
+				)}
+			>
 				<div
 					className={`mx-auto flex w-full max-w-7xl flex-col gap-5 py-4 md:py-6 ${PAGE_SECTION_PADDING_CLASS}`}
 				>

@@ -149,8 +149,16 @@ vi.mock("@/components/ui/dropdown-menu", () => ({
 			{children}
 		</div>
 	),
-	DropdownMenuContent: ({ children }: { children: React.ReactNode }) => (
-		<div>{children}</div>
+	DropdownMenuContent: ({
+		children,
+		className,
+	}: {
+		children: React.ReactNode;
+		className?: string;
+	}) => (
+		<div data-testid="account-menu-content" className={className}>
+			{children}
+		</div>
 	),
 	DropdownMenuGroup: ({ children }: { children: React.ReactNode }) => (
 		<div>{children}</div>
@@ -283,6 +291,11 @@ describe("HeaderControls", () => {
 		expect(trigger.className).toContain("active:translate-y-0");
 		expect(trigger.className).toContain(
 			"transition-[background-color,border-color,color,box-shadow]",
+		);
+		expect(screen.getByTestId("account-menu-content")).toHaveClass(
+			"w-[min(22rem,calc(100vw-1.5rem))]",
+			"min-w-[18.5rem]",
+			"p-2",
 		);
 	});
 

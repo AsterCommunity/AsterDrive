@@ -11,14 +11,27 @@ export interface UploadAreaControls {
 	triggerFolderUpload: () => void;
 }
 
+export interface UploadPanelPresence {
+	visible: boolean;
+	open: boolean;
+}
+
 interface UploadAreaControlsState {
 	controls: UploadAreaControls | null;
+	uploadPanelPresence: UploadPanelPresence;
 	setControls: (controls: UploadAreaControls | null) => void;
+	setUploadPanelPresence: (presence: UploadPanelPresence) => void;
 }
 
 export const useUploadAreaControlsStore = create<UploadAreaControlsState>(
 	(set) => ({
 		controls: null,
+		uploadPanelPresence: {
+			open: false,
+			visible: false,
+		},
 		setControls: (controls) => set({ controls }),
+		setUploadPanelPresence: (uploadPanelPresence) =>
+			set({ uploadPanelPresence }),
 	}),
 );

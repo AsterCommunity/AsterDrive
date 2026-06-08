@@ -68,7 +68,9 @@ describe("overlay layering", () => {
 			"src/components/layout/AdminLayout.tsx",
 			"src/components/layout/Sidebar.tsx",
 			"src/components/files/UploadPanel.tsx",
+			"src/components/files/UploadArea.tsx",
 			"src/components/music/MusicPlayerHost.tsx",
+			"src/components/admin/settings/AdminSettingsSaveBar.tsx",
 		]) {
 			expect(readProjectFile(path)).toContain("z-(--z-fixed)");
 		}

@@ -47,36 +47,6 @@ vi.mock("sonner", () => ({
 	},
 }));
 
-vi.mock("@/components/common/ConfirmDialog", () => ({
-	ConfirmDialog: ({
-		open,
-		onOpenChange,
-		title,
-		description,
-		confirmLabel,
-		onConfirm,
-	}: {
-		open: boolean;
-		onOpenChange: (open: boolean) => void;
-		title: string;
-		description: string;
-		confirmLabel: string;
-		onConfirm: () => void;
-	}) =>
-		open ? (
-			<div data-testid="confirm-dialog">
-				<h3>{title}</h3>
-				<p>{description}</p>
-				<button type="button" onClick={() => onOpenChange(false)}>
-					cancel-confirm
-				</button>
-				<button type="button" onClick={onConfirm}>
-					{confirmLabel}
-				</button>
-			</div>
-		) : null,
-}));
-
 vi.mock("@/components/files/FileTypeIcon", () => ({
 	FileTypeIcon: ({
 		fileName,
@@ -294,13 +264,23 @@ describe("VersionHistoryDialog", () => {
 		);
 
 		await screen.findByText("v2");
-		fireEvent.click(screen.getByRole("button", { name: "version_restore" }));
-
-		const confirmDialog = screen.getByTestId("confirm-dialog");
-		expect(within(confirmDialog).getByText("restore:2")).toBeInTheDocument();
-
+		const versionRow = screen.getByText("v2").closest("tr");
+		expect(versionRow).not.toBeNull();
 		fireEvent.click(
-			within(confirmDialog).getByRole("button", { name: "version_restore" }),
+			within(versionRow as HTMLTableRowElement).getByRole("button", {
+				name: "version_restore",
+			}),
+		);
+
+		expect(screen.queryByTestId("confirm-dialog")).not.toBeInTheDocument();
+		expect(screen.getByText("restore:2")).toBeInTheDocument();
+
+		const inlineConfirmRow = screen.getByText("restore:2").closest("tr");
+		expect(inlineConfirmRow).not.toBeNull();
+		fireEvent.click(
+			within(inlineConfirmRow as HTMLTableRowElement).getByRole("button", {
+				name: "version_restore",
+			}),
 		);
 
 		await waitFor(() => {
@@ -334,15 +314,23 @@ describe("VersionHistoryDialog", () => {
 		);
 
 		await screen.findByText("v2");
+		const versionRow = screen.getByText("v2").closest("tr");
+		expect(versionRow).not.toBeNull();
 		fireEvent.click(
-			screen.getAllByRole("button", { name: "version_delete" })[0],
+			within(versionRow as HTMLTableRowElement).getByRole("button", {
+				name: "version_delete",
+			}),
 		);
 
-		const confirmDialog = screen.getByTestId("confirm-dialog");
-		expect(within(confirmDialog).getByText("delete:2")).toBeInTheDocument();
+		expect(screen.queryByTestId("confirm-dialog")).not.toBeInTheDocument();
+		expect(screen.getByText("delete:2")).toBeInTheDocument();
 
+		const inlineConfirmRow = screen.getByText("delete:2").closest("tr");
+		expect(inlineConfirmRow).not.toBeNull();
 		fireEvent.click(
-			within(confirmDialog).getByRole("button", { name: "version_delete" }),
+			within(inlineConfirmRow as HTMLTableRowElement).getByRole("button", {
+				name: "version_delete",
+			}),
 		);
 
 		await waitFor(() => {

@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useState } from "react";
+import { Fragment, useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
-import { ConfirmDialog } from "@/components/common/ConfirmDialog";
+import { InlineConfirm } from "@/components/common/ManagerDialogShell";
 import { FileTypeIcon } from "@/components/files/FileTypeIcon";
 import { Button } from "@/components/ui/button";
 import {
@@ -21,7 +21,6 @@ import {
 } from "@/components/ui/table";
 import { handleApiError } from "@/hooks/useApiError";
 import { invalidateBlobUrl } from "@/hooks/useBlobUrl";
-import { useConfirmDialog } from "@/hooks/useConfirmDialog";
 import { invalidateTextContent } from "@/hooks/useTextContent";
 import { formatBytes, formatDateTime } from "@/lib/format";
 import { fileService } from "@/services/fileService";
@@ -35,6 +34,11 @@ interface VersionHistoryDialogProps {
 	mimeType?: string;
 	onRestored?: () => void;
 }
+
+type VersionInlineConfirm = {
+	kind: "restore" | "delete";
+	version: FileVersion;
+};
 
 function getCurrentVersionNumber(versions: FileVersion[]) {
 	return (
@@ -53,7 +57,7 @@ export function VersionHistoryDialog({
 	mimeType,
 	onRestored,
 }: VersionHistoryDialogProps) {
-	const { t } = useTranslation("files");
+	const { t } = useTranslation(["files", "core"]);
 	const [versions, setVersions] = useState<FileVersion[]>([]);
 	const [loading, setLoading] = useState(false);
 	const [restoringVersionId, setRestoringVersionId] = useState<number | null>(
@@ -62,6 +66,8 @@ export function VersionHistoryDialog({
 	const [deletingVersionId, setDeletingVersionId] = useState<number | null>(
 		null,
 	);
+	const [inlineConfirm, setInlineConfirm] =
+		useState<VersionInlineConfirm | null>(null);
 	const currentVersion = loading ? null : getCurrentVersionNumber(versions);
 
 	const load = useCallback(async () => {
@@ -87,6 +93,7 @@ export function VersionHistoryDialog({
 			invalidateBlobUrl(fileService.imagePreviewPath(fileId));
 			toast.success(t("version_restored"));
 			onRestored?.();
+			setInlineConfirm(null);
 		} catch (e) {
 			handleApiError(e);
 		} finally {
@@ -101,26 +108,24 @@ export function VersionHistoryDialog({
 			const data = await fileService.listVersions(fileId);
 			setVersions(data);
 			toast.success(t("version_deleted"));
+			setInlineConfirm(null);
 		} catch (e) {
 			handleApiError(e);
 		} finally {
 			setDeletingVersionId(null);
 		}
 	};
-	const {
-		confirmId: confirmRestoreVersion,
-		requestConfirm: requestRestoreConfirm,
-		dialogProps: restoreDialogProps,
-	} = useConfirmDialog<FileVersion>(async (version) => {
-		await handleRestore(version.id);
-	});
-	const {
-		confirmId: confirmDeleteVersion,
-		requestConfirm: requestDeleteConfirm,
-		dialogProps: deleteDialogProps,
-	} = useConfirmDialog<FileVersion>(async (version) => {
-		await handleDelete(version.id);
-	});
+
+	const requestInlineConfirm = (
+		kind: VersionInlineConfirm["kind"],
+		version: FileVersion,
+	) => {
+		setInlineConfirm((current) =>
+			current?.kind === kind && current.version.id === version.id
+				? null
+				: { kind, version },
+		);
+	};
 
 	useEffect(() => {
 		if (open) {
@@ -132,72 +137,66 @@ export function VersionHistoryDialog({
 		setLoading(false);
 		setRestoringVersionId(null);
 		setDeletingVersionId(null);
-		restoreDialogProps.onOpenChange(false);
-		deleteDialogProps.onOpenChange(false);
-	}, [
-		deleteDialogProps.onOpenChange,
-		load,
-		open,
-		restoreDialogProps.onOpenChange,
-	]);
+		setInlineConfirm(null);
+	}, [load, open]);
 
 	return (
-		<>
-			<Dialog open={open} onOpenChange={onOpenChange}>
-				<DialogContent keepMounted className="max-w-lg">
-					<DialogHeader>
-						<div className="flex items-start gap-3 pr-8">
-							{mimeType ? (
-								<FileTypeIcon
-									mimeType={mimeType}
-									fileName={fileName}
-									className="mt-0.5 size-5 shrink-0"
-								/>
-							) : null}
-							<div className="min-w-0">
-								<DialogTitle>
-									{t("version_history_title", { name: fileName })}
-								</DialogTitle>
-							</div>
-						</div>
-					</DialogHeader>
-					<div className="mb-4 rounded-lg border bg-muted/20 p-3">
-						<div className="flex items-center gap-3">
-							<div className="min-w-0 flex-1">
-								<div className="text-sm font-medium text-foreground">
-									{t("version_current")}
-								</div>
-								{currentVersion !== null ? (
-									<div className="mt-1 font-mono text-xs text-muted-foreground">
-										v{currentVersion}
-									</div>
-								) : null}
-							</div>
-							<div className="text-xs text-muted-foreground">
-								{t("version_history_count", { count: versions.length })}
-							</div>
+		<Dialog open={open} onOpenChange={onOpenChange}>
+			<DialogContent keepMounted className="max-w-lg">
+				<DialogHeader>
+					<div className="flex items-start gap-3 pr-8">
+						{mimeType ? (
+							<FileTypeIcon
+								mimeType={mimeType}
+								fileName={fileName}
+								className="mt-0.5 size-5 shrink-0"
+							/>
+						) : null}
+						<div className="min-w-0">
+							<DialogTitle>
+								{t("version_history_title", { name: fileName })}
+							</DialogTitle>
 						</div>
 					</div>
-					{loading ? (
-						<p className="text-muted-foreground text-sm py-4 text-center">
-							{t("loading_preview")}
-						</p>
-					) : versions.length === 0 ? (
-						<p className="text-muted-foreground text-sm py-4 text-center">
-							{t("version_empty")}
-						</p>
-					) : (
-						<Table>
-							<TableHeader>
-								<TableRow>
-									<TableHead>{t("version_column")}</TableHead>
-									<TableHead>{t("version_size")}</TableHead>
-									<TableHead>{t("version_date")}</TableHead>
-									<TableHead className="w-20">{t("version_actions")}</TableHead>
-								</TableRow>
-							</TableHeader>
-							<TableBody>
-								{versions.map((v) => (
+				</DialogHeader>
+				<div className="mb-4 rounded-lg border bg-muted/20 p-3">
+					<div className="flex items-center gap-3">
+						<div className="min-w-0 flex-1">
+							<div className="text-sm font-medium text-foreground">
+								{t("version_current")}
+							</div>
+							{currentVersion !== null ? (
+								<div className="mt-1 font-mono text-xs text-muted-foreground">
+									v{currentVersion}
+								</div>
+							) : null}
+						</div>
+						<div className="text-xs text-muted-foreground">
+							{t("version_history_count", { count: versions.length })}
+						</div>
+					</div>
+				</div>
+				{loading ? (
+					<p className="text-muted-foreground text-sm py-4 text-center">
+						{t("loading_preview")}
+					</p>
+				) : versions.length === 0 ? (
+					<p className="text-muted-foreground text-sm py-4 text-center">
+						{t("version_empty")}
+					</p>
+				) : (
+					<Table>
+						<TableHeader>
+							<TableRow>
+								<TableHead>{t("version_column")}</TableHead>
+								<TableHead>{t("version_size")}</TableHead>
+								<TableHead>{t("version_date")}</TableHead>
+								<TableHead className="w-20">{t("version_actions")}</TableHead>
+							</TableRow>
+						</TableHeader>
+						<TableBody>
+							{versions.map((v) => (
+								<Fragment key={v.id}>
 									<TableRow key={v.id}>
 										<TableCell className="font-mono text-sm">
 											v{v.version}
@@ -223,7 +222,7 @@ export function VersionHistoryDialog({
 														restoringVersionId !== null ||
 														deletingVersionId !== null
 													}
-													onClick={() => requestRestoreConfirm(v)}
+													onClick={() => requestInlineConfirm("restore", v)}
 												>
 													<Icon
 														name={
@@ -247,7 +246,7 @@ export function VersionHistoryDialog({
 														restoringVersionId !== null ||
 														deletingVersionId !== null
 													}
-													onClick={() => requestDeleteConfirm(v)}
+													onClick={() => requestInlineConfirm("delete", v)}
 												>
 													<Icon
 														name={
@@ -259,29 +258,74 @@ export function VersionHistoryDialog({
 											</div>
 										</TableCell>
 									</TableRow>
-								))}
-							</TableBody>
-						</Table>
-					)}
-				</DialogContent>
-			</Dialog>
-			<ConfirmDialog
-				{...restoreDialogProps}
-				title={t("version_restore_confirm_title")}
-				description={t("version_restore_confirm_desc", {
-					version: confirmRestoreVersion?.version,
-				})}
-				confirmLabel={t("version_restore")}
-			/>
-			<ConfirmDialog
-				{...deleteDialogProps}
-				title={t("version_delete_confirm_title")}
-				description={t("version_delete_confirm_desc", {
-					version: confirmDeleteVersion?.version,
-				})}
-				confirmLabel={t("version_delete")}
-				variant="destructive"
-			/>
-		</>
+									{inlineConfirm?.version.id === v.id ? (
+										<TableRow key={`${v.id}-confirm`}>
+											<TableCell colSpan={4} className="whitespace-normal">
+												<InlineConfirm>
+													<div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+														<div className="space-y-1">
+															<div className="text-sm font-medium">
+																{inlineConfirm.kind === "restore"
+																	? t("version_restore_confirm_title")
+																	: t("version_delete_confirm_title")}
+															</div>
+															<p className="text-sm text-muted-foreground">
+																{inlineConfirm.kind === "restore"
+																	? t("version_restore_confirm_desc", {
+																			version: v.version,
+																		})
+																	: t("version_delete_confirm_desc", {
+																			version: v.version,
+																		})}
+															</p>
+														</div>
+														<div className="flex shrink-0 items-center gap-2 sm:justify-end">
+															<Button
+																variant="ghost"
+																size="sm"
+																disabled={
+																	restoringVersionId !== null ||
+																	deletingVersionId !== null
+																}
+																onClick={() => setInlineConfirm(null)}
+															>
+																{t("core:cancel")}
+															</Button>
+															<Button
+																variant={
+																	inlineConfirm.kind === "delete"
+																		? "destructive"
+																		: "default"
+																}
+																size="sm"
+																disabled={
+																	restoringVersionId !== null ||
+																	deletingVersionId !== null
+																}
+																onClick={() => {
+																	if (inlineConfirm.kind === "restore") {
+																		void handleRestore(v.id);
+																		return;
+																	}
+																	void handleDelete(v.id);
+																}}
+															>
+																{inlineConfirm.kind === "restore"
+																	? t("version_restore")
+																	: t("version_delete")}
+															</Button>
+														</div>
+													</div>
+												</InlineConfirm>
+											</TableCell>
+										</TableRow>
+									) : null}
+								</Fragment>
+							))}
+						</TableBody>
+					</Table>
+				)}
+			</DialogContent>
+		</Dialog>
 	);
 }

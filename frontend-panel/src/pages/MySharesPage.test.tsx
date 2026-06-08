@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import MySharesPage from "@/pages/MySharesPage";
+import { useUploadAreaControlsStore } from "@/stores/uploadAreaControlsStore";
 import type { MyShareInfo } from "@/types/api";
 
 const mockState = vi.hoisted(() => ({
@@ -222,6 +223,10 @@ describe("MySharesPage", () => {
 		mockState.toastSuccess.mockReset();
 		mockState.writeText.mockReset();
 		mockState.writeText.mockResolvedValue(undefined);
+		useUploadAreaControlsStore.getState().setUploadPanelPresence({
+			open: false,
+			visible: false,
+		});
 
 		Object.defineProperty(navigator, "clipboard", {
 			configurable: true,
@@ -381,6 +386,9 @@ describe("MySharesPage", () => {
 				screen.getAllByText("core:selected_count:2").length,
 			).toBeGreaterThan(0);
 		});
+		expect(screen.getByTestId("my-shares-scroll-container")).toHaveClass(
+			"pb-[calc(5.5rem+env(safe-area-inset-bottom))]",
+		);
 		fireEvent.click(screen.getByText("share:my_shares_batch_delete"));
 
 		await screen.findByText("share:my_shares_batch_delete_title:2");
@@ -394,6 +402,36 @@ describe("MySharesPage", () => {
 		expect(mockState.toastSuccess).toHaveBeenCalledWith(
 			"share:my_shares_batch_delete_success",
 		);
+	});
+
+	it("reserves bottom space while the upload panel is visible", async () => {
+		useUploadAreaControlsStore.getState().setUploadPanelPresence({
+			open: false,
+			visible: true,
+		});
+		mockState.listMine.mockResolvedValue({
+			items: [createShare({ id: 41, resource_name: "Upload Visible" })],
+			total: 1,
+		});
+
+		render(<MySharesPage />);
+
+		await screen.findByText("Upload Visible");
+
+		expect(screen.getByTestId("my-shares-scroll-container")).toHaveClass(
+			"pb-[calc(7rem+env(safe-area-inset-bottom))]",
+		);
+
+		useUploadAreaControlsStore.getState().setUploadPanelPresence({
+			open: true,
+			visible: true,
+		});
+
+		await waitFor(() => {
+			expect(screen.getByTestId("my-shares-scroll-container")).toHaveClass(
+				"pb-[calc(18rem+env(safe-area-inset-bottom))]",
+			);
+		});
 	});
 
 	it("opens the edit dialog from share actions", async () => {
