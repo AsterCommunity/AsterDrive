@@ -11,17 +11,19 @@ use aster_drive::db;
 use aster_drive::db::repository::{
     contact_verification_token_repo, file_repo, follower_enrollment_session_repo,
     managed_follower_repo, master_binding_repo, mfa_factor_repo, mfa_login_flow_repo,
-    mfa_recovery_code_repo, mfa_totp_setup_flow_repo, policy_repo, user_repo,
+    mfa_recovery_code_repo, mfa_totp_setup_flow_repo, policy_repo, property_repo, tag_repo,
+    user_repo,
 };
 use aster_drive::entities::{
     contact_verification_token, follower_enrollment_session, managed_follower, master_binding,
     mfa_factor, mfa_login_flow, mfa_recovery_code, mfa_totp_setup_flow, passkey, storage_policy,
+    user_invitation,
 };
 use aster_drive::runtime::SharedRuntimeState;
 use aster_drive::types::{
-    DriverType, MfaFirstFactor, MfaPersistentFactorMethod, StoredPasskeyCredential,
-    StoredStoragePolicyAllowedTypes, StoredStoragePolicyOptions, VerificationChannel,
-    VerificationPurpose,
+    DriverType, EntityType, MfaFirstFactor, MfaPersistentFactorMethod, StoredPasskeyCredential,
+    StoredStoragePolicyAllowedTypes, StoredStoragePolicyOptions, TagScopeType,
+    UserInvitationStatus, VerificationChannel, VerificationPurpose,
 };
 use chrono::{Duration, Utc};
 use migration::{CurrentMigrator, Migrator, MigratorTrait};
@@ -38,6 +40,10 @@ const MIGRATION_REMOTE_NODE_NAME: &str = "MigratedRemoteNode";
 const MIGRATION_REMOTE_POLICY_NAME: &str = "MigratedRemotePolicy";
 const MIGRATION_MASTER_BINDING_NAME: &str = "MigratedMasterBinding";
 const MIGRATION_MASTER_STORAGE_NAMESPACE: &str = "mb_migrate_remote_space";
+const MIGRATION_TAG_NAME: &str = "Migrated Tag";
+const MIGRATION_TAG_NORMALIZED_NAME: &str = "migrated tag";
+const MIGRATION_TAG_COLOR: &str = "#2563eb";
+const MIGRATION_TAG_PROPERTY_NAMESPACE: &str = "system.tags";
 
 async fn setup_database_url() -> String {
     let db_path =
@@ -214,6 +220,8 @@ async fn seed_migration_fixture(database_url: &str) -> i64 {
     seed_passkey_fixture(state.writer_db()).await;
     seed_mfa_fixture(state.writer_db()).await;
     seed_remote_node_fixture(state.writer_db()).await;
+    seed_user_invitation_fixture(state.writer_db()).await;
+    seed_tag_fixture(state.writer_db(), file_id).await;
     file_id
 }
 
@@ -419,6 +427,60 @@ async fn seed_remote_node_fixture(db: &DatabaseConnection) {
     .unwrap();
 }
 
+async fn seed_user_invitation_fixture(db: &DatabaseConnection) {
+    let user = user_repo::find_by_email(db, "test@example.com")
+        .await
+        .unwrap()
+        .expect("seed user should exist");
+    let now = Utc::now();
+
+    user_invitation::ActiveModel {
+        email: Set("migrated-invitee@example.com".to_string()),
+        token_hash: Set("migrate-user-invitation-token-hash".to_string()),
+        status: Set(UserInvitationStatus::Pending),
+        invited_by: Set(user.id),
+        accepted_user_id: Set(None),
+        expires_at: Set(now + Duration::days(7)),
+        created_at: Set(now - Duration::minutes(15)),
+        updated_at: Set(now - Duration::minutes(15)),
+        accepted_at: Set(None),
+        revoked_at: Set(None),
+        ..Default::default()
+    }
+    .insert(db)
+    .await
+    .unwrap();
+}
+
+async fn seed_tag_fixture(db: &DatabaseConnection, file_id: i64) {
+    let user = user_repo::find_by_email(db, "test@example.com")
+        .await
+        .unwrap()
+        .expect("seed user should exist");
+    let tag = tag_repo::create(
+        db,
+        TagScopeType::Personal,
+        Some(user.id),
+        None,
+        MIGRATION_TAG_NAME,
+        MIGRATION_TAG_NORMALIZED_NAME,
+        MIGRATION_TAG_COLOR,
+    )
+    .await
+    .unwrap();
+
+    property_repo::upsert(
+        db,
+        EntityType::File,
+        file_id,
+        MIGRATION_TAG_PROPERTY_NAMESPACE,
+        &tag.id.to_string(),
+        None,
+    )
+    .await
+    .unwrap();
+}
+
 async fn seed_contact_verification_history(database_url: &str) {
     let db = db::connect_with_metrics(
         &DatabaseConfig {
@@ -556,6 +618,24 @@ async fn assert_migrated_fixture(
         "SELECT COUNT(*) FROM master_bindings",
     )
     .await;
+    let user_invitations = scalar_i64(
+        &target_db,
+        target_backend,
+        "SELECT COUNT(*) FROM user_invitations",
+    )
+    .await;
+    let tags = scalar_i64(&target_db, target_backend, "SELECT COUNT(*) FROM tags").await;
+    let migrated_file_tag_bindings = scalar_i64(
+        &target_db,
+        target_backend,
+        &format!(
+            "SELECT COUNT(*) FROM entity_properties \
+             WHERE entity_type = 'file' \
+               AND entity_id = {file_id} \
+               AND namespace = '{MIGRATION_TAG_PROPERTY_NAMESPACE}'"
+        ),
+    )
+    .await;
     let remote_policies = scalar_i64(
         &target_db,
         target_backend,
@@ -595,6 +675,12 @@ async fn assert_migrated_fixture(
         ),
     )
     .await;
+    let migrated_tag_color = scalar_string(
+        &target_db,
+        target_backend,
+        &format!("SELECT color FROM tags WHERE name = '{MIGRATION_TAG_NAME}'"),
+    )
+    .await;
 
     assert_eq!(users, 1);
     assert_eq!(folders, 1);
@@ -609,6 +695,9 @@ async fn assert_migrated_fixture(
     assert_eq!(managed_followers, 1);
     assert_eq!(enrollment_sessions, 1);
     assert_eq!(master_bindings, 1);
+    assert_eq!(user_invitations, 1);
+    assert_eq!(tags, 1);
+    assert_eq!(migrated_file_tag_bindings, 1);
     assert_eq!(remote_policies, 1);
     assert_eq!(file_name, "test-in-folder.txt");
     assert_eq!(passkey.name, "Migrated Passkey");
@@ -624,6 +713,7 @@ async fn assert_migrated_fixture(
         master_binding_storage_namespace,
         MIGRATION_MASTER_STORAGE_NAMESPACE
     );
+    assert_eq!(migrated_tag_color, MIGRATION_TAG_COLOR);
 }
 
 #[test]
