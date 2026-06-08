@@ -285,6 +285,7 @@ export default function ShareViewPage() {
 						updated_at: new Date().toISOString(),
 						deleted_at: null,
 						is_locked: false,
+						tags: [],
 					} satisfies FileInfo)
 				: null;
 

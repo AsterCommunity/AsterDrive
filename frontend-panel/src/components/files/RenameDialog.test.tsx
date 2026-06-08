@@ -168,6 +168,34 @@ describe("RenameDialog", () => {
 		expect(mockState.refresh).toHaveBeenCalledTimes(1);
 	});
 
+	it("uses the provided rename callback instead of refreshing the store", async () => {
+		const onOpenChange = vi.fn();
+		const onRenamed = vi.fn().mockResolvedValue(undefined);
+
+		render(
+			<RenameDialog
+				open
+				onOpenChange={onOpenChange}
+				type="file"
+				id={7}
+				currentName="draft.md"
+				onRenamed={onRenamed}
+			/>,
+		);
+
+		fireEvent.change(screen.getByDisplayValue("draft.md"), {
+			target: { value: "draft-final.md" },
+		});
+		fireEvent.click(screen.getByRole("button", { name: "rename" }));
+
+		await waitFor(() => {
+			expect(mockState.renameFile).toHaveBeenCalledWith(7, "draft-final.md");
+		});
+		expect(onOpenChange).toHaveBeenCalledWith(false);
+		expect(onRenamed).toHaveBeenCalledTimes(1);
+		expect(mockState.refresh).not.toHaveBeenCalled();
+	});
+
 	it("renames folders and reports service failures without closing the dialog", async () => {
 		const onOpenChange = vi.fn();
 		const error = new Error("rename failed");

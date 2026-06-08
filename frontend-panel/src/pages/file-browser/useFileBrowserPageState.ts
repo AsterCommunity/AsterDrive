@@ -2,6 +2,7 @@ import type { TFunction } from "i18next";
 import { useCallback, useEffect, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { toast } from "sonner";
+import type { TagManagerTarget } from "@/components/files/TagManagerDialog";
 import { handleApiError } from "@/hooks/useApiError";
 import {
 	BatchTargetFolderDialog,
@@ -20,7 +21,17 @@ import type {
 } from "@/pages/file-browser/types";
 import { fileService } from "@/services/fileService";
 import { useFileStore } from "@/stores/fileStore";
-import type { FileInfo, FileListItem, FolderListItem } from "@/types/api";
+import type {
+	EntityType,
+	FileInfo,
+	FileListItem,
+	FolderListItem,
+} from "@/types/api";
+
+const ENTITY_TYPE_BY_TARGET = {
+	file: "file",
+	folder: "folder",
+} satisfies Record<"file" | "folder", EntityType>;
 
 interface FileBrowserLocationState {
 	searchPreviewFile?: FileListItem;
@@ -74,6 +85,9 @@ export function useFileBrowserPageState({
 	const [infoTarget, setInfoTarget] = useState<FileBrowserInfoTarget | null>(
 		null,
 	);
+	const [tagManagerOpen, setTagManagerOpen] = useState(false);
+	const [tagManagerTarget, setTagManagerTarget] =
+		useState<TagManagerTarget | null>(null);
 
 	useEffect(() => {
 		setInfoPanelOpen(false);
@@ -241,6 +255,27 @@ export function useFileBrowserPageState({
 		[displayFiles, displayFolders],
 	);
 
+	const handleManageTags = useCallback(
+		(type: "file" | "folder", id: number) => {
+			const item =
+				type === "file"
+					? displayFiles.find((entry) => entry.id === id)
+					: displayFolders.find((entry) => entry.id === id);
+			if (!item) return;
+
+			setTagManagerTarget({
+				mode: "entity",
+				entityId: item.id,
+				entityType: ENTITY_TYPE_BY_TARGET[type],
+				initialTags: item.tags ?? [],
+				name: item.name,
+				onChanged: refresh,
+			});
+			setTagManagerOpen(true);
+		},
+		[displayFiles, displayFolders, refresh],
+	);
+
 	const handleDelete = useCallback(
 		async (type: "file" | "folder", id: number) => {
 			try {
@@ -267,6 +302,7 @@ export function useFileBrowserPageState({
 		handleCopyConfirm,
 		handleDelete,
 		handleInfo,
+		handleManageTags,
 		handleMove,
 		handleVersionRestored,
 		handleVersions,
@@ -287,8 +323,11 @@ export function useFileBrowserPageState({
 		setPreviewState,
 		setRenameTarget,
 		setShareTarget,
+		setTagManagerOpen,
 		setVersionTarget,
 		shareTarget,
+		tagManagerOpen,
+		tagManagerTarget,
 		versionTarget,
 	};
 }

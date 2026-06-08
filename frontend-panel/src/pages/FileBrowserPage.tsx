@@ -3,6 +3,8 @@ import { useTranslation } from "react-i18next";
 import { useParams, useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 import { getImagePreviewNavigation } from "@/components/files/preview/imagePreviewNavigation";
+import { TagLibraryManagerDialog } from "@/components/files/TagLibraryManagerDialog";
+import { TagManagerDialog } from "@/components/files/TagManagerDialog";
 import {
 	UploadArea,
 	type UploadAreaHandle,
@@ -99,6 +101,7 @@ export default function FileBrowserPage() {
 	const uploadAreaRef = useRef<UploadAreaHandle | null>(null);
 	const [uploadReady, setUploadReady] = useState(false);
 	const [offlineDownloadOpen, setOfflineDownloadOpen] = useState(false);
+	const [tagLibraryManagerOpen, setTagLibraryManagerOpen] = useState(false);
 	const sentinelRef = useRef<HTMLDivElement | null>(null);
 	const [scrollViewport, setScrollViewport] = useState<HTMLDivElement | null>(
 		null,
@@ -136,6 +139,7 @@ export default function FileBrowserPage() {
 		handleCopyConfirm,
 		handleDelete,
 		handleInfo,
+		handleManageTags,
 		handleMove,
 		handleVersionRestored,
 		handleVersions,
@@ -156,8 +160,11 @@ export default function FileBrowserPage() {
 		setPreviewState,
 		setRenameTarget,
 		setShareTarget,
+		setTagManagerOpen,
 		setVersionTarget,
 		shareTarget,
+		tagManagerOpen,
+		tagManagerTarget,
 		versionTarget,
 	} = useFileBrowserPageState({
 		displayFiles,
@@ -270,6 +277,7 @@ export default function FileBrowserPage() {
 			handleDelete,
 			handleDownload,
 			handleInfo,
+			handleManageTags,
 			handleMove,
 			handleMoveToFolder,
 			handleToggleLock,
@@ -326,6 +334,7 @@ export default function FileBrowserPage() {
 				onBreadcrumbDrop={handleBreadcrumbDrop}
 				onCreateFile={() => setCreateFileOpen(true)}
 				onCreateFolder={() => setCreateFolderOpen(true)}
+				onManageTagLibrary={() => setTagLibraryManagerOpen(true)}
 				onNavigateToFolder={handleNavigateToFolder}
 				onOfflineDownload={openOfflineDownloadDialog}
 				onRefresh={refresh}
@@ -386,6 +395,15 @@ export default function FileBrowserPage() {
 		>
 			<UploadArea ref={handleUploadAreaReady}>{pageCore}</UploadArea>
 			{batchActionDialogs}
+			<TagManagerDialog
+				open={tagManagerOpen}
+				onOpenChange={setTagManagerOpen}
+				target={tagManagerTarget}
+			/>
+			<TagLibraryManagerDialog
+				open={tagLibraryManagerOpen}
+				onOpenChange={setTagLibraryManagerOpen}
+			/>
 
 			<FileBrowserDialogs
 				archiveTaskTarget={archiveTaskTarget}

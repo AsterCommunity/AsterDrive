@@ -1,6 +1,7 @@
 import { useTranslation } from "react-i18next";
 import { FileItemStatusIndicators } from "@/components/files/FileItemStatusIndicators";
 import { FileThumbnail } from "@/components/files/FileThumbnail";
+import { TagChips } from "@/components/files/TagChips";
 import { Icon } from "@/components/ui/icon";
 import { TableCell } from "@/components/ui/table";
 import { formatBytes, formatDate } from "@/lib/format";
@@ -18,9 +19,16 @@ export function FileNameCell({
 			<div className="flex min-w-0 items-center gap-2.5">
 				<FileThumbnail file={file} size="sm" thumbnailPath={thumbnailPath} />
 				<div className="flex min-w-0 flex-1 items-center gap-2">
-					<span className="min-w-0 truncate" title={file.name}>
-						{file.name}
-					</span>
+					<div className="flex min-w-0 flex-1 items-center gap-2">
+						<span className="min-w-0 truncate" title={file.name}>
+							{file.name}
+						</span>
+						<TagChips
+							tags={file.tags}
+							maxVisible={2}
+							className="hidden min-w-0 flex-nowrap overflow-hidden sm:flex"
+						/>
+					</div>
 					<FileItemStatusIndicators
 						isShared={file.is_shared}
 						isLocked={file.is_locked}
@@ -39,9 +47,16 @@ export function FolderNameCell({ folder }: { folder: FolderListItem }) {
 			<div className="flex min-w-0 items-center gap-2.5">
 				<Icon name="Folder" className="size-4 shrink-0 text-amber-500" />
 				<div className="flex min-w-0 flex-1 items-center gap-2">
-					<span className="min-w-0 truncate" title={folder.name}>
-						{folder.name}
-					</span>
+					<div className="flex min-w-0 flex-1 items-center gap-2">
+						<span className="min-w-0 truncate" title={folder.name}>
+							{folder.name}
+						</span>
+						<TagChips
+							tags={folder.tags}
+							maxVisible={2}
+							className="hidden min-w-0 flex-nowrap overflow-hidden sm:flex"
+						/>
+					</div>
 					<FileItemStatusIndicators
 						isShared={folder.is_shared}
 						isLocked={folder.is_locked}

@@ -68,6 +68,7 @@ export interface FileBrowserSelectionToolbarState {
 	onClearSelection: () => void;
 	onCopy: () => void;
 	onDelete: () => void;
+	onManageTags: () => void;
 	onMove: () => void;
 	onToggleDisplayedSelection: () => void;
 }

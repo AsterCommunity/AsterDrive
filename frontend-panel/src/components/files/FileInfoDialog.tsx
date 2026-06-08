@@ -1,20 +1,29 @@
-import { useMemo } from "react";
+import { type ReactNode, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { TagChips } from "@/components/files/TagChips";
+import {
+	TagManagerDialog,
+	type TagManagerTarget,
+} from "@/components/files/TagManagerDialog";
+import { Button } from "@/components/ui/button";
 import {
 	Dialog,
 	DialogContent,
 	DialogHeader,
 	DialogTitle,
 } from "@/components/ui/dialog";
+import { Icon } from "@/components/ui/icon";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useRetainedDialogValue } from "@/hooks/useRetainedDialogValue";
 import { formatBytes, formatDateAbsolute } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import type {
+	EntityType,
 	FileInfo,
 	FileListItem,
 	FolderInfo,
 	FolderListItem,
+	TagSummary,
 } from "@/types/api";
 import { FileInfoDialogContent } from "./file-info-dialog/FileInfoDialogContent";
 import {
@@ -181,7 +190,7 @@ function FileInfoDialogFrame({
 	open,
 	title,
 }: {
-	content: React.ReactNode;
+	content: ReactNode;
 	desktopVisible: boolean;
 	handleOpenChangeComplete: (open: boolean) => void;
 	isDesktop: boolean;
@@ -230,6 +239,66 @@ function FileInfoDialogFrame({
 				<ScrollArea className="max-h-[min(80vh,42rem)]">{content}</ScrollArea>
 			</DialogContent>
 		</Dialog>
+	);
+}
+
+function TagsSection({
+	entityId,
+	entityType,
+	initialTags,
+	name,
+	title,
+}: {
+	entityId: number;
+	entityType: EntityType;
+	initialTags: TagSummary[];
+	name: string;
+	title: string;
+}) {
+	const { t } = useTranslation(["files"]);
+	const [tags, setTags] = useState(initialTags);
+	const [managerOpen, setManagerOpen] = useState(false);
+	const target = useMemo<TagManagerTarget>(
+		() => ({
+			mode: "entity",
+			entityId,
+			entityType,
+			initialTags: tags,
+			name,
+			onTagsChange: setTags,
+		}),
+		[entityId, entityType, name, tags],
+	);
+
+	return (
+		<section className="space-y-3 rounded-2xl border border-border/60 bg-card/55 p-4 dark:bg-background/18">
+			<div className="flex items-center justify-between gap-3">
+				<h3 className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+					{title}
+				</h3>
+				<Button
+					type="button"
+					size="sm"
+					variant="outline"
+					onClick={() => setManagerOpen(true)}
+				>
+					<Icon name="Tag" className="size-3.5" />
+					{t("tag_manage")}
+				</Button>
+			</div>
+			<TagChips
+				tags={tags}
+				maxVisible={8}
+				empty={
+					<p className="text-sm text-muted-foreground">{t("tag_no_tags")}</p>
+				}
+			/>
+			<TagManagerDialog
+				open={managerOpen}
+				onOpenChange={setManagerOpen}
+				target={target}
+			/>
+		</section>
 	);
 }
 
@@ -328,6 +397,19 @@ export function FileInfoDialog({
 	const metadataTitle = data.renderedMediaMetadataKind
 		? t(`info_media_metadata_${data.renderedMediaMetadataKind}`)
 		: t("info_media_metadata");
+	const renderedTarget = renderedFile ?? renderedFolder;
+	const activeTarget = activeFile ?? activeFolder ?? renderedTarget;
+	const tagsSection =
+		activeTarget && (renderedFile || renderedFolder) ? (
+			<TagsSection
+				key={`${renderedFile ? "file" : "folder"}-${activeTarget.id}`}
+				entityId={activeTarget.id}
+				entityType={renderedFile ? "file" : "folder"}
+				initialTags={activeTarget.tags}
+				name={activeTarget.name}
+				title={t("info_tags")}
+			/>
+		) : null;
 
 	if (
 		(isDesktop && !open && !desktopMounted) ||
@@ -350,6 +432,7 @@ export function FileInfoDialog({
 			statusTitle={t("info_status")}
 			summaryLabel={summaryLabel}
 			summarySubtitle={summarySubtitle}
+			tagsSection={tagsSection}
 			targetIcon={
 				renderedFile
 					? {

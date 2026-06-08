@@ -5,6 +5,8 @@ use sea_orm::sea_query::{
     Alias, Expr, Func, IntoColumnRef, Query, SimpleExpr, extension::sqlite::SqliteExpr,
 };
 
+use crate::utils::char_count;
+
 pub fn escape_like_query(query: &str) -> String {
     query.replace('%', "\\%").replace('_', "\\_")
 }
@@ -24,7 +26,7 @@ pub fn lower_like_condition(column: impl IntoColumnRef + Copy, query: &str) -> S
 }
 
 pub fn sqlite_match_query(query: &str) -> Option<String> {
-    if query.chars().count() < 3 {
+    if char_count(query) < 3 {
         return None;
     }
 
@@ -32,7 +34,7 @@ pub fn sqlite_match_query(query: &str) -> Option<String> {
 }
 
 pub fn mysql_boolean_mode_query(query: &str) -> Option<String> {
-    if query.chars().count() < 3 || query.chars().any(|ch| !ch.is_alphanumeric()) {
+    if char_count(query) < 3 || query.chars().any(|ch| !ch.is_alphanumeric()) {
         return None;
     }
 

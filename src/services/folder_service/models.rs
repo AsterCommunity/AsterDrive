@@ -6,6 +6,8 @@ use std::collections::HashSet;
 use utoipa::ToSchema;
 
 use crate::entities::{file, folder};
+use crate::services::tag_service::TagSummary;
+use crate::types::EntityType;
 
 #[derive(Serialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
@@ -32,6 +34,7 @@ pub struct FileListItem {
     pub updated_at: chrono::DateTime<chrono::Utc>,
     pub is_locked: bool,
     pub is_shared: bool,
+    pub tags: Vec<TagSummary>,
 }
 
 #[derive(Clone, Serialize)]
@@ -43,6 +46,7 @@ pub struct FolderListItem {
     pub updated_at: chrono::DateTime<chrono::Utc>,
     pub is_locked: bool,
     pub is_shared: bool,
+    pub tags: Vec<TagSummary>,
 }
 
 #[derive(Serialize)]
@@ -68,6 +72,14 @@ pub fn build_file_list_items(
     files: Vec<file::Model>,
     shared_file_ids: &HashSet<i64>,
 ) -> Vec<FileListItem> {
+    build_file_list_items_with_tags(files, shared_file_ids, &std::collections::HashMap::new())
+}
+
+pub fn build_file_list_items_with_tags(
+    files: Vec<file::Model>,
+    shared_file_ids: &HashSet<i64>,
+    tags_by_entity: &std::collections::HashMap<(EntityType, i64), Vec<TagSummary>>,
+) -> Vec<FileListItem> {
     files
         .into_iter()
         .map(|file| FileListItem {
@@ -81,6 +93,10 @@ pub fn build_file_list_items(
             updated_at: file.updated_at,
             is_locked: file.is_locked,
             is_shared: shared_file_ids.contains(&file.id),
+            tags: tags_by_entity
+                .get(&(EntityType::File, file.id))
+                .cloned()
+                .unwrap_or_default(),
         })
         .collect()
 }
@@ -88,6 +104,18 @@ pub fn build_file_list_items(
 pub fn build_folder_list_items(
     folders: Vec<folder::Model>,
     shared_folder_ids: &HashSet<i64>,
+) -> Vec<FolderListItem> {
+    build_folder_list_items_with_tags(
+        folders,
+        shared_folder_ids,
+        &std::collections::HashMap::new(),
+    )
+}
+
+pub fn build_folder_list_items_with_tags(
+    folders: Vec<folder::Model>,
+    shared_folder_ids: &HashSet<i64>,
+    tags_by_entity: &std::collections::HashMap<(EntityType, i64), Vec<TagSummary>>,
 ) -> Vec<FolderListItem> {
     folders
         .into_iter()
@@ -97,6 +125,10 @@ pub fn build_folder_list_items(
             updated_at: folder.updated_at,
             is_locked: folder.is_locked,
             is_shared: shared_folder_ids.contains(&folder.id),
+            tags: tags_by_entity
+                .get(&(EntityType::Folder, folder.id))
+                .cloned()
+                .unwrap_or_default(),
         })
         .collect()
 }
@@ -104,7 +136,7 @@ pub fn build_folder_list_items(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::collections::HashSet;
+    use std::collections::{HashMap, HashSet};
 
     fn mock_file(
         id: i64,
@@ -209,6 +241,52 @@ mod tests {
     }
 
     #[test]
+    fn build_file_list_items_with_tags_maps_hits_and_preserves_shared_state() {
+        let files = vec![
+            mock_file(
+                1,
+                "a.txt",
+                false,
+                "txt",
+                None,
+                crate::types::FileCategory::Document,
+            ),
+            mock_file(
+                2,
+                "b.txt",
+                false,
+                "txt",
+                None,
+                crate::types::FileCategory::Document,
+            ),
+        ];
+        let shared: HashSet<i64> = [1].into_iter().collect();
+        let tag = TagSummary {
+            id: 10,
+            name: "Work".to_string(),
+            color: "#2563eb".to_string(),
+        };
+        let mut tags_by_entity = HashMap::new();
+        tags_by_entity.insert((EntityType::File, 1), vec![tag.clone()]);
+        tags_by_entity.insert(
+            (EntityType::Folder, 1),
+            vec![TagSummary {
+                id: 11,
+                name: "Folder only".to_string(),
+                color: "#059669".to_string(),
+            }],
+        );
+
+        let items = build_file_list_items_with_tags(files, &shared, &tags_by_entity);
+
+        assert!(items[0].is_shared);
+        assert_eq!(items[0].tags.len(), 1);
+        assert_eq!(items[0].tags[0].id, tag.id);
+        assert!(!items[1].is_shared);
+        assert!(items[1].tags.is_empty());
+    }
+
+    #[test]
     fn build_folder_list_items_maps_correctly() {
         let folders = vec![mock_folder(1, "docs", false), mock_folder(2, "pics", true)];
         let shared: HashSet<i64> = [2].into_iter().collect();
@@ -220,5 +298,34 @@ mod tests {
         assert_eq!(items[1].id, 2);
         assert!(items[1].is_shared);
         assert!(items[1].is_locked);
+    }
+
+    #[test]
+    fn build_folder_list_items_with_tags_maps_hits_and_isolates_entity_type() {
+        let folders = vec![mock_folder(1, "docs", false), mock_folder(2, "pics", true)];
+        let shared: HashSet<i64> = [2].into_iter().collect();
+        let tag = TagSummary {
+            id: 20,
+            name: "Important".to_string(),
+            color: "#dc2626".to_string(),
+        };
+        let mut tags_by_entity = HashMap::new();
+        tags_by_entity.insert((EntityType::Folder, 1), vec![tag.clone()]);
+        tags_by_entity.insert(
+            (EntityType::File, 2),
+            vec![TagSummary {
+                id: 21,
+                name: "File only".to_string(),
+                color: "#7c3aed".to_string(),
+            }],
+        );
+
+        let items = build_folder_list_items_with_tags(folders, &shared, &tags_by_entity);
+
+        assert!(!items[0].is_shared);
+        assert_eq!(items[0].tags.len(), 1);
+        assert_eq!(items[0].tags[0].id, tag.id);
+        assert!(items[1].is_shared);
+        assert!(items[1].tags.is_empty());
     }
 }

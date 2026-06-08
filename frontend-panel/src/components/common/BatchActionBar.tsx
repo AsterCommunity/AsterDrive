@@ -148,11 +148,11 @@ export function BatchActionBar({
 					</Button>
 					<Button size="sm" variant="outline" onClick={handleMove}>
 						<Icon name="ArrowsOutCardinal" className="size-3.5 mr-1" />
-						{t("move")}
+						{t("move_to")}
 					</Button>
 					<Button size="sm" variant="outline" onClick={handleCopy}>
 						<Icon name="Copy" className="size-3.5 mr-1" />
-						{t("copy")}
+						{t("copy_to")}
 					</Button>
 					{onArchiveCompress ? (
 						<Button size="sm" variant="outline" onClick={handleArchiveCompress}>

@@ -78,6 +78,7 @@ interface FileBrowserToolbarProps {
 	) => Promise<void>;
 	onCreateFile: () => void;
 	onCreateFolder: () => void;
+	onManageTagLibrary: () => void;
 	onNavigateToFolder: (folderId: number | null, folderName: string) => void;
 	onOfflineDownload: () => void;
 	onRefresh: () => void | Promise<void>;
@@ -331,12 +332,22 @@ function FileBrowserSelectionToolbar({
 						type="button"
 						size="sm"
 						variant="outline"
+						className="hidden sm:inline-flex"
+						onClick={renderedSelectionToolbar.onManageTags}
+					>
+						<Icon name="Tag" className="size-3.5" />
+						<span>{t("tag_manage")}</span>
+					</Button>
+					<Button
+						type="button"
+						size="sm"
+						variant="outline"
 						onClick={renderedSelectionToolbar.onMove}
-						aria-label={t("move")}
-						title={t("move")}
+						aria-label={t("move_to")}
+						title={t("move_to")}
 					>
 						<Icon name="ArrowsOutCardinal" className="size-3.5" />
-						<span className="hidden min-[420px]:inline">{t("move")}</span>
+						<span className="hidden min-[420px]:inline">{t("move_to")}</span>
 					</Button>
 					<Button
 						type="button"
@@ -346,7 +357,7 @@ function FileBrowserSelectionToolbar({
 						onClick={renderedSelectionToolbar.onCopy}
 					>
 						<Icon name="Copy" className="size-3.5" />
-						<span>{t("copy")}</span>
+						<span>{t("copy_to")}</span>
 					</Button>
 					<DropdownMenu>
 						<DropdownMenuTrigger
@@ -388,7 +399,14 @@ function FileBrowserSelectionToolbar({
 								onClick={renderedSelectionToolbar.onCopy}
 							>
 								<Icon name="Copy" className="size-4 text-muted-foreground" />
-								{t("copy")}
+								{t("copy_to")}
+							</DropdownMenuItem>
+							<DropdownMenuItem
+								className="sm:hidden"
+								onClick={renderedSelectionToolbar.onManageTags}
+							>
+								<Icon name="Tag" className="size-4 text-muted-foreground" />
+								{t("tag_manage")}
 							</DropdownMenuItem>
 							{renderedSelectionToolbar.onArchiveCompress ? (
 								<DropdownMenuItem
@@ -434,6 +452,7 @@ export function FileBrowserToolbar({
 	onBreadcrumbDrop,
 	onCreateFile,
 	onCreateFolder,
+	onManageTagLibrary,
 	onNavigateToFolder,
 	onOfflineDownload,
 	onRefresh,
@@ -619,12 +638,23 @@ export function FileBrowserToolbar({
 					uploadReady={uploadReady}
 					onCreateFile={onCreateFile}
 					onCreateFolder={onCreateFolder}
+					onManageTagLibrary={onManageTagLibrary}
 					onOfflineDownload={onOfflineDownload}
 					onRefresh={onRefresh}
 					onTriggerFileUpload={onTriggerFileUpload}
 					onTriggerFolderUpload={onTriggerFolderUpload}
 				/>
 			</DropdownMenu>
+			<Button
+				type="button"
+				size="sm"
+				variant="outline"
+				className="hidden md:inline-flex"
+				onClick={onManageTagLibrary}
+			>
+				<Icon name="Tag" className="size-3.5" />
+				<span>{t("tag_library_manage")}</span>
+			</Button>
 			<SortMenu
 				sortBy={sortBy}
 				sortOrder={sortOrder}

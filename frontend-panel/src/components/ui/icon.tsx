@@ -85,6 +85,7 @@ import {
 	PiSpinner,
 	PiSun,
 	PiTable,
+	PiTag,
 	PiTrash,
 	PiUploadSimple,
 	PiUser,
@@ -183,6 +184,7 @@ export type IconName =
 	| "Spinner"
 	| "Sun"
 	| "Table"
+	| "Tag"
 	| "Trash"
 	| "Undo"
 	| "Upload"
@@ -280,6 +282,7 @@ const iconMap: Record<IconName, ComponentType<{ className?: string }>> = {
 	Spinner: PiSpinner,
 	Sun: PiSun,
 	Table: PiTable,
+	Tag: PiTag,
 	Trash: PiTrash,
 	Undo: PiArrowUUpLeft,
 	Upload: PiUploadSimple,

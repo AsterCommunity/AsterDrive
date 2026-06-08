@@ -95,6 +95,10 @@ pub fn normalize_name(name: &str) -> String {
     name.nfc().collect()
 }
 
+pub fn char_count(value: &str) -> usize {
+    value.chars().count()
+}
+
 pub fn normalize_validate_name(name: &str) -> Result<String> {
     let normalized = normalize_name(name);
     validate_normalized_name(&normalized)?;

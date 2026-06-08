@@ -157,6 +157,11 @@ macro_rules! define_audit_action_list {
             MailDeliveryFailed,
             AdminCreateInvitation,
             AdminRevokeInvitation,
+            TagCreate,
+            TagUpdate,
+            TagDelete,
+            TagAttach,
+            TagDetach,
         }
     };
 }
@@ -240,6 +245,7 @@ define_audit_entity_type! {
     StoragePolicy => "storage_policy",
     StreamTicket => "stream_ticket",
     SystemConfig => "system_config",
+    Tag => "tag",
     Task => "task",
     Team => "team",
     Trash => "trash",
@@ -662,6 +668,16 @@ pub enum AuditAction {
     AdminCreateInvitation,
     #[sea_orm(string_value = "admin_revoke_invitation")]
     AdminRevokeInvitation,
+    #[sea_orm(string_value = "tag_create")]
+    TagCreate,
+    #[sea_orm(string_value = "tag_update")]
+    TagUpdate,
+    #[sea_orm(string_value = "tag_delete")]
+    TagDelete,
+    #[sea_orm(string_value = "tag_attach")]
+    TagAttach,
+    #[sea_orm(string_value = "tag_detach")]
+    TagDetach,
 }
 
 impl AuditAction {
@@ -813,6 +829,11 @@ impl AuditAction {
             Self::MailDeliveryFailed => 140,
             Self::AdminCreateInvitation => 141,
             Self::AdminRevokeInvitation => 142,
+            Self::TagCreate => 143,
+            Self::TagUpdate => 144,
+            Self::TagDelete => 145,
+            Self::TagAttach => 146,
+            Self::TagDetach => 147,
         }
     }
 
@@ -963,6 +984,11 @@ impl AuditAction {
             Self::MailDeliveryFailed => "mail_delivery_failed",
             Self::AdminCreateInvitation => "admin_create_invitation",
             Self::AdminRevokeInvitation => "admin_revoke_invitation",
+            Self::TagCreate => "tag_create",
+            Self::TagUpdate => "tag_update",
+            Self::TagDelete => "tag_delete",
+            Self::TagAttach => "tag_attach",
+            Self::TagDetach => "tag_detach",
         }
     }
 
@@ -1113,6 +1139,11 @@ impl AuditAction {
             "mail_delivery_failed" => Some(Self::MailDeliveryFailed),
             "admin_create_invitation" => Some(Self::AdminCreateInvitation),
             "admin_revoke_invitation" => Some(Self::AdminRevokeInvitation),
+            "tag_create" => Some(Self::TagCreate),
+            "tag_update" => Some(Self::TagUpdate),
+            "tag_delete" => Some(Self::TagDelete),
+            "tag_attach" => Some(Self::TagAttach),
+            "tag_detach" => Some(Self::TagDetach),
             _ => None,
         }
     }
@@ -1252,6 +1283,11 @@ impl AuditAction {
             | Self::FollowerIngressProfileUpdate
             | Self::FollowerIngressProfileDelete => "remote_ingress",
             Self::MailSend | Self::MailDeliveryFailed => "mail",
+            Self::TagCreate
+            | Self::TagUpdate
+            | Self::TagDelete
+            | Self::TagAttach
+            | Self::TagDetach => "tag",
         }
     }
 }

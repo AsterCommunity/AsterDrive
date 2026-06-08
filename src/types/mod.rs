@@ -18,6 +18,7 @@ pub mod passkey;
 pub mod patch;
 pub mod preferences;
 pub mod storage_policy;
+pub mod tag;
 pub mod task;
 pub mod team;
 pub mod user;

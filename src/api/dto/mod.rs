@@ -26,6 +26,7 @@ pub mod folders;
 pub mod properties;
 pub mod share_public;
 pub mod shares;
+pub mod tags;
 pub mod teams;
 pub mod trash;
 pub(crate) mod validation;
@@ -52,6 +53,10 @@ pub use folders::{CopyFolderReq, CreateFolderReq, PatchFolderReq, SetLockReq as 
 pub use properties::{EntityPath, PropPath, SetPropReq};
 pub use share_public::{DirectLinkQuery, VerifyPasswordReq};
 pub use shares::{BatchDeleteSharesReq, CreateShareReq, UpdateShareReq};
+pub use tags::{
+    BatchTagBindingReq, CreateTagReq, DEFAULT_TAG_LIMIT, EntityTagsPath, PatchTagReq,
+    ReplaceEntityTagsReq, TagEntityPath, TagListQuery, TagPath,
+};
 pub use teams::{
     AddTeamMemberReq, CreateTeamReq, ListTeamMembersQuery, ListTeamsQuery, PatchTeamMemberReq,
     PatchTeamReq,

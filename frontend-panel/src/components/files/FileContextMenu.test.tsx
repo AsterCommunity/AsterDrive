@@ -78,6 +78,7 @@ function renderMenu(
 		onDownload: vi.fn(),
 		onDirectShare: vi.fn(),
 		onInfo: vi.fn(),
+		onManageTags: vi.fn(),
 		onMove: vi.fn(),
 		onOpen: vi.fn(),
 		onPageShare: vi.fn(),
@@ -111,9 +112,10 @@ describe("FileContextMenu", () => {
 		fireEvent.click(screen.getByText("tasks:archive_compress_action"));
 		fireEvent.click(screen.getByText("share"));
 		fireEvent.click(screen.getByText("share:share_direct_link_action"));
-		fireEvent.click(screen.getByText("copy"));
-		fireEvent.click(screen.getByText("move"));
+		fireEvent.click(screen.getByText("copy_to"));
+		fireEvent.click(screen.getByText("move_to"));
 		fireEvent.click(screen.getByText("rename"));
+		fireEvent.click(screen.getByText("tag_manage"));
 		fireEvent.click(screen.getByText("versions"));
 		fireEvent.click(screen.getByText("info"));
 		fireEvent.click(screen.getByText("lock"));
@@ -129,6 +131,7 @@ describe("FileContextMenu", () => {
 		expect(handlers.onCopy).toHaveBeenCalledTimes(1);
 		expect(handlers.onMove).toHaveBeenCalledTimes(1);
 		expect(handlers.onRename).toHaveBeenCalledTimes(1);
+		expect(handlers.onManageTags).toHaveBeenCalledTimes(1);
 		expect(handlers.onVersions).toHaveBeenCalledTimes(1);
 		expect(handlers.onInfo).toHaveBeenCalledTimes(1);
 		expect(handlers.onToggleLock).toHaveBeenCalledTimes(1);
@@ -208,6 +211,7 @@ describe("FileContextMenu", () => {
 			onDownload: vi.fn(),
 			onCopy: vi.fn(),
 			onDelete: vi.fn(),
+			onManageTags: vi.fn(),
 			onMove: vi.fn(),
 		};
 
@@ -231,14 +235,16 @@ describe("FileContextMenu", () => {
 		expect(screen.queryByText("share")).not.toBeInTheDocument();
 		fireEvent.click(screen.getByText("tasks:archive_download_action"));
 		fireEvent.click(screen.getByText("tasks:archive_compress_action"));
-		fireEvent.click(screen.getByText("copy"));
-		fireEvent.click(screen.getByText("move"));
+		fireEvent.click(screen.getByText("copy_to"));
+		fireEvent.click(screen.getByText("move_to"));
+		fireEvent.click(screen.getByText("tag_manage"));
 		fireEvent.click(screen.getByText("delete"));
 
 		expect(handlers.onDownload).toHaveBeenCalledTimes(1);
 		expect(handlers.onArchiveCompress).toHaveBeenCalledTimes(1);
 		expect(handlers.onCopy).toHaveBeenCalledTimes(1);
 		expect(handlers.onMove).toHaveBeenCalledTimes(1);
+		expect(handlers.onManageTags).toHaveBeenCalledTimes(1);
 		expect(handlers.onDelete).toHaveBeenCalledTimes(1);
 	});
 

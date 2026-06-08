@@ -12,6 +12,7 @@ use crate::entities::system_config;
 use crate::errors::{AsterError, Result};
 use crate::services::config_service::{SystemConfig, SystemConfigValue};
 use crate::types::{SystemConfigSource, SystemConfigValueType};
+use crate::utils::char_count;
 use chrono::Utc;
 use clap::{Args, Subcommand};
 use serde::{Deserialize, Serialize};
@@ -333,7 +334,7 @@ fn format_config_list_value(config: &SystemConfig, palette: &CliTerminalPalette)
 fn summarize_multiline_value(value: &str) -> String {
     let trimmed = value.trim();
     let line_count = value.lines().count();
-    let char_count = value.chars().count();
+    let chars = char_count(value);
     let label = if looks_like_json(trimmed) {
         "json value"
     } else if looks_like_html(trimmed) {
@@ -341,7 +342,7 @@ fn summarize_multiline_value(value: &str) -> String {
     } else {
         "multiline value"
     };
-    format!("<{label}: {line_count} lines, {char_count} chars>")
+    format!("<{label}: {line_count} lines, {chars} chars>")
 }
 
 fn looks_like_json(value: &str) -> bool {

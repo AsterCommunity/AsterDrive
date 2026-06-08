@@ -7,6 +7,7 @@ import {
 } from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
+import { TagLibraryManagerDialog } from "@/components/files/TagLibraryManagerDialog";
 import { GlobalSearchHeader } from "@/components/layout/global-search/GlobalSearchHeader";
 import { GlobalSearchResultsPanel } from "@/components/layout/global-search/GlobalSearchResultsPanel";
 import {
@@ -32,11 +33,20 @@ import { workspaceFolderPath } from "@/lib/workspace";
 import { fileService } from "@/services/fileService";
 import { isRequestCanceled } from "@/services/http";
 import { searchService } from "@/services/searchService";
+import { createTagService } from "@/services/tagService";
 import { useWorkspaceStore } from "@/stores/workspaceStore";
-import type { FileCategory, SearchParams, SearchResults } from "@/types/api";
+import type {
+	FileCategory,
+	SearchParams,
+	SearchResults,
+	TagInfo,
+} from "@/types/api";
 
 const SEARCH_DEBOUNCE_MS = 180;
 const SEARCH_RESULT_LIMIT = 10;
+const TAG_FILTER_LIMIT = 100;
+
+type SearchTagMatch = "any" | "all";
 
 interface GlobalSearchDialogProps {
 	initialCategory?: FileCategory | null;
@@ -66,12 +76,19 @@ export function GlobalSearchDialog({
 	const [results, setResults] = useState<SearchResults>(EMPTY_RESULTS);
 	const [loading, setLoading] = useState(false);
 	const [loadingMore, setLoadingMore] = useState(false);
+	const [tagLoading, setTagLoading] = useState(false);
+	const [tags, setTags] = useState<TagInfo[]>([]);
+	const [selectedTagIds, setSelectedTagIds] = useState<number[]>([]);
+	const [tagMatch, setTagMatch] = useState<SearchTagMatch>("any");
+	const [tagLibraryManagerOpen, setTagLibraryManagerOpen] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 	const [activeIndex, setActiveIndex] = useState(0);
 	const [openingKey, setOpeningKey] = useState<string | null>(null);
 
 	const trimmedQuery = query.trim();
-	const hasSearchCriteria = Boolean(trimmedQuery || categoryFilter);
+	const hasSearchCriteria = Boolean(
+		trimmedQuery || categoryFilter || selectedTagIds.length > 0,
+	);
 	const searchType: SearchFilter = categoryFilter ? "file" : filter;
 
 	const buildSearchParams = useMemo(
@@ -80,10 +97,16 @@ export function GlobalSearchDialog({
 				...(trimmedQuery ? { q: trimmedQuery } : {}),
 				type: searchType,
 				...(categoryFilter ? { category: categoryFilter } : {}),
+				...(selectedTagIds.length > 0
+					? {
+							tag_ids: selectedTagIds.join(","),
+							tag_match: tagMatch,
+						}
+					: {}),
 				limit: SEARCH_RESULT_LIMIT,
 				...(offset == null ? {} : { offset }),
 			}),
-		[categoryFilter, searchType, trimmedQuery],
+		[categoryFilter, searchType, selectedTagIds, tagMatch, trimmedQuery],
 	);
 
 	const resultEntries = useMemo<SearchEntry[]>(
@@ -114,6 +137,11 @@ export function GlobalSearchDialog({
 			setQuery("");
 			setFilter("all");
 			setCategoryFilter(null);
+			setTags([]);
+			setTagLoading(false);
+			setSelectedTagIds([]);
+			setTagMatch("any");
+			setTagLibraryManagerOpen(false);
 			setResults(EMPTY_RESULTS);
 			setLoading(false);
 			setLoadingMore(false);
@@ -131,6 +159,37 @@ export function GlobalSearchDialog({
 	}, [open]);
 
 	useEffect(() => {
+		if (!open) {
+			return;
+		}
+
+		let cancelled = false;
+		const workspaceTagService = createTagService(workspace);
+		setTagLoading(true);
+		workspaceTagService
+			.listTags({ params: { limit: TAG_FILTER_LIMIT, offset: 0 } })
+			.then((tagPage) => {
+				if (!cancelled) {
+					setTags(tagPage.items);
+				}
+			})
+			.catch((tagError) => {
+				if (!cancelled && !isRequestCanceled(tagError)) {
+					setTags([]);
+				}
+			})
+			.finally(() => {
+				if (!cancelled) {
+					setTagLoading(false);
+				}
+			});
+
+		return () => {
+			cancelled = true;
+		};
+	}, [open, workspace]);
+
+	useEffect(() => {
 		if (!open || !initialCategory) {
 			return;
 		}
@@ -144,6 +203,31 @@ export function GlobalSearchDialog({
 		setLoadingMore(false);
 		setError(null);
 	}, [initialCategory, open]);
+
+	const handleToggleTag = (tagId: number) => {
+		setSelectedTagIds((current) =>
+			current.includes(tagId)
+				? current.filter((id) => id !== tagId)
+				: [...current, tagId],
+		);
+		setActiveIndex(0);
+	};
+
+	const handleLibraryTagUpdated = (tag: TagInfo) => {
+		setTags((current) =>
+			current.some((currentTag) => currentTag.id === tag.id)
+				? current.map((currentTag) =>
+						currentTag.id === tag.id ? tag : currentTag,
+					)
+				: [...current, tag],
+		);
+	};
+
+	const handleLibraryTagDeleted = (tagId: number) => {
+		setTags((current) => current.filter((tag) => tag.id !== tagId));
+		setSelectedTagIds((current) => current.filter((id) => id !== tagId));
+		setActiveIndex(0);
+	};
 
 	useEffect(() => {
 		if (!open) {
@@ -426,8 +510,15 @@ export function GlobalSearchDialog({
 					onInputKeyDown={(event) => {
 						void handleInputKeyDown(event);
 					}}
+					onManageTagLibrary={() => setTagLibraryManagerOpen(true)}
 					onQueryChange={setQuery}
+					onTagMatchChange={setTagMatch}
+					onTagToggle={handleToggleTag}
 					query={query}
+					selectedTagIds={selectedTagIds}
+					tagLoading={tagLoading}
+					tagMatch={tagMatch}
+					tags={tags}
 				/>
 				<GlobalSearchResultsPanel
 					activeIndex={activeIndex}
@@ -445,6 +536,12 @@ export function GlobalSearchDialog({
 					resultListRef={resultListRef}
 					results={results}
 					searchActive={hasSearchCriteria}
+				/>
+				<TagLibraryManagerDialog
+					open={tagLibraryManagerOpen}
+					onOpenChange={setTagLibraryManagerOpen}
+					onTagDeleted={handleLibraryTagDeleted}
+					onTagUpdated={handleLibraryTagUpdated}
 				/>
 			</DialogContent>
 		</Dialog>

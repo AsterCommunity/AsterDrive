@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { FileItemStatusIndicators } from "@/components/files/FileItemStatusIndicators";
 import { FileThumbnail } from "@/components/files/FileThumbnail";
+import { TagChips } from "@/components/files/TagChips";
 import { Icon } from "@/components/ui/icon";
 import { ItemCheckbox } from "@/components/ui/item-checkbox";
 import { DRAG_SOURCE_MIME } from "@/lib/constants";
@@ -177,6 +178,11 @@ export function FileCard({
 			>
 				{item.name}
 			</span>
+			<TagChips
+				tags={item.tags}
+				maxVisible={2}
+				className="mt-2 max-h-5 w-full justify-center overflow-hidden"
+			/>
 		</div>
 	);
 }

@@ -18,6 +18,7 @@ interface FileInfoDialogContentProps {
 	statusRows: DetailRow[];
 	summaryLabel: string;
 	summarySubtitle: string;
+	tagsSection?: React.ReactNode;
 	targetIcon:
 		| {
 				type: "file";
@@ -96,6 +97,7 @@ export function FileInfoDialogContent({
 	statusTitle,
 	summaryLabel,
 	summarySubtitle,
+	tagsSection,
 	targetIcon,
 	title,
 }: FileInfoDialogContentProps) {
@@ -154,6 +156,8 @@ export function FileInfoDialogContent({
 			<Section title={overviewTitle}>
 				<DetailList rows={overviewRows} />
 			</Section>
+
+			{tagsSection}
 
 			{metadataRows.length > 0 ? (
 				<Section title={metadataTitle}>

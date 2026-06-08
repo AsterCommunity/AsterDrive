@@ -40,6 +40,7 @@ pub use super::storage_policy::{
     parse_storage_policy_options, serialize_storage_policy_allowed_types,
     serialize_storage_policy_options,
 };
+pub use super::tag::TagScopeType;
 pub use super::task::{
     BackgroundTaskKind, BackgroundTaskStatus, StoredLockOwnerInfo, StoredTaskPayload,
     StoredTaskResult, StoredTaskRuntime, StoredTaskSteps,

@@ -144,6 +144,19 @@ export type VideoMediaMetadata = components["schemas"]["VideoMediaMetadata"];
 export type MediaMetadataPayload =
 	components["schemas"]["MediaMetadataPayload"];
 export type MediaMetadataInfo = components["schemas"]["MediaMetadataInfo"];
+export type BatchTagBindingRequest =
+	components["schemas"]["BatchTagBindingReq"];
+export type CreateTagRequest = components["schemas"]["CreateTagReq"];
+export type EntityTags = components["schemas"]["EntityTags"];
+export type EntityType = components["schemas"]["EntityType"];
+export type PatchTagRequest = components["schemas"]["PatchTagReq"];
+export type ReplaceEntityTagsRequest =
+	components["schemas"]["ReplaceEntityTagsReq"];
+export type TagInfo = components["schemas"]["TagInfo"];
+export type TagListParams = OperationQuery<"list_tags">;
+export type TagPage = components["schemas"]["OffsetPage_TagInfo"];
+export type TagScopeType = components["schemas"]["TagScopeType"];
+export type TagSummary = components["schemas"]["TagSummary"];
 
 // Sharing and search
 export type AdminSharePage = components["schemas"]["OffsetPage_ShareInfo"];

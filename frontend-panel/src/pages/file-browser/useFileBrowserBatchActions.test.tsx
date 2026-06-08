@@ -79,6 +79,34 @@ vi.mock("@/components/files/BatchTargetFolderDialog", () => ({
 		) : null,
 }));
 
+vi.mock("@/components/files/TagManagerDialog", () => ({
+	TagManagerDialog: ({
+		onOpenChange,
+		open,
+		target,
+	}: {
+		open: boolean;
+		onOpenChange: (open: boolean) => void;
+		target: {
+			count?: number;
+			fileIds?: number[];
+			folderIds?: number[];
+			onChanged?: () => Promise<void> | void;
+		} | null;
+	}) =>
+		open ? (
+			<div data-testid="tag-manager-dialog">
+				{`tag-target:${target?.count}:${target?.fileIds?.join(",")}:${target?.folderIds?.join(",")}`}
+				<button type="button" onClick={() => onOpenChange(false)}>
+					close-tag-manager
+				</button>
+				<button type="button" onClick={() => void target?.onChanged?.()}>
+					refresh-tag-manager
+				</button>
+			</div>
+		) : null,
+}));
+
 vi.mock("@/hooks/useApiError", () => ({
 	handleApiError: (...args: unknown[]) => mockState.handleApiError(...args),
 }));
@@ -108,6 +136,9 @@ vi.mock("@/stores/fileStore", () => ({
 }));
 
 vi.mock("@/stores/workspaceStore", () => ({
+	bindWorkspaceService: (
+		factory: (workspace: { kind: "personal" }) => unknown,
+	) => factory({ kind: "personal" }),
 	useWorkspaceStore: {
 		getState: () => ({ workspace: { kind: "personal" } }),
 	},
@@ -125,11 +156,19 @@ const mockStore = {
 };
 
 function Harness({
+	onArchiveCompress,
 	onArchiveDownload,
 	onDownload,
+	onMoveToFolder,
 }: {
+	onArchiveCompress?: (fileIds: number[], folderIds: number[]) => void;
 	onArchiveDownload?: (fileIds: number[], folderIds: number[]) => void;
 	onDownload?: (fileId: number, fileName: string) => void;
+	onMoveToFolder?: (
+		fileIds: number[],
+		folderIds: number[],
+		targetFolderId: number | null,
+	) => Promise<unknown> | unknown;
 } = {}) {
 	const { dialogs, selectionToolbar } = useFileBrowserBatchActions({
 		displayFiles: [
@@ -137,8 +176,10 @@ function Harness({
 			{ id: 2, name: "beta.txt" },
 		] as never,
 		displayFolders: [{ id: 5, name: "Docs" }] as never,
+		onArchiveCompress,
 		onArchiveDownload,
 		onDownload,
+		onMoveToFolder: onMoveToFolder as never,
 	});
 
 	return (
@@ -158,6 +199,17 @@ function Harness({
 					<button type="button" onClick={selectionToolbar.onCopy}>
 						copy-selected
 					</button>
+					<button type="button" onClick={selectionToolbar.onMove}>
+						move-selected
+					</button>
+					<button type="button" onClick={selectionToolbar.onManageTags}>
+						manage-tags
+					</button>
+					{selectionToolbar.onArchiveCompress ? (
+						<button type="button" onClick={selectionToolbar.onArchiveCompress}>
+							compress-selected
+						</button>
+					) : null}
 					{selectionToolbar.downloadAction ? (
 						<button
 							type="button"
@@ -267,6 +319,33 @@ describe("useFileBrowserBatchActions", () => {
 		expect(mockState.clearSelection).toHaveBeenCalledTimes(1);
 	});
 
+	it("routes archive action failures through handleApiError", async () => {
+		const downloadError = new Error("download failed");
+		const compressError = new Error("compress failed");
+		const onArchiveDownload = vi.fn().mockRejectedValue(downloadError);
+		const onArchiveCompress = vi.fn().mockRejectedValue(compressError);
+		mockState.selectedFileIds = new Set([1, 2]);
+		mockStore.selectedFileIds = mockState.selectedFileIds;
+
+		render(
+			<Harness
+				onArchiveCompress={onArchiveCompress}
+				onArchiveDownload={onArchiveDownload}
+			/>,
+		);
+
+		fireEvent.click(screen.getByText("download:archive"));
+		await waitFor(() => {
+			expect(mockState.handleApiError).toHaveBeenCalledWith(downloadError);
+		});
+		expect(mockState.clearSelection).not.toHaveBeenCalled();
+
+		fireEvent.click(screen.getByText("compress-selected"));
+		await waitFor(() => {
+			expect(mockState.handleApiError).toHaveBeenCalledWith(compressError);
+		});
+	});
+
 	it("deletes selected items after confirmation", async () => {
 		mockState.selectedFileIds = new Set([1, 2]);
 		mockState.selectedFolderIds = new Set([5]);
@@ -330,5 +409,75 @@ describe("useFileBrowserBatchActions", () => {
 		});
 		expect(mockState.clearSelection).toHaveBeenCalledTimes(1);
 		expect(mockState.refresh).toHaveBeenCalledTimes(1);
+	});
+
+	it("moves selected items through a custom handler and handles target failures", async () => {
+		const moveError = new Error("move failed");
+		const onMoveToFolder = vi
+			.fn()
+			.mockResolvedValueOnce({ errors: [], failed: 0, succeeded: 3 })
+			.mockRejectedValueOnce(moveError);
+		mockState.selectedFileIds = new Set([1, 2]);
+		mockState.selectedFolderIds = new Set([5]);
+		mockStore.selectedFileIds = mockState.selectedFileIds;
+		mockStore.selectedFolderIds = mockState.selectedFolderIds;
+
+		render(<Harness onMoveToFolder={onMoveToFolder} />);
+
+		fireEvent.click(screen.getByText("move-selected"));
+		fireEvent.click(screen.getByText("confirm-target:move"));
+
+		await waitFor(() => {
+			expect(onMoveToFolder).toHaveBeenCalledWith([1, 2], [5], 99);
+		});
+		expect(mockState.clearSelection).toHaveBeenCalledTimes(1);
+		expect(mockState.refresh).toHaveBeenCalledTimes(1);
+
+		fireEvent.click(screen.getByText("move-selected"));
+		fireEvent.click(screen.getByText("confirm-target:move"));
+
+		await waitFor(() => {
+			expect(mockState.handleApiError).toHaveBeenCalledWith(moveError);
+		});
+	});
+
+	it("opens the batch tag manager for selected file and folder ids", () => {
+		mockState.selectedFileIds = new Set([1, 2]);
+		mockState.selectedFolderIds = new Set([5]);
+		mockStore.selectedFileIds = mockState.selectedFileIds;
+		mockStore.selectedFolderIds = mockState.selectedFolderIds;
+
+		render(<Harness />);
+
+		fireEvent.click(screen.getByText("manage-tags"));
+
+		expect(screen.getByTestId("tag-manager-dialog")).toHaveTextContent(
+			"tag-target:3:1,2:5",
+		);
+	});
+
+	it("refreshes from the tag manager and closes it when the selection clears", async () => {
+		mockState.selectedFileIds = new Set([1, 2]);
+		mockState.selectedFolderIds = new Set([5]);
+		mockStore.selectedFileIds = mockState.selectedFileIds;
+		mockStore.selectedFolderIds = mockState.selectedFolderIds;
+
+		const { rerender } = render(<Harness />);
+
+		fireEvent.click(screen.getByText("manage-tags"));
+		fireEvent.click(screen.getByText("refresh-tag-manager"));
+
+		await waitFor(() => {
+			expect(mockState.refresh).toHaveBeenCalledTimes(1);
+		});
+
+		mockState.selectedFileIds = new Set();
+		mockState.selectedFolderIds = new Set();
+		mockStore.selectedFileIds = mockState.selectedFileIds;
+		mockStore.selectedFolderIds = mockState.selectedFolderIds;
+		rerender(<Harness />);
+
+		expect(screen.queryByTestId("tag-manager-dialog")).not.toBeInTheDocument();
+		expect(screen.getByText("no-toolbar")).toBeInTheDocument();
 	});
 });

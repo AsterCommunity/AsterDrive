@@ -13,6 +13,7 @@ const mockState = vi.hoisted(() => ({
 			onArchiveCompress?: () => void;
 			onCopy: () => void;
 			onDelete: () => void;
+			onManageTags?: () => void;
 			onMove: () => void;
 		} | null,
 		onArchiveCompress: vi.fn(),
@@ -26,6 +27,7 @@ const mockState = vi.hoisted(() => ({
 		onFileOpen: vi.fn(),
 		onFolderOpen: vi.fn(),
 		onInfo: vi.fn(),
+		onManageTags: vi.fn(),
 		onMove: vi.fn(),
 		onRename: vi.fn(),
 		onShare: vi.fn(),
@@ -60,6 +62,7 @@ vi.mock("@/components/files/FileContextMenu", () => ({
 		onDirectShare,
 		onDownload,
 		onInfo,
+		onManageTags,
 		onMove,
 		onOpen,
 		onPageShare,
@@ -82,6 +85,7 @@ vi.mock("@/components/files/FileContextMenu", () => ({
 		onDirectShare?: () => void;
 		onDownload?: () => void;
 		onInfo?: () => void;
+		onManageTags?: () => void;
 		onMove?: () => void;
 		onOpen?: () => void;
 		onPageShare?: () => void;
@@ -143,6 +147,11 @@ vi.mock("@/components/files/FileContextMenu", () => ({
 					copy
 				</button>
 			)}
+			{onManageTags && (
+				<button type="button" onClick={onManageTags}>
+					tags
+				</button>
+			)}
 			{onMove && (
 				<button type="button" onClick={onMove}>
 					move
@@ -191,6 +200,7 @@ describe("FileBrowserItemContextMenu", () => {
 		mockState.browserContext.onFileOpen.mockReset();
 		mockState.browserContext.onFolderOpen.mockReset();
 		mockState.browserContext.onInfo.mockReset();
+		mockState.browserContext.onManageTags.mockReset();
 		mockState.browserContext.onMove.mockReset();
 		mockState.browserContext.onRename.mockReset();
 		mockState.browserContext.onShare.mockReset();
@@ -215,6 +225,7 @@ describe("FileBrowserItemContextMenu", () => {
 		fireEvent.click(screen.getByRole("button", { name: "archive" }));
 		fireEvent.click(screen.getByRole("button", { name: "share-page" }));
 		fireEvent.click(screen.getByRole("button", { name: "copy" }));
+		fireEvent.click(screen.getByRole("button", { name: "tags" }));
 		fireEvent.click(screen.getByRole("button", { name: "move" }));
 		fireEvent.click(screen.getByRole("button", { name: "rename" }));
 		fireEvent.click(screen.getByRole("button", { name: "lock" }));
@@ -236,6 +247,10 @@ describe("FileBrowserItemContextMenu", () => {
 			initialMode: "page",
 		});
 		expect(mockState.browserContext.onCopy).toHaveBeenCalledWith("folder", 1);
+		expect(mockState.browserContext.onManageTags).toHaveBeenCalledWith(
+			"folder",
+			1,
+		);
 		expect(mockState.browserContext.onMove).toHaveBeenCalledWith("folder", 1);
 		expect(mockState.browserContext.onRename).toHaveBeenCalledWith(
 			"folder",
@@ -269,6 +284,7 @@ describe("FileBrowserItemContextMenu", () => {
 		fireEvent.click(screen.getByRole("button", { name: "share-page" }));
 		fireEvent.click(screen.getByRole("button", { name: "share-direct" }));
 		fireEvent.click(screen.getByRole("button", { name: "copy" }));
+		fireEvent.click(screen.getByRole("button", { name: "tags" }));
 		fireEvent.click(screen.getByRole("button", { name: "move" }));
 		fireEvent.click(screen.getByRole("button", { name: "rename" }));
 		fireEvent.click(screen.getByRole("button", { name: "lock" }));
@@ -302,6 +318,10 @@ describe("FileBrowserItemContextMenu", () => {
 			initialMode: "direct",
 		});
 		expect(mockState.browserContext.onCopy).toHaveBeenCalledWith("file", 2);
+		expect(mockState.browserContext.onManageTags).toHaveBeenCalledWith(
+			"file",
+			2,
+		);
 		expect(mockState.browserContext.onMove).toHaveBeenCalledWith("file", 2);
 		expect(mockState.browserContext.onRename).toHaveBeenCalledWith(
 			"file",
@@ -356,6 +376,7 @@ describe("FileBrowserItemContextMenu", () => {
 			onArchiveCompress: vi.fn(),
 			onCopy: vi.fn(),
 			onDelete: vi.fn(),
+			onManageTags: vi.fn(),
 			onMove: vi.fn(),
 		};
 		mockState.browserContext.batchSelectionActions = batchActions;
@@ -378,14 +399,43 @@ describe("FileBrowserItemContextMenu", () => {
 		fireEvent.click(screen.getByRole("button", { name: "download:archive" }));
 		fireEvent.click(screen.getByRole("button", { name: "compress" }));
 		fireEvent.click(screen.getByRole("button", { name: "copy" }));
+		fireEvent.click(screen.getByRole("button", { name: "tags" }));
 		fireEvent.click(screen.getByRole("button", { name: "move" }));
 		fireEvent.click(screen.getByRole("button", { name: "delete" }));
 
 		expect(batchActions.downloadAction.onClick).toHaveBeenCalledTimes(1);
 		expect(batchActions.onArchiveCompress).toHaveBeenCalledTimes(1);
 		expect(batchActions.onCopy).toHaveBeenCalledTimes(1);
+		expect(batchActions.onManageTags).toHaveBeenCalledTimes(1);
 		expect(batchActions.onMove).toHaveBeenCalledTimes(1);
 		expect(batchActions.onDelete).toHaveBeenCalledTimes(1);
 		expect(mockState.browserContext.onCopy).not.toHaveBeenCalled();
+	});
+
+	it("falls back to regular item actions when the current item is not selected", () => {
+		mockState.browserContext.batchSelectionActions = {
+			count: 2,
+			onCopy: vi.fn(),
+			onDelete: vi.fn(),
+			onMove: vi.fn(),
+		};
+		mockState.store.selectedFileIds = new Set([3]);
+		mockState.store.selectedFolderIds = new Set([1]);
+
+		render(
+			<FileBrowserItemContextMenu
+				item={{ id: 2, name: "bundle.zip", is_locked: false } as never}
+				isFolder={false}
+			>
+				<div>file</div>
+			</FileBrowserItemContextMenu>,
+		);
+
+		expect(screen.queryByText("selection:2")).not.toBeInTheDocument();
+		fireEvent.click(screen.getByRole("button", { name: "open" }));
+
+		expect(mockState.browserContext.onFileOpen).toHaveBeenCalledWith(
+			expect.objectContaining({ id: 2 }),
+		);
 	});
 });

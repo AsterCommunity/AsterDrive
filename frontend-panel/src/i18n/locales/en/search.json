@@ -23,6 +23,10 @@
 	"navigate_results_desc": "Use Arrow keys to move through results, then press Enter to open.",
 	"open_selected_desc": "Enter opens the active result. Esc closes search.",
 	"searching": "Searching...",
+	"tag_filters": "Tags",
+	"tag_loading": "Loading tags",
+	"tag_match_all": "Match all",
+	"tag_match_any": "Match any",
 	"search_error": "Search failed",
 	"no_results": "No results found",
 	"no_results_desc": "Try a different search term."

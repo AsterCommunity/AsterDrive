@@ -1,5 +1,6 @@
 import { useTranslation } from "react-i18next";
 import { FileThumbnail } from "@/components/files/FileThumbnail";
+import { TagChips } from "@/components/files/TagChips";
 import { Icon } from "@/components/ui/icon";
 import { formatBytes, formatDate } from "@/lib/format";
 import { cn } from "@/lib/utils";
@@ -54,6 +55,11 @@ export function GlobalSearchResultRow({
 					<span className="truncate text-sm font-medium">
 						{entry.item.name}
 					</span>
+					<TagChips
+						tags={entry.item.tags}
+						maxVisible={2}
+						className="hidden min-w-0 flex-nowrap overflow-hidden sm:flex"
+					/>
 					{entry.item.is_locked ? (
 						<Icon
 							name="Lock"

@@ -5,6 +5,8 @@ use serde::Serialize;
 #[cfg(all(debug_assertions, feature = "openapi"))]
 use utoipa::ToSchema;
 
+use crate::services::tag_service::TagSummary;
+
 #[derive(Clone, Debug, Serialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct FileInfo {
@@ -33,6 +35,7 @@ pub struct FileInfo {
     #[cfg_attr(all(debug_assertions, feature = "openapi"), schema(value_type = Option<String>))]
     pub deleted_at: Option<DateTime<Utc>>,
     pub is_locked: bool,
+    pub tags: Vec<TagSummary>,
 }
 
 impl From<crate::entities::file::Model> for FileInfo {
@@ -56,11 +59,17 @@ impl From<crate::entities::file::Model> for FileInfo {
             updated_at: model.updated_at,
             deleted_at: model.deleted_at,
             is_locked: model.is_locked,
+            tags: vec![],
         }
     }
 }
 
 impl FileInfo {
+    pub fn with_tags(mut self, tags: Vec<TagSummary>) -> Self {
+        self.tags = tags;
+        self
+    }
+
     /// Builds a detail `FileInfo` from a file model and attaches explicit
     /// quota bytes (`storage_used`) for the current file plus its versions.
     pub fn from_model_with_storage_used(
@@ -96,6 +105,7 @@ pub struct FolderInfo {
     #[cfg_attr(all(debug_assertions, feature = "openapi"), schema(value_type = Option<String>))]
     pub deleted_at: Option<DateTime<Utc>>,
     pub is_locked: bool,
+    pub tags: Vec<TagSummary>,
 }
 
 impl From<crate::entities::folder::Model> for FolderInfo {
@@ -114,11 +124,17 @@ impl From<crate::entities::folder::Model> for FolderInfo {
             updated_at: model.updated_at,
             deleted_at: model.deleted_at,
             is_locked: model.is_locked,
+            tags: vec![],
         }
     }
 }
 
 impl FolderInfo {
+    pub fn with_tags(mut self, tags: Vec<TagSummary>) -> Self {
+        self.tags = tags;
+        self
+    }
+
     /// Builds a detail `FolderInfo` via `FolderInfo::from` and sets recursive
     /// quota bytes (`storage_used`) for the details endpoint.
     pub fn from_model_with_storage_used(

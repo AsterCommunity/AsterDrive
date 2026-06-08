@@ -269,7 +269,7 @@ describe("BatchActionBar", () => {
 	it("moves selected items to a target folder", async () => {
 		render(<BatchActionBar />);
 
-		fireEvent.click(screen.getByText("move"));
+		fireEvent.click(screen.getByText("move_to"));
 
 		expect(screen.getByText("target-dialog:move")).toBeInTheDocument();
 		fireEvent.click(screen.getByText("confirm-target"));
@@ -291,7 +291,7 @@ describe("BatchActionBar", () => {
 	it("copies selected items, clears selection, and refreshes afterwards", async () => {
 		render(<BatchActionBar />);
 
-		fireEvent.click(screen.getByText("copy"));
+		fireEvent.click(screen.getByText("copy_to"));
 
 		expect(screen.getByText("target-dialog:copy")).toBeInTheDocument();
 		fireEvent.click(screen.getByText("confirm-target"));

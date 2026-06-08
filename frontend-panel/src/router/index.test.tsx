@@ -106,6 +106,8 @@ describe("router", () => {
 		).toBe(true);
 		expect(allRoutes.some((route) => route.path === "/tasks")).toBe(true);
 		expect(allRoutes.some((route) => route.path === "tasks")).toBe(true);
+		expect(allRoutes.some((route) => route.path === "/tags")).toBe(false);
+		expect(allRoutes.some((route) => route.path === "tags")).toBe(false);
 		expect(allRoutes.some((route) => route.path === "/settings/:section")).toBe(
 			true,
 		);

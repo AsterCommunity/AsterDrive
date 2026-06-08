@@ -2697,6 +2697,38 @@ export interface paths {
         patch: operations["update_share"];
         trace?: never;
     };
+    "/api/v1/tags": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["list_tags"];
+        put?: never;
+        post: operations["create_tag"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/tags/{tag_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete: operations["delete_tag"];
+        options?: never;
+        head?: never;
+        patch: operations["patch_tag"];
+        trace?: never;
+    };
     "/api/v1/tasks": {
         parameters: {
             query?: never;
@@ -3495,6 +3527,38 @@ export interface paths {
         options?: never;
         head?: never;
         patch: operations["update_team_share"];
+        trace?: never;
+    };
+    "/api/v1/teams/{team_id}/tags": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["list_team_tags"];
+        put?: never;
+        post: operations["create_team_tag"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/teams/{team_id}/tags/{tag_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete: operations["delete_team_tag"];
+        options?: never;
+        head?: never;
+        patch: operations["patch_team_tag"];
         trace?: never;
     };
     "/api/v1/teams/{team_id}/tasks": {
@@ -4525,12 +4589,12 @@ export interface components {
          * @description 审计日志动作
          * @enum {string}
          */
-        AuditAction: "admin_create_user" | "admin_force_delete_user" | "admin_create_team" | "admin_create_policy_group" | "admin_archive_team" | "admin_restore_team" | "admin_revoke_user_sessions" | "admin_reset_user_password" | "admin_reset_user_mfa" | "admin_update_team" | "admin_update_user" | "admin_delete_policy_group" | "admin_migrate_policy_group_users" | "admin_update_policy_group" | "admin_create_policy" | "admin_update_policy" | "admin_delete_policy" | "admin_delete_config" | "admin_delete_share" | "admin_force_unlock" | "admin_cleanup_expired_locks" | "admin_cleanup_tasks" | "admin_create_blob_maintenance_task" | "admin_create_remote_node" | "admin_update_remote_node" | "admin_delete_remote_node" | "admin_test_remote_node" | "admin_create_remote_node_enrollment_token" | "admin_create_remote_ingress_profile" | "admin_update_remote_ingress_profile" | "admin_delete_remote_ingress_profile" | "admin_create_external_auth_provider" | "admin_update_external_auth_provider" | "admin_delete_external_auth_provider" | "admin_test_external_auth_provider" | "batch_copy" | "batch_delete" | "batch_move" | "config_action_execute" | "config_update" | "file_copy" | "file_create" | "file_delete" | "file_download" | "file_direct_link_create" | "file_edit" | "file_move" | "file_rename" | "file_upload" | "file_preview_link_create" | "file_wopi_open" | "file_upload_cancel" | "file_restore" | "file_purge" | "file_lock" | "file_unlock" | "file_version_restore" | "file_version_delete" | "folder_copy" | "folder_create" | "folder_delete" | "folder_move" | "folder_policy_change" | "folder_rename" | "folder_restore" | "folder_purge" | "folder_lock" | "folder_unlock" | "property_set" | "property_delete" | "share_batch_delete" | "share_create" | "share_delete" | "share_update" | "system_setup" | "server_start" | "server_shutdown" | "team_archive" | "team_cleanup_expired" | "team_create" | "team_member_add" | "team_member_remove" | "team_member_update" | "team_restore" | "team_update" | "task_retry" | "archive_compress" | "archive_extract" | "archive_download" | "offline_download" | "trash_purge_all" | "remote_enrollment_redeem" | "remote_enrollment_ack" | "user_revoke_other_sessions" | "user_revoke_session" | "user_update_preferences" | "user_update_profile" | "user_upload_avatar" | "user_set_avatar_source" | "user_update_wopi_info" | "webdav_account_create" | "webdav_account_delete" | "webdav_account_toggle" | "team_webdav_account_create" | "team_webdav_account_delete" | "team_webdav_account_toggle" | "user_change_password" | "user_confirm_password_reset" | "user_confirm_email_change" | "user_confirm_registration" | "user_login" | "user_logout" | "user_mfa_enable" | "user_mfa_disable" | "user_mfa_recovery_codes_regenerate" | "user_mfa_email_code_send" | "user_mfa_challenge_success" | "user_mfa_challenge_failed" | "user_passkey_delete" | "user_passkey_login" | "user_passkey_register" | "user_passkey_rename" | "user_external_auth_login" | "user_external_auth_link" | "user_external_auth_unlink" | "user_refresh_token_reuse_detected" | "user_request_email_change" | "user_request_password_reset" | "user_register" | "user_resend_email_change" | "user_resend_registration" | "follower_binding_sync" | "follower_object_read" | "follower_object_write" | "follower_object_delete" | "follower_object_compose" | "follower_ingress_profile_create" | "follower_ingress_profile_update" | "follower_ingress_profile_delete" | "mail_send" | "mail_delivery_failed";
+        AuditAction: "admin_create_user" | "admin_force_delete_user" | "admin_create_team" | "admin_create_policy_group" | "admin_archive_team" | "admin_restore_team" | "admin_revoke_user_sessions" | "admin_reset_user_password" | "admin_reset_user_mfa" | "admin_update_team" | "admin_update_user" | "admin_delete_policy_group" | "admin_migrate_policy_group_users" | "admin_update_policy_group" | "admin_create_policy" | "admin_update_policy" | "admin_delete_policy" | "admin_delete_config" | "admin_delete_share" | "admin_force_unlock" | "admin_cleanup_expired_locks" | "admin_cleanup_tasks" | "admin_create_blob_maintenance_task" | "admin_create_remote_node" | "admin_update_remote_node" | "admin_delete_remote_node" | "admin_test_remote_node" | "admin_create_remote_node_enrollment_token" | "admin_create_remote_ingress_profile" | "admin_update_remote_ingress_profile" | "admin_delete_remote_ingress_profile" | "admin_create_external_auth_provider" | "admin_update_external_auth_provider" | "admin_delete_external_auth_provider" | "admin_test_external_auth_provider" | "batch_copy" | "batch_delete" | "batch_move" | "config_action_execute" | "config_update" | "file_copy" | "file_create" | "file_delete" | "file_download" | "file_direct_link_create" | "file_edit" | "file_move" | "file_rename" | "file_upload" | "file_preview_link_create" | "file_wopi_open" | "file_upload_cancel" | "file_restore" | "file_purge" | "file_lock" | "file_unlock" | "file_version_restore" | "file_version_delete" | "folder_copy" | "folder_create" | "folder_delete" | "folder_move" | "folder_policy_change" | "folder_rename" | "folder_restore" | "folder_purge" | "folder_lock" | "folder_unlock" | "property_set" | "property_delete" | "share_batch_delete" | "share_create" | "share_delete" | "share_update" | "system_setup" | "server_start" | "server_shutdown" | "team_archive" | "team_cleanup_expired" | "team_create" | "team_member_add" | "team_member_remove" | "team_member_update" | "team_restore" | "team_update" | "task_retry" | "archive_compress" | "archive_extract" | "archive_download" | "offline_download" | "trash_purge_all" | "remote_enrollment_redeem" | "remote_enrollment_ack" | "user_revoke_other_sessions" | "user_revoke_session" | "user_update_preferences" | "user_update_profile" | "user_upload_avatar" | "user_set_avatar_source" | "user_update_wopi_info" | "webdav_account_create" | "webdav_account_delete" | "webdav_account_toggle" | "team_webdav_account_create" | "team_webdav_account_delete" | "team_webdav_account_toggle" | "user_change_password" | "user_confirm_password_reset" | "user_confirm_email_change" | "user_confirm_registration" | "user_login" | "user_logout" | "user_mfa_enable" | "user_mfa_disable" | "user_mfa_recovery_codes_regenerate" | "user_mfa_email_code_send" | "user_mfa_challenge_success" | "user_mfa_challenge_failed" | "user_passkey_delete" | "user_passkey_login" | "user_passkey_register" | "user_passkey_rename" | "user_external_auth_login" | "user_external_auth_link" | "user_external_auth_unlink" | "user_refresh_token_reuse_detected" | "user_request_email_change" | "user_request_password_reset" | "user_register" | "user_resend_email_change" | "user_resend_registration" | "follower_binding_sync" | "follower_object_read" | "follower_object_write" | "follower_object_delete" | "follower_object_compose" | "follower_ingress_profile_create" | "follower_ingress_profile_update" | "follower_ingress_profile_delete" | "mail_send" | "mail_delivery_failed" | "admin_create_invitation" | "admin_revoke_invitation" | "tag_create" | "tag_update" | "tag_delete" | "tag_attach" | "tag_detach";
         /**
          * @description 审计日志实体类型
          * @enum {string}
          */
-        AuditEntityType: "auth_session" | "batch" | "external_auth_identity" | "external_auth_provider" | "file" | "folder" | "mail" | "mfa_factor" | "passkey" | "policy_group" | "remote_ingress_profile" | "remote_node" | "resource_lock" | "share" | "storage_policy" | "stream_ticket" | "system_config" | "task" | "team" | "trash" | "upload_session" | "user" | "webdav_account";
+        AuditEntityType: "auth_session" | "batch" | "external_auth_identity" | "external_auth_provider" | "file" | "folder" | "mail" | "invitation" | "mfa_factor" | "passkey" | "policy_group" | "remote_ingress_profile" | "remote_node" | "resource_lock" | "share" | "storage_policy" | "stream_ticket" | "system_config" | "tag" | "task" | "team" | "trash" | "upload_session" | "user" | "webdav_account";
         AuditLogEntry: {
             action: components["schemas"]["AuditAction"];
             created_at: string;
@@ -4644,6 +4708,10 @@ export interface components {
             failed: number;
             /** Format: int32 */
             succeeded: number;
+        };
+        BatchTagBindingReq: {
+            file_ids: number[];
+            folder_ids: number[];
         };
         /** @enum {string} */
         BlobMaintenanceAction: "integrity_check" | "ref_count_reconcile" | "orphan_cleanup";
@@ -4862,6 +4930,10 @@ export interface components {
             /** Format: int64 */
             target_policy_id: number;
         };
+        CreateTagReq: {
+            color: string;
+            name: string;
+        };
         /** @description Create a new team. */
         CreateTeamReq: {
             description?: string | null;
@@ -4920,6 +4992,9 @@ export interface components {
             name: string;
             namespace: string;
             value?: string | null;
+        };
+        EntityTags: {
+            tags: components["schemas"]["TagSummary"][];
         };
         /**
          * @description 实体类型（文件/文件夹）
@@ -5113,6 +5188,7 @@ export interface components {
              *     historical version sizes. `size` is only the current version size.
              */
             storage_used?: number | null;
+            tags: components["schemas"]["TagSummary"][];
             /** Format: int64 */
             team_id?: number | null;
             updated_at: string;
@@ -5135,6 +5211,7 @@ export interface components {
             name: string;
             /** Format: int64 */
             size: number;
+            tags: components["schemas"]["TagSummary"][];
             updated_at: string;
         };
         /** @description Query parameters for file upload. */
@@ -5238,6 +5315,7 @@ export interface components {
              *     folder tree, including current file sizes plus historical versions.
              */
             storage_used?: number | null;
+            tags: components["schemas"]["TagSummary"][];
             /** Format: int64 */
             team_id?: number | null;
             updated_at: string;
@@ -5248,6 +5326,7 @@ export interface components {
             is_locked: boolean;
             is_shared: boolean;
             name: string;
+            tags: components["schemas"]["TagSummary"][];
             updated_at: string;
         };
         /** @description 文件列表分页参数（文件夹用 offset 分页，文件用 cursor 分页） */
@@ -6002,6 +6081,32 @@ export interface components {
             /** Format: int64 */
             total: number;
         };
+        OffsetPage_TagInfo: {
+            items: {
+                color: string;
+                created_at: string;
+                /** Format: int64 */
+                id: number;
+                name: string;
+                normalized_name: string;
+                /** Format: int64 */
+                owner_user_id?: number | null;
+                scope_type: components["schemas"]["TagScopeType"];
+                /** Format: int32 */
+                sort_order: number;
+                /** Format: int64 */
+                team_id?: number | null;
+                updated_at: string;
+                /** Format: int64 */
+                usage_count: number;
+            }[];
+            /** Format: int64 */
+            limit: number;
+            /** Format: int64 */
+            offset: number;
+            /** Format: int64 */
+            total: number;
+        };
         OffsetPage_TaskInfo: {
             items: {
                 /** Format: int32 */
@@ -6200,6 +6305,10 @@ export interface components {
             is_enabled?: boolean | null;
             name?: string | null;
             transport_mode?: null | components["schemas"]["RemoteNodeTransportMode"];
+        };
+        PatchTagReq: {
+            color?: string | null;
+            name?: string | null;
         };
         /** @description Patch a team member's role. */
         PatchTeamMemberReq: {
@@ -6533,6 +6642,9 @@ export interface components {
             /** Format: int64 */
             removed: number;
         };
+        ReplaceEntityTagsReq: {
+            tag_ids: number[];
+        };
         /** @description Request an email address change. */
         RequestEmailChangeReq: {
             new_email: string;
@@ -6638,6 +6750,10 @@ export interface components {
             offset?: number | null;
             /** @description Name search pattern (case-insensitive substring match) */
             q?: string | null;
+            /** @description Comma-separated tag ids, e.g. "1,2,3" */
+            tag_ids?: string | null;
+            /** @description Tag filter mode: "any" or "all" (default any) */
+            tag_match?: string | null;
             /** @description Result type filter: "file", "folder", or "all" (default) */
             type?: string | null;
         };
@@ -6952,6 +7068,35 @@ export interface components {
          * @enum {string}
          */
         SystemConfigVisibility: "private" | "public" | "authenticated";
+        TagInfo: {
+            color: string;
+            created_at: string;
+            /** Format: int64 */
+            id: number;
+            name: string;
+            normalized_name: string;
+            /** Format: int64 */
+            owner_user_id?: number | null;
+            scope_type: components["schemas"]["TagScopeType"];
+            /** Format: int32 */
+            sort_order: number;
+            /** Format: int64 */
+            team_id?: number | null;
+            updated_at: string;
+            /** Format: int64 */
+            usage_count: number;
+        };
+        /**
+         * @description 标签作用域。
+         * @enum {string}
+         */
+        TagScopeType: "personal" | "team";
+        TagSummary: {
+            color: string;
+            /** Format: int64 */
+            id: number;
+            name: string;
+        };
         TaskInfo: {
             /** Format: int32 */
             attempt_count: number;
@@ -14884,6 +15029,7 @@ export interface operations {
                              *     historical version sizes. `size` is only the current version size.
                              */
                             storage_used?: number | null;
+                            tags: components["schemas"]["TagSummary"][];
                             /** Format: int64 */
                             team_id?: number | null;
                             updated_at: string;
@@ -14963,6 +15109,7 @@ export interface operations {
                              *     historical version sizes. `size` is only the current version size.
                              */
                             storage_used?: number | null;
+                            tags: components["schemas"]["TagSummary"][];
                             /** Format: int64 */
                             team_id?: number | null;
                             updated_at: string;
@@ -15206,6 +15353,7 @@ export interface operations {
                              *     historical version sizes. `size` is only the current version size.
                              */
                             storage_used?: number | null;
+                            tags: components["schemas"]["TagSummary"][];
                             /** Format: int64 */
                             team_id?: number | null;
                             updated_at: string;
@@ -15380,6 +15528,7 @@ export interface operations {
                              *     historical version sizes. `size` is only the current version size.
                              */
                             storage_used?: number | null;
+                            tags: components["schemas"]["TagSummary"][];
                             /** Format: int64 */
                             team_id?: number | null;
                             updated_at: string;
@@ -15492,6 +15641,7 @@ export interface operations {
                              *     historical version sizes. `size` is only the current version size.
                              */
                             storage_used?: number | null;
+                            tags: components["schemas"]["TagSummary"][];
                             /** Format: int64 */
                             team_id?: number | null;
                             updated_at: string;
@@ -15660,6 +15810,7 @@ export interface operations {
                              *     historical version sizes. `size` is only the current version size.
                              */
                             storage_used?: number | null;
+                            tags: components["schemas"]["TagSummary"][];
                             /** Format: int64 */
                             team_id?: number | null;
                             updated_at: string;
@@ -15751,6 +15902,7 @@ export interface operations {
                              *     historical version sizes. `size` is only the current version size.
                              */
                             storage_used?: number | null;
+                            tags: components["schemas"]["TagSummary"][];
                             /** Format: int64 */
                             team_id?: number | null;
                             updated_at: string;
@@ -16071,6 +16223,7 @@ export interface operations {
                              *     historical version sizes. `size` is only the current version size.
                              */
                             storage_used?: number | null;
+                            tags: components["schemas"]["TagSummary"][];
                             /** Format: int64 */
                             team_id?: number | null;
                             updated_at: string;
@@ -16407,6 +16560,7 @@ export interface operations {
                              *     historical version sizes. `size` is only the current version size.
                              */
                             storage_used?: number | null;
+                            tags: components["schemas"]["TagSummary"][];
                             /** Format: int64 */
                             team_id?: number | null;
                             updated_at: string;
@@ -16588,6 +16742,7 @@ export interface operations {
                              *     folder tree, including current file sizes plus historical versions.
                              */
                             storage_used?: number | null;
+                            tags: components["schemas"]["TagSummary"][];
                             /** Format: int64 */
                             team_id?: number | null;
                             updated_at: string;
@@ -16752,6 +16907,7 @@ export interface operations {
                              *     folder tree, including current file sizes plus historical versions.
                              */
                             storage_used?: number | null;
+                            tags: components["schemas"]["TagSummary"][];
                             /** Format: int64 */
                             team_id?: number | null;
                             updated_at: string;
@@ -16869,6 +17025,7 @@ export interface operations {
                              *     folder tree, including current file sizes plus historical versions.
                              */
                             storage_used?: number | null;
+                            tags: components["schemas"]["TagSummary"][];
                             /** Format: int64 */
                             team_id?: number | null;
                             updated_at: string;
@@ -16936,6 +17093,7 @@ export interface operations {
                              *     folder tree, including current file sizes plus historical versions.
                              */
                             storage_used?: number | null;
+                            tags: components["schemas"]["TagSummary"][];
                             /** Format: int64 */
                             team_id?: number | null;
                             updated_at: string;
@@ -17007,6 +17165,7 @@ export interface operations {
                              *     folder tree, including current file sizes plus historical versions.
                              */
                             storage_used?: number | null;
+                            tags: components["schemas"]["TagSummary"][];
                             /** Format: int64 */
                             team_id?: number | null;
                             updated_at: string;
@@ -18545,6 +18704,10 @@ export interface operations {
                 created_before?: string | null;
                 /** @description Scope search to a specific folder (folder_id for files, parent_id for folders) */
                 folder_id?: number | null;
+                /** @description Comma-separated tag ids, e.g. "1,2,3" */
+                tag_ids?: string | null;
+                /** @description Tag filter mode: "any" or "all" (default any) */
+                tag_match?: string | null;
                 /** @description Max results per type (default 50, max 100) */
                 limit?: number | null;
                 /** @description Offset for pagination */
@@ -18850,6 +19013,216 @@ export interface operations {
                 content?: never;
             };
             /** @description Share not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    list_tags: {
+        parameters: {
+            query?: {
+                limit?: number | null;
+                offset?: number | null;
+                q?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Tags visible in the personal workspace */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        code: components["schemas"]["ApiErrorCode"];
+                        data?: {
+                            items: {
+                                color: string;
+                                created_at: string;
+                                /** Format: int64 */
+                                id: number;
+                                name: string;
+                                normalized_name: string;
+                                /** Format: int64 */
+                                owner_user_id?: number | null;
+                                scope_type: components["schemas"]["TagScopeType"];
+                                /** Format: int32 */
+                                sort_order: number;
+                                /** Format: int64 */
+                                team_id?: number | null;
+                                updated_at: string;
+                                /** Format: int64 */
+                                usage_count: number;
+                            }[];
+                            /** Format: int64 */
+                            limit: number;
+                            /** Format: int64 */
+                            offset: number;
+                            /** Format: int64 */
+                            total: number;
+                        };
+                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        msg: string;
+                    };
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    create_tag: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateTagReq"];
+            };
+        };
+        responses: {
+            /** @description Tag created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        code: components["schemas"]["ApiErrorCode"];
+                        data?: {
+                            color: string;
+                            created_at: string;
+                            /** Format: int64 */
+                            id: number;
+                            name: string;
+                            normalized_name: string;
+                            /** Format: int64 */
+                            owner_user_id?: number | null;
+                            scope_type: components["schemas"]["TagScopeType"];
+                            /** Format: int32 */
+                            sort_order: number;
+                            /** Format: int64 */
+                            team_id?: number | null;
+                            updated_at: string;
+                            /** Format: int64 */
+                            usage_count: number;
+                        };
+                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        msg: string;
+                    };
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    delete_tag: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tag_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Tag deleted */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Tag not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    patch_tag: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tag_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PatchTagReq"];
+            };
+        };
+        responses: {
+            /** @description Tag updated */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        code: components["schemas"]["ApiErrorCode"];
+                        data?: {
+                            color: string;
+                            created_at: string;
+                            /** Format: int64 */
+                            id: number;
+                            name: string;
+                            normalized_name: string;
+                            /** Format: int64 */
+                            owner_user_id?: number | null;
+                            scope_type: components["schemas"]["TagScopeType"];
+                            /** Format: int32 */
+                            sort_order: number;
+                            /** Format: int64 */
+                            team_id?: number | null;
+                            updated_at: string;
+                            /** Format: int64 */
+                            usage_count: number;
+                        };
+                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        msg: string;
+                    };
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Tag not found */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -20282,6 +20655,7 @@ export interface operations {
                              *     historical version sizes. `size` is only the current version size.
                              */
                             storage_used?: number | null;
+                            tags: components["schemas"]["TagSummary"][];
                             /** Format: int64 */
                             team_id?: number | null;
                             updated_at: string;
@@ -20364,6 +20738,7 @@ export interface operations {
                              *     historical version sizes. `size` is only the current version size.
                              */
                             storage_used?: number | null;
+                            tags: components["schemas"]["TagSummary"][];
                             /** Format: int64 */
                             team_id?: number | null;
                             updated_at: string;
@@ -20670,6 +21045,7 @@ export interface operations {
                              *     historical version sizes. `size` is only the current version size.
                              */
                             storage_used?: number | null;
+                            tags: components["schemas"]["TagSummary"][];
                             /** Format: int64 */
                             team_id?: number | null;
                             updated_at: string;
@@ -20871,6 +21247,7 @@ export interface operations {
                              *     historical version sizes. `size` is only the current version size.
                              */
                             storage_used?: number | null;
+                            tags: components["schemas"]["TagSummary"][];
                             /** Format: int64 */
                             team_id?: number | null;
                             updated_at: string;
@@ -21001,6 +21378,7 @@ export interface operations {
                              *     historical version sizes. `size` is only the current version size.
                              */
                             storage_used?: number | null;
+                            tags: components["schemas"]["TagSummary"][];
                             /** Format: int64 */
                             team_id?: number | null;
                             updated_at: string;
@@ -21180,6 +21558,7 @@ export interface operations {
                              *     historical version sizes. `size` is only the current version size.
                              */
                             storage_used?: number | null;
+                            tags: components["schemas"]["TagSummary"][];
                             /** Format: int64 */
                             team_id?: number | null;
                             updated_at: string;
@@ -21280,6 +21659,7 @@ export interface operations {
                              *     historical version sizes. `size` is only the current version size.
                              */
                             storage_used?: number | null;
+                            tags: components["schemas"]["TagSummary"][];
                             /** Format: int64 */
                             team_id?: number | null;
                             updated_at: string;
@@ -21645,6 +22025,7 @@ export interface operations {
                              *     historical version sizes. `size` is only the current version size.
                              */
                             storage_used?: number | null;
+                            tags: components["schemas"]["TagSummary"][];
                             /** Format: int64 */
                             team_id?: number | null;
                             updated_at: string;
@@ -22035,6 +22416,7 @@ export interface operations {
                              *     historical version sizes. `size` is only the current version size.
                              */
                             storage_used?: number | null;
+                            tags: components["schemas"]["TagSummary"][];
                             /** Format: int64 */
                             team_id?: number | null;
                             updated_at: string;
@@ -22245,6 +22627,7 @@ export interface operations {
                              *     folder tree, including current file sizes plus historical versions.
                              */
                             storage_used?: number | null;
+                            tags: components["schemas"]["TagSummary"][];
                             /** Format: int64 */
                             team_id?: number | null;
                             updated_at: string;
@@ -22436,6 +22819,7 @@ export interface operations {
                              *     folder tree, including current file sizes plus historical versions.
                              */
                             storage_used?: number | null;
+                            tags: components["schemas"]["TagSummary"][];
                             /** Format: int64 */
                             team_id?: number | null;
                             updated_at: string;
@@ -22571,6 +22955,7 @@ export interface operations {
                              *     folder tree, including current file sizes plus historical versions.
                              */
                             storage_used?: number | null;
+                            tags: components["schemas"]["TagSummary"][];
                             /** Format: int64 */
                             team_id?: number | null;
                             updated_at: string;
@@ -22647,6 +23032,7 @@ export interface operations {
                              *     folder tree, including current file sizes plus historical versions.
                              */
                             storage_used?: number | null;
+                            tags: components["schemas"]["TagSummary"][];
                             /** Format: int64 */
                             team_id?: number | null;
                             updated_at: string;
@@ -22727,6 +23113,7 @@ export interface operations {
                              *     folder tree, including current file sizes plus historical versions.
                              */
                             storage_used?: number | null;
+                            tags: components["schemas"]["TagSummary"][];
                             /** Format: int64 */
                             team_id?: number | null;
                             updated_at: string;
@@ -22782,6 +23169,10 @@ export interface operations {
                 created_before?: string | null;
                 /** @description Scope search to a specific folder (folder_id for files, parent_id for folders) */
                 folder_id?: number | null;
+                /** @description Comma-separated tag ids, e.g. "1,2,3" */
+                tag_ids?: string | null;
+                /** @description Tag filter mode: "any" or "all" (default any) */
+                tag_match?: string | null;
                 /** @description Max results per type (default 50, max 100) */
                 limit?: number | null;
                 /** @description Offset for pagination */
@@ -23145,6 +23536,256 @@ export interface operations {
                 content?: never;
             };
             /** @description Share not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    list_team_tags: {
+        parameters: {
+            query?: {
+                limit?: number | null;
+                offset?: number | null;
+                q?: string | null;
+            };
+            header?: never;
+            path: {
+                /** @description Team ID */
+                team_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Team workspace tags */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        code: components["schemas"]["ApiErrorCode"];
+                        data?: {
+                            items: {
+                                color: string;
+                                created_at: string;
+                                /** Format: int64 */
+                                id: number;
+                                name: string;
+                                normalized_name: string;
+                                /** Format: int64 */
+                                owner_user_id?: number | null;
+                                scope_type: components["schemas"]["TagScopeType"];
+                                /** Format: int32 */
+                                sort_order: number;
+                                /** Format: int64 */
+                                team_id?: number | null;
+                                updated_at: string;
+                                /** Format: int64 */
+                                usage_count: number;
+                            }[];
+                            /** Format: int64 */
+                            limit: number;
+                            /** Format: int64 */
+                            offset: number;
+                            /** Format: int64 */
+                            total: number;
+                        };
+                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        msg: string;
+                    };
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    create_team_tag: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Team ID */
+                team_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateTagReq"];
+            };
+        };
+        responses: {
+            /** @description Team tag created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        code: components["schemas"]["ApiErrorCode"];
+                        data?: {
+                            color: string;
+                            created_at: string;
+                            /** Format: int64 */
+                            id: number;
+                            name: string;
+                            normalized_name: string;
+                            /** Format: int64 */
+                            owner_user_id?: number | null;
+                            scope_type: components["schemas"]["TagScopeType"];
+                            /** Format: int32 */
+                            sort_order: number;
+                            /** Format: int64 */
+                            team_id?: number | null;
+                            updated_at: string;
+                            /** Format: int64 */
+                            usage_count: number;
+                        };
+                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        msg: string;
+                    };
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    delete_team_tag: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Team ID */
+                team_id: number;
+                /** @description Tag ID */
+                tag_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Team tag deleted */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Tag not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    patch_team_tag: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Team ID */
+                team_id: number;
+                /** @description Tag ID */
+                tag_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PatchTagReq"];
+            };
+        };
+        responses: {
+            /** @description Team tag updated */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        code: components["schemas"]["ApiErrorCode"];
+                        data?: {
+                            color: string;
+                            created_at: string;
+                            /** Format: int64 */
+                            id: number;
+                            name: string;
+                            normalized_name: string;
+                            /** Format: int64 */
+                            owner_user_id?: number | null;
+                            scope_type: components["schemas"]["TagScopeType"];
+                            /** Format: int32 */
+                            sort_order: number;
+                            /** Format: int64 */
+                            team_id?: number | null;
+                            updated_at: string;
+                            /** Format: int64 */
+                            usage_count: number;
+                        };
+                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        msg: string;
+                    };
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Tag not found */
             404: {
                 headers: {
                     [name: string]: unknown;

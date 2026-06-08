@@ -16,6 +16,7 @@ export interface CurrentFolderActionsMenuProps {
 	uploadReady: boolean;
 	onCreateFile: () => void;
 	onCreateFolder: () => void;
+	onManageTagLibrary?: () => void;
 	onOfflineDownload: () => void;
 	onRefresh: () => void | Promise<void>;
 	onTriggerFileUpload: () => void;
@@ -41,6 +42,7 @@ function buildCurrentFolderActions(
 	{
 		onCreateFile,
 		onCreateFolder,
+		onManageTagLibrary,
 		onOfflineDownload,
 		onRefresh,
 		onTriggerFileUpload,
@@ -87,6 +89,18 @@ function buildCurrentFolderActions(
 			label: t("tasks:offline_download_action"),
 			onSelect: onOfflineDownload,
 		},
+		...(onManageTagLibrary
+			? [
+					{ type: "separator" as const, key: "workspace-tools-separator" },
+					{
+						type: "item" as const,
+						key: "manage-tag-library",
+						icon: "Tag" as const,
+						label: t("tag_library_manage"),
+						onSelect: onManageTagLibrary,
+					},
+				]
+			: []),
 		{ type: "separator", key: "refresh-separator" },
 		{
 			type: "item",

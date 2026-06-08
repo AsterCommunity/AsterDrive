@@ -5,17 +5,20 @@ use crate::db::repository::search_query::{
     sqlite_match_query,
 };
 use crate::entities::{
+    entity_property::{self, Entity as EntityProperty},
     file::{self, Entity as File},
     file_blob,
     folder::{self, Entity as Folder},
 };
 use crate::errors::{AsterError, Result};
-use crate::types::FileCategory;
+use crate::services::tag_service::TAG_PROPERTY_NAMESPACE;
+use crate::types::{EntityType, FileCategory};
 use chrono::{DateTime, Utc};
+use sea_orm::sea_query::Query;
 use sea_orm::sea_query::extension::postgres::PgExpr;
 use sea_orm::{
-    ColumnTrait, Condition, ConnectionTrait, DbBackend, EntityTrait, FromQueryResult, JoinType,
-    PaginatorTrait, QueryFilter, QueryOrder, QuerySelect, RelationTrait, sea_query::Expr,
+    ColumnTrait, Condition, ConnectionTrait, DbBackend, EntityTrait, ExprTrait, FromQueryResult,
+    JoinType, PaginatorTrait, QueryFilter, QueryOrder, QuerySelect, RelationTrait, sea_query::Expr,
 };
 use serde::Serialize;
 #[cfg(all(debug_assertions, feature = "openapi"))]
@@ -30,6 +33,18 @@ const SQLITE_FOLDERS_FTS_TABLE: &str = "folders_name_fts";
 enum SearchScope {
     Personal { user_id: i64 },
     Team { team_id: i64 },
+}
+
+#[derive(Clone, Copy)]
+pub enum TagSearchMatch {
+    Any,
+    All,
+}
+
+#[derive(Clone, Copy)]
+pub struct TagSearchFilter<'a> {
+    pub tag_ids: &'a [i64],
+    pub match_mode: TagSearchMatch,
 }
 
 fn file_scope_condition(scope: SearchScope) -> Condition {
@@ -61,6 +76,7 @@ pub struct FileSearchFilters<'a> {
     pub created_after: Option<DateTime<Utc>>,
     pub created_before: Option<DateTime<Utc>>,
     pub folder_id: Option<i64>,
+    pub tag_filter: Option<TagSearchFilter<'a>>,
     pub limit: u64,
     pub offset: u64,
 }
@@ -71,6 +87,7 @@ pub struct FolderSearchFilters<'a> {
     pub created_after: Option<DateTime<Utc>>,
     pub created_before: Option<DateTime<Utc>>,
     pub parent_id: Option<i64>,
+    pub tag_filter: Option<TagSearchFilter<'a>>,
     pub limit: u64,
     pub offset: u64,
 }
@@ -115,6 +132,41 @@ fn name_search_condition(
             .unwrap_or_else(|| lower_like_condition(column, query)),
         _ => lower_like_condition(column, query),
     }
+}
+
+fn tag_search_condition(
+    entity_id_column: impl sea_orm::sea_query::IntoColumnRef + Copy,
+    entity_type: EntityType,
+    filter: TagSearchFilter<'_>,
+) -> Option<sea_orm::sea_query::SimpleExpr> {
+    if filter.tag_ids.is_empty() {
+        return None;
+    }
+
+    let tag_names = filter
+        .tag_ids
+        .iter()
+        .map(i64::to_string)
+        .collect::<Vec<_>>();
+    let mut subquery = Query::select();
+    subquery
+        .expr(Expr::col(entity_property::Column::EntityId))
+        .from(EntityProperty)
+        .and_where(entity_property::Column::Namespace.eq(TAG_PROPERTY_NAMESPACE))
+        .and_where(entity_property::Column::EntityType.eq(entity_type))
+        .and_where(entity_property::Column::Name.is_in(tag_names));
+
+    if matches!(filter.match_mode, TagSearchMatch::All) {
+        subquery
+            .group_by_col(entity_property::Column::EntityId)
+            .and_having(
+                Expr::col(entity_property::Column::Name)
+                    .count_distinct()
+                    .eq(filter.tag_ids.len() as i64),
+            );
+    }
+
+    Some(Expr::col(entity_id_column).in_subquery(subquery.to_owned()))
 }
 
 /// Search files with optional filters. JOINs file_blobs to include size.
@@ -192,6 +244,13 @@ async fn search_files_in_scope<C: ConnectionTrait>(
 
     if let Some(folder_id) = filters.folder_id {
         file_condition = file_condition.add(file::Column::FolderId.eq(folder_id));
+    }
+
+    if let Some(tag_filter) = filters.tag_filter
+        && let Some(condition) =
+            tag_search_condition((File, file::Column::Id), EntityType::File, tag_filter)
+    {
+        file_condition = file_condition.add(condition);
     }
 
     let needs_blob_filters = filters.min_size.is_some() || filters.max_size.is_some();
@@ -301,6 +360,13 @@ async fn search_folders_in_scope<C: ConnectionTrait>(
 
     if let Some(parent_id) = filters.parent_id {
         condition = condition.add(folder::Column::ParentId.eq(parent_id));
+    }
+
+    if let Some(tag_filter) = filters.tag_filter
+        && let Some(tag_condition) =
+            tag_search_condition((Folder, folder::Column::Id), EntityType::Folder, tag_filter)
+    {
+        condition = condition.add(tag_condition);
     }
 
     let base = Folder::find().filter(condition);

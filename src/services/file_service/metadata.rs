@@ -8,7 +8,7 @@ use crate::entities::file;
 use crate::errors::{AsterError, Result};
 use crate::runtime::{SharedRuntimeState, StorageChangeRuntimeState};
 use crate::services::{
-    storage_change_service,
+    storage_change_service, tag_service,
     workspace_models::FileInfo,
     workspace_storage_service::{self, WorkspaceStorageScope},
 };
@@ -35,7 +35,11 @@ pub(crate) async fn get_info_with_storage_used_in_scope(
             file.id
         ))
     })?;
-    Ok(FileInfo::from_model_with_storage_used(file, storage_used))
+    let tags = tag_service::load_entity_tag_map(state, scope.into(), &[file.id], &[])
+        .await?
+        .remove(&(crate::types::EntityType::File, file.id))
+        .unwrap_or_default();
+    Ok(FileInfo::from_model_with_storage_used(file, storage_used).with_tags(tags))
 }
 
 pub(crate) async fn update_in_scope(

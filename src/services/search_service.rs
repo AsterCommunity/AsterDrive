@@ -6,12 +6,13 @@ use std::collections::HashSet;
 #[cfg(all(debug_assertions, feature = "openapi"))]
 use utoipa::{IntoParams, ToSchema};
 
-use crate::db::repository::search_repo;
+use crate::db::repository::search_repo::{self, TagSearchFilter, TagSearchMatch};
 use crate::errors::{AsterError, Result};
 use crate::runtime::SharedRuntimeState;
 use crate::services::{
-    folder_service::{FileListItem, FolderListItem, build_folder_list_items},
-    share_service,
+    folder_service::{FileListItem, FolderListItem, build_folder_list_items_with_tags},
+    share_service, tag_service,
+    workspace_storage_service::WorkspaceResourceScope,
     workspace_storage_service::{self, WorkspaceStorageScope},
 };
 use crate::types::FileCategory;
@@ -44,6 +45,10 @@ pub struct SearchParams {
     pub created_before: Option<String>,
     /// Scope search to a specific folder (folder_id for files, parent_id for folders)
     pub folder_id: Option<i64>,
+    /// Comma-separated tag ids, e.g. "1,2,3"
+    pub tag_ids: Option<String>,
+    /// Tag filter mode: "any" or "all" (default any)
+    pub tag_match: Option<String>,
     /// Max results per type (default 50, max 100)
     pub limit: Option<u64>,
     /// Offset for pagination
@@ -73,6 +78,10 @@ struct NormalizedFileFilters {
 fn build_search_file_list_items(
     files: Vec<search_repo::FileSearchItem>,
     shared_file_ids: &HashSet<i64>,
+    tags_by_entity: &std::collections::HashMap<
+        (crate::types::EntityType, i64),
+        Vec<tag_service::TagSummary>,
+    >,
 ) -> Vec<FileListItem> {
     files
         .into_iter()
@@ -87,6 +96,10 @@ fn build_search_file_list_items(
             updated_at: file.updated_at,
             is_locked: file.is_locked,
             is_shared: shared_file_ids.contains(&file.id),
+            tags: tags_by_entity
+                .get(&(crate::types::EntityType::File, file.id))
+                .cloned()
+                .unwrap_or_default(),
         })
         .collect()
 }
@@ -103,6 +116,14 @@ fn validate_search_params(params: &SearchParams) -> Result<()> {
     {
         return Err(AsterError::validation_error(
             "type must be one of: file, folder, all",
+        ));
+    }
+
+    if let Some(tag_match) = params.tag_match.as_deref()
+        && !matches!(tag_match, "any" | "all")
+    {
+        return Err(AsterError::validation_error(
+            "tag_match must be one of: any, all",
         ));
     }
 
@@ -153,6 +174,39 @@ fn validate_search_params(params: &SearchParams) -> Result<()> {
     }
 
     Ok(())
+}
+
+fn parse_tag_ids(params: &SearchParams) -> Result<Vec<i64>> {
+    let Some(raw) = params.tag_ids.as_deref() else {
+        return Ok(vec![]);
+    };
+    let mut ids = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+    for part in raw.split(',') {
+        let value = part.trim();
+        if value.is_empty() {
+            return Err(AsterError::validation_error(
+                "tag_ids must not contain empty values",
+            ));
+        }
+        let id = value
+            .parse::<i64>()
+            .map_err(|_| AsterError::validation_error("tag_ids must contain integer ids"))?;
+        if id <= 0 {
+            return Err(AsterError::validation_error(
+                "tag_ids must contain positive ids",
+            ));
+        }
+        if seen.insert(id) {
+            ids.push(id);
+        }
+    }
+    if ids.len() > 64 {
+        return Err(AsterError::validation_error(
+            "tag_ids cannot contain more than 64 items",
+        ));
+    }
+    Ok(ids)
 }
 
 fn normalize_file_filters(params: &SearchParams) -> Result<NormalizedFileFilters> {
@@ -220,6 +274,8 @@ pub(crate) async fn search_in_scope(
     let limit = params.limit.unwrap_or(50).clamp(1, 100);
     let offset = params.offset.unwrap_or(0);
     let query = normalized_query(params);
+    let tag_ids = parse_tag_ids(params)?;
+    let tag_match = params.tag_match.as_deref().unwrap_or("any");
     let normalized_mime_type = params
         .mime_type
         .as_deref()
@@ -237,6 +293,8 @@ pub(crate) async fn search_in_scope(
         min_size = params.min_size,
         max_size = params.max_size,
         folder_id = params.folder_id,
+        has_tag_filter = !tag_ids.is_empty(),
+        tag_match,
         limit,
         offset,
         "running search"
@@ -247,148 +305,186 @@ pub(crate) async fn search_in_scope(
     let file_only_filters_present =
         file_filters.category.is_some() || !file_filters.extensions.is_empty();
     let include_folders = search_type != "file" && !file_only_filters_present;
+    if !tag_ids.is_empty() {
+        tag_service::ensure_tags_readable_in_scope(state, scope, &tag_ids).await?;
+    }
+    let tag_filter = (!tag_ids.is_empty()).then_some(TagSearchFilter {
+        tag_ids: &tag_ids,
+        match_mode: if tag_match == "all" {
+            TagSearchMatch::All
+        } else {
+            TagSearchMatch::Any
+        },
+    });
 
-    let (files, total_files, folders, total_folders, shared_file_ids, shared_folder_ids) =
-        match scope {
-            WorkspaceStorageScope::Personal { user_id } => {
-                let file_search = async {
-                    if search_type == "folder" {
-                        Ok((vec![], 0))
-                    } else {
-                        search_repo::search_files(
-                            state.reader_db(),
-                            user_id,
-                            search_repo::FileSearchFilters {
-                                query,
-                                mime_type: normalized_mime_type.as_deref(),
-                                category: file_filters.category,
-                                extensions: &file_filters.extensions,
-                                min_size: params.min_size,
-                                max_size: params.max_size,
-                                created_after,
-                                created_before,
-                                folder_id: params.folder_id,
-                                limit,
-                                offset,
-                            },
-                        )
-                        .await
-                    }
-                };
-                let folder_search = async {
-                    if !include_folders {
-                        Ok((vec![], 0))
-                    } else {
-                        search_repo::search_folders(
-                            state.reader_db(),
-                            user_id,
-                            search_repo::FolderSearchFilters {
-                                query,
-                                created_after,
-                                created_before,
-                                parent_id: params.folder_id,
-                                limit,
-                                offset,
-                            },
-                        )
-                        .await
-                    }
-                };
-                let ((files, total_files), (folders, total_folders)) =
-                    tokio::try_join!(file_search, folder_search)?;
+    let (
+        files,
+        total_files,
+        folders,
+        total_folders,
+        shared_file_ids,
+        shared_folder_ids,
+        tags_by_entity,
+    ) = match scope {
+        WorkspaceStorageScope::Personal { user_id } => {
+            let file_search = async {
+                if search_type == "folder" {
+                    Ok((vec![], 0))
+                } else {
+                    search_repo::search_files(
+                        state.reader_db(),
+                        user_id,
+                        search_repo::FileSearchFilters {
+                            query,
+                            mime_type: normalized_mime_type.as_deref(),
+                            category: file_filters.category,
+                            extensions: &file_filters.extensions,
+                            min_size: params.min_size,
+                            max_size: params.max_size,
+                            created_after,
+                            created_before,
+                            folder_id: params.folder_id,
+                            tag_filter,
+                            limit,
+                            offset,
+                        },
+                    )
+                    .await
+                }
+            };
+            let folder_search = async {
+                if !include_folders {
+                    Ok((vec![], 0))
+                } else {
+                    search_repo::search_folders(
+                        state.reader_db(),
+                        user_id,
+                        search_repo::FolderSearchFilters {
+                            query,
+                            created_after,
+                            created_before,
+                            parent_id: params.folder_id,
+                            tag_filter,
+                            limit,
+                            offset,
+                        },
+                    )
+                    .await
+                }
+            };
+            let ((files, total_files), (folders, total_folders)) =
+                tokio::try_join!(file_search, folder_search)?;
 
-                let file_ids: Vec<i64> = files.iter().map(|file| file.id).collect();
-                let folder_ids: Vec<i64> = folders.iter().map(|folder| folder.id).collect();
-                let scope = WorkspaceStorageScope::Personal { user_id };
-                let (shared_file_ids, shared_folder_ids) = tokio::try_join!(
-                    share_service::find_active_file_ids_in_scope(state, scope, &file_ids),
-                    share_service::find_active_folder_ids_in_scope(state, scope, &folder_ids),
-                )?;
+            let file_ids: Vec<i64> = files.iter().map(|file| file.id).collect();
+            let folder_ids: Vec<i64> = folders.iter().map(|folder| folder.id).collect();
+            let scope = WorkspaceStorageScope::Personal { user_id };
+            let (shared_file_ids, shared_folder_ids) = tokio::try_join!(
+                share_service::find_active_file_ids_in_scope(state, scope, &file_ids),
+                share_service::find_active_folder_ids_in_scope(state, scope, &folder_ids),
+            )?;
+            let tags_by_entity = tag_service::load_entity_tag_map(
+                state,
+                WorkspaceResourceScope::Personal { user_id },
+                &file_ids,
+                &folder_ids,
+            )
+            .await?;
 
-                (
-                    files,
-                    total_files,
-                    folders,
-                    total_folders,
-                    shared_file_ids,
-                    shared_folder_ids,
-                )
-            }
-            WorkspaceStorageScope::Team {
+            (
+                files,
+                total_files,
+                folders,
+                total_folders,
+                shared_file_ids,
+                shared_folder_ids,
+                tags_by_entity,
+            )
+        }
+        WorkspaceStorageScope::Team {
+            team_id,
+            actor_user_id,
+        } => {
+            let file_search = async {
+                if search_type == "folder" {
+                    Ok((vec![], 0))
+                } else {
+                    search_repo::search_team_files(
+                        state.reader_db(),
+                        team_id,
+                        search_repo::FileSearchFilters {
+                            query,
+                            mime_type: normalized_mime_type.as_deref(),
+                            category: file_filters.category,
+                            extensions: &file_filters.extensions,
+                            min_size: params.min_size,
+                            max_size: params.max_size,
+                            created_after,
+                            created_before,
+                            folder_id: params.folder_id,
+                            tag_filter,
+                            limit,
+                            offset,
+                        },
+                    )
+                    .await
+                }
+            };
+            let folder_search = async {
+                if !include_folders {
+                    Ok((vec![], 0))
+                } else {
+                    search_repo::search_team_folders(
+                        state.reader_db(),
+                        team_id,
+                        search_repo::FolderSearchFilters {
+                            query,
+                            created_after,
+                            created_before,
+                            parent_id: params.folder_id,
+                            tag_filter,
+                            limit,
+                            offset,
+                        },
+                    )
+                    .await
+                }
+            };
+            let ((files, total_files), (folders, total_folders)) =
+                tokio::try_join!(file_search, folder_search)?;
+
+            let file_ids: Vec<i64> = files.iter().map(|file| file.id).collect();
+            let folder_ids: Vec<i64> = folders.iter().map(|folder| folder.id).collect();
+            let scope = WorkspaceStorageScope::Team {
                 team_id,
                 actor_user_id,
-            } => {
-                let file_search = async {
-                    if search_type == "folder" {
-                        Ok((vec![], 0))
-                    } else {
-                        search_repo::search_team_files(
-                            state.reader_db(),
-                            team_id,
-                            search_repo::FileSearchFilters {
-                                query,
-                                mime_type: normalized_mime_type.as_deref(),
-                                category: file_filters.category,
-                                extensions: &file_filters.extensions,
-                                min_size: params.min_size,
-                                max_size: params.max_size,
-                                created_after,
-                                created_before,
-                                folder_id: params.folder_id,
-                                limit,
-                                offset,
-                            },
-                        )
-                        .await
-                    }
-                };
-                let folder_search = async {
-                    if !include_folders {
-                        Ok((vec![], 0))
-                    } else {
-                        search_repo::search_team_folders(
-                            state.reader_db(),
-                            team_id,
-                            search_repo::FolderSearchFilters {
-                                query,
-                                created_after,
-                                created_before,
-                                parent_id: params.folder_id,
-                                limit,
-                                offset,
-                            },
-                        )
-                        .await
-                    }
-                };
-                let ((files, total_files), (folders, total_folders)) =
-                    tokio::try_join!(file_search, folder_search)?;
+            };
+            let (shared_file_ids, shared_folder_ids) = tokio::try_join!(
+                share_service::find_active_file_ids_in_scope(state, scope, &file_ids),
+                share_service::find_active_folder_ids_in_scope(state, scope, &folder_ids),
+            )?;
+            let tags_by_entity = tag_service::load_entity_tag_map(
+                state,
+                WorkspaceResourceScope::Team { team_id },
+                &file_ids,
+                &folder_ids,
+            )
+            .await?;
 
-                let file_ids: Vec<i64> = files.iter().map(|file| file.id).collect();
-                let folder_ids: Vec<i64> = folders.iter().map(|folder| folder.id).collect();
-                let scope = WorkspaceStorageScope::Team {
-                    team_id,
-                    actor_user_id,
-                };
-                let (shared_file_ids, shared_folder_ids) = tokio::try_join!(
-                    share_service::find_active_file_ids_in_scope(state, scope, &file_ids),
-                    share_service::find_active_folder_ids_in_scope(state, scope, &folder_ids),
-                )?;
-
-                (
-                    files,
-                    total_files,
-                    folders,
-                    total_folders,
-                    shared_file_ids,
-                    shared_folder_ids,
-                )
-            }
-        };
+            (
+                files,
+                total_files,
+                folders,
+                total_folders,
+                shared_file_ids,
+                shared_folder_ids,
+                tags_by_entity,
+            )
+        }
+    };
 
     let results = SearchResults {
-        files: build_search_file_list_items(files, &shared_file_ids),
-        folders: build_folder_list_items(folders, &shared_folder_ids),
+        files: build_search_file_list_items(files, &shared_file_ids, &tags_by_entity),
+        folders: build_folder_list_items_with_tags(folders, &shared_folder_ids, &tags_by_entity),
         total_files,
         total_folders,
     };

@@ -18,6 +18,7 @@ use crate::errors::{AsterError, Result, auth_forbidden_with_code, validation_err
 use crate::runtime::SharedRuntimeState;
 use crate::services::{profile_service, user_service};
 use crate::types::TeamMemberRole;
+use crate::utils::char_count;
 
 use super::{
     AdminTeamInfo, CreateTeamInput, TeamInfo, TeamMemberInfo, TeamMemberListFilters,
@@ -44,7 +45,7 @@ pub(crate) fn validate_team_name(name: &str) -> Result<String> {
     if normalized.is_empty() {
         return Err(AsterError::validation_error("team name cannot be empty"));
     }
-    if normalized.chars().count() > 128 {
+    if char_count(normalized) > 128 {
         return Err(AsterError::validation_error(
             "team name must be at most 128 characters",
         ));

@@ -323,10 +323,12 @@ pub(crate) async fn get_info_with_storage_used_in_scope(
     // 先走普通详情权限校验；`storage_used` 只在用户确实能读这个文件夹时计算。
     let folder = get_info_in_scope(state, scope, folder_id).await?;
     let storage_used = compute_folder_storage_used(state, scope, folder_id).await?;
-    Ok(FolderInfo::from_model_with_storage_used(
-        folder,
-        storage_used,
-    ))
+    let tags =
+        crate::services::tag_service::load_entity_tag_map(state, scope.into(), &[], &[folder.id])
+            .await?
+            .remove(&(crate::types::EntityType::Folder, folder.id))
+            .unwrap_or_default();
+    Ok(FolderInfo::from_model_with_storage_used(folder, storage_used).with_tags(tags))
 }
 
 pub(crate) async fn update_in_scope(

@@ -9,6 +9,10 @@ import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { ConfirmDialog } from "@/components/common/ConfirmDialog";
 import { BatchTargetFolderDialog } from "@/components/files/BatchTargetFolderDialog";
+import {
+	TagManagerDialog,
+	type TagManagerTarget,
+} from "@/components/files/TagManagerDialog";
 import { handleApiError } from "@/hooks/useApiError";
 import { useConfirmDialog } from "@/hooks/useConfirmDialog";
 import { formatBatchToast } from "@/lib/formatBatchToast";
@@ -19,12 +23,18 @@ import {
 import { batchService } from "@/services/batchService";
 import { useFileStore } from "@/stores/fileStore";
 import { useWorkspaceStore } from "@/stores/workspaceStore";
-import type { FileListItem, FolderListItem } from "@/types/api";
+import type { BatchResult, FileListItem, FolderListItem } from "@/types/api";
 import type { FileBrowserSelectionToolbarState } from "./types";
 
 interface UseFileBrowserBatchActionsOptions {
 	displayFiles: FileListItem[];
 	displayFolders: FolderListItem[];
+	onChanged?: () => Promise<void> | void;
+	onMoveToFolder?: (
+		fileIds: number[],
+		folderIds: number[],
+		targetFolderId: number | null,
+	) => Promise<BatchResult> | BatchResult;
 	onArchiveCompress?: (
 		fileIds: number[],
 		folderIds: number[],
@@ -44,6 +54,8 @@ interface UseFileBrowserBatchActionsResult {
 export function useFileBrowserBatchActions({
 	displayFiles,
 	displayFolders,
+	onChanged,
+	onMoveToFolder,
 	onArchiveCompress,
 	onArchiveDownload,
 	onDownload,
@@ -60,6 +72,7 @@ export function useFileBrowserBatchActions({
 	const [targetDialogMode, setTargetDialogMode] = useState<
 		"move" | "copy" | null
 	>(null);
+	const [tagManagerOpen, setTagManagerOpen] = useState(false);
 
 	const fileIds = useMemo(() => Array.from(selectedFileIds), [selectedFileIds]);
 	const folderIds = useMemo(
@@ -82,10 +95,18 @@ export function useFileBrowserBatchActions({
 		count === displayedCount &&
 		displayedFileIds.every((id) => selectedFileIds.has(id)) &&
 		displayedFolderIds.every((id) => selectedFolderIds.has(id));
+	const refreshVisibleItems = useCallback(async () => {
+		if (onChanged) {
+			await onChanged();
+			return;
+		}
+		await refresh();
+	}, [onChanged, refresh]);
 
 	useEffect(() => {
 		if (count === 0) {
 			setTargetDialogMode(null);
+			setTagManagerOpen(false);
 		}
 	}, [count]);
 
@@ -106,12 +127,12 @@ export function useFileBrowserBatchActions({
 				});
 			}
 			clearSelection();
-			await refresh();
+			await refreshVisibleItems();
 		} catch (err) {
 			forgetStorageEventEchoes(echoIds);
 			handleApiError(err);
 		}
-	}, [clearSelection, fileIds, folderIds, refresh, t]);
+	}, [clearSelection, fileIds, folderIds, refreshVisibleItems, t]);
 
 	const {
 		requestConfirm: requestDeleteConfirm,
@@ -124,6 +145,10 @@ export function useFileBrowserBatchActions({
 
 	const handleCopy = useCallback(() => {
 		setTargetDialogMode("copy");
+	}, []);
+
+	const handleManageTags = useCallback(() => {
+		setTagManagerOpen(true);
 	}, []);
 
 	const isSingleSelectedFile = fileIds.length === 1 && folderIds.length === 0;
@@ -188,9 +213,15 @@ export function useFileBrowserBatchActions({
 			if (!targetDialogMode) return;
 
 			try {
+				const customMoveHandler =
+					targetDialogMode === "move" ? onMoveToFolder : undefined;
 				const result =
 					targetDialogMode === "move"
-						? await moveToFolder(fileIds, folderIds, targetFolderId)
+						? await (customMoveHandler ?? moveToFolder)(
+								fileIds,
+								folderIds,
+								targetFolderId,
+							)
 						: await batchService.batchCopy(fileIds, folderIds, targetFolderId);
 				const batchToast = formatBatchToast(t, targetDialogMode, result);
 				if (batchToast.variant === "error") {
@@ -202,9 +233,9 @@ export function useFileBrowserBatchActions({
 						description: batchToast.description,
 					});
 				}
-				if (targetDialogMode === "copy") {
+				if (targetDialogMode === "copy" || customMoveHandler) {
 					clearSelection();
-					await refresh();
+					await refreshVisibleItems();
 				}
 				setTargetDialogMode(null);
 			} catch (err) {
@@ -216,7 +247,8 @@ export function useFileBrowserBatchActions({
 			fileIds,
 			folderIds,
 			moveToFolder,
-			refresh,
+			onMoveToFolder,
+			refreshVisibleItems,
 			t,
 			targetDialogMode,
 		],
@@ -246,10 +278,24 @@ export function useFileBrowserBatchActions({
 					onClearSelection: clearSelection,
 					onCopy: handleCopy,
 					onDelete: () => requestDeleteConfirm(true),
+					onManageTags: handleManageTags,
 					onMove: handleMove,
 					onToggleDisplayedSelection: handleToggleDisplayedSelection,
 				}
 			: null;
+	const tagManagerTarget = useMemo<TagManagerTarget | null>(
+		() =>
+			count > 0
+				? {
+						mode: "batch",
+						count,
+						fileIds,
+						folderIds,
+						onChanged: refreshVisibleItems,
+					}
+				: null,
+		[count, fileIds, folderIds, refreshVisibleItems],
+	);
 
 	return {
 		selectionToolbar,
@@ -273,6 +319,12 @@ export function useFileBrowserBatchActions({
 					currentFolderId={currentFolderId}
 					initialBreadcrumb={breadcrumb}
 					selectedFolderIds={folderIds}
+				/>
+
+				<TagManagerDialog
+					open={tagManagerOpen}
+					onOpenChange={setTagManagerOpen}
+					target={tagManagerTarget}
 				/>
 			</>
 		),

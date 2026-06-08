@@ -28,7 +28,8 @@ pub use hierarchy::{build_folder_paths, build_folder_paths_cached, get_ancestors
 pub use listing::{FolderListParams, list, list_shared};
 pub use models::{
     FileCursor, FileListItem, FolderAncestorItem, FolderContents, FolderListItem,
-    build_file_list_items, build_folder_list_items,
+    build_file_list_items, build_file_list_items_with_tags, build_folder_list_items,
+    build_folder_list_items_with_tags,
 };
 pub use mutation::{create, delete, move_folder, set_lock, update};
 

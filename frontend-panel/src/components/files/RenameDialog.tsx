@@ -20,6 +20,7 @@ interface RenameDialogProps {
 	type: "file" | "folder";
 	id: number;
 	currentName: string;
+	onRenamed?: () => Promise<void> | void;
 }
 
 export function RenameDialog({
@@ -28,6 +29,7 @@ export function RenameDialog({
 	type,
 	id,
 	currentName,
+	onRenamed,
 }: RenameDialogProps) {
 	const resetKey = `${type}:${id}:${currentName}:${open ? "open" : "closed"}`;
 
@@ -44,6 +46,7 @@ export function RenameDialog({
 					type={type}
 					id={id}
 					currentName={currentName}
+					onRenamed={onRenamed}
 					onOpenChange={onOpenChange}
 				/>
 			</DialogContent>
@@ -61,6 +64,7 @@ function RenameDialogForm({
 	type,
 	id,
 	currentName,
+	onRenamed,
 	onOpenChange,
 }: Omit<RenameDialogProps, "open">) {
 	const { t } = useTranslation("files");
@@ -82,7 +86,11 @@ function RenameDialogForm({
 			}
 			toast.success(t("rename_success"));
 			onOpenChange(false);
-			await refresh();
+			if (onRenamed) {
+				await onRenamed();
+			} else {
+				await refresh();
+			}
 		} catch (error) {
 			handleApiError(error);
 		}

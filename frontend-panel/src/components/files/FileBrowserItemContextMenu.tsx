@@ -38,6 +38,7 @@ export function FileBrowserItemContextMenu({
 		onFileOpen,
 		onFolderOpen,
 		onInfo,
+		onManageTags,
 		onMove,
 		onRename,
 		onShare,
@@ -64,6 +65,7 @@ export function FileBrowserItemContextMenu({
 				onArchiveCompress={batchSelectionActions.onArchiveCompress}
 				onCopy={batchSelectionActions.onCopy}
 				onMove={batchSelectionActions.onMove}
+				onManageTags={batchSelectionActions.onManageTags}
 				onDelete={batchSelectionActions.onDelete}
 			>
 				{children}
@@ -94,6 +96,9 @@ export function FileBrowserItemContextMenu({
 						: undefined
 				}
 				onCopy={() => onCopy("folder", item.id)}
+				onManageTags={
+					onManageTags ? () => onManageTags("folder", item.id) : undefined
+				}
 				onMove={onMove ? () => onMove("folder", item.id) : undefined}
 				onRename={
 					onRename ? () => onRename("folder", item.id, item.name) : undefined
@@ -142,6 +147,9 @@ export function FileBrowserItemContextMenu({
 				})
 			}
 			onCopy={() => onCopy("file", item.id)}
+			onManageTags={
+				onManageTags ? () => onManageTags("file", item.id) : undefined
+			}
 			onMove={onMove ? () => onMove("file", item.id) : undefined}
 			onRename={
 				onRename ? () => onRename("file", item.id, item.name) : undefined

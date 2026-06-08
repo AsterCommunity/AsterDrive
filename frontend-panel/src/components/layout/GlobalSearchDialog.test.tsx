@@ -2,12 +2,18 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { GlobalSearchDialog } from "@/components/layout/GlobalSearchDialog";
-import type { FileCategory, FileListItem, FolderListItem } from "@/types/api";
+import type {
+	FileCategory,
+	FileListItem,
+	FolderListItem,
+	TagInfo,
+} from "@/types/api";
 
 const mockState = vi.hoisted(() => ({
 	getFile: vi.fn(),
 	handleApiError: vi.fn(),
 	intersectionCallback: null as IntersectionObserverCallback | null,
+	listTags: vi.fn(),
 	navigate: vi.fn(),
 	search: vi.fn(),
 	workspace: { kind: "personal" as const },
@@ -46,6 +52,12 @@ vi.mock("@/services/fileService", () => ({
 	},
 }));
 
+vi.mock("@/services/tagService", () => ({
+	createTagService: () => ({
+		listTags: mockState.listTags,
+	}),
+}));
+
 vi.mock("@/components/ui/dialog", () => ({
 	Dialog: ({
 		open,
@@ -62,6 +74,9 @@ vi.mock("@/components/ui/dialog", () => ({
 		<div>{children}</div>
 	),
 	DialogTitle: ({ children }: { children: ReactNode }) => <div>{children}</div>,
+	DialogDescription: ({ children }: { children: ReactNode }) => (
+		<div>{children}</div>
+	),
 }));
 
 vi.mock("@/components/ui/icon", () => ({
@@ -72,6 +87,46 @@ vi.mock("@/components/ui/icon", () => ({
 
 vi.mock("@/components/files/FileThumbnail", () => ({
 	FileThumbnail: () => <span data-testid="file-thumbnail">thumb</span>,
+}));
+
+vi.mock("@/components/files/TagLibraryManagerDialog", () => ({
+	TagLibraryManagerDialog: ({
+		onTagDeleted,
+		onTagUpdated,
+		open,
+	}: {
+		open: boolean;
+		onOpenChange: (open: boolean) => void;
+		onTagDeleted?: (tagId: number) => void;
+		onTagUpdated?: (tag: TagInfo) => void;
+	}) =>
+		open ? (
+			<div data-testid="tag-library-manager">
+				<button
+					type="button"
+					onClick={() =>
+						onTagUpdated?.({
+							id: 1,
+							name: "Alpha Prime",
+							color: "#7c3aed",
+							usage_count: 2,
+							scope_type: "personal",
+							owner_user_id: 1,
+							team_id: null,
+							normalized_name: "alpha prime",
+							sort_order: 0,
+							created_at: "2026-06-08T00:00:00Z",
+							updated_at: "2026-06-08T00:00:00Z",
+						})
+					}
+				>
+					library-update-alpha
+				</button>
+				<button type="button" onClick={() => onTagDeleted?.(2)}>
+					library-delete-beta
+				</button>
+			</div>
+		) : null,
 }));
 
 function waitForSearchDebounce() {
@@ -98,11 +153,34 @@ function fileItem(
 	};
 }
 
+function tag(id: number, name: string, color = "#2563eb"): TagInfo {
+	return {
+		id,
+		name,
+		color,
+		usage_count: 0,
+		scope_type: "personal",
+		owner_user_id: 1,
+		team_id: null,
+		normalized_name: name.trim().toLowerCase(),
+		sort_order: 0,
+		created_at: "2026-06-08T00:00:00Z",
+		updated_at: "2026-06-08T00:00:00Z",
+	};
+}
+
 describe("GlobalSearchDialog", () => {
 	beforeEach(() => {
 		mockState.getFile.mockReset();
 		mockState.handleApiError.mockReset();
 		mockState.intersectionCallback = null;
+		mockState.listTags.mockReset();
+		mockState.listTags.mockResolvedValue({
+			items: [],
+			limit: 100,
+			offset: 0,
+			total: 0,
+		});
 		mockState.navigate.mockReset();
 		mockState.search.mockReset();
 
@@ -267,6 +345,59 @@ describe("GlobalSearchDialog", () => {
 			);
 		});
 		expect(await screen.findByText("report-2.txt")).toBeInTheDocument();
+	});
+
+	it("ignores load-more observers that are not intersecting and swallows load-more failures", async () => {
+		const firstPageFile = fileItem({
+			id: 7,
+			name: "report-1.txt",
+		});
+		mockState.search
+			.mockResolvedValueOnce({
+				files: [firstPageFile],
+				folders: [],
+				total_files: 2,
+				total_folders: 0,
+			})
+			.mockRejectedValueOnce(new Error("load more failed"));
+
+		render(<GlobalSearchDialog open onOpenChange={vi.fn()} />);
+
+		fireEvent.change(screen.getByPlaceholderText("search:placeholder"), {
+			target: { value: "report" },
+		});
+		await waitForSearchDebounce();
+		expect(await screen.findByText("report-1.txt")).toBeInTheDocument();
+
+		const loadMoreTarget = document.querySelector("[data-search-load-more]");
+		expect(loadMoreTarget).not.toBeNull();
+
+		mockState.intersectionCallback?.(
+			[
+				{
+					isIntersecting: false,
+					target: loadMoreTarget as Element,
+				} as IntersectionObserverEntry,
+			],
+			{} as IntersectionObserver,
+		);
+		expect(mockState.search).toHaveBeenCalledTimes(1);
+
+		mockState.intersectionCallback?.(
+			[
+				{
+					isIntersecting: true,
+					target: loadMoreTarget as Element,
+				} as IntersectionObserverEntry,
+			],
+			{} as IntersectionObserver,
+		);
+
+		await waitFor(() => {
+			expect(mockState.search).toHaveBeenCalledTimes(2);
+		});
+		expect(screen.getByText("report-1.txt")).toBeInTheDocument();
+		expect(screen.queryByText("search:search_error")).not.toBeInTheDocument();
 	});
 
 	it("searches by category without requiring a keyword", async () => {
@@ -439,6 +570,110 @@ describe("GlobalSearchDialog", () => {
 			);
 		});
 		expect(await screen.findByText("cover-2.jpg")).toBeInTheDocument();
+	});
+
+	it("searches with tag filters and syncs tag library updates", async () => {
+		mockState.listTags.mockResolvedValueOnce({
+			items: [tag(1, "Alpha"), tag(2, "Beta", "#16a34a")],
+			limit: 100,
+			offset: 0,
+			total: 2,
+		});
+		mockState.search.mockResolvedValue({
+			files: [],
+			folders: [],
+			total_files: 0,
+			total_folders: 0,
+		});
+
+		render(<GlobalSearchDialog open onOpenChange={vi.fn()} />);
+
+		expect(
+			await screen.findByRole("button", { name: /Alpha/ }),
+		).toBeInTheDocument();
+		fireEvent.click(screen.getByRole("button", { name: /Alpha/ }));
+		await waitForSearchDebounce();
+
+		await waitFor(() => {
+			expect(mockState.search).toHaveBeenLastCalledWith(
+				{
+					type: "all",
+					tag_ids: "1",
+					tag_match: "any",
+					limit: 10,
+				},
+				{ signal: expect.any(AbortSignal) },
+			);
+		});
+
+		fireEvent.click(screen.getByRole("button", { name: /Beta/ }));
+		await waitForSearchDebounce();
+		fireEvent.click(
+			screen.getByRole("button", { name: "search:tag_match_any" }),
+		);
+		await waitForSearchDebounce();
+
+		await waitFor(() => {
+			expect(mockState.search).toHaveBeenLastCalledWith(
+				{
+					type: "all",
+					tag_ids: "1,2",
+					tag_match: "all",
+					limit: 10,
+				},
+				{ signal: expect.any(AbortSignal) },
+			);
+		});
+
+		fireEvent.click(
+			screen.getByRole("button", { name: /files:tag_library_manage/ }),
+		);
+		fireEvent.click(screen.getByText("library-update-alpha"));
+		expect(
+			screen.getByRole("button", { name: /Alpha Prime/ }),
+		).toBeInTheDocument();
+
+		fireEvent.click(screen.getByText("library-delete-beta"));
+		await waitForSearchDebounce();
+
+		expect(
+			screen.queryByRole("button", { name: /Beta/ }),
+		).not.toBeInTheDocument();
+		await waitFor(() => {
+			expect(mockState.search).toHaveBeenLastCalledWith(
+				{
+					type: "all",
+					tag_ids: "1",
+					tag_match: "all",
+					limit: 10,
+				},
+				{ signal: expect.any(AbortSignal) },
+			);
+		});
+	});
+
+	it("keeps an empty tag filter list when tag loading fails or is canceled", async () => {
+		mockState.listTags.mockRejectedValueOnce(new Error("tag load failed"));
+
+		const { rerender } = render(
+			<GlobalSearchDialog open onOpenChange={vi.fn()} />,
+		);
+
+		await waitFor(() => {
+			expect(screen.queryByText("search:tag_loading")).not.toBeInTheDocument();
+		});
+		expect(
+			screen.queryByRole("button", { name: /Alpha/ }),
+		).not.toBeInTheDocument();
+
+		const aborted = new DOMException("aborted", "AbortError");
+		mockState.listTags.mockRejectedValueOnce(aborted);
+		rerender(<GlobalSearchDialog open={false} onOpenChange={vi.fn()} />);
+		rerender(<GlobalSearchDialog open onOpenChange={vi.fn()} />);
+
+		await waitFor(() => {
+			expect(screen.queryByText("search:tag_loading")).not.toBeInTheDocument();
+		});
 	});
 
 	it("applies an initial category preset when opened from quick views", async () => {

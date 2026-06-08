@@ -58,6 +58,7 @@ interface FileBrowserDialogsProps {
 	onPreviewFileUpdated: () => void | Promise<void>;
 	onPreviewNavigate?: (file: FileBrowserPreviewState["file"]) => void;
 	onRenameClose: () => void;
+	onRenamed?: () => void | Promise<void>;
 	onShareClose: () => void;
 	onVersionClose: () => void;
 	onVersionRestored: () => void | Promise<void>;
@@ -91,6 +92,7 @@ export function FileBrowserDialogs({
 	onPreviewFileUpdated,
 	onPreviewNavigate,
 	onRenameClose,
+	onRenamed,
 	onShareClose,
 	onVersionClose,
 	onVersionRestored,
@@ -229,6 +231,7 @@ export function FileBrowserDialogs({
 					type={renameTarget?.type ?? "file"}
 					id={renameTarget?.id ?? 0}
 					currentName={renameTarget?.name ?? ""}
+					onRenamed={onRenamed}
 				/>
 			</Suspense>
 		</>

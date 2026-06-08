@@ -128,6 +128,12 @@ use utoipa::{Modify, OpenApi};
         // search：个人空间内的文件与文件夹检索接口。
         crate::api::routes::search::search,
 
+        // tags：个人空间标签定义、绑定和实体标签读取入口。
+        crate::api::routes::tags::list_tags,
+        crate::api::routes::tags::create_tag,
+        crate::api::routes::tags::patch_tag,
+        crate::api::routes::tags::delete_tag,
+
         // batch：个人空间内的批量删除、移动、复制和归档下载操作。
         crate::api::routes::batch::batch_delete,
         crate::api::routes::batch::batch_move,
@@ -191,6 +197,12 @@ use utoipa::{Modify, OpenApi};
 
         // search：团队空间内的文件与文件夹搜索。
         crate::api::routes::search::team_search,
+
+        // tags：团队空间标签定义与绑定入口。
+        crate::api::routes::tags::team_list_tags,
+        crate::api::routes::tags::team_create_tag,
+        crate::api::routes::tags::team_patch_tag,
+        crate::api::routes::tags::team_delete_tag,
 
         // folders：团队目录树的浏览、创建、重命名、复制、锁定与删除。
         crate::api::routes::folders::team_list_root,
@@ -406,6 +418,7 @@ use utoipa::{Modify, OpenApi};
             crate::api::pagination::OffsetPage<crate::services::lock_service::ResourceLock>,
             crate::api::pagination::OffsetPage<crate::services::webdav_account_service::WebdavAccountInfo>,
             crate::api::pagination::OffsetPage<crate::services::external_auth_service::AdminExternalAuthProviderInfo>,
+            crate::api::pagination::OffsetPage<crate::services::tag_service::TagInfo>,
             crate::api::response::HealthResponse,
             crate::api::response::MemoryStatsResponse,
             crate::api::response::PurgedCountResponse,
@@ -691,6 +704,15 @@ use utoipa::{Modify, OpenApi};
             crate::services::property_service::EntityProperty,
             crate::api::dto::SetPropReq,
 
+            // services::tag_service / api::routes::tags：文件/文件夹标签定义、摘要和绑定请求模型。
+            crate::services::tag_service::TagInfo,
+            crate::services::tag_service::TagSummary,
+            crate::services::tag_service::EntityTags,
+            crate::api::dto::CreateTagReq,
+            crate::api::dto::PatchTagReq,
+            crate::api::dto::ReplaceEntityTagsReq,
+            crate::api::dto::BatchTagBindingReq,
+
             // db::repository::search_repo / services::search_service：搜索条件、结果项和聚合返回模型。
             crate::db::repository::search_repo::FileSearchItem,
             crate::services::search_service::SearchParams,
@@ -715,6 +737,7 @@ use utoipa::{Modify, OpenApi};
         (name = "teams", description = "Team and membership management"),
         (name = "webdav", description = "WebDAV account management"),
         (name = "properties", description = "Entity properties"),
+        (name = "tags", description = "File and folder tags"),
         (name = "health", description = "Health checks"),
         (name = "search", description = "Search files and folders"),
         (name = "batch", description = "Batch operations"),

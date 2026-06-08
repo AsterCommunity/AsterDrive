@@ -26,6 +26,7 @@ interface FileContextMenuProps {
 	onDirectShare?: () => void;
 	onCopy?: () => void;
 	onMove?: () => void;
+	onManageTags?: () => void;
 	onToggleLock?: () => void;
 	onDelete?: () => void;
 	onRename?: () => void;
@@ -50,6 +51,7 @@ export function FileContextMenu({
 	onDirectShare,
 	onCopy,
 	onMove,
+	onManageTags,
 	onRename,
 	onToggleLock,
 	onDelete,
@@ -98,13 +100,19 @@ export function FileContextMenu({
 						{onCopy && (
 							<ContextMenuItem onClick={onCopy}>
 								<Icon name="Copy" className="size-4 mr-2" />
-								{t("copy")}
+								{t("copy_to")}
 							</ContextMenuItem>
 						)}
 						{onMove && (
 							<ContextMenuItem onClick={onMove}>
 								<Icon name="ArrowsOutCardinal" className="size-4 mr-2" />
-								{t("move")}
+								{t("move_to")}
+							</ContextMenuItem>
+						)}
+						{onManageTags && (
+							<ContextMenuItem onClick={onManageTags}>
+								<Icon name="Tag" className="size-4 mr-2" />
+								{t("tag_manage")}
 							</ContextMenuItem>
 						)}
 					</ContextMenuGroup>
@@ -184,19 +192,25 @@ export function FileContextMenu({
 				{onCopy && (
 					<ContextMenuItem onClick={onCopy}>
 						<Icon name="Copy" className="size-4 mr-2" />
-						{t("copy")}
+						{t("copy_to")}
 					</ContextMenuItem>
 				)}
 				{onMove && (
 					<ContextMenuItem onClick={onMove}>
 						<Icon name="ArrowsOutCardinal" className="size-4 mr-2" />
-						{t("move")}
+						{t("move_to")}
 					</ContextMenuItem>
 				)}
 				{onRename && (
 					<ContextMenuItem onClick={onRename}>
 						<Icon name="PencilSimple" className="size-4 mr-2" />
 						{t("rename")}
+					</ContextMenuItem>
+				)}
+				{onManageTags && (
+					<ContextMenuItem onClick={onManageTags}>
+						<Icon name="Tag" className="size-4 mr-2" />
+						{t("tag_manage")}
 					</ContextMenuItem>
 				)}
 				{!isFolder && onVersions && (

@@ -23,7 +23,7 @@ use crate::runtime::SharedRuntimeState;
 use crate::services::auth_service::{self, LoginResult, is_email_verified};
 use crate::types::StoredPasskeyCredential;
 use crate::utils::{
-    id,
+    char_count, id,
     numbers::{u32_to_i64, u64_to_i64},
 };
 
@@ -121,7 +121,7 @@ async fn user_handle_for_registration<C: ConnectionTrait>(
 fn normalize_passkey_name(name: Option<&str>) -> Result<String> {
     let trimmed = name.map(str::trim).filter(|value| !value.is_empty());
     let normalized = trimmed.unwrap_or("Passkey");
-    if normalized.chars().count() > PASSKEY_NAME_MAX_LEN {
+    if char_count(normalized) > PASSKEY_NAME_MAX_LEN {
         return Err(validation_error_with_code(
             ApiErrorCode::PasskeyNameTooLong,
             format!("passkey name exceeds {PASSKEY_NAME_MAX_LEN} characters"),

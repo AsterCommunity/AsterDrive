@@ -23,6 +23,10 @@
 	"navigate_results_desc": "用方向键切换结果，按 Enter 直接打开。",
 	"open_selected_desc": "Enter 打开当前结果，Esc 关闭搜索。",
 	"searching": "正在搜索...",
+	"tag_filters": "标签",
+	"tag_loading": "加载标签",
+	"tag_match_all": "匹配全部",
+	"tag_match_any": "匹配任一",
 	"search_error": "搜索失败",
 	"no_results": "未找到结果",
 	"no_results_desc": "尝试其他搜索词。"

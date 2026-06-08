@@ -6,7 +6,7 @@ use crate::api::middleware::auth::JwtAuth;
 use crate::api::middleware::rate_limit;
 use crate::api::pagination::LimitOffsetQuery;
 use crate::api::response::ApiResponse;
-use crate::api::routes::{batch, folders, search, shares, tasks, trash, webdav_accounts};
+use crate::api::routes::{batch, folders, search, shares, tags, tasks, trash, webdav_accounts};
 use crate::config::{NetworkTrustConfig, RateLimitConfig};
 use crate::errors::Result;
 use crate::runtime::PrimaryAppState;
@@ -61,6 +61,7 @@ pub fn routes(
         .service(batch::team_routes())
         .service(search::team_routes())
         .service(shares::team_routes())
+        .service(tags::team_routes())
         .service(trash::team_routes())
         .service(tasks::team_routes())
         .service(folders::team_routes())
