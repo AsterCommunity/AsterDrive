@@ -2,20 +2,17 @@ import type { SetStateAction } from "react";
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useSearchParams } from "react-router-dom";
+import { AdminOffsetPagination } from "@/components/admin/AdminOffsetPagination";
 import {
 	ADMIN_TABLE_BADGE_CELL_CLASS,
 	ADMIN_TABLE_MONO_TEXT_CLASS,
 	ADMIN_TABLE_TEXT_CELL_CLASS,
 	AdminSortableTableHead,
-	AdminTableShell,
-	AdminTable as Table,
-	AdminTableBody as TableBody,
 	AdminTableCell as TableCell,
 	AdminTableHeader as TableHeader,
 	AdminTableRow as TableRow,
 } from "@/components/common/AdminTable";
-import { EmptyState } from "@/components/common/EmptyState";
-import { SkeletonTable } from "@/components/common/SkeletonTable";
+import { AdminTableList } from "@/components/common/AdminTableList";
 import { UserIdentity } from "@/components/common/UserIdentity";
 import { AdminLayout } from "@/components/layout/AdminLayout";
 import { AdminPageHeader } from "@/components/layout/AdminPageHeader";
@@ -31,12 +28,6 @@ import {
 	SelectTrigger,
 	SelectValue,
 } from "@/components/ui/select";
-import {
-	Tooltip,
-	TooltipContent,
-	TooltipProvider,
-	TooltipTrigger,
-} from "@/components/ui/tooltip";
 import { useApiList } from "@/hooks/useApiList";
 import { usePageTitle } from "@/hooks/usePageTitle";
 import {
@@ -347,6 +338,79 @@ export default function AdminAuditPage() {
 		setSortOrder(nextOrder);
 		setOffset(0);
 	};
+	const auditTableHeader = (
+		<TableHeader>
+			<TableRow>
+				<AdminSortableTableHead
+					className="w-[180px]"
+					sortKey="created_at"
+					sortBy={sortBy}
+					sortOrder={sortOrder}
+					onSortChange={handleSortChange}
+				>
+					{t("audit_time")}
+				</AdminSortableTableHead>
+				<AdminSortableTableHead
+					className="w-[180px]"
+					sortKey="user_id"
+					sortBy={sortBy}
+					sortOrder={sortOrder}
+					onSortChange={handleSortChange}
+				>
+					{t("audit_user")}
+				</AdminSortableTableHead>
+				<AdminSortableTableHead
+					className="w-[180px]"
+					sortKey="action"
+					sortBy={sortBy}
+					sortOrder={sortOrder}
+					onSortChange={handleSortChange}
+				>
+					{t("audit_action")}
+				</AdminSortableTableHead>
+				<AdminSortableTableHead
+					className="w-32"
+					sortKey="entity_type"
+					sortBy={sortBy}
+					sortOrder={sortOrder}
+					onSortChange={handleSortChange}
+				>
+					{t("audit_entity")}
+				</AdminSortableTableHead>
+				<AdminSortableTableHead
+					sortKey="entity_name"
+					sortBy={sortBy}
+					sortOrder={sortOrder}
+					onSortChange={handleSortChange}
+				>
+					{t("core:name")}
+				</AdminSortableTableHead>
+				<AdminSortableTableHead
+					className="w-[160px]"
+					sortKey="ip_address"
+					sortBy={sortBy}
+					sortOrder={sortOrder}
+					onSortChange={handleSortChange}
+				>
+					{t("audit_ip")}
+				</AdminSortableTableHead>
+			</TableRow>
+		</TableHeader>
+	);
+	const auditPagination = (
+		<AdminOffsetPagination
+			total={total}
+			currentPage={currentPage}
+			totalPages={totalPages}
+			pageSize={String(pageSize)}
+			pageSizeOptions={pageSizeOptions}
+			onPageSizeChange={handlePageSizeChange}
+			prevDisabled={prevPageDisabled}
+			nextDisabled={nextPageDisabled}
+			onPrevious={() => setOffset((current) => Math.max(0, current - pageSize))}
+			onNext={() => setOffset((current) => current + pageSize)}
+		/>
+	);
 
 	return (
 		<AdminLayout>
@@ -418,219 +482,74 @@ export default function AdminAuditPage() {
 					}
 				/>
 
-				{loading ? (
-					<SkeletonTable columns={6} rows={6} />
-				) : items.length === 0 ? (
-					hasServerFilters ? (
-						<EmptyState
-							icon={<Icon name="Scroll" className="size-10" />}
-							title={t("no_filtered_audit_logs")}
-							description={t("no_filtered_audit_logs_desc")}
-							action={
-								<Button variant="outline" onClick={resetFilters}>
-									{t("clear_filters")}
-								</Button>
-							}
-						/>
-					) : (
-						<EmptyState
-							icon={<Icon name="Scroll" className="size-10" />}
-							title={t("no_audit_logs")}
-						/>
-					)
-				) : (
-					<AdminTableShell>
-						<Table>
-							<TableHeader>
-								<TableRow>
-									<AdminSortableTableHead
-										className="w-[180px]"
-										sortKey="created_at"
-										sortBy={sortBy}
-										sortOrder={sortOrder}
-										onSortChange={handleSortChange}
+				<AdminTableList
+					loading={loading}
+					items={items}
+					columns={6}
+					rows={6}
+					emptyIcon={<Icon name="Scroll" className="size-10" />}
+					emptyTitle={t("no_audit_logs")}
+					filtered={hasServerFilters}
+					filteredEmptyTitle={t("no_filtered_audit_logs")}
+					filteredEmptyDescription={t("no_filtered_audit_logs_desc")}
+					filteredEmptyAction={
+						<Button variant="outline" onClick={resetFilters}>
+							{t("clear_filters")}
+						</Button>
+					}
+					headerRow={auditTableHeader}
+					pagination={auditPagination}
+					renderRow={(item) => (
+						<TableRow key={item.id}>
+							<TableCell>
+								<div className={ADMIN_TABLE_TEXT_CELL_CLASS}>
+									<span
+										className="text-xs text-muted-foreground whitespace-nowrap"
+										title={formatDateAbsoluteWithOffset(item.created_at)}
 									>
-										{t("audit_time")}
-									</AdminSortableTableHead>
-									<AdminSortableTableHead
-										className="w-[180px]"
-										sortKey="user_id"
-										sortBy={sortBy}
-										sortOrder={sortOrder}
-										onSortChange={handleSortChange}
+										{formatDateAbsolute(item.created_at)}
+									</span>
+								</div>
+							</TableCell>
+							<TableCell>
+								<div className={ADMIN_TABLE_TEXT_CELL_CLASS}>
+									<UserIdentity user={item.user} />
+								</div>
+							</TableCell>
+							<TableCell>
+								<div className={ADMIN_TABLE_BADGE_CELL_CLASS}>
+									<Badge
+										variant="outline"
+										className={getAuditActionBadgeClass(item.action)}
 									>
-										{t("audit_user")}
-									</AdminSortableTableHead>
-									<AdminSortableTableHead
-										className="w-[180px]"
-										sortKey="action"
-										sortBy={sortBy}
-										sortOrder={sortOrder}
-										onSortChange={handleSortChange}
-									>
-										{t("audit_action")}
-									</AdminSortableTableHead>
-									<AdminSortableTableHead
-										className="w-32"
-										sortKey="entity_type"
-										sortBy={sortBy}
-										sortOrder={sortOrder}
-										onSortChange={handleSortChange}
-									>
-										{t("audit_entity")}
-									</AdminSortableTableHead>
-									<AdminSortableTableHead
-										sortKey="entity_name"
-										sortBy={sortBy}
-										sortOrder={sortOrder}
-										onSortChange={handleSortChange}
-									>
-										{t("core:name")}
-									</AdminSortableTableHead>
-									<AdminSortableTableHead
-										className="w-[160px]"
-										sortKey="ip_address"
-										sortBy={sortBy}
-										sortOrder={sortOrder}
-										onSortChange={handleSortChange}
-									>
-										{t("audit_ip")}
-									</AdminSortableTableHead>
-								</TableRow>
-							</TableHeader>
-							<TableBody>
-								{items.map((item) => (
-									<TableRow key={item.id}>
-										<TableCell>
-											<div className={ADMIN_TABLE_TEXT_CELL_CLASS}>
-												<span
-													className="text-xs text-muted-foreground whitespace-nowrap"
-													title={formatDateAbsoluteWithOffset(item.created_at)}
-												>
-													{formatDateAbsolute(item.created_at)}
-												</span>
-											</div>
-										</TableCell>
-										<TableCell>
-											<div className={ADMIN_TABLE_TEXT_CELL_CLASS}>
-												<UserIdentity user={item.user} />
-											</div>
-										</TableCell>
-										<TableCell>
-											<div className={ADMIN_TABLE_BADGE_CELL_CLASS}>
-												<Badge
-													variant="outline"
-													className={getAuditActionBadgeClass(item.action)}
-												>
-													{formatAuditSummary(t, item)}
-												</Badge>
-											</div>
-										</TableCell>
-										<TableCell>
-											<div className={ADMIN_TABLE_TEXT_CELL_CLASS}>
-												<span className="text-sm text-muted-foreground">
-													{formatAuditTargetType(t, item)}
-												</span>
-											</div>
-										</TableCell>
-										<TableCell>
-											<div className={ADMIN_TABLE_TEXT_CELL_CLASS}>
-												<span className="truncate text-sm text-muted-foreground">
-													{formatAuditTarget(t, item)}
-												</span>
-											</div>
-										</TableCell>
-										<TableCell>
-											<div className={ADMIN_TABLE_TEXT_CELL_CLASS}>
-												<span className={ADMIN_TABLE_MONO_TEXT_CLASS}>
-													{item.ip_address ?? "---"}
-												</span>
-											</div>
-										</TableCell>
-									</TableRow>
-								))}
-							</TableBody>
-						</Table>
-					</AdminTableShell>
-				)}
-
-				{total > 0 ? (
-					<div className="flex items-center justify-between gap-3 px-4 pb-4 text-sm text-muted-foreground md:px-6">
-						<div className="flex items-center gap-3">
-							<span>
-								{t("entries_page", {
-									total,
-									current: currentPage,
-									pages: totalPages,
-								})}
-							</span>
-							<Select
-								items={pageSizeOptions}
-								value={String(pageSize)}
-								onValueChange={handlePageSizeChange}
-							>
-								<SelectTrigger width="page-size">
-									<SelectValue />
-								</SelectTrigger>
-								<SelectContent>
-									{pageSizeOptions.map((option) => (
-										<SelectItem key={option.value} value={option.value}>
-											{option.label}
-										</SelectItem>
-									))}
-								</SelectContent>
-							</Select>
-						</div>
-						<TooltipProvider>
-							<div className="flex items-center gap-2">
-								<Tooltip>
-									<TooltipTrigger
-										render={
-											<Button
-												variant="outline"
-												size="sm"
-												disabled={prevPageDisabled}
-												onClick={() =>
-													setOffset((current) =>
-														Math.max(0, current - pageSize),
-													)
-												}
-											/>
-										}
-									>
-										<Icon name="CaretLeft" className="size-4" />
-									</TooltipTrigger>
-									{prevPageDisabled ? (
-										<TooltipContent>
-											{t("pagination_prev_disabled")}
-										</TooltipContent>
-									) : null}
-								</Tooltip>
-								<Tooltip>
-									<TooltipTrigger
-										render={
-											<Button
-												variant="outline"
-												size="sm"
-												disabled={nextPageDisabled}
-												onClick={() =>
-													setOffset((current) => current + pageSize)
-												}
-											/>
-										}
-									>
-										<Icon name="CaretRight" className="size-4" />
-									</TooltipTrigger>
-									{nextPageDisabled ? (
-										<TooltipContent>
-											{t("pagination_next_disabled")}
-										</TooltipContent>
-									) : null}
-								</Tooltip>
-							</div>
-						</TooltipProvider>
-					</div>
-				) : null}
+										{formatAuditSummary(t, item)}
+									</Badge>
+								</div>
+							</TableCell>
+							<TableCell>
+								<div className={ADMIN_TABLE_TEXT_CELL_CLASS}>
+									<span className="text-sm text-muted-foreground">
+										{formatAuditTargetType(t, item)}
+									</span>
+								</div>
+							</TableCell>
+							<TableCell>
+								<div className={ADMIN_TABLE_TEXT_CELL_CLASS}>
+									<span className="truncate text-sm text-muted-foreground">
+										{formatAuditTarget(t, item)}
+									</span>
+								</div>
+							</TableCell>
+							<TableCell>
+								<div className={ADMIN_TABLE_TEXT_CELL_CLASS}>
+									<span className={ADMIN_TABLE_MONO_TEXT_CLASS}>
+										{item.ip_address ?? "---"}
+									</span>
+								</div>
+							</TableCell>
+						</TableRow>
+					)}
+				/>
 			</AdminPageShell>
 		</AdminLayout>
 	);

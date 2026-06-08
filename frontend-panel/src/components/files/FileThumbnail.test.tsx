@@ -7,7 +7,10 @@ const mockState = vi.hoisted(() => ({
 	thumbnailSupportStore: {
 		config: {
 			version: 1,
-			extensions: ["png", "heic"],
+			image_thumbnail: {
+				enabled: true,
+				extensions: ["png", "heic"],
+			},
 		},
 		invalidate: vi.fn(),
 		isLoaded: true,
@@ -76,7 +79,10 @@ describe("FileThumbnail", () => {
 		mockState.thumbnailPath.mockClear();
 		mockState.thumbnailSupportStore.config = {
 			version: 1,
-			extensions: ["png", "heic"],
+			image_thumbnail: {
+				enabled: true,
+				extensions: ["png", "heic"],
+			},
 		};
 		mockState.thumbnailSupportStore.isLoaded = true;
 		mockState.thumbnailSupportStore.load.mockReset();

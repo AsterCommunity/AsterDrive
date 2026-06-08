@@ -45,6 +45,12 @@ vi.mock("@/stores/fileStore", () => ({
 }));
 
 vi.mock("@/components/files/FileBrowserItemContextMenu", () => ({
+	FileBrowserItemActionMenu: ({
+		item,
+	}: {
+		item: { name: string };
+		isFolder: boolean;
+	}) => <button type="button">actions:{item.name}</button>,
 	FileBrowserItemContextMenu: ({ children }: { children: React.ReactNode }) => (
 		<div>{children}</div>
 	),
@@ -62,6 +68,7 @@ vi.mock("@/components/files/FileCard", () => ({
 		resolveDragData,
 		targetPathIds,
 		fading,
+		actionMenu,
 	}: {
 		item: { name: string };
 		isFolder: boolean;
@@ -73,6 +80,7 @@ vi.mock("@/components/files/FileCard", () => ({
 		resolveDragData?: () => { fileIds: number[]; folderIds: number[] };
 		targetPathIds?: number[];
 		fading?: boolean;
+		actionMenu?: React.ReactNode;
 	}) => {
 		const computedDragData = resolveDragData?.() ?? dragData;
 		return (
@@ -93,6 +101,7 @@ vi.mock("@/components/files/FileCard", () => ({
 				<button type="button" onClick={onSelect}>
 					select:{item.name}
 				</button>
+				{actionMenu}
 			</div>
 		);
 	},

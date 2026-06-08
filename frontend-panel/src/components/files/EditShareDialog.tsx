@@ -2,6 +2,11 @@ import { useEffect, useReducer } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import {
+	FixedDialogFooter,
+	ManagerDialogScrollableList,
+	ManagerDialogShell,
+} from "@/components/common/ManagerDialogShell";
+import {
 	normalizeMaxDownloads,
 	toDateTimeLocalValue,
 	toIsoDateTime,
@@ -12,13 +17,6 @@ import {
 	initialEditShareDialogFormState,
 } from "@/components/files/shareDialogState";
 import { Button } from "@/components/ui/button";
-import {
-	Dialog,
-	DialogContent,
-	DialogDescription,
-	DialogHeader,
-	DialogTitle,
-} from "@/components/ui/dialog";
 import { Icon } from "@/components/ui/icon";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -30,6 +28,7 @@ import {
 	SelectValue,
 } from "@/components/ui/select";
 import { handleApiError } from "@/hooks/useApiError";
+import { usePendingAction } from "@/hooks/usePendingAction";
 import { useRetainedDialogValue } from "@/hooks/useRetainedDialogValue";
 import { shareService } from "@/services/shareService";
 import type { MyShareInfo } from "@/types/api";
@@ -56,6 +55,7 @@ export function EditShareDialog({
 	);
 	const { expiresAt, loading, maxDownloads, password, passwordAction } =
 		formState;
+	const { pending: saving, runWithPending } = usePendingAction();
 	const passwordActionOptions = [
 		{ label: t("share:my_shares_edit_password_keep"), value: "keep" },
 		{ label: t("share:my_shares_edit_password_clear"), value: "clear" },
@@ -82,46 +82,70 @@ export function EditShareDialog({
 			return;
 		}
 
-		dispatchForm({ type: "saveStarted" });
-		try {
-			await shareService.update(share.id, {
-				password:
-					passwordAction === "keep"
-						? undefined
-						: passwordAction === "clear"
-							? ""
-							: password.trim(),
-				expires_at: toIsoDateTime(expiresAt),
-				max_downloads: normalizeMaxDownloads(maxDownloads),
-			});
-			toast.success(t("share:my_shares_edit_success"));
-			onOpenChange(false);
-			await onSaved?.();
-		} catch (error) {
-			handleApiError(error);
-		} finally {
-			dispatchForm({ type: "saveFinished" });
-		}
+		await runWithPending(async () => {
+			dispatchForm({ type: "saveStarted" });
+			try {
+				await shareService.update(share.id, {
+					password:
+						passwordAction === "keep"
+							? undefined
+							: passwordAction === "clear"
+								? ""
+								: password.trim(),
+					expires_at: toIsoDateTime(expiresAt),
+					max_downloads: normalizeMaxDownloads(maxDownloads),
+				});
+				toast.success(t("share:my_shares_edit_success"));
+				onOpenChange(false);
+				await onSaved?.();
+			} catch (error) {
+				handleApiError(error);
+			} finally {
+				dispatchForm({ type: "saveFinished" });
+			}
+		});
 	};
+	const submitPending = loading || saving;
 
 	return (
-		<Dialog
+		<ManagerDialogShell
 			open={open}
 			onOpenChange={onOpenChange}
 			onOpenChangeComplete={handleOpenChangeComplete}
+			title={
+				<span className="flex items-center gap-2">
+					<Icon name="PencilSimple" className="size-4" />
+					{t("share:my_shares_edit_title", { name: share.resource_name })}
+				</span>
+			}
+			description={t("share:my_shares_edit_desc")}
+			footer={
+				<FixedDialogFooter>
+					<div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+						<Button
+							type="button"
+							variant="outline"
+							onClick={() => onOpenChange(false)}
+							disabled={submitPending}
+						>
+							{t("core:cancel")}
+						</Button>
+						<Button
+							form="edit-share-form"
+							type="submit"
+							disabled={submitPending}
+						>
+							{submitPending ? (
+								<Icon name="Spinner" className="size-4 animate-spin" />
+							) : null}
+							{t("core:save")}
+						</Button>
+					</div>
+				</FixedDialogFooter>
+			}
 		>
-			<DialogContent className="max-w-md">
-				<DialogHeader>
-					<DialogTitle className="flex items-center gap-2">
-						<Icon name="PencilSimple" className="size-4" />
-						{t("share:my_shares_edit_title", { name: share.resource_name })}
-					</DialogTitle>
-					<DialogDescription>
-						{t("share:my_shares_edit_desc")}
-					</DialogDescription>
-				</DialogHeader>
-
-				<form onSubmit={handleSave} className="space-y-4">
+			<ManagerDialogScrollableList>
+				<form id="edit-share-form" onSubmit={handleSave} className="space-y-4">
 					<div className="space-y-2">
 						<Label>{t("share:my_shares_edit_password_mode")}</Label>
 						<Select
@@ -206,21 +230,8 @@ export function EditShareDialog({
 							}
 						/>
 					</div>
-
-					<div className="flex items-center justify-end gap-2 pt-2">
-						<Button
-							type="button"
-							variant="outline"
-							onClick={() => onOpenChange(false)}
-						>
-							{t("core:cancel")}
-						</Button>
-						<Button type="submit" disabled={loading}>
-							{loading ? t("core:save") : t("core:save")}
-						</Button>
-					</div>
 				</form>
-			</DialogContent>
-		</Dialog>
+			</ManagerDialogScrollableList>
+		</ManagerDialogShell>
 	);
 }

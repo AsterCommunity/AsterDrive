@@ -43,14 +43,21 @@ vi.mock("@/components/ui/button", () => ({
 		children,
 		type,
 		disabled,
+		form,
 		onClick,
 	}: {
 		children: React.ReactNode;
 		type?: "button" | "submit";
 		disabled?: boolean;
+		form?: string;
 		onClick?: () => void;
 	}) => (
-		<button type={type ?? "button"} disabled={disabled} onClick={onClick}>
+		<button
+			type={type ?? "button"}
+			disabled={disabled}
+			form={form}
+			onClick={onClick}
+		>
 			{children}
 		</button>
 	),
@@ -251,6 +258,35 @@ describe("EditShareDialog", () => {
 				expires_at: null,
 				max_downloads: 0,
 			});
+		});
+	});
+
+	it("guards duplicate save submits synchronously", async () => {
+		let resolveUpdate: (() => void) | null = null;
+		mockState.update.mockImplementationOnce(
+			() =>
+				new Promise((resolve) => {
+					resolveUpdate = () => resolve({ id: 7 });
+				}),
+		);
+
+		render(
+			<EditShareDialog open onOpenChange={vi.fn()} share={createShare()} />,
+		);
+
+		const saveButton = screen.getByRole("button", { name: "core:save" });
+		fireEvent.click(saveButton);
+		fireEvent.click(saveButton);
+
+		await waitFor(() => {
+			expect(mockState.update).toHaveBeenCalledTimes(1);
+		});
+
+		resolveUpdate?.();
+		await waitFor(() => {
+			expect(mockState.toastSuccess).toHaveBeenCalledWith(
+				"share:my_shares_edit_success",
+			);
 		});
 	});
 });

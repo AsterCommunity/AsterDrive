@@ -10,15 +10,17 @@ import { useTranslation } from "react-i18next";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 import { AdminOffsetPagination } from "@/components/admin/AdminOffsetPagination";
-import { AdminTeamsTable } from "@/components/admin/admin-teams-page/AdminTeamsTable";
+import {
+	AdminTeamsTableHeader,
+	AdminTeamsTableRow,
+} from "@/components/admin/admin-teams-page/AdminTeamsTable";
 import { AdminTeamsToolbar } from "@/components/admin/admin-teams-page/AdminTeamsToolbar";
 import {
 	CreateTeamDialog,
 	type CreateTeamFormState,
 	type TeamPolicyGroupOption,
 } from "@/components/admin/admin-teams-page/CreateTeamDialog";
-import { EmptyState } from "@/components/common/EmptyState";
-import { SkeletonTable } from "@/components/common/SkeletonTable";
+import { AdminTableList } from "@/components/common/AdminTableList";
 import { AdminLayout } from "@/components/layout/AdminLayout";
 import { AdminPageHeader } from "@/components/layout/AdminPageHeader";
 import { AdminPageShell } from "@/components/layout/AdminPageShell";
@@ -44,7 +46,7 @@ import {
 import { parseStorageQuotaMbToBytes } from "@/lib/storageQuota";
 import { adminTeamService } from "@/services/adminService";
 import type { AdminTeamSortBy } from "@/types/adminSort";
-import type { StoragePolicyGroup } from "@/types/api";
+import type { AdminTeamInfo, StoragePolicyGroup } from "@/types/api";
 
 const TEAM_PAGE_SIZE_OPTIONS = [10, 20, 50] as const;
 const DEFAULT_TEAM_PAGE_SIZE = 20 as const;
@@ -484,6 +486,25 @@ export default function AdminTeamsPage() {
 		setShowArchived((prev) => !prev);
 		setOffset(0);
 	};
+	const openTeam = (team: AdminTeamInfo) => {
+		navigate(`/admin/teams/${team.id}/overview`, {
+			viewTransition: false,
+		});
+	};
+	const teamsPagination = (
+		<AdminOffsetPagination
+			total={total}
+			currentPage={currentPage}
+			totalPages={totalPages}
+			pageSize={String(pageSize)}
+			pageSizeOptions={pageSizeOptions}
+			onPageSizeChange={handlePageSizeChange}
+			prevDisabled={prevPageDisabled}
+			nextDisabled={nextPageDisabled}
+			onPrevious={() => setOffset((current) => Math.max(0, current - pageSize))}
+			onNext={() => setOffset((current) => current + pageSize)}
+		/>
+	);
 
 	return (
 		<AdminLayout>
@@ -533,55 +554,38 @@ export default function AdminTeamsPage() {
 					}
 				/>
 
-				{loading ? (
-					<SkeletonTable columns={6} rows={6} />
-				) : teams.length === 0 ? (
-					hasServerFilters ? (
-						<EmptyState
-							icon={<Icon name="Cloud" className="size-10" />}
-							title={t("no_filtered_teams")}
-							description={t("no_filtered_teams_desc")}
-							action={
-								<Button variant="outline" onClick={resetFilters}>
-									{t("clear_filters")}
-								</Button>
-							}
-						/>
-					) : (
-						<EmptyState
-							icon={<Icon name="Cloud" className="size-10" />}
-							title={t("no_teams")}
-							description={t("no_teams_desc")}
-						/>
-					)
-				) : (
-					<AdminTeamsTable
-						onOpenTeam={(team) =>
-							navigate(`/admin/teams/${team.id}/overview`, {
-								viewTransition: false,
-							})
-						}
-						policyGroupNameById={policyGroupNameById}
-						sortBy={sortBy}
-						sortOrder={sortOrder}
-						teams={teams}
-						onSortChange={handleSortChange}
-					/>
-				)}
-
-				<AdminOffsetPagination
-					total={total}
-					currentPage={currentPage}
-					totalPages={totalPages}
-					pageSize={String(pageSize)}
-					pageSizeOptions={pageSizeOptions}
-					onPageSizeChange={handlePageSizeChange}
-					prevDisabled={prevPageDisabled}
-					nextDisabled={nextPageDisabled}
-					onPrevious={() =>
-						setOffset((current) => Math.max(0, current - pageSize))
+				<AdminTableList
+					loading={loading}
+					items={teams}
+					columns={6}
+					rows={6}
+					emptyIcon={<Icon name="Cloud" className="size-10" />}
+					emptyTitle={t("no_teams")}
+					emptyDescription={t("no_teams_desc")}
+					filtered={hasServerFilters}
+					filteredEmptyTitle={t("no_filtered_teams")}
+					filteredEmptyDescription={t("no_filtered_teams_desc")}
+					filteredEmptyAction={
+						<Button variant="outline" onClick={resetFilters}>
+							{t("clear_filters")}
+						</Button>
 					}
-					onNext={() => setOffset((current) => current + pageSize)}
+					headerRow={
+						<AdminTeamsTableHeader
+							sortBy={sortBy}
+							sortOrder={sortOrder}
+							onSortChange={handleSortChange}
+						/>
+					}
+					pagination={teamsPagination}
+					renderRow={(team) => (
+						<AdminTeamsTableRow
+							key={team.id}
+							onOpenTeam={openTeam}
+							policyGroupNameById={policyGroupNameById}
+							team={team}
+						/>
+					)}
 				/>
 			</AdminPageShell>
 			<CreateTeamDialog

@@ -56,19 +56,24 @@ function renderHeader(
 	overrides: Partial<React.ComponentProps<typeof GlobalSearchHeader>> = {},
 ) {
 	const props = {
-		categoryFilter: "all",
+		categoryFilter: null,
 		filter: "all",
 		inputRef: createRef<HTMLInputElement>(),
 		onCategoryFilterChange: vi.fn(),
+		onCategoryFilterClear: vi.fn(),
 		onClose: vi.fn(),
+		onFilterClear: vi.fn(),
 		onFilterChange: vi.fn(),
 		onInputBlur: vi.fn(),
 		onInputCompositionEnd: vi.fn(),
 		onInputCompositionStart: vi.fn(),
 		onInputKeyDown: vi.fn(),
 		onManageTagLibrary: vi.fn(),
+		onQueryClear: vi.fn(),
 		onQueryChange: vi.fn(),
+		onTagClear: vi.fn(),
 		onTagMatchChange: vi.fn(),
+		onTagMatchClear: vi.fn(),
 		onTagToggle: vi.fn(),
 		query: "report",
 		selectedTagIds: [],
@@ -93,7 +98,9 @@ describe("GlobalSearchHeader", () => {
 		fireEvent.compositionEnd(input, { currentTarget: { value: "draft" } });
 		fireEvent.blur(input);
 		fireEvent.keyDown(input, { key: "Enter" });
-		fireEvent.click(screen.getByRole("button", { name: "" }));
+		fireEvent.click(
+			screen.getByRole("button", { name: "search:close_search" }),
+		);
 
 		expect(props.onQueryChange).toHaveBeenCalledWith("draft");
 		expect(props.onInputCompositionStart).toHaveBeenCalledTimes(1);
@@ -121,6 +128,29 @@ describe("GlobalSearchHeader", () => {
 		expect(
 			screen.getByRole("button", { name: "search:category_image" }),
 		).toHaveAttribute("aria-pressed", "true");
+	});
+
+	it("renders active filter chips and clears each filter from the strip", () => {
+		const props = renderHeader({
+			categoryFilter: "image",
+			filter: "file",
+			selectedTagIds: [1, 2],
+			tagMatch: "all",
+		});
+
+		const clearButtons = screen.getAllByRole("button", {
+			name: "clear_filter",
+		});
+		for (const button of clearButtons) {
+			fireEvent.click(button);
+		}
+
+		expect(props.onQueryClear).toHaveBeenCalledTimes(1);
+		expect(props.onFilterClear).toHaveBeenCalledTimes(1);
+		expect(props.onCategoryFilterClear).toHaveBeenCalledTimes(1);
+		expect(props.onTagClear).toHaveBeenCalledWith(1);
+		expect(props.onTagClear).toHaveBeenCalledWith(2);
+		expect(props.onTagMatchClear).toHaveBeenCalledTimes(1);
 	});
 
 	it("hides quick categories for folder-only searches", () => {

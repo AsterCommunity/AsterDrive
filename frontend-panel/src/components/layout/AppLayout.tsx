@@ -12,7 +12,6 @@ import type { FileCategory } from "@/types/api";
 
 interface AppLayoutProps {
 	children: ReactNode;
-	actions?: ReactNode;
 	onTrashDrop?: (data: InternalDragData) => void | Promise<void>;
 	onMoveToFolder?: (
 		fileIds: number[],
@@ -23,7 +22,6 @@ interface AppLayoutProps {
 
 export function AppLayout({
 	children,
-	actions,
 	onTrashDrop,
 	onMoveToFolder,
 }: AppLayoutProps) {
@@ -83,7 +81,6 @@ export function AppLayout({
 			<TopBar
 				onSidebarToggle={handleMobileToggle}
 				mobileOpen={mobileOpen}
-				actions={actions}
 				onSearchOpen={handleSearchOpen}
 			/>
 			<div className="flex flex-1 overflow-hidden">

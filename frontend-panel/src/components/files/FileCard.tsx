@@ -39,6 +39,7 @@ interface FileCardProps {
 	selectable?: boolean;
 	selectionActive?: boolean;
 	thumbnailPath?: string;
+	actionMenu?: React.ReactNode;
 }
 
 export function FileCard({
@@ -57,6 +58,7 @@ export function FileCard({
 	selectable = true,
 	selectionActive = false,
 	thumbnailPath,
+	actionMenu,
 }: FileCardProps) {
 	const [dragOver, setDragOver] = useState(false);
 
@@ -153,8 +155,16 @@ export function FileCard({
 				isShared={item.is_shared}
 				isLocked={item.is_locked}
 				compact
-				className="absolute top-2 right-2 flex-col items-end gap-1"
+				className={cn(
+					"absolute top-2 flex-col items-end gap-1",
+					actionMenu ? "right-11" : "right-2",
+				)}
 			/>
+			{actionMenu ? (
+				<div data-file-card-action-menu className="absolute top-2 right-2 z-10">
+					{actionMenu}
+				</div>
+			) : null}
 
 			<div
 				data-drag-preview-media

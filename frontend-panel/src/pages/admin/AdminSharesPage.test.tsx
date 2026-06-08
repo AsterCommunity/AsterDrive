@@ -100,6 +100,7 @@ vi.mock("@/components/common/AdminTableList", () => ({
 		emptyTitle,
 		emptyDescription,
 		headerRow,
+		pagination,
 		renderRow,
 	}: {
 		items: unknown[];
@@ -107,6 +108,7 @@ vi.mock("@/components/common/AdminTableList", () => ({
 		emptyTitle: string;
 		emptyDescription: string;
 		headerRow: React.ReactNode;
+		pagination?: React.ReactNode;
 		renderRow: (item: never) => React.ReactNode;
 	}) =>
 		loading ? (
@@ -121,6 +123,7 @@ vi.mock("@/components/common/AdminTableList", () => ({
 						{renderRow(item as never)}
 					</div>
 				))}
+				{pagination}
 			</div>
 		),
 }));

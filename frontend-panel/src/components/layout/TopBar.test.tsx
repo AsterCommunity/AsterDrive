@@ -13,10 +13,14 @@ vi.mock("react-i18next", () => ({
 }));
 
 vi.mock("@/components/layout/HeaderControls", () => ({
-	HeaderControls: ({ actions }: { actions?: React.ReactNode }) => (
+	HeaderControls: ({
+		mobileSearchAction,
+	}: {
+		mobileSearchAction?: React.ReactNode;
+	}) => (
 		<div>
 			HeaderControls
-			{actions}
+			{mobileSearchAction}
 		</div>
 	),
 }));
@@ -62,12 +66,11 @@ describe("TopBar", () => {
 		mockState.onSearchOpen.mockReset();
 	});
 
-	it("renders the logo, search trigger, and forwarded actions", () => {
+	it("renders the logo, search trigger, and global controls", () => {
 		render(
 			<TopBar
 				onSidebarToggle={vi.fn()}
 				mobileOpen={false}
-				actions={<button type="button">Extra</button>}
 				onSearchOpen={mockState.onSearchOpen}
 			/>,
 		);
@@ -80,7 +83,6 @@ describe("TopBar", () => {
 			screen.getByText("translated:search:placeholder"),
 		).toBeInTheDocument();
 		expect(screen.getByText("HeaderControls")).toBeInTheDocument();
-		expect(screen.getByRole("button", { name: "Extra" })).toBeInTheDocument();
 		expect(screen.getByTestId("topbar-shell")).toHaveAttribute(
 			"data-sidebar-open",
 			"false",

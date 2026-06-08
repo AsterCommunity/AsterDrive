@@ -489,7 +489,15 @@ export function GlobalSearchDialog({
 						);
 						setFilter("file");
 					}}
+					onCategoryFilterClear={() => {
+						setCategoryFilter(null);
+						setActiveIndex(0);
+					}}
 					onClose={() => onOpenChange(false)}
+					onFilterClear={() => {
+						setFilter("all");
+						setActiveIndex(0);
+					}}
 					onFilterChange={(nextFilter) => {
 						setFilter(nextFilter);
 						if (nextFilter !== "file") {
@@ -511,8 +519,19 @@ export function GlobalSearchDialog({
 						void handleInputKeyDown(event);
 					}}
 					onManageTagLibrary={() => setTagLibraryManagerOpen(true)}
+					onQueryClear={() => {
+						setQuery("");
+						setActiveIndex(0);
+					}}
 					onQueryChange={setQuery}
+					onTagClear={(tagId) => {
+						setSelectedTagIds((current) =>
+							current.filter((currentTagId) => currentTagId !== tagId),
+						);
+						setActiveIndex(0);
+					}}
 					onTagMatchChange={setTagMatch}
+					onTagMatchClear={() => setTagMatch("any")}
 					onTagToggle={handleToggleTag}
 					query={query}
 					selectedTagIds={selectedTagIds}

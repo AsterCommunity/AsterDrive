@@ -3,7 +3,10 @@ import type React from "react";
 import { memo, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useFileBrowserContext } from "@/components/files/FileBrowserContext";
-import { FileBrowserItemContextMenu } from "@/components/files/FileBrowserItemContextMenu";
+import {
+	FileBrowserItemActionMenu,
+	FileBrowserItemContextMenu,
+} from "@/components/files/FileBrowserItemContextMenu";
 import {
 	FileNameCell,
 	FileSizeCell,
@@ -43,7 +46,7 @@ type TableRowItem =
 	| { type: "folder"; item: FolderListItem }
 	| { type: "file"; item: FileListItem };
 
-const TABLE_COLUMN_COUNT = 4;
+const TABLE_COLUMN_COUNT = 5;
 const TABLE_ROW_ESTIMATE = 52;
 
 function SortIcon({
@@ -174,6 +177,12 @@ const FolderTableDataRow = memo(function FolderTableDataRow({
 				<FolderNameCell folder={folder} />
 				<FolderSizeCell />
 				<UpdatedAtCell updatedAt={folder.updated_at} />
+				<TableCell
+					className="w-12 pl-0 pr-3 text-right"
+					onClick={(e) => e.stopPropagation()}
+				>
+					<FileBrowserItemActionMenu item={folder} isFolder />
+				</TableCell>
 			</TableRow>
 		</FileBrowserItemContextMenu>
 	);
@@ -240,6 +249,12 @@ const FileTableDataRow = memo(function FileTableDataRow({
 				<FileNameCell file={file} />
 				<FileSizeCell size={file.size} />
 				<UpdatedAtCell updatedAt={file.updated_at} />
+				<TableCell
+					className="w-12 pl-0 pr-3 text-right"
+					onClick={(e) => e.stopPropagation()}
+				>
+					<FileBrowserItemActionMenu item={file} isFolder={false} />
+				</TableCell>
 			</TableRow>
 		</FileBrowserItemContextMenu>
 	);

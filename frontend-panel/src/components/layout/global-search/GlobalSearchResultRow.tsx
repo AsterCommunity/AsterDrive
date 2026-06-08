@@ -30,7 +30,7 @@ export function GlobalSearchResultRow({
 			type="button"
 			data-search-result-index={index}
 			className={cn(
-				"flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition-colors",
+				"group flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition-colors",
 				active
 					? "bg-primary/10 text-foreground ring-1 ring-primary/20"
 					: "hover:bg-muted/60",
@@ -87,7 +87,15 @@ export function GlobalSearchResultRow({
 				{opening ? (
 					<Icon name="Spinner" className="size-4 animate-spin" />
 				) : (
-					<Icon name="ArrowSquareOut" className="size-4" />
+					<span
+						className={cn(
+							"inline-flex h-8 items-center gap-1.5 rounded-lg border border-border/70 bg-background px-2 text-xs font-medium text-foreground shadow-xs transition-colors group-hover:border-primary/30 group-hover:text-primary",
+							active && "border-primary/30 text-primary",
+						)}
+					>
+						<span className="hidden sm:inline">{t("search:open_result")}</span>
+						<Icon name="ArrowSquareOut" className="size-4" />
+					</span>
 				)}
 			</div>
 		</button>

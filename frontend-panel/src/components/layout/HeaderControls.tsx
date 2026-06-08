@@ -27,14 +27,14 @@ import { useMusicPlayerStore } from "@/stores/musicPlayerStore";
 import { useThemeStore } from "@/stores/themeStore";
 
 interface HeaderControlsProps {
-	actions?: ReactNode;
+	mobileSearchAction?: ReactNode;
 	showHomeButton?: boolean;
 	homeLabel?: string;
 	showAdminEntry?: boolean;
 }
 
 export function HeaderControls({
-	actions,
+	mobileSearchAction,
 	showHomeButton = false,
 	homeLabel,
 	showAdminEntry = false,
@@ -95,7 +95,7 @@ export function HeaderControls({
 
 	return (
 		<div className="flex items-center gap-2 shrink-0">
-			{actions}
+			{mobileSearchAction}
 			{isAuthStale && (
 				<Tooltip>
 					<TooltipTrigger

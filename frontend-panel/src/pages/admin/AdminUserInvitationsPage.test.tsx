@@ -128,6 +128,28 @@ vi.mock("@/components/admin/admin-users-page/InviteUserDialog", () => ({
 }));
 
 vi.mock("@/components/admin/admin-users-page/UserInvitationsTable", () => ({
+	UserInvitationsTableHeader: () => <div>invitation-header</div>,
+	UserInvitationsTableRow: ({
+		invitation,
+		onRevokeInvitation,
+		revokingInvitationId,
+	}: {
+		invitation: AdminUserInvitationInfo;
+		onRevokeInvitation: (invitation: AdminUserInvitationInfo) => void;
+		revokingInvitationId: number | null;
+	}) => (
+		<div>
+			<span>{invitation.email}</span>
+			<span>{invitation.status}</span>
+			<button
+				type="button"
+				disabled={revokingInvitationId === invitation.id}
+				onClick={() => onRevokeInvitation(invitation)}
+			>
+				revoke:{invitation.id}
+			</button>
+		</div>
+	),
 	UserInvitationsTable: ({
 		invitations,
 		onRevokeInvitation,

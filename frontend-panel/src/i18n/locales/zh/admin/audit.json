@@ -87,6 +87,11 @@
 	"audit_action_share_create": "创建分享",
 	"audit_action_share_delete": "删除分享",
 	"audit_action_share_update": "更新分享",
+	"audit_action_tag_attach": "绑定标签",
+	"audit_action_tag_create": "创建标签",
+	"audit_action_tag_delete": "删除标签",
+	"audit_action_tag_detach": "移除标签",
+	"audit_action_tag_update": "更新标签",
 	"audit_action_system_setup": "完成系统初始化",
 	"audit_action_server_start": "服务器启动",
 	"audit_action_server_shutdown": "服务器关闭",
@@ -178,6 +183,7 @@
 	"audit_entity_type_upload_session": "上传会话",
 	"audit_entity_type_stream_ticket": "流式下载票据",
 	"audit_entity_type_auth_session": "登录会话",
+	"audit_entity_type_tag": "标签",
 	"audit_entity_type_trash": "回收站",
 	"audit_presentation_config_value_updated": "配置值改为 {{value}}",
 	"audit_presentation_config_action_executed": "配置动作：{{action}}",
@@ -197,6 +203,8 @@
 	"audit_presentation_share_batch_delete_finished": "成功 {{succeeded}}，失败 {{failed}}",
 	"audit_presentation_share_updated": "密码 {{has_password}}，最大下载次数 {{max_downloads}}",
 	"audit_presentation_property_changed": "{{entity_type}} 上的 {{namespace}}.{{name}}",
+	"audit_presentation_tag_assignment_changed": "{{entity_type}} {{entity_id}} 上的 {{tag_name}}",
+	"audit_presentation_tag_color_changed": "颜色改为 {{color}}",
 	"audit_presentation_trash_purge_finished": "清理 {{purged}} 个项目",
 	"audit_presentation_archive_selection_created": "归档目标文件夹 {{target_folder_id}}"
 }

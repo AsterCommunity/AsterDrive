@@ -233,19 +233,19 @@ describe("HeaderControls", () => {
 		mockState.theme.setMode.mockReset();
 	});
 
-	it("renders actions, stale auth messaging, and admin controls", () => {
+	it("renders mobile search action, stale auth messaging, and admin controls", () => {
 		mockState.auth.isAuthStale = true;
 
 		render(
 			<HeaderControls
-				actions={<button type="button">Refresh</button>}
+				mobileSearchAction={<button type="button">Search</button>}
 				showHomeButton
 				homeLabel="Home"
 				showAdminEntry
 			/>,
 		);
 
-		expect(screen.getByRole("button", { name: "Refresh" })).toBeInTheDocument();
+		expect(screen.getByRole("button", { name: "Search" })).toBeInTheDocument();
 		expect(
 			screen.getByText("translated:offline:offline_status_short"),
 		).toBeInTheDocument();

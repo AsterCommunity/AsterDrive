@@ -1,14 +1,13 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
-import { Button } from "@/components/ui/button";
 import {
-	Dialog,
-	DialogContent,
-	DialogDescription,
-	DialogHeader,
-	DialogTitle,
-} from "@/components/ui/dialog";
+	FixedDialogFooter,
+	InlineConfirm,
+	ManagerDialogScrollableList,
+	ManagerDialogShell,
+} from "@/components/common/ManagerDialogShell";
+import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
 import { Input } from "@/components/ui/input";
 import { handleApiError } from "@/hooks/useApiError";
@@ -173,38 +172,59 @@ export function TagLibraryManagerDialog({
 		}
 	};
 
+	const controls = (
+		<div className="space-y-2">
+			<label
+				className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground"
+				htmlFor="tag-library-manager-search"
+			>
+				{t("tag_search_label")}
+			</label>
+			<div className="relative">
+				<Icon
+					name="MagnifyingGlass"
+					className="-translate-y-1/2 absolute top-1/2 left-2.5 size-4 text-muted-foreground"
+				/>
+				<Input
+					id="tag-library-manager-search"
+					value={query}
+					onChange={(event) => setQuery(event.target.value)}
+					placeholder={t("tag_search_placeholder")}
+					className="pl-8"
+				/>
+			</div>
+		</div>
+	);
+
 	return (
-		<Dialog open={open} onOpenChange={onOpenChange}>
-			<DialogContent className="flex max-h-[min(88vh,42rem)] max-w-[calc(100%-1rem)] flex-col gap-0 overflow-hidden p-0 sm:max-w-xl">
-				<DialogHeader className="border-b px-5 py-4">
-					<DialogTitle>{t("tag_library_manage_title")}</DialogTitle>
-					<DialogDescription>{t("tag_library_manage_desc")}</DialogDescription>
-				</DialogHeader>
-
-				<div className="flex min-h-0 flex-1 flex-col gap-4 p-5">
-					<div className="space-y-2">
-						<label
-							className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground"
-							htmlFor="tag-library-manager-search"
-						>
-							{t("tag_search_label")}
-						</label>
-						<div className="relative">
-							<Icon
-								name="MagnifyingGlass"
-								className="-translate-y-1/2 absolute top-1/2 left-2.5 size-4 text-muted-foreground"
-							/>
-							<Input
-								id="tag-library-manager-search"
-								value={query}
-								onChange={(event) => setQuery(event.target.value)}
-								placeholder={t("tag_search_placeholder")}
-								className="pl-8"
-							/>
+		<ManagerDialogShell
+			open={open}
+			onOpenChange={onOpenChange}
+			title={t("tag_library_manage_title")}
+			description={t("tag_library_manage_desc")}
+			controls={controls}
+			className="sm:max-w-xl"
+			footer={
+				<FixedDialogFooter>
+					<div className="flex items-center justify-between gap-3">
+						<div className="min-w-0 text-sm text-muted-foreground">
+							{t("tag_usage_count", { count: total })}
 						</div>
+						<Button
+							type="button"
+							variant="outline"
+							className="shrink-0"
+							onClick={() => onOpenChange(false)}
+						>
+							{t("core:close")}
+						</Button>
 					</div>
-
-					<div className="min-h-48 flex-1 space-y-1.5 overflow-y-auto pr-1">
+				</FixedDialogFooter>
+			}
+		>
+			<ManagerDialogScrollableList className="space-y-4">
+				<div className="flex min-h-0 flex-1 flex-col gap-4">
+					<div className="space-y-2">
 						{loading ? (
 							<p className="rounded-lg border border-border/70 bg-muted/25 p-3 text-sm text-muted-foreground">
 								{t("info_loading")}
@@ -279,7 +299,7 @@ export function TagLibraryManagerDialog({
 												</div>
 											</div>
 										) : confirmingDelete ? (
-											<div className="space-y-3">
+											<InlineConfirm className="space-y-3">
 												<div className="flex min-w-0 items-center gap-2">
 													<span
 														className="size-2.5 shrink-0 rounded-full ring-1 ring-black/10"
@@ -327,7 +347,7 @@ export function TagLibraryManagerDialog({
 														{t("core:delete")}
 													</Button>
 												</div>
-											</div>
+											</InlineConfirm>
 										) : (
 											<div className="flex min-w-0 items-center gap-2">
 												<span
@@ -402,7 +422,7 @@ export function TagLibraryManagerDialog({
 						) : null}
 					</div>
 				</div>
-			</DialogContent>
-		</Dialog>
+			</ManagerDialogScrollableList>
+		</ManagerDialogShell>
 	);
 }

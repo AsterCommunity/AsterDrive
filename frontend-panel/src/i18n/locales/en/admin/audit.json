@@ -87,6 +87,11 @@
 	"audit_action_share_create": "Created share",
 	"audit_action_share_delete": "Deleted share",
 	"audit_action_share_update": "Updated share",
+	"audit_action_tag_attach": "Attached tag",
+	"audit_action_tag_create": "Created tag",
+	"audit_action_tag_delete": "Deleted tag",
+	"audit_action_tag_detach": "Detached tag",
+	"audit_action_tag_update": "Updated tag",
 	"audit_action_system_setup": "Completed system setup",
 	"audit_action_server_start": "Started server",
 	"audit_action_server_shutdown": "Stopped server",
@@ -178,6 +183,7 @@
 	"audit_entity_type_upload_session": "Upload session",
 	"audit_entity_type_stream_ticket": "Stream ticket",
 	"audit_entity_type_auth_session": "Auth session",
+	"audit_entity_type_tag": "Tag",
 	"audit_entity_type_trash": "Trash",
 	"audit_presentation_config_value_updated": "Value changed to {{value}}",
 	"audit_presentation_config_action_executed": "Config action: {{action}}",
@@ -197,6 +203,8 @@
 	"audit_presentation_share_batch_delete_finished": "{{succeeded}} succeeded, {{failed}} failed",
 	"audit_presentation_share_updated": "Password {{has_password}}, max downloads {{max_downloads}}",
 	"audit_presentation_property_changed": "{{namespace}}.{{name}} on {{entity_type}}",
+	"audit_presentation_tag_assignment_changed": "{{tag_name}} on {{entity_type}} {{entity_id}}",
+	"audit_presentation_tag_color_changed": "Color changed to {{color}}",
 	"audit_presentation_trash_purge_finished": "Purged {{purged}} item(s)",
 	"audit_presentation_archive_selection_created": "Archive target folder {{target_folder_id}}"
 }

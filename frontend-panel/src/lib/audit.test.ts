@@ -33,10 +33,12 @@ describe("audit i18n formatting", () => {
 			"admin:audit_action_file_delete": "Deleted file",
 			"admin:audit_action_offline_download": "Created link import task",
 			"admin:audit_action_follower_object_write": "Follower wrote object",
+			"admin:audit_action_tag_attach": "Attached tag",
 			"admin:audit_action_team_webdav_account_create":
 				"Created team WebDAV account",
 			"admin:audit_action_webdav_account_create": "Created WebDAV account",
 			"admin:audit_entity_type_resource_lock": "Resource lock",
+			"admin:audit_entity_type_tag": "Tag",
 		});
 
 		expect(formatAuditAction(t, "file_delete")).toBe("Deleted file");
@@ -46,6 +48,7 @@ describe("audit i18n formatting", () => {
 		expect(formatAuditAction(t, "follower_object_write")).toBe(
 			"Follower wrote object",
 		);
+		expect(formatAuditAction(t, "tag_attach")).toBe("Attached tag");
 		expect(formatAuditAction(t, "webdav_account_create")).toBe(
 			"Created WebDAV account",
 		);
@@ -53,6 +56,7 @@ describe("audit i18n formatting", () => {
 			"Created team WebDAV account",
 		);
 		expect(formatAuditEntityType(t, "resource_lock")).toBe("Resource lock");
+		expect(formatAuditEntityType(t, "tag")).toBe("Tag");
 	});
 
 	it("keeps legacy settings translations as a fallback for team audit entries", () => {
@@ -79,6 +83,8 @@ describe("audit i18n formatting", () => {
 		expect(getAuditActionBadgeClass("share_create")).toContain(
 			"border-sky-200",
 		);
+		expect(getAuditActionBadgeClass("tag_delete")).toContain("border-red-200");
+		expect(getAuditActionBadgeClass("tag_attach")).toContain("border-sky-200");
 		expect(getAuditActionBadgeClass("user_login")).toContain(
 			"border-amber-200",
 		);

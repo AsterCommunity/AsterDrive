@@ -1,14 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
-import { Button } from "@/components/ui/button";
 import {
-	Dialog,
-	DialogContent,
-	DialogDescription,
-	DialogHeader,
-	DialogTitle,
-} from "@/components/ui/dialog";
+	FixedDialogFooter,
+	ManagerDialogScrollableList,
+	ManagerDialogShell,
+} from "@/components/common/ManagerDialogShell";
+import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
 import { Input } from "@/components/ui/input";
 import { handleApiError } from "@/hooks/useApiError";
@@ -381,46 +379,97 @@ export function TagManagerDialog({
 				: showSaveActions
 					? t("tag_draft_empty")
 					: null;
+	const controls = (
+		<div className="space-y-2">
+			<label
+				className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground"
+				htmlFor="tag-manager-search"
+			>
+				{t("tag_search_label")}
+			</label>
+			<div className="relative">
+				<Icon
+					name="MagnifyingGlass"
+					className="-translate-y-1/2 absolute top-1/2 left-2.5 size-4 text-muted-foreground"
+				/>
+				<Input
+					id="tag-manager-search"
+					value={query}
+					onChange={(event) => setQuery(event.target.value)}
+					placeholder={t("tag_search_placeholder")}
+					className="pl-8"
+					maxLength={64}
+					onKeyDown={(event) => {
+						if (event.key === "Enter" && canCreate) {
+							event.preventDefault();
+							void handleCreateTag();
+						}
+					}}
+				/>
+			</div>
+		</div>
+	);
+	const footer = (
+		<FixedDialogFooter>
+			<div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+				{draftSummary ? (
+					<p
+						className={cn(
+							"min-w-0 flex-1 text-sm",
+							hasDraftChanges
+								? "font-medium text-foreground"
+								: "text-muted-foreground",
+						)}
+					>
+						{draftSummary}
+					</p>
+				) : (
+					<span className="min-w-0 flex-1" />
+				)}
+				<div className="flex w-full flex-col-reverse gap-2 sm:w-auto sm:flex-row">
+					<Button
+						type="button"
+						variant="outline"
+						className="w-full sm:w-auto"
+						disabled={saving}
+						onClick={() => onOpenChange(false)}
+					>
+						{showSaveActions ? t("core:cancel") : t("core:close")}
+					</Button>
+					{showSaveActions ? (
+						<Button
+							type="button"
+							variant={hasDraftChanges || saving ? "default" : "outline"}
+							className="w-full sm:w-auto"
+							disabled={!hasDraftChanges || saving}
+							onClick={() => {
+								void handleSaveChanges();
+							}}
+						>
+							{saving ? (
+								<Icon name="Spinner" className="size-3.5 animate-spin" />
+							) : null}
+							{t("core:save")}
+						</Button>
+					) : null}
+				</div>
+			</div>
+		</FixedDialogFooter>
+	);
 
 	return (
 		<>
-			<Dialog open={open} onOpenChange={onOpenChange}>
-				<DialogContent className="flex max-h-[min(88vh,44rem)] max-w-[calc(100%-1rem)] flex-col gap-0 overflow-hidden p-0 sm:max-w-2xl">
-					<DialogHeader className="border-b px-5 py-4">
-						<DialogTitle>{title}</DialogTitle>
-						<DialogDescription>{description}</DialogDescription>
-					</DialogHeader>
-
-					<div className="flex min-h-0 flex-1 flex-col gap-4 p-5">
-						<div className="space-y-2">
-							<label
-								className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground"
-								htmlFor="tag-manager-search"
-							>
-								{t("tag_search_label")}
-							</label>
-							<div className="relative">
-								<Icon
-									name="MagnifyingGlass"
-									className="-translate-y-1/2 absolute top-1/2 left-2.5 size-4 text-muted-foreground"
-								/>
-								<Input
-									id="tag-manager-search"
-									value={query}
-									onChange={(event) => setQuery(event.target.value)}
-									placeholder={t("tag_search_placeholder")}
-									className="pl-8"
-									maxLength={64}
-									onKeyDown={(event) => {
-										if (event.key === "Enter" && canCreate) {
-											event.preventDefault();
-											void handleCreateTag();
-										}
-									}}
-								/>
-							</div>
-						</div>
-
+			<ManagerDialogShell
+				open={open}
+				onOpenChange={onOpenChange}
+				title={title}
+				description={description}
+				controls={controls}
+				footer={footer}
+				className="sm:max-w-2xl"
+			>
+				<ManagerDialogScrollableList className="space-y-4">
+					<div className="flex min-h-0 flex-1 flex-col gap-4">
 						{target?.mode === "entity" ? (
 							<section className="space-y-2">
 								<h3 className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
@@ -686,55 +735,8 @@ export function TagManagerDialog({
 							</div>
 						</section>
 					</div>
-
-					<div
-						data-theme-surface="panel"
-						className="flex flex-col gap-3 border-t border-border/60 bg-muted/35 px-5 py-3 sm:flex-row sm:items-center sm:justify-between"
-					>
-						{draftSummary ? (
-							<p
-								className={cn(
-									"min-w-0 flex-1 text-sm",
-									hasDraftChanges
-										? "font-medium text-foreground"
-										: "text-muted-foreground",
-								)}
-							>
-								{draftSummary}
-							</p>
-						) : (
-							<span className="min-w-0 flex-1" />
-						)}
-						<div className="flex w-full flex-col-reverse gap-2 sm:w-auto sm:flex-row">
-							<Button
-								type="button"
-								variant="outline"
-								className="w-full sm:w-auto"
-								disabled={saving}
-								onClick={() => onOpenChange(false)}
-							>
-								{showSaveActions ? t("core:cancel") : t("core:close")}
-							</Button>
-							{showSaveActions ? (
-								<Button
-									type="button"
-									variant={hasDraftChanges || saving ? "default" : "outline"}
-									className="w-full sm:w-auto"
-									disabled={!hasDraftChanges || saving}
-									onClick={() => {
-										void handleSaveChanges();
-									}}
-								>
-									{saving ? (
-										<Icon name="Spinner" className="size-3.5 animate-spin" />
-									) : null}
-									{t("core:save")}
-								</Button>
-							) : null}
-						</div>
-					</div>
-				</DialogContent>
-			</Dialog>
+				</ManagerDialogScrollableList>
+			</ManagerDialogShell>
 			<TagLibraryManagerDialog
 				open={libraryManagerOpen}
 				onOpenChange={setLibraryManagerOpen}

@@ -4,7 +4,7 @@ import { safeTagColor } from "@/components/files/TagChips";
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
 import { Input } from "@/components/ui/input";
-import type { TagInfo } from "@/types/api";
+import type { FileCategory, TagInfo } from "@/types/api";
 import type { SearchCategoryFilter, SearchFilter } from "./types";
 import { SEARCH_CATEGORY_OPTIONS, SEARCH_FILTER_OPTIONS } from "./types";
 
@@ -15,15 +15,20 @@ interface GlobalSearchHeaderProps {
 	filter: SearchFilter;
 	inputRef: Ref<HTMLInputElement>;
 	onCategoryFilterChange: (category: SearchCategoryFilter) => void;
+	onCategoryFilterClear: () => void;
 	onClose: () => void;
+	onFilterClear: () => void;
 	onFilterChange: (filter: SearchFilter) => void;
 	onInputBlur: () => void;
 	onInputCompositionEnd: (value: string) => void;
 	onInputCompositionStart: () => void;
 	onInputKeyDown: (event: KeyboardEvent<HTMLInputElement>) => void;
 	onManageTagLibrary: () => void;
+	onQueryClear: () => void;
 	onQueryChange: (value: string) => void;
+	onTagClear: (tagId: number) => void;
 	onTagMatchChange: (value: SearchTagMatch) => void;
+	onTagMatchClear: () => void;
 	onTagToggle: (tagId: number) => void;
 	query: string;
 	selectedTagIds: number[];
@@ -37,15 +42,20 @@ export function GlobalSearchHeader({
 	filter,
 	inputRef,
 	onCategoryFilterChange,
+	onCategoryFilterClear,
 	onClose,
+	onFilterClear,
 	onFilterChange,
 	onInputBlur,
 	onInputCompositionEnd,
 	onInputCompositionStart,
 	onInputKeyDown,
 	onManageTagLibrary,
+	onQueryClear,
 	onQueryChange,
+	onTagClear,
 	onTagMatchChange,
+	onTagMatchClear,
 	onTagToggle,
 	query,
 	selectedTagIds,
@@ -55,6 +65,7 @@ export function GlobalSearchHeader({
 }: GlobalSearchHeaderProps) {
 	const { t } = useTranslation(["search", "files"]);
 	const selectedTagSet = new Set(selectedTagIds);
+	const selectedTags = tags.filter((tag) => selectedTagSet.has(tag.id));
 
 	return (
 		<div className="border-b bg-background/95 px-4 py-3">
@@ -85,6 +96,7 @@ export function GlobalSearchHeader({
 					variant="ghost"
 					size="sm"
 					onClick={onClose}
+					aria-label={t("search:close_search")}
 					className="shrink-0"
 				>
 					<Icon name="X" className="size-4" />
@@ -136,6 +148,10 @@ export function GlobalSearchHeader({
 						<Icon name="Spinner" className="size-3.5 animate-spin" />
 						{t("search:tag_loading")}
 					</span>
+				) : tags.length === 0 ? (
+					<span className="inline-flex h-8 shrink-0 items-center rounded-full border border-dashed border-border/70 px-2.5 text-xs text-muted-foreground">
+						{t("search:no_tags")}
+					</span>
 				) : (
 					tags.map((tag) => {
 						const active = selectedTagSet.has(tag.id);
@@ -186,6 +202,138 @@ export function GlobalSearchHeader({
 					{t("files:tag_library_manage")}
 				</Button>
 			</fieldset>
+			<SearchFilterStrip
+				categoryFilter={categoryFilter}
+				filter={filter}
+				onCategoryFilterClear={onCategoryFilterClear}
+				onFilterClear={onFilterClear}
+				onQueryClear={onQueryClear}
+				onTagClear={onTagClear}
+				onTagMatchClear={onTagMatchClear}
+				query={query}
+				selectedTags={selectedTags}
+				tagMatch={tagMatch}
+			/>
 		</div>
+	);
+}
+
+interface SearchFilterStripProps {
+	categoryFilter: SearchCategoryFilter;
+	filter: SearchFilter;
+	onCategoryFilterClear: () => void;
+	onFilterClear: () => void;
+	onQueryClear: () => void;
+	onTagClear: (tagId: number) => void;
+	onTagMatchClear: () => void;
+	query: string;
+	selectedTags: TagInfo[];
+	tagMatch: SearchTagMatch;
+}
+
+function SearchFilterStrip({
+	categoryFilter,
+	filter,
+	onCategoryFilterClear,
+	onFilterClear,
+	onQueryClear,
+	onTagClear,
+	onTagMatchClear,
+	query,
+	selectedTags,
+	tagMatch,
+}: SearchFilterStripProps) {
+	const { t } = useTranslation("search");
+	const trimmedQuery = query.trim();
+	const hasActiveFilters =
+		Boolean(trimmedQuery) ||
+		filter !== "all" ||
+		Boolean(categoryFilter) ||
+		selectedTags.length > 0;
+
+	if (!hasActiveFilters) {
+		return null;
+	}
+
+	return (
+		<div className="mt-2 flex items-center gap-1.5 overflow-x-auto pb-1">
+			<span className="shrink-0 text-xs font-medium text-muted-foreground">
+				{t("active_filters")}
+			</span>
+			{trimmedQuery ? (
+				<SearchFilterChip
+					label={t("filter_keyword", { value: trimmedQuery })}
+					onClear={onQueryClear}
+				/>
+			) : null}
+			{filter !== "all" ? (
+				<SearchFilterChip
+					label={t("filter_type", {
+						value: t(
+							SEARCH_FILTER_OPTIONS.find((option) => option.value === filter)
+								?.labelKey ?? "all",
+						),
+					})}
+					onClear={onFilterClear}
+				/>
+			) : null}
+			{categoryFilter ? (
+				<SearchFilterChip
+					label={t("filter_category", {
+						value: getCategoryLabel(t, categoryFilter),
+					})}
+					onClear={onCategoryFilterClear}
+				/>
+			) : null}
+			{selectedTags.map((tag) => (
+				<SearchFilterChip
+					key={tag.id}
+					label={t("filter_tag", { value: tag.name })}
+					onClear={() => onTagClear(tag.id)}
+				/>
+			))}
+			{selectedTags.length > 1 ? (
+				<SearchFilterChip
+					label={t("filter_tag_match", {
+						value: tagMatch === "any" ? t("tag_match_any") : t("tag_match_all"),
+					})}
+					onClear={onTagMatchClear}
+				/>
+			) : null}
+		</div>
+	);
+}
+
+function SearchFilterChip({
+	label,
+	onClear,
+}: {
+	label: string;
+	onClear: () => void;
+}) {
+	const { t } = useTranslation("search");
+
+	return (
+		<span className="inline-flex h-7 shrink-0 items-center gap-1 rounded-full border border-border/70 bg-muted/30 pl-2.5 text-xs text-foreground">
+			<span>{label}</span>
+			<button
+				type="button"
+				onClick={onClear}
+				aria-label={t("clear_filter")}
+				className="flex size-6 items-center justify-center rounded-full text-muted-foreground hover:bg-background hover:text-foreground"
+			>
+				<Icon name="X" className="size-3.5" />
+			</button>
+		</span>
+	);
+}
+
+function getCategoryLabel(
+	t: (key: string, options?: Record<string, unknown>) => string,
+	category: FileCategory,
+) {
+	return t(
+		SEARCH_CATEGORY_OPTIONS.find((option) => option.value === category)
+			?.labelKey ?? "category_other",
 	);
 }

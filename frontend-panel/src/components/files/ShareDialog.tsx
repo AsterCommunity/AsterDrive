@@ -2,6 +2,11 @@ import { useReducer } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import {
+	FixedDialogFooter,
+	ManagerDialogScrollableList,
+	ManagerDialogShell,
+} from "@/components/common/ManagerDialogShell";
+import {
 	computeShareExpiry,
 	normalizeMaxDownloads,
 } from "@/components/files/shareDialogShared";
@@ -10,12 +15,6 @@ import {
 	shareDialogReducer,
 } from "@/components/files/shareDialogState";
 import { Button } from "@/components/ui/button";
-import {
-	Dialog,
-	DialogContent,
-	DialogHeader,
-	DialogTitle,
-} from "@/components/ui/dialog";
 import { Icon } from "@/components/ui/icon";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -27,6 +26,7 @@ import {
 	SelectValue,
 } from "@/components/ui/select";
 import { handleApiError } from "@/hooks/useApiError";
+import { usePendingAction } from "@/hooks/usePendingAction";
 import { writeTextToClipboard } from "@/lib/clipboard";
 import { fileService } from "@/services/fileService";
 import { shareService } from "@/services/shareService";
@@ -58,6 +58,7 @@ export function ShareDialog({
 		shareDialogReducer,
 		initialShareDialogState,
 	);
+	const { pending: creating, runWithPending } = usePendingAction();
 	const { copied, createdLinks, expiry, loading, maxDownloads, password } =
 		state;
 	const expiryOptions = [
@@ -70,48 +71,53 @@ export function ShareDialog({
 
 	const handleCreate = async (e: React.FormEvent) => {
 		e.preventDefault();
-		dispatch({ type: "createStarted" });
-		try {
-			let primaryUrl: string;
-			let forceDownloadUrl: string | null = null;
+		await runWithPending(async () => {
+			dispatch({ type: "createStarted" });
+			try {
+				let primaryUrl: string;
+				let forceDownloadUrl: string | null = null;
 
-			if (mode === "direct") {
-				if (fileId == null) {
-					throw new Error("fileId is required for direct links");
+				if (mode === "direct") {
+					if (fileId == null) {
+						throw new Error("fileId is required for direct links");
+					}
+					const directLink = await fileService.getDirectLinkToken(fileId);
+					primaryUrl = fileService.directUrl(directLink.token, name);
+					forceDownloadUrl = fileService.forceDownloadUrl(
+						directLink.token,
+						name,
+					);
+				} else {
+					const expiresAt = computeShareExpiry(expiry);
+					const target =
+						fileId != null
+							? { type: "file" as const, id: fileId }
+							: folderId != null
+								? { type: "folder" as const, id: folderId }
+								: null;
+					if (target == null) {
+						throw new Error("share target is required");
+					}
+					const share = await shareService.create({
+						target,
+						password: password || undefined,
+						expires_at: expiresAt ?? undefined,
+						max_downloads: normalizeMaxDownloads(maxDownloads),
+					});
+					primaryUrl = shareService.pageUrl(share.token);
 				}
-				const directLink = await fileService.getDirectLinkToken(fileId);
-				primaryUrl = fileService.directUrl(directLink.token, name);
-				forceDownloadUrl = fileService.forceDownloadUrl(directLink.token, name);
-			} else {
-				const expiresAt = computeShareExpiry(expiry);
-				const target =
-					fileId != null
-						? { type: "file" as const, id: fileId }
-						: folderId != null
-							? { type: "folder" as const, id: folderId }
-							: null;
-				if (target == null) {
-					throw new Error("share target is required");
-				}
-				const share = await shareService.create({
-					target,
-					password: password || undefined,
-					expires_at: expiresAt ?? undefined,
-					max_downloads: normalizeMaxDownloads(maxDownloads),
+
+				dispatch({
+					type: "createSucceeded",
+					links: { primaryUrl, forceDownloadUrl },
 				});
-				primaryUrl = shareService.pageUrl(share.token);
+				toast.success(t("share:share_created"));
+			} catch (error) {
+				handleApiError(error);
+			} finally {
+				dispatch({ type: "createFinished" });
 			}
-
-			dispatch({
-				type: "createSucceeded",
-				links: { primaryUrl, forceDownloadUrl },
-			});
-			toast.success(t("share:share_created"));
-		} catch (error) {
-			handleApiError(error);
-		} finally {
-			dispatch({ type: "createFinished" });
-		}
+		});
 	};
 
 	const handleCopy = async (value: string) => {
@@ -133,17 +139,46 @@ export function ShareDialog({
 	};
 
 	return (
-		<Dialog open={open} onOpenChange={handleClose}>
-			<DialogContent keepMounted className="max-w-md">
-				<DialogHeader className="min-w-0 pr-8">
-					<DialogTitle className="flex max-w-full min-w-0 items-start gap-2 leading-snug">
-						<Icon name="Link" className="mt-0.5 size-4 shrink-0" />
-						<span className="min-w-0 flex-1 overflow-hidden break-words">
-							{t("share:share_dialog_title", { name })}
-						</span>
-					</DialogTitle>
-				</DialogHeader>
-
+		<ManagerDialogShell
+			open={open}
+			onOpenChange={handleClose}
+			title={
+				<span className="flex max-w-full min-w-0 items-start gap-2 leading-snug">
+					<Icon name="Link" className="mt-0.5 size-4 shrink-0" />
+					<span className="min-w-0 flex-1 overflow-hidden break-words">
+						{t("share:share_dialog_title", { name })}
+					</span>
+				</span>
+			}
+			footer={
+				<FixedDialogFooter>
+					{createdLinks ? (
+						<Button
+							variant="outline"
+							className="w-full"
+							onClick={() => handleClose(false)}
+						>
+							{t("share:share_done")}
+						</Button>
+					) : (
+						<Button
+							form="share-create-form"
+							type="submit"
+							className="w-full"
+							disabled={loading || creating}
+						>
+							{loading || creating ? (
+								<Icon name="Spinner" className="size-4 animate-spin" />
+							) : null}
+							{loading || creating
+								? t("share:share_creating")
+								: t("share:share_create_button")}
+						</Button>
+					)}
+				</FixedDialogFooter>
+			}
+		>
+			<ManagerDialogScrollableList>
 				{createdLinks ? (
 					<div className="space-y-4">
 						<div className="flex items-center gap-2">
@@ -196,16 +231,13 @@ export function ShareDialog({
 								{t("share:share_password_hint")}
 							</p>
 						)}
-						<Button
-							variant="outline"
-							className="w-full"
-							onClick={() => handleClose(false)}
-						>
-							{t("share:share_done")}
-						</Button>
 					</div>
 				) : (
-					<form onSubmit={handleCreate} className="space-y-4">
+					<form
+						id="share-create-form"
+						onSubmit={handleCreate}
+						className="space-y-4"
+					>
 						{mode === "page" ? (
 							<>
 								<div className="space-y-2">
@@ -277,15 +309,9 @@ export function ShareDialog({
 								/>
 							</div>
 						)}
-
-						<Button type="submit" className="w-full" disabled={loading}>
-							{loading
-								? t("share:share_creating")
-								: t("share:share_create_button")}
-						</Button>
 					</form>
 				)}
-			</DialogContent>
-		</Dialog>
+			</ManagerDialogScrollableList>
+		</ManagerDialogShell>
 	);
 }

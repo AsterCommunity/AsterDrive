@@ -36,7 +36,14 @@ const mockState = vi.hoisted(() => ({
 	thumbnailSupportStore: {
 		config: {
 			version: 1,
-			extensions: ["mp3"],
+			image_thumbnail: {
+				enabled: true,
+				extensions: ["png", "jpg"],
+			},
+			audio_thumbnail: {
+				enabled: true,
+				extensions: ["mp3"],
+			},
 		},
 		invalidate: vi.fn(),
 		isLoaded: true,
@@ -441,7 +448,14 @@ describe("MusicPlayerHost", () => {
 		mockState.updateTrackSource.mockReset();
 		mockState.thumbnailSupportStore.config = {
 			version: 1,
-			extensions: ["mp3"],
+			image_thumbnail: {
+				enabled: true,
+				extensions: ["png", "jpg"],
+			},
+			audio_thumbnail: {
+				enabled: true,
+				extensions: ["mp3"],
+			},
 		};
 		mockState.thumbnailSupportStore.isLoaded = true;
 		mockState.thumbnailSupportStore.invalidate.mockReset();

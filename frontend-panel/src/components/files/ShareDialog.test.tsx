@@ -62,18 +62,21 @@ vi.mock("@/components/ui/button", () => ({
 		children,
 		type,
 		disabled,
+		form,
 		onClick,
 		className,
 	}: {
 		children: React.ReactNode;
 		type?: "button" | "submit";
 		disabled?: boolean;
+		form?: string;
 		onClick?: () => void;
 		className?: string;
 	}) => (
 		<button
 			type={type ?? "button"}
 			disabled={disabled}
+			form={form}
 			onClick={onClick}
 			className={className}
 		>
@@ -303,7 +306,7 @@ describe("ShareDialog", () => {
 		);
 
 		const titleText = screen.getByText(`share:${longName}`);
-		const title = titleText.closest("h2");
+		const title = titleText.parentElement;
 
 		expect(title).toHaveClass("min-w-0", "leading-snug");
 		expect(titleText).toHaveClass("min-w-0", "break-words");
@@ -355,7 +358,7 @@ describe("ShareDialog", () => {
 		);
 
 		const titleText = screen.getByText(`share:${longName}`);
-		const title = titleText.closest("h2");
+		const title = titleText.parentElement;
 
 		expect(title).toHaveClass("min-w-0", "leading-snug");
 		expect(titleText).toHaveClass("min-w-0", "break-words");

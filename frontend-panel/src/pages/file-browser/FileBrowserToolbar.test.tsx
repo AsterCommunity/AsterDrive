@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { FileBrowserToolbar } from "@/pages/file-browser/FileBrowserToolbar";
 
@@ -231,20 +231,25 @@ describe("FileBrowserToolbar", () => {
 			},
 		});
 
-		expect(screen.getByText("selected:3")).toBeInTheDocument();
-		expect(screen.queryByText("Final")).not.toBeInTheDocument();
+		expect(screen.getAllByText("selected:3")).toHaveLength(2);
+		expect(screen.getByText("Final")).toBeInTheDocument();
 		expect(
-			screen.getByRole("button", { name: "selection_more_actions" }),
+			screen.getByTestId("file-browser-mobile-selection-toolbar"),
 		).toBeInTheDocument();
+		expect(
+			screen.getAllByRole("button", { name: "selection_more_actions" }),
+		).toHaveLength(2);
 
-		fireEvent.click(screen.getByRole("button", { name: "selection_clear" }));
+		fireEvent.click(
+			screen.getAllByRole("button", { name: "selection_clear" })[0],
+		);
 		fireEvent.click(screen.getAllByText("selection_select_all_visible")[0]);
-		fireEvent.click(screen.getByRole("button", { name: "move_to" }));
+		fireEvent.click(screen.getAllByRole("button", { name: "move_to" })[0]);
 		fireEvent.click(screen.getAllByText("copy_to")[0]);
 		fireEvent.click(screen.getAllByText("tag_manage")[0]);
 		fireEvent.click(screen.getAllByText("tasks:archive_download_action")[0]);
-		fireEvent.click(screen.getByText("tasks:archive_compress_action"));
-		fireEvent.click(screen.getByText("core:delete"));
+		fireEvent.click(screen.getAllByText("tasks:archive_compress_action")[0]);
+		fireEvent.click(screen.getAllByText("core:delete")[0]);
 
 		expect(selectionHandlers.onClearSelection).toHaveBeenCalledTimes(1);
 		expect(selectionHandlers.onToggleDisplayedSelection).toHaveBeenCalledTimes(
@@ -256,6 +261,60 @@ describe("FileBrowserToolbar", () => {
 		expect(selectionHandlers.onDownload).toHaveBeenCalledTimes(1);
 		expect(selectionHandlers.onArchiveCompress).toHaveBeenCalledTimes(1);
 		expect(selectionHandlers.onDelete).toHaveBeenCalledTimes(1);
+	});
+
+	it("exposes compact mobile selection actions from the bottom toolbar", () => {
+		const selectionHandlers = {
+			onDownload: vi.fn(),
+			onClearSelection: vi.fn(),
+			onMove: vi.fn(),
+			onToggleDisplayedSelection: vi.fn(),
+		};
+
+		renderToolbar({
+			selectionToolbar: {
+				count: 2,
+				allDisplayedSelected: false,
+				downloadAction: {
+					kind: "archive",
+					onClick: selectionHandlers.onDownload,
+				},
+				hasDisplayedItems: true,
+				onClearSelection: selectionHandlers.onClearSelection,
+				onCopy: vi.fn(),
+				onDelete: vi.fn(),
+				onManageTags: vi.fn(),
+				onMove: selectionHandlers.onMove,
+				onToggleDisplayedSelection:
+					selectionHandlers.onToggleDisplayedSelection,
+			},
+		});
+
+		const mobileToolbar = screen.getByTestId(
+			"file-browser-mobile-selection-toolbar",
+		);
+
+		fireEvent.click(
+			within(mobileToolbar).getByRole("button", { name: "selection_clear" }),
+		);
+		fireEvent.click(
+			within(mobileToolbar).getAllByText("selection_select_all_visible")[0],
+		);
+		fireEvent.click(
+			within(mobileToolbar).getByRole("button", {
+				name: "tasks:archive_download_action",
+			}),
+		);
+		fireEvent.click(
+			within(mobileToolbar).getByRole("button", { name: "move_to" }),
+		);
+
+		expect(selectionHandlers.onClearSelection).toHaveBeenCalledTimes(1);
+		expect(selectionHandlers.onToggleDisplayedSelection).toHaveBeenCalledTimes(
+			1,
+		);
+		expect(selectionHandlers.onDownload).toHaveBeenCalledTimes(1);
+		expect(selectionHandlers.onMove).toHaveBeenCalledTimes(1);
 	});
 
 	it("labels the selection download action as a regular download for a single file", () => {
@@ -306,13 +365,13 @@ describe("FileBrowserToolbar", () => {
 			};
 			const { props, rerender } = renderToolbar({ selectionToolbar });
 
-			expect(screen.getByText("selected:2")).toBeInTheDocument();
-			expect(screen.queryByText("Final")).not.toBeInTheDocument();
+			expect(screen.getAllByText("selected:2")).toHaveLength(2);
+			expect(screen.getByText("Final")).toBeInTheDocument();
 
 			rerender(<FileBrowserToolbar {...props} selectionToolbar={null} />);
 
-			expect(screen.getByText("selected:2")).toBeInTheDocument();
-			expect(screen.queryByText("Final")).not.toBeInTheDocument();
+			expect(screen.getAllByText("selected:2")).toHaveLength(2);
+			expect(screen.getByText("Final")).toBeInTheDocument();
 			expect(
 				screen.getByTestId("file-browser-selection-toolbar"),
 			).toHaveAttribute("aria-hidden", "false");
@@ -329,8 +388,8 @@ describe("FileBrowserToolbar", () => {
 				vi.advanceTimersByTime(119);
 			});
 
-			expect(screen.getByText("selected:2")).toBeInTheDocument();
-			expect(screen.queryByText("Final")).not.toBeInTheDocument();
+			expect(screen.getAllByText("selected:2")).toHaveLength(2);
+			expect(screen.getByText("Final")).toBeInTheDocument();
 
 			act(() => {
 				vi.advanceTimersByTime(120);
@@ -360,14 +419,14 @@ describe("FileBrowserToolbar", () => {
 			const { props, rerender } = renderToolbar({ selectionToolbar });
 
 			rerender(<FileBrowserToolbar {...props} selectionToolbar={null} />);
-			expect(screen.getByText("selected:2")).toBeInTheDocument();
-			expect(screen.queryByText("Final")).not.toBeInTheDocument();
+			expect(screen.getAllByText("selected:2")).toHaveLength(2);
+			expect(screen.getByText("Final")).toBeInTheDocument();
 
 			rerender(
 				<FileBrowserToolbar {...props} selectionToolbar={selectionToolbar} />,
 			);
-			expect(screen.getByText("selected:2")).toBeInTheDocument();
-			expect(screen.queryByText("Final")).not.toBeInTheDocument();
+			expect(screen.getAllByText("selected:2")).toHaveLength(2);
+			expect(screen.getByText("Final")).toBeInTheDocument();
 		} finally {
 			vi.useRealTimers();
 		}
@@ -399,8 +458,8 @@ describe("FileBrowserToolbar", () => {
 				vi.advanceTimersByTime(30);
 			});
 
-			expect(screen.getByText("selected:2")).toBeInTheDocument();
-			expect(screen.queryByText("Final")).not.toBeInTheDocument();
+			expect(screen.getAllByText("selected:2")).toHaveLength(2);
+			expect(screen.getByText("Final")).toBeInTheDocument();
 
 			rerender(
 				<FileBrowserToolbar
@@ -409,15 +468,15 @@ describe("FileBrowserToolbar", () => {
 				/>,
 			);
 
-			expect(screen.getByText("selected:1")).toBeInTheDocument();
-			expect(screen.queryByText("Final")).not.toBeInTheDocument();
+			expect(screen.getAllByText("selected:1")).toHaveLength(2);
+			expect(screen.getByText("Final")).toBeInTheDocument();
 
 			act(() => {
 				vi.advanceTimersByTime(300);
 			});
 
-			expect(screen.getByText("selected:1")).toBeInTheDocument();
-			expect(screen.queryByText("Final")).not.toBeInTheDocument();
+			expect(screen.getAllByText("selected:1")).toHaveLength(2);
+			expect(screen.getByText("Final")).toBeInTheDocument();
 		} finally {
 			vi.useRealTimers();
 		}

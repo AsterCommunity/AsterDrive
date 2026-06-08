@@ -36,12 +36,10 @@ vi.mock("@/components/layout/TopBar", () => ({
 	TopBar: ({
 		onSidebarToggle,
 		mobileOpen,
-		actions,
 		onSearchOpen,
 	}: {
 		onSidebarToggle: () => void;
 		mobileOpen: boolean;
-		actions?: React.ReactNode;
 		onSearchOpen: () => void;
 	}) => (
 		<div data-testid="topbar" data-mobile-open={String(mobileOpen)}>
@@ -51,7 +49,6 @@ vi.mock("@/components/layout/TopBar", () => ({
 			<button type="button" onClick={onSearchOpen}>
 				Open Search
 			</button>
-			{actions}
 		</div>
 	),
 }));
@@ -117,21 +114,16 @@ describe("AppLayout", () => {
 		mockState.auth.user = { id: 7 };
 	});
 
-	it("renders children and forwards actions and drag handlers", () => {
+	it("renders children and forwards drag handlers", () => {
 		const onTrashDrop = vi.fn();
 		const onMoveToFolder = vi.fn();
 
 		render(
-			<AppLayout
-				actions={<button type="button">Extra</button>}
-				onTrashDrop={onTrashDrop}
-				onMoveToFolder={onMoveToFolder}
-			>
+			<AppLayout onTrashDrop={onTrashDrop} onMoveToFolder={onMoveToFolder}>
 				<div>Page Content</div>
 			</AppLayout>,
 		);
 
-		expect(screen.getByRole("button", { name: "Extra" })).toBeInTheDocument();
 		expect(screen.getByText("Page Content")).toBeInTheDocument();
 		expect(screen.getByTestId("topbar")).toHaveAttribute(
 			"data-mobile-open",

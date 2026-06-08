@@ -92,6 +92,8 @@ const AUDIT_ACTION_TONES = {
 	property_delete: "danger",
 	share_batch_delete: "danger",
 	share_delete: "danger",
+	tag_delete: "danger",
+	tag_detach: "danger",
 	user_passkey_delete: "danger",
 	webdav_account_delete: "danger",
 
@@ -105,6 +107,9 @@ const AUDIT_ACTION_TONES = {
 	file_preview_link_create: "info",
 	share_create: "info",
 	share_update: "info",
+	tag_attach: "info",
+	tag_create: "info",
+	tag_update: "info",
 
 	user_external_auth_login: "warning",
 	user_login: "warning",

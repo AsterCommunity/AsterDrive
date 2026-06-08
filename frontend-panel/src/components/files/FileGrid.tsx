@@ -2,7 +2,10 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import { memo, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useFileBrowserContext } from "@/components/files/FileBrowserContext";
-import { FileBrowserItemContextMenu } from "@/components/files/FileBrowserItemContextMenu";
+import {
+	FileBrowserItemActionMenu,
+	FileBrowserItemContextMenu,
+} from "@/components/files/FileBrowserItemContextMenu";
 import { FileCard } from "@/components/files/FileCard";
 import { getCurrentSelectionDragData } from "@/components/files/selectionDragData";
 import type { BrowserOpenMode } from "@/stores/fileStore";
@@ -105,6 +108,7 @@ const FolderGridCard = memo(function FolderGridCard({
 				onDrop={onMoveToFolder}
 				targetPathIds={targetPathIds}
 				fading={fading}
+				actionMenu={<FileBrowserItemActionMenu item={folder} isFolder />}
 			/>
 		</FileBrowserItemContextMenu>
 	);
@@ -150,6 +154,7 @@ const FileGridCard = memo(function FileGridCard({
 				}
 				resolveDragData={() => getCurrentSelectionDragData(file.id, false)}
 				fading={fading}
+				actionMenu={<FileBrowserItemActionMenu item={file} isFolder={false} />}
 			/>
 		</FileBrowserItemContextMenu>
 	);

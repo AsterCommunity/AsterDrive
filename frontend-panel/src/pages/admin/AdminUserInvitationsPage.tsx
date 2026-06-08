@@ -5,10 +5,12 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 import { AdminOffsetPagination } from "@/components/admin/AdminOffsetPagination";
 import { InviteUserDialog } from "@/components/admin/admin-users-page/InviteUserDialog";
-import { UserInvitationsTable } from "@/components/admin/admin-users-page/UserInvitationsTable";
+import {
+	UserInvitationsTableHeader,
+	UserInvitationsTableRow,
+} from "@/components/admin/admin-users-page/UserInvitationsTable";
+import { AdminTableList } from "@/components/common/AdminTableList";
 import { ConfirmDialog } from "@/components/common/ConfirmDialog";
-import { EmptyState } from "@/components/common/EmptyState";
-import { SkeletonTable } from "@/components/common/SkeletonTable";
 import { AdminLayout } from "@/components/layout/AdminLayout";
 import { AdminPageHeader } from "@/components/layout/AdminPageHeader";
 import { AdminPageShell } from "@/components/layout/AdminPageShell";
@@ -333,6 +335,20 @@ export default function AdminUserInvitationsPage() {
 		if (next == null) return;
 		setPagination(0, next);
 	};
+	const invitationsPagination = (
+		<AdminOffsetPagination
+			total={total}
+			currentPage={currentPage}
+			totalPages={totalPages}
+			pageSize={String(pageSize)}
+			pageSizeOptions={pageSizeOptions}
+			onPageSizeChange={handlePageSizeChange}
+			prevDisabled={prevPageDisabled}
+			nextDisabled={nextPageDisabled}
+			onPrevious={() => setPagination(offset - pageSize, pageSize)}
+			onNext={() => setPagination(offset + pageSize, pageSize)}
+		/>
+	);
 
 	return (
 		<AdminLayout>
@@ -376,43 +392,34 @@ export default function AdminUserInvitationsPage() {
 					}
 				/>
 
-				{loading || outOfRangeEmptyPage ? (
-					<SkeletonTable columns={6} rows={6} />
-				) : invitations.length === 0 ? (
-					<EmptyState
-						icon={<Icon name="EnvelopeSimple" className="size-10" />}
-						title={t("no_invitations")}
-						description={t("no_invitations_desc")}
-						action={
-							<Button
-								onClick={() => dispatch({ type: "inviteOpenSet", open: true })}
-							>
-								<Icon name="EnvelopeSimple" className="mr-1 size-4" />
-								{t("invite_user")}
-							</Button>
-						}
-					/>
-				) : (
-					<UserInvitationsTable
-						invitations={invitations}
-						revokingInvitationId={revokingInvitationId}
-						onRevokeInvitation={(invitation) =>
-							requestRevokeInvitationConfirm(invitation.id)
-						}
-					/>
-				)}
-
-				<AdminOffsetPagination
-					total={total}
-					currentPage={currentPage}
-					totalPages={totalPages}
-					pageSize={String(pageSize)}
-					pageSizeOptions={pageSizeOptions}
-					onPageSizeChange={handlePageSizeChange}
-					prevDisabled={prevPageDisabled}
-					nextDisabled={nextPageDisabled}
-					onPrevious={() => setPagination(offset - pageSize, pageSize)}
-					onNext={() => setPagination(offset + pageSize, pageSize)}
+				<AdminTableList
+					loading={loading || outOfRangeEmptyPage}
+					items={invitations}
+					columns={6}
+					rows={6}
+					emptyIcon={<Icon name="EnvelopeSimple" className="size-10" />}
+					emptyTitle={t("no_invitations")}
+					emptyDescription={t("no_invitations_desc")}
+					emptyAction={
+						<Button
+							onClick={() => dispatch({ type: "inviteOpenSet", open: true })}
+						>
+							<Icon name="EnvelopeSimple" className="mr-1 size-4" />
+							{t("invite_user")}
+						</Button>
+					}
+					headerRow={<UserInvitationsTableHeader />}
+					pagination={invitationsPagination}
+					renderRow={(invitation) => (
+						<UserInvitationsTableRow
+							key={invitation.id}
+							invitation={invitation}
+							revokingInvitationId={revokingInvitationId}
+							onRevokeInvitation={(item) =>
+								requestRevokeInvitationConfirm(item.id)
+							}
+						/>
+					)}
 				/>
 			</AdminPageShell>
 			<InviteUserDialog

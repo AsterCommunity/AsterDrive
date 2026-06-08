@@ -57,6 +57,12 @@ vi.mock("@/stores/fileStore", () => ({
 }));
 
 vi.mock("@/components/files/FileBrowserItemContextMenu", () => ({
+	FileBrowserItemActionMenu: ({
+		item,
+	}: {
+		item: { name: string };
+		isFolder: boolean;
+	}) => <button type="button">actions:{item.name}</button>,
 	FileBrowserItemContextMenu: ({ children }: { children: React.ReactNode }) =>
 		children,
 }));

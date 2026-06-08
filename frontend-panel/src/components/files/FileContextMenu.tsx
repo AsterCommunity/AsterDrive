@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import type { ReactElement, ReactNode } from "react";
 import { isValidElement } from "react";
 import { useTranslation } from "react-i18next";
 import {
@@ -10,10 +10,19 @@ import {
 	ContextMenuSeparator,
 	ContextMenuTrigger,
 } from "@/components/ui/context-menu";
+import {
+	DropdownMenu,
+	DropdownMenuContent,
+	DropdownMenuGroup,
+	DropdownMenuItem,
+	DropdownMenuLabel,
+	DropdownMenuSeparator,
+	DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Icon } from "@/components/ui/icon";
 import type { FileBrowserSelectionDownloadAction } from "./FileBrowserContext";
 
-interface FileContextMenuProps {
+export interface FileContextMenuProps {
 	children: ReactNode;
 	downloadAction?: FileBrowserSelectionDownloadAction;
 	onOpen?: () => void;
@@ -36,6 +45,242 @@ interface FileContextMenuProps {
 	isFolder: boolean;
 	renderTrigger?: boolean;
 	selectionCount?: number;
+}
+
+type FileActionMenuProps = Omit<
+	FileContextMenuProps,
+	"children" | "renderTrigger"
+>;
+
+function FileContextMenuItems({
+	downloadAction,
+	onOpen,
+	onChooseOpenMethod,
+	onDownload,
+	onArchiveExtract,
+	onArchiveCompress,
+	onArchiveDownload,
+	onPageShare,
+	onDirectShare,
+	onCopy,
+	onMove,
+	onManageTags,
+	onRename,
+	onToggleLock,
+	onDelete,
+	onVersions,
+	onInfo,
+	isLocked,
+	isFolder,
+	selectionCount,
+	item: Item,
+	separator: Separator,
+	label: Label,
+	group: Group,
+}: FileActionMenuProps & {
+	item: typeof ContextMenuItem | typeof DropdownMenuItem;
+	separator: typeof ContextMenuSeparator | typeof DropdownMenuSeparator;
+	label: typeof ContextMenuLabel | typeof DropdownMenuLabel;
+	group: typeof ContextMenuGroup | typeof DropdownMenuGroup;
+}) {
+	const { t } = useTranslation(["files", "share", "tasks"]);
+	const isSelectionMenu = selectionCount != null && selectionCount > 1;
+	const selectionDownloadLabel =
+		downloadAction?.kind === "file"
+			? t("download")
+			: t("tasks:archive_download_action");
+
+	if (isSelectionMenu) {
+		return (
+			<>
+				<Group>
+					<Label>{t("core:selected_count", { count: selectionCount })}</Label>
+					{downloadAction && (
+						<Item onClick={downloadAction.onClick}>
+							<Icon name="Download" className="size-4 mr-2" />
+							{selectionDownloadLabel}
+						</Item>
+					)}
+					{onArchiveCompress && (
+						<Item onClick={onArchiveCompress}>
+							<Icon name="FileZip" className="size-4 mr-2" />
+							{t("tasks:archive_compress_action")}
+						</Item>
+					)}
+					{onCopy && (
+						<Item onClick={onCopy}>
+							<Icon name="Copy" className="size-4 mr-2" />
+							{t("copy_to")}
+						</Item>
+					)}
+					{onMove && (
+						<Item onClick={onMove}>
+							<Icon name="ArrowsOutCardinal" className="size-4 mr-2" />
+							{t("move_to")}
+						</Item>
+					)}
+					{onManageTags && (
+						<Item onClick={onManageTags}>
+							<Icon name="Tag" className="size-4 mr-2" />
+							{t("tag_manage")}
+						</Item>
+					)}
+				</Group>
+				{onDelete && (
+					<>
+						<Separator />
+						<Item
+							onClick={onDelete}
+							variant="destructive"
+							className="text-destructive"
+						>
+							<Icon name="Trash" className="size-4 mr-2" />
+							{t("core:delete")}
+						</Item>
+					</>
+				)}
+			</>
+		);
+	}
+
+	return (
+		<>
+			{onOpen && (
+				<Item onClick={onOpen}>
+					<Icon name="Eye" className="size-4 mr-2" />
+					{t("open")}
+				</Item>
+			)}
+			{!isFolder && onChooseOpenMethod && (
+				<Item onClick={onChooseOpenMethod}>
+					<Icon name="ListBullets" className="size-4 mr-2" />
+					{t("open_with_action")}
+				</Item>
+			)}
+			{onOpen || (!isFolder && onChooseOpenMethod) ? <Separator /> : null}
+			{!isFolder && onDownload && (
+				<Item onClick={onDownload}>
+					<Icon name="Download" className="size-4 mr-2" />
+					{t("download")}
+				</Item>
+			)}
+			{!isFolder && onArchiveExtract && (
+				<Item onClick={onArchiveExtract}>
+					<Icon name="FolderOpen" className="size-4 mr-2" />
+					{t("tasks:archive_extract_action")}
+				</Item>
+			)}
+			{onArchiveCompress && (
+				<Item onClick={onArchiveCompress}>
+					<Icon name="FileZip" className="size-4 mr-2" />
+					{t("tasks:archive_compress_action")}
+				</Item>
+			)}
+			{isFolder && onArchiveDownload && (
+				<Item onClick={onArchiveDownload}>
+					<Icon name="Download" className="size-4 mr-2" />
+					{t("tasks:archive_download_action")}
+				</Item>
+			)}
+			{onPageShare && (
+				<Item onClick={onPageShare}>
+					<Icon name="Link" className="size-4 mr-2" />
+					{t("share")}
+				</Item>
+			)}
+			{!isFolder && onDirectShare && (
+				<Item onClick={onDirectShare}>
+					<Icon name="LinkSimple" className="size-4 mr-2" />
+					{t("share:share_direct_link_action")}
+				</Item>
+			)}
+			{onCopy && (
+				<Item onClick={onCopy}>
+					<Icon name="Copy" className="size-4 mr-2" />
+					{t("copy_to")}
+				</Item>
+			)}
+			{onMove && (
+				<Item onClick={onMove}>
+					<Icon name="ArrowsOutCardinal" className="size-4 mr-2" />
+					{t("move_to")}
+				</Item>
+			)}
+			{onRename && (
+				<Item onClick={onRename}>
+					<Icon name="PencilSimple" className="size-4 mr-2" />
+					{t("rename")}
+				</Item>
+			)}
+			{onManageTags && (
+				<Item onClick={onManageTags}>
+					<Icon name="Tag" className="size-4 mr-2" />
+					{t("tag_manage")}
+				</Item>
+			)}
+			{!isFolder && onVersions && (
+				<Item onClick={onVersions}>
+					<Icon name="Clock" className="size-4 mr-2" />
+					{t("versions")}
+				</Item>
+			)}
+			{(onInfo || onToggleLock || onDelete) && <Separator />}
+			{onInfo && (
+				<Item onClick={onInfo}>
+					<Icon name="Info" className="size-4 mr-2" />
+					{t("info")}
+				</Item>
+			)}
+			{onToggleLock && (
+				<Item onClick={onToggleLock}>
+					{isLocked ? (
+						<>
+							<Icon name="LockOpen" className="size-4 mr-2" />
+							{t("unlock")}
+						</>
+					) : (
+						<>
+							<Icon name="Lock" className="size-4 mr-2" />
+							{t("lock")}
+						</>
+					)}
+				</Item>
+			)}
+			{onDelete && (
+				<Item
+					onClick={onDelete}
+					disabled={isLocked}
+					variant="destructive"
+					className="text-destructive"
+				>
+					<Icon name="Trash" className="size-4 mr-2" />
+					{t("core:delete")}
+				</Item>
+			)}
+		</>
+	);
+}
+
+export function FileContextDropdownMenu({
+	trigger,
+	...props
+}: FileActionMenuProps & {
+	trigger: ReactElement;
+}) {
+	return (
+		<DropdownMenu>
+			<DropdownMenuTrigger render={trigger} />
+			<DropdownMenuContent align="end" className="w-auto min-w-44">
+				<FileContextMenuItems
+					{...props}
+					item={DropdownMenuItem}
+					separator={DropdownMenuSeparator}
+					label={DropdownMenuLabel}
+					group={DropdownMenuGroup}
+				/>
+			</DropdownMenuContent>
+		</DropdownMenu>
+	);
 }
 
 export function FileContextMenu({
@@ -62,13 +307,6 @@ export function FileContextMenu({
 	renderTrigger = false,
 	selectionCount,
 }: FileContextMenuProps) {
-	const { t } = useTranslation(["files", "share", "tasks"]);
-	const isSelectionMenu = selectionCount != null && selectionCount > 1;
-	const selectionDownloadLabel =
-		downloadAction?.kind === "file"
-			? t("download")
-			: t("tasks:archive_download_action");
-
 	const trigger =
 		renderTrigger && isValidElement(children) ? (
 			<ContextMenuTrigger render={children} />
@@ -76,181 +314,36 @@ export function FileContextMenu({
 			<ContextMenuTrigger className="w-full">{children}</ContextMenuTrigger>
 		);
 
-	if (isSelectionMenu) {
-		return (
-			<ContextMenu>
-				{trigger}
-				<ContextMenuContent>
-					<ContextMenuGroup>
-						<ContextMenuLabel>
-							{t("core:selected_count", { count: selectionCount })}
-						</ContextMenuLabel>
-						{downloadAction && (
-							<ContextMenuItem onClick={downloadAction.onClick}>
-								<Icon name="Download" className="size-4 mr-2" />
-								{selectionDownloadLabel}
-							</ContextMenuItem>
-						)}
-						{onArchiveCompress && (
-							<ContextMenuItem onClick={onArchiveCompress}>
-								<Icon name="FileZip" className="size-4 mr-2" />
-								{t("tasks:archive_compress_action")}
-							</ContextMenuItem>
-						)}
-						{onCopy && (
-							<ContextMenuItem onClick={onCopy}>
-								<Icon name="Copy" className="size-4 mr-2" />
-								{t("copy_to")}
-							</ContextMenuItem>
-						)}
-						{onMove && (
-							<ContextMenuItem onClick={onMove}>
-								<Icon name="ArrowsOutCardinal" className="size-4 mr-2" />
-								{t("move_to")}
-							</ContextMenuItem>
-						)}
-						{onManageTags && (
-							<ContextMenuItem onClick={onManageTags}>
-								<Icon name="Tag" className="size-4 mr-2" />
-								{t("tag_manage")}
-							</ContextMenuItem>
-						)}
-					</ContextMenuGroup>
-					{onDelete && (
-						<>
-							<ContextMenuSeparator />
-							<ContextMenuItem
-								onClick={onDelete}
-								variant="destructive"
-								className="text-destructive"
-							>
-								<Icon name="Trash" className="size-4 mr-2" />
-								{t("core:delete")}
-							</ContextMenuItem>
-						</>
-					)}
-				</ContextMenuContent>
-			</ContextMenu>
-		);
-	}
-
 	return (
 		<ContextMenu>
 			{trigger}
 			<ContextMenuContent>
-				{onOpen && (
-					<ContextMenuItem onClick={onOpen}>
-						<Icon name="Eye" className="size-4 mr-2" />
-						{t("open")}
-					</ContextMenuItem>
-				)}
-				{!isFolder && onChooseOpenMethod && (
-					<ContextMenuItem onClick={onChooseOpenMethod}>
-						<Icon name="ListBullets" className="size-4 mr-2" />
-						{t("open_with_action")}
-					</ContextMenuItem>
-				)}
-				{onOpen || (!isFolder && onChooseOpenMethod) ? (
-					<ContextMenuSeparator />
-				) : null}
-				{!isFolder && onDownload && (
-					<ContextMenuItem onClick={onDownload}>
-						<Icon name="Download" className="size-4 mr-2" />
-						{t("download")}
-					</ContextMenuItem>
-				)}
-				{!isFolder && onArchiveExtract && (
-					<ContextMenuItem onClick={onArchiveExtract}>
-						<Icon name="FolderOpen" className="size-4 mr-2" />
-						{t("tasks:archive_extract_action")}
-					</ContextMenuItem>
-				)}
-				{onArchiveCompress && (
-					<ContextMenuItem onClick={onArchiveCompress}>
-						<Icon name="FileZip" className="size-4 mr-2" />
-						{t("tasks:archive_compress_action")}
-					</ContextMenuItem>
-				)}
-				{isFolder && onArchiveDownload && (
-					<ContextMenuItem onClick={onArchiveDownload}>
-						<Icon name="Download" className="size-4 mr-2" />
-						{t("tasks:archive_download_action")}
-					</ContextMenuItem>
-				)}
-				{onPageShare && (
-					<ContextMenuItem onClick={onPageShare}>
-						<Icon name="Link" className="size-4 mr-2" />
-						{t("share")}
-					</ContextMenuItem>
-				)}
-				{!isFolder && onDirectShare && (
-					<ContextMenuItem onClick={onDirectShare}>
-						<Icon name="LinkSimple" className="size-4 mr-2" />
-						{t("share:share_direct_link_action")}
-					</ContextMenuItem>
-				)}
-				{onCopy && (
-					<ContextMenuItem onClick={onCopy}>
-						<Icon name="Copy" className="size-4 mr-2" />
-						{t("copy_to")}
-					</ContextMenuItem>
-				)}
-				{onMove && (
-					<ContextMenuItem onClick={onMove}>
-						<Icon name="ArrowsOutCardinal" className="size-4 mr-2" />
-						{t("move_to")}
-					</ContextMenuItem>
-				)}
-				{onRename && (
-					<ContextMenuItem onClick={onRename}>
-						<Icon name="PencilSimple" className="size-4 mr-2" />
-						{t("rename")}
-					</ContextMenuItem>
-				)}
-				{onManageTags && (
-					<ContextMenuItem onClick={onManageTags}>
-						<Icon name="Tag" className="size-4 mr-2" />
-						{t("tag_manage")}
-					</ContextMenuItem>
-				)}
-				{!isFolder && onVersions && (
-					<ContextMenuItem onClick={onVersions}>
-						<Icon name="Clock" className="size-4 mr-2" />
-						{t("versions")}
-					</ContextMenuItem>
-				)}
-				{(onInfo || onToggleLock || onDelete) && <ContextMenuSeparator />}
-				{onInfo && (
-					<ContextMenuItem onClick={onInfo}>
-						<Icon name="Info" className="size-4 mr-2" />
-						{t("info")}
-					</ContextMenuItem>
-				)}
-				{onToggleLock && (
-					<ContextMenuItem onClick={onToggleLock}>
-						{isLocked ? (
-							<>
-								<Icon name="LockOpen" className="size-4 mr-2" />
-								{t("unlock")}
-							</>
-						) : (
-							<>
-								<Icon name="Lock" className="size-4 mr-2" />
-								{t("lock")}
-							</>
-						)}
-					</ContextMenuItem>
-				)}
-				{onDelete && (
-					<ContextMenuItem
-						onClick={onDelete}
-						disabled={isLocked}
-						className="text-destructive"
-					>
-						<Icon name="Trash" className="size-4 mr-2" />
-						{t("core:delete")}
-					</ContextMenuItem>
-				)}
+				<FileContextMenuItems
+					downloadAction={downloadAction}
+					onOpen={onOpen}
+					onChooseOpenMethod={onChooseOpenMethod}
+					onDownload={onDownload}
+					onArchiveExtract={onArchiveExtract}
+					onArchiveCompress={onArchiveCompress}
+					onArchiveDownload={onArchiveDownload}
+					onPageShare={onPageShare}
+					onDirectShare={onDirectShare}
+					onCopy={onCopy}
+					onMove={onMove}
+					onManageTags={onManageTags}
+					onRename={onRename}
+					onToggleLock={onToggleLock}
+					onDelete={onDelete}
+					onVersions={onVersions}
+					onInfo={onInfo}
+					isLocked={isLocked}
+					isFolder={isFolder}
+					selectionCount={selectionCount}
+					item={ContextMenuItem}
+					separator={ContextMenuSeparator}
+					label={ContextMenuLabel}
+					group={ContextMenuGroup}
+				/>
 			</ContextMenuContent>
 		</ContextMenu>
 	);

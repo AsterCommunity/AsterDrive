@@ -4,10 +4,12 @@ import { PERSONAL_WORKSPACE } from "@/lib/workspace";
 const mockState = vi.hoisted(() => {
 	class MockApiError extends Error {
 		code: number;
+		status?: number;
 
-		constructor(code: number, message: string) {
+		constructor(code: number, message: string, options?: { status?: number }) {
 			super(message);
 			this.code = code;
+			this.status = options?.status;
 		}
 	}
 

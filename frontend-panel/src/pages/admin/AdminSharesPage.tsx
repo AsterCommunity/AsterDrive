@@ -196,6 +196,22 @@ export default function AdminSharesPage() {
 					emptyIcon={<Icon name="LinkSimple" className="size-10" />}
 					emptyTitle={t("no_shares")}
 					emptyDescription={t("no_shares_desc")}
+					pagination={
+						<AdminOffsetPagination
+							total={total}
+							currentPage={currentPage}
+							totalPages={totalPages}
+							pageSize={String(pageSize)}
+							pageSizeOptions={pageSizeOptions}
+							onPageSizeChange={handlePageSizeChange}
+							prevDisabled={prevPageDisabled}
+							nextDisabled={nextPageDisabled}
+							onPrevious={() =>
+								setOffset((current) => Math.max(0, current - pageSize))
+							}
+							onNext={() => setOffset((current) => current + pageSize)}
+						/>
+					}
 					headerRow={
 						<TableHeader>
 							<TableRow>
@@ -335,21 +351,6 @@ export default function AdminSharesPage() {
 							</TableRow>
 						);
 					}}
-				/>
-
-				<AdminOffsetPagination
-					total={total}
-					currentPage={currentPage}
-					totalPages={totalPages}
-					pageSize={String(pageSize)}
-					pageSizeOptions={pageSizeOptions}
-					onPageSizeChange={handlePageSizeChange}
-					prevDisabled={prevPageDisabled}
-					nextDisabled={nextPageDisabled}
-					onPrevious={() =>
-						setOffset((current) => Math.max(0, current - pageSize))
-					}
-					onNext={() => setOffset((current) => current + pageSize)}
 				/>
 			</AdminPageShell>
 

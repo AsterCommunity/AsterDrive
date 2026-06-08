@@ -7,9 +7,12 @@ import { toast } from "sonner";
 import { AdminOffsetPagination } from "@/components/admin/AdminOffsetPagination";
 import { AdminTaskCleanupDialog } from "@/components/admin/admin-tasks-page/AdminTaskCleanupDialog";
 import { AdminTaskFiltersToolbar } from "@/components/admin/admin-tasks-page/AdminTaskFiltersToolbar";
-import { AdminTaskTable } from "@/components/admin/admin-tasks-page/AdminTaskTable";
-import { EmptyState } from "@/components/common/EmptyState";
-import { SkeletonTable } from "@/components/common/SkeletonTable";
+import {
+	AdminTaskDetailDialog,
+	AdminTaskTableHeader,
+	AdminTaskTableRow,
+} from "@/components/admin/admin-tasks-page/AdminTaskTable";
+import { AdminTableList } from "@/components/common/AdminTableList";
 import { UserIdentity } from "@/components/common/UserIdentity";
 import { AdminLayout } from "@/components/layout/AdminLayout";
 import { AdminPageHeader } from "@/components/layout/AdminPageHeader";
@@ -534,6 +537,22 @@ function useAdminTasksPageContent() {
 			});
 		}
 	};
+	const detailTask =
+		items.find((task) => task.id === visibleDetailTaskId) ?? null;
+	const taskPagination = (
+		<AdminOffsetPagination
+			total={total}
+			currentPage={currentPage}
+			totalPages={totalPages}
+			pageSize={String(pageSize)}
+			pageSizeOptions={pageSizeOptions}
+			onPageSizeChange={handlePageSizeChange}
+			prevDisabled={prevPageDisabled}
+			nextDisabled={nextPageDisabled}
+			onPrevious={() => setOffset((current) => Math.max(0, current - pageSize))}
+			onNext={() => setOffset((current) => current + pageSize)}
+		/>
+	);
 
 	return (
 		<AdminLayout>
@@ -585,73 +604,66 @@ function useAdminTasksPageContent() {
 					}
 				/>
 
-				{loading ? (
-					<SkeletonTable columns={8} rows={6} />
-				) : items.length === 0 ? (
-					hasServerFilters ? (
-						<EmptyState
-							icon={<Icon name="Clock" className="size-10" />}
-							title={t("admin:no_filtered_tasks")}
-							description={t("admin:no_filtered_tasks_desc")}
-							action={
-								<Button variant="outline" onClick={resetFilters}>
-									{t("admin:clear_filters")}
-								</Button>
-							}
-						/>
-					) : (
-						<EmptyState
-							icon={<Icon name="Clock" className="size-10" />}
-							title={t("admin:no_tasks")}
-							description={t("admin:no_tasks_desc")}
-						/>
-					)
-				) : (
-					<AdminTaskTable
-						items={items}
-						detailTaskId={visibleDetailTaskId}
-						formatTaskKind={(kind) => formatAdminTaskKind(t, kind)}
-						formatTaskSource={(task) => formatAdminTaskSource(t, task)}
-						formatTaskStatus={(status) => formatTaskStatusLabel(t, status)}
-						onOpenDetail={(taskId) =>
-							dispatchUi({
-								taskId,
-								type: "set_detail_dialog_task",
-							})
-						}
-						onOpenDetailChange={(open) => {
-							if (!open) {
-								dispatchUi({
-									taskId: null,
-									type: "set_detail_dialog_task",
-								});
-							}
-						}}
-						onResumeStorageMigration={(taskId) =>
-							void handleResumeStorageMigration(taskId)
-						}
-						resumingTaskId={resumingStorageMigrationTaskId}
-						sortBy={sortBy}
-						sortOrder={sortOrder}
-						onSortChange={handleSortChange}
-					/>
-				)}
-
-				<AdminOffsetPagination
-					total={total}
-					currentPage={currentPage}
-					totalPages={totalPages}
-					pageSize={String(pageSize)}
-					pageSizeOptions={pageSizeOptions}
-					onPageSizeChange={handlePageSizeChange}
-					prevDisabled={prevPageDisabled}
-					nextDisabled={nextPageDisabled}
-					onPrevious={() =>
-						setOffset((current) => Math.max(0, current - pageSize))
+				<AdminTableList
+					loading={loading}
+					items={items}
+					columns={8}
+					rows={6}
+					emptyIcon={<Icon name="Clock" className="size-10" />}
+					emptyTitle={t("admin:no_tasks")}
+					emptyDescription={t("admin:no_tasks_desc")}
+					filtered={hasServerFilters}
+					filteredEmptyTitle={t("admin:no_filtered_tasks")}
+					filteredEmptyDescription={t("admin:no_filtered_tasks_desc")}
+					filteredEmptyAction={
+						<Button variant="outline" onClick={resetFilters}>
+							{t("admin:clear_filters")}
+						</Button>
 					}
-					onNext={() => setOffset((current) => current + pageSize)}
+					headerRow={
+						<AdminTaskTableHeader
+							sortBy={sortBy}
+							sortOrder={sortOrder}
+							onSortChange={handleSortChange}
+						/>
+					}
+					pagination={taskPagination}
+					renderRow={(task) => (
+						<AdminTaskTableRow
+							key={task.id}
+							detailTaskId={visibleDetailTaskId}
+							formatTaskKind={(kind) => formatAdminTaskKind(t, kind)}
+							formatTaskSource={(item) => formatAdminTaskSource(t, item)}
+							formatTaskStatus={(status) => formatTaskStatusLabel(t, status)}
+							onOpenDetail={(taskId) =>
+								dispatchUi({
+									taskId,
+									type: "set_detail_dialog_task",
+								})
+							}
+							task={task}
+						/>
+					)}
 				/>
 			</AdminPageShell>
+
+			<AdminTaskDetailDialog
+				detailTask={detailTask}
+				formatTaskKind={(kind) => formatAdminTaskKind(t, kind)}
+				formatTaskStatus={(status) => formatTaskStatusLabel(t, status)}
+				onOpenDetailChange={(open) => {
+					if (!open) {
+						dispatchUi({
+							taskId: null,
+							type: "set_detail_dialog_task",
+						});
+					}
+				}}
+				onResumeStorageMigration={(taskId) =>
+					void handleResumeStorageMigration(taskId)
+				}
+				resumingTaskId={resumingStorageMigrationTaskId}
+			/>
 
 			<AdminTaskCleanupDialog
 				description={describeCleanupConditions(t, cleanupRequest)}

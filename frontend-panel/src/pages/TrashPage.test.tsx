@@ -164,17 +164,8 @@ vi.mock("@/components/common/ViewToggle", () => ({
 }));
 
 vi.mock("@/components/layout/AppLayout", () => ({
-	AppLayout: ({
-		actions,
-		children,
-	}: {
-		actions?: React.ReactNode;
-		children: React.ReactNode;
-	}) => (
-		<div data-testid="app-layout">
-			<div>{actions}</div>
-			{children}
-		</div>
+	AppLayout: ({ children }: { children: React.ReactNode }) => (
+		<div data-testid="app-layout">{children}</div>
 	),
 }));
 

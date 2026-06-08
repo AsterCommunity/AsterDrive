@@ -1,4 +1,3 @@
-import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { AsterDriveWordmark } from "@/components/common/AsterDriveWordmark";
 import { HeaderControls } from "@/components/layout/HeaderControls";
@@ -9,14 +8,12 @@ import { Icon } from "@/components/ui/icon";
 interface TopBarProps {
 	onSidebarToggle: () => void;
 	mobileOpen: boolean;
-	actions?: ReactNode;
 	onSearchOpen: () => void;
 }
 
 export function TopBar({
 	onSidebarToggle,
 	mobileOpen,
-	actions,
 	onSearchOpen,
 }: TopBarProps) {
 	const { t } = useTranslation(["core", "search"]);
@@ -62,20 +59,17 @@ export function TopBar({
 			}
 			right={
 				<HeaderControls
-					actions={
-						<>
-							<Button
-								type="button"
-								variant="ghost"
-								size="icon-sm"
-								onClick={onSearchOpen}
-								aria-label={t("search:open_search")}
-								className="sm:hidden"
-							>
-								<Icon name="MagnifyingGlass" className="size-4" />
-							</Button>
-							{actions}
-						</>
+					mobileSearchAction={
+						<Button
+							type="button"
+							variant="ghost"
+							size="icon-sm"
+							onClick={onSearchOpen}
+							aria-label={t("search:open_search")}
+							className="sm:hidden"
+						>
+							<Icon name="MagnifyingGlass" className="size-4" />
+						</Button>
 					}
 					showAdminEntry
 				/>
