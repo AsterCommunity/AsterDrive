@@ -44,6 +44,9 @@ describe("admin settings content shared draft values", () => {
 		expect(
 			configDraftValuesEqual("false", false as unknown as ConfigDraftValue),
 		).toBe(true);
+		expect(
+			configDraftValuesEqual("true", true as unknown as ConfigDraftValue),
+		).toBe(true);
 		expect(configDraftValueChanged(numericConfig, "20")).toBe(false);
 		expect(configDraftValueChanged(booleanConfig, "false")).toBe(false);
 		expect(buildDraftValues([numericConfig, booleanConfig])).toEqual({

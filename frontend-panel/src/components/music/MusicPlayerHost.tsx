@@ -1,9 +1,4 @@
-import type {
-	ChangeEvent,
-	CSSProperties,
-	MutableRefObject,
-	ReactNode,
-} from "react";
+import type { ChangeEvent, CSSProperties, ReactNode } from "react";
 import {
 	useCallback,
 	useEffect,
@@ -490,13 +485,6 @@ function nextPlaybackMode(mode: MusicPlaybackMode): MusicPlaybackMode {
 	return "repeat_queue";
 }
 
-function getOrCreateSet<T>(ref: MutableRefObject<Set<T> | null>) {
-	if (ref.current === null) {
-		ref.current = new Set<T>();
-	}
-	return ref.current;
-}
-
 function PlayerIconButton({
 	active = false,
 	children,
@@ -534,8 +522,7 @@ export function MusicPlayerHost() {
 	const panelRef = useRef<HTMLDivElement | null>(null);
 	const currentTimeRef = useRef(0);
 	const durationRef = useRef(0);
-	const closeAnimationTimersRef = useRef<Set<number> | null>(null);
-	getOrCreateSet(closeAnimationTimersRef);
+	const closeAnimationTimers = useMemo(() => new Set<number>(), []);
 	const errorSkipTimerRef = useRef<number | null>(null);
 	const isSeekingRef = useRef(false);
 	const parsedMetadataTrackIdsRef = useRef(new Set<string>());
@@ -755,14 +742,13 @@ export function MusicPlayerHost() {
 	}, [track]);
 
 	useEffect(() => {
-		const closeAnimationTimers = getOrCreateSet(closeAnimationTimersRef);
 		return () => {
 			for (const timer of closeAnimationTimers) {
 				window.clearTimeout(timer);
 			}
 			closeAnimationTimers.clear();
 		};
-	}, []);
+	}, [closeAnimationTimers]);
 
 	useEffect(() => {
 		if (!queueOpen || !activeTrackId) return;
@@ -1126,7 +1112,6 @@ export function MusicPlayerHost() {
 	const closeWithAnimation = () => {
 		if (closing) return;
 		dispatchPanelUi({ type: "setClosing", closing: true });
-		const closeAnimationTimers = getOrCreateSet(closeAnimationTimersRef);
 		for (const timer of closeAnimationTimers) {
 			window.clearTimeout(timer);
 		}

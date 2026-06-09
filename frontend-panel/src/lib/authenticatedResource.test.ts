@@ -70,12 +70,15 @@ describe("prepareAuthenticatedResource", () => {
 		await prepareAuthenticatedResource("/files/7/download");
 
 		expect(mockState.ensureFreshSession).toHaveBeenCalledTimes(1);
-		expect(mockState.fetch).toHaveBeenCalledWith("/api/v1/files/7/download", {
-			credentials: "include",
-			headers: {
-				Range: "bytes=0-0",
-			},
-		});
+		expect(mockState.fetch).toHaveBeenCalledWith(
+			"/api/v1/files/7/download",
+			expect.objectContaining({
+				credentials: "include",
+				headers: {
+					Range: "bytes=0-0",
+				},
+			}),
+		);
 		expect(mockState.cancelBody).toHaveBeenCalledTimes(1);
 	});
 
@@ -140,20 +143,63 @@ describe("prepareAuthenticatedResource", () => {
 		expect(mockState.fetch).toHaveBeenNthCalledWith(
 			1,
 			"/api/v1/files/7/download",
-			{
+			expect.objectContaining({
 				credentials: "include",
 				headers: { Range: "bytes=0-0" },
-			},
+			}),
 		);
 		expect(mockState.fetch).toHaveBeenNthCalledWith(
 			2,
 			"/api/v1/files/7/download",
-			{
+			expect.objectContaining({
 				credentials: "include",
 				headers: { Range: "bytes=0-0" },
-			},
+			}),
 		);
 		expect(mockState.cancelBody).toHaveBeenCalledTimes(2);
+	});
+
+	it("passes abort signals through the initial and retried probe", async () => {
+		const controller = new AbortController();
+		mockState.fetch
+			.mockResolvedValueOnce(mockProbeResponse(401))
+			.mockResolvedValueOnce(mockProbeResponse(206));
+		const { prepareAuthenticatedResource } = await import(
+			"@/lib/authenticatedResource"
+		);
+
+		await prepareAuthenticatedResource("/files/7/download", {
+			signal: controller.signal,
+		});
+
+		expect(mockState.fetch).toHaveBeenNthCalledWith(
+			1,
+			"/api/v1/files/7/download",
+			expect.objectContaining({ signal: controller.signal }),
+		);
+		expect(mockState.fetch).toHaveBeenNthCalledWith(
+			2,
+			"/api/v1/files/7/download",
+			expect.objectContaining({ signal: controller.signal }),
+		);
+	});
+
+	it("does not start the retry probe when aborted after refresh", async () => {
+		const controller = new AbortController();
+		mockState.fetch.mockResolvedValueOnce(mockProbeResponse(401));
+		mockState.refreshToken.mockImplementationOnce(async () => {
+			controller.abort();
+		});
+		const { prepareAuthenticatedResource } = await import(
+			"@/lib/authenticatedResource"
+		);
+
+		await expect(
+			prepareAuthenticatedResource("/files/7/download", {
+				signal: controller.signal,
+			}),
+		).rejects.toMatchObject({ name: "AbortError" });
+		expect(mockState.fetch).toHaveBeenCalledTimes(1);
 	});
 
 	it("propagates auth failures when refresh succeeds but access is still rejected", async () => {

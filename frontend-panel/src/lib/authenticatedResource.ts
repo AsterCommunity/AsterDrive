@@ -40,14 +40,24 @@ function abortError() {
 	return new DOMException("The operation was aborted.", "AbortError");
 }
 
-async function probeAuthenticatedResource(path: string) {
+function throwIfAborted(signal?: AbortSignal) {
+	if (signal?.aborted) {
+		throw abortError();
+	}
+}
+
+async function probeAuthenticatedResource(path: string, signal?: AbortSignal) {
+	throwIfAborted(signal);
 	const response = await fetch(resolveApiResourceUrl(path), {
 		headers: {
 			Range: "bytes=0-0",
 		},
 		credentials: "include",
+		signal,
 	});
+	throwIfAborted(signal);
 	await response.body?.cancel();
+	throwIfAborted(signal);
 	if (response.status === 206 || response.status === 416) return;
 	throw probeStatusError(response.status);
 }
@@ -79,9 +89,7 @@ export async function prepareAuthenticatedResource(
 	if (!shouldProbeAuthenticatedResource(path)) return;
 
 	await useAuthStore.getState().ensureFreshSession();
-	if (options.signal?.aborted) {
-		throw abortError();
-	}
+	throwIfAborted(options.signal);
 
 	const cacheKey = probeCacheKey(path);
 	const now = Date.now();
@@ -97,21 +105,20 @@ export async function prepareAuthenticatedResource(
 	let probe: Promise<void>;
 	probe = (async () => {
 		try {
-			await probeAuthenticatedResource(path);
+			await probeAuthenticatedResource(path, options.signal);
 		} catch (error) {
 			if (!isSessionAuthFailure(error)) {
 				throw error;
 			}
 			await useAuthStore.getState().refreshToken();
-			if (options.signal?.aborted) {
-				throw abortError();
-			}
-			await probeAuthenticatedResource(path);
+			throwIfAborted(options.signal);
+			await probeAuthenticatedResource(path, options.signal);
 		}
 	})()
 		.then(() => {
 			const finalCacheKey = probeCacheKey(path);
 			if (finalCacheKey !== cacheKey) {
+				probeCache.delete(cacheKey);
 				probeCache.set(finalCacheKey, {
 					expiresAt: Date.now() + AUTHENTICATED_RESOURCE_PROBE_CACHE_MS,
 					promise: probe,

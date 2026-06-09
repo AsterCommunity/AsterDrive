@@ -517,6 +517,35 @@ describe("http api helpers", () => {
 		);
 	});
 
+	it("does not parse skipped endpoint error blobs before rejecting", async () => {
+		await loadHttpModule();
+		const errorHandler = mockState.getErrorHandler();
+		const loginErrorBlob = new Blob([
+			JSON.stringify({
+				code: ApiErrorCode.TokenExpired,
+				msg: "Token Expired",
+			}),
+		]);
+		const textSpy = vi
+			.spyOn(loginErrorBlob, "text")
+			.mockResolvedValue("should not be read");
+		const error = {
+			config: {
+				responseType: "blob",
+				url: "/auth/login",
+				_retry: false,
+			},
+			response: {
+				status: 401,
+				data: loginErrorBlob,
+			},
+		};
+
+		await expect(errorHandler(error)).rejects.toBe(error);
+		expect(textSpy).not.toHaveBeenCalled();
+		expect(mockState.refreshToken).not.toHaveBeenCalled();
+	});
+
 	it("refreshes and retries a protected text request when the 401 body is an API error string", async () => {
 		mockState.client.mockResolvedValue({
 			data: "retried text",
