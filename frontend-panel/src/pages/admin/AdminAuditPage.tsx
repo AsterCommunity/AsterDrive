@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useSearchParams } from "react-router-dom";
 import { AdminOffsetPagination } from "@/components/admin/AdminOffsetPagination";
+import { AdminFilterToolbar } from "@/components/common/AdminFilterToolbar";
 import {
 	ADMIN_TABLE_BADGE_CELL_CLASS,
 	ADMIN_TABLE_MONO_TEXT_CLASS,
@@ -440,7 +441,11 @@ export default function AdminAuditPage() {
 						</Button>
 					}
 					toolbar={
-						<>
+						<AdminFilterToolbar
+							activeFilterCount={activeFilterCount}
+							inline
+							onResetFilters={resetFilters}
+						>
 							<div className="relative min-w-[240px] flex-1 md:max-w-sm">
 								<Icon
 									name="MagnifyingGlass"
@@ -471,20 +476,7 @@ export default function AdminAuditPage() {
 									))}
 								</SelectContent>
 							</Select>
-							<div className="ml-auto flex items-center gap-2 text-xs text-muted-foreground">
-								{hasServerFilters ? <span>{t("filters_active")}</span> : null}
-								{activeFilterCount > 0 ? (
-									<Button
-										variant="ghost"
-										size="sm"
-										className={ADMIN_CONTROL_HEIGHT_CLASS}
-										onClick={resetFilters}
-									>
-										{t("clear_filters")}
-									</Button>
-								) : null}
-							</div>
-						</>
+						</AdminFilterToolbar>
 					}
 				/>
 

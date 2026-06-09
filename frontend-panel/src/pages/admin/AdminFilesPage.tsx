@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next";
 import { useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 import { AdminOffsetPagination } from "@/components/admin/AdminOffsetPagination";
+import { AdminFilterToolbar } from "@/components/common/AdminFilterToolbar";
 import {
 	ADMIN_INTERACTIVE_TABLE_ROW_CLASS,
 	ADMIN_TABLE_BADGE_CELL_CLASS,
@@ -934,7 +935,11 @@ function useAdminFilesPageContent(kind: AdminFilesPageKind) {
 						</div>
 					}
 					toolbar={
-						<>
+						<AdminFilterToolbar
+							activeFilterCount={activeFilterCount}
+							inline
+							onResetFilters={resetFilters}
+						>
 							<div className="relative min-w-[220px] flex-1 md:max-w-xs">
 								<Icon
 									name="MagnifyingGlass"
@@ -1085,17 +1090,7 @@ function useAdminFilesPageContent(kind: AdminFilesPageKind) {
 									/>
 								</>
 							)}
-							{activeFilterCount > 0 ? (
-								<Button
-									variant="ghost"
-									size="sm"
-									className={ADMIN_CONTROL_HEIGHT_CLASS}
-									onClick={resetFilters}
-								>
-									{t("clear_filters")}
-								</Button>
-							) : null}
-						</>
+						</AdminFilterToolbar>
 					}
 				/>
 				<AdminTableList

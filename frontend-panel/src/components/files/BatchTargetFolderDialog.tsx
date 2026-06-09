@@ -31,6 +31,7 @@ const EMPTY_SELECTED_FOLDER_IDS: number[] = [];
 interface BatchTargetFolderDialogProps {
 	open: boolean;
 	onOpenChange: (open: boolean) => void;
+	onOpenChangeComplete?: (open: boolean) => void;
 	mode: "move" | "copy";
 	onConfirm: (targetFolderId: number | null) => Promise<void>;
 	currentFolderId: number | null;
@@ -41,6 +42,7 @@ interface BatchTargetFolderDialogProps {
 export function BatchTargetFolderDialog({
 	open,
 	onOpenChange,
+	onOpenChangeComplete,
 	mode,
 	onConfirm,
 	currentFolderId,
@@ -64,6 +66,15 @@ export function BatchTargetFolderDialog({
 	const [breadcrumb, setBreadcrumb] = useState<FileBreadcrumbItem[]>([
 		{ id: null, name: t("files:root") },
 	]);
+	const selectedFolderIdsRef = useRef(selectedFolderIds);
+
+	if (open) {
+		selectedFolderIdsRef.current = selectedFolderIds;
+	}
+
+	const renderedSelectedFolderIds = open
+		? selectedFolderIds
+		: selectedFolderIdsRef.current;
 
 	const title = useMemo(
 		() => (mode === "move" ? t("files:batch_move") : t("files:batch_copy")),
@@ -141,8 +152,10 @@ export function BatchTargetFolderDialog({
 		.filter((id): id is number => id !== null);
 
 	const validationMessage =
-		selectedFolderIds.length > 0 &&
-		selectedFolderIds.some((folderId) => targetPathIds.includes(folderId))
+		renderedSelectedFolderIds.length > 0 &&
+		renderedSelectedFolderIds.some((folderId) =>
+			targetPathIds.includes(folderId),
+		)
 			? t("files:batch_target_invalid_descendant")
 			: null;
 
@@ -275,6 +288,7 @@ export function BatchTargetFolderDialog({
 		<ManagerDialogShell
 			open={open}
 			onOpenChange={onOpenChange}
+			onOpenChangeComplete={onOpenChangeComplete}
 			title={title}
 			description={t("files:batch_target_folder_desc")}
 			controls={controls}

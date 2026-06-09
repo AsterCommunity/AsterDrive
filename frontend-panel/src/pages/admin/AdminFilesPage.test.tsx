@@ -643,6 +643,7 @@ describe("AdminFilesPage", () => {
 		expect(screen.getByText("abcdef1234...abcdef")).toBeInTheDocument();
 		expect(screen.getByText("Root User")).toBeInTheDocument();
 		expect(screen.getByText("@root")).toBeInTheDocument();
+		fireEvent.click(screen.getByRole("button", { name: /show_filters/ }));
 		expect(screen.getByText("select:live")).toBeInTheDocument();
 		expect(screen.getAllByText("admin_deleted_live").length).toBeGreaterThan(0);
 		expect(screen.queryByText("__all__")).not.toBeInTheDocument();
@@ -730,6 +731,7 @@ describe("AdminFilesPage", () => {
 			screen.getByText("admin_blob_actual_ref_count_short"),
 		).toBeInTheDocument();
 
+		fireEvent.click(screen.getByRole("button", { name: /show_filters/ }));
 		fireEvent.change(screen.getByPlaceholderText("admin_storage_path"), {
 			target: { value: "fe/dc" },
 		});
@@ -796,6 +798,7 @@ describe("AdminFilesPage", () => {
 			});
 		});
 
+		fireEvent.click(screen.getByRole("button", { name: /show_filters/ }));
 		fireEvent.click(screen.getByText("next"));
 		await waitFor(() => {
 			expect(screen.getByTestId("location-search").textContent).toContain(

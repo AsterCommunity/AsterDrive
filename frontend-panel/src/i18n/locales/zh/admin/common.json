@@ -14,6 +14,8 @@
 	"token": "令牌",
 	"downloads": "下载次数",
 	"filtered_user_count": "当前页筛出 {{count}} 位用户",
+	"show_filters": "筛选",
+	"hide_filters": "收起筛选",
 	"manage_policies": "管理存储策略",
 	"delete_user": "删除用户",
 	"pagination_prev_disabled": "已经是第一页了",

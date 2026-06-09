@@ -27,6 +27,7 @@ import type { ArchiveFilenameEncoding } from "@/types/api";
 interface ArchiveTaskNameDialogProps {
 	open: boolean;
 	onOpenChange: (open: boolean) => void;
+	onOpenChangeComplete?: (open: boolean) => void;
 	mode: "compress" | "extract";
 	initialName: string;
 	onSubmit: (
@@ -38,6 +39,7 @@ interface ArchiveTaskNameDialogProps {
 export function ArchiveTaskNameDialog({
 	open,
 	onOpenChange,
+	onOpenChangeComplete,
 	mode,
 	initialName,
 	onSubmit,
@@ -98,6 +100,7 @@ export function ArchiveTaskNameDialog({
 					onOpenChange(nextOpen);
 				}
 			}}
+			onOpenChangeComplete={onOpenChangeComplete}
 		>
 			<DialogContent keepMounted>
 				<DialogHeader>

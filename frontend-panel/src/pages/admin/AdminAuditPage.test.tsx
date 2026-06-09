@@ -411,6 +411,7 @@ describe("AdminAuditPage", () => {
 		});
 		expect(screen.queryByText("report.pdf")).toBeNull();
 
+		fireEvent.click(screen.getByRole("button", { name: /show_filters/ }));
 		fireEvent.change(screen.getByPlaceholderText("audit_filter_action"), {
 			target: { value: "file_delete" },
 		});

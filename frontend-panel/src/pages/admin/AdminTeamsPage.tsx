@@ -557,7 +557,6 @@ export default function AdminTeamsPage() {
 					toolbar={
 						<AdminTeamsToolbar
 							activeFilterCount={activeFilterCount}
-							hasServerFilters={hasServerFilters}
 							keyword={keyword}
 							onArchivedToggle={handleArchivedToggle}
 							onKeywordChange={handleKeywordChange}

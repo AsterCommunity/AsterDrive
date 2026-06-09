@@ -1,5 +1,6 @@
 import { type FormEvent, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { AdminFilterToolbar } from "@/components/common/AdminFilterToolbar";
 import {
 	AdminSortableTableHead,
 	AdminTable as Table,
@@ -136,6 +137,16 @@ export function AdminTeamDetailMembersSection({
 		pendingRemoveUserId != null && memberUserIds.has(pendingRemoveUserId)
 			? pendingRemoveUserId
 			: null;
+	const activeMemberFilterCount =
+		(memberQuery.trim() ? 1 : 0) +
+		(memberRoleFilter !== "__all__" ? 1 : 0) +
+		(memberStatusFilter !== "__all__" ? 1 : 0);
+	const resetMemberFilters = () => {
+		setMemberOffset(0);
+		setMemberQuery("");
+		setMemberRoleFilter("__all__");
+		setMemberStatusFilter("__all__");
+	};
 
 	return (
 		<section className="rounded-2xl border bg-background/60 p-6">
@@ -148,7 +159,11 @@ export function AdminTeamDetailMembersSection({
 						{t("settings:settings_team_members_desc")}
 					</p>
 				</div>
-				<div className="grid gap-2 sm:grid-cols-[minmax(220px,1fr)_160px_160px]">
+				<AdminFilterToolbar
+					activeFilterCount={activeMemberFilterCount}
+					className="lg:max-w-[620px]"
+					onResetFilters={resetMemberFilters}
+				>
 					<Input
 						value={memberQuery}
 						onChange={(event) => {
@@ -156,7 +171,7 @@ export function AdminTeamDetailMembersSection({
 							setMemberQuery(event.target.value);
 						}}
 						placeholder={t("team_member_search_placeholder")}
-						className={ADMIN_CONTROL_HEIGHT_CLASS}
+						className={`${ADMIN_CONTROL_HEIGHT_CLASS} min-w-[220px] flex-1`}
 					/>
 					<Select
 						items={roleFilterOptions}
@@ -200,7 +215,7 @@ export function AdminTeamDetailMembersSection({
 							))}
 						</SelectContent>
 					</Select>
-				</div>
+				</AdminFilterToolbar>
 			</div>
 
 			<div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border bg-muted/20 px-4 py-3 text-sm">
@@ -218,21 +233,6 @@ export function AdminTeamDetailMembersSection({
 						{t("team_manager_count")}: {managerCount}
 					</span>
 				</div>
-				{hasMemberFilters ? (
-					<Button
-						type="button"
-						variant="ghost"
-						size="sm"
-						onClick={() => {
-							setMemberOffset(0);
-							setMemberQuery("");
-							setMemberRoleFilter("__all__");
-							setMemberStatusFilter("__all__");
-						}}
-					>
-						{t("clear_filters")}
-					</Button>
-				) : null}
 			</div>
 
 			{canMutateTeam ? (

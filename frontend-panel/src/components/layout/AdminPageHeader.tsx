@@ -17,6 +17,8 @@ export function AdminPageHeader({
 	toolbar,
 	className,
 }: AdminPageHeaderProps) {
+	const hasMobileControls = actions || toolbar;
+
 	return (
 		<div
 			className={cn(
@@ -35,11 +37,26 @@ export function AdminPageHeader({
 					) : null}
 				</div>
 				{actions ? (
-					<div className="flex flex-wrap items-center gap-2">{actions}</div>
+					<div
+						className={cn(
+							"flex-wrap items-center gap-2",
+							toolbar ? "hidden md:flex" : "flex",
+						)}
+					>
+						{actions}
+					</div>
 				) : null}
 			</div>
+			{toolbar && hasMobileControls ? (
+				<div className="flex flex-wrap items-center gap-2 md:hidden">
+					{actions}
+					{toolbar}
+				</div>
+			) : null}
 			{toolbar ? (
-				<div className="flex flex-wrap items-center gap-2">{toolbar}</div>
+				<div className="hidden flex-wrap items-center gap-2 md:flex">
+					{toolbar}
+				</div>
 			) : null}
 		</div>
 	);

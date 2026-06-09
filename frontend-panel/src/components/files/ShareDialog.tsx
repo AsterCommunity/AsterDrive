@@ -36,6 +36,7 @@ type ShareLinkMode = "page" | "direct";
 interface ShareDialogProps {
 	open: boolean;
 	onOpenChange: (open: boolean) => void;
+	onOpenChangeComplete?: (open: boolean) => void;
 	fileId?: number;
 	folderId?: number;
 	name: string;
@@ -45,6 +46,7 @@ interface ShareDialogProps {
 export function ShareDialog({
 	open,
 	onOpenChange,
+	onOpenChangeComplete,
 	fileId,
 	folderId,
 	name,
@@ -142,6 +144,7 @@ export function ShareDialog({
 		<ManagerDialogShell
 			open={open}
 			onOpenChange={handleClose}
+			onOpenChangeComplete={onOpenChangeComplete}
 			title={
 				<span className="flex max-w-full min-w-0 items-start gap-2 leading-snug">
 					<Icon name="Link" className="mt-0.5 size-4 shrink-0" />

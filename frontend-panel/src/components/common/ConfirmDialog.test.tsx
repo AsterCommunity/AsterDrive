@@ -107,4 +107,36 @@ describe("ConfirmDialog", () => {
 			"text-white",
 		);
 	});
+
+	it("keeps the last open content while the close animation is mounted", () => {
+		const { rerender } = render(
+			<ConfirmDialog
+				open
+				onOpenChange={vi.fn()}
+				title="Delete 5 items"
+				description="Selected 5 items"
+				confirmLabel="Delete"
+				onConfirm={vi.fn()}
+				variant="destructive"
+			/>,
+		);
+
+		rerender(
+			<ConfirmDialog
+				open={false}
+				onOpenChange={vi.fn()}
+				title="Delete 0 items"
+				description="Selected 0 items"
+				confirmLabel="Confirm"
+				onConfirm={vi.fn()}
+				variant="default"
+			/>,
+		);
+
+		expect(screen.getByText("Delete 5 items")).toBeInTheDocument();
+		expect(screen.getByText("Selected 5 items")).toBeInTheDocument();
+		expect(screen.getByRole("button", { name: "Delete" })).toBeInTheDocument();
+		expect(screen.queryByText("Delete 0 items")).not.toBeInTheDocument();
+		expect(screen.queryByText("Selected 0 items")).not.toBeInTheDocument();
+	});
 });

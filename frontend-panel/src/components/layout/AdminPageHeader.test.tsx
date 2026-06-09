@@ -11,7 +11,7 @@ describe("AdminPageHeader", () => {
 	});
 
 	it("renders description, actions, and toolbar when provided", () => {
-		render(
+		const { container } = render(
 			<AdminPageHeader
 				title="Users"
 				description="Manage user accounts"
@@ -21,7 +21,10 @@ describe("AdminPageHeader", () => {
 		);
 
 		expect(screen.getByText("Manage user accounts")).toBeInTheDocument();
-		expect(screen.getByRole("button", { name: "Invite" })).toBeInTheDocument();
-		expect(screen.getByRole("button", { name: "Filters" })).toBeInTheDocument();
+		expect(screen.getAllByRole("button", { name: "Invite" })).toHaveLength(2);
+		expect(screen.getAllByRole("button", { name: "Filters" })).toHaveLength(2);
+		expect(container.querySelector(".md\\:hidden")).toHaveTextContent(
+			"InviteFilters",
+		);
 	});
 });

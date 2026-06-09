@@ -17,6 +17,7 @@ import { useFileStore } from "@/stores/fileStore";
 interface RenameDialogProps {
 	open: boolean;
 	onOpenChange: (open: boolean) => void;
+	onOpenChangeComplete?: (open: boolean) => void;
 	type: "file" | "folder";
 	id: number;
 	currentName: string;
@@ -26,6 +27,7 @@ interface RenameDialogProps {
 export function RenameDialog({
 	open,
 	onOpenChange,
+	onOpenChangeComplete,
 	type,
 	id,
 	currentName,
@@ -34,7 +36,11 @@ export function RenameDialog({
 	const resetKey = `${type}:${id}:${currentName}:${open ? "open" : "closed"}`;
 
 	return (
-		<Dialog open={open} onOpenChange={onOpenChange}>
+		<Dialog
+			open={open}
+			onOpenChange={onOpenChange}
+			onOpenChangeComplete={onOpenChangeComplete}
+		>
 			<DialogContent keepMounted>
 				<DialogHeader>
 					<DialogTitle>
