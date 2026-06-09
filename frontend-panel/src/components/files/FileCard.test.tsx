@@ -136,7 +136,12 @@ describe("FileCard", () => {
 		);
 
 		const card = screen.getByRole("button", { name: /Docs/i });
-		expect(card).toHaveClass("border-primary", "bg-accent", "opacity-0");
+		expect(card).toHaveClass(
+			"border-primary",
+			"bg-accent",
+			"opacity-0",
+			"select-none",
+		);
 		expect(screen.getByTestId("icon")).toHaveAttribute("data-name", "Folder");
 		expect(screen.getByText("Docs")).toBeInTheDocument();
 
@@ -245,6 +250,40 @@ describe("FileCard", () => {
 			"right-11",
 			"sm:right-2",
 		);
+	});
+
+	it("does not open the card when interacting with the action menu", () => {
+		const onClick = vi.fn();
+		const onDoubleClick = vi.fn();
+		const menuClick = vi.fn();
+
+		const { container } = render(
+			<FileCard
+				item={file as never}
+				isFolder={false}
+				selected={false}
+				onSelect={vi.fn()}
+				onClick={onClick}
+				onDoubleClick={onDoubleClick}
+				actionMenu={
+					<button type="button" onClick={menuClick}>
+						more
+					</button>
+				}
+			/>,
+		);
+
+		const actionMenu = container.querySelector("[data-file-card-action-menu]");
+		expect(actionMenu).not.toBeNull();
+
+		fireEvent.pointerDown(actionMenu as Element);
+		fireEvent.click(screen.getByRole("button", { name: "more" }));
+		fireEvent.doubleClick(actionMenu as Element);
+		fireEvent.keyDown(actionMenu as Element, { key: "Enter" });
+
+		expect(menuClick).toHaveBeenCalledTimes(1);
+		expect(onClick).not.toHaveBeenCalled();
+		expect(onDoubleClick).not.toHaveBeenCalled();
 	});
 
 	it("writes drag data and drag preview metadata on drag start", () => {

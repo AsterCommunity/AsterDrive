@@ -141,7 +141,7 @@ const FolderTableDataRow = memo(function FolderTableDataRow({
 			<TableRow
 				data-folder-drop-target="true"
 				className={cn(
-					"cursor-pointer transition-[background-color,box-shadow,opacity] duration-150 ease-out",
+					"cursor-pointer select-none transition-[background-color,box-shadow,opacity] duration-150 ease-out",
 					dragOver && "ring-2 ring-primary bg-accent/30",
 					fading && "opacity-0",
 				)}
@@ -217,7 +217,7 @@ const FileTableDataRow = memo(function FileTableDataRow({
 		<FileBrowserItemContextMenu renderTrigger item={file} isFolder={false}>
 			<TableRow
 				className={cn(
-					"cursor-pointer transition-[background-color,box-shadow,opacity] duration-150 ease-out",
+					"cursor-pointer select-none transition-[background-color,box-shadow,opacity] duration-150 ease-out",
 					fading && "opacity-0",
 				)}
 				draggable

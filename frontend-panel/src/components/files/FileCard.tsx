@@ -116,7 +116,7 @@ export function FileCard({
 			data-drag-preview-root
 			data-folder-drop-target={isFolder ? "true" : undefined}
 			className={cn(
-				"group relative flex flex-col items-center rounded-xl border border-border/65 bg-card/80 p-3 shadow-xs transition-[background-color,border-color,box-shadow,opacity] duration-150 ease-out hover:border-border hover:bg-card hover:shadow-sm dark:bg-card/70 dark:shadow-none dark:hover:bg-card dark:hover:shadow-none",
+				"group relative flex select-none flex-col items-center rounded-xl border border-border/65 bg-card/80 p-3 shadow-xs transition-[background-color,border-color,box-shadow,opacity] duration-150 ease-out hover:border-border hover:bg-card hover:shadow-sm dark:bg-card/70 dark:shadow-none dark:hover:bg-card dark:hover:shadow-none",
 				selected &&
 					"border-primary bg-accent text-accent-foreground shadow-sm dark:shadow-none",
 				draggable && dragOver && "bg-accent/35 ring-2 ring-primary",
@@ -161,9 +161,15 @@ export function FileCard({
 				)}
 			/>
 			{actionMenu ? (
+				// biome-ignore lint/a11y/noStaticElementInteractions: non-interactive boundary prevents menu events from opening the parent card
 				<div
 					data-file-card-action-menu
+					role="presentation"
 					className="absolute top-2 right-2 z-10 sm:hidden"
+					onPointerDown={(event) => event.stopPropagation()}
+					onClick={(event) => event.stopPropagation()}
+					onDoubleClick={(event) => event.stopPropagation()}
+					onKeyDown={(event) => event.stopPropagation()}
 				>
 					{actionMenu}
 				</div>

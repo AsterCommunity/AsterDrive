@@ -283,6 +283,8 @@ describe("FileTable", () => {
 		render(<FileTable />);
 
 		const rows = screen.getAllByTestId("row");
+		expect(rows[1]).toHaveClass("select-none");
+		expect(rows[2]).toHaveClass("select-none");
 		fireEvent.click(rows[1]);
 		fireEvent.click(rows[2]);
 		fireEvent.click(screen.getAllByTestId("checkbox")[1]);

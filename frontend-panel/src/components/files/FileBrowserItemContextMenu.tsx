@@ -188,10 +188,16 @@ export function FileBrowserItemActionMenu({
 					size="icon-sm"
 					className="rounded-lg opacity-100 sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100"
 					aria-label={t("more_actions")}
+					onPointerDown={(event) => {
+						event.stopPropagation();
+					}}
 					onClick={(event) => {
 						event.stopPropagation();
 					}}
 					onDoubleClick={(event) => {
+						event.stopPropagation();
+					}}
+					onKeyDown={(event) => {
 						event.stopPropagation();
 					}}
 				>
