@@ -90,11 +90,14 @@ You can:
 In user details, you can also:
 
 - Reset the user's login password
+- Require the user to change their password after the next login
 - Reset the user's MFA
 - Force all current devices for this user to log in again
 - View current space usage and quota
 
 The system protects the initial administrator account to avoid accidentally disabling, demoting, or deleting the only administrator.
+
+When an administrator enables `Force password change`, AsterDrive invalidates the user's existing login sessions. After the next successful password, MFA, passkey, or external-auth login, the user can only enter the forced password-change screen. They must enter the current temporary password and set a new password before accessing files, teams, the admin console, or other normal app areas. After the password is changed, the requirement is cleared automatically and audit logs record the event.
 
 Resetting MFA applies when a user loses their authenticator and recovery codes. This clears the user's authenticator, recovery codes, and unfinished MFA login flows, and invalidates the user's current sessions. The user must bind an authenticator again after the next login.
 

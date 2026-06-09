@@ -20,6 +20,7 @@ export function createMeResponse(
 		pending_email: null,
 		role: "user",
 		status: "active",
+		must_change_password: false,
 		policy_group_id: null,
 		storage_used: 0,
 		storage_quota: 0,

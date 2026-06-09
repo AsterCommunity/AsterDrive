@@ -233,6 +233,7 @@ pub(crate) async fn create_user_with_role<C: ConnectionTrait>(
         password_hash: Set(password_hash),
         role: Set(role),
         status: Set(status),
+        must_change_password: Set(false),
         session_version: Set(INITIAL_SESSION_VERSION),
         email_verified_at: Set(email_verified_at),
         pending_email: Set(None),
@@ -405,6 +406,7 @@ pub(super) async fn update_password_in_connection<C: ConnectionTrait>(
     let next_session_version = user.session_version.saturating_add(1);
     let mut active = user.into_active_model();
     active.password_hash = Set(hash::hash_password(new_password)?);
+    active.must_change_password = Set(false);
     active.session_version = Set(next_session_version);
     active.updated_at = Set(Utc::now());
     active

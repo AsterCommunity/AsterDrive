@@ -176,7 +176,7 @@ describe("authService", () => {
 		authService.startPasskeyLogin({ identifier: "alice@example.com" });
 		await expect(
 			authService.finishPasskeyLogin("login-flow", { id: "cred" }),
-		).resolves.toEqual({ expiresIn: 900 });
+		).resolves.toEqual({ status: "authenticated", expiresIn: 900 });
 		authService.me();
 		authService.me(["quota"]);
 		authService.updatePreferences(prefs);
@@ -344,6 +344,7 @@ describe("authService", () => {
 		await expect(
 			authService.finishPasskeyLogin("flow", { id: "cred" }),
 		).resolves.toEqual({
+			status: "authenticated",
 			expiresIn: 900,
 		});
 		await expect(authService.refreshToken()).resolves.toEqual({
@@ -412,7 +413,7 @@ describe("authService", () => {
 				method: "totp",
 				code: "123456",
 			}),
-		).resolves.toEqual({ expiresIn: 900 });
+		).resolves.toEqual({ status: "authenticated", expiresIn: 900 });
 		expect(authService.sendMfaEmailCode({ flow_token: "mfa-flow" })).toEqual({
 			expires_in: 600,
 			resend_after: 60,
@@ -453,6 +454,18 @@ describe("authService", () => {
 			expiresIn: 300,
 			flowToken: "mfa-flow",
 			methods: ["email_code", "totp"],
+		});
+	});
+
+	it("parses forced password-change login responses", async () => {
+		mockState.post.mockReturnValueOnce({
+			status: "password_change_required",
+			expires_in: 600,
+		});
+
+		await expect(authService.login("alice", "temporary")).resolves.toEqual({
+			status: "password_change_required",
+			expiresIn: 600,
 		});
 	});
 

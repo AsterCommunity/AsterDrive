@@ -683,11 +683,16 @@ pub async fn finish_login(
         return Err(AsterError::auth_invalid_credentials("passkey not found"));
     }
 
-    let (access, refresh) =
-        auth_service::issue_tokens_for_user(state, &user, ip_address, user_agent).await?;
+    let (access, refresh) = if user.must_change_password {
+        auth_service::issue_password_change_tokens_for_user(state, &user, ip_address, user_agent)
+            .await?
+    } else {
+        auth_service::issue_tokens_for_user(state, &user, ip_address, user_agent).await?
+    };
     Ok(LoginResult {
         access_token: access,
         refresh_token: refresh,
         user_id: user.id,
+        password_change_required: user.must_change_password,
     })
 }

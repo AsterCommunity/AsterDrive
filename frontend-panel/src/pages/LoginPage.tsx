@@ -513,10 +513,23 @@ function useLoginPageController() {
 		[exitAndNavigateTo, refreshUser, syncSession],
 	);
 
+	const finishPasswordChangeRequiredLogin = useCallback(
+		async (session: { expiresIn: number }) => {
+			syncSession(session.expiresIn);
+			await refreshUser();
+			exitAndNavigateTo("/force-password-change");
+		},
+		[exitAndNavigateTo, refreshUser, syncSession],
+	);
+
 	const handleLoginResult = useCallback(
 		async (result: LoginResult, returnPath: string, successMessage: string) => {
 			if (result.status === "authenticated") {
 				await finishAuthenticatedLogin(result, returnPath, successMessage);
+				return;
+			}
+			if (result.status === "password_change_required") {
+				await finishPasswordChangeRequiredLogin(result);
 				return;
 			}
 			const methods: MfaMethod[] =
@@ -534,7 +547,7 @@ function useLoginPageController() {
 			setPassword("");
 			setShowPassword(false);
 		},
-		[finishAuthenticatedLogin],
+		[finishAuthenticatedLogin, finishPasswordChangeRequiredLogin],
 	);
 
 	const resetPendingActivation = () => {
@@ -688,10 +701,13 @@ function useLoginPageController() {
 
 	const finishPasskeyLogin = useCallback(
 		async (flowId: string, credential: unknown) => {
-			const session = await authService.finishPasskeyLogin(flowId, credential);
-			await finishAuthenticatedLogin(session, "/", loginSuccessMessage);
+			await handleLoginResult(
+				await authService.finishPasskeyLogin(flowId, credential),
+				"/",
+				loginSuccessMessage,
+			);
 		},
-		[finishAuthenticatedLogin, loginSuccessMessage],
+		[handleLoginResult, loginSuccessMessage],
 	);
 
 	const handlePasskeyLogin = async () => {
@@ -849,13 +865,12 @@ function useLoginPageController() {
 			const normalizedCode =
 				method === "totp" ? normalizeTotpCode(code) : code.trim();
 			dispatchAuthPanel({ type: "set_mfa_submitting", submitting: true });
-			const session = await authService.verifyMfaChallenge({
-				flow_token: challenge.flowToken,
-				method,
-				code: normalizedCode,
-			});
-			await finishAuthenticatedLogin(
-				session,
+			await handleLoginResult(
+				await authService.verifyMfaChallenge({
+					flow_token: challenge.flowToken,
+					method,
+					code: normalizedCode,
+				}),
 				challenge.returnPath,
 				challenge.successMessage,
 			);

@@ -4332,7 +4332,7 @@ export interface components {
         /** @enum {string} */
         AdminUserSortBy: "id" | "username" | "email" | "role" | "status" | "storage_used" | "storage_quota" | "created_at" | "updated_at";
         /** @enum {string} */
-        ApiErrorCode: "success" | "bad_request" | "not_found" | "internal_server_error" | "database.error" | "config.error" | "endpoint.not_found" | "rate_limited" | "mail.not_configured" | "mail.delivery_failed" | "conflict" | "auth.failed" | "auth.token_expired" | "auth.token_invalid" | "forbidden" | "auth.pending_activation" | "auth.contact_verification_invalid" | "auth.contact_verification_expired" | "auth.token_missing" | "auth.credentials_failed" | "auth.mfa_failed" | "auth.refresh_token_stale" | "auth.refresh_token_reuse_detected" | "file.not_found" | "file.too_large" | "file.type_not_allowed" | "file.upload_failed" | "upload.session_not_found" | "upload.session_expired" | "upload.chunk_failed" | "upload.assembly_failed" | "thumbnail.failed" | "resource.locked" | "precondition_failed" | "upload.assembling" | "storage.policy_not_found" | "storage.driver_error" | "storage.quota_exceeded" | "storage.unsupported_driver" | "storage.auth_failed" | "storage.permission_denied" | "storage.misconfigured" | "storage.object_not_found" | "storage.rate_limited" | "storage.transient_failure" | "storage.precondition_failed" | "storage.operation_unsupported" | "folder.not_found" | "share.not_found" | "share.expired" | "share.password_required" | "share.download_limit_reached" | "archive_preview.disabled" | "archive_preview.user_disabled" | "archive_preview.share_disabled" | "archive_preview.source_too_large" | "archive_preview.invalid_archive" | "archive_preview.manifest_too_large" | "archive_preview.unsupported_type" | "archive_preview.rejected" | "archive_preview.source_size_mismatch" | "auth.username_exists" | "auth.email_exists" | "auth.identifier_exists" | "auth.admin_required" | "auth.account_disabled" | "auth.request_source_untrusted" | "auth.request_origin_untrusted" | "auth.request_referer_untrusted" | "auth.request_source_missing" | "auth.session_user_mismatch" | "auth.csrf_cookie_missing" | "auth.csrf_header_missing" | "auth.csrf_token_invalid" | "auth.passkey_login_disabled" | "auth.registration_disabled" | "auth.email_blocked" | "auth.email_not_allowlisted" | "auth.mfa_flow_invalid" | "auth.mfa_flow_expired" | "auth.mfa_code_invalid" | "auth.mfa_attempts_exceeded" | "auth.mfa_factor_required" | "auth.mfa_factor_already_exists" | "auth.mfa_recovery_code_used" | "auth.mfa_email_code_required" | "auth.mfa_email_code_expired" | "auth.invitation_invalid" | "auth.invitation_expired" | "auth.invitation_revoked" | "auth.invitation_accepted" | "avatar.file_required" | "avatar.upload_read_failed" | "avatar.processor_unavailable" | "avatar.empty_image" | "avatar.render_failed" | "avatar.output_invalid" | "file.name_conflict" | "file.etag_mismatch" | "file.modified_during_write" | "folder.name_conflict" | "lock.not_owner" | "share.scope_denied" | "managed_ingress.binding_mismatch" | "managed_ingress.default_delete_requires_replacement" | "managed_ingress.default_error" | "managed_ingress.default_missing" | "managed_ingress.default_not_applied" | "managed_ingress.default_update_requires_replacement" | "managed_ingress.driver_unsupported" | "managed_ingress.local_path_invalid" | "managed_ingress.required" | "managed_ingress.single_primary_required" | "master_binding.disabled" | "passkey.name_invalid" | "passkey.name_too_long" | "passkey.not_discoverable" | "team.not_member" | "team.owner_required" | "team.admin_or_owner_required" | "policy.upload_sessions_exist" | "workspace.scope_denied" | "external_auth.provider_disabled" | "external_auth.policy_denied" | "offline_download.aria2_rpc_auth_failed" | "offline_download.aria2_rpc_probe_failed" | "remote_node.disabled" | "remote_node.enrollment_required" | "remote_node.unique_conflict" | "storage.auth" | "storage.not_found" | "storage.permission" | "storage.precondition" | "storage.transient" | "storage.unsupported" | "storage.unknown" | "task.lease_lost" | "task.lease_renewal_timed_out" | "task.worker_shutdown_requested" | "team.member_exists" | "thumbnail.format_guess_failed" | "thumbnail.decode_failed" | "thumbnail.encode_failed" | "thumbnail.source_open_failed" | "thumbnail.source_stream_failed" | "thumbnail.task_panicked" | "thumbnail.source_too_large" | "thumbnail.processor_unavailable" | "thumbnail.render_failed" | "thumbnail.output_invalid" | "thumbnail.source_temp_create_failed" | "thumbnail.source_temp_flush_failed" | "thumbnail.source_temp_copy_failed" | "wopi.public_site_url_required" | "wopi.app_disabled" | "wopi.request_origin_untrusted" | "wopi.request_referer_untrusted" | "upload.temp_dir_create_failed" | "upload.temp_file_create_failed" | "upload.temp_file_write_failed" | "upload.temp_file_flush_failed" | "upload.request_body_read_failed" | "upload.request_body_size_overflow" | "upload.request_size_mismatch" | "upload.hash_temp_open_failed" | "upload.hash_temp_read_failed" | "upload.field_read_failed" | "upload.local_staging_path_resolve_failed" | "upload.local_staging_dir_create_failed" | "upload.local_staging_file_create_failed" | "upload.local_staging_write_failed" | "upload.local_staging_flush_failed" | "upload.direct_relay_write_failed" | "upload.direct_relay_shutdown_failed" | "upload.direct_relay_task_failed" | "upload.body_size_overflow" | "upload.declared_size_invalid" | "upload.empty_file" | "upload.chunk_persist_failed" | "upload.chunk_relay_failed" | "upload.chunk_transport_mismatch" | "upload.chunk_session_invalid" | "upload.chunk_number_out_of_range" | "upload.chunk_size_mismatch" | "upload.chunk_too_large" | "upload.chunk_size_overflow" | "upload.status_conflict" | "upload.completed_file_missing" | "upload.previous_failure" | "upload.parts_required" | "upload.incomplete_chunks" | "upload.incomplete_parts" | "upload.missing_part" | "upload.temp_object_missing" | "upload.temp_object_size_mismatch" | "upload.final_object_size_mismatch" | "upload.session_corrupted" | "upload.part_numbers_empty" | "upload.part_numbers_too_many" | "upload.part_number_out_of_range" | "upload.assembly_io_failed" | "upload.assembly_size_overflow" | "webdav.username_exists" | "wopi.max_expected_size_exceeded" | "validation.request_origin_invalid" | "validation.request_referer_invalid" | "validation.request_host_invalid" | "validation.request_scheme_invalid" | "validation.request_header_value_invalid" | "validation.system_already_initialized";
+        ApiErrorCode: "success" | "bad_request" | "not_found" | "internal_server_error" | "database.error" | "config.error" | "endpoint.not_found" | "rate_limited" | "mail.not_configured" | "mail.delivery_failed" | "conflict" | "auth.failed" | "auth.token_expired" | "auth.token_invalid" | "forbidden" | "auth.pending_activation" | "auth.contact_verification_invalid" | "auth.contact_verification_expired" | "auth.token_missing" | "auth.credentials_failed" | "auth.mfa_failed" | "auth.refresh_token_stale" | "auth.refresh_token_reuse_detected" | "file.not_found" | "file.too_large" | "file.type_not_allowed" | "file.upload_failed" | "upload.session_not_found" | "upload.session_expired" | "upload.chunk_failed" | "upload.assembly_failed" | "thumbnail.failed" | "resource.locked" | "precondition_failed" | "upload.assembling" | "storage.policy_not_found" | "storage.driver_error" | "storage.quota_exceeded" | "storage.unsupported_driver" | "storage.auth_failed" | "storage.permission_denied" | "storage.misconfigured" | "storage.object_not_found" | "storage.rate_limited" | "storage.transient_failure" | "storage.precondition_failed" | "storage.operation_unsupported" | "folder.not_found" | "share.not_found" | "share.expired" | "share.password_required" | "share.download_limit_reached" | "archive_preview.disabled" | "archive_preview.user_disabled" | "archive_preview.share_disabled" | "archive_preview.source_too_large" | "archive_preview.invalid_archive" | "archive_preview.manifest_too_large" | "archive_preview.unsupported_type" | "archive_preview.rejected" | "archive_preview.source_size_mismatch" | "auth.username_exists" | "auth.email_exists" | "auth.identifier_exists" | "auth.admin_required" | "auth.account_disabled" | "auth.request_source_untrusted" | "auth.request_origin_untrusted" | "auth.request_referer_untrusted" | "auth.request_source_missing" | "auth.session_user_mismatch" | "auth.csrf_cookie_missing" | "auth.csrf_header_missing" | "auth.csrf_token_invalid" | "auth.passkey_login_disabled" | "auth.registration_disabled" | "auth.email_blocked" | "auth.email_not_allowlisted" | "auth.mfa_flow_invalid" | "auth.mfa_flow_expired" | "auth.mfa_code_invalid" | "auth.mfa_attempts_exceeded" | "auth.mfa_factor_required" | "auth.mfa_factor_already_exists" | "auth.mfa_recovery_code_used" | "auth.mfa_email_code_required" | "auth.mfa_email_code_expired" | "auth.invitation_invalid" | "auth.invitation_expired" | "auth.invitation_revoked" | "auth.invitation_accepted" | "auth.password_change_required" | "avatar.file_required" | "avatar.upload_read_failed" | "avatar.processor_unavailable" | "avatar.empty_image" | "avatar.render_failed" | "avatar.output_invalid" | "file.name_conflict" | "file.etag_mismatch" | "file.modified_during_write" | "folder.name_conflict" | "lock.not_owner" | "share.scope_denied" | "managed_ingress.binding_mismatch" | "managed_ingress.default_delete_requires_replacement" | "managed_ingress.default_error" | "managed_ingress.default_missing" | "managed_ingress.default_not_applied" | "managed_ingress.default_update_requires_replacement" | "managed_ingress.driver_unsupported" | "managed_ingress.local_path_invalid" | "managed_ingress.required" | "managed_ingress.single_primary_required" | "master_binding.disabled" | "passkey.name_invalid" | "passkey.name_too_long" | "passkey.not_discoverable" | "team.not_member" | "team.owner_required" | "team.admin_or_owner_required" | "policy.upload_sessions_exist" | "workspace.scope_denied" | "external_auth.provider_disabled" | "external_auth.policy_denied" | "offline_download.aria2_rpc_auth_failed" | "offline_download.aria2_rpc_probe_failed" | "remote_node.disabled" | "remote_node.enrollment_required" | "remote_node.unique_conflict" | "storage.auth" | "storage.not_found" | "storage.permission" | "storage.precondition" | "storage.transient" | "storage.unsupported" | "storage.unknown" | "task.lease_lost" | "task.lease_renewal_timed_out" | "task.worker_shutdown_requested" | "team.member_exists" | "thumbnail.format_guess_failed" | "thumbnail.decode_failed" | "thumbnail.encode_failed" | "thumbnail.source_open_failed" | "thumbnail.source_stream_failed" | "thumbnail.task_panicked" | "thumbnail.source_too_large" | "thumbnail.processor_unavailable" | "thumbnail.render_failed" | "thumbnail.output_invalid" | "thumbnail.source_temp_create_failed" | "thumbnail.source_temp_flush_failed" | "thumbnail.source_temp_copy_failed" | "wopi.public_site_url_required" | "wopi.app_disabled" | "wopi.request_origin_untrusted" | "wopi.request_referer_untrusted" | "upload.temp_dir_create_failed" | "upload.temp_file_create_failed" | "upload.temp_file_write_failed" | "upload.temp_file_flush_failed" | "upload.request_body_read_failed" | "upload.request_body_size_overflow" | "upload.request_size_mismatch" | "upload.hash_temp_open_failed" | "upload.hash_temp_read_failed" | "upload.field_read_failed" | "upload.local_staging_path_resolve_failed" | "upload.local_staging_dir_create_failed" | "upload.local_staging_file_create_failed" | "upload.local_staging_write_failed" | "upload.local_staging_flush_failed" | "upload.direct_relay_write_failed" | "upload.direct_relay_shutdown_failed" | "upload.direct_relay_task_failed" | "upload.body_size_overflow" | "upload.declared_size_invalid" | "upload.empty_file" | "upload.chunk_persist_failed" | "upload.chunk_relay_failed" | "upload.chunk_transport_mismatch" | "upload.chunk_session_invalid" | "upload.chunk_number_out_of_range" | "upload.chunk_size_mismatch" | "upload.chunk_too_large" | "upload.chunk_size_overflow" | "upload.status_conflict" | "upload.completed_file_missing" | "upload.previous_failure" | "upload.parts_required" | "upload.incomplete_chunks" | "upload.incomplete_parts" | "upload.missing_part" | "upload.temp_object_missing" | "upload.temp_object_size_mismatch" | "upload.final_object_size_mismatch" | "upload.session_corrupted" | "upload.part_numbers_empty" | "upload.part_numbers_too_many" | "upload.part_number_out_of_range" | "upload.assembly_io_failed" | "upload.assembly_size_overflow" | "webdav.username_exists" | "wopi.max_expected_size_exceeded" | "validation.request_origin_invalid" | "validation.request_referer_invalid" | "validation.request_host_invalid" | "validation.request_scheme_invalid" | "validation.request_header_value_invalid" | "validation.system_already_initialized";
         ApiErrorInfo: {
             retryable: boolean;
         };
@@ -5477,6 +5477,11 @@ export interface components {
         } | {
             /** Format: int64 */
             expires_in: number;
+            /** @enum {string} */
+            status: "password_change_required";
+        } | {
+            /** Format: int64 */
+            expires_in: number;
             flow_token: string;
             methods: components["schemas"]["MfaChallengeMethodType"][];
             /** @enum {string} */
@@ -5494,6 +5499,7 @@ export interface components {
             email_verified: boolean;
             /** Format: int64 */
             id: number;
+            must_change_password: boolean;
             pending_email?: string | null;
             /** Format: int64 */
             policy_group_id?: number | null;
@@ -5522,6 +5528,7 @@ export interface components {
             email_verified: boolean;
             /** Format: int64 */
             id: number;
+            must_change_password: boolean;
             pending_email?: string | null;
             /** Format: int64 */
             policy_group_id?: number | null;
@@ -6177,6 +6184,7 @@ export interface components {
                 email_verified: boolean;
                 /** Format: int64 */
                 id: number;
+                must_change_password: boolean;
                 pending_email?: string | null;
                 /** Format: int64 */
                 policy_group_id?: number | null;
@@ -6322,6 +6330,7 @@ export interface components {
         /** @description Patch an existing user (admin operation). */
         PatchUserReq: {
             email_verified?: boolean | null;
+            must_change_password?: boolean | null;
             /**
              * Format: int64
              * @description Omitted = leave unchanged. Explicit `null` is rejected because this
@@ -7574,6 +7583,7 @@ export interface components {
             email_verified: boolean;
             /** Format: int64 */
             id: number;
+            must_change_password: boolean;
             pending_email?: string | null;
             /** Format: int64 */
             policy_group_id?: number | null;
@@ -7593,6 +7603,7 @@ export interface components {
             email_verified: boolean;
             /** Format: int64 */
             id: number;
+            must_change_password: boolean;
             pending_email?: string | null;
             /** Format: int64 */
             policy_group_id?: number | null;
@@ -12062,6 +12073,7 @@ export interface operations {
                                 email_verified: boolean;
                                 /** Format: int64 */
                                 id: number;
+                                must_change_password: boolean;
                                 pending_email?: string | null;
                                 /** Format: int64 */
                                 policy_group_id?: number | null;
@@ -12131,6 +12143,7 @@ export interface operations {
                             email_verified: boolean;
                             /** Format: int64 */
                             id: number;
+                            must_change_password: boolean;
                             pending_email?: string | null;
                             /** Format: int64 */
                             policy_group_id?: number | null;
@@ -12403,6 +12416,7 @@ export interface operations {
                             email_verified: boolean;
                             /** Format: int64 */
                             id: number;
+                            must_change_password: boolean;
                             pending_email?: string | null;
                             /** Format: int64 */
                             policy_group_id?: number | null;
@@ -12524,6 +12538,7 @@ export interface operations {
                             email_verified: boolean;
                             /** Format: int64 */
                             id: number;
+                            must_change_password: boolean;
                             pending_email?: string | null;
                             /** Format: int64 */
                             policy_group_id?: number | null;
@@ -12831,6 +12846,7 @@ export interface operations {
                             email_verified: boolean;
                             /** Format: int64 */
                             id: number;
+                            must_change_password: boolean;
                             pending_email?: string | null;
                             /** Format: int64 */
                             policy_group_id?: number | null;
@@ -13077,6 +13093,11 @@ export interface operations {
                         } | {
                             /** Format: int64 */
                             expires_in: number;
+                            /** @enum {string} */
+                            status: "password_change_required";
+                        } | {
+                            /** Format: int64 */
+                            expires_in: number;
                             flow_token: string;
                             methods: components["schemas"]["MfaChallengeMethodType"][];
                             /** @enum {string} */
@@ -13280,6 +13301,7 @@ export interface operations {
                             email_verified: boolean;
                             /** Format: int64 */
                             id: number;
+                            must_change_password: boolean;
                             pending_email?: string | null;
                             /** Format: int64 */
                             policy_group_id?: number | null;
@@ -13333,6 +13355,11 @@ export interface operations {
                             expires_in: number;
                             /** @enum {string} */
                             status: "authenticated";
+                        } | {
+                            /** Format: int64 */
+                            expires_in: number;
+                            /** @enum {string} */
+                            status: "password_change_required";
                         } | {
                             /** Format: int64 */
                             expires_in: number;
@@ -13402,6 +13429,7 @@ export interface operations {
                             email_verified: boolean;
                             /** Format: int64 */
                             id: number;
+                            must_change_password: boolean;
                             pending_email?: string | null;
                             /** Format: int64 */
                             policy_group_id?: number | null;
@@ -13541,6 +13569,11 @@ export interface operations {
                             expires_in: number;
                             /** @enum {string} */
                             status: "authenticated";
+                        } | {
+                            /** Format: int64 */
+                            expires_in: number;
+                            /** @enum {string} */
+                            status: "password_change_required";
                         } | {
                             /** Format: int64 */
                             expires_in: number;
@@ -13772,7 +13805,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Passkey login successful, tokens set in HttpOnly cookies */
+            /** @description Passkey login successful or password change required, tokens set in HttpOnly cookies */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -13780,10 +13813,23 @@ export interface operations {
                 content: {
                     "application/json": {
                         code: components["schemas"]["ApiErrorCode"];
-                        /** @description Response body for token issuance (login / refresh / password change). */
                         data?: {
                             /** Format: int64 */
                             expires_in: number;
+                            /** @enum {string} */
+                            status: "authenticated";
+                        } | {
+                            /** Format: int64 */
+                            expires_in: number;
+                            /** @enum {string} */
+                            status: "password_change_required";
+                        } | {
+                            /** Format: int64 */
+                            expires_in: number;
+                            flow_token: string;
+                            methods: components["schemas"]["MfaChallengeMethodType"][];
+                            /** @enum {string} */
+                            status: "mfa_required";
                         };
                         error?: null | components["schemas"]["ApiErrorInfo"];
                         msg: string;
@@ -14452,6 +14498,7 @@ export interface operations {
                             email_verified: boolean;
                             /** Format: int64 */
                             id: number;
+                            must_change_password: boolean;
                             pending_email?: string | null;
                             /** Format: int64 */
                             policy_group_id?: number | null;
@@ -14649,6 +14696,7 @@ export interface operations {
                             email_verified: boolean;
                             /** Format: int64 */
                             id: number;
+                            must_change_password: boolean;
                             pending_email?: string | null;
                             /** Format: int64 */
                             policy_group_id?: number | null;

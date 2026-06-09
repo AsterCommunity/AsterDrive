@@ -3,15 +3,16 @@
 #[macro_use]
 mod common;
 
-use actix_web::body::MessageBody;
+use actix_web::body::{MessageBody, to_bytes};
 use actix_web::cookie::SameSite;
 use actix_web::test;
+use aster_drive::api::pagination::{AdminAuditLogSortBy, SortOrder};
 use aster_drive::config::branding::DEFAULT_BRANDING_TITLE;
-use aster_drive::db::repository::{auth_session_repo, passkey_repo, user_repo};
+use aster_drive::db::repository::{audit_log_repo, auth_session_repo, passkey_repo, user_repo};
 use aster_drive::entities::passkey;
 use aster_drive::runtime::SharedRuntimeState;
 use aster_drive::services::auth_service;
-use aster_drive::types::UserStatus;
+use aster_drive::types::{AuditAction, UserStatus};
 use base64::Engine as _;
 use serde_json::Value;
 use std::io::Cursor;
@@ -243,6 +244,20 @@ where
         frame.is_none(),
         "SSE stream should close after auth revalidation fails"
     );
+}
+
+async fn service_response_json<B>(resp: actix_web::dev::ServiceResponse<B>) -> Value
+where
+    B: MessageBody,
+    B::Error: std::fmt::Debug,
+{
+    let body = to_bytes(resp.into_body()).await.unwrap();
+    serde_json::from_slice(&body).unwrap()
+}
+
+async fn http_response_json(resp: actix_web::HttpResponse) -> Value {
+    let body = to_bytes(resp.into_body()).await.unwrap();
+    serde_json::from_slice(&body).unwrap()
 }
 
 fn configure_passkey_public_site_url(state: &aster_drive::runtime::PrimaryAppState) {
@@ -4030,6 +4045,361 @@ async fn test_change_password_rejects_wrong_current_password() {
         .to_request();
     let resp = test::call_service(&app, req).await;
     assert_eq!(resp.status(), 200);
+}
+
+#[actix_web::test]
+async fn test_forced_password_change_restricts_session_and_clears_after_update() {
+    let state = common::setup().await;
+    let app = create_test_app!(state.clone());
+    let (admin_token, _) = register_and_login!(app);
+    let user_id = admin_create_user!(
+        app,
+        admin_token,
+        "forcepwuser",
+        "forcepwuser@example.com",
+        "password123"
+    );
+    let (old_access, old_refresh) = login_user!(app, "forcepwuser", "password123");
+
+    let req = test::TestRequest::patch()
+        .uri(&format!("/api/v1/admin/users/{user_id}"))
+        .insert_header(("Cookie", common::access_cookie_header(&admin_token)))
+        .insert_header(common::csrf_header_for(&admin_token))
+        .set_json(serde_json::json!({
+            "must_change_password": true
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(body["data"]["must_change_password"], true);
+    let (admin_updates, _) = audit_log_repo::find_with_filters(
+        state.reader_db(),
+        audit_log_repo::AuditLogQuery {
+            user_id: None,
+            action: Some(AuditAction::AdminUpdateUser.as_str()),
+            entity_type: Some(aster_drive::types::AuditEntityType::User.as_str()),
+            entity_id: Some(user_id),
+            after: None,
+            before: None,
+            limit: 10,
+            offset: 0,
+            sort_by: AdminAuditLogSortBy::CreatedAt,
+            sort_order: SortOrder::Desc,
+        },
+    )
+    .await
+    .unwrap();
+    assert!(
+        admin_updates.iter().any(|entry| entry
+            .details
+            .as_deref()
+            .is_some_and(|details| details.contains("\"must_change_password\":true"))),
+        "admin update audit details should include must_change_password=true"
+    );
+
+    let req = test::TestRequest::get()
+        .uri("/api/v1/auth/me")
+        .insert_header(("Cookie", common::access_cookie_header(&old_access)))
+        .insert_header(common::csrf_header_for(&old_access))
+        .to_request();
+    assert_service_status!(app, req, 401, "old access token should be revoked");
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/auth/refresh")
+        .insert_header(("Cookie", common::refresh_cookie_header(&old_refresh)))
+        .insert_header(common::csrf_header_for(&old_refresh))
+        .to_request();
+    assert_service_status!(app, req, 401, "old refresh token should be revoked");
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/auth/login")
+        .peer_addr("127.0.0.1:12345".parse().unwrap())
+        .set_json(serde_json::json!({
+            "identifier": "forcepwuser",
+            "password": "password123"
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+    let password_change_access =
+        common::extract_cookie(&resp, "aster_access").expect("access cookie missing");
+    let password_change_refresh =
+        common::extract_cookie(&resp, "aster_refresh").expect("refresh cookie missing");
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(body["data"]["status"], "password_change_required");
+    assert_eq!(body["data"]["expires_in"], 900);
+
+    let claims = auth_service::verify_token(
+        &password_change_access,
+        state.config.auth.jwt_secret.as_str(),
+    )
+    .expect("password-change access token should verify");
+    assert!(
+        claims.password_change,
+        "access token should be scoped to password change"
+    );
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/auth/refresh")
+        .insert_header((
+            "Cookie",
+            common::refresh_cookie_header(&password_change_refresh),
+        ))
+        .insert_header(common::csrf_header_for(&password_change_refresh))
+        .to_request();
+    let result = test::try_call_service(&app, req).await;
+    let body = match result {
+        Ok(resp) => {
+            assert_eq!(resp.status(), 403);
+            service_response_json(resp).await
+        }
+        Err(err) => {
+            let resp = err.error_response();
+            assert_eq!(resp.status(), 403);
+            http_response_json(resp).await
+        }
+    };
+    assert_eq!(body["code"], "auth.password_change_required");
+
+    let req = test::TestRequest::get()
+        .uri("/api/v1/auth/me")
+        .insert_header((
+            "Cookie",
+            common::access_cookie_header(&password_change_access),
+        ))
+        .insert_header(common::csrf_header_for(&password_change_access))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(body["data"]["must_change_password"], true);
+
+    let req = test::TestRequest::get()
+        .uri("/api/v1/auth/sessions")
+        .insert_header((
+            "Cookie",
+            common::access_cookie_header(&password_change_access),
+        ))
+        .insert_header(common::csrf_header_for(&password_change_access))
+        .to_request();
+    let result = test::try_call_service(&app, req).await;
+    let body = match result {
+        Ok(resp) => {
+            assert_eq!(resp.status(), 403);
+            service_response_json(resp).await
+        }
+        Err(err) => {
+            let resp = err.error_response();
+            assert_eq!(resp.status(), 403);
+            http_response_json(resp).await
+        }
+    };
+    assert_eq!(body["code"], "auth.password_change_required");
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/auth/logout")
+        .insert_header((
+            "Cookie",
+            common::access_cookie_header(&password_change_access),
+        ))
+        .insert_header(common::csrf_header_for(&password_change_access))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(
+        resp.status(),
+        200,
+        "logout should be allowed before password change"
+    );
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/auth/login")
+        .peer_addr("127.0.0.1:12345".parse().unwrap())
+        .set_json(serde_json::json!({
+            "identifier": "forcepwuser",
+            "password": "password123"
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+    let password_change_access =
+        common::extract_cookie(&resp, "aster_access").expect("access cookie missing");
+
+    let req = test::TestRequest::put()
+        .uri("/api/v1/auth/password")
+        .insert_header((
+            "Cookie",
+            common::access_cookie_header(&password_change_access),
+        ))
+        .insert_header(common::csrf_header_for(&password_change_access))
+        .set_json(serde_json::json!({
+            "current_password": "wrongpassword",
+            "new_password": "newsecret456"
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(
+        resp.status(),
+        401,
+        "forced change still requires the current temporary password"
+    );
+
+    let req = test::TestRequest::put()
+        .uri("/api/v1/auth/password")
+        .insert_header((
+            "Cookie",
+            common::access_cookie_header(&password_change_access),
+        ))
+        .insert_header(common::csrf_header_for(&password_change_access))
+        .set_json(serde_json::json!({
+            "current_password": "password123",
+            "new_password": "newsecret456"
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+    let normal_access = common::extract_cookie(&resp, "aster_access").unwrap();
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(body["data"]["expires_in"], 900);
+
+    let updated = user_repo::find_by_id(state.writer_db(), user_id)
+        .await
+        .unwrap();
+    assert!(!updated.must_change_password);
+    let (password_changes, _) = audit_log_repo::find_with_filters(
+        state.reader_db(),
+        audit_log_repo::AuditLogQuery {
+            user_id: Some(user_id),
+            action: Some(AuditAction::UserChangePassword.as_str()),
+            entity_type: Some(aster_drive::types::AuditEntityType::User.as_str()),
+            entity_id: None,
+            after: None,
+            before: None,
+            limit: 10,
+            offset: 0,
+            sort_by: AdminAuditLogSortBy::CreatedAt,
+            sort_order: SortOrder::Desc,
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        password_changes.len(),
+        1,
+        "forced password completion should record one password-change audit log"
+    );
+
+    let req = test::TestRequest::get()
+        .uri("/api/v1/auth/me")
+        .insert_header(("Cookie", common::access_cookie_header(&normal_access)))
+        .insert_header(common::csrf_header_for(&normal_access))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(body["data"]["must_change_password"], false);
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/auth/login")
+        .peer_addr("127.0.0.1:12345".parse().unwrap())
+        .set_json(serde_json::json!({
+            "identifier": "forcepwuser",
+            "password": "password123"
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 401, "old password should no longer work");
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/auth/login")
+        .peer_addr("127.0.0.1:12345".parse().unwrap())
+        .set_json(serde_json::json!({
+            "identifier": "forcepwuser",
+            "password": "newsecret456"
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(body["data"]["status"], "authenticated");
+}
+
+#[actix_web::test]
+async fn test_admin_can_clear_forced_password_change_before_next_login() {
+    let state = common::setup().await;
+    let app = create_test_app!(state.clone());
+    let (admin_token, _) = register_and_login!(app);
+    let user_id = admin_create_user!(
+        app,
+        admin_token,
+        "clearforcepw",
+        "clearforcepw@example.com",
+        "password123"
+    );
+
+    for value in [true, false] {
+        let req = test::TestRequest::patch()
+            .uri(&format!("/api/v1/admin/users/{user_id}"))
+            .insert_header(("Cookie", common::access_cookie_header(&admin_token)))
+            .insert_header(common::csrf_header_for(&admin_token))
+            .set_json(serde_json::json!({
+                "must_change_password": value
+            }))
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(resp.status(), 200);
+        let body: Value = test::read_body_json(resp).await;
+        assert_eq!(body["data"]["must_change_password"], value);
+    }
+    let (admin_updates, _) = audit_log_repo::find_with_filters(
+        state.reader_db(),
+        audit_log_repo::AuditLogQuery {
+            user_id: None,
+            action: Some(AuditAction::AdminUpdateUser.as_str()),
+            entity_type: Some(aster_drive::types::AuditEntityType::User.as_str()),
+            entity_id: Some(user_id),
+            after: None,
+            before: None,
+            limit: 10,
+            offset: 0,
+            sort_by: AdminAuditLogSortBy::CreatedAt,
+            sort_order: SortOrder::Desc,
+        },
+    )
+    .await
+    .unwrap();
+    assert!(
+        admin_updates.iter().any(|entry| entry
+            .details
+            .as_deref()
+            .is_some_and(|details| details.contains("\"must_change_password\":true"))),
+        "setting forced password-change should be recorded in audit details"
+    );
+    assert!(
+        admin_updates.iter().any(|entry| entry
+            .details
+            .as_deref()
+            .is_some_and(|details| details.contains("\"must_change_password\":false"))),
+        "clearing forced password-change should be recorded in audit details"
+    );
+
+    let user = user_repo::find_by_id(state.writer_db(), user_id)
+        .await
+        .unwrap();
+    assert!(!user.must_change_password);
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/auth/login")
+        .peer_addr("127.0.0.1:12345".parse().unwrap())
+        .set_json(serde_json::json!({
+            "identifier": "clearforcepw",
+            "password": "password123"
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(body["data"]["status"], "authenticated");
 }
 
 #[actix_web::test]

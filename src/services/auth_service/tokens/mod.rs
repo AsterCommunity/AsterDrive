@@ -49,6 +49,19 @@ fn ensure_session_current(claims: &Claims, snapshot: AuthSnapshot) -> Result<()>
     Ok(())
 }
 
+fn ensure_password_change_scope(claims: &Claims, snapshot: AuthSnapshot) -> Result<()> {
+    if snapshot.must_change_password && !claims.password_change {
+        return Err(AsterError::auth_token_invalid("password change required"));
+    }
+    if !snapshot.must_change_password && claims.password_change {
+        return Err(AsterError::auth_token_invalid(
+            "password change session is no longer valid",
+        ));
+    }
+
+    Ok(())
+}
+
 async fn authenticate_token(
     state: &impl SharedRuntimeState,
     token: &str,
@@ -66,6 +79,7 @@ async fn authenticate_token(
         return Err(AsterError::auth_forbidden("account is disabled"));
     }
     ensure_session_current(&claims, snapshot)?;
+    ensure_password_change_scope(&claims, snapshot)?;
 
     tracing::debug!(
         user_id = claims.user_id,
@@ -97,6 +111,7 @@ fn issue_tokens(
     jwt_secret: &str,
     auth_policy: RuntimeAuthPolicy,
     session_id: Option<&str>,
+    password_change: bool,
 ) -> Result<IssuedTokens> {
     let access = create_token(
         user_id,
@@ -105,6 +120,7 @@ fn issue_tokens(
         auth_policy.access_token_ttl_secs,
         jwt_secret,
         None,
+        password_change,
     )?;
     let session_id = session_id
         .map(str::to_string)
@@ -117,6 +133,7 @@ fn issue_tokens(
         auth_policy.refresh_token_ttl_secs,
         jwt_secret,
         Some(refresh_jti.clone()),
+        password_change,
     )?;
     Ok(IssuedTokens {
         access_token: access.token,
@@ -161,7 +178,13 @@ pub async fn issue_tokens_for_user_in_connection<C: ConnectionTrait>(
     ip_address: Option<&str>,
     user_agent: Option<&str>,
 ) -> Result<(String, String)> {
-    let tokens = issue_tokens_for_session_id(state, user.id, user.session_version, None)?;
+    let tokens = issue_tokens_for_session_id(
+        state,
+        user.id,
+        user.session_version,
+        None,
+        user.must_change_password,
+    )?;
     persist_auth_session(db, user.id, &tokens, ip_address, user_agent).await?;
     Ok((tokens.access_token, tokens.refresh_token))
 }
@@ -171,6 +194,7 @@ fn issue_tokens_for_session_id(
     user_id: i64,
     session_version: i64,
     session_id: Option<&str>,
+    password_change: bool,
 ) -> Result<IssuedTokens> {
     let auth_policy = RuntimeAuthPolicy::from_runtime_config(state.runtime_config());
     issue_tokens(
@@ -179,6 +203,7 @@ fn issue_tokens_for_session_id(
         &state.config().auth.jwt_secret,
         auth_policy,
         session_id,
+        password_change,
     )
 }
 
@@ -189,7 +214,7 @@ pub async fn issue_tokens_for_session(
     ip_address: Option<&str>,
     user_agent: Option<&str>,
 ) -> Result<(String, String)> {
-    let tokens = issue_tokens_for_session_id(state, user_id, session_version, None)?;
+    let tokens = issue_tokens_for_session_id(state, user_id, session_version, None, false)?;
     persist_auth_session(state.writer_db(), user_id, &tokens, ip_address, user_agent).await?;
     Ok((tokens.access_token, tokens.refresh_token))
 }
@@ -202,6 +227,17 @@ pub async fn issue_tokens_for_user(
 ) -> Result<(String, String)> {
     issue_tokens_for_user_in_connection(state.writer_db(), state, user, ip_address, user_agent)
         .await
+}
+
+pub async fn issue_password_change_tokens_for_user(
+    state: &impl SharedRuntimeState,
+    user: &user::Model,
+    ip_address: Option<&str>,
+    user_agent: Option<&str>,
+) -> Result<(String, String)> {
+    let tokens = issue_tokens_for_session_id(state, user.id, user.session_version, None, true)?;
+    persist_auth_session(state.writer_db(), user.id, &tokens, ip_address, user_agent).await?;
+    Ok((tokens.access_token, tokens.refresh_token))
 }
 
 pub async fn revoke_refresh_token(state: &impl SharedRuntimeState, token: &str) -> Result<bool> {
@@ -234,6 +270,7 @@ fn create_token(
     ttl_secs: u64,
     secret: &str,
     jti: Option<String>,
+    password_change: bool,
 ) -> Result<CreatedToken> {
     let now = Utc::now();
     let now_secs = i64_to_u64(now.timestamp(), "jwt issued_at unix timestamp")?;
@@ -251,6 +288,7 @@ fn create_token(
         sub: user_id.to_string(),
         user_id,
         session_version,
+        password_change,
         jti,
         token_type,
         exp,
@@ -296,7 +334,7 @@ mod tests {
         secret: &str,
         jti: Option<String>,
     ) -> String {
-        create_token(1, 1, token_type, ttl_secs, secret, jti)
+        create_token(1, 1, token_type, ttl_secs, secret, jti, false)
             .unwrap()
             .token
     }

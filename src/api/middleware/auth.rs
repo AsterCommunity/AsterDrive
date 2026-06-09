@@ -8,9 +8,10 @@ use actix_web::{
 use futures::future::{LocalBoxFuture, Ready, ok};
 use std::rc::Rc;
 
+use crate::api::api_error_code::ApiErrorCode;
 use crate::api::middleware::csrf::{self, RequestSourceMode};
 use crate::api::request_auth::{access_cookie_token, bearer_token};
-use crate::errors::AsterError;
+use crate::errors::{AsterError, auth_forbidden_with_code};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::auth_service;
 
@@ -38,6 +39,16 @@ where
 
 pub struct JwtAuthMiddleware<S> {
     service: Rc<S>,
+}
+
+fn password_change_session_allowed(req: &ServiceRequest) -> bool {
+    let path = req.path();
+    matches!(
+        (req.method().as_str(), path),
+        ("GET", "/api/v1/auth/me")
+            | ("PUT", "/api/v1/auth/password")
+            | ("POST", "/api/v1/auth/logout")
+    )
 }
 
 impl<S, B> Service<ServiceRequest> for JwtAuthMiddleware<S>
@@ -78,6 +89,13 @@ where
                 Some(t) => match auth_service::authenticate_access_token(state.get_ref(), &t).await
                 {
                     Ok((claims, snapshot)) => {
+                        if claims.password_change && !password_change_session_allowed(&req) {
+                            return Err(auth_forbidden_with_code(
+                                ApiErrorCode::AuthPasswordChangeRequired,
+                                "password change required",
+                            )
+                            .into());
+                        }
                         tracing::Span::current().record("user_id", claims.user_id);
                         req.extensions_mut().insert(claims);
                         req.extensions_mut().insert(snapshot);

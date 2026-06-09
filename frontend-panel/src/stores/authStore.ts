@@ -289,7 +289,10 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
 	login: async (identifier, password) => {
 		const session = await authService.login(identifier, password);
-		if (session.status !== "authenticated") {
+		if (
+			session.status !== "authenticated" &&
+			session.status !== "password_change_required"
+		) {
 			throw new Error("MFA verification is required before session sync");
 		}
 		const user = await authService.me();

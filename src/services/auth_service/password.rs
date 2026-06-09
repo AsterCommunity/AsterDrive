@@ -122,12 +122,13 @@ pub async fn set_password(
     let txn = crate::db::transaction::begin(state.writer_db()).await?;
     let result = async {
         let user = user_repo::find_by_id(&txn, user_id).await?;
+        let was_forced = user.must_change_password;
         let updated = update_password_in_connection(&txn, user, new_password).await?;
         purge_all_auth_sessions_in_connection(&txn, updated.id).await?;
-        Ok::<_, AsterError>(updated)
+        Ok::<_, AsterError>((updated, was_forced))
     }
     .await;
-    let updated = match result {
+    let (updated, was_forced) = match result {
         Ok(updated) => {
             crate::db::transaction::commit(txn).await?;
             updated
@@ -143,5 +144,8 @@ pub async fn set_password(
         session_version = updated.session_version,
         "set password"
     );
+    if was_forced {
+        tracing::info!(user_id = updated.id, "completed forced password change");
+    }
     Ok(AuthUserInfo::from(updated))
 }

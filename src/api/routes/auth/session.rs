@@ -39,6 +39,7 @@ pub(super) fn authenticated_login_response(
     state: &PrimaryAppState,
     access_token: &str,
     refresh_token: &str,
+    password_change_required: bool,
 ) -> Result<HttpResponse> {
     let auth_policy = RuntimeAuthPolicy::from_runtime_config(state.runtime_config());
     let secure = auth_policy.cookie_secure;
@@ -49,8 +50,14 @@ pub(super) fn authenticated_login_response(
         .cookie(build_access_cookie(access_token, access_ttl, secure))
         .cookie(build_refresh_cookie(refresh_token, refresh_ttl, secure))
         .cookie(build_csrf_cookie(&csrf_token, refresh_ttl, secure))
-        .json(ApiResponse::ok(LoginResponse::Authenticated {
-            expires_in: auth_policy.access_token_ttl_secs,
+        .json(ApiResponse::ok(if password_change_required {
+            LoginResponse::PasswordChangeRequired {
+                expires_in: auth_policy.access_token_ttl_secs,
+            }
+        } else {
+            LoginResponse::Authenticated {
+                expires_in: auth_policy.access_token_ttl_secs,
+            }
         })))
 }
 
@@ -59,9 +66,12 @@ pub(super) fn login_completion_response(
     result: PrimaryLoginCompletion,
 ) -> Result<HttpResponse> {
     match result {
-        PrimaryLoginCompletion::Authenticated(result) => {
-            authenticated_login_response(state, &result.access_token, &result.refresh_token)
-        }
+        PrimaryLoginCompletion::Authenticated(result) => authenticated_login_response(
+            state,
+            &result.access_token,
+            &result.refresh_token,
+            result.password_change_required,
+        ),
         PrimaryLoginCompletion::MfaRequired(challenge) => Ok(HttpResponse::Ok().json(
             ApiResponse::ok(LoginResponse::MfaRequired {
                 flow_token: challenge.flow_token,
@@ -84,6 +94,9 @@ async fn revalidate_storage_event_stream(
     }
     if snapshot.session_version != session_version {
         return Err(AsterError::auth_token_invalid("session revoked"));
+    }
+    if snapshot.must_change_password {
+        return Err(AsterError::auth_token_invalid("password change required"));
     }
     if !refresh_visible_teams {
         return Ok(None);

@@ -3,13 +3,16 @@ import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 import { ADMIN_CONTROL_HEIGHT_CLASS } from "@/lib/constants";
 import type { UserPasswordErrors } from "./types";
 
 interface UserSecurityActionsSectionProps {
 	confirmPasswordValue: string;
+	mustChangePassword: boolean;
 	onConfirmPasswordValueChange: (value: string) => void;
 	onMfaReset: () => Promise<void>;
+	onMustChangePasswordChange: (value: boolean) => void;
 	onPasswordReset: () => Promise<void>;
 	onPasswordValueChange: (value: string) => void;
 	onSessionRevoke: () => Promise<void>;
@@ -18,12 +21,15 @@ interface UserSecurityActionsSectionProps {
 	resettingMfa: boolean;
 	revokingSessions: boolean;
 	savingPassword: boolean;
+	savingProfile: boolean;
 }
 
 export function UserSecurityActionsSection({
 	confirmPasswordValue,
+	mustChangePassword,
 	onConfirmPasswordValueChange,
 	onMfaReset,
+	onMustChangePasswordChange,
 	onPasswordReset,
 	onPasswordValueChange,
 	onSessionRevoke,
@@ -32,6 +38,7 @@ export function UserSecurityActionsSection({
 	resettingMfa,
 	revokingSessions,
 	savingPassword,
+	savingProfile,
 }: UserSecurityActionsSectionProps) {
 	const { t } = useTranslation(["admin", "core"]);
 
@@ -47,6 +54,33 @@ export function UserSecurityActionsSection({
 			</div>
 
 			<div className="space-y-3">
+				<div className="rounded-xl border bg-muted/10 p-5 max-lg:p-4">
+					<div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+						<div className="max-w-2xl space-y-2">
+							<div className="flex items-center gap-2">
+								<h5 className="text-sm font-semibold text-foreground">
+									{t("force_password_change")}
+								</h5>
+								<span className="rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">
+									{mustChangePassword
+										? t("force_password_change_enabled")
+										: t("force_password_change_disabled")}
+								</span>
+							</div>
+							<p className="text-sm text-muted-foreground">
+								{t("force_password_change_desc")}
+							</p>
+						</div>
+						<Switch
+							aria-label={t("force_password_change")}
+							checked={mustChangePassword}
+							disabled={savingProfile}
+							onCheckedChange={onMustChangePasswordChange}
+							className="md:mt-1"
+						/>
+					</div>
+				</div>
+
 				<div className="rounded-xl border bg-muted/10 p-5 max-lg:p-4">
 					<div className="mb-3">
 						<h5 className="text-sm font-semibold text-foreground">

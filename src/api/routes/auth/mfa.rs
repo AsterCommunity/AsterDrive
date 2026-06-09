@@ -41,6 +41,7 @@ pub async fn verify_challenge(
         state.get_ref(),
         &result.access_token,
         &result.refresh_token,
+        result.password_change_required,
     )
 }
 

@@ -11,6 +11,9 @@ export function AdminRoute() {
 	if (!isAuthenticated && isChecking) return <Loading />;
 	if (!isAuthenticated) return <Navigate to="/login" replace />;
 	if (!user && isChecking) return <Loading />;
+	if (user?.must_change_password) {
+		return <Navigate to="/force-password-change" replace />;
+	}
 	if (user?.role !== "admin") return <Navigate to="/" replace />;
 	return (
 		<div aria-busy={isChecking || undefined}>

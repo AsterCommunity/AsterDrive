@@ -265,6 +265,7 @@ pub async fn update_user(
             email_verified: body.email_verified,
             role: body.role,
             status: body.status,
+            must_change_password: body.must_change_password,
             storage_quota: body.storage_quota,
             policy_group_id: body.policy_group_id,
         },

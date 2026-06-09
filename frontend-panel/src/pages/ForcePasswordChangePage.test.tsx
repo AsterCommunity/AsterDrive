@@ -1,0 +1,272 @@
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import ForcePasswordChangePage from "@/pages/ForcePasswordChangePage";
+
+const mockState = vi.hoisted(() => ({
+	changePassword: vi.fn(),
+	handleApiError: vi.fn(),
+	isAuthenticated: true,
+	isChecking: false,
+	logout: vi.fn(),
+	mustChangePassword: true,
+	navigate: vi.fn(),
+	refreshUser: vi.fn(),
+	syncSession: vi.fn(),
+	toastSuccess: vi.fn(),
+}));
+
+vi.mock("react-i18next", () => ({
+	useTranslation: () => ({
+		t: (key: string) => key.replace(/^core:/, "").replace(/^settings:/, ""),
+	}),
+}));
+
+vi.mock("react-router-dom", () => ({
+	Navigate: ({ to }: { to: string }) => <div data-testid="navigate">{to}</div>,
+	useNavigate: () => mockState.navigate,
+}));
+
+vi.mock("sonner", () => ({
+	toast: {
+		success: (...args: unknown[]) => mockState.toastSuccess(...args),
+	},
+}));
+
+vi.mock("@/components/common/AsterDriveWordmark", () => ({
+	AsterDriveWordmark: () => <div>AsterDrive</div>,
+}));
+
+vi.mock("@/components/ui/button", () => ({
+	Button: ({
+		children,
+		disabled,
+		onClick,
+		type,
+	}: {
+		children: React.ReactNode;
+		disabled?: boolean;
+		onClick?: () => void;
+		type?: "button" | "submit";
+	}) => (
+		<button type={type ?? "button"} disabled={disabled} onClick={onClick}>
+			{children}
+		</button>
+	),
+}));
+
+vi.mock("@/components/ui/icon", () => ({
+	Icon: ({ name }: { name: string }) => <span>{name}</span>,
+}));
+
+vi.mock("@/components/ui/input", () => ({
+	Input: ({ ...props }: React.InputHTMLAttributes<HTMLInputElement>) => (
+		<input {...props} />
+	),
+}));
+
+vi.mock("@/components/ui/label", () => ({
+	Label: ({
+		children,
+		htmlFor,
+	}: {
+		children: React.ReactNode;
+		htmlFor?: string;
+	}) => <label htmlFor={htmlFor}>{children}</label>,
+}));
+
+vi.mock("@/hooks/useApiError", () => ({
+	handleApiError: (...args: unknown[]) => mockState.handleApiError(...args),
+}));
+
+vi.mock("@/hooks/usePageTitle", () => ({
+	usePageTitle: vi.fn(),
+}));
+
+vi.mock("@/lib/validation", () => ({
+	existingPasswordSchema: {
+		safeParse: (value: string) =>
+			value.length > 0
+				? { success: true }
+				: {
+						success: false,
+						error: { issues: [{ message: "current-required" }] },
+					},
+	},
+	passwordSchema: {
+		safeParse: (value: string) =>
+			value.length >= 8
+				? { success: true }
+				: {
+						success: false,
+						error: { issues: [{ message: "password-short" }] },
+					},
+	},
+}));
+
+vi.mock("@/services/authService", () => ({
+	authService: {
+		changePassword: (...args: unknown[]) => mockState.changePassword(...args),
+	},
+}));
+
+vi.mock("@/stores/authStore", () => ({
+	useAuthStore: (
+		selector: (state: {
+			isAuthenticated: boolean;
+			isChecking: boolean;
+			logout: typeof mockState.logout;
+			refreshUser: typeof mockState.refreshUser;
+			syncSession: typeof mockState.syncSession;
+			user: { must_change_password: boolean } | null;
+		}) => unknown,
+	) =>
+		selector({
+			isAuthenticated: mockState.isAuthenticated,
+			isChecking: mockState.isChecking,
+			logout: mockState.logout,
+			refreshUser: mockState.refreshUser,
+			syncSession: mockState.syncSession,
+			user: mockState.isAuthenticated
+				? { must_change_password: mockState.mustChangePassword }
+				: null,
+		}),
+}));
+
+function fillPasswordForm({
+	confirm = "newsecret456",
+	current = "temporary123",
+	next = "newsecret456",
+} = {}) {
+	fireEvent.change(screen.getByLabelText("settings_password_current"), {
+		target: { value: current },
+	});
+	fireEvent.change(screen.getByLabelText("settings_password_new"), {
+		target: { value: next },
+	});
+	fireEvent.change(screen.getByLabelText("settings_password_confirm"), {
+		target: { value: confirm },
+	});
+}
+
+describe("ForcePasswordChangePage", () => {
+	beforeEach(() => {
+		mockState.changePassword.mockReset();
+		mockState.handleApiError.mockReset();
+		mockState.isAuthenticated = true;
+		mockState.isChecking = false;
+		mockState.logout.mockReset();
+		mockState.mustChangePassword = true;
+		mockState.navigate.mockReset();
+		mockState.refreshUser.mockReset();
+		mockState.syncSession.mockReset();
+		mockState.toastSuccess.mockReset();
+		mockState.changePassword.mockResolvedValue({ expiresIn: 900 });
+		mockState.logout.mockResolvedValue(undefined);
+		mockState.refreshUser.mockResolvedValue(undefined);
+	});
+
+	it("shows a loading state while auth is being checked", () => {
+		mockState.isChecking = true;
+
+		render(<ForcePasswordChangePage />);
+
+		expect(screen.getByText("Spinner")).toBeInTheDocument();
+		expect(
+			screen.queryByText("force_password_change_title"),
+		).not.toBeInTheDocument();
+	});
+
+	it("redirects unauthenticated users to login", () => {
+		mockState.isAuthenticated = false;
+
+		render(<ForcePasswordChangePage />);
+
+		expect(screen.getByTestId("navigate")).toHaveTextContent("/login");
+	});
+
+	it("redirects users who no longer need a password change to the app", () => {
+		mockState.mustChangePassword = false;
+
+		render(<ForcePasswordChangePage />);
+
+		expect(screen.getByTestId("navigate")).toHaveTextContent("/");
+	});
+
+	it("rejects empty, short, and mismatched password inputs before calling the API", () => {
+		render(<ForcePasswordChangePage />);
+
+		fireEvent.click(
+			screen.getByRole("button", { name: /force_password_change_submit/ }),
+		);
+
+		expect(screen.getByText("current-required")).toBeInTheDocument();
+		expect(screen.getByText("password-short")).toBeInTheDocument();
+		expect(mockState.changePassword).not.toHaveBeenCalled();
+
+		fillPasswordForm({ confirm: "different456" });
+		fireEvent.click(
+			screen.getByRole("button", { name: /force_password_change_submit/ }),
+		);
+
+		expect(
+			screen.getByText("settings_password_confirm_mismatch"),
+		).toBeInTheDocument();
+		expect(mockState.changePassword).not.toHaveBeenCalled();
+	});
+
+	it("changes the password, refreshes the user, and enters the app", async () => {
+		render(<ForcePasswordChangePage />);
+		fillPasswordForm();
+
+		fireEvent.click(
+			screen.getByRole("button", { name: /force_password_change_submit/ }),
+		);
+
+		await waitFor(() => {
+			expect(mockState.changePassword).toHaveBeenCalledWith({
+				current_password: "temporary123",
+				new_password: "newsecret456",
+			});
+		});
+		expect(mockState.syncSession).toHaveBeenCalledWith(900);
+		expect(mockState.refreshUser).toHaveBeenCalledTimes(1);
+		expect(mockState.toastSuccess).toHaveBeenCalledWith(
+			"force_password_change_success",
+		);
+		expect(mockState.navigate).toHaveBeenCalledWith("/", { replace: true });
+	});
+
+	it("reports API failures without clearing the form or navigating", async () => {
+		const error = new Error("current password rejected");
+		mockState.changePassword.mockRejectedValueOnce(error);
+		render(<ForcePasswordChangePage />);
+		fillPasswordForm();
+
+		fireEvent.click(
+			screen.getByRole("button", { name: /force_password_change_submit/ }),
+		);
+
+		await waitFor(() => {
+			expect(mockState.handleApiError).toHaveBeenCalledWith(error);
+		});
+		expect(mockState.refreshUser).not.toHaveBeenCalled();
+		expect(mockState.navigate).not.toHaveBeenCalled();
+		expect(screen.getByLabelText("settings_password_current")).toHaveValue(
+			"temporary123",
+		);
+	});
+
+	it("allows signing out instead of changing the password", async () => {
+		render(<ForcePasswordChangePage />);
+
+		fireEvent.click(screen.getByRole("button", { name: /logout/ }));
+
+		await waitFor(() => {
+			expect(mockState.logout).toHaveBeenCalledTimes(1);
+		});
+		expect(mockState.navigate).toHaveBeenCalledWith("/login", {
+			replace: true,
+		});
+		expect(mockState.changePassword).not.toHaveBeenCalled();
+	});
+});

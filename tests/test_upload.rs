@@ -676,6 +676,7 @@ async fn create_s3_default_policy(
             email_verified: None,
             role: None,
             status: None,
+            must_change_password: None,
             storage_quota: None,
             policy_group_id: Some(group.id),
         },

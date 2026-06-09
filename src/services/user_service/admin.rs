@@ -34,6 +34,7 @@ pub struct UpdateUserInput {
     pub email_verified: Option<bool>,
     pub role: Option<UserRole>,
     pub status: Option<UserStatus>,
+    pub must_change_password: Option<bool>,
     pub storage_quota: Option<i64>,
     pub policy_group_id: Option<i64>,
 }
@@ -69,6 +70,7 @@ pub async fn create_with_audit(
                 email_verified: user.email_verified,
                 role: user.role,
                 status: user.status,
+                must_change_password: user.must_change_password,
                 storage_quota: user.storage_quota,
                 policy_group_id: user.policy_group_id,
             })
@@ -87,6 +89,7 @@ pub async fn update(
         email_verified,
         role,
         status,
+        must_change_password,
         storage_quota,
         policy_group_id,
     } = input;
@@ -119,6 +122,8 @@ pub async fn update(
         email_verified.is_some_and(|value| value != existing_email_verified);
     let role_changed = role.is_some_and(|value| value != existing.role);
     let status_changed = status.is_some_and(|value| value != existing.status);
+    let must_change_password_changed =
+        must_change_password.is_some_and(|value| value != existing.must_change_password);
     let policy_group_changed =
         policy_group_id.is_some_and(|group_id| existing_policy_group_id != Some(group_id));
     let current_session_version = existing.session_version;
@@ -133,6 +138,9 @@ pub async fn update(
     }
     if let Some(status) = status {
         active.status = Set(status);
+    }
+    if let Some(must_change_password) = must_change_password {
+        active.must_change_password = Set(must_change_password);
     }
     if let Some(storage_quota) = storage_quota {
         active.storage_quota = Set(storage_quota);
@@ -156,7 +164,7 @@ pub async fn update(
         }
         active.policy_group_id = Set(Some(group_id));
     }
-    if status_changed || email_verified_changed {
+    if status_changed || email_verified_changed || must_change_password_changed {
         active.session_version = Set(current_session_version.saturating_add(1));
     }
     active.updated_at = Set(Utc::now());
@@ -166,7 +174,7 @@ pub async fn update(
             .update(&txn)
             .await
             .map_aster_err(AsterError::database_operation)?;
-        if status_changed || email_verified_changed {
+        if status_changed || email_verified_changed || must_change_password_changed {
             auth_session_repo::delete_all_for_user(&txn, updated.id).await?;
         }
         Ok::<_, AsterError>(updated)
@@ -191,7 +199,7 @@ pub async fn update(
             state.policy_snapshot().remove_user_policy_group(updated.id);
         }
     }
-    if role_changed || status_changed || email_verified_changed {
+    if role_changed || status_changed || email_verified_changed || must_change_password_changed {
         auth_service::invalidate_auth_snapshot_cache(state, id).await;
     }
     if status_changed
@@ -223,6 +231,7 @@ pub async fn update_with_audit(
                 email_verified: user.email_verified,
                 role: user.role,
                 status: user.status,
+                must_change_password: user.must_change_password,
                 storage_quota: user.storage_quota,
                 policy_group_id: user.policy_group_id,
             })

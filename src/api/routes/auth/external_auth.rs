@@ -363,8 +363,14 @@ fn external_auth_redirect_completion_response(
             let csrf_token = csrf::build_csrf_token();
             let access_ttl = u64_to_i64(auth_policy.access_token_ttl_secs, "access token ttl")?;
             let refresh_ttl = u64_to_i64(auth_policy.refresh_token_ttl_secs, "refresh token ttl")?;
-            let redirect_url =
-                site_url::public_app_url_or_path(state.runtime_config(), return_path);
+            let redirect_url = site_url::public_app_url_or_path(
+                state.runtime_config(),
+                if result.password_change_required {
+                    "/force-password-change"
+                } else {
+                    return_path
+                },
+            );
 
             Ok(HttpResponse::Found()
                 .append_header((header::LOCATION, redirect_url))

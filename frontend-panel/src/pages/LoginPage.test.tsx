@@ -118,6 +118,7 @@ vi.mock("@/services/http", () => ({
 
 vi.mock("@/types/api-helpers", () => ({
 	ApiErrorCode: {
+		AuthPasswordChangeRequired: "auth.password_change_required",
 		PendingActivation: "auth.pending_activation",
 	},
 }));
@@ -454,7 +455,10 @@ describe("LoginPage", () => {
 		mockState.toastSuccess.mockReset();
 		mockState.verifyMfaChallenge.mockReset();
 		mockState.webAuthnSupported = false;
-		mockState.finishPasskeyLogin.mockResolvedValue({ expiresIn: 900 });
+		mockState.finishPasskeyLogin.mockResolvedValue({
+			status: "authenticated",
+			expiresIn: 900,
+		});
 		mockState.getPasskeyCredential.mockResolvedValue({ id: "credential-1" });
 		mockState.listExternalAuthProviders.mockResolvedValue([]);
 		mockState.linkExternalAuthWithPassword.mockResolvedValue({
@@ -485,7 +489,10 @@ describe("LoginPage", () => {
 			public_key: { publicKey: { challenge: "AQID" } },
 		});
 		mockState.syncSession.mockReturnValue(undefined);
-		mockState.verifyMfaChallenge.mockResolvedValue({ expiresIn: 900 });
+		mockState.verifyMfaChallenge.mockResolvedValue({
+			status: "authenticated",
+			expiresIn: 900,
+		});
 		mockState.check.mockResolvedValue({
 			has_users: true,
 			allow_user_registration: true,
@@ -531,6 +538,33 @@ describe("LoginPage", () => {
 		expect(mockState.toastSuccess).toHaveBeenCalledWith("login_success");
 	});
 
+	it("routes password logins requiring a password change to the forced change screen", async () => {
+		mockState.login.mockResolvedValueOnce({
+			status: "password_change_required",
+			expiresIn: 900,
+		});
+
+		render(<LoginPage />);
+
+		fireEvent.change(await screen.findByLabelText("email_or_username"), {
+			target: { value: "user@example.com" },
+		});
+		fireEvent.change(screen.getByLabelText("password"), {
+			target: { value: "temporary123" },
+		});
+		fireEvent.click(screen.getByRole("button", { name: "sign_in" }));
+
+		await waitFor(() => {
+			expect(mockState.navigate).toHaveBeenCalledWith(
+				"/force-password-change",
+				{ replace: true },
+			);
+		});
+		expect(mockState.syncSession).toHaveBeenCalledWith(900);
+		expect(mockState.refreshUser).toHaveBeenCalledTimes(1);
+		expect(mockState.toastSuccess).not.toHaveBeenCalledWith("login_success");
+	});
+
 	it("moves password login into the MFA panel and signs in after verification", async () => {
 		mockState.login.mockResolvedValueOnce({
 			status: "mfa_required",
@@ -570,6 +604,45 @@ describe("LoginPage", () => {
 		await waitFor(() => {
 			expect(mockState.navigate).toHaveBeenCalledWith("/", { replace: true });
 		});
+	});
+
+	it("routes MFA completions requiring a password change to the forced change screen", async () => {
+		mockState.login.mockResolvedValueOnce({
+			status: "mfa_required",
+			flowToken: "mfa-flow",
+			expiresIn: 300,
+			methods: ["totp"],
+		});
+		mockState.verifyMfaChallenge.mockResolvedValueOnce({
+			status: "password_change_required",
+			expiresIn: 900,
+		});
+
+		render(<LoginPage />);
+
+		fireEvent.change(await screen.findByLabelText("email_or_username"), {
+			target: { value: "user@example.com" },
+		});
+		fireEvent.change(screen.getByLabelText("password"), {
+			target: { value: "temporary123" },
+		});
+		fireEvent.click(screen.getByRole("button", { name: "sign_in" }));
+
+		await screen.findByText("mfa_panel_title");
+		fireEvent.change(screen.getByLabelText("mfa_totp_code_label"), {
+			target: { value: "123456" },
+		});
+		fireEvent.click(await screen.findByRole("button", { name: /mfa_verify/ }));
+
+		await waitFor(() => {
+			expect(mockState.navigate).toHaveBeenCalledWith(
+				"/force-password-change",
+				{ replace: true },
+			);
+		});
+		expect(mockState.syncSession).toHaveBeenCalledWith(900);
+		expect(mockState.refreshUser).toHaveBeenCalledTimes(1);
+		expect(mockState.toastSuccess).not.toHaveBeenCalledWith("login_success");
 	});
 
 	it("submits recovery codes from the single MFA field", async () => {
@@ -1109,6 +1182,35 @@ describe("LoginPage", () => {
 		await waitFor(() => {
 			expect(mockState.navigate).toHaveBeenCalledWith("/", { replace: true });
 		});
+	});
+
+	it("routes passkey logins requiring a password change to the forced change screen", async () => {
+		mockState.webAuthnSupported = true;
+		mockState.finishPasskeyLogin.mockResolvedValueOnce({
+			status: "password_change_required",
+			expiresIn: 900,
+		});
+
+		render(<LoginPage />);
+
+		fireEvent.click(
+			await screen.findByRole("button", { name: /passkey_sign_in/ }),
+		);
+
+		await waitFor(() => {
+			expect(mockState.finishPasskeyLogin).toHaveBeenCalledWith("flow-1", {
+				id: "credential-1",
+			});
+		});
+		await waitFor(() => {
+			expect(mockState.navigate).toHaveBeenCalledWith(
+				"/force-password-change",
+				{ replace: true },
+			);
+		});
+		expect(mockState.syncSession).toHaveBeenCalledWith(900);
+		expect(mockState.refreshUser).toHaveBeenCalledTimes(1);
+		expect(mockState.toastSuccess).not.toHaveBeenCalledWith("login_success");
 	});
 
 	it("passes a trimmed identifier into explicit passkey login", async () => {

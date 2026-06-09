@@ -424,6 +424,12 @@ async fn rotate_refresh_in_transaction<C: ConnectionTrait>(
     if claims.session_version != user.session_version {
         return Err(AsterError::auth_token_invalid("session revoked"));
     }
+    if user.must_change_password || claims.password_change {
+        return Err(auth_forbidden_with_code(
+            ApiErrorCode::AuthPasswordChangeRequired,
+            "password change required",
+        ));
+    }
 
     let Some(existing_auth_session) = existing_auth_session else {
         // The current JTI is gone. If it is recorded as the previous JTI of a
@@ -466,6 +472,7 @@ async fn rotate_refresh_in_transaction<C: ConnectionTrait>(
         user.id,
         user.session_version,
         Some(existing_auth_session.id.as_str()),
+        false,
     )?;
 
     if !auth_session_repo::rotate_refresh(
