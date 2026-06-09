@@ -532,7 +532,9 @@ fn record_audit_action(
     report.total_events += 1;
 
     match action {
-        Some(audit_service::AuditAction::UserLogin) => report.sign_ins += 1,
+        Some(audit_service::AuditAction::UserLogin)
+        | Some(audit_service::AuditAction::UserPasskeyLogin)
+        | Some(audit_service::AuditAction::UserExternalAuthLogin) => report.sign_ins += 1,
         Some(audit_service::AuditAction::UserRegister)
         | Some(audit_service::AuditAction::AdminCreateUser) => report.new_users += 1,
         Some(audit_service::AuditAction::FileUpload) => report.uploads += 1,
@@ -594,17 +596,19 @@ mod tests {
             Some(audit_service::AuditAction::BatchDelete),
             Some(audit_service::AuditAction::FileDelete),
             Some(audit_service::AuditAction::FolderDelete),
+            Some(audit_service::AuditAction::UserPasskeyLogin),
+            Some(audit_service::AuditAction::UserExternalAuthLogin),
             Some(audit_service::AuditAction::ConfigUpdate),
             None,
         ] {
             record_audit_action(&mut report, action);
         }
 
-        assert_eq!(report.sign_ins, 1);
+        assert_eq!(report.sign_ins, 3);
         assert_eq!(report.new_users, 2);
         assert_eq!(report.uploads, 1);
         assert_eq!(report.share_creations, 1);
         assert_eq!(report.deletions, 3);
-        assert_eq!(report.total_events, 10);
+        assert_eq!(report.total_events, 12);
     }
 }
