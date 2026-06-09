@@ -4,6 +4,7 @@ import {
 	render,
 	screen,
 	waitFor,
+	within,
 } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { MusicPlayerHost } from "@/components/music/MusicPlayerHost";
@@ -514,6 +515,16 @@ describe("MusicPlayerHost", () => {
 		expect(getPlayerPanel()).toHaveAttribute("inert");
 	});
 
+	it("does not render a bottom compact dock while collapsed", () => {
+		setQueue();
+
+		render(<MusicPlayerHost />);
+
+		expect(
+			screen.queryByRole("button", { name: "music_player_open" }),
+		).not.toBeInTheDocument();
+	});
+
 	it("renders the expanded player with track metadata while keeping the queue collapsed by default", () => {
 		setQueue();
 		mockState.state.isPanelOpen = true;
@@ -527,9 +538,10 @@ describe("MusicPlayerHost", () => {
 		expect(getPlayerPanel()).toHaveAttribute("data-state", "open");
 		expect(getPlayerPanel()).not.toHaveAttribute("inert");
 		expect(screen.getByText("music_player_title")).toBeInTheDocument();
-		expect(screen.getByText("Track One")).toBeInTheDocument();
-		expect(screen.getByText("Artist One")).toBeInTheDocument();
-		expect(screen.getByTestId("file-thumbnail")).toHaveAttribute(
+		const panel = screen.getByRole("region", { name: "music_player_title" });
+		expect(within(panel).getByText("Track One")).toBeInTheDocument();
+		expect(within(panel).getByText("Artist One")).toBeInTheDocument();
+		expect(within(panel).getByTestId("file-thumbnail")).toHaveAttribute(
 			"data-thumbnail-path",
 			"/files/7/thumbnail",
 		);
@@ -539,9 +551,9 @@ describe("MusicPlayerHost", () => {
 		fireEvent.click(queueToggle);
 
 		expect(queueToggle).toHaveAttribute("aria-expanded", "true");
-		expect(screen.getByText("Track Two")).toBeInTheDocument();
+		expect(within(panel).getByText("Track Two")).toBeInTheDocument();
 		expect(
-			screen
+			within(panel)
 				.getAllByTestId("file-thumbnail")
 				.map((node) => node.getAttribute("data-thumbnail-path")),
 		).toEqual([
@@ -671,18 +683,35 @@ describe("MusicPlayerHost", () => {
 		).toBeGreaterThan(0);
 	});
 
-	it("can close or collapse the player panel", () => {
+	it("closes the player after the exit animation", async () => {
+		vi.useFakeTimers();
 		setQueue();
 		mockState.state.isPanelOpen = true;
 
 		render(<MusicPlayerHost />);
 
 		fireEvent.click(screen.getByRole("button", { name: "music_player_close" }));
+		expect(mockState.clear).not.toHaveBeenCalled();
+		expect(
+			screen.queryByRole("button", { name: "music_player_open" }),
+		).not.toBeInTheDocument();
+		await act(async () => {
+			vi.advanceTimersByTime(180);
+		});
+
+		expect(mockState.clear).toHaveBeenCalledTimes(1);
+	});
+
+	it("collapses the player panel", () => {
+		setQueue();
+		mockState.state.isPanelOpen = true;
+
+		render(<MusicPlayerHost />);
+
 		fireEvent.click(
 			screen.getByRole("button", { name: "music_player_collapse" }),
 		);
 
-		expect(mockState.clear).toHaveBeenCalledTimes(1);
 		expect(mockState.closePanel).toHaveBeenCalledTimes(1);
 	});
 
@@ -692,7 +721,11 @@ describe("MusicPlayerHost", () => {
 
 		render(<MusicPlayerHost />);
 
-		fireEvent.click(screen.getByText("Track One"));
+		fireEvent.click(
+			within(
+				screen.getByRole("region", { name: "music_player_title" }),
+			).getByText("Track One"),
+		);
 		expect(mockState.closePanel).not.toHaveBeenCalled();
 
 		fireEvent.click(document.body);

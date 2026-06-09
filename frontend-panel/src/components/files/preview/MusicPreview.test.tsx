@@ -95,7 +95,7 @@ describe("MusicPreview", () => {
 		await waitFor(() => {
 			expect(mockState.playTrack).toHaveBeenCalledWith(
 				expect.objectContaining({
-					metadata: { title: "track" },
+					metadata: expect.objectContaining({ title: "track" }),
 					name: "track.mp3",
 					path: "/files/7/download",
 					thumbnail: {
@@ -110,6 +110,39 @@ describe("MusicPreview", () => {
 				}),
 			);
 		});
+	});
+
+	it("uses resolved backend metadata for the preview title and playback track", async () => {
+		const loadBackendMetadata = vi.fn(async () => ({
+			artist: "Backend Artist",
+			artists: ["Backend Artist"],
+			title: "Backend Song",
+		}));
+
+		render(
+			<MusicPreview
+				file={{ id: 7, name: "track.mp3", mime_type: "audio/mpeg" }}
+				loadBackendMetadata={loadBackendMetadata}
+				path="/files/7/download"
+			/>,
+		);
+
+		expect(await screen.findByText("Backend Song")).toBeInTheDocument();
+
+		fireEvent.click(screen.getByRole("button", { name: "music_preview_play" }));
+
+		await waitFor(() => {
+			expect(mockState.playTrack).toHaveBeenCalledWith(
+				expect.objectContaining({
+					metadata: expect.objectContaining({
+						artist: "Backend Artist",
+						title: "Backend Song",
+					}),
+					name: "track.mp3",
+				}),
+			);
+		});
+		expect(loadBackendMetadata).toHaveBeenCalledTimes(1);
 	});
 
 	it("uses a stable track id including file size to avoid resuming a different file", async () => {

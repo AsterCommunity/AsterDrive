@@ -508,7 +508,7 @@ describe("useFilePreviewDialogModel", () => {
 		expect(result.current.dialogOverlayClassName).toContain("bg-zinc-950/88");
 	});
 
-	it("allows image previews to be restored without auto-expanding again", () => {
+	it("keeps image previews fullscreen even when the generic expand toggle is called", () => {
 		mockState.detectFilePreviewProfile.mockReturnValue(
 			profile({
 				category: "image",
@@ -543,9 +543,15 @@ describe("useFilePreviewDialogModel", () => {
 			result.current.handleExpandToggle();
 		});
 
-		expect(result.current.isExpanded).toBe(false);
-		expect(result.current.dialogContentClassName.split(/\s+/)).not.toContain(
-			"top-0",
+		expect(result.current.isExpanded).toBe(true);
+		expect(result.current.dialogContentClassName.split(/\s+/)).toEqual(
+			expect.arrayContaining([
+				"top-0",
+				"left-0",
+				"h-screen",
+				"w-screen",
+				"rounded-none",
+			]),
 		);
 		expect(result.current.dialogOverlayClassName).toContain("bg-zinc-950/88");
 	});

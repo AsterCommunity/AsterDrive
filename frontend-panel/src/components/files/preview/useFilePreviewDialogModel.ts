@@ -498,12 +498,8 @@ export function useFilePreviewDialogModel({
 		((activeOption?.mode === "url_template" || activeOption?.mode === "wopi") &&
 			getEmbeddedOptionMode(activeOption) !== "new_tab");
 	const isImagePreview = activeOption?.mode === "image";
-	const shouldAutoExpandPreview = isImagePreview;
-	const isExpanded = isMobilePreviewViewport
-		? true
-		: shouldAutoExpandPreview && !state.hasManualExpanded
-			? true
-			: state.isExpanded;
+	const isExpanded =
+		isMobilePreviewViewport || isImagePreview || state.isExpanded;
 
 	const closeWithGuard = useCallback(() => {
 		if (state.isDirty) {
@@ -564,8 +560,7 @@ export function useFilePreviewDialogModel({
 		? "flex max-h-[min(90vh,calc(100vh-2rem))] w-[min(96vw,32rem)] max-w-[min(96vw,32rem)] flex-col gap-0 overflow-hidden p-0 sm:max-w-[min(96vw,32rem)]"
 		: [
 				"flex max-h-[90vh] w-[min(96vw,1200px)] max-w-[min(96vw,1200px)] flex-col gap-0 overflow-hidden p-0 sm:max-w-[min(96vw,1200px)]",
-				(fillsViewportHeight || shouldAutoExpandPreview || isExpanded) &&
-					"h-[90vh]",
+				(fillsViewportHeight || isImagePreview || isExpanded) && "h-[90vh]",
 				isImagePreview &&
 					"group/image-preview border-zinc-900 bg-zinc-950 shadow-black/35 duration-200 data-open:zoom-in-95 data-closed:zoom-out-95",
 				isExpanded &&

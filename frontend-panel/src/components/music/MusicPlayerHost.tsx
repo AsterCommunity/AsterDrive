@@ -39,6 +39,7 @@ const STREAM_REFRESH_LEAD_MS = 2 * 60 * 1000;
 const STREAM_REFRESH_MIN_DELAY_MS = 10 * 1000;
 const MEDIA_SESSION_SEEK_OFFSET_SECONDS = 10;
 const PLAYBACK_ERROR_SKIP_DELAY_MS = 2_000;
+const PLAYER_CLOSE_ANIMATION_MS = 180;
 const MEDIA_METADATA_PENDING_MAX_RETRIES = 12;
 const MEDIA_METADATA_PENDING_MAX_RETRY_DELAY_MS = 30_000;
 const MEDIA_SESSION_ACTIONS: MediaSessionAction[] = [
@@ -481,6 +482,7 @@ export function MusicPlayerHost() {
 	const panelRef = useRef<HTMLDivElement | null>(null);
 	const currentTimeRef = useRef(0);
 	const durationRef = useRef(0);
+	const closeAnimationTimerRef = useRef<number | null>(null);
 	const errorSkipTimerRef = useRef<number | null>(null);
 	const isSeekingRef = useRef(false);
 	const parsedMetadataTrackIdsRef = useRef(new Set<string>());
@@ -492,6 +494,7 @@ export function MusicPlayerHost() {
 	const detailsPanelId = useId();
 	const [bufferedProgress, setBufferedProgress] = useState(0);
 	const [currentTime, setCurrentTime] = useState(0);
+	const [closing, setClosing] = useState(false);
 	const [duration, setDuration] = useState(0);
 	const [detailsOpen, setDetailsOpen] = useState(false);
 	const [queueOpen, setQueueOpen] = useState(false);
@@ -565,6 +568,7 @@ export function MusicPlayerHost() {
 		mediaSessionThumbnailUrl ?? track?.metadata?.artworkUrl ?? null;
 	const volumePercent = Math.round(volume * 100);
 	const modeLabel = t(`music_player_mode_${playbackMode}`);
+	const panelVisible = isPanelOpen && !closing;
 
 	useEffect(() => {
 		if (track?.thumbnail && !thumbnailSupportLoaded) {
@@ -669,7 +673,7 @@ export function MusicPlayerHost() {
 	}, [clearPendingErrorSkip]);
 
 	useEffect(() => {
-		if (!isPanelOpen) return;
+		if (!panelVisible) return;
 
 		const handleDocumentClick = (event: MouseEvent) => {
 			if (isMusicPlayerInteractionTarget(event, panelRef.current)) return;
@@ -680,13 +684,27 @@ export function MusicPlayerHost() {
 		return () => {
 			document.removeEventListener("click", handleDocumentClick);
 		};
-	}, [closePanel, isPanelOpen]);
+	}, [closePanel, panelVisible]);
 
 	useEffect(() => {
 		if (isPanelOpen) return;
 		setDetailsOpen(false);
 		setQueueOpen(false);
+		setClosing(false);
 	}, [isPanelOpen]);
+
+	useEffect(() => {
+		if (track) return;
+		setClosing(false);
+	}, [track]);
+
+	useEffect(() => {
+		return () => {
+			if (closeAnimationTimerRef.current !== null) {
+				window.clearTimeout(closeAnimationTimerRef.current);
+			}
+		};
+	}, []);
 
 	useEffect(() => {
 		if (!queueOpen || !activeTrackId) return;
@@ -1012,6 +1030,18 @@ export function MusicPlayerHost() {
 		playTracks(queue, trackId);
 	};
 
+	const closeWithAnimation = () => {
+		if (closing) return;
+		setClosing(true);
+		if (closeAnimationTimerRef.current !== null) {
+			window.clearTimeout(closeAnimationTimerRef.current);
+		}
+		closeAnimationTimerRef.current = window.setTimeout(() => {
+			closeAnimationTimerRef.current = null;
+			clear();
+		}, PLAYER_CLOSE_ANIMATION_MS);
+	};
+
 	return (
 		<>
 			<style>{MUSIC_TEXT_MARQUEE_KEYFRAMES}</style>
@@ -1080,23 +1110,23 @@ export function MusicPlayerHost() {
 
 			<div
 				ref={panelRef}
-				aria-hidden={!isPanelOpen}
+				aria-hidden={!panelVisible}
 				data-music-player-surface
-				data-state={isPanelOpen ? "open" : "closed"}
-				inert={isPanelOpen ? undefined : true}
+				data-state={panelVisible ? "open" : "closed"}
+				inert={panelVisible ? undefined : true}
 				className={cn(
-					"fixed top-[calc(var(--spacing)*16+0.5rem)] right-3 z-(--z-fixed) w-[calc(100vw-1.5rem)] max-w-[26rem] origin-top-right transition-[opacity,transform] duration-150 ease-out motion-reduce:transition-none sm:right-4",
-					isPanelOpen
+					"fixed top-[calc(env(safe-area-inset-top)+4.75rem)] right-3 left-3 z-(--z-fixed) origin-top transition-[opacity,transform] duration-[180ms] ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none sm:right-4 sm:left-auto sm:w-[30rem]",
+					panelVisible
 						? "translate-y-0 scale-100 opacity-100"
-						: "pointer-events-none -translate-y-2 scale-[0.98] opacity-0",
+						: "pointer-events-none -translate-y-1 scale-[0.98] opacity-0",
 				)}
 			>
 				<section
 					aria-label={t("music_player_title")}
 					data-theme-surface="overlay"
-					className="max-h-[calc(100vh-4.5rem)] overflow-hidden rounded-lg border border-border/70 bg-popover/96 text-sm shadow-2xl shadow-black/12 ring-1 ring-foreground/5 backdrop-blur dark:bg-popover/92 dark:shadow-none"
+					className="max-h-[calc(100vh-5.5rem)] overflow-hidden rounded-xl border border-border/70 bg-popover/96 text-sm shadow-2xl shadow-black/12 ring-1 ring-foreground/5 backdrop-blur dark:bg-popover/92 dark:shadow-none"
 				>
-					<div className="border-b border-border/65 px-4 py-3">
+					<div className="border-b border-border/65 px-3 py-2.5 sm:px-4 sm:py-3">
 						<div className="flex items-center justify-between gap-3">
 							<div className="flex min-w-0 items-center gap-2 font-heading text-base leading-none font-medium">
 								<Icon name="MusicNotes" className="size-4 text-primary" />
@@ -1106,7 +1136,7 @@ export function MusicPlayerHost() {
 								<TooltipProvider>
 									<PlayerIconButton
 										label={t("music_player_close")}
-										onClick={clear}
+										onClick={closeWithAnimation}
 									>
 										<Icon name="X" className="size-4" />
 									</PlayerIconButton>
@@ -1121,26 +1151,26 @@ export function MusicPlayerHost() {
 						</div>
 					</div>
 
-					<div className="max-h-[calc(100vh-6.5rem)] overflow-y-auto overscroll-contain">
-						<div className="p-4">
+					<div className="max-h-[calc(100vh-9rem)] overflow-y-auto overscroll-contain">
+						<div className="p-3 sm:p-4">
 							<div className="flex min-w-0 gap-3">
 								<MediaThumbnail
 									file={track?.thumbnail?.file}
 									thumbnailPath={track?.thumbnail?.path}
 									artworkUrl={track?.metadata?.artworkUrl}
-									className="h-20 w-20 shrink-0 rounded-lg sm:h-24 sm:w-24"
+									className="h-16 w-16 shrink-0 rounded-lg sm:h-24 sm:w-24"
 									iconClassName="size-12"
 									imageClassName="h-full w-full object-cover"
 								/>
 								<div className="flex min-w-0 flex-1 flex-col justify-center">
 									<AutoScrollText
-										active={isPanelOpen}
+										active={panelVisible}
 										className="text-base font-semibold leading-6"
 									>
 										{displayTitle(track)}
 									</AutoScrollText>
 									<AutoScrollText
-										active={isPanelOpen}
+										active={panelVisible}
 										className="mt-1 text-sm text-muted-foreground"
 									>
 										{displayArtist(track) ?? t("music_player_unknown_artist")}
@@ -1227,7 +1257,7 @@ export function MusicPlayerHost() {
 									>
 										<Icon name="SkipForward" className="size-4" />
 									</PlayerIconButton>
-									<div className="flex h-8 items-center gap-1 rounded-md px-1">
+									<div className="hidden h-8 items-center gap-1 rounded-md px-1 sm:flex">
 										<Icon
 											name={volume === 0 ? "SpeakerSlash" : "SpeakerHigh"}
 											className="size-4 text-muted-foreground"

@@ -1,10 +1,12 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
 import { logger } from "@/lib/logger";
+import { inferMusicMetadata } from "@/lib/musicPlayer";
 import {
 	type MusicPlayerTrack,
+	type MusicTrackMetadata,
 	useMusicPlayerStore,
 } from "@/stores/musicPlayerStore";
 import type { ShareStreamSessionInfo } from "@/types/api";
@@ -24,10 +26,6 @@ interface MusicPreviewProps {
 	thumbnailPath?: string;
 }
 
-function previewMusicTitle(name: string) {
-	return name.replace(/\.[^.]+$/, "") || name;
-}
-
 export function MusicPreview({
 	file,
 	loadBackendMetadata,
@@ -43,11 +41,31 @@ export function MusicPreview({
 	const requestPlayback = useMusicPlayerStore((state) => state.requestPlayback);
 	const [streamLinkFailed, setStreamLinkFailed] = useState(false);
 	const [starting, setStarting] = useState(false);
+	const [loadedMetadata, setLoadedMetadata] = useState<{
+		metadata: MusicTrackMetadata;
+		trackId: string;
+	} | null>(null);
 	const mountedRef = useRef(true);
 	const startRequestIdRef = useRef(0);
 	const trackId = `${file.name}:${file.size ?? "unknown"}:${file.mime_type}:${path}`;
 	const isCurrentTrack =
 		currentTrackId === trackId && queue.some((track) => track.id === trackId);
+	const fallbackMetadata = useMemo(
+		() =>
+			inferMusicMetadata({
+				file_category: file.file_category,
+				id: file.id ?? -1,
+				mime_type: file.mime_type,
+				name: file.name,
+				size: file.size,
+			}),
+		[file.file_category, file.id, file.mime_type, file.name, file.size],
+	);
+	const trackMetadata =
+		loadedMetadata?.trackId === trackId
+			? loadedMetadata.metadata
+			: fallbackMetadata;
+	const trackTitle = trackMetadata.title?.trim() || file.name;
 
 	useEffect(() => {
 		mountedRef.current = true;
@@ -56,6 +74,22 @@ export function MusicPreview({
 			startRequestIdRef.current += 1;
 		};
 	}, []);
+
+	useEffect(() => {
+		if (!loadBackendMetadata) return;
+
+		const controller = new AbortController();
+		void loadBackendMetadata(controller.signal)
+			.then((metadata) => {
+				if (controller.signal.aborted || !metadata) return;
+				setLoadedMetadata({ metadata, trackId });
+			})
+			.catch(() => {
+				// Backend media metadata is best-effort. Playback must stay immediate.
+			});
+
+		return () => controller.abort();
+	}, [loadBackendMetadata, trackId]);
 
 	const startPlayback = useCallback(() => {
 		const requestId = startRequestIdRef.current + 1;
@@ -76,9 +110,7 @@ export function MusicPreview({
 					return;
 				playTrack({
 					id: trackId,
-					metadata: {
-						title: previewMusicTitle(file.name),
-					},
+					metadata: trackMetadata,
 					name: file.name,
 					mimeType: file.mime_type,
 					path: link.path,
@@ -122,6 +154,7 @@ export function MusicPreview({
 		playTrack,
 		thumbnailPath,
 		trackId,
+		trackMetadata,
 	]);
 
 	if (streamLinkFailed) {
@@ -138,7 +171,7 @@ export function MusicPreview({
 		<PreviewSurface className="min-h-[50vh]">
 			<PreviewSurfaceToolbar
 				icon="FileAudio"
-				label={previewMusicTitle(file.name)}
+				label={trackTitle}
 				meta={statusText}
 			/>
 			<PreviewSurfaceContent>

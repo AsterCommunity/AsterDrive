@@ -917,7 +917,7 @@ describe("FilePreviewDialog", () => {
 		);
 	});
 
-	it("restores image previews out of fullscreen without forcing fullscreen again", async () => {
+	it("keeps image previews fullscreen without a windowed restore control", async () => {
 		mockState.profile = {
 			category: "image",
 			defaultMode: "builtin.image",
@@ -947,22 +947,25 @@ describe("FilePreviewDialog", () => {
 			await screen.findByRole("img", { name: "wide-image.png" }),
 		).toHaveAttribute("data-fill-container", "true");
 
-		fireEvent.click(
-			screen.getByRole("button", {
-				name: "files:preview_exit_fullscreen",
-			}),
-		);
-
 		expect(
-			screen.getByRole("button", { name: "files:preview_enter_fullscreen" }),
-		).toBeInTheDocument();
+			screen.queryByRole("button", { name: "files:preview_exit_fullscreen" }),
+		).not.toBeInTheDocument();
+		expect(
+			screen.queryByRole("button", { name: "files:preview_enter_fullscreen" }),
+		).not.toBeInTheDocument();
 		expect(screen.getByRole("img", { name: "wide-image.png" })).toHaveAttribute(
 			"data-fill-container",
 			"true",
 		);
-		expect(
-			screen.getByTestId("dialog-content").className.split(/\s+/),
-		).not.toContain("top-0");
+		expect(screen.getByTestId("dialog-content").className.split(/\s+/)).toEqual(
+			expect.arrayContaining([
+				"top-0",
+				"left-0",
+				"h-screen",
+				"w-screen",
+				"rounded-none",
+			]),
+		);
 	});
 
 	it("auto-opens hybrid svg previews directly and still allows switching modes", async () => {
