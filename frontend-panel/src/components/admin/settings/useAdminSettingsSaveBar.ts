@@ -35,25 +35,47 @@ export function useAdminSettingsSaveBar({
 	}, [phase]);
 
 	useEffect(() => {
-		if (timerRef.current !== null) {
-			window.clearTimeout(timerRef.current);
-			timerRef.current = null;
-		}
+		const clearTimer = () => {
+			if (timerRef.current !== null) {
+				window.clearTimeout(timerRef.current);
+				timerRef.current = null;
+			}
+		};
+		const setPhaseState = (nextPhase: SaveBarPhase) => {
+			phaseRef.current = nextPhase;
+			setPhase(nextPhase);
+		};
+		const scheduleHidden = () => {
+			timerRef.current = window.setTimeout(() => {
+				setPhaseState("hidden");
+				timerRef.current = null;
+			}, exitDurationMs + EXIT_UNMOUNT_GRACE_MS);
+		};
+		const scheduleExit = (delayMs = 0) => {
+			if (delayMs === 0) {
+				setPhaseState("exiting");
+				scheduleHidden();
+				return;
+			}
+
+			timerRef.current = window.setTimeout(() => {
+				timerRef.current = null;
+				setPhaseState("exiting");
+				scheduleHidden();
+			}, delayMs);
+		};
+
+		clearTimer();
 
 		if (hasUnsavedChanges) {
 			if (phaseRef.current === "visible") return;
 
-			if (phaseRef.current === "entering") {
-				timerRef.current = window.setTimeout(() => {
-					setPhase("visible");
-					timerRef.current = null;
-				}, 0);
-				return;
+			if (phaseRef.current !== "entering") {
+				setPhaseState("entering");
 			}
 
-			setPhase("entering");
 			timerRef.current = window.setTimeout(() => {
-				setPhase("visible");
+				setPhaseState("visible");
 				timerRef.current = null;
 			}, 0);
 			return;
@@ -64,28 +86,18 @@ export function useAdminSettingsSaveBar({
 		}
 
 		if (phaseRef.current === "entering") {
-			setPhase("visible");
 			timerRef.current = window.setTimeout(() => {
-				setPhase("exiting");
-				timerRef.current = window.setTimeout(() => {
-					setPhase("hidden");
-					timerRef.current = null;
-				}, exitDurationMs + EXIT_UNMOUNT_GRACE_MS);
+				timerRef.current = null;
+				setPhaseState("visible");
+				scheduleExit(NEXT_FRAME_DELAY_MS);
 			}, NEXT_FRAME_DELAY_MS);
 			return;
 		}
 
-		setPhase("exiting");
-		timerRef.current = window.setTimeout(() => {
-			setPhase("hidden");
-			timerRef.current = null;
-		}, exitDurationMs + EXIT_UNMOUNT_GRACE_MS);
+		scheduleExit();
 
 		return () => {
-			if (timerRef.current !== null) {
-				window.clearTimeout(timerRef.current);
-				timerRef.current = null;
-			}
+			clearTimer();
 		};
 	}, [exitDurationMs, hasUnsavedChanges]);
 

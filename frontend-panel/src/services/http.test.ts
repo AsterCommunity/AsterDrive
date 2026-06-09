@@ -492,15 +492,12 @@ describe("http api helpers", () => {
 				config: originalRequest,
 				response: {
 					status: 401,
-					data: new Blob(
-						[
-							JSON.stringify({
-								code: ApiErrorCode.TokenExpired,
-								msg: "Token Expired",
-							}),
-						],
-						{ type: "application/json" },
-					),
+					data: new Blob([
+						JSON.stringify({
+							code: ApiErrorCode.TokenExpired,
+							msg: "Token Expired",
+						}),
+					]),
 				},
 			}),
 		).resolves.toEqual({

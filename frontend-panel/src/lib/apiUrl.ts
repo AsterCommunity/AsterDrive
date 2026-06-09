@@ -7,11 +7,11 @@ export function joinApiUrl(base: string, path: string) {
 }
 
 export function isExternalResourceUrl(path: string) {
-	return /^https?:\/\//i.test(path) || path.startsWith("blob:");
+	return /^(?:https?:\/\/|blob:)/i.test(path);
 }
 
 export function normalizeApiResourcePath(path: string) {
-	return path.replace(/^\/api\/v\d+(?=\/)/, "");
+	return path.replace(/^\/api\/v\d+(?=\/|$)/, "");
 }
 
 export function isPublicResourcePath(path: string) {

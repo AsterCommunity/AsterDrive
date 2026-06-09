@@ -56,12 +56,16 @@ describe("resolveApiResourceUrl", () => {
 		expect(isExternalResourceUrl("https://cdn.example.com/file.pdf")).toBe(
 			true,
 		);
+		expect(isExternalResourceUrl("HTTP://cdn.example.com/file.pdf")).toBe(true);
 		expect(isExternalResourceUrl("blob:pdf-preview")).toBe(true);
+		expect(isExternalResourceUrl("Blob:pdf-preview")).toBe(true);
 		expect(isExternalResourceUrl("/files/7/download")).toBe(false);
 
 		expect(normalizeApiResourcePath("/api/v1/s/token/download")).toBe(
 			"/s/token/download",
 		);
+		expect(normalizeApiResourcePath("/api/v1")).toBe("");
+		expect(normalizeApiResourcePath("/api/v1/")).toBe("/");
 		expect(isPublicResourcePath("/api/v1/s/token/download")).toBe(true);
 		expect(isPublicResourcePath("/s/token/download")).toBe(true);
 		expect(isPublicResourcePath("/files/7/download")).toBe(false);

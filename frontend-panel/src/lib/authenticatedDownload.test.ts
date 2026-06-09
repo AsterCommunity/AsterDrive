@@ -3,6 +3,7 @@ import { startAuthenticatedDownload } from "@/lib/authenticatedDownload";
 
 const mockState = vi.hoisted(() => ({
 	ensureFreshSession: vi.fn(),
+	loggerError: vi.fn(),
 }));
 
 vi.mock("@/stores/authStore", () => ({
@@ -13,10 +14,17 @@ vi.mock("@/stores/authStore", () => ({
 	},
 }));
 
+vi.mock("@/lib/logger", () => ({
+	logger: {
+		error: (...args: unknown[]) => mockState.loggerError(...args),
+	},
+}));
+
 describe("startAuthenticatedDownload", () => {
 	beforeEach(() => {
 		mockState.ensureFreshSession.mockReset();
 		mockState.ensureFreshSession.mockResolvedValue(undefined);
+		mockState.loggerError.mockReset();
 	});
 
 	it("ensures the session is fresh before starting a browser download", async () => {
@@ -35,6 +43,7 @@ describe("startAuthenticatedDownload", () => {
 		expect(mockState.ensureFreshSession).toHaveBeenCalledTimes(1);
 		expect(anchor.getAttribute("href")).toBe("/api/v1/files/24/download");
 		expect(anchor.download).toBe("");
+		expect(anchor.isConnected).toBe(false);
 		expect(clickSpy).toHaveBeenCalledTimes(1);
 
 		createElementSpy.mockRestore();
@@ -51,6 +60,11 @@ describe("startAuthenticatedDownload", () => {
 		);
 
 		expect(createElementSpy).not.toHaveBeenCalled();
+		expect(mockState.loggerError).toHaveBeenCalledWith(
+			"authenticated download session refresh failed",
+			"/files/24/download",
+			error,
+		);
 		createElementSpy.mockRestore();
 	});
 });

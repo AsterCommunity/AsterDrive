@@ -1,6 +1,7 @@
 import { type ReactNode, useEffect, useMemo, useState } from "react";
 import { CodePreviewEditor } from "@/components/files/preview/CodePreviewEditor";
 import { Icon } from "@/components/ui/icon";
+import { logger } from "@/lib/logger";
 import { cn } from "@/lib/utils";
 import type {
 	SystemConfig,
@@ -16,6 +17,7 @@ const TEMPLATE_GROUP_COLLAPSE_EASING = "cubic-bezier(0.32, 0, 0.67, 0.96)";
 export const REDACTED_CONFIG_VALUE = "***REDACTED***";
 
 const SIZE_CONFIG_KEYS = new Set(["default_storage_quota"]);
+type NormalizedSettingValue = string | number | boolean;
 
 export type BrandingAssetPreviewAppearance = {
 	fallbackLabel: string;
@@ -52,7 +54,7 @@ const BRANDING_ASSET_PREVIEW_APPEARANCES: Record<
 	},
 };
 
-export type ConfigDraftValue = string | string[];
+export type ConfigDraftValue = string | string[] | number | boolean;
 export type DraftValues = Record<string, ConfigDraftValue>;
 
 type TimeConfigBaseUnit = "seconds" | "hours" | "days";
@@ -209,13 +211,23 @@ export function isStringEnumSetType(valueType: SystemConfigValueType) {
 	return valueType === "string_enum_set";
 }
 
+export function normalizeSettingValue(
+	value: ConfigDraftValue | number | boolean | null | undefined,
+): NormalizedSettingValue {
+	if (value == null || Array.isArray(value)) return "";
+	return value;
+}
+
 export function configValueToString(value: ConfigDraftValue | undefined) {
-	if (Array.isArray(value)) return "";
-	return value == null ? "" : String(value);
+	return String(normalizeSettingValue(value));
 }
 
 export function configValueToStringArray(value: ConfigDraftValue | undefined) {
 	return Array.isArray(value) ? value : [];
+}
+
+export function serializeConfigDraftValue(value: ConfigDraftValue) {
+	return Array.isArray(value) ? value : configValueToString(value);
 }
 
 export function configDraftValuesEqual(
@@ -232,7 +244,7 @@ export function configDraftValuesEqual(
 		);
 	}
 
-	return String(left ?? "") === String(right ?? "");
+	return configValueToString(left) === configValueToString(right);
 }
 
 export function isRedactedConfigValue(value: ConfigDraftValue | undefined) {
@@ -675,6 +687,27 @@ export function sortConfigsByKey(a: SystemConfig, b: SystemConfig) {
 }
 
 export function buildDraftValues(configs: SystemConfig[]) {
+	const runtimeTypesByValueType = new Map<string, Set<string>>();
+	for (const config of configs) {
+		const runtimeType = Array.isArray(config.value)
+			? "array"
+			: config.value === null || config.value === undefined
+				? "empty"
+				: typeof config.value;
+		const runtimeTypes =
+			runtimeTypesByValueType.get(getConfigValueType(config)) ?? new Set();
+		runtimeTypes.add(runtimeType);
+		runtimeTypesByValueType.set(getConfigValueType(config), runtimeTypes);
+	}
+	for (const [valueType, runtimeTypes] of runtimeTypesByValueType) {
+		if (runtimeTypes.size <= 1) continue;
+		logger.warn(
+			"mixed system config value runtime types",
+			valueType,
+			Array.from(runtimeTypes),
+		);
+	}
+
 	return Object.fromEntries(
 		configs.map((config) => [
 			config.key,
@@ -682,7 +715,7 @@ export function buildDraftValues(configs: SystemConfig[]) {
 				? ""
 				: Array.isArray(config.value)
 					? [...config.value]
-					: String(config.value ?? ""),
+					: normalizeSettingValue(config.value),
 		]),
 	) as DraftValues;
 }

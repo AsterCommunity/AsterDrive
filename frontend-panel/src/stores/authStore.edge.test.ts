@@ -240,9 +240,9 @@ describe("useAuthStore edge cases", () => {
 	});
 
 	it("does not refresh an already fresh session", async () => {
-		const { useAuthStore } = await loadStore();
+		const { SESSION_REFRESH_THRESHOLD_MS, useAuthStore } = await loadStore();
 		useAuthStore.setState({
-			expiresAt: Date.now() + 120_000,
+			expiresAt: Date.now() + SESSION_REFRESH_THRESHOLD_MS * 2,
 			isAuthenticated: true,
 			isAuthStale: false,
 		});
@@ -255,26 +255,30 @@ describe("useAuthStore edge cases", () => {
 
 	it("refreshes stale or nearly expired sessions on demand", async () => {
 		mockState.refreshToken.mockResolvedValue({ expiresIn: 900 });
-		const { useAuthStore } = await loadStore();
+		vi.useFakeTimers();
+		vi.setSystemTime(new Date("2026-01-01T00:00:00.000Z"));
+		const { SESSION_REFRESH_THRESHOLD_MS, useAuthStore } = await loadStore();
 		useAuthStore.setState({
 			expiresAt: Date.now() + 15_000,
 			isAuthenticated: true,
 			isAuthStale: false,
 		});
 
-		await useAuthStore.getState().ensureFreshSession();
+		try {
+			await useAuthStore.getState().ensureFreshSession();
 
-		expect(mockState.refreshToken).toHaveBeenCalledTimes(1);
-		useAuthStore.setState({
-			expiresAt: Date.now() + 120_000,
-			isAuthenticated: true,
-			isAuthStale: true,
-		});
+			expect(mockState.refreshToken).toHaveBeenCalledTimes(1);
+			expect(useAuthStore.getState().expiresAt).toBe(Date.now() + 900_000);
+			expect(useAuthStore.getState().isAuthStale).toBe(false);
 
-		await useAuthStore.getState().ensureFreshSession();
+			vi.advanceTimersByTime(900_000 - SESSION_REFRESH_THRESHOLD_MS + 1);
+			await useAuthStore.getState().ensureFreshSession();
 
-		expect(mockState.refreshToken).toHaveBeenCalledTimes(2);
-		useAuthStore.getState().stopAutoRefresh();
+			expect(mockState.refreshToken).toHaveBeenCalledTimes(2);
+			useAuthStore.getState().stopAutoRefresh();
+		} finally {
+			vi.useRealTimers();
+		}
 	});
 
 	it("rejects MFA-required login responses before syncing a session", async () => {

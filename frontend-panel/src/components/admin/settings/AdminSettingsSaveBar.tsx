@@ -44,7 +44,7 @@ export function AdminSettingsSaveBar({
 		return null;
 	}
 
-	if (phase !== "exiting" && hasUnsavedChanges) {
+	if (hasUnsavedChanges) {
 		latestVisibleStateRef.current = {
 			changedCount,
 			hasValidationError,

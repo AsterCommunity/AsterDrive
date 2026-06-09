@@ -986,12 +986,24 @@ describe("MusicPlayerHost", () => {
 		setQueue();
 		mockState.state.playRequested = true;
 		mockState.state.playRequestVersion = 1;
+		const order: string[] = [];
+		mockState.prepareAuthenticatedResource.mockImplementation(async () => {
+			order.push("prepare");
+		});
+		vi.mocked(HTMLMediaElement.prototype.load).mockImplementation(() => {
+			order.push("load");
+		});
+		vi.mocked(HTMLMediaElement.prototype.play).mockImplementation(() => {
+			order.push("play");
+			return Promise.resolve();
+		});
 
 		render(<MusicPlayerHost />);
 
 		await waitFor(() => {
 			expect(mockState.prepareAuthenticatedResource).toHaveBeenCalledWith(
 				"/files/7/download",
+				expect.objectContaining({ signal: expect.any(AbortSignal) }),
 			);
 		});
 		const audio = document.querySelector("audio");
@@ -1003,6 +1015,7 @@ describe("MusicPlayerHost", () => {
 			expect(HTMLMediaElement.prototype.load).toHaveBeenCalledTimes(1);
 			expect(HTMLMediaElement.prototype.play).toHaveBeenCalledTimes(1);
 		});
+		expect(order).toEqual(["prepare", "load", "play"]);
 	});
 
 	it("does not hand a protected download source to audio when preparation fails", async () => {
@@ -1046,6 +1059,7 @@ describe("MusicPlayerHost", () => {
 		await waitFor(() => {
 			expect(mockState.prepareAuthenticatedResource).toHaveBeenCalledWith(
 				"/files/7/download",
+				expect.objectContaining({ signal: expect.any(AbortSignal) }),
 			);
 		});
 

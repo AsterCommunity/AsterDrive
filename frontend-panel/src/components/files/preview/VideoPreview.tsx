@@ -50,25 +50,37 @@ export function VideoPreview({
 }: VideoPreviewProps) {
 	const { i18n, t } = useTranslation("files");
 	const containerRef = useRef<HTMLDivElement | null>(null);
-	const resourceInputsRef = useRef({ mediaStreamLinkFactory, path });
-	const resourceVersionRef = useRef(0);
+	const [resourceState, setResourceState] = useState(() => ({
+		inputs: { mediaStreamLinkFactory, path },
+		version: 0,
+	}));
 	const [resolvedResource, setResolvedResource] = useState<{
 		key: string;
 		path: string;
 	} | null>(null);
 	if (
-		resourceInputsRef.current.path !== path ||
-		resourceInputsRef.current.mediaStreamLinkFactory !== mediaStreamLinkFactory
+		resourceState.inputs.path !== path ||
+		resourceState.inputs.mediaStreamLinkFactory !== mediaStreamLinkFactory
 	) {
-		resourceInputsRef.current = { mediaStreamLinkFactory, path };
-		resourceVersionRef.current += 1;
+		setResourceState({
+			inputs: { mediaStreamLinkFactory, path },
+			version: resourceState.version + 1,
+		});
 	}
-	const resourceKey = `${path}:${mediaStreamLinkFactory ? "stream" : "direct"}:${resourceVersionRef.current}`;
+	const currentResourceVersion =
+		resourceState.inputs.path === path &&
+		resourceState.inputs.mediaStreamLinkFactory === mediaStreamLinkFactory
+			? resourceState.version
+			: resourceState.version + 1;
+	const resourceKey = `${path}:${mediaStreamLinkFactory ? "stream" : "direct"}:${currentResourceVersion}`;
 	const [status, setStatus] = useState<VideoStatus>(() =>
 		initialVideoStatus(resourceKey),
 	);
-	const currentStatus =
-		status.key === resourceKey ? status : initialVideoStatus(resourceKey);
+	const currentStatus = useMemo(
+		() =>
+			status.key === resourceKey ? status : initialVideoStatus(resourceKey),
+		[status, resourceKey],
+	);
 	const { aspectRatio, mediaFailed, playerFailed, streamLinkFailed } =
 		currentStatus;
 	const resolvedPath =

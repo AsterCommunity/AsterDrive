@@ -2108,7 +2108,7 @@ describe("AdminSettingsPage", () => {
 		expect(saveBar).toHaveAttribute("aria-hidden", "true");
 
 		await act(async () => {
-			await vi.advanceTimersByTimeAsync(140);
+			await vi.advanceTimersByTimeAsync(190);
 		});
 
 		expect(screen.queryByTestId("settings-save-bar")).not.toBeInTheDocument();

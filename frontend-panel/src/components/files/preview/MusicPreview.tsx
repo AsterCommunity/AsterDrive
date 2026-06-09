@@ -58,7 +58,10 @@ export function MusicPreview({
 			}),
 		[file.file_category, file.id, file.mime_type, file.name, file.size],
 	);
-	const trackTitle = fallbackMetadata.title?.trim() || file.name;
+	const trackTitle = useMemo(
+		() => fallbackMetadata.title?.trim() || file.name,
+		[fallbackMetadata.title, file.name],
+	);
 
 	useEffect(() => {
 		mountedRef.current = true;

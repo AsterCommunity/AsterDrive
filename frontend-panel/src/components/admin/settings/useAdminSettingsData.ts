@@ -34,6 +34,7 @@ import {
 	normalizeSubcategory,
 	type SizeDisplayUnitValue,
 	type SystemSubcategoryGroup,
+	serializeConfigDraftValue,
 	sortConfigsByKey,
 	type TimeDisplayUnitValue,
 } from "@/components/admin/settings/adminSettingsContentShared";
@@ -924,18 +925,19 @@ export function useAdminSettingsData({
 
 			for (const config of orderedChangedConfigs) {
 				const nextValue = getDraftValue(config);
+				const serializedValue = serializeConfigDraftValue(nextValue);
 				const savedConfig = isSystemConfigSource(config.source)
-					? await adminConfigService.set(config.key, nextValue)
+					? await adminConfigService.set(config.key, serializedValue)
 					: await adminConfigService.set(
 							config.key,
-							nextValue,
+							serializedValue,
 							getCustomVisibilityDraft(config),
 						);
 				nextConfigsByKey.set(
 					config.key,
 					savedConfig.key === config.key
 						? savedConfig
-						: { ...config, value: nextValue },
+						: { ...config, value: serializedValue },
 				);
 			}
 

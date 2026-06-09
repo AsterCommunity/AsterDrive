@@ -27,7 +27,7 @@ function createConfig(
 }
 
 describe("admin settings content shared draft values", () => {
-	it("normalizes scalar backend values to strings for dirty checks", () => {
+	it("preserves scalar backend values while stringifying at UI comparison boundaries", () => {
 		const numericConfig = createConfig(20);
 		const booleanConfig = createConfig(false, {
 			key: "storage_enabled",
@@ -47,8 +47,8 @@ describe("admin settings content shared draft values", () => {
 		expect(configDraftValueChanged(numericConfig, "20")).toBe(false);
 		expect(configDraftValueChanged(booleanConfig, "false")).toBe(false);
 		expect(buildDraftValues([numericConfig, booleanConfig])).toEqual({
-			auth_access_token_ttl_secs: "20",
-			storage_enabled: "false",
+			auth_access_token_ttl_secs: 20,
+			storage_enabled: false,
 		});
 	});
 });

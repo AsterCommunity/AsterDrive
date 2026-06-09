@@ -100,6 +100,13 @@ describe("useAdminSettingsSaveBar", () => {
 			);
 		});
 
+		expect(result.current.phase).toBe("entering");
+		expect(result.current.reservedHeight).toBe(72);
+
+		act(() => {
+			vi.advanceTimersByTime(16);
+		});
+
 		expect(result.current.phase).toBe("visible");
 		expect(result.current.reservedHeight).toBe(72);
 

@@ -114,7 +114,7 @@ vi.mock("@/components/files/preview/PreviewError", () => ({
 		<div>
 			preview-error
 			{onRetry ? (
-				<button type="button" onClick={onRetry}>
+				<button type="button" data-testid="preview-retry" onClick={onRetry}>
 					retry
 				</button>
 			) : null}
@@ -255,6 +255,42 @@ describe("PdfPreview", () => {
 	});
 
 	it("refreshes the blob URL instead of reusing a failed PDF blob on retry", () => {
+		let retried = false;
+		const retry = vi.fn(() => {
+			retried = true;
+		});
+		const freshBlob = new Blob(["%PDF fresh"]);
+		mockState.useBlobUrl.mockImplementation(() => ({
+			blob: retried ? freshBlob : mockState.documentBlob,
+			blobUrl: retried ? "blob:/fresh-pdf" : "blob:/stale-pdf",
+			error: false,
+			loading: false,
+			retry,
+		}));
+		const { rerender } = render(
+			<PdfPreview path="/files/1/download" fileName="manual.pdf" />,
+		);
+
+		const onLoadError = mockState.documentProps?.onLoadError;
+		if (typeof onLoadError !== "function") {
+			throw new Error("document error handler was not registered");
+		}
+		act(() => {
+			onLoadError(new Error("stale blob"));
+		});
+		const callsBeforeRetry = mockState.useBlobUrl.mock.calls.length;
+
+		fireEvent.click(screen.getByTestId("preview-retry"));
+		rerender(<PdfPreview path="/files/1/download" fileName="manual.pdf" />);
+
+		expect(retry).toHaveBeenCalledTimes(1);
+		expect(mockState.useBlobUrl.mock.calls.length).toBeGreaterThan(
+			callsBeforeRetry,
+		);
+		expect(mockState.documentProps?.file).toBe(freshBlob);
+	});
+
+	it("shows a stable retry target when PDF loading fails", () => {
 		const retry = vi.fn();
 		mockState.useBlobUrl.mockReturnValue({
 			blob: mockState.documentBlob,
@@ -273,7 +309,7 @@ describe("PdfPreview", () => {
 			onLoadError(new Error("stale blob"));
 		});
 
-		fireEvent.click(screen.getByRole("button", { name: "retry" }));
+		fireEvent.click(screen.getByTestId("preview-retry"));
 
 		expect(retry).toHaveBeenCalledTimes(1);
 	});

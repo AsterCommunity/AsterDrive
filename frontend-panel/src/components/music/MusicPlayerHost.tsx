@@ -1,4 +1,9 @@
-import type { ChangeEvent, CSSProperties, ReactNode } from "react";
+import type {
+	ChangeEvent,
+	CSSProperties,
+	MutableRefObject,
+	ReactNode,
+} from "react";
 import {
 	useCallback,
 	useEffect,
@@ -485,6 +490,13 @@ function nextPlaybackMode(mode: MusicPlaybackMode): MusicPlaybackMode {
 	return "repeat_queue";
 }
 
+function getOrCreateSet<T>(ref: MutableRefObject<Set<T> | null>) {
+	if (ref.current === null) {
+		ref.current = new Set<T>();
+	}
+	return ref.current;
+}
+
 function PlayerIconButton({
 	active = false,
 	children,
@@ -523,12 +535,11 @@ export function MusicPlayerHost() {
 	const currentTimeRef = useRef(0);
 	const durationRef = useRef(0);
 	const closeAnimationTimersRef = useRef<Set<number> | null>(null);
-	if (closeAnimationTimersRef.current === null) {
-		closeAnimationTimersRef.current = new Set<number>();
-	}
+	getOrCreateSet(closeAnimationTimersRef);
 	const errorSkipTimerRef = useRef<number | null>(null);
 	const isSeekingRef = useRef(false);
 	const parsedMetadataTrackIdsRef = useRef(new Set<string>());
+	const playbackPreparationFailedRef = useRef(false);
 	const playbackPreparationPendingRef = useRef(false);
 	const wasPlayingBeforeSeekRef = useRef(false);
 	const latestTrackIdRef = useRef<string | null>(null);
@@ -703,6 +714,7 @@ export function MusicPlayerHost() {
 
 	useEffect(() => {
 		if (!trackKey) return;
+		playbackPreparationFailedRef.current = false;
 		currentTimeRef.current = 0;
 		durationRef.current = 0;
 		setBufferedProgress(0);
@@ -743,9 +755,8 @@ export function MusicPlayerHost() {
 	}, [track]);
 
 	useEffect(() => {
-		const closeAnimationTimers = closeAnimationTimersRef.current;
+		const closeAnimationTimers = getOrCreateSet(closeAnimationTimersRef);
 		return () => {
-			if (closeAnimationTimers === null) return;
 			for (const timer of closeAnimationTimers) {
 				window.clearTimeout(timer);
 			}
@@ -1006,16 +1017,31 @@ export function MusicPlayerHost() {
 		const trackId = track.id;
 		const trackName = track.name;
 		const trackPath = track.path;
+		const controller = new AbortController();
+		let prepared = false;
+		playbackPreparationFailedRef.current = false;
 		playbackPreparationPendingRef.current = true;
 		void (async () => {
 			try {
-				await prepareAuthenticatedResource(trackPath);
+				await prepareAuthenticatedResource(trackPath, {
+					signal: controller.signal,
+				});
 				if (cancelled || latestTrackIdRef.current !== trackId) return;
+				prepared = true;
 				playbackPreparationPendingRef.current = false;
 				audio.load();
 				await audio.play();
 			} catch (playError) {
-				if (cancelled || latestTrackIdRef.current !== trackId) return;
+				if (
+					cancelled ||
+					controller.signal.aborted ||
+					latestTrackIdRef.current !== trackId
+				) {
+					return;
+				}
+				if (!prepared) {
+					playbackPreparationFailedRef.current = true;
+				}
 				playbackPreparationPendingRef.current = false;
 				logger.warn("music playback start failed", trackName, playError);
 				setError(t("music_player_load_failed"));
@@ -1027,6 +1053,7 @@ export function MusicPlayerHost() {
 
 		return () => {
 			cancelled = true;
+			controller.abort();
 			playbackPreparationPendingRef.current = false;
 		};
 	}, [
@@ -1099,8 +1126,7 @@ export function MusicPlayerHost() {
 	const closeWithAnimation = () => {
 		if (closing) return;
 		dispatchPanelUi({ type: "setClosing", closing: true });
-		const closeAnimationTimers = closeAnimationTimersRef.current;
-		if (closeAnimationTimers === null) return;
+		const closeAnimationTimers = getOrCreateSet(closeAnimationTimersRef);
 		for (const timer of closeAnimationTimers) {
 			window.clearTimeout(timer);
 		}
@@ -1147,7 +1173,12 @@ export function MusicPlayerHost() {
 					playNextTrack();
 				}}
 				onError={() => {
-					if (playbackPreparationPendingRef.current) return;
+					if (
+						playbackPreparationPendingRef.current ||
+						playbackPreparationFailedRef.current
+					) {
+						return;
+					}
 					setError(t("music_player_load_failed"));
 					setPlaybackRequested(false);
 					setPlaying(false);

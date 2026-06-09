@@ -211,6 +211,9 @@ export function BlobImagePreview({
 
 	const readyBlobUrl =
 		!loading && !error && !imageRenderFailed ? blobUrl : null;
+	// Defensive fallback: readyBlobUrl should be null only while loading, after
+	// error, or after imageRenderFailed, but keep a safe loading state if future
+	// state combinations violate that invariant.
 	const content =
 		loading || (!error && !blobUrl) ? (
 			<PreviewLoadingState text={t("loading_preview")} className="h-full" />

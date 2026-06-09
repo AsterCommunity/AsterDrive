@@ -25,6 +25,9 @@ const client: AxiosInstance = axios.create({
 	withCredentials: true,
 });
 
+// Keep error-body parsing bounded; backend API error JSON should be tiny.
+const MAX_ERROR_BLOB_SIZE_BYTES = 1_048_576;
+
 // 不需要自动 refresh 的路径
 // FIXME: 如果登录流程新增/调整未认证端点，同步检查 passkey 登录路径是否仍应跳过 refresh。
 const SKIP_REFRESH_PATHS = [
@@ -318,6 +321,9 @@ async function extractApiErrorAsync(error: unknown): Promise<ApiError | null> {
 
 	const data = "data" in response ? response.data : null;
 	if (!(data instanceof Blob)) {
+		return null;
+	}
+	if (data.size > MAX_ERROR_BLOB_SIZE_BYTES) {
 		return null;
 	}
 
