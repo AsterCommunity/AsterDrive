@@ -1,4 +1,11 @@
-import { useCallback, useEffect, useMemo, useReducer, useRef } from "react";
+import {
+	useCallback,
+	useEffect,
+	useMemo,
+	useReducer,
+	useRef,
+	useState,
+} from "react";
 import { supportsAudioMediaData } from "@/lib/mediaDataSupport";
 import { fileService } from "@/services/fileService";
 import { useMediaDataSupportStore } from "@/stores/mediaDataSupportStore";
@@ -26,6 +33,7 @@ import {
 } from "./wopiSessionResource";
 
 const PREVIEW_DIALOG_OPEN_ANIMATION_MS = 120;
+const MOBILE_PREVIEW_MEDIA_QUERY = "(max-width: 767px)";
 
 export interface FilePreviewDialogProps {
 	open: boolean;
@@ -184,6 +192,33 @@ function getEmbeddedOptionMode(option: OpenWithOption | null) {
 	return option.config?.mode === "new_tab" ? "new_tab" : "iframe";
 }
 
+function useMediaQuery(query: string) {
+	const [matches, setMatches] = useState(() =>
+		typeof window.matchMedia === "function"
+			? window.matchMedia(query).matches
+			: false,
+	);
+
+	useEffect(() => {
+		if (typeof window.matchMedia !== "function") {
+			setMatches(false);
+			return;
+		}
+
+		const mediaQuery = window.matchMedia(query);
+		setMatches(mediaQuery.matches);
+		const handleChange = () => {
+			setMatches(mediaQuery.matches);
+		};
+		mediaQuery.addEventListener("change", handleChange);
+		return () => {
+			mediaQuery.removeEventListener("change", handleChange);
+		};
+	}, [query]);
+
+	return matches;
+}
+
 export function useFilePreviewDialogModel({
 	open,
 	file,
@@ -202,6 +237,7 @@ export function useFilePreviewDialogModel({
 	translateFileLabel,
 }: FilePreviewDialogModelInput) {
 	const previewApps = usePreviewAppStore((state) => state.config);
+	const isMobilePreviewViewport = useMediaQuery(MOBILE_PREVIEW_MEDIA_QUERY);
 	const previewAppsLoaded = usePreviewAppStore((state) => state.isLoaded);
 	const loadPreviewApps = usePreviewAppStore((state) => state.load);
 	const thumbnailSupport = useThumbnailSupportStore((state) => state.config);
@@ -461,8 +497,11 @@ export function useFilePreviewDialogModel({
 		((activeOption?.mode === "url_template" || activeOption?.mode === "wopi") &&
 			getEmbeddedOptionMode(activeOption) !== "new_tab");
 	const isImagePreview = activeOption?.mode === "image";
+	const shouldAutoExpandPreview = isMobilePreviewViewport || isImagePreview;
 	const isExpanded =
-		isImagePreview && !state.hasManualExpanded ? true : state.isExpanded;
+		shouldAutoExpandPreview && !state.hasManualExpanded
+			? true
+			: state.isExpanded;
 
 	const closeWithGuard = useCallback(() => {
 		if (state.isDirty) {
@@ -523,7 +562,8 @@ export function useFilePreviewDialogModel({
 		? "flex max-h-[min(90vh,calc(100vh-2rem))] w-[min(96vw,32rem)] max-w-[min(96vw,32rem)] flex-col gap-0 overflow-hidden p-0 sm:max-w-[min(96vw,32rem)]"
 		: [
 				"flex max-h-[90vh] w-[min(96vw,1200px)] max-w-[min(96vw,1200px)] flex-col gap-0 overflow-hidden p-0 sm:max-w-[min(96vw,1200px)]",
-				(fillsViewportHeight || isImagePreview || isExpanded) && "h-[90vh]",
+				(fillsViewportHeight || shouldAutoExpandPreview || isExpanded) &&
+					"h-[90vh]",
 				isImagePreview &&
 					"group/image-preview border-zinc-900 bg-zinc-950 shadow-black/35 duration-200 data-open:zoom-in-95 data-closed:zoom-out-95",
 				isExpanded &&

@@ -51,6 +51,7 @@ import {
 } from "./archivePreviewUtils";
 import { PreviewError } from "./PreviewError";
 import { PreviewLoadingState } from "./PreviewLoadingState";
+import { PreviewSurface } from "./PreviewSurface";
 
 function ArchiveSummaryItem({
 	label,
@@ -172,6 +173,12 @@ function ArchivePreviewToolbar({
 
 	return (
 		<div className="flex shrink-0 flex-wrap items-center gap-2 border-border/60 border-b bg-muted/25 px-3 py-2 dark:bg-muted/15">
+			<div className="flex shrink-0 items-center gap-2 text-xs">
+				<Icon name="FileZip" className="size-4 text-muted-foreground" />
+				<span className="font-medium text-foreground">
+					{t("archive_preview_title")}
+				</span>
+			</div>
 			<div className="flex min-w-[14rem] flex-1 items-center gap-2">
 				<Icon
 					name="MagnifyingGlass"
@@ -435,10 +442,7 @@ function ArchivePreviewErrorPane({
 	onRetry: () => void;
 }) {
 	return (
-		<div
-			role="alert"
-			className="flex min-h-[14rem] flex-1 items-center justify-center bg-background/80 dark:bg-background/25"
-		>
+		<div className="flex min-h-[14rem] flex-1 items-center justify-center bg-background/80 dark:bg-background/25">
 			<PreviewError
 				messageKey={archivePreviewErrorMessageKey(error)}
 				onRetry={archivePreviewErrorCanRetry(error) ? onRetry : undefined}
@@ -495,7 +499,7 @@ export function ArchivePreviewContent({
 	);
 
 	return (
-		<div className="flex h-full min-h-0 w-full min-w-0 flex-col overflow-hidden rounded-xl border border-border/70 bg-card shadow-xs dark:shadow-none">
+		<PreviewSurface>
 			<ArchivePreviewToolbar
 				query={query}
 				filenameEncoding={filenameEncoding}
@@ -530,6 +534,6 @@ export function ArchivePreviewContent({
 			{manifest && !loading && !error ? (
 				<ArchivePreviewFooter manifest={manifest} />
 			) : null}
-		</div>
+		</PreviewSurface>
 	);
 }

@@ -9,6 +9,11 @@ import {
 } from "@/stores/musicPlayerStore";
 import type { ShareStreamSessionInfo } from "@/types/api";
 import { PreviewError } from "./PreviewError";
+import {
+	PreviewSurface,
+	PreviewSurfaceContent,
+	PreviewSurfaceToolbar,
+} from "./PreviewSurface";
 import type { PreviewableFileLike } from "./types";
 
 interface MusicPreviewProps {
@@ -130,42 +135,46 @@ export function MusicPreview({
 		: t("music_preview_idle");
 
 	return (
-		<div className="flex min-h-[50vh] items-center justify-center px-6">
-			<div className="flex w-full max-w-xl flex-col items-center gap-4 rounded-lg border border-border/70 bg-card/70 px-6 py-8 text-center shadow-sm dark:bg-card/35">
-				<div className="flex size-14 items-center justify-center rounded-lg bg-primary/10 text-primary">
-					<Icon name="FileAudio" className="size-7" />
+		<PreviewSurface className="min-h-[50vh]">
+			<PreviewSurfaceToolbar
+				icon="FileAudio"
+				label={t("music_player_title")}
+				meta={statusText}
+			/>
+			<PreviewSurfaceContent>
+				<div className="flex h-full min-h-[18rem] items-center justify-center px-6">
+					<div className="flex w-full max-w-sm flex-col items-center gap-4 text-center">
+						<div className="flex size-14 items-center justify-center rounded-lg bg-primary/10 text-primary">
+							<Icon name="FileAudio" className="size-7" />
+						</div>
+						<Button
+							type="button"
+							variant="default"
+							size="sm"
+							onClick={() => {
+								if (isCurrentTrack) {
+									requestPlayback();
+									return;
+								}
+								startPlayback();
+							}}
+							disabled={starting || (isCurrentTrack && isPlaying)}
+						>
+							<Icon
+								name={starting ? "Spinner" : "Play"}
+								className={starting ? "size-4 animate-spin" : "size-4"}
+							/>
+							{starting
+								? t("loading_preview")
+								: isCurrentTrack && isPlaying
+									? t("music_preview_playing")
+									: isCurrentTrack
+										? t("music_preview_resume")
+										: t("music_preview_play")}
+						</Button>
+					</div>
 				</div>
-				<div className="min-w-0">
-					<p className="text-sm font-medium text-muted-foreground">
-						{statusText}
-					</p>
-				</div>
-				<Button
-					type="button"
-					variant="default"
-					size="sm"
-					onClick={() => {
-						if (isCurrentTrack) {
-							requestPlayback();
-							return;
-						}
-						startPlayback();
-					}}
-					disabled={starting || (isCurrentTrack && isPlaying)}
-				>
-					<Icon
-						name={starting ? "Spinner" : "Play"}
-						className={starting ? "size-4 animate-spin" : "size-4"}
-					/>
-					{starting
-						? t("loading_preview")
-						: isCurrentTrack && isPlaying
-							? t("music_preview_playing")
-							: isCurrentTrack
-								? t("music_preview_resume")
-								: t("music_preview_play")}
-				</Button>
-			</div>
-		</div>
+			</PreviewSurfaceContent>
+		</PreviewSurface>
 	);
 }

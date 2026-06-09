@@ -22,6 +22,12 @@ const archiveOption: OpenWithOption = {
 	labelKey: "mode_archive",
 	mode: "archive",
 };
+const pdfOption: OpenWithOption = {
+	icon: "FileText",
+	key: "builtin.pdf",
+	labelKey: "open_with_pdf",
+	mode: "pdf",
+};
 const wopiOption: OpenWithOption = {
 	config: { mode: "iframe" },
 	icon: "FileText",
@@ -211,6 +217,16 @@ describe("useFilePreviewDialogModel", () => {
 		mockState.thumbnailSupportStore.load.mockResolvedValue(undefined);
 		mockState.thumbnailPath.mockClear();
 		mockState.videoBrowserOption = null;
+		vi.mocked(window.matchMedia).mockImplementation((query: string) => ({
+			matches: false,
+			media: query,
+			onchange: null,
+			addEventListener: vi.fn(),
+			removeEventListener: vi.fn(),
+			addListener: vi.fn(),
+			removeListener: vi.fn(),
+			dispatchEvent: vi.fn(),
+		}));
 		vi.useRealTimers();
 	});
 
@@ -532,6 +548,90 @@ describe("useFilePreviewDialogModel", () => {
 			"top-0",
 		);
 		expect(result.current.dialogOverlayClassName).toContain("bg-zinc-950/88");
+	});
+
+	it("keeps PDF previews windowed on desktop", () => {
+		mockState.detectFilePreviewProfile.mockReturnValue(
+			profile({
+				category: "pdf",
+				defaultMode: "builtin.pdf",
+				isBlobPreview: true,
+				isEditableText: false,
+				isTextBased: false,
+				options: [pdfOption],
+			}),
+		);
+
+		const { result } = renderModel({
+			file: file({
+				extension: "pdf",
+				file_category: "document",
+				mime_type: "application/pdf",
+				name: "manual.pdf",
+			}),
+			openMode: "direct",
+		});
+
+		expect(result.current.isImagePreview).toBe(false);
+		expect(result.current.isExpanded).toBe(false);
+		expect(result.current.dialogContentClassName.split(/\s+/)).not.toContain(
+			"top-0",
+		);
+		expect(result.current.dialogOverlayClassName).toBeUndefined();
+	});
+
+	it("defaults non-image previews to fullscreen on mobile while preserving manual restore", () => {
+		vi.mocked(window.matchMedia).mockImplementation((query: string) => ({
+			matches: query === "(max-width: 767px)",
+			media: query,
+			onchange: null,
+			addEventListener: vi.fn(),
+			removeEventListener: vi.fn(),
+			addListener: vi.fn(),
+			removeListener: vi.fn(),
+			dispatchEvent: vi.fn(),
+		}));
+		mockState.detectFilePreviewProfile.mockReturnValue(
+			profile({
+				category: "pdf",
+				defaultMode: "builtin.pdf",
+				isBlobPreview: true,
+				isEditableText: false,
+				isTextBased: false,
+				options: [pdfOption],
+			}),
+		);
+
+		const { result } = renderModel({
+			file: file({
+				extension: "pdf",
+				file_category: "document",
+				mime_type: "application/pdf",
+				name: "manual.pdf",
+			}),
+			openMode: "direct",
+		});
+
+		expect(result.current.isImagePreview).toBe(false);
+		expect(result.current.isExpanded).toBe(true);
+		expect(result.current.dialogContentClassName.split(/\s+/)).toEqual(
+			expect.arrayContaining([
+				"top-0",
+				"left-0",
+				"h-screen",
+				"w-screen",
+				"rounded-none",
+			]),
+		);
+
+		act(() => {
+			result.current.handleExpandToggle();
+		});
+
+		expect(result.current.isExpanded).toBe(false);
+		expect(result.current.dialogContentClassName.split(/\s+/)).not.toContain(
+			"top-0",
+		);
 	});
 
 	it("does not apply image overlay styling to non-image previews", () => {

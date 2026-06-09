@@ -87,7 +87,8 @@ describe("XmlPreview", () => {
 			<XmlPreview path="/files/data.xml" mode="formatted" />,
 		);
 
-		expect(screen.getByText("XML · formatted")).toBeInTheDocument();
+		expect(screen.getByText("preview_mode_xml")).toBeInTheDocument();
+		expect(screen.getByText("preview_mode_formatted")).toBeInTheDocument();
 		expect(container.querySelector("pre")).toHaveTextContent("<root>");
 		expect(container.querySelector("pre")).toHaveTextContent(
 			/<child>\s*value\s*<\/child>/,

@@ -120,7 +120,8 @@ describe("JsonPreview", () => {
 
 		const { container } = render(<JsonPreview path="/files/data.json" />);
 
-		expect(screen.getByText("JSON · formatted")).toBeInTheDocument();
+		expect(screen.getByText("preview_mode_json")).toBeInTheDocument();
+		expect(screen.getByText("preview_mode_formatted")).toBeInTheDocument();
 		expect(container.querySelector("pre")).toHaveTextContent(
 			/"name": "AsterDrive",/,
 		);

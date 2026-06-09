@@ -11,6 +11,11 @@ import {
 import { getEditorLanguage } from "./file-capabilities";
 import { PreviewError } from "./PreviewError";
 import { PreviewLoadingState } from "./PreviewLoadingState";
+import {
+	PreviewSurface,
+	PreviewSurfaceContent,
+	PreviewSurfaceToolbar,
+} from "./PreviewSurface";
 import type { PreviewableFileLike } from "./types";
 
 interface TextCodePreviewProps {
@@ -113,52 +118,48 @@ export function TextCodePreview({
 	const language = getEditorLanguage(file);
 	const modeText = (modeLabel?.trim() ?? "") || t("files:open_with_code");
 	const statusText = dirty ? t("files:unsaved_changes") : t("core:active");
+	const toolbarMeta = (
+		<span className="inline-flex min-w-0 items-center gap-2">
+			<span className="truncate">{modeText}</span>
+			<span className="shrink-0 text-muted-foreground/60">·</span>
+			<span className="shrink-0">{statusText}</span>
+			{editing ? (
+				<>
+					<span className="shrink-0 text-muted-foreground/60">·</span>
+					<span className="truncate">{t("files:save_shortcut_hint")}</span>
+				</>
+			) : null}
+		</span>
+	);
+	const toolbarActions = !editing ? (
+		editable ? (
+			<Button variant="outline" size="sm" onClick={startEditing}>
+				<Icon name="PencilSimple" className="mr-1 size-3.5" />
+				{t("core:edit")}
+			</Button>
+		) : null
+	) : (
+		<>
+			<Button variant="default" size="sm" onClick={save} disabled={saving}>
+				<Icon name="FloppyDisk" className="mr-1 size-3.5" />
+				{saving ? t("files:saving") : t("core:save")}
+			</Button>
+			<Button variant="outline" size="sm" onClick={cancelEditing}>
+				<Icon name="Undo" className="mr-1 size-3.5" />
+				{t("core:cancel")}
+			</Button>
+		</>
+	);
 
 	return (
-		<div className="flex h-full min-h-0 w-full min-w-0 flex-col overflow-hidden rounded-xl border border-border/70 bg-card shadow-xs dark:shadow-none">
-			<div className="flex flex-wrap items-center gap-3 border-b border-border/60 bg-muted/25 px-4 py-2 dark:bg-muted/15">
-				<div className="flex min-w-0 flex-1 items-center gap-3 text-xs text-muted-foreground">
-					<Icon name="FileCode" className="size-4 text-muted-foreground" />
-					<span className="font-medium text-foreground">{language}</span>
-					<span>·</span>
-					<span>{modeText}</span>
-					<span>·</span>
-					<span>{statusText}</span>
-					{editing ? (
-						<>
-							<span>·</span>
-							<span>{t("files:save_shortcut_hint")}</span>
-						</>
-					) : null}
-				</div>
-				<div className="ml-auto flex items-center gap-2">
-					{!editing ? (
-						editable ? (
-							<Button variant="outline" size="sm" onClick={startEditing}>
-								<Icon name="PencilSimple" className="mr-1 size-3.5" />
-								{t("core:edit")}
-							</Button>
-						) : null
-					) : (
-						<>
-							<Button
-								variant="default"
-								size="sm"
-								onClick={save}
-								disabled={saving}
-							>
-								<Icon name="FloppyDisk" className="mr-1 size-3.5" />
-								{saving ? t("files:saving") : t("core:save")}
-							</Button>
-							<Button variant="outline" size="sm" onClick={cancelEditing}>
-								<Icon name="Undo" className="mr-1 size-3.5" />
-								{t("core:cancel")}
-							</Button>
-						</>
-					)}
-				</div>
-			</div>
-			<div className="min-h-0 w-full min-w-0 flex-1 overflow-hidden bg-background/80 dark:bg-background/25">
+		<PreviewSurface>
+			<PreviewSurfaceToolbar
+				icon="FileCode"
+				label={language}
+				meta={toolbarMeta}
+				actions={toolbarActions}
+			/>
+			<PreviewSurfaceContent>
 				<CodePreviewEditor
 					key={path}
 					language={language}
@@ -178,7 +179,7 @@ export function TextCodePreview({
 						padding: { top: 12 },
 					}}
 				/>
-			</div>
-		</div>
+			</PreviewSurfaceContent>
+		</PreviewSurface>
 	);
 }

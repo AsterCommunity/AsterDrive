@@ -6,6 +6,11 @@ import { logger } from "@/lib/logger";
 import type { ShareStreamSessionInfo } from "@/types/api";
 import { PreviewError } from "./PreviewError";
 import { PreviewLoadingState } from "./PreviewLoadingState";
+import {
+	PreviewSurface,
+	PreviewSurfaceContent,
+	PreviewSurfaceToolbar,
+} from "./PreviewSurface";
 import type { PreviewableFileLike } from "./types";
 
 const DEFAULT_ASPECT_RATIO = 16 / 9;
@@ -154,38 +159,71 @@ export function VideoPreview({
 	}, [file.name, mediaFailed, playerFailed, playerLanguage, videoSource]);
 
 	if (streamLinkFailed || mediaFailed) {
-		return <PreviewError />;
+		return (
+			<PreviewSurface>
+				<PreviewSurfaceToolbar
+					icon="FileVideo"
+					label={t("preview_mode_video")}
+				/>
+				<PreviewSurfaceContent>
+					<PreviewError />
+				</PreviewSurfaceContent>
+			</PreviewSurface>
+		);
 	}
 
 	if (!videoSource) {
-		return <PreviewLoadingState text={t("loading_preview")} />;
+		return (
+			<PreviewSurface>
+				<PreviewSurfaceToolbar
+					icon="FileVideo"
+					label={t("preview_mode_video")}
+				/>
+				<PreviewSurfaceContent>
+					<PreviewLoadingState text={t("loading_preview")} className="h-full" />
+				</PreviewSurfaceContent>
+			</PreviewSurface>
+		);
 	}
 
 	if (playerFailed) {
 		return (
-			<div
-				className="mx-auto w-full overflow-hidden rounded-xl bg-zinc-950"
-				style={previewFrameStyle}
-			>
-				{/* biome-ignore lint/a11y/useMediaCaption: user-uploaded media may not have captions available */}
-				<video
-					src={videoSource}
-					aria-label={file.name}
-					controls
-					preload="metadata"
-					onError={() => setMediaFailed(true)}
-					className="block h-full w-full object-contain"
+			<PreviewSurface>
+				<PreviewSurfaceToolbar
+					icon="FileVideo"
+					label={t("preview_mode_video")}
 				/>
-			</div>
+				<PreviewSurfaceContent className="flex items-center justify-center p-4">
+					<div
+						className="w-full overflow-hidden rounded-lg bg-zinc-950"
+						style={previewFrameStyle}
+					>
+						{/* biome-ignore lint/a11y/useMediaCaption: user-uploaded media may not have captions available */}
+						<video
+							src={videoSource}
+							aria-label={file.name}
+							controls
+							preload="metadata"
+							onError={() => setMediaFailed(true)}
+							className="block h-full w-full object-contain"
+						/>
+					</div>
+				</PreviewSurfaceContent>
+			</PreviewSurface>
 		);
 	}
 
 	return (
-		<div
-			className="mx-auto w-full overflow-hidden rounded-xl bg-zinc-950"
-			style={previewFrameStyle}
-		>
-			<div ref={containerRef} className="h-full w-full" />
-		</div>
+		<PreviewSurface>
+			<PreviewSurfaceToolbar icon="FileVideo" label={t("preview_mode_video")} />
+			<PreviewSurfaceContent className="flex items-center justify-center p-4">
+				<div
+					className="w-full overflow-hidden rounded-lg bg-zinc-950"
+					style={previewFrameStyle}
+				>
+					<div ref={containerRef} className="h-full w-full" />
+				</div>
+			</PreviewSurfaceContent>
+		</PreviewSurface>
 	);
 }

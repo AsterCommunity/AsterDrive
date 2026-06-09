@@ -21,7 +21,10 @@ const mockState = vi.hoisted(() => ({
 
 vi.mock("react-i18next", () => ({
 	useTranslation: () => ({
-		t: (key: string) => key,
+		t: (key: string, options?: Record<string, unknown>) =>
+			key === "pdf_zoom_percent" && options?.zoom != null
+				? `${key}:${options.zoom}`
+				: key,
 	}),
 }));
 

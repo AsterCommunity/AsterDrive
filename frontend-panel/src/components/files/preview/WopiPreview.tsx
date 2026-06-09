@@ -1,4 +1,5 @@
 import {
+	type ReactNode,
 	useCallback,
 	useEffect,
 	useMemo,
@@ -17,6 +18,7 @@ import {
 	TRUSTED_DOCUMENT_VIEWER_IFRAME_SANDBOX,
 } from "./EmbeddedWebAppPreview";
 import { PreviewLoadingState } from "./PreviewLoadingState";
+import { PreviewSurface, PreviewSurfaceContent } from "./PreviewSurface";
 import type { WopiSessionResource } from "./wopiSessionResource";
 
 interface WopiPreviewProps {
@@ -55,6 +57,31 @@ function buildWopiFormFields(
 		access_token_ttl: String(session.access_token_ttl),
 		...(session.form_fields ?? {}),
 	};
+}
+
+function WopiPreviewStatePane({
+	action,
+	description,
+	icon,
+	title,
+}: {
+	action?: ReactNode;
+	description: string;
+	icon: ReactNode;
+	title: string;
+}) {
+	return (
+		<PreviewSurface>
+			<PreviewSurfaceContent>
+				<EmptyState
+					icon={icon}
+					title={title}
+					description={description}
+					action={action}
+				/>
+			</PreviewSurfaceContent>
+		</PreviewSurface>
+	);
 }
 
 export function WopiPreview({
@@ -155,7 +182,7 @@ export function WopiPreview({
 
 	if (!session) {
 		return (
-			<EmptyState
+			<WopiPreviewStatePane
 				icon={<Icon name="Globe" className="size-10" />}
 				title={t("wopi_unavailable")}
 				description={t("wopi_unavailable_desc")}
@@ -180,7 +207,7 @@ export function WopiPreview({
 		return (
 			<>
 				{form}
-				<EmptyState
+				<WopiPreviewStatePane
 					icon={<Icon name="ArrowSquareOut" className="size-10" />}
 					title={label}
 					description={t("wopi_external_desc", { label })}
