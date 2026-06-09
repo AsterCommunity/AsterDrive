@@ -135,9 +135,10 @@ export function MusicPreview({
 				<div className="flex size-14 items-center justify-center rounded-lg bg-primary/10 text-primary">
 					<Icon name="FileAudio" className="size-7" />
 				</div>
-				<div className="min-w-0 space-y-1">
-					<p className="max-w-md truncate text-sm font-medium">{file.name}</p>
-					<p className="text-sm text-muted-foreground">{statusText}</p>
+				<div className="min-w-0">
+					<p className="text-sm font-medium text-muted-foreground">
+						{statusText}
+					</p>
 				</div>
 				<Button
 					type="button"

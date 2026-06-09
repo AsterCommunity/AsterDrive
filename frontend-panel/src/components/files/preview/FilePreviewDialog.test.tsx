@@ -95,6 +95,22 @@ vi.mock("@/components/files/FileTypeIcon", () => ({
 	}) => <span>{`${mimeType}:${fileName}`}</span>,
 }));
 
+vi.mock("@/components/files/FileThumbnail", () => ({
+	FileThumbnail: ({
+		file,
+		thumbnailPath,
+	}: {
+		file: { name: string };
+		thumbnailPath?: string;
+	}) => (
+		<span
+			data-testid="file-thumbnail"
+			data-file-name={file.name}
+			data-thumbnail-path={thumbnailPath ?? ""}
+		/>
+	),
+}));
+
 vi.mock("@/components/ui/button", () => ({
 	Button: ({
 		children,
@@ -485,7 +501,12 @@ describe("FilePreviewDialog", () => {
 
 		expect(mockState.downloadPath).toHaveBeenCalledWith(7);
 		expect(screen.getByText("files:choose_open_method")).toBeInTheDocument();
-		expect(screen.getByText("notes.md · bytes:128")).toBeInTheDocument();
+		expect(screen.getByText("notes.md")).toBeInTheDocument();
+		expect(screen.getByText("bytes:128")).toBeInTheDocument();
+		expect(screen.getByTestId("file-thumbnail")).toHaveAttribute(
+			"data-thumbnail-path",
+			"/files/7/thumbnail",
+		);
 		expect(
 			screen.getByTestId("dialog-content").className.split(/\s+/),
 		).toContain("max-h-[min(90vh,calc(100vh-2rem))]");

@@ -78,6 +78,7 @@ export function FilePreviewDialog({
 							visibleOptions={model.visibleOptions}
 							hiddenOptions={model.hiddenOptions}
 							showAllOpenMethods={model.showAllOpenMethods}
+							thumbnailPath={model.resolvedThumbnailPath}
 							getOptionLabel={model.getOptionLabel}
 							onClose={onClose}
 							onSelect={model.handleOpenMethodSelect}
@@ -144,6 +145,7 @@ export function FilePreviewDialog({
 							fillsViewportHeight={model.fillsViewportHeight}
 							isExpanded={model.isExpanded}
 							isDirty={model.isDirty}
+							thumbnailPath={model.resolvedThumbnailPath}
 							onChooseOpenMethod={model.handleOpenMethodPickerOpen}
 							onToggleExpand={model.handleExpandToggle}
 							onClose={model.closeWithGuard}

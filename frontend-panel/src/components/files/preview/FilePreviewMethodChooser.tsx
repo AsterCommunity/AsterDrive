@@ -1,12 +1,11 @@
 import { PreviewAppIcon } from "@/components/common/PreviewAppIcon";
-import { FileTypeIcon } from "@/components/files/FileTypeIcon";
 import { Button } from "@/components/ui/button";
 import { DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Icon } from "@/components/ui/icon";
-import { formatBytes } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import type { FileInfo, FileListItem } from "@/types/api";
 import { AnimatedCollapsible } from "./AnimatedCollapsible";
+import { FilePreviewFileSummary } from "./FilePreviewFileSummary";
 import type { OpenWithMode, OpenWithOption } from "./types";
 
 interface FilePreviewMethodChooserProps {
@@ -16,6 +15,7 @@ interface FilePreviewMethodChooserProps {
 	visibleOptions: OpenWithOption[];
 	hiddenOptions: OpenWithOption[];
 	showAllOpenMethods: boolean;
+	thumbnailPath?: string;
 	getOptionLabel: (option: OpenWithOption) => string;
 	onClose: () => void;
 	onSelect: (mode: OpenWithMode) => void;
@@ -32,6 +32,7 @@ export function FilePreviewMethodChooser({
 	visibleOptions,
 	hiddenOptions,
 	showAllOpenMethods,
+	thumbnailPath,
 	getOptionLabel,
 	onClose,
 	onSelect,
@@ -42,22 +43,13 @@ export function FilePreviewMethodChooser({
 }: FilePreviewMethodChooserProps) {
 	return (
 		<>
-			<DialogHeader className="border-b px-5 py-4">
-				<div className="flex items-center gap-3">
-					<div className="flex size-10 items-center justify-center rounded-xl bg-muted text-muted-foreground">
-						<FileTypeIcon
-							mimeType={file.mime_type}
-							fileName={file.name}
-							className="size-5"
-						/>
-					</div>
-					<div className="min-w-0 flex-1">
-						<DialogTitle className="truncate">
+			<DialogHeader className="border-b bg-background px-5 py-4">
+				<div className="flex items-start gap-3">
+					<div className="min-w-0 flex-1 space-y-3">
+						<DialogTitle className="truncate text-base font-semibold">
 							{chooseOpenMethodLabel}
 						</DialogTitle>
-						<p className="mt-1 truncate text-sm text-muted-foreground">
-							{file.name} · {formatBytes(file.size)}
-						</p>
+						<FilePreviewFileSummary file={file} thumbnailPath={thumbnailPath} />
 					</div>
 					<Button
 						variant="ghost"
@@ -104,12 +96,14 @@ export function FilePreviewMethodChooser({
 					{!showAllOpenMethods && allOptions.length > 0 ? (
 						<Button
 							variant="ghost"
-							className="h-auto justify-start rounded-xl border border-dashed px-3.5 py-2.5 text-left text-muted-foreground"
+							className="h-11 justify-start rounded-lg border border-dashed px-3 text-left text-muted-foreground"
 							onClick={onShowAllOpenMethods}
 						>
-							<div className="flex w-full items-center gap-2.5">
+							<div className="flex w-full items-center gap-2">
 								<div className="min-w-0 flex-1">
-									<div className="font-medium">{moreOpenMethodsLabel}</div>
+									<div className="truncate text-sm font-medium">
+										{moreOpenMethodsLabel}
+									</div>
 								</div>
 								<Icon name="CaretDown" className="size-4" />
 							</div>
@@ -136,17 +130,18 @@ function OpenMethodButton({
 		<Button
 			variant="ghost"
 			className={cn(
-				"h-auto justify-start rounded-xl border px-3.5 py-2.5 text-left",
-				isActive && "border-primary bg-accent text-foreground",
+				"h-14 justify-start rounded-lg border border-border/65 px-3 text-left hover:border-primary/35 hover:bg-muted/25",
+				isActive &&
+					"border-primary bg-accent text-foreground ring-1 ring-primary/20 hover:bg-accent",
 			)}
 			onClick={() => onSelect(option.key)}
 		>
-			<div className="flex w-full items-center gap-2.5">
-				<div className="flex size-9 items-center justify-center rounded-lg bg-muted text-muted-foreground">
+			<div className="flex w-full items-center gap-3">
+				<div className="flex size-9 shrink-0 items-center justify-center rounded-md border border-border/50 bg-muted/35 text-muted-foreground">
 					<PreviewAppIcon icon={option.icon} className="size-4" />
 				</div>
 				<div className="min-w-0 flex-1">
-					<div className="truncate font-medium">{label}</div>
+					<div className="truncate text-sm font-medium">{label}</div>
 				</div>
 				<Icon
 					name={isActive ? "Check" : "CaretRight"}

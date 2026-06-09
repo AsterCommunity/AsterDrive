@@ -111,13 +111,25 @@ export function TextCodePreview({
 	}
 
 	const language = getEditorLanguage(file);
+	const modeText = (modeLabel?.trim() ?? "") || t("files:open_with_code");
+	const statusText = dirty ? t("files:unsaved_changes") : t("core:active");
 
 	return (
 		<div className="flex h-full min-h-0 w-full min-w-0 flex-col overflow-hidden rounded-xl border border-border/70 bg-card shadow-xs dark:shadow-none">
-			<div className="flex items-center gap-2 border-b border-border/60 bg-muted/25 px-4 py-2 dark:bg-muted/15">
-				<div className="flex items-center gap-2">
+			<div className="flex flex-wrap items-center gap-3 border-b border-border/60 bg-muted/25 px-4 py-2 dark:bg-muted/15">
+				<div className="flex min-w-0 flex-1 items-center gap-3 text-xs text-muted-foreground">
 					<Icon name="FileCode" className="size-4 text-muted-foreground" />
-					<span className="text-sm font-medium">{file.name}</span>
+					<span className="font-medium text-foreground">{language}</span>
+					<span>·</span>
+					<span>{modeText}</span>
+					<span>·</span>
+					<span>{statusText}</span>
+					{editing ? (
+						<>
+							<span>·</span>
+							<span>{t("files:save_shortcut_hint")}</span>
+						</>
+					) : null}
 				</div>
 				<div className="ml-auto flex items-center gap-2">
 					{!editing ? (
@@ -145,23 +157,6 @@ export function TextCodePreview({
 						</>
 					)}
 				</div>
-			</div>
-			<div className="flex items-center gap-3 border-b border-border/50 bg-background/70 px-4 py-2 text-xs text-muted-foreground dark:bg-background/25">
-				<span>{language}</span>
-				<span>·</span>
-				<span>
-					{editable && editing
-						? t("core:edit")
-						: (modeLabel?.trim() ?? "") || t("files:open_with_code")}
-				</span>
-				<span>·</span>
-				<span>{dirty ? t("files:unsaved_changes") : t("core:active")}</span>
-				{editing ? (
-					<>
-						<span>·</span>
-						<span>{t("files:save_shortcut_hint")}</span>
-					</>
-				) : null}
 			</div>
 			<div className="min-h-0 w-full min-w-0 flex-1 overflow-hidden bg-background/80 dark:bg-background/25">
 				<CodePreviewEditor

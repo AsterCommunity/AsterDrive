@@ -74,7 +74,7 @@ describe("MusicPreview", () => {
 		);
 
 		expect(document.querySelector("audio")).toBeNull();
-		expect(screen.getByText("track.mp3")).toBeInTheDocument();
+		expect(screen.queryByText("track.mp3")).not.toBeInTheDocument();
 		expect(screen.getByText("music_preview_idle")).toBeInTheDocument();
 		expect(
 			screen.getByRole("button", { name: "music_preview_play" }),
