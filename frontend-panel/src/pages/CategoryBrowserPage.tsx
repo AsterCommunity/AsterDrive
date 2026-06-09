@@ -18,6 +18,7 @@ import { AppLayout } from "@/components/layout/AppLayout";
 import { handleApiError } from "@/hooks/useApiError";
 import { usePageTitle } from "@/hooks/usePageTitle";
 import { useSelectionShortcuts } from "@/hooks/useSelectionShortcuts";
+import { startAuthenticatedDownload } from "@/lib/authenticatedDownload";
 import {
 	FILE_CATEGORY_BY_ROUTE_SEGMENT,
 	workspaceFolderPath,
@@ -264,10 +265,9 @@ export default function CategoryBrowserPage() {
 	]);
 
 	const handleDownload = useCallback((fileId: number, _fileName: string) => {
-		const anchor = document.createElement("a");
-		anchor.href = fileService.downloadUrl(fileId);
-		anchor.download = "";
-		anchor.click();
+		void startAuthenticatedDownload(fileService.downloadPath(fileId)).catch(
+			handleApiError,
+		);
 	}, []);
 
 	const handleArchiveDownload = useCallback(

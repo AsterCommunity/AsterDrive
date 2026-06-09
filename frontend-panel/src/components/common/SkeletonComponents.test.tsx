@@ -24,7 +24,7 @@ describe("skeleton components", () => {
 	it("renders the configured number of file grid placeholders", () => {
 		const { container } = render(<SkeletonFileGrid count={4} />);
 
-		expect(countSkeletons(container)).toBe(12);
+		expect(countSkeletons(container)).toBe(16);
 	});
 
 	it("renders the configured number of file table placeholders", () => {

@@ -1,5 +1,11 @@
 import type { ComponentProps, ComponentType } from "react";
-import { FaDocker } from "react-icons/fa6";
+import { FaDocker, FaGithub } from "react-icons/fa6";
+import {
+	LuBookOpenText,
+	LuDatabaseZap,
+	LuScale,
+	LuServerCog,
+} from "react-icons/lu";
 import {
 	PiArrowClockwise,
 	PiArrowCounterClockwise,
@@ -109,6 +115,7 @@ export type IconName =
 	| "ArrowsInCardinal"
 	| "ArrowsClockwise"
 	| "ArrowsOutCardinal"
+	| "BookOpenText"
 	| "BracketsCurly"
 	| "CaretDown"
 	| "CaretLeft"
@@ -121,6 +128,7 @@ export type IconName =
 	| "Cloud"
 	| "Copy"
 	| "Cpu"
+	| "DatabaseZap"
 	| "Docker"
 	| "DotsThree"
 	| "Download"
@@ -141,6 +149,7 @@ export type IconName =
 	| "FolderPlus"
 	| "Gauge"
 	| "Gear"
+	| "Github"
 	| "Globe"
 	| "Grid"
 	| "HardDrive"
@@ -170,7 +179,9 @@ export type IconName =
 	| "Queue"
 	| "Repeat"
 	| "RepeatOnce"
+	| "Scale"
 	| "Scroll"
+	| "ServerCog"
 	| "Shield"
 	| "SignIn"
 	| "SignOut"
@@ -207,6 +218,7 @@ const iconMap: Record<IconName, ComponentType<{ className?: string }>> = {
 	ArrowsInCardinal: PiArrowsInCardinal,
 	ArrowsClockwise: PiArrowsClockwise,
 	ArrowsOutCardinal: PiArrowsOutCardinal,
+	BookOpenText: LuBookOpenText,
 	BracketsCurly: PiBracketsCurly,
 	CaretDown: PiCaretDown,
 	CaretLeft: PiCaretLeft,
@@ -219,6 +231,7 @@ const iconMap: Record<IconName, ComponentType<{ className?: string }>> = {
 	Cloud: PiCloud,
 	Copy: PiCopy,
 	Cpu: PiCpu,
+	DatabaseZap: LuDatabaseZap,
 	Docker: FaDocker,
 	DotsThree: PiDotsThree,
 	Download: PiDownloadSimple,
@@ -239,6 +252,7 @@ const iconMap: Record<IconName, ComponentType<{ className?: string }>> = {
 	FolderPlus: PiFolderPlus,
 	Gauge: PiGauge,
 	Gear: PiGear,
+	Github: FaGithub,
 	Globe: PiGlobe,
 	Grid: PiGridFour,
 	HardDrive: PiHardDrive,
@@ -268,7 +282,9 @@ const iconMap: Record<IconName, ComponentType<{ className?: string }>> = {
 	Queue: PiQueue,
 	Repeat: PiRepeat,
 	RepeatOnce: PiRepeatOnce,
+	Scale: LuScale,
 	Scroll: PiScroll,
+	ServerCog: LuServerCog,
 	Shield: PiShield,
 	SignIn: PiSignIn,
 	SignOut: PiSignOut,

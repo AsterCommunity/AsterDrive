@@ -6,5 +6,7 @@
 	"settings_display_name_placeholder": "输入展示名称",
 	"settings_display_name_hint": "登录用户名仍为 @{{username}}，留空则回退为用户名。",
 	"settings_username_readonly_hint": "用户名用于登录，不支持修改。",
+	"settings_account_readonly": "账号信息",
+	"settings_account_readonly_desc": "这些字段用于登录和通知，目前只能在系统流程中变更。",
 	"settings_profile_updated": "个人资料已更新。"
 }

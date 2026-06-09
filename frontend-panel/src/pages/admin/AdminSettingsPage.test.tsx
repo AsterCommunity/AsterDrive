@@ -144,9 +144,35 @@ const translationMap: Record<string, string> = {
 		"media_processing_editor_processor_test_command",
 	media_processing_editor_processor_testing_command:
 		"media_processing_editor_processor_testing_command",
-	media_processing_editor_processor_enabled_desc:
-		"media_processing_editor_processor_enabled_desc",
-	thumbnail_processor_images: "AsterDrive Built-in",
+	media_processing_editor_processor_builtin_desc:
+		"AsterDrive built-in pipeline.",
+	media_processing_editor_processor_builtin_hint: "AsterDrive built-in hint.",
+	media_processing_editor_processor_builtin_image_desc:
+		"AsterDrive built-in image pipeline.",
+	media_processing_editor_processor_builtin_image_hint:
+		"AsterDrive built-in image hint.",
+	media_processing_editor_processor_builtin_audio_desc:
+		"AsterDrive built-in audio pipeline.",
+	media_processing_editor_processor_builtin_audio_hint:
+		"AsterDrive built-in audio hint.",
+	media_processing_editor_processor_vips_desc: "VIPS image pipeline.",
+	media_processing_editor_processor_ffmpeg_desc:
+		"FFmpeg video thumbnail pipeline.",
+	media_processing_editor_processor_ffprobe_desc:
+		"FFprobe video metadata pipeline.",
+	media_processing_editor_processor_vips_command_desc:
+		"VIPS command description.",
+	media_processing_editor_processor_ffmpeg_command_desc:
+		"FFmpeg command description.",
+	media_processing_editor_processor_ffprobe_command_desc:
+		"FFprobe command description.",
+	media_processing_editor_rule_extensions_vips_desc:
+		"VIPS extensions description.",
+	media_processing_editor_rule_extensions_ffmpeg_desc:
+		"FFmpeg extensions description.",
+	media_processing_editor_rule_extensions_ffprobe_desc:
+		"FFprobe extensions description.",
+	thumbnail_processor_images: "AsterDrive Built-in Image",
 	thumbnail_processor_ffmpeg_cli: "ffmpeg_cli",
 	thumbnail_processor_ffprobe_cli: "ffprobe_cli",
 	thumbnail_processor_lofty: "lofty",
@@ -827,6 +853,38 @@ describe("AdminSettingsPage", () => {
 		expect(mockState.toastSuccess).toHaveBeenCalledWith("settings_saved");
 	});
 
+	it("does not re-open the save bar when a saved boolean comes back as a typed value", async () => {
+		mockState.setConfig.mockImplementationOnce((key: string) =>
+			Promise.resolve(
+				createConfig({
+					key,
+					value: false as unknown as SystemConfig["value"],
+					value_type: "boolean",
+				}),
+			),
+		);
+		render(<AdminSettingsPage section="storage" />);
+
+		await screen.findByRole("button", { name: /settings_category_auth/i });
+		fireEvent.click(screen.getByLabelText("switch:storage.enabled:true"));
+		expect(await screen.findByTestId("settings-save-bar")).toHaveAttribute(
+			"aria-hidden",
+			"false",
+		);
+
+		fireEvent.click(screen.getByRole("button", { name: "save_changes" }));
+
+		await waitFor(() => {
+			expect(mockState.setConfig).toHaveBeenCalledWith(
+				"storage.enabled",
+				"false",
+			);
+		});
+		await waitFor(() => {
+			expect(screen.queryByTestId("settings-save-bar")).not.toBeInTheDocument();
+		});
+	});
+
 	it("opens the mail test dialog with the current user email and sends to the edited recipient", async () => {
 		mockState.listConfigs.mockResolvedValueOnce({
 			items: [
@@ -925,10 +983,10 @@ describe("AdminSettingsPage", () => {
 		expect(desktopNav).not.toBeNull();
 		expect(desktopNav).toHaveClass(
 			"sticky",
-			"top-0",
+			"top-2",
 			"self-start",
 			"border-r",
-			"border-border/40",
+			"border-border/50",
 		);
 	});
 
@@ -2050,7 +2108,7 @@ describe("AdminSettingsPage", () => {
 		expect(saveBar).toHaveAttribute("aria-hidden", "true");
 
 		await act(async () => {
-			await vi.advanceTimersByTimeAsync(140);
+			await vi.advanceTimersByTimeAsync(190);
 		});
 
 		expect(screen.queryByTestId("settings-save-bar")).not.toBeInTheDocument();
@@ -2338,7 +2396,9 @@ describe("AdminSettingsPage", () => {
 		fireEvent.click(
 			await screen.findByRole("button", { name: /settings_section_expand/i }),
 		);
-		expect(await screen.findByText("AsterDrive Built-in")).toBeInTheDocument();
+		expect(
+			await screen.findByText("AsterDrive Built-in Image"),
+		).toBeInTheDocument();
 		expect(screen.getByDisplayValue("custom-vips")).toBeInTheDocument();
 		expect(
 			screen.getAllByRole("button", {

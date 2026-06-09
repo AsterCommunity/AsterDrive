@@ -13,11 +13,20 @@ import { Document, Page, pdfjs } from "react-pdf";
 import "react-pdf/dist/Page/AnnotationLayer.css";
 import "react-pdf/dist/Page/TextLayer.css";
 import { Button } from "@/components/ui/button";
+import {
+	DropdownMenu,
+	DropdownMenuContent,
+	DropdownMenuItem,
+	DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Icon } from "@/components/ui/icon";
 import { Input } from "@/components/ui/input";
-import { resolveApiResourceUrl } from "@/lib/apiUrl";
+import { useBlobUrl } from "@/hooks/useBlobUrl";
+import { startAuthenticatedDownload } from "@/lib/authenticatedDownload";
 import { isImeComposingKeyEvent } from "@/lib/keyboard";
 import { PreviewError } from "./PreviewError";
+import { PreviewLoadingState } from "./PreviewLoadingState";
+import { PreviewSurface, PreviewSurfaceContent } from "./PreviewSurface";
 
 pdfjs.GlobalWorkerOptions.workerSrc = new URL(
 	"pdfjs-dist/build/pdf.worker.min.mjs",
@@ -56,8 +65,17 @@ interface PdfPreviewProps {
 
 export function PdfPreview({ path, fileName }: PdfPreviewProps) {
 	const { t } = useTranslation("files");
-	const documentUrl = useMemo(() => resolveApiResourceUrl(path), [path]);
-	const documentFile = useMemo(() => ({ url: documentUrl }), [documentUrl]);
+	const {
+		blob: documentBlob,
+		blobUrl: documentUrl,
+		error: documentLoadError,
+		loading: documentLoading,
+		retry: retryDocumentLoad,
+	} = useBlobUrl(path, { lane: "preview" });
+	const documentFile = useMemo(
+		() => documentBlob ?? (documentUrl ? { url: documentUrl } : null),
+		[documentBlob, documentUrl],
+	);
 	const [reloadKey, setReloadKey] = useState(0);
 	const [numPages, setNumPages] = useState<number | null>(null);
 	const [pdfError, setPdfError] = useState(false);
@@ -151,6 +169,12 @@ export function PdfPreview({ path, fileName }: PdfPreviewProps) {
 		setNumPages(null);
 		setPdfError(true);
 	}, []);
+
+	const handlePdfRetry = useCallback(() => {
+		setPdfError(false);
+		setReloadKey((currentKey) => currentKey + 1);
+		retryDocumentLoad();
+	}, [retryDocumentLoad]);
 
 	const onPageLoadSuccess = useCallback((page: LoadedPage) => {
 		setPageSize((currentSize) => {
@@ -269,15 +293,20 @@ export function PdfPreview({ path, fileName }: PdfPreviewProps) {
 	}, []);
 
 	const handleOpenInNewTab = useCallback(() => {
+		if (!documentUrl) return;
 		window.open(documentUrl, "_blank", "noopener,noreferrer");
 	}, [documentUrl]);
 
 	const handleDownload = useCallback(() => {
+		if (!documentUrl) {
+			void startAuthenticatedDownload(path);
+			return;
+		}
 		const link = document.createElement("a");
 		link.href = documentUrl;
 		link.download = fileName ?? "document.pdf";
 		link.click();
-	}, [documentUrl, fileName]);
+	}, [documentUrl, fileName, path]);
 
 	// biome-ignore lint/correctness/useExhaustiveDependencies: documentUrl intentionally resets viewer state when the PDF source changes
 	useEffect(() => {
@@ -345,12 +374,11 @@ export function PdfPreview({ path, fileName }: PdfPreviewProps) {
 
 	if (pdfError) {
 		return (
-			<PreviewError
-				onRetry={() => {
-					setPdfError(false);
-					setReloadKey((currentKey) => currentKey + 1);
-				}}
-			/>
+			<PreviewSurface>
+				<PreviewSurfaceContent>
+					<PreviewError onRetry={handlePdfRetry} />
+				</PreviewSurfaceContent>
+			</PreviewSurface>
 		);
 	}
 
@@ -364,30 +392,9 @@ export function PdfPreview({ path, fileName }: PdfPreviewProps) {
 	);
 
 	return (
-		<div className="flex h-full min-h-0 w-full min-w-0 flex-col overflow-hidden rounded-xl border border-border/70 bg-card shadow-xs dark:shadow-none">
-			<div className="border-b border-border/60 bg-muted/20 px-2.5 py-2 dark:bg-muted/15">
-				<div className="flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
-					<div className="flex items-center gap-1.5">
-						<Icon name="FileText" className="size-3.5" />
-						<span>{t("pdf_label")}</span>
-						{numPages !== null && (
-							<>
-								<span>·</span>
-								<span className="tabular-nums">
-									{t("pdf_page_count", { count: numPages })}
-								</span>
-								<span>·</span>
-								<span className="tabular-nums">
-									{t("pdf_page_of_total", {
-										page: currentPage,
-										count: numPages,
-									})}
-								</span>
-							</>
-						)}
-					</div>
-				</div>
-				<div className="mt-2 flex flex-wrap items-center gap-2">
+		<PreviewSurface>
+			<div className="border-b border-border/60 bg-muted/15 px-2 py-1.5 dark:bg-muted/10 md:px-2.5 md:py-2">
+				<div className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-1.5 md:flex md:flex-wrap md:gap-2">
 					<div className="flex items-center gap-1.5 rounded-lg bg-background/70 p-0.5 ring-1 ring-border/50 dark:bg-background/20 dark:ring-border/60">
 						<Button
 							variant="ghost"
@@ -441,7 +448,7 @@ export function PdfPreview({ path, fileName }: PdfPreviewProps) {
 						</Button>
 					</div>
 
-					<div className="flex items-center gap-1.5 rounded-lg bg-background/70 p-0.5 ring-1 ring-border/50 dark:bg-background/20 dark:ring-border/60">
+					<div className="flex min-w-0 items-center justify-center gap-1 rounded-lg bg-background/70 p-0.5 ring-1 ring-border/50 dark:bg-background/20 dark:ring-border/60 md:gap-1.5">
 						<Button
 							variant="ghost"
 							size="icon-xs"
@@ -458,7 +465,7 @@ export function PdfPreview({ path, fileName }: PdfPreviewProps) {
 							onClick={handleResetZoom}
 							title={t("pdf_zoom_reset")}
 							aria-label={t("pdf_zoom_reset")}
-							className="min-w-[4rem] justify-center tabular-nums"
+							className="min-w-[3.25rem] justify-center px-1.5 tabular-nums md:min-w-[4rem] md:px-2"
 						>
 							{t("pdf_zoom_percent", { zoom: effectiveZoomPercent })}
 						</Button>
@@ -476,12 +483,13 @@ export function PdfPreview({ path, fileName }: PdfPreviewProps) {
 							variant={fitWidth ? "secondary" : "ghost"}
 							size="xs"
 							onClick={() => setFitWidth(true)}
+							className="hidden md:inline-flex"
 						>
 							{t("pdf_fit_width")}
 						</Button>
 					</div>
 
-					<div className="flex items-center gap-1.5 rounded-lg bg-background/70 p-0.5 ring-1 ring-border/50 dark:bg-background/20 dark:ring-border/60">
+					<div className="hidden items-center gap-1.5 rounded-lg bg-background/70 p-0.5 ring-1 ring-border/50 dark:bg-background/20 dark:ring-border/60 md:flex">
 						<Button
 							variant="ghost"
 							size="icon-xs"
@@ -502,11 +510,12 @@ export function PdfPreview({ path, fileName }: PdfPreviewProps) {
 						</Button>
 					</div>
 
-					<div className="ml-auto flex items-center gap-1.5 rounded-lg bg-background/70 p-0.5 ring-1 ring-border/50 dark:bg-background/20 dark:ring-border/60">
+					<div className="hidden items-center gap-1.5 rounded-lg bg-background/70 p-0.5 ring-1 ring-border/50 dark:bg-background/20 dark:ring-border/60 md:ml-auto md:flex">
 						<Button
 							variant="ghost"
 							size="icon-xs"
 							onClick={handleOpenInNewTab}
+							disabled={!documentUrl}
 							title={t("pdf_open_new_tab")}
 							aria-label={t("pdf_open_new_tab")}
 						>
@@ -522,69 +531,121 @@ export function PdfPreview({ path, fileName }: PdfPreviewProps) {
 							<Icon name="Download" className="size-4" />
 						</Button>
 					</div>
+					<div className="flex items-center rounded-lg bg-background/70 p-0.5 ring-1 ring-border/50 dark:bg-background/20 dark:ring-border/60 md:hidden">
+						<DropdownMenu>
+							<DropdownMenuTrigger
+								render={
+									<Button
+										variant="ghost"
+										size="icon-xs"
+										title={t("pdf_more_actions")}
+										aria-label={t("pdf_more_actions")}
+									>
+										<Icon name="DotsThree" className="size-4" />
+									</Button>
+								}
+							/>
+							<DropdownMenuContent align="end" className="w-44">
+								<DropdownMenuItem onClick={() => setFitWidth(true)}>
+									<Icon name="ArrowsOutCardinal" className="size-4" />
+									{t("pdf_fit_width")}
+								</DropdownMenuItem>
+								<DropdownMenuItem onClick={handleRotateLeft}>
+									<Icon name="ArrowCounterClockwise" className="size-4" />
+									{t("pdf_rotate_left")}
+								</DropdownMenuItem>
+								<DropdownMenuItem onClick={handleRotateRight}>
+									<Icon name="ArrowClockwise" className="size-4" />
+									{t("pdf_rotate_right")}
+								</DropdownMenuItem>
+								<DropdownMenuItem
+									onClick={handleOpenInNewTab}
+									disabled={!documentUrl}
+								>
+									<Icon name="ArrowSquareOut" className="size-4" />
+									{t("pdf_open_new_tab")}
+								</DropdownMenuItem>
+								<DropdownMenuItem onClick={handleDownload}>
+									<Icon name="Download" className="size-4" />
+									{t("pdf_download")}
+								</DropdownMenuItem>
+							</DropdownMenuContent>
+						</DropdownMenu>
+					</div>
 				</div>
 			</div>
-			<div
-				ref={scrollContainerRef}
-				onScroll={schedulePageSync}
-				className="min-h-0 flex-1 overflow-auto bg-background/80 p-3 dark:bg-background/25"
-			>
-				<Document
-					key={`${documentUrl}:${reloadKey}`}
-					file={documentFile}
-					options={pdfDocumentOptions}
-					onLoadSuccess={onDocumentLoadSuccess}
-					onLoadError={onDocumentLoadError}
-					loading={
-						<div className="p-6 text-sm text-muted-foreground">
-							{t("loading_preview")}
-						</div>
-					}
+			<PreviewSurfaceContent>
+				<div
+					ref={scrollContainerRef}
+					onScroll={schedulePageSync}
+					className="h-full min-h-0 touch-pan-x touch-pan-y overflow-auto bg-background/80 p-2 dark:bg-background/25 md:p-3"
 				>
-					{numPages !== null && (
-						<div className="w-full" style={{ minWidth: renderedPageWidth }}>
-							{paddingTop > 0 && (
-								<div aria-hidden style={{ height: paddingTop }} />
+					{documentLoadError ? (
+						<PreviewError onRetry={retryDocumentLoad} />
+					) : documentLoading || !documentFile ? (
+						<PreviewLoadingState
+							text={t("loading_preview")}
+							className="h-full"
+						/>
+					) : (
+						<Document
+							key={`${documentUrl}:${reloadKey}`}
+							file={documentFile}
+							options={pdfDocumentOptions}
+							onLoadSuccess={onDocumentLoadSuccess}
+							onLoadError={onDocumentLoadError}
+							loading={
+								<div className="p-6 text-sm text-muted-foreground">
+									{t("loading_preview")}
+								</div>
+							}
+						>
+							{numPages !== null && (
+								<div className="w-full" style={{ minWidth: renderedPageWidth }}>
+									{paddingTop > 0 && (
+										<div aria-hidden style={{ height: paddingTop }} />
+									)}
+									{virtualPages.map((virtualPage) => {
+										const pageNumber = virtualPage.index + 1;
+										return (
+											<div
+												key={virtualPage.key}
+												ref={(node) => {
+													if (node) {
+														virtualizer.measureElement(node);
+													}
+												}}
+												data-index={virtualPage.index}
+												className="flex justify-center pb-3"
+												style={{ minWidth: renderedPageWidth }}
+											>
+												<div className="overflow-hidden rounded-lg bg-white ring-1 ring-black/5">
+													<Page
+														pageNumber={pageNumber}
+														width={renderedPageWidth}
+														rotate={rotation}
+														onLoadSuccess={onPageLoadSuccess}
+														loading={
+															<div className="flex h-[250px] w-[200px] items-center justify-center bg-white">
+																<span className="text-sm text-muted-foreground">
+																	{t("loading_preview")}
+																</span>
+															</div>
+														}
+													/>
+												</div>
+											</div>
+										);
+									})}
+									{paddingBottom > 0 && (
+										<div aria-hidden style={{ height: paddingBottom }} />
+									)}
+								</div>
 							)}
-							{virtualPages.map((virtualPage) => {
-								const pageNumber = virtualPage.index + 1;
-								return (
-									<div
-										key={virtualPage.key}
-										ref={(node) => {
-											if (node) {
-												virtualizer.measureElement(node);
-											}
-										}}
-										data-index={virtualPage.index}
-										className="flex justify-center pb-3"
-										style={{ minWidth: renderedPageWidth }}
-									>
-										<div className="overflow-hidden rounded-lg bg-white ring-1 ring-black/5">
-											<Page
-												pageNumber={pageNumber}
-												width={renderedPageWidth}
-												rotate={rotation}
-												onLoadSuccess={onPageLoadSuccess}
-												loading={
-													<div className="flex h-[250px] w-[200px] items-center justify-center bg-white">
-														<span className="text-sm text-muted-foreground">
-															{t("loading_preview")}
-														</span>
-													</div>
-												}
-											/>
-										</div>
-									</div>
-								);
-							})}
-							{paddingBottom > 0 && (
-								<div aria-hidden style={{ height: paddingBottom }} />
-							)}
-						</div>
+						</Document>
 					)}
-				</Document>
-			</div>
-		</div>
+				</div>
+			</PreviewSurfaceContent>
+		</PreviewSurface>
 	);
 }

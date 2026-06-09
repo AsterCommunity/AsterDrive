@@ -15,6 +15,19 @@
 	"about_resources": "Project resources",
 	"about_resources_desc": "Documentation, repository, and license links are available here.",
 	"about_open_docs": "Open docs",
+	"about_open_docs_desc": "Deployment, usage, and maintenance reference",
 	"about_view_repository": "View repository",
-	"about_view_license": "View license"
+	"about_view_repository_desc": "Source code, issues, and releases",
+	"about_view_license": "View license",
+	"about_view_license_desc": "MIT open-source license terms",
+	"about_capabilities": "Console coverage",
+	"about_capabilities_desc": "These modules make up the main administrative work surface.",
+	"about_capability_files": "Files and shares",
+	"about_capability_files_desc": "Manage files, folders, public links, locks, and trash workflows.",
+	"about_capability_access": "Identity and access",
+	"about_capability_access_desc": "Cover users, teams, external sign-in, and access control settings.",
+	"about_capability_storage": "Storage policy",
+	"about_capability_storage_desc": "Maintain storage backends, policy groups, remote nodes, and quota rules.",
+	"about_capability_operations": "Operations",
+	"about_capability_operations_desc": "Review background tasks, audit events, system settings, and processing status."
 }

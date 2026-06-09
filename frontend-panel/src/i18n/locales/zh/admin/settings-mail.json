@@ -6,6 +6,7 @@
 	"settings_mail_template_group_contact_change_notice": "旧邮箱变更通知",
 	"settings_mail_template_group_external_auth_email_verification": "外部登录邮箱验证",
 	"settings_mail_template_group_login_email_code": "登录邮箱验证码",
+	"settings_mail_template_group_user_invitation": "用户邀请",
 	"mail_template_variables_dialog_title": "{{name}} 魔法变量",
 	"mail_template_variables_dialog_desc": "同一模版的主题和 HTML 都可以使用下面这些变量。发送时会自动替换，HTML 正文中的变量会按 HTML 安全转义。",
 	"mail_template_variables_dialog_empty": "当前没有可展示的魔法变量。",
@@ -82,6 +83,10 @@
 	"settings_item_mail_template_login_email_code_subject_desc": "登录邮箱验证码 MFA 邮件的主题模板。",
 	"settings_item_mail_template_login_email_code_html_label": "登录邮箱验证码 HTML 正文",
 	"settings_item_mail_template_login_email_code_html_desc": "登录邮箱验证码 MFA 邮件的 HTML 模板。建议提供完整 HTML 文档，以获得更好的客户端兼容性。",
+	"settings_item_mail_template_user_invitation_subject_label": "用户邀请邮件主题",
+	"settings_item_mail_template_user_invitation_subject_desc": "邀请新用户加入站点时发送邮件的主题模板。",
+	"settings_item_mail_template_user_invitation_html_label": "用户邀请 HTML 正文",
+	"settings_item_mail_template_user_invitation_html_desc": "邀请新用户加入站点时发送邮件的 HTML 模板。建议提供完整 HTML 文档，以获得更好的客户端兼容性。",
 	"settings_item_mail_outbox_dispatch_interval_secs_label": "邮件队列扫描间隔",
 	"settings_item_mail_outbox_dispatch_interval_secs_desc": "系统每隔多久扫描一次待发送的事务邮件队列，并尝试派发已经可以发送的邮件。数值越小，排队邮件发得越快，但轮询也会更频繁。"
 }

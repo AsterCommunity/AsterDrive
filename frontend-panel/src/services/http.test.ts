@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiErrorCode } from "@/types/api-helpers";
 
 type MockAxiosError = {
-	config?: { _retry?: boolean; url?: string };
+	config?: { _retry?: boolean; responseType?: string; url?: string };
 	isAxiosError?: boolean;
 	response?: { data?: unknown; status: number };
 };
@@ -465,6 +465,121 @@ describe("http api helpers", () => {
 		expect(mockState.client).toHaveBeenCalledWith(
 			expect.objectContaining({
 				url: "/files",
+				_retry: true,
+			}),
+		);
+	});
+
+	it("refreshes and retries a protected blob request when the 401 body is an API error blob", async () => {
+		mockState.client.mockResolvedValue({
+			data: {
+				code: ApiErrorCode.Success,
+				msg: "ok",
+				data: new Blob(["retried"]),
+			},
+		});
+
+		await loadHttpModule();
+		const errorHandler = mockState.getErrorHandler();
+		const originalRequest = {
+			responseType: "blob",
+			url: "/files/1/download",
+			_retry: false,
+		};
+
+		await expect(
+			errorHandler({
+				config: originalRequest,
+				response: {
+					status: 401,
+					data: new Blob([
+						JSON.stringify({
+							code: ApiErrorCode.TokenExpired,
+							msg: "Token Expired",
+						}),
+					]),
+				},
+			}),
+		).resolves.toEqual({
+			data: {
+				code: ApiErrorCode.Success,
+				msg: "ok",
+				data: expect.any(Blob),
+			},
+		});
+		expect(mockState.refreshToken).toHaveBeenCalledTimes(1);
+		expect(mockState.client).toHaveBeenCalledWith(
+			expect.objectContaining({
+				responseType: "blob",
+				url: "/files/1/download",
+				_retry: true,
+			}),
+		);
+	});
+
+	it("does not parse skipped endpoint error blobs before rejecting", async () => {
+		await loadHttpModule();
+		const errorHandler = mockState.getErrorHandler();
+		const loginErrorBlob = new Blob([
+			JSON.stringify({
+				code: ApiErrorCode.TokenExpired,
+				msg: "Token Expired",
+			}),
+		]);
+		const textSpy = vi
+			.spyOn(loginErrorBlob, "text")
+			.mockResolvedValue("should not be read");
+		const error = {
+			config: {
+				responseType: "blob",
+				url: "/auth/login",
+				_retry: false,
+			},
+			response: {
+				status: 401,
+				data: loginErrorBlob,
+			},
+		};
+
+		await expect(errorHandler(error)).rejects.toBe(error);
+		expect(textSpy).not.toHaveBeenCalled();
+		expect(mockState.refreshToken).not.toHaveBeenCalled();
+	});
+
+	it("refreshes and retries a protected text request when the 401 body is an API error string", async () => {
+		mockState.client.mockResolvedValue({
+			data: "retried text",
+			status: 200,
+		});
+
+		await loadHttpModule();
+		const errorHandler = mockState.getErrorHandler();
+		const originalRequest = {
+			responseType: "text",
+			url: "/files/1/download",
+			_retry: false,
+		};
+
+		await expect(
+			errorHandler({
+				config: originalRequest,
+				response: {
+					status: 401,
+					data: JSON.stringify({
+						code: ApiErrorCode.TokenExpired,
+						msg: "Token Expired",
+					}),
+				},
+			}),
+		).resolves.toEqual({
+			data: "retried text",
+			status: 200,
+		});
+		expect(mockState.refreshToken).toHaveBeenCalledTimes(1);
+		expect(mockState.client).toHaveBeenCalledWith(
+			expect.objectContaining({
+				responseType: "text",
+				url: "/files/1/download",
 				_retry: true,
 			}),
 		);

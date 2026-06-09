@@ -6,7 +6,7 @@ import type { FileListItem, FolderListItem } from "@/types/api";
 
 const mockState = vi.hoisted(() => ({
 	clearSelection: vi.fn(),
-	downloadUrl: vi.fn(),
+	downloadPath: vi.fn(),
 	getFile: vi.fn(),
 	handleApiError: vi.fn(),
 	loadPreviewApps: vi.fn(),
@@ -47,6 +47,10 @@ vi.mock("@/hooks/useApiError", () => ({
 
 vi.mock("@/hooks/usePageTitle", () => ({
 	usePageTitle: (title: string) => mockState.setPageTitle(title),
+}));
+
+vi.mock("@/lib/authenticatedDownload", () => ({
+	startAuthenticatedDownload: vi.fn(),
 }));
 
 vi.mock("@/stores/workspaceStore", () => ({
@@ -136,7 +140,7 @@ vi.mock("@/services/fileService", () => ({
 	fileService: {
 		deleteFile: vi.fn(),
 		deleteFolder: vi.fn(),
-		downloadUrl: mockState.downloadUrl,
+		downloadPath: mockState.downloadPath,
 		getFile: mockState.getFile,
 		setFileLock: vi.fn(),
 		setFolderLock: vi.fn(),
@@ -266,8 +270,8 @@ function folderItem(id: number, name: string): FolderListItem {
 describe("SearchBrowserPage", () => {
 	beforeEach(() => {
 		mockState.clearSelection.mockReset();
-		mockState.downloadUrl.mockReset();
-		mockState.downloadUrl.mockReturnValue("/api/v1/files/1/download");
+		mockState.downloadPath.mockReset();
+		mockState.downloadPath.mockReturnValue("/files/1/download");
 		mockState.getFile.mockReset();
 		mockState.handleApiError.mockReset();
 		mockState.loadPreviewApps.mockReset();

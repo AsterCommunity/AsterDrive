@@ -9,13 +9,6 @@ import { AdminSurface } from "@/components/layout/AdminSurface";
 import { Badge } from "@/components/ui/badge";
 import { badgeVariants } from "@/components/ui/badgeVariants";
 import { buttonVariants } from "@/components/ui/buttonVariants";
-import {
-	Card,
-	CardContent,
-	CardDescription,
-	CardHeader,
-	CardTitle,
-} from "@/components/ui/card";
 import { Icon, type IconName } from "@/components/ui/icon";
 import { config } from "@/config/app";
 import { usePageTitle } from "@/hooks/usePageTitle";
@@ -218,22 +211,74 @@ export default function AdminAboutPage() {
 	const resourceLinks: {
 		href: string;
 		label: string;
+		description: string;
 		icon: IconName;
 	}[] = [
 		{
 			href: DOCS_URL,
 			label: t("about_open_docs"),
-			icon: "Globe",
+			description: t("about_open_docs_desc"),
+			icon: "BookOpenText",
 		},
 		{
 			href: REPOSITORY_URL,
 			label: t("about_view_repository"),
-			icon: "LinkSimple",
+			description: t("about_view_repository_desc"),
+			icon: "Github",
 		},
 		{
 			href: LICENSE_URL,
 			label: t("about_view_license"),
+			description: t("about_view_license_desc"),
+			icon: "Scale",
+		},
+	];
+	const capabilityItems: {
+		icon: IconName;
+		title: string;
+		description: string;
+	}[] = [
+		{
 			icon: "FileText",
+			title: t("about_capability_files"),
+			description: t("about_capability_files_desc"),
+		},
+		{
+			icon: "Shield",
+			title: t("about_capability_access"),
+			description: t("about_capability_access_desc"),
+		},
+		{
+			icon: "DatabaseZap",
+			title: t("about_capability_storage"),
+			description: t("about_capability_storage_desc"),
+		},
+		{
+			icon: "ServerCog",
+			title: t("about_capability_operations"),
+			description: t("about_capability_operations_desc"),
+		},
+	];
+	const buildDetails: { label: string; value: string; icon: IconName }[] = [
+		{
+			label: t("about_version"),
+			value: displayVersion,
+			icon: "BracketsCurly",
+		},
+		{
+			label: t("about_channel"),
+			value: t(`about_channel_${releaseChannel}`),
+			icon: "Shuffle",
+		},
+		{
+			label: t("about_license"),
+			value: "MIT",
+			icon: "Scroll",
+		},
+		{
+			label: t("about_repository"),
+			value: "AptS-1547/AsterDrive",
+			icon: "Github",
 		},
 	];
 
@@ -242,112 +287,150 @@ export default function AdminAboutPage() {
 			<AdminPageShell>
 				<AdminPageHeader title={t("about")} description={t("about_intro")} />
 
-				<AdminSurface className="flex-none gap-8 overflow-hidden bg-linear-to-br from-primary/[0.07] via-background to-background py-6 md:py-7 lg:flex-row lg:items-start">
-					<div className="flex-1 space-y-5">
-						<div className="space-y-3">
-							<AsterDriveWordmark
-								alt={config.appName}
-								className="h-auto w-full max-w-[320px] md:max-w-[360px]"
-								draggable={false}
-							/>
-							{/* If this badge ever claims perfection, check the build pipeline first. */}
-							<div className="flex flex-wrap items-center gap-2">
-								<Badge variant="outline">{t("about_product_badge")}</Badge>
-								<button
-									type="button"
-									onClick={handleVersionClick}
-									className={cn(
-										badgeVariants(),
-										"cursor-default",
-										VERSION_BADGE_CLASSES[versionBadgeClassIndex],
-									)}
-									aria-label={t("about_version")}
-								>
-									{displayVersion}
-								</button>
-								<Badge
-									variant="outline"
-									className={getChannelBadgeClass(topReleaseChannel)}
-								>
-									{t(`about_channel_${topReleaseChannel}`)}
-								</Badge>
+				<AdminSurface
+					padded={false}
+					className="flex-none overflow-hidden bg-card"
+				>
+					<div className="grid gap-0 lg:grid-cols-[minmax(0,1fr)_380px]">
+						<section className="relative overflow-hidden border-b bg-muted/15 px-5 py-6 md:px-7 md:py-7 lg:border-r lg:border-b-0">
+							<div className="absolute inset-x-0 top-0 h-1 bg-linear-to-r from-emerald-500 via-sky-500 to-amber-500" />
+							<div className="relative space-y-6">
+								<div className="space-y-4">
+									<div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+										<AsterDriveWordmark
+											alt={config.appName}
+											className="h-auto w-full max-w-[300px] md:max-w-[340px]"
+											draggable={false}
+										/>
+										<div className="flex shrink-0 flex-wrap items-center gap-2">
+											<Badge variant="outline" className="bg-background/80">
+												{t("about_product_badge")}
+											</Badge>
+											<button
+												type="button"
+												onClick={handleVersionClick}
+												className={cn(
+													badgeVariants(),
+													"cursor-default transition-colors duration-200 ease-out motion-reduce:transition-none",
+													VERSION_BADGE_CLASSES[versionBadgeClassIndex],
+												)}
+												aria-label={t("about_version")}
+											>
+												{displayVersion}
+											</button>
+											<Badge
+												variant="outline"
+												className={getChannelBadgeClass(topReleaseChannel)}
+											>
+												{t(`about_channel_${topReleaseChannel}`)}
+											</Badge>
+										</div>
+									</div>
+
+									<div className="max-w-3xl space-y-2">
+										<p className="text-lg font-medium tracking-tight text-foreground md:text-xl">
+											{t("about_tagline")}
+										</p>
+										<p className="text-sm leading-6 text-muted-foreground">
+											{t("about_summary")}
+										</p>
+									</div>
+								</div>
+
+								<div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+									{buildDetails.map((detail) => (
+										<div
+											key={detail.label}
+											className="rounded-lg border bg-background/75 p-3 shadow-xs dark:shadow-none"
+										>
+											<div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
+												<Icon name={detail.icon} className="size-4" />
+												{detail.label}
+											</div>
+											<div className="mt-2 min-w-0 truncate text-sm font-semibold">
+												{detail.value}
+											</div>
+										</div>
+									))}
+								</div>
 							</div>
-							<div className="space-y-2">
-								<p className="max-w-2xl text-base text-foreground/85">
-									{t("about_tagline")}
-								</p>
-								<p className="max-w-3xl text-sm leading-6 text-muted-foreground">
-									{t("about_summary")}
+						</section>
+
+						<section className="bg-background px-5 py-5 md:px-6 md:py-6">
+							<div className="space-y-4">
+								<div className="space-y-1">
+									<h3 className="text-sm font-semibold">
+										{t("about_resources")}
+									</h3>
+									<p className="text-sm leading-5 text-muted-foreground">
+										{t("about_resources_desc")}
+									</p>
+								</div>
+
+								<div className="space-y-2">
+									{resourceLinks.map((link) => (
+										<a
+											key={link.href}
+											href={link.href}
+											target="_blank"
+											rel="noreferrer"
+											className={cn(
+												buttonVariants({ variant: "ghost" }),
+												"h-auto w-full justify-between rounded-lg border bg-muted/20 px-3 py-3 text-left hover:bg-muted/50",
+											)}
+										>
+											<span className="flex min-w-0 items-center gap-3">
+												<span className="flex size-9 shrink-0 items-center justify-center rounded-md border bg-background text-muted-foreground">
+													<Icon name={link.icon} className="size-4" />
+												</span>
+												<span className="min-w-0">
+													<span className="block truncate text-sm font-medium text-foreground">
+														{link.label}
+													</span>
+													<span className="block truncate text-xs font-normal text-muted-foreground">
+														{link.description}
+													</span>
+												</span>
+											</span>
+											<Icon
+												name="ArrowSquareOut"
+												className="size-3.5 shrink-0 text-muted-foreground"
+											/>
+										</a>
+									))}
+								</div>
+							</div>
+						</section>
+					</div>
+
+					<section className="border-t px-5 py-5 md:px-7 md:py-6">
+						<div className="mb-4 flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
+							<div>
+								<h3 className="text-sm font-semibold">
+									{t("about_capabilities")}
+								</h3>
+								<p className="text-sm text-muted-foreground">
+									{t("about_capabilities_desc")}
 								</p>
 							</div>
 						</div>
-					</div>
-
-					<Card className="w-full border-0 bg-background/85 py-5 shadow-none ring-1 ring-border/80 lg:max-w-md">
-						<CardHeader className="border-b px-5">
-							<CardTitle>{t("about_resources")}</CardTitle>
-							<CardDescription>{t("about_resources_desc")}</CardDescription>
-						</CardHeader>
-						<CardContent className="space-y-5 px-5 pt-5">
-							<dl className="space-y-3">
-								<div className="flex items-start justify-between gap-4">
-									<dt className="text-sm text-muted-foreground">
-										{t("about_version")}
-									</dt>
-									<dd className="font-mono text-sm font-medium">
-										{displayVersion}
-									</dd>
+						<div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+							{capabilityItems.map((item) => (
+								<div
+									key={item.title}
+									className="rounded-lg border bg-background p-4 shadow-xs transition-colors duration-200 hover:border-primary/35 hover:bg-muted/20 dark:shadow-none motion-reduce:transition-none"
+								>
+									<div className="mb-3 flex size-9 items-center justify-center rounded-md bg-primary/10 text-primary">
+										<Icon name={item.icon} className="size-4" />
+									</div>
+									<h4 className="text-sm font-semibold">{item.title}</h4>
+									<p className="mt-1 text-sm leading-5 text-muted-foreground">
+										{item.description}
+									</p>
 								</div>
-								<div className="flex items-start justify-between gap-4">
-									<dt className="text-sm text-muted-foreground">
-										{t("about_channel")}
-									</dt>
-									<dd className="text-sm font-medium">
-										{t(`about_channel_${releaseChannel}`)}
-									</dd>
-								</div>
-								<div className="flex items-start justify-between gap-4">
-									<dt className="text-sm text-muted-foreground">
-										{t("about_license")}
-									</dt>
-									<dd className="text-sm font-medium">MIT</dd>
-								</div>
-								<div className="flex items-start justify-between gap-4">
-									<dt className="text-sm text-muted-foreground">
-										{t("about_repository")}
-									</dt>
-									{/* A quiet coordinate for anyone reading source instead of clicking links. */}
-									<dd className="text-right text-sm font-medium">
-										AptS-1547/AsterDrive
-									</dd>
-								</div>
-							</dl>
-
-							<div className="grid gap-2 sm:grid-cols-3 lg:grid-cols-1">
-								{resourceLinks.map((link) => (
-									<a
-										key={link.href}
-										href={link.href}
-										target="_blank"
-										rel="noreferrer"
-										className={cn(
-											buttonVariants({ variant: "outline", size: "lg" }),
-											"justify-between rounded-xl",
-										)}
-									>
-										<span className="inline-flex items-center gap-2">
-											<Icon name={link.icon} className="size-4" />
-											{link.label}
-										</span>
-										<Icon
-											name="ArrowSquareOut"
-											className="size-3.5 text-muted-foreground"
-										/>
-									</a>
-								))}
-							</div>
-						</CardContent>
-					</Card>
+							))}
+						</div>
+					</section>
 				</AdminSurface>
 			</AdminPageShell>
 		</AdminLayout>

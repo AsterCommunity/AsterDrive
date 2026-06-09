@@ -104,7 +104,7 @@
 	"storage_native_media_metadata_enabled_desc": "允许当前策略调用存储厂商的媒体信息解析能力。腾讯云 COS 下对应数据万象 GetMediainfo，按请求次数计费；后缀为空时不会触发原生解析。",
 	"storage_native_media_metadata_extensions": "原生媒体信息后缀",
 	"storage_native_media_metadata_extensions_desc": "当前策略自己的音视频后缀列表，逗号分隔。只填写你确认要交给存储后端解析的后缀；留空表示开启开关但暂不处理任何文件。",
-	"thumbnail_processor_images": "AsterDrive 内置",
+	"thumbnail_processor_images": "AsterDrive 内置图片",
 	"chunk_size": "分片大小 (MB)",
 	"chunk_size_desc": "大于此大小的文件使用分片上传。S3 的 relay_stream / presigned 模式，以及远程存储的 presigned 模式下，都会把它作为 multipart 分片大小；S3 multipart 最小 part 大小会按 5 MiB 约束。0 = 始终单次上传。",
 	"set_as_default": "设为默认策略",

@@ -30,6 +30,48 @@ interface MediaProcessingConfigEditorProps {
 	value: string;
 }
 
+type ProcessorKind = MediaProcessingEditorProcessor["kind"];
+type CommandProcessorKind = Extract<
+	ProcessorKind,
+	"ffmpeg_cli" | "ffprobe_cli" | "vips_cli"
+>;
+
+const BUILTIN_PROCESSOR_KINDS = new Set<ProcessorKind>(["images", "lofty"]);
+const COMMAND_PROCESSOR_KINDS = new Set<ProcessorKind>([
+	"vips_cli",
+	"ffmpeg_cli",
+	"ffprobe_cli",
+]);
+
+const PROCESSOR_DESCRIPTION_KEYS: Partial<Record<ProcessorKind, string>> = {
+	ffmpeg_cli: "media_processing_editor_processor_ffmpeg_desc",
+	ffprobe_cli: "media_processing_editor_processor_ffprobe_desc",
+	images: "media_processing_editor_processor_builtin_image_desc",
+	lofty: "media_processing_editor_processor_builtin_audio_desc",
+	vips_cli: "media_processing_editor_processor_vips_desc",
+};
+
+const BUILTIN_PROCESSOR_HINT_KEYS: Partial<Record<ProcessorKind, string>> = {
+	images: "media_processing_editor_processor_builtin_image_hint",
+	lofty: "media_processing_editor_processor_builtin_audio_hint",
+};
+
+const PROCESSOR_EXTENSIONS_DESCRIPTION_KEYS: Partial<
+	Record<ProcessorKind, string>
+> = {
+	ffmpeg_cli: "media_processing_editor_rule_extensions_ffmpeg_desc",
+	ffprobe_cli: "media_processing_editor_rule_extensions_ffprobe_desc",
+	vips_cli: "media_processing_editor_rule_extensions_vips_desc",
+};
+
+const PROCESSOR_COMMAND_DESCRIPTION_KEYS: Partial<
+	Record<CommandProcessorKind, string>
+> = {
+	ffmpeg_cli: "media_processing_editor_processor_ffmpeg_command_desc",
+	ffprobe_cli: "media_processing_editor_processor_ffprobe_command_desc",
+	vips_cli: "media_processing_editor_processor_vips_command_desc",
+};
+
 function parseDraftValue(value: string): MediaProcessingEditorConfig {
 	try {
 		return parseMediaProcessingConfig(value);
@@ -41,7 +83,17 @@ function parseDraftValue(value: string): MediaProcessingEditorConfig {
 	}
 }
 
-function getProcessorLabelKey(kind: MediaProcessingEditorProcessor["kind"]) {
+function isBuiltinProcessor(kind: ProcessorKind) {
+	return BUILTIN_PROCESSOR_KINDS.has(kind);
+}
+
+function processorSupportsCommand(
+	kind: ProcessorKind,
+): kind is CommandProcessorKind {
+	return COMMAND_PROCESSOR_KINDS.has(kind);
+}
+
+function getProcessorLabelKey(kind: ProcessorKind) {
 	switch (kind) {
 		case "vips_cli":
 			return "thumbnail_processor_vips_cli";
@@ -73,6 +125,37 @@ function getProcessorUseLabelKey(
 		case "metadata:video":
 			return "media_processing_editor_use_metadata_video";
 	}
+}
+
+function getProcessorDescriptionKey(kind: ProcessorKind) {
+	return (
+		PROCESSOR_DESCRIPTION_KEYS[kind] ??
+		(isBuiltinProcessor(kind)
+			? "media_processing_editor_processor_builtin_desc"
+			: "media_processing_editor_processor_extensions_desc")
+	);
+}
+
+function getBuiltinProcessorHintKey(kind: ProcessorKind) {
+	return (
+		BUILTIN_PROCESSOR_HINT_KEYS[kind] ??
+		"media_processing_editor_processor_builtin_hint"
+	);
+}
+
+function getProcessorExtensionsDescriptionKey(kind: ProcessorKind) {
+	return (
+		PROCESSOR_EXTENSIONS_DESCRIPTION_KEYS[kind] ??
+		"media_processing_editor_rule_extensions_desc"
+	);
+}
+
+function getProcessorCommandDescriptionKey(kind: ProcessorKind) {
+	return (
+		(processorSupportsCommand(kind)
+			? PROCESSOR_COMMAND_DESCRIPTION_KEYS[kind]
+			: undefined) ?? "media_processing_editor_processor_command_desc"
+	);
 }
 
 export function MediaProcessingConfigEditor({
@@ -179,12 +262,8 @@ export function MediaProcessingConfigEditor({
 
 			<div className="space-y-3">
 				{draft.processors.map((processor) => {
-					const isBuiltinFallback =
-						processor.kind === "images" || processor.kind === "lofty";
-					const supportsCommand =
-						processor.kind === "vips_cli" ||
-						processor.kind === "ffmpeg_cli" ||
-						processor.kind === "ffprobe_cli";
+					const isBuiltinFallback = isBuiltinProcessor(processor.kind);
+					const supportsCommand = processorSupportsCommand(processor.kind);
 					const canTestCommand =
 						(processor.kind === "vips_cli" && onTestVipsCliCommand) ||
 						(processor.kind === "ffmpeg_cli" && onTestFfmpegCliCommand) ||
@@ -199,11 +278,7 @@ export function MediaProcessingConfigEditor({
 											{t(getProcessorLabelKey(processor.kind))}
 										</CardTitle>
 										<CardDescription>
-											{isBuiltinFallback
-												? t("media_processing_editor_processor_builtin_desc")
-												: t(
-														"media_processing_editor_processor_extensions_desc",
-													)}
+											{t(getProcessorDescriptionKey(processor.kind))}
 										</CardDescription>
 									</div>
 									<div className="flex flex-wrap items-center gap-2">
@@ -245,15 +320,12 @@ export function MediaProcessingConfigEditor({
 												? t("media_processing_editor_processor_enabled")
 												: t("media_processing_editor_processor_disabled")}
 										</p>
-										<p className="text-xs text-muted-foreground">
-											{t("media_processing_editor_processor_enabled_desc")}
-										</p>
 									</div>
 								</div>
 
 								{isBuiltinFallback ? (
 									<div className="rounded-lg border border-dashed bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
-										{t("media_processing_editor_processor_builtin_hint")}
+										{t(getBuiltinProcessorHintKey(processor.kind))}
 									</div>
 								) : null}
 
@@ -277,7 +349,7 @@ export function MediaProcessingConfigEditor({
 											)}
 										/>
 										<p className="text-xs text-muted-foreground">
-											{t("media_processing_editor_rule_extensions_desc")}
+											{t(getProcessorExtensionsDescriptionKey(processor.kind))}
 										</p>
 									</div>
 								) : null}
@@ -303,7 +375,7 @@ export function MediaProcessingConfigEditor({
 											)}
 										/>
 										<p className="text-xs text-muted-foreground">
-											{t("media_processing_editor_processor_command_desc")}
+											{t(getProcessorCommandDescriptionKey(processor.kind))}
 										</p>
 										{canTestCommand ? (
 											<div className="pt-1">

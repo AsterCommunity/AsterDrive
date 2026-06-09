@@ -1,5 +1,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { resolveApiResourceUrl } from "@/lib/apiUrl";
+import {
+	isBrowserAddressableResourcePath,
+	isExternalResourceUrl,
+	isPublicResourcePath,
+	normalizeApiResourcePath,
+	resolveApiResourceUrl,
+} from "@/lib/apiUrl";
 
 const appConfig = await import("@/config/app");
 
@@ -44,5 +50,29 @@ describe("resolveApiResourceUrl", () => {
 		expect(resolveApiResourceUrl("/files/7/download")).toBe(
 			"https://api.example.com/v1/files/7/download",
 		);
+	});
+
+	it("classifies resource paths consistently for auth probing", () => {
+		expect(isExternalResourceUrl("https://cdn.example.com/file.pdf")).toBe(
+			true,
+		);
+		expect(isExternalResourceUrl("HTTP://cdn.example.com/file.pdf")).toBe(true);
+		expect(isExternalResourceUrl("blob:pdf-preview")).toBe(true);
+		expect(isExternalResourceUrl("Blob:pdf-preview")).toBe(true);
+		expect(isExternalResourceUrl("/files/7/download")).toBe(false);
+
+		expect(normalizeApiResourcePath("/api/v1/s/token/download")).toBe(
+			"/s/token/download",
+		);
+		expect(normalizeApiResourcePath("/api/v1")).toBe("");
+		expect(normalizeApiResourcePath("/api/v1/")).toBe("/");
+		expect(isPublicResourcePath("/api/v1/s/token/download")).toBe(true);
+		expect(isPublicResourcePath("/s/token/download")).toBe(true);
+		expect(isPublicResourcePath("/files/7/download")).toBe(false);
+
+		expect(isBrowserAddressableResourcePath("/api/v1/files/7/download")).toBe(
+			true,
+		);
+		expect(isBrowserAddressableResourcePath("/files/7/download")).toBe(false);
 	});
 });

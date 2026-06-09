@@ -19,6 +19,7 @@ import type { SearchFilter } from "@/components/layout/global-search/types";
 import { handleApiError } from "@/hooks/useApiError";
 import { usePageTitle } from "@/hooks/usePageTitle";
 import { useSelectionShortcuts } from "@/hooks/useSelectionShortcuts";
+import { startAuthenticatedDownload } from "@/lib/authenticatedDownload";
 import { workspaceFolderPath, workspaceRootPath } from "@/lib/workspace";
 import { FileBrowserDialogs } from "@/pages/file-browser/FileBrowserDialogs";
 import { FileBrowserToolbar } from "@/pages/file-browser/FileBrowserToolbar";
@@ -359,10 +360,9 @@ export default function SearchBrowserPage() {
 	]);
 
 	const handleDownload = useCallback((fileId: number, _fileName: string) => {
-		const anchor = document.createElement("a");
-		anchor.href = fileService.downloadUrl(fileId);
-		anchor.download = "";
-		anchor.click();
+		void startAuthenticatedDownload(fileService.downloadPath(fileId)).catch(
+			handleApiError,
+		);
 	}, []);
 
 	const handleArchiveDownload = useCallback(

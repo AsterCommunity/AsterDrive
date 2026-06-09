@@ -1,11 +1,7 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import {
-	safeTagColor,
-	TagChip,
-	TagChips,
-	tagColorFromName,
-} from "@/components/files/TagChips";
+import { TagChip, TagChips } from "@/components/files/TagChips";
+import { safeTagColor, tagColorFromName } from "@/components/files/tagColors";
 
 vi.mock("@/components/ui/icon", () => ({
 	Icon: ({ name }: { name: string }) => <span>{name}</span>,
@@ -26,6 +22,8 @@ describe("TagChips", () => {
 		expect(tagColorFromName(" Important ")).toBe(tagColorFromName("important"));
 		expect(tagColorFromName("")).toBe("#2563eb");
 		expect(tagColorFromName("   ")).toBe("#2563eb");
+		expect(tagColorFromName(null)).toBe("#2563eb");
+		expect(tagColorFromName(undefined)).toBe("#2563eb");
 	});
 
 	it("renders empty fallback when no tags are available", () => {

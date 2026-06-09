@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { type ReactNode, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { EmptyState } from "@/components/common/EmptyState";
 import { Button } from "@/components/ui/button";
@@ -11,6 +11,7 @@ import {
 	TRUSTED_DOCUMENT_VIEWER_IFRAME_SANDBOX,
 } from "./EmbeddedWebAppPreview";
 import { PreviewLoadingState } from "./PreviewLoadingState";
+import { PreviewSurface, PreviewSurfaceContent } from "./PreviewSurface";
 import {
 	type ResolvedVideoBrowserTarget,
 	resolveUrlTemplateTarget,
@@ -42,6 +43,31 @@ interface UrlTemplatePreviewRequestKey {
 	file: VideoBrowserFileContext;
 	label: string;
 	rawConfig: UrlTemplatePreviewProps["rawConfig"];
+}
+
+function UrlTemplatePreviewStatePane({
+	action,
+	description,
+	icon,
+	title,
+}: {
+	action?: ReactNode;
+	description: string;
+	icon: ReactNode;
+	title: string;
+}) {
+	return (
+		<PreviewSurface>
+			<PreviewSurfaceContent>
+				<EmptyState
+					icon={icon}
+					title={title}
+					description={description}
+					action={action}
+				/>
+			</PreviewSurfaceContent>
+		</PreviewSurface>
+	);
 }
 
 export function UrlTemplatePreview({
@@ -103,7 +129,7 @@ export function UrlTemplatePreview({
 
 	if (!target) {
 		return (
-			<EmptyState
+			<UrlTemplatePreviewStatePane
 				icon={<Icon name="Globe" className="size-10" />}
 				title={t("url_template_unavailable")}
 				description={t("url_template_unavailable_desc")}
@@ -113,7 +139,7 @@ export function UrlTemplatePreview({
 
 	if (target.mode === "new_tab") {
 		return (
-			<EmptyState
+			<UrlTemplatePreviewStatePane
 				icon={<Icon name="ArrowSquareOut" className="size-10" />}
 				title={target.label}
 				description={t("url_template_external_desc", { label: target.label })}

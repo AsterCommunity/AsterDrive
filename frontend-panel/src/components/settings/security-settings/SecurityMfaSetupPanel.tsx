@@ -1,5 +1,5 @@
 import QRCode from "qrcode";
-import { useEffect, useMemo, useRef } from "react";
+import { useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
@@ -13,8 +13,6 @@ import {
 	type SetupUiState,
 	stepIndex,
 } from "./mfaTypes";
-import { SecurityMfaMeasuredMotion } from "./SecurityMfaMotion";
-import { SecurityMfaStepMotion } from "./SecurityMfaStepMotion";
 
 type QrModules = ReturnType<typeof QRCode.create>["modules"];
 
@@ -60,18 +58,11 @@ export function SecurityMfaSetupPanel({
 	setupState,
 }: SecurityMfaSetupPanelProps) {
 	const { t } = useTranslation(["core", "settings"]);
-	const previousStepIndexRef = useRef(activeStepIndex);
-	const stepDirection =
-		activeStepIndex >= previousStepIndexRef.current ? "forward" : "backward";
-
-	useEffect(() => {
-		previousStepIndexRef.current = activeStepIndex;
-	}, [activeStepIndex]);
 
 	return (
-		<div className="overflow-hidden rounded-lg border transition-[border-color,box-shadow] duration-200 ease-out">
-			<div className="border-b bg-muted/25 p-4 transition-colors duration-200">
-				<div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+		<div className="overflow-hidden rounded-lg border bg-background transition-[border-color,box-shadow] duration-150 ease-out">
+			<div className="border-b bg-muted/20 p-4 transition-colors duration-150">
+				<div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
 					<div className="space-y-1">
 						<p className="text-sm font-semibold">
 							{t("settings:settings_mfa_setup_title")}
@@ -84,8 +75,11 @@ export function SecurityMfaSetupPanel({
 				</div>
 			</div>
 
-			<SecurityMfaMeasuredMotion className="p-4">
-				<SecurityMfaStepMotion activeKey={activeStep} direction={stepDirection}>
+			<div className="p-4">
+				<div
+					key={setupState.step}
+					className="animate-in fade-in duration-150 motion-reduce:animate-none"
+				>
 					{setupState.step === "intro" ? (
 						<SetupIntro
 							setupBusy={setupState.busy}
@@ -131,8 +125,8 @@ export function SecurityMfaSetupPanel({
 							onDone={onRecoveryDone}
 						/>
 					) : null}
-				</SecurityMfaStepMotion>
-			</SecurityMfaMeasuredMotion>
+				</div>
+			</div>
 
 			{setupState.step !== "recovery" ? (
 				<div className="border-t bg-muted/15 px-4 py-3">
@@ -513,7 +507,7 @@ function SetupRecovery({
 	const { t } = useTranslation(["settings"]);
 
 	return (
-		<div className="space-y-4">
+		<div className="space-y-3">
 			<div className="space-y-1">
 				<h4 className="text-base font-semibold">
 					{t("settings:settings_mfa_recovery_codes_title")}
@@ -523,55 +517,56 @@ function SetupRecovery({
 				</p>
 			</div>
 			<div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-				{recoveryCodes.map((code, index) => (
+				{recoveryCodes.map((code) => (
 					<code
 						key={code}
-						className="animate-in fade-in slide-in-from-bottom-1 rounded-md border bg-background px-3 py-2 text-sm duration-200 motion-reduce:animate-none"
-						style={{ animationDelay: `${index * 24}ms` }}
+						className="rounded-md border bg-background px-2.5 py-1.5 text-sm leading-5"
 					>
 						{code}
 					</code>
 				))}
 			</div>
-			<div className="flex flex-wrap gap-2">
-				<Button type="button" onClick={onDownload}>
-					<Icon name="Download" className="mr-2 size-4" />
-					{t("settings:settings_mfa_download_recovery_codes")}
-				</Button>
-				<Button type="button" variant="outline" onClick={onCopy}>
-					<Icon name="Copy" className="mr-2 size-4" />
-					{t("settings:settings_mfa_copy_recovery_codes")}
-				</Button>
-			</div>
-			<button
-				type="button"
-				className="flex w-full items-start gap-3 rounded-lg border bg-muted/20 p-3 text-left text-sm transition-colors hover:bg-muted/35"
-				aria-pressed={recoveryConfirmed}
-				onClick={onConfirmChange}
-			>
-				<span
-					className={cn(
-						"mt-0.5 inline-flex size-5 shrink-0 items-center justify-center rounded-md border shadow-sm transition-colors dark:shadow-none",
-						recoveryConfirmed
-							? "border-primary bg-primary text-primary-foreground"
-							: "border-muted-foreground/70 bg-background text-transparent",
-					)}
+			<div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-start">
+				<button
+					type="button"
+					className="flex w-full items-start gap-3 rounded-lg border bg-muted/20 p-3 text-left text-sm transition-colors hover:bg-muted/35"
+					aria-pressed={recoveryConfirmed}
+					onClick={onConfirmChange}
 				>
-					<Icon name="Check" className="size-3.5" />
-				</span>
-				<span>
-					<span className="font-medium">
-						{t("settings:settings_mfa_recovery_confirm_title")}
+					<span
+						className={cn(
+							"mt-0.5 inline-flex size-5 shrink-0 items-center justify-center rounded-md border shadow-sm transition-colors dark:shadow-none",
+							recoveryConfirmed
+								? "border-primary bg-primary text-primary-foreground"
+								: "border-muted-foreground/70 bg-background text-transparent",
+						)}
+					>
+						<Icon name="Check" className="size-3.5" />
 					</span>
-					<span className="mt-1 block text-muted-foreground">
-						{t("settings:settings_mfa_recovery_confirm_desc")}
+					<span>
+						<span className="font-medium">
+							{t("settings:settings_mfa_recovery_confirm_title")}
+						</span>
+						<span className="mt-1 block text-muted-foreground">
+							{t("settings:settings_mfa_recovery_confirm_desc")}
+						</span>
 					</span>
-				</span>
-			</button>
-			<Button type="button" disabled={!recoveryConfirmed} onClick={onDone}>
-				<Icon name="Check" className="mr-2 size-4" />
-				{t("settings:settings_mfa_done")}
-			</Button>
+				</button>
+				<div className="flex flex-wrap gap-2 lg:w-48 lg:flex-col">
+					<Button type="button" onClick={onDownload}>
+						<Icon name="Download" className="mr-2 size-4" />
+						{t("settings:settings_mfa_download_recovery_codes")}
+					</Button>
+					<Button type="button" variant="outline" onClick={onCopy}>
+						<Icon name="Copy" className="mr-2 size-4" />
+						{t("settings:settings_mfa_copy_recovery_codes")}
+					</Button>
+					<Button type="button" disabled={!recoveryConfirmed} onClick={onDone}>
+						<Icon name="Check" className="mr-2 size-4" />
+						{t("settings:settings_mfa_done")}
+					</Button>
+				</div>
+			</div>
 		</div>
 	);
 }

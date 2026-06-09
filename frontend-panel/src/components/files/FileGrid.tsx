@@ -18,6 +18,8 @@ interface FileGridProps {
 
 const GRID_CLASSES =
 	"grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3";
+const GRID_SECTION_HEADER_CLASSES =
+	"flex items-center gap-2 px-1 text-xs font-semibold uppercase text-muted-foreground";
 const GRID_HEADER_BOTTOM_GAP = 8;
 const GRID_SECTION_TOP_GAP = 16;
 const GRID_ROW_GAP = 12;
@@ -289,7 +291,7 @@ function FileGridComponent({ scrollElement }: FileGridProps) {
 		);
 
 		return (
-			<div className="p-4">
+			<div className="px-4 py-3 md:p-5">
 				{paddingTop > 0 && <div aria-hidden style={{ height: paddingTop }} />}
 				{virtualRows.map((virtualRow) => {
 					const row = gridRows[virtualRow.index];
@@ -300,7 +302,7 @@ function FileGridComponent({ scrollElement }: FileGridProps) {
 								key={row.key}
 								ref={virtualizer.measureElement}
 								data-index={virtualRow.index}
-								className="px-1 text-sm font-medium text-muted-foreground"
+								className={GRID_SECTION_HEADER_CLASSES}
 								style={{
 									paddingTop: row.paddingTop,
 									paddingBottom: GRID_HEADER_BOTTOM_GAP,
@@ -335,11 +337,11 @@ function FileGridComponent({ scrollElement }: FileGridProps) {
 	}
 
 	return (
-		<div className="p-4 space-y-4">
+		<div className="space-y-4 px-4 py-3 md:p-5">
 			{folders.length > 0 && (
 				<div className="space-y-2">
 					{hasBoth && (
-						<h3 className="text-sm font-medium text-muted-foreground px-1">
+						<h3 className={GRID_SECTION_HEADER_CLASSES}>
 							{t("folders_section")}
 						</h3>
 					)}
@@ -350,7 +352,7 @@ function FileGridComponent({ scrollElement }: FileGridProps) {
 			{files.length > 0 && (
 				<div className="space-y-2">
 					{hasBoth && (
-						<h3 className="text-sm font-medium text-muted-foreground px-1">
+						<h3 className={GRID_SECTION_HEADER_CLASSES}>
 							{t("files_section")}
 						</h3>
 					)}

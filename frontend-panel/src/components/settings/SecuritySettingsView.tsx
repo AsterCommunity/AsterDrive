@@ -32,7 +32,7 @@ export function SecuritySettingsView() {
 				>
 					<TabsContent
 						value="account"
-						className="space-y-4 animate-in fade-in slide-in-from-bottom-1 duration-200 motion-reduce:animate-none"
+						className="space-y-4 animate-in fade-in duration-150 motion-reduce:animate-none"
 					>
 						<SecurityAccountPane
 							canSubmitEmailChange={controller.canSubmitEmailChange}
@@ -61,28 +61,28 @@ export function SecuritySettingsView() {
 
 					<TabsContent
 						value="mfa"
-						className="animate-in fade-in slide-in-from-bottom-1 duration-200 motion-reduce:animate-none"
+						className="animate-in fade-in duration-150 motion-reduce:animate-none"
 					>
 						<SecurityMfaSection />
 					</TabsContent>
 
 					<TabsContent
 						value="passkeys"
-						className="animate-in fade-in slide-in-from-bottom-1 duration-200 motion-reduce:animate-none"
+						className="animate-in fade-in duration-150 motion-reduce:animate-none"
 					>
 						<SecurityPasskeysSection />
 					</TabsContent>
 
 					<TabsContent
 						value="external"
-						className="animate-in fade-in slide-in-from-bottom-1 duration-200 motion-reduce:animate-none"
+						className="animate-in fade-in duration-150 motion-reduce:animate-none"
 					>
 						<SecurityExternalAuthLinksSection />
 					</TabsContent>
 
 					<TabsContent
 						value="sessions"
-						className="animate-in fade-in slide-in-from-bottom-1 duration-200 motion-reduce:animate-none"
+						className="animate-in fade-in duration-150 motion-reduce:animate-none"
 					>
 						<SecuritySessionsSection
 							hasOtherSessions={controller.hasOtherSessions}

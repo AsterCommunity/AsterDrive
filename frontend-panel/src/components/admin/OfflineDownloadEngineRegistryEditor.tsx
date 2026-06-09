@@ -124,9 +124,6 @@ export function OfflineDownloadEngineRegistryEditor({
 				<p className="text-sm font-medium">
 					{t("offline_download_engine_editor_title")}
 				</p>
-				<p className="text-sm text-muted-foreground">
-					{t("offline_download_engine_editor_desc")}
-				</p>
 			</div>
 
 			{enabledCount === 0 ? (
@@ -199,9 +196,6 @@ export function OfflineDownloadEngineRegistryEditor({
 											{engine.enabled
 												? t("offline_download_engine_editor_enabled")
 												: t("offline_download_engine_editor_disabled")}
-										</p>
-										<p className="text-xs text-muted-foreground">
-											{t("offline_download_engine_editor_enabled_desc")}
 										</p>
 									</div>
 								</div>

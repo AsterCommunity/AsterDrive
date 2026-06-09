@@ -1,4 +1,12 @@
-import { useCallback, useEffect, useReducer, useRef, useState } from "react";
+import {
+	type MouseEvent,
+	type PointerEvent,
+	useCallback,
+	useEffect,
+	useReducer,
+	useRef,
+	useState,
+} from "react";
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
 import { useBlobUrl } from "@/hooks/useBlobUrl";
@@ -16,6 +24,7 @@ import {
 import { useImagePreviewTransform } from "./useImagePreviewTransform";
 
 const ORIGINAL_BUTTON_EXIT_MS = 220;
+const CLICK_MOVE_THRESHOLD = 4;
 const IMAGE_PREVIEW_KEY_SEPARATOR = "\u0000";
 const ORIGINAL_BUTTON_SUCCESS_HOLD_MS = 650;
 const IMAGE_NAVIGATION_KEYDOWN_OPTIONS = { capture: true } as const;
@@ -63,16 +72,12 @@ interface ImagePreviewPanelProps {
 	allOptionsCount: number;
 	downloadPath: string;
 	imagePreviewPath?: string;
-	isExpanded: boolean;
 	nextImageFile?: FileInfo | FileListItem;
 	onChooseOpenMethod: () => void;
 	onClose: () => void;
 	onNavigateImage?: (file: FileInfo | FileListItem) => void;
-	onToggleExpand: () => void;
 	previousImageFile?: FileInfo | FileListItem;
 	chooseOpenMethodLabel: string;
-	enterFullscreenLabel: string;
-	exitFullscreenLabel: string;
 	closeLabel: string;
 	fitToWindowLabel: string;
 	nextImageLabel: string;
@@ -89,16 +94,12 @@ export function ImagePreviewPanel({
 	allOptionsCount,
 	downloadPath,
 	imagePreviewPath,
-	isExpanded,
 	nextImageFile,
 	onChooseOpenMethod,
 	onClose,
 	onNavigateImage,
-	onToggleExpand,
 	previousImageFile,
 	chooseOpenMethodLabel,
-	enterFullscreenLabel,
-	exitFullscreenLabel,
 	closeLabel,
 	fitToWindowLabel,
 	nextImageLabel,
@@ -183,9 +184,6 @@ export function ImagePreviewPanel({
 		effectiveSource === "backend_preview"
 			? previewSourceLabel
 			: originalSourceLabel;
-	const fullscreenLabel = isExpanded
-		? exitFullscreenLabel
-		: enterFullscreenLabel;
 
 	const showOriginal = useCallback(() => {
 		setFailedOriginalKey(null);
@@ -318,11 +316,8 @@ export function ImagePreviewPanel({
 				allOptionsCount={allOptionsCount}
 				sourceLabel={sourceLabel}
 				chooseOpenMethodLabel={chooseOpenMethodLabel}
-				fullscreenLabel={fullscreenLabel}
 				closeLabel={closeLabel}
-				isExpanded={isExpanded}
 				onChooseOpenMethod={onChooseOpenMethod}
-				onToggleExpand={onToggleExpand}
 				onClose={onClose}
 			/>
 
@@ -345,6 +340,7 @@ export function ImagePreviewPanel({
 				showOriginal={showOriginal}
 				zoomInLabel={zoomInLabel}
 				zoomOutLabel={zoomOutLabel}
+				onClose={onClose}
 				onImageLoad={handleImageLoad}
 				onImageRenderError={handleImageRenderError}
 			/>
@@ -378,6 +374,7 @@ function ImagePreviewTransformLayer({
 	showOriginal,
 	zoomInLabel,
 	zoomOutLabel,
+	onClose,
 	onImageLoad,
 	onImageRenderError,
 }: {
@@ -398,11 +395,17 @@ function ImagePreviewTransformLayer({
 	showOriginal: () => void;
 	zoomInLabel: string;
 	zoomOutLabel: string;
+	onClose: () => void;
 	onImageLoad: (renderedSource: ImagePreviewSource) => void;
 	onImageRenderError: (failedSource: ImagePreviewSource) => void;
 }) {
 	const gestureSurfaceRef = useRef<HTMLDivElement | null>(null);
 	const imageRef = useRef<HTMLImageElement | null>(null);
+	const surfacePointerStartRef = useRef<{
+		targetIsImage: boolean;
+		x: number;
+		y: number;
+	} | null>(null);
 	const viewportRef = useRef<HTMLDivElement | null>(null);
 	const {
 		canZoomIn,
@@ -423,20 +426,57 @@ function ImagePreviewTransformLayer({
 		imageRef,
 		viewportRef,
 	});
+	const handleSurfacePointerDown = useCallback(
+		(event: PointerEvent<HTMLDivElement>) => {
+			handlePointerDown(event);
+			surfacePointerStartRef.current = {
+				targetIsImage: event.target === imageRef.current,
+				x: event.clientX,
+				y: event.clientY,
+			};
+		},
+		[handlePointerDown],
+	);
+	const handleSurfaceClick = useCallback(
+		(event: MouseEvent<HTMLDivElement>) => {
+			const pointerStart = surfacePointerStartRef.current;
+			surfacePointerStartRef.current = null;
+
+			if (event.target === imageRef.current || pointerStart?.targetIsImage) {
+				return;
+			}
+
+			if (
+				pointerStart &&
+				Math.hypot(
+					event.clientX - pointerStart.x,
+					event.clientY - pointerStart.y,
+				) > CLICK_MOVE_THRESHOLD
+			) {
+				return;
+			}
+
+			onClose();
+		},
+		[onClose],
+	);
 
 	return (
 		<>
 			<div className="min-h-0 flex-1 scale-[0.985] overflow-hidden opacity-0 transition-[opacity,transform] duration-200 ease-out group-data-open/image-preview:scale-100 group-data-open/image-preview:opacity-100 group-data-closed/image-preview:scale-[0.985] group-data-closed/image-preview:opacity-0">
+				{/* biome-ignore lint/a11y/noStaticElementInteractions: This is an image gesture surface; keyboard users use the explicit close button. */}
 				<div
 					ref={gestureSurfaceRef}
+					role="presentation"
 					className={cn(
 						"h-full min-h-0 w-full touch-none select-none overflow-hidden",
 						zoom > 1 ? "cursor-grab active:cursor-grabbing" : "cursor-default",
 					)}
-					onPointerDown={handlePointerDown}
+					onPointerDown={handleSurfacePointerDown}
 					onPointerMove={handlePointerMove}
 					onPointerUp={handlePointerEnd}
 					onPointerCancel={handlePointerEnd}
+					onClick={handleSurfaceClick}
 				>
 					<BlobImagePreview
 						file={file}
@@ -486,22 +526,16 @@ function ImagePreviewTopChrome({
 	allOptionsCount,
 	sourceLabel,
 	chooseOpenMethodLabel,
-	fullscreenLabel,
 	closeLabel,
-	isExpanded,
 	onChooseOpenMethod,
-	onToggleExpand,
 	onClose,
 }: {
 	file: FileInfo | FileListItem;
 	allOptionsCount: number;
 	sourceLabel: string;
 	chooseOpenMethodLabel: string;
-	fullscreenLabel: string;
 	closeLabel: string;
-	isExpanded: boolean;
 	onChooseOpenMethod: () => void;
-	onToggleExpand: () => void;
 	onClose: () => void;
 }) {
 	return (
@@ -530,11 +564,6 @@ function ImagePreviewTopChrome({
 							icon="DotsThree"
 						/>
 					) : null}
-					<ToolbarButton
-						label={fullscreenLabel}
-						onClick={onToggleExpand}
-						icon={isExpanded ? "ArrowsInCardinal" : "ArrowsOutCardinal"}
-					/>
 					<ToolbarButton label={closeLabel} onClick={onClose} icon="X" />
 				</div>
 			</div>

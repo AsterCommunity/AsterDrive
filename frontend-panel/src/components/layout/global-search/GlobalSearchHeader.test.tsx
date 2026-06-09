@@ -68,7 +68,6 @@ function renderHeader(
 		onInputCompositionEnd: vi.fn(),
 		onInputCompositionStart: vi.fn(),
 		onInputKeyDown: vi.fn(),
-		onManageTagLibrary: vi.fn(),
 		onQueryClear: vi.fn(),
 		onQueryChange: vi.fn(),
 		onTagClear: vi.fn(),
@@ -117,6 +116,9 @@ describe("GlobalSearchHeader", () => {
 		});
 
 		fireEvent.click(
+			screen.getByRole("button", { name: /search:show_filters/ }),
+		);
+		fireEvent.click(
 			screen.getByRole("button", { name: "search:folders_only" }),
 		);
 		fireEvent.click(
@@ -156,6 +158,9 @@ describe("GlobalSearchHeader", () => {
 	it("hides quick categories for folder-only searches", () => {
 		renderHeader({ filter: "folder" });
 
+		fireEvent.click(
+			screen.getByRole("button", { name: /search:show_filters/ }),
+		);
 		expect(
 			screen.queryByRole("button", { name: "search:category_image" }),
 		).not.toBeInTheDocument();
@@ -168,26 +173,32 @@ describe("GlobalSearchHeader", () => {
 			tagMatch: "any",
 		});
 
+		fireEvent.click(
+			screen.getByRole("button", { name: /search:show_filters/ }),
+		);
+		fireEvent.click(screen.getByRole("button", { name: /search:select_tags/ }));
 		fireEvent.click(screen.getByRole("button", { name: "Important" }));
 		fireEvent.click(
 			screen.getByRole("button", { name: "search:tag_match_any" }),
 		);
-		fireEvent.click(
-			screen.getByRole("button", { name: "files:tag_library_manage" }),
-		);
 
 		expect(props.onTagToggle).toHaveBeenCalledWith(1);
 		expect(props.onTagMatchChange).toHaveBeenCalledWith("all");
-		expect(props.onManageTagLibrary).toHaveBeenCalledTimes(1);
 		expect(screen.getByRole("button", { name: "Important" })).toHaveAttribute(
 			"aria-pressed",
 			"true",
 		);
+		expect(
+			screen.queryByRole("button", { name: "files:tag_library_manage" }),
+		).not.toBeInTheDocument();
 	});
 
 	it("does not show tag match mode until at least two tags are selected", () => {
 		renderHeader({ selectedTagIds: [1] });
 
+		fireEvent.click(
+			screen.getByRole("button", { name: /search:show_filters/ }),
+		);
 		expect(
 			screen.queryByRole("button", { name: "search:tag_match_any" }),
 		).not.toBeInTheDocument();
@@ -196,9 +207,42 @@ describe("GlobalSearchHeader", () => {
 	it("shows tag loading state instead of tag chips", () => {
 		renderHeader({ tagLoading: true });
 
+		fireEvent.click(
+			screen.getByRole("button", { name: /search:show_filters/ }),
+		);
+		fireEvent.click(screen.getByRole("button", { name: /search:select_tags/ }));
 		expect(screen.getByText("search:tag_loading")).toBeInTheDocument();
 		expect(
 			screen.queryByRole("button", { name: "Important" }),
 		).not.toBeInTheDocument();
+	});
+
+	it("keeps tag options behind the tag picker until requested", () => {
+		renderHeader();
+
+		fireEvent.click(
+			screen.getByRole("button", { name: /search:show_filters/ }),
+		);
+
+		expect(
+			screen.queryByRole("button", { name: "Important" }),
+		).not.toBeInTheDocument();
+
+		fireEvent.click(screen.getByRole("button", { name: /search:select_tags/ }));
+
+		expect(
+			screen.getByRole("button", { name: "Important" }),
+		).toBeInTheDocument();
+	});
+
+	it("keeps the inline filter trigger fixed while pressed", () => {
+		renderHeader();
+
+		const trigger = screen.getByRole("button", {
+			name: /search:show_filters/,
+		});
+
+		expect(trigger).toHaveClass("z-10");
+		expect(trigger).toHaveClass("active:-translate-y-1/2");
 	});
 });

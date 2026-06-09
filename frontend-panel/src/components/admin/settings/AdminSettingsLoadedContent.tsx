@@ -4,6 +4,7 @@ import {
 	type AdminSettingsCategorySummary,
 	AdminSettingsTabsLayout,
 } from "@/components/admin/settings/AdminSettingsTabsLayout";
+import { ADMIN_SETTINGS_PADDING_TRANSITION_CLASS } from "@/components/admin/settings/adminSettingsAnimation";
 import type { AdminSettingsTranslationFn } from "@/components/admin/settings/adminSettingsCategoryMetadata";
 import type { useAdminSettingsNavigation } from "@/components/admin/settings/useAdminSettingsNavigation";
 import { TabsContent } from "@/components/ui/tabs";
@@ -55,7 +56,7 @@ export function AdminSettingsLoadedContent({
 	return (
 		<div
 			data-testid="settings-content"
-			className="flex flex-col gap-8 transition-[padding-bottom] duration-200 ease-out"
+			className={`flex flex-col gap-6 ${ADMIN_SETTINGS_PADDING_TRANSITION_CLASS}`}
 			style={{
 				paddingBottom: `${contentBaseBottomPadding + saveBarReservedHeight}px`,
 			}}

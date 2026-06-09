@@ -99,6 +99,30 @@ export function FileBrowserDialogs({
 }: FileBrowserDialogsProps) {
 	const { retainedValue: retainedPreviewState, handleOpenChangeComplete } =
 		useRetainedDialogValue(previewState, previewState !== null);
+	const {
+		retainedValue: retainedArchiveTaskTarget,
+		handleOpenChangeComplete: handleArchiveTaskOpenChangeComplete,
+	} = useRetainedDialogValue(archiveTaskTarget, archiveTaskTarget !== null);
+	const {
+		retainedValue: retainedShareTarget,
+		handleOpenChangeComplete: handleShareOpenChangeComplete,
+	} = useRetainedDialogValue(shareTarget, shareTarget !== null);
+	const {
+		retainedValue: retainedCopyTarget,
+		handleOpenChangeComplete: handleCopyOpenChangeComplete,
+	} = useRetainedDialogValue(copyTarget, copyTarget !== null);
+	const {
+		retainedValue: retainedMoveTarget,
+		handleOpenChangeComplete: handleMoveOpenChangeComplete,
+	} = useRetainedDialogValue(moveTarget, moveTarget !== null);
+	const {
+		retainedValue: retainedVersionTarget,
+		handleOpenChangeComplete: handleVersionOpenChangeComplete,
+	} = useRetainedDialogValue(versionTarget, versionTarget !== null);
+	const {
+		retainedValue: retainedRenameTarget,
+		handleOpenChangeComplete: handleRenameOpenChangeComplete,
+	} = useRetainedDialogValue(renameTarget, renameTarget !== null);
 
 	return (
 		<>
@@ -122,8 +146,9 @@ export function FileBrowserDialogs({
 					onOpenChange={(open) => {
 						if (!open) onArchiveTaskClose();
 					}}
-					mode={archiveTaskTarget?.mode ?? "compress"}
-					initialName={archiveTaskTarget?.initialName ?? ""}
+					onOpenChangeComplete={handleArchiveTaskOpenChangeComplete}
+					mode={retainedArchiveTaskTarget?.mode ?? "compress"}
+					initialName={retainedArchiveTaskTarget?.initialName ?? ""}
 					onSubmit={onArchiveTaskSubmit}
 				/>
 			</Suspense>
@@ -143,10 +168,11 @@ export function FileBrowserDialogs({
 					onOpenChange={(open) => {
 						if (!open) onShareClose();
 					}}
-					fileId={shareTarget?.fileId}
-					folderId={shareTarget?.folderId}
-					name={shareTarget?.name ?? ""}
-					initialMode={shareTarget?.initialMode}
+					onOpenChangeComplete={handleShareOpenChangeComplete}
+					fileId={retainedShareTarget?.fileId}
+					folderId={retainedShareTarget?.folderId}
+					name={retainedShareTarget?.name ?? ""}
+					initialMode={retainedShareTarget?.initialMode}
 				/>
 			</Suspense>
 
@@ -185,12 +211,13 @@ export function FileBrowserDialogs({
 					onOpenChange={(open) => {
 						if (!open) onCopyClose();
 					}}
+					onOpenChangeComplete={handleCopyOpenChangeComplete}
 					mode="copy"
 					onConfirm={onCopyConfirm}
 					currentFolderId={currentFolderId}
 					initialBreadcrumb={breadcrumb}
 					selectedFolderIds={
-						copyTarget?.type === "folder" ? [copyTarget.id] : []
+						retainedCopyTarget?.type === "folder" ? [retainedCopyTarget.id] : []
 					}
 				/>
 			</Suspense>
@@ -201,11 +228,12 @@ export function FileBrowserDialogs({
 					onOpenChange={(open) => {
 						if (!open) onMoveClose();
 					}}
+					onOpenChangeComplete={handleMoveOpenChangeComplete}
 					mode="move"
 					onConfirm={onMoveConfirm}
 					currentFolderId={currentFolderId}
 					initialBreadcrumb={breadcrumb}
-					selectedFolderIds={moveTarget?.folderIds ?? []}
+					selectedFolderIds={retainedMoveTarget?.folderIds ?? []}
 				/>
 			</Suspense>
 
@@ -215,9 +243,10 @@ export function FileBrowserDialogs({
 					onOpenChange={(open) => {
 						if (!open) onVersionClose();
 					}}
-					fileId={versionTarget?.fileId ?? 0}
-					fileName={versionTarget?.fileName ?? ""}
-					mimeType={versionTarget?.mimeType}
+					onOpenChangeComplete={handleVersionOpenChangeComplete}
+					fileId={retainedVersionTarget?.fileId ?? 0}
+					fileName={retainedVersionTarget?.fileName ?? ""}
+					mimeType={retainedVersionTarget?.mimeType}
 					onRestored={onVersionRestored}
 				/>
 			</Suspense>
@@ -228,9 +257,10 @@ export function FileBrowserDialogs({
 					onOpenChange={(open) => {
 						if (!open) onRenameClose();
 					}}
-					type={renameTarget?.type ?? "file"}
-					id={renameTarget?.id ?? 0}
-					currentName={renameTarget?.name ?? ""}
+					onOpenChangeComplete={handleRenameOpenChangeComplete}
+					type={retainedRenameTarget?.type ?? "file"}
+					id={retainedRenameTarget?.id ?? 0}
+					currentName={retainedRenameTarget?.name ?? ""}
 					onRenamed={onRenamed}
 				/>
 			</Suspense>

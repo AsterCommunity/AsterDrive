@@ -26,6 +26,7 @@ const CACHED_USER_KEY = "aster-cached-user";
 const EXPIRES_AT_KEY = "aster-auth-expires-at";
 const REFRESH_BUFFER_MS = 120_000;
 const REFRESH_RETRY_MS = 60_000;
+export const SESSION_REFRESH_THRESHOLD_MS = 30_000;
 
 let refreshTimer: ReturnType<typeof setTimeout> | null = null;
 let inFlightRefresh: Promise<void> | null = null;
@@ -127,6 +128,7 @@ interface AuthState {
 	login: (identifier: string, password: string) => Promise<void>;
 	logout: () => Promise<void>;
 	checkAuth: () => Promise<void>;
+	ensureFreshSession: () => Promise<void>;
 	refreshToken: () => Promise<void>;
 	refreshUser: (options?: RefreshUserOptions) => Promise<void>;
 	setStorageEventStreamEnabled: (enabled: boolean) => void;
@@ -369,6 +371,18 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 				return;
 			}
 			applyLoggedOutState(set);
+		}
+	},
+
+	ensureFreshSession: async () => {
+		const { expiresAt, isAuthenticated, isAuthStale } = get();
+		if (!isAuthenticated) return;
+		if (
+			isAuthStale ||
+			!expiresAt ||
+			expiresAt - Date.now() <= SESSION_REFRESH_THRESHOLD_MS
+		) {
+			await get().refreshToken();
 		}
 	},
 

@@ -293,7 +293,7 @@ script-src 'self' 'unsafe-inline';
 style-src 'self' 'unsafe-inline';
 img-src 'self' data: blob: http: https:;
 font-src 'self' data:;
-connect-src 'self' http: https: ws: wss:;
+connect-src 'self' http: https: ws: wss: blob:;
 media-src 'self' blob:;
 worker-src 'self' blob:;
 frame-src 'self' http: https:;
@@ -305,7 +305,7 @@ This policy is based on current frontend behavior. Confirm impact before changin
 - `script-src 'unsafe-inline'` must remain for now; custom frontends and placeholder injection may still include inline scripts.
 - `style-src 'unsafe-inline'` must remain for now; the frontend uses runtime inline styles and dynamic `<style>`, and removing it may break styling.
 - `img-src 'self' data: blob: http: https:` and `media-src 'self' blob:` must remain; thumbnails, image / video preview, avatar cropping, and external-link icons use these sources.
-- `connect-src 'self' http: https: ws: wss:` must remain; presigned upload / download, remote followers, and realtime push use these.
+- `connect-src 'self' http: https: ws: wss: blob:` must remain; presigned upload / download, remote followers, and realtime push use these.
 - `worker-src 'self' blob:` must remain; PDF preview uses workers, and some build styles use blob workers.
 - `frame-src 'self' http: https:` must remain; external preview applications and WOPI entries may use cross-origin iframes.
 

@@ -5,6 +5,7 @@ import {
 	useId,
 	useLayoutEffect,
 	useMemo,
+	useReducer,
 	useRef,
 	useState,
 } from "react";
@@ -22,6 +23,7 @@ import {
 } from "@/components/ui/tooltip";
 import { useBlobUrl } from "@/hooks/useBlobUrl";
 import { resolveApiResourceUrl } from "@/lib/apiUrl";
+import { prepareAuthenticatedResource } from "@/lib/authenticatedResource";
 import { formatBytes } from "@/lib/format";
 import { logger } from "@/lib/logger";
 import { supportsThumbnailExtension } from "@/lib/thumbnailSupport";
@@ -39,6 +41,7 @@ const STREAM_REFRESH_LEAD_MS = 2 * 60 * 1000;
 const STREAM_REFRESH_MIN_DELAY_MS = 10 * 1000;
 const MEDIA_SESSION_SEEK_OFFSET_SECONDS = 10;
 const PLAYBACK_ERROR_SKIP_DELAY_MS = 2_000;
+const PLAYER_CLOSE_ANIMATION_MS = 180;
 const MEDIA_METADATA_PENDING_MAX_RETRIES = 12;
 const MEDIA_METADATA_PENDING_MAX_RETRY_DELAY_MS = 30_000;
 const MEDIA_SESSION_ACTIONS: MediaSessionAction[] = [
@@ -54,6 +57,44 @@ const MEDIA_SESSION_ACTIONS: MediaSessionAction[] = [
 const MUSIC_PLAYER_INTERNAL_SELECTOR =
 	"[data-music-player-surface],[data-music-player-trigger]";
 const BUFFERED_RANGE_CURRENT_TIME_TOLERANCE_SECONDS = 0.5;
+
+interface PanelUiState {
+	closing: boolean;
+	detailsOpen: boolean;
+	queueOpen: boolean;
+}
+
+const INITIAL_PANEL_UI_STATE: PanelUiState = {
+	closing: false,
+	detailsOpen: false,
+	queueOpen: false,
+};
+
+type PanelUiAction =
+	| { type: "reset" }
+	| { type: "setClosing"; closing: boolean }
+	| { type: "toggleDetails" }
+	| { type: "toggleQueue" };
+
+function panelUiReducer(
+	state: PanelUiState,
+	action: PanelUiAction,
+): PanelUiState {
+	switch (action.type) {
+		case "reset":
+			return state.closing || state.detailsOpen || state.queueOpen
+				? INITIAL_PANEL_UI_STATE
+				: state;
+		case "setClosing":
+			return state.closing === action.closing
+				? state
+				: { ...state, closing: action.closing };
+		case "toggleDetails":
+			return { ...state, detailsOpen: !state.detailsOpen };
+		case "toggleQueue":
+			return { ...state, queueOpen: !state.queueOpen };
+	}
+}
 
 function formatPlaybackTime(seconds: number) {
 	if (!Number.isFinite(seconds) || seconds < 0) {
@@ -481,9 +522,12 @@ export function MusicPlayerHost() {
 	const panelRef = useRef<HTMLDivElement | null>(null);
 	const currentTimeRef = useRef(0);
 	const durationRef = useRef(0);
+	const closeAnimationTimers = useMemo(() => new Set<number>(), []);
 	const errorSkipTimerRef = useRef<number | null>(null);
 	const isSeekingRef = useRef(false);
 	const parsedMetadataTrackIdsRef = useRef(new Set<string>());
+	const playbackPreparationFailedRef = useRef(false);
+	const playbackPreparationPendingRef = useRef(false);
 	const wasPlayingBeforeSeekRef = useRef(false);
 	const latestTrackIdRef = useRef<string | null>(null);
 	const activeQueueItemRef = useRef<HTMLButtonElement | null>(null);
@@ -493,9 +537,12 @@ export function MusicPlayerHost() {
 	const [bufferedProgress, setBufferedProgress] = useState(0);
 	const [currentTime, setCurrentTime] = useState(0);
 	const [duration, setDuration] = useState(0);
-	const [detailsOpen, setDetailsOpen] = useState(false);
-	const [queueOpen, setQueueOpen] = useState(false);
+	const [panelUiState, dispatchPanelUi] = useReducer(
+		panelUiReducer,
+		INITIAL_PANEL_UI_STATE,
+	);
 	const [volume, setVolume] = useState(0.85);
+	const { closing, detailsOpen, queueOpen } = panelUiState;
 	const activeTrackId = useMusicPlayerStore((state) => state.activeTrackId);
 	const error = useMusicPlayerStore((state) => state.error);
 	const isPanelOpen = useMusicPlayerStore((state) => state.isPanelOpen);
@@ -565,6 +612,7 @@ export function MusicPlayerHost() {
 		mediaSessionThumbnailUrl ?? track?.metadata?.artworkUrl ?? null;
 	const volumePercent = Math.round(volume * 100);
 	const modeLabel = t(`music_player_mode_${playbackMode}`);
+	const panelVisible = isPanelOpen && !closing;
 
 	useEffect(() => {
 		if (track?.thumbnail && !thumbnailSupportLoaded) {
@@ -653,6 +701,7 @@ export function MusicPlayerHost() {
 
 	useEffect(() => {
 		if (!trackKey) return;
+		playbackPreparationFailedRef.current = false;
 		currentTimeRef.current = 0;
 		durationRef.current = 0;
 		setBufferedProgress(0);
@@ -669,7 +718,7 @@ export function MusicPlayerHost() {
 	}, [clearPendingErrorSkip]);
 
 	useEffect(() => {
-		if (!isPanelOpen) return;
+		if (!panelVisible) return;
 
 		const handleDocumentClick = (event: MouseEvent) => {
 			if (isMusicPlayerInteractionTarget(event, panelRef.current)) return;
@@ -680,13 +729,26 @@ export function MusicPlayerHost() {
 		return () => {
 			document.removeEventListener("click", handleDocumentClick);
 		};
-	}, [closePanel, isPanelOpen]);
+	}, [closePanel, panelVisible]);
 
 	useEffect(() => {
 		if (isPanelOpen) return;
-		setDetailsOpen(false);
-		setQueueOpen(false);
+		dispatchPanelUi({ type: "reset" });
 	}, [isPanelOpen]);
+
+	useEffect(() => {
+		if (track) return;
+		dispatchPanelUi({ type: "setClosing", closing: false });
+	}, [track]);
+
+	useEffect(() => {
+		return () => {
+			for (const timer of closeAnimationTimers) {
+				window.clearTimeout(timer);
+			}
+			closeAnimationTimers.clear();
+		};
+	}, [closeAnimationTimers]);
 
 	useEffect(() => {
 		if (!queueOpen || !activeTrackId) return;
@@ -929,7 +991,7 @@ export function MusicPlayerHost() {
 
 	useEffect(() => {
 		const audio = audioRef.current;
-		if (!audio || !source) return;
+		if (!audio || !source || !track) return;
 		void playRequestVersion;
 
 		if (!playRequested) {
@@ -937,13 +999,49 @@ export function MusicPlayerHost() {
 			return;
 		}
 
-		void audio.play().catch((playError) => {
-			logger.warn("music playback start failed", track?.name, playError);
-			setError(t("music_player_load_failed"));
-			setPlaybackRequested(false);
-			setPlaying(false);
-			scheduleNextAfterPlaybackError(track?.id ?? null);
-		});
+		let cancelled = false;
+		const trackId = track.id;
+		const trackName = track.name;
+		const trackPath = track.path;
+		const controller = new AbortController();
+		let prepared = false;
+		playbackPreparationFailedRef.current = false;
+		playbackPreparationPendingRef.current = true;
+		void (async () => {
+			try {
+				await prepareAuthenticatedResource(trackPath, {
+					signal: controller.signal,
+				});
+				if (cancelled || latestTrackIdRef.current !== trackId) return;
+				prepared = true;
+				playbackPreparationPendingRef.current = false;
+				audio.load();
+				await audio.play();
+			} catch (playError) {
+				if (
+					cancelled ||
+					controller.signal.aborted ||
+					latestTrackIdRef.current !== trackId
+				) {
+					return;
+				}
+				if (!prepared) {
+					playbackPreparationFailedRef.current = true;
+				}
+				playbackPreparationPendingRef.current = false;
+				logger.warn("music playback start failed", trackName, playError);
+				setError(t("music_player_load_failed"));
+				setPlaybackRequested(false);
+				setPlaying(false);
+				scheduleNextAfterPlaybackError(trackId);
+			}
+		})();
+
+		return () => {
+			cancelled = true;
+			controller.abort();
+			playbackPreparationPendingRef.current = false;
+		};
 	}, [
 		playRequestVersion,
 		playRequested,
@@ -953,11 +1051,10 @@ export function MusicPlayerHost() {
 		setPlaying,
 		source,
 		t,
-		track?.id,
-		track?.name,
+		track,
 	]);
 
-	if (!track || !source) {
+	if (!track) {
 		return null;
 	}
 
@@ -1012,6 +1109,20 @@ export function MusicPlayerHost() {
 		playTracks(queue, trackId);
 	};
 
+	const closeWithAnimation = () => {
+		if (closing) return;
+		dispatchPanelUi({ type: "setClosing", closing: true });
+		for (const timer of closeAnimationTimers) {
+			window.clearTimeout(timer);
+		}
+		closeAnimationTimers.clear();
+		const timer = window.setTimeout(() => {
+			closeAnimationTimers.delete(timer);
+			clear();
+		}, PLAYER_CLOSE_ANIMATION_MS);
+		closeAnimationTimers.add(timer);
+	};
+
 	return (
 		<>
 			<style>{MUSIC_TEXT_MARQUEE_KEYFRAMES}</style>
@@ -1047,6 +1158,12 @@ export function MusicPlayerHost() {
 					playNextTrack();
 				}}
 				onError={() => {
+					if (
+						playbackPreparationPendingRef.current ||
+						playbackPreparationFailedRef.current
+					) {
+						return;
+					}
 					setError(t("music_player_load_failed"));
 					setPlaybackRequested(false);
 					setPlaying(false);
@@ -1080,23 +1197,23 @@ export function MusicPlayerHost() {
 
 			<div
 				ref={panelRef}
-				aria-hidden={!isPanelOpen}
+				aria-hidden={!panelVisible}
 				data-music-player-surface
-				data-state={isPanelOpen ? "open" : "closed"}
-				inert={isPanelOpen ? undefined : true}
+				data-state={panelVisible ? "open" : "closed"}
+				inert={panelVisible ? undefined : true}
 				className={cn(
-					"fixed top-[calc(var(--spacing)*16+0.5rem)] right-3 z-(--z-fixed) w-[calc(100vw-1.5rem)] max-w-[26rem] origin-top-right transition-[opacity,transform] duration-150 ease-out motion-reduce:transition-none sm:right-4",
-					isPanelOpen
+					"fixed top-[calc(env(safe-area-inset-top)+4.75rem)] right-3 left-3 z-(--z-fixed) origin-top transition-[opacity,transform] duration-[180ms] ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none sm:right-4 sm:left-auto sm:w-[30rem]",
+					panelVisible
 						? "translate-y-0 scale-100 opacity-100"
-						: "pointer-events-none -translate-y-2 scale-[0.98] opacity-0",
+						: "pointer-events-none -translate-y-1 scale-[0.98] opacity-0",
 				)}
 			>
 				<section
 					aria-label={t("music_player_title")}
 					data-theme-surface="overlay"
-					className="max-h-[calc(100vh-4.5rem)] overflow-hidden rounded-lg border border-border/70 bg-popover/96 text-sm shadow-2xl shadow-black/12 ring-1 ring-foreground/5 backdrop-blur dark:bg-popover/92 dark:shadow-none"
+					className="max-h-[calc(100vh-5.5rem)] overflow-hidden rounded-xl border border-border/70 bg-popover/96 text-sm shadow-2xl shadow-black/12 ring-1 ring-foreground/5 backdrop-blur dark:bg-popover/92 dark:shadow-none"
 				>
-					<div className="border-b border-border/65 px-4 py-3">
+					<div className="border-b border-border/65 px-3 py-2.5 sm:px-4 sm:py-3">
 						<div className="flex items-center justify-between gap-3">
 							<div className="flex min-w-0 items-center gap-2 font-heading text-base leading-none font-medium">
 								<Icon name="MusicNotes" className="size-4 text-primary" />
@@ -1106,7 +1223,7 @@ export function MusicPlayerHost() {
 								<TooltipProvider>
 									<PlayerIconButton
 										label={t("music_player_close")}
-										onClick={clear}
+										onClick={closeWithAnimation}
 									>
 										<Icon name="X" className="size-4" />
 									</PlayerIconButton>
@@ -1121,26 +1238,26 @@ export function MusicPlayerHost() {
 						</div>
 					</div>
 
-					<div className="max-h-[calc(100vh-6.5rem)] overflow-y-auto overscroll-contain">
-						<div className="p-4">
+					<div className="max-h-[calc(100vh-9rem)] overflow-y-auto overscroll-contain">
+						<div className="p-3 sm:p-4">
 							<div className="flex min-w-0 gap-3">
 								<MediaThumbnail
 									file={track?.thumbnail?.file}
 									thumbnailPath={track?.thumbnail?.path}
 									artworkUrl={track?.metadata?.artworkUrl}
-									className="h-20 w-20 shrink-0 rounded-lg sm:h-24 sm:w-24"
+									className="h-16 w-16 shrink-0 rounded-lg sm:h-24 sm:w-24"
 									iconClassName="size-12"
 									imageClassName="h-full w-full object-cover"
 								/>
 								<div className="flex min-w-0 flex-1 flex-col justify-center">
 									<AutoScrollText
-										active={isPanelOpen}
+										active={panelVisible}
 										className="text-base font-semibold leading-6"
 									>
 										{displayTitle(track)}
 									</AutoScrollText>
 									<AutoScrollText
-										active={isPanelOpen}
+										active={panelVisible}
 										className="mt-1 text-sm text-muted-foreground"
 									>
 										{displayArtist(track) ?? t("music_player_unknown_artist")}
@@ -1227,7 +1344,7 @@ export function MusicPlayerHost() {
 									>
 										<Icon name="SkipForward" className="size-4" />
 									</PlayerIconButton>
-									<div className="flex h-8 items-center gap-1 rounded-md px-1">
+									<div className="hidden h-8 items-center gap-1 rounded-md px-1 sm:flex">
 										<Icon
 											name={volume === 0 ? "SpeakerSlash" : "SpeakerHigh"}
 											className="size-4 text-muted-foreground"
@@ -1259,7 +1376,7 @@ export function MusicPlayerHost() {
 									className="flex h-9 w-full items-center justify-between rounded-md px-2 text-sm font-medium transition hover:bg-muted/55 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/35"
 									aria-controls={queuePanelId}
 									aria-expanded={queueOpen}
-									onClick={() => setQueueOpen((open) => !open)}
+									onClick={() => dispatchPanelUi({ type: "toggleQueue" })}
 								>
 									<span className="flex min-w-0 items-center gap-2">
 										<Icon name="Queue" className="size-4 text-primary" />
@@ -1355,7 +1472,7 @@ export function MusicPlayerHost() {
 									className="flex h-9 w-full items-center justify-between rounded-md px-2 text-sm font-medium transition hover:bg-muted/55 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/35"
 									aria-controls={detailsPanelId}
 									aria-expanded={detailsOpen}
-									onClick={() => setDetailsOpen((open) => !open)}
+									onClick={() => dispatchPanelUi({ type: "toggleDetails" })}
 								>
 									<span className="flex min-w-0 items-center gap-2">
 										<Icon name="Info" className="size-4 text-primary" />

@@ -14,6 +14,12 @@ import { useTextContent } from "@/hooks/useTextContent";
 import type { TablePreviewDelimiterValue } from "@/lib/tablePreview";
 import { PreviewError } from "./PreviewError";
 import { PreviewLoadingState } from "./PreviewLoadingState";
+import {
+	PreviewSurface,
+	PreviewSurfaceContent,
+	PreviewSurfaceMessage,
+	PreviewSurfaceToolbar,
+} from "./PreviewSurface";
 
 interface CsvTablePreviewProps {
 	path: string;
@@ -46,9 +52,11 @@ export function CsvTablePreview({ path, delimiter }: CsvTablePreviewProps) {
 
 	if (!parsed || parsed.errors.length > 0 || parsed.data.length === 0) {
 		return (
-			<div className="p-6 text-sm text-destructive">
-				{t("files:table_parse_failed")}
-			</div>
+			<PreviewSurface>
+				<PreviewSurfaceMessage tone="danger">
+					{t("files:table_parse_failed")}
+				</PreviewSurfaceMessage>
+			</PreviewSurface>
 		);
 	}
 
@@ -58,8 +66,17 @@ export function CsvTablePreview({ path, delimiter }: CsvTablePreviewProps) {
 	const headerKey = header.join("|");
 
 	return (
-		<div className="flex h-full min-h-0 w-full min-w-0 flex-col overflow-hidden rounded-xl border border-border/70 bg-card shadow-xs dark:shadow-none">
-			<div className="min-h-0 flex-1">
+		<PreviewSurface>
+			<PreviewSurfaceToolbar
+				icon="Table"
+				label={t("files:preview_mode_table")}
+				meta={
+					parsed.data.length > MAX_ROWS
+						? t("files:table_truncated", { count: MAX_ROWS })
+						: t("files:preview_mode_formatted")
+				}
+			/>
+			<PreviewSurfaceContent>
 				<ScrollArea className="h-full bg-background/80 dark:bg-background/25">
 					<Table>
 						<TableHeader>
@@ -93,12 +110,7 @@ export function CsvTablePreview({ path, delimiter }: CsvTablePreviewProps) {
 						</TableBody>
 					</Table>
 				</ScrollArea>
-			</div>
-			{parsed.data.length > MAX_ROWS && (
-				<div className="border-t border-border/60 bg-muted/20 px-4 py-2 text-xs text-muted-foreground dark:bg-muted/15">
-					{t("files:table_truncated", { count: MAX_ROWS })}
-				</div>
-			)}
-		</div>
+			</PreviewSurfaceContent>
+		</PreviewSurface>
 	);
 }

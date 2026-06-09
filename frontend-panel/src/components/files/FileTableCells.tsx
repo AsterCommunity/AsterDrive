@@ -16,11 +16,14 @@ export function FileNameCell({
 }) {
 	return (
 		<TableCell className="pl-1 pr-2">
-			<div className="flex min-w-0 items-center gap-2.5">
+			<div className="flex min-w-0 items-center gap-3">
 				<FileThumbnail file={file} size="sm" thumbnailPath={thumbnailPath} />
 				<div className="flex min-w-0 flex-1 items-center gap-2">
 					<div className="flex min-w-0 flex-1 items-center gap-2">
-						<span className="min-w-0 truncate" title={file.name}>
+						<span
+							className="min-w-0 truncate font-medium text-foreground"
+							title={file.name}
+						>
 							{file.name}
 						</span>
 						<TagChips
@@ -44,11 +47,16 @@ export function FileNameCell({
 export function FolderNameCell({ folder }: { folder: FolderListItem }) {
 	return (
 		<TableCell className="pl-1 pr-2">
-			<div className="flex min-w-0 items-center gap-2.5">
-				<Icon name="Folder" className="size-4 shrink-0 text-amber-500" />
+			<div className="flex min-w-0 items-center gap-3">
+				<div className="flex size-6 shrink-0 items-center justify-center overflow-hidden rounded-md border border-border/50 bg-amber-500/10 text-amber-500 shadow-xs dark:shadow-none">
+					<Icon name="Folder" className="size-4" />
+				</div>
 				<div className="flex min-w-0 flex-1 items-center gap-2">
 					<div className="flex min-w-0 flex-1 items-center gap-2">
-						<span className="min-w-0 truncate" title={folder.name}>
+						<span
+							className="min-w-0 truncate font-medium text-foreground"
+							title={folder.name}
+						>
 							{folder.name}
 						</span>
 						<TagChips

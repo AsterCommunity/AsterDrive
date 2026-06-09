@@ -47,7 +47,7 @@ export function AdminSettingsCustomCategorySection({
 	return (
 		<div
 			key={`${activeTab}-${tabDirection}`}
-			className={`space-y-10 ${panelAnimationClass}`}
+			className={`space-y-6 ${panelAnimationClass}`}
 		>
 			{showCategoryHeader ? (
 				<AdminSettingsCategoryHeader
@@ -70,7 +70,7 @@ export function AdminSettingsCustomCategorySection({
 			{visibleCustomConfigs.length > 0 ? (
 				<div className="max-w-4xl divide-y divide-border/40">
 					{visibleCustomConfigs.map((config) => (
-						<div key={config.key} className="py-6 first:pt-0 last:pb-0">
+						<div key={config.key} className="py-4 first:pt-0 last:pb-0">
 							<CustomConfigRow config={config} />
 						</div>
 					))}
@@ -80,7 +80,7 @@ export function AdminSettingsCustomCategorySection({
 			{newCustomRows.length > 0 ? (
 				<div className="max-w-4xl divide-y divide-border/40">
 					{newCustomRows.map((row) => (
-						<div key={row.id} className="py-6 first:pt-0 last:pb-0">
+						<div key={row.id} className="py-4 first:pt-0 last:pb-0">
 							<NewCustomRow row={row} />
 						</div>
 					))}

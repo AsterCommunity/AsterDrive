@@ -57,46 +57,6 @@ vi.mock("@/components/ui/icon", () => ({
 	),
 }));
 
-vi.mock("@/components/files/TagLibraryManagerDialog", () => ({
-	TagLibraryManagerDialog: ({
-		onTagDeleted,
-		onTagUpdated,
-		open,
-	}: {
-		open: boolean;
-		onOpenChange: (open: boolean) => void;
-		onTagDeleted?: (tagId: number) => void;
-		onTagUpdated?: (tag: TagInfo) => void;
-	}) =>
-		open ? (
-			<div data-testid="tag-library-manager">
-				<button
-					type="button"
-					onClick={() =>
-						onTagUpdated?.({
-							id: 1,
-							name: "Alpha Prime",
-							color: "#7c3aed",
-							usage_count: 2,
-							scope_type: "personal",
-							owner_user_id: 1,
-							team_id: null,
-							normalized_name: "alpha prime",
-							sort_order: 0,
-							created_at: "2026-06-08T00:00:00Z",
-							updated_at: "2026-06-08T00:00:00Z",
-						})
-					}
-				>
-					library-update-alpha
-				</button>
-				<button type="button" onClick={() => onTagDeleted?.(2)}>
-					library-delete-beta
-				</button>
-			</div>
-		) : null,
-}));
-
 function tag(id: number, name: string, color = "#2563eb"): TagInfo {
 	return {
 		id,
@@ -175,6 +135,9 @@ describe("GlobalSearchDialog", () => {
 		render(<GlobalSearchDialog open onOpenChange={onOpenChange} />);
 
 		fireEvent.click(
+			screen.getByRole("button", { name: /search:show_filters/ }),
+		);
+		fireEvent.click(
 			screen.getByRole("button", { name: "search:category_image" }),
 		);
 		fireEvent.click(
@@ -188,7 +151,7 @@ describe("GlobalSearchDialog", () => {
 		);
 	});
 
-	it("submits tag filters and keeps tag library updates in sync", async () => {
+	it("submits tag filters without exposing tag library management", async () => {
 		const onOpenChange = vi.fn();
 		mockState.listTags.mockResolvedValueOnce({
 			items: [tag(1, "Alpha"), tag(2, "Beta", "#16a34a")],
@@ -199,6 +162,10 @@ describe("GlobalSearchDialog", () => {
 
 		render(<GlobalSearchDialog open onOpenChange={onOpenChange} />);
 
+		fireEvent.click(
+			screen.getByRole("button", { name: /search:show_filters/ }),
+		);
+		fireEvent.click(screen.getByRole("button", { name: /search:select_tags/ }));
 		expect(
 			await screen.findByRole("button", { name: /Alpha/ }),
 		).toBeInTheDocument();
@@ -207,18 +174,8 @@ describe("GlobalSearchDialog", () => {
 		fireEvent.click(
 			screen.getByRole("button", { name: "search:tag_match_any" }),
 		);
-
-		fireEvent.click(
-			screen.getByRole("button", { name: /files:tag_library_manage/ }),
-		);
-		fireEvent.click(screen.getByText("library-update-alpha"));
 		expect(
-			screen.getByRole("button", { name: /Alpha Prime/ }),
-		).toBeInTheDocument();
-
-		fireEvent.click(screen.getByText("library-delete-beta"));
-		expect(
-			screen.queryByRole("button", { name: /Beta/ }),
+			screen.queryByRole("button", { name: /files:tag_library_manage/ }),
 		).not.toBeInTheDocument();
 
 		fireEvent.click(
@@ -227,7 +184,7 @@ describe("GlobalSearchDialog", () => {
 
 		expect(onOpenChange).toHaveBeenCalledWith(false);
 		expect(mockState.navigate).toHaveBeenCalledWith(
-			"/search?type=all&tag_ids=1&tag_match=all",
+			"/search?type=all&tag_ids=1%2C2&tag_match=all",
 			{ viewTransition: false },
 		);
 	});

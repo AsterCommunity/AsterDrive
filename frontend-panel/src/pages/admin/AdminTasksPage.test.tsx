@@ -652,6 +652,7 @@ describe("AdminTasksPage", () => {
 		expect(
 			screen.getAllByText("tasks:kind_trash_purge_all").length,
 		).toBeGreaterThan(0);
+		fireEvent.click(screen.getByRole("button", { name: /show_filters/ }));
 		expect(screen.getByText("select:trash_purge_all")).toBeInTheDocument();
 	});
 
@@ -719,6 +720,7 @@ describe("AdminTasksPage", () => {
 		expect(
 			screen.getAllByText("tasks:kind_storage_policy_migration").length,
 		).toBeGreaterThan(0);
+		fireEvent.click(screen.getByRole("button", { name: /show_filters/ }));
 		expect(
 			screen.getByText("select:storage_policy_migration"),
 		).toBeInTheDocument();
@@ -1009,10 +1011,10 @@ describe("AdminTasksPage", () => {
 		fireEvent.click(
 			screen.getAllByRole("button", {
 				name: "select-storage_policy_migration",
-			})[1],
+			})[0],
 		);
 		fireEvent.click(
-			screen.getAllByRole("button", { name: "select-failed" })[1],
+			screen.getAllByRole("button", { name: "select-failed" })[0],
 		);
 		expect(
 			screen.getByText(

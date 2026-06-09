@@ -36,6 +36,7 @@ type ShareLinkMode = "page" | "direct";
 interface ShareDialogProps {
 	open: boolean;
 	onOpenChange: (open: boolean) => void;
+	onOpenChangeComplete?: (open: boolean) => void;
 	fileId?: number;
 	folderId?: number;
 	name: string;
@@ -45,6 +46,7 @@ interface ShareDialogProps {
 export function ShareDialog({
 	open,
 	onOpenChange,
+	onOpenChangeComplete,
 	fileId,
 	folderId,
 	name,
@@ -59,7 +61,7 @@ export function ShareDialog({
 		initialShareDialogState,
 	);
 	const { pending: creating, runWithPending } = usePendingAction();
-	const { copied, createdLinks, expiry, loading, maxDownloads, password } =
+	const { copiedLink, createdLinks, expiry, loading, maxDownloads, password } =
 		state;
 	const expiryOptions = [
 		{ label: t("share:share_expiry_never"), value: "never" },
@@ -120,28 +122,36 @@ export function ShareDialog({
 		});
 	};
 
-	const handleCopy = async (value: string) => {
+	const handleCopy = async (
+		value: string,
+		link: "forceDownload" | "primary",
+	) => {
 		try {
 			await writeTextToClipboard(value);
 			toast.success(t("copied_to_clipboard"));
-			dispatch({ type: "copySucceeded" });
-			setTimeout(() => dispatch({ type: "copyReset" }), 2000);
+			dispatch({ type: "copySucceeded", link });
+			setTimeout(() => dispatch({ type: "copyReset", link }), 2000);
 		} catch {
 			toast.error(t("errors:unexpected_error"));
 		}
 	};
 
 	const handleClose = (open: boolean) => {
+		onOpenChange(open);
+	};
+
+	const handleOpenChangeComplete = (open: boolean) => {
 		if (!open) {
 			dispatch({ type: "reset" });
 		}
-		onOpenChange(open);
+		onOpenChangeComplete?.(open);
 	};
 
 	return (
 		<ManagerDialogShell
 			open={open}
 			onOpenChange={handleClose}
+			onOpenChangeComplete={handleOpenChangeComplete}
 			title={
 				<span className="flex max-w-full min-w-0 items-start gap-2 leading-snug">
 					<Icon name="Link" className="mt-0.5 size-4 shrink-0" />
@@ -154,6 +164,7 @@ export function ShareDialog({
 				<FixedDialogFooter>
 					{createdLinks ? (
 						<Button
+							type="button"
 							variant="outline"
 							className="w-full"
 							onClick={() => handleClose(false)}
@@ -191,9 +202,11 @@ export function ShareDialog({
 							<Button
 								variant="outline"
 								size="icon"
-								onClick={() => void handleCopy(createdLinks.primaryUrl)}
+								onClick={() =>
+									void handleCopy(createdLinks.primaryUrl, "primary")
+								}
 							>
-								{copied ? (
+								{copiedLink === "primary" ? (
 									<Icon name="Check" className="size-4 text-green-500" />
 								) : (
 									<Icon name="Copy" className="size-4" />
@@ -214,10 +227,13 @@ export function ShareDialog({
 										variant="outline"
 										size="icon"
 										onClick={() =>
-											void handleCopy(createdLinks.forceDownloadUrl ?? "")
+											void handleCopy(
+												createdLinks.forceDownloadUrl ?? "",
+												"forceDownload",
+											)
 										}
 									>
-										{copied ? (
+										{copiedLink === "forceDownload" ? (
 											<Icon name="Check" className="size-4 text-green-500" />
 										) : (
 											<Icon name="Copy" className="size-4" />

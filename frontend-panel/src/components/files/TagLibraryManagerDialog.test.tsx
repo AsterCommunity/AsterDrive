@@ -27,6 +27,9 @@ vi.mock("react-i18next", () => ({
 			if (normalizedKey === "tag_delete_confirm_desc") {
 				return `tag_delete_confirm_desc:${options?.name}`;
 			}
+			if (normalizedKey === "tag_color_option") {
+				return `tag_color_option:${options?.color}`;
+			}
 			return normalizedKey;
 		},
 	}),
@@ -203,15 +206,49 @@ describe("TagLibraryManagerDialog", () => {
 
 		await waitFor(() => {
 			expect(mockState.patchTag).toHaveBeenCalledWith(1, {
+				color: "#2563eb",
 				name: "Alpha Prime",
 			});
 		});
 		expect(onTagUpdated).toHaveBeenCalledWith(
 			expect.objectContaining({ id: 1, name: "Alpha Prime" }),
 		);
-		expect(mockState.toastSuccess).toHaveBeenCalledWith("tag_renamed");
+		expect(mockState.toastSuccess).toHaveBeenCalledWith("tag_updated");
 		expect(await screen.findByText("Alpha Prime")).toBeInTheDocument();
 		expect(screen.queryByLabelText("tag_name")).not.toBeInTheDocument();
+	});
+
+	it("updates a tag color from the inline editor", async () => {
+		mockState.patchTag.mockResolvedValue(tag(1, "Alpha", "#dc2626", 2));
+		const onTagUpdated = vi.fn();
+
+		render(
+			<TagLibraryManagerDialog
+				open
+				onOpenChange={vi.fn()}
+				onTagUpdated={onTagUpdated}
+			/>,
+		);
+
+		await screen.findByText("Alpha");
+		fireEvent.click(screen.getAllByRole("button", { name: "tag_edit" })[0]);
+		expect(screen.getByRole("button", { name: "save" })).toBeDisabled();
+
+		fireEvent.click(
+			screen.getByRole("button", { name: "tag_color_option:#dc2626" }),
+		);
+		fireEvent.click(screen.getByRole("button", { name: "save" }));
+
+		await waitFor(() => {
+			expect(mockState.patchTag).toHaveBeenCalledWith(1, {
+				color: "#dc2626",
+				name: "Alpha",
+			});
+		});
+		expect(onTagUpdated).toHaveBeenCalledWith(
+			expect.objectContaining({ color: "#dc2626", id: 1, name: "Alpha" }),
+		);
+		expect(mockState.toastSuccess).toHaveBeenCalledWith("tag_updated");
 	});
 
 	it("cancels edit with Escape and keeps unchanged names disabled", async () => {
@@ -244,6 +281,7 @@ describe("TagLibraryManagerDialog", () => {
 
 		await waitFor(() => {
 			expect(mockState.patchTag).toHaveBeenCalledWith(1, {
+				color: "#2563eb",
 				name: "Alpha Prime",
 			});
 		});

@@ -1,7 +1,6 @@
 import { type KeyboardEvent, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
-import { TagLibraryManagerDialog } from "@/components/files/TagLibraryManagerDialog";
 import { GlobalSearchHeader } from "@/components/layout/global-search/GlobalSearchHeader";
 import type {
 	SearchCategoryFilter,
@@ -50,7 +49,6 @@ export function GlobalSearchDialog({
 	const [tags, setTags] = useState<TagInfo[]>([]);
 	const [selectedTagIds, setSelectedTagIds] = useState<number[]>([]);
 	const [tagMatch, setTagMatch] = useState<SearchTagMatch>("any");
-	const [tagLibraryManagerOpen, setTagLibraryManagerOpen] = useState(false);
 
 	const trimmedQuery = query.trim();
 	const hasSearchCriteria = Boolean(
@@ -89,7 +87,6 @@ export function GlobalSearchDialog({
 			setTagLoading(false);
 			setSelectedTagIds([]);
 			setTagMatch("any");
-			setTagLibraryManagerOpen(false);
 			return;
 		}
 
@@ -147,21 +144,6 @@ export function GlobalSearchDialog({
 				? current.filter((id) => id !== tagId)
 				: [...current, tagId],
 		);
-	};
-
-	const handleLibraryTagUpdated = (tag: TagInfo) => {
-		setTags((current) =>
-			current.some((currentTag) => currentTag.id === tag.id)
-				? current.map((currentTag) =>
-						currentTag.id === tag.id ? tag : currentTag,
-					)
-				: [...current, tag],
-		);
-	};
-
-	const handleLibraryTagDeleted = (tagId: number) => {
-		setTags((current) => current.filter((tag) => tag.id !== tagId));
-		setSelectedTagIds((current) => current.filter((id) => id !== tagId));
 	};
 
 	const handleInputKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
@@ -230,7 +212,6 @@ export function GlobalSearchDialog({
 						inputComposingRef.current = true;
 					}}
 					onInputKeyDown={handleInputKeyDown}
-					onManageTagLibrary={() => setTagLibraryManagerOpen(true)}
 					onQueryClear={() => {
 						setQuery("");
 					}}
@@ -264,12 +245,6 @@ export function GlobalSearchDialog({
 						Enter
 					</kbd>
 				</div>
-				<TagLibraryManagerDialog
-					open={tagLibraryManagerOpen}
-					onOpenChange={setTagLibraryManagerOpen}
-					onTagDeleted={handleLibraryTagDeleted}
-					onTagUpdated={handleLibraryTagUpdated}
-				/>
 			</DialogContent>
 		</Dialog>
 	);

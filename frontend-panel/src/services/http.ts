@@ -25,6 +25,9 @@ const client: AxiosInstance = axios.create({
 	withCredentials: true,
 });
 
+// Keep error-body parsing bounded; backend API error JSON should be tiny.
+const MAX_ERROR_BLOB_SIZE_BYTES = 1_048_576;
+
 // 不需要自动 refresh 的路径
 // FIXME: 如果登录流程新增/调整未认证端点，同步检查 passkey 登录路径是否仍应跳过 refresh。
 const SKIP_REFRESH_PATHS = [
@@ -148,13 +151,15 @@ client.interceptors.response.use(
 
 		// 跳过公开端点的自动 refresh（避免把分享页误当成登录态接口）
 		const shouldSkip = shouldSkipRefresh(url);
-		if (
+		const shouldTryRefresh =
 			error.response?.status === 401 &&
 			original &&
 			!original._retry &&
-			!shouldSkip &&
-			isRefreshableAuthError(error)
-		) {
+			!shouldSkip;
+		const apiError = shouldTryRefresh
+			? await extractApiErrorAsync(error)
+			: null;
+		if (shouldTryRefresh && isRefreshableAuthError(apiError ?? error)) {
 			original._retry = true;
 
 			if (!isRefreshing) {
@@ -185,7 +190,7 @@ client.interceptors.response.use(
 				return Promise.reject(error);
 			}
 		}
-		return Promise.reject(extractApiError(error) ?? error);
+		return Promise.reject(apiError ?? error);
 	},
 );
 
@@ -240,20 +245,18 @@ function normalizeApiErrorInfo(
 	};
 }
 
-function extractApiError(error: unknown): ApiError | null {
-	if (typeof error !== "object" || error === null) {
-		return null;
+function extractApiErrorFromData(
+	data: unknown,
+	status: number | undefined,
+): ApiError | null {
+	if (typeof data === "string") {
+		try {
+			return extractApiErrorFromData(JSON.parse(data) as unknown, status);
+		} catch {
+			return null;
+		}
 	}
 
-	const response =
-		"response" in error && typeof error.response === "object"
-			? error.response
-			: null;
-	if (response === null || response === undefined) {
-		return null;
-	}
-
-	const data = "data" in response ? response.data : null;
 	if (typeof data !== "object" || data === null) {
 		return null;
 	}
@@ -270,12 +273,71 @@ function extractApiError(error: unknown): ApiError | null {
 
 	const errorInfo =
 		"error" in data && typeof data.error === "object" ? data.error : null;
-	const status = "status" in response ? response.status : null;
 
 	return new ApiError(code, message, {
 		...normalizeApiErrorInfo(errorInfo as ApiErrorInfoPayload | null),
-		status: typeof status === "number" ? status : undefined,
+		status,
 	});
+}
+
+function extractApiError(error: unknown): ApiError | null {
+	if (typeof error !== "object" || error === null) {
+		return null;
+	}
+
+	const response =
+		"response" in error && typeof error.response === "object"
+			? error.response
+			: null;
+	if (response === null || response === undefined) {
+		return null;
+	}
+
+	const data = "data" in response ? response.data : null;
+	const status = "status" in response ? response.status : null;
+
+	return extractApiErrorFromData(
+		data,
+		typeof status === "number" ? status : undefined,
+	);
+}
+
+async function extractApiErrorAsync(error: unknown): Promise<ApiError | null> {
+	const apiError = extractApiError(error);
+	if (apiError) {
+		return apiError;
+	}
+
+	if (typeof error !== "object" || error === null) {
+		return null;
+	}
+
+	const response =
+		"response" in error && typeof error.response === "object"
+			? error.response
+			: null;
+	if (response === null || response === undefined) {
+		return null;
+	}
+
+	const data = "data" in response ? response.data : null;
+	if (!(data instanceof Blob)) {
+		return null;
+	}
+	if (data.size > MAX_ERROR_BLOB_SIZE_BYTES) {
+		return null;
+	}
+
+	try {
+		const parsed = JSON.parse(await data.text()) as unknown;
+		const status = "status" in response ? response.status : null;
+		return extractApiErrorFromData(
+			parsed,
+			typeof status === "number" ? status : undefined,
+		);
+	} catch {
+		return null;
+	}
 }
 
 async function unwrap<T>(

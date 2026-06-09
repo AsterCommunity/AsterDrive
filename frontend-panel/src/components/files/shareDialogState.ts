@@ -3,8 +3,10 @@ interface CreatedShareLinks {
 	primaryUrl: string;
 }
 
+type CopiedShareLink = "forceDownload" | "primary";
+
 export interface ShareDialogState {
-	copied: boolean;
+	copiedLink: CopiedShareLink | null;
 	createdLinks: CreatedShareLinks | null;
 	expiry: string;
 	loading: boolean;
@@ -19,12 +21,12 @@ export type ShareDialogAction =
 	| { type: "createStarted" }
 	| { type: "createFinished" }
 	| { type: "createSucceeded"; links: CreatedShareLinks }
-	| { type: "copySucceeded" }
-	| { type: "copyReset" }
+	| { type: "copySucceeded"; link: CopiedShareLink }
+	| { type: "copyReset"; link: CopiedShareLink }
 	| { type: "reset" };
 
 export const initialShareDialogState: ShareDialogState = {
-	copied: false,
+	copiedLink: null,
 	createdLinks: null,
 	expiry: "never",
 	loading: false,
@@ -53,9 +55,12 @@ export function shareDialogReducer(
 				createdLinks: action.links,
 			};
 		case "copySucceeded":
-			return { ...state, copied: true };
+			return { ...state, copiedLink: action.link };
 		case "copyReset":
-			return { ...state, copied: false };
+			if (state.copiedLink !== action.link) {
+				return state;
+			}
+			return { ...state, copiedLink: null };
 		case "reset":
 			return initialShareDialogState;
 	}

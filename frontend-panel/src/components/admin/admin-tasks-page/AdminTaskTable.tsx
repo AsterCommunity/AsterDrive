@@ -24,6 +24,7 @@ import {
 	DialogTitle,
 } from "@/components/ui/dialog";
 import { Icon } from "@/components/ui/icon";
+import { useRetainedDialogValue } from "@/hooks/useRetainedDialogValue";
 import { formatDateAbsolute, formatDateAbsoluteWithOffset } from "@/lib/format";
 import type { SortOrder } from "@/lib/pagination";
 import { cn } from "@/lib/utils";
@@ -291,51 +292,58 @@ export function AdminTaskDetailDialog({
 	resumingTaskId,
 }: AdminTaskDetailDialogProps) {
 	const { t } = useTranslation(["admin", "core", "tasks"]);
+	const { retainedValue: retainedTask, handleOpenChangeComplete } =
+		useRetainedDialogValue(detailTask, detailTask !== null);
 
 	return (
-		<Dialog open={detailTask !== null} onOpenChange={onOpenDetailChange}>
-			{detailTask ? (
+		<Dialog
+			open={detailTask !== null}
+			onOpenChange={onOpenDetailChange}
+			onOpenChangeComplete={handleOpenChangeComplete}
+		>
+			{retainedTask ? (
 				<DialogContent
 					keepMounted
-					id={`admin-task-detail-${detailTask.id}`}
+					id={`admin-task-detail-${retainedTask.id}`}
 					className="flex max-h-[min(860px,calc(100vh-2rem))] flex-col gap-0 overflow-hidden p-0 sm:max-w-[min(1040px,calc(100vw-2rem))]"
 				>
 					<DialogHeader className="shrink-0 border-b px-6 pt-5 pb-4 pr-14 max-lg:px-4 max-lg:pt-4">
 						<DialogTitle className="truncate text-lg">
-							{formatTaskDisplayName(t, detailTask)}
+							{formatTaskDisplayName(t, retainedTask)}
 						</DialogTitle>
 						<div className="flex flex-wrap items-center gap-2 pt-1 text-xs text-muted-foreground">
 							<span className={ADMIN_TABLE_MONO_TEXT_CLASS}>
-								#{detailTask.id}
+								#{retainedTask.id}
 							</span>
-							<span>{formatTaskKind(detailTask.kind)}</span>
-							<span>{formatTaskStatus(detailTask.status)}</span>
+							<span>{formatTaskKind(retainedTask.kind)}</span>
+							<span>{formatTaskStatus(retainedTask.status)}</span>
 						</div>
 					</DialogHeader>
 					<div className="min-h-0 flex-1 overflow-y-auto px-6 py-4 max-lg:px-4">
 						<div className="space-y-3">
-							<TaskStepsPreview task={detailTask} />
-							<TaskDetailsContent task={detailTask} />
+							<TaskStepsPreview task={retainedTask} />
+							<TaskDetailsContent task={retainedTask} />
 						</div>
 					</div>
-					{canResumeStorageMigration(detailTask) && onResumeStorageMigration ? (
+					{canResumeStorageMigration(retainedTask) &&
+					onResumeStorageMigration ? (
 						<DialogFooter className="shrink-0 border-t px-6 py-3 max-lg:px-4">
 							<Button
 								type="button"
-								onClick={() => onResumeStorageMigration(detailTask.id)}
-								disabled={resumingTaskId === detailTask.id}
+								onClick={() => onResumeStorageMigration(retainedTask.id)}
+								disabled={resumingTaskId === retainedTask.id}
 							>
 								<Icon
 									name={
-										resumingTaskId === detailTask.id
+										resumingTaskId === retainedTask.id
 											? "Spinner"
 											: "ArrowsClockwise"
 									}
 									className={`mr-1 size-4 ${
-										resumingTaskId === detailTask.id ? "animate-spin" : ""
+										resumingTaskId === retainedTask.id ? "animate-spin" : ""
 									}`}
 								/>
-								{resumingTaskId === detailTask.id
+								{resumingTaskId === retainedTask.id
 									? t("admin:storage_migration_resuming")
 									: t("admin:storage_migration_resume")}
 							</Button>

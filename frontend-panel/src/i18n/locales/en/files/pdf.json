@@ -10,6 +10,7 @@
 	"pdf_zoom_reset": "Reset zoom",
 	"pdf_zoom_percent": "{{zoom}}%",
 	"pdf_fit_width": "Fit width",
+	"pdf_more_actions": "More PDF actions",
 	"pdf_rotate_left": "Rotate left",
 	"pdf_rotate_right": "Rotate right",
 	"pdf_open_new_tab": "Open in new tab",

@@ -74,7 +74,7 @@ describe("BlobImagePreview", () => {
 		expect(mockState.retry).toHaveBeenCalledTimes(1);
 	});
 
-	it("falls back to the error state when no blob url is available", () => {
+	it("keeps showing loading while a requested blob url is not ready yet", () => {
 		mockState.useBlobUrl.mockReturnValue({
 			blobUrl: null,
 			error: false,
@@ -84,7 +84,8 @@ describe("BlobImagePreview", () => {
 
 		render(<BlobImagePreview file={file} path="/files/1" />);
 
-		expect(screen.getByText("preview_load_failed")).toBeInTheDocument();
+		expect(screen.getByText("loading_preview")).toBeInTheDocument();
+		expect(screen.queryByText("preview_load_failed")).not.toBeInTheDocument();
 	});
 
 	it("renders an image preview with the file name as alt text", () => {

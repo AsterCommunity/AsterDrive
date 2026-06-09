@@ -125,7 +125,7 @@ async fn test_frontend_csp_constants_split_header_only_directives() {
         "meta CSP should exclude frame-ancestors"
     );
     assert!(
-        FRONTEND_CSP_META.contains("connect-src 'self' http: https: ws: wss:"),
+        FRONTEND_CSP_META.contains("connect-src 'self' http: https: ws: wss: blob:"),
         "meta CSP should still allow presigned and remote browser connections"
     );
 }

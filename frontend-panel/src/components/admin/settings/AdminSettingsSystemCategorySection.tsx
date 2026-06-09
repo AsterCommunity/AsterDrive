@@ -1,6 +1,7 @@
 import { useAdminSettingsCategoryContent } from "@/components/admin/settings/AdminSettingsCategoryContentContext";
 import { AdminSettingsCategoryHeader } from "@/components/admin/settings/AdminSettingsCategoryHeader";
 import { SystemConfigRow } from "@/components/admin/settings/AdminSettingsConfigRows";
+import { ADMIN_SETTINGS_CONTENT_MAX_WIDTH_CLASS } from "@/components/admin/settings/adminSettingsAnimation";
 import {
 	AnimatedCollapsible,
 	getConfigValueType,
@@ -40,12 +41,12 @@ function AdminSettingsMailTemplateGroup({
 	return (
 		<section
 			key={groupKey}
-			className="overflow-hidden rounded-xl border border-border/50 bg-background/80"
+			className="overflow-hidden rounded-lg border border-border/60 bg-background"
 		>
 			<Button
 				variant="ghost"
 				size="sm"
-				className="flex h-auto w-full items-center justify-between gap-3 rounded-none px-4 py-3 text-left"
+				className="flex h-auto w-full items-center justify-between gap-3 rounded-none px-3 py-2.5 text-left"
 				aria-expanded={templateExpanded}
 				onClick={() => toggleTemplateGroup(groupKey, !templateExpanded)}
 			>
@@ -79,7 +80,7 @@ function AdminSettingsMailTemplateGroup({
 			<AnimatedCollapsible
 				open={templateExpanded}
 				contentClassName={cn(
-					"px-4 transition-colors duration-[180ms] ease-out motion-reduce:transition-none",
+					"px-3 transition-colors duration-[180ms] ease-out motion-reduce:transition-none",
 					templateExpanded
 						? "border-t border-border/40"
 						: "border-t border-transparent",
@@ -87,7 +88,7 @@ function AdminSettingsMailTemplateGroup({
 			>
 				<div className="divide-y divide-border/40">
 					{configs.map((config) => (
-						<div key={config.key} className="py-5 first:pt-5 last:pb-5">
+						<div key={config.key} className="py-4 first:pt-4 last:pb-4">
 							<SystemConfigRow config={config} />
 						</div>
 					))}
@@ -183,15 +184,15 @@ function AdminSettingsSystemSubcategoryCard({
 	return (
 		<section
 			key={groupKey}
-			className="overflow-hidden rounded-2xl border border-border/60 bg-card/40"
+			className="overflow-hidden rounded-lg border border-border/60 bg-background"
 		>
-			<div className="flex flex-col gap-4 px-5 py-4 lg:flex-row lg:items-start lg:justify-between">
+			<div className="flex flex-col gap-3 px-4 py-3 lg:flex-row lg:items-start lg:justify-between">
 				<div className="min-w-0 flex-1 space-y-1">
 					<h4 className="text-base font-semibold tracking-tight">
 						{getSubcategoryLabel(category, group.subcategory)}
 					</h4>
 					{groupDescription ? (
-						<p className="max-w-3xl break-words text-sm leading-6 text-muted-foreground">
+						<p className="max-w-3xl break-words text-sm leading-5 text-muted-foreground">
 							{groupDescription}
 						</p>
 					) : null}
@@ -221,9 +222,9 @@ function AdminSettingsSystemSubcategoryCard({
 				</div>
 			</div>
 			{!collapsible || expanded ? (
-				<div className="border-t border-border/40 px-5">
+				<div className="border-t border-border/40 px-4">
 					{isMailTemplateSection ? (
-						<div className="space-y-4 py-5">
+						<div className="space-y-3 py-4">
 							{mailTemplateGroups.map((templateGroup) => (
 								<AdminSettingsMailTemplateGroup
 									key={templateGroup.groupKey}
@@ -244,7 +245,7 @@ function AdminSettingsSystemSubcategoryCard({
 					) : (
 						<div className="divide-y divide-border/40">
 							{group.configs.map((config) => (
-								<div key={config.key} className="py-6 first:pt-6 last:pb-6">
+								<div key={config.key} className="py-4 first:pt-4 last:pb-4">
 									<SystemConfigRow config={config} />
 								</div>
 							))}
@@ -275,7 +276,7 @@ export function AdminSettingsSystemCategorySection({
 	return (
 		<div
 			key={`${activeTab}-${tabDirection}`}
-			className={`space-y-10 ${panelAnimationClass}`}
+			className={`space-y-6 ${panelAnimationClass}`}
 		>
 			{showCategoryHeader ? (
 				<AdminSettingsCategoryHeader
@@ -284,15 +285,22 @@ export function AdminSettingsSystemCategorySection({
 				/>
 			) : null}
 			{!hasSubcategorySections ? (
-				<div className="max-w-4xl divide-y divide-border/40">
+				<div
+					className={cn(
+						ADMIN_SETTINGS_CONTENT_MAX_WIDTH_CLASS,
+						"divide-y divide-border/40",
+					)}
+				>
 					{(systemGroups[category] ?? []).map((config) => (
-						<div key={config.key} className="py-6 first:pt-0 last:pb-0">
+						<div key={config.key} className="py-4 first:pt-0 last:pb-0">
 							<SystemConfigRow config={config} />
 						</div>
 					))}
 				</div>
 			) : (
-				<div className="max-w-5xl space-y-4">
+				<div
+					className={cn(ADMIN_SETTINGS_CONTENT_MAX_WIDTH_CLASS, "space-y-3")}
+				>
 					{systemConfigGroups.map((group) => (
 						<AdminSettingsSystemSubcategoryCard
 							key={getSubcategoryGroupKey(category, group.subcategory)}

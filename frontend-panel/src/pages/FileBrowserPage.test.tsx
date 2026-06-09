@@ -25,6 +25,7 @@ const mockState = vi.hoisted(() => ({
 	createPreviewLink: vi.fn(),
 	createWopiSession: vi.fn(),
 	streamArchiveDownload: vi.fn(),
+	startAuthenticatedDownload: vi.fn(),
 	dispatchEvent: vi.fn(),
 	fileBrowserContext: null as Record<string, unknown> | null,
 	formatBatchToast: vi.fn(),
@@ -900,12 +901,16 @@ vi.mock("@/services/fileService", () => ({
 		createWopiSession: (...args: unknown[]) =>
 			mockState.createWopiSession(...args),
 		downloadPath: (id: number) => `/files/${id}/download`,
-		downloadUrl: (id: number) => `https://download/${id}`,
 		getMediaMetadata: vi.fn(async () => null),
 		setFileLock: (...args: unknown[]) => mockState.setFileLock(...args),
 		setFolderLock: (...args: unknown[]) => mockState.setFolderLock(...args),
 		thumbnailPath: (id: number) => `/files/${id}/thumbnail`,
 	},
+}));
+
+vi.mock("@/lib/authenticatedDownload", () => ({
+	startAuthenticatedDownload: (...args: unknown[]) =>
+		mockState.startAuthenticatedDownload(...args),
 }));
 
 vi.mock("@/stores/authStore", () => {
@@ -1032,6 +1037,8 @@ describe("FileBrowserPage", () => {
 		mockState.createPreviewLink.mockReset();
 		mockState.createWopiSession.mockReset();
 		mockState.streamArchiveDownload.mockReset();
+		mockState.startAuthenticatedDownload.mockReset();
+		mockState.startAuthenticatedDownload.mockResolvedValue(undefined);
 		mockState.dispatchEvent.mockReset();
 		mockState.fileBrowserContext = null;
 		mockState.formatBatchToast.mockReset();
@@ -1832,20 +1839,11 @@ describe("FileBrowserPage", () => {
 		).toBeInTheDocument();
 
 		const context = getFileBrowserContext();
-		const createElement = document.createElement.bind(document);
-		const anchor = createElement("a");
-		const clickSpy = vi.spyOn(anchor, "click").mockImplementation(() => {});
-		const createElementSpy = vi
-			.spyOn(document, "createElement")
-			.mockImplementation(((tagName: string) =>
-				tagName === "a"
-					? anchor
-					: createElement(tagName)) as typeof document.createElement);
 
 		context.onDownload(3, "notes.txt");
-		expect(anchor.href).toBe("https://download/3");
-		expect(anchor.download).toBe("");
-		expect(clickSpy).toHaveBeenCalledTimes(1);
+		expect(mockState.startAuthenticatedDownload).toHaveBeenCalledWith(
+			"/files/3/download",
+		);
 
 		await expect(context.onToggleLock("file", 3, false)).resolves.toBe(true);
 		await expect(context.onToggleLock("folder", 5, true)).resolves.toBe(true);
@@ -1891,9 +1889,6 @@ describe("FileBrowserPage", () => {
 		await waitFor(() => {
 			expect(mockState.store.refresh).toHaveBeenCalled();
 		});
-
-		createElementSpy.mockRestore();
-		clickSpy.mockRestore();
 	});
 
 	it("updates open info panels when the backing file or folder changes", async () => {

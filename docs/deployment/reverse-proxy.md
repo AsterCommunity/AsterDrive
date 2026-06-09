@@ -293,7 +293,7 @@ script-src 'self' 'unsafe-inline';
 style-src 'self' 'unsafe-inline';
 img-src 'self' data: blob: http: https:;
 font-src 'self' data:;
-connect-src 'self' http: https: ws: wss:;
+connect-src 'self' http: https: ws: wss: blob:;
 media-src 'self' blob:;
 worker-src 'self' blob:;
 frame-src 'self' http: https:;
@@ -305,7 +305,7 @@ manifest-src 'self';
 - `script-src 'unsafe-inline'` 现在要保留；自定义前端和占位符注入里仍可能出现内联脚本
 - `style-src 'unsafe-inline'` 现在要保留；前端里有运行时内联样式和动态 `<style>`，强制移除可能导致样式失效
 - `img-src 'self' data: blob: http: https:` 和 `media-src 'self' blob:` 要保留；缩略图、图片 / 视频预览、头像裁剪、外链图标会用到这些来源
-- `connect-src 'self' http: https: ws: wss:` 要保留；预签名上传 / 下载、远程 follower、实时推送都会用到
+- `connect-src 'self' http: https: ws: wss: blob:` 要保留；预签名上传 / 下载、远程 follower、实时推送都会用到
 - `worker-src 'self' blob:` 要保留；PDF 预览会用 worker，某些构建方式会走 blob worker
 - `frame-src 'self' http: https:` 要保留；外部预览应用和 WOPI 入口可能不是同源 iframe
 

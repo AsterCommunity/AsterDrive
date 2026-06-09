@@ -2,6 +2,9 @@ import { useEffect, useRef, useState } from "react";
 
 type SaveBarPhase = "hidden" | "entering" | "visible" | "exiting";
 
+const EXIT_UNMOUNT_GRACE_MS = 50;
+const NEXT_FRAME_DELAY_MS = 16;
+
 interface UseAdminSettingsSaveBarProps {
 	desktopMinReservedHeight: number;
 	enterDurationMs: number;
@@ -25,44 +28,78 @@ export function useAdminSettingsSaveBar({
 	const phaseRef = useRef<SaveBarPhase>("hidden");
 	const measureRef = useRef<HTMLDivElement | null>(null);
 	const [phase, setPhase] = useState<SaveBarPhase>("hidden");
-	const [reservedHeight, setReservedHeight] = useState(0);
+	const [measuredReservedHeight, setMeasuredReservedHeight] = useState(0);
 
 	useEffect(() => {
 		phaseRef.current = phase;
 	}, [phase]);
 
 	useEffect(() => {
-		if (timerRef.current !== null) {
-			window.clearTimeout(timerRef.current);
-			timerRef.current = null;
-		}
-
-		if (hasUnsavedChanges) {
-			setPhase("entering");
-			timerRef.current = window.setTimeout(() => {
-				setPhase("visible");
-				timerRef.current = null;
-			}, enterDurationMs);
-			return;
-		}
-
-		if (phaseRef.current === "hidden") {
-			return;
-		}
-
-		setPhase((previous) => (previous === "hidden" ? previous : "exiting"));
-		timerRef.current = window.setTimeout(() => {
-			setPhase("hidden");
-			timerRef.current = null;
-		}, exitDurationMs);
-
-		return () => {
+		const clearTimer = () => {
 			if (timerRef.current !== null) {
 				window.clearTimeout(timerRef.current);
 				timerRef.current = null;
 			}
 		};
-	}, [enterDurationMs, exitDurationMs, hasUnsavedChanges]);
+		const setPhaseState = (nextPhase: SaveBarPhase) => {
+			phaseRef.current = nextPhase;
+			setPhase(nextPhase);
+		};
+		const scheduleHidden = () => {
+			timerRef.current = window.setTimeout(() => {
+				setPhaseState("hidden");
+				timerRef.current = null;
+			}, exitDurationMs + EXIT_UNMOUNT_GRACE_MS);
+		};
+		const scheduleExit = (delayMs = 0) => {
+			if (delayMs === 0) {
+				setPhaseState("exiting");
+				scheduleHidden();
+				return;
+			}
+
+			timerRef.current = window.setTimeout(() => {
+				timerRef.current = null;
+				setPhaseState("exiting");
+				scheduleHidden();
+			}, delayMs);
+		};
+
+		clearTimer();
+
+		if (hasUnsavedChanges) {
+			if (phaseRef.current === "visible") return;
+
+			if (phaseRef.current !== "entering") {
+				setPhaseState("entering");
+			}
+
+			timerRef.current = window.setTimeout(() => {
+				setPhaseState("visible");
+				timerRef.current = null;
+			}, 0);
+			return;
+		}
+
+		if (phaseRef.current === "hidden" || phaseRef.current === "exiting") {
+			return;
+		}
+
+		if (phaseRef.current === "entering") {
+			timerRef.current = window.setTimeout(() => {
+				timerRef.current = null;
+				setPhaseState("visible");
+				scheduleExit(NEXT_FRAME_DELAY_MS);
+			}, NEXT_FRAME_DELAY_MS);
+			return;
+		}
+
+		scheduleExit();
+
+		return () => {
+			clearTimer();
+		};
+	}, [exitDurationMs, hasUnsavedChanges]);
 
 	useEffect(() => {
 		const timerState = timerRef;
@@ -75,7 +112,7 @@ export function useAdminSettingsSaveBar({
 
 	useEffect(() => {
 		if (phase === "hidden") {
-			setReservedHeight(0);
+			setMeasuredReservedHeight(0);
 			return;
 		}
 
@@ -85,13 +122,13 @@ export function useAdminSettingsSaveBar({
 				: desktopMinReservedHeight;
 		const node = measureRef.current;
 		if (!node) {
-			setReservedHeight(fallbackHeight);
+			setMeasuredReservedHeight(fallbackHeight);
 			return;
 		}
 
 		const updateReservedHeight = () => {
 			const measuredHeight = Math.ceil(node.getBoundingClientRect().height);
-			setReservedHeight(Math.max(measuredHeight, fallbackHeight));
+			setMeasuredReservedHeight(Math.max(measuredHeight, fallbackHeight));
 		};
 
 		updateReservedHeight();
@@ -119,6 +156,9 @@ export function useAdminSettingsSaveBar({
 	return {
 		measureRef,
 		phase,
-		reservedHeight,
+		reservedHeight:
+			phase === "hidden" || phase === "exiting" ? 0 : measuredReservedHeight,
+		transitionDurationMs:
+			phase === "exiting" ? exitDurationMs : enterDurationMs,
 	};
 }

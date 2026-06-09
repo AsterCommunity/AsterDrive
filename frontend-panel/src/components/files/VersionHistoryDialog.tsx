@@ -29,6 +29,7 @@ import type { FileVersion } from "@/types/api";
 interface VersionHistoryDialogProps {
 	open: boolean;
 	onOpenChange: (open: boolean) => void;
+	onOpenChangeComplete?: (open: boolean) => void;
 	fileId: number;
 	fileName: string;
 	mimeType?: string;
@@ -111,6 +112,7 @@ function getCurrentVersionNumber(versions: FileVersion[]) {
 export function VersionHistoryDialog({
 	open,
 	onOpenChange,
+	onOpenChangeComplete,
 	fileId,
 	fileName,
 	mimeType,
@@ -190,7 +192,11 @@ export function VersionHistoryDialog({
 	}, [load, open]);
 
 	return (
-		<Dialog open={open} onOpenChange={handleOpenChange}>
+		<Dialog
+			open={open}
+			onOpenChange={handleOpenChange}
+			onOpenChangeComplete={onOpenChangeComplete}
+		>
 			<DialogContent keepMounted className="max-w-lg">
 				<DialogHeader>
 					<div className="flex items-start gap-3 pr-8">

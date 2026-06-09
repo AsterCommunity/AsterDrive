@@ -15,6 +15,13 @@
 	"preview_not_available_desc": "可先下载该文件，或稍后尝试其他打开方式。",
 	"preview_enter_fullscreen": "占满窗口",
 	"preview_exit_fullscreen": "还原窗口",
+	"preview_mode_formatted": "已格式化",
+	"preview_mode_json": "JSON",
+	"preview_mode_markdown": "Markdown",
+	"preview_mode_rendered": "渲染视图",
+	"preview_mode_table": "表格视图",
+	"preview_mode_video": "视频",
+	"preview_mode_xml": "XML",
 	"table_parse_failed": "表格解析失败",
 	"table_truncated": "文件较大，仅显示前 {{count}} 行。",
 	"structured_parse_failed": "结构化解析失败，建议切回源码视图。"

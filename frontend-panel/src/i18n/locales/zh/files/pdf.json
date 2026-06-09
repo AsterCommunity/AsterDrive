@@ -10,6 +10,7 @@
 	"pdf_zoom_reset": "重置缩放",
 	"pdf_zoom_percent": "{{zoom}}%",
 	"pdf_fit_width": "适应宽度",
+	"pdf_more_actions": "更多 PDF 操作",
 	"pdf_rotate_left": "向左旋转",
 	"pdf_rotate_right": "向右旋转",
 	"pdf_open_new_tab": "新标签页打开",

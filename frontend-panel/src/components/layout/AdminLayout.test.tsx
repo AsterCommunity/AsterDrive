@@ -93,26 +93,32 @@ describe("AdminLayout", () => {
 			"translated:overview",
 			"translated:users",
 			"translated:teams",
-			"translated:policies",
-			"translated:remote_nodes",
 			"translated:external_auth",
+			"translated:policies",
 			"translated:policy_groups",
-			"translated:shares",
+			"translated:remote_nodes",
 			"translated:admin_files",
 			"translated:admin_file_blobs",
-			"translated:tasks",
+			"translated:shares",
 			"translated:locks",
-			"translated:system_settings",
+			"translated:tasks",
 			"translated:audit_log",
+			"translated:system_settings",
 			"translated:core:back",
 			"translated:about",
 		];
 
 		expect(screen.getByText("Admin Content")).toBeInTheDocument();
-		for (const label of expectedNavigationLabels) {
+		const navigationButtons = expectedNavigationLabels.map((label) =>
+			screen.getByRole("button", { name: new RegExp(label, "i") }),
+		);
+		for (const button of navigationButtons) {
+			expect(button).toBeInTheDocument();
+		}
+		for (let i = 0; i < navigationButtons.length - 1; i += 1) {
 			expect(
-				screen.getByRole("button", { name: new RegExp(label, "i") }),
-			).toBeInTheDocument();
+				navigationButtons[i].compareDocumentPosition(navigationButtons[i + 1]),
+			).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
 		}
 		const backButton = screen.getByRole("button", {
 			name: /translated:core:back/i,

@@ -104,7 +104,7 @@
 	"storage_native_media_metadata_enabled_desc": "Allow this policy to call the provider's media-info parser. On Tencent COS this uses COS CI GetMediainfo and is charged by request count; an empty suffix list will not trigger native parsing.",
 	"storage_native_media_metadata_extensions": "Native media info extensions",
 	"storage_native_media_metadata_extensions_desc": "Per-policy audio/video suffix list, comma-separated. Only add suffixes you want the storage backend to parse; leaving this empty keeps the switch on but processes no files.",
-	"thumbnail_processor_images": "AsterDrive Built-in",
+	"thumbnail_processor_images": "AsterDrive Built-in Image",
 	"chunk_size": "Chunk Size (MB)",
 	"chunk_size_desc": "Files larger than this are split into chunks. For S3 relay_stream and presigned modes, and for remote presigned mode, this also controls the multipart part size; S3 multipart still obeys the 5 MiB minimum part size. 0 = always use single upload.",
 	"set_as_default": "Set as default policy",

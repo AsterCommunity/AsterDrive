@@ -1,6 +1,9 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { FileBrowserItemContextMenu } from "@/components/files/FileBrowserItemContextMenu";
+import {
+	FileBrowserItemActionMenu,
+	FileBrowserItemContextMenu,
+} from "@/components/files/FileBrowserItemContextMenu";
 
 const mockState = vi.hoisted(() => ({
 	browserContext: {
@@ -26,6 +29,7 @@ const mockState = vi.hoisted(() => ({
 		onFileClick: vi.fn(),
 		onFileOpen: vi.fn(),
 		onFolderOpen: vi.fn(),
+		onGoToLocation: vi.fn(),
 		onInfo: vi.fn(),
 		onManageTags: vi.fn(),
 		onMove: vi.fn(),
@@ -44,12 +48,34 @@ vi.mock("@/components/files/FileBrowserContext", () => ({
 	useFileBrowserContext: () => mockState.browserContext,
 }));
 
+vi.mock("react-i18next", () => ({
+	useTranslation: () => ({
+		t: (key: string) => key,
+	}),
+}));
+
 vi.mock("@/stores/fileStore", () => ({
 	useFileStore: (selector: (state: typeof mockState.store) => unknown) =>
 		selector(mockState.store),
 }));
 
 vi.mock("@/components/files/FileContextMenu", () => ({
+	FileContextDropdownMenu: ({
+		onOpen,
+		trigger,
+	}: {
+		onOpen?: () => void;
+		trigger: React.ReactNode;
+	}) => (
+		<div>
+			<div data-testid="dropdown-trigger">{trigger}</div>
+			{onOpen && (
+				<button type="button" onClick={onOpen}>
+					dropdown-open
+				</button>
+			)}
+		</div>
+	),
 	FileContextMenu: ({
 		children,
 		downloadAction,
@@ -61,6 +87,7 @@ vi.mock("@/components/files/FileContextMenu", () => ({
 		onDelete,
 		onDirectShare,
 		onDownload,
+		onGoToLocation,
 		onInfo,
 		onManageTags,
 		onMove,
@@ -84,6 +111,7 @@ vi.mock("@/components/files/FileContextMenu", () => ({
 		onDelete?: () => void;
 		onDirectShare?: () => void;
 		onDownload?: () => void;
+		onGoToLocation?: () => void;
 		onInfo?: () => void;
 		onManageTags?: () => void;
 		onMove?: () => void;
@@ -157,6 +185,11 @@ vi.mock("@/components/files/FileContextMenu", () => ({
 					move
 				</button>
 			)}
+			{onGoToLocation && (
+				<button type="button" onClick={onGoToLocation}>
+					location
+				</button>
+			)}
 			{onRename && (
 				<button type="button" onClick={onRename}>
 					rename
@@ -186,6 +219,32 @@ vi.mock("@/components/files/FileContextMenu", () => ({
 	),
 }));
 
+vi.mock("@/components/ui/button", () => ({
+	Button: ({
+		children,
+		onClick,
+		onDoubleClick,
+		onKeyDown,
+		onPointerDown,
+		...props
+	}: React.ButtonHTMLAttributes<HTMLButtonElement>) => (
+		<button
+			type="button"
+			onClick={onClick}
+			onDoubleClick={onDoubleClick}
+			onKeyDown={onKeyDown}
+			onPointerDown={onPointerDown}
+			{...props}
+		>
+			{children}
+		</button>
+	),
+}));
+
+vi.mock("@/components/ui/icon", () => ({
+	Icon: ({ name }: { name: string }) => <span aria-hidden="true">{name}</span>,
+}));
+
 describe("FileBrowserItemContextMenu", () => {
 	beforeEach(() => {
 		mockState.browserContext.batchSelectionActions = null;
@@ -199,6 +258,7 @@ describe("FileBrowserItemContextMenu", () => {
 		mockState.browserContext.onFileClick.mockReset();
 		mockState.browserContext.onFileOpen.mockReset();
 		mockState.browserContext.onFolderOpen.mockReset();
+		mockState.browserContext.onGoToLocation.mockReset();
 		mockState.browserContext.onInfo.mockReset();
 		mockState.browserContext.onManageTags.mockReset();
 		mockState.browserContext.onMove.mockReset();
@@ -286,6 +346,7 @@ describe("FileBrowserItemContextMenu", () => {
 		fireEvent.click(screen.getByRole("button", { name: "copy" }));
 		fireEvent.click(screen.getByRole("button", { name: "tags" }));
 		fireEvent.click(screen.getByRole("button", { name: "move" }));
+		fireEvent.click(screen.getByRole("button", { name: "location" }));
 		fireEvent.click(screen.getByRole("button", { name: "rename" }));
 		fireEvent.click(screen.getByRole("button", { name: "lock" }));
 		fireEvent.click(screen.getByRole("button", { name: "delete" }));
@@ -323,6 +384,9 @@ describe("FileBrowserItemContextMenu", () => {
 			2,
 		);
 		expect(mockState.browserContext.onMove).toHaveBeenCalledWith("file", 2);
+		expect(mockState.browserContext.onGoToLocation).toHaveBeenCalledWith(
+			expect.objectContaining({ id: 2 }),
+		);
 		expect(mockState.browserContext.onRename).toHaveBeenCalledWith(
 			"file",
 			2,
@@ -437,5 +501,47 @@ describe("FileBrowserItemContextMenu", () => {
 		expect(mockState.browserContext.onFileOpen).toHaveBeenCalledWith(
 			expect.objectContaining({ id: 2 }),
 		);
+	});
+
+	it("renders an action menu trigger that stops item row events", () => {
+		render(
+			<FileBrowserItemActionMenu
+				item={{ id: 2, name: "bundle.zip", is_locked: false } as never}
+				isFolder={false}
+			/>,
+		);
+
+		const trigger = screen.getByRole("button", { name: "more_actions" });
+		const pointerEvent = new Event("pointerdown", {
+			bubbles: true,
+			cancelable: true,
+		});
+		const clickEvent = new MouseEvent("click", {
+			bubbles: true,
+			cancelable: true,
+		});
+		const doubleClickEvent = new MouseEvent("dblclick", {
+			bubbles: true,
+			cancelable: true,
+		});
+		const keyEvent = new KeyboardEvent("keydown", {
+			bubbles: true,
+			cancelable: true,
+			key: "Enter",
+		});
+		const pointerStop = vi.spyOn(pointerEvent, "stopPropagation");
+		const clickStop = vi.spyOn(clickEvent, "stopPropagation");
+		const doubleClickStop = vi.spyOn(doubleClickEvent, "stopPropagation");
+		const keyStop = vi.spyOn(keyEvent, "stopPropagation");
+
+		trigger.dispatchEvent(pointerEvent);
+		trigger.dispatchEvent(clickEvent);
+		trigger.dispatchEvent(doubleClickEvent);
+		trigger.dispatchEvent(keyEvent);
+
+		expect(pointerStop).toHaveBeenCalledTimes(1);
+		expect(clickStop).toHaveBeenCalledTimes(1);
+		expect(doubleClickStop).toHaveBeenCalledTimes(1);
+		expect(keyStop).toHaveBeenCalledTimes(1);
 	});
 });

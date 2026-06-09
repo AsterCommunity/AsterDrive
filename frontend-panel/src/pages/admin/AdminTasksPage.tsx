@@ -605,7 +605,6 @@ function useAdminTasksPageContent() {
 					toolbar={
 						<AdminTaskFiltersToolbar
 							activeFilterCount={activeFilterCount}
-							hasServerFilters={hasServerFilters}
 							kindFilter={kindFilter}
 							kindOptions={taskKindFilterOptions}
 							onKindChange={handleKindFilterChange}

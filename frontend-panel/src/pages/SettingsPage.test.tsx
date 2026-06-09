@@ -713,7 +713,8 @@ describe("SettingsPage", () => {
 		rerender(<SettingsPage section="interface" />);
 
 		expect(screen.getByTestId("settings-panel")).toHaveClass("animate-in");
-		expect(screen.getByTestId("settings-panel")).toHaveClass(
+		expect(screen.getByTestId("settings-panel")).toHaveClass("fade-in");
+		expect(screen.getByTestId("settings-panel")).not.toHaveClass(
 			"slide-in-from-right-4",
 		);
 	});

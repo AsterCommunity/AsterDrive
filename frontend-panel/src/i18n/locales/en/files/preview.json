@@ -15,6 +15,13 @@
 	"preview_not_available_desc": "Download the file, or try another open mode later.",
 	"preview_enter_fullscreen": "Fill window",
 	"preview_exit_fullscreen": "Restore window",
+	"preview_mode_formatted": "Formatted",
+	"preview_mode_json": "JSON",
+	"preview_mode_markdown": "Markdown",
+	"preview_mode_rendered": "Rendered view",
+	"preview_mode_table": "Table view",
+	"preview_mode_video": "Video",
+	"preview_mode_xml": "XML",
 	"table_parse_failed": "Failed to parse table",
 	"table_truncated": "This file is large. Only the first {{count}} rows are shown.",
 	"structured_parse_failed": "Failed to parse structured content. Try switching back to source view."

@@ -14,13 +14,6 @@ import { SETTINGS_PAGE_CONTENT_PADDING_CLASS } from "@/lib/constants";
 
 type SettingsTabKey = "profile" | "interface" | "security" | "teams";
 
-const SETTINGS_TAB_INDEX: Record<SettingsTabKey, number> = {
-	profile: 0,
-	interface: 1,
-	security: 2,
-	teams: 3,
-};
-
 function isSettingsTabKey(value?: string): value is SettingsTabKey {
 	return (
 		value === "profile" ||
@@ -72,13 +65,8 @@ export default function SettingsPage({
 	const previousSectionRef = useRef<SettingsTabKey>(resolvedSection);
 	const [hasAnimatedSectionChange, setHasAnimatedSectionChange] =
 		useState(false);
-	const [sectionDirection, setSectionDirection] = useState<
-		"forward" | "backward"
-	>("forward");
 	const panelAnimationClass = hasAnimatedSectionChange
-		? sectionDirection === "forward"
-			? "animate-in fade-in duration-300 slide-in-from-right-4 motion-reduce:animate-none"
-			: "animate-in fade-in duration-300 slide-in-from-left-4 motion-reduce:animate-none"
+		? "animate-in fade-in duration-150 motion-reduce:animate-none"
 		: "";
 
 	usePageTitle(getSettingsSectionTitle(resolvedSection, t));
@@ -90,11 +78,6 @@ export default function SettingsPage({
 		}
 
 		setHasAnimatedSectionChange(true);
-		setSectionDirection(
-			SETTINGS_TAB_INDEX[resolvedSection] > SETTINGS_TAB_INDEX[previousSection]
-				? "forward"
-				: "backward",
-		);
 		previousSectionRef.current = resolvedSection;
 	}, [resolvedSection]);
 
@@ -173,7 +156,7 @@ export default function SettingsPage({
 						<TabsContent value={resolvedSection} className="outline-none">
 							<div
 								data-testid="settings-panel"
-								key={`${resolvedSection}-${sectionDirection}`}
+								key={resolvedSection}
 								className={panelAnimationClass}
 							>
 								{renderSettingsSection(resolvedSection)}

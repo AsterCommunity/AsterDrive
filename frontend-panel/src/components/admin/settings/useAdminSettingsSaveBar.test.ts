@@ -100,11 +100,32 @@ describe("useAdminSettingsSaveBar", () => {
 			);
 		});
 
-		expect(result.current.phase).toBe("exiting");
+		expect(result.current.phase).toBe("entering");
 		expect(result.current.reservedHeight).toBe(72);
 
 		act(() => {
+			vi.advanceTimersByTime(16);
+		});
+
+		expect(result.current.phase).toBe("visible");
+		expect(result.current.reservedHeight).toBe(72);
+
+		act(() => {
+			vi.advanceTimersByTime(16);
+		});
+
+		expect(result.current.phase).toBe("exiting");
+		expect(result.current.reservedHeight).toBe(0);
+
+		act(() => {
 			vi.advanceTimersByTime(140);
+		});
+
+		expect(result.current.phase).toBe("exiting");
+		expect(result.current.reservedHeight).toBe(0);
+
+		act(() => {
+			vi.advanceTimersByTime(50);
 		});
 
 		expect(result.current.phase).toBe("hidden");

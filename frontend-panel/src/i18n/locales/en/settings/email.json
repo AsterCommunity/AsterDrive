@@ -1,5 +1,5 @@
 {
-	"settings_email_readonly_hint": "Email is shown here for reference and cannot be changed here yet.",
+	"settings_email_readonly_hint": "Change your email from the Security page.",
 	"settings_email_section": "Email Verification",
 	"settings_email_section_desc": "Review the current email state and send a confirmation link for an email change.",
 	"settings_email_current": "Current email",

@@ -390,10 +390,9 @@ describe("ArchivePreview", () => {
 				screen.getByText("archive_preview_encoding_failed"),
 			).toBeInTheDocument();
 		});
-		expect(screen.getByRole("alert")).toHaveClass(
-			"min-h-[14rem]",
-			"items-center",
-			"justify-center",
+		expect(screen.getAllByRole("alert")).toHaveLength(1);
+		expect(screen.getByRole("alert")).toHaveTextContent(
+			"archive_preview_encoding_failed",
 		);
 		expect(
 			screen.getByRole("button", { name: "archive_preview_filename_encoding" }),

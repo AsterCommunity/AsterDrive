@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import {
@@ -13,9 +13,16 @@ import { Input } from "@/components/ui/input";
 import { handleApiError } from "@/hooks/useApiError";
 import { tagService } from "@/services/tagService";
 import type { TagInfo } from "@/types/api";
-import { safeTagColor } from "./TagChips";
+import { safeTagColor, TAG_COLOR_PALETTE } from "./tagColors";
 
 const TAG_LIBRARY_MANAGER_LIMIT = 50;
+const CLOSED_INTERACTION_RESET_KEY = "__closed__";
+
+type EditingDraft = {
+	color: string;
+	id: number;
+	name: string;
+};
 
 function sortTags(tags: TagInfo[]) {
 	return [...tags].sort((a, b) =>
@@ -45,20 +52,31 @@ export function TagLibraryManagerDialog({
 	const [loading, setLoading] = useState(false);
 	const [loadingMore, setLoadingMore] = useState(false);
 	const [busyId, setBusyId] = useState<number | null>(null);
-	const [editingId, setEditingId] = useState<number | null>(null);
-	const [editingName, setEditingName] = useState("");
+	const [editingDraft, setEditingDraft] = useState<EditingDraft | null>(null);
 	const [deleteTarget, setDeleteTarget] = useState<TagInfo | null>(null);
-
 	const normalizedQuery = query.trim();
+	const interactionResetKey = open
+		? normalizedQuery
+		: CLOSED_INTERACTION_RESET_KEY;
+	const currentInteractionResetKeyRef = useRef(interactionResetKey);
+
+	if (currentInteractionResetKeyRef.current !== interactionResetKey) {
+		currentInteractionResetKeyRef.current = interactionResetKey;
+		setEditingDraft(null);
+		setDeleteTarget(null);
+	}
+
 	const hasMore = tags.length < total;
 	const editingTag = useMemo(
-		() => tags.find((tag) => tag.id === editingId) ?? null,
-		[editingId, tags],
+		() => tags.find((tag) => tag.id === editingDraft?.id) ?? null,
+		[editingDraft?.id, tags],
 	);
 	const canSaveEdit =
 		editingTag !== null &&
-		normalizeTagName(editingName).length > 0 &&
-		normalizeTagName(editingName) !== editingTag.name;
+		editingDraft !== null &&
+		normalizeTagName(editingDraft.name).length > 0 &&
+		(normalizeTagName(editingDraft.name) !== editingTag.name ||
+			safeTagColor(editingDraft.color) !== safeTagColor(editingTag.color));
 
 	useEffect(() => {
 		if (!open) {
@@ -68,16 +86,11 @@ export function TagLibraryManagerDialog({
 			setLoading(false);
 			setLoadingMore(false);
 			setBusyId(null);
-			setEditingId(null);
-			setEditingName("");
-			setDeleteTarget(null);
 			return;
 		}
 
 		let cancelled = false;
 		setLoading(true);
-		setEditingId(null);
-		setEditingName("");
 		tagService
 			.listTags({
 				params: {
@@ -127,28 +140,31 @@ export function TagLibraryManagerDialog({
 
 	const startEdit = (tag: TagInfo) => {
 		setDeleteTarget(null);
-		setEditingId(tag.id);
-		setEditingName(tag.name);
+		setEditingDraft({
+			color: safeTagColor(tag.color),
+			id: tag.id,
+			name: tag.name,
+		});
 	};
 
 	const cancelEdit = () => {
-		setEditingId(null);
-		setEditingName("");
+		setEditingDraft(null);
 	};
 
 	const saveEdit = async () => {
-		if (!editingTag || !canSaveEdit) return;
+		if (!editingTag || !editingDraft || !canSaveEdit) return;
 
-		const name = normalizeTagName(editingName);
+		const name = normalizeTagName(editingDraft.name);
+		const color = safeTagColor(editingDraft.color);
 		setBusyId(editingTag.id);
 		try {
-			const updated = await tagService.patchTag(editingTag.id, { name });
+			const updated = await tagService.patchTag(editingTag.id, { color, name });
 			setTags((current) =>
 				sortTags(current.map((tag) => (tag.id === updated.id ? updated : tag))),
 			);
 			onTagUpdated?.(updated);
 			cancelEdit();
-			toast.success(t("tag_renamed"));
+			toast.success(t("tag_updated"));
 		} catch (err) {
 			handleApiError(err);
 		} finally {
@@ -162,7 +178,7 @@ export function TagLibraryManagerDialog({
 			await tagService.deleteTag(tag.id);
 			setTags((current) => current.filter((item) => item.id !== tag.id));
 			setTotal((current) => Math.max(0, current - 1));
-			if (editingId === tag.id) cancelEdit();
+			if (editingDraft?.id === tag.id) cancelEdit();
 			onTagDeleted?.(tag.id);
 			toast.success(t("tag_deleted"));
 		} catch (err) {
@@ -231,7 +247,7 @@ export function TagLibraryManagerDialog({
 							</p>
 						) : tags.length > 0 ? (
 							tags.map((tag) => {
-								const editing = editingId === tag.id;
+								const editing = editingDraft?.id === tag.id;
 								const confirmingDelete = deleteTarget?.id === tag.id;
 								const busy = busyId === tag.id;
 
@@ -241,62 +257,108 @@ export function TagLibraryManagerDialog({
 										className="rounded-lg border border-border/70 bg-card/60 p-2.5"
 									>
 										{editing ? (
-											<div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-center">
-												<div className="relative min-w-0 flex-1">
-													<span
-														className="-translate-y-1/2 absolute top-1/2 left-2.5 size-2.5 rounded-full ring-1 ring-black/10"
-														style={{
-															backgroundColor: safeTagColor(tag.color),
-														}}
-														aria-hidden
-													/>
-													<Input
-														value={editingName}
-														onChange={(event) =>
-															setEditingName(event.target.value)
-														}
-														className="pl-7"
-														maxLength={64}
-														aria-label={t("tag_name")}
-														onKeyDown={(event) => {
-															if (event.key === "Enter") {
-																event.preventDefault();
-																void saveEdit();
-															}
-															if (event.key === "Escape") {
-																event.preventDefault();
-																cancelEdit();
-															}
-														}}
-													/>
-												</div>
-												<div className="grid grid-cols-2 gap-2 sm:flex sm:shrink-0">
-													<Button
-														type="button"
-														size="sm"
-														variant="outline"
-														disabled={busy}
-														onClick={cancelEdit}
-													>
-														{t("core:cancel")}
-													</Button>
-													<Button
-														type="button"
-														size="sm"
-														disabled={!canSaveEdit || busy}
-														onClick={() => {
-															void saveEdit();
-														}}
-													>
-														{busy ? (
-															<Icon
-																name="Spinner"
-																className="size-3.5 animate-spin"
+											<div className="flex min-w-0 flex-col gap-3">
+												<div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-start">
+													<div className="min-w-0 flex-1">
+														<div className="relative min-w-0">
+															<span
+																className="-translate-y-1/2 absolute top-1/2 left-2.5 size-2.5 rounded-full ring-1 ring-black/10"
+																style={{
+																	backgroundColor: safeTagColor(
+																		editingDraft?.color,
+																	),
+																}}
+																aria-hidden
 															/>
-														) : null}
-														{t("core:save")}
-													</Button>
+															<Input
+																value={editingDraft?.name ?? ""}
+																onChange={(event) =>
+																	setEditingDraft((draft) =>
+																		draft
+																			? {
+																					...draft,
+																					name: event.target.value,
+																				}
+																			: draft,
+																	)
+																}
+																className="pl-7"
+																maxLength={64}
+																aria-label={t("tag_name")}
+																onKeyDown={(event) => {
+																	if (event.key === "Enter") {
+																		event.preventDefault();
+																		void saveEdit();
+																	}
+																	if (event.key === "Escape") {
+																		event.preventDefault();
+																		cancelEdit();
+																	}
+																}}
+															/>
+														</div>
+													</div>
+													<div className="grid grid-cols-2 gap-2 sm:flex sm:shrink-0">
+														<Button
+															type="button"
+															size="sm"
+															variant="outline"
+															disabled={busy}
+															onClick={cancelEdit}
+														>
+															{t("core:cancel")}
+														</Button>
+														<Button
+															type="button"
+															size="sm"
+															disabled={!canSaveEdit || busy}
+															onClick={() => {
+																void saveEdit();
+															}}
+														>
+															{busy ? (
+																<Icon
+																	name="Spinner"
+																	className="size-3.5 animate-spin"
+																/>
+															) : null}
+															{t("core:save")}
+														</Button>
+													</div>
 												</div>
+												<fieldset className="flex flex-wrap gap-1.5 sm:flex-nowrap">
+													<legend className="sr-only">{t("tag_color")}</legend>
+													{TAG_COLOR_PALETTE.map((color) => {
+														const selected =
+															safeTagColor(editingDraft?.color) === color;
+														return (
+															<button
+																key={color}
+																type="button"
+																className={`flex size-7 items-center justify-center rounded-lg border bg-background transition-[border-color,box-shadow] sm:size-6 ${
+																	selected
+																		? "border-ring ring-2 ring-ring/30"
+																		: "border-border/70 hover:border-foreground/30"
+																}`}
+																aria-label={t("tag_color_option", {
+																	color,
+																})}
+																aria-pressed={selected}
+																onClick={() =>
+																	setEditingDraft((draft) =>
+																		draft ? { ...draft, color } : draft,
+																	)
+																}
+															>
+																<span
+																	className="size-3.5 rounded-full ring-1 ring-black/10 sm:size-3"
+																	style={{ backgroundColor: color }}
+																	aria-hidden
+																/>
+															</button>
+														);
+													})}
+												</fieldset>
 											</div>
 										) : confirmingDelete ? (
 											<InlineConfirm className="space-y-3">

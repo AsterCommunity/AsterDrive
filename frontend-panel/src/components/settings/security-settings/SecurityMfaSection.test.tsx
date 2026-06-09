@@ -327,15 +327,59 @@ describe("SecurityMfaSection", () => {
 		fireEvent.click(
 			screen.getByRole("button", { name: "settings:settings_mfa_done" }),
 		);
-		const exitingRecoveryPanel = screen
-			.getByText("settings:settings_mfa_recovery_codes_title")
-			.closest('[aria-hidden="true"]');
-		expect(exitingRecoveryPanel).not.toBeNull();
-
-		fireEvent.transitionEnd(exitingRecoveryPanel as Element);
 		expect(
-			screen.queryByText("settings:settings_mfa_recovery_codes_title"),
-		).not.toBeInTheDocument();
+			screen.getByText("settings:settings_mfa_recovery_codes_title"),
+		).toBeInTheDocument();
+		expect(
+			screen
+				.getByText("settings:settings_mfa_recovery_codes_title")
+				.closest(".opacity-0"),
+		).not.toBeNull();
+		expect(
+			screen
+				.getByText("settings:settings_mfa_recovery_codes_title")
+				.closest(".-translate-y-2"),
+		).not.toBeNull();
+		expect(
+			screen
+				.getByText("settings:settings_mfa_recovery_codes_title")
+				.closest(".scale-\\[0\\.985\\]"),
+		).not.toBeNull();
+		await waitFor(() =>
+			expect(
+				screen.queryByText("settings:settings_mfa_recovery_codes_title"),
+			).not.toBeInTheDocument(),
+		);
+	});
+
+	it("ignores repeated setup cancel clicks and clears the pending close timer on unmount", async () => {
+		const { unmount } = render(<SecurityMfaSection />);
+
+		fireEvent.click(
+			await screen.findByRole("button", {
+				name: "settings:settings_mfa_start_setup",
+			}),
+		);
+		expect(
+			screen.getByText("settings:settings_mfa_intro_title"),
+		).toBeInTheDocument();
+
+		vi.useFakeTimers();
+		const clearTimeoutSpy = vi.spyOn(window, "clearTimeout");
+		fireEvent.click(
+			screen.getByRole("button", {
+				name: "core:cancel",
+			}),
+		);
+		fireEvent.click(
+			screen.getByRole("button", {
+				name: "core:cancel",
+			}),
+		);
+
+		expect(clearTimeoutSpy).not.toHaveBeenCalled();
+		unmount();
+		expect(clearTimeoutSpy).toHaveBeenCalledTimes(1);
 	});
 
 	it("opens the disable MFA code entry directly and disables the factor", async () => {

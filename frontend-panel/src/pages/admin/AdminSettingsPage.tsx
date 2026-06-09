@@ -176,6 +176,7 @@ export default function AdminSettingsPage({
 		measureRef: saveBarMeasureRef,
 		phase: saveBarPhase,
 		reservedHeight: saveBarReservedHeight,
+		transitionDurationMs: saveBarTransitionDurationMs,
 	} = useAdminSettingsSaveBar({
 		desktopMinReservedHeight:
 			ADMIN_SETTINGS_SAVE_BAR_MIN_RESERVED_HEIGHT_DESKTOP_PX,
@@ -311,6 +312,7 @@ export default function AdminSettingsPage({
 				hasValidationError={hasValidationError}
 				changedCount={changedCount}
 				saving={saving}
+				transitionDurationMs={saveBarTransitionDurationMs}
 				validationMessage={validationMessage}
 				onDiscardChanges={discardChanges}
 				onSaveAll={() => void handleSaveAll()}

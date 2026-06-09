@@ -1,3 +1,4 @@
+import { useRef } from "react";
 import { useTranslation } from "react-i18next";
 import {
 	AlertDialog,
@@ -30,6 +31,23 @@ export function ConfirmDialog({
 	variant = "default",
 }: ConfirmDialogProps) {
 	const { t } = useTranslation();
+	const contentRef = useRef({
+		confirmLabel,
+		description,
+		title,
+		variant,
+	});
+
+	if (open) {
+		contentRef.current = {
+			confirmLabel,
+			description,
+			title,
+			variant,
+		};
+	}
+
+	const content = contentRef.current;
 
 	const handleConfirm = () => {
 		onOpenChange(false);
@@ -40,9 +58,11 @@ export function ConfirmDialog({
 		<AlertDialog open={open} onOpenChange={onOpenChange}>
 			<AlertDialogContent keepMounted>
 				<AlertDialogHeader>
-					<AlertDialogTitle>{title}</AlertDialogTitle>
-					{description && (
-						<AlertDialogDescription>{description}</AlertDialogDescription>
+					<AlertDialogTitle>{content.title}</AlertDialogTitle>
+					{content.description && (
+						<AlertDialogDescription>
+							{content.description}
+						</AlertDialogDescription>
 					)}
 				</AlertDialogHeader>
 				<AlertDialogFooter>
@@ -50,12 +70,12 @@ export function ConfirmDialog({
 					<AlertDialogAction
 						onClick={handleConfirm}
 						className={
-							variant === "destructive"
+							content.variant === "destructive"
 								? "bg-destructive text-white hover:bg-destructive/90"
 								: ""
 						}
 					>
-						{confirmLabel || t("confirm")}
+						{content.confirmLabel || t("confirm")}
 					</AlertDialogAction>
 				</AlertDialogFooter>
 			</AlertDialogContent>

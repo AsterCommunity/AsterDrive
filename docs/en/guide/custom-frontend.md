@@ -170,7 +170,7 @@ Key constraints in the current baseline policy:
 - `style-src 'self' 'unsafe-inline'`: inline styles are allowed
 - `img-src 'self' data: blob: http: https:`: images may be same-origin, data URI, blob, or HTTP(S) sources
 - `font-src 'self' data:`: fonts are only same-origin or data URI
-- `connect-src 'self' http: https: ws: wss:`: XHR / fetch / WebSocket may connect to same-origin and HTTP(S) / WS(S) endpoints
+- `connect-src 'self' http: https: ws: wss: blob:`: XHR / fetch / WebSocket may connect to same-origin and HTTP(S) / WS(S) endpoints
 - `media-src 'self' blob:`: media preview allows same-origin and blob
 - `worker-src 'self' blob:`: workers allow same-origin and blob
 - `frame-src 'self' http: https:`: iframes may embed HTTP(S) sources for WOPI, external previews, and similar uses

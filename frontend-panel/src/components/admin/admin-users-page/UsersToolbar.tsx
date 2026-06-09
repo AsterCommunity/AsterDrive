@@ -1,5 +1,5 @@
 import { useTranslation } from "react-i18next";
-import { Button } from "@/components/ui/button";
+import { AdminFilterToolbar } from "@/components/common/AdminFilterToolbar";
 import { Icon } from "@/components/ui/icon";
 import { Input } from "@/components/ui/input";
 import {
@@ -18,7 +18,6 @@ interface UserFilterOption {
 
 interface UsersToolbarProps {
 	activeFilterCount: number;
-	hasServerFilters: boolean;
 	keyword: string;
 	roleFilter: string;
 	roleFilterOptions: ReadonlyArray<UserFilterOption>;
@@ -32,7 +31,6 @@ interface UsersToolbarProps {
 
 export function UsersToolbar({
 	activeFilterCount,
-	hasServerFilters,
 	keyword,
 	onKeywordChange,
 	onResetFilters,
@@ -46,7 +44,11 @@ export function UsersToolbar({
 	const { t } = useTranslation("admin");
 
 	return (
-		<>
+		<AdminFilterToolbar
+			activeFilterCount={activeFilterCount}
+			inline
+			onResetFilters={onResetFilters}
+		>
 			<div className="relative min-w-[240px] flex-1 md:max-w-sm">
 				<Icon
 					name="MagnifyingGlass"
@@ -91,19 +93,6 @@ export function UsersToolbar({
 					))}
 				</SelectContent>
 			</Select>
-			<div className="ml-auto flex items-center gap-2 text-xs text-muted-foreground">
-				{hasServerFilters ? <span>{t("filters_active")}</span> : null}
-				{activeFilterCount > 0 ? (
-					<Button
-						variant="ghost"
-						size="sm"
-						className={ADMIN_CONTROL_HEIGHT_CLASS}
-						onClick={onResetFilters}
-					>
-						{t("clear_filters")}
-					</Button>
-				) : null}
-			</div>
-		</>
+		</AdminFilterToolbar>
 	);
 }

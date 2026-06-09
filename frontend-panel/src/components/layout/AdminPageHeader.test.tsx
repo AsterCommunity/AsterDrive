@@ -1,8 +1,21 @@
 import { render, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { AdminPageHeader } from "@/components/layout/AdminPageHeader";
 
 describe("AdminPageHeader", () => {
+	beforeEach(() => {
+		vi.mocked(window.matchMedia).mockImplementation((query: string) => ({
+			matches: false,
+			media: query,
+			onchange: null,
+			addEventListener: vi.fn(),
+			removeEventListener: vi.fn(),
+			addListener: vi.fn(),
+			removeListener: vi.fn(),
+			dispatchEvent: vi.fn(),
+		}));
+	});
+
 	it("renders title only when optional props are omitted", () => {
 		render(<AdminPageHeader title="Users" />);
 
@@ -21,7 +34,33 @@ describe("AdminPageHeader", () => {
 		);
 
 		expect(screen.getByText("Manage user accounts")).toBeInTheDocument();
-		expect(screen.getByRole("button", { name: "Invite" })).toBeInTheDocument();
-		expect(screen.getByRole("button", { name: "Filters" })).toBeInTheDocument();
+		expect(screen.getAllByRole("button", { name: "Invite" })).toHaveLength(1);
+		expect(screen.getAllByRole("button", { name: "Filters" })).toHaveLength(1);
+	});
+
+	it("renders a single combined controls row on mobile", () => {
+		vi.mocked(window.matchMedia).mockImplementation((query: string) => ({
+			matches: query === "(max-width: 767px)",
+			media: query,
+			onchange: null,
+			addEventListener: vi.fn(),
+			removeEventListener: vi.fn(),
+			addListener: vi.fn(),
+			removeListener: vi.fn(),
+			dispatchEvent: vi.fn(),
+		}));
+
+		const { container } = render(
+			<AdminPageHeader
+				title="Users"
+				actions={<button type="button">Invite</button>}
+				toolbar={<button type="button">Filters</button>}
+			/>,
+		);
+
+		expect(screen.getAllByRole("button", { name: "Invite" })).toHaveLength(1);
+		expect(screen.getAllByRole("button", { name: "Filters" })).toHaveLength(1);
+		expect(container).toHaveTextContent("Invite");
+		expect(container).toHaveTextContent("Filters");
 	});
 });

@@ -6,6 +6,7 @@
 	"settings_mail_template_group_contact_change_notice": "Email change notice",
 	"settings_mail_template_group_external_auth_email_verification": "External sign-in email verification",
 	"settings_mail_template_group_login_email_code": "Login email code",
+	"settings_mail_template_group_user_invitation": "User invitation",
 	"mail_template_variables_dialog_title": "{{name}} Magic Variables",
 	"mail_template_variables_dialog_desc": "Both the subject and HTML body of the same template can use these variables. They are replaced automatically before sending, and HTML body values are safely escaped.",
 	"mail_template_variables_dialog_empty": "No magic variables are available right now.",
@@ -82,6 +83,10 @@
 	"settings_item_mail_template_login_email_code_subject_desc": "Subject template for login email-code MFA messages.",
 	"settings_item_mail_template_login_email_code_html_label": "Login email code HTML body",
 	"settings_item_mail_template_login_email_code_html_desc": "HTML template for login email-code MFA messages. A complete HTML document is recommended for best client compatibility.",
+	"settings_item_mail_template_user_invitation_subject_label": "User invitation subject",
+	"settings_item_mail_template_user_invitation_subject_desc": "Subject template for emails inviting new users to join the site.",
+	"settings_item_mail_template_user_invitation_html_label": "User invitation HTML body",
+	"settings_item_mail_template_user_invitation_html_desc": "HTML template for emails inviting new users to join the site. A complete HTML document is recommended for best client compatibility.",
 	"settings_item_mail_outbox_dispatch_interval_secs_label": "Mail outbox queue scan interval",
 	"settings_item_mail_outbox_dispatch_interval_secs_desc": "How often the server checks pending transactional email and tries to dispatch messages that are ready to send. Lower values send queued mail sooner but increase polling frequency."
 }

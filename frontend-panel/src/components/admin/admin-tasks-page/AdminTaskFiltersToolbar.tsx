@@ -1,5 +1,4 @@
-import { useTranslation } from "react-i18next";
-import { Button } from "@/components/ui/button";
+import { AdminFilterToolbar } from "@/components/common/AdminFilterToolbar";
 import {
 	Select,
 	SelectContent,
@@ -7,11 +6,9 @@ import {
 	SelectTrigger,
 	SelectValue,
 } from "@/components/ui/select";
-import { ADMIN_CONTROL_HEIGHT_CLASS } from "@/lib/constants";
 
 interface AdminTaskFiltersToolbarProps {
 	activeFilterCount: number;
-	hasServerFilters: boolean;
 	kindFilter: string;
 	kindOptions: ReadonlyArray<{ label: string; value: string }>;
 	onKindChange: (value: string | null) => void;
@@ -23,7 +20,6 @@ interface AdminTaskFiltersToolbarProps {
 
 export function AdminTaskFiltersToolbar({
 	activeFilterCount,
-	hasServerFilters,
 	kindFilter,
 	kindOptions,
 	onKindChange,
@@ -32,10 +28,12 @@ export function AdminTaskFiltersToolbar({
 	statusFilter,
 	statusOptions,
 }: AdminTaskFiltersToolbarProps) {
-	const { t } = useTranslation("admin");
-
 	return (
-		<>
+		<AdminFilterToolbar
+			activeFilterCount={activeFilterCount}
+			inline
+			onResetFilters={onResetFilters}
+		>
 			<Select
 				items={kindOptions}
 				value={kindFilter}
@@ -68,19 +66,6 @@ export function AdminTaskFiltersToolbar({
 					))}
 				</SelectContent>
 			</Select>
-			<div className="ml-auto flex items-center gap-2 text-xs text-muted-foreground">
-				{hasServerFilters ? <span>{t("filters_active")}</span> : null}
-				{activeFilterCount > 0 ? (
-					<Button
-						variant="ghost"
-						size="sm"
-						className={ADMIN_CONTROL_HEIGHT_CLASS}
-						onClick={onResetFilters}
-					>
-						{t("clear_filters")}
-					</Button>
-				) : null}
-			</div>
-		</>
+		</AdminFilterToolbar>
 	);
 }

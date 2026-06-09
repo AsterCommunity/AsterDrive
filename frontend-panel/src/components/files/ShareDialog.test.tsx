@@ -1,4 +1,5 @@
 import {
+	act,
 	fireEvent,
 	render,
 	screen,
@@ -90,15 +91,20 @@ vi.mock("@/components/ui/dialog", () => ({
 		children,
 		open,
 		onOpenChange,
+		onOpenChangeComplete,
 	}: {
 		children: React.ReactNode;
 		open: boolean;
 		onOpenChange: (open: boolean) => void;
+		onOpenChangeComplete?: (open: boolean) => void;
 	}) =>
 		open ? (
 			<div data-testid="dialog">
 				<button type="button" onClick={() => onOpenChange(false)}>
 					close-dialog
+				</button>
+				<button type="button" onClick={() => onOpenChangeComplete?.(false)}>
+					close-dialog-complete
 				</button>
 				{children}
 			</div>
@@ -342,6 +348,73 @@ describe("ShareDialog", () => {
 				`${window.location.origin}/d/direct-token/stream.m3u8?download=1`,
 			),
 		).toBeInTheDocument();
+		expect(mockState.toastSuccess).toHaveBeenCalledTimes(1);
+		expect(mockState.toastSuccess).toHaveBeenCalledWith("share:share_created");
+
+		fireEvent.click(screen.getByRole("button", { name: "share:share_done" }));
+
+		expect(mockState.getDirectLinkToken).toHaveBeenCalledTimes(1);
+		expect(mockState.toastSuccess).toHaveBeenCalledTimes(1);
+	});
+
+	it("tracks direct-link copy feedback per button", async () => {
+		mockState.getDirectLinkToken.mockResolvedValue({ token: "direct-token" });
+		mockState.clipboardWriteText.mockResolvedValue(undefined);
+
+		render(
+			<ShareDialog
+				open
+				onOpenChange={vi.fn()}
+				fileId={13}
+				name="stream.m3u8"
+				initialMode="direct"
+			/>,
+		);
+
+		fireEvent.click(
+			screen.getByRole("button", { name: "share:share_create_button" }),
+		);
+
+		const primaryUrl = `${window.location.origin}/d/direct-token/stream.m3u8`;
+		const forceDownloadUrl = `${primaryUrl}?download=1`;
+		const primaryInput = await screen.findByDisplayValue(primaryUrl);
+		const forceDownloadInput = screen.getByDisplayValue(forceDownloadUrl);
+		const primaryCopyButton = primaryInput.nextElementSibling as HTMLElement;
+		const forceDownloadCopyButton =
+			forceDownloadInput.nextElementSibling as HTMLElement;
+
+		vi.useFakeTimers();
+		await act(async () => {
+			fireEvent.click(primaryCopyButton);
+			await Promise.resolve();
+		});
+
+		expect(mockState.clipboardWriteText).toHaveBeenCalledWith(primaryUrl);
+		expect(within(primaryCopyButton).getByText("Check")).toBeInTheDocument();
+		expect(
+			within(forceDownloadCopyButton).getByText("Copy"),
+		).toBeInTheDocument();
+
+		await act(async () => {
+			await vi.advanceTimersByTimeAsync(1000);
+			fireEvent.click(forceDownloadCopyButton);
+			await Promise.resolve();
+		});
+
+		expect(mockState.clipboardWriteText).toHaveBeenCalledWith(forceDownloadUrl);
+		expect(within(primaryCopyButton).getByText("Copy")).toBeInTheDocument();
+		expect(
+			within(forceDownloadCopyButton).getByText("Check"),
+		).toBeInTheDocument();
+
+		await act(async () => {
+			await vi.advanceTimersByTimeAsync(1000);
+		});
+
+		expect(within(primaryCopyButton).getByText("Copy")).toBeInTheDocument();
+		expect(
+			within(forceDownloadCopyButton).getByText("Check"),
+		).toBeInTheDocument();
 	});
 
 	it("keeps long direct-link target names inside the dialog title", () => {
@@ -414,6 +487,14 @@ describe("ShareDialog", () => {
 
 		expect(onOpenChange).toHaveBeenCalledWith(false);
 		expect(
+			screen.getByDisplayValue(`${window.location.origin}/s/copied-token`),
+		).toBeInTheDocument();
+
+		fireEvent.click(
+			screen.getByRole("button", { name: "close-dialog-complete" }),
+		);
+
+		expect(
 			screen.getByRole("button", { name: "share:share_create_button" }),
 		).toBeInTheDocument();
 		expect(
@@ -470,6 +551,13 @@ describe("ShareDialog", () => {
 		fireEvent.click(screen.getByRole("button", { name: "close-dialog" }));
 
 		expect(onOpenChange).toHaveBeenCalledWith(false);
+		expect(screen.getByLabelText("share:share_password_optional")).toHaveValue(
+			"keep-out",
+		);
+
+		fireEvent.click(
+			screen.getByRole("button", { name: "close-dialog-complete" }),
+		);
 
 		const dialog = screen.getByTestId("dialog");
 		expect(

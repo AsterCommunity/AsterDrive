@@ -1,7 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Button } from "@/components/ui/button";
-import { Icon } from "@/components/ui/icon";
 import { useFileEditorSession } from "@/hooks/useFileEditorSession";
 import { useTextContent } from "@/hooks/useTextContent";
 import {
@@ -11,6 +9,8 @@ import {
 import { getEditorLanguage } from "./file-capabilities";
 import { PreviewError } from "./PreviewError";
 import { PreviewLoadingState } from "./PreviewLoadingState";
+import { PreviewSurface, PreviewSurfaceContent } from "./PreviewSurface";
+import { TextCodePreviewToolbar } from "./TextCodePreviewToolbar";
 import type { PreviewableFileLike } from "./types";
 
 interface TextCodePreviewProps {
@@ -97,6 +97,8 @@ export function TextCodePreview({
 		[],
 	);
 
+	const language = getEditorLanguage(file);
+
 	if (loading) {
 		return (
 			<PreviewLoadingState
@@ -110,60 +112,20 @@ export function TextCodePreview({
 		return <PreviewError onRetry={() => void reload()} />;
 	}
 
-	const language = getEditorLanguage(file);
-
 	return (
-		<div className="flex h-full min-h-0 w-full min-w-0 flex-col overflow-hidden rounded-xl border border-border/70 bg-card shadow-xs dark:shadow-none">
-			<div className="flex items-center gap-2 border-b border-border/60 bg-muted/25 px-4 py-2 dark:bg-muted/15">
-				<div className="flex items-center gap-2">
-					<Icon name="FileCode" className="size-4 text-muted-foreground" />
-					<span className="text-sm font-medium">{file.name}</span>
-				</div>
-				<div className="ml-auto flex items-center gap-2">
-					{!editing ? (
-						editable ? (
-							<Button variant="outline" size="sm" onClick={startEditing}>
-								<Icon name="PencilSimple" className="mr-1 size-3.5" />
-								{t("core:edit")}
-							</Button>
-						) : null
-					) : (
-						<>
-							<Button
-								variant="default"
-								size="sm"
-								onClick={save}
-								disabled={saving}
-							>
-								<Icon name="FloppyDisk" className="mr-1 size-3.5" />
-								{saving ? t("files:saving") : t("core:save")}
-							</Button>
-							<Button variant="outline" size="sm" onClick={cancelEditing}>
-								<Icon name="Undo" className="mr-1 size-3.5" />
-								{t("core:cancel")}
-							</Button>
-						</>
-					)}
-				</div>
-			</div>
-			<div className="flex items-center gap-3 border-b border-border/50 bg-background/70 px-4 py-2 text-xs text-muted-foreground dark:bg-background/25">
-				<span>{language}</span>
-				<span>·</span>
-				<span>
-					{editable && editing
-						? t("core:edit")
-						: (modeLabel?.trim() ?? "") || t("files:open_with_code")}
-				</span>
-				<span>·</span>
-				<span>{dirty ? t("files:unsaved_changes") : t("core:active")}</span>
-				{editing ? (
-					<>
-						<span>·</span>
-						<span>{t("files:save_shortcut_hint")}</span>
-					</>
-				) : null}
-			</div>
-			<div className="min-h-0 w-full min-w-0 flex-1 overflow-hidden bg-background/80 dark:bg-background/25">
+		<PreviewSurface>
+			<TextCodePreviewToolbar
+				cancelEditing={cancelEditing}
+				dirty={dirty}
+				editable={editable}
+				editing={editing}
+				language={language}
+				modeLabel={modeLabel}
+				save={save}
+				saving={saving}
+				startEditing={startEditing}
+			/>
+			<PreviewSurfaceContent>
 				<CodePreviewEditor
 					key={path}
 					language={language}
@@ -183,7 +145,7 @@ export function TextCodePreview({
 						padding: { top: 12 },
 					}}
 				/>
-			</div>
-		</div>
+			</PreviewSurfaceContent>
+		</PreviewSurface>
 	);
 }

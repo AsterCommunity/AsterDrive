@@ -28,29 +28,29 @@ export function AdminLayout({ children }: { children: ReactNode }) {
 		{ to: "/admin/overview", label: t("overview"), icon: "Presentation" },
 		{ to: "/admin/users", label: t("users"), icon: "Shield" },
 		{ to: "/admin/teams", label: t("teams"), icon: "Cloud" },
-		{ to: "/admin/policies", label: t("policies"), icon: "HardDrive" },
-		{ to: "/admin/remote-nodes", label: t("remote_nodes"), icon: "Globe" },
 		{ to: "/admin/external-auth", label: t("external_auth"), icon: "SignIn" },
+		{ to: "/admin/policies", label: t("policies"), icon: "HardDrive" },
 		{
 			to: "/admin/policy-groups",
 			label: t("policy_groups"),
 			icon: "ListBullets",
 		},
-		{ to: "/admin/shares", label: t("shares"), icon: "Link" },
+		{ to: "/admin/remote-nodes", label: t("remote_nodes"), icon: "Globe" },
 		{ to: "/admin/files", label: t("admin_files"), icon: "File" },
 		{
 			to: "/admin/file-blobs",
 			label: t("admin_file_blobs"),
 			icon: "HardDrive",
 		},
-		{ to: "/admin/tasks", label: t("tasks"), icon: "Clock" },
+		{ to: "/admin/shares", label: t("shares"), icon: "Link" },
 		{ to: "/admin/locks", label: t("locks"), icon: "Lock" },
-		{ to: "/admin/settings", label: t("system_settings"), icon: "Gear" },
+		{ to: "/admin/tasks", label: t("tasks"), icon: "Clock" },
 		{
 			to: "/admin/audit",
 			label: t("audit_log"),
 			icon: "ClipboardText",
 		},
+		{ to: "/admin/settings", label: t("system_settings"), icon: "Gear" },
 	];
 	const secondaryNavItems: {
 		to: string;

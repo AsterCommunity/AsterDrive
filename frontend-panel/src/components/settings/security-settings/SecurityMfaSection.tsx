@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useReducer, useState } from "react";
+import { useCallback, useEffect, useReducer, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { handleApiError } from "@/hooks/useApiError";
@@ -14,14 +14,14 @@ import {
 	stepIndex,
 } from "./mfaTypes";
 import { SecurityMfaHeader } from "./SecurityMfaHeader";
-import { SecurityMfaMeasuredMotion } from "./SecurityMfaMotion";
-import { SecurityMfaPresence } from "./SecurityMfaPresence";
 import { SecurityMfaSensitiveActionForm } from "./SecurityMfaSensitiveActionForm";
 import { SecurityMfaSetupPanel } from "./SecurityMfaSetupPanel";
 import {
 	SecurityMfaEmptyState,
 	SecurityMfaStatusCard,
 } from "./SecurityMfaStatusCard";
+
+const SETUP_EXIT_DURATION_MS = 180;
 
 export function SecurityMfaSection() {
 	const { t } = useTranslation(["auth", "core", "settings"]);
@@ -34,6 +34,12 @@ export function SecurityMfaSection() {
 		actionReducer,
 		EMPTY_ACTION_STATE,
 	);
+	const setupCloseTimersRef = useRef<Set<number> | null>(null);
+	const [setupClosing, setSetupClosing] = useState(false);
+	if (setupCloseTimersRef.current === null) {
+		setupCloseTimersRef.current = new Set<number>();
+	}
+	const setupCloseTimers = setupCloseTimersRef.current;
 
 	const load = useCallback(async (options?: { force?: boolean }) => {
 		try {
@@ -50,6 +56,15 @@ export function SecurityMfaSection() {
 		void load();
 	}, [load]);
 
+	useEffect(() => {
+		return () => {
+			for (const timer of setupCloseTimers) {
+				window.clearTimeout(timer);
+			}
+			setupCloseTimers.clear();
+		};
+	}, [setupCloseTimers]);
+
 	const copy = async (value: string, message?: string) => {
 		try {
 			await writeTextToClipboard(value);
@@ -60,7 +75,18 @@ export function SecurityMfaSection() {
 	};
 
 	const cancelSetup = () => {
-		dispatchSetup({ type: "reset" });
+		if (setupClosing) return;
+		setSetupClosing(true);
+		for (const timer of setupCloseTimers) {
+			window.clearTimeout(timer);
+		}
+		setupCloseTimers.clear();
+		const timer = window.setTimeout(() => {
+			setupCloseTimers.delete(timer);
+			dispatchSetup({ type: "reset" });
+			setSetupClosing(false);
+		}, SETUP_EXIT_DURATION_MS);
+		setupCloseTimers.add(timer);
 	};
 
 	const startSetup = async () => {
@@ -163,74 +189,89 @@ export function SecurityMfaSection() {
 				onRefresh={() => void load({ force: true })}
 			/>
 
-			<SecurityMfaMeasuredMotion contentClassName="space-y-4">
-				<SecurityMfaPresence show={showStatusCard}>
-					{factor ? (
+			<div className="space-y-4">
+				{showStatusCard && factor ? (
+					<div className="animate-in fade-in duration-150 motion-reduce:animate-none">
 						<SecurityMfaStatusCard
 							factor={factor}
 							recoveryCodesRemaining={status?.recovery_codes_remaining ?? 0}
 							onOpenAction={(kind) => dispatchAction({ type: "open", kind })}
 						/>
-					) : null}
-				</SecurityMfaPresence>
+					</div>
+				) : null}
 
-				<SecurityMfaPresence show={showEmptyState}>
-					<SecurityMfaEmptyState
-						onStartSetup={() => dispatchSetup({ type: "intro" })}
-					/>
-				</SecurityMfaPresence>
+				{showEmptyState ? (
+					<div className="animate-in fade-in duration-150 motion-reduce:animate-none">
+						<SecurityMfaEmptyState
+							onStartSetup={() => {
+								setSetupClosing(false);
+								dispatchSetup({ type: "intro" });
+							}}
+						/>
+					</div>
+				) : null}
 
-				<SecurityMfaPresence show={showSetup}>
-					<SecurityMfaSetupPanel
-						activeStep={activeStep}
-						activeStepIndex={activeStepIndex}
-						canFinishSetup={canFinishSetup}
-						setupState={setupState}
-						onBackToIntro={() =>
-							dispatchSetup({ type: "set_step", step: "intro" })
+				{showSetup ? (
+					<div
+						className={
+							setupClosing
+								? "pointer-events-none origin-top -translate-y-2 scale-[0.985] opacity-0 transition-[opacity,transform] duration-[180ms] ease-in motion-reduce:transition-none"
+								: "origin-top translate-y-0 scale-100 opacity-100 transition-[opacity,transform] duration-150 ease-out motion-reduce:transition-none"
 						}
-						onBackToScan={() =>
-							dispatchSetup({ type: "set_step", step: "scan" })
-						}
-						onCancel={cancelSetup}
-						onCodeChange={(code) => dispatchSetup({ type: "set_code", code })}
-						onContinueToVerify={() =>
-							dispatchSetup({ type: "set_step", step: "verify" })
-						}
-						onCopy={copy}
-						onCopyRecoveryCodes={() =>
-							void (async () => {
-								await copy(
-									recoveryCodesFile(),
-									t("settings:settings_mfa_recovery_copied"),
-								);
+					>
+						<SecurityMfaSetupPanel
+							activeStep={activeStep}
+							activeStepIndex={activeStepIndex}
+							canFinishSetup={canFinishSetup}
+							setupState={setupState}
+							onBackToIntro={() =>
+								dispatchSetup({ type: "set_step", step: "intro" })
+							}
+							onBackToScan={() =>
+								dispatchSetup({ type: "set_step", step: "scan" })
+							}
+							onCancel={cancelSetup}
+							onCodeChange={(code) => dispatchSetup({ type: "set_code", code })}
+							onContinueToVerify={() =>
+								dispatchSetup({ type: "set_step", step: "verify" })
+							}
+							onCopy={copy}
+							onCopyRecoveryCodes={() =>
+								void (async () => {
+									await copy(
+										recoveryCodesFile(),
+										t("settings:settings_mfa_recovery_copied"),
+									);
+									confirmRecoverySaved();
+								})()
+							}
+							onDownloadRecoveryCodes={() => {
+								downloadRecoveryCodes(recoveryCodesFile());
 								confirmRecoverySaved();
-							})()
-						}
-						onDownloadRecoveryCodes={() => {
-							downloadRecoveryCodes(recoveryCodesFile());
-							confirmRecoverySaved();
-						}}
-						onFinish={() => void finishSetup()}
-						onIntroContinue={() => void startSetup()}
-						onNameChange={(name) => dispatchSetup({ type: "set_name", name })}
-						onRecoveryConfirmChange={() =>
-							dispatchSetup({ type: "toggle_recovery_confirmed" })
-						}
-						onRecoveryDone={completeSetup}
-						onToggleSecret={() => dispatchSetup({ type: "toggle_secret" })}
-					/>
-				</SecurityMfaPresence>
+							}}
+							onFinish={() => void finishSetup()}
+							onIntroContinue={() => void startSetup()}
+							onNameChange={(name) => dispatchSetup({ type: "set_name", name })}
+							onRecoveryConfirmChange={() =>
+								dispatchSetup({ type: "toggle_recovery_confirmed" })
+							}
+							onRecoveryDone={completeSetup}
+							onToggleSecret={() => dispatchSetup({ type: "toggle_secret" })}
+						/>
+					</div>
+				) : null}
 
-				<SecurityMfaPresence show={actionVisible}>
-					<SecurityMfaSensitiveActionForm
-						actionState={actionState}
-						onCancel={() => dispatchAction({ type: "reset" })}
-						onCodeChange={(code) => dispatchAction({ type: "code", code })}
-						onSubmit={() => void submitSensitiveAction()}
-					/>
-				</SecurityMfaPresence>
-			</SecurityMfaMeasuredMotion>
+				{actionVisible ? (
+					<div className="animate-in fade-in duration-150 motion-reduce:animate-none">
+						<SecurityMfaSensitiveActionForm
+							actionState={actionState}
+							onCancel={() => dispatchAction({ type: "reset" })}
+							onCodeChange={(code) => dispatchAction({ type: "code", code })}
+							onSubmit={() => void submitSensitiveAction()}
+						/>
+					</div>
+				) : null}
+			</div>
 		</div>
 	);
 }

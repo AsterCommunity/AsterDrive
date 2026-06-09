@@ -13,8 +13,9 @@ import { handleApiError } from "@/hooks/useApiError";
 import { cn } from "@/lib/utils";
 import { tagService } from "@/services/tagService";
 import type { EntityType, TagInfo, TagSummary } from "@/types/api";
-import { safeTagColor, TagChip, tagColorFromName } from "./TagChips";
+import { TagChip } from "./TagChips";
 import { TagLibraryManagerDialog } from "./TagLibraryManagerDialog";
+import { safeTagColor, tagColorFromName } from "./tagColors";
 
 const TAG_LIBRARY_LIMIT = 100;
 

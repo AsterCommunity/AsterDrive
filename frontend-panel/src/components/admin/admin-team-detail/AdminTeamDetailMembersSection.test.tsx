@@ -243,6 +243,7 @@ describe("AdminTeamDetailMembersSection", () => {
 		const props = createProps();
 		render(<AdminTeamDetailMembersSection {...props} />);
 
+		fireEvent.click(screen.getByRole("button", { name: /show_filters/ }));
 		fireEvent.change(
 			screen.getByPlaceholderText("team_member_search_placeholder"),
 			{

@@ -13,6 +13,7 @@ import { AppLayout } from "@/components/layout/AppLayout";
 import { handleApiError } from "@/hooks/useApiError";
 import { useKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";
 import { usePageTitle } from "@/hooks/usePageTitle";
+import { startAuthenticatedDownload } from "@/lib/authenticatedDownload";
 import { runWhenIdle } from "@/lib/idleTask";
 import { workspaceKey } from "@/lib/workspace";
 import { FileBrowserDialogs } from "@/pages/file-browser/FileBrowserDialogs";
@@ -176,10 +177,9 @@ export default function FileBrowserPage() {
 	});
 
 	const handleDownload = useCallback((fileId: number, _fileName: string) => {
-		const anchor = document.createElement("a");
-		anchor.href = fileService.downloadUrl(fileId);
-		anchor.download = "";
-		anchor.click();
+		void startAuthenticatedDownload(fileService.downloadPath(fileId)).catch(
+			handleApiError,
+		);
 	}, []);
 
 	const handleToggleLock = useCallback(

@@ -1,12 +1,11 @@
 import type { ReactNode } from "react";
-import { FileTypeIcon } from "@/components/files/FileTypeIcon";
 import { Button } from "@/components/ui/button";
-import { DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { DialogHeader } from "@/components/ui/dialog";
 import { Icon } from "@/components/ui/icon";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { formatBytes } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import type { FileInfo, FileListItem } from "@/types/api";
+import { FilePreviewFileSummary } from "./FilePreviewFileSummary";
 
 interface FilePreviewPanelProps {
 	file: FileInfo | FileListItem;
@@ -16,6 +15,7 @@ interface FilePreviewPanelProps {
 	fillsViewportHeight: boolean;
 	isExpanded: boolean;
 	isDirty: boolean;
+	thumbnailPath?: string;
 	onChooseOpenMethod: () => void;
 	onToggleExpand: () => void;
 	onClose: () => void;
@@ -33,6 +33,7 @@ export function FilePreviewPanel({
 	fillsViewportHeight,
 	isExpanded,
 	isDirty,
+	thumbnailPath,
 	onChooseOpenMethod,
 	onToggleExpand,
 	onClose,
@@ -47,34 +48,28 @@ export function FilePreviewPanel({
 
 	return (
 		<>
-			<DialogHeader className="gap-0 border-b px-4 py-3">
+			<DialogHeader className="gap-0 border-b bg-card px-4 py-3">
 				<div className="flex items-center gap-3">
-					<div className="flex size-9 items-center justify-center rounded-lg bg-muted/60 text-muted-foreground dark:bg-muted/35">
-						<FileTypeIcon
-							mimeType={file.mime_type}
-							fileName={file.name}
-							className="size-5"
-						/>
-					</div>
 					<div className="min-w-0 flex-1">
-						<DialogTitle className="flex items-center gap-2 text-sm font-semibold">
-							<span className="min-w-0 truncate">{file.name}</span>
-							<span className="shrink-0 text-xs font-normal text-muted-foreground">
-								· {formatBytes(file.size)}
-							</span>
-						</DialogTitle>
+						<FilePreviewFileSummary
+							file={file}
+							fileNameAsDialogTitle
+							iconClassName="size-9"
+							thumbnailPath={thumbnailPath}
+						/>
 					</div>
 					<div className="flex items-center gap-1">
 						{allOptionsCount > 1 ? (
 							<Button
 								variant="ghost"
-								size="sm"
+								size="icon-sm"
 								onClick={onChooseOpenMethod}
 								disabled={isDirty}
 								aria-label={chooseOpenMethodLabel}
 								title={chooseOpenMethodLabel}
 							>
-								{chooseOpenMethodLabel}
+								<Icon name="ListBullets" className="size-4" />
+								<span className="sr-only">{chooseOpenMethodLabel}</span>
 							</Button>
 						) : null}
 						<Button

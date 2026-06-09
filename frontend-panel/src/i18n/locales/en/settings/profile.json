@@ -6,5 +6,7 @@
 	"settings_display_name_placeholder": "Enter a display name",
 	"settings_display_name_hint": "Your login username stays @{{username}}. Leave it empty to fall back to the username.",
 	"settings_username_readonly_hint": "Username is used for sign-in and cannot be changed.",
+	"settings_account_readonly": "Account information",
+	"settings_account_readonly_desc": "These fields are used for sign-in and notifications, and can only be changed through system flows for now.",
 	"settings_profile_updated": "Profile updated."
 }

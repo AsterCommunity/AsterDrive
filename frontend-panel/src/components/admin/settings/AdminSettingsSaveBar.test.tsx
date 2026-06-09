@@ -41,6 +41,7 @@ function createProps(
 		measureRef: { current: document.createElement("div") },
 		phase: "visible",
 		saving: false,
+		transitionDurationMs: 180,
 		validationMessage: undefined,
 		onDiscardChanges: vi.fn(),
 		onSaveAll: vi.fn(),
@@ -94,5 +95,39 @@ describe("AdminSettingsSaveBar", () => {
 
 		expect(screen.getByText("Duplicate custom config key")).toBeInTheDocument();
 		expect(screen.getByRole("button", { name: "save_changes" })).toBeDisabled();
+	});
+
+	it("keeps the last visible content stable while exiting", () => {
+		const { rerender } = render(<AdminSettingsSaveBar {...createProps()} />);
+
+		expect(screen.getByText("settings_save_notice:2")).toBeInTheDocument();
+
+		rerender(
+			<AdminSettingsSaveBar
+				{...createProps({
+					changedCount: 0,
+					hasUnsavedChanges: false,
+					phase: "exiting",
+				})}
+			/>,
+		);
+
+		expect(screen.getByTestId("settings-save-bar")).toHaveAttribute(
+			"aria-hidden",
+			"true",
+		);
+		expect(
+			screen.getByTestId("settings-save-bar").firstElementChild,
+		).toHaveClass("scale-100", "opacity-0");
+		expect(screen.getByText("settings_save_notice:2")).toBeInTheDocument();
+		expect(
+			screen.queryByText("settings_save_notice:0"),
+		).not.toBeInTheDocument();
+		expect(
+			screen.getByRole("button", { name: "undo_changes", hidden: true }),
+		).toBeDisabled();
+		expect(
+			screen.getByRole("button", { name: "save_changes", hidden: true }),
+		).toBeDisabled();
 	});
 });

@@ -1,5 +1,10 @@
 import type { ComponentProps, ReactNode } from "react";
 import { cn } from "@/lib/utils";
+import {
+	PreviewSurface,
+	PreviewSurfaceContent,
+	PreviewSurfaceToolbar,
+} from "./PreviewSurface";
 
 export const EXTERNAL_WEB_APP_IFRAME_SANDBOX =
 	"allow-scripts allow-forms allow-popups allow-downloads";
@@ -39,23 +44,14 @@ export function EmbeddedWebAppPreview({
 	title,
 }: EmbeddedWebAppPreviewProps) {
 	return (
-		<div className="flex h-full min-h-[70vh] w-full flex-col gap-3">
-			{headerStart || actions ? (
-				<div className="flex flex-wrap items-center gap-2">
-					{headerStart}
-					{actions ? (
-						<div
-							className={cn(
-								"flex flex-wrap items-center gap-2",
-								headerStart ? "ml-auto" : "w-full justify-end",
-							)}
-						>
-							{actions}
-						</div>
-					) : null}
-				</div>
-			) : null}
-			<div className="relative min-h-0 flex-1 overflow-hidden rounded-xl border border-border/70 bg-card shadow-xs dark:shadow-none">
+		<PreviewSurface className="min-h-[70vh]">
+			<PreviewSurfaceToolbar
+				icon="Globe"
+				label={title}
+				meta={headerStart}
+				actions={actions}
+			/>
+			<PreviewSurfaceContent className="relative">
 				{src ? (
 					<iframe
 						key={src}
@@ -81,7 +77,7 @@ export function EmbeddedWebAppPreview({
 						{errorOverlay}
 					</div>
 				) : null}
-			</div>
-		</div>
+			</PreviewSurfaceContent>
+		</PreviewSurface>
 	);
 }

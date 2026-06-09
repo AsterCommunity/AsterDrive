@@ -49,6 +49,24 @@ type TableRowItem =
 const TABLE_COLUMN_COUNT = 5;
 const TABLE_ROW_ESTIMATE = 52;
 
+function fileBrowserTableRowClass({
+	dragOver = false,
+	fading,
+	selected,
+}: {
+	dragOver?: boolean;
+	fading: boolean;
+	selected: boolean;
+}) {
+	return cn(
+		"group cursor-pointer select-none border-border/45 transition-[background-color,box-shadow,opacity] duration-150 ease-out hover:bg-muted/25",
+		selected &&
+			"bg-accent text-accent-foreground shadow-xs hover:bg-accent dark:shadow-none",
+		dragOver && "bg-accent/35 ring-2 ring-primary",
+		fading && "opacity-0",
+	);
+}
+
 function SortIcon({
 	column,
 	current,
@@ -140,11 +158,12 @@ const FolderTableDataRow = memo(function FolderTableDataRow({
 		<FileBrowserItemContextMenu renderTrigger item={folder} isFolder>
 			<TableRow
 				data-folder-drop-target="true"
-				className={cn(
-					"cursor-pointer transition-[background-color,box-shadow,opacity] duration-150 ease-out",
-					dragOver && "ring-2 ring-primary bg-accent/30",
-					fading && "opacity-0",
-				)}
+				data-state={selected ? "selected" : undefined}
+				className={fileBrowserTableRowClass({
+					dragOver,
+					fading,
+					selected,
+				})}
 				draggable
 				onDragStart={handleDragStart}
 				onDragOver={handleDragOver}
@@ -216,10 +235,8 @@ const FileTableDataRow = memo(function FileTableDataRow({
 	return (
 		<FileBrowserItemContextMenu renderTrigger item={file} isFolder={false}>
 			<TableRow
-				className={cn(
-					"cursor-pointer transition-[background-color,box-shadow,opacity] duration-150 ease-out",
-					fading && "opacity-0",
-				)}
+				data-state={selected ? "selected" : undefined}
+				className={fileBrowserTableRowClass({ fading, selected })}
 				draggable
 				onDragStart={handleDragStart}
 				onClick={() => {
@@ -432,6 +449,7 @@ function FileTableComponent({ scrollElement }: FileTableProps) {
 							/>
 						</div>
 					</TableHead>
+					<TableHead className="w-12 pr-3" />
 				</TableRow>
 			</TableHeader>
 			<TableBody>{renderRows()}</TableBody>

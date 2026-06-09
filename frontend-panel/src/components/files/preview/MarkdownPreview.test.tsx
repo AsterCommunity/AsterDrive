@@ -79,7 +79,8 @@ describe("MarkdownPreview", () => {
 
 		const { container } = render(<MarkdownPreview path="/files/markdown" />);
 
-		expect(screen.getByText("Markdown · rendered")).toBeInTheDocument();
+		expect(screen.getByText("preview_mode_markdown")).toBeInTheDocument();
+		expect(screen.getByText("preview_mode_rendered")).toBeInTheDocument();
 		expect(screen.getByRole("heading", { name: "Title" })).toBeInTheDocument();
 		expect(screen.getByText("Bold")).toBeInTheDocument();
 		expect(container.querySelector("script")).toBeNull();

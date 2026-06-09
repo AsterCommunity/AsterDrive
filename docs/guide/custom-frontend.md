@@ -170,7 +170,7 @@ AsterDrive 返回 `index.html` 时会同时做两件事：
 - `style-src 'self' 'unsafe-inline'` —— 允许内联样式
 - `img-src 'self' data: blob: http: https:` —— 图片可以是同源、data URI、blob 或 HTTP(S) 来源
 - `font-src 'self' data:` —— 字体只允许同源或 data URI
-- `connect-src 'self' http: https: ws: wss:` —— XHR / fetch / WebSocket 允许打到同源和 HTTP(S) / WS(S) 终点
+- `connect-src 'self' http: https: ws: wss: blob:` —— XHR / fetch / WebSocket 允许打到同源和 HTTP(S) / WS(S) 终点
 - `media-src 'self' blob:` —— 媒体预览允许同源和 blob
 - `worker-src 'self' blob:` —— worker 允许同源和 blob
 - `frame-src 'self' http: https:` —— iframe 可嵌 HTTP(S) 来源（用于 WOPI、外部预览等）

@@ -1,5 +1,5 @@
 {
-	"settings_email_readonly_hint": "邮箱目前仅展示，不支持在这里修改。",
+	"settings_email_readonly_hint": "请在安全页面更改邮箱。",
 	"settings_email_section": "邮箱验证",
 	"settings_email_section_desc": "查看当前邮箱状态，并发起邮箱改绑确认邮件。",
 	"settings_email_current": "当前邮箱",

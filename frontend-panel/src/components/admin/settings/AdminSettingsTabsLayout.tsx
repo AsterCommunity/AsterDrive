@@ -14,11 +14,11 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 const COMPACT_NAV_TAB_TRIGGER_CLASS =
 	"h-10 flex-none rounded-none px-0 text-sm font-medium";
 const COMPACT_NAV_TAB_CONTENT_CLASS =
-	"inline-flex items-center gap-2 px-3 py-2";
+	"inline-flex items-center gap-2 px-2.5 py-2";
 const COMPACT_NAV_OVERFLOW_TRIGGER_CLASS = buttonVariants({
 	variant: "secondary",
 	size: "sm",
-	className: "shrink-0 rounded-full px-3",
+	className: "shrink-0 rounded-lg px-3",
 });
 
 type TranslationFn = (key: string, options?: Record<string, unknown>) => string;
@@ -109,7 +109,7 @@ function DesktopNavigation({
 	categorySummaries: AdminSettingsCategorySummary[];
 }) {
 	return (
-		<div className="sticky top-0 self-start min-h-0 w-[17.5rem] flex-none border-r border-border/40 pr-4">
+		<div className="sticky top-2 self-start min-h-0 w-[15.5rem] flex-none border-r border-border/50 pr-3">
 			<TabsList
 				variant="line"
 				className="h-auto w-full flex-col items-stretch gap-1 bg-transparent p-0"
@@ -118,10 +118,10 @@ function DesktopNavigation({
 					<TabsTrigger
 						key={summary.category}
 						value={summary.category}
-						className="group h-auto w-full justify-start rounded-2xl border-0 p-0 text-left whitespace-normal text-foreground/75 after:hidden hover:text-foreground data-active:bg-transparent data-active:text-foreground"
+						className="group h-auto w-full justify-start rounded-lg border-0 p-0 text-left whitespace-normal text-foreground/75 after:hidden hover:text-foreground data-active:bg-transparent data-active:text-foreground"
 					>
-						<div className="flex w-full items-start gap-3 rounded-2xl px-4 py-3 transition-colors duration-200 group-hover:bg-muted/40 group-data-[active]:bg-muted/55">
-							<div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-muted/80 text-muted-foreground transition-colors duration-200 group-data-[active]:bg-background group-data-[active]:text-foreground">
+						<div className="flex w-full items-start gap-2.5 rounded-lg px-3 py-2.5 transition-colors duration-150 group-hover:bg-muted/40 group-data-[active]:bg-muted/60">
+							<div className="flex size-8 shrink-0 items-center justify-center rounded-md bg-muted/75 text-muted-foreground transition-colors duration-150 group-data-[active]:bg-background group-data-[active]:text-foreground">
 								<Icon name={summary.icon} className="size-4" />
 							</div>
 							<div className="min-w-0 flex-1 space-y-1">
@@ -129,7 +129,7 @@ function DesktopNavigation({
 									{summary.label}
 								</p>
 								{summary.description ? (
-									<p className="break-words text-xs leading-5 text-muted-foreground">
+									<p className="break-words text-xs leading-4 text-muted-foreground">
 										{summary.description}
 									</p>
 								) : null}
@@ -186,7 +186,7 @@ function CompactNavigation({
 							<Button
 								variant={compactOverflowActiveSummary ? "secondary" : "ghost"}
 								size="sm"
-								className="shrink-0 rounded-full px-3"
+								className="shrink-0 rounded-lg px-3"
 							>
 								<Icon
 									name={compactOverflowActiveSummary?.icon ?? "DotsThree"}
@@ -303,10 +303,10 @@ function MobileNavigation({
 					render={
 						<Button
 							variant="outline"
-							className="h-auto w-full justify-between rounded-2xl px-4 py-3"
+							className="h-auto w-full justify-between rounded-lg px-3 py-2.5"
 						>
-							<span className="flex min-w-0 items-center gap-3">
-								<span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-muted text-muted-foreground">
+							<span className="flex min-w-0 items-center gap-2.5">
+								<span className="flex size-8 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground">
 									<Icon name={activeCategorySummary.icon} className="size-4" />
 								</span>
 								<span className="min-w-0 text-left">
@@ -368,8 +368,8 @@ export function AdminSettingsTabsLayout({
 			onValueChange={handleCategoryChange}
 			className={
 				isDesktopNavigation
-					? "flex min-w-0 flex-row items-start gap-10"
-					: "flex min-w-0 flex-col gap-6"
+					? "flex min-w-0 flex-row items-start gap-6"
+					: "flex min-w-0 flex-col gap-5"
 			}
 		>
 			{isMobileNavigation ? (

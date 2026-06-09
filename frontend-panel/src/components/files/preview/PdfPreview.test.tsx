@@ -3,8 +3,11 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { PdfPreview } from "@/components/files/preview/PdfPreview";
 
 const mockState = vi.hoisted(() => ({
+	documentBlob: new Blob(["%PDF"]),
 	documentProps: null as Record<string, unknown> | null,
 	pageProps: [] as Record<string, unknown>[],
+	startAuthenticatedDownload: vi.fn(),
+	useBlobUrl: vi.fn(),
 	virtualCount: 0,
 	virtualOverscan: 0,
 	virtualItems: [] as {
@@ -21,7 +24,10 @@ const mockState = vi.hoisted(() => ({
 
 vi.mock("react-i18next", () => ({
 	useTranslation: () => ({
-		t: (key: string) => key,
+		t: (key: string, options?: Record<string, unknown>) =>
+			key === "pdf_zoom_percent" && options?.zoom != null
+				? `${key}:${options.zoom}`
+				: key,
 	}),
 }));
 
@@ -104,13 +110,41 @@ vi.mock("@/components/ui/input", () => ({
 }));
 
 vi.mock("@/components/files/preview/PreviewError", () => ({
-	PreviewError: () => <div>preview-error</div>,
+	PreviewError: ({ onRetry }: { onRetry?: () => void }) => (
+		<div>
+			preview-error
+			{onRetry ? (
+				<button type="button" data-testid="preview-retry" onClick={onRetry}>
+					retry
+				</button>
+			) : null}
+		</div>
+	),
+}));
+
+vi.mock("@/hooks/useBlobUrl", () => ({
+	useBlobUrl: (...args: unknown[]) => mockState.useBlobUrl(...args),
+}));
+
+vi.mock("@/lib/authenticatedDownload", () => ({
+	startAuthenticatedDownload: (...args: unknown[]) =>
+		mockState.startAuthenticatedDownload(...args),
 }));
 
 describe("PdfPreview", () => {
 	beforeEach(() => {
 		mockState.documentProps = null;
 		mockState.pageProps = [];
+		mockState.startAuthenticatedDownload.mockReset();
+		mockState.startAuthenticatedDownload.mockResolvedValue(undefined);
+		mockState.useBlobUrl.mockReset();
+		mockState.useBlobUrl.mockReturnValue({
+			blob: mockState.documentBlob,
+			blobUrl: "blob:/pdf",
+			error: false,
+			loading: false,
+			retry: vi.fn(),
+		});
 		mockState.virtualCount = 0;
 		mockState.virtualOverscan = 0;
 		mockState.virtualItems = [];
@@ -121,14 +155,14 @@ describe("PdfPreview", () => {
 		vi.spyOn(window, "open").mockImplementation(() => null);
 	});
 
-	it("passes a credentialed URL source and streaming options to the document loader", () => {
+	it("loads the PDF through a blob URL and passes streaming options to the document loader", () => {
 		render(<PdfPreview path="/api/files/1/download" fileName="manual.pdf" />);
 
 		expect(screen.getByTestId("pdf-document")).toBeInTheDocument();
+		expect(mockState.useBlobUrl).toHaveBeenCalledWith("/api/files/1/download", {
+			lane: "preview",
+		});
 		expect(mockState.documentProps).toMatchObject({
-			file: {
-				url: "/api/files/1/download",
-			},
 			options: {
 				cMapPacked: true,
 				cMapUrl: "/pdfjs/5.4.296/cmaps/",
@@ -137,16 +171,16 @@ describe("PdfPreview", () => {
 				withCredentials: true,
 			},
 		});
+		expect(mockState.documentProps?.file).toBe(mockState.documentBlob);
 	});
 
-	it("joins ordinary workspace download paths with the configured API base URL", () => {
+	it("uses ordinary workspace download paths as the blob fetch key", () => {
 		render(<PdfPreview path="/files/1/download" fileName="manual.pdf" />);
 
-		expect(mockState.documentProps).toMatchObject({
-			file: {
-				url: "/api/v1/files/1/download",
-			},
+		expect(mockState.useBlobUrl).toHaveBeenCalledWith("/files/1/download", {
+			lane: "preview",
 		});
+		expect(mockState.documentProps?.file).toBe(mockState.documentBlob);
 	});
 
 	it("renders only the virtualized page window for long documents", () => {
@@ -177,7 +211,7 @@ describe("PdfPreview", () => {
 		});
 	});
 
-	it("opens and downloads the direct URL without a preloaded blob URL", () => {
+	it("opens and downloads the loaded blob URL", () => {
 		const clickSpy = vi
 			.spyOn(HTMLAnchorElement.prototype, "click")
 			.mockImplementation(() => undefined);
@@ -186,7 +220,7 @@ describe("PdfPreview", () => {
 
 		fireEvent.click(screen.getByLabelText("pdf_open_new_tab"));
 		expect(window.open).toHaveBeenCalledWith(
-			"/api/v1/files/1/download",
+			"blob:/pdf",
 			"_blank",
 			"noopener,noreferrer",
 		);
@@ -196,10 +230,87 @@ describe("PdfPreview", () => {
 			result.value instanceof HTMLAnchorElement ? [result.value] : [],
 		);
 		const downloadLink = createdLinks.find((link) =>
-			link.href.endsWith("/api/v1/files/1/download"),
+			link.href.endsWith("blob:/pdf"),
 		);
 		expect(downloadLink).toBeDefined();
 		expect(downloadLink?.download).toBe("manual.pdf");
 		expect(clickSpy).toHaveBeenCalled();
+	});
+
+	it("uses the authenticated download fallback before the blob is ready", () => {
+		mockState.useBlobUrl.mockReturnValue({
+			blob: null,
+			blobUrl: null,
+			error: false,
+			loading: true,
+			retry: vi.fn(),
+		});
+		render(<PdfPreview path="/files/1/download" fileName="manual.pdf" />);
+
+		fireEvent.click(screen.getByLabelText("pdf_download"));
+
+		expect(mockState.startAuthenticatedDownload).toHaveBeenCalledWith(
+			"/files/1/download",
+		);
+	});
+
+	it("refreshes the blob URL instead of reusing a failed PDF blob on retry", () => {
+		let retried = false;
+		const retry = vi.fn(() => {
+			retried = true;
+		});
+		const freshBlob = new Blob(["%PDF fresh"]);
+		mockState.useBlobUrl.mockImplementation(() => ({
+			blob: retried ? freshBlob : mockState.documentBlob,
+			blobUrl: retried ? "blob:/fresh-pdf" : "blob:/stale-pdf",
+			error: false,
+			loading: false,
+			retry,
+		}));
+		const { rerender } = render(
+			<PdfPreview path="/files/1/download" fileName="manual.pdf" />,
+		);
+
+		const onLoadError = mockState.documentProps?.onLoadError;
+		if (typeof onLoadError !== "function") {
+			throw new Error("document error handler was not registered");
+		}
+		act(() => {
+			onLoadError(new Error("stale blob"));
+		});
+		const callsBeforeRetry = mockState.useBlobUrl.mock.calls.length;
+
+		fireEvent.click(screen.getByTestId("preview-retry"));
+		rerender(<PdfPreview path="/files/1/download" fileName="manual.pdf" />);
+
+		expect(retry).toHaveBeenCalledTimes(1);
+		expect(mockState.useBlobUrl.mock.calls.length).toBeGreaterThan(
+			callsBeforeRetry,
+		);
+		expect(mockState.documentProps?.file).toBe(freshBlob);
+	});
+
+	it("shows a stable retry target when PDF loading fails", () => {
+		const retry = vi.fn();
+		mockState.useBlobUrl.mockReturnValue({
+			blob: mockState.documentBlob,
+			blobUrl: "blob:/stale-pdf",
+			error: false,
+			loading: false,
+			retry,
+		});
+		render(<PdfPreview path="/files/1/download" fileName="manual.pdf" />);
+
+		const onLoadError = mockState.documentProps?.onLoadError;
+		if (typeof onLoadError !== "function") {
+			throw new Error("document error handler was not registered");
+		}
+		act(() => {
+			onLoadError(new Error("stale blob"));
+		});
+
+		fireEvent.click(screen.getByTestId("preview-retry"));
+
+		expect(retry).toHaveBeenCalledTimes(1);
 	});
 });

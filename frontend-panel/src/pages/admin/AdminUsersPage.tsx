@@ -679,7 +679,6 @@ export default function AdminUsersPage() {
 					toolbar={
 						<UsersToolbar
 							activeFilterCount={activeFilterCount}
-							hasServerFilters={hasServerFilters}
 							keyword={keyword}
 							roleFilter={roleFilter}
 							roleFilterOptions={roleFilterOptions}

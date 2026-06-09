@@ -89,13 +89,9 @@ function panelProps(
 		allOptionsCount: 1,
 		downloadPath: "/files/7/download",
 		imagePreviewPath: "/files/7/image-preview",
-		isExpanded: true,
 		onChooseOpenMethod: vi.fn(),
 		onClose: vi.fn(),
-		onToggleExpand: vi.fn(),
 		chooseOpenMethodLabel: "Choose open method",
-		enterFullscreenLabel: "Fill window",
-		exitFullscreenLabel: "Restore window",
 		closeLabel: "Close",
 		fitToWindowLabel: "Fit to window",
 		nextImageLabel: "Next image",
@@ -159,8 +155,8 @@ describe("ImagePreviewPanel", () => {
 		expect(screen.getByText("Original")).toBeInTheDocument();
 		expect(screen.getByRole("button", { name: "Close" })).toBeInTheDocument();
 		expect(
-			screen.getByRole("button", { name: "Restore window" }),
-		).toBeInTheDocument();
+			screen.queryByRole("button", { name: "Restore window" }),
+		).not.toBeInTheDocument();
 		expect(mockState.blobProps?.source).toBe("backend_preview");
 	});
 
@@ -194,13 +190,34 @@ describe("ImagePreviewPanel", () => {
 		).not.toBeInTheDocument();
 	});
 
-	it("toggles fullscreen and closes through toolbar buttons", () => {
+	it("omits fullscreen controls and closes through the toolbar", () => {
 		const props = renderPanel();
 
-		fireEvent.click(screen.getByRole("button", { name: "Restore window" }));
+		expect(
+			screen.queryByRole("button", { name: "Restore window" }),
+		).not.toBeInTheDocument();
+		expect(
+			screen.queryByRole("button", { name: "Fill window" }),
+		).not.toBeInTheDocument();
+
 		fireEvent.click(screen.getByRole("button", { name: "Close" }));
 
-		expect(props.onToggleExpand).toHaveBeenCalledTimes(1);
+		expect(props.onClose).toHaveBeenCalledTimes(1);
+	});
+
+	it("closes when clicking preview letterbox space but not the image", () => {
+		const props = renderPanel();
+		const viewport = screen.getByTestId("panel-preview-viewport");
+		const image = screen.getByTestId("panel-preview-image");
+
+		fireEvent.pointerDown(image, { clientX: 120, clientY: 120 });
+		fireEvent.click(image, { clientX: 120, clientY: 120 });
+
+		expect(props.onClose).not.toHaveBeenCalled();
+
+		fireEvent.pointerDown(viewport, { clientX: 24, clientY: 24 });
+		fireEvent.click(viewport, { clientX: 24, clientY: 24 });
+
 		expect(props.onClose).toHaveBeenCalledTimes(1);
 	});
 
