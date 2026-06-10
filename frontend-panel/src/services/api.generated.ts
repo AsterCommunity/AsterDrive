@@ -6879,7 +6879,7 @@ export interface components {
             workspace: null | components["schemas"]["StorageChangeWorkspace"];
         };
         /** @enum {string} */
-        StorageChangeKind: "file.created" | "file.updated" | "file.trashed" | "file.restored_from_trash" | "file.purged" | "file.version_restored" | "file.version_deleted" | "folder.created" | "folder.updated" | "folder.trashed" | "folder.restored_from_trash" | "folder.purged" | "tag.created" | "tag.updated" | "tag.deleted" | "tag.assignment_changed" | "sync.required";
+        StorageChangeKind: "file.created" | "file.updated" | "file.trashed" | "file.restored_from_trash" | "file.purged" | "file.version_restored" | "file.version_deleted" | "folder.created" | "folder.updated" | "folder.trashed" | "folder.restored_from_trash" | "folder.purged" | "tag.created" | "tag.updated" | "tag.deleted" | "tag.assignment_changed" | "lock.created" | "lock.deleted" | "sync.required";
         StorageChangeWorkspace: {
             /** @enum {string} */
             kind: "personal";

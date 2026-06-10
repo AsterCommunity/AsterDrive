@@ -574,7 +574,7 @@ pub async fn move_folder(
 }
 
 pub(crate) async fn set_lock_in_scope(
-    state: &impl SharedRuntimeState,
+    state: &impl StorageChangeRuntimeState,
     scope: WorkspaceStorageScope,
     folder_id: i64,
     locked: bool,
@@ -605,6 +605,7 @@ pub(crate) async fn set_lock_in_scope(
     }
 
     let folder = workspace_storage_service::verify_folder_access(state, scope, folder_id).await?;
+    publish_folder_lock_change(state, scope, &folder, locked);
     tracing::debug!(
         scope = ?scope,
         folder_id = folder.id,
@@ -616,7 +617,7 @@ pub(crate) async fn set_lock_in_scope(
 
 /// 设置/解除文件夹锁，返回更新后的文件夹信息
 pub async fn set_lock(
-    state: &impl SharedRuntimeState,
+    state: &impl StorageChangeRuntimeState,
     folder_id: i64,
     user_id: i64,
     locked: bool,
@@ -629,4 +630,26 @@ pub async fn set_lock(
     )
     .await
     .map(Into::into)
+}
+
+fn publish_folder_lock_change(
+    state: &impl StorageChangeRuntimeState,
+    scope: WorkspaceStorageScope,
+    folder: &folder::Model,
+    locked: bool,
+) {
+    crate::services::storage_change_service::publish(
+        state,
+        crate::services::storage_change_service::StorageChangeEvent::new(
+            if locked {
+                crate::services::storage_change_service::StorageChangeKind::LockCreated
+            } else {
+                crate::services::storage_change_service::StorageChangeKind::LockDeleted
+            },
+            scope,
+            vec![],
+            vec![folder.id],
+            vec![folder.parent_id],
+        ),
+    );
 }

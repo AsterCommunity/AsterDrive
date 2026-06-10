@@ -13,6 +13,8 @@ use serde::Serialize;
 use utoipa::ToSchema;
 
 use crate::cache::CacheBackend;
+use crate::db::repository::{file_repo, folder_repo};
+use crate::errors::Result;
 use crate::runtime::StorageChangeRuntimeState;
 use crate::services::workspace_storage_service::{WorkspaceResourceScope, WorkspaceStorageScope};
 
@@ -63,6 +65,10 @@ pub enum StorageChangeKind {
     TagDeleted,
     #[serde(rename = "tag.assignment_changed")]
     TagAssignmentChanged,
+    #[serde(rename = "lock.created")]
+    LockCreated,
+    #[serde(rename = "lock.deleted")]
+    LockDeleted,
     #[serde(rename = "sync.required")]
     SyncRequired,
 }
@@ -86,13 +92,19 @@ impl StorageChangeKind {
             Self::TagCreated | Self::TagUpdated | Self::TagDeleted | Self::TagAssignmentChanged => {
                 false
             }
+            Self::LockCreated | Self::LockDeleted => false,
         }
     }
 
     fn invalidates_webdav_path_cache(self) -> bool {
         !matches!(
             self,
-            Self::TagCreated | Self::TagUpdated | Self::TagDeleted | Self::TagAssignmentChanged
+            Self::TagCreated
+                | Self::TagUpdated
+                | Self::TagDeleted
+                | Self::TagAssignmentChanged
+                | Self::LockCreated
+                | Self::LockDeleted
         )
     }
 }
@@ -229,6 +241,44 @@ pub fn publish<S: StorageChangeRuntimeState>(state: &S, event: StorageChangeEven
     if let Err(e) = state.storage_change_tx().send(event) {
         tracing::debug!("skip storage change broadcast without listeners: {e}");
     }
+}
+
+pub(crate) async fn affected_parent_ids_for_entities(
+    state: &impl StorageChangeRuntimeState,
+    scope: WorkspaceStorageScope,
+    file_ids: &[i64],
+    folder_ids: &[i64],
+) -> Result<Vec<Option<i64>>> {
+    let mut parent_ids = Vec::new();
+
+    if !file_ids.is_empty() {
+        let files = match scope {
+            WorkspaceStorageScope::Personal { user_id } => {
+                file_repo::find_by_ids_in_personal_scope(state.reader_db(), user_id, file_ids)
+                    .await?
+            }
+            WorkspaceStorageScope::Team { team_id, .. } => {
+                file_repo::find_by_ids_in_team_scope(state.reader_db(), team_id, file_ids).await?
+            }
+        };
+        parent_ids.extend(files.into_iter().map(|file| file.folder_id));
+    }
+
+    if !folder_ids.is_empty() {
+        let folders = match scope {
+            WorkspaceStorageScope::Personal { user_id } => {
+                folder_repo::find_by_ids_in_personal_scope(state.reader_db(), user_id, folder_ids)
+                    .await?
+            }
+            WorkspaceStorageScope::Team { team_id, .. } => {
+                folder_repo::find_by_ids_in_team_scope(state.reader_db(), team_id, folder_ids)
+                    .await?
+            }
+        };
+        parent_ids.extend(folders.into_iter().map(|folder| folder.parent_id));
+    }
+
+    Ok(parent_ids)
 }
 
 fn invalidate_storage_change_caches(cache: Arc<dyn CacheBackend>, kind: StorageChangeKind) {
@@ -409,5 +459,17 @@ mod tests {
         let prefixes = super::cache_invalidation_prefixes(StorageChangeKind::TagAssignmentChanged);
 
         assert!(prefixes.is_empty());
+    }
+
+    #[test]
+    fn lock_changes_do_not_invalidate_webdav_path_caches() {
+        for kind in [
+            StorageChangeKind::LockCreated,
+            StorageChangeKind::LockDeleted,
+        ] {
+            let prefixes = super::cache_invalidation_prefixes(kind);
+
+            assert!(prefixes.is_empty());
+        }
     }
 }

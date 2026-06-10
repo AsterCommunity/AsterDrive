@@ -8,10 +8,12 @@ use actix_web::test;
 use aster_drive::db::repository::{file_repo, policy_repo, user_repo};
 use aster_drive::entities::{file, file_blob};
 use aster_drive::runtime::SharedRuntimeState;
+use aster_drive::services::storage_change_service::StorageChangeKind;
 use aster_drive::types::FileCategory;
 use chrono::Utc;
 use sea_orm::{ActiveModelTrait, Set};
 use serde_json::Value;
+use std::time::Duration;
 
 macro_rules! upload_test_file_with_name_and_mime {
     ($app:expr, $token:expr, $name:expr, $mime:expr, $content:expr) => {{
@@ -639,10 +641,11 @@ async fn test_file_preview_link_uses_configured_public_site_url() {
 #[actix_web::test]
 async fn test_file_lock_unlock() {
     let state = common::setup().await;
-    let app = create_test_app!(state);
+    let app = create_test_app!(state.clone());
 
     let (token, _) = register_and_login!(app);
     let file_id = upload_test_file!(app, token);
+    let mut storage_events = state.storage_change_tx.subscribe();
 
     // 锁定文件
     let req = test::TestRequest::post()
@@ -655,6 +658,15 @@ async fn test_file_lock_unlock() {
     assert_eq!(resp.status(), 200);
     let body: Value = test::read_body_json(resp).await;
     assert_eq!(body["data"]["is_locked"], true);
+    let event = tokio::time::timeout(Duration::from_secs(1), storage_events.recv())
+        .await
+        .expect("file lock should publish storage change event")
+        .expect("storage change channel should stay open");
+    assert_eq!(event.kind, StorageChangeKind::LockCreated);
+    assert_eq!(event.file_ids, vec![file_id]);
+    assert!(event.folder_ids.is_empty());
+    assert!(event.affected_parent_ids.is_empty());
+    assert!(event.root_affected);
 
     // 删除应失败
     let req = test::TestRequest::delete()
@@ -684,6 +696,15 @@ async fn test_file_lock_unlock() {
         .to_request();
     let resp = test::call_service(&app, req).await;
     assert_eq!(resp.status(), 200);
+    let event = tokio::time::timeout(Duration::from_secs(1), storage_events.recv())
+        .await
+        .expect("file unlock should publish storage change event")
+        .expect("storage change channel should stay open");
+    assert_eq!(event.kind, StorageChangeKind::LockDeleted);
+    assert_eq!(event.file_ids, vec![file_id]);
+    assert!(event.folder_ids.is_empty());
+    assert!(event.affected_parent_ids.is_empty());
+    assert!(event.root_affected);
 
     // 解锁后删除成功
     let req = test::TestRequest::delete()
@@ -693,6 +714,45 @@ async fn test_file_lock_unlock() {
         .to_request();
     let resp = test::call_service(&app, req).await;
     assert_eq!(resp.status(), 200);
+}
+
+#[actix_web::test]
+async fn test_nested_file_lock_events_include_parent_folder() {
+    let state = common::setup().await;
+    let app = create_test_app!(state.clone());
+
+    let (token, _) = register_and_login!(app);
+    let req = test::TestRequest::post()
+        .uri("/api/v1/folders")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({ "name": "Lock Parent" }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 201);
+    let body: Value = test::read_body_json(resp).await;
+    let folder_id = body["data"]["id"].as_i64().unwrap();
+    let file_id = upload_test_file_to_folder!(app, token, folder_id);
+    let mut storage_events = state.storage_change_tx.subscribe();
+
+    let req = test::TestRequest::post()
+        .uri(&format!("/api/v1/files/{file_id}/lock"))
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({ "locked": true }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+
+    let event = tokio::time::timeout(Duration::from_secs(1), storage_events.recv())
+        .await
+        .expect("nested file lock should publish storage change event")
+        .expect("storage change channel should stay open");
+    assert_eq!(event.kind, StorageChangeKind::LockCreated);
+    assert_eq!(event.file_ids, vec![file_id]);
+    assert!(event.folder_ids.is_empty());
+    assert_eq!(event.affected_parent_ids, vec![folder_id]);
+    assert!(!event.root_affected);
 }
 
 #[actix_web::test]

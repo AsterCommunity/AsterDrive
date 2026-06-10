@@ -16,7 +16,7 @@ mod mutation;
 mod tree;
 
 use crate::errors::Result;
-use crate::runtime::{PrimaryAppState, SharedRuntimeState, StorageChangeRuntimeState};
+use crate::runtime::{PrimaryAppState, StorageChangeRuntimeState};
 use crate::services::audit_service::{self, AuditContext};
 use crate::services::workspace_models::FolderInfo;
 use crate::services::workspace_storage_service::WorkspaceStorageScope;
@@ -123,7 +123,7 @@ pub(crate) async fn update_in_scope_with_audit(
 }
 
 pub(crate) async fn set_lock_in_scope_with_audit(
-    state: &impl SharedRuntimeState,
+    state: &impl StorageChangeRuntimeState,
     scope: WorkspaceStorageScope,
     folder_id: i64,
     locked: bool,

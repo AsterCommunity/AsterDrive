@@ -304,6 +304,66 @@ describe("ShareDialog", () => {
 		expect(mockState.toastSuccess).toHaveBeenCalledWith("share:share_created");
 	});
 
+	it("notifies the parent after creating a page share", async () => {
+		const onShareCreated = vi.fn();
+		mockState.create.mockResolvedValue({ token: "public-token" });
+
+		render(
+			<ShareDialog
+				open
+				onOpenChange={vi.fn()}
+				onShareCreated={onShareCreated}
+				fileId={42}
+				name="report.pdf"
+			/>,
+		);
+
+		fireEvent.click(
+			screen.getByRole("button", { name: "share:share_create_button" }),
+		);
+
+		await waitFor(() => {
+			expect(onShareCreated).toHaveBeenCalledTimes(1);
+		});
+		expect(
+			await screen.findByDisplayValue(
+				`${window.location.origin}/s/public-token`,
+			),
+		).toBeInTheDocument();
+	});
+
+	it("keeps the created share visible when the parent refresh callback fails", async () => {
+		const onShareCreated = vi
+			.fn()
+			.mockRejectedValue(new Error("refresh failed"));
+		mockState.create.mockResolvedValue({ token: "public-token" });
+
+		render(
+			<ShareDialog
+				open
+				onOpenChange={vi.fn()}
+				onShareCreated={onShareCreated}
+				folderId={7}
+				name="Docs"
+			/>,
+		);
+
+		fireEvent.click(
+			screen.getByRole("button", { name: "share:share_create_button" }),
+		);
+
+		expect(
+			await screen.findByDisplayValue(
+				`${window.location.origin}/s/public-token`,
+			),
+		).toBeInTheDocument();
+		await waitFor(() => {
+			expect(onShareCreated).toHaveBeenCalledTimes(1);
+		});
+		expect(mockState.handleApiError).not.toHaveBeenCalled();
+		expect(mockState.toastSuccess).toHaveBeenCalledWith("share:share_created");
+	});
+
 	it("keeps long share target names inside the dialog title", () => {
 		const longName = `${"e28633d9605db1b835fbee64aa065e9c".repeat(4)}.jpg`;
 
@@ -320,11 +380,13 @@ describe("ShareDialog", () => {
 
 	it("creates direct links for files and exposes a force-download variant", async () => {
 		mockState.getDirectLinkToken.mockResolvedValue({ token: "direct-token" });
+		const onShareCreated = vi.fn();
 
 		render(
 			<ShareDialog
 				open
 				onOpenChange={vi.fn()}
+				onShareCreated={onShareCreated}
 				fileId={13}
 				name="stream.m3u8"
 				initialMode="direct"
@@ -350,6 +412,7 @@ describe("ShareDialog", () => {
 		).toBeInTheDocument();
 		expect(mockState.toastSuccess).toHaveBeenCalledTimes(1);
 		expect(mockState.toastSuccess).toHaveBeenCalledWith("share:share_created");
+		expect(onShareCreated).not.toHaveBeenCalled();
 
 		fireEvent.click(screen.getByRole("button", { name: "share:share_done" }));
 
@@ -504,12 +567,14 @@ describe("ShareDialog", () => {
 
 	it("reports create failures through the api error handler", async () => {
 		const error = new Error("boom");
+		const onShareCreated = vi.fn();
 		mockState.create.mockRejectedValue(error);
 
 		render(
 			<ShareDialog
 				open
 				onOpenChange={vi.fn()}
+				onShareCreated={onShareCreated}
 				folderId={9}
 				name="Shared folder"
 			/>,
@@ -525,6 +590,7 @@ describe("ShareDialog", () => {
 		expect(mockState.toastSuccess).not.toHaveBeenCalledWith(
 			"share:share_created",
 		);
+		expect(onShareCreated).not.toHaveBeenCalled();
 	});
 
 	it("clears pending form state when the dialog closes externally", () => {

@@ -60,6 +60,7 @@ interface FileBrowserDialogsProps {
 	onRenameClose: () => void;
 	onRenamed?: () => void | Promise<void>;
 	onShareClose: () => void;
+	onShareCreated?: () => void | Promise<void>;
 	onVersionClose: () => void;
 	onVersionRestored: () => void | Promise<void>;
 }
@@ -94,6 +95,7 @@ export function FileBrowserDialogs({
 	onRenameClose,
 	onRenamed,
 	onShareClose,
+	onShareCreated,
 	onVersionClose,
 	onVersionRestored,
 }: FileBrowserDialogsProps) {
@@ -169,6 +171,7 @@ export function FileBrowserDialogs({
 						if (!open) onShareClose();
 					}}
 					onOpenChangeComplete={handleShareOpenChangeComplete}
+					onShareCreated={onShareCreated}
 					fileId={retainedShareTarget?.fileId}
 					folderId={retainedShareTarget?.folderId}
 					name={retainedShareTarget?.name ?? ""}

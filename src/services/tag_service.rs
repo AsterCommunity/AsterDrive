@@ -731,41 +731,13 @@ async fn entity_ids_bound_to_tag(
 }
 
 async fn affected_parent_ids_for_entities(
-    state: &impl SharedRuntimeState,
+    state: &impl StorageChangeRuntimeState,
     scope: WorkspaceStorageScope,
     file_ids: &[i64],
     folder_ids: &[i64],
 ) -> Result<Vec<Option<i64>>> {
-    let mut parent_ids = Vec::new();
-
-    if !file_ids.is_empty() {
-        let files = match scope {
-            WorkspaceStorageScope::Personal { user_id } => {
-                file_repo::find_by_ids_in_personal_scope(state.reader_db(), user_id, file_ids)
-                    .await?
-            }
-            WorkspaceStorageScope::Team { team_id, .. } => {
-                file_repo::find_by_ids_in_team_scope(state.reader_db(), team_id, file_ids).await?
-            }
-        };
-        parent_ids.extend(files.into_iter().map(|file| file.folder_id));
-    }
-
-    if !folder_ids.is_empty() {
-        let folders = match scope {
-            WorkspaceStorageScope::Personal { user_id } => {
-                folder_repo::find_by_ids_in_personal_scope(state.reader_db(), user_id, folder_ids)
-                    .await?
-            }
-            WorkspaceStorageScope::Team { team_id, .. } => {
-                folder_repo::find_by_ids_in_team_scope(state.reader_db(), team_id, folder_ids)
-                    .await?
-            }
-        };
-        parent_ids.extend(folders.into_iter().map(|folder| folder.parent_id));
-    }
-
-    Ok(parent_ids)
+    storage_change_service::affected_parent_ids_for_entities(state, scope, file_ids, folder_ids)
+        .await
 }
 
 async fn publish_tag_bound_entities_change(

@@ -437,6 +437,7 @@ export default function FileBrowserPage() {
 				onPreviewNavigate={navigatePreviewFile}
 				onRenameClose={() => setRenameTarget(null)}
 				onShareClose={() => setShareTarget(null)}
+				onShareCreated={refresh}
 				onVersionClose={() => setVersionTarget(null)}
 				onVersionRestored={handleVersionRestored}
 			/>

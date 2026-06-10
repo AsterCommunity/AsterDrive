@@ -156,7 +156,7 @@ pub(crate) async fn update_content_stream_in_scope_with_audit(
 }
 
 pub(crate) async fn set_lock_in_scope_with_audit(
-    state: &impl SharedRuntimeState,
+    state: &impl StorageChangeRuntimeState,
     scope: WorkspaceStorageScope,
     file_id: i64,
     locked: bool,
