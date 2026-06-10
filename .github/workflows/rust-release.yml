@@ -109,7 +109,9 @@ jobs:
       - uses: actions/upload-artifact@v7
         with:
           name: binary-${{ matrix.name }}
-          path: aster_drive_*
+          path: |
+            aster_drive_*.tar.gz
+            aster_drive_*.zip
           if-no-files-found: error
 
   build-linux-arm:
@@ -169,12 +171,13 @@ jobs:
 
       - name: Package
         run: |
+          VERSION="${GITHUB_REF#refs/tags/}"
           tar -czf "aster_drive_${VERSION}_${{ matrix.name }}.tar.gz" "aster_drive_${VERSION}_${{ matrix.name }}"
 
       - uses: actions/upload-artifact@v7
         with:
           name: binary-${{ matrix.name }}
-          path: aster_drive_*
+          path: aster_drive_*.tar.gz
           if-no-files-found: error
 
   build-macos:
@@ -215,12 +218,13 @@ jobs:
 
       - name: Package
         run: |
+          VERSION="${GITHUB_REF#refs/tags/}"
           tar -czf "aster_drive_${VERSION}_${{ matrix.name }}.tar.gz" "aster_drive_${VERSION}_${{ matrix.name }}"
 
       - uses: actions/upload-artifact@v7
         with:
           name: binary-${{ matrix.name }}
-          path: aster_drive_*
+          path: aster_drive_*.tar.gz
           if-no-files-found: error
 
   build-windows-arm64:
@@ -261,8 +265,8 @@ jobs:
 
       - uses: actions/upload-artifact@v7
         with:
-          name: binary-windows_arm64.exe
-          path: aster_drive_*
+          name: binary-windows_arm64
+          path: aster_drive_*.zip
           if-no-files-found: error
 
   release:

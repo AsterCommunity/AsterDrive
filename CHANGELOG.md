@@ -5,6 +5,120 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v0.3.0-alpha.2] - 2026-06-10
+
+### Release Highlights
+
+**AsterDrive `0.3.0-alpha.2` 是 0.3.0 系列的第二个预发布版本，重点提升存储策略管理、用户安全控制和文件浏览体验。** 本版本引入 S3 兼容存储驱动自动提升机制与路径样式配置，支持更灵活的对象存储集成；新增强制密码修改流程，管理员可要求用户在首次登录或特定场景下强制更新密码；标签系统增强了创建能力与实时事件通知；文件浏览器完成 UI 重构，预览对话框、音乐播放器、过滤工具栏全面升级。同时修复了用户登录统计遗漏 passkey 和外部认证的问题，并优化了 CI 发布流程。
+
+- **S3 存储策略增强** — 驱动提升、path-style 配置、存储向导重构
+- **强制密码修改** — 首次登录强制改密、管理员手动触发、完整审计流
+- **标签管理提升** — 用户可直接创建标签、存储事件通知、UI 优化
+- **文件浏览器重构** — 统一过滤工具栏、预览对话框改版、音乐播放器增强
+- **可配置图片尺寸** — 缩略图和预览图尺寸可通过系统配置动态调整
+
+### Added
+
+- **强制密码修改流程**
+  - 新增 `user.must_change_password` 字段（迁移 `m20260610_000001_add_user_must_change_password`）
+  - 受限 token 机制：登录时若需强制修改密码，签发带 `password_change: true` 的受限 token
+  - 受限 token 只能访问 `/api/v1/auth/password/change` 和 `/api/v1/auth/logout`
+  - 密码修改增强：拒绝新旧密码相同、成功后自动清除 `must_change_password` 标志
+  - 管理员用户创建增强：密码可选（留空生成 24 字符临时密码），返回 `generated_password`
+  - 管理员可手动触发/清除用户强制修改密码要求
+  - 前端新增 `ForcePasswordChangePage`、`GeneratedPasswordDialog`、`UserSecurityActionsSection`
+  - 路由守卫：`LoginGuard` 和 `ProtectedRoute` 检测受限 token 并跳转到强制修改页面
+  - 国际化支持（中英）
+  - 完整测试覆盖（受限 token、临时密码、审计脱敏）
+
+- **可配置缩略图和预览尺寸**
+  - 新增配置项：`thumbnail_max_dimension`（默认 400px）和 `image_preview_max_dimension`（默认 1600px）
+  - 非默认尺寸使用尺寸特定缓存路径（如 `1-d320`、`1-d2048`）
+  - 所有派生渲染路径（vips_cli、ffmpeg_cli、lofty、storage_native）传递配置尺寸
+  - 配置校验：范围 1–16384，默认值使用默认缓存路径
+
+- **标签管理增强**
+  - 标签库管理器内联创建：搜索查询无匹配时显示"创建标签"按钮，支持 Enter 快捷键
+  - 标签内联颜色编辑：编辑器中新增颜色选择器，导出 `TAG_COLOR_PALETTE` 供复用
+  - 存储变更事件：新增 `tag.created`、`tag.updated`、`tag.deleted`、`tag.assignment_changed` 事件
+  - 前端实时订阅：`SearchBrowserPage` 和 `CategoryBrowserPage` 订阅标签事件，影响显示文件时重新加载
+  - UI 改进：对话框滚动布局修复、关闭动画期间保留草稿状态
+  - 新增 `affected_parent_ids_for_entities()` 辅助函数（分块查询，每批 500）
+
+- **锁定状态变更通知和分享刷新**
+  - 新增 `lock.created`、`lock.deleted` 存储事件
+  - `ShareDialog` 新增 `onShareCreated` 回调（页面分享创建后刷新文件浏览器列表）
+  - 修复 `onShareCreated` 同步抛出回归：用 `.then()` 包装，异常被 `.catch()` 捕获
+
+- **在线归档压缩开关**
+  - 新增 `archive_compress_enabled` 配置键（默认 true）
+  - 标志关闭时返回 `archive_compress.disabled`（HTTP 403）
+  - 国际化支持
+
+- **S3 兼容驱动提升和路径样式控制**
+  - 新增 `POST /api/v1/admin/policies/{id}/promote-s3-driver` 端点
+  - 驱动提升守卫：显式白名单（S3 → TencentCos）、活动上传会话检查、存储桶不可变性验证
+  - S3 路径样式控制：`StoragePolicyOptions` 新增 `s3_path_style` 字段（默认 true）
+  - 移除 Cloudflare R2 特定逻辑：不再重写 R2 URL 或拒绝 `.r2.dev`
+  - 前端 UI：创建向导检测腾讯 COS 端点时显示驱动建议横幅，编辑表单显示提升面板
+  - 新增 `S3PathStyleField` 开关（仅对通用 `s3` 驱动可见）
+  - 表单稳定性改进：用 `useRef` 替换 `useState`+`useEffect` 避免陈旧状态
+  - 添加深度相等检查 `policyFormValueEquals` 检测未保存更改
+
+- **UI/UX 重构和增强**
+  - 新增 `AdminFilterToolbar` 可折叠组件（带切换按钮和活动过滤器徽章）
+  - 新增 `useRetainedDialogValue` Hook（关闭动画期间保留对话框内容）
+  - 全局搜索过滤：过滤器折叠在可切换内联按钮后，标签选项隐藏在二级选择器
+  - 搜索从对话框改为全页面，新增 `/search` 和 `/teams/:id/search` 路由
+  - 管理侧边栏导航重新排序
+  - 个人资料设置视图重构：使用 `SettingsRow` 布局、`usePendingAction` Hook
+  - 安全页面改进：每个面板添加 `descriptionKey`，大屏两列布局
+  - MFA 动作简化：移除自定义动作组件，用标准 `animate-in`/`fade-in` 类替换
+  - 关于页面重设计：两列网格布局、色条装饰、构建详情网格、四个功能卡片
+  - 设置 UI 密度收紧：减少间距（space-y-10 → space-y-6）、缩小导航宽度
+  - 保存栏动画改进：基于 CSS transition、`latestVisibleStateRef` 冻结退出时内容
+  - 文件浏览器重设计：文件卡片左对齐、元文本行显示大小、文件夹琥珀色图标容器
+  - 文件预览增强：新增 `FilePreviewFileSummary` 组件、预览表面组件系统（`PreviewSurface` 系列）
+
+### Changed
+
+- **CI/CD 优化**
+  - GitHub Release 发布流程改进：二进制文件打包成归档文件（tar.gz/zip）后再上传
+  - Linux/macOS target 使用 `.tar.gz`，Windows target 使用 `.zip`
+  - Release Notes 更新下载链接和校验说明
+
+- **测试覆盖增强**
+  - E2E 测试：适配 UI 变更，新增文件浏览器过滤器交互测试
+  - 新增单元测试：标签创建、强制密码修改、认证资源、预览组件
+
+- **依赖更新**
+  - `wasm-bindgen` 升级到 0.2.123
+  - 新增 `audit.toml` 告警抑制配置
+
+### Fixed
+
+- **用户登录统计修复**
+  - 修复：管理服务中的登录次数统计现在正确包含 passkey 和外部认证登录
+  - 之前只统计密码登录，导致 WebAuthn 或 OIDC 登录用户统计不准确
+
+### Database Migrations
+
+- `m20260610_000001_add_user_must_change_password` — 在 `user` 表新增 `must_change_password` 字段（默认 false）
+
+### Configuration Changes
+
+- 新增配置项：
+  - `thumbnail_max_dimension` — 缩略图最大尺寸（默认 400px，范围 1–16384）
+  - `image_preview_max_dimension` — 预览图最大尺寸（默认 1600px，范围 1–16384）
+  - `archive_compress_enabled` — 在线归档压缩开关（默认 true）
+- 存储策略支持 `s3_path_style` 配置（S3 兼容存储）
+
+---
+
+**统计数据**：
+- 339 files changed, 15,023 insertions(+), 3,282 deletions(-)
+- 8 commits
+
 ## [v0.3.0-alpha.1] - 2026-06-09
 
 ### Release Highlights
@@ -4477,7 +4591,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 66 commits
 - Rust Edition 2024, MSRV 1.91.1
 
-[Unreleased]: https://github.com/AptS-1547/AsterDrive/compare/v0.3.0-alpha.1...HEAD
+[Unreleased]: https://github.com/AptS-1547/AsterDrive/compare/v0.3.0-alpha.2...HEAD
+[v0.3.0-alpha.2]: https://github.com/AptS-1547/AsterDrive/compare/v0.3.0-alpha.1...v0.3.0-alpha.2
 [v0.3.0-alpha.1]: https://github.com/AptS-1547/AsterDrive/compare/v0.2.7...v0.3.0-alpha.1
 [v0.2.7]: https://github.com/AptS-1547/AsterDrive/compare/v0.2.6...v0.2.7
 [v0.2.6]: https://github.com/AptS-1547/AsterDrive/compare/v0.2.5...v0.2.6
