@@ -23,6 +23,7 @@
 	"passkey_unsupported": "当前浏览器或环境不支持 Passkey。",
 	"passkey_cancelled": "Passkey 验证已取消。",
 	"forgot_password": "忘记密码？",
+	"back_to_sign_in": "返回登录",
 	"forgot_password_title": "重置密码",
 	"password_reset_request_desc": "输入账号绑定的邮箱，我们会向该邮箱发送密码重置链接。",
 	"password_reset_request_hint": "提交后，请前往绑定邮箱查收密码重置邮件；如果暂未收到，可以检查垃圾邮件或稍后再试。",

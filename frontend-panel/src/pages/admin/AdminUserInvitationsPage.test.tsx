@@ -33,6 +33,15 @@ vi.mock("react-i18next", () => ({
 	}),
 }));
 
+vi.mock("@/i18n", () => ({
+	default: {
+		language: "en",
+		t: (key: string) => key.replace(/^core:/, ""),
+	},
+	ensureAllI18nNamespaces: vi.fn().mockResolvedValue(undefined),
+	ensureI18nNamespaces: vi.fn().mockResolvedValue(undefined),
+}));
+
 vi.mock("sonner", () => ({
 	toast: {
 		success: (...args: unknown[]) => mockState.toastSuccess(...args),
@@ -625,14 +634,14 @@ describe("AdminUserInvitationsPage", () => {
 		fireEvent.click(screen.getByRole("button", { name: "send_invitation" }));
 
 		expect(mockState.createInvitation).not.toHaveBeenCalled();
-		expect(screen.getByText(/must match pattern/)).toBeInTheDocument();
+		expect(screen.getByText("email_format")).toBeInTheDocument();
 
 		fireEvent.click(screen.getByRole("button", { name: "close-invite" }));
 		fireEvent.click(
 			screen.getAllByRole("button", { name: /invite_user/i })[0] as HTMLElement,
 		);
 
-		expect(screen.queryByText(/must match pattern/)).not.toBeInTheDocument();
+		expect(screen.queryByText("email_format")).not.toBeInTheDocument();
 		expect(screen.getByLabelText("email")).toHaveValue("");
 	});
 });

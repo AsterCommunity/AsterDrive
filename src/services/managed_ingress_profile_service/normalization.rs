@@ -171,7 +171,8 @@ fn normalize_profile_fields(fields: IngressProfileFields) -> Result<NormalizedIn
             is_default,
         }),
         DriverType::S3 => {
-            let normalized = normalize_s3_endpoint_and_bucket(&endpoint, &bucket)?;
+            let normalized = normalize_s3_endpoint_and_bucket(&endpoint, &bucket)
+                .map_err(|error| error.into_aster_error())?;
             let access_key = normalize_non_blank("access_key", &access_key)?;
             let secret_key = normalize_non_blank("secret_key", &secret_key)?;
             Ok(NormalizedIngressProfileInput {

@@ -384,7 +384,7 @@ WebDAV：
 | `team.owner_required` / `team.admin_or_owner_required` | 需要团队所有者或管理员权限。 |
 | `team.member_exists` | 团队成员已存在。 |
 | `workspace.scope_denied` | 当前工作空间不能访问目标资源。 |
-| `policy.upload_sessions_exist` | 策略仍有关联上传会话，不能执行当前变更。 |
+| `policy.*` | 存储策略前置条件、配置、远程节点绑定或驱动转换校验失败。 |
 
 ### 预览、媒体处理、WOPI、WebDAV 和其他
 

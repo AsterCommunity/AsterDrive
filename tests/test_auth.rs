@@ -1482,6 +1482,29 @@ async fn test_passkey_login_start_rejects_insecure_public_site_url_with_config_e
 }
 
 #[actix_web::test]
+async fn test_passkey_login_start_rejects_localhost_prefix_spoofing() {
+    let state = common::setup_with_memory_cache().await;
+    state.runtime_config.apply(common::system_config_model(
+        aster_drive::config::site_url::PUBLIC_SITE_URL_KEY,
+        r#"["http://localhost.evil.example"]"#,
+    ));
+    let app = create_test_app!(state);
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/auth/passkeys/login/start")
+        .insert_header(("Origin", TEST_BROWSER_ORIGIN))
+        .set_json(serde_json::json!({ "identifier": "testuser" }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 400);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(
+        body["code"],
+        ApiErrorCode::ConfigPublicSiteUrlInvalid.as_str()
+    );
+}
+
+#[actix_web::test]
 async fn test_check_reports_public_registration_flag() {
     let state = common::setup().await;
     state.runtime_config.apply(common::system_config_model(

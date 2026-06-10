@@ -31,6 +31,7 @@ describe("i18n", () => {
 		expect(i18n.getResource("zh", "login", "passkey_sign_in")).toBe(
 			"使用 Passkey 登录",
 		);
+		expect(i18n.getResource("zh", "login", "back_to_sign_in")).toBe("返回登录");
 		expect(i18n.getResource("zh", "auth", "login_success")).toBeUndefined();
 		expect(
 			i18n.getResource("zh", "admin", "overview_total_users"),
@@ -145,6 +146,7 @@ describe("i18n", () => {
 			ApiErrorCode.PolicyRemoteNodeBaseUrlRequired,
 			ApiErrorCode.PolicyRemoteNodeTransferStrategyUnsupported,
 			ApiErrorCode.PolicyNativeThumbnailUnsupported,
+			ApiErrorCode.PolicyPromotionSourceUnsupported,
 			ApiErrorCode.PolicyPromotionTargetUnsupported,
 			ApiErrorCode.PolicyPromotionBucketChangeDenied,
 			ApiErrorCode.TaskRetryStatusConflict,

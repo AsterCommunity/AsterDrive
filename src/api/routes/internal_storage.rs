@@ -15,7 +15,8 @@ use crate::storage::remote_protocol::{
     RemoteStorageObjectMetadata, RemoteUpdateIngressProfileRequest,
 };
 use crate::storage::{BlobMetadata, StorageDriver};
-use actix_web::http::StatusCode;
+use crate::utils::numbers;
+use actix_web::http::{StatusCode, header::HeaderMap};
 use actix_web::{HttpRequest, HttpResponse, dev::HttpServiceFactory, web};
 use futures::StreamExt;
 use serde::Deserialize;
@@ -66,6 +67,29 @@ fn internal_storage_validation_error(
     message: impl Into<String>,
 ) -> AsterError {
     validation_error_with_code(api_code, message)
+}
+
+fn content_length_header(headers: &HeaderMap) -> Result<i64> {
+    let value = headers
+        .get(actix_web::http::header::CONTENT_LENGTH)
+        .ok_or_else(|| {
+            internal_storage_validation_error(
+                ApiErrorCode::InternalStorageContentLengthRequired,
+                "content-length header is required",
+            )
+        })?;
+    let value = value.to_str().map_err(|_| {
+        internal_storage_validation_error(
+            ApiErrorCode::InternalStorageContentLengthInvalid,
+            "content-length header must be valid ASCII",
+        )
+    })?;
+    value.parse::<i64>().map_err(|_| {
+        internal_storage_validation_error(
+            ApiErrorCode::InternalStorageContentLengthInvalid,
+            "content-length header must be a valid integer",
+        )
+    })
 }
 
 #[derive(Debug, Deserialize, Default)]
@@ -386,17 +410,7 @@ async fn put_object(
     };
     let object_key = path.into_inner();
     let storage_path = master_binding_service::provider_storage_path(&ctx.binding, &object_key)?;
-    let content_length = req
-        .headers()
-        .get(actix_web::http::header::CONTENT_LENGTH)
-        .and_then(|value| value.to_str().ok())
-        .and_then(|value| value.parse::<i64>().ok())
-        .ok_or_else(|| {
-            internal_storage_validation_error(
-                ApiErrorCode::InternalStorageContentLengthRequired,
-                "content-length header is required",
-            )
-        })?;
+    let content_length = content_length_header(req.headers())?;
     if content_length < 0 {
         return Err(internal_storage_validation_error(
             ApiErrorCode::InternalStorageContentLengthInvalid,
@@ -537,12 +551,7 @@ async fn compose_objects(
         .collect::<Result<_>>()?;
     let cleanup_part_storage_paths = part_storage_paths.clone();
     let expected_size = body.expected_size;
-    let expected_size_u64 = u64::try_from(expected_size).map_err(|_| {
-        internal_storage_validation_error(
-            ApiErrorCode::InternalStorageComposeExpectedSizeInvalid,
-            "compose expected_size exceeds u64 range",
-        )
-    })?;
+    let expected_size_u64 = numbers::i64_to_u64(expected_size, "compose expected_size")?;
 
     let read_driver = driver.clone();
     let upload_target_storage_path = target_storage_path.clone();
@@ -984,6 +993,7 @@ async fn delete_ingress_profile(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use actix_web::http::header::{CONTENT_LENGTH, HeaderMap, HeaderValue};
 
     #[test]
     fn partial_content_range_rejects_invalid_shape_with_stable_codes() {
@@ -1032,6 +1042,44 @@ mod tests {
         assert_eq!(
             invalid_bounds.api_error_code_override(),
             Some(ApiErrorCode::InternalStorageRangeBoundsInvalid)
+        );
+    }
+
+    #[test]
+    fn content_length_header_distinguishes_missing_and_invalid_values() {
+        let missing = content_length_header(&HeaderMap::new())
+            .expect_err("missing content-length should fail");
+        assert_eq!(
+            missing.api_error_code_override(),
+            Some(ApiErrorCode::InternalStorageContentLengthRequired)
+        );
+
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            CONTENT_LENGTH,
+            HeaderValue::from_bytes(b"\xff").expect("non-ASCII header bytes should construct"),
+        );
+        let non_ascii =
+            content_length_header(&headers).expect_err("non-ASCII content-length should fail");
+        assert_eq!(
+            non_ascii.api_error_code_override(),
+            Some(ApiErrorCode::InternalStorageContentLengthInvalid)
+        );
+
+        let mut headers = HeaderMap::new();
+        headers.insert(CONTENT_LENGTH, HeaderValue::from_static("not-a-number"));
+        let non_integer =
+            content_length_header(&headers).expect_err("non-integer content-length should fail");
+        assert_eq!(
+            non_integer.api_error_code_override(),
+            Some(ApiErrorCode::InternalStorageContentLengthInvalid)
+        );
+
+        let mut headers = HeaderMap::new();
+        headers.insert(CONTENT_LENGTH, HeaderValue::from_static("42"));
+        assert_eq!(
+            content_length_header(&headers).expect("valid content-length should parse"),
+            42
         );
     }
 }

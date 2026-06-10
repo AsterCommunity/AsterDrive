@@ -487,7 +487,7 @@ pub async fn promote_s3_compatible_driver(
     let existing = policy_repo::find_by_id(state.writer_db(), id).await?;
     if existing.driver_type != DriverType::S3 {
         return Err(validation_error_with_code(
-            ApiErrorCode::PolicyPromotionTargetUnsupported,
+            ApiErrorCode::PolicyPromotionSourceUnsupported,
             "only generic S3-compatible policies can be promoted",
         ));
     }
@@ -677,12 +677,8 @@ pub async fn test_connection_params<S: RemoteProtocolRuntimeState>(
     let driver: Box<dyn crate::storage::StorageDriver> = match driver_type {
         DriverType::Local => Box::new(LocalDriver::new(&fake_policy)?),
         DriverType::Remote => {
-            let remote_node_id = fake_policy.remote_node_id.ok_or_else(|| {
-                validation_error_with_code(
-                    ApiErrorCode::PolicyRemoteNodeRequired,
-                    "remote storage policy requires remote_node_id",
-                )
-            })?;
+            let remote_node_id = remote_node_id
+                .expect("validate_remote_binding must require remote_node_id for remote policies");
             let remote_node =
                 managed_follower_repo::find_by_id(state.writer_db(), remote_node_id).await?;
             Box::new(

@@ -9,7 +9,7 @@ use crate::db::repository::{managed_follower_repo, policy_group_repo, policy_rep
 use crate::entities::{storage_policy_group, storage_policy_group_item};
 use crate::errors::{AsterError, Result, validation_error_with_code};
 use crate::runtime::SharedRuntimeState;
-use crate::storage::drivers::s3_config::normalize_s3_endpoint_and_bucket;
+use crate::storage::drivers::s3_config::{S3ConfigError, normalize_s3_endpoint_and_bucket};
 use crate::types::{
     DriverType, RemoteNodeTransportMode, StoragePolicyOptions, StoredStoragePolicyAllowedTypes,
     StoredStoragePolicyOptions, serialize_storage_policy_allowed_types,
@@ -79,15 +79,16 @@ pub(super) fn normalize_connection_fields(
         DriverType::Local => Ok((endpoint.trim().to_string(), bucket.trim().to_string())),
         DriverType::Remote => Ok((String::new(), String::new())),
         DriverType::S3 | DriverType::TencentCos => {
-            let normalized =
-                normalize_s3_endpoint_and_bucket(endpoint, bucket).map_err(|error| {
-                    let api_code = if error.message().contains("bucket is required") {
-                        ApiErrorCode::PolicyStorageBucketRequired
-                    } else {
-                        ApiErrorCode::PolicyStorageEndpointInvalid
-                    };
-                    error.with_api_error_code(api_code)
-                })?;
+            let normalized = normalize_s3_endpoint_and_bucket(endpoint, bucket).map_err(
+                |error| match error {
+                    S3ConfigError::MissingBucket => error
+                        .into_aster_error()
+                        .with_api_error_code(ApiErrorCode::PolicyStorageBucketRequired),
+                    S3ConfigError::InvalidEndpoint(_) => error
+                        .into_aster_error()
+                        .with_api_error_code(ApiErrorCode::PolicyStorageEndpointInvalid),
+                },
+            )?;
             Ok((normalized.endpoint, normalized.bucket))
         }
     }

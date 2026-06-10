@@ -246,11 +246,16 @@ fn primary_public_origin(state: &impl SharedRuntimeState) -> Result<String> {
         )
     })?;
 
-    if origin.starts_with("https://")
-        || origin.starts_with("http://localhost")
-        || origin.starts_with("http://127.0.0.1")
-        || origin.starts_with("http://[::1]")
-    {
+    let parsed = url::Url::parse(&origin).map_err(|_| {
+        validation_error_with_code(
+            ApiErrorCode::ConfigPublicSiteUrlInvalid,
+            "passkey authentication requires a valid public_site_url",
+        )
+    })?;
+    let is_local_http = parsed.scheme() == "http"
+        && matches!(parsed.host_str(), Some("localhost" | "127.0.0.1" | "::1"));
+
+    if parsed.scheme() == "https" || is_local_http {
         Ok(origin)
     } else {
         Err(validation_error_with_code(

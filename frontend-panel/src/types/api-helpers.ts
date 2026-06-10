@@ -146,6 +146,7 @@ export const ApiErrorCode = {
 	PolicyRemoteNodeTransferStrategyUnsupported:
 		"policy.remote_node_transfer_strategy_unsupported",
 	PolicyNativeThumbnailUnsupported: "policy.native_thumbnail_unsupported",
+	PolicyPromotionSourceUnsupported: "policy.promotion_source_unsupported",
 	PolicyPromotionTargetUnsupported: "policy.promotion_target_unsupported",
 	PolicyPromotionBucketChangeDenied: "policy.promotion_bucket_change_denied",
 	WorkspaceScopeDenied: "workspace.scope_denied",

@@ -384,7 +384,7 @@ The following table groups current public `ApiErrorCode` values by handling path
 | `team.owner_required` / `team.admin_or_owner_required` | Team owner or administrator permission required. |
 | `team.member_exists` | Team member already exists. |
 | `workspace.scope_denied` | Current workspace cannot access target resource. |
-| `policy.upload_sessions_exist` | Policy still has related upload sessions, so the change cannot proceed. |
+| `policy.*` | Storage policy precondition, configuration, remote-node binding, or driver-promotion validation failed. |
 
 ### Preview, Media Processing, WOPI, WebDAV, And Others
 

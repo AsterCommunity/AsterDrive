@@ -205,6 +205,7 @@ define_api_error_codes! {
     PolicyRemoteNodeBaseUrlRequired => "policy.remote_node_base_url_required",
     PolicyRemoteNodeTransferStrategyUnsupported => "policy.remote_node_transfer_strategy_unsupported",
     PolicyNativeThumbnailUnsupported => "policy.native_thumbnail_unsupported",
+    PolicyPromotionSourceUnsupported => "policy.promotion_source_unsupported",
     PolicyPromotionTargetUnsupported => "policy.promotion_target_unsupported",
     PolicyPromotionBucketChangeDenied => "policy.promotion_bucket_change_denied",
 

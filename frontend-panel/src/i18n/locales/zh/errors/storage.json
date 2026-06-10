@@ -18,6 +18,7 @@
 	"policy_remote_node_base_url_required": "选中的直连远程节点需要先配置 Base URL 才能用于存储策略",
 	"policy_remote_node_transfer_strategy_unsupported": "该远程节点不支持浏览器预签名传输策略，请改用中继流式传输",
 	"policy_native_thumbnail_unsupported": "当前策略驱动不支持存储原生缩略图处理",
+	"policy_promotion_source_unsupported": "只有通用 S3 兼容存储策略可以转换驱动",
 	"policy_promotion_target_unsupported": "此存储策略不能转换为选中的目标驱动",
 	"policy_promotion_bucket_change_denied": "转换存储策略驱动时不允许变更 Bucket"
 }

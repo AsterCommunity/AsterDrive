@@ -18,6 +18,7 @@
 	"policy_remote_node_base_url_required": "The selected direct remote node needs a base URL before it can be used by a storage policy",
 	"policy_remote_node_transfer_strategy_unsupported": "This remote node does not support presigned browser transfer strategies. Use relay streaming instead",
 	"policy_native_thumbnail_unsupported": "Storage-native thumbnail processing is not supported by this policy driver",
+	"policy_promotion_source_unsupported": "Only generic S3-compatible storage policies can be promoted",
 	"policy_promotion_target_unsupported": "This storage policy cannot be promoted to the selected target driver",
 	"policy_promotion_bucket_change_denied": "Changing the bucket while promoting this storage policy is not allowed"
 }

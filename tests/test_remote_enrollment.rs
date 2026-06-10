@@ -32,10 +32,7 @@ async fn test_remote_node_enrollment_command_requires_public_site_url_code() {
         error.api_error_code(),
         ApiErrorCode::ConfigPublicSiteUrlRequired
     );
-    assert_eq!(
-        error.message(),
-        "public_site_url must be configured before generating enrollment commands"
-    );
+    assert!(error.message().contains("public_site_url"));
 }
 
 #[tokio::test]

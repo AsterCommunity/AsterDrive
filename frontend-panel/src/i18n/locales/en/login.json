@@ -23,6 +23,7 @@
 	"passkey_unsupported": "This browser or environment does not support passkeys.",
 	"passkey_cancelled": "Passkey verification was cancelled.",
 	"forgot_password": "Forgot password?",
+	"back_to_sign_in": "Back to sign in",
 	"forgot_password_title": "Reset your password",
 	"password_reset_request_desc": "Enter the email address for your account and we will send a password reset link to that inbox.",
 	"password_reset_request_hint": "After submitting, check your inbox for a password reset email. If it does not arrive, check spam or try again later.",

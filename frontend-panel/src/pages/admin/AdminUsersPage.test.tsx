@@ -22,6 +22,15 @@ vi.mock("i18next", () => ({
 	},
 }));
 
+vi.mock("@/i18n", () => ({
+	default: {
+		language: "en",
+		t: (key: string) => key.replace(/^core:/, ""),
+	},
+	ensureAllI18nNamespaces: vi.fn().mockResolvedValue(undefined),
+	ensureI18nNamespaces: vi.fn().mockResolvedValue(undefined),
+}));
+
 vi.mock("react-i18next", () => ({
 	useTranslation: () => ({
 		t: (key: string, options?: Record<string, unknown>) => {

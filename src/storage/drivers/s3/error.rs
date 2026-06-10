@@ -3,6 +3,7 @@ use aws_sdk_s3::operation::{RequestId, RequestIdExt};
 use std::error::Error as StdError;
 
 use crate::errors::AsterError;
+use crate::storage::drivers::s3_config::S3ConfigError;
 use crate::storage::error::{StorageErrorKind, storage_driver_error};
 
 use super::S3Driver;
@@ -10,9 +11,17 @@ use super::S3Driver;
 impl S3Driver {
     const ERROR_BODY_PREVIEW_LIMIT: usize = 512;
 
+    pub(super) fn rewrap_s3_config_error(err: S3ConfigError) -> AsterError {
+        storage_driver_error(
+            StorageErrorKind::Misconfigured,
+            err.into_aster_error().message().to_string(),
+        )
+    }
+
     pub(super) fn rewrap_message_as_storage_error(err: AsterError) -> AsterError {
         storage_driver_error(StorageErrorKind::Misconfigured, err.message().to_string())
     }
+
     pub(super) fn error_chain(err: &dyn StdError) -> String {
         let mut parts = Vec::new();
         let mut current = Some(err);

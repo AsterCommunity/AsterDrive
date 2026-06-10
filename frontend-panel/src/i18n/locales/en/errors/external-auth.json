@@ -1,5 +1,5 @@
 {
 	"external_auth_provider_disabled": "This external authentication provider is disabled",
 	"external_auth_policy_denied": "The external authentication policy does not allow this action",
-	"external_auth_callback_redirect_uri_required": "Public site URL is required before this external authentication provider can build its callback URL"
+	"external_auth_callback_redirect_uri_required": "Public site URL is required before this external authentication provider can build its callback URL. Configure it in system settings"
 }

@@ -47,7 +47,7 @@ impl S3DriverOptions {
 impl S3Driver {
     pub fn validate_policy(policy: &storage_policy::Model) -> Result<()> {
         normalize_s3_endpoint_and_bucket(&policy.endpoint, &policy.bucket)
-            .map_err(Self::rewrap_message_as_storage_error)?;
+            .map_err(Self::rewrap_s3_config_error)?;
         if policy.access_key.trim().is_empty() {
             return Err(storage_driver_error(
                 StorageErrorKind::Auth,
@@ -73,7 +73,7 @@ impl S3Driver {
     ) -> Result<Self> {
         Self::validate_policy(policy)?;
         let normalized = normalize_s3_endpoint_and_bucket(&policy.endpoint, &policy.bucket)
-            .map_err(Self::rewrap_message_as_storage_error)?;
+            .map_err(Self::rewrap_s3_config_error)?;
         let options = crate::types::parse_storage_policy_options(policy.options.as_ref());
 
         let credentials = Credentials::new(
