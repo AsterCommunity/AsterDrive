@@ -109,7 +109,9 @@ export function ShareDialog({
 						max_downloads: normalizeMaxDownloads(maxDownloads),
 					});
 					primaryUrl = shareService.pageUrl(share.token);
-					void Promise.resolve(onShareCreated?.()).catch(() => undefined);
+					void Promise.resolve()
+						.then(() => onShareCreated?.())
+						.catch(() => undefined);
 				}
 
 				dispatch({

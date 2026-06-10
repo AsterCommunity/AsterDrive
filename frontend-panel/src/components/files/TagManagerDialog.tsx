@@ -103,10 +103,16 @@ export function TagManagerDialog({
 	const [busyKey, setBusyKey] = useState<string | null>(null);
 	const [libraryManagerOpen, setLibraryManagerOpen] = useState(false);
 	const syncedTargetRef = useRef<TagManagerTarget | null>(null);
+	const knownTagIdsRef = useRef<Set<number>>(new Set());
+
+	const replaceTags = useCallback((nextTags: TagInfo[]) => {
+		knownTagIdsRef.current = new Set(nextTags.map((tag) => tag.id));
+		setTags(sortTags(nextTags));
+	}, []);
 
 	const resetDialogState = useCallback(() => {
 		syncedTargetRef.current = null;
-		setTags([]);
+		replaceTags([]);
 		setTagsTotal(0);
 		setEntityTags([]);
 		setBatchActions(new Map());
@@ -115,11 +121,11 @@ export function TagManagerDialog({
 		setLoadingMoreTags(false);
 		setBusyKey(null);
 		setLibraryManagerOpen(false);
-	}, []);
+	}, [replaceTags]);
 
 	const syncDraftState = (nextTarget: TagManagerTarget | null) => {
 		syncedTargetRef.current = nextTarget;
-		setTags([]);
+		replaceTags([]);
 		setTagsTotal(0);
 		setEntityTags(
 			nextTarget?.mode === "entity" ? sortTags(nextTarget.initialTags) : [],
@@ -152,7 +158,7 @@ export function TagManagerDialog({
 		let cancelled = false;
 		const searchTerm = query.trim();
 		setLoading(true);
-		setTags([]);
+		replaceTags([]);
 		setTagsTotal(0);
 		tagService
 			.listTags({
@@ -164,7 +170,7 @@ export function TagManagerDialog({
 			})
 			.then((page) => {
 				if (!cancelled) {
-					setTags(sortTags(page.items));
+					replaceTags(page.items);
 					setTagsTotal(page.total);
 				}
 			})
@@ -178,7 +184,7 @@ export function TagManagerDialog({
 		return () => {
 			cancelled = true;
 		};
-	}, [open, query, target]);
+	}, [open, query, replaceTags, target]);
 
 	const hasMoreTags = tags.length < tagsTotal;
 	const normalizedQuery = normalizeQuery(query);
@@ -243,7 +249,11 @@ export function TagManagerDialog({
 					...(query.trim() ? { q: query.trim() } : {}),
 				},
 			});
-			setTags((current) => sortTags([...current, ...page.items]));
+			setTags((current) => {
+				const next = sortTags([...current, ...page.items]);
+				knownTagIdsRef.current = new Set(next.map((tag) => tag.id));
+				return next;
+			});
 			setTagsTotal(page.total);
 		} catch (err) {
 			handleApiError(err);
@@ -277,6 +287,7 @@ export function TagManagerDialog({
 
 	const handleLibraryTagUpdated = (tag: TagInfo) => {
 		const summary = toSummary(tag);
+		knownTagIdsRef.current.add(tag.id);
 		setTags((current) =>
 			sortTags(
 				current.some((currentTag) => currentTag.id === tag.id)
@@ -296,6 +307,7 @@ export function TagManagerDialog({
 	};
 
 	const handleLibraryTagDeleted = (tagId: number) => {
+		knownTagIdsRef.current.delete(tagId);
 		setTags((current) => current.filter((tag) => tag.id !== tagId));
 		setTagsTotal((current) => Math.max(0, current - 1));
 		setEntityTags((current) => current.filter((tag) => tag.id !== tagId));
@@ -308,13 +320,10 @@ export function TagManagerDialog({
 	};
 
 	const handleLibraryTagCreated = (tag: TagInfo) => {
-		if (tags.some((currentTag) => currentTag.id === tag.id)) return;
+		if (knownTagIdsRef.current.has(tag.id)) return;
 
-		setTags((current) =>
-			current.some((currentTag) => currentTag.id === tag.id)
-				? current
-				: sortTags([...current, tag]),
-		);
+		knownTagIdsRef.current.add(tag.id);
+		setTags((current) => sortTags([...current, tag]));
 		setTagsTotal((current) => current + 1);
 	};
 
@@ -328,6 +337,7 @@ export function TagManagerDialog({
 				name,
 				color: safeTagColor(createPreviewColor),
 			});
+			knownTagIdsRef.current.add(created.id);
 			setTags((current) => sortTags([...current, created]));
 			setTagsTotal((current) => current + 1);
 			setQuery("");

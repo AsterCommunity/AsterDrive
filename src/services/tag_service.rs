@@ -736,6 +736,8 @@ async fn affected_parent_ids_for_entities(
     file_ids: &[i64],
     folder_ids: &[i64],
 ) -> Result<Vec<Option<i64>>> {
+    // This resolves parent folders through DB lookups for event targeting. Keep tag
+    // mutation batches bounded; the shared helper chunks large inputs defensively.
     storage_change_service::affected_parent_ids_for_entities(state, scope, file_ids, folder_ids)
         .await
 }

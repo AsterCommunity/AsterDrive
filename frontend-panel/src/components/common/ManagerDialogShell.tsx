@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import type { ComponentPropsWithoutRef, ReactNode } from "react";
 import {
 	Dialog,
 	DialogContent,
@@ -64,12 +64,16 @@ export function ManagerDialogShell({
 export function ManagerDialogScrollableList({
 	children,
 	className,
-}: {
+	...props
+}: ComponentPropsWithoutRef<"div"> & {
 	children: ReactNode;
 	className?: string;
 }) {
 	return (
-		<div className={cn("h-full overflow-y-auto px-5 py-4", className)}>
+		<div
+			{...props}
+			className={cn("h-full overflow-y-auto px-5 py-4", className)}
+		>
 			{children}
 		</div>
 	);

@@ -79,10 +79,10 @@ function originalButtonAnimationReducer(
 }
 
 function isImagePreviewInteractiveTarget(target: EventTarget | null) {
-	if (!(target instanceof HTMLElement)) return false;
+	if (!(target instanceof Element)) return false;
 
 	return (
-		target.isContentEditable ||
+		(target instanceof HTMLElement && target.isContentEditable) ||
 		target.closest(IMAGE_PREVIEW_INTERACTIVE_SELECTOR) !== null
 	);
 }

@@ -603,6 +603,41 @@ async fn test_tags_batch_attach_detach_file_and_folder_usage_counts() {
 }
 
 #[actix_web::test]
+async fn test_batch_tag_events_deduplicate_affected_parent_ids() {
+    let state = common::setup().await;
+    let app = create_test_app!(state.clone());
+
+    let (token, _) = register_and_login!(app);
+    let folder_id = create_folder_at(&app, &token, "/api/v1/folders", "Batch Parent").await;
+    let first_file_id = upload_test_file_to_folder!(app, token, folder_id);
+    let second_file_id = upload_test_file_to_folder!(app, token, folder_id);
+    let tag_id = create_tag(&app, &token, "Batch Parents", "#0891b2").await;
+    let mut storage_events = state.storage_change_tx.subscribe();
+
+    let req = test::TestRequest::put()
+        .uri(&format!("/api/v1/tags/{tag_id}/batch"))
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({
+            "file_ids": [first_file_id, second_file_id],
+            "folder_ids": []
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+
+    let event = tokio::time::timeout(Duration::from_secs(1), storage_events.recv())
+        .await
+        .expect("batch tag mutation should publish storage change event")
+        .expect("storage change channel should stay open");
+    assert_eq!(event.kind, StorageChangeKind::TagAssignmentChanged);
+    assert_eq!(event.file_ids, vec![first_file_id, second_file_id]);
+    assert!(event.folder_ids.is_empty());
+    assert_eq!(event.affected_parent_ids, vec![folder_id]);
+    assert!(!event.root_affected);
+}
+
+#[actix_web::test]
 async fn test_tag_search_any_all_and_invalid_filters() {
     let state = common::setup().await;
     let app = create_test_app!(state);

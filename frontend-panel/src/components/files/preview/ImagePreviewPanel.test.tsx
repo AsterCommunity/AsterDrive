@@ -41,6 +41,7 @@ vi.mock("@/components/files/preview/BlobImagePreview", () => ({
 		if (mockState.previewError) {
 			return (
 				<button type="button" onClick={mockState.retry}>
+					<svg aria-hidden="true" data-testid="retry-image-icon" />
 					Retry image
 				</button>
 			);
@@ -239,6 +240,17 @@ describe("ImagePreviewPanel", () => {
 		fireEvent.click(retryButton, { clientX: 120, clientY: 120 });
 
 		expect(mockState.retry).toHaveBeenCalledTimes(1);
+		expect(props.onClose).not.toHaveBeenCalled();
+	});
+
+	it("does not close when clicking an svg icon inside an interactive control", () => {
+		mockState.previewError = true;
+		const props = renderPanel();
+		const retryIcon = screen.getByTestId("retry-image-icon");
+
+		fireEvent.pointerDown(retryIcon, { clientX: 120, clientY: 120 });
+		fireEvent.click(retryIcon, { clientX: 120, clientY: 120 });
+
 		expect(props.onClose).not.toHaveBeenCalled();
 	});
 

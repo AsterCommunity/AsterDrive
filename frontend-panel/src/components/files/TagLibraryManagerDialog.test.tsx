@@ -225,7 +225,8 @@ describe("TagLibraryManagerDialog", () => {
 		expect(screen.getByTestId("dialog-content")).toHaveClass(
 			"sm:h-[min(88vh,44rem)]",
 		);
-		const scrollArea = screen.getByText("Alpha").closest(".overflow-y-auto");
+		const scrollArea = screen.getByTestId("tag-list-scroll-area");
+		expect(scrollArea).toContainElement(screen.getByText("Alpha"));
 		expect(scrollArea).toHaveClass("h-full", "overflow-y-auto");
 	});
 

@@ -1611,7 +1611,7 @@ describe("FileBrowserPage", () => {
 		});
 	});
 
-	it("does not refresh the current list for direct-link share mode", async () => {
+	it("does not refresh when opening a direct-link share dialog", async () => {
 		render(<FileBrowserPage />);
 
 		fireEvent.click(screen.getByRole("button", { name: "share-file-direct" }));

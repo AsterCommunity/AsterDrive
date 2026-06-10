@@ -22,6 +22,7 @@ pub const STORAGE_CHANGE_CHANNEL_CAPACITY: usize = 1024;
 const CACHE_INVALIDATION_COALESCE_DELAY: StdDuration = StdDuration::from_millis(25);
 const CACHE_INVALIDATION_RESERVATION_TTL_SECS: u64 = 1;
 const CACHE_INVALIDATION_RESERVATION_PREFIX: &str = "storage_change_cache_invalidation:";
+const AFFECTED_PARENT_LOOKUP_CHUNK_SIZE: usize = 500;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StorageChangeAudience {
@@ -97,15 +98,27 @@ impl StorageChangeKind {
     }
 
     fn invalidates_webdav_path_cache(self) -> bool {
-        !matches!(
-            self,
+        match self {
+            Self::FileCreated
+            | Self::FileUpdated
+            | Self::FileTrashed
+            | Self::FileRestoredFromTrash
+            | Self::FilePurged
+            | Self::FileVersionRestored
+            | Self::FileVersionDeleted
+            | Self::FolderCreated
+            | Self::FolderUpdated
+            | Self::FolderTrashed
+            | Self::FolderRestoredFromTrash
+            | Self::FolderPurged
+            | Self::SyncRequired => true,
             Self::TagCreated
-                | Self::TagUpdated
-                | Self::TagDeleted
-                | Self::TagAssignmentChanged
-                | Self::LockCreated
-                | Self::LockDeleted
-        )
+            | Self::TagUpdated
+            | Self::TagDeleted
+            | Self::TagAssignmentChanged
+            | Self::LockCreated
+            | Self::LockDeleted => false,
+        }
     }
 }
 
@@ -251,32 +264,33 @@ pub(crate) async fn affected_parent_ids_for_entities(
 ) -> Result<Vec<Option<i64>>> {
     let mut parent_ids = Vec::new();
 
-    if !file_ids.is_empty() {
+    for chunk in file_ids.chunks(AFFECTED_PARENT_LOOKUP_CHUNK_SIZE) {
         let files = match scope {
             WorkspaceStorageScope::Personal { user_id } => {
-                file_repo::find_by_ids_in_personal_scope(state.reader_db(), user_id, file_ids)
-                    .await?
+                file_repo::find_by_ids_in_personal_scope(state.reader_db(), user_id, chunk).await?
             }
             WorkspaceStorageScope::Team { team_id, .. } => {
-                file_repo::find_by_ids_in_team_scope(state.reader_db(), team_id, file_ids).await?
+                file_repo::find_by_ids_in_team_scope(state.reader_db(), team_id, chunk).await?
             }
         };
         parent_ids.extend(files.into_iter().map(|file| file.folder_id));
     }
 
-    if !folder_ids.is_empty() {
+    for chunk in folder_ids.chunks(AFFECTED_PARENT_LOOKUP_CHUNK_SIZE) {
         let folders = match scope {
             WorkspaceStorageScope::Personal { user_id } => {
-                folder_repo::find_by_ids_in_personal_scope(state.reader_db(), user_id, folder_ids)
+                folder_repo::find_by_ids_in_personal_scope(state.reader_db(), user_id, chunk)
                     .await?
             }
             WorkspaceStorageScope::Team { team_id, .. } => {
-                folder_repo::find_by_ids_in_team_scope(state.reader_db(), team_id, folder_ids)
-                    .await?
+                folder_repo::find_by_ids_in_team_scope(state.reader_db(), team_id, chunk).await?
             }
         };
         parent_ids.extend(folders.into_iter().map(|folder| folder.parent_id));
     }
+
+    parent_ids.sort();
+    parent_ids.dedup();
 
     Ok(parent_ids)
 }

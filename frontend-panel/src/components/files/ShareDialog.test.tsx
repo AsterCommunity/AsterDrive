@@ -364,6 +364,38 @@ describe("ShareDialog", () => {
 		expect(mockState.toastSuccess).toHaveBeenCalledWith("share:share_created");
 	});
 
+	it("keeps the created share visible when the parent refresh callback throws synchronously", async () => {
+		const onShareCreated = vi.fn(() => {
+			throw new Error("refresh failed");
+		});
+		mockState.create.mockResolvedValue({ token: "public-token" });
+
+		render(
+			<ShareDialog
+				open
+				onOpenChange={vi.fn()}
+				onShareCreated={onShareCreated}
+				fileId={42}
+				name="report.pdf"
+			/>,
+		);
+
+		fireEvent.click(
+			screen.getByRole("button", { name: "share:share_create_button" }),
+		);
+
+		expect(
+			await screen.findByDisplayValue(
+				`${window.location.origin}/s/public-token`,
+			),
+		).toBeInTheDocument();
+		await waitFor(() => {
+			expect(onShareCreated).toHaveBeenCalledTimes(1);
+		});
+		expect(mockState.handleApiError).not.toHaveBeenCalled();
+		expect(mockState.toastSuccess).toHaveBeenCalledWith("share:share_created");
+	});
+
 	it("keeps long share target names inside the dialog title", () => {
 		const longName = `${"e28633d9605db1b835fbee64aa065e9c".repeat(4)}.jpg`;
 
