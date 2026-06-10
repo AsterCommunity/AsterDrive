@@ -4,15 +4,83 @@
 		<meta charset="UTF-8" />
 		<link rel="icon" type="image/svg+xml" href="%ASTERDRIVE_FAVICON_URL%" />
 		<link rel="apple-touch-icon" href="%ASTERDRIVE_FAVICON_URL%" />
+		<link rel="preload" as="image" href="%ASTERDRIVE_WORDMARK_LIGHT_URL%" media="(min-width: 1024px), (prefers-color-scheme: dark)" />
+		<link rel="preload" as="image" href="%ASTERDRIVE_WORDMARK_DARK_URL%" media="(max-width: 1023px) and (prefers-color-scheme: light)" />
 		<meta name="description" content="%ASTERDRIVE_DESCRIPTION%" />
 		<meta http-equiv="Content-Security-Policy" content="%ASTERDRIVE_CSP%" />
 		<meta name="asterdrive-version" content="%ASTERDRIVE_VERSION%" />
 		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
 		<meta name="theme-color" content="#0F172A" />
 		<title>%ASTERDRIVE_TITLE%</title>
+		<style>
+			:root {
+				color-scheme: light;
+				--aster-boot-bg: #f8fafc;
+				--aster-boot-spinner: #475569;
+				--aster-boot-spinner-muted: rgb(71 85 105 / 0.28);
+			}
+			@media (prefers-color-scheme: dark) {
+				:root {
+					color-scheme: dark;
+					--aster-boot-bg: #0f172a;
+					--aster-boot-spinner: #cbd5e1;
+					--aster-boot-spinner-muted: rgb(203 213 225 / 0.28);
+				}
+			}
+			html,
+			body,
+			#root {
+				min-height: 100%;
+			}
+			body {
+				margin: 0;
+				background: var(--aster-boot-bg);
+			}
+			.aster-boot-loading {
+				align-items: center;
+				animation: aster-boot-fade-in 500ms ease-out both;
+				background: var(--aster-boot-bg);
+				box-sizing: border-box;
+				display: flex;
+				justify-content: center;
+				min-height: 100vh;
+			}
+			.aster-boot-spinner {
+				animation: aster-boot-spin 800ms linear infinite;
+				border: 2px solid var(--aster-boot-spinner-muted);
+				border-radius: 9999px;
+				border-top-color: var(--aster-boot-spinner);
+				box-sizing: border-box;
+				height: 20px;
+				width: 20px;
+			}
+			@keyframes aster-boot-fade-in {
+				from {
+					opacity: 0;
+				}
+				to {
+					opacity: 1;
+				}
+			}
+			@keyframes aster-boot-spin {
+				to {
+					transform: rotate(360deg);
+				}
+			}
+			@media (prefers-reduced-motion: reduce) {
+				.aster-boot-loading,
+				.aster-boot-spinner {
+					animation: none;
+				}
+			}
+		</style>
 	</head>
-		<body>
-			<div id="root"></div>
-			<script type="module" src="/src/main.tsx"></script>
-		</body>
+	<body>
+		<div id="root">
+			<div class="aster-boot-loading" role="status" aria-label="Loading">
+				<div class="aster-boot-spinner"></div>
+			</div>
+		</div>
+		<script type="module" src="/src/main.tsx"></script>
+	</body>
 </html>

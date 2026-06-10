@@ -12,7 +12,6 @@ import { logger } from "@/lib/logger";
 import { cancelPreferenceSync } from "@/lib/preferenceSync";
 import { authService } from "@/services/authService";
 import { useDisplayTimeZoneStore } from "@/stores/displayTimeZoneStore";
-import { useFileStore } from "@/stores/fileStore";
 import { useTeamStore } from "@/stores/teamStore";
 import { useThemeStore } from "@/stores/themeStore";
 import type {
@@ -101,19 +100,26 @@ function clearRefreshTimer() {
 
 function applyServerPreferences(prefs: UserPreferences): void {
 	const themeStore = useThemeStore.getState();
-	const fileStore = useFileStore.getState();
 	const displayTimeZoneStore = useDisplayTimeZoneStore.getState();
 
 	themeStore._applyFromServer({
 		mode: prefs.theme_mode ?? themeStore.mode,
 		colorPreset: prefs.color_preset ?? themeStore.colorPreset,
 	});
-	fileStore._applyFromServer({
-		viewMode: prefs.view_mode ?? fileStore.viewMode,
-		browserOpenMode: prefs.browser_open_mode ?? fileStore.browserOpenMode,
-		sortBy: prefs.sort_by ?? fileStore.sortBy,
-		sortOrder: prefs.sort_order ?? fileStore.sortOrder,
-	});
+	void import("@/stores/fileStore").then(
+		({ useFileStore }) => {
+			const fileStore = useFileStore.getState();
+			fileStore._applyFromServer({
+				viewMode: prefs.view_mode ?? fileStore.viewMode,
+				browserOpenMode: prefs.browser_open_mode ?? fileStore.browserOpenMode,
+				sortBy: prefs.sort_by ?? fileStore.sortBy,
+				sortOrder: prefs.sort_order ?? fileStore.sortOrder,
+			});
+		},
+		(error) => {
+			logger.warn("file browser preference bootstrap failed", error);
+		},
+	);
 	displayTimeZoneStore._applyFromServer(prefs.display_time_zone);
 	if (prefs.language) void i18n.changeLanguage(prefs.language);
 }

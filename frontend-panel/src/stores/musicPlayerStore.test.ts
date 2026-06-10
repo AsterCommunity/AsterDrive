@@ -11,6 +11,7 @@ describe("musicPlayerStore", () => {
 	});
 
 	afterEach(() => {
+		vi.doUnmock("@/lib/musicPlayerMountSignal");
 		vi.restoreAllMocks();
 		vi.useRealTimers();
 	});
@@ -41,6 +42,25 @@ describe("musicPlayerStore", () => {
 				},
 			],
 		});
+	});
+
+	it("requests the player host mount when a queue is created", async () => {
+		const requestMusicPlayerHostMount = vi.fn();
+		vi.doMock("@/lib/musicPlayerMountSignal", () => ({
+			requestMusicPlayerHostMount,
+		}));
+		const { useMusicPlayerStore } = await loadMusicPlayerStore();
+
+		expect(requestMusicPlayerHostMount).not.toHaveBeenCalled();
+
+		useMusicPlayerStore.getState().playTrack({
+			id: "track-1",
+			mimeType: "audio/mpeg",
+			name: "track.mp3",
+			path: "/files/7/download",
+		});
+
+		expect(requestMusicPlayerHostMount).toHaveBeenCalledTimes(1);
 	});
 
 	it("loads a queue and starts the requested active track", async () => {

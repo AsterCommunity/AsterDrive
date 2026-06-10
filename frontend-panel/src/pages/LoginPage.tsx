@@ -89,7 +89,7 @@ function resolveMfaRedirectExpiresAt(expiresIn: string | null) {
 }
 
 function useLoginPageController() {
-	const { t } = useTranslation(["auth", "core", "settings"]);
+	const { t } = useTranslation(["login", "core"]);
 	const { hash, pathname, search } = useLocation();
 	const navigate = useNavigate();
 	const refreshUser = useAuthStore((s) => s.refreshUser);
@@ -219,7 +219,7 @@ function useLoginPageController() {
 						return;
 					}
 					toast.success(
-						t("settings:settings_email_change_confirmed_login_hint", {
+						t("verify_contact_email_changed_login_hint", {
 							email: verification.email,
 						}),
 						{

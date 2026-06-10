@@ -11,10 +11,9 @@ function getNodeModuleInfo(id: string) {
 
 	if (nodeModulesIndex === -1) return null;
 
-	const modulePath = normalizedId.slice(
-		nodeModulesIndex + nodeModulesSegment.length,
-	);
-	const [scopeOrName, maybeName, ...rest] = modulePath.split("/");
+	const [scopeOrName, maybeName, ...rest] = normalizedId
+		.slice(nodeModulesIndex + nodeModulesSegment.length)
+		.split("/");
 
 	if (!scopeOrName) return null;
 	if (scopeOrName.startsWith("@")) {
@@ -159,6 +158,17 @@ export default defineConfig(({ command }) => {
 								},
 							},
 						},
+						{
+							urlPattern: ({ url }) => url.pathname.startsWith("/pdfjs/"),
+							handler: "StaleWhileRevalidate",
+							options: {
+								cacheName: "pdfjs-assets",
+								expiration: {
+									maxEntries: 192,
+									maxAgeSeconds: 60 * 60 * 24 * 30,
+								},
+							},
+						},
 					],
 				},
 			}),
@@ -238,13 +248,6 @@ export default defineConfig(({ command }) => {
 
 						if (packageName === "react-icons") {
 							return "vendor-react-icons";
-						}
-
-						if (
-							packageName === "@devicon/react" ||
-							packageName === "react-devicons"
-						) {
-							return "vendor-devicons";
 						}
 
 						if (packageName === "papaparse") {

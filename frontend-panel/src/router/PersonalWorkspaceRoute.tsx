@@ -1,6 +1,17 @@
+import { lazy, Suspense } from "react";
 import { PERSONAL_WORKSPACE } from "@/lib/workspace";
-import { WorkspaceOutlet } from "./WorkspaceOutlet";
+import { Loading } from "./Loading";
+
+const WorkspaceOutlet = lazy(() =>
+	import("./WorkspaceOutlet").then((module) => ({
+		default: module.WorkspaceOutlet,
+	})),
+);
 
 export function PersonalWorkspaceRoute() {
-	return <WorkspaceOutlet workspace={PERSONAL_WORKSPACE} />;
+	return (
+		<Suspense fallback={<Loading />}>
+			<WorkspaceOutlet workspace={PERSONAL_WORKSPACE} />
+		</Suspense>
+	);
 }

@@ -36,6 +36,8 @@ Docker 里最省事的做法是挂卷：`-v /path/to/my-dist:/frontend-override:
 | `%ASTERDRIVE_TITLE%` | 运行时配置 | `站点标题`（后台 `站点配置` 里维护） |
 | `%ASTERDRIVE_DESCRIPTION%` | 运行时配置 | `站点描述` |
 | `%ASTERDRIVE_FAVICON_URL%` | 运行时配置 | `favicon` 地址 |
+| `%ASTERDRIVE_WORDMARK_DARK_URL%` | 运行时配置 | 亮色表面使用的深色字标地址，默认 `/static/asterdrive/asterdrive-dark.svg` |
+| `%ASTERDRIVE_WORDMARK_LIGHT_URL%` | 运行时配置 | 暗色表面 / 登录页 Hero 使用的浅色字标地址，默认 `/static/asterdrive/asterdrive-light.svg` |
 | `%ASTERDRIVE_CSP%` | 常量 | 页面基线 `Content-Security-Policy` |
 
 所有替换值会做 HTML 实体转义，所以直接塞进 `<title>` / `<meta>` 是安全的。
@@ -51,6 +53,8 @@ Docker 里最省事的做法是挂卷：`-v /path/to/my-dist:/frontend-override:
   <title>%ASTERDRIVE_TITLE%</title>
   <meta name="description" content="%ASTERDRIVE_DESCRIPTION%" />
   <link rel="icon" href="%ASTERDRIVE_FAVICON_URL%" />
+  <link rel="preload" as="image" href="%ASTERDRIVE_WORDMARK_LIGHT_URL%" media="(min-width: 1024px), (prefers-color-scheme: dark)" />
+  <link rel="preload" as="image" href="%ASTERDRIVE_WORDMARK_DARK_URL%" media="(max-width: 1023px) and (prefers-color-scheme: light)" />
   <meta name="generator" content="AsterDrive %ASTERDRIVE_VERSION%" />
 </head>
 <body>
@@ -160,6 +164,7 @@ AsterDrive 返回 `index.html` 时会同时做两件事：
 
 - 在响应头里附加页面基线 `Content-Security-Policy`
 - 把 `%ASTERDRIVE_CSP%` 替换成可放进 `<meta http-equiv="Content-Security-Policy">` 的同款策略
+- 替换标题、描述、favicon 和字标占位符，让登录前 HTML 也能展示运行时品牌配置
 
 响应头版本比 meta 版本多一条 `frame-ancestors 'self'`。这是浏览器限制，`frame-ancestors` 不能靠 meta 生效。
 

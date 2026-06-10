@@ -82,11 +82,13 @@ describe("useAuthStore", () => {
 			mode: "dark",
 			colorPreset: "#f97316",
 		});
-		expect(useFileStore.getState()).toMatchObject({
-			viewMode: "grid",
-			browserOpenMode: "double_click",
-			sortBy: "updated_at",
-			sortOrder: "desc",
+		await vi.waitFor(() => {
+			expect(useFileStore.getState()).toMatchObject({
+				viewMode: "grid",
+				browserOpenMode: "double_click",
+				sortBy: "updated_at",
+				sortOrder: "desc",
+			});
 		});
 		expect(useDisplayTimeZoneStore.getState().preference).toBe("Asia/Shanghai");
 		expect(localStorage.getItem("aster-display-time-zone")).toBe(

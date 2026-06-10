@@ -95,6 +95,18 @@ impl FrontendService {
                 "%ASTERDRIVE_FAVICON_URL%",
                 &escape_html(branding::favicon_url_or_default(state.runtime_config())),
             )
+            .replace(
+                "%ASTERDRIVE_WORDMARK_DARK_URL%",
+                &escape_html(branding::wordmark_dark_url_or_default(
+                    state.runtime_config(),
+                )),
+            )
+            .replace(
+                "%ASTERDRIVE_WORDMARK_LIGHT_URL%",
+                &escape_html(branding::wordmark_light_url_or_default(
+                    state.runtime_config(),
+                )),
+            )
             .replace("%ASTERDRIVE_CSP%", &escape_html(FRONTEND_CSP_META));
 
         HttpResponse::Ok()

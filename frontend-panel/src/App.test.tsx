@@ -17,7 +17,7 @@ const mockState = vi.hoisted(() => ({
 	},
 	previewAppsLoad: vi.fn(),
 	mediaDataSupportLoad: vi.fn(),
-	warmupRouteChunks: vi.fn(),
+	musicPlayerHostMountRequested: false,
 	setAuthState: vi.fn(),
 	themeInit: vi.fn(),
 	thumbnailSupportLoad: vi.fn(),
@@ -50,12 +50,8 @@ vi.mock("@/hooks/usePwaUpdate", () => ({
 }));
 
 vi.mock("@/hooks/useStorageChangeEvents", () => ({
+	StorageChangeEventsBridge: () => <div data-testid="storage-events-bridge" />,
 	useStorageChangeEvents: vi.fn(),
-}));
-
-vi.mock("@/lib/pwaWarmup", () => ({
-	warmupRouteChunks: (...args: unknown[]) =>
-		mockState.warmupRouteChunks(...args),
 }));
 
 vi.mock("@/lib/idleTask", () => ({
@@ -71,6 +67,11 @@ vi.mock("@/components/layout/OfflineBootFallback", () => ({
 
 vi.mock("@/components/music/MusicPlayerHost", () => ({
 	MusicPlayerHost: () => <div data-testid="music-player-host" />,
+}));
+
+vi.mock("@/lib/musicPlayerMountSignal", () => ({
+	useMusicPlayerHostMountRequested: () =>
+		mockState.musicPlayerHostMountRequested,
 }));
 
 vi.mock("@/stores/frontendConfigStore", () => ({
@@ -144,6 +145,7 @@ describe("App", () => {
 		mockState.authStore.isChecking = false;
 		mockState.authStore.user = null;
 		mockState.displayTimeZoneStore.preference = "browser";
+		mockState.musicPlayerHostMountRequested = false;
 		mockState.frontendConfigLoad.mockReset();
 		mockState.initFrontendConfigRuntime.mockReset();
 		mockState.previewAppsLoad.mockReset();
@@ -152,7 +154,6 @@ describe("App", () => {
 		mockState.themeInit.mockReset();
 		mockState.thumbnailSupportLoad.mockReset();
 		mockState.toastSuccess.mockReset();
-		mockState.warmupRouteChunks.mockReset();
 		vi.useRealTimers();
 	});
 
@@ -160,12 +161,14 @@ describe("App", () => {
 		window.history.replaceState({}, "", "/");
 	});
 
-	it("skips the bootstrap auth check on login", () => {
+	it("skips the bootstrap auth check on login", async () => {
 		window.history.replaceState({}, "", "/login");
 
 		render(<App />);
 
-		expect(mockState.frontendConfigLoad).toHaveBeenCalledTimes(1);
+		await waitFor(() => {
+			expect(mockState.frontendConfigLoad).toHaveBeenCalledTimes(1);
+		});
 		expect(mockState.previewAppsLoad).not.toHaveBeenCalled();
 		expect(mockState.thumbnailSupportLoad).not.toHaveBeenCalled();
 		expect(mockState.mediaDataSupportLoad).not.toHaveBeenCalled();
@@ -182,12 +185,14 @@ describe("App", () => {
 		expect(mockState.setAuthState).toHaveBeenCalledWith({ isChecking: false });
 	});
 
-	it("runs the bootstrap auth check on protected routes", () => {
+	it("runs the bootstrap auth check on protected routes", async () => {
 		window.history.replaceState({}, "", "/");
 
 		render(<App />);
 
-		expect(mockState.frontendConfigLoad).toHaveBeenCalledTimes(1);
+		await waitFor(() => {
+			expect(mockState.frontendConfigLoad).toHaveBeenCalledTimes(1);
+		});
 		expect(mockState.previewAppsLoad).not.toHaveBeenCalled();
 		expect(mockState.thumbnailSupportLoad).not.toHaveBeenCalled();
 		expect(mockState.mediaDataSupportLoad).not.toHaveBeenCalled();
@@ -195,63 +200,72 @@ describe("App", () => {
 		expect(mockState.setAuthState).not.toHaveBeenCalled();
 	});
 
-	it("defers noncritical public config and does not revalidate on tab visibility changes", () => {
+	it("does not load support config while unauthenticated", async () => {
 		vi.useFakeTimers();
 		render(<App />);
 
-		expect(mockState.frontendConfigLoad).toHaveBeenCalledTimes(1);
+		await vi.waitFor(() => {
+			expect(mockState.frontendConfigLoad).toHaveBeenCalledTimes(1);
+		});
 		expect(mockState.previewAppsLoad).not.toHaveBeenCalled();
 		expect(mockState.thumbnailSupportLoad).not.toHaveBeenCalled();
 		expect(mockState.mediaDataSupportLoad).not.toHaveBeenCalled();
 
-		vi.advanceTimersByTime(1200);
+		await vi.advanceTimersByTimeAsync(1200);
 
-		expect(mockState.previewAppsLoad).toHaveBeenCalledTimes(1);
-		expect(mockState.thumbnailSupportLoad).toHaveBeenCalledTimes(1);
-		expect(mockState.mediaDataSupportLoad).toHaveBeenCalledTimes(1);
+		expect(mockState.previewAppsLoad).not.toHaveBeenCalled();
+		expect(mockState.thumbnailSupportLoad).not.toHaveBeenCalled();
+		expect(mockState.mediaDataSupportLoad).not.toHaveBeenCalled();
 
 		Object.defineProperty(document, "visibilityState", {
 			configurable: true,
 			value: "visible",
 		});
 		document.dispatchEvent(new Event("visibilitychange"));
-		vi.advanceTimersByTime(300_000);
+		await vi.advanceTimersByTimeAsync(300_000);
 
 		expect(mockState.frontendConfigLoad).toHaveBeenCalledTimes(1);
-		expect(mockState.previewAppsLoad).toHaveBeenCalledTimes(1);
-		expect(mockState.thumbnailSupportLoad).toHaveBeenCalledTimes(1);
-		expect(mockState.mediaDataSupportLoad).toHaveBeenCalledTimes(1);
+		expect(mockState.previewAppsLoad).not.toHaveBeenCalled();
+		expect(mockState.thumbnailSupportLoad).not.toHaveBeenCalled();
+		expect(mockState.mediaDataSupportLoad).not.toHaveBeenCalled();
 	});
 
-	it("does not revalidate public config on an interval", () => {
+	it("loads support config after auth is ready and does not revalidate public config on an interval", async () => {
 		vi.useFakeTimers();
 		Object.defineProperty(document, "visibilityState", {
 			configurable: true,
 			value: "visible",
 		});
+		mockState.authStore.isAuthenticated = true;
+		mockState.authStore.isChecking = false;
 
 		render(<App />);
 
-		vi.advanceTimersByTime(300_000);
+		await vi.waitFor(() => {
+			expect(mockState.frontendConfigLoad).toHaveBeenCalledTimes(1);
+		});
+		await vi.advanceTimersByTimeAsync(300_000);
 
 		expect(mockState.frontendConfigLoad).toHaveBeenCalledTimes(1);
-		expect(mockState.previewAppsLoad).toHaveBeenCalledTimes(1);
-		expect(mockState.thumbnailSupportLoad).toHaveBeenCalledTimes(1);
-		expect(mockState.mediaDataSupportLoad).toHaveBeenCalledTimes(1);
+		await vi.waitFor(() => {
+			expect(mockState.previewAppsLoad).toHaveBeenCalledTimes(1);
+			expect(mockState.thumbnailSupportLoad).toHaveBeenCalledTimes(1);
+			expect(mockState.mediaDataSupportLoad).toHaveBeenCalledTimes(1);
+		});
 	});
 
-	it("renders the offline boot fallback instead of the router", () => {
+	it("renders the offline boot fallback instead of the router", async () => {
 		mockState.authStore.bootOffline = true;
 
 		render(<App />);
 
-		expect(screen.getByTestId("offline-fallback")).toBeInTheDocument();
+		expect(await screen.findByTestId("offline-fallback")).toBeInTheDocument();
 		expect(screen.queryByTestId("router-provider")).not.toBeInTheDocument();
 		expect(screen.getByTestId("toaster")).toBeInTheDocument();
-		expect(screen.getByTestId("music-player-host")).toBeInTheDocument();
+		expect(screen.queryByTestId("music-player-host")).not.toBeInTheDocument();
 	});
 
-	it("defers redirect handling and warmup while auth is still checking", async () => {
+	it("defers redirect handling while auth is still checking", async () => {
 		mockState.authStore.isAuthenticated = true;
 		mockState.authStore.isChecking = true;
 		window.history.replaceState({}, "", "/?external_auth=success");
@@ -260,7 +274,6 @@ describe("App", () => {
 		await Promise.resolve();
 
 		expect(mockState.toastSuccess).not.toHaveBeenCalled();
-		expect(mockState.warmupRouteChunks).not.toHaveBeenCalled();
 		expect(window.location.search).toBe("?external_auth=success");
 	});
 
@@ -297,26 +310,24 @@ describe("App", () => {
 		expect(window.location.search).toBe("");
 	});
 
-	it("warms user route chunks after auth is ready", async () => {
+	it("does not warm route chunks after auth is ready", async () => {
 		mockState.authStore.isAuthenticated = true;
 		mockState.authStore.isChecking = false;
 
 		render(<App />);
 
-		await waitFor(() => {
-			expect(mockState.warmupRouteChunks).toHaveBeenCalledWith("user");
-		});
+		await Promise.resolve();
+
+		expect(screen.queryByTestId("music-player-host")).not.toBeInTheDocument();
 	});
 
-	it("warms admin route chunks for admin users", async () => {
-		mockState.authStore.isAuthenticated = true;
-		mockState.authStore.isChecking = false;
-		mockState.authStore.user = { role: "admin" };
+	it("loads the music player host only after it is requested", async () => {
+		mockState.musicPlayerHostMountRequested = true;
 
 		render(<App />);
 
 		await waitFor(() => {
-			expect(mockState.warmupRouteChunks).toHaveBeenCalledWith("admin");
+			expect(screen.getByTestId("music-player-host")).toBeInTheDocument();
 		});
 	});
 

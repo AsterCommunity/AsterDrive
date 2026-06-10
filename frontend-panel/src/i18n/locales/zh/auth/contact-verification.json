@@ -16,5 +16,6 @@
 	"verify_contact_success_register_title": "注册已激活",
 	"verify_contact_success_register_desc": "{{target}} 已完成激活，现在可以直接登录了。",
 	"verify_contact_success_change_title": "邮箱已更新",
-	"verify_contact_success_change_desc": "新邮箱 {{target}} 已确认并生效。"
+	"verify_contact_success_change_desc": "新邮箱 {{target}} 已确认并生效。",
+	"verify_contact_email_changed_login_hint": "已更改邮箱为 {{email}}，请使用新邮箱登录。"
 }

@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { requestMusicPlayerHostMount } from "@/lib/musicPlayerMountSignal";
 import type { FileCategory, ShareStreamSessionInfo } from "@/types/api";
 
 export type MusicPlaybackMode = "repeat_queue" | "repeat_one" | "shuffle";
@@ -275,3 +276,9 @@ export const useMusicPlayerStore = create<MusicPlayerState>((set) => ({
 			};
 		}),
 }));
+
+useMusicPlayerStore.subscribe((state) => {
+	if (state.queue.length > 0) {
+		requestMusicPlayerHostMount();
+	}
+});

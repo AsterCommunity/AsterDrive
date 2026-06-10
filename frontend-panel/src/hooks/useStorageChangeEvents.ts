@@ -292,3 +292,8 @@ export function useStorageChangeEvents() {
 		};
 	}, [isAuthenticated, isChecking, storageEventStreamEnabled]);
 }
+
+export function StorageChangeEventsBridge() {
+	useStorageChangeEvents();
+	return null;
+}

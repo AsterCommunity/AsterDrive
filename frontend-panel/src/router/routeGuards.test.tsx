@@ -116,7 +116,7 @@ describe("route guards", () => {
 		);
 	});
 
-	it("renders guarded content for normal authenticated users and admins", () => {
+	it("renders guarded content for normal authenticated users and admins", async () => {
 		mockState.isAuthenticated = true;
 		mockState.isChecking = true;
 		mockState.user = { must_change_password: false, role: "admin" };
@@ -130,7 +130,9 @@ describe("route guards", () => {
 
 		rerender(<AdminRoute />);
 
-		expect(screen.getByTestId("site-url-mismatch-prompt")).toBeInTheDocument();
+		expect(
+			await screen.findByTestId("site-url-mismatch-prompt"),
+		).toBeInTheDocument();
 		expect(screen.getByTestId("outlet")).toBeInTheDocument();
 		expect(screen.getByTestId("outlet").parentElement).toHaveAttribute(
 			"aria-busy",

@@ -1,8 +1,13 @@
-import { Suspense } from "react";
+import { lazy, Suspense } from "react";
 import { Navigate, Outlet } from "react-router-dom";
-import { AdminSiteUrlMismatchPrompt } from "@/components/layout/AdminSiteUrlMismatchPrompt";
 import { useAuthStore } from "@/stores/authStore";
 import { Loading } from "./Loading";
+
+const AdminSiteUrlMismatchPrompt = lazy(() =>
+	import("@/components/layout/AdminSiteUrlMismatchPrompt").then((module) => ({
+		default: module.AdminSiteUrlMismatchPrompt,
+	})),
+);
 
 export function AdminRoute() {
 	const user = useAuthStore((s) => s.user);

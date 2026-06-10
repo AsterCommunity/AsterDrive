@@ -137,7 +137,7 @@ export function LoginAuthForm({
 	submitLabel,
 	submitting,
 }: LoginAuthFormProps) {
-	const { t } = useTranslation(["auth", "core", "settings"]);
+	const { t } = useTranslation(["login", "core"]);
 	const requiresExtraField = mode === "register" || mode === "setup";
 	const authMethodBusy =
 		submitting || passkeySubmitting || externalAuthBusyProvider !== null;

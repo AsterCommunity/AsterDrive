@@ -36,6 +36,8 @@ When loading `index.html`, AsterDrive replaces these strings before returning it
 | `%ASTERDRIVE_TITLE%` | Runtime configuration | `Site title` maintained under backend `Site Configuration` |
 | `%ASTERDRIVE_DESCRIPTION%` | Runtime configuration | `Site description` |
 | `%ASTERDRIVE_FAVICON_URL%` | Runtime configuration | `favicon` URL |
+| `%ASTERDRIVE_WORDMARK_DARK_URL%` | Runtime configuration | Dark wordmark URL for light surfaces, defaulting to `/static/asterdrive/asterdrive-dark.svg` |
+| `%ASTERDRIVE_WORDMARK_LIGHT_URL%` | Runtime configuration | Light wordmark URL for dark surfaces / the login hero, defaulting to `/static/asterdrive/asterdrive-light.svg` |
 | `%ASTERDRIVE_CSP%` | Constant | Baseline page `Content-Security-Policy` |
 
 All replacement values are HTML-entity escaped, so inserting them directly into `<title>` / `<meta>` is safe.
@@ -51,6 +53,8 @@ Typical usage:
   <title>%ASTERDRIVE_TITLE%</title>
   <meta name="description" content="%ASTERDRIVE_DESCRIPTION%" />
   <link rel="icon" href="%ASTERDRIVE_FAVICON_URL%" />
+  <link rel="preload" as="image" href="%ASTERDRIVE_WORDMARK_LIGHT_URL%" media="(min-width: 1024px), (prefers-color-scheme: dark)" />
+  <link rel="preload" as="image" href="%ASTERDRIVE_WORDMARK_DARK_URL%" media="(max-width: 1023px) and (prefers-color-scheme: light)" />
   <meta name="generator" content="AsterDrive %ASTERDRIVE_VERSION%" />
 </head>
 <body>
@@ -160,6 +164,7 @@ When AsterDrive returns `index.html`, it does two things:
 
 - Adds the baseline page `Content-Security-Policy` response header
 - Replaces `%ASTERDRIVE_CSP%` with the same policy suitable for `<meta http-equiv="Content-Security-Policy">`
+- Replaces title, description, favicon, and wordmark placeholders so the pre-login HTML can use runtime branding
 
 The response-header version has one extra directive: `frame-ancestors 'self'`. This is a browser restriction; `frame-ancestors` cannot take effect through a meta tag.
 

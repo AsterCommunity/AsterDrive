@@ -1,43 +1,68 @@
-import { useEffect } from "react";
+import { lazy, Suspense, useEffect } from "react";
 import { RouterProvider } from "react-router-dom";
 import { Toaster, toast } from "sonner";
-import { OfflineBootFallback } from "@/components/layout/OfflineBootFallback";
-import { MusicPlayerHost } from "@/components/music/MusicPlayerHost";
 import { usePwaUpdate } from "@/hooks/usePwaUpdate";
-import { useStorageChangeEvents } from "@/hooks/useStorageChangeEvents";
 import i18n from "@/i18n";
 import { runWhenIdle } from "@/lib/idleTask";
+import { useMusicPlayerHostMountRequested } from "@/lib/musicPlayerMountSignal";
 import { router } from "@/router";
 import { useAuthStore } from "@/stores/authStore";
 import {
 	resolveActiveDisplayTimeZone,
 	useDisplayTimeZoneStore,
 } from "@/stores/displayTimeZoneStore";
-import {
-	initFrontendConfigRuntime,
-	useFrontendConfigStore,
-} from "@/stores/frontendConfigStore";
-import { useMediaDataSupportStore } from "@/stores/mediaDataSupportStore";
-import { usePreviewAppStore } from "@/stores/previewAppStore";
 import { useThemeStore } from "@/stores/themeStore";
-import { useThumbnailSupportStore } from "@/stores/thumbnailSupportStore";
+
+const OfflineBootFallback = lazy(() =>
+	import("@/components/layout/OfflineBootFallback").then((module) => ({
+		default: module.OfflineBootFallback,
+	})),
+);
+
+const StorageChangeEventsBridge = lazy(() =>
+	import("@/hooks/useStorageChangeEvents").then((module) => ({
+		default: module.StorageChangeEventsBridge,
+	})),
+);
+
+const MusicPlayerHost = lazy(() =>
+	import("@/components/music/MusicPlayerHost").then((module) => ({
+		default: module.MusicPlayerHost,
+	})),
+);
 
 function shouldSkipInitialAuthCheck(pathname: string) {
 	return pathname === "/login" || pathname.startsWith("/s/");
 }
 
 function loadPublicConfig() {
-	initFrontendConfigRuntime();
-	void useFrontendConfigStore.getState().load();
-	const cancelDeferredLoads = runWhenIdle(
+	void import("@/stores/frontendConfigStore").then(
+		({ initFrontendConfigRuntime, useFrontendConfigStore }) => {
+			initFrontendConfigRuntime();
+			void useFrontendConfigStore.getState().load();
+		},
+	);
+}
+
+function scheduleSupportConfigLoads() {
+	return runWhenIdle(
 		() => {
-			void usePreviewAppStore.getState().load();
-			void useThumbnailSupportStore.getState().load();
-			void useMediaDataSupportStore.getState().load();
+			void import("@/stores/previewAppStore").then(({ usePreviewAppStore }) => {
+				void usePreviewAppStore.getState().load();
+			});
+			void import("@/stores/thumbnailSupportStore").then(
+				({ useThumbnailSupportStore }) => {
+					void useThumbnailSupportStore.getState().load();
+				},
+			);
+			void import("@/stores/mediaDataSupportStore").then(
+				({ useMediaDataSupportStore }) => {
+					void useMediaDataSupportStore.getState().load();
+				},
+			);
 		},
 		{ fallbackDelayMs: 1_200, timeoutMs: 3_000 },
 	);
-	return cancelDeferredLoads;
 }
 
 function consumeExternalAuthSuccessRedirect() {
@@ -61,40 +86,38 @@ function App() {
 	const isChecking = useAuthStore((s) => s.isChecking);
 	const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
 	const bootOffline = useAuthStore((s) => s.bootOffline);
-	const userRole = useAuthStore((s) => s.user?.role);
+	const storageEventStreamEnabled = useAuthStore(
+		(s) => s.user?.preferences?.storage_event_stream_enabled !== false,
+	);
 	const displayTimeZone = useDisplayTimeZoneStore((s) =>
 		resolveActiveDisplayTimeZone(s.preference),
 	);
+	const shouldMountMusicPlayer = useMusicPlayerHostMountRequested();
 	usePwaUpdate();
-	useStorageChangeEvents();
 
 	useEffect(() => {
-		const cancelPublicConfig = loadPublicConfig();
-		if (!shouldSkipInitialAuthCheck(window.location.pathname)) {
+		const skipInitialAuthCheck = shouldSkipInitialAuthCheck(
+			window.location.pathname,
+		);
+		loadPublicConfig();
+		if (!skipInitialAuthCheck) {
 			checkAuth();
 		} else {
 			useAuthStore.setState({ isChecking: false });
 		}
 		useThemeStore.getState().init();
-		return cancelPublicConfig;
 	}, [checkAuth]);
+
+	useEffect(() => {
+		if (isChecking || !isAuthenticated) return;
+		return scheduleSupportConfigLoads();
+	}, [isAuthenticated, isChecking]);
 
 	useEffect(() => {
 		if (isChecking || !isAuthenticated) return;
 
 		consumeExternalAuthSuccessRedirect();
-
-		let cancelled = false;
-
-		void import("@/lib/pwaWarmup").then(({ warmupRouteChunks }) => {
-			if (cancelled) return;
-			warmupRouteChunks(userRole === "admin" ? "admin" : "user");
-		});
-
-		return () => {
-			cancelled = true;
-		};
-	}, [isAuthenticated, isChecking, userRole]);
+	}, [isAuthenticated, isChecking]);
 
 	useEffect(() => {
 		document.documentElement.setAttribute(
@@ -109,17 +132,28 @@ function App() {
 	return (
 		<>
 			{bootOffline ? (
-				<OfflineBootFallback />
+				<Suspense fallback={null}>
+					<OfflineBootFallback />
+				</Suspense>
 			) : (
 				<RouterProvider router={router} />
 			)}
+			{isAuthenticated && !isChecking && storageEventStreamEnabled ? (
+				<Suspense fallback={null}>
+					<StorageChangeEventsBridge />
+				</Suspense>
+			) : null}
 			<Toaster
 				position="bottom-right"
 				richColors
 				swipeDirections={["right"]}
 				style={{ zIndex: "var(--z-toast)" }}
 			/>
-			<MusicPlayerHost />
+			{shouldMountMusicPlayer ? (
+				<Suspense fallback={null}>
+					<MusicPlayerHost />
+				</Suspense>
+			) : null}
 		</>
 	);
 }

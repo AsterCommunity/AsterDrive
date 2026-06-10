@@ -16,5 +16,6 @@
 	"verify_contact_success_register_title": "Registration activated",
 	"verify_contact_success_register_desc": "{{target}} is now activated. You can sign in immediately.",
 	"verify_contact_success_change_title": "Email updated",
-	"verify_contact_success_change_desc": "The new email {{target}} has been confirmed and applied."
+	"verify_contact_success_change_desc": "The new email {{target}} has been confirmed and applied.",
+	"verify_contact_email_changed_login_hint": "Email changed to {{email}}. Sign in with the new address."
 }

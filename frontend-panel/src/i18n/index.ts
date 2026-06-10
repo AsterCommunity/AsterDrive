@@ -1,6 +1,5 @@
 import i18n, { type ResourceKey } from "i18next";
 import { initReactI18next } from "react-i18next";
-import { runWhenIdle } from "@/lib/idleTask";
 
 type SupportedLanguage = "en" | "zh";
 
@@ -22,6 +21,7 @@ const ALL_NAMESPACES = [
 	"core",
 	"files",
 	"auth",
+	"login",
 	"validation",
 	"admin",
 	"webdav",
@@ -32,21 +32,35 @@ const ALL_NAMESPACES = [
 	"search",
 	"tasks",
 ] as const;
-const INITIAL_NAMESPACES = [
+type LocaleLoadRequest =
+	| LocaleNamespace
+	| { namespace: LocaleNamespace; parts?: readonly string[] };
+
+const INITIAL_LOCALE_REQUESTS: readonly LocaleLoadRequest[] = [
+	{ namespace: "core", parts: ["common"] },
+	"login",
+	"validation",
+	{ namespace: "errors", parts: ["generic", "auth"] },
+	"offline",
+];
+const LANGUAGE_SWITCH_BASE_NAMESPACES = [
 	"core",
-	"files",
-	"auth",
+	"login",
 	"validation",
 	"errors",
 	"offline",
-	"share",
-	"tasks",
 ] as const;
-const DEFERRED_NAMESPACES = ["admin", "webdav", "settings", "search"] as const;
 
-type LocaleNamespace = (typeof ALL_NAMESPACES)[number];
+export type LocaleNamespace = (typeof ALL_NAMESPACES)[number];
 
 type LocaleModule = { default: ResourceKey };
+type LoadedLocaleRequest = {
+	namespace: LocaleNamespace;
+	parts?: readonly string[];
+};
+
+const FULL_NAMESPACE = "*";
+const loadedLocaleParts = new Map<string, Set<string>>();
 
 const FLAT_LOCALE_MODULES = import.meta.glob<LocaleModule>(
 	"./locales/*/*.json",
@@ -165,10 +179,64 @@ function getLanguageSwitchNamespaces(): LocaleNamespace[] {
 	const usedNamespaces = i18n.reportNamespaces?.getUsedNamespaces?.() ?? [];
 	return [
 		...new Set([
-			...INITIAL_NAMESPACES,
+			...LANGUAGE_SWITCH_BASE_NAMESPACES,
 			...usedNamespaces.filter(isLocaleNamespace),
 		]),
 	];
+}
+
+function normalizeLocaleRequest(
+	request: LocaleLoadRequest,
+): LoadedLocaleRequest {
+	return typeof request === "string" ? { namespace: request } : request;
+}
+
+function loadedPartsKey(lang: SupportedLanguage, namespace: LocaleNamespace) {
+	return `${lang}:${namespace}`;
+}
+
+function getLoadedParts(lang: SupportedLanguage, namespace: LocaleNamespace) {
+	const key = loadedPartsKey(lang, namespace);
+	let loaded = loadedLocaleParts.get(key);
+	if (!loaded) {
+		loaded = new Set();
+		loadedLocaleParts.set(key, loaded);
+	}
+	return loaded;
+}
+
+function rememberLoadedParts(
+	lang: SupportedLanguage,
+	namespace: LocaleNamespace,
+	parts?: readonly string[],
+) {
+	const splitParts = SPLIT_NAMESPACE_PARTS[namespace];
+	const loaded = getLoadedParts(lang, namespace);
+	if (!splitParts || !parts) {
+		loaded.add(FULL_NAMESPACE);
+		return;
+	}
+	for (const part of parts) loaded.add(part);
+	if (splitParts.every((part) => loaded.has(part))) {
+		loaded.add(FULL_NAMESPACE);
+	}
+}
+
+function getMissingParts(
+	lang: SupportedLanguage,
+	namespace: LocaleNamespace,
+	parts?: readonly string[],
+) {
+	const splitParts = SPLIT_NAMESPACE_PARTS[namespace];
+	if (!splitParts) {
+		return i18n.hasResourceBundle(lang, namespace) ? [] : undefined;
+	}
+
+	const loaded = getLoadedParts(lang, namespace);
+	if (loaded.has(FULL_NAMESPACE)) return [];
+
+	const requestedParts = parts ?? splitParts;
+	return requestedParts.filter((part) => !loaded.has(part));
 }
 
 async function loadJsonModule(
@@ -185,6 +253,7 @@ async function loadJsonModule(
 async function loadNamespace(
 	lang: SupportedLanguage,
 	namespace: LocaleNamespace,
+	parts?: readonly string[],
 ) {
 	const splitParts = SPLIT_NAMESPACE_PARTS[namespace];
 	if (!splitParts) {
@@ -194,8 +263,9 @@ async function loadNamespace(
 		);
 	}
 
+	const requestedParts = parts ?? splitParts;
 	const resources = await Promise.all(
-		splitParts.map((part) =>
+		requestedParts.map((part) =>
 			loadJsonModule(
 				`./locales/${lang}/${namespace}/${part}.json`,
 				SPLIT_LOCALE_MODULES,
@@ -218,17 +288,24 @@ async function loadNamespace(
 
 async function loadLocale(
 	lang: SupportedLanguage,
-	namespaces: readonly LocaleNamespace[] = ALL_NAMESPACES,
+	requests: readonly LocaleLoadRequest[] = ALL_NAMESPACES,
 ) {
+	const loadedRequests = requests.map(normalizeLocaleRequest);
 	const entries = await Promise.all(
-		namespaces.map(async (namespace) => {
-			const resources = await loadNamespace(lang, namespace);
-			return [namespace, resources] as const;
+		loadedRequests.map(async ({ namespace, parts }) => {
+			const resources = await loadNamespace(lang, namespace, parts);
+			return [namespace, resources, parts] as const;
 		}),
 	);
-	return Object.fromEntries(entries) as Partial<
-		Record<LocaleNamespace, ResourceKey>
-	>;
+	return {
+		resources: Object.fromEntries(
+			entries.map(([namespace, resources]) => [namespace, resources]),
+		) as Partial<Record<LocaleNamespace, ResourceKey>>,
+		loadedRequests: entries.map(([namespace, _resources, parts]) => ({
+			namespace,
+			parts,
+		})),
+	};
 }
 
 async function ensureNamespaces(
@@ -236,13 +313,23 @@ async function ensureNamespaces(
 	namespaces: readonly LocaleNamespace[],
 ) {
 	const lang = normalizeLanguage(language);
-	const missing = namespaces.filter(
-		(namespace) => !i18n.hasResourceBundle(lang, namespace),
+	const missingRequests = namespaces.reduce<LoadedLocaleRequest[]>(
+		(requests, namespace) => {
+			const missingParts = getMissingParts(lang, namespace);
+			if (missingParts && missingParts.length === 0) return requests;
+			requests.push({ namespace, parts: missingParts });
+			return requests;
+		},
+		[],
 	);
-	if (missing.length === 0) return;
-	const resources = await loadLocale(lang, missing);
+	if (missingRequests.length === 0) return;
+
+	const { resources, loadedRequests } = await loadLocale(lang, missingRequests);
 	for (const [namespace, data] of Object.entries(resources)) {
-		i18n.addResourceBundle(lang, namespace, data);
+		i18n.addResourceBundle(lang, namespace, data, true, true);
+	}
+	for (const { namespace, parts } of loadedRequests) {
+		rememberLoadedParts(lang, namespace, parts);
 	}
 }
 
@@ -253,35 +340,11 @@ export async function ensureI18nNamespaces(
 	await ensureNamespaces(normalizeLanguage(language), namespaces);
 }
 
-const pendingDeferredWarmups = new Set<SupportedLanguage>();
-
-function getAlternateLanguage(lang: SupportedLanguage): SupportedLanguage {
-	return lang === "zh" ? "en" : "zh";
-}
-
-function scheduleDeferredWarmup(lang: SupportedLanguage) {
-	if (
-		pendingDeferredWarmups.has(lang) ||
-		DEFERRED_NAMESPACES.every((namespace) =>
-			i18n.hasResourceBundle(lang, namespace),
-		)
-	) {
-		return;
-	}
-
-	pendingDeferredWarmups.add(lang);
-	runWhenIdle(() => {
-		void ensureNamespaces(lang, DEFERRED_NAMESPACES).finally(() => {
-			pendingDeferredWarmups.delete(lang);
-		});
-	});
-}
-
 const lang = detectLanguage();
-const resources = await loadLocale(lang, INITIAL_NAMESPACES);
+const initialLocale = await loadLocale(lang, INITIAL_LOCALE_REQUESTS);
 
 await i18n.use(initReactI18next).init({
-	resources: { [lang]: resources },
+	resources: { [lang]: initialLocale.resources },
 	lng: lang,
 	fallbackLng: "en",
 	defaultNS: "core",
@@ -290,9 +353,9 @@ await i18n.use(initReactI18next).init({
 		bindI18nStore: "added",
 	},
 });
-
-void ensureNamespaces(lang, DEFERRED_NAMESPACES);
-scheduleDeferredWarmup(getAlternateLanguage(lang));
+for (const { namespace, parts } of initialLocale.loadedRequests) {
+	rememberLoadedParts(lang, namespace, parts);
+}
 
 // 切换语言时按需加载目标语言包
 const _changeLanguage = i18n.changeLanguage.bind(i18n);
@@ -305,8 +368,6 @@ i18n.changeLanguage = async (newLang?: string, ...args) => {
 			// ignore storage errors (private browsing, quota)
 		}
 		await ensureNamespaces(targetLang, getLanguageSwitchNamespaces());
-		void ensureNamespaces(targetLang, DEFERRED_NAMESPACES);
-		scheduleDeferredWarmup(getAlternateLanguage(targetLang));
 		return _changeLanguage(targetLang, ...args);
 	}
 	return _changeLanguage(newLang, ...args);

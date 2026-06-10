@@ -1429,7 +1429,7 @@ describe("LoginPage", () => {
 
 		await waitFor(() =>
 			expect(mockState.toastSuccess).toHaveBeenCalledWith(
-				"settings:settings_email_change_confirmed_login_hint",
+				"verify_contact_email_changed_login_hint",
 				{
 					id: "contact-verification-email-changed-login:changed@example.com",
 				},
