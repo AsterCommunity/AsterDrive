@@ -56,6 +56,8 @@ interface GeneratedCreatePassword {
 	username: string;
 }
 
+type CreateUserTextField = "email" | "password" | "username";
+
 const USER_PAGE_SIZE_OPTIONS = [10, 20, 50] as const;
 const DEFAULT_USER_PAGE_SIZE = 20 as const;
 const USER_MANAGED_QUERY_KEYS = [
@@ -417,8 +419,7 @@ export default function AdminUsersPage() {
 		setCreateErrors({});
 	};
 
-	const validateCreateField = (field: keyof CreateUserReq, value: string) => {
-		if (field === "must_change_password") return;
+	const validateCreateField = (field: CreateUserTextField, value: string) => {
 		const schema =
 			field === "username"
 				? usernameSchema
@@ -446,9 +447,9 @@ export default function AdminUsersPage() {
 		if (!emailResult.success) {
 			nextErrors.email = emailResult.error.issues[0]?.message ?? "";
 		}
-		const createPassword = createForm.password ?? "";
-		if (createPassword.trim().length > 0) {
-			const passwordResult = passwordSchema.safeParse(createPassword);
+		const trimmedCreatePassword = (createForm.password ?? "").trim();
+		if (trimmedCreatePassword.length > 0) {
+			const passwordResult = passwordSchema.safeParse(trimmedCreatePassword);
 			if (!passwordResult.success) {
 				nextErrors.password = passwordResult.error.issues[0]?.message ?? "";
 			}
@@ -534,10 +535,8 @@ export default function AdminUsersPage() {
 		if (!validateCreateForm()) return;
 		try {
 			const result = await runWithCreatingUser(async () => {
-				const createPassword = createForm.password ?? "";
-				const password = createPassword.trim()
-					? createForm.password
-					: undefined;
+				const trimmedCreatePassword = (createForm.password ?? "").trim();
+				const password = trimmedCreatePassword || undefined;
 				const result = await adminUserService.create({
 					username: createForm.username.trim(),
 					email: createForm.email.trim(),

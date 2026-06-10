@@ -16,13 +16,15 @@ import { Switch } from "@/components/ui/switch";
 import { ADMIN_CONTROL_HEIGHT_CLASS } from "@/lib/constants";
 import type { CreateUserReq } from "@/types/api";
 
+type CreateUserTextField = "email" | "password" | "username";
+
 interface CreateUserDialogProps {
 	createErrors: Partial<CreateUserReq>;
 	creating: boolean;
 	form: CreateUserReq;
 	open: boolean;
 	onFieldChange: (key: keyof CreateUserReq, value: boolean | string) => void;
-	onFieldValidate: (field: keyof CreateUserReq, value: string) => void;
+	onFieldValidate: (field: CreateUserTextField, value: string) => void;
 	onOpenChange: (open: boolean) => void;
 	onSubmit: (event: FormEvent<HTMLFormElement>) => void;
 }
@@ -99,7 +101,7 @@ export function CreateUserDialog({
 							type="password"
 							value={form.password ?? ""}
 							onChange={(event) => {
-								const value = event.target.value;
+								const value = event.target.value.trim();
 								onFieldChange("password", value);
 								onFieldValidate("password", value);
 							}}

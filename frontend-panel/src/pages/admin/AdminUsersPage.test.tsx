@@ -931,6 +931,45 @@ describe("AdminUsersPage", () => {
 		).not.toBeInTheDocument();
 	});
 
+	it("trims create-user passwords before validation and submit", async () => {
+		mockState.create.mockResolvedValueOnce({
+			user: createUser({
+				email: "trimmed@example.com",
+				username: "trimmeduser",
+			}),
+		});
+
+		renderPage();
+
+		await screen.findByText("alice");
+		fireEvent.click(screen.getByRole("button", { name: /new_user/i }));
+		fireEvent.change(screen.getByLabelText("username"), {
+			target: { value: "trimmeduser" },
+		});
+		fireEvent.change(screen.getByLabelText("email"), {
+			target: { value: "trimmed@example.com" },
+		});
+		fireEvent.change(screen.getByLabelText("create_user_password"), {
+			target: { value: "  secret12  " },
+		});
+
+		expect(screen.getByLabelText("create_user_password")).toHaveValue(
+			"secret12",
+		);
+
+		fireEvent.click(screen.getByRole("button", { name: /create/i }));
+
+		await waitFor(() => {
+			expect(mockState.create).toHaveBeenCalledWith({
+				email: "trimmed@example.com",
+				must_change_password: false,
+				password: "secret12",
+				username: "trimmeduser",
+			});
+		});
+		expect(screen.queryByText("password_min")).not.toBeInTheDocument();
+	});
+
 	it("treats whitespace-only create passwords as generated-password requests", async () => {
 		mockState.create.mockResolvedValueOnce({
 			generated_password: "WhitespacePass-123",
