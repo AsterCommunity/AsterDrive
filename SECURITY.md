@@ -8,7 +8,7 @@ AsterDrive is still evolving quickly. Security fixes are handled for the active 
 
 | Version or branch | Security support |
 | --- | --- |
-| `main` | Supported for current development |
+| `master` | Supported for current development |
 | Latest tagged release | Supported |
 | Older releases | Best effort only; upgrade is recommended |
 
