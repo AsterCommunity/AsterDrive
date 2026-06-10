@@ -50,7 +50,7 @@ If you are migrating existing data, do not directly change the old policy path, 
 | Single-file size limit | Maximum upload size. `0` = unlimited. |
 | Chunk size | Size of each chunk for large-file uploads |
 | Default policy | Preferred by newly created default groups or default routing rules |
-| Extra options | Local content deduplication, S3/COS upload and download modes, remote upload and download modes, storage-native processing, and so on |
+| Extra options | Local content deduplication, S3/COS upload and download modes, S3 path-style access, remote upload and download modes, storage-native processing, and so on |
 
 ::: warning Storage-native processing can incur provider charges
 `Storage-native processing` is a master switch on each storage policy. AsterDrive only calls native data-processing features exposed by the resolved storage driver after this switch is enabled. For Tencent COS policies, this maps to COS CI.
@@ -69,6 +69,10 @@ Suitable for single-node deployments, NAS, and files that should land directly o
 Suitable when files are stored in MinIO, AWS S3, or other compatible object storage.
 
 `s3` means a generic S3-compatible backend. It only relies on common object-storage APIs and does not assume provider-specific data-processing features. If you want Tencent COS CI capabilities, choose `tencent_cos` instead of configuring COS as a generic `s3` policy.
+
+Generic `s3` policies can control path-style access. When enabled, requests look closer to `endpoint/bucket/key`, which is common for compatible services such as MinIO and RustFS. When disabled, AsterDrive uses virtual-hosted style, which is common for services such as AWS S3. Provider and gateway behavior differs, so test the connection after creating or editing the policy.
+
+If an older policy configured Tencent COS as generic `s3`, the admin console may suggest promoting the driver to `tencent_cos`. This does not migrate objects or change the bucket. It only makes that policy use the Tencent COS driver. AsterDrive only allows explicit allowlisted promotion directions and rejects promotion when active upload sessions exist or the bucket no longer matches.
 
 For buckets, credentials, CORS, upload/download modes, and policy-group routing, see the [S3 / MinIO / R2 storage policy tutorial](/en/storage/s3-minio-r2).
 

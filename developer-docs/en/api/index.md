@@ -127,7 +127,7 @@ Public frontend bootstrap config, branding, preview-app configuration, thumbnail
 
 There are two protected workspace types:
 
-- personal space: `/files`, `/folders`, `/batch`, `/search`, `/shares`, `/trash`
+- personal space: `/files`, `/folders`, `/batch`, `/search`, `/shares`, `/tags`, `/trash`
 - team space: the same semantics, but prefixed with `/teams/{team_id}`
 
 Typical team paths:
@@ -138,13 +138,14 @@ Typical team paths:
 /api/v1/teams/{team_id}/batch/move
 /api/v1/teams/{team_id}/search
 /api/v1/teams/{team_id}/shares
+/api/v1/teams/{team_id}/tags
 /api/v1/teams/{team_id}/trash
 /api/v1/teams/{team_id}/tasks
 /api/v1/teams/{team_id}/tasks/offline-download
 /api/v1/teams/{team_id}/webdav-accounts
 ```
 
-In other words, team spaces reuse the same file / folder / search / trash / task / WebDAV-account semantics under a team scope instead of using a separate business model.
+In other words, team spaces reuse the same file / folder / search / tag / trash / task / WebDAV-account semantics under a team scope instead of using a separate business model.
 
 ## Module index
 
@@ -154,6 +155,7 @@ In other words, team spaces reuse the same file / folder / search / trash / task
 - [Teams and team spaces](./teams.md)
 - [Batch operations](./batch.md)
 - [Sharing](./shares.md)
+- [Tags](./tags.md)
 - [Trash](./trash.md)
 - [Search](./search.md)
 - [Background tasks](./tasks.md)
@@ -172,7 +174,8 @@ Useful clusters to read first:
 - archive-only preview: [Files](./files.md), [Sharing](./shares.md), and [Background tasks](./tasks.md)
 - batch delete / move / copy / package download: [Batch operations](./batch.md)
 - trash restore and purge: [Trash](./trash.md)
-- search, file categories, and extension filters: [Search](./search.md)
+- tags, entity bindings, and tag-filtered search: [Tags](./tags.md) and [Search](./search.md)
+- search, file categories, extension filters, and tag filters: [Search](./search.md)
 - task retry and storage migration tasks: [Background tasks](./tasks.md)
 - team management and team workspaces: [Teams](./teams.md)
 - public shares, preview links, and stream sessions: [Sharing](./shares.md)

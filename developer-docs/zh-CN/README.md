@@ -10,8 +10,13 @@
 - [关键模块设计说明](./module-designs.md)
 - [外部认证模块](./external-auth.md)
 - [API 概览](./api/index.md)
+- [标签 API](./api/tags.md)
 - [测试与数据库后端](./testing.md)
 - [Jemalloc 堆画像](./jemalloc-profiling.md)
+- [AsterDrive 功能文档草稿](./asterdrive-feature-document.md)
+- [前端 UI/UX 规范](./frontend-uiux-guidelines.md)
+- [静态配置密钥处理备忘](./static-config-secret-handling.md)
+- [安全审计报告 - 2026-06](./security-audit-2026-06.md)
 
 ## 当前状态说明
 

@@ -181,6 +181,7 @@ The practical rule of thumb in this repository remains:
 | `src/api/routes/auth/mod.rs` | Authentication, sessions, preferences, avatars, SSE |
 | `src/api/routes/files/` | File read/write, uploads, thumbnails, versions, WOPI startup |
 | `src/api/routes/folders.rs` | Folder endpoints and the team-space aggregation entry; team `files` routes are mounted here |
+| `src/api/routes/tags.rs` | Personal and team workspace tag libraries, entity tag bindings, and batch tag operations |
 | `src/api/routes/admin/` | Admin backend endpoints, including policies, remote nodes, users, teams, share audit, background tasks, storage migration, file / blob observability, config, locks, and audit |
 | `src/api/routes/share_public.rs` | Public sharing API, `/d` direct links, and `/pv` preview links |
 | `src/api/routes/internal_storage.rs` | Follower internal object storage protocol |

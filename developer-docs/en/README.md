@@ -15,6 +15,7 @@ The `docs/` tree is reserved for deployment-facing and end-user documentation, s
 - [Core Module Design Notes](./module-designs.md)
 - [External Authentication Module](./external-auth.md)
 - [API Overview](./api/index.md)
+- [Tags API](./api/tags.md)
 - [Testing and Database Backends](./testing.md)
 - [Jemalloc Heap Profiling](./jemalloc-profiling.md)
 

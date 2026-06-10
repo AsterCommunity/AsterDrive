@@ -140,9 +140,15 @@ Here you can:
 - Control the single-file size limit
 - Control chunk size
 - Choose upload and download modes for S3 / COS, such as `relay_stream` or `presigned`
+- Control path-style access for generic S3 policies, matching endpoint behavior across MinIO, RustFS, R2, AWS S3, and other providers
+- When conditions are safe, promote a Tencent COS policy that was originally created as generic `s3` to `tencent_cos`
 - Create a storage policy data migration task that copies existing objects from a source policy to a target policy
 
 When editing an existing policy, the left side shows the current capacity observation. `local` policies read total, available, and used bytes from the underlying filesystem; `remote` policies ask the follower for the real ingress target capacity; `s3` / `tencent_cos` do not expose a standardized, reliable bucket free-capacity API, so they are shown as unsupported instead of using guessed values.
+
+`Path-style access` on a generic `s3` policy controls the request URL shape. Compatible services such as MinIO and RustFS usually need it enabled; services that support virtual-hosted style, such as AWS S3, can usually leave it disabled. Test the connection before saving instead of guessing only from the provider name.
+
+If the admin console detects that a generic `s3` policy points to Tencent COS, the edit page can suggest driver promotion. Promotion only changes the driver AsterDrive uses for that policy, enabling COS endpoint normalization, signing, and later COS CI support. It does not move objects in the bucket. AsterDrive checks the allowed promotion direction, active upload sessions, and bucket immutability before switching.
 
 Before creating a migration task, `Migrate Data` runs a preflight check. The plan shows source object count, source bytes, estimated objects to copy, target objects already present, capacity check result, and opaque key conflict count. Capacity only blocks task creation when the target is confirmed to be insufficient. If the target driver does not support capacity observation or the check is temporarily unavailable, the UI shows a warning but still allows the migration.
 
@@ -341,6 +347,7 @@ Commonly changed items include:
 - Temporary task artifact retention
 - Thumbnail source file size limit
 - Online extraction source, staging, uncompressed size, entry count, path, and compression-ratio limits
+- Global switch for online archive compression
 - Entry count, total source size, and output size limits for online compression and archive downloads
 - Archive preview switches and limits
 - Media processors, vips / ffmpeg / ffprobe commands, and extension bindings

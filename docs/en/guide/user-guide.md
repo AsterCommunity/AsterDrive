@@ -69,6 +69,7 @@ The file list, context menu, and top action area handle most daily work:
 - Download files
 - Rename, copy, move, and delete files and folders
 - View details
+- Manage tags
 - Manually lock or unlock files
 - Online compression, online extraction, and folder package download
 - Switch between list view and grid view
@@ -83,7 +84,14 @@ You can also drag directly:
 ## Search, Multi-Select, and Batch Operations
 
 The top search box searches files and folders by name in the current workspace.  
-You can click the search box directly or use `Ctrl + K` to open the search dialog. In the dialog, you can switch between "all / files only / folders only", and quickly filter by images, videos, music, documents, spreadsheets, presentations, archives, code, and others. Use arrow keys to select results and `Enter` to open.
+You can click the search box directly or use `Ctrl + K` to open the search panel. In the panel, you can switch between "all / files only / folders only", quickly filter by images, videos, music, documents, spreadsheets, presentations, archives, code, and others, and select one or more tags.
+
+After entering a keyword or choosing filters, press `Enter` or click `Search` to open the search results page for the current workspace. On that page, you can continue opening files, jumping to file locations, viewing details, or using available item actions. Team-space results and personal-space results are not mixed.
+
+Tag filtering has two modes:
+
+- `Match any`: an item appears if it has any selected tag
+- `Match all`: an item appears only if it has every selected tag
 
 The left side also has quick entries for common types such as images, videos, music, and documents. Clicking one still searches by file category inside the current workspace.
 
@@ -107,6 +115,21 @@ When diagnosing "which policy is this file on" or "is it locked", start here.
 - File size is the size of the current file itself
 - File storage used also counts historical versions
 - Folder storage used recursively counts everything under that folder, which helps find which directory is consuming quota
+
+## How Tags Work
+
+Tags belong to the current workspace. Tags in your personal space do not automatically appear in team spaces, and each team has its own tag library.
+
+You can manage tags from a file or folder context menu, action menu, or details panel:
+
+- Add or remove tags on one file or folder
+- Select multiple items and add or remove tags in batch
+- Open `Tag Library` to create, rename, recolor, or delete tags
+- Filter search results by tags
+
+If no tag matches your search in the tag picker, you can create a new tag directly. After creating it, still confirm the tag changes for the current item; the change is persisted only after the page reports that it has been saved.
+
+Deleting a tag removes it from every file and folder using it in the current workspace. It does not delete files. If you only want to remove a tag from a few files, remove the tag from those items instead of deleting it from the library.
 
 ## Open, Preview, and Edit
 

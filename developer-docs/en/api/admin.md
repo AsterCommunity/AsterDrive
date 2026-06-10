@@ -46,6 +46,7 @@ The overview response includes user, file, blob, share, audit, and task summarie
 | `PATCH` | `/admin/policies/{id}` | Update policy |
 | `DELETE` | `/admin/policies/{id}` | Delete policy |
 | `POST` | `/admin/policies/{id}/test` | Test saved policy |
+| `POST` | `/admin/policies/{id}/promote-s3-driver` | Promote a generic S3-compatible policy to a supported specialized driver |
 | `POST` | `/admin/policies/test` | Test connection with draft parameters |
 
 Create example:
@@ -72,6 +73,7 @@ Current notes:
 - `options` carries policy-level behavior:
   - S3 / Remote upload and download strategies
   - local `content_dedup`
+  - generic S3 path-style addressing through `s3_path_style` (defaults to `true`)
   - S3 connect / read / operation timeouts
   - storage-native thumbnails / image previews with `storage_native_processing_enabled`, `thumbnail_processor`, and `thumbnail_extensions`
   - storage-native media metadata with `storage_native_media_metadata_enabled` and `media_metadata_extensions`
@@ -81,6 +83,7 @@ Current notes:
 - `allowed_types` can be managed through REST
 - `driver_type = "remote"` requires `remote_node_id`
 - `PATCH` cannot change `driver_type`
+- `POST /admin/policies/{id}/promote-s3-driver` currently supports promoting a generic `s3` policy to `tencent_cos`. The request body is `{ "target_driver_type": "tencent_cos" }`. Promotion is rejected unless the bucket stays unchanged, there are no active upload sessions for the policy, and the target driver validates the existing endpoint / bucket combination.
 - `GET /admin/policies` supports `limit`, `offset`, `sort_by`, `sort_order`
 - `GET /admin/policies/{id}/capacity` returns `StoragePolicyCapacityInfo`; local can return real filesystem capacity, S3 is explicitly unsupported, and remote forwards follower capacity status
 - `DELETE /admin/policies/{id}?force=true` only cleans upload sessions that still reference the policy. Existing blobs or policy-group references still block deletion. If temp objects or multipart uploads need delayed cleanup, a `storage_policy_temp_cleanup` task is created.
@@ -314,6 +317,8 @@ Policy groups define storage policy selection for users and teams. They are reje
 | `GET` | `/admin/users/{id}/avatar/{size}` | Read uploaded user avatar |
 
 User lists support keyword / role / status style filtering and offset pagination. Avatar responses are raw binary and are not wrapped JSON.
+
+`POST /admin/users` accepts an optional `password` and optional `must_change_password`. When `password` is omitted or blank, the server generates a 24-character temporary password, sets `must_change_password = true`, and returns the generated value once in `generated_password`. When a password is provided, `must_change_password` defaults to `false` unless the request explicitly sets it.
 
 `PATCH /admin/users/{id}` accepts `must_change_password: true | false`. Setting it to `true` requires the user to change their password after the next successful login; setting it to `false` clears the requirement before the user completes that flow. Any change to this flag increments `session_version`, deletes existing refresh sessions, invalidates the auth snapshot cache, and records `admin_update_user` audit details including the new `must_change_password` value.
 

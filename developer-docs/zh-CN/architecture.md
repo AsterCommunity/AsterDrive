@@ -181,6 +181,7 @@ WebDAV 不走 `src/api/routes/**`，而是：
 | `src/api/routes/auth/mod.rs` | 认证、会话、偏好、头像、SSE |
 | `src/api/routes/files/` | 文件读写、上传、缩略图、版本、WOPI 启动 |
 | `src/api/routes/folders.rs` | 文件夹接口和团队空间聚合入口；团队 `files` 路由挂在这里 |
+| `src/api/routes/tags.rs` | 个人和团队工作空间标签库、实体标签绑定与批量标签操作 |
 | `src/api/routes/admin/` | 管理后台接口，包括策略、远端节点、用户、团队、分享审计、后台任务、存储迁移、文件 / Blob 可观测、配置、锁、审计 |
 | `src/api/routes/share_public.rs` | 公开分享页 API、`/d` 直链、`/pv` 预览直链 |
 | `src/api/routes/internal_storage.rs` | follower 内部对象存储协议 |

@@ -246,6 +246,7 @@ This group controls features that read, scan, transform, or temporarily unpack f
 | Online extraction uncompressed size limit | `1 GiB` |
 | Online extraction entry count limit | `10000` |
 | Online extraction duration limit | `300` seconds |
+| Online archive compression global switch | Enabled |
 | Archive build entry count limit | `10000` |
 | Archive build total source size limit | `2 GiB` |
 | Archive build output size limit | `2 GiB` |
@@ -289,6 +290,8 @@ When users switch `filename encoding` in the preview toolbar, AsterDrive rereads
 ### Online Extraction and Archive Building
 
 Online extraction, online compression, and folder archive download all use the archive background-task lane, and all of them use the server temporary directory. The defaults are sized for common personal and small-team files. Do not raise every limit immediately.
+
+`Enable online archive compression` only controls whether users can create a new ZIP archive from selected files and folders. It is enabled by default. When disabled, new online-compression tasks are rejected. Online extraction, folder archive downloads, and archive preview are controlled by their own settings and are not disabled by this switch.
 
 If users often process large archives or large folders, check these settings separately:
 
@@ -424,6 +427,7 @@ The primary node's service startup and shutdown are also recorded as audit event
 | Version history limit | Applied when new versions are produced later |
 | Online extraction staging limit | Applied to online extraction tasks created later |
 | Online extraction source, uncompressed size, entry count, path depth, compression ratio, and duration limits | Applied to online extraction tasks created later |
+| Online archive compression global switch | Applied to online-compression tasks created later; does not affect online extraction, folder archive downloads, or archive preview |
 | Archive build entry, total source size, and output size limits | Applied to online compression and archive download tasks created later |
 | Link import engine registry, temp directory, file size, speed, concurrency, request timeout, and aria2 parameters | Applied to link-import tasks created later; manual retries clean old artifacts from both the default temp directory and the current offline-download temp directory |
 | Archive preview switches and limits | Applied to later requests and new `archive_preview_generate` tasks |

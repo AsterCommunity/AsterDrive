@@ -5,7 +5,7 @@ The following paths are relative to `/api/v1` and require authentication.
 Team capabilities have two layers:
 
 - team management: team profile, members, and audit logs
-- team workspace: files, folders, uploads, search, shares, WebDAV accounts, trash, and tasks
+- team workspace: files, folders, uploads, search, tags, shares, WebDAV accounts, trash, and tasks
 
 ## Team management
 
@@ -42,7 +42,7 @@ Team workspace APIs are rooted at:
 /api/v1/teams/{team_id}
 ```
 
-They are not a separate “team filesystem” implementation. They reuse the personal-space file / folder / upload / search / share / trash / task / WebDAV-account semantics under a team scope.
+They are not a separate "team filesystem" implementation. They reuse the personal-space file / folder / upload / search / tag / share / trash / task / WebDAV-account semantics under a team scope.
 
 ## Folder and file endpoints
 
@@ -87,7 +87,7 @@ They are not a separate “team filesystem” implementation. They reuse the per
 
 Request bodies, paging parameters, upload modes, locks, and versions match personal-space APIs. See [Files](./files.md) and [Folders](./folders.md).
 
-## Batch, Search, Sharing, Trash, Tasks, and WebDAV
+## Batch, Search, Tags, Sharing, Trash, Tasks, and WebDAV
 
 | Method | Path | Description |
 | --- | --- | --- |
@@ -98,6 +98,16 @@ Request bodies, paging parameters, upload modes, locks, and versions match perso
 | `POST` | `/teams/{team_id}/batch/archive-download` | Create team ZIP download ticket |
 | `GET` | `/teams/{team_id}/batch/archive-download/{token}` | Download team ZIP |
 | `GET` | `/teams/{team_id}/search` | Search team workspace |
+| `GET` | `/teams/{team_id}/tags` | List team tags |
+| `POST` | `/teams/{team_id}/tags` | Create a team tag |
+| `PATCH` | `/teams/{team_id}/tags/{tag_id}` | Rename or recolor a team tag |
+| `DELETE` | `/teams/{team_id}/tags/{tag_id}` | Delete a team tag |
+| `GET` | `/teams/{team_id}/tags/{entity_type}/{entity_id}` | List tags for a team file or folder |
+| `PUT` | `/teams/{team_id}/tags/{entity_type}/{entity_id}` | Replace all tags for a team file or folder |
+| `PUT` | `/teams/{team_id}/tags/{tag_id}/{entity_type}/{entity_id}` | Attach a tag to a team file or folder |
+| `DELETE` | `/teams/{team_id}/tags/{tag_id}/{entity_type}/{entity_id}` | Detach a tag from a team file or folder |
+| `PUT` | `/teams/{team_id}/tags/{tag_id}/batch` | Attach one tag to multiple team files/folders |
+| `DELETE` | `/teams/{team_id}/tags/{tag_id}/batch` | Detach one tag from multiple team files/folders |
 | `POST` | `/teams/{team_id}/shares` | Create team file/folder share |
 | `GET` | `/teams/{team_id}/shares` | List current user's shares in this team |
 | `PATCH` | `/teams/{team_id}/shares/{id}` | Edit team share |
@@ -116,7 +126,7 @@ Request bodies, paging parameters, upload modes, locks, and versions match perso
 | `DELETE` | `/teams/{team_id}/webdav-accounts/{account_id}` | Delete a team WebDAV account |
 | `POST` | `/teams/{team_id}/webdav-accounts/{account_id}/toggle` | Enable or disable a team WebDAV account |
 
-These reuse personal-space contracts. See [Batch](./batch.md), [Search](./search.md), [Sharing](./shares.md), [Trash](./trash.md), [Tasks](./tasks.md), [WebDAV](./webdav.md), and [WOPI](./wopi.md).
+These reuse personal-space contracts. See [Batch](./batch.md), [Search](./search.md), [Tags](./tags.md), [Sharing](./shares.md), [Trash](./trash.md), [Tasks](./tasks.md), [WebDAV](./webdav.md), and [WOPI](./wopi.md).
 
 Team-specific notes:
 

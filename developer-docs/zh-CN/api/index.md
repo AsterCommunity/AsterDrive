@@ -145,7 +145,7 @@
 
 当前有两类受保护工作空间：
 
-- 个人空间：接口直接挂在 `/files`、`/folders`、`/batch`、`/search`、`/shares`、`/trash`
+- 个人空间：接口直接挂在 `/files`、`/folders`、`/batch`、`/search`、`/shares`、`/tags`、`/trash`
 - 团队空间：复用同一套语义，但统一加前缀 `/teams/{team_id}`
 
 常见团队路径长这样：
@@ -156,13 +156,14 @@
 /api/v1/teams/{team_id}/batch/move
 /api/v1/teams/{team_id}/search
 /api/v1/teams/{team_id}/shares
+/api/v1/teams/{team_id}/tags
 /api/v1/teams/{team_id}/trash
 /api/v1/teams/{team_id}/tasks
 /api/v1/teams/{team_id}/tasks/offline-download
 /api/v1/teams/{team_id}/webdav-accounts
 ```
 
-也就是说，团队空间不是另一套业务模型，而是把同一套文件 / 文件夹 / 搜索 / 回收站 / 后台任务 / WebDAV 账号语义切到团队作用域下执行。
+也就是说，团队空间不是另一套业务模型，而是把同一套文件 / 文件夹 / 搜索 / 标签 / 回收站 / 后台任务 / WebDAV 账号语义切到团队作用域下执行。
 
 ## 模块索引
 
@@ -172,6 +173,7 @@
 - [团队与团队空间](./teams.md)
 - [批量操作](./batch.md)
 - [分享](./shares.md)
+- [标签](./tags.md)
 - [回收站](./trash.md)
 - [搜索](./search.md)
 - [后台任务](./tasks.md)
@@ -190,7 +192,8 @@
 - 归档只读预览：见 [文件](./files.md)、[分享](./shares.md) 和 [后台任务](./tasks.md)
 - 批量删除 / 移动 / 复制 / 打包：见 [批量操作](./batch.md)
 - 回收站恢复与清理：见 [回收站](./trash.md)
-- 搜索、文件分类和扩展名筛选：见 [搜索](./search.md)
+- 标签库、实体绑定和标签筛选：见 [标签](./tags.md) 和 [搜索](./search.md)
+- 搜索、文件分类、扩展名筛选和标签筛选：见 [搜索](./search.md)
 - 后台任务列表、重试和存储迁移任务：见 [后台任务](./tasks.md)
 - 团队管理与团队工作空间：见 [团队与团队空间](./teams.md)
 - 公开分享、预览链接和流式播放 session：见 [分享](./shares.md)

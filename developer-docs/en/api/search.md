@@ -21,6 +21,8 @@ Common parameters:
 - `min_size` / `max_size`: file-size filter
 - `created_after` / `created_before`: RFC3339 timestamps
 - `folder_id`: narrow the search scope to one folder
+- `tag_ids`: comma-separated tag IDs such as `1,2,3`
+- `tag_match`: tag matching mode, `any` or `all`, default `any`
 - `limit`: per-resource-type cap, default `50`, max `100`
 - `offset`: offset
 
@@ -32,6 +34,9 @@ Validation rules:
 - `extensions` cannot be empty, cannot contain empty segments, and cannot contain path separators or invalid characters
 - Extensions are normalized to lower-case without a leading dot
 - `category` and `extensions` are file-only filters; if they are sent together with `type=folder`, the API returns `400`
+- `tag_match` must be `any` or `all`
+- `tag_ids` cannot contain empty segments, must contain positive integer IDs, and cannot contain more than 64 IDs
+- every tag ID must exist in the current personal or team workspace; tags from another workspace are treated as not found
 
 ## Response shape
 
@@ -42,7 +47,7 @@ The response contains two result sets:
 - `total_files`
 - `total_folders`
 
-The `files` and `folders` items reuse the list-item shape from the regular listing APIs, so they include state such as `is_locked` and `is_shared`. File items also include `extension`, `compound_extension`, and `file_category`.
+The `files` and `folders` items reuse the list-item shape from the regular listing APIs, so they include state such as `is_locked`, `is_shared`, and `tags`. File items also include `extension`, `compound_extension`, and `file_category`.
 
 ## Current semantics
 
@@ -52,5 +57,6 @@ The `files` and `folders` items reuse the list-item shape from the regular listi
 - `type=folder` never returns files
 - `type=file` never returns folders
 - `folder_id` filters files by `folder_id` and folders by `parent_id`
+- `tag_ids` filters both files and folders through entity tag bindings; `tag_match=any` returns items with at least one requested tag, while `tag_match=all` requires every requested tag
 - `category` prefers the persisted extension-based classification, and falls back to MIME only when needed
 - compound extensions are persisted only for explicitly supported suffixes such as `tar.gz`

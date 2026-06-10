@@ -5,7 +5,7 @@
 团队相关能力分成两层：
 
 - 团队自身：团队资料、成员、团队审计
-- 团队工作空间：文件、文件夹、上传、搜索、分享、WebDAV 账号、回收站、后台任务
+- 团队工作空间：文件、文件夹、上传、搜索、标签、分享、WebDAV 账号、回收站、后台任务
 
 ## 团队自身
 
@@ -42,7 +42,7 @@
 /api/v1/teams/{team_id}
 ```
 
-这套接口不是独立实现的一套“团队版文件系统”，而是把个人空间已有的文件 / 文件夹 / 上传 / 搜索 / 分享 / 回收站 / 后台任务 / WebDAV 账号语义切到团队作用域。
+这套接口不是独立实现的一套“团队版文件系统”，而是把个人空间已有的文件 / 文件夹 / 上传 / 搜索 / 标签 / 分享 / 回收站 / 后台任务 / WebDAV 账号语义切到团队作用域。
 
 ## 目录与文件
 
@@ -90,7 +90,7 @@
 - [文件 API](./files.md)
 - [文件夹 API](./folders.md)
 
-## 批量、搜索、分享、回收站、后台任务与 WebDAV
+## 批量、搜索、标签、分享、回收站、后台任务与 WebDAV
 
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
@@ -101,6 +101,16 @@
 | `POST` | `/teams/{team_id}/batch/archive-download` | 创建团队空间 ZIP 下载 ticket |
 | `GET` | `/teams/{team_id}/batch/archive-download/{token}` | 下载团队空间 ZIP |
 | `GET` | `/teams/{team_id}/search` | 搜索团队工作空间 |
+| `GET` | `/teams/{team_id}/tags` | 列出团队标签 |
+| `POST` | `/teams/{team_id}/tags` | 创建团队标签 |
+| `PATCH` | `/teams/{team_id}/tags/{tag_id}` | 重命名或修改团队标签颜色 |
+| `DELETE` | `/teams/{team_id}/tags/{tag_id}` | 删除团队标签 |
+| `GET` | `/teams/{team_id}/tags/{entity_type}/{entity_id}` | 列出团队文件或文件夹已绑定标签 |
+| `PUT` | `/teams/{team_id}/tags/{entity_type}/{entity_id}` | 替换团队文件或文件夹的完整标签集合 |
+| `PUT` | `/teams/{team_id}/tags/{tag_id}/{entity_type}/{entity_id}` | 给团队文件或文件夹附加一个标签 |
+| `DELETE` | `/teams/{team_id}/tags/{tag_id}/{entity_type}/{entity_id}` | 从团队文件或文件夹移除一个标签 |
+| `PUT` | `/teams/{team_id}/tags/{tag_id}/batch` | 给多个团队文件 / 文件夹附加一个标签 |
+| `DELETE` | `/teams/{team_id}/tags/{tag_id}/batch` | 从多个团队文件 / 文件夹移除一个标签 |
 | `POST` | `/teams/{team_id}/shares` | 为团队文件或文件夹创建分享 |
 | `GET` | `/teams/{team_id}/shares` | 列出当前用户在该团队创建的分享 |
 | `PATCH` | `/teams/{team_id}/shares/{id}` | 编辑团队分享 |
@@ -123,6 +133,7 @@
 
 - [批量操作 API](./batch.md)
 - [搜索 API](./search.md)
+- [标签 API](./tags.md)
 - [分享 API](./shares.md)
 - [回收站 API](./trash.md)
 - [后台任务 API](./tasks.md)

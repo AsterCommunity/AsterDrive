@@ -61,6 +61,7 @@
 | `PATCH` | `/admin/policies/{id}` | 更新策略 |
 | `DELETE` | `/admin/policies/{id}` | 删除策略 |
 | `POST` | `/admin/policies/{id}/test` | 测试已保存策略 |
+| `POST` | `/admin/policies/{id}/promote-s3-driver` | 把通用 S3-compatible 策略提升为受支持的专用驱动 |
 | `POST` | `/admin/policies/test` | 用临时参数测试连接 |
 
 ### 创建策略示例
@@ -87,12 +88,14 @@
 - `options` 当前承载策略级行为：
   - S3 / Remote 上传下载策略，例如 `{"s3_upload_strategy":"presigned","s3_download_strategy":"presigned","remote_upload_strategy":"presigned","remote_download_strategy":"presigned"}`
   - 本地策略的内容去重开关 `content_dedup`
+  - 通用 S3 path-style 访问开关：`s3_path_style`，默认 `true`
   - S3 连接 / 读取 / 操作超时：`s3_connect_timeout_secs`、`s3_read_timeout_secs`、`s3_operation_timeout_secs`
   - 存储原生缩略图 / 图片预览：`storage_native_processing_enabled`、`thumbnail_processor`、`thumbnail_extensions`
   - 存储原生媒体元数据：`storage_native_media_metadata_enabled`、`media_metadata_extensions`
 - `driver_type = "tencent_cos"` 普通读写复用 S3-compatible 对象存储路径，会校验 Tencent COS endpoint 形态；策略启用后可通过 COS CI 暴露原生缩略图、图片预览和媒体元数据能力
 - 内置 Local、S3-compatible 和 Remote 驱动不暴露存储原生缩略图、图片预览或媒体元数据能力
 - 旧配置 `{"presigned_upload":true}` 仍兼容，等价于 S3 预签名上传策略
+- `POST /admin/policies/{id}/promote-s3-driver` 当前支持把通用 `s3` 策略提升为 `tencent_cos`。请求体是 `{ "target_driver_type": "tencent_cos" }`。提升时不允许改变 bucket；若该策略还有活动上传 session，或目标驱动不能接受当前 endpoint / bucket 组合，会直接拒绝。
 - REST 已经可以通过 `allowed_types` 管理策略允许的 MIME / 类型列表；不传时创建会使用空列表，更新会保持原值
 - `driver_type = "remote"` 时需要绑定 `remote_node_id`，远端节点本身通过 `/admin/remote-nodes` 管理
 - 当前 `PATCH` 不能修改 `driver_type`
@@ -380,9 +383,12 @@
 {
   "username": "alice",
   "email": "alice@example.com",
-  "password": "password"
+  "password": "password",
+  "must_change_password": false
 }
 ```
+
+`password` 可省略或留空。此时服务端会生成 24 字符临时密码，自动设置 `must_change_password = true`，并且只在创建响应里返回一次 `generated_password`。如果请求里提供了密码，`must_change_password` 默认是 `false`，除非显式传 `true`。
 
 ### 更新用户示例
 
