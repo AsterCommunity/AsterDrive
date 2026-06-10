@@ -130,6 +130,11 @@ describe("router", () => {
 			allRoutes.find((route) => route.path === "/admin/settings/operations")
 				?.element?.props?.to,
 		).toBe("/admin/settings/runtime");
+		expect(
+			allRoutes.find(
+				(route) => route.path === "/admin/settings/file_processing",
+			)?.element?.props?.to,
+		).toBe("/admin/settings/file-processing");
 	});
 
 	it("keeps settings routes outside workspace routes so they preserve the active workspace", async () => {

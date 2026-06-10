@@ -33,9 +33,9 @@ pub use session::{
 #[cfg(debug_assertions)]
 pub use tokens::test_support;
 pub use tokens::{
-    authenticate_access_token, authenticate_refresh_token, issue_tokens_for_session,
-    issue_tokens_for_user, issue_tokens_for_user_in_connection, refresh_tokens,
-    revoke_refresh_token, verify_token,
+    authenticate_access_token, authenticate_refresh_token, issue_password_change_tokens_for_user,
+    issue_tokens_for_session, issue_tokens_for_user, issue_tokens_for_user_in_connection,
+    refresh_tokens, revoke_refresh_token, verify_token,
 };
 pub(crate) use validation::{validate_email, validate_password, validate_username};
 
@@ -50,6 +50,8 @@ pub struct Claims {
     #[serde(default = "default_session_version")]
     pub session_version: i64,
     #[serde(default)]
+    pub password_change: bool,
+    #[serde(default)]
     pub jti: Option<String>,
     pub token_type: TokenType,
     pub exp: usize,
@@ -60,6 +62,7 @@ pub struct AuthSnapshot {
     pub status: UserStatus,
     pub role: UserRole,
     pub session_version: i64,
+    pub must_change_password: bool,
 }
 
 #[derive(Debug)]
@@ -97,6 +100,7 @@ pub struct AuthUserInfo {
     pub email: String,
     pub role: UserRole,
     pub status: UserStatus,
+    pub must_change_password: bool,
     pub session_version: i64,
     pub email_verified_at: Option<chrono::DateTime<chrono::Utc>>,
     pub pending_email: Option<String>,
@@ -116,6 +120,7 @@ impl From<user::Model> for AuthUserInfo {
             email: model.email,
             role: model.role,
             status: model.status,
+            must_change_password: model.must_change_password,
             session_version: model.session_version,
             email_verified_at: model.email_verified_at,
             pending_email: model.pending_email,
@@ -138,6 +143,7 @@ impl From<AuthUserInfo> for user::ActiveModel {
             password_hash: ActiveValue::NotSet,
             role: Set(info.role),
             status: Set(info.status),
+            must_change_password: Set(info.must_change_password),
             session_version: Set(info.session_version),
             email_verified_at: Set(info.email_verified_at),
             pending_email: Set(info.pending_email),
@@ -161,6 +167,7 @@ pub struct LoginResult {
     pub access_token: String,
     pub refresh_token: String,
     pub user_id: i64,
+    pub password_change_required: bool,
 }
 
 impl AuthSnapshot {
@@ -169,6 +176,7 @@ impl AuthSnapshot {
             status: user.status,
             role: user.role,
             session_version: user.session_version,
+            must_change_password: user.must_change_password,
         }
     }
 }

@@ -6,7 +6,9 @@ use std::time::{Duration, Instant};
 
 use bytes::Bytes;
 
+use crate::config::RuntimeConfig;
 use crate::config::media_processing as media_processing_config;
+use crate::config::operations;
 use crate::errors::{AsterError, Result};
 use crate::storage::StorageDriver;
 use crate::types::MediaProcessorKind;
@@ -189,31 +191,41 @@ impl ResolvedMediaProcessor {
         }
     }
 
-    pub(crate) fn thumbnail_version(&self) -> &'static str {
-        crate::services::thumbnail_service::CURRENT_THUMBNAIL_VERSION
+    pub(crate) fn thumbnail_version(&self, runtime_config: &RuntimeConfig) -> String {
+        crate::services::thumbnail_service::thumbnail_version_for_dimension(
+            operations::thumbnail_max_dimension(runtime_config),
+        )
     }
 
     pub(crate) fn image_preview_processor(&self) -> &'static str {
         self.thumbnail_processor()
     }
 
-    pub(crate) fn image_preview_version(&self) -> &'static str {
-        crate::services::thumbnail_service::CURRENT_IMAGE_PREVIEW_VERSION
-    }
-
-    pub(crate) fn cache_path(&self, blob_hash: &str) -> String {
-        crate::services::thumbnail_service::thumb_path_for(
-            blob_hash,
-            self.thumbnail_processor(),
-            self.thumbnail_version(),
+    pub(crate) fn image_preview_version(&self, runtime_config: &RuntimeConfig) -> String {
+        crate::services::thumbnail_service::image_preview_version_for_dimension(
+            operations::image_preview_max_dimension(runtime_config),
         )
     }
 
-    pub(crate) fn image_preview_cache_path(&self, blob_hash: &str) -> String {
+    pub(crate) fn cache_path(&self, blob_hash: &str, runtime_config: &RuntimeConfig) -> String {
+        let thumbnail_version = self.thumbnail_version(runtime_config);
+        crate::services::thumbnail_service::thumb_path_for(
+            blob_hash,
+            self.thumbnail_processor(),
+            &thumbnail_version,
+        )
+    }
+
+    pub(crate) fn image_preview_cache_path(
+        &self,
+        blob_hash: &str,
+        runtime_config: &RuntimeConfig,
+    ) -> String {
+        let image_preview_version = self.image_preview_version(runtime_config);
         crate::services::thumbnail_service::image_preview_path_for(
             blob_hash,
             self.image_preview_processor(),
-            self.image_preview_version(),
+            &image_preview_version,
         )
     }
 }
@@ -279,43 +291,72 @@ pub fn image_preview_etag_value_for(
     )
 }
 
-pub(crate) fn known_thumbnail_cache_paths(blob_hash: &str) -> Vec<String> {
-    let mut paths = vec![crate::services::thumbnail_service::thumb_path(blob_hash)];
-    paths.extend(
-        [
-            VIPS_CLI_THUMBNAIL_PROCESSOR_NAMESPACE,
-            FFMPEG_CLI_THUMBNAIL_PROCESSOR_NAMESPACE,
-            LOFTY_THUMBNAIL_PROCESSOR_NAMESPACE,
-            STORAGE_NATIVE_THUMBNAIL_PROCESSOR_NAMESPACE,
-        ]
-        .into_iter()
+pub(crate) fn known_thumbnail_cache_paths(blob_hash: &str, current_max_dim: u32) -> Vec<String> {
+    let processors = [
+        crate::services::thumbnail_service::IMAGES_THUMBNAIL_PROCESSOR_NAMESPACE,
+        VIPS_CLI_THUMBNAIL_PROCESSOR_NAMESPACE,
+        FFMPEG_CLI_THUMBNAIL_PROCESSOR_NAMESPACE,
+        LOFTY_THUMBNAIL_PROCESSOR_NAMESPACE,
+        STORAGE_NATIVE_THUMBNAIL_PROCESSOR_NAMESPACE,
+    ];
+    let default_version = crate::services::thumbnail_service::CURRENT_THUMBNAIL_VERSION;
+    let current_version =
+        crate::services::thumbnail_service::thumbnail_version_for_dimension(current_max_dim);
+    let mut paths = processors
+        .iter()
         .map(|thumbnail_processor| {
             crate::services::thumbnail_service::thumb_path_for(
                 blob_hash,
                 thumbnail_processor,
-                crate::services::thumbnail_service::CURRENT_THUMBNAIL_VERSION,
+                default_version,
             )
-        }),
-    );
+        })
+        .collect::<Vec<_>>();
+    if current_version != default_version {
+        paths.extend(processors.iter().map(|thumbnail_processor| {
+            crate::services::thumbnail_service::thumb_path_for(
+                blob_hash,
+                thumbnail_processor,
+                &current_version,
+            )
+        }));
+    }
     paths
 }
 
-pub(crate) fn known_image_preview_cache_paths(blob_hash: &str) -> Vec<String> {
-    [
+pub(crate) fn known_image_preview_cache_paths(
+    blob_hash: &str,
+    current_max_dim: u32,
+) -> Vec<String> {
+    let processors = [
         crate::services::thumbnail_service::IMAGES_THUMBNAIL_PROCESSOR_NAMESPACE,
         VIPS_CLI_THUMBNAIL_PROCESSOR_NAMESPACE,
         FFMPEG_CLI_THUMBNAIL_PROCESSOR_NAMESPACE,
         STORAGE_NATIVE_THUMBNAIL_PROCESSOR_NAMESPACE,
-    ]
-    .into_iter()
-    .map(|image_preview_processor| {
-        crate::services::thumbnail_service::image_preview_path_for(
-            blob_hash,
-            image_preview_processor,
-            crate::services::thumbnail_service::CURRENT_IMAGE_PREVIEW_VERSION,
-        )
-    })
-    .collect()
+    ];
+    let default_version = crate::services::thumbnail_service::CURRENT_IMAGE_PREVIEW_VERSION;
+    let current_version =
+        crate::services::thumbnail_service::image_preview_version_for_dimension(current_max_dim);
+    let mut paths = processors
+        .iter()
+        .map(|image_preview_processor| {
+            crate::services::thumbnail_service::image_preview_path_for(
+                blob_hash,
+                image_preview_processor,
+                default_version,
+            )
+        })
+        .collect::<Vec<_>>();
+    if current_version != default_version {
+        paths.extend(processors.iter().map(|image_preview_processor| {
+            crate::services::thumbnail_service::image_preview_path_for(
+                blob_hash,
+                image_preview_processor,
+                &current_version,
+            )
+        }));
+    }
+    paths
 }
 
 pub(crate) fn requires_server_side_source_limit(processor: &ResolvedMediaProcessor) -> bool {
@@ -343,22 +384,55 @@ fn infer_extension_from_mime(source_mime_type: &str) -> Option<String> {
 mod tests {
     use super::{
         FFMPEG_CLI_THUMBNAIL_PROCESSOR_NAMESPACE, LOFTY_THUMBNAIL_PROCESSOR_NAMESPACE,
-        MAX_CLI_OUTPUT_BYTES, STORAGE_NATIVE_THUMBNAIL_PROCESSOR_NAMESPACE,
+        MAX_CLI_OUTPUT_BYTES, ResolvedMediaProcessor, STORAGE_NATIVE_THUMBNAIL_PROCESSOR_NAMESPACE,
         VIPS_CLI_THUMBNAIL_PROCESSOR_NAMESPACE, join_pipe_reader, known_image_preview_cache_paths,
         known_thumbnail_cache_paths, spawn_pipe_reader,
     };
+    use crate::config::definitions::CONFIG_CATEGORY_FILE_PROCESSING_MEDIA;
+    use crate::config::{
+        RuntimeConfig,
+        operations::{IMAGE_PREVIEW_MAX_DIMENSION_KEY, THUMBNAIL_MAX_DIMENSION_KEY},
+    };
+    use crate::entities::system_config;
+    use crate::types::{MediaProcessorKind, SystemConfigSource, SystemConfigValueType};
+    use chrono::Utc;
     use std::io::Cursor;
 
     const HASH: &str = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
 
+    fn config_model(key: &str, value: &str) -> system_config::Model {
+        system_config::Model {
+            id: 1,
+            key: key.to_string(),
+            value: value.to_string(),
+            value_type: SystemConfigValueType::Number,
+            requires_restart: false,
+            is_sensitive: false,
+            source: SystemConfigSource::System,
+            visibility: crate::types::SystemConfigVisibility::Private,
+            namespace: String::new(),
+            category: CONFIG_CATEGORY_FILE_PROCESSING_MEDIA.to_string(),
+            description: "test".to_string(),
+            updated_at: Utc::now(),
+            updated_by: None,
+        }
+    }
+
     #[test]
     fn known_thumbnail_cache_paths_include_normalized_namespaces() {
-        let paths = known_thumbnail_cache_paths(HASH);
+        let paths = known_thumbnail_cache_paths(
+            HASH,
+            crate::config::operations::DEFAULT_THUMBNAIL_MAX_DIMENSION,
+        );
 
         assert_eq!(
             paths,
             vec![
-                crate::services::thumbnail_service::thumb_path(HASH),
+                crate::services::thumbnail_service::thumb_path_for(
+                    HASH,
+                    crate::services::thumbnail_service::IMAGES_THUMBNAIL_PROCESSOR_NAMESPACE,
+                    crate::services::thumbnail_service::CURRENT_THUMBNAIL_VERSION,
+                ),
                 crate::services::thumbnail_service::thumb_path_for(
                     HASH,
                     VIPS_CLI_THUMBNAIL_PROCESSOR_NAMESPACE,
@@ -384,8 +458,68 @@ mod tests {
     }
 
     #[test]
+    fn known_thumbnail_cache_paths_include_configured_dimension_namespace() {
+        let paths = known_thumbnail_cache_paths(HASH, 320);
+
+        assert_eq!(
+            paths,
+            vec![
+                crate::services::thumbnail_service::thumb_path_for(
+                    HASH,
+                    crate::services::thumbnail_service::IMAGES_THUMBNAIL_PROCESSOR_NAMESPACE,
+                    crate::services::thumbnail_service::CURRENT_THUMBNAIL_VERSION,
+                ),
+                crate::services::thumbnail_service::thumb_path_for(
+                    HASH,
+                    VIPS_CLI_THUMBNAIL_PROCESSOR_NAMESPACE,
+                    crate::services::thumbnail_service::CURRENT_THUMBNAIL_VERSION,
+                ),
+                crate::services::thumbnail_service::thumb_path_for(
+                    HASH,
+                    FFMPEG_CLI_THUMBNAIL_PROCESSOR_NAMESPACE,
+                    crate::services::thumbnail_service::CURRENT_THUMBNAIL_VERSION,
+                ),
+                crate::services::thumbnail_service::thumb_path_for(
+                    HASH,
+                    LOFTY_THUMBNAIL_PROCESSOR_NAMESPACE,
+                    crate::services::thumbnail_service::CURRENT_THUMBNAIL_VERSION,
+                ),
+                crate::services::thumbnail_service::thumb_path_for(
+                    HASH,
+                    STORAGE_NATIVE_THUMBNAIL_PROCESSOR_NAMESPACE,
+                    crate::services::thumbnail_service::CURRENT_THUMBNAIL_VERSION,
+                ),
+                crate::services::thumbnail_service::thumb_path_for(HASH, "images", "1-d320",),
+                crate::services::thumbnail_service::thumb_path_for(
+                    HASH,
+                    VIPS_CLI_THUMBNAIL_PROCESSOR_NAMESPACE,
+                    "1-d320",
+                ),
+                crate::services::thumbnail_service::thumb_path_for(
+                    HASH,
+                    FFMPEG_CLI_THUMBNAIL_PROCESSOR_NAMESPACE,
+                    "1-d320",
+                ),
+                crate::services::thumbnail_service::thumb_path_for(
+                    HASH,
+                    LOFTY_THUMBNAIL_PROCESSOR_NAMESPACE,
+                    "1-d320",
+                ),
+                crate::services::thumbnail_service::thumb_path_for(
+                    HASH,
+                    STORAGE_NATIVE_THUMBNAIL_PROCESSOR_NAMESPACE,
+                    "1-d320",
+                ),
+            ]
+        );
+    }
+
+    #[test]
     fn known_image_preview_cache_paths_include_normalized_namespaces() {
-        let paths = known_image_preview_cache_paths(HASH);
+        let paths = known_image_preview_cache_paths(
+            HASH,
+            crate::config::operations::DEFAULT_IMAGE_PREVIEW_MAX_DIMENSION,
+        );
 
         assert_eq!(
             paths,
@@ -411,6 +545,88 @@ mod tests {
                     crate::services::thumbnail_service::CURRENT_IMAGE_PREVIEW_VERSION,
                 ),
             ]
+        );
+    }
+
+    #[test]
+    fn known_image_preview_cache_paths_include_configured_dimension_namespace() {
+        let paths = known_image_preview_cache_paths(HASH, 2048);
+
+        assert_eq!(
+            paths,
+            vec![
+                crate::services::thumbnail_service::image_preview_path_for(
+                    HASH,
+                    crate::services::thumbnail_service::IMAGES_THUMBNAIL_PROCESSOR_NAMESPACE,
+                    crate::services::thumbnail_service::CURRENT_IMAGE_PREVIEW_VERSION,
+                ),
+                crate::services::thumbnail_service::image_preview_path_for(
+                    HASH,
+                    VIPS_CLI_THUMBNAIL_PROCESSOR_NAMESPACE,
+                    crate::services::thumbnail_service::CURRENT_IMAGE_PREVIEW_VERSION,
+                ),
+                crate::services::thumbnail_service::image_preview_path_for(
+                    HASH,
+                    FFMPEG_CLI_THUMBNAIL_PROCESSOR_NAMESPACE,
+                    crate::services::thumbnail_service::CURRENT_IMAGE_PREVIEW_VERSION,
+                ),
+                crate::services::thumbnail_service::image_preview_path_for(
+                    HASH,
+                    STORAGE_NATIVE_THUMBNAIL_PROCESSOR_NAMESPACE,
+                    crate::services::thumbnail_service::CURRENT_IMAGE_PREVIEW_VERSION,
+                ),
+                crate::services::thumbnail_service::image_preview_path_for(
+                    HASH,
+                    crate::services::thumbnail_service::IMAGES_THUMBNAIL_PROCESSOR_NAMESPACE,
+                    "1-d2048",
+                ),
+                crate::services::thumbnail_service::image_preview_path_for(
+                    HASH,
+                    VIPS_CLI_THUMBNAIL_PROCESSOR_NAMESPACE,
+                    "1-d2048",
+                ),
+                crate::services::thumbnail_service::image_preview_path_for(
+                    HASH,
+                    FFMPEG_CLI_THUMBNAIL_PROCESSOR_NAMESPACE,
+                    "1-d2048",
+                ),
+                crate::services::thumbnail_service::image_preview_path_for(
+                    HASH,
+                    STORAGE_NATIVE_THUMBNAIL_PROCESSOR_NAMESPACE,
+                    "1-d2048",
+                ),
+            ]
+        );
+    }
+
+    #[test]
+    fn resolved_processor_versions_and_paths_use_runtime_dimensions() {
+        let runtime_config = RuntimeConfig::new();
+        let processor = ResolvedMediaProcessor::new(MediaProcessorKind::Images);
+
+        assert_eq!(processor.thumbnail_version(&runtime_config), "1");
+        assert_eq!(
+            processor.cache_path(HASH, &runtime_config),
+            crate::services::thumbnail_service::thumb_path_for(HASH, "images", "1")
+        );
+        assert_eq!(processor.image_preview_version(&runtime_config), "1");
+        assert_eq!(
+            processor.image_preview_cache_path(HASH, &runtime_config),
+            crate::services::thumbnail_service::image_preview_path_for(HASH, "images", "1")
+        );
+
+        runtime_config.apply(config_model(THUMBNAIL_MAX_DIMENSION_KEY, "320"));
+        runtime_config.apply(config_model(IMAGE_PREVIEW_MAX_DIMENSION_KEY, "2048"));
+
+        assert_eq!(processor.thumbnail_version(&runtime_config), "1-d320");
+        assert_eq!(
+            processor.cache_path(HASH, &runtime_config),
+            crate::services::thumbnail_service::thumb_path_for(HASH, "images", "1-d320")
+        );
+        assert_eq!(processor.image_preview_version(&runtime_config), "1-d2048");
+        assert_eq!(
+            processor.image_preview_cache_path(HASH, &runtime_config),
+            crate::services::thumbnail_service::image_preview_path_for(HASH, "images", "1-d2048")
         );
     }
 

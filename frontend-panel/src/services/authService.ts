@@ -44,6 +44,7 @@ export type MfaMethod = "totp" | "recovery_code" | "email_code";
 
 export type LoginResult =
 	| { status: "authenticated"; expiresIn: number }
+	| { status: "password_change_required"; expiresIn: number }
 	| {
 			status: "mfa_required";
 			flowToken: string;
@@ -185,6 +186,12 @@ function normalizeLoginResult(data: RawLoginResponse): LoginResult {
 					method === "recovery_code" ||
 					method === "email_code",
 			),
+		};
+	}
+	if (data.status === "password_change_required") {
+		return {
+			status: "password_change_required",
+			expiresIn,
 		};
 	}
 	return {
@@ -379,15 +386,16 @@ export const authService = {
 	finishPasskeyLogin: async (
 		flowId: string,
 		credential: unknown,
-	): Promise<AuthSessionState> => {
+	): Promise<LoginResult> => {
 		invalidateAuthIdentityCaches();
-		const data = await api.post<AuthTokenResp>("/auth/passkeys/login/finish", {
-			flow_id: flowId,
-			credential,
-		});
-		return {
-			expiresIn: Number(data.expires_in) || 900,
-		};
+		const data = await api.post<RawLoginResponse>(
+			"/auth/passkeys/login/finish",
+			{
+				flow_id: flowId,
+				credential,
+			},
+		);
+		return normalizeLoginResult(data);
 	},
 
 	register: (username: string, email: string, password: string) => {
@@ -473,14 +481,12 @@ export const authService = {
 		flow_token: string;
 		method: MfaMethod;
 		code: string;
-	}): Promise<AuthSessionState> => {
+	}): Promise<LoginResult> => {
 		const data = await api.post<RawLoginResponse>(
 			"/auth/mfa/challenge/verify",
 			payload,
 		);
-		return {
-			expiresIn: Number(data.expires_in) || 900,
-		};
+		return normalizeLoginResult(data);
 	},
 
 	sendMfaEmailCode: (payload: { flow_token: string }) =>

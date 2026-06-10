@@ -195,6 +195,9 @@ where
         operations::MEDIA_METADATA_ENABLED_KEY => {
             operations::normalize_bool_config_value(key, value)
         }
+        operations::THUMBNAIL_MAX_DIMENSION_KEY | operations::IMAGE_PREVIEW_MAX_DIMENSION_KEY => {
+            operations::normalize_derivative_dimension_config_value(key, value)
+        }
         operations::AVATAR_MAX_UPLOAD_SIZE_BYTES_KEY
         | operations::MEDIA_METADATA_MAX_SOURCE_BYTES_KEY
         | operations::ARCHIVE_EXTRACT_MAX_SOURCE_BYTES_KEY
@@ -297,8 +300,10 @@ mod tests {
     };
     use crate::config::operations::{
         BACKGROUND_TASK_MAX_CONCURRENCY_KEY, DEFAULT_SHARE_DOWNLOAD_ROLLBACK_QUEUE_CAPACITY,
+        IMAGE_PREVIEW_MAX_DIMENSION_KEY, MAX_DERIVATIVE_MAX_DIMENSION,
         MAX_SHARE_STREAM_SESSION_TTL_SECS, MIN_SHARE_STREAM_SESSION_TTL_SECS,
         SHARE_DOWNLOAD_ROLLBACK_QUEUE_CAPACITY_KEY, SHARE_STREAM_SESSION_TTL_SECS_KEY,
+        THUMBNAIL_MAX_DIMENSION_KEY,
     };
     use crate::entities::system_config;
     use crate::types::{SystemConfigSource, SystemConfigValueType};
@@ -388,6 +393,43 @@ mod tests {
         );
         assert!(
             normalize_system_value(&lookup, BACKGROUND_TASK_MAX_CONCURRENCY_KEY, "1024").is_err()
+        );
+    }
+
+    #[test]
+    fn normalize_system_value_validates_derivative_dimensions() {
+        let lookup = HashMap::new();
+
+        assert_eq!(
+            normalize_system_value(&lookup, THUMBNAIL_MAX_DIMENSION_KEY, "1").unwrap(),
+            "1"
+        );
+        assert_eq!(
+            normalize_system_value(&lookup, THUMBNAIL_MAX_DIMENSION_KEY, " 320 ").unwrap(),
+            "320"
+        );
+        assert_eq!(
+            normalize_system_value(
+                &lookup,
+                IMAGE_PREVIEW_MAX_DIMENSION_KEY,
+                &MAX_DERIVATIVE_MAX_DIMENSION.to_string(),
+            )
+            .unwrap(),
+            MAX_DERIVATIVE_MAX_DIMENSION.to_string()
+        );
+        for invalid in ["0", "-1", "12.5", "abc", ""] {
+            assert!(
+                normalize_system_value(&lookup, THUMBNAIL_MAX_DIMENSION_KEY, invalid).is_err(),
+                "{invalid:?} should be rejected"
+            );
+        }
+        assert!(
+            normalize_system_value(
+                &lookup,
+                IMAGE_PREVIEW_MAX_DIMENSION_KEY,
+                &(u64::from(MAX_DERIVATIVE_MAX_DIMENSION) + 1).to_string(),
+            )
+            .is_err()
         );
     }
 

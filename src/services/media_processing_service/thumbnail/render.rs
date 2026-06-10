@@ -43,6 +43,7 @@ pub(super) async fn render_thumbnail_bytes(
                 driver.as_ref(),
                 blob,
                 &state.config().server.temp_dir,
+                operations::thumbnail_max_dimension(state.runtime_config()),
             )
             .await
         }
@@ -65,6 +66,7 @@ pub(super) async fn render_thumbnail_bytes(
                 source_mime_type,
                 driver.as_ref(),
                 &command,
+                operations::thumbnail_max_dimension(state.runtime_config()),
             )
             .await
         }
@@ -87,6 +89,7 @@ pub(super) async fn render_thumbnail_bytes(
                 source_mime_type,
                 driver.as_ref(),
                 &command,
+                operations::thumbnail_max_dimension(state.runtime_config()),
             )
             .await
         }
@@ -106,6 +109,7 @@ pub(super) async fn render_thumbnail_bytes(
                 source_file_name,
                 source_mime_type,
                 driver.as_ref(),
+                operations::thumbnail_max_dimension(state.runtime_config()),
             )
             .await
         }
@@ -115,7 +119,13 @@ pub(super) async fn render_thumbnail_bytes(
                 processor = "storage_native",
                 "rendering thumbnail via storage-native pipeline"
             );
-            render_thumbnail_with_storage_native(blob, driver.as_ref(), source_mime_type).await
+            render_thumbnail_with_storage_native(
+                blob,
+                driver.as_ref(),
+                source_mime_type,
+                operations::thumbnail_max_dimension(state.runtime_config()),
+            )
+            .await
         }
         MediaProcessorKind::FfprobeCli => Err(crate::errors::AsterError::internal_error(
             "ffprobe_cli cannot render thumbnails",
@@ -129,6 +139,7 @@ async fn render_thumbnail_with_lofty(
     source_file_name: &str,
     source_mime_type: &str,
     driver: &dyn StorageDriver,
+    max_dim: u32,
 ) -> Result<Vec<u8>> {
     let temp_root = crate::utils::paths::runtime_temp_dir(&state.config().server.temp_dir);
     let temp_dir =
@@ -150,12 +161,14 @@ async fn render_thumbnail_with_lofty(
     )
     .await?;
     let source_path = std::path::PathBuf::from(prepared_input.input_arg());
-    tokio::task::spawn_blocking(move || render_audio_artwork_thumbnail_from_path(&source_path))
-        .await
-        .map_aster_err_ctx("lofty thumbnail task panicked", AsterError::internal_error)?
+    tokio::task::spawn_blocking(move || {
+        render_audio_artwork_thumbnail_from_path(&source_path, max_dim)
+    })
+    .await
+    .map_aster_err_ctx("lofty thumbnail task panicked", AsterError::internal_error)?
 }
 
-fn render_audio_artwork_thumbnail_from_path(path: &Path) -> Result<Vec<u8>> {
+fn render_audio_artwork_thumbnail_from_path(path: &Path, max_dim: u32) -> Result<Vec<u8>> {
     let mut options = lofty::config::ParseOptions::new();
     options = options.read_cover_art(true);
     let tagged_file = lofty::probe::Probe::open(path)
@@ -176,9 +189,10 @@ fn render_audio_artwork_thumbnail_from_path(path: &Path) -> Result<Vec<u8>> {
     let picture = tag
         .and_then(|tag| tag.pictures().first())
         .ok_or_else(|| AsterError::validation_error("audio file has no embedded artwork"))?;
-    crate::services::thumbnail_service::render_thumbnail_from_image_bytes(Cursor::new(
-        picture.data().to_vec(),
-    ))
+    crate::services::thumbnail_service::render_webp_derivative_from_image_bytes(
+        Cursor::new(picture.data()),
+        max_dim,
+    )
 }
 
 pub(super) async fn render_image_preview_bytes(
@@ -204,7 +218,7 @@ pub(super) async fn render_image_preview_bytes(
                 driver.as_ref(),
                 blob,
                 &state.config().server.temp_dir,
-                crate::services::thumbnail_service::current_image_preview_max_dim(),
+                operations::image_preview_max_dimension(state.runtime_config()),
             )
             .await
         }
@@ -227,6 +241,7 @@ pub(super) async fn render_image_preview_bytes(
                 source_mime_type,
                 driver.as_ref(),
                 &command,
+                operations::image_preview_max_dimension(state.runtime_config()),
             )
             .await
         }
@@ -236,7 +251,13 @@ pub(super) async fn render_image_preview_bytes(
                 processor = "storage_native",
                 "rendering image preview via storage-native pipeline"
             );
-            render_image_preview_with_storage_native(blob, driver.as_ref(), source_mime_type).await
+            render_image_preview_with_storage_native(
+                blob,
+                driver.as_ref(),
+                source_mime_type,
+                operations::image_preview_max_dimension(state.runtime_config()),
+            )
+            .await
         }
         MediaProcessorKind::FfmpegCli => {
             let command = processor.ffmpeg_command().to_string();
@@ -257,6 +278,7 @@ pub(super) async fn render_image_preview_bytes(
                 source_mime_type,
                 driver.as_ref(),
                 &command,
+                operations::image_preview_max_dimension(state.runtime_config()),
             )
             .await
         }

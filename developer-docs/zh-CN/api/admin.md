@@ -357,7 +357,7 @@
 | `GET` | `/admin/users` | 列出用户 |
 | `POST` | `/admin/users` | 管理员直接创建用户 |
 | `GET` | `/admin/users/{id}` | 获取用户详情 |
-| `PATCH` | `/admin/users/{id}` | 更新角色、状态、总配额和策略组绑定 |
+| `PATCH` | `/admin/users/{id}` | 更新角色、状态、总配额、策略组绑定和强制改密标记 |
 | `PUT` | `/admin/users/{id}/password` | 管理员直接重置用户密码 |
 | `DELETE` | `/admin/users/{id}/mfa` | 清空用户 MFA 配置并吊销会话 |
 | `POST` | `/admin/users/{id}/sessions/revoke` | 吊销该用户所有现有会话 |
@@ -401,6 +401,8 @@
 - `policy_group_id` 不传表示保持不变；当前实现明确拒绝 `null`
 - 当前实现禁止禁用初始管理员 `id = 1`
 - 当前实现也禁止把初始管理员 `id = 1` 降级为非管理员
+- `PATCH /admin/users/{id}` 支持 `must_change_password: true | false`。设为 `true` 会要求用户下次成功登录后先修改密码；设为 `false` 可在用户完成改密前清除这个要求。这个字段变化时会递增 `session_version`、删除该用户现有 refresh session、刷新认证快照缓存，并在 `admin_update_user` 审计 details 中记录新的 `must_change_password` 值。
+- `must_change_password = true` 时，密码登录、MFA 完成、Passkey 登录完成和外部认证登录完成都会返回 `status = "password_change_required"`，并签发只能改密的受限 access token。这个 token 只能调用 `GET /auth/me`、`PUT /auth/password` 和 `POST /auth/logout`；普通认证接口会返回 `403` 和 `auth.password_change_required`。`POST /auth/refresh` 在强制改密状态或改密 token scope 下也会被拒绝。`PUT /auth/password` 仍然必须提供当前临时密码，成功后自动清除 `must_change_password`。
 - `PUT /admin/users/{id}/password` 使用 `{ "password": "new-secret" }`
 - `DELETE /admin/users/{id}/mfa` 会删除该用户全部 MFA factor、恢复码、待处理 MFA 登录 flow、邮箱验证码和 TOTP setup flow，并递增 `session_version`、删除该用户现有 refresh session；用户需要重新登录并重新配置 MFA
 - `POST /admin/users/{id}/sessions/revoke` 会让这个用户现有 JWT / Cookie 会话全部失效
@@ -588,12 +590,16 @@
 - `archive_extract_max_staging_bytes`
 - `avatar_max_upload_size_bytes`
 - `thumbnail_max_source_bytes`
+- `thumbnail_max_dimension`
+- `image_preview_max_dimension`
 - `media_metadata_enabled`
 - `media_metadata_max_source_bytes`
 - `media_processing_registry_json`
 - `frontend_image_preview_preference`
 - `mail_template_login_email_code_subject`
 - `mail_template_login_email_code_html`
+
+`thumbnail_max_source_bytes` 控制哪些源文件允许进入缩略图生成；`thumbnail_max_dimension` 和 `image_preview_max_dimension` 分别控制列表缩略图和预览面板图片生成后的最长边。调整尺寸会进入带尺寸后缀的 derivative cache namespace，不会覆盖另一种配置尺寸下的缓存。
 
 `media_processing_registry_json` 是统一媒体处理注册表，用来管理内置 `images`、内置 `lofty`、VIPS CLI、FFmpeg CLI、FFprobe CLI 的启用状态、能力用途、后缀绑定和命令路径。缩略图与媒体元数据都走这条注册表；`media_metadata_enabled` 只保留为媒体元数据总开关，单类媒体是否启用由对应处理器控制。
 

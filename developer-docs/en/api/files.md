@@ -149,7 +149,9 @@ Thumbnail support comes from the media processing registry and is exposed anonym
 
 Storage policies can also contribute storage-native thumbnail and image-preview support with `storage_native_processing_enabled = true`, `thumbnail_processor = "storage_native"`, and `thumbnail_extensions`. Built-in `tencent_cos` policies can expose this through COS CI; built-in Local, S3-compatible, and Remote policies do not expose native thumbnail or image-preview capabilities.
 
-Thumbnails return WebP and reuse cache by blob, processor, and processor version.
+Thumbnails return WebP and reuse cache by blob, processor, processor version, and effective max dimension. The max source byte limit is controlled by `thumbnail_max_source_bytes`; the rendered longest edge is controlled by runtime config `thumbnail_max_dimension`.
+
+The default thumbnail dimension keeps the legacy cache version namespace. Non-default dimensions add a `-d{dimension}` suffix to the derivative version, so changing the configured size does not overwrite or accidentally reuse a different-size cache entry.
 
 ## Image previews
 
@@ -157,10 +159,11 @@ Image preview endpoints return larger WebP images for preview panels and are sep
 
 - thumbnails are list/card-oriented and may return `202`
 - image previews are previewer-oriented; cache hits return raw WebP, while cache misses enqueue `image_preview_generate` and return `202` with `Retry-After`
+- image previews use runtime config `image_preview_max_dimension` for the rendered longest edge
 - unsupported types return file/thumbnail-domain errors instead of falling back to original bytes
 - the frontend can choose its default strategy from `/public/frontend-config` field `media.image_preview_preference`
 
-The supported image-preview extensions are the same public capability union advertised by `/public/thumbnail-support` under image thumbnail/preview support. They can come from backend media processors or a storage-native provider such as Tencent COS when the policy opts in.
+The supported image-preview extensions are the same public capability union advertised by `/public/thumbnail-support` under image thumbnail/preview support. They can come from backend media processors or a storage-native provider such as Tencent COS when the policy opts in. Image-preview caches follow the same dimension-aware derivative-version rule as thumbnails.
 
 ## Media metadata
 

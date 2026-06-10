@@ -1,5 +1,7 @@
 use chrono::Utc;
+use rand::RngExt;
 use sea_orm::{ActiveModelTrait, Set};
+use serde::Serialize;
 
 use crate::db::repository::{
     auth_session_repo, file_repo, folder_repo, lock_repo, share_repo, upload_session_repo,
@@ -15,6 +17,10 @@ use crate::services::{
 use crate::types::{UserRole, UserStatus};
 
 use super::queries::{get, to_user_info};
+
+const GENERATED_PASSWORD_LENGTH: usize = 24;
+const GENERATED_PASSWORD_CHARSET: &[u8] =
+    b"ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$%^&*-_+=";
 
 #[derive(Debug, Clone)]
 pub struct ForceDeleteSummary {
@@ -34,28 +40,76 @@ pub struct UpdateUserInput {
     pub email_verified: Option<bool>,
     pub role: Option<UserRole>,
     pub status: Option<UserStatus>,
+    pub must_change_password: Option<bool>,
     pub storage_quota: Option<i64>,
     pub policy_group_id: Option<i64>,
 }
 
+#[derive(Debug, Clone, Copy)]
+pub struct CreateUserInput<'a> {
+    pub username: &'a str,
+    pub email: &'a str,
+    pub password: Option<&'a str>,
+    pub must_change_password: Option<bool>,
+}
+
+#[derive(Debug, Serialize)]
+#[cfg_attr(all(debug_assertions, feature = "openapi"), derive(utoipa::ToSchema))]
+pub struct CreateUserOutput {
+    pub user: super::models::UserInfo,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub generated_password: Option<String>,
+}
+
+fn generate_temporary_password() -> String {
+    let mut rng = rand::rng();
+    (0..GENERATED_PASSWORD_LENGTH)
+        .map(|_| {
+            let index = rng.random_range(0..GENERATED_PASSWORD_CHARSET.len());
+            GENERATED_PASSWORD_CHARSET[index] as char
+        })
+        .collect()
+}
+
 pub async fn create(
     state: &impl SharedRuntimeState,
-    username: &str,
-    email: &str,
-    password: &str,
-) -> Result<super::models::UserInfo> {
-    let user = auth_service::create_user_by_admin(state, username, email, password).await?;
-    get(state, user.id).await
+    input: CreateUserInput<'_>,
+) -> Result<CreateUserOutput> {
+    let explicit_password = input.password.filter(|value| !value.trim().is_empty());
+    let generated_password = explicit_password
+        .is_none()
+        .then(generate_temporary_password);
+    let password = generated_password
+        .as_deref()
+        .or(explicit_password)
+        .ok_or_else(|| {
+            AsterError::internal_error("temporary password generation returned no password")
+        })?;
+    auth_service::validate_password(password)?;
+    let must_change_password =
+        generated_password.is_some() || input.must_change_password.unwrap_or(false);
+    let user = auth_service::create_user_by_admin(
+        state,
+        input.username,
+        input.email,
+        password,
+        must_change_password,
+    )
+    .await?;
+    Ok(CreateUserOutput {
+        user: get(state, user.id).await?,
+        generated_password,
+    })
 }
 
 pub async fn create_with_audit(
     state: &impl SharedRuntimeState,
-    username: &str,
-    email: &str,
-    password: &str,
+    input: CreateUserInput<'_>,
     audit_ctx: &AuditContext,
-) -> Result<super::models::UserInfo> {
-    let user = create(state, username, email, password).await?;
+) -> Result<CreateUserOutput> {
+    let output = create(state, input).await?;
+    let user = &output.user;
+    let temporary_password_generated = output.generated_password.is_some();
     audit_service::log_with_details(
         state,
         audit_ctx,
@@ -69,13 +123,15 @@ pub async fn create_with_audit(
                 email_verified: user.email_verified,
                 role: user.role,
                 status: user.status,
+                must_change_password: user.must_change_password,
+                temporary_password_generated,
                 storage_quota: user.storage_quota,
                 policy_group_id: user.policy_group_id,
             })
         },
     )
     .await;
-    Ok(user)
+    Ok(output)
 }
 
 pub async fn update(
@@ -87,6 +143,7 @@ pub async fn update(
         email_verified,
         role,
         status,
+        must_change_password,
         storage_quota,
         policy_group_id,
     } = input;
@@ -119,6 +176,8 @@ pub async fn update(
         email_verified.is_some_and(|value| value != existing_email_verified);
     let role_changed = role.is_some_and(|value| value != existing.role);
     let status_changed = status.is_some_and(|value| value != existing.status);
+    let must_change_password_changed =
+        must_change_password.is_some_and(|value| value != existing.must_change_password);
     let policy_group_changed =
         policy_group_id.is_some_and(|group_id| existing_policy_group_id != Some(group_id));
     let current_session_version = existing.session_version;
@@ -133,6 +192,9 @@ pub async fn update(
     }
     if let Some(status) = status {
         active.status = Set(status);
+    }
+    if let Some(must_change_password) = must_change_password {
+        active.must_change_password = Set(must_change_password);
     }
     if let Some(storage_quota) = storage_quota {
         active.storage_quota = Set(storage_quota);
@@ -156,7 +218,7 @@ pub async fn update(
         }
         active.policy_group_id = Set(Some(group_id));
     }
-    if status_changed || email_verified_changed {
+    if status_changed || email_verified_changed || must_change_password_changed {
         active.session_version = Set(current_session_version.saturating_add(1));
     }
     active.updated_at = Set(Utc::now());
@@ -166,7 +228,7 @@ pub async fn update(
             .update(&txn)
             .await
             .map_aster_err(AsterError::database_operation)?;
-        if status_changed || email_verified_changed {
+        if status_changed || email_verified_changed || must_change_password_changed {
             auth_session_repo::delete_all_for_user(&txn, updated.id).await?;
         }
         Ok::<_, AsterError>(updated)
@@ -191,7 +253,7 @@ pub async fn update(
             state.policy_snapshot().remove_user_policy_group(updated.id);
         }
     }
-    if role_changed || status_changed || email_verified_changed {
+    if role_changed || status_changed || email_verified_changed || must_change_password_changed {
         auth_service::invalidate_auth_snapshot_cache(state, id).await;
     }
     if status_changed
@@ -223,6 +285,7 @@ pub async fn update_with_audit(
                 email_verified: user.email_verified,
                 role: user.role,
                 status: user.status,
+                must_change_password: user.must_change_password,
                 storage_quota: user.storage_quota,
                 policy_group_id: user.policy_group_id,
             })

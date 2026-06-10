@@ -44,8 +44,8 @@ pub async fn get_or_generate_thumbnail(
     }
 
     let thumbnail_processor = ctx.processor.thumbnail_processor().to_string();
-    let thumbnail_version = ctx.processor.thumbnail_version().to_string();
-    let thumbnail_path = ctx.processor.cache_path(&blob.hash);
+    let thumbnail_version = ctx.processor.thumbnail_version(state.runtime_config());
+    let thumbnail_path = ctx.processor.cache_path(&blob.hash, state.runtime_config());
     let webp_bytes = render::render_thumbnail_bytes(
         state,
         blob,
@@ -119,7 +119,7 @@ async fn generate_and_store_with_context(
             "reusing existing thumbnail without rendering"
         );
         return Ok(StoredThumbnail {
-            thumbnail_path: ctx.processor.cache_path(&blob.hash),
+            thumbnail_path: ctx.processor.cache_path(&blob.hash, state.runtime_config()),
             thumbnail_processor: existing.thumbnail_processor,
             thumbnail_version: existing.thumbnail_version,
             reused_existing_thumbnail: true,
@@ -127,8 +127,8 @@ async fn generate_and_store_with_context(
     }
 
     let thumbnail_processor = ctx.processor.thumbnail_processor().to_string();
-    let thumbnail_version = ctx.processor.thumbnail_version().to_string();
-    let thumbnail_path = ctx.processor.cache_path(&blob.hash);
+    let thumbnail_version = ctx.processor.thumbnail_version(state.runtime_config());
+    let thumbnail_path = ctx.processor.cache_path(&blob.hash, state.runtime_config());
     tracing::debug!(
         blob_id = blob.id,
         processor = ctx.processor.kind().as_str(),

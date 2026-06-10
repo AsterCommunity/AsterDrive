@@ -147,6 +147,7 @@ define_api_error_codes! {
     AuthInvitationExpired => "auth.invitation_expired",
     AuthInvitationRevoked => "auth.invitation_revoked",
     AuthInvitationAccepted => "auth.invitation_accepted",
+    AuthPasswordChangeRequired => "auth.password_change_required",
 
     // profile/avatar/media processing: avatar upload and rendering failures.
     AvatarFileRequired => "avatar.file_required",

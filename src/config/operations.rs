@@ -23,9 +23,9 @@ pub use crate::config::definitions::{
     BACKGROUND_TASK_DISPATCH_INTERVAL_SECS_KEY, BACKGROUND_TASK_MAX_ATTEMPTS_KEY,
     BACKGROUND_TASK_MAX_CONCURRENCY_KEY, BACKGROUND_TASK_STORAGE_MIGRATION_MAX_CONCURRENCY_KEY,
     BACKGROUND_TASK_THUMBNAIL_MAX_CONCURRENCY_KEY, BLOB_RECONCILE_INTERVAL_SECS_KEY,
-    FRONTEND_IMAGE_PREVIEW_PREFERENCE_KEY, MAIL_OUTBOX_DISPATCH_INTERVAL_SECS_KEY,
-    MAINTENANCE_CLEANUP_INTERVAL_SECS_KEY, MEDIA_METADATA_ENABLED_KEY,
-    MEDIA_METADATA_MAX_SOURCE_BYTES_KEY,
+    FRONTEND_IMAGE_PREVIEW_PREFERENCE_KEY, IMAGE_PREVIEW_MAX_DIMENSION_KEY,
+    MAIL_OUTBOX_DISPATCH_INTERVAL_SECS_KEY, MAINTENANCE_CLEANUP_INTERVAL_SECS_KEY,
+    MEDIA_METADATA_ENABLED_KEY, MEDIA_METADATA_MAX_SOURCE_BYTES_KEY,
     OFFLINE_DOWNLOAD_ARIA2_LOWEST_SPEED_LIMIT_BYTES_PER_SEC_KEY,
     OFFLINE_DOWNLOAD_ARIA2_MAX_CONNECTION_PER_SERVER_KEY,
     OFFLINE_DOWNLOAD_ARIA2_REQUEST_TIMEOUT_SECS_KEY, OFFLINE_DOWNLOAD_ARIA2_RPC_SECRET_KEY,
@@ -35,7 +35,8 @@ pub use crate::config::definitions::{
     OFFLINE_DOWNLOAD_MAX_MB_PER_SEC_KEY, OFFLINE_DOWNLOAD_REQUEST_TIMEOUT_SECS_KEY,
     OFFLINE_DOWNLOAD_TEMP_DIR_KEY, REMOTE_NODE_HEALTH_TEST_INTERVAL_SECS_KEY,
     SHARE_DOWNLOAD_ROLLBACK_QUEUE_CAPACITY_KEY, SHARE_STREAM_SESSION_TTL_SECS_KEY,
-    TASK_LIST_MAX_LIMIT_KEY, TEAM_MEMBER_LIST_MAX_LIMIT_KEY, THUMBNAIL_MAX_SOURCE_BYTES_KEY,
+    TASK_LIST_MAX_LIMIT_KEY, TEAM_MEMBER_LIST_MAX_LIMIT_KEY, THUMBNAIL_MAX_DIMENSION_KEY,
+    THUMBNAIL_MAX_SOURCE_BYTES_KEY,
 };
 
 pub const DEFAULT_MAIL_OUTBOX_DISPATCH_INTERVAL_SECS: u64 = 5;
@@ -58,6 +59,9 @@ pub const DEFAULT_TEAM_MEMBER_LIST_MAX_LIMIT: u64 = 100;
 pub const DEFAULT_TASK_LIST_MAX_LIMIT: u64 = 100;
 pub const DEFAULT_AVATAR_MAX_UPLOAD_SIZE_BYTES: u64 = 10 * 1024 * 1024;
 pub const DEFAULT_THUMBNAIL_MAX_SOURCE_BYTES: u64 = 64 * 1024 * 1024;
+pub const DEFAULT_THUMBNAIL_MAX_DIMENSION: u32 = 400;
+pub const DEFAULT_IMAGE_PREVIEW_MAX_DIMENSION: u32 = 1600;
+pub const MAX_DERIVATIVE_MAX_DIMENSION: u32 = 16_384;
 pub const DEFAULT_MEDIA_METADATA_ENABLED: bool = true;
 pub const DEFAULT_MEDIA_METADATA_MAX_SOURCE_BYTES: u64 = 256 * 1024 * 1024;
 /// Default offline download limits are sized for slow-but-usable links.
@@ -164,6 +168,17 @@ pub fn normalize_attempts_config_value(key: &str, value: &str) -> Result<String>
 
 pub fn normalize_bytes_config_value(key: &str, value: &str) -> Result<String> {
     normalize_positive_u64_config_value(key, value)
+}
+
+pub fn normalize_derivative_dimension_config_value(key: &str, value: &str) -> Result<String> {
+    let parsed = parse_positive_u64(value)
+        .ok_or_else(|| AsterError::validation_error(format!("{key} must be a positive integer")))?;
+    if parsed > u64::from(MAX_DERIVATIVE_MAX_DIMENSION) {
+        return Err(AsterError::validation_error(format!(
+            "{key} cannot exceed {MAX_DERIVATIVE_MAX_DIMENSION}"
+        )));
+    }
+    Ok(parsed.to_string())
 }
 
 pub fn normalize_non_negative_u64_config_value(key: &str, value: &str) -> Result<String> {
@@ -459,6 +474,26 @@ pub fn thumbnail_max_source_bytes(runtime_config: &RuntimeConfig) -> i64 {
         );
         default_value
     })
+}
+
+pub fn thumbnail_max_dimension(runtime_config: &RuntimeConfig) -> u32 {
+    read_bounded_u32(
+        runtime_config,
+        THUMBNAIL_MAX_DIMENSION_KEY,
+        DEFAULT_THUMBNAIL_MAX_DIMENSION,
+        1,
+        MAX_DERIVATIVE_MAX_DIMENSION,
+    )
+}
+
+pub fn image_preview_max_dimension(runtime_config: &RuntimeConfig) -> u32 {
+    read_bounded_u32(
+        runtime_config,
+        IMAGE_PREVIEW_MAX_DIMENSION_KEY,
+        DEFAULT_IMAGE_PREVIEW_MAX_DIMENSION,
+        1,
+        MAX_DERIVATIVE_MAX_DIMENSION,
+    )
 }
 
 pub fn media_metadata_enabled(runtime_config: &RuntimeConfig) -> bool {
@@ -926,6 +961,31 @@ fn read_bounded_u64(
     }
 }
 
+fn read_bounded_u32(
+    runtime_config: &RuntimeConfig,
+    key: &str,
+    default: u32,
+    min: u32,
+    max: u32,
+) -> u32 {
+    match runtime_config.get(key) {
+        Some(raw) => match raw.trim().parse::<u32>() {
+            Ok(value) if (min..=max).contains(&value) => value,
+            _ => {
+                tracing::warn!(
+                    key,
+                    value = %raw,
+                    min,
+                    max,
+                    "invalid runtime operations config; using default"
+                );
+                default
+            }
+        },
+        None => default,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
@@ -940,24 +1000,26 @@ mod tests {
         DEFAULT_BACKGROUND_TASK_MAX_ATTEMPTS, DEFAULT_BACKGROUND_TASK_MAX_CONCURRENCY,
         DEFAULT_BACKGROUND_TASK_STORAGE_MIGRATION_MAX_CONCURRENCY,
         DEFAULT_BACKGROUND_TASK_THUMBNAIL_MAX_CONCURRENCY, DEFAULT_BLOB_RECONCILE_INTERVAL_SECS,
-        DEFAULT_OFFLINE_DOWNLOAD_MAX_CONCURRENCY, DEFAULT_OFFLINE_DOWNLOAD_MAX_MB_PER_SEC,
-        DEFAULT_REMOTE_NODE_HEALTH_TEST_INTERVAL_SECS,
+        DEFAULT_IMAGE_PREVIEW_MAX_DIMENSION, DEFAULT_OFFLINE_DOWNLOAD_MAX_CONCURRENCY,
+        DEFAULT_OFFLINE_DOWNLOAD_MAX_MB_PER_SEC, DEFAULT_REMOTE_NODE_HEALTH_TEST_INTERVAL_SECS,
         DEFAULT_SHARE_DOWNLOAD_ROLLBACK_QUEUE_CAPACITY, DEFAULT_SHARE_STREAM_SESSION_TTL_SECS,
         DEFAULT_TASK_LIST_MAX_LIMIT, DEFAULT_TEAM_MEMBER_LIST_MAX_LIMIT,
-        FRONTEND_IMAGE_PREVIEW_PREFERENCE_KEY, MAX_BACKGROUND_TASK_CONCURRENCY,
-        MAX_SHARE_STREAM_SESSION_TTL_SECS, MIN_SHARE_STREAM_SESSION_TTL_SECS,
-        OFFLINE_DOWNLOAD_ENGINE_KEY, OFFLINE_DOWNLOAD_ENGINE_REGISTRY_JSON_KEY,
-        OFFLINE_DOWNLOAD_MAX_CONCURRENCY_KEY, OFFLINE_DOWNLOAD_MAX_MB_PER_SEC_KEY,
-        OFFLINE_DOWNLOAD_TEMP_DIR_KEY, REMOTE_NODE_HEALTH_TEST_INTERVAL_SECS_KEY,
-        SHARE_DOWNLOAD_ROLLBACK_QUEUE_CAPACITY_KEY, SHARE_STREAM_SESSION_TTL_SECS_KEY,
-        TASK_LIST_MAX_LIMIT_KEY, TEAM_MEMBER_LIST_MAX_LIMIT_KEY, archive_extract_max_staging_bytes,
+        DEFAULT_THUMBNAIL_MAX_DIMENSION, FRONTEND_IMAGE_PREVIEW_PREFERENCE_KEY,
+        IMAGE_PREVIEW_MAX_DIMENSION_KEY, MAX_BACKGROUND_TASK_CONCURRENCY,
+        MAX_DERIVATIVE_MAX_DIMENSION, MAX_SHARE_STREAM_SESSION_TTL_SECS,
+        MIN_SHARE_STREAM_SESSION_TTL_SECS, OFFLINE_DOWNLOAD_ENGINE_KEY,
+        OFFLINE_DOWNLOAD_ENGINE_REGISTRY_JSON_KEY, OFFLINE_DOWNLOAD_MAX_CONCURRENCY_KEY,
+        OFFLINE_DOWNLOAD_MAX_MB_PER_SEC_KEY, OFFLINE_DOWNLOAD_TEMP_DIR_KEY,
+        REMOTE_NODE_HEALTH_TEST_INTERVAL_SECS_KEY, SHARE_DOWNLOAD_ROLLBACK_QUEUE_CAPACITY_KEY,
+        SHARE_STREAM_SESSION_TTL_SECS_KEY, TASK_LIST_MAX_LIMIT_KEY, TEAM_MEMBER_LIST_MAX_LIMIT_KEY,
+        THUMBNAIL_MAX_DIMENSION_KEY, archive_extract_max_staging_bytes,
         avatar_max_upload_size_bytes, background_task_archive_max_concurrency,
         background_task_dispatch_idle_max_interval_secs, background_task_max_attempts,
         background_task_max_concurrency, background_task_storage_migration_max_concurrency,
         background_task_thumbnail_max_concurrency, blob_reconcile_interval_secs,
-        frontend_image_preview_preference, normalize_attempts_config_value,
-        normalize_bool_config_value, normalize_bytes_config_value,
-        normalize_concurrency_config_value,
+        frontend_image_preview_preference, image_preview_max_dimension,
+        normalize_attempts_config_value, normalize_bool_config_value, normalize_bytes_config_value,
+        normalize_concurrency_config_value, normalize_derivative_dimension_config_value,
         normalize_frontend_image_preview_preference_config_value, normalize_interval_config_value,
         normalize_list_max_limit_config_value, normalize_non_negative_u64_config_value,
         normalize_offline_download_temp_dir_config_value, normalize_queue_capacity_config_value,
@@ -965,7 +1027,7 @@ mod tests {
         offline_download_max_bytes_per_sec, offline_download_max_concurrency,
         offline_download_temp_dir, read_concurrency, remote_node_health_test_interval_secs,
         share_download_rollback_queue_capacity, share_stream_session_ttl_secs, task_list_max_limit,
-        team_member_list_max_limit,
+        team_member_list_max_limit, thumbnail_max_dimension,
     };
     use crate::config::RuntimeConfig;
     use crate::config::definitions::{ALL_CONFIGS, CONFIG_CATEGORY_RUNTIME_MAINTENANCE};
@@ -1058,6 +1120,95 @@ mod tests {
             "preview_first"
         );
         assert!(normalize_frontend_image_preview_preference_config_value("sideways").is_err());
+    }
+
+    #[test]
+    fn derivative_dimension_readers_use_runtime_value_and_default() {
+        let runtime_config = RuntimeConfig::new();
+        assert_eq!(
+            thumbnail_max_dimension(&runtime_config),
+            DEFAULT_THUMBNAIL_MAX_DIMENSION
+        );
+        assert_eq!(
+            image_preview_max_dimension(&runtime_config),
+            DEFAULT_IMAGE_PREVIEW_MAX_DIMENSION
+        );
+
+        runtime_config.apply(config_model(THUMBNAIL_MAX_DIMENSION_KEY, "320"));
+        runtime_config.apply(config_model(IMAGE_PREVIEW_MAX_DIMENSION_KEY, "2048"));
+        assert_eq!(thumbnail_max_dimension(&runtime_config), 320);
+        assert_eq!(image_preview_max_dimension(&runtime_config), 2048);
+
+        runtime_config.apply(config_model(THUMBNAIL_MAX_DIMENSION_KEY, "1"));
+        runtime_config.apply(config_model(
+            IMAGE_PREVIEW_MAX_DIMENSION_KEY,
+            &MAX_DERIVATIVE_MAX_DIMENSION.to_string(),
+        ));
+        assert_eq!(thumbnail_max_dimension(&runtime_config), 1);
+        assert_eq!(
+            image_preview_max_dimension(&runtime_config),
+            MAX_DERIVATIVE_MAX_DIMENSION
+        );
+
+        runtime_config.apply(config_model(THUMBNAIL_MAX_DIMENSION_KEY, "0"));
+        runtime_config.apply(config_model(
+            IMAGE_PREVIEW_MAX_DIMENSION_KEY,
+            &(u64::from(MAX_DERIVATIVE_MAX_DIMENSION) + 1).to_string(),
+        ));
+        assert_eq!(
+            thumbnail_max_dimension(&runtime_config),
+            DEFAULT_THUMBNAIL_MAX_DIMENSION
+        );
+        assert_eq!(
+            image_preview_max_dimension(&runtime_config),
+            DEFAULT_IMAGE_PREVIEW_MAX_DIMENSION
+        );
+
+        runtime_config.apply(config_model(THUMBNAIL_MAX_DIMENSION_KEY, "abc"));
+        runtime_config.apply(config_model(IMAGE_PREVIEW_MAX_DIMENSION_KEY, "-1"));
+        assert_eq!(
+            thumbnail_max_dimension(&runtime_config),
+            DEFAULT_THUMBNAIL_MAX_DIMENSION
+        );
+        assert_eq!(
+            image_preview_max_dimension(&runtime_config),
+            DEFAULT_IMAGE_PREVIEW_MAX_DIMENSION
+        );
+    }
+
+    #[test]
+    fn derivative_dimension_normalizer_requires_positive_bounded_integer() {
+        assert_eq!(
+            normalize_derivative_dimension_config_value(THUMBNAIL_MAX_DIMENSION_KEY, "1").unwrap(),
+            "1"
+        );
+        assert_eq!(
+            normalize_derivative_dimension_config_value(THUMBNAIL_MAX_DIMENSION_KEY, " 320 ")
+                .unwrap(),
+            "320"
+        );
+        assert_eq!(
+            normalize_derivative_dimension_config_value(
+                IMAGE_PREVIEW_MAX_DIMENSION_KEY,
+                &MAX_DERIVATIVE_MAX_DIMENSION.to_string(),
+            )
+            .unwrap(),
+            MAX_DERIVATIVE_MAX_DIMENSION.to_string()
+        );
+        for invalid in ["0", "-1", "12.5", "abc", ""] {
+            assert!(
+                normalize_derivative_dimension_config_value(THUMBNAIL_MAX_DIMENSION_KEY, invalid)
+                    .is_err(),
+                "{invalid:?} should be rejected"
+            );
+        }
+        assert!(
+            normalize_derivative_dimension_config_value(
+                IMAGE_PREVIEW_MAX_DIMENSION_KEY,
+                &(u64::from(MAX_DERIVATIVE_MAX_DIMENSION) + 1).to_string(),
+            )
+            .is_err()
+        );
     }
 
     #[test]

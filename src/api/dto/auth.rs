@@ -81,6 +81,9 @@ pub enum LoginResponse {
     Authenticated {
         expires_in: u64,
     },
+    PasswordChangeRequired {
+        expires_in: u64,
+    },
     MfaRequired {
         flow_token: String,
         expires_in: u64,

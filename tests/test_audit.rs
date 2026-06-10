@@ -177,6 +177,82 @@ async fn test_audit_log_recorded_on_admin_create_user() {
     let entry = entry.unwrap();
     assert_eq!(entry["entity_type"], "user");
     assert_eq!(entry["entity_name"], "audituser");
+    let raw_details = entry["details"].as_str().unwrap();
+    assert!(
+        !raw_details.contains("\"password\""),
+        "audit details must not include password as a raw field"
+    );
+    assert!(
+        !raw_details.contains("\"generated_password\""),
+        "audit details must not include generated_password as a raw field"
+    );
+    assert!(
+        !raw_details.contains("password123"),
+        "audit details must not include password plaintext"
+    );
+    let details: Value = serde_json::from_str(raw_details).unwrap();
+    assert_eq!(details["temporary_password_generated"], false);
+    assert!(details.get("password").is_none());
+    assert!(details.get("generated_password").is_none());
+}
+
+#[actix_web::test]
+async fn test_audit_log_redacts_generated_admin_create_user_password() {
+    let state = common::setup().await;
+    let app = create_test_app!(state);
+    let (token, _) = register_and_login!(app);
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/admin/users")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .peer_addr("127.0.0.1:12345".parse().unwrap())
+        .set_json(serde_json::json!({
+            "username": "generatedaudit",
+            "email": "generatedaudit@example.com"
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 201);
+    let body: Value = test::read_body_json(resp).await;
+    let generated_password = body["data"]["generated_password"]
+        .as_str()
+        .expect("generated password should be returned once")
+        .to_string();
+
+    let req = test::TestRequest::get()
+        .uri("/api/v1/admin/audit-logs")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+    let body: Value = test::read_body_json(resp).await;
+    let items = body["data"]["items"].as_array().unwrap();
+    let entry = items
+        .iter()
+        .find(|item| {
+            item["action"] == "admin_create_user" && item["entity_name"] == "generatedaudit"
+        })
+        .expect("audit log should contain generated admin_create_user");
+    let raw_details = entry["details"].as_str().unwrap();
+    assert!(
+        !raw_details.contains(&generated_password),
+        "audit details must not include generated password plaintext"
+    );
+    assert!(
+        !raw_details.contains("\"password\""),
+        "audit details must not include password as a raw field"
+    );
+    assert!(
+        !raw_details.contains("\"generated_password\""),
+        "audit details must not include generated_password as a raw field"
+    );
+    let details: Value = serde_json::from_str(raw_details).unwrap();
+    assert_eq!(details["temporary_password_generated"], true);
+    assert_eq!(details["must_change_password"], true);
+    assert!(details.get("password").is_none());
+    assert!(details.get("generated_password").is_none());
 }
 
 #[actix_web::test]
@@ -537,20 +613,13 @@ async fn test_audit_log_recorded_on_share_config_and_admin_user_actions_after_re
     let resp = test::call_service(&app, req).await;
     assert_eq!(resp.status(), 200);
 
-    let req = test::TestRequest::post()
-        .uri("/api/v1/admin/users")
-        .insert_header(("Cookie", common::access_cookie_header(&token)))
-        .insert_header(common::csrf_header_for(&token))
-        .set_json(serde_json::json!({
-            "username": "managed-user",
-            "email": "managed-user@example.com",
-            "password": "password123"
-        }))
-        .to_request();
-    let resp = test::call_service(&app, req).await;
-    assert_eq!(resp.status(), 201);
-    let body: Value = test::read_body_json(resp).await;
-    let managed_user_id = body["data"]["id"].as_i64().unwrap();
+    let managed_user_id = admin_create_user!(
+        app,
+        token,
+        "managed-user",
+        "managed-user@example.com",
+        "password123"
+    );
 
     let req = test::TestRequest::patch()
         .uri(&format!("/api/v1/admin/users/{managed_user_id}"))
@@ -623,20 +692,13 @@ async fn test_audit_log_recorded_on_admin_team_lifecycle() {
     let app = create_test_app!(state);
     let (token, _) = register_and_login!(app);
 
-    let req = test::TestRequest::post()
-        .uri("/api/v1/admin/users")
-        .insert_header(("Cookie", common::access_cookie_header(&token)))
-        .insert_header(common::csrf_header_for(&token))
-        .set_json(serde_json::json!({
-            "username": "team-admin-user",
-            "email": "team-admin@example.com",
-            "password": "password123"
-        }))
-        .to_request();
-    let resp = test::call_service(&app, req).await;
-    assert_eq!(resp.status(), 201);
-    let body: Value = test::read_body_json(resp).await;
-    let team_admin_user_id = body["data"]["id"].as_i64().unwrap();
+    let team_admin_user_id = admin_create_user!(
+        app,
+        token,
+        "team-admin-user",
+        "team-admin@example.com",
+        "password123"
+    );
 
     let req = test::TestRequest::post()
         .uri("/api/v1/admin/teams")

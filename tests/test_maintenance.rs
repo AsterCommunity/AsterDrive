@@ -1099,6 +1099,8 @@ async fn test_integrity_audit_detects_storage_and_tree_inconsistencies() {
         state.writer_db(),
         state.driver_registry.as_ref(),
         None,
+        aster_drive::config::operations::thumbnail_max_dimension(state.runtime_config()),
+        aster_drive::config::operations::image_preview_max_dimension(state.runtime_config()),
     )
     .await
     .unwrap();

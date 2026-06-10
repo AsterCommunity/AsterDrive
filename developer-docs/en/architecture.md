@@ -366,6 +366,8 @@ The single source of truth is `src/config/definitions.rs`. Common keys include:
 - `archive_preview_*`
 - `archive_extract_max_staging_bytes`
 - `thumbnail_max_source_bytes`
+- `thumbnail_max_dimension`
+- `image_preview_max_dimension`
 - `media_metadata_enabled`
 - `media_metadata_max_source_bytes`
 - `media_processing_registry_json`

@@ -1,20 +1,16 @@
 //! 认证 API 路由：`passkeys`。
 
 use super::{
-    AuthTokenResp, PasskeyLoginFinishReq, PasskeyLoginStartReq, PasskeyRegisterFinishReq,
-    PasskeyRegisterStartReq, PatchPasskeyReq,
+    PasskeyLoginFinishReq, PasskeyLoginStartReq, PasskeyRegisterFinishReq, PasskeyRegisterStartReq,
+    PatchPasskeyReq,
 };
 use crate::api::middleware::csrf::{self, RequestSourceMode};
 use crate::api::response::ApiResponse;
-use crate::config::auth_runtime::RuntimeAuthPolicy;
 use crate::errors::{AsterError, Result};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::audit_service::{self, AuditContext, AuditRequestInfo};
 use crate::services::{auth_service::Claims, passkey_service};
-use crate::utils::numbers::u64_to_i64;
 use actix_web::{HttpRequest, HttpResponse, web};
-
-use super::cookies::{build_access_cookie, build_csrf_cookie, build_refresh_cookie};
 
 #[api_docs_macros::path(
     get,
@@ -212,7 +208,7 @@ pub async fn start_login(
     operation_id = "finish_passkey_login",
     request_body = PasskeyLoginFinishReq,
     responses(
-        (status = 200, description = "Passkey login successful, tokens set in HttpOnly cookies", body = inline(ApiResponse<AuthTokenResp>)),
+        (status = 200, description = "Passkey login successful or password change required, tokens set in HttpOnly cookies", body = inline(ApiResponse<super::LoginResponse>)),
         (status = 401, description = "Invalid credentials"),
     ),
 )]
@@ -250,24 +246,10 @@ pub async fn finish_login(
     )
     .await;
 
-    let auth_policy = RuntimeAuthPolicy::from_runtime_config(state.get_ref().runtime_config());
-    let secure = auth_policy.cookie_secure;
-    let csrf_token = csrf::build_csrf_token();
-    let access_ttl = u64_to_i64(auth_policy.access_token_ttl_secs, "access token ttl")?;
-    let refresh_ttl = u64_to_i64(auth_policy.refresh_token_ttl_secs, "refresh token ttl")?;
-    Ok(HttpResponse::Ok()
-        .cookie(build_access_cookie(
-            &result.access_token,
-            access_ttl,
-            secure,
-        ))
-        .cookie(build_refresh_cookie(
-            &result.refresh_token,
-            refresh_ttl,
-            secure,
-        ))
-        .cookie(build_csrf_cookie(&csrf_token, refresh_ttl, secure))
-        .json(ApiResponse::ok(AuthTokenResp {
-            expires_in: auth_policy.access_token_ttl_secs,
-        })))
+    super::session::authenticated_login_response(
+        state.get_ref(),
+        &result.access_token,
+        &result.refresh_token,
+        result.password_change_required,
+    )
 }

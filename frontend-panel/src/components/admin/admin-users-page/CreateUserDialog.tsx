@@ -12,16 +12,19 @@ import {
 import { Icon } from "@/components/ui/icon";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 import { ADMIN_CONTROL_HEIGHT_CLASS } from "@/lib/constants";
 import type { CreateUserReq } from "@/types/api";
+
+type CreateUserTextField = "email" | "password" | "username";
 
 interface CreateUserDialogProps {
 	createErrors: Partial<CreateUserReq>;
 	creating: boolean;
 	form: CreateUserReq;
 	open: boolean;
-	onFieldChange: (key: keyof CreateUserReq, value: string) => void;
-	onFieldValidate: (field: keyof CreateUserReq, value: string) => void;
+	onFieldChange: (key: keyof CreateUserReq, value: boolean | string) => void;
+	onFieldValidate: (field: CreateUserTextField, value: string) => void;
 	onOpenChange: (open: boolean) => void;
 	onSubmit: (event: FormEvent<HTMLFormElement>) => void;
 }
@@ -89,19 +92,21 @@ export function CreateUserDialog({
 						) : null}
 					</div>
 					<div className="space-y-2">
-						<Label htmlFor="create-user-password">{t("core:password")}</Label>
+						<Label htmlFor="create-user-password">
+							{t("create_user_password")}
+						</Label>
 						<Input
 							id="create-user-password"
 							name="admin-create-user-password"
 							type="password"
-							value={form.password}
+							value={form.password ?? ""}
 							onChange={(event) => {
-								const value = event.target.value;
+								const value = event.target.value.trim();
 								onFieldChange("password", value);
 								onFieldValidate("password", value);
 							}}
 							autoComplete="new-password"
-							required
+							placeholder={t("create_user_password_placeholder")}
 							className={ADMIN_CONTROL_HEIGHT_CLASS}
 							aria-invalid={!!createErrors.password}
 						/>
@@ -110,6 +115,27 @@ export function CreateUserDialog({
 								{createErrors.password}
 							</p>
 						) : null}
+						<p className="text-xs text-muted-foreground">
+							{t("create_user_password_hint")}
+						</p>
+					</div>
+					<div className="flex items-center justify-between gap-3 rounded-md border p-3">
+						<div className="min-w-0 space-y-1">
+							<Label htmlFor="create-user-must-change-password">
+								{t("force_password_change")}
+							</Label>
+							<p className="text-xs text-muted-foreground">
+								{t("create_user_force_password_change_desc")}
+							</p>
+						</div>
+						<Switch
+							id="create-user-must-change-password"
+							checked={Boolean(form.must_change_password)}
+							onCheckedChange={(value) => {
+								onFieldChange("must_change_password", value);
+							}}
+							aria-label={t("force_password_change")}
+						/>
 					</div>
 					<DialogFooter>
 						<Button

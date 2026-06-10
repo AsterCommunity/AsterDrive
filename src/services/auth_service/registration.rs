@@ -25,6 +25,7 @@ pub async fn create_user_by_admin(
     username: &str,
     email: &str,
     password: &str,
+    must_change_password: bool,
 ) -> Result<AuthUserInfo> {
     let user = create_user_with_role(
         state.writer_db(),
@@ -35,6 +36,7 @@ pub async fn create_user_by_admin(
             password,
             role: UserRole::User,
             status: UserStatus::Active,
+            must_change_password,
             email_verified_at: Some(Utc::now()),
         },
     )
@@ -87,6 +89,7 @@ pub async fn register(
             password,
             role: UserRole::User,
             status: UserStatus::Active,
+            must_change_password: false,
             email_verified_at,
         },
     )

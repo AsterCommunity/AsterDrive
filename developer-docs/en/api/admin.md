@@ -306,7 +306,7 @@ Policy groups define storage policy selection for users and teams. They are reje
 | `GET` | `/admin/users` | Paginated users |
 | `POST` | `/admin/users` | Create user |
 | `GET` | `/admin/users/{id}` | Read user details |
-| `PATCH` | `/admin/users/{id}` | Update user profile, role, status, quota, or policy group |
+| `PATCH` | `/admin/users/{id}` | Update user profile, role, status, quota, policy group, or forced password-change flag |
 | `PUT` | `/admin/users/{id}/password` | Reset a user's password |
 | `DELETE` | `/admin/users/{id}/mfa` | Clear a user's MFA setup and revoke sessions |
 | `POST` | `/admin/users/{id}/sessions/revoke` | Revoke all existing sessions for the user |
@@ -314,6 +314,23 @@ Policy groups define storage policy selection for users and teams. They are reje
 | `GET` | `/admin/users/{id}/avatar/{size}` | Read uploaded user avatar |
 
 User lists support keyword / role / status style filtering and offset pagination. Avatar responses are raw binary and are not wrapped JSON.
+
+`PATCH /admin/users/{id}` accepts `must_change_password: true | false`. Setting it to `true` requires the user to change their password after the next successful login; setting it to `false` clears the requirement before the user completes that flow. Any change to this flag increments `session_version`, deletes existing refresh sessions, invalidates the auth snapshot cache, and records `admin_update_user` audit details including the new `must_change_password` value.
+
+While the flag is set, successful password, MFA, passkey, and external-auth login completions return:
+
+```json
+{
+  "code": "success",
+  "msg": "",
+  "data": {
+    "status": "password_change_required",
+    "expires_in": 900
+  }
+}
+```
+
+The issued access token is scoped to password change only. It can call `GET /auth/me`, `PUT /auth/password`, and `POST /auth/logout`; other authenticated routes return `403` with `auth.password_change_required`. `POST /auth/refresh` is also rejected while the flag or password-change token scope is present. `PUT /auth/password` still requires the current password and clears `must_change_password` after a successful update. The current password is temporary only when an administrator has reset the user's password; if an administrator only sets `must_change_password`, the user's existing password remains the current password.
 
 ## Teams
 
@@ -354,6 +371,8 @@ Admin team creation can create a team for another user and give that user the in
 | `GET` | `/admin/audit-logs` | Paginated audit logs |
 
 Runtime config entries defined by the system cannot be deleted; custom entries can. The single source of truth for system config definitions is `src/config/definitions.rs`.
+
+Media-derivative limits are regular runtime config entries. `thumbnail_max_source_bytes` bounds which original files are accepted for thumbnail generation, while `thumbnail_max_dimension` and `image_preview_max_dimension` bound the rendered longest edge for list thumbnails and preview-panel images. Changing a dimension creates a dimension-specific derivative cache namespace instead of rewriting another configured size.
 
 Custom runtime config entries also have a `visibility` field:
 

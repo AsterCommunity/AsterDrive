@@ -43,6 +43,8 @@ pub struct AdminCreateUserDetails<'a> {
     pub email_verified: bool,
     pub role: UserRole,
     pub status: UserStatus,
+    pub must_change_password: bool,
+    pub temporary_password_generated: bool,
     pub storage_quota: i64,
     pub policy_group_id: Option<i64>,
 }
@@ -52,6 +54,7 @@ pub struct AdminUpdateUserDetails {
     pub email_verified: bool,
     pub role: UserRole,
     pub status: UserStatus,
+    pub must_change_password: bool,
     pub storage_quota: i64,
     pub policy_group_id: Option<i64>,
 }

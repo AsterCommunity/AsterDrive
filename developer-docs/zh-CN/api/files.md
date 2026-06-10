@@ -171,7 +171,9 @@
 
 存储策略也可以通过 `storage_native_processing_enabled = true`、`thumbnail_processor = "storage_native"` 和 `thumbnail_extensions` 暴露策略级原生缩略图 / 图片预览能力。内置 `tencent_cos` 策略可通过 COS CI 暴露这项能力；内置 Local、S3-compatible 和 Remote 策略不暴露原生缩略图或图片预览能力。
 
-接口统一返回 WebP，并按 Blob、processor 和 processor version 复用缓存。
+接口统一返回 WebP，并按 Blob、processor、processor version 和实际最大边长复用缓存。源文件大小上限由 `thumbnail_max_source_bytes` 控制；生成后最长边由运行时配置 `thumbnail_max_dimension` 控制。
+
+默认缩略图尺寸继续使用旧的缓存 version namespace；非默认尺寸会在 derivative version 后追加 `-d{dimension}`。这样调整运行时尺寸后，不会覆盖或误用另一种尺寸的缓存结果。
 
 ## 图片预览
 
@@ -179,10 +181,13 @@
 
 - 缩略图面向文件列表和卡片，可能异步生成并返回 `202`
 - 图片预览面向预览器；命中缓存时返回 WebP，缓存未命中时创建或复用 `image_preview_generate` 后台任务，并返回 `202` 和 `Retry-After`
+- 图片预览生成后最长边由运行时配置 `image_preview_max_dimension` 控制
 - 成功响应是 `image/webp`，带 `ETag` 和 `Cache-Control: private, max-age=0, must-revalidate`
 - 不支持的文件类型会返回文件/缩略图分域错误，不会退回原始文件流
 - 支持能力来自 `/public/thumbnail-support` 暴露的图片缩略图 / 图片预览能力并集，可来自后端媒体处理器，也可来自启用策略级原生处理的 Tencent COS
 - 前端默认优先使用原图还是预览图由 `/public/frontend-config` 里的 `media.image_preview_preference` 控制
+
+图片预览缓存使用和缩略图相同的尺寸感知 derivative version 规则。
 
 ## 媒体元数据
 

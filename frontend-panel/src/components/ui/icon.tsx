@@ -3,6 +3,7 @@ import { FaDocker, FaGithub } from "react-icons/fa6";
 import {
 	LuBookOpenText,
 	LuDatabaseZap,
+	LuKeyRound,
 	LuScale,
 	LuServerCog,
 } from "react-icons/lu";
@@ -156,6 +157,7 @@ export type IconName =
 	| "House"
 	| "Info"
 	| "Key"
+	| "KeyRound"
 	| "Link"
 	| "LinkSimple"
 	| "List"
@@ -259,6 +261,7 @@ const iconMap: Record<IconName, ComponentType<{ className?: string }>> = {
 	House: PiHouse,
 	Info: PiInfo,
 	Key: PiKey,
+	KeyRound: LuKeyRound,
 	Link: PiLink,
 	LinkSimple: PiLinkSimple,
 	List: PiList,

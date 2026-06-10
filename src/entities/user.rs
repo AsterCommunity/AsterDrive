@@ -22,6 +22,7 @@ pub struct Model {
     pub password_hash: String,
     pub role: UserRole,
     pub status: UserStatus,
+    pub must_change_password: bool,
     #[serde(skip_serializing)]
     pub session_version: i64,
     #[cfg_attr(all(debug_assertions, feature = "openapi"), schema(value_type = Option<String>))]

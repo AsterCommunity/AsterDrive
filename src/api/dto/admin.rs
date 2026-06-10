@@ -47,8 +47,8 @@ pub struct CreateUserReq {
     pub username: String,
     #[validate(custom(function = "crate::api::dto::validation::validate_auth_email"))]
     pub email: String,
-    #[validate(custom(function = "crate::api::dto::validation::validate_auth_password"))]
-    pub password: String,
+    pub password: Option<String>,
+    pub must_change_password: Option<bool>,
 }
 
 /// Create a new user invitation (admin operation).
@@ -66,6 +66,7 @@ pub struct PatchUserReq {
     pub email_verified: Option<bool>,
     pub role: Option<crate::types::UserRole>,
     pub status: Option<crate::types::UserStatus>,
+    pub must_change_password: Option<bool>,
     #[validate(range(min = 0, message = "storage_quota must be non-negative"))]
     pub storage_quota: Option<i64>,
     /// Omitted = leave unchanged. Explicit `null` is rejected because this

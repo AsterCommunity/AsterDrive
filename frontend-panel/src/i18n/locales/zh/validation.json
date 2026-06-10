@@ -5,5 +5,7 @@
 	"email_format": "邮箱格式不正确",
 	"password_required": "请输入密码",
 	"password_min": "密码至少需要 8 个字符",
-	"password_max": "密码不能超过 128 个字符"
+	"password_max": "密码不能超过 128 个字符",
+	"password_confirm_mismatch": "两次输入的密码不一致",
+	"password_same_as_current": "新密码不能与当前密码相同"
 }

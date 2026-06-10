@@ -68,6 +68,7 @@ AsterDrive 的失败响应一般长这样：
 - `auth.token_missing` / `auth.token_invalid` / `auth.token_expired`：登录态缺失、无效或过期。刷新页面；如果反复出现，清 Cookie 后重新登录。
 - `auth.refresh_token_stale`：刷新 token 太旧，通常是多端登录、旧页面或旧会话导致。重新登录。
 - `auth.refresh_token_reuse_detected`：检测到 refresh token 重放。系统会拒绝这条会话，建议撤销其他会话并重新登录。
+- `auth.password_change_required`：管理员要求当前账号先修改密码。完成登录后会进入强制改密页面；在改密成功之前，普通 API 会被拒绝。
 - `auth.account_disabled`：账号被禁用。普通用户只能联系管理员。
 - `auth.registration_disabled`：站点关闭公开注册。让管理员创建账号，或开启注册。
 
@@ -315,6 +316,7 @@ WebDAV：
 | `auth.failed` / `auth.credentials_failed` | 鉴权失败或凭据错误。 |
 | `auth.token_missing` / `auth.token_invalid` / `auth.token_expired` | token 缺失、无效或过期。 |
 | `auth.refresh_token_stale` / `auth.refresh_token_reuse_detected` | refresh token 过旧或疑似重放。 |
+| `auth.password_change_required` | 当前账号必须先修改密码。 |
 | `auth.pending_activation` | 账号待激活。 |
 | `auth.contact_verification_invalid` / `auth.contact_verification_expired` | 联系方式验证无效或过期。 |
 | `forbidden` | 无权限，通常会有更具体的权限码。 |

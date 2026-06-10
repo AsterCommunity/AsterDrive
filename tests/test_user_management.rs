@@ -486,11 +486,12 @@ async fn test_admin_create_user_uses_default_quota_and_policy() {
     let resp = test::call_service(&app, req).await;
     assert_eq!(resp.status(), 201);
     let body: Value = test::read_body_json(resp).await;
-    let user_id = body["data"]["id"].as_i64().unwrap();
-    assert_eq!(body["data"]["storage_quota"], 1_048_576);
+    let user = &body["data"]["user"];
+    let user_id = user["id"].as_i64().unwrap();
+    assert_eq!(user["storage_quota"], 1_048_576);
     assert!(user_id > 0);
     assert_eq!(
-        body["data"]["policy_group_id"].as_i64().unwrap(),
+        user["policy_group_id"].as_i64().unwrap(),
         expected_default_id
     );
 }

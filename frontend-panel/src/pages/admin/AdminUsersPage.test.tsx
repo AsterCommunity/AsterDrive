@@ -568,7 +568,7 @@ describe("AdminUsersPage", () => {
 		mockState.update.mockReset();
 		mockState.writeTextToClipboard.mockReset();
 
-		mockState.create.mockResolvedValue(createUser());
+		mockState.create.mockResolvedValue({ user: createUser() });
 		mockState.createInvitation.mockResolvedValue(createInvitation());
 		mockState.deleteUser.mockResolvedValue(undefined);
 		mockState.list.mockResolvedValue({
@@ -815,7 +815,7 @@ describe("AdminUsersPage", () => {
 			"autocomplete",
 			"off",
 		);
-		expect(screen.getByLabelText("password")).toHaveAttribute(
+		expect(screen.getByLabelText("create_user_password")).toHaveAttribute(
 			"autocomplete",
 			"new-password",
 		);
@@ -826,7 +826,7 @@ describe("AdminUsersPage", () => {
 		fireEvent.change(screen.getByLabelText("email"), {
 			target: { value: "bad" },
 		});
-		fireEvent.change(screen.getByLabelText("password"), {
+		fireEvent.change(screen.getByLabelText("create_user_password"), {
 			target: { value: "1234567" },
 		});
 
@@ -843,21 +843,202 @@ describe("AdminUsersPage", () => {
 		fireEvent.change(screen.getByLabelText("email"), {
 			target: { value: " alice@example.com " },
 		});
-		fireEvent.change(screen.getByLabelText("password"), {
+		fireEvent.change(screen.getByLabelText("create_user_password"), {
 			target: { value: "secret12" },
 		});
+		fireEvent.click(
+			screen.getByRole("switch", { name: "force_password_change" }),
+		);
 
 		fireEvent.click(screen.getByRole("button", { name: /create/i }));
 
 		await waitFor(() => {
 			expect(mockState.create).toHaveBeenCalledWith({
 				email: "alice@example.com",
+				must_change_password: true,
 				password: "secret12",
 				username: "alice1",
 			});
 		});
 		expect(mockState.toastSuccess).toHaveBeenCalledWith("user_created");
 		expect(mockState.list).toHaveBeenCalledTimes(2);
+	});
+
+	it("creates users with blank passwords and shows the generated password once", async () => {
+		mockState.create.mockResolvedValueOnce({
+			generated_password: "TempPass-123456789",
+			user: createUser({
+				email: "blank@example.com",
+				must_change_password: true,
+				username: "blankuser",
+			}),
+		});
+		mockState.list
+			.mockResolvedValueOnce({
+				items: [],
+				total: 0,
+			})
+			.mockResolvedValueOnce({
+				items: [createUser({ username: "blankuser" })],
+				total: 1,
+			});
+
+		renderPage();
+
+		await screen.findByText("no_users");
+		fireEvent.click(screen.getByRole("button", { name: /new_user/i }));
+		fireEvent.change(screen.getByLabelText("username"), {
+			target: { value: " blankuser " },
+		});
+		fireEvent.change(screen.getByLabelText("email"), {
+			target: { value: " blank@example.com " },
+		});
+
+		fireEvent.click(screen.getByRole("button", { name: /create/i }));
+
+		await waitFor(() => {
+			expect(mockState.create).toHaveBeenCalledWith({
+				email: "blank@example.com",
+				must_change_password: false,
+				password: undefined,
+				username: "blankuser",
+			});
+		});
+		expect(screen.getByText("generated_password_title")).toBeInTheDocument();
+		expect(screen.getByDisplayValue("TempPass-123456789")).toBeInTheDocument();
+		expect(screen.queryByLabelText("username")).not.toBeInTheDocument();
+
+		fireEvent.click(
+			screen.getByRole("button", { name: "copy_generated_password" }),
+		);
+
+		await waitFor(() => {
+			expect(mockState.writeTextToClipboard).toHaveBeenCalledWith(
+				"TempPass-123456789",
+			);
+		});
+		expect(mockState.toastSuccess).toHaveBeenCalledWith("copied_to_clipboard");
+
+		fireEvent.click(screen.getByRole("button", { name: "close" }));
+		expect(
+			screen.queryByDisplayValue("TempPass-123456789"),
+		).not.toBeInTheDocument();
+
+		fireEvent.click(screen.getByRole("button", { name: /new_user/i }));
+		expect(screen.getByLabelText("username")).toHaveValue("");
+		expect(
+			screen.queryByDisplayValue("TempPass-123456789"),
+		).not.toBeInTheDocument();
+	});
+
+	it("trims create-user passwords before validation and submit", async () => {
+		mockState.create.mockResolvedValueOnce({
+			user: createUser({
+				email: "trimmed@example.com",
+				username: "trimmeduser",
+			}),
+		});
+
+		renderPage();
+
+		await screen.findByText("alice");
+		fireEvent.click(screen.getByRole("button", { name: /new_user/i }));
+		fireEvent.change(screen.getByLabelText("username"), {
+			target: { value: "trimmeduser" },
+		});
+		fireEvent.change(screen.getByLabelText("email"), {
+			target: { value: "trimmed@example.com" },
+		});
+		fireEvent.change(screen.getByLabelText("create_user_password"), {
+			target: { value: "  secret12  " },
+		});
+
+		expect(screen.getByLabelText("create_user_password")).toHaveValue(
+			"secret12",
+		);
+
+		fireEvent.click(screen.getByRole("button", { name: /create/i }));
+
+		await waitFor(() => {
+			expect(mockState.create).toHaveBeenCalledWith({
+				email: "trimmed@example.com",
+				must_change_password: false,
+				password: "secret12",
+				username: "trimmeduser",
+			});
+		});
+		expect(screen.queryByText("password_min")).not.toBeInTheDocument();
+	});
+
+	it("treats whitespace-only create passwords as generated-password requests", async () => {
+		mockState.create.mockResolvedValueOnce({
+			generated_password: "WhitespacePass-123",
+			user: createUser({
+				email: "space@example.com",
+				username: "spaceuser",
+			}),
+		});
+
+		renderPage();
+
+		await screen.findByText("alice");
+		fireEvent.click(screen.getByRole("button", { name: /new_user/i }));
+		fireEvent.change(screen.getByLabelText("username"), {
+			target: { value: "spaceuser" },
+		});
+		fireEvent.change(screen.getByLabelText("email"), {
+			target: { value: "space@example.com" },
+		});
+		fireEvent.change(screen.getByLabelText("create_user_password"), {
+			target: { value: "   \t" },
+		});
+		fireEvent.click(screen.getByRole("button", { name: /create/i }));
+
+		await waitFor(() => {
+			expect(mockState.create).toHaveBeenCalledWith({
+				email: "space@example.com",
+				must_change_password: false,
+				password: undefined,
+				username: "spaceuser",
+			});
+		});
+		expect(screen.queryByText("password_min")).not.toBeInTheDocument();
+		expect(screen.getByDisplayValue("WhitespacePass-123")).toBeInTheDocument();
+	});
+
+	it("guards create-user submit against rapid duplicate submissions", async () => {
+		let resolveCreate: ((value: unknown) => void) | undefined;
+		mockState.create.mockReturnValueOnce(
+			new Promise((resolve) => {
+				resolveCreate = resolve;
+			}),
+		);
+
+		renderPage();
+
+		await screen.findByText("alice");
+		fireEvent.click(screen.getByRole("button", { name: /new_user/i }));
+		fireEvent.change(screen.getByLabelText("username"), {
+			target: { value: "dupeuser" },
+		});
+		fireEvent.change(screen.getByLabelText("email"), {
+			target: { value: "dupe@example.com" },
+		});
+		fireEvent.change(screen.getByLabelText("create_user_password"), {
+			target: { value: "secret12" },
+		});
+
+		const form = screen.getByLabelText("username").closest("form");
+		if (!form) throw new Error("create form missing");
+		fireEvent.submit(form);
+		fireEvent.submit(form);
+
+		expect(mockState.create).toHaveBeenCalledTimes(1);
+		resolveCreate?.({ user: createUser({ username: "dupeuser" }) });
+
+		await waitFor(() => {
+			expect(mockState.toastSuccess).toHaveBeenCalledWith("user_created");
+		});
 	});
 
 	it("deletes the last user on a page and rolls the offset back before reloading", async () => {

@@ -536,9 +536,10 @@ async fn doctor_blob_ref_count_check(
 
 async fn doctor_storage_scan_checks(
     db: &sea_orm::DatabaseConnection,
+    runtime_config: &crate::config::RuntimeConfig,
     policy_id: Option<i64>,
 ) -> Result<Vec<DoctorCheck>> {
-    storage_scan::doctor_storage_scan_checks(db, policy_id).await
+    storage_scan::doctor_storage_scan_checks(db, runtime_config, policy_id).await
 }
 
 async fn doctor_folder_tree_check(db: &sea_orm::DatabaseConnection) -> Result<DoctorCheck> {

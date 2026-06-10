@@ -6,8 +6,8 @@ mod preferences;
 mod queries;
 
 pub use admin::{
-    ForceDeleteSummary, UpdateUserInput, create, create_with_audit, force_delete,
-    force_delete_with_audit, update, update_with_audit,
+    CreateUserInput, CreateUserOutput, ForceDeleteSummary, UpdateUserInput, create,
+    create_with_audit, force_delete, force_delete_with_audit, update, update_with_audit,
 };
 pub use models::{
     MePartialResponse, MeResponse, MeResponseField, MeResponseFields, UpdatePreferencesReq,

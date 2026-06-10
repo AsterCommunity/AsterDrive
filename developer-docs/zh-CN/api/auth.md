@@ -121,6 +121,27 @@
 
 `GET /auth/me` 支持用 `fields` query 返回局部资料，例如 `GET /auth/me?fields=profile,preferences,quota,session`。支持的字段组是 `profile`、`preferences`、`quota`、`session`；不传或传空值时返回完整模型，传未知字段会返回 `400`。
 
+如果用户的 `must_change_password` 标记为 `true`，成功完成登录后不会直接获得普通应用访问权限，而是返回：
+
+```json
+{
+  "code": "success",
+  "msg": "",
+  "data": {
+    "status": "password_change_required",
+    "expires_in": 900
+  }
+}
+```
+
+密码登录、MFA 验证完成、Passkey 登录完成和外部认证登录完成都可能返回这个状态。响应仍会写入认证 Cookie，但 access token 只允许走强制改密流程。在 `PUT /auth/password` 成功之前，仅允许访问：
+
+- `GET /auth/me`
+- `PUT /auth/password`
+- `POST /auth/logout`
+
+其他已认证接口会返回 `403` 和 `auth.password_change_required`。用户仍处于 `must_change_password` 状态或 token 带改密 scope 时，`POST /auth/refresh` 也会被拒绝。`PUT /auth/password` 仍然会校验 `current_password`，成功后清除 `must_change_password`、轮换会话，并写入正常认证 Cookie。
+
 如果用户启用了 TOTP，或者邮箱验证码 MFA 策略对该已验证邮箱用户可用，`POST /auth/login` 不会立即写入认证 Cookie，而是返回：
 
 ```json

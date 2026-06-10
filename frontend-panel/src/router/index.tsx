@@ -9,6 +9,9 @@ import { ProtectedRoute } from "./ProtectedRoute";
 import { TeamWorkspaceRoute } from "./TeamWorkspaceRoute";
 
 const LoginPage = lazy(() => import("@/pages/LoginPage"));
+const ForcePasswordChangePage = lazy(
+	() => import("@/pages/ForcePasswordChangePage"),
+);
 const ResetPasswordPage = lazy(() => import("@/pages/ResetPasswordPage"));
 const InviteRegisterPage = lazy(() => import("@/pages/InviteRegisterPage"));
 const FileBrowserPage = lazy(() => import("@/pages/FileBrowserPage"));
@@ -53,6 +56,15 @@ export const router = createBrowserRouter([
 		element: <LoginGuard />,
 		errorElement: <ErrorPage />,
 		children: [{ path: "/login", element: <LoginPage /> }],
+	},
+	{
+		path: "/force-password-change",
+		errorElement: <ErrorPage />,
+		element: (
+			<Suspense fallback={<Loading />}>
+				<ForcePasswordChangePage />
+			</Suspense>
+		),
 	},
 	{
 		path: "/reset-password",

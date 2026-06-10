@@ -28,6 +28,7 @@ pub(super) async fn render_thumbnail_with_vips_cli(
     source_mime_type: &str,
     driver: &dyn StorageDriver,
     command: &str,
+    max_dim: u32,
 ) -> Result<Vec<u8>> {
     let temp_root = crate::utils::paths::runtime_temp_dir(&state.config().server.temp_dir);
     let temp_dir = PathBuf::from(temp_root).join(format!("media-vips-{}", uuid::Uuid::new_v4()));
@@ -50,7 +51,6 @@ pub(super) async fn render_thumbnail_with_vips_cli(
     let command = command.to_string();
     let input_arg = prepared_input.input_arg().to_string();
     let output_arg = output_path.to_string_lossy().to_string();
-    let max_dim = crate::services::thumbnail_service::current_thumbnail_max_dim();
     tracing::debug!(
         blob_id = blob.id,
         processor = "vips_cli",
@@ -114,6 +114,7 @@ pub(super) async fn render_image_preview_with_vips_cli(
     source_mime_type: &str,
     driver: &dyn StorageDriver,
     command: &str,
+    max_dim: u32,
 ) -> Result<Vec<u8>> {
     let temp_root = crate::utils::paths::runtime_temp_dir(&state.config().server.temp_dir);
     let temp_dir =
@@ -137,7 +138,6 @@ pub(super) async fn render_image_preview_with_vips_cli(
     let command = command.to_string();
     let input_arg = prepared_input.input_arg().to_string();
     let output_arg = output_path.to_string_lossy().to_string();
-    let max_dim = crate::services::thumbnail_service::current_image_preview_max_dim();
     tracing::debug!(
         blob_id = blob.id,
         processor = "vips_cli",
@@ -204,6 +204,7 @@ pub(super) async fn render_thumbnail_with_ffmpeg_cli(
     source_mime_type: &str,
     driver: &dyn StorageDriver,
     command: &str,
+    max_dim: u32,
 ) -> Result<Vec<u8>> {
     let temp_root = crate::utils::paths::runtime_temp_dir(&state.config().server.temp_dir);
     let temp_dir = PathBuf::from(temp_root).join(format!("media-ffmpeg-{}", uuid::Uuid::new_v4()));
@@ -226,7 +227,6 @@ pub(super) async fn render_thumbnail_with_ffmpeg_cli(
     let command = command.to_string();
     let input_arg = prepared_input.input_arg().to_string();
     let output_arg = output_path.to_string_lossy().to_string();
-    let max_dim = crate::services::thumbnail_service::current_thumbnail_max_dim();
     let filter_arg = format!(
         "thumbnail={FFMPEG_THUMBNAIL_BATCH_SIZE}:log=quiet,scale=min(iw\\,{max_dim}):min(ih\\,{max_dim}):force_original_aspect_ratio=decrease"
     );

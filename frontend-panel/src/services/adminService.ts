@@ -44,6 +44,7 @@ import type {
 	CreateStoragePolicyMigrationRequest,
 	CreateUserInvitationRequest,
 	CreateUserReq,
+	CreateUserResponse,
 	DeletePolicyQuery,
 	DryRunStoragePolicyMigrationRequest,
 	ExecuteConfigActionRequest,
@@ -134,7 +135,8 @@ export const adminUserService = {
 
 	get: (id: number) => api.get<UserInfo>(`/admin/users/${id}`),
 
-	create: (data: CreateUserReq) => api.post<UserInfo>("/admin/users", data),
+	create: (data: CreateUserReq) =>
+		api.post<CreateUserResponse>("/admin/users", data),
 
 	update: (id: number, data: UpdateUserRequest) =>
 		api.patch<UserInfo>(`/admin/users/${id}`, sanitizeUpdateUserRequest(data)),

@@ -41,4 +41,57 @@ describe("validation schemas", () => {
 		expect(passwordSchema.safeParse("1234567").success).toBe(false);
 		expect(passwordSchema.safeParse("x".repeat(129)).success).toBe(false);
 	});
+
+	it("returns translated password validation messages", async () => {
+		const { existingPasswordSchema, passwordSchema } = await import(
+			"@/lib/validation"
+		);
+
+		const missingExistingPassword = existingPasswordSchema.safeParse("");
+		const shortPassword = passwordSchema.safeParse("1234567");
+		const longPassword = passwordSchema.safeParse("x".repeat(129));
+
+		expect(missingExistingPassword.success).toBe(false);
+		expect(missingExistingPassword.error.issues[0]?.message).toBe(
+			"validation:password_required",
+		);
+		expect(shortPassword.success).toBe(false);
+		expect(shortPassword.error.issues[0]?.message).toBe(
+			"validation:password_min",
+		);
+		expect(longPassword.success).toBe(false);
+		expect(longPassword.error.issues[0]?.message).toBe(
+			"validation:password_max",
+		);
+	});
+
+	it("validates password change match rules independently from required fields", async () => {
+		const { passwordChangeMatchSchema, passwordChangeSchema } = await import(
+			"@/lib/validation"
+		);
+
+		const mismatch = passwordChangeMatchSchema.safeParse({
+			confirmPassword: "different456",
+			currentPassword: "",
+			newPassword: "newsecret456",
+		});
+		const reused = passwordChangeSchema.safeParse({
+			confirmPassword: "temporary123",
+			currentPassword: "temporary123",
+			newPassword: "temporary123",
+		});
+
+		expect(mismatch.success).toBe(false);
+		expect(mismatch.error.issues[0]?.message).toBe(
+			"validation:password_confirm_mismatch",
+		);
+		expect(reused.success).toBe(false);
+		expect(
+			reused.error.issues.some(
+				(issue) =>
+					issue.path.join(".") === "newPassword" &&
+					issue.message === "validation:password_same_as_current",
+			),
+		).toBe(true);
+	});
 });

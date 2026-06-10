@@ -591,6 +591,8 @@ pub async fn audit_folder_tree<C: ConnectionTrait>(db: &C) -> Result<Vec<FolderT
 async fn load_blob_expectations_for_policy<C: ConnectionTrait>(
     db: &C,
     policy_id: i64,
+    thumbnail_max_dimension: u32,
+    image_preview_max_dimension: u32,
 ) -> Result<(HashMap<String, i64>, HashSet<String>, HashSet<String>)> {
     let mut blob_ids_by_path = HashMap::<String, i64>::new();
     let mut tracked_blobs = HashSet::<String>::new();
@@ -620,9 +622,11 @@ async fn load_blob_expectations_for_policy<C: ConnectionTrait>(
             tracked_blobs.insert(blob.storage_path.clone());
             tracked_thumbnails.extend(media_processing_service::known_thumbnail_cache_paths(
                 &blob.hash,
+                thumbnail_max_dimension,
             ));
             tracked_thumbnails.extend(media_processing_service::known_image_preview_cache_paths(
                 &blob.hash,
+                image_preview_max_dimension,
             ));
         }
     }
@@ -644,6 +648,8 @@ pub async fn audit_storage_objects<C: ConnectionTrait>(
     db: &C,
     driver_registry: &DriverRegistry,
     policy_id: Option<i64>,
+    thumbnail_max_dimension: u32,
+    image_preview_max_dimension: u32,
 ) -> Result<StorageObjectAudit> {
     let mut policies = crate::db::repository::policy_repo::find_all(db).await?;
     if let Some(policy_id) = policy_id {
@@ -657,7 +663,13 @@ pub async fn audit_storage_objects<C: ConnectionTrait>(
 
     for policy in policies {
         let (blob_ids_by_path, mut tracked_blobs, tracked_thumbnails) =
-            load_blob_expectations_for_policy(db, policy.id).await?;
+            load_blob_expectations_for_policy(
+                db,
+                policy.id,
+                thumbnail_max_dimension,
+                image_preview_max_dimension,
+            )
+            .await?;
         let tracked_temp_paths = load_temp_paths_for_policy(db, policy.id).await?;
         let driver = driver_registry.get_driver(&policy)?;
         {

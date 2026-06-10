@@ -119,6 +119,27 @@ Disabled users cannot log in.
 
 `GET /auth/me` supports a `fields` query such as `GET /auth/me?fields=profile,preferences,quota,session`. Supported groups are `profile`, `preferences`, `quota`, and `session`. Missing or empty fields returns the full model; unknown fields return `400`.
 
+If `must_change_password` is set for the user, successful login completion returns `password_change_required` instead of normal app access:
+
+```json
+{
+  "code": "success",
+  "msg": "",
+  "data": {
+    "status": "password_change_required",
+    "expires_in": 900
+  }
+}
+```
+
+This can happen after password login, MFA challenge verification, passkey login finish, or external-auth login finish. The response writes auth cookies, but the access token is scoped to the forced password-change flow. Until `PUT /auth/password` succeeds, only these authenticated routes are allowed:
+
+- `GET /auth/me`
+- `PUT /auth/password`
+- `POST /auth/logout`
+
+Other authenticated routes return `403` with `auth.password_change_required`. `POST /auth/refresh` is also rejected while the user still has `must_change_password` or the token carries password-change scope. `PUT /auth/password` still validates `current_password`, clears `must_change_password` after success, rotates sessions, and writes a normal auth cookie pair.
+
 ## MFA login flow
 
 If the user has TOTP enabled, or email-code MFA is available for the verified email user, `POST /auth/login` returns `mfa_required` instead of writing cookies:

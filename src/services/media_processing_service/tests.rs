@@ -48,7 +48,10 @@ fn available_test_command() -> String {
 #[test]
 fn known_thumbnail_cache_paths_include_normalized_namespaces() {
     let hash = "abc".repeat(21) + "a";
-    let paths = known_thumbnail_cache_paths(&hash);
+    let paths = known_thumbnail_cache_paths(
+        &hash,
+        crate::config::operations::DEFAULT_THUMBNAIL_MAX_DIMENSION,
+    );
     assert_eq!(
         paths,
         vec![
@@ -64,7 +67,10 @@ fn known_thumbnail_cache_paths_include_normalized_namespaces() {
 #[test]
 fn known_image_preview_cache_paths_include_normalized_namespaces() {
     let hash = "abc".repeat(21) + "a";
-    let paths = known_image_preview_cache_paths(&hash);
+    let paths = known_image_preview_cache_paths(
+        &hash,
+        crate::config::operations::DEFAULT_IMAGE_PREVIEW_MAX_DIMENSION,
+    );
     assert_eq!(
         paths,
         vec![

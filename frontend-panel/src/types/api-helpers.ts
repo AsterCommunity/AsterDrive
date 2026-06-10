@@ -98,6 +98,7 @@ export const ApiErrorCode = {
 	AuthInvitationExpired: "auth.invitation_expired",
 	AuthInvitationRevoked: "auth.invitation_revoked",
 	AuthInvitationAccepted: "auth.invitation_accepted",
+	AuthPasswordChangeRequired: "auth.password_change_required",
 	AvatarFileRequired: "avatar.file_required",
 	AvatarUploadReadFailed: "avatar.upload_read_failed",
 	AvatarProcessorUnavailable: "avatar.processor_unavailable",

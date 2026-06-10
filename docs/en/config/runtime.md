@@ -319,10 +319,20 @@ You can do these things there:
 - Configure commands used by `vips_cli`, `ffmpeg_cli`, or `ffprobe_cli`
 - Test whether the command can be executed by the server
 - Keep AsterDrive's built-in image processor as a fallback
+- Configure the generated thumbnail and image-preview maximum dimensions
 - Choose whether the web image preview dialog loads the original file first or the generated medium preview first
 
 The default built-in path covers common image formats.  
 If you want to extend support for HEIC, AVIF, PDF covers, video thumbnails, or video metadata, you can connect `vips`, `ffmpeg`, or `ffprobe`, but only if those commands are actually installed in the server environment.
+
+`Thumbnail max dimension` and `Image preview max dimension` control generated derivative size, not source-file eligibility:
+
+- `thumbnail_max_dimension` limits generated thumbnail width and height. The default is `400` pixels.
+- `image_preview_max_dimension` limits generated image-preview width and height. The default is `1600` pixels.
+- Both settings are maximum-edge limits: generated derivatives keep aspect ratio, and `max(width, height)` is kept at or below the configured value.
+- The same dimensions are passed to storage-native thumbnail providers through `NativeThumbnailRequest.max_width` and `max_height`.
+
+Changing either value does not rewrite existing derivatives in place. New cache paths and ETags include the non-default dimension in the derivative version namespace, such as `1-d320` or `1-d2048`, so clients and storage backends do not accidentally reuse a derivative generated at another size. If you switch back to the default value, AsterDrive uses the default derivative version namespace again.
 
 `Image preview strategy` only changes which image source the web preview dialog loads by default:
 
@@ -418,6 +428,7 @@ The primary node's service startup and shutdown are also recorded as audit event
 | Link import engine registry, temp directory, file size, speed, concurrency, request timeout, and aria2 parameters | Applied to link-import tasks created later; manual retries clean old artifacts from both the default temp directory and the current offline-download temp directory |
 | Archive preview switches and limits | Applied to later requests and new `archive_preview_generate` tasks |
 | Thumbnail source file size limit | Applied to files entering thumbnail and image-preview tasks later |
+| Thumbnail and image-preview max dimensions | Applied to later thumbnail and image-preview generation; non-default dimensions use dimension-specific cache paths and ETags |
 | Image preview strategy | Applied when the frontend later opens image previews and chooses the default source |
 | Media processor switches, commands, extension bindings | Applied to files entering thumbnail and image-preview tasks later |
 | Media metadata switch, size limit, processor binding | Applied to files entering media metadata tasks later; existing caches are not automatically rescanned because configuration changed |

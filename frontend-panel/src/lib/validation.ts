@@ -24,3 +24,51 @@ export const passwordSchema = z
 	.string()
 	.min(8, translateValidation("password_min"))
 	.max(128, translateValidation("password_max"));
+
+function refinePasswordChangeMatch(
+	{
+		confirmPassword,
+		currentPassword,
+		newPassword,
+	}: {
+		confirmPassword: string;
+		currentPassword: string;
+		newPassword: string;
+	},
+	ctx: z.RefinementCtx,
+) {
+	if (
+		currentPassword.length > 0 &&
+		newPassword.length > 0 &&
+		newPassword === currentPassword
+	) {
+		ctx.addIssue({
+			code: "custom",
+			message: translateValidation("password_same_as_current"),
+			path: ["newPassword"],
+		});
+	}
+	if (newPassword.length > 0 && confirmPassword !== newPassword) {
+		ctx.addIssue({
+			code: "custom",
+			message: translateValidation("password_confirm_mismatch"),
+			path: ["confirmPassword"],
+		});
+	}
+}
+
+export const passwordChangeMatchSchema = z
+	.object({
+		confirmPassword: z.string(),
+		currentPassword: z.string(),
+		newPassword: z.string(),
+	})
+	.superRefine(refinePasswordChangeMatch);
+
+export const passwordChangeSchema = z
+	.object({
+		confirmPassword: z.string(),
+		currentPassword: existingPasswordSchema,
+		newPassword: passwordSchema,
+	})
+	.superRefine(refinePasswordChangeMatch);

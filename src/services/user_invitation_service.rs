@@ -193,6 +193,7 @@ pub async fn accept_invitation(
                 password,
                 role: UserRole::User,
                 status: UserStatus::Active,
+                must_change_password: false,
                 email_verified_at: Some(Utc::now()),
             },
         )

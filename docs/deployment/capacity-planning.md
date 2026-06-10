@@ -133,6 +133,8 @@ AsterDrive 的常规请求路径以流式处理为主，内存不会按文件总
 | 项目 | 默认值 | 规划含义 |
 | --- | --- | --- |
 | `thumbnail_max_source_bytes` | `64 MiB` | 超过这个大小的源文件默认不生成缩略图 |
+| `thumbnail_max_dimension` | `400 px` | 生成缩略图时，默认会把最大边长限制在这个尺寸以内 |
+| `image_preview_max_dimension` | `1600 px` | 生成图片预览图时，默认会把最大边长限制在这个尺寸以内 |
 | `media_metadata_max_source_bytes` | `256 MiB` | 超过这个大小的媒体默认不提取元数据 |
 | `archive_extract_max_source_bytes` | `512 MiB` | 单个解压源文件默认上限 |
 | `archive_extract_max_staging_bytes` | `2 GiB` | 单个解压任务 staging 默认上限 |

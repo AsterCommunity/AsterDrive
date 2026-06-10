@@ -33,13 +33,15 @@ pub(crate) async fn delete_thumbnail_with_driver(
     if let Some(path) = blob.thumbnail_path.as_ref() {
         paths.insert(path.clone());
     }
-    for path in
-        crate::services::media_processing_service::shared::known_thumbnail_cache_paths(&blob.hash)
-    {
+    for path in crate::services::media_processing_service::shared::known_thumbnail_cache_paths(
+        &blob.hash,
+        operations::thumbnail_max_dimension(state.runtime_config()),
+    ) {
         paths.insert(path);
     }
     for path in crate::services::media_processing_service::shared::known_image_preview_cache_paths(
         &blob.hash,
+        operations::image_preview_max_dimension(state.runtime_config()),
     ) {
         paths.insert(path);
     }
@@ -72,9 +74,9 @@ pub(super) async fn load_thumbnail_if_exists_with_context(
     }
 
     let expected_processor = ctx.processor.thumbnail_processor();
-    let expected_version = ctx.processor.thumbnail_version();
+    let expected_version = ctx.processor.thumbnail_version(state.runtime_config());
     if (blob.thumbnail_processor.as_deref() != Some(expected_processor)
-        || blob.thumbnail_version.as_deref() != Some(expected_version))
+        || blob.thumbnail_version.as_deref() != Some(expected_version.as_str()))
         && (blob.thumbnail_path.is_some()
             || blob.thumbnail_processor.is_some()
             || blob.thumbnail_version.is_some())
@@ -92,7 +94,7 @@ pub(super) async fn load_thumbnail_if_exists_with_context(
     }
 
     if blob.thumbnail_processor.as_deref() == Some(expected_processor)
-        && blob.thumbnail_version.as_deref() == Some(expected_version)
+        && blob.thumbnail_version.as_deref() == Some(expected_version.as_str())
         && let Some(path) = blob.thumbnail_path.as_deref()
         && let Some(data) = load_thumbnail_from_path(state, blob, &ctx.driver, path, true).await?
     {
@@ -108,11 +110,11 @@ pub(super) async fn load_thumbnail_if_exists_with_context(
         return Ok(Some(ThumbnailData {
             data,
             thumbnail_processor: expected_processor.to_string(),
-            thumbnail_version: expected_version.to_string(),
+            thumbnail_version: expected_version.clone(),
         }));
     }
 
-    let expected_path = ctx.processor.cache_path(&blob.hash);
+    let expected_path = ctx.processor.cache_path(&blob.hash, state.runtime_config());
     if let Some(data) =
         load_thumbnail_from_path(state, blob, &ctx.driver, &expected_path, false).await?
     {
@@ -130,13 +132,13 @@ pub(super) async fn load_thumbnail_if_exists_with_context(
             blob,
             &expected_path,
             expected_processor,
-            expected_version,
+            &expected_version,
         )
         .await;
         return Ok(Some(ThumbnailData {
             data,
             thumbnail_processor: expected_processor.to_string(),
-            thumbnail_version: expected_version.to_string(),
+            thumbnail_version: expected_version,
         }));
     }
 

@@ -24,7 +24,7 @@ use actix_web::{HttpRequest, HttpResponse, web};
     operation_id = "create_user",
     request_body = CreateUserReq,
     responses(
-        (status = 201, description = "User created", body = inline(ApiResponse<crate::services::user_service::UserInfo>)),
+        (status = 201, description = "User created", body = inline(ApiResponse<crate::services::user_service::CreateUserOutput>)),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
         (status = 403, description = "Forbidden"),
         (status = 400, description = "Validation error"),
@@ -38,16 +38,20 @@ pub async fn create_user(
     body: web::Json<CreateUserReq>,
 ) -> Result<HttpResponse> {
     validate_request(&*body)?;
+    let body = body.into_inner();
     let ctx = audit_service::AuditContext::from_request(&req, &claims);
-    let user = user_service::create_with_audit(
+    let output = user_service::create_with_audit(
         state.get_ref(),
-        &body.username,
-        &body.email,
-        &body.password,
+        user_service::CreateUserInput {
+            username: &body.username,
+            email: &body.email,
+            password: body.password.as_deref(),
+            must_change_password: body.must_change_password,
+        },
         &ctx,
     )
     .await?;
-    Ok(HttpResponse::Created().json(ApiResponse::ok(user)))
+    Ok(HttpResponse::Created().json(ApiResponse::ok(output)))
 }
 
 #[api_docs_macros::path(
@@ -265,6 +269,7 @@ pub async fn update_user(
             email_verified: body.email_verified,
             role: body.role,
             status: body.status,
+            must_change_password: body.must_change_password,
             storage_quota: body.storage_quota,
             policy_group_id: body.policy_group_id,
         },

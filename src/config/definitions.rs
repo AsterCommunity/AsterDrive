@@ -111,6 +111,8 @@ pub const TEAM_MEMBER_LIST_MAX_LIMIT_KEY: &str = "team_member_list_max_limit";
 pub const TASK_LIST_MAX_LIMIT_KEY: &str = "task_list_max_limit";
 pub const AVATAR_MAX_UPLOAD_SIZE_BYTES_KEY: &str = "avatar_max_upload_size_bytes";
 pub const THUMBNAIL_MAX_SOURCE_BYTES_KEY: &str = "thumbnail_max_source_bytes";
+pub const THUMBNAIL_MAX_DIMENSION_KEY: &str = "thumbnail_max_dimension";
+pub const IMAGE_PREVIEW_MAX_DIMENSION_KEY: &str = "image_preview_max_dimension";
 pub const MEDIA_METADATA_ENABLED_KEY: &str = "media_metadata_enabled";
 pub const MEDIA_METADATA_MAX_SOURCE_BYTES_KEY: &str = "media_metadata_max_source_bytes";
 pub const MEDIA_PROCESSING_REGISTRY_JSON_KEY: &str = "media_processing_registry_json";
@@ -1166,6 +1168,28 @@ pub static ALL_CONFIGS: &[ConfigDef] = &[
         is_sensitive: false,
         category: CONFIG_CATEGORY_FILE_PROCESSING_MEDIA,
         description: "Maximum original file size eligible for thumbnail generation in bytes",
+    },
+    ConfigDef {
+        key: THUMBNAIL_MAX_DIMENSION_KEY,
+        label_i18n_key: "settings_item_thumbnail_max_dimension_label",
+        description_i18n_key: "settings_item_thumbnail_max_dimension_desc",
+        value_type: SystemConfigValueType::Number,
+        default_fn: || crate::config::operations::DEFAULT_THUMBNAIL_MAX_DIMENSION.to_string(),
+        requires_restart: false,
+        is_sensitive: false,
+        category: CONFIG_CATEGORY_FILE_PROCESSING_MEDIA,
+        description: "Maximum generated thumbnail width or height in pixels",
+    },
+    ConfigDef {
+        key: IMAGE_PREVIEW_MAX_DIMENSION_KEY,
+        label_i18n_key: "settings_item_image_preview_max_dimension_label",
+        description_i18n_key: "settings_item_image_preview_max_dimension_desc",
+        value_type: SystemConfigValueType::Number,
+        default_fn: || crate::config::operations::DEFAULT_IMAGE_PREVIEW_MAX_DIMENSION.to_string(),
+        requires_restart: false,
+        is_sensitive: false,
+        category: CONFIG_CATEGORY_FILE_PROCESSING_MEDIA,
+        description: "Maximum generated image preview width or height in pixels",
     },
     ConfigDef {
         key: MEDIA_METADATA_ENABLED_KEY,

@@ -20,9 +20,11 @@ pub async fn load_image_preview_if_exists(
     source_mime_type: &str,
 ) -> Result<Option<ImagePreviewData>> {
     let ctx = build_thumbnail_context(state, blob, file_name, source_mime_type)?;
-    let preview_path = ctx.processor.image_preview_cache_path(&blob.hash);
+    let preview_path = ctx
+        .processor
+        .image_preview_cache_path(&blob.hash, state.runtime_config());
     let preview_processor = ctx.processor.image_preview_processor().to_string();
-    let preview_version = ctx.processor.image_preview_version().to_string();
+    let preview_version = ctx.processor.image_preview_version(state.runtime_config());
 
     let data = load_thumbnail_from_path(state, blob, &ctx.driver, &preview_path, false).await?;
     Ok(data.map(|data| {
@@ -100,9 +102,11 @@ async fn generate_and_store_image_preview_with_context(
     source_mime_type: &str,
     ctx: &ThumbnailContext,
 ) -> Result<ImagePreviewWithData> {
-    let preview_path = ctx.processor.image_preview_cache_path(&blob.hash);
+    let preview_path = ctx
+        .processor
+        .image_preview_cache_path(&blob.hash, state.runtime_config());
     let preview_processor = ctx.processor.image_preview_processor().to_string();
-    let preview_version = ctx.processor.image_preview_version().to_string();
+    let preview_version = ctx.processor.image_preview_version(state.runtime_config());
 
     if let Some(data) =
         load_thumbnail_from_path(state, blob, &ctx.driver, &preview_path, false).await?

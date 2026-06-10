@@ -23,6 +23,7 @@ import { UserSecurityActionsSection } from "./UserSecurityActionsSection";
 interface UserDetailDraftState {
 	confirmPasswordValue: string;
 	draftEmailVerified: boolean;
+	draftMustChangePassword: boolean;
 	draftPolicyGroupId: number | null;
 	draftRole: UserRole;
 	draftStatus: UserStatus;
@@ -47,6 +48,7 @@ type UserDetailDraftAction =
 	| { type: "set_busy"; field: BusyField; value: boolean }
 	| { type: "set_confirm_password_value"; value: string }
 	| { type: "set_draft_email_verified"; value: boolean }
+	| { type: "set_draft_must_change_password"; value: boolean }
 	| { type: "set_draft_policy_group_id"; value: number | null }
 	| { type: "set_draft_role"; value: UserRole }
 	| { type: "set_draft_status"; value: UserStatus }
@@ -73,6 +75,7 @@ function createUserDraftState(user: UserInfo): UserDetailDraftState {
 	return {
 		confirmPasswordValue: "",
 		draftEmailVerified: user.email_verified,
+		draftMustChangePassword: user.must_change_password,
 		draftPolicyGroupId: user.policy_group_id ?? null,
 		draftRole: user.role,
 		draftStatus: user.status,
@@ -120,6 +123,11 @@ function userDetailDraftReducer(
 			return {
 				...state,
 				draftEmailVerified: action.value,
+			};
+		case "set_draft_must_change_password":
+			return {
+				...state,
+				draftMustChangePassword: action.value,
 			};
 		case "set_draft_policy_group_id":
 			return {
@@ -171,6 +179,7 @@ export function UserDetailDialogBody({
 	const {
 		confirmPasswordValue,
 		draftEmailVerified,
+		draftMustChangePassword,
 		draftPolicyGroupId,
 		draftRole,
 		draftStatus,
@@ -194,6 +203,7 @@ export function UserDetailDialogBody({
 		draftPolicyGroupId !== (user.policy_group_id ?? null);
 	const hasProfileChanges =
 		draftEmailVerified !== user.email_verified ||
+		draftMustChangePassword !== user.must_change_password ||
 		draftRole !== user.role ||
 		draftStatus !== user.status ||
 		quotaValue !== currentQuotaMb ||
@@ -252,6 +262,9 @@ export function UserDetailDialogBody({
 
 		if (draftEmailVerified !== user.email_verified) {
 			data.email_verified = draftEmailVerified;
+		}
+		if (draftMustChangePassword !== user.must_change_password) {
+			data.must_change_password = draftMustChangePassword;
 		}
 		if (draftRole !== user.role) data.role = draftRole;
 		if (draftStatus !== user.status) data.status = draftStatus;
@@ -371,6 +384,7 @@ export function UserDetailDialogBody({
 							/>
 							<UserSecurityActionsSection
 								confirmPasswordValue={confirmPasswordValue}
+								mustChangePassword={draftMustChangePassword}
 								onConfirmPasswordValueChange={(value) => {
 									dispatch({ type: "set_confirm_password_value", value });
 									dispatch({
@@ -386,6 +400,12 @@ export function UserDetailDialogBody({
 										field: "password",
 									});
 								}}
+								onMustChangePasswordChange={(value) =>
+									dispatch({
+										type: "set_draft_must_change_password",
+										value,
+									})
+								}
 								onMfaReset={handleMfaReset}
 								onSessionRevoke={handleSessionRevoke}
 								passwordErrors={passwordErrors}
@@ -393,6 +413,7 @@ export function UserDetailDialogBody({
 								resettingMfa={resettingMfa}
 								revokingSessions={revokingSessions}
 								savingPassword={savingPassword}
+								savingProfile={savingProfile}
 							/>
 						</div>
 					</div>

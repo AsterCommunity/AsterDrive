@@ -26,7 +26,19 @@ type OperationData<Operation extends keyof ApiOperations> =
 		};
 	}
 		? NonNullable<Data>
-		: never;
+		: ApiOperations[Operation] extends {
+					responses: {
+						201: {
+							content: {
+								"application/json": {
+									data?: infer Data;
+								};
+							};
+						};
+					};
+				}
+			? NonNullable<Data>
+			: never;
 
 // Core responses
 export type ApiErrorCode = components["schemas"]["ApiErrorCode"];
@@ -51,6 +63,7 @@ export type AuthTokenResp = components["schemas"]["AuthTokenResp"];
 export type CheckResp = components["schemas"]["CheckResp"];
 export type ChangePasswordRequest = components["schemas"]["ChangePasswordReq"];
 export type CreateUserReq = components["schemas"]["CreateUserReq"];
+export type CreateUserResponse = OperationData<"create_user">;
 export type CreateUserInvitationRequest =
 	components["schemas"]["CreateUserInvitationReq"];
 export type MeResponse = components["schemas"]["MeResponse"];

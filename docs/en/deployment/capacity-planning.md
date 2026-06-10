@@ -133,6 +133,8 @@ Remember these default limits:
 | Item | Default | Planning meaning |
 | --- | --- | --- |
 | `thumbnail_max_source_bytes` | `64 MiB` | Source files above this size do not generate thumbnails by default |
+| `thumbnail_max_dimension` | `400 px` | Generated thumbnails keep their largest edge at or below this size by default |
+| `image_preview_max_dimension` | `1600 px` | Generated image previews keep their largest edge at or below this size by default |
 | `media_metadata_max_source_bytes` | `256 MiB` | Media above this size does not extract metadata by default |
 | `archive_extract_max_source_bytes` | `512 MiB` | Default max source file size for one extraction task |
 | `archive_extract_max_staging_bytes` | `2 GiB` | Default staging limit for one extraction task |

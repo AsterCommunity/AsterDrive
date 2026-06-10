@@ -61,6 +61,31 @@ fn json_i64_values(items: &[Value], key: &str) -> Vec<i64> {
         .collect()
 }
 
+fn assert_generated_password_policy(generated_password: &str) {
+    assert!(
+        generated_password.len() >= 24,
+        "generated password should be at least 24 characters"
+    );
+    assert!(
+        generated_password.chars().any(|c| c.is_ascii_uppercase()),
+        "generated password should include an uppercase letter"
+    );
+    assert!(
+        generated_password.chars().any(|c| c.is_ascii_lowercase()),
+        "generated password should include a lowercase letter"
+    );
+    assert!(
+        generated_password.chars().any(|c| c.is_ascii_digit()),
+        "generated password should include a digit"
+    );
+    assert!(
+        generated_password
+            .chars()
+            .any(|c| c.is_ascii_graphic() && !c.is_ascii_alphanumeric()),
+        "generated password should include a symbol"
+    );
+}
+
 fn assert_blob_ref_health(
     blob: &Value,
     recorded_ref_count: i64,
@@ -220,6 +245,8 @@ async fn test_admin_scope_allows_admin_users() {
     assert!(keys.contains(&"archive_preview_max_manifest_bytes"));
     assert!(keys.contains(&"archive_preview_max_duration_secs"));
     assert!(keys.contains(&"thumbnail_max_source_bytes"));
+    assert!(keys.contains(&"thumbnail_max_dimension"));
+    assert!(keys.contains(&"image_preview_max_dimension"));
     assert!(keys.contains(&"media_processing_registry_json"));
     assert!(keys.contains(&"media_metadata_enabled"));
     assert!(keys.contains(&"media_metadata_max_source_bytes"));
@@ -3258,13 +3285,15 @@ async fn test_admin_create_user() {
     let resp = test::call_service(&app, req).await;
     assert_eq!(resp.status(), 201);
     let body: Value = test::read_body_json(resp).await;
-    let user = &body["data"];
+    let user = &body["data"]["user"];
     assert_eq!(user["username"], "newuser");
     assert_eq!(user["email"], "newuser@example.com");
     assert_eq!(user["role"], "user");
     assert_eq!(user["status"], "active");
+    assert_eq!(user["must_change_password"], false);
     assert_eq!(user["storage_quota"], 0);
     assert!(user.get("password_hash").is_none());
+    assert!(body["data"].get("generated_password").is_none());
 
     let req = test::TestRequest::get()
         .uri("/api/v1/admin/users?keyword=newuser")
@@ -3276,6 +3305,236 @@ async fn test_admin_create_user() {
     let body: Value = test::read_body_json(resp).await;
     assert_eq!(body["data"]["total"], 1);
     assert_eq!(body["data"]["items"][0]["username"], "newuser");
+}
+
+#[actix_web::test]
+async fn test_admin_create_user_can_force_change_with_explicit_password() {
+    let state = common::setup().await;
+    let app = create_test_app!(state);
+    let (token, _) = register_and_login!(app);
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/admin/users")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .peer_addr("127.0.0.1:12345".parse().unwrap())
+        .set_json(serde_json::json!({
+            "username": "manualforce",
+            "email": "manualforce@example.com",
+            "password": "password123",
+            "must_change_password": true
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 201);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(body["data"]["user"]["must_change_password"], true);
+    assert!(body["data"].get("generated_password").is_none());
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/auth/login")
+        .peer_addr("127.0.0.1:12345".parse().unwrap())
+        .set_json(serde_json::json!({
+            "identifier": "manualforce",
+            "password": "password123"
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+    let access = common::extract_cookie(&resp, "aster_access").expect("access cookie missing");
+    assert!(!access.is_empty());
+    let csrf = common::extract_cookie(&resp, "aster_csrf").expect("csrf cookie missing");
+    assert!(!csrf.is_empty());
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(body["data"]["status"], "password_change_required");
+}
+
+#[actix_web::test]
+async fn test_admin_create_user_rejects_short_explicit_password_without_generation() {
+    let state = common::setup().await;
+    let app = create_test_app!(state.clone());
+    let (token, _) = register_and_login!(app);
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/admin/users")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .peer_addr("127.0.0.1:12345".parse().unwrap())
+        .set_json(serde_json::json!({
+            "username": "shortpassuser",
+            "email": "shortpassuser@example.com",
+            "password": "1234567"
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 400);
+    let body: Value = test::read_body_json(resp).await;
+    assert!(body["data"].is_null());
+    assert!(body.get("generated_password").is_none());
+
+    let user = user_repo::find_by_username(state.writer_db(), "shortpassuser")
+        .await
+        .unwrap();
+    assert!(user.is_none());
+}
+
+#[actix_web::test]
+async fn test_admin_create_user_generates_temporary_password_when_omitted() {
+    let state = common::setup().await;
+    let app = create_test_app!(state.clone());
+    let (token, _) = register_and_login!(app);
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/admin/users")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .peer_addr("127.0.0.1:12345".parse().unwrap())
+        .set_json(serde_json::json!({
+            "username": "generateduser",
+            "email": "generateduser@example.com"
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 201);
+    let body: Value = test::read_body_json(resp).await;
+    let user_id = body["data"]["user"]["id"].as_i64().unwrap();
+    let generated_password = body["data"]["generated_password"]
+        .as_str()
+        .expect("generated password should be returned once")
+        .to_string();
+    assert_generated_password_policy(&generated_password);
+    assert_eq!(body["data"]["user"]["must_change_password"], true);
+    let user = user_repo::find_by_id(state.writer_db(), user_id)
+        .await
+        .unwrap();
+    assert!(user.must_change_password);
+    assert!(!user.password_hash.contains(&generated_password));
+
+    let req = test::TestRequest::get()
+        .uri(&format!("/api/v1/admin/users/{user_id}"))
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+    let body: Value = test::read_body_json(resp).await;
+    assert!(body["data"].get("generated_password").is_none());
+
+    let req = test::TestRequest::get()
+        .uri("/api/v1/admin/users?keyword=generateduser")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(body["data"]["total"], 1);
+    assert!(body["data"]["items"][0].get("generated_password").is_none());
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/auth/login")
+        .peer_addr("127.0.0.1:12345".parse().unwrap())
+        .set_json(serde_json::json!({
+            "identifier": "generateduser",
+            "password": generated_password
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+    let access = common::extract_cookie(&resp, "aster_access").expect("access cookie missing");
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(body["data"]["status"], "password_change_required");
+
+    let req = test::TestRequest::put()
+        .uri("/api/v1/auth/password")
+        .insert_header(("Cookie", common::access_cookie_header(&access)))
+        .insert_header(common::csrf_header_for(&access))
+        .set_json(serde_json::json!({
+            "current_password": "wrongpassword",
+            "new_password": "newsecret456"
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(
+        resp.status(),
+        401,
+        "wrong current password must not clear forced password change"
+    );
+
+    let req = test::TestRequest::put()
+        .uri("/api/v1/auth/password")
+        .insert_header(("Cookie", common::access_cookie_header(&access)))
+        .insert_header(common::csrf_header_for(&access))
+        .set_json(serde_json::json!({
+            "current_password": generated_password,
+            "new_password": "newsecret456"
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+    let user = user_repo::find_by_id(state.writer_db(), user_id)
+        .await
+        .unwrap();
+    assert!(!user.must_change_password);
+}
+
+#[actix_web::test]
+async fn test_admin_create_user_generates_temporary_password_for_null_empty_and_whitespace() {
+    let state = common::setup().await;
+    let app = create_test_app!(state);
+    let (token, _) = register_and_login!(app);
+
+    for (username, password) in [
+        ("nullpass", serde_json::Value::Null),
+        ("emptypass", serde_json::json!("")),
+        ("spacepass", serde_json::json!("   \t\n")),
+        ("explicitfalse", serde_json::json!("")),
+    ] {
+        let req = test::TestRequest::post()
+            .uri("/api/v1/admin/users")
+            .insert_header(("Cookie", common::access_cookie_header(&token)))
+            .insert_header(common::csrf_header_for(&token))
+            .peer_addr("127.0.0.1:12345".parse().unwrap())
+            .set_json(serde_json::json!({
+                "username": username,
+                "email": format!("{username}@example.com"),
+                "password": password,
+                "must_change_password": false
+            }))
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(resp.status(), 201);
+        let body: Value = test::read_body_json(resp).await;
+        let generated_password = body["data"]["generated_password"]
+            .as_str()
+            .unwrap_or_else(|| panic!("temporary password should be generated for {username}"));
+        assert_generated_password_policy(generated_password);
+        assert_eq!(body["data"]["user"]["must_change_password"], true);
+    }
+}
+
+#[actix_web::test]
+async fn test_admin_create_user_rejects_overlong_generated_password_request_fields() {
+    let state = common::setup().await;
+    let app = create_test_app!(state);
+    let (token, _) = register_and_login!(app);
+    let long_username = "u".repeat(17);
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/admin/users")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .peer_addr("127.0.0.1:12345".parse().unwrap())
+        .set_json(serde_json::json!({
+            "username": long_username,
+            "email": "badgenerated@example.com"
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 400);
+    let body: Value = test::read_body_json(resp).await;
+    assert!(body["data"].is_null());
+    assert!(body.get("generated_password").is_none());
 }
 
 #[actix_web::test]
@@ -3547,6 +3806,85 @@ async fn test_admin_config() {
         .to_request();
     let resp = test::call_service(&app, req).await;
     assert_eq!(resp.status(), 200);
+}
+
+#[actix_web::test]
+async fn test_admin_config_validates_media_derivative_dimensions() {
+    let state = common::setup().await;
+    let app = create_test_app!(state);
+    let (token, _) = register_and_login!(app);
+
+    for (key, value) in [
+        ("thumbnail_max_dimension", "1".to_string()),
+        (
+            "image_preview_max_dimension",
+            aster_drive::config::operations::MAX_DERIVATIVE_MAX_DIMENSION.to_string(),
+        ),
+    ] {
+        let req = test::TestRequest::put()
+            .uri(&format!("/api/v1/admin/config/{key}"))
+            .insert_header(("Cookie", common::access_cookie_header(&token)))
+            .insert_header(common::csrf_header_for(&token))
+            .set_json(serde_json::json!({ "value": value.as_str() }))
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(resp.status(), 200, "{key}={value} should be accepted");
+
+        let req = test::TestRequest::get()
+            .uri(&format!("/api/v1/admin/config/{key}"))
+            .insert_header(("Cookie", common::access_cookie_header(&token)))
+            .insert_header(common::csrf_header_for(&token))
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(resp.status(), 200);
+        let body: Value = test::read_body_json(resp).await;
+        assert_eq!(body["data"]["value"].as_str(), Some(value.as_str()));
+    }
+
+    let invalid_values = [
+        "0".to_string(),
+        "-1".to_string(),
+        "12.5".to_string(),
+        "abc".to_string(),
+        (u64::from(aster_drive::config::operations::MAX_DERIVATIVE_MAX_DIMENSION) + 1).to_string(),
+    ];
+    for key in ["thumbnail_max_dimension", "image_preview_max_dimension"] {
+        let req = test::TestRequest::get()
+            .uri(&format!("/api/v1/admin/config/{key}"))
+            .insert_header(("Cookie", common::access_cookie_header(&token)))
+            .insert_header(common::csrf_header_for(&token))
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(resp.status(), 200);
+        let body: Value = test::read_body_json(resp).await;
+        let original_value = body["data"]["value"].as_str().unwrap().to_string();
+
+        for invalid in &invalid_values {
+            let req = test::TestRequest::put()
+                .uri(&format!("/api/v1/admin/config/{key}"))
+                .insert_header(("Cookie", common::access_cookie_header(&token)))
+                .insert_header(common::csrf_header_for(&token))
+                .set_json(serde_json::json!({ "value": invalid.as_str() }))
+                .to_request();
+            let resp = test::call_service(&app, req).await;
+            let status = resp.status();
+            let body: Value = test::read_body_json(resp).await;
+            assert_eq!(status, 400, "{key}={invalid} should be rejected: {body:#?}");
+
+            let req = test::TestRequest::get()
+                .uri(&format!("/api/v1/admin/config/{key}"))
+                .insert_header(("Cookie", common::access_cookie_header(&token)))
+                .insert_header(common::csrf_header_for(&token))
+                .to_request();
+            let resp = test::call_service(&app, req).await;
+            assert_eq!(resp.status(), 200);
+            let body: Value = test::read_body_json(resp).await;
+            assert_eq!(
+                body["data"]["value"].as_str(),
+                Some(original_value.as_str())
+            );
+        }
+    }
 }
 
 #[actix_web::test]

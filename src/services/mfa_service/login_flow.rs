@@ -52,6 +52,7 @@ pub struct MfaChallengeLoginResult {
     pub access_token: String,
     pub refresh_token: String,
     pub user_id: i64,
+    pub password_change_required: bool,
 }
 
 struct MfaChallengeAttempt {
@@ -69,13 +70,18 @@ pub async fn complete_primary_login_or_start_mfa(
 ) -> Result<PrimaryLoginCompletion> {
     let methods = available_challenge_methods(state.writer_db(), state, user).await?;
     if methods.is_empty() {
-        let (access_token, refresh_token) =
-            auth_service::issue_tokens_for_user(state, user, ip_address, user_agent).await?;
+        let (access_token, refresh_token) = if user.must_change_password {
+            auth_service::issue_password_change_tokens_for_user(state, user, ip_address, user_agent)
+                .await?
+        } else {
+            auth_service::issue_tokens_for_user(state, user, ip_address, user_agent).await?
+        };
         return Ok(PrimaryLoginCompletion::Authenticated(
             auth_service::LoginResult {
                 access_token,
                 refresh_token,
                 user_id: user.id,
+                password_change_required: user.must_change_password,
             },
         ));
     }
@@ -404,20 +410,31 @@ pub async fn verify_challenge(
             return Err(flow_invalid("MFA flow has already been consumed"));
         }
 
-        let (access_token, refresh_token) = auth_service::issue_tokens_for_user_in_connection(
-            &txn,
-            state,
-            &user,
-            flow.ip_address.as_deref(),
-            flow.user_agent.as_deref(),
-        )
-        .await?;
+        let (access_token, refresh_token) = if user.must_change_password {
+            auth_service::issue_password_change_tokens_for_user(
+                state,
+                &user,
+                flow.ip_address.as_deref(),
+                flow.user_agent.as_deref(),
+            )
+            .await?
+        } else {
+            auth_service::issue_tokens_for_user_in_connection(
+                &txn,
+                state,
+                &user,
+                flow.ip_address.as_deref(),
+                flow.user_agent.as_deref(),
+            )
+            .await?
+        };
         Ok::<_, AsterError>(MfaChallengeAttempt {
             user_id,
             result: Ok(MfaChallengeLoginResult {
                 access_token,
                 refresh_token,
                 user_id,
+                password_change_required: user.must_change_password,
             }),
         })
     }

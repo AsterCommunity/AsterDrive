@@ -68,6 +68,7 @@ If login fails, start here:
 - `auth.token_missing` / `auth.token_invalid` / `auth.token_expired`: login state is missing, invalid, or expired. Refresh the page; if it repeats, clear cookies and log in again.
 - `auth.refresh_token_stale`: refresh token is too old, often caused by multiple devices, an old page, or an old session. Log in again.
 - `auth.refresh_token_reuse_detected`: refresh token replay was detected. The session is rejected; revoke other sessions and log in again.
+- `auth.password_change_required`: an administrator requires this account to change its password first. After login, finish the forced password-change flow; normal APIs are denied until it succeeds.
 - `auth.account_disabled`: the account is disabled. Regular users must contact an administrator.
 - `auth.registration_disabled`: public registration is disabled. Ask an administrator to create an account or enable registration.
 
@@ -315,6 +316,7 @@ The following table groups current public `ApiErrorCode` values by handling path
 | `auth.failed` / `auth.credentials_failed` | Authentication failed or credentials are wrong. |
 | `auth.token_missing` / `auth.token_invalid` / `auth.token_expired` | Token is missing, invalid, or expired. |
 | `auth.refresh_token_stale` / `auth.refresh_token_reuse_detected` | Refresh token is stale or replay was detected. |
+| `auth.password_change_required` | The account must change its password before continuing. |
 | `auth.pending_activation` | Account is pending activation. |
 | `auth.contact_verification_invalid` / `auth.contact_verification_expired` | Contact verification is invalid or expired. |
 | `forbidden` | Permission denied, usually with a more specific permission code. |
