@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { handleApiError } from "@/hooks/useApiError";
 import { usePageTitle } from "@/hooks/usePageTitle";
+import { logger } from "@/lib/logger";
 import {
 	passwordChangeMatchSchema,
 	passwordChangeSchema,
@@ -201,9 +202,11 @@ export default function ForcePasswordChangePage() {
 				new_password: newPassword,
 			});
 			syncSession(session.expiresIn);
-			await refreshUser();
 			toast.success(t("force_password_change_success"));
 			navigate("/", { replace: true });
+			void Promise.resolve(refreshUser()).catch((error) => {
+				logger.warn("refreshUser after password change failed", error);
+			});
 		} catch (error) {
 			handleApiError(error);
 		} finally {
@@ -216,6 +219,9 @@ export default function ForcePasswordChangePage() {
 			setSigningOut(true);
 			await logout();
 			navigate("/login", { replace: true });
+		} catch (error) {
+			setSigningOut(false);
+			handleApiError(error);
 		} finally {
 			setSigningOut(false);
 		}

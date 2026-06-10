@@ -53,10 +53,11 @@ pub(super) async fn execute_doctor_command_impl(args: &DoctorArgs) -> DoctorRepo
         );
     }
 
-    if let Some(runtime_config) = load_runtime_config_checks(&db, &mut checks).await {
-        checks.push(doctor_public_site_url_check(&runtime_config));
-        checks.push(doctor_mail_check(&runtime_config));
-        checks.push(doctor_preview_apps_check(&runtime_config));
+    let runtime_config = load_runtime_config_checks(&db, &mut checks).await;
+    if let Some(runtime_config) = runtime_config.as_ref() {
+        checks.push(doctor_public_site_url_check(runtime_config));
+        checks.push(doctor_mail_check(runtime_config));
+        checks.push(doctor_preview_apps_check(runtime_config));
     }
 
     checks.push(doctor_storage_policy_check(&db).await);
@@ -70,6 +71,7 @@ pub(super) async fn execute_doctor_command_impl(args: &DoctorArgs) -> DoctorRepo
         &scopes,
         effective_policy_id,
         policy_filter_valid,
+        runtime_config.as_ref(),
         &mut checks,
     )
     .await;
@@ -301,6 +303,7 @@ async fn push_deep_checks(
     scopes: &[DoctorDeepScope],
     effective_policy_id: Option<i64>,
     policy_filter_valid: bool,
+    runtime_config: Option<&crate::config::RuntimeConfig>,
     checks: &mut Vec<DoctorCheck>,
 ) {
     if !args.deep && !args.fix && args.scopes.is_empty() && args.policy_id.is_none() {
@@ -341,10 +344,13 @@ async fn push_deep_checks(
         });
     }
 
-    if doctor_scope_enabled(scopes, DoctorDeepScope::StorageObjects) && policy_filter_valid {
+    if doctor_scope_enabled(scopes, DoctorDeepScope::StorageObjects)
+        && policy_filter_valid
+        && let Some(runtime_config) = runtime_config
+    {
         // storage object 扫描会真实触达底层驱动，和前面的纯数据库检查分开汇总，
         // 这样运维侧能一眼区分“库里坏了”还是“对象存储不可达/有漂移”。
-        match doctor_storage_scan_checks(db, effective_policy_id).await {
+        match doctor_storage_scan_checks(db, runtime_config, effective_policy_id).await {
             Ok(storage_checks) => checks.extend(storage_checks),
             Err(err) => checks.extend([
                 doctor_check(

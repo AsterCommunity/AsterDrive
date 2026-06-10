@@ -345,7 +345,7 @@ You can also change the login password here. Changing the password requires ente
 
 In the current version, after a password change succeeds, the current browser session stays logged in, while login sessions on other devices become invalid and must log in again.
 
-If an administrator requires a password change, AsterDrive sends you directly to the password-change screen after a successful login. Until you enter the current temporary password and set a new one, normal file, team, share, and admin areas are unavailable; you can only read basic account state, change the password, or sign out. After the change succeeds, the account returns to normal login state.
+If an administrator requires a password change, AsterDrive sends you directly to the password-change screen after a successful login. Until you enter the current password (if admin reset it, this is a temporary password) and set a new one, normal file, team, share, and admin areas are unavailable; you can only read basic account state, change the password, or sign out. After the change succeeds, the account returns to normal login state.
 
 The `Multi-factor authentication` tab can add a second factor to the account. The factor users can bind themselves is a TOTP authenticator app, such as 1Password, Bitwarden, Google Authenticator, or Microsoft Authenticator.
 

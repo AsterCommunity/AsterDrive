@@ -51,14 +51,6 @@ import type {
 	UserStatus,
 } from "@/types/api";
 
-type CreateUserForm = Omit<
-	CreateUserReq,
-	"must_change_password" | "password"
-> & {
-	must_change_password?: boolean | null;
-	password: string;
-};
-
 interface GeneratedCreatePassword {
 	password: string;
 	username: string;
@@ -215,8 +207,8 @@ export default function AdminUsersPage() {
 		null,
 	);
 	const [createDialogOpen, setCreateDialogOpen] = useState(false);
-	const [createErrors, setCreateErrors] = useState<Partial<CreateUserForm>>({});
-	const [createForm, setCreateForm] = useState<CreateUserForm>({
+	const [createErrors, setCreateErrors] = useState<Partial<CreateUserReq>>({});
+	const [createForm, setCreateForm] = useState<CreateUserReq>({
 		username: "",
 		email: "",
 		password: "",
@@ -425,7 +417,7 @@ export default function AdminUsersPage() {
 		setCreateErrors({});
 	};
 
-	const validateCreateField = (field: keyof CreateUserForm, value: string) => {
+	const validateCreateField = (field: keyof CreateUserReq, value: string) => {
 		if (field === "must_change_password") return;
 		const schema =
 			field === "username"
@@ -445,7 +437,7 @@ export default function AdminUsersPage() {
 	};
 
 	const validateCreateForm = () => {
-		const nextErrors: Partial<CreateUserForm> = {};
+		const nextErrors: Partial<CreateUserReq> = {};
 		const usernameResult = usernameSchema.safeParse(createForm.username.trim());
 		if (!usernameResult.success) {
 			nextErrors.username = usernameResult.error.issues[0]?.message ?? "";
@@ -454,8 +446,9 @@ export default function AdminUsersPage() {
 		if (!emailResult.success) {
 			nextErrors.email = emailResult.error.issues[0]?.message ?? "";
 		}
-		if (createForm.password.trim().length > 0) {
-			const passwordResult = passwordSchema.safeParse(createForm.password);
+		const createPassword = createForm.password ?? "";
+		if (createPassword.trim().length > 0) {
+			const passwordResult = passwordSchema.safeParse(createPassword);
 			if (!passwordResult.success) {
 				nextErrors.password = passwordResult.error.issues[0]?.message ?? "";
 			}
@@ -465,7 +458,7 @@ export default function AdminUsersPage() {
 	};
 
 	const handleCreateFormChange = (
-		key: keyof CreateUserForm,
+		key: keyof CreateUserReq,
 		value: boolean | string,
 	) => {
 		setCreateForm((prev) => ({ ...prev, [key]: value }));
@@ -541,7 +534,8 @@ export default function AdminUsersPage() {
 		if (!validateCreateForm()) return;
 		try {
 			const result = await runWithCreatingUser(async () => {
-				const password = createForm.password.trim()
+				const createPassword = createForm.password ?? "";
+				const password = createPassword.trim()
 					? createForm.password
 					: undefined;
 				const result = await adminUserService.create({

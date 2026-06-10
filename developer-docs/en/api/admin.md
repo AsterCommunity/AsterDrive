@@ -330,7 +330,7 @@ While the flag is set, successful password, MFA, passkey, and external-auth logi
 }
 ```
 
-The issued access token is scoped to password change only. It can call `GET /auth/me`, `PUT /auth/password`, and `POST /auth/logout`; other authenticated routes return `403` with `auth.password_change_required`. `POST /auth/refresh` is also rejected while the flag or password-change token scope is present. `PUT /auth/password` still requires the current temporary password and clears `must_change_password` after a successful update.
+The issued access token is scoped to password change only. It can call `GET /auth/me`, `PUT /auth/password`, and `POST /auth/logout`; other authenticated routes return `403` with `auth.password_change_required`. `POST /auth/refresh` is also rejected while the flag or password-change token scope is present. `PUT /auth/password` still requires the current password and clears `must_change_password` after a successful update. The current password is temporary only when an administrator has reset the user's password; if an administrator only sets `must_change_password`, the user's existing password remains the current password.
 
 ## Teams
 

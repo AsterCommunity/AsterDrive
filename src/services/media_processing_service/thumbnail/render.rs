@@ -190,7 +190,7 @@ fn render_audio_artwork_thumbnail_from_path(path: &Path, max_dim: u32) -> Result
         .and_then(|tag| tag.pictures().first())
         .ok_or_else(|| AsterError::validation_error("audio file has no embedded artwork"))?;
     crate::services::thumbnail_service::render_webp_derivative_from_image_bytes(
-        Cursor::new(picture.data().to_vec()),
+        Cursor::new(picture.data()),
         max_dim,
     )
 }

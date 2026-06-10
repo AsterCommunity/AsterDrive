@@ -4169,6 +4169,14 @@ async fn test_forced_password_change_restricts_session_and_clears_after_update()
         claims.password_change,
         "access token should be scoped to password change"
     );
+    let password_change_refresh_claims = auth_service::verify_token(
+        &password_change_refresh,
+        state.config.auth.jwt_secret.as_str(),
+    )
+    .expect("password-change refresh token should verify");
+    let password_change_refresh_jti = password_change_refresh_claims
+        .jti
+        .expect("password-change refresh token should carry a jti");
 
     let req = test::TestRequest::post()
         .uri("/api/v1/auth/refresh")
@@ -4231,7 +4239,10 @@ async fn test_forced_password_change_restricts_session_and_clears_after_update()
         .uri("/api/v1/auth/logout")
         .insert_header((
             "Cookie",
-            common::access_cookie_header(&password_change_access),
+            common::access_and_refresh_cookie_header(
+                &password_change_access,
+                &password_change_refresh,
+            ),
         ))
         .insert_header(common::csrf_header_for(&password_change_access))
         .to_request();
@@ -4240,6 +4251,29 @@ async fn test_forced_password_change_restricts_session_and_clears_after_update()
         resp.status(),
         200,
         "logout should be allowed before password change"
+    );
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/auth/refresh")
+        .insert_header((
+            "Cookie",
+            common::refresh_cookie_header(&password_change_refresh),
+        ))
+        .insert_header(common::csrf_header_for(&password_change_refresh))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert!(
+        !resp.status().is_success(),
+        "restricted refresh token should be rejected after logout"
+    );
+    let revoked_session =
+        auth_session_repo::find_by_refresh_jti(state.writer_db(), &password_change_refresh_jti)
+            .await
+            .unwrap()
+            .expect("revoked restricted session should remain as tombstone");
+    assert!(
+        revoked_session.revoked_at.is_some(),
+        "restricted refresh token should be revoked after logout"
     );
 
     let req = test::TestRequest::post()

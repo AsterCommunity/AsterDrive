@@ -16,21 +16,13 @@ import { Switch } from "@/components/ui/switch";
 import { ADMIN_CONTROL_HEIGHT_CLASS } from "@/lib/constants";
 import type { CreateUserReq } from "@/types/api";
 
-type CreateUserForm = Omit<
-	CreateUserReq,
-	"must_change_password" | "password"
-> & {
-	must_change_password?: boolean | null;
-	password: string;
-};
-
 interface CreateUserDialogProps {
-	createErrors: Partial<CreateUserForm>;
+	createErrors: Partial<CreateUserReq>;
 	creating: boolean;
-	form: CreateUserForm;
+	form: CreateUserReq;
 	open: boolean;
-	onFieldChange: (key: keyof CreateUserForm, value: boolean | string) => void;
-	onFieldValidate: (field: keyof CreateUserForm, value: string) => void;
+	onFieldChange: (key: keyof CreateUserReq, value: boolean | string) => void;
+	onFieldValidate: (field: keyof CreateUserReq, value: string) => void;
 	onOpenChange: (open: boolean) => void;
 	onSubmit: (event: FormEvent<HTMLFormElement>) => void;
 }
@@ -105,7 +97,7 @@ export function CreateUserDialog({
 							id="create-user-password"
 							name="admin-create-user-password"
 							type="password"
-							value={form.password}
+							value={form.password ?? ""}
 							onChange={(event) => {
 								const value = event.target.value;
 								onFieldChange("password", value);

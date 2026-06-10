@@ -7,6 +7,7 @@ const mockState = vi.hoisted(() => ({
 	handleApiError: vi.fn(),
 	isAuthenticated: true,
 	isChecking: false,
+	loggerWarn: vi.fn(),
 	logout: vi.fn(),
 	mustChangePassword: true,
 	navigate: vi.fn(),
@@ -76,6 +77,12 @@ vi.mock("@/components/ui/label", () => ({
 
 vi.mock("@/hooks/useApiError", () => ({
 	handleApiError: (...args: unknown[]) => mockState.handleApiError(...args),
+}));
+
+vi.mock("@/lib/logger", () => ({
+	logger: {
+		warn: (...args: unknown[]) => mockState.loggerWarn(...args),
+	},
 }));
 
 vi.mock("@/hooks/usePageTitle", () => ({
@@ -212,6 +219,7 @@ describe("ForcePasswordChangePage", () => {
 		mockState.handleApiError.mockReset();
 		mockState.isAuthenticated = true;
 		mockState.isChecking = false;
+		mockState.loggerWarn.mockReset();
 		mockState.logout.mockReset();
 		mockState.mustChangePassword = true;
 		mockState.navigate.mockReset();
@@ -408,6 +416,31 @@ describe("ForcePasswordChangePage", () => {
 		expect(mockState.navigate).toHaveBeenCalledWith("/", { replace: true });
 	});
 
+	it("enters the app when the post-change user refresh fails", async () => {
+		const error = new Error("refresh failed");
+		mockState.refreshUser.mockRejectedValueOnce(error);
+		render(<ForcePasswordChangePage />);
+		fillPasswordForm();
+
+		fireEvent.click(
+			screen.getByRole("button", { name: /force_password_change_submit/ }),
+		);
+
+		await waitFor(() => {
+			expect(mockState.navigate).toHaveBeenCalledWith("/", { replace: true });
+		});
+		expect(mockState.toastSuccess).toHaveBeenCalledWith(
+			"force_password_change_success",
+		);
+		await waitFor(() => {
+			expect(mockState.loggerWarn).toHaveBeenCalledWith(
+				"refreshUser after password change failed",
+				error,
+			);
+		});
+		expect(mockState.handleApiError).not.toHaveBeenCalledWith(error);
+	});
+
 	it("reports API failures without clearing the form or navigating", async () => {
 		const error = new Error("current password rejected");
 		mockState.changePassword.mockRejectedValueOnce(error);
@@ -440,5 +473,20 @@ describe("ForcePasswordChangePage", () => {
 			replace: true,
 		});
 		expect(mockState.changePassword).not.toHaveBeenCalled();
+	});
+
+	it("reports logout failures without navigating", async () => {
+		const error = new Error("logout failed");
+		mockState.logout.mockRejectedValueOnce(error);
+		render(<ForcePasswordChangePage />);
+
+		fireEvent.click(screen.getByRole("button", { name: /logout/ }));
+
+		await waitFor(() => {
+			expect(mockState.handleApiError).toHaveBeenCalledWith(error);
+		});
+		expect(mockState.navigate).not.toHaveBeenCalledWith("/login", {
+			replace: true,
+		});
 	});
 });

@@ -469,6 +469,38 @@ describe("authService", () => {
 		});
 	});
 
+	it("parses forced password-change passkey login responses", async () => {
+		mockState.post.mockReturnValueOnce({
+			status: "password_change_required",
+			expires_in: 600,
+		});
+
+		await expect(
+			authService.finishPasskeyLogin("flow", { id: "cred" }),
+		).resolves.toEqual({
+			status: "password_change_required",
+			expiresIn: 600,
+		});
+	});
+
+	it("parses forced password-change MFA challenge responses", async () => {
+		mockState.post.mockReturnValueOnce({
+			status: "password_change_required",
+			expires_in: 600,
+		});
+
+		await expect(
+			authService.verifyMfaChallenge({
+				flow_token: "mfa-flow",
+				method: "totp",
+				code: "123456",
+			}),
+		).resolves.toEqual({
+			status: "password_change_required",
+			expiresIn: 600,
+		});
+	});
+
 	it("rejects MFA login responses without a flow token", async () => {
 		mockState.post.mockReturnValueOnce({
 			status: "mfa_required",

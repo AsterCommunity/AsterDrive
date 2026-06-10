@@ -148,6 +148,7 @@ client.interceptors.response.use(
 
 		const original = error.config;
 		const url = original?.url || "";
+		let apiError = extractApiError(error);
 
 		// 跳过公开端点的自动 refresh（避免把分享页误当成登录态接口）
 		const shouldSkip = shouldSkipRefresh(url);
@@ -156,9 +157,9 @@ client.interceptors.response.use(
 			original &&
 			!original._retry &&
 			!shouldSkip;
-		const apiError = shouldTryRefresh
-			? await extractApiErrorAsync(error)
-			: null;
+		if (shouldTryRefresh && !apiError) {
+			apiError = await extractApiErrorAsync(error);
+		}
 		if (shouldTryRefresh && isRefreshableAuthError(apiError ?? error)) {
 			original._retry = true;
 
