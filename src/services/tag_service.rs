@@ -9,10 +9,13 @@ use crate::api::pagination::{MAX_PAGE_SIZE, OffsetPage, load_offset_page};
 use crate::db::repository::{file_repo, folder_repo, property_repo, tag_repo};
 use crate::entities::tag;
 use crate::errors::{AsterError, Result};
-use crate::runtime::SharedRuntimeState;
-use crate::services::workspace_storage_service::{
-    WorkspaceResourceScope, WorkspaceStorageScope, require_scope_access,
-    require_team_management_access, verify_file_access_for_read, verify_folder_access_for_read,
+use crate::runtime::{SharedRuntimeState, StorageChangeRuntimeState};
+use crate::services::{
+    storage_change_service,
+    workspace_storage_service::{
+        WorkspaceResourceScope, WorkspaceStorageScope, require_scope_access,
+        require_team_management_access, verify_file_access_for_read, verify_folder_access_for_read,
+    },
 };
 use crate::types::{EntityType, TagScopeType};
 use crate::utils::char_count;
@@ -282,7 +285,7 @@ pub(crate) async fn list_page_in_scope(
 }
 
 pub(crate) async fn create_in_scope(
-    state: &impl SharedRuntimeState,
+    state: &impl StorageChangeRuntimeState,
     scope: WorkspaceStorageScope,
     name: &str,
     color: &str,
@@ -304,11 +307,21 @@ pub(crate) async fn create_in_scope(
         &color,
     )
     .await?;
+    storage_change_service::publish(
+        state,
+        storage_change_service::StorageChangeEvent::new(
+            storage_change_service::StorageChangeKind::TagCreated,
+            scope,
+            vec![],
+            vec![],
+            vec![],
+        ),
+    );
     Ok(TagInfo::from_model(tag, 0))
 }
 
 pub(crate) async fn update_in_scope(
-    state: &impl SharedRuntimeState,
+    state: &impl StorageChangeRuntimeState,
     scope: WorkspaceStorageScope,
     tag_id: i64,
     name: Option<&str>,
@@ -340,18 +353,26 @@ pub(crate) async fn update_in_scope(
         &[tag_id],
     )
     .await?;
-    Ok(TagInfo::from_model(
-        updated,
-        counts.get(&tag_id).copied().unwrap_or_default(),
-    ))
+    let info = TagInfo::from_model(updated, counts.get(&tag_id).copied().unwrap_or_default());
+    publish_tag_bound_entities_change(
+        state,
+        scope,
+        storage_change_service::StorageChangeKind::TagUpdated,
+        tag_id,
+    )
+    .await?;
+    Ok(info)
 }
 
 pub(crate) async fn delete_in_scope(
-    state: &impl SharedRuntimeState,
+    state: &impl StorageChangeRuntimeState,
     scope: WorkspaceStorageScope,
     tag_id: i64,
 ) -> Result<()> {
     load_tag_for_write_scope(state, scope, tag_id).await?;
+    let (file_ids, folder_ids) = entity_ids_bound_to_tag(state, tag_id).await?;
+    let affected_parent_ids =
+        affected_parent_ids_for_entities(state, scope, &file_ids, &folder_ids).await?;
     crate::db::transaction::with_transaction(state.writer_db(), async |txn| {
         property_repo::delete_by_namespace_and_name(
             txn,
@@ -361,7 +382,18 @@ pub(crate) async fn delete_in_scope(
         .await?;
         tag_repo::delete(txn, tag_id).await
     })
-    .await
+    .await?;
+    storage_change_service::publish(
+        state,
+        storage_change_service::StorageChangeEvent::new(
+            storage_change_service::StorageChangeKind::TagDeleted,
+            scope,
+            file_ids,
+            folder_ids,
+            affected_parent_ids,
+        ),
+    );
+    Ok(())
 }
 
 pub(crate) async fn list_entity_tags_in_scope(
@@ -401,7 +433,7 @@ pub(crate) async fn list_entity_tags_in_scope(
 }
 
 pub(crate) async fn attach_to_entity_in_scope(
-    state: &impl SharedRuntimeState,
+    state: &impl StorageChangeRuntimeState,
     scope: WorkspaceStorageScope,
     tag_id: i64,
     entity_type: EntityType,
@@ -418,11 +450,13 @@ pub(crate) async fn attach_to_entity_in_scope(
         None,
     )
     .await?;
-    list_entity_tags_in_scope(state, scope, entity_type, entity_id).await
+    let tags = list_entity_tags_in_scope(state, scope, entity_type, entity_id).await?;
+    publish_entity_tag_assignment_change(state, scope, entity_type, entity_id).await?;
+    Ok(tags)
 }
 
 pub(crate) async fn detach_from_entity_in_scope(
-    state: &impl SharedRuntimeState,
+    state: &impl StorageChangeRuntimeState,
     scope: WorkspaceStorageScope,
     tag_id: i64,
     entity_type: EntityType,
@@ -438,11 +472,13 @@ pub(crate) async fn detach_from_entity_in_scope(
         &tag_id.to_string(),
     )
     .await?;
-    list_entity_tags_in_scope(state, scope, entity_type, entity_id).await
+    let tags = list_entity_tags_in_scope(state, scope, entity_type, entity_id).await?;
+    publish_entity_tag_assignment_change(state, scope, entity_type, entity_id).await?;
+    Ok(tags)
 }
 
 pub(crate) async fn replace_entity_tags_in_scope(
-    state: &impl SharedRuntimeState,
+    state: &impl StorageChangeRuntimeState,
     scope: WorkspaceStorageScope,
     entity_type: EntityType,
     entity_id: i64,
@@ -473,11 +509,13 @@ pub(crate) async fn replace_entity_tags_in_scope(
         Ok(())
     })
     .await?;
-    list_entity_tags_in_scope(state, scope, entity_type, entity_id).await
+    let tags = list_entity_tags_in_scope(state, scope, entity_type, entity_id).await?;
+    publish_entity_tag_assignment_change(state, scope, entity_type, entity_id).await?;
+    Ok(tags)
 }
 
 pub(crate) async fn batch_attach_in_scope(
-    state: &impl SharedRuntimeState,
+    state: &impl StorageChangeRuntimeState,
     scope: WorkspaceStorageScope,
     tag_id: i64,
     file_ids: &[i64],
@@ -509,11 +547,12 @@ pub(crate) async fn batch_attach_in_scope(
         .await?;
         Ok(())
     })
-    .await
+    .await?;
+    publish_tag_assignment_change(state, scope, &file_ids, &folder_ids).await
 }
 
 pub(crate) async fn batch_detach_in_scope(
-    state: &impl SharedRuntimeState,
+    state: &impl StorageChangeRuntimeState,
     scope: WorkspaceStorageScope,
     tag_id: i64,
     file_ids: &[i64],
@@ -543,7 +582,8 @@ pub(crate) async fn batch_detach_in_scope(
         .await?;
         Ok(())
     })
-    .await
+    .await?;
+    publish_tag_assignment_change(state, scope, &file_ids, &folder_ids).await
 }
 
 fn unique_ids(ids: &[i64]) -> Result<Vec<i64>> {
@@ -666,6 +706,126 @@ async fn verify_entities_for_batch_write(
     require_write_access(state, scope).await?;
     verify_files_for_batch_write(state, scope, file_ids).await?;
     verify_folders_for_batch_write(state, scope, folder_ids).await?;
+    Ok(())
+}
+
+async fn entity_ids_bound_to_tag(
+    state: &impl SharedRuntimeState,
+    tag_id: i64,
+) -> Result<(Vec<i64>, Vec<i64>)> {
+    let file_ids = property_repo::find_entity_ids_by_tag_ids(
+        state.reader_db(),
+        TAG_PROPERTY_NAMESPACE,
+        EntityType::File,
+        &[tag_id],
+    )
+    .await?;
+    let folder_ids = property_repo::find_entity_ids_by_tag_ids(
+        state.reader_db(),
+        TAG_PROPERTY_NAMESPACE,
+        EntityType::Folder,
+        &[tag_id],
+    )
+    .await?;
+    Ok((unique_entity_ids(&file_ids), unique_entity_ids(&folder_ids)))
+}
+
+async fn affected_parent_ids_for_entities(
+    state: &impl SharedRuntimeState,
+    scope: WorkspaceStorageScope,
+    file_ids: &[i64],
+    folder_ids: &[i64],
+) -> Result<Vec<Option<i64>>> {
+    let mut parent_ids = Vec::new();
+
+    if !file_ids.is_empty() {
+        let files = match scope {
+            WorkspaceStorageScope::Personal { user_id } => {
+                file_repo::find_by_ids_in_personal_scope(state.reader_db(), user_id, file_ids)
+                    .await?
+            }
+            WorkspaceStorageScope::Team { team_id, .. } => {
+                file_repo::find_by_ids_in_team_scope(state.reader_db(), team_id, file_ids).await?
+            }
+        };
+        parent_ids.extend(files.into_iter().map(|file| file.folder_id));
+    }
+
+    if !folder_ids.is_empty() {
+        let folders = match scope {
+            WorkspaceStorageScope::Personal { user_id } => {
+                folder_repo::find_by_ids_in_personal_scope(state.reader_db(), user_id, folder_ids)
+                    .await?
+            }
+            WorkspaceStorageScope::Team { team_id, .. } => {
+                folder_repo::find_by_ids_in_team_scope(state.reader_db(), team_id, folder_ids)
+                    .await?
+            }
+        };
+        parent_ids.extend(folders.into_iter().map(|folder| folder.parent_id));
+    }
+
+    Ok(parent_ids)
+}
+
+async fn publish_tag_bound_entities_change(
+    state: &impl StorageChangeRuntimeState,
+    scope: WorkspaceStorageScope,
+    kind: storage_change_service::StorageChangeKind,
+    tag_id: i64,
+) -> Result<()> {
+    let (file_ids, folder_ids) = entity_ids_bound_to_tag(state, tag_id).await?;
+    publish_tag_entity_change(state, scope, kind, file_ids, folder_ids).await
+}
+
+async fn publish_entity_tag_assignment_change(
+    state: &impl StorageChangeRuntimeState,
+    scope: WorkspaceStorageScope,
+    entity_type: EntityType,
+    entity_id: i64,
+) -> Result<()> {
+    let (file_ids, folder_ids) = match entity_type {
+        EntityType::File => (vec![entity_id], Vec::new()),
+        EntityType::Folder => (Vec::new(), vec![entity_id]),
+    };
+    publish_tag_assignment_change(state, scope, &file_ids, &folder_ids).await
+}
+
+async fn publish_tag_assignment_change(
+    state: &impl StorageChangeRuntimeState,
+    scope: WorkspaceStorageScope,
+    file_ids: &[i64],
+    folder_ids: &[i64],
+) -> Result<()> {
+    publish_tag_entity_change(
+        state,
+        scope,
+        storage_change_service::StorageChangeKind::TagAssignmentChanged,
+        file_ids.to_vec(),
+        folder_ids.to_vec(),
+    )
+    .await
+}
+
+async fn publish_tag_entity_change(
+    state: &impl StorageChangeRuntimeState,
+    scope: WorkspaceStorageScope,
+    kind: storage_change_service::StorageChangeKind,
+    file_ids: Vec<i64>,
+    folder_ids: Vec<i64>,
+) -> Result<()> {
+    let affected_parent_ids =
+        affected_parent_ids_for_entities(state, scope, &file_ids, &folder_ids).await?;
+    storage_change_service::publish(
+        state,
+        storage_change_service::StorageChangeEvent::new(
+            kind,
+            scope,
+            file_ids,
+            folder_ids,
+            affected_parent_ids,
+        ),
+    );
     Ok(())
 }
 

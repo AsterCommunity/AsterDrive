@@ -6,9 +6,12 @@ mod common;
 use actix_web::{http::StatusCode, test};
 use aster_drive::db::repository::property_repo;
 use aster_drive::runtime::SharedRuntimeState;
-use aster_drive::services::tag_service::TAG_PROPERTY_NAMESPACE;
+use aster_drive::services::{
+    storage_change_service::StorageChangeKind, tag_service::TAG_PROPERTY_NAMESPACE,
+};
 use aster_drive::types::EntityType;
 use serde_json::Value;
+use std::time::Duration;
 
 async fn create_tag_response(
     app: &impl actix_web::dev::Service<
@@ -128,6 +131,7 @@ async fn test_personal_tags_attach_list_search_and_delete_cleanup() {
     let file_id = upload_test_file_named!(app, token, "tagged-report.txt");
     let other_file_id = upload_test_file_named!(app, token, "untagged-report.txt");
     let tag_id = create_tag(&app, &token, "Important", "#3b82f6").await;
+    let mut storage_events = state.storage_change_tx.subscribe();
 
     let req = test::TestRequest::put()
         .uri(&format!("/api/v1/tags/{tag_id}/file/{file_id}"))
@@ -139,6 +143,15 @@ async fn test_personal_tags_attach_list_search_and_delete_cleanup() {
     let body: Value = test::read_body_json(resp).await;
     assert_eq!(status, 200, "attach tag failed: {body:?}");
     assert_eq!(body["data"]["tags"][0]["name"], "Important");
+    let event = tokio::time::timeout(Duration::from_secs(1), storage_events.recv())
+        .await
+        .expect("tag attach should publish storage change event")
+        .expect("storage change channel should stay open");
+    assert_eq!(event.kind, StorageChangeKind::TagAssignmentChanged);
+    assert_eq!(event.file_ids, vec![file_id]);
+    assert!(event.folder_ids.is_empty());
+    assert!(event.affected_parent_ids.is_empty());
+    assert!(event.root_affected);
 
     let req = test::TestRequest::get()
         .uri("/api/v1/folders")
@@ -194,6 +207,139 @@ async fn test_personal_tags_attach_list_search_and_delete_cleanup() {
         prop.is_none(),
         "deleting a tag must clean system.tags binding"
     );
+}
+
+#[actix_web::test]
+async fn test_tag_update_and_delete_publish_bound_entity_events() {
+    let state = common::setup().await;
+    let app = create_test_app!(state.clone());
+
+    let (token, _) = register_and_login!(app);
+    let folder_id = create_folder_at(&app, &token, "/api/v1/folders", "Tagged Folder").await;
+    let file_id = upload_test_file_named!(app, token, "tagged-for-update.txt");
+    let tag_id = create_tag(&app, &token, "Synced", "#3b82f6").await;
+
+    let req = test::TestRequest::put()
+        .uri(&format!("/api/v1/tags/{tag_id}/file/{file_id}"))
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+
+    let req = test::TestRequest::put()
+        .uri(&format!("/api/v1/tags/{tag_id}/folder/{folder_id}"))
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+
+    let mut storage_events = state.storage_change_tx.subscribe();
+    let req = test::TestRequest::patch()
+        .uri(&format!("/api/v1/tags/{tag_id}"))
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({ "name": "Synced Updated" }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+
+    let event = tokio::time::timeout(Duration::from_secs(1), storage_events.recv())
+        .await
+        .expect("tag update should publish storage change event")
+        .expect("storage change channel should stay open");
+    assert_eq!(event.kind, StorageChangeKind::TagUpdated);
+    assert_eq!(event.file_ids, vec![file_id]);
+    assert_eq!(event.folder_ids, vec![folder_id]);
+    assert!(event.affected_parent_ids.is_empty());
+    assert!(event.root_affected);
+
+    let req = test::TestRequest::delete()
+        .uri(&format!("/api/v1/tags/{tag_id}"))
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+
+    let event = tokio::time::timeout(Duration::from_secs(1), storage_events.recv())
+        .await
+        .expect("tag delete should publish storage change event")
+        .expect("storage change channel should stay open");
+    assert_eq!(event.kind, StorageChangeKind::TagDeleted);
+    assert_eq!(event.file_ids, vec![file_id]);
+    assert_eq!(event.folder_ids, vec![folder_id]);
+    assert!(event.affected_parent_ids.is_empty());
+    assert!(event.root_affected);
+}
+
+#[actix_web::test]
+async fn test_unbound_tag_create_and_update_publish_tag_only_events() {
+    let state = common::setup().await;
+    let app = create_test_app!(state.clone());
+
+    let (token, _) = register_and_login!(app);
+    let mut storage_events = state.storage_change_tx.subscribe();
+    let tag_id = create_tag(&app, &token, "Library Only", "#64748b").await;
+
+    let event = tokio::time::timeout(Duration::from_secs(1), storage_events.recv())
+        .await
+        .expect("tag create should publish storage change event")
+        .expect("storage change channel should stay open");
+    assert_eq!(event.kind, StorageChangeKind::TagCreated);
+    assert!(event.file_ids.is_empty());
+    assert!(event.folder_ids.is_empty());
+    assert!(event.affected_parent_ids.is_empty());
+    assert!(!event.root_affected);
+
+    let req = test::TestRequest::patch()
+        .uri(&format!("/api/v1/tags/{tag_id}"))
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({ "color": "#0f766e" }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+
+    let event = tokio::time::timeout(Duration::from_secs(1), storage_events.recv())
+        .await
+        .expect("unbound tag update should publish storage change event")
+        .expect("storage change channel should stay open");
+    assert_eq!(event.kind, StorageChangeKind::TagUpdated);
+    assert!(event.file_ids.is_empty());
+    assert!(event.folder_ids.is_empty());
+    assert!(event.affected_parent_ids.is_empty());
+    assert!(!event.root_affected);
+}
+
+#[actix_web::test]
+async fn test_empty_batch_tag_mutation_publishes_empty_assignment_event() {
+    let state = common::setup().await;
+    let app = create_test_app!(state.clone());
+
+    let (token, _) = register_and_login!(app);
+    let tag_id = create_tag(&app, &token, "Empty Batch", "#0891b2").await;
+    let mut storage_events = state.storage_change_tx.subscribe();
+
+    let req = test::TestRequest::put()
+        .uri(&format!("/api/v1/tags/{tag_id}/batch"))
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({ "file_ids": [], "folder_ids": [] }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+
+    let event = tokio::time::timeout(Duration::from_secs(1), storage_events.recv())
+        .await
+        .expect("empty batch tag mutation should publish storage change event")
+        .expect("storage change channel should stay open");
+    assert_eq!(event.kind, StorageChangeKind::TagAssignmentChanged);
+    assert!(event.file_ids.is_empty());
+    assert!(event.folder_ids.is_empty());
+    assert!(event.affected_parent_ids.is_empty());
+    assert!(!event.root_affected);
 }
 
 #[actix_web::test]

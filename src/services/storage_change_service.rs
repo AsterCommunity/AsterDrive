@@ -55,6 +55,14 @@ pub enum StorageChangeKind {
     FolderRestoredFromTrash,
     #[serde(rename = "folder.purged")]
     FolderPurged,
+    #[serde(rename = "tag.created")]
+    TagCreated,
+    #[serde(rename = "tag.updated")]
+    TagUpdated,
+    #[serde(rename = "tag.deleted")]
+    TagDeleted,
+    #[serde(rename = "tag.assignment_changed")]
+    TagAssignmentChanged,
     #[serde(rename = "sync.required")]
     SyncRequired,
 }
@@ -75,7 +83,17 @@ impl StorageChangeKind {
             | Self::FolderRestoredFromTrash
             | Self::FolderPurged
             | Self::SyncRequired => true,
+            Self::TagCreated | Self::TagUpdated | Self::TagDeleted | Self::TagAssignmentChanged => {
+                false
+            }
         }
+    }
+
+    fn invalidates_webdav_path_cache(self) -> bool {
+        !matches!(
+            self,
+            Self::TagCreated | Self::TagUpdated | Self::TagDeleted | Self::TagAssignmentChanged
+        )
     }
 }
 
@@ -234,6 +252,10 @@ fn invalidate_storage_change_caches(cache: Arc<dyn CacheBackend>, kind: StorageC
 }
 
 fn cache_invalidation_prefixes(kind: StorageChangeKind) -> Vec<&'static str> {
+    if !kind.invalidates_webdav_path_cache() {
+        return Vec::new();
+    }
+
     let mut prefixes = vec![
         crate::webdav::path_resolver::WEBDAV_PATH_CACHE_PREFIX,
         crate::webdav::path_resolver::WEBDAV_PARENT_CACHE_PREFIX,
@@ -380,5 +402,12 @@ mod tests {
                 crate::services::folder_service::FOLDER_PATH_CACHE_PREFIX,
             ]
         );
+    }
+
+    #[test]
+    fn tag_changes_do_not_invalidate_webdav_path_caches() {
+        let prefixes = super::cache_invalidation_prefixes(StorageChangeKind::TagAssignmentChanged);
+
+        assert!(prefixes.is_empty());
     }
 }

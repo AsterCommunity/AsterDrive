@@ -364,4 +364,52 @@ describe("SearchBrowserPage", () => {
 			viewTransition: false,
 		});
 	});
+
+	it("reloads virtual search results after tag storage events", async () => {
+		const { publishStorageChange } = await import("@/lib/storageChangeBus");
+		render(<SearchBrowserPage />);
+
+		await waitFor(() => {
+			expect(mockState.search).toHaveBeenCalledTimes(1);
+		});
+
+		publishStorageChange({
+			affected_parent_ids: [7],
+			affects_quota: false,
+			at: "2026-06-10T00:00:00Z",
+			file_ids: [1],
+			folder_ids: [],
+			kind: "tag.updated",
+			root_affected: false,
+			storage_delta: null,
+			workspace: { kind: "personal" },
+		});
+
+		await waitFor(() => {
+			expect(mockState.search).toHaveBeenCalledTimes(2);
+		});
+	});
+
+	it("ignores tag creation events that are not bound to any result", async () => {
+		const { publishStorageChange } = await import("@/lib/storageChangeBus");
+		render(<SearchBrowserPage />);
+
+		await waitFor(() => {
+			expect(mockState.search).toHaveBeenCalledTimes(1);
+		});
+
+		publishStorageChange({
+			affected_parent_ids: [],
+			affects_quota: false,
+			at: "2026-06-10T00:00:00Z",
+			file_ids: [],
+			folder_ids: [],
+			kind: "tag.created",
+			root_affected: false,
+			storage_delta: null,
+			workspace: { kind: "personal" },
+		});
+
+		expect(mockState.search).toHaveBeenCalledTimes(1);
+	});
 });

@@ -19,6 +19,7 @@ import { handleApiError } from "@/hooks/useApiError";
 import { usePageTitle } from "@/hooks/usePageTitle";
 import { useSelectionShortcuts } from "@/hooks/useSelectionShortcuts";
 import { startAuthenticatedDownload } from "@/lib/authenticatedDownload";
+import { subscribeStorageChange } from "@/lib/storageChangeBus";
 import {
 	FILE_CATEGORY_BY_ROUTE_SEGMENT,
 	workspaceFolderPath,
@@ -115,6 +116,17 @@ function categoryResultsReducer(
 
 function getCategoryLabelKey(category: FileCategory) {
 	return `search:category_${category}`;
+}
+
+function tagEventAffectsCategoryResults(event: {
+	file_ids: number[];
+	kind: string;
+	root_affected: boolean;
+}) {
+	return (
+		event.kind.startsWith("tag.") &&
+		(event.root_affected || event.file_ids.length > 0)
+	);
 }
 
 export default function CategoryBrowserPage() {
@@ -231,6 +243,16 @@ export default function CategoryBrowserPage() {
 		setInfoPanelOpen(false);
 		setInfoTarget(null);
 		void loadCategory(0, "replace");
+	}, [category, loadCategory]);
+
+	useEffect(() => {
+		if (!category) return;
+		return subscribeStorageChange((event) => {
+			if (!tagEventAffectsCategoryResults(event)) {
+				return;
+			}
+			void loadCategory(0, "replace");
+		});
 	}, [category, loadCategory]);
 
 	const activeInfoTarget = useMemo<FileBrowserInfoTarget | null>(() => {
