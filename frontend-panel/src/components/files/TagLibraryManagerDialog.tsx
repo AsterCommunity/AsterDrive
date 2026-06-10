@@ -16,7 +16,6 @@ import type { TagInfo } from "@/types/api";
 import { safeTagColor, TAG_COLOR_PALETTE, tagColorFromName } from "./tagColors";
 
 const TAG_LIBRARY_MANAGER_LIMIT = 50;
-const CLOSED_INTERACTION_RESET_KEY = "__closed__";
 const CREATE_TAG_BUSY_ID = -1;
 
 type EditingDraft = {
@@ -70,16 +69,32 @@ export function TagLibraryManagerDialog({
 	const [editingDraft, setEditingDraft] = useState<EditingDraft | null>(null);
 	const [deleteTarget, setDeleteTarget] = useState<TagInfo | null>(null);
 	const normalizedQuery = query.trim();
-	const interactionResetKey = open
-		? normalizedQuery
-		: CLOSED_INTERACTION_RESET_KEY;
-	const currentInteractionResetKeyRef = useRef(interactionResetKey);
+	const currentInteractionResetKeyRef = useRef(normalizedQuery);
 
-	if (currentInteractionResetKeyRef.current !== interactionResetKey) {
-		currentInteractionResetKeyRef.current = interactionResetKey;
+	if (currentInteractionResetKeyRef.current !== normalizedQuery) {
+		currentInteractionResetKeyRef.current = normalizedQuery;
 		setEditingDraft(null);
 		setDeleteTarget(null);
 	}
+
+	const resetDialogState = useCallback(() => {
+		currentInteractionResetKeyRef.current = "";
+		setTags([]);
+		setTotal(0);
+		setQuery("");
+		setLoading(false);
+		setLoadingMore(false);
+		setBusyId(null);
+		setEditingDraft(null);
+		setDeleteTarget(null);
+	}, []);
+
+	const handleOpenChangeComplete = useCallback(
+		(nextOpen: boolean) => {
+			if (!nextOpen) resetDialogState();
+		},
+		[resetDialogState],
+	);
 
 	const hasMore = tags.length < total;
 	const editingTag = useMemo(
@@ -100,12 +115,6 @@ export function TagLibraryManagerDialog({
 
 	useEffect(() => {
 		if (!open) {
-			setTags([]);
-			setTotal(0);
-			setQuery("");
-			setLoading(false);
-			setLoadingMore(false);
-			setBusyId(null);
 			return;
 		}
 
@@ -263,6 +272,7 @@ export function TagLibraryManagerDialog({
 		<ManagerDialogShell
 			open={open}
 			onOpenChange={onOpenChange}
+			onOpenChangeComplete={handleOpenChangeComplete}
 			title={t("tag_library_manage_title")}
 			description={t("tag_library_manage_desc")}
 			controls={controls}

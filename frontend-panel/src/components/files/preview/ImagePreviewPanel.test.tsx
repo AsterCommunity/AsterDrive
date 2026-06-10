@@ -12,6 +12,7 @@ const mockState = vi.hoisted(() => ({
 	originalBlobUrl: null as string | null,
 	originalError: false,
 	originalLoading: false,
+	previewError: false,
 	previewLoading: false,
 	retry: vi.fn(),
 	useBlobUrl: vi.fn(),
@@ -37,6 +38,13 @@ vi.mock("@/components/files/preview/BlobImagePreview", () => ({
 			imageStyle,
 			source,
 		};
+		if (mockState.previewError) {
+			return (
+				<button type="button" onClick={mockState.retry}>
+					Retry image
+				</button>
+			);
+		}
 		if (mockState.previewLoading) {
 			return <div data-testid="panel-preview-loading" />;
 		}
@@ -120,6 +128,7 @@ describe("ImagePreviewPanel", () => {
 		mockState.originalBlobUrl = null;
 		mockState.originalError = false;
 		mockState.originalLoading = false;
+		mockState.previewError = false;
 		mockState.previewLoading = false;
 		mockState.retry.mockReset();
 		mockState.useBlobUrl.mockReset();
@@ -219,6 +228,29 @@ describe("ImagePreviewPanel", () => {
 		fireEvent.click(viewport, { clientX: 24, clientY: 24 });
 
 		expect(props.onClose).toHaveBeenCalledTimes(1);
+	});
+
+	it("does not close when clicking an interactive control inside the preview surface", () => {
+		mockState.previewError = true;
+		const props = renderPanel();
+		const retryButton = screen.getByRole("button", { name: "Retry image" });
+
+		fireEvent.pointerDown(retryButton, { clientX: 120, clientY: 120 });
+		fireEvent.click(retryButton, { clientX: 120, clientY: 120 });
+
+		expect(mockState.retry).toHaveBeenCalledTimes(1);
+		expect(props.onClose).not.toHaveBeenCalled();
+	});
+
+	it("does not close when an interactive preview control receives click without a pointer start", () => {
+		mockState.previewError = true;
+		const props = renderPanel();
+		const retryButton = screen.getByRole("button", { name: "Retry image" });
+
+		fireEvent.click(retryButton, { clientX: 120, clientY: 120 });
+
+		expect(mockState.retry).toHaveBeenCalledTimes(1);
+		expect(props.onClose).not.toHaveBeenCalled();
 	});
 
 	it("navigates to adjacent images through side buttons and arrow keys", () => {

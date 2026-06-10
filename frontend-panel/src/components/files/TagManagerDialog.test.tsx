@@ -1,4 +1,10 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+	fireEvent,
+	render,
+	screen,
+	waitFor,
+	within,
+} from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { TagManagerDialog } from "@/components/files/TagManagerDialog";
 import type { TagInfo, TagSummary } from "@/types/api";
@@ -617,6 +623,49 @@ describe("TagManagerDialog", () => {
 		expect(screen.getByLabelText("tag_search_label")).toHaveValue("");
 		expect(screen.getByText("tag_draft_empty")).toBeInTheDocument();
 		expect(screen.getByRole("button", { name: "save" })).toBeDisabled();
+	});
+
+	it("resets the entity draft inline when the target changes", async () => {
+		const firstTarget = {
+			mode: "entity" as const,
+			entityType: "file" as const,
+			entityId: 42,
+			initialTags: [summary(alpha)],
+			name: "report.pdf",
+		};
+		const secondTarget = {
+			mode: "entity" as const,
+			entityType: "file" as const,
+			entityId: 43,
+			initialTags: [summary(beta)],
+			name: "notes.pdf",
+		};
+
+		const { rerender } = render(
+			<TagManagerDialog open onOpenChange={vi.fn()} target={firstTarget} />,
+		);
+
+		await screen.findByText("Beta");
+		fireEvent.click(screen.getByRole("button", { name: /Beta/ }));
+		fireEvent.change(screen.getByLabelText("tag_search_label"), {
+			target: { value: "Gamma" },
+		});
+		expect(screen.getByText("tag_draft_entity_summary")).toBeInTheDocument();
+
+		rerender(
+			<TagManagerDialog open onOpenChange={vi.fn()} target={secondTarget} />,
+		);
+
+		const selectedSection = screen.getByText("tag_selected").closest("section");
+		expect(selectedSection).not.toBeNull();
+		expect(
+			within(selectedSection as HTMLElement).getByText("Beta"),
+		).toBeInTheDocument();
+		expect(
+			within(selectedSection as HTMLElement).queryByText("Alpha"),
+		).not.toBeInTheDocument();
+		expect(screen.getByLabelText("tag_search_label")).toHaveValue("");
+		expect(screen.getByText("tag_draft_empty")).toBeInTheDocument();
 	});
 
 	it("keeps the existing draft state visible during the close animation", async () => {

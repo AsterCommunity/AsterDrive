@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import {
@@ -102,8 +102,10 @@ export function TagManagerDialog({
 	const [loadingMoreTags, setLoadingMoreTags] = useState(false);
 	const [busyKey, setBusyKey] = useState<string | null>(null);
 	const [libraryManagerOpen, setLibraryManagerOpen] = useState(false);
+	const syncedTargetRef = useRef<TagManagerTarget | null>(null);
 
 	const resetDialogState = useCallback(() => {
+		syncedTargetRef.current = null;
 		setTags([]);
 		setTagsTotal(0);
 		setEntityTags([]);
@@ -115,24 +117,25 @@ export function TagManagerDialog({
 		setLibraryManagerOpen(false);
 	}, []);
 
-	useEffect(() => {
-		if (!target) {
-			resetDialogState();
-			return;
-		}
-
-		if (!open) {
-			return;
-		}
-
+	const syncDraftState = (nextTarget: TagManagerTarget | null) => {
+		syncedTargetRef.current = nextTarget;
+		setTags([]);
 		setTagsTotal(0);
-		setEntityTags(target.mode === "entity" ? sortTags(target.initialTags) : []);
+		setEntityTags(
+			nextTarget?.mode === "entity" ? sortTags(nextTarget.initialTags) : [],
+		);
 		setBatchActions(new Map());
 		setQuery("");
 		setLoadingMoreTags(false);
 		setBusyKey(null);
 		setLibraryManagerOpen(false);
-	}, [open, resetDialogState, target]);
+	};
+
+	const syncedTarget = syncedTargetRef.current;
+	const nextSyncedTarget = !target ? null : open ? target : syncedTarget;
+	if (nextSyncedTarget !== syncedTarget) {
+		syncDraftState(nextSyncedTarget);
+	}
 
 	const handleOpenChangeComplete = useCallback(
 		(nextOpen: boolean) => {

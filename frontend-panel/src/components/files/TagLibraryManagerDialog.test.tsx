@@ -13,6 +13,7 @@ const mockState = vi.hoisted(() => ({
 	createTag: vi.fn(),
 	deleteTag: vi.fn(),
 	handleApiError: vi.fn(),
+	keepDialogMountedWhenClosed: false,
 	listTags: vi.fn(),
 	patchTag: vi.fn(),
 	toastSuccess: vi.fn(),
@@ -65,8 +66,23 @@ vi.mock("@/components/ui/button", () => ({
 }));
 
 vi.mock("@/components/ui/dialog", () => ({
-	Dialog: ({ children, open }: { children: React.ReactNode; open: boolean }) =>
-		open ? <div data-testid="dialog">{children}</div> : null,
+	Dialog: ({
+		children,
+		onOpenChangeComplete,
+		open,
+	}: {
+		children: React.ReactNode;
+		onOpenChangeComplete?: (open: boolean) => void;
+		open: boolean;
+	}) =>
+		open || mockState.keepDialogMountedWhenClosed ? (
+			<div data-open={open} data-testid="dialog">
+				{children}
+				<button type="button" onClick={() => onOpenChangeComplete?.(false)}>
+					complete-close
+				</button>
+			</div>
+		) : null,
 	DialogContent: ({
 		children,
 		className,
@@ -142,6 +158,7 @@ describe("TagLibraryManagerDialog", () => {
 		mockState.createTag.mockReset();
 		mockState.deleteTag.mockReset();
 		mockState.handleApiError.mockReset();
+		mockState.keepDialogMountedWhenClosed = false;
 		mockState.listTags.mockReset();
 		mockState.patchTag.mockReset();
 		mockState.toastSuccess.mockReset();
@@ -210,6 +227,35 @@ describe("TagLibraryManagerDialog", () => {
 		);
 		const scrollArea = screen.getByText("Alpha").closest(".overflow-y-auto");
 		expect(scrollArea).toHaveClass("h-full", "overflow-y-auto");
+	});
+
+	it("keeps loaded tags visible while the close animation is running", async () => {
+		mockState.keepDialogMountedWhenClosed = true;
+
+		const { rerender } = render(
+			<TagLibraryManagerDialog open onOpenChange={vi.fn()} />,
+		);
+
+		expect(await screen.findByText("Alpha")).toBeInTheDocument();
+		fireEvent.change(screen.getByLabelText("tag_search_label"), {
+			target: { value: "Alpha" },
+		});
+		await waitFor(() => {
+			expect(mockState.listTags).toHaveBeenLastCalledWith({
+				params: { limit: 50, offset: 0, q: "Alpha" },
+			});
+		});
+
+		rerender(<TagLibraryManagerDialog open={false} onOpenChange={vi.fn()} />);
+
+		expect(screen.getByTestId("dialog")).toHaveAttribute("data-open", "false");
+		expect(screen.getByText("Alpha")).toBeInTheDocument();
+		expect(screen.getByLabelText("tag_search_label")).toHaveValue("Alpha");
+
+		fireEvent.click(screen.getByRole("button", { name: "complete-close" }));
+
+		expect(screen.queryByText("Alpha")).not.toBeInTheDocument();
+		expect(screen.getByLabelText("tag_search_label")).toHaveValue("");
 	});
 
 	it("creates a tag from the library search row and reports it to the parent", async () => {

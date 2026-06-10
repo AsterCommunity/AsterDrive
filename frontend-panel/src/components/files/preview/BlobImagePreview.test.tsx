@@ -68,10 +68,47 @@ describe("BlobImagePreview", () => {
 
 		render(<BlobImagePreview file={file} path="/files/1" />);
 
+		const alert = screen.getByRole("alert");
 		fireEvent.click(screen.getByRole("button", { name: "preview_retry" }));
 
+		expect(alert).toHaveClass(
+			"h-full",
+			"items-center",
+			"justify-center",
+			"bg-zinc-950",
+			"text-zinc-400",
+		);
 		expect(screen.getByText("preview_load_failed")).toBeInTheDocument();
 		expect(mockState.retry).toHaveBeenCalledTimes(1);
+	});
+
+	it("keeps the expanded image retry state full-height and black", () => {
+		mockState.useBlobUrl.mockReturnValue({
+			blobUrl: null,
+			error: true,
+			loading: false,
+			retry: mockState.retry,
+		});
+
+		render(<BlobImagePreview file={file} fillContainer path="/files/1" />);
+
+		const alert = screen.getByRole("alert");
+		const retryButton = screen.getByRole("button", { name: "preview_retry" });
+
+		expect(alert).toHaveClass(
+			"h-full",
+			"min-h-[12rem]",
+			"items-center",
+			"justify-center",
+			"bg-zinc-950",
+			"text-zinc-400",
+		);
+		expect(retryButton).toHaveClass(
+			"border-white/14",
+			"bg-white/10",
+			"text-zinc-100",
+			"dark:bg-white/10",
+		);
 	});
 
 	it("keeps showing loading while a requested blob url is not ready yet", () => {
@@ -608,6 +645,45 @@ describe("BlobImagePreview", () => {
 		expect(mockState.useBlobUrl).not.toHaveBeenCalledWith("/files/1/download", {
 			lane: "default",
 		});
+	});
+
+	it("uses the fixed black retry state when a controlled preview image cannot render", () => {
+		mockState.imagePreviewPreference = "preview_first";
+		mockState.useBlobUrl.mockImplementation((path: string | null) => ({
+			blobUrl: path?.includes("image-preview") ? "blob:medium" : null,
+			error: false,
+			loading: false,
+			retry: mockState.retry,
+		}));
+
+		render(
+			<BlobImagePreview
+				file={file}
+				path="/files/1/download"
+				fallbackPath="/files/1/image-preview"
+				source="backend_preview"
+				showOriginalButtonPlacement="none"
+			/>,
+		);
+
+		fireEvent.error(screen.getByRole("img", { name: "preview.png" }));
+
+		const alert = screen.getByRole("alert");
+		expect(alert).toHaveClass(
+			"h-full",
+			"items-center",
+			"justify-center",
+			"bg-zinc-950",
+			"text-zinc-400",
+		);
+
+		fireEvent.click(screen.getByRole("button", { name: "preview_retry" }));
+
+		expect(mockState.retry).toHaveBeenCalledTimes(1);
+		expect(mockState.useBlobUrl).toHaveBeenCalledWith(
+			"/files/1/image-preview",
+			{ lane: "preview" },
+		);
 	});
 
 	it("keeps inline preview available when original loading fails", () => {
