@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import {
@@ -18,6 +18,7 @@ import { TagLibraryManagerDialog } from "./TagLibraryManagerDialog";
 import { safeTagColor, tagColorFromName } from "./tagColors";
 
 const TAG_LIBRARY_LIMIT = 100;
+const TAG_LIBRARY_REGION_ID = "tag-manager-library-region-title";
 
 type BatchTagAction = "add" | "remove" | "none";
 
@@ -101,26 +102,53 @@ export function TagManagerDialog({
 	const [loadingMoreTags, setLoadingMoreTags] = useState(false);
 	const [busyKey, setBusyKey] = useState<string | null>(null);
 	const [libraryManagerOpen, setLibraryManagerOpen] = useState(false);
+	const syncedTargetRef = useRef<TagManagerTarget | null>(null);
+	const knownTagIdsRef = useRef<Set<number>>(new Set());
 
-	useEffect(() => {
-		if (!open || !target) {
-			setTags([]);
-			setTagsTotal(0);
-			setEntityTags([]);
-			setBatchActions(new Map());
-			setQuery("");
-			setLoading(false);
-			setLoadingMoreTags(false);
-			setBusyKey(null);
-			setLibraryManagerOpen(false);
-			return;
-		}
+	const replaceTags = useCallback((nextTags: TagInfo[]) => {
+		knownTagIdsRef.current = new Set(nextTags.map((tag) => tag.id));
+		setTags(sortTags(nextTags));
+	}, []);
 
+	const resetDialogState = useCallback(() => {
+		syncedTargetRef.current = null;
+		replaceTags([]);
 		setTagsTotal(0);
-		setEntityTags(target.mode === "entity" ? sortTags(target.initialTags) : []);
+		setEntityTags([]);
 		setBatchActions(new Map());
 		setQuery("");
-	}, [open, target]);
+		setLoading(false);
+		setLoadingMoreTags(false);
+		setBusyKey(null);
+		setLibraryManagerOpen(false);
+	}, [replaceTags]);
+
+	const syncDraftState = (nextTarget: TagManagerTarget | null) => {
+		syncedTargetRef.current = nextTarget;
+		replaceTags([]);
+		setTagsTotal(0);
+		setEntityTags(
+			nextTarget?.mode === "entity" ? sortTags(nextTarget.initialTags) : [],
+		);
+		setBatchActions(new Map());
+		setQuery("");
+		setLoadingMoreTags(false);
+		setBusyKey(null);
+		setLibraryManagerOpen(false);
+	};
+
+	const syncedTarget = syncedTargetRef.current;
+	const nextSyncedTarget = !target ? null : open ? target : syncedTarget;
+	if (nextSyncedTarget !== syncedTarget) {
+		syncDraftState(nextSyncedTarget);
+	}
+
+	const handleOpenChangeComplete = useCallback(
+		(nextOpen: boolean) => {
+			if (!nextOpen) resetDialogState();
+		},
+		[resetDialogState],
+	);
 
 	useEffect(() => {
 		if (!open || !target) {
@@ -130,7 +158,7 @@ export function TagManagerDialog({
 		let cancelled = false;
 		const searchTerm = query.trim();
 		setLoading(true);
-		setTags([]);
+		replaceTags([]);
 		setTagsTotal(0);
 		tagService
 			.listTags({
@@ -142,7 +170,7 @@ export function TagManagerDialog({
 			})
 			.then((page) => {
 				if (!cancelled) {
-					setTags(sortTags(page.items));
+					replaceTags(page.items);
 					setTagsTotal(page.total);
 				}
 			})
@@ -156,7 +184,7 @@ export function TagManagerDialog({
 		return () => {
 			cancelled = true;
 		};
-	}, [open, query, target]);
+	}, [open, query, replaceTags, target]);
 
 	const hasMoreTags = tags.length < tagsTotal;
 	const normalizedQuery = normalizeQuery(query);
@@ -221,7 +249,11 @@ export function TagManagerDialog({
 					...(query.trim() ? { q: query.trim() } : {}),
 				},
 			});
-			setTags((current) => sortTags([...current, ...page.items]));
+			setTags((current) => {
+				const next = sortTags([...current, ...page.items]);
+				knownTagIdsRef.current = new Set(next.map((tag) => tag.id));
+				return next;
+			});
 			setTagsTotal(page.total);
 		} catch (err) {
 			handleApiError(err);
@@ -255,6 +287,7 @@ export function TagManagerDialog({
 
 	const handleLibraryTagUpdated = (tag: TagInfo) => {
 		const summary = toSummary(tag);
+		knownTagIdsRef.current.add(tag.id);
 		setTags((current) =>
 			sortTags(
 				current.some((currentTag) => currentTag.id === tag.id)
@@ -274,6 +307,7 @@ export function TagManagerDialog({
 	};
 
 	const handleLibraryTagDeleted = (tagId: number) => {
+		knownTagIdsRef.current.delete(tagId);
 		setTags((current) => current.filter((tag) => tag.id !== tagId));
 		setTagsTotal((current) => Math.max(0, current - 1));
 		setEntityTags((current) => current.filter((tag) => tag.id !== tagId));
@@ -283,6 +317,14 @@ export function TagManagerDialog({
 			next.delete(tagId);
 			return next;
 		});
+	};
+
+	const handleLibraryTagCreated = (tag: TagInfo) => {
+		if (knownTagIdsRef.current.has(tag.id)) return;
+
+		knownTagIdsRef.current.add(tag.id);
+		setTags((current) => sortTags([...current, tag]));
+		setTagsTotal((current) => current + 1);
 	};
 
 	const handleCreateTag = async () => {
@@ -295,6 +337,7 @@ export function TagManagerDialog({
 				name,
 				color: safeTagColor(createPreviewColor),
 			});
+			knownTagIdsRef.current.add(created.id);
 			setTags((current) => sortTags([...current, created]));
 			setTagsTotal((current) => current + 1);
 			setQuery("");
@@ -463,16 +506,17 @@ export function TagManagerDialog({
 			<ManagerDialogShell
 				open={open}
 				onOpenChange={onOpenChange}
+				onOpenChangeComplete={handleOpenChangeComplete}
 				title={title}
 				description={description}
 				controls={controls}
 				footer={footer}
-				className="sm:max-w-2xl"
+				className="sm:h-[min(88vh,44rem)] sm:max-w-2xl"
 			>
-				<ManagerDialogScrollableList className="space-y-4">
+				<ManagerDialogScrollableList className="flex min-h-0 flex-col overflow-hidden">
 					<div className="flex min-h-0 flex-1 flex-col gap-4">
 						{target?.mode === "entity" ? (
-							<section className="space-y-2">
+							<section className="shrink-0 space-y-2">
 								<h3 className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
 									{t("tag_selected")}
 								</h3>
@@ -502,7 +546,7 @@ export function TagManagerDialog({
 						) : null}
 
 						{target?.mode === "batch" && batchChanged ? (
-							<section className="space-y-2 rounded-lg border border-border/70 bg-muted/20 p-2.5">
+							<section className="shrink-0 space-y-2 rounded-lg border border-border/70 bg-muted/20 p-2.5">
 								{pendingAddTags.length > 0 ? (
 									<div className="flex min-w-0 items-start gap-2">
 										<div className="inline-flex h-5 shrink-0 items-center gap-1 rounded-md bg-primary/10 px-1.5 text-[11px] font-medium text-primary">
@@ -542,9 +586,12 @@ export function TagManagerDialog({
 							</section>
 						) : null}
 
-						<section className="flex min-h-0 flex-1 flex-col gap-2">
+						<section className="flex min-h-0 flex-1 flex-col gap-2 overflow-hidden">
 							<div className="flex items-center justify-between gap-3">
-								<h3 className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+								<h3
+									id={TAG_LIBRARY_REGION_ID}
+									className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground"
+								>
 									{t("tag_library")}
 								</h3>
 								<Button
@@ -557,7 +604,10 @@ export function TagManagerDialog({
 									{t("tag_library_manage")}
 								</Button>
 							</div>
-							<div className="min-h-32 flex-1 space-y-1.5 overflow-y-auto pr-1">
+							<section
+								aria-labelledby={TAG_LIBRARY_REGION_ID}
+								className="min-h-0 flex-1 space-y-1.5 overflow-y-auto pr-1"
+							>
 								{canCreate ? (
 									<button
 										type="button"
@@ -733,7 +783,7 @@ export function TagManagerDialog({
 										{t("tag_library_load_more")}
 									</Button>
 								) : null}
-							</div>
+							</section>
 						</section>
 					</div>
 				</ManagerDialogScrollableList>
@@ -741,6 +791,7 @@ export function TagManagerDialog({
 			<TagLibraryManagerDialog
 				open={libraryManagerOpen}
 				onOpenChange={setLibraryManagerOpen}
+				onTagCreated={handleLibraryTagCreated}
 				onTagDeleted={handleLibraryTagDeleted}
 				onTagUpdated={handleLibraryTagUpdated}
 			/>

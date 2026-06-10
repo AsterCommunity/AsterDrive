@@ -90,6 +90,7 @@
 	"tag_create_and_add": "Create and add",
 	"tag_create_named": "Create \"{{name}}\"",
 	"tag_created": "Tag created. Save changes to apply it.",
+	"tag_library_created": "Tag created",
 	"tag_delete": "Delete tag",
 	"tag_delete_confirm_desc": "Delete \"{{name}}\" and remove it from every file and folder that uses it.",
 	"tag_delete_confirm_title": "Delete tag",

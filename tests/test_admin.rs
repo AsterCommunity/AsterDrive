@@ -244,6 +244,7 @@ async fn test_admin_scope_allows_admin_users() {
     assert!(keys.contains(&"archive_preview_max_entries"));
     assert!(keys.contains(&"archive_preview_max_manifest_bytes"));
     assert!(keys.contains(&"archive_preview_max_duration_secs"));
+    assert!(keys.contains(&"archive_compress_enabled"));
     assert!(keys.contains(&"thumbnail_max_source_bytes"));
     assert!(keys.contains(&"thumbnail_max_dimension"));
     assert!(keys.contains(&"image_preview_max_dimension"));
@@ -413,6 +414,26 @@ async fn test_admin_scope_allows_admin_users() {
         archive_preview_enabled["category"],
         "file_processing.archive_preview"
     );
+
+    let archive_compress_enabled = body["data"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|item| item["key"] == "archive_compress_enabled")
+        .unwrap();
+    assert_eq!(
+        archive_compress_enabled["label_i18n_key"],
+        "settings_item_archive_compress_enabled_label"
+    );
+    assert_eq!(
+        archive_compress_enabled["description_i18n_key"],
+        "settings_item_archive_compress_enabled_desc"
+    );
+    assert_eq!(
+        archive_compress_enabled["category"],
+        "file_processing.archive_build"
+    );
+    assert_eq!(archive_compress_enabled["value_type"], "boolean");
 }
 
 #[actix_web::test]

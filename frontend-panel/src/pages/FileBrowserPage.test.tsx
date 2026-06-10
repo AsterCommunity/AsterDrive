@@ -637,17 +637,38 @@ vi.mock("@/components/files/ShareDialog", () => ({
 	ShareDialog: ({
 		name,
 		onOpenChange,
+		onShareCreated,
 		open,
 		initialMode,
 	}: {
 		name: string;
 		onOpenChange?: (open: boolean) => void;
+		onShareCreated?: () => void | Promise<void>;
 		open: boolean;
 		initialMode?: "page" | "direct";
 	}) =>
 		open ? (
 			<div>
 				<div>{`share:${name}:${initialMode ?? "page"}`}</div>
+				<button
+					type="button"
+					onClick={() =>
+						void Promise.resolve(onShareCreated?.()).catch(() => undefined)
+					}
+				>
+					create-share-success
+				</button>
+				<button
+					type="button"
+					onClick={() => {
+						mockState.store.refresh.mockRejectedValueOnce(
+							new Error("refresh failed"),
+						);
+						void Promise.resolve(onShareCreated?.()).catch(() => undefined);
+					}}
+				>
+					create-share-refresh-fails
+				</button>
 				<button type="button" onClick={() => onOpenChange?.(false)}>
 					close-share-dialog
 				</button>
@@ -1573,6 +1594,48 @@ describe("FileBrowserPage", () => {
 		expect(
 			await screen.findByText("share:report.pdf:direct"),
 		).toBeInTheDocument();
+	});
+
+	it("refreshes the current list after a share is created", async () => {
+		render(<FileBrowserPage />);
+
+		fireEvent.click(screen.getByRole("button", { name: "share-file-page" }));
+		fireEvent.click(
+			await screen.findByRole("button", {
+				name: "create-share-success",
+			}),
+		);
+
+		await waitFor(() => {
+			expect(mockState.store.refresh).toHaveBeenCalledTimes(1);
+		});
+	});
+
+	it("does not refresh when opening a direct-link share dialog", async () => {
+		render(<FileBrowserPage />);
+
+		fireEvent.click(screen.getByRole("button", { name: "share-file-direct" }));
+		expect(
+			await screen.findByText("share:report.pdf:direct"),
+		).toBeInTheDocument();
+
+		expect(mockState.store.refresh).not.toHaveBeenCalled();
+	});
+
+	it("keeps the share dialog flow alive when the post-create refresh fails", async () => {
+		render(<FileBrowserPage />);
+
+		fireEvent.click(screen.getByRole("button", { name: "share-file-page" }));
+		fireEvent.click(
+			await screen.findByRole("button", {
+				name: "create-share-refresh-fails",
+			}),
+		);
+
+		await waitFor(() => {
+			expect(mockState.store.refresh).toHaveBeenCalledTimes(1);
+		});
+		expect(screen.getByText("share:report.pdf:page")).toBeInTheDocument();
 	});
 
 	it("starts a streamed archive download from a folder action", async () => {

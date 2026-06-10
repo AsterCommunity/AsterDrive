@@ -8,8 +8,10 @@ use super::selection::{
     ensure_archive_selection_active, resolve_archive_compress_target_folder_id,
     resolve_archive_download_in_scope,
 };
+use crate::api::api_error_code::ApiErrorCode;
+use crate::config::operations;
 use crate::entities::background_task;
-use crate::errors::{AsterError, MapAsterErr, Result};
+use crate::errors::{AsterError, MapAsterErr, Result, auth_forbidden_with_code};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::{
     batch_service,
@@ -39,6 +41,13 @@ pub(crate) async fn create_archive_compress_task_in_scope(
     scope: WorkspaceStorageScope,
     params: CreateArchiveCompressTaskParams,
 ) -> Result<TaskInfo> {
+    if !operations::archive_compress_enabled(state.runtime_config()) {
+        return Err(auth_forbidden_with_code(
+            ApiErrorCode::ArchiveCompressDisabled,
+            "online archive compression is disabled by the administrator",
+        ));
+    }
+
     let resolved = resolve_archive_download_in_scope(
         state,
         scope,

@@ -6,7 +6,9 @@ mod common;
 use actix_web::{App, test, web};
 use async_trait::async_trait;
 use chrono::{Duration, Utc};
-use sea_orm::{ActiveModelTrait, ColumnTrait, EntityTrait, IntoActiveModel, QueryFilter, Set};
+use sea_orm::{
+    ActiveModelTrait, ColumnTrait, EntityTrait, IntoActiveModel, PaginatorTrait, QueryFilter, Set,
+};
 use serde_json::Value;
 use std::io::{Cursor, Read, Write};
 use std::path::Path;
@@ -2994,6 +2996,148 @@ async fn test_personal_archive_compress_task_creates_workspace_file() {
     assert_eq!(
         read_zip_entry_text(&zip_bytes, "bundle/docs/note.txt"),
         "hello from archive compress task"
+    );
+}
+
+#[actix_web::test]
+async fn test_archive_compress_disabled_rejects_personal_task_without_creating_record() {
+    let state = common::setup().await;
+    let app = create_test_app!(state.clone());
+    aster_drive::services::config_service::set(&state, "archive_compress_enabled", "false", 1)
+        .await
+        .expect("archive compress enabled config should update");
+    let (token, _) = register_and_login!(app);
+
+    let req = multipart_request!("/api/v1/files/upload", &token, "source.txt", "payload");
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 201);
+    let body: Value = test::read_body_json(resp).await;
+    let file_id = body["data"]["id"].as_i64().unwrap();
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/batch/archive-compress")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({
+            "file_ids": [file_id],
+            "folder_ids": [],
+            "archive_name": "disabled"
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 403);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(body["code"], "archive_compress.disabled");
+    assert_eq!(
+        background_task::Entity::find()
+            .filter(background_task::Column::Kind.eq(BackgroundTaskKind::ArchiveCompress))
+            .count(state.writer_db())
+            .await
+            .expect("archive compress task count should load"),
+        0
+    );
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/batch/archive-compress")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({
+            "file_ids": [9_999_999],
+            "folder_ids": [],
+            "archive_name": "disabled-before-lookup"
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 403);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(body["code"], "archive_compress.disabled");
+    assert_eq!(
+        background_task::Entity::find()
+            .filter(background_task::Column::Kind.eq(BackgroundTaskKind::ArchiveCompress))
+            .count(state.writer_db())
+            .await
+            .expect("archive compress task count should load"),
+        0
+    );
+}
+
+#[actix_web::test]
+async fn test_archive_compress_disabled_rejects_team_task_without_creating_record() {
+    let state = common::setup().await;
+    let db = state.writer_db().clone();
+    let mail_sender = state.mail_sender.clone();
+    let state = web::Data::new(state);
+    let app = test::init_service(
+        App::new()
+            .app_data(web::PayloadConfig::new(10 * 1024 * 1024))
+            .app_data(web::JsonConfig::default().limit(1024 * 1024))
+            .app_data(web::Data::clone(&state))
+            .configure(move |cfg| aster_drive::api::configure_primary(cfg, &db)),
+    )
+    .await;
+
+    aster_drive::services::config_service::set(
+        state.get_ref(),
+        "archive_compress_enabled",
+        "false",
+        1,
+    )
+    .await
+    .expect("archive compress enabled config should update");
+
+    register_user!(
+        app,
+        state.writer_db().clone(),
+        mail_sender,
+        "teamcompressor",
+        "teamcompressor@example.com",
+        "password123"
+    );
+    let token = login_user!(app, "teamcompressor", "password123");
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/teams")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({ "name": "Archive Team" }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 201);
+    let body: Value = test::read_body_json(resp).await;
+    let team_id = body["data"]["id"].as_i64().unwrap();
+
+    let req = multipart_request!(
+        &format!("/api/v1/teams/{team_id}/files/upload"),
+        &token,
+        "team-source.txt",
+        "payload",
+    );
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 201);
+    let body: Value = test::read_body_json(resp).await;
+    let file_id = body["data"]["id"].as_i64().unwrap();
+
+    let req = test::TestRequest::post()
+        .uri(&format!("/api/v1/teams/{team_id}/batch/archive-compress"))
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({
+            "file_ids": [file_id],
+            "folder_ids": [],
+            "archive_name": "team-disabled"
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 403);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(body["code"], "archive_compress.disabled");
+    assert_eq!(
+        background_task::Entity::find()
+            .filter(background_task::Column::Kind.eq(BackgroundTaskKind::ArchiveCompress))
+            .count(state.writer_db())
+            .await
+            .expect("archive compress task count should load"),
+        0
     );
 }
 

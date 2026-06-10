@@ -13,6 +13,8 @@ use serde::Serialize;
 use utoipa::ToSchema;
 
 use crate::cache::CacheBackend;
+use crate::db::repository::{file_repo, folder_repo};
+use crate::errors::Result;
 use crate::runtime::StorageChangeRuntimeState;
 use crate::services::workspace_storage_service::{WorkspaceResourceScope, WorkspaceStorageScope};
 
@@ -20,6 +22,7 @@ pub const STORAGE_CHANGE_CHANNEL_CAPACITY: usize = 1024;
 const CACHE_INVALIDATION_COALESCE_DELAY: StdDuration = StdDuration::from_millis(25);
 const CACHE_INVALIDATION_RESERVATION_TTL_SECS: u64 = 1;
 const CACHE_INVALIDATION_RESERVATION_PREFIX: &str = "storage_change_cache_invalidation:";
+const AFFECTED_PARENT_LOOKUP_CHUNK_SIZE: usize = 500;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StorageChangeAudience {
@@ -55,6 +58,18 @@ pub enum StorageChangeKind {
     FolderRestoredFromTrash,
     #[serde(rename = "folder.purged")]
     FolderPurged,
+    #[serde(rename = "tag.created")]
+    TagCreated,
+    #[serde(rename = "tag.updated")]
+    TagUpdated,
+    #[serde(rename = "tag.deleted")]
+    TagDeleted,
+    #[serde(rename = "tag.assignment_changed")]
+    TagAssignmentChanged,
+    #[serde(rename = "lock.created")]
+    LockCreated,
+    #[serde(rename = "lock.deleted")]
+    LockDeleted,
     #[serde(rename = "sync.required")]
     SyncRequired,
 }
@@ -75,6 +90,34 @@ impl StorageChangeKind {
             | Self::FolderRestoredFromTrash
             | Self::FolderPurged
             | Self::SyncRequired => true,
+            Self::TagCreated | Self::TagUpdated | Self::TagDeleted | Self::TagAssignmentChanged => {
+                false
+            }
+            Self::LockCreated | Self::LockDeleted => false,
+        }
+    }
+
+    fn invalidates_webdav_path_cache(self) -> bool {
+        match self {
+            Self::FileCreated
+            | Self::FileUpdated
+            | Self::FileTrashed
+            | Self::FileRestoredFromTrash
+            | Self::FilePurged
+            | Self::FileVersionRestored
+            | Self::FileVersionDeleted
+            | Self::FolderCreated
+            | Self::FolderUpdated
+            | Self::FolderTrashed
+            | Self::FolderRestoredFromTrash
+            | Self::FolderPurged
+            | Self::SyncRequired => true,
+            Self::TagCreated
+            | Self::TagUpdated
+            | Self::TagDeleted
+            | Self::TagAssignmentChanged
+            | Self::LockCreated
+            | Self::LockDeleted => false,
         }
     }
 }
@@ -213,6 +256,45 @@ pub fn publish<S: StorageChangeRuntimeState>(state: &S, event: StorageChangeEven
     }
 }
 
+pub(crate) async fn affected_parent_ids_for_entities(
+    state: &impl StorageChangeRuntimeState,
+    scope: WorkspaceStorageScope,
+    file_ids: &[i64],
+    folder_ids: &[i64],
+) -> Result<Vec<Option<i64>>> {
+    let mut parent_ids = Vec::new();
+
+    for chunk in file_ids.chunks(AFFECTED_PARENT_LOOKUP_CHUNK_SIZE) {
+        let files = match scope {
+            WorkspaceStorageScope::Personal { user_id } => {
+                file_repo::find_by_ids_in_personal_scope(state.reader_db(), user_id, chunk).await?
+            }
+            WorkspaceStorageScope::Team { team_id, .. } => {
+                file_repo::find_by_ids_in_team_scope(state.reader_db(), team_id, chunk).await?
+            }
+        };
+        parent_ids.extend(files.into_iter().map(|file| file.folder_id));
+    }
+
+    for chunk in folder_ids.chunks(AFFECTED_PARENT_LOOKUP_CHUNK_SIZE) {
+        let folders = match scope {
+            WorkspaceStorageScope::Personal { user_id } => {
+                folder_repo::find_by_ids_in_personal_scope(state.reader_db(), user_id, chunk)
+                    .await?
+            }
+            WorkspaceStorageScope::Team { team_id, .. } => {
+                folder_repo::find_by_ids_in_team_scope(state.reader_db(), team_id, chunk).await?
+            }
+        };
+        parent_ids.extend(folders.into_iter().map(|folder| folder.parent_id));
+    }
+
+    parent_ids.sort();
+    parent_ids.dedup();
+
+    Ok(parent_ids)
+}
+
 fn invalidate_storage_change_caches(cache: Arc<dyn CacheBackend>, kind: StorageChangeKind) {
     let prefixes = cache_invalidation_prefixes(kind);
     if prefixes.is_empty() {
@@ -234,6 +316,10 @@ fn invalidate_storage_change_caches(cache: Arc<dyn CacheBackend>, kind: StorageC
 }
 
 fn cache_invalidation_prefixes(kind: StorageChangeKind) -> Vec<&'static str> {
+    if !kind.invalidates_webdav_path_cache() {
+        return Vec::new();
+    }
+
     let mut prefixes = vec![
         crate::webdav::path_resolver::WEBDAV_PATH_CACHE_PREFIX,
         crate::webdav::path_resolver::WEBDAV_PARENT_CACHE_PREFIX,
@@ -380,5 +466,24 @@ mod tests {
                 crate::services::folder_service::FOLDER_PATH_CACHE_PREFIX,
             ]
         );
+    }
+
+    #[test]
+    fn tag_changes_do_not_invalidate_webdav_path_caches() {
+        let prefixes = super::cache_invalidation_prefixes(StorageChangeKind::TagAssignmentChanged);
+
+        assert!(prefixes.is_empty());
+    }
+
+    #[test]
+    fn lock_changes_do_not_invalidate_webdav_path_caches() {
+        for kind in [
+            StorageChangeKind::LockCreated,
+            StorageChangeKind::LockDeleted,
+        ] {
+            let prefixes = super::cache_invalidation_prefixes(kind);
+
+            assert!(prefixes.is_empty());
+        }
     }
 }

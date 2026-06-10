@@ -1,4 +1,10 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+	fireEvent,
+	render,
+	screen,
+	waitFor,
+	within,
+} from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { TagManagerDialog } from "@/components/files/TagManagerDialog";
 import type { TagInfo, TagSummary } from "@/types/api";
@@ -8,6 +14,7 @@ const mockState = vi.hoisted(() => ({
 	batchDetachTag: vi.fn(),
 	createTag: vi.fn(),
 	handleApiError: vi.fn(),
+	keepDialogMountedWhenClosed: false,
 	listTags: vi.fn(),
 	replaceEntityTags: vi.fn(),
 	toastSuccess: vi.fn(),
@@ -39,17 +46,39 @@ vi.mock("sonner", () => ({
 
 vi.mock("@/components/files/TagLibraryManagerDialog", () => ({
 	TagLibraryManagerDialog: ({
+		onTagCreated,
 		onTagDeleted,
 		onTagUpdated,
 		open,
 	}: {
 		open: boolean;
 		onOpenChange: (open: boolean) => void;
+		onTagCreated?: (tag: TagInfo) => void;
 		onTagDeleted?: (tagId: number) => void;
 		onTagUpdated?: (tag: TagInfo) => void;
 	}) =>
 		open ? (
 			<div data-testid="tag-library-manager">
+				<button
+					type="button"
+					onClick={() =>
+						onTagCreated?.({
+							id: 4,
+							name: "Delta",
+							color: "#0891b2",
+							usage_count: 0,
+							scope_type: "personal",
+							owner_user_id: 1,
+							team_id: null,
+							normalized_name: "delta",
+							sort_order: 0,
+							created_at: "2026-06-08T00:00:00Z",
+							updated_at: "2026-06-08T00:00:00Z",
+						})
+					}
+				>
+					library-create-delta
+				</button>
 				<button
 					type="button"
 					onClick={() =>
@@ -97,10 +126,36 @@ vi.mock("@/components/ui/button", () => ({
 }));
 
 vi.mock("@/components/ui/dialog", () => ({
-	Dialog: ({ children, open }: { children: React.ReactNode; open: boolean }) =>
-		open ? <div data-testid="dialog">{children}</div> : null,
-	DialogContent: ({ children }: { children: React.ReactNode }) => (
-		<div>{children}</div>
+	Dialog: ({
+		children,
+		onOpenChangeComplete,
+		open,
+	}: {
+		children: React.ReactNode;
+		onOpenChangeComplete?: (open: boolean) => void;
+		open: boolean;
+	}) =>
+		open || mockState.keepDialogMountedWhenClosed ? (
+			<div data-open={open} data-testid="dialog">
+				{children}
+				<button
+					type="button"
+					hidden
+					data-testid="dialog-complete-close"
+					onClick={() => onOpenChangeComplete?.(false)}
+				/>
+			</div>
+		) : null,
+	DialogContent: ({
+		children,
+		className,
+	}: {
+		children: React.ReactNode;
+		className?: string;
+	}) => (
+		<div className={className} data-testid="dialog-content">
+			{children}
+		</div>
 	),
 	DialogDescription: ({ children }: { children: React.ReactNode }) => (
 		<p>{children}</p>
@@ -177,6 +232,7 @@ describe("TagManagerDialog", () => {
 		mockState.batchDetachTag.mockReset();
 		mockState.createTag.mockReset();
 		mockState.handleApiError.mockReset();
+		mockState.keepDialogMountedWhenClosed = false;
 		mockState.listTags.mockReset();
 		mockState.replaceEntityTags.mockReset();
 		mockState.toastSuccess.mockReset();
@@ -239,6 +295,31 @@ describe("TagManagerDialog", () => {
 		expect(onOpenChange).toHaveBeenCalledWith(false);
 	});
 
+	it("keeps the library list in its own scroll region above the footer", async () => {
+		render(
+			<TagManagerDialog
+				open
+				onOpenChange={vi.fn()}
+				target={{
+					mode: "entity",
+					entityType: "file",
+					entityId: 42,
+					initialTags: [summary(alpha)],
+				}}
+			/>,
+		);
+
+		await screen.findByText("Alpha");
+		expect(screen.getByTestId("dialog-content")).toHaveClass(
+			"sm:h-[min(88vh,44rem)]",
+		);
+		expect(screen.getByRole("region", { name: "tag_library" })).toHaveClass(
+			"min-h-0",
+			"flex-1",
+			"overflow-y-auto",
+		);
+	});
+
 	it("creates a new tag and selects it for the entity draft", async () => {
 		const onOpenChange = vi.fn();
 
@@ -281,6 +362,116 @@ describe("TagManagerDialog", () => {
 		expect(mockState.toastSuccess).toHaveBeenCalledWith("tag_created");
 		expect(mockState.toastSuccess).toHaveBeenCalledWith("tag_saved");
 		expect(onOpenChange).toHaveBeenCalledWith(false);
+	});
+
+	it("syncs tags created from the nested library manager back into the entity draft", async () => {
+		render(
+			<TagManagerDialog
+				open
+				onOpenChange={vi.fn()}
+				target={{
+					mode: "entity",
+					entityType: "folder",
+					entityId: 9,
+					initialTags: [],
+				}}
+			/>,
+		);
+
+		await screen.findByText("Alpha");
+		fireEvent.click(screen.getByRole("button", { name: "tag_library_manage" }));
+		fireEvent.click(screen.getByText("library-create-delta"));
+		fireEvent.click(await screen.findByRole("button", { name: /Delta/ }));
+		fireEvent.click(screen.getByRole("button", { name: "save" }));
+
+		await waitFor(() => {
+			expect(mockState.replaceEntityTags).toHaveBeenCalledWith(
+				"folder",
+				9,
+				[4],
+			);
+		});
+	});
+
+	it("ignores duplicate tags created from the nested library manager", async () => {
+		mockState.listTags.mockResolvedValueOnce({
+			items: [alpha, beta],
+			total: 2,
+		});
+
+		render(
+			<TagManagerDialog
+				open
+				onOpenChange={vi.fn()}
+				target={{
+					mode: "entity",
+					entityType: "file",
+					entityId: 42,
+					initialTags: [],
+					name: "report.pdf",
+				}}
+			/>,
+		);
+
+		await screen.findByText("Alpha");
+		fireEvent.click(screen.getByRole("button", { name: "tag_library_manage" }));
+		fireEvent.click(screen.getByText("library-create-delta"));
+		fireEvent.click(screen.getByText("library-create-delta"));
+
+		await waitFor(() => {
+			expect(screen.getAllByText("Delta")).toHaveLength(1);
+		});
+	});
+
+	it("renders a close-only empty state when opened without a target", () => {
+		const onOpenChange = vi.fn();
+
+		render(<TagManagerDialog open onOpenChange={onOpenChange} target={null} />);
+
+		fireEvent.change(screen.getByLabelText("tag_search_label"), {
+			target: { value: "Delta" },
+		});
+		fireEvent.click(screen.getByRole("button", { name: /create:Delta/ }));
+		fireEvent.click(screen.getByRole("button", { name: "close" }));
+
+		expect(mockState.listTags).not.toHaveBeenCalled();
+		expect(mockState.createTag).not.toHaveBeenCalled();
+		expect(onOpenChange).toHaveBeenCalledWith(false);
+		expect(
+			screen.queryByRole("button", { name: "save" }),
+		).not.toBeInTheDocument();
+	});
+
+	it("removes selected entity chips and detects same-size tag changes", async () => {
+		render(
+			<TagManagerDialog
+				open
+				onOpenChange={vi.fn()}
+				target={{
+					mode: "entity",
+					entityType: "file",
+					entityId: 42,
+					initialTags: [summary(alpha)],
+				}}
+			/>,
+		);
+
+		await screen.findByText("Alpha");
+		const selectedSection = screen.getByText("tag_selected").closest("section");
+		expect(selectedSection).not.toBeNull();
+		fireEvent.click(
+			within(selectedSection as HTMLElement).getByRole("button", {
+				name: "tag_remove",
+			}),
+		);
+		fireEvent.click(screen.getByRole("button", { name: /Beta/ }));
+		expect(screen.getByText("tag_draft_entity_summary")).toBeInTheDocument();
+
+		fireEvent.click(screen.getByRole("button", { name: "save" }));
+
+		await waitFor(() => {
+			expect(mockState.replaceEntityTags).toHaveBeenCalledWith("file", 42, [2]);
+		});
 	});
 
 	it("creates a new tag from Enter and queues it for batch save", async () => {
@@ -355,6 +546,46 @@ describe("TagManagerDialog", () => {
 		expect(await screen.findByText("Beta")).toBeInTheDocument();
 	});
 
+	it("includes the active query when loading more tag library results", async () => {
+		mockState.listTags
+			.mockResolvedValueOnce({ items: [alpha], total: 1 })
+			.mockResolvedValueOnce({ items: [alpha], total: 2 })
+			.mockResolvedValueOnce({ items: [gamma], total: 2 });
+
+		render(
+			<TagManagerDialog
+				open
+				onOpenChange={vi.fn()}
+				target={{
+					mode: "entity",
+					entityType: "file",
+					entityId: 1,
+					initialTags: [],
+				}}
+			/>,
+		);
+
+		await screen.findByText("Alpha");
+		fireEvent.change(screen.getByLabelText("tag_search_label"), {
+			target: { value: " ga " },
+		});
+		await waitFor(() => {
+			expect(mockState.listTags).toHaveBeenNthCalledWith(2, {
+				params: { limit: 100, offset: 0, q: "ga" },
+			});
+		});
+		fireEvent.click(
+			await screen.findByRole("button", { name: "tag_library_load_more" }),
+		);
+
+		await waitFor(() => {
+			expect(mockState.listTags).toHaveBeenNthCalledWith(3, {
+				params: { limit: 100, offset: 1, q: "ga" },
+			});
+		});
+		expect(await screen.findByText("Gamma")).toBeInTheDocument();
+	});
+
 	it("saves batch add and remove actions against the selected entities", async () => {
 		render(
 			<TagManagerDialog
@@ -388,6 +619,75 @@ describe("TagManagerDialog", () => {
 			folder_ids: [20],
 		});
 		expect(mockState.toastSuccess).toHaveBeenCalledWith("tag_batch_saved");
+	});
+
+	it("toggles batch command buttons back to no action", async () => {
+		render(
+			<TagManagerDialog
+				open
+				onOpenChange={vi.fn()}
+				target={{
+					mode: "batch",
+					count: 2,
+					fileIds: [10],
+					folderIds: [20],
+				}}
+			/>,
+		);
+
+		await screen.findByText("Alpha");
+		fireEvent.click(screen.getAllByRole("button", { name: /tag_add/ })[0]);
+		expect(await screen.findByText("draft:add=1:remove=0")).toBeInTheDocument();
+		fireEvent.click(screen.getAllByRole("button", { name: /tag_add/ })[0]);
+		expect(await screen.findByText("tag_draft_empty")).toBeInTheDocument();
+
+		fireEvent.click(screen.getAllByRole("button", { name: /tag_remove/ })[0]);
+		expect(await screen.findByText("draft:add=0:remove=1")).toBeInTheDocument();
+		fireEvent.click(screen.getAllByRole("button", { name: /tag_remove/ })[0]);
+		expect(await screen.findByText("tag_draft_empty")).toBeInTheDocument();
+		expect(screen.getByRole("button", { name: "save" })).toBeDisabled();
+	});
+
+	it("removes pending batch chips without saving those actions", async () => {
+		render(
+			<TagManagerDialog
+				open
+				onOpenChange={vi.fn()}
+				target={{
+					mode: "batch",
+					count: 2,
+					fileIds: [10],
+					folderIds: [20],
+				}}
+			/>,
+		);
+
+		await screen.findByText("Alpha");
+		fireEvent.click(screen.getByRole("button", { name: /Beta/ }));
+		fireEvent.click(screen.getAllByRole("button", { name: /tag_remove/ })[1]);
+		expect(await screen.findByText("draft:add=1:remove=1")).toBeInTheDocument();
+
+		const pendingAddRow = screen.getByText("tag_pending_add").parentElement;
+		const pendingRemoveRow =
+			screen.getByText("tag_pending_remove").parentElement;
+		expect(pendingAddRow).not.toBeNull();
+		expect(pendingRemoveRow).not.toBeNull();
+		fireEvent.click(
+			within(pendingAddRow as HTMLElement).getByRole("button", {
+				name: "tag_remove",
+			}),
+		);
+		expect(await screen.findByText("draft:add=0:remove=1")).toBeInTheDocument();
+		fireEvent.click(
+			within(pendingRemoveRow as HTMLElement).getByRole("button", {
+				name: "tag_remove",
+			}),
+		);
+		expect(await screen.findByText("tag_draft_empty")).toBeInTheDocument();
+
+		fireEvent.click(screen.getByRole("button", { name: "save" }));
+		expect(mockState.batchAttachTag).not.toHaveBeenCalled();
+		expect(mockState.batchDetachTag).not.toHaveBeenCalled();
 	});
 
 	it("routes load and save failures through handleApiError without closing", async () => {
@@ -527,6 +827,80 @@ describe("TagManagerDialog", () => {
 		expect(screen.getByLabelText("tag_search_label")).toHaveValue("");
 		expect(screen.getByText("tag_draft_empty")).toBeInTheDocument();
 		expect(screen.getByRole("button", { name: "save" })).toBeDisabled();
+	});
+
+	it("resets the entity draft inline when the target changes", async () => {
+		const firstTarget = {
+			mode: "entity" as const,
+			entityType: "file" as const,
+			entityId: 42,
+			initialTags: [summary(alpha)],
+			name: "report.pdf",
+		};
+		const secondTarget = {
+			mode: "entity" as const,
+			entityType: "file" as const,
+			entityId: 43,
+			initialTags: [summary(beta)],
+			name: "notes.pdf",
+		};
+
+		const { rerender } = render(
+			<TagManagerDialog open onOpenChange={vi.fn()} target={firstTarget} />,
+		);
+
+		await screen.findByText("Beta");
+		fireEvent.click(screen.getByRole("button", { name: /Beta/ }));
+		fireEvent.change(screen.getByLabelText("tag_search_label"), {
+			target: { value: "Gamma" },
+		});
+		expect(screen.getByText("tag_draft_entity_summary")).toBeInTheDocument();
+
+		rerender(
+			<TagManagerDialog open onOpenChange={vi.fn()} target={secondTarget} />,
+		);
+
+		const selectedSection = screen.getByText("tag_selected").closest("section");
+		expect(selectedSection).not.toBeNull();
+		expect(
+			within(selectedSection as HTMLElement).getByText("Beta"),
+		).toBeInTheDocument();
+		expect(
+			within(selectedSection as HTMLElement).queryByText("Alpha"),
+		).not.toBeInTheDocument();
+		expect(screen.getByLabelText("tag_search_label")).toHaveValue("");
+		expect(screen.getByText("tag_draft_empty")).toBeInTheDocument();
+	});
+
+	it("keeps the existing draft state visible during the close animation", async () => {
+		mockState.keepDialogMountedWhenClosed = true;
+		const target = {
+			mode: "entity" as const,
+			entityType: "file" as const,
+			entityId: 42,
+			initialTags: [summary(alpha)],
+			name: "report.pdf",
+		};
+
+		const { rerender } = render(
+			<TagManagerDialog open onOpenChange={vi.fn()} target={target} />,
+		);
+
+		await screen.findByText("Alpha");
+		expect(screen.getByText("tag_draft_empty")).toBeInTheDocument();
+
+		rerender(
+			<TagManagerDialog open={false} onOpenChange={vi.fn()} target={target} />,
+		);
+
+		expect(screen.getByTestId("dialog")).toHaveAttribute("data-open", "false");
+		expect(screen.getByText("tag_draft_empty")).toBeInTheDocument();
+		expect(screen.queryByText("tag_draft_entity_summary")).toBeNull();
+
+		fireEvent.click(screen.getByTestId("dialog-complete-close"));
+		await waitFor(() => {
+			expect(screen.getByLabelText("tag_search_label")).toHaveValue("");
+		});
 	});
 
 	it("routes create failures through handleApiError", async () => {

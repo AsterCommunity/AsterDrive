@@ -115,6 +115,7 @@ define_api_error_codes! {
     ArchivePreviewUnsupportedType => "archive_preview.unsupported_type",
     ArchivePreviewRejected => "archive_preview.rejected",
     ArchivePreviewSourceSizeMismatch => "archive_preview.source_size_mismatch",
+    ArchiveCompressDisabled => "archive_compress.disabled",
 
     // auth/public/session/mfa/csrf middleware: specific auth validation and security failures.
     AuthUsernameExists => "auth.username_exists",

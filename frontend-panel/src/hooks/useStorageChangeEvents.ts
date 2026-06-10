@@ -63,6 +63,10 @@ function shouldRefreshCurrentFolder(event: StorageChangeEventPayload) {
 	);
 }
 
+function isTagChangeEvent(event: StorageChangeEventPayload) {
+	return event.kind.startsWith("tag.");
+}
+
 function isVirtualFileBrowserRoute() {
 	if (typeof window === "undefined") {
 		return false;
@@ -244,13 +248,16 @@ export function useStorageChangeEvents() {
 					return;
 				}
 
-				invalidatePreviewCaches(event.file_ids);
+				if (!isTagChangeEvent(event)) {
+					invalidatePreviewCaches(event.file_ids);
+				}
 				if (shouldRefreshCurrentFolder(event)) {
 					if (isStorageRefreshGateActive()) {
 						deferStorageRefresh();
 						return;
 					}
 					void refreshCurrentFolder();
+					return;
 				}
 			};
 

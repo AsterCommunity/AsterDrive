@@ -28,6 +28,17 @@ const CLICK_MOVE_THRESHOLD = 4;
 const IMAGE_PREVIEW_KEY_SEPARATOR = "\u0000";
 const ORIGINAL_BUTTON_SUCCESS_HOLD_MS = 650;
 const IMAGE_NAVIGATION_KEYDOWN_OPTIONS = { capture: true } as const;
+const IMAGE_PREVIEW_INTERACTIVE_SELECTOR = [
+	"button",
+	"a[href]",
+	"input",
+	"textarea",
+	"select",
+	"[role='button']",
+	"[role='link']",
+	"[contenteditable='true']",
+	"[contenteditable='plaintext-only']",
+].join(",");
 
 type OriginalButtonAnimationPhase =
 	| "hidden"
@@ -65,6 +76,15 @@ function originalButtonAnimationReducer(
 		case "hide":
 			return state.phase === "hidden" ? state : { phase: "hidden" };
 	}
+}
+
+function isImagePreviewInteractiveTarget(target: EventTarget | null) {
+	if (!(target instanceof Element)) return false;
+
+	return (
+		(target instanceof HTMLElement && target.isContentEditable) ||
+		target.closest(IMAGE_PREVIEW_INTERACTIVE_SELECTOR) !== null
+	);
 }
 
 interface ImagePreviewPanelProps {
@@ -402,6 +422,7 @@ function ImagePreviewTransformLayer({
 	const gestureSurfaceRef = useRef<HTMLDivElement | null>(null);
 	const imageRef = useRef<HTMLImageElement | null>(null);
 	const surfacePointerStartRef = useRef<{
+		targetIsInteractive: boolean;
 		targetIsImage: boolean;
 		x: number;
 		y: number;
@@ -430,6 +451,7 @@ function ImagePreviewTransformLayer({
 		(event: PointerEvent<HTMLDivElement>) => {
 			handlePointerDown(event);
 			surfacePointerStartRef.current = {
+				targetIsInteractive: isImagePreviewInteractiveTarget(event.target),
 				targetIsImage: event.target === imageRef.current,
 				x: event.clientX,
 				y: event.clientY,
@@ -441,6 +463,13 @@ function ImagePreviewTransformLayer({
 		(event: MouseEvent<HTMLDivElement>) => {
 			const pointerStart = surfacePointerStartRef.current;
 			surfacePointerStartRef.current = null;
+
+			if (
+				isImagePreviewInteractiveTarget(event.target) ||
+				pointerStart?.targetIsInteractive
+			) {
+				return;
+			}
 
 			if (event.target === imageRef.current || pointerStart?.targetIsImage) {
 				return;

@@ -427,6 +427,95 @@ describe("useStorageChangeEvents", () => {
 		expect(mockState.fileStore.navigateTo).not.toHaveBeenCalled();
 	});
 
+	it("refreshes the current folder for matching tag assignment events", async () => {
+		const { useStorageChangeEvents } = await import(
+			"@/hooks/useStorageChangeEvents"
+		);
+
+		renderHook(() => useStorageChangeEvents());
+
+		await connectStorageEvents();
+
+		MockEventSource.instances[0]?.emit({
+			kind: "tag.assignment_changed",
+			workspace: { kind: "personal" },
+			file_ids: [12],
+			folder_ids: [],
+			affected_parent_ids: [7],
+			root_affected: false,
+			affects_quota: false,
+			storage_delta: null,
+			at: "2026-04-08T00:00:00Z",
+		});
+
+		await waitFor(() => {
+			expect(mockState.fileStore.navigateTo).toHaveBeenCalledWith(7);
+		});
+		expect(mockState.invalidateBlobUrl).not.toHaveBeenCalled();
+		expect(mockState.invalidateTextContent).not.toHaveBeenCalled();
+	});
+
+	it("does not refresh nested folders for root-only tag events", async () => {
+		const { useStorageChangeEvents } = await import(
+			"@/hooks/useStorageChangeEvents"
+		);
+
+		renderHook(() => useStorageChangeEvents());
+
+		await connectStorageEvents();
+
+		MockEventSource.instances[0]?.emit({
+			kind: "tag.assignment_changed",
+			workspace: { kind: "personal" },
+			file_ids: [12],
+			folder_ids: [],
+			affected_parent_ids: [],
+			root_affected: true,
+			affects_quota: false,
+			storage_delta: null,
+			at: "2026-04-08T00:00:00Z",
+		});
+
+		expect(mockState.fileStore.navigateTo).not.toHaveBeenCalled();
+	});
+
+	it("publishes tag events without navigating on virtual browser routes", async () => {
+		window.history.replaceState(null, "", "/search?tag_ids=1");
+		const { subscribeStorageChange } = await import("@/lib/storageChangeBus");
+		const listener = vi.fn();
+		const unsubscribe = subscribeStorageChange(listener);
+		const { useStorageChangeEvents } = await import(
+			"@/hooks/useStorageChangeEvents"
+		);
+
+		try {
+			renderHook(() => useStorageChangeEvents());
+
+			await connectStorageEvents();
+
+			MockEventSource.instances[0]?.emit({
+				kind: "tag.updated",
+				workspace: { kind: "personal" },
+				file_ids: [12],
+				folder_ids: [],
+				affected_parent_ids: [7],
+				root_affected: false,
+				affects_quota: false,
+				storage_delta: null,
+				at: "2026-04-08T00:00:00Z",
+			});
+
+			await waitFor(() => {
+				expect(listener).toHaveBeenCalledWith(
+					expect.objectContaining({ kind: "tag.updated" }),
+				);
+			});
+			expect(mockState.fileStore.navigateTo).not.toHaveBeenCalled();
+		} finally {
+			unsubscribe();
+		}
+	});
+
 	it("ignores matching local mutation echo events", async () => {
 		rememberStorageEventEcho({
 			kind: "file.trashed",

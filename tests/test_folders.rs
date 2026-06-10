@@ -6,7 +6,9 @@ mod common;
 use actix_web::test;
 use aster_drive::db::repository::{folder_repo, user_repo};
 use aster_drive::runtime::SharedRuntimeState;
+use aster_drive::services::storage_change_service::StorageChangeKind;
 use serde_json::Value;
+use std::time::Duration;
 
 #[actix_web::test]
 async fn test_folders_crud() {
@@ -75,7 +77,7 @@ async fn test_folders_crud() {
 #[actix_web::test]
 async fn test_folder_lock_unlock() {
     let state = common::setup().await;
-    let app = create_test_app!(state);
+    let app = create_test_app!(state.clone());
 
     let (token, _) = register_and_login!(app);
 
@@ -90,6 +92,7 @@ async fn test_folder_lock_unlock() {
     assert_eq!(resp.status(), 201);
     let body: Value = test::read_body_json(resp).await;
     let folder_id = body["data"]["id"].as_i64().unwrap();
+    let mut storage_events = state.storage_change_tx.subscribe();
 
     // 锁定
     let req = test::TestRequest::post()
@@ -100,6 +103,15 @@ async fn test_folder_lock_unlock() {
         .to_request();
     let resp = test::call_service(&app, req).await;
     assert_eq!(resp.status(), 200);
+    let event = tokio::time::timeout(Duration::from_secs(1), storage_events.recv())
+        .await
+        .expect("folder lock should publish storage change event")
+        .expect("storage change channel should stay open");
+    assert_eq!(event.kind, StorageChangeKind::LockCreated);
+    assert!(event.file_ids.is_empty());
+    assert_eq!(event.folder_ids, vec![folder_id]);
+    assert!(event.affected_parent_ids.is_empty());
+    assert!(event.root_affected);
 
     // 删除失败
     let req = test::TestRequest::delete()
@@ -127,7 +139,17 @@ async fn test_folder_lock_unlock() {
         .insert_header(common::csrf_header_for(&token))
         .set_json(serde_json::json!({ "locked": false }))
         .to_request();
-    test::call_service(&app, req).await;
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+    let event = tokio::time::timeout(Duration::from_secs(1), storage_events.recv())
+        .await
+        .expect("folder unlock should publish storage change event")
+        .expect("storage change channel should stay open");
+    assert_eq!(event.kind, StorageChangeKind::LockDeleted);
+    assert!(event.file_ids.is_empty());
+    assert_eq!(event.folder_ids, vec![folder_id]);
+    assert!(event.affected_parent_ids.is_empty());
+    assert!(event.root_affected);
 
     let req = test::TestRequest::delete()
         .uri(&format!("/api/v1/folders/{folder_id}"))
@@ -136,6 +158,58 @@ async fn test_folder_lock_unlock() {
         .to_request();
     let resp = test::call_service(&app, req).await;
     assert_eq!(resp.status(), 200);
+}
+
+#[actix_web::test]
+async fn test_nested_folder_lock_events_include_parent_folder() {
+    let state = common::setup().await;
+    let app = create_test_app!(state.clone());
+
+    let (token, _) = register_and_login!(app);
+    let req = test::TestRequest::post()
+        .uri("/api/v1/folders")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({ "name": "Parent Folder" }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 201);
+    let body: Value = test::read_body_json(resp).await;
+    let parent_id = body["data"]["id"].as_i64().unwrap();
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/folders")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({
+            "name": "Child Folder",
+            "parent_id": parent_id
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 201);
+    let body: Value = test::read_body_json(resp).await;
+    let child_id = body["data"]["id"].as_i64().unwrap();
+    let mut storage_events = state.storage_change_tx.subscribe();
+
+    let req = test::TestRequest::post()
+        .uri(&format!("/api/v1/folders/{child_id}/lock"))
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({ "locked": true }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+
+    let event = tokio::time::timeout(Duration::from_secs(1), storage_events.recv())
+        .await
+        .expect("nested folder lock should publish storage change event")
+        .expect("storage change channel should stay open");
+    assert_eq!(event.kind, StorageChangeKind::LockCreated);
+    assert!(event.file_ids.is_empty());
+    assert_eq!(event.folder_ids, vec![child_id]);
+    assert_eq!(event.affected_parent_ids, vec![parent_id]);
+    assert!(!event.root_affected);
 }
 
 #[actix_web::test]

@@ -354,6 +354,12 @@ describe("CategoryBrowserPage", () => {
 		render(<CategoryBrowserPage />);
 
 		await screen.findByText("photo.jpg");
+		await waitFor(() => {
+			expect(screen.getByTestId("workspace")).toHaveAttribute(
+				"data-loading",
+				"false",
+			);
+		});
 
 		fireEvent.keyDown(document, {
 			cancelable: true,
@@ -419,5 +425,53 @@ describe("CategoryBrowserPage", () => {
 		rerender(<CategoryBrowserPage />);
 
 		expect(mockState.clearSelection).toHaveBeenCalledTimes(2);
+	});
+
+	it("reloads category results after file tag storage events", async () => {
+		const { publishStorageChange } = await import("@/lib/storageChangeBus");
+		render(<CategoryBrowserPage />);
+
+		await waitFor(() => {
+			expect(mockState.search).toHaveBeenCalledTimes(1);
+		});
+
+		publishStorageChange({
+			affected_parent_ids: [7],
+			affects_quota: false,
+			at: "2026-06-10T00:00:00Z",
+			file_ids: [1],
+			folder_ids: [],
+			kind: "tag.assignment_changed",
+			root_affected: false,
+			storage_delta: null,
+			workspace: { kind: "personal" },
+		});
+
+		await waitFor(() => {
+			expect(mockState.search).toHaveBeenCalledTimes(2);
+		});
+	});
+
+	it("ignores folder-only tag events on category results", async () => {
+		const { publishStorageChange } = await import("@/lib/storageChangeBus");
+		render(<CategoryBrowserPage />);
+
+		await waitFor(() => {
+			expect(mockState.search).toHaveBeenCalledTimes(1);
+		});
+
+		publishStorageChange({
+			affected_parent_ids: [7],
+			affects_quota: false,
+			at: "2026-06-10T00:00:00Z",
+			file_ids: [],
+			folder_ids: [9],
+			kind: "tag.updated",
+			root_affected: false,
+			storage_delta: null,
+			workspace: { kind: "personal" },
+		});
+
+		expect(mockState.search).toHaveBeenCalledTimes(1);
 	});
 });

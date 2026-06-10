@@ -37,6 +37,7 @@ interface ShareDialogProps {
 	open: boolean;
 	onOpenChange: (open: boolean) => void;
 	onOpenChangeComplete?: (open: boolean) => void;
+	onShareCreated?: () => void | Promise<void>;
 	fileId?: number;
 	folderId?: number;
 	name: string;
@@ -47,6 +48,7 @@ export function ShareDialog({
 	open,
 	onOpenChange,
 	onOpenChangeComplete,
+	onShareCreated,
 	fileId,
 	folderId,
 	name,
@@ -107,6 +109,9 @@ export function ShareDialog({
 						max_downloads: normalizeMaxDownloads(maxDownloads),
 					});
 					primaryUrl = shareService.pageUrl(share.token);
+					void Promise.resolve()
+						.then(() => onShareCreated?.())
+						.catch(() => undefined);
 				}
 
 				dispatch({

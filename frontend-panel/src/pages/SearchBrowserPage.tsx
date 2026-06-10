@@ -20,6 +20,7 @@ import { handleApiError } from "@/hooks/useApiError";
 import { usePageTitle } from "@/hooks/usePageTitle";
 import { useSelectionShortcuts } from "@/hooks/useSelectionShortcuts";
 import { startAuthenticatedDownload } from "@/lib/authenticatedDownload";
+import { subscribeStorageChange } from "@/lib/storageChangeBus";
 import { workspaceFolderPath, workspaceRootPath } from "@/lib/workspace";
 import { FileBrowserDialogs } from "@/pages/file-browser/FileBrowserDialogs";
 import { FileBrowserToolbar } from "@/pages/file-browser/FileBrowserToolbar";
@@ -176,6 +177,22 @@ function hasSearchCriteria(query: ParsedSearchQuery) {
 	return Boolean(query.q || query.category || query.tagIds);
 }
 
+function tagEventAffectsSearchResults(event: {
+	affected_parent_ids: number[];
+	file_ids: number[];
+	folder_ids: number[];
+	kind: string;
+	root_affected: boolean;
+}) {
+	return (
+		event.kind.startsWith("tag.") &&
+		(event.root_affected ||
+			event.affected_parent_ids.length > 0 ||
+			event.file_ids.length > 0 ||
+			event.folder_ids.length > 0)
+	);
+}
+
 function buildSearchParams(
 	query: ParsedSearchQuery,
 	sortBy: SearchParams["sort_by"],
@@ -316,6 +333,15 @@ export default function SearchBrowserPage() {
 		setInfoPanelOpen(false);
 		setInfoTarget(null);
 		void loadSearch(0, "replace");
+	}, [loadSearch]);
+
+	useEffect(() => {
+		return subscribeStorageChange((event) => {
+			if (!tagEventAffectsSearchResults(event)) {
+				return;
+			}
+			void loadSearch(0, "replace");
+		});
 	}, [loadSearch]);
 
 	const activeInfoTarget = useMemo<FileBrowserInfoTarget | null>(() => {

@@ -218,7 +218,7 @@ export function BlobImagePreview({
 		loading || (!error && !blobUrl) ? (
 			<PreviewLoadingState text={t("loading_preview")} className="h-full" />
 		) : error || imageRenderFailed ? (
-			<PreviewError onRetry={handleRetry} />
+			<PreviewError appearance="dark" onRetry={handleRetry} />
 		) : readyBlobUrl ? (
 			<div ref={viewportRef} className={imageContainerClass}>
 				<img

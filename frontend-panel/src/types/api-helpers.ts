@@ -68,6 +68,7 @@ export const ApiErrorCode = {
 	ArchivePreviewUnsupportedType: "archive_preview.unsupported_type",
 	ArchivePreviewRejected: "archive_preview.rejected",
 	ArchivePreviewSourceSizeMismatch: "archive_preview.source_size_mismatch",
+	ArchiveCompressDisabled: "archive_compress.disabled",
 	AuthUsernameExists: "auth.username_exists",
 	AuthEmailExists: "auth.email_exists",
 	AuthIdentifierExists: "auth.identifier_exists",

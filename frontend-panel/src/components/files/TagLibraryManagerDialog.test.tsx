@@ -10,8 +10,10 @@ import { TagLibraryManagerDialog } from "@/components/files/TagLibraryManagerDia
 import type { TagInfo } from "@/types/api";
 
 const mockState = vi.hoisted(() => ({
+	createTag: vi.fn(),
 	deleteTag: vi.fn(),
 	handleApiError: vi.fn(),
+	keepDialogMountedWhenClosed: false,
 	listTags: vi.fn(),
 	patchTag: vi.fn(),
 	toastSuccess: vi.fn(),
@@ -29,6 +31,9 @@ vi.mock("react-i18next", () => ({
 			}
 			if (normalizedKey === "tag_color_option") {
 				return `tag_color_option:${options?.color}`;
+			}
+			if (normalizedKey === "tag_create_named") {
+				return `create:${options?.name}`;
 			}
 			return normalizedKey;
 		},
@@ -61,10 +66,33 @@ vi.mock("@/components/ui/button", () => ({
 }));
 
 vi.mock("@/components/ui/dialog", () => ({
-	Dialog: ({ children, open }: { children: React.ReactNode; open: boolean }) =>
-		open ? <div data-testid="dialog">{children}</div> : null,
-	DialogContent: ({ children }: { children: React.ReactNode }) => (
-		<div>{children}</div>
+	Dialog: ({
+		children,
+		onOpenChangeComplete,
+		open,
+	}: {
+		children: React.ReactNode;
+		onOpenChangeComplete?: (open: boolean) => void;
+		open: boolean;
+	}) =>
+		open || mockState.keepDialogMountedWhenClosed ? (
+			<div data-open={open} data-testid="dialog">
+				{children}
+				<button type="button" onClick={() => onOpenChangeComplete?.(false)}>
+					complete-close
+				</button>
+			</div>
+		) : null,
+	DialogContent: ({
+		children,
+		className,
+	}: {
+		children: React.ReactNode;
+		className?: string;
+	}) => (
+		<div className={className} data-testid="dialog-content">
+			{children}
+		</div>
 	),
 	DialogDescription: ({ children }: { children: React.ReactNode }) => (
 		<p>{children}</p>
@@ -93,6 +121,7 @@ vi.mock("@/hooks/useApiError", () => ({
 
 vi.mock("@/services/tagService", () => ({
 	tagService: {
+		createTag: (...args: unknown[]) => mockState.createTag(...args),
 		deleteTag: (...args: unknown[]) => mockState.deleteTag(...args),
 		listTags: (...args: unknown[]) => mockState.listTags(...args),
 		patchTag: (...args: unknown[]) => mockState.patchTag(...args),
@@ -126,12 +155,15 @@ describe("TagLibraryManagerDialog", () => {
 	const gamma = tag(3, "Gamma", "#dc2626", 1);
 
 	beforeEach(() => {
+		mockState.createTag.mockReset();
 		mockState.deleteTag.mockReset();
 		mockState.handleApiError.mockReset();
+		mockState.keepDialogMountedWhenClosed = false;
 		mockState.listTags.mockReset();
 		mockState.patchTag.mockReset();
 		mockState.toastSuccess.mockReset();
 
+		mockState.createTag.mockResolvedValue(gamma);
 		mockState.deleteTag.mockResolvedValue(undefined);
 		mockState.listTags.mockResolvedValue({
 			items: [beta, alpha],
@@ -184,6 +216,136 @@ describe("TagLibraryManagerDialog", () => {
 				params: { limit: 50, offset: 1 },
 			});
 		});
+	});
+
+	it("keeps the tag list inside a fixed-height scroll area", async () => {
+		render(<TagLibraryManagerDialog open onOpenChange={vi.fn()} />);
+
+		expect(await screen.findByText("Alpha")).toBeInTheDocument();
+		expect(screen.getByTestId("dialog-content")).toHaveClass(
+			"sm:h-[min(88vh,44rem)]",
+		);
+		const scrollArea = screen.getByTestId("tag-list-scroll-area");
+		expect(scrollArea).toContainElement(screen.getByText("Alpha"));
+		expect(scrollArea).toHaveClass("h-full", "overflow-y-auto");
+	});
+
+	it("keeps loaded tags visible while the close animation is running", async () => {
+		mockState.keepDialogMountedWhenClosed = true;
+
+		const { rerender } = render(
+			<TagLibraryManagerDialog open onOpenChange={vi.fn()} />,
+		);
+
+		expect(await screen.findByText("Alpha")).toBeInTheDocument();
+		fireEvent.change(screen.getByLabelText("tag_search_label"), {
+			target: { value: "Alpha" },
+		});
+		await waitFor(() => {
+			expect(mockState.listTags).toHaveBeenLastCalledWith({
+				params: { limit: 50, offset: 0, q: "Alpha" },
+			});
+		});
+
+		rerender(<TagLibraryManagerDialog open={false} onOpenChange={vi.fn()} />);
+
+		expect(screen.getByTestId("dialog")).toHaveAttribute("data-open", "false");
+		expect(screen.getByText("Alpha")).toBeInTheDocument();
+		expect(screen.getByLabelText("tag_search_label")).toHaveValue("Alpha");
+
+		fireEvent.click(screen.getByRole("button", { name: "complete-close" }));
+
+		expect(screen.queryByText("Alpha")).not.toBeInTheDocument();
+		expect(screen.getByLabelText("tag_search_label")).toHaveValue("");
+	});
+
+	it("creates a tag from the library search row and reports it to the parent", async () => {
+		const onTagCreated = vi.fn();
+		let includeCreatedTag = false;
+		mockState.createTag.mockImplementation(async () => {
+			includeCreatedTag = true;
+			return gamma;
+		});
+		mockState.listTags.mockImplementation(() =>
+			Promise.resolve({
+				items: includeCreatedTag ? [beta, alpha, gamma] : [beta, alpha],
+				total: includeCreatedTag ? 3 : 2,
+			}),
+		);
+
+		render(
+			<TagLibraryManagerDialog
+				open
+				onOpenChange={vi.fn()}
+				onTagCreated={onTagCreated}
+			/>,
+		);
+
+		await screen.findByText("Alpha");
+		fireEvent.change(screen.getByLabelText("tag_search_label"), {
+			target: { value: " Gamma " },
+		});
+		fireEvent.click(
+			await screen.findByRole("button", { name: /create:Gamma/ }),
+		);
+
+		await waitFor(() => {
+			expect(mockState.createTag).toHaveBeenCalledWith({
+				name: "Gamma",
+				color: expect.stringMatching(/^#[0-9a-f]{6}$/),
+			});
+		});
+		expect(onTagCreated).toHaveBeenCalledWith(gamma);
+		expect(mockState.toastSuccess).toHaveBeenCalledWith("tag_library_created");
+		expect(await screen.findByText("Gamma")).toBeInTheDocument();
+	});
+
+	it("creates a tag with Enter from the library search field", async () => {
+		render(<TagLibraryManagerDialog open onOpenChange={vi.fn()} />);
+
+		await screen.findByText("Alpha");
+		fireEvent.change(screen.getByLabelText("tag_search_label"), {
+			target: { value: " Gamma " },
+		});
+		await screen.findByRole("button", { name: /create:Gamma/ });
+		fireEvent.keyDown(screen.getByLabelText("tag_search_label"), {
+			key: "Enter",
+		});
+
+		await waitFor(() => {
+			expect(mockState.createTag).toHaveBeenCalledWith({
+				name: "Gamma",
+				color: expect.stringMatching(/^#[0-9a-f]{6}$/),
+			});
+		});
+	});
+
+	it("does not offer creation for blank names or duplicate names", async () => {
+		render(<TagLibraryManagerDialog open onOpenChange={vi.fn()} />);
+
+		await screen.findByText("Alpha");
+		fireEvent.change(screen.getByLabelText("tag_search_label"), {
+			target: { value: "   " },
+		});
+		expect(screen.queryByRole("button", { name: /create:/ })).toBeNull();
+		fireEvent.keyDown(screen.getByLabelText("tag_search_label"), {
+			key: "Enter",
+		});
+
+		fireEvent.change(screen.getByLabelText("tag_search_label"), {
+			target: { value: " alpha " },
+		});
+		await waitFor(() => {
+			expect(mockState.listTags).toHaveBeenLastCalledWith({
+				params: { limit: 50, offset: 0, q: "alpha" },
+			});
+		});
+		expect(screen.queryByRole("button", { name: /create:/ })).toBeNull();
+		fireEvent.keyDown(screen.getByLabelText("tag_search_label"), {
+			key: "Enter",
+		});
+
+		expect(mockState.createTag).not.toHaveBeenCalled();
 	});
 
 	it("renames a tag, trims the submitted name, and reports the update", async () => {
@@ -348,6 +510,29 @@ describe("TagLibraryManagerDialog", () => {
 		expect(onTagDeleted).toHaveBeenCalledWith(1);
 		expect(mockState.toastSuccess).toHaveBeenCalledWith("tag_deleted");
 		expect(screen.queryByText("Alpha")).not.toBeInTheDocument();
+	});
+
+	it("routes create failures through handleApiError and keeps the draft", async () => {
+		const createError = new Error("create failed");
+		mockState.createTag.mockRejectedValueOnce(createError);
+
+		render(<TagLibraryManagerDialog open onOpenChange={vi.fn()} />);
+
+		await screen.findByText("Alpha");
+		fireEvent.change(screen.getByLabelText("tag_search_label"), {
+			target: { value: "Delta" },
+		});
+		fireEvent.click(
+			await screen.findByRole("button", { name: /create:Delta/ }),
+		);
+
+		await waitFor(() => {
+			expect(mockState.handleApiError).toHaveBeenCalledWith(createError);
+		});
+		expect(screen.getByLabelText("tag_search_label")).toHaveValue("Delta");
+		expect(mockState.toastSuccess).not.toHaveBeenCalledWith(
+			"tag_library_created",
+		);
 	});
 
 	it("routes load, edit, and delete failures through handleApiError", async () => {
