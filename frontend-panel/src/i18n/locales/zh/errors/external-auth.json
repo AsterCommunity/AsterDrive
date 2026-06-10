@@ -1,4 +1,5 @@
 {
 	"external_auth_provider_disabled": "当前外部认证提供方已被禁用",
-	"external_auth_policy_denied": "当前外部认证策略不允许执行这个操作"
+	"external_auth_policy_denied": "当前外部认证策略不允许执行这个操作",
+	"external_auth_callback_redirect_uri_required": "外部认证回调地址需要公共站点 URL，请先在系统设置中配置"
 }

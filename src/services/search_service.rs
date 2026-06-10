@@ -6,9 +6,10 @@ use std::collections::HashSet;
 #[cfg(all(debug_assertions, feature = "openapi"))]
 use utoipa::{IntoParams, ToSchema};
 
+use crate::api::api_error_code::ApiErrorCode;
 use crate::api::pagination::{SortBy, SortOrder};
 use crate::db::repository::search_repo::{self, TagSearchFilter, TagSearchMatch};
-use crate::errors::{AsterError, Result};
+use crate::errors::{AsterError, Result, validation_error_with_code};
 use crate::runtime::SharedRuntimeState;
 use crate::services::{
     folder_service::{FileListItem, FolderListItem, build_folder_list_items_with_tags},
@@ -80,6 +81,10 @@ struct NormalizedFileFilters {
     extensions: Vec<String>,
 }
 
+fn search_validation_error(api_code: ApiErrorCode, message: impl Into<String>) -> AsterError {
+    validation_error_with_code(api_code, message)
+}
+
 fn build_search_file_list_items(
     files: Vec<search_repo::FileSearchItem>,
     shared_file_ids: &HashSet<i64>,
@@ -111,7 +116,8 @@ fn build_search_file_list_items(
 
 fn validate_search_params(params: &SearchParams) -> Result<()> {
     if params.q.is_some() && normalized_query(params).is_none() {
-        return Err(AsterError::validation_error(
+        return Err(search_validation_error(
+            ApiErrorCode::SearchQueryEmpty,
             "search query must not be empty",
         ));
     }
@@ -119,7 +125,8 @@ fn validate_search_params(params: &SearchParams) -> Result<()> {
     if let Some(search_type) = params.search_type.as_deref()
         && !matches!(search_type, "file" | "folder" | "all")
     {
-        return Err(AsterError::validation_error(
+        return Err(search_validation_error(
+            ApiErrorCode::SearchTypeInvalid,
             "type must be one of: file, folder, all",
         ));
     }
@@ -127,7 +134,8 @@ fn validate_search_params(params: &SearchParams) -> Result<()> {
     if let Some(tag_match) = params.tag_match.as_deref()
         && !matches!(tag_match, "any" | "all")
     {
-        return Err(AsterError::validation_error(
+        return Err(search_validation_error(
+            ApiErrorCode::SearchTagMatchInvalid,
             "tag_match must be one of: any, all",
         ));
     }
@@ -135,12 +143,16 @@ fn validate_search_params(params: &SearchParams) -> Result<()> {
     if let (Some(min), Some(max)) = (params.min_size, params.max_size)
         && min > max
     {
-        return Err(AsterError::validation_error("min_size must be <= max_size"));
+        return Err(search_validation_error(
+            ApiErrorCode::SearchSizeRangeInvalid,
+            "min_size must be <= max_size",
+        ));
     }
 
     let has_file_only_filter = params.category.is_some() || params.extensions.is_some();
     if has_file_only_filter && matches!(params.search_type.as_deref(), Some("folder")) {
-        return Err(AsterError::validation_error(
+        return Err(search_validation_error(
+            ApiErrorCode::SearchFileFilterTypeConflict,
             "category and extensions require type=file or type=all",
         ));
     }
@@ -153,7 +165,10 @@ fn validate_search_params(params: &SearchParams) -> Result<()> {
             .filter(|value| !value.is_empty())
             .is_none()
     {
-        return Err(AsterError::validation_error("mime_type must not be empty"));
+        return Err(search_validation_error(
+            ApiErrorCode::SearchMimeTypeEmpty,
+            "mime_type must not be empty",
+        ));
     }
 
     if params.category.is_some()
@@ -164,7 +179,10 @@ fn validate_search_params(params: &SearchParams) -> Result<()> {
             .filter(|value| !value.is_empty())
             .is_none()
     {
-        return Err(AsterError::validation_error("category must not be empty"));
+        return Err(search_validation_error(
+            ApiErrorCode::SearchCategoryInvalid,
+            "category must not be empty",
+        ));
     }
 
     if params.extensions.is_some()
@@ -175,7 +193,10 @@ fn validate_search_params(params: &SearchParams) -> Result<()> {
             .filter(|value| !value.is_empty())
             .is_none()
     {
-        return Err(AsterError::validation_error("extensions must not be empty"));
+        return Err(search_validation_error(
+            ApiErrorCode::SearchExtensionsInvalid,
+            "extensions must not be empty",
+        ));
     }
 
     Ok(())
@@ -190,15 +211,20 @@ fn parse_tag_ids(params: &SearchParams) -> Result<Vec<i64>> {
     for part in raw.split(',') {
         let value = part.trim();
         if value.is_empty() {
-            return Err(AsterError::validation_error(
+            return Err(search_validation_error(
+                ApiErrorCode::SearchTagIdsInvalid,
                 "tag_ids must not contain empty values",
             ));
         }
-        let id = value
-            .parse::<i64>()
-            .map_err(|_| AsterError::validation_error("tag_ids must contain integer ids"))?;
+        let id = value.parse::<i64>().map_err(|_| {
+            search_validation_error(
+                ApiErrorCode::SearchTagIdsInvalid,
+                "tag_ids must contain integer ids",
+            )
+        })?;
         if id <= 0 {
-            return Err(AsterError::validation_error(
+            return Err(search_validation_error(
+                ApiErrorCode::SearchTagIdsInvalid,
                 "tag_ids must contain positive ids",
             ));
         }
@@ -207,7 +233,8 @@ fn parse_tag_ids(params: &SearchParams) -> Result<Vec<i64>> {
         }
     }
     if ids.len() > 64 {
-        return Err(AsterError::validation_error(
+        return Err(search_validation_error(
+            ApiErrorCode::SearchTagIdsInvalid,
             "tag_ids cannot contain more than 64 items",
         ));
     }
@@ -219,12 +246,14 @@ fn normalize_file_filters(params: &SearchParams) -> Result<NormalizedFileFilters
         .category
         .as_deref()
         .map(parse_file_category)
-        .transpose()?;
+        .transpose()
+        .map_err(|error| error.with_api_error_code(ApiErrorCode::SearchCategoryInvalid))?;
     let extensions = params
         .extensions
         .as_deref()
         .map(parse_extension_filters)
-        .transpose()?
+        .transpose()
+        .map_err(|error| error.with_api_error_code(ApiErrorCode::SearchExtensionsInvalid))?
         .unwrap_or_default();
 
     Ok(NormalizedFileFilters {
@@ -245,9 +274,10 @@ fn parse_search_dates(params: &SearchParams) -> Result<SearchDateRange> {
                     DateTime::parse_from_rfc3339(raw)
                         .map(|dt| dt.with_timezone(&chrono::Utc))
                         .map_err(|_| {
-                            AsterError::validation_error(format!(
-                                "{field} must be a valid RFC3339 datetime"
-                            ))
+                            search_validation_error(
+                                ApiErrorCode::SearchDateInvalid,
+                                format!("{field} must be a valid RFC3339 datetime"),
+                            )
                         })
                 })
                 .transpose()
@@ -259,7 +289,8 @@ fn parse_search_dates(params: &SearchParams) -> Result<SearchDateRange> {
     if let (Some(after), Some(before)) = (created_after, created_before)
         && after > before
     {
-        return Err(AsterError::validation_error(
+        return Err(search_validation_error(
+            ApiErrorCode::SearchDateRangeInvalid,
             "created_after must be <= created_before",
         ));
     }

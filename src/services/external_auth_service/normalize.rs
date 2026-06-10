@@ -1,6 +1,7 @@
+use crate::api::api_error_code::ApiErrorCode;
 use crate::config::site_url;
 use crate::entities::external_auth_provider;
-use crate::errors::{AsterError, MapAsterErr, Result};
+use crate::errors::{AsterError, MapAsterErr, Result, validation_error_with_code};
 use crate::external_auth::url::{is_https_or_loopback_http, parse_url};
 use crate::runtime::SharedRuntimeState;
 use crate::services::auth_service;
@@ -354,12 +355,14 @@ pub fn callback_redirect_uri(
     let path = callback_path(provider_kind, provider_key);
     let uri = site_url::public_app_url_for_request(state.runtime_config(), &path, scheme, host)
         .ok_or_else(|| {
-            AsterError::validation_error(
+            validation_error_with_code(
+                ApiErrorCode::ExternalAuthCallbackRedirectUriRequired,
                 "cannot build external auth callback redirect URI; configure public_site_url",
             )
         })?;
     if uri.starts_with('/') {
-        return Err(AsterError::validation_error(
+        return Err(validation_error_with_code(
+            ApiErrorCode::ExternalAuthCallbackRedirectUriRequired,
             "external auth callback redirect URI must be absolute; configure public_site_url",
         ));
     }

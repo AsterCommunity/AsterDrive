@@ -53,6 +53,8 @@ define_api_error_codes! {
     MailNotConfigured => "mail.not_configured",
     MailDeliveryFailed => "mail.delivery_failed",
     Conflict => "conflict",
+    ConfigPublicSiteUrlRequired => "config.public_site_url_required",
+    ConfigPublicSiteUrlInvalid => "config.public_site_url_invalid",
 
     // auth/session: coarse authentication and session lifecycle errors.
     AuthFailed => "auth.failed",
@@ -191,8 +193,20 @@ define_api_error_codes! {
     TeamOwnerRequired => "team.owner_required",
     TeamAdminOrOwnerRequired => "team.admin_or_owner_required",
 
-    // policy service: policy mutation preconditions.
+    // policy service: policy mutation and connection preconditions.
     PolicyUploadSessionsExist => "policy.upload_sessions_exist",
+    PolicyStorageAccessKeyRequired => "policy.storage_access_key_required",
+    PolicyStorageSecretKeyRequired => "policy.storage_secret_key_required",
+    PolicyStorageBucketRequired => "policy.storage_bucket_required",
+    PolicyStorageEndpointInvalid => "policy.storage_endpoint_invalid",
+    PolicyRemoteNodeRequired => "policy.remote_node_required",
+    PolicyRemoteNodeUnexpected => "policy.remote_node_unexpected",
+    PolicyRemoteNodeDisabled => "policy.remote_node_disabled",
+    PolicyRemoteNodeBaseUrlRequired => "policy.remote_node_base_url_required",
+    PolicyRemoteNodeTransferStrategyUnsupported => "policy.remote_node_transfer_strategy_unsupported",
+    PolicyNativeThumbnailUnsupported => "policy.native_thumbnail_unsupported",
+    PolicyPromotionTargetUnsupported => "policy.promotion_target_unsupported",
+    PolicyPromotionBucketChangeDenied => "policy.promotion_bucket_change_denied",
 
     // workspace services: workspace scope authorization.
     WorkspaceScopeDenied => "workspace.scope_denied",
@@ -200,6 +214,7 @@ define_api_error_codes! {
     // external auth service: external provider/link policy decisions.
     ExternalAuthProviderDisabled => "external_auth.provider_disabled",
     ExternalAuthPolicyDenied => "external_auth.policy_denied",
+    ExternalAuthCallbackRedirectUriRequired => "external_auth.callback_redirect_uri_required",
 
     // offline download: external download engine probes and setup failures.
     OfflineDownloadAria2RpcAuthFailed => "offline_download.aria2_rpc_auth_failed",
@@ -219,10 +234,12 @@ define_api_error_codes! {
     StorageUnsupported => "storage.unsupported",
     StorageUnknown => "storage.unknown",
 
-    // task service/runtime: background task lease failures.
+    // task service/runtime: background task lease failures and manual retry preconditions.
     TaskLeaseLost => "task.lease_lost",
     TaskLeaseRenewalTimedOut => "task.lease_renewal_timed_out",
     TaskWorkerShutdownRequested => "task.worker_shutdown_requested",
+    TaskRetryStatusConflict => "task.retry_status_conflict",
+    TaskRetryNotAllowed => "task.retry_not_allowed",
 
     // team member repository: member uniqueness conflicts.
     TeamMemberExists => "team.member_exists",
@@ -308,6 +325,31 @@ define_api_error_codes! {
     ValidationRequestSchemeInvalid => "validation.request_scheme_invalid",
     ValidationRequestHeaderValueInvalid => "validation.request_header_value_invalid",
     ValidationSystemAlreadyInitialized => "validation.system_already_initialized",
+
+    // search API: stable query parameter validation failures.
+    SearchQueryEmpty => "search.query_empty",
+    SearchTypeInvalid => "search.type_invalid",
+    SearchTagMatchInvalid => "search.tag_match_invalid",
+    SearchSizeRangeInvalid => "search.size_range_invalid",
+    SearchFileFilterTypeConflict => "search.file_filter_type_conflict",
+    SearchMimeTypeEmpty => "search.mime_type_empty",
+    SearchCategoryInvalid => "search.category_invalid",
+    SearchExtensionsInvalid => "search.extensions_invalid",
+    SearchTagIdsInvalid => "search.tag_ids_invalid",
+    SearchDateInvalid => "search.date_invalid",
+    SearchDateRangeInvalid => "search.date_range_invalid",
+
+    // internal storage protocol: stable request shape and range validation failures.
+    InternalStorageRangeLengthInvalid => "internal_storage.range_length_invalid",
+    InternalStorageRangeEmptyObject => "internal_storage.range_empty_object",
+    InternalStorageRangeOffsetOutOfBounds => "internal_storage.range_offset_out_of_bounds",
+    InternalStorageRangeHeaderInvalid => "internal_storage.range_header_invalid",
+    InternalStorageRangeMultipleUnsupported => "internal_storage.range_multiple_unsupported",
+    InternalStorageRangeBoundsInvalid => "internal_storage.range_bounds_invalid",
+    InternalStorageContentLengthRequired => "internal_storage.content_length_required",
+    InternalStorageContentLengthInvalid => "internal_storage.content_length_invalid",
+    InternalStorageComposePartsRequired => "internal_storage.compose_parts_required",
+    InternalStorageComposeExpectedSizeInvalid => "internal_storage.compose_expected_size_invalid",
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

@@ -6,6 +6,7 @@ mod common;
 use actix_web::body::{MessageBody, to_bytes};
 use actix_web::cookie::SameSite;
 use actix_web::test;
+use aster_drive::api::api_error_code::ApiErrorCode;
 use aster_drive::api::pagination::{AdminAuditLogSortBy, SortOrder};
 use aster_drive::config::branding::DEFAULT_BRANDING_TITLE;
 use aster_drive::db::repository::{audit_log_repo, auth_session_repo, passkey_repo, user_repo};
@@ -1443,10 +1444,40 @@ async fn test_passkey_login_start_rejects_missing_public_site_url_with_config_er
     let resp = test::call_service(&app, req).await;
     assert_eq!(resp.status(), 400);
     let body: Value = test::read_body_json(resp).await;
-    assert_eq!(body["code"], "bad_request");
+    assert_eq!(
+        body["code"],
+        ApiErrorCode::ConfigPublicSiteUrlRequired.as_str()
+    );
     assert_eq!(
         body["msg"],
         "public_site_url must be configured before enabling passkey authentication"
+    );
+}
+
+#[actix_web::test]
+async fn test_passkey_login_start_rejects_insecure_public_site_url_with_config_error() {
+    let state = common::setup_with_memory_cache().await;
+    state.runtime_config.apply(common::system_config_model(
+        aster_drive::config::site_url::PUBLIC_SITE_URL_KEY,
+        r#"["http://example.com"]"#,
+    ));
+    let app = create_test_app!(state);
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/auth/passkeys/login/start")
+        .insert_header(("Origin", TEST_BROWSER_ORIGIN))
+        .set_json(serde_json::json!({ "identifier": "testuser" }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 400);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(
+        body["code"],
+        ApiErrorCode::ConfigPublicSiteUrlInvalid.as_str()
+    );
+    assert_eq!(
+        body["msg"],
+        "passkey authentication requires HTTPS public_site_url, except localhost"
     );
 }
 

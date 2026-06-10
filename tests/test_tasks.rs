@@ -19,6 +19,7 @@ use std::sync::{
 use tokio::io::{AsyncRead, empty};
 use tokio::sync::broadcast;
 
+use aster_drive::api::api_error_code::ApiErrorCode;
 use aster_drive::config::operations::{
     BACKGROUND_TASK_ARCHIVE_MAX_CONCURRENCY_KEY, BACKGROUND_TASK_THUMBNAIL_MAX_CONCURRENCY_KEY,
     OFFLINE_DOWNLOAD_ARIA2_MAX_CONNECTION_PER_SERVER_KEY,
@@ -740,6 +741,8 @@ async fn run_failing_personal_archive_extract_with_filename(
             .to_request();
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 400);
+        let body: Value = test::read_body_json(resp).await;
+        assert_eq!(body["code"], ApiErrorCode::TaskRetryNotAllowed.as_str());
     }
 
     let task_temp_dir =
@@ -3528,6 +3531,140 @@ async fn test_retry_task_reloads_max_attempts_from_runtime_config() {
     assert_eq!(stored.status, BackgroundTaskStatus::Pending);
     assert_eq!(stored.attempt_count, 0);
     assert_eq!(stored.max_attempts, 4);
+}
+
+#[actix_web::test]
+async fn test_retry_task_rejects_non_failed_task_with_stable_code() {
+    let state = common::setup().await;
+    let app = create_test_app!(state.clone());
+    let (token, _) = register_and_login!(app);
+    let owner =
+        aster_drive::db::repository::user_repo::find_by_username(state.writer_db(), "testuser")
+            .await
+            .expect("owner lookup should succeed")
+            .expect("owner should exist");
+
+    let now = Utc::now();
+    let payload_json = serde_json::to_string(
+        &aster_drive::services::task_service::types::ArchiveCompressTaskPayload {
+            file_ids: Vec::new(),
+            folder_ids: Vec::new(),
+            archive_name: "pending-task.zip".to_string(),
+            target_folder_id: None,
+        },
+    )
+    .expect("archive payload should serialize");
+    let task = background_task_repo::create(
+        state.writer_db(),
+        background_task::ActiveModel {
+            kind: Set(BackgroundTaskKind::ArchiveCompress),
+            status: Set(BackgroundTaskStatus::Pending),
+            creator_user_id: Set(Some(owner.id)),
+            team_id: Set(None),
+            share_id: Set(None),
+            display_name: Set("pending-task.zip".to_string()),
+            payload_json: Set(StoredTaskPayload(payload_json)),
+            result_json: Set(None),
+            steps_json: Set(None),
+            progress_current: Set(0),
+            progress_total: Set(0),
+            status_text: Set(None),
+            attempt_count: Set(0),
+            max_attempts: Set(1),
+            next_run_at: Set(now),
+            processing_token: Set(0),
+            processing_started_at: Set(None),
+            last_heartbeat_at: Set(None),
+            lease_expires_at: Set(None),
+            started_at: Set(None),
+            finished_at: Set(None),
+            last_error: Set(None),
+            failure_can_retry: Set(None),
+            expires_at: Set(now + Duration::hours(1)),
+            created_at: Set(now),
+            updated_at: Set(now),
+            ..Default::default()
+        },
+    )
+    .await
+    .expect("pending task should be inserted");
+
+    let req = test::TestRequest::post()
+        .uri(&format!("/api/v1/tasks/{}/retry", task.id))
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 400);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(body["code"], ApiErrorCode::TaskRetryStatusConflict.as_str());
+}
+
+#[actix_web::test]
+async fn test_retry_task_rejects_non_retryable_failure_with_stable_code() {
+    let state = common::setup().await;
+    let app = create_test_app!(state.clone());
+    let (token, _) = register_and_login!(app);
+    let owner =
+        aster_drive::db::repository::user_repo::find_by_username(state.writer_db(), "testuser")
+            .await
+            .expect("owner lookup should succeed")
+            .expect("owner should exist");
+
+    let now = Utc::now();
+    let payload_json = serde_json::to_string(
+        &aster_drive::services::task_service::types::ArchiveCompressTaskPayload {
+            file_ids: Vec::new(),
+            folder_ids: Vec::new(),
+            archive_name: "non-retryable-task.zip".to_string(),
+            target_folder_id: None,
+        },
+    )
+    .expect("archive payload should serialize");
+    let task = background_task_repo::create(
+        state.writer_db(),
+        background_task::ActiveModel {
+            kind: Set(BackgroundTaskKind::ArchiveCompress),
+            status: Set(BackgroundTaskStatus::Failed),
+            creator_user_id: Set(Some(owner.id)),
+            team_id: Set(None),
+            share_id: Set(None),
+            display_name: Set("non-retryable-task.zip".to_string()),
+            payload_json: Set(StoredTaskPayload(payload_json)),
+            result_json: Set(None),
+            steps_json: Set(None),
+            progress_current: Set(0),
+            progress_total: Set(0),
+            status_text: Set(None),
+            attempt_count: Set(1),
+            max_attempts: Set(1),
+            next_run_at: Set(now - Duration::seconds(1)),
+            processing_token: Set(0),
+            processing_started_at: Set(None),
+            last_heartbeat_at: Set(None),
+            lease_expires_at: Set(None),
+            started_at: Set(Some(now - Duration::minutes(2))),
+            finished_at: Set(Some(now - Duration::minutes(1))),
+            last_error: Set(Some("validation failure".to_string())),
+            failure_can_retry: Set(Some(false)),
+            expires_at: Set(now + Duration::hours(1)),
+            created_at: Set(now - Duration::minutes(2)),
+            updated_at: Set(now - Duration::minutes(1)),
+            ..Default::default()
+        },
+    )
+    .await
+    .expect("failed task should be inserted");
+
+    let req = test::TestRequest::post()
+        .uri(&format!("/api/v1/tasks/{}/retry", task.id))
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 400);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(body["code"], ApiErrorCode::TaskRetryNotAllowed.as_str());
 }
 
 #[actix_web::test]

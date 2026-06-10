@@ -1,4 +1,5 @@
 {
 	"remote_node_disabled": "The remote node is disabled. Check the node status",
+	"remote_node_enrollment_required": "Remote node enrollment must be completed before this action can continue",
 	"remote_node_unique_conflict": "This remote node conflicts with an existing node's unique settings"
 }

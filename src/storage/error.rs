@@ -130,6 +130,9 @@ fn infer_storage_error_kind(message: &str) -> StorageErrorKind {
             "invalid bucket",
             "invalid storage path",
             "escapes base path",
+            "base path",
+            "not a directory",
+            "local path has no",
             "cloudflare r2 endpoint",
             "does not match bucket field",
             "bucket is required",
@@ -255,6 +258,23 @@ mod tests {
             storage_driver_error_display_message(error.message()),
             "remote storage request failed: error sending request"
         );
+    }
+
+    #[test]
+    fn untagged_local_storage_configuration_errors_infer_misconfigured() {
+        for message in [
+            "local storage readiness: base path '/tmp/file' is not a directory",
+            "local path has no existing ancestor: /missing/path",
+            "resolved storage path escapes base path: ../secret",
+        ] {
+            let error = AsterError::storage_driver_error(message);
+            assert_eq!(
+                error.storage_error_kind(),
+                Some(StorageErrorKind::Misconfigured),
+                "{message}"
+            );
+            assert_eq!(error.api_error_code(), ApiErrorCode::StorageMisconfigured);
+        }
     }
 
     #[test]

@@ -1,10 +1,12 @@
 //! 内部对象存储协议路由：`internal_storage`。
 
+use crate::api::api_error_code::ApiErrorCode;
 use crate::api::middleware::internal_storage_cors::PresignedInternalStorageCors;
 use crate::api::response::ApiResponse;
-use crate::errors::{AsterError, Result};
+use crate::errors::{AsterError, Result, validation_error_with_code};
 use crate::runtime::FollowerAppState;
 use crate::services::{audit_service, managed_ingress_profile_service, master_binding_service};
+use crate::storage::error::{StorageErrorKind, storage_driver_error};
 use crate::storage::object_key;
 use crate::storage::remote_protocol::{
     INTERNAL_AUTH_SIGNATURE_HEADER, PRESIGNED_AUTH_ACCESS_KEY_QUERY, RemoteBindingSyncRequest,
@@ -59,6 +61,13 @@ fn validate_ingress_object_size(size: i64, max_file_size: i64, subject: &str) ->
     Ok(())
 }
 
+fn internal_storage_validation_error(
+    api_code: ApiErrorCode,
+    message: impl Into<String>,
+) -> AsterError {
+    validation_error_with_code(api_code, message)
+}
+
 #[derive(Debug, Deserialize, Default)]
 struct ObjectQuery {
     offset: Option<u64>,
@@ -90,6 +99,7 @@ async fn metadata_or_not_found(
     }
 }
 
+#[derive(Debug)]
 struct PartialContentRange {
     start: u64,
     end: u64,
@@ -105,19 +115,22 @@ fn partial_content_range(
         return Ok(None);
     }
     if length == Some(0) {
-        return Err(AsterError::validation_error(
+        return Err(internal_storage_validation_error(
+            ApiErrorCode::InternalStorageRangeLengthInvalid,
             "range length must be greater than zero",
         ));
     }
     if total_size == 0 {
-        return Err(AsterError::validation_error(
+        return Err(internal_storage_validation_error(
+            ApiErrorCode::InternalStorageRangeEmptyObject,
             "range cannot be requested for empty object",
         ));
     }
 
     let start = offset.unwrap_or(0);
     if start >= total_size {
-        return Err(AsterError::validation_error(
+        return Err(internal_storage_validation_error(
+            ApiErrorCode::InternalStorageRangeOffsetOutOfBounds,
             "range offset exceeds object size",
         ));
     }
@@ -152,28 +165,44 @@ fn parse_range_header(
 ) -> Result<(Option<u64>, Option<u64>)> {
     let raw = value
         .to_str()
-        .map_err(|_| AsterError::validation_error("range header must be valid ASCII"))?
+        .map_err(|_| {
+            internal_storage_validation_error(
+                ApiErrorCode::InternalStorageRangeHeaderInvalid,
+                "range header must be valid ASCII",
+            )
+        })?
         .trim();
-    let range = raw
-        .strip_prefix("bytes=")
-        .ok_or_else(|| AsterError::validation_error("range header must use bytes unit"))?;
+    let range = raw.strip_prefix("bytes=").ok_or_else(|| {
+        internal_storage_validation_error(
+            ApiErrorCode::InternalStorageRangeHeaderInvalid,
+            "range header must use bytes unit",
+        )
+    })?;
     if range.contains(',') {
-        return Err(AsterError::validation_error(
+        return Err(internal_storage_validation_error(
+            ApiErrorCode::InternalStorageRangeMultipleUnsupported,
             "multiple range requests are not supported",
         ));
     }
 
-    let (start_raw, end_raw) = range
-        .split_once('-')
-        .ok_or_else(|| AsterError::validation_error("range header is malformed"))?;
+    let (start_raw, end_raw) = range.split_once('-').ok_or_else(|| {
+        internal_storage_validation_error(
+            ApiErrorCode::InternalStorageRangeHeaderInvalid,
+            "range header is malformed",
+        )
+    })?;
     if start_raw.is_empty() && end_raw.is_empty() {
-        return Err(AsterError::validation_error("range header is malformed"));
+        return Err(internal_storage_validation_error(
+            ApiErrorCode::InternalStorageRangeHeaderInvalid,
+            "range header is malformed",
+        ));
     }
 
     if start_raw.is_empty() {
         let suffix_length = parse_range_bound(end_raw, "range suffix length")?;
         if suffix_length == 0 {
-            return Err(AsterError::validation_error(
+            return Err(internal_storage_validation_error(
+                ApiErrorCode::InternalStorageRangeLengthInvalid,
                 "range suffix length must be greater than zero",
             ));
         }
@@ -190,21 +219,30 @@ fn parse_range_header(
 
     let end = parse_range_bound(end_raw, "range end")?;
     if end < start {
-        return Err(AsterError::validation_error(
+        return Err(internal_storage_validation_error(
+            ApiErrorCode::InternalStorageRangeBoundsInvalid,
             "range end must be greater than or equal to range start",
         ));
     }
     let length = end
         .checked_sub(start)
         .and_then(|value| value.checked_add(1))
-        .ok_or_else(|| AsterError::validation_error("range length exceeds u64 range"))?;
+        .ok_or_else(|| {
+            internal_storage_validation_error(
+                ApiErrorCode::InternalStorageRangeLengthInvalid,
+                "range length exceeds u64 range",
+            )
+        })?;
     Ok((Some(start), Some(length)))
 }
 
 fn parse_range_bound(value: &str, name: &str) -> Result<u64> {
-    value
-        .parse::<u64>()
-        .map_err(|_| AsterError::validation_error(format!("{name} must be a non-negative integer")))
+    value.parse::<u64>().map_err(|_| {
+        internal_storage_validation_error(
+            ApiErrorCode::InternalStorageRangeBoundsInvalid,
+            format!("{name} must be a non-negative integer"),
+        )
+    })
 }
 
 fn follower_audit_context(req: &HttpRequest) -> audit_service::AuditContext {
@@ -303,10 +341,12 @@ async fn list_objects(
     query: web::Query<ObjectQuery>,
 ) -> Result<HttpResponse> {
     let ctx = master_binding_service::authorize_internal_request(state.get_ref(), &req).await?;
-    let list_driver = ctx
-        .ingress_driver
-        .as_list()
-        .ok_or_else(|| AsterError::storage_driver_error("ingress target does not support list"))?;
+    let list_driver = ctx.ingress_driver.as_list().ok_or_else(|| {
+        storage_driver_error(
+            StorageErrorKind::Unsupported,
+            "ingress target does not support list",
+        )
+    })?;
 
     let prefix = query
         .prefix
@@ -351,9 +391,15 @@ async fn put_object(
         .get(actix_web::http::header::CONTENT_LENGTH)
         .and_then(|value| value.to_str().ok())
         .and_then(|value| value.parse::<i64>().ok())
-        .ok_or_else(|| AsterError::validation_error("content-length header is required"))?;
+        .ok_or_else(|| {
+            internal_storage_validation_error(
+                ApiErrorCode::InternalStorageContentLengthRequired,
+                "content-length header is required",
+            )
+        })?;
     if content_length < 0 {
-        return Err(AsterError::validation_error(
+        return Err(internal_storage_validation_error(
+            ApiErrorCode::InternalStorageContentLengthInvalid,
             "content-length must be non-negative",
         ));
     }
@@ -366,7 +412,10 @@ async fn put_object(
     );
 
     let stream_driver = ctx.ingress_driver.as_stream_upload().ok_or_else(|| {
-        AsterError::storage_driver_error("ingress target does not support stream upload")
+        storage_driver_error(
+            StorageErrorKind::Unsupported,
+            "ingress target does not support stream upload",
+        )
     })?;
     let (writer, reader) = tokio::io::duplex(RELAY_UPLOAD_BUFFER_SIZE);
     let upload_storage_path = storage_path.clone();
@@ -447,12 +496,14 @@ async fn compose_objects(
 
     let ctx = master_binding_service::authorize_internal_request(state.get_ref(), &req).await?;
     if body.part_keys.is_empty() {
-        return Err(AsterError::validation_error(
+        return Err(internal_storage_validation_error(
+            ApiErrorCode::InternalStorageComposePartsRequired,
             "compose request requires part_keys",
         ));
     }
     if body.expected_size < 0 {
-        return Err(AsterError::validation_error(
+        return Err(internal_storage_validation_error(
+            ApiErrorCode::InternalStorageComposeExpectedSizeInvalid,
             "compose expected_size must be non-negative",
         ));
     }
@@ -464,7 +515,10 @@ async fn compose_objects(
 
     let driver = ctx.ingress_driver.clone();
     let stream_driver = driver.as_stream_upload().ok_or_else(|| {
-        AsterError::storage_driver_error("ingress target does not support stream upload")
+        storage_driver_error(
+            StorageErrorKind::Unsupported,
+            "ingress target does not support stream upload",
+        )
     })?;
     let target_key = body.target_key.clone();
     let target_storage_path =
@@ -483,8 +537,12 @@ async fn compose_objects(
         .collect::<Result<_>>()?;
     let cleanup_part_storage_paths = part_storage_paths.clone();
     let expected_size = body.expected_size;
-    let expected_size_u64 = u64::try_from(expected_size)
-        .map_err(|_| AsterError::validation_error("compose expected_size exceeds u64 range"))?;
+    let expected_size_u64 = u64::try_from(expected_size).map_err(|_| {
+        internal_storage_validation_error(
+            ApiErrorCode::InternalStorageComposeExpectedSizeInvalid,
+            "compose expected_size exceeds u64 range",
+        )
+    })?;
 
     let read_driver = driver.clone();
     let upload_target_storage_path = target_storage_path.clone();
@@ -921,4 +979,59 @@ async fn delete_ingress_profile(
     )
     .await;
     Ok(HttpResponse::Ok().json(ApiResponse::<()>::ok_empty()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn partial_content_range_rejects_invalid_shape_with_stable_codes() {
+        let zero_length = partial_content_range(10, Some(0), Some(0))
+            .expect_err("zero length ranges should fail");
+        assert_eq!(
+            zero_length.api_error_code_override(),
+            Some(ApiErrorCode::InternalStorageRangeLengthInvalid)
+        );
+
+        let empty_object = partial_content_range(0, Some(0), Some(1))
+            .expect_err("empty object ranges should fail");
+        assert_eq!(
+            empty_object.api_error_code_override(),
+            Some(ApiErrorCode::InternalStorageRangeEmptyObject)
+        );
+
+        let out_of_bounds = partial_content_range(10, Some(10), Some(1))
+            .expect_err("range offset past object size should fail");
+        assert_eq!(
+            out_of_bounds.api_error_code_override(),
+            Some(ApiErrorCode::InternalStorageRangeOffsetOutOfBounds)
+        );
+    }
+
+    #[test]
+    fn parse_range_header_rejects_invalid_shape_with_stable_codes() {
+        let header = actix_web::http::header::HeaderValue::from_static("items=0-1");
+        let invalid_unit =
+            parse_range_header(&header, 10).expect_err("unsupported range unit should fail");
+        assert_eq!(
+            invalid_unit.api_error_code_override(),
+            Some(ApiErrorCode::InternalStorageRangeHeaderInvalid)
+        );
+
+        let header = actix_web::http::header::HeaderValue::from_static("bytes=0-1,3-4");
+        let multiple = parse_range_header(&header, 10).expect_err("multiple ranges should fail");
+        assert_eq!(
+            multiple.api_error_code_override(),
+            Some(ApiErrorCode::InternalStorageRangeMultipleUnsupported)
+        );
+
+        let header = actix_web::http::header::HeaderValue::from_static("bytes=5-4");
+        let invalid_bounds =
+            parse_range_header(&header, 10).expect_err("inverted range should fail");
+        assert_eq!(
+            invalid_bounds.api_error_code_override(),
+            Some(ApiErrorCode::InternalStorageRangeBoundsInvalid)
+        );
+    }
 }

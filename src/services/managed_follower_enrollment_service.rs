@@ -1,9 +1,10 @@
 //! 服务模块：`managed_follower_enrollment_service`。
 
+use crate::api::api_error_code::ApiErrorCode;
 use crate::config::site_url;
 use crate::db::repository::{follower_enrollment_session_repo, managed_follower_repo};
 use crate::entities::follower_enrollment_session;
-use crate::errors::{AsterError, Result};
+use crate::errors::{AsterError, Result, validation_error_with_code};
 use crate::runtime::SharedRuntimeState;
 use chrono::{Duration, Utc};
 use sea_orm::Set;
@@ -61,7 +62,8 @@ pub async fn create_enrollment_command<S: SharedRuntimeState>(
     }
 
     let master_url = site_url::public_site_url(state.runtime_config()).ok_or_else(|| {
-        AsterError::validation_error(
+        validation_error_with_code(
+            ApiErrorCode::ConfigPublicSiteUrlRequired,
             "public_site_url must be configured before generating enrollment commands",
         )
     })?;
@@ -141,7 +143,10 @@ pub async fn redeem_enrollment_token<S: SharedRuntimeState>(
         follower_enrollment_session_repo::mark_redeemed_if_needed(txn, enrollment.id).await?;
 
         let master_url = site_url::public_site_url(state.runtime_config()).ok_or_else(|| {
-            AsterError::validation_error("public_site_url is not configured on the master node")
+            validation_error_with_code(
+                ApiErrorCode::ConfigPublicSiteUrlRequired,
+                "public_site_url is not configured on the master node",
+            )
         })?;
         let remote_node =
             managed_follower_repo::find_by_id(txn, enrollment.managed_follower_id).await?;

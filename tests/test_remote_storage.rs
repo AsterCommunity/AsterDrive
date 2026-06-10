@@ -11,6 +11,7 @@ use std::time::Duration;
 
 use actix_web::dev::Service;
 use actix_web::{App, HttpServer, test, web};
+use aster_drive::api::api_error_code::ApiErrorCode;
 use aster_drive::db::repository::{
     file_repo, follower_enrollment_session_repo, managed_follower_repo, master_binding_repo,
     policy_repo, upload_session_part_repo, upload_session_repo, user_repo,
@@ -3993,6 +3994,10 @@ async fn test_reverse_tunnel_remote_policy_rejects_presigned_strategies() {
     )
     .await
     .expect_err("reverse tunnel should reject presigned remote upload policies");
+    assert_eq!(
+        upload_error.api_error_code(),
+        ApiErrorCode::PolicyRemoteNodeTransferStrategyUnsupported
+    );
     assert!(
         upload_error
             .message()
@@ -4008,6 +4013,10 @@ async fn test_reverse_tunnel_remote_policy_rejects_presigned_strategies() {
     )
     .await
     .expect_err("reverse tunnel should reject presigned remote download policies");
+    assert_eq!(
+        download_error.api_error_code(),
+        ApiErrorCode::PolicyRemoteNodeTransferStrategyUnsupported
+    );
     assert!(
         download_error
             .message()
@@ -4058,6 +4067,10 @@ async fn test_auto_empty_url_remote_policy_rejects_presigned_strategies() {
     .expect_err(
         "auto node without base_url resolves to reverse tunnel and should reject presigned",
     );
+    assert_eq!(
+        error.api_error_code(),
+        ApiErrorCode::PolicyRemoteNodeTransferStrategyUnsupported
+    );
     assert!(
         error
             .message()
@@ -4101,6 +4114,10 @@ async fn test_reverse_tunnel_remote_policy_update_rejects_presigned_strategies()
     )
     .await
     .expect_err("reverse tunnel should reject presigned upload policy updates");
+    assert_eq!(
+        upload_error.api_error_code(),
+        ApiErrorCode::PolicyRemoteNodeTransferStrategyUnsupported
+    );
     assert!(
         upload_error
             .message()
@@ -4120,6 +4137,10 @@ async fn test_reverse_tunnel_remote_policy_update_rejects_presigned_strategies()
     )
     .await
     .expect_err("reverse tunnel should reject presigned download policy updates");
+    assert_eq!(
+        download_error.api_error_code(),
+        ApiErrorCode::PolicyRemoteNodeTransferStrategyUnsupported
+    );
     assert!(
         download_error
             .message()
@@ -4484,6 +4505,10 @@ async fn test_disabling_remote_node_syncs_follower_binding_and_blocks_remote_use
     .await
     .expect_err("disabled remote nodes should not be bindable to remote policies");
     assert_eq!(create_error.code(), "E005");
+    assert_eq!(
+        create_error.api_error_code(),
+        ApiErrorCode::PolicyRemoteNodeDisabled
+    );
     assert!(create_error.message().contains("is disabled"));
 
     let remote_policy = create_remote_policy(

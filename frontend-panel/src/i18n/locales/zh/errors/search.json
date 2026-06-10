@@ -1,0 +1,13 @@
+{
+	"search_query_empty": "请输入搜索关键词或选择筛选条件后再搜索",
+	"search_type_invalid": "选择的搜索类型无效",
+	"search_tag_match_invalid": "选择的标签匹配方式无效",
+	"search_size_range_invalid": "搜索大小范围无效",
+	"search_file_filter_type_conflict": "文件专用筛选条件只能用于文件搜索",
+	"search_mime_type_empty": "MIME 类型筛选不能为空",
+	"search_category_invalid": "选择的搜索分类无效",
+	"search_extensions_invalid": "一个或多个文件扩展名筛选无效",
+	"search_tag_ids_invalid": "一个或多个标签筛选无效",
+	"search_date_invalid": "一个或多个搜索日期无效",
+	"search_date_range_invalid": "搜索日期范围无效"
+}

@@ -4,6 +4,7 @@
 mod common;
 
 use actix_web::{http::StatusCode, test};
+use aster_drive::api::api_error_code::ApiErrorCode;
 use aster_drive::db::repository::property_repo;
 use aster_drive::runtime::SharedRuntimeState;
 use aster_drive::services::{
@@ -696,12 +697,15 @@ async fn test_tag_search_any_all_and_invalid_filters() {
     assert_eq!(files[0]["id"].as_i64(), Some(both_id));
     assert_eq!(files[0]["tags"].as_array().unwrap().len(), 2);
 
-    for query in [
-        "tag_ids=",
-        "tag_ids=1,,2",
-        "tag_ids=abc",
-        "tag_ids=0",
-        "tag_ids=1&tag_match=some",
+    for (query, expected_code) in [
+        ("tag_ids=", ApiErrorCode::SearchTagIdsInvalid),
+        ("tag_ids=1,,2", ApiErrorCode::SearchTagIdsInvalid),
+        ("tag_ids=abc", ApiErrorCode::SearchTagIdsInvalid),
+        ("tag_ids=0", ApiErrorCode::SearchTagIdsInvalid),
+        (
+            "tag_ids=1&tag_match=some",
+            ApiErrorCode::SearchTagMatchInvalid,
+        ),
     ] {
         let req = test::TestRequest::get()
             .uri(&format!("/api/v1/search?{query}"))
@@ -714,6 +718,8 @@ async fn test_tag_search_any_all_and_invalid_filters() {
             400,
             "invalid search query should fail: {query}"
         );
+        let body: Value = test::read_body_json(resp).await;
+        assert_eq!(body["code"], expected_code.as_str());
     }
 
     let too_many = (1..=65)

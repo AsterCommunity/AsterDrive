@@ -1,0 +1,13 @@
+{
+	"search_query_empty": "Enter a search query or choose a filter before searching",
+	"search_type_invalid": "The selected search type is invalid",
+	"search_tag_match_invalid": "The selected tag matching mode is invalid",
+	"search_size_range_invalid": "The search size range is invalid",
+	"search_file_filter_type_conflict": "File-only filters can only be used when searching files",
+	"search_mime_type_empty": "MIME type filter cannot be empty",
+	"search_category_invalid": "The selected search category is invalid",
+	"search_extensions_invalid": "One or more file extension filters are invalid",
+	"search_tag_ids_invalid": "One or more tag filters are invalid",
+	"search_date_invalid": "One or more search dates are invalid",
+	"search_date_range_invalid": "The search date range is invalid"
+}

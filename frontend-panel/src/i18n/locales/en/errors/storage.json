@@ -7,5 +7,17 @@
 	"storage_rate_limited": "The storage backend is rate limiting requests. Try again shortly",
 	"storage_transient_failure": "The storage backend is temporarily unavailable. Try again later",
 	"storage_precondition_failed": "The storage operation precondition failed. Refresh and try again",
-	"storage_operation_unsupported": "This storage backend does not support the requested operation"
+	"storage_operation_unsupported": "This storage backend does not support the requested operation",
+	"policy_storage_access_key_required": "Access key is required for this storage policy",
+	"policy_storage_secret_key_required": "Secret key is required for this storage policy",
+	"policy_storage_bucket_required": "Bucket is required for this storage policy",
+	"policy_storage_endpoint_invalid": "The storage endpoint or bucket format is invalid",
+	"policy_remote_node_required": "Select a remote node before saving this remote storage policy",
+	"policy_remote_node_unexpected": "Remote node can only be used by remote storage policies",
+	"policy_remote_node_disabled": "The selected remote node is disabled",
+	"policy_remote_node_base_url_required": "The selected direct remote node needs a base URL before it can be used by a storage policy",
+	"policy_remote_node_transfer_strategy_unsupported": "This remote node does not support presigned browser transfer strategies. Use relay streaming instead",
+	"policy_native_thumbnail_unsupported": "Storage-native thumbnail processing is not supported by this policy driver",
+	"policy_promotion_target_unsupported": "This storage policy cannot be promoted to the selected target driver",
+	"policy_promotion_bucket_change_denied": "Changing the bucket while promoting this storage policy is not allowed"
 }

@@ -3,10 +3,40 @@
 #[macro_use]
 mod common;
 
+use aster_drive::api::api_error_code::ApiErrorCode;
 use aster_drive::config::site_url::PUBLIC_SITE_URL_KEY;
 use aster_drive::services::{
     config_service, managed_follower_enrollment_service, managed_follower_service,
 };
+
+#[tokio::test]
+async fn test_remote_node_enrollment_command_requires_public_site_url_code() {
+    let state = common::setup().await;
+    let node = managed_follower_service::create(
+        &state,
+        managed_follower_service::CreateRemoteNodeInput {
+            name: "node-missing-url".to_string(),
+            base_url: "https://node-missing-url.example.com".to_string(),
+            transport_mode: aster_drive::types::RemoteNodeTransportMode::Direct,
+            is_enabled: true,
+        },
+    )
+    .await
+    .expect("remote node should be created");
+
+    let error = managed_follower_enrollment_service::create_enrollment_command(&state, node.id)
+        .await
+        .expect_err("missing public_site_url should reject enrollment command");
+
+    assert_eq!(
+        error.api_error_code(),
+        ApiErrorCode::ConfigPublicSiteUrlRequired
+    );
+    assert_eq!(
+        error.message(),
+        "public_site_url must be configured before generating enrollment commands"
+    );
+}
 
 #[tokio::test]
 async fn test_completed_remote_node_enrollment_rejects_new_token() {

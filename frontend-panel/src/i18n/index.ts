@@ -110,6 +110,8 @@ const SPLIT_NAMESPACE_PARTS: Partial<
 		"remote-nodes",
 		"workspace",
 		"external-auth",
+		"search",
+		"internal-storage",
 		"wopi",
 		"validation",
 		"error-page",

@@ -59,7 +59,9 @@ use crate::api::pagination::{AdminTaskSortBy, OffsetPage, SortOrder};
 use crate::config::operations;
 use crate::db::repository::background_task_repo;
 use crate::entities::background_task;
-use crate::errors::{AsterError, Result, precondition_failed_with_code};
+use crate::errors::{
+    AsterError, Result, precondition_failed_with_code, validation_error_with_code,
+};
 use crate::runtime::{SharedRuntimeState, TaskRuntimeState};
 use crate::services::{
     audit_service::{self, AuditContext},
@@ -398,12 +400,14 @@ async fn retry_task_record(
     task: &background_task::Model,
 ) -> Result<()> {
     if task.status != BackgroundTaskStatus::Failed {
-        return Err(AsterError::validation_error(
+        return Err(validation_error_with_code(
+            ApiErrorCode::TaskRetryStatusConflict,
             "only failed tasks can be retried",
         ));
     }
     if !task_can_retry(task) {
-        return Err(AsterError::validation_error(
+        return Err(validation_error_with_code(
+            ApiErrorCode::TaskRetryNotAllowed,
             "this task failure cannot be retried",
         ));
     }

@@ -4,9 +4,10 @@ use chrono::Utc;
 use sea_orm::Set;
 use validator::Validate;
 
+use crate::api::api_error_code::ApiErrorCode;
 use crate::db::repository::{managed_follower_repo, policy_group_repo, policy_repo};
 use crate::entities::{storage_policy_group, storage_policy_group_item};
-use crate::errors::{AsterError, Result};
+use crate::errors::{AsterError, Result, validation_error_with_code};
 use crate::runtime::SharedRuntimeState;
 use crate::storage::drivers::s3_config::normalize_s3_endpoint_and_bucket;
 use crate::types::{
@@ -78,7 +79,15 @@ pub(super) fn normalize_connection_fields(
         DriverType::Local => Ok((endpoint.trim().to_string(), bucket.trim().to_string())),
         DriverType::Remote => Ok((String::new(), String::new())),
         DriverType::S3 | DriverType::TencentCos => {
-            let normalized = normalize_s3_endpoint_and_bucket(endpoint, bucket)?;
+            let normalized =
+                normalize_s3_endpoint_and_bucket(endpoint, bucket).map_err(|error| {
+                    let api_code = if error.message().contains("bucket is required") {
+                        ApiErrorCode::PolicyStorageBucketRequired
+                    } else {
+                        ApiErrorCode::PolicyStorageEndpointInvalid
+                    };
+                    error.with_api_error_code(api_code)
+                })?;
             Ok((normalized.endpoint, normalized.bucket))
         }
     }
@@ -92,18 +101,23 @@ pub(super) async fn validate_remote_binding<C: sea_orm::ConnectionTrait>(
     match driver_type {
         DriverType::Remote => {
             let remote_node_id = remote_node_id.ok_or_else(|| {
-                AsterError::validation_error("remote storage policy requires remote_node_id")
+                validation_error_with_code(
+                    ApiErrorCode::PolicyRemoteNodeRequired,
+                    "remote storage policy requires remote_node_id",
+                )
             })?;
             let remote_node = managed_follower_repo::find_by_id(db, remote_node_id).await?;
             if !remote_node.is_enabled {
-                return Err(AsterError::validation_error(format!(
-                    "remote node #{remote_node_id} is disabled"
-                )));
+                return Err(validation_error_with_code(
+                    ApiErrorCode::PolicyRemoteNodeDisabled,
+                    format!("remote node #{remote_node_id} is disabled"),
+                ));
             }
             if remote_node.transport_mode == RemoteNodeTransportMode::Direct
                 && remote_node.base_url.trim().is_empty()
             {
-                return Err(AsterError::validation_error(
+                return Err(validation_error_with_code(
+                    ApiErrorCode::PolicyRemoteNodeBaseUrlRequired,
                     "remote node base_url is required for remote storage policies",
                 ));
             }
@@ -111,7 +125,8 @@ pub(super) async fn validate_remote_binding<C: sea_orm::ConnectionTrait>(
         }
         DriverType::Local | DriverType::S3 | DriverType::TencentCos => {
             if remote_node_id.is_some() {
-                return Err(AsterError::validation_error(
+                return Err(validation_error_with_code(
+                    ApiErrorCode::PolicyRemoteNodeUnexpected,
                     "remote_node_id is only valid for remote storage policies",
                 ));
             }

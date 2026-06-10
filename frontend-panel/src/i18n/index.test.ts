@@ -120,4 +120,61 @@ describe("i18n", () => {
 			expect(i18n.exists(key), key).toBe(true);
 		}
 	});
+
+	it.each([
+		"en",
+		"zh",
+	] as const)("includes translated error messages for granular backend API codes in %s", async (language) => {
+		localStorage.setItem("aster-language", language);
+		const module = await loadI18nModule();
+		const i18n = module.default;
+
+		await module.ensureI18nNamespaces(["errors"], language);
+
+		const granularCodes = [
+			ApiErrorCode.ConfigPublicSiteUrlRequired,
+			ApiErrorCode.ConfigPublicSiteUrlInvalid,
+			ApiErrorCode.ExternalAuthCallbackRedirectUriRequired,
+			ApiErrorCode.PolicyStorageAccessKeyRequired,
+			ApiErrorCode.PolicyStorageSecretKeyRequired,
+			ApiErrorCode.PolicyStorageBucketRequired,
+			ApiErrorCode.PolicyStorageEndpointInvalid,
+			ApiErrorCode.PolicyRemoteNodeRequired,
+			ApiErrorCode.PolicyRemoteNodeUnexpected,
+			ApiErrorCode.PolicyRemoteNodeDisabled,
+			ApiErrorCode.PolicyRemoteNodeBaseUrlRequired,
+			ApiErrorCode.PolicyRemoteNodeTransferStrategyUnsupported,
+			ApiErrorCode.PolicyNativeThumbnailUnsupported,
+			ApiErrorCode.PolicyPromotionTargetUnsupported,
+			ApiErrorCode.PolicyPromotionBucketChangeDenied,
+			ApiErrorCode.TaskRetryStatusConflict,
+			ApiErrorCode.TaskRetryNotAllowed,
+			ApiErrorCode.SearchQueryEmpty,
+			ApiErrorCode.SearchTypeInvalid,
+			ApiErrorCode.SearchTagMatchInvalid,
+			ApiErrorCode.SearchSizeRangeInvalid,
+			ApiErrorCode.SearchFileFilterTypeConflict,
+			ApiErrorCode.SearchMimeTypeEmpty,
+			ApiErrorCode.SearchCategoryInvalid,
+			ApiErrorCode.SearchExtensionsInvalid,
+			ApiErrorCode.SearchTagIdsInvalid,
+			ApiErrorCode.SearchDateInvalid,
+			ApiErrorCode.SearchDateRangeInvalid,
+			ApiErrorCode.InternalStorageRangeLengthInvalid,
+			ApiErrorCode.InternalStorageRangeEmptyObject,
+			ApiErrorCode.InternalStorageRangeOffsetOutOfBounds,
+			ApiErrorCode.InternalStorageRangeHeaderInvalid,
+			ApiErrorCode.InternalStorageRangeMultipleUnsupported,
+			ApiErrorCode.InternalStorageRangeBoundsInvalid,
+			ApiErrorCode.InternalStorageContentLengthRequired,
+			ApiErrorCode.InternalStorageContentLengthInvalid,
+			ApiErrorCode.InternalStorageComposePartsRequired,
+			ApiErrorCode.InternalStorageComposeExpectedSizeInvalid,
+		] satisfies readonly ApiErrorCode[];
+
+		for (const code of granularCodes) {
+			const key = `errors:${code.replaceAll(".", "_")}`;
+			expect(i18n.exists(key), key).toBe(true);
+		}
+	});
 });

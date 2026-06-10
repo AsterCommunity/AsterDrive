@@ -7,5 +7,17 @@
 	"storage_rate_limited": "存储服务限流了当前请求，请稍后重试",
 	"storage_transient_failure": "存储服务暂时不可用，请稍后重试",
 	"storage_precondition_failed": "存储操作前置条件不满足，请刷新后重试",
-	"storage_operation_unsupported": "当前存储后端不支持这个操作"
+	"storage_operation_unsupported": "当前存储后端不支持这个操作",
+	"policy_storage_access_key_required": "此存储策略需要填写 Access Key",
+	"policy_storage_secret_key_required": "此存储策略需要填写 Secret Key",
+	"policy_storage_bucket_required": "此存储策略需要填写 Bucket",
+	"policy_storage_endpoint_invalid": "存储 Endpoint 或 Bucket 格式无效",
+	"policy_remote_node_required": "保存远程存储策略前需要先选择远程节点",
+	"policy_remote_node_unexpected": "只有远程存储策略可以绑定远程节点",
+	"policy_remote_node_disabled": "选中的远程节点已被禁用",
+	"policy_remote_node_base_url_required": "选中的直连远程节点需要先配置 Base URL 才能用于存储策略",
+	"policy_remote_node_transfer_strategy_unsupported": "该远程节点不支持浏览器预签名传输策略，请改用中继流式传输",
+	"policy_native_thumbnail_unsupported": "当前策略驱动不支持存储原生缩略图处理",
+	"policy_promotion_target_unsupported": "此存储策略不能转换为选中的目标驱动",
+	"policy_promotion_bucket_change_denied": "转换存储策略驱动时不允许变更 Bucket"
 }

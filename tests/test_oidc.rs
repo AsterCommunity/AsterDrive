@@ -6,6 +6,7 @@ mod common;
 mod external_auth;
 
 use actix_web::test;
+use aster_drive::api::api_error_code::ApiErrorCode;
 use aster_drive::db::repository::{
     external_auth_identity_repo, external_auth_login_flow_repo, external_auth_provider_repo,
 };
@@ -773,7 +774,10 @@ async fn start_login_requires_public_site_url_for_callback_redirect_uri() {
     let resp = test::call_service(&app, req).await;
     assert_eq!(resp.status(), 400);
     let body: Value = test::read_body_json(resp).await;
-    assert_eq!(body["code"], "bad_request");
+    assert_eq!(
+        body["code"],
+        ApiErrorCode::ExternalAuthCallbackRedirectUriRequired.as_str()
+    );
     assert!(
         body["msg"].as_str().unwrap().contains("public_site_url"),
         "unexpected error message: {}",

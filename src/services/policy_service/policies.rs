@@ -54,10 +54,13 @@ fn ensure_storage_native_thumbnail_supported(
         return Ok(());
     }
 
-    Err(AsterError::validation_error(format!(
-        "storage policy driver '{}' does not expose storage-native thumbnail processing",
-        driver_type_name(driver_type),
-    )))
+    Err(validation_error_with_code(
+        ApiErrorCode::PolicyNativeThumbnailUnsupported,
+        format!(
+            "storage policy driver '{}' does not expose storage-native thumbnail processing",
+            driver_type_name(driver_type),
+        ),
+    ))
 }
 
 fn is_allowed_s3_compatible_promotion(source: DriverType, target: DriverType) -> bool {
@@ -69,9 +72,15 @@ fn is_allowed_s3_compatible_promotion(source: DriverType, target: DriverType) ->
 
 fn validate_connection_secret(value: &str, field: &str, driver: &str) -> Result<()> {
     if value.trim().is_empty() {
-        return Err(AsterError::validation_error(format!(
-            "{field} is required for {driver} storage policies"
-        )));
+        let api_code = match field {
+            "access_key" => ApiErrorCode::PolicyStorageAccessKeyRequired,
+            "secret_key" => ApiErrorCode::PolicyStorageSecretKeyRequired,
+            _ => ApiErrorCode::BadRequest,
+        };
+        return Err(validation_error_with_code(
+            api_code,
+            format!("{field} is required for {driver} storage policies"),
+        ));
     }
     Ok(())
 }
@@ -477,21 +486,26 @@ pub async fn promote_s3_compatible_driver(
 ) -> Result<StoragePolicy> {
     let existing = policy_repo::find_by_id(state.writer_db(), id).await?;
     if existing.driver_type != DriverType::S3 {
-        return Err(AsterError::validation_error(
+        return Err(validation_error_with_code(
+            ApiErrorCode::PolicyPromotionTargetUnsupported,
             "only generic S3-compatible policies can be promoted",
         ));
     }
     if !is_allowed_s3_compatible_promotion(existing.driver_type, input.target_driver_type) {
-        return Err(AsterError::validation_error(format!(
-            "promoting S3-compatible policy to '{}' is not supported",
-            driver_type_name(input.target_driver_type),
-        )));
+        return Err(validation_error_with_code(
+            ApiErrorCode::PolicyPromotionTargetUnsupported,
+            format!(
+                "promoting S3-compatible policy to '{}' is not supported",
+                driver_type_name(input.target_driver_type),
+            ),
+        ));
     }
 
     let (normalized_endpoint, normalized_bucket) =
         normalize_connection_fields(input.target_driver_type, &input.endpoint, &input.bucket)?;
     if normalized_bucket != existing.bucket {
-        return Err(AsterError::validation_error(
+        return Err(validation_error_with_code(
+            ApiErrorCode::PolicyPromotionBucketChangeDenied,
             "bucket cannot be changed by S3-compatible driver promotion",
         ));
     }
@@ -550,10 +564,13 @@ async fn validate_s3_compatible_promotion_candidate(
     match candidate_policy.driver_type {
         DriverType::TencentCos => TencentCosDriver::validate_policy(candidate_policy)?,
         target => {
-            return Err(AsterError::validation_error(format!(
-                "promoting S3-compatible policy to '{}' is not supported",
-                driver_type_name(target),
-            )));
+            return Err(validation_error_with_code(
+                ApiErrorCode::PolicyPromotionTargetUnsupported,
+                format!(
+                    "promoting S3-compatible policy to '{}' is not supported",
+                    driver_type_name(target),
+                ),
+            ));
         }
     }
 
@@ -661,7 +678,10 @@ pub async fn test_connection_params<S: RemoteProtocolRuntimeState>(
         DriverType::Local => Box::new(LocalDriver::new(&fake_policy)?),
         DriverType::Remote => {
             let remote_node_id = fake_policy.remote_node_id.ok_or_else(|| {
-                AsterError::validation_error("remote storage policy requires remote_node_id")
+                validation_error_with_code(
+                    ApiErrorCode::PolicyRemoteNodeRequired,
+                    "remote storage policy requires remote_node_id",
+                )
             })?;
             let remote_node =
                 managed_follower_repo::find_by_id(state.writer_db(), remote_node_id).await?;
@@ -699,7 +719,8 @@ async fn ensure_remote_transport_supports_policy_options<C: sea_orm::ConnectionT
             || options.effective_remote_upload_strategy()
                 == crate::types::RemoteUploadStrategy::Presigned)
     {
-        return Err(AsterError::validation_error(
+        return Err(validation_error_with_code(
+            ApiErrorCode::PolicyRemoteNodeTransferStrategyUnsupported,
             "reverse tunnel remote nodes do not support presigned browser transfer strategies",
         ));
     }

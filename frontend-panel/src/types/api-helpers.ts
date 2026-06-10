@@ -18,6 +18,8 @@ export const ApiErrorCode = {
 	MailNotConfigured: "mail.not_configured",
 	MailDeliveryFailed: "mail.delivery_failed",
 	Conflict: "conflict",
+	ConfigPublicSiteUrlRequired: "config.public_site_url_required",
+	ConfigPublicSiteUrlInvalid: "config.public_site_url_invalid",
 	AuthFailed: "auth.failed",
 	TokenExpired: "auth.token_expired",
 	TokenInvalid: "auth.token_invalid",
@@ -133,9 +135,24 @@ export const ApiErrorCode = {
 	TeamOwnerRequired: "team.owner_required",
 	TeamAdminOrOwnerRequired: "team.admin_or_owner_required",
 	PolicyUploadSessionsExist: "policy.upload_sessions_exist",
+	PolicyStorageAccessKeyRequired: "policy.storage_access_key_required",
+	PolicyStorageSecretKeyRequired: "policy.storage_secret_key_required",
+	PolicyStorageBucketRequired: "policy.storage_bucket_required",
+	PolicyStorageEndpointInvalid: "policy.storage_endpoint_invalid",
+	PolicyRemoteNodeRequired: "policy.remote_node_required",
+	PolicyRemoteNodeUnexpected: "policy.remote_node_unexpected",
+	PolicyRemoteNodeDisabled: "policy.remote_node_disabled",
+	PolicyRemoteNodeBaseUrlRequired: "policy.remote_node_base_url_required",
+	PolicyRemoteNodeTransferStrategyUnsupported:
+		"policy.remote_node_transfer_strategy_unsupported",
+	PolicyNativeThumbnailUnsupported: "policy.native_thumbnail_unsupported",
+	PolicyPromotionTargetUnsupported: "policy.promotion_target_unsupported",
+	PolicyPromotionBucketChangeDenied: "policy.promotion_bucket_change_denied",
 	WorkspaceScopeDenied: "workspace.scope_denied",
 	ExternalAuthProviderDisabled: "external_auth.provider_disabled",
 	ExternalAuthPolicyDenied: "external_auth.policy_denied",
+	ExternalAuthCallbackRedirectUriRequired:
+		"external_auth.callback_redirect_uri_required",
 	OfflineDownloadAria2RpcAuthFailed: "offline_download.aria2_rpc_auth_failed",
 	OfflineDownloadAria2RpcProbeFailed: "offline_download.aria2_rpc_probe_failed",
 	RemoteNodeDisabled: "remote_node.disabled",
@@ -151,6 +168,8 @@ export const ApiErrorCode = {
 	TaskLeaseLost: "task.lease_lost",
 	TaskLeaseRenewalTimedOut: "task.lease_renewal_timed_out",
 	TaskWorkerShutdownRequested: "task.worker_shutdown_requested",
+	TaskRetryStatusConflict: "task.retry_status_conflict",
+	TaskRetryNotAllowed: "task.retry_not_allowed",
 	TeamMemberExists: "team.member_exists",
 	ThumbnailFormatGuessFailed: "thumbnail.format_guess_failed",
 	ThumbnailDecodeFailed: "thumbnail.decode_failed",
@@ -224,6 +243,33 @@ export const ApiErrorCode = {
 	ValidationRequestHeaderValueInvalid:
 		"validation.request_header_value_invalid",
 	ValidationSystemAlreadyInitialized: "validation.system_already_initialized",
+	SearchQueryEmpty: "search.query_empty",
+	SearchTypeInvalid: "search.type_invalid",
+	SearchTagMatchInvalid: "search.tag_match_invalid",
+	SearchSizeRangeInvalid: "search.size_range_invalid",
+	SearchFileFilterTypeConflict: "search.file_filter_type_conflict",
+	SearchMimeTypeEmpty: "search.mime_type_empty",
+	SearchCategoryInvalid: "search.category_invalid",
+	SearchExtensionsInvalid: "search.extensions_invalid",
+	SearchTagIdsInvalid: "search.tag_ids_invalid",
+	SearchDateInvalid: "search.date_invalid",
+	SearchDateRangeInvalid: "search.date_range_invalid",
+	InternalStorageRangeLengthInvalid: "internal_storage.range_length_invalid",
+	InternalStorageRangeEmptyObject: "internal_storage.range_empty_object",
+	InternalStorageRangeOffsetOutOfBounds:
+		"internal_storage.range_offset_out_of_bounds",
+	InternalStorageRangeHeaderInvalid: "internal_storage.range_header_invalid",
+	InternalStorageRangeMultipleUnsupported:
+		"internal_storage.range_multiple_unsupported",
+	InternalStorageRangeBoundsInvalid: "internal_storage.range_bounds_invalid",
+	InternalStorageContentLengthRequired:
+		"internal_storage.content_length_required",
+	InternalStorageContentLengthInvalid:
+		"internal_storage.content_length_invalid",
+	InternalStorageComposePartsRequired:
+		"internal_storage.compose_parts_required",
+	InternalStorageComposeExpectedSizeInvalid:
+		"internal_storage.compose_expected_size_invalid",
 } as const satisfies Record<string, ApiErrorCode>;
 
 type AssertNever<T extends never> = T;

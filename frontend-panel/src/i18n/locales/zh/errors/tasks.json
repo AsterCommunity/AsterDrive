@@ -1,5 +1,7 @@
 {
 	"task_lease_lost": "后台任务处理资格已失效，请稍后重试",
 	"task_lease_renewal_timed_out": "后台任务续约超时，请稍后重试",
-	"task_worker_shutdown_requested": "服务正在关闭，后台任务将在稍后继续"
+	"task_worker_shutdown_requested": "服务正在关闭，后台任务将在稍后继续",
+	"task_retry_status_conflict": "只有失败状态的后台任务可以重试",
+	"task_retry_not_allowed": "这个后台任务失败不允许重试"
 }

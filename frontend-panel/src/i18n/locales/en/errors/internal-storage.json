@@ -1,0 +1,12 @@
+{
+	"internal_storage_range_length_invalid": "Internal storage range length must be greater than zero",
+	"internal_storage_range_empty_object": "Cannot read a byte range from an empty internal storage object",
+	"internal_storage_range_offset_out_of_bounds": "Internal storage range offset is outside the object bounds",
+	"internal_storage_range_header_invalid": "Internal storage range header is invalid",
+	"internal_storage_range_multiple_unsupported": "Multiple internal storage ranges are not supported",
+	"internal_storage_range_bounds_invalid": "Internal storage range bounds are invalid",
+	"internal_storage_content_length_required": "Internal storage request must include a content length",
+	"internal_storage_content_length_invalid": "Internal storage content length is invalid",
+	"internal_storage_compose_parts_required": "Internal storage compose request must include at least one part",
+	"internal_storage_compose_expected_size_invalid": "Internal storage compose expected size is invalid"
+}

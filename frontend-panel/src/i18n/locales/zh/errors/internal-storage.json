@@ -1,0 +1,12 @@
+{
+	"internal_storage_range_length_invalid": "内部存储读取范围长度必须大于 0",
+	"internal_storage_range_empty_object": "空的内部存储对象不能按范围读取",
+	"internal_storage_range_offset_out_of_bounds": "内部存储读取范围起点超出对象大小",
+	"internal_storage_range_header_invalid": "内部存储 Range 请求头无效",
+	"internal_storage_range_multiple_unsupported": "内部存储不支持一次请求多个读取范围",
+	"internal_storage_range_bounds_invalid": "内部存储读取范围边界无效",
+	"internal_storage_content_length_required": "内部存储请求必须包含 Content-Length",
+	"internal_storage_content_length_invalid": "内部存储 Content-Length 无效",
+	"internal_storage_compose_parts_required": "内部存储合并请求至少需要一个分片",
+	"internal_storage_compose_expected_size_invalid": "内部存储合并请求的预期大小无效"
+}

@@ -240,7 +240,8 @@ fn rp_id_from_origin(origin: &url::Url) -> Result<String> {
 
 fn primary_public_origin(state: &impl SharedRuntimeState) -> Result<String> {
     let origin = site_url::public_site_url(state.runtime_config()).ok_or_else(|| {
-        AsterError::validation_error(
+        validation_error_with_code(
+            ApiErrorCode::ConfigPublicSiteUrlRequired,
             "public_site_url must be configured before enabling passkey authentication",
         )
     })?;
@@ -252,7 +253,8 @@ fn primary_public_origin(state: &impl SharedRuntimeState) -> Result<String> {
     {
         Ok(origin)
     } else {
-        Err(AsterError::validation_error(
+        Err(validation_error_with_code(
+            ApiErrorCode::ConfigPublicSiteUrlInvalid,
             "passkey authentication requires HTTPS public_site_url, except localhost",
         ))
     }

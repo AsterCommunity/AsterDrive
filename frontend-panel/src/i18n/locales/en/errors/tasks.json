@@ -1,5 +1,7 @@
 {
 	"task_lease_lost": "The background task lease was lost. Please try again",
 	"task_lease_renewal_timed_out": "The background task lease renewal timed out. Please try again",
-	"task_worker_shutdown_requested": "The service is shutting down. The background task will continue later"
+	"task_worker_shutdown_requested": "The service is shutting down. The background task will continue later",
+	"task_retry_status_conflict": "Only failed background tasks can be retried",
+	"task_retry_not_allowed": "This background task failure is not retryable"
 }

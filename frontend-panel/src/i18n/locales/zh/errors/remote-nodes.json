@@ -1,4 +1,5 @@
 {
 	"remote_node_disabled": "远程节点当前已被禁用，请检查节点状态",
+	"remote_node_enrollment_required": "需要先完成远程节点登记后才能继续此操作",
 	"remote_node_unique_conflict": "远程节点的名称或连接配置与现有节点冲突"
 }
