@@ -19,6 +19,7 @@ const mockState = vi.hoisted(() => ({
 		preference: "browser",
 	},
 	ensureAllI18nNamespaces: vi.fn(),
+	loggerWarn: vi.fn(),
 	previewAppsLoad: vi.fn(),
 	mediaDataSupportLoad: vi.fn(),
 	musicPlayerHostMountRequested: false,
@@ -64,6 +65,12 @@ vi.mock("@/lib/idleTask", () => ({
 	runWhenIdle: (task: () => void) => {
 		const timer = window.setTimeout(task, 1200);
 		return () => window.clearTimeout(timer);
+	},
+}));
+
+vi.mock("@/lib/logger", () => ({
+	logger: {
+		warn: (...args: unknown[]) => mockState.loggerWarn(...args),
 	},
 }));
 
@@ -158,6 +165,7 @@ describe("App", () => {
 		mockState.displayTimeZoneStore.preference = "browser";
 		mockState.ensureAllI18nNamespaces.mockReset();
 		mockState.ensureAllI18nNamespaces.mockResolvedValue(undefined);
+		mockState.loggerWarn.mockReset();
 		mockState.musicPlayerHostMountRequested = false;
 		mockState.frontendConfigLoad.mockReset();
 		mockState.initFrontendConfigRuntime.mockReset();
@@ -295,6 +303,24 @@ describe("App", () => {
 			expect(screen.getByTestId("router-provider")).toBeInTheDocument();
 			expect(mockState.warmupRouteChunks).toHaveBeenCalledWith("user");
 		});
+	});
+
+	it("mounts authenticated routes when full locale bundle loading fails", async () => {
+		const error = new Error("locale load failed");
+		mockState.ensureAllI18nNamespaces.mockRejectedValueOnce(error);
+		mockState.authStore.isAuthenticated = true;
+		mockState.authStore.isChecking = false;
+
+		render(<App />);
+
+		await waitFor(() => {
+			expect(screen.getByTestId("router-provider")).toBeInTheDocument();
+			expect(mockState.warmupRouteChunks).toHaveBeenCalledWith("user");
+		});
+		expect(mockState.loggerWarn).toHaveBeenCalledWith(
+			"failed to load authenticated locale namespaces",
+			error,
+		);
 	});
 
 	it("renders the offline boot fallback instead of the router", async () => {

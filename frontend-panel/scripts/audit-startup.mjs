@@ -188,7 +188,7 @@ function readdirSyncCompat(dir) {
 function extractPrecacheEntries() {
 	const sw = readDistFile("sw.js");
 	const entries = [];
-	for (const match of sw.matchAll(/url:"([^"]+)"/g)) {
+	for (const match of sw.matchAll(/(?:"url"|url)\s*:\s*"([^"]+)"/g)) {
 		entries.push(normalizeAssetPath(match[1]));
 	}
 	if (entries.length === 0) fail("could not find precache entries in sw.js");

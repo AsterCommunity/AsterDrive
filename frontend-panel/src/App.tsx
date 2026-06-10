@@ -4,6 +4,7 @@ import { Toaster, toast } from "sonner";
 import { usePwaUpdate } from "@/hooks/usePwaUpdate";
 import i18n, { ensureAllI18nNamespaces } from "@/i18n";
 import { runWhenIdle } from "@/lib/idleTask";
+import { logger } from "@/lib/logger";
 import { useMusicPlayerHostMountRequested } from "@/lib/musicPlayerMountSignal";
 import { router } from "@/router";
 import { Loading } from "@/router/Loading";
@@ -133,10 +134,17 @@ function App() {
 		}
 
 		let cancelled = false;
-		void ensureAllI18nNamespaces().then(() => {
+		void (async () => {
+			try {
+				await ensureAllI18nNamespaces();
+			} catch (error) {
+				if (!cancelled) {
+					logger.warn("failed to load authenticated locale namespaces", error);
+				}
+			}
 			if (cancelled) return;
 			setAuthenticatedLocaleReady(true);
-		});
+		})();
 
 		return () => {
 			cancelled = true;
