@@ -37,6 +37,8 @@
 	"settings_item_archive_preview_max_manifest_bytes_desc": "返回给客户端的序列化 manifest 最大字节数。超过后会在响应和缓存前截断 entries。",
 	"settings_item_archive_preview_max_duration_secs_label": "压缩包预览扫描耗时上限",
 	"settings_item_archive_preview_max_duration_secs_desc": "单次只读压缩包预览扫描允许运行的最长秒数。",
+	"settings_item_archive_compress_enabled_label": "启用在线归档压缩",
+	"settings_item_archive_compress_enabled_desc": "允许用户在个人和团队工作区中把所选文件创建为新的 ZIP 压缩包。归档下载和在线解压由其他配置单独控制。",
 	"settings_item_archive_build_max_entries_label": "归档构建条目数量上限",
 	"settings_item_archive_build_max_entries_desc": "批量压缩或归档下载在展开所选文件夹后允许写入 ZIP 的最大文件/目录条目数。",
 	"settings_item_archive_build_max_total_source_bytes_label": "归档构建源文件总大小上限",

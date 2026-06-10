@@ -37,6 +37,8 @@
 	"settings_item_archive_preview_max_manifest_bytes_desc": "The largest serialized manifest returned to clients. Larger manifests are truncated before response and cache storage.",
 	"settings_item_archive_preview_max_duration_secs_label": "Archive preview duration cap",
 	"settings_item_archive_preview_max_duration_secs_desc": "The longest wall-clock runtime allowed for one read-only archive preview scan.",
+	"settings_item_archive_compress_enabled_label": "Enable online archive compression",
+	"settings_item_archive_compress_enabled_desc": "Allow users to create ZIP archives as new files in personal and team workspaces. Archive downloads and extraction stay controlled separately.",
 	"settings_item_archive_build_max_entries_label": "Archive build entry cap",
 	"settings_item_archive_build_max_entries_desc": "The maximum number of expanded file and directory entries allowed when creating ZIP archives for batch compression or download.",
 	"settings_item_archive_build_max_total_source_bytes_label": "Archive build source-size cap",
