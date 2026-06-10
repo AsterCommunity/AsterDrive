@@ -12,8 +12,8 @@ use crate::db::repository::{
     team_repo::team_keyword_condition,
 };
 use sea_orm::{
-    ActiveModelTrait, ColumnTrait, Condition, ConnectionTrait, DbBackend, EntityTrait, ExprTrait,
-    FromQueryResult, PaginatorTrait, QueryFilter, QueryOrder, QuerySelect,
+    ActiveModelTrait, ColumnTrait, Condition, ConnectionTrait, DatabaseConnection, DbBackend,
+    EntityTrait, ExprTrait, FromQueryResult, PaginatorTrait, QueryFilter, QueryOrder, QuerySelect,
     sea_query::{Expr, Order, extension::postgres::PgExpr},
 };
 
@@ -315,8 +315,8 @@ pub async fn list_by_team_with_user<C: ConnectionTrait>(
         .collect())
 }
 
-pub async fn list_page_by_team_with_user<C: ConnectionTrait>(
-    db: &C,
+pub async fn list_page_by_team_with_user(
+    db: &DatabaseConnection,
     team_id: i64,
     limit: u64,
     offset: u64,
@@ -399,7 +399,7 @@ fn apply_admin_team_member_sort(
     }
 }
 
-pub async fn count_by_team<C: ConnectionTrait>(db: &C, team_id: i64) -> Result<u64> {
+pub async fn count_by_team(db: &DatabaseConnection, team_id: i64) -> Result<u64> {
     // Keep member counts aligned with list_by_team_with_user by only counting rows
     // that still join to a user record.
     let count = TeamMember::find()
@@ -419,8 +419,8 @@ pub async fn count_by_team<C: ConnectionTrait>(db: &C, team_id: i64) -> Result<u
     i64_to_u64(count, "team member count")
 }
 
-pub async fn count_by_team_ids<C: ConnectionTrait>(
-    db: &C,
+pub async fn count_by_team_ids(
+    db: &DatabaseConnection,
     team_ids: &[i64],
 ) -> Result<HashMap<i64, u64>> {
     if team_ids.is_empty() {
@@ -473,8 +473,8 @@ pub async fn count_by_team_and_role<C: ConnectionTrait>(
     i64_to_u64(count, "team member count")
 }
 
-pub async fn count_by_team_grouped_by_role<C: ConnectionTrait>(
-    db: &C,
+pub async fn count_by_team_grouped_by_role(
+    db: &DatabaseConnection,
     team_id: i64,
 ) -> Result<Vec<(TeamMemberRole, u64)>> {
     let counts = TeamMember::find()

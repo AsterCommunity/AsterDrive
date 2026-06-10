@@ -85,24 +85,16 @@ pub fn routes(
                 .route(web::post().to(check)),
         )
         .service(
-            web::resource("/register")
+            web::scope("/register")
                 .wrap(Condition::new(rl.enabled, Governor::new(&auth_limiter)))
-                .route(web::post().to(register)),
+                .route("", web::post().to(register))
+                .route("/resend", web::post().to(resend_register_activation)),
         )
         .service(
-            web::resource("/register/resend")
+            web::scope("/invitations")
                 .wrap(Condition::new(rl.enabled, Governor::new(&auth_limiter)))
-                .route(web::post().to(resend_register_activation)),
-        )
-        .service(
-            web::resource("/invitations/{token}")
-                .wrap(Condition::new(rl.enabled, Governor::new(&auth_limiter)))
-                .route(web::get().to(verify_user_invitation)),
-        )
-        .service(
-            web::resource("/invitations/{token}/accept")
-                .wrap(Condition::new(rl.enabled, Governor::new(&auth_limiter)))
-                .route(web::post().to(accept_user_invitation)),
+                .route("/{token}", web::get().to(verify_user_invitation))
+                .route("/{token}/accept", web::post().to(accept_user_invitation)),
         )
         .service(
             web::resource("/setup")
@@ -115,14 +107,10 @@ pub fn routes(
                 .route(web::get().to(confirm_contact_verification)),
         )
         .service(
-            web::resource("/password/reset/request")
+            web::scope("/password/reset")
                 .wrap(Condition::new(rl.enabled, Governor::new(&auth_limiter)))
-                .route(web::post().to(request_password_reset)),
-        )
-        .service(
-            web::resource("/password/reset/confirm")
-                .wrap(Condition::new(rl.enabled, Governor::new(&auth_limiter)))
-                .route(web::post().to(confirm_password_reset)),
+                .route("/request", web::post().to(request_password_reset))
+                .route("/confirm", web::post().to(confirm_password_reset)),
         )
         .service(
             web::resource("/login")
@@ -130,24 +118,16 @@ pub fn routes(
                 .route(web::post().to(login)),
         )
         .service(
-            web::resource("/mfa/challenge/verify")
+            web::scope("/mfa/challenge")
                 .wrap(Condition::new(rl.enabled, Governor::new(&auth_limiter)))
-                .route(web::post().to(verify_mfa_challenge)),
+                .route("/verify", web::post().to(verify_mfa_challenge))
+                .route("/email-code/send", web::post().to(send_mfa_email_code)),
         )
         .service(
-            web::resource("/mfa/challenge/email-code/send")
+            web::scope("/passkeys/login")
                 .wrap(Condition::new(rl.enabled, Governor::new(&auth_limiter)))
-                .route(web::post().to(send_mfa_email_code)),
-        )
-        .service(
-            web::resource("/passkeys/login/start")
-                .wrap(Condition::new(rl.enabled, Governor::new(&auth_limiter)))
-                .route(web::post().to(start_passkey_login)),
-        )
-        .service(
-            web::resource("/passkeys/login/finish")
-                .wrap(Condition::new(rl.enabled, Governor::new(&auth_limiter)))
-                .route(web::post().to(finish_passkey_login)),
+                .route("/start", web::post().to(start_passkey_login))
+                .route("/finish", web::post().to(finish_passkey_login)),
         )
         .service(
             web::resource("/external-auth/providers")
@@ -155,9 +135,16 @@ pub fn routes(
                 .route(web::get().to(list_external_auth_providers)),
         )
         .service(
-            web::resource("/external-auth/email-verification/start")
+            web::scope("/external-auth/email-verification")
                 .wrap(Condition::new(rl.enabled, Governor::new(&auth_limiter)))
-                .route(web::post().to(start_external_auth_email_verification)),
+                .route(
+                    "/start",
+                    web::post().to(start_external_auth_email_verification),
+                )
+                .route(
+                    "/confirm",
+                    web::get().to(confirm_external_auth_email_verification),
+                ),
         )
         .service(
             web::resource("/external-auth/password-link")
@@ -165,19 +152,10 @@ pub fn routes(
                 .route(web::post().to(link_external_auth_with_password)),
         )
         .service(
-            web::resource("/external-auth/email-verification/confirm")
+            web::scope("/external-auth/{kind}/{provider}")
                 .wrap(Condition::new(rl.enabled, Governor::new(&auth_limiter)))
-                .route(web::get().to(confirm_external_auth_email_verification)),
-        )
-        .service(
-            web::resource("/external-auth/{kind}/{provider}/start")
-                .wrap(Condition::new(rl.enabled, Governor::new(&auth_limiter)))
-                .route(web::post().to(start_external_auth_login)),
-        )
-        .service(
-            web::resource("/external-auth/{kind}/{provider}/callback")
-                .wrap(Condition::new(rl.enabled, Governor::new(&auth_limiter)))
-                .route(web::get().to(finish_external_auth_login)),
+                .route("/start", web::post().to(start_external_auth_login))
+                .route("/callback", web::get().to(finish_external_auth_login)),
         )
         .service(
             web::resource("/refresh")
@@ -196,22 +174,12 @@ pub fn routes(
                 .route(web::get().to(me)),
         )
         .service(
-            web::resource("/sessions")
+            web::scope("/sessions")
                 .wrap(JwtAuth)
                 .wrap(Condition::new(rl.enabled, Governor::new(&api_limiter)))
-                .route(web::get().to(list_sessions)),
-        )
-        .service(
-            web::resource("/sessions/others")
-                .wrap(JwtAuth)
-                .wrap(Condition::new(rl.enabled, Governor::new(&api_limiter)))
-                .route(web::delete().to(delete_other_sessions)),
-        )
-        .service(
-            web::resource("/sessions/{id}")
-                .wrap(JwtAuth)
-                .wrap(Condition::new(rl.enabled, Governor::new(&api_limiter)))
-                .route(web::delete().to(delete_session)),
+                .route("", web::get().to(list_sessions))
+                .route("/others", web::delete().to(delete_other_sessions))
+                .route("/{id}", web::delete().to(delete_session)),
         )
         .service(
             web::resource("/password")
@@ -220,83 +188,47 @@ pub fn routes(
                 .route(web::put().to(put_password)),
         )
         .service(
-            web::resource("/mfa")
+            web::scope("/mfa")
                 .wrap(JwtAuth)
                 .wrap(Condition::new(rl.enabled, Governor::new(&api_limiter)))
-                .route(web::get().to(mfa_status)),
+                .route("", web::get().to(mfa_status))
+                .route("/totp/setup/start", web::post().to(start_totp_setup))
+                .route("/totp/setup/finish", web::post().to(finish_totp_setup))
+                .route("/factors/{id}", web::delete().to(delete_mfa_factor))
+                .route(
+                    "/recovery-codes/regenerate",
+                    web::post().to(regenerate_recovery_codes),
+                ),
         )
         .service(
-            web::resource("/mfa/totp/setup/start")
+            web::scope("/passkeys")
                 .wrap(JwtAuth)
                 .wrap(Condition::new(rl.enabled, Governor::new(&api_limiter)))
-                .route(web::post().to(start_totp_setup)),
+                .route("", web::get().to(list_passkeys))
+                .route(
+                    "/register/start",
+                    web::post().to(start_passkey_registration),
+                )
+                .route(
+                    "/register/finish",
+                    web::post().to(finish_passkey_registration),
+                )
+                .route("/{id}", web::patch().to(rename_passkey))
+                .route("/{id}", web::delete().to(delete_passkey)),
         )
         .service(
-            web::resource("/mfa/totp/setup/finish")
+            web::scope("/external-auth/links")
                 .wrap(JwtAuth)
                 .wrap(Condition::new(rl.enabled, Governor::new(&api_limiter)))
-                .route(web::post().to(finish_totp_setup)),
+                .route("", web::get().to(list_external_auth_links))
+                .route("/{id}", web::delete().to(delete_external_auth_link)),
         )
         .service(
-            web::resource("/mfa/factors/{id}")
+            web::scope("/email/change")
                 .wrap(JwtAuth)
                 .wrap(Condition::new(rl.enabled, Governor::new(&api_limiter)))
-                .route(web::delete().to(delete_mfa_factor)),
-        )
-        .service(
-            web::resource("/mfa/recovery-codes/regenerate")
-                .wrap(JwtAuth)
-                .wrap(Condition::new(rl.enabled, Governor::new(&api_limiter)))
-                .route(web::post().to(regenerate_recovery_codes)),
-        )
-        .service(
-            web::resource("/passkeys")
-                .wrap(JwtAuth)
-                .wrap(Condition::new(rl.enabled, Governor::new(&api_limiter)))
-                .route(web::get().to(list_passkeys)),
-        )
-        .service(
-            web::resource("/passkeys/register/start")
-                .wrap(JwtAuth)
-                .wrap(Condition::new(rl.enabled, Governor::new(&api_limiter)))
-                .route(web::post().to(start_passkey_registration)),
-        )
-        .service(
-            web::resource("/passkeys/register/finish")
-                .wrap(JwtAuth)
-                .wrap(Condition::new(rl.enabled, Governor::new(&api_limiter)))
-                .route(web::post().to(finish_passkey_registration)),
-        )
-        .service(
-            web::resource("/passkeys/{id}")
-                .wrap(JwtAuth)
-                .wrap(Condition::new(rl.enabled, Governor::new(&api_limiter)))
-                .route(web::patch().to(rename_passkey))
-                .route(web::delete().to(delete_passkey)),
-        )
-        .service(
-            web::resource("/external-auth/links")
-                .wrap(JwtAuth)
-                .wrap(Condition::new(rl.enabled, Governor::new(&api_limiter)))
-                .route(web::get().to(list_external_auth_links)),
-        )
-        .service(
-            web::resource("/external-auth/links/{id}")
-                .wrap(JwtAuth)
-                .wrap(Condition::new(rl.enabled, Governor::new(&api_limiter)))
-                .route(web::delete().to(delete_external_auth_link)),
-        )
-        .service(
-            web::resource("/email/change")
-                .wrap(JwtAuth)
-                .wrap(Condition::new(rl.enabled, Governor::new(&api_limiter)))
-                .route(web::post().to(request_email_change)),
-        )
-        .service(
-            web::resource("/email/change/resend")
-                .wrap(JwtAuth)
-                .wrap(Condition::new(rl.enabled, Governor::new(&api_limiter)))
-                .route(web::post().to(resend_email_change)),
+                .route("", web::post().to(request_email_change))
+                .route("/resend", web::post().to(resend_email_change)),
         )
         .service(
             web::resource("/preferences")
@@ -305,34 +237,19 @@ pub fn routes(
                 .route(web::patch().to(patch_preferences)),
         )
         .service(
-            web::resource("/profile")
+            web::scope("/profile")
                 .wrap(JwtAuth)
                 .wrap(Condition::new(rl.enabled, Governor::new(&api_limiter)))
-                .route(web::patch().to(patch_profile)),
-        )
-        .service(
-            web::resource("/profile/avatar/upload")
-                .wrap(JwtAuth)
-                .wrap(Condition::new(rl.enabled, Governor::new(&api_limiter)))
-                .route(web::post().to(upload_avatar)),
-        )
-        .service(
-            web::resource("/profile/avatar/source")
-                .wrap(JwtAuth)
-                .wrap(Condition::new(rl.enabled, Governor::new(&api_limiter)))
-                .route(web::put().to(put_avatar_source)),
+                .route("", web::patch().to(patch_profile))
+                .route("/avatar/upload", web::post().to(upload_avatar))
+                .route("/avatar/source", web::put().to(put_avatar_source))
+                .route("/avatar/{size}", web::get().to(get_self_avatar)),
         )
         .service(
             web::resource("/events/storage")
                 .wrap(JwtAuth)
                 .wrap(Condition::new(rl.enabled, Governor::new(&api_limiter)))
                 .route(web::get().to(get_storage_events)),
-        )
-        .service(
-            web::resource("/profile/avatar/{size}")
-                .wrap(JwtAuth)
-                .wrap(Condition::new(rl.enabled, Governor::new(&api_limiter)))
-                .route(web::get().to(get_self_avatar)),
         )
 }
 

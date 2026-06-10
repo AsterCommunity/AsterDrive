@@ -1,13 +1,13 @@
 use chrono::{DateTime, Utc};
-use sea_orm::{ColumnTrait, ConnectionTrait, EntityTrait, QueryFilter, QueryOrder, QuerySelect};
+use sea_orm::{ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, QueryOrder, QuerySelect};
 
 use super::common::{TerminalTaskCleanupFilters, terminal_cleanup_condition};
 use crate::entities::background_task::{self, Entity as BackgroundTask};
 use crate::errors::{AsterError, Result};
 use crate::types::BackgroundTaskStatus;
 
-pub async fn list_expired_terminal<C: ConnectionTrait>(
-    db: &C,
+pub async fn list_expired_terminal(
+    db: &DatabaseConnection,
     now: DateTime<Utc>,
     limit: u64,
 ) -> Result<Vec<background_task::Model>> {
@@ -25,7 +25,7 @@ pub async fn list_expired_terminal<C: ConnectionTrait>(
         .map_err(AsterError::from)
 }
 
-pub async fn delete_many<C: ConnectionTrait>(db: &C, ids: &[i64]) -> Result<u64> {
+pub async fn delete_many(db: &DatabaseConnection, ids: &[i64]) -> Result<u64> {
     if ids.is_empty() {
         return Ok(0);
     }
@@ -37,8 +37,8 @@ pub async fn delete_many<C: ConnectionTrait>(db: &C, ids: &[i64]) -> Result<u64>
         .rows_affected)
 }
 
-pub async fn delete_terminal_by_filters<C: ConnectionTrait>(
-    db: &C,
+pub async fn delete_terminal_by_filters(
+    db: &DatabaseConnection,
     filters: &TerminalTaskCleanupFilters,
 ) -> Result<u64> {
     Ok(BackgroundTask::delete_many()

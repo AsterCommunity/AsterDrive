@@ -11,8 +11,8 @@ use crate::entities::user::{self, Entity as User};
 use crate::errors::{AsterError, Result};
 use crate::types::{UserRole, UserStatus};
 use sea_orm::{
-    ActiveModelTrait, ColumnTrait, Condition, ConnectionTrait, DbBackend, EntityTrait, ExprTrait,
-    PaginatorTrait, QueryFilter, QueryOrder, Select,
+    ActiveModelTrait, ColumnTrait, Condition, ConnectionTrait, DatabaseConnection, DbBackend,
+    EntityTrait, ExprTrait, PaginatorTrait, QueryFilter, QueryOrder, Select,
     sea_query::{Expr, extension::postgres::PgExpr},
 };
 
@@ -184,8 +184,8 @@ pub async fn migrate_policy_group_assignments<C: ConnectionTrait>(
     Ok(result.rows_affected)
 }
 
-pub async fn find_paginated<C: ConnectionTrait>(
-    db: &C,
+pub async fn find_paginated(
+    db: &DatabaseConnection,
     limit: u64,
     offset: u64,
     filters: &AdminUserListFilters<'_>,
@@ -251,12 +251,12 @@ fn apply_admin_user_sort(
     }
 }
 
-pub async fn count_all<C: ConnectionTrait>(db: &C) -> Result<u64> {
+pub async fn count_all(db: &DatabaseConnection) -> Result<u64> {
     User::find().count(db).await.map_err(AsterError::from)
 }
 
 /// 按状态统计用户数
-pub async fn count_by_status<C: ConnectionTrait>(db: &C, status: UserStatus) -> Result<u64> {
+pub async fn count_by_status(db: &DatabaseConnection, status: UserStatus) -> Result<u64> {
     User::find()
         .filter(user::Column::Status.eq(status))
         .count(db)

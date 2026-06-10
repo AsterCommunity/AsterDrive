@@ -10,8 +10,8 @@ use crate::entities::share::{self, Entity as Share};
 use crate::errors::{AsterError, Result};
 use crate::utils::numbers::u64_to_i64;
 use sea_orm::{
-    ActiveModelTrait, ColumnTrait, Condition, ConnectionTrait, EntityTrait, ExprTrait,
-    PaginatorTrait, QueryFilter, QueryOrder, QuerySelect, Select, sea_query::Expr,
+    ActiveModelTrait, ColumnTrait, Condition, ConnectionTrait, DatabaseConnection, EntityTrait,
+    ExprTrait, PaginatorTrait, QueryFilter, QueryOrder, QuerySelect, Select, sea_query::Expr,
 };
 
 #[derive(Clone, Copy)]
@@ -38,7 +38,7 @@ pub async fn find_by_id<C: ConnectionTrait>(db: &C, id: i64) -> Result<share::Mo
 }
 
 /// 统计所有分享总数
-pub async fn count_all<C: ConnectionTrait>(db: &C) -> Result<u64> {
+pub async fn count_all(db: &DatabaseConnection) -> Result<u64> {
     Share::find().count(db).await.map_err(AsterError::from)
 }
 
@@ -114,8 +114,8 @@ pub async fn find_by_team<C: ConnectionTrait>(db: &C, team_id: i64) -> Result<Ve
         .map_err(AsterError::from)
 }
 
-pub async fn find_by_user_paginated<C: ConnectionTrait>(
-    db: &C,
+pub async fn find_by_user_paginated(
+    db: &DatabaseConnection,
     user_id: i64,
     limit: u64,
     offset: u64,
@@ -131,8 +131,8 @@ pub async fn find_by_user_paginated<C: ConnectionTrait>(
     .await
 }
 
-pub async fn find_by_team_paginated<C: ConnectionTrait>(
-    db: &C,
+pub async fn find_by_team_paginated(
+    db: &DatabaseConnection,
     team_id: i64,
     limit: u64,
     offset: u64,
@@ -148,8 +148,8 @@ pub async fn find_by_team_paginated<C: ConnectionTrait>(
     .await
 }
 
-pub async fn find_paginated<C: ConnectionTrait>(
-    db: &C,
+pub async fn find_paginated(
+    db: &DatabaseConnection,
     limit: u64,
     offset: u64,
     sort_by: AdminShareSortBy,

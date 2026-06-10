@@ -2,8 +2,8 @@
 
 use chrono::Utc;
 use sea_orm::{
-    ActiveModelTrait, ColumnTrait, ConnectionTrait, EntityTrait, ExprTrait, QueryFilter,
-    QueryOrder, QuerySelect, Select, Set,
+    ActiveModelTrait, ColumnTrait, ConnectionTrait, DatabaseConnection, EntityTrait, ExprTrait,
+    QueryFilter, QueryOrder, QuerySelect, Select, Set,
     sea_query::{Expr, Query, SelectStatement},
 };
 
@@ -24,7 +24,7 @@ pub async fn create<C: ConnectionTrait>(
     model.insert(db).await.map_err(AsterError::from)
 }
 
-pub async fn find_all<C: ConnectionTrait>(db: &C) -> Result<Vec<resource_lock::Model>> {
+pub async fn find_all(db: &DatabaseConnection) -> Result<Vec<resource_lock::Model>> {
     ResourceLock::find()
         .order_by_asc(resource_lock::Column::Id)
         .all(db)
@@ -32,8 +32,8 @@ pub async fn find_all<C: ConnectionTrait>(db: &C) -> Result<Vec<resource_lock::M
         .map_err(AsterError::from)
 }
 
-pub async fn find_paginated<C: ConnectionTrait>(
-    db: &C,
+pub async fn find_paginated(
+    db: &DatabaseConnection,
     limit: u64,
     offset: u64,
     sort_by: AdminLockSortBy,

@@ -176,6 +176,7 @@ export default defineConfig(({ command }) => {
 		},
 		build: {
 			target: "esnext",
+			modulePreload: false,
 			outDir: "dist",
 			emptyOutDir: true,
 			rollupOptions: {

@@ -5,8 +5,8 @@ use crate::errors::{AsterError, Result};
 use crate::types::{VerificationChannel, VerificationPurpose};
 use chrono::Utc;
 use sea_orm::{
-    ActiveModelTrait, ActiveValue::Set, ColumnTrait, ConnectionTrait, EntityTrait, IntoActiveModel,
-    QueryFilter, QueryOrder, sea_query::Expr,
+    ActiveModelTrait, ActiveValue::Set, ColumnTrait, ConnectionTrait, DatabaseConnection,
+    EntityTrait, IntoActiveModel, QueryFilter, QueryOrder, sea_query::Expr,
 };
 
 pub async fn create<C: ConnectionTrait>(
@@ -16,8 +16,8 @@ pub async fn create<C: ConnectionTrait>(
     model.insert(db).await.map_err(AsterError::from)
 }
 
-pub async fn find_by_token_hash<C: ConnectionTrait>(
-    db: &C,
+pub async fn find_by_token_hash(
+    db: &DatabaseConnection,
     token_hash: &str,
 ) -> Result<Option<contact_verification_token::Model>> {
     ContactVerificationToken::find()
@@ -86,7 +86,7 @@ pub async fn mark_consumed_if_unused<C: ConnectionTrait>(db: &C, token_id: i64) 
     Ok(result.rows_affected == 1)
 }
 
-pub async fn delete_expired<C: ConnectionTrait>(db: &C) -> Result<u64> {
+pub async fn delete_expired(db: &DatabaseConnection) -> Result<u64> {
     let result = ContactVerificationToken::delete_many()
         .filter(contact_verification_token::Column::ExpiresAt.lt(Utc::now()))
         .exec(db)

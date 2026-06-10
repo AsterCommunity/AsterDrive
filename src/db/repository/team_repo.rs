@@ -8,8 +8,8 @@ use crate::db::repository::search_query::{
 };
 use crate::db::repository::sort::{order_by_column_with_id, order_by_id};
 use sea_orm::{
-    ActiveModelTrait, ColumnTrait, Condition, ConnectionTrait, DbBackend, EntityTrait, ExprTrait,
-    PaginatorTrait, QueryFilter, QueryOrder, QuerySelect, Select,
+    ActiveModelTrait, ColumnTrait, Condition, ConnectionTrait, DatabaseConnection, DbBackend,
+    EntityTrait, ExprTrait, PaginatorTrait, QueryFilter, QueryOrder, QuerySelect, Select,
     sea_query::{Expr, extension::postgres::PgExpr},
 };
 
@@ -137,8 +137,8 @@ pub async fn find_all<C: ConnectionTrait>(db: &C) -> Result<Vec<team::Model>> {
         .map_err(AsterError::from)
 }
 
-pub async fn find_active_paginated<C: ConnectionTrait>(
-    db: &C,
+pub async fn find_active_paginated(
+    db: &DatabaseConnection,
     limit: u64,
     offset: u64,
     keyword: Option<&str>,
@@ -148,8 +148,8 @@ pub async fn find_active_paginated<C: ConnectionTrait>(
     find_paginated_by_archived_state(db, limit, offset, keyword, false, sort_by, sort_order).await
 }
 
-pub async fn find_archived_paginated<C: ConnectionTrait>(
-    db: &C,
+pub async fn find_archived_paginated(
+    db: &DatabaseConnection,
     limit: u64,
     offset: u64,
     keyword: Option<&str>,
@@ -159,8 +159,8 @@ pub async fn find_archived_paginated<C: ConnectionTrait>(
     find_paginated_by_archived_state(db, limit, offset, keyword, true, sort_by, sort_order).await
 }
 
-async fn find_paginated_by_archived_state<C: ConnectionTrait>(
-    db: &C,
+async fn find_paginated_by_archived_state(
+    db: &DatabaseConnection,
     limit: u64,
     offset: u64,
     keyword: Option<&str>,

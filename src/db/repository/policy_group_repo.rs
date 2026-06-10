@@ -10,8 +10,8 @@ use crate::entities::{
 };
 use crate::errors::{AsterError, Result};
 use sea_orm::{
-    ActiveModelTrait, ColumnTrait, ConnectionTrait, EntityTrait, ExprTrait, PaginatorTrait,
-    QueryFilter, QueryOrder, Select, sea_query::Expr,
+    ActiveModelTrait, ColumnTrait, ConnectionTrait, DatabaseConnection, EntityTrait, ExprTrait,
+    PaginatorTrait, QueryFilter, QueryOrder, Select, sea_query::Expr,
 };
 
 pub async fn find_group_by_id<C: ConnectionTrait>(
@@ -46,8 +46,8 @@ pub async fn find_all_groups<C: ConnectionTrait>(
         .map_err(AsterError::from)
 }
 
-pub async fn find_groups_paginated<C: ConnectionTrait>(
-    db: &C,
+pub async fn find_groups_paginated(
+    db: &DatabaseConnection,
     limit: u64,
     offset: u64,
     sort_by: AdminPolicyGroupSortBy,
@@ -181,10 +181,7 @@ pub async fn delete_group_items_by_group<C: ConnectionTrait>(db: &C, group_id: i
     Ok(result.rows_affected)
 }
 
-pub async fn count_group_items_by_policy<C: ConnectionTrait>(
-    db: &C,
-    policy_id: i64,
-) -> Result<u64> {
+pub async fn count_group_items_by_policy(db: &DatabaseConnection, policy_id: i64) -> Result<u64> {
     StoragePolicyGroupItem::find()
         .filter(storage_policy_group_item::Column::PolicyId.eq(policy_id))
         .count(db)

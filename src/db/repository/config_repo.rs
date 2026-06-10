@@ -12,8 +12,8 @@ use crate::types::{
 };
 use chrono::Utc;
 use sea_orm::{
-    ActiveModelTrait, ColumnTrait, Condition, ConnectionTrait, DbBackend, EntityTrait, QueryFilter,
-    QueryOrder, QuerySelect, Set, TryInsertResult,
+    ActiveModelTrait, ColumnTrait, Condition, ConnectionTrait, DatabaseConnection, DbBackend,
+    EntityTrait, QueryFilter, QueryOrder, QuerySelect, Set, TryInsertResult,
 };
 
 const BOOTSTRAP_ENABLE_VIPS_CLI_ENV: &str = "ASTER_BOOTSTRAP_ENABLE_VIPS_CLI";
@@ -90,8 +90,8 @@ pub async fn find_all<C: ConnectionTrait>(db: &C) -> Result<Vec<system_config::M
         .map_err(AsterError::from)
 }
 
-pub async fn find_paginated<C: ConnectionTrait>(
-    db: &C,
+pub async fn find_paginated(
+    db: &DatabaseConnection,
     limit: u64,
     offset: u64,
 ) -> Result<(Vec<system_config::Model>, u64)> {
@@ -115,8 +115,8 @@ pub async fn find_by_key<C: ConnectionTrait>(
         .map_err(AsterError::from)
 }
 
-pub async fn find_visible_custom<C: ConnectionTrait>(
-    db: &C,
+pub async fn find_visible_custom(
+    db: &DatabaseConnection,
     include_authenticated: bool,
 ) -> Result<Vec<system_config::Model>> {
     let mut visibility_filter =

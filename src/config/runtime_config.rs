@@ -3,7 +3,7 @@
 use std::collections::HashMap;
 
 use parking_lot::RwLock;
-use sea_orm::ConnectionTrait;
+use sea_orm::DatabaseConnection;
 
 use crate::config::audit::{self, AuditLogRuntimeSettings};
 use crate::db::repository::config_repo;
@@ -23,7 +23,7 @@ impl RuntimeConfig {
         }
     }
 
-    pub async fn reload<C: ConnectionTrait>(&self, db: &C) -> Result<()> {
+    pub async fn reload(&self, db: &DatabaseConnection) -> Result<()> {
         let configs = config_repo::find_all(db).await?;
         let snapshot = configs
             .into_iter()

@@ -184,14 +184,10 @@ pub fn direct_routes(
 ) -> impl actix_web::dev::HttpServiceFactory + use<> {
     let limiter = rate_limit::build_governor(&rl.public, &network_trust.trusted_proxies);
 
-    (
-        web::resource("/d/{token}/{filename}")
-            .wrap(Condition::new(rl.enabled, Governor::new(&limiter)))
-            .route(web::get().to(download_direct)),
-        web::resource("/pv/{token}/{filename}")
-            .wrap(Condition::new(rl.enabled, Governor::new(&limiter)))
-            .route(web::get().to(download_preview)),
-    )
+    web::scope("")
+        .wrap(Condition::new(rl.enabled, Governor::new(&limiter)))
+        .route("/d/{token}/{filename}", web::get().to(download_direct))
+        .route("/pv/{token}/{filename}", web::get().to(download_preview))
 }
 
 #[api_docs_macros::path(

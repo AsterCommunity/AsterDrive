@@ -1,7 +1,7 @@
 use chrono::Utc;
 use sea_orm::{
-    ColumnTrait, ConnectionTrait, DbBackend, EntityTrait, ExprTrait, PaginatorTrait, QueryFilter,
-    QuerySelect, sea_query::Expr,
+    ColumnTrait, ConnectionTrait, DatabaseConnection, DbBackend, EntityTrait, ExprTrait,
+    PaginatorTrait, QueryFilter, QuerySelect, sea_query::Expr,
 };
 use std::collections::HashMap;
 
@@ -148,12 +148,12 @@ pub async fn clear_thumbnail_metadata<C: ConnectionTrait>(db: &C, id: i64) -> Re
 }
 
 /// 统计 blob 总数
-pub async fn count_all_blobs<C: ConnectionTrait>(db: &C) -> Result<u64> {
+pub async fn count_all_blobs(db: &DatabaseConnection) -> Result<u64> {
     FileBlob::find().count(db).await.map_err(AsterError::from)
 }
 
 /// 统计所有 blob 的总字节数
-pub async fn sum_blob_bytes<C: ConnectionTrait>(db: &C) -> Result<i64> {
+pub async fn sum_blob_bytes(db: &DatabaseConnection) -> Result<i64> {
     let type_name = match db.get_database_backend() {
         DbBackend::Postgres => "bigint",
         DbBackend::MySql => "signed",

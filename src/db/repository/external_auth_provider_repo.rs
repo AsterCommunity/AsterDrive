@@ -2,7 +2,7 @@
 
 use chrono::Utc;
 use sea_orm::{
-    ActiveModelTrait, ColumnTrait, ConnectionTrait, EntityTrait, QueryFilter, QueryOrder,
+    ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, QueryOrder,
     sea_query::Expr,
 };
 
@@ -11,7 +11,7 @@ use crate::entities::external_auth_provider::{self, Entity as ExternalAuthProvid
 use crate::errors::{AsterError, Result};
 use crate::types::ExternalAuthProviderKind;
 
-pub async fn find_all<C: ConnectionTrait>(db: &C) -> Result<Vec<external_auth_provider::Model>> {
+pub async fn find_all(db: &DatabaseConnection) -> Result<Vec<external_auth_provider::Model>> {
     ExternalAuthProvider::find()
         .order_by_asc(external_auth_provider::Column::DisplayName)
         .order_by_asc(external_auth_provider::Column::Id)
@@ -20,8 +20,8 @@ pub async fn find_all<C: ConnectionTrait>(db: &C) -> Result<Vec<external_auth_pr
         .map_err(AsterError::from)
 }
 
-pub async fn find_paginated<C: ConnectionTrait>(
-    db: &C,
+pub async fn find_paginated(
+    db: &DatabaseConnection,
     limit: u64,
     offset: u64,
     supported_kinds: impl IntoIterator<Item = ExternalAuthProviderKind>,
@@ -38,8 +38,8 @@ pub async fn find_paginated<C: ConnectionTrait>(
     .await
 }
 
-pub async fn find_all_by_kind<C: ConnectionTrait>(
-    db: &C,
+pub async fn find_all_by_kind(
+    db: &DatabaseConnection,
     kind: ExternalAuthProviderKind,
 ) -> Result<Vec<external_auth_provider::Model>> {
     ExternalAuthProvider::find()
@@ -51,9 +51,7 @@ pub async fn find_all_by_kind<C: ConnectionTrait>(
         .map_err(AsterError::from)
 }
 
-pub async fn find_enabled<C: ConnectionTrait>(
-    db: &C,
-) -> Result<Vec<external_auth_provider::Model>> {
+pub async fn find_enabled(db: &DatabaseConnection) -> Result<Vec<external_auth_provider::Model>> {
     ExternalAuthProvider::find()
         .filter(external_auth_provider::Column::Enabled.eq(true))
         .order_by_asc(external_auth_provider::Column::DisplayName)
@@ -63,8 +61,8 @@ pub async fn find_enabled<C: ConnectionTrait>(
         .map_err(AsterError::from)
 }
 
-pub async fn find_enabled_by_kind<C: ConnectionTrait>(
-    db: &C,
+pub async fn find_enabled_by_kind(
+    db: &DatabaseConnection,
     kind: ExternalAuthProviderKind,
 ) -> Result<Vec<external_auth_provider::Model>> {
     ExternalAuthProvider::find()
@@ -77,10 +75,7 @@ pub async fn find_enabled_by_kind<C: ConnectionTrait>(
         .map_err(AsterError::from)
 }
 
-pub async fn find_by_id<C: ConnectionTrait>(
-    db: &C,
-    id: i64,
-) -> Result<external_auth_provider::Model> {
+pub async fn find_by_id(db: &DatabaseConnection, id: i64) -> Result<external_auth_provider::Model> {
     ExternalAuthProvider::find_by_id(id)
         .one(db)
         .await
@@ -88,8 +83,8 @@ pub async fn find_by_id<C: ConnectionTrait>(
         .ok_or_else(|| AsterError::record_not_found(format!("external auth provider #{id}")))
 }
 
-pub async fn find_by_kind_key<C: ConnectionTrait>(
-    db: &C,
+pub async fn find_by_kind_key(
+    db: &DatabaseConnection,
     kind: ExternalAuthProviderKind,
     key: &str,
 ) -> Result<Option<external_auth_provider::Model>> {
@@ -101,21 +96,21 @@ pub async fn find_by_kind_key<C: ConnectionTrait>(
         .map_err(AsterError::from)
 }
 
-pub async fn create<C: ConnectionTrait>(
-    db: &C,
+pub async fn create(
+    db: &DatabaseConnection,
     model: external_auth_provider::ActiveModel,
 ) -> Result<external_auth_provider::Model> {
     model.insert(db).await.map_err(AsterError::from)
 }
 
-pub async fn update<C: ConnectionTrait>(
-    db: &C,
+pub async fn update(
+    db: &DatabaseConnection,
     model: external_auth_provider::ActiveModel,
 ) -> Result<external_auth_provider::Model> {
     model.update(db).await.map_err(AsterError::from)
 }
 
-pub async fn delete<C: ConnectionTrait>(db: &C, id: i64) -> Result<()> {
+pub async fn delete(db: &DatabaseConnection, id: i64) -> Result<()> {
     let result = ExternalAuthProvider::delete_by_id(id)
         .exec(db)
         .await
@@ -128,8 +123,8 @@ pub async fn delete<C: ConnectionTrait>(db: &C, id: i64) -> Result<()> {
     Ok(())
 }
 
-pub async fn touch_updated_at<C: ConnectionTrait>(
-    db: &C,
+pub async fn touch_updated_at(
+    db: &DatabaseConnection,
     id: i64,
     updated_at: chrono::DateTime<Utc>,
 ) -> Result<bool> {

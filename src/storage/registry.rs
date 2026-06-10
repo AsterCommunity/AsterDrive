@@ -120,7 +120,7 @@ impl DriverRegistry {
         self.drivers.clear();
     }
 
-    pub async fn reload_primary_state<C: sea_orm::ConnectionTrait>(&self, db: &C) -> Result<()> {
+    pub async fn reload_primary_state(&self, db: &sea_orm::DatabaseConnection) -> Result<()> {
         self.reload_managed_followers(db).await?;
         self.reload_master_bindings(db).await
     }
@@ -130,14 +130,11 @@ impl DriverRegistry {
         self.invalidate_all();
     }
 
-    pub async fn reload_follower_state<C: sea_orm::ConnectionTrait>(&self, db: &C) -> Result<()> {
+    pub async fn reload_follower_state(&self, db: &sea_orm::DatabaseConnection) -> Result<()> {
         self.reload_master_bindings(db).await
     }
 
-    pub async fn reload_managed_followers<C: sea_orm::ConnectionTrait>(
-        &self,
-        db: &C,
-    ) -> Result<()> {
+    pub async fn reload_managed_followers(&self, db: &sea_orm::DatabaseConnection) -> Result<()> {
         let followers = managed_follower_repo::find_all(db).await?;
         let mut by_id = HashMap::with_capacity(followers.len());
         for follower in followers {
@@ -147,7 +144,7 @@ impl DriverRegistry {
         Ok(())
     }
 
-    pub async fn reload_master_bindings<C: sea_orm::ConnectionTrait>(&self, db: &C) -> Result<()> {
+    pub async fn reload_master_bindings(&self, db: &sea_orm::DatabaseConnection) -> Result<()> {
         let bindings = master_binding_repo::find_all(db).await?;
         let mut by_access_key = HashMap::with_capacity(bindings.len());
         for binding in bindings {

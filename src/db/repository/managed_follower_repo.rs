@@ -6,8 +6,8 @@ use crate::db::repository::sort::{order_by_column_with_id, order_by_id};
 use crate::entities::managed_follower::{self, Entity as ManagedFollower};
 use crate::errors::{AsterError, Result};
 use sea_orm::{
-    ActiveModelTrait, ColumnTrait, ConnectionTrait, EntityTrait, QueryFilter, QueryOrder, Select,
-    Set,
+    ActiveModelTrait, ColumnTrait, ConnectionTrait, DatabaseConnection, EntityTrait, QueryFilter,
+    QueryOrder, Select, Set,
 };
 
 pub async fn find_by_id<C: ConnectionTrait>(db: &C, id: i64) -> Result<managed_follower::Model> {
@@ -18,8 +18,8 @@ pub async fn find_by_id<C: ConnectionTrait>(db: &C, id: i64) -> Result<managed_f
         .ok_or_else(|| AsterError::record_not_found(format!("managed_follower #{id}")))
 }
 
-pub async fn find_by_access_key<C: ConnectionTrait>(
-    db: &C,
+pub async fn find_by_access_key(
+    db: &DatabaseConnection,
     access_key: &str,
 ) -> Result<Option<managed_follower::Model>> {
     ManagedFollower::find()
@@ -29,7 +29,7 @@ pub async fn find_by_access_key<C: ConnectionTrait>(
         .map_err(AsterError::from)
 }
 
-pub async fn find_all<C: ConnectionTrait>(db: &C) -> Result<Vec<managed_follower::Model>> {
+pub async fn find_all(db: &DatabaseConnection) -> Result<Vec<managed_follower::Model>> {
     ManagedFollower::find()
         .order_by_desc(managed_follower::Column::CreatedAt)
         .order_by_desc(managed_follower::Column::Id)
@@ -38,8 +38,8 @@ pub async fn find_all<C: ConnectionTrait>(db: &C) -> Result<Vec<managed_follower
         .map_err(AsterError::from)
 }
 
-pub async fn find_paginated<C: ConnectionTrait>(
-    db: &C,
+pub async fn find_paginated(
+    db: &DatabaseConnection,
     limit: u64,
     offset: u64,
     sort_by: AdminRemoteNodeSortBy,
@@ -100,21 +100,21 @@ fn apply_admin_remote_node_sort(
     }
 }
 
-pub async fn create<C: ConnectionTrait>(
-    db: &C,
+pub async fn create(
+    db: &DatabaseConnection,
     model: managed_follower::ActiveModel,
 ) -> Result<managed_follower::Model> {
     model.insert(db).await.map_err(AsterError::from)
 }
 
-pub async fn update<C: ConnectionTrait>(
-    db: &C,
+pub async fn update(
+    db: &DatabaseConnection,
     model: managed_follower::ActiveModel,
 ) -> Result<managed_follower::Model> {
     model.update(db).await.map_err(AsterError::from)
 }
 
-pub async fn delete<C: ConnectionTrait>(db: &C, id: i64) -> Result<()> {
+pub async fn delete(db: &DatabaseConnection, id: i64) -> Result<()> {
     let result = ManagedFollower::delete_by_id(id)
         .exec(db)
         .await
@@ -127,8 +127,8 @@ pub async fn delete<C: ConnectionTrait>(db: &C, id: i64) -> Result<()> {
     Ok(())
 }
 
-pub async fn touch_probe_result<C: ConnectionTrait>(
-    db: &C,
+pub async fn touch_probe_result(
+    db: &DatabaseConnection,
     id: i64,
     last_capabilities: String,
     last_error: String,
@@ -143,8 +143,8 @@ pub async fn touch_probe_result<C: ConnectionTrait>(
     update(db, active).await
 }
 
-pub async fn touch_tunnel_result<C: ConnectionTrait>(
-    db: &C,
+pub async fn touch_tunnel_result(
+    db: &DatabaseConnection,
     id: i64,
     tunnel_last_error: String,
     tunnel_last_seen_at: Option<chrono::DateTime<chrono::Utc>>,

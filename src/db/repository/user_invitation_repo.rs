@@ -2,8 +2,8 @@
 
 use chrono::Utc;
 use sea_orm::{
-    ActiveModelTrait, ColumnTrait, ConnectionTrait, EntityTrait, IntoActiveModel, PaginatorTrait,
-    QueryFilter, QueryOrder, QuerySelect, sea_query::Expr,
+    ActiveModelTrait, ColumnTrait, ConnectionTrait, DatabaseConnection, EntityTrait,
+    IntoActiveModel, PaginatorTrait, QueryFilter, QueryOrder, QuerySelect, sea_query::Expr,
 };
 
 use crate::entities::user_invitation::{self, Entity as UserInvitation};
@@ -49,8 +49,8 @@ pub async fn find_pending_by_email<C: ConnectionTrait>(
         .map_err(AsterError::from)
 }
 
-pub async fn list<C: ConnectionTrait>(
-    db: &C,
+pub async fn list(
+    db: &DatabaseConnection,
     limit: u64,
     offset: u64,
 ) -> Result<(Vec<user_invitation::Model>, u64)> {
@@ -69,7 +69,7 @@ pub async fn list<C: ConnectionTrait>(
     Ok((items, total))
 }
 
-pub async fn count_all<C: ConnectionTrait>(db: &C) -> Result<u64> {
+pub async fn count_all(db: &DatabaseConnection) -> Result<u64> {
     UserInvitation::find()
         .count(db)
         .await

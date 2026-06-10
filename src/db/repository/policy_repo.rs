@@ -7,8 +7,8 @@ use crate::entities::storage_policy::{self, Entity as StoragePolicy};
 use crate::errors::{AsterError, Result};
 use crate::types::DriverType;
 use sea_orm::{
-    ActiveModelTrait, ColumnTrait, ConnectionTrait, DbBackend, EntityTrait, ExprTrait,
-    PaginatorTrait, QueryFilter, QueryOrder, QuerySelect, Select, Set, sea_query::Expr,
+    ActiveModelTrait, ColumnTrait, ConnectionTrait, DatabaseConnection, DbBackend, EntityTrait,
+    ExprTrait, PaginatorTrait, QueryFilter, QueryOrder, QuerySelect, Select, Set, sea_query::Expr,
 };
 
 pub async fn find_by_id<C: ConnectionTrait>(db: &C, id: i64) -> Result<storage_policy::Model> {
@@ -49,8 +49,8 @@ pub async fn find_all<C: ConnectionTrait>(db: &C) -> Result<Vec<storage_policy::
         .map_err(AsterError::from)
 }
 
-pub async fn find_paginated<C: ConnectionTrait>(
-    db: &C,
+pub async fn find_paginated(
+    db: &DatabaseConnection,
     limit: u64,
     offset: u64,
     sort_by: AdminPolicySortBy,
@@ -117,10 +117,7 @@ fn apply_admin_policy_sort(
     }
 }
 
-pub async fn count_by_remote_node_id<C: ConnectionTrait>(
-    db: &C,
-    remote_node_id: i64,
-) -> Result<u64> {
+pub async fn count_by_remote_node_id(db: &DatabaseConnection, remote_node_id: i64) -> Result<u64> {
     StoragePolicy::find()
         .filter(storage_policy::Column::RemoteNodeId.eq(remote_node_id))
         .count(db)
@@ -128,8 +125,8 @@ pub async fn count_by_remote_node_id<C: ConnectionTrait>(
         .map_err(AsterError::from)
 }
 
-pub async fn find_by_remote_node_id<C: ConnectionTrait>(
-    db: &C,
+pub async fn find_by_remote_node_id(
+    db: &DatabaseConnection,
     remote_node_id: i64,
 ) -> Result<Vec<storage_policy::Model>> {
     StoragePolicy::find()

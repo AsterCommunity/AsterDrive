@@ -2,8 +2,8 @@
 
 use chrono::Utc;
 use sea_orm::{
-    ActiveModelTrait, ColumnTrait, Condition, ConnectionTrait, EntityTrait, ExprTrait, QueryFilter,
-    RelationTrait, Set, sea_query::Expr,
+    ActiveModelTrait, ColumnTrait, Condition, ConnectionTrait, DatabaseConnection, EntityTrait,
+    ExprTrait, QueryFilter, RelationTrait, Set, sea_query::Expr,
 };
 
 use crate::entities::storage_migration_checkpoint::{self, Entity as StorageMigrationCheckpoint};
@@ -57,8 +57,8 @@ pub async fn create<C: ConnectionTrait>(
     .map_err(AsterError::from)
 }
 
-pub async fn find_by_task_id<C: ConnectionTrait>(
-    db: &C,
+pub async fn find_by_task_id(
+    db: &DatabaseConnection,
     task_id: i64,
 ) -> Result<Option<storage_migration_checkpoint::Model>> {
     StorageMigrationCheckpoint::find_by_id(task_id)
@@ -67,8 +67,8 @@ pub async fn find_by_task_id<C: ConnectionTrait>(
         .map_err(AsterError::from)
 }
 
-pub async fn get_by_task_id<C: ConnectionTrait>(
-    db: &C,
+pub async fn get_by_task_id(
+    db: &DatabaseConnection,
     task_id: i64,
 ) -> Result<storage_migration_checkpoint::Model> {
     find_by_task_id(db, task_id).await?.ok_or_else(|| {
@@ -142,11 +142,17 @@ pub async fn advance<C: ConnectionTrait>(
             "storage migration checkpoint #{task_id}"
         )));
     }
-    get_by_task_id(db, task_id).await
+    StorageMigrationCheckpoint::find_by_id(task_id)
+        .one(db)
+        .await
+        .map_err(AsterError::from)?
+        .ok_or_else(|| {
+            AsterError::record_not_found(format!("storage migration checkpoint #{task_id}"))
+        })
 }
 
-pub async fn set_stage<C: ConnectionTrait>(
-    db: &C,
+pub async fn set_stage(
+    db: &DatabaseConnection,
     task_id: i64,
     stage: &str,
     last_error: Option<&str>,

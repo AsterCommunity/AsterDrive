@@ -2,8 +2,8 @@
 
 use chrono::{DateTime, Utc};
 use sea_orm::{
-    ActiveEnum, ActiveModelTrait, ColumnTrait, Condition, ConnectionTrait, EntityTrait,
-    PaginatorTrait, QueryFilter, QueryOrder, QuerySelect, sea_query::Expr,
+    ActiveEnum, ActiveModelTrait, ColumnTrait, Condition, ConnectionTrait, DatabaseConnection,
+    EntityTrait, PaginatorTrait, QueryFilter, QueryOrder, QuerySelect, sea_query::Expr,
 };
 
 use crate::entities::mail_outbox::{self, Entity as MailOutbox};
@@ -17,8 +17,8 @@ pub async fn create<C: ConnectionTrait>(
     model.insert(db).await.map_err(AsterError::from)
 }
 
-pub async fn list_claimable<C: ConnectionTrait>(
-    db: &C,
+pub async fn list_claimable(
+    db: &DatabaseConnection,
     now: DateTime<Utc>,
     stale_before: DateTime<Utc>,
     limit: u64,
@@ -32,8 +32,8 @@ pub async fn list_claimable<C: ConnectionTrait>(
         .map_err(AsterError::from)
 }
 
-pub async fn try_claim<C: ConnectionTrait>(
-    db: &C,
+pub async fn try_claim(
+    db: &DatabaseConnection,
     id: i64,
     now: DateTime<Utc>,
     stale_before: DateTime<Utc>,
@@ -56,11 +56,7 @@ pub async fn try_claim<C: ConnectionTrait>(
     Ok(result.rows_affected == 1)
 }
 
-pub async fn mark_sent<C: ConnectionTrait>(
-    db: &C,
-    id: i64,
-    sent_at: DateTime<Utc>,
-) -> Result<bool> {
+pub async fn mark_sent(db: &DatabaseConnection, id: i64, sent_at: DateTime<Utc>) -> Result<bool> {
     let result = MailOutbox::update_many()
         .col_expr(
             mail_outbox::Column::Status,
@@ -88,8 +84,8 @@ pub async fn mark_sent<C: ConnectionTrait>(
     Ok(result.rows_affected == 1)
 }
 
-pub async fn mark_retry<C: ConnectionTrait>(
-    db: &C,
+pub async fn mark_retry(
+    db: &DatabaseConnection,
     id: i64,
     attempt_count: i32,
     next_attempt_at: DateTime<Utc>,
@@ -125,8 +121,8 @@ pub async fn mark_retry<C: ConnectionTrait>(
     Ok(result.rows_affected == 1)
 }
 
-pub async fn mark_failed<C: ConnectionTrait>(
-    db: &C,
+pub async fn mark_failed(
+    db: &DatabaseConnection,
     id: i64,
     attempt_count: i32,
     failed_at: DateTime<Utc>,
@@ -163,7 +159,7 @@ pub async fn mark_failed<C: ConnectionTrait>(
     Ok(result.rows_affected == 1)
 }
 
-pub async fn count_active<C: ConnectionTrait>(db: &C) -> Result<u64> {
+pub async fn count_active(db: &DatabaseConnection) -> Result<u64> {
     MailOutbox::find()
         .filter(
             mail_outbox::Column::Status.is_in([MailOutboxStatus::Pending, MailOutboxStatus::Retry]),

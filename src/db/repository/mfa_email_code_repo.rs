@@ -2,8 +2,8 @@
 
 use chrono::Utc;
 use sea_orm::{
-    ActiveModelTrait, ColumnTrait, ConnectionTrait, EntityTrait, QueryFilter, QueryOrder,
-    sea_query::Expr,
+    ActiveModelTrait, ColumnTrait, ConnectionTrait, DatabaseConnection, EntityTrait, QueryFilter,
+    QueryOrder, sea_query::Expr,
 };
 
 use crate::entities::mfa_email_code::{self, Entity as MfaEmailCode};
@@ -99,10 +99,7 @@ pub async fn delete_all_for_user<C: ConnectionTrait>(db: &C, user_id: i64) -> Re
     Ok(result.rows_affected)
 }
 
-pub async fn cleanup_expired<C: ConnectionTrait>(
-    db: &C,
-    now: chrono::DateTime<Utc>,
-) -> Result<u64> {
+pub async fn cleanup_expired(db: &DatabaseConnection, now: chrono::DateTime<Utc>) -> Result<u64> {
     let result = MfaEmailCode::delete_many()
         .filter(mfa_email_code::Column::ExpiresAt.lt(now))
         .exec(db)

@@ -1,8 +1,8 @@
 //! 仓储模块：`version_repo`。
 
 use sea_orm::{
-    ActiveModelTrait, ColumnTrait, ConnectionTrait, DbBackend, EntityTrait, ExprTrait,
-    PaginatorTrait, QueryFilter, QueryOrder, QuerySelect, sea_query::Expr,
+    ActiveModelTrait, ColumnTrait, ConnectionTrait, DatabaseConnection, DbBackend, EntityTrait,
+    ExprTrait, PaginatorTrait, QueryFilter, QueryOrder, QuerySelect, sea_query::Expr,
 };
 use std::collections::HashMap;
 
@@ -34,7 +34,7 @@ pub async fn create<C: ConnectionTrait>(
     model.insert(db).await.map_err(AsterError::from)
 }
 
-pub async fn sum_sizes_by_file_id<C: ConnectionTrait>(db: &C, file_id: i64) -> Result<i64> {
+pub async fn sum_sizes_by_file_id(db: &DatabaseConnection, file_id: i64) -> Result<i64> {
     Ok(FileVersion::find()
         .select_only()
         .column_as(
@@ -50,7 +50,7 @@ pub async fn sum_sizes_by_file_id<C: ConnectionTrait>(db: &C, file_id: i64) -> R
         .unwrap_or(0))
 }
 
-pub async fn sum_sizes_by_file_ids<C: ConnectionTrait>(db: &C, file_ids: &[i64]) -> Result<i64> {
+pub async fn sum_sizes_by_file_ids(db: &DatabaseConnection, file_ids: &[i64]) -> Result<i64> {
     if file_ids.is_empty() {
         return Ok(0);
     }

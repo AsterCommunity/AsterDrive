@@ -1,14 +1,16 @@
 //! Blob-level media metadata repository.
 
 use chrono::{DateTime, Utc};
-use sea_orm::{ColumnTrait, ConnectionTrait, EntityTrait, QueryFilter, Set, sea_query::OnConflict};
+use sea_orm::{
+    ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, Set, sea_query::OnConflict,
+};
 
 use crate::entities::blob_media_metadata::{self, Entity as BlobMediaMetadata};
 use crate::errors::{AsterError, Result};
 use crate::types::{MediaMetadataKind, MediaMetadataStatus, StoredMediaMetadataPayload};
 
-pub async fn find_by_blob_id<C: ConnectionTrait>(
-    db: &C,
+pub async fn find_by_blob_id(
+    db: &DatabaseConnection,
     blob_id: i64,
 ) -> Result<Option<blob_media_metadata::Model>> {
     BlobMediaMetadata::find()
@@ -30,8 +32,8 @@ pub struct MediaMetadataRecordInput<'a> {
     pub now: DateTime<Utc>,
 }
 
-pub async fn upsert_record<C: ConnectionTrait>(
-    db: &C,
+pub async fn upsert_record(
+    db: &DatabaseConnection,
     input: MediaMetadataRecordInput<'_>,
 ) -> Result<blob_media_metadata::Model> {
     BlobMediaMetadata::insert(blob_media_metadata::ActiveModel {

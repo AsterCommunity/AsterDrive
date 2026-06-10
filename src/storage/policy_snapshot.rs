@@ -3,7 +3,7 @@
 use std::collections::{HashMap, HashSet};
 
 use parking_lot::RwLock;
-use sea_orm::ConnectionTrait;
+use sea_orm::DatabaseConnection;
 
 use crate::db::repository::{managed_follower_repo, policy_group_repo, policy_repo, user_repo};
 use crate::entities::{storage_policy, storage_policy_group, storage_policy_group_item};
@@ -37,7 +37,7 @@ impl PolicySnapshot {
         }
     }
 
-    pub async fn reload<C: ConnectionTrait>(&self, db: &C) -> Result<()> {
+    pub async fn reload(&self, db: &DatabaseConnection) -> Result<()> {
         let policies = policy_repo::find_all(db).await?;
         let policy_groups = policy_group_repo::find_all_groups(db).await?;
         let policy_group_items = policy_group_repo::find_all_group_items(db).await?;

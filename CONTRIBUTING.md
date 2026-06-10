@@ -9,7 +9,7 @@ Please read and follow the [Code of Conduct](CODE_OF_CONDUCT.md) before particip
 1. Fork the repository
 2. Clone your fork:
    ```bash
-   git clone https://github.com/<your-username>/AsterDrive.git
+   git clone https://github.com/AptS-1547/AsterDrive.git
    cd AsterDrive
    ```
 3. Build and run:

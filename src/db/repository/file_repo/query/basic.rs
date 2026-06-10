@@ -1,6 +1,6 @@
 use sea_orm::{
-    ColumnTrait, ConnectionTrait, DbBackend, EntityTrait, ExprTrait, PaginatorTrait, QueryFilter,
-    QueryOrder, QuerySelect, sea_query::Expr,
+    ColumnTrait, ConnectionTrait, DatabaseConnection, DbBackend, EntityTrait, ExprTrait,
+    PaginatorTrait, QueryFilter, QueryOrder, QuerySelect, sea_query::Expr,
 };
 
 use crate::entities::file::{self, Entity as File};
@@ -25,7 +25,7 @@ fn sum_as_i64_expr(
 }
 
 /// 统计未删除文件总数
-pub async fn count_live_files<C: ConnectionTrait>(db: &C) -> Result<u64> {
+pub async fn count_live_files(db: &DatabaseConnection) -> Result<u64> {
     File::find()
         .filter(file::Column::DeletedAt.is_null())
         .count(db)
@@ -34,7 +34,7 @@ pub async fn count_live_files<C: ConnectionTrait>(db: &C) -> Result<u64> {
 }
 
 /// 统计未删除文件总字节数
-pub async fn sum_live_file_bytes<C: ConnectionTrait>(db: &C) -> Result<i64> {
+pub async fn sum_live_file_bytes(db: &DatabaseConnection) -> Result<i64> {
     Ok(File::find()
         .select_only()
         .column_as(

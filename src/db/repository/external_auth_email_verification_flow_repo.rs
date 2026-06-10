@@ -2,7 +2,8 @@
 
 use chrono::Utc;
 use sea_orm::{
-    ActiveModelTrait, ColumnTrait, ConnectionTrait, EntityTrait, QueryFilter, sea_query::Expr,
+    ActiveModelTrait, ColumnTrait, ConnectionTrait, DatabaseConnection, EntityTrait, QueryFilter,
+    sea_query::Expr,
 };
 
 use crate::entities::external_auth_email_verification_flow::{
@@ -10,15 +11,15 @@ use crate::entities::external_auth_email_verification_flow::{
 };
 use crate::errors::{AsterError, Result};
 
-pub async fn create<C: ConnectionTrait>(
-    db: &C,
+pub async fn create(
+    db: &DatabaseConnection,
     model: external_auth_email_verification_flow::ActiveModel,
 ) -> Result<external_auth_email_verification_flow::Model> {
     model.insert(db).await.map_err(AsterError::from)
 }
 
-pub async fn find_active_by_flow_token_hash<C: ConnectionTrait>(
-    db: &C,
+pub async fn find_active_by_flow_token_hash(
+    db: &DatabaseConnection,
     flow_token_hash: &str,
     now: chrono::DateTime<Utc>,
 ) -> Result<Option<external_auth_email_verification_flow::Model>> {
@@ -31,8 +32,8 @@ pub async fn find_active_by_flow_token_hash<C: ConnectionTrait>(
         .map_err(AsterError::from)
 }
 
-pub async fn find_active_by_verification_token_hash<C: ConnectionTrait>(
-    db: &C,
+pub async fn find_active_by_verification_token_hash(
+    db: &DatabaseConnection,
     verification_token_hash: &str,
     now: chrono::DateTime<Utc>,
 ) -> Result<Option<external_auth_email_verification_flow::Model>> {
@@ -97,10 +98,7 @@ pub async fn mark_consumed_if_unused<C: ConnectionTrait>(
     Ok(result.rows_affected == 1)
 }
 
-pub async fn cleanup_expired<C: ConnectionTrait>(
-    db: &C,
-    now: chrono::DateTime<Utc>,
-) -> Result<u64> {
+pub async fn cleanup_expired(db: &DatabaseConnection, now: chrono::DateTime<Utc>) -> Result<u64> {
     let result = ExternalAuthEmailVerificationFlow::delete_many()
         .filter(external_auth_email_verification_flow::Column::ExpiresAt.lt(now))
         .exec(db)

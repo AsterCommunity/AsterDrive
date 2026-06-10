@@ -2,7 +2,7 @@
 
 use base64::Engine as _;
 use chrono::Utc;
-use sea_orm::{ActiveModelTrait, ActiveValue::Set, ConnectionTrait, DbErr, SqlErr};
+use sea_orm::{ActiveModelTrait, ActiveValue::Set, DatabaseConnection, DbErr, SqlErr};
 use serde::{Deserialize, Serialize};
 use webauthn_rs::prelude::{
     CreationChallengeResponse, CredentialID, DiscoverableAuthentication, DiscoverableKey, Passkey,
@@ -102,8 +102,8 @@ fn user_handle_from_storage(value: &str) -> Result<Uuid> {
     )
 }
 
-async fn user_handle_for_registration<C: ConnectionTrait>(
-    db: &C,
+async fn user_handle_for_registration(
+    db: &DatabaseConnection,
     existing: &[passkey::Model],
 ) -> Result<Uuid> {
     match existing.first() {

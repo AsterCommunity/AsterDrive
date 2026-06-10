@@ -2,14 +2,15 @@
 
 use chrono::Utc;
 use sea_orm::{
-    ActiveModelTrait, ColumnTrait, ConnectionTrait, EntityTrait, QueryFilter, sea_query::Expr,
+    ActiveModelTrait, ColumnTrait, ConnectionTrait, DatabaseConnection, EntityTrait, QueryFilter,
+    sea_query::Expr,
 };
 
 use crate::entities::mfa_totp_setup_flow::{self, Entity as MfaTotpSetupFlow};
 use crate::errors::{AsterError, Result};
 
-pub async fn create<C: ConnectionTrait>(
-    db: &C,
+pub async fn create(
+    db: &DatabaseConnection,
     model: mfa_totp_setup_flow::ActiveModel,
 ) -> Result<mfa_totp_setup_flow::Model> {
     model.insert(db).await.map_err(AsterError::from)
@@ -57,10 +58,7 @@ pub async fn delete_all_for_user<C: ConnectionTrait>(db: &C, user_id: i64) -> Re
     Ok(result.rows_affected)
 }
 
-pub async fn cleanup_expired<C: ConnectionTrait>(
-    db: &C,
-    now: chrono::DateTime<Utc>,
-) -> Result<u64> {
+pub async fn cleanup_expired(db: &DatabaseConnection, now: chrono::DateTime<Utc>) -> Result<u64> {
     let result = MfaTotpSetupFlow::delete_many()
         .filter(mfa_totp_setup_flow::Column::ExpiresAt.lt(now))
         .exec(db)

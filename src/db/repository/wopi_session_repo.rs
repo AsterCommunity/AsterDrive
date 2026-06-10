@@ -3,17 +3,17 @@
 use crate::entities::wopi_session::{self, Entity as WopiSession};
 use crate::errors::{AsterError, Result};
 use chrono::Utc;
-use sea_orm::{ActiveModelTrait, ColumnTrait, ConnectionTrait, EntityTrait, QueryFilter};
+use sea_orm::{ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter};
 
-pub async fn create<C: ConnectionTrait>(
-    db: &C,
+pub async fn create(
+    db: &DatabaseConnection,
     model: wopi_session::ActiveModel,
 ) -> Result<wopi_session::Model> {
     model.insert(db).await.map_err(AsterError::from)
 }
 
-pub async fn find_by_token_hash<C: ConnectionTrait>(
-    db: &C,
+pub async fn find_by_token_hash(
+    db: &DatabaseConnection,
     token_hash: &str,
 ) -> Result<Option<wopi_session::Model>> {
     WopiSession::find()
@@ -23,7 +23,7 @@ pub async fn find_by_token_hash<C: ConnectionTrait>(
         .map_err(AsterError::from)
 }
 
-pub async fn delete_by_id<C: ConnectionTrait>(db: &C, id: i64) -> Result<()> {
+pub async fn delete_by_id(db: &DatabaseConnection, id: i64) -> Result<()> {
     WopiSession::delete_by_id(id)
         .exec(db)
         .await
@@ -31,7 +31,7 @@ pub async fn delete_by_id<C: ConnectionTrait>(db: &C, id: i64) -> Result<()> {
     Ok(())
 }
 
-pub async fn delete_expired<C: ConnectionTrait>(db: &C) -> Result<u64> {
+pub async fn delete_expired(db: &DatabaseConnection) -> Result<u64> {
     let result = WopiSession::delete_many()
         .filter(wopi_session::Column::ExpiresAt.lt(Utc::now()))
         .exec(db)

@@ -1,8 +1,8 @@
 use chrono::Utc;
 use sea_orm::{
-    ActiveModelTrait, ColumnTrait, ConnectionTrait, DbBackend, EntityTrait, ExprTrait,
-    FromQueryResult, PaginatorTrait, QueryFilter, QueryOrder, QuerySelect, Set, TryInsertResult,
-    sea_query::Expr,
+    ActiveModelTrait, ColumnTrait, ConnectionTrait, DatabaseConnection, DbBackend, EntityTrait,
+    ExprTrait, FromQueryResult, PaginatorTrait, QueryFilter, QueryOrder, QuerySelect, Set,
+    TryInsertResult, sea_query::Expr,
 };
 
 use crate::api::pagination::{AdminFileBlobSortBy, SortOrder};
@@ -430,8 +430,8 @@ pub async fn find_blob_by_id<C: ConnectionTrait>(db: &C, id: i64) -> Result<file
         .ok_or_else(|| AsterError::record_not_found(format!("file_blob #{id}")))
 }
 
-pub async fn find_admin_blobs_paginated<C: ConnectionTrait>(
-    db: &C,
+pub async fn find_admin_blobs_paginated(
+    db: &DatabaseConnection,
     limit: u64,
     offset: u64,
     filters: AdminFileBlobFilters<'_>,

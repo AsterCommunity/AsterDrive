@@ -2,8 +2,8 @@
 
 use chrono::Utc;
 use sea_orm::{
-    ActiveModelTrait, ColumnTrait, ConnectionTrait, EntityTrait, IntoActiveModel, PaginatorTrait,
-    QueryFilter, QueryOrder, Set, sea_query::Expr,
+    ActiveModelTrait, ColumnTrait, ConnectionTrait, DatabaseConnection, EntityTrait,
+    IntoActiveModel, PaginatorTrait, QueryFilter, QueryOrder, Set, sea_query::Expr,
 };
 
 use crate::db::repository::{pagination_repo, search_query::lower_like_condition};
@@ -11,8 +11,8 @@ use crate::entities::tag::{self, Entity as Tag};
 use crate::errors::{AsterError, Result};
 use crate::types::TagScopeType;
 
-pub async fn create<C: ConnectionTrait>(
-    db: &C,
+pub async fn create(
+    db: &DatabaseConnection,
     scope_type: TagScopeType,
     owner_user_id: Option<i64>,
     team_id: Option<i64>,
@@ -38,7 +38,7 @@ pub async fn create<C: ConnectionTrait>(
     .map_err(AsterError::from)
 }
 
-pub async fn find_by_id<C: ConnectionTrait>(db: &C, id: i64) -> Result<tag::Model> {
+pub async fn find_by_id(db: &DatabaseConnection, id: i64) -> Result<tag::Model> {
     Tag::find_by_id(id)
         .one(db)
         .await
@@ -46,7 +46,7 @@ pub async fn find_by_id<C: ConnectionTrait>(db: &C, id: i64) -> Result<tag::Mode
         .ok_or_else(|| AsterError::record_not_found("tag not found"))
 }
 
-pub async fn find_by_ids<C: ConnectionTrait>(db: &C, ids: &[i64]) -> Result<Vec<tag::Model>> {
+pub async fn find_by_ids(db: &DatabaseConnection, ids: &[i64]) -> Result<Vec<tag::Model>> {
     if ids.is_empty() {
         return Ok(vec![]);
     }
@@ -60,10 +60,7 @@ pub async fn find_by_ids<C: ConnectionTrait>(db: &C, ids: &[i64]) -> Result<Vec<
         .map_err(AsterError::from)
 }
 
-pub async fn list_personal<C: ConnectionTrait>(
-    db: &C,
-    owner_user_id: i64,
-) -> Result<Vec<tag::Model>> {
+pub async fn list_personal(db: &DatabaseConnection, owner_user_id: i64) -> Result<Vec<tag::Model>> {
     Tag::find()
         .filter(tag::Column::ScopeType.eq(TagScopeType::Personal))
         .filter(tag::Column::OwnerUserId.eq(owner_user_id))
@@ -74,8 +71,8 @@ pub async fn list_personal<C: ConnectionTrait>(
         .map_err(AsterError::from)
 }
 
-pub async fn list_personal_page<C: ConnectionTrait>(
-    db: &C,
+pub async fn list_personal_page(
+    db: &DatabaseConnection,
     owner_user_id: i64,
     limit: u64,
     offset: u64,
@@ -94,7 +91,7 @@ pub async fn list_personal_page<C: ConnectionTrait>(
     pagination_repo::fetch_offset_page(db, query, limit, offset).await
 }
 
-pub async fn list_team<C: ConnectionTrait>(db: &C, team_id: i64) -> Result<Vec<tag::Model>> {
+pub async fn list_team(db: &DatabaseConnection, team_id: i64) -> Result<Vec<tag::Model>> {
     Tag::find()
         .filter(tag::Column::ScopeType.eq(TagScopeType::Team))
         .filter(tag::Column::TeamId.eq(team_id))
@@ -105,8 +102,8 @@ pub async fn list_team<C: ConnectionTrait>(db: &C, team_id: i64) -> Result<Vec<t
         .map_err(AsterError::from)
 }
 
-pub async fn list_team_page<C: ConnectionTrait>(
-    db: &C,
+pub async fn list_team_page(
+    db: &DatabaseConnection,
     team_id: i64,
     limit: u64,
     offset: u64,
@@ -125,8 +122,8 @@ pub async fn list_team_page<C: ConnectionTrait>(
     pagination_repo::fetch_offset_page(db, query, limit, offset).await
 }
 
-pub async fn find_personal_by_normalized_name<C: ConnectionTrait>(
-    db: &C,
+pub async fn find_personal_by_normalized_name(
+    db: &DatabaseConnection,
     owner_user_id: i64,
     normalized_name: &str,
 ) -> Result<Option<tag::Model>> {
@@ -139,8 +136,8 @@ pub async fn find_personal_by_normalized_name<C: ConnectionTrait>(
         .map_err(AsterError::from)
 }
 
-pub async fn find_team_by_normalized_name<C: ConnectionTrait>(
-    db: &C,
+pub async fn find_team_by_normalized_name(
+    db: &DatabaseConnection,
     team_id: i64,
     normalized_name: &str,
 ) -> Result<Option<tag::Model>> {
@@ -153,8 +150,8 @@ pub async fn find_team_by_normalized_name<C: ConnectionTrait>(
         .map_err(AsterError::from)
 }
 
-pub async fn update<C: ConnectionTrait>(
-    db: &C,
+pub async fn update(
+    db: &DatabaseConnection,
     tag: tag::Model,
     name: Option<&str>,
     normalized_name: Option<&str>,
@@ -182,11 +179,11 @@ pub async fn delete<C: ConnectionTrait>(db: &C, id: i64) -> Result<()> {
     Ok(())
 }
 
-pub async fn count<C: ConnectionTrait>(db: &C) -> Result<u64> {
+pub async fn count(db: &DatabaseConnection) -> Result<u64> {
     Tag::find().count(db).await.map_err(AsterError::from)
 }
 
-pub async fn touch<C: ConnectionTrait>(db: &C, id: i64) -> Result<()> {
+pub async fn touch(db: &DatabaseConnection, id: i64) -> Result<()> {
     Tag::update_many()
         .col_expr(tag::Column::UpdatedAt, Expr::value(Utc::now()))
         .filter(tag::Column::Id.eq(id))

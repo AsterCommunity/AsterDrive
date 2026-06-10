@@ -2,8 +2,8 @@
 
 use chrono::Utc;
 use sea_orm::{
-    ColumnTrait, ConnectionTrait, EntityTrait, QueryFilter, QueryOrder, QuerySelect, Set,
-    TryInsertResult, sea_query::Expr,
+    ColumnTrait, ConnectionTrait, DatabaseConnection, EntityTrait, QueryFilter, QueryOrder,
+    QuerySelect, Set, TryInsertResult, sea_query::Expr,
 };
 
 use crate::entities::upload_session_part::{self, Entity as UploadSessionPart};
@@ -115,8 +115,8 @@ pub async fn upsert_part<C: ConnectionTrait>(
     Ok(UpsertPartResult { model, inserted })
 }
 
-pub async fn find_by_upload_and_part<C: ConnectionTrait>(
-    db: &C,
+pub async fn find_by_upload_and_part(
+    db: &DatabaseConnection,
     upload_id: &str,
     part_number: i32,
 ) -> Result<Option<upload_session_part::Model>> {
@@ -128,8 +128,8 @@ pub async fn find_by_upload_and_part<C: ConnectionTrait>(
         .map_err(AsterError::from)
 }
 
-pub async fn list_by_upload<C: ConnectionTrait>(
-    db: &C,
+pub async fn list_by_upload(
+    db: &DatabaseConnection,
     upload_id: &str,
 ) -> Result<Vec<upload_session_part::Model>> {
     UploadSessionPart::find()
@@ -141,7 +141,7 @@ pub async fn list_by_upload<C: ConnectionTrait>(
         .map_err(AsterError::from)
 }
 
-pub async fn list_part_numbers<C: ConnectionTrait>(db: &C, upload_id: &str) -> Result<Vec<i32>> {
+pub async fn list_part_numbers(db: &DatabaseConnection, upload_id: &str) -> Result<Vec<i32>> {
     UploadSessionPart::find()
         .select_only()
         .column(upload_session_part::Column::PartNumber)

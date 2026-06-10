@@ -1,8 +1,8 @@
 //! 仓储模块：`property_repo`。
 
 use sea_orm::{
-    ColumnTrait, ConnectionTrait, EntityTrait, FromQueryResult, PaginatorTrait, QueryFilter,
-    QuerySelect, Set, TryInsertResult, sea_query::Expr,
+    ColumnTrait, ConnectionTrait, DatabaseConnection, EntityTrait, FromQueryResult, PaginatorTrait,
+    QueryFilter, QuerySelect, Set, TryInsertResult, sea_query::Expr,
 };
 
 use crate::entities::entity_property::{self, Entity as EntityProperty};
@@ -351,8 +351,8 @@ pub async fn find_entity_ids_by_tag_ids<C: ConnectionTrait>(
     Ok(rows)
 }
 
-pub async fn count_entities_by_tag_ids<C: ConnectionTrait>(
-    db: &C,
+pub async fn count_entities_by_tag_ids(
+    db: &DatabaseConnection,
     namespace: &str,
     tag_ids: &[i64],
 ) -> Result<std::collections::HashMap<i64, u64>> {

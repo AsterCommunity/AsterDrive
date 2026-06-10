@@ -1,7 +1,7 @@
 use chrono::{DateTime, Utc};
 use sea_orm::{
-    ColumnTrait, ConnectionTrait, EntityTrait, ExprTrait, PaginatorTrait, QueryFilter, QueryOrder,
-    QuerySelect, Select, sea_query::Expr,
+    ColumnTrait, ConnectionTrait, DatabaseConnection, EntityTrait, ExprTrait, PaginatorTrait,
+    QueryFilter, QueryOrder, QuerySelect, Select, sea_query::Expr,
 };
 
 use super::common::{AdminTaskFilters, active_processing_by_kinds_condition, apply_admin_filters};
@@ -12,7 +12,7 @@ use crate::entities::background_task::{self, Entity as BackgroundTask};
 use crate::errors::{AsterError, Result};
 use crate::types::{BackgroundTaskKind, BackgroundTaskStatus, StoredTaskPayload};
 
-pub async fn find_by_id<C: ConnectionTrait>(db: &C, id: i64) -> Result<background_task::Model> {
+pub async fn find_by_id(db: &DatabaseConnection, id: i64) -> Result<background_task::Model> {
     BackgroundTask::find_by_id(id)
         .one(db)
         .await
@@ -20,8 +20,8 @@ pub async fn find_by_id<C: ConnectionTrait>(db: &C, id: i64) -> Result<backgroun
         .ok_or_else(|| AsterError::record_not_found(format!("task #{id}")))
 }
 
-pub async fn find_paginated_personal<C: ConnectionTrait>(
-    db: &C,
+pub async fn find_paginated_personal(
+    db: &DatabaseConnection,
     user_id: i64,
     limit: u64,
     offset: u64,
@@ -38,8 +38,8 @@ pub async fn find_paginated_personal<C: ConnectionTrait>(
     .await
 }
 
-pub async fn find_paginated_team<C: ConnectionTrait>(
-    db: &C,
+pub async fn find_paginated_team(
+    db: &DatabaseConnection,
     team_id: i64,
     limit: u64,
     offset: u64,
@@ -55,8 +55,8 @@ pub async fn find_paginated_team<C: ConnectionTrait>(
     .await
 }
 
-pub async fn find_paginated_all<C: ConnectionTrait>(
-    db: &C,
+pub async fn find_paginated_all(
+    db: &DatabaseConnection,
     limit: u64,
     offset: u64,
 ) -> Result<(Vec<background_task::Model>, u64)> {
@@ -71,8 +71,8 @@ pub async fn find_paginated_all<C: ConnectionTrait>(
     .await
 }
 
-pub async fn find_paginated_all_filtered<C: ConnectionTrait>(
-    db: &C,
+pub async fn find_paginated_all_filtered(
+    db: &DatabaseConnection,
     limit: u64,
     offset: u64,
     filters: &AdminTaskFilters,
@@ -150,8 +150,8 @@ fn apply_admin_task_sort(
     }
 }
 
-pub async fn list_recent<C: ConnectionTrait>(
-    db: &C,
+pub async fn list_recent(
+    db: &DatabaseConnection,
     limit: u64,
 ) -> Result<Vec<background_task::Model>> {
     BackgroundTask::find()
@@ -162,8 +162,8 @@ pub async fn list_recent<C: ConnectionTrait>(
         .map_err(AsterError::from)
 }
 
-pub async fn find_latest_system_runtime_by_payload<C: ConnectionTrait>(
-    db: &C,
+pub async fn find_latest_system_runtime_by_payload(
+    db: &DatabaseConnection,
     payload_json: &StoredTaskPayload,
 ) -> Result<Option<background_task::Model>> {
     BackgroundTask::find()
@@ -175,7 +175,7 @@ pub async fn find_latest_system_runtime_by_payload<C: ConnectionTrait>(
         .map_err(AsterError::from)
 }
 
-pub async fn count_processing<C: ConnectionTrait>(db: &C) -> Result<u64> {
+pub async fn count_processing(db: &DatabaseConnection) -> Result<u64> {
     BackgroundTask::find()
         .filter(background_task::Column::Status.eq(BackgroundTaskStatus::Processing))
         .count(db)
@@ -183,7 +183,7 @@ pub async fn count_processing<C: ConnectionTrait>(db: &C) -> Result<u64> {
         .map_err(AsterError::from)
 }
 
-pub async fn count_pending_or_retry<C: ConnectionTrait>(db: &C) -> Result<u64> {
+pub async fn count_pending_or_retry(db: &DatabaseConnection) -> Result<u64> {
     BackgroundTask::find()
         .filter(
             background_task::Column::Status
@@ -219,8 +219,8 @@ pub async fn count_active_processing_by_kinds<C: ConnectionTrait>(
     crate::utils::numbers::i64_to_u64(count, "active processing task count")
 }
 
-pub async fn find_latest_by_kind_and_display_name<C: ConnectionTrait>(
-    db: &C,
+pub async fn find_latest_by_kind_and_display_name(
+    db: &DatabaseConnection,
     kind: BackgroundTaskKind,
     display_name: &str,
 ) -> Result<Option<background_task::Model>> {

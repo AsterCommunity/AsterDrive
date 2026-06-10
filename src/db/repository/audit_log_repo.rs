@@ -2,7 +2,7 @@
 
 use chrono::{DateTime, Utc};
 use sea_orm::{
-    ActiveModelTrait, ColumnTrait, Condition, ConnectionTrait, EntityTrait, PaginatorTrait,
+    ActiveModelTrait, ColumnTrait, Condition, DatabaseConnection, EntityTrait, PaginatorTrait,
     QueryFilter, QueryOrder, QuerySelect, Select,
 };
 
@@ -24,15 +24,15 @@ pub struct AuditLogQuery<'a> {
     pub sort_order: SortOrder,
 }
 
-pub async fn create<C: ConnectionTrait>(
-    db: &C,
+pub async fn create(
+    db: &DatabaseConnection,
     model: audit_log::ActiveModel,
 ) -> Result<audit_log::Model> {
     model.insert(db).await.map_err(AsterError::from)
 }
 
-pub async fn create_many<C: ConnectionTrait>(
-    db: &C,
+pub async fn create_many(
+    db: &DatabaseConnection,
     models: Vec<audit_log::ActiveModel>,
 ) -> Result<()> {
     if models.is_empty() {
@@ -46,8 +46,8 @@ pub async fn create_many<C: ConnectionTrait>(
 }
 
 /// 带过滤条件的分页查询
-pub async fn find_with_filters<C: ConnectionTrait>(
-    db: &C,
+pub async fn find_with_filters(
+    db: &DatabaseConnection,
     query: AuditLogQuery<'_>,
 ) -> Result<(Vec<audit_log::Model>, u64)> {
     let mut q = apply_admin_audit_log_sort(AuditLog::find(), query.sort_by, query.sort_order);
@@ -129,7 +129,7 @@ fn apply_admin_audit_log_sort(
 }
 
 /// 删除指定时间之前的审计日志
-pub async fn delete_before<C: ConnectionTrait>(db: &C, before: DateTime<Utc>) -> Result<u64> {
+pub async fn delete_before(db: &DatabaseConnection, before: DateTime<Utc>) -> Result<u64> {
     let res = AuditLog::delete_many()
         .filter(audit_log::Column::CreatedAt.lt(before))
         .exec(db)
@@ -139,8 +139,8 @@ pub async fn delete_before<C: ConnectionTrait>(db: &C, before: DateTime<Utc>) ->
 }
 
 /// 查询指定时间范围内的日志 action 和 created_at（用于管理后台每日统计）
-pub async fn find_actions_in_range<C: ConnectionTrait>(
-    db: &C,
+pub async fn find_actions_in_range(
+    db: &DatabaseConnection,
     start: DateTime<Utc>,
     end: DateTime<Utc>,
 ) -> Result<Vec<(String, DateTime<Utc>)>> {
@@ -162,8 +162,8 @@ pub async fn find_actions_in_range<C: ConnectionTrait>(
 /// `id` so rows sharing the same timestamp are scanned exactly once without
 /// offset pagination. This keeps memory bounded even when the audit retention
 /// window contains a large number of events.
-pub async fn find_action_page_in_range<C: ConnectionTrait>(
-    db: &C,
+pub async fn find_action_page_in_range(
+    db: &DatabaseConnection,
     start: DateTime<Utc>,
     end: DateTime<Utc>,
     after: Option<(DateTime<Utc>, i64)>,

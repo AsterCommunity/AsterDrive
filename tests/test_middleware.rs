@@ -98,7 +98,6 @@ async fn test_frontend_index_sets_csp_header_and_meta() {
             .and_then(|value| value.to_str().ok()),
         Some(FRONTEND_CSP_HEADER)
     );
-
     let body = to_bytes(resp.into_body()).await.unwrap();
     let html = String::from_utf8(body.to_vec()).unwrap();
     let escaped_csp = FRONTEND_CSP_META.replace('\'', "&#39;");

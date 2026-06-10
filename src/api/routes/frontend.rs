@@ -13,6 +13,10 @@ struct FrontendAssets;
 /// 运行时可覆盖的前端目录
 const CUSTOM_FRONTEND_DIR: &str = "./frontend-override";
 const FILE_NOT_FOUND_MESSAGE: &str = "File not found";
+const INDEX_CACHE_CONTROL: &str = "no-cache";
+const IMMUTABLE_ASSET_CACHE_CONTROL: &str = "public, max-age=31536000, immutable";
+const STATIC_ASSET_CACHE_CONTROL: &str = "public, max-age=86400";
+const PWA_CACHE_CONTROL: &str = "no-cache";
 
 pub const FRONTEND_CSP_HEADER: &str = concat!(
     "default-src 'self'; ",
@@ -95,6 +99,7 @@ impl FrontendService {
 
         HttpResponse::Ok()
             .insert_header(("Content-Security-Policy", FRONTEND_CSP_HEADER))
+            .insert_header(("Cache-Control", INDEX_CACHE_CONTROL))
             .content_type("text/html; charset=utf-8")
             .body(processed)
     }
@@ -112,7 +117,10 @@ impl FrontendService {
         let content_type = Self::get_content_type(path);
 
         match Self::load_file(&asset_path).await {
-            Some(data) => HttpResponse::Ok().content_type(content_type).body(data),
+            Some(data) => HttpResponse::Ok()
+                .insert_header(("Cache-Control", IMMUTABLE_ASSET_CACHE_CONTROL))
+                .content_type(content_type)
+                .body(data),
             None => HttpResponse::NotFound().body(FILE_NOT_FOUND_MESSAGE),
         }
     }
@@ -123,7 +131,10 @@ impl FrontendService {
         let content_type = Self::get_content_type(path);
 
         match Self::load_file(&asset_path).await {
-            Some(data) => HttpResponse::Ok().content_type(content_type).body(data),
+            Some(data) => HttpResponse::Ok()
+                .insert_header(("Cache-Control", STATIC_ASSET_CACHE_CONTROL))
+                .content_type(content_type)
+                .body(data),
             None => HttpResponse::NotFound().body(FILE_NOT_FOUND_MESSAGE),
         }
     }
@@ -134,15 +145,22 @@ impl FrontendService {
         let content_type = Self::get_content_type(path);
 
         match Self::load_file(&asset_path).await {
-            Some(data) => HttpResponse::Ok().content_type(content_type).body(data),
+            Some(data) => HttpResponse::Ok()
+                .insert_header(("Cache-Control", IMMUTABLE_ASSET_CACHE_CONTROL))
+                .content_type(content_type)
+                .body(data),
             None => HttpResponse::NotFound().body(FILE_NOT_FOUND_MESSAGE),
         }
     }
 
     pub async fn handle_favicon(_req: HttpRequest) -> HttpResponse {
         match Self::load_file("favicon.svg").await {
-            Some(data) => HttpResponse::Ok().content_type("image/svg+xml").body(data),
+            Some(data) => HttpResponse::Ok()
+                .insert_header(("Cache-Control", STATIC_ASSET_CACHE_CONTROL))
+                .content_type("image/svg+xml")
+                .body(data),
             None => HttpResponse::Ok()
+                .insert_header(("Cache-Control", STATIC_ASSET_CACHE_CONTROL))
                 .content_type("image/svg+xml")
                 .body(Vec::new()),
         }
@@ -159,7 +177,10 @@ impl FrontendService {
         let filename = req.uri().path().trim_start_matches('/');
         let content_type = Self::get_content_type(filename);
         match Self::load_file(filename).await {
-            Some(data) => HttpResponse::Ok().content_type(content_type).body(data),
+            Some(data) => HttpResponse::Ok()
+                .insert_header(("Cache-Control", PWA_CACHE_CONTROL))
+                .content_type(content_type)
+                .body(data),
             None => HttpResponse::NotFound().body(FILE_NOT_FOUND_MESSAGE),
         }
     }
@@ -233,8 +254,8 @@ pub fn routes() -> actix_web::Scope {
 
 #[cfg(test)]
 mod tests {
-    use super::routes;
-    use actix_web::{App, http::StatusCode, test};
+    use super::{FrontendAssets, routes};
+    use actix_web::{App, http::StatusCode, http::header, test};
 
     #[actix_web::test]
     async fn pdfjs_requests_do_not_fall_back_to_spa() {
@@ -246,5 +267,61 @@ mod tests {
         let resp = test::call_service(&app, req).await;
 
         assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[actix_web::test]
+    async fn index_is_revalidated() {
+        let app = test::init_service(App::new().service(routes())).await;
+        let req = test::TestRequest::get().uri("/").to_request();
+
+        let resp = test::call_service(&app, req).await;
+
+        assert_eq!(resp.status(), StatusCode::OK);
+        assert_eq!(
+            resp.headers()
+                .get(header::CACHE_CONTROL)
+                .and_then(|value| value.to_str().ok()),
+            Some("no-cache")
+        );
+    }
+
+    #[actix_web::test]
+    async fn hashed_assets_are_served_with_immutable_cache_control() {
+        let asset = FrontendAssets::iter()
+            .find(|path| path.starts_with("assets/"))
+            .expect("frontend dist should include at least one hashed asset");
+        let route = asset
+            .strip_prefix("assets/")
+            .expect("asset path should have assets prefix");
+        let app = test::init_service(App::new().service(routes())).await;
+        let req = test::TestRequest::get()
+            .uri(&format!("/assets/{route}"))
+            .to_request();
+
+        let resp = test::call_service(&app, req).await;
+
+        assert_eq!(resp.status(), StatusCode::OK);
+        assert_eq!(
+            resp.headers()
+                .get(header::CACHE_CONTROL)
+                .and_then(|value| value.to_str().ok()),
+            Some("public, max-age=31536000, immutable")
+        );
+    }
+
+    #[actix_web::test]
+    async fn pwa_files_are_revalidated() {
+        let app = test::init_service(App::new().service(routes())).await;
+        let req = test::TestRequest::get().uri("/sw.js").to_request();
+
+        let resp = test::call_service(&app, req).await;
+
+        assert_eq!(resp.status(), StatusCode::OK);
+        assert_eq!(
+            resp.headers()
+                .get(header::CACHE_CONTROL)
+                .and_then(|value| value.to_str().ok()),
+            Some("no-cache")
+        );
     }
 }

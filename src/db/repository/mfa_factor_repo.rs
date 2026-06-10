@@ -2,8 +2,8 @@
 
 use chrono::Utc;
 use sea_orm::{
-    ActiveModelTrait, ColumnTrait, ConnectionTrait, EntityTrait, QueryFilter, QueryOrder,
-    sea_query::Expr,
+    ActiveModelTrait, ColumnTrait, ConnectionTrait, DatabaseConnection, EntityTrait, QueryFilter,
+    QueryOrder, sea_query::Expr,
 };
 
 use crate::entities::mfa_factor::{self, Entity as MfaFactor};
@@ -17,8 +17,8 @@ pub async fn create<C: ConnectionTrait>(
     model.insert(db).await.map_err(AsterError::from)
 }
 
-pub async fn list_for_user<C: ConnectionTrait>(
-    db: &C,
+pub async fn list_for_user(
+    db: &DatabaseConnection,
     user_id: i64,
 ) -> Result<Vec<mfa_factor::Model>> {
     MfaFactor::find()

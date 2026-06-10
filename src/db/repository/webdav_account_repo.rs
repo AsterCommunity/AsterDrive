@@ -1,14 +1,15 @@
 //! 仓储模块：`webdav_account_repo`。
 
 use sea_orm::{
-    ActiveModelTrait, ColumnTrait, ConnectionTrait, EntityTrait, QueryFilter, QueryOrder,
+    ActiveModelTrait, ColumnTrait, ConnectionTrait, DatabaseConnection, EntityTrait, QueryFilter,
+    QueryOrder,
 };
 
 use crate::db::repository::pagination_repo::fetch_offset_page;
 use crate::entities::webdav_account::{self, Entity as WebdavAccount};
 use crate::errors::{AsterError, Result};
 
-pub async fn find_by_id<C: ConnectionTrait>(db: &C, id: i64) -> Result<webdav_account::Model> {
+pub async fn find_by_id(db: &DatabaseConnection, id: i64) -> Result<webdav_account::Model> {
     WebdavAccount::find_by_id(id)
         .one(db)
         .await
@@ -16,8 +17,8 @@ pub async fn find_by_id<C: ConnectionTrait>(db: &C, id: i64) -> Result<webdav_ac
         .ok_or_else(|| AsterError::record_not_found(format!("webdav_account #{id}")))
 }
 
-pub async fn find_by_username<C: ConnectionTrait>(
-    db: &C,
+pub async fn find_by_username(
+    db: &DatabaseConnection,
     username: &str,
 ) -> Result<Option<webdav_account::Model>> {
     WebdavAccount::find()
@@ -27,8 +28,8 @@ pub async fn find_by_username<C: ConnectionTrait>(
         .map_err(AsterError::from)
 }
 
-pub async fn find_by_user<C: ConnectionTrait>(
-    db: &C,
+pub async fn find_by_user(
+    db: &DatabaseConnection,
     user_id: i64,
 ) -> Result<Vec<webdav_account::Model>> {
     WebdavAccount::find()
@@ -40,8 +41,8 @@ pub async fn find_by_user<C: ConnectionTrait>(
         .map_err(AsterError::from)
 }
 
-pub async fn find_by_team<C: ConnectionTrait>(
-    db: &C,
+pub async fn find_by_team(
+    db: &DatabaseConnection,
     team_id: i64,
 ) -> Result<Vec<webdav_account::Model>> {
     WebdavAccount::find()
@@ -52,8 +53,8 @@ pub async fn find_by_team<C: ConnectionTrait>(
         .map_err(AsterError::from)
 }
 
-pub async fn find_by_team_and_user<C: ConnectionTrait>(
-    db: &C,
+pub async fn find_by_team_and_user(
+    db: &DatabaseConnection,
     team_id: i64,
     user_id: i64,
 ) -> Result<Vec<webdav_account::Model>> {
@@ -66,8 +67,8 @@ pub async fn find_by_team_and_user<C: ConnectionTrait>(
         .map_err(AsterError::from)
 }
 
-pub async fn find_by_user_paginated<C: ConnectionTrait>(
-    db: &C,
+pub async fn find_by_user_paginated(
+    db: &DatabaseConnection,
     user_id: i64,
     limit: u64,
     offset: u64,
@@ -84,8 +85,8 @@ pub async fn find_by_user_paginated<C: ConnectionTrait>(
     .await
 }
 
-pub async fn find_by_team_paginated<C: ConnectionTrait>(
-    db: &C,
+pub async fn find_by_team_paginated(
+    db: &DatabaseConnection,
     team_id: i64,
     limit: u64,
     offset: u64,
@@ -101,8 +102,8 @@ pub async fn find_by_team_paginated<C: ConnectionTrait>(
     .await
 }
 
-pub async fn find_by_team_and_user_paginated<C: ConnectionTrait>(
-    db: &C,
+pub async fn find_by_team_and_user_paginated(
+    db: &DatabaseConnection,
     team_id: i64,
     user_id: i64,
     limit: u64,
@@ -120,21 +121,21 @@ pub async fn find_by_team_and_user_paginated<C: ConnectionTrait>(
     .await
 }
 
-pub async fn create<C: ConnectionTrait>(
-    db: &C,
+pub async fn create(
+    db: &DatabaseConnection,
     model: webdav_account::ActiveModel,
 ) -> Result<webdav_account::Model> {
     model.insert(db).await.map_err(AsterError::from)
 }
 
-pub async fn update<C: ConnectionTrait>(
-    db: &C,
+pub async fn update(
+    db: &DatabaseConnection,
     model: webdav_account::ActiveModel,
 ) -> Result<webdav_account::Model> {
     model.update(db).await.map_err(AsterError::from)
 }
 
-pub async fn delete<C: ConnectionTrait>(db: &C, id: i64) -> Result<()> {
+pub async fn delete(db: &DatabaseConnection, id: i64) -> Result<()> {
     WebdavAccount::delete_by_id(id)
         .exec(db)
         .await

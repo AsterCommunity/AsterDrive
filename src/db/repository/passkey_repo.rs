@@ -2,7 +2,7 @@
 
 use chrono::Utc;
 use sea_orm::{
-    ColumnTrait, ConnectionTrait, EntityTrait, QueryFilter, QueryOrder, QuerySelect,
+    ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, QueryOrder, QuerySelect,
     sea_query::Expr,
 };
 
@@ -10,10 +10,7 @@ use crate::entities::passkey::{self, Entity as Passkey};
 use crate::errors::{AsterError, Result};
 use crate::types::StoredPasskeyCredential;
 
-pub async fn list_for_user<C: ConnectionTrait>(
-    db: &C,
-    user_id: i64,
-) -> Result<Vec<passkey::Model>> {
+pub async fn list_for_user(db: &DatabaseConnection, user_id: i64) -> Result<Vec<passkey::Model>> {
     Passkey::find()
         .filter(passkey::Column::UserId.eq(user_id))
         .order_by_desc(passkey::Column::LastUsedAt)
@@ -23,8 +20,8 @@ pub async fn list_for_user<C: ConnectionTrait>(
         .map_err(AsterError::from)
 }
 
-pub async fn find_by_id_for_user<C: ConnectionTrait>(
-    db: &C,
+pub async fn find_by_id_for_user(
+    db: &DatabaseConnection,
     id: i64,
     user_id: i64,
 ) -> Result<Option<passkey::Model>> {
@@ -36,8 +33,8 @@ pub async fn find_by_id_for_user<C: ConnectionTrait>(
         .map_err(AsterError::from)
 }
 
-pub async fn find_by_credential_id<C: ConnectionTrait>(
-    db: &C,
+pub async fn find_by_credential_id(
+    db: &DatabaseConnection,
     credential_id: &str,
 ) -> Result<Option<passkey::Model>> {
     Passkey::find()
@@ -47,8 +44,8 @@ pub async fn find_by_credential_id<C: ConnectionTrait>(
         .map_err(AsterError::from)
 }
 
-pub async fn find_by_user_handle_and_credential_id<C: ConnectionTrait>(
-    db: &C,
+pub async fn find_by_user_handle_and_credential_id(
+    db: &DatabaseConnection,
     user_handle: &str,
     credential_id: &str,
 ) -> Result<Option<passkey::Model>> {
@@ -60,7 +57,7 @@ pub async fn find_by_user_handle_and_credential_id<C: ConnectionTrait>(
         .map_err(AsterError::from)
 }
 
-pub async fn user_handle_exists<C: ConnectionTrait>(db: &C, user_handle: &str) -> Result<bool> {
+pub async fn user_handle_exists(db: &DatabaseConnection, user_handle: &str) -> Result<bool> {
     let found = Passkey::find()
         .select_only()
         .column(passkey::Column::Id)
@@ -72,8 +69,8 @@ pub async fn user_handle_exists<C: ConnectionTrait>(db: &C, user_handle: &str) -
     Ok(found.is_some())
 }
 
-pub async fn update_name_for_user<C: ConnectionTrait>(
-    db: &C,
+pub async fn update_name_for_user(
+    db: &DatabaseConnection,
     id: i64,
     user_id: i64,
     name: &str,
@@ -89,8 +86,8 @@ pub async fn update_name_for_user<C: ConnectionTrait>(
     Ok(result.rows_affected == 1)
 }
 
-pub async fn update_credential_after_auth<C: ConnectionTrait>(
-    db: &C,
+pub async fn update_credential_after_auth(
+    db: &DatabaseConnection,
     id: i64,
     credential: StoredPasskeyCredential,
     backup_eligible: bool,
@@ -121,8 +118,8 @@ pub async fn update_credential_after_auth<C: ConnectionTrait>(
     Ok(result.rows_affected == 1)
 }
 
-pub async fn touch_last_used<C: ConnectionTrait>(
-    db: &C,
+pub async fn touch_last_used(
+    db: &DatabaseConnection,
     id: i64,
     last_used_at: chrono::DateTime<Utc>,
 ) -> Result<bool> {
@@ -136,7 +133,7 @@ pub async fn touch_last_used<C: ConnectionTrait>(
     Ok(result.rows_affected == 1)
 }
 
-pub async fn delete_for_user<C: ConnectionTrait>(db: &C, id: i64, user_id: i64) -> Result<bool> {
+pub async fn delete_for_user(db: &DatabaseConnection, id: i64, user_id: i64) -> Result<bool> {
     let result = Passkey::delete_many()
         .filter(passkey::Column::Id.eq(id))
         .filter(passkey::Column::UserId.eq(user_id))

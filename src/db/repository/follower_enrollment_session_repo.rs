@@ -4,8 +4,8 @@ use crate::entities::follower_enrollment_session::{self, Entity as FollowerEnrol
 use crate::errors::{AsterError, Result};
 use chrono::Utc;
 use sea_orm::{
-    ActiveModelTrait, ColumnTrait, ConnectionTrait, EntityTrait, PaginatorTrait, QueryFilter,
-    QueryOrder, sea_query::Expr,
+    ActiveModelTrait, ColumnTrait, ConnectionTrait, DatabaseConnection, EntityTrait,
+    PaginatorTrait, QueryFilter, QueryOrder, sea_query::Expr,
 };
 
 pub async fn create<C: ConnectionTrait>(
@@ -37,8 +37,8 @@ pub async fn find_by_ack_token_hash<C: ConnectionTrait>(
         .map_err(AsterError::from)
 }
 
-pub async fn find_latest_for_managed_follower<C: ConnectionTrait>(
-    db: &C,
+pub async fn find_latest_for_managed_follower(
+    db: &DatabaseConnection,
     managed_follower_id: i64,
 ) -> Result<Option<follower_enrollment_session::Model>> {
     FollowerEnrollmentSession::find()
@@ -50,8 +50,8 @@ pub async fn find_latest_for_managed_follower<C: ConnectionTrait>(
         .map_err(AsterError::from)
 }
 
-pub async fn find_by_managed_follower_ids<C: ConnectionTrait>(
-    db: &C,
+pub async fn find_by_managed_follower_ids(
+    db: &DatabaseConnection,
     managed_follower_ids: &[i64],
 ) -> Result<Vec<follower_enrollment_session::Model>> {
     if managed_follower_ids.is_empty() {
@@ -71,8 +71,8 @@ pub async fn find_by_managed_follower_ids<C: ConnectionTrait>(
         .map_err(AsterError::from)
 }
 
-pub async fn has_completed_for_managed_follower<C: ConnectionTrait>(
-    db: &C,
+pub async fn has_completed_for_managed_follower(
+    db: &DatabaseConnection,
     managed_follower_id: i64,
 ) -> Result<bool> {
     let completed = FollowerEnrollmentSession::find()

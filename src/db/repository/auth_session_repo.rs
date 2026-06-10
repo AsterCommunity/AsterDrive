@@ -2,8 +2,8 @@
 
 use chrono::Utc;
 use sea_orm::{
-    ActiveModelTrait, ColumnTrait, ConnectionTrait, EntityTrait, QueryFilter, QueryOrder,
-    sea_query::Expr,
+    ActiveModelTrait, ColumnTrait, ConnectionTrait, DatabaseConnection, EntityTrait, QueryFilter,
+    QueryOrder, sea_query::Expr,
 };
 
 use crate::entities::auth_session::{self, Entity as AuthSession};
@@ -16,10 +16,7 @@ pub async fn create<C: ConnectionTrait>(
     model.insert(db).await.map_err(AsterError::from)
 }
 
-pub async fn find_by_id<C: ConnectionTrait>(
-    db: &C,
-    id: &str,
-) -> Result<Option<auth_session::Model>> {
+pub async fn find_by_id(db: &DatabaseConnection, id: &str) -> Result<Option<auth_session::Model>> {
     AuthSession::find_by_id(id.to_string())
         .one(db)
         .await
@@ -61,8 +58,8 @@ pub async fn find_by_previous_refresh_jti<C: ConnectionTrait>(
         .map_err(AsterError::from)
 }
 
-pub async fn list_active_for_user<C: ConnectionTrait>(
-    db: &C,
+pub async fn list_active_for_user(
+    db: &DatabaseConnection,
     user_id: i64,
 ) -> Result<Vec<auth_session::Model>> {
     AuthSession::find()
@@ -135,8 +132,8 @@ pub async fn delete_by_refresh_jti<C: ConnectionTrait>(db: &C, refresh_jti: &str
     Ok(result.rows_affected == 1)
 }
 
-pub async fn revoke_by_refresh_jti<C: ConnectionTrait>(
-    db: &C,
+pub async fn revoke_by_refresh_jti(
+    db: &DatabaseConnection,
     refresh_jti: &str,
     revoked_at: chrono::DateTime<Utc>,
 ) -> Result<bool> {
@@ -216,7 +213,7 @@ pub async fn revoke_all_for_user_except_id<C: ConnectionTrait>(
     Ok(result.rows_affected)
 }
 
-pub async fn delete_expired<C: ConnectionTrait>(db: &C) -> Result<u64> {
+pub async fn delete_expired(db: &DatabaseConnection) -> Result<u64> {
     let result = AuthSession::delete_many()
         .filter(auth_session::Column::RefreshExpiresAt.lt(Utc::now()))
         .exec(db)

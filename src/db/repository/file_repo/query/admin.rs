@@ -1,6 +1,6 @@
 use sea_orm::{
-    ColumnTrait, Condition, ConnectionTrait, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder,
-    QuerySelect,
+    ColumnTrait, Condition, ConnectionTrait, DatabaseConnection, EntityTrait, PaginatorTrait,
+    QueryFilter, QueryOrder, QuerySelect,
 };
 use std::collections::{BTreeMap, HashMap};
 
@@ -31,8 +31,8 @@ pub struct AdminBlobUploaderRef {
     pub user_id: i64,
 }
 
-pub async fn find_admin_files_paginated<C: ConnectionTrait>(
-    db: &C,
+pub async fn find_admin_files_paginated(
+    db: &DatabaseConnection,
     limit: u64,
     offset: u64,
     filters: AdminFileFilters<'_>,
