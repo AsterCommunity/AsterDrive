@@ -13,10 +13,11 @@ import { Input } from "@/components/ui/input";
 import { handleApiError } from "@/hooks/useApiError";
 import { tagService } from "@/services/tagService";
 import type { TagInfo } from "@/types/api";
-import { safeTagColor, TAG_COLOR_PALETTE } from "./tagColors";
+import { safeTagColor, TAG_COLOR_PALETTE, tagColorFromName } from "./tagColors";
 
 const TAG_LIBRARY_MANAGER_LIMIT = 50;
 const CLOSED_INTERACTION_RESET_KEY = "__closed__";
+const CREATE_TAG_BUSY_ID = -1;
 
 type EditingDraft = {
 	color: string;
@@ -34,14 +35,28 @@ function normalizeTagName(value: string) {
 	return value.trim();
 }
 
+function normalizeTagLookup(value: string) {
+	return value.trim().toLocaleLowerCase();
+}
+
+function canCreateTag(tags: TagInfo[], name: string) {
+	const normalized = normalizeTagLookup(name);
+	if (!normalized) return false;
+	return !tags.some(
+		(tag) => tag.name.trim().toLocaleLowerCase() === normalized,
+	);
+}
+
 export function TagLibraryManagerDialog({
 	open,
 	onOpenChange,
+	onTagCreated,
 	onTagDeleted,
 	onTagUpdated,
 }: {
 	open: boolean;
 	onOpenChange: (open: boolean) => void;
+	onTagCreated?: (tag: TagInfo) => void;
 	onTagDeleted?: (tagId: number) => void;
 	onTagUpdated?: (tag: TagInfo) => void;
 }) {
@@ -77,6 +92,11 @@ export function TagLibraryManagerDialog({
 		normalizeTagName(editingDraft.name).length > 0 &&
 		(normalizeTagName(editingDraft.name) !== editingTag.name ||
 			safeTagColor(editingDraft.color) !== safeTagColor(editingTag.color));
+	const createCandidate = canCreateTag(tags, query);
+	const creating = busyId === CREATE_TAG_BUSY_ID;
+	const showCreateAction = !loading && createCandidate;
+	const canCreate = busyId === null && showCreateAction;
+	const createPreviewColor = safeTagColor(tagColorFromName(query));
 
 	useEffect(() => {
 		if (!open) {
@@ -188,6 +208,26 @@ export function TagLibraryManagerDialog({
 		}
 	};
 
+	const createTag = async () => {
+		if (!canCreate) return;
+
+		const name = normalizeTagName(query);
+		const color = createPreviewColor;
+		setBusyId(CREATE_TAG_BUSY_ID);
+		try {
+			const created = await tagService.createTag({ color, name });
+			setTags((current) => sortTags([...current, created]));
+			setTotal((current) => current + 1);
+			setQuery("");
+			onTagCreated?.(created);
+			toast.success(t("tag_library_created"));
+		} catch (err) {
+			handleApiError(err);
+		} finally {
+			setBusyId(null);
+		}
+	};
+
 	const controls = (
 		<div className="space-y-2">
 			<label
@@ -207,6 +247,13 @@ export function TagLibraryManagerDialog({
 					onChange={(event) => setQuery(event.target.value)}
 					placeholder={t("tag_search_placeholder")}
 					className="pl-8"
+					maxLength={64}
+					onKeyDown={(event) => {
+						if (event.key === "Enter" && canCreate) {
+							event.preventDefault();
+							void createTag();
+						}
+					}}
 				/>
 			</div>
 		</div>
@@ -219,7 +266,7 @@ export function TagLibraryManagerDialog({
 			title={t("tag_library_manage_title")}
 			description={t("tag_library_manage_desc")}
 			controls={controls}
-			className="sm:max-w-xl"
+			className="sm:h-[min(88vh,44rem)] sm:max-w-xl"
 			footer={
 				<FixedDialogFooter>
 					<div className="flex items-center justify-between gap-3">
@@ -241,6 +288,34 @@ export function TagLibraryManagerDialog({
 			<ManagerDialogScrollableList className="space-y-4">
 				<div className="flex min-h-0 flex-1 flex-col gap-4">
 					<div className="space-y-2">
+						{showCreateAction ? (
+							<button
+								type="button"
+								className="flex h-10 w-full min-w-0 items-center gap-2 rounded-lg border border-dashed border-primary/45 bg-primary/5 px-2.5 text-left text-sm transition-colors hover:bg-primary/10"
+								disabled={!canCreate}
+								onClick={() => {
+									void createTag();
+								}}
+							>
+								<span
+									className="size-2.5 shrink-0 rounded-full ring-1 ring-black/10"
+									style={{ backgroundColor: createPreviewColor }}
+									aria-hidden
+								/>
+								<span className="min-w-0 flex-1 truncate">
+									{t("tag_create_named", { name: normalizeTagName(query) })}
+								</span>
+								{creating ? (
+									<Icon
+										name="Spinner"
+										className="size-4 shrink-0 animate-spin"
+									/>
+								) : (
+									<Icon name="Plus" className="size-4 shrink-0" />
+								)}
+							</button>
+						) : null}
+
 						{loading ? (
 							<p className="rounded-lg border border-border/70 bg-muted/25 p-3 text-sm text-muted-foreground">
 								{t("info_loading")}

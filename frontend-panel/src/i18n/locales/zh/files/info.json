@@ -90,6 +90,7 @@
 	"tag_create_and_add": "创建并添加",
 	"tag_create_named": "创建「{{name}}」",
 	"tag_created": "标签已创建，记得保存变更",
+	"tag_library_created": "标签已创建",
 	"tag_delete": "删除标签",
 	"tag_delete_confirm_desc": "删除「{{name}}」，并从所有使用它的文件和文件夹上移除。",
 	"tag_delete_confirm_title": "删除标签",

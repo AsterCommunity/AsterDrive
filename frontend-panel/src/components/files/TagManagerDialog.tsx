@@ -18,6 +18,7 @@ import { TagLibraryManagerDialog } from "./TagLibraryManagerDialog";
 import { safeTagColor, tagColorFromName } from "./tagColors";
 
 const TAG_LIBRARY_LIMIT = 100;
+const TAG_LIBRARY_REGION_ID = "tag-manager-library-region-title";
 
 type BatchTagAction = "add" | "remove" | "none";
 
@@ -102,17 +103,25 @@ export function TagManagerDialog({
 	const [busyKey, setBusyKey] = useState<string | null>(null);
 	const [libraryManagerOpen, setLibraryManagerOpen] = useState(false);
 
+	const resetDialogState = useCallback(() => {
+		setTags([]);
+		setTagsTotal(0);
+		setEntityTags([]);
+		setBatchActions(new Map());
+		setQuery("");
+		setLoading(false);
+		setLoadingMoreTags(false);
+		setBusyKey(null);
+		setLibraryManagerOpen(false);
+	}, []);
+
 	useEffect(() => {
-		if (!open || !target) {
-			setTags([]);
-			setTagsTotal(0);
-			setEntityTags([]);
-			setBatchActions(new Map());
-			setQuery("");
-			setLoading(false);
-			setLoadingMoreTags(false);
-			setBusyKey(null);
-			setLibraryManagerOpen(false);
+		if (!target) {
+			resetDialogState();
+			return;
+		}
+
+		if (!open) {
 			return;
 		}
 
@@ -120,7 +129,17 @@ export function TagManagerDialog({
 		setEntityTags(target.mode === "entity" ? sortTags(target.initialTags) : []);
 		setBatchActions(new Map());
 		setQuery("");
-	}, [open, target]);
+		setLoadingMoreTags(false);
+		setBusyKey(null);
+		setLibraryManagerOpen(false);
+	}, [open, resetDialogState, target]);
+
+	const handleOpenChangeComplete = useCallback(
+		(nextOpen: boolean) => {
+			if (!nextOpen) resetDialogState();
+		},
+		[resetDialogState],
+	);
 
 	useEffect(() => {
 		if (!open || !target) {
@@ -283,6 +302,17 @@ export function TagManagerDialog({
 			next.delete(tagId);
 			return next;
 		});
+	};
+
+	const handleLibraryTagCreated = (tag: TagInfo) => {
+		if (tags.some((currentTag) => currentTag.id === tag.id)) return;
+
+		setTags((current) =>
+			current.some((currentTag) => currentTag.id === tag.id)
+				? current
+				: sortTags([...current, tag]),
+		);
+		setTagsTotal((current) => current + 1);
 	};
 
 	const handleCreateTag = async () => {
@@ -463,16 +493,17 @@ export function TagManagerDialog({
 			<ManagerDialogShell
 				open={open}
 				onOpenChange={onOpenChange}
+				onOpenChangeComplete={handleOpenChangeComplete}
 				title={title}
 				description={description}
 				controls={controls}
 				footer={footer}
-				className="sm:max-w-2xl"
+				className="sm:h-[min(88vh,44rem)] sm:max-w-2xl"
 			>
-				<ManagerDialogScrollableList className="space-y-4">
+				<ManagerDialogScrollableList className="flex min-h-0 flex-col overflow-hidden">
 					<div className="flex min-h-0 flex-1 flex-col gap-4">
 						{target?.mode === "entity" ? (
-							<section className="space-y-2">
+							<section className="shrink-0 space-y-2">
 								<h3 className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
 									{t("tag_selected")}
 								</h3>
@@ -502,7 +533,7 @@ export function TagManagerDialog({
 						) : null}
 
 						{target?.mode === "batch" && batchChanged ? (
-							<section className="space-y-2 rounded-lg border border-border/70 bg-muted/20 p-2.5">
+							<section className="shrink-0 space-y-2 rounded-lg border border-border/70 bg-muted/20 p-2.5">
 								{pendingAddTags.length > 0 ? (
 									<div className="flex min-w-0 items-start gap-2">
 										<div className="inline-flex h-5 shrink-0 items-center gap-1 rounded-md bg-primary/10 px-1.5 text-[11px] font-medium text-primary">
@@ -542,9 +573,12 @@ export function TagManagerDialog({
 							</section>
 						) : null}
 
-						<section className="flex min-h-0 flex-1 flex-col gap-2">
+						<section className="flex min-h-0 flex-1 flex-col gap-2 overflow-hidden">
 							<div className="flex items-center justify-between gap-3">
-								<h3 className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+								<h3
+									id={TAG_LIBRARY_REGION_ID}
+									className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground"
+								>
 									{t("tag_library")}
 								</h3>
 								<Button
@@ -557,7 +591,10 @@ export function TagManagerDialog({
 									{t("tag_library_manage")}
 								</Button>
 							</div>
-							<div className="min-h-32 flex-1 space-y-1.5 overflow-y-auto pr-1">
+							<section
+								aria-labelledby={TAG_LIBRARY_REGION_ID}
+								className="min-h-0 flex-1 space-y-1.5 overflow-y-auto pr-1"
+							>
 								{canCreate ? (
 									<button
 										type="button"
@@ -733,7 +770,7 @@ export function TagManagerDialog({
 										{t("tag_library_load_more")}
 									</Button>
 								) : null}
-							</div>
+							</section>
 						</section>
 					</div>
 				</ManagerDialogScrollableList>
@@ -741,6 +778,7 @@ export function TagManagerDialog({
 			<TagLibraryManagerDialog
 				open={libraryManagerOpen}
 				onOpenChange={setLibraryManagerOpen}
+				onTagCreated={handleLibraryTagCreated}
 				onTagDeleted={handleLibraryTagDeleted}
 				onTagUpdated={handleLibraryTagUpdated}
 			/>
