@@ -158,8 +158,11 @@ fn sample_policy(endpoint: &str, bucket: &str) -> storage_policy::Model {
 
 #[test]
 fn new_keeps_generic_s3_endpoint_path_unchanged() {
-    let driver = S3Driver::new(&sample_policy("https://s3.example.test/custom/path", "archive"))
-        .expect("generic S3-compatible driver");
+    let driver = S3Driver::new(&sample_policy(
+        "https://s3.example.test/custom/path",
+        "archive",
+    ))
+    .expect("generic S3-compatible driver");
 
     assert_eq!(driver.bucket, "archive");
 }

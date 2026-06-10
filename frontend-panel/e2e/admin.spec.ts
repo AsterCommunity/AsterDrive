@@ -2,6 +2,7 @@ import { createTeamViaApi } from "./support/api";
 import { authenticate, gotoAdminPage } from "./support/auth";
 import {
 	clickRowAction,
+	closeActiveDialog,
 	createPageShare,
 	dialogByTitle,
 	fileNameCell,
@@ -103,8 +104,17 @@ test.describe
 			const editDialog = dialogByTitle(page, "Edit Policy");
 			await expect(editDialog).toBeVisible();
 			await editDialog.locator("#base_path").fill(updatedBasePath);
-			await editDialog.getByRole("button", { name: "Save Changes" }).click();
-			await expect(editDialog).toBeHidden();
+			await Promise.all([
+				page.waitForResponse(
+					(response) =>
+						response.request().method() === "PATCH" &&
+						response.url().includes("/api/v1/admin/policies/") &&
+						response.ok(),
+				),
+				editDialog.getByRole("button", { name: "Save Changes" }).click(),
+			]);
+			await expect(editDialog).toBeVisible();
+			await closeActiveDialog(page);
 			await expect(tableRowByCellText(page, policyName)).toContainText(
 				updatedBasePath,
 			);

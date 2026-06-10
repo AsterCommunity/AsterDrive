@@ -25,7 +25,7 @@ pub struct S3Driver {
     base_path: String,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Default)]
 pub struct S3DriverOptions {
     pub force_path_style: Option<bool>,
 }
@@ -40,14 +40,6 @@ impl S3DriverOptions {
     pub const fn virtual_hosted_style() -> Self {
         Self {
             force_path_style: Some(false),
-        }
-    }
-}
-
-impl Default for S3DriverOptions {
-    fn default() -> Self {
-        Self {
-            force_path_style: None,
         }
     }
 }

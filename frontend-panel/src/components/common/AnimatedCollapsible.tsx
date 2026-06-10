@@ -1,10 +1,4 @@
-import {
-	type ReactNode,
-	useEffect,
-	useLayoutEffect,
-	useRef,
-	useState,
-} from "react";
+import { type ReactNode, useLayoutEffect, useRef, useState } from "react";
 import { cn } from "@/lib/utils";
 
 const EXPAND_DURATION_MS = 220;
@@ -48,19 +42,9 @@ export function AnimatedCollapsible({
 }) {
 	const containerRef = useRef<HTMLDivElement | null>(null);
 	const contentRef = useRef<HTMLDivElement | null>(null);
-	const [mounted, setMounted] = useState(open);
+	const [keepMounted, setKeepMounted] = useState(false);
 
-	const shouldRender = open || mounted;
-
-	useEffect(() => {
-		if (typeof window === "undefined") {
-			return;
-		}
-
-		if (open) {
-			setMounted(true);
-		}
-	}, [open]);
+	const shouldRender = open || keepMounted;
 
 	useLayoutEffect(() => {
 		if (typeof window === "undefined" || !shouldRender) {
@@ -94,6 +78,7 @@ export function AnimatedCollapsible({
 		};
 
 		if (open) {
+			setKeepMounted(true);
 			setContainerStyle(container, {
 				...baseStyle,
 				maxHeight: "0px",
@@ -131,7 +116,7 @@ export function AnimatedCollapsible({
 				});
 			});
 			timer = window.setTimeout(() => {
-				setMounted(false);
+				setKeepMounted(false);
 			}, duration);
 		}
 

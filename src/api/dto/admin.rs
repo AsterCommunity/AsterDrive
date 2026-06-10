@@ -172,7 +172,9 @@ pub struct TestPolicyParamsReq {
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct PromoteS3CompatiblePolicyDriverReq {
     pub target_driver_type: crate::types::DriverType,
+    #[validate(custom(function = "crate::api::dto::validation::validate_non_blank"))]
     pub endpoint: String,
+    #[validate(custom(function = "crate::api::dto::validation::validate_non_blank"))]
     pub bucket: String,
 }
 

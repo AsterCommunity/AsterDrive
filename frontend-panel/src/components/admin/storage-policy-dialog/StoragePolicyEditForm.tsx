@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useRef } from "react";
 import { useTranslation } from "react-i18next";
 import {
 	DefaultPolicyToggle,
@@ -76,18 +76,16 @@ export function StoragePolicyEditForm({
 	remoteNodes,
 }: StoragePolicyEditFormProps) {
 	const { t } = useTranslation("admin");
-	const [
-		renderedS3DriverPromotionTargetLabel,
-		setRenderedS3DriverPromotionTargetLabel,
-	] = useState(s3DriverPromotionTargetLabel);
+	const renderedS3DriverPromotionTargetLabelRef = useRef(
+		s3DriverPromotionTargetLabel,
+	);
+	if (s3DriverPromotionTargetLabel != null) {
+		renderedS3DriverPromotionTargetLabelRef.current =
+			s3DriverPromotionTargetLabel;
+	}
 	const renderedPromotionTargetLabel =
-		s3DriverPromotionTargetLabel ?? renderedS3DriverPromotionTargetLabel;
-
-	useEffect(() => {
-		if (s3DriverPromotionTargetLabel) {
-			setRenderedS3DriverPromotionTargetLabel(s3DriverPromotionTargetLabel);
-		}
-	}, [s3DriverPromotionTargetLabel]);
+		s3DriverPromotionTargetLabel ??
+		renderedS3DriverPromotionTargetLabelRef.current;
 
 	return (
 		<div data-testid="policy-edit-shell" className="space-y-4">
@@ -276,7 +274,8 @@ function PolicyEditContextBar({
 				? t("policy_capacity_unsupported_desc")
 				: t("policy_capacity_unavailable_desc");
 	const availableDescription =
-		typeof capacity?.available_bytes === "number" &&
+		capacity &&
+		typeof capacity.available_bytes === "number" &&
 		typeof capacity.total_bytes === "number"
 			? t("policy_edit_capacity_available_summary", {
 					available: formatBytes(capacity.available_bytes),

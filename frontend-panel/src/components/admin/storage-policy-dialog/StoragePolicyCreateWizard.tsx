@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useRef } from "react";
 import { useTranslation } from "react-i18next";
 import {
 	DefaultPolicyToggle,
@@ -386,23 +386,18 @@ function DriverHelperPanel({
 	onApplyS3CompatibleDriverSuggestion,
 	t,
 }: DriverHelperPanelProps) {
-	const [
-		renderedS3CompatibleDriverSuggestionTargetLabel,
-		setRenderedS3CompatibleDriverSuggestionTargetLabel,
-	] = useState(s3CompatibleDriverSuggestionTargetLabel);
+	const renderedS3CompatibleDriverSuggestionTargetLabelRef = useRef(
+		s3CompatibleDriverSuggestionTargetLabel,
+	);
+	if (s3CompatibleDriverSuggestionTargetLabel != null) {
+		renderedS3CompatibleDriverSuggestionTargetLabelRef.current =
+			s3CompatibleDriverSuggestionTargetLabel;
+	}
 	const showSpecializedDriverSuggestion =
 		driverType === "s3" && s3CompatibleDriverSuggestionTargetLabel != null;
 	const renderedSuggestionTargetLabel =
 		s3CompatibleDriverSuggestionTargetLabel ??
-		renderedS3CompatibleDriverSuggestionTargetLabel;
-
-	useEffect(() => {
-		if (s3CompatibleDriverSuggestionTargetLabel) {
-			setRenderedS3CompatibleDriverSuggestionTargetLabel(
-				s3CompatibleDriverSuggestionTargetLabel,
-			);
-		}
-	}, [s3CompatibleDriverSuggestionTargetLabel]);
+		renderedS3CompatibleDriverSuggestionTargetLabelRef.current;
 
 	return (
 		<div className="rounded-3xl border border-border/70 bg-muted/20 p-5">

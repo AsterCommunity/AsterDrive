@@ -80,6 +80,42 @@ const CREATE_LAST_STEP = 2;
 const POLICY_UPLOAD_SESSION_BLOCKER_CODE =
 	ApiErrorCode.PolicyUploadSessionsExist;
 
+function policyFormValueEquals(left: unknown, right: unknown): boolean {
+	if (Object.is(left, right)) {
+		return true;
+	}
+	if (Array.isArray(left) || Array.isArray(right)) {
+		if (!Array.isArray(left) || !Array.isArray(right)) {
+			return false;
+		}
+		return (
+			left.length === right.length &&
+			left.every((item, index) => policyFormValueEquals(item, right[index]))
+		);
+	}
+	if (
+		left === null ||
+		right === null ||
+		typeof left !== "object" ||
+		typeof right !== "object"
+	) {
+		return false;
+	}
+
+	const leftRecord = left as Record<string, unknown>;
+	const rightRecord = right as Record<string, unknown>;
+	const leftKeys = Object.keys(leftRecord);
+	if (leftKeys.length !== Object.keys(rightRecord).length) {
+		return false;
+	}
+
+	return leftKeys.every(
+		(key) =>
+			Object.hasOwn(rightRecord, key) &&
+			policyFormValueEquals(leftRecord[key], rightRecord[key]),
+	);
+}
+
 function policyFormHasUnsavedChanges(
 	form: PolicyFormData,
 	policy: StoragePolicy | null,
@@ -88,9 +124,9 @@ function policyFormHasUnsavedChanges(
 		return false;
 	}
 
-	return (
-		JSON.stringify(normalizePolicyForm(form)) !==
-		JSON.stringify(normalizePolicyForm(getPolicyForm(policy)))
+	return !policyFormValueEquals(
+		normalizePolicyForm(form),
+		normalizePolicyForm(getPolicyForm(policy)),
 	);
 }
 
@@ -465,9 +501,11 @@ function useAdminPoliciesPageContent() {
 		setValidatedConnectionKey(null);
 		setCreateStepTouched(false);
 		setForm((prev) => {
+			const { s3_path_style: previousS3PathStyle, ...prevWithoutS3PathStyle } =
+				prev;
 			if (isS3CompatibleDriver(driverType)) {
 				return {
-					...prev,
+					...prevWithoutS3PathStyle,
 					driver_type: driverType,
 					remote_node_id: "",
 					storage_native_processing_enabled:
@@ -486,12 +524,15 @@ function useAdminPoliciesPageContent() {
 						driverType === "tencent_cos"
 							? (prev.media_metadata_extensions ?? [])
 							: [],
+					...(driverType === "s3"
+						? { s3_path_style: previousS3PathStyle ?? true }
+						: {}),
 				};
 			}
 
 			if (driverType === "remote") {
 				return {
-					...prev,
+					...prevWithoutS3PathStyle,
 					driver_type: driverType,
 					endpoint: "",
 					bucket: "",
@@ -509,7 +550,7 @@ function useAdminPoliciesPageContent() {
 			}
 
 			return {
-				...prev,
+				...prevWithoutS3PathStyle,
 				driver_type: driverType,
 				endpoint: "",
 				bucket: "",
@@ -525,7 +566,6 @@ function useAdminPoliciesPageContent() {
 				remote_upload_strategy: "relay_stream",
 				s3_upload_strategy: "relay_stream",
 				s3_download_strategy: "relay_stream",
-				s3_path_style: true,
 			};
 		});
 	};

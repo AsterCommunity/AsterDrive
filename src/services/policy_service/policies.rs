@@ -583,15 +583,15 @@ async fn verify_s3_compatible_promotion_sample(
     for blob in blobs {
         let metadata = driver.metadata(&blob.storage_path).await.map_err(|error| {
             AsterError::storage_driver_error(format!(
-                "verify existing object '{}' before S3-compatible driver promotion: {error}",
-                blob.storage_path
+                "verify existing object '{}' (blob id {}) before S3-compatible driver promotion: {error}",
+                blob.storage_path, blob.id
             ))
         })?;
         let actual_size = crate::utils::numbers::u64_to_i64(metadata.size, "blob metadata size")?;
         if actual_size != blob.size {
             return Err(AsterError::storage_driver_error(format!(
-                "object '{}' size mismatch before S3-compatible driver promotion: expected {}, got {}",
-                blob.storage_path, blob.size, actual_size
+                "object '{}' (blob id {}) size mismatch before S3-compatible driver promotion: expected {}, got {}",
+                blob.storage_path, blob.id, blob.size, actual_size
             )));
         }
     }
