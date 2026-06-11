@@ -327,20 +327,13 @@ describe("useBlobUrl", () => {
 		clearBlobUrlCache();
 	});
 
-	it("restores persisted thumbnail blobs before background revalidation finishes", async () => {
+	it("restores persisted thumbnail blobs without hitting the thumbnail endpoint", async () => {
 		const { cacheStorage } = installCacheStorage();
-		const revalidation = deferred<{
-			status: number;
-			data: Blob;
-			headers: Record<string, string>;
-		}>();
-		mockState.get
-			.mockResolvedValueOnce({
-				status: 200,
-				data: new Blob(["persisted-image"]),
-				headers: { etag: '"etag-persisted"' },
-			})
-			.mockImplementationOnce(() => revalidation.promise);
+		mockState.get.mockResolvedValueOnce({
+			status: 200,
+			data: new Blob(["persisted-image"]),
+			headers: { etag: '"etag-persisted"' },
+		});
 		let module = await loadHookModule();
 
 		const first = renderHook(() =>
@@ -363,22 +356,8 @@ describe("useBlobUrl", () => {
 			expect(second.result.current.blobUrl).toBe("blob:2");
 			expect(second.result.current.loading).toBe(false);
 		});
-		expect(mockState.get).toHaveBeenCalledTimes(2);
-		expect(mockState.get).toHaveBeenNthCalledWith(2, "/thumb", {
-			headers: { "If-None-Match": '"etag-persisted"' },
-			responseType: "blob",
-			validateStatus: expect.any(Function),
-		});
-
-		revalidation.resolve({
-			status: 304,
-			data: new Blob([]),
-			headers: {},
-		});
-
-		await waitFor(() => {
-			expect(URL.createObjectURL).toHaveBeenCalledTimes(2);
-		});
+		expect(mockState.get).toHaveBeenCalledTimes(1);
+		expect(URL.createObjectURL).toHaveBeenCalledTimes(2);
 		second.unmount();
 		module.clearBlobUrlCache();
 		await module.clearPersistedBlobUrlCache();

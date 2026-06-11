@@ -115,6 +115,7 @@ describe("FileThumbnail", () => {
 		mockState.useEnteredViewport.mockReturnValue({
 			ref: mockState.enteredViewportRef,
 			hasEnteredViewport: true,
+			isInViewport: true,
 		});
 		mockState.useBlobUrl.mockReturnValue({
 			blobUrl: null,
@@ -153,10 +154,11 @@ describe("FileThumbnail", () => {
 		});
 	});
 
-	it("waits until the thumbnail enters the viewport before queueing the blob fetch", () => {
+	it("waits until the thumbnail is in the viewport before queueing the blob fetch", () => {
 		mockState.useEnteredViewport.mockReturnValue({
 			ref: mockState.enteredViewportRef,
 			hasEnteredViewport: false,
+			isInViewport: false,
 		});
 
 		render(<FileThumbnail file={pngFile} />);

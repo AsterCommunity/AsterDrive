@@ -448,17 +448,6 @@ async function acquireBlobUrl(
 				entry.needsRefresh = false;
 				entry.promise = undefined;
 
-				void fetchBlobUrlFromNetwork({
-					lane,
-					logErrors: false,
-					notifyOnChange: true,
-					owner: entry,
-					path,
-					previousBlob: persisted.blob,
-					previousEtag: persisted.etag,
-					previousObjectUrl: objectUrl,
-				}).catch(() => {});
-
 				return objectUrl;
 			}
 		}

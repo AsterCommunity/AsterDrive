@@ -4,6 +4,7 @@ interface UseEnteredViewportOptions {
 	enabled?: boolean;
 	rootMargin?: string;
 	threshold?: number | number[];
+	trackVisibility?: boolean;
 }
 
 function findObserverRoot(node: Element) {
@@ -38,17 +39,25 @@ export function useEnteredViewport<T extends Element = HTMLDivElement>({
 	enabled = true,
 	rootMargin = "0px",
 	threshold = 0,
+	trackVisibility = false,
 }: UseEnteredViewportOptions = {}) {
 	const [node, setNode] = useState<T | null>(null);
 	const [hasEnteredViewport, setHasEnteredViewport] = useState(false);
+	const [isInViewport, setIsInViewport] = useState(false);
 
 	useEffect(() => {
 		if (!enabled) {
 			setHasEnteredViewport(false);
+			setIsInViewport(false);
 			return;
 		}
 
-		if (hasEnteredViewport || !node) {
+		if (!node) {
+			setIsInViewport(false);
+			return;
+		}
+
+		if (!trackVisibility && hasEnteredViewport) {
 			return;
 		}
 
@@ -57,17 +66,22 @@ export function useEnteredViewport<T extends Element = HTMLDivElement>({
 			typeof window.IntersectionObserver === "undefined"
 		) {
 			setHasEnteredViewport(true);
+			setIsInViewport(true);
 			return;
 		}
 
 		const observer = new window.IntersectionObserver(
 			(entries) => {
-				if (!entries.some((entry) => entry.isIntersecting)) {
+				const visible = entries.some((entry) => entry.isIntersecting);
+				setIsInViewport(visible);
+				if (!visible) {
 					return;
 				}
 
 				setHasEnteredViewport(true);
-				observer.disconnect();
+				if (!trackVisibility) {
+					observer.disconnect();
+				}
 			},
 			{
 				root: findObserverRoot(node),
@@ -79,7 +93,14 @@ export function useEnteredViewport<T extends Element = HTMLDivElement>({
 		observer.observe(node);
 
 		return () => observer.disconnect();
-	}, [enabled, hasEnteredViewport, node, rootMargin, threshold]);
+	}, [
+		enabled,
+		hasEnteredViewport,
+		node,
+		rootMargin,
+		threshold,
+		trackVisibility,
+	]);
 
 	const ref = useCallback((nextNode: T | null) => {
 		setNode(nextNode);
@@ -88,5 +109,6 @@ export function useEnteredViewport<T extends Element = HTMLDivElement>({
 	return {
 		ref,
 		hasEnteredViewport,
+		isInViewport,
 	};
 }

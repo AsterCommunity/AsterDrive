@@ -48,11 +48,12 @@ export function FileThumbnail({
 		}
 	}, [loadThumbnailSupport, thumbnailSupportLoaded]);
 
-	const { ref, hasEnteredViewport } = useEnteredViewport<HTMLDivElement>({
+	const { ref, isInViewport } = useEnteredViewport<HTMLDivElement>({
 		enabled: canRequestThumbnail,
+		trackVisibility: true,
 	});
 	const blobPath =
-		canRequestThumbnail && hasEnteredViewport
+		canRequestThumbnail && isInViewport
 			? (thumbnailPath ?? fileService.thumbnailPath(file.id))
 			: null;
 	const { blobUrl, error, loading } = useBlobUrl(blobPath, {

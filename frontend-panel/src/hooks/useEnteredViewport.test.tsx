@@ -56,20 +56,25 @@ class MockIntersectionObserver {
 function TestComponent({
 	enabled = true,
 	rootMargin,
+	trackVisibility,
 }: {
 	enabled?: boolean;
 	rootMargin?: string;
+	trackVisibility?: boolean;
 }) {
-	const { ref, hasEnteredViewport } = useEnteredViewport<HTMLDivElement>({
-		enabled,
-		rootMargin,
-	});
+	const { ref, hasEnteredViewport, isInViewport } =
+		useEnteredViewport<HTMLDivElement>({
+			enabled,
+			rootMargin,
+			trackVisibility,
+		});
 
 	return (
 		<div
 			ref={ref}
 			data-testid="target"
 			data-entered={String(hasEnteredViewport)}
+			data-visible={String(isInViewport)}
 		/>
 	);
 }
@@ -120,7 +125,39 @@ describe("useEnteredViewport", () => {
 				"true",
 			),
 		);
+		expect(screen.getByTestId("target")).toHaveAttribute(
+			"data-visible",
+			"true",
+		);
 		expect(observer?.disconnect).toHaveBeenCalled();
+	});
+
+	it("tracks when the element leaves the viewport when visibility tracking is enabled", async () => {
+		render(<TestComponent trackVisibility />);
+
+		const observer = MockIntersectionObserver.instances[0];
+		const target = screen.getByTestId("target");
+
+		act(() => {
+			observer?.trigger({ isIntersecting: true, target });
+		});
+
+		await waitFor(() => expect(target).toHaveAttribute("data-entered", "true"));
+		expect(target).toHaveAttribute("data-visible", "true");
+
+		const activeObserver =
+			MockIntersectionObserver.instances[
+				MockIntersectionObserver.instances.length - 1
+			];
+
+		act(() => {
+			activeObserver?.trigger({ isIntersecting: false, target });
+		});
+
+		await waitFor(() =>
+			expect(target).toHaveAttribute("data-visible", "false"),
+		);
+		expect(target).toHaveAttribute("data-entered", "true");
 	});
 
 	it("does not observe while disabled", () => {
@@ -128,6 +165,10 @@ describe("useEnteredViewport", () => {
 
 		expect(screen.getByTestId("target")).toHaveAttribute(
 			"data-entered",
+			"false",
+		);
+		expect(screen.getByTestId("target")).toHaveAttribute(
+			"data-visible",
 			"false",
 		);
 		expect(MockIntersectionObserver.instances).toHaveLength(0);
