@@ -73,7 +73,7 @@ describe("pwaWarmup", () => {
 		expect(mockState.adminRouteLoad).not.toHaveBeenCalled();
 	});
 
-	it("skips the user route queue after login success path warmup", async () => {
+	it("skips the user route queue when no user route warmup is configured", async () => {
 		const { warmupRouteChunks } = await loadModule();
 
 		warmupRouteChunks("user");

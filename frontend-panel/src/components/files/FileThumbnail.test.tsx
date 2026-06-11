@@ -170,6 +170,37 @@ describe("FileThumbnail", () => {
 		expect(screen.getByTestId("file-type-icon")).toBeInTheDocument();
 	});
 
+	it("cleans up the blob fetch when the thumbnail leaves the viewport", () => {
+		mockState.useBlobUrl.mockReturnValue({
+			blobUrl: "blob:1",
+			error: false,
+			loading: false,
+		});
+		mockState.useEnteredViewport.mockReturnValue({
+			ref: mockState.enteredViewportRef,
+			hasEnteredViewport: true,
+			isInViewport: true,
+		});
+
+		const { rerender } = render(<FileThumbnail file={pngFile} />);
+
+		expect(mockState.useBlobUrl).toHaveBeenLastCalledWith("/thumb/7", {
+			lane: "thumbnail",
+		});
+
+		mockState.useBlobUrl.mockClear();
+		mockState.useEnteredViewport.mockReturnValue({
+			ref: mockState.enteredViewportRef,
+			hasEnteredViewport: true,
+			isInViewport: false,
+		});
+		rerender(<FileThumbnail file={pngFile} />);
+
+		expect(mockState.useBlobUrl).toHaveBeenLastCalledWith(null, {
+			lane: "thumbnail",
+		});
+	});
+
 	it("loads thumbnail support on demand before deciding whether to fetch", async () => {
 		mockState.thumbnailSupportStore.config = null;
 		mockState.thumbnailSupportStore.isLoaded = false;

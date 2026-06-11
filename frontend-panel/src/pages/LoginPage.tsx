@@ -57,9 +57,11 @@ const MFA_METHODS: MfaMethod[] = ["totp", "recovery_code", "email_code"];
 function scheduleLoginSuccessPathWarmup() {
 	return runWhenIdle(
 		() => {
-			void import("@/lib/pwaWarmup").then(({ warmupLoginSuccessPath }) => {
-				warmupLoginSuccessPath();
-			});
+			void import("@/lib/pwaWarmup")
+				.then(({ warmupLoginSuccessPath }) => {
+					warmupLoginSuccessPath();
+				})
+				.catch(() => undefined);
 		},
 		{ fallbackDelayMs: 900, timeoutMs: 2_000 },
 	);

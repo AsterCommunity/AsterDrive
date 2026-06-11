@@ -147,6 +147,31 @@ describe("summarizeUploadTasks", () => {
 		});
 	});
 
+	it("weights the overall progress by task size", () => {
+		const summary = summarizeUploadTasks([
+			createTask({
+				id: "small",
+				status: "completed",
+				progress: 100,
+				totalBytes: 10,
+			}),
+			createTask({
+				id: "large",
+				status: "uploading",
+				progress: 0,
+				totalBytes: 1000,
+			}),
+		]);
+
+		expect(summary).toEqual({
+			activeCount: 1,
+			failedCount: 0,
+			overallProgress: 1,
+			successCount: 1,
+			totalCount: 2,
+		});
+	});
+
 	it("returns zero overall progress when no task can contribute to progress", () => {
 		const summary = summarizeUploadTasks([
 			createTask({ id: "failed", status: "failed", progress: 40 }),

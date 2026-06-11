@@ -127,9 +127,43 @@ describe("useEnteredViewport", () => {
 		);
 		expect(screen.getByTestId("target")).toHaveAttribute(
 			"data-visible",
-			"true",
+			"null",
 		);
 		expect(observer?.disconnect).toHaveBeenCalled();
+	});
+
+	it("disconnects after entering when visibility tracking is disabled", async () => {
+		render(<TestComponent trackVisibility={false} />);
+
+		const observer = MockIntersectionObserver.instances[0];
+		const target = screen.getByTestId("target");
+
+		act(() => {
+			observer?.trigger({ isIntersecting: true, target });
+		});
+
+		await waitFor(() => expect(target).toHaveAttribute("data-entered", "true"));
+		expect(target).toHaveAttribute("data-visible", "null");
+		expect(observer?.disconnect).toHaveBeenCalled();
+	});
+
+	it("keeps observing after entering when visibility tracking is enabled", async () => {
+		render(<TestComponent trackVisibility />);
+
+		const observer = MockIntersectionObserver.instances[0];
+		const target = screen.getByTestId("target");
+
+		act(() => {
+			observer?.trigger({ isIntersecting: true, target });
+		});
+
+		await waitFor(() => expect(target).toHaveAttribute("data-entered", "true"));
+		expect(target).toHaveAttribute("data-visible", "true");
+		const activeObserver =
+			MockIntersectionObserver.instances[
+				MockIntersectionObserver.instances.length - 1
+			];
+		expect(activeObserver?.disconnect).not.toHaveBeenCalled();
 	});
 
 	it("tracks when the element leaves the viewport when visibility tracking is enabled", async () => {

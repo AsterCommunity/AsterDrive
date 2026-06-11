@@ -7,6 +7,17 @@ interface UseEnteredViewportOptions {
 	trackVisibility?: boolean;
 }
 
+interface UseEnteredViewportResult<T extends Element> {
+	ref: (nextNode: T | null) => void;
+	hasEnteredViewport: boolean;
+	/**
+	 * Current visibility while tracking is active. When trackVisibility is false,
+	 * this becomes null after the element has entered once and the observer is
+	 * disconnected; use hasEnteredViewport for lazy-load decisions in that mode.
+	 */
+	isInViewport: boolean | null;
+}
+
 function findObserverRoot(node: Element) {
 	const scrollAreaViewport = node.closest("[data-slot='scroll-area-viewport']");
 	if (scrollAreaViewport instanceof Element) {
@@ -40,10 +51,10 @@ export function useEnteredViewport<T extends Element = HTMLDivElement>({
 	rootMargin = "0px",
 	threshold = 0,
 	trackVisibility = false,
-}: UseEnteredViewportOptions = {}) {
+}: UseEnteredViewportOptions = {}): UseEnteredViewportResult<T> {
 	const [node, setNode] = useState<T | null>(null);
 	const [hasEnteredViewport, setHasEnteredViewport] = useState(false);
-	const [isInViewport, setIsInViewport] = useState(false);
+	const [isInViewport, setIsInViewport] = useState<boolean | null>(false);
 
 	useEffect(() => {
 		if (!enabled) {
@@ -53,7 +64,11 @@ export function useEnteredViewport<T extends Element = HTMLDivElement>({
 		}
 
 		if (!node) {
-			setIsInViewport(false);
+			setIsInViewport((current) =>
+				!trackVisibility && hasEnteredViewport && current === null
+					? null
+					: false,
+			);
 			return;
 		}
 
@@ -80,6 +95,7 @@ export function useEnteredViewport<T extends Element = HTMLDivElement>({
 
 				setHasEnteredViewport(true);
 				if (!trackVisibility) {
+					setIsInViewport(null);
 					observer.disconnect();
 				}
 			},

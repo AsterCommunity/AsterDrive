@@ -40,6 +40,10 @@ macro_rules! entity_schema {
     }};
 }
 
+// FIXME: ⚠️ 添加新 entity 时必须同步更新此列表。
+// Keep every SeaORM Entity here via entity_schema!(module::Entity), such as
+// user::Entity, file::Entity, folder::Entity, and any newly added entity module,
+// so the schema drift test continues to cover the full migration/entity surface.
 fn all_entity_schemas() -> Vec<EntitySchema> {
     vec![
         entity_schema!(audit_log::Entity),

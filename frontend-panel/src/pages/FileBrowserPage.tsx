@@ -117,9 +117,11 @@ export default function FileBrowserPage() {
 	useEffect(() => {
 		return runWhenIdle(
 			() => {
-				void import("@/lib/pwaWarmup").then(({ warmupPreviewEngines }) => {
-					warmupPreviewEngines();
-				});
+				void import("@/lib/pwaWarmup")
+					.then(({ warmupPreviewEngines }) => {
+						warmupPreviewEngines();
+					})
+					.catch(() => undefined);
 			},
 			{ fallbackDelayMs: 900, timeoutMs: 2_000 },
 		);
