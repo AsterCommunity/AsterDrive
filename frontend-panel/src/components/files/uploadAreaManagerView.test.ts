@@ -1,6 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 import type { UploadTask } from "@/components/files/uploadAreaManagerShared";
-import { buildUploadTaskViews } from "@/components/files/uploadAreaManagerView";
+import {
+	buildUploadTaskViews,
+	summarizeUploadTasks,
+} from "@/components/files/uploadAreaManagerView";
 
 const t = (key: string, opts?: Record<string, unknown>) => {
 	if (key === "files:upload_chunk_status") {
@@ -103,5 +106,56 @@ describe("buildUploadTaskViews", () => {
 			detail: "files:upload_cancelled",
 			speed: undefined,
 		});
+	});
+});
+
+describe("summarizeUploadTasks", () => {
+	it("excludes failed and cancelled tasks from the overall progress denominator", () => {
+		const summary = summarizeUploadTasks([
+			createTask({
+				id: "done",
+				status: "completed",
+				progress: 100,
+				totalBytes: 100,
+			}),
+			createTask({
+				id: "active",
+				status: "uploading",
+				progress: 50,
+				totalBytes: 100,
+			}),
+			createTask({
+				id: "failed",
+				status: "failed",
+				progress: 0,
+				totalBytes: 100,
+			}),
+			createTask({
+				id: "cancelled",
+				status: "cancelled",
+				progress: 25,
+				totalBytes: 100,
+			}),
+		]);
+
+		expect(summary).toEqual({
+			activeCount: 1,
+			failedCount: 1,
+			overallProgress: 75,
+			successCount: 1,
+			totalCount: 4,
+		});
+	});
+
+	it("returns zero overall progress when no task can contribute to progress", () => {
+		const summary = summarizeUploadTasks([
+			createTask({ id: "failed", status: "failed", progress: 40 }),
+			createTask({ id: "cancelled", status: "cancelled", progress: 20 }),
+			createTask({ id: "pending", status: "pending_file", progress: 0 }),
+		]);
+
+		expect(summary.overallProgress).toBe(0);
+		expect(summary.activeCount).toBe(0);
+		expect(summary.failedCount).toBe(1);
 	});
 });

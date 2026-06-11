@@ -1,5 +1,5 @@
 import type { Dispatch, MutableRefObject, SetStateAction } from "react";
-import { useCallback, useMemo } from "react";
+import { useCallback, useMemo, useRef } from "react";
 import type { Workspace } from "@/lib/workspace";
 import type {
 	UploadAreaManagerTranslationFn,
@@ -46,6 +46,7 @@ export function useUploadAreaUploads({
 	uploadRequestRef,
 	workspace,
 }: UseUploadAreaUploadsOptions) {
+	const retryingTaskIdsRef = useRef(new Set<string>());
 	const modeRunners = useMemo(
 		() =>
 			createUploadModeRunners({
@@ -140,19 +141,25 @@ export function useUploadAreaUploads({
 
 	const retryTask = useCallback(
 		async (taskId: string) => {
-			await retryUploadTask(taskId, {
-				...modeRunners,
-				abortFlagsRef,
-				directAbortRef,
-				markTaskFailed,
-				patchTask,
-				setTasks,
-				setUploadPanelOpen,
-				t,
-				tasksRef,
-				uploadRequestRef,
-				workspace,
-			});
+			if (retryingTaskIdsRef.current.has(taskId)) return;
+			retryingTaskIdsRef.current.add(taskId);
+			try {
+				await retryUploadTask(taskId, {
+					...modeRunners,
+					abortFlagsRef,
+					directAbortRef,
+					markTaskFailed,
+					patchTask,
+					setTasks,
+					setUploadPanelOpen,
+					t,
+					tasksRef,
+					uploadRequestRef,
+					workspace,
+				});
+			} finally {
+				retryingTaskIdsRef.current.delete(taskId);
+			}
 		},
 		[
 			modeRunners,

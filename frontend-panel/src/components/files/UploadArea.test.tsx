@@ -1485,6 +1485,57 @@ describe("UploadArea", () => {
 		expect(completeUpload).toHaveBeenCalledWith("upload-new", undefined);
 	});
 
+	it("ignores repeated retry clicks while a retry is already in progress", async () => {
+		const cancelRetry = createDeferred<void>();
+		const retriedChunk = createDeferred<unknown>();
+
+		cancelUpload.mockReturnValue(cancelRetry.promise);
+		initUpload
+			.mockResolvedValueOnce({
+				mode: "chunked",
+				upload_id: "upload-old",
+				chunk_size: 5,
+				total_chunks: 1,
+			})
+			.mockResolvedValueOnce({
+				mode: "chunked",
+				upload_id: "upload-new",
+				chunk_size: 5,
+				total_chunks: 1,
+			});
+		uploadChunk
+			.mockRejectedValueOnce(
+				Object.assign(new Error("upload failed"), { retryable: false }),
+			)
+			.mockReturnValueOnce(retriedChunk.promise);
+		completeUpload.mockResolvedValue({ id: 9006 });
+
+		await uploadOneFile();
+
+		await screen.findByText("hello.txt:Chunked:files:upload_failed");
+		const retryButton = screen.getByText("files:upload_retry");
+		fireEvent.click(retryButton);
+		fireEvent.click(retryButton);
+		fireEvent.click(retryButton);
+
+		await waitFor(() => {
+			expect(cancelUpload).toHaveBeenCalledTimes(1);
+		});
+		expect(initUpload).toHaveBeenCalledTimes(1);
+
+		cancelRetry.resolve();
+
+		await waitFor(() => {
+			expect(initUpload).toHaveBeenCalledTimes(2);
+		});
+		expect(
+			uploadChunk.mock.calls.filter((call) => call[0] === "upload-new"),
+		).toHaveLength(1);
+
+		retriedChunk.resolve({});
+		await screen.findByText("hello.txt:Chunked:files:upload_success");
+	});
+
 	it("waits for in-flight chunk requests to drain before canceling an old session on retry", async () => {
 		const inFlightChunk = createDeferred<unknown>();
 
