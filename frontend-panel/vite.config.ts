@@ -127,6 +127,7 @@ export default defineConfig(({ command }) => {
 								"assets/vendor-react-*.js",
 								"assets/vendor-router-*.js",
 								"assets/vendor-i18n-*.js",
+								"assets/i18n-*.js",
 								"assets/http-*.js",
 							],
 					globIgnores: isDevServer
@@ -150,7 +151,7 @@ export default defineConfig(({ command }) => {
 									request.destination === "style" ||
 									request.destination === "font" ||
 									request.destination === "worker"),
-							handler: "StaleWhileRevalidate",
+							handler: "CacheFirst",
 							options: {
 								cacheName: "asset-chunks",
 								expiration: {

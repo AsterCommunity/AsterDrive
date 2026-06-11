@@ -52,12 +52,18 @@ export function summarizeUploadTasks(tasks: UploadTask[]): UploadTaskSummary {
 	let failedCount = 0;
 	let activeCount = 0;
 	let progressSum = 0;
+	let progressCount = 0;
 	let weightedProgressSum = 0;
 	let totalBytes = 0;
 
 	for (const task of tasks) {
-		progressSum += task.progress;
-		if (task.totalBytes > 0) {
+		const contributesToOverall =
+			task.status === "completed" || ACTIVE_QUEUE_STATUS_SET.has(task.status);
+		if (contributesToOverall) {
+			progressSum += task.progress;
+			progressCount += 1;
+		}
+		if (contributesToOverall && task.totalBytes > 0) {
 			totalBytes += task.totalBytes;
 			weightedProgressSum += task.progress * task.totalBytes;
 		}
@@ -78,9 +84,9 @@ export function summarizeUploadTasks(tasks: UploadTask[]): UploadTaskSummary {
 	const overallProgress =
 		totalBytes > 0
 			? Math.round(weightedProgressSum / totalBytes)
-			: totalCount === 0
+			: progressCount === 0
 				? 0
-				: Math.round(progressSum / totalCount);
+				: Math.round(progressSum / progressCount);
 
 	return {
 		activeCount,

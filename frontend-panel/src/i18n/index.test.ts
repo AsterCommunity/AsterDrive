@@ -78,6 +78,25 @@ describe("i18n", () => {
 		expect(i18n.t("share:my_shares_title")).toBe("我的分享");
 	});
 
+	it("loads the authenticated shell namespaces without pulling admin settings", async () => {
+		localStorage.setItem("aster-language", "zh");
+		const module = await loadI18nModule();
+		const i18n = module.default;
+
+		await module.ensureAuthenticatedShellI18nNamespaces("zh");
+
+		expect(i18n.t("files:upload_success")).toBe("上传完成");
+		expect(i18n.t("tasks:title")).toBe("任务中心");
+		expect(i18n.t("share:my_shares_title")).toBe("我的分享");
+		expect(i18n.t("search:placeholder")).toBe("搜索文件和文件夹...");
+		expect(
+			i18n.getResource("zh", "admin", "overview_total_users"),
+		).toBeUndefined();
+		expect(
+			i18n.getResource("zh", "settings", "settings_passkeys_section"),
+		).toBeUndefined();
+	});
+
 	it("merges split locale files into their original namespaces", async () => {
 		localStorage.setItem("aster-language", "zh");
 		const module = await loadI18nModule();

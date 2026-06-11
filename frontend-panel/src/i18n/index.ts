@@ -45,6 +45,15 @@ const INITIAL_LOCALE_REQUESTS: readonly LocaleLoadRequest[] = [
 	{ namespace: "errors", parts: ["generic", "auth"] },
 	"offline",
 ];
+const AUTHENTICATED_SHELL_LOCALE_REQUESTS: readonly LocaleLoadRequest[] = [
+	"core",
+	"files",
+	"tasks",
+	"share",
+	"search",
+	"errors",
+	"offline",
+];
 export type LocaleNamespace = (typeof ALL_NAMESPACES)[number];
 
 type LocaleModule = { default: ResourceKey };
@@ -290,17 +299,18 @@ async function loadLocale(
 	};
 }
 
-async function ensureNamespaces(
+async function ensureLocaleRequests(
 	language: string,
-	namespaces: readonly LocaleNamespace[],
+	requests: readonly LocaleLoadRequest[],
 ) {
 	const lang = normalizeLanguage(language);
-	const missingRequests = namespaces.reduce<LoadedLocaleRequest[]>(
-		(requests, namespace) => {
-			const missingParts = getMissingParts(lang, namespace);
-			if (missingParts && missingParts.length === 0) return requests;
-			requests.push({ namespace, parts: missingParts });
-			return requests;
+	const requestedLocaleRequests = requests.map(normalizeLocaleRequest);
+	const missingRequests = requestedLocaleRequests.reduce<LoadedLocaleRequest[]>(
+		(acc, { namespace, parts }) => {
+			const missingParts = getMissingParts(lang, namespace, parts);
+			if (missingParts && missingParts.length === 0) return acc;
+			acc.push({ namespace, parts: missingParts });
+			return acc;
 		},
 		[],
 	);
@@ -315,11 +325,27 @@ async function ensureNamespaces(
 	}
 }
 
+async function ensureNamespaces(
+	language: string,
+	namespaces: readonly LocaleNamespace[],
+) {
+	await ensureLocaleRequests(language, namespaces);
+}
+
 export async function ensureI18nNamespaces(
 	namespaces: readonly LocaleNamespace[],
 	language: string = i18n.language,
 ) {
 	await ensureNamespaces(normalizeLanguage(language), namespaces);
+}
+
+export async function ensureAuthenticatedShellI18nNamespaces(
+	language: string = i18n.language,
+) {
+	await ensureLocaleRequests(
+		normalizeLanguage(language),
+		AUTHENTICATED_SHELL_LOCALE_REQUESTS,
+	);
 }
 
 const allNamespaceLoadPromises = new Map<SupportedLanguage, Promise<void>>();

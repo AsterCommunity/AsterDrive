@@ -98,6 +98,10 @@ function taskShowsProgress(task: UploadTaskView) {
 	);
 }
 
+function taskRowKey(task: UploadTaskView) {
+	return `${task.id}-${taskShowsProgress(task) ? "progress" : "compact"}`;
+}
+
 export function UploadPanel({
 	open,
 	onToggle,
@@ -158,7 +162,7 @@ export function UploadPanel({
 				active,
 			});
 			for (const task of groupTasks) {
-				rows.push({ type: "task", key: task.id, task });
+				rows.push({ type: "task", key: taskRowKey(task), task });
 			}
 		}
 		return rows;
@@ -166,6 +170,7 @@ export function UploadPanel({
 
 	const virtualizer = useVirtualizer({
 		count: flatRows.length,
+		getItemKey: (index) => flatRows[index]?.key ?? index,
 		getScrollElement: () => scrollRef.current,
 		estimateSize: (index) => {
 			const row = flatRows[index];

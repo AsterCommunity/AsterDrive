@@ -16,6 +16,7 @@ import {
 	clearContactVerificationRedirectSearch,
 	getContactVerificationRedirectState,
 } from "@/lib/contactVerificationRedirect";
+import { runWhenIdle } from "@/lib/idleTask";
 import { logger } from "@/lib/logger";
 import {
 	clearPasswordResetRedirectSearch,
@@ -52,6 +53,19 @@ import {
 import type { AuthMode } from "./login/types";
 
 const MFA_METHODS: MfaMethod[] = ["totp", "recovery_code", "email_code"];
+
+function scheduleLoginSuccessPathWarmup() {
+	return runWhenIdle(
+		() => {
+			void import("@/lib/pwaWarmup")
+				.then(({ warmupLoginSuccessPath }) => {
+					warmupLoginSuccessPath();
+				})
+				.catch(() => undefined);
+		},
+		{ fallbackDelayMs: 900, timeoutMs: 2_000 },
+	);
+}
 
 function parseMfaMethods(value: string | null): MfaMethod[] {
 	if (!value) return ["totp", "recovery_code"];
@@ -177,6 +191,7 @@ function useLoginPageController() {
 								? t("create_admin")
 								: "";
 	usePageTitle(modeActionText || t("sign_in"));
+	useEffect(() => scheduleLoginSuccessPathWarmup(), []);
 	const passkeyLoginEnabled =
 		checkedPasskeyLoginEnabled ?? publicPasskeyLoginEnabled;
 	const canUsePasskeyLogin = passkeyLoginEnabled && passkeySupported;

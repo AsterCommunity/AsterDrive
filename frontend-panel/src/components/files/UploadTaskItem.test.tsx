@@ -108,4 +108,21 @@ describe("UploadTaskItem", () => {
 		expect(container.firstChild).toHaveClass("bg-destructive/5");
 		expect(screen.getByTestId("icon")).toHaveAttribute("data-name", "X");
 	});
+
+	it("keeps the progress bar visible for active retried chunked uploads with a cancel action", () => {
+		render(
+			<UploadTaskItem
+				title="world-1542.tar.gz"
+				status="Uploading"
+				mode="Chunked"
+				progress={37}
+				detail="Chunk 66/176"
+				actions={[{ icon: "X", label: "Cancel", onClick: vi.fn() }]}
+			/>,
+		);
+
+		expect(screen.getByText("Chunk 66/176")).toBeInTheDocument();
+		expect(screen.getByText("37%")).toBeInTheDocument();
+		expect(screen.getByTestId("progress")).toHaveAttribute("data-value", "37");
+	});
 });

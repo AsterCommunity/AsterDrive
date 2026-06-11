@@ -2,10 +2,16 @@ import { describe, expect, it, vi } from "vitest";
 import {
 	adminRouteWarmupLoaders,
 	filePreviewWarmupLoaders,
+	loginSuccessPathWarmupLoaders,
 	userFeatureWarmupLoaders,
 	userRouteWarmupLoaders,
 } from "@/lib/pwaWarmupLoaders";
 
+vi.mock("@/i18n", () => ({
+	ensureAuthenticatedShellI18nNamespaces: vi.fn(() =>
+		Promise.resolve("shell-i18n-loaded"),
+	),
+}));
 vi.mock("@/pages/LoginPage", () => ({ default: "LoginPage" }));
 vi.mock("@/pages/ErrorPage", () => ({ default: "ErrorPage" }));
 vi.mock("@/pages/FileBrowserPage", () => ({ default: "FileBrowserPage" }));
@@ -116,6 +122,7 @@ describe("pwaWarmupLoaders", () => {
 	const allQueues = [
 		userRouteWarmupLoaders,
 		adminRouteWarmupLoaders,
+		loginSuccessPathWarmupLoaders,
 		userFeatureWarmupLoaders,
 		filePreviewWarmupLoaders,
 	];
@@ -155,6 +162,10 @@ describe("pwaWarmupLoaders", () => {
 			"route:admin-locks",
 			"route:admin-audit",
 			"route:admin-about",
+		]);
+		expect(loginSuccessPathWarmupLoaders.map((loader) => loader.key)).toEqual([
+			"i18n:authenticated-shell",
+			"route:file-browser-entry",
 		]);
 		expect(userFeatureWarmupLoaders.map((loader) => loader.key)).toEqual([
 			"feature:file-preview",

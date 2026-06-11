@@ -93,6 +93,7 @@ const mockState = vi.hoisted(() => ({
 	toastError: vi.fn(),
 	toastSuccess: vi.fn(),
 	verifyMfaChallenge: vi.fn(),
+	warmupLoginSuccessPath: vi.fn(),
 	webAuthnSupported: false,
 }));
 
@@ -228,6 +229,10 @@ vi.mock("@/lib/logger", () => ({
 	logger: {
 		warn: (...args: unknown[]) => mockState.loggerWarn(...args),
 	},
+}));
+
+vi.mock("@/lib/pwaWarmup", () => ({
+	warmupLoginSuccessPath: () => mockState.warmupLoginSuccessPath(),
 }));
 
 vi.mock("@/pages/login/ExternalAuthRecoveryPanel", () => ({
@@ -454,6 +459,7 @@ describe("LoginPage", () => {
 		mockState.toastError.mockReset();
 		mockState.toastSuccess.mockReset();
 		mockState.verifyMfaChallenge.mockReset();
+		mockState.warmupLoginSuccessPath.mockReset();
 		mockState.webAuthnSupported = false;
 		mockState.finishPasskeyLogin.mockResolvedValue({
 			status: "authenticated",
@@ -503,6 +509,21 @@ describe("LoginPage", () => {
 
 	afterEach(() => {
 		vi.useRealTimers();
+	});
+
+	it("warms the likely login success path after the login page becomes idle", async () => {
+		vi.useFakeTimers();
+		render(<LoginPage />);
+
+		expect(mockState.warmupLoginSuccessPath).not.toHaveBeenCalled();
+
+		await vi.advanceTimersByTimeAsync(899);
+		expect(mockState.warmupLoginSuccessPath).not.toHaveBeenCalled();
+
+		await vi.advanceTimersByTimeAsync(1);
+		await Promise.resolve();
+		await Promise.resolve();
+		expect(mockState.warmupLoginSuccessPath).toHaveBeenCalledTimes(1);
 	});
 
 	it("loads public auth state and signs users in from the default login mode", async () => {

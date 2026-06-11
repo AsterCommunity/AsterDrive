@@ -115,6 +115,7 @@ describe("FileThumbnail", () => {
 		mockState.useEnteredViewport.mockReturnValue({
 			ref: mockState.enteredViewportRef,
 			hasEnteredViewport: true,
+			isInViewport: true,
 		});
 		mockState.useBlobUrl.mockReturnValue({
 			blobUrl: null,
@@ -153,10 +154,11 @@ describe("FileThumbnail", () => {
 		});
 	});
 
-	it("waits until the thumbnail enters the viewport before queueing the blob fetch", () => {
+	it("waits until the thumbnail is in the viewport before queueing the blob fetch", () => {
 		mockState.useEnteredViewport.mockReturnValue({
 			ref: mockState.enteredViewportRef,
 			hasEnteredViewport: false,
+			isInViewport: false,
 		});
 
 		render(<FileThumbnail file={pngFile} />);
@@ -166,6 +168,37 @@ describe("FileThumbnail", () => {
 			lane: "thumbnail",
 		});
 		expect(screen.getByTestId("file-type-icon")).toBeInTheDocument();
+	});
+
+	it("cleans up the blob fetch when the thumbnail leaves the viewport", () => {
+		mockState.useBlobUrl.mockReturnValue({
+			blobUrl: "blob:1",
+			error: false,
+			loading: false,
+		});
+		mockState.useEnteredViewport.mockReturnValue({
+			ref: mockState.enteredViewportRef,
+			hasEnteredViewport: true,
+			isInViewport: true,
+		});
+
+		const { rerender } = render(<FileThumbnail file={pngFile} />);
+
+		expect(mockState.useBlobUrl).toHaveBeenLastCalledWith("/thumb/7", {
+			lane: "thumbnail",
+		});
+
+		mockState.useBlobUrl.mockClear();
+		mockState.useEnteredViewport.mockReturnValue({
+			ref: mockState.enteredViewportRef,
+			hasEnteredViewport: true,
+			isInViewport: false,
+		});
+		rerender(<FileThumbnail file={pngFile} />);
+
+		expect(mockState.useBlobUrl).toHaveBeenLastCalledWith(null, {
+			lane: "thumbnail",
+		});
 	});
 
 	it("loads thumbnail support on demand before deciding whether to fetch", async () => {

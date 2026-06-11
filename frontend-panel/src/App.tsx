@@ -2,7 +2,10 @@ import { lazy, Suspense, useEffect, useState } from "react";
 import { RouterProvider } from "react-router-dom";
 import { Toaster, toast } from "sonner";
 import { usePwaUpdate } from "@/hooks/usePwaUpdate";
-import i18n, { ensureAllI18nNamespaces } from "@/i18n";
+import i18n, {
+	ensureAllI18nNamespaces,
+	ensureAuthenticatedShellI18nNamespaces,
+} from "@/i18n";
 import { runWhenIdle } from "@/lib/idleTask";
 import { logger } from "@/lib/logger";
 import { useMusicPlayerHostMountRequested } from "@/lib/musicPlayerMountSignal";
@@ -107,7 +110,7 @@ function App() {
 	const shouldMountMusicPlayer = useMusicPlayerHostMountRequested();
 	usePwaUpdate();
 	const shouldHoldAuthenticatedRoute =
-		isAuthenticated && !isChecking && !authenticatedLocaleReady;
+		isAuthenticated && (isChecking || !authenticatedLocaleReady);
 
 	useEffect(() => {
 		const skipInitialAuthCheck = shouldSkipInitialAuthCheck(
@@ -136,7 +139,7 @@ function App() {
 		let cancelled = false;
 		void (async () => {
 			try {
-				await ensureAllI18nNamespaces();
+				await ensureAuthenticatedShellI18nNamespaces();
 			} catch (error) {
 				if (!cancelled) {
 					logger.warn("failed to load authenticated locale namespaces", error);

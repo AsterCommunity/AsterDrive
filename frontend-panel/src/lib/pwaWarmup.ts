@@ -3,8 +3,8 @@ import { logger } from "@/lib/logger";
 import {
 	adminRouteWarmupLoaders,
 	filePreviewWarmupLoaders,
+	loginSuccessPathWarmupLoaders,
 	userFeatureWarmupLoaders,
-	userRouteWarmupLoaders,
 	type WarmupLoaderEntry,
 } from "@/lib/pwaWarmupLoaders";
 
@@ -141,6 +141,23 @@ function warmSequentially(loaders: WarmupLoaderEntry[]) {
 }
 
 let warmedRole: "user" | "admin" | null = null;
+let warmedLoginSuccessPath = false;
+let warmedPreviewEngines = false;
+
+export function warmupLoginSuccessPath() {
+	if (typeof window === "undefined") return;
+	if (warmedLoginSuccessPath) {
+		logWarmup("skip duplicate login success path warmup");
+		return;
+	}
+
+	warmedLoginSuccessPath = true;
+	logWarmup(
+		"start login success path warmup",
+		loginSuccessPathWarmupLoaders.map((loader) => loader.key),
+	);
+	warmSequentially(loginSuccessPathWarmupLoaders);
+}
 
 export function warmupRouteChunks(role: "user" | "admin") {
 	if (typeof window === "undefined") return;
@@ -155,19 +172,38 @@ export function warmupRouteChunks(role: "user" | "admin") {
 
 	warmedRole = role;
 
-	const routeLoaders =
-		role === "admin"
-			? [...userRouteWarmupLoaders, ...adminRouteWarmupLoaders]
-			: userRouteWarmupLoaders;
-
-	const featureLoaders = [
-		...userFeatureWarmupLoaders,
-		...filePreviewWarmupLoaders,
-	];
-	const loaders = [...routeLoaders, ...featureLoaders];
+	const routeLoaders = role === "admin" ? adminRouteWarmupLoaders : [];
 
 	logWarmup(
 		`start ${role} warmup`,
+		routeLoaders.map((loader) => loader.key),
+	);
+	if (routeLoaders.length === 0) {
+		logWarmup(`skip ${role} route warmup because no route queue is configured`);
+		return;
+	}
+	warmSequentially(routeLoaders);
+}
+
+export function warmupPreviewEngines() {
+	if (typeof window === "undefined") return;
+	if (warmedPreviewEngines) {
+		logWarmup("skip duplicate preview engines warmup");
+		return;
+	}
+
+	warmedPreviewEngines = true;
+	const loaders = [
+		...userFeatureWarmupLoaders.filter(
+			(loader) =>
+				loader.key === "feature:file-preview" ||
+				loader.key === "feature:language-icons",
+		),
+		...filePreviewWarmupLoaders,
+	];
+
+	logWarmup(
+		"start preview engines warmup",
 		loaders.map((loader) => loader.key),
 	);
 	warmSequentially(loaders);

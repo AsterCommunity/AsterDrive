@@ -30,6 +30,7 @@ const mockState = vi.hoisted(() => ({
 	fileBrowserContext: null as Record<string, unknown> | null,
 	formatBatchToast: vi.fn(),
 	handleApiError: vi.fn(),
+	idleTasks: [] as Array<() => void>,
 	musicPlayTracks: vi.fn(),
 	location: {
 		pathname: "/folder/12",
@@ -97,6 +98,7 @@ const mockState = vi.hoisted(() => ({
 	triggerFileUpload: vi.fn(),
 	triggerFolderUpload: vi.fn(),
 	useKeyboardShortcuts: vi.fn(),
+	warmupPreviewEngines: vi.fn(),
 	workspace: {
 		kind: "personal" as const,
 	} as { kind: "personal" } | { kind: "team"; teamId: number },
@@ -156,7 +158,14 @@ class MockIntersectionObserver {
 }
 
 vi.mock("@/lib/idleTask", () => ({
-	runWhenIdle: () => () => undefined,
+	runWhenIdle: (task: () => void) => {
+		mockState.idleTasks.push(task);
+		return () => undefined;
+	},
+}));
+
+vi.mock("@/lib/pwaWarmup", () => ({
+	warmupPreviewEngines: () => mockState.warmupPreviewEngines(),
 }));
 
 vi.mock("react-i18next", () => ({
@@ -1064,6 +1073,7 @@ describe("FileBrowserPage", () => {
 		mockState.fileBrowserContext = null;
 		mockState.formatBatchToast.mockReset();
 		mockState.handleApiError.mockReset();
+		mockState.idleTasks = [];
 		mockState.musicPlayTracks.mockReset();
 		mockState.location = {
 			pathname: "/folder/12",
@@ -1108,6 +1118,7 @@ describe("FileBrowserPage", () => {
 		mockState.triggerFileUpload.mockReset();
 		mockState.triggerFolderUpload.mockReset();
 		mockState.useKeyboardShortcuts.mockReset();
+		mockState.warmupPreviewEngines.mockReset();
 		mockState.workspace = { kind: "personal" };
 
 		mockState.params = { folderId: "12" };
@@ -1160,6 +1171,20 @@ describe("FileBrowserPage", () => {
 				return true;
 			},
 		);
+	});
+
+	it("schedules preview engine warmup after entering the file browser", async () => {
+		render(<FileBrowserPage />);
+
+		expect(mockState.warmupPreviewEngines).not.toHaveBeenCalled();
+		expect(mockState.idleTasks.length).toBeGreaterThanOrEqual(2);
+
+		for (const idleTask of mockState.idleTasks) {
+			idleTask();
+		}
+		await vi.waitFor(() => {
+			expect(mockState.warmupPreviewEngines).toHaveBeenCalledTimes(1);
+		});
 	});
 
 	it("navigates on mount, renders folder contents in grid view, and wires sort and view controls", async () => {

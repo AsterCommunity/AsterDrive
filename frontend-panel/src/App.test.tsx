@@ -19,6 +19,7 @@ const mockState = vi.hoisted(() => ({
 		preference: "browser",
 	},
 	ensureAllI18nNamespaces: vi.fn(),
+	ensureAuthenticatedShellI18nNamespaces: vi.fn(),
 	loggerWarn: vi.fn(),
 	previewAppsLoad: vi.fn(),
 	mediaDataSupportLoad: vi.fn(),
@@ -46,6 +47,8 @@ vi.mock("@/i18n", () => ({
 		t: (key: string) => key,
 	},
 	ensureAllI18nNamespaces: () => mockState.ensureAllI18nNamespaces(),
+	ensureAuthenticatedShellI18nNamespaces: () =>
+		mockState.ensureAuthenticatedShellI18nNamespaces(),
 }));
 
 vi.mock("@/router", () => ({
@@ -165,6 +168,10 @@ describe("App", () => {
 		mockState.displayTimeZoneStore.preference = "browser";
 		mockState.ensureAllI18nNamespaces.mockReset();
 		mockState.ensureAllI18nNamespaces.mockResolvedValue(undefined);
+		mockState.ensureAuthenticatedShellI18nNamespaces.mockReset();
+		mockState.ensureAuthenticatedShellI18nNamespaces.mockResolvedValue(
+			undefined,
+		);
 		mockState.loggerWarn.mockReset();
 		mockState.musicPlayerHostMountRequested = false;
 		mockState.frontendConfigLoad.mockReset();
@@ -195,6 +202,9 @@ describe("App", () => {
 		expect(mockState.thumbnailSupportLoad).not.toHaveBeenCalled();
 		expect(mockState.mediaDataSupportLoad).not.toHaveBeenCalled();
 		expect(mockState.ensureAllI18nNamespaces).not.toHaveBeenCalled();
+		expect(
+			mockState.ensureAuthenticatedShellI18nNamespaces,
+		).not.toHaveBeenCalled();
 		expect(mockState.authStore.checkAuth).not.toHaveBeenCalled();
 		expect(mockState.setAuthState).toHaveBeenCalledWith({ isChecking: false });
 	});
@@ -233,11 +243,15 @@ describe("App", () => {
 		expect(mockState.previewAppsLoad).not.toHaveBeenCalled();
 		expect(mockState.thumbnailSupportLoad).not.toHaveBeenCalled();
 		expect(mockState.mediaDataSupportLoad).not.toHaveBeenCalled();
-		expect(mockState.ensureAllI18nNamespaces).not.toHaveBeenCalled();
+		expect(
+			mockState.ensureAuthenticatedShellI18nNamespaces,
+		).not.toHaveBeenCalled();
 
 		await vi.advanceTimersByTimeAsync(1200);
 
-		expect(mockState.ensureAllI18nNamespaces).not.toHaveBeenCalled();
+		expect(
+			mockState.ensureAuthenticatedShellI18nNamespaces,
+		).not.toHaveBeenCalled();
 		expect(mockState.previewAppsLoad).not.toHaveBeenCalled();
 		expect(mockState.thumbnailSupportLoad).not.toHaveBeenCalled();
 		expect(mockState.mediaDataSupportLoad).not.toHaveBeenCalled();
@@ -275,16 +289,18 @@ describe("App", () => {
 		expect(mockState.frontendConfigLoad).toHaveBeenCalledTimes(1);
 		expect(mockState.warmupRouteChunks).toHaveBeenCalledWith("user");
 		await vi.waitFor(() => {
-			expect(mockState.ensureAllI18nNamespaces).toHaveBeenCalledTimes(1);
+			expect(
+				mockState.ensureAuthenticatedShellI18nNamespaces,
+			).toHaveBeenCalledTimes(1);
 			expect(mockState.previewAppsLoad).toHaveBeenCalledTimes(1);
 			expect(mockState.thumbnailSupportLoad).toHaveBeenCalledTimes(1);
 			expect(mockState.mediaDataSupportLoad).toHaveBeenCalledTimes(1);
 		});
 	});
 
-	it("holds authenticated routes until the full locale bundle is ready", async () => {
+	it("holds authenticated routes until the authenticated shell locale bundle is ready", async () => {
 		let resolveLocale!: () => void;
-		mockState.ensureAllI18nNamespaces.mockReturnValueOnce(
+		mockState.ensureAuthenticatedShellI18nNamespaces.mockReturnValueOnce(
 			new Promise<void>((resolve) => {
 				resolveLocale = resolve;
 			}),
@@ -305,9 +321,35 @@ describe("App", () => {
 		});
 	});
 
-	it("mounts authenticated routes when full locale bundle loading fails", async () => {
+	it("holds cached authenticated routes while the bootstrap auth check is still running", async () => {
+		mockState.authStore.isAuthenticated = true;
+		mockState.authStore.isChecking = true;
+
+		const { rerender } = render(<App />);
+
+		expect(screen.queryByTestId("router-provider")).not.toBeInTheDocument();
+		expect(
+			mockState.ensureAuthenticatedShellI18nNamespaces,
+		).not.toHaveBeenCalled();
+		expect(mockState.warmupRouteChunks).not.toHaveBeenCalled();
+
+		mockState.authStore.isChecking = false;
+		rerender(<App />);
+
+		await waitFor(() => {
+			expect(
+				mockState.ensureAuthenticatedShellI18nNamespaces,
+			).toHaveBeenCalledTimes(1);
+			expect(screen.getByTestId("router-provider")).toBeInTheDocument();
+			expect(mockState.warmupRouteChunks).toHaveBeenCalledWith("user");
+		});
+	});
+
+	it("mounts authenticated routes when authenticated shell locale loading fails", async () => {
 		const error = new Error("locale load failed");
-		mockState.ensureAllI18nNamespaces.mockRejectedValueOnce(error);
+		mockState.ensureAuthenticatedShellI18nNamespaces.mockRejectedValueOnce(
+			error,
+		);
 		mockState.authStore.isAuthenticated = true;
 		mockState.authStore.isChecking = false;
 

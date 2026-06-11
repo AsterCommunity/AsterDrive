@@ -4,11 +4,35 @@ export interface WarmupLoaderEntry {
 	load: () => Promise<unknown>;
 }
 
+const authenticatedShellI18nWarmupLoader = {
+	key: "i18n:authenticated-shell",
+	label: "AuthenticatedShellI18n",
+	load: () =>
+		import("@/i18n").then((module) =>
+			module.ensureAuthenticatedShellI18nNamespaces(),
+		),
+} satisfies WarmupLoaderEntry;
+
 const loginRouteWarmupLoader = {
 	key: "route:login",
 	label: "LoginPage",
 	load: () => import("@/pages/LoginPage"),
 } satisfies WarmupLoaderEntry;
+
+const fileBrowserRouteWarmupLoader = {
+	key: "route:file-browser",
+	label: "FileBrowserPage",
+	load: () => import("@/pages/FileBrowserPage"),
+} satisfies WarmupLoaderEntry;
+
+export const loginSuccessPathWarmupLoaders = [
+	authenticatedShellI18nWarmupLoader,
+	{
+		key: "route:file-browser-entry",
+		label: "FileBrowserPage",
+		load: () => import("@/pages/FileBrowserPage"),
+	},
+] satisfies WarmupLoaderEntry[];
 
 export const userRouteWarmupLoaders = [
 	loginRouteWarmupLoader,
@@ -17,11 +41,7 @@ export const userRouteWarmupLoaders = [
 		label: "ErrorPage",
 		load: () => import("@/pages/ErrorPage"),
 	},
-	{
-		key: "route:file-browser",
-		label: "FileBrowserPage",
-		load: () => import("@/pages/FileBrowserPage"),
-	},
+	fileBrowserRouteWarmupLoader,
 	{
 		key: "route:category-browser",
 		label: "CategoryBrowserPage",
