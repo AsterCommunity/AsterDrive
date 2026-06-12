@@ -6,7 +6,7 @@ use crate::errors::AsterError;
 use crate::storage::error::StorageErrorKind;
 use crate::storage::traits::driver::{StorageDriver, StoragePathVisitor};
 use crate::storage::traits::extensions::{ListStorageDriver, PresignedStorageDriver};
-use crate::storage::traits::multipart::MultipartStorageDriver;
+use crate::storage::traits::multipart::{MultipartStorageDriver, UploadedMultipartPart};
 use crate::types::{StoragePolicyOptions, serialize_storage_policy_options};
 use aws_sdk_s3::config::{BehaviorVersion, Credentials, Region};
 use aws_smithy_http_client::test_util::{ReplayEvent, StaticReplayClient, capture_request};
@@ -788,15 +788,15 @@ async fn list_uploaded_parts_paginates_with_next_part_marker() {
     assert_eq!(
         parts,
         vec![
-            crate::storage::UploadedMultipartPart {
+            UploadedMultipartPart {
                 part_number: 1,
                 size: 5,
             },
-            crate::storage::UploadedMultipartPart {
+            UploadedMultipartPart {
                 part_number: 2,
                 size: 7,
             },
-            crate::storage::UploadedMultipartPart {
+            UploadedMultipartPart {
                 part_number: 3,
                 size: 11,
             },

@@ -19,6 +19,10 @@ use crate::types::{UserRole, UserStatus};
 use super::queries::{get, to_user_info};
 
 const GENERATED_PASSWORD_LENGTH: usize = 24;
+const GENERATED_PASSWORD_UPPERCASE: &[u8] = b"ABCDEFGHJKLMNPQRSTUVWXYZ";
+const GENERATED_PASSWORD_LOWERCASE: &[u8] = b"abcdefghijkmnopqrstuvwxyz";
+const GENERATED_PASSWORD_DIGITS: &[u8] = b"23456789";
+const GENERATED_PASSWORD_SYMBOLS: &[u8] = b"!@#$%^&*-_+=";
 const GENERATED_PASSWORD_CHARSET: &[u8] =
     b"ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$%^&*-_+=";
 
@@ -63,14 +67,47 @@ pub struct CreateUserOutput {
 
 fn generate_temporary_password() -> String {
     let mut rng = rand::rng();
-    (0..GENERATED_PASSWORD_LENGTH)
-        .map(|_| {
-            let index = rng.random_range(0..GENERATED_PASSWORD_CHARSET.len());
-            GENERATED_PASSWORD_CHARSET[index] as char
-        })
-        .collect()
+    let mut bytes = Vec::with_capacity(GENERATED_PASSWORD_LENGTH);
+    for charset in [
+        GENERATED_PASSWORD_UPPERCASE,
+        GENERATED_PASSWORD_LOWERCASE,
+        GENERATED_PASSWORD_DIGITS,
+        GENERATED_PASSWORD_SYMBOLS,
+    ] {
+        let index = rng.random_range(0..charset.len());
+        bytes.push(charset[index]);
+    }
+    while bytes.len() < GENERATED_PASSWORD_LENGTH {
+        let index = rng.random_range(0..GENERATED_PASSWORD_CHARSET.len());
+        bytes.push(GENERATED_PASSWORD_CHARSET[index]);
+    }
+    for index in (1..bytes.len()).rev() {
+        let swap_index = rng.random_range(0..=index);
+        bytes.swap(index, swap_index);
+    }
+    bytes.into_iter().map(|byte| byte as char).collect()
 }
 
+#[cfg(test)]
+mod tests {
+    use super::{GENERATED_PASSWORD_LENGTH, generate_temporary_password};
+
+    #[test]
+    fn generated_temporary_password_always_satisfies_character_class_policy() {
+        for _ in 0..256 {
+            let password = generate_temporary_password();
+            assert_eq!(password.len(), GENERATED_PASSWORD_LENGTH);
+            assert!(password.chars().any(|c| c.is_ascii_uppercase()));
+            assert!(password.chars().any(|c| c.is_ascii_lowercase()));
+            assert!(password.chars().any(|c| c.is_ascii_digit()));
+            assert!(
+                password
+                    .chars()
+                    .any(|c| c.is_ascii_graphic() && !c.is_ascii_alphanumeric())
+            );
+        }
+    }
+}
 pub async fn create(
     state: &impl SharedRuntimeState,
     input: CreateUserInput<'_>,

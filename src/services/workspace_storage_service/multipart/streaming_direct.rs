@@ -236,6 +236,38 @@ mod tests {
     }
 
     #[test]
+    fn validate_streaming_direct_uploaded_size_accepts_exact_policy_boundary() {
+        let policy = policy_with_max_file_size(10);
+        let actual_size = validate_streaming_direct_uploaded_size(
+            BlobMetadata {
+                size: 10,
+                content_type: None,
+            },
+            10,
+            &policy,
+        )
+        .expect("actual size equal to max_file_size should be accepted");
+
+        assert_eq!(actual_size, 10);
+    }
+
+    #[test]
+    fn validate_streaming_direct_uploaded_size_accepts_unlimited_policy() {
+        let policy = policy_with_max_file_size(0);
+        let actual_size = validate_streaming_direct_uploaded_size(
+            BlobMetadata {
+                size: 1024,
+                content_type: None,
+            },
+            1024,
+            &policy,
+        )
+        .expect("max_file_size 0 should allow any matching declared size");
+
+        assert_eq!(actual_size, 1024);
+    }
+
+    #[test]
     fn validate_streaming_direct_uploaded_size_checks_policy_against_actual_size() {
         let policy = policy_with_max_file_size(8);
         let error = validate_streaming_direct_uploaded_size(
@@ -249,5 +281,21 @@ mod tests {
         .expect_err("actual uploaded size must respect policy max_file_size");
 
         assert!(error.message().contains("exceeds limit 8"));
+    }
+
+    #[test]
+    fn validate_streaming_direct_uploaded_size_rejects_metadata_size_outside_i64() {
+        let policy = policy_with_max_file_size(0);
+        let error = validate_streaming_direct_uploaded_size(
+            BlobMetadata {
+                size: i64::MAX as u64 + 1,
+                content_type: None,
+            },
+            i64::MAX,
+            &policy,
+        )
+        .expect_err("metadata size outside i64 must be rejected");
+
+        assert!(error.message().contains("streaming direct uploaded size"));
     }
 }

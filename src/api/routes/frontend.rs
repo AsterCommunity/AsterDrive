@@ -267,11 +267,81 @@ pub fn routes() -> actix_web::Scope {
 #[cfg(test)]
 mod tests {
     use super::{FrontendAssets, routes};
+    use crate::config::{CacheConfig, Config, RuntimeConfig};
+    use crate::runtime::PrimaryAppState;
+    use crate::services::share_service::build_share_download_rollback_queue;
+    use crate::storage::{DriverRegistry, PolicySnapshot};
     use actix_web::{App, http::StatusCode, http::header, test};
+    use migration::Migrator;
+    use std::sync::Arc;
+
+    async fn frontend_test_state() -> PrimaryAppState {
+        let db = crate::db::connect_with_metrics(
+            &crate::config::DatabaseConfig {
+                url: "sqlite::memory:".to_string(),
+                pool_size: 1,
+                retry_count: 0,
+            },
+            crate::metrics_core::NoopMetrics::arc(),
+        )
+        .await
+        .expect("frontend test DB should connect");
+        Migrator::up(&db, None)
+            .await
+            .expect("frontend test DB should migrate");
+
+        let cache = crate::cache::create_cache(&CacheConfig {
+            enabled: false,
+            ..Default::default()
+        })
+        .await;
+        let runtime_config = Arc::new(RuntimeConfig::new());
+        runtime_config
+            .reload(&db)
+            .await
+            .expect("frontend test runtime config should load");
+        let (storage_change_tx, _) = tokio::sync::broadcast::channel(
+            crate::services::storage_change_service::STORAGE_CHANGE_CHANNEL_CAPACITY,
+        );
+        let (share_download_rollback, _worker) = build_share_download_rollback_queue(
+            db.clone(),
+            1,
+            crate::metrics_core::NoopMetrics::arc(),
+        );
+
+        PrimaryAppState {
+            db_handles: crate::db::DbHandles::single(db),
+            driver_registry: Arc::new(DriverRegistry::noop()),
+            runtime_config,
+            policy_snapshot: Arc::new(PolicySnapshot::new()),
+            config: Arc::new(Config::default()),
+            cache,
+            metrics: crate::metrics_core::NoopMetrics::arc(),
+            mail_sender: crate::services::mail_service::memory_sender(),
+            storage_change_tx,
+            share_download_rollback,
+            background_task_dispatch_wakeup: PrimaryAppState::new_background_task_dispatch_wakeup(),
+            remote_protocol: PrimaryAppState::new_remote_protocol(),
+        }
+    }
+
+    async fn frontend_test_app() -> impl actix_web::dev::Service<
+        actix_http::Request,
+        Response = actix_web::dev::ServiceResponse,
+        Error = actix_web::Error,
+    > {
+        let state = frontend_test_state().await;
+        test::init_service(
+            App::new()
+                .app_data(actix_web::web::Data::new(state))
+                .service(routes()),
+        )
+        .await
+    }
 
     #[actix_web::test]
     async fn pdfjs_requests_do_not_fall_back_to_spa() {
-        let app = test::init_service(App::new().service(routes())).await;
+        let app = frontend_test_app().await;
         let req = test::TestRequest::get()
             .uri("/pdfjs/test/cmaps/__missing_test_asset__.bcmap")
             .to_request();
@@ -283,7 +353,7 @@ mod tests {
 
     #[actix_web::test]
     async fn index_is_revalidated() {
-        let app = test::init_service(App::new().service(routes())).await;
+        let app = frontend_test_app().await;
         let req = test::TestRequest::get().uri("/").to_request();
 
         let resp = test::call_service(&app, req).await;
@@ -305,7 +375,7 @@ mod tests {
         let route = asset
             .strip_prefix("assets/")
             .expect("asset path should have assets prefix");
-        let app = test::init_service(App::new().service(routes())).await;
+        let app = frontend_test_app().await;
         let req = test::TestRequest::get()
             .uri(&format!("/assets/{route}"))
             .to_request();
@@ -323,7 +393,7 @@ mod tests {
 
     #[actix_web::test]
     async fn pwa_files_are_revalidated() {
-        let app = test::init_service(App::new().service(routes())).await;
+        let app = frontend_test_app().await;
         let req = test::TestRequest::get().uri("/sw.js").to_request();
 
         let resp = test::call_service(&app, req).await;

@@ -384,3 +384,83 @@ fn lock_response(
 fn is_dav_element(element: &Element, local_name: &str) -> bool {
     element.name == local_name && element.namespace.as_deref() == Some("DAV:")
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{MAX_LOCK_DURATION_SECS, parse_timeout};
+    use actix_web::http::header::{HeaderMap, HeaderName, HeaderValue};
+    use std::time::Duration;
+
+    fn timeout_header(value: &str) -> HeaderMap {
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            HeaderName::from_static("timeout"),
+            HeaderValue::from_str(value).expect("timeout test header should parse"),
+        );
+        headers
+    }
+
+    #[test]
+    fn parse_timeout_defaults_to_server_max_duration() {
+        let headers = HeaderMap::new();
+
+        let timeout = parse_timeout(&headers)
+            .expect("missing Timeout should use default")
+            .expect("missing Timeout should not create an infinite lock");
+
+        assert_eq!(timeout, Duration::from_secs(MAX_LOCK_DURATION_SECS));
+    }
+
+    #[test]
+    fn parse_timeout_clamps_infinite_to_server_max_duration() {
+        let headers = timeout_header("Infinite");
+
+        let timeout = parse_timeout(&headers)
+            .expect("Infinite should be accepted")
+            .expect("Infinite should be clamped instead of stored as None");
+
+        assert_eq!(timeout, Duration::from_secs(MAX_LOCK_DURATION_SECS));
+    }
+
+    #[test]
+    fn parse_timeout_accepts_exact_server_max_duration() {
+        let headers = timeout_header("Second-604800");
+
+        let timeout = parse_timeout(&headers)
+            .expect("exact max timeout should be accepted")
+            .expect("exact max timeout should produce a duration");
+
+        assert_eq!(timeout, Duration::from_secs(MAX_LOCK_DURATION_SECS));
+    }
+
+    #[test]
+    fn parse_timeout_rejects_above_server_max_duration() {
+        let headers = timeout_header("Second-604801");
+
+        assert!(
+            parse_timeout(&headers).is_err(),
+            "timeout above server maximum must be rejected"
+        );
+    }
+
+    #[test]
+    fn parse_timeout_rejects_u64_values_too_large_for_chrono() {
+        let headers = timeout_header("Second-9223372036854775808");
+
+        assert!(
+            parse_timeout(&headers).is_err(),
+            "overflow-sized timeout must be rejected before DB conversion"
+        );
+    }
+
+    #[test]
+    fn parse_timeout_skips_unsupported_candidate_before_valid_timeout() {
+        let headers = timeout_header("nonsense, Second-60");
+
+        let timeout = parse_timeout(&headers)
+            .expect("later valid Timeout candidate should be accepted")
+            .expect("valid Timeout candidate should produce a duration");
+
+        assert_eq!(timeout, Duration::from_secs(60));
+    }
+}

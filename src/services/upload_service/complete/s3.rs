@@ -527,13 +527,16 @@ fn workspace_scope_from_session(session: &upload_session::Model) -> WorkspaceSto
 #[cfg(test)]
 mod tests {
     use super::{
-        copy_presigned_object_to_final_key, sum_uploaded_part_sizes, validate_uploaded_part_numbers,
+        copy_presigned_object_to_final_key, sum_uploaded_part_sizes,
+        validate_uploaded_part_numbers, verify_uploaded_multipart_parts,
     };
+    use crate::entities::upload_session;
     use crate::errors::Result;
-    use crate::storage::UploadedMultipartPart;
-    use crate::storage::{BlobMetadata, StorageDriver};
+    use crate::storage::traits::UploadedMultipartPart;
+    use crate::storage::{BlobMetadata, MultipartStorageDriver, StorageDriver};
     use async_trait::async_trait;
     use std::sync::{Arc, Mutex};
+    use std::time::Duration;
     use tokio::io::AsyncRead;
 
     #[derive(Default)]
@@ -576,6 +579,58 @@ mod tests {
 
         async fn copy_object(&self, _src_path: &str, dest_path: &str) -> Result<String> {
             Ok(dest_path.to_string())
+        }
+    }
+
+    struct ListingMultipartDriver {
+        parts: Vec<UploadedMultipartPart>,
+    }
+
+    #[async_trait]
+    impl MultipartStorageDriver for ListingMultipartDriver {
+        async fn create_multipart_upload(&self, _path: &str) -> Result<String> {
+            unreachable!()
+        }
+
+        async fn presigned_upload_part_url(
+            &self,
+            _path: &str,
+            _upload_id: &str,
+            _part_number: i32,
+            _expires: Duration,
+        ) -> Result<String> {
+            unreachable!()
+        }
+
+        async fn complete_multipart_upload(
+            &self,
+            _path: &str,
+            _upload_id: &str,
+            _parts: Vec<(i32, String)>,
+        ) -> Result<()> {
+            unreachable!()
+        }
+
+        async fn upload_multipart_part(
+            &self,
+            _path: &str,
+            _upload_id: &str,
+            _part_number: i32,
+            _data: &[u8],
+        ) -> Result<String> {
+            unreachable!()
+        }
+
+        async fn abort_multipart_upload(&self, _path: &str, _upload_id: &str) -> Result<()> {
+            unreachable!()
+        }
+
+        async fn list_uploaded_part_details(
+            &self,
+            _path: &str,
+            _upload_id: &str,
+        ) -> Result<Vec<UploadedMultipartPart>> {
+            Ok(self.parts.clone())
         }
     }
 
@@ -669,6 +724,74 @@ mod tests {
         assert!(error.to_string().contains("missing completed part 1"));
     }
 
+    #[tokio::test]
+    async fn verify_uploaded_multipart_parts_accepts_exact_provider_sizes() {
+        let session = test_session(12, 3);
+        let completed_parts = vec![
+            (1, "etag-1".to_string()),
+            (2, "etag-2".to_string()),
+            (3, "etag-3".to_string()),
+        ];
+        let multipart = ListingMultipartDriver {
+            parts: vec![
+                UploadedMultipartPart {
+                    part_number: 3,
+                    size: 2,
+                },
+                UploadedMultipartPart {
+                    part_number: 1,
+                    size: 5,
+                },
+                UploadedMultipartPart {
+                    part_number: 2,
+                    size: 5,
+                },
+            ],
+        };
+
+        let actual_size = verify_uploaded_multipart_parts(
+            &multipart,
+            "temp-key",
+            "multipart-id",
+            &session,
+            &completed_parts,
+        )
+        .await
+        .expect("exact provider part sizes should verify");
+
+        assert_eq!(actual_size, 12);
+    }
+
+    #[tokio::test]
+    async fn verify_uploaded_multipart_parts_rejects_declared_size_mismatch() {
+        let session = test_session(11, 2);
+        let completed_parts = vec![(1, "etag-1".to_string()), (2, "etag-2".to_string())];
+        let multipart = ListingMultipartDriver {
+            parts: vec![
+                UploadedMultipartPart {
+                    part_number: 1,
+                    size: 5,
+                },
+                UploadedMultipartPart {
+                    part_number: 2,
+                    size: 7,
+                },
+            ],
+        };
+
+        let error = verify_uploaded_multipart_parts(
+            &multipart,
+            "temp-key",
+            "multipart-id",
+            &session,
+            &completed_parts,
+        )
+        .await
+        .expect_err("provider size sum must match declared session size");
+
+        assert!(error.to_string().contains("multipart size mismatch"));
+    }
+
     #[test]
     fn sum_uploaded_part_sizes_rejects_overflow() {
         let parts = vec![
@@ -684,5 +807,16 @@ mod tests {
 
         let error = sum_uploaded_part_sizes(&parts).expect_err("overflow should be rejected");
         assert!(error.to_string().contains("overflow"));
+    }
+
+    #[test]
+    fn sum_uploaded_part_sizes_rejects_negative_size() {
+        let parts = vec![UploadedMultipartPart {
+            part_number: 1,
+            size: -1,
+        }];
+
+        let error = sum_uploaded_part_sizes(&parts).expect_err("negative size should be rejected");
+        assert!(error.to_string().contains("negative size"));
     }
 }

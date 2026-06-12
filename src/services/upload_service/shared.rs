@@ -471,7 +471,7 @@ mod tests {
             &self,
             _path: &str,
             _upload_id: &str,
-        ) -> Result<Vec<crate::storage::UploadedMultipartPart>> {
+        ) -> Result<Vec<crate::storage::traits::UploadedMultipartPart>> {
             panic!("not used")
         }
     }
