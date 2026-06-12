@@ -60,6 +60,8 @@ interface FolderGridCardProps extends BaseGridCardProps {
 	breadcrumbPathIds: number[];
 	fading: boolean;
 	folder: FolderListItem;
+	readOnly: boolean;
+	selectionEnabled: boolean;
 	selectionActive: boolean;
 	onFolderOpen: (id: number, name: string) => void;
 	onMoveToFolder?: (
@@ -74,6 +76,8 @@ const FolderGridCard = memo(function FolderGridCard({
 	breadcrumbPathIds,
 	fading,
 	folder,
+	readOnly,
+	selectionEnabled,
 	selectionActive,
 	onFolderOpen,
 	onMoveToFolder,
@@ -85,37 +89,51 @@ const FolderGridCard = memo(function FolderGridCard({
 		() => [...breadcrumbPathIds, folder.id],
 		[breadcrumbPathIds, folder.id],
 	);
-	const actionMenu = useMemo(
-		() => <FileBrowserItemActionMenu item={folder} isFolder />,
-		[folder],
+	const actionMenu = useMemo(() => {
+		if (readOnly) return null;
+		return <FileBrowserItemActionMenu item={folder} isFolder />;
+	}, [folder, readOnly]);
+
+	const card = (
+		<FileCard
+			item={folder}
+			isFolder
+			selected={selectionEnabled ? selected : false}
+			selectionActive={selectionEnabled ? selectionActive : false}
+			onSelect={
+				selectionEnabled ? () => toggleFolderSelection(folder.id) : undefined
+			}
+			onClick={() => {
+				if (
+					!readOnly &&
+					browserOpenMode === "double_click" &&
+					selectionEnabled
+				) {
+					selectOnlyFolder(folder.id);
+					return;
+				}
+				onFolderOpen(folder.id, folder.name);
+			}}
+			onDoubleClick={
+				!readOnly && browserOpenMode === "double_click"
+					? () => onFolderOpen(folder.id, folder.name)
+					: undefined
+			}
+			resolveDragData={() => getCurrentSelectionDragData(folder.id, true)}
+			onDrop={readOnly ? undefined : onMoveToFolder}
+			targetPathIds={targetPathIds}
+			fading={fading}
+			draggable={!readOnly}
+			selectable={selectionEnabled}
+			actionMenu={actionMenu}
+		/>
 	);
+
+	if (readOnly) return card;
 
 	return (
 		<FileBrowserItemContextMenu item={folder} isFolder>
-			<FileCard
-				item={folder}
-				isFolder
-				selected={selected}
-				selectionActive={selectionActive}
-				onSelect={() => toggleFolderSelection(folder.id)}
-				onClick={() => {
-					if (browserOpenMode === "double_click") {
-						selectOnlyFolder(folder.id);
-						return;
-					}
-					onFolderOpen(folder.id, folder.name);
-				}}
-				onDoubleClick={
-					browserOpenMode === "double_click"
-						? () => onFolderOpen(folder.id, folder.name)
-						: undefined
-				}
-				resolveDragData={() => getCurrentSelectionDragData(folder.id, true)}
-				onDrop={onMoveToFolder}
-				targetPathIds={targetPathIds}
-				fading={fading}
-				actionMenu={actionMenu}
-			/>
+			{card}
 		</FileBrowserItemContextMenu>
 	);
 });
@@ -123,7 +141,10 @@ const FolderGridCard = memo(function FolderGridCard({
 interface FileGridCardProps extends BaseGridCardProps {
 	fading: boolean;
 	file: FileListItem;
+	readOnly: boolean;
+	selectionEnabled: boolean;
 	selectionActive: boolean;
+	thumbnailPath?: string;
 	onFileClick: (file: FileListItem) => void;
 }
 
@@ -131,41 +152,59 @@ const FileGridCard = memo(function FileGridCard({
 	browserOpenMode,
 	fading,
 	file,
+	readOnly,
+	selectionEnabled,
 	selectionActive,
+	thumbnailPath,
 	onFileClick,
 }: FileGridCardProps) {
 	const selected = useFileStore((s) => s.selectedFileIds.has(file.id));
 	const selectOnlyFile = useFileStore((s) => s.selectOnlyFile);
 	const toggleFileSelection = useFileStore((s) => s.toggleFileSelection);
-	const actionMenu = useMemo(
-		() => <FileBrowserItemActionMenu item={file} isFolder={false} />,
-		[file],
+	const actionMenu = useMemo(() => {
+		return <FileBrowserItemActionMenu item={file} isFolder={false} />;
+	}, [file]);
+
+	const card = (
+		<FileCard
+			item={file}
+			isFolder={false}
+			selected={selectionEnabled ? selected : false}
+			selectionActive={selectionEnabled ? selectionActive : false}
+			onSelect={
+				selectionEnabled ? () => toggleFileSelection(file.id) : undefined
+			}
+			onClick={() => {
+				if (
+					!readOnly &&
+					browserOpenMode === "double_click" &&
+					selectionEnabled
+				) {
+					selectOnlyFile(file.id);
+					return;
+				}
+				onFileClick(file);
+			}}
+			onDoubleClick={
+				!readOnly && browserOpenMode === "double_click"
+					? () => onFileClick(file)
+					: undefined
+			}
+			resolveDragData={() => getCurrentSelectionDragData(file.id, false)}
+			fading={fading}
+			draggable={!readOnly}
+			selectable={selectionEnabled}
+			thumbnailPath={thumbnailPath}
+			actionMenu={actionMenu}
+			alwaysShowActionMenu={readOnly}
+		/>
 	);
+
+	if (readOnly) return card;
 
 	return (
 		<FileBrowserItemContextMenu item={file} isFolder={false}>
-			<FileCard
-				item={file}
-				isFolder={false}
-				selected={selected}
-				selectionActive={selectionActive}
-				onSelect={() => toggleFileSelection(file.id)}
-				onClick={() => {
-					if (browserOpenMode === "double_click") {
-						selectOnlyFile(file.id);
-						return;
-					}
-					onFileClick(file);
-				}}
-				onDoubleClick={
-					browserOpenMode === "double_click"
-						? () => onFileClick(file)
-						: undefined
-				}
-				resolveDragData={() => getCurrentSelectionDragData(file.id, false)}
-				fading={fading}
-				actionMenu={actionMenu}
-			/>
+			{card}
 		</FileBrowserItemContextMenu>
 	);
 });
@@ -179,9 +218,12 @@ function FileGridComponent({ scrollElement }: FileGridProps) {
 		fadingFolderIds,
 		files,
 		folders,
+		getThumbnailPath,
 		onFileClick,
 		onFolderOpen,
 		onMoveToFolder,
+		readOnly = false,
+		selectionEnabled = !readOnly,
 	} = useFileBrowserContext();
 	const selectionActive = useFileStore(
 		(s) => s.selectedFileIds.size + s.selectedFolderIds.size > 0,
@@ -211,6 +253,8 @@ function FileGridComponent({ scrollElement }: FileGridProps) {
 			browserOpenMode={browserOpenMode}
 			fading={fadingFolderIds?.has(folder.id) ?? false}
 			folder={folder}
+			readOnly={readOnly}
+			selectionEnabled={selectionEnabled}
 			selectionActive={selectionActive}
 			onFolderOpen={onFolderOpen}
 			onMoveToFolder={onMoveToFolder}
@@ -223,7 +267,10 @@ function FileGridComponent({ scrollElement }: FileGridProps) {
 			browserOpenMode={browserOpenMode}
 			fading={fadingFileIds?.has(file.id) ?? false}
 			file={file}
+			readOnly={readOnly}
+			selectionEnabled={selectionEnabled}
 			selectionActive={selectionActive}
+			thumbnailPath={getThumbnailPath?.(file)}
 			onFileClick={onFileClick}
 		/>
 	);

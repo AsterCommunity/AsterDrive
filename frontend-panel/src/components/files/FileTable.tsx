@@ -92,6 +92,8 @@ interface FolderTableDataRowProps extends BaseTableRowProps {
 	breadcrumbPathIds: number[];
 	fading: boolean;
 	folder: FolderListItem;
+	readOnly: boolean;
+	selectionEnabled: boolean;
 	onFolderOpen: (id: number, name: string) => void;
 	onMoveToFolder?: (
 		fileIds: number[],
@@ -105,6 +107,8 @@ const FolderTableDataRow = memo(function FolderTableDataRow({
 	browserOpenMode,
 	fading,
 	folder,
+	readOnly,
+	selectionEnabled,
 	onFolderOpen,
 	onMoveToFolder,
 }: FolderTableDataRowProps) {
@@ -154,34 +158,34 @@ const FolderTableDataRow = memo(function FolderTableDataRow({
 		void onMoveToFolder?.(data.fileIds, data.folderIds, folder.id);
 	};
 
-	return (
-		<FileBrowserItemContextMenu renderTrigger item={folder} isFolder>
-			<TableRow
-				data-folder-drop-target="true"
-				data-state={selected ? "selected" : undefined}
-				className={fileBrowserTableRowClass({
-					dragOver,
-					fading,
-					selected,
-				})}
-				draggable
-				onDragStart={handleDragStart}
-				onDragOver={handleDragOver}
-				onDragLeave={() => setDragOver(false)}
-				onDrop={handleDrop}
-				onClick={() => {
-					if (browserOpenMode === "double_click") {
-						selectOnlyFolder(folder.id);
-						return;
-					}
-					onFolderOpen(folder.id, folder.name);
-				}}
-				onDoubleClick={
-					browserOpenMode === "double_click"
-						? () => onFolderOpen(folder.id, folder.name)
-						: undefined
+	const row = (
+		<TableRow
+			data-folder-drop-target={readOnly ? undefined : "true"}
+			data-state={selectionEnabled && selected ? "selected" : undefined}
+			className={fileBrowserTableRowClass({
+				dragOver,
+				fading,
+				selected: selectionEnabled ? selected : false,
+			})}
+			draggable={!readOnly}
+			onDragStart={readOnly ? undefined : handleDragStart}
+			onDragOver={readOnly ? undefined : handleDragOver}
+			onDragLeave={readOnly ? undefined : () => setDragOver(false)}
+			onDrop={readOnly ? undefined : handleDrop}
+			onClick={() => {
+				if (!readOnly && browserOpenMode === "double_click") {
+					selectOnlyFolder(folder.id);
+					return;
 				}
-			>
+				onFolderOpen(folder.id, folder.name);
+			}}
+			onDoubleClick={
+				!readOnly && browserOpenMode === "double_click"
+					? () => onFolderOpen(folder.id, folder.name)
+					: undefined
+			}
+		>
+			{selectionEnabled && (
 				<TableCell
 					className="w-12 pr-0 first:pl-3 md:first:pl-3"
 					onClick={(e) => e.stopPropagation()}
@@ -193,16 +197,24 @@ const FolderTableDataRow = memo(function FolderTableDataRow({
 						/>
 					</div>
 				</TableCell>
-				<FolderNameCell folder={folder} />
-				<FolderSizeCell />
-				<UpdatedAtCell updatedAt={folder.updated_at} />
-				<TableCell
-					className="w-12 pl-0 pr-3 text-right"
-					onClick={(e) => e.stopPropagation()}
-				>
-					<FileBrowserItemActionMenu item={folder} isFolder />
-				</TableCell>
-			</TableRow>
+			)}
+			<FolderNameCell folder={folder} />
+			<FolderSizeCell />
+			<UpdatedAtCell updatedAt={folder.updated_at} />
+			<TableCell
+				className="w-12 pl-0 pr-3 text-right"
+				onClick={(e) => e.stopPropagation()}
+			>
+				{readOnly ? null : <FileBrowserItemActionMenu item={folder} isFolder />}
+			</TableCell>
+		</TableRow>
+	);
+
+	if (readOnly) return row;
+
+	return (
+		<FileBrowserItemContextMenu renderTrigger item={folder} isFolder>
+			{row}
 		</FileBrowserItemContextMenu>
 	);
 });
@@ -210,6 +222,9 @@ const FolderTableDataRow = memo(function FolderTableDataRow({
 interface FileTableDataRowProps extends BaseTableRowProps {
 	fading: boolean;
 	file: FileListItem;
+	readOnly: boolean;
+	selectionEnabled: boolean;
+	thumbnailPath?: string;
 	onFileClick: (file: FileListItem) => void;
 }
 
@@ -217,6 +232,9 @@ const FileTableDataRow = memo(function FileTableDataRow({
 	browserOpenMode,
 	fading,
 	file,
+	readOnly,
+	selectionEnabled,
+	thumbnailPath,
 	onFileClick,
 }: FileTableDataRowProps) {
 	const selected = useFileStore((s) => s.selectedFileIds.has(file.id));
@@ -232,26 +250,29 @@ const FileTableDataRow = memo(function FileTableDataRow({
 		});
 	};
 
-	return (
-		<FileBrowserItemContextMenu renderTrigger item={file} isFolder={false}>
-			<TableRow
-				data-state={selected ? "selected" : undefined}
-				className={fileBrowserTableRowClass({ fading, selected })}
-				draggable
-				onDragStart={handleDragStart}
-				onClick={() => {
-					if (browserOpenMode === "double_click") {
-						selectOnlyFile(file.id);
-						return;
-					}
-					onFileClick(file);
-				}}
-				onDoubleClick={
-					browserOpenMode === "double_click"
-						? () => onFileClick(file)
-						: undefined
+	const row = (
+		<TableRow
+			data-state={selectionEnabled && selected ? "selected" : undefined}
+			className={fileBrowserTableRowClass({
+				fading,
+				selected: selectionEnabled ? selected : false,
+			})}
+			draggable={!readOnly}
+			onDragStart={readOnly ? undefined : handleDragStart}
+			onClick={() => {
+				if (!readOnly && browserOpenMode === "double_click") {
+					selectOnlyFile(file.id);
+					return;
 				}
-			>
+				onFileClick(file);
+			}}
+			onDoubleClick={
+				!readOnly && browserOpenMode === "double_click"
+					? () => onFileClick(file)
+					: undefined
+			}
+		>
+			{selectionEnabled && (
 				<TableCell
 					className="w-12 pr-0 first:pl-3 md:first:pl-3"
 					onClick={(e) => e.stopPropagation()}
@@ -263,16 +284,24 @@ const FileTableDataRow = memo(function FileTableDataRow({
 						/>
 					</div>
 				</TableCell>
-				<FileNameCell file={file} />
-				<FileSizeCell size={file.size} />
-				<UpdatedAtCell updatedAt={file.updated_at} />
-				<TableCell
-					className="w-12 pl-0 pr-3 text-right"
-					onClick={(e) => e.stopPropagation()}
-				>
-					<FileBrowserItemActionMenu item={file} isFolder={false} />
-				</TableCell>
-			</TableRow>
+			)}
+			<FileNameCell file={file} thumbnailPath={thumbnailPath} />
+			<FileSizeCell size={file.size} />
+			<UpdatedAtCell updatedAt={file.updated_at} />
+			<TableCell
+				className="w-12 pl-0 pr-3 text-right"
+				onClick={(e) => e.stopPropagation()}
+			>
+				<FileBrowserItemActionMenu item={file} isFolder={false} />
+			</TableCell>
+		</TableRow>
+	);
+
+	if (readOnly) return row;
+
+	return (
+		<FileBrowserItemContextMenu renderTrigger item={file} isFolder={false}>
+			{row}
 		</FileBrowserItemContextMenu>
 	);
 });
@@ -286,9 +315,12 @@ function FileTableComponent({ scrollElement }: FileTableProps) {
 		fadingFolderIds,
 		files,
 		folders,
+		getThumbnailPath,
 		onFileClick,
 		onFolderOpen,
 		onMoveToFolder,
+		readOnly = false,
+		selectionEnabled = !readOnly,
 	} = useFileBrowserContext();
 	const selectedFileIds = useFileStore((s) => s.selectedFileIds);
 	const selectedFolderIds = useFileStore((s) => s.selectedFolderIds);
@@ -330,6 +362,8 @@ function FileTableComponent({ scrollElement }: FileTableProps) {
 			browserOpenMode={browserOpenMode}
 			fading={fadingFolderIds?.has(folder.id) ?? false}
 			folder={folder}
+			readOnly={readOnly}
+			selectionEnabled={selectionEnabled}
 			onFolderOpen={onFolderOpen}
 			onMoveToFolder={onMoveToFolder}
 		/>
@@ -341,6 +375,9 @@ function FileTableComponent({ scrollElement }: FileTableProps) {
 			browserOpenMode={browserOpenMode}
 			fading={fadingFileIds?.has(file.id) ?? false}
 			file={file}
+			readOnly={readOnly}
+			selectionEnabled={selectionEnabled}
+			thumbnailPath={getThumbnailPath?.(file)}
 			onFileClick={onFileClick}
 		/>
 	);
@@ -365,10 +402,14 @@ function FileTableComponent({ scrollElement }: FileTableProps) {
 		virtualizer.measure();
 	}, [scrollElement, virtualizer]);
 
+	const columnCount = selectionEnabled
+		? TABLE_COLUMN_COUNT
+		: TABLE_COLUMN_COUNT - 1;
+
 	const renderSpacerRow = (key: string, height: number) => (
 		<TableRow key={key} aria-hidden className="border-0 hover:bg-transparent">
 			<TableCell
-				colSpan={TABLE_COLUMN_COUNT}
+				colSpan={columnCount}
 				className="p-0 first:pl-0 last:pr-0 md:first:pl-0 md:last:pr-0"
 				style={{ height }}
 			/>
@@ -413,40 +454,54 @@ function FileTableComponent({ scrollElement }: FileTableProps) {
 		<Table>
 			<TableHeader>
 				<TableRow>
-					<TableHead className="w-12 pr-0 first:pl-3 md:first:pl-3">
-						<div className="flex justify-center">
-							<ItemCheckbox checked={allSelected} onChange={handleSelectAll} />
-						</div>
-					</TableHead>
+					{selectionEnabled && (
+						<TableHead className="w-12 pr-0 first:pl-3 md:first:pl-3">
+							<div className="flex justify-center">
+								<ItemCheckbox
+									checked={allSelected}
+									onChange={handleSelectAll}
+								/>
+							</div>
+						</TableHead>
+					)}
 					<TableHead
-						className="cursor-pointer select-none"
-						onClick={() => handleSort("name")}
+						className={cn(!readOnly && "cursor-pointer select-none")}
+						onClick={readOnly ? undefined : () => handleSort("name")}
 					>
 						<div className="flex items-center">
 							{t("core:name")}
-							<SortIcon column="name" current={sortBy} order={sortOrder} />
+							{!readOnly && (
+								<SortIcon column="name" current={sortBy} order={sortOrder} />
+							)}
 						</div>
 					</TableHead>
 					<TableHead
-						className="w-[100px] cursor-pointer select-none"
-						onClick={() => handleSort("size")}
+						className={cn(
+							"w-[100px]",
+							!readOnly && "cursor-pointer select-none",
+						)}
+						onClick={readOnly ? undefined : () => handleSort("size")}
 					>
 						<div className="flex items-center">
 							{t("core:size")}
-							<SortIcon column="size" current={sortBy} order={sortOrder} />
+							{!readOnly && (
+								<SortIcon column="size" current={sortBy} order={sortOrder} />
+							)}
 						</div>
 					</TableHead>
 					<TableHead
-						className="cursor-pointer select-none"
-						onClick={() => handleSort("created_at")}
+						className={cn(!readOnly && "cursor-pointer select-none")}
+						onClick={readOnly ? undefined : () => handleSort("created_at")}
 					>
 						<div className="flex items-center">
 							{t("core:date")}
-							<SortIcon
-								column="created_at"
-								current={sortBy}
-								order={sortOrder}
-							/>
+							{!readOnly && (
+								<SortIcon
+									column="created_at"
+									current={sortBy}
+									order={sortOrder}
+								/>
+							)}
 						</div>
 					</TableHead>
 					<TableHead className="w-12 pr-3" />

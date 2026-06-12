@@ -59,6 +59,8 @@ function useFileBrowserItemMenuProps(
 		onShare,
 		onToggleLock,
 		onVersions,
+		readOnly,
+		selectionEnabled = !readOnly,
 	} = useFileBrowserContext();
 	const selectedFileIds = useFileStore((s) => s.selectedFileIds);
 	const selectedFolderIds = useFileStore((s) => s.selectedFolderIds);
@@ -67,7 +69,10 @@ function useFileBrowserItemMenuProps(
 		: selectedFileIds.has(props.item.id);
 	const selectionCount = selectedFileIds.size + selectedFolderIds.size;
 	const useBatchMenu =
-		selected && selectionCount > 1 && batchSelectionActions != null;
+		selectionEnabled &&
+		selected &&
+		selectionCount > 1 &&
+		batchSelectionActions != null;
 
 	if (useBatchMenu) {
 		return {
@@ -85,6 +90,14 @@ function useFileBrowserItemMenuProps(
 
 	if (props.isFolder) {
 		const { item } = props;
+		if (readOnly) {
+			return {
+				isFolder: true,
+				isLocked: false,
+				onOpen: () => onFolderOpen(item.id, item.name),
+			};
+		}
+
 		return {
 			isFolder: true,
 			isLocked: item.is_locked ?? false,
@@ -111,12 +124,21 @@ function useFileBrowserItemMenuProps(
 				: undefined,
 			onToggleLock: () =>
 				onToggleLock("folder", item.id, item.is_locked ?? false),
-			onDelete: () => onDelete("folder", item.id),
+			onDelete: onDelete ? () => onDelete("folder", item.id) : undefined,
 			onInfo: () => onInfo?.("folder", item.id),
 		};
 	}
 
 	const { item } = props;
+	if (readOnly) {
+		return {
+			isFolder: false,
+			isLocked: false,
+			onOpen: () => (onFileOpen ?? onFileClick)(item),
+			onDownload: () => onDownload(item.id, item.name),
+		};
+	}
+
 	return {
 		isFolder: false,
 		isLocked: item.is_locked ?? false,
@@ -152,7 +174,7 @@ function useFileBrowserItemMenuProps(
 		onMove: onMove ? () => onMove("file", item.id) : undefined,
 		onRename: onRename ? () => onRename("file", item.id, item.name) : undefined,
 		onToggleLock: () => onToggleLock("file", item.id, item.is_locked ?? false),
-		onDelete: () => onDelete("file", item.id),
+		onDelete: onDelete ? () => onDelete("file", item.id) : undefined,
 		onVersions: onVersions ? () => onVersions(item.id) : undefined,
 		onInfo: () => onInfo?.("file", item.id),
 	};

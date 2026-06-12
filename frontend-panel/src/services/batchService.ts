@@ -9,13 +9,13 @@ import { api } from "@/services/http";
 import { bindWorkspaceService } from "@/stores/workspaceStore";
 import type { BatchResult, TaskInfo } from "@/types/api";
 
-interface StreamTicketInfo {
+export interface StreamTicketInfo {
 	token: string;
 	download_path: string;
 	expires_at: string;
 }
 
-function triggerStreamingDownload(url: string) {
+export function triggerStreamingDownload(url: string) {
 	const iframe = document.createElement("iframe");
 	iframe.style.display = "none";
 	document.body.appendChild(iframe);
@@ -26,7 +26,7 @@ function triggerStreamingDownload(url: string) {
 	}, 60_000);
 }
 
-function buildArchiveDownloadPayload(
+export function buildArchiveDownloadPayload(
 	fileIds: number[],
 	folderIds: number[],
 	archiveName?: string,

@@ -28,6 +28,8 @@ import type { FileBrowserSelectionToolbarState } from "./types";
 
 interface UseFileBrowserBatchActionsOptions {
 	allowCopyMove?: boolean;
+	allowDelete?: boolean;
+	allowTagManagement?: boolean;
 	displayFiles: FileListItem[];
 	displayFolders: FolderListItem[];
 	onChanged?: () => Promise<void> | void;
@@ -54,6 +56,8 @@ interface UseFileBrowserBatchActionsResult {
 
 export function useFileBrowserBatchActions({
 	allowCopyMove = true,
+	allowDelete = true,
+	allowTagManagement = true,
 	displayFiles,
 	displayFolders,
 	onChanged,
@@ -279,15 +283,15 @@ export function useFileBrowserBatchActions({
 						: undefined,
 					onClearSelection: clearSelection,
 					onCopy: allowCopyMove ? handleCopy : undefined,
-					onDelete: () => requestDeleteConfirm(true),
-					onManageTags: handleManageTags,
+					onDelete: allowDelete ? () => requestDeleteConfirm(true) : undefined,
+					onManageTags: allowTagManagement ? handleManageTags : undefined,
 					onMove: allowCopyMove ? handleMove : undefined,
 					onToggleDisplayedSelection: handleToggleDisplayedSelection,
 				}
 			: null;
 	const tagManagerTarget = useMemo<TagManagerTarget | null>(
 		() =>
-			count > 0
+			allowTagManagement && count > 0
 				? {
 						mode: "batch",
 						count,
@@ -296,7 +300,7 @@ export function useFileBrowserBatchActions({
 						onChanged: refreshVisibleItems,
 					}
 				: null,
-		[count, fileIds, folderIds, refreshVisibleItems],
+		[allowTagManagement, count, fileIds, folderIds, refreshVisibleItems],
 	);
 
 	return {

@@ -25,6 +25,7 @@ describe("shareService", () => {
 		apiGet.mockReset();
 		apiPatch.mockReset();
 		apiPost.mockReset();
+		document.body.innerHTML = "";
 		const { setPublicSiteUrls } = await import("@/lib/publicSiteUrl");
 		setPublicSiteUrls(null);
 	});
@@ -167,6 +168,56 @@ describe("shareService", () => {
 		expect(shareService.downloadFolderFileUrl("token-1", 42)).toBe(
 			"/api/v1/s/token-1/files/42/download",
 		);
+	});
+
+	it("triggers iframe downloads for shared archive tickets", async () => {
+		vi.useFakeTimers();
+		try {
+			apiPost.mockResolvedValueOnce({
+				token: "shared-ticket",
+				download_path: "/s/token-1/archive-download/shared-ticket?download=1",
+				expires_at: "2026-04-10T12:00:00Z",
+			});
+
+			await shareService.streamArchiveDownload("token-1", [1, 2], [3]);
+
+			expect(apiPost).toHaveBeenCalledWith("/s/token-1/archive-download", {
+				file_ids: [1, 2],
+				folder_ids: [3],
+			});
+			const iframe = document.querySelector("iframe");
+			expect(iframe).toHaveAttribute(
+				"src",
+				"/api/v1/s/token-1/archive-download/shared-ticket?download=1",
+			);
+
+			vi.advanceTimersByTime(60_000);
+			expect(document.querySelector("iframe")).toBeNull();
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it("uses absolute shared archive download paths without API base rewriting", async () => {
+		vi.useFakeTimers();
+		try {
+			apiPost.mockResolvedValueOnce({
+				token: "shared-ticket",
+				download_path:
+					"https://files.example.test/s/token-1/archive-download/shared-ticket?download=1",
+				expires_at: "2026-04-10T12:00:00Z",
+			});
+
+			await shareService.streamArchiveDownload("token-1", [1], []);
+
+			const iframe = document.querySelector("iframe");
+			expect(iframe).toHaveAttribute(
+				"src",
+				"https://files.example.test/s/token-1/archive-download/shared-ticket?download=1",
+			);
+		} finally {
+			vi.useRealTimers();
+		}
 	});
 
 	it("forwards abort signals for public preview metadata requests", () => {

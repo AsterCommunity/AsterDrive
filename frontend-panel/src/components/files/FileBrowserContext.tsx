@@ -19,7 +19,7 @@ export interface FileBrowserBatchSelectionActions {
 	downloadAction?: FileBrowserSelectionDownloadAction;
 	onArchiveCompress?: () => void;
 	onCopy?: () => void;
-	onDelete: () => void;
+	onDelete?: () => void;
 	onManageTags?: () => void;
 	onMove?: () => void;
 }
@@ -28,8 +28,11 @@ export interface FileBrowserContextValue {
 	folders: FolderListItem[];
 	files: FileListItem[];
 	browserOpenMode: BrowserOpenMode;
+	readOnly?: boolean;
+	selectionEnabled?: boolean;
 	breadcrumbPathIds: number[];
 	batchSelectionActions?: FileBrowserBatchSelectionActions | null;
+	getThumbnailPath?: (file: FileListItem) => string;
 	onFolderOpen: (id: number, name: string) => void;
 	onFileClick: (file: FileListItem) => void;
 	onFileOpen?: (file: FileListItem) => void;

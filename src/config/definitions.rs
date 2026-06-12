@@ -148,6 +148,8 @@ pub const ARCHIVE_PREVIEW_MAX_ENTRIES_KEY: &str = "archive_preview_max_entries";
 pub const ARCHIVE_PREVIEW_MAX_MANIFEST_BYTES_KEY: &str = "archive_preview_max_manifest_bytes";
 pub const ARCHIVE_PREVIEW_MAX_DURATION_SECS_KEY: &str = "archive_preview_max_duration_secs";
 pub const ARCHIVE_COMPRESS_ENABLED_KEY: &str = "archive_compress_enabled";
+pub const ARCHIVE_DOWNLOAD_USER_ENABLED_KEY: &str = "archive_download_user_enabled";
+pub const ARCHIVE_DOWNLOAD_SHARE_ENABLED_KEY: &str = "archive_download_share_enabled";
 pub const ARCHIVE_BUILD_MAX_ENTRIES_KEY: &str = "archive_build_max_entries";
 pub const ARCHIVE_BUILD_MAX_TOTAL_SOURCE_BYTES_KEY: &str = "archive_build_max_total_source_bytes";
 pub const ARCHIVE_BUILD_MAX_TEMP_BYTES_KEY: &str = "archive_build_max_temp_bytes";
@@ -1147,6 +1149,28 @@ pub static ALL_CONFIGS: &[ConfigDef] = &[
         is_sensitive: false,
         category: CONFIG_CATEGORY_FILE_PROCESSING_ARCHIVE_BUILD,
         description: "Allow users to create ZIP archives as new workspace files",
+    },
+    ConfigDef {
+        key: ARCHIVE_DOWNLOAD_USER_ENABLED_KEY,
+        label_i18n_key: "settings_item_archive_download_user_enabled_label",
+        description_i18n_key: "settings_item_archive_download_user_enabled_desc",
+        value_type: SystemConfigValueType::Boolean,
+        default_fn: || "true".to_string(),
+        requires_restart: false,
+        is_sensitive: false,
+        category: CONFIG_CATEGORY_FILE_PROCESSING_ARCHIVE_BUILD,
+        description: "Allow signed-in users to download selected personal and team files as ZIP archives",
+    },
+    ConfigDef {
+        key: ARCHIVE_DOWNLOAD_SHARE_ENABLED_KEY,
+        label_i18n_key: "settings_item_archive_download_share_enabled_label",
+        description_i18n_key: "settings_item_archive_download_share_enabled_desc",
+        value_type: SystemConfigValueType::Boolean,
+        default_fn: || "true".to_string(),
+        requires_restart: false,
+        is_sensitive: false,
+        category: CONFIG_CATEGORY_FILE_PROCESSING_ARCHIVE_BUILD,
+        description: "Allow public share visitors to download selected shared files as ZIP archives",
     },
     ConfigDef {
         key: ARCHIVE_BUILD_MAX_ENTRIES_KEY,

@@ -1,14 +1,16 @@
 //! API 路由：`batch`。
 
+use crate::api::api_error_code::ApiErrorCode;
 pub use crate::api::dto::batch::*;
 use crate::api::dto::validate_request;
 use crate::api::middleware::auth::JwtAuth;
 use crate::api::middleware::rate_limit;
 use crate::api::response::ApiResponse;
 use crate::api::routes::team_scope;
+use crate::config::operations;
 use crate::config::{NetworkTrustConfig, RateLimitConfig};
-use crate::errors::Result;
-use crate::runtime::PrimaryAppState;
+use crate::errors::{Result, auth_forbidden_with_code};
+use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::{
     audit_service::{self, AuditContext},
     auth_service::Claims,
@@ -158,6 +160,7 @@ pub async fn batch_copy(
         (status = 200, description = "Archive download ticket", body = inline(ApiResponse<stream_ticket_service::StreamTicketInfo>)),
         (status = 400, description = "Invalid request"),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
+        (status = 403, description = "ArchiveDownloadUserDisabled"),
     ),
     security(("bearer" = [])),
 )]
@@ -222,6 +225,7 @@ pub async fn archive_compress(
         (status = 200, description = "Archive stream download"),
         (status = 400, description = "Invalid ticket"),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
+        (status = 403, description = "ArchiveDownloadUserDisabled"),
     ),
     security(("bearer" = [])),
 )]
@@ -354,7 +358,7 @@ pub(crate) async fn team_batch_copy(
         (status = 200, description = "Team archive download ticket", body = inline(ApiResponse<stream_ticket_service::StreamTicketInfo>)),
         (status = 400, description = "Invalid request"),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
-        (status = 403, description = "Forbidden"),
+        (status = 403, description = "Forbidden or ArchiveDownloadUserDisabled"),
     ),
     security(("bearer" = [])),
 )]
@@ -424,7 +428,7 @@ pub(crate) async fn team_archive_compress(
         (status = 200, description = "Team archive stream download"),
         (status = 400, description = "Invalid ticket"),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
-        (status = 403, description = "Forbidden"),
+        (status = 403, description = "Forbidden or ArchiveDownloadUserDisabled"),
     ),
     security(("bearer" = [])),
 )]
@@ -508,6 +512,7 @@ pub(crate) async fn archive_download_ticket_response(
     body: &ArchiveDownloadReq,
 ) -> Result<HttpResponse> {
     validate_request(body)?;
+    ensure_user_archive_download_enabled(state)?;
     let ticket = stream_ticket_service::create_archive_download_ticket_in_scope(
         state,
         scope,
@@ -585,8 +590,19 @@ pub(crate) async fn archive_download_stream_response(
     scope: WorkspaceStorageScope,
     token: &str,
 ) -> Result<HttpResponse> {
+    ensure_user_archive_download_enabled(state)?;
     let params =
         stream_ticket_service::resolve_archive_download_ticket_in_scope(state, scope, token)
             .await?;
     task_service::archive::stream_archive_download_in_scope(state, scope, params).await
+}
+
+fn ensure_user_archive_download_enabled(state: &PrimaryAppState) -> Result<()> {
+    if !operations::archive_download_user_enabled(state.runtime_config()) {
+        return Err(auth_forbidden_with_code(
+            ApiErrorCode::ArchiveDownloadUserDisabled,
+            "archive downloads for personal and team files are disabled by the administrator",
+        ));
+    }
+    Ok(())
 }

@@ -23,7 +23,7 @@ interface FileCardProps {
 	item: FileListItem | FolderListItem;
 	isFolder: boolean;
 	selected: boolean;
-	onSelect: () => void;
+	onSelect?: () => void;
 	onClick: () => void;
 	onDoubleClick?: () => void;
 	/** IDs to drag when this item is part of a selection */
@@ -42,6 +42,7 @@ interface FileCardProps {
 	selectionActive?: boolean;
 	thumbnailPath?: string;
 	actionMenu?: React.ReactNode;
+	alwaysShowActionMenu?: boolean;
 }
 
 export function FileCard({
@@ -61,6 +62,7 @@ export function FileCard({
 	selectionActive = false,
 	thumbnailPath,
 	actionMenu,
+	alwaysShowActionMenu = false,
 }: FileCardProps) {
 	const { t } = useTranslation("core");
 	const [dragOver, setDragOver] = useState(false);
@@ -147,7 +149,7 @@ export function FileCard({
 				<ItemCheckbox
 					data-drag-preview-hidden
 					checked={selected}
-					onChange={onSelect}
+					onChange={onSelect ?? (() => {})}
 					className={cn(
 						"absolute top-2 left-2 transition-opacity",
 						selected || selectionActive
@@ -171,7 +173,10 @@ export function FileCard({
 				<div
 					data-file-card-action-menu
 					role="presentation"
-					className="absolute top-2 right-2 z-10 sm:hidden"
+					className={cn(
+						"absolute top-2 right-2 z-10",
+						selectable && !alwaysShowActionMenu && "sm:hidden",
+					)}
 					onPointerDown={(event) => event.stopPropagation()}
 					onClick={(event) => event.stopPropagation()}
 					onDoubleClick={(event) => event.stopPropagation()}

@@ -1351,3 +1351,154 @@ async fn test_batch_move_rejects_non_positive_target_folder_id() {
     let body: Value = test::read_body_json(resp).await;
     assert_eq!(body["msg"], "target_folder_id must be greater than 0");
 }
+
+#[actix_web::test]
+async fn test_batch_archive_download_ticket_respects_user_runtime_switch() {
+    let state = common::setup().await;
+    let app = create_test_app!(state.clone());
+    let (token, _) = register_and_login!(app);
+    let file_id = upload_test_file_named!(app, token, "download-me.txt");
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/teams")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({ "name": "Archive Download Team" }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 201);
+    let body: Value = test::read_body_json(resp).await;
+    let team_id = body["data"]["id"].as_i64().unwrap();
+
+    let boundary = "----TeamArchiveDownloadBoundary";
+    let payload = format!(
+        "--{boundary}\r\n\
+         Content-Disposition: form-data; name=\"file\"; filename=\"team-download.txt\"\r\n\
+         Content-Type: text/plain\r\n\r\n\
+         team download content\r\n\
+         --{boundary}--\r\n"
+    );
+    let req = test::TestRequest::post()
+        .uri(&format!("/api/v1/teams/{team_id}/files/upload"))
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .insert_header((
+            "Content-Type",
+            format!("multipart/form-data; boundary={boundary}"),
+        ))
+        .set_payload(payload)
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 201);
+    let body: Value = test::read_body_json(resp).await;
+    let team_file_id = body["data"]["id"].as_i64().unwrap();
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/batch/archive-download")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({
+            "file_ids": [file_id],
+            "folder_ids": [],
+            "archive_name": "download.zip"
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+    let body: Value = test::read_body_json(resp).await;
+    let ticket = body["data"]["token"].as_str().unwrap().to_string();
+    assert!(ticket.starts_with("st_"));
+    assert_eq!(
+        body["data"]["download_path"],
+        format!("/api/v1/batch/archive-download/{ticket}")
+    );
+
+    let req = test::TestRequest::post()
+        .uri(&format!("/api/v1/teams/{team_id}/batch/archive-download"))
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({
+            "file_ids": [team_file_id],
+            "folder_ids": [],
+            "archive_name": "team-download.zip"
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+    let body: Value = test::read_body_json(resp).await;
+    let team_ticket = body["data"]["token"].as_str().unwrap().to_string();
+    assert!(team_ticket.starts_with("st_"));
+    assert_eq!(
+        body["data"]["download_path"],
+        format!("/api/v1/teams/{team_id}/batch/archive-download/{team_ticket}")
+    );
+
+    state.runtime_config.apply(common::system_config_model(
+        aster_drive::config::operations::ARCHIVE_DOWNLOAD_USER_ENABLED_KEY,
+        "false",
+    ));
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/batch/archive-download")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({
+            "file_ids": [file_id],
+            "folder_ids": [],
+            "archive_name": "download.zip"
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 403);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(
+        body["code"],
+        ApiErrorCode::ArchiveDownloadUserDisabled.as_ref()
+    );
+
+    let req = test::TestRequest::post()
+        .uri(&format!("/api/v1/teams/{team_id}/batch/archive-download"))
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({
+            "file_ids": [team_file_id],
+            "folder_ids": [],
+            "archive_name": "team-download.zip"
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 403);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(
+        body["code"],
+        ApiErrorCode::ArchiveDownloadUserDisabled.as_ref()
+    );
+
+    let req = test::TestRequest::get()
+        .uri(&format!("/api/v1/batch/archive-download/{ticket}"))
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 403);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(
+        body["code"],
+        ApiErrorCode::ArchiveDownloadUserDisabled.as_ref()
+    );
+
+    let req = test::TestRequest::get()
+        .uri(&format!(
+            "/api/v1/teams/{team_id}/batch/archive-download/{team_ticket}"
+        ))
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 403);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(
+        body["code"],
+        ApiErrorCode::ArchiveDownloadUserDisabled.as_ref()
+    );
+}

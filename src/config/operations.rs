@@ -9,6 +9,7 @@ use serde::{Deserialize, Serialize};
 pub use crate::config::definitions::{
     ARCHIVE_BUILD_MAX_ENTRIES_KEY, ARCHIVE_BUILD_MAX_TEMP_BYTES_KEY,
     ARCHIVE_BUILD_MAX_TOTAL_SOURCE_BYTES_KEY, ARCHIVE_COMPRESS_ENABLED_KEY,
+    ARCHIVE_DOWNLOAD_SHARE_ENABLED_KEY, ARCHIVE_DOWNLOAD_USER_ENABLED_KEY,
     ARCHIVE_EXTRACT_MAX_COMPRESSION_RATIO_KEY, ARCHIVE_EXTRACT_MAX_DEPTH_KEY,
     ARCHIVE_EXTRACT_MAX_DIRECTORIES_KEY, ARCHIVE_EXTRACT_MAX_DURATION_SECS_KEY,
     ARCHIVE_EXTRACT_MAX_ENTRIES_KEY, ARCHIVE_EXTRACT_MAX_ENTRY_COMPRESSION_RATIO_KEY,
@@ -810,6 +811,14 @@ pub fn archive_compress_enabled(runtime_config: &RuntimeConfig) -> bool {
     )
 }
 
+pub fn archive_download_user_enabled(runtime_config: &RuntimeConfig) -> bool {
+    read_bool(runtime_config, ARCHIVE_DOWNLOAD_USER_ENABLED_KEY, true)
+}
+
+pub fn archive_download_share_enabled(runtime_config: &RuntimeConfig) -> bool {
+    read_bool(runtime_config, ARCHIVE_DOWNLOAD_SHARE_ENABLED_KEY, true)
+}
+
 pub fn archive_build_max_entries(runtime_config: &RuntimeConfig) -> u64 {
     read_positive_u64(
         runtime_config,
@@ -998,7 +1007,8 @@ fn read_bounded_u32(
 #[cfg(test)]
 mod tests {
     use super::{
-        ARCHIVE_COMPRESS_ENABLED_KEY, ARCHIVE_EXTRACT_MAX_STAGING_BYTES_KEY,
+        ARCHIVE_COMPRESS_ENABLED_KEY, ARCHIVE_DOWNLOAD_SHARE_ENABLED_KEY,
+        ARCHIVE_DOWNLOAD_USER_ENABLED_KEY, ARCHIVE_EXTRACT_MAX_STAGING_BYTES_KEY,
         AVATAR_MAX_UPLOAD_SIZE_BYTES_KEY, BACKGROUND_TASK_ARCHIVE_MAX_CONCURRENCY_KEY,
         BACKGROUND_TASK_DISPATCH_IDLE_MAX_INTERVAL_SECS_KEY, BACKGROUND_TASK_MAX_ATTEMPTS_KEY,
         BACKGROUND_TASK_MAX_CONCURRENCY_KEY, BACKGROUND_TASK_STORAGE_MIGRATION_MAX_CONCURRENCY_KEY,
@@ -1021,7 +1031,8 @@ mod tests {
         OFFLINE_DOWNLOAD_MAX_MB_PER_SEC_KEY, OFFLINE_DOWNLOAD_TEMP_DIR_KEY,
         REMOTE_NODE_HEALTH_TEST_INTERVAL_SECS_KEY, SHARE_DOWNLOAD_ROLLBACK_QUEUE_CAPACITY_KEY,
         SHARE_STREAM_SESSION_TTL_SECS_KEY, TASK_LIST_MAX_LIMIT_KEY, TEAM_MEMBER_LIST_MAX_LIMIT_KEY,
-        THUMBNAIL_MAX_DIMENSION_KEY, archive_compress_enabled, archive_extract_max_staging_bytes,
+        THUMBNAIL_MAX_DIMENSION_KEY, archive_compress_enabled, archive_download_share_enabled,
+        archive_download_user_enabled, archive_extract_max_staging_bytes,
         avatar_max_upload_size_bytes, background_task_archive_max_concurrency,
         background_task_dispatch_idle_max_interval_secs, background_task_max_attempts,
         background_task_max_concurrency, background_task_storage_migration_max_concurrency,
@@ -1769,6 +1780,28 @@ mod tests {
             archive_compress_enabled(&runtime_config),
             DEFAULT_ARCHIVE_COMPRESS_ENABLED
         );
+    }
+
+    #[test]
+    fn archive_download_enabled_readers_default_enabled_and_handle_invalid_values() {
+        let runtime_config = RuntimeConfig::new();
+        assert!(archive_download_user_enabled(&runtime_config));
+        assert!(archive_download_share_enabled(&runtime_config));
+
+        runtime_config.apply(config_model(ARCHIVE_DOWNLOAD_USER_ENABLED_KEY, "false"));
+        runtime_config.apply(config_model(ARCHIVE_DOWNLOAD_SHARE_ENABLED_KEY, "off"));
+        assert!(!archive_download_user_enabled(&runtime_config));
+        assert!(!archive_download_share_enabled(&runtime_config));
+
+        runtime_config.apply(config_model(ARCHIVE_DOWNLOAD_USER_ENABLED_KEY, "true"));
+        runtime_config.apply(config_model(ARCHIVE_DOWNLOAD_SHARE_ENABLED_KEY, "on"));
+        assert!(archive_download_user_enabled(&runtime_config));
+        assert!(archive_download_share_enabled(&runtime_config));
+
+        runtime_config.apply(config_model(ARCHIVE_DOWNLOAD_USER_ENABLED_KEY, "invalid"));
+        runtime_config.apply(config_model(ARCHIVE_DOWNLOAD_SHARE_ENABLED_KEY, "invalid"));
+        assert!(archive_download_user_enabled(&runtime_config));
+        assert!(archive_download_share_enabled(&runtime_config));
     }
 
     #[test]

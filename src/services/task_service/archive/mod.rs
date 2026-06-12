@@ -9,7 +9,10 @@ mod selection;
 pub(crate) use compress::create_archive_compress_task_in_scope;
 pub(crate) use extract::create_archive_extract_task_in_scope;
 pub(crate) use preview::ensure_archive_preview_task;
-pub(crate) use selection::{prepare_archive_download_in_scope, stream_archive_download_in_scope};
+pub(crate) use selection::{
+    prepare_archive_download_in_scope, prepare_shared_archive_download,
+    stream_archive_download_in_scope, stream_shared_archive_download,
+};
 
 use crate::entities::background_task;
 use crate::errors::{AsterError, Result};

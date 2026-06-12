@@ -10,9 +10,14 @@ const mockState = vi.hoisted(() => ({
 		fadingFolderIds: undefined as Set<number> | undefined,
 		files: [] as Array<Record<string, unknown>>,
 		folders: [] as Array<Record<string, unknown>>,
+		getThumbnailPath: undefined as
+			| ((file: { id: number; name: string }) => string)
+			| undefined,
 		onFileClick: vi.fn(),
 		onFolderOpen: vi.fn(),
 		onMoveToFolder: vi.fn(),
+		readOnly: false,
+		selectionEnabled: undefined as boolean | undefined,
 	},
 	store: {
 		selectedFileIds: new Set<number>(),
@@ -65,22 +70,30 @@ vi.mock("@/components/files/FileCard", () => ({
 		onClick,
 		onDoubleClick,
 		dragData,
+		draggable,
 		resolveDragData,
+		selectable,
 		targetPathIds,
 		fading,
+		thumbnailPath,
 		actionMenu,
+		alwaysShowActionMenu,
 	}: {
 		item: { name: string };
 		isFolder: boolean;
 		selected: boolean;
-		onSelect: () => void;
+		onSelect?: () => void;
 		onClick: () => void;
 		onDoubleClick?: () => void;
 		dragData?: { fileIds: number[]; folderIds: number[] };
+		draggable?: boolean;
 		resolveDragData?: () => { fileIds: number[]; folderIds: number[] };
+		selectable?: boolean;
 		targetPathIds?: number[];
 		fading?: boolean;
+		thumbnailPath?: string;
 		actionMenu?: React.ReactNode;
+		alwaysShowActionMenu?: boolean;
 	}) => {
 		const computedDragData = resolveDragData?.() ?? dragData;
 		return (
@@ -91,6 +104,10 @@ vi.mock("@/components/files/FileCard", () => ({
 				data-drag-folder-ids={computedDragData?.folderIds.join(",") ?? ""}
 				data-target-path-ids={targetPathIds?.join(",") ?? ""}
 				data-fading={String(Boolean(fading))}
+				data-draggable={String(draggable ?? true)}
+				data-selectable={String(selectable ?? true)}
+				data-thumbnail-path={thumbnailPath ?? ""}
+				data-always-show-action-menu={String(Boolean(alwaysShowActionMenu))}
 			>
 				<button type="button" onClick={onClick}>
 					open:{item.name}
@@ -98,9 +115,11 @@ vi.mock("@/components/files/FileCard", () => ({
 				<button type="button" onClick={onDoubleClick}>
 					open-double:{item.name}
 				</button>
-				<button type="button" onClick={onSelect}>
-					select:{item.name}
-				</button>
+				{onSelect ? (
+					<button type="button" onClick={onSelect}>
+						select:{item.name}
+					</button>
+				) : null}
 				{actionMenu}
 			</div>
 		);
@@ -115,9 +134,12 @@ describe("FileGrid", () => {
 		mockState.browserContext.fadingFolderIds = undefined;
 		mockState.browserContext.files = [];
 		mockState.browserContext.folders = [];
+		mockState.browserContext.getThumbnailPath = undefined;
 		mockState.browserContext.onFileClick.mockReset();
 		mockState.browserContext.onFolderOpen.mockReset();
 		mockState.browserContext.onMoveToFolder.mockReset();
+		mockState.browserContext.readOnly = false;
+		mockState.browserContext.selectionEnabled = undefined;
 		mockState.store.selectedFileIds = new Set();
 		mockState.store.selectedFolderIds = new Set();
 		mockState.store.selectOnlyFile.mockReset();
@@ -189,6 +211,136 @@ describe("FileGrid", () => {
 			expect.objectContaining({ id: 2 }),
 		);
 		expect(mockState.store.toggleFileSelection).toHaveBeenCalledWith(2);
+	});
+
+	it("renders read-only cards without selection or drag behavior", () => {
+		mockState.browserContext.readOnly = true;
+		mockState.browserContext.getThumbnailPath = (file) => `/thumb/${file.id}`;
+		mockState.browserContext.files = [{ id: 2, name: "report.pdf" }];
+		mockState.browserContext.folders = [{ id: 1, name: "Docs" }];
+		mockState.store.selectedFileIds = new Set([2]);
+		mockState.store.selectedFolderIds = new Set([1]);
+
+		render(<FileGrid />);
+
+		expect(screen.getByTestId("folder-card")).toHaveAttribute(
+			"data-selected",
+			"false",
+		);
+		expect(screen.getByTestId("folder-card")).toHaveAttribute(
+			"data-draggable",
+			"false",
+		);
+		expect(screen.getByTestId("folder-card")).toHaveAttribute(
+			"data-selectable",
+			"false",
+		);
+		expect(screen.getByTestId("file-card")).toHaveAttribute(
+			"data-selected",
+			"false",
+		);
+		expect(screen.getByTestId("file-card")).toHaveAttribute(
+			"data-draggable",
+			"false",
+		);
+		expect(screen.getByTestId("file-card")).toHaveAttribute(
+			"data-selectable",
+			"false",
+		);
+		expect(screen.getByTestId("file-card")).toHaveAttribute(
+			"data-thumbnail-path",
+			"/thumb/2",
+		);
+		expect(screen.getByTestId("file-card")).toHaveAttribute(
+			"data-always-show-action-menu",
+			"true",
+		);
+		expect(
+			screen.queryByRole("button", { name: "actions:Docs" }),
+		).not.toBeInTheDocument();
+		expect(
+			screen.getByRole("button", { name: "actions:report.pdf" }),
+		).toBeInTheDocument();
+
+		fireEvent.click(screen.getByRole("button", { name: "open:Docs" }));
+		fireEvent.click(screen.getByRole("button", { name: "open:report.pdf" }));
+
+		expect(mockState.store.selectOnlyFolder).not.toHaveBeenCalled();
+		expect(mockState.store.selectOnlyFile).not.toHaveBeenCalled();
+		expect(mockState.browserContext.onFolderOpen).toHaveBeenCalledWith(
+			1,
+			"Docs",
+		);
+		expect(mockState.browserContext.onFileClick).toHaveBeenCalledWith(
+			expect.objectContaining({ id: 2 }),
+		);
+	});
+
+	it("does not run selection handlers when selection is disabled", () => {
+		mockState.browserContext.browserOpenMode = "double_click";
+		mockState.browserContext.selectionEnabled = false;
+		mockState.browserContext.files = [{ id: 2, name: "report.pdf" }];
+		mockState.browserContext.folders = [{ id: 1, name: "Docs" }];
+
+		render(<FileGrid />);
+
+		expect(screen.queryByRole("button", { name: "select:Docs" })).toBeNull();
+		expect(
+			screen.queryByRole("button", { name: "select:report.pdf" }),
+		).toBeNull();
+
+		fireEvent.click(screen.getByRole("button", { name: "open:Docs" }));
+		fireEvent.click(screen.getByRole("button", { name: "open:report.pdf" }));
+
+		expect(mockState.store.selectOnlyFolder).not.toHaveBeenCalled();
+		expect(mockState.store.selectOnlyFile).not.toHaveBeenCalled();
+		expect(mockState.browserContext.onFolderOpen).toHaveBeenCalledWith(
+			1,
+			"Docs",
+		);
+		expect(mockState.browserContext.onFileClick).toHaveBeenCalledWith(
+			expect.objectContaining({ id: 2 }),
+		);
+	});
+
+	it("allows selection in read-only grids when explicitly enabled", () => {
+		mockState.browserContext.readOnly = true;
+		mockState.browserContext.selectionEnabled = true;
+		mockState.browserContext.files = [{ id: 2, name: "report.pdf" }];
+		mockState.browserContext.folders = [{ id: 1, name: "Docs" }];
+		mockState.store.selectedFileIds = new Set([2]);
+		mockState.store.selectedFolderIds = new Set([1]);
+
+		render(<FileGrid />);
+
+		expect(screen.getByTestId("folder-card")).toHaveAttribute(
+			"data-selected",
+			"true",
+		);
+		expect(screen.getByTestId("folder-card")).toHaveAttribute(
+			"data-selectable",
+			"true",
+		);
+		expect(screen.getByTestId("folder-card")).toHaveAttribute(
+			"data-draggable",
+			"false",
+		);
+		expect(screen.getByTestId("file-card")).toHaveAttribute(
+			"data-selected",
+			"true",
+		);
+		expect(screen.getByTestId("file-card")).toHaveAttribute(
+			"data-selectable",
+			"true",
+		);
+		expect(screen.getByTestId("file-card")).toHaveAttribute(
+			"data-draggable",
+			"false",
+		);
+		expect(screen.getByTestId("file-card")).toHaveAttribute(
+			"data-always-show-action-menu",
+			"true",
+		);
 	});
 
 	it("selects folders and files on single click and opens them on double click in double-click mode", () => {

@@ -1,8 +1,21 @@
-import { Fragment, type ReactNode, type RefObject } from "react";
+import {
+	Fragment,
+	type ReactNode,
+	type RefObject,
+	useCallback,
+	useEffect,
+	useMemo,
+} from "react";
 import { useTranslation } from "react-i18next";
+import { EmptyState } from "@/components/common/EmptyState";
 import { UserAvatarImage } from "@/components/common/UserAvatarImage";
 import { ViewToggle } from "@/components/common/ViewToggle";
-import { ReadOnlyFileCollection } from "@/components/files/ReadOnlyFileCollection";
+import {
+	type FileBrowserContextValue,
+	FileBrowserProvider,
+} from "@/components/files/FileBrowserContext";
+import { FileGrid } from "@/components/files/FileGrid";
+import { FileTable } from "@/components/files/FileTable";
 import {
 	Breadcrumb,
 	BreadcrumbItem,
@@ -13,6 +26,10 @@ import {
 } from "@/components/ui/breadcrumb";
 import { Icon } from "@/components/ui/icon";
 import { PAGE_SECTION_PADDING_CLASS } from "@/lib/constants";
+import type { FileBrowserSelectionToolbarState } from "@/pages/file-browser/types";
+import { useFileBrowserBatchActions } from "@/pages/file-browser/useFileBrowserBatchActions";
+import { shareService } from "@/services/shareService";
+import { useFileStore } from "@/stores/fileStore";
 import type {
 	FileInfo,
 	FileListItem,
@@ -27,6 +44,10 @@ import {
 	getExpirySummary,
 } from "./shareViewSummaries";
 import type { ShareBreadcrumbItem } from "./types";
+
+const noopShare = () => {};
+const denyToggleLock = () => false;
+const noopDelete = async () => {};
 
 interface ShareFolderViewProps {
 	breadcrumb: ShareBreadcrumbItem[];
@@ -44,6 +65,65 @@ interface ShareFolderViewProps {
 	onFilePreview: (file: FileInfo | FileListItem) => void;
 	onNavigateToFolder: (folderId: number | null, folderName?: string) => void;
 	onViewModeChange: (viewMode: "grid" | "list") => void;
+}
+
+function ShareSelectionToolbar({
+	selectionToolbar,
+}: {
+	selectionToolbar: FileBrowserSelectionToolbarState | null;
+}) {
+	const { t } = useTranslation(["core", "files", "tasks"]);
+
+	if (!selectionToolbar) return null;
+
+	const selectVisibleLabel = selectionToolbar.allDisplayedSelected
+		? t("files:selection_clear")
+		: t("files:selection_select_all_visible");
+	const downloadLabel =
+		selectionToolbar.downloadAction?.kind === "file"
+			? t("files:download")
+			: t("tasks:archive_download_action");
+
+	return (
+		<div
+			data-testid="share-selection-toolbar"
+			className="flex items-center gap-2 rounded-lg border border-border/70 bg-background/70 px-2 py-1.5 shadow-xs"
+		>
+			<span className="px-1 text-sm font-medium text-foreground">
+				{t("core:selected_count", { count: selectionToolbar.count })}
+			</span>
+			{selectionToolbar.downloadAction ? (
+				<button
+					type="button"
+					className="flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent/65 hover:text-foreground"
+					onClick={selectionToolbar.downloadAction.onClick}
+					aria-label={downloadLabel}
+					title={downloadLabel}
+				>
+					<Icon name="Download" className="size-4" />
+				</button>
+			) : null}
+			<button
+				type="button"
+				className="flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent/65 hover:text-foreground disabled:pointer-events-none disabled:opacity-45"
+				onClick={selectionToolbar.onToggleDisplayedSelection}
+				disabled={!selectionToolbar.hasDisplayedItems}
+				aria-label={selectVisibleLabel}
+				title={selectVisibleLabel}
+			>
+				<Icon name="Check" className="size-4" />
+			</button>
+			<button
+				type="button"
+				className="flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent/65 hover:text-foreground"
+				onClick={selectionToolbar.onClearSelection}
+				aria-label={t("files:selection_clear")}
+				title={t("files:selection_clear")}
+			>
+				<Icon name="X" className="size-4" />
+			</button>
+		</div>
+	);
 }
 
 function ShareFolderBreadcrumb({
@@ -102,15 +182,94 @@ export function ShareFolderView({
 	viewMode,
 }: ShareFolderViewProps) {
 	const { t } = useTranslation(["core", "share", "files", "errors"]);
+	const clearSelection = useFileStore((state) => state.clearSelection);
+	const handleArchiveDownload = useCallback(
+		(fileIds: number[], folderIds: number[]) =>
+			shareService.streamArchiveDownload(token, fileIds, folderIds),
+		[token],
+	);
+	const { dialogs: batchActionDialogs, selectionToolbar } =
+		useFileBrowserBatchActions({
+			allowCopyMove: false,
+			allowDelete: false,
+			allowTagManagement: false,
+			displayFiles: folderContents?.files ?? [],
+			displayFolders: folderContents?.folders ?? [],
+			onArchiveDownload: handleArchiveDownload,
+			onDownload: (fileId) => {
+				const file = folderContents?.files.find((item) => item.id === fileId);
+				if (file) onFileDownload(file);
+			},
+		});
+	const breadcrumbIdsKey = useMemo(
+		() => breadcrumb.map((item) => item.id ?? "root").join("/"),
+		[breadcrumb],
+	);
+	const selectionScopeKey = `${token}:${breadcrumbIdsKey}`;
+	const breadcrumbPathIds = useMemo(
+		() =>
+			breadcrumbIdsKey
+				.split("/")
+				.filter((id) => id !== "" && id !== "root")
+				.map((id) => Number(id)),
+		[breadcrumbIdsKey],
+	);
 	const breadcrumbElement = (
 		<ShareFolderBreadcrumb
 			breadcrumb={breadcrumb}
 			onNavigateToFolder={onNavigateToFolder}
 		/>
 	);
+	useEffect(() => {
+		if (selectionScopeKey.length === 0) return;
+		clearSelection();
+	}, [clearSelection, selectionScopeKey]);
+	const isFolderEmpty =
+		folderContents != null &&
+		folderContents.folders.length === 0 &&
+		folderContents.files.length === 0;
+	const fileBrowserContextValue =
+		useMemo<FileBrowserContextValue | null>(() => {
+			if (!folderContents) return null;
+
+			return {
+				folders: folderContents.folders,
+				files: folderContents.files,
+				browserOpenMode: "single_click",
+				readOnly: true,
+				selectionEnabled: true,
+				batchSelectionActions: selectionToolbar
+					? {
+							count: selectionToolbar.count,
+							downloadAction: selectionToolbar.downloadAction,
+							onDelete: selectionToolbar.onDelete,
+						}
+					: null,
+				breadcrumbPathIds,
+				getThumbnailPath: (file) => `/s/${token}/files/${file.id}/thumbnail`,
+				onFolderOpen: (id, name) => onNavigateToFolder(id, name),
+				onFileClick: onFilePreview,
+				onDownload: (fileId) => {
+					const file = folderContents.files.find((item) => item.id === fileId);
+					if (file) onFileDownload(file);
+				},
+				onShare: noopShare,
+				onToggleLock: denyToggleLock,
+				onDelete: noopDelete,
+			};
+		}, [
+			breadcrumbPathIds,
+			folderContents,
+			onFileDownload,
+			onFilePreview,
+			onNavigateToFolder,
+			selectionToolbar,
+			token,
+		]);
 
 	return (
 		<SharePageShell>
+			{batchActionDialogs}
 			<main className="flex min-h-0 flex-1 flex-col overflow-hidden">
 				<div
 					className={`border-b border-border/65 bg-card/55 ${PAGE_SECTION_PADDING_CLASS}`}
@@ -143,7 +302,10 @@ export function ShareFolderView({
 								</div>
 							</div>
 						</div>
-						<ViewToggle value={viewMode} onChange={onViewModeChange} />
+						<div className="flex items-center gap-2">
+							<ShareSelectionToolbar selectionToolbar={selectionToolbar} />
+							<ViewToggle value={viewMode} onChange={onViewModeChange} />
+						</div>
 					</div>
 				</div>
 				<div className={`min-h-0 flex-1 py-3 ${PAGE_SECTION_PADDING_CLASS}`}>
@@ -164,21 +326,17 @@ export function ShareFolderView({
 								<ShareFolderContentSkeleton viewMode={viewMode} />
 							) : folderContents ? (
 								<>
-									<ReadOnlyFileCollection
-										folders={folderContents.folders}
-										files={folderContents.files}
-										viewMode={viewMode}
-										onFileClick={onFilePreview}
-										onFileDownload={onFileDownload}
-										onFolderClick={(folder) =>
-											onNavigateToFolder(folder.id, folder.name)
-										}
-										getThumbnailPath={(file) =>
-											`/s/${token}/files/${file.id}/thumbnail`
-										}
-										emptyTitle={t("empty_folder")}
-										emptyDescription={t("files:folder_empty_desc")}
-									/>
+									{isFolderEmpty ? (
+										<EmptyState
+											icon={<Icon name="FolderOpen" className="size-12" />}
+											title={t("empty_folder")}
+											description={t("files:folder_empty_desc")}
+										/>
+									) : fileBrowserContextValue ? (
+										<FileBrowserProvider value={fileBrowserContextValue}>
+											{viewMode === "grid" ? <FileGrid /> : <FileTable />}
+										</FileBrowserProvider>
+									) : null}
 									{hasMoreFiles && (
 										<div ref={sentinelRef} className="flex justify-center py-4">
 											{loadingMore && (

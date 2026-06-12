@@ -46,6 +46,12 @@ enum StreamTicketKind {
         folder_ids: Vec<i64>,
         archive_name: String,
     },
+    SharedArchiveDownload {
+        share_token: String,
+        file_ids: Vec<i64>,
+        folder_ids: Vec<i64>,
+        archive_name: String,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -86,6 +92,37 @@ pub(crate) async fn create_archive_download_ticket_in_scope(
     })
 }
 
+pub(crate) async fn create_shared_archive_download_ticket(
+    state: &impl SharedRuntimeState,
+    share_token: &str,
+    params: &task_service::types::CreateArchiveTaskParams,
+) -> Result<StreamTicketInfo> {
+    let prepared =
+        task_service::archive::prepare_shared_archive_download(state, share_token, params).await?;
+    let expires_at = Utc::now() + Duration::seconds(STREAM_TICKET_TTL_SECS);
+    let token = format!("st_{}", crate::utils::id::new_short_token());
+    let payload = StreamTicketPayload {
+        actor_user_id: 0,
+        team_id: None,
+        exp: expires_at.timestamp(),
+        kind: StreamTicketKind::SharedArchiveDownload {
+            share_token: share_token.to_string(),
+            file_ids: prepared.file_ids,
+            folder_ids: prepared.folder_ids,
+            archive_name: prepared.archive_name,
+        },
+    };
+
+    let cache_key = cache_key(&token);
+    store_ticket(state, &cache_key, &payload, ttl_secs_until(expires_at)?).await?;
+
+    Ok(StreamTicketInfo {
+        download_path: shared_stream_download_path(state.runtime_config(), share_token, &token),
+        token,
+        expires_at,
+    })
+}
+
 pub(crate) async fn resolve_archive_download_ticket_in_scope(
     state: &impl SharedRuntimeState,
     scope: WorkspaceStorageScope,
@@ -115,6 +152,47 @@ pub(crate) async fn resolve_archive_download_ticket_in_scope(
             folder_ids,
             archive_name: Some(archive_name),
         }),
+        StreamTicketKind::SharedArchiveDownload { .. } => Err(AsterError::auth_forbidden(
+            "stream ticket belongs to a shared archive download",
+        )),
+    }
+}
+
+pub(crate) async fn resolve_shared_archive_download_ticket(
+    state: &impl SharedRuntimeState,
+    share_token: &str,
+    token: &str,
+) -> Result<task_service::types::CreateArchiveTaskParams> {
+    let cache_key = cache_key(token);
+    let payload = load_ticket(state, &cache_key)
+        .await
+        .ok_or_else(|| AsterError::validation_error("stream ticket not found or expired"))?;
+
+    let expires_at = decode_expiry(payload.exp)?;
+    if expires_at < Utc::now() {
+        delete_ticket(state, &cache_key).await;
+        return Err(AsterError::validation_error("stream ticket expired"));
+    }
+
+    match payload.kind {
+        StreamTicketKind::SharedArchiveDownload {
+            share_token: ticket_share_token,
+            file_ids,
+            folder_ids,
+            archive_name,
+        } if ticket_share_token == share_token => {
+            Ok(task_service::types::CreateArchiveTaskParams {
+                file_ids,
+                folder_ids,
+                archive_name: Some(archive_name),
+            })
+        }
+        StreamTicketKind::SharedArchiveDownload { .. } => Err(AsterError::auth_forbidden(
+            "stream ticket belongs to a different share",
+        )),
+        StreamTicketKind::ArchiveDownload { .. } => Err(AsterError::auth_forbidden(
+            "stream ticket belongs to a workspace archive download",
+        )),
     }
 }
 
@@ -233,5 +311,14 @@ fn stream_download_path(
         }
     };
 
+    site_url::public_app_url_or_path(runtime_config, &path)
+}
+
+fn shared_stream_download_path(
+    runtime_config: &crate::config::RuntimeConfig,
+    share_token: &str,
+    token: &str,
+) -> String {
+    let path = format!("/api/v1/s/{share_token}/archive-download/{token}");
     site_url::public_app_url_or_path(runtime_config, &path)
 }

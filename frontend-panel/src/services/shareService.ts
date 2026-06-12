@@ -24,12 +24,25 @@ import {
 	type ArchivePreviewRequestOptions,
 	archivePreviewRequestConfig,
 } from "./archivePreviewRequestConfig";
+import {
+	buildArchiveDownloadPayload,
+	type StreamTicketInfo,
+	triggerStreamingDownload,
+} from "./batchService";
 import { type ApiRequestConfig, api } from "./http";
 
 type ServiceRequestOptions = Pick<ApiRequestConfig, "signal">;
 
 function workspaceSharesPrefix(workspace: Workspace) {
 	return buildWorkspacePath(workspace, "/shares");
+}
+
+function buildSharedArchiveDownloadUrl(ticket: StreamTicketInfo) {
+	if (/^https?:\/\//.test(ticket.download_path)) {
+		return ticket.download_path;
+	}
+
+	return joinApiUrl(config.apiBaseUrl, ticket.download_path);
 }
 
 export function createShareService(workspace: Workspace) {
@@ -84,6 +97,21 @@ export function createShareService(workspace: Workspace) {
 
 		createStreamSession: (token: string) =>
 			api.post<ShareStreamSessionInfo>(`/s/${token}/stream-session`),
+
+		streamArchiveDownload: (
+			token: string,
+			fileIds: number[],
+			folderIds: number[],
+			archiveName?: string,
+		) =>
+			api
+				.post<StreamTicketInfo>(
+					`/s/${token}/archive-download`,
+					buildArchiveDownloadPayload(fileIds, folderIds, archiveName),
+				)
+				.then((ticket) => {
+					triggerStreamingDownload(buildSharedArchiveDownloadUrl(ticket));
+				}),
 
 		thumbnailPath: (token: string) => `/s/${token}/thumbnail`,
 

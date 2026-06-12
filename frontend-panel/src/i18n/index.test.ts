@@ -168,6 +168,8 @@ describe("i18n", () => {
 			ApiErrorCode.PolicyPromotionSourceUnsupported,
 			ApiErrorCode.PolicyPromotionTargetUnsupported,
 			ApiErrorCode.PolicyPromotionBucketChangeDenied,
+			ApiErrorCode.ArchiveDownloadUserDisabled,
+			ApiErrorCode.ArchiveDownloadShareDisabled,
 			ApiErrorCode.TaskRetryStatusConflict,
 			ApiErrorCode.TaskRetryNotAllowed,
 			ApiErrorCode.SearchQueryEmpty,

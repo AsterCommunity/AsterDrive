@@ -157,12 +157,16 @@ const mockStore = {
 
 function Harness({
 	allowCopyMove,
+	allowDelete,
+	allowTagManagement,
 	onArchiveCompress,
 	onArchiveDownload,
 	onDownload,
 	onMoveToFolder,
 }: {
 	allowCopyMove?: boolean;
+	allowDelete?: boolean;
+	allowTagManagement?: boolean;
 	onArchiveCompress?: (fileIds: number[], folderIds: number[]) => void;
 	onArchiveDownload?: (fileIds: number[], folderIds: number[]) => void;
 	onDownload?: (fileId: number, fileName: string) => void;
@@ -174,6 +178,8 @@ function Harness({
 } = {}) {
 	const { dialogs, selectionToolbar } = useFileBrowserBatchActions({
 		allowCopyMove,
+		allowDelete,
+		allowTagManagement,
 		displayFiles: [
 			{ id: 1, name: "alpha.txt" },
 			{ id: 2, name: "beta.txt" },
@@ -196,9 +202,11 @@ function Harness({
 					>
 						toggle-shown
 					</button>
-					<button type="button" onClick={selectionToolbar.onDelete}>
-						delete-selected
-					</button>
+					{selectionToolbar.onDelete ? (
+						<button type="button" onClick={selectionToolbar.onDelete}>
+							delete-selected
+						</button>
+					) : null}
 					{selectionToolbar.onCopy ? (
 						<button type="button" onClick={selectionToolbar.onCopy}>
 							copy-selected
@@ -209,9 +217,11 @@ function Harness({
 							move-selected
 						</button>
 					) : null}
-					<button type="button" onClick={selectionToolbar.onManageTags}>
-						manage-tags
-					</button>
+					{selectionToolbar.onManageTags ? (
+						<button type="button" onClick={selectionToolbar.onManageTags}>
+							manage-tags
+						</button>
+					) : null}
 					{selectionToolbar.onArchiveCompress ? (
 						<button type="button" onClick={selectionToolbar.onArchiveCompress}>
 							compress-selected
@@ -316,6 +326,42 @@ describe("useFileBrowserBatchActions", () => {
 		expect(screen.queryByText("move-selected")).not.toBeInTheDocument();
 		expect(screen.getByText("manage-tags")).toBeInTheDocument();
 		expect(screen.getByText("delete-selected")).toBeInTheDocument();
+	});
+
+	it("can expose download-only selection actions for read-only views", () => {
+		const onArchiveDownload = vi.fn();
+		const onDownload = vi.fn();
+		mockState.selectedFileIds = new Set([1, 2]);
+		mockStore.selectedFileIds = mockState.selectedFileIds;
+
+		render(
+			<Harness
+				allowCopyMove={false}
+				allowDelete={false}
+				allowTagManagement={false}
+				onArchiveDownload={onArchiveDownload}
+				onDownload={onDownload}
+			/>,
+		);
+
+		expect(screen.getByText("download:archive")).toBeInTheDocument();
+		expect(screen.queryByText("copy-selected")).not.toBeInTheDocument();
+		expect(screen.queryByText("move-selected")).not.toBeInTheDocument();
+		expect(screen.queryByText("manage-tags")).not.toBeInTheDocument();
+		expect(screen.queryByText("delete-selected")).not.toBeInTheDocument();
+	});
+
+	it("updates tag management actions when the permission flag changes", () => {
+		mockState.selectedFileIds = new Set([1]);
+		mockStore.selectedFileIds = mockState.selectedFileIds;
+
+		const { rerender } = render(<Harness allowTagManagement={false} />);
+
+		expect(screen.queryByText("manage-tags")).not.toBeInTheDocument();
+
+		rerender(<Harness allowTagManagement />);
+
+		expect(screen.getByText("manage-tags")).toBeInTheDocument();
 	});
 
 	it("keeps archive download for multiple selected items", async () => {

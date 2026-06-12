@@ -220,7 +220,7 @@ pub(super) async fn load_share_folder_resource(
     Ok(folder)
 }
 
-pub(super) async fn load_valid_folder_share_root(
+pub(crate) async fn load_valid_folder_share_root(
     state: &impl SharedRuntimeState,
     token: &str,
 ) -> Result<(share::Model, i64)> {

@@ -111,6 +111,43 @@ pub fn share_download_rollback_worker_task(
     run_share_download_rollback_worker(worker, Some(shutdown_token))
 }
 
+pub(crate) async fn reserve_share_download_count(
+    state: &impl SharedRuntimeState,
+    share: &share::Model,
+) -> Result<()> {
+    match share_repo::increment_download_count(state.writer_db(), share.id).await {
+        Ok(true) => {
+            invalidate_share_token_record_cache_for_share(state, share).await;
+            if share.max_downloads > 0
+                && share.download_count.saturating_add(1) >= share.max_downloads
+            {
+                invalidate_active_share_target_cache_for_share(state, share).await;
+            }
+            Ok(())
+        }
+        Ok(false) => Err(AsterError::share_download_limit("download limit reached")),
+        Err(error) => {
+            tracing::warn!(
+                share_id = share.id,
+                "failed to increment download count: {error}"
+            );
+            Err(error)
+        }
+    }
+}
+
+pub(crate) async fn rollback_share_download_count(state: &impl SharedRuntimeState, share_id: i64) {
+    match share_repo::decrement_download_count_by(state.writer_db(), share_id, 1).await {
+        Ok(true) | Ok(false) => {}
+        Err(rollback_error) => {
+            tracing::warn!(
+                share_id,
+                "failed to roll back download count after response build failure: {rollback_error}"
+            );
+        }
+    }
+}
+
 impl ShareDownloadRollbackQueue {
     pub fn enqueue(&self, share_id: i64) {
         let job = DownloadCountRollbackJob { share_id, count: 1 };
@@ -562,47 +599,7 @@ async fn download_share_resource_with_disposition(
         .await;
     }
 
-    let counted_share = match share_repo::increment_download_count(state.writer_db(), share.id)
-        .await
-    {
-        Ok(true) => match share_repo::find_by_id(state.writer_db(), share.id).await {
-            Ok(updated) => {
-                invalidate_share_token_record_cache_for_share(state, &updated).await;
-                if updated.max_downloads > 0 && updated.download_count >= updated.max_downloads {
-                    invalidate_active_share_target_cache_for_share(state, &updated).await;
-                }
-                updated
-            }
-            Err(error) => {
-                tracing::warn!(
-                    share_id = share.id,
-                    "failed to reload share after download count increment: {error}"
-                );
-                invalidate_share_token_record_cache_for_share(state, share).await;
-                return Err(error);
-            }
-        },
-        Ok(false) => {
-            return Err(AsterError::share_download_limit("download limit reached"));
-        }
-        Err(error) => {
-            tracing::warn!(
-                share_id = share.id,
-                "failed to increment download count: {error}"
-            );
-            return Err(error);
-        }
-    };
-
-    {
-        let share = &counted_share;
-        tracing::debug!(
-            share_id = share.id,
-            download_count = share.download_count,
-            max_downloads = share.max_downloads,
-            "reserved shared download slot"
-        );
-    }
+    reserve_share_download_count(state, share).await?;
 
     match file_service::build_download_outcome_with_disposition_and_range(
         state,
@@ -633,21 +630,7 @@ async fn download_share_resource_with_disposition(
             Ok(outcome)
         }
         Err(error) => {
-            match share_repo::decrement_download_count_by(state.writer_db(), share.id, 1).await {
-                Ok(true) => {}
-                Ok(false) => {
-                    tracing::warn!(
-                        share_id = share.id,
-                        "failed to roll back download count after response build failure"
-                    );
-                }
-                Err(rollback_error) => {
-                    tracing::warn!(
-                        share_id = share.id,
-                        "failed to roll back download count after response build failure: {rollback_error}"
-                    );
-                }
-            }
+            rollback_share_download_count(state, share.id).await;
             Err(error)
         }
     }

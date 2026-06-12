@@ -14,15 +14,15 @@ use super::common::{
 };
 use crate::config::operations;
 use crate::db::repository::{file_repo, folder_repo};
-use crate::entities::{file, folder};
+use crate::entities::{file, folder, share};
 use crate::errors::{AsterError, Result};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::{
     batch_service,
     download_headers::DownloadDisposition,
-    folder_service,
+    folder_service, share_service,
     task_service::types::CreateArchiveTaskParams,
-    workspace_storage_service::{self, WorkspaceStorageScope},
+    workspace_storage_service::{self, WorkspaceResourceScope, WorkspaceStorageScope},
 };
 
 pub(crate) struct PreparedArchiveDownload {
@@ -153,6 +153,109 @@ pub(crate) async fn stream_archive_download_in_scope(
         .streaming(reader_stream))
 }
 
+pub(crate) async fn stream_shared_archive_download(
+    state: &PrimaryAppState,
+    token: &str,
+    params: CreateArchiveTaskParams,
+) -> Result<HttpResponse> {
+    let resolved = resolve_shared_archive_download(state, token, &params).await?;
+    let archive_name = resolved.archive_name.clone();
+    let limits = ArchiveBuildLimits::from_runtime_config(state.runtime_config());
+    share_service::reserve_share_download_count(state, &resolved.share).await?;
+    let collected_result = collect_archive_entries_from_shared_selection(
+        state,
+        resolved.scope,
+        &resolved.selection,
+        limits,
+    )
+    .await;
+    let collected = match collected_result {
+        Ok(collected) => collected,
+        Err(error) => {
+            share_service::rollback_share_download_count(state, resolved.share.id).await;
+            return Err(error);
+        }
+    };
+    let total_bytes = collected.total_source_bytes();
+
+    let (reader, writer) = tokio::io::duplex(64 * 1024);
+    let handle = tokio::runtime::Handle::current();
+    let db = state.writer_db().clone();
+    let driver_registry = state.driver_registry().clone();
+    let policy_snapshot = state.policy_snapshot().clone();
+    let rollback_queue = state.share_download_rollback.clone();
+    let share_id = resolved.share.id;
+    let archive_name_for_worker = archive_name.clone();
+
+    drop(tokio::task::spawn_blocking(move || {
+        let writer = tokio_util::io::SyncIoBridge::new(writer);
+        let writer = std::io::BufWriter::new(writer);
+        if let Err(error) = write_archive_to_sink(
+            ArchiveSinkContext {
+                handle: &handle,
+                db: &db,
+                driver_registry: driver_registry.as_ref(),
+                policy_snapshot: policy_snapshot.as_ref(),
+                execution: None,
+            },
+            collected.into_entries(),
+            total_bytes,
+            limits,
+            writer,
+            |_, _| Ok(()),
+        ) {
+            let error_text = error.to_string();
+            rollback_queue.enqueue(share_id);
+            if is_client_disconnect_error_text(&error_text) {
+                tracing::info!(
+                    share_id,
+                    archive_name = %archive_name_for_worker,
+                    "shared archive download stream stopped after client disconnected"
+                );
+            } else {
+                tracing::warn!(
+                    share_id,
+                    archive_name = %archive_name_for_worker,
+                    error = %error_text,
+                    "shared archive download stream failed"
+                );
+            }
+        }
+    }));
+
+    let reader_stream = tokio_util::io::ReaderStream::with_capacity(reader, 64 * 1024);
+
+    Ok(HttpResponse::Ok()
+        .content_type("application/zip")
+        .insert_header((
+            "Content-Disposition",
+            format!(r#"attachment; filename="{}""#, archive_name),
+        ))
+        .insert_header(("Content-Encoding", "identity"))
+        .streaming(reader_stream))
+}
+
+pub(crate) async fn prepare_shared_archive_download(
+    state: &impl SharedRuntimeState,
+    token: &str,
+    params: &CreateArchiveTaskParams,
+) -> Result<PreparedArchiveDownload> {
+    let resolved = resolve_shared_archive_download(state, token, params).await?;
+    let limits = ArchiveBuildLimits::from_runtime_config(state.runtime_config());
+    let _ = collect_archive_entries_from_shared_selection(
+        state,
+        resolved.scope,
+        &resolved.selection,
+        limits,
+    )
+    .await?;
+    Ok(PreparedArchiveDownload {
+        file_ids: resolved.selection.file_ids,
+        folder_ids: resolved.selection.folder_ids,
+        archive_name: resolved.archive_name,
+    })
+}
+
 pub(crate) async fn prepare_archive_download_in_scope(
     state: &impl SharedRuntimeState,
     scope: WorkspaceStorageScope,
@@ -190,6 +293,44 @@ pub(super) async fn resolve_archive_download_in_scope(
     Ok(ResolvedArchiveDownload {
         selection,
         archive_name,
+    })
+}
+
+struct ResolvedSharedArchiveDownload {
+    selection: batch_service::NormalizedSelection,
+    archive_name: String,
+    share: share::Model,
+    scope: WorkspaceResourceScope,
+}
+
+async fn resolve_shared_archive_download(
+    state: &impl SharedRuntimeState,
+    token: &str,
+    params: &CreateArchiveTaskParams,
+) -> Result<ResolvedSharedArchiveDownload> {
+    batch_service::validate_batch_ids(&params.file_ids, &params.folder_ids)?;
+    let (share, root_folder_id) = share_service::load_valid_folder_share_root(state, token).await?;
+    let scope = match share.team_id {
+        Some(team_id) => WorkspaceResourceScope::Team { team_id },
+        None => WorkspaceResourceScope::Personal {
+            user_id: share.user_id,
+        },
+    };
+    let selection = load_normalized_shared_selection(
+        state,
+        scope,
+        root_folder_id,
+        &params.file_ids,
+        &params.folder_ids,
+    )
+    .await?;
+    let archive_name = resolve_archive_name(&params.archive_name, &selection)?;
+
+    Ok(ResolvedSharedArchiveDownload {
+        selection,
+        archive_name,
+        share,
+        scope,
     })
 }
 
@@ -231,6 +372,96 @@ async fn ensure_archive_selection_request_in_scope(
     Ok(())
 }
 
+async fn load_normalized_shared_selection(
+    state: &impl SharedRuntimeState,
+    scope: WorkspaceResourceScope,
+    root_folder_id: i64,
+    file_ids: &[i64],
+    folder_ids: &[i64],
+) -> Result<batch_service::NormalizedSelection> {
+    let file_map: HashMap<i64, file::Model> = file_repo::find_by_ids(state.writer_db(), file_ids)
+        .await?
+        .into_iter()
+        .map(|file| (file.id, file))
+        .collect();
+    let mut verified_file_folder_ids = HashSet::new();
+    for &file_id in file_ids {
+        let file = file_map
+            .get(&file_id)
+            .ok_or_else(|| AsterError::file_not_found(format!("file #{file_id}")))?;
+        ensure_shared_file_in_scope(
+            state,
+            scope,
+            root_folder_id,
+            file,
+            &mut verified_file_folder_ids,
+        )
+        .await?;
+    }
+
+    let folder_map: HashMap<i64, folder::Model> =
+        folder_repo::find_by_ids(state.writer_db(), folder_ids)
+            .await?
+            .into_iter()
+            .map(|folder| (folder.id, folder))
+            .collect();
+    for &folder_id in folder_ids {
+        let folder = folder_map
+            .get(&folder_id)
+            .ok_or_else(|| AsterError::folder_not_found(format!("folder #{folder_id}")))?;
+        ensure_shared_folder_in_scope(state, scope, root_folder_id, folder).await?;
+    }
+
+    Ok(batch_service::NormalizedSelection {
+        file_ids: file_ids.to_vec(),
+        folder_ids: folder_ids.to_vec(),
+        file_map,
+        folder_map,
+    })
+}
+
+async fn ensure_shared_file_in_scope(
+    state: &impl SharedRuntimeState,
+    scope: WorkspaceResourceScope,
+    root_folder_id: i64,
+    file: &file::Model,
+    verified_folder_ids: &mut HashSet<i64>,
+) -> Result<()> {
+    workspace_storage_service::ensure_file_resource_scope(file, scope)?;
+    if file.deleted_at.is_some() {
+        return Err(AsterError::file_not_found(format!(
+            "file #{} is in trash",
+            file.id
+        )));
+    }
+    let Some(folder_id) = file.folder_id else {
+        return Err(AsterError::auth_forbidden(
+            "file is outside shared folder scope",
+        ));
+    };
+    if verified_folder_ids.insert(folder_id) {
+        folder_service::verify_folder_in_scope(state.writer_db(), folder_id, root_folder_id)
+            .await?;
+    }
+    Ok(())
+}
+
+async fn ensure_shared_folder_in_scope(
+    state: &impl SharedRuntimeState,
+    scope: WorkspaceResourceScope,
+    root_folder_id: i64,
+    folder: &folder::Model,
+) -> Result<()> {
+    workspace_storage_service::ensure_folder_resource_scope(folder, scope)?;
+    if folder.deleted_at.is_some() {
+        return Err(AsterError::folder_not_found(format!(
+            "folder #{} is in trash",
+            folder.id
+        )));
+    }
+    folder_service::verify_folder_in_scope(state.writer_db(), folder.id, root_folder_id).await
+}
+
 pub(super) fn ensure_archive_selection_active(
     scope: WorkspaceStorageScope,
     selection: &batch_service::NormalizedSelection,
@@ -252,6 +483,98 @@ pub(super) fn ensure_archive_selection_active(
     }
 
     Ok(())
+}
+
+async fn collect_archive_entries_from_shared_selection(
+    state: &impl SharedRuntimeState,
+    scope: WorkspaceResourceScope,
+    selection: &batch_service::NormalizedSelection,
+    limits: ArchiveBuildLimits,
+) -> Result<CollectedArchiveEntries> {
+    let mut entries = Vec::new();
+    let mut stats = ArchiveBuildStatsBuilder::default();
+    let mut reserved_root_names = HashSet::new();
+
+    for &file_id in &selection.file_ids {
+        let file = selection
+            .file_map
+            .get(&file_id)
+            .ok_or_else(|| AsterError::file_not_found(format!("file #{file_id}")))?;
+        let entry_path = batch_service::reserve_unique_name(&mut reserved_root_names, &file.name);
+        record_archive_build_entry(&mut stats, &entry_path, Some(file.size), limits)?;
+        entries.push(ArchiveEntry::File {
+            file: ArchiveFileEntry::from_file(file, &entry_path),
+            entry_path,
+        });
+    }
+
+    for &folder_id in &selection.folder_ids {
+        let folder = selection
+            .folder_map
+            .get(&folder_id)
+            .ok_or_else(|| AsterError::folder_not_found(format!("folder #{folder_id}")))?;
+        let archive_root =
+            batch_service::reserve_unique_name(&mut reserved_root_names, &folder.name);
+
+        let (tree_files, tree_folder_ids) = folder_service::collect_folder_tree_in_resource_scope(
+            state.writer_db(),
+            scope,
+            folder_id,
+            false,
+        )
+        .await?;
+        let folder_paths =
+            folder_service::build_folder_paths_cached(state, &tree_folder_ids).await?;
+        let root_path = folder_paths
+            .get(&folder_id)
+            .cloned()
+            .ok_or_else(|| AsterError::record_not_found(format!("folder #{folder_id} path")))?;
+
+        for tree_folder_id in &tree_folder_ids {
+            let folder_path = folder_paths.get(tree_folder_id).ok_or_else(|| {
+                AsterError::record_not_found(format!("folder #{tree_folder_id} path"))
+            })?;
+            let entry_path = archive_directory_entry_path(&archive_root, folder_path, &root_path)?;
+            record_archive_build_entry(&mut stats, &entry_path, None, limits)?;
+            entries.push(ArchiveEntry::Directory { entry_path });
+        }
+
+        for file in tree_files {
+            let parent_path = file
+                .folder_id
+                .and_then(|id| folder_paths.get(&id))
+                .ok_or_else(|| {
+                    AsterError::record_not_found(format!(
+                        "missing parent path for file #{}",
+                        file.id
+                    ))
+                })?;
+            let relative_dir = archive_relative_dir(parent_path, &root_path)?;
+            let entry_path = if relative_dir.is_empty() {
+                format!("{archive_root}/{}", file.name)
+            } else {
+                format!("{archive_root}/{relative_dir}/{}", file.name)
+            };
+            record_archive_build_entry(&mut stats, &entry_path, Some(file.size), limits)?;
+            entries.push(ArchiveEntry::File {
+                file: ArchiveFileEntry::from_file(&file, &entry_path),
+                entry_path,
+            });
+        }
+    }
+
+    entries.sort_by(|left, right| {
+        left.entry_path()
+            .cmp(right.entry_path())
+            .then_with(|| left.is_file().cmp(&right.is_file()))
+    });
+    Ok(CollectedArchiveEntries {
+        entries,
+        stats: ArchiveBuildStats {
+            total_source_bytes: stats.total_source_bytes,
+            estimated_output_bytes: stats.estimated_output_bytes,
+        },
+    })
 }
 
 pub(super) async fn collect_archive_entries_from_selection_in_scope(

@@ -21,5 +21,7 @@
 	"share_not_found": "This share link does not exist or is no longer available",
 	"share_expired": "This share link has expired",
 	"share_password_required": "Enter the share password to continue",
-	"share_download_limit_reached": "This share link has reached its download limit"
+	"share_download_limit_reached": "This share link has reached its download limit",
+	"archive_download_user_disabled": "Archive downloads for signed-in users are disabled by the administrator",
+	"archive_download_share_disabled": "Archive downloads for public shares are disabled by the administrator"
 }

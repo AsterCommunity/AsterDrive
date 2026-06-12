@@ -37,6 +37,8 @@ const mockState = vi.hoisted(() => ({
 		onShare: vi.fn(),
 		onToggleLock: vi.fn(),
 		onVersions: vi.fn(),
+		readOnly: false,
+		selectionEnabled: undefined as boolean | undefined,
 	},
 	store: {
 		selectedFileIds: new Set<number>(),
@@ -266,6 +268,8 @@ describe("FileBrowserItemContextMenu", () => {
 		mockState.browserContext.onShare.mockReset();
 		mockState.browserContext.onToggleLock.mockReset();
 		mockState.browserContext.onVersions.mockReset();
+		mockState.browserContext.readOnly = false;
+		mockState.browserContext.selectionEnabled = undefined;
 		mockState.store.selectedFileIds = new Set();
 		mockState.store.selectedFolderIds = new Set();
 	});
@@ -474,6 +478,94 @@ describe("FileBrowserItemContextMenu", () => {
 		expect(batchActions.onMove).toHaveBeenCalledTimes(1);
 		expect(batchActions.onDelete).toHaveBeenCalledTimes(1);
 		expect(mockState.browserContext.onCopy).not.toHaveBeenCalled();
+	});
+
+	it("does not use batch actions when the current view disables selection", () => {
+		const batchActions = {
+			count: 3,
+			onCopy: vi.fn(),
+			onDelete: vi.fn(),
+			onMove: vi.fn(),
+		};
+		mockState.browserContext.batchSelectionActions = batchActions;
+		mockState.browserContext.selectionEnabled = false;
+		mockState.store.selectedFileIds = new Set([2, 3]);
+		mockState.store.selectedFolderIds = new Set([1]);
+
+		render(
+			<FileBrowserItemContextMenu
+				item={{ id: 2, name: "bundle.zip", is_locked: false } as never}
+				isFolder={false}
+			>
+				<div>file</div>
+			</FileBrowserItemContextMenu>,
+		);
+
+		expect(screen.queryByText("selection:3")).not.toBeInTheDocument();
+		fireEvent.click(screen.getByRole("button", { name: "open" }));
+
+		expect(mockState.browserContext.onFileOpen).toHaveBeenCalledWith(
+			expect.objectContaining({ id: 2 }),
+		);
+		expect(batchActions.onCopy).not.toHaveBeenCalled();
+	});
+
+	it("limits read-only folder menus to opening the folder", () => {
+		mockState.browserContext.readOnly = true;
+
+		render(
+			<FileBrowserItemContextMenu
+				item={{ id: 1, name: "Docs", is_locked: false } as never}
+				isFolder
+			>
+				<div>folder</div>
+			</FileBrowserItemContextMenu>,
+		);
+
+		fireEvent.click(screen.getByRole("button", { name: "open" }));
+
+		expect(mockState.browserContext.onFolderOpen).toHaveBeenCalledWith(
+			1,
+			"Docs",
+		);
+		expect(screen.queryByRole("button", { name: "archive" })).toBeNull();
+		expect(screen.queryByRole("button", { name: "share-page" })).toBeNull();
+		expect(screen.queryByRole("button", { name: "copy" })).toBeNull();
+		expect(screen.queryByRole("button", { name: "move" })).toBeNull();
+		expect(screen.queryByRole("button", { name: "delete" })).toBeNull();
+	});
+
+	it("limits read-only file menus to opening and downloading the file", () => {
+		mockState.browserContext.readOnly = true;
+
+		render(
+			<FileBrowserItemContextMenu
+				item={{ id: 2, name: "bundle.zip", is_locked: true } as never}
+				isFolder={false}
+			>
+				<div>file</div>
+			</FileBrowserItemContextMenu>,
+		);
+
+		fireEvent.click(screen.getByRole("button", { name: "open" }));
+		fireEvent.click(screen.getByRole("button", { name: "download" }));
+
+		expect(mockState.browserContext.onFileOpen).toHaveBeenCalledWith(
+			expect.objectContaining({ id: 2 }),
+		);
+		expect(mockState.browserContext.onDownload).toHaveBeenCalledWith(
+			2,
+			"bundle.zip",
+		);
+		expect(
+			screen.queryByRole("button", { name: "open-method" }),
+		).not.toBeInTheDocument();
+		expect(screen.queryByRole("button", { name: "extract" })).toBeNull();
+		expect(screen.queryByRole("button", { name: "compress" })).toBeNull();
+		expect(screen.queryByRole("button", { name: "share-page" })).toBeNull();
+		expect(screen.queryByRole("button", { name: "share-direct" })).toBeNull();
+		expect(screen.queryByRole("button", { name: "delete" })).toBeNull();
+		expect(screen.queryByRole("button", { name: "versions" })).toBeNull();
 	});
 
 	it("falls back to regular item actions when the current item is not selected", () => {

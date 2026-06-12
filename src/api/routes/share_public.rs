@@ -1,21 +1,26 @@
 //! API 路由：`share_public`。
 
+use crate::api::api_error_code::ApiErrorCode;
+use crate::api::dto::batch::ArchiveDownloadReq;
 use crate::api::dto::files::ArchivePreviewQuery;
 use crate::api::dto::share_public::DirectLinkQuery;
 pub use crate::api::dto::share_public::VerifyPasswordReq;
+use crate::api::dto::validate_request;
 use crate::api::middleware::rate_limit;
 use crate::api::pagination::FolderListQuery;
 use crate::api::response::ApiResponse;
 use crate::api::routes::files;
 use crate::config::auth_runtime::RuntimeAuthPolicy;
+use crate::config::operations;
 use crate::config::{NetworkTrustConfig, RateLimitConfig};
-use crate::errors::Result;
+use crate::errors::{Result, auth_forbidden_with_code};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::audit_service::AuditRequestInfo;
 use crate::services::file_service::ResolvedDownloadRange;
 use crate::services::{
     archive_preview_service, direct_link_service, file_service, media_metadata_service,
     preview_link_service, profile_service, share_service, share_stream_service,
+    stream_ticket_service, task_service,
 };
 use actix_governor::Governor;
 use actix_web::http::header;
@@ -166,6 +171,14 @@ pub fn routes(
         )
         .route("/{token}/preview-link", web::post().to(create_preview_link))
         .route("/{token}/archive-preview", web::get().to(archive_preview))
+        .route(
+            "/{token}/archive-download",
+            web::post().to(archive_download),
+        )
+        .route(
+            "/{token}/archive-download/{ticket}",
+            web::get().to(archive_download_stream),
+        )
         .route("/{token}/download", web::get().to(download_shared))
         .route(
             "/{token}/files/{file_id}/download",
@@ -371,6 +384,78 @@ pub async fn archive_preview(
 
 #[api_docs_macros::path(
     post,
+    path = "/api/v1/s/{token}/archive-download",
+    tag = "shares",
+    operation_id = "create_shared_archive_download",
+    params(("token" = String, Path, description = "Share token")),
+    request_body = ArchiveDownloadReq,
+    responses(
+        (status = 200, description = "Shared archive download ticket", body = inline(ApiResponse<stream_ticket_service::StreamTicketInfo>)),
+        (status = 400, description = "Invalid archive selection"),
+        (status = 403, description = "Password required, download limit, file outside shared folder, or archive downloads disabled"),
+        (status = 404, description = "Share not found"),
+    ),
+)]
+pub async fn archive_download(
+    state: web::Data<PrimaryAppState>,
+    path: web::Path<String>,
+    req: actix_web::HttpRequest,
+    body: web::Json<ArchiveDownloadReq>,
+) -> Result<HttpResponse> {
+    ensure_share_archive_download_enabled(state.get_ref())?;
+    let token = path.into_inner();
+    check_share_cookie(state.get_ref(), &req, &token).await?;
+
+    let body = body.into_inner();
+    validate_request(&body)?;
+    let ticket = stream_ticket_service::create_shared_archive_download_ticket(
+        state.get_ref(),
+        &token,
+        &task_service::types::CreateArchiveTaskParams {
+            file_ids: body.file_ids,
+            folder_ids: body.folder_ids,
+            archive_name: body.archive_name,
+        },
+    )
+    .await?;
+    Ok(HttpResponse::Ok().json(ApiResponse::ok(ticket)))
+}
+
+#[api_docs_macros::path(
+    get,
+    path = "/api/v1/s/{token}/archive-download/{ticket}",
+    tag = "shares",
+    operation_id = "download_shared_archive",
+    params(
+        ("token" = String, Path, description = "Share token"),
+        ("ticket" = String, Path, description = "Shared archive download ticket")
+    ),
+    responses(
+        (status = 200, description = "Shared archive stream download"),
+        (status = 400, description = "Invalid ticket"),
+        (status = 403, description = "Password required, download limit, file outside shared folder, or archive downloads disabled"),
+        (status = 404, description = "Share not found"),
+    ),
+)]
+pub async fn archive_download_stream(
+    state: web::Data<PrimaryAppState>,
+    path: web::Path<(String, String)>,
+    req: actix_web::HttpRequest,
+) -> Result<HttpResponse> {
+    ensure_share_archive_download_enabled(state.get_ref())?;
+    let (token, ticket) = path.into_inner();
+    check_share_cookie(state.get_ref(), &req, &token).await?;
+    let params = stream_ticket_service::resolve_shared_archive_download_ticket(
+        state.get_ref(),
+        &token,
+        &ticket,
+    )
+    .await?;
+    task_service::archive::stream_shared_archive_download(state.get_ref(), &token, params).await
+}
+
+#[api_docs_macros::path(
+    post,
     path = "/api/v1/s/{token}/stream-session",
     tag = "shares",
     operation_id = "create_shared_file_stream_session",
@@ -400,6 +485,16 @@ pub async fn create_stream_session(
     )
     .await?;
     Ok(HttpResponse::Ok().json(ApiResponse::ok(session)))
+}
+
+fn ensure_share_archive_download_enabled(state: &PrimaryAppState) -> Result<()> {
+    if !operations::archive_download_share_enabled(state.runtime_config()) {
+        return Err(auth_forbidden_with_code(
+            ApiErrorCode::ArchiveDownloadShareDisabled,
+            "archive downloads for shared files are disabled by the administrator",
+        ));
+    }
+    Ok(())
 }
 
 #[api_docs_macros::path(

@@ -333,29 +333,32 @@ function FileBrowserSelectionToolbar({
 									<span>{selectionDownloadLabel}</span>
 								</Button>
 							) : null}
-							<Button
-								type="button"
-								size="sm"
-								variant="outline"
-								onClick={renderedSelectionToolbar.onManageTags}
-							>
-								<Icon name="Tag" className="size-3.5" />
-								<span>{t("tag_manage")}</span>
-							</Button>
-							<Button
-								type="button"
-								size="sm"
-								variant="outline"
-								onClick={renderedSelectionToolbar.onMove}
-								aria-label={t("move_to")}
-								title={t("move_to")}
-								disabled={!renderedSelectionToolbar.onMove}
-							>
-								<Icon name="ArrowsOutCardinal" className="size-3.5" />
-								<span className="hidden min-[420px]:inline">
-									{t("move_to")}
-								</span>
-							</Button>
+							{renderedSelectionToolbar.onManageTags ? (
+								<Button
+									type="button"
+									size="sm"
+									variant="outline"
+									onClick={renderedSelectionToolbar.onManageTags}
+								>
+									<Icon name="Tag" className="size-3.5" />
+									<span>{t("tag_manage")}</span>
+								</Button>
+							) : null}
+							{renderedSelectionToolbar.onMove ? (
+								<Button
+									type="button"
+									size="sm"
+									variant="outline"
+									onClick={renderedSelectionToolbar.onMove}
+									aria-label={t("move_to")}
+									title={t("move_to")}
+								>
+									<Icon name="ArrowsOutCardinal" className="size-3.5" />
+									<span className="hidden min-[420px]:inline">
+										{t("move_to")}
+									</span>
+								</Button>
+							) : null}
 							{renderedSelectionToolbar.onCopy ? (
 								<Button
 									type="button"
@@ -423,17 +426,18 @@ function FileBrowserSelectionToolbar({
 							<Icon name="Download" className="size-3.5" />
 						</Button>
 					) : null}
-					<Button
-						type="button"
-						size="icon-sm"
-						variant="outline"
-						onClick={renderedSelectionToolbar.onMove}
-						aria-label={t("move_to")}
-						title={t("move_to")}
-						disabled={!renderedSelectionToolbar.onMove}
-					>
-						<Icon name="ArrowsOutCardinal" className="size-3.5" />
-					</Button>
+					{renderedSelectionToolbar.onMove ? (
+						<Button
+							type="button"
+							size="icon-sm"
+							variant="outline"
+							onClick={renderedSelectionToolbar.onMove}
+							aria-label={t("move_to")}
+							title={t("move_to")}
+						>
+							<Icon name="ArrowsOutCardinal" className="size-3.5" />
+						</Button>
+					) : null}
 					<SelectionActionsMenu
 						renderedSelectionToolbar={renderedSelectionToolbar}
 						selectDisplayedLabel={selectDisplayedLabel}
@@ -493,10 +497,12 @@ function SelectionActionsMenu({
 						{t("copy_to")}
 					</DropdownMenuItem>
 				) : null}
-				<DropdownMenuItem onClick={renderedSelectionToolbar.onManageTags}>
-					<Icon name="Tag" className="size-4 text-muted-foreground" />
-					{t("tag_manage")}
-				</DropdownMenuItem>
+				{renderedSelectionToolbar.onManageTags ? (
+					<DropdownMenuItem onClick={renderedSelectionToolbar.onManageTags}>
+						<Icon name="Tag" className="size-4 text-muted-foreground" />
+						{t("tag_manage")}
+					</DropdownMenuItem>
+				) : null}
 				{renderedSelectionToolbar.onArchiveCompress ? (
 					<DropdownMenuItem
 						onClick={renderedSelectionToolbar.onArchiveCompress}
@@ -505,14 +511,18 @@ function SelectionActionsMenu({
 						{t("tasks:archive_compress_action")}
 					</DropdownMenuItem>
 				) : null}
-				<DropdownMenuSeparator />
-				<DropdownMenuItem
-					variant="destructive"
-					onClick={renderedSelectionToolbar.onDelete}
-				>
-					<Icon name="Trash" className="size-4" />
-					{t("core:delete")}
-				</DropdownMenuItem>
+				{renderedSelectionToolbar.onDelete ? (
+					<>
+						<DropdownMenuSeparator />
+						<DropdownMenuItem
+							variant="destructive"
+							onClick={renderedSelectionToolbar.onDelete}
+						>
+							<Icon name="Trash" className="size-4" />
+							{t("core:delete")}
+						</DropdownMenuItem>
+					</>
+				) : null}
 			</DropdownMenuContent>
 		</DropdownMenu>
 	);

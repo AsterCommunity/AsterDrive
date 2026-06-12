@@ -11,9 +11,14 @@ const mockState = vi.hoisted(() => ({
 		fadingFolderIds: undefined as Set<number> | undefined,
 		files: [] as Array<Record<string, unknown>>,
 		folders: [] as Array<Record<string, unknown>>,
+		getThumbnailPath: undefined as
+			| ((file: { id: number; name: string }) => string)
+			| undefined,
 		onFileClick: vi.fn(),
 		onFolderOpen: vi.fn(),
 		onMoveToFolder: vi.fn(),
+		readOnly: false,
+		selectionEnabled: undefined as boolean | undefined,
 	},
 	store: {
 		selectedFileIds: new Set<number>(),
@@ -68,7 +73,13 @@ vi.mock("@/components/files/FileBrowserItemContextMenu", () => ({
 }));
 
 vi.mock("@/components/files/FileTableCells", () => ({
-	FileNameCell: ({ file }: { file: { name: string } }) => <td>{file.name}</td>,
+	FileNameCell: ({
+		file,
+		thumbnailPath,
+	}: {
+		file: { name: string };
+		thumbnailPath?: string;
+	}) => <td data-thumbnail-path={thumbnailPath ?? ""}>{file.name}</td>,
 	FolderNameCell: ({ folder }: { folder: { name: string } }) => (
 		<td>{folder.name}</td>
 	),
@@ -118,6 +129,7 @@ vi.mock("@/components/ui/table", () => ({
 		onDragOver,
 		onDragLeave,
 		onDrop,
+		draggable,
 		className,
 		...props
 	}: {
@@ -128,10 +140,12 @@ vi.mock("@/components/ui/table", () => ({
 		onDragOver?: (event: React.DragEvent<HTMLTableRowElement>) => void;
 		onDragLeave?: () => void;
 		onDrop?: (event: React.DragEvent<HTMLTableRowElement>) => void;
+		draggable?: boolean;
 		className?: string;
 	}) => (
 		<tr
 			data-testid="row"
+			data-draggable={String(Boolean(draggable))}
 			className={className}
 			onClick={onClick}
 			onDoubleClick={onDoubleClick}
@@ -217,9 +231,12 @@ describe("FileTable", () => {
 		mockState.browserContext.fadingFolderIds = undefined;
 		mockState.browserContext.files = [file];
 		mockState.browserContext.folders = [folder];
+		mockState.browserContext.getThumbnailPath = undefined;
 		mockState.browserContext.onFileClick.mockReset();
 		mockState.browserContext.onFolderOpen.mockReset();
 		mockState.browserContext.onMoveToFolder.mockReset();
+		mockState.browserContext.readOnly = false;
+		mockState.browserContext.selectionEnabled = undefined;
 		mockState.store.selectedFileIds = new Set();
 		mockState.store.selectedFolderIds = new Set();
 		mockState.store.selectOnlyFile.mockReset();
@@ -333,6 +350,72 @@ describe("FileTable", () => {
 		expect(mockState.browserContext.onFileClick).toHaveBeenCalledWith(
 			expect.objectContaining({ id: 2 }),
 		);
+	});
+
+	it("renders read-only rows without selection, sorting, or drag behavior", () => {
+		mockState.browserContext.readOnly = true;
+		mockState.browserContext.browserOpenMode = "double_click";
+		mockState.browserContext.getThumbnailPath = (item) => `/thumb/${item.id}`;
+		mockState.store.selectedFileIds = new Set([2]);
+		mockState.store.selectedFolderIds = new Set([1]);
+
+		render(<FileTable />);
+
+		expect(screen.queryAllByTestId("checkbox")).toHaveLength(0);
+		expect(screen.queryByTestId("icon")).not.toBeInTheDocument();
+		expect(screen.getByText("report.pdf")).toHaveAttribute(
+			"data-thumbnail-path",
+			"/thumb/2",
+		);
+
+		fireEvent.click(screen.getByText("translated:core:name"));
+		expect(mockState.store.setSortOrder).not.toHaveBeenCalled();
+		expect(mockState.store.setSortBy).not.toHaveBeenCalled();
+
+		const rows = screen.getAllByTestId("row");
+		expect(rows[1]).toHaveAttribute("data-draggable", "false");
+		expect(rows[2]).toHaveAttribute("data-draggable", "false");
+		fireEvent.click(rows[1]);
+		fireEvent.click(rows[2]);
+
+		expect(mockState.store.selectOnlyFolder).not.toHaveBeenCalled();
+		expect(mockState.store.selectOnlyFile).not.toHaveBeenCalled();
+		expect(mockState.browserContext.onFolderOpen).toHaveBeenCalledWith(
+			1,
+			"Docs",
+		);
+		expect(mockState.browserContext.onFileClick).toHaveBeenCalledWith(
+			expect.objectContaining({ id: 2 }),
+		);
+		expect(
+			screen.queryByRole("button", { name: "actions:Docs" }),
+		).not.toBeInTheDocument();
+		expect(
+			screen.getByRole("button", { name: "actions:report.pdf" }),
+		).toBeInTheDocument();
+	});
+
+	it("allows selection in read-only tables when explicitly enabled", () => {
+		mockState.browserContext.readOnly = true;
+		mockState.browserContext.selectionEnabled = true;
+		mockState.browserContext.browserOpenMode = "double_click";
+		mockState.store.selectedFileIds = new Set([2]);
+		mockState.store.selectedFolderIds = new Set([1]);
+
+		render(<FileTable />);
+
+		expect(screen.queryAllByTestId("checkbox")).toHaveLength(3);
+		expect(screen.queryByTestId("icon")).not.toBeInTheDocument();
+
+		const rows = screen.getAllByTestId("row");
+		expect(rows[1]).toHaveAttribute("data-state", "selected");
+		expect(rows[1]).toHaveAttribute("data-draggable", "false");
+		expect(rows[2]).toHaveAttribute("data-state", "selected");
+		expect(rows[2]).toHaveAttribute("data-draggable", "false");
+
+		fireEvent.click(screen.getByText("translated:core:name"));
+		expect(mockState.store.setSortOrder).not.toHaveBeenCalled();
+		expect(mockState.store.setSortBy).not.toHaveBeenCalled();
 	});
 
 	it("accepts valid folder drops and ignores invalid ones", () => {

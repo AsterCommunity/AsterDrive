@@ -252,6 +252,49 @@ describe("FileCard", () => {
 		);
 	});
 
+	it("keeps the action menu visible when selection is disabled", () => {
+		const { container } = render(
+			<FileCard
+				item={file as never}
+				isFolder={false}
+				selected={false}
+				onSelect={vi.fn()}
+				onClick={vi.fn()}
+				selectable={false}
+				actionMenu={<button type="button">download</button>}
+			/>,
+		);
+
+		expect(
+			container.querySelector("[data-file-card-action-menu]"),
+		).not.toHaveClass("sm:hidden");
+		expect(
+			screen.queryByRole("button", { name: "Select item" }),
+		).not.toBeInTheDocument();
+	});
+
+	it("can keep the action menu visible while selection remains enabled", () => {
+		const { container } = render(
+			<FileCard
+				item={file as never}
+				isFolder={false}
+				selected={false}
+				onSelect={vi.fn()}
+				onClick={vi.fn()}
+				selectable
+				alwaysShowActionMenu
+				actionMenu={<button type="button">download</button>}
+			/>,
+		);
+
+		expect(
+			container.querySelector("[data-file-card-action-menu]"),
+		).not.toHaveClass("sm:hidden");
+		expect(
+			screen.getByRole("button", { name: "Select item" }),
+		).toBeInTheDocument();
+	});
+
 	it("does not open the card when interacting with the action menu", () => {
 		const onClick = vi.fn();
 		const onDoubleClick = vi.fn();
