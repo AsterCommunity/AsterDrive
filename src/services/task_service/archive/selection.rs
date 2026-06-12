@@ -181,6 +181,8 @@ pub(crate) async fn stream_shared_archive_download(
     let db = state.writer_db().clone();
     let driver_registry = state.driver_registry().clone();
     let policy_snapshot = state.policy_snapshot().clone();
+    let rollback_queue = state.share_download_rollback.clone();
+    let share_id = resolved.share.id;
     let archive_name_for_worker = archive_name.clone();
 
     drop(tokio::task::spawn_blocking(move || {
@@ -201,13 +203,16 @@ pub(crate) async fn stream_shared_archive_download(
             |_, _| Ok(()),
         ) {
             let error_text = error.to_string();
+            rollback_queue.enqueue(share_id);
             if is_client_disconnect_error_text(&error_text) {
                 tracing::info!(
+                    share_id,
                     archive_name = %archive_name_for_worker,
                     "shared archive download stream stopped after client disconnected"
                 );
             } else {
                 tracing::warn!(
+                    share_id,
                     archive_name = %archive_name_for_worker,
                     error = %error_text,
                     "shared archive download stream failed"

@@ -149,7 +149,7 @@ export function FileCard({
 				<ItemCheckbox
 					data-drag-preview-hidden
 					checked={selected}
-					onChange={onSelect}
+					onChange={onSelect ?? (() => {})}
 					className={cn(
 						"absolute top-2 left-2 transition-opacity",
 						selected || selectionActive

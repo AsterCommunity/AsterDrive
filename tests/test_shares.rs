@@ -1096,6 +1096,119 @@ async fn test_folder_share_archive_download_counts_against_download_limit() {
 }
 
 #[actix_web::test]
+async fn test_folder_share_archive_download_rolls_back_when_client_drops_stream() {
+    let state = common::setup().await;
+    let app = create_test_app!(state);
+    let (token, _) = register_and_login!(app);
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/folders")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({ "name": "Zip Abort" }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 201);
+    let body: Value = test::read_body_json(resp).await;
+    let folder_id = body["data"]["id"].as_i64().unwrap();
+
+    let boundary = "----ShareArchiveAbortBoundary";
+    let mut payload = format!(
+        "--{boundary}\r\n\
+         Content-Disposition: form-data; name=\"file\"; filename=\"large-abort.bin\"\r\n\
+         Content-Type: application/octet-stream\r\n\r\n"
+    )
+    .into_bytes();
+    let mut seed = 0x1234_5678_u32;
+    for _ in 0..(2 * 1024 * 1024) {
+        seed = seed.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+        payload.push((seed >> 24) as u8);
+    }
+    payload.extend_from_slice(format!("\r\n--{boundary}--\r\n").as_bytes());
+    let req = test::TestRequest::post()
+        .uri(&format!("/api/v1/files/upload?folder_id={folder_id}"))
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .insert_header((
+            "Content-Type",
+            format!("multipart/form-data; boundary={boundary}"),
+        ))
+        .set_payload(payload)
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 201);
+    let body: Value = test::read_body_json(resp).await;
+    let file_id = body["data"]["id"].as_i64().unwrap();
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/shares")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({
+            "target": folder_target(folder_id),
+            "max_downloads": 1
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 201);
+    let body: Value = test::read_body_json(resp).await;
+    let share_token = body["data"]["token"].as_str().unwrap().to_string();
+
+    let req = test::TestRequest::post()
+        .uri(&format!("/api/v1/s/{share_token}/archive-download"))
+        .set_json(serde_json::json!({
+            "file_ids": [file_id],
+            "folder_ids": [],
+            "archive_name": "abort.zip"
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+    let body: Value = test::read_body_json(resp).await;
+    let first_ticket = body["data"]["token"].as_str().unwrap().to_string();
+
+    let req = test::TestRequest::get()
+        .uri(&format!(
+            "/api/v1/s/{share_token}/archive-download/{first_ticket}"
+        ))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+    drop(resp);
+
+    let rollback_deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(5);
+    loop {
+        let req = test::TestRequest::get()
+            .uri("/api/v1/shares")
+            .insert_header(("Cookie", common::access_cookie_header(&token)))
+            .insert_header(common::csrf_header_for(&token))
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(resp.status(), 200);
+        let body: Value = test::read_body_json(resp).await;
+        if body["data"]["items"][0]["download_count"] == 0 {
+            break;
+        }
+        assert!(
+            tokio::time::Instant::now() < rollback_deadline,
+            "share archive stream abort should roll back download_count"
+        );
+        tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+    }
+
+    let req = test::TestRequest::post()
+        .uri(&format!("/api/v1/s/{share_token}/archive-download"))
+        .set_json(serde_json::json!({
+            "file_ids": [file_id],
+            "folder_ids": [],
+            "archive_name": "after-abort.zip"
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+}
+
+#[actix_web::test]
 async fn test_folder_share_archive_download_rejects_passwordless_and_cross_share_tickets() {
     let state = common::setup().await;
     let app = create_test_app!(state);
