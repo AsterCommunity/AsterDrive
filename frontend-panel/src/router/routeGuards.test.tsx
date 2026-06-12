@@ -5,8 +5,10 @@ import { LoginGuard } from "./LoginGuard";
 import { ProtectedRoute } from "./ProtectedRoute";
 
 const mockState = vi.hoisted(() => ({
+	ensureI18nNamespaces: vi.fn(),
 	isAuthenticated: false,
 	isChecking: false,
+	loggerWarn: vi.fn(),
 	user: null as {
 		must_change_password?: boolean;
 		role?: string;
@@ -28,6 +30,17 @@ vi.mock("@/components/layout/AdminSiteUrlMismatchPrompt", () => ({
 	),
 }));
 
+vi.mock("@/i18n", () => ({
+	ensureI18nNamespaces: (...args: unknown[]) =>
+		mockState.ensureI18nNamespaces(...args),
+}));
+
+vi.mock("@/lib/logger", () => ({
+	logger: {
+		warn: (...args: unknown[]) => mockState.loggerWarn(...args),
+	},
+}));
+
 vi.mock("@/stores/authStore", () => ({
 	useAuthStore: (
 		selector: (state: {
@@ -45,8 +58,11 @@ vi.mock("@/stores/authStore", () => ({
 
 describe("route guards", () => {
 	beforeEach(() => {
+		mockState.ensureI18nNamespaces.mockReset();
+		mockState.ensureI18nNamespaces.mockResolvedValue(undefined);
 		mockState.isAuthenticated = false;
 		mockState.isChecking = false;
+		mockState.loggerWarn.mockReset();
 		mockState.user = null;
 	});
 
@@ -133,10 +149,32 @@ describe("route guards", () => {
 		expect(
 			await screen.findByTestId("site-url-mismatch-prompt"),
 		).toBeInTheDocument();
+		expect(mockState.ensureI18nNamespaces).toHaveBeenCalledWith([
+			"admin",
+			"core",
+		]);
 		expect(screen.getByTestId("outlet")).toBeInTheDocument();
 		expect(screen.getByTestId("outlet").parentElement).toHaveAttribute(
 			"aria-busy",
 			"true",
+		);
+	});
+
+	it("continues rendering admin routes if admin locale loading fails", async () => {
+		mockState.ensureI18nNamespaces.mockRejectedValueOnce(
+			new Error("locale failed"),
+		);
+		mockState.isAuthenticated = true;
+		mockState.user = { must_change_password: false, role: "admin" };
+
+		render(<AdminRoute />);
+
+		expect(
+			await screen.findByTestId("site-url-mismatch-prompt"),
+		).toBeInTheDocument();
+		expect(mockState.loggerWarn).toHaveBeenCalledWith(
+			"failed to load admin locale namespaces",
+			expect.any(Error),
 		);
 	});
 });

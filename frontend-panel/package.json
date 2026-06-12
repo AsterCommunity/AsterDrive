@@ -2,6 +2,9 @@
 	"name": "asterdrive-panel",
 	"private": true,
 	"version": "0.3.0-alpha.4",
+	"author": "AptS:1547 <apts-1547@esaps.net>",
+	"description": "The web-based control panel for AsterDrive",
+	"license": "MIT",
 	"type": "module",
 	"scripts": {
 		"extract:pdfjs-cmaps": "node ./scripts/extract-pdfjs-cmaps.mjs",

@@ -840,8 +840,8 @@ async fn test_folder_copy_preserves_policy_ids() {
     let body: Value = test::read_body_json(resp).await;
     let nested_id = body["data"]["id"].as_i64().unwrap();
 
-    let req = test::TestRequest::patch()
-        .uri(&format!("/api/v1/folders/{source_id}"))
+    let req = test::TestRequest::put()
+        .uri(&format!("/api/v1/admin/folders/{source_id}/policy"))
         .insert_header(("Cookie", common::access_cookie_header(&token)))
         .insert_header(common::csrf_header_for(&token))
         .set_json(serde_json::json!({ "policy_id": root_policy_id }))
@@ -849,8 +849,8 @@ async fn test_folder_copy_preserves_policy_ids() {
     let resp = test::call_service(&app, req).await;
     assert_eq!(resp.status(), 200);
 
-    let req = test::TestRequest::patch()
-        .uri(&format!("/api/v1/folders/{nested_id}"))
+    let req = test::TestRequest::put()
+        .uri(&format!("/api/v1/admin/folders/{nested_id}/policy"))
         .insert_header(("Cookie", common::access_cookie_header(&token)))
         .insert_header(common::csrf_header_for(&token))
         .set_json(serde_json::json!({ "policy_id": child_policy_id }))

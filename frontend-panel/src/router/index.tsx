@@ -1,5 +1,6 @@
 import { type ComponentType, lazy, Suspense } from "react";
 import { createBrowserRouter, Navigate } from "react-router-dom";
+import { ensureI18nNamespaces, type LocaleNamespace } from "@/i18n";
 import { AdminRoute } from "./AdminRoute";
 import { Loading } from "./Loading";
 import { LoginGuard } from "./LoginGuard";
@@ -11,6 +12,16 @@ function lazyPage<TProps extends object>(
 	load: () => Promise<{ default: ComponentType<TProps> }>,
 ) {
 	return lazy<ComponentType<TProps>>(load);
+}
+
+function localizedLazyPage<TProps extends object>(
+	namespaces: readonly LocaleNamespace[],
+	load: () => Promise<{ default: ComponentType<TProps> }>,
+) {
+	return lazyPage(async () => {
+		await ensureI18nNamespaces(namespaces);
+		return load();
+	});
 }
 
 const LoginPage = lazyPage(() => import("@/pages/LoginPage"));
@@ -55,11 +66,23 @@ const AdminSharesPage = lazyPage(() => import("@/pages/admin/AdminSharesPage"));
 const AdminFilesPage = lazyPage(() => import("@/pages/admin/AdminFilesPage"));
 const AdminLocksPage = lazyPage(() => import("@/pages/admin/AdminLocksPage"));
 const AdminAboutPage = lazyPage(() => import("@/pages/admin/AdminAboutPage"));
-const ShareViewPage = lazyPage(() => import("@/pages/ShareViewPage"));
-const WebdavAccountsPage = lazyPage(() => import("@/pages/WebdavAccountsPage"));
+const ShareViewPage = localizedLazyPage(
+	["core", "share", "files", "errors"],
+	() => import("@/pages/ShareViewPage"),
+);
+const WebdavAccountsPage = localizedLazyPage(
+	["core", "admin", "auth", "webdav", "errors"],
+	() => import("@/pages/WebdavAccountsPage"),
+);
 const TrashPage = lazyPage(() => import("@/pages/TrashPage"));
-const SettingsPage = lazyPage(() => import("@/pages/SettingsPage"));
-const TeamManagePage = lazyPage(() => import("@/pages/TeamManagePage"));
+const SettingsPage = localizedLazyPage(
+	["core", "files", "settings", "auth", "admin"],
+	() => import("@/pages/SettingsPage"),
+);
+const TeamManagePage = localizedLazyPage(
+	["core", "settings", "admin", "webdav", "errors"],
+	() => import("@/pages/TeamManagePage"),
+);
 const MySharesPage = lazyPage(() => import("@/pages/MySharesPage"));
 const TasksPage = lazyPage(() => import("@/pages/TasksPage"));
 const AdminAuditPage = lazyPage(() => import("@/pages/admin/AdminAuditPage"));

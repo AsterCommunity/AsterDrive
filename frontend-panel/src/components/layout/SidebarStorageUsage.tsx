@@ -31,7 +31,10 @@ export function SidebarStorageUsage({
 		<>
 			<Separator />
 			<div className="shrink-0 space-y-1.5 px-3 pt-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] md:pb-3">
-				<p className="text-xs font-medium text-muted-foreground">
+				<p
+					className="text-xs font-medium text-muted-foreground"
+					data-testid="user-sidebar-storage-title"
+				>
 					{activeTeam ? activeTeam.name : t("files:storage_space")}
 				</p>
 				<Progress

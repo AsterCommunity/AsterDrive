@@ -219,7 +219,9 @@ test.describe
 				sidebarScroll.getByRole("link", { name: "Trash" }),
 			).toBeVisible();
 			await expect(sidebarScroll.getByText("Storage")).toHaveCount(0);
-			await expect(page.getByText("Storage")).toBeVisible();
+			await expect(page.getByTestId("user-sidebar-storage-title")).toHaveText(
+				"Storage",
+			);
 		});
 
 		test("applies batch copy, move, and delete operations from multi-selection", async ({

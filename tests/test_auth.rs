@@ -1174,6 +1174,7 @@ async fn test_concurrent_refresh_same_token_has_single_winner() {
     assert!(!winner.0.is_empty());
     assert!(!winner.1.is_empty());
     let winner_access = winner.0.clone();
+    common::seed_csrf_token(&winner_access);
     let loser = first.as_ref().err().or(second.as_ref().err()).unwrap();
     assert_eq!(loser.code(), "E019");
 
