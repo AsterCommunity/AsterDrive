@@ -933,6 +933,8 @@ async fn test_password_protected_share_stream_session_requires_cookie() {
 
     let req = test::TestRequest::post()
         .uri(&format!("/api/v1/s/{share_token}/verify"))
+        .insert_header(("User-Agent", "AsterDrive Share Client/1.0"))
+        .peer_addr("203.0.113.42:12345".parse().unwrap())
         .set_json(serde_json::json!({"password": "secret"}))
         .to_request();
     let resp = test::call_service(&app, req).await;
@@ -944,6 +946,8 @@ async fn test_password_protected_share_stream_session_requires_cookie() {
     let req = test::TestRequest::post()
         .uri(&format!("/api/v1/s/{share_token}/stream-session"))
         .insert_header(("Cookie", cookie_header.as_str()))
+        .insert_header(("User-Agent", "AsterDrive Share Client/1.0"))
+        .peer_addr("203.0.113.42:12345".parse().unwrap())
         .to_request();
     let resp = test::call_service(&app, req).await;
     assert_eq!(resp.status(), 200);
@@ -960,6 +964,8 @@ async fn test_password_protected_share_stream_session_requires_cookie() {
     let req = test::TestRequest::get()
         .uri(&stream_path)
         .insert_header(("Cookie", cookie_header))
+        .insert_header(("User-Agent", "AsterDrive Share Client/1.0"))
+        .peer_addr("203.0.113.42:12345".parse().unwrap())
         .insert_header(("Range", "bytes=0-3"))
         .to_request();
     let resp = test::call_service(&app, req).await;
@@ -1567,6 +1573,8 @@ async fn test_share_forged_cookie_rejected() {
     // 用正确流程验证密码
     let req = test::TestRequest::post()
         .uri(&format!("/api/v1/s/{share_token}/verify"))
+        .insert_header(("User-Agent", "AsterDrive Share Client/1.0"))
+        .peer_addr("203.0.113.42:12345".parse().unwrap())
         .set_json(serde_json::json!({"password": "secret"}))
         .to_request();
     let resp: actix_web::dev::ServiceResponse = test::call_service(&app, req).await;
@@ -1576,6 +1584,38 @@ async fn test_share_forged_cookie_rejected() {
     let signed_cookie = common::extract_cookie(&resp, &format!("aster_share_{share_token}"))
         .expect("should get signed cookie");
 
+    let req = test::TestRequest::get()
+        .uri(&format!("/api/v1/s/{share_token}/download"))
+        .insert_header((
+            "Cookie",
+            format!("aster_share_{share_token}={signed_cookie}"),
+        ))
+        .insert_header(("User-Agent", "AsterDrive Share Client/2.0"))
+        .peer_addr("203.0.113.42:12345".parse().unwrap())
+        .to_request();
+    let resp: actix_web::dev::ServiceResponse = test::call_service(&app, req).await;
+    assert_eq!(
+        resp.status(),
+        403,
+        "cookie verified for one user agent must not replay from another"
+    );
+
+    let req = test::TestRequest::get()
+        .uri(&format!("/api/v1/s/{share_token}/download"))
+        .insert_header((
+            "Cookie",
+            format!("aster_share_{share_token}={signed_cookie}"),
+        ))
+        .insert_header(("User-Agent", "AsterDrive Share Client/1.0"))
+        .peer_addr("203.0.114.10:12345".parse().unwrap())
+        .to_request();
+    let resp: actix_web::dev::ServiceResponse = test::call_service(&app, req).await;
+    assert_eq!(
+        resp.status(),
+        403,
+        "cookie verified for one IPv4 /24 must not replay from another subnet"
+    );
+
     // 用签名 cookie 下载 → 应成功
     let req = test::TestRequest::get()
         .uri(&format!("/api/v1/s/{share_token}/download"))
@@ -1583,6 +1623,8 @@ async fn test_share_forged_cookie_rejected() {
             "Cookie",
             format!("aster_share_{share_token}={signed_cookie}"),
         ))
+        .insert_header(("User-Agent", "AsterDrive Share Client/1.0"))
+        .peer_addr("203.0.113.99:12345".parse().unwrap())
         .to_request();
     let resp: actix_web::dev::ServiceResponse = test::call_service(&app, req).await;
     assert_eq!(

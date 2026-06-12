@@ -18,8 +18,9 @@ use crate::services::batch_service;
 use crate::services::workspace_storage_service::WorkspaceStorageScope;
 
 pub use access::{
-    PasswordVerified, check_share_password_cookie, get_share_avatar_bytes, get_share_info,
-    sign_share_cookie, verify_password, verify_password_and_sign, verify_share_cookie,
+    PasswordVerified, ShareCookieBinding, check_share_password_cookie, get_share_avatar_bytes,
+    get_share_info, sign_share_cookie, verify_password, verify_password_and_sign,
+    verify_share_cookie,
 };
 pub use content::{
     ShareDownloadRollbackQueue, ShareDownloadRollbackWorker, build_share_download_rollback_queue,
