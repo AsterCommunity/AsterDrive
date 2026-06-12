@@ -134,6 +134,40 @@ async fn test_path_resolver_resolves_deep_folder_file_and_parent_paths() {
 }
 
 #[actix_web::test]
+async fn test_path_resolver_uses_canonical_dav_path_segments() {
+    use aster_drive::services::auth_service;
+    use aster_drive::webdav::path_resolver::{ResolvedNode, resolve_path};
+
+    let state = common::setup().await;
+    let user = auth_service::register(&state, "davcanon", "davcanon@example.com", "pass1234")
+        .await
+        .unwrap();
+
+    let (_projects, _docs, _reports, file, _contents) =
+        seed_nested_file(&state, user.id, None).await;
+
+    let canonical = DavPath::new("/projects/docs/reports/q1.txt").unwrap();
+    let dot_alias = DavPath::new("/projects/./docs/reports/q1.txt").unwrap();
+    let parent_alias = DavPath::new("/projects/docs/archive/../reports/q1.txt").unwrap();
+    let encoded_parent_alias =
+        DavPath::new("/projects/docs/archive/%2e%2e/reports/q1.txt").unwrap();
+
+    assert_eq!(dot_alias.as_bytes(), canonical.as_bytes());
+    assert_eq!(parent_alias.as_bytes(), canonical.as_bytes());
+    assert_eq!(encoded_parent_alias.as_bytes(), canonical.as_bytes());
+
+    for path in [canonical, dot_alias, parent_alias, encoded_parent_alias] {
+        match resolve_path(state.writer_db(), user.id, &path, None)
+            .await
+            .unwrap()
+        {
+            ResolvedNode::File(found) => assert_eq!(found.id, file.id),
+            other => panic!("expected canonicalized file path, got {other:?}"),
+        }
+    }
+}
+
+#[actix_web::test]
 async fn test_path_resolver_honors_scoped_root_semantics() {
     use aster_drive::services::{auth_service, folder_service};
     use aster_drive::webdav::path_resolver::{ResolvedNode, resolve_parent, resolve_path};

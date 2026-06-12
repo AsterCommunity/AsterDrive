@@ -19,12 +19,14 @@ pub struct DavPath {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DavPathError {
     InvalidEncoding,
+    PathEscape,
 }
 
 impl std::fmt::Display for DavPathError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::InvalidEncoding => f.write_str("invalid WebDAV path encoding"),
+            Self::PathEscape => f.write_str("WebDAV path escapes the mount root"),
         }
     }
 }
@@ -33,11 +35,12 @@ impl std::error::Error for DavPathError {}
 
 impl DavPath {
     pub fn new(path: &str) -> Result<Self, DavPathError> {
-        let raw = normalize_path(path);
+        let raw = ensure_leading_slash(path);
         let decoded = urlencoding::decode(&raw)
             .map_err(|_| DavPathError::InvalidEncoding)?
-            .into_owned()
-            .into_bytes();
+            .into_owned();
+        let raw = clean_decoded_path(&decoded)?;
+        let decoded = raw.as_bytes().to_vec();
         Ok(Self { raw, decoded })
     }
 
@@ -61,7 +64,7 @@ impl DavPath {
     }
 }
 
-fn normalize_path(path: &str) -> String {
+fn ensure_leading_slash(path: &str) -> String {
     if path.is_empty() || path == "/" {
         return "/".to_string();
     }
@@ -71,6 +74,33 @@ fn normalize_path(path: &str) -> String {
         normalized.insert(0, '/');
     }
     normalized
+}
+
+fn clean_decoded_path(path: &str) -> Result<String, DavPathError> {
+    let is_collection = path.ends_with('/');
+    let mut segments = Vec::new();
+
+    for segment in path.split('/') {
+        match segment {
+            "" | "." => {}
+            ".." => {
+                if segments.pop().is_none() {
+                    return Err(DavPathError::PathEscape);
+                }
+            }
+            segment => segments.push(segment),
+        }
+    }
+
+    if segments.is_empty() {
+        return Ok("/".to_string());
+    }
+
+    let mut cleaned = format!("/{}", segments.join("/"));
+    if is_collection && !cleaned.ends_with('/') {
+        cleaned.push('/');
+    }
+    Ok(cleaned)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -279,4 +309,50 @@ pub trait DavLockSystem: Send + Sync {
     fn conflicting_locks(&self, path: &DavPath, deep: bool) -> LsFuture<'_, Vec<DavLock>>;
 
     fn delete(&self, path: &DavPath) -> LsFuture<'_, Result<(), ()>>;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{DavPath, DavPathError};
+
+    #[test]
+    fn dav_path_collapses_dot_segments_before_cache_and_resolution() {
+        let path = DavPath::new("/projects/./docs/reports/../q1.txt").unwrap();
+        assert_eq!(path.as_str(), "/projects/docs/q1.txt");
+        assert_eq!(path.as_bytes(), b"/projects/docs/q1.txt");
+
+        let collection = DavPath::new("/projects/./docs/").unwrap();
+        assert_eq!(collection.as_str(), "/projects/docs/");
+        assert!(collection.is_collection());
+
+        let relative = DavPath::new("projects/./docs").unwrap();
+        assert_eq!(relative.as_str(), "/projects/docs");
+    }
+
+    #[test]
+    fn dav_path_rejects_dot_dot_escape_after_percent_decoding() {
+        assert!(matches!(
+            DavPath::new("/../secret.txt"),
+            Err(DavPathError::PathEscape)
+        ));
+        assert!(matches!(
+            DavPath::new("/projects/../../secret.txt"),
+            Err(DavPathError::PathEscape)
+        ));
+        assert!(matches!(
+            DavPath::new("/%2e%2e/secret.txt"),
+            Err(DavPathError::PathEscape)
+        ));
+    }
+
+    #[test]
+    fn dav_path_allows_internal_dot_dot_without_cache_aliases() {
+        let path = DavPath::new("/projects/docs/../manuals/file.txt").unwrap();
+        assert_eq!(path.as_str(), "/projects/manuals/file.txt");
+        assert_eq!(path.as_bytes(), b"/projects/manuals/file.txt");
+
+        let encoded = DavPath::new("/projects/docs/%2e%2e/manuals/file.txt").unwrap();
+        assert_eq!(encoded.as_str(), "/projects/manuals/file.txt");
+        assert_eq!(encoded.as_bytes(), b"/projects/manuals/file.txt");
+    }
 }
