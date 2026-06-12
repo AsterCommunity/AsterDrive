@@ -180,10 +180,7 @@ function getChannelBadgeClass(channel: ReleaseChannel) {
 	}
 }
 
-function formatBuildTime(
-	value: string | undefined,
-	fallback: string,
-) {
+function formatBuildTime(value: string | undefined, fallback: string) {
 	if (!value || value === "unknown") return fallback;
 
 	const date = new Date(value);
@@ -213,9 +210,14 @@ export default function AdminAboutPage() {
 		t("about_build_time_unknown"),
 	);
 	const [versionBadgeClassIndex, setVersionBadgeClassIndex] = useState(0);
-	const [displayReleaseChannel, setDisplayReleaseChannel] =
-		useState(releaseChannel);
-	const topReleaseChannel = displayReleaseChannel;
+	const [releaseChannelOverride, setReleaseChannelOverride] = useState<{
+		version: string;
+		channel: ReleaseChannel;
+	} | null>(null);
+	const topReleaseChannel =
+		releaseChannelOverride?.version === backendVersion
+			? releaseChannelOverride.channel
+			: releaseChannel;
 	useEffect(() => {
 		let cancelled = false;
 		void adminSystemService
@@ -230,17 +232,16 @@ export default function AdminAboutPage() {
 			cancelled = true;
 		};
 	}, []);
-	useEffect(() => {
-		setDisplayReleaseChannel(releaseChannel);
-	}, [releaseChannel]);
 	const handleVersionClick = useCallback(() => {
 		setVersionBadgeClassIndex(
 			(current) => (current + 1) % VERSION_BADGE_CLASSES.length,
 		);
-		setDisplayReleaseChannel(
-			RELEASE_CHANNELS[Math.floor(Math.random() * RELEASE_CHANNELS.length)] ??
+		setReleaseChannelOverride({
+			version: backendVersion,
+			channel:
+				RELEASE_CHANNELS[Math.floor(Math.random() * RELEASE_CHANNELS.length)] ??
 				releaseChannel,
-		);
+		});
 		versionClickCountRef.current += 1;
 		if (versionClickCountRef.current < VERSION_EASTER_EGG_CLICKS) return;
 
@@ -248,9 +249,9 @@ export default function AdminAboutPage() {
 		const message =
 			VERSION_EASTER_EGG_MESSAGES[
 				Math.floor(Math.random() * VERSION_EASTER_EGG_MESSAGES.length)
-			];
+		];
 		toast.info(message);
-	}, [releaseChannel]);
+	}, [backendVersion, releaseChannel]);
 
 	const resourceLinks: {
 		href: string;

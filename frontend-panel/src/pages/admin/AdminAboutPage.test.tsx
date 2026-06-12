@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import AdminAboutPage from "@/pages/admin/AdminAboutPage";
 
 const mockState = {
+	formatDateTime: vi.fn((value: string) => `formatted:${value}`),
 	getInfo: vi.fn(),
 	toastInfo: vi.fn(),
 };
@@ -14,7 +15,7 @@ vi.mock("react-i18next", () => ({
 }));
 
 vi.mock("@/lib/format", () => ({
-	formatDateTime: (value: string) => `formatted:${value}`,
+	formatDateTime: (value: string) => mockState.formatDateTime(value),
 }));
 
 vi.mock("sonner", () => ({
@@ -102,6 +103,10 @@ vi.mock("@/components/ui/icon", () => ({
 
 describe("AdminAboutPage", () => {
 	beforeEach(() => {
+		mockState.formatDateTime.mockReset();
+		mockState.formatDateTime.mockImplementation(
+			(value: string) => `formatted:${value}`,
+		);
 		mockState.getInfo.mockReset();
 		mockState.getInfo.mockRejectedValue(new Error("offline"));
 		mockState.toastInfo.mockReset();
@@ -133,7 +138,34 @@ describe("AdminAboutPage", () => {
 
 		expect(await screen.findAllByText("v0.3.0")).toHaveLength(2);
 		expect(screen.queryByText("2026-06-13T00:00:00Z")).not.toBeInTheDocument();
-		expect(screen.getByText("formatted:2026-06-13T00:00:00Z")).toBeInTheDocument();
+		expect(
+			screen.getByText("formatted:2026-06-13T00:00:00Z"),
+		).toBeInTheDocument();
+	});
+
+	it("falls back when backend build time is invalid or cannot be formatted", async () => {
+		mockState.getInfo.mockResolvedValueOnce({
+			version: "0.3.0",
+			build_time: "not-a-date",
+		});
+		const { unmount } = render(<AdminAboutPage />);
+
+		expect(await screen.findAllByText("v0.3.0")).toHaveLength(2);
+		expect(screen.getByText("about_build_time_unknown")).toBeInTheDocument();
+		expect(mockState.formatDateTime).not.toHaveBeenCalled();
+		unmount();
+
+		mockState.getInfo.mockResolvedValueOnce({
+			version: "0.3.1",
+			build_time: "2026-06-13T00:00:00Z",
+		});
+		mockState.formatDateTime.mockImplementationOnce(() => {
+			throw new Error("unsupported locale");
+		});
+		render(<AdminAboutPage />);
+
+		expect(await screen.findAllByText("v0.3.1")).toHaveLength(2);
+		expect(screen.getByText("about_build_time_unknown")).toBeInTheDocument();
 	});
 
 	it("reveals a version easter egg after five version badge clicks", () => {
