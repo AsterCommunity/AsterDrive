@@ -107,7 +107,7 @@ mime_guess = "2"
 moka = { version = "0.12.15", features = ["future"] }
 md-5 = "0.11.0"
 num_cpus = "1.17.0"
-nom-exif = "3.6.0"
+nom-exif = "3.6.1"
 parking_lot = "0.12"
 paste = "1.0.15"
 percent-encoding = "2.3"
@@ -152,7 +152,7 @@ lofty = "0.24.0"
 
 [dev-dependencies]
 aws-smithy-http-client = { version = "1.1.13", features = ["test-util"] }
-aws-smithy-types = "1.4.9"
+aws-smithy-types = "1.5.0"
 # Test-only RSA key generation still uses rsa 0.9, which depends on rand 0.8.
 # Keep both dev-only so production builds continue using the main rand 0.10 line.
 rand_08 = { package = "rand", version = "0.8" }
