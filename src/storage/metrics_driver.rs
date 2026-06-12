@@ -442,10 +442,14 @@ impl MultipartStorageDriver for MetricsMultipartStorageDriver {
         result
     }
 
-    async fn list_uploaded_parts(&self, path: &str, upload_id: &str) -> Result<Vec<i32>> {
+    async fn list_uploaded_part_details(
+        &self,
+        path: &str,
+        upload_id: &str,
+    ) -> Result<Vec<crate::storage::traits::multipart::UploadedMultipartPart>> {
         let started_at = Instant::now();
-        let result = self.inner.list_uploaded_parts(path, upload_id).await;
-        self.record("list_uploaded_parts", &result, started_at);
+        let result = self.inner.list_uploaded_part_details(path, upload_id).await;
+        self.record("list_uploaded_part_details", &result, started_at);
         result
     }
 }

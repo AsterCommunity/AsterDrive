@@ -8,7 +8,7 @@ use tokio::io::AsyncRead;
 
 use crate::errors::{MapAsterErr, Result};
 use crate::storage::error::{StorageErrorKind, storage_driver_error};
-use crate::storage::traits::multipart::MultipartStorageDriver;
+use crate::storage::traits::multipart::{MultipartStorageDriver, UploadedMultipartPart};
 
 use super::S3Driver;
 use super::presigned::clamp_presign_ttl;
@@ -192,9 +192,13 @@ impl MultipartStorageDriver for S3Driver {
         Ok(())
     }
 
-    async fn list_uploaded_parts(&self, path: &str, upload_id: &str) -> Result<Vec<i32>> {
+    async fn list_uploaded_part_details(
+        &self,
+        path: &str,
+        upload_id: &str,
+    ) -> Result<Vec<UploadedMultipartPart>> {
         let key = self.full_key(path);
-        let mut part_numbers = Vec::new();
+        let mut parts = Vec::new();
         let mut part_marker: Option<String> = None;
 
         loop {
@@ -214,7 +218,19 @@ impl MultipartStorageDriver for S3Driver {
                 .map_err(|err| Self::map_sdk_error("S3 list_parts failed", err))?;
 
             for part in resp.parts() {
-                part_numbers.push(part.part_number.unwrap_or(0));
+                let part_number = part.part_number.ok_or_else(|| {
+                    storage_driver_error(
+                        StorageErrorKind::Unknown,
+                        "S3 list_parts response missing part_number",
+                    )
+                })?;
+                let size = part.size.ok_or_else(|| {
+                    storage_driver_error(
+                        StorageErrorKind::Unknown,
+                        "S3 list_parts response missing part size",
+                    )
+                })?;
+                parts.push(UploadedMultipartPart { part_number, size });
             }
 
             if resp.is_truncated() == Some(true) {
@@ -224,6 +240,6 @@ impl MultipartStorageDriver for S3Driver {
             }
         }
 
-        Ok(part_numbers)
+        Ok(parts)
     }
 }

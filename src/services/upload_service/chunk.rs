@@ -994,7 +994,11 @@ mod tests {
             panic!("not used")
         }
 
-        async fn list_uploaded_parts(&self, _path: &str, _upload_id: &str) -> Result<Vec<i32>> {
+        async fn list_uploaded_part_details(
+            &self,
+            _path: &str,
+            _upload_id: &str,
+        ) -> Result<Vec<crate::storage::UploadedMultipartPart>> {
             panic!("not used")
         }
     }

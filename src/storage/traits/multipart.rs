@@ -12,6 +12,13 @@ use tokio::io::{AsyncRead, AsyncReadExt};
 
 const DEFAULT_MULTIPART_READER_BUFFER_SIZE: usize = 64 * 1024;
 
+/// Provider 端已经接收的 multipart part 明细。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UploadedMultipartPart {
+    pub part_number: i32,
+    pub size: i64,
+}
+
 /// Multipart upload 支持。
 ///
 /// 调用方通过 `driver.as_multipart()` 获取引用。
@@ -116,8 +123,22 @@ pub trait MultipartStorageDriver: Send + Sync {
     /// 取消 multipart upload（清理已上传的 parts）
     async fn abort_multipart_upload(&self, path: &str, upload_id: &str) -> Result<()>;
 
+    /// 列出已上传的 part 明细（包含 provider 端记录的实际大小）
+    async fn list_uploaded_part_details(
+        &self,
+        path: &str,
+        upload_id: &str,
+    ) -> Result<Vec<UploadedMultipartPart>>;
+
     /// 列出已上传的 parts（返回 part numbers，用于断点续传进度查询）
-    async fn list_uploaded_parts(&self, path: &str, upload_id: &str) -> Result<Vec<i32>>;
+    async fn list_uploaded_parts(&self, path: &str, upload_id: &str) -> Result<Vec<i32>> {
+        Ok(self
+            .list_uploaded_part_details(path, upload_id)
+            .await?
+            .into_iter()
+            .map(|part| part.part_number)
+            .collect())
+    }
 }
 
 #[cfg(test)]
@@ -180,7 +201,11 @@ mod tests {
             panic!("not used")
         }
 
-        async fn list_uploaded_parts(&self, _path: &str, _upload_id: &str) -> Result<Vec<i32>> {
+        async fn list_uploaded_part_details(
+            &self,
+            _path: &str,
+            _upload_id: &str,
+        ) -> Result<Vec<UploadedMultipartPart>> {
             panic!("not used")
         }
     }

@@ -1,7 +1,7 @@
 //! Multipart storage driver default reader integration tests.
 
 use aster_drive::errors::Result;
-use aster_drive::storage::MultipartStorageDriver;
+use aster_drive::storage::{MultipartStorageDriver, UploadedMultipartPart};
 use async_trait::async_trait;
 use std::sync::Mutex;
 use std::time::Duration;
@@ -68,7 +68,11 @@ impl MultipartStorageDriver for CapturingMultipartDriver {
         panic!("not used")
     }
 
-    async fn list_uploaded_parts(&self, _path: &str, _upload_id: &str) -> Result<Vec<i32>> {
+    async fn list_uploaded_part_details(
+        &self,
+        _path: &str,
+        _upload_id: &str,
+    ) -> Result<Vec<UploadedMultipartPart>> {
         panic!("not used")
     }
 }

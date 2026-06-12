@@ -10,7 +10,7 @@ use tokio::io::{AsyncRead, ReadBuf};
 use crate::errors::{AsterError, Result};
 use crate::storage::error::{StorageErrorKind, storage_driver_error};
 use crate::storage::traits::extensions::ListStorageDriver;
-use crate::storage::traits::multipart::MultipartStorageDriver;
+use crate::storage::traits::multipart::{MultipartStorageDriver, UploadedMultipartPart};
 
 use super::RemoteDriver;
 
@@ -164,7 +164,11 @@ impl MultipartStorageDriver for RemoteDriver {
         Ok(())
     }
 
-    async fn list_uploaded_parts(&self, _path: &str, upload_id: &str) -> Result<Vec<i32>> {
+    async fn list_uploaded_part_details(
+        &self,
+        _path: &str,
+        upload_id: &str,
+    ) -> Result<Vec<UploadedMultipartPart>> {
         let prefix = Self::multipart_parts_prefix(upload_id);
         let mut parts = self
             .list_paths(Some(&prefix))
@@ -174,10 +178,23 @@ impl MultipartStorageDriver for RemoteDriver {
                 path.rsplit('/')
                     .next()
                     .and_then(|segment| segment.parse::<i32>().ok())
+                    .map(|part_number| (part_number, path))
             })
             .collect::<Vec<_>>();
-        parts.sort_unstable();
-        parts.dedup();
-        Ok(parts)
+        parts.sort_unstable_by_key(|(part_number, _)| *part_number);
+        parts.dedup_by_key(|(part_number, _)| *part_number);
+
+        let mut details = Vec::with_capacity(parts.len());
+        for (part_number, part_path) in parts {
+            let metadata = self.client.metadata(&self.object_key(&part_path)).await?;
+            let size = i64::try_from(metadata.size).map_err(|_| {
+                storage_driver_error(
+                    StorageErrorKind::Precondition,
+                    "remote multipart part size exceeds i64 range",
+                )
+            })?;
+            details.push(UploadedMultipartPart { part_number, size });
+        }
+        Ok(details)
     }
 }

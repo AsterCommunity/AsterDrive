@@ -247,10 +247,14 @@ where
             .await
     }
 
-    async fn list_uploaded_parts(&self, path: &str, upload_id: &str) -> Result<Vec<i32>> {
+    async fn list_uploaded_part_details(
+        &self,
+        path: &str,
+        upload_id: &str,
+    ) -> Result<Vec<crate::storage::traits::multipart::UploadedMultipartPart>> {
         self.s3_compatible_driver()
             .inner()
-            .list_uploaded_parts(path, upload_id)
+            .list_uploaded_part_details(path, upload_id)
             .await
     }
 }

@@ -128,6 +128,19 @@ async fn spawn_list_server(
         }))
     }
 
+    async fn metadata(path: web::Path<String>) -> HttpResponse {
+        let size = match path.as_str() {
+            "base/uploads/upload-1/parts/1" => 5u64,
+            "base/uploads/upload-1/parts/2" => 7u64,
+            _ => 0u64,
+        };
+        HttpResponse::Ok().json(serde_json::json!({
+            "code": "success",
+            "msg": "",
+            "data": { "size": size, "content_type": null }
+        }))
+    }
+
     let listener =
         std::net::TcpListener::bind(("127.0.0.1", 0)).expect("test remote listener should bind");
     let addr = listener
@@ -142,6 +155,10 @@ async fn spawn_list_server(
             .route(
                 "/api/v1/internal/storage/objects",
                 web::get().to(list_objects),
+            )
+            .route(
+                "/api/v1/internal/storage/objects/{path:.*}/metadata",
+                web::get().to(metadata),
             )
     })
     .listen(listener)
@@ -421,12 +438,23 @@ async fn list_uploaded_parts_sorts_and_deduplicates_numeric_part_keys() {
     .await;
     let driver = build_driver(&server.base_url, "base");
 
-    let parts = driver
-        .list_uploaded_parts("ignored.bin", "upload-1")
+    let part_details = driver
+        .list_uploaded_part_details("ignored.bin", "upload-1")
         .await
         .expect("remote parts should list");
+    let parts = part_details
+        .iter()
+        .map(|part| part.part_number)
+        .collect::<Vec<_>>();
 
     assert_eq!(parts, vec![1, 2]);
+    assert_eq!(
+        part_details
+            .iter()
+            .map(|part| part.size)
+            .collect::<Vec<_>>(),
+        vec![5, 7]
+    );
     assert_eq!(
         *seen_prefixes
             .lock()

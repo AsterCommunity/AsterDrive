@@ -14,4 +14,4 @@ pub use extensions::{
     NativeThumbnailStorageDriver, PresignedStorageDriver, StorageCapacityInfo,
     StorageCapacityStatus, StreamUploadDriver,
 };
-pub use multipart::MultipartStorageDriver;
+pub use multipart::{MultipartStorageDriver, UploadedMultipartPart};

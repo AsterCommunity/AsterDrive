@@ -506,12 +506,25 @@ impl MultipartStorageDriver for MultipartMigrationTestDriver {
         Ok(())
     }
 
-    async fn list_uploaded_parts(&self, _path: &str, upload_id: &str) -> Result<Vec<i32>> {
+    async fn list_uploaded_part_details(
+        &self,
+        _path: &str,
+        upload_id: &str,
+    ) -> Result<Vec<aster_drive::storage::UploadedMultipartPart>> {
         let state = self.state.lock();
         let upload = state.uploads.get(upload_id).ok_or_else(|| {
             AsterError::storage_driver_error(format!("missing upload {upload_id}"))
         })?;
-        Ok(upload.parts.keys().copied().collect())
+        Ok(upload
+            .parts
+            .iter()
+            .map(
+                |(part_number, data)| aster_drive::storage::UploadedMultipartPart {
+                    part_number: *part_number,
+                    size: data.len() as i64,
+                },
+            )
+            .collect())
     }
 }
 
