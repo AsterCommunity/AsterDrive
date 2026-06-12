@@ -117,6 +117,10 @@ impl PolicySnapshot {
             .ok_or_else(|| AsterError::storage_policy_not_found(format!("policy #{policy_id}")))
     }
 
+    pub fn policy_available_for_outbound_public(&self, policy: &storage_policy::Model) -> bool {
+        self.policy_available_for_outbound(policy)
+    }
+
     pub fn get_policy_group(&self, group_id: i64) -> Option<storage_policy_group::Model> {
         self.snapshot
             .read()

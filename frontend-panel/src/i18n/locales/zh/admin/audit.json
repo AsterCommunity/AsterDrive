@@ -198,6 +198,7 @@
 	"audit_presentation_upload_cancelled": "取消上传会话 {{upload_id}}",
 	"audit_presentation_file_access_token_created": "访问来源：{{source}}",
 	"audit_presentation_file_version_changed": "版本 ID {{version_id}}",
+	"audit_presentation_folder_policy_changed": "策略从 {{previous_policy_id}} 改为 {{policy_id}}",
 	"audit_presentation_batch_delete_finished": "成功 {{succeeded}}，失败 {{failed}}",
 	"audit_presentation_batch_transfer_finished": "成功 {{succeeded}}，失败 {{failed}}",
 	"audit_presentation_share_batch_delete_finished": "成功 {{succeeded}}，失败 {{failed}}",

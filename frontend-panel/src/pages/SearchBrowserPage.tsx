@@ -691,6 +691,7 @@ export default function SearchBrowserPage() {
 				createFolderOpen={false}
 				currentFolderId={null}
 				currentFolderName={null}
+				folderPolicyTarget={null}
 				moveTarget={null}
 				offlineDownloadOpen={false}
 				previewImageNavigation={previewImageNavigation}
@@ -704,6 +705,7 @@ export default function SearchBrowserPage() {
 				onCopyConfirm={async () => undefined}
 				onCreateFileOpenChange={() => undefined}
 				onCreateFolderOpenChange={() => undefined}
+				onFolderPolicyClose={() => undefined}
 				onMoveClose={() => undefined}
 				onMoveConfirm={async () => undefined}
 				onOfflineDownloadOpenChange={() => undefined}

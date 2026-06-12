@@ -15,8 +15,8 @@ use crate::types::DriverType;
 
 use super::{
     WorkspaceStorageScope, ensure_upload_parent_path, parse_relative_upload_path,
-    resolve_policy_for_size_with_verified_folder, streaming_direct_upload_eligible,
-    verify_folder_access,
+    resolve_policy_for_size_with_verified_folder, resolve_verified_folder_policy_hint,
+    streaming_direct_upload_eligible, verify_folder_access,
 };
 
 use self::common::DirectUploadParams;
@@ -69,7 +69,8 @@ pub(crate) async fn upload_with_hints(
         None => {
             let folder = match folder_id {
                 Some(folder_id) => {
-                    Some(verify_folder_access(state, scope, folder_id).await?.into())
+                    let folder = verify_folder_access(state, scope, folder_id).await?;
+                    Some(resolve_verified_folder_policy_hint(state, scope, folder).await?)
                 }
                 None => None,
             };

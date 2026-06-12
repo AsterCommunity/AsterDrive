@@ -7,6 +7,7 @@ import {
 	BatchTargetFolderDialog,
 	CreateFileDialog,
 	CreateFolderDialog,
+	FolderPolicyDialog,
 	OfflineDownloadDialog,
 	RenameDialog,
 	ShareDialog,
@@ -23,7 +24,7 @@ import type {
 } from "@/pages/file-browser/types";
 import { fileService } from "@/services/fileService";
 import type { BreadcrumbItem } from "@/stores/fileStore";
-import type { ArchiveFilenameEncoding } from "@/types/api";
+import type { ArchiveFilenameEncoding, FolderListItem } from "@/types/api";
 
 interface FileBrowserDialogsProps {
 	archiveTaskTarget: FileBrowserArchiveTaskTarget | null;
@@ -33,6 +34,7 @@ interface FileBrowserDialogsProps {
 	createFolderOpen: boolean;
 	currentFolderId: number | null;
 	currentFolderName?: string | null;
+	folderPolicyTarget: FolderListItem | null;
 	moveTarget: FileBrowserMoveTarget | null;
 	offlineDownloadOpen: boolean;
 	previewImageNavigation?: ImagePreviewNavigation<
@@ -51,6 +53,8 @@ interface FileBrowserDialogsProps {
 	onCopyConfirm: (targetFolderId: number | null) => Promise<void>;
 	onCreateFileOpenChange: (open: boolean) => void;
 	onCreateFolderOpenChange: (open: boolean) => void;
+	onFolderPolicyClose: () => void;
+	onFolderPolicyUpdated?: () => void | Promise<void>;
 	onMoveClose: () => void;
 	onMoveConfirm: (targetFolderId: number | null) => Promise<void>;
 	onOfflineDownloadOpenChange: (open: boolean) => void;
@@ -73,6 +77,7 @@ export function FileBrowserDialogs({
 	createFolderOpen,
 	currentFolderId,
 	currentFolderName,
+	folderPolicyTarget,
 	moveTarget,
 	offlineDownloadOpen,
 	previewImageNavigation,
@@ -86,6 +91,8 @@ export function FileBrowserDialogs({
 	onCopyConfirm,
 	onCreateFileOpenChange,
 	onCreateFolderOpenChange,
+	onFolderPolicyClose,
+	onFolderPolicyUpdated,
 	onMoveClose,
 	onMoveConfirm,
 	onOfflineDownloadOpenChange,
@@ -125,6 +132,10 @@ export function FileBrowserDialogs({
 		retainedValue: retainedRenameTarget,
 		handleOpenChangeComplete: handleRenameOpenChangeComplete,
 	} = useRetainedDialogValue(renameTarget, renameTarget !== null);
+	const {
+		retainedValue: retainedFolderPolicyTarget,
+		handleOpenChangeComplete: handleFolderPolicyOpenChangeComplete,
+	} = useRetainedDialogValue(folderPolicyTarget, folderPolicyTarget !== null);
 
 	return (
 		<>
@@ -161,6 +172,18 @@ export function FileBrowserDialogs({
 					onOpenChange={onOfflineDownloadOpenChange}
 					targetFolderId={currentFolderId}
 					targetFolderName={currentFolderName}
+				/>
+			</Suspense>
+
+			<Suspense fallback={null}>
+				<FolderPolicyDialog
+					open={folderPolicyTarget !== null}
+					onOpenChange={(open) => {
+						if (!open) onFolderPolicyClose();
+					}}
+					onOpenChangeComplete={handleFolderPolicyOpenChangeComplete}
+					folder={retainedFolderPolicyTarget}
+					onUpdated={onFolderPolicyUpdated}
 				/>
 			</Suspense>
 

@@ -3,6 +3,7 @@ import {
 	adminConfigService,
 	adminExternalAuthService,
 	adminFileService,
+	adminFolderService,
 	adminLockService,
 	adminOverviewService,
 	adminPolicyGroupService,
@@ -561,6 +562,22 @@ describe("adminService", () => {
 			target_policy_id: 9,
 			delete_source_after_success: false,
 		});
+	});
+
+	it("sets and clears folder policy bindings", () => {
+		adminFolderService.setPolicy(9, { policy_id: 3 });
+		adminFolderService.setPolicy(9, { policy_id: null });
+
+		expect(mockState.put).toHaveBeenNthCalledWith(
+			1,
+			"/admin/folders/9/policy",
+			{ policy_id: 3 },
+		);
+		expect(mockState.put).toHaveBeenNthCalledWith(
+			2,
+			"/admin/folders/9/policy",
+			{ policy_id: null },
+		);
 	});
 
 	it("creates blob maintenance tasks", () => {

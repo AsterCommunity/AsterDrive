@@ -10,9 +10,10 @@ use std::collections::BTreeSet;
 use chrono::Utc;
 use sea_orm::{ActiveModelTrait, ConnectionTrait, Set};
 
-use crate::db::repository::{file_repo, folder_repo, version_repo};
+use crate::api::api_error_code::ApiErrorCode;
+use crate::db::repository::{file_repo, folder_repo, policy_repo, version_repo};
 use crate::entities::{file, folder};
-use crate::errors::{AsterError, Result};
+use crate::errors::{AsterError, Result, auth_forbidden_with_code};
 use crate::runtime::{SharedRuntimeState, StorageChangeRuntimeState};
 use crate::services::{
     storage_change_service,
@@ -355,6 +356,12 @@ pub(crate) async fn update_in_scope(
             "cannot move folder into itself",
         ));
     }
+    if policy_id.is_present() {
+        return Err(auth_forbidden_with_code(
+            ApiErrorCode::AuthAdminRequired,
+            "folder storage policy binding is an admin-only operation",
+        ));
+    }
 
     let name = match name {
         Some(name) => Some(crate::utils::normalize_validate_name(&name)?),
@@ -448,6 +455,61 @@ pub(crate) async fn update_in_scope(
         "updated folder metadata"
     );
     Ok(updated)
+}
+
+pub(crate) async fn admin_set_policy(
+    state: &impl StorageChangeRuntimeState,
+    folder_id: i64,
+    policy_id: Option<i64>,
+) -> Result<(folder::Model, Option<i64>)> {
+    let db = state.writer_db();
+    tracing::debug!(
+        folder_id,
+        policy_id,
+        "admin updating folder storage policy binding"
+    );
+
+    let (updated, previous_policy_id) = crate::db::transaction::with_transaction(db, async |txn| {
+        let current = folder_repo::lock_by_id(txn, folder_id).await?;
+        if current.is_locked {
+            return Err(AsterError::resource_locked("folder is locked"));
+        }
+        if current.deleted_at.is_some() {
+            return Err(AsterError::file_not_found(format!(
+                "folder #{} is in trash",
+                current.id
+            )));
+        }
+        if let Some(policy_id) = policy_id {
+            let policy = policy_repo::find_by_id(txn, policy_id).await?;
+            workspace_storage_service::ensure_policy_available_for_folder_binding(state, &policy)?;
+        }
+
+        let previous_policy_id = current.policy_id;
+        let mut active: folder::ActiveModel = current.into();
+        active.policy_id = Set(policy_id);
+        active.updated_at = Set(Utc::now());
+        let updated = active.update(txn).await.map_err(AsterError::from)?;
+        Ok((updated, previous_policy_id))
+    })
+    .await?;
+
+    storage_change_service::publish(
+        state,
+        storage_change_service::StorageChangeEvent::new_for_resource_scope(
+            storage_change_service::StorageChangeKind::FolderUpdated,
+            workspace_storage_service::WorkspaceResourceScope::from_folder_model(&updated)?,
+            vec![],
+            vec![updated.id],
+            vec![updated.parent_id],
+        ),
+    );
+    tracing::info!(
+        folder_id = updated.id,
+        policy_id = updated.policy_id,
+        "admin updated folder storage policy binding"
+    );
+    Ok((updated, previous_policy_id))
 }
 
 async fn find_folder_by_name_in_scope<C: ConnectionTrait>(

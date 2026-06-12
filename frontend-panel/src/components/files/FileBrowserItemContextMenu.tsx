@@ -50,6 +50,7 @@ function useFileBrowserItemMenuProps(
 		onFileChooseOpenMethod,
 		onFileClick,
 		onFileOpen,
+		onFolderPolicy,
 		onFolderOpen,
 		onGoToLocation,
 		onInfo,
@@ -119,6 +120,7 @@ function useFileBrowserItemMenuProps(
 				? () => onManageTags("folder", item.id)
 				: undefined,
 			onMove: onMove ? () => onMove("folder", item.id) : undefined,
+			onFolderPolicy: onFolderPolicy ? () => onFolderPolicy(item) : undefined,
 			onRename: onRename
 				? () => onRename("folder", item.id, item.name)
 				: undefined,

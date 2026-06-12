@@ -249,7 +249,7 @@ export default function AdminAboutPage() {
 		const message =
 			VERSION_EASTER_EGG_MESSAGES[
 				Math.floor(Math.random() * VERSION_EASTER_EGG_MESSAGES.length)
-		];
+			];
 		toast.info(message);
 	}, [backendVersion, releaseChannel]);
 

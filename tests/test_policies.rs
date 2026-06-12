@@ -9,6 +9,104 @@ use actix_web::test;
 use chrono::{Duration, Utc};
 use serde_json::Value;
 
+async fn create_local_policy_via_admin<S, B>(app: &S, token: &str, name: &str) -> i64
+where
+    S: actix_web::dev::Service<
+            actix_http::Request,
+            Response = actix_web::dev::ServiceResponse<B>,
+            Error = actix_web::Error,
+        >,
+    B: actix_web::body::MessageBody + 'static,
+{
+    let req = test::TestRequest::post()
+        .uri("/api/v1/admin/policies")
+        .insert_header(("Cookie", common::access_cookie_header(token)))
+        .insert_header(common::csrf_header_for(token))
+        .set_json(serde_json::json!({
+            "name": name,
+            "driver_type": "local",
+            "base_path": format!("/tmp/asterdrive-{}-{}", name.to_ascii_lowercase().replace(' ', "-"), uuid::Uuid::new_v4()),
+            "max_file_size": 0,
+            "is_default": false
+        }))
+        .to_request();
+    let resp = test::call_service(app, req).await;
+    assert_eq!(resp.status(), 201);
+    let body: Value = test::read_body_json(resp).await;
+    body["data"]["id"].as_i64().unwrap()
+}
+
+async fn create_personal_folder<S, B>(
+    app: &S,
+    token: &str,
+    name: &str,
+    parent_id: Option<i64>,
+) -> i64
+where
+    S: actix_web::dev::Service<
+            actix_http::Request,
+            Response = actix_web::dev::ServiceResponse<B>,
+            Error = actix_web::Error,
+        >,
+    B: actix_web::body::MessageBody + 'static,
+{
+    let mut payload = serde_json::json!({ "name": name });
+    if let Some(parent_id) = parent_id {
+        payload["parent_id"] = serde_json::json!(parent_id);
+    }
+    let req = test::TestRequest::post()
+        .uri("/api/v1/folders")
+        .insert_header(("Cookie", common::access_cookie_header(token)))
+        .insert_header(common::csrf_header_for(token))
+        .set_json(payload)
+        .to_request();
+    let resp = test::call_service(app, req).await;
+    assert_eq!(resp.status(), 201);
+    let body: Value = test::read_body_json(resp).await;
+    body["data"]["id"].as_i64().unwrap()
+}
+
+async fn admin_set_folder_policy<S, B>(
+    app: &S,
+    token: &str,
+    folder_id: i64,
+    policy_id: Option<i64>,
+) -> actix_web::dev::ServiceResponse<B>
+where
+    S: actix_web::dev::Service<
+            actix_http::Request,
+            Response = actix_web::dev::ServiceResponse<B>,
+            Error = actix_web::Error,
+        >,
+    B: actix_web::body::MessageBody + 'static,
+{
+    test::call_service(
+        app,
+        test::TestRequest::put()
+            .uri(&format!("/api/v1/admin/folders/{folder_id}/policy"))
+            .insert_header(("Cookie", common::access_cookie_header(token)))
+            .insert_header(common::csrf_header_for(token))
+            .set_json(serde_json::json!({ "policy_id": policy_id }))
+            .to_request(),
+    )
+    .await
+}
+
+async fn uploaded_file_policy_id(
+    state: &aster_drive::runtime::PrimaryAppState,
+    file_id: i64,
+) -> i64 {
+    use aster_drive::db::repository::file_repo;
+
+    let file = file_repo::find_by_id(state.writer_db(), file_id)
+        .await
+        .unwrap();
+    let blob = file_repo::find_blob_by_id(state.writer_db(), file.blob_id)
+        .await
+        .unwrap();
+    blob.policy_id
+}
+
 struct PolicyUploadSessionSpec<'a> {
     upload_id: &'a str,
     policy_id: i64,
@@ -2297,41 +2395,10 @@ async fn test_policy_delete_clears_folder_policy_reference() {
     let app = create_test_app!(state);
     let (token, _) = register_and_login!(app);
 
-    let req = test::TestRequest::post()
-        .uri("/api/v1/admin/policies")
-        .insert_header(("Cookie", common::access_cookie_header(&token)))
-        .insert_header(common::csrf_header_for(&token))
-        .set_json(serde_json::json!({
-            "name": "Folder Override Policy",
-            "driver_type": "local",
-            "base_path": "/tmp/test-folder-override-policy",
-            "max_file_size": 0,
-            "is_default": false
-        }))
-        .to_request();
-    let resp = test::call_service(&app, req).await;
-    assert_eq!(resp.status(), 201);
-    let body: Value = test::read_body_json(resp).await;
-    let policy_id = body["data"]["id"].as_i64().unwrap();
+    let policy_id = create_local_policy_via_admin(&app, &token, "Folder Override Policy").await;
+    let folder_id = create_personal_folder(&app, &token, "override-folder", None).await;
 
-    let req = test::TestRequest::post()
-        .uri("/api/v1/folders")
-        .insert_header(("Cookie", common::access_cookie_header(&token)))
-        .insert_header(common::csrf_header_for(&token))
-        .set_json(serde_json::json!({ "name": "override-folder" }))
-        .to_request();
-    let resp = test::call_service(&app, req).await;
-    assert_eq!(resp.status(), 201);
-    let body: Value = test::read_body_json(resp).await;
-    let folder_id = body["data"]["id"].as_i64().unwrap();
-
-    let req = test::TestRequest::patch()
-        .uri(&format!("/api/v1/folders/{folder_id}"))
-        .insert_header(("Cookie", common::access_cookie_header(&token)))
-        .insert_header(common::csrf_header_for(&token))
-        .set_json(serde_json::json!({ "policy_id": policy_id }))
-        .to_request();
-    let resp = test::call_service(&app, req).await;
+    let resp = admin_set_folder_policy(&app, &token, folder_id, Some(policy_id)).await;
     assert_eq!(resp.status(), 200);
 
     let folder = folder_repo::find_by_id(&db, folder_id).await.unwrap();
@@ -2350,7 +2417,7 @@ async fn test_policy_delete_clears_folder_policy_reference() {
 }
 
 #[actix_web::test]
-async fn test_folder_patch_can_clear_policy_with_null() {
+async fn test_admin_folder_policy_can_be_cleared_with_null() {
     use aster_drive::db::repository::folder_repo;
 
     let state = common::setup().await;
@@ -2358,46 +2425,67 @@ async fn test_folder_patch_can_clear_policy_with_null() {
     let app = create_test_app!(state);
     let (token, _) = register_and_login!(app);
 
-    let req = test::TestRequest::post()
-        .uri("/api/v1/admin/policies")
-        .insert_header(("Cookie", common::access_cookie_header(&token)))
-        .insert_header(common::csrf_header_for(&token))
-        .set_json(serde_json::json!({
-            "name": "Nullable Folder Override Policy",
-            "driver_type": "local",
-            "base_path": "/tmp/test-nullable-folder-override-policy",
-            "max_file_size": 0,
-            "is_default": false
-        }))
-        .to_request();
-    let resp = test::call_service(&app, req).await;
-    assert_eq!(resp.status(), 201);
-    let body: Value = test::read_body_json(resp).await;
-    let policy_id = body["data"]["id"].as_i64().unwrap();
+    let policy_id =
+        create_local_policy_via_admin(&app, &token, "Nullable Folder Override Policy").await;
+    let folder_id = create_personal_folder(&app, &token, "nullable-override-folder", None).await;
 
-    let req = test::TestRequest::post()
-        .uri("/api/v1/folders")
-        .insert_header(("Cookie", common::access_cookie_header(&token)))
-        .insert_header(common::csrf_header_for(&token))
-        .set_json(serde_json::json!({ "name": "nullable-override-folder" }))
-        .to_request();
-    let resp = test::call_service(&app, req).await;
-    assert_eq!(resp.status(), 201);
-    let body: Value = test::read_body_json(resp).await;
-    let folder_id = body["data"]["id"].as_i64().unwrap();
-
-    let req = test::TestRequest::patch()
-        .uri(&format!("/api/v1/folders/{folder_id}"))
-        .insert_header(("Cookie", common::access_cookie_header(&token)))
-        .insert_header(common::csrf_header_for(&token))
-        .set_json(serde_json::json!({ "policy_id": policy_id }))
-        .to_request();
-    let resp = test::call_service(&app, req).await;
+    let resp = admin_set_folder_policy(&app, &token, folder_id, Some(policy_id)).await;
     assert_eq!(resp.status(), 200);
 
     let folder = folder_repo::find_by_id(&db, folder_id).await.unwrap();
     assert_eq!(folder.policy_id, Some(policy_id));
 
+    let resp = admin_set_folder_policy(&app, &token, folder_id, None).await;
+    assert_eq!(resp.status(), 200);
+    let body: Value = test::read_body_json(resp).await;
+    assert!(body["data"]["policy_id"].is_null());
+
+    let folder = folder_repo::find_by_id(&db, folder_id).await.unwrap();
+    assert_eq!(folder.policy_id, None);
+}
+
+#[actix_web::test]
+async fn test_non_admin_folder_patch_cannot_set_or_clear_policy() {
+    use aster_drive::db::repository::folder_repo;
+
+    let state = common::setup().await;
+    let db = state.writer_db().clone();
+    let app = create_test_app!(state);
+    let (token, _) = register_and_login!(app);
+    let policy_id = create_local_policy_via_admin(&app, &token, "Admin Only Policy").await;
+    let folder_id = create_personal_folder(&app, &token, "admin-only-folder-policy", None).await;
+
+    let normal_user_id = admin_create_user!(
+        app,
+        token,
+        "folderpolicyuser",
+        "folderpolicyuser@example.com",
+        "password123"
+    );
+    let normal_token = login_user!(app, "folderpolicyuser", "password123").0;
+    let user_folder_id =
+        create_personal_folder(&app, &normal_token, "normal-user-folder", None).await;
+
+    let req = test::TestRequest::patch()
+        .uri(&format!("/api/v1/folders/{user_folder_id}"))
+        .insert_header(("Cookie", common::access_cookie_header(&normal_token)))
+        .insert_header(common::csrf_header_for(&normal_token))
+        .set_json(serde_json::json!({ "policy_id": policy_id }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 403);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(body["code"], "auth.admin_required");
+    assert_eq!(
+        folder_repo::find_by_id(&db, user_folder_id)
+            .await
+            .unwrap()
+            .policy_id,
+        None
+    );
+
+    let resp = admin_set_folder_policy(&app, &token, folder_id, Some(policy_id)).await;
+    assert_eq!(resp.status(), 200);
     let req = test::TestRequest::patch()
         .uri(&format!("/api/v1/folders/{folder_id}"))
         .insert_header(("Cookie", common::access_cookie_header(&token)))
@@ -2405,12 +2493,186 @@ async fn test_folder_patch_can_clear_policy_with_null() {
         .set_json(serde_json::json!({ "policy_id": null }))
         .to_request();
     let resp = test::call_service(&app, req).await;
-    assert_eq!(resp.status(), 200);
-    let body: Value = test::read_body_json(resp).await;
-    assert!(body["data"]["policy_id"].is_null());
+    assert_eq!(resp.status(), 403);
+    assert_eq!(
+        folder_repo::find_by_id(&db, folder_id)
+            .await
+            .unwrap()
+            .policy_id,
+        Some(policy_id)
+    );
 
-    let folder = folder_repo::find_by_id(&db, folder_id).await.unwrap();
-    assert_eq!(folder.policy_id, None);
+    let user = aster_drive::db::repository::user_repo::find_by_id(&db, normal_user_id)
+        .await
+        .unwrap();
+    assert_eq!(user.username, "folderpolicyuser");
+}
+
+#[actix_web::test]
+async fn test_team_owner_cannot_patch_team_folder_policy() {
+    use aster_drive::db::repository::folder_repo;
+
+    let state = common::setup().await;
+    let db = state.writer_db().clone();
+    let app = create_test_app!(state);
+    let (admin_token, _) = register_and_login!(app);
+    let owner_id = admin_create_user!(
+        app,
+        admin_token,
+        "tfpowner",
+        "tfpowner@example.com",
+        "password123"
+    );
+    let owner_token = login_user!(app, "tfpowner", "password123").0;
+    let policy_id =
+        create_local_policy_via_admin(&app, &admin_token, "Team Owner Forbidden Policy").await;
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/admin/teams")
+        .insert_header(("Cookie", common::access_cookie_header(&admin_token)))
+        .insert_header(common::csrf_header_for(&admin_token))
+        .set_json(serde_json::json!({
+            "name": "Team Folder Policy Scope",
+            "admin_user_id": owner_id
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 201);
+    let body: Value = test::read_body_json(resp).await;
+    let team_id = body["data"]["id"].as_i64().unwrap();
+
+    let req = test::TestRequest::post()
+        .uri(&format!("/api/v1/teams/{team_id}/folders"))
+        .insert_header(("Cookie", common::access_cookie_header(&owner_token)))
+        .insert_header(common::csrf_header_for(&owner_token))
+        .set_json(serde_json::json!({ "name": "Team Folder" }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 201);
+    let body: Value = test::read_body_json(resp).await;
+    let folder_id = body["data"]["id"].as_i64().unwrap();
+
+    let req = test::TestRequest::patch()
+        .uri(&format!("/api/v1/teams/{team_id}/folders/{folder_id}"))
+        .insert_header(("Cookie", common::access_cookie_header(&owner_token)))
+        .insert_header(common::csrf_header_for(&owner_token))
+        .set_json(serde_json::json!({ "policy_id": policy_id }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 403);
+    assert_eq!(
+        folder_repo::find_by_id(&db, folder_id)
+            .await
+            .unwrap()
+            .policy_id,
+        None
+    );
+}
+
+#[actix_web::test]
+async fn test_admin_folder_policy_rejects_unknown_and_deleted_folder() {
+    let state = common::setup().await;
+    let app = create_test_app!(state);
+    let (token, _) = register_and_login!(app);
+    let folder_id = create_personal_folder(&app, &token, "folder-policy-edge", None).await;
+
+    let resp = admin_set_folder_policy(&app, &token, folder_id, Some(9_999_999)).await;
+    assert_eq!(resp.status(), 404);
+
+    let req = test::TestRequest::delete()
+        .uri(&format!("/api/v1/folders/{folder_id}"))
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+
+    let policy_id = create_local_policy_via_admin(&app, &token, "Deleted Folder Policy").await;
+    let resp = admin_set_folder_policy(&app, &token, folder_id, Some(policy_id)).await;
+    assert_eq!(resp.status(), 404);
+}
+
+#[actix_web::test]
+async fn test_folder_policy_inheritance_override_and_clear_affect_uploads() {
+    let state = common::setup().await;
+    let app = create_test_app!(state.clone());
+    let (token, _) = register_and_login!(app);
+    let default_policy_id =
+        aster_drive::db::repository::policy_repo::find_default(state.writer_db())
+            .await
+            .unwrap()
+            .expect("default policy should exist")
+            .id;
+    let parent_policy_id =
+        create_local_policy_via_admin(&app, &token, "Parent Folder Upload Policy").await;
+    let child_policy_id =
+        create_local_policy_via_admin(&app, &token, "Child Folder Upload Policy").await;
+    let parent_id = create_personal_folder(&app, &token, "policy-parent", None).await;
+    let child_id = create_personal_folder(&app, &token, "policy-child", Some(parent_id)).await;
+
+    let file_id = upload_test_file_to_folder!(app, token, child_id);
+    assert_eq!(
+        uploaded_file_policy_id(&state, file_id).await,
+        default_policy_id
+    );
+
+    let resp = admin_set_folder_policy(&app, &token, parent_id, Some(parent_policy_id)).await;
+    assert_eq!(resp.status(), 200);
+    let file_id = upload_test_file_to_folder!(app, token, child_id);
+    assert_eq!(
+        uploaded_file_policy_id(&state, file_id).await,
+        parent_policy_id
+    );
+
+    let resp = admin_set_folder_policy(&app, &token, child_id, Some(child_policy_id)).await;
+    assert_eq!(resp.status(), 200);
+    let file_id = upload_test_file_to_folder!(app, token, child_id);
+    assert_eq!(
+        uploaded_file_policy_id(&state, file_id).await,
+        child_policy_id
+    );
+
+    let resp = admin_set_folder_policy(&app, &token, child_id, None).await;
+    assert_eq!(resp.status(), 200);
+    let file_id = upload_test_file_to_folder!(app, token, child_id);
+    assert_eq!(
+        uploaded_file_policy_id(&state, file_id).await,
+        parent_policy_id
+    );
+
+    let resp = admin_set_folder_policy(&app, &token, parent_id, None).await;
+    assert_eq!(resp.status(), 200);
+    let file_id = upload_test_file_to_folder!(app, token, child_id);
+    assert_eq!(
+        uploaded_file_policy_id(&state, file_id).await,
+        default_policy_id
+    );
+}
+
+#[actix_web::test]
+async fn test_folder_policy_inheritance_deep_chain_affects_uploads() {
+    let state = common::setup().await;
+    let app = create_test_app!(state.clone());
+    let (token, _) = register_and_login!(app);
+    let policy_id = create_local_policy_via_admin(&app, &token, "Deep Folder Upload Policy").await;
+
+    let root_id = create_personal_folder(&app, &token, "deep-policy-root", None).await;
+    let resp = admin_set_folder_policy(&app, &token, root_id, Some(policy_id)).await;
+    assert_eq!(resp.status(), 200);
+
+    let mut current_parent_id = root_id;
+    for depth in 1..=12 {
+        current_parent_id = create_personal_folder(
+            &app,
+            &token,
+            &format!("deep-policy-child-{depth}"),
+            Some(current_parent_id),
+        )
+        .await;
+    }
+
+    let file_id = upload_test_file_to_folder!(app, token, current_parent_id);
+    assert_eq!(uploaded_file_policy_id(&state, file_id).await, policy_id);
 }
 
 #[actix_web::test]

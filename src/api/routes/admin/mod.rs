@@ -16,8 +16,8 @@ pub use crate::api::dto::admin::{
     CreateUserInvitationReq, CreateUserReq, DeletePolicyQuery, DryRunStoragePolicyMigrationReq,
     ExecuteConfigActionReq, ExecuteConfigActionResp, MigratePolicyGroupAssignmentsReq,
     PatchPolicyGroupReq, PatchPolicyReq, PatchRemoteNodeReq, PatchUserReq, PolicyGroupItemReq,
-    PromoteS3CompatiblePolicyDriverReq, ResetUserPasswordReq, SetConfigReq, TestPolicyParamsReq,
-    TestRemoteNodeParamsReq,
+    PromoteS3CompatiblePolicyDriverReq, ResetUserPasswordReq, SetConfigReq, SetFolderPolicyReq,
+    TestPolicyParamsReq, TestRemoteNodeParamsReq,
 };
 
 pub(crate) mod audit_logs;
@@ -25,6 +25,7 @@ pub(crate) mod common;
 pub(crate) mod config;
 pub(crate) mod external_auth;
 pub(crate) mod files;
+pub(crate) mod folders;
 pub(crate) mod locks;
 pub(crate) mod overview;
 pub(crate) mod policies;
@@ -49,6 +50,7 @@ pub use external_auth::{
 pub use files::{
     create_blob_maintenance_task, get_file, get_file_blob, list_file_blobs, list_files,
 };
+pub use folders::set_folder_policy;
 pub use locks::{cleanup_expired_locks, force_unlock, list_locks};
 pub use overview::get_overview;
 pub use policies::{
@@ -233,6 +235,7 @@ pub fn routes(
                     // files / blobs observability
                     .route("/files", web::get().to(list_files))
                     .route("/files/{id}", web::get().to(get_file))
+                    .route("/folders/{id}/policy", web::put().to(set_folder_policy))
                     .route("/file-blobs", web::get().to(list_file_blobs))
                     .route(
                         "/file-blobs/maintenance",

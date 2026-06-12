@@ -45,6 +45,22 @@ impl From<WorkspaceStorageScope> for WorkspaceResourceScope {
     }
 }
 
+impl WorkspaceResourceScope {
+    pub(crate) fn from_folder_model(folder: &folder::Model) -> Result<Self> {
+        if let Some(team_id) = folder.team_id {
+            Ok(Self::Team { team_id })
+        } else {
+            let user_id = folder.owner_user_id.ok_or_else(|| {
+                auth_forbidden_with_code(
+                    ApiErrorCode::WorkspaceScopeDenied,
+                    "folder has no personal owner",
+                )
+            })?;
+            Ok(Self::Personal { user_id })
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 struct CachedTeamAccess {
     team_id: i64,

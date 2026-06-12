@@ -9,7 +9,7 @@ use crate::services::workspace_scope_service::{
     WorkspaceStorageScope, load_scope_actor_username_cached, verify_folder_access,
 };
 
-use super::policy::VerifiedFolderPolicyHint;
+use super::policy::{VerifiedFolderPolicyHint, resolve_verified_folder_policy_hint};
 
 pub(crate) struct ParsedUploadPath {
     pub base_folder_id: Option<i64>,
@@ -30,7 +30,10 @@ pub(crate) async fn parse_relative_upload_path(
     relative_path: &str,
 ) -> Result<ParsedUploadPath> {
     let base_folder = match base_folder_id {
-        Some(folder_id) => Some(verify_folder_access(state, scope, folder_id).await?.into()),
+        Some(folder_id) => {
+            let folder = verify_folder_access(state, scope, folder_id).await?;
+            Some(resolve_verified_folder_policy_hint(state, scope, folder).await?)
+        }
         None => None,
     };
 

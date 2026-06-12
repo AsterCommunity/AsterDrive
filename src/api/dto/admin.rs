@@ -83,6 +83,14 @@ pub struct PatchUserReq {
     pub policy_group_id: Option<i64>,
 }
 
+/// Set or clear a folder-level storage policy binding (admin operation).
+#[derive(Deserialize, Validate)]
+#[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
+pub struct SetFolderPolicyReq {
+    #[validate(range(min = 1, message = "policy_id must be greater than 0"))]
+    pub policy_id: Option<i64>,
+}
+
 /// Reset a user's password (admin operation).
 #[derive(Deserialize, Validate)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]

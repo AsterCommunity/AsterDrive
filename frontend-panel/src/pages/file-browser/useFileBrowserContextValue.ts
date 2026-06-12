@@ -27,6 +27,7 @@ interface UseFileBrowserContextValueOptions {
 	handleCopy: (type: "file" | "folder", id: number) => void;
 	handleDelete: (type: "file" | "folder", id: number) => Promise<void>;
 	handleDownload: (fileId: number, fileName: string) => void;
+	handleFolderPolicy?: (folder: FolderListItem) => void;
 	handleInfo: (type: "file" | "folder", id: number) => void;
 	handleManageTags: (type: "file" | "folder", id: number) => void;
 	handleMove: (type: "file" | "folder", id: number) => void;
@@ -63,6 +64,7 @@ export function useFileBrowserContextValue({
 	handleCopy,
 	handleDelete,
 	handleDownload,
+	handleFolderPolicy,
 	handleInfo,
 	handleManageTags,
 	handleMove,
@@ -171,6 +173,7 @@ export function useFileBrowserContextValue({
 			onFileChooseOpenMethod: handleFileChooseOpenMethod,
 			onShare: openShareDialog,
 			onDownload: handleDownload,
+			onFolderPolicy: handleFolderPolicy,
 			onArchiveDownload: handleArchiveDownload,
 			onArchiveCompress: handleArchiveCompress,
 			onArchiveExtract: handleArchiveExtract,
@@ -198,6 +201,7 @@ export function useFileBrowserContextValue({
 			handleFileChooseOpenMethod,
 			openShareDialog,
 			handleDownload,
+			handleFolderPolicy,
 			handleArchiveDownload,
 			handleArchiveCompress,
 			handleArchiveExtract,

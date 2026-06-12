@@ -198,6 +198,7 @@
 	"audit_presentation_upload_cancelled": "Upload session {{upload_id}} was canceled",
 	"audit_presentation_file_access_token_created": "Access source: {{source}}",
 	"audit_presentation_file_version_changed": "Version ID {{version_id}}",
+	"audit_presentation_folder_policy_changed": "Policy changed from {{previous_policy_id}} to {{policy_id}}",
 	"audit_presentation_batch_delete_finished": "{{succeeded}} succeeded, {{failed}} failed",
 	"audit_presentation_batch_transfer_finished": "{{succeeded}} succeeded, {{failed}} failed",
 	"audit_presentation_share_batch_delete_finished": "{{succeeded}} succeeded, {{failed}} failed",

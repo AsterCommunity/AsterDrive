@@ -492,6 +492,60 @@ async fn test_audit_log_recorded_on_file_and_folder_patch_variants_after_refacto
 }
 
 #[actix_web::test]
+async fn test_audit_log_records_admin_folder_policy_change_details() {
+    let state = common::setup().await;
+    let app = create_test_app!(state);
+    let (token, _) = register_and_login!(app);
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/folders")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({ "name": "Policy Audit Folder" }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 201);
+    let body: Value = test::read_body_json(resp).await;
+    let folder_id = body["data"]["id"].as_i64().unwrap();
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/admin/policies")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({
+            "name": "Folder Policy Audit Target",
+            "driver_type": "local",
+            "base_path": format!("/tmp/asterdrive-folder-policy-audit-{}", uuid::Uuid::new_v4()),
+            "max_file_size": 0,
+            "is_default": false
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 201);
+    let body: Value = test::read_body_json(resp).await;
+    let policy_id = body["data"]["id"].as_i64().unwrap();
+
+    let req = test::TestRequest::put()
+        .uri(&format!("/api/v1/admin/folders/{folder_id}/policy"))
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({ "policy_id": policy_id }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+
+    let items = fetch_audit_items!(app, token);
+    let entry = assert_action_present(&items, "folder_policy_change");
+    assert_eq!(entry["entity_type"], "folder");
+    assert_eq!(entry["entity_id"], folder_id);
+    assert_eq!(entry["entity_name"], "Policy Audit Folder");
+
+    let details: Value = serde_json::from_str(entry["details"].as_str().unwrap()).unwrap();
+    assert!(details["previous_policy_id"].is_null());
+    assert_eq!(details["policy_id"], policy_id);
+}
+
+#[actix_web::test]
 async fn test_audit_log_recorded_on_batch_actions_after_refactor() {
     let state = common::setup().await;
     let app = create_test_app!(state);

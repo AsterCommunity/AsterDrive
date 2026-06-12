@@ -1,6 +1,7 @@
-use crate::db::repository::{team_repo, user_repo};
+use crate::api::api_error_code::ApiErrorCode;
+use crate::db::repository::{folder_repo, team_repo, user_repo};
 use crate::entities::folder;
-use crate::errors::Result;
+use crate::errors::{AsterError, Result, validation_error_with_code};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::workspace_scope_service::{
     WorkspaceStorageScope, require_team_policy_group_id, verify_folder_access,
@@ -100,10 +101,90 @@ pub(crate) async fn resolve_policy_for_size_with_verified_folder(
     if let Some(folder) = folder
         && let Some(policy_id) = folder.policy_id()
     {
-        return state.policy_snapshot().get_policy_or_err(policy_id);
+        return resolve_bound_folder_policy(state, policy_id);
     }
 
     resolve_scope_policy_for_size(state, scope, file_size).await
+}
+
+pub(crate) async fn resolve_verified_folder_policy_hint(
+    state: &PrimaryAppState,
+    scope: WorkspaceStorageScope,
+    folder: folder::Model,
+) -> Result<VerifiedFolderPolicyHint> {
+    Ok(VerifiedFolderPolicyHint {
+        policy_id: resolve_effective_folder_policy_id(state, scope, folder).await?,
+    })
+}
+
+pub(crate) fn ensure_policy_available_for_folder_binding(
+    state: &impl SharedRuntimeState,
+    policy: &crate::entities::storage_policy::Model,
+) -> Result<()> {
+    if state
+        .policy_snapshot()
+        .policy_available_for_outbound_public(policy)
+    {
+        return Ok(());
+    }
+
+    Err(validation_error_with_code(
+        ApiErrorCode::BadRequest,
+        format!("storage policy #{} is not currently available", policy.id),
+    ))
+}
+
+fn resolve_bound_folder_policy(
+    state: &PrimaryAppState,
+    policy_id: i64,
+) -> Result<crate::entities::storage_policy::Model> {
+    let policy = state.policy_snapshot().get_policy_or_err(policy_id)?;
+    ensure_policy_available_for_folder_binding(state, &policy)?;
+    Ok(policy)
+}
+
+async fn resolve_effective_folder_policy_id(
+    state: &PrimaryAppState,
+    scope: WorkspaceStorageScope,
+    folder: folder::Model,
+) -> Result<Option<i64>> {
+    let folder_id = folder.id;
+    let ancestors = match scope {
+        WorkspaceStorageScope::Personal { user_id } => {
+            folder_repo::find_ancestor_models(state.reader_db(), user_id, folder_id).await?
+        }
+        WorkspaceStorageScope::Team { team_id, .. } => {
+            folder_repo::find_team_ancestor_models(state.reader_db(), team_id, folder_id).await?
+        }
+    };
+
+    let mut expected_child_id = Some(folder_id);
+    let mut expected_parent_id = folder.parent_id;
+    let mut closest_policy_id = folder.policy_id;
+
+    for ancestor in ancestors.iter().rev().skip(1) {
+        if expected_parent_id != Some(ancestor.id) {
+            return Err(AsterError::validation_error(
+                "folder hierarchy is incomplete",
+            ));
+        }
+        if expected_child_id == Some(ancestor.id) {
+            return Err(AsterError::validation_error(
+                "folder hierarchy contains a cycle",
+            ));
+        }
+        closest_policy_id = closest_policy_id.or(ancestor.policy_id);
+        expected_child_id = Some(ancestor.id);
+        expected_parent_id = ancestor.parent_id;
+    }
+
+    if expected_parent_id.is_some() {
+        return Err(AsterError::validation_error(
+            "folder hierarchy is incomplete",
+        ));
+    }
+
+    Ok(closest_policy_id)
 }
 
 pub(crate) async fn resolve_policy_for_size(
@@ -117,8 +198,8 @@ pub(crate) async fn resolve_policy_for_size(
     if let Some(folder_id) = folder_id {
         let folder = verify_folder_access(state, scope, folder_id).await?;
 
-        if let Some(policy_id) = folder.policy_id {
-            return state.policy_snapshot().get_policy_or_err(policy_id);
+        if let Some(policy_id) = resolve_effective_folder_policy_id(state, scope, folder).await? {
+            return resolve_bound_folder_policy(state, policy_id);
         }
     }
 

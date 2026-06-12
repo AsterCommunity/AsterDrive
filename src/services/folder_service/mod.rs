@@ -42,8 +42,8 @@ pub(crate) use hierarchy::{
 };
 pub(crate) use listing::list_in_scope;
 pub(crate) use mutation::{
-    create_in_scope, delete_in_scope, get_info_with_storage_used_in_scope, set_lock_in_scope,
-    update_in_scope,
+    admin_set_policy, create_in_scope, delete_in_scope, get_info_with_storage_used_in_scope,
+    set_lock_in_scope, update_in_scope,
 };
 pub(crate) use tree::{
     collect_folder_forest_in_resource_scope, collect_folder_forest_in_scope,
@@ -117,6 +117,31 @@ pub(crate) async fn update_in_scope_with_audit(
         Some(folder.id),
         Some(&folder.name),
         None,
+    )
+    .await;
+    Ok(folder.into())
+}
+
+pub(crate) async fn admin_set_policy_with_audit(
+    state: &impl StorageChangeRuntimeState,
+    folder_id: i64,
+    policy_id: Option<i64>,
+    audit_ctx: &AuditContext,
+) -> Result<FolderInfo> {
+    let (folder, previous_policy_id) = admin_set_policy(state, folder_id, policy_id).await?;
+    audit_service::log_with_details(
+        state,
+        audit_ctx,
+        audit_service::AuditAction::FolderPolicyChange,
+        crate::services::audit_service::AuditEntityType::Folder,
+        Some(folder.id),
+        Some(&folder.name),
+        || {
+            audit_service::details(audit_service::FolderPolicyAuditDetails {
+                previous_policy_id,
+                policy_id: folder.policy_id,
+            })
+        },
     )
     .await;
     Ok(folder.into())

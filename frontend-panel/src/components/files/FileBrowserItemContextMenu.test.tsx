@@ -28,6 +28,9 @@ const mockState = vi.hoisted(() => ({
 		onFileChooseOpenMethod: vi.fn(),
 		onFileClick: vi.fn(),
 		onFileOpen: vi.fn(),
+		onFolderPolicy: undefined as
+			| ((folder: { id: number; name: string }) => void)
+			| undefined,
 		onFolderOpen: vi.fn(),
 		onGoToLocation: vi.fn(),
 		onInfo: vi.fn(),
@@ -89,6 +92,7 @@ vi.mock("@/components/files/FileContextMenu", () => ({
 		onDelete,
 		onDirectShare,
 		onDownload,
+		onFolderPolicy,
 		onGoToLocation,
 		onInfo,
 		onManageTags,
@@ -113,6 +117,7 @@ vi.mock("@/components/files/FileContextMenu", () => ({
 		onDelete?: () => void;
 		onDirectShare?: () => void;
 		onDownload?: () => void;
+		onFolderPolicy?: () => void;
 		onGoToLocation?: () => void;
 		onInfo?: () => void;
 		onManageTags?: () => void;
@@ -140,6 +145,11 @@ vi.mock("@/components/files/FileContextMenu", () => ({
 			{onDownload && (
 				<button type="button" onClick={onDownload}>
 					download
+				</button>
+			)}
+			{onFolderPolicy && (
+				<button type="button" onClick={onFolderPolicy}>
+					policy
 				</button>
 			)}
 			{onArchiveExtract && (
@@ -259,6 +269,7 @@ describe("FileBrowserItemContextMenu", () => {
 		mockState.browserContext.onFileChooseOpenMethod.mockReset();
 		mockState.browserContext.onFileClick.mockReset();
 		mockState.browserContext.onFileOpen.mockReset();
+		mockState.browserContext.onFolderPolicy = undefined;
 		mockState.browserContext.onFolderOpen.mockReset();
 		mockState.browserContext.onGoToLocation.mockReset();
 		mockState.browserContext.onInfo.mockReset();
@@ -291,6 +302,7 @@ describe("FileBrowserItemContextMenu", () => {
 		fireEvent.click(screen.getByRole("button", { name: "copy" }));
 		fireEvent.click(screen.getByRole("button", { name: "tags" }));
 		fireEvent.click(screen.getByRole("button", { name: "move" }));
+		expect(screen.queryByRole("button", { name: "policy" })).toBeNull();
 		fireEvent.click(screen.getByRole("button", { name: "rename" }));
 		fireEvent.click(screen.getByRole("button", { name: "lock" }));
 		fireEvent.click(screen.getByRole("button", { name: "delete" }));
@@ -328,6 +340,26 @@ describe("FileBrowserItemContextMenu", () => {
 		);
 		expect(mockState.browserContext.onDelete).toHaveBeenCalledWith("folder", 1);
 		expect(mockState.browserContext.onInfo).toHaveBeenCalledWith("folder", 1);
+	});
+
+	it("maps the optional folder policy action only for folders", () => {
+		const onFolderPolicy = vi.fn();
+		mockState.browserContext.onFolderPolicy = onFolderPolicy;
+
+		render(
+			<FileBrowserItemContextMenu
+				item={{ id: 1, name: "Docs", is_locked: false } as never}
+				isFolder
+			>
+				<div>folder</div>
+			</FileBrowserItemContextMenu>,
+		);
+
+		fireEvent.click(screen.getByRole("button", { name: "policy" }));
+
+		expect(onFolderPolicy).toHaveBeenCalledWith(
+			expect.objectContaining({ id: 1, name: "Docs" }),
+		);
 	});
 
 	it("maps file actions to the shared browser callbacks", () => {

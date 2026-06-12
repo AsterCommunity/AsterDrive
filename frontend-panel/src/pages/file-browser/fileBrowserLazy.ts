@@ -25,6 +25,11 @@ export const FileInfoDialog = lazyWithPreload(async () => {
 	return { default: module.FileInfoDialog };
 });
 
+export const FolderPolicyDialog = lazyWithPreload(async () => {
+	const module = await import("@/components/files/FolderPolicyDialog");
+	return { default: module.FolderPolicyDialog };
+});
+
 export const OfflineDownloadDialog = lazyWithPreload(async () => {
 	const module = await import("@/components/files/OfflineDownloadDialog");
 	return { default: module.OfflineDownloadDialog };
@@ -51,6 +56,7 @@ export const FILE_BROWSER_LAZY_PRELOADERS = [
 	CreateFileDialog,
 	CreateFolderDialog,
 	FileInfoDialog,
+	FolderPolicyDialog,
 	OfflineDownloadDialog,
 	RenameDialog,
 	ShareDialog,

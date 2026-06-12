@@ -177,6 +177,11 @@ fn detail_message(
             copy_param(details, &mut params, "version_id");
             Some(message("file_version_changed", params))
         }
+        AuditAction::FolderPolicyChange => {
+            copy_param(details, &mut params, "previous_policy_id");
+            copy_param(details, &mut params, "policy_id");
+            Some(message("folder_policy_changed", params))
+        }
         AuditAction::BatchDelete => {
             copy_param(details, &mut params, "succeeded");
             copy_param(details, &mut params, "failed");
@@ -292,6 +297,23 @@ mod tests {
         assert_eq!(presentation.summary.as_ref().unwrap().code, "file_download");
         assert!(presentation.detail.is_none());
         assert_eq!(presentation.target.as_ref().unwrap().code, "file");
+    }
+
+    #[test]
+    fn presentation_includes_folder_policy_change_detail() {
+        let presentation = build_audit_presentation(
+            AuditAction::FolderPolicyChange,
+            AuditEntityType::Folder,
+            Some(7),
+            Some("Projects"),
+            Some(r#"{"previous_policy_id":2,"policy_id":5}"#),
+        )
+        .expect("presentation should be built");
+
+        let detail = presentation.detail.as_ref().unwrap();
+        assert_eq!(detail.code, "folder_policy_changed");
+        assert_eq!(detail.params.get("previous_policy_id"), Some(&2.into()));
+        assert_eq!(detail.params.get("policy_id"), Some(&5.into()));
     }
 
     #[test]

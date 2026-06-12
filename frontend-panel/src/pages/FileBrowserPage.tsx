@@ -21,6 +21,7 @@ import { FileBrowserToolbar } from "@/pages/file-browser/FileBrowserToolbar";
 import { FileBrowserWorkspace } from "@/pages/file-browser/FileBrowserWorkspace";
 import {
 	FILE_BROWSER_LAZY_PRELOADERS,
+	FolderPolicyDialog as FolderPolicyDialogPreloader,
 	OfflineDownloadDialog as OfflineDownloadDialogPreloader,
 } from "@/pages/file-browser/fileBrowserLazy";
 import { useFileBrowserArchiveActions } from "@/pages/file-browser/useFileBrowserArchiveActions";
@@ -30,11 +31,13 @@ import { useFileBrowserDragAndDrop } from "@/pages/file-browser/useFileBrowserDr
 import { useFileBrowserPageState } from "@/pages/file-browser/useFileBrowserPageState";
 import { useMediaQuery } from "@/pages/file-browser/useMediaQuery";
 import { fileService } from "@/services/fileService";
+import { useAuthStore } from "@/stores/authStore";
 import { useFileStore } from "@/stores/fileStore";
 import { usePreviewAppStore } from "@/stores/previewAppStore";
 import { useThumbnailSupportStore } from "@/stores/thumbnailSupportStore";
 import { useUploadAreaControlsStore } from "@/stores/uploadAreaControlsStore";
 import { useWorkspaceStore } from "@/stores/workspaceStore";
+import type { FolderListItem } from "@/types/api";
 
 export default function FileBrowserPage() {
 	const { t } = useTranslation(["files", "tasks"]);
@@ -79,6 +82,7 @@ export default function FileBrowserPage() {
 	const uploadPanelPresence = useUploadAreaControlsStore(
 		(s) => s.uploadPanelPresence,
 	);
+	const isAdmin = useAuthStore((s) => s.user?.role === "admin");
 
 	const displayFolders = folders;
 	const displayFiles = files;
@@ -100,6 +104,8 @@ export default function FileBrowserPage() {
 	const uploadAreaRef = useRef<UploadAreaHandle | null>(null);
 	const [uploadReady, setUploadReady] = useState(false);
 	const [offlineDownloadOpen, setOfflineDownloadOpen] = useState(false);
+	const [folderPolicyTarget, setFolderPolicyTarget] =
+		useState<FolderListItem | null>(null);
 	const [tagLibraryManagerOpen, setTagLibraryManagerOpen] = useState(false);
 	const sentinelRef = useRef<HTMLDivElement | null>(null);
 	const [scrollViewport, setScrollViewport] = useState<HTMLDivElement | null>(
@@ -270,6 +276,14 @@ export default function FileBrowserPage() {
 		},
 		[handleMoveToFolder, moveTarget, setMoveTarget],
 	);
+	const handleFolderPolicy = useCallback(
+		(folder: FolderListItem) => {
+			if (!isAdmin) return;
+			void FolderPolicyDialogPreloader.preload();
+			setFolderPolicyTarget(folder);
+		},
+		[isAdmin],
+	);
 	const { fileBrowserContextValue, handleNavigateToFolder } =
 		useFileBrowserContextValue({
 			breadcrumb,
@@ -285,6 +299,7 @@ export default function FileBrowserPage() {
 			handleCopy,
 			handleDelete,
 			handleDownload,
+			handleFolderPolicy: isAdmin ? handleFolderPolicy : undefined,
 			handleInfo,
 			handleManageTags,
 			handleMove,
@@ -429,6 +444,7 @@ export default function FileBrowserPage() {
 				createFolderOpen={createFolderOpen}
 				currentFolderId={folderId}
 				currentFolderName={currentFolderName}
+				folderPolicyTarget={folderPolicyTarget}
 				moveTarget={moveTarget}
 				offlineDownloadOpen={offlineDownloadOpen}
 				previewImageNavigation={previewImageNavigation}
@@ -442,6 +458,8 @@ export default function FileBrowserPage() {
 				onCopyConfirm={handleCopyConfirm}
 				onCreateFileOpenChange={setCreateFileOpen}
 				onCreateFolderOpenChange={setCreateFolderOpen}
+				onFolderPolicyClose={() => setFolderPolicyTarget(null)}
+				onFolderPolicyUpdated={refresh}
 				onMoveClose={() => setMoveTarget(null)}
 				onMoveConfirm={handleMoveConfirm}
 				onOfflineDownloadOpenChange={setOfflineDownloadOpen}

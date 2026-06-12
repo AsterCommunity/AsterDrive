@@ -97,6 +97,12 @@ pub struct StoragePolicyAuditDetails<'a> {
 }
 
 #[derive(Serialize)]
+pub struct FolderPolicyAuditDetails {
+    pub previous_policy_id: Option<i64>,
+    pub policy_id: Option<i64>,
+}
+
+#[derive(Serialize)]
 pub struct BatchDeleteDetails<'a> {
     pub file_ids: &'a [i64],
     pub folder_ids: &'a [i64],

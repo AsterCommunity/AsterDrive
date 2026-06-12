@@ -77,6 +77,7 @@ function renderMenu(
 		onDelete: vi.fn(),
 		onDownload: vi.fn(),
 		onDirectShare: vi.fn(),
+		onFolderPolicy: vi.fn(),
 		onInfo: vi.fn(),
 		onManageTags: vi.fn(),
 		onMove: vi.fn(),
@@ -114,6 +115,7 @@ describe("FileContextMenu", () => {
 		fireEvent.click(screen.getByText("share:share_direct_link_action"));
 		fireEvent.click(screen.getByText("copy_to"));
 		fireEvent.click(screen.getByText("move_to"));
+		expect(screen.queryByText("folder_policy")).not.toBeInTheDocument();
 		fireEvent.click(screen.getByText("rename"));
 		fireEvent.click(screen.getByText("tag_manage"));
 		fireEvent.click(screen.getByText("versions"));
@@ -130,6 +132,7 @@ describe("FileContextMenu", () => {
 		expect(handlers.onDirectShare).toHaveBeenCalledTimes(1);
 		expect(handlers.onCopy).toHaveBeenCalledTimes(1);
 		expect(handlers.onMove).toHaveBeenCalledTimes(1);
+		expect(handlers.onFolderPolicy).not.toHaveBeenCalled();
 		expect(handlers.onRename).toHaveBeenCalledTimes(1);
 		expect(handlers.onManageTags).toHaveBeenCalledTimes(1);
 		expect(handlers.onVersions).toHaveBeenCalledTimes(1);
@@ -153,6 +156,7 @@ describe("FileContextMenu", () => {
 			screen.getByText("tasks:archive_download_action"),
 		).toBeInTheDocument();
 		expect(screen.getByText("share")).toBeInTheDocument();
+		expect(screen.getByText("folder_policy")).toBeInTheDocument();
 		expect(
 			screen.queryByText("share:share_direct_link_action"),
 		).not.toBeInTheDocument();
@@ -168,8 +172,10 @@ describe("FileContextMenu", () => {
 		});
 
 		fireEvent.click(screen.getByText("tasks:archive_download_action"));
+		fireEvent.click(screen.getByText("folder_policy"));
 
 		expect(handlers.onArchiveDownload).toHaveBeenCalledTimes(1);
+		expect(handlers.onFolderPolicy).toHaveBeenCalledTimes(1);
 	});
 
 	it("invokes archive extract and compress handlers for files", () => {

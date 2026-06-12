@@ -27,7 +27,8 @@ pub(crate) use finalize::{
 pub(crate) use path::{ParsedUploadPath, ResolvedUploadParent};
 pub(crate) use path::{ensure_upload_parent_path, parse_relative_upload_path};
 pub(crate) use policy::{
-    VerifiedFolderPolicyHint, load_storage_limits, local_content_dedup_enabled,
-    resolve_policy_for_size, resolve_policy_for_size_with_verified_folder,
+    VerifiedFolderPolicyHint, ensure_policy_available_for_folder_binding, load_storage_limits,
+    local_content_dedup_enabled, resolve_policy_for_size,
+    resolve_policy_for_size_with_verified_folder, resolve_verified_folder_policy_hint,
 };
 pub(crate) use quota::{check_quota, update_storage_used, update_storage_used_for_resource_scope};

@@ -51,6 +51,7 @@ import type {
 	ExecuteConfigActionResponse,
 	ExternalAuthProviderTestParamsInput,
 	ExternalAuthProviderTestResult,
+	FolderInfo,
 	LockPage,
 	MigratePolicyGroupAssignmentsRequest,
 	PolicyGroupAssignmentMigrationResult,
@@ -92,6 +93,10 @@ import type {
 	UserPage,
 } from "@/types/api";
 import { api } from "./http";
+
+export interface SetFolderPolicyRequest {
+	policy_id: number | null;
+}
 
 // The admin PATCH endpoint rejects `policy_group_id: null`, and current callers
 // only support assigning a group or leaving it unchanged. Strip accidental nulls
@@ -332,6 +337,11 @@ export const adminPolicyService = {
 			"/admin/storage-migrations/dry-run",
 			data,
 		),
+};
+
+export const adminFolderService = {
+	setPolicy: (id: number, data: SetFolderPolicyRequest) =>
+		api.put<FolderInfo>(`/admin/folders/${id}/policy`, data),
 };
 
 export const adminRemoteNodeService = {

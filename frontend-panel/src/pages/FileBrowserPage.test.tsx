@@ -28,6 +28,7 @@ const mockState = vi.hoisted(() => ({
 	startAuthenticatedDownload: vi.fn(),
 	dispatchEvent: vi.fn(),
 	fileBrowserContext: null as Record<string, unknown> | null,
+	folderPolicyPreload: vi.fn(),
 	formatBatchToast: vi.fn(),
 	handleApiError: vi.fn(),
 	idleTasks: [] as Array<() => void>,
@@ -63,6 +64,10 @@ const mockState = vi.hoisted(() => ({
 	},
 	readInternalDragData: vi.fn(),
 	refreshUser: vi.fn(),
+	authUser: {
+		id: 1,
+		role: "user" as "admin" | "user",
+	},
 	searchParams: new URLSearchParams("name=Projects"),
 	setFileLock: vi.fn(),
 	setFolderLock: vi.fn(),
@@ -544,6 +549,26 @@ vi.mock("@/components/files/FileInfoDialog", () => ({
 	}) => (open ? <div>{`info:${file?.name ?? folder?.name ?? ""}`}</div> : null),
 }));
 
+vi.mock("@/components/files/FolderPolicyDialog", () => ({
+	FolderPolicyDialog: ({
+		folder,
+		onOpenChange,
+		open,
+	}: {
+		folder?: { id: number; name: string } | null;
+		onOpenChange?: (open: boolean) => void;
+		open: boolean;
+	}) =>
+		open ? (
+			<div>
+				<div>{`folder-policy:${folder?.name ?? ""}`}</div>
+				<button type="button" onClick={() => onOpenChange?.(false)}>
+					close-folder-policy
+				</button>
+			</div>
+		) : null,
+}));
+
 vi.mock("@/components/files/OfflineDownloadDialog", () => ({
 	OfflineDownloadDialog: ({
 		open,
@@ -945,14 +970,19 @@ vi.mock("@/lib/authenticatedDownload", () => ({
 
 vi.mock("@/stores/authStore", () => {
 	const useAuthStore = <T,>(
-		selector: (state: { refreshUser: typeof mockState.refreshUser }) => T,
+		selector: (state: {
+			refreshUser: typeof mockState.refreshUser;
+			user: typeof mockState.authUser;
+		}) => T,
 	) =>
 		selector({
 			refreshUser: mockState.refreshUser,
+			user: mockState.authUser,
 		});
 
 	useAuthStore.getState = () => ({
 		refreshUser: mockState.refreshUser,
+		user: mockState.authUser,
 	});
 
 	return { useAuthStore };
@@ -1026,6 +1056,7 @@ function getFileBrowserContext() {
 		onDelete: (type: "file" | "folder", id: number) => Promise<void>;
 		onDownload: (fileId: number, fileName: string) => void;
 		onFileClick: (file: Record<string, unknown>) => void;
+		onFolderPolicy?: (folder: { id: number; name: string }) => void;
 		onInfo: (type: "file" | "folder", id: number) => void;
 		onMove: (type: "file" | "folder", id: number) => void;
 		onRename: (type: "file" | "folder", id: number, name: string) => void;
@@ -1071,6 +1102,7 @@ describe("FileBrowserPage", () => {
 		mockState.startAuthenticatedDownload.mockResolvedValue(undefined);
 		mockState.dispatchEvent.mockReset();
 		mockState.fileBrowserContext = null;
+		mockState.folderPolicyPreload.mockReset();
 		mockState.formatBatchToast.mockReset();
 		mockState.handleApiError.mockReset();
 		mockState.idleTasks = [];
@@ -1100,6 +1132,10 @@ describe("FileBrowserPage", () => {
 		mockState.thumbnailSupportStore.load.mockReset();
 		mockState.readInternalDragData.mockReset();
 		mockState.refreshUser.mockReset();
+		mockState.authUser = {
+			id: 1,
+			role: "user",
+		};
 		mockState.setFileLock.mockReset();
 		mockState.setFolderLock.mockReset();
 		mockState.store.clearSelection.mockReset();
@@ -1205,6 +1241,33 @@ describe("FileBrowserPage", () => {
 		expect(mockState.store.setViewMode).toHaveBeenCalledWith("list");
 		expect(mockState.store.setSortBy).toHaveBeenCalledWith("updated_at");
 		expect(mockState.store.setSortOrder).toHaveBeenCalledWith("desc");
+	});
+
+	it("does not expose folder policy management to regular users", () => {
+		render(<FileBrowserPage />);
+
+		expect(getFileBrowserContext().onFolderPolicy).toBeUndefined();
+	});
+
+	it("opens folder policy management for admins", async () => {
+		mockState.authUser = {
+			id: 1,
+			role: "admin",
+		};
+		render(<FileBrowserPage />);
+
+		const context = getFileBrowserContext();
+		expect(context.onFolderPolicy).toBeTypeOf("function");
+
+		act(() => {
+			context.onFolderPolicy?.({ id: 5, name: "Docs" });
+		});
+
+		expect(await screen.findByText("folder-policy:Docs")).toBeInTheDocument();
+		fireEvent.click(
+			screen.getByRole("button", { name: "close-folder-policy" }),
+		);
+		expect(screen.queryByText("folder-policy:Docs")).not.toBeInTheDocument();
 	});
 
 	it("refreshes and navigates from breadcrumb and folder open actions, and opens the preview", async () => {

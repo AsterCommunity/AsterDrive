@@ -133,11 +133,17 @@ async fn resolve_upload_target(
         None => {
             let filename = crate::utils::normalize_validate_name(filename)?;
             let folder = match folder_id {
-                Some(folder_id) => Some(
-                    workspace_storage_service::verify_folder_access(state, scope, folder_id)
-                        .await?
-                        .into(),
-                ),
+                Some(folder_id) => {
+                    let folder =
+                        workspace_storage_service::verify_folder_access(state, scope, folder_id)
+                            .await?;
+                    Some(
+                        workspace_storage_service::resolve_verified_folder_policy_hint(
+                            state, scope, folder,
+                        )
+                        .await?,
+                    )
+                }
                 None => None,
             };
             Ok(ResolvedUploadTarget {
