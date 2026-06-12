@@ -416,7 +416,7 @@ describe("useShareViewPageController", () => {
 		expect(result.current.needsPassword).toBe(true);
 	});
 
-	it("opens download URLs and falls back to preview when no music track is active", async () => {
+	it("opens download URLs with opener isolation and falls back to preview when no music track is active", async () => {
 		const audioFile = fileItem(7, "song.mp3", "audio/mpeg");
 		mockState.getInfo.mockResolvedValueOnce(shareInfo());
 		mockState.listContent.mockResolvedValueOnce(
@@ -439,10 +439,12 @@ describe("useShareViewPageController", () => {
 		expect(mockState.openWindow).toHaveBeenCalledWith(
 			"https://download.example/s/share-token",
 			"_blank",
+			"noopener,noreferrer",
 		);
 		expect(mockState.openWindow).toHaveBeenCalledWith(
 			"https://download.example/s/share-token/files/7",
 			"_blank",
+			"noopener,noreferrer",
 		);
 		expect(result.current.previewFile).toBe(audioFile);
 		expect(result.current.viewMode).toBe("list");

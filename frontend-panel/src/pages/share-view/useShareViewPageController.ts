@@ -401,14 +401,14 @@ export function useShareViewPageController({
 	const handleDownload = useCallback(() => {
 		if (!token) return;
 		const url = shareService.downloadUrl(token);
-		window.open(url, "_blank");
+		window.open(url, "_blank", "noopener,noreferrer");
 	}, [token]);
 
 	const handleFolderFileDownload = useCallback(
 		(file: FileListItem) => {
 			if (!token) return;
 			const url = shareService.downloadFolderFileUrl(token, file.id);
-			window.open(url, "_blank");
+			window.open(url, "_blank", "noopener,noreferrer");
 		},
 		[token],
 	);
