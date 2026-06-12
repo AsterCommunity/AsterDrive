@@ -12,6 +12,7 @@ import { buttonVariants } from "@/components/ui/buttonVariants";
 import { Icon, type IconName } from "@/components/ui/icon";
 import { config } from "@/config/app";
 import { usePageTitle } from "@/hooks/usePageTitle";
+import { formatDateTime } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { adminSystemService } from "@/services/adminService";
 
@@ -179,6 +180,22 @@ function getChannelBadgeClass(channel: ReleaseChannel) {
 	}
 }
 
+function formatBuildTime(
+	value: string | undefined,
+	fallback: string,
+) {
+	if (!value || value === "unknown") return fallback;
+
+	const date = new Date(value);
+	if (Number.isNaN(date.getTime())) return fallback;
+
+	try {
+		return formatDateTime(value);
+	} catch {
+		return fallback;
+	}
+}
+
 export default function AdminAboutPage() {
 	const { t } = useTranslation("admin");
 	usePageTitle(t("about"));
@@ -191,6 +208,10 @@ export default function AdminAboutPage() {
 	const backendVersion = systemInfo?.version ?? appVersion;
 	const displayVersion = formatDisplayVersion(backendVersion);
 	const releaseChannel = resolveReleaseChannel(backendVersion);
+	const buildTimeDisplay = formatBuildTime(
+		systemInfo?.build_time,
+		t("about_build_time_unknown"),
+	);
 	const [versionBadgeClassIndex, setVersionBadgeClassIndex] = useState(0);
 	const [displayReleaseChannel, setDisplayReleaseChannel] =
 		useState(releaseChannel);
@@ -295,7 +316,7 @@ export default function AdminAboutPage() {
 		},
 		{
 			label: t("about_build_time"),
-			value: systemInfo?.build_time ?? t("about_build_time_unknown"),
+			value: buildTimeDisplay,
 			icon: "Clock",
 		},
 		{

@@ -14,7 +14,9 @@ use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::audit_service::{self, AuditContext};
 use crate::services::workspace_storage_service::WorkspaceStorageScope;
 use crate::types::EntityType;
-use crate::webdav::dav::{DavLock, DavLockPreflightError, DavLockSystem, DavPath, LsFuture};
+use crate::webdav::dav::{
+    DavLock, DavLockError, DavLockPreflightError, DavLockSystem, DavPath, LsFuture,
+};
 use crate::webdav::path_resolver::{self, ResolvedNode};
 
 /// 数据库支持的 WebDAV 锁系统
@@ -128,7 +130,7 @@ impl DbLockSystem {
 
 impl DavLockSystem for DbLockSystem {
     fn prepare_lock(&self, _path: &DavPath) -> LsFuture<'_, Result<(), DavLockPreflightError>> {
-        Box::pin(async move { Ok(()) })
+        Box::pin(async move { self.ensure_lock_quota(&self.db, Utc::now()).await })
     }
 
     fn lock(
@@ -139,7 +141,7 @@ impl DavLockSystem for DbLockSystem {
         timeout: Option<Duration>,
         shared: bool,
         deep: bool,
-    ) -> LsFuture<'_, Result<DavLock, DavLock>> {
+    ) -> LsFuture<'_, Result<DavLock, DavLockError>> {
         let path_str = normalize_path(path);
         let path_owned = path.clone();
         let principal_owned = principal.map(|s| s.to_string());
@@ -150,21 +152,21 @@ impl DavLockSystem for DbLockSystem {
         Box::pin(async move {
             let txn = crate::db::transaction::begin(&self.db)
                 .await
-                .map_err(|_| empty_dav_lock(&path_owned))?;
+                .map_err(|_| DavLockError::Conflict(empty_dav_lock(&path_owned)))?;
             let result = async {
                 let now = Utc::now();
 
                 let (entity_type, entity_id) =
                     resolve_path_to_entity(&txn, self.scope, self.root_folder_id, &path_str)
                         .await
-                        .map_err(|_| empty_dav_lock(&path_owned))?;
+                        .map_err(|_| DavLockError::Conflict(empty_dav_lock(&path_owned)))?;
                 lock_target_entity(&txn, entity_type, entity_id)
                     .await
-                    .map_err(|_| empty_dav_lock(&path_owned))?;
+                    .map_err(|_| DavLockError::Conflict(empty_dav_lock(&path_owned)))?;
 
                 let mut overlapping = find_overlapping_locks(&txn, &path_str, deep)
                     .await
-                    .map_err(|_| empty_dav_lock(&path_owned))?;
+                    .map_err(|_| DavLockError::Conflict(empty_dav_lock(&path_owned)))?;
                 overlapping.sort_by_key(|lock| lock.id);
 
                 for existing in overlapping {
@@ -177,17 +179,21 @@ impl DavLockSystem for DbLockSystem {
                     }
 
                     if !shared || !existing.shared {
-                        return Err(model_to_dav_lock(&existing));
+                        return Err(DavLockError::Conflict(model_to_dav_lock(&existing)));
                     }
                 }
 
-                self.ensure_lock_quota(&txn, now)
-                    .await
-                    .map_err(|_| empty_dav_lock(&path_owned))?;
+                self.ensure_lock_quota(&txn, now).await.map_err(|error| {
+                    if matches!(error, DavLockPreflightError::LimitExceeded) {
+                        DavLockError::LimitExceeded
+                    } else {
+                        DavLockError::Conflict(empty_dav_lock(&path_owned))
+                    }
+                })?;
 
                 let token = format!("urn:uuid:{}", uuid::Uuid::new_v4());
-                let timeout_at =
-                    lock_timeout_at(now, timeout_dur).map_err(|_| empty_dav_lock(&path_owned))?;
+                let timeout_at = lock_timeout_at(now, timeout_dur)
+                    .map_err(|_| DavLockError::Conflict(empty_dav_lock(&path_owned)))?;
                 let owner_info = owner_xml.clone().map(|xml| {
                     crate::services::lock_service::ResourceLockOwnerInfo::Webdav(
                         crate::services::lock_service::WebdavLockOwnerInfo { xml },
@@ -207,7 +213,7 @@ impl DavLockSystem for DbLockSystem {
                         crate::services::lock_service::serialize_resource_lock_owner_info(
                             owner_info.as_ref(),
                         )
-                        .map_err(|_| empty_dav_lock(&path_owned))?,
+                        .map_err(|_| DavLockError::Conflict(empty_dav_lock(&path_owned)))?,
                     ),
                     timeout_at: sea_orm::Set(timeout_at),
                     shared: sea_orm::Set(shared),
@@ -218,7 +224,7 @@ impl DavLockSystem for DbLockSystem {
 
                 lock_repo::create(&txn, model)
                     .await
-                    .map_err(|_| empty_dav_lock(&path_owned))?;
+                    .map_err(|_| DavLockError::Conflict(empty_dav_lock(&path_owned)))?;
                 crate::services::lock_service::set_entity_locked(
                     &txn,
                     entity_type,
@@ -226,7 +232,7 @@ impl DavLockSystem for DbLockSystem {
                     true,
                 )
                 .await
-                .map_err(|_| empty_dav_lock(&path_owned))?;
+                .map_err(|_| DavLockError::Conflict(empty_dav_lock(&path_owned)))?;
 
                 Ok((
                     DavLock {
@@ -249,15 +255,15 @@ impl DavLockSystem for DbLockSystem {
                 Ok((lock, entity_type, entity_id)) => {
                     crate::db::transaction::commit(txn)
                         .await
-                        .map_err(|_| empty_dav_lock(&path_owned))?;
+                        .map_err(|_| DavLockError::Conflict(empty_dav_lock(&path_owned)))?;
                     self.log_lock_action(entity_type, entity_id, true).await;
                     Ok(lock)
                 }
-                Err(conflict) => {
+                Err(error) => {
                     if let Err(error) = crate::db::transaction::rollback(txn).await {
                         tracing::warn!(error = %error, "failed to rollback WebDAV lock transaction");
                     }
-                    Err(conflict)
+                    Err(error)
                 }
             }
         })

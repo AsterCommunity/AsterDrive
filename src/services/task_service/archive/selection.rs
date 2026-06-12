@@ -229,7 +229,7 @@ pub(crate) async fn stream_shared_archive_download(
         .content_type("application/zip")
         .insert_header((
             "Content-Disposition",
-            format!(r#"attachment; filename="{}""#, archive_name),
+            DownloadDisposition::Attachment.header_value(&archive_name),
         ))
         .insert_header(("Content-Encoding", "identity"))
         .streaming(reader_stream))

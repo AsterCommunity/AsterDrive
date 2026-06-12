@@ -346,8 +346,9 @@ async fn test_email_code_login_requires_verified_email() {
     let resp = login_raw(&app, "unverifiedmfa", "password123").await;
     let status = resp.status();
     let body: Value = test::read_body_json(resp).await;
-    assert_eq!(status, StatusCode::FORBIDDEN, "{body:#?}");
-    assert_eq!(body["code"], "auth.pending_activation");
+    assert_eq!(status, StatusCode::UNAUTHORIZED, "{body:#?}");
+    assert_eq!(body["code"], "auth.credentials_failed");
+    assert_eq!(body["msg"], "Invalid Credentials");
 }
 
 #[tokio::test]

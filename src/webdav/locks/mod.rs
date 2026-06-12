@@ -8,7 +8,8 @@ use actix_web::{HttpRequest, HttpResponse};
 use xmltree::{Element, XMLNode};
 
 use crate::webdav::dav::{
-    DavFileSystem, DavLock, DavLockPreflightError, DavLockSystem, FsError, OpenOptions,
+    DavFileSystem, DavLock, DavLockError, DavLockPreflightError, DavLockSystem, FsError,
+    OpenOptions,
 };
 use crate::webdav::protocol::{self, Depth};
 use crate::webdav::{
@@ -155,9 +156,10 @@ pub(crate) async fn handle_lock(
         .await
     {
         Ok(lock) => lock,
-        Err(lock) => {
+        Err(DavLockError::Conflict(lock)) => {
             return lock_token_submitted_response(StatusCode::LOCKED, prefix, &lock.path);
         }
+        Err(DavLockError::LimitExceeded) => return responses::webdav_lock_limit_exceeded(),
     };
 
     let status = if resource_existed {

@@ -152,6 +152,13 @@ pub fn routes(
                 .route(web::post().to(link_external_auth_with_password)),
         )
         .service(
+            web::scope("/external-auth/links")
+                .wrap(JwtAuth)
+                .wrap(Condition::new(rl.enabled, Governor::new(&api_limiter)))
+                .route("", web::get().to(list_external_auth_links))
+                .route("/{id}", web::delete().to(delete_external_auth_link)),
+        )
+        .service(
             web::scope("/external-auth/{kind}/{provider}")
                 .wrap(Condition::new(rl.enabled, Governor::new(&auth_limiter)))
                 .route("/start", web::post().to(start_external_auth_login))
@@ -215,13 +222,6 @@ pub fn routes(
                 )
                 .route("/{id}", web::patch().to(rename_passkey))
                 .route("/{id}", web::delete().to(delete_passkey)),
-        )
-        .service(
-            web::scope("/external-auth/links")
-                .wrap(JwtAuth)
-                .wrap(Condition::new(rl.enabled, Governor::new(&api_limiter)))
-                .route("", web::get().to(list_external_auth_links))
-                .route("/{id}", web::delete().to(delete_external_auth_link)),
         )
         .service(
             web::scope("/email/change")

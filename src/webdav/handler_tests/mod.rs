@@ -10,7 +10,7 @@ use crate::types::{
     DriverType, S3UploadStrategy, StoragePolicyOptions, StoredStoragePolicyAllowedTypes, UserRole,
     UserStatus, serialize_storage_policy_options,
 };
-use crate::webdav::dav::{DavLock, DavLockSystem, LsFuture};
+use crate::webdav::dav::{DavLock, DavLockError, DavLockSystem, LsFuture};
 use crate::webdav::fs::AsterDavFs;
 use crate::webdav::props::handle_propfind;
 use crate::webdav::transfer::{handle_get_head, handle_put};
@@ -215,7 +215,7 @@ impl DavLockSystem for NoopLockSystem {
         _timeout: Option<Duration>,
         _shared: bool,
         _deep: bool,
-    ) -> LsFuture<'_, Result<DavLock, DavLock>> {
+    ) -> LsFuture<'_, Result<DavLock, DavLockError>> {
         Box::pin(async { panic!("lock should not be called in these WebDAV handler tests") })
     }
 

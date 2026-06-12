@@ -77,18 +77,29 @@ fn ensure_leading_slash(path: &str) -> String {
 }
 
 fn clean_decoded_path(path: &str) -> Result<String, DavPathError> {
-    let is_collection = path.ends_with('/');
     let mut segments = Vec::new();
+    let mut is_collection = false;
 
-    for segment in path.split('/') {
+    for (index, segment) in path.split('/').enumerate() {
         match segment {
-            "" | "." => {}
+            "" => {
+                if index > 0 {
+                    is_collection = true;
+                }
+            }
+            "." => {
+                is_collection = true;
+            }
             ".." => {
                 if segments.pop().is_none() {
                     return Err(DavPathError::PathEscape);
                 }
+                is_collection = true;
             }
-            segment => segments.push(segment),
+            segment => {
+                segments.push(segment);
+                is_collection = false;
+            }
         }
     }
 
@@ -271,6 +282,12 @@ pub enum DavLockPreflightError {
     GeneralFailure,
 }
 
+#[derive(Debug, Clone)]
+pub enum DavLockError {
+    Conflict(DavLock),
+    LimitExceeded,
+}
+
 pub trait DavLockSystem: Send + Sync {
     fn prepare_lock(&self, _path: &DavPath) -> LsFuture<'_, Result<(), DavLockPreflightError>> {
         Box::pin(async { Ok(()) })
@@ -284,7 +301,7 @@ pub trait DavLockSystem: Send + Sync {
         timeout: Option<Duration>,
         shared: bool,
         deep: bool,
-    ) -> LsFuture<'_, Result<DavLock, DavLock>>;
+    ) -> LsFuture<'_, Result<DavLock, DavLockError>>;
 
     fn unlock(&self, path: &DavPath, token: &str) -> LsFuture<'_, Result<(), ()>>;
 
@@ -327,6 +344,21 @@ mod tests {
 
         let relative = DavPath::new("projects/./docs").unwrap();
         assert_eq!(relative.as_str(), "/projects/docs");
+    }
+
+    #[test]
+    fn dav_path_preserves_collection_alias_after_dot_segments() {
+        let dot_alias = DavPath::new("/projects/docs/.").unwrap();
+        assert_eq!(dot_alias.as_str(), "/projects/docs/");
+        assert!(dot_alias.is_collection());
+
+        let parent_alias = DavPath::new("/projects/docs/reports/..").unwrap();
+        assert_eq!(parent_alias.as_str(), "/projects/docs/");
+        assert!(parent_alias.is_collection());
+
+        let encoded_parent_alias = DavPath::new("/projects/docs/reports/%2e%2e").unwrap();
+        assert_eq!(encoded_parent_alias.as_str(), "/projects/docs/");
+        assert!(encoded_parent_alias.is_collection());
     }
 
     #[test]

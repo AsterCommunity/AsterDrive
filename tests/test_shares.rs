@@ -800,8 +800,17 @@ async fn test_share_download_limit() {
 #[actix_web::test]
 async fn test_share_download_limit_counter_is_atomic_under_concurrency() {
     use aster_drive::db::repository::share_repo;
+    use aster_drive::utils::raii::TempDirGuard;
 
-    let state = common::setup().await;
+    let temp_dir = std::env::temp_dir().join(format!(
+        "asterdrive-share-download-race-{}",
+        uuid::Uuid::new_v4()
+    ));
+    std::fs::create_dir_all(&temp_dir).expect("share race test db dir should be created");
+    let _temp_dir_guard = TempDirGuard::new(temp_dir.clone(), "share download race test db");
+    let database_url = format!("sqlite://{}?mode=rwc", temp_dir.join("shares.db").display());
+
+    let state = common::setup_with_database_url(&database_url).await;
     let app = create_test_app!(state.clone());
     let (token, _) = register_and_login!(app);
     let file_id = upload_test_file!(app, token);
@@ -820,9 +829,25 @@ async fn test_share_download_limit_counter_is_atomic_under_concurrency() {
     let body: Value = test::read_body_json(resp).await;
     let share_id = body["data"]["id"].as_i64().unwrap();
 
-    let mut tasks = tokio::task::JoinSet::new();
+    let mut dbs = Vec::new();
     for _ in 0..32 {
-        let db = state.writer_db().clone();
+        let cfg = aster_drive::config::DatabaseConfig {
+            url: database_url.clone(),
+            pool_size: 1,
+            retry_count: 0,
+        };
+        dbs.push(
+            aster_drive::db::connect_with_metrics(
+                &cfg,
+                aster_drive::metrics_core::NoopMetrics::arc(),
+            )
+            .await
+            .expect("share race test connection should open"),
+        );
+    }
+
+    let mut tasks = tokio::task::JoinSet::new();
+    for db in dbs {
         tasks.spawn(async move { share_repo::increment_download_count(&db, share_id).await });
     }
 

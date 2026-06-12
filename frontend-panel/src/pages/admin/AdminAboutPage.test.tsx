@@ -13,6 +13,10 @@ vi.mock("react-i18next", () => ({
 	}),
 }));
 
+vi.mock("@/lib/format", () => ({
+	formatDateTime: (value: string) => `formatted:${value}`,
+}));
+
 vi.mock("sonner", () => ({
 	toast: {
 		info: (...args: unknown[]) => mockState.toastInfo(...args),
@@ -128,7 +132,8 @@ describe("AdminAboutPage", () => {
 		render(<AdminAboutPage />);
 
 		expect(await screen.findAllByText("v0.3.0")).toHaveLength(2);
-		expect(screen.getByText("2026-06-13T00:00:00Z")).toBeInTheDocument();
+		expect(screen.queryByText("2026-06-13T00:00:00Z")).not.toBeInTheDocument();
+		expect(screen.getByText("formatted:2026-06-13T00:00:00Z")).toBeInTheDocument();
 	});
 
 	it("reveals a version easter egg after five version badge clicks", () => {
