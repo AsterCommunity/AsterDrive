@@ -54,6 +54,31 @@ pub(crate) fn encode_href(path: &str) -> String {
     utf8_percent_encode(path, PATH_SET).to_string()
 }
 
+pub(crate) fn reject_xml_dtd_or_entity(body: &[u8]) -> Result<(), ()> {
+    let mut index = 0;
+    while let Some(offset) = find_byte(&body[index..], b'<') {
+        index += offset + 1;
+        let Some(after_bang) = body.get(index + 1..) else {
+            break;
+        };
+        if body[index] == b'!'
+            && (starts_with_ascii_case_insensitive(after_bang, b"DOCTYPE")
+                || starts_with_ascii_case_insensitive(after_bang, b"ENTITY"))
+        {
+            return Err(());
+        }
+    }
+    Ok(())
+}
+
+fn find_byte(haystack: &[u8], needle: u8) -> Option<usize> {
+    haystack.iter().position(|byte| *byte == needle)
+}
+
+fn starts_with_ascii_case_insensitive(value: &[u8], prefix: &[u8]) -> bool {
+    value.len() >= prefix.len() && value[..prefix.len()].eq_ignore_ascii_case(prefix)
+}
+
 /// WebDAV 共享状态（单例）
 pub struct WebDavState {
     pub prefix: String,
@@ -497,3 +522,29 @@ pub fn configure(
 
 #[cfg(test)]
 mod handler_tests;
+
+#[cfg(test)]
+mod tests {
+    use super::reject_xml_dtd_or_entity;
+
+    #[test]
+    fn reject_xml_dtd_or_entity_allows_regular_webdav_xml() {
+        let body = br#"<?xml version="1.0"?><propfind xmlns="DAV:"><allprop/></propfind>"#;
+
+        assert!(reject_xml_dtd_or_entity(body).is_ok());
+    }
+
+    #[test]
+    fn reject_xml_dtd_or_entity_rejects_doctype_case_insensitively() {
+        let body = br#"<!doctype propfind [<!ENTITY x "boom">]><propfind/>"#;
+
+        assert!(reject_xml_dtd_or_entity(body).is_err());
+    }
+
+    #[test]
+    fn reject_xml_dtd_or_entity_rejects_entity_declaration() {
+        let body = br#"<!ENTITY x "boom"><propfind/>"#;
+
+        assert!(reject_xml_dtd_or_entity(body).is_err());
+    }
+}

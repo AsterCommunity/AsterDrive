@@ -25,6 +25,9 @@ pub(crate) async fn handle_report(
     prefix: &str,
 ) -> HttpResponse {
     // 解析 XML body，确认是 version-tree 报告
+    if crate::webdav::reject_xml_dtd_or_entity(body_bytes).is_err() {
+        return responses::no_external_entities();
+    }
     let root = match Element::parse(Cursor::new(body_bytes)) {
         Ok(el) => el,
         Err(_) => return error_response(StatusCode::BAD_REQUEST, "Invalid XML body"),

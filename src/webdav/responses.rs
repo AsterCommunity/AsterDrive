@@ -144,6 +144,14 @@ pub(crate) fn invalid_xml_body() -> HttpResponse {
     bad_request_text("Invalid XML body")
 }
 
+pub(crate) fn no_external_entities() -> HttpResponse {
+    let mut error = dav_element("error");
+    error
+        .children
+        .push(XMLNode::Element(dav_element("no-external-entities")));
+    xml_response(error, StatusCode::FORBIDDEN)
+}
+
 pub(crate) fn invalid_request_path() -> HttpResponse {
     bad_request_text("Invalid request path")
 }
@@ -233,9 +241,10 @@ mod tests {
     use super::{
         XML_CONTENT_TYPE, fs_error_response, invalid_xml_body,
         lock_token_matches_request_uri_response, lock_token_submitted_response, method_not_allowed,
-        no_store, propfind_finite_depth_response, range_not_satisfiable, request_body_read_error,
-        system_file_name_blocked, text, unauthorized, unsupported_root_proppatch, with_no_store,
-        xml_body_too_large, xml_response, xml_response_builder,
+        no_external_entities, no_store, propfind_finite_depth_response, range_not_satisfiable,
+        request_body_read_error, system_file_name_blocked, text, unauthorized,
+        unsupported_root_proppatch, with_no_store, xml_body_too_large, xml_response,
+        xml_response_builder,
     };
     use crate::webdav::dav::{DavPath, FsError};
     use crate::webdav::dav_element;
@@ -278,6 +287,21 @@ mod tests {
             response.headers().get(header::CONTENT_TYPE),
             Some(&header::HeaderValue::from_static(XML_CONTENT_TYPE))
         );
+    }
+
+    #[actix_web::test]
+    async fn no_external_entities_uses_webdav_condition_response() {
+        let response = no_external_entities();
+
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
+        assert_no_store(&response);
+        assert_eq!(
+            response.headers().get(header::CONTENT_TYPE),
+            Some(&header::HeaderValue::from_static(XML_CONTENT_TYPE))
+        );
+
+        let body = body_text(response).await;
+        assert!(body.contains("no-external-entities"), "{body}");
     }
 
     #[test]

@@ -249,6 +249,7 @@ fn parse_propfind_request(body: &[u8]) -> Result<PropfindKind, HttpResponse> {
         });
     }
 
+    crate::webdav::reject_xml_dtd_or_entity(body).map_err(|_| responses::no_external_entities())?;
     let root = Element::parse(Cursor::new(body)).map_err(|_| responses::invalid_xml_body())?;
     if root.name != "propfind" {
         return Err(invalid_propfind_body());
@@ -306,6 +307,7 @@ fn parse_propfind_request(body: &[u8]) -> Result<PropfindKind, HttpResponse> {
 }
 
 fn parse_proppatch_request(body: &[u8]) -> Result<Vec<(bool, DavProp)>, HttpResponse> {
+    crate::webdav::reject_xml_dtd_or_entity(body).map_err(|_| responses::no_external_entities())?;
     let root = Element::parse(Cursor::new(body)).map_err(|_| responses::invalid_xml_body())?;
     if root.name != "propertyupdate" {
         return Err(invalid_proppatch_body());

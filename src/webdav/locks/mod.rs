@@ -83,6 +83,10 @@ pub(crate) async fn handle_lock(
         Err(resp) => return resp,
     };
 
+    if crate::webdav::reject_xml_dtd_or_entity(body).is_err() {
+        return responses::no_external_entities();
+    }
+
     let tree = match Element::parse(Cursor::new(body)) {
         Ok(tree) => tree,
         Err(_) => return responses::invalid_xml_body(),
