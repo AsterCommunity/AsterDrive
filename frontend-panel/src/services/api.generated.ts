@@ -644,6 +644,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/admin/system-info": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["get_admin_system_info"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/admin/tasks": {
         parameters: {
             query?: never;
@@ -5374,9 +5390,7 @@ export interface components {
             sort_order?: null | components["schemas"]["SortOrder"];
         };
         HealthResponse: {
-            build_time: string;
             status: string;
-            version: string;
         };
         ImageMediaMetadata: {
             artist?: string | null;
@@ -7103,6 +7117,10 @@ export interface components {
          * @enum {string}
          */
         SystemConfigVisibility: "private" | "public" | "authenticated";
+        SystemInfoResponse: {
+            build_time: string;
+            version: string;
+        };
         TagInfo: {
             color: string;
             created_at: string;
@@ -11284,6 +11302,48 @@ export interface operations {
             };
             /** @description Task not found */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    get_admin_system_info: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Admin system information */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        code: components["schemas"]["ApiErrorCode"];
+                        data?: {
+                            build_time: string;
+                            version: string;
+                        };
+                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        msg: string;
+                    };
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden */
+            403: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -25215,14 +25275,7 @@ export interface operations {
                 };
                 content: {
                     "application/json": {
-                        code: components["schemas"]["ApiErrorCode"];
-                        data?: {
-                            build_time: string;
-                            status: string;
-                            version: string;
-                        };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
-                        msg: string;
+                        status: string;
                     };
                 };
             };
@@ -25246,9 +25299,7 @@ export interface operations {
                     "application/json": {
                         code: components["schemas"]["ApiErrorCode"];
                         data?: {
-                            build_time: string;
                             status: string;
-                            version: string;
                         };
                         error?: null | components["schemas"]["ApiErrorInfo"];
                         msg: string;

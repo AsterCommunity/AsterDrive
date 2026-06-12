@@ -73,6 +73,11 @@ impl<T: Serialize> ApiResponse<T> {
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct HealthResponse {
     pub status: String,
+}
+
+#[derive(Serialize)]
+#[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
+pub struct SystemInfoResponse {
     pub version: String,
     pub build_time: String,
 }

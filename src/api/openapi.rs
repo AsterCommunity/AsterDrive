@@ -269,6 +269,7 @@ use utoipa::{Modify, OpenApi};
 
         // admin::overview：后台首页总览数据。
         crate::api::routes::admin::overview::get_overview,
+        crate::api::routes::admin::system_info::get_system_info,
 
         // admin::policies：存储策略、策略组及其验证相关接口。
         crate::api::routes::admin::policies::list_policies,
@@ -424,6 +425,7 @@ use utoipa::{Modify, OpenApi};
             crate::api::response::MemoryStatsResponse,
             crate::api::response::PurgedCountResponse,
             crate::api::response::RemovedCountResponse,
+            crate::api::response::SystemInfoResponse,
 
             // services::admin_service / services::audit_service / services::task_service：后台概览、审计与后台任务细节模型。
             crate::services::audit_service::AuditLogFilterQuery,

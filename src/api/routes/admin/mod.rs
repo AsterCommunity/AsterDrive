@@ -31,6 +31,7 @@ pub(crate) mod policies;
 pub(crate) mod remote_nodes;
 pub(crate) mod shares;
 pub(crate) mod storage_migrations;
+pub(crate) mod system_info;
 pub(crate) mod tasks;
 pub(crate) mod teams;
 pub(crate) mod users;
@@ -67,6 +68,7 @@ pub use storage_migrations::{
     create_storage_policy_migration, dry_run_storage_policy_migration,
     resume_storage_policy_migration,
 };
+pub use system_info::get_system_info;
 pub use tasks::{cleanup_tasks, list_tasks};
 pub use teams::{
     add_team_member, create_team, delete_team, delete_team_member, get_team, list_team_audit_logs,
@@ -91,6 +93,7 @@ pub fn routes(
                 web::scope("")
                     .wrap(RequireAdmin)
                     .route("/overview", web::get().to(get_overview))
+                    .route("/system-info", web::get().to(get_system_info))
                     // policies
                     .route("/policies", web::get().to(list_policies))
                     .route("/policies", web::post().to(create_policy))

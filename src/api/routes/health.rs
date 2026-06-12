@@ -1,7 +1,7 @@
 //! API 路由：`health`。
 
 use crate::api::api_error_code::ApiErrorCode;
-use crate::api::response::{ApiResponse, HealthResponse, MemoryStatsResponse};
+use crate::api::response::{ApiResponse, HealthResponse, MemoryStatsResponse, SystemInfoResponse};
 use crate::runtime::{FollowerAppState, PrimaryAppState, SharedRuntimeState};
 use crate::services::health_service;
 use actix_web::{HttpResponse, web};
@@ -47,11 +47,11 @@ fn attach_optional_routes(scope: actix_web::Scope) -> actix_web::Scope {
     tag = "health",
     operation_id = "health",
     responses(
-        (status = 200, description = "Service is healthy", body = inline(ApiResponse<crate::api::response::HealthResponse>)),
+        (status = 200, description = "Service is healthy", body = inline(crate::api::response::HealthResponse)),
     ),
 )]
 pub async fn health() -> HttpResponse {
-    HttpResponse::Ok().json(ApiResponse::ok(status_response("ok")))
+    HttpResponse::Ok().json(status_response("ok"))
 }
 
 #[api_docs_macros::path(
@@ -99,7 +99,7 @@ fn ready_storage_error(error: crate::errors::AsterError) -> HttpResponse {
     HttpResponse::ServiceUnavailable().json(ApiResponse::<()>::error_with_details(
         error.api_error_code(),
         READY_STORAGE_UNAVAILABLE_MESSAGE,
-        Some(error.api_error_info()),
+        None,
     ))
 }
 
@@ -135,16 +135,21 @@ pub async fn metrics_endpoint() -> HttpResponse {
     }
 }
 
+pub fn system_info_response() -> SystemInfoResponse {
+    SystemInfoResponse {
+        version: env!("CARGO_PKG_VERSION").to_string(),
+        build_time: compile_time().to_string(),
+    }
+}
+
 #[inline]
-fn compile_time() -> &'static str {
+pub(crate) fn compile_time() -> &'static str {
     option_env!("ASTER_BUILD_TIME").unwrap_or("unknown")
 }
 
 fn status_response(status: &str) -> HealthResponse {
     HealthResponse {
         status: status.to_string(),
-        version: env!("CARGO_PKG_VERSION").to_string(),
-        build_time: compile_time().to_string(),
     }
 }
 
