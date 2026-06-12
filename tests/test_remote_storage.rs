@@ -4379,7 +4379,7 @@ async fn test_remote_presigned_download_redirects_to_follower() {
             .headers()
             .get(reqwest::header::CONTENT_DISPOSITION)
             .and_then(|value| value.to_str().ok()),
-        Some(r#"attachment; filename="presigned-download.txt""#)
+        Some("attachment; filename*=UTF-8''presigned%2Ddownload.txt")
     );
     assert_eq!(
         response

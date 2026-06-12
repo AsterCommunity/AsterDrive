@@ -9,6 +9,7 @@ pub mod auth_service;
 pub mod batch_service;
 pub mod config_service;
 pub mod direct_link_service;
+pub(crate) mod download_headers;
 pub mod external_auth_service;
 pub mod file_service;
 pub mod folder_service;

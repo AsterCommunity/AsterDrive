@@ -1459,7 +1459,7 @@ async fn test_s3_relay_stream_download_e2e() {
             .unwrap()
             .to_str()
             .unwrap(),
-        r#"attachment; filename="relay report.txt""#
+        "attachment; filename*=UTF-8''relay%20report.txt"
     );
     let body = test::read_body(resp).await;
     assert_eq!(body.as_ref(), b"hello relay download");
@@ -1542,7 +1542,7 @@ async fn test_s3_presigned_download_redirects_and_share_counts() {
             .unwrap()
             .to_str()
             .unwrap(),
-        r#"attachment; filename="presigned report.txt""#
+        "attachment; filename*=UTF-8''presigned%20report.txt"
     );
     assert_eq!(response.bytes().await.unwrap().as_ref(), file_data);
 
@@ -1566,7 +1566,7 @@ async fn test_s3_presigned_download_redirects_and_share_counts() {
     assert_eq!(resp.status(), 200);
     assert_eq!(
         resp.headers().get("Content-Disposition").unwrap(),
-        r#"inline; filename="presigned report.txt""#
+        "inline; filename*=UTF-8''presigned%20report.txt"
     );
     let body = test::read_body(resp).await;
     assert_eq!(body.as_ref(), file_data);
@@ -1604,7 +1604,7 @@ async fn test_s3_presigned_download_redirects_and_share_counts() {
             .unwrap()
             .to_str()
             .unwrap(),
-        r#"attachment; filename="presigned report.txt""#
+        "attachment; filename*=UTF-8''presigned%20report.txt"
     );
     assert_eq!(direct_response.bytes().await.unwrap().as_ref(), file_data);
 

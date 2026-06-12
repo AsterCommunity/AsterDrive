@@ -258,7 +258,7 @@ async fn test_file_direct_link_supports_public_access_force_download_and_file_re
     assert_eq!(resp.status(), 200);
     assert_eq!(
         resp.headers().get("Content-Disposition").unwrap(),
-        r#"inline; filename="clip 1.m3u8""#
+        "inline; filename*=UTF-8''clip%201.m3u8"
     );
 
     let req = test::TestRequest::get()
@@ -268,7 +268,7 @@ async fn test_file_direct_link_supports_public_access_force_download_and_file_re
     assert_eq!(resp.status(), 200);
     assert_eq!(
         resp.headers().get("Content-Disposition").unwrap(),
-        r#"attachment; filename="clip 1.m3u8""#
+        "attachment; filename*=UTF-8''clip%201.m3u8"
     );
 
     let req = test::TestRequest::delete()
@@ -320,7 +320,7 @@ async fn test_file_preview_link_supports_public_inline_access_and_usage_limit() 
         assert_eq!(resp.status(), 200);
         assert_eq!(
             resp.headers().get("Content-Disposition").unwrap(),
-            r#"inline; filename="report 1.docx""#
+            "inline; filename*=UTF-8''report%201.docx"
         );
     }
 
@@ -405,7 +405,7 @@ async fn test_file_preview_link_honors_single_range_header() {
     );
     assert_eq!(
         resp.headers().get(header::CONTENT_DISPOSITION).unwrap(),
-        r#"inline; filename="range-preview.mp4""#
+        "inline; filename*=UTF-8''range%2Dpreview.mp4"
     );
     let body = test::read_body(resp).await;
     assert_eq!(body.as_ref(), b"wxyz");
@@ -552,7 +552,7 @@ async fn test_dangerous_html_direct_link_stays_inline_with_csp_sandbox() {
     assert_eq!(resp.status(), 200);
     assert_eq!(
         resp.headers().get("Content-Disposition").unwrap(),
-        r#"inline; filename="dangerous.html""#
+        "inline; filename*=UTF-8''dangerous.html"
     );
     assert_eq!(
         resp.headers().get("Content-Security-Policy").unwrap(),
@@ -601,7 +601,7 @@ async fn test_dangerous_svg_preview_link_stays_inline_with_csp_sandbox() {
     assert_eq!(resp.status(), 200);
     assert_eq!(
         resp.headers().get("Content-Disposition").unwrap(),
-        r#"inline; filename="dangerous.svg""#
+        "inline; filename*=UTF-8''dangerous.svg"
     );
     assert_eq!(
         resp.headers().get("Content-Security-Policy").unwrap(),

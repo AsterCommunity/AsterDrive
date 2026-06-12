@@ -1156,7 +1156,7 @@ async fn test_password_protected_share_preview_link_requires_cookie_but_does_not
     assert_eq!(resp.status(), 200);
     assert_eq!(
         resp.headers().get("Content-Disposition").unwrap(),
-        r#"inline; filename="secret-report.docx""#
+        "inline; filename*=UTF-8''secret%2Dreport.docx"
     );
 
     let req = test::TestRequest::get()
@@ -1213,7 +1213,7 @@ async fn test_folder_share_file_preview_link_supports_public_inline_access() {
     assert_eq!(resp.status(), 200);
     assert_eq!(
         resp.headers().get("Content-Disposition").unwrap(),
-        r#"inline; filename="test-in-folder.txt""#
+        "inline; filename*=UTF-8''test%2Din%2Dfolder.txt"
     );
 }
 

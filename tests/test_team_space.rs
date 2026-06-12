@@ -693,7 +693,7 @@ async fn test_team_file_direct_link_supports_public_access_and_team_deactivation
     assert_eq!(resp.status(), 200);
     assert_eq!(
         resp.headers().get("Content-Disposition").unwrap(),
-        r#"inline; filename="stream.m3u8""#
+        "inline; filename*=UTF-8''stream.m3u8"
     );
 
     let req = test::TestRequest::get()
@@ -703,7 +703,7 @@ async fn test_team_file_direct_link_supports_public_access_and_team_deactivation
     assert_eq!(resp.status(), 200);
     assert_eq!(
         resp.headers().get("Content-Disposition").unwrap(),
-        r#"attachment; filename="stream.m3u8""#
+        "attachment; filename*=UTF-8''stream.m3u8"
     );
 
     let req = test::TestRequest::delete()

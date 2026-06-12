@@ -6,22 +6,6 @@ use crate::services::workspace_storage_service;
 
 const INLINE_SANDBOX_CSP: &str = "sandbox";
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum DownloadDisposition {
-    Attachment,
-    Inline,
-}
-
-impl DownloadDisposition {
-    pub(crate) fn header_value(self, filename: &str) -> String {
-        let disposition = match self {
-            Self::Attachment => "attachment",
-            Self::Inline => "inline",
-        };
-        format!(r#"{disposition}; filename="{filename}""#)
-    }
-}
-
 pub(crate) fn inline_sandbox_csp() -> &'static str {
     INLINE_SANDBOX_CSP
 }

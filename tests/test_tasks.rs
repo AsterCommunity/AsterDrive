@@ -2643,6 +2643,12 @@ async fn test_personal_archive_stream_preserves_empty_folders() {
             .and_then(|value| value.to_str().ok()),
         Some("application/zip")
     );
+    assert_eq!(
+        resp.headers()
+            .get("Content-Disposition")
+            .and_then(|value| value.to_str().ok()),
+        Some("attachment; filename*=UTF-8''bundle%2Dexport.zip")
+    );
     let zip_bytes = test::read_body(resp).await;
     let names = zip_entry_names(&zip_bytes);
     assert_eq!(
@@ -2730,6 +2736,12 @@ async fn test_personal_archive_stream_marks_chinese_names_as_utf8() {
         actix_web::http::StatusCode::OK,
     )
     .await;
+    assert_eq!(
+        resp.headers()
+            .get("Content-Disposition")
+            .and_then(|value| value.to_str().ok()),
+        Some("attachment; filename*=UTF-8''%E4%B8%AD%E6%96%87%E5%AF%BC%E5%87%BA.zip")
+    );
     let zip_bytes = test::read_body(resp).await;
     let names = zip_entry_names(&zip_bytes);
     assert_eq!(names, vec!["资料/", "资料/说明.txt"]);
