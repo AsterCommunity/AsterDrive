@@ -1130,6 +1130,7 @@ describe("ShareViewPage", () => {
 		expect(mockState.openWindow).toHaveBeenCalledWith(
 			"https://download/share-token",
 			"_blank",
+			"noopener,noreferrer",
 		);
 	});
 
@@ -1160,6 +1161,7 @@ describe("ShareViewPage", () => {
 		expect(mockState.openWindow).toHaveBeenCalledWith(
 			"https://download/share-token",
 			"_blank",
+			"noopener,noreferrer",
 		);
 	});
 
@@ -1404,6 +1406,7 @@ describe("ShareViewPage", () => {
 		expect(mockState.openWindow).toHaveBeenCalledWith(
 			"https://download/share-token/files/5",
 			"_blank",
+			"noopener,noreferrer",
 		);
 	});
 

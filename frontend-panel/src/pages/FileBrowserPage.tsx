@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useReducer, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { useParams, useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
@@ -38,6 +38,54 @@ import { useThumbnailSupportStore } from "@/stores/thumbnailSupportStore";
 import { useUploadAreaControlsStore } from "@/stores/uploadAreaControlsStore";
 import { useWorkspaceStore } from "@/stores/workspaceStore";
 import type { FolderListItem } from "@/types/api";
+
+interface FileBrowserPageUiState {
+	folderPolicyTarget: FolderListItem | null;
+	offlineDownloadOpen: boolean;
+	scrollViewport: HTMLDivElement | null;
+	tagLibraryManagerOpen: boolean;
+	uploadReady: boolean;
+}
+
+type FileBrowserPageUiAction =
+	| { type: "set_folder_policy_target"; target: FolderListItem | null }
+	| { type: "set_offline_download_open"; open: boolean }
+	| { type: "set_scroll_viewport"; viewport: HTMLDivElement | null }
+	| { type: "set_tag_library_manager_open"; open: boolean }
+	| { type: "set_upload_ready"; ready: boolean };
+
+const initialPageUiState: FileBrowserPageUiState = {
+	folderPolicyTarget: null,
+	offlineDownloadOpen: false,
+	scrollViewport: null,
+	tagLibraryManagerOpen: false,
+	uploadReady: false,
+};
+
+function fileBrowserPageUiReducer(
+	state: FileBrowserPageUiState,
+	action: FileBrowserPageUiAction,
+): FileBrowserPageUiState {
+	switch (action.type) {
+		case "set_folder_policy_target":
+			if (state.folderPolicyTarget === action.target) return state;
+			return { ...state, folderPolicyTarget: action.target };
+		case "set_offline_download_open":
+			if (state.offlineDownloadOpen === action.open) return state;
+			return { ...state, offlineDownloadOpen: action.open };
+		case "set_scroll_viewport":
+			if (state.scrollViewport === action.viewport) return state;
+			return { ...state, scrollViewport: action.viewport };
+		case "set_tag_library_manager_open":
+			if (state.tagLibraryManagerOpen === action.open) return state;
+			return { ...state, tagLibraryManagerOpen: action.open };
+		case "set_upload_ready":
+			if (state.uploadReady === action.ready) return state;
+			return { ...state, uploadReady: action.ready };
+		default:
+			return state;
+	}
+}
 
 export default function FileBrowserPage() {
 	const { t } = useTranslation(["files", "tasks"]);
@@ -102,15 +150,19 @@ export default function FileBrowserPage() {
 	useKeyboardShortcuts();
 
 	const uploadAreaRef = useRef<UploadAreaHandle | null>(null);
-	const [uploadReady, setUploadReady] = useState(false);
-	const [offlineDownloadOpen, setOfflineDownloadOpen] = useState(false);
-	const [folderPolicyTarget, setFolderPolicyTarget] =
-		useState<FolderListItem | null>(null);
-	const [tagLibraryManagerOpen, setTagLibraryManagerOpen] = useState(false);
-	const sentinelRef = useRef<HTMLDivElement | null>(null);
-	const [scrollViewport, setScrollViewport] = useState<HTMLDivElement | null>(
-		null,
+	const uploadReadyRef = useRef(false);
+	const [pageUi, dispatchPageUi] = useReducer(
+		fileBrowserPageUiReducer,
+		initialPageUiState,
 	);
+	const sentinelRef = useRef<HTMLDivElement | null>(null);
+	const {
+		folderPolicyTarget,
+		offlineDownloadOpen,
+		scrollViewport,
+		tagLibraryManagerOpen,
+		uploadReady,
+	} = pageUi;
 
 	useEffect(() => {
 		return runWhenIdle(() => {
@@ -280,7 +332,7 @@ export default function FileBrowserPage() {
 		(folder: FolderListItem) => {
 			if (!isAdmin) return;
 			void FolderPolicyDialogPreloader.preload();
-			setFolderPolicyTarget(folder);
+			dispatchPageUi({ type: "set_folder_policy_target", target: folder });
 		},
 		[isAdmin],
 	);
@@ -323,12 +375,23 @@ export default function FileBrowserPage() {
 	const handleUploadAreaReady = useCallback(
 		(instance: UploadAreaHandle | null) => {
 			uploadAreaRef.current = instance;
-			setUploadReady(instance !== null);
+			if (instance === null || uploadReadyRef.current) return;
+			uploadReadyRef.current = true;
+			dispatchPageUi({ type: "set_upload_ready", ready: true });
 		},
 		[],
 	);
 	const handleScrollViewportRef = useCallback((node: HTMLDivElement | null) => {
-		setScrollViewport(node);
+		dispatchPageUi({ type: "set_scroll_viewport", viewport: node });
+	}, []);
+	const setTagLibraryManagerOpen = useCallback((open: boolean) => {
+		dispatchPageUi({ type: "set_tag_library_manager_open", open });
+	}, []);
+	const setOfflineDownloadOpen = useCallback((open: boolean) => {
+		dispatchPageUi({ type: "set_offline_download_open", open });
+	}, []);
+	const closeFolderPolicyDialog = useCallback(() => {
+		dispatchPageUi({ type: "set_folder_policy_target", target: null });
 	}, []);
 
 	const previewImageNavigation = useMemo(
@@ -344,7 +407,7 @@ export default function FileBrowserPage() {
 	);
 	const openOfflineDownloadDialog = useCallback(() => {
 		void OfflineDownloadDialogPreloader.preload();
-		setOfflineDownloadOpen(true);
+		dispatchPageUi({ type: "set_offline_download_open", open: true });
 	}, []);
 	const pageCore = (
 		<>
@@ -458,7 +521,7 @@ export default function FileBrowserPage() {
 				onCopyConfirm={handleCopyConfirm}
 				onCreateFileOpenChange={setCreateFileOpen}
 				onCreateFolderOpenChange={setCreateFolderOpen}
-				onFolderPolicyClose={() => setFolderPolicyTarget(null)}
+				onFolderPolicyClose={closeFolderPolicyDialog}
 				onFolderPolicyUpdated={refresh}
 				onMoveClose={() => setMoveTarget(null)}
 				onMoveConfirm={handleMoveConfirm}

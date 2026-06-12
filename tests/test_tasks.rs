@@ -1048,6 +1048,11 @@ async fn test_offline_download_aria2_engine_imports_example_com_e2e() {
     let stats = task_service::drain(&state)
         .await
         .expect("aria2 offline download task should drain");
+    // This E2E intentionally downloads from the public Internet through a real
+    // aria2 container. Local TUN/VPN/proxy DNS setups can rewrite example.com to
+    // private, loopback, documentation, or other reserved ranges; AsterDrive's
+    // SSRF guard correctly rejects those as "blocked address", so the test may
+    // fail in that environment even though the aria2 integration is fine.
     assert_eq!(stats.succeeded, 1);
     assert_eq!(stats.failed, 0);
     assert_eq!(stats.retried, 0);

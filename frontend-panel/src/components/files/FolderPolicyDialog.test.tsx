@@ -176,6 +176,31 @@ function renderDialog(folder = { id: 12, name: "Projects" }) {
 	);
 }
 
+function renderDialogWithProps(
+	props: Partial<React.ComponentProps<typeof FolderPolicyDialog>> = {},
+) {
+	return render(
+		<FolderPolicyDialog
+			open
+			onOpenChange={mockState.onOpenChange}
+			onOpenChangeComplete={mockState.onOpenChangeComplete}
+			folder={{ id: 12, name: "Projects" } as never}
+			onUpdated={mockState.onUpdated}
+			{...props}
+		/>,
+	);
+}
+
+function deferred<T>() {
+	let resolve!: (value: T) => void;
+	let reject!: (reason?: unknown) => void;
+	const promise = new Promise<T>((promiseResolve, promiseReject) => {
+		resolve = promiseResolve;
+		reject = promiseReject;
+	});
+	return { promise, reject, resolve };
+}
+
 describe("FolderPolicyDialog", () => {
 	beforeEach(() => {
 		mockState.getFolderInfo.mockReset();
@@ -260,6 +285,127 @@ describe("FolderPolicyDialog", () => {
 		await waitFor(() =>
 			expect(mockState.handleApiError).toHaveBeenCalledWith(error),
 		);
+		expect(
+			screen.getByRole("button", { name: /folder_policy_save/ }),
+		).toBeDisabled();
+	});
+
+	it("does not load folder policy data while closed", () => {
+		renderDialogWithProps({ open: false, folder: null });
+
+		expect(mockState.getFolderInfo).not.toHaveBeenCalled();
+		expect(mockState.listAll).not.toHaveBeenCalled();
+		expect(screen.queryByRole("combobox")).not.toBeInTheDocument();
+	});
+
+	it("ignores stale load results after switching to another folder", async () => {
+		const firstFolder = { id: 12, name: "Projects" };
+		const secondFolder = { id: 21, name: "Archives" };
+		const firstInfo = deferred<ReturnType<typeof folderInfo>>();
+		const secondInfo = deferred<ReturnType<typeof folderInfo>>();
+
+		mockState.getFolderInfo.mockImplementation((id: number) => {
+			if (id === firstFolder.id) return firstInfo.promise;
+			if (id === secondFolder.id) return secondInfo.promise;
+			throw new Error(`unexpected folder ${id}`);
+		});
+		mockState.listAll.mockResolvedValue([
+			policy(1, "Primary"),
+			policy(2, "Cold"),
+		]);
+
+		const { rerender } = renderDialogWithProps({
+			folder: firstFolder as never,
+		});
+		rerender(
+			<FolderPolicyDialog
+				open
+				onOpenChange={mockState.onOpenChange}
+				onOpenChangeComplete={mockState.onOpenChangeComplete}
+				folder={secondFolder as never}
+				onUpdated={mockState.onUpdated}
+			/>,
+		);
+
+		firstInfo.resolve({
+			...folderInfo(1),
+			id: firstFolder.id,
+			name: "Projects",
+		});
+		secondInfo.resolve({
+			...folderInfo(2),
+			id: secondFolder.id,
+			name: "Archives",
+		});
+
+		await screen.findByText("folder_policy_current_named:Cold");
+		expect(screen.getByRole("combobox")).toHaveValue("2");
+		expect(
+			screen.getByText("folder_policy_description:Archives"),
+		).toBeInTheDocument();
+		expect(
+			screen.queryByText("folder_policy_current_named:Primary"),
+		).not.toBeInTheDocument();
+	});
+
+	it("keeps the dialog open and restores actions when saving fails", async () => {
+		const error = new Error("save failed");
+		mockState.setPolicy.mockRejectedValue(error);
+		renderDialog();
+
+		await waitFor(() => expect(screen.getByRole("combobox")).toBeEnabled());
+		fireEvent.change(screen.getByRole("combobox"), {
+			target: { value: "2" },
+		});
+		fireEvent.click(screen.getByRole("button", { name: /folder_policy_save/ }));
+
+		await waitFor(() =>
+			expect(mockState.handleApiError).toHaveBeenCalledWith(error),
+		);
+		expect(mockState.toastSuccess).not.toHaveBeenCalled();
+		expect(mockState.onUpdated).not.toHaveBeenCalled();
+		expect(mockState.onOpenChange).not.toHaveBeenCalledWith(false);
+		expect(
+			screen.getByRole("button", { name: /folder_policy_save/ }),
+		).toBeEnabled();
+	});
+
+	it("does not submit when the selected policy has not changed", async () => {
+		mockState.getFolderInfo.mockResolvedValue(folderInfo(2));
+		renderDialog();
+
+		await waitFor(() => expect(screen.getByRole("combobox")).toHaveValue("2"));
+		const saveButton = screen.getByRole("button", {
+			name: /folder_policy_save/,
+		});
+
+		expect(saveButton).toBeDisabled();
+		fireEvent.click(saveButton);
+		expect(mockState.setPolicy).not.toHaveBeenCalled();
+	});
+
+	it("handles an empty policy list while still allowing inherit", async () => {
+		mockState.listAll.mockResolvedValue([]);
+		renderDialog();
+
+		await screen.findByText("folder_policy_empty");
+		expect(screen.getByRole("combobox")).toHaveValue("__inherit__");
+		expect(
+			screen.getByRole("button", { name: /folder_policy_save/ }),
+		).toBeDisabled();
+		expect(screen.queryByText("__inherit__")).not.toBeInTheDocument();
+	});
+
+	it("reports policy list load failures without enabling submit", async () => {
+		const error = new Error("policy load failed");
+		mockState.listAll.mockRejectedValue(error);
+
+		renderDialog();
+
+		await waitFor(() =>
+			expect(mockState.handleApiError).toHaveBeenCalledWith(error),
+		);
+		expect(mockState.getFolderInfo).toHaveBeenCalledWith(12);
 		expect(
 			screen.getByRole("button", { name: /folder_policy_save/ }),
 		).toBeDisabled();

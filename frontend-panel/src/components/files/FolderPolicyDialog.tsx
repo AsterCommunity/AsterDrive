@@ -1,4 +1,4 @@
-import { type FormEvent, useEffect, useMemo, useState } from "react";
+import { type FormEvent, useEffect, useMemo, useReducer } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -29,6 +29,7 @@ import { fileService } from "@/services/fileService";
 import type { FolderInfo, FolderListItem, StoragePolicy } from "@/types/api";
 
 const INHERIT_POLICY_VALUE = "__inherit__";
+const CLOSED_TARGET_KEY = "__closed__";
 
 interface FolderPolicyDialogProps {
 	open: boolean;
@@ -60,6 +61,86 @@ function selectedPolicyLabel(
 	return policy ? `${policy.name} (#${policy.id})` : `#${value}`;
 }
 
+interface FolderPolicyDialogState {
+	folderInfo: FolderInfo | null;
+	loading: boolean;
+	policies: StoragePolicy[];
+	saving: boolean;
+	selectedPolicyId: string;
+	targetKey: string;
+}
+
+type FolderPolicyDialogAction =
+	| { type: "target_changed"; targetKey: string }
+	| {
+			type: "load_succeeded";
+			targetKey: string;
+			folderInfo: FolderInfo;
+			policies: StoragePolicy[];
+	  }
+	| { type: "load_failed"; targetKey: string }
+	| { type: "select_policy"; policyId: string }
+	| { type: "save_started" }
+	| { type: "save_succeeded"; folderInfo: FolderInfo }
+	| { type: "save_finished" };
+
+const initialState: FolderPolicyDialogState = {
+	folderInfo: null,
+	loading: false,
+	policies: [],
+	saving: false,
+	selectedPolicyId: INHERIT_POLICY_VALUE,
+	targetKey: CLOSED_TARGET_KEY,
+};
+
+function nextTargetState(targetKey: string): FolderPolicyDialogState {
+	if (targetKey === CLOSED_TARGET_KEY) return initialState;
+	return {
+		folderInfo: null,
+		loading: true,
+		policies: [],
+		saving: false,
+		selectedPolicyId: INHERIT_POLICY_VALUE,
+		targetKey,
+	};
+}
+
+function folderPolicyDialogReducer(
+	state: FolderPolicyDialogState,
+	action: FolderPolicyDialogAction,
+): FolderPolicyDialogState {
+	switch (action.type) {
+		case "target_changed":
+			return nextTargetState(action.targetKey);
+		case "load_succeeded":
+			if (action.targetKey !== state.targetKey) return state;
+			return {
+				...state,
+				folderInfo: action.folderInfo,
+				loading: false,
+				policies: action.policies,
+				selectedPolicyId: buildInitialPolicyValue(action.folderInfo),
+			};
+		case "load_failed":
+			if (action.targetKey !== state.targetKey) return state;
+			return { ...state, loading: false };
+		case "select_policy":
+			return { ...state, selectedPolicyId: action.policyId };
+		case "save_started":
+			return { ...state, saving: true };
+		case "save_succeeded":
+			return {
+				...state,
+				folderInfo: action.folderInfo,
+				selectedPolicyId: buildInitialPolicyValue(action.folderInfo),
+			};
+		case "save_finished":
+			return { ...state, saving: false };
+		default:
+			return state;
+	}
+}
+
 export function FolderPolicyDialog({
 	open,
 	onOpenChange,
@@ -68,51 +149,50 @@ export function FolderPolicyDialog({
 	onUpdated,
 }: FolderPolicyDialogProps) {
 	const { t } = useTranslation(["files", "core"]);
-	const [folderInfo, setFolderInfo] = useState<FolderInfo | null>(null);
-	const [policies, setPolicies] = useState<StoragePolicy[]>([]);
-	const [selectedPolicyId, setSelectedPolicyId] =
-		useState(INHERIT_POLICY_VALUE);
-	const [loading, setLoading] = useState(false);
-	const [saving, setSaving] = useState(false);
+	const [state, dispatch] = useReducer(folderPolicyDialogReducer, initialState);
+	const targetFolderId = open && folder != null ? folder.id : null;
+	const targetKey =
+		targetFolderId != null ? String(targetFolderId) : CLOSED_TARGET_KEY;
+
+	if (state.targetKey !== targetKey) {
+		dispatch({ type: "target_changed", targetKey });
+	}
+
+	const currentState =
+		state.targetKey === targetKey ? state : nextTargetState(targetKey);
+	const { folderInfo, loading, policies, saving, selectedPolicyId } =
+		currentState;
 
 	useEffect(() => {
-		if (!open || folder == null) {
-			setFolderInfo(null);
-			setPolicies([]);
-			setSelectedPolicyId(INHERIT_POLICY_VALUE);
-			setLoading(false);
-			setSaving(false);
-			return;
-		}
+		if (targetFolderId == null) return;
 
 		let canceled = false;
-		setLoading(true);
-		setFolderInfo(null);
-		setPolicies([]);
-		setSelectedPolicyId(INHERIT_POLICY_VALUE);
+		const requestTargetKey = String(targetFolderId);
 
 		Promise.all([
-			fileService.getFolderInfo(folder.id),
+			fileService.getFolderInfo(targetFolderId),
 			adminPolicyService.listAll(),
 		])
 			.then(([nextFolderInfo, nextPolicies]) => {
 				if (canceled) return;
-				setFolderInfo(nextFolderInfo);
-				setPolicies(nextPolicies);
-				setSelectedPolicyId(buildInitialPolicyValue(nextFolderInfo));
+				dispatch({
+					type: "load_succeeded",
+					targetKey: requestTargetKey,
+					folderInfo: nextFolderInfo,
+					policies: nextPolicies,
+				});
 			})
 			.catch((error: unknown) => {
 				if (canceled) return;
+				dispatch({ type: "load_failed", targetKey: requestTargetKey });
 				handleApiError(error);
 			})
-			.finally(() => {
-				if (!canceled) setLoading(false);
-			});
+			.catch(() => undefined);
 
 		return () => {
 			canceled = true;
 		};
-	}, [folder, open]);
+	}, [targetFolderId]);
 
 	const currentPolicy = useMemo(() => {
 		if (folderInfo?.policy_id == null) return null;
@@ -144,20 +224,19 @@ export function FolderPolicyDialog({
 			return;
 		}
 
-		setSaving(true);
+		dispatch({ type: "save_started" });
 		try {
 			const updated = await adminFolderService.setPolicy(folder.id, {
 				policy_id: policyId,
 			});
-			setFolderInfo(updated);
-			setSelectedPolicyId(buildInitialPolicyValue(updated));
+			dispatch({ type: "save_succeeded", folderInfo: updated });
 			toast.success(t("folder_policy_updated"));
 			await onUpdated?.();
 			onOpenChange(false);
 		} catch (error) {
 			handleApiError(error);
 		} finally {
-			setSaving(false);
+			dispatch({ type: "save_finished" });
 		}
 	};
 
@@ -212,7 +291,9 @@ export function FolderPolicyDialog({
 						<Select
 							value={selectedPolicyId}
 							onValueChange={(value) => {
-								if (value != null) setSelectedPolicyId(value);
+								if (value != null) {
+									dispatch({ type: "select_policy", policyId: value });
+								}
 							}}
 							disabled={loading || saving || folderInfo == null}
 						>
