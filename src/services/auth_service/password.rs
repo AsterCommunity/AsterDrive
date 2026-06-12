@@ -26,31 +26,31 @@ pub async fn login(
     };
     tracing::debug!(identifier_kind, "login attempt");
 
+    let mut failure_reason = None;
     let outcome = async {
         let Some(user) = find_user_by_identifier(state.writer_db(), identifier).await? else {
             tracing::debug!(identifier_kind, "login rejected: user not found");
+            failure_reason = Some(LoginFailureReason::InvalidCredentials);
             return Err(AsterError::auth_invalid_credentials("Invalid Credentials"));
         };
 
         if !user.status.is_active() {
             tracing::debug!(user_id = user.id, "login rejected: account disabled");
-            return Err(auth_forbidden_with_code(
-                ApiErrorCode::AuthAccountDisabled,
-                "account is disabled",
-            ));
+            failure_reason = Some(LoginFailureReason::AccountDisabled);
+            return Err(AsterError::auth_invalid_credentials("Invalid Credentials"));
         }
         if !is_email_verified(&user) {
             tracing::debug!(
                 user_id = user.id,
                 "login rejected: account pending activation"
             );
-            return Err(AsterError::auth_pending_activation(
-                "account pending activation",
-            ));
+            failure_reason = Some(LoginFailureReason::PendingActivation);
+            return Err(AsterError::auth_invalid_credentials("Invalid Credentials"));
         }
 
         if !hash::verify_password(password, &user.password_hash)? {
             tracing::debug!(user_id = user.id, "login rejected: invalid password");
+            failure_reason = Some(LoginFailureReason::InvalidCredentials);
             return Err(AsterError::auth_invalid_credentials("Invalid Credentials"));
         }
 
@@ -74,14 +74,32 @@ pub async fn login(
     }
     .await;
 
-    record_login_metric(state, &outcome);
+    record_login_metric(state, &outcome, failure_reason);
     outcome
 }
 
-fn record_login_metric(state: &impl SharedRuntimeState, result: &Result<PrimaryLoginCompletion>) {
+#[derive(Debug, Clone, Copy)]
+enum LoginFailureReason {
+    InvalidCredentials,
+    AccountDisabled,
+    PendingActivation,
+}
+
+fn record_login_metric(
+    state: &impl SharedRuntimeState,
+    result: &Result<PrimaryLoginCompletion>,
+    failure_reason: Option<LoginFailureReason>,
+) {
     let (status, reason) = match result {
         Ok(_) => ("success", "ok"),
-        Err(AsterError::AuthInvalidCredentials(_)) => ("failure", "invalid_credentials"),
+        Err(AsterError::AuthInvalidCredentials(_)) => (
+            "failure",
+            match failure_reason {
+                Some(LoginFailureReason::AccountDisabled) => "account_disabled",
+                Some(LoginFailureReason::PendingActivation) => "pending_activation",
+                _ => "invalid_credentials",
+            },
+        ),
         Err(AsterError::AuthForbidden(_)) => ("failure", "forbidden"),
         Err(AsterError::AuthPendingActivation(_)) => ("failure", "pending_activation"),
         Err(AsterError::RateLimited(_)) => ("failure", "rate_limited"),

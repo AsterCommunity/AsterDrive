@@ -641,7 +641,7 @@ async fn test_login_rejects_untrusted_origin() {
 #[actix_web::test]
 async fn test_login_uses_generic_invalid_credentials_message() {
     let state = common::setup().await;
-    let app = create_test_app!(state);
+    let app = create_test_app!(state.clone());
 
     let req = test::TestRequest::post()
         .uri("/api/v1/auth/login")
@@ -682,6 +682,34 @@ async fn test_login_uses_generic_invalid_credentials_message() {
         .set_json(serde_json::json!({
             "identifier": "alice",
             "password": "wrongpassword"
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 401);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(body["code"], "auth.credentials_failed");
+    assert_eq!(body["msg"], "Invalid Credentials");
+    assert_eq!(body["error"]["retryable"], false);
+    assert!(body["error"].get("code").is_none());
+
+    {
+        use sea_orm::{ActiveModelTrait, IntoActiveModel, Set};
+
+        let user = user_repo::find_by_username(state.writer_db(), "alice")
+            .await
+            .unwrap()
+            .unwrap();
+        let mut active = user.into_active_model();
+        active.status = Set(UserStatus::Disabled);
+        active.update(state.writer_db()).await.unwrap();
+    }
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/auth/login")
+        .peer_addr("127.0.0.1:12345".parse().unwrap())
+        .set_json(serde_json::json!({
+            "identifier": "alice",
+            "password": "secret123"
         }))
         .to_request();
     let resp = test::call_service(&app, req).await;
@@ -1915,7 +1943,11 @@ async fn test_register_requires_activation_until_confirmed() {
             "password": "password123"
         }))
         .to_request();
-    assert_service_status!(app, req, 403);
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 401);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(body["code"], "auth.credentials_failed");
+    assert_eq!(body["msg"], "Invalid Credentials");
 
     let memory_sender = aster_drive::services::mail_service::memory_sender_ref(&mail_sender)
         .expect("memory mail sender should be available in tests");

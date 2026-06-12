@@ -94,18 +94,24 @@ pub async fn setup(
     req: HttpRequest,
     body: web::Json<SetupReq>,
 ) -> Result<HttpResponse> {
-    let audit_info = AuditRequestInfo::from_request(&req);
-    let user = auth_service::setup_with_audit(
-        state.get_ref(),
-        &body.username,
-        &body.email,
-        &body.password,
-        &audit_info,
-    )
-    .await?;
-    bootstrap_public_site_url_from_setup(state.get_ref(), &req, user.id).await;
-    let user_info = user_service::get_self_info(state.get_ref(), user.id).await?;
-    Ok(HttpResponse::Created().json(ApiResponse::ok(user_info)))
+    let started_at = tokio::time::Instant::now();
+    let response = async {
+        let audit_info = AuditRequestInfo::from_request(&req);
+        let user = auth_service::setup_with_audit(
+            state.get_ref(),
+            &body.username,
+            &body.email,
+            &body.password,
+            &audit_info,
+        )
+        .await?;
+        bootstrap_public_site_url_from_setup(state.get_ref(), &req, user.id).await;
+        let user_info = user_service::get_self_info(state.get_ref(), user.id).await?;
+        Ok(HttpResponse::Created().json(ApiResponse::ok(user_info)))
+    }
+    .await;
+    apply_auth_mail_response_floor(started_at).await;
+    response
 }
 
 #[api_docs_macros::path(
@@ -124,17 +130,23 @@ pub async fn register(
     req: HttpRequest,
     body: web::Json<RegisterReq>,
 ) -> Result<HttpResponse> {
-    let audit_info = AuditRequestInfo::from_request(&req);
-    let user = auth_service::register_with_audit(
-        state.get_ref(),
-        &body.username,
-        &body.email,
-        &body.password,
-        &audit_info,
-    )
-    .await?;
-    let user_info = user_service::get_self_info(state.get_ref(), user.id).await?;
-    Ok(HttpResponse::Created().json(ApiResponse::ok(user_info)))
+    let started_at = tokio::time::Instant::now();
+    let response = async {
+        let audit_info = AuditRequestInfo::from_request(&req);
+        let user = auth_service::register_with_audit(
+            state.get_ref(),
+            &body.username,
+            &body.email,
+            &body.password,
+            &audit_info,
+        )
+        .await?;
+        let user_info = user_service::get_self_info(state.get_ref(), user.id).await?;
+        Ok(HttpResponse::Created().json(ApiResponse::ok(user_info)))
+    }
+    .await;
+    apply_auth_mail_response_floor(started_at).await;
+    response
 }
 
 #[api_docs_macros::path(

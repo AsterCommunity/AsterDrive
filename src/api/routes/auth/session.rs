@@ -2,7 +2,10 @@
 
 use std::collections::HashSet;
 
-use super::{AuthTokenResp, ChangePasswordReq, LoginResponse, MeQuery, storage_event_frame};
+use super::{
+    AuthTokenResp, ChangePasswordReq, LoginResponse, MeQuery, apply_auth_mail_response_floor,
+    storage_event_frame,
+};
 use crate::api::middleware::csrf::{self, RequestSourceMode};
 use crate::api::request_auth::{access_cookie_token, bearer_token};
 use crate::api::response::{ApiResponse, RemovedCountResponse};
@@ -259,23 +262,29 @@ pub async fn login(
     req: HttpRequest,
     body: web::Json<super::LoginReq>,
 ) -> Result<HttpResponse> {
-    csrf::ensure_request_source_allowed(
-        &req,
-        state.get_ref().runtime_config(),
-        RequestSourceMode::OptionalWhenPresent,
-    )?;
-    let audit_info = AuditRequestInfo::from_request_with_trusted_proxies(
-        &req,
-        &state.get_ref().config().network_trust.trusted_proxies,
-    );
-    let result = auth_service::login_with_audit(
-        state.get_ref(),
-        &body.identifier,
-        &body.password,
-        &audit_info,
-    )
-    .await?;
-    login_completion_response(state.get_ref(), result)
+    let started_at = tokio::time::Instant::now();
+    let response = async {
+        csrf::ensure_request_source_allowed(
+            &req,
+            state.get_ref().runtime_config(),
+            RequestSourceMode::OptionalWhenPresent,
+        )?;
+        let audit_info = AuditRequestInfo::from_request_with_trusted_proxies(
+            &req,
+            &state.get_ref().config().network_trust.trusted_proxies,
+        );
+        let result = auth_service::login_with_audit(
+            state.get_ref(),
+            &body.identifier,
+            &body.password,
+            &audit_info,
+        )
+        .await?;
+        login_completion_response(state.get_ref(), result)
+    }
+    .await;
+    apply_auth_mail_response_floor(started_at).await;
+    response
 }
 
 #[api_docs_macros::path(
