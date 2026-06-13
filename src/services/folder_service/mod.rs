@@ -63,14 +63,15 @@ pub(crate) async fn create_in_scope_with_audit(
     audit_ctx: &AuditContext,
 ) -> Result<FolderInfo> {
     let folder = create_in_scope(state, scope, name, parent_id).await?;
-    audit_service::log(
+    let details = audit_location_details_for_model(state, scope, &folder).await;
+    audit_service::log_with_details(
         state,
         audit_ctx,
         audit_service::AuditAction::FolderCreate,
         crate::services::audit_service::AuditEntityType::Folder,
         Some(folder.id),
         Some(&folder.name),
-        None,
+        || details.clone(),
     )
     .await;
     Ok(folder.into())
@@ -167,7 +168,8 @@ pub(crate) async fn set_lock_in_scope_with_audit(
     audit_ctx: &AuditContext,
 ) -> Result<FolderInfo> {
     let folder = set_lock_in_scope(state, scope, folder_id, locked).await?;
-    audit_service::log(
+    let details = audit_location_details_for_model(state, scope, &folder).await;
+    audit_service::log_with_details(
         state,
         audit_ctx,
         if locked {
@@ -178,7 +180,7 @@ pub(crate) async fn set_lock_in_scope_with_audit(
         crate::services::audit_service::AuditEntityType::Folder,
         Some(folder.id),
         Some(&folder.name),
-        None,
+        || details.clone(),
     )
     .await;
     Ok(folder.into())

@@ -113,14 +113,14 @@ pub async fn create_user_invitation(
         user_invitation_service::create_invitation(state.get_ref(), &body.email, claims.user_id)
             .await?;
     let ctx = audit_service::AuditContext::from_request(&req, &claims);
-    audit_service::log(
+    audit_service::log_with_details(
         state.get_ref(),
         &ctx,
         audit_service::AuditAction::AdminCreateInvitation,
         audit_service::AuditEntityType::Invitation,
         Some(invitation.id),
         Some(&invitation.email),
-        None,
+        || invitation_audit_details(&invitation),
     )
     .await;
     Ok(HttpResponse::Created().json(ApiResponse::ok(invitation)))
@@ -175,17 +175,30 @@ pub async fn revoke_user_invitation(
 ) -> Result<HttpResponse> {
     let invitation = user_invitation_service::revoke_invitation(state.get_ref(), *path).await?;
     let ctx = audit_service::AuditContext::from_request(&req, &claims);
-    audit_service::log(
+    audit_service::log_with_details(
         state.get_ref(),
         &ctx,
         audit_service::AuditAction::AdminRevokeInvitation,
         audit_service::AuditEntityType::Invitation,
         Some(invitation.id),
         Some(&invitation.email),
-        None,
+        || invitation_audit_details(&invitation),
     )
     .await;
     Ok(HttpResponse::Ok().json(ApiResponse::ok(invitation)))
+}
+
+fn invitation_audit_details(
+    invitation: &user_invitation_service::AdminUserInvitationInfo,
+) -> Option<serde_json::Value> {
+    audit_service::details(audit_service::InvitationAuditDetails {
+        email: &invitation.email,
+        status: invitation.status,
+        invited_by: invitation.invited_by,
+        accepted_user_id: invitation.accepted_user_id,
+        expires_at: invitation.expires_at,
+        mail_queued: invitation.mail_queued,
+    })
 }
 
 #[api_docs_macros::path(

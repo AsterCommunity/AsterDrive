@@ -316,7 +316,12 @@ pub async fn send_email_code(
         audit_service::AuditEntityType::MfaFactor,
         Some(flow.id),
         Some(MfaMethod::EmailCode.as_str()),
-        None,
+        audit_service::details(audit_service::MfaEmailCodeAuditDetails {
+            method: MfaMethod::EmailCode,
+            flow_id: flow.id,
+            expires_in: effective_expires_in,
+            resend_after: policy.resend_cooldown_secs,
+        }),
     )
     .await;
 

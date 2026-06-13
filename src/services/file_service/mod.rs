@@ -74,14 +74,15 @@ pub(crate) async fn create_empty_in_scope_with_audit(
     audit_ctx: &AuditContext,
 ) -> Result<FileInfo> {
     let file = workspace_storage_service::create_empty(state, scope, folder_id, name).await?;
-    audit_service::log(
+    let details = audit_location_details_for_model(state, scope, &file).await;
+    audit_service::log_with_details(
         state,
         audit_ctx,
         audit_service::AuditAction::FileCreate,
         crate::services::audit_service::AuditEntityType::File,
         Some(file.id),
         Some(&file.name),
-        None,
+        || details.clone(),
     )
     .await;
     Ok(file.into())
@@ -150,14 +151,15 @@ pub(crate) async fn update_content_stream_in_scope_with_audit(
     let (file, new_hash) =
         update_content_stream_in_scope(state, scope, file_id, payload, declared_size, if_match)
             .await?;
-    audit_service::log(
+    let details = audit_location_details_for_model(state, scope, &file).await;
+    audit_service::log_with_details(
         state,
         audit_ctx,
         audit_service::AuditAction::FileEdit,
         crate::services::audit_service::AuditEntityType::File,
         Some(file.id),
         Some(&file.name),
-        None,
+        || details.clone(),
     )
     .await;
     Ok((file.into(), new_hash))
@@ -171,7 +173,8 @@ pub(crate) async fn set_lock_in_scope_with_audit(
     audit_ctx: &AuditContext,
 ) -> Result<FileInfo> {
     let file = set_lock_in_scope(state, scope, file_id, locked).await?;
-    audit_service::log(
+    let details = audit_location_details_for_model(state, scope, &file).await;
+    audit_service::log_with_details(
         state,
         audit_ctx,
         if locked {
@@ -182,7 +185,7 @@ pub(crate) async fn set_lock_in_scope_with_audit(
         crate::services::audit_service::AuditEntityType::File,
         Some(file.id),
         Some(&file.name),
-        None,
+        || details.clone(),
     )
     .await;
     Ok(file.into())

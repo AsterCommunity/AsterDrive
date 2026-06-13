@@ -18,17 +18,18 @@ pub use details::{
     AuthSessionAuditDetails, BatchDeleteDetails, BatchTransferDetails, ConfigActionDetails,
     ConfigUpdateDetails, ExternalAuthUnlinkAuditDetails, FileAccessTokenAuditDetails,
     FileVersionAuditDetails, FolderPolicyAuditDetails, FollowerBindingAuditDetails,
-    FollowerIngressProfileAuditDetails, FollowerObjectAuditDetails, LockAuditDetails,
-    LockCleanupAuditDetails, MailAuditDetails, MfaChallengeAuditDetails, PolicyGroupAuditDetails,
-    PolicyGroupMigrationDetails, PropertyAuditDetails, RemoteIngressProfileAuditDetails,
+    FollowerIngressProfileAuditDetails, FollowerObjectAuditDetails, InvitationAuditDetails,
+    LockAuditDetails, LockCleanupAuditDetails, MailAuditDetails, MfaChallengeAuditDetails,
+    MfaEmailCodeAuditDetails, PolicyGroupAuditDetails, PolicyGroupMigrationDetails,
+    PropertyAuditDetails, RemoteEnrollmentAuditDetails, RemoteIngressProfileAuditDetails,
     RemoteIngressProfileDeleteAuditDetails, RemoteNodeAuditDetails,
     RemoteNodeEnrollmentTokenAuditDetails, RemoteNodeParamTestAuditDetails,
-    ShareBatchDeleteDetails, ShareDeleteAuditDetails, ShareUpdateDetails,
+    ShareBatchDeleteDetails, ShareCreateAuditDetails, ShareDeleteAuditDetails, ShareUpdateDetails,
     StoragePolicyAuditDetails, TagAssignmentAuditDetails, TagAuditDetails, TaskRetryAuditDetails,
     TeamAuditDetails, TeamCleanupAuditDetails, TeamMemberAddAuditDetails,
     TeamMemberRemoveAuditDetails, TeamMemberUpdateAuditDetails, TrashPurgeAllAuditDetails,
     UploadCancelAuditDetails, UserAvatarSourceAuditDetails, UserLoginAuditDetails,
-    UserMfaManageAuditDetails, UserProfileAuditDetails, details,
+    UserMfaManageAuditDetails, UserProfileAuditDetails, UserWopiInfoAuditDetails, details,
 };
 pub use filters::{AuditLogFilterQuery, AuditLogFilters};
 pub use manager::{

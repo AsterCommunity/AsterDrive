@@ -437,6 +437,7 @@ pub async fn put_user_info(
 ) -> Result<()> {
     let resolved = resolve_access_token(state, file_id, access_token, request_source).await?;
     let body = collect_limited_payload(payload, MAX_WOPI_USER_INFO_LEN).await?;
+    let user_info_len = body.len();
     let user_info = normalize_wopi_user_info(&body)?;
     profile_service::update_wopi_user_info(state, resolved.payload.actor_user_id, user_info)
         .await?;
@@ -448,7 +449,11 @@ pub async fn put_user_info(
         crate::services::audit_service::AuditEntityType::User,
         Some(resolved.payload.actor_user_id),
         None,
-        None,
+        audit_service::details(audit_service::UserWopiInfoAuditDetails {
+            file_id: resolved.file.id,
+            app_key: &resolved.payload.app_key,
+            user_info_len,
+        }),
     )
     .await;
     Ok(())

@@ -269,6 +269,19 @@ pub struct ShareUpdateDetails {
 }
 
 #[derive(Serialize)]
+pub struct ShareCreateAuditDetails<'a> {
+    pub token: &'a str,
+    pub target_type: EntityType,
+    pub target_id: i64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub team_id: Option<i64>,
+    pub has_password: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub expires_at: Option<DateTime<Utc>>,
+    pub max_downloads: i64,
+}
+
+#[derive(Serialize)]
 pub struct ShareDeleteAuditDetails<'a> {
     pub token: &'a str,
     pub target_type: EntityType,
@@ -310,6 +323,21 @@ pub struct UserMfaManageAuditDetails<'a> {
     pub factor_name: Option<&'a str>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub recovery_code_count: Option<usize>,
+}
+
+#[derive(Serialize)]
+pub struct MfaEmailCodeAuditDetails {
+    pub method: MfaMethod,
+    pub flow_id: i64,
+    pub expires_in: u64,
+    pub resend_after: u64,
+}
+
+#[derive(Serialize)]
+pub struct UserWopiInfoAuditDetails<'a> {
+    pub file_id: i64,
+    pub app_key: &'a str,
+    pub user_info_len: usize,
 }
 
 #[derive(Serialize)]
@@ -383,6 +411,25 @@ pub struct ExternalAuthUnlinkAuditDetails<'a> {
     pub provider_key: &'a str,
     pub issuer: &'a str,
     pub subject: &'a str,
+}
+
+#[derive(Serialize)]
+pub struct RemoteEnrollmentAuditDetails<'a> {
+    pub phase: &'a str,
+    pub remote_node_id: i64,
+    pub remote_node_name: &'a str,
+    pub is_enabled: bool,
+}
+
+#[derive(Serialize)]
+pub struct InvitationAuditDetails<'a> {
+    pub email: &'a str,
+    pub status: crate::types::UserInvitationStatus,
+    pub invited_by: i64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub accepted_user_id: Option<i64>,
+    pub expires_at: DateTime<Utc>,
+    pub mail_queued: bool,
 }
 
 #[derive(Serialize)]

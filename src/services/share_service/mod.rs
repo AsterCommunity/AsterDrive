@@ -70,16 +70,27 @@ pub(crate) async fn create_share_in_scope_with_audit(
     max_downloads: i64,
     audit_ctx: &AuditContext,
 ) -> Result<ShareInfo> {
+    let has_password = password.as_ref().is_some_and(|value| !value.is_empty());
     let share =
         create_share_in_scope(state, scope, target, password, expires_at, max_downloads).await?;
-    audit_service::log(
+    audit_service::log_with_details(
         state,
         audit_ctx,
         audit_service::AuditAction::ShareCreate,
         audit_service::AuditEntityType::Share,
         Some(share.id),
-        None,
-        None,
+        Some(&share.token),
+        || {
+            audit_service::details(audit_service::ShareCreateAuditDetails {
+                token: &share.token,
+                target_type: share.target.r#type,
+                target_id: share.target.id,
+                team_id: share.team_id,
+                has_password,
+                expires_at: share.expires_at,
+                max_downloads: share.max_downloads,
+            })
+        },
     )
     .await;
     Ok(share)

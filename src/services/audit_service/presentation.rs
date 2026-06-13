@@ -338,6 +338,14 @@ fn detail_message(
             );
             Some(message("mfa_management_changed", params))
         }
+        AuditAction::UserMfaEmailCodeSend => {
+            copy_params(
+                details,
+                &mut params,
+                &["method", "flow_id", "expires_in", "resend_after"],
+            );
+            Some(message("mfa_email_code_sent", params))
+        }
         AuditAction::UserPasskeyRegister | AuditAction::UserPasskeyDelete => {
             copy_params(
                 details,
@@ -466,6 +474,14 @@ fn detail_message(
             copy_params(details, &mut params, &["provider_key", "issuer", "subject"]);
             Some(message("external_auth_unlinked", params))
         }
+        AuditAction::UserUpdateWopiInfo => {
+            copy_params(
+                details,
+                &mut params,
+                &["file_id", "app_key", "user_info_len"],
+            );
+            Some(message("wopi_user_info_updated", params))
+        }
         AuditAction::WebdavAccountToggle => {
             copy_param(details, &mut params, "is_active");
             Some(message("webdav_account_status_changed", params))
@@ -523,6 +539,11 @@ fn detail_message(
         }
         AuditAction::FileDelete
         | AuditAction::FileDownload
+        | AuditAction::FileCreate
+        | AuditAction::FileEdit
+        | AuditAction::FileUpload
+        | AuditAction::FileLock
+        | AuditAction::FileUnlock
         | AuditAction::FileRestore
         | AuditAction::FilePurge => {
             copy_params(details, &mut params, &["folder_id", "path", "team_id"]);
@@ -558,7 +579,12 @@ fn detail_message(
             copy_param(details, &mut params, "policy_id");
             Some(message("folder_policy_changed", params))
         }
-        AuditAction::FolderDelete | AuditAction::FolderRestore | AuditAction::FolderPurge => {
+        AuditAction::FolderCreate
+        | AuditAction::FolderDelete
+        | AuditAction::FolderLock
+        | AuditAction::FolderUnlock
+        | AuditAction::FolderRestore
+        | AuditAction::FolderPurge => {
             copy_params(details, &mut params, &["parent_id", "path", "team_id"]);
             Some(message("folder_location", params))
         }
@@ -594,7 +620,7 @@ fn detail_message(
             copy_param(details, &mut params, "failed");
             Some(message("share_batch_delete_finished", params))
         }
-        AuditAction::ShareDelete | AuditAction::AdminDeleteShare => {
+        AuditAction::ShareCreate | AuditAction::ShareDelete | AuditAction::AdminDeleteShare => {
             copy_params(
                 details,
                 &mut params,
@@ -608,7 +634,11 @@ fn detail_message(
                     "max_downloads",
                 ],
             );
-            Some(message("share_deleted", params))
+            let code = match action {
+                AuditAction::ShareCreate => "share_created",
+                _ => "share_deleted",
+            };
+            Some(message(code, params))
         }
         AuditAction::ShareUpdate => {
             copy_param(details, &mut params, "has_password");
@@ -687,6 +717,29 @@ fn detail_message(
             copy_param(details, &mut params, "target_folder_id");
             Some(message("offline_download_created", params))
         }
+        AuditAction::RemoteEnrollmentRedeem | AuditAction::RemoteEnrollmentAck => {
+            copy_params(
+                details,
+                &mut params,
+                &["phase", "remote_node_id", "remote_node_name", "is_enabled"],
+            );
+            Some(message("remote_enrollment_changed", params))
+        }
+        AuditAction::AdminCreateInvitation | AuditAction::AdminRevokeInvitation => {
+            copy_params(
+                details,
+                &mut params,
+                &[
+                    "email",
+                    "status",
+                    "invited_by",
+                    "accepted_user_id",
+                    "expires_at",
+                    "mail_queued",
+                ],
+            );
+            Some(message("invitation_snapshot", params))
+        }
         AuditAction::FollowerBindingSync => {
             copy_params(details, &mut params, &["binding_id", "name", "is_enabled"]);
             Some(message("follower_binding_synced", params))
@@ -723,39 +776,24 @@ fn detail_message(
         AuditAction::AdminRevokeUserSessions
         | AuditAction::AdminResetUserPassword
         | AuditAction::AdminDeleteConfig
-        | AuditAction::FileCreate
-        | AuditAction::FileEdit
-        | AuditAction::FileUpload
         | AuditAction::FileWopiOpen
-        | AuditAction::FileLock
-        | AuditAction::FileUnlock
-        | AuditAction::FolderCreate
-        | AuditAction::FolderLock
-        | AuditAction::FolderUnlock
-        | AuditAction::ShareCreate
         | AuditAction::SystemSetup
         | AuditAction::ServerStart
         | AuditAction::ServerShutdown
-        | AuditAction::RemoteEnrollmentRedeem
-        | AuditAction::RemoteEnrollmentAck
         | AuditAction::UserUpdatePreferences
         | AuditAction::UserUploadAvatar
-        | AuditAction::UserUpdateWopiInfo
         | AuditAction::UserChangePassword
         | AuditAction::UserConfirmPasswordReset
         | AuditAction::UserConfirmEmailChange
         | AuditAction::UserConfirmRegistration
         | AuditAction::UserLogout
-        | AuditAction::UserMfaEmailCodeSend
         | AuditAction::UserExternalAuthLink
         | AuditAction::UserRefreshTokenReuseDetected
         | AuditAction::UserRequestEmailChange
         | AuditAction::UserRequestPasswordReset
         | AuditAction::UserRegister
         | AuditAction::UserResendEmailChange
-        | AuditAction::UserResendRegistration
-        | AuditAction::AdminCreateInvitation
-        | AuditAction::AdminRevokeInvitation => None,
+        | AuditAction::UserResendRegistration => None,
     }
 }
 
@@ -1161,6 +1199,69 @@ mod tests {
             Some(&Value::String("file".to_string()))
         );
         assert_eq!(detail.params.get("target_id"), Some(&44.into()));
+    }
+
+    #[test]
+    fn presentation_includes_share_create_detail() {
+        let presentation = build_audit_presentation(
+            AuditAction::ShareCreate,
+            AuditEntityType::Share,
+            Some(12),
+            Some("shr_test"),
+            Some(
+                r#"{"token":"shr_test","target_type":"folder","target_id":44,"has_password":false,"max_downloads":0}"#,
+            ),
+        )
+        .expect("presentation should be built");
+
+        let detail = presentation.detail.as_ref().unwrap();
+        assert_eq!(detail.code, "share_created");
+        assert_eq!(
+            detail.params.get("target_type"),
+            Some(&Value::String("folder".to_string()))
+        );
+    }
+
+    #[test]
+    fn presentation_includes_remote_enrollment_detail() {
+        let presentation = build_audit_presentation(
+            AuditAction::RemoteEnrollmentAck,
+            AuditEntityType::RemoteNode,
+            Some(8),
+            Some("edge-1"),
+            Some(
+                r#"{"phase":"acked","remote_node_id":8,"remote_node_name":"edge-1","is_enabled":true}"#,
+            ),
+        )
+        .expect("presentation should be built");
+
+        let detail = presentation.detail.as_ref().unwrap();
+        assert_eq!(detail.code, "remote_enrollment_changed");
+        assert_eq!(
+            detail.params.get("phase"),
+            Some(&Value::String("acked".to_string()))
+        );
+    }
+
+    #[test]
+    fn presentation_includes_invitation_detail() {
+        let presentation = build_audit_presentation(
+            AuditAction::AdminCreateInvitation,
+            AuditEntityType::Invitation,
+            Some(8),
+            Some("dev@example.com"),
+            Some(
+                r#"{"email":"dev@example.com","status":"pending","invited_by":1,"expires_at":"2026-06-14T00:00:00Z","mail_queued":true}"#,
+            ),
+        )
+        .expect("presentation should be built");
+
+        let detail = presentation.detail.as_ref().unwrap();
+        assert_eq!(detail.code, "invitation_snapshot");
+        assert_eq!(
+            detail.params.get("email"),
+            Some(&Value::String("dev@example.com".to_string()))
+        );
     }
 
     #[test]

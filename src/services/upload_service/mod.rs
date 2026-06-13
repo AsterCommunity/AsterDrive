@@ -81,14 +81,17 @@ pub(crate) async fn upload_in_scope_with_audit(
     let store_elapsed_ms = upload_started_at.elapsed().as_millis();
 
     let audit_started_at = Instant::now();
-    audit_service::log(
+    let details =
+        crate::services::file_service::audit_location_details_for_model(state, params.scope, &file)
+            .await;
+    audit_service::log_with_details(
         state,
         audit_ctx,
         audit_service::AuditAction::FileUpload,
         crate::services::audit_service::AuditEntityType::File,
         Some(file.id),
         Some(&file.name),
-        None,
+        || details.clone(),
     )
     .await;
     let audit_elapsed_ms = audit_started_at.elapsed().as_millis();
