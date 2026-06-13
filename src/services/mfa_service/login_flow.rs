@@ -470,7 +470,7 @@ pub async fn verify_challenge(
                 &audit_ctx,
                 audit_service::AuditAction::UserMfaChallengeSuccess,
                 audit_service::AuditEntityType::MfaFactor,
-                attempt.flow_id,
+                None,
                 Some(method.as_str()),
                 || details.clone(),
             )
@@ -504,7 +504,7 @@ pub async fn verify_challenge(
                     &audit_ctx,
                     audit_service::AuditAction::UserMfaChallengeFailed,
                     audit_service::AuditEntityType::MfaFactor,
-                    attempt.flow_id,
+                    None,
                     Some(method.as_str()),
                     || details.clone(),
                 )

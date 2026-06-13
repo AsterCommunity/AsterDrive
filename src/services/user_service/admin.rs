@@ -103,27 +103,6 @@ fn generate_temporary_password() -> String {
     }
     bytes.into_iter().map(|byte| byte as char).collect()
 }
-
-#[cfg(test)]
-mod tests {
-    use super::{GENERATED_PASSWORD_LENGTH, generate_temporary_password};
-
-    #[test]
-    fn generated_temporary_password_always_satisfies_character_class_policy() {
-        for _ in 0..256 {
-            let password = generate_temporary_password();
-            assert_eq!(password.len(), GENERATED_PASSWORD_LENGTH);
-            assert!(password.chars().any(|c| c.is_ascii_uppercase()));
-            assert!(password.chars().any(|c| c.is_ascii_lowercase()));
-            assert!(password.chars().any(|c| c.is_ascii_digit()));
-            assert!(
-                password
-                    .chars()
-                    .any(|c| c.is_ascii_graphic() && !c.is_ascii_alphanumeric())
-            );
-        }
-    }
-}
 pub async fn create(
     state: &impl SharedRuntimeState,
     input: CreateUserInput<'_>,
@@ -547,4 +526,25 @@ pub async fn force_delete_with_audit(
     )
     .await;
     Ok(summary)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{GENERATED_PASSWORD_LENGTH, generate_temporary_password};
+
+    #[test]
+    fn generated_temporary_password_always_satisfies_character_class_policy() {
+        for _ in 0..256 {
+            let password = generate_temporary_password();
+            assert_eq!(password.len(), GENERATED_PASSWORD_LENGTH);
+            assert!(password.chars().any(|c| c.is_ascii_uppercase()));
+            assert!(password.chars().any(|c| c.is_ascii_lowercase()));
+            assert!(password.chars().any(|c| c.is_ascii_digit()));
+            assert!(
+                password
+                    .chars()
+                    .any(|c| c.is_ascii_graphic() && !c.is_ascii_alphanumeric())
+            );
+        }
+    }
 }

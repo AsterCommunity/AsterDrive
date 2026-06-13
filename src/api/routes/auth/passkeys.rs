@@ -121,7 +121,7 @@ pub async fn rename_passkey(
     body: web::Json<PatchPasskeyReq>,
 ) -> Result<HttpResponse> {
     let id = path.into_inner();
-    let previous = passkey_repo::find_by_id_for_user(state.reader_db(), id, claims.user_id)
+    let previous = passkey_repo::find_by_id_for_user(state.writer_db(), id, claims.user_id)
         .await?
         .ok_or_else(|| AsterError::record_not_found(format!("passkey #{id}")))?;
     let passkey =
@@ -167,7 +167,7 @@ pub async fn delete_passkey(
     path: web::Path<i64>,
 ) -> Result<HttpResponse> {
     let id = path.into_inner();
-    let passkey = passkey_repo::find_by_id_for_user(state.reader_db(), id, claims.user_id)
+    let passkey = passkey_repo::find_by_id_for_user(state.writer_db(), id, claims.user_id)
         .await?
         .ok_or_else(|| AsterError::record_not_found(format!("passkey #{id}")))?;
     let passkey_name = passkey.name.clone();

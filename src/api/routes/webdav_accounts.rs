@@ -245,7 +245,7 @@ pub async fn delete_team_account(
     req: HttpRequest,
     path: web::Path<TeamWebdavAccountIdPath>,
 ) -> Result<HttpResponse> {
-    let account = webdav_account_repo::find_by_id(state.reader_db(), path.account_id).await?;
+    let account = webdav_account_repo::find_by_id(state.writer_db(), path.account_id).await?;
     let details = webdav_account_audit_details(&account);
     webdav_account_service::delete_for_team(
         state.get_ref(),
@@ -335,7 +335,7 @@ pub async fn delete_account(
     req: HttpRequest,
     path: web::Path<i64>,
 ) -> Result<HttpResponse> {
-    let account = webdav_account_repo::find_by_id(state.reader_db(), *path).await?;
+    let account = webdav_account_repo::find_by_id(state.writer_db(), *path).await?;
     let details = webdav_account_audit_details(&account);
     webdav_account_service::delete(state.get_ref(), *path, claims.user_id).await?;
     let ctx = audit_service::AuditContext::from_request(&req, &claims);

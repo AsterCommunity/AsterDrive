@@ -116,9 +116,29 @@ pub(crate) async fn update_in_scope_with_audit(
         audit_service::AuditAction::FolderRename
     };
     let previous_folder = get_info_in_scope(state, scope, folder_id).await?;
+    let original_source_path = if matches!(
+        action,
+        audit_service::AuditAction::FolderMove | audit_service::AuditAction::FolderRename
+    ) {
+        Some(folder_path_for_audit(state, previous_folder.id).await)
+    } else {
+        None
+    };
     let folder = update_in_scope(state, scope, folder_id, name, parent_id, policy_id).await?;
     let details = if matches!(action, audit_service::AuditAction::FolderPolicyChange) {
-        None
+        audit_service::details(audit_service::FolderPolicyAuditDetails {
+            previous_policy_id: previous_folder.policy_id,
+            policy_id: folder.policy_id,
+        })
+    } else if let Some(original_source_path) = original_source_path {
+        audit_transfer_details_for_models_with_source_path(
+            state,
+            scope,
+            &previous_folder,
+            original_source_path,
+            &folder,
+        )
+        .await
     } else {
         audit_transfer_details_for_models(state, scope, &previous_folder, &folder).await
     };
@@ -236,7 +256,24 @@ pub(crate) async fn audit_transfer_details_for_models(
     source_folder: &folder::Model,
     target_folder: &folder::Model,
 ) -> Option<serde_json::Value> {
-    let source_path = match folder_path_for_audit(state, source_folder.id).await {
+    audit_transfer_details_for_models_with_source_path(
+        state,
+        scope,
+        source_folder,
+        folder_path_for_audit(state, source_folder.id).await,
+        target_folder,
+    )
+    .await
+}
+
+async fn audit_transfer_details_for_models_with_source_path(
+    state: &impl SharedRuntimeState,
+    scope: WorkspaceStorageScope,
+    source_folder: &folder::Model,
+    source_path: Result<String>,
+    target_folder: &folder::Model,
+) -> Option<serde_json::Value> {
+    let source_path = match source_path {
         Ok(path) => path,
         Err(error) => {
             tracing::warn!(

@@ -195,24 +195,14 @@ impl AsterDavFs {
             created.id,
         )
         .await?;
+        let target_folder = folder_repo::find_by_id(state.reader_db(), created.id)
+            .await
+            .map_err(to_fs_error)?;
         let details = folder_service::audit_transfer_details_for_models(
             &state,
             self.scope(),
             &src_folder,
-            &crate::entities::folder::Model {
-                id: created.id,
-                name: created.name.clone(),
-                parent_id: created.parent_id,
-                team_id: created.team_id,
-                owner_user_id: created.owner_user_id,
-                created_by_user_id: created.created_by_user_id,
-                created_by_username: created.created_by_username.clone(),
-                policy_id: created.policy_id,
-                created_at: created.created_at,
-                updated_at: created.updated_at,
-                deleted_at: created.deleted_at,
-                is_locked: created.is_locked,
-            },
+            &target_folder,
         )
         .await;
         audit_service::log_with_details(

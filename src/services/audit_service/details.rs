@@ -284,8 +284,10 @@ pub struct ShareCreateAuditDetails<'a> {
 #[derive(Serialize)]
 pub struct ShareDeleteAuditDetails<'a> {
     pub token: &'a str,
-    pub target_type: EntityType,
-    pub target_id: i64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub target_type: Option<EntityType>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub target_id: Option<i64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub team_id: Option<i64>,
     pub has_password: bool,
@@ -334,6 +336,8 @@ pub struct UserMfaManageAuditDetails<'a> {
     pub factor_id: Option<i64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub factor_name: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub factor_count: Option<usize>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub recovery_code_count: Option<usize>,
 }

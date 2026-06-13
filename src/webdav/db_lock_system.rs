@@ -94,6 +94,16 @@ impl DbLockSystem {
                         entity_id,
                         "failed to load WebDAV file lock audit target: {error}"
                     );
+                    audit_service::log_with_details(
+                        state,
+                        &self.audit_ctx,
+                        action,
+                        audit_service::AuditEntityType::File,
+                        Some(entity_id),
+                        None,
+                        || None,
+                    )
+                    .await;
                 }
             },
             EntityType::Folder => match folder_repo::find_by_id(&self.db, entity_id).await {
@@ -119,6 +129,16 @@ impl DbLockSystem {
                         entity_id,
                         "failed to load WebDAV folder lock audit target: {error}"
                     );
+                    audit_service::log_with_details(
+                        state,
+                        &self.audit_ctx,
+                        action,
+                        audit_service::AuditEntityType::Folder,
+                        Some(entity_id),
+                        None,
+                        || None,
+                    )
+                    .await;
                 }
             },
         }

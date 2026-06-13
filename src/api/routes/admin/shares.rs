@@ -60,8 +60,17 @@ pub async fn admin_delete_share(
     path: web::Path<i64>,
 ) -> Result<HttpResponse> {
     let share = crate::db::repository::share_repo::find_by_id(state.writer_db(), *path).await?;
-    let target = share_service::share_target_for_share(&share)?;
     share_service::admin_delete_share(state.get_ref(), *path).await?;
+    let target = match share_service::share_target_for_share(&share) {
+        Ok(target) => Some(target),
+        Err(error) => {
+            tracing::warn!(
+                share_id = share.id,
+                "failed to resolve share delete audit target after admin delete: {error}"
+            );
+            None
+        }
+    };
     let ctx = audit_service::AuditContext::from_request(&req, &claims);
     audit_service::log_with_details(
         state.get_ref(),
@@ -73,8 +82,8 @@ pub async fn admin_delete_share(
         || {
             audit_service::details(audit_service::ShareDeleteAuditDetails {
                 token: &share.token,
-                target_type: target.r#type,
-                target_id: target.id,
+                target_type: target.as_ref().map(|target| target.r#type),
+                target_id: target.as_ref().map(|target| target.id),
                 team_id: share.team_id,
                 has_password: share.password.is_some(),
                 expires_at: share.expires_at,

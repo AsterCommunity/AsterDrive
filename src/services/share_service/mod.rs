@@ -134,8 +134,17 @@ pub(crate) async fn delete_share_in_scope_with_audit(
     audit_ctx: &AuditContext,
 ) -> Result<()> {
     let share = load_share_in_scope(state, scope, share_id).await?;
-    let target = models::share_target_for_share(&share)?;
     delete_share_in_scope(state, scope, share_id).await?;
+    let target = match models::share_target_for_share(&share) {
+        Ok(target) => Some(target),
+        Err(error) => {
+            tracing::warn!(
+                share_id = share.id,
+                "failed to resolve share delete audit target after delete: {error}"
+            );
+            None
+        }
+    };
     audit_service::log_with_details(
         state,
         audit_ctx,
@@ -146,8 +155,8 @@ pub(crate) async fn delete_share_in_scope_with_audit(
         || {
             audit_service::details(audit_service::ShareDeleteAuditDetails {
                 token: &share.token,
-                target_type: target.r#type,
-                target_id: target.id,
+                target_type: target.as_ref().map(|target| target.r#type),
+                target_id: target.as_ref().map(|target| target.id),
                 team_id: share.team_id,
                 has_password: share.password.is_some(),
                 expires_at: share.expires_at,

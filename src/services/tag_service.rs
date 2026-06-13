@@ -284,7 +284,7 @@ pub(crate) async fn list_page_in_scope(
     .await
 }
 
-pub(crate) async fn get_in_scope(
+pub(crate) async fn get_basic_in_scope(
     state: &impl SharedRuntimeState,
     scope: WorkspaceStorageScope,
     tag_id: i64,
@@ -295,16 +295,7 @@ pub(crate) async fn get_in_scope(
     if !tag_matches_scope(&tag, expected_scope) {
         return Err(AsterError::record_not_found("tag not found"));
     }
-    let counts = property_repo::count_entities_by_tag_ids(
-        state.reader_db(),
-        TAG_PROPERTY_NAMESPACE,
-        &[tag_id],
-    )
-    .await?;
-    Ok(TagInfo::from_model(
-        tag,
-        counts.get(&tag_id).copied().unwrap_or_default(),
-    ))
+    Ok(TagInfo::from_model(tag, 0))
 }
 
 pub(crate) async fn create_in_scope(

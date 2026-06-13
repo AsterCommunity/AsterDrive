@@ -350,7 +350,13 @@ fn detail_message(
             copy_params(
                 details,
                 &mut params,
-                &["method", "factor_id", "factor_name", "recovery_code_count"],
+                &[
+                    "method",
+                    "factor_id",
+                    "factor_name",
+                    "factor_count",
+                    "recovery_code_count",
+                ],
             );
             Some(message("mfa_management_changed", params))
         }
