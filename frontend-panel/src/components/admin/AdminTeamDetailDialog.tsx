@@ -65,12 +65,21 @@ function quotaValueToBytes(
 	team: AdminTeamInfo | null,
 ) {
 	const normalized = value.trim();
-	const currentDraft = quotaDraftValue(team);
-	if (normalized === currentDraft.value && unit === currentDraft.unit) {
+	const parsedValue = parseStorageQuotaValueToBytes(normalized, unit);
+	if (parsedValue === null) {
+		return null;
+	}
+	const currentQuota = team?.storage_quota ?? 0;
+	if (parsedValue === currentQuota) {
 		return team?.storage_quota ?? 0;
 	}
 
-	return parseStorageQuotaValueToBytes(normalized, unit);
+	return parsedValue;
+}
+
+interface QuotaDraftOverride {
+	unit: StorageQuotaUnit;
+	value: string;
 }
 
 export function AdminTeamDetailDialog({
@@ -113,8 +122,8 @@ export function AdminTeamDetailDialog({
 	const [name, setName] = useState("");
 	const [description, setDescription] = useState("");
 	const [policyGroupId, setPolicyGroupId] = useState("");
-	const [quotaUnit, setQuotaUnit] = useState<StorageQuotaUnit>("megabytes");
-	const [quotaValue, setQuotaValue] = useState("");
+	const [quotaDraftOverride, setQuotaDraftOverride] =
+		useState<QuotaDraftOverride | null>(null);
 	const [restoring, setRestoring] = useState(false);
 	const [saving, setSaving] = useState(false);
 	const contentRef = useRef<HTMLDivElement | null>(null);
@@ -198,9 +207,7 @@ export function AdminTeamDetailDialog({
 		setPolicyGroupId(
 			team?.policy_group_id != null ? String(team.policy_group_id) : "",
 		);
-		const quotaDraft = quotaDraftValue(team);
-		setQuotaValue(quotaDraft.value);
-		setQuotaUnit(quotaDraft.unit);
+		setQuotaDraftOverride(null);
 	}, [team]);
 
 	const handleNameChange = (value: string) => {
@@ -220,17 +227,26 @@ export function AdminTeamDetailDialog({
 
 	const handleQuotaValueChange = (value: string) => {
 		overviewSyncAllowedRef.current = false;
-		setQuotaValue(value);
+		setQuotaDraftOverride((draft) => ({
+			unit: draft?.unit ?? quotaUnit,
+			value,
+		}));
 	};
 
-	const handleQuotaUnitChange = (value: StorageQuotaUnit) => {
+	const handleQuotaUnitChange = (unit: StorageQuotaUnit) => {
 		overviewSyncAllowedRef.current = false;
-		setQuotaUnit(value);
+		setQuotaDraftOverride((draft) => ({
+			unit,
+			value: draft?.value ?? quotaValue,
+		}));
 	};
 
 	const quota = team?.storage_quota ?? 0;
 	const used = team?.storage_used ?? 0;
 	const usagePercentage = quota > 0 ? Math.min((used / quota) * 100, 100) : 0;
+	const teamQuotaDraft = quotaDraftValue(team);
+	const quotaUnit = quotaDraftOverride?.unit ?? teamQuotaDraft.unit;
+	const quotaValue = quotaDraftOverride?.value ?? teamQuotaDraft.value;
 	const selectedPolicyGroupId = policyGroupId ? Number(policyGroupId) : null;
 	const policyGroupOptions = buildPolicyGroupOptions(
 		policyGroups,
@@ -332,6 +348,7 @@ export function AdminTeamDetailDialog({
 				loadAuditEntries(team.id),
 				onListChange(),
 			]);
+			setQuotaDraftOverride(null);
 			toast.success(t("team_updated"));
 		} catch (error) {
 			handleApiError(error);
@@ -354,6 +371,7 @@ export function AdminTeamDetailDialog({
 				loadAuditEntries(team.id),
 				onListChange(),
 			]);
+			setQuotaDraftOverride(null);
 			toast.success(t("team_deleted"));
 		} catch (error) {
 			handleApiError(error);
@@ -376,6 +394,7 @@ export function AdminTeamDetailDialog({
 				loadAuditEntries(team.id),
 				onListChange(),
 			]);
+			setQuotaDraftOverride(null);
 			toast.success(t("team_restored"));
 		} catch (error) {
 			handleApiError(error);
@@ -495,7 +514,7 @@ export function AdminTeamDetailDialog({
 			setMemberStatusFilter("__all__");
 			setName("");
 			setPolicyGroupId("");
-			setQuotaValue("");
+			setQuotaDraftOverride(null);
 			setRestoring(false);
 			setSaving(false);
 			resetDialogTab();
@@ -507,6 +526,7 @@ export function AdminTeamDetailDialog({
 		setMemberOffset(0);
 		setMemberSortBy("role");
 		setMemberSortOrder("asc");
+		setQuotaDraftOverride(null);
 		resetDialogTab();
 	}, [open, resetDialogTab, teamId]);
 
@@ -516,7 +536,7 @@ export function AdminTeamDetailDialog({
 
 	const handleDialogOpenChange = (nextOpen: boolean) => {
 		if (!nextOpen) {
-			setQuotaValue("");
+			setQuotaDraftOverride(null);
 		}
 		onOpenChange(nextOpen);
 	};

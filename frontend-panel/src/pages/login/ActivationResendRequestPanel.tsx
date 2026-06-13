@@ -28,6 +28,8 @@ export function ActivationResendRequestPanel({
 	onEmailChange,
 	onSubmit,
 }: ActivationResendRequestPanelProps) {
+	const emailErrorId = "activation-resend-email-error";
+
 	return (
 		<div className="space-y-4 rounded-2xl border bg-muted/20 p-4">
 			<div className="flex items-start gap-3">
@@ -50,6 +52,7 @@ export function ActivationResendRequestPanel({
 					id="activation-resend-email"
 					placeholder="you@example.com"
 					value={email}
+					aria-describedby={emailError ? emailErrorId : undefined}
 					onChange={(event) => {
 						const nextValue = event.target.value;
 						const result = emailSchema.safeParse(nextValue);
@@ -66,7 +69,13 @@ export function ActivationResendRequestPanel({
 					)}
 				/>
 				{emailError ? (
-					<p className="text-xs text-destructive">{emailError}</p>
+					<p
+						id={emailErrorId}
+						role="alert"
+						className="text-xs text-destructive"
+					>
+						{emailError}
+					</p>
 				) : null}
 			</div>
 
@@ -74,7 +83,7 @@ export function ActivationResendRequestPanel({
 				<Button
 					type="button"
 					className="h-10"
-					disabled={requesting || email.trim().length === 0}
+					disabled={requesting || email.trim().length === 0 || !!emailError}
 					onClick={onSubmit}
 				>
 					{requesting ? (

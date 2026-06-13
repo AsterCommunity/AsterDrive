@@ -34,14 +34,15 @@ interface UserProfileSectionProps {
 	onDraftEmailVerifiedChange: (value: boolean) => void;
 	onDraftRoleChange: (value: UserRole) => void;
 	onDraftStatusChange: (value: UserStatus) => void;
-	quotaInput: ReactNode;
 	roleOptions: ReadonlyArray<SelectOption<UserRole>>;
 	savingProfile: boolean;
 	statusOptions: ReadonlyArray<SelectOption<UserStatus>>;
 	user: UserInfo;
+	children: ReactNode;
 }
 
 export function UserProfileSection({
+	children,
 	draftEmailVerified,
 	draftRole,
 	draftStatus,
@@ -50,7 +51,6 @@ export function UserProfileSection({
 	onDraftEmailVerifiedChange,
 	onDraftRoleChange,
 	onDraftStatusChange,
-	quotaInput,
 	roleOptions,
 	savingProfile,
 	statusOptions,
@@ -219,7 +219,7 @@ export function UserProfileSection({
 						</Tooltip>
 					</TooltipProvider>
 				</div>
-				<div className="space-y-2 md:col-span-2">{quotaInput}</div>
+				<div className="space-y-2 md:col-span-2">{children}</div>
 			</div>
 		</section>
 	);

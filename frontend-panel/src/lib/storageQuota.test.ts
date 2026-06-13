@@ -73,6 +73,9 @@ describe("storageQuota", () => {
 		expect(storageQuotaDraftIsValid("1e3", "megabytes")).toBe(false);
 		expect(storageQuotaDraftIsValid("abc", "megabytes")).toBe(false);
 		expect(
+			storageQuotaDraftIsValid(String(Number.MAX_SAFE_INTEGER), "terabytes"),
+		).toBe(false);
+		expect(
 			parseStorageQuotaValueToBytes(
 				String(Number.MAX_SAFE_INTEGER),
 				"terabytes",

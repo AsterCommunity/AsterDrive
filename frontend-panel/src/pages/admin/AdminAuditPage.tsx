@@ -531,7 +531,7 @@ export default function AdminAuditPage() {
 										</span>
 									</div>
 								</TableCell>
-								<TableCell>
+								<TableCell className="max-w-0">
 									<div className="flex min-w-0 flex-col gap-0.5 text-left">
 										<span className="truncate text-sm text-muted-foreground">
 											{formatAuditTarget(t, item)}

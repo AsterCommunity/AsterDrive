@@ -15,7 +15,7 @@ export const nonNegativeIntegerUnitValueSchema = z.string().refine((value) => {
 		return false;
 	}
 	const parsed = Number.parseInt(normalized, 10);
-	return Number.isFinite(parsed) && Number.isSafeInteger(parsed);
+	return Number.isSafeInteger(parsed);
 });
 
 export function parseNumberUnitValue(value: string) {
@@ -40,7 +40,10 @@ export function convertNumberUnitValueToBaseUnit(
 	if (parsed === null) {
 		return null;
 	}
+	if (!Number.isFinite(unit.multiplier) || unit.multiplier <= 0) {
+		return null;
+	}
 
 	const converted = parsed * unit.multiplier;
-	return Number.isSafeInteger(converted) ? converted : null;
+	return Number.isSafeInteger(converted) && converted >= 0 ? converted : null;
 }

@@ -142,12 +142,35 @@ describe("authPanelReducer", () => {
 		});
 	});
 
+	it("closes the activation resend panel back to auth", () => {
+		const opened = authPanelReducer(initialAuthPanelState, {
+			type: "open_activation_resend",
+			email: "old@example.com",
+		});
+
+		expect(authPanelReducer(opened, { type: "close_activation_resend" })).toBe(
+			initialAuthPanelState,
+		);
+	});
+
 	it("ignores activation resend edits outside the activation resend panel", () => {
 		expect(
 			authPanelReducer(initialAuthPanelState, {
 				type: "set_activation_resend_email",
 				email: "new@example.com",
 				error: "",
+			}),
+		).toBe(initialAuthPanelState);
+		expect(
+			authPanelReducer(initialAuthPanelState, {
+				type: "set_activation_resend_error",
+				error: "invalid-email",
+			}),
+		).toBe(initialAuthPanelState);
+		expect(
+			authPanelReducer(initialAuthPanelState, {
+				type: "set_activation_resend_requesting",
+				requesting: true,
 			}),
 		).toBe(initialAuthPanelState);
 	});
@@ -169,6 +192,27 @@ describe("authPanelReducer", () => {
 			kind: "mfa",
 			selectedMethod: "email_code",
 			submitting: false,
+		});
+	});
+
+	it("falls back through recovery-code and totp MFA initial methods", () => {
+		expect(
+			authPanelReducer(initialAuthPanelState, {
+				type: "open_mfa",
+				challenge: mfaChallenge({ methods: ["recovery_code"] }),
+			}),
+		).toMatchObject({
+			kind: "mfa",
+			selectedMethod: "recovery_code",
+		});
+		expect(
+			authPanelReducer(initialAuthPanelState, {
+				type: "open_mfa",
+				challenge: mfaChallenge({ methods: [] }),
+			}),
+		).toMatchObject({
+			kind: "mfa",
+			selectedMethod: "totp",
 		});
 	});
 

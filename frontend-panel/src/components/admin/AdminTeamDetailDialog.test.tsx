@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { AdminTeamDetailDialog } from "@/components/admin/AdminTeamDetailDialog";
+import { formatStorageQuotaDraft } from "@/lib/storageQuota";
 import type { UserSummary } from "@/types/api";
 
 const mockState = vi.hoisted(() => ({
@@ -292,6 +293,19 @@ describe("AdminTeamDetailDialog", () => {
 		const quotaInput = (await screen.findByLabelText(
 			"quota",
 		)) as HTMLInputElement;
+		expect(formatStorageQuotaDraft(10 * 1024 * 1024)).toEqual({
+			unit: "megabytes",
+			value: "10",
+		});
+		expect(quotaInput).toHaveValue(10);
+
+		fireEvent.change(quotaInput, { target: { value: "010" } });
+		await waitFor(() => {
+			expect(
+				screen.getByRole("button", { name: "save_changes" }),
+			).toBeDisabled();
+		});
+
 		fireEvent.change(quotaInput, { target: { value: "4" } });
 		const saveButton = screen.getByRole("button", { name: "save_changes" });
 		await waitFor(() => {

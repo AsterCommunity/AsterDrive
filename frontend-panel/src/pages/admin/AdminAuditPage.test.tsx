@@ -25,36 +25,30 @@ function createUserSummary(): UserSummary {
 	};
 }
 
-vi.mock("react-i18next", () => ({
-	useTranslation: () => ({
-		t: (key: string, options?: Record<string, unknown>) => {
-			if (key === "entries_page") {
-				return `entries:${options?.current}/${options?.pages}/${options?.total}`;
-			}
-			const namespace = typeof options?.ns === "string" ? options.ns : "admin";
-			const translations: Record<string, string> = {
-				"admin:audit_action_file_delete": "Deleted file",
-				"admin:audit_action_file_upload": "Uploaded file",
-				"admin:audit_entity_type_file": "File",
-				"admin:audit_entity_type_folder": "Folder",
-				"admin:audit_presentation_config_value_updated":
-					"Value changed to {{value}}",
-				"admin:audit_presentation_file_upload": "Uploaded via presentation",
-			};
-			const translated = translations[`${namespace}:${key}`];
-			if (translated) {
-				return translated.replace(/\{\{\s*(\w+)\s*\}\}/g, (match, param) => {
-					const value = options?.[param];
-					return value === undefined || value === null ? match : String(value);
-				});
-			}
-			if (typeof options?.defaultValue === "string") {
-				return options.defaultValue;
-			}
-			return key;
-		},
-	}),
-}));
+vi.mock("react-i18next", async () => {
+	const { createMockTWithInterpolation } = await import("@/test/i18n");
+	const translateAudit = createMockTWithInterpolation({
+		"admin:audit_action_file_delete": "Deleted file",
+		"admin:audit_action_file_upload": "Uploaded file",
+		"admin:audit_entity_type_file": "File",
+		"admin:audit_entity_type_folder": "Folder",
+		"admin:audit_presentation_config_value_updated":
+			"Value changed to {{value}}",
+		"admin:audit_presentation_file": "{{name}} · File",
+		"admin:audit_presentation_file_upload": "Uploaded file",
+	});
+
+	return {
+		useTranslation: () => ({
+			t: (key: string, options?: Record<string, unknown>) => {
+				if (key === "entries_page") {
+					return `entries:${options?.current}/${options?.pages}/${options?.total}`;
+				}
+				return translateAudit(key, options);
+			},
+		}),
+	};
+});
 
 vi.mock("@/components/common/EmptyState", () => ({
 	EmptyState: ({ title, icon }: { title: string; icon?: React.ReactNode }) => (
@@ -483,6 +477,31 @@ describe("AdminAuditPage", () => {
 		expect(screen.getAllByText("File").length).toBeGreaterThan(0);
 		expect(screen.getByText("Value changed to enabled")).toBeInTheDocument();
 		expect(screen.queryByText("legacy.txt")).not.toBeInTheDocument();
+	});
+
+	it("renders audit entry without detail when presentation detail is missing", async () => {
+		mockState.list.mockResolvedValueOnce({
+			items: [
+				createEntry({
+					entity_name: "legacy.txt",
+					entity_type: "folder",
+					presentation: {
+						summary: { code: "file_upload" },
+						target: {
+							code: "file",
+							params: { name: "report.pdf" },
+						},
+					},
+				}),
+			],
+			total: 1,
+		});
+
+		renderPage();
+
+		expect(await screen.findByText("Uploaded file")).toBeInTheDocument();
+		expect(screen.getByText("report.pdf · File")).toBeInTheDocument();
+		expect(screen.queryByText(/Value changed/)).not.toBeInTheDocument();
 	});
 
 	it("renders filtered empty state and can clear filters", async () => {

@@ -77,4 +77,17 @@ describe("admin settings content shared draft values", () => {
 			"seconds",
 		);
 	});
+
+	it("falls back to the smallest preferred unit for zero, invalid, and non-divisible values", () => {
+		for (const value of ["0", "abc", "1234"]) {
+			expect(
+				getAvailableDisplayUnits(TIME_DISPLAY_UNITS.seconds, value).map(
+					(unit) => unit.value,
+				),
+			).toEqual(["days", "hours", "minutes", "seconds"]);
+			expect(
+				getPreferredDisplayUnit(TIME_DISPLAY_UNITS.seconds, value).value,
+			).toBe("seconds");
+		}
+	});
 });

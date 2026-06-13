@@ -39,4 +39,19 @@ describe("numberUnit", () => {
 			convertNumberUnitValueToBaseUnit(String(Number.MAX_SAFE_INTEGER), unit),
 		).toBeNull();
 	});
+
+	it("rejects invalid unit multipliers", () => {
+		expect(
+			convertNumberUnitValueToBaseUnit("4", {
+				...unit,
+				multiplier: 0,
+			}),
+		).toBeNull();
+		expect(
+			convertNumberUnitValueToBaseUnit("4", {
+				...unit,
+				multiplier: -1,
+			}),
+		).toBeNull();
+	});
 });

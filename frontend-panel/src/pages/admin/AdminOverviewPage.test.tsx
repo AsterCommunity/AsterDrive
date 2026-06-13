@@ -33,60 +33,54 @@ function createUserSummary(id = 9, username = "root", displayName = "Root") {
 	};
 }
 
-vi.mock("react-i18next", () => ({
-	useTranslation: () => ({
-		t: (key: string, options?: Record<string, unknown>) => {
-			if (key === "overview_generated_at") {
-				return `generated:${options?.date}`;
-			}
-			if (key === "overview_background_tasks_duration") {
-				return `duration:${options?.duration}`;
-			}
-			if (key === "overview_background_tasks_source_system") {
-				return "source:system";
-			}
-			if (key === "overview_background_tasks_source_user") {
-				return `source:user:${options?.id}`;
-			}
-			if (key === "overview_background_tasks_source_team") {
-				return `source:team:${options?.id}`;
-			}
-			if (key === "overview_today_new_users_badge") {
-				return `new-users:${options?.count}`;
-			}
-			if (key === "overview_today_uploads_badge") {
-				return `uploads:${options?.count}`;
-			}
-			if (key === "overview_today_shares_badge") {
-				return `shares:${options?.count}`;
-			}
-			const namespace = typeof options?.ns === "string" ? options.ns : "admin";
-			const translations: Record<string, string> = {
-				"admin:audit_action_share_create": "Created share",
-				"admin:audit_entity_type_file": "File",
-				"admin:audit_presentation_share_updated":
-					"Password {{has_password}}, max downloads {{max_downloads}}",
-				"admin:overview_system_health_component_cache": "Cache",
-				"admin:overview_system_health_component_remote_nodes": "Remote nodes",
-				"admin:overview_system_health_issue_component": `${options?.component}: ${options?.status}`,
-				"admin:overview_system_health_issue_summary": `Issues detected in: ${options?.components}.`,
-				"admin:overview_system_health_status_degraded": "Degraded",
-				"admin:overview_system_health_status_unhealthy": "Unhealthy",
-			};
-			const translated = translations[`${namespace}:${key}`];
-			if (translated) {
-				return translated.replace(/\{\{\s*(\w+)\s*\}\}/g, (match, param) => {
-					const value = options?.[param];
-					return value === undefined || value === null ? match : String(value);
-				});
-			}
-			if (typeof options?.defaultValue === "string") {
-				return options.defaultValue;
-			}
-			return key;
-		},
-	}),
-}));
+vi.mock("react-i18next", async () => {
+	const { createMockTWithInterpolation } = await import("@/test/i18n");
+	const translateOverview = createMockTWithInterpolation({
+		"admin:audit_action_share_create": "Created share",
+		"admin:audit_entity_type_file": "File",
+		"admin:audit_presentation_share_updated":
+			"Password {{has_password}}, max downloads {{max_downloads}}",
+		"admin:overview_system_health_component_cache": "Cache",
+		"admin:overview_system_health_component_remote_nodes": "Remote nodes",
+		"admin:overview_system_health_issue_component": "{{component}}: {{status}}",
+		"admin:overview_system_health_issue_summary":
+			"Issues detected in: {{components}}.",
+		"admin:overview_system_health_status_degraded": "Degraded",
+		"admin:overview_system_health_status_unhealthy": "Unhealthy",
+	});
+
+	return {
+		useTranslation: () => ({
+			t: (key: string, options?: Record<string, unknown>) => {
+				if (key === "overview_generated_at") {
+					return `generated:${options?.date}`;
+				}
+				if (key === "overview_background_tasks_duration") {
+					return `duration:${options?.duration}`;
+				}
+				if (key === "overview_background_tasks_source_system") {
+					return "source:system";
+				}
+				if (key === "overview_background_tasks_source_user") {
+					return `source:user:${options?.id}`;
+				}
+				if (key === "overview_background_tasks_source_team") {
+					return `source:team:${options?.id}`;
+				}
+				if (key === "overview_today_new_users_badge") {
+					return `new-users:${options?.count}`;
+				}
+				if (key === "overview_today_uploads_badge") {
+					return `uploads:${options?.count}`;
+				}
+				if (key === "overview_today_shares_badge") {
+					return `shares:${options?.count}`;
+				}
+				return translateOverview(key, options);
+			},
+		}),
+	};
+});
 
 vi.mock("react-router-dom", () => ({
 	useNavigate: () => mockState.navigate,

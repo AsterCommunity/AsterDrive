@@ -67,6 +67,7 @@ export function AdminNumberUnitInput<TValue extends string>({
 					className={cn(
 						ADMIN_CONTROL_HEIGHT_CLASS,
 						"min-w-0 flex-1",
+						invalidState && "border-destructive focus-visible:ring-destructive",
 						inputClassName,
 					)}
 					onChange={(event) => onValueChange(event.target.value)}
@@ -78,8 +79,11 @@ export function AdminNumberUnitInput<TValue extends string>({
 					}))}
 					value={unit}
 					onValueChange={(nextValue) => {
-						if (nextValue !== null) {
-							onUnitChange(nextValue as TValue);
+						const matchedUnit = units.find(
+							(option) => option.value === nextValue,
+						);
+						if (matchedUnit) {
+							onUnitChange(matchedUnit.value);
 						}
 					}}
 					disabled={disabled}
@@ -89,6 +93,8 @@ export function AdminNumberUnitInput<TValue extends string>({
 						className={cn(
 							ADMIN_CONTROL_HEIGHT_CLASS,
 							"min-w-28",
+							invalidState &&
+								"border-destructive focus-visible:ring-destructive",
 							unitClassName,
 						)}
 						aria-label={unitAriaLabel}

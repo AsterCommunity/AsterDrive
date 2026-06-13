@@ -328,6 +328,49 @@ describe("AdminSettingsConfigRows", () => {
 		);
 	});
 
+	it("preserves invalid scaled number drafts instead of dropping input", () => {
+		const config = createConfig({
+			key: "auth_password_reset_cooldown_secs",
+			value: "60",
+			value_type: "number",
+		});
+
+		renderWithContext(<SystemConfigRow config={config} />);
+
+		fireEvent.change(screen.getByPlaceholderText("config_value"), {
+			target: { value: "1.5" },
+		});
+
+		expect(mockState.updateDraftValue).toHaveBeenCalledWith(
+			"auth_password_reset_cooldown_secs",
+			"1.5",
+		);
+	});
+
+	it("stores the selected display unit for number rows", () => {
+		const config = createConfig({
+			key: "auth_password_reset_cooldown_secs",
+			value: "60",
+			value_type: "number",
+		});
+		const setDisplayUnits = vi.fn();
+
+		renderWithContext(<SystemConfigRow config={config} />, {
+			setDisplayUnits,
+		});
+
+		fireEvent.change(screen.getByLabelText("settings_time_unit_label"), {
+			target: { value: "seconds" },
+		});
+
+		expect(setDisplayUnits).toHaveBeenCalledTimes(1);
+		const updater = setDisplayUnits.mock.calls[0]?.[0];
+		expect(typeof updater).toBe("function");
+		expect(updater({})).toEqual({
+			auth_password_reset_cooldown_secs: "seconds",
+		});
+	});
+
 	it("edits and clears string array rows without keeping a blank-only draft", () => {
 		const config = createConfig({
 			key: "auth_local_email_allowlist",

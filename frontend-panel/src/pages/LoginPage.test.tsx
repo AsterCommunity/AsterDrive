@@ -2124,9 +2124,12 @@ describe("LoginPage", () => {
 		expect(screen.getByLabelText("email")).toHaveValue("direct@example.com");
 	});
 
-	it("keeps pending-activation login failures on the generic login flow", async () => {
+	it.each([
+		["auth.credentials_failed"],
+		["auth.account_disabled"],
+	])("keeps %s login failures on the generic login flow", async (errorCode) => {
 		mockState.login.mockRejectedValueOnce(
-			new MockApiError("auth.pending_activation", "pending"),
+			new MockApiError(errorCode, "login unavailable"),
 		);
 
 		render(<LoginPage />);
@@ -2149,6 +2152,7 @@ describe("LoginPage", () => {
 		expect(
 			screen.queryByText("activation_pending_notice"),
 		).not.toBeInTheDocument();
+		expect(mockState.handleApiError).not.toHaveBeenCalled();
 		expect(mockState.resendRegisterActivation).not.toHaveBeenCalled();
 	});
 
@@ -2185,6 +2189,68 @@ describe("LoginPage", () => {
 				screen.queryByText("activation_resend_hint"),
 			).not.toBeInTheDocument();
 		});
+	});
+
+	it("validates and handles failures in the independent activation resend panel", async () => {
+		const error = new Error("mail service offline");
+		mockState.resendRegisterActivation.mockRejectedValueOnce(error);
+
+		render(<LoginPage />);
+
+		fireEvent.change(screen.getByLabelText("email_or_username"), {
+			target: { value: "not-an-email" },
+		});
+		fireEvent.click(
+			await screen.findByRole("button", { name: "resend_activation" }),
+		);
+
+		expect(
+			await screen.findByText("activation_resend_desc"),
+		).toBeInTheDocument();
+		expect(await screen.findByRole("textbox", { name: "email" })).toHaveValue(
+			"",
+		);
+
+		fireEvent.change(screen.getByRole("textbox", { name: "email" }), {
+			target: { value: "invalid" },
+		});
+		fireEvent.click(screen.getByRole("button", { name: /resend_activation/ }));
+
+		expect(await screen.findByText("invalid-email")).toBeInTheDocument();
+		expect(mockState.resendRegisterActivation).not.toHaveBeenCalled();
+
+		fireEvent.change(screen.getByRole("textbox", { name: "email" }), {
+			target: { value: "user@example.com" },
+		});
+		fireEvent.click(screen.getByRole("button", { name: /resend_activation/ }));
+
+		await waitFor(() => {
+			expect(mockState.resendRegisterActivation).toHaveBeenCalledWith(
+				"user@example.com",
+			);
+		});
+		expect(mockState.handleApiError).toHaveBeenCalledWith(error);
+		expect(screen.getByText("activation_resend_hint")).toBeInTheDocument();
+	});
+
+	it("returns from the independent activation resend panel to sign-in", async () => {
+		render(<LoginPage />);
+
+		fireEvent.click(
+			await screen.findByRole("button", { name: "resend_activation" }),
+		);
+		expect(
+			await screen.findByText("activation_resend_hint"),
+		).toBeInTheDocument();
+
+		fireEvent.click(screen.getByRole("button", { name: /back_to_sign_in/ }));
+
+		expect(
+			await screen.findByRole("button", { name: "sign_in" }),
+		).toBeInTheDocument();
+		expect(
+			screen.queryByText("activation_resend_hint"),
+		).not.toBeInTheDocument();
 	});
 
 	it("requests a password reset from the login view", async () => {

@@ -70,6 +70,7 @@ const PUBLIC_SITE_URL_KEY = "public_site_url";
 const EMAIL_CODE_LOGIN_ENABLED_CONFIG_KEY = "auth_email_code_login_enabled";
 const AUTH_LOCAL_EMAIL_ALLOWLIST_KEY = "auth_local_email_allowlist";
 const AUTH_LOCAL_EMAIL_BLOCKLIST_KEY = "auth_local_email_blocklist";
+type ScaledDisplayUnitValue = TimeDisplayUnitValue | SizeDisplayUnitValue;
 const CUSTOM_VISIBILITY_OPTIONS: SystemConfigVisibility[] = [
 	"private",
 	"public",
@@ -119,6 +120,13 @@ function getEnumOptionGroup(option: ConfigSchemaOption) {
 	return option.group || "other";
 }
 
+function isScaledDisplayUnitValue(
+	value: string,
+	units: ReadonlyArray<{ value: string }>,
+): value is ScaledDisplayUnitValue {
+	return units.some((unit) => unit.value === value);
+}
+
 function SettingDescriptionHelp({
 	description,
 	label,
@@ -135,7 +143,6 @@ function SettingDescriptionHelp({
 			<Tooltip>
 				<TooltipTrigger
 					type="button"
-					closeOnClick={false}
 					aria-label={label}
 					className="inline-flex size-6 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-accent/55 hover:text-foreground focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/35"
 				>
@@ -694,12 +701,13 @@ function ScaledNumberInputControl({
 	const updateFromDisplayValue = (value: string) => {
 		const nextDisplayValue = value.trim();
 		if (!nextDisplayValue) {
-			setDisplayUnits((previous) => ({
-				...previous,
-				[config.key]: selectedUnit.value as
-					| TimeDisplayUnitValue
-					| SizeDisplayUnitValue,
-			}));
+			const selectedUnitValue = selectedUnit.value;
+			if (isScaledDisplayUnitValue(selectedUnitValue, availableUnits)) {
+				setDisplayUnits((previous) => ({
+					...previous,
+					[config.key]: selectedUnitValue,
+				}));
+			}
 			updateDraftValue(config.key, "");
 			return;
 		}
@@ -708,6 +716,7 @@ function ScaledNumberInputControl({
 			selectedUnit,
 		);
 		if (nextValue === null) {
+			updateDraftValue(config.key, nextDisplayValue);
 			return;
 		}
 
@@ -725,12 +734,15 @@ function ScaledNumberInputControl({
 			className={fullWidth ? "w-full max-w-2xl" : "max-w-2xl"}
 			inputClassName="w-full sm:max-w-48"
 			onValueChange={updateFromDisplayValue}
-			onUnitChange={(value) =>
+			onUnitChange={(value) => {
+				if (!isScaledDisplayUnitValue(value, availableUnits)) {
+					return;
+				}
 				setDisplayUnits((previous) => ({
 					...previous,
-					[config.key]: value as TimeDisplayUnitValue | SizeDisplayUnitValue,
-				}))
-			}
+					[config.key]: value,
+				}));
+			}}
 		/>
 	);
 }

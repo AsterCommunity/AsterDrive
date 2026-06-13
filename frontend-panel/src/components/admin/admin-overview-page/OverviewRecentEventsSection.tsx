@@ -81,7 +81,7 @@ export function OverviewRecentEventsSection({
 											{formatAuditSummary(t, event)}
 										</Badge>
 									</TableCell>
-									<TableCell>
+									<TableCell className="max-w-0">
 										<UserIdentity user={event.user} />
 									</TableCell>
 									<TableCell>
