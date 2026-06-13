@@ -98,18 +98,53 @@ pub async fn patch_preferences(
     claims: web::ReqData<Claims>,
     body: web::Json<UpdatePreferencesReq>,
 ) -> Result<HttpResponse> {
-    let prefs =
-        user_service::update_preferences(state.get_ref(), claims.user_id, body.into_inner())
-            .await?;
+    let body = body.into_inner();
+    let mut changed_fields = Vec::new();
+    if body.theme_mode.is_some() {
+        changed_fields.push("theme_mode");
+    }
+    if body.color_preset.is_some() {
+        changed_fields.push("color_preset");
+    }
+    if body.view_mode.is_some() {
+        changed_fields.push("view_mode");
+    }
+    if body.browser_open_mode.is_some() {
+        changed_fields.push("browser_open_mode");
+    }
+    if body.sort_by.is_some() {
+        changed_fields.push("sort_by");
+    }
+    if body.sort_order.is_some() {
+        changed_fields.push("sort_order");
+    }
+    if body.language.is_some() {
+        changed_fields.push("language");
+    }
+    if body.display_time_zone.is_some() {
+        changed_fields.push("display_time_zone");
+    }
+    if body.storage_event_stream_enabled.is_some() {
+        changed_fields.push("storage_event_stream_enabled");
+    }
+    let custom_upsert_count = body.custom.len();
+    let custom_remove_count = body.remove_custom_keys.len();
+    let prefs = user_service::update_preferences(state.get_ref(), claims.user_id, body).await?;
     let ctx = AuditContext::from_request(&req, &claims);
-    audit_service::log(
+    audit_service::log_with_details(
         state.get_ref(),
         &ctx,
         audit_service::AuditAction::UserUpdatePreferences,
         crate::services::audit_service::AuditEntityType::User,
         Some(claims.user_id),
         None,
-        None,
+        || {
+            audit_service::details(audit_service::UserPreferencesAuditDetails {
+                changed_fields,
+                custom_upsert_count,
+                custom_remove_count,
+            })
+        },
     )
     .await;
     Ok(HttpResponse::Ok().json(ApiResponse::ok(prefs)))
@@ -177,14 +212,19 @@ pub async fn upload_avatar(
     let profile =
         profile_service::upload_avatar(state.get_ref(), claims.user_id, &mut payload).await?;
     let ctx = AuditContext::from_request(&req, &claims);
-    audit_service::log(
+    audit_service::log_with_details(
         state.get_ref(),
         &ctx,
         audit_service::AuditAction::UserUploadAvatar,
         crate::services::audit_service::AuditEntityType::User,
         Some(claims.user_id),
         None,
-        None,
+        || {
+            audit_service::details(audit_service::UserAvatarUploadAuditDetails {
+                source: profile.avatar.source,
+                version: profile.avatar.version,
+            })
+        },
     )
     .await;
     Ok(HttpResponse::Ok().json(ApiResponse::ok(profile)))

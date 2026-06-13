@@ -6,10 +6,11 @@ use crate::api::middleware::rate_limit;
 use crate::api::pagination::TrashListQuery;
 use crate::api::response::ApiResponse;
 use crate::config::{NetworkTrustConfig, RateLimitConfig};
+use crate::db::repository::{file_repo, folder_repo};
 use crate::errors::Result;
-use crate::runtime::PrimaryAppState;
+use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::{
-    audit_service, auth_service::Claims, task_service, trash_service,
+    audit_service, auth_service::Claims, file_service, folder_service, task_service, trash_service,
     workspace_storage_service::WorkspaceStorageScope,
 };
 use crate::types::EntityType;
@@ -94,6 +95,11 @@ pub async fn restore(
     req: HttpRequest,
     path: web::Path<TrashItemPath>,
 ) -> Result<HttpResponse> {
+    let scope = WorkspaceStorageScope::Personal {
+        user_id: claims.user_id,
+    };
+    let (entity_name, details) =
+        trash_item_audit_details(state.get_ref(), scope, path.entity_type, path.id).await?;
     match path.entity_type {
         EntityType::File => {
             trash_service::restore_file(state.get_ref(), path.id, claims.user_id).await?
@@ -103,7 +109,7 @@ pub async fn restore(
         }
     }
     let ctx = audit_service::AuditContext::from_request(&req, &claims);
-    audit_service::log(
+    audit_service::log_with_details(
         state.get_ref(),
         &ctx,
         match path.entity_type {
@@ -112,8 +118,8 @@ pub async fn restore(
         },
         audit_service::AuditEntityType::from_entity_type(path.entity_type),
         Some(path.id),
-        None,
-        None,
+        entity_name.as_deref(),
+        || details.clone(),
     )
     .await;
     Ok(HttpResponse::Ok().json(ApiResponse::<()>::ok_empty()))
@@ -141,6 +147,11 @@ pub async fn purge_one(
     req: HttpRequest,
     path: web::Path<TrashItemPath>,
 ) -> Result<HttpResponse> {
+    let scope = WorkspaceStorageScope::Personal {
+        user_id: claims.user_id,
+    };
+    let (entity_name, details) =
+        trash_item_audit_details(state.get_ref(), scope, path.entity_type, path.id).await?;
     match path.entity_type {
         EntityType::File => {
             trash_service::purge_file(state.get_ref(), path.id, claims.user_id).await?
@@ -150,7 +161,7 @@ pub async fn purge_one(
         }
     }
     let ctx = audit_service::AuditContext::from_request(&req, &claims);
-    audit_service::log(
+    audit_service::log_with_details(
         state.get_ref(),
         &ctx,
         match path.entity_type {
@@ -159,8 +170,8 @@ pub async fn purge_one(
         },
         audit_service::AuditEntityType::from_entity_type(path.entity_type),
         Some(path.id),
-        None,
-        None,
+        entity_name.as_deref(),
+        || details.clone(),
     )
     .await;
     Ok(HttpResponse::Ok().json(ApiResponse::<()>::ok_empty()))
@@ -188,14 +199,19 @@ pub async fn purge_all(
     let task =
         task_service::trash::create_trash_purge_all_task_in_scope(state.get_ref(), scope).await?;
     let ctx = audit_service::AuditContext::from_request(&req, &claims);
-    audit_service::log(
+    let details = audit_service::details(audit_service::TrashPurgeAllAuditDetails {
+        phase: "requested",
+        purged: None,
+        team_id: None,
+    });
+    audit_service::log_with_details(
         state.get_ref(),
         &ctx,
         audit_service::AuditAction::TrashPurgeAll,
         crate::services::audit_service::AuditEntityType::Trash,
         Some(task.id),
         Some(&task.display_name),
-        None,
+        || details.clone(),
     )
     .await;
     Ok(HttpResponse::Ok().json(ApiResponse::ok(task)))
@@ -265,6 +281,12 @@ pub(crate) async fn team_restore(
     path: web::Path<(i64, EntityType, i64)>,
 ) -> Result<HttpResponse> {
     let (team_id, entity_type, id) = path.into_inner();
+    let scope = WorkspaceStorageScope::Team {
+        team_id,
+        actor_user_id: claims.user_id,
+    };
+    let (entity_name, details) =
+        trash_item_audit_details(state.get_ref(), scope, entity_type, id).await?;
     match entity_type {
         EntityType::File => {
             trash_service::restore_team_file(state.get_ref(), team_id, id, claims.user_id).await?
@@ -274,7 +296,7 @@ pub(crate) async fn team_restore(
         }
     }
     let ctx = audit_service::AuditContext::from_request(&req, &claims);
-    audit_service::log(
+    audit_service::log_with_details(
         state.get_ref(),
         &ctx,
         match entity_type {
@@ -283,8 +305,8 @@ pub(crate) async fn team_restore(
         },
         audit_service::AuditEntityType::from_entity_type(entity_type),
         Some(id),
-        None,
-        None,
+        entity_name.as_deref(),
+        || details.clone(),
     )
     .await;
     Ok(HttpResponse::Ok().json(ApiResponse::<()>::ok_empty()))
@@ -315,6 +337,12 @@ pub(crate) async fn team_purge_one(
     path: web::Path<(i64, EntityType, i64)>,
 ) -> Result<HttpResponse> {
     let (team_id, entity_type, id) = path.into_inner();
+    let scope = WorkspaceStorageScope::Team {
+        team_id,
+        actor_user_id: claims.user_id,
+    };
+    let (entity_name, details) =
+        trash_item_audit_details(state.get_ref(), scope, entity_type, id).await?;
     match entity_type {
         EntityType::File => {
             trash_service::purge_team_file(state.get_ref(), team_id, id, claims.user_id).await?
@@ -324,7 +352,7 @@ pub(crate) async fn team_purge_one(
         }
     }
     let ctx = audit_service::AuditContext::from_request(&req, &claims);
-    audit_service::log(
+    audit_service::log_with_details(
         state.get_ref(),
         &ctx,
         match entity_type {
@@ -333,8 +361,8 @@ pub(crate) async fn team_purge_one(
         },
         audit_service::AuditEntityType::from_entity_type(entity_type),
         Some(id),
-        None,
-        None,
+        entity_name.as_deref(),
+        || details.clone(),
     )
     .await;
     Ok(HttpResponse::Ok().json(ApiResponse::<()>::ok_empty()))
@@ -367,15 +395,43 @@ pub(crate) async fn team_purge_all(
     let task =
         task_service::trash::create_trash_purge_all_task_in_scope(state.get_ref(), scope).await?;
     let ctx = audit_service::AuditContext::from_request(&req, &claims);
-    audit_service::log(
+    let details = audit_service::details(audit_service::TrashPurgeAllAuditDetails {
+        phase: "requested",
+        purged: None,
+        team_id: Some(team_id),
+    });
+    audit_service::log_with_details(
         state.get_ref(),
         &ctx,
         audit_service::AuditAction::TrashPurgeAll,
         crate::services::audit_service::AuditEntityType::Trash,
         Some(task.id),
         Some(&task.display_name),
-        None,
+        || details.clone(),
     )
     .await;
     Ok(HttpResponse::Ok().json(ApiResponse::ok(task)))
+}
+
+async fn trash_item_audit_details(
+    state: &PrimaryAppState,
+    scope: WorkspaceStorageScope,
+    entity_type: EntityType,
+    id: i64,
+) -> Result<(Option<String>, Option<serde_json::Value>)> {
+    match entity_type {
+        EntityType::File => {
+            let file = file_repo::find_by_id(state.reader_db(), id).await?;
+            let name = file.name.clone();
+            let details = file_service::audit_location_details_for_model(state, scope, &file).await;
+            Ok((Some(name), details))
+        }
+        EntityType::Folder => {
+            let folder = folder_repo::find_by_id(state.reader_db(), id).await?;
+            let name = folder.name.clone();
+            let details =
+                folder_service::audit_location_details_for_model(state, scope, &folder).await;
+            Ok((Some(name), details))
+        }
+    }
 }

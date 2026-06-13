@@ -71,16 +71,77 @@ impl DbLockSystem {
             (EntityType::Folder, true) => audit_service::AuditAction::FolderLock,
             (EntityType::Folder, false) => audit_service::AuditAction::FolderUnlock,
         };
-        audit_service::log(
-            state,
-            &self.audit_ctx,
-            action,
-            audit_service::AuditEntityType::from_entity_type(entity_type),
-            Some(entity_id),
-            None,
-            Some(serde_json::json!({ "source": "webdav" })),
-        )
-        .await;
+        match entity_type {
+            EntityType::File => match file_repo::find_by_id(&self.db, entity_id).await {
+                Ok(file) => {
+                    let details = crate::services::file_service::audit_location_details_for_model(
+                        state, self.scope, &file,
+                    )
+                    .await;
+                    audit_service::log_with_details(
+                        state,
+                        &self.audit_ctx,
+                        action,
+                        audit_service::AuditEntityType::File,
+                        Some(entity_id),
+                        Some(&file.name),
+                        || details.clone(),
+                    )
+                    .await;
+                }
+                Err(error) => {
+                    tracing::warn!(
+                        entity_id,
+                        "failed to load WebDAV file lock audit target: {error}"
+                    );
+                    audit_service::log_with_details(
+                        state,
+                        &self.audit_ctx,
+                        action,
+                        audit_service::AuditEntityType::File,
+                        Some(entity_id),
+                        None,
+                        || None,
+                    )
+                    .await;
+                }
+            },
+            EntityType::Folder => match folder_repo::find_by_id(&self.db, entity_id).await {
+                Ok(folder) => {
+                    let details =
+                        crate::services::folder_service::audit_location_details_for_model(
+                            state, self.scope, &folder,
+                        )
+                        .await;
+                    audit_service::log_with_details(
+                        state,
+                        &self.audit_ctx,
+                        action,
+                        audit_service::AuditEntityType::Folder,
+                        Some(entity_id),
+                        Some(&folder.name),
+                        || details.clone(),
+                    )
+                    .await;
+                }
+                Err(error) => {
+                    tracing::warn!(
+                        entity_id,
+                        "failed to load WebDAV folder lock audit target: {error}"
+                    );
+                    audit_service::log_with_details(
+                        state,
+                        &self.audit_ctx,
+                        action,
+                        audit_service::AuditEntityType::Folder,
+                        Some(entity_id),
+                        None,
+                        || None,
+                    )
+                    .await;
+                }
+            },
+        }
     }
 
     fn max_active_locks_per_owner(&self) -> u64 {

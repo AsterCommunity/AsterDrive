@@ -11,6 +11,9 @@ mod transfer;
 
 use std::future::Future;
 
+use serde_json::json;
+
+use crate::entities::file;
 use crate::errors::{AsterError, Result};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState, StorageChangeRuntimeState};
 use crate::services::audit_service::{self, AuditContext};
@@ -71,14 +74,15 @@ pub(crate) async fn create_empty_in_scope_with_audit(
     audit_ctx: &AuditContext,
 ) -> Result<FileInfo> {
     let file = workspace_storage_service::create_empty(state, scope, folder_id, name).await?;
-    audit_service::log(
+    let details = audit_location_details_for_model(state, scope, &file).await;
+    audit_service::log_with_details(
         state,
         audit_ctx,
         audit_service::AuditAction::FileCreate,
         crate::services::audit_service::AuditEntityType::File,
         Some(file.id),
         Some(&file.name),
-        None,
+        || details.clone(),
     )
     .await;
     Ok(file.into())
@@ -90,15 +94,17 @@ pub(crate) async fn delete_in_scope_with_audit(
     file_id: i64,
     audit_ctx: &AuditContext,
 ) -> Result<()> {
+    let file = get_info_in_scope(state, scope, file_id).await?;
+    let details = audit_location_details_for_model(state, scope, &file).await;
     delete_in_scope(state, scope, file_id).await?;
-    audit_service::log(
+    audit_service::log_with_details(
         state,
         audit_ctx,
         audit_service::AuditAction::FileDelete,
         crate::services::audit_service::AuditEntityType::File,
         Some(file_id),
-        None,
-        None,
+        Some(&file.name),
+        || details.clone(),
     )
     .await;
     Ok(())
@@ -117,15 +123,17 @@ pub(crate) async fn update_in_scope_with_audit(
     } else {
         audit_service::AuditAction::FileRename
     };
+    let previous_file = get_info_in_scope(state, scope, file_id).await?;
     let file = update_in_scope(state, scope, file_id, name, folder_id).await?;
-    audit_service::log(
+    let details = audit_transfer_details_for_models(state, scope, &previous_file, &file).await;
+    audit_service::log_with_details(
         state,
         audit_ctx,
         action,
         crate::services::audit_service::AuditEntityType::File,
         Some(file.id),
         Some(&file.name),
-        None,
+        || details.clone(),
     )
     .await;
     Ok(file.into())
@@ -143,14 +151,15 @@ pub(crate) async fn update_content_stream_in_scope_with_audit(
     let (file, new_hash) =
         update_content_stream_in_scope(state, scope, file_id, payload, declared_size, if_match)
             .await?;
-    audit_service::log(
+    let details = audit_location_details_for_model(state, scope, &file).await;
+    audit_service::log_with_details(
         state,
         audit_ctx,
         audit_service::AuditAction::FileEdit,
         crate::services::audit_service::AuditEntityType::File,
         Some(file.id),
         Some(&file.name),
-        None,
+        || details.clone(),
     )
     .await;
     Ok((file.into(), new_hash))
@@ -164,7 +173,8 @@ pub(crate) async fn set_lock_in_scope_with_audit(
     audit_ctx: &AuditContext,
 ) -> Result<FileInfo> {
     let file = set_lock_in_scope(state, scope, file_id, locked).await?;
-    audit_service::log(
+    let details = audit_location_details_for_model(state, scope, &file).await;
+    audit_service::log_with_details(
         state,
         audit_ctx,
         if locked {
@@ -175,7 +185,7 @@ pub(crate) async fn set_lock_in_scope_with_audit(
         crate::services::audit_service::AuditEntityType::File,
         Some(file.id),
         Some(&file.name),
-        None,
+        || details.clone(),
     )
     .await;
     Ok(file.into())
@@ -188,15 +198,17 @@ pub(crate) async fn copy_file_in_scope_with_audit(
     target_folder_id: Option<i64>,
     audit_ctx: &AuditContext,
 ) -> Result<FileInfo> {
+    let source_file = get_info_in_scope(state, scope, file_id).await?;
     let file = copy_file_in_scope(state, scope, file_id, target_folder_id).await?;
-    audit_service::log(
+    let details = audit_transfer_details_for_models(state, scope, &source_file, &file).await;
+    audit_service::log_with_details(
         state,
         audit_ctx,
         audit_service::AuditAction::FileCopy,
         crate::services::audit_service::AuditEntityType::File,
         Some(file.id),
         Some(&file.name),
-        None,
+        || details.clone(),
     )
     .await;
     Ok(file.into())
@@ -211,6 +223,8 @@ pub(crate) async fn download_in_scope_with_file_and_audit(
     audit_ctx: &AuditContext,
 ) -> Result<DownloadOutcome> {
     let file_id = file.id;
+    let entity_name = file.name.clone();
+    let details = audit_location_details_for_model(state, scope, &file).await;
     let has_range = range.is_some();
     let outcome = record_download_result(
         state,
@@ -226,17 +240,113 @@ pub(crate) async fn download_in_scope_with_file_and_audit(
         ),
     )
     .await?;
-    audit_service::log(
+    audit_service::log_with_details(
         state,
         audit_ctx,
         audit_service::AuditAction::FileDownload,
         crate::services::audit_service::AuditEntityType::File,
         Some(file_id),
-        None,
-        None,
+        Some(&entity_name),
+        || details.clone(),
     )
     .await;
     Ok(outcome)
+}
+
+pub(crate) async fn audit_location_details_for_model(
+    state: &impl SharedRuntimeState,
+    scope: WorkspaceStorageScope,
+    file: &file::Model,
+) -> Option<serde_json::Value> {
+    match file_path_for_audit(state, file).await {
+        Ok(path) => Some(json!({
+            "folder_id": file.folder_id,
+            "path": path,
+            "team_id": scope_team_id(scope),
+        })),
+        Err(error) => {
+            tracing::warn!(
+                file_id = file.id,
+                "failed to build file audit location details: {error}"
+            );
+            None
+        }
+    }
+}
+
+pub(crate) async fn audit_transfer_details_for_models(
+    state: &impl SharedRuntimeState,
+    scope: WorkspaceStorageScope,
+    source_file: &file::Model,
+    target_file: &file::Model,
+) -> Option<serde_json::Value> {
+    let source_path = match file_path_for_audit(state, source_file).await {
+        Ok(path) => path,
+        Err(error) => {
+            tracing::warn!(
+                file_id = source_file.id,
+                "failed to build source file audit path: {error}"
+            );
+            return None;
+        }
+    };
+    let target_path = match file_path_for_audit(state, target_file).await {
+        Ok(path) => path,
+        Err(error) => {
+            tracing::warn!(
+                file_id = target_file.id,
+                "failed to build target file audit path: {error}"
+            );
+            return None;
+        }
+    };
+    Some(json!({
+        "source_folder_id": source_file.folder_id,
+        "source_path": source_path,
+        "target_folder_id": target_file.folder_id,
+        "target_path": target_path,
+        "previous_name": source_file.name,
+        "next_name": target_file.name,
+        "team_id": scope_team_id(scope),
+    }))
+}
+
+async fn file_path_for_audit(
+    state: &impl SharedRuntimeState,
+    file: &file::Model,
+) -> Result<String> {
+    let parent_path = folder_path_for_audit(state, file.folder_id).await?;
+    Ok(join_audit_path(&parent_path, &file.name))
+}
+
+async fn folder_path_for_audit(
+    state: &impl SharedRuntimeState,
+    folder_id: Option<i64>,
+) -> Result<String> {
+    let Some(folder_id) = folder_id else {
+        return Ok("/".to_string());
+    };
+    let mut paths =
+        crate::services::folder_service::build_folder_paths(state.reader_db(), &[folder_id])
+            .await?;
+    paths
+        .remove(&folder_id)
+        .ok_or_else(|| AsterError::record_not_found(format!("folder #{folder_id} audit path")))
+}
+
+fn join_audit_path(parent_path: &str, name: &str) -> String {
+    if parent_path == "/" {
+        format!("/{name}")
+    } else {
+        format!("{parent_path}/{name}")
+    }
+}
+
+fn scope_team_id(scope: WorkspaceStorageScope) -> Option<i64> {
+    match scope {
+        WorkspaceStorageScope::Personal { .. } => None,
+        WorkspaceStorageScope::Team { team_id, .. } => Some(team_id),
+    }
 }
 
 pub fn record_download_metric(

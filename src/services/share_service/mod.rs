@@ -55,6 +55,8 @@ pub(crate) use management::{
     batch_delete_shares_in_scope, create_share_in_scope, delete_share_in_scope,
     list_shares_paginated_in_scope, update_share_in_scope,
 };
+pub(crate) use models::share_target_for_share;
+use shared::load_share_in_scope;
 pub(crate) use shared::load_valid_folder_share_root;
 
 // audit 包装放在入口层，而不是塞进 management 核心逻辑里。
@@ -68,16 +70,27 @@ pub(crate) async fn create_share_in_scope_with_audit(
     max_downloads: i64,
     audit_ctx: &AuditContext,
 ) -> Result<ShareInfo> {
+    let has_password = password.as_ref().is_some_and(|value| !value.is_empty());
     let share =
         create_share_in_scope(state, scope, target, password, expires_at, max_downloads).await?;
-    audit_service::log(
+    audit_service::log_with_details(
         state,
         audit_ctx,
         audit_service::AuditAction::ShareCreate,
         audit_service::AuditEntityType::Share,
         Some(share.id),
-        None,
-        None,
+        Some(&share.token),
+        || {
+            audit_service::details(audit_service::ShareCreateAuditDetails {
+                token: &share.token,
+                target_type: share.target.r#type,
+                target_id: share.target.id,
+                team_id: share.team_id,
+                has_password,
+                expires_at: share.expires_at,
+                max_downloads: share.max_downloads,
+            })
+        },
     )
     .await;
     Ok(share)
@@ -120,15 +133,36 @@ pub(crate) async fn delete_share_in_scope_with_audit(
     share_id: i64,
     audit_ctx: &AuditContext,
 ) -> Result<()> {
+    let share = load_share_in_scope(state, scope, share_id).await?;
     delete_share_in_scope(state, scope, share_id).await?;
-    audit_service::log(
+    let target = match models::share_target_for_share(&share) {
+        Ok(target) => Some(target),
+        Err(error) => {
+            tracing::warn!(
+                share_id = share.id,
+                "failed to resolve share delete audit target after delete: {error}"
+            );
+            None
+        }
+    };
+    audit_service::log_with_details(
         state,
         audit_ctx,
         audit_service::AuditAction::ShareDelete,
         audit_service::AuditEntityType::Share,
         Some(share_id),
-        None,
-        None,
+        Some(&share.token),
+        || {
+            audit_service::details(audit_service::ShareDeleteAuditDetails {
+                token: &share.token,
+                target_type: target.as_ref().map(|target| target.r#type),
+                target_id: target.as_ref().map(|target| target.id),
+                team_id: share.team_id,
+                has_password: share.password.is_some(),
+                expires_at: share.expires_at,
+                max_downloads: share.max_downloads,
+            })
+        },
     )
     .await;
     Ok(())

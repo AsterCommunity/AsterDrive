@@ -83,7 +83,7 @@ pub(super) fn share_target_from_columns(
     }
 }
 
-pub(super) fn share_target_for_share(share: &share::Model) -> Result<ShareTarget> {
+pub(crate) fn share_target_for_share(share: &share::Model) -> Result<ShareTarget> {
     share_target_from_columns(share.file_id, share.folder_id).ok_or_else(|| {
         AsterError::internal_error(format!(
             "share #{} has invalid target columns: file_id={:?}, folder_id={:?}",

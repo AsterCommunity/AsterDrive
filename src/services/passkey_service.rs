@@ -61,6 +61,13 @@ pub struct PasskeyLoginStartResp {
     pub public_key: serde_json::Value,
 }
 
+#[derive(Debug)]
+pub struct PasskeyLoginResult {
+    pub login: LoginResult,
+    pub passkey_id: i64,
+    pub passkey_name: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct PasskeyRegistrationChallenge {
     user_id: i64,
@@ -627,7 +634,7 @@ pub async fn finish_login(
     credential: serde_json::Value,
     ip_address: Option<&str>,
     user_agent: Option<&str>,
-) -> Result<LoginResult> {
+) -> Result<PasskeyLoginResult> {
     ensure_passkey_login_enabled(state)?;
     let webauthn = build_webauthn(state)?;
     let challenge = take_login_challenge(state, flow_id).await?;
@@ -696,10 +703,15 @@ pub async fn finish_login(
     } else {
         auth_service::issue_tokens_for_user(state, &user, ip_address, user_agent).await?
     };
-    Ok(LoginResult {
+    let login = LoginResult {
         access_token: access,
         refresh_token: refresh,
         user_id: user.id,
         password_change_required: user.must_change_password,
+    };
+    Ok(PasskeyLoginResult {
+        login,
+        passkey_id: passkey.id,
+        passkey_name: passkey.name,
     })
 }

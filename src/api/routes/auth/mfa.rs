@@ -30,11 +30,16 @@ pub async fn verify_challenge(
         state.get_ref().runtime_config(),
         RequestSourceMode::OptionalWhenPresent,
     )?;
+    let audit_info = audit_service::AuditRequestInfo::from_request_with_trusted_proxies(
+        &req,
+        &state.get_ref().config().network_trust.trusted_proxies,
+    );
     let result = mfa_service::verify_challenge(
         state.get_ref(),
         &body.flow_token,
         body.method.clone().into(),
         &body.code,
+        &audit_info,
     )
     .await?;
     super::session::authenticated_login_response(

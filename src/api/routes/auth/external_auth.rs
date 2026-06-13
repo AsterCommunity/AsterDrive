@@ -295,6 +295,7 @@ async fn external_auth_login_json_response(
         },
     )
     .await;
+    log_external_auth_link_if_needed(state, &audit_ctx, &result).await;
 
     let completion = complete_external_primary_login(state, audit_info, &result).await?;
     super::session::login_completion_response(state, completion)
@@ -325,10 +326,40 @@ async fn external_auth_login_redirect_response(
         },
     )
     .await;
+    log_external_auth_link_if_needed(state, &audit_ctx, &result).await;
 
     let return_path = result.primary_login.return_path.clone();
     let completion = complete_external_primary_login(state, audit_info, &result).await?;
     external_auth_redirect_completion_response(state, completion, &return_path)
+}
+
+async fn log_external_auth_link_if_needed(
+    state: &PrimaryAppState,
+    audit_ctx: &AuditContext,
+    result: &ExternalAuthLoginRedirectResult,
+) {
+    if !result.primary_login.linked {
+        return;
+    }
+
+    audit_service::log_with_details(
+        state,
+        audit_ctx,
+        audit_service::AuditAction::UserExternalAuthLink,
+        crate::services::audit_service::AuditEntityType::ExternalAuthIdentity,
+        None,
+        Some(&result.primary_login.provider_key),
+        || {
+            audit_service::details(ExternalAuthLoginAuditDetails {
+                provider_key: &result.primary_login.provider_key,
+                issuer: &result.primary_login.issuer,
+                subject: &result.primary_login.subject,
+                linked: result.primary_login.linked,
+                auto_provisioned: result.primary_login.auto_provisioned,
+            })
+        },
+    )
+    .await;
 }
 
 struct ExternalAuthLoginRedirectResult {
@@ -476,20 +507,32 @@ pub async fn delete_link(
     path: web::Path<i64>,
 ) -> Result<HttpResponse> {
     let id = path.into_inner();
+    let link = external_auth_service::list_links(state.get_ref(), claims.user_id)
+        .await?
+        .into_iter()
+        .find(|link| link.id == id);
     if !external_auth_service::delete_link(state.get_ref(), claims.user_id, id).await? {
         return Err(AsterError::record_not_found(format!(
             "external auth identity link #{id}"
         )));
     }
     let ctx = AuditContext::from_request(&req, &claims);
-    audit_service::log(
+    audit_service::log_with_details(
         state.get_ref(),
         &ctx,
         audit_service::AuditAction::UserExternalAuthUnlink,
         crate::services::audit_service::AuditEntityType::ExternalAuthIdentity,
         Some(id),
-        None,
-        None,
+        link.as_ref().map(|link| link.provider_key.as_str()),
+        || {
+            link.as_ref().and_then(|link| {
+                audit_service::details(audit_service::ExternalAuthUnlinkAuditDetails {
+                    provider_key: &link.provider_key,
+                    issuer: &link.issuer,
+                    subject: &link.subject,
+                })
+            })
+        },
     )
     .await;
     Ok(HttpResponse::Ok().json(ApiResponse::<()>::ok_empty()))

@@ -296,11 +296,37 @@ pub async fn test_remote_node(
     security(("bearer" = [])),
 )]
 pub async fn test_remote_node_params(
+    state: web::Data<PrimaryAppState>,
+    claims: web::ReqData<Claims>,
+    req: HttpRequest,
     body: web::Json<TestRemoteNodeParamsReq>,
 ) -> Result<HttpResponse> {
     validate_request(&*body)?;
-    let capabilities =
-        managed_follower_service::test_connection_params(body.into_inner().into()).await?;
+    let body = body.into_inner();
+    let base_url = body.base_url.clone();
+    let capabilities = managed_follower_service::test_connection_params(body.into()).await?;
+    let ctx = audit_service::AuditContext::from_request(&req, &claims);
+    audit_service::log_with_details(
+        state.get_ref(),
+        &ctx,
+        audit_service::AuditAction::AdminTestRemoteNode,
+        crate::services::audit_service::AuditEntityType::RemoteNode,
+        None,
+        Some(&base_url),
+        || {
+            audit_service::details(audit_service::RemoteNodeParamTestAuditDetails {
+                base_url: &base_url,
+                success: true,
+                protocol_version: &capabilities.protocol_version,
+                server_version: capabilities.server_version.as_deref(),
+                supports_list: capabilities.supports_list,
+                supports_range_read: capabilities.supports_range_read,
+                supports_stream_upload: capabilities.supports_stream_upload,
+                supports_capacity: capabilities.supports_capacity,
+            })
+        },
+    )
+    .await;
     Ok(HttpResponse::Ok().json(ApiResponse::ok(capabilities)))
 }
 
@@ -336,9 +362,9 @@ pub async fn create_remote_node_enrollment_token(
         Some(command.remote_node_id),
         Some(&command.remote_node_name),
         || {
-            audit_service::details(serde_json::json!({
-                "expires_at": command.expires_at,
-            }))
+            audit_service::details(audit_service::RemoteNodeEnrollmentTokenAuditDetails {
+                expires_at: command.expires_at,
+            })
         },
     )
     .await;
@@ -503,9 +529,9 @@ pub async fn delete_remote_node_ingress_profile(
         Some(id),
         Some(&profile_key),
         || {
-            audit_service::details(serde_json::json!({
-                "profile_key": &profile_key,
-            }))
+            audit_service::details(audit_service::RemoteIngressProfileDeleteAuditDetails {
+                profile_key: &profile_key,
+            })
         },
     )
     .await;

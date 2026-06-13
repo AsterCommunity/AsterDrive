@@ -5,6 +5,7 @@ use crate::errors::Result;
 use crate::runtime::PrimaryAppState;
 use crate::services::audit_service::{self, AuditContext};
 use crate::services::workspace_models::FileInfo;
+use crate::services::workspace_storage_service::WorkspaceStorageScope;
 use crate::types::UploadSessionStatus;
 
 use super::complete_upload_impl_with_hints;
@@ -30,14 +31,26 @@ pub(super) async fn complete_upload_impl_with_audit(
     let complete_elapsed_ms = complete_started_at.elapsed().as_millis();
     if should_log {
         let audit_started_at = Instant::now();
-        audit_service::log(
+        let scope = match file.team_id {
+            Some(team_id) => WorkspaceStorageScope::Team {
+                team_id,
+                actor_user_id: audit_ctx.user_id,
+            },
+            None => WorkspaceStorageScope::Personal {
+                user_id: audit_ctx.user_id,
+            },
+        };
+        let details =
+            crate::services::file_service::audit_location_details_for_model(state, scope, &file)
+                .await;
+        audit_service::log_with_details(
             state,
             audit_ctx,
             audit_service::AuditAction::FileUpload,
             crate::services::audit_service::AuditEntityType::File,
             Some(file.id),
             Some(&file.name),
-            None,
+            || details.clone(),
         )
         .await;
         tracing::debug!(

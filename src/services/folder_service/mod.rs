@@ -15,12 +15,16 @@ mod models;
 mod mutation;
 mod tree;
 
+use crate::entities::folder;
+use crate::errors::AsterError;
 use crate::errors::Result;
+use crate::runtime::SharedRuntimeState;
 use crate::runtime::{PrimaryAppState, StorageChangeRuntimeState};
 use crate::services::audit_service::{self, AuditContext};
 use crate::services::workspace_models::FolderInfo;
 use crate::services::workspace_storage_service::WorkspaceStorageScope;
 use crate::types::NullablePatch;
+use serde_json::json;
 
 pub use access::verify_folder_access;
 pub use copy::copy_folder;
@@ -42,8 +46,8 @@ pub(crate) use hierarchy::{
 };
 pub(crate) use listing::list_in_scope;
 pub(crate) use mutation::{
-    admin_set_policy, create_in_scope, delete_in_scope, get_info_with_storage_used_in_scope,
-    set_lock_in_scope, update_in_scope,
+    admin_set_policy, create_in_scope, delete_in_scope, get_info_in_scope,
+    get_info_with_storage_used_in_scope, set_lock_in_scope, update_in_scope,
 };
 pub(crate) use tree::{
     collect_folder_forest_in_resource_scope, collect_folder_forest_in_scope,
@@ -59,14 +63,15 @@ pub(crate) async fn create_in_scope_with_audit(
     audit_ctx: &AuditContext,
 ) -> Result<FolderInfo> {
     let folder = create_in_scope(state, scope, name, parent_id).await?;
-    audit_service::log(
+    let details = audit_location_details_for_model(state, scope, &folder).await;
+    audit_service::log_with_details(
         state,
         audit_ctx,
         audit_service::AuditAction::FolderCreate,
         crate::services::audit_service::AuditEntityType::Folder,
         Some(folder.id),
         Some(&folder.name),
-        None,
+        || details.clone(),
     )
     .await;
     Ok(folder.into())
@@ -78,15 +83,17 @@ pub(crate) async fn delete_in_scope_with_audit(
     folder_id: i64,
     audit_ctx: &AuditContext,
 ) -> Result<()> {
+    let folder = get_info_in_scope(state, scope, folder_id).await?;
+    let details = audit_location_details_for_model(state, scope, &folder).await;
     delete_in_scope(state, scope, folder_id).await?;
-    audit_service::log(
+    audit_service::log_with_details(
         state,
         audit_ctx,
         audit_service::AuditAction::FolderDelete,
         crate::services::audit_service::AuditEntityType::Folder,
         Some(folder_id),
-        None,
-        None,
+        Some(&folder.name),
+        || details.clone(),
     )
     .await;
     Ok(())
@@ -108,15 +115,41 @@ pub(crate) async fn update_in_scope_with_audit(
     } else {
         audit_service::AuditAction::FolderRename
     };
+    let previous_folder = get_info_in_scope(state, scope, folder_id).await?;
+    let original_source_path = if matches!(
+        action,
+        audit_service::AuditAction::FolderMove | audit_service::AuditAction::FolderRename
+    ) {
+        Some(folder_path_for_audit(state, previous_folder.id).await)
+    } else {
+        None
+    };
     let folder = update_in_scope(state, scope, folder_id, name, parent_id, policy_id).await?;
-    audit_service::log(
+    let details = if matches!(action, audit_service::AuditAction::FolderPolicyChange) {
+        audit_service::details(audit_service::FolderPolicyAuditDetails {
+            previous_policy_id: previous_folder.policy_id,
+            policy_id: folder.policy_id,
+        })
+    } else if let Some(original_source_path) = original_source_path {
+        audit_transfer_details_for_models_with_source_path(
+            state,
+            scope,
+            &previous_folder,
+            original_source_path,
+            &folder,
+        )
+        .await
+    } else {
+        audit_transfer_details_for_models(state, scope, &previous_folder, &folder).await
+    };
+    audit_service::log_with_details(
         state,
         audit_ctx,
         action,
         crate::services::audit_service::AuditEntityType::Folder,
         Some(folder.id),
         Some(&folder.name),
-        None,
+        || details.clone(),
     )
     .await;
     Ok(folder.into())
@@ -155,7 +188,8 @@ pub(crate) async fn set_lock_in_scope_with_audit(
     audit_ctx: &AuditContext,
 ) -> Result<FolderInfo> {
     let folder = set_lock_in_scope(state, scope, folder_id, locked).await?;
-    audit_service::log(
+    let details = audit_location_details_for_model(state, scope, &folder).await;
+    audit_service::log_with_details(
         state,
         audit_ctx,
         if locked {
@@ -166,7 +200,7 @@ pub(crate) async fn set_lock_in_scope_with_audit(
         crate::services::audit_service::AuditEntityType::Folder,
         Some(folder.id),
         Some(&folder.name),
-        None,
+        || details.clone(),
     )
     .await;
     Ok(folder.into())
@@ -179,16 +213,107 @@ pub(crate) async fn copy_folder_in_scope_with_audit(
     parent_id: Option<i64>,
     audit_ctx: &AuditContext,
 ) -> Result<FolderInfo> {
+    let source_folder = get_info_in_scope(state, scope, folder_id).await?;
     let folder = copy_folder_in_scope(state, scope, folder_id, parent_id).await?;
-    audit_service::log(
+    let details = audit_transfer_details_for_models(state, scope, &source_folder, &folder).await;
+    audit_service::log_with_details(
         state,
         audit_ctx,
         audit_service::AuditAction::FolderCopy,
         crate::services::audit_service::AuditEntityType::Folder,
         Some(folder.id),
         Some(&folder.name),
-        None,
+        || details.clone(),
     )
     .await;
     Ok(folder.into())
+}
+
+pub(crate) async fn audit_location_details_for_model(
+    state: &impl SharedRuntimeState,
+    scope: WorkspaceStorageScope,
+    folder: &folder::Model,
+) -> Option<serde_json::Value> {
+    match folder_path_for_audit(state, folder.id).await {
+        Ok(path) => Some(json!({
+            "parent_id": folder.parent_id,
+            "path": path,
+            "team_id": scope_team_id(scope),
+        })),
+        Err(error) => {
+            tracing::warn!(
+                folder_id = folder.id,
+                "failed to build folder audit location details: {error}"
+            );
+            None
+        }
+    }
+}
+
+pub(crate) async fn audit_transfer_details_for_models(
+    state: &impl SharedRuntimeState,
+    scope: WorkspaceStorageScope,
+    source_folder: &folder::Model,
+    target_folder: &folder::Model,
+) -> Option<serde_json::Value> {
+    audit_transfer_details_for_models_with_source_path(
+        state,
+        scope,
+        source_folder,
+        folder_path_for_audit(state, source_folder.id).await,
+        target_folder,
+    )
+    .await
+}
+
+async fn audit_transfer_details_for_models_with_source_path(
+    state: &impl SharedRuntimeState,
+    scope: WorkspaceStorageScope,
+    source_folder: &folder::Model,
+    source_path: Result<String>,
+    target_folder: &folder::Model,
+) -> Option<serde_json::Value> {
+    let source_path = match source_path {
+        Ok(path) => path,
+        Err(error) => {
+            tracing::warn!(
+                folder_id = source_folder.id,
+                "failed to build source folder audit path: {error}"
+            );
+            return None;
+        }
+    };
+    let target_path = match folder_path_for_audit(state, target_folder.id).await {
+        Ok(path) => path,
+        Err(error) => {
+            tracing::warn!(
+                folder_id = target_folder.id,
+                "failed to build target folder audit path: {error}"
+            );
+            return None;
+        }
+    };
+    Some(json!({
+        "source_parent_id": source_folder.parent_id,
+        "source_path": source_path,
+        "target_parent_id": target_folder.parent_id,
+        "target_path": target_path,
+        "previous_name": source_folder.name,
+        "next_name": target_folder.name,
+        "team_id": scope_team_id(scope),
+    }))
+}
+
+async fn folder_path_for_audit(state: &impl SharedRuntimeState, folder_id: i64) -> Result<String> {
+    let mut paths = build_folder_paths(state.reader_db(), &[folder_id]).await?;
+    paths
+        .remove(&folder_id)
+        .ok_or_else(|| AsterError::record_not_found(format!("folder #{folder_id} audit path")))
+}
+
+fn scope_team_id(scope: WorkspaceStorageScope) -> Option<i64> {
+    match scope {
+        WorkspaceStorageScope::Personal { .. } => None,
+        WorkspaceStorageScope::Team { team_id, .. } => Some(team_id),
+    }
 }

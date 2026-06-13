@@ -2,8 +2,8 @@ use chrono::{DateTime, Utc};
 use serde::Serialize;
 
 use crate::types::{
-    BackgroundTaskKind, BackgroundTaskStatus, EntityType, SystemConfigVisibility, TeamMemberRole,
-    UserRole, UserStatus,
+    BackgroundTaskKind, BackgroundTaskStatus, EntityType, MfaMethod, MfaPersistentFactorMethod,
+    SystemConfigVisibility, TeamMemberRole, UserRole, UserStatus,
 };
 
 #[derive(Serialize)]
@@ -51,12 +51,19 @@ pub struct AdminCreateUserDetails<'a> {
 
 #[derive(Serialize)]
 pub struct AdminUpdateUserDetails {
+    pub changed_fields: Vec<&'static str>,
     pub email_verified: bool,
     pub role: UserRole,
     pub status: UserStatus,
     pub must_change_password: bool,
     pub storage_quota: i64,
     pub policy_group_id: Option<i64>,
+    pub previous_email_verified: bool,
+    pub previous_role: UserRole,
+    pub previous_status: UserStatus,
+    pub previous_must_change_password: bool,
+    pub previous_storage_quota: i64,
+    pub previous_policy_group_id: Option<i64>,
 }
 
 #[derive(Serialize)]
@@ -149,13 +156,79 @@ pub struct PropertyAuditDetails<'a> {
 }
 
 #[derive(Serialize)]
+pub struct TagAuditDetails<'a> {
+    pub name: &'a str,
+    pub color: &'a str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub previous_name: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_name: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub previous_color: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_color: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub team_id: Option<i64>,
+}
+
+#[derive(Serialize)]
+pub struct TagAssignmentAuditDetails<'a> {
+    pub operation: &'a str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tag_id: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tag_name: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tag_color: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub entity_type: Option<EntityType>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub entity_id: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub file_count: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub folder_count: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tag_count: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub team_id: Option<i64>,
+}
+
+#[derive(Serialize)]
 pub struct FileVersionAuditDetails {
     pub version_id: i64,
 }
 
 #[derive(Serialize)]
 pub struct TrashPurgeAllAuditDetails {
-    pub purged: u32,
+    pub phase: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub purged: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub team_id: Option<i64>,
+}
+
+#[derive(Serialize)]
+pub struct RemoteNodeParamTestAuditDetails<'a> {
+    pub base_url: &'a str,
+    pub success: bool,
+    pub protocol_version: &'a str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub server_version: Option<&'a str>,
+    pub supports_list: bool,
+    pub supports_range_read: bool,
+    pub supports_stream_upload: bool,
+    pub supports_capacity: bool,
+}
+
+#[derive(Serialize)]
+pub struct RemoteNodeEnrollmentTokenAuditDetails {
+    pub expires_at: DateTime<Utc>,
+}
+
+#[derive(Serialize)]
+pub struct RemoteIngressProfileDeleteAuditDetails<'a> {
+    pub profile_key: &'a str,
 }
 
 #[derive(Serialize)]
@@ -196,6 +269,34 @@ pub struct ShareUpdateDetails {
 }
 
 #[derive(Serialize)]
+pub struct ShareCreateAuditDetails<'a> {
+    pub token: &'a str,
+    pub target_type: EntityType,
+    pub target_id: i64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub team_id: Option<i64>,
+    pub has_password: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub expires_at: Option<DateTime<Utc>>,
+    pub max_downloads: i64,
+}
+
+#[derive(Serialize)]
+pub struct ShareDeleteAuditDetails<'a> {
+    pub token: &'a str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub target_type: Option<EntityType>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub target_id: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub team_id: Option<i64>,
+    pub has_password: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub expires_at: Option<DateTime<Utc>>,
+    pub max_downloads: i64,
+}
+
+#[derive(Serialize)]
 pub struct AuthSessionAuditDetails<'a> {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub session_id: Option<&'a str>,
@@ -211,8 +312,71 @@ pub struct UserProfileAuditDetails<'a> {
 }
 
 #[derive(Serialize)]
+pub struct UserPreferencesAuditDetails<'a> {
+    pub changed_fields: Vec<&'a str>,
+    pub custom_upsert_count: usize,
+    pub custom_remove_count: usize,
+}
+
+#[derive(Serialize)]
+pub struct UserAvatarUploadAuditDetails {
+    pub source: crate::types::AvatarSource,
+    pub version: i32,
+}
+
+#[derive(Serialize)]
 pub struct UserAvatarSourceAuditDetails<'a> {
     pub source: &'a str,
+}
+
+#[derive(Serialize)]
+pub struct UserMfaManageAuditDetails<'a> {
+    pub method: MfaPersistentFactorMethod,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub factor_id: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub factor_name: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub factor_count: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub recovery_code_count: Option<usize>,
+}
+
+#[derive(Serialize)]
+pub struct MfaEmailCodeAuditDetails {
+    pub method: MfaMethod,
+    pub flow_id: i64,
+    pub expires_in: u64,
+    pub resend_after: u64,
+}
+
+#[derive(Serialize)]
+pub struct UserWopiInfoAuditDetails<'a> {
+    pub file_id: i64,
+    pub app_key: &'a str,
+    pub user_info_len: usize,
+}
+
+#[derive(Serialize)]
+pub struct UserLoginAuditDetails<'a> {
+    pub mfa_required: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub password_change_required: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub available_methods: Option<&'a [&'a str]>,
+}
+
+#[derive(Serialize)]
+pub struct MfaChallengeAuditDetails<'a> {
+    pub method: MfaMethod,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub flow_id: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub attempt_count: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub password_change_required: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub failure_reason: Option<&'a str>,
 }
 
 #[derive(Serialize)]
@@ -257,6 +421,32 @@ pub struct FollowerIngressProfileAuditDetails<'a> {
     pub profile_key: &'a str,
     pub driver_type: &'a str,
     pub is_default: bool,
+}
+
+#[derive(Serialize)]
+pub struct ExternalAuthUnlinkAuditDetails<'a> {
+    pub provider_key: &'a str,
+    pub issuer: &'a str,
+    pub subject: &'a str,
+}
+
+#[derive(Serialize)]
+pub struct RemoteEnrollmentAuditDetails<'a> {
+    pub phase: &'a str,
+    pub remote_node_id: i64,
+    pub remote_node_name: &'a str,
+    pub is_enabled: bool,
+}
+
+#[derive(Serialize)]
+pub struct InvitationAuditDetails<'a> {
+    pub email: &'a str,
+    pub status: crate::types::UserInvitationStatus,
+    pub invited_by: i64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub accepted_user_id: Option<i64>,
+    pub expires_at: DateTime<Utc>,
+    pub mail_queued: bool,
 }
 
 #[derive(Serialize)]

@@ -6,11 +6,13 @@ use super::{
 };
 use crate::api::middleware::csrf::{self, RequestSourceMode};
 use crate::api::response::ApiResponse;
+use crate::db::repository::passkey_repo;
 use crate::errors::{AsterError, Result};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::audit_service::{self, AuditContext, AuditRequestInfo};
 use crate::services::{auth_service::Claims, passkey_service};
 use actix_web::{HttpRequest, HttpResponse, web};
+use serde_json::json;
 
 #[api_docs_macros::path(
     get,
@@ -82,14 +84,15 @@ pub async fn finish_registration(
     )
     .await?;
     let ctx = AuditContext::from_request(&req, &claims);
-    audit_service::log(
+    let details = passkey_info_audit_details(&passkey);
+    audit_service::log_with_details(
         state.get_ref(),
         &ctx,
         audit_service::AuditAction::UserPasskeyRegister,
         crate::services::audit_service::AuditEntityType::Passkey,
         Some(passkey.id),
         Some(&passkey.name),
-        None,
+        || Some(details.clone()),
     )
     .await;
     Ok(HttpResponse::Ok().json(ApiResponse::ok(passkey)))
@@ -118,17 +121,27 @@ pub async fn rename_passkey(
     body: web::Json<PatchPasskeyReq>,
 ) -> Result<HttpResponse> {
     let id = path.into_inner();
+    let previous = passkey_repo::find_by_id_for_user(state.writer_db(), id, claims.user_id)
+        .await?
+        .ok_or_else(|| AsterError::record_not_found(format!("passkey #{id}")))?;
     let passkey =
         passkey_service::rename_passkey(state.get_ref(), claims.user_id, id, &body.name).await?;
     let ctx = AuditContext::from_request(&req, &claims);
-    audit_service::log(
+    let details = json!({
+        "passkey_id": passkey.id,
+        "previous_name": previous.name,
+        "next_name": &passkey.name,
+        "backup_eligible": passkey.backup_eligible,
+        "backed_up": passkey.backed_up,
+    });
+    audit_service::log_with_details(
         state.get_ref(),
         &ctx,
         audit_service::AuditAction::UserPasskeyRename,
         crate::services::audit_service::AuditEntityType::Passkey,
         Some(passkey.id),
         Some(&passkey.name),
-        None,
+        || Some(details.clone()),
     )
     .await;
     Ok(HttpResponse::Ok().json(ApiResponse::ok(passkey)))
@@ -154,18 +167,29 @@ pub async fn delete_passkey(
     path: web::Path<i64>,
 ) -> Result<HttpResponse> {
     let id = path.into_inner();
+    let passkey = passkey_repo::find_by_id_for_user(state.writer_db(), id, claims.user_id)
+        .await?
+        .ok_or_else(|| AsterError::record_not_found(format!("passkey #{id}")))?;
+    let passkey_name = passkey.name.clone();
     if !passkey_service::delete_passkey(state.get_ref(), claims.user_id, id).await? {
         return Err(AsterError::record_not_found(format!("passkey #{id}")));
     }
     let ctx = AuditContext::from_request(&req, &claims);
-    audit_service::log(
+    let details = json!({
+        "passkey_id": passkey.id,
+        "name": &passkey.name,
+        "backup_eligible": passkey.backup_eligible,
+        "backed_up": passkey.backed_up,
+        "last_used_at": passkey.last_used_at,
+    });
+    audit_service::log_with_details(
         state.get_ref(),
         &ctx,
         audit_service::AuditAction::UserPasskeyDelete,
         crate::services::audit_service::AuditEntityType::Passkey,
         Some(id),
-        None,
-        None,
+        Some(&passkey_name),
+        || Some(details.clone()),
     )
     .await;
     Ok(HttpResponse::Ok().json(ApiResponse::<()>::ok_empty()))
@@ -234,22 +258,38 @@ pub async fn finish_login(
         audit_info.user_agent.as_deref(),
     )
     .await?;
-    let audit_ctx = audit_info.to_context(result.user_id);
-    audit_service::log(
+    let audit_ctx = audit_info.to_context(result.login.user_id);
+    let details = json!({
+        "passkey_id": result.passkey_id,
+        "name": &result.passkey_name,
+        "password_change_required": result.login.password_change_required,
+    });
+    audit_service::log_with_details(
         state.get_ref(),
         &audit_ctx,
         audit_service::AuditAction::UserPasskeyLogin,
         audit_service::AuditEntityType::Passkey,
-        None,
-        None,
-        None,
+        Some(result.passkey_id),
+        Some(&result.passkey_name),
+        || Some(details.clone()),
     )
     .await;
 
     super::session::authenticated_login_response(
         state.get_ref(),
-        &result.access_token,
-        &result.refresh_token,
-        result.password_change_required,
+        &result.login.access_token,
+        &result.login.refresh_token,
+        result.login.password_change_required,
     )
+}
+
+fn passkey_info_audit_details(passkey: &passkey_service::PasskeyInfo) -> serde_json::Value {
+    json!({
+        "passkey_id": passkey.id,
+        "name": &passkey.name,
+        "backup_eligible": passkey.backup_eligible,
+        "backed_up": passkey.backed_up,
+        "sign_count": passkey.sign_count,
+        "last_used_at": passkey.last_used_at,
+    })
 }

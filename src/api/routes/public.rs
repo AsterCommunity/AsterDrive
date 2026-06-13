@@ -178,7 +178,12 @@ pub async fn redeem_remote_enrollment(
         crate::services::audit_service::AuditEntityType::RemoteNode,
         Some(bootstrap.remote_node_id),
         Some(&bootstrap.remote_node_name),
-        None,
+        audit_service::details(audit_service::RemoteEnrollmentAuditDetails {
+            phase: "redeemed",
+            remote_node_id: bootstrap.remote_node_id,
+            remote_node_name: &bootstrap.remote_node_name,
+            is_enabled: bootstrap.is_enabled,
+        }),
     )
     .await;
     Ok(HttpResponse::Ok().json(ApiResponse::ok(bootstrap)))
@@ -200,8 +205,9 @@ pub async fn ack_remote_enrollment(
     body: web::Json<AckRemoteEnrollmentReq>,
 ) -> Result<HttpResponse> {
     validate_request(&*body)?;
-    managed_follower_enrollment_service::ack_enrollment_token(state.get_ref(), &body.ack_token)
-        .await?;
+    let ack =
+        managed_follower_enrollment_service::ack_enrollment_token(state.get_ref(), &body.ack_token)
+            .await?;
     let audit_info = audit_service::AuditRequestInfo::from_request(&req);
     let ctx = audit_info.to_context(0);
     audit_service::log(
@@ -209,9 +215,14 @@ pub async fn ack_remote_enrollment(
         &ctx,
         audit_service::AuditAction::RemoteEnrollmentAck,
         crate::services::audit_service::AuditEntityType::RemoteNode,
-        None,
-        None,
-        None,
+        Some(ack.remote_node_id),
+        Some(&ack.remote_node_name),
+        audit_service::details(audit_service::RemoteEnrollmentAuditDetails {
+            phase: "acked",
+            remote_node_id: ack.remote_node_id,
+            remote_node_name: &ack.remote_node_name,
+            is_enabled: ack.is_enabled,
+        }),
     )
     .await;
     Ok(HttpResponse::Ok().json(ApiResponse::<()>::ok_empty()))

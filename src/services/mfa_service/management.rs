@@ -234,7 +234,13 @@ pub async fn verify_totp_setup(
                 audit_service::AuditEntityType::MfaFactor,
                 Some(factor.id),
                 Some(&factor.name),
-                None,
+                audit_service::details(audit_service::UserMfaManageAuditDetails {
+                    method: factor.method,
+                    factor_id: Some(factor.id),
+                    factor_name: Some(&factor.name),
+                    factor_count: None,
+                    recovery_code_count: Some(recovery_codes.len()),
+                }),
             )
             .await;
             Ok(TotpSetupFinishResponse {
@@ -261,25 +267,37 @@ pub async fn delete_factor(
         let user = user_repo::find_by_id(&txn, user_id).await?;
         ensure_user_can_manage_mfa(&user)?;
         verify_sensitive_mfa_code(&txn, state, user_id, input.code.as_deref()).await?;
+        let factor = mfa_factor_repo::find_by_id_for_user(&txn, factor_id, user_id)
+            .await?
+            .ok_or_else(|| AsterError::record_not_found(format!("MFA factor #{factor_id}")))?;
         mfa_recovery_code_repo::delete_all_for_user(&txn, user_id).await?;
         mfa_email_code_repo::delete_all_for_user(&txn, user_id).await?;
         mfa_login_flow_repo::delete_all_for_user(&txn, user_id).await?;
         mfa_totp_setup_flow_repo::delete_all_for_user(&txn, user_id).await?;
-        mfa_factor_repo::delete_for_user(&txn, factor_id, user_id).await
+        let deleted = mfa_factor_repo::delete_for_user(&txn, factor_id, user_id).await?;
+        Ok::<_, AsterError>((deleted, factor_info(factor)))
     }
     .await;
     match result {
-        Ok(deleted) => {
+        Ok((deleted, factor)) => {
             crate::db::transaction::commit(txn).await?;
             if deleted {
-                audit_service::log(
+                audit_service::log_with_details(
                     state,
                     audit_ctx,
                     audit_service::AuditAction::UserMfaDisable,
                     audit_service::AuditEntityType::MfaFactor,
                     Some(factor_id),
-                    None,
-                    None,
+                    Some(&factor.name),
+                    || {
+                        audit_service::details(audit_service::UserMfaManageAuditDetails {
+                            method: factor.method,
+                            factor_id: Some(factor.id),
+                            factor_name: Some(&factor.name),
+                            factor_count: None,
+                            recovery_code_count: None,
+                        })
+                    },
                 )
                 .await;
             }
@@ -316,7 +334,13 @@ pub async fn regenerate_recovery_codes(
                 audit_service::AuditEntityType::MfaFactor,
                 None,
                 None,
-                None,
+                audit_service::details(audit_service::UserMfaManageAuditDetails {
+                    method: MfaPersistentFactorMethod::Totp,
+                    factor_id: None,
+                    factor_name: None,
+                    factor_count: None,
+                    recovery_code_count: Some(codes.len()),
+                }),
             )
             .await;
             Ok(codes)
@@ -337,6 +361,10 @@ pub async fn reset_user_mfa(
     let result = async {
         let user = user_repo::find_by_id(&txn, user_id).await?;
         let next_session_version = user.session_version.saturating_add(1);
+        let factor_count = mfa_factor_repo::list_for_user(&txn, user_id).await?.len();
+        let recovery_code_count = mfa_recovery_code_repo::list_unused_for_user(&txn, user_id)
+            .await?
+            .len();
         mfa_factor_repo::delete_all_for_user(&txn, user_id).await?;
         mfa_recovery_code_repo::delete_all_for_user(&txn, user_id).await?;
         mfa_email_code_repo::delete_all_for_user(&txn, user_id).await?;
@@ -348,11 +376,11 @@ pub async fn reset_user_mfa(
         active.session_version = Set(next_session_version);
         active.updated_at = Set(now_utc());
         let updated = active.update(&txn).await.map_err(AsterError::from)?;
-        Ok::<_, AsterError>((updated.id, username))
+        Ok::<_, AsterError>((updated.id, username, factor_count, recovery_code_count))
     }
     .await;
     match result {
-        Ok((updated_user_id, username)) => {
+        Ok((updated_user_id, username, factor_count, recovery_code_count)) => {
             crate::db::transaction::commit(txn).await?;
             auth_service::invalidate_auth_snapshot_cache(state, updated_user_id).await;
             audit_service::log(
@@ -362,7 +390,13 @@ pub async fn reset_user_mfa(
                 audit_service::AuditEntityType::MfaFactor,
                 None,
                 Some(&username),
-                None,
+                audit_service::details(audit_service::UserMfaManageAuditDetails {
+                    method: MfaPersistentFactorMethod::Totp,
+                    factor_id: None,
+                    factor_name: None,
+                    factor_count: Some(factor_count),
+                    recovery_code_count: Some(recovery_code_count),
+                }),
             )
             .await;
             Ok(())

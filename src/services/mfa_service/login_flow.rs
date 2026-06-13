@@ -57,6 +57,8 @@ pub struct MfaChallengeLoginResult {
 
 struct MfaChallengeAttempt {
     user_id: i64,
+    flow_id: Option<i64>,
+    attempt_count: Option<i32>,
     result: Result<MfaChallengeLoginResult>,
 }
 
@@ -314,7 +316,12 @@ pub async fn send_email_code(
         audit_service::AuditEntityType::MfaFactor,
         Some(flow.id),
         Some(MfaMethod::EmailCode.as_str()),
-        None,
+        audit_service::details(audit_service::MfaEmailCodeAuditDetails {
+            method: MfaMethod::EmailCode,
+            flow_id: flow.id,
+            expires_in: effective_expires_in,
+            resend_after: policy.resend_cooldown_secs,
+        }),
     )
     .await;
 
@@ -341,6 +348,7 @@ pub async fn verify_challenge(
     flow_token: &str,
     method: MfaMethod,
     code: &str,
+    audit_info: &AuditRequestInfo,
 ) -> Result<MfaChallengeLoginResult> {
     let normalized_flow_token = flow_token.trim();
     if normalized_flow_token.is_empty() {
@@ -379,6 +387,8 @@ pub async fn verify_challenge(
                     {
                         return Ok(MfaChallengeAttempt {
                             user_id,
+                            flow_id: Some(flow.id),
+                            attempt_count: Some(flow.attempt_count),
                             result: Err(error),
                         });
                     }
@@ -402,6 +412,8 @@ pub async fn verify_challenge(
             };
             return Ok::<_, AsterError>(MfaChallengeAttempt {
                 user_id,
+                flow_id: Some(flow.id),
+                attempt_count: Some(next_attempt_count),
                 result: Err(error),
             });
         }
@@ -430,6 +442,8 @@ pub async fn verify_challenge(
         };
         Ok::<_, AsterError>(MfaChallengeAttempt {
             user_id,
+            flow_id: Some(flow.id),
+            attempt_count: Some(flow.attempt_count),
             result: Ok(MfaChallengeLoginResult {
                 access_token,
                 refresh_token,
@@ -443,19 +457,22 @@ pub async fn verify_challenge(
     match attempt.result {
         Ok(result) => {
             crate::db::transaction::commit(txn).await?;
-            let audit_ctx = audit_service::AuditContext {
-                user_id: result.user_id,
-                ip_address: None,
-                user_agent: None,
-            };
-            audit_service::log(
+            let audit_ctx = audit_info.to_context(result.user_id);
+            let details = audit_service::details(audit_service::MfaChallengeAuditDetails {
+                method,
+                flow_id: attempt.flow_id,
+                attempt_count: attempt.attempt_count,
+                password_change_required: Some(result.password_change_required),
+                failure_reason: None,
+            });
+            audit_service::log_with_details(
                 state,
                 &audit_ctx,
                 audit_service::AuditAction::UserMfaChallengeSuccess,
                 audit_service::AuditEntityType::MfaFactor,
                 None,
-                None,
-                None,
+                Some(method.as_str()),
+                || details.clone(),
             )
             .await;
             Ok(result)
@@ -470,19 +487,26 @@ pub async fn verify_challenge(
                 )
             ) {
                 crate::db::transaction::commit(txn).await?;
-                let audit_ctx = audit_service::AuditContext {
-                    user_id: attempt.user_id,
-                    ip_address: None,
-                    user_agent: None,
-                };
-                audit_service::log(
+                let audit_ctx = audit_info.to_context(attempt.user_id);
+                let failure_reason = error
+                    .api_error_code_override()
+                    .map(|code| code.as_str())
+                    .unwrap_or("mfa_failed");
+                let details = audit_service::details(audit_service::MfaChallengeAuditDetails {
+                    method,
+                    flow_id: attempt.flow_id,
+                    attempt_count: attempt.attempt_count,
+                    password_change_required: None,
+                    failure_reason: Some(failure_reason),
+                });
+                audit_service::log_with_details(
                     state,
                     &audit_ctx,
                     audit_service::AuditAction::UserMfaChallengeFailed,
                     audit_service::AuditEntityType::MfaFactor,
                     None,
-                    None,
-                    None,
+                    Some(method.as_str()),
+                    || details.clone(),
                 )
                 .await;
             } else {

@@ -45,6 +45,13 @@ pub struct RemoteEnrollmentBootstrap {
     pub ack_token: String,
 }
 
+#[derive(Debug, Clone)]
+pub struct RemoteEnrollmentAckInfo {
+    pub remote_node_id: i64,
+    pub remote_node_name: String,
+    pub is_enabled: bool,
+}
+
 pub async fn create_enrollment_command<S: SharedRuntimeState>(
     state: &S,
     remote_node_id: i64,
@@ -164,7 +171,10 @@ pub async fn redeem_enrollment_token<S: SharedRuntimeState>(
     .await
 }
 
-pub async fn ack_enrollment_token<S: SharedRuntimeState>(state: &S, ack_token: &str) -> Result<()> {
+pub async fn ack_enrollment_token<S: SharedRuntimeState>(
+    state: &S,
+    ack_token: &str,
+) -> Result<RemoteEnrollmentAckInfo> {
     let trimmed = ack_token.trim();
     if trimmed.is_empty() {
         return Err(AsterError::validation_error("ack_token cannot be blank"));
@@ -182,8 +192,14 @@ pub async fn ack_enrollment_token<S: SharedRuntimeState>(state: &S, ack_token: &
                 "enrollment session has been invalidated",
             ));
         }
+        let remote_node =
+            managed_follower_repo::find_by_id(txn, enrollment.managed_follower_id).await?;
         if enrollment.acked_at.is_some() {
-            return Ok(());
+            return Ok(RemoteEnrollmentAckInfo {
+                remote_node_id: remote_node.id,
+                remote_node_name: remote_node.name,
+                is_enabled: remote_node.is_enabled,
+            });
         }
         if enrollment.redeemed_at.is_none() {
             return Err(AsterError::validation_error(
@@ -196,7 +212,11 @@ pub async fn ack_enrollment_token<S: SharedRuntimeState>(state: &S, ack_token: &
                 "enrollment session could not be acknowledged",
             ));
         }
-        Ok(())
+        Ok(RemoteEnrollmentAckInfo {
+            remote_node_id: remote_node.id,
+            remote_node_name: remote_node.name,
+            is_enabled: remote_node.is_enabled,
+        })
     })
     .await
 }

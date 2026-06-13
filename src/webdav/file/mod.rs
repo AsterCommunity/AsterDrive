@@ -512,14 +512,18 @@ impl DavFile for AsterDavFile {
                     )
                     .await
                     .map_err(map_store_error)?;
-                    audit_service::log(
+                    let details = crate::services::file_service::audit_location_details_for_model(
+                        state, *scope, &stored,
+                    )
+                    .await;
+                    audit_service::log_with_details(
                         state,
                         audit_ctx,
                         audit_action,
                         crate::services::audit_service::AuditEntityType::File,
                         Some(stored.id),
                         Some(&stored.name),
-                        Some(serde_json::json!({ "source": "webdav" })),
+                        || details.clone(),
                     )
                     .await;
 
@@ -599,14 +603,18 @@ impl DavFile for AsterDavFile {
                     )
                     .await
                     .map_err(map_store_error)?;
-                    audit_service::log(
+                    let details = crate::services::file_service::audit_location_details_for_model(
+                        state, *scope, &stored,
+                    )
+                    .await;
+                    audit_service::log_with_details(
                         state,
                         audit_ctx,
                         audit_action,
                         crate::services::audit_service::AuditEntityType::File,
                         Some(stored.id),
                         Some(&stored.name),
-                        Some(serde_json::json!({ "source": "webdav" })),
+                        || details.clone(),
                     )
                     .await;
 

@@ -10,12 +10,14 @@ use crate::api::pagination::OffsetPage;
 use crate::api::response::ApiResponse;
 use crate::config::site_url;
 use crate::config::{NetworkTrustConfig, RateLimitConfig};
+use crate::db::repository::webdav_account_repo;
 use crate::errors::Result;
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::{audit_service, auth_service::Claims, webdav_account_service};
 use actix_governor::Governor;
 use actix_web::middleware::Condition;
 use actix_web::{HttpRequest, HttpResponse, web};
+use serde_json::json;
 
 pub fn routes(
     rl: &RateLimitConfig,
@@ -122,14 +124,15 @@ pub async fn create_account(
     )
     .await?;
     let ctx = audit_service::AuditContext::from_request(&req, &claims);
-    audit_service::log(
+    let details = webdav_created_audit_details(&result, body.root_folder_id);
+    audit_service::log_with_details(
         state.get_ref(),
         &ctx,
         audit_service::AuditAction::WebdavAccountCreate,
         crate::services::audit_service::AuditEntityType::WebdavAccount,
         Some(result.id),
         Some(&result.username),
-        None,
+        || Some(details.clone()),
     )
     .await;
     Ok(HttpResponse::Created().json(ApiResponse::ok(result)))
@@ -206,6 +209,7 @@ pub async fn create_team_account(
     )
     .await?;
     let ctx = audit_service::AuditContext::from_request(&req, &claims);
+    let details = webdav_created_audit_details(&result, body.root_folder_id);
     audit_service::log_with_details(
         state.get_ref(),
         &ctx,
@@ -213,11 +217,7 @@ pub async fn create_team_account(
         crate::services::audit_service::AuditEntityType::WebdavAccount,
         Some(result.id),
         Some(&result.username),
-        || {
-            audit_service::details(serde_json::json!({
-                "team_id": path.team_id,
-            }))
-        },
+        || Some(details.clone()),
     )
     .await;
     Ok(HttpResponse::Created().json(ApiResponse::ok(result)))
@@ -245,6 +245,8 @@ pub async fn delete_team_account(
     req: HttpRequest,
     path: web::Path<TeamWebdavAccountIdPath>,
 ) -> Result<HttpResponse> {
+    let account = webdav_account_repo::find_by_id(state.writer_db(), path.account_id).await?;
+    let details = webdav_account_audit_details(&account);
     webdav_account_service::delete_for_team(
         state.get_ref(),
         path.account_id,
@@ -259,12 +261,8 @@ pub async fn delete_team_account(
         audit_service::AuditAction::TeamWebdavAccountDelete,
         crate::services::audit_service::AuditEntityType::WebdavAccount,
         Some(path.account_id),
-        None,
-        || {
-            audit_service::details(serde_json::json!({
-                "team_id": path.team_id,
-            }))
-        },
+        Some(&account.username),
+        || Some(details.clone()),
     )
     .await;
     Ok(HttpResponse::Ok().json(ApiResponse::<()>::ok_empty()))
@@ -337,16 +335,18 @@ pub async fn delete_account(
     req: HttpRequest,
     path: web::Path<i64>,
 ) -> Result<HttpResponse> {
+    let account = webdav_account_repo::find_by_id(state.writer_db(), *path).await?;
+    let details = webdav_account_audit_details(&account);
     webdav_account_service::delete(state.get_ref(), *path, claims.user_id).await?;
     let ctx = audit_service::AuditContext::from_request(&req, &claims);
-    audit_service::log(
+    audit_service::log_with_details(
         state.get_ref(),
         &ctx,
         audit_service::AuditAction::WebdavAccountDelete,
         crate::services::audit_service::AuditEntityType::WebdavAccount,
         Some(*path),
-        None,
-        None,
+        Some(&account.username),
+        || Some(details.clone()),
     )
     .await;
     Ok(HttpResponse::Ok().json(ApiResponse::<()>::ok_empty()))
@@ -411,4 +411,28 @@ pub async fn test_connection(
     webdav_account_service::test_credentials(state.get_ref(), &body.username, &body.password)
         .await?;
     Ok(HttpResponse::Ok().json(ApiResponse::<()>::ok_empty()))
+}
+
+fn webdav_created_audit_details(
+    account: &webdav_account_service::WebdavAccountCreated,
+    root_folder_id: Option<i64>,
+) -> serde_json::Value {
+    json!({
+        "username": &account.username,
+        "team_id": account.team_id,
+        "root_folder_id": root_folder_id,
+        "root_folder_path": account.root_folder_path.as_deref(),
+        "is_active": true,
+    })
+}
+
+fn webdav_account_audit_details(
+    account: &crate::entities::webdav_account::Model,
+) -> serde_json::Value {
+    json!({
+        "username": &account.username,
+        "team_id": account.team_id,
+        "root_folder_id": account.root_folder_id,
+        "is_active": account.is_active,
+    })
 }

@@ -50,6 +50,22 @@ pub struct UpdateUserInput {
 }
 
 #[derive(Debug, Clone, Copy)]
+struct UserAuditSnapshot {
+    email_verified: bool,
+    role: UserRole,
+    status: UserStatus,
+    must_change_password: bool,
+    storage_quota: i64,
+    policy_group_id: Option<i64>,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct UpdateAuditDiff {
+    before: UserAuditSnapshot,
+    after: UserAuditSnapshot,
+}
+
+#[derive(Debug, Clone, Copy)]
 pub struct CreateUserInput<'a> {
     pub username: &'a str,
     pub email: &'a str,
@@ -86,27 +102,6 @@ fn generate_temporary_password() -> String {
         bytes.swap(index, swap_index);
     }
     bytes.into_iter().map(|byte| byte as char).collect()
-}
-
-#[cfg(test)]
-mod tests {
-    use super::{GENERATED_PASSWORD_LENGTH, generate_temporary_password};
-
-    #[test]
-    fn generated_temporary_password_always_satisfies_character_class_policy() {
-        for _ in 0..256 {
-            let password = generate_temporary_password();
-            assert_eq!(password.len(), GENERATED_PASSWORD_LENGTH);
-            assert!(password.chars().any(|c| c.is_ascii_uppercase()));
-            assert!(password.chars().any(|c| c.is_ascii_lowercase()));
-            assert!(password.chars().any(|c| c.is_ascii_digit()));
-            assert!(
-                password
-                    .chars()
-                    .any(|c| c.is_ascii_graphic() && !c.is_ascii_alphanumeric())
-            );
-        }
-    }
 }
 pub async fn create(
     state: &impl SharedRuntimeState,
@@ -175,6 +170,14 @@ pub async fn update(
     state: &impl SharedRuntimeState,
     input: UpdateUserInput,
 ) -> Result<super::models::UserInfo> {
+    let (user, _) = update_with_audit_diff(state, input).await?;
+    Ok(user)
+}
+
+async fn update_with_audit_diff(
+    state: &impl SharedRuntimeState,
+    input: UpdateUserInput,
+) -> Result<(super::models::UserInfo, UpdateAuditDiff)> {
     let UpdateUserInput {
         id,
         email_verified,
@@ -209,6 +212,14 @@ pub async fn update(
     let existing = user_repo::find_by_id(state.writer_db(), id).await?;
     let existing_policy_group_id = existing.policy_group_id;
     let existing_email_verified = auth_service::is_email_verified(&existing);
+    let before = UserAuditSnapshot {
+        email_verified: existing_email_verified,
+        role: existing.role,
+        status: existing.status,
+        must_change_password: existing.must_change_password,
+        storage_quota: existing.storage_quota,
+        policy_group_id: existing.policy_group_id,
+    };
     let email_verified_changed =
         email_verified.is_some_and(|value| value != existing_email_verified);
     let role_changed = role.is_some_and(|value| value != existing.role);
@@ -301,7 +312,16 @@ pub async fn update(
             "failed to invalidate WebDAV auth cache after user status update: {error}"
         );
     }
-    to_user_info(state, &updated, profile_service::AvatarAudience::AdminUser).await
+    let user = to_user_info(state, &updated, profile_service::AvatarAudience::AdminUser).await?;
+    let after = UserAuditSnapshot {
+        email_verified: user.email_verified,
+        role: user.role,
+        status: user.status,
+        must_change_password: user.must_change_password,
+        storage_quota: user.storage_quota,
+        policy_group_id: user.policy_group_id,
+    };
+    Ok((user, UpdateAuditDiff { before, after }))
 }
 
 pub async fn update_with_audit(
@@ -309,7 +329,8 @@ pub async fn update_with_audit(
     input: UpdateUserInput,
     audit_ctx: &AuditContext,
 ) -> Result<super::models::UserInfo> {
-    let user = update(state, input).await?;
+    let (user, diff) = update_with_audit_diff(state, input).await?;
+    let changed_fields = changed_user_fields(diff.before, diff.after);
     audit_service::log_with_details(
         state,
         audit_ctx,
@@ -319,17 +340,47 @@ pub async fn update_with_audit(
         Some(&user.username),
         || {
             audit_service::details(audit_service::AdminUpdateUserDetails {
-                email_verified: user.email_verified,
-                role: user.role,
-                status: user.status,
-                must_change_password: user.must_change_password,
-                storage_quota: user.storage_quota,
-                policy_group_id: user.policy_group_id,
+                changed_fields,
+                email_verified: diff.after.email_verified,
+                role: diff.after.role,
+                status: diff.after.status,
+                must_change_password: diff.after.must_change_password,
+                storage_quota: diff.after.storage_quota,
+                policy_group_id: diff.after.policy_group_id,
+                previous_email_verified: diff.before.email_verified,
+                previous_role: diff.before.role,
+                previous_status: diff.before.status,
+                previous_must_change_password: diff.before.must_change_password,
+                previous_storage_quota: diff.before.storage_quota,
+                previous_policy_group_id: diff.before.policy_group_id,
             })
         },
     )
     .await;
     Ok(user)
+}
+
+fn changed_user_fields(before: UserAuditSnapshot, after: UserAuditSnapshot) -> Vec<&'static str> {
+    let mut fields = Vec::new();
+    if before.email_verified != after.email_verified {
+        fields.push("email_verified");
+    }
+    if before.role != after.role {
+        fields.push("role");
+    }
+    if before.status != after.status {
+        fields.push("status");
+    }
+    if before.must_change_password != after.must_change_password {
+        fields.push("must_change_password");
+    }
+    if before.storage_quota != after.storage_quota {
+        fields.push("storage_quota");
+    }
+    if before.policy_group_id != after.policy_group_id {
+        fields.push("policy_group_id");
+    }
+    fields
 }
 
 /// 强制删除用户及其所有数据（不可逆）
@@ -475,4 +526,25 @@ pub async fn force_delete_with_audit(
     )
     .await;
     Ok(summary)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{GENERATED_PASSWORD_LENGTH, generate_temporary_password};
+
+    #[test]
+    fn generated_temporary_password_always_satisfies_character_class_policy() {
+        for _ in 0..256 {
+            let password = generate_temporary_password();
+            assert_eq!(password.len(), GENERATED_PASSWORD_LENGTH);
+            assert!(password.chars().any(|c| c.is_ascii_uppercase()));
+            assert!(password.chars().any(|c| c.is_ascii_lowercase()));
+            assert!(password.chars().any(|c| c.is_ascii_digit()));
+            assert!(
+                password
+                    .chars()
+                    .any(|c| c.is_ascii_graphic() && !c.is_ascii_alphanumeric())
+            );
+        }
+    }
 }

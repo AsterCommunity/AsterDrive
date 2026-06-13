@@ -361,19 +361,37 @@ pub async fn login_with_audit(
         request_info.user_agent.as_deref(),
     )
     .await?;
-    let user_id = match &result {
-        PrimaryLoginCompletion::Authenticated(login) => login.user_id,
-        PrimaryLoginCompletion::MfaRequired(challenge) => challenge.user_id,
+    let (user_id, details) = match &result {
+        PrimaryLoginCompletion::Authenticated(login) => (
+            login.user_id,
+            audit_service::details(audit_service::UserLoginAuditDetails {
+                mfa_required: false,
+                password_change_required: Some(login.password_change_required),
+                available_methods: None,
+            }),
+        ),
+        PrimaryLoginCompletion::MfaRequired(challenge) => (challenge.user_id, {
+            let available_methods = challenge
+                .methods
+                .iter()
+                .map(|method| method.as_str())
+                .collect::<Vec<_>>();
+            audit_service::details(audit_service::UserLoginAuditDetails {
+                mfa_required: true,
+                password_change_required: None,
+                available_methods: Some(available_methods.as_slice()),
+            })
+        }),
     };
     let audit_ctx = request_info.to_context(user_id);
-    audit_service::log(
+    audit_service::log_with_details(
         state,
         &audit_ctx,
         audit_service::AuditAction::UserLogin,
         audit_service::AuditEntityType::AuthSession,
         None,
         Some(identifier),
-        None,
+        || details.clone(),
     )
     .await;
     Ok(result)

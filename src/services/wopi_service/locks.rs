@@ -10,7 +10,7 @@ use crate::errors::{AsterError, MapAsterErr, Result};
 use crate::runtime::SharedRuntimeState;
 use crate::services::{
     audit_service::{self, AuditRequestInfo},
-    lock_service,
+    file_service, lock_service,
 };
 use crate::types::EntityType;
 
@@ -75,7 +75,7 @@ pub async fn lock_file(
                     log_wopi_lock_action(
                         state,
                         request_info,
-                        resolved.payload.actor_user_id,
+                        &resolved.payload,
                         audit_service::AuditAction::FileLock,
                         &resolved.file,
                     )
@@ -111,7 +111,7 @@ pub async fn lock_file(
     log_wopi_lock_action(
         state,
         request_info,
-        resolved.payload.actor_user_id,
+        &resolved.payload,
         audit_service::AuditAction::FileLock,
         &resolved.file,
     )
@@ -150,7 +150,7 @@ pub async fn unlock_and_relock_file(
             log_wopi_lock_action(
                 state,
                 request_info,
-                resolved.payload.actor_user_id,
+                &resolved.payload,
                 audit_service::AuditAction::FileLock,
                 &resolved.file,
             )
@@ -196,7 +196,7 @@ pub async fn refresh_lock(
             log_wopi_lock_action(
                 state,
                 request_info,
-                resolved.payload.actor_user_id,
+                &resolved.payload,
                 audit_service::AuditAction::FileLock,
                 &resolved.file,
             )
@@ -248,7 +248,7 @@ pub async fn unlock_file(
             log_wopi_lock_action(
                 state,
                 request_info,
-                resolved.payload.actor_user_id,
+                &resolved.payload,
                 audit_service::AuditAction::FileUnlock,
                 &resolved.file,
             )
@@ -268,19 +268,25 @@ pub async fn unlock_file(
 async fn log_wopi_lock_action(
     state: &impl SharedRuntimeState,
     request_info: &AuditRequestInfo,
-    actor_user_id: i64,
+    payload: &WopiAccessTokenPayload,
     action: audit_service::AuditAction,
     file: &file::Model,
 ) {
-    let audit_ctx = request_info.to_context(actor_user_id);
-    audit_service::log(
+    let audit_ctx = request_info.to_context(payload.actor_user_id);
+    let details = file_service::audit_location_details_for_model(
+        state,
+        super::session::scope_from_payload(payload),
+        file,
+    )
+    .await;
+    audit_service::log_with_details(
         state,
         &audit_ctx,
         action,
         crate::services::audit_service::AuditEntityType::File,
         Some(file.id),
         Some(&file.name),
-        Some(serde_json::json!({ "source": "wopi" })),
+        || details.clone(),
     )
     .await;
 }
