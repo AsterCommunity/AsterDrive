@@ -225,6 +225,8 @@ vi.mock("react-i18next", () => ({
 				return `settings_save_notice:${options?.count}`;
 			if (key === "mail_test_email_sent")
 				return `mail_test_email_sent:${options?.email}`;
+			if (key === "settings_config_description_help")
+				return `Show description for ${options?.label}`;
 			return translationMap[key] ?? key;
 		},
 	}),
@@ -1551,16 +1553,12 @@ describe("AdminSettingsPage", () => {
 		fireEvent.change(ttlInput, {
 			target: { value: "1.5" },
 		});
-		expect(
-			screen.queryByRole("button", { name: "save_changes" }),
-		).not.toBeInTheDocument();
+		expect(screen.getByRole("button", { name: "save_changes" })).toBeDisabled();
 
 		fireEvent.change(ttlInput, {
 			target: { value: String(Number.MAX_SAFE_INTEGER + 1) },
 		});
-		expect(
-			screen.queryByRole("button", { name: "save_changes" }),
-		).not.toBeInTheDocument();
+		expect(screen.getByRole("button", { name: "save_changes" })).toBeDisabled();
 
 		fireEvent.change(ttlInput, {
 			target: { value: "" },
@@ -1599,9 +1597,8 @@ describe("AdminSettingsPage", () => {
 		render(<AdminSettingsPage section="auth" />);
 
 		await screen.findByText("auth_access_token_ttl_secs");
-		expect(
-			screen.queryByPlaceholderText("config_value"),
-		).not.toBeInTheDocument();
+		const input = screen.getByPlaceholderText("config_value");
+		expect(input).toHaveAttribute("aria-invalid", "true");
 	});
 
 	it("ignores scaled size edits that would overflow the stored byte value", async () => {
@@ -1629,9 +1626,7 @@ describe("AdminSettingsPage", () => {
 			target: { value: String(Number.MAX_SAFE_INTEGER) },
 		});
 
-		expect(
-			screen.queryByRole("button", { name: "save_changes" }),
-		).not.toBeInTheDocument();
+		expect(screen.getByRole("button", { name: "save_changes" })).toBeDisabled();
 	});
 
 	it("renders a friendly size unit selector while keeping raw byte values on save", async () => {
@@ -1878,16 +1873,26 @@ describe("AdminSettingsPage", () => {
 		expect(
 			screen.getByText("External sign-in email verification subject"),
 		).toBeInTheDocument();
+		fireEvent.focus(
+			screen.getByRole("button", {
+				name: "Show description for External sign-in email verification subject",
+			}),
+		);
 		expect(
-			screen.getByText(
+			await screen.findByText(
 				"Subject template for external sign-in email verification emails.",
 			),
 		).toBeInTheDocument();
 		expect(
 			screen.getByText("External sign-in email verification HTML body"),
 		).toBeInTheDocument();
+		fireEvent.focus(
+			screen.getByRole("button", {
+				name: "Show description for External sign-in email verification HTML body",
+			}),
+		);
 		expect(
-			screen.getByText(
+			await screen.findByText(
 				"HTML template for external sign-in email verification emails. A complete HTML document is recommended for best client compatibility.",
 			),
 		).toBeInTheDocument();
@@ -2121,8 +2126,13 @@ describe("AdminSettingsPage", () => {
 		await screen.findByDisplayValue("20");
 
 		expect(screen.getByText("Access token lifetime")).toBeInTheDocument();
+		fireEvent.focus(
+			screen.getByRole("button", {
+				name: "Show description for Access token lifetime",
+			}),
+		);
 		expect(
-			screen.getByText(
+			await screen.findByText(
 				"Controls how long newly issued access tokens stay valid.",
 			),
 		).toBeInTheDocument();
@@ -2338,8 +2348,13 @@ describe("AdminSettingsPage", () => {
 		expect(
 			await screen.findByText("Enable media metadata"),
 		).toBeInTheDocument();
+		fireEvent.focus(
+			screen.getByRole("button", {
+				name: "Show description for Enable media metadata",
+			}),
+		);
 		expect(
-			screen.getByText(
+			await screen.findByText(
 				"Allow the backend to parse and cache basic image, audio, and video metadata by blob.",
 			),
 		).toBeInTheDocument();

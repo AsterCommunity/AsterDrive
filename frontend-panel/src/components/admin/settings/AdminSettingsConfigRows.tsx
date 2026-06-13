@@ -716,6 +716,13 @@ function ScaledNumberInputControl({
 			selectedUnit,
 		);
 		if (nextValue === null) {
+			const selectedUnitValue = selectedUnit.value;
+			if (isScaledDisplayUnitValue(selectedUnitValue, availableUnits)) {
+				setDisplayUnits((previous) => ({
+					...previous,
+					[config.key]: selectedUnitValue,
+				}));
+			}
 			updateDraftValue(config.key, nextDisplayValue);
 			return;
 		}

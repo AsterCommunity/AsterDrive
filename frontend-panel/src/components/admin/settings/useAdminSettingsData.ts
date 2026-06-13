@@ -26,16 +26,21 @@ import {
 	getMailTemplateGroupId,
 	getMailTemplateGroupOrderIndex,
 	getSubcategoryGroupKey,
+	getTimeConfigBaseUnit,
+	isNumberType,
 	isRedactedConfigValue,
+	isSizeConfig,
 	isStringEnumSetType,
 	isSystemConfigSource,
 	type NewCustomDraft,
 	normalizeCategory,
 	normalizeSubcategory,
+	SIZE_DISPLAY_UNITS,
 	type SizeDisplayUnitValue,
 	type SystemSubcategoryGroup,
 	serializeConfigDraftValue,
 	sortConfigsByKey,
+	TIME_DISPLAY_UNITS,
 	type TimeDisplayUnitValue,
 } from "@/components/admin/settings/adminSettingsContentShared";
 import {
@@ -49,6 +54,10 @@ import {
 	readAdminConfigSchemaCache,
 	readAdminTemplateVariablesCache,
 } from "@/lib/adminConfigMetadataCache";
+import {
+	convertNumberUnitValueToBaseUnit,
+	numberUnitValueIsValid,
+} from "@/lib/numberUnit";
 import { adminConfigService } from "@/services/adminService";
 import { useFrontendConfigStore } from "@/stores/frontendConfigStore";
 import { useMediaDataSupportStore } from "@/stores/mediaDataSupportStore";
@@ -713,6 +722,27 @@ export function useAdminSettingsData({
 		}
 
 		for (const config of configs) {
+			if (isNumberType(getConfigValueType(config))) {
+				const draftValue = configValueToString(getDraftValueForKey(config.key));
+				if (draftValue.trim() && !numberUnitValueIsValid(draftValue)) {
+					errors.set(config.key, t("settings_number_invalid_value"));
+				}
+				const displayUnitValue = displayUnits[config.key];
+				const units = isSizeConfig(config)
+					? SIZE_DISPLAY_UNITS
+					: TIME_DISPLAY_UNITS[getTimeConfigBaseUnit(config) ?? "seconds"];
+				const displayUnit = units.find(
+					(unit) => unit.value === displayUnitValue,
+				);
+				if (
+					draftValue.trim() &&
+					displayUnit &&
+					convertNumberUnitValueToBaseUnit(draftValue, displayUnit) === null
+				) {
+					errors.set(config.key, t("settings_number_invalid_value"));
+				}
+			}
+
 			if (!isStringEnumSetType(getConfigValueType(config))) {
 				continue;
 			}
@@ -739,7 +769,7 @@ export function useAdminSettingsData({
 		}
 
 		return errors;
-	}, [configs, getDraftValueForKey, schemaMap, t]);
+	}, [configs, displayUnits, getDraftValueForKey, schemaMap, t]);
 
 	const changedCount =
 		changedExistingConfigs.length +
