@@ -51,6 +51,13 @@ pub struct TagInfo {
     pub updated_at: chrono::DateTime<chrono::Utc>,
 }
 
+#[derive(Debug, Clone)]
+pub(crate) struct MinimalTagInfo {
+    pub id: i64,
+    pub name: String,
+    pub color: String,
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct EntityTags {
@@ -105,6 +112,16 @@ impl TagInfo {
             usage_count,
             created_at: tag.created_at,
             updated_at: tag.updated_at,
+        }
+    }
+}
+
+impl MinimalTagInfo {
+    fn from_model(tag: tag::Model) -> Self {
+        Self {
+            id: tag.id,
+            name: tag.name,
+            color: tag.color,
         }
     }
 }
@@ -288,14 +305,14 @@ pub(crate) async fn get_basic_in_scope(
     state: &impl SharedRuntimeState,
     scope: WorkspaceStorageScope,
     tag_id: i64,
-) -> Result<TagInfo> {
+) -> Result<MinimalTagInfo> {
     require_scope_access(state, scope).await?;
     let tag = tag_repo::find_by_id(state.reader_db(), tag_id).await?;
     let expected_scope: TagScope = WorkspaceResourceScope::from(scope).into();
     if !tag_matches_scope(&tag, expected_scope) {
         return Err(AsterError::record_not_found("tag not found"));
     }
-    Ok(TagInfo::from_model(tag, 0))
+    Ok(MinimalTagInfo::from_model(tag))
 }
 
 pub(crate) async fn create_in_scope(

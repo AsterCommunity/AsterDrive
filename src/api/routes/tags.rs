@@ -14,10 +14,12 @@ use crate::api::routes::team_scope;
 use crate::config::{NetworkTrustConfig, RateLimitConfig};
 use crate::errors::Result;
 use crate::runtime::PrimaryAppState;
+#[cfg(all(debug_assertions, feature = "openapi"))]
+use crate::services::tag_service::TagInfo;
 use crate::services::{
     audit_service,
     auth_service::Claims,
-    tag_service::{self, EntityTags, TagInfo},
+    tag_service::{self, EntityTags, MinimalTagInfo},
     workspace_storage_service::WorkspaceStorageScope,
 };
 use crate::types::EntityType;
@@ -943,7 +945,7 @@ fn entity_tags_response(tags: EntityTags) -> HttpResponse {
 struct TagAssignmentAuditInput<'a> {
     operation: &'a str,
     scope: WorkspaceStorageScope,
-    tag: Option<&'a TagInfo>,
+    tag: Option<&'a MinimalTagInfo>,
     entity_type: Option<EntityType>,
     entity_id: Option<i64>,
     file_count: Option<usize>,
