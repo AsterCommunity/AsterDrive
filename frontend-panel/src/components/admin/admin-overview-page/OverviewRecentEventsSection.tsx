@@ -14,6 +14,7 @@ import { AdminSurface } from "@/components/layout/AdminSurface";
 import { Badge } from "@/components/ui/badge";
 import { Icon } from "@/components/ui/icon";
 import {
+	formatAuditDetail,
 	formatAuditSummary,
 	formatAuditTarget,
 	formatAuditTargetType,
@@ -61,37 +62,46 @@ export function OverviewRecentEventsSection({
 						</TableRow>
 					</TableHeader>
 					<TableBody>
-						{overview.recent_events.map((event) => (
-							<TableRow key={event.id}>
-								<TableCell
-									className="text-xs text-muted-foreground whitespace-nowrap"
-									title={formatDateAbsoluteWithOffset(event.created_at)}
-								>
-									{formatDateAbsolute(event.created_at)}
-								</TableCell>
-								<TableCell>
-									<Badge
-										variant="outline"
-										className={getAuditActionBadgeClass(event.action)}
+						{overview.recent_events.map((event) => {
+							const detail = formatAuditDetail(t, event);
+
+							return (
+								<TableRow key={event.id}>
+									<TableCell
+										className="text-xs text-muted-foreground whitespace-nowrap"
+										title={formatDateAbsoluteWithOffset(event.created_at)}
 									>
-										{formatAuditSummary(t, event)}
-									</Badge>
-								</TableCell>
-								<TableCell>
-									<UserIdentity user={event.user} />
-								</TableCell>
-								<TableCell>
-									<div className="flex flex-col gap-1">
-										<span className="text-sm">
-											{formatAuditTarget(t, event)}
-										</span>
-										<span className="text-xs text-muted-foreground">
-											{formatAuditTargetType(t, event)}
-										</span>
-									</div>
-								</TableCell>
-							</TableRow>
-						))}
+										{formatDateAbsolute(event.created_at)}
+									</TableCell>
+									<TableCell>
+										<Badge
+											variant="outline"
+											className={getAuditActionBadgeClass(event.action)}
+										>
+											{formatAuditSummary(t, event)}
+										</Badge>
+									</TableCell>
+									<TableCell className="max-w-0">
+										<UserIdentity user={event.user} />
+									</TableCell>
+									<TableCell>
+										<div className="flex min-w-0 flex-col gap-0.5">
+											<span className="truncate text-sm">
+												{formatAuditTarget(t, event)}
+											</span>
+											<span className="text-xs text-muted-foreground">
+												{formatAuditTargetType(t, event)}
+											</span>
+											{detail ? (
+												<span className="truncate text-xs text-muted-foreground/80">
+													{detail}
+												</span>
+											) : null}
+										</div>
+									</TableCell>
+								</TableRow>
+							);
+						})}
 					</TableBody>
 				</Table>
 			) : (

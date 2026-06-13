@@ -45,7 +45,17 @@ export interface PasswordResetPanelState {
 	requesting: boolean;
 }
 
+export interface ActivationResendPanelState {
+	email: string;
+	error: string;
+	requesting: boolean;
+}
+
 export type AuthPanelState =
+	| {
+			activationResend: ActivationResendPanelState;
+			kind: "activation-resend";
+	  }
 	| { kind: "auth" }
 	| { kind: "external-auth-recovery"; recovery: ExternalAuthRecoveryState }
 	| MfaPanelState
@@ -59,14 +69,19 @@ export type AuthPanelState =
 	  };
 
 export type AuthPanelAction =
+	| { type: "close_activation_resend" }
 	| { type: "close_external_auth_recovery" }
 	| { type: "close_mfa" }
 	| { type: "close_password_reset" }
 	| { type: "external_email_sent" }
+	| { type: "open_activation_resend"; email: string }
 	| { type: "open_auth" }
 	| { type: "open_external_auth_recovery"; recovery: ExternalAuthRecoveryState }
 	| { type: "open_mfa"; challenge: MfaChallengeState }
 	| { type: "open_password_reset"; email: string }
+	| { type: "set_activation_resend_email"; email: string; error: string }
+	| { type: "set_activation_resend_error"; error: string }
+	| { type: "set_activation_resend_requesting"; requesting: boolean }
 	| { type: "set_external_email"; email: string; error: string }
 	| { type: "set_external_email_error"; error: string }
 	| { type: "set_external_email_submitting"; submitting: boolean }
@@ -107,14 +122,52 @@ export function authPanelReducer(
 	action: AuthPanelAction,
 ): AuthPanelState {
 	switch (action.type) {
+		case "close_activation_resend":
 		case "close_external_auth_recovery":
 		case "open_auth":
 			return initialAuthPanelState;
+		case "open_activation_resend":
+			return {
+				activationResend: {
+					email: action.email,
+					error: "",
+					requesting: false,
+				},
+				kind: "activation-resend",
+			};
 		case "close_mfa":
 			return initialAuthPanelState;
 		case "close_password_reset":
 			if (state.kind !== "password-reset") return state;
 			return initialAuthPanelState;
+		case "set_activation_resend_email":
+			if (state.kind !== "activation-resend") return state;
+			return {
+				...state,
+				activationResend: {
+					...state.activationResend,
+					email: action.email,
+					error: action.error,
+				},
+			};
+		case "set_activation_resend_error":
+			if (state.kind !== "activation-resend") return state;
+			return {
+				...state,
+				activationResend: {
+					...state.activationResend,
+					error: action.error,
+				},
+			};
+		case "set_activation_resend_requesting":
+			if (state.kind !== "activation-resend") return state;
+			return {
+				...state,
+				activationResend: {
+					...state.activationResend,
+					requesting: action.requesting,
+				},
+			};
 		case "external_email_sent":
 			if (state.kind !== "external-auth-recovery") return state;
 			return {

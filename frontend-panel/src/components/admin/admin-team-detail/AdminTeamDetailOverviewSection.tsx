@@ -1,4 +1,5 @@
 import { useTranslation } from "react-i18next";
+import { AdminStorageQuotaInput } from "@/components/admin/AdminStorageQuotaInput";
 import { SkeletonTable } from "@/components/common/SkeletonTable";
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
@@ -12,6 +13,7 @@ import {
 	SelectValue,
 } from "@/components/ui/select";
 import { ADMIN_CONTROL_HEIGHT_CLASS } from "@/lib/constants";
+import type { StorageQuotaUnit } from "@/lib/storageQuota";
 import type { AdminTeamInfo } from "@/types/api";
 import type { PolicyGroupOption } from "./AdminTeamDetailSectionTypes";
 
@@ -26,6 +28,7 @@ interface OverviewSectionProps {
 	onDescriptionChange: (value: string) => void;
 	onNameChange: (value: string) => void;
 	onPolicyGroupChange: (value: string) => void;
+	onQuotaUnitChange: (value: StorageQuotaUnit) => void;
 	onQuotaValueChange: (value: string) => void;
 	onRefreshPolicyGroups: () => Promise<void>;
 	onSave: () => Promise<void>;
@@ -33,6 +36,8 @@ interface OverviewSectionProps {
 	policyGroupOptions: PolicyGroupOption[];
 	policyGroupUnavailable: boolean;
 	policyGroupsLoading: boolean;
+	quotaErrorMessage?: string | null;
+	quotaUnit: StorageQuotaUnit;
 	quotaValue: string;
 	restoring: boolean;
 	saving: boolean;
@@ -50,6 +55,7 @@ export function AdminTeamDetailOverviewSection({
 	onDescriptionChange,
 	onNameChange,
 	onPolicyGroupChange,
+	onQuotaUnitChange,
 	onQuotaValueChange,
 	onRefreshPolicyGroups,
 	onSave,
@@ -57,6 +63,8 @@ export function AdminTeamDetailOverviewSection({
 	policyGroupOptions,
 	policyGroupUnavailable,
 	policyGroupsLoading,
+	quotaErrorMessage,
+	quotaUnit,
 	quotaValue,
 	restoring,
 	saving,
@@ -152,19 +160,16 @@ export function AdminTeamDetailOverviewSection({
 							) : null}
 						</div>
 						<div className="space-y-2 md:col-span-2">
-							<Label htmlFor="admin-team-detail-storage-quota">
-								{t("team_quota_mb")}
-							</Label>
-							<Input
+							<AdminStorageQuotaInput
 								id="admin-team-detail-storage-quota"
-								type="number"
-								min={0}
-								step={1}
+								label={t("quota")}
 								value={quotaValue}
+								unit={quotaUnit}
 								disabled={formDisabled}
 								placeholder={t("team_quota_unlimited_short")}
-								className={ADMIN_CONTROL_HEIGHT_CLASS}
-								onChange={(event) => onQuotaValueChange(event.target.value)}
+								errorMessage={quotaErrorMessage}
+								onValueChange={onQuotaValueChange}
+								onUnitChange={onQuotaUnitChange}
 							/>
 							<p className="text-xs text-muted-foreground">
 								{t("team_quota_update_desc")}

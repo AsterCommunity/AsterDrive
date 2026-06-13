@@ -326,29 +326,33 @@ export function parseWholeNumber(value: string) {
 
 export function getAvailableDisplayUnits<T extends DisplayUnit>(
 	units: readonly T[],
-	value: string,
+	_value: string,
 ) {
-	const parsed = parseWholeNumber(value);
-
-	if (parsed === null) {
-		return units;
-	}
-
-	return units.filter(
-		(unit) => unit.multiplier === 1 || parsed % unit.multiplier === 0,
-	);
+	return units;
 }
 
 export function getPreferredDisplayUnit<T extends DisplayUnit>(
 	units: readonly T[],
 	value: string,
 ) {
+	if (!value.trim()) {
+		return units[units.length - 1];
+	}
+
 	const parsed = parseWholeNumber(value);
 	if (parsed === 0) {
 		return units[units.length - 1];
 	}
 
-	return getAvailableDisplayUnits(units, value)[0] ?? units[units.length - 1];
+	if (parsed === null) {
+		return units[units.length - 1];
+	}
+
+	return (
+		units.find(
+			(unit) => unit.multiplier === 1 || parsed % unit.multiplier === 0,
+		) ?? units[units.length - 1]
+	);
 }
 
 export function formatDisplayValue(value: string, unit: DisplayUnit) {

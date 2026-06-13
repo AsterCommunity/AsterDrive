@@ -21,7 +21,12 @@ import { useAdminTeamDetailScrollRestoration } from "@/components/admin/admin-te
 import { useAdminTeamDetailTabs } from "@/components/admin/admin-team-detail/useAdminTeamDetailTabs";
 import { handleApiError } from "@/hooks/useApiError";
 import type { SortOrder } from "@/lib/pagination";
-import { BYTES_PER_MB, parseStorageQuotaMbToBytes } from "@/lib/storageQuota";
+import {
+	formatStorageQuotaDraft,
+	parseStorageQuotaValueToBytes,
+	type StorageQuotaUnit,
+	storageQuotaDraftIsValid,
+} from "@/lib/storageQuota";
 import { adminTeamService } from "@/services/adminService";
 import type { AdminTeamMemberSortBy } from "@/types/adminSort";
 import type {
@@ -49,21 +54,32 @@ interface AdminTeamDetailDialogProps {
 	pageTab?: AdminTeamDetailTab;
 }
 
-function quotaMbValue(team: AdminTeamInfo | null) {
+function quotaDraftValue(team: AdminTeamInfo | null) {
 	const quota = team?.storage_quota ?? 0;
-	return quota > 0 ? String(quota / BYTES_PER_MB) : "";
+	return formatStorageQuotaDraft(quota);
 }
 
-function quotaValueToBytes(value: string, team: AdminTeamInfo | null) {
+function quotaValueToBytes(
+	value: string,
+	unit: StorageQuotaUnit,
+	team: AdminTeamInfo | null,
+) {
 	const normalized = value.trim();
-	if (normalized === quotaMbValue(team)) {
+	const parsedValue = parseStorageQuotaValueToBytes(normalized, unit);
+	if (parsedValue === null) {
+		return null;
+	}
+	const currentQuota = team?.storage_quota ?? 0;
+	if (parsedValue === currentQuota) {
 		return team?.storage_quota ?? 0;
 	}
-	if (!normalized) {
-		return 0;
-	}
 
-	return parseStorageQuotaMbToBytes(normalized);
+	return parsedValue;
+}
+
+interface QuotaDraftOverride {
+	unit: StorageQuotaUnit;
+	value: string;
 }
 
 export function AdminTeamDetailDialog({
@@ -106,7 +122,8 @@ export function AdminTeamDetailDialog({
 	const [name, setName] = useState("");
 	const [description, setDescription] = useState("");
 	const [policyGroupId, setPolicyGroupId] = useState("");
-	const [quotaValue, setQuotaValue] = useState("");
+	const [quotaDraftOverride, setQuotaDraftOverride] =
+		useState<QuotaDraftOverride | null>(null);
 	const [restoring, setRestoring] = useState(false);
 	const [saving, setSaving] = useState(false);
 	const contentRef = useRef<HTMLDivElement | null>(null);
@@ -190,7 +207,7 @@ export function AdminTeamDetailDialog({
 		setPolicyGroupId(
 			team?.policy_group_id != null ? String(team.policy_group_id) : "",
 		);
-		setQuotaValue(quotaMbValue(team));
+		setQuotaDraftOverride(null);
 	}, [team]);
 
 	const handleNameChange = (value: string) => {
@@ -210,12 +227,26 @@ export function AdminTeamDetailDialog({
 
 	const handleQuotaValueChange = (value: string) => {
 		overviewSyncAllowedRef.current = false;
-		setQuotaValue(value);
+		setQuotaDraftOverride((draft) => ({
+			unit: draft?.unit ?? quotaUnit,
+			value,
+		}));
+	};
+
+	const handleQuotaUnitChange = (unit: StorageQuotaUnit) => {
+		overviewSyncAllowedRef.current = false;
+		setQuotaDraftOverride((draft) => ({
+			unit,
+			value: draft?.value ?? quotaValue,
+		}));
 	};
 
 	const quota = team?.storage_quota ?? 0;
 	const used = team?.storage_used ?? 0;
 	const usagePercentage = quota > 0 ? Math.min((used / quota) * 100, 100) : 0;
+	const teamQuotaDraft = quotaDraftValue(team);
+	const quotaUnit = quotaDraftOverride?.unit ?? teamQuotaDraft.unit;
+	const quotaValue = quotaDraftOverride?.value ?? teamQuotaDraft.value;
 	const selectedPolicyGroupId = policyGroupId ? Number(policyGroupId) : null;
 	const policyGroupOptions = buildPolicyGroupOptions(
 		policyGroups,
@@ -240,10 +271,11 @@ export function AdminTeamDetailDialog({
 			!currentPolicyGroup.is_enabled ||
 			currentPolicyGroup.items.length === 0);
 	const canMutateTeam = team != null && team.archived_at == null;
-	const nextQuota = quotaValueToBytes(quotaValue, team);
+	const nextQuota = quotaValueToBytes(quotaValue, quotaUnit, team);
+	const quotaHasError = !storageQuotaDraftIsValid(quotaValue, quotaUnit);
 	const hasChanges =
 		canMutateTeam &&
-		nextQuota !== null &&
+		!quotaHasError &&
 		(name.trim() !== team.name ||
 			(description.trim() || "") !== team.description ||
 			nextQuota !== quota ||
@@ -296,7 +328,7 @@ export function AdminTeamDetailDialog({
 			return;
 		}
 
-		const nextQuota = quotaValueToBytes(quotaValue, team);
+		const nextQuota = quotaValueToBytes(quotaValue, quotaUnit, team);
 		if (nextQuota === null) {
 			toast.error(t("team_quota_invalid"));
 			return;
@@ -316,6 +348,7 @@ export function AdminTeamDetailDialog({
 				loadAuditEntries(team.id),
 				onListChange(),
 			]);
+			setQuotaDraftOverride(null);
 			toast.success(t("team_updated"));
 		} catch (error) {
 			handleApiError(error);
@@ -338,6 +371,7 @@ export function AdminTeamDetailDialog({
 				loadAuditEntries(team.id),
 				onListChange(),
 			]);
+			setQuotaDraftOverride(null);
 			toast.success(t("team_deleted"));
 		} catch (error) {
 			handleApiError(error);
@@ -360,6 +394,7 @@ export function AdminTeamDetailDialog({
 				loadAuditEntries(team.id),
 				onListChange(),
 			]);
+			setQuotaDraftOverride(null);
 			toast.success(t("team_restored"));
 		} catch (error) {
 			handleApiError(error);
@@ -479,7 +514,7 @@ export function AdminTeamDetailDialog({
 			setMemberStatusFilter("__all__");
 			setName("");
 			setPolicyGroupId("");
-			setQuotaValue("");
+			setQuotaDraftOverride(null);
 			setRestoring(false);
 			setSaving(false);
 			resetDialogTab();
@@ -491,6 +526,7 @@ export function AdminTeamDetailDialog({
 		setMemberOffset(0);
 		setMemberSortBy("role");
 		setMemberSortOrder("asc");
+		setQuotaDraftOverride(null);
 		resetDialogTab();
 	}, [open, resetDialogTab, teamId]);
 
@@ -500,7 +536,7 @@ export function AdminTeamDetailDialog({
 
 	const handleDialogOpenChange = (nextOpen: boolean) => {
 		if (!nextOpen) {
-			setQuotaValue("");
+			setQuotaDraftOverride(null);
 		}
 		onOpenChange(nextOpen);
 	};
@@ -548,6 +584,7 @@ export function AdminTeamDetailDialog({
 			onDescriptionChange={handleDescriptionChange}
 			onNameChange={handleNameChange}
 			onPolicyGroupChange={handlePolicyGroupChange}
+			onQuotaUnitChange={handleQuotaUnitChange}
 			onQuotaValueChange={handleQuotaValueChange}
 			onRefreshPolicyGroups={onRefreshPolicyGroups}
 			onSave={handleSave}
@@ -555,6 +592,8 @@ export function AdminTeamDetailDialog({
 			policyGroupOptions={policyGroupOptions}
 			policyGroupUnavailable={policyGroupUnavailable}
 			policyGroupsLoading={policyGroupsLoading}
+			quotaErrorMessage={quotaHasError ? t("team_quota_invalid") : null}
+			quotaUnit={quotaUnit}
 			quotaValue={quotaValue}
 			restoring={restoring}
 			saving={saving}

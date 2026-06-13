@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -33,15 +34,15 @@ interface UserProfileSectionProps {
 	onDraftEmailVerifiedChange: (value: boolean) => void;
 	onDraftRoleChange: (value: UserRole) => void;
 	onDraftStatusChange: (value: UserStatus) => void;
-	onQuotaValueChange: (value: string) => void;
-	quotaValue: string;
 	roleOptions: ReadonlyArray<SelectOption<UserRole>>;
 	savingProfile: boolean;
 	statusOptions: ReadonlyArray<SelectOption<UserStatus>>;
 	user: UserInfo;
+	children: ReactNode;
 }
 
 export function UserProfileSection({
+	children,
 	draftEmailVerified,
 	draftRole,
 	draftStatus,
@@ -50,8 +51,6 @@ export function UserProfileSection({
 	onDraftEmailVerifiedChange,
 	onDraftRoleChange,
 	onDraftStatusChange,
-	onQuotaValueChange,
-	quotaValue,
 	roleOptions,
 	savingProfile,
 	statusOptions,
@@ -220,18 +219,7 @@ export function UserProfileSection({
 						</Tooltip>
 					</TooltipProvider>
 				</div>
-				<div className="space-y-2 md:col-span-2">
-					<Label htmlFor="user-storage-quota">{t("quota_mb")}</Label>
-					<Input
-						id="user-storage-quota"
-						type="number"
-						value={quotaValue}
-						onChange={(event) => onQuotaValueChange(event.target.value)}
-						placeholder={t("quota_unlimited_short")}
-						className={ADMIN_CONTROL_HEIGHT_CLASS}
-						disabled={savingProfile}
-					/>
-				</div>
+				<div className="space-y-2 md:col-span-2">{children}</div>
 			</div>
 		</section>
 	);

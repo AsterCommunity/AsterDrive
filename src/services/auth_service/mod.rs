@@ -24,7 +24,8 @@ pub use contact_verification::{
 };
 pub use password::{change_password, login, set_password};
 pub use registration::{
-    check_auth_state, create_user_by_admin, register, resend_register_activation, setup,
+    RegisterActivationResendOutcome, check_auth_state, create_user_by_admin, register,
+    resend_register_activation, setup,
 };
 pub use session::{
     cleanup_expired_auth_sessions, get_auth_snapshot, invalidate_auth_snapshot_cache,
@@ -247,8 +248,13 @@ pub async fn resend_register_activation_with_audit(
     identifier: &str,
     request_info: &AuditRequestInfo,
 ) -> Result<Option<UserAuditInfo>> {
-    let user = resend_register_activation(state, identifier).await?;
-    if let Some(user) = user.as_ref() {
+    let outcome = resend_register_activation(state, identifier).await?;
+    state.metrics().record_auth_event(
+        "register_activation_resend",
+        outcome.metric_status(),
+        outcome.metric_reason(),
+    );
+    if let RegisterActivationResendOutcome::Sent(user) = &outcome {
         let audit_ctx = request_info.to_context(user.id);
         audit_service::log(
             state,
@@ -261,7 +267,14 @@ pub async fn resend_register_activation_with_audit(
         )
         .await;
     }
-    Ok(user)
+    Ok(match outcome {
+        RegisterActivationResendOutcome::Sent(user) => Some(user),
+        RegisterActivationResendOutcome::EmailNotFound
+        | RegisterActivationResendOutcome::AlreadyActive
+        | RegisterActivationResendOutcome::AccountDisabled
+        | RegisterActivationResendOutcome::Cooldown
+        | RegisterActivationResendOutcome::EmailPolicyRejected => None,
+    })
 }
 
 pub async fn confirm_contact_verification_with_audit(

@@ -93,6 +93,7 @@
 	"confirm_password": "Confirm password",
 	"password_confirm_mismatch": "The confirmation password does not match.",
 	"password_reset_success": "Password reset successfully.",
+	"quota_invalid": "Quota must be unlimited, zero, or a positive whole number.",
 	"quota_mb": "Total quota (MB)",
 	"page_size_option": "{{count}} / page",
 	"user_details_footer_hint": "Changes are saved to the system immediately. Proceed carefully.",

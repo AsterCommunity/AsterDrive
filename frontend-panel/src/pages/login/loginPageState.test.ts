@@ -95,6 +95,86 @@ describe("authPanelReducer", () => {
 		});
 	});
 
+	it("updates activation resend email and request lifecycle while the panel is active", () => {
+		const opened = authPanelReducer(initialAuthPanelState, {
+			type: "open_activation_resend",
+			email: "old@example.com",
+		});
+
+		const edited = authPanelReducer(opened, {
+			type: "set_activation_resend_email",
+			email: "new@example.com",
+			error: "invalid-email",
+		});
+
+		expect(edited).toEqual({
+			activationResend: {
+				email: "new@example.com",
+				error: "invalid-email",
+				requesting: false,
+			},
+			kind: "activation-resend",
+		});
+
+		const requesting = authPanelReducer(edited, {
+			type: "set_activation_resend_requesting",
+			requesting: true,
+		});
+
+		expect(requesting).toMatchObject({
+			activationResend: {
+				email: "new@example.com",
+				error: "invalid-email",
+				requesting: true,
+			},
+			kind: "activation-resend",
+		});
+
+		expect(
+			authPanelReducer(requesting, {
+				type: "set_activation_resend_error",
+				error: "",
+			}),
+		).toMatchObject({
+			activationResend: {
+				error: "",
+			},
+		});
+	});
+
+	it("closes the activation resend panel back to auth", () => {
+		const opened = authPanelReducer(initialAuthPanelState, {
+			type: "open_activation_resend",
+			email: "old@example.com",
+		});
+
+		expect(authPanelReducer(opened, { type: "close_activation_resend" })).toBe(
+			initialAuthPanelState,
+		);
+	});
+
+	it("ignores activation resend edits outside the activation resend panel", () => {
+		expect(
+			authPanelReducer(initialAuthPanelState, {
+				type: "set_activation_resend_email",
+				email: "new@example.com",
+				error: "",
+			}),
+		).toBe(initialAuthPanelState);
+		expect(
+			authPanelReducer(initialAuthPanelState, {
+				type: "set_activation_resend_error",
+				error: "invalid-email",
+			}),
+		).toBe(initialAuthPanelState);
+		expect(
+			authPanelReducer(initialAuthPanelState, {
+				type: "set_activation_resend_requesting",
+				requesting: true,
+			}),
+		).toBe(initialAuthPanelState);
+	});
+
 	it("opens email-only MFA challenges with email selected", () => {
 		const opened = authPanelReducer(initialAuthPanelState, {
 			type: "open_mfa",
@@ -112,6 +192,27 @@ describe("authPanelReducer", () => {
 			kind: "mfa",
 			selectedMethod: "email_code",
 			submitting: false,
+		});
+	});
+
+	it("falls back through recovery-code and totp MFA initial methods", () => {
+		expect(
+			authPanelReducer(initialAuthPanelState, {
+				type: "open_mfa",
+				challenge: mfaChallenge({ methods: ["recovery_code"] }),
+			}),
+		).toMatchObject({
+			kind: "mfa",
+			selectedMethod: "recovery_code",
+		});
+		expect(
+			authPanelReducer(initialAuthPanelState, {
+				type: "open_mfa",
+				challenge: mfaChallenge({ methods: [] }),
+			}),
+		).toMatchObject({
+			kind: "mfa",
+			selectedMethod: "totp",
 		});
 	});
 

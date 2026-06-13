@@ -20,6 +20,40 @@ use super::shared::{
 };
 use super::{AuthUserInfo, UserAuditInfo, is_email_verified, user_audit_info};
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RegisterActivationResendOutcome {
+    Sent(UserAuditInfo),
+    EmailNotFound,
+    AlreadyActive,
+    AccountDisabled,
+    Cooldown,
+    EmailPolicyRejected,
+}
+
+impl RegisterActivationResendOutcome {
+    pub fn metric_reason(&self) -> &'static str {
+        match self {
+            Self::Sent(_) => "pending_activation",
+            Self::EmailNotFound => "email_not_found",
+            Self::AlreadyActive => "already_active",
+            Self::AccountDisabled => "account_disabled",
+            Self::Cooldown => "rate_limited",
+            Self::EmailPolicyRejected => "email_policy_rejected",
+        }
+    }
+
+    pub fn metric_status(&self) -> &'static str {
+        match self {
+            Self::Sent(_) => "sent",
+            Self::EmailNotFound
+            | Self::AlreadyActive
+            | Self::AccountDisabled
+            | Self::Cooldown
+            | Self::EmailPolicyRejected => "skipped",
+        }
+    }
+}
+
 pub async fn create_user_by_admin(
     state: &impl SharedRuntimeState,
     username: &str,
@@ -130,16 +164,28 @@ pub async fn register(
 pub async fn resend_register_activation(
     state: &impl SharedRuntimeState,
     identifier: &str,
-) -> Result<Option<UserAuditInfo>> {
+) -> Result<RegisterActivationResendOutcome> {
     let Some(user) = find_user_by_identifier(state.writer_db(), identifier).await? else {
-        return Ok(None);
+        return Ok(RegisterActivationResendOutcome::EmailNotFound);
     };
 
-    if !user.status.is_active() || is_email_verified(&user) {
-        return Ok(None);
+    if !user.status.is_active() {
+        return Ok(RegisterActivationResendOutcome::AccountDisabled);
+    }
+    if is_email_verified(&user) {
+        return Ok(RegisterActivationResendOutcome::AlreadyActive);
     }
 
-    LocalEmailPolicy::from_runtime_config(state.runtime_config()).check_not_blocked(&user.email)?;
+    if let Err(error) =
+        LocalEmailPolicy::from_runtime_config(state.runtime_config()).check_not_blocked(&user.email)
+    {
+        tracing::debug!(
+            user_id = user.id,
+            error = %error,
+            "register activation resend skipped due to email policy"
+        );
+        return Ok(RegisterActivationResendOutcome::EmailPolicyRejected);
+    }
 
     if !resend_allowed(
         state,
@@ -153,7 +199,7 @@ pub async fn resend_register_activation(
             user_id = user.id,
             "register activation resend skipped due to cooldown"
         );
-        return Ok(None);
+        return Ok(RegisterActivationResendOutcome::Cooldown);
     }
     let policy = RuntimeContactVerificationPolicy::from_runtime_config(state.runtime_config());
     let site_name = branding::title_or_default(state.runtime_config());
@@ -169,7 +215,9 @@ pub async fn resend_register_activation(
     .await
     {
         Ok(token) => token,
-        Err(err) if is_active_verification_request_error(&err) => return Ok(None),
+        Err(err) if is_active_verification_request_error(&err) => {
+            return Ok(RegisterActivationResendOutcome::Cooldown);
+        }
         Err(err) => return Err(err),
     };
     mail_outbox_service::enqueue(
@@ -181,7 +229,9 @@ pub async fn resend_register_activation(
     .await?;
     crate::db::transaction::commit(txn).await?;
 
-    Ok(Some(user_audit_info(&user)))
+    Ok(RegisterActivationResendOutcome::Sent(user_audit_info(
+        &user,
+    )))
 }
 
 pub async fn check_auth_state(state: &impl SharedRuntimeState) -> Result<bool> {

@@ -5,6 +5,9 @@ import {
 	configDraftValueChanged,
 	configDraftValuesEqual,
 	configValueToString,
+	getAvailableDisplayUnits,
+	getPreferredDisplayUnit,
+	TIME_DISPLAY_UNITS,
 } from "@/components/admin/settings/adminSettingsContentShared";
 import type { SystemConfig } from "@/types/api";
 
@@ -53,5 +56,38 @@ describe("admin settings content shared draft values", () => {
 			auth_access_token_ttl_secs: 20,
 			storage_enabled: false,
 		});
+	});
+
+	it("keeps all unit choices visible while preferring divisible display units", () => {
+		expect(
+			getAvailableDisplayUnits(TIME_DISPLAY_UNITS.seconds, "1").map(
+				(unit) => unit.value,
+			),
+		).toEqual(["days", "hours", "minutes", "seconds"]);
+		expect(getPreferredDisplayUnit(TIME_DISPLAY_UNITS.seconds, "1").value).toBe(
+			"seconds",
+		);
+		expect(
+			getPreferredDisplayUnit(TIME_DISPLAY_UNITS.seconds, "60").value,
+		).toBe("minutes");
+		expect(
+			getPreferredDisplayUnit(TIME_DISPLAY_UNITS.seconds, "3600").value,
+		).toBe("hours");
+		expect(getPreferredDisplayUnit(TIME_DISPLAY_UNITS.seconds, "").value).toBe(
+			"seconds",
+		);
+	});
+
+	it("falls back to the smallest preferred unit for zero, invalid, and non-divisible values", () => {
+		for (const value of ["0", "abc", "1234"]) {
+			expect(
+				getAvailableDisplayUnits(TIME_DISPLAY_UNITS.seconds, value).map(
+					(unit) => unit.value,
+				),
+			).toEqual(["days", "hours", "minutes", "seconds"]);
+			expect(
+				getPreferredDisplayUnit(TIME_DISPLAY_UNITS.seconds, value).value,
+			).toBe("seconds");
+		}
 	});
 });

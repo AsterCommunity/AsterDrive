@@ -93,6 +93,7 @@
 	"confirm_password": "确认密码",
 	"password_confirm_mismatch": "两次输入的密码不一致。",
 	"password_reset_success": "密码已重置。",
+	"quota_invalid": "配额必须是无限制、0 或正整数。",
 	"quota_mb": "总配额 (MB)",
 	"page_size_option": "每页 {{count}} 条",
 	"user_details_footer_hint": "修改会立即保存到系统，请谨慎操作。",

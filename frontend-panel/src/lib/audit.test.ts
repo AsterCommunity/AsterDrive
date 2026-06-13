@@ -1,4 +1,3 @@
-import type { TFunction } from "i18next";
 import { describe, expect, it } from "vitest";
 import {
 	formatAuditAction,
@@ -9,27 +8,12 @@ import {
 	formatAuditTargetType,
 	getAuditActionBadgeClass,
 } from "@/lib/audit";
+import { createMockTWithInterpolation } from "@/test/i18n";
 import type { AuditLogEntry } from "@/types/api";
-
-function createT(translations: Record<string, string> = {}) {
-	return ((key: string, options?: Record<string, unknown>) => {
-		const namespace = typeof options?.ns === "string" ? options.ns : "admin";
-		const translated = translations[`${namespace}:${key}`] ?? translations[key];
-		if (translated) {
-			return translated.replace(/\{\{\s*(\w+)\s*\}\}/g, (match, param) => {
-				const value = options?.[param];
-				return value === undefined || value === null ? match : String(value);
-			});
-		}
-		return typeof options?.defaultValue === "string"
-			? options.defaultValue
-			: key;
-	}) as unknown as TFunction;
-}
 
 describe("audit i18n formatting", () => {
 	it("uses admin audit translations before falling back to raw keys", () => {
-		const t = createT({
+		const t = createMockTWithInterpolation({
 			"admin:audit_action_file_delete": "Deleted file",
 			"admin:audit_action_offline_download": "Created link import task",
 			"admin:audit_action_follower_object_write": "Follower wrote object",
@@ -60,7 +44,7 @@ describe("audit i18n formatting", () => {
 	});
 
 	it("keeps legacy settings translations as a fallback for team audit entries", () => {
-		const t = createT({
+		const t = createMockTWithInterpolation({
 			"settings:team_member_add": "Member added",
 		});
 
@@ -68,7 +52,7 @@ describe("audit i18n formatting", () => {
 	});
 
 	it("falls back to raw values when no translation exists", () => {
-		const t = createT();
+		const t = createMockTWithInterpolation();
 
 		expect(formatAuditAction(t, "unknown_action")).toBe("unknown_action");
 		expect(formatAuditEntityType(t, "unknown_entity")).toBe("unknown_entity");
@@ -106,7 +90,7 @@ describe("audit i18n formatting", () => {
 	});
 
 	it("prefers structured presentation messages when they are available", () => {
-		const t = createT({
+		const t = createMockTWithInterpolation({
 			"admin:audit_entity_type_file": "File",
 			"admin:audit_presentation_config_value_updated":
 				"Value changed to {{value}}",
@@ -137,7 +121,7 @@ describe("audit i18n formatting", () => {
 	});
 
 	it("formats presentation summary codes as actions before matching detail templates", () => {
-		const t = createT({
+		const t = createMockTWithInterpolation({
 			"admin:audit_action_mail_delivery_failed": "Email delivery failed",
 			"admin:audit_presentation_mail_delivery_failed":
 				"{{template_code}} to {{to_address}} failed: {{error}}",
@@ -170,7 +154,7 @@ describe("audit i18n formatting", () => {
 	});
 
 	it("falls back safely when presentation codes are unknown or missing", () => {
-		const t = createT({
+		const t = createMockTWithInterpolation({
 			"admin:audit_action_file_delete": "Deleted file",
 			"admin:audit_entity_type_file": "File",
 		});
@@ -192,7 +176,7 @@ describe("audit i18n formatting", () => {
 	});
 
 	it("ignores array params in presentation messages", () => {
-		const t = createT({
+		const t = createMockTWithInterpolation({
 			"admin:audit_presentation_config_value_updated": "Value {{0}}",
 		});
 		const entry = {
@@ -208,5 +192,28 @@ describe("audit i18n formatting", () => {
 		} as AuditLogEntry;
 
 		expect(formatAuditDetail(t, entry)).toBe("Value {{0}}");
+	});
+
+	it("formats offline download presentation details from structured params", () => {
+		const t = createMockTWithInterpolation({
+			"admin:audit_presentation_offline_download_created":
+				"Import from {{source}} to folder {{target_folder_id}}",
+		});
+		const entry = {
+			action: "offline_download",
+			presentation: {
+				detail: {
+					code: "offline_download_created",
+					params: {
+						source: "https://example.test/archive.zip",
+						target_folder_id: 42,
+					},
+				},
+			},
+		} as AuditLogEntry;
+
+		expect(formatAuditDetail(t, entry)).toBe(
+			"Import from https://example.test/archive.zip to folder 42",
+		);
 	});
 });

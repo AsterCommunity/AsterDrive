@@ -611,7 +611,7 @@ async fn test_register_and_login() {
 #[actix_web::test]
 async fn test_login_rejects_untrusted_origin() {
     let state = common::setup().await;
-    let app = create_test_app!(state);
+    let app = create_test_app!(state.clone());
 
     let req = test::TestRequest::post()
         .uri("/api/v1/auth/register")
@@ -2019,9 +2019,16 @@ async fn test_register_resend_is_generic_for_unknown_identifier_and_cooldown() {
     let db = state.writer_db().clone();
     let mail_sender = state.mail_sender.clone();
     let runtime_config = state.runtime_config.clone();
-    let app = create_test_app!(state);
+    let app = create_test_app!(state.clone());
 
-    let _ = register_and_login!(app);
+    let (admin_token, _) = register_and_login!(app);
+    let active_user_id = admin_create_user_with_credentials!(
+        app,
+        admin_token,
+        "activeuser",
+        "activeuser@example.com",
+        "password123"
+    );
 
     let req = test::TestRequest::post()
         .uri("/api/v1/auth/register")
@@ -2052,6 +2059,33 @@ async fn test_register_resend_is_generic_for_unknown_identifier_and_cooldown() {
         "If the account can be reactivated, an activation email will be sent"
     );
 
+    let resp = test::call_service(&app, resend("activeuser@example.com")).await;
+    assert_eq!(resp.status(), 200);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(
+        body["data"]["message"],
+        "If the account can be reactivated, an activation email will be sent"
+    );
+
+    {
+        use sea_orm::{ActiveModelTrait, IntoActiveModel, Set};
+
+        let user = user_repo::find_by_id(state.writer_db(), active_user_id)
+            .await
+            .expect("user lookup should succeed");
+        let mut active = user.into_active_model();
+        active.status = Set(UserStatus::Disabled);
+        active.update(state.writer_db()).await.unwrap();
+    }
+
+    let resp = test::call_service(&app, resend("activeuser@example.com")).await;
+    assert_eq!(resp.status(), 200);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(
+        body["data"]["message"],
+        "If the account can be reactivated, an activation email will be sent"
+    );
+
     let resp = test::call_service(&app, resend("pendinguser")).await;
     assert_eq!(resp.status(), 200);
     common::flush_mail_outbox_with(&db, &runtime_config, &mail_sender).await;
@@ -2062,7 +2096,7 @@ async fn test_register_resend_is_generic_for_unknown_identifier_and_cooldown() {
 }
 
 #[actix_web::test]
-async fn test_register_activation_resend_ignores_allowlist_but_rejects_blocklist() {
+async fn test_register_activation_resend_ignores_allowlist_and_hides_blocklist() {
     let state = common::setup().await;
     let db = state.writer_db().clone();
     let mail_sender = state.mail_sender.clone();
@@ -2098,6 +2132,7 @@ async fn test_register_activation_resend_ignores_allowlist_but_rejects_blocklist
         .to_request();
     let resp = test::call_service(&app, req).await;
     assert_eq!(resp.status(), 200);
+    common::flush_mail_outbox_with(&db, &runtime_config, &mail_sender).await;
 
     tokio::time::sleep(ONE_SECOND_WINDOW_ELAPSED).await;
     configure_local_email_policy(&state, &["other.test"], &["pendinguser@example.com"]);
@@ -2108,9 +2143,17 @@ async fn test_register_activation_resend_ignores_allowlist_but_rejects_blocklist
         .set_json(serde_json::json!({ "identifier": "pendinguser" }))
         .to_request();
     let resp = test::call_service(&app, req).await;
-    assert_eq!(resp.status(), 400);
+    assert_eq!(resp.status(), 200);
     let body: Value = test::read_body_json(resp).await;
-    assert_eq!(body["code"], "auth.email_blocked");
+    assert_eq!(
+        body["data"]["message"],
+        "If the account can be reactivated, an activation email will be sent"
+    );
+    common::flush_mail_outbox_with(&db, &runtime_config, &mail_sender).await;
+
+    let memory_sender = aster_drive::services::mail_service::memory_sender_ref(&mail_sender)
+        .expect("memory mail sender should be available in tests");
+    assert_eq!(memory_sender.messages().len(), 2);
 }
 
 #[actix_web::test]

@@ -113,11 +113,46 @@ vi.mock("@/components/admin/user-detail-dialog/UserDetailSidebar", () => ({
 }));
 
 vi.mock("@/components/admin/user-detail-dialog/UserProfileSection", () => ({
-	UserProfileSection: () => <section>profile-section</section>,
+	UserProfileSection: ({
+		children,
+		onDraftEmailVerifiedChange,
+		onDraftRoleChange,
+		onDraftStatusChange,
+	}: {
+		children: React.ReactNode;
+		onDraftEmailVerifiedChange: (value: boolean) => void;
+		onDraftRoleChange: (value: "admin" | "user") => void;
+		onDraftStatusChange: (value: "active" | "disabled") => void;
+	}) => (
+		<section>
+			profile-section
+			<button type="button" onClick={() => onDraftEmailVerifiedChange(false)}>
+				mark-unverified
+			</button>
+			<button type="button" onClick={() => onDraftRoleChange("admin")}>
+				make-admin
+			</button>
+			<button type="button" onClick={() => onDraftStatusChange("disabled")}>
+				disable-user
+			</button>
+			{children}
+		</section>
+	),
 }));
 
 vi.mock("@/components/admin/user-detail-dialog/UserPolicyGroupSection", () => ({
-	UserPolicyGroupSection: () => <section>policy-section</section>,
+	UserPolicyGroupSection: ({
+		onDraftPolicyGroupIdChange,
+	}: {
+		onDraftPolicyGroupIdChange: (value: number | null) => void;
+	}) => (
+		<section>
+			policy-section
+			<button type="button" onClick={() => onDraftPolicyGroupIdChange(9)}>
+				assign-policy-group
+			</button>
+		</section>
+	),
 }));
 
 function user(overrides: Partial<UserInfo> = {}): UserInfo {
@@ -201,6 +236,60 @@ describe("UserDetailDialogBody forced password-change control", () => {
 		await waitFor(() => {
 			expect(onUpdate).toHaveBeenCalledWith(11, {
 				must_change_password: false,
+			});
+		});
+	});
+
+	it("saves profile field and policy group changes into one PATCH payload", async () => {
+		const onUpdate = vi.fn().mockResolvedValue(undefined);
+		render(
+			<UserDetailDialogBody
+				onClose={vi.fn()}
+				onRefreshPolicyGroups={vi.fn().mockResolvedValue(undefined)}
+				onUpdate={onUpdate}
+				policyGroups={[
+					{
+						created_at: "2026-04-01T00:00:00Z",
+						description: "",
+						id: 9,
+						is_default: false,
+						is_enabled: true,
+						items: [
+							{
+								id: 1,
+								max_file_size: 0,
+								min_file_size: 0,
+								policy: {
+									id: 3,
+									name: "Primary",
+								},
+								policy_id: 3,
+								priority: 1,
+							},
+						],
+						name: "Primary",
+						updated_at: "2026-04-01T00:00:00Z",
+					},
+				]}
+				policyGroupsLoading={false}
+				user={user()}
+			/>,
+		);
+
+		fireEvent.click(screen.getByRole("button", { name: "mark-unverified" }));
+		fireEvent.click(screen.getByRole("button", { name: "make-admin" }));
+		fireEvent.click(screen.getByRole("button", { name: "disable-user" }));
+		fireEvent.click(
+			screen.getByRole("button", { name: "assign-policy-group" }),
+		);
+		fireEvent.click(screen.getByRole("button", { name: "save_changes" }));
+
+		await waitFor(() => {
+			expect(onUpdate).toHaveBeenCalledWith(11, {
+				email_verified: false,
+				policy_group_id: 9,
+				role: "admin",
+				status: "disabled",
 			});
 		});
 	});

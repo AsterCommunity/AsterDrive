@@ -33,6 +33,7 @@ import { useApiList } from "@/hooks/useApiList";
 import { usePageTitle } from "@/hooks/usePageTitle";
 import {
 	AUDIT_ENTITY_TYPE_FILTER_VALUES,
+	formatAuditDetail,
 	formatAuditEntityType,
 	formatAuditSummary,
 	formatAuditTarget,
@@ -493,56 +494,65 @@ export default function AdminAuditPage() {
 					filteredEmptyAction={filteredEmptyAction}
 					headerRow={auditTableHeader}
 					pagination={auditPagination}
-					renderRow={(item) => (
-						<TableRow key={item.id}>
-							<TableCell>
-								<div className={ADMIN_TABLE_TEXT_CELL_CLASS}>
-									<span
-										className="text-xs text-muted-foreground whitespace-nowrap"
-										title={formatDateAbsoluteWithOffset(item.created_at)}
-									>
-										{formatDateAbsolute(item.created_at)}
-									</span>
-								</div>
-							</TableCell>
-							<TableCell>
-								<div className={ADMIN_TABLE_TEXT_CELL_CLASS}>
-									<UserIdentity user={item.user} />
-								</div>
-							</TableCell>
-							<TableCell>
-								<div className={ADMIN_TABLE_BADGE_CELL_CLASS}>
-									<Badge
-										variant="outline"
-										className={getAuditActionBadgeClass(item.action)}
-									>
-										{formatAuditSummary(t, item)}
-									</Badge>
-								</div>
-							</TableCell>
-							<TableCell>
-								<div className={ADMIN_TABLE_TEXT_CELL_CLASS}>
-									<span className="text-sm text-muted-foreground">
-										{formatAuditTargetType(t, item)}
-									</span>
-								</div>
-							</TableCell>
-							<TableCell>
-								<div className={ADMIN_TABLE_TEXT_CELL_CLASS}>
-									<span className="truncate text-sm text-muted-foreground">
-										{formatAuditTarget(t, item)}
-									</span>
-								</div>
-							</TableCell>
-							<TableCell>
-								<div className={ADMIN_TABLE_TEXT_CELL_CLASS}>
-									<span className={ADMIN_TABLE_MONO_TEXT_CLASS}>
-										{item.ip_address ?? "---"}
-									</span>
-								</div>
-							</TableCell>
-						</TableRow>
-					)}
+					renderRow={(item) => {
+						const detail = formatAuditDetail(t, item);
+
+						return (
+							<TableRow key={item.id}>
+								<TableCell>
+									<div className={ADMIN_TABLE_TEXT_CELL_CLASS}>
+										<span
+											className="text-xs text-muted-foreground whitespace-nowrap"
+											title={formatDateAbsoluteWithOffset(item.created_at)}
+										>
+											{formatDateAbsolute(item.created_at)}
+										</span>
+									</div>
+								</TableCell>
+								<TableCell>
+									<div className={ADMIN_TABLE_TEXT_CELL_CLASS}>
+										<UserIdentity user={item.user} />
+									</div>
+								</TableCell>
+								<TableCell>
+									<div className={ADMIN_TABLE_BADGE_CELL_CLASS}>
+										<Badge
+											variant="outline"
+											className={getAuditActionBadgeClass(item.action)}
+										>
+											{formatAuditSummary(t, item)}
+										</Badge>
+									</div>
+								</TableCell>
+								<TableCell>
+									<div className={ADMIN_TABLE_TEXT_CELL_CLASS}>
+										<span className="text-sm text-muted-foreground">
+											{formatAuditTargetType(t, item)}
+										</span>
+									</div>
+								</TableCell>
+								<TableCell className="max-w-0">
+									<div className="flex min-w-0 flex-col gap-0.5 text-left">
+										<span className="truncate text-sm text-muted-foreground">
+											{formatAuditTarget(t, item)}
+										</span>
+										{detail ? (
+											<span className="truncate text-xs text-muted-foreground/80">
+												{detail}
+											</span>
+										) : null}
+									</div>
+								</TableCell>
+								<TableCell>
+									<div className={ADMIN_TABLE_TEXT_CELL_CLASS}>
+										<span className={ADMIN_TABLE_MONO_TEXT_CLASS}>
+											{item.ip_address ?? "---"}
+										</span>
+									</div>
+								</TableCell>
+							</TableRow>
+						);
+					}}
 				/>
 			</AdminPageShell>
 		</AdminLayout>

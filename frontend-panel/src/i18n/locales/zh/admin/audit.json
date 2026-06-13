@@ -207,5 +207,6 @@
 	"audit_presentation_tag_assignment_changed": "{{entity_type}} {{entity_id}} 上的 {{tag_name}}",
 	"audit_presentation_tag_color_changed": "颜色改为 {{color}}",
 	"audit_presentation_trash_purge_finished": "清理 {{purged}} 个项目",
-	"audit_presentation_archive_selection_created": "归档目标文件夹 {{target_folder_id}}"
+	"audit_presentation_archive_selection_created": "归档目标文件夹 {{target_folder_id}}",
+	"audit_presentation_offline_download_created": "从 {{source}} 导入到文件夹 {{target_folder_id}}"
 }

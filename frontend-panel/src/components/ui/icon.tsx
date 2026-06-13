@@ -75,6 +75,7 @@ import {
 	PiPlus,
 	PiPower,
 	PiPresentation,
+	PiQuestion,
 	PiQueue,
 	PiRepeat,
 	PiRepeatOnce,
@@ -178,6 +179,7 @@ export type IconName =
 	| "Plus"
 	| "Power"
 	| "Presentation"
+	| "Question"
 	| "Queue"
 	| "Repeat"
 	| "RepeatOnce"
@@ -282,6 +284,7 @@ const iconMap: Record<IconName, ComponentType<{ className?: string }>> = {
 	Plus: PiPlus,
 	Power: PiPower,
 	Presentation: PiPresentation,
+	Question: PiQuestion,
 	Queue: PiQueue,
 	Repeat: PiRepeat,
 	RepeatOnce: PiRepeatOnce,

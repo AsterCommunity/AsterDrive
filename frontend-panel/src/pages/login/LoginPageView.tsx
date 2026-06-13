@@ -4,12 +4,14 @@ import { AsterDriveWordmark } from "@/components/common/AsterDriveWordmark";
 import { cn } from "@/lib/utils";
 import type { MfaMethod } from "@/services/authService";
 import type { ExternalAuthPublicProvider } from "@/types/api";
+import { ActivationResendRequestPanel } from "./ActivationResendRequestPanel";
 import { AnimateSwap } from "./authAnimations";
 import { ExternalAuthRecoveryPanel } from "./ExternalAuthRecoveryPanel";
 import { LoginAuthForm } from "./LoginAuthForm";
 import { LoginBrandPanel } from "./LoginBrandPanel";
 import { LoginHeader } from "./LoginHeader";
 import type {
+	ActivationResendPanelState,
 	ExternalAuthRecoveryState,
 	MfaPanelState,
 	PasswordResetPanelState,
@@ -25,6 +27,7 @@ import type { AuthMode } from "./types";
 type Translate = (key: string, options?: Record<string, unknown>) => string;
 
 interface LoginPageViewProps {
+	activationResendPanel: ActivationResendPanelState | null;
 	checking: boolean;
 	description: string;
 	errors: Record<string, string>;
@@ -57,6 +60,9 @@ interface LoginPageViewProps {
 	t: Translate;
 	title: string;
 	emailSchema: z.ZodType;
+	onActivationResendBack: () => void;
+	onActivationResendEmailChange: (value: string, error: string) => void;
+	onActivationResendSubmit: () => void;
 	onExternalAuthEmailChange: (value: string, error: string) => void;
 	onExternalAuthIdentifierChange: (value: string) => void;
 	onExternalAuthLogin: (provider: ExternalAuthPublicProvider) => void;
@@ -77,12 +83,14 @@ interface LoginPageViewProps {
 	onPasswordResetSubmit: () => void;
 	onPendingActivationReset: () => void;
 	onResendActivation: () => void;
+	onResendActivationRequest: () => void;
 	onShowPasswordChange: (show: boolean) => void;
 	onSubmit: (event: FormEvent) => void;
 	onSwitchAuthMode: (mode: Extract<AuthMode, "login" | "register">) => void;
 }
 
 export function LoginPageView({
+	activationResendPanel,
 	checking,
 	description,
 	emailSchema,
@@ -103,6 +111,9 @@ export function LoginPageView({
 	mfaPanel,
 	mode,
 	modeActionText,
+	onActivationResendBack,
+	onActivationResendEmailChange,
+	onActivationResendSubmit,
 	onExternalAuthEmailChange,
 	onExternalAuthIdentifierChange,
 	onExternalAuthLogin,
@@ -123,6 +134,7 @@ export function LoginPageView({
 	onPasswordResetSubmit,
 	onPendingActivationReset,
 	onResendActivation,
+	onResendActivationRequest,
 	onShowPasswordChange,
 	onSubmit,
 	onSwitchAuthMode,
@@ -141,13 +153,15 @@ export function LoginPageView({
 }: LoginPageViewProps) {
 	const activeKey = pendingActivation
 		? "pending-activation"
-		: passwordResetPanel
-			? "password-reset-request"
-			: externalAuthRecovery
-				? "external-auth-recovery"
-				: mfaPanel
-					? "mfa-challenge"
-					: "auth-form";
+		: activationResendPanel
+			? "activation-resend-request"
+			: passwordResetPanel
+				? "password-reset-request"
+				: externalAuthRecovery
+					? "external-auth-recovery"
+					: mfaPanel
+						? "mfa-challenge"
+						: "auth-form";
 
 	return (
 		<div
@@ -178,6 +192,17 @@ export function LoginPageView({
 									t={t}
 									onResendActivation={onResendActivation}
 									onReset={onPendingActivationReset}
+								/>
+							) : activationResendPanel ? (
+								<ActivationResendRequestPanel
+									email={activationResendPanel.email}
+									emailError={activationResendPanel.error}
+									emailSchema={emailSchema}
+									requesting={activationResendPanel.requesting}
+									t={t}
+									onBack={onActivationResendBack}
+									onEmailChange={onActivationResendEmailChange}
+									onSubmit={onActivationResendSubmit}
 								/>
 							) : passwordResetPanel ? (
 								<PasswordResetRequestPanel
@@ -265,6 +290,7 @@ export function LoginPageView({
 									onPasswordChange={onPasswordChange}
 									onPasskeyLogin={onPasskeyLogin}
 									onExternalAuthLogin={onExternalAuthLogin}
+									onResendActivationRequest={onResendActivationRequest}
 									onShowPasswordChange={onShowPasswordChange}
 									onSwitchAuthMode={onSwitchAuthMode}
 								/>

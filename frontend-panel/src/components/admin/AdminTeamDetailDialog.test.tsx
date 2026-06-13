@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { AdminTeamDetailDialog } from "@/components/admin/AdminTeamDetailDialog";
+import { formatStorageQuotaDraft } from "@/lib/storageQuota";
 import type { UserSummary } from "@/types/api";
 
 const mockState = vi.hoisted(() => ({
@@ -237,6 +238,20 @@ describe("AdminTeamDetailDialog", () => {
 	});
 
 	it("converts the overview quota field from MB to bytes when saving", async () => {
+		adminTeamServiceMocks.get.mockResolvedValueOnce({
+			archived_at: null,
+			created_at: "2026-04-01T00:00:00Z",
+			created_by: createUserSummary(),
+			description: "Team description",
+			id: 14,
+			member_count: 8,
+			name: "Product",
+			policy_group_id: 5,
+			storage_quota: 10 * 1024 * 1024,
+			storage_used: 512,
+			updated_at: "2026-04-02T00:00:00Z",
+		});
+
 		render(
 			<AdminTeamDetailDialog
 				layout="page"
@@ -276,10 +291,31 @@ describe("AdminTeamDetailDialog", () => {
 		);
 
 		const quotaInput = (await screen.findByLabelText(
-			"team_quota_mb",
+			"quota",
 		)) as HTMLInputElement;
+		expect(formatStorageQuotaDraft(10 * 1024 * 1024)).toEqual({
+			unit: "megabytes",
+			value: "10",
+		});
+		expect(quotaInput).toHaveValue(10);
+
+		fireEvent.change(quotaInput, { target: { value: "010" } });
+		await waitFor(() => {
+			expect(quotaInput).toHaveValue(10);
+			expect(
+				screen.getByRole("button", { name: "save_changes" }),
+			).toBeDisabled();
+		});
+
 		fireEvent.change(quotaInput, { target: { value: "4" } });
-		fireEvent.click(screen.getByRole("button", { name: "save_changes" }));
+		await waitFor(() => {
+			expect(quotaInput).toHaveValue(4);
+			expect(
+				screen.getByRole("button", { name: "save_changes" }),
+			).not.toBeDisabled();
+		});
+		const saveButton = screen.getByRole("button", { name: "save_changes" });
+		fireEvent.click(saveButton);
 
 		await waitFor(() => {
 			expect(adminTeamServiceMocks.update).toHaveBeenCalledWith(14, {
@@ -331,7 +367,7 @@ describe("AdminTeamDetailDialog", () => {
 		);
 
 		const quotaInput = (await screen.findByLabelText(
-			"team_quota_mb",
+			"quota",
 		)) as HTMLInputElement;
 		fireEvent.change(quotaInput, { target: { value: "0" } });
 		fireEvent.click(screen.getByRole("button", { name: "save_changes" }));
@@ -400,7 +436,7 @@ describe("AdminTeamDetailDialog", () => {
 		);
 
 		const quotaInput = (await screen.findByLabelText(
-			"team_quota_mb",
+			"quota",
 		)) as HTMLInputElement;
 		fireEvent.change(quotaInput, { target: { value: "0" } });
 
@@ -462,9 +498,9 @@ describe("AdminTeamDetailDialog", () => {
 		);
 
 		const quotaInput = (await screen.findByLabelText(
-			"team_quota_mb",
+			"quota",
 		)) as HTMLInputElement;
-		expect(quotaInput.value).toBe(String(1024 / 1024 / 1024));
+		expect(quotaInput.value).toBe("1");
 		fireEvent.change(screen.getByDisplayValue("Team description"), {
 			target: { value: "Updated description" },
 		});
@@ -524,12 +560,13 @@ describe("AdminTeamDetailDialog", () => {
 		);
 
 		const quotaInput = (await screen.findByLabelText(
-			"team_quota_mb",
+			"quota",
 		)) as HTMLInputElement;
 		fireEvent.change(quotaInput, {
 			target: { value: "999999999999999999999999" },
 		});
 
+		expect(screen.getByText("team_quota_invalid")).toBeInTheDocument();
 		expect(screen.getByRole("button", { name: "save_changes" })).toBeDisabled();
 		expect(adminTeamServiceMocks.update).not.toHaveBeenCalled();
 		expect(mockState.toastError).not.toHaveBeenCalled();

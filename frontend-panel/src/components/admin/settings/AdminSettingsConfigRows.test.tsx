@@ -271,6 +271,110 @@ describe("AdminSettingsConfigRows", () => {
 		]);
 	});
 
+	it("moves system config descriptions behind a help trigger", async () => {
+		const config = createConfig({
+			description: "Used by public links and notification emails.",
+			key: "public_site_url",
+		});
+
+		renderWithContext(<SystemConfigRow config={config} />, {
+			getSystemConfigDescription: () =>
+				"Used by public links and notification emails.",
+			getSystemConfigLabel: () => "Public site URL",
+			t: (key, options) =>
+				key === "settings_config_description_help"
+					? `Show description for ${options?.label}`
+					: key,
+		});
+
+		expect(
+			screen.queryByText("Used by public links and notification emails."),
+		).not.toBeInTheDocument();
+
+		fireEvent.focus(
+			screen.getByRole("button", {
+				name: "Show description for Public site URL",
+			}),
+		);
+
+		expect(
+			await screen.findByText("Used by public links and notification emails."),
+		).toBeInTheDocument();
+	});
+
+	it("keeps the current scaled unit when a number field is cleared", () => {
+		const config = createConfig({
+			key: "auth_password_reset_cooldown_secs",
+			value: "60",
+			value_type: "number",
+		});
+
+		renderWithContext(<SystemConfigRow config={config} />);
+
+		const quotaInput = screen.getByPlaceholderText("config_value");
+		const unitSelect = screen.getByLabelText(
+			"settings_time_unit_label",
+		) as HTMLSelectElement;
+
+		expect(quotaInput).toHaveValue(1);
+		expect(unitSelect.value).toBe("minutes");
+
+		fireEvent.change(quotaInput, { target: { value: "" } });
+
+		expect(unitSelect.value).toBe("minutes");
+		expect(mockState.updateDraftValue).toHaveBeenCalledWith(
+			"auth_password_reset_cooldown_secs",
+			"",
+		);
+	});
+
+	it("preserves invalid scaled number drafts instead of dropping input", () => {
+		const config = createConfig({
+			key: "auth_password_reset_cooldown_secs",
+			value: "60",
+			value_type: "number",
+		});
+
+		renderWithContext(<SystemConfigRow config={config} />);
+
+		fireEvent.change(screen.getByPlaceholderText("config_value"), {
+			target: { value: "1.5" },
+		});
+
+		expect(mockState.updateDraftValue).toHaveBeenCalledWith(
+			"auth_password_reset_cooldown_secs",
+			"1.5",
+		);
+	});
+
+	it("stores the selected display unit for number rows", () => {
+		const config = createConfig({
+			key: "auth_password_reset_cooldown_secs",
+			value: "60",
+			value_type: "number",
+		});
+		const setDisplayUnits = vi.fn();
+
+		renderWithContext(<SystemConfigRow config={config} />, {
+			setDisplayUnits,
+		});
+
+		fireEvent.change(screen.getByLabelText("settings_time_unit_label"), {
+			target: { value: "seconds" },
+		});
+
+		expect(setDisplayUnits).toHaveBeenCalledTimes(1);
+		const updater = setDisplayUnits.mock.calls[0]?.[0];
+		expect(typeof updater).toBe("function");
+		expect(updater({})).toEqual({
+			auth_password_reset_cooldown_secs: "seconds",
+		});
+		expect(updater({ other_config: "hours" })).toEqual({
+			auth_password_reset_cooldown_secs: "seconds",
+			other_config: "hours",
+		});
+	});
+
 	it("edits and clears string array rows without keeping a blank-only draft", () => {
 		const config = createConfig({
 			key: "auth_local_email_allowlist",

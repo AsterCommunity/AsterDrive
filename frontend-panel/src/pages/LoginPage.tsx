@@ -102,6 +102,18 @@ function resolveMfaRedirectExpiresAt(expiresIn: string | null) {
 	return Date.now() + ttlSeconds * 1000;
 }
 
+const LOGIN_UNAVAILABLE_ERROR_CODES = new Set<string>([
+	ApiErrorCode.CredentialsFailed,
+	ApiErrorCode.PendingActivation,
+	ApiErrorCode.AuthAccountDisabled,
+]);
+
+function isLoginUnavailableError(error: unknown) {
+	return (
+		error instanceof ApiError && LOGIN_UNAVAILABLE_ERROR_CODES.has(error.code)
+	);
+}
+
 function useLoginPageController() {
 	const { t } = useTranslation(["login", "core"]);
 	const { hash, pathname, search } = useLocation();
@@ -148,6 +160,8 @@ function useLoginPageController() {
 		authPanel.kind === "pending-activation"
 			? authPanel.pendingActivation
 			: null;
+	const activationResendPanel =
+		authPanel.kind === "activation-resend" ? authPanel.activationResend : null;
 	const passwordResetPanel =
 		authPanel.kind === "password-reset" ? authPanel.passwordReset : null;
 	const externalAuthRecovery =
@@ -174,22 +188,25 @@ function useLoginPageController() {
 		: extraField.includes("@")
 			? extraField.trim()
 			: "";
+	const activationResendPrefill = passwordResetPrefill;
 	const loginSuccessMessage = t("login_success");
 	const modeActionText = pendingActivation
 		? t("activation_pending_title")
-		: externalAuthRecoveryFlow
-			? t("external_auth_email_verification_title")
-			: mfaChallenge
-				? t("mfa_required_title")
-				: showPasswordResetRequest
-					? t("forgot_password_title")
-					: mode === "login"
-						? t("sign_in")
-						: mode === "register"
-							? t("sign_up")
-							: mode === "setup"
-								? t("create_admin")
-								: "";
+		: activationResendPanel
+			? t("activation_resend_title")
+			: externalAuthRecoveryFlow
+				? t("external_auth_email_verification_title")
+				: mfaChallenge
+					? t("mfa_required_title")
+					: showPasswordResetRequest
+						? t("forgot_password_title")
+						: mode === "login"
+							? t("sign_in")
+							: mode === "register"
+								? t("sign_up")
+								: mode === "setup"
+									? t("create_admin")
+									: "";
 	usePageTitle(modeActionText || t("sign_in"));
 	useEffect(() => scheduleLoginSuccessPathWarmup(), []);
 	const passkeyLoginEnabled =
@@ -576,6 +593,10 @@ function useLoginPageController() {
 		dispatchAuthPanel({ type: "close_password_reset" });
 	};
 
+	const closeActivationResendRequest = () => {
+		dispatchAuthPanel({ type: "close_activation_resend" });
+	};
+
 	const closeExternalAuthRecovery = () => {
 		dispatchAuthPanel({ type: "close_external_auth_recovery" });
 	};
@@ -603,6 +624,37 @@ function useLoginPageController() {
 			handleApiError(error);
 		} finally {
 			setResendingActivation(false);
+		}
+	};
+
+	const handleActivationResendRequest = async () => {
+		if (!activationResendPanel) return;
+		const email = activationResendPanel.email.trim();
+		const result = emailSchema.safeParse(email);
+		if (!result.success) {
+			dispatchAuthPanel({
+				type: "set_activation_resend_error",
+				error: result.error.issues[0]?.message ?? "",
+			});
+			return;
+		}
+
+		try {
+			dispatchAuthPanel({
+				type: "set_activation_resend_requesting",
+				requesting: true,
+			});
+			await authService.resendRegisterActivation(email);
+			toast.success(t("activation_resend_request_sent"));
+			setIdentifier(email);
+			dispatchAuthPanel({ type: "close_activation_resend" });
+		} catch (error) {
+			handleApiError(error);
+		} finally {
+			dispatchAuthPanel({
+				type: "set_activation_resend_requesting",
+				requesting: false,
+			});
 		}
 	};
 
@@ -782,6 +834,7 @@ function useLoginPageController() {
 			mfaChallenge ||
 			showPasswordResetRequest ||
 			externalAuthRecoveryFlow ||
+			activationResendPanel ||
 			pendingActivation ||
 			!passkeyLoginEnabled ||
 			!conditionalPasskeySupportedRef.current
@@ -839,6 +892,7 @@ function useLoginPageController() {
 		finishPasskeyLogin,
 		mode,
 		externalAuthRecoveryFlow,
+		activationResendPanel,
 		mfaChallenge,
 		passkeyLoginEnabled,
 		pendingActivation,
@@ -939,6 +993,10 @@ function useLoginPageController() {
 			await handlePasswordResetRequest();
 			return;
 		}
+		if (activationResendPanel) {
+			await handleActivationResendRequest();
+			return;
+		}
 		if (externalAuthRecoveryFlow) {
 			if (externalAuthRecoveryMode === "email") {
 				await handleExternalAuthEmailVerificationRequest();
@@ -1000,21 +1058,8 @@ function useLoginPageController() {
 				});
 			}
 		} catch (error) {
-			if (
-				error instanceof ApiError &&
-				error.code === ApiErrorCode.PendingActivation
-			) {
-				dispatchAuthPanel({
-					type: "set_pending_activation",
-					pendingActivation: {
-						email: isEmail ? identifier.trim() : undefined,
-						identifier: identifier.trim(),
-						username: isEmail ? undefined : identifier.trim(),
-					},
-				});
-				setPassword("");
-				setShowPassword(false);
-				setErrors({});
+			if (mode === "login" && isLoginUnavailableError(error)) {
+				toast.error(t("login_failed_unavailable"));
 				return;
 			}
 			handleApiError(error);
@@ -1045,6 +1090,7 @@ function useLoginPageController() {
 						identifier: pendingActivation.identifier,
 					});
 		}
+		if (activationResendPanel) return t("activation_resend_desc");
 		if (externalAuthRecoveryFlow)
 			return t("external_auth_account_recovery_desc");
 		if (mfaChallenge) return t("mfa_required_desc");
@@ -1056,6 +1102,7 @@ function useLoginPageController() {
 	};
 
 	return {
+		activationResendPanel,
 		checking,
 		description: description(),
 		emailSchema,
@@ -1089,15 +1136,26 @@ function useLoginPageController() {
 		t,
 		title: pendingActivation
 			? t("activation_pending_title")
-			: externalAuthRecoveryFlow
-				? t("external_auth_email_verification_title")
-				: mfaChallenge
-					? t("mfa_required_title")
-					: showPasswordResetRequest
-						? t("forgot_password_title")
-						: mode === "setup"
-							? t("welcome_setup")
-							: t("sign_in_to_account"),
+			: activationResendPanel
+				? t("activation_resend_title")
+				: externalAuthRecoveryFlow
+					? t("external_auth_email_verification_title")
+					: mfaChallenge
+						? t("mfa_required_title")
+						: showPasswordResetRequest
+							? t("forgot_password_title")
+							: mode === "setup"
+								? t("welcome_setup")
+								: t("sign_in_to_account"),
+		onActivationResendBack: closeActivationResendRequest,
+		onActivationResendEmailChange: (value: string, error: string) => {
+			dispatchAuthPanel({
+				type: "set_activation_resend_email",
+				email: value,
+				error,
+			});
+		},
+		onActivationResendSubmit: () => void handleActivationResendRequest(),
 		onExternalAuthEmailChange: (value: string, error: string) => {
 			dispatchAuthPanel({
 				type: "set_external_email",
@@ -1186,6 +1244,12 @@ function useLoginPageController() {
 		onPasswordResetSubmit: () => void handlePasswordResetRequest(),
 		onPendingActivationReset: resetPendingActivation,
 		onResendActivation: () => void handleResendActivation(),
+		onResendActivationRequest: () => {
+			dispatchAuthPanel({
+				type: "open_activation_resend",
+				email: activationResendPrefill,
+			});
+		},
 		onShowPasswordChange: setShowPassword,
 		onSubmit: handleSubmit,
 		onSwitchAuthMode: switchAuthMode,

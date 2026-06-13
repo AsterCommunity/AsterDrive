@@ -124,6 +124,7 @@
 	"settings_status_unsaved": "未保存",
 	"settings_status_sensitive": "敏感值",
 	"settings_sensitive_keep_placeholder": "留空表示不更改",
+	"settings_config_description_help": "显示 {{label}} 的说明",
 	"settings_save_notice": "当前有 {{count}} 处更改待保存",
 	"settings_save_hint": "更改会先暂存为草稿，确认无误后再统一保存，⌘/Ctrl + S 保存。",
 	"settings_saved": "设置已保存",

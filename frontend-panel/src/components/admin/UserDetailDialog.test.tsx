@@ -462,7 +462,7 @@ describe("UserDetailDialog", () => {
 		);
 		fireEvent.click(screen.getByRole("button", { name: "select-item:admin" }));
 		fireEvent.click(screen.getByRole("button", { name: "select-item:2" }));
-		fireEvent.change(screen.getByLabelText("quota_mb"), {
+		fireEvent.change(screen.getByLabelText("quota"), {
 			target: { value: "20" },
 		});
 
@@ -589,9 +589,23 @@ describe("UserDetailDialog", () => {
 
 		await waitForPolicyLoad();
 
-		const quotaInput = screen.getByLabelText("quota_mb");
+		const quotaInput = screen.getByLabelText("quota");
 		expect(quotaInput).toHaveValue(null);
 		expect(quotaInput).toHaveAttribute("placeholder", "quota_unlimited_short");
+	});
+
+	it("shows a realtime quota validation error and blocks profile save", async () => {
+		renderDialog();
+
+		await waitForPolicyLoad();
+
+		fireEvent.change(screen.getByLabelText("quota"), {
+			target: { value: "1.5" },
+		});
+
+		expect(screen.getByText("quota_invalid")).toBeInTheDocument();
+		expect(screen.queryByRole("button", { name: /save_changes/i })).toBeNull();
+		expect(mockState.onUpdate).not.toHaveBeenCalled();
 	});
 
 	it("caps the dialog height and keeps the two columns independently scrollable on desktop", async () => {

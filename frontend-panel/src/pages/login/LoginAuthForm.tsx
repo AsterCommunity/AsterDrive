@@ -101,6 +101,7 @@ interface LoginAuthFormProps {
 	onPasswordChange: (value: string) => void;
 	onExternalAuthLogin: (provider: ExternalAuthPublicProvider) => void;
 	onPasskeyLogin: () => void;
+	onResendActivationRequest: () => void;
 	onShowPasswordChange: (show: boolean) => void;
 	onSwitchAuthMode: (mode: Extract<AuthMode, "login" | "register">) => void;
 }
@@ -123,6 +124,7 @@ export function LoginAuthForm({
 	onPasswordChange,
 	onExternalAuthLogin,
 	onPasskeyLogin,
+	onResendActivationRequest,
 	onShowPasswordChange,
 	onSwitchAuthMode,
 	password,
@@ -271,7 +273,18 @@ export function LoginAuthForm({
 				) : null}
 			</div>
 
-			<div className="mt-3 flex justify-end">
+			<div className="mt-3 flex items-center justify-between gap-3">
+				{mode === "login" ? (
+					<button
+						type="button"
+						className="text-left text-sm text-muted-foreground transition-colors hover:text-foreground"
+						onClick={onResendActivationRequest}
+					>
+						{t("resend_activation")}
+					</button>
+				) : (
+					<span />
+				)}
 				<button
 					type="button"
 					className="text-sm text-muted-foreground transition-colors hover:text-foreground"

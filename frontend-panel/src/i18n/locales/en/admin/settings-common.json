@@ -124,6 +124,7 @@
 	"settings_status_unsaved": "Unsaved",
 	"settings_status_sensitive": "Sensitive",
 	"settings_sensitive_keep_placeholder": "Leave blank to keep unchanged",
+	"settings_config_description_help": "Show description for {{label}}",
 	"settings_save_notice": "{{count}} change(s) ready to save",
 	"settings_save_hint": "Changes are staged as drafts until you save. Review them, then save together with ⌘/Ctrl + S.",
 	"settings_saved": "Settings saved",

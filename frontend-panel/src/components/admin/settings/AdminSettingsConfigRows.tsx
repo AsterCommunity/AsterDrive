@@ -1,4 +1,5 @@
 import { useRef, useState } from "react";
+import { AdminNumberUnitInput } from "@/components/admin/AdminNumberUnitInput";
 import { MediaProcessingConfigEditor } from "@/components/admin/MediaProcessingConfigEditor";
 import { MEDIA_PROCESSING_CONFIG_KEY } from "@/components/admin/mediaProcessingConfigEditorShared";
 import { OfflineDownloadEngineRegistryEditor } from "@/components/admin/OfflineDownloadEngineRegistryEditor";
@@ -50,6 +51,13 @@ import {
 	SelectValue,
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
+import {
+	Tooltip,
+	TooltipContent,
+	TooltipProvider,
+	TooltipTrigger,
+} from "@/components/ui/tooltip";
+import { convertNumberUnitValueToBaseUnit } from "@/lib/numberUnit";
 import { normalizePublicSiteUrl } from "@/lib/publicSiteUrl";
 import { cn } from "@/lib/utils";
 import type {
@@ -62,6 +70,7 @@ const PUBLIC_SITE_URL_KEY = "public_site_url";
 const EMAIL_CODE_LOGIN_ENABLED_CONFIG_KEY = "auth_email_code_login_enabled";
 const AUTH_LOCAL_EMAIL_ALLOWLIST_KEY = "auth_local_email_allowlist";
 const AUTH_LOCAL_EMAIL_BLOCKLIST_KEY = "auth_local_email_blocklist";
+type ScaledDisplayUnitValue = TimeDisplayUnitValue | SizeDisplayUnitValue;
 const CUSTOM_VISIBILITY_OPTIONS: SystemConfigVisibility[] = [
 	"private",
 	"public",
@@ -111,6 +120,46 @@ function getEnumOptionGroup(option: ConfigSchemaOption) {
 	return option.group || "other";
 }
 
+function isScaledDisplayUnitValue(
+	value: string,
+	units: ReadonlyArray<{ value: string }>,
+): value is ScaledDisplayUnitValue {
+	return units.some((unit) => unit.value === value);
+}
+
+function SettingDescriptionHelp({
+	description,
+	label,
+}: {
+	description?: string;
+	label: string;
+}) {
+	if (!description) {
+		return null;
+	}
+
+	return (
+		<TooltipProvider delay={0}>
+			<Tooltip>
+				<TooltipTrigger
+					type="button"
+					aria-label={label}
+					className="inline-flex size-6 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-accent/55 hover:text-foreground focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/35"
+				>
+					<Icon name="Question" className="size-5" aria-hidden="true" />
+				</TooltipTrigger>
+				<TooltipContent
+					side="top"
+					align="start"
+					className="max-w-[min(22rem,calc(100vw-2rem))] whitespace-normal break-words leading-5"
+				>
+					{description}
+				</TooltipContent>
+			</Tooltip>
+		</TooltipProvider>
+	);
+}
+
 function FieldMeta({ config }: { config: SystemConfig }) {
 	const {
 		getDraftValue,
@@ -142,6 +191,12 @@ function FieldMeta({ config }: { config: SystemConfig }) {
 				>
 					{configLabel}
 				</p>
+				<SettingDescriptionHelp
+					description={configDescription}
+					label={t("settings_config_description_help", {
+						label: configLabel,
+					})}
+				/>
 				{draftChanged ? (
 					<span className="text-xs font-medium text-primary">
 						{t("settings_status_unsaved")}
@@ -153,11 +208,6 @@ function FieldMeta({ config }: { config: SystemConfig }) {
 					</span>
 				) : null}
 			</div>
-			{configDescription ? (
-				<p className="max-w-3xl break-words text-sm text-muted-foreground">
-					{configDescription}
-				</p>
-			) : null}
 			{showTemplateVariableLink ? (
 				<button
 					type="button"
@@ -637,8 +687,9 @@ function ScaledNumberInputControl({
 }) {
 	const { displayUnits, setDisplayUnits, t, updateDraftValue } =
 		useAdminSettingsCategoryContent();
-	const hasInvalidDraftValue =
-		draftValue.trim() && parseWholeNumber(draftValue) === null;
+	const hasInvalidDraftValue = Boolean(
+		draftValue.trim() && parseWholeNumber(draftValue) === null,
+	);
 
 	const availableUnits = getAvailableDisplayUnits(units, draftValue);
 	const preferredUnit = getPreferredDisplayUnit(units, draftValue);
@@ -646,30 +697,33 @@ function ScaledNumberInputControl({
 		availableUnits.find((unit) => unit.value === displayUnits[config.key]) ??
 		preferredUnit;
 	const displayValue = formatDisplayValue(draftValue, selectedUnit);
-	const [editingValue, setEditingValue] = useState(() => displayValue);
-	const [focused, setFocused] = useState(false);
-
-	if (hasInvalidDraftValue) {
-		return null;
-	}
 
 	const updateFromDisplayValue = (value: string) => {
 		const nextDisplayValue = value.trim();
 		if (!nextDisplayValue) {
+			const selectedUnitValue = selectedUnit.value;
+			if (isScaledDisplayUnitValue(selectedUnitValue, availableUnits)) {
+				setDisplayUnits((previous) => ({
+					...previous,
+					[config.key]: selectedUnitValue,
+				}));
+			}
 			updateDraftValue(config.key, "");
 			return;
 		}
-		if (!/^\d+$/.test(nextDisplayValue)) {
-			return;
-		}
-
-		const parsed = Number(nextDisplayValue);
-		if (!Number.isSafeInteger(parsed)) {
-			return;
-		}
-
-		const nextValue = parsed * selectedUnit.multiplier;
-		if (!Number.isSafeInteger(nextValue)) {
+		const nextValue = convertNumberUnitValueToBaseUnit(
+			nextDisplayValue,
+			selectedUnit,
+		);
+		if (nextValue === null) {
+			const selectedUnitValue = selectedUnit.value;
+			if (isScaledDisplayUnitValue(selectedUnitValue, availableUnits)) {
+				setDisplayUnits((previous) => ({
+					...previous,
+					[config.key]: selectedUnitValue,
+				}));
+			}
+			updateDraftValue(config.key, nextDisplayValue);
 			return;
 		}
 
@@ -677,63 +731,26 @@ function ScaledNumberInputControl({
 	};
 
 	return (
-		<div
-			className={cn(
-				"flex flex-col gap-3 sm:flex-row sm:items-center",
-				fullWidth ? "w-full max-w-2xl" : "max-w-2xl",
-			)}
-		>
-			<Input
-				type="number"
-				inputMode="numeric"
-				step="1"
-				className="w-full sm:max-w-48"
-				value={focused ? editingValue : displayValue}
-				aria-invalid={hasError ? true : undefined}
-				onChange={(event) => {
-					const nextValue = event.target.value;
-					setEditingValue(nextValue);
-					updateFromDisplayValue(nextValue);
-				}}
-				onFocus={(event) => {
-					setFocused(true);
-					setEditingValue(event.currentTarget.value);
-				}}
-				onBlur={() => {
-					setFocused(false);
-				}}
-				placeholder={t("config_value")}
-			/>
-			<Select
-				items={availableUnits.map((unit) => ({
-					label: t(unit.labelKey),
-					value: unit.value,
-				}))}
-				value={selectedUnit.value}
-				onValueChange={(value) =>
-					setDisplayUnits((previous) => ({
-						...previous,
-						[config.key]: value as TimeDisplayUnitValue | SizeDisplayUnitValue,
-					}))
+		<AdminNumberUnitInput
+			value={displayValue}
+			unit={selectedUnit.value}
+			units={availableUnits}
+			placeholder={t("config_value")}
+			unitAriaLabel={t(unitLabelKey)}
+			invalid={hasError || hasInvalidDraftValue}
+			className={fullWidth ? "w-full max-w-2xl" : "max-w-2xl"}
+			inputClassName="w-full sm:max-w-48"
+			onValueChange={updateFromDisplayValue}
+			onUnitChange={(value) => {
+				if (!isScaledDisplayUnitValue(value, availableUnits)) {
+					return;
 				}
-			>
-				<SelectTrigger
-					id={`${config.key}-unit`}
-					width="fit"
-					className="min-w-28"
-					aria-label={t(unitLabelKey)}
-				>
-					<SelectValue />
-				</SelectTrigger>
-				<SelectContent>
-					{availableUnits.map((unit) => (
-						<SelectItem key={unit.value} value={unit.value}>
-							{t(unit.labelKey)}
-						</SelectItem>
-					))}
-				</SelectContent>
-			</Select>
-		</div>
+				setDisplayUnits((previous) => ({
+					...previous,
+					[config.key]: value,
+				}));
+			}}
+		/>
 	);
 }
 
@@ -1047,6 +1064,7 @@ export function CustomConfigRow({ config }: { config: SystemConfig }) {
 		visibilityDraft !==
 			((config.visibility as SystemConfigVisibility | undefined) ?? "private");
 	const multiline = isMultilineType(valueType);
+	const configDescription = getConfigDescription(config);
 
 	return (
 		<div className="space-y-3">
@@ -1055,17 +1073,18 @@ export function CustomConfigRow({ config }: { config: SystemConfig }) {
 					<p className="break-all font-mono text-sm font-medium">
 						{config.key}
 					</p>
+					<SettingDescriptionHelp
+						description={configDescription}
+						label={t("settings_config_description_help", {
+							label: config.key,
+						})}
+					/>
 					{draftChanged ? (
 						<span className="text-xs font-medium text-primary">
 							{t("settings_status_unsaved")}
 						</span>
 					) : null}
 				</div>
-				{getConfigDescription(config) ? (
-					<p className="max-w-3xl break-words text-sm text-muted-foreground">
-						{getConfigDescription(config)}
-					</p>
-				) : null}
 			</div>
 
 			<div
