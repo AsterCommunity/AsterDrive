@@ -121,23 +121,22 @@ POST /api/v1/admin/policies/action
 ```json
 {
   "action": "configure_tencent_cos_cors",
-  "policy": {
-    "name": "cos-draft",
-    "driver_type": "tencent_cos",
-    "endpoint": "https://bucket-1250000000.cos.ap-guangzhou.myqcloud.com",
-    "bucket": "bucket-1250000000",
-    "access_key": "AKID...",
-    "secret_key": "...",
-    "base_path": "prod/",
-    "max_file_size": 10737418240,
-    "chunk_size": 10485760
-  }
+  "policy_id": 12,
+  "driver_type": "tencent_cos",
+  "endpoint": "https://bucket-1250000000.cos.ap-guangzhou.myqcloud.com",
+  "bucket": "bucket-1250000000",
+  "access_key": "AKID...",
+  "secret_key": "...",
+  "base_path": "prod/"
 }
 ```
 
 `configure_tencent_cos_cors` behavior:
 
 - request bodies do not accept `allowed_origin` or `allowed_origins`
+- draft request connection fields are flat fields, not nested under a `policy` object
+- `policy_id` is optional and is only used for draft actions while editing a saved policy; if `access_key` or `secret_key` is blank, the backend fills that blank credential field from the saved policy
+- without `policy_id`, draft actions must carry complete credentials themselves; this covers unsaved new policies and purely transient parameter tests
 - the backend reads all origins from runtime config `public_site_url` and writes them as multiple `AllowedOrigin` entries in one COS CORS rule
 - if `public_site_url` is empty, the action returns `policy.action_parameter_required`
 - if the policy is not `tencent_cos`, the action returns `policy.action_unsupported`

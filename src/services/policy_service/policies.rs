@@ -740,6 +740,25 @@ pub async fn configure_tencent_cos_cors<S: RemoteProtocolRuntimeState>(
         .map(Into::into)
 }
 
+async fn merge_draft_action_saved_credentials<S: SharedRuntimeState>(
+    state: &S,
+    policy_id: Option<i64>,
+    mut connection: StoragePolicyConnectionInput,
+) -> Result<StoragePolicyConnectionInput> {
+    if connection.access_key.trim().is_empty() || connection.secret_key.trim().is_empty() {
+        if let Some(policy_id) = policy_id {
+            let saved = policy_repo::find_by_id(state.reader_db(), policy_id).await?;
+            if connection.access_key.trim().is_empty() {
+                connection.access_key = saved.access_key;
+            }
+            if connection.secret_key.trim().is_empty() {
+                connection.secret_key = saved.secret_key;
+            }
+        }
+    }
+    Ok(connection)
+}
+
 pub async fn execute_saved_action<S: SharedRuntimeState>(
     state: &S,
     id: i64,
@@ -762,13 +781,12 @@ pub async fn execute_draft_action<S: RemoteProtocolRuntimeState>(
 ) -> Result<StoragePolicyActionResult> {
     match input.action {
         StoragePolicyActionType::ConfigureTencentCosCors => {
-            let result = configure_tencent_cos_cors(
-                state,
-                ConfigureTencentCosCorsInput {
-                    connection: input.connection,
-                },
-            )
-            .await?;
+            let connection =
+                merge_draft_action_saved_credentials(state, input.policy_id, input.connection)
+                    .await?;
+            let result =
+                configure_tencent_cos_cors(state, ConfigureTencentCosCorsInput { connection })
+                    .await?;
             Ok(StoragePolicyActionResult {
                 action: input.action,
                 tencent_cos_cors: Some(result),

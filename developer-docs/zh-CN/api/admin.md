@@ -139,23 +139,22 @@ POST /api/v1/admin/policies/action
 ```json
 {
   "action": "configure_tencent_cos_cors",
-  "policy": {
-    "name": "cos-draft",
-    "driver_type": "tencent_cos",
-    "endpoint": "https://bucket-1250000000.cos.ap-guangzhou.myqcloud.com",
-    "bucket": "bucket-1250000000",
-    "access_key": "AKID...",
-    "secret_key": "...",
-    "base_path": "prod/",
-    "max_file_size": 10737418240,
-    "chunk_size": 10485760
-  }
+  "policy_id": 12,
+  "driver_type": "tencent_cos",
+  "endpoint": "https://bucket-1250000000.cos.ap-guangzhou.myqcloud.com",
+  "bucket": "bucket-1250000000",
+  "access_key": "AKID...",
+  "secret_key": "...",
+  "base_path": "prod/"
 }
 ```
 
 `configure_tencent_cos_cors` 的参数来源和行为：
 
 - 请求体不接受 `allowed_origin` 或 `allowed_origins`
+- 草稿请求的连接字段是平铺字段，不包在 `policy` 对象里
+- `policy_id` 可选，只用于编辑已保存策略时的草稿 action；如果 `access_key` 或 `secret_key` 为空，后端会从该已保存策略补齐空白密钥字段
+- 不传 `policy_id` 时，草稿 action 必须自己携带完整凭证；这用于新建未保存策略或纯临时参数测试
 - 后端从运行时配置 `public_site_url` 读取全部公开站点来源，并写成同一条 COS CORS rule 的多个 `AllowedOrigin`
 - 如果 `public_site_url` 为空，返回 `policy.action_parameter_required`
 - 如果策略不是 `tencent_cos`，返回 `policy.action_unsupported`

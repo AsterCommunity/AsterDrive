@@ -779,7 +779,7 @@ function useAdminPoliciesPageContent() {
 								action: "configure_tencent_cos_cors",
 							})
 						: await adminPolicyService.executeDraftPolicyAction(
-								buildTencentCosCorsPayload(currentForm),
+								buildTencentCosCorsPayload(currentForm, editingId),
 							);
 				const requestId = result.tencent_cos_cors?.request_id;
 				setCosCorsConfirmOpen(false);

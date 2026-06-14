@@ -2265,8 +2265,58 @@ describe("AdminPoliciesPage", () => {
 					s3_download_strategy: "presigned",
 					s3_upload_strategy: "presigned",
 				},
+				policy_id: 32,
 				remote_node_id: undefined,
 				secret_key: "SECRETDIRTY",
+			});
+		});
+		expect(mockState.executeSavedPolicyAction).not.toHaveBeenCalled();
+	});
+
+	it("lets draft Tencent COS CORS actions reuse saved credentials server-side", async () => {
+		mockState.items = [
+			createPolicy({
+				id: 34,
+				name: "COS Dirty Credentials Saved",
+				driver_type: "tencent_cos",
+				endpoint: "https://cos.ap-guangzhou.myqcloud.com",
+				bucket: "media-1250000000",
+				base_path: "tenant-cos",
+				options: {
+					s3_download_strategy: "presigned",
+					s3_upload_strategy: "presigned",
+				},
+			}),
+		];
+
+		render(<AdminPoliciesPage />);
+
+		openEditPolicy("COS Dirty Credentials Saved");
+
+		fireEvent.change(screen.getByLabelText("bucket"), {
+			target: { value: "media-draft-1250000000" },
+		});
+
+		fireEvent.click(
+			screen.getByRole("button", { name: "policy_cos_cors_action" }),
+		);
+		fireEvent.click(
+			screen.getByRole("button", { name: "policy_cos_cors_confirm" }),
+		);
+
+		await waitFor(() => {
+			expect(mockState.executeDraftPolicyAction).toHaveBeenCalledWith({
+				action: "configure_tencent_cos_cors",
+				base_path: "tenant-cos",
+				bucket: "media-draft-1250000000",
+				driver_type: "tencent_cos",
+				endpoint: "https://cos.ap-guangzhou.myqcloud.com",
+				options: {
+					s3_download_strategy: "presigned",
+					s3_upload_strategy: "presigned",
+				},
+				policy_id: 34,
+				remote_node_id: undefined,
 			});
 		});
 		expect(mockState.executeSavedPolicyAction).not.toHaveBeenCalled();

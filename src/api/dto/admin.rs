@@ -180,6 +180,8 @@ pub struct TestPolicyParamsReq {
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct ExecuteDraftStoragePolicyActionReq {
     pub action: crate::services::policy_service::StoragePolicyActionType,
+    #[validate(range(min = 1, message = "policy_id must be greater than 0"))]
+    pub policy_id: Option<i64>,
     pub driver_type: crate::types::DriverType,
     pub endpoint: Option<String>,
     pub bucket: Option<String>,

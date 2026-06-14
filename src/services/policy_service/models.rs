@@ -124,6 +124,7 @@ pub struct ExecuteSavedStoragePolicyActionInput {
 #[derive(Debug, Clone)]
 pub struct ExecuteDraftStoragePolicyActionInput {
     pub action: StoragePolicyActionType,
+    pub policy_id: Option<i64>,
     pub connection: StoragePolicyConnectionInput,
 }
 

@@ -5097,6 +5097,8 @@ export interface components {
             endpoint?: string | null;
             options?: null | components["schemas"]["StoragePolicyOptions"];
             /** Format: int64 */
+            policy_id?: number | null;
+            /** Format: int64 */
             remote_node_id?: number | null;
             secret_key?: string | null;
         };

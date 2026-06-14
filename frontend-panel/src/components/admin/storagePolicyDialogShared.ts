@@ -304,11 +304,13 @@ export function buildPolicyTestPayload(form: PolicyFormData) {
 
 export function buildTencentCosCorsPayload(
 	form: PolicyFormData,
+	policyId?: number | null,
 ): ExecuteDraftStoragePolicyActionRequest {
 	const normalizedForm = normalizePolicyForm(form);
 
 	return {
 		action: "configure_tencent_cos_cors",
+		policy_id: policyId ?? undefined,
 		driver_type: normalizedForm.driver_type,
 		endpoint: normalizedForm.endpoint || undefined,
 		bucket: normalizedForm.bucket || undefined,

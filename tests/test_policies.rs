@@ -2896,6 +2896,36 @@ async fn test_tencent_cos_cors_config_rejects_invalid_inputs_with_stable_codes()
 }
 
 #[actix_web::test]
+async fn test_tencent_cos_cors_draft_action_reuses_saved_credentials_when_blank() {
+    let state = common::setup().await;
+    let app = create_test_app!(state);
+    let (token, _) = register_and_login!(app);
+    let cos_policy_id =
+        create_tencent_cos_policy_via_admin(&app, &token, "COS CORS Draft Reuse").await;
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/admin/policies/action")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({
+            "action": "configure_tencent_cos_cors",
+            "policy_id": cos_policy_id,
+            "driver_type": "tencent_cos",
+            "endpoint": "https://cos.ap-guangzhou.myqcloud.com",
+            "bucket": "media-draft-1250000000"
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 400);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(
+        body["code"],
+        ApiErrorCode::PolicyActionParameterRequired.as_str(),
+        "blank draft credentials should be filled from saved policy before action-specific validation"
+    );
+}
+
+#[actix_web::test]
 async fn test_tencent_cos_cors_dedicated_routes_are_not_exposed() {
     let state = common::setup().await;
     let app = create_test_app!(state);

@@ -110,6 +110,7 @@ impl From<ExecuteDraftStoragePolicyActionReq>
     fn from(value: ExecuteDraftStoragePolicyActionReq) -> Self {
         Self {
             action: value.action,
+            policy_id: value.policy_id,
             connection: PolicyConnectionInputParts {
                 driver_type: value.driver_type,
                 endpoint: value.endpoint,
