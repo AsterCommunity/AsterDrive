@@ -59,7 +59,7 @@ describe("overlay layering", () => {
 			"z-(--z-tooltip)",
 		);
 		expect(readProjectFile("src/App.tsx")).toContain(
-			'style={{ zIndex: "var(--z-toast)" }}',
+			'zIndex: "var(--z-toast)"',
 		);
 	});
 

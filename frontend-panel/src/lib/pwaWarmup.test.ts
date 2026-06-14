@@ -109,6 +109,20 @@ describe("pwaWarmup", () => {
 		expect(mockState.previewLoad).not.toHaveBeenCalled();
 	});
 
+	it("warms only admin routes when user routes have already been queued", async () => {
+		const { warmupRouteChunks } = await loadModule();
+
+		warmupRouteChunks("user");
+		await vi.advanceTimersByTimeAsync(5_000);
+		warmupRouteChunks("admin");
+		await vi.advanceTimersByTimeAsync(5_000);
+
+		expect(mockState.userRouteLoad).toHaveBeenCalledTimes(1);
+		expect(mockState.adminRouteLoad).toHaveBeenCalledTimes(1);
+		expect(mockState.userFeatureLoad).not.toHaveBeenCalled();
+		expect(mockState.previewLoad).not.toHaveBeenCalled();
+	});
+
 	it("skips later user warmups after the admin queue has already run", async () => {
 		const { warmupRouteChunks } = await loadModule();
 

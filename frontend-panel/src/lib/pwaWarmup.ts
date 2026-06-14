@@ -141,7 +141,8 @@ function warmSequentially(loaders: WarmupLoaderEntry[]) {
 	scheduleIdle(runNext);
 }
 
-let warmedRole: "user" | "admin" | null = null;
+let warmedUserRoutes = false;
+let warmedAdminRoutes = false;
 let warmedLoginSuccessPath = false;
 let warmedPreviewEngines = false;
 
@@ -162,21 +163,30 @@ export function warmupLoginSuccessPath() {
 
 export function warmupRouteChunks(role: "user" | "admin") {
 	if (typeof window === "undefined") return;
-	if (warmedRole === "admin") {
-		logWarmup("skip warmup because admin queue already ran");
-		return;
-	}
-	if (warmedRole === role) {
-		logWarmup(`skip duplicate ${role} warmup`);
-		return;
-	}
 
-	warmedRole = role;
+	const routeLoaders = (() => {
+		if (role === "user") {
+			if (warmedUserRoutes) {
+				logWarmup("skip duplicate user warmup");
+				return null;
+			}
+			warmedUserRoutes = true;
+			return userRouteWarmupLoaders;
+		}
 
-	const routeLoaders =
-		role === "admin"
-			? [...userRouteWarmupLoaders, ...adminRouteWarmupLoaders]
-			: userRouteWarmupLoaders;
+		if (warmedAdminRoutes) {
+			logWarmup("skip duplicate admin warmup");
+			return null;
+		}
+
+		const loaders = warmedUserRoutes
+			? adminRouteWarmupLoaders
+			: [...userRouteWarmupLoaders, ...adminRouteWarmupLoaders];
+		warmedUserRoutes = true;
+		warmedAdminRoutes = true;
+		return loaders;
+	})();
+	if (routeLoaders == null) return;
 
 	logWarmup(
 		`start ${role} warmup`,

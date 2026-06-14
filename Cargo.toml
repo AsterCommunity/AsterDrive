@@ -81,7 +81,7 @@ async-trait = "0.1"
 base64 = "0.22"
 bytes = "1"
 aws-credential-types = { version = "1.2.14", features = ["hardcoded-credentials"] }
-aws-sdk-s3 = { version = "1.135.0", default-features = false, features = ["sigv4a", "http-1x", "default-https-client", "rt-tokio"] }
+aws-sdk-s3 = { version = "1.136.0", default-features = false, features = ["sigv4a", "http-1x", "default-https-client", "rt-tokio"] }
 aws-smithy-http = "0.63"
 azure_core = { version = "1.0.0", default-features = false, features = ["hmac_rust", "reqwest_rustls", "tokio"] }
 azure_storage_blob = { version = "1.0.0", default-features = false, features = ["tokio"] }
@@ -118,7 +118,7 @@ openidconnect = "4.0.1"
 prometheus = { version = "0.14", optional = true, default-features = false }
 sysinfo = { version = "0.38", optional = true, default-features = false, features = ["system"] }
 rand = { version = "0.10.1", default-features = false, features = ["std", "std_rng", "thread_rng"] }
-redis = { version = "1.2.2", features = ["connection-manager", "tokio-comp", "tokio-rustls-comp"] }
+redis = { version = "1.2.3", features = ["connection-manager", "tokio-comp", "tokio-rustls-comp"] }
 reqwest = { version = "0.13", features = ["stream", "json"] }
 ring = "0.17"
 rust-embed = "8"
@@ -155,7 +155,7 @@ lofty = "0.24.0"
 
 [dev-dependencies]
 aws-smithy-http-client = { version = "1.1.13", features = ["test-util"] }
-aws-smithy-types = "1.4.9"
+aws-smithy-types = "1.5.0"
 # Test-only RSA key generation still uses rsa 0.9, which depends on rand 0.8.
 # Keep both dev-only so production builds continue using the main rand 0.10 line.
 rand_08 = { package = "rand", version = "0.8" }

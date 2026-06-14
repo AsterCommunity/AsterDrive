@@ -44,6 +44,7 @@ vi.mock("sonner", () => ({
 
 vi.mock("@/i18n", () => ({
 	default: {
+		dir: () => "ltr",
 		t: (key: string) => key,
 	},
 	ensureAllI18nNamespaces: () => mockState.ensureAllI18nNamespaces(),

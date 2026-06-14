@@ -207,7 +207,7 @@ function App() {
 			<Toaster
 				position="bottom-right"
 				closeButton
-				dir="ltr"
+				dir={i18n.dir()}
 				offset={18}
 				mobileOffset={12}
 				swipeDirections={["right"]}
