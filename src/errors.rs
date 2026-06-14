@@ -440,7 +440,7 @@ fn sanitize_url_token(token: &str) -> String {
     };
 
     if !url.username().is_empty() || url.password().is_some() {
-        let _ = url.set_username("[redacted]");
+        let _ = url.set_username("");
         let _ = url.set_password(None);
     }
 
@@ -1126,8 +1126,8 @@ mod tests {
             (
                 "url userinfo",
                 "failed: https://user:password@example.com/container/blob?x=1",
-                "failed: https://%5Bredacted%5D@example.com/container/blob?x=1",
-                vec!["user:password"],
+                "failed: https://example.com/container/blob?x=1",
+                vec!["user:password", "@"],
             ),
             (
                 "sensitive query aliases",

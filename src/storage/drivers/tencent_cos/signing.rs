@@ -272,6 +272,7 @@ fn canonical_headers(headers: &[(&str, &str)]) -> String {
         })
         .collect::<Vec<_>>();
     normalized.sort_by(|a, b| a.0.cmp(&b.0));
+    normalized.dedup_by(|a, b| a.0 == b.0);
     normalized
         .into_iter()
         .map(|(key, value)| format!("{key}={value}"))
@@ -475,6 +476,22 @@ mod tests {
         assert_eq!(
             canonical_headers(&headers),
             "content-type=application%2Fxml%3B%20charset%3Dutf-8&host=bucket-1250000000.cos.ap-guangzhou.myqcloud.com&x-cos-security-token=token%20value"
+        );
+    }
+
+    #[test]
+    fn canonical_cos_headers_deduplicate_names_consistently_with_header_list() {
+        let headers = [
+            ("Host", "bucket-1250000000.cos.ap-guangzhou.myqcloud.com"),
+            ("host", "duplicate.example.com"),
+            ("Content-Type", " application/xml "),
+            ("content-type", " text/plain "),
+        ];
+
+        assert_eq!(canonical_header_list(&headers), "content-type;host");
+        assert_eq!(
+            canonical_headers(&headers),
+            "content-type=application%2Fxml&host=bucket-1250000000.cos.ap-guangzhou.myqcloud.com"
         );
     }
 
