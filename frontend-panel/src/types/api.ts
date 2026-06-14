@@ -350,6 +350,12 @@ export type UpdatePolicyRequest = components["schemas"]["PatchPolicyReq"];
 export type PatchRemoteNodeReq = components["schemas"]["PatchRemoteNodeReq"];
 export type TestPolicyParamsRequest =
 	components["schemas"]["TestPolicyParamsReq"];
+export type ExecuteDraftStoragePolicyActionRequest =
+	components["schemas"]["ExecuteDraftStoragePolicyActionReq"];
+export type ExecuteSavedStoragePolicyActionRequest =
+	components["schemas"]["ExecuteSavedStoragePolicyActionReq"];
+export type StoragePolicyActionResult =
+	OperationData<"execute_draft_storage_policy_action">;
 export type PromoteS3CompatiblePolicyDriverRequest =
 	components["schemas"]["PromoteS3CompatiblePolicyDriverReq"];
 export type TestRemoteNodeParamsReq =

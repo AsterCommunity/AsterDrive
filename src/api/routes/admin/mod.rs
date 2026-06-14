@@ -14,8 +14,9 @@ pub use crate::api::dto::admin::{
     AdminTaskListQuery, AdminTeamListQuery, AdminUserListQuery, CreateBlobMaintenanceTaskReq,
     CreatePolicyGroupReq, CreatePolicyReq, CreateRemoteNodeReq, CreateStoragePolicyMigrationReq,
     CreateUserInvitationReq, CreateUserReq, DeletePolicyQuery, DryRunStoragePolicyMigrationReq,
-    ExecuteConfigActionReq, ExecuteConfigActionResp, MigratePolicyGroupAssignmentsReq,
-    PatchPolicyGroupReq, PatchPolicyReq, PatchRemoteNodeReq, PatchUserReq, PolicyGroupItemReq,
+    ExecuteConfigActionReq, ExecuteConfigActionResp, ExecuteDraftStoragePolicyActionReq,
+    ExecuteSavedStoragePolicyActionReq, MigratePolicyGroupAssignmentsReq, PatchPolicyGroupReq,
+    PatchPolicyReq, PatchRemoteNodeReq, PatchUserReq, PolicyGroupItemReq,
     PromoteS3CompatiblePolicyDriverReq, ResetUserPasswordReq, SetConfigReq, SetFolderPolicyReq,
     TestPolicyParamsReq, TestRemoteNodeParamsReq,
 };
@@ -54,7 +55,8 @@ pub use folders::set_folder_policy;
 pub use locks::{cleanup_expired_locks, force_unlock, list_locks};
 pub use overview::get_overview;
 pub use policies::{
-    create_policy, create_policy_group, delete_policy, delete_policy_group, get_policy,
+    create_policy, create_policy_group, delete_policy, delete_policy_group,
+    execute_draft_storage_policy_action, execute_saved_storage_policy_action, get_policy,
     get_policy_capacity, get_policy_group, list_policies, list_policy_groups,
     migrate_policy_group_assignments, promote_s3_compatible_policy_driver, test_policy_connection,
     test_policy_params, update_policy, update_policy_group,
@@ -114,7 +116,15 @@ pub fn routes(
                         "/policies/{id}/promote-s3-driver",
                         web::post().to(promote_s3_compatible_policy_driver),
                     )
+                    .route(
+                        "/policies/{id}/action",
+                        web::post().to(execute_saved_storage_policy_action),
+                    )
                     .route("/policies/test", web::post().to(test_policy_params))
+                    .route(
+                        "/policies/action",
+                        web::post().to(execute_draft_storage_policy_action),
+                    )
                     // remote nodes
                     .route("/remote-nodes", web::get().to(list_remote_nodes))
                     .route("/remote-nodes", web::post().to(create_remote_node))

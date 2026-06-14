@@ -43,11 +43,17 @@ interface StoragePolicyEditFormProps {
 	form: PolicyFormData;
 	policyCapacity: StoragePolicyCapacityInfo | null;
 	policyCapacityLoading: boolean;
+	cosCorsConfirmOpen: boolean;
+	cosCorsSubmitting: boolean;
+	cosCorsTargetOrigin: string;
+	cosCorsUsesDraftValues: boolean;
 	s3DriverPromotionBlocked: boolean;
 	s3DriverPromotionConfirmOpen: boolean;
 	s3DriverPromotionSubmitting: boolean;
 	s3DriverPromotionTargetLabel: string | null;
 	onFieldChange: StoragePolicyFieldChangeHandler;
+	onCancelCosCorsConfigure: () => void;
+	onConfirmCosCorsConfigure: () => void;
 	onCancelS3DriverPromotion: () => void;
 	onConfirmS3DriverPromotion: () => void;
 	onRequestS3DriverPromotion: () => void;
@@ -65,11 +71,17 @@ export function StoragePolicyEditForm({
 	form,
 	policyCapacity,
 	policyCapacityLoading,
+	cosCorsConfirmOpen,
+	cosCorsSubmitting,
+	cosCorsTargetOrigin,
+	cosCorsUsesDraftValues,
 	s3DriverPromotionBlocked,
 	s3DriverPromotionConfirmOpen,
 	s3DriverPromotionSubmitting,
 	s3DriverPromotionTargetLabel,
 	onFieldChange,
+	onCancelCosCorsConfigure,
+	onConfirmCosCorsConfigure,
 	onCancelS3DriverPromotion,
 	onConfirmS3DriverPromotion,
 	onRequestS3DriverPromotion,
@@ -149,6 +161,18 @@ export function StoragePolicyEditForm({
 										onRequest={onRequestS3DriverPromotion}
 									/>
 								) : null}
+							</AnimatedCollapsible>
+							<AnimatedCollapsible open={form.driver_type === "tencent_cos"}>
+								<TencentCosCorsPanel
+									confirmOpen={cosCorsConfirmOpen}
+									submitting={cosCorsSubmitting}
+									targetOrigin={cosCorsTargetOrigin}
+									usesDraftValues={cosCorsUsesDraftValues}
+									form={form}
+									t={t}
+									onCancel={onCancelCosCorsConfigure}
+									onConfirm={onConfirmCosCorsConfigure}
+								/>
 							</AnimatedCollapsible>
 						</div>
 					</section>
@@ -233,6 +257,108 @@ export function StoragePolicyEditForm({
 					</section>
 				) : null}
 			</div>
+		</div>
+	);
+}
+
+function TencentCosCorsPanel({
+	confirmOpen,
+	form,
+	submitting,
+	targetOrigin,
+	usesDraftValues,
+	t,
+	onCancel,
+	onConfirm,
+}: {
+	confirmOpen: boolean;
+	form: PolicyFormData;
+	submitting: boolean;
+	targetOrigin: string;
+	usesDraftValues: boolean;
+	t: (key: string, values?: Record<string, number | string>) => string;
+	onCancel: () => void;
+	onConfirm: () => void;
+}) {
+	const directAccessEnabled =
+		form.s3_upload_strategy === "presigned" ||
+		form.s3_download_strategy === "presigned";
+
+	return (
+		<div className="rounded-lg border border-sky-500/25 bg-sky-500/5 p-3">
+			<div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+				<div className="min-w-0 space-y-1">
+					<div className="flex items-center gap-2 text-sm font-medium">
+						<Icon
+							name="Cloud"
+							className="size-4 shrink-0 text-sky-700 dark:text-sky-300"
+						/>
+						<span>{t("policy_cos_cors_title")}</span>
+					</div>
+					<p className="text-xs leading-5 text-muted-foreground">
+						{directAccessEnabled
+							? t("policy_cos_cors_desc")
+							: t("policy_cos_cors_relay_desc")}
+					</p>
+					<p className="text-xs text-muted-foreground">
+						{t("policy_cos_cors_origin", { origin: targetOrigin })}
+					</p>
+					{usesDraftValues ? (
+						<p className="text-xs text-sky-800 dark:text-sky-200">
+							{t("policy_cos_cors_uses_draft")}
+						</p>
+					) : (
+						<p className="text-xs text-muted-foreground">
+							{t("policy_cos_cors_uses_saved")}
+						</p>
+					)}
+				</div>
+				<Button
+					type="button"
+					variant="outline"
+					className={cn(ADMIN_CONTROL_HEIGHT_CLASS, "shrink-0")}
+					disabled={submitting || confirmOpen}
+					onClick={onConfirm}
+				>
+					{t("policy_cos_cors_action")}
+				</Button>
+			</div>
+			{confirmOpen ? (
+				<InlineConfirm className="mt-3">
+					<div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+						<div>
+							<p className="text-sm font-medium">
+								{t("policy_cos_cors_confirm_title")}
+							</p>
+							<p className="mt-1 text-xs leading-5 text-muted-foreground">
+								{t("policy_cos_cors_confirm_desc", { origin: targetOrigin })}
+							</p>
+						</div>
+						<div className="flex shrink-0 items-center gap-2">
+							<Button
+								type="button"
+								variant="outline"
+								className={ADMIN_CONTROL_HEIGHT_CLASS}
+								onClick={onCancel}
+								disabled={submitting}
+							>
+								{t("core:cancel")}
+							</Button>
+							<Button
+								type="button"
+								className={ADMIN_CONTROL_HEIGHT_CLASS}
+								onClick={onConfirm}
+								disabled={submitting}
+							>
+								{submitting ? (
+									<Icon name="Spinner" className="mr-1 size-3.5 animate-spin" />
+								) : null}
+								{t("policy_cos_cors_confirm")}
+							</Button>
+						</div>
+					</div>
+				</InlineConfirm>
+			) : null}
 		</div>
 	);
 }

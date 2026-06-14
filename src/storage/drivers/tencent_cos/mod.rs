@@ -3,6 +3,7 @@
 //! 基础对象读写复用 S3 兼容驱动；COS/CI 数据处理使用 COS 原生 query
 //! 签名，因为 CI 处理参数必须参与签名，不能追加在普通 S3 presigned URL 后面。
 
+pub(crate) mod cors;
 mod native_media_metadata;
 mod native_thumbnail;
 mod signing;

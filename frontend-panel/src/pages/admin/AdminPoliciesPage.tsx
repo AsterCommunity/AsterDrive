@@ -13,6 +13,7 @@ import { StoragePolicyMigrationDialog } from "@/components/admin/admin-policies-
 import {
 	buildCreatePolicyPayload,
 	buildPolicyTestPayload,
+	buildTencentCosCorsPayload,
 	buildUpdatePolicyPayload,
 	DEFAULT_STORAGE_NATIVE_THUMBNAIL_EXTENSIONS,
 	emptyForm,
@@ -51,6 +52,7 @@ import {
 	parseSortSearchParam,
 	type SortOrder,
 } from "@/lib/pagination";
+import { getPublicSiteUrl } from "@/lib/publicSiteUrl";
 import { adminPolicyService } from "@/services/adminService";
 import { ApiError } from "@/services/http";
 import type { AdminPolicySortBy } from "@/types/adminSort";
@@ -197,6 +199,7 @@ function useAdminPoliciesPageContent() {
 	const [saveAnywayConfirmOpen, setSaveAnywayConfirmOpen] = useState(false);
 	const [s3DriverPromotionConfirmOpen, setS3DriverPromotionConfirmOpen] =
 		useState(false);
+	const [cosCorsConfirmOpen, setCosCorsConfirmOpen] = useState(false);
 	const [migrationDialogOpen, setMigrationDialogOpen] = useState(false);
 	const [migrationPolicies, setMigrationPolicies] = useState<StoragePolicy[]>(
 		[],
@@ -221,7 +224,14 @@ function useAdminPoliciesPageContent() {
 		pending: s3DriverPromotionSubmitting,
 		runWithPending: runWithS3DriverPromotion,
 	} = usePendingAction();
+	const {
+		pending: cosCorsSubmitting,
+		runWithPending: runWithCosCorsConfigure,
+	} = usePendingAction();
 	const endpointValidationMessage = getEndpointValidationMessage(form, t);
+	const cosCorsTargetOrigin =
+		getPublicSiteUrl() ??
+		(typeof window === "undefined" ? "" : window.location.origin);
 	const getS3CompatiblePromotionDriverLabel = (driverType: "tencent_cos") =>
 		t(getPolicyDriverLabelKey(driverType));
 	const savedS3DriverPromotionTarget = getS3CompatibleDriverPromotionTarget(
@@ -246,6 +256,8 @@ function useAdminPoliciesPageContent() {
 	const s3DriverPromotionBlocked =
 		s3DriverPromotionTarget != null &&
 		policyFormHasUnsavedChanges(form, editingPolicy);
+	const cosCorsUsesDraftValues =
+		editingId === null || hasConnectionFieldChanges(form, editingPolicy);
 	const totalPages = Math.max(1, Math.ceil(total / pageSize));
 	const currentPage = Math.floor(offset / pageSize) + 1;
 	const prevPageDisabled = offset === 0;
@@ -732,6 +744,64 @@ function useAdminPoliciesPageContent() {
 		setS3DriverPromotionConfirmOpen(false);
 	};
 
+	const cancelCosCorsConfigure = () => {
+		setCosCorsConfirmOpen(false);
+	};
+
+	const requestOrConfirmCosCorsConfigure = () => {
+		if (cosCorsConfirmOpen) {
+			void configureTencentCosCors();
+			return;
+		}
+		setSaveAnywayConfirmOpen(false);
+		setCosCorsConfirmOpen(true);
+	};
+
+	const configureTencentCosCors = async () => {
+		if (form.driver_type !== "tencent_cos") {
+			return;
+		}
+
+		await runWithCosCorsConfigure(async () => {
+			try {
+				const currentForm = syncNormalizedS3Form();
+				const currentEndpointValidationMessage = getEndpointValidationMessage(
+					currentForm,
+					t,
+				);
+				if (currentEndpointValidationMessage) {
+					toast.error(currentEndpointValidationMessage);
+					return;
+				}
+
+				const allowedOrigin = cosCorsTargetOrigin || undefined;
+				const shouldUseDraft =
+					editingId === null ||
+					hasConnectionFieldChanges(currentForm, editingPolicy);
+				const result =
+					editingId !== null && !shouldUseDraft
+						? await adminPolicyService.executeSavedPolicyAction(editingId, {
+								action: "configure_tencent_cos_cors",
+								allowed_origin: allowedOrigin,
+							})
+						: await adminPolicyService.executeDraftPolicyAction(
+								buildTencentCosCorsPayload(currentForm, allowedOrigin),
+							);
+				const requestId = result.tencent_cos_cors?.request_id;
+				setCosCorsConfirmOpen(false);
+				toast.success(t("policy_cos_cors_success"), {
+					description: requestId
+						? t("policy_cos_cors_success_request_id", {
+								requestId,
+							})
+						: undefined,
+				});
+			} catch (error) {
+				handleApiError(error);
+			}
+		});
+	};
+
 	const confirmS3DriverPromotion = () => {
 		if (
 			!editingPolicy ||
@@ -1021,6 +1091,10 @@ function useAdminPoliciesPageContent() {
 					form={form}
 					policyCapacity={policyCapacity}
 					policyCapacityLoading={policyCapacityLoading}
+					cosCorsConfirmOpen={cosCorsConfirmOpen}
+					cosCorsSubmitting={cosCorsSubmitting}
+					cosCorsTargetOrigin={cosCorsTargetOrigin || t("core:unknown")}
+					cosCorsUsesDraftValues={cosCorsUsesDraftValues}
 					s3CompatibleDriverSuggestionTargetLabel={
 						s3CompatibleDriverSuggestionTarget?.driverLabel ?? null
 					}
@@ -1039,9 +1113,11 @@ function useAdminPoliciesPageContent() {
 					onApplyS3CompatibleDriverSuggestion={
 						applyS3CompatibleDriverSuggestion
 					}
+					onCancelCosCorsConfigure={cancelCosCorsConfigure}
 					onCancelSaveAnyway={cancelSaveAnyway}
 					onCancelS3DriverPromotion={cancelS3DriverPromotion}
 					onConfirmSaveAnyway={confirmSaveAnyway}
+					onConfirmCosCorsConfigure={requestOrConfirmCosCorsConfigure}
 					onConfirmS3DriverPromotion={confirmS3DriverPromotion}
 					onDialogOpenChange={handleDialogOpenChange}
 					onSubmit={handleSubmit}

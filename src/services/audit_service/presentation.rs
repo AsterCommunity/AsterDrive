@@ -199,6 +199,19 @@ fn detail_message(
             );
             Some(message("storage_policy_snapshot", params))
         }
+        AuditAction::AdminTriggerStorageAction => {
+            copy_params(
+                details,
+                &mut params,
+                &[
+                    "action",
+                    "driver_type",
+                    "used_draft_values",
+                    "mutates_remote_state",
+                ],
+            );
+            Some(message("storage_policy_action_triggered", params))
+        }
         AuditAction::AdminCreatePolicyGroup
         | AuditAction::AdminUpdatePolicyGroup
         | AuditAction::AdminDeletePolicyGroup => {

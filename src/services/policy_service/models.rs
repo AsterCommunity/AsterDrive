@@ -84,6 +84,59 @@ pub struct StoragePolicyCapacityInfo {
     pub capacity: crate::storage::StorageCapacityInfo,
 }
 
+#[derive(Debug, Clone, Serialize)]
+#[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
+pub struct TencentCosCorsConfigResult {
+    pub rule_id: String,
+    pub allowed_origin: String,
+    pub request_id: Option<String>,
+    pub preserved_rule_count: usize,
+    pub replaced_existing_rule: bool,
+    pub response_vary: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+#[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
+pub enum StoragePolicyActionType {
+    ConfigureTencentCosCors,
+}
+
+impl StoragePolicyActionType {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::ConfigureTencentCosCors => "configure_tencent_cos_cors",
+        }
+    }
+
+    pub const fn mutates_remote_state(self) -> bool {
+        match self {
+            Self::ConfigureTencentCosCors => true,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct ExecuteSavedStoragePolicyActionInput {
+    pub action: StoragePolicyActionType,
+    pub allowed_origin: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct ExecuteDraftStoragePolicyActionInput {
+    pub action: StoragePolicyActionType,
+    pub connection: StoragePolicyConnectionInput,
+    pub allowed_origin: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
+pub struct StoragePolicyActionResult {
+    pub action: StoragePolicyActionType,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tencent_cos_cors: Option<TencentCosCorsConfigResult>,
+}
+
 impl From<storage_policy::Model> for StoragePolicy {
     fn from(model: storage_policy::Model) -> Self {
         Self {
@@ -125,6 +178,12 @@ pub struct StoragePolicyConnectionInput {
     pub base_path: String,
     pub remote_node_id: Option<i64>,
     pub options: StoragePolicyOptions,
+}
+
+#[derive(Debug, Clone)]
+pub struct ConfigureTencentCosCorsInput {
+    pub connection: StoragePolicyConnectionInput,
+    pub allowed_origin: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -177,4 +236,70 @@ pub struct UpdateStoragePolicyGroupInput {
     pub is_enabled: Option<bool>,
     pub is_default: Option<bool>,
     pub items: Option<Vec<StoragePolicyGroupItemInput>>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{StoragePolicyActionResult, StoragePolicyActionType, TencentCosCorsConfigResult};
+
+    #[test]
+    fn storage_policy_action_type_uses_stable_snake_case_wire_value() {
+        let action = StoragePolicyActionType::ConfigureTencentCosCors;
+
+        assert_eq!(action.as_str(), "configure_tencent_cos_cors");
+        assert!(action.mutates_remote_state());
+        assert_eq!(
+            serde_json::to_string(&action).expect("serialize action"),
+            "\"configure_tencent_cos_cors\""
+        );
+        assert_eq!(
+            serde_json::from_str::<StoragePolicyActionType>("\"configure_tencent_cos_cors\"")
+                .expect("deserialize action"),
+            action
+        );
+    }
+
+    #[test]
+    fn storage_policy_action_result_omits_unrelated_payloads() {
+        let empty_payload = StoragePolicyActionResult {
+            action: StoragePolicyActionType::ConfigureTencentCosCors,
+            tencent_cos_cors: None,
+        };
+
+        let value = serde_json::to_value(empty_payload).expect("serialize empty payload");
+
+        assert_eq!(value["action"], "configure_tencent_cos_cors");
+        assert!(value.get("tencent_cos_cors").is_none());
+    }
+
+    #[test]
+    fn storage_policy_action_result_serializes_tencent_cos_cors_payload() {
+        let result = StoragePolicyActionResult {
+            action: StoragePolicyActionType::ConfigureTencentCosCors,
+            tencent_cos_cors: Some(TencentCosCorsConfigResult {
+                rule_id: "asterdrive-presigned-access".to_string(),
+                allowed_origin: "https://drive.example.com".to_string(),
+                request_id: Some("req-1".to_string()),
+                preserved_rule_count: 2,
+                replaced_existing_rule: true,
+                response_vary: true,
+            }),
+        };
+
+        let value = serde_json::to_value(result).expect("serialize COS payload");
+
+        assert_eq!(value["action"], "configure_tencent_cos_cors");
+        assert_eq!(
+            value["tencent_cos_cors"]["rule_id"],
+            "asterdrive-presigned-access"
+        );
+        assert_eq!(
+            value["tencent_cos_cors"]["allowed_origin"],
+            "https://drive.example.com"
+        );
+        assert_eq!(value["tencent_cos_cors"]["request_id"], "req-1");
+        assert_eq!(value["tencent_cos_cors"]["preserved_rule_count"], 2);
+        assert_eq!(value["tencent_cos_cors"]["replaced_existing_rule"], true);
+        assert_eq!(value["tencent_cos_cors"]["response_vary"], true);
+    }
 }

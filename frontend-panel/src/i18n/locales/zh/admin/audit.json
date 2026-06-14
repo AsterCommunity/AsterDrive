@@ -233,6 +233,7 @@
 	"audit_presentation_admin_user_updated_diff": "变更 {{changed_fields}}；角色 {{previous_role}} -> {{role}}，状态 {{previous_status}} -> {{status}}，配额 {{previous_storage_quota}} -> {{storage_quota}}",
 	"audit_presentation_admin_force_delete_user_finished": "移除 {{file_count}} 个文件、{{folder_count}} 个文件夹、{{share_count}} 个分享",
 	"audit_presentation_storage_policy_snapshot": "{{driver_type}} 策略，最大文件 {{max_file_size}}，分片 {{chunk_size}}，默认 {{is_default}}",
+	"audit_presentation_storage_policy_action_triggered": "触发 {{driver_type}} 存储动作 {{action}}，草稿 {{used_draft_values}}，远端变更 {{mutates_remote_state}}",
 	"audit_presentation_policy_group_snapshot": "{{item_count}} 个策略项，启用 {{is_enabled}}，默认 {{is_default}}",
 	"audit_presentation_policy_group_migration_finished": "从 {{source_group_name}} 迁移到 {{target_group_name}}，共 {{migrated_assignments}} 个绑定",
 	"audit_presentation_team_snapshot": "{{member_count}} 个成员，配额 {{storage_quota}}",

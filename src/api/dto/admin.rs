@@ -175,6 +175,32 @@ pub struct TestPolicyParamsReq {
     pub options: Option<crate::types::StoragePolicyOptions>,
 }
 
+/// Execute a storage policy action by draft policy parameters.
+#[derive(Deserialize, Validate)]
+#[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
+pub struct ExecuteDraftStoragePolicyActionReq {
+    pub action: crate::services::policy_service::StoragePolicyActionType,
+    pub driver_type: crate::types::DriverType,
+    pub endpoint: Option<String>,
+    pub bucket: Option<String>,
+    pub access_key: Option<String>,
+    pub secret_key: Option<String>,
+    pub base_path: Option<String>,
+    #[validate(range(min = 1, message = "remote_node_id must be greater than 0"))]
+    pub remote_node_id: Option<i64>,
+    #[validate(nested)]
+    pub options: Option<crate::types::StoragePolicyOptions>,
+    pub allowed_origin: Option<String>,
+}
+
+/// Execute a storage policy action for a saved policy.
+#[derive(Deserialize, Validate)]
+#[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
+pub struct ExecuteSavedStoragePolicyActionReq {
+    pub action: crate::services::policy_service::StoragePolicyActionType,
+    pub allowed_origin: Option<String>,
+}
+
 /// Promote an S3-compatible storage policy to a specialized S3-compatible driver.
 #[derive(Deserialize, Validate)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]

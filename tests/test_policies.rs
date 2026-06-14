@@ -36,6 +36,36 @@ where
     body["data"]["id"].as_i64().unwrap()
 }
 
+async fn create_tencent_cos_policy_via_admin<S, B>(app: &S, token: &str, name: &str) -> i64
+where
+    S: actix_web::dev::Service<
+            actix_http::Request,
+            Response = actix_web::dev::ServiceResponse<B>,
+            Error = actix_web::Error,
+        >,
+    B: actix_web::body::MessageBody + 'static,
+{
+    let req = test::TestRequest::post()
+        .uri("/api/v1/admin/policies")
+        .insert_header(("Cookie", common::access_cookie_header(token)))
+        .insert_header(common::csrf_header_for(token))
+        .set_json(serde_json::json!({
+            "name": name,
+            "driver_type": "tencent_cos",
+            "endpoint": "https://cos.ap-guangzhou.myqcloud.com",
+            "bucket": "media-1250000000",
+            "access_key": "AKIDEXAMPLE",
+            "secret_key": "SECRETEXAMPLE",
+            "max_file_size": 0,
+            "is_default": false
+        }))
+        .to_request();
+    let resp = test::call_service(app, req).await;
+    assert_eq!(resp.status(), 201);
+    let body: Value = test::read_body_json(resp).await;
+    body["data"]["id"].as_i64().unwrap()
+}
+
 async fn create_personal_folder<S, B>(
     app: &S,
     token: &str,
@@ -2770,6 +2800,152 @@ async fn test_policy_connection_endpoints_for_local_driver() {
     let resp = test::call_service(&app, req).await;
     assert_eq!(resp.status(), 200);
     assert!(!std::path::Path::new(&format!("{temp_base_path}/_aster_connection_test")).exists());
+}
+
+#[actix_web::test]
+async fn test_tencent_cos_cors_config_rejects_invalid_inputs_with_stable_codes() {
+    let state = common::setup().await;
+    let app = create_test_app!(state);
+    let (token, _) = register_and_login!(app);
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/admin/policies/action")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({
+            "action": "configure_tencent_cos_cors",
+            "driver_type": "local",
+            "base_path": format!("/tmp/test-policy-cos-cors-local-{}", uuid::Uuid::new_v4()),
+            "allowed_origin": "https://drive.example.com"
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 400);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(body["code"], ApiErrorCode::PolicyActionUnsupported.as_str());
+
+    let local_policy_id = create_local_policy_via_admin(&app, &token, "COS CORS Local").await;
+    let req = test::TestRequest::post()
+        .uri(&format!("/api/v1/admin/policies/{local_policy_id}/action"))
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({
+            "action": "configure_tencent_cos_cors",
+            "allowed_origin": "https://drive.example.com"
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 400);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(body["code"], ApiErrorCode::PolicyActionUnsupported.as_str());
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/admin/policies/action")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({
+            "action": "configure_tencent_cos_cors",
+            "driver_type": "tencent_cos",
+            "endpoint": "https://cos.ap-guangzhou.myqcloud.com",
+            "bucket": "media-1250000000",
+            "allowed_origin": "https://drive.example.com"
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 400);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(
+        body["code"],
+        ApiErrorCode::PolicyStorageAccessKeyRequired.as_str()
+    );
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/admin/policies/action")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({
+            "action": "configure_tencent_cos_cors",
+            "driver_type": "tencent_cos",
+            "endpoint": "https://cos.ap-guangzhou.myqcloud.com",
+            "bucket": "media-1250000000",
+            "access_key": "AKIDEXAMPLE",
+            "secret_key": "SECRETEXAMPLE",
+            "allowed_origin": "not a url"
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 400);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(
+        body["code"],
+        ApiErrorCode::PolicyActionParameterInvalid.as_str()
+    );
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/admin/policies/action")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({
+            "action": "configure_tencent_cos_cors",
+            "driver_type": "tencent_cos",
+            "endpoint": "https://cos.ap-guangzhou.myqcloud.com",
+            "bucket": "media-1250000000",
+            "access_key": "AKIDEXAMPLE",
+            "secret_key": "SECRETEXAMPLE"
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 400);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(
+        body["code"],
+        ApiErrorCode::PolicyActionParameterRequired.as_str()
+    );
+
+    let cos_policy_id = create_tencent_cos_policy_via_admin(&app, &token, "COS CORS Saved").await;
+    let req = test::TestRequest::post()
+        .uri(&format!("/api/v1/admin/policies/{cos_policy_id}/action"))
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({
+            "action": "configure_tencent_cos_cors"
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 400);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(
+        body["code"],
+        ApiErrorCode::PolicyActionParameterRequired.as_str()
+    );
+}
+
+#[actix_web::test]
+async fn test_tencent_cos_cors_dedicated_routes_are_not_exposed() {
+    let state = common::setup().await;
+    let app = create_test_app!(state);
+    let (token, _) = register_and_login!(app);
+    let cos_policy_id = create_tencent_cos_policy_via_admin(&app, &token, "COS CORS Routes").await;
+
+    for uri in [
+        "/api/v1/admin/policies/tencent-cos/cors".to_string(),
+        format!("/api/v1/admin/policies/{cos_policy_id}/tencent-cos/cors"),
+    ] {
+        let req = test::TestRequest::post()
+            .uri(&uri)
+            .insert_header(("Cookie", common::access_cookie_header(&token)))
+            .insert_header(common::csrf_header_for(&token))
+            .set_json(serde_json::json!({
+                "allowed_origin": "https://drive.example.com"
+            }))
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(
+            resp.status(),
+            404,
+            "old dedicated route should not exist: {uri}"
+        );
+    }
 }
 
 #[actix_web::test]

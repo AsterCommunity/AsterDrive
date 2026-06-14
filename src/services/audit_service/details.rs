@@ -104,6 +104,14 @@ pub struct StoragePolicyAuditDetails<'a> {
 }
 
 #[derive(Serialize)]
+pub struct StoragePolicyActionAuditDetails<'a> {
+    pub action: &'a str,
+    pub driver_type: &'a str,
+    pub used_draft_values: bool,
+    pub mutates_remote_state: bool,
+}
+
+#[derive(Serialize)]
 pub struct FolderPolicyAuditDetails {
     pub previous_policy_id: Option<i64>,
     pub policy_id: Option<i64>,

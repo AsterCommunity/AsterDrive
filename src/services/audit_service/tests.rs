@@ -147,6 +147,10 @@ fn audit_action_strings_match_existing_contract() {
         (AuditAction::AdminUpdatePolicy, "admin_update_policy"),
         (AuditAction::AdminDeletePolicy, "admin_delete_policy"),
         (
+            AuditAction::AdminTriggerStorageAction,
+            "admin_trigger_storage_action",
+        ),
+        (
             AuditAction::AdminCreatePolicyGroup,
             "admin_create_policy_group",
         ),

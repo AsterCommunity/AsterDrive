@@ -2,6 +2,7 @@ import { normalizeS3ConnectionFields } from "@/lib/s3Endpoint";
 import type {
 	CreatePolicyRequest,
 	DriverType,
+	ExecuteDraftStoragePolicyActionRequest,
 	RemoteDownloadStrategy,
 	RemoteUploadStrategy,
 	S3DownloadStrategy,
@@ -298,6 +299,26 @@ export function buildPolicyTestPayload(form: PolicyFormData) {
 		base_path: normalizedForm.base_path || undefined,
 		remote_node_id: parseRemoteNodeId(normalizedForm.remote_node_id),
 		options: buildPolicyOptions(normalizedForm),
+	};
+}
+
+export function buildTencentCosCorsPayload(
+	form: PolicyFormData,
+	allowedOrigin?: string,
+): ExecuteDraftStoragePolicyActionRequest {
+	const normalizedForm = normalizePolicyForm(form);
+
+	return {
+		action: "configure_tencent_cos_cors",
+		driver_type: normalizedForm.driver_type,
+		endpoint: normalizedForm.endpoint || undefined,
+		bucket: normalizedForm.bucket || undefined,
+		access_key: normalizedForm.access_key || undefined,
+		secret_key: normalizedForm.secret_key || undefined,
+		base_path: normalizedForm.base_path || undefined,
+		remote_node_id: parseRemoteNodeId(normalizedForm.remote_node_id),
+		options: buildPolicyOptions(normalizedForm),
+		allowed_origin: allowedOrigin || undefined,
 	};
 }
 

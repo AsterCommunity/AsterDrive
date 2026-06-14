@@ -25,12 +25,12 @@ pub use details::{
     RemoteIngressProfileDeleteAuditDetails, RemoteNodeAuditDetails,
     RemoteNodeEnrollmentTokenAuditDetails, RemoteNodeParamTestAuditDetails,
     ShareBatchDeleteDetails, ShareCreateAuditDetails, ShareDeleteAuditDetails, ShareUpdateDetails,
-    StoragePolicyAuditDetails, TagAssignmentAuditDetails, TagAuditDetails, TaskRetryAuditDetails,
-    TeamAuditDetails, TeamCleanupAuditDetails, TeamMemberAddAuditDetails,
-    TeamMemberRemoveAuditDetails, TeamMemberUpdateAuditDetails, TrashPurgeAllAuditDetails,
-    UploadCancelAuditDetails, UserAvatarSourceAuditDetails, UserAvatarUploadAuditDetails,
-    UserLoginAuditDetails, UserMfaManageAuditDetails, UserPreferencesAuditDetails,
-    UserProfileAuditDetails, UserWopiInfoAuditDetails, details,
+    StoragePolicyActionAuditDetails, StoragePolicyAuditDetails, TagAssignmentAuditDetails,
+    TagAuditDetails, TaskRetryAuditDetails, TeamAuditDetails, TeamCleanupAuditDetails,
+    TeamMemberAddAuditDetails, TeamMemberRemoveAuditDetails, TeamMemberUpdateAuditDetails,
+    TrashPurgeAllAuditDetails, UploadCancelAuditDetails, UserAvatarSourceAuditDetails,
+    UserAvatarUploadAuditDetails, UserLoginAuditDetails, UserMfaManageAuditDetails,
+    UserPreferencesAuditDetails, UserProfileAuditDetails, UserWopiInfoAuditDetails, details,
 };
 pub use filters::{AuditLogFilterQuery, AuditLogFilters};
 pub use manager::{

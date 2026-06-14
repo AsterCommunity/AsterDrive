@@ -2,8 +2,9 @@
 
 use crate::api::dto::admin::{
     AdminPolicyGroupListQuery, AdminPolicyListQuery, CreatePolicyGroupReq, CreatePolicyReq,
-    DeletePolicyQuery, MigratePolicyGroupAssignmentsReq, PatchPolicyGroupReq, PatchPolicyReq,
-    PolicyGroupItemReq, PromoteS3CompatiblePolicyDriverReq, TestPolicyParamsReq,
+    DeletePolicyQuery, ExecuteDraftStoragePolicyActionReq, ExecuteSavedStoragePolicyActionReq,
+    MigratePolicyGroupAssignmentsReq, PatchPolicyGroupReq, PatchPolicyReq, PolicyGroupItemReq,
+    PromoteS3CompatiblePolicyDriverReq, TestPolicyParamsReq,
 };
 use crate::api::dto::validate_request;
 use crate::api::pagination::LimitOffsetQuery;
@@ -100,6 +101,39 @@ impl From<TestPolicyParamsReq> for policy_service::StoragePolicyConnectionInput 
             options: value.options.unwrap_or_default(),
         }
         .into()
+    }
+}
+
+impl From<ExecuteDraftStoragePolicyActionReq>
+    for policy_service::ExecuteDraftStoragePolicyActionInput
+{
+    fn from(value: ExecuteDraftStoragePolicyActionReq) -> Self {
+        Self {
+            action: value.action,
+            connection: PolicyConnectionInputParts {
+                driver_type: value.driver_type,
+                endpoint: value.endpoint,
+                bucket: value.bucket,
+                access_key: value.access_key,
+                secret_key: value.secret_key,
+                base_path: value.base_path,
+                remote_node_id: value.remote_node_id,
+                options: value.options.unwrap_or_default(),
+            }
+            .into(),
+            allowed_origin: value.allowed_origin,
+        }
+    }
+}
+
+impl From<ExecuteSavedStoragePolicyActionReq>
+    for policy_service::ExecuteSavedStoragePolicyActionInput
+{
+    fn from(value: ExecuteSavedStoragePolicyActionReq) -> Self {
+        Self {
+            action: value.action,
+            allowed_origin: value.allowed_origin,
+        }
     }
 }
 
@@ -387,6 +421,78 @@ pub async fn test_policy_params(
     validate_request(&*body)?;
     policy_service::test_connection_params(state.get_ref(), body.into_inner().into()).await?;
     Ok(HttpResponse::Ok().json(ApiResponse::<()>::ok_empty()))
+}
+
+#[api_docs_macros::path(
+    post,
+    path = "/api/v1/admin/policies/{id}/action",
+    tag = "admin",
+    operation_id = "execute_saved_storage_policy_action",
+    params(("id" = i64, Path, description = "Policy ID")),
+    request_body = ExecuteSavedStoragePolicyActionReq,
+    responses(
+        (status = 200, description = "Storage policy action executed", body = inline(ApiResponse<policy_service::StoragePolicyActionResult>)),
+        (status = 400, description = "Action rejected"),
+        (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
+        (status = 403, description = "Forbidden"),
+        (status = 404, description = "Policy not found"),
+    ),
+    security(("bearer" = [])),
+)]
+pub async fn execute_saved_storage_policy_action(
+    state: web::Data<PrimaryAppState>,
+    claims: web::ReqData<Claims>,
+    path: web::Path<i64>,
+    req: HttpRequest,
+    body: web::Json<ExecuteSavedStoragePolicyActionReq>,
+) -> Result<HttpResponse> {
+    validate_request(&*body)?;
+    let ctx = audit_service::AuditContext::from_request(&req, &claims);
+    let result = policy_service::execute_saved_action_with_audit(
+        state.get_ref(),
+        *path,
+        body.into_inner().into(),
+        req.headers()
+            .get(actix_web::http::header::ORIGIN)
+            .and_then(|value| value.to_str().ok()),
+        &ctx,
+    )
+    .await?;
+    Ok(HttpResponse::Ok().json(ApiResponse::ok(result)))
+}
+
+#[api_docs_macros::path(
+    post,
+    path = "/api/v1/admin/policies/action",
+    tag = "admin",
+    operation_id = "execute_draft_storage_policy_action",
+    request_body = ExecuteDraftStoragePolicyActionReq,
+    responses(
+        (status = 200, description = "Storage policy action executed", body = inline(ApiResponse<policy_service::StoragePolicyActionResult>)),
+        (status = 400, description = "Action rejected"),
+        (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
+        (status = 403, description = "Forbidden"),
+    ),
+    security(("bearer" = [])),
+)]
+pub async fn execute_draft_storage_policy_action(
+    state: web::Data<PrimaryAppState>,
+    claims: web::ReqData<Claims>,
+    req: HttpRequest,
+    body: web::Json<ExecuteDraftStoragePolicyActionReq>,
+) -> Result<HttpResponse> {
+    validate_request(&*body)?;
+    let ctx = audit_service::AuditContext::from_request(&req, &claims);
+    let result = policy_service::execute_draft_action_with_audit(
+        state.get_ref(),
+        body.into_inner().into(),
+        req.headers()
+            .get(actix_web::http::header::ORIGIN)
+            .and_then(|value| value.to_str().ok()),
+        &ctx,
+    )
+    .await?;
+    Ok(HttpResponse::Ok().json(ApiResponse::ok(result)))
 }
 
 #[api_docs_macros::path(

@@ -233,6 +233,7 @@
 	"audit_presentation_admin_user_updated_diff": "Changed {{changed_fields}}; role {{previous_role}} -> {{role}}, status {{previous_status}} -> {{status}}, quota {{previous_storage_quota}} -> {{storage_quota}}",
 	"audit_presentation_admin_force_delete_user_finished": "Removed {{file_count}} file(s), {{folder_count}} folder(s), {{share_count}} share(s)",
 	"audit_presentation_storage_policy_snapshot": "{{driver_type}} policy, max file {{max_file_size}}, chunk {{chunk_size}}, default {{is_default}}",
+	"audit_presentation_storage_policy_action_triggered": "Triggered {{driver_type}} storage action {{action}}, draft {{used_draft_values}}, remote mutation {{mutates_remote_state}}",
 	"audit_presentation_policy_group_snapshot": "{{item_count}} policy item(s), enabled {{is_enabled}}, default {{is_default}}",
 	"audit_presentation_policy_group_migration_finished": "{{migrated_assignments}} assignment(s) from {{source_group_name}} to {{target_group_name}}",
 	"audit_presentation_team_snapshot": "{{member_count}} member(s), quota {{storage_quota}}",
