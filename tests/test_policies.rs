@@ -3,6 +3,7 @@
 #[macro_use]
 mod common;
 use aster_drive::api::api_error_code::ApiErrorCode;
+use aster_drive::config::site_url;
 use aster_drive::runtime::SharedRuntimeState;
 
 use actix_web::test;
@@ -2805,6 +2806,10 @@ async fn test_policy_connection_endpoints_for_local_driver() {
 #[actix_web::test]
 async fn test_tencent_cos_cors_config_rejects_invalid_inputs_with_stable_codes() {
     let state = common::setup().await;
+    assert!(
+        site_url::public_site_urls(state.runtime_config()).is_empty(),
+        "this test expects missing public_site_url to drive the COS CORS parameter-required branch"
+    );
     let app = create_test_app!(state);
     let (token, _) = register_and_login!(app);
 
@@ -2912,7 +2917,9 @@ async fn test_tencent_cos_cors_draft_action_reuses_saved_credentials_when_blank(
             "policy_id": cos_policy_id,
             "driver_type": "tencent_cos",
             "endpoint": "https://cos.ap-guangzhou.myqcloud.com",
-            "bucket": "media-draft-1250000000"
+            "bucket": "media-draft-1250000000",
+            "access_key": "",
+            "secret_key": ""
         }))
         .to_request();
     let resp = test::call_service(&app, req).await;
@@ -2922,6 +2929,37 @@ async fn test_tencent_cos_cors_draft_action_reuses_saved_credentials_when_blank(
         body["code"],
         ApiErrorCode::PolicyActionParameterRequired.as_str(),
         "blank draft credentials should be filled from saved policy before action-specific validation"
+    );
+}
+
+#[actix_web::test]
+async fn test_tencent_cos_cors_draft_action_rejects_saved_credential_driver_mismatch() {
+    let state = common::setup().await;
+    let app = create_test_app!(state);
+    let (token, _) = register_and_login!(app);
+    let local_policy_id =
+        create_local_policy_via_admin(&app, &token, "COS CORS Credential Mismatch").await;
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/admin/policies/action")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({
+            "action": "configure_tencent_cos_cors",
+            "policy_id": local_policy_id,
+            "driver_type": "tencent_cos",
+            "endpoint": "https://cos.ap-guangzhou.myqcloud.com",
+            "bucket": "media-draft-1250000000",
+            "access_key": "",
+            "secret_key": ""
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 400);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(
+        body["code"],
+        ApiErrorCode::PolicyActionParameterInvalid.as_str()
     );
 }
 

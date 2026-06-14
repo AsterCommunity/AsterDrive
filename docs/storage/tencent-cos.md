@@ -202,7 +202,7 @@ asterdrive-presigned-access
 | `AllowedOrigin` | `public_site_url` 中的全部来源 |
 | `AllowedMethod` | `PUT`、`GET`、`HEAD` |
 | `AllowedHeader` | `*`、`Content-Type`、`Range`、`x-cos-*` |
-| `ExposeHeader` | `ETag`、`Content-Length`、`Content-Range`、`Accept-Ranges`、`x-cos-request-id`、`x-cos-hash-crc64ecma` |
+| `ExposeHeader` | `ETag`、`Content-Length`、`Content-Range`、`Content-Disposition`、`Accept-Ranges`、`x-cos-request-id`、`x-cos-hash-crc64ecma` |
 | `MaxAgeSeconds` | `600` |
 | `ResponseVary` | `true` |
 
@@ -239,6 +239,7 @@ AsterDrive 调用的是腾讯云 COS `GET Bucket cors` 和 `PUT Bucket cors`。`
 | 现象 | 优先检查 |
 | --- | --- |
 | `policy.action_parameter_required` | `public_site_url` 是否为空 |
+| `policy.action_parameter_invalid` | `public_site_url` 来源格式是否正确，以及后端派生出的 action 参数是否合法 |
 | `policy.action_unsupported` | 当前策略是否真的是 `tencent_cos` |
 | `storage.auth_failed` | Access Key / Secret Key 是否正确 |
 | `storage.permission_denied` 或 `storage.permission` | CAM 是否允许读取和写入 bucket CORS |

@@ -384,6 +384,7 @@ function useAdminPoliciesPageContent() {
 		policyCapacityRequestSerial.current += 1;
 		setSaveAnywayConfirmOpen(false);
 		setS3DriverPromotionConfirmOpen(false);
+		setCosCorsConfirmOpen(false);
 		setPolicyCapacity(null);
 		setPolicyCapacityLoading(false);
 		setValidatedConnectionKey(null);
@@ -478,6 +479,7 @@ function useAdminPoliciesPageContent() {
 	) => {
 		setSaveAnywayConfirmOpen(false);
 		setS3DriverPromotionConfirmOpen(false);
+		setCosCorsConfirmOpen(false);
 		setForm((prev) => {
 			if (key === "storage_native_processing_enabled") {
 				const enabled = value as boolean;
@@ -509,6 +511,7 @@ function useAdminPoliciesPageContent() {
 	const setDriverType = (driverType: DriverType) => {
 		setSaveAnywayConfirmOpen(false);
 		setS3DriverPromotionConfirmOpen(false);
+		setCosCorsConfirmOpen(false);
 		setValidatedConnectionKey(null);
 		setCreateStepTouched(false);
 		setForm((prev) => {

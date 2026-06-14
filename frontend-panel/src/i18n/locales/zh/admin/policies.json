@@ -131,7 +131,7 @@
 	"policy_cos_cors_origins": "将写入 public_site_url 配置中的全部来源。",
 	"policy_cos_cors_relay_desc": "当前策略使用服务端中继，通常不依赖 COS 浏览器 CORS；如果之后切到 presigned 模式，可以先配置。",
 	"policy_cos_cors_success": "COS bucket CORS 已配置",
-	"policy_cos_cors_success_request_id": "COS RequestId: {{requestId}}",
+	"policy_cos_cors_success_request_id": "COS 请求 ID：{{requestId}}",
 	"policy_cos_cors_title": "COS bucket CORS",
 	"policy_cos_cors_uses_draft": "将使用当前表单里的 endpoint、bucket 和凭证。",
 	"policy_cos_cors_uses_saved": "将使用已保存策略的 endpoint、bucket 和凭证。",

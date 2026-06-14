@@ -158,6 +158,7 @@ pub(crate) fn asterdrive_cors_rule(allowed_origins: &[String]) -> CosCorsRule {
             "ETag".to_string(),
             "Content-Length".to_string(),
             "Content-Range".to_string(),
+            "Content-Disposition".to_string(),
             "Accept-Ranges".to_string(),
             "x-cos-request-id".to_string(),
             "x-cos-hash-crc64ecma".to_string(),
@@ -392,6 +393,7 @@ mod tests {
         assert!(xml.contains("<AllowedHeader>*</AllowedHeader>"));
         assert!(xml.contains("<ExposeHeader>ETag</ExposeHeader>"));
         assert!(xml.contains("<ExposeHeader>Content-Range</ExposeHeader>"));
+        assert!(xml.contains("<ExposeHeader>Content-Disposition</ExposeHeader>"));
         assert!(xml.contains("<MaxAgeSeconds>600</MaxAgeSeconds>"));
         assert!(xml.contains("<ResponseVary>true</ResponseVary>"));
     }

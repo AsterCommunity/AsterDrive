@@ -384,15 +384,129 @@ impl AsterError {
         }
     }
 
-    fn client_message(&self) -> &str {
+    fn client_message(&self) -> String {
         if matches!(self, Self::StorageDriverError(_)) {
-            return self.message();
+            return sanitize_storage_driver_client_message(self.message());
         }
         match self.response_log_level() {
-            ResponseLogLevel::Error => self.error_type(),
-            ResponseLogLevel::Warn | ResponseLogLevel::Skip => self.message(),
+            ResponseLogLevel::Error => self.error_type().to_string(),
+            ResponseLogLevel::Warn | ResponseLogLevel::Skip => self.message().to_string(),
         }
     }
+}
+
+pub(crate) fn sanitize_storage_driver_client_message(message: &str) -> String {
+    let mut sanitized = message
+        .split_whitespace()
+        .map(sanitize_storage_driver_message_token)
+        .collect::<Vec<_>>()
+        .join(" ");
+
+    for marker in [
+        "AccountKey=",
+        "SharedAccessSignature=",
+        "sig=",
+        "signature=",
+        "X-Amz-Signature=",
+        "AWSAccessKeyId=",
+        "access_key=",
+        "secret_key=",
+        "SecretAccessKey=",
+    ] {
+        sanitized = redact_key_value_after_marker(&sanitized, marker);
+    }
+
+    sanitized
+}
+
+fn sanitize_storage_driver_message_token(token: &str) -> String {
+    if token.starts_with("http://") || token.starts_with("https://") {
+        return sanitize_url_token(token);
+    }
+
+    token.to_string()
+}
+
+fn sanitize_url_token(token: &str) -> String {
+    let trailing_len = token
+        .chars()
+        .rev()
+        .take_while(|ch| matches!(ch, '.' | ',' | ';' | ':' | ')' | ']' | '\'' | '"'))
+        .map(char::len_utf8)
+        .sum::<usize>();
+    let split_at = token.len().saturating_sub(trailing_len);
+    let (candidate, trailing) = token.split_at(split_at);
+
+    let Ok(mut url) = url::Url::parse(candidate) else {
+        return token.to_string();
+    };
+
+    if !url.username().is_empty() || url.password().is_some() {
+        let _ = url.set_username("[redacted]");
+        let _ = url.set_password(None);
+    }
+
+    if url.query().is_some() {
+        let redacted_pairs = url
+            .query_pairs()
+            .map(|(key, value)| {
+                let value = if is_sensitive_storage_query_key(&key) {
+                    "[redacted]".into()
+                } else {
+                    value
+                };
+                (key.into_owned(), value.into_owned())
+            })
+            .collect::<Vec<_>>();
+        url.set_query(None);
+        {
+            let mut query = url.query_pairs_mut();
+            for (key, value) in redacted_pairs {
+                query.append_pair(&key, &value);
+            }
+        }
+    }
+
+    format!("{url}{trailing}")
+}
+
+fn is_sensitive_storage_query_key(key: &str) -> bool {
+    matches!(
+        key.to_ascii_lowercase().as_str(),
+        "sig"
+            | "signature"
+            | "x-amz-signature"
+            | "awsaccesskeyid"
+            | "access_key"
+            | "secret_key"
+            | "secretaccesskey"
+            | "sharedaccesssignature"
+            | "accountkey"
+    )
+}
+
+fn redact_key_value_after_marker(input: &str, marker: &str) -> String {
+    let mut output = String::with_capacity(input.len());
+    let mut rest = input;
+
+    while let Some(index) = rest.find(marker) {
+        let (before, after_before) = rest.split_at(index);
+        output.push_str(before);
+        output.push_str(marker);
+        output.push_str("[redacted]");
+
+        let value_start = marker.len();
+        let value = &after_before[value_start..];
+        let value_end = value
+            .find(|ch: char| matches!(ch, ';' | '&' | ' ' | '\n' | '\r' | '\t'))
+            .unwrap_or(value.len());
+        let (redacted_value, after_value) = value.split_at(value_end);
+        let _ = redacted_value;
+        rest = after_value;
+    }
+
+    output.push_str(rest);
+    output
 }
 
 impl actix_web::ResponseError for AsterError {
@@ -421,7 +535,7 @@ impl actix_web::ResponseError for AsterError {
         }
         response.json(ApiResponse::<()>::error_with_details(
             error_code,
-            self.client_message(),
+            &self.client_message(),
             Some(self.api_error_info()),
         ))
     }
@@ -961,6 +1075,31 @@ mod tests {
         assert!(payload["error"].get("internal_code").is_none());
         assert!(payload["error"].get("subcode").is_none());
         assert!(payload["error"].get("api_code").is_none());
+    }
+
+    #[actix_web::test]
+    async fn storage_driver_client_message_preserves_details_but_redacts_secrets() {
+        let err = storage_driver_error(
+            StorageErrorKind::Misconfigured,
+            "Azure Blob failed for https://acct.blob.core.windows.net/container/file.txt?sig=topsecret&sp=rw AccountKey=supersecret;EndpointSuffix=core.windows.net",
+        );
+        let response = actix_web::ResponseError::error_response(&err);
+
+        let body = body::to_bytes(response.into_body())
+            .await
+            .expect("response body should read");
+        let payload: serde_json::Value =
+            serde_json::from_slice(&body).expect("response body should be valid json");
+        let msg = payload["msg"].as_str().expect("msg should be string");
+
+        assert!(msg.contains("Azure Blob failed"));
+        assert!(msg.contains("https://acct.blob.core.windows.net/container/file.txt"));
+        assert!(msg.contains("sig="));
+        assert!(msg.contains("redacted"));
+        assert!(msg.contains("sp=rw"));
+        assert!(msg.contains("AccountKey=[redacted]"));
+        assert!(!msg.contains("topsecret"));
+        assert!(!msg.contains("supersecret"));
     }
 
     #[actix_web::test]

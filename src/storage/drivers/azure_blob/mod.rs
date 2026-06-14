@@ -371,7 +371,13 @@ impl AzureBlobDriver {
     }
 
     fn rewrap_azure_error(ctx: &str, error: azure_core::Error) -> AsterError {
-        storage_driver_error(StorageErrorKind::Misconfigured, format!("{ctx}: {error}"))
+        storage_driver_error(
+            StorageErrorKind::Misconfigured,
+            format!(
+                "{ctx}: {}",
+                crate::errors::sanitize_storage_driver_client_message(&error.to_string())
+            ),
+        )
     }
 }
 

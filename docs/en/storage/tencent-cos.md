@@ -202,7 +202,7 @@ Rule contents:
 | `AllowedOrigin` | All origins in `public_site_url` |
 | `AllowedMethod` | `PUT`, `GET`, `HEAD` |
 | `AllowedHeader` | `*`, `Content-Type`, `Range`, `x-cos-*` |
-| `ExposeHeader` | `ETag`, `Content-Length`, `Content-Range`, `Accept-Ranges`, `x-cos-request-id`, `x-cos-hash-crc64ecma` |
+| `ExposeHeader` | `ETag`, `Content-Length`, `Content-Range`, `Content-Disposition`, `Accept-Ranges`, `x-cos-request-id`, `x-cos-hash-crc64ecma` |
 | `MaxAgeSeconds` | `600` |
 | `ResponseVary` | `true` |
 
@@ -239,6 +239,7 @@ Common failures:
 | Symptom | Check first |
 | --- | --- |
 | `policy.action_parameter_required` | Whether `public_site_url` is empty |
+| `policy.action_parameter_invalid` | Whether the `public_site_url` origin format is correct and backend-derived action parameters are valid |
 | `policy.action_unsupported` | Whether the policy is actually `tencent_cos` |
 | `storage.auth_failed` | Whether Access Key / Secret Key are correct |
 | `storage.permission_denied` or `storage.permission` | Whether CAM allows reading and writing bucket CORS |

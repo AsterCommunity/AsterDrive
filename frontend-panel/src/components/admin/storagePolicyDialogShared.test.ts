@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
 	buildCreatePolicyPayload,
 	buildPolicyTestPayload,
+	buildTencentCosCorsPayload,
 	buildUpdatePolicyPayload,
 	getEndpointValidationMessage,
 	getPolicyConnectionTestKey,
@@ -301,6 +302,54 @@ describe("storagePolicyDialogShared", () => {
 				t,
 			),
 		).toBe("s3_endpoint_protocol_required_error");
+	});
+
+	it("builds Tencent COS CORS draft action payloads with optional saved policy reuse", () => {
+		const form = {
+			name: "COS Media",
+			driver_type: "tencent_cos" as const,
+			endpoint: " https://cos.ap-guangzhou.myqcloud.com ",
+			bucket: " media-1250000000 ",
+			access_key: "",
+			secret_key: "",
+			base_path: "tenant-a",
+			remote_node_id: "",
+			max_file_size: "",
+			chunk_size: "5",
+			is_default: false,
+			content_dedup: false,
+			remote_download_strategy: "relay_stream" as const,
+			remote_upload_strategy: "relay_stream" as const,
+			s3_upload_strategy: "presigned" as const,
+			s3_download_strategy: "presigned" as const,
+			storage_native_processing_enabled: true,
+			thumbnail_processor: "storage_native" as const,
+			thumbnail_extensions: [" .PNG ", "jpg"],
+			storage_native_media_metadata_enabled: true,
+			media_metadata_extensions: [" mp4 "],
+		};
+
+		expect(buildTencentCosCorsPayload(form, 34)).toEqual({
+			action: "configure_tencent_cos_cors",
+			policy_id: 34,
+			driver_type: "tencent_cos",
+			endpoint: "https://cos.ap-guangzhou.myqcloud.com",
+			bucket: "media-1250000000",
+			access_key: undefined,
+			secret_key: undefined,
+			base_path: "tenant-a",
+			remote_node_id: undefined,
+			options: {
+				s3_upload_strategy: "presigned",
+				s3_download_strategy: "presigned",
+				storage_native_processing_enabled: true,
+				thumbnail_processor: "storage_native",
+				thumbnail_extensions: ["png", "jpg"],
+				storage_native_media_metadata_enabled: true,
+				media_metadata_extensions: ["mp4"],
+			},
+		});
+		expect(buildTencentCosCorsPayload(form, null).policy_id).toBeUndefined();
 	});
 
 	it("omits empty credentials from update payloads", () => {

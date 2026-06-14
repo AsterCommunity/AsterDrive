@@ -748,6 +748,16 @@ async fn merge_draft_action_saved_credentials<S: SharedRuntimeState>(
     if connection.access_key.trim().is_empty() || connection.secret_key.trim().is_empty() {
         if let Some(policy_id) = policy_id {
             let saved = policy_repo::find_by_id(state.reader_db(), policy_id).await?;
+            if saved.driver_type != connection.driver_type {
+                return Err(validation_error_with_code(
+                    ApiErrorCode::PolicyActionParameterInvalid,
+                    format!(
+                        "draft storage policy action driver '{}' does not match saved policy driver '{}'",
+                        driver_type_name(connection.driver_type),
+                        driver_type_name(saved.driver_type),
+                    ),
+                ));
+            }
             if connection.access_key.trim().is_empty() {
                 connection.access_key = saved.access_key;
             }

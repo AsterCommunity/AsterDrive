@@ -2193,6 +2193,46 @@ describe("AdminPoliciesPage", () => {
 		);
 	});
 
+	it("keeps the Tencent COS CORS confirmation open when saved action fails", async () => {
+		const error = new Error("cors failed");
+		mockState.executeSavedPolicyAction.mockRejectedValueOnce(error);
+		mockState.items = [
+			createPolicy({
+				id: 35,
+				name: "COS Saved Failure",
+				driver_type: "tencent_cos",
+				endpoint: "https://cos.ap-guangzhou.myqcloud.com",
+				bucket: "media-1250000000",
+				base_path: "tenant-cos",
+				options: {
+					s3_download_strategy: "presigned",
+					s3_upload_strategy: "presigned",
+				},
+			}),
+		];
+
+		render(<AdminPoliciesPage />);
+
+		openEditPolicy("COS Saved Failure");
+		fireEvent.click(
+			screen.getByRole("button", { name: "policy_cos_cors_action" }),
+		);
+		fireEvent.click(
+			screen.getByRole("button", { name: "policy_cos_cors_confirm" }),
+		);
+
+		await waitFor(() => {
+			expect(mockState.handleApiError).toHaveBeenCalledWith(error);
+		});
+		expect(
+			screen.getByText("policy_cos_cors_confirm_title"),
+		).toBeInTheDocument();
+		expect(mockState.toastSuccess).not.toHaveBeenCalledWith(
+			"policy_cos_cors_success",
+			expect.anything(),
+		);
+	});
+
 	it("does not expose Tencent COS CORS action for saved non-Tencent-COS policies", () => {
 		mockState.items = [
 			createPolicy({
