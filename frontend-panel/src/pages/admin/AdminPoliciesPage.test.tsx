@@ -57,8 +57,14 @@ vi.mock("react-i18next", () => ({
 					return "S3";
 				case "driver_type_tencent_cos":
 					return "Tencent COS";
+				case "driver_type_azure_blob":
+					return "Azure Blob";
 				case "driver_type_remote":
 					return "Remote";
+				case "azure_blob_account_name":
+					return "Account Name";
+				case "azure_blob_account_key":
+					return "Account Key";
 				case "access_key":
 					return "Access Key";
 				case "secret_key":
@@ -563,14 +569,21 @@ function createPolicy(overrides: Record<string, unknown> = {}) {
 	};
 }
 
-function openCreateWizard(driver: "local" | "s3" | "tencent_cos" = "local") {
+function openCreateWizard(
+	driver: "local" | "remote" | "s3" | "tencent_cos" | "azure_blob" = "local",
+) {
 	fireEvent.click(screen.getByRole("button", { name: /new_policy/i }));
-	if (driver === "s3") {
+	if (driver === "local") {
+		fireEvent.click(screen.getByRole("button", { name: /^Local\b/ }));
+	} else if (driver === "remote") {
+		fireEvent.click(screen.getByRole("button", { name: /^Remote\b/ }));
+	} else if (driver === "s3") {
 		fireEvent.click(screen.getByRole("button", { name: /^S3\b/ }));
 	} else if (driver === "tencent_cos") {
 		fireEvent.click(screen.getByRole("button", { name: /Tencent COS/ }));
+	} else if (driver === "azure_blob") {
+		fireEvent.click(screen.getByRole("button", { name: /Azure Blob/ }));
 	}
-	fireEvent.click(screen.getByRole("button", { name: "policy_wizard_next" }));
 }
 
 function advanceCreateWizardToRulesStep() {
@@ -719,6 +732,29 @@ describe("AdminPoliciesPage", () => {
 		expect(localBadge).toHaveClass("bg-emerald-500/10", "text-emerald-600");
 		expect(s3Badge).toHaveAttribute("data-variant", "outline");
 		expect(s3Badge).toHaveClass("bg-blue-500/10", "text-blue-600");
+	});
+
+	it("renders Azure Blob rows with Azure-specific badge styling", () => {
+		mockState.items = [
+			createPolicy({
+				id: 4,
+				name: "Azure Archive",
+				driver_type: "azure_blob",
+				endpoint: "https://acct.blob.core.windows.net",
+				bucket: "archive",
+			}),
+		];
+
+		render(<AdminPoliciesPage />);
+
+		expect(screen.getByText("Azure Archive")).toBeInTheDocument();
+		expect(
+			screen.getByText("https://acct.blob.core.windows.net"),
+		).toBeInTheDocument();
+		expect(screen.getByText("archive")).toBeInTheDocument();
+		const azureBadge = screen.getByText("Azure Blob");
+		expect(azureBadge).toHaveAttribute("data-variant", "outline");
+		expect(azureBadge).toHaveClass("bg-sky-500/10", "text-sky-700");
 	});
 
 	it("renders Tencent COS and remote fallback metadata", () => {
@@ -1235,22 +1271,28 @@ describe("AdminPoliciesPage", () => {
 		const footer = screen.getByTestId("dialog-footer");
 		expect(footer).toHaveClass("w-full", "flex-row");
 
-		const nextButton = screen.getByRole("button", {
-			name: "policy_wizard_next",
+		const localOption = screen.getByRole("button", {
+			name: /^Local\b/,
 		});
-		expect(nextButton.parentElement).toHaveClass(
+		fireEvent.click(localOption);
+
+		const reviewButton = screen.getByRole("button", {
+			name: "policy_wizard_review",
+		});
+		expect(reviewButton.parentElement).toHaveClass(
 			"ml-auto",
 			"flex-nowrap",
 			"justify-end",
 		);
-
-		fireEvent.click(nextButton);
 
 		const forwardAnimatedPanel = screen.getByTestId("policy-step-panel");
 		expect(forwardAnimatedPanel).toHaveClass(
 			"animate-in",
 			"fade-in",
 			"slide-in-from-right-6",
+		);
+		fireEvent.click(
+			screen.getByRole("button", { name: "2policy_wizard_step_local_title" }),
 		);
 
 		fireEvent.click(screen.getByRole("button", { name: /core:back/i }));
@@ -1434,6 +1476,86 @@ describe("AdminPoliciesPage", () => {
 		expect(mockState.toastSuccess).toHaveBeenCalledWith("policy_created");
 	});
 
+	it("creates an Azure Blob policy with account credentials and object-storage rules", async () => {
+		render(<AdminPoliciesPage />);
+
+		openCreateWizard("azure_blob");
+
+		expect(
+			screen.getByText("policy_wizard_azure_blob_helper"),
+		).toBeInTheDocument();
+		expect(screen.getByText("azure_blob_endpoint_hint")).toBeInTheDocument();
+		expect(screen.getByLabelText("Account Name")).not.toHaveAttribute(
+			"placeholder",
+		);
+		expect(screen.getByLabelText("Account Key")).not.toHaveAttribute(
+			"placeholder",
+		);
+
+		fireEvent.change(screen.getByLabelText("core:name"), {
+			target: { value: "Azure Archive" },
+		});
+		fireEvent.change(screen.getByLabelText("endpoint"), {
+			target: { value: "https://acct.blob.core.windows.net" },
+		});
+		fireEvent.change(screen.getByLabelText("bucket"), {
+			target: { value: "archive" },
+		});
+		fireEvent.change(screen.getByLabelText("Account Name"), {
+			target: { value: "acct" },
+		});
+		fireEvent.change(screen.getByLabelText("Account Key"), {
+			target: { value: "AZURESECRET" },
+		});
+
+		fireEvent.click(
+			screen.getByRole("button", { name: "policy_wizard_review" }),
+		);
+
+		expect(
+			screen.queryByText("policy_storage_native_section_title"),
+		).not.toBeInTheDocument();
+		expect(screen.getByText("Azure Blob")).toBeInTheDocument();
+
+		fireEvent.click(screen.getByRole("button", { name: /core:create/i }));
+
+		await waitFor(() => {
+			expect(mockState.testParams).toHaveBeenCalledWith({
+				access_key: "acct",
+				base_path: undefined,
+				bucket: "archive",
+				driver_type: "azure_blob",
+				endpoint: "https://acct.blob.core.windows.net",
+				options: {
+					s3_download_strategy: "relay_stream",
+					s3_upload_strategy: "relay_stream",
+				},
+				remote_node_id: undefined,
+				secret_key: "AZURESECRET",
+			});
+		});
+		await waitFor(() => {
+			expect(mockState.create).toHaveBeenCalledWith({
+				access_key: "acct",
+				base_path: "",
+				bucket: "archive",
+				chunk_size: 5 * 1024 * 1024,
+				driver_type: "azure_blob",
+				endpoint: "https://acct.blob.core.windows.net",
+				is_default: false,
+				max_file_size: undefined,
+				name: "Azure Archive",
+				options: {
+					s3_download_strategy: "relay_stream",
+					s3_upload_strategy: "relay_stream",
+				},
+				remote_node_id: undefined,
+				secret_key: "AZURESECRET",
+			});
+		});
+		expect(mockState.toastSuccess).toHaveBeenCalledWith("policy_created");
+	});
+
 	it("suggests the specialized driver when a generic S3 create uses a known provider endpoint", () => {
 		render(<AdminPoliciesPage />);
 
@@ -1488,9 +1610,7 @@ describe("AdminPoliciesPage", () => {
 
 		render(<AdminPoliciesPage />);
 
-		fireEvent.click(screen.getByRole("button", { name: /new_policy/i }));
-		fireEvent.click(screen.getByRole("button", { name: /Remote/ }));
-		fireEvent.click(screen.getByRole("button", { name: "policy_wizard_next" }));
+		openCreateWizard("remote");
 
 		fireEvent.change(screen.getByLabelText("core:name"), {
 			target: { value: "Remote Archive" },
@@ -1557,9 +1677,7 @@ describe("AdminPoliciesPage", () => {
 
 		render(<AdminPoliciesPage />);
 
-		fireEvent.click(screen.getByRole("button", { name: /new_policy/i }));
-		fireEvent.click(screen.getByRole("button", { name: /Remote/ }));
-		fireEvent.click(screen.getByRole("button", { name: "policy_wizard_next" }));
+		openCreateWizard("remote");
 
 		fireEvent.change(screen.getByLabelText("core:name"), {
 			target: { value: "Remote Presigned Archive" },
@@ -1611,9 +1729,7 @@ describe("AdminPoliciesPage", () => {
 
 		render(<AdminPoliciesPage />);
 
-		fireEvent.click(screen.getByRole("button", { name: /new_policy/i }));
-		fireEvent.click(screen.getByRole("button", { name: /Remote/ }));
-		fireEvent.click(screen.getByRole("button", { name: "policy_wizard_next" }));
+		openCreateWizard("remote");
 
 		fireEvent.change(screen.getByLabelText("core:name"), {
 			target: { value: "Remote Presigned Download Archive" },
@@ -2124,6 +2240,38 @@ describe("AdminPoliciesPage", () => {
 		);
 		expect(
 			screen.getByText("s3_endpoint_protocol_required_error"),
+		).toBeInTheDocument();
+
+		fireEvent.click(
+			screen.getByRole("button", { name: "policy_wizard_review" }),
+		);
+		expect(
+			screen.queryByText("policy_wizard_summary_desc"),
+		).not.toBeInTheDocument();
+		expect(mockState.testParams).not.toHaveBeenCalled();
+	});
+
+	it("blocks Azure Blob endpoints that omit the http or https protocol", async () => {
+		render(<AdminPoliciesPage />);
+
+		openCreateWizard("azure_blob");
+
+		fireEvent.change(screen.getByLabelText("core:name"), {
+			target: { value: "Azure Archive" },
+		});
+		fireEvent.change(screen.getByLabelText("endpoint"), {
+			target: { value: "acct.blob.core.windows.net" },
+		});
+		fireEvent.change(screen.getByLabelText("bucket"), {
+			target: { value: "archive" },
+		});
+
+		expect(screen.getByLabelText("endpoint")).toHaveAttribute(
+			"aria-invalid",
+			"true",
+		);
+		expect(
+			screen.getByText("azure_blob_endpoint_protocol_required_error"),
 		).toBeInTheDocument();
 
 		fireEvent.click(

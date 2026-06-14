@@ -209,7 +209,11 @@ function useStoragePolicyDialogContent({
 		createStepTouched &&
 		isObjectStorageDriver(form.driver_type) &&
 		!form.bucket.trim()
-			? t("policy_wizard_bucket_required")
+			? t(
+					form.driver_type === "azure_blob"
+						? "policy_wizard_container_required"
+						: "policy_wizard_bucket_required",
+				)
 			: null;
 	const createEndpointError =
 		isObjectStorageDriver(form.driver_type) && !form.endpoint.trim()

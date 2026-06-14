@@ -19,9 +19,12 @@ pub struct InitUploadResponse {
     pub total_chunks: Option<i32>,
     /// Presigned PUT URL（仅 presigned 模式）
     pub presigned_url: Option<String>,
-    /// Presigned PUT 必须附带的请求头。
+    /// 存储驱动可能要求的 Presigned PUT 请求头。
     #[serde(skip_serializing_if = "BTreeMap::is_empty")]
     pub presigned_headers: BTreeMap<String, String>,
+    /// 浏览器直传完成后是否必须从响应读取 ETag。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub presigned_require_etag: Option<bool>,
 }
 
 #[derive(Serialize)]

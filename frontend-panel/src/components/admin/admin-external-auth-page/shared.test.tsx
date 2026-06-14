@@ -14,6 +14,10 @@ import {
 	formConnectionSummary,
 	formFromProvider,
 	getManagedExternalAuthSearchString,
+	isGitHubProviderKind,
+	isGoogleProviderKind,
+	isMicrosoftProviderKind,
+	isQqProviderKind,
 	kindDescription,
 	kindDisplayName,
 	mergeManagedExternalAuthSearchParams,
@@ -369,6 +373,44 @@ describe("admin external auth shared helpers", () => {
 		expect(callbackUrl("github", "github")).toBe(
 			"https://app.example.com/api/v1/auth/external-auth/github/github/callback",
 		);
+	});
+
+	it("treats specialized provider kind strings as fixed connections without descriptors", () => {
+		for (const providerKind of [
+			"github",
+			"google",
+			"microsoft",
+			"qq",
+		] as const) {
+			const form = {
+				...emptyForm,
+				authorizationUrl: "https://stale.example.com/authorize",
+				clientId: "client-123",
+				displayName: providerKind,
+				issuerUrl: "https://stale.example.com",
+				microsoftTenant: "organizations",
+				microsoftTenantMode: "organizations" as const,
+				providerKind,
+				scopes: "custom",
+				tokenUrl: "https://stale.example.com/token",
+				userinfoUrl: "https://stale.example.com/userinfo",
+			};
+
+			expect(createPayload(form)).toMatchObject({
+				authorization_url: null,
+				issuer_url: null,
+				provider_kind: providerKind,
+				token_url: null,
+				userinfo_url: null,
+			});
+			expect(testParamsPayload(form)).toMatchObject({
+				authorization_url: null,
+				issuer_url: null,
+				provider_kind: providerKind,
+				token_url: null,
+				userinfo_url: null,
+			});
+		}
 	});
 
 	it("uses Google descriptor defaults and fixed OIDC summaries", () => {
@@ -842,6 +884,18 @@ describe("admin external auth shared helpers", () => {
 		]);
 	});
 
+	it("checks provider kind predicates for strings, descriptors, and empty values", () => {
+		expect(isGitHubProviderKind("github")).toBe(true);
+		expect(isGitHubProviderKind(githubKind())).toBe(true);
+		expect(isGitHubProviderKind("google")).toBe(false);
+		expect(isGoogleProviderKind(googleKind())).toBe(true);
+		expect(isGoogleProviderKind(null)).toBe(false);
+		expect(isMicrosoftProviderKind("microsoft")).toBe(true);
+		expect(isMicrosoftProviderKind(undefined)).toBe(false);
+		expect(isQqProviderKind(qqKind())).toBe(true);
+		expect(isQqProviderKind("oidc")).toBe(false);
+	});
+
 	it("formats labels, statuses, callback URLs, endpoints, and pagination params", () => {
 		const translate = (key: string) => key;
 
@@ -856,6 +910,17 @@ describe("admin external auth shared helpers", () => {
 		expect(kindDisplayName(translate as never, "microsoft", [])).toBe(
 			"Microsoft",
 		);
+		expect(kindDisplayName(translate as never, "qq", [])).toBe("QQ");
+		expect(
+			kindDisplayName(
+				((key: string) =>
+					key === "external_auth_provider_kind_oidc_name"
+						? "Translated OIDC"
+						: key) as never,
+				"oidc",
+				[kind({ display_name: "Descriptor OIDC" })],
+			),
+		).toBe("Translated OIDC");
 		expect(kindDescription(translate as never, kind())).toBe("OIDC sign-in.");
 		expect(securityModeLabel(translate as never, provider())).toBe(
 			"external_auth_provider_mode_manual",

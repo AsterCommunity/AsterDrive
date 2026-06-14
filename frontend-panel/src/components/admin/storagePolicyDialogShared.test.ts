@@ -4,10 +4,14 @@ import {
 	buildPolicyTestPayload,
 	buildUpdatePolicyPayload,
 	getEndpointValidationMessage,
+	getPolicyConnectionTestKey,
 	getPolicyForm,
 	getS3CompatibleDriverPromotionTarget,
 	hasConnectionFieldChanges,
+	isObjectStorageDriver,
+	isS3CompatibleDriver,
 	isTencentCosEndpoint,
+	normalizePolicyForm,
 } from "@/components/admin/storagePolicyDialogShared";
 import type { StoragePolicy } from "@/types/api";
 
@@ -59,6 +63,10 @@ describe("storagePolicyDialogShared", () => {
 			),
 		).toBeNull();
 		expect(getS3CompatibleDriverPromotionTarget(null, labelFor)).toBeNull();
+		expect(isS3CompatibleDriver("s3")).toBe(true);
+		expect(isS3CompatibleDriver("tencent_cos")).toBe(true);
+		expect(isS3CompatibleDriver("azure_blob")).toBe(false);
+		expect(isObjectStorageDriver("azure_blob")).toBe(true);
 	});
 
 	it("maps an existing policy into form state", () => {
@@ -277,6 +285,22 @@ describe("storagePolicyDialogShared", () => {
 				t,
 			),
 		).toBeNull();
+		expect(
+			getEndpointValidationMessage(
+				{ ...baseForm, endpoint: "ftp://acct.blob.core.windows.net" },
+				t,
+			),
+		).toBe("azure_blob_endpoint_protocol_required_error");
+		expect(
+			getEndpointValidationMessage(
+				{
+					...baseForm,
+					driver_type: "s3",
+					endpoint: "ftp://s3.example.com",
+				},
+				t,
+			),
+		).toBe("s3_endpoint_protocol_required_error");
 	});
 
 	it("omits empty credentials from update payloads", () => {
@@ -396,9 +420,9 @@ describe("storagePolicyDialogShared", () => {
 	});
 
 	it("builds Azure Blob payloads with object-storage options but without S3 path style", () => {
-		const payload = buildCreatePolicyPayload({
+		const azureForm = {
 			name: "Azure Archive",
-			driver_type: "azure_blob",
+			driver_type: "azure_blob" as const,
 			endpoint: " https://acct.blob.core.windows.net/ ",
 			bucket: " container-a ",
 			access_key: " account-name ",
@@ -409,16 +433,19 @@ describe("storagePolicyDialogShared", () => {
 			chunk_size: "8",
 			is_default: false,
 			content_dedup: false,
-			remote_download_strategy: "relay_stream",
-			remote_upload_strategy: "relay_stream",
-			s3_upload_strategy: "presigned",
-			s3_download_strategy: "relay_stream",
+			remote_download_strategy: "relay_stream" as const,
+			remote_upload_strategy: "relay_stream" as const,
+			s3_upload_strategy: "presigned" as const,
+			s3_download_strategy: "relay_stream" as const,
 			s3_path_style: false,
 			storage_native_processing_enabled: false,
 			thumbnail_processor: null,
 			thumbnail_extensions: [],
 			storage_native_media_metadata_enabled: false,
 			media_metadata_extensions: [],
+		};
+		const payload = buildCreatePolicyPayload({
+			...azureForm,
 		});
 
 		expect(payload).toEqual({
@@ -438,6 +465,26 @@ describe("storagePolicyDialogShared", () => {
 				s3_download_strategy: "relay_stream",
 			},
 		});
+		expect(normalizePolicyForm(azureForm)).toEqual({
+			...azureForm,
+			endpoint: "https://acct.blob.core.windows.net/",
+			bucket: "container-a",
+		});
+		expect(getPolicyConnectionTestKey(azureForm)).toBe(
+			JSON.stringify({
+				driver_type: "azure_blob",
+				endpoint: "https://acct.blob.core.windows.net/",
+				bucket: "container-a",
+				access_key: " account-name ",
+				secret_key: " account-key ",
+				base_path: "archives",
+				remote_node_id: undefined,
+				options: {
+					s3_upload_strategy: "presigned",
+					s3_download_strategy: "relay_stream",
+				},
+			}),
+		);
 
 		expect(
 			hasConnectionFieldChanges(

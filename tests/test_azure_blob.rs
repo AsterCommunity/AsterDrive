@@ -153,6 +153,7 @@ async fn test_azure_blob_driver_e2e_with_azurite() {
         driver.presigned_put_headers(),
         std::collections::BTreeMap::from([("x-ms-blob-type".to_string(), "BlockBlob".to_string())])
     );
+    assert!(!driver.presigned_put_requires_etag());
 
     let data = b"hello azure blob";
     driver.put("docs/hello.txt", data).await.unwrap();
@@ -242,6 +243,15 @@ async fn test_azure_blob_driver_e2e_with_azurite() {
         .await
         .unwrap()
         .expect("azure presigned put");
+    let presigned_put_query: std::collections::HashMap<_, _> = url::Url::parse(&presigned_put)
+        .unwrap()
+        .query_pairs()
+        .into_owned()
+        .collect();
+    assert_eq!(
+        presigned_put_query.get("spr").map(String::as_str),
+        Some("https,http")
+    );
     let put_resp = reqwest::Client::new()
         .put(&presigned_put)
         .header("x-ms-blob-type", "BlockBlob")

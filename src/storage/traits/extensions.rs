@@ -82,6 +82,15 @@ pub trait PresignedStorageDriver: Send + Sync {
     fn presigned_put_headers(&self) -> BTreeMap<String, String> {
         BTreeMap::new()
     }
+
+    /// Whether browser clients must receive an ETag from a single presigned PUT.
+    ///
+    /// S3-compatible providers expose ETag by default when CORS is configured
+    /// correctly. Azure Blob does not reliably provide a usable ETag to the
+    /// browser in this flow, so Azure overrides this to false.
+    fn presigned_put_requires_etag(&self) -> bool {
+        true
+    }
 }
 
 /// 路径列举支持（用于后台维护任务）

@@ -29,6 +29,10 @@ impl PresignedStorageDriver for AzureBlobDriver {
     fn presigned_put_headers(&self) -> BTreeMap<String, String> {
         BTreeMap::from([("x-ms-blob-type".to_string(), "BlockBlob".to_string())])
     }
+
+    fn presigned_put_requires_etag(&self) -> bool {
+        false
+    }
 }
 
 #[async_trait]

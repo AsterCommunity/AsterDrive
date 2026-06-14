@@ -9,7 +9,7 @@ use crate::db::repository::{managed_follower_repo, policy_group_repo, policy_rep
 use crate::entities::{storage_policy_group, storage_policy_group_item};
 use crate::errors::{AsterError, Result, validation_error_with_code};
 use crate::runtime::SharedRuntimeState;
-use crate::storage::drivers::azure_blob::AzureBlobDriver;
+use crate::storage::drivers::azure_blob::{AzureBlobConfigError, AzureBlobDriver};
 use crate::storage::drivers::s3_config::{S3ConfigError, normalize_s3_endpoint_and_bucket};
 use crate::types::{
     DriverType, RemoteNodeTransportMode, StoragePolicyOptions, StoredStoragePolicyAllowedTypes,
@@ -80,10 +80,21 @@ pub(super) fn normalize_connection_fields(
         DriverType::Local => Ok((endpoint.trim().to_string(), bucket.trim().to_string())),
         DriverType::Remote => Ok((String::new(), String::new())),
         DriverType::AzureBlob => {
-            let normalized = AzureBlobDriver::normalize_endpoint_and_container(endpoint, bucket)
-                .map_err(|error| {
-                    error.with_api_error_code(ApiErrorCode::PolicyStorageEndpointInvalid)
-                })?;
+            let normalized = AzureBlobDriver::try_normalize_endpoint_and_container(
+                endpoint, bucket,
+            )
+            .map_err(|error| {
+                let api_code = match &error {
+                    AzureBlobConfigError::MissingContainer => {
+                        ApiErrorCode::PolicyStorageBucketRequired
+                    }
+                    AzureBlobConfigError::MissingEndpoint
+                    | AzureBlobConfigError::InvalidEndpoint(_) => {
+                        ApiErrorCode::PolicyStorageEndpointInvalid
+                    }
+                };
+                error.into_aster_error().with_api_error_code(api_code)
+            })?;
             Ok((normalized.endpoint, normalized.container))
         }
         DriverType::S3 | DriverType::TencentCos => {
@@ -355,5 +366,37 @@ mod tests {
             normalize_connection_fields(DriverType::Local, "  /data/uploads  ", "  ").unwrap();
         assert_eq!(endpoint, "/data/uploads");
         assert_eq!(bucket, "");
+    }
+
+    #[test]
+    fn normalize_connection_fields_azure_blob_maps_endpoint_and_container_errors() {
+        let endpoint_error =
+            normalize_connection_fields(DriverType::AzureBlob, "", "photos").unwrap_err();
+        assert_eq!(
+            endpoint_error.api_error_code(),
+            ApiErrorCode::PolicyStorageEndpointInvalid
+        );
+
+        let container_error = normalize_connection_fields(
+            DriverType::AzureBlob,
+            "https://acct.blob.core.windows.net",
+            "",
+        )
+        .unwrap_err();
+        assert_eq!(
+            container_error.api_error_code(),
+            ApiErrorCode::PolicyStorageBucketRequired
+        );
+
+        let invalid_endpoint_error = normalize_connection_fields(
+            DriverType::AzureBlob,
+            "acct.blob.core.windows.net",
+            "photos",
+        )
+        .unwrap_err();
+        assert_eq!(
+            invalid_endpoint_error.api_error_code(),
+            ApiErrorCode::PolicyStorageEndpointInvalid
+        );
     }
 }

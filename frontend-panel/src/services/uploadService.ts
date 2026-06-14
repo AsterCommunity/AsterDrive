@@ -55,6 +55,12 @@ export class UploadRequestError extends Error {
 	}
 }
 
+type PresignedUploadOptions = {
+	headers?: Record<string, string>;
+	onCreateXhr?: (xhr: XMLHttpRequest) => void;
+	requireEtag?: boolean;
+};
+
 function isRetryableHttpStatus(status: number): boolean {
 	return status === 408 || status === 429 || status >= 500;
 }
@@ -273,14 +279,13 @@ export function createUploadService(workspace: Workspace = PERSONAL_WORKSPACE) {
 			presignedUrl: string,
 			file: File | Blob,
 			onProgress?: (loaded: number, total: number) => void,
-			onCreateXhr?: (xhr: XMLHttpRequest) => void,
-			options: { requireEtag?: boolean; headers?: Record<string, string> } = {},
+			options: PresignedUploadOptions = {},
 		): Promise<string> => {
 			return new Promise((resolve, reject) => {
 				const xhr = new XMLHttpRequest();
 				const blockId = new URL(presignedUrl).searchParams.get("blockid");
 				const requireEtag = options.requireEtag ?? true;
-				onCreateXhr?.(xhr);
+				options.onCreateXhr?.(xhr);
 				xhr.open("PUT", presignedUrl);
 				xhr.setRequestHeader("Content-Type", "application/octet-stream");
 				for (const [name, value] of Object.entries(options.headers ?? {})) {

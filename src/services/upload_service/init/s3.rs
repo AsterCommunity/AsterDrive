@@ -106,7 +106,7 @@ async fn init_presigned_s3_single_upload(
             return Ok(UniqueUuidAttempt::Collision);
         }
 
-        let (presigned_url, presigned_headers) =
+        let (presigned_url, presigned_headers, presigned_require_etag) =
             match presigned_put_request(driver, &temp_key).await {
                 Ok(request) => request,
                 Err(error) => {
@@ -136,6 +136,7 @@ async fn init_presigned_s3_single_upload(
             total_chunks: None,
             presigned_url: Some(presigned_url),
             presigned_headers,
+            presigned_require_etag: Some(presigned_require_etag),
         }))
     })
     .await
@@ -188,7 +189,7 @@ async fn init_relay_stream_s3_upload(
 async fn presigned_put_request(
     driver: &dyn crate::storage::StorageDriver,
     temp_key: &str,
-) -> Result<(String, std::collections::BTreeMap<String, String>)> {
+) -> Result<(String, std::collections::BTreeMap<String, String>, bool)> {
     let presigned_driver = driver
         .as_presigned()
         .ok_or_else(|| AsterError::storage_driver_error("presigned PUT not supported by driver"))?;
@@ -196,5 +197,9 @@ async fn presigned_put_request(
         .presigned_put_url(temp_key, std::time::Duration::from_secs(HOUR_SECS))
         .await?
         .ok_or_else(|| AsterError::storage_driver_error("presigned PUT not supported by driver"))?;
-    Ok((url, presigned_driver.presigned_put_headers()))
+    Ok((
+        url,
+        presigned_driver.presigned_put_headers(),
+        presigned_driver.presigned_put_requires_etag(),
+    ))
 }

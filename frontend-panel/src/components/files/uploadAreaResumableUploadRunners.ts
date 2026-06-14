@@ -339,12 +339,9 @@ export function createResumableUploadRunners({
 								uploadRequestRef,
 								task.id,
 								(onCreateXhr) =>
-									uploadService.presignedUpload(
-										url,
-										blob,
-										reportProgress,
+									uploadService.presignedUpload(url, blob, reportProgress, {
 										onCreateXhr,
-									),
+									}),
 							),
 						);
 					},

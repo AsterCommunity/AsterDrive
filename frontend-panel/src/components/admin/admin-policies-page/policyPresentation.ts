@@ -2,6 +2,10 @@ import type { DriverType } from "@/types/api";
 
 export const PROTECTED_POLICY_ID = 1;
 
+function assertNever(value: never): never {
+	throw new Error(`Unhandled storage policy driver type: ${value}`);
+}
+
 export function getPolicyDriverBadgeClass(driverType: DriverType): string {
 	return driverType === "s3"
 		? "border-blue-500/60 bg-blue-500/10 text-blue-600 dark:text-blue-300"
@@ -26,5 +30,7 @@ export function getPolicyDriverLabelKey(driverType: DriverType): string {
 			return "driver_type_azure_blob";
 		case "s3":
 			return "driver_type_s3";
+		default:
+			return assertNever(driverType);
 	}
 }

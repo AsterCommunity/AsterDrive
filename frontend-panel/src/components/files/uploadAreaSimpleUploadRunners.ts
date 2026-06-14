@@ -120,24 +120,26 @@ export function createSimpleUploadRunners({
 			speedBps: undefined,
 		});
 		const speedTracker = createUploadSpeedTracker();
+		const presignedHeaders = init.presigned_headers ?? undefined;
+		const requireEtag = init.presigned_require_etag ?? true;
 
 		try {
-			await withTrackedUploadRequest(uploadRequestRef, task.id, (onCreateXhr) =>
-				uploadService.presignedUpload(
-					presignedUrl,
-					file,
-					(loaded, total) => {
+			await withTrackedUploadRequest(
+				uploadRequestRef,
+				task.id,
+				(onCreateXhr) => {
+					const onProgress = (loaded: number, total: number) => {
 						patchTaskThrottled(task.id, {
 							progress: Math.round((loaded / total) * S3_PROCESSING_PROGRESS),
 							...speedTracker.sample(loaded),
 						});
-					},
-					onCreateXhr,
-					{
-						requireEtag: false,
-						headers: init.presigned_headers ?? undefined,
-					},
-				),
+					};
+					return uploadService.presignedUpload(presignedUrl, file, onProgress, {
+						headers: presignedHeaders,
+						onCreateXhr,
+						requireEtag,
+					});
+				},
 			);
 
 			flushProgress();

@@ -140,8 +140,7 @@ impl StorageDriver for AzureBlobDriver {
                 error = %Self::format_azure_error(error),
                 "Azure Blob server-side copy failed for loopback endpoint; falling back to local copy"
             );
-            let data = self.get(src_path).await?;
-            self.put(dest_path, &data).await?;
+            self.copy_object_via_temp_file(src_path, dest_path).await?;
         }
         Ok(dest_path.to_string())
     }
@@ -167,5 +166,50 @@ impl StorageDriver for AzureBlobDriver {
 
     fn as_multipart(&self) -> Option<&dyn MultipartStorageDriver> {
         Some(self)
+    }
+}
+
+impl AzureBlobDriver {
+    async fn copy_object_via_temp_file(&self, src_path: &str, dest_path: &str) -> Result<String> {
+        use tokio::io::AsyncWriteExt as _;
+
+        let temp_path = crate::utils::raii::TempFileGuard::new(
+            std::env::temp_dir().join(format!(
+                "aster_azure_copy_{}_{}",
+                std::process::id(),
+                uuid::Uuid::new_v4()
+            )),
+            "Azure Blob copy fallback temp file",
+        );
+
+        let mut reader = self.get_stream(src_path).await?;
+        let mut file = tokio::fs::File::create(temp_path.path())
+            .await
+            .map_aster_err_ctx("create Azure Blob copy temp file", |message| {
+                storage_driver_error(StorageErrorKind::Transient, message)
+            })?;
+        tokio::io::copy(&mut reader, &mut file)
+            .await
+            .map_aster_err_ctx("write Azure Blob copy temp file", |message| {
+                storage_driver_error(StorageErrorKind::Transient, message)
+            })?;
+        file.flush()
+            .await
+            .map_aster_err_ctx("flush Azure Blob copy temp file", |message| {
+                storage_driver_error(StorageErrorKind::Transient, message)
+            })?;
+        drop(file);
+
+        let temp_path_str = temp_path
+            .path()
+            .to_str()
+            .ok_or_else(|| {
+                storage_driver_error(
+                    StorageErrorKind::Misconfigured,
+                    "Azure Blob copy temp path is not valid UTF-8",
+                )
+            })?
+            .to_string();
+        self.put_file(dest_path, &temp_path_str).await
     }
 }

@@ -252,6 +252,9 @@ mod tests {
     fn only_vendor_drivers_with_native_processors_support_native_thumbnail() {
         assert!(!driver_type_supports_native_thumbnail(DriverType::Local));
         assert!(!driver_type_supports_native_thumbnail(DriverType::S3));
+        assert!(!driver_type_supports_native_thumbnail(
+            DriverType::AzureBlob
+        ));
         assert!(driver_type_supports_native_thumbnail(
             DriverType::TencentCos
         ));
@@ -264,6 +267,9 @@ mod tests {
             DriverType::Local
         ));
         assert!(!driver_type_supports_native_media_metadata(DriverType::S3));
+        assert!(!driver_type_supports_native_media_metadata(
+            DriverType::AzureBlob
+        ));
         assert!(driver_type_supports_native_media_metadata(
             DriverType::TencentCos
         ));

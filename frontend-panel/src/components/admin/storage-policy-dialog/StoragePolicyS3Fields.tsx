@@ -84,6 +84,11 @@ export function S3ConnectionFields({
 						name="storage-policy-access-key"
 						value={form.access_key}
 						onChange={(e) => onFieldChange("access_key", e.target.value)}
+						onBlur={(e) => {
+							if (form.driver_type === "azure_blob") {
+								onFieldChange("access_key", e.target.value.trim());
+							}
+						}}
 						autoComplete="off"
 						className={ADMIN_CONTROL_HEIGHT_CLASS}
 						placeholder={

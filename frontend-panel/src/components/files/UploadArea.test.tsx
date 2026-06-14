@@ -772,8 +772,11 @@ describe("UploadArea", () => {
 			"https://s3.example/upload",
 			expect.any(File),
 			expect.any(Function),
-			expect.any(Function),
-			{ requireEtag: false, headers: undefined },
+			{
+				headers: undefined,
+				onCreateXhr: expect.any(Function),
+				requireEtag: true,
+			},
 		);
 		expect(completeUpload).toHaveBeenCalledWith("upload-presigned", undefined);
 		expect(saveSession).not.toHaveBeenCalled();
@@ -784,6 +787,7 @@ describe("UploadArea", () => {
 			mode: "presigned",
 			upload_id: "upload-azure-presigned",
 			presigned_url: "https://account.blob.core.windows.net/container/blob",
+			presigned_require_etag: false,
 			presigned_headers: {
 				"x-ms-blob-type": "BlockBlob",
 			},
@@ -799,12 +803,12 @@ describe("UploadArea", () => {
 			"https://account.blob.core.windows.net/container/blob",
 			expect.any(File),
 			expect.any(Function),
-			expect.any(Function),
 			{
-				requireEtag: false,
 				headers: {
 					"x-ms-blob-type": "BlockBlob",
 				},
+				onCreateXhr: expect.any(Function),
+				requireEtag: false,
 			},
 		);
 		expect(completeUpload).toHaveBeenCalledWith(
@@ -834,8 +838,11 @@ describe("UploadArea", () => {
 				"https://s3.example/upload-speed",
 				expect.any(File),
 				expect.any(Function),
-				expect.any(Function),
-				{ requireEtag: false, headers: undefined },
+				{
+					headers: undefined,
+					onCreateXhr: expect.any(Function),
+					requireEtag: true,
+				},
 			);
 		});
 
@@ -930,7 +937,9 @@ describe("UploadArea", () => {
 				"https://s3.example/upload/part-speed",
 				expect.any(Blob),
 				expect.any(Function),
-				expect.any(Function),
+				{
+					onCreateXhr: expect.any(Function),
+				},
 			);
 		});
 
