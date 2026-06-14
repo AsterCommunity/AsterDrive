@@ -78,6 +78,21 @@ const BASE_UI_CONTROL_MODULES = new Set([
 	"toolbar",
 ]);
 
+const STARTUP_FORBIDDEN_PRECACHE_GLOBS = [
+	"assets/**/*Admin*",
+	"assets/**/*FileBrowser*",
+	"assets/**/*MusicPlayer*",
+	"assets/**/*PdfPreview*",
+	"assets/**/*WorkspaceOutlet*",
+	"assets/**/*pwaWarmup*",
+	"assets/**/*settings-common*",
+	"assets/**/*preview-apps*",
+	"assets/**/*archive-preview*",
+	"assets/**/*office-preview*",
+	"assets/**/*wopi*",
+	"assets/**/*Wopi*",
+];
+
 export default defineConfig(({ command }) => {
 	const isDevServer = command === "serve";
 	const rootReactPath = path.resolve(__dirname, "./node_modules/react");
@@ -120,6 +135,7 @@ export default defineConfig(({ command }) => {
 					globPatterns: isDevServer
 						? []
 						: ["index.html", "assets/**/*.{js,css,mjs,woff2}"],
+					globIgnores: isDevServer ? [] : STARTUP_FORBIDDEN_PRECACHE_GLOBS,
 					navigateFallback: "index.html",
 					navigateFallbackDenylist: [/^\/api\//, /^\/health\//, /^\/d\//],
 					runtimeCaching: [

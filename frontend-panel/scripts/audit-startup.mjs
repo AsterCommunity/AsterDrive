@@ -12,12 +12,14 @@ const BUDGETS = {
 	entryGzipBytes: 8 * 1024,
 	loginRawBytes: 65 * 1024,
 	loginGzipBytes: 20 * 1024,
+	precacheEntries: 450,
+	precacheRawBytes: 5 * 1024 * 1024,
 };
 
 const STARTUP_FORBIDDEN = [
-	/Admin/,
+	/admin/i,
 	/FileBrowser/,
-	/MusicPlayer/,
+	/musicPlayer/i,
 	/PdfPreview/,
 	/WorkspaceOutlet/,
 	/pwaWarmup/,
@@ -29,9 +31,9 @@ const STARTUP_FORBIDDEN = [
 ];
 
 const LOGIN_FORBIDDEN = [
-	/Admin/,
+	/admin/i,
 	/FileBrowser/,
-	/MusicPlayer/,
+	/musicPlayer/i,
 	/PdfPreview/,
 	/WorkspaceOutlet/,
 	/pwaWarmup/,
@@ -72,6 +74,16 @@ function formatBytes(bytes) {
 function assertBudget(label, actual, max) {
 	if (actual > max) {
 		fail(`${label} is ${formatBytes(actual)}, over budget ${formatBytes(max)}`);
+	}
+}
+
+function warnBudget(label, actual, max, format = String) {
+	if (actual > max) {
+		console.warn(
+			`[startup-audit] ${label} is ${format(actual)}, over budget ${format(
+				max,
+			)}`,
+		);
 	}
 }
 
@@ -179,8 +191,12 @@ function collectPrecacheRequiredAssets() {
 	const cacheableExtensions = new Set([".js", ".css", ".mjs", ".woff2"]);
 
 	for (const name of readdirSyncCompat(assetDir)) {
-		if (cacheableExtensions.has(path.extname(name))) {
-			entries.push(`${ASSET_PREFIX}${name}`);
+		const entry = `${ASSET_PREFIX}${name}`;
+		if (
+			cacheableExtensions.has(path.extname(name)) &&
+			!STARTUP_FORBIDDEN.some((pattern) => pattern.test(entry))
+		) {
+			entries.push(entry);
 		}
 	}
 
@@ -205,7 +221,16 @@ function auditPrecache() {
 	}
 
 	const entryList = [...entries];
+	assertNoForbidden("service worker precache", entryList, STARTUP_FORBIDDEN);
+
 	const totalBytes = entryList.reduce((sum, entry) => sum + fileSize(entry), 0);
+	warnBudget("precache entry count", entryList.length, BUDGETS.precacheEntries);
+	warnBudget(
+		"precache raw size",
+		totalBytes,
+		BUDGETS.precacheRawBytes,
+		formatBytes,
+	);
 
 	return { entries: entryList, totalBytes };
 }
