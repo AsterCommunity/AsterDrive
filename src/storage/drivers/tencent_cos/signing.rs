@@ -194,7 +194,7 @@ impl TencentCosDriver {
 }
 
 fn host_header_value(url: &Url, missing_host_message: &'static str) -> Result<String> {
-    let host = url.host_str().ok_or_else(|| {
+    let host = url.host().ok_or_else(|| {
         storage_driver_error(StorageErrorKind::Misconfigured, missing_host_message)
     })?;
     Ok(match url.port() {
@@ -313,6 +313,7 @@ fn hmac_sha1_hex(key: &[u8], message: &[u8]) -> Result<String> {
 #[cfg(test)]
 mod tests {
     use reqwest::header::AUTHORIZATION;
+    use url::Url;
 
     use crate::entities::storage_policy;
     use crate::types::{DriverType, StoredStoragePolicyAllowedTypes, StoredStoragePolicyOptions};
@@ -320,7 +321,8 @@ mod tests {
     use super::TencentCosDriver;
     use super::{
         canonical_header_list, canonical_headers, canonical_param_list, canonical_params,
-        percent_encode_path, percent_encode_query_key, percent_encode_query_value,
+        host_header_value, percent_encode_path, percent_encode_query_key,
+        percent_encode_query_value,
     };
 
     fn sample_driver(endpoint: &str) -> TencentCosDriver {
@@ -528,5 +530,47 @@ mod tests {
         assert!(url.as_str().contains(":9000/"));
         assert!(authorization.contains("q-header-list=host"));
         assert_ne!(authorization, default_port_authorization);
+    }
+
+    #[test]
+    fn signed_cos_headers_format_ipv6_host_with_brackets_and_port() {
+        let driver = sample_driver("http://cos.ap-guangzhou.myqcloud.com");
+        let url = Url::parse("http://[::1]:9000/").expect("valid IPv6 URL");
+
+        let headers = driver
+            .signed_cos_request_headers("PUT", &url, &[], "1700000000;1700000600")
+            .expect("signed headers");
+        let authorization = headers
+            .get(AUTHORIZATION)
+            .and_then(|value| value.to_str().ok())
+            .expect("authorization header");
+        let expected_host = "[::1]:9000";
+
+        assert_eq!(
+            host_header_value(&url, "missing host").expect("host"),
+            expected_host
+        );
+        assert!(authorization.contains("q-header-list=host"));
+    }
+
+    #[test]
+    fn host_header_value_omits_default_ports_and_formats_ipv6() {
+        let cases = [
+            ("http://example.com/", "example.com"),
+            ("http://example.com:80/", "example.com"),
+            ("https://example.com:443/", "example.com"),
+            ("https://example.com:9443/", "example.com:9443"),
+            ("http://[::1]/", "[::1]"),
+            ("http://[::1]:9000/", "[::1]:9000"),
+        ];
+
+        for (input, expected) in cases {
+            let url = Url::parse(input).expect("valid URL");
+            assert_eq!(
+                host_header_value(&url, "missing host").expect("host"),
+                expected,
+                "{input}"
+            );
+        }
     }
 }

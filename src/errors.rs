@@ -398,7 +398,7 @@ impl AsterError {
 pub(crate) fn sanitize_storage_driver_client_message(message: &str) -> String {
     let mut sanitized = message
         .split_whitespace()
-        .map(sanitize_storage_driver_message_token)
+        .map(sanitize_url_token)
         .collect::<Vec<_>>()
         .join(" ");
 
@@ -419,23 +419,21 @@ pub(crate) fn sanitize_storage_driver_client_message(message: &str) -> String {
     sanitized
 }
 
-fn sanitize_storage_driver_message_token(token: &str) -> String {
-    if token.starts_with("http://") || token.starts_with("https://") {
-        return sanitize_url_token(token);
-    }
-
-    token.to_string()
-}
-
 fn sanitize_url_token(token: &str) -> String {
+    let leading_len = token
+        .chars()
+        .take_while(|ch| matches!(ch, '(' | '[' | '\'' | '"' | '<'))
+        .map(char::len_utf8)
+        .sum::<usize>();
     let trailing_len = token
         .chars()
         .rev()
-        .take_while(|ch| matches!(ch, '.' | ',' | ';' | ':' | ')' | ']' | '\'' | '"'))
+        .take_while(|ch| matches!(ch, '.' | ',' | ';' | ':' | ')' | ']' | '\'' | '"' | '>'))
         .map(char::len_utf8)
         .sum::<usize>();
     let split_at = token.len().saturating_sub(trailing_len);
-    let (candidate, trailing) = token.split_at(split_at);
+    let (without_trailing, trailing) = token.split_at(split_at);
+    let (leading, candidate) = without_trailing.split_at(leading_len.min(without_trailing.len()));
 
     let Ok(mut url) = url::Url::parse(candidate) else {
         return token.to_string();
@@ -467,7 +465,7 @@ fn sanitize_url_token(token: &str) -> String {
         }
     }
 
-    format!("{url}{trailing}")
+    format!("{leading}{url}{trailing}")
 }
 
 fn is_sensitive_storage_query_key(key: &str) -> bool {
@@ -498,7 +496,12 @@ fn redact_key_value_after_marker(input: &str, marker: &str) -> String {
         let value_start = marker.len();
         let value = &after_before[value_start..];
         let value_end = value
-            .find(|ch: char| matches!(ch, ';' | '&' | ' ' | '\n' | '\r' | '\t'))
+            .find(|ch: char| {
+                matches!(
+                    ch,
+                    ';' | '&' | ' ' | '\n' | '\r' | '\t' | '\'' | '"' | ')' | ']' | '>'
+                )
+            })
             .unwrap_or(value.len());
         let (redacted_value, after_value) = value.split_at(value_end);
         let _ = redacted_value;
@@ -726,8 +729,9 @@ mod tests {
         AsterError, MapAsterErr, ResponseLogLevel, auth_forbidden_with_code,
         auth_invalid_credentials_with_code, auth_mfa_failed_with_code,
         chunk_upload_error_with_code, file_upload_error_with_code, payload_too_large_with_code,
-        precondition_failed_with_code, thumbnail_generation_error_with_code,
-        upload_assembly_error_with_code, validation_error_with_code,
+        precondition_failed_with_code, sanitize_storage_driver_client_message,
+        thumbnail_generation_error_with_code, upload_assembly_error_with_code,
+        validation_error_with_code,
     };
     use crate::api::api_error_code::ApiErrorCode;
     use crate::api::response::ApiErrorInfo;
@@ -1100,6 +1104,61 @@ mod tests {
         assert!(msg.contains("AccountKey=[redacted]"));
         assert!(!msg.contains("topsecret"));
         assert!(!msg.contains("supersecret"));
+
+        let quoted = sanitize_storage_driver_client_message(
+            "Azure URL 'https://acct.blob.core.windows.net/file?sig=quotedsecret'.",
+        );
+        assert!(quoted.contains("'https://acct.blob.core.windows.net/file?sig="));
+        assert!(quoted.contains("redacted"));
+        assert!(quoted.ends_with("'."), "{quoted}");
+        assert!(!quoted.contains("quotedsecret"));
+    }
+
+    #[test]
+    fn storage_driver_client_message_sanitizes_url_and_marker_boundaries() {
+        let cases = [
+            (
+                "quoted URL",
+                "failed: 'https://acct.blob.core.windows.net/file?sig=secret&sp=rw'.",
+                "failed: 'https://acct.blob.core.windows.net/file?sig=[redacted]&sp=rw'.",
+                vec!["secret"],
+            ),
+            (
+                "url userinfo",
+                "failed: https://user:password@example.com/container/blob?x=1",
+                "failed: https://%5Bredacted%5D@example.com/container/blob?x=1",
+                vec!["user:password"],
+            ),
+            (
+                "sensitive query aliases",
+                "failed: https://example.com/blob?X-Amz-Signature=awssecret&AWSAccessKeyId=ak&signature=sig&keep=value",
+                "failed: https://example.com/blob?X-Amz-Signature=[redacted]&AWSAccessKeyId=[redacted]&signature=[redacted]&keep=value",
+                vec!["awssecret", "ak&", "sig&"],
+            ),
+            (
+                "azure marker values preserve following segments",
+                "AccountKey=key;EndpointSuffix=core.windows.net SharedAccessSignature=sas) done",
+                "AccountKey=[redacted];EndpointSuffix=core.windows.net SharedAccessSignature=[redacted]) done",
+                vec!["key;Endpoint", "sas)"],
+            ),
+            (
+                "non-url text untouched",
+                "Tencent COS PUT Bucket cors failed with HTTP 400 Bad Request code=InvalidRequest request_id=req-1",
+                "Tencent COS PUT Bucket cors failed with HTTP 400 Bad Request code=InvalidRequest request_id=req-1",
+                vec![],
+            ),
+        ];
+
+        for (name, input, expected, forbidden) in cases {
+            let sanitized = sanitize_storage_driver_client_message(input);
+            assert_eq!(sanitized, expected, "{name}");
+            for value in forbidden {
+                assert!(
+                    !sanitized.contains(value),
+                    "{name} should redact {value}: {sanitized}"
+                );
+            }
+        }
     }
 
     #[actix_web::test]
