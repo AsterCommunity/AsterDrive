@@ -8,7 +8,7 @@ use super::AzureBlobDriver;
 
 impl AzureBlobDriver {
     pub(super) fn format_azure_error(error: azure_core::Error) -> String {
-        error.to_string()
+        crate::errors::sanitize_storage_driver_client_message(&error.to_string())
     }
 
     pub(super) fn classify_azure_error(error: &azure_core::Error) -> StorageErrorKind {

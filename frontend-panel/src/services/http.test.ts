@@ -294,7 +294,7 @@ describe("http api helpers", () => {
 		mockState.client.get.mockResolvedValue({
 			data: {
 				code: ApiErrorCode.StorageTransient,
-				msg: "Storage Driver Error",
+				msg: "remote timeout",
 				error: {
 					retryable: true,
 				},
@@ -306,7 +306,7 @@ describe("http api helpers", () => {
 		await expect(api.get("/files")).rejects.toEqual(
 			expect.objectContaining({
 				code: ApiErrorCode.StorageTransient,
-				message: "Storage Driver Error",
+				message: "remote timeout",
 				retryable: true,
 			}),
 		);

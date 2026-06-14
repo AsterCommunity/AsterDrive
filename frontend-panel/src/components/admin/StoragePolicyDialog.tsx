@@ -16,6 +16,7 @@ import {
 	DialogHeader,
 	DialogTitle,
 } from "@/components/ui/dialog";
+import { Icon } from "@/components/ui/icon";
 import { ADMIN_CONTROL_HEIGHT_CLASS } from "@/lib/constants";
 import type {
 	DriverType,
@@ -43,12 +44,17 @@ interface StoragePolicyDialogProps {
 	createStep: number;
 	createStepTouched: boolean;
 	endpointValidationMessage: string | null;
+	cosCorsConfirmOpen: boolean;
+	cosCorsSubmitting: boolean;
+	cosCorsUsesDraftValues: boolean;
 	saveAnywayConfirmOpen: boolean;
 	onApplyS3CompatibleDriverSuggestion: () => void;
+	onCancelCosCorsConfigure: () => void;
 	onOpenChange: (open: boolean) => void;
 	onCancelSaveAnyway: () => void;
 	onCancelS3DriverPromotion: () => void;
 	onConfirmSaveAnyway: () => void;
+	onConfirmCosCorsConfigure: () => void;
 	onConfirmS3DriverPromotion: () => void;
 	onSubmit: () => void;
 	onRequestS3DriverPromotion: () => void;
@@ -100,12 +106,17 @@ function useStoragePolicyDialogContent({
 	createStep,
 	createStepTouched,
 	endpointValidationMessage,
+	cosCorsConfirmOpen,
+	cosCorsSubmitting,
+	cosCorsUsesDraftValues,
 	saveAnywayConfirmOpen,
 	onApplyS3CompatibleDriverSuggestion,
+	onCancelCosCorsConfigure,
 	onOpenChange,
 	onCancelSaveAnyway,
 	onCancelS3DriverPromotion,
 	onConfirmSaveAnyway,
+	onConfirmCosCorsConfigure,
 	onConfirmS3DriverPromotion,
 	onSubmit,
 	onRequestS3DriverPromotion,
@@ -266,6 +277,9 @@ function useStoragePolicyDialogContent({
 		extensions: form.media_metadata_extensions ?? [],
 		disabledLabel: t("policy_wizard_disabled"),
 	});
+	const showTencentCosCorsPanel = form.driver_type === "tencent_cos";
+	const showCreateTencentCosCorsConfirm =
+		isCreateMode && showTencentCosCorsPanel && cosCorsConfirmOpen;
 	const cosNativeSummaryItems =
 		form.driver_type === "tencent_cos"
 			? [
@@ -428,13 +442,59 @@ function useStoragePolicyDialogContent({
 								s3DriverPromotionTargetLabel={s3DriverPromotionTargetLabel}
 								onFieldChange={onFieldChange}
 								onCancelS3DriverPromotion={onCancelS3DriverPromotion}
+								onCancelCosCorsConfigure={onCancelCosCorsConfigure}
+								onConfirmCosCorsConfigure={onConfirmCosCorsConfigure}
 								onConfirmS3DriverPromotion={onConfirmS3DriverPromotion}
 								onRequestS3DriverPromotion={onRequestS3DriverPromotion}
 								onSyncNormalizedS3Form={onSyncNormalizedS3Form}
+								cosCorsConfirmOpen={cosCorsConfirmOpen}
+								cosCorsSubmitting={cosCorsSubmitting}
+								cosCorsUsesDraftValues={cosCorsUsesDraftValues}
 								remoteNodes={remoteNodes}
 							/>
 						)}
 					</div>
+					{showCreateTencentCosCorsConfirm ? (
+						<div className="shrink-0 border-t px-6 py-3">
+							<InlineConfirm>
+								<div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+									<div>
+										<p className="text-sm font-medium">
+											{t("policy_cos_cors_confirm_title")}
+										</p>
+										<p className="mt-1 text-xs leading-5 text-muted-foreground">
+											{t("policy_cos_cors_confirm_desc")}
+										</p>
+									</div>
+									<div className="flex shrink-0 items-center gap-2">
+										<Button
+											type="button"
+											variant="outline"
+											className={ADMIN_CONTROL_HEIGHT_CLASS}
+											onClick={onCancelCosCorsConfigure}
+											disabled={cosCorsSubmitting}
+										>
+											{t("core:cancel")}
+										</Button>
+										<Button
+											type="button"
+											className={ADMIN_CONTROL_HEIGHT_CLASS}
+											onClick={onConfirmCosCorsConfigure}
+											disabled={cosCorsSubmitting}
+										>
+											{cosCorsSubmitting ? (
+												<Icon
+													name="Spinner"
+													className="mr-1 size-3.5 animate-spin"
+												/>
+											) : null}
+											{t("policy_cos_cors_confirm")}
+										</Button>
+									</div>
+								</div>
+							</InlineConfirm>
+						</div>
+					) : null}
 					{saveAnywayConfirmOpen ? (
 						<div className="shrink-0 border-t px-6 py-3">
 							<InlineConfirm>
@@ -489,6 +549,17 @@ function useStoragePolicyDialogContent({
 							{isCreateMode ? (
 								createStep === 0 ? null : createStep === createLastStep ? (
 									<>
+										{showTencentCosCorsPanel ? (
+											<TencentCosCorsButton
+												disabled={
+													submitting ||
+													cosCorsSubmitting ||
+													showCreateTencentCosCorsConfirm
+												}
+												onClick={onConfirmCosCorsConfigure}
+												t={t}
+											/>
+										) : null}
 										<StoragePolicyTestConnectionButton
 											onTest={onRunConnectionTest}
 											disabled={submitting}
@@ -545,5 +616,27 @@ function useStoragePolicyDialogContent({
 				</form>
 			</DialogContent>
 		</Dialog>
+	);
+}
+
+function TencentCosCorsButton({
+	disabled,
+	onClick,
+	t,
+}: {
+	disabled: boolean;
+	onClick: () => void;
+	t: (key: string) => string;
+}) {
+	return (
+		<Button
+			type="button"
+			variant="outline"
+			className={ADMIN_CONTROL_HEIGHT_CLASS}
+			disabled={disabled}
+			onClick={onClick}
+		>
+			{t("policy_cos_cors_action_short")}
+		</Button>
 	);
 }

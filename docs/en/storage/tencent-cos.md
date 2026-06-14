@@ -157,6 +157,94 @@ If you use `presigned` upload, the COS bucket must allow browser cross-origin up
 
 If you use `presigned` download, also confirm that browsers can access the returned COS download URL and that you accept response headers and cache behavior being controlled more by COS.
 
+### Configure CORS Through AsterDrive
+
+AsterDrive can execute a storage action for a Tencent COS policy from the admin console:
+
+```text
+Admin -> Storage Policies -> target COS policy -> Configure CORS
+```
+
+The backend action is:
+
+```json
+{
+  "action": "configure_tencent_cos_cors"
+}
+```
+
+The frontend does not send `AllowedOrigin`. The backend reads runtime config `public_site_url` and writes every configured public origin into one COS CORS rule. If no public site URL is configured, the action fails with `policy.action_parameter_required`.
+
+Configure public origins first:
+
+```text
+Admin -> System Settings -> Site -> Public Site URL
+```
+
+For example:
+
+```json
+["https://drive.example.com", "https://panel.example.com"]
+```
+
+`public_site_url` accepts exact HTTP(S) origins only. Do not include paths, query strings, wildcards, or `*`. Although the COS CORS action reads this setting, it is not the CORS allowlist for the AsterDrive API itself; API cross-origin access is still controlled by the Network Access runtime settings.
+
+The automatic rule uses this stable ID:
+
+```text
+asterdrive-presigned-access
+```
+
+Rule contents:
+
+| Item | Value |
+| --- | --- |
+| `AllowedOrigin` | All origins in `public_site_url` |
+| `AllowedMethod` | `PUT`, `GET`, `HEAD` |
+| `AllowedHeader` | `*`, `Content-Type`, `Range`, `x-cos-*` |
+| `ExposeHeader` | `ETag`, `Content-Length`, `Content-Range`, `Content-Disposition`, `Accept-Ranges`, `x-cos-request-id`, `x-cos-hash-crc64ecma` |
+| `MaxAgeSeconds` | `600` |
+| `ResponseVary` | `true` |
+
+Tencent COS does not provide an atomic "append one CORS rule" API. AsterDrive uses a read-merge-write flow: read current CORS rules, preserve all rules except AsterDrive's own rule ID, replace or add `asterdrive-presigned-access`, then write the full CORS document back to COS. This means:
+
+- unrelated rules are preserved
+- the previous AsterDrive rule with the same ID is replaced
+- if another operator changes bucket CORS between the read and write, the last writer wins for that interval
+
+The Tencent Cloud credential used by the policy must be allowed to read and write bucket CORS. Writing requires at least `name/cos:PutBucketCORS`; if the CAM policy is fine-grained, also allow reading the current bucket CORS configuration.
+
+::: tip Tencent COS API details
+AsterDrive calls Tencent COS `GET Bucket cors` and `PUT Bucket cors`. `PUT Bucket cors` requires a `Content-MD5` request header, so AsterDrive computes the MD5 of the CORS XML and includes it in the COS signature.
+:::
+
+A successful response returns the origins that were written, the COS request id, and whether an old AsterDrive rule was replaced:
+
+```json
+{
+  "action": "configure_tencent_cos_cors",
+  "tencent_cos_cors": {
+    "rule_id": "asterdrive-presigned-access",
+    "allowed_origins": ["https://drive.example.com", "https://panel.example.com"],
+    "request_id": "...",
+    "preserved_rule_count": 0,
+    "replaced_existing_rule": true,
+    "response_vary": true
+  }
+}
+```
+
+Common failures:
+
+| Symptom | Check first |
+| --- | --- |
+| `policy.action_parameter_required` | Whether `public_site_url` is empty |
+| `policy.action_parameter_invalid` | Whether the `public_site_url` origin format is correct and backend-derived action parameters are valid |
+| `policy.action_unsupported` | Whether the policy is actually `tencent_cos` |
+| `storage.auth_failed` | Whether Access Key / Secret Key are correct |
+| `storage.permission_denied` or `storage.permission` | Whether CAM allows reading and writing bucket CORS |
+| `storage.misconfigured` | Whether bucket, endpoint, region, required headers, or COS XML are being altered by a proxy or gateway |
+
 ## 5. Create a Tencent COS Storage Policy in AsterDrive
 
 Open:

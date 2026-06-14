@@ -46,8 +46,10 @@ The overview response includes user, file, blob, share, audit, and task summarie
 | `PATCH` | `/admin/policies/{id}` | Update policy |
 | `DELETE` | `/admin/policies/{id}` | Delete policy |
 | `POST` | `/admin/policies/{id}/test` | Test saved policy |
+| `POST` | `/admin/policies/{id}/action` | Execute a storage action for a saved policy |
 | `POST` | `/admin/policies/{id}/promote-s3-driver` | Promote a generic S3-compatible policy to a supported specialized driver |
 | `POST` | `/admin/policies/test` | Test connection with draft parameters |
+| `POST` | `/admin/policies/action` | Execute a storage action with draft policy parameters |
 
 Create example:
 
@@ -87,6 +89,96 @@ Current notes:
 - `GET /admin/policies` supports `limit`, `offset`, `sort_by`, `sort_order`
 - `GET /admin/policies/{id}/capacity` returns `StoragePolicyCapacityInfo`; local can return real filesystem capacity, S3 is explicitly unsupported, and remote forwards follower capacity status
 - `DELETE /admin/policies/{id}?force=true` only cleans upload sessions that still reference the policy. Existing blobs or policy-group references still block deletion. If temp objects or multipart uploads need delayed cleanup, a `storage_policy_temp_cleanup` task is created.
+
+### Storage policy actions
+
+Storage policy actions are the unified entry point for optional management capabilities exposed by storage drivers. Default built-in capabilities should extend the `StoragePolicyActionType` enum instead of adding provider-specific HTTP routes. Future plugin capabilities may expose their own schema route for parameter discovery, but execution should still stay action-oriented where possible.
+
+Current actions:
+
+| action | Supported driver | Mutates remote state | Description |
+| --- | --- | --- | --- |
+| `configure_tencent_cos_cors` | `tencent_cos` | yes | Configure Tencent COS bucket CORS from `public_site_url` |
+
+Saved policy request:
+
+```http
+POST /api/v1/admin/policies/12/action
+```
+
+```json
+{
+  "action": "configure_tencent_cos_cors"
+}
+```
+
+Draft policy request:
+
+```http
+POST /api/v1/admin/policies/action
+```
+
+```json
+{
+  "action": "configure_tencent_cos_cors",
+  "policy_id": 12,
+  "driver_type": "tencent_cos",
+  "endpoint": "https://bucket-1250000000.cos.ap-guangzhou.myqcloud.com",
+  "bucket": "bucket-1250000000",
+  "access_key": "AKID...",
+  "secret_key": "...",
+  "base_path": "prod/"
+}
+```
+
+`configure_tencent_cos_cors` behavior:
+
+- request bodies do not accept `allowed_origin` or `allowed_origins`
+- draft request connection fields are flat fields, not nested under a `policy` object
+- `policy_id` is optional and is only used for draft actions while editing a saved policy; if `access_key` or `secret_key` is blank, the backend fills that blank credential field from the saved policy
+- without `policy_id`, draft actions must carry complete credentials themselves; this covers unsaved new policies and purely transient parameter tests
+- the backend reads all origins from runtime config `public_site_url` and writes them as multiple `AllowedOrigin` entries in one COS CORS rule
+- if `public_site_url` is empty, the action returns `policy.action_parameter_required`
+- if the policy is not `tencent_cos`, the action returns `policy.action_unsupported`
+- AsterDrive uses the stable rule id `asterdrive-presigned-access`
+- Tencent COS does not provide an atomic append-CORS-rule API; AsterDrive reads current rules with `GET Bucket cors`, preserves unrelated rules, replaces the rule with the same ID, and writes the full document back with `PUT Bucket cors`
+- `PUT Bucket cors` requires `Content-MD5`; the server calculates the MD5 of the XML body and includes it in the COS signature
+- successful execution writes admin audit action `admin_trigger_storage_action`; details include `action`, `driver_type`, `used_draft_values`, and `mutates_remote_state`
+
+Success response example:
+
+```json
+{
+  "code": "success",
+  "msg": "",
+  "data": {
+    "action": "configure_tencent_cos_cors",
+    "tencent_cos_cors": {
+      "rule_id": "asterdrive-presigned-access",
+      "allowed_origins": [
+        "https://drive.example.com",
+        "https://panel.example.com"
+      ],
+      "request_id": "NmEy...",
+      "preserved_rule_count": 1,
+      "replaced_existing_rule": true,
+      "response_vary": true
+    }
+  }
+}
+```
+
+Common error codes:
+
+| Code | Meaning |
+| --- | --- |
+| `policy.action_unsupported` | The action does not support this policy or driver type |
+| `policy.action_parameter_required` | Required backend configuration is missing, such as an empty `public_site_url` |
+| `policy.action_parameter_invalid` | Action parameters or backend-derived parameters are invalid |
+| `storage.auth_failed` | COS credentials are wrong or signing failed |
+| `storage.permission_denied` / `storage.permission` | COS CAM permissions are insufficient, for example missing `name/cos:PutBucketCORS` |
+| `storage.misconfigured` | COS reports a configuration error, such as bad bucket, endpoint, required headers, or XML |
+| `storage.transient_failure` / `storage.transient` | COS or network failure that may be retried later |
 
 ## Storage migrations
 

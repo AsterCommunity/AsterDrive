@@ -49,6 +49,8 @@ import type {
 	DryRunStoragePolicyMigrationRequest,
 	ExecuteConfigActionRequest,
 	ExecuteConfigActionResponse,
+	ExecuteDraftStoragePolicyActionRequest,
+	ExecuteSavedStoragePolicyActionRequest,
 	ExternalAuthProviderTestParamsInput,
 	ExternalAuthProviderTestResult,
 	FolderInfo,
@@ -67,6 +69,7 @@ import type {
 	ResetUserPasswordRequest,
 	ShareInfo,
 	StoragePolicy,
+	StoragePolicyActionResult,
 	StoragePolicyCapacityInfo,
 	StoragePolicyGroup,
 	StoragePolicyGroupPage,
@@ -323,6 +326,15 @@ export const adminPolicyService = {
 
 	testParams: (data: TestPolicyParamsRequest) =>
 		api.post<void>("/admin/policies/test", data),
+
+	executeDraftPolicyAction: (data: ExecuteDraftStoragePolicyActionRequest) =>
+		api.post<StoragePolicyActionResult>("/admin/policies/action", data),
+
+	executeSavedPolicyAction: (
+		id: number,
+		data: ExecuteSavedStoragePolicyActionRequest,
+	) =>
+		api.post<StoragePolicyActionResult>(`/admin/policies/${id}/action`, data),
 
 	promoteS3CompatibleDriver: (
 		id: number,

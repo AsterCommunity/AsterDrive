@@ -28,6 +28,9 @@ interface PolicyDialogsProps {
 	form: PolicyFormData;
 	policyCapacity: StoragePolicyCapacityInfo | null;
 	policyCapacityLoading: boolean;
+	cosCorsConfirmOpen: boolean;
+	cosCorsSubmitting: boolean;
+	cosCorsUsesDraftValues: boolean;
 	s3CompatibleDriverSuggestionTargetLabel: string | null;
 	s3DriverPromotionBlocked: boolean;
 	s3DriverPromotionConfirmOpen: boolean;
@@ -37,9 +40,11 @@ interface PolicyDialogsProps {
 	saveAnywayConfirmOpen: boolean;
 	submitting: boolean;
 	onApplyS3CompatibleDriverSuggestion: () => void;
+	onCancelCosCorsConfigure: () => void;
 	onCancelSaveAnyway: () => void;
 	onCancelS3DriverPromotion: () => void;
 	onConfirmSaveAnyway: () => void;
+	onConfirmCosCorsConfigure: () => void;
 	onConfirmS3DriverPromotion: () => void;
 	onCreateBack: () => void;
 	onCreateNext: () => void;
@@ -69,6 +74,9 @@ export function PolicyDialogs({
 	form,
 	policyCapacity,
 	policyCapacityLoading,
+	cosCorsConfirmOpen,
+	cosCorsSubmitting,
+	cosCorsUsesDraftValues,
 	s3CompatibleDriverSuggestionTargetLabel,
 	s3DriverPromotionBlocked,
 	s3DriverPromotionConfirmOpen,
@@ -78,9 +86,11 @@ export function PolicyDialogs({
 	saveAnywayConfirmOpen,
 	submitting,
 	onApplyS3CompatibleDriverSuggestion,
+	onCancelCosCorsConfigure,
 	onCancelSaveAnyway,
 	onCancelS3DriverPromotion,
 	onConfirmSaveAnyway,
+	onConfirmCosCorsConfigure,
 	onConfirmS3DriverPromotion,
 	onCreateBack,
 	onCreateNext,
@@ -117,6 +127,9 @@ export function PolicyDialogs({
 				form={form}
 				policyCapacity={policyCapacity}
 				policyCapacityLoading={policyCapacityLoading}
+				cosCorsConfirmOpen={cosCorsConfirmOpen}
+				cosCorsSubmitting={cosCorsSubmitting}
+				cosCorsUsesDraftValues={cosCorsUsesDraftValues}
 				s3CompatibleDriverSuggestionTargetLabel={
 					s3CompatibleDriverSuggestionTargetLabel
 				}
@@ -133,10 +146,12 @@ export function PolicyDialogs({
 				onApplyS3CompatibleDriverSuggestion={
 					onApplyS3CompatibleDriverSuggestion
 				}
+				onCancelCosCorsConfigure={onCancelCosCorsConfigure}
 				onOpenChange={onDialogOpenChange}
 				onCancelSaveAnyway={onCancelSaveAnyway}
 				onCancelS3DriverPromotion={onCancelS3DriverPromotion}
 				onConfirmSaveAnyway={onConfirmSaveAnyway}
+				onConfirmCosCorsConfigure={onConfirmCosCorsConfigure}
 				onConfirmS3DriverPromotion={onConfirmS3DriverPromotion}
 				onSubmit={onSubmit}
 				onRequestS3DriverPromotion={onRequestS3DriverPromotion}

@@ -233,6 +233,36 @@ describe("adminService", () => {
 		expect(mockState.get).toHaveBeenNthCalledWith(2, "/admin/tasks");
 	});
 
+	it("executes storage policy actions against draft params or saved policies", () => {
+		adminPolicyService.executeDraftPolicyAction({
+			action: "configure_tencent_cos_cors",
+			driver_type: "tencent_cos" as never,
+			endpoint: "https://cos.ap-guangzhou.myqcloud.com",
+			bucket: "media-1250000000",
+		});
+		adminPolicyService.executeSavedPolicyAction(3, {
+			action: "configure_tencent_cos_cors",
+		});
+
+		expect(mockState.post).toHaveBeenNthCalledWith(
+			1,
+			"/admin/policies/action",
+			{
+				action: "configure_tencent_cos_cors",
+				driver_type: "tencent_cos",
+				endpoint: "https://cos.ap-guangzhou.myqcloud.com",
+				bucket: "media-1250000000",
+			},
+		);
+		expect(mockState.post).toHaveBeenNthCalledWith(
+			2,
+			"/admin/policies/3/action",
+			{
+				action: "configure_tencent_cos_cors",
+			},
+		);
+	});
+
 	it("uses the expected detail and mutation endpoints", () => {
 		adminOverviewService.get({
 			days: 30,

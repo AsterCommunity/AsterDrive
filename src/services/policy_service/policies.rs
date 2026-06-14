@@ -5,6 +5,7 @@ use sea_orm::{ActiveModelTrait, Set};
 
 use crate::api::api_error_code::ApiErrorCode;
 use crate::api::pagination::{AdminPolicySortBy, OffsetPage, SortOrder, load_offset_page};
+use crate::config::site_url;
 use crate::db::repository::{
     file_repo, managed_follower_repo, policy_group_repo, policy_repo, upload_session_repo,
 };
@@ -18,8 +19,10 @@ use crate::types::{
 };
 
 use super::models::{
-    CreateStoragePolicyInput, PromoteS3CompatiblePolicyDriverInput, StoragePolicy,
-    StoragePolicyCapacityInfo, StoragePolicyConnectionInput, UpdateStoragePolicyInput,
+    ConfigureTencentCosCorsInput, CreateStoragePolicyInput, ExecuteDraftStoragePolicyActionInput,
+    ExecuteSavedStoragePolicyActionInput, PromoteS3CompatiblePolicyDriverInput, StoragePolicy,
+    StoragePolicyActionResult, StoragePolicyActionType, StoragePolicyCapacityInfo,
+    StoragePolicyConnectionInput, TencentCosCorsConfigResult, UpdateStoragePolicyInput,
 };
 use super::shared::{
     SYSTEM_STORAGE_POLICY_ID, ensure_singleton_group_for_policy, lock_default_group_assignment,
@@ -698,6 +701,110 @@ pub async fn test_connection_params<S: RemoteProtocolRuntimeState>(
     probe_storage_driver(driver.as_ref(), "connection test failed").await
 }
 
+pub async fn configure_tencent_cos_cors_for_policy<S: SharedRuntimeState>(
+    state: &S,
+    id: i64,
+) -> Result<TencentCosCorsConfigResult> {
+    let policy = policy_repo::find_by_id(state.writer_db(), id).await?;
+    if policy.driver_type != DriverType::TencentCos {
+        return Err(validation_error_with_code(
+            ApiErrorCode::PolicyActionUnsupported,
+            "storage policy action 'configure_tencent_cos_cors' only supports Tencent COS storage policies",
+        ));
+    }
+    let origins = resolve_cos_cors_allowed_origins(state)?;
+    let driver = TencentCosDriver::new(&policy)?;
+    driver
+        .configure_asterdrive_cors(&origins)
+        .await
+        .map(Into::into)
+}
+
+pub async fn configure_tencent_cos_cors<S: RemoteProtocolRuntimeState>(
+    state: &S,
+    input: ConfigureTencentCosCorsInput,
+) -> Result<TencentCosCorsConfigResult> {
+    let ConfigureTencentCosCorsInput { connection } = input;
+    let fake_policy = build_connection_test_policy(state, connection).await?;
+    if fake_policy.driver_type != DriverType::TencentCos {
+        return Err(validation_error_with_code(
+            ApiErrorCode::PolicyActionUnsupported,
+            "storage policy action 'configure_tencent_cos_cors' only supports Tencent COS storage policies",
+        ));
+    }
+    let origins = resolve_cos_cors_allowed_origins(state)?;
+    let driver = TencentCosDriver::new(&fake_policy)?;
+    driver
+        .configure_asterdrive_cors(&origins)
+        .await
+        .map(Into::into)
+}
+
+async fn merge_draft_action_saved_credentials<S: SharedRuntimeState>(
+    state: &S,
+    policy_id: Option<i64>,
+    mut connection: StoragePolicyConnectionInput,
+) -> Result<StoragePolicyConnectionInput> {
+    if connection.access_key.trim().is_empty() || connection.secret_key.trim().is_empty() {
+        if let Some(policy_id) = policy_id {
+            let saved = policy_repo::find_by_id(state.reader_db(), policy_id).await?;
+            if saved.driver_type != connection.driver_type {
+                return Err(validation_error_with_code(
+                    ApiErrorCode::PolicyActionParameterInvalid,
+                    format!(
+                        "draft storage policy action driver '{}' does not match saved policy driver '{}'",
+                        driver_type_name(connection.driver_type),
+                        driver_type_name(saved.driver_type),
+                    ),
+                ));
+            }
+            if connection.access_key.trim().is_empty() {
+                connection.access_key = saved.access_key;
+            }
+            if connection.secret_key.trim().is_empty() {
+                connection.secret_key = saved.secret_key;
+            }
+        }
+    }
+    Ok(connection)
+}
+
+pub async fn execute_saved_action<S: SharedRuntimeState>(
+    state: &S,
+    id: i64,
+    input: ExecuteSavedStoragePolicyActionInput,
+) -> Result<StoragePolicyActionResult> {
+    match input.action {
+        StoragePolicyActionType::ConfigureTencentCosCors => {
+            let result = configure_tencent_cos_cors_for_policy(state, id).await?;
+            Ok(StoragePolicyActionResult {
+                action: input.action,
+                tencent_cos_cors: Some(result),
+            })
+        }
+    }
+}
+
+pub async fn execute_draft_action<S: RemoteProtocolRuntimeState>(
+    state: &S,
+    input: ExecuteDraftStoragePolicyActionInput,
+) -> Result<StoragePolicyActionResult> {
+    match input.action {
+        StoragePolicyActionType::ConfigureTencentCosCors => {
+            let connection =
+                merge_draft_action_saved_credentials(state, input.policy_id, input.connection)
+                    .await?;
+            let result =
+                configure_tencent_cos_cors(state, ConfigureTencentCosCorsInput { connection })
+                    .await?;
+            Ok(StoragePolicyActionResult {
+                action: input.action,
+                tencent_cos_cors: Some(result),
+            })
+        }
+    }
+}
+
 async fn ensure_remote_transport_supports_policy_options<C: sea_orm::ConnectionTrait>(
     db: &C,
     driver_type: DriverType,
@@ -725,6 +832,71 @@ async fn ensure_remote_transport_supports_policy_options<C: sea_orm::ConnectionT
         ));
     }
     Ok(())
+}
+
+async fn build_connection_test_policy<S: RemoteProtocolRuntimeState>(
+    state: &S,
+    input: StoragePolicyConnectionInput,
+) -> Result<storage_policy::Model> {
+    let StoragePolicyConnectionInput {
+        driver_type,
+        endpoint,
+        bucket,
+        access_key,
+        secret_key,
+        base_path,
+        remote_node_id,
+        options,
+    } = input;
+    let (endpoint, bucket) = normalize_connection_fields(driver_type, &endpoint, &bucket)?;
+    validate_connection_credentials(driver_type, &access_key, &secret_key)?;
+    let remote_node_id =
+        validate_remote_binding(state.writer_db(), driver_type, remote_node_id).await?;
+
+    Ok(storage_policy::Model {
+        id: 0,
+        name: String::new(),
+        driver_type,
+        endpoint,
+        bucket,
+        access_key,
+        secret_key,
+        base_path,
+        remote_node_id,
+        max_file_size: 0,
+        allowed_types: StoredStoragePolicyAllowedTypes::empty(),
+        options: serialize_options(&options)?,
+        is_default: false,
+        chunk_size: 0,
+        created_at: chrono::Utc::now(),
+        updated_at: chrono::Utc::now(),
+    })
+}
+
+fn resolve_cos_cors_allowed_origins(state: &impl SharedRuntimeState) -> Result<Vec<String>> {
+    let origins = site_url::public_site_urls(state.runtime_config());
+    if origins.is_empty() {
+        return Err(validation_error_with_code(
+            ApiErrorCode::PolicyActionParameterRequired,
+            "public_site_url must be configured before configuring COS CORS",
+        ));
+    }
+    Ok(origins)
+}
+
+impl From<crate::storage::drivers::tencent_cos::cors::TencentCosCorsApplyResult>
+    for TencentCosCorsConfigResult
+{
+    fn from(value: crate::storage::drivers::tencent_cos::cors::TencentCosCorsApplyResult) -> Self {
+        Self {
+            rule_id: value.rule_id,
+            allowed_origins: value.allowed_origins,
+            request_id: value.request_id,
+            preserved_rule_count: value.preserved_rule_count,
+            replaced_existing_rule: value.replaced_existing_rule,
+            response_vary: value.response_vary,
+        }
+    }
 }
 
 async fn probe_storage_driver(

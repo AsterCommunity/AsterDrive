@@ -6,7 +6,7 @@ mod policies;
 mod shared;
 
 use crate::errors::Result;
-use crate::runtime::{SharedRuntimeState, TaskRuntimeState};
+use crate::runtime::{RemoteProtocolRuntimeState, SharedRuntimeState, TaskRuntimeState};
 use crate::services::audit_service::{self, AuditContext};
 use crate::types::DriverType;
 
@@ -15,16 +15,20 @@ pub use groups::{
     migrate_group_assignments, update_group,
 };
 pub use models::{
-    CreateStoragePolicyGroupInput, CreateStoragePolicyInput, PolicyGroupAssignmentMigrationResult,
-    PromoteS3CompatiblePolicyDriverInput, StoragePolicy, StoragePolicyCapacityInfo,
+    ConfigureTencentCosCorsInput, CreateStoragePolicyGroupInput, CreateStoragePolicyInput,
+    ExecuteDraftStoragePolicyActionInput, ExecuteSavedStoragePolicyActionInput,
+    PolicyGroupAssignmentMigrationResult, PromoteS3CompatiblePolicyDriverInput, StoragePolicy,
+    StoragePolicyActionResult, StoragePolicyActionType, StoragePolicyCapacityInfo,
     StoragePolicyConnectionInput, StoragePolicyGroupInfo, StoragePolicyGroupItemInfo,
-    StoragePolicyGroupItemInput, StoragePolicySummaryInfo, UpdateStoragePolicyGroupInput,
-    UpdateStoragePolicyInput,
+    StoragePolicyGroupItemInput, StoragePolicySummaryInfo, TencentCosCorsConfigResult,
+    UpdateStoragePolicyGroupInput, UpdateStoragePolicyInput,
 };
 pub(crate) use policies::capacity_info_or_status;
 pub use policies::{
-    capacity_info, create, delete, get, list_paginated, promote_s3_compatible_driver,
-    test_connection, test_connection_params, test_default_connection, update,
+    capacity_info, configure_tencent_cos_cors, configure_tencent_cos_cors_for_policy, create,
+    delete, execute_draft_action, execute_saved_action, get, list_paginated,
+    promote_s3_compatible_driver, test_connection, test_connection_params, test_default_connection,
+    update,
 };
 
 fn driver_type_audit_name(driver_type: DriverType) -> &'static str {
@@ -44,6 +48,19 @@ fn policy_audit_details(policy: &StoragePolicy) -> Option<serde_json::Value> {
         max_file_size: policy.max_file_size,
         chunk_size: policy.chunk_size,
         is_default: policy.is_default,
+    })
+}
+
+fn policy_action_audit_details(
+    action: StoragePolicyActionType,
+    driver_type: DriverType,
+    used_draft_values: bool,
+) -> Option<serde_json::Value> {
+    audit_service::details(audit_service::StoragePolicyActionAuditDetails {
+        action: action.as_str(),
+        driver_type: driver_type_audit_name(driver_type),
+        used_draft_values,
+        mutates_remote_state: action.mutates_remote_state(),
     })
 }
 
@@ -125,6 +142,49 @@ pub async fn delete_with_audit(
     )
     .await;
     Ok(())
+}
+
+pub async fn execute_saved_action_with_audit(
+    state: &impl SharedRuntimeState,
+    id: i64,
+    input: ExecuteSavedStoragePolicyActionInput,
+    audit_ctx: &AuditContext,
+) -> Result<StoragePolicyActionResult> {
+    let policy = get(state, id).await?;
+    let action = input.action;
+    let result = execute_saved_action(state, id, input).await?;
+    audit_service::log_with_details(
+        state,
+        audit_ctx,
+        audit_service::AuditAction::AdminTriggerStorageAction,
+        crate::services::audit_service::AuditEntityType::StoragePolicy,
+        Some(policy.id),
+        Some(&policy.name),
+        || policy_action_audit_details(action, policy.driver_type, false),
+    )
+    .await;
+    Ok(result)
+}
+
+pub async fn execute_draft_action_with_audit(
+    state: &impl RemoteProtocolRuntimeState,
+    input: ExecuteDraftStoragePolicyActionInput,
+    audit_ctx: &AuditContext,
+) -> Result<StoragePolicyActionResult> {
+    let action = input.action;
+    let driver_type = input.connection.driver_type;
+    let result = execute_draft_action(state, input).await?;
+    audit_service::log_with_details(
+        state,
+        audit_ctx,
+        audit_service::AuditAction::AdminTriggerStorageAction,
+        crate::services::audit_service::AuditEntityType::StoragePolicy,
+        None,
+        None,
+        || policy_action_audit_details(action, driver_type, true),
+    )
+    .await;
+    Ok(result)
 }
 
 pub async fn create_group_with_audit(

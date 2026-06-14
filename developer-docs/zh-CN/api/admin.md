@@ -61,8 +61,10 @@
 | `PATCH` | `/admin/policies/{id}` | 更新策略 |
 | `DELETE` | `/admin/policies/{id}` | 删除策略 |
 | `POST` | `/admin/policies/{id}/test` | 测试已保存策略 |
+| `POST` | `/admin/policies/{id}/action` | 对已保存策略执行存储 action |
 | `POST` | `/admin/policies/{id}/promote-s3-driver` | 把通用 S3-compatible 策略提升为受支持的专用驱动 |
 | `POST` | `/admin/policies/test` | 用临时参数测试连接 |
+| `POST` | `/admin/policies/action` | 用草稿策略参数执行存储 action |
 
 ### 创建策略示例
 
@@ -105,6 +107,96 @@
   - S3 驱动明确返回 `StorageErrorKind::Unsupported`，服务层转换成 `unsupported` 状态，不伪造 bucket 容量
   - Remote 驱动通过 follower 内部协议 `/internal/storage/capacity` 转发实际接收落点的容量能力
 - `DELETE /admin/policies/{id}` 支持 `?force=true`；这只会强制清理仍引用该策略的上传 session，仍有 blob 或策略组项引用时照样拒绝删除。若清理后还有临时对象或 multipart upload 需要延后处理，会创建 `storage_policy_temp_cleanup` 后台任务
+
+### 存储策略 action
+
+存储策略 action 是给存储驱动暴露可选管理能力的统一入口。新增默认能力时优先扩展 `StoragePolicyActionType` 枚举，不再为每个云厂商动作单独挂专用 HTTP 路由。后续插件化能力如果需要专有 schema，可以在插件自己的 schema 路由里描述参数，但执行入口仍应尽量保持 action 化。
+
+当前支持的 action：
+
+| action | 支持驱动 | 是否改远端状态 | 说明 |
+| --- | --- | --- | --- |
+| `configure_tencent_cos_cors` | `tencent_cos` | 是 | 按 `public_site_url` 自动配置腾讯云 COS bucket CORS |
+
+已保存策略请求：
+
+```http
+POST /api/v1/admin/policies/12/action
+```
+
+```json
+{
+  "action": "configure_tencent_cos_cors"
+}
+```
+
+草稿策略请求：
+
+```http
+POST /api/v1/admin/policies/action
+```
+
+```json
+{
+  "action": "configure_tencent_cos_cors",
+  "policy_id": 12,
+  "driver_type": "tencent_cos",
+  "endpoint": "https://bucket-1250000000.cos.ap-guangzhou.myqcloud.com",
+  "bucket": "bucket-1250000000",
+  "access_key": "AKID...",
+  "secret_key": "...",
+  "base_path": "prod/"
+}
+```
+
+`configure_tencent_cos_cors` 的参数来源和行为：
+
+- 请求体不接受 `allowed_origin` 或 `allowed_origins`
+- 草稿请求的连接字段是平铺字段，不包在 `policy` 对象里
+- `policy_id` 可选，只用于编辑已保存策略时的草稿 action；如果 `access_key` 或 `secret_key` 为空，后端会从该已保存策略补齐空白密钥字段
+- 不传 `policy_id` 时，草稿 action 必须自己携带完整凭证；这用于新建未保存策略或纯临时参数测试
+- 后端从运行时配置 `public_site_url` 读取全部公开站点来源，并写成同一条 COS CORS rule 的多个 `AllowedOrigin`
+- 如果 `public_site_url` 为空，返回 `policy.action_parameter_required`
+- 如果策略不是 `tencent_cos`，返回 `policy.action_unsupported`
+- AsterDrive 使用固定 rule id `asterdrive-presigned-access`
+- 腾讯云 COS 没有原子追加 CORS rule 的接口；实现是 `GET Bucket cors` 后保留其他 rule、替换同 ID rule，再 `PUT Bucket cors` 写回完整配置
+- `PUT Bucket cors` 必须带 `Content-MD5`，服务端会对 XML body 计算 MD5 并参与 COS 签名
+- 成功执行会写管理员审计日志，action 字符串统一是 `admin_trigger_storage_action`，details 里包含 `action`、`driver_type`、`used_draft_values` 和 `mutates_remote_state`
+
+成功响应示例：
+
+```json
+{
+  "code": "success",
+  "msg": "",
+  "data": {
+    "action": "configure_tencent_cos_cors",
+    "tencent_cos_cors": {
+      "rule_id": "asterdrive-presigned-access",
+      "allowed_origins": [
+        "https://drive.example.com",
+        "https://panel.example.com"
+      ],
+      "request_id": "NmEy...",
+      "preserved_rule_count": 1,
+      "replaced_existing_rule": true,
+      "response_vary": true
+    }
+  }
+}
+```
+
+常见错误码：
+
+| 错误码 | 含义 |
+| --- | --- |
+| `policy.action_unsupported` | 当前 action 不支持该策略或驱动类型 |
+| `policy.action_parameter_required` | action 需要的后端配置缺失，例如 `public_site_url` 为空 |
+| `policy.action_parameter_invalid` | action 参数或后端派生参数非法 |
+| `storage.auth_failed` | COS 凭证错误或签名失败 |
+| `storage.permission_denied` / `storage.permission` | COS CAM 权限不足，例如缺少 `name/cos:PutBucketCORS` |
+| `storage.misconfigured` | COS 返回配置类错误，例如 bucket、endpoint、请求头或 XML 不符合要求 |
+| `storage.transient_failure` / `storage.transient` | COS 或网络临时失败，可提示稍后重试 |
 
 ## 存储迁移
 

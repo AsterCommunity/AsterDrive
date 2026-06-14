@@ -157,6 +157,94 @@ flowchart LR
 
 如果要使用 `presigned` 下载，也要确认浏览器可以访问 COS 返回的下载地址，并且你接受下载响应头、缓存行为更多由 COS 决定。
 
+### 用 AsterDrive 自动配置 CORS
+
+AsterDrive 可以在管理后台为 Tencent COS 策略执行存储动作：
+
+```text
+管理 -> 存储策略 -> 目标 COS 策略 -> 配置 CORS
+```
+
+这个动作对应后端 action：
+
+```json
+{
+  "action": "configure_tencent_cos_cors"
+}
+```
+
+动作不会让前端传 `AllowedOrigin`。后端会读取运行时配置 `public_site_url`，把里面所有公开来源都写进同一条 COS CORS 规则。如果这里还没配置公开站点地址，动作会失败并返回 `policy.action_parameter_required`。
+
+先到这里配置公开站点来源：
+
+```text
+管理 -> 系统设置 -> 站点配置 -> 公开站点地址
+```
+
+例如：
+
+```json
+["https://drive.example.com", "https://panel.example.com"]
+```
+
+`public_site_url` 只接受精确 HTTP(S) origin，不能带路径、查询、通配符或 `*`。这个配置虽然会被 CORS action 读取，但它本身不是 AsterDrive API 的 CORS 白名单；AsterDrive API 跨域仍然看系统设置里的网络访问配置。
+
+自动配置写入的规则使用固定 ID：
+
+```text
+asterdrive-presigned-access
+```
+
+规则内容：
+
+| 项 | 值 |
+| --- | --- |
+| `AllowedOrigin` | `public_site_url` 中的全部来源 |
+| `AllowedMethod` | `PUT`、`GET`、`HEAD` |
+| `AllowedHeader` | `*`、`Content-Type`、`Range`、`x-cos-*` |
+| `ExposeHeader` | `ETag`、`Content-Length`、`Content-Range`、`Content-Disposition`、`Accept-Ranges`、`x-cos-request-id`、`x-cos-hash-crc64ecma` |
+| `MaxAgeSeconds` | `600` |
+| `ResponseVary` | `true` |
+
+腾讯云 COS 没有“只追加一条 CORS 规则”的原子 append 接口。AsterDrive 的实现是读取现有 CORS、保留其他规则、替换或新增 `asterdrive-presigned-access`，然后把完整配置写回 COS。也就是说：
+
+- 其他规则会保留
+- 同 ID 的旧 AsterDrive 规则会被替换
+- 如果有人在读取和写入之间同时修改 bucket CORS，最后一次写入会覆盖那段时间内的并发变更
+
+执行这个动作的腾讯云凭证需要能读取和写入 bucket CORS。写入至少需要 `name/cos:PutBucketCORS` 权限；如果 CAM 策略限制较细，也要确认读取当前 CORS 配置的权限已经放行。
+
+::: tip 和腾讯云官方接口的关系
+AsterDrive 调用的是腾讯云 COS `GET Bucket cors` 和 `PUT Bucket cors`。`PUT Bucket cors` 需要 `Content-MD5` 请求头，AsterDrive 会计算 CORS XML 的 MD5 并把它一起纳入 COS 签名。
+:::
+
+成功响应会返回实际写入的来源、COS request id，以及是否替换了旧规则：
+
+```json
+{
+  "action": "configure_tencent_cos_cors",
+  "tencent_cos_cors": {
+    "rule_id": "asterdrive-presigned-access",
+    "allowed_origins": ["https://drive.example.com", "https://panel.example.com"],
+    "request_id": "...",
+    "preserved_rule_count": 0,
+    "replaced_existing_rule": true,
+    "response_vary": true
+  }
+}
+```
+
+常见失败处理：
+
+| 现象 | 优先检查 |
+| --- | --- |
+| `policy.action_parameter_required` | `public_site_url` 是否为空 |
+| `policy.action_parameter_invalid` | `public_site_url` 来源格式是否正确，以及后端派生出的 action 参数是否合法 |
+| `policy.action_unsupported` | 当前策略是否真的是 `tencent_cos` |
+| `storage.auth_failed` | Access Key / Secret Key 是否正确 |
+| `storage.permission_denied` 或 `storage.permission` | CAM 是否允许读取和写入 bucket CORS |
+| `storage.misconfigured` | Bucket、endpoint、地域、请求头或 COS XML 是否被网关 / 代理改坏 |
+
 ## 5. 在 AsterDrive 创建 Tencent COS 存储策略
 
 进入：
