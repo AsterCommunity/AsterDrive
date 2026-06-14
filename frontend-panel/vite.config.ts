@@ -80,8 +80,10 @@ const BASE_UI_CONTROL_MODULES = new Set([
 
 const STARTUP_FORBIDDEN_PRECACHE_GLOBS = [
 	"assets/**/*Admin*",
+	"assets/**/*admin*",
 	"assets/**/*FileBrowser*",
 	"assets/**/*MusicPlayer*",
+	"assets/**/*musicPlayer*",
 	"assets/**/*PdfPreview*",
 	"assets/**/*WorkspaceOutlet*",
 	"assets/**/*pwaWarmup*",
