@@ -797,6 +797,51 @@ describe("AdminPoliciesPage", () => {
 		expect(s3Badge).toHaveClass("bg-blue-500/10", "text-blue-600");
 	});
 
+	it("shows OneDrive authorization success returned from callback and refreshes policies", async () => {
+		mockState.searchParams =
+			"storage_authorization=success&policy_id=12&sortBy=name";
+
+		render(<AdminPoliciesPage />);
+
+		await waitFor(() => {
+			expect(mockState.toastSuccess).toHaveBeenCalledWith(
+				"onedrive_authorization_completed",
+				{
+					description: "onedrive_authorization_completed_policy",
+				},
+			);
+		});
+		expect(mockState.reload).toHaveBeenCalled();
+		const cleanupCall = mockState.setSearchParams.mock.calls.find(
+			([params]) =>
+				params instanceof URLSearchParams &&
+				!params.has("storage_authorization") &&
+				!params.has("policy_id") &&
+				params.get("sortBy") === "name",
+		);
+		expect(cleanupCall).toBeTruthy();
+	});
+
+	it("shows OneDrive authorization callback failures without refreshing policies", async () => {
+		mockState.searchParams = "storage_authorization=error&policy_id=12";
+
+		render(<AdminPoliciesPage />);
+
+		await waitFor(() => {
+			expect(mockState.toastError).toHaveBeenCalledWith(
+				"onedrive_authorization_failed",
+			);
+		});
+		expect(mockState.reload).not.toHaveBeenCalled();
+		const cleanupCall = mockState.setSearchParams.mock.calls.find(
+			([params]) =>
+				params instanceof URLSearchParams &&
+				!params.has("storage_authorization") &&
+				!params.has("policy_id"),
+		);
+		expect(cleanupCall).toBeTruthy();
+	});
+
 	it("renders Azure Blob rows with Azure-specific badge styling", () => {
 		mockState.items = [
 			createPolicy({

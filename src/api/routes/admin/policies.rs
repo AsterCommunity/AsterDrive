@@ -11,12 +11,13 @@ use crate::api::pagination::LimitOffsetQuery;
 #[cfg(all(debug_assertions, feature = "openapi"))]
 use crate::api::pagination::OffsetPage;
 use crate::api::response::ApiResponse;
+use crate::config::site_url;
 use crate::errors::Result;
-use crate::runtime::PrimaryAppState;
+use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::storage_credential_service;
 use crate::services::{audit_service, auth_service::Claims, policy_service};
 use crate::types::{DriverType, StorageCredentialProvider};
-use actix_web::{HttpRequest, HttpResponse, web};
+use actix_web::{HttpRequest, HttpResponse, http::header, web};
 
 // ── Conversion helpers (must stay here because they use policy_service types) ──────────
 
@@ -618,7 +619,7 @@ pub async fn validate_storage_policy_credential(
     operation_id = "finish_storage_authorization",
     params(storage_credential_service::StorageAuthorizationCallbackQuery),
     responses(
-        (status = 200, description = "Storage credential authorization completed", body = inline(ApiResponse<storage_credential_service::StorageAuthorizationCallbackOutcome>)),
+        (status = 302, description = "Storage credential authorization completed and redirected to the admin policies page"),
         (status = 400, description = "Authorization callback rejected"),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
         (status = 403, description = "Forbidden"),
@@ -629,9 +630,45 @@ pub async fn finish_storage_authorization(
     state: web::Data<PrimaryAppState>,
     query: web::Query<storage_credential_service::StorageAuthorizationCallbackQuery>,
 ) -> Result<HttpResponse> {
-    let response =
-        storage_credential_service::finish_authorization_callback(state.get_ref(), &query).await?;
-    Ok(HttpResponse::Ok().json(ApiResponse::ok(response)))
+    match storage_credential_service::finish_authorization_callback(state.get_ref(), &query).await {
+        Ok(response) => Ok(storage_authorization_redirect_response(
+            state.get_ref(),
+            "success",
+            Some(response.credential.policy_id),
+        )),
+        Err(error) => {
+            tracing::warn!(error = %error, "storage authorization callback failed");
+            Ok(storage_authorization_redirect_response(
+                state.get_ref(),
+                "error",
+                None,
+            ))
+        }
+    }
+}
+
+fn storage_authorization_redirect_response(
+    state: &PrimaryAppState,
+    status: &str,
+    policy_id: Option<i64>,
+) -> HttpResponse {
+    let path = storage_authorization_redirect_path(status, policy_id);
+    let redirect_url = site_url::public_app_url_or_path(state.runtime_config(), &path);
+    HttpResponse::Found()
+        .append_header((header::LOCATION, redirect_url))
+        .finish()
+}
+
+fn storage_authorization_redirect_path(status: &str, policy_id: Option<i64>) -> String {
+    let mut path = format!(
+        "/admin/policies?storage_authorization={}",
+        urlencoding::encode(status)
+    );
+    if let Some(policy_id) = policy_id {
+        path.push_str("&policy_id=");
+        path.push_str(&policy_id.to_string());
+    }
+    path
 }
 
 #[api_docs_macros::path(
@@ -807,4 +844,25 @@ pub async fn migrate_policy_group_assignments(
     )
     .await?;
     Ok(HttpResponse::Ok().json(ApiResponse::ok(result)))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn storage_authorization_redirect_path_includes_success_and_policy_id() {
+        assert_eq!(
+            storage_authorization_redirect_path("success", Some(42)),
+            "/admin/policies?storage_authorization=success&policy_id=42"
+        );
+    }
+
+    #[test]
+    fn storage_authorization_redirect_path_omits_policy_id_on_error() {
+        assert_eq!(
+            storage_authorization_redirect_path("error", None),
+            "/admin/policies?storage_authorization=error"
+        );
+    }
 }

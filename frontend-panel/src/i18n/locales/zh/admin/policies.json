@@ -300,6 +300,9 @@
 	"onedrive_copy_redirect_uri": "复制重定向 URL",
 	"onedrive_save_before_authorize": "开始授权前请先保存 OneDrive 策略更改。",
 	"onedrive_authorization_started": "已打开 Microsoft 授权",
+	"onedrive_authorization_completed": "OneDrive 授权完成",
+	"onedrive_authorization_completed_policy": "策略 ID：{{id}}",
+	"onedrive_authorization_failed": "OneDrive 授权失败，请重新授权。",
 	"onedrive_validation_success": "OneDrive 凭据验证成功",
 	"onedrive_validation_success_root": "Root：{{name}}",
 	"policy_onedrive_created_authorize_next": "OneDrive 策略已创建。下一步授权 Microsoft Graph。"

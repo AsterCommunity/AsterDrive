@@ -94,6 +94,25 @@ function getStorageAuthorizationCallbackUrl() {
 	).toString();
 }
 
+function consumeStorageAuthorizationSearchParams(
+	searchParams: URLSearchParams,
+) {
+	const status = searchParams.get("storage_authorization");
+	if (!status) {
+		return null;
+	}
+
+	const nextSearchParams = new URLSearchParams(searchParams);
+	const policyId = nextSearchParams.get("policy_id");
+	nextSearchParams.delete("storage_authorization");
+	nextSearchParams.delete("policy_id");
+	return {
+		policyId,
+		status,
+		nextSearchParams,
+	};
+}
+
 function policyFormValueEquals(left: unknown, right: unknown): boolean {
 	if (Object.is(left, right)) {
 		return true;
@@ -343,6 +362,28 @@ function useAdminPoliciesPageContent() {
 			{ replace: true },
 		);
 	}, [offset, pageSize, setSearchParams, sortBy, sortOrder]);
+
+	useEffect(() => {
+		const callback = consumeStorageAuthorizationSearchParams(searchParams);
+		if (!callback) {
+			return;
+		}
+
+		setSearchParams(callback.nextSearchParams, { replace: true });
+		if (callback.status === "success") {
+			toast.success(t("onedrive_authorization_completed"), {
+				description: callback.policyId
+					? t("onedrive_authorization_completed_policy", {
+							id: callback.policyId,
+						})
+					: undefined,
+			});
+			void reload();
+			return;
+		}
+
+		toast.error(t("onedrive_authorization_failed"));
+	}, [reload, searchParams, setSearchParams, t]);
 
 	useEffect(() => {
 		let active = true;

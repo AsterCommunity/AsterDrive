@@ -4628,6 +4628,46 @@ async fn test_admin_cannot_unverify_initial_admin() {
 }
 
 #[actix_web::test]
+async fn test_admin_cannot_demote_initial_admin() {
+    let state = common::setup().await;
+    let app = create_test_app!(state);
+    let (token, _) = register_and_login!(app);
+
+    let req = test::TestRequest::patch()
+        .uri("/api/v1/admin/users/1")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({
+            "role": "user"
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 400);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(body["msg"], "cannot demote the initial admin account");
+}
+
+#[actix_web::test]
+async fn test_admin_cannot_disable_initial_admin() {
+    let state = common::setup().await;
+    let app = create_test_app!(state);
+    let (token, _) = register_and_login!(app);
+
+    let req = test::TestRequest::patch()
+        .uri("/api/v1/admin/users/1")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({
+            "status": "disabled"
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 400);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(body["msg"], "cannot disable the initial admin account");
+}
+
+#[actix_web::test]
 async fn test_admin_can_reset_user_password() {
     let state = common::setup().await;
     let app = create_test_app!(state);
