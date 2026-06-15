@@ -51,6 +51,25 @@ function getAccountModeOptions(t: Translate, cloud: MicrosoftGraphCloud) {
 	return accountModeOptions;
 }
 
+function OneDriveSetupNotice({ t }: { t: Translate }) {
+	return (
+		<div className="flex gap-2 rounded-lg border border-sky-500/25 bg-sky-500/5 p-3 text-xs leading-5 text-muted-foreground">
+			<Icon name="Info" className="mt-0.5 size-4 shrink-0 text-sky-600" />
+			<div className="space-y-1">
+				<p className="font-medium text-foreground">
+					{t("onedrive_setup_notice_title")}
+				</p>
+				<ul className="space-y-1">
+					<li>{t("onedrive_setup_notice_redirect_uri")}</li>
+					<li>{t("onedrive_setup_notice_permissions")}</li>
+					<li>{t("onedrive_setup_notice_cloud")}</li>
+					<li>{t("onedrive_setup_notice_personal_china")}</li>
+				</ul>
+			</div>
+		</div>
+	);
+}
+
 export function OneDriveConnectionFields({
 	clientIdError,
 	form,
@@ -106,6 +125,7 @@ export function OneDriveConnectionFields({
 						{t("onedrive_cloud_desc")}
 					</p>
 				</div>
+				<OneDriveSetupNotice t={t} />
 				{mode === "create" ? (
 					<OneDriveApplicationFields
 						clientIdError={clientIdError}

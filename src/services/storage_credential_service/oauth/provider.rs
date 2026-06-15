@@ -272,32 +272,59 @@ impl MicrosoftGraphAccessTokenProvider for MicrosoftGraphCredentialTokenProvider
             )?),
             _ => cache.refresh_token_ciphertext.clone(),
         };
-        let mut credential = storage_policy_credential_repo::find_by_policy_provider_kind(
-            &self.db,
-            self.policy_id,
-            StorageCredentialProvider::MicrosoftGraph,
-            StorageCredentialKind::OauthDelegated,
-        )
-        .await?
-        .ok_or_else(|| AsterError::record_not_found("storage policy credential"))?
-        .into_active_model();
-        credential.access_token_ciphertext = Set(Some(access_token_ciphertext));
-        credential.refresh_token_ciphertext = Set(refresh_token_ciphertext.clone());
-        credential.expires_at = Set(expires_at);
-        credential.last_refreshed_at = Set(Some(now));
-        credential.status = Set(StorageCredentialStatus::Authorized);
-        credential.status_reason = Set(None);
-        credential.updated_at = Set(now);
-        if let Some(scope) = token.scope.as_deref() {
+        let scopes = if let Some(scope) = token.scope.as_deref() {
             let scopes = normalize_scopes(Some(
                 scope.split_whitespace().map(ToOwned::to_owned).collect(),
             ));
-            credential.scopes = Set(scopes_to_json(&scopes)?);
+            Some(scopes_to_json(&scopes)?)
+        } else {
+            None
+        };
+        let updated =
+            storage_policy_credential_repo::update_oauth_refresh_result_if_refresh_token_matches(
+                &self.db,
+                storage_policy_credential_repo::OAuthRefreshUpdate {
+                    policy_id: self.policy_id,
+                    provider: StorageCredentialProvider::MicrosoftGraph,
+                    credential_kind: StorageCredentialKind::OauthDelegated,
+                    expected_refresh_token_ciphertext: &used_refresh_token_ciphertext,
+                    access_token_ciphertext,
+                    refresh_token_ciphertext: refresh_token_ciphertext.clone(),
+                    expires_at,
+                    scopes,
+                    now,
+                },
+            )
+            .await?;
+        if !updated {
+            if let Some(access_token) = self
+                .recover_from_rotated_refresh_token(&mut cache, &used_refresh_token_ciphertext)
+                .await?
+            {
+                write_storage_credential_oauth_audit(
+                    &self.db,
+                    0,
+                    StorageCredentialOauthAuditDetails {
+                        event: OAUTH_AUDIT_EVENT_CREDENTIAL_REFRESHED,
+                        result: OAUTH_AUDIT_RESULT_RECOVERED,
+                        policy_id: Some(self.policy_id),
+                        cloud: Some(self.cloud),
+                        tenant: Some(&self.tenant),
+                        reason: Some(
+                            "refresh token was already rotated by another provider instance",
+                        ),
+                        recovered_from_token_rotation: Some(true),
+                        ..Default::default()
+                    },
+                )
+                .await;
+                return Ok(access_token);
+            }
+            return Err(storage_driver_error(
+                StorageErrorKind::Auth,
+                "Microsoft Graph refresh token was updated concurrently; retry the request with the latest credential state",
+            ));
         }
-        credential
-            .update(&self.db)
-            .await
-            .map_err(AsterError::from)?;
 
         cache.access_token = token.access_token;
         cache.expires_at = expires_at;

@@ -69,6 +69,68 @@ impl MicrosoftGraphTokenRefresher for TestMicrosoftGraphTokenRefresher {
     }
 }
 
+#[derive(Debug)]
+struct ConcurrentRotationBeforeSuccessRefresher {
+    requests: StdMutex<Vec<MicrosoftGraphTokenRefreshRequest>>,
+    responses: StdMutex<VecDeque<Result<MicrosoftTokenResponse>>>,
+    db: sea_orm::DatabaseConnection,
+    encryption_key: String,
+    policy_id: i64,
+}
+
+impl ConcurrentRotationBeforeSuccessRefresher {
+    fn new(
+        db: sea_orm::DatabaseConnection,
+        encryption_key: &str,
+        policy_id: i64,
+        responses: Vec<Result<MicrosoftTokenResponse>>,
+    ) -> Self {
+        Self {
+            requests: StdMutex::new(Vec::new()),
+            responses: StdMutex::new(responses.into()),
+            db,
+            encryption_key: encryption_key.to_string(),
+            policy_id,
+        }
+    }
+
+    fn requests(&self) -> Vec<MicrosoftGraphTokenRefreshRequest> {
+        self.requests
+            .lock()
+            .expect("refresh request log lock")
+            .clone()
+    }
+}
+
+#[async_trait::async_trait]
+impl MicrosoftGraphTokenRefresher for ConcurrentRotationBeforeSuccessRefresher {
+    async fn refresh_token(
+        &self,
+        request: MicrosoftGraphTokenRefreshRequest,
+    ) -> Result<MicrosoftTokenResponse> {
+        self.requests
+            .lock()
+            .expect("refresh request log lock")
+            .push(request);
+        create_microsoft_graph_credential(
+            &self.db,
+            &self.encryption_key,
+            self.policy_id,
+            "newer-access-token",
+            Some("newer-refresh-token"),
+            Some(Utc::now() + Duration::minutes(10)),
+        )
+        .await;
+        let response = self
+            .responses
+            .lock()
+            .expect("refresh response queue lock")
+            .pop_front()
+            .expect("refresh response should be queued");
+        response
+    }
+}
+
 fn microsoft_token_response(
     access_token: &str,
     refresh_token: Option<&str>,
@@ -799,6 +861,90 @@ async fn credential_token_provider_refresh_success_preserves_refresh_token_when_
             stored.access_token_ciphertext.as_deref().unwrap(),
         ),
         "new-access-token"
+    );
+}
+
+#[tokio::test]
+async fn credential_token_provider_refresh_success_cas_recovers_newer_rotated_db_token() {
+    let db = setup_db().await;
+    let encryption_key = "storage-token-test-master-key";
+    let policy = create_onedrive_policy(&db, "client-id", "client-secret").await;
+    let credential = create_microsoft_graph_credential(
+        &db,
+        encryption_key,
+        policy.id,
+        "expired-access-token",
+        Some("old-refresh-token"),
+        Some(Utc::now() - Duration::minutes(10)),
+    )
+    .await;
+    let refresher = Arc::new(ConcurrentRotationBeforeSuccessRefresher::new(
+        db.clone(),
+        encryption_key,
+        policy.id,
+        vec![Ok(microsoft_token_response(
+            "ignored-access-token",
+            Some("ignored-refresh-token"),
+            3600,
+        ))],
+    ));
+    let provider = build_microsoft_graph_credential_token_provider_with_refresher(
+        db.clone(),
+        encryption_key.to_string(),
+        &policy,
+        &credential,
+        MicrosoftGraphCloud::Global,
+        refresher.clone(),
+    )
+    .expect("provider should build");
+
+    let access_token = provider
+        .access_token()
+        .await
+        .expect("newer DB token should win CAS race");
+
+    assert_eq!(access_token, "newer-access-token");
+    let request = refresher
+        .requests()
+        .into_iter()
+        .next()
+        .expect("refresh request should be logged");
+    assert_eq!(request.refresh_token, "old-refresh-token");
+    let stored = storage_policy_credential_repo::find_by_policy_provider_kind(
+        &db,
+        policy.id,
+        StorageCredentialProvider::MicrosoftGraph,
+        StorageCredentialKind::OauthDelegated,
+    )
+    .await
+    .expect("credential lookup should succeed")
+    .expect("credential should exist");
+    assert_eq!(stored.status, StorageCredentialStatus::Authorized);
+    assert_eq!(stored.status_reason, None);
+    assert_eq!(
+        decrypt_stored_oauth_token(
+            encryption_key,
+            policy.id,
+            "access",
+            stored.access_token_ciphertext.as_deref().unwrap(),
+        ),
+        "newer-access-token"
+    );
+    assert_eq!(
+        decrypt_stored_oauth_token(
+            encryption_key,
+            policy.id,
+            "refresh",
+            stored.refresh_token_ciphertext.as_deref().unwrap(),
+        ),
+        "newer-refresh-token"
+    );
+    assert_eq!(
+        serde_json::from_str::<Vec<String>>(&stored.scopes).unwrap(),
+        vec![
+            "offline_access".to_string(),
+            "Files.ReadWrite.All".to_string()
+        ]
     );
 }
 
