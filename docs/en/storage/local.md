@@ -18,7 +18,7 @@ Local disk storage is suitable when:
 - You want the most direct upload and download path
 - You want the simplest backend to get the instance running first
 
-If you want object storage to carry capacity and bandwidth, see [S3 / MinIO / R2](/en/storage/s3-minio-r2) or [Tencent COS](/en/storage/tencent-cos). If you want the control plane and real object placement split across nodes, see [Follower Node Storage Policy](/en/storage/remote-follower).
+If you want object storage to carry capacity and bandwidth, see [S3 / MinIO / R2](/en/storage/s3-minio-r2), [Azure Blob Storage](/en/storage/azure-blob), or [Tencent COS](/en/storage/tencent-cos). If you want the control plane and real object placement split across nodes, see [Follower Node Storage Policy](/en/storage/remote-follower).
 
 ## First, Separate the Layers
 

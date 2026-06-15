@@ -22,6 +22,7 @@ AsterDrive 里有两层概念：
 | --- | --- | --- |
 | 本地磁盘 | 单机、NAS、小团队、最少依赖 | [本地磁盘](/storage/local) |
 | S3 / MinIO / R2 | 对象存储、大文件、外部 bucket、云存储 | [S3 / MinIO / R2](/storage/s3-minio-r2) |
+| Azure Blob Storage | Azure Storage account、Blob container、Azure 托管对象存储 | [Azure Blob Storage](/storage/azure-blob) |
 | 腾讯云 COS | 腾讯云对象存储、COS 数据万象、按策略启用原生处理 | [腾讯云 COS](/storage/tencent-cos) |
 | OneDrive | Microsoft 365、OneDrive、SharePoint / group drive、Microsoft Graph 授权 | [OneDrive](/storage/onedrive) |
 | 远程节点 | 控制面在主控，真实对象写到另一台 AsterDrive | [远程节点存储策略](/storage/remote-follower) |

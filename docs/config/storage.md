@@ -23,6 +23,7 @@
 | --- | --- | --- |
 | `local` | 文件存到本地目录 | [本地磁盘](/storage/local) |
 | `s3` | 文件存到 S3 或兼容对象存储（MinIO / R2 / B2 / OSS 等） | [S3 / MinIO / R2](/storage/s3-minio-r2) |
+| `azure_blob` | 文件存到 Azure Blob Storage container，使用 Azure Blob SDK 和 SAS URL | [Azure Blob Storage](/storage/azure-blob) |
 | `tencent_cos` | 文件存到腾讯云 COS；基础对象读写复用 S3 兼容能力，并额外暴露 COS 数据万象等腾讯云原生能力 | [腾讯云 COS](/storage/tencent-cos) |
 | `one_drive` | 文件写到 Microsoft Graph 可访问的 OneDrive、SharePoint 或 Microsoft 365 group drive | [OneDrive](/storage/onedrive) |
 | `remote` | 文件通过内部远程存储协议写到另一台 AsterDrive 从节点 | [远程节点存储策略](/storage/remote-follower) |
@@ -76,6 +77,12 @@ AsterDrive 会缓存缩略图和媒体信息等派生结果，避免每次查看
 如果早期已经把腾讯云 COS 配成了通用 `s3` 策略，后台可能会提示把 driver 提升为 `tencent_cos`。这个操作不迁移对象，也不改 bucket；它只是让这条策略改用腾讯云 COS driver。系统只允许明确白名单内的提升方向，并会拒绝活动上传会话或 bucket 不一致的情况。
 
 配置 bucket、凭证、CORS、上传下载方式和策略组分流时，看 [S3 / MinIO / R2 存储策略教程](/storage/s3-minio-r2)。
+
+### `azure_blob`
+
+适合文件放到 Azure Blob Storage container。`azure_blob` 使用 Azure 官方 Blob SDK 和 Azure SAS URL，不走 S3-compatible 接口。
+
+配置时要区分这些字段：Endpoint 是 Blob service endpoint，Bucket 字段对应 Azure container，Access Key 对应 storage account name，Secret Key 对应 storage account key。如果使用 `presigned` 直传，还要配置 Blob service CORS，并允许 `x-ms-blob-type` 请求头。完整流程见 [Azure Blob Storage 存储策略教程](/storage/azure-blob)。
 
 ### `tencent_cos`
 

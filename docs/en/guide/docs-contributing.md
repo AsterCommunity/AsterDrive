@@ -10,6 +10,7 @@ AsterDrive documentation is layered by reader task:
 | --- | --- | --- |
 | First use, daily operations, administrator workflows | `guide/` | User manual, common workflows, follower nodes, file editing |
 | Startup configuration, backend system settings, storage policy descriptions | `config/` | Server, database, system settings, storage policies |
+| Specific storage backend tutorials | `storage/` | Local disk, S3 / MinIO / R2, Azure Blob Storage, Tencent COS, follower node storage policy |
 | Deployment, launch, upgrade, backup, troubleshooting | `deployment/` | Docker, systemd, reverse proxy, troubleshooting |
 | Concept explanations, indexes, problem routing | Reference pages under `guide/` | Glossary, FAQ triage, error codes |
 
@@ -17,8 +18,22 @@ When unsure, ask first: **what task did the reader open this page to complete?**
 
 - "I want to use this feature" -> `guide/`
 - "I need to change which configuration" -> `config/`
+- "I need to connect a specific storage backend" -> `storage/`
 - "I need to keep the service running steadily" -> `deployment/`
 - "I do not understand a term / do not know where to look" -> glossary or FAQ
+
+## Adding Storage Backend Tutorials
+
+Storage backend tutorials belong under `storage/`. Keep each page focused on one backend and follow the flow "prepare the backend service -> create a storage policy -> configure policy groups -> bind a test user or team -> validate".
+
+When adding or renaming a storage backend page, at least check these entry points:
+
+- `docs/en/storage/index.md`
+- `docs/en/config/storage.md`
+- `docs/en/features/upload-storage.md`
+- `docs/.vitepress/config.ts` sidebar entries
+
+If you only change details for one backend, do not copy large sections from another tutorial. Link common concepts to [Storage Policies](/en/config/storage) or [Storage Policy Backends](/en/storage/).
 
 ## Be Careful with the Top Nav
 

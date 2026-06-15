@@ -455,6 +455,7 @@ function buildZhSidebar() {
         { text: '后端总览', link: '/storage/' },
         { text: '本地磁盘', link: '/storage/local' },
         { text: 'S3 / MinIO / R2', link: '/storage/s3-minio-r2' },
+        { text: 'Azure Blob Storage', link: '/storage/azure-blob' },
         { text: '腾讯云 COS', link: '/storage/tencent-cos' },
         { text: 'OneDrive', link: '/storage/onedrive' },
         { text: '远程节点存储策略', link: '/storage/remote-follower' }
@@ -569,6 +570,7 @@ function buildEnSidebar() {
         { text: 'Backend Overview', link: '/en/storage/' },
         { text: 'Local Disk', link: '/en/storage/local' },
         { text: 'S3 / MinIO / R2', link: '/en/storage/s3-minio-r2' },
+        { text: 'Azure Blob Storage', link: '/en/storage/azure-blob' },
         { text: 'Tencent COS', link: '/en/storage/tencent-cos' },
         { text: 'OneDrive', link: '/en/storage/onedrive' },
         { text: 'Follower Node Storage Policy', link: '/en/storage/remote-follower' }

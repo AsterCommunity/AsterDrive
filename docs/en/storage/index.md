@@ -22,6 +22,7 @@ If you have already decided which backend to connect, use the tutorials here.
 | --- | --- | --- |
 | Local disk | Single-node setups, NAS, small teams, minimum dependencies | [Local disk](/en/storage/local) |
 | S3 / MinIO / R2 | Object storage, large files, external buckets, cloud storage | [S3 / MinIO / R2](/en/storage/s3-minio-r2) |
+| Azure Blob Storage | Azure Storage accounts, Blob containers, Azure-managed object storage | [Azure Blob Storage](/en/storage/azure-blob) |
 | Tencent COS | Tencent object storage, COS CI, per-policy native processing | [Tencent COS](/en/storage/tencent-cos) |
 | OneDrive | Microsoft 365, OneDrive, SharePoint / group drives, Microsoft Graph authorization | [OneDrive](/en/storage/onedrive) |
 | Follower node | The control plane stays on the primary node, while real objects are written to another AsterDrive node | [Follower Node Storage Policy](/en/storage/remote-follower) |

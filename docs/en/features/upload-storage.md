@@ -13,7 +13,7 @@ Uploads and storage turn a file sent by a browser or client into a database file
 | Direct small-file upload | Browser posts to primary; server writes to the target storage | [Uploads and Large Files](/en/guide/upload-modes) |
 | Chunked upload | Local chunk sessions, progress, resume, 24h session TTL | [Uploads and Large Files](/en/guide/upload-modes) |
 | Object-storage presigned upload | Browser PUTs directly to S3-compatible storage or Tencent COS; server verifies and finalizes | [Uploads and Large Files](/en/guide/upload-modes), [Storage Policies](/en/config/storage) |
-| Object-storage multipart | Browser uploads parts in batches; server completes and validates content | [Uploads and Large Files](/en/guide/upload-modes), [S3 / MinIO / R2](/en/storage/s3-minio-r2), [Tencent COS](/en/storage/tencent-cos) |
+| Object-storage multipart | Browser uploads parts in batches; server completes and validates content | [Uploads and Large Files](/en/guide/upload-modes), [S3 / MinIO / R2](/en/storage/s3-minio-r2), [Azure Blob Storage](/en/storage/azure-blob), [Tencent COS](/en/storage/tencent-cos) |
 | Storage policies | Decide whether files land on local, s3, tencent_cos, or remote | [Storage Policies](/en/config/storage) |
 | Policy groups | Route by user, team, and file size to storage policies | [Storage Policies](/en/config/storage) |
 | Follower storage | Primary writes objects to a follower; the follower stores them locally or in S3 | [Follower Node Enrollment](/en/guide/remote-nodes), [Follower Node Storage Policy](/en/storage/remote-follower) |

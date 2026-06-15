@@ -23,6 +23,7 @@ If you change nothing, new users are automatically bound to the default policy g
 | --- | --- | --- |
 | `local` | Files are stored in a local directory | [Local disk](/en/storage/local) |
 | `s3` | Files are stored in S3 or S3-compatible object storage, such as MinIO / R2 / B2 / OSS | [S3 / MinIO / R2](/en/storage/s3-minio-r2) |
+| `azure_blob` | Files are stored in an Azure Blob Storage container using the Azure Blob SDK and SAS URLs | [Azure Blob Storage](/en/storage/azure-blob) |
 | `tencent_cos` | Files are stored in Tencent COS; base object operations reuse S3-compatible behavior, with additional Tencent-native capabilities such as COS CI (Cloud Infinite / 数据万象). See the Tencent COS tutorial for what COS CI provides and when it may be billed. | [Tencent COS](/en/storage/tencent-cos) |
 | `one_drive` | Files are written to Microsoft Graph-accessible OneDrive, SharePoint, or Microsoft 365 group drives | [OneDrive](/en/storage/onedrive) |
 | `remote` | Files are written to another AsterDrive follower node through the internal remote storage protocol | [Follower Node Storage Policy](/en/storage/remote-follower) |
@@ -76,6 +77,12 @@ Generic `s3` policies can control path-style access. When enabled, requests look
 If an older policy configured Tencent COS as generic `s3`, the admin console may suggest promoting the driver to `tencent_cos`. This does not migrate objects or change the bucket. It only makes that policy use the Tencent COS driver. AsterDrive only allows explicit allowlisted promotion directions and rejects promotion when active upload sessions exist or the bucket no longer matches.
 
 For buckets, credentials, CORS, upload/download modes, and policy-group routing, see the [S3 / MinIO / R2 storage policy tutorial](/en/storage/s3-minio-r2).
+
+### `azure_blob`
+
+Suitable when files are stored in Azure Blob Storage containers. `azure_blob` uses the Azure Blob SDK and Azure SAS URLs. It does not use the S3-compatible API.
+
+When configuring it, keep the field names straight: Endpoint is the Blob service endpoint, Bucket means Azure container, Access Key means storage account name, and Secret Key means storage account key. If you use `presigned` direct upload, configure Blob service CORS and allow the `x-ms-blob-type` request header. See the [Azure Blob Storage policy tutorial](/en/storage/azure-blob) for the full flow.
 
 ### `tencent_cos`
 
