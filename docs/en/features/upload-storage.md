@@ -1,5 +1,5 @@
 ---
-description: AsterDrive uploads and storage feature map covering upload modes, blobs, quota, storage policies, policy groups, local storage, S3, Tencent COS, and follower nodes.
+description: AsterDrive uploads and storage feature map covering upload modes, blobs, quota, storage policies, policy groups, storage backends, and routing behavior.
 ---
 
 # Uploads and Storage

@@ -97,7 +97,7 @@ flowchart TD
 Common patterns:
 
 - Small teams use the default policy group directly
-- Teams with many large files use a separate S3 / MinIO / Tencent COS policy group
+- Teams with many large files use a separate object storage policy group
 - Teams in another location use a separate follower-node policy group
 - Temporary project teams use smaller quotas and an independent policy group
 

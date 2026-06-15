@@ -63,12 +63,12 @@ Watch the capacity of these directories:
 
 ### Server Relay
 
-The browser uploads the file to AsterDrive first, then the server forwards it to S3 / MinIO / Tencent COS.
+The browser uploads the file to AsterDrive first, then the server forwards it to the storage policy backend.
 This path does not rely on the local temporary directory and does not perform content deduplication.
 
 ### Direct-to-Object-Storage Upload
 
-The browser uploads the file directly to S3 / MinIO / Tencent COS. Large files are automatically split into multiple parts.
+The browser uploads the file directly to an object storage backend. Large files are automatically split into multiple parts.
 This saves the most server bandwidth, but the object storage must first allow the CORS rules required for browser uploads.
 
 If you use this path, confirm at least:

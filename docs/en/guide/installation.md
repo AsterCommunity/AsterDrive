@@ -26,7 +26,7 @@ A production deployment is more than starting a container. Confirm these items f
 - Access path: the public entry point should provide HTTPS through a reverse proxy
 - Public site URL: shares, mail, WOPI, and cross-origin access all depend on it
 - WebDAV: if Finder, Windows, rclone, or sync tools will use it, the proxy layer must pass the required methods and upload sizes
-- Storage location: local disk, S3 / MinIO / Tencent COS, and follower nodes each have different maintenance costs
+- Storage location: each storage policy backend has different maintenance costs
 - Backup and restore: verify the backup and restore flow before launch, not after a failure
 
 These topics are covered in order in [Deployment Overview](/en/deployment/). This page only keeps the selection path.

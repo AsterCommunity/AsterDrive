@@ -47,7 +47,7 @@ flowchart TD
 | 配 SMTP、发测试邮件、改邮件模版 | [邮件](/config/mail) |
 | 配链接导入、内置下载器或 aria2 离线下载 | [离线下载](/config/offline-download) |
 | 文件存哪里、上传/下载怎么走 | [存储策略](/config/storage) |
-| 按教程接 S3 / MinIO / R2 / 腾讯云 COS 这类后端 | [存储策略后端](/storage/) |
+| 按教程接新的存储策略后端 | [存储策略后端](/storage/) |
 | 不同用户/团队走哪条存储路线 | [存储策略](/config/storage) |
 | 接远程 follower，配置默认接收落点 | [远程节点](/guide/remote-nodes) |
 | 改 WebDAV 路径或 WebDAV 上传硬上限 | [WebDAV](/config/webdav) |

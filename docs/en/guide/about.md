@@ -36,7 +36,7 @@ Later, I began thinking of it as a hub.
 
 First, this hub has to let files dock safely. After files come in, there are directories, permissions, trash, versions, locks, and background cleanup. When something goes wrong, you should be able to see what happened, trace logs, run checks, and recover what can be recovered.
 
-Then it needs to route flows. Files do not have to stay on this machine forever. They may land on local disk, go to object storage such as S3 / MinIO / Tencent COS, or be written to another AsterDrive node. Browsers, WebDAV clients, Office editors, share pages, and background tasks can all be entry points. AsterDrive's job is to make these entry points, destinations, permissions, and lifecycles explicit and understandable.
+Then it needs to route flows. Files do not have to stay on this machine forever. They may land on different storage policy backends, including object storage, Microsoft Graph-backed drives, or another AsterDrive node. Browsers, WebDAV clients, Office editors, share pages, and background tasks can all be entry points. AsterDrive's job is to make these entry points, destinations, permissions, and lifecycles explicit and understandable.
 
 Finally, it should let me stay in control as much as possible. Where files are, who can access them, whether they can be shared, how long they remain after deletion, and which upload path large files take are not things I want to hand entirely to a black box.
 

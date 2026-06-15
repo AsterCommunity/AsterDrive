@@ -238,7 +238,7 @@ AsterDrive has two configuration layers. Do not mix them up:
 | Static configuration | `data/config.toml` and `ASTER__...` environment variables | Listen address, port, database, logging, cache, node mode, WebDAV prefix | Usually after restart |
 | Runtime configuration | Database `system_config` | Public site URL, registration, cookies, security policy, mail, background task intervals, trash, versions, WOPI, audit | Updated through admin console or API |
 
-Storage policies and policy groups are also managed in the database. They decide whether file content goes to local disk, S3, or a remote follower, and they affect upload modes, size limits, and migration behavior.
+Storage policies and policy groups are also managed in the database. They decide which storage policy backend receives file content, and they affect upload modes, size limits, and migration behavior.
 
 ## Background Tasks and Operations Entry Points
 

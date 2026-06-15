@@ -45,7 +45,7 @@ Collect these details before opening an issue or asking someone to look:
 - AsterDrive version
 - Deployment method: Docker, systemd, or direct binary run
 - Database backend: SQLite, PostgreSQL, or MySQL
-- Storage policy type: local, S3 / MinIO / Tencent COS, or follower node
+- Storage policy type and backend configuration
 - Reverse proxy type and key configuration
 - Browser console error, server logs, and the related error code
 

@@ -16,12 +16,12 @@ This page explains terms that appear repeatedly in the AsterDrive documentation.
 
 | Term | Meaning | Related docs |
 | --- | --- | --- |
-| Storage policy | Defines where files actually land and how uploads are performed, such as a local directory, S3 / MinIO / Tencent COS, or a follower node. | [Storage Policies](/en/config/storage) |
+| Storage policy | Defines which storage policy backend receives files and how uploads are performed. | [Storage Policies](/en/config/storage) |
 | Policy group | Decides which storage policy a user or team hits during upload. It can route by file size. | [Storage Policies](/en/config/storage) |
 | Blob | The underlying file object. Multiple file records can reference one blob for content deduplication and version references. | [About AsterDrive](./about) |
 | Chunked upload | Splits a large file into multiple chunks and tries to resume after failure. | [Uploads and Large Files](./upload-modes) |
-| Direct-to-object-storage upload | The browser uploads directly to S3 / MinIO / Tencent COS; the server only signs requests and confirms completion. | [Uploads and Large Files](./upload-modes) |
-| Server relay | The browser uploads to AsterDrive first, then the server writes to S3 / MinIO / Tencent COS. | [Uploads and Large Files](./upload-modes) |
+| Direct-to-object-storage upload | The browser uploads directly to an object storage backend; the server only signs requests and confirms completion. | [Uploads and Large Files](./upload-modes) |
+| Server relay | The browser uploads to AsterDrive first, then the server writes to the storage policy backend. | [Uploads and Large Files](./upload-modes) |
 
 ## Configuration
 

@@ -3,7 +3,7 @@
 ::: tip This page covers the model and boundaries only
 - **`Admin -> Storage Policies`**: where files are actually written
 - **`Admin -> Policy Groups`**: which storage policy a user or team upload hits
-- **Backend tutorials**: for local disk, MinIO, Tencent COS, or follower nodes, see [Storage Policy Backends](/en/storage/)
+- **Backend tutorials**: for specific storage policy backends, see [Storage Policy Backends](/en/storage/)
 
 Users and teams are not bound to storage policies directly. They are bound to **policy groups**; policy groups then route uploads to specific policies by rules.
 :::
@@ -24,6 +24,7 @@ If you change nothing, new users are automatically bound to the default policy g
 | `local` | Files are stored in a local directory | [Local disk](/en/storage/local) |
 | `s3` | Files are stored in S3 or S3-compatible object storage, such as MinIO / R2 / B2 / OSS | [S3 / MinIO / R2](/en/storage/s3-minio-r2) |
 | `tencent_cos` | Files are stored in Tencent COS; base object operations reuse S3-compatible behavior, with additional Tencent-native capabilities such as COS CI (Cloud Infinite / 数据万象). See the Tencent COS tutorial for what COS CI provides and when it may be billed. | [Tencent COS](/en/storage/tencent-cos) |
+| `one_drive` | Files are written to Microsoft Graph-accessible OneDrive, SharePoint, or Microsoft 365 group drives | [OneDrive](/en/storage/onedrive) |
 | `remote` | Files are written to another AsterDrive follower node through the internal remote storage protocol | [Follower Node Storage Policy](/en/storage/remote-follower) |
 
 ## Storage Policies vs Policy Groups

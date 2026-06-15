@@ -1,5 +1,5 @@
 ---
-description: AsterDrive 存储策略后端总览，讲本地磁盘、S3 / MinIO / R2、腾讯云 COS 和远程节点存储的配置流程。
+description: AsterDrive 存储策略后端总览，讲不同存储策略后端的配置流程、上线前验收和切换注意事项。
 ---
 
 # 存储策略后端
@@ -10,7 +10,7 @@ description: AsterDrive 存储策略后端总览，讲本地磁盘、S3 / MinIO 
 
 AsterDrive 里有两层概念：
 
-- **存储策略**：文件最终写到哪里，例如本地磁盘、S3 / MinIO / R2、腾讯云 COS、远程节点
+- **存储策略**：文件最终写到哪个存储策略后端
 - **策略组**：用户或团队上传时，按规则命中哪条存储策略
 
 如果你只想理解整体模型，先看 [存储策略](/config/storage)。  
@@ -23,6 +23,7 @@ AsterDrive 里有两层概念：
 | 本地磁盘 | 单机、NAS、小团队、最少依赖 | [本地磁盘](/storage/local) |
 | S3 / MinIO / R2 | 对象存储、大文件、外部 bucket、云存储 | [S3 / MinIO / R2](/storage/s3-minio-r2) |
 | 腾讯云 COS | 腾讯云对象存储、COS 数据万象、按策略启用原生处理 | [腾讯云 COS](/storage/tencent-cos) |
+| OneDrive | Microsoft 365、OneDrive、SharePoint / group drive、Microsoft Graph 授权 | [OneDrive](/storage/onedrive) |
 | 远程节点 | 控制面在主控，真实对象写到另一台 AsterDrive | [远程节点存储策略](/storage/remote-follower) |
 
 ## 通用配置流程

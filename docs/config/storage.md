@@ -3,7 +3,7 @@
 ::: tip 这一篇只讲模型和边界
 - **`管理 -> 存储策略`**：文件真正写到哪里
 - **`管理 -> 策略组`**：用户或团队上传时命中哪条存储策略
-- **后端教程**：具体怎么接本地磁盘、MinIO、腾讯云 COS 或远程节点，看 [存储策略后端](/storage/)
+- **后端教程**：具体怎么接存储策略后端，看 [存储策略后端](/storage/)
 
 用户和团队不是直接绑存储策略，而是绑**策略组**；策略组再按规则把上传分到具体策略。
 :::
@@ -24,6 +24,7 @@
 | `local` | 文件存到本地目录 | [本地磁盘](/storage/local) |
 | `s3` | 文件存到 S3 或兼容对象存储（MinIO / R2 / B2 / OSS 等） | [S3 / MinIO / R2](/storage/s3-minio-r2) |
 | `tencent_cos` | 文件存到腾讯云 COS；基础对象读写复用 S3 兼容能力，并额外暴露 COS 数据万象等腾讯云原生能力 | [腾讯云 COS](/storage/tencent-cos) |
+| `one_drive` | 文件写到 Microsoft Graph 可访问的 OneDrive、SharePoint 或 Microsoft 365 group drive | [OneDrive](/storage/onedrive) |
 | `remote` | 文件通过内部远程存储协议写到另一台 AsterDrive 从节点 | [远程节点存储策略](/storage/remote-follower) |
 
 ## 存储策略 vs 策略组

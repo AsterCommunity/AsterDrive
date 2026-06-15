@@ -45,7 +45,7 @@
 - AsterDrive 版本
 - 部署方式：Docker、systemd、直接运行二进制
 - 数据库后端：SQLite、PostgreSQL、MySQL
-- 存储策略类型：本地、S3 / MinIO / 腾讯云 COS、远程节点
+- 存储策略类型和后端配置
 - 反向代理类型和关键配置
 - 浏览器控制台错误、服务端日志和对应错误码
 
