@@ -9,20 +9,23 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 
 use crate::db::repository::{
-    policy_repo, storage_policy_authorization_flow_repo, storage_policy_credential_repo,
+    audit_log_repo, policy_repo, storage_policy_authorization_flow_repo,
+    storage_policy_credential_repo,
 };
 use crate::entities::{
-    storage_policy, storage_policy_authorization_flow, storage_policy_credential,
+    audit_log, storage_policy, storage_policy_authorization_flow, storage_policy_credential,
 };
 use crate::errors::{AsterError, MapAsterErr, Result};
 use crate::runtime::SharedRuntimeState;
+use crate::services::audit_service::{self, AuditContext, AuditRequestInfo};
 use crate::storage::drivers::onedrive::{
     MicrosoftGraphAccessTokenProvider, MicrosoftGraphClient, MicrosoftGraphClientConfig,
 };
 use crate::storage::error::{StorageErrorKind, storage_driver_error};
 use crate::types::{
-    DriverType, MicrosoftGraphCloud, StorageAuthorizationFlowStatus, StorageCredentialKind,
-    StorageCredentialProvider, StorageCredentialStatus, parse_storage_policy_options,
+    AuditAction, AuditEntityType, DriverType, MicrosoftGraphCloud, StorageAuthorizationFlowStatus,
+    StorageCredentialKind, StorageCredentialProvider, StorageCredentialStatus,
+    parse_storage_policy_options,
 };
 use crate::utils::{OUTBOUND_HTTP_USER_AGENT, id};
 
@@ -31,6 +34,18 @@ use super::{
     REDACTED_SECRET, StoragePolicyCredentialInfo, crypto, normalize_optional_string,
     normalize_required_string, normalize_scopes, resolve_onedrive_location, scopes_to_json,
 };
+
+const OAUTH_AUDIT_ACTION_NAME: &str = "storage_credential_oauth";
+const OAUTH_AUDIT_DRIVER_TYPE: &str = "onedrive";
+const OAUTH_AUDIT_PROVIDER: StorageCredentialProvider = StorageCredentialProvider::MicrosoftGraph;
+const OAUTH_AUDIT_RESULT_SUCCESS: &str = "success";
+const OAUTH_AUDIT_RESULT_FAILED: &str = "failed";
+const OAUTH_AUDIT_RESULT_RECOVERED: &str = "recovered";
+const OAUTH_AUDIT_EVENT_AUTHORIZATION_STARTED: &str = "authorization_started";
+const OAUTH_AUDIT_EVENT_AUTHORIZATION_COMPLETED: &str = "authorization_completed";
+const OAUTH_AUDIT_EVENT_AUTHORIZATION_FAILED: &str = "authorization_failed";
+const OAUTH_AUDIT_EVENT_CREDENTIAL_REFRESHED: &str = "credential_refreshed";
+const OAUTH_AUDIT_EVENT_REAUTH_REQUIRED: &str = "reauth_required";
 
 #[derive(Clone, Debug, Deserialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(utoipa::ToSchema))]
@@ -149,6 +164,100 @@ struct MicrosoftTokenError {
     error: Option<String>,
     #[serde(default)]
     error_description: Option<String>,
+}
+
+#[derive(Clone, Debug, Default)]
+struct StorageCredentialOauthAuditDetails<'a> {
+    event: &'a str,
+    result: &'a str,
+    policy_id: Option<i64>,
+    cloud: Option<MicrosoftGraphCloud>,
+    tenant: Option<&'a str>,
+    reason: Option<&'a str>,
+    client_secret_configured: Option<bool>,
+    refresh_token_rotated: Option<bool>,
+    recovered_from_token_rotation: Option<bool>,
+}
+
+fn storage_credential_oauth_audit_details(
+    input: StorageCredentialOauthAuditDetails<'_>,
+) -> serde_json::Value {
+    let mut details = serde_json::json!({
+        "action": OAUTH_AUDIT_ACTION_NAME,
+        "driver_type": OAUTH_AUDIT_DRIVER_TYPE,
+        "used_draft_values": false,
+        "mutates_remote_state": false,
+        "oauth_event": input.event,
+        "provider": OAUTH_AUDIT_PROVIDER.as_str(),
+        "result": input.result,
+    });
+    if let Some(policy_id) = input.policy_id {
+        details["policy_id"] = serde_json::Value::from(policy_id);
+    }
+    if let Some(cloud) = input.cloud {
+        details["cloud"] = serde_json::to_value(cloud).unwrap_or(serde_json::Value::Null);
+    }
+    if let Some(tenant) = input.tenant {
+        details["tenant"] = serde_json::Value::String(tenant.to_string());
+    }
+    if let Some(reason) = input.reason {
+        details["reason"] = serde_json::Value::String(reason.to_string());
+    }
+    if let Some(client_secret_configured) = input.client_secret_configured {
+        details["client_secret_configured"] = serde_json::Value::Bool(client_secret_configured);
+    }
+    if let Some(refresh_token_rotated) = input.refresh_token_rotated {
+        details["refresh_token_rotated"] = serde_json::Value::Bool(refresh_token_rotated);
+    }
+    if let Some(recovered_from_token_rotation) = input.recovered_from_token_rotation {
+        details["recovered_from_token_rotation"] =
+            serde_json::Value::Bool(recovered_from_token_rotation);
+    }
+    details
+}
+
+async fn log_storage_credential_oauth_audit(
+    state: &impl SharedRuntimeState,
+    ctx: &AuditContext,
+    details: StorageCredentialOauthAuditDetails<'_>,
+) {
+    let policy_id = details.policy_id;
+    audit_service::log_with_details(
+        state,
+        ctx,
+        audit_service::AuditAction::AdminTriggerStorageAction,
+        audit_service::AuditEntityType::StoragePolicy,
+        policy_id,
+        None,
+        || Some(storage_credential_oauth_audit_details(details)),
+    )
+    .await;
+}
+
+async fn write_storage_credential_oauth_audit(
+    db: &sea_orm::DatabaseConnection,
+    user_id: i64,
+    details: StorageCredentialOauthAuditDetails<'_>,
+) {
+    let now = Utc::now();
+    let policy_id = details.policy_id;
+    let model = audit_log::ActiveModel {
+        id: Default::default(),
+        user_id: Set(user_id),
+        action: Set(AuditAction::AdminTriggerStorageAction),
+        entity_type: Set(AuditEntityType::StoragePolicy.as_str().to_string()),
+        entity_id: Set(policy_id),
+        entity_name: Set(None),
+        details: Set(Some(
+            storage_credential_oauth_audit_details(details).to_string(),
+        )),
+        ip_address: Set(None),
+        user_agent: Set(None),
+        created_at: Set(now),
+    };
+    if let Err(error) = audit_log_repo::create(db, model).await {
+        tracing::warn!("failed to write storage credential OAuth audit log: {error}");
+    }
 }
 
 #[derive(Debug)]
@@ -302,10 +411,7 @@ impl MicrosoftGraphAccessTokenProvider for MicrosoftGraphCredentialTokenProvider
     async fn access_token(&self) -> Result<String> {
         {
             let cache = self.cache.lock().await;
-            if cache
-                .expires_at
-                .is_none_or(|expires_at| expires_at > Utc::now() + Duration::seconds(60))
-            {
+            if cached_access_token_is_fresh(cache.expires_at) {
                 return Ok(cache.access_token.clone());
             }
         }
@@ -322,6 +428,7 @@ impl MicrosoftGraphAccessTokenProvider for MicrosoftGraphCredentialTokenProvider
                 "storage credential is missing refresh token; reauthorize Microsoft Graph",
             ));
         };
+        let used_refresh_token_ciphertext = refresh_token_ciphertext.to_string();
         let refresh_token = crypto::decrypt_token(
             &self.encryption_key,
             crypto::token_aad(
@@ -345,6 +452,29 @@ impl MicrosoftGraphAccessTokenProvider for MicrosoftGraphCredentialTokenProvider
         {
             Ok(token) => token,
             Err(error) => {
+                if let Some(access_token) = self
+                    .recover_from_rotated_refresh_token(&mut cache, &used_refresh_token_ciphertext)
+                    .await?
+                {
+                    write_storage_credential_oauth_audit(
+                        &self.db,
+                        0,
+                        StorageCredentialOauthAuditDetails {
+                            event: OAUTH_AUDIT_EVENT_CREDENTIAL_REFRESHED,
+                            result: OAUTH_AUDIT_RESULT_RECOVERED,
+                            policy_id: Some(self.policy_id),
+                            cloud: Some(self.cloud),
+                            tenant: Some(&self.tenant),
+                            reason: Some(
+                                "refresh token was already rotated by another provider instance",
+                            ),
+                            recovered_from_token_rotation: Some(true),
+                            ..Default::default()
+                        },
+                    )
+                    .await;
+                    return Ok(access_token);
+                }
                 let _ = self.mark_reauth_required(error.message()).await;
                 return Err(storage_driver_error(
                     StorageErrorKind::Auth,
@@ -409,11 +539,77 @@ impl MicrosoftGraphAccessTokenProvider for MicrosoftGraphCredentialTokenProvider
         cache.access_token = token.access_token;
         cache.expires_at = expires_at;
         cache.refresh_token_ciphertext = refresh_token_ciphertext;
+        write_storage_credential_oauth_audit(
+            &self.db,
+            0,
+            StorageCredentialOauthAuditDetails {
+                event: OAUTH_AUDIT_EVENT_CREDENTIAL_REFRESHED,
+                result: OAUTH_AUDIT_RESULT_SUCCESS,
+                policy_id: Some(self.policy_id),
+                cloud: Some(self.cloud),
+                tenant: Some(&self.tenant),
+                refresh_token_rotated: Some(token.refresh_token.is_some()),
+                ..Default::default()
+            },
+        )
+        .await;
         Ok(cache.access_token.clone())
     }
 }
 
 impl MicrosoftGraphCredentialTokenProvider {
+    async fn recover_from_rotated_refresh_token(
+        &self,
+        cache: &mut MicrosoftGraphCredentialTokenCache,
+        used_refresh_token_ciphertext: &str,
+    ) -> Result<Option<String>> {
+        let Some(credential) = storage_policy_credential_repo::find_by_policy_provider_kind(
+            &self.db,
+            self.policy_id,
+            StorageCredentialProvider::MicrosoftGraph,
+            StorageCredentialKind::OauthDelegated,
+        )
+        .await?
+        else {
+            return Ok(None);
+        };
+        let Some(current_refresh_token_ciphertext) = credential.refresh_token_ciphertext.clone()
+        else {
+            return Ok(None);
+        };
+        if current_refresh_token_ciphertext == used_refresh_token_ciphertext {
+            return Ok(None);
+        }
+        let Some(access_token_ciphertext) = credential.access_token_ciphertext.as_deref() else {
+            return Ok(None);
+        };
+        let access_token = crypto::decrypt_token(
+            &self.encryption_key,
+            crypto::token_aad(
+                self.policy_id,
+                StorageCredentialProvider::MicrosoftGraph.as_str(),
+                "access",
+            )
+            .as_bytes(),
+            access_token_ciphertext,
+        )?;
+        if access_token.trim().is_empty() {
+            return Ok(None);
+        }
+
+        cache.access_token = access_token;
+        cache.expires_at = credential.expires_at;
+        cache.refresh_token_ciphertext = Some(current_refresh_token_ciphertext);
+        if cached_access_token_is_fresh(cache.expires_at) {
+            return Ok(Some(cache.access_token.clone()));
+        }
+
+        Err(storage_driver_error(
+            StorageErrorKind::Auth,
+            "Microsoft Graph refresh token was already rotated; retry the request with the latest credential state",
+        ))
+    }
+
     async fn mark_reauth_required(&self, reason: &str) -> Result<()> {
         let Some(credential) = storage_policy_credential_repo::find_by_policy_provider_kind(
             &self.db,
@@ -431,8 +627,26 @@ impl MicrosoftGraphCredentialTokenProvider {
         active.status_reason = Set(Some(reason.to_string()));
         active.updated_at = Set(now);
         active.update(&self.db).await.map_err(AsterError::from)?;
+        write_storage_credential_oauth_audit(
+            &self.db,
+            0,
+            StorageCredentialOauthAuditDetails {
+                event: OAUTH_AUDIT_EVENT_REAUTH_REQUIRED,
+                result: OAUTH_AUDIT_RESULT_FAILED,
+                policy_id: Some(self.policy_id),
+                cloud: Some(self.cloud),
+                tenant: Some(&self.tenant),
+                reason: Some(reason),
+                ..Default::default()
+            },
+        )
+        .await;
         Ok(())
     }
+}
+
+fn cached_access_token_is_fresh(expires_at: Option<chrono::DateTime<Utc>>) -> bool {
+    expires_at.is_none_or(|expires_at| expires_at > Utc::now() + Duration::seconds(60))
 }
 
 pub async fn start_authorization(
@@ -587,6 +801,20 @@ async fn start_microsoft_graph_authorization(
         },
     )
     .await?;
+    log_storage_credential_oauth_audit(
+        state,
+        &AuditRequestInfo::from_request(req).to_context(created_by_user_id),
+        StorageCredentialOauthAuditDetails {
+            event: OAUTH_AUDIT_EVENT_AUTHORIZATION_STARTED,
+            result: OAUTH_AUDIT_RESULT_SUCCESS,
+            policy_id: Some(policy_id),
+            cloud: Some(cloud),
+            tenant: Some(&tenant),
+            client_secret_configured: Some(client_secret.is_some()),
+            ..Default::default()
+        },
+    )
+    .await;
 
     Ok(StorageAuthorizationStartResponse {
         authorization_url,
@@ -612,6 +840,17 @@ pub async fn finish_authorization_callback(
             .as_deref()
             .filter(|value| !value.trim().is_empty())
             .unwrap_or(error);
+        log_storage_credential_oauth_audit(
+            state,
+            &AuditContext::system(),
+            StorageCredentialOauthAuditDetails {
+                event: OAUTH_AUDIT_EVENT_AUTHORIZATION_FAILED,
+                result: OAUTH_AUDIT_RESULT_FAILED,
+                reason: Some(StorageAuthorizationFailureReason::ProviderError.as_str()),
+                ..Default::default()
+            },
+        )
+        .await;
         return Err(StorageAuthorizationCallbackError::new(
             StorageAuthorizationFailureReason::ProviderError,
             AsterError::auth_invalid_credentials(format!(
@@ -619,18 +858,46 @@ pub async fn finish_authorization_callback(
             )),
         ));
     }
-    let code = query.code.as_deref().ok_or_else(|| {
-        StorageAuthorizationCallbackError::new(
-            StorageAuthorizationFailureReason::InvalidRequest,
-            AsterError::auth_invalid_credentials("storage credential callback missing code"),
-        )
-    })?;
-    let state_value = query.state.as_deref().ok_or_else(|| {
-        StorageAuthorizationCallbackError::new(
-            StorageAuthorizationFailureReason::InvalidRequest,
-            AsterError::auth_invalid_credentials("storage credential callback missing state"),
-        )
-    })?;
+    let code = match query.code.as_deref() {
+        Some(code) => code,
+        None => {
+            log_storage_credential_oauth_audit(
+                state,
+                &AuditContext::system(),
+                StorageCredentialOauthAuditDetails {
+                    event: OAUTH_AUDIT_EVENT_AUTHORIZATION_FAILED,
+                    result: OAUTH_AUDIT_RESULT_FAILED,
+                    reason: Some(StorageAuthorizationFailureReason::InvalidRequest.as_str()),
+                    ..Default::default()
+                },
+            )
+            .await;
+            return Err(StorageAuthorizationCallbackError::new(
+                StorageAuthorizationFailureReason::InvalidRequest,
+                AsterError::auth_invalid_credentials("storage credential callback missing code"),
+            ));
+        }
+    };
+    let state_value = match query.state.as_deref() {
+        Some(state_value) => state_value,
+        None => {
+            log_storage_credential_oauth_audit(
+                state,
+                &AuditContext::system(),
+                StorageCredentialOauthAuditDetails {
+                    event: OAUTH_AUDIT_EVENT_AUTHORIZATION_FAILED,
+                    result: OAUTH_AUDIT_RESULT_FAILED,
+                    reason: Some(StorageAuthorizationFailureReason::InvalidRequest.as_str()),
+                    ..Default::default()
+                },
+            )
+            .await;
+            return Err(StorageAuthorizationCallbackError::new(
+                StorageAuthorizationFailureReason::InvalidRequest,
+                AsterError::auth_invalid_credentials("storage credential callback missing state"),
+            ));
+        }
+    };
 
     let txn = state
         .writer_db()
@@ -638,20 +905,41 @@ pub async fn finish_authorization_callback(
         .await
         .map_err(|error| storage_authorization_callback_server_error(error.into()))?;
     let now = Utc::now();
-    let flow = storage_policy_authorization_flow_repo::consume_by_state_hash(
+    let flow = match storage_policy_authorization_flow_repo::consume_by_state_hash(
         &txn,
         &crypto::token_hash(state_value),
         now,
     )
     .await
     .map_err(storage_authorization_callback_server_error)?
-    .ok_or_else(|| {
-        StorageAuthorizationCallbackError::new(
-            StorageAuthorizationFailureReason::InvalidState,
-            AsterError::auth_invalid_credentials("storage credential state is invalid or expired"),
-        )
-    })?;
-    let credential = match flow.provider {
+    {
+        Some(flow) => flow,
+        None => {
+            let _ = txn.rollback().await;
+            log_storage_credential_oauth_audit(
+                state,
+                &AuditContext::system(),
+                StorageCredentialOauthAuditDetails {
+                    event: OAUTH_AUDIT_EVENT_AUTHORIZATION_FAILED,
+                    result: OAUTH_AUDIT_RESULT_FAILED,
+                    reason: Some(StorageAuthorizationFailureReason::InvalidState.as_str()),
+                    ..Default::default()
+                },
+            )
+            .await;
+            return Err(StorageAuthorizationCallbackError::new(
+                StorageAuthorizationFailureReason::InvalidState,
+                AsterError::auth_invalid_credentials(
+                    "storage credential state is invalid or expired",
+                ),
+            ));
+        }
+    };
+    let flow_policy_id = flow.policy_id;
+    let flow_user_id = flow.created_by_user_id;
+    let flow_cloud = microsoft_graph_flow_cloud(&flow);
+    let flow_tenant = microsoft_graph_flow_tenant(&flow);
+    let credential_result = match flow.provider {
         StorageCredentialProvider::MicrosoftGraph => {
             finish_microsoft_graph_callback(
                 &txn,
@@ -660,15 +948,39 @@ pub async fn finish_authorization_callback(
                 code,
                 now,
             )
-            .await?
+            .await
         }
-        StorageCredentialProvider::GoogleDrive => {
-            return Err(StorageAuthorizationCallbackError::new(
-                StorageAuthorizationFailureReason::UnsupportedProvider,
-                AsterError::unsupported_driver(
-                    "Google Drive storage credential authorization is not implemented yet",
-                ),
-            ));
+        StorageCredentialProvider::GoogleDrive => Err(StorageAuthorizationCallbackError::new(
+            StorageAuthorizationFailureReason::UnsupportedProvider,
+            AsterError::unsupported_driver(
+                "Google Drive storage credential authorization is not implemented yet",
+            ),
+        )),
+    };
+    let credential = match credential_result {
+        Ok(credential) => credential,
+        Err(error) => {
+            let reason = error.reason().as_str();
+            let _ = txn.rollback().await;
+            log_storage_credential_oauth_audit(
+                state,
+                &AuditContext {
+                    user_id: flow_user_id,
+                    ip_address: None,
+                    user_agent: None,
+                },
+                StorageCredentialOauthAuditDetails {
+                    event: OAUTH_AUDIT_EVENT_AUTHORIZATION_FAILED,
+                    result: OAUTH_AUDIT_RESULT_FAILED,
+                    policy_id: flow_policy_id,
+                    cloud: flow_cloud,
+                    tenant: flow_tenant.as_deref(),
+                    reason: Some(reason),
+                    ..Default::default()
+                },
+            )
+            .await;
+            return Err(error);
         }
     };
     txn.commit()
@@ -679,6 +991,23 @@ pub async fn finish_authorization_callback(
         .reload_storage_policy_credentials(state.writer_db(), state.config().as_ref())
         .await
         .map_err(storage_authorization_callback_server_error)?;
+    log_storage_credential_oauth_audit(
+        state,
+        &AuditContext {
+            user_id: flow_user_id,
+            ip_address: None,
+            user_agent: None,
+        },
+        StorageCredentialOauthAuditDetails {
+            event: OAUTH_AUDIT_EVENT_AUTHORIZATION_COMPLETED,
+            result: OAUTH_AUDIT_RESULT_SUCCESS,
+            policy_id: flow_policy_id,
+            cloud: flow_cloud,
+            tenant: flow_tenant.as_deref(),
+            ..Default::default()
+        },
+    )
+    .await;
     Ok(StorageAuthorizationCallbackOutcome {
         credential: credential.into(),
     })
@@ -921,6 +1250,26 @@ fn metadata_cloud(metadata: &serde_json::Value) -> Option<MicrosoftGraphCloud> {
     serde_json::from_value(metadata.get("cloud")?.clone()).ok()
 }
 
+fn microsoft_graph_flow_cloud(
+    flow: &storage_policy_authorization_flow::Model,
+) -> Option<MicrosoftGraphCloud> {
+    if flow.provider != StorageCredentialProvider::MicrosoftGraph {
+        return None;
+    }
+    serde_json::from_str::<MicrosoftGraphFlowContext>(&flow.context)
+        .ok()
+        .map(|context| context.cloud)
+}
+
+fn microsoft_graph_flow_tenant(flow: &storage_policy_authorization_flow::Model) -> Option<String> {
+    if flow.provider != StorageCredentialProvider::MicrosoftGraph {
+        return None;
+    }
+    serde_json::from_str::<MicrosoftGraphFlowContext>(&flow.context)
+        .ok()
+        .map(|context| context.tenant)
+}
+
 async fn exchange_microsoft_graph_code(
     context: &MicrosoftGraphFlowContext,
     client_secret: Option<&str>,
@@ -1126,6 +1475,7 @@ mod tests {
     use crate::db;
     use crate::types::{StoredStoragePolicyAllowedTypes, StoredStoragePolicyOptions};
     use migration::Migrator;
+    use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
     use std::collections::VecDeque;
     use std::sync::Mutex as StdMutex;
 
@@ -1373,6 +1723,68 @@ mod tests {
             StorageAuthorizationFailureReason::UnsupportedProvider.as_str(),
             "unsupported_provider"
         );
+    }
+
+    #[tokio::test]
+    async fn storage_credential_oauth_audit_uses_storage_policy_action_details() {
+        let db = setup_db().await;
+
+        write_storage_credential_oauth_audit(
+            &db,
+            0,
+            StorageCredentialOauthAuditDetails {
+                event: OAUTH_AUDIT_EVENT_CREDENTIAL_REFRESHED,
+                result: OAUTH_AUDIT_RESULT_SUCCESS,
+                policy_id: Some(42),
+                cloud: Some(MicrosoftGraphCloud::Global),
+                tenant: Some("common"),
+                refresh_token_rotated: Some(true),
+                ..Default::default()
+            },
+        )
+        .await;
+
+        let entry = audit_log::Entity::find()
+            .filter(audit_log::Column::Action.eq(AuditAction::AdminTriggerStorageAction))
+            .one(&db)
+            .await
+            .expect("audit lookup should succeed")
+            .expect("audit entry should exist");
+        assert_eq!(entry.entity_type, AuditEntityType::StoragePolicy.as_str());
+        assert_eq!(entry.entity_id, Some(42));
+        let details =
+            serde_json::from_str::<serde_json::Value>(entry.details.as_deref().unwrap()).unwrap();
+        assert_eq!(details["action"], OAUTH_AUDIT_ACTION_NAME);
+        assert_eq!(
+            details["oauth_event"],
+            OAUTH_AUDIT_EVENT_CREDENTIAL_REFRESHED
+        );
+        assert_eq!(details["provider"], OAUTH_AUDIT_PROVIDER.as_str());
+        assert_eq!(details["cloud"], "global");
+        assert_eq!(details["refresh_token_rotated"], true);
+    }
+
+    #[test]
+    fn storage_credential_oauth_audit_details_omit_absent_optional_fields() {
+        let details = storage_credential_oauth_audit_details(StorageCredentialOauthAuditDetails {
+            event: OAUTH_AUDIT_EVENT_AUTHORIZATION_FAILED,
+            result: OAUTH_AUDIT_RESULT_FAILED,
+            ..Default::default()
+        });
+
+        assert_eq!(details["action"], OAUTH_AUDIT_ACTION_NAME);
+        assert_eq!(
+            details["oauth_event"],
+            OAUTH_AUDIT_EVENT_AUTHORIZATION_FAILED
+        );
+        assert_eq!(details["result"], OAUTH_AUDIT_RESULT_FAILED);
+        assert!(details.get("policy_id").is_none());
+        assert!(details.get("cloud").is_none());
+        assert!(details.get("tenant").is_none());
+        assert!(details.get("reason").is_none());
+        assert!(details.get("client_secret_configured").is_none());
+        assert!(details.get("refresh_token_rotated").is_none());
+        assert!(details.get("recovered_from_token_rotation").is_none());
     }
 
     #[test]
@@ -1777,6 +2189,157 @@ mod tests {
                 stored.access_token_ciphertext.as_deref().unwrap(),
             ),
             "expired-access-token"
+        );
+    }
+
+    #[tokio::test]
+    async fn credential_token_provider_refresh_failure_uses_newer_rotated_db_token() {
+        let db = setup_db().await;
+        let encryption_key = "storage-token-test-master-key";
+        let policy = create_onedrive_policy(&db, "client-id", "client-secret").await;
+        let credential = create_microsoft_graph_credential(
+            &db,
+            encryption_key,
+            policy.id,
+            "expired-access-token",
+            Some("old-refresh-token"),
+            Some(Utc::now() - Duration::minutes(10)),
+        )
+        .await;
+        let refresher = Arc::new(TestMicrosoftGraphTokenRefresher::new(vec![Err(
+            AsterError::auth_invalid_credentials("invalid_grant"),
+        )]));
+        let provider = build_microsoft_graph_credential_token_provider_with_refresher(
+            db.clone(),
+            encryption_key.to_string(),
+            &policy,
+            &credential,
+            MicrosoftGraphCloud::Global,
+            refresher.clone(),
+        )
+        .expect("provider should build");
+        create_microsoft_graph_credential(
+            &db,
+            encryption_key,
+            policy.id,
+            "newer-access-token",
+            Some("newer-refresh-token"),
+            Some(Utc::now() + Duration::minutes(10)),
+        )
+        .await;
+
+        let access_token = provider
+            .access_token()
+            .await
+            .expect("newer DB token should recover refresh race");
+
+        assert_eq!(access_token, "newer-access-token");
+        let request = refresher
+            .requests()
+            .into_iter()
+            .next()
+            .expect("refresh request should be logged");
+        assert_eq!(request.refresh_token, "old-refresh-token");
+        let stored = storage_policy_credential_repo::find_by_policy_provider_kind(
+            &db,
+            policy.id,
+            StorageCredentialProvider::MicrosoftGraph,
+            StorageCredentialKind::OauthDelegated,
+        )
+        .await
+        .expect("credential lookup should succeed")
+        .expect("credential should exist");
+        assert_eq!(stored.status, StorageCredentialStatus::Authorized);
+        assert_eq!(stored.status_reason, None);
+        assert_eq!(
+            decrypt_stored_oauth_token(
+                encryption_key,
+                policy.id,
+                "access",
+                stored.access_token_ciphertext.as_deref().unwrap(),
+            ),
+            "newer-access-token"
+        );
+        assert_eq!(
+            decrypt_stored_oauth_token(
+                encryption_key,
+                policy.id,
+                "refresh",
+                stored.refresh_token_ciphertext.as_deref().unwrap(),
+            ),
+            "newer-refresh-token"
+        );
+    }
+
+    #[tokio::test]
+    async fn credential_token_provider_refresh_failure_rejects_expired_rotated_db_token_without_reauth()
+     {
+        let db = setup_db().await;
+        let encryption_key = "storage-token-test-master-key";
+        let policy = create_onedrive_policy(&db, "client-id", "client-secret").await;
+        let credential = create_microsoft_graph_credential(
+            &db,
+            encryption_key,
+            policy.id,
+            "expired-access-token",
+            Some("old-refresh-token"),
+            Some(Utc::now() - Duration::minutes(10)),
+        )
+        .await;
+        let refresher = Arc::new(TestMicrosoftGraphTokenRefresher::new(vec![Err(
+            AsterError::auth_invalid_credentials("invalid_grant"),
+        )]));
+        let provider = build_microsoft_graph_credential_token_provider_with_refresher(
+            db.clone(),
+            encryption_key.to_string(),
+            &policy,
+            &credential,
+            MicrosoftGraphCloud::Global,
+            refresher,
+        )
+        .expect("provider should build");
+        create_microsoft_graph_credential(
+            &db,
+            encryption_key,
+            policy.id,
+            "also-expired-access-token",
+            Some("newer-refresh-token"),
+            Some(Utc::now() - Duration::minutes(5)),
+        )
+        .await;
+
+        let error = provider.access_token().await.unwrap_err();
+
+        assert_eq!(error.storage_error_kind(), Some(StorageErrorKind::Auth));
+        assert!(error.message().contains("already rotated"));
+        let stored = storage_policy_credential_repo::find_by_policy_provider_kind(
+            &db,
+            policy.id,
+            StorageCredentialProvider::MicrosoftGraph,
+            StorageCredentialKind::OauthDelegated,
+        )
+        .await
+        .expect("credential lookup should succeed")
+        .expect("credential should exist");
+        assert_eq!(stored.status, StorageCredentialStatus::Authorized);
+        assert_eq!(stored.status_reason, None);
+        assert_eq!(
+            decrypt_stored_oauth_token(
+                encryption_key,
+                policy.id,
+                "access",
+                stored.access_token_ciphertext.as_deref().unwrap(),
+            ),
+            "also-expired-access-token"
+        );
+        assert_eq!(
+            decrypt_stored_oauth_token(
+                encryption_key,
+                policy.id,
+                "refresh",
+                stored.refresh_token_ciphertext.as_deref().unwrap(),
+            ),
+            "newer-refresh-token"
         );
     }
 

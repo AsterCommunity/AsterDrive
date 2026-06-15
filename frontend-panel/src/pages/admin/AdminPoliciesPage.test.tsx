@@ -2321,6 +2321,59 @@ describe("AdminPoliciesPage", () => {
 		}
 	});
 
+	it("shows normalized OneDrive reauthorization reasons without exposing raw provider errors", async () => {
+		mockState.items = [
+			createPolicy({
+				id: 12,
+				name: "Saved OneDrive",
+				driver_type: "one_drive",
+				options: {
+					onedrive_account_mode: "work_or_school",
+					onedrive_cloud: "global",
+					onedrive_root_item_id: "root",
+					onedrive_tenant: "common",
+				},
+			}),
+		];
+		mockState.listStorageCredentials.mockResolvedValue([
+			{
+				account_label: "root",
+				authorized_at: "2026-06-15T10:20:00Z",
+				created_at: "2026-06-15T10:20:00Z",
+				credential_kind: "oauth_delegated",
+				expires_at: null,
+				id: 7,
+				last_refreshed_at: null,
+				last_validated_at: null,
+				policy_id: 12,
+				provider: "microsoft_graph",
+				scopes: ["offline_access", "Files.ReadWrite.All"],
+				status: "reauth_required",
+				status_reason: "invalid_grant: raw provider diagnostic",
+				subject: "root-id",
+				tenant_id: "common",
+				updated_at: "2026-06-15T10:20:00Z",
+			},
+		]);
+
+		render(<AdminPoliciesPage />);
+
+		openEditPolicy("Saved OneDrive");
+
+		expect(
+			await screen.findByText("onedrive_credential_reauth_required_title"),
+		).toBeInTheDocument();
+		expect(
+			screen.getByText("onedrive_credential_reason_invalid_grant"),
+		).toBeInTheDocument();
+		expect(
+			screen.getByText("onedrive_credential_reauth_required_desc"),
+		).toBeInTheDocument();
+		expect(
+			screen.queryByText("invalid_grant: raw provider diagnostic"),
+		).not.toBeInTheDocument();
+	});
+
 	it("saves updated OneDrive application settings as policy connection credentials", async () => {
 		mockState.items = [
 			createPolicy({

@@ -10,6 +10,7 @@ import { formatDateTime } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import type { StoragePolicyCredentialInfo } from "@/types/api";
 import { OneDriveApplicationFields } from "./OneDriveApplicationFields";
+import { onedriveCredentialStatusReasonKey } from "./onedriveCredentialReason";
 import { MICROSOFT_GRAPH_PROVIDER } from "./onedriveFieldUtils";
 import type { SharedFieldProps, Translate } from "./StoragePolicyFieldTypes";
 
@@ -49,6 +50,11 @@ export function OneDriveCredentialPanel({
 	const authorizedAt = formatOptionalDateTime(credential?.authorized_at);
 	const refreshedAt = formatOptionalDateTime(credential?.last_refreshed_at);
 	const validatedAt = formatOptionalDateTime(credential?.last_validated_at);
+	const statusReason = onedriveCredentialStatusReason(
+		credential?.status_reason,
+		t,
+	);
+	const requiresReauth = credential?.status === "reauth_required";
 	const copyRedirectUri = async () => {
 		try {
 			await writeTextToClipboard(redirectUri);
@@ -89,9 +95,23 @@ export function OneDriveCredentialPanel({
 							{credential.account_label ?? credential.subject}
 						</p>
 					) : null}
-					{credential?.status_reason ? (
+					{requiresReauth ? (
+						<div className="mt-2 flex gap-2 rounded-md border border-amber-500/30 bg-amber-500/10 p-2 text-xs leading-5 text-amber-800 dark:text-amber-200">
+							<Icon name="Warning" className="mt-0.5 size-4 shrink-0" />
+							<div className="min-w-0 space-y-1">
+								<p className="font-medium">
+									{t("onedrive_credential_reauth_required_title")}
+								</p>
+								<p>
+									{statusReason ??
+										t("onedrive_credential_reason_reauth_required")}
+								</p>
+								<p>{t("onedrive_credential_reauth_required_desc")}</p>
+							</div>
+						</div>
+					) : statusReason ? (
 						<p className="text-xs text-amber-700 dark:text-amber-300">
-							{credential.status_reason}
+							{statusReason}
 						</p>
 					) : null}
 					{authorizedAt || refreshedAt || validatedAt ? (
@@ -189,4 +209,12 @@ export function OneDriveCredentialPanel({
 
 function formatOptionalDateTime(value: string | null | undefined) {
 	return value ? formatDateTime(value) : null;
+}
+
+function onedriveCredentialStatusReason(
+	reason: string | null | undefined,
+	t: Translate,
+) {
+	const key = onedriveCredentialStatusReasonKey(reason);
+	return key ? t(key) : null;
 }
