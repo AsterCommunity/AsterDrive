@@ -17,6 +17,7 @@ const mockState = vi.hoisted(() => ({
 	dryRunMigration: vi.fn(),
 	executeDraftPolicyAction: vi.fn(),
 	executeSavedPolicyAction: vi.fn(),
+	getPolicy: vi.fn(),
 	createMigration: vi.fn(),
 	deletePolicy: vi.fn(),
 	handleApiError: vi.fn(),
@@ -538,6 +539,7 @@ vi.mock("@/services/adminService", () => ({
 			mockState.executeDraftPolicyAction(...args),
 		executeSavedPolicyAction: (...args: unknown[]) =>
 			mockState.executeSavedPolicyAction(...args),
+		get: (...args: unknown[]) => mockState.getPolicy(...args),
 		getCapacity: vi.fn(async () => ({
 			blob_count: 2,
 			blob_total_bytes: 1024,
@@ -637,6 +639,7 @@ describe("AdminPoliciesPage", () => {
 	beforeEach(() => {
 		mockState.executeDraftPolicyAction.mockReset();
 		mockState.executeSavedPolicyAction.mockReset();
+		mockState.getPolicy.mockReset();
 		mockState.create.mockReset();
 		mockState.dryRunMigration.mockReset();
 		mockState.createMigration.mockReset();
@@ -711,6 +714,13 @@ describe("AdminPoliciesPage", () => {
 			items: mockState.items,
 			total: mockState.total || mockState.items.length,
 		}));
+		mockState.getPolicy.mockImplementation(async (id: number) => {
+			const policy = mockState.items.find((item) => item.id === id);
+			if (!policy) {
+				throw new Error(`policy ${id} not found`);
+			}
+			return policy;
+		});
 		mockState.listAllPolicies.mockImplementation(async () => mockState.items);
 		mockState.listStorageCredentials.mockResolvedValue([]);
 		mockState.startStorageAuthorization.mockResolvedValue({
@@ -800,6 +810,40 @@ describe("AdminPoliciesPage", () => {
 	it("shows OneDrive authorization success returned from callback and refreshes policies", async () => {
 		mockState.searchParams =
 			"storage_authorization=success&policy_id=12&sortBy=name";
+		mockState.items = [createPolicy({ id: 1, name: "Current Page Local" })];
+		mockState.getPolicy.mockResolvedValue(
+			createPolicy({
+				id: 12,
+				name: "Authorized OneDrive",
+				driver_type: "one_drive",
+				options: {
+					onedrive_account_mode: "work_or_school",
+					onedrive_cloud: "global",
+					onedrive_root_item_id: "root",
+					onedrive_tenant: "common",
+				},
+			}),
+		);
+		mockState.listStorageCredentials.mockResolvedValue([
+			{
+				account_label: "root",
+				authorized_at: "2026-06-15T10:20:00Z",
+				created_at: "2026-06-15T10:20:00Z",
+				credential_kind: "oauth_delegated",
+				expires_at: null,
+				id: 7,
+				last_refreshed_at: null,
+				last_validated_at: null,
+				policy_id: 12,
+				provider: "microsoft_graph",
+				scopes: ["offline_access", "Files.ReadWrite.All"],
+				status: "authorized",
+				status_reason: null,
+				subject: "root-id",
+				tenant_id: "common",
+				updated_at: "2026-06-15T10:20:00Z",
+			},
+		]);
 
 		render(<AdminPoliciesPage />);
 
@@ -812,6 +856,16 @@ describe("AdminPoliciesPage", () => {
 			);
 		});
 		expect(mockState.reload).toHaveBeenCalled();
+		await waitFor(() => {
+			expect(mockState.getPolicy).toHaveBeenCalledWith(12);
+		});
+		expect(mockState.listStorageCredentials).toHaveBeenCalledWith(12);
+		expect(
+			await screen.findByDisplayValue("Authorized OneDrive"),
+		).toBeInTheDocument();
+		expect(
+			await screen.findByText("onedrive_credential_status_authorized"),
+		).toBeInTheDocument();
 		const cleanupCall = mockState.setSearchParams.mock.calls.find(
 			([params]) =>
 				params instanceof URLSearchParams &&
@@ -823,13 +877,14 @@ describe("AdminPoliciesPage", () => {
 	});
 
 	it("shows OneDrive authorization callback failures without refreshing policies", async () => {
-		mockState.searchParams = "storage_authorization=error&policy_id=12";
+		mockState.searchParams =
+			"storage_authorization=error&policy_id=12&reason=invalid_state";
 
 		render(<AdminPoliciesPage />);
 
 		await waitFor(() => {
 			expect(mockState.toastError).toHaveBeenCalledWith(
-				"onedrive_authorization_failed",
+				"onedrive_authorization_failed_invalid_state",
 			);
 		});
 		expect(mockState.reload).not.toHaveBeenCalled();
@@ -837,7 +892,8 @@ describe("AdminPoliciesPage", () => {
 			([params]) =>
 				params instanceof URLSearchParams &&
 				!params.has("storage_authorization") &&
-				!params.has("policy_id"),
+				!params.has("policy_id") &&
+				!params.has("reason"),
 		);
 		expect(cleanupCall).toBeTruthy();
 	});

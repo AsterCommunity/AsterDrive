@@ -94,6 +94,10 @@ pub fn routes(
 
     web::scope("/admin")
         .wrap(Condition::new(rl.enabled, Governor::new(&limiter)))
+        .route(
+            "/policies/storage-authorization/callback",
+            web::get().to(finish_storage_authorization),
+        )
         .service(
             web::scope("").wrap(JwtAuth).service(
                 web::scope("")
@@ -106,10 +110,6 @@ pub fn routes(
                     .route(
                         "/policies/storage-credential-providers",
                         web::get().to(list_storage_credential_providers),
-                    )
-                    .route(
-                        "/policies/storage-authorization/callback",
-                        web::get().to(finish_storage_authorization),
                     )
                     .route("/policies/{id}", web::get().to(get_policy))
                     .route(

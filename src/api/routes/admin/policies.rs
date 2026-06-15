@@ -621,10 +621,7 @@ pub async fn validate_storage_policy_credential(
     responses(
         (status = 302, description = "Storage credential authorization completed and redirected to the admin policies page"),
         (status = 400, description = "Authorization callback rejected"),
-        (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
-        (status = 403, description = "Forbidden"),
     ),
-    security(("bearer" = [])),
 )]
 pub async fn finish_storage_authorization(
     state: web::Data<PrimaryAppState>,
@@ -635,13 +632,20 @@ pub async fn finish_storage_authorization(
             state.get_ref(),
             "success",
             Some(response.credential.policy_id),
+            None,
         )),
         Err(error) => {
-            tracing::warn!(error = %error, "storage authorization callback failed");
+            let reason = error.reason().as_str();
+            tracing::warn!(
+                error = %error,
+                reason,
+                "storage authorization callback failed"
+            );
             Ok(storage_authorization_redirect_response(
                 state.get_ref(),
                 "error",
                 None,
+                Some(reason),
             ))
         }
     }
@@ -651,15 +655,20 @@ fn storage_authorization_redirect_response(
     state: &PrimaryAppState,
     status: &str,
     policy_id: Option<i64>,
+    reason: Option<&str>,
 ) -> HttpResponse {
-    let path = storage_authorization_redirect_path(status, policy_id);
+    let path = storage_authorization_redirect_path(status, policy_id, reason);
     let redirect_url = site_url::public_app_url_or_path(state.runtime_config(), &path);
     HttpResponse::Found()
         .append_header((header::LOCATION, redirect_url))
         .finish()
 }
 
-fn storage_authorization_redirect_path(status: &str, policy_id: Option<i64>) -> String {
+fn storage_authorization_redirect_path(
+    status: &str,
+    policy_id: Option<i64>,
+    reason: Option<&str>,
+) -> String {
     let mut path = format!(
         "/admin/policies?storage_authorization={}",
         urlencoding::encode(status)
@@ -667,6 +676,10 @@ fn storage_authorization_redirect_path(status: &str, policy_id: Option<i64>) -> 
     if let Some(policy_id) = policy_id {
         path.push_str("&policy_id=");
         path.push_str(&policy_id.to_string());
+    }
+    if let Some(reason) = reason {
+        path.push_str("&reason=");
+        path.push_str(&urlencoding::encode(reason));
     }
     path
 }
@@ -853,16 +866,16 @@ mod tests {
     #[test]
     fn storage_authorization_redirect_path_includes_success_and_policy_id() {
         assert_eq!(
-            storage_authorization_redirect_path("success", Some(42)),
+            storage_authorization_redirect_path("success", Some(42), None),
             "/admin/policies?storage_authorization=success&policy_id=42"
         );
     }
 
     #[test]
-    fn storage_authorization_redirect_path_omits_policy_id_on_error() {
+    fn storage_authorization_redirect_path_includes_stable_error_reason() {
         assert_eq!(
-            storage_authorization_redirect_path("error", None),
-            "/admin/policies?storage_authorization=error"
+            storage_authorization_redirect_path("error", None, Some("invalid_state")),
+            "/admin/policies?storage_authorization=error&reason=invalid_state"
         );
     }
 }

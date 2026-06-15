@@ -303,6 +303,12 @@
 	"onedrive_authorization_completed": "OneDrive 授权完成",
 	"onedrive_authorization_completed_policy": "策略 ID：{{id}}",
 	"onedrive_authorization_failed": "OneDrive 授权失败，请重新授权。",
+	"onedrive_authorization_failed_invalid_state": "授权请求已失效，请重新开始 OneDrive 授权。",
+	"onedrive_authorization_failed_provider": "Microsoft 返回授权错误，请检查应用配置后重新授权。",
+	"onedrive_authorization_failed_token_exchange": "无法换取 Microsoft Graph 访问令牌，请检查 Client ID、Secret 和重定向 URL。",
+	"onedrive_authorization_failed_drive_resolution": "授权已返回，但无法解析 OneDrive 目标位置，请检查账号类型和目标配置。",
+	"onedrive_authorization_failed_invalid_request": "OneDrive 授权回调参数无效，请重新授权。",
+	"onedrive_authorization_failed_server": "处理 OneDrive 授权时服务器出错，请稍后重试。",
 	"onedrive_validation_success": "OneDrive 凭据验证成功",
 	"onedrive_validation_success_root": "Root：{{name}}",
 	"policy_onedrive_created_authorize_next": "OneDrive 策略已创建。下一步授权 Microsoft Graph。"

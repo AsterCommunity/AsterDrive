@@ -303,6 +303,12 @@
 	"onedrive_authorization_completed": "OneDrive authorization completed",
 	"onedrive_authorization_completed_policy": "Policy ID: {{id}}",
 	"onedrive_authorization_failed": "OneDrive authorization failed. Reauthorize Microsoft Graph.",
+	"onedrive_authorization_failed_invalid_state": "The authorization request expired. Start OneDrive authorization again.",
+	"onedrive_authorization_failed_provider": "Microsoft returned an authorization error. Check the app configuration and reauthorize.",
+	"onedrive_authorization_failed_token_exchange": "Could not exchange the Microsoft Graph access token. Check the Client ID, Secret, and redirect URI.",
+	"onedrive_authorization_failed_drive_resolution": "Authorization returned, but the OneDrive target could not be resolved. Check the account type and target settings.",
+	"onedrive_authorization_failed_invalid_request": "The OneDrive authorization callback was invalid. Reauthorize Microsoft Graph.",
+	"onedrive_authorization_failed_server": "The server failed while completing OneDrive authorization. Try again later.",
 	"onedrive_validation_success": "OneDrive credential validated",
 	"onedrive_validation_success_root": "Root: {{name}}",
 	"policy_onedrive_created_authorize_next": "OneDrive policy created. Authorize Microsoft Graph next."

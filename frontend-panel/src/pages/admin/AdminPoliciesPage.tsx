@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
@@ -104,13 +104,35 @@ function consumeStorageAuthorizationSearchParams(
 
 	const nextSearchParams = new URLSearchParams(searchParams);
 	const policyId = nextSearchParams.get("policy_id");
+	const reason = nextSearchParams.get("reason");
 	nextSearchParams.delete("storage_authorization");
 	nextSearchParams.delete("policy_id");
+	nextSearchParams.delete("reason");
 	return {
 		policyId,
+		reason,
 		status,
 		nextSearchParams,
 	};
+}
+
+function storageAuthorizationFailureI18nKey(reason: string | null) {
+	switch (reason) {
+		case "invalid_state":
+			return "onedrive_authorization_failed_invalid_state";
+		case "provider_error":
+			return "onedrive_authorization_failed_provider";
+		case "token_exchange_failed":
+			return "onedrive_authorization_failed_token_exchange";
+		case "drive_resolution_failed":
+			return "onedrive_authorization_failed_drive_resolution";
+		case "invalid_request":
+			return "onedrive_authorization_failed_invalid_request";
+		case "server_error":
+			return "onedrive_authorization_failed_server";
+		default:
+			return "onedrive_authorization_failed";
+	}
 }
 
 function policyFormValueEquals(left: unknown, right: unknown): boolean {
@@ -262,6 +284,7 @@ function useAdminPoliciesPageContent() {
 	const [storageCredentialsLoading, setStorageCredentialsLoading] =
 		useState(false);
 	const storageCredentialsRequestSerial = useRef(0);
+	const consumedStorageAuthorizationSearchRef = useRef<string | null>(null);
 	const [remoteNodes, setRemoteNodes] = useState<RemoteNodeInfo[]>(
 		() => readAdminRemoteNodeLookup() ?? [],
 	);
@@ -364,28 +387,6 @@ function useAdminPoliciesPageContent() {
 	}, [offset, pageSize, setSearchParams, sortBy, sortOrder]);
 
 	useEffect(() => {
-		const callback = consumeStorageAuthorizationSearchParams(searchParams);
-		if (!callback) {
-			return;
-		}
-
-		setSearchParams(callback.nextSearchParams, { replace: true });
-		if (callback.status === "success") {
-			toast.success(t("onedrive_authorization_completed"), {
-				description: callback.policyId
-					? t("onedrive_authorization_completed_policy", {
-							id: callback.policyId,
-						})
-					: undefined,
-			});
-			void reload();
-			return;
-		}
-
-		toast.error(t("onedrive_authorization_failed"));
-	}, [reload, searchParams, setSearchParams, t]);
-
-	useEffect(() => {
 		let active = true;
 
 		void loadAdminRemoteNodeLookup()
@@ -405,13 +406,16 @@ function useAdminPoliciesPageContent() {
 		};
 	}, []);
 
-	const refreshRemoteNodeLookup = async (options?: { force?: boolean }) => {
-		try {
-			setRemoteNodes(await loadAdminRemoteNodeLookup(options));
-		} catch (error) {
-			handleApiError(error);
-		}
-	};
+	const refreshRemoteNodeLookup = useCallback(
+		async (options?: { force?: boolean }) => {
+			try {
+				setRemoteNodes(await loadAdminRemoteNodeLookup(options));
+			} catch (error) {
+				handleApiError(error);
+			}
+		},
+		[],
+	);
 
 	const handlePageSizeChange = (value: string | null) => {
 		const next = parsePageSizeOption(value, POLICY_PAGE_SIZE_OPTIONS);
@@ -483,7 +487,7 @@ function useAdminPoliciesPageContent() {
 		requestConfirm(id);
 	};
 
-	const resetDialogState = () => {
+	const resetDialogState = useCallback(() => {
 		policyCapacityRequestSerial.current += 1;
 		storageCredentialsRequestSerial.current += 1;
 		setSaveAnywayConfirmOpen(false);
@@ -496,7 +500,7 @@ function useAdminPoliciesPageContent() {
 		setValidatedConnectionKey(null);
 		setCreateStep(0);
 		setCreateStepTouched(false);
-	};
+	}, []);
 
 	const openCreate = () => {
 		setEditingId(null);
@@ -543,7 +547,7 @@ function useAdminPoliciesPageContent() {
 		setMigrationDryRun(null);
 	};
 
-	const loadPolicyCapacity = (policyId: number) => {
+	const loadPolicyCapacity = useCallback((policyId: number) => {
 		const capacityRequestSerial = ++policyCapacityRequestSerial.current;
 		setPolicyCapacityLoading(true);
 		void adminPolicyService
@@ -564,53 +568,111 @@ function useAdminPoliciesPageContent() {
 					setPolicyCapacityLoading(false);
 				}
 			});
-	};
+	}, []);
 
-	const loadStorageCredentials = (policyId: number, driverType: DriverType) => {
-		if (driverType !== "one_drive") {
-			setStorageCredentials([]);
-			setStorageCredentialsLoading(false);
+	const loadStorageCredentials = useCallback(
+		(policyId: number, driverType: DriverType) => {
+			if (driverType !== "one_drive") {
+				setStorageCredentials([]);
+				setStorageCredentialsLoading(false);
+				return;
+			}
+
+			const credentialsRequestSerial =
+				++storageCredentialsRequestSerial.current;
+			setStorageCredentialsLoading(true);
+			void adminPolicyService
+				.listStorageCredentials(policyId)
+				.then((credentials) => {
+					if (
+						credentialsRequestSerial === storageCredentialsRequestSerial.current
+					) {
+						setStorageCredentials(credentials);
+					}
+				})
+				.catch((error) => {
+					if (
+						credentialsRequestSerial === storageCredentialsRequestSerial.current
+					) {
+						handleApiError(error);
+						setStorageCredentials([]);
+					}
+				})
+				.finally(() => {
+					if (
+						credentialsRequestSerial === storageCredentialsRequestSerial.current
+					) {
+						setStorageCredentialsLoading(false);
+					}
+				});
+		},
+		[],
+	);
+
+	const openEdit = useCallback(
+		(policy: StoragePolicy) => {
+			setEditingId(policy.id);
+			setEditingPolicy(policy);
+			resetDialogState();
+			setForm(getPolicyForm(policy));
+			void refreshRemoteNodeLookup();
+			loadPolicyCapacity(policy.id);
+			loadStorageCredentials(policy.id, policy.driver_type);
+			setDialogOpen(true);
+		},
+		[
+			loadPolicyCapacity,
+			loadStorageCredentials,
+			refreshRemoteNodeLookup,
+			resetDialogState,
+		],
+	);
+
+	const openPolicyById = useCallback(
+		async (policyId: number) => {
+			const policy = await adminPolicyService.get(policyId);
+			openEdit(policy);
+			setPolicies((prev) => {
+				const exists = prev.some((item) => item.id === policy.id);
+				return exists
+					? prev.map((item) => (item.id === policy.id ? policy : item))
+					: prev;
+			});
+		},
+		[openEdit, setPolicies],
+	);
+
+	useEffect(() => {
+		const callback = consumeStorageAuthorizationSearchParams(searchParams);
+		if (!callback) {
 			return;
 		}
 
-		const credentialsRequestSerial = ++storageCredentialsRequestSerial.current;
-		setStorageCredentialsLoading(true);
-		void adminPolicyService
-			.listStorageCredentials(policyId)
-			.then((credentials) => {
-				if (
-					credentialsRequestSerial === storageCredentialsRequestSerial.current
-				) {
-					setStorageCredentials(credentials);
-				}
-			})
-			.catch((error) => {
-				if (
-					credentialsRequestSerial === storageCredentialsRequestSerial.current
-				) {
-					handleApiError(error);
-					setStorageCredentials([]);
-				}
-			})
-			.finally(() => {
-				if (
-					credentialsRequestSerial === storageCredentialsRequestSerial.current
-				) {
-					setStorageCredentialsLoading(false);
-				}
-			});
-	};
+		const callbackKey = searchParams.toString();
+		if (consumedStorageAuthorizationSearchRef.current === callbackKey) {
+			return;
+		}
+		consumedStorageAuthorizationSearchRef.current = callbackKey;
 
-	const openEdit = (policy: StoragePolicy) => {
-		setEditingId(policy.id);
-		setEditingPolicy(policy);
-		resetDialogState();
-		setForm(getPolicyForm(policy));
-		void refreshRemoteNodeLookup();
-		loadPolicyCapacity(policy.id);
-		loadStorageCredentials(policy.id, policy.driver_type);
-		setDialogOpen(true);
-	};
+		setSearchParams(callback.nextSearchParams, { replace: true });
+		if (callback.status === "success") {
+			toast.success(t("onedrive_authorization_completed"), {
+				description: callback.policyId
+					? t("onedrive_authorization_completed_policy", {
+							id: callback.policyId,
+						})
+					: undefined,
+			});
+			void reload();
+			const policyId = Number(callback.policyId);
+			if (Number.isSafeInteger(policyId) && policyId > 0) {
+				void openPolicyById(policyId).catch(handleApiError);
+			}
+			return;
+		}
+
+		toast.error(t(storageAuthorizationFailureI18nKey(callback.reason)));
+	}, [openPolicyById, reload, searchParams, setSearchParams, t]);
 
 	const handleDialogOpenChange = (open: boolean) => {
 		setDialogOpen(open);
