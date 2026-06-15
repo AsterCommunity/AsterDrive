@@ -1,6 +1,7 @@
 //! 存储策略删除后的临时对象兜底清理任务。
 
 use chrono::{Duration, Utc};
+use std::sync::Arc;
 
 use crate::api::constants::HOUR_SECS;
 use crate::db::repository::managed_follower_repo;
@@ -281,7 +282,7 @@ async fn remote_node_snapshot_for_policy(
 async fn driver_from_payload(
     state: &impl RemoteProtocolRuntimeState,
     payload: &StoragePolicyTempCleanupTaskPayload,
-) -> Result<Box<dyn StorageDriver>> {
+) -> Result<Arc<dyn StorageDriver>> {
     let policy = storage_policy::Model {
         id: payload.policy.id,
         name: payload.policy.name.clone(),
@@ -302,14 +303,11 @@ async fn driver_from_payload(
     };
 
     match policy.driver_type {
-        DriverType::Local => Ok(Box::new(LocalDriver::new(&policy)?)),
-        DriverType::S3 => Ok(Box::new(S3Driver::new(&policy)?)),
-        DriverType::AzureBlob => Ok(Box::new(AzureBlobDriver::new(&policy)?)),
-        DriverType::TencentCos => Ok(Box::new(TencentCosDriver::new(&policy)?)),
-        DriverType::OneDrive => Err(crate::storage::error::storage_driver_error(
-            crate::storage::StorageErrorKind::Unsupported,
-            "OneDrive storage driver is not implemented yet",
-        )),
+        DriverType::Local => Ok(Arc::new(LocalDriver::new(&policy)?)),
+        DriverType::S3 => Ok(Arc::new(S3Driver::new(&policy)?)),
+        DriverType::AzureBlob => Ok(Arc::new(AzureBlobDriver::new(&policy)?)),
+        DriverType::TencentCos => Ok(Arc::new(TencentCosDriver::new(&policy)?)),
+        DriverType::OneDrive => state.driver_registry().build_uncached_driver(&policy),
         DriverType::Remote => {
             let remote = payload.remote_node.as_ref().ok_or_else(|| {
                 AsterError::validation_error(
@@ -333,7 +331,7 @@ async fn driver_from_payload(
                 created_at: Utc::now(),
                 updated_at: Utc::now(),
             };
-            Ok(Box::new(
+            Ok(Arc::new(
                 state
                     .remote_protocol()
                     .driver_for_policy(&policy, &follower)?,

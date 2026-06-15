@@ -42,7 +42,11 @@ pub(super) async fn prepare_common(mode: NodeRuntimeMode) -> Result<CommonRuntim
 
     let driver_registry = Arc::new(DriverRegistry::new(metrics.clone()));
     match mode {
-        NodeRuntimeMode::Primary => driver_registry.reload_primary_state(&database).await?,
+        NodeRuntimeMode::Primary => {
+            driver_registry
+                .reload_primary_state(&database, cfg.as_ref())
+                .await?
+        }
         NodeRuntimeMode::Follower => driver_registry.reload_follower_state(&database).await?,
     }
 

@@ -1,6 +1,7 @@
 //! OAuth-managed storage policy credential service.
 
-mod crypto;
+pub(crate) mod crypto;
+mod management;
 mod oauth;
 
 use chrono::Utc;
@@ -11,6 +12,9 @@ use crate::types::{
     MicrosoftGraphCloud, StorageCredentialKind, StorageCredentialProvider, StorageCredentialStatus,
 };
 
+pub use management::{
+    StoragePolicyCredentialValidationResult, list_policy_credentials, validate_policy_credential,
+};
 pub use oauth::{
     StorageAuthorizationCallbackOutcome, StorageAuthorizationCallbackQuery,
     StorageAuthorizationStartInput, StorageAuthorizationStartResponse,

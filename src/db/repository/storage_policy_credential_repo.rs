@@ -7,6 +7,13 @@ use crate::entities::storage_policy_credential::{self, Entity as StoragePolicyCr
 use crate::errors::{AsterError, Result};
 use crate::types::{StorageCredentialKind, StorageCredentialProvider};
 
+pub async fn find_all<C: ConnectionTrait>(db: &C) -> Result<Vec<storage_policy_credential::Model>> {
+    StoragePolicyCredential::find()
+        .all(db)
+        .await
+        .map_err(AsterError::from)
+}
+
 pub async fn find_by_policy_provider_kind<C: ConnectionTrait>(
     db: &C,
     policy_id: i64,

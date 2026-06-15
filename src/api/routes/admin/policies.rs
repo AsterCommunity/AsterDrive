@@ -15,7 +15,7 @@ use crate::errors::Result;
 use crate::runtime::PrimaryAppState;
 use crate::services::storage_credential_service;
 use crate::services::{audit_service, auth_service::Claims, policy_service};
-use crate::types::DriverType;
+use crate::types::{DriverType, StorageCredentialProvider};
 use actix_web::{HttpRequest, HttpResponse, web};
 
 // ── Conversion helpers (must stay here because they use policy_service types) ──────────
@@ -551,6 +551,64 @@ pub async fn start_storage_authorization(
     )
     .await?;
     Ok(HttpResponse::Ok().json(ApiResponse::ok(response)))
+}
+
+#[api_docs_macros::path(
+    get,
+    path = "/api/v1/admin/policies/{id}/storage-credentials",
+    tag = "admin",
+    operation_id = "list_storage_policy_credentials",
+    params(("id" = i64, Path, description = "Policy ID")),
+    responses(
+        (status = 200, description = "Storage policy credentials", body = inline(ApiResponse<Vec<storage_credential_service::StoragePolicyCredentialInfo>>)),
+        (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
+        (status = 403, description = "Forbidden"),
+        (status = 404, description = "Policy not found"),
+    ),
+    security(("bearer" = [])),
+)]
+pub async fn list_storage_policy_credentials(
+    state: web::Data<PrimaryAppState>,
+    path: web::Path<i64>,
+) -> Result<HttpResponse> {
+    let credentials =
+        storage_credential_service::list_policy_credentials(state.get_ref(), *path).await?;
+    Ok(HttpResponse::Ok().json(ApiResponse::ok(credentials)))
+}
+
+#[api_docs_macros::path(
+    post,
+    path = "/api/v1/admin/policies/{id}/storage-credentials/{provider}/validate",
+    tag = "admin",
+    operation_id = "validate_storage_policy_credential",
+    params(
+        ("id" = i64, Path, description = "Policy ID"),
+        ("provider" = String, Path, description = "Storage credential provider"),
+    ),
+    responses(
+        (status = 200, description = "Storage policy credential validation result", body = inline(ApiResponse<storage_credential_service::StoragePolicyCredentialValidationResult>)),
+        (status = 400, description = "Invalid provider or credential state"),
+        (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
+        (status = 403, description = "Forbidden"),
+        (status = 404, description = "Policy or credential not found"),
+    ),
+    security(("bearer" = [])),
+)]
+pub async fn validate_storage_policy_credential(
+    state: web::Data<PrimaryAppState>,
+    path: web::Path<(i64, String)>,
+) -> Result<HttpResponse> {
+    let (policy_id, provider) = path.into_inner();
+    let provider = StorageCredentialProvider::parse(&provider).ok_or_else(|| {
+        crate::errors::AsterError::validation_error("unsupported storage credential provider")
+    })?;
+    let result = storage_credential_service::validate_policy_credential(
+        state.get_ref(),
+        policy_id,
+        provider,
+    )
+    .await?;
+    Ok(HttpResponse::Ok().json(ApiResponse::ok(result)))
 }
 
 #[api_docs_macros::path(

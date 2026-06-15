@@ -4,6 +4,7 @@
 
 pub mod azure_blob;
 pub mod local;
+pub mod onedrive;
 pub mod remote;
 pub mod s3;
 pub mod s3_compatible;

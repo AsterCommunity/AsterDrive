@@ -11,9 +11,10 @@ use crate::db::repository::{
 use crate::entities::{storage_policy_authorization_flow, storage_policy_credential};
 use crate::errors::{AsterError, MapAsterErr, Result};
 use crate::runtime::SharedRuntimeState;
+use crate::storage::drivers::onedrive::{MicrosoftGraphClient, MicrosoftGraphClientConfig};
 use crate::types::{
     DriverType, MicrosoftGraphCloud, StorageAuthorizationFlowStatus, StorageCredentialKind,
-    StorageCredentialProvider, StorageCredentialStatus,
+    StorageCredentialProvider, StorageCredentialStatus, parse_storage_policy_options,
 };
 use crate::utils::{OUTBOUND_HTTP_USER_AGENT, id};
 
@@ -258,6 +259,10 @@ pub async fn finish_authorization_callback(
         }
     };
     txn.commit().await.map_err(AsterError::from)?;
+    state
+        .driver_registry()
+        .reload_storage_policy_credentials(state.writer_db(), state.config().as_ref())
+        .await?;
     Ok(StorageAuthorizationCallbackOutcome {
         credential: credential.into(),
     })
@@ -298,6 +303,21 @@ async fn finish_microsoft_graph_callback<C: sea_orm::ConnectionTrait>(
         pkce_verifier,
     )
     .await?;
+    let policy = policy_repo::find_by_id(db, policy_id).await?;
+    let options = parse_storage_policy_options(policy.options.as_ref());
+    let drive_id = options.onedrive_drive_id.as_deref().ok_or_else(|| {
+        AsterError::database_operation("OneDrive storage policy missing onedrive_drive_id")
+    })?;
+    let root_item_id = options.onedrive_root_item_id.as_deref().ok_or_else(|| {
+        AsterError::database_operation("OneDrive storage policy missing onedrive_root_item_id")
+    })?;
+    let graph_client = MicrosoftGraphClient::new(MicrosoftGraphClientConfig::new(
+        context.cloud.graph_base_url(),
+        token.access_token.clone(),
+    ))?;
+    let root_item = graph_client
+        .get_drive_item_by_id(drive_id, root_item_id)
+        .await?;
     let expires_at = token
         .expires_in
         .and_then(|seconds| (seconds > 0).then(|| now + Duration::seconds(seconds)));
@@ -337,14 +357,17 @@ async fn finish_microsoft_graph_callback<C: sea_orm::ConnectionTrait>(
             policy_id: Set(policy_id),
             provider: Set(StorageCredentialProvider::MicrosoftGraph),
             credential_kind: Set(StorageCredentialKind::OauthDelegated),
-            account_label: Set(None),
-            subject: Set(None),
+            account_label: Set(root_item.name.clone()),
+            subject: Set(Some(root_item.id.clone())),
             tenant_id: Set(Some(context.tenant.clone())),
             scopes: Set(scopes_to_json(&granted_scopes)?),
             access_token_ciphertext: Set(Some(access_token_ciphertext)),
             refresh_token_ciphertext: Set(refresh_token_ciphertext),
             metadata: Set(storage_credential_metadata(
                 &context,
+                drive_id,
+                root_item_id,
+                root_item.name.as_deref(),
                 token.id_token.as_deref(),
             )?),
             status: Set(StorageCredentialStatus::Authorized),
@@ -362,6 +385,9 @@ async fn finish_microsoft_graph_callback<C: sea_orm::ConnectionTrait>(
 
 fn storage_credential_metadata(
     context: &MicrosoftGraphFlowContext,
+    drive_id: &str,
+    root_item_id: &str,
+    root_item_name: Option<&str>,
     id_token: Option<&str>,
 ) -> Result<String> {
     let mut metadata = serde_json::json!({
@@ -369,7 +395,12 @@ fn storage_credential_metadata(
         "graph_base_url": context.cloud.graph_base_url(),
         "client_id": context.client_id,
         "client_secret_configured": context.client_secret_ciphertext.is_some(),
+        "drive_id": drive_id,
+        "root_item_id": root_item_id,
     });
+    if let Some(root_item_name) = root_item_name {
+        metadata["root_item_name"] = serde_json::Value::String(root_item_name.to_string());
+    }
     if id_token.is_some() {
         metadata["id_token"] = serde_json::Value::String(REDACTED_SECRET.to_string());
     }

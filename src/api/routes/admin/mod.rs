@@ -58,9 +58,10 @@ pub use policies::{
     create_policy, create_policy_group, delete_policy, delete_policy_group,
     execute_draft_storage_policy_action, execute_saved_storage_policy_action,
     finish_storage_authorization, get_policy, get_policy_capacity, get_policy_group, list_policies,
-    list_policy_groups, list_storage_credential_providers, migrate_policy_group_assignments,
-    promote_s3_compatible_policy_driver, start_storage_authorization, test_policy_connection,
-    test_policy_params, update_policy, update_policy_group,
+    list_policy_groups, list_storage_credential_providers, list_storage_policy_credentials,
+    migrate_policy_group_assignments, promote_s3_compatible_policy_driver,
+    start_storage_authorization, test_policy_connection, test_policy_params, update_policy,
+    update_policy_group, validate_storage_policy_credential,
 };
 pub use remote_nodes::{
     create_remote_node, create_remote_node_enrollment_token, create_remote_node_ingress_profile,
@@ -132,6 +133,14 @@ pub fn routes(
                     .route(
                         "/policies/{id}/storage-authorization/start",
                         web::post().to(start_storage_authorization),
+                    )
+                    .route(
+                        "/policies/{id}/storage-credentials",
+                        web::get().to(list_storage_policy_credentials),
+                    )
+                    .route(
+                        "/policies/{id}/storage-credentials/{provider}/validate",
+                        web::post().to(validate_storage_policy_credential),
                     )
                     .route("/policies/test", web::post().to(test_policy_params))
                     .route(

@@ -22,6 +22,14 @@ impl StorageCredentialProvider {
             Self::GoogleDrive => "google_drive",
         }
     }
+
+    pub fn parse(value: &str) -> Option<Self> {
+        match value {
+            "microsoft_graph" => Some(Self::MicrosoftGraph),
+            "google_drive" => Some(Self::GoogleDrive),
+            _ => None,
+        }
+    }
 }
 
 /// Authentication material shape for a storage policy credential.
