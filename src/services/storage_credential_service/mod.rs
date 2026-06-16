@@ -25,8 +25,8 @@ pub use oauth::{
 };
 
 pub(crate) use oauth::{
-    build_microsoft_graph_cleanup_token_provider, build_microsoft_graph_credential_token_provider,
-    MicrosoftGraphCleanupTokenSnapshot,
+    MicrosoftGraphCleanupTokenSnapshot, build_microsoft_graph_cleanup_token_provider,
+    build_microsoft_graph_credential_token_provider,
 };
 
 const FLOW_TTL_SECS: u64 = 300;

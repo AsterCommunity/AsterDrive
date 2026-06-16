@@ -217,20 +217,42 @@ describe("adminService", () => {
 		);
 	});
 
+	it("rejects invalid policy group page sizes", async () => {
+		await expect(adminPolicyGroupService.listAll(0)).rejects.toThrow(
+			"pageSize must be a positive integer",
+		);
+		await expect(adminPolicyGroupService.listAll(-1)).rejects.toThrow(
+			"pageSize must be a positive integer",
+		);
+		await expect(adminPolicyGroupService.listAll(1.5)).rejects.toThrow(
+			"pageSize must be a positive integer",
+		);
+	});
+
 	it("builds admin task list endpoints", () => {
 		adminTaskService.list({
 			limit: 12,
 			offset: 24,
+			kind: "storage_policy_migration" as never,
+			status: "running" as never,
 			sort_by: "display_name",
 			sort_order: "asc",
 		});
 		adminTaskService.list();
+		adminTaskService.cleanupCompleted({
+			older_than_days: 7,
+			statuses: ["completed"] as never,
+		});
 
 		expect(mockState.get).toHaveBeenNthCalledWith(
 			1,
-			"/admin/tasks?limit=12&offset=24&sort_by=display_name&sort_order=asc",
+			"/admin/tasks?limit=12&offset=24&kind=storage_policy_migration&status=running&sort_by=display_name&sort_order=asc",
 		);
 		expect(mockState.get).toHaveBeenNthCalledWith(2, "/admin/tasks");
+		expect(mockState.post).toHaveBeenCalledWith("/admin/tasks/cleanup", {
+			older_than_days: 7,
+			statuses: ["completed"],
+		});
 	});
 
 	it("executes storage policy actions against draft params or saved policies", () => {
@@ -354,6 +376,16 @@ describe("adminService", () => {
 		adminConfigService.templateVariables();
 		adminConfigService.get("mail.host");
 		adminConfigService.set("mail.host", "smtp.example.com");
+		adminConfigService.set(
+			"site.allowed_origins",
+			["https://drive.example.com"],
+			"public" as never,
+		);
+		adminConfigService.action("mail.host", {
+			action: "reload" as never,
+		});
+		adminConfigService.sendTestEmail("ops@example.com");
+		adminConfigService.sendTestEmail();
 		adminConfigService.delete("mail.host");
 
 		expect(mockState.get).toHaveBeenNthCalledWith(
@@ -523,9 +555,44 @@ describe("adminService", () => {
 			12,
 			"/admin/config/mail.host",
 		);
-		expect(mockState.put).toHaveBeenCalledWith("/admin/config/mail.host", {
-			value: "smtp.example.com",
-		});
+		expect(mockState.put).toHaveBeenNthCalledWith(
+			2,
+			"/admin/config/mail.host",
+			{
+				value: "smtp.example.com",
+			},
+		);
+		expect(mockState.put).toHaveBeenNthCalledWith(
+			3,
+			"/admin/config/site.allowed_origins",
+			{
+				value: ["https://drive.example.com"],
+				visibility: "public",
+			},
+		);
+		expect(mockState.post).toHaveBeenNthCalledWith(
+			15,
+			"/admin/config/mail.host/action",
+			{
+				action: "reload",
+			},
+		);
+		expect(mockState.post).toHaveBeenNthCalledWith(
+			16,
+			"/admin/config/mail/action",
+			{
+				action: "send_test_email",
+				target_email: "ops@example.com",
+			},
+		);
+		expect(mockState.post).toHaveBeenNthCalledWith(
+			17,
+			"/admin/config/mail/action",
+			{
+				action: "send_test_email",
+				target_email: undefined,
+			},
+		);
 		expect(mockState.delete).toHaveBeenNthCalledWith(
 			10,
 			"/admin/config/mail.host",
@@ -611,6 +678,33 @@ describe("adminService", () => {
 	});
 
 	it("creates blob maintenance tasks", () => {
+		adminFileService.listFiles({
+			limit: 25,
+			offset: 50,
+			name: "report",
+			blob_id: 31,
+			policy_id: 3,
+			owner_user_id: 5,
+			team_id: 8,
+			deleted: true,
+			sort_by: "size",
+			sort_order: "desc",
+		});
+		adminFileService.getFile(21);
+		adminFileService.listBlobs({
+			limit: 10,
+			offset: 20,
+			hash: "sha256:abc",
+			policy_id: 3,
+			storage_path: "tenant-a/archive.bin",
+			ref_count_min: 0,
+			ref_count_max: 2,
+			size_min: 1024,
+			size_max: 4096,
+			sort_by: "size",
+			sort_order: "asc",
+		});
+		adminFileService.getBlob(31);
 		adminFileService.createBlobMaintenanceTask({
 			action: "orphan_cleanup",
 			blob_ids: [31, 32],
@@ -619,6 +713,16 @@ describe("adminService", () => {
 			action: "ref_count_reconcile",
 		});
 
+		expect(mockState.get).toHaveBeenNthCalledWith(
+			1,
+			"/admin/files?limit=25&offset=50&name=report&blob_id=31&policy_id=3&owner_user_id=5&team_id=8&deleted=true&sort_by=size&sort_order=desc",
+		);
+		expect(mockState.get).toHaveBeenNthCalledWith(2, "/admin/files/21");
+		expect(mockState.get).toHaveBeenNthCalledWith(
+			3,
+			"/admin/file-blobs?limit=10&offset=20&hash=sha256%3Aabc&policy_id=3&storage_path=tenant-a%2Farchive.bin&ref_count_min=0&ref_count_max=2&size_min=1024&size_max=4096&sort_by=size&sort_order=asc",
+		);
+		expect(mockState.get).toHaveBeenNthCalledWith(4, "/admin/file-blobs/31");
 		expect(mockState.post).toHaveBeenCalledWith(
 			"/admin/file-blobs/maintenance",
 			{

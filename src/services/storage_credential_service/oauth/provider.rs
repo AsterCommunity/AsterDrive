@@ -479,8 +479,17 @@ impl MicrosoftGraphAccessTokenProvider for MicrosoftGraphCleanupTokenProvider {
     }
 
     async fn refresh_access_token(&self) -> Result<String> {
+        // Cleanup tasks run from a deleted-policy snapshot. Do not write audit
+        // records or mark the credential reauth-required here; the original
+        // policy or credential row may already be gone.
         let mut cache = self.cache.lock().await;
         let Some(refresh_token_ciphertext) = cache.refresh_token_ciphertext.as_deref() else {
+            tracing::debug!(
+                policy_id = self.policy_id,
+                cloud = ?self.cloud,
+                tenant = %self.tenant,
+                "Microsoft Graph cleanup token refresh skipped because refresh token is missing"
+            );
             return Err(storage_driver_error(
                 StorageErrorKind::Auth,
                 "storage cleanup credential is missing refresh token; reauthorize Microsoft Graph",
@@ -504,6 +513,13 @@ impl MicrosoftGraphAccessTokenProvider for MicrosoftGraphCleanupTokenProvider {
             .await
             .map_err(|error| {
                 let kind = error.storage_error_kind().unwrap_or(StorageErrorKind::Auth);
+                tracing::warn!(
+                    policy_id = self.policy_id,
+                    cloud = ?self.cloud,
+                    tenant = %self.tenant,
+                    error = %error,
+                    "Microsoft Graph cleanup token refresh failed"
+                );
                 storage_driver_error(
                     kind,
                     format!("refresh Microsoft Graph cleanup access token: {error}"),
@@ -530,6 +546,12 @@ impl MicrosoftGraphAccessTokenProvider for MicrosoftGraphCleanupTokenProvider {
                 .as_bytes(),
                 refresh_token,
             )?);
+            tracing::warn!(
+                policy_id = self.policy_id,
+                cloud = ?self.cloud,
+                tenant = %self.tenant,
+                "Microsoft Graph cleanup refresh token rotated in memory only"
+            );
         }
         Ok(cache.access_token.clone())
     }

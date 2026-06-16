@@ -144,6 +144,10 @@ After authorization succeeds, the browser returns to the AsterDrive admin consol
 
 When background tasks need OneDrive access, AsterDrive refreshes the access token automatically. Successful refresh writes the new token state back to the database. If Microsoft rejects the refresh token, the policy enters reauthorization-required state.
 
+::: tip Temporary cleanup after policy deletion
+When force-deleting a OneDrive policy that still has temporary upload objects, AsterDrive stores the currently available Microsoft Graph token and drive data in the cleanup task snapshot. That cleanup task may refresh the access token in memory from the snapshotted refresh token, but it does not write OAuth audit records or mark the credential as reauthorization-required. This is intentional: by the time the task runs, the original policy or credential row may already be deleted. Cleanup failures are recorded in the background task error output and failed step, and the service also emits a warning log; reauthorization only applies to OneDrive policies that still exist.
+:::
+
 ## 5. How the Target Drive Is Resolved
 
 Usually you do not need to enter a Drive ID. AsterDrive resolves it after authorization:

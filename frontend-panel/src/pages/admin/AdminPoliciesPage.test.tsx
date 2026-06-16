@@ -1056,6 +1056,22 @@ describe("AdminPoliciesPage", () => {
 		);
 	});
 
+	it("moves to the previous policy page without going below zero", () => {
+		mockState.searchParams = "offset=20";
+		mockState.items = [createPolicy({ id: 1, name: "Default Local" })];
+		mockState.total = 45;
+
+		render(<AdminPoliciesPage />);
+
+		const buttons = screen.getAllByRole("button");
+		fireEvent.click(buttons[buttons.length - 2]);
+
+		expect(mockState.setSearchParams).toHaveBeenLastCalledWith(
+			new URLSearchParams(""),
+			{ replace: true },
+		);
+	});
+
 	it("checks a storage policy migration plan before creating the task", async () => {
 		mockState.items = [
 			createPolicy({ id: 1, name: "Hot Local" }),

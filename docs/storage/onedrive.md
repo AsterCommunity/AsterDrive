@@ -144,6 +144,10 @@ OneDrive
 
 后续后台任务需要访问 OneDrive 时，会自动刷新 access token。刷新成功会写回数据库；如果 Microsoft 拒绝 refresh token，策略会进入需要重新授权状态。
 
+::: tip 删除策略后的临时清理任务
+强制删除仍有临时上传对象的 OneDrive 策略时，AsterDrive 会把当时可用的 Microsoft Graph token 和 drive 信息写入清理任务快照。这个清理任务使用快照里的 refresh token 在内存中刷新 access token，但不会写 OAuth 审计，也不会把凭据状态改成“需要重新授权”。这是刻意设计：任务运行时原始策略或凭据记录可能已经被删除。清理失败会写入后台任务错误输出和失败步骤，并记录服务端警告日志；管理员需要重新授权的是仍然存在的 OneDrive 策略。
+:::
+
 ## 5. 目标 drive 如何解析
 
 默认情况下不需要填写 Drive ID。AsterDrive 会在授权完成后自动解析：

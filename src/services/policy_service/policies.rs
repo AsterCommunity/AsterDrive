@@ -988,6 +988,28 @@ impl From<crate::storage::drivers::tencent_cos::cors::TencentCosCorsApplyResult>
     }
 }
 
+async fn probe_storage_driver(
+    driver: &dyn crate::storage::StorageDriver,
+    write_error_context: &'static str,
+) -> Result<()> {
+    let test_path = format!("_aster_connection_test-{}", uuid::Uuid::new_v4());
+    driver
+        .put(&test_path, b"ok")
+        .await
+        .map_aster_err_ctx(write_error_context, AsterError::storage_driver_error)?;
+    driver
+        .delete(&test_path)
+        .await
+        .inspect_err(|error| {
+            tracing::warn!(path = %test_path, "failed to clean up connection test file: {error}");
+        })
+        .map_aster_err_ctx(
+            "connection test cleanup failed",
+            AsterError::storage_driver_error,
+        )?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::ensure_onedrive_options_supported;
@@ -1130,26 +1152,4 @@ mod tests {
         );
         assert!(error.to_string().contains("onedrive_site_id"));
     }
-}
-
-async fn probe_storage_driver(
-    driver: &dyn crate::storage::StorageDriver,
-    write_error_context: &'static str,
-) -> Result<()> {
-    let test_path = format!("_aster_connection_test-{}", uuid::Uuid::new_v4());
-    driver
-        .put(&test_path, b"ok")
-        .await
-        .map_aster_err_ctx(write_error_context, AsterError::storage_driver_error)?;
-    driver
-        .delete(&test_path)
-        .await
-        .inspect_err(|error| {
-            tracing::warn!(path = %test_path, "failed to clean up connection test file: {error}");
-        })
-        .map_aster_err_ctx(
-            "connection test cleanup failed",
-            AsterError::storage_driver_error,
-        )?;
-    Ok(())
 }

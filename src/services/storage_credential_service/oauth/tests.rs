@@ -124,13 +124,12 @@ impl MicrosoftGraphTokenRefresher for ConcurrentRotationBeforeSuccessRefresher {
             Some(Utc::now() + Duration::minutes(10)),
         )
         .await;
-        let response = self
-            .responses
+
+        self.responses
             .lock()
             .expect("refresh response queue lock")
             .pop_front()
-            .expect("refresh response should be queued");
-        response
+            .expect("refresh response should be queued")
     }
 }
 
