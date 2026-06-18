@@ -325,6 +325,10 @@ impl DriverRegistry {
     }
 
     fn create_entry(&self, policy: &storage_policy::Model) -> Result<DriverEntry> {
+        // Runtime driver construction still lives in the registry because the
+        // built drivers borrow process state, caches, and protocol clients. #328
+        // moved admin/configuration decisions into connectors; #212 can replace
+        // this built-in match with plugin-provided runtime factories.
         match policy.driver_type {
             DriverType::Local => {
                 let driver: Arc<dyn StorageDriver> = Arc::new(LocalDriver::new(policy)?);

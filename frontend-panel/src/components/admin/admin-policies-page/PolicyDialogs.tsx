@@ -6,6 +6,7 @@ import { ConfirmDialog } from "@/components/common/ConfirmDialog";
 import type {
 	DriverType,
 	RemoteNodeInfo,
+	StorageConnectorDescriptor,
 	StoragePolicyCapacityInfo,
 	StoragePolicyCredentialInfo,
 } from "@/types/api";
@@ -27,6 +28,7 @@ interface PolicyDialogsProps {
 	editMode: boolean;
 	endpointValidationMessage: string | null;
 	form: PolicyFormData;
+	storageDriverDescriptor: StorageConnectorDescriptor | null;
 	policyCapacity: StoragePolicyCapacityInfo | null;
 	policyCapacityLoading: boolean;
 	storageCredentials: StoragePolicyCredentialInfo[];
@@ -37,6 +39,7 @@ interface PolicyDialogsProps {
 	cosCorsConfirmOpen: boolean;
 	cosCorsSubmitting: boolean;
 	cosCorsUsesDraftValues: boolean;
+	canConfigureTencentCosCors: boolean;
 	s3CompatibleDriverSuggestionTargetLabel: string | null;
 	s3DriverPromotionBlocked: boolean;
 	s3DriverPromotionConfirmOpen: boolean;
@@ -80,6 +83,7 @@ export function PolicyDialogs({
 	editMode,
 	endpointValidationMessage,
 	form,
+	storageDriverDescriptor,
 	policyCapacity,
 	policyCapacityLoading,
 	storageCredentials,
@@ -90,6 +94,7 @@ export function PolicyDialogs({
 	cosCorsConfirmOpen,
 	cosCorsSubmitting,
 	cosCorsUsesDraftValues,
+	canConfigureTencentCosCors,
 	s3CompatibleDriverSuggestionTargetLabel,
 	s3DriverPromotionBlocked,
 	s3DriverPromotionConfirmOpen,
@@ -140,6 +145,7 @@ export function PolicyDialogs({
 				open={dialogOpen}
 				mode={editMode ? "edit" : "create"}
 				form={form}
+				storageDriverDescriptor={storageDriverDescriptor}
 				policyCapacity={policyCapacity}
 				policyCapacityLoading={policyCapacityLoading}
 				storageCredentials={storageCredentials}
@@ -152,6 +158,7 @@ export function PolicyDialogs({
 				cosCorsConfirmOpen={cosCorsConfirmOpen}
 				cosCorsSubmitting={cosCorsSubmitting}
 				cosCorsUsesDraftValues={cosCorsUsesDraftValues}
+				canConfigureTencentCosCors={canConfigureTencentCosCors}
 				s3CompatibleDriverSuggestionTargetLabel={
 					s3CompatibleDriverSuggestionTargetLabel
 				}

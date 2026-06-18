@@ -4,10 +4,7 @@ pub mod driver;
 pub mod extensions;
 pub mod multipart;
 
-pub use driver::{
-    BlobMetadata, PresignedDownloadOptions, StorageDriver, StoragePathVisitor,
-    driver_type_supports_native_media_metadata, driver_type_supports_native_thumbnail,
-};
+pub use driver::{BlobMetadata, PresignedDownloadOptions, StorageDriver, StoragePathVisitor};
 pub use extensions::{
     ListStorageDriver, LocalPathStorageDriver, NativeMediaMetadataRequest,
     NativeMediaMetadataResult, NativeMediaMetadataStorageDriver, NativeThumbnailRequest,

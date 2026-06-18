@@ -8,8 +8,7 @@ use crate::runtime::SharedRuntimeState;
 use crate::storage::drivers::onedrive::{MicrosoftGraphClient, MicrosoftGraphClientConfig};
 use crate::storage::error::StorageErrorKind;
 use crate::types::{
-    DriverType, StorageCredentialKind, StorageCredentialProvider, StorageCredentialStatus,
-    parse_storage_policy_options,
+    StorageCredentialProvider, StorageCredentialStatus, parse_storage_policy_options,
 };
 
 use super::{
@@ -44,18 +43,16 @@ pub async fn validate_policy_credential(
     provider: StorageCredentialProvider,
 ) -> Result<StoragePolicyCredentialValidationResult> {
     let policy = policy_repo::find_by_id(state.writer_db(), policy_id).await?;
-    if policy.driver_type != DriverType::OneDrive
-        || provider != StorageCredentialProvider::MicrosoftGraph
-    {
-        return Err(AsterError::validation_error(
-            "storage credential validation is only supported for Microsoft Graph OneDrive policies",
-        ));
-    }
+    let credential_kind =
+        crate::storage::connectors::ensure_storage_credential_validation_supported(
+            policy.driver_type,
+            provider,
+        )?;
     let credential = storage_policy_credential_repo::find_by_policy_provider_kind(
         state.writer_db(),
         policy_id,
         provider,
-        StorageCredentialKind::OauthDelegated,
+        credential_kind,
     )
     .await?
     .ok_or_else(|| AsterError::record_not_found("storage policy credential"))?;

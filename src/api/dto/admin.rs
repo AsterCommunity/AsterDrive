@@ -179,7 +179,7 @@ pub struct TestPolicyParamsReq {
 #[derive(Deserialize, Validate)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct ExecuteDraftStoragePolicyActionReq {
-    pub action: crate::services::policy_service::StoragePolicyActionType,
+    pub action: crate::storage::StoragePolicyExecutableAction,
     #[validate(range(min = 1, message = "policy_id must be greater than 0"))]
     pub policy_id: Option<i64>,
     pub driver_type: crate::types::DriverType,
@@ -198,7 +198,7 @@ pub struct ExecuteDraftStoragePolicyActionReq {
 #[derive(Deserialize, Validate)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct ExecuteSavedStoragePolicyActionReq {
-    pub action: crate::services::policy_service::StoragePolicyActionType,
+    pub action: crate::storage::StoragePolicyExecutableAction,
 }
 
 /// Start an OAuth authorization flow for an administrator-managed storage policy credential.

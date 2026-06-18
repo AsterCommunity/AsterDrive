@@ -273,6 +273,7 @@ use utoipa::{Modify, OpenApi};
 
         // admin::policies：存储策略、策略组及其验证相关接口。
         crate::api::routes::admin::policies::list_policies,
+        crate::api::routes::admin::policies::list_storage_driver_descriptors,
         crate::api::routes::admin::policies::create_policy,
         crate::api::routes::admin::policies::get_policy,
         crate::api::routes::admin::policies::get_policy_capacity,
@@ -648,7 +649,6 @@ use utoipa::{Modify, OpenApi};
             crate::services::preview_app_service::PublicPreviewAppsConfig,
             crate::services::policy_service::StoragePolicy,
             crate::services::policy_service::StoragePolicyActionResult,
-            crate::services::policy_service::StoragePolicyActionType,
             crate::services::policy_service::TencentCosCorsConfigResult,
             crate::services::policy_service::StoragePolicyGroupItemInfo,
             crate::services::policy_service::StoragePolicyGroupInfo,

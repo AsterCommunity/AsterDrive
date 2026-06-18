@@ -20,6 +20,9 @@ export function S3ConnectionFields({
 	onSyncNormalizedS3Form: () => void;
 	showCreateValidation?: boolean;
 }) {
+	// Broad availability comes from the connector descriptor. This component only
+	// keeps provider-specific labels and placeholders until the form schema itself
+	// becomes descriptor-rendered.
 	const endpointHintKey =
 		form.driver_type === "tencent_cos"
 			? "cos_endpoint_hint"

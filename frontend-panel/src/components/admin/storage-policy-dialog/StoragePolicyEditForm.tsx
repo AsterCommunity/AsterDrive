@@ -23,6 +23,14 @@ import {
 	isObjectStorageDriver,
 	isOneDriveDriver,
 	type PolicyFormData,
+	supportsApplicationCredentials,
+	supportsContentDedupPolicyOption,
+	supportsCredentialValidationAction,
+	supportsObjectStorageConnection,
+	supportsOneDrivePolicyOptions,
+	supportsRemoteNodeBinding,
+	supportsS3TransferStrategy,
+	supportsStorageAuthorizationAction,
 	supportsStorageNativeProcessing,
 } from "@/components/admin/storagePolicyDialogShared";
 import { AnimatedCollapsible } from "@/components/common/AnimatedCollapsible";
@@ -35,6 +43,7 @@ import { formatBytes } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import type {
 	RemoteNodeInfo,
+	StorageConnectorDescriptor,
 	StoragePolicyCapacityInfo,
 	StoragePolicyCredentialInfo,
 } from "@/types/api";
@@ -48,6 +57,7 @@ interface StoragePolicyEditFormProps {
 	currentStorageOption: StoragePolicyDriverOption;
 	endpointValidationMessage: string | null;
 	form: PolicyFormData;
+	storageDriverDescriptor: StorageConnectorDescriptor | null;
 	policyCapacity: StoragePolicyCapacityInfo | null;
 	policyCapacityLoading: boolean;
 	storageCredentials: StoragePolicyCredentialInfo[];
@@ -56,6 +66,7 @@ interface StoragePolicyEditFormProps {
 	storageCredentialValidationSubmitting: boolean;
 	storageAuthorizationRedirectUri: string;
 	cosCorsConfirmOpen: boolean;
+	canConfigureTencentCosCors: boolean;
 	cosCorsSubmitting: boolean;
 	cosCorsUsesDraftValues: boolean;
 	s3DriverPromotionBlocked: boolean;
@@ -82,6 +93,7 @@ export function StoragePolicyEditForm({
 	currentStorageOption,
 	endpointValidationMessage,
 	form,
+	storageDriverDescriptor,
 	policyCapacity,
 	policyCapacityLoading,
 	storageCredentials,
@@ -90,6 +102,7 @@ export function StoragePolicyEditForm({
 	storageCredentialValidationSubmitting,
 	storageAuthorizationRedirectUri,
 	cosCorsConfirmOpen,
+	canConfigureTencentCosCors,
 	cosCorsSubmitting,
 	cosCorsUsesDraftValues,
 	s3DriverPromotionBlocked,
@@ -118,6 +131,36 @@ export function StoragePolicyEditForm({
 	const renderedPromotionTargetLabel =
 		s3DriverPromotionTargetLabel ??
 		renderedS3DriverPromotionTargetLabelRef.current;
+	const canUseObjectStorageConnection = supportsObjectStorageConnection(
+		storageDriverDescriptor,
+	);
+	const canUseRemoteNodeBinding = supportsRemoteNodeBinding(
+		storageDriverDescriptor,
+	);
+	const canUseApplicationCredentials = supportsApplicationCredentials(
+		storageDriverDescriptor,
+	);
+	const canUseOneDrivePolicyOptions = supportsOneDrivePolicyOptions(
+		storageDriverDescriptor,
+	);
+	const canUseOneDriveConnection =
+		canUseApplicationCredentials || canUseOneDrivePolicyOptions;
+	const canUseS3TransferStrategy = supportsS3TransferStrategy(
+		storageDriverDescriptor,
+	);
+	const canUseContentDedupPolicyOption = supportsContentDedupPolicyOption(
+		storageDriverDescriptor,
+	);
+	const canStartStorageAuthorization = supportsStorageAuthorizationAction(
+		storageDriverDescriptor,
+	);
+	const canValidateStorageCredential = supportsCredentialValidationAction(
+		storageDriverDescriptor,
+	);
+	const canManageStorageCredential =
+		canUseApplicationCredentials ||
+		canStartStorageAuthorization ||
+		canValidateStorageCredential;
 
 	return (
 		<div data-testid="policy-edit-shell" className="space-y-4">
@@ -151,7 +194,7 @@ export function StoragePolicyEditForm({
 					</div>
 				</section>
 
-				{isObjectStorageDriver(form.driver_type) ? (
+				{canUseObjectStorageConnection ? (
 					<section className="rounded-2xl border border-border/70 bg-background/70 p-5">
 						<PolicySectionIntro
 							title={t("policy_editor_connection_title")}
@@ -181,7 +224,12 @@ export function StoragePolicyEditForm({
 									/>
 								) : null}
 							</AnimatedCollapsible>
-							<AnimatedCollapsible open={form.driver_type === "tencent_cos"}>
+							<AnimatedCollapsible
+								open={
+									form.driver_type === "tencent_cos" &&
+									canConfigureTencentCosCors
+								}
+							>
 								<TencentCosCorsPanel
 									confirmOpen={cosCorsConfirmOpen}
 									submitting={cosCorsSubmitting}
@@ -194,7 +242,7 @@ export function StoragePolicyEditForm({
 							</AnimatedCollapsible>
 						</div>
 					</section>
-				) : form.driver_type === "remote" ? (
+				) : canUseRemoteNodeBinding ? (
 					<section className="rounded-2xl border border-border/70 bg-background/70 p-5">
 						<PolicySectionIntro
 							title={t("policy_editor_remote_title")}
@@ -211,7 +259,7 @@ export function StoragePolicyEditForm({
 							<RemoteRulesHelper t={t} />
 						</div>
 					</section>
-				) : isOneDriveDriver(form.driver_type) ? (
+				) : canUseOneDriveConnection ? (
 					<section className="rounded-2xl border border-border/70 bg-background/70 p-5">
 						<PolicySectionIntro
 							title={t("policy_editor_onedrive_title")}
@@ -220,21 +268,28 @@ export function StoragePolicyEditForm({
 						<div className="space-y-4">
 							<OneDriveConnectionFields
 								form={form}
+								showApplicationFields={canUseApplicationCredentials}
+								showPolicyOptionFields={canUseOneDrivePolicyOptions}
 								t={t}
 								onFieldChange={onFieldChange}
 							/>
-							<OneDriveCredentialPanel
-								authorizationPending={storageAuthorizationSubmitting}
-								credentials={storageCredentials}
-								form={form}
-								loading={storageCredentialsLoading}
-								redirectUri={storageAuthorizationRedirectUri}
-								t={t}
-								validationPending={storageCredentialValidationSubmitting}
-								onFieldChange={onFieldChange}
-								onStartAuthorization={onStartStorageAuthorization}
-								onValidateCredential={onValidateStorageCredential}
-							/>
+							{canManageStorageCredential ? (
+								<OneDriveCredentialPanel
+									authorizationPending={storageAuthorizationSubmitting}
+									canStartAuthorization={canStartStorageAuthorization}
+									canValidateCredential={canValidateStorageCredential}
+									credentials={storageCredentials}
+									form={form}
+									loading={storageCredentialsLoading}
+									redirectUri={storageAuthorizationRedirectUri}
+									showApplicationFields={canUseApplicationCredentials}
+									t={t}
+									validationPending={storageCredentialValidationSubmitting}
+									onFieldChange={onFieldChange}
+									onStartAuthorization={onStartStorageAuthorization}
+									onValidateCredential={onValidateStorageCredential}
+								/>
+							) : null}
 						</div>
 					</section>
 				) : null}
@@ -245,7 +300,7 @@ export function StoragePolicyEditForm({
 						description={t("policy_editor_rules_desc")}
 					/>
 					<div className="space-y-4">
-						{isObjectStorageDriver(form.driver_type) ? (
+						{canUseS3TransferStrategy ? (
 							<>
 								<S3UploadStrategyField
 									form={form}
@@ -258,7 +313,7 @@ export function StoragePolicyEditForm({
 									onFieldChange={onFieldChange}
 								/>
 							</>
-						) : form.driver_type === "remote" ? (
+						) : canUseRemoteNodeBinding ? (
 							<>
 								<RemoteDownloadStrategyField
 									form={form}
@@ -271,13 +326,13 @@ export function StoragePolicyEditForm({
 									onFieldChange={onFieldChange}
 								/>
 							</>
-						) : isOneDriveDriver(form.driver_type) ? null : (
+						) : canUseOneDriveConnection ? null : canUseContentDedupPolicyOption ? (
 							<LocalContentDedupField
 								form={form}
 								t={t}
 								onFieldChange={onFieldChange}
 							/>
-						)}
+						) : null}
 						<LimitsFields form={form} t={t} onFieldChange={onFieldChange} />
 						<DefaultPolicyToggle
 							form={form}
@@ -287,7 +342,7 @@ export function StoragePolicyEditForm({
 					</div>
 				</section>
 
-				{supportsStorageNativeProcessing(form.driver_type) ? (
+				{supportsStorageNativeProcessing(storageDriverDescriptor) ? (
 					<section className="rounded-2xl border border-border/70 bg-background/70 p-5">
 						<PolicySectionIntro
 							title={t("policy_storage_native_section_title")}

@@ -1,7 +1,6 @@
 //! 存储子模块：`driver`。
 
 use crate::errors::{AsterError, MapAsterErr, Result};
-use crate::types::DriverType;
 use async_trait::async_trait;
 use tokio::io::{AsyncRead, AsyncReadExt};
 
@@ -16,28 +15,6 @@ pub struct PresignedDownloadOptions {
     pub response_cache_control: Option<String>,
     pub response_content_disposition: Option<String>,
     pub response_content_type: Option<String>,
-}
-
-pub fn driver_type_supports_native_thumbnail(driver_type: DriverType) -> bool {
-    match driver_type {
-        DriverType::Local => false,
-        DriverType::S3 => false,
-        DriverType::AzureBlob => false,
-        DriverType::TencentCos => true,
-        DriverType::Remote => false,
-        DriverType::OneDrive => false,
-    }
-}
-
-pub fn driver_type_supports_native_media_metadata(driver_type: DriverType) -> bool {
-    match driver_type {
-        DriverType::Local => false,
-        DriverType::S3 => false,
-        DriverType::AzureBlob => false,
-        DriverType::TencentCos => true,
-        DriverType::Remote => false,
-        DriverType::OneDrive => false,
-    }
 }
 
 pub trait StoragePathVisitor: Send {
@@ -198,7 +175,6 @@ pub trait StorageDriver: Send + Sync {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::DriverType;
     use std::sync::Mutex;
     use tokio::io::AsyncReadExt;
 
@@ -248,40 +224,6 @@ mod tests {
                 content_type: Some("application/octet-stream".to_string()),
             })
         }
-    }
-
-    #[test]
-    fn only_vendor_drivers_with_native_processors_support_native_thumbnail() {
-        assert!(!driver_type_supports_native_thumbnail(DriverType::Local));
-        assert!(!driver_type_supports_native_thumbnail(DriverType::S3));
-        assert!(!driver_type_supports_native_thumbnail(
-            DriverType::AzureBlob
-        ));
-        assert!(driver_type_supports_native_thumbnail(
-            DriverType::TencentCos
-        ));
-        assert!(!driver_type_supports_native_thumbnail(DriverType::Remote));
-        assert!(!driver_type_supports_native_thumbnail(DriverType::OneDrive));
-    }
-
-    #[test]
-    fn only_vendor_drivers_with_native_processors_support_native_media_metadata() {
-        assert!(!driver_type_supports_native_media_metadata(
-            DriverType::Local
-        ));
-        assert!(!driver_type_supports_native_media_metadata(DriverType::S3));
-        assert!(!driver_type_supports_native_media_metadata(
-            DriverType::AzureBlob
-        ));
-        assert!(driver_type_supports_native_media_metadata(
-            DriverType::TencentCos
-        ));
-        assert!(!driver_type_supports_native_media_metadata(
-            DriverType::Remote
-        ));
-        assert!(!driver_type_supports_native_media_metadata(
-            DriverType::OneDrive
-        ));
     }
 
     #[tokio::test]

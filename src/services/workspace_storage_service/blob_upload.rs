@@ -4,14 +4,13 @@ use sea_orm::ConnectionTrait;
 use std::path::{Component, Path, PathBuf};
 use tokio::io::AsyncRead;
 
-use crate::entities::file_blob;
-use crate::errors::{AsterError, MapAsterErr, Result};
-use crate::types::DriverType;
-
 use super::{
     StorageOperationContext, create_nondedup_blob_with_key, create_remote_nondedup_blob,
     create_s3_nondedup_blob,
 };
+use crate::entities::file_blob;
+use crate::errors::{AsterError, MapAsterErr, Result};
+use crate::storage::connectors::StorageConnectorUploadTransport;
 
 #[derive(Debug, Clone)]
 pub(crate) enum PreparedNonDedupBlobUpload {
@@ -50,8 +49,8 @@ pub(crate) fn prepare_non_dedup_blob_upload(
     policy: &crate::entities::storage_policy::Model,
     size: i64,
 ) -> PreparedNonDedupBlobUpload {
-    match policy.driver_type {
-        DriverType::Local => {
+    match crate::storage::connectors::resolve_policy_upload_transport(policy) {
+        StorageConnectorUploadTransport::Local => {
             let blob_key = crate::utils::id::new_short_token();
             PreparedNonDedupBlobUpload::Local {
                 base_path: crate::storage::drivers::local::effective_base_path(policy),
@@ -61,8 +60,11 @@ pub(crate) fn prepare_non_dedup_blob_upload(
                 policy_id: policy.id,
             }
         }
-        DriverType::S3 | DriverType::TencentCos | DriverType::AzureBlob | DriverType::OneDrive => {
+        StorageConnectorUploadTransport::ObjectStorage(_)
+        | StorageConnectorUploadTransport::OneDrive => {
             let upload_id = crate::utils::id::new_uuid();
+            // Historical blob metadata calls this path shape "S3"; connector
+            // transport keeps new drivers out of this service-level dispatch.
             PreparedNonDedupBlobUpload::S3 {
                 storage_path: format!("files/{upload_id}"),
                 upload_id,
@@ -70,7 +72,7 @@ pub(crate) fn prepare_non_dedup_blob_upload(
                 policy_id: policy.id,
             }
         }
-        DriverType::Remote => {
+        StorageConnectorUploadTransport::Remote(_) => {
             let upload_id = crate::utils::id::new_uuid();
             PreparedNonDedupBlobUpload::Remote {
                 storage_path: format!("files/{upload_id}"),

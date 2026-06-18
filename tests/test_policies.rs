@@ -67,6 +67,105 @@ where
     body["data"]["id"].as_i64().unwrap()
 }
 
+#[actix_web::test]
+async fn test_admin_storage_driver_descriptors_expose_capability_matrix() {
+    let state = common::setup().await;
+    let app = create_test_app!(state);
+    let (token, _) = register_and_login!(app);
+
+    let req = test::TestRequest::get()
+        .uri("/api/v1/admin/policies/storage-drivers")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+    let body: Value = test::read_body_json(resp).await;
+    let descriptors = body["data"].as_array().expect("descriptor list");
+
+    assert_eq!(descriptors.len(), 6);
+
+    let descriptor = |driver_type: &str| {
+        descriptors
+            .iter()
+            .find(|item| item["driver_type"] == driver_type)
+            .unwrap_or_else(|| panic!("{driver_type} descriptor should exist"))
+    };
+
+    let onedrive = descriptor("one_drive");
+    assert_eq!(onedrive["credential_mode"], "oauth_delegated");
+    assert_eq!(onedrive["requires_authorization"], true);
+    assert_eq!(onedrive["authorization_provider"], "microsoft_graph");
+    let onedrive_actions = onedrive["actions"].as_array().expect("onedrive actions");
+    assert!(!onedrive_actions.iter().any(|action| {
+        action["action"] == "test_draft_connection" && action["kind"] == "connection_test"
+    }));
+    let saved_onedrive_test = onedrive_actions
+        .iter()
+        .find(|action| {
+            action["action"] == "test_saved_connection" && action["kind"] == "connection_test"
+        })
+        .expect("onedrive saved connection test action");
+    assert_eq!(saved_onedrive_test["requires_saved_policy"], true);
+    assert_eq!(saved_onedrive_test["requires_authorization"], true);
+    assert_eq!(onedrive["upload_workflows"]["stream_upload"], true);
+    assert_eq!(
+        onedrive["upload_workflows"]["object_multipart_upload"],
+        false
+    );
+    assert_eq!(
+        onedrive["upload_workflows"]["provider_resumable_upload"],
+        true
+    );
+    assert_eq!(
+        onedrive["upload_workflows"]["frontend_direct_provider_resumable_upload"],
+        false
+    );
+    let s3 = descriptor("s3");
+    assert!(
+        s3["actions"]
+            .as_array()
+            .expect("s3 actions")
+            .iter()
+            .any(|action| action["action"] == "test_draft_connection"
+                && action["kind"] == "connection_test")
+    );
+    assert_eq!(s3["upload_workflows"]["object_multipart_upload"], true);
+    assert_eq!(s3["capabilities"]["storage_native_thumbnail"], false);
+
+    let azure_blob = descriptor("azure_blob");
+    assert_eq!(
+        azure_blob["upload_workflows"]["object_multipart_upload"],
+        true
+    );
+
+    let tencent_cos = descriptor("tencent_cos");
+    assert_eq!(
+        tencent_cos["capabilities"]["storage_native_thumbnail"],
+        true
+    );
+    assert_eq!(
+        tencent_cos["capabilities"]["storage_native_media_metadata"],
+        true
+    );
+    assert!(
+        tencent_cos["actions"]
+            .as_array()
+            .expect("cos actions")
+            .iter()
+            .any(|action| action["action"] == "configure_tencent_cos_cors"
+                && action["kind"] == "policy_action"
+                && action["mutates_remote_state"] == true)
+    );
+
+    let local = descriptor("local");
+    assert_eq!(local["upload_workflows"]["object_multipart_upload"], false);
+    assert_eq!(local["capabilities"]["remote_node_binding"], false);
+
+    let remote = descriptor("remote");
+    assert_eq!(remote["upload_workflows"]["object_multipart_upload"], true);
+    assert_eq!(remote["capabilities"]["remote_node_binding"], true);
+}
+
 async fn create_personal_folder<S, B>(
     app: &S,
     token: &str,
@@ -1258,6 +1357,45 @@ async fn test_policy_rejects_storage_native_thumbnail_for_unsupported_driver() {
             .as_str()
             .unwrap_or_default()
             .contains("does not expose storage-native thumbnail processing")
+    );
+}
+
+#[actix_web::test]
+async fn test_policy_rejects_storage_native_media_metadata_for_unsupported_driver() {
+    let state = common::setup().await;
+    let app = create_test_app!(state);
+    let (token, _) = register_and_login!(app);
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/admin/policies")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({
+            "name": "Native Metadata Local",
+            "driver_type": "local",
+            "base_path": "/tmp/test-native-metadata-local",
+            "max_file_size": 0,
+            "is_default": false,
+            "options": {
+                "storage_native_processing_enabled": true,
+                "storage_native_media_metadata_enabled": true,
+                "media_metadata_extensions": ["mp4"]
+            }
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 400);
+
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(
+        body["code"],
+        ApiErrorCode::PolicyNativeMediaMetadataUnsupported.as_str()
+    );
+    assert!(
+        body["msg"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("does not expose storage-native media metadata processing")
     );
 }
 
@@ -2829,7 +2967,7 @@ async fn test_policy_params_rejects_onedrive_draft_connection_test() {
     assert_eq!(body["code"], ApiErrorCode::PolicyActionUnsupported.as_str());
     assert_eq!(
         body["msg"],
-        "OneDrive draft connection tests require a saved storage policy with completed Microsoft Graph authorization; use the saved policy connection test after authorization"
+        "storage policy driver 'onedrive' requires a saved storage policy with completed authorization; use the saved policy connection test after authorization"
     );
 }
 
@@ -2871,6 +3009,25 @@ async fn test_tencent_cos_cors_config_rejects_invalid_inputs_with_stable_codes()
     assert_eq!(resp.status(), 400);
     let body: Value = test::read_body_json(resp).await;
     assert_eq!(body["code"], ApiErrorCode::PolicyActionUnsupported.as_str());
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/admin/policies/action")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({
+            "action": "start_authorization",
+            "driver_type": "one_drive",
+            "base_path": "draft-root"
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 400);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(body["code"], ApiErrorCode::PolicyActionUnsupported.as_str());
+    assert_eq!(
+        body["msg"],
+        "storage policy action 'start_authorization' is not supported for onedrive storage policies"
+    );
 
     let req = test::TestRequest::post()
         .uri("/api/v1/admin/policies/action")

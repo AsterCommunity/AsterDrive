@@ -232,6 +232,24 @@ pub async fn list_policies(
 }
 
 #[api_docs_macros::path(
+    get,
+    path = "/api/v1/admin/policies/storage-drivers",
+    tag = "admin",
+    operation_id = "list_storage_driver_descriptors",
+    responses(
+        (status = 200, description = "List storage driver capability descriptors", body = inline(ApiResponse<Vec<crate::storage::StorageConnectorDescriptor>>)),
+        (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
+        (status = 403, description = "Forbidden"),
+    ),
+    security(("bearer" = [])),
+)]
+pub async fn list_storage_driver_descriptors() -> Result<HttpResponse> {
+    Ok(HttpResponse::Ok().json(ApiResponse::ok(
+        crate::storage::connectors::list_storage_driver_descriptors(),
+    )))
+}
+
+#[api_docs_macros::path(
     post,
     path = "/api/v1/admin/policies",
     tag = "admin",

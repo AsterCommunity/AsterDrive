@@ -24,8 +24,8 @@ use crate::services::storage_credential_service::{
 use crate::storage::StorageErrorKind;
 use crate::storage::error::storage_driver_error;
 use crate::types::{
-    AuditAction, AuditEntityType, MicrosoftGraphCloud, OneDriveAccountMode, StoragePolicyOptions,
-    StoredStoragePolicyAllowedTypes,
+    AuditAction, AuditEntityType, DriverType, MicrosoftGraphCloud, OneDriveAccountMode,
+    StoragePolicyOptions, StoredStoragePolicyAllowedTypes,
 };
 use migration::Migrator;
 use sea_orm::{ColumnTrait, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder};

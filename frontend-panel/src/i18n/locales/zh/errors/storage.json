@@ -23,6 +23,7 @@
 	"policy_onedrive_sharepoint_site_required": "SharePoint 站点模式需要填写 Site ID，除非已指定 Drive ID",
 	"policy_onedrive_group_required": "组驱动模式需要填写 Group ID，除非已指定 Drive ID",
 	"policy_native_thumbnail_unsupported": "当前策略驱动不支持存储原生缩略图处理",
+	"policy_native_media_metadata_unsupported": "当前策略驱动不支持存储原生媒体信息处理",
 	"policy_promotion_source_unsupported": "只有通用 S3 兼容存储策略可以转换驱动",
 	"policy_promotion_target_unsupported": "此存储策略不能转换为选中的目标驱动",
 	"policy_promotion_bucket_change_denied": "转换存储策略驱动时不允许变更 Bucket"

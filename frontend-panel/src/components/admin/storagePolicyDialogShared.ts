@@ -9,7 +9,11 @@ import type {
 	RemoteUploadStrategy,
 	S3DownloadStrategy,
 	S3UploadStrategy,
+	StorageConnectorAction,
+	StorageConnectorActionKind,
+	StorageConnectorDescriptor,
 	StoragePolicy,
+	StoragePolicyExecutableAction,
 	StoragePolicyOptions,
 	UpdatePolicyRequest,
 } from "@/types/api";
@@ -37,10 +41,152 @@ export function isOneDriveDriver(driverType: DriverType) {
 	return driverType === "one_drive";
 }
 
-// TODO(#328): load storage driver capability metadata from the backend instead
-// of hard-coding policy UI feature gates in the frontend.
-export function supportsStorageNativeProcessing(driverType: DriverType) {
-	return driverType === "tencent_cos";
+export function descriptorHasField(
+	descriptor: StorageConnectorDescriptor | null | undefined,
+	fieldName: string,
+) {
+	return descriptor?.fields.some((field) => field.name === fieldName) ?? false;
+}
+
+export function descriptorHasPolicyOptionField(
+	descriptor: StorageConnectorDescriptor | null | undefined,
+	fieldName: string,
+) {
+	return (
+		descriptor?.fields.some(
+			(field) => field.scope === "policy_options" && field.name === fieldName,
+		) ?? false
+	);
+}
+
+export function descriptorHasConnectionField(
+	descriptor: StorageConnectorDescriptor | null | undefined,
+	fieldName: string,
+) {
+	return (
+		descriptor?.fields.some(
+			(field) => field.scope === "connection" && field.name === fieldName,
+		) ?? false
+	);
+}
+
+export function supportsObjectStorageConnection(
+	descriptor: StorageConnectorDescriptor | null | undefined,
+) {
+	return (
+		descriptorHasConnectionField(descriptor, "endpoint") &&
+		descriptorHasConnectionField(descriptor, "bucket") &&
+		descriptorHasConnectionField(descriptor, "access_key") &&
+		descriptorHasConnectionField(descriptor, "secret_key") &&
+		descriptor?.upload_workflows.object_multipart_upload === true
+	);
+}
+
+export function supportsRemoteNodeBinding(
+	descriptor: StorageConnectorDescriptor | null | undefined,
+) {
+	return descriptor?.capabilities.remote_node_binding === true;
+}
+
+export function supportsS3TransferStrategy(
+	descriptor: StorageConnectorDescriptor | null | undefined,
+) {
+	return descriptor?.capabilities.s3_transfer_strategy === true;
+}
+
+export function supportsOneDrivePolicyOptions(
+	descriptor: StorageConnectorDescriptor | null | undefined,
+) {
+	return descriptorHasPolicyOptionField(descriptor, "account_mode");
+}
+
+export function supportsContentDedupPolicyOption(
+	descriptor: StorageConnectorDescriptor | null | undefined,
+) {
+	return descriptorHasPolicyOptionField(descriptor, "content_dedup");
+}
+
+export function supportsApplicationCredentials(
+	descriptor: StorageConnectorDescriptor | null | undefined,
+) {
+	return (
+		descriptor?.fields.some(
+			(field) => field.scope === "application_credential",
+		) ?? false
+	);
+}
+
+export function supportsStorageNativeProcessing(
+	descriptor?: StorageConnectorDescriptor | null,
+) {
+	if (descriptor) {
+		return (
+			descriptor.capabilities.storage_native_thumbnail ||
+			descriptor.capabilities.storage_native_media_metadata
+		);
+	}
+	return false;
+}
+
+export function supportsDraftConnectionTest(
+	descriptor?: StorageConnectorDescriptor | null,
+) {
+	return supportsStorageConnectorAction(
+		descriptor,
+		"test_draft_connection",
+		"connection_test",
+	);
+}
+
+export function supportsSavedConnectionTest(
+	descriptor?: StorageConnectorDescriptor | null,
+) {
+	return supportsStorageConnectorAction(
+		descriptor,
+		"test_saved_connection",
+		"connection_test",
+	);
+}
+
+export function supportsStorageAuthorizationAction(
+	descriptor?: StorageConnectorDescriptor | null,
+) {
+	return supportsStorageConnectorAction(
+		descriptor,
+		"start_authorization",
+		"authorization",
+	);
+}
+
+export function supportsCredentialValidationAction(
+	descriptor?: StorageConnectorDescriptor | null,
+) {
+	return supportsStorageConnectorAction(
+		descriptor,
+		"validate_credential",
+		"credential_validation",
+	);
+}
+
+export function supportsStorageConnectorAction(
+	descriptor: StorageConnectorDescriptor | null | undefined,
+	action: StorageConnectorAction,
+	kind?: StorageConnectorActionKind,
+) {
+	return descriptor
+		? descriptor.actions.some(
+				(actionDescriptor) =>
+					actionDescriptor.action === action &&
+					(kind === undefined || actionDescriptor.kind === kind),
+			)
+		: false;
+}
+
+export function supportsStoragePolicyAction(
+	descriptor: StorageConnectorDescriptor | null | undefined,
+	action: StoragePolicyExecutableAction,
+) {
+	return supportsStorageConnectorAction(descriptor, action, "policy_action");
 }
 
 export type S3CompatiblePromotionDriverType = Extract<
@@ -189,6 +335,9 @@ export function getEffectiveRemoteUploadStrategy(
 export function buildPolicyOptions(form: PolicyFormData): StoragePolicyOptions {
 	const options: StoragePolicyOptions = {};
 
+	// Descriptor gates decide which UI sections are available. This serializer is
+	// still intentionally driver-shaped until #329/#330 introduce typed upload
+	// workflow and OneDrive application credential payloads.
 	if (form.driver_type === "local") {
 		if (form.content_dedup) {
 			options.content_dedup = true;
@@ -408,6 +557,8 @@ export function buildCreatePolicyPayload(
 	form: PolicyFormData,
 ): CreatePolicyRequest {
 	const normalizedForm = normalizePolicyForm(form);
+	// #330 keeps this legacy mapping explicit: Microsoft Graph application
+	// settings still ride through policy access_key/secret_key for now.
 	const accessKey =
 		normalizedForm.driver_type === "one_drive"
 			? normalizedForm.onedrive_client_id
@@ -441,6 +592,8 @@ export function buildUpdatePolicyPayload(
 	form: PolicyFormData,
 ): UpdatePolicyRequest {
 	const normalizedForm = normalizePolicyForm(form);
+	// #330 will replace this with provider-specific application credential
+	// payloads; empty values preserve saved legacy policy credentials today.
 	const accessKey =
 		normalizedForm.driver_type === "one_drive"
 			? normalizedForm.onedrive_client_id
@@ -532,8 +685,12 @@ export function getPolicyConnectionTestKey(form: PolicyFormData) {
 export function getEndpointValidationMessage(
 	form: PolicyFormData,
 	t: (key: string) => string,
+	descriptor?: StorageConnectorDescriptor | null,
 ) {
-	if (!isObjectStorageDriver(form.driver_type)) {
+	const shouldValidateEndpoint = descriptor
+		? supportsObjectStorageConnection(descriptor)
+		: isObjectStorageDriver(form.driver_type);
+	if (!shouldValidateEndpoint) {
 		return null;
 	}
 

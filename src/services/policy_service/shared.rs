@@ -4,17 +4,13 @@ use chrono::Utc;
 use sea_orm::Set;
 use validator::Validate;
 
-use crate::api::api_error_code::ApiErrorCode;
-use crate::db::repository::{managed_follower_repo, policy_group_repo, policy_repo};
+use crate::db::repository::{policy_group_repo, policy_repo};
 use crate::entities::{storage_policy_group, storage_policy_group_item};
-use crate::errors::{AsterError, Result, validation_error_with_code};
+use crate::errors::{AsterError, Result};
 use crate::runtime::SharedRuntimeState;
-use crate::storage::drivers::azure_blob::{AzureBlobConfigError, AzureBlobDriver};
-use crate::storage::drivers::s3_config::{S3ConfigError, normalize_s3_endpoint_and_bucket};
 use crate::types::{
-    DriverType, RemoteNodeTransportMode, StoragePolicyOptions, StoredStoragePolicyAllowedTypes,
-    StoredStoragePolicyOptions, serialize_storage_policy_allowed_types,
-    serialize_storage_policy_options,
+    StoragePolicyOptions, StoredStoragePolicyAllowedTypes, StoredStoragePolicyOptions,
+    serialize_storage_policy_allowed_types, serialize_storage_policy_options,
 };
 
 use super::models::{
@@ -69,94 +65,6 @@ pub(super) fn format_group_assignment_blocker(
         "cannot {action} policy group: {}",
         refs.join(" and ")
     ))
-}
-
-pub(super) fn normalize_connection_fields(
-    driver_type: DriverType,
-    endpoint: &str,
-    bucket: &str,
-) -> Result<(String, String)> {
-    match driver_type {
-        DriverType::Local => Ok((endpoint.trim().to_string(), bucket.trim().to_string())),
-        DriverType::Remote | DriverType::OneDrive => Ok((String::new(), String::new())),
-        DriverType::AzureBlob => {
-            let normalized = AzureBlobDriver::try_normalize_endpoint_and_container(
-                endpoint, bucket,
-            )
-            .map_err(|error| {
-                let api_code = match &error {
-                    AzureBlobConfigError::MissingContainer => {
-                        ApiErrorCode::PolicyStorageBucketRequired
-                    }
-                    AzureBlobConfigError::MissingEndpoint
-                    | AzureBlobConfigError::InvalidEndpoint(_) => {
-                        ApiErrorCode::PolicyStorageEndpointInvalid
-                    }
-                };
-                error.into_aster_error().with_api_error_code(api_code)
-            })?;
-            Ok((normalized.endpoint, normalized.container))
-        }
-        DriverType::S3 | DriverType::TencentCos => {
-            let normalized = normalize_s3_endpoint_and_bucket(endpoint, bucket).map_err(
-                |error| match error {
-                    S3ConfigError::MissingBucket => error
-                        .into_aster_error()
-                        .with_api_error_code(ApiErrorCode::PolicyStorageBucketRequired),
-                    S3ConfigError::InvalidEndpoint(_) => error
-                        .into_aster_error()
-                        .with_api_error_code(ApiErrorCode::PolicyStorageEndpointInvalid),
-                },
-            )?;
-            Ok((normalized.endpoint, normalized.bucket))
-        }
-    }
-}
-
-pub(super) async fn validate_remote_binding<C: sea_orm::ConnectionTrait>(
-    db: &C,
-    driver_type: DriverType,
-    remote_node_id: Option<i64>,
-) -> Result<Option<i64>> {
-    match driver_type {
-        DriverType::Remote => {
-            let remote_node_id = remote_node_id.ok_or_else(|| {
-                validation_error_with_code(
-                    ApiErrorCode::PolicyRemoteNodeRequired,
-                    "remote storage policy requires remote_node_id",
-                )
-            })?;
-            let remote_node = managed_follower_repo::find_by_id(db, remote_node_id).await?;
-            if !remote_node.is_enabled {
-                return Err(validation_error_with_code(
-                    ApiErrorCode::PolicyRemoteNodeDisabled,
-                    format!("remote node #{remote_node_id} is disabled"),
-                ));
-            }
-            if remote_node.transport_mode == RemoteNodeTransportMode::Direct
-                && remote_node.base_url.trim().is_empty()
-            {
-                return Err(validation_error_with_code(
-                    ApiErrorCode::PolicyRemoteNodeBaseUrlRequired,
-                    "remote node base_url is required for remote storage policies",
-                ));
-            }
-            Ok(Some(remote_node_id))
-        }
-        DriverType::Local
-        | DriverType::S3
-        | DriverType::AzureBlob
-        | DriverType::TencentCos
-        | DriverType::OneDrive => {
-            if remote_node_id.is_some() {
-                return Err(validation_error_with_code(
-                    ApiErrorCode::PolicyRemoteNodeUnexpected,
-                    "remote_node_id is only valid for remote storage policies",
-                ));
-            }
-            Ok(None)
-        }
-    }
 }
 
 pub(super) fn build_group_info(
@@ -362,45 +270,5 @@ mod tests {
         let msg = format_group_assignment_blocker("delete", 2, 4).unwrap();
         assert!(msg.contains("2 user") || msg.contains("4 team"));
         assert!(msg.contains("and"));
-    }
-
-    #[test]
-    fn normalize_connection_fields_local_trims() {
-        let (endpoint, bucket) =
-            normalize_connection_fields(DriverType::Local, "  /data/uploads  ", "  ").unwrap();
-        assert_eq!(endpoint, "/data/uploads");
-        assert_eq!(bucket, "");
-    }
-
-    #[test]
-    fn normalize_connection_fields_azure_blob_maps_endpoint_and_container_errors() {
-        let endpoint_error =
-            normalize_connection_fields(DriverType::AzureBlob, "", "photos").unwrap_err();
-        assert_eq!(
-            endpoint_error.api_error_code(),
-            ApiErrorCode::PolicyStorageEndpointInvalid
-        );
-
-        let container_error = normalize_connection_fields(
-            DriverType::AzureBlob,
-            "https://acct.blob.core.windows.net",
-            "",
-        )
-        .unwrap_err();
-        assert_eq!(
-            container_error.api_error_code(),
-            ApiErrorCode::PolicyStorageBucketRequired
-        );
-
-        let invalid_endpoint_error = normalize_connection_fields(
-            DriverType::AzureBlob,
-            "acct.blob.core.windows.net",
-            "photos",
-        )
-        .unwrap_err();
-        assert_eq!(
-            invalid_endpoint_error.api_error_code(),
-            ApiErrorCode::PolicyStorageEndpointInvalid
-        );
     }
 }

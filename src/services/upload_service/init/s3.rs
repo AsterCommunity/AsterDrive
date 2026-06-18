@@ -23,7 +23,7 @@ pub(super) async fn init_s3_upload(
     ctx: &InitUploadContext,
 ) -> Result<Option<InitUploadResponse>> {
     let transport = resolve_policy_upload_transport(&ctx.policy);
-    let PolicyUploadTransport::S3(strategy) = transport else {
+    let PolicyUploadTransport::ObjectStorage(strategy) = transport else {
         return Ok(None);
     };
     match strategy {

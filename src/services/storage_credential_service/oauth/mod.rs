@@ -18,7 +18,7 @@ use crate::runtime::SharedRuntimeState;
 use crate::services::audit_service::{AuditContext, AuditRequestInfo};
 use crate::storage::drivers::onedrive::{MicrosoftGraphClient, MicrosoftGraphClientConfig};
 use crate::types::{
-    DriverType, StorageAuthorizationFlowStatus, StorageCredentialKind, StorageCredentialProvider,
+    StorageAuthorizationFlowStatus, StorageCredentialKind, StorageCredentialProvider,
     StorageCredentialStatus, parse_storage_policy_options,
 };
 use crate::utils::id;
@@ -141,11 +141,10 @@ pub async fn start_authorization(
     input: StorageAuthorizationStartInput,
 ) -> Result<StorageAuthorizationStartResponse> {
     let policy = policy_repo::find_by_id(state.writer_db(), policy_id).await?;
-    if policy.driver_type != DriverType::OneDrive {
-        return Err(AsterError::validation_error(
-            "storage credential authorization is only supported for OneDrive policies",
-        ));
-    }
+    crate::storage::connectors::ensure_storage_authorization_supported(
+        policy.driver_type,
+        input.provider,
+    )?;
     match input.provider {
         StorageCredentialProvider::MicrosoftGraph => {
             start_microsoft_graph_authorization(
@@ -430,16 +429,36 @@ pub async fn finish_authorization_callback(
     let flow_user_id = flow.created_by_user_id;
     let flow_cloud = microsoft_graph_flow_cloud(&flow);
     let flow_tenant = microsoft_graph_flow_tenant(&flow);
-    // TODO(#328): Move provider-specific callback capability and persistence
-    // rules into storage connector metadata instead of branching here.
-    if flow.provider != StorageCredentialProvider::MicrosoftGraph {
-        let _ = txn.rollback().await;
-        let error = StorageAuthorizationCallbackError::new(
+    let policy_id = match flow.policy_id {
+        Some(policy_id) => policy_id,
+        None => {
+            let _ = txn.rollback().await;
+            return Err(storage_authorization_callback_server_error(
+                AsterError::database_operation("storage authorization flow missing policy_id"),
+            ));
+        }
+    };
+    let policy = match policy_repo::find_by_id(&txn, policy_id)
+        .await
+        .map_err(storage_authorization_callback_server_error)
+    {
+        Ok(policy) => policy,
+        Err(error) => {
+            let _ = txn.rollback().await;
+            return Err(error);
+        }
+    };
+    if let Err(error) = crate::storage::connectors::ensure_storage_authorization_supported(
+        policy.driver_type,
+        flow.provider,
+    )
+    .map_err(|error| {
+        StorageAuthorizationCallbackError::new(
             StorageAuthorizationFailureReason::UnsupportedProvider,
-            AsterError::unsupported_driver(
-                "Google Drive storage credential authorization is not implemented yet",
-            ),
-        );
+            error,
+        )
+    }) {
+        let _ = txn.rollback().await;
         log_storage_credential_oauth_audit(
             state,
             &AuditContext {
@@ -460,25 +479,6 @@ pub async fn finish_authorization_callback(
         .await;
         return Err(error);
     }
-    let policy_id = match flow.policy_id {
-        Some(policy_id) => policy_id,
-        None => {
-            let _ = txn.rollback().await;
-            return Err(storage_authorization_callback_server_error(
-                AsterError::database_operation("storage authorization flow missing policy_id"),
-            ));
-        }
-    };
-    let policy = match policy_repo::find_by_id(&txn, policy_id)
-        .await
-        .map_err(storage_authorization_callback_server_error)
-    {
-        Ok(policy) => policy,
-        Err(error) => {
-            let _ = txn.rollback().await;
-            return Err(error);
-        }
-    };
     let policy_options = parse_storage_policy_options(policy.options.as_ref());
     // Keep Microsoft Graph token exchange and drive resolution outside the DB
     // transaction; provider latency must not hold SQLite/MySQL/Postgres locks.
@@ -486,7 +486,7 @@ pub async fn finish_authorization_callback(
         .await
         .map_err(|error| storage_authorization_callback_server_error(error.into()))?;
     let now = Utc::now();
-    let credential_result = finish_microsoft_graph_callback(
+    let credential_result = finish_authorization_provider_callback(
         &state.config().auth.storage_credential_secret_key,
         &flow,
         &policy_options,
@@ -708,6 +708,29 @@ async fn finish_microsoft_graph_callback(
         last_validated_at: Set(None),
         ..Default::default()
     })
+}
+
+async fn finish_authorization_provider_callback(
+    encryption_key: &str,
+    flow: &storage_policy_authorization_flow::Model,
+    options: &crate::types::StoragePolicyOptions,
+    code: &str,
+    now: chrono::DateTime<Utc>,
+) -> std::result::Result<storage_policy_credential::ActiveModel, StorageAuthorizationCallbackError>
+{
+    // Provider protocol handling stays in storage_credential_service; the
+    // connector layer only decides whether the policy is allowed to use it.
+    match flow.provider {
+        StorageCredentialProvider::MicrosoftGraph => {
+            finish_microsoft_graph_callback(encryption_key, flow, options, code, now).await
+        }
+        StorageCredentialProvider::GoogleDrive => Err(StorageAuthorizationCallbackError::new(
+            StorageAuthorizationFailureReason::UnsupportedProvider,
+            AsterError::unsupported_driver(
+                "Google Drive storage credential authorization is not implemented yet",
+            ),
+        )),
+    }
 }
 
 fn callback_redirect_uri(

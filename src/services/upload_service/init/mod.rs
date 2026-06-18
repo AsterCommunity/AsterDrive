@@ -99,6 +99,10 @@ async fn init_upload_for_scope(
         return Ok(direct_upload_response());
     }
 
+    // #329 boundary: these branches cover object-storage multipart and remote
+    // protocol uploads. Provider-native resumable sessions, such as Microsoft
+    // Graph upload sessions, need a separate workflow instead of pretending to
+    // be S3-style multipart.
     if let Some(response) = s3::init_s3_upload(state, &ctx).await? {
         record_upload_session_if_created(state, &response);
         return Ok(response);

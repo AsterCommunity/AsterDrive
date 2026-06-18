@@ -13,11 +13,45 @@ import {
 	isS3CompatibleDriver,
 	isTencentCosEndpoint,
 	normalizePolicyForm,
+	supportsApplicationCredentials,
+	supportsContentDedupPolicyOption,
+	supportsCredentialValidationAction,
+	supportsDraftConnectionTest,
+	supportsObjectStorageConnection,
+	supportsOneDrivePolicyOptions,
+	supportsRemoteNodeBinding,
+	supportsS3TransferStrategy,
+	supportsSavedConnectionTest,
+	supportsStorageAuthorizationAction,
+	supportsStorageNativeProcessing,
+	supportsStoragePolicyAction,
 } from "@/components/admin/storagePolicyDialogShared";
 import type { StoragePolicy } from "@/types/api";
 
 describe("storagePolicyDialogShared", () => {
 	const t = (key: string) => key;
+	const descriptor = {
+		actions: [
+			{
+				action: "test_saved_connection",
+				endpoints: ["test_policy_connection"],
+				kind: "connection_test",
+				mutates_remote_state: false,
+				requires_authorization: false,
+				requires_saved_policy: true,
+			},
+		],
+		capabilities: {
+			remote_node_binding: false,
+			storage_native_media_metadata: false,
+			storage_native_thumbnail: false,
+			s3_transfer_strategy: false,
+		},
+		fields: [],
+		upload_workflows: {
+			object_multipart_upload: false,
+		},
+	} as never;
 
 	it("detects Tencent COS endpoints for generic S3 driver promotion", () => {
 		expect(isTencentCosEndpoint("https://cos.ap-guangzhou.myqcloud.com")).toBe(
@@ -68,6 +102,151 @@ describe("storagePolicyDialogShared", () => {
 		expect(isS3CompatibleDriver("tencent_cos")).toBe(true);
 		expect(isS3CompatibleDriver("azure_blob")).toBe(false);
 		expect(isObjectStorageDriver("azure_blob")).toBe(true);
+	});
+
+	it("uses backend storage driver descriptors as feature gate source", () => {
+		const objectStorageDescriptor = {
+			capabilities: {
+				remote_node_binding: false,
+				s3_transfer_strategy: true,
+			},
+			fields: [
+				{ name: "endpoint", scope: "connection" },
+				{ name: "bucket", scope: "connection" },
+				{ name: "access_key", scope: "connection" },
+				{ name: "secret_key", scope: "connection" },
+			],
+			upload_workflows: {
+				object_multipart_upload: true,
+			},
+		} as never;
+		const remoteDescriptor = {
+			capabilities: {
+				remote_node_binding: true,
+			},
+			fields: [{ name: "remote_node_id", scope: "remote_node_binding" }],
+			upload_workflows: {},
+		} as never;
+		const onedriveDescriptor = {
+			actions: [
+				{ action: "start_authorization", kind: "authorization" },
+				{ action: "validate_credential", kind: "credential_validation" },
+			],
+			capabilities: {
+				remote_node_binding: false,
+			},
+			fields: [{ name: "account_mode", scope: "policy_options" }],
+			upload_workflows: {},
+		} as never;
+		const contentDedupDescriptor = {
+			capabilities: {
+				remote_node_binding: false,
+			},
+			fields: [{ name: "content_dedup", scope: "policy_options" }],
+			upload_workflows: {},
+		} as never;
+
+		expect(supportsDraftConnectionTest()).toBe(false);
+		expect(supportsDraftConnectionTest(descriptor)).toBe(false);
+		expect(supportsSavedConnectionTest()).toBe(false);
+		expect(supportsSavedConnectionTest(descriptor)).toBe(true);
+		expect(supportsStorageNativeProcessing()).toBe(false);
+		expect(supportsStorageNativeProcessing(descriptor)).toBe(false);
+		expect(
+			supportsStoragePolicyAction(descriptor, "configure_tencent_cos_cors"),
+		).toBe(false);
+		expect(
+			supportsStoragePolicyAction(null, "configure_tencent_cos_cors"),
+		).toBe(false);
+		expect(supportsObjectStorageConnection(objectStorageDescriptor)).toBe(true);
+		expect(supportsRemoteNodeBinding(remoteDescriptor)).toBe(true);
+		expect(supportsS3TransferStrategy(objectStorageDescriptor)).toBe(true);
+		expect(supportsOneDrivePolicyOptions(onedriveDescriptor)).toBe(true);
+		expect(supportsContentDedupPolicyOption(contentDedupDescriptor)).toBe(true);
+		expect(supportsStorageAuthorizationAction(onedriveDescriptor)).toBe(true);
+		expect(supportsCredentialValidationAction(onedriveDescriptor)).toBe(true);
+	});
+
+	it("rejects incomplete or mismatched descriptor feature gates", () => {
+		const incompleteObjectStorageDescriptor = {
+			capabilities: {
+				remote_node_binding: false,
+				s3_transfer_strategy: true,
+			},
+			fields: [
+				{ name: "endpoint", scope: "connection" },
+				{ name: "bucket", scope: "connection" },
+				{ name: "access_key", scope: "connection" },
+			],
+			upload_workflows: {
+				object_multipart_upload: true,
+			},
+		} as never;
+		const wrongScopeObjectStorageDescriptor = {
+			capabilities: {
+				remote_node_binding: false,
+				s3_transfer_strategy: true,
+			},
+			fields: [
+				{ name: "endpoint", scope: "policy_options" },
+				{ name: "bucket", scope: "connection" },
+				{ name: "access_key", scope: "connection" },
+				{ name: "secret_key", scope: "connection" },
+			],
+			upload_workflows: {
+				object_multipart_upload: true,
+			},
+		} as never;
+		const noMultipartWorkflowDescriptor = {
+			capabilities: {
+				remote_node_binding: false,
+				s3_transfer_strategy: true,
+			},
+			fields: [
+				{ name: "endpoint", scope: "connection" },
+				{ name: "bucket", scope: "connection" },
+				{ name: "access_key", scope: "connection" },
+				{ name: "secret_key", scope: "connection" },
+			],
+			upload_workflows: {
+				object_multipart_upload: false,
+			},
+		} as never;
+		const applicationCredentialDescriptor = {
+			capabilities: {
+				remote_node_binding: false,
+			},
+			fields: [{ name: "client_id", scope: "application_credential" }],
+			upload_workflows: {},
+		} as never;
+
+		expect(supportsObjectStorageConnection(null)).toBe(false);
+		expect(
+			supportsObjectStorageConnection(incompleteObjectStorageDescriptor),
+		).toBe(false);
+		expect(
+			supportsObjectStorageConnection(wrongScopeObjectStorageDescriptor),
+		).toBe(false);
+		expect(supportsObjectStorageConnection(noMultipartWorkflowDescriptor)).toBe(
+			false,
+		);
+		expect(supportsRemoteNodeBinding(null)).toBe(false);
+		expect(supportsS3TransferStrategy(null)).toBe(false);
+		expect(supportsStorageAuthorizationAction(null)).toBe(false);
+		expect(supportsCredentialValidationAction(null)).toBe(false);
+		expect(supportsOneDrivePolicyOptions(applicationCredentialDescriptor)).toBe(
+			false,
+		);
+		expect(
+			supportsApplicationCredentials(applicationCredentialDescriptor),
+		).toBe(true);
+		expect(supportsApplicationCredentials(null)).toBe(false);
+		expect(supportsContentDedupPolicyOption(null)).toBe(false);
+		expect(
+			supportsContentDedupPolicyOption({
+				fields: [{ name: "content_dedup", scope: "connection" }],
+			} as never),
+		).toBe(false);
 	});
 
 	it("maps an existing policy into form state", () => {

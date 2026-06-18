@@ -25,13 +25,23 @@ import {
 	isObjectStorageDriver,
 	isOneDriveDriver,
 	type PolicyFormData,
+	supportsApplicationCredentials,
+	supportsContentDedupPolicyOption,
+	supportsObjectStorageConnection,
+	supportsOneDrivePolicyOptions,
+	supportsRemoteNodeBinding,
+	supportsS3TransferStrategy,
 	supportsStorageNativeProcessing,
 } from "@/components/admin/storagePolicyDialogShared";
 import { AnimatedCollapsible } from "@/components/common/AnimatedCollapsible";
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
 import { cn } from "@/lib/utils";
-import type { DriverType, RemoteNodeInfo } from "@/types/api";
+import type {
+	DriverType,
+	RemoteNodeInfo,
+	StorageConnectorDescriptor,
+} from "@/types/api";
 import type {
 	StoragePolicyDialogStep,
 	StoragePolicyFieldChangeHandler,
@@ -50,6 +60,7 @@ interface StoragePolicyCreateWizardProps {
 	currentStorageOption: StoragePolicyDriverOption;
 	endpointValidationMessage: string | null;
 	form: PolicyFormData;
+	storageDriverDescriptor: StorageConnectorDescriptor | null;
 	onCreateStepChange: (step: number) => void;
 	onDriverTypeChange: (driverType: DriverType) => void;
 	onFieldChange: StoragePolicyFieldChangeHandler;
@@ -74,6 +85,7 @@ export function StoragePolicyCreateWizard({
 	currentStorageOption,
 	endpointValidationMessage,
 	form,
+	storageDriverDescriptor,
 	onCreateStepChange,
 	onDriverTypeChange,
 	onFieldChange,
@@ -133,6 +145,7 @@ export function StoragePolicyCreateWizard({
 								currentStorageOption={currentStorageOption}
 								endpointValidationMessage={endpointValidationMessage}
 								form={form}
+								storageDriverDescriptor={storageDriverDescriptor}
 								s3CompatibleDriverSuggestionTargetLabel={
 									s3CompatibleDriverSuggestionTargetLabel
 								}
@@ -149,6 +162,7 @@ export function StoragePolicyCreateWizard({
 								createRemoteNodeError={createRemoteNodeError}
 								currentStorageOption={currentStorageOption}
 								form={form}
+								storageDriverDescriptor={storageDriverDescriptor}
 								onFieldChange={onFieldChange}
 								remoteNodes={remoteNodes}
 								summaryItems={summaryItems}
@@ -304,6 +318,7 @@ interface ConnectionStepProps {
 	currentStorageOption: StoragePolicyDriverOption;
 	endpointValidationMessage: string | null;
 	form: PolicyFormData;
+	storageDriverDescriptor: StorageConnectorDescriptor | null;
 	s3CompatibleDriverSuggestionTargetLabel: string | null;
 	onApplyS3CompatibleDriverSuggestion: () => void;
 	onFieldChange: StoragePolicyFieldChangeHandler;
@@ -321,6 +336,7 @@ function ConnectionStep({
 	currentStorageOption,
 	endpointValidationMessage,
 	form,
+	storageDriverDescriptor,
 	s3CompatibleDriverSuggestionTargetLabel,
 	onApplyS3CompatibleDriverSuggestion,
 	onFieldChange,
@@ -328,6 +344,21 @@ function ConnectionStep({
 	remoteNodes,
 	t,
 }: ConnectionStepProps) {
+	const canUseObjectStorageConnection = supportsObjectStorageConnection(
+		storageDriverDescriptor,
+	);
+	const canUseRemoteNodeBinding = supportsRemoteNodeBinding(
+		storageDriverDescriptor,
+	);
+	const canUseApplicationCredentials = supportsApplicationCredentials(
+		storageDriverDescriptor,
+	);
+	const canUseOneDrivePolicyOptions = supportsOneDrivePolicyOptions(
+		storageDriverDescriptor,
+	);
+	const canUseOneDriveConnection =
+		canUseApplicationCredentials || canUseOneDrivePolicyOptions;
+
 	return (
 		<div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_280px]">
 			<div className="space-y-4">
@@ -339,7 +370,7 @@ function ConnectionStep({
 					onFieldChange={onFieldChange}
 				/>
 				<PolicyBasePathField form={form} t={t} onFieldChange={onFieldChange} />
-				{isObjectStorageDriver(form.driver_type) ? (
+				{canUseObjectStorageConnection ? (
 					<S3ConnectionFields
 						form={form}
 						bucketError={createBucketError}
@@ -350,7 +381,7 @@ function ConnectionStep({
 						onFieldChange={onFieldChange}
 						onSyncNormalizedS3Form={onSyncNormalizedS3Form}
 					/>
-				) : form.driver_type === "remote" ? (
+				) : canUseRemoteNodeBinding ? (
 					<RemoteNodeField
 						form={form}
 						error={createRemoteNodeError}
@@ -359,13 +390,15 @@ function ConnectionStep({
 						t={t}
 						onFieldChange={onFieldChange}
 					/>
-				) : isOneDriveDriver(form.driver_type) ? (
+				) : canUseOneDriveConnection ? (
 					<OneDriveConnectionFields
 						clientIdError={createOneDriveClientIdError}
 						clientSecretError={createOneDriveClientSecretError}
 						form={form}
 						mode="create"
+						showApplicationFields={canUseApplicationCredentials}
 						showCreateValidation
+						showPolicyOptionFields={canUseOneDrivePolicyOptions}
 						t={t}
 						onFieldChange={onFieldChange}
 					/>
@@ -481,6 +514,7 @@ interface BehaviorStepProps {
 	createRemoteNodeError: string | null;
 	currentStorageOption: StoragePolicyDriverOption;
 	form: PolicyFormData;
+	storageDriverDescriptor: StorageConnectorDescriptor | null;
 	onFieldChange: StoragePolicyFieldChangeHandler;
 	remoteNodes: RemoteNodeInfo[];
 	summaryItems: StoragePolicySummaryItem[];
@@ -491,6 +525,7 @@ function BehaviorStep({
 	createRemoteNodeError,
 	currentStorageOption,
 	form,
+	storageDriverDescriptor,
 	onFieldChange,
 	remoteNodes,
 	summaryItems,
@@ -502,13 +537,14 @@ function BehaviorStep({
 				<DriverBehaviorFields
 					createRemoteNodeError={createRemoteNodeError}
 					form={form}
+					storageDriverDescriptor={storageDriverDescriptor}
 					onFieldChange={onFieldChange}
 					remoteNodes={remoteNodes}
 					t={t}
 				/>
 				<LimitsFields form={form} t={t} onFieldChange={onFieldChange} />
 				<DefaultPolicyToggle form={form} t={t} onFieldChange={onFieldChange} />
-				{supportsStorageNativeProcessing(form.driver_type) ? (
+				{supportsStorageNativeProcessing(storageDriverDescriptor) ? (
 					<div className="space-y-3 border-t border-border/70 pt-4">
 						<PolicySectionIntro
 							title={t("policy_storage_native_section_title")}
@@ -538,6 +574,7 @@ function BehaviorStep({
 interface DriverBehaviorFieldsProps {
 	createRemoteNodeError: string | null;
 	form: PolicyFormData;
+	storageDriverDescriptor: StorageConnectorDescriptor | null;
 	onFieldChange: StoragePolicyFieldChangeHandler;
 	remoteNodes: RemoteNodeInfo[];
 	t: Translate;
@@ -546,11 +583,12 @@ interface DriverBehaviorFieldsProps {
 function DriverBehaviorFields({
 	createRemoteNodeError,
 	form,
+	storageDriverDescriptor,
 	onFieldChange,
 	remoteNodes,
 	t,
 }: DriverBehaviorFieldsProps) {
-	if (isObjectStorageDriver(form.driver_type)) {
+	if (supportsS3TransferStrategy(storageDriverDescriptor)) {
 		return (
 			<div className="space-y-4">
 				<S3UploadStrategyField
@@ -567,7 +605,7 @@ function DriverBehaviorFields({
 		);
 	}
 
-	if (form.driver_type === "remote") {
+	if (supportsRemoteNodeBinding(storageDriverDescriptor)) {
 		return (
 			<>
 				<RemoteRulesHelper t={t} />
@@ -592,7 +630,10 @@ function DriverBehaviorFields({
 		);
 	}
 
-	if (isOneDriveDriver(form.driver_type)) {
+	if (
+		supportsApplicationCredentials(storageDriverDescriptor) ||
+		supportsOneDrivePolicyOptions(storageDriverDescriptor)
+	) {
 		return (
 			<div className="rounded-2xl border border-dashed border-border/80 bg-muted/20 p-4 text-sm leading-6 text-muted-foreground">
 				{t("policy_wizard_onedrive_rules_helper")}
@@ -600,7 +641,7 @@ function DriverBehaviorFields({
 		);
 	}
 
-	return (
+	return supportsContentDedupPolicyOption(storageDriverDescriptor) ? (
 		<LocalContentDedupField form={form} t={t} onFieldChange={onFieldChange} />
-	);
+	) : null;
 }

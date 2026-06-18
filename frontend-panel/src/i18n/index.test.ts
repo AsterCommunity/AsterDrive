@@ -170,6 +170,7 @@ describe("i18n", () => {
 			"policy.onedrive_sharepoint_site_required",
 			"policy.onedrive_group_required",
 			ApiErrorCode.PolicyNativeThumbnailUnsupported,
+			ApiErrorCode.PolicyNativeMediaMetadataUnsupported,
 			ApiErrorCode.PolicyPromotionSourceUnsupported,
 			ApiErrorCode.PolicyPromotionTargetUnsupported,
 			ApiErrorCode.PolicyPromotionBucketChangeDenied,
