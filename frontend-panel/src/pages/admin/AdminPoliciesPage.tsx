@@ -26,6 +26,7 @@ import {
 	parseMicrosoftGraphScopes,
 	supportsApplicationCredentials,
 	supportsDraftConnectionTest,
+	supportsMicrosoftGraphApplicationConfig,
 	supportsObjectStorageConnection,
 	supportsOneDrivePolicyOptions,
 	supportsRemoteNodeBinding,
@@ -190,22 +191,33 @@ function policyFormValueEquals(left: unknown, right: unknown): boolean {
 function policyFormHasUnsavedChanges(
 	form: PolicyFormData,
 	policy: StoragePolicy | null,
+	descriptor?: StorageConnectorDescriptor | null,
 ) {
 	if (!policy) {
 		return false;
 	}
 
-	const comparableForm = normalizePolicyComparableForm(form);
+	const comparableForm = normalizePolicyComparableForm(form, descriptor);
 	const comparablePolicyForm = normalizePolicyComparableForm(
 		getPolicyForm(policy),
+		descriptor,
 	);
 
 	return !policyFormValueEquals(comparableForm, comparablePolicyForm);
 }
 
-function normalizePolicyComparableForm(form: PolicyFormData) {
-	const normalized = normalizePolicyForm(form);
-	if (normalized.driver_type !== "one_drive") {
+function normalizePolicyComparableForm(
+	form: PolicyFormData,
+	descriptor?: StorageConnectorDescriptor | null,
+) {
+	const normalized = normalizePolicyForm(form, descriptor);
+	const usesMicrosoftGraph =
+		descriptor != null
+			? supportsOneDrivePolicyOptions(descriptor) ||
+				supportsMicrosoftGraphApplicationConfig(descriptor)
+			: normalized.driver_type === "one_drive";
+
+	if (!usesMicrosoftGraph) {
 		const {
 			onedrive_account_mode: _accountMode,
 			onedrive_cloud: _cloud,
@@ -371,6 +383,10 @@ function useAdminPoliciesPageContent() {
 	};
 	const savedS3DriverPromotionTarget = getS3CompatibleDriverPromotionTarget(
 		editingPolicy,
+		getStorageDriverDescriptor(
+			storageDriverDescriptors,
+			editingPolicy?.driver_type ?? form.driver_type,
+		),
 		getS3CompatiblePromotionDriverLabel,
 	);
 	// Draft detection gives immediate feedback while editing; only the saved
@@ -379,6 +395,7 @@ function useAdminPoliciesPageContent() {
 		editingId !== null
 			? { driver_type: form.driver_type, endpoint: form.endpoint }
 			: null,
+		currentStorageDriverDescriptor,
 		getS3CompatiblePromotionDriverLabel,
 	);
 	const s3DriverPromotionTarget =
@@ -386,11 +403,16 @@ function useAdminPoliciesPageContent() {
 	const s3CompatibleDriverSuggestionTarget =
 		getS3CompatibleDriverPromotionTarget(
 			{ driver_type: form.driver_type, endpoint: form.endpoint },
+			currentStorageDriverDescriptor,
 			getS3CompatiblePromotionDriverLabel,
 		);
 	const s3DriverPromotionBlocked =
 		s3DriverPromotionTarget != null &&
-		policyFormHasUnsavedChanges(form, editingPolicy);
+		policyFormHasUnsavedChanges(
+			form,
+			editingPolicy,
+			currentStorageDriverDescriptor,
+		);
 	const cosCorsUsesDraftValues =
 		editingId === null ||
 		hasConnectionFieldChanges(
@@ -1234,7 +1256,13 @@ function useAdminPoliciesPageContent() {
 		) {
 			return;
 		}
-		if (policyFormHasUnsavedChanges(form, editingPolicy)) {
+		if (
+			policyFormHasUnsavedChanges(
+				form,
+				editingPolicy,
+				currentStorageDriverDescriptor,
+			)
+		) {
 			toast.error(t("onedrive_save_before_authorize"));
 			return;
 		}
@@ -1274,7 +1302,13 @@ function useAdminPoliciesPageContent() {
 		if (editingId === null || !isMicrosoftGraphAuthorizationProvider) {
 			return;
 		}
-		if (policyFormHasUnsavedChanges(form, editingPolicy)) {
+		if (
+			policyFormHasUnsavedChanges(
+				form,
+				editingPolicy,
+				currentStorageDriverDescriptor,
+			)
+		) {
 			toast.error(t("onedrive_save_before_validate"));
 			return;
 		}

@@ -301,6 +301,29 @@ pub struct StorageConnectorFieldDescriptor {
     pub visible_when_driver_types: Vec<DriverType>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
+pub struct StorageConnectorEndpointHostRule {
+    /// Exact hostname match after URL parsing and lower-casing.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub equals: Option<String>,
+    /// Suffix hostname match after URL parsing and lower-casing.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ends_with: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
+pub struct StorageConnectorDriverRecommendation {
+    /// Candidate driver that should be suggested for matching endpoint hosts.
+    pub target_driver_type: DriverType,
+    /// Host rules owned by the source connector.
+    ///
+    /// This keeps provider-detection rules in connector metadata instead of in
+    /// the admin UI. Frontend code only performs generic URL host matching.
+    pub endpoint_host_rules: Vec<StorageConnectorEndpointHostRule>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct StorageConnectorDescriptor {
@@ -332,6 +355,9 @@ pub struct StorageConnectorDescriptor {
     pub fields: Vec<StorageConnectorFieldDescriptor>,
     /// 管理端/服务端可执行动作声明。
     pub actions: Vec<StorageConnectorActionDescriptor>,
+    /// Connector-owned recommendations for moving a policy to a more specific driver.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub driver_recommendations: Vec<StorageConnectorDriverRecommendation>,
     /// 用于开发追踪的相关 issue 编号，不参与业务逻辑。
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub related_issues: Vec<u16>,
@@ -502,7 +528,28 @@ pub(crate) fn object_storage_connector_descriptor(
             draft_connection_test_action_descriptor(),
             saved_connection_test_action_descriptor(false),
         ],
+        driver_recommendations: Vec::new(),
         related_issues,
+    }
+}
+
+pub(crate) fn endpoint_driver_recommendation(
+    target_driver_type: DriverType,
+    endpoint_host_rules: Vec<StorageConnectorEndpointHostRule>,
+) -> StorageConnectorDriverRecommendation {
+    StorageConnectorDriverRecommendation {
+        target_driver_type,
+        endpoint_host_rules,
+    }
+}
+
+pub(crate) fn endpoint_host_rule(
+    equals: Option<&str>,
+    ends_with: Option<&str>,
+) -> StorageConnectorEndpointHostRule {
+    StorageConnectorEndpointHostRule {
+        equals: equals.map(ToOwned::to_owned),
+        ends_with: ends_with.map(ToOwned::to_owned),
     }
 }
 

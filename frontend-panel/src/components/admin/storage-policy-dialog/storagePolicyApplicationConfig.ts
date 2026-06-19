@@ -17,7 +17,7 @@ export function buildStorageApplicationConfig(
 	form: StorageApplicationConfigForm,
 	descriptor?: StorageConnectorDescriptor | null,
 ): CreatePolicyRequest["application_config"] | undefined {
-	if (!supportsMicrosoftGraphApplicationConfig(form, descriptor)) {
+	if (!supportsMicrosoftGraphApplicationConfig(descriptor)) {
 		return undefined;
 	}
 	return {
@@ -26,19 +26,14 @@ export function buildStorageApplicationConfig(
 }
 
 function supportsMicrosoftGraphApplicationConfig(
-	form: StorageApplicationConfigForm,
 	descriptor?: StorageConnectorDescriptor | null,
 ) {
-	if (descriptor) {
-		return descriptor.fields.some(
+	return (
+		descriptor?.fields.some(
 			(field) =>
 				field.scope === "application_credential" && field.name === "client_id",
-		);
-	}
-
-	// Fallback only covers the pre-descriptor loading window. Once descriptors
-	// are available, the concrete connector owns the application config shape.
-	return form.driver_type === "one_drive";
+		) ?? false
+	);
 }
 
 function buildMicrosoftGraphApplicationConfig(

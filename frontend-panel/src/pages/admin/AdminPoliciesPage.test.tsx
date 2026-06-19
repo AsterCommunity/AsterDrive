@@ -844,6 +844,7 @@ function createStorageDriverDescriptor(
 		enabled: true,
 		fields: [],
 		label: driverType,
+		driver_recommendations: [],
 		related_issues: [328],
 		requires_authorization: false,
 		ui: storageConnectorUi(driverType),
@@ -913,6 +914,15 @@ function createStorageDriverDescriptors() {
 				presigned_download: true,
 				s3_transfer_strategy: true,
 			},
+			driver_recommendations: [
+				{
+					target_driver_type: "tencent_cos",
+					endpoint_host_rules: [
+						{ equals: "myqcloud.com" },
+						{ ends_with: ".myqcloud.com" },
+					],
+				},
+			],
 			fields: [...objectStorageConnectionFields("s3"), ...s3PolicyOptionFields],
 			upload_workflows: {
 				...createStorageDriverDescriptor("s3").upload_workflows,

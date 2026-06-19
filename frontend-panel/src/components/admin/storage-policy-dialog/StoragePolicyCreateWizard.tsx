@@ -410,7 +410,6 @@ function ConnectionStep({
 			</div>
 			<DriverHelperPanel
 				currentStorageOption={currentStorageOption}
-				driverType={form.driver_type}
 				storageDriverDescriptor={storageDriverDescriptor}
 				s3CompatibleDriverSuggestionTargetLabel={
 					s3CompatibleDriverSuggestionTargetLabel
@@ -426,7 +425,6 @@ function ConnectionStep({
 
 interface DriverHelperPanelProps {
 	currentStorageOption: StoragePolicyDriverOption;
-	driverType: DriverType;
 	storageDriverDescriptor: StorageConnectorDescriptor | null;
 	s3CompatibleDriverSuggestionTargetLabel: string | null;
 	onApplyS3CompatibleDriverSuggestion: () => void;
@@ -435,7 +433,6 @@ interface DriverHelperPanelProps {
 
 function DriverHelperPanel({
 	currentStorageOption,
-	driverType,
 	storageDriverDescriptor,
 	s3CompatibleDriverSuggestionTargetLabel,
 	onApplyS3CompatibleDriverSuggestion,
@@ -448,12 +445,12 @@ function DriverHelperPanel({
 		renderedS3CompatibleDriverSuggestionTargetLabelRef.current =
 			s3CompatibleDriverSuggestionTargetLabel;
 	}
-	const showSpecializedDriverSuggestion =
-		driverType === "s3" && s3CompatibleDriverSuggestionTargetLabel != null;
 	const renderedSuggestionTargetLabel =
 		s3CompatibleDriverSuggestionTargetLabel ??
 		renderedS3CompatibleDriverSuggestionTargetLabelRef.current;
 	const helperKey = getDriverHelperKey(storageDriverDescriptor);
+	const hasSpecializedDriverSuggestion =
+		s3CompatibleDriverSuggestionTargetLabel != null;
 
 	return (
 		<div className="rounded-3xl border border-border/70 bg-muted/20 p-5">
@@ -475,7 +472,7 @@ function DriverHelperPanel({
 				{t(helperKey)}
 			</p>
 			<AnimatedCollapsible
-				open={showSpecializedDriverSuggestion}
+				open={hasSpecializedDriverSuggestion}
 				contentClassName="pt-4"
 			>
 				{renderedSuggestionTargetLabel ? (

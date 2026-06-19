@@ -292,10 +292,7 @@ struct StorageConnectorRegistration {
     driver_type: DriverType,
     connector: BuiltinStorageConnector,
     cleanup_snapshot_required: bool,
-    promotion_targets: &'static [DriverType],
 }
-
-const S3_PROMOTION_TARGETS: &[DriverType] = &[DriverType::TencentCos];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum BuiltinStorageConnector {
@@ -683,37 +680,31 @@ static CONNECTOR_REGISTRATIONS: &[StorageConnectorRegistration] = &[
         driver_type: DriverType::Local,
         connector: BuiltinStorageConnector::Local,
         cleanup_snapshot_required: false,
-        promotion_targets: &[],
     },
     StorageConnectorRegistration {
         driver_type: DriverType::S3,
         connector: BuiltinStorageConnector::S3,
         cleanup_snapshot_required: false,
-        promotion_targets: S3_PROMOTION_TARGETS,
     },
     StorageConnectorRegistration {
         driver_type: DriverType::AzureBlob,
         connector: BuiltinStorageConnector::AzureBlob,
         cleanup_snapshot_required: false,
-        promotion_targets: &[],
     },
     StorageConnectorRegistration {
         driver_type: DriverType::TencentCos,
         connector: BuiltinStorageConnector::TencentCos,
         cleanup_snapshot_required: false,
-        promotion_targets: &[],
     },
     StorageConnectorRegistration {
         driver_type: DriverType::Remote,
         connector: BuiltinStorageConnector::Remote,
         cleanup_snapshot_required: false,
-        promotion_targets: &[],
     },
     StorageConnectorRegistration {
         driver_type: DriverType::OneDrive,
         connector: BuiltinStorageConnector::OneDrive,
         cleanup_snapshot_required: true,
-        promotion_targets: &[],
     },
 ];
 
@@ -899,7 +890,10 @@ pub async fn execute_draft_action<S: RemoteProtocolRuntimeState + Sync>(
 }
 
 pub fn validate_driver_promotion_source(source: DriverType) -> Result<()> {
-    if !connector_for(source)?.promotion_targets.is_empty() {
+    if !storage_driver_descriptor(source)
+        .driver_recommendations
+        .is_empty()
+    {
         return Ok(());
     }
     Err(crate::errors::validation_error_with_code(
@@ -909,7 +903,11 @@ pub fn validate_driver_promotion_source(source: DriverType) -> Result<()> {
 }
 
 pub fn validate_driver_promotion_target(source: DriverType, target: DriverType) -> Result<()> {
-    if connector_for(source)?.promotion_targets.contains(&target) {
+    if storage_driver_descriptor(source)
+        .driver_recommendations
+        .iter()
+        .any(|recommendation| recommendation.target_driver_type == target)
+    {
         return Ok(());
     }
     Err(crate::errors::validation_error_with_code(

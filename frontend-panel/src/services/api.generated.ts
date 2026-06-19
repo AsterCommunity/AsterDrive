@@ -7177,6 +7177,23 @@ export interface components {
         };
         /** @enum {string} */
         StorageConnectorCredentialMode: "none" | "static_secret" | "remote_node" | "oauth_delegated";
+        StorageConnectorDriverRecommendation: {
+            /**
+             * @description Host rules owned by the source connector.
+             *
+             *     This keeps provider-detection rules in connector metadata instead of in
+             *     the admin UI. Frontend code only performs generic URL host matching.
+             */
+            endpoint_host_rules: components["schemas"]["StorageConnectorEndpointHostRule"][];
+            /** @description Candidate driver that should be suggested for matching endpoint hosts. */
+            target_driver_type: components["schemas"]["DriverType"];
+        };
+        StorageConnectorEndpointHostRule: {
+            /** @description Suffix hostname match after URL parsing and lower-casing. */
+            ends_with?: string | null;
+            /** @description Exact hostname match after URL parsing and lower-casing. */
+            equals?: string | null;
+        };
         StorageConnectorFieldDescriptor: {
             /** @description 可选 help 文案 key。 */
             help_key?: string | null;
@@ -9978,6 +9995,8 @@ export interface operations {
                             credential_mode: components["schemas"]["StorageConnectorCredentialMode"];
                             /** @description 人类可读说明。 */
                             description: string;
+                            /** @description Connector-owned recommendations for moving a policy to a more specific driver. */
+                            driver_recommendations?: components["schemas"]["StorageConnectorDriverRecommendation"][];
                             /** @description 持久化到 policy 的 driver type。 */
                             driver_type: components["schemas"]["DriverType"];
                             /** @description 当前部署是否启用该 connector。 */

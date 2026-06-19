@@ -11,7 +11,6 @@ import {
 	hasConnectionFieldChanges,
 	isObjectStorageDriver,
 	isS3CompatibleDriver,
-	isTencentCosEndpoint,
 	normalizePolicyForm,
 	supportsApplicationCredentials,
 	supportsContentDedupPolicyOption,
@@ -53,18 +52,19 @@ describe("storagePolicyDialogShared", () => {
 		},
 	} as never;
 
-	it("detects Tencent COS endpoints for generic S3 driver promotion", () => {
-		expect(isTencentCosEndpoint("https://cos.ap-guangzhou.myqcloud.com")).toBe(
-			true,
-		);
-		expect(
-			isTencentCosEndpoint(
-				"https://bucket-1250000000.cos.ap-guangzhou.myqcloud.com",
-			),
-		).toBe(true);
-		expect(isTencentCosEndpoint("https://s3.amazonaws.com")).toBe(false);
-		expect(isTencentCosEndpoint("not a url")).toBe(false);
-
+	it("uses connector descriptor endpoint rules for specialized driver promotion", () => {
+		const s3Descriptor = {
+			driver_type: "s3",
+			driver_recommendations: [
+				{
+					target_driver_type: "tencent_cos",
+					endpoint_host_rules: [
+						{ equals: "myqcloud.com" },
+						{ ends_with: ".myqcloud.com" },
+					],
+				},
+			],
+		} as never;
 		const labelFor = (driverType: "tencent_cos") =>
 			driverType === "tencent_cos" ? "Tencent COS" : driverType;
 		expect(
@@ -73,6 +73,20 @@ describe("storagePolicyDialogShared", () => {
 					driver_type: "s3",
 					endpoint: "https://bucket-1250000000.cos.ap-guangzhou.myqcloud.com",
 				},
+				s3Descriptor,
+				labelFor,
+			),
+		).toEqual({
+			driverLabel: "Tencent COS",
+			driverType: "tencent_cos",
+		});
+		expect(
+			getS3CompatibleDriverPromotionTarget(
+				{
+					driver_type: "s3",
+					endpoint: "https://myqcloud.com",
+				},
+				s3Descriptor,
 				labelFor,
 			),
 		).toEqual({
@@ -85,6 +99,7 @@ describe("storagePolicyDialogShared", () => {
 					driver_type: "s3",
 					endpoint: "https://s3.amazonaws.com",
 				},
+				s3Descriptor,
 				labelFor,
 			),
 		).toBeNull();
@@ -94,10 +109,33 @@ describe("storagePolicyDialogShared", () => {
 					driver_type: "tencent_cos",
 					endpoint: "https://bucket-1250000000.cos.ap-guangzhou.myqcloud.com",
 				},
+				s3Descriptor,
 				labelFor,
 			),
 		).toBeNull();
-		expect(getS3CompatibleDriverPromotionTarget(null, labelFor)).toBeNull();
+		expect(
+			getS3CompatibleDriverPromotionTarget(
+				{
+					driver_type: "s3",
+					endpoint: "not a url",
+				},
+				s3Descriptor,
+				labelFor,
+			),
+		).toBeNull();
+		expect(
+			getS3CompatibleDriverPromotionTarget(
+				{
+					driver_type: "s3",
+					endpoint: "https://bucket-1250000000.cos.ap-guangzhou.myqcloud.com",
+				},
+				{ driver_type: "s3", driver_recommendations: [] } as never,
+				labelFor,
+			),
+		).toBeNull();
+		expect(
+			getS3CompatibleDriverPromotionTarget(null, s3Descriptor, labelFor),
+		).toBeNull();
 		expect(isS3CompatibleDriver("s3")).toBe(true);
 		expect(isS3CompatibleDriver("tencent_cos")).toBe(true);
 		expect(isS3CompatibleDriver("azure_blob")).toBe(false);
@@ -434,19 +472,29 @@ describe("storagePolicyDialogShared", () => {
 			},
 		});
 
+		const descriptor = {
+			fields: [
+				{ name: "client_id", scope: "application_credential" },
+				{ name: "account_mode", scope: "policy_options" },
+			],
+		} as never;
+
 		expect(
-			buildCreatePolicyPayload({
-				...form,
-				application_credentials: {
-					microsoft_graph: {
-						cloud: "china",
-						tenant: "contoso.partner.onmschina.cn",
-						client_id: "client-id",
-						client_secret: "secret",
-						scopes: "Files.ReadWrite.All offline_access",
+			buildCreatePolicyPayload(
+				{
+					...form,
+					application_credentials: {
+						microsoft_graph: {
+							cloud: "china",
+							tenant: "contoso.partner.onmschina.cn",
+							client_id: "client-id",
+							client_secret: "secret",
+							scopes: "Files.ReadWrite.All offline_access",
+						},
 					},
 				},
-			}),
+				descriptor,
+			),
 		).toMatchObject({
 			access_key: "",
 			secret_key: "",
@@ -470,18 +518,21 @@ describe("storagePolicyDialogShared", () => {
 		});
 
 		expect(
-			buildUpdatePolicyPayload({
-				...form,
-				application_credentials: {
-					microsoft_graph: {
-						cloud: "china",
-						tenant: "contoso.partner.onmschina.cn",
-						client_id: "new-client-id",
-						client_secret: "new-secret",
-						scopes: "",
+			buildUpdatePolicyPayload(
+				{
+					...form,
+					application_credentials: {
+						microsoft_graph: {
+							cloud: "china",
+							tenant: "contoso.partner.onmschina.cn",
+							client_id: "new-client-id",
+							client_secret: "new-secret",
+							scopes: "",
+						},
 					},
 				},
-			}),
+				descriptor,
+			),
 		).toMatchObject({
 			application_config: {
 				microsoft_graph: {
@@ -494,14 +545,17 @@ describe("storagePolicyDialogShared", () => {
 		});
 
 		expect(
-			buildUpdatePolicyPayload({
-				...form,
-				onedrive_tenant: " organizations ",
-				onedrive_drive_id: " ",
-				onedrive_root_item_id: " ",
-				onedrive_site_id: " ",
-				onedrive_group_id: " ",
-			}).options,
+			buildUpdatePolicyPayload(
+				{
+					...form,
+					onedrive_tenant: " organizations ",
+					onedrive_drive_id: " ",
+					onedrive_root_item_id: " ",
+					onedrive_site_id: " ",
+					onedrive_group_id: " ",
+				},
+				descriptor,
+			).options,
 		).toEqual({
 			onedrive_cloud: "china",
 			onedrive_account_mode: "sharepoint_site",
@@ -510,12 +564,15 @@ describe("storagePolicyDialogShared", () => {
 		});
 
 		expect(
-			buildUpdatePolicyPayload({
-				...form,
-				onedrive_account_mode: "work_or_school",
-				onedrive_site_id: "stale-site",
-				onedrive_group_id: "stale-group",
-			}).options,
+			buildUpdatePolicyPayload(
+				{
+					...form,
+					onedrive_account_mode: "work_or_school",
+					onedrive_site_id: "stale-site",
+					onedrive_group_id: "stale-group",
+				},
+				descriptor,
+			).options,
 		).toEqual({
 			onedrive_cloud: "china",
 			onedrive_account_mode: "work_or_school",
@@ -525,38 +582,50 @@ describe("storagePolicyDialogShared", () => {
 		});
 
 		expect(
-			buildUpdatePolicyPayload({
-				...form,
-				onedrive_account_mode: "group_drive",
-				onedrive_site_id: "stale-site",
-				onedrive_group_id: "group-1",
-			}).options,
+			buildUpdatePolicyPayload(
+				{
+					...form,
+					onedrive_account_mode: "group_drive",
+					onedrive_site_id: "stale-site",
+					onedrive_group_id: "group-1",
+				},
+				descriptor,
+			).options,
 		).toMatchObject({
 			onedrive_account_mode: "group_drive",
 			onedrive_group_id: "group-1",
 		});
 		expect(
-			buildUpdatePolicyPayload({
-				...form,
-				onedrive_account_mode: "group_drive",
-				onedrive_site_id: "stale-site",
-				onedrive_group_id: "group-1",
-			}).options,
+			buildUpdatePolicyPayload(
+				{
+					...form,
+					onedrive_account_mode: "group_drive",
+					onedrive_site_id: "stale-site",
+					onedrive_group_id: "group-1",
+				},
+				descriptor,
+			).options,
 		).not.toHaveProperty("onedrive_site_id");
 
 		expect(
-			buildUpdatePolicyPayload({
-				...form,
-				onedrive_account_mode: "sharepoint_site",
-				onedrive_site_id: "site-1",
-				onedrive_group_id: "stale-group",
-			}).options,
+			buildUpdatePolicyPayload(
+				{
+					...form,
+					onedrive_account_mode: "sharepoint_site",
+					onedrive_site_id: "site-1",
+					onedrive_group_id: "stale-group",
+				},
+				descriptor,
+			).options,
 		).not.toHaveProperty("onedrive_group_id");
 
 		expect(
-			buildUpdatePolicyPayload({
-				...form,
-			}),
+			buildUpdatePolicyPayload(
+				{
+					...form,
+				},
+				descriptor,
+			),
 		).not.toHaveProperty("secret_key");
 	});
 

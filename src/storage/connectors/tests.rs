@@ -211,6 +211,32 @@ fn object_storage_connection_field_display_metadata_is_connector_owned() {
 }
 
 #[test]
+fn s3_descriptor_declares_connector_owned_endpoint_driver_recommendation() {
+    let s3 = storage_driver_descriptor(DriverType::S3);
+    let recommendation = s3
+        .driver_recommendations
+        .iter()
+        .find(|recommendation| recommendation.target_driver_type == DriverType::TencentCos)
+        .expect("S3 connector should recommend the specialized Tencent COS driver");
+
+    assert!(
+        recommendation
+            .endpoint_host_rules
+            .iter()
+            .any(|rule| rule.equals.as_deref() == Some("myqcloud.com"))
+    );
+    assert!(
+        recommendation
+            .endpoint_host_rules
+            .iter()
+            .any(|rule| rule.ends_with.as_deref() == Some(".myqcloud.com"))
+    );
+
+    let tencent_cos = storage_driver_descriptor(DriverType::TencentCos);
+    assert!(tencent_cos.driver_recommendations.is_empty());
+}
+
+#[test]
 fn onedrive_descriptor_requires_saved_authorized_connection_test() {
     let descriptor = storage_driver_descriptor(DriverType::OneDrive);
 

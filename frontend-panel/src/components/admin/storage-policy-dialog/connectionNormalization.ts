@@ -40,17 +40,31 @@ export function parseRemoteNodeId(value: string): number | undefined {
 	return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : undefined;
 }
 
-export function isTencentCosEndpoint(endpoint: string) {
+function endpointHostMatchesRule(
+	host: string,
+	rule: NonNullable<
+		StorageConnectorDescriptor["driver_recommendations"]
+	>[number]["endpoint_host_rules"][number],
+) {
+	const equals = rule.equals?.trim().toLowerCase();
+	if (equals && host === equals) {
+		return true;
+	}
+
+	const endsWith = rule.ends_with?.trim().toLowerCase();
+	return Boolean(endsWith && host.endsWith(endsWith));
+}
+
+function parseEndpointHost(endpoint: string) {
 	const trimmedEndpoint = endpoint.trim();
 	if (!trimmedEndpoint) {
-		return false;
+		return null;
 	}
 
 	try {
-		const host = new URL(trimmedEndpoint).hostname.toLowerCase();
-		return host === "myqcloud.com" || host.endsWith(".myqcloud.com");
+		return new URL(trimmedEndpoint).hostname.toLowerCase();
 	} catch {
-		return false;
+		return null;
 	}
 }
 
@@ -59,19 +73,31 @@ export function getS3CompatibleDriverPromotionTarget(
 		driver_type: DriverType;
 		endpoint: string;
 	} | null,
+	sourceDescriptor: StorageConnectorDescriptor | null | undefined,
 	getDriverLabel: (driverType: S3CompatiblePromotionDriverType) => string,
 ): S3CompatibleDriverPromotionTarget | null {
-	if (policy?.driver_type !== "s3") {
+	if (policy == null || sourceDescriptor?.driver_type !== policy.driver_type) {
 		return null;
 	}
 
-	// Keep provider detection centralized so future OSS/OBS promotions only need
-	// one UI registry change plus the matching backend allowlist entry.
-	if (isTencentCosEndpoint(policy.endpoint)) {
-		return {
-			driverLabel: getDriverLabel("tencent_cos"),
-			driverType: "tencent_cos",
-		};
+	const host = parseEndpointHost(policy.endpoint);
+	if (host == null) {
+		return null;
+	}
+
+	for (const recommendation of sourceDescriptor.driver_recommendations ?? []) {
+		if (
+			recommendation.endpoint_host_rules.some((rule) =>
+				endpointHostMatchesRule(host, rule),
+			)
+		) {
+			const driverType =
+				recommendation.target_driver_type as S3CompatiblePromotionDriverType;
+			return {
+				driverLabel: getDriverLabel(driverType),
+				driverType,
+			};
+		}
 	}
 
 	return null;

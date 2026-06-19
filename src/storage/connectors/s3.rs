@@ -5,8 +5,8 @@ use crate::errors::Result;
 use crate::runtime::RemoteProtocolRuntimeState;
 use crate::storage::StorageDriver;
 use crate::storage::connector_descriptor::{
-    StorageConnectorDescriptor, StorageConnectorDescriptorProvider,
-    object_storage_connector_descriptor,
+    StorageConnectorDescriptor, StorageConnectorDescriptorProvider, endpoint_driver_recommendation,
+    endpoint_host_rule, object_storage_connector_descriptor,
 };
 use crate::storage::drivers::s3::S3Driver;
 use crate::types::{DriverType, parse_storage_policy_options};
@@ -18,13 +18,23 @@ pub struct S3Connector;
 
 impl StorageConnectorDescriptorProvider for S3Connector {
     fn storage_connector_descriptor() -> StorageConnectorDescriptor {
-        object_storage_connector_descriptor(
+        let mut descriptor = object_storage_connector_descriptor(
             DriverType::S3,
             "S3-compatible object storage",
             "S3-compatible object storage policy",
             false,
             vec![328, 329],
-        )
+        );
+        descriptor
+            .driver_recommendations
+            .push(endpoint_driver_recommendation(
+                DriverType::TencentCos,
+                vec![
+                    endpoint_host_rule(Some("myqcloud.com"), None),
+                    endpoint_host_rule(None, Some(".myqcloud.com")),
+                ],
+            ));
+        descriptor
     }
 }
 
