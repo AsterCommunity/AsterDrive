@@ -84,57 +84,14 @@ pub struct StoragePolicyCapacityInfo {
     pub capacity: crate::storage::StorageCapacityInfo,
 }
 
-#[derive(Debug, Clone, Serialize)]
-#[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
-pub struct TencentCosCorsConfigResult {
-    pub rule_id: String,
-    pub allowed_origins: Vec<String>,
-    pub request_id: Option<String>,
-    pub preserved_rule_count: usize,
-    pub replaced_existing_rule: bool,
-    pub response_vary: bool,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
-#[serde(rename_all = "snake_case")]
-#[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
-pub enum StoragePolicyActionType {
-    ConfigureTencentCosCors,
-}
-
-impl StoragePolicyActionType {
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::ConfigureTencentCosCors => "configure_tencent_cos_cors",
-        }
-    }
-
-    pub const fn mutates_remote_state(self) -> bool {
-        match self {
-            Self::ConfigureTencentCosCors => true,
-        }
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct ExecuteSavedStoragePolicyActionInput {
-    pub action: StoragePolicyActionType,
-}
-
-#[derive(Debug, Clone)]
-pub struct ExecuteDraftStoragePolicyActionInput {
-    pub action: StoragePolicyActionType,
-    pub policy_id: Option<i64>,
-    pub connection: StoragePolicyConnectionInput,
-}
-
-#[derive(Debug, Clone, Serialize)]
-#[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
-pub struct StoragePolicyActionResult {
-    pub action: StoragePolicyActionType,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub tencent_cos_cors: Option<TencentCosCorsConfigResult>,
-}
+pub type StoragePolicyActionType = crate::storage::StoragePolicyExecutableAction;
+pub type ExecuteSavedStoragePolicyActionInput =
+    crate::storage::ExecuteSavedStorageConnectorActionInput;
+pub type ExecuteDraftStoragePolicyActionInput =
+    crate::storage::ExecuteDraftStorageConnectorActionInput;
+pub type StoragePolicyConnectionInput = crate::storage::StorageConnectorConnectionInput;
+pub type StoragePolicyActionResult = crate::storage::StorageConnectorActionResult;
+pub type TencentCosCorsConfigResult = crate::storage::TencentCosCorsConfigResult;
 
 impl From<storage_policy::Model> for StoragePolicy {
     fn from(model: storage_policy::Model) -> Self {
@@ -168,18 +125,6 @@ pub struct PolicyGroupAssignmentMigrationResult {
 }
 
 #[derive(Debug, Clone)]
-pub struct StoragePolicyConnectionInput {
-    pub driver_type: DriverType,
-    pub endpoint: String,
-    pub bucket: String,
-    pub access_key: String,
-    pub secret_key: String,
-    pub base_path: String,
-    pub remote_node_id: Option<i64>,
-    pub options: StoragePolicyOptions,
-}
-
-#[derive(Debug, Clone)]
 pub struct ConfigureTencentCosCorsInput {
     pub connection: StoragePolicyConnectionInput,
 }
@@ -193,6 +138,7 @@ pub struct CreateStoragePolicyInput {
     pub is_default: bool,
     pub allowed_types: Option<Vec<String>>,
     pub options: Option<StoragePolicyOptions>,
+    pub application_config: crate::storage::StorageConnectorApplicationConfigInput,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -209,6 +155,7 @@ pub struct UpdateStoragePolicyInput {
     pub is_default: Option<bool>,
     pub allowed_types: Option<Vec<String>>,
     pub options: Option<StoragePolicyOptions>,
+    pub application_config: crate::storage::StorageConnectorApplicationConfigInput,
 }
 
 #[derive(Debug, Clone)]

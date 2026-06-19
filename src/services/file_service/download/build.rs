@@ -10,9 +10,6 @@ use crate::services::file_service::{
 };
 use crate::services::workspace_storage_service::WorkspaceStorageScope;
 use crate::storage::PresignedDownloadOptions;
-use crate::types::{
-    DriverType, RemoteDownloadStrategy, S3DownloadStrategy, parse_storage_policy_options,
-};
 use crate::utils::numbers;
 
 use super::range::ResolvedDownloadRange;
@@ -144,17 +141,8 @@ pub(crate) async fn build_download_outcome_with_disposition_and_range(
     }
 
     let policy = state.policy_snapshot().get_policy_or_err(blob.policy_id)?;
-    let options = parse_storage_policy_options(policy.options.as_ref());
     let should_presign = disposition == DownloadDisposition::Attachment
-        && match policy.driver_type {
-            DriverType::S3 | DriverType::TencentCos | DriverType::AzureBlob => {
-                options.effective_s3_download_strategy() == S3DownloadStrategy::Presigned
-            }
-            DriverType::Remote => {
-                options.effective_remote_download_strategy() == RemoteDownloadStrategy::Presigned
-            }
-            DriverType::Local | DriverType::OneDrive => false,
-        };
+        && crate::storage::connectors::presigned_download_enabled(&policy);
 
     if should_presign {
         // 只有"附件下载 + 存储驱动支持 + 策略允许"才走 presigned redirect。

@@ -1,6 +1,6 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import { emptyForm } from "@/components/admin/storagePolicyDialogShared";
+import { emptyForm } from "./formTypes";
 import { S3DownloadStrategyField } from "./S3DownloadStrategyField";
 import { S3UploadStrategyField } from "./S3UploadStrategyField";
 import type { Translate } from "./StoragePolicyFieldTypes";

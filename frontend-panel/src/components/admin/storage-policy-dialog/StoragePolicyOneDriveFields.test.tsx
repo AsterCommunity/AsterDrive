@@ -1,7 +1,7 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { emptyForm } from "@/components/admin/storagePolicyDialogShared";
 import type { StoragePolicyCredentialInfo } from "@/types/api";
+import { emptyForm } from "./formTypes";
 import { OneDriveCredentialPanel } from "./OneDriveCredentialPanel";
 import { OneDriveTargetFields } from "./OneDriveTargetFields";
 import {

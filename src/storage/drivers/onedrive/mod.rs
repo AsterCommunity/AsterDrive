@@ -11,7 +11,10 @@ use crate::errors::Result;
 use crate::errors::{AsterError, MapAsterErr};
 use crate::storage::error::{StorageErrorKind, storage_driver_error};
 use crate::storage::traits::driver::{BlobMetadata, StorageDriver};
-use crate::storage::traits::extensions::{StorageCapacityInfo, StreamUploadDriver};
+use crate::storage::traits::extensions::{
+    ProviderResumableUploadCapabilities, ProviderResumableUploadDriver, StorageCapacityInfo,
+    StreamUploadDriver,
+};
 use crate::utils::numbers;
 
 pub use client::{
@@ -71,6 +74,22 @@ fn graph_simple_upload_too_large_error() -> AsterError {
         StorageErrorKind::Unsupported,
         "OneDrive simple upload is limited to 250 MB; use upload session support for larger objects",
     )
+}
+
+pub fn microsoft_graph_upload_capabilities() -> ProviderResumableUploadCapabilities {
+    ProviderResumableUploadCapabilities {
+        provider: "microsoft_graph",
+        session_label: "Microsoft Graph upload session",
+        min_fragment_size: GRAPH_UPLOAD_FRAGMENT_ALIGNMENT,
+        default_fragment_size: GRAPH_UPLOAD_FRAGMENT_SIZE,
+        max_fragment_size: GRAPH_UPLOAD_FRAGMENT_MAX_BYTES,
+        fragment_alignment: GRAPH_UPLOAD_FRAGMENT_ALIGNMENT,
+        max_simple_upload_size: Some(GRAPH_SIMPLE_UPLOAD_MAX_BYTES as u64),
+        frontend_direct_upload: false,
+        implicit_completion: true,
+        abort_supported: false,
+        status_query_supported: false,
+    }
 }
 
 impl OneDriveDriver {
@@ -224,6 +243,10 @@ impl StorageDriver for OneDriveDriver {
         Some(self)
     }
 
+    fn as_provider_resumable_upload(&self) -> Option<&dyn ProviderResumableUploadDriver> {
+        Some(self)
+    }
+
     async fn delete(&self, path: &str) -> Result<()> {
         self.client.delete(&self.graph_path(path)?).await
     }
@@ -264,6 +287,12 @@ impl StreamUploadDriver for OneDriveDriver {
         )?;
         let size = numbers::u64_to_i64(metadata.len(), "OneDrive upload file size")?;
         self.put_reader(storage_path, Box::new(file), size).await
+    }
+}
+
+impl ProviderResumableUploadDriver for OneDriveDriver {
+    fn provider_resumable_upload_capabilities(&self) -> ProviderResumableUploadCapabilities {
+        microsoft_graph_upload_capabilities()
     }
 }
 
@@ -355,5 +384,38 @@ mod tests {
             graph_upload_fragment_size(250_000_000),
             GRAPH_UPLOAD_FRAGMENT_MAX_BYTES
         );
+    }
+
+    #[test]
+    fn onedrive_exposes_provider_native_resumable_upload_capabilities() {
+        let client = MicrosoftGraphClient::new(MicrosoftGraphClientConfig::new(
+            "https://graph.microsoft.com/v1.0",
+            "token",
+        ))
+        .expect("Graph client should build");
+        let driver = OneDriveDriver::new(client, "drive-id", "root-id", "", 5 * 1024 * 1024);
+
+        let provider_resumable = driver
+            .as_provider_resumable_upload()
+            .expect("OneDrive should expose provider-native resumable upload");
+        let capabilities = provider_resumable.provider_resumable_upload_capabilities();
+
+        assert_eq!(capabilities.provider, "microsoft_graph");
+        assert_eq!(capabilities.session_label, "Microsoft Graph upload session");
+        assert_eq!(
+            capabilities.min_fragment_size,
+            GRAPH_UPLOAD_FRAGMENT_ALIGNMENT
+        );
+        assert_eq!(capabilities.fragment_alignment, 320 * 1024);
+        assert_eq!(capabilities.default_fragment_size, 10 * 1024 * 1024);
+        assert_eq!(capabilities.max_fragment_size, 50 * 1024 * 1024);
+        assert_eq!(
+            capabilities.max_simple_upload_size,
+            Some(GRAPH_SIMPLE_UPLOAD_MAX_BYTES as u64)
+        );
+        assert!(!capabilities.frontend_direct_upload);
+        assert!(capabilities.implicit_completion);
+        assert!(!capabilities.abort_supported);
+        assert!(!capabilities.status_query_supported);
     }
 }

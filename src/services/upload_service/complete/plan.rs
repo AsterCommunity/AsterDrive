@@ -42,7 +42,7 @@ pub(super) fn determine_completion_plan(
     }
 
     if session.status == UploadSessionStatus::Presigned {
-        if session.s3_multipart_id.is_some() {
+        if session.object_multipart_id.is_some() {
             let parts = parts.ok_or_else(|| {
                 validation_error_with_code(
                     ApiErrorCode::UploadPartsRequired,
@@ -56,7 +56,7 @@ pub(super) fn determine_completion_plan(
         return Ok(CompletionPlan::CompletePresigned);
     }
 
-    if session.status == UploadSessionStatus::Uploading && session.s3_multipart_id.is_some() {
+    if session.status == UploadSessionStatus::Uploading && session.object_multipart_id.is_some() {
         // relay multipart 的 completed parts 由服务端在 chunk 阶段自行收集，
         // complete 时无需客户端再次回传。
         return Ok(CompletionPlan::CompleteRelayMultipart);

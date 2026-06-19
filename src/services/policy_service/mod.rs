@@ -10,6 +10,12 @@ use crate::runtime::{RemoteProtocolRuntimeState, SharedRuntimeState, TaskRuntime
 use crate::services::audit_service::{self, AuditContext};
 use crate::types::DriverType;
 
+pub use crate::storage::{
+    StorageConnectorActionDescriptor, StorageConnectorActionEndpoint, StorageConnectorActionKind,
+    StorageConnectorAffordanceAction, StorageConnectorCapabilities, StorageConnectorCredentialMode,
+    StorageConnectorFieldDescriptor, StorageConnectorFieldKind, StorageConnectorFieldScope,
+    StorageConnectorUploadWorkflows, StoragePolicyExecutableAction,
+};
 pub use groups::{
     create_group, delete_group, ensure_policy_groups_seeded, get_group, list_groups_paginated,
     migrate_group_assignments, update_group,
@@ -25,26 +31,14 @@ pub use models::{
 };
 pub(crate) use policies::capacity_info_or_status;
 pub use policies::{
-    capacity_info, configure_tencent_cos_cors, configure_tencent_cos_cors_for_policy, create,
-    delete, execute_draft_action, execute_saved_action, get, list_paginated,
+    capacity_info, create, delete, execute_draft_action, execute_saved_action, get, list_paginated,
     promote_s3_compatible_driver, test_connection, test_connection_params, test_default_connection,
     update,
 };
 
-fn driver_type_audit_name(driver_type: DriverType) -> &'static str {
-    match driver_type {
-        DriverType::Local => "local",
-        DriverType::S3 => "s3",
-        DriverType::AzureBlob => "azure_blob",
-        DriverType::TencentCos => "tencent_cos",
-        DriverType::Remote => "remote",
-        DriverType::OneDrive => "onedrive",
-    }
-}
-
 fn policy_audit_details(policy: &StoragePolicy) -> Option<serde_json::Value> {
     audit_service::details(audit_service::StoragePolicyAuditDetails {
-        driver_type: driver_type_audit_name(policy.driver_type),
+        driver_type: policy.driver_type.as_str(),
         remote_node_id: policy.remote_node_id,
         max_file_size: policy.max_file_size,
         chunk_size: policy.chunk_size,
@@ -59,7 +53,7 @@ fn policy_action_audit_details(
 ) -> Option<serde_json::Value> {
     audit_service::details(audit_service::StoragePolicyActionAuditDetails {
         action: action.as_str(),
-        driver_type: driver_type_audit_name(driver_type),
+        driver_type: driver_type.as_str(),
         used_draft_values,
         mutates_remote_state: action.mutates_remote_state(),
     })
@@ -125,7 +119,7 @@ pub async fn promote_s3_compatible_driver_with_audit(
 }
 
 pub async fn delete_with_audit(
-    state: &impl TaskRuntimeState,
+    state: &(impl TaskRuntimeState + Sync),
     id: i64,
     force: bool,
     audit_ctx: &AuditContext,
@@ -146,7 +140,7 @@ pub async fn delete_with_audit(
 }
 
 pub async fn execute_saved_action_with_audit(
-    state: &impl SharedRuntimeState,
+    state: &(impl SharedRuntimeState + Sync),
     id: i64,
     input: ExecuteSavedStoragePolicyActionInput,
     audit_ctx: &AuditContext,
@@ -168,7 +162,7 @@ pub async fn execute_saved_action_with_audit(
 }
 
 pub async fn execute_draft_action_with_audit(
-    state: &impl RemoteProtocolRuntimeState,
+    state: &(impl RemoteProtocolRuntimeState + Sync),
     input: ExecuteDraftStoragePolicyActionInput,
     audit_ctx: &AuditContext,
 ) -> Result<StoragePolicyActionResult> {

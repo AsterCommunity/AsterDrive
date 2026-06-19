@@ -16,7 +16,7 @@ import { formatDateTime } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { adminSystemService } from "@/services/adminService";
 
-const REPOSITORY_URL = "https://github.com/AptS-1547/AsterDrive";
+const REPOSITORY_URL = "https://github.com/AsterCommunity/AsterDrive";
 const DOCS_URL = "https://drive.astercosm.com/";
 const LICENSE_URL = `${REPOSITORY_URL}/blob/master/LICENSE`;
 const VERSION_EASTER_EGG_CLICKS = 5;
@@ -327,7 +327,7 @@ export default function AdminAboutPage() {
 		},
 		{
 			label: t("about_repository"),
-			value: "AptS-1547/AsterDrive",
+			value: "AsterCommunity/AsterDrive",
 			icon: "Github",
 		},
 	];

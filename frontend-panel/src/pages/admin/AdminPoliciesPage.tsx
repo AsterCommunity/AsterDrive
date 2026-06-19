@@ -5,11 +5,9 @@ import { toast } from "sonner";
 import { AdminOffsetPagination } from "@/components/admin/AdminOffsetPagination";
 import { PoliciesTable } from "@/components/admin/admin-policies-page/PoliciesTable";
 import { PolicyDialogs } from "@/components/admin/admin-policies-page/PolicyDialogs";
-import {
-	getPolicyDriverLabelKey,
-	PROTECTED_POLICY_ID,
-} from "@/components/admin/admin-policies-page/policyPresentation";
+import { PROTECTED_POLICY_ID } from "@/components/admin/admin-policies-page/policyPresentation";
 import { StoragePolicyMigrationDialog } from "@/components/admin/admin-policies-page/StoragePolicyMigrationDialog";
+import { MICROSOFT_GRAPH_PROVIDER } from "@/components/admin/storage-policy-dialog/onedriveFieldUtils";
 import {
 	buildCreatePolicyPayload,
 	buildPolicyTestPayload,
@@ -22,9 +20,21 @@ import {
 	getPolicyForm,
 	getS3CompatibleDriverPromotionTarget,
 	hasConnectionFieldChanges,
-	isObjectStorageDriver,
+	microsoftGraphCredentials,
 	normalizePolicyForm,
 	type PolicyFormData,
+	parseMicrosoftGraphScopes,
+	supportsApplicationCredentials,
+	supportsDraftConnectionTest,
+	supportsMicrosoftGraphApplicationConfig,
+	supportsObjectStorageConnection,
+	supportsOneDrivePolicyOptions,
+	supportsRemoteNodeBinding,
+	supportsS3TransferStrategy,
+	supportsSavedConnectionTest,
+	supportsStorageCredentialLifecycle,
+	supportsStorageNativeProcessing,
+	supportsStoragePolicyAction,
 } from "@/components/admin/storagePolicyDialogShared";
 import { AdminLayout } from "@/components/layout/AdminLayout";
 import { AdminPageHeader } from "@/components/layout/AdminPageHeader";
@@ -43,6 +53,11 @@ import {
 	loadAdminRemoteNodeLookup,
 	readAdminRemoteNodeLookup,
 } from "@/lib/adminRemoteNodeLookup";
+import {
+	getStorageDriverDescriptor,
+	loadAdminStorageDriverDescriptors,
+	readAdminStorageDriverDescriptors,
+} from "@/lib/adminStorageDriverDescriptors";
 import { ADMIN_CONTROL_HEIGHT_CLASS } from "@/lib/constants";
 import {
 	buildOffsetPaginationSearchParams,
@@ -60,6 +75,7 @@ import type {
 	DeletePolicyQuery,
 	DriverType,
 	RemoteNodeInfo,
+	StorageConnectorDescriptor,
 	StoragePolicy,
 	StoragePolicyCapacityInfo,
 	StoragePolicyCredentialInfo,
@@ -176,52 +192,69 @@ function policyFormValueEquals(left: unknown, right: unknown): boolean {
 function policyFormHasUnsavedChanges(
 	form: PolicyFormData,
 	policy: StoragePolicy | null,
+	descriptor?: StorageConnectorDescriptor | null,
 ) {
 	if (!policy) {
 		return false;
 	}
 
-	const comparableForm = normalizePolicyComparableForm(form);
+	const comparableForm = normalizePolicyComparableForm(form, descriptor);
 	const comparablePolicyForm = normalizePolicyComparableForm(
 		getPolicyForm(policy),
+		descriptor,
 	);
 
 	return !policyFormValueEquals(comparableForm, comparablePolicyForm);
 }
 
-function normalizePolicyComparableForm(form: PolicyFormData) {
-	const normalized = normalizePolicyForm(form);
-	if (normalized.driver_type !== "one_drive") {
+function normalizePolicyComparableForm(
+	form: PolicyFormData,
+	descriptor?: StorageConnectorDescriptor | null,
+) {
+	const normalized = normalizePolicyForm(form, descriptor);
+	const usesMicrosoftGraph =
+		descriptor != null
+			? supportsOneDrivePolicyOptions(descriptor) ||
+				supportsMicrosoftGraphApplicationConfig(descriptor)
+			: hasMicrosoftGraphFormFields(normalized);
+
+	if (!usesMicrosoftGraph) {
 		const {
 			onedrive_account_mode: _accountMode,
-			onedrive_client_id: _clientId,
-			onedrive_client_secret: _clientSecret,
 			onedrive_cloud: _cloud,
 			onedrive_drive_id: _driveId,
 			onedrive_group_id: _groupId,
 			onedrive_root_item_id: _rootItemId,
-			onedrive_scopes: _scopes,
 			onedrive_site_id: _siteId,
 			onedrive_tenant: _tenant,
+			application_credentials: _applicationCredentials,
 			...comparable
 		} = normalized;
 		return comparable;
 	}
 
-	if (
-		normalized.onedrive_client_id.trim() ||
-		normalized.onedrive_client_secret.trim()
-	) {
+	const microsoftGraph = microsoftGraphCredentials(normalized);
+	if (microsoftGraph.client_id.trim() || microsoftGraph.client_secret.trim()) {
 		return normalized;
 	}
 
-	const {
-		onedrive_client_id: _clientId,
-		onedrive_client_secret: _clientSecret,
-		onedrive_scopes: _scopes,
-		...comparable
-	} = normalized;
+	const { application_credentials: _applicationCredentials, ...comparable } =
+		normalized;
 	return comparable;
+}
+
+function hasMicrosoftGraphFormFields(form: PolicyFormData) {
+	const microsoftGraph = microsoftGraphCredentials(form);
+	return (
+		Boolean(form.onedrive_account_mode) ||
+		Boolean(form.onedrive_cloud) ||
+		Boolean(form.onedrive_tenant.trim()) ||
+		Boolean(form.onedrive_drive_id.trim()) ||
+		Boolean(form.onedrive_root_item_id.trim()) ||
+		Boolean(microsoftGraph.client_id.trim()) ||
+		Boolean(microsoftGraph.client_secret.trim()) ||
+		Boolean(microsoftGraph.scopes.trim())
+	);
 }
 
 function useAdminPoliciesPageContent() {
@@ -292,6 +325,13 @@ function useAdminPoliciesPageContent() {
 	const [remoteNodes, setRemoteNodes] = useState<RemoteNodeInfo[]>(
 		() => readAdminRemoteNodeLookup() ?? [],
 	);
+	const [storageDriverDescriptors, setStorageDriverDescriptors] = useState<
+		StorageConnectorDescriptor[]
+	>(() => readAdminStorageDriverDescriptors() ?? []);
+	const [storageDriverDescriptorsLoading, setStorageDriverDescriptorsLoading] =
+		useState(() => readAdminStorageDriverDescriptors() == null);
+	const [storageDriverDescriptorsError, setStorageDriverDescriptorsError] =
+		useState<string | null>(null);
 	const [form, setForm] = useState<PolicyFormData>(emptyForm);
 	const [submitting, setSubmitting] = useState(false);
 
@@ -336,11 +376,36 @@ function useAdminPoliciesPageContent() {
 		pending: storageCredentialValidationSubmitting,
 		runWithPending: runWithStorageCredentialValidation,
 	} = usePendingAction();
-	const endpointValidationMessage = getEndpointValidationMessage(form, t);
-	const getS3CompatiblePromotionDriverLabel = (driverType: "tencent_cos") =>
-		t(getPolicyDriverLabelKey(driverType));
+	const currentStorageDriverDescriptor = getStorageDriverDescriptor(
+		storageDriverDescriptors,
+		form.driver_type,
+	);
+	const endpointValidationMessage = getEndpointValidationMessage(
+		form,
+		t,
+		currentStorageDriverDescriptor,
+	);
+	const canConfigureTencentCosCors = supportsStoragePolicyAction(
+		currentStorageDriverDescriptor,
+		"configure_tencent_cos_cors",
+	);
+	const currentAuthorizationProvider =
+		currentStorageDriverDescriptor?.authorization_provider ?? null;
+	const isMicrosoftGraphAuthorizationProvider =
+		currentAuthorizationProvider === MICROSOFT_GRAPH_PROVIDER;
+	const getS3CompatiblePromotionDriverLabel = (driverType: DriverType) => {
+		const descriptor = getStorageDriverDescriptor(
+			storageDriverDescriptors,
+			driverType,
+		);
+		return descriptor?.ui ? t(descriptor.ui.label_key) : driverType;
+	};
 	const savedS3DriverPromotionTarget = getS3CompatibleDriverPromotionTarget(
 		editingPolicy,
+		getStorageDriverDescriptor(
+			storageDriverDescriptors,
+			editingPolicy?.driver_type ?? form.driver_type,
+		),
 		getS3CompatiblePromotionDriverLabel,
 	);
 	// Draft detection gives immediate feedback while editing; only the saved
@@ -349,6 +414,7 @@ function useAdminPoliciesPageContent() {
 		editingId !== null
 			? { driver_type: form.driver_type, endpoint: form.endpoint }
 			: null,
+		currentStorageDriverDescriptor,
 		getS3CompatiblePromotionDriverLabel,
 	);
 	const s3DriverPromotionTarget =
@@ -356,13 +422,23 @@ function useAdminPoliciesPageContent() {
 	const s3CompatibleDriverSuggestionTarget =
 		getS3CompatibleDriverPromotionTarget(
 			{ driver_type: form.driver_type, endpoint: form.endpoint },
+			currentStorageDriverDescriptor,
 			getS3CompatiblePromotionDriverLabel,
 		);
 	const s3DriverPromotionBlocked =
 		s3DriverPromotionTarget != null &&
-		policyFormHasUnsavedChanges(form, editingPolicy);
+		policyFormHasUnsavedChanges(
+			form,
+			editingPolicy,
+			currentStorageDriverDescriptor,
+		);
 	const cosCorsUsesDraftValues =
-		editingId === null || hasConnectionFieldChanges(form, editingPolicy);
+		editingId === null ||
+		hasConnectionFieldChanges(
+			form,
+			editingPolicy,
+			currentStorageDriverDescriptor,
+		);
 	const totalPages = Math.max(1, Math.ceil(total / pageSize));
 	const storageAuthorizationRedirectUri = getStorageAuthorizationCallbackUrl();
 	const currentPage = Math.floor(offset / pageSize) + 1;
@@ -411,6 +487,37 @@ function useAdminPoliciesPageContent() {
 			active = false;
 		};
 	}, []);
+
+	useEffect(() => {
+		let active = true;
+
+		setStorageDriverDescriptorsLoading(true);
+		setStorageDriverDescriptorsError(null);
+		void loadAdminStorageDriverDescriptors()
+			.then((descriptors) => {
+				if (active) {
+					setStorageDriverDescriptors(descriptors);
+					setStorageDriverDescriptorsError(null);
+				}
+			})
+			.catch((error) => {
+				if (active) {
+					setStorageDriverDescriptorsError(
+						t("policy_driver_options_load_failed"),
+					);
+					handleApiError(error);
+				}
+			})
+			.finally(() => {
+				if (active) {
+					setStorageDriverDescriptorsLoading(false);
+				}
+			});
+
+		return () => {
+			active = false;
+		};
+	}, [t]);
 
 	const refreshRemoteNodeLookup = useCallback(
 		async (options?: { force?: boolean }) => {
@@ -579,7 +686,11 @@ function useAdminPoliciesPageContent() {
 
 	const loadStorageCredentials = useCallback(
 		(policyId: number, driverType: DriverType) => {
-			if (driverType !== "one_drive") {
+			const descriptor = getStorageDriverDescriptor(
+				storageDriverDescriptors,
+				driverType,
+			);
+			if (!supportsStorageCredentialLifecycle(descriptor)) {
 				setStorageCredentials([]);
 				setStorageCredentialsLoading(false);
 				return;
@@ -613,8 +724,15 @@ function useAdminPoliciesPageContent() {
 					}
 				});
 		},
-		[],
+		[storageDriverDescriptors],
 	);
+
+	useEffect(() => {
+		if (!editingPolicy) {
+			return;
+		}
+		loadStorageCredentials(editingPolicy.id, editingPolicy.driver_type);
+	}, [editingPolicy, loadStorageCredentials]);
 
 	const openEdit = useCallback(
 		(policy: StoragePolicy) => {
@@ -624,15 +742,9 @@ function useAdminPoliciesPageContent() {
 			setForm(getPolicyForm(policy));
 			void refreshRemoteNodeLookup();
 			loadPolicyCapacity(policy.id);
-			loadStorageCredentials(policy.id, policy.driver_type);
 			setDialogOpen(true);
 		},
-		[
-			loadPolicyCapacity,
-			loadStorageCredentials,
-			refreshRemoteNodeLookup,
-			resetDialogState,
-		],
+		[loadPolicyCapacity, refreshRemoteNodeLookup, resetDialogState],
 	);
 
 	const openPolicyById = useCallback(
@@ -733,34 +845,40 @@ function useAdminPoliciesPageContent() {
 		setForm((prev) => {
 			const { s3_path_style: previousS3PathStyle, ...prevWithoutS3PathStyle } =
 				prev;
-			if (isObjectStorageDriver(driverType)) {
+			const nextDriverDescriptor = getStorageDriverDescriptor(
+				storageDriverDescriptors,
+				driverType,
+			);
+			const nextSupportsStorageNativeProcessing =
+				supportsStorageNativeProcessing(nextDriverDescriptor);
+			if (supportsObjectStorageConnection(nextDriverDescriptor)) {
 				return {
 					...prevWithoutS3PathStyle,
 					driver_type: driverType,
 					remote_node_id: "",
-					storage_native_processing_enabled:
-						driverType === "tencent_cos"
-							? prev.storage_native_processing_enabled
-							: false,
-					thumbnail_processor:
-						driverType === "tencent_cos" ? prev.thumbnail_processor : null,
-					thumbnail_extensions:
-						driverType === "tencent_cos" ? prev.thumbnail_extensions : [],
+					storage_native_processing_enabled: nextSupportsStorageNativeProcessing
+						? prev.storage_native_processing_enabled
+						: false,
+					thumbnail_processor: nextSupportsStorageNativeProcessing
+						? prev.thumbnail_processor
+						: null,
+					thumbnail_extensions: nextSupportsStorageNativeProcessing
+						? prev.thumbnail_extensions
+						: [],
 					storage_native_media_metadata_enabled:
-						driverType === "tencent_cos"
+						nextSupportsStorageNativeProcessing
 							? prev.storage_native_media_metadata_enabled
 							: false,
-					media_metadata_extensions:
-						driverType === "tencent_cos"
-							? (prev.media_metadata_extensions ?? [])
-							: [],
-					...(driverType === "s3"
+					media_metadata_extensions: nextSupportsStorageNativeProcessing
+						? (prev.media_metadata_extensions ?? [])
+						: [],
+					...(supportsS3TransferStrategy(nextDriverDescriptor)
 						? { s3_path_style: previousS3PathStyle ?? true }
 						: {}),
 				};
 			}
 
-			if (driverType === "remote") {
+			if (supportsRemoteNodeBinding(nextDriverDescriptor)) {
 				return {
 					...prevWithoutS3PathStyle,
 					driver_type: driverType,
@@ -779,7 +897,7 @@ function useAdminPoliciesPageContent() {
 				};
 			}
 
-			if (driverType === "one_drive") {
+			if (supportsOneDrivePolicyOptions(nextDriverDescriptor)) {
 				return {
 					...prevWithoutS3PathStyle,
 					driver_type: driverType,
@@ -796,9 +914,15 @@ function useAdminPoliciesPageContent() {
 					onedrive_root_item_id: prev.onedrive_root_item_id,
 					onedrive_site_id: prev.onedrive_site_id,
 					onedrive_group_id: prev.onedrive_group_id,
-					onedrive_client_id: "",
-					onedrive_client_secret: "",
-					onedrive_scopes: "",
+					application_credentials: {
+						microsoft_graph: {
+							cloud: prev.onedrive_cloud || "global",
+							tenant: prev.onedrive_tenant || "common",
+							client_id: "",
+							client_secret: "",
+							scopes: "",
+						},
+					},
 					storage_native_processing_enabled: false,
 					thumbnail_processor: null,
 					thumbnail_extensions: [],
@@ -832,8 +956,12 @@ function useAdminPoliciesPageContent() {
 		});
 	};
 
-	const syncNormalizedS3Form = () => {
-		const normalizedForm = normalizePolicyForm(form);
+	const syncNormalizedPolicyForm = () => {
+		const descriptor = getStorageDriverDescriptor(
+			storageDriverDescriptors,
+			form.driver_type,
+		);
+		const normalizedForm = normalizePolicyForm(form, descriptor);
 		if (normalizedForm !== form) {
 			setForm(normalizedForm);
 		}
@@ -847,10 +975,15 @@ function useAdminPoliciesPageContent() {
 		showSuccessToast?: boolean;
 		showFailureError?: boolean;
 	} = {}) => {
-		const currentForm = syncNormalizedS3Form();
+		const currentForm = syncNormalizedPolicyForm();
+		const descriptor = getStorageDriverDescriptor(
+			storageDriverDescriptors,
+			currentForm.driver_type,
+		);
 		const currentEndpointValidationMessage = getEndpointValidationMessage(
 			currentForm,
 			t,
+			descriptor,
 		);
 		if (currentEndpointValidationMessage) {
 			if (showFailureError) {
@@ -862,22 +995,32 @@ function useAdminPoliciesPageContent() {
 
 		const shouldUseParamTest =
 			editingId === null ||
-			hasConnectionFieldChanges(currentForm, editingPolicy);
+			hasConnectionFieldChanges(currentForm, editingPolicy, descriptor);
+		if (shouldUseParamTest && !supportsDraftConnectionTest(descriptor)) {
+			setValidatedConnectionKey(null);
+			return false;
+		}
+		if (!shouldUseParamTest && !supportsSavedConnectionTest(descriptor)) {
+			setValidatedConnectionKey(null);
+			return false;
+		}
 
 		try {
 			if (shouldUseParamTest) {
 				await adminPolicyService.testParams(
-					buildPolicyTestPayload(currentForm),
+					buildPolicyTestPayload(currentForm, descriptor),
 				);
 			} else {
 				await adminPolicyService.testConnection(editingId);
 			}
 
 			if (
-				isObjectStorageDriver(currentForm.driver_type) ||
-				currentForm.driver_type === "remote"
+				supportsObjectStorageConnection(descriptor) ||
+				supportsRemoteNodeBinding(descriptor)
 			) {
-				setValidatedConnectionKey(getPolicyConnectionTestKey(currentForm));
+				setValidatedConnectionKey(
+					getPolicyConnectionTestKey(currentForm, descriptor),
+				);
 			}
 			if (showSuccessToast) {
 				toast.success(t("connection_success"));
@@ -894,18 +1037,21 @@ function useAdminPoliciesPageContent() {
 
 	const persistPolicy = async () => {
 		try {
-			const currentForm = syncNormalizedS3Form();
+			const currentForm = syncNormalizedPolicyForm();
+			const descriptor = getStorageDriverDescriptor(
+				storageDriverDescriptors,
+				currentForm.driver_type,
+			);
 			if (editingId) {
 				const updated = await adminPolicyService.update(
 					editingId,
-					buildUpdatePolicyPayload(currentForm),
+					buildUpdatePolicyPayload(currentForm, descriptor),
 				);
 				invalidateAdminPolicyLookup();
 				setEditingId(updated.id);
 				setEditingPolicy(updated);
 				setForm(getPolicyForm(updated));
 				setValidatedConnectionKey(null);
-				loadStorageCredentials(updated.id, updated.driver_type);
 				loadPolicyCapacity(updated.id);
 				setPolicies((prev) =>
 					prev.map((policy) => (policy.id === editingId ? updated : policy)),
@@ -913,10 +1059,10 @@ function useAdminPoliciesPageContent() {
 				toast.success(t("policy_updated"));
 			} else {
 				const created = await adminPolicyService.create(
-					buildCreatePolicyPayload(currentForm),
+					buildCreatePolicyPayload(currentForm, descriptor),
 				);
 				invalidateAdminPolicyLookup();
-				if (currentForm.driver_type === "one_drive") {
+				if (supportsStorageCredentialLifecycle(descriptor)) {
 					setEditingId(created.id);
 					setEditingPolicy(created);
 					setForm(getPolicyForm(created));
@@ -933,7 +1079,6 @@ function useAdminPoliciesPageContent() {
 					});
 					setTotal((current) => current + 1);
 					loadPolicyCapacity(created.id);
-					loadStorageCredentials(created.id, created.driver_type);
 					toast.success(t("policy_onedrive_created_authorize_next"));
 					return;
 				}
@@ -956,18 +1101,26 @@ function useAdminPoliciesPageContent() {
 	};
 
 	const shouldRunConnectionSaveTest = () => {
+		const descriptor = currentStorageDriverDescriptor;
+		if (!supportsDraftConnectionTest(descriptor)) {
+			return false;
+		}
+
 		if (
-			!isObjectStorageDriver(form.driver_type) &&
-			form.driver_type !== "remote"
+			editingId !== null &&
+			!hasConnectionFieldChanges(
+				form,
+				editingPolicy,
+				currentStorageDriverDescriptor,
+			)
 		) {
 			return false;
 		}
 
-		if (editingId !== null && !hasConnectionFieldChanges(form, editingPolicy)) {
-			return false;
-		}
-
-		return validatedConnectionKey !== getPolicyConnectionTestKey(form);
+		return (
+			validatedConnectionKey !==
+			getPolicyConnectionTestKey(form, currentStorageDriverDescriptor)
+		);
 	};
 
 	const submitPolicy = async (forceSave = false) => {
@@ -1030,16 +1183,21 @@ function useAdminPoliciesPageContent() {
 	};
 
 	const configureTencentCosCors = async () => {
-		if (form.driver_type !== "tencent_cos") {
+		if (!canConfigureTencentCosCors) {
 			return;
 		}
 
 		await runWithCosCorsConfigure(async () => {
 			try {
-				const currentForm = syncNormalizedS3Form();
+				const currentForm = syncNormalizedPolicyForm();
+				const descriptor = getStorageDriverDescriptor(
+					storageDriverDescriptors,
+					currentForm.driver_type,
+				);
 				const currentEndpointValidationMessage = getEndpointValidationMessage(
 					currentForm,
 					t,
+					descriptor,
 				);
 				if (currentEndpointValidationMessage) {
 					toast.error(currentEndpointValidationMessage);
@@ -1048,14 +1206,14 @@ function useAdminPoliciesPageContent() {
 
 				const shouldUseDraft =
 					editingId === null ||
-					hasConnectionFieldChanges(currentForm, editingPolicy);
+					hasConnectionFieldChanges(currentForm, editingPolicy, descriptor);
 				const result =
 					editingId !== null && !shouldUseDraft
 						? await adminPolicyService.executeSavedPolicyAction(editingId, {
 								action: "configure_tencent_cos_cors",
 							})
 						: await adminPolicyService.executeDraftPolicyAction(
-								buildTencentCosCorsPayload(currentForm, editingId),
+								buildTencentCosCorsPayload(currentForm, editingId, descriptor),
 							);
 				const requestId = result.tencent_cos_cors?.request_id;
 				setCosCorsConfirmOpen(false);
@@ -1124,27 +1282,36 @@ function useAdminPoliciesPageContent() {
 		if (
 			editingId === null ||
 			!editingPolicy ||
-			form.driver_type !== "one_drive"
+			!isMicrosoftGraphAuthorizationProvider
 		) {
 			return;
 		}
-		if (policyFormHasUnsavedChanges(form, editingPolicy)) {
+		if (
+			policyFormHasUnsavedChanges(
+				form,
+				editingPolicy,
+				currentStorageDriverDescriptor,
+			)
+		) {
 			toast.error(t("onedrive_save_before_authorize"));
 			return;
 		}
 		const currentForm = normalizePolicyForm(form);
+		const microsoftGraph = microsoftGraphCredentials(currentForm);
+		const scopes = parseMicrosoftGraphScopes(microsoftGraph.scopes);
 
 		void runWithStorageAuthorization(async () => {
 			try {
 				const result = await adminPolicyService.startStorageAuthorization(
 					editingId,
 					{
-						provider: "microsoft_graph",
+						provider: MICROSOFT_GRAPH_PROVIDER,
 						microsoft_graph: {
 							cloud: currentForm.onedrive_cloud,
 							tenant: currentForm.onedrive_tenant || undefined,
-							client_id: currentForm.onedrive_client_id || undefined,
-							client_secret: currentForm.onedrive_client_secret || undefined,
+							client_id: microsoftGraph.client_id || undefined,
+							client_secret: microsoftGraph.client_secret || undefined,
+							scopes: scopes.length > 0 ? scopes : undefined,
 						},
 					},
 				);
@@ -1162,10 +1329,16 @@ function useAdminPoliciesPageContent() {
 	};
 
 	const validateStorageCredential = () => {
-		if (editingId === null || form.driver_type !== "one_drive") {
+		if (editingId === null || !isMicrosoftGraphAuthorizationProvider) {
 			return;
 		}
-		if (policyFormHasUnsavedChanges(form, editingPolicy)) {
+		if (
+			policyFormHasUnsavedChanges(
+				form,
+				editingPolicy,
+				currentStorageDriverDescriptor,
+			)
+		) {
 			toast.error(t("onedrive_save_before_validate"));
 			return;
 		}
@@ -1186,7 +1359,7 @@ function useAdminPoliciesPageContent() {
 
 				const result = await adminPolicyService.validateStorageCredential(
 					policyId,
-					"microsoft_graph",
+					MICROSOFT_GRAPH_PROVIDER,
 				);
 				if (isCurrentValidationRequest()) {
 					setStorageCredentials((prev) => {
@@ -1249,25 +1422,37 @@ function useAdminPoliciesPageContent() {
 			return;
 		}
 
-		if (isObjectStorageDriver(form.driver_type) && !form.bucket.trim()) {
-			return;
-		}
-
-		if (isObjectStorageDriver(form.driver_type) && !form.endpoint.trim()) {
-			return;
-		}
-
-		if (form.driver_type === "remote" && !form.remote_node_id) {
-			return;
-		}
-
-		if (form.driver_type === "one_drive" && !form.onedrive_client_id.trim()) {
+		if (
+			supportsObjectStorageConnection(currentStorageDriverDescriptor) &&
+			!form.bucket.trim()
+		) {
 			return;
 		}
 
 		if (
-			form.driver_type === "one_drive" &&
-			!form.onedrive_client_secret.trim()
+			supportsObjectStorageConnection(currentStorageDriverDescriptor) &&
+			!form.endpoint.trim()
+		) {
+			return;
+		}
+
+		if (
+			supportsRemoteNodeBinding(currentStorageDriverDescriptor) &&
+			!form.remote_node_id
+		) {
+			return;
+		}
+
+		if (
+			supportsApplicationCredentials(currentStorageDriverDescriptor) &&
+			!microsoftGraphCredentials(form).client_id.trim()
+		) {
+			return;
+		}
+
+		if (
+			supportsApplicationCredentials(currentStorageDriverDescriptor) &&
+			!microsoftGraphCredentials(form).client_secret.trim()
 		) {
 			return;
 		}
@@ -1276,7 +1461,7 @@ function useAdminPoliciesPageContent() {
 			return;
 		}
 
-		syncNormalizedS3Form();
+		syncNormalizedPolicyForm();
 		setCreateStepTouched(false);
 		setCreateStep(CREATE_LAST_STEP);
 	};
@@ -1288,8 +1473,9 @@ function useAdminPoliciesPageContent() {
 		}
 		if (
 			editingId === null &&
-			form.driver_type === "one_drive" &&
-			(!form.onedrive_client_id.trim() || !form.onedrive_client_secret.trim())
+			supportsApplicationCredentials(currentStorageDriverDescriptor) &&
+			(!microsoftGraphCredentials(form).client_id.trim() ||
+				!microsoftGraphCredentials(form).client_secret.trim())
 		) {
 			setCreateStepTouched(true);
 			setCreateStep(1);
@@ -1308,7 +1494,7 @@ function useAdminPoliciesPageContent() {
 			: "";
 	const handleRefresh = async () => {
 		try {
-			const [policyPage, remoteNodeLookup] = await Promise.all([
+			const [policyPage, remoteNodeLookup, descriptors] = await Promise.all([
 				adminPolicyService.list({
 					limit: pageSize,
 					offset,
@@ -1316,10 +1502,12 @@ function useAdminPoliciesPageContent() {
 					sort_order: sortOrder,
 				}),
 				loadAdminRemoteNodeLookup({ force: true }),
+				loadAdminStorageDriverDescriptors({ force: true }),
 			]);
 			setPolicies(policyPage.items);
 			setTotal(policyPage.total);
 			setRemoteNodes(remoteNodeLookup);
+			setStorageDriverDescriptors(descriptors);
 			invalidateAdminPolicyLookup();
 		} catch (error) {
 			handleApiError(error);
@@ -1456,6 +1644,7 @@ function useAdminPoliciesPageContent() {
 					remoteNodeNameById={remoteNodeNameById}
 					sortBy={sortBy}
 					sortOrder={sortOrder}
+					storageDriverDescriptors={storageDriverDescriptors}
 					onSortChange={handleSortChange}
 				/>
 
@@ -1482,6 +1671,10 @@ function useAdminPoliciesPageContent() {
 					dialogOpen={dialogOpen}
 					editMode={editingId !== null}
 					form={form}
+					storageDriverDescriptor={currentStorageDriverDescriptor}
+					storageDriverDescriptors={storageDriverDescriptors}
+					storageDriverDescriptorsError={storageDriverDescriptorsError}
+					storageDriverDescriptorsLoading={storageDriverDescriptorsLoading}
 					policyCapacity={policyCapacity}
 					policyCapacityLoading={policyCapacityLoading}
 					storageCredentials={storageCredentials}
@@ -1494,6 +1687,7 @@ function useAdminPoliciesPageContent() {
 					cosCorsConfirmOpen={cosCorsConfirmOpen}
 					cosCorsSubmitting={cosCorsSubmitting}
 					cosCorsUsesDraftValues={cosCorsUsesDraftValues}
+					canConfigureTencentCosCors={canConfigureTencentCosCors}
 					s3CompatibleDriverSuggestionTargetLabel={
 						s3CompatibleDriverSuggestionTarget?.driverLabel ?? null
 					}
@@ -1529,7 +1723,7 @@ function useAdminPoliciesPageContent() {
 					onCreateBack={handleCreateBack}
 					onCreateStepChange={handleCreateStepChange}
 					onCreateNext={handleCreateNext}
-					onSyncNormalizedS3Form={syncNormalizedS3Form}
+					onSyncNormalizedS3Form={syncNormalizedPolicyForm}
 				/>
 				<StoragePolicyMigrationDialog
 					dryRun={migrationDryRun}

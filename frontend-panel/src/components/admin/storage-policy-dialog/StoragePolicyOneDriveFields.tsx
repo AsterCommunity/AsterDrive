@@ -76,13 +76,17 @@ export function OneDriveConnectionFields({
 	form,
 	mode = "edit",
 	onFieldChange,
+	showApplicationFields = true,
 	showCreateValidation = false,
+	showPolicyOptionFields = true,
 	t,
 }: SharedFieldProps & {
 	clientIdError?: string | null;
 	clientSecretError?: string | null;
 	mode?: "create" | "edit";
+	showApplicationFields?: boolean;
 	showCreateValidation?: boolean;
+	showPolicyOptionFields?: boolean;
 }) {
 	const [advancedOpen, setAdvancedOpen] = useState(false);
 	const cloudOptions = getCloudOptions(t);
@@ -91,44 +95,46 @@ export function OneDriveConnectionFields({
 	return (
 		<div className="space-y-4">
 			<div className="grid max-w-xl gap-4">
-				<div className="space-y-2">
-					<Label htmlFor="onedrive_cloud">{t("onedrive_cloud")}</Label>
-					<Select
-						items={cloudOptions}
-						value={form.onedrive_cloud}
-						onValueChange={(value) => {
-							const nextCloud = (value ?? "global") as MicrosoftGraphCloud;
-							onFieldChange("onedrive_cloud", nextCloud);
-							onFieldChange(
-								"onedrive_tenant",
-								nextCloud === "china" ? "organizations" : "common",
-							);
-							if (
-								nextCloud === "china" &&
-								form.onedrive_account_mode === "personal"
-							) {
-								onFieldChange("onedrive_account_mode", "work_or_school");
-								onFieldChange("onedrive_tenant", "organizations");
-							}
-						}}
-					>
-						<SelectTrigger id="onedrive_cloud">
-							<SelectValue />
-						</SelectTrigger>
-						<SelectContent>
-							{cloudOptions.map((option) => (
-								<SelectItem key={option.value} value={option.value}>
-									{option.label}
-								</SelectItem>
-							))}
-						</SelectContent>
-					</Select>
-					<p className="text-xs leading-5 text-muted-foreground">
-						{t("onedrive_cloud_desc")}
-					</p>
-				</div>
-				<OneDriveSetupNotice t={t} />
-				{mode === "create" ? (
+				{showPolicyOptionFields ? (
+					<div className="space-y-2">
+						<Label htmlFor="onedrive_cloud">{t("onedrive_cloud")}</Label>
+						<Select
+							items={cloudOptions}
+							value={form.onedrive_cloud}
+							onValueChange={(value) => {
+								const nextCloud = (value ?? "global") as MicrosoftGraphCloud;
+								onFieldChange("onedrive_cloud", nextCloud);
+								onFieldChange(
+									"onedrive_tenant",
+									nextCloud === "china" ? "organizations" : "common",
+								);
+								if (
+									nextCloud === "china" &&
+									form.onedrive_account_mode === "personal"
+								) {
+									onFieldChange("onedrive_account_mode", "work_or_school");
+									onFieldChange("onedrive_tenant", "organizations");
+								}
+							}}
+						>
+							<SelectTrigger id="onedrive_cloud">
+								<SelectValue />
+							</SelectTrigger>
+							<SelectContent>
+								{cloudOptions.map((option) => (
+									<SelectItem key={option.value} value={option.value}>
+										{option.label}
+									</SelectItem>
+								))}
+							</SelectContent>
+						</Select>
+						<p className="text-xs leading-5 text-muted-foreground">
+							{t("onedrive_cloud_desc")}
+						</p>
+					</div>
+				) : null}
+				{showApplicationFields ? <OneDriveSetupNotice t={t} /> : null}
+				{mode === "create" && showApplicationFields ? (
 					<OneDriveApplicationFields
 						clientIdError={clientIdError}
 						clientSecretError={clientSecretError}
@@ -139,7 +145,7 @@ export function OneDriveConnectionFields({
 					/>
 				) : null}
 			</div>
-			{mode === "edit" ? (
+			{mode === "edit" && showPolicyOptionFields ? (
 				<div className="space-y-3">
 					<Button
 						type="button"

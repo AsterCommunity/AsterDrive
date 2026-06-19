@@ -3,9 +3,17 @@ import { useTranslation } from "react-i18next";
 import { getPolicyDriverBadgeClass } from "@/components/admin/admin-policies-page/policyPresentation";
 import type { StoragePolicyDriverOption } from "@/components/admin/StoragePolicyDialogFields";
 import {
-	isObjectStorageDriver,
-	isOneDriveDriver,
+	microsoftGraphCredentials,
 	type PolicyFormData,
+	supportsApplicationCredentials,
+	supportsContentDedupPolicyOption,
+	supportsDraftConnectionTest,
+	supportsObjectStorageConnection,
+	supportsOneDrivePolicyOptions,
+	supportsRemoteNodeBinding,
+	supportsS3TransferStrategy,
+	supportsSavedConnectionTest,
+	supportsStorageNativeProcessing,
 } from "@/components/admin/storagePolicyDialogShared";
 import { InlineConfirm } from "@/components/common/ManagerDialogShell";
 import { Button } from "@/components/ui/button";
@@ -22,6 +30,8 @@ import { ADMIN_CONTROL_HEIGHT_CLASS } from "@/lib/constants";
 import type {
 	DriverType,
 	RemoteNodeInfo,
+	StorageConnectorDescriptor,
+	StorageConnectorUiDescriptor,
 	StoragePolicyCapacityInfo,
 	StoragePolicyCredentialInfo,
 } from "@/types/api";
@@ -34,6 +44,10 @@ interface StoragePolicyDialogProps {
 	open: boolean;
 	mode: "create" | "edit";
 	form: PolicyFormData;
+	storageDriverDescriptor: StorageConnectorDescriptor | null;
+	storageDriverDescriptors: StorageConnectorDescriptor[];
+	storageDriverDescriptorsError: string | null;
+	storageDriverDescriptorsLoading: boolean;
 	policyCapacity: StoragePolicyCapacityInfo | null;
 	policyCapacityLoading: boolean;
 	storageCredentials: StoragePolicyCredentialInfo[];
@@ -54,6 +68,7 @@ interface StoragePolicyDialogProps {
 	cosCorsConfirmOpen: boolean;
 	cosCorsSubmitting: boolean;
 	cosCorsUsesDraftValues: boolean;
+	canConfigureTencentCosCors: boolean;
 	saveAnywayConfirmOpen: boolean;
 	onApplyS3CompatibleDriverSuggestion: () => void;
 	onCancelCosCorsConfigure: () => void;
@@ -103,6 +118,10 @@ function useStoragePolicyDialogContent({
 	open,
 	mode,
 	form,
+	storageDriverDescriptor,
+	storageDriverDescriptors,
+	storageDriverDescriptorsError,
+	storageDriverDescriptorsLoading,
 	policyCapacity,
 	policyCapacityLoading,
 	storageCredentials,
@@ -123,6 +142,7 @@ function useStoragePolicyDialogContent({
 	cosCorsConfirmOpen,
 	cosCorsSubmitting,
 	cosCorsUsesDraftValues,
+	canConfigureTencentCosCors,
 	saveAnywayConfirmOpen,
 	onApplyS3CompatibleDriverSuggestion,
 	onCancelCosCorsConfigure,
@@ -146,68 +166,43 @@ function useStoragePolicyDialogContent({
 }: StoragePolicyDialogProps) {
 	const { t } = useTranslation("admin");
 	const isCreateMode = mode === "create";
-	const storageOptions: StoragePolicyDriverOption[] = [
-		{
-			type: "local",
-			title: t("driver_type_local"),
-			description: t("policy_wizard_local_storage_desc"),
-			iconSrc: "/static/asterdrive/asterdrive-dark.svg",
-		},
-		{
-			type: "remote",
-			title: t("driver_type_remote"),
-			description: t("policy_wizard_remote_storage_desc"),
-			iconSrc: "/static/storage/asterdrive-node.svg",
-		},
-		{
-			type: "s3",
-			title: t("driver_type_s3"),
-			description: t("policy_wizard_s3_storage_desc"),
-			iconSrc: "/static/storage/amazon-s3.svg",
-		},
-		{
-			type: "tencent_cos",
-			title: t("driver_type_tencent_cos"),
-			description: t("policy_wizard_tencent_cos_storage_desc"),
-			iconSrc: "/static/storage/tencent-cloud-cos.webp",
-		},
-		{
-			type: "azure_blob",
-			title: t("driver_type_azure_blob"),
-			description: t("policy_wizard_azure_blob_storage_desc"),
-			iconSrc: "/static/storage/azure-blob.svg",
-		},
-		{
-			type: "one_drive",
-			title: t("driver_type_onedrive"),
-			description: t("policy_wizard_onedrive_storage_desc"),
-			iconSrc: "/static/storage/onedrive.svg",
-		},
-	];
+	const storageOptions = buildStoragePolicyDriverOptions(
+		storageDriverDescriptors,
+		t,
+	);
+	const canUseObjectStorageConnection = supportsObjectStorageConnection(
+		storageDriverDescriptor,
+	);
+	const canUseRemoteNodeBinding = supportsRemoteNodeBinding(
+		storageDriverDescriptor,
+	);
+	const canUseApplicationCredentials = supportsApplicationCredentials(
+		storageDriverDescriptor,
+	);
+	const canUseOneDrivePolicyOptions = supportsOneDrivePolicyOptions(
+		storageDriverDescriptor,
+	);
+	const canUseOneDriveConnection =
+		canUseApplicationCredentials || canUseOneDrivePolicyOptions;
+	const canUseS3TransferStrategy = supportsS3TransferStrategy(
+		storageDriverDescriptor,
+	);
+	const canUseContentDedupPolicyOption = supportsContentDedupPolicyOption(
+		storageDriverDescriptor,
+	);
+	const supportsStorageNative = supportsStorageNativeProcessing(
+		storageDriverDescriptor,
+	);
+	const currentStorageUi =
+		storageDriverDescriptor?.ui ?? fallbackStorageConnectorUi();
 	const createSteps: StoragePolicyDialogStep[] = [
 		{
 			title: t("policy_wizard_step_storage_title"),
 			description: t("policy_wizard_step_storage_desc"),
 		},
 		{
-			title: isObjectStorageDriver(form.driver_type)
-				? t("policy_wizard_step_connection_title")
-				: form.driver_type === "remote"
-					? t("policy_wizard_step_remote_title")
-					: isOneDriveDriver(form.driver_type)
-						? t("policy_wizard_step_onedrive_title")
-						: t("policy_wizard_step_local_title"),
-			description: isObjectStorageDriver(form.driver_type)
-				? form.driver_type === "tencent_cos"
-					? t("policy_wizard_step_tencent_cos_connection_desc")
-					: form.driver_type === "azure_blob"
-						? t("policy_wizard_step_azure_blob_connection_desc")
-						: t("policy_wizard_step_connection_desc")
-				: form.driver_type === "remote"
-					? t("policy_wizard_step_remote_desc")
-					: isOneDriveDriver(form.driver_type)
-						? t("policy_wizard_step_onedrive_desc")
-						: t("policy_wizard_step_local_desc"),
+			title: t(currentStorageUi.config_step_title_key),
+			description: t(currentStorageUi.config_step_description_key),
 		},
 		{
 			title: t("policy_wizard_step_rules_title"),
@@ -234,7 +229,11 @@ function useStoragePolicyDialogContent({
 	const stepAnimationKey = `${stepAnimationRef.current.step}-${stepAnimationRef.current.direction}`;
 	const currentStorageOption =
 		storageOptions.find((option) => option.type === form.driver_type) ??
-		storageOptions[0];
+		storagePolicyDriverOptionFromUi(
+			form.driver_type,
+			fallbackStorageConnectorUi(),
+			t,
+		);
 	const currentDriverBadgeClass = getPolicyDriverBadgeClass(form.driver_type);
 	const createNameError =
 		isCreateMode && createStep === 1 && createStepTouched && !form.name.trim()
@@ -244,32 +243,32 @@ function useStoragePolicyDialogContent({
 		isCreateMode &&
 		createStep === 1 &&
 		createStepTouched &&
-		isObjectStorageDriver(form.driver_type) &&
+		canUseObjectStorageConnection &&
 		!form.bucket.trim()
 			? t(
-					form.driver_type === "azure_blob"
-						? "policy_wizard_container_required"
-						: "policy_wizard_bucket_required",
+					storageDriverDescriptor?.fields.find(
+						(field) => field.scope === "connection" && field.name === "bucket",
+					)?.required_message_key ?? "policy_wizard_bucket_required",
 				)
 			: null;
 	const createOneDriveClientIdError =
 		isCreateMode &&
 		createStep === 1 &&
 		createStepTouched &&
-		form.driver_type === "one_drive" &&
-		!form.onedrive_client_id.trim()
+		canUseApplicationCredentials &&
+		!microsoftGraphCredentials(form).client_id.trim()
 			? t("onedrive_client_id_required")
 			: null;
 	const createOneDriveClientSecretError =
 		isCreateMode &&
 		createStep === 1 &&
 		createStepTouched &&
-		form.driver_type === "one_drive" &&
-		!form.onedrive_client_secret.trim()
+		canUseApplicationCredentials &&
+		!microsoftGraphCredentials(form).client_secret.trim()
 			? t("onedrive_client_secret_required")
 			: null;
 	const createEndpointError =
-		isObjectStorageDriver(form.driver_type) && !form.endpoint.trim()
+		canUseObjectStorageConnection && !form.endpoint.trim()
 			? isCreateMode
 				? createStep === 1 && createStepTouched
 					? t("policy_wizard_endpoint_required")
@@ -280,7 +279,7 @@ function useStoragePolicyDialogContent({
 		isCreateMode &&
 		createStep === 1 &&
 		createStepTouched &&
-		form.driver_type === "remote" &&
+		canUseRemoteNodeBinding &&
 		!form.remote_node_id
 			? t("policy_wizard_remote_node_required")
 			: null;
@@ -319,35 +318,46 @@ function useStoragePolicyDialogContent({
 		extensions: form.media_metadata_extensions ?? [],
 		disabledLabel: t("policy_wizard_disabled"),
 	});
-	const showTencentCosCorsPanel = form.driver_type === "tencent_cos";
+	const showTencentCosCorsAction = canConfigureTencentCosCors;
 	const showCreateTencentCosCorsConfirm =
-		isCreateMode && showTencentCosCorsPanel && cosCorsConfirmOpen;
-	const cosNativeSummaryItems =
-		form.driver_type === "tencent_cos"
-			? [
-					{
-						label: t("storage_native_processing_enabled"),
-						value: form.storage_native_processing_enabled
-							? t("policy_wizard_enabled")
-							: t("policy_wizard_disabled"),
-					},
-					{
-						label: t("storage_native_thumbnail_extensions"),
-						value: storageNativeThumbnailExtensionsLabel,
-					},
-					{
-						label: t("storage_native_media_metadata_extensions"),
-						value: storageNativeMediaMetadataExtensionsLabel,
-					},
-				]
-			: [];
+		isCreateMode && showTencentCosCorsAction && cosCorsConfirmOpen;
+	const canRunDraftConnectionTest = supportsDraftConnectionTest(
+		storageDriverDescriptor,
+	);
+	const canRunSavedConnectionTest = supportsSavedConnectionTest(
+		storageDriverDescriptor,
+	);
+	const canRunConnectionTest = isCreateMode
+		? canRunDraftConnectionTest
+		: canRunDraftConnectionTest || canRunSavedConnectionTest;
+	const cosNativeSummaryItems = supportsStorageNative
+		? [
+				{
+					label: t("storage_native_processing_enabled"),
+					value: form.storage_native_processing_enabled
+						? t("policy_wizard_enabled")
+						: t("policy_wizard_disabled"),
+				},
+				{
+					label: t("storage_native_thumbnail_extensions"),
+					value: storageNativeThumbnailExtensionsLabel,
+				},
+				{
+					label: t("storage_native_media_metadata_extensions"),
+					value: storageNativeMediaMetadataExtensionsLabel,
+				},
+			]
+		: [];
 	const createSummaryItems = [
 		{ label: t("driver_type"), value: currentStorageOption.title },
 		{
 			label: t("base_path"),
 			value:
 				form.base_path ||
-				(form.driver_type === "local" ? "./data" : t("core:root")),
+				translateStorageConnectorUiValue(
+					currentStorageUi.base_path_empty_display,
+					t,
+				),
 		},
 		{
 			label: t("max_file_size"),
@@ -366,7 +376,7 @@ function useStoragePolicyDialogContent({
 				? t("policy_wizard_enabled")
 				: t("policy_wizard_disabled"),
 		},
-		...(form.driver_type === "local"
+		...(canUseContentDedupPolicyOption
 			? [
 					{
 						label: t("content_dedup"),
@@ -374,25 +384,29 @@ function useStoragePolicyDialogContent({
 					},
 				]
 			: []),
-		...(isObjectStorageDriver(form.driver_type)
+		...(canUseObjectStorageConnection
 			? [
 					{
 						label: t("endpoint"),
 						value: form.endpoint || t("policy_wizard_default_endpoint"),
 					},
 					{ label: t("bucket"), value: form.bucket || "—" },
-					{
-						label: t("s3_upload_strategy"),
-						value: s3UploadStrategyLabel,
-					},
-					{
-						label: t("s3_download_strategy"),
-						value: s3DownloadStrategyLabel,
-					},
+					...(canUseS3TransferStrategy
+						? [
+								{
+									label: t("s3_upload_strategy"),
+									value: s3UploadStrategyLabel,
+								},
+								{
+									label: t("s3_download_strategy"),
+									value: s3DownloadStrategyLabel,
+								},
+							]
+						: []),
 					...cosNativeSummaryItems,
 				]
 			: []),
-		...(form.driver_type === "remote"
+		...(canUseRemoteNodeBinding
 			? [
 					{
 						label: t("remote_node"),
@@ -410,55 +424,59 @@ function useStoragePolicyDialogContent({
 					},
 				]
 			: []),
-		...(isOneDriveDriver(form.driver_type)
+		...(canUseOneDriveConnection
 			? [
-					{
-						label: t("onedrive_cloud"),
-						value: t(`onedrive_cloud_${form.onedrive_cloud}`),
-					},
-					...(isCreateMode
+					...(canUseOneDrivePolicyOptions
 						? [
 								{
-									label: t("onedrive_target_summary"),
-									value: t("onedrive_target_summary_auto"),
+									label: t("onedrive_cloud"),
+									value: t(`onedrive_cloud_${form.onedrive_cloud}`),
 								},
+								{
+									label: isCreateMode
+										? t("onedrive_target_summary")
+										: t("onedrive_account_mode"),
+									value: isCreateMode
+										? t("onedrive_target_summary_auto")
+										: t(`onedrive_account_mode_${form.onedrive_account_mode}`),
+								},
+								...(!isCreateMode
+									? [
+											{
+												label: t("onedrive_drive_id"),
+												value:
+													form.onedrive_drive_id ||
+													t("policy_wizard_default_drive"),
+											},
+											{
+												label: t("onedrive_root_item_id"),
+												value: form.onedrive_root_item_id || "root",
+											},
+											...(form.onedrive_account_mode === "sharepoint_site"
+												? [
+														{
+															label: t("onedrive_site_id"),
+															value: form.onedrive_site_id || "—",
+														},
+													]
+												: []),
+											...(form.onedrive_account_mode === "group_drive"
+												? [
+														{
+															label: t("onedrive_group_id"),
+															value: form.onedrive_group_id || "—",
+														},
+													]
+												: []),
+										]
+									: []),
 							]
-						: [
-								{
-									label: t("onedrive_account_mode"),
-									value: t(
-										`onedrive_account_mode_${form.onedrive_account_mode}`,
-									),
-								},
-								{
-									label: t("onedrive_drive_id"),
-									value:
-										form.onedrive_drive_id || t("policy_wizard_default_drive"),
-								},
-								{
-									label: t("onedrive_root_item_id"),
-									value: form.onedrive_root_item_id || "root",
-								},
-								...(form.onedrive_account_mode === "sharepoint_site"
-									? [
-											{
-												label: t("onedrive_site_id"),
-												value: form.onedrive_site_id || "—",
-											},
-										]
-									: []),
-								...(form.onedrive_account_mode === "group_drive"
-									? [
-											{
-												label: t("onedrive_group_id"),
-												value: form.onedrive_group_id || "—",
-											},
-										]
-									: []),
-							]),
+						: []),
 				]
 			: []),
 	];
+	const driverOptionsError =
+		storageOptions.length === 0 ? storageDriverDescriptorsError : null;
 	useEffect(() => {
 		if (!open || !isCreateMode) {
 			previousCreateStepRef.current = 0;
@@ -504,6 +522,11 @@ function useStoragePolicyDialogContent({
 								currentStorageOption={currentStorageOption}
 								endpointValidationMessage={createEndpointError}
 								form={form}
+								storageDriverDescriptorsError={driverOptionsError}
+								storageDriverDescriptorsLoading={
+									storageDriverDescriptorsLoading && storageOptions.length === 0
+								}
+								storageDriverDescriptor={storageDriverDescriptor}
 								onCreateStepChange={onCreateStepChange}
 								onDriverTypeChange={onDriverTypeChange}
 								onFieldChange={onFieldChange}
@@ -528,6 +551,7 @@ function useStoragePolicyDialogContent({
 								currentStorageOption={currentStorageOption}
 								endpointValidationMessage={endpointValidationMessage}
 								form={form}
+								storageDriverDescriptor={storageDriverDescriptor}
 								policyCapacity={policyCapacity}
 								policyCapacityLoading={policyCapacityLoading}
 								storageCredentials={storageCredentials}
@@ -553,6 +577,7 @@ function useStoragePolicyDialogContent({
 								onRequestS3DriverPromotion={onRequestS3DriverPromotion}
 								onSyncNormalizedS3Form={onSyncNormalizedS3Form}
 								cosCorsConfirmOpen={cosCorsConfirmOpen}
+								canConfigureTencentCosCors={canConfigureTencentCosCors}
 								cosCorsSubmitting={cosCorsSubmitting}
 								cosCorsUsesDraftValues={cosCorsUsesDraftValues}
 								remoteNodes={remoteNodes}
@@ -654,7 +679,7 @@ function useStoragePolicyDialogContent({
 							{isCreateMode ? (
 								createStep === 0 ? null : createStep === createLastStep ? (
 									<>
-										{showTencentCosCorsPanel ? (
+										{showTencentCosCorsAction ? (
 											<TencentCosCorsButton
 												disabled={
 													submitting ||
@@ -665,12 +690,12 @@ function useStoragePolicyDialogContent({
 												t={t}
 											/>
 										) : null}
-										{isOneDriveDriver(form.driver_type) ? null : (
+										{canRunConnectionTest ? (
 											<StoragePolicyTestConnectionButton
 												onTest={onRunConnectionTest}
 												disabled={submitting}
 											/>
-										)}
+										) : null}
 										<Button
 											type="button"
 											className={ADMIN_CONTROL_HEIGHT_CLASS}
@@ -682,9 +707,7 @@ function useStoragePolicyDialogContent({
 									</>
 								) : (
 									<>
-										{createStep === 1 &&
-										(isObjectStorageDriver(form.driver_type) ||
-											form.driver_type === "remote") ? (
+										{createStep === 1 && canRunDraftConnectionTest ? (
 											<StoragePolicyTestConnectionButton
 												onTest={onRunConnectionTest}
 												disabled={submitting}
@@ -704,12 +727,12 @@ function useStoragePolicyDialogContent({
 								)
 							) : (
 								<>
-									{isOneDriveDriver(form.driver_type) ? null : (
+									{canRunConnectionTest ? (
 										<StoragePolicyTestConnectionButton
 											onTest={onRunConnectionTest}
 											disabled={submitting}
 										/>
-									)}
+									) : null}
 									<Button
 										type="button"
 										className={ADMIN_CONTROL_HEIGHT_CLASS}
@@ -748,4 +771,57 @@ function TencentCosCorsButton({
 			{t("policy_cos_cors_action_short")}
 		</Button>
 	);
+}
+
+function buildStoragePolicyDriverOptions(
+	descriptors: StorageConnectorDescriptor[],
+	t: (key: string) => string,
+): StoragePolicyDriverOption[] {
+	if (descriptors.length > 0) {
+		return descriptors.map((descriptor) =>
+			storagePolicyDriverOptionFromUi(
+				descriptor.driver_type,
+				descriptor.ui ?? fallbackStorageConnectorUi(),
+				t,
+			),
+		);
+	}
+
+	return [];
+}
+
+function storagePolicyDriverOptionFromUi(
+	driverType: DriverType,
+	ui: StorageConnectorUiDescriptor,
+	t: (key: string) => string,
+): StoragePolicyDriverOption {
+	return {
+		type: driverType,
+		title: t(ui.label_key),
+		description: t(ui.description_key),
+		iconSrc: ui.icon_src ?? undefined,
+		iconName:
+			(ui.icon_name as StoragePolicyDriverOption["iconName"] | null) ??
+			undefined,
+	};
+}
+
+function fallbackStorageConnectorUi(): StorageConnectorUiDescriptor {
+	return {
+		label_key: "driver_type",
+		description_key: "policy_wizard_step_storage_desc",
+		helper_key: "policy_wizard_step_storage_desc",
+		config_step_title_key: "policy_wizard_step_connection_title",
+		config_step_description_key: "policy_wizard_step_connection_desc",
+		edit_context_key: "policy_edit_context_local_desc",
+		base_path_empty_display: "core:root",
+		base_path_placeholder: "tenant/prefix",
+	};
+}
+
+export function translateStorageConnectorUiValue(
+	value: string,
+	t: (key: string) => string,
+) {
+	return t(value);
 }

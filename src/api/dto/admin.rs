@@ -103,6 +103,7 @@ pub struct ResetUserPasswordReq {
 
 /// Create a storage policy.
 #[derive(Deserialize, Validate)]
+#[serde(deny_unknown_fields)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct CreatePolicyReq {
     #[validate(custom(function = "crate::api::dto::validation::validate_non_blank"))]
@@ -123,10 +124,12 @@ pub struct CreatePolicyReq {
     pub allowed_types: Option<Vec<String>>,
     #[validate(nested)]
     pub options: Option<crate::types::StoragePolicyOptions>,
+    pub application_config: Option<crate::storage::StorageConnectorApplicationConfigInput>,
 }
 
 /// Patch a storage policy.
 #[derive(Deserialize, Validate)]
+#[serde(deny_unknown_fields)]
 #[validate(schema(function = "validate_patch_policy"))]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct PatchPolicyReq {
@@ -146,6 +149,7 @@ pub struct PatchPolicyReq {
     pub allowed_types: Option<Vec<String>>,
     #[validate(nested)]
     pub options: Option<crate::types::StoragePolicyOptions>,
+    pub application_config: Option<crate::storage::StorageConnectorApplicationConfigInput>,
 }
 
 /// Query parameters for deleting a storage policy.
@@ -179,7 +183,7 @@ pub struct TestPolicyParamsReq {
 #[derive(Deserialize, Validate)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct ExecuteDraftStoragePolicyActionReq {
-    pub action: crate::services::policy_service::StoragePolicyActionType,
+    pub action: crate::storage::StoragePolicyExecutableAction,
     #[validate(range(min = 1, message = "policy_id must be greater than 0"))]
     pub policy_id: Option<i64>,
     pub driver_type: crate::types::DriverType,
@@ -198,7 +202,7 @@ pub struct ExecuteDraftStoragePolicyActionReq {
 #[derive(Deserialize, Validate)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct ExecuteSavedStoragePolicyActionReq {
-    pub action: crate::services::policy_service::StoragePolicyActionType,
+    pub action: crate::storage::StoragePolicyExecutableAction,
 }
 
 /// Start an OAuth authorization flow for an administrator-managed storage policy credential.
@@ -811,13 +815,6 @@ fn validate_start_storage_authorization(
     value: &StartStorageAuthorizationReq,
 ) -> std::result::Result<(), ValidationError> {
     match value.provider {
-        crate::types::StorageCredentialProvider::MicrosoftGraph
-            if value.microsoft_graph.is_none() =>
-        {
-            Err(crate::api::dto::validation::message_validation_error(
-                "microsoft_graph is required for Microsoft Graph authorization",
-            ))
-        }
         crate::types::StorageCredentialProvider::MicrosoftGraph => Ok(()),
         _ if value.microsoft_graph.is_some() => {
             Err(crate::api::dto::validation::message_validation_error(
@@ -926,19 +923,61 @@ fn validate_admin_patch_team(
 mod tests {
     use super::*;
     use crate::services::storage_credential_service::MicrosoftGraphAuthorizationInput;
-    use crate::types::StorageCredentialProvider;
+    use crate::types::{DriverType, StorageCredentialProvider};
 
     #[test]
-    fn start_storage_authorization_requires_matching_provider_payload() {
-        let error = StartStorageAuthorizationReq {
+    fn create_policy_uses_generic_application_config_container() {
+        let request = serde_json::from_value::<CreatePolicyReq>(serde_json::json!({
+            "name": "OneDrive",
+            "driver_type": "one_drive",
+            "application_config": {
+                "microsoft_graph": {
+                    "client_id": "client-id",
+                    "client_secret": "client-secret"
+                }
+            }
+        }))
+        .expect("generic application config should deserialize");
+
+        assert_eq!(request.driver_type, DriverType::OneDrive);
+        let microsoft_graph = request
+            .application_config
+            .and_then(|config| config.microsoft_graph)
+            .expect("Microsoft Graph app config should be nested under application_config");
+        assert_eq!(microsoft_graph.client_id.as_deref(), Some("client-id"));
+        assert_eq!(
+            microsoft_graph.client_secret.as_deref(),
+            Some("client-secret")
+        );
+    }
+
+    #[test]
+    fn create_policy_rejects_legacy_top_level_microsoft_graph_config() {
+        let error = serde_json::from_value::<CreatePolicyReq>(serde_json::json!({
+            "name": "OneDrive",
+            "driver_type": "one_drive",
+            "microsoft_graph": {
+                "client_id": "client-id"
+            }
+        }))
+        .err()
+        .expect("stale clients must not silently drop app config");
+
+        assert!(error.to_string().contains("microsoft_graph"));
+    }
+
+    #[test]
+    fn start_storage_authorization_allows_saved_microsoft_graph_config() {
+        StartStorageAuthorizationReq {
             provider: StorageCredentialProvider::MicrosoftGraph,
             microsoft_graph: None,
         }
         .validate()
-        .expect_err("Microsoft Graph authorization should require parameters");
+        .expect("Microsoft Graph authorization can reuse saved application config");
+    }
 
-        assert!(error.to_string().contains("microsoft_graph is required"));
-
+    #[test]
+    fn start_storage_authorization_rejects_provider_payload_mismatch() {
         let error = StartStorageAuthorizationReq {
             provider: StorageCredentialProvider::GoogleDrive,
             microsoft_graph: Some(MicrosoftGraphAuthorizationInput {

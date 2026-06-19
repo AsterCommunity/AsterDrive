@@ -41,7 +41,7 @@ async fn cleanup_team_upload_sessions(
     let mut aborted_multipart_uploads = 0u64;
     let mut incomplete_cleanups = 0u64;
     for session in sessions {
-        let Some(temp_key) = session.s3_temp_key.as_deref() else {
+        let Some(temp_key) = session.object_temp_key.as_deref() else {
             continue;
         };
         let Some(policy) = state.policy_snapshot().get_policy(session.policy_id) else {
@@ -66,7 +66,7 @@ async fn cleanup_team_upload_sessions(
         };
 
         {
-            if let Some(multipart_id) = session.s3_multipart_id.as_deref() {
+            if let Some(multipart_id) = session.object_multipart_id.as_deref() {
                 if let Some(multipart) = driver.as_multipart() {
                     if let Err(err) = multipart
                         .abort_multipart_upload(temp_key, multipart_id)

@@ -8,8 +8,13 @@ import {
 import { useState } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { invalidateAdminRemoteNodeLookup } from "@/lib/adminRemoteNodeLookup";
+import {
+	invalidateAdminStorageDriverDescriptors,
+	primeAdminStorageDriverDescriptors,
+} from "@/lib/adminStorageDriverDescriptors";
 import AdminPoliciesPage from "@/pages/admin/AdminPoliciesPage";
 import { ApiError } from "@/services/http";
+import type { StorageConnectorFieldDescriptor } from "@/types/api";
 import { ApiErrorCode } from "@/types/api-helpers";
 
 const mockState = vi.hoisted(() => ({
@@ -25,6 +30,7 @@ const mockState = vi.hoisted(() => ({
 	listAllPolicies: vi.fn(),
 	listPolicies: vi.fn(),
 	listRemoteNodes: vi.fn(),
+	listStorageDriverDescriptors: vi.fn(),
 	listStorageCredentials: vi.fn(),
 	loading: false,
 	navigate: vi.fn(),
@@ -556,6 +562,8 @@ vi.mock("@/services/adminService", () => ({
 		})),
 		list: (...args: unknown[]) => mockState.listPolicies(...args),
 		listAll: (...args: unknown[]) => mockState.listAllPolicies(...args),
+		listStorageDriverDescriptors: (...args: unknown[]) =>
+			mockState.listStorageDriverDescriptors(...args),
 		listStorageCredentials: (...args: unknown[]) =>
 			mockState.listStorageCredentials(...args),
 		promoteS3CompatibleDriver: (...args: unknown[]) =>
@@ -572,6 +580,8 @@ vi.mock("@/services/adminService", () => ({
 		list: (...args: unknown[]) => mockState.listRemoteNodes(...args),
 	},
 }));
+
+type TestStorageFieldDescriptor = StorageConnectorFieldDescriptor;
 
 function createPolicy(overrides: Record<string, unknown> = {}) {
 	return {
@@ -591,6 +601,447 @@ function createPolicy(overrides: Record<string, unknown> = {}) {
 		updated_at: "2026-03-28T00:00:00Z",
 		...overrides,
 	};
+}
+
+function fieldDescriptor(
+	name: string,
+	scope: TestStorageFieldDescriptor["scope"],
+	kind: TestStorageFieldDescriptor["kind"],
+	overrides: Partial<TestStorageFieldDescriptor> = {},
+): TestStorageFieldDescriptor {
+	return {
+		kind,
+		label_key: name,
+		name,
+		required: false,
+		scope,
+		secret: kind === "secret",
+		...overrides,
+	};
+}
+
+function objectStorageConnectionFields(
+	driverType: "s3" | "tencent_cos" | "azure_blob",
+) {
+	const endpointDisplayByDriver = {
+		azure_blob: {
+			help_key: "azure_blob_endpoint_hint",
+			placeholder: "https://<account>.blob.core.windows.net",
+		},
+		s3: {
+			help_key: "s3_endpoint_hint",
+			placeholder: "https://s3.amazonaws.com",
+		},
+		tencent_cos: {
+			help_key: "cos_endpoint_hint",
+			placeholder: "https://<bucket-appid>.cos.<region>.myqcloud.com",
+		},
+	} satisfies Record<
+		typeof driverType,
+		Pick<TestStorageFieldDescriptor, "help_key" | "placeholder">
+	>;
+
+	return [
+		fieldDescriptor("endpoint", "connection", "text", {
+			...endpointDisplayByDriver[driverType],
+			invalid_protocol_message_key:
+				driverType === "azure_blob"
+					? "azure_blob_endpoint_protocol_required_error"
+					: "s3_endpoint_protocol_required_error",
+			required: true,
+		}),
+		fieldDescriptor("bucket", "connection", "text", {
+			required: true,
+			required_message_key:
+				driverType === "azure_blob"
+					? "policy_wizard_container_required"
+					: "policy_wizard_bucket_required",
+		}),
+		fieldDescriptor("access_key", "connection", "text", {
+			label_key:
+				driverType === "azure_blob" ? "azure_blob_account_name" : "access_key",
+			required: true,
+			trim_on_blur: driverType === "azure_blob",
+		}),
+		fieldDescriptor("secret_key", "connection", "secret", {
+			label_key:
+				driverType === "azure_blob" ? "azure_blob_account_key" : "secret_key",
+			required: true,
+		}),
+		fieldDescriptor("base_path", "connection", "text"),
+	];
+}
+
+const objectStoragePolicyOptionFields = [
+	fieldDescriptor("s3_upload_strategy", "policy_options", "select", {
+		options: ["relay_stream", "presigned"],
+		required: true,
+	}),
+	fieldDescriptor("s3_download_strategy", "policy_options", "select", {
+		options: ["relay_stream", "presigned"],
+		required: true,
+	}),
+] as const;
+
+const s3PolicyOptionFields = [
+	...objectStoragePolicyOptionFields,
+	fieldDescriptor("s3_path_style", "policy_options", "boolean", {
+		help_key: "s3_path_style_desc",
+		visible_when_driver_types: ["s3"],
+	}),
+] as const;
+
+const remotePolicyOptionFields = [
+	fieldDescriptor("remote_download_strategy", "policy_options", "select", {
+		options: ["relay_stream", "presigned"],
+		required: true,
+	}),
+	fieldDescriptor("remote_upload_strategy", "policy_options", "select", {
+		options: ["relay_stream", "presigned"],
+		required: true,
+	}),
+] as const;
+
+function storageConnectorUi(driverType: string) {
+	const sharedObjectStorageUi = {
+		base_path_empty_display: "core:root",
+		base_path_placeholder: "tenant/prefix",
+		config_step_title_key: "policy_wizard_step_connection_title",
+		edit_context_key: "policy_edit_context_s3_desc",
+	};
+
+	switch (driverType) {
+		case "local":
+			return {
+				base_path_empty_display: "./data",
+				base_path_placeholder: "./data",
+				config_step_description_key: "policy_wizard_step_local_desc",
+				config_step_title_key: "policy_wizard_step_local_title",
+				description_key: "policy_wizard_local_storage_desc",
+				edit_context_key: "policy_edit_context_local_desc",
+				helper_key: "policy_wizard_local_helper",
+				icon_name: null,
+				icon_src: "/static/asterdrive/asterdrive-dark.svg",
+				label_key: "driver_type_local",
+			};
+		case "remote":
+			return {
+				base_path_empty_display: "core:root",
+				base_path_placeholder: "workspace/path",
+				config_step_description_key: "policy_wizard_step_remote_desc",
+				config_step_title_key: "policy_wizard_step_remote_title",
+				description_key: "policy_wizard_remote_storage_desc",
+				edit_context_key: "policy_edit_context_remote_desc",
+				helper_key: "policy_wizard_remote_helper",
+				icon_name: null,
+				icon_src: "/static/storage/asterdrive-node.svg",
+				label_key: "driver_type_remote",
+			};
+		case "tencent_cos":
+			return {
+				...sharedObjectStorageUi,
+				config_step_description_key:
+					"policy_wizard_step_tencent_cos_connection_desc",
+				description_key: "policy_wizard_tencent_cos_storage_desc",
+				helper_key: "policy_wizard_tencent_cos_helper",
+				icon_name: null,
+				icon_src: "/static/storage/tencent-cloud-cos.webp",
+				label_key: "driver_type_tencent_cos",
+			};
+		case "azure_blob":
+			return {
+				...sharedObjectStorageUi,
+				config_step_description_key:
+					"policy_wizard_step_azure_blob_connection_desc",
+				description_key: "policy_wizard_azure_blob_storage_desc",
+				helper_key: "policy_wizard_azure_blob_helper",
+				icon_name: null,
+				icon_src: "/static/storage/azure-blob.svg",
+				label_key: "driver_type_azure_blob",
+			};
+		case "one_drive":
+			return {
+				base_path_empty_display: "policy_base_path_root",
+				base_path_placeholder: "Documents/Projects",
+				config_step_description_key: "policy_wizard_step_onedrive_desc",
+				config_step_title_key: "policy_wizard_step_onedrive_title",
+				description_key: "policy_wizard_onedrive_storage_desc",
+				edit_context_key: "policy_edit_context_onedrive_desc",
+				helper_key: "policy_wizard_onedrive_helper",
+				icon_name: null,
+				icon_src: "/static/storage/onedrive.svg",
+				label_key: "driver_type_onedrive",
+			};
+		default:
+			return {
+				...sharedObjectStorageUi,
+				config_step_description_key: "policy_wizard_step_connection_desc",
+				description_key: "policy_wizard_s3_storage_desc",
+				helper_key: "policy_wizard_s3_helper",
+				icon_name: null,
+				icon_src: "/static/storage/s3.svg",
+				label_key: "driver_type_s3",
+			};
+	}
+}
+
+function createStorageDriverDescriptor(
+	driverType: string,
+	overrides: Record<string, unknown> = {},
+) {
+	const defaultActions = [
+		{
+			affordance_action: "test_draft_connection",
+			endpoints: ["test_policy_params"],
+			kind: "connection_test",
+			mutates_remote_state: false,
+			requires_authorization: false,
+			requires_saved_policy: false,
+		},
+		{
+			affordance_action: "test_saved_connection",
+			endpoints: ["test_policy_connection"],
+			kind: "connection_test",
+			mutates_remote_state: false,
+			requires_authorization: false,
+			requires_saved_policy: true,
+		},
+	] as const;
+
+	return {
+		actions: defaultActions,
+		authorization_provider: null,
+		capabilities: {
+			capacity: true,
+			efficient_range: true,
+			list: true,
+			presigned_download: false,
+			remote_node_binding: false,
+			s3_transfer_strategy: false,
+			storage_native_media_metadata: false,
+			storage_native_thumbnail: false,
+		},
+		credential_mode: "none",
+		description: `${driverType} descriptor`,
+		driver_type: driverType,
+		enabled: true,
+		fields: [],
+		label: driverType,
+		driver_recommendations: [],
+		related_issues: [328],
+		requires_authorization: false,
+		ui: storageConnectorUi(driverType),
+		upload_workflows: {
+			frontend_direct_provider_resumable_upload: false,
+			object_multipart_upload: false,
+			presigned_upload: false,
+			provider_resumable_upload: false,
+			simple_upload: true,
+			stream_upload: true,
+		},
+		...overrides,
+	};
+}
+
+function createStorageDriverDescriptors() {
+	return [
+		createStorageDriverDescriptor("local", {
+			fields: [
+				{
+					kind: "text",
+					name: "base_path",
+					required: false,
+					scope: "connection",
+					secret: false,
+				},
+				{
+					kind: "boolean",
+					name: "content_dedup",
+					required: false,
+					scope: "policy_options",
+					secret: false,
+				},
+			],
+		}),
+		createStorageDriverDescriptor("remote", {
+			capabilities: {
+				...createStorageDriverDescriptor("remote").capabilities,
+				remote_node_binding: true,
+			},
+			fields: [
+				{
+					kind: "select",
+					name: "remote_node_id",
+					required: true,
+					scope: "remote_node_binding",
+					secret: false,
+				},
+				{
+					kind: "text",
+					name: "base_path",
+					required: false,
+					scope: "connection",
+					secret: false,
+				},
+				...remotePolicyOptionFields,
+			],
+			upload_workflows: {
+				...createStorageDriverDescriptor("remote").upload_workflows,
+				object_multipart_upload: true,
+				presigned_upload: true,
+			},
+		}),
+		createStorageDriverDescriptor("s3", {
+			capabilities: {
+				...createStorageDriverDescriptor("s3").capabilities,
+				presigned_download: true,
+				s3_transfer_strategy: true,
+			},
+			driver_recommendations: [
+				{
+					target_driver_type: "tencent_cos",
+					endpoint_host_rules: [
+						{ equals: "myqcloud.com" },
+						{ ends_with: ".myqcloud.com" },
+					],
+				},
+			],
+			fields: [...objectStorageConnectionFields("s3"), ...s3PolicyOptionFields],
+			upload_workflows: {
+				...createStorageDriverDescriptor("s3").upload_workflows,
+				object_multipart_upload: true,
+				presigned_upload: true,
+			},
+		}),
+		createStorageDriverDescriptor("tencent_cos", {
+			actions: [
+				{
+					affordance_action: "test_draft_connection",
+					endpoints: ["test_policy_params"],
+					kind: "connection_test",
+					mutates_remote_state: false,
+					requires_authorization: false,
+					requires_saved_policy: false,
+				},
+				{
+					affordance_action: "test_saved_connection",
+					endpoints: ["test_policy_connection"],
+					kind: "connection_test",
+					mutates_remote_state: false,
+					requires_authorization: false,
+					requires_saved_policy: true,
+				},
+				{
+					policy_action: "configure_tencent_cos_cors",
+					endpoints: [
+						"execute_draft_storage_policy_action",
+						"execute_saved_storage_policy_action",
+					],
+					kind: "policy_action",
+					mutates_remote_state: true,
+					requires_authorization: false,
+					requires_saved_policy: false,
+				},
+			],
+			capabilities: {
+				...createStorageDriverDescriptor("tencent_cos").capabilities,
+				presigned_download: true,
+				s3_transfer_strategy: true,
+				storage_native_media_metadata: true,
+				storage_native_thumbnail: true,
+			},
+			fields: [
+				...objectStorageConnectionFields("tencent_cos"),
+				...objectStoragePolicyOptionFields,
+			],
+			upload_workflows: {
+				...createStorageDriverDescriptor("tencent_cos").upload_workflows,
+				object_multipart_upload: true,
+				presigned_upload: true,
+			},
+		}),
+		createStorageDriverDescriptor("azure_blob", {
+			capabilities: {
+				...createStorageDriverDescriptor("azure_blob").capabilities,
+				presigned_download: true,
+				s3_transfer_strategy: true,
+			},
+			fields: [
+				...objectStorageConnectionFields("azure_blob"),
+				...objectStoragePolicyOptionFields,
+			],
+			upload_workflows: {
+				...createStorageDriverDescriptor("azure_blob").upload_workflows,
+				object_multipart_upload: true,
+				presigned_upload: true,
+			},
+		}),
+		createStorageDriverDescriptor("one_drive", {
+			actions: [
+				{
+					affordance_action: "start_authorization",
+					endpoints: ["start_storage_authorization"],
+					kind: "authorization",
+					mutates_remote_state: false,
+					requires_authorization: false,
+					requires_saved_policy: true,
+				},
+				{
+					affordance_action: "validate_credential",
+					endpoints: ["validate_storage_policy_credential"],
+					kind: "credential_validation",
+					mutates_remote_state: false,
+					requires_authorization: true,
+					requires_saved_policy: true,
+				},
+				{
+					affordance_action: "test_saved_connection",
+					endpoints: ["test_policy_connection"],
+					kind: "connection_test",
+					mutates_remote_state: false,
+					requires_authorization: true,
+					requires_saved_policy: true,
+				},
+			],
+			authorization_provider: "microsoft_graph",
+			capabilities: {
+				...createStorageDriverDescriptor("one_drive").capabilities,
+				list: false,
+			},
+			upload_workflows: {
+				...createStorageDriverDescriptor("one_drive").upload_workflows,
+				provider_resumable_upload: true,
+			},
+			credential_mode: "oauth_delegated",
+			fields: [
+				fieldDescriptor("client_id", "application_credential", "text", {
+					required: true,
+				}),
+				fieldDescriptor("client_secret", "application_credential", "secret", {
+					required: true,
+				}),
+				fieldDescriptor("cloud", "policy_options", "select", {
+					options: ["global", "china"],
+					required: true,
+				}),
+				fieldDescriptor("account_mode", "policy_options", "select", {
+					options: [
+						"personal",
+						"work_or_school",
+						"sharepoint_site",
+						"group_drive",
+					],
+					required: true,
+				}),
+				fieldDescriptor("tenant", "policy_options", "text"),
+				fieldDescriptor("drive_id", "policy_options", "text"),
+				fieldDescriptor("root_item_id", "policy_options", "text"),
+				fieldDescriptor("site_id", "policy_options", "text"),
+				fieldDescriptor("group_id", "policy_options", "text"),
+			],
+			requires_authorization: true,
+		}),
+	];
 }
 
 function openCreateWizard(
@@ -646,10 +1097,12 @@ describe("AdminPoliciesPage", () => {
 		mockState.deletePolicy.mockReset();
 		mockState.handleApiError.mockReset();
 		invalidateAdminRemoteNodeLookup();
+		invalidateAdminStorageDriverDescriptors();
 		mockState.items = [];
 		mockState.listAllPolicies.mockReset();
 		mockState.listPolicies.mockReset();
 		mockState.listRemoteNodes.mockReset();
+		mockState.listStorageDriverDescriptors.mockReset();
 		mockState.listStorageCredentials.mockReset();
 		mockState.loading = false;
 		mockState.navigate.mockReset();
@@ -710,6 +1163,12 @@ describe("AdminPoliciesPage", () => {
 			items: mockState.remoteNodes,
 			total: mockState.remoteNodes.length,
 		}));
+		mockState.listStorageDriverDescriptors.mockResolvedValue(
+			createStorageDriverDescriptors(),
+		);
+		primeAdminStorageDriverDescriptors(
+			createStorageDriverDescriptors() as never,
+		);
 		mockState.listPolicies.mockImplementation(async () => ({
 			items: mockState.items,
 			total: mockState.total || mockState.items.length,
@@ -1482,6 +1941,206 @@ describe("AdminPoliciesPage", () => {
 		});
 	});
 
+	it("uses storage driver descriptors to suppress unsupported OneDrive draft tests", async () => {
+		render(<AdminPoliciesPage />);
+
+		openCreateWizard("one_drive");
+
+		fireEvent.change(screen.getByLabelText("core:name"), {
+			target: { value: "Graph Draft" },
+		});
+		fireEvent.change(screen.getByLabelText("onedrive_client_id"), {
+			target: { value: "client-id" },
+		});
+		fireEvent.change(screen.getByLabelText("onedrive_client_secret"), {
+			target: { value: "client-secret" },
+		});
+
+		expect(
+			screen.queryByRole("button", { name: /test_connection/ }),
+		).not.toBeInTheDocument();
+		fireEvent.click(
+			screen.getByRole("button", { name: "policy_wizard_review" }),
+		);
+		expect(
+			screen.queryByRole("button", { name: /test_connection/ }),
+		).not.toBeInTheDocument();
+		expect(mockState.testParams).not.toHaveBeenCalled();
+	});
+
+	it("uses descriptor connection fields instead of driver type to render object storage create fields", async () => {
+		const descriptors = createStorageDriverDescriptors().map((descriptor) =>
+			descriptor.driver_type === "s3"
+				? {
+						...descriptor,
+						capabilities: {
+							...descriptor.capabilities,
+							s3_transfer_strategy: false,
+						},
+						fields: descriptor.fields.filter(
+							(field) => field.name !== "bucket",
+						),
+					}
+				: descriptor,
+		);
+		mockState.listStorageDriverDescriptors.mockResolvedValue(descriptors);
+		primeAdminStorageDriverDescriptors(descriptors as never);
+
+		render(<AdminPoliciesPage />);
+
+		openCreateWizard("s3");
+
+		fireEvent.change(screen.getByLabelText("core:name"), {
+			target: { value: "Descriptor-gated S3" },
+		});
+
+		expect(screen.queryByLabelText("bucket")).not.toBeInTheDocument();
+		expect(screen.queryByLabelText("endpoint")).not.toBeInTheDocument();
+
+		fireEvent.click(
+			screen.getByRole("button", { name: "policy_wizard_review" }),
+		);
+
+		expect(
+			screen.queryByText("policy_wizard_bucket_required"),
+		).not.toBeInTheDocument();
+		expect(
+			screen.queryByLabelText("s3_upload_strategy"),
+		).not.toBeInTheDocument();
+		expect(screen.queryByLabelText("content_dedup")).not.toBeInTheDocument();
+	});
+
+	it("uses descriptor application credential fields instead of OneDrive driver type for create validation", async () => {
+		const descriptors = createStorageDriverDescriptors().map((descriptor) =>
+			descriptor.driver_type === "one_drive"
+				? {
+						...descriptor,
+						fields: descriptor.fields.filter(
+							(field) => field.scope !== "application_credential",
+						),
+					}
+				: descriptor,
+		);
+		mockState.listStorageDriverDescriptors.mockResolvedValue(descriptors);
+		primeAdminStorageDriverDescriptors(descriptors as never);
+
+		render(<AdminPoliciesPage />);
+
+		openCreateWizard("one_drive");
+
+		fireEvent.change(screen.getByLabelText("core:name"), {
+			target: { value: "Descriptor-gated OneDrive" },
+		});
+
+		expect(
+			screen.queryByLabelText("onedrive_client_id"),
+		).not.toBeInTheDocument();
+		expect(
+			screen.queryByLabelText("onedrive_client_secret"),
+		).not.toBeInTheDocument();
+
+		fireEvent.click(
+			screen.getByRole("button", { name: "policy_wizard_review" }),
+		);
+
+		expect(
+			screen.queryByText("onedrive_client_id_required"),
+		).not.toBeInTheDocument();
+		expect(
+			screen.queryByText("onedrive_client_secret_required"),
+		).not.toBeInTheDocument();
+		expect(screen.getByText("policy_wizard_summary_desc")).toBeInTheDocument();
+	});
+
+	it("uses descriptor application credential fields instead of OneDrive driver type in edit credential panel", async () => {
+		const descriptors = createStorageDriverDescriptors().map((descriptor) =>
+			descriptor.driver_type === "one_drive"
+				? {
+						...descriptor,
+						fields: descriptor.fields.filter(
+							(field) => field.scope !== "application_credential",
+						),
+					}
+				: descriptor,
+		);
+		mockState.listStorageDriverDescriptors.mockResolvedValue(descriptors);
+		primeAdminStorageDriverDescriptors(descriptors as never);
+		mockState.items = [
+			createPolicy({
+				driver_type: "one_drive",
+				id: 77,
+				name: "Saved Descriptor OneDrive",
+				options: {
+					onedrive_account_mode: "work_or_school",
+					onedrive_cloud: "global",
+					onedrive_root_item_id: "root",
+					onedrive_tenant: "common",
+				},
+			}),
+		];
+
+		render(<AdminPoliciesPage />);
+
+		openEditPolicy("Saved Descriptor OneDrive");
+
+		expect(
+			await screen.findByText("policy_editor_onedrive_title"),
+		).toBeInTheDocument();
+		expect(
+			screen.queryByLabelText("onedrive_client_id"),
+		).not.toBeInTheDocument();
+		expect(
+			screen.queryByLabelText("onedrive_client_secret"),
+		).not.toBeInTheDocument();
+		expect(screen.getByLabelText("onedrive_redirect_uri")).toBeInTheDocument();
+	});
+
+	it("uses descriptor actions instead of OneDrive driver type for credential panel commands", async () => {
+		const descriptors = createStorageDriverDescriptors().map((descriptor) =>
+			descriptor.driver_type === "one_drive"
+				? {
+						...descriptor,
+						actions: descriptor.actions.filter(
+							(action) =>
+								action.kind !== "authorization" &&
+								action.kind !== "credential_validation",
+						),
+					}
+				: descriptor,
+		);
+		mockState.listStorageDriverDescriptors.mockResolvedValue(descriptors);
+		primeAdminStorageDriverDescriptors(descriptors as never);
+		mockState.items = [
+			createPolicy({
+				driver_type: "one_drive",
+				id: 78,
+				name: "Action-gated OneDrive",
+				options: {
+					onedrive_account_mode: "work_or_school",
+					onedrive_cloud: "global",
+					onedrive_root_item_id: "root",
+					onedrive_tenant: "common",
+				},
+			}),
+		];
+
+		render(<AdminPoliciesPage />);
+
+		openEditPolicy("Action-gated OneDrive");
+
+		expect(
+			await screen.findByText("policy_editor_onedrive_title"),
+		).toBeInTheDocument();
+		expect(screen.getByLabelText("onedrive_client_id")).toBeInTheDocument();
+		expect(screen.getByLabelText("onedrive_client_secret")).toBeInTheDocument();
+		expect(
+			screen.queryByRole("button", { name: /onedrive_authorize_action/ }),
+		).not.toBeInTheDocument();
+		expect(
+			screen.queryByRole("button", { name: /onedrive_validate_action/ }),
+		).not.toBeInTheDocument();
+	});
+
 	it("requires OneDrive application details at create time and starts authorization directly after save", async () => {
 		const openedWindow = { opener: {} } as Window;
 		const openSpy = vi.spyOn(window, "open").mockReturnValue(openedWindow);
@@ -1526,7 +2185,7 @@ describe("AdminPoliciesPage", () => {
 
 			await waitFor(() => {
 				expect(mockState.create).toHaveBeenCalledWith({
-					access_key: "client-id",
+					access_key: "",
 					base_path: "",
 					bucket: "",
 					chunk_size: 5 * 1024 * 1024,
@@ -1534,6 +2193,15 @@ describe("AdminPoliciesPage", () => {
 					endpoint: "",
 					is_default: false,
 					max_file_size: undefined,
+					application_config: {
+						microsoft_graph: {
+							cloud: "global",
+							tenant: "common",
+							client_id: "client-id",
+							client_secret: "client-secret",
+							scopes: undefined,
+						},
+					},
 					name: "Team OneDrive",
 					options: {
 						onedrive_account_mode: "work_or_school",
@@ -1542,7 +2210,7 @@ describe("AdminPoliciesPage", () => {
 						onedrive_tenant: "common",
 					},
 					remote_node_id: undefined,
-					secret_key: "client-secret",
+					secret_key: "",
 				});
 			});
 			expect(mockState.toastSuccess).toHaveBeenCalledWith(
@@ -1561,6 +2229,7 @@ describe("AdminPoliciesPage", () => {
 						tenant: "common",
 						client_id: undefined,
 						client_secret: undefined,
+						scopes: undefined,
 					},
 				});
 			});
@@ -1882,6 +2551,45 @@ describe("AdminPoliciesPage", () => {
 				description: "policy_cos_cors_success_request_id",
 			},
 		);
+	});
+
+	it("hides Tencent COS CORS controls when descriptor omits the action", async () => {
+		const descriptorsWithoutCosAction = createStorageDriverDescriptors().map(
+			(descriptor) =>
+				descriptor.driver_type === "tencent_cos"
+					? {
+							...descriptor,
+							actions: descriptor.actions.filter(
+								(action) => action.kind !== "policy_action",
+							),
+						}
+					: descriptor,
+		);
+		mockState.listStorageDriverDescriptors.mockResolvedValue(
+			descriptorsWithoutCosAction,
+		);
+		primeAdminStorageDriverDescriptors(descriptorsWithoutCosAction as never);
+
+		render(<AdminPoliciesPage />);
+
+		openCreateWizard("tencent_cos");
+		fireEvent.change(screen.getByLabelText("core:name"), {
+			target: { value: "COS Draft" },
+		});
+		fireEvent.change(screen.getByLabelText("endpoint"), {
+			target: { value: "https://cos.ap-guangzhou.myqcloud.com" },
+		});
+		fireEvent.change(screen.getByLabelText("bucket"), {
+			target: { value: "media-1250000000" },
+		});
+		fireEvent.click(
+			screen.getByRole("button", { name: "policy_wizard_review" }),
+		);
+
+		expect(
+			screen.queryByRole("button", { name: "policy_cos_cors_action_short" }),
+		).not.toBeInTheDocument();
+		expect(mockState.executeDraftPolicyAction).not.toHaveBeenCalled();
 	});
 
 	it("requires visible confirmation before configuring Tencent COS CORS from create mode", () => {
@@ -2387,6 +3095,7 @@ describe("AdminPoliciesPage", () => {
 						tenant: "common",
 						client_id: undefined,
 						client_secret: undefined,
+						scopes: undefined,
 					},
 				});
 			});
@@ -2582,7 +3291,7 @@ describe("AdminPoliciesPage", () => {
 		).not.toBeInTheDocument();
 	});
 
-	it("saves updated OneDrive application settings as policy connection credentials", async () => {
+	it("saves updated OneDrive application settings as generic application config", async () => {
 		mockState.items = [
 			createPolicy({
 				id: 12,
@@ -2614,8 +3323,15 @@ describe("AdminPoliciesPage", () => {
 			expect(mockState.update).toHaveBeenCalledWith(
 				12,
 				expect.objectContaining({
-					access_key: "new-client-id",
-					secret_key: "new-client-secret",
+					application_config: {
+						microsoft_graph: {
+							cloud: "global",
+							tenant: "common",
+							client_id: "new-client-id",
+							client_secret: "new-client-secret",
+							scopes: undefined,
+						},
+					},
 				}),
 			);
 		});

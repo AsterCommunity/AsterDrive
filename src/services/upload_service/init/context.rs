@@ -39,8 +39,8 @@ pub(super) struct UploadSessionRecordParams<'a> {
     pub(super) policy_id: i64,
     pub(super) frontend_client_id: Option<&'a str>,
     pub(super) status: UploadSessionStatus,
-    pub(super) s3_temp_key: Option<&'a str>,
-    pub(super) s3_multipart_id: Option<&'a str>,
+    pub(super) object_temp_key: Option<&'a str>,
+    pub(super) object_multipart_id: Option<&'a str>,
     pub(super) expires_at: DateTime<Utc>,
 }
 
@@ -229,8 +229,8 @@ pub(super) async fn init_multipart_session_with_retry(
                 policy_id: ctx.policy.id,
                 frontend_client_id: ctx.frontend_client_id.as_deref(),
                 status,
-                s3_temp_key: Some(&temp_key),
-                s3_multipart_id: Some(&multipart_id),
+                object_temp_key: Some(&temp_key),
+                object_multipart_id: Some(&multipart_id),
                 expires_at: Utc::now() + expires_in,
             },
         )
@@ -304,8 +304,8 @@ fn upload_session_active_model(
         policy_id,
         frontend_client_id,
         status,
-        s3_temp_key,
-        s3_multipart_id,
+        object_temp_key,
+        object_multipart_id,
         expires_at,
     } = params;
     let now = Utc::now();
@@ -323,8 +323,8 @@ fn upload_session_active_model(
         folder_id: Set(folder_id),
         policy_id: Set(policy_id),
         status: Set(status),
-        s3_temp_key: Set(s3_temp_key.map(str::to_string)),
-        s3_multipart_id: Set(s3_multipart_id.map(str::to_string)),
+        object_temp_key: Set(object_temp_key.map(str::to_string)),
+        object_multipart_id: Set(object_multipart_id.map(str::to_string)),
         file_id: Set(None),
         created_at: Set(now),
         expires_at: Set(expires_at),

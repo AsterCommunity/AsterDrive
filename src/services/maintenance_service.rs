@@ -50,7 +50,7 @@ pub async fn cleanup_expired_completed_upload_sessions(
 
         let completed_temp_keys: Vec<String> = sessions
             .iter()
-            .filter_map(|session| session.s3_temp_key.clone())
+            .filter_map(|session| session.object_temp_key.clone())
             .collect::<HashSet<_>>()
             .into_iter()
             .collect();
@@ -105,7 +105,7 @@ fn session_stale_temp_key<'a>(
     session: &'a upload_session::Model,
     tracked_blob_paths: &HashSet<String>,
 ) -> Option<&'a str> {
-    let temp_key = session.s3_temp_key.as_deref()?;
+    let temp_key = session.object_temp_key.as_deref()?;
     // Completed presigned uploads can have both a real file_id and the original
     // PUT temp key. Only skip cleanup when that key is still the tracked blob.
     if tracked_blob_paths.contains(temp_key) {
@@ -268,7 +268,7 @@ async fn cleanup_completed_session_stale_temp_object(
     state: &PrimaryAppState,
     session: &upload_session::Model,
 ) -> bool {
-    let Some(temp_key) = session.s3_temp_key.as_deref() else {
+    let Some(temp_key) = session.object_temp_key.as_deref() else {
         return true;
     };
 
@@ -290,7 +290,7 @@ async fn cleanup_completed_session_stale_temp_object(
         return false;
     };
 
-    if let Some(multipart_id) = session.s3_multipart_id.as_deref() {
+    if let Some(multipart_id) = session.object_multipart_id.as_deref() {
         let Ok(multipart) = state.driver_registry().get_multipart_driver(&policy) else {
             // 策略不支持 multipart（如已切换为 Local），跳过 abort 直接删 key
             return delete_completed_stale_temp_object(&*driver, session, temp_key).await;
@@ -302,6 +302,12 @@ async fn cleanup_completed_session_stale_temp_object(
                 .await
             {
                 Ok(()) => {
+                    return delete_completed_stale_temp_object(&*driver, session, temp_key).await;
+                }
+                Err(err)
+                    if err.storage_error_kind()
+                        == Some(crate::storage::StorageErrorKind::NotFound) =>
+                {
                     return delete_completed_stale_temp_object(&*driver, session, temp_key).await;
                 }
                 Err(err) => {

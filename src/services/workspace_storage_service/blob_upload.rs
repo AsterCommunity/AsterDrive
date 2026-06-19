@@ -4,14 +4,10 @@ use sea_orm::ConnectionTrait;
 use std::path::{Component, Path, PathBuf};
 use tokio::io::AsyncRead;
 
+use super::{StorageOperationContext, create_nondedup_blob_with_key, create_opaque_nondedup_blob};
 use crate::entities::file_blob;
 use crate::errors::{AsterError, MapAsterErr, Result};
-use crate::types::DriverType;
-
-use super::{
-    StorageOperationContext, create_nondedup_blob_with_key, create_remote_nondedup_blob,
-    create_s3_nondedup_blob,
-};
+use crate::storage::connectors::StorageConnectorUploadTransport;
 
 #[derive(Debug, Clone)]
 pub(crate) enum PreparedNonDedupBlobUpload {
@@ -22,14 +18,9 @@ pub(crate) enum PreparedNonDedupBlobUpload {
         size: i64,
         policy_id: i64,
     },
-    S3 {
+    Opaque {
         upload_id: String,
-        storage_path: String,
-        size: i64,
-        policy_id: i64,
-    },
-    Remote {
-        upload_id: String,
+        hash_prefix: &'static str,
         storage_path: String,
         size: i64,
         policy_id: i64,
@@ -39,9 +30,7 @@ pub(crate) enum PreparedNonDedupBlobUpload {
 impl PreparedNonDedupBlobUpload {
     pub(crate) fn storage_path(&self) -> &str {
         match self {
-            Self::Local { storage_path, .. }
-            | Self::S3 { storage_path, .. }
-            | Self::Remote { storage_path, .. } => storage_path,
+            Self::Local { storage_path, .. } | Self::Opaque { storage_path, .. } => storage_path,
         }
     }
 }
@@ -49,35 +38,33 @@ impl PreparedNonDedupBlobUpload {
 pub(crate) fn prepare_non_dedup_blob_upload(
     policy: &crate::entities::storage_policy::Model,
     size: i64,
-) -> PreparedNonDedupBlobUpload {
-    match policy.driver_type {
-        DriverType::Local => {
+) -> Result<PreparedNonDedupBlobUpload> {
+    match crate::storage::connectors::resolve_policy_upload_transport(policy) {
+        StorageConnectorUploadTransport::Local => {
             let blob_key = crate::utils::id::new_short_token();
-            PreparedNonDedupBlobUpload::Local {
+            Ok(PreparedNonDedupBlobUpload::Local {
                 base_path: crate::storage::drivers::local::effective_base_path(policy),
                 storage_path: crate::utils::storage_path_from_blob_key(&blob_key),
                 blob_key,
                 size,
                 policy_id: policy.id,
-            }
+            })
         }
-        DriverType::S3 | DriverType::TencentCos | DriverType::AzureBlob | DriverType::OneDrive => {
+        transport => {
             let upload_id = crate::utils::id::new_uuid();
-            PreparedNonDedupBlobUpload::S3 {
+            let hash_prefix = transport.opaque_blob_hash_prefix().ok_or_else(|| {
+                AsterError::validation_error(format!(
+                    "storage policy driver '{}' cannot prepare opaque blob uploads without an opaque hash prefix",
+                    policy.driver_type.as_str()
+                ))
+            })?;
+            Ok(PreparedNonDedupBlobUpload::Opaque {
                 storage_path: format!("files/{upload_id}"),
                 upload_id,
+                hash_prefix,
                 size,
                 policy_id: policy.id,
-            }
-        }
-        DriverType::Remote => {
-            let upload_id = crate::utils::id::new_uuid();
-            PreparedNonDedupBlobUpload::Remote {
-                storage_path: format!("files/{upload_id}"),
-                upload_id,
-                size,
-                policy_id: policy.id,
-            }
+            })
         }
     }
 }
@@ -186,7 +173,7 @@ pub(crate) async fn cleanup_preuploaded_blob_upload(
                 cleanup_empty_local_blob_dirs(parent, base_path).await;
             }
         }
-        PreparedNonDedupBlobUpload::S3 { .. } | PreparedNonDedupBlobUpload::Remote { .. } => {
+        PreparedNonDedupBlobUpload::Opaque { .. } => {
             if let Err(cleanup_err) = driver.delete(prepared.storage_path()).await {
                 tracing::warn!(
                     storage_path = %prepared.storage_path(),
@@ -439,8 +426,7 @@ async fn upload_reader_to_prepared_blob_with_context(
 fn prepared_size(prepared: &PreparedNonDedupBlobUpload) -> i64 {
     match prepared {
         PreparedNonDedupBlobUpload::Local { size, .. }
-        | PreparedNonDedupBlobUpload::S3 { size, .. }
-        | PreparedNonDedupBlobUpload::Remote { size, .. } => *size,
+        | PreparedNonDedupBlobUpload::Opaque { size, .. } => *size,
     }
 }
 
@@ -456,17 +442,12 @@ pub(crate) async fn persist_preuploaded_blob<C: ConnectionTrait>(
             policy_id,
             ..
         } => create_nondedup_blob_with_key(db, *size, *policy_id, blob_key, storage_path).await,
-        PreparedNonDedupBlobUpload::S3 {
+        PreparedNonDedupBlobUpload::Opaque {
             upload_id,
+            hash_prefix,
             size,
             policy_id,
             ..
-        } => create_s3_nondedup_blob(db, *size, *policy_id, upload_id).await,
-        PreparedNonDedupBlobUpload::Remote {
-            upload_id,
-            size,
-            policy_id,
-            ..
-        } => create_remote_nondedup_blob(db, *size, *policy_id, upload_id).await,
+        } => create_opaque_nondedup_blob(db, *size, *policy_id, hash_prefix, upload_id).await,
     }
 }

@@ -546,6 +546,7 @@ async fn create_remote_policy_via_service_with_options(
             is_default: false,
             allowed_types: None,
             options: Some(options),
+            application_config: Default::default(),
         },
     )
     .await
@@ -3964,6 +3965,7 @@ async fn test_reverse_tunnel_remote_policy_rejects_presigned_strategies() {
         is_default: false,
         allowed_types: None,
         options: Some(options),
+        application_config: Default::default(),
     };
 
     let upload_error = policy_service::create(
@@ -4042,6 +4044,7 @@ async fn test_auto_empty_url_remote_policy_rejects_presigned_strategies() {
                 remote_upload_strategy: Some(RemoteUploadStrategy::Presigned),
                 ..Default::default()
             }),
+            application_config: Default::default(),
         },
     )
     .await
@@ -4472,6 +4475,7 @@ async fn test_disabling_remote_node_syncs_follower_binding_and_blocks_remote_use
             is_default: false,
             allowed_types: Some(Vec::new()),
             options: Some(StoragePolicyOptions::default()),
+            application_config: Default::default(),
         },
     )
     .await
@@ -5167,7 +5171,7 @@ async fn test_remote_presigned_upload_writes_directly_to_provider() {
         .await
         .expect("upload session should exist");
     let temp_key = session
-        .s3_temp_key
+        .object_temp_key
         .clone()
         .expect("remote presigned temp key should exist");
     let uploaded_temp_path = managed_ingress_object_path(
@@ -5217,6 +5221,10 @@ async fn test_remote_presigned_upload_writes_directly_to_provider() {
     assert_ne!(
         created_blob.storage_path, temp_key,
         "completed remote presigned uploads must be copied away from the still-valid PUT key"
+    );
+    assert!(
+        created_blob.hash.starts_with("remote-"),
+        "remote presigned uploads should keep remote opaque blob identity"
     );
     assert!(
         !remote_driver
@@ -5341,7 +5349,7 @@ async fn test_force_delete_policy_cleans_late_remote_presigned_put_e2e() {
         .await
         .expect("upload session should exist");
     let temp_key = session
-        .s3_temp_key
+        .object_temp_key
         .clone()
         .expect("remote presigned temp key should exist");
     let provider_temp_path = managed_ingress_object_path(
@@ -6189,7 +6197,7 @@ async fn test_remote_relay_stream_chunked_upload_e2e() {
         .await
         .expect("upload session should exist");
     let remote_multipart_id = session
-        .s3_multipart_id
+        .object_multipart_id
         .clone()
         .expect("remote relay multipart upload id should be stored");
     let chunk_size = usize::try_from(
@@ -7041,7 +7049,7 @@ async fn test_remote_presigned_multipart_upload_composes_on_provider_without_ass
         .await
         .expect("upload session should exist");
     let remote_multipart_id = session
-        .s3_multipart_id
+        .object_multipart_id
         .clone()
         .expect("remote multipart upload id should be stored");
     let chunk_size = usize::try_from(
@@ -7127,6 +7135,10 @@ async fn test_remote_presigned_multipart_upload_composes_on_provider_without_ass
     let created_blob = file_repo::find_blob_by_id(consumer_state.writer_db(), created_file.blob_id)
         .await
         .expect("uploaded blob should be queryable");
+    assert!(
+        created_blob.hash.starts_with("remote-"),
+        "remote presigned multipart uploads should keep remote opaque blob identity"
+    );
 
     let stored_path = managed_ingress_object_path(
         &provider_state,

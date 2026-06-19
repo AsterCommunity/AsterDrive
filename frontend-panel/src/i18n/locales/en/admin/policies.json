@@ -63,6 +63,7 @@
 	"policy_capacity_total": "{{total}} total",
 	"policy_capacity_unsupported_desc": "Underlying storage capacity is not exposed by this driver.",
 	"policy_capacity_unavailable_desc": "Underlying storage capacity is not available right now.",
+	"policy_driver_options_load_failed": "Storage driver options could not be loaded. Refresh and try again.",
 	"policy_migration_submit": "Create Migration",
 	"policy_migration_creating": "Creating...",
 	"policy_migration_created": "Migration task #{{id}} created",

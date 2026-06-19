@@ -44,12 +44,7 @@ struct MicrosoftTokenError {
 }
 
 pub(crate) struct StorageCredentialMetadataInput<'a> {
-    pub(crate) encryption_key: &'a str,
-    pub(crate) policy_id: i64,
     pub(crate) cloud: MicrosoftGraphCloud,
-    pub(crate) client_id: Option<&'a str>,
-    pub(crate) client_secret: Option<&'a str>,
-    pub(crate) client_secret_ciphertext: Option<&'a str>,
     pub(crate) drive_id: &'a str,
     pub(crate) root_item_id: &'a str,
     pub(crate) root_item_name: Option<&'a str>,
@@ -65,34 +60,6 @@ pub(crate) fn storage_credential_metadata(
         "drive_id": input.drive_id,
         "root_item_id": input.root_item_id,
     });
-    // Empty secret fields must not be persisted as "configured"; OneDrive
-    // storage uses a confidential Microsoft app and requires a real secret.
-    let client_secret = input
-        .client_secret
-        .map(str::trim)
-        .filter(|value| !value.is_empty());
-    let client_secret_ciphertext = input
-        .client_secret_ciphertext
-        .map(str::trim)
-        .filter(|value| !value.is_empty());
-    if let Some(client_id) = input
-        .client_id
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-    {
-        metadata["client_id"] = serde_json::Value::String(client_id.to_string());
-    }
-    if let Some(client_secret) = client_secret {
-        let ciphertext =
-            encrypt_stored_client_secret(input.encryption_key, input.policy_id, client_secret)?;
-        metadata["client_secret_configured"] = serde_json::Value::Bool(true);
-        metadata["client_secret_ciphertext"] = serde_json::Value::String(ciphertext);
-    } else if let Some(ciphertext) = client_secret_ciphertext {
-        metadata["client_secret_configured"] = serde_json::Value::Bool(true);
-        metadata["client_secret_ciphertext"] = serde_json::Value::String(ciphertext.to_string());
-    } else {
-        metadata["client_secret_configured"] = serde_json::Value::Bool(false);
-    }
     if let Some(root_item_name) = input.root_item_name {
         metadata["root_item_name"] = serde_json::Value::String(root_item_name.to_string());
     }
@@ -109,45 +76,36 @@ pub(super) fn flow_client_secret_aad(policy_id: i64, state_hash: &str) -> String
     format!("storage_policy_authorization_flow:{policy_id}:{state_hash}:client_secret")
 }
 
-fn stored_client_secret_aad(policy_id: i64) -> String {
-    format!("storage_policy_credential:{policy_id}:microsoft_graph:client_secret")
+fn application_client_secret_aad(policy_id: i64) -> String {
+    format!("storage_connector_application_config:{policy_id}:microsoft_graph:client_secret")
 }
 
-pub(super) fn encrypt_stored_client_secret(
+pub(super) fn encrypt_application_client_secret(
     encryption_key: &str,
     policy_id: i64,
     client_secret: &str,
 ) -> Result<String> {
     crypto::encrypt_token(
         encryption_key,
-        stored_client_secret_aad(policy_id).as_bytes(),
+        application_client_secret_aad(policy_id).as_bytes(),
         client_secret,
     )
 }
 
-pub(super) fn decrypt_stored_client_secret(
+pub(super) fn decrypt_application_client_secret(
     encryption_key: &str,
     policy_id: i64,
     ciphertext: &str,
 ) -> Result<String> {
     crypto::decrypt_token(
         encryption_key,
-        stored_client_secret_aad(policy_id).as_bytes(),
+        application_client_secret_aad(policy_id).as_bytes(),
         ciphertext,
     )
 }
 
 pub(super) fn parse_metadata(value: &str) -> Option<serde_json::Value> {
     serde_json::from_str(value).ok()
-}
-
-pub(super) fn metadata_string(metadata: &serde_json::Value, key: &str) -> Option<String> {
-    metadata
-        .get(key)
-        .and_then(serde_json::Value::as_str)
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(ToOwned::to_owned)
 }
 
 pub(super) fn metadata_cloud(metadata: &serde_json::Value) -> Option<MicrosoftGraphCloud> {

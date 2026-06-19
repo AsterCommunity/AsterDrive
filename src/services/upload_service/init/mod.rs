@@ -7,8 +7,8 @@
 //! - 在需要 session 的模式下预先写入 upload_sessions
 
 mod context;
+mod object_storage;
 mod remote;
-mod s3;
 
 use chrono::{Duration, Utc};
 
@@ -99,7 +99,11 @@ async fn init_upload_for_scope(
         return Ok(direct_upload_response());
     }
 
-    if let Some(response) = s3::init_s3_upload(state, &ctx).await? {
+    // Object-storage and remote transports have protocol-level upload session
+    // setup. Generic stream-upload connectors fall through to direct/chunked
+    // modes; any provider-native resumable session stays inside the concrete
+    // driver instead of leaking into upload-service dispatch.
+    if let Some(response) = object_storage::init_object_storage_upload(state, &ctx).await? {
         record_upload_session_if_created(state, &response);
         return Ok(response);
     }
@@ -160,8 +164,8 @@ async fn init_chunked_upload_session(
                 policy_id: ctx.policy.id,
                 frontend_client_id: ctx.frontend_client_id.as_deref(),
                 status: UploadSessionStatus::Uploading,
-                s3_temp_key: None,
-                s3_multipart_id: None,
+                object_temp_key: None,
+                object_multipart_id: None,
                 expires_at,
             },
         )

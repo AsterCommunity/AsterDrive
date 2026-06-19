@@ -370,6 +370,8 @@ export type ExecuteSavedStoragePolicyActionRequest =
 	components["schemas"]["ExecuteSavedStoragePolicyActionReq"];
 export type StoragePolicyActionResult =
 	OperationData<"execute_draft_storage_policy_action">;
+export type StoragePolicyExecutableAction =
+	components["schemas"]["StoragePolicyExecutableAction"];
 export type PromoteS3CompatiblePolicyDriverRequest =
 	components["schemas"]["PromoteS3CompatiblePolicyDriverReq"];
 export type TestRemoteNodeParamsReq =
@@ -383,6 +385,16 @@ export type ResetUserPasswordRequest =
 	components["schemas"]["ResetUserPasswordReq"];
 export type StoragePolicy = components["schemas"]["StoragePolicy"];
 export type StoragePolicyCapacityInfo = OperationData<"get_policy_capacity">;
+export type StorageConnectorDescriptor =
+	OperationData<"list_storage_driver_descriptors">[number];
+export type StorageConnectorFieldDescriptor =
+	components["schemas"]["StorageConnectorFieldDescriptor"];
+export type StorageConnectorUiDescriptor =
+	components["schemas"]["StorageConnectorUiDescriptor"];
+export type StorageConnectorAffordanceAction =
+	components["schemas"]["StorageConnectorAffordanceAction"];
+export type StorageConnectorActionKind =
+	components["schemas"]["StorageConnectorActionKind"];
 export type StoragePolicyPage =
 	components["schemas"]["OffsetPage_StoragePolicy"];
 export type CreateStoragePolicyMigrationRequest =

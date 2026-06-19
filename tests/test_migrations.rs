@@ -4,6 +4,10 @@ use migration::{CurrentMigrator, MigratorTrait};
 use sea_orm::{ConnectionTrait, Database, DatabaseConnection, DbBackend, DbErr, Statement};
 
 const ALLOW_SHARED_WEBDAV_LOCKS_MIGRATION: &str = "m20260604_000001_allow_shared_webdav_locks";
+const RENAME_UPLOAD_SESSION_OBJECT_FIELDS_MIGRATION: &str =
+    "m20260618_000001_rename_upload_session_object_fields";
+const ADD_STORAGE_CONNECTOR_APPLICATION_CONFIGS_MIGRATION: &str =
+    "m20260619_000001_add_storage_connector_application_configs";
 
 async fn setup_current_schema() -> sea_orm::DatabaseConnection {
     let db = Database::connect("sqlite::memory:")
@@ -15,14 +19,26 @@ async fn setup_current_schema() -> sea_orm::DatabaseConnection {
     db
 }
 
-fn steps_to_roll_back_allow_shared_webdav_locks() -> u32 {
+fn steps_to_roll_back_migration(migration_name: &str) -> u32 {
     let migrations = CurrentMigrator::migrations();
     let position = migrations
         .iter()
-        .position(|migration| migration.name() == ALLOW_SHARED_WEBDAV_LOCKS_MIGRATION)
-        .expect("allow shared WebDAV locks migration should be registered");
+        .position(|migration| migration.name() == migration_name)
+        .unwrap_or_else(|| panic!("{migration_name} migration should be registered"));
     u32::try_from(migrations.len() - position)
         .expect("migration rollback step count should fit u32")
+}
+
+fn steps_to_roll_back_allow_shared_webdav_locks() -> u32 {
+    steps_to_roll_back_migration(ALLOW_SHARED_WEBDAV_LOCKS_MIGRATION)
+}
+
+fn steps_to_roll_back_upload_session_object_fields() -> u32 {
+    steps_to_roll_back_migration(RENAME_UPLOAD_SESSION_OBJECT_FIELDS_MIGRATION)
+}
+
+fn steps_to_roll_back_storage_connector_application_configs() -> u32 {
+    steps_to_roll_back_migration(ADD_STORAGE_CONNECTOR_APPLICATION_CONFIGS_MIGRATION)
 }
 
 async fn roll_back_allow_shared_webdav_locks(
@@ -66,6 +82,126 @@ async fn sqlite_index_exists(db: &DatabaseConnection, index_name: &str) -> bool 
     .expect("sqlite index list should load")
     .into_iter()
     .any(|row| row.try_get_by_index::<String>(1).as_deref() == Ok(index_name))
+}
+
+async fn sqlite_table_columns(db: &DatabaseConnection, table_name: &str) -> Vec<String> {
+    db.query_all_raw(Statement::from_string(
+        DbBackend::Sqlite,
+        format!("PRAGMA table_info('{table_name}')"),
+    ))
+    .await
+    .expect("sqlite table column list should load")
+    .into_iter()
+    .map(|row| {
+        row.try_get_by_index::<String>(1)
+            .expect("sqlite PRAGMA table_info row should include column name")
+    })
+    .collect()
+}
+
+async fn sqlite_table_exists(db: &DatabaseConnection, table_name: &str) -> bool {
+    db.query_all_raw(Statement::from_sql_and_values(
+        DbBackend::Sqlite,
+        "SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?",
+        [table_name.into()],
+    ))
+    .await
+    .expect("sqlite table lookup should load")
+    .into_iter()
+    .next()
+    .is_some()
+}
+
+fn has_column(columns: &[String], expected: &str) -> bool {
+    columns.iter().any(|column| column == expected)
+}
+
+#[tokio::test]
+async fn storage_connector_application_config_migration_adds_canonical_config_table() {
+    assert!(
+        CurrentMigrator::migrations().iter().any(
+            |migration| migration.name() == ADD_STORAGE_CONNECTOR_APPLICATION_CONFIGS_MIGRATION
+        ),
+        "application config migration should be registered"
+    );
+
+    let db = setup_current_schema().await;
+    assert!(
+        sqlite_table_exists(&db, "storage_connector_application_configs").await,
+        "current schema should include storage_connector_application_configs"
+    );
+    let current_columns = sqlite_table_columns(&db, "storage_connector_application_configs").await;
+    for expected in [
+        "id",
+        "policy_id",
+        "provider",
+        "tenant_id",
+        "scopes",
+        "client_id",
+        "client_secret_ciphertext",
+        "metadata",
+        "created_at",
+        "updated_at",
+    ] {
+        assert!(has_column(&current_columns, expected), "missing {expected}");
+    }
+
+    CurrentMigrator::down(
+        &db,
+        Some(steps_to_roll_back_storage_connector_application_configs()),
+    )
+    .await
+    .expect("application config migration should roll back");
+    assert!(
+        !sqlite_table_exists(&db, "storage_connector_application_configs").await,
+        "rollback should remove storage_connector_application_configs"
+    );
+
+    CurrentMigrator::up(
+        &db,
+        Some(steps_to_roll_back_storage_connector_application_configs()),
+    )
+    .await
+    .expect("application config migration should reapply");
+    assert!(
+        sqlite_table_exists(&db, "storage_connector_application_configs").await,
+        "reapply should recreate storage_connector_application_configs"
+    );
+}
+
+#[tokio::test]
+async fn upload_session_object_field_migration_renames_legacy_columns() {
+    assert!(
+        CurrentMigrator::migrations()
+            .iter()
+            .any(|migration| migration.name() == RENAME_UPLOAD_SESSION_OBJECT_FIELDS_MIGRATION),
+        "object field rename migration should be registered"
+    );
+
+    let db = setup_current_schema().await;
+    let current_columns = sqlite_table_columns(&db, "upload_sessions").await;
+    assert!(has_column(&current_columns, "object_temp_key"));
+    assert!(has_column(&current_columns, "object_multipart_id"));
+    assert!(!has_column(&current_columns, "s3_temp_key"));
+    assert!(!has_column(&current_columns, "s3_multipart_id"));
+
+    CurrentMigrator::down(&db, Some(steps_to_roll_back_upload_session_object_fields()))
+        .await
+        .expect("object field rename migration should roll back");
+    let rolled_back_columns = sqlite_table_columns(&db, "upload_sessions").await;
+    assert!(has_column(&rolled_back_columns, "s3_temp_key"));
+    assert!(has_column(&rolled_back_columns, "s3_multipart_id"));
+    assert!(!has_column(&rolled_back_columns, "object_temp_key"));
+    assert!(!has_column(&rolled_back_columns, "object_multipart_id"));
+
+    CurrentMigrator::up(&db, Some(steps_to_roll_back_upload_session_object_fields()))
+        .await
+        .expect("object field rename migration should reapply");
+    let reapplied_columns = sqlite_table_columns(&db, "upload_sessions").await;
+    assert!(has_column(&reapplied_columns, "object_temp_key"));
+    assert!(has_column(&reapplied_columns, "object_multipart_id"));
+    assert!(!has_column(&reapplied_columns, "s3_temp_key"));
+    assert!(!has_column(&reapplied_columns, "s3_multipart_id"));
 }
 
 #[tokio::test]

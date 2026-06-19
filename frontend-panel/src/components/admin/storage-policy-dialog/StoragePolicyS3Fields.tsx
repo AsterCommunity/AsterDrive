@@ -2,6 +2,10 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { ADMIN_CONTROL_HEIGHT_CLASS } from "@/lib/constants";
+import type {
+	StorageConnectorDescriptor,
+	StorageConnectorFieldDescriptor,
+} from "@/types/api";
 import type { SharedFieldProps } from "./StoragePolicyFieldTypes";
 
 export function S3ConnectionFields({
@@ -12,6 +16,7 @@ export function S3ConnectionFields({
 	onFieldChange,
 	onSyncNormalizedS3Form,
 	showCreateValidation = false,
+	storageDriverDescriptor,
 	t,
 }: SharedFieldProps & {
 	bucketError: string | null;
@@ -19,30 +24,27 @@ export function S3ConnectionFields({
 	isCreateMode: boolean;
 	onSyncNormalizedS3Form: () => void;
 	showCreateValidation?: boolean;
+	storageDriverDescriptor?: StorageConnectorDescriptor | null;
 }) {
-	const endpointHintKey =
-		form.driver_type === "tencent_cos"
-			? "cos_endpoint_hint"
-			: form.driver_type === "azure_blob"
-				? "azure_blob_endpoint_hint"
-				: "s3_endpoint_hint";
-	const endpointPlaceholder =
-		form.driver_type === "tencent_cos"
-			? "https://<bucket-appid>.cos.<region>.myqcloud.com"
-			: form.driver_type === "azure_blob"
-				? "https://<account>.blob.core.windows.net"
-				: "https://s3.amazonaws.com";
-	const accessKeyLabel =
-		form.driver_type === "azure_blob"
-			? "azure_blob_account_name"
-			: "access_key";
-	const secretKeyLabel =
-		form.driver_type === "azure_blob" ? "azure_blob_account_key" : "secret_key";
+	const endpointField = fieldDescriptor(storageDriverDescriptor, "endpoint");
+	const bucketField = fieldDescriptor(storageDriverDescriptor, "bucket");
+	const accessKeyField = fieldDescriptor(storageDriverDescriptor, "access_key");
+	const secretKeyField = fieldDescriptor(storageDriverDescriptor, "secret_key");
+	const pathStyleField = fieldDescriptor(
+		storageDriverDescriptor,
+		"s3_path_style",
+	);
+	const showPathStyleField = isFieldVisibleForDriver(
+		pathStyleField,
+		form.driver_type,
+	);
 
 	return (
 		<>
 			<div className="space-y-2">
-				<Label htmlFor="endpoint">{t("endpoint")}</Label>
+				<Label htmlFor="endpoint">
+					{t(fieldLabelKey(endpointField, "endpoint"))}
+				</Label>
 				<Input
 					id="endpoint"
 					value={form.endpoint}
@@ -50,17 +52,23 @@ export function S3ConnectionFields({
 					onBlur={onSyncNormalizedS3Form}
 					aria-invalid={endpointValidationMessage ? true : undefined}
 					className={ADMIN_CONTROL_HEIGHT_CLASS}
-					placeholder={endpointPlaceholder}
+					placeholder={endpointField?.placeholder ?? "https://s3.amazonaws.com"}
 				/>
 				{endpointValidationMessage ? (
 					<p className="text-xs text-destructive">
 						{endpointValidationMessage}
 					</p>
 				) : null}
-				<p className="text-xs text-muted-foreground">{t(endpointHintKey)}</p>
+				{endpointField?.help_key ? (
+					<p className="text-xs text-muted-foreground">
+						{t(endpointField.help_key)}
+					</p>
+				) : null}
 			</div>
 			<div className="space-y-2">
-				<Label htmlFor="bucket">{t("bucket")}</Label>
+				<Label htmlFor="bucket">
+					{t(fieldLabelKey(bucketField, "bucket"))}
+				</Label>
 				<Input
 					id="bucket"
 					value={form.bucket}
@@ -73,19 +81,26 @@ export function S3ConnectionFields({
 					<p className="text-xs text-destructive">{bucketError}</p>
 				) : null}
 			</div>
-			{form.driver_type === "s3" ? (
-				<S3PathStyleField form={form} t={t} onFieldChange={onFieldChange} />
+			{showPathStyleField ? (
+				<S3PathStyleField
+					field={pathStyleField}
+					form={form}
+					t={t}
+					onFieldChange={onFieldChange}
+				/>
 			) : null}
 			<div className="grid grid-cols-2 gap-4">
 				<div className="space-y-2">
-					<Label htmlFor="access_key">{t(accessKeyLabel)}</Label>
+					<Label htmlFor="access_key">
+						{t(fieldLabelKey(accessKeyField, "access_key"))}
+					</Label>
 					<Input
 						id="access_key"
 						name="storage-policy-access-key"
 						value={form.access_key}
 						onChange={(e) => onFieldChange("access_key", e.target.value)}
 						onBlur={(e) => {
-							if (form.driver_type === "azure_blob") {
+							if (accessKeyField?.trim_on_blur === true) {
 								onFieldChange("access_key", e.target.value.trim());
 							}
 						}}
@@ -99,7 +114,9 @@ export function S3ConnectionFields({
 					/>
 				</div>
 				<div className="space-y-2">
-					<Label htmlFor="secret_key">{t(secretKeyLabel)}</Label>
+					<Label htmlFor="secret_key">
+						{t(fieldLabelKey(secretKeyField, "secret_key"))}
+					</Label>
 					<Input
 						id="secret_key"
 						name="storage-policy-secret-key"
@@ -120,7 +137,14 @@ export function S3ConnectionFields({
 	);
 }
 
-function S3PathStyleField({ form, onFieldChange, t }: SharedFieldProps) {
+function S3PathStyleField({
+	field,
+	form,
+	onFieldChange,
+	t,
+}: SharedFieldProps & {
+	field: StorageConnectorFieldDescriptor | null;
+}) {
 	return (
 		<div className="space-y-2 pt-1">
 			<div className="flex items-center gap-2">
@@ -129,9 +153,43 @@ function S3PathStyleField({ form, onFieldChange, t }: SharedFieldProps) {
 					checked={form.s3_path_style ?? true}
 					onCheckedChange={(value) => onFieldChange("s3_path_style", value)}
 				/>
-				<Label htmlFor="s3_path_style">{t("s3_path_style")}</Label>
+				<Label htmlFor="s3_path_style">
+					{t(fieldLabelKey(field, "s3_path_style"))}
+				</Label>
 			</div>
-			<p className="text-xs text-muted-foreground">{t("s3_path_style_desc")}</p>
+			{field?.help_key ? (
+				<p className="text-xs text-muted-foreground">{t(field.help_key)}</p>
+			) : null}
 		</div>
+	);
+}
+
+function fieldDescriptor(
+	descriptor: StorageConnectorDescriptor | null | undefined,
+	name: string,
+) {
+	return descriptor?.fields.find((field) => field.name === name) ?? null;
+}
+
+function fieldLabelKey(
+	field: StorageConnectorFieldDescriptor | null,
+	fallback: string,
+) {
+	return field?.label_key ?? fallback;
+}
+
+function isFieldVisibleForDriver(
+	field: StorageConnectorFieldDescriptor | null,
+	driverType: string,
+) {
+	if (!field) {
+		return false;
+	}
+	const visibleDriverTypes = field.visible_when_driver_types ?? [];
+	return (
+		visibleDriverTypes.length === 0 ||
+		visibleDriverTypes.includes(
+			driverType as (typeof visibleDriverTypes)[number],
+		)
 	);
 }

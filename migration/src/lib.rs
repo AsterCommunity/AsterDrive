@@ -1,6 +1,14 @@
 //! 数据库迁移 crate 入口。
 #![deny(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-#![cfg_attr(not(test), deny(clippy::unwrap_used))]
+#![cfg_attr(
+    not(test),
+    deny(
+        clippy::unwrap_used,
+        clippy::unreachable,
+        clippy::expect_used,
+        clippy::panic
+    )
+)]
 
 pub use sea_orm_migration::prelude::*;
 
@@ -30,6 +38,8 @@ mod m20260607_000001_add_user_invitations;
 mod m20260608_000001_add_tags;
 mod m20260610_000001_add_user_must_change_password;
 mod m20260612_000001_add_storage_policy_credentials;
+mod m20260618_000001_rename_upload_session_object_fields;
+mod m20260619_000001_add_storage_connector_application_configs;
 mod search_acceleration;
 mod time;
 
@@ -132,6 +142,8 @@ impl MigratorTrait for CurrentMigrator {
             Box::new(m20260608_000001_add_tags::Migration),
             Box::new(m20260610_000001_add_user_must_change_password::Migration),
             Box::new(m20260612_000001_add_storage_policy_credentials::Migration),
+            Box::new(m20260618_000001_rename_upload_session_object_fields::Migration),
+            Box::new(m20260619_000001_add_storage_connector_application_configs::Migration),
         ]
     }
 }

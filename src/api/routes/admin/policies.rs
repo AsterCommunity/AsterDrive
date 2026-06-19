@@ -67,6 +67,7 @@ impl From<CreatePolicyReq> for policy_service::CreateStoragePolicyInput {
             is_default: value.is_default.unwrap_or(false),
             allowed_types: value.allowed_types,
             options: value.options,
+            application_config: value.application_config.unwrap_or_default(),
         }
     }
 }
@@ -86,6 +87,7 @@ impl From<PatchPolicyReq> for policy_service::UpdateStoragePolicyInput {
             is_default: value.is_default,
             allowed_types: value.allowed_types,
             options: value.options,
+            application_config: value.application_config.unwrap_or_default(),
         }
     }
 }
@@ -229,6 +231,24 @@ pub async fn list_policies(
     )
     .await?;
     Ok(HttpResponse::Ok().json(ApiResponse::ok(policies)))
+}
+
+#[api_docs_macros::path(
+    get,
+    path = "/api/v1/admin/policies/storage-drivers",
+    tag = "admin",
+    operation_id = "list_storage_driver_descriptors",
+    responses(
+        (status = 200, description = "List storage driver capability descriptors", body = inline(ApiResponse<Vec<crate::storage::StorageConnectorDescriptor>>)),
+        (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
+        (status = 403, description = "Forbidden"),
+    ),
+    security(("bearer" = [])),
+)]
+pub async fn list_storage_driver_descriptors() -> Result<HttpResponse> {
+    Ok(HttpResponse::Ok().json(ApiResponse::ok(
+        crate::storage::connectors::list_storage_driver_descriptors(),
+    )))
 }
 
 #[api_docs_macros::path(

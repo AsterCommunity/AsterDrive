@@ -3,6 +3,11 @@
 //! Multipart upload 常见于对象存储直传场景；本地存储不支持。
 //! 将其隔离在 `MultipartStorageDriver` 子 trait 中，避免 `StorageDriver` trait
 //! 被 upload_id / part_number / ETag 等直传语义污染。
+//!
+//! 注意：这里的 multipart 是对象存储语义，不是所有“可续传上传”的统称。
+//! Microsoft Graph / Google Drive 这类 provider-native upload session 应通过
+//! `ProviderResumableUploadDriver` 描述能力，并由具体 driver 在 `StreamUploadDriver`
+//! 内部封装 session 细节。
 
 use crate::errors::{AsterError, MapAsterErr, Result};
 use async_trait::async_trait;
@@ -19,10 +24,15 @@ pub struct UploadedMultipartPart {
     pub size: i64,
 }
 
-/// Multipart upload 支持。
+/// Object-storage multipart upload 支持。
 ///
 /// 调用方通过 `driver.as_multipart()` 获取引用。
 /// **调用方必须确保 session 携带了 multipart 关联标识**，否则不应该调用此方法。
+///
+/// 这个 trait 的调用者会直接编排 provider multipart 生命周期：创建 upload、
+/// 上传 numbered part、收集 ETag、complete 或 abort。因此实现者必须保证这些方法
+/// 对应的是 provider 真实的 multipart/block upload 契约，而不是用别的 session
+/// 协议勉强模拟。
 #[async_trait]
 pub trait MultipartStorageDriver: Send + Sync {
     /// 创建 multipart upload，返回 provider 端的 upload_id

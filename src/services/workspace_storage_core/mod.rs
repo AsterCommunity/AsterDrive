@@ -11,10 +11,7 @@ mod path;
 mod policy;
 mod quota;
 
-pub(crate) use blob::{
-    create_nondedup_blob, create_nondedup_blob_with_key, create_remote_nondedup_blob,
-    create_s3_nondedup_blob,
-};
+pub(crate) use blob::{create_nondedup_blob_with_key, create_opaque_nondedup_blob};
 pub(crate) use file_record::{create_exact_file_from_blob, create_new_file_from_blob};
 pub(crate) use file_record::{
     create_exact_file_from_blob_with_actor_username, create_new_file_from_blob_with_actor_username,

@@ -16,10 +16,13 @@ import type { SharedFieldProps, Translate } from "./StoragePolicyFieldTypes";
 
 export function OneDriveCredentialPanel({
 	authorizationPending,
+	canStartAuthorization = true,
+	canValidateCredential = true,
 	credentials,
 	form,
 	loading,
 	redirectUri,
+	showApplicationFields = true,
 	t,
 	validationPending,
 	onFieldChange,
@@ -27,10 +30,13 @@ export function OneDriveCredentialPanel({
 	onValidateCredential,
 }: {
 	authorizationPending: boolean;
+	canStartAuthorization?: boolean;
+	canValidateCredential?: boolean;
 	credentials: StoragePolicyCredentialInfo[];
 	form: SharedFieldProps["form"];
 	loading: boolean;
 	redirectUri: string;
+	showApplicationFields?: boolean;
 	t: Translate;
 	validationPending: boolean;
 	onFieldChange: SharedFieldProps["onFieldChange"];
@@ -139,38 +145,44 @@ export function OneDriveCredentialPanel({
 						</p>
 					) : null}
 				</div>
-				<div className="flex shrink-0 flex-wrap items-center gap-2">
-					<Button
-						type="button"
-						variant="outline"
-						className={ADMIN_CONTROL_HEIGHT_CLASS}
-						disabled={authorizationPending}
-						onClick={onStartAuthorization}
-					>
-						{authorizationPending ? (
-							<Icon name="Spinner" className="mr-1 size-3.5 animate-spin" />
-						) : (
-							<Icon name="ArrowSquareOut" className="mr-1 size-3.5" />
-						)}
-						{credential
-							? t("onedrive_reauthorize_action")
-							: t("onedrive_authorize_action")}
-					</Button>
-					<Button
-						type="button"
-						variant="outline"
-						className={ADMIN_CONTROL_HEIGHT_CLASS}
-						disabled={!credential || validationPending}
-						onClick={onValidateCredential}
-					>
-						{validationPending ? (
-							<Icon name="Spinner" className="mr-1 size-3.5 animate-spin" />
-						) : (
-							<Icon name="Check" className="mr-1 size-3.5" />
-						)}
-						{t("onedrive_validate_action")}
-					</Button>
-				</div>
+				{canStartAuthorization || canValidateCredential ? (
+					<div className="flex shrink-0 flex-wrap items-center gap-2">
+						{canStartAuthorization ? (
+							<Button
+								type="button"
+								variant="outline"
+								className={ADMIN_CONTROL_HEIGHT_CLASS}
+								disabled={authorizationPending}
+								onClick={onStartAuthorization}
+							>
+								{authorizationPending ? (
+									<Icon name="Spinner" className="mr-1 size-3.5 animate-spin" />
+								) : (
+									<Icon name="ArrowSquareOut" className="mr-1 size-3.5" />
+								)}
+								{credential
+									? t("onedrive_reauthorize_action")
+									: t("onedrive_authorize_action")}
+							</Button>
+						) : null}
+						{canValidateCredential ? (
+							<Button
+								type="button"
+								variant="outline"
+								className={ADMIN_CONTROL_HEIGHT_CLASS}
+								disabled={!credential || validationPending}
+								onClick={onValidateCredential}
+							>
+								{validationPending ? (
+									<Icon name="Spinner" className="mr-1 size-3.5 animate-spin" />
+								) : (
+									<Icon name="Check" className="mr-1 size-3.5" />
+								)}
+								{t("onedrive_validate_action")}
+							</Button>
+						) : null}
+					</div>
+				) : null}
 			</div>
 			<div className="space-y-2">
 				<Label htmlFor="onedrive_redirect_uri">
@@ -198,12 +210,14 @@ export function OneDriveCredentialPanel({
 					{t("onedrive_redirect_uri_desc")}
 				</p>
 			</div>
-			<OneDriveApplicationFields
-				form={form}
-				t={t}
-				useSavedCredentialPlaceholder={credential != null}
-				onFieldChange={onFieldChange}
-			/>
+			{showApplicationFields ? (
+				<OneDriveApplicationFields
+					form={form}
+					t={t}
+					useSavedCredentialPlaceholder={credential != null}
+					onFieldChange={onFieldChange}
+				/>
+			) : null}
 		</div>
 	);
 }

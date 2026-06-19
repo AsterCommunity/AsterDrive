@@ -23,6 +23,7 @@
 	"policy_onedrive_sharepoint_site_required": "SharePoint site mode needs a Site ID unless a Drive ID is already set",
 	"policy_onedrive_group_required": "Group drive mode needs a Group ID unless a Drive ID is already set",
 	"policy_native_thumbnail_unsupported": "Storage-native thumbnail processing is not supported by this policy driver",
+	"policy_native_media_metadata_unsupported": "Storage-native media metadata processing is not supported by this policy driver",
 	"policy_promotion_source_unsupported": "Only generic S3-compatible storage policies can be promoted",
 	"policy_promotion_target_unsupported": "This storage policy cannot be promoted to the selected target driver",
 	"policy_promotion_bucket_change_denied": "Changing the bucket while promoting this storage policy is not allowed"

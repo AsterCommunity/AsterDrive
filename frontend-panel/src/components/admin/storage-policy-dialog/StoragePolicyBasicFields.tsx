@@ -2,6 +2,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { ADMIN_CONTROL_HEIGHT_CLASS } from "@/lib/constants";
+import type { StorageConnectorDescriptor } from "@/types/api";
 import type { SharedFieldProps } from "./StoragePolicyFieldTypes";
 
 export function PolicyNameField({
@@ -35,8 +36,11 @@ export function PolicyNameField({
 export function PolicyBasePathField({
 	form,
 	onFieldChange,
+	storageDriverDescriptor,
 	t,
-}: SharedFieldProps) {
+}: SharedFieldProps & {
+	storageDriverDescriptor?: StorageConnectorDescriptor | null;
+}) {
 	return (
 		<div className="space-y-2">
 			<Label htmlFor="base_path">{t("base_path")}</Label>
@@ -45,7 +49,9 @@ export function PolicyBasePathField({
 				value={form.base_path}
 				onChange={(e) => onFieldChange("base_path", e.target.value)}
 				className={ADMIN_CONTROL_HEIGHT_CLASS}
-				placeholder={form.driver_type === "local" ? "./data" : "tenant/prefix"}
+				placeholder={
+					storageDriverDescriptor?.ui?.base_path_placeholder ?? "tenant/prefix"
+				}
 			/>
 		</div>
 	);

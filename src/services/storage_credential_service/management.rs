@@ -5,17 +5,10 @@ use serde::Serialize;
 use crate::db::repository::{policy_repo, storage_policy_credential_repo};
 use crate::errors::{AsterError, Result};
 use crate::runtime::SharedRuntimeState;
-use crate::storage::drivers::onedrive::{MicrosoftGraphClient, MicrosoftGraphClientConfig};
 use crate::storage::error::StorageErrorKind;
-use crate::types::{
-    DriverType, StorageCredentialKind, StorageCredentialProvider, StorageCredentialStatus,
-    parse_storage_policy_options,
-};
+use crate::types::{StorageCredentialProvider, StorageCredentialStatus};
 
-use super::{
-    StoragePolicyCredentialInfo, build_microsoft_graph_credential_token_provider,
-    resolve_onedrive_location,
-};
+use super::StoragePolicyCredentialInfo;
 
 #[derive(Clone, Debug, Serialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(utoipa::ToSchema))]
@@ -44,35 +37,28 @@ pub async fn validate_policy_credential(
     provider: StorageCredentialProvider,
 ) -> Result<StoragePolicyCredentialValidationResult> {
     let policy = policy_repo::find_by_id(state.writer_db(), policy_id).await?;
-    if policy.driver_type != DriverType::OneDrive
-        || provider != StorageCredentialProvider::MicrosoftGraph
-    {
-        return Err(AsterError::validation_error(
-            "storage credential validation is only supported for Microsoft Graph OneDrive policies",
-        ));
-    }
+    let credential_kind =
+        crate::storage::connectors::ensure_storage_credential_validation_supported(
+            policy.driver_type,
+            provider,
+        )?;
     let credential = storage_policy_credential_repo::find_by_policy_provider_kind(
         state.writer_db(),
         policy_id,
         provider,
-        StorageCredentialKind::OauthDelegated,
+        credential_kind,
     )
     .await?
     .ok_or_else(|| AsterError::record_not_found("storage policy credential"))?;
-    let options = parse_storage_policy_options(policy.options.as_ref());
-    let token_provider = build_microsoft_graph_credential_token_provider(
-        state.writer_db().clone(),
-        state.config().auth.storage_credential_secret_key.clone(),
+    let validation = match crate::storage::connectors::validate_credential(
+        state.writer_db(),
+        state.config().as_ref(),
         &policy,
         &credential,
-        options.effective_onedrive_cloud(),
-    )?;
-    let client = MicrosoftGraphClient::new(MicrosoftGraphClientConfig::with_token_provider(
-        options.effective_onedrive_cloud().graph_base_url(),
-        token_provider,
-    ))?;
-    let location = match resolve_onedrive_location(&client, &options).await {
-        Ok(location) => location,
+    )
+    .await
+    {
+        Ok(validation) => validation,
         Err(error) => {
             let mut active = credential.clone().into_active_model();
             if let Some(status) = credential_status_for_validation_error(error.storage_error_kind())
@@ -92,35 +78,11 @@ pub async fn validate_policy_credential(
             return Err(error);
         }
     };
-    let root_item = location.root_item;
     let now = Utc::now();
-    let policy_id = credential.policy_id;
-    let existing_metadata = serde_json::from_str::<serde_json::Value>(&credential.metadata).ok();
-    let existing_client_id = existing_metadata
-        .as_ref()
-        .and_then(|metadata| metadata.get("client_id"))
-        .and_then(serde_json::Value::as_str);
-    let existing_client_secret_ciphertext = existing_metadata
-        .as_ref()
-        .and_then(|metadata| metadata.get("client_secret_ciphertext"))
-        .and_then(serde_json::Value::as_str);
     let mut active = credential.into_active_model();
-    active.account_label = Set(root_item.name.clone());
-    active.subject = Set(Some(root_item.id.clone()));
-    active.metadata = Set(super::oauth::storage_credential_metadata(
-        super::oauth::StorageCredentialMetadataInput {
-            encryption_key: &state.config().auth.storage_credential_secret_key,
-            policy_id,
-            cloud: options.effective_onedrive_cloud(),
-            client_id: existing_client_id,
-            client_secret: None,
-            client_secret_ciphertext: existing_client_secret_ciphertext,
-            drive_id: &location.drive_id,
-            root_item_id: &root_item.id,
-            root_item_name: root_item.name.as_deref(),
-            id_token: None,
-        },
-    )?);
+    active.account_label = Set(validation.account_label.clone());
+    active.subject = Set(validation.subject.clone());
+    active.metadata = Set(validation.metadata);
     active.status = Set(StorageCredentialStatus::Authorized);
     active.status_reason = Set(None);
     active.last_validated_at = Set(Some(now));
@@ -136,8 +98,8 @@ pub async fn validate_policy_credential(
 
     Ok(StoragePolicyCredentialValidationResult {
         credential: credential.into(),
-        root_item_id: root_item.id,
-        root_item_name: root_item.name,
+        root_item_id: validation.root_item_id,
+        root_item_name: validation.root_item_name,
     })
 }
 

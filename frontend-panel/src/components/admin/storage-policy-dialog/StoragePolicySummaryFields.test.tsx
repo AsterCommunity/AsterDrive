@@ -67,22 +67,24 @@ describe("StoragePolicySummaryFields", () => {
 			<>
 				<StorageDriverVisual
 					option={{
-						iconName: "HardDrive",
-						labelKey: "driver_type_local",
+						iconName: "Globe",
+						description: "Local storage",
+						title: "Local",
 						type: "local",
 					}}
 				/>
 				<StorageDriverVisual
 					option={{
+						description: "S3 storage",
 						iconSrc: "/s3.svg",
-						labelKey: "driver_type_s3",
+						title: "S3",
 						type: "s3",
 					}}
 				/>
 			</>,
 		);
 
-		expect(screen.getByText("icon:HardDrive")).toBeInTheDocument();
+		expect(screen.getByText("icon:Globe")).toBeInTheDocument();
 		expect(container.querySelector("img")).toHaveAttribute("src", "/s3.svg");
 	});
 
@@ -90,8 +92,9 @@ describe("StoragePolicySummaryFields", () => {
 		render(
 			<PolicySummaryCard
 				currentStorageOption={{
-					iconName: "HardDrive",
-					labelKey: "driver_type_local",
+					iconName: "Globe",
+					description: "Local storage",
+					title: "Local",
 					type: "local",
 				}}
 				description="Local policy description"

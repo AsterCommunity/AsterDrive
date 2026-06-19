@@ -1,6 +1,7 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import { emptyForm } from "@/components/admin/storagePolicyDialogShared";
+import type { DriverType, StorageConnectorDescriptor } from "@/types/api";
+import { emptyForm } from "./formTypes";
 import type { Translate } from "./StoragePolicyFieldTypes";
 import { S3ConnectionFields } from "./StoragePolicyS3Fields";
 
@@ -94,6 +95,7 @@ function renderS3ConnectionFields(
 			| "endpointValidationMessage"
 			| "isCreateMode"
 			| "showCreateValidation"
+			| "storageDriverDescriptor"
 		>
 	> = {},
 ) {
@@ -106,10 +108,102 @@ function renderS3ConnectionFields(
 			onFieldChange={onFieldChange}
 			onSyncNormalizedS3Form={vi.fn()}
 			showCreateValidation={options.showCreateValidation}
+			storageDriverDescriptor={
+				options.storageDriverDescriptor ??
+				objectStorageDescriptor(form.driver_type)
+			}
 			t={t}
 		/>,
 	);
 	return onFieldChange;
+}
+
+function objectStorageDescriptor(
+	driverType: DriverType,
+): StorageConnectorDescriptor {
+	const endpointDisplay =
+		driverType === "tencent_cos"
+			? {
+					help_key: "cos_endpoint_hint",
+					placeholder: "https://<bucket-appid>.cos.<region>.myqcloud.com",
+				}
+			: driverType === "azure_blob"
+				? {
+						help_key: "azure_blob_endpoint_hint",
+						placeholder: "https://<account>.blob.core.windows.net",
+					}
+				: {
+						help_key: "s3_endpoint_hint",
+						placeholder: "https://s3.amazonaws.com",
+					};
+	const fields = [
+		{
+			invalid_protocol_message_key:
+				driverType === "azure_blob"
+					? "azure_blob_endpoint_protocol_required_error"
+					: "s3_endpoint_protocol_required_error",
+			kind: "text",
+			label_key: "endpoint",
+			name: "endpoint",
+			required: true,
+			scope: "connection",
+			secret: false,
+			...endpointDisplay,
+			options: [],
+			visible_when_driver_types: [],
+		},
+		{
+			kind: "text",
+			label_key: "bucket",
+			name: "bucket",
+			required: true,
+			required_message_key:
+				driverType === "azure_blob"
+					? "policy_wizard_container_required"
+					: "policy_wizard_bucket_required",
+			scope: "connection",
+			secret: false,
+			options: [],
+			visible_when_driver_types: [],
+		},
+		{
+			kind: "text",
+			label_key:
+				driverType === "azure_blob" ? "azure_blob_account_name" : "access_key",
+			name: "access_key",
+			required: true,
+			scope: "connection",
+			secret: false,
+			trim_on_blur: driverType === "azure_blob",
+			options: [],
+			visible_when_driver_types: [],
+		},
+		{
+			kind: "secret",
+			label_key:
+				driverType === "azure_blob" ? "azure_blob_account_key" : "secret_key",
+			name: "secret_key",
+			required: true,
+			scope: "connection",
+			secret: true,
+			options: [],
+			visible_when_driver_types: [],
+		},
+	];
+	if (driverType === "s3") {
+		fields.push({
+			help_key: "s3_path_style_desc",
+			kind: "boolean",
+			label_key: "s3_path_style",
+			name: "s3_path_style",
+			required: false,
+			scope: "policy_options",
+			secret: false,
+			options: [],
+			visible_when_driver_types: ["s3"],
+		});
+	}
+	return { driver_type: driverType, fields } as StorageConnectorDescriptor;
 }
 
 describe("S3ConnectionFields", () => {

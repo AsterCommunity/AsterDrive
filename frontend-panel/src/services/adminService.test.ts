@@ -96,6 +96,7 @@ describe("adminService", () => {
 		adminUserService.list();
 		adminUserService.listInvitations();
 		adminPolicyService.list();
+		adminPolicyService.listStorageDriverDescriptors();
 		adminRemoteNodeService.list();
 		adminPolicyGroupService.list();
 		adminShareService.list();
@@ -109,11 +110,15 @@ describe("adminService", () => {
 			"/admin/users/invitations",
 		);
 		expect(mockState.get).toHaveBeenNthCalledWith(4, "/admin/policies");
-		expect(mockState.get).toHaveBeenNthCalledWith(5, "/admin/remote-nodes");
-		expect(mockState.get).toHaveBeenNthCalledWith(6, "/admin/policy-groups");
-		expect(mockState.get).toHaveBeenNthCalledWith(7, "/admin/shares");
-		expect(mockState.get).toHaveBeenNthCalledWith(8, "/admin/locks");
-		expect(mockState.get).toHaveBeenNthCalledWith(9, "/admin/config");
+		expect(mockState.get).toHaveBeenNthCalledWith(
+			5,
+			"/admin/policies/storage-drivers",
+		);
+		expect(mockState.get).toHaveBeenNthCalledWith(6, "/admin/remote-nodes");
+		expect(mockState.get).toHaveBeenNthCalledWith(7, "/admin/policy-groups");
+		expect(mockState.get).toHaveBeenNthCalledWith(8, "/admin/shares");
+		expect(mockState.get).toHaveBeenNthCalledWith(9, "/admin/locks");
+		expect(mockState.get).toHaveBeenNthCalledWith(10, "/admin/config");
 	});
 
 	it("uses admin user invitation endpoints", () => {

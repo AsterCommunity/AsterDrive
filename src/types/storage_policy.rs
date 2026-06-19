@@ -682,13 +682,13 @@ pub fn serialize_storage_policy_allowed_types(
     serde_json::to_string(allowed_types).map(StoredStoragePolicyAllowedTypes)
 }
 
-pub const S3_MULTIPART_MIN_PART_SIZE: i64 = 5 * 1024 * 1024;
+pub const OBJECT_MULTIPART_MIN_PART_SIZE: i64 = 5 * 1024 * 1024;
 
-pub fn effective_s3_multipart_chunk_size(configured: i64) -> i64 {
+pub fn effective_object_multipart_chunk_size(configured: i64) -> i64 {
     if configured <= 0 {
-        S3_MULTIPART_MIN_PART_SIZE
+        OBJECT_MULTIPART_MIN_PART_SIZE
     } else {
-        configured.max(S3_MULTIPART_MIN_PART_SIZE)
+        configured.max(OBJECT_MULTIPART_MIN_PART_SIZE)
     }
 }
 #[cfg(test)]

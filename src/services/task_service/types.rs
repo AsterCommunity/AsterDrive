@@ -7,10 +7,11 @@ use utoipa::ToSchema;
 
 use crate::config::operations;
 use crate::services::user_service;
-use crate::types::{
-    ArchiveFilenameEncoding, BackgroundTaskKind, BackgroundTaskStatus, DriverType,
-    RemoteNodeTransportMode,
+use crate::storage::connectors::{
+    StoragePolicyCleanupDriverSnapshot, StoragePolicyCleanupOneDriveCredentialSnapshot,
+    StoragePolicyCleanupRemoteNodeSnapshot,
 };
+use crate::types::{ArchiveFilenameEncoding, BackgroundTaskKind, BackgroundTaskStatus, DriverType};
 
 use super::runtime::SystemRuntimeTaskKind;
 
@@ -365,44 +366,6 @@ pub(crate) struct StoragePolicyCleanupPolicySnapshot {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub(crate) struct StoragePolicyCleanupRemoteNodeSnapshot {
-    pub id: i64,
-    pub name: String,
-    pub base_url: String,
-    #[serde(default)]
-    pub transport_mode: RemoteNodeTransportMode,
-    pub access_key: String,
-    pub secret_key: String,
-    #[serde(default)]
-    pub last_capabilities: String,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub(crate) struct StoragePolicyCleanupOneDriveCredentialSnapshot {
-    pub cloud: crate::types::MicrosoftGraphCloud,
-    #[serde(default)]
-    pub tenant_id: Option<String>,
-    #[serde(default)]
-    pub client_id: Option<String>,
-    #[serde(default)]
-    pub client_secret_ciphertext: Option<String>,
-    pub drive_id: String,
-    pub root_item_id: String,
-    pub access_token_ciphertext: String,
-    #[serde(default)]
-    pub refresh_token_ciphertext: Option<String>,
-    #[serde(default)]
-    pub expires_at: Option<chrono::DateTime<chrono::Utc>>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "kind", rename_all = "snake_case")]
-pub(crate) enum StoragePolicyCleanupDriverSnapshot {
-    RemoteNode(StoragePolicyCleanupRemoteNodeSnapshot),
-    MicrosoftGraph(StoragePolicyCleanupOneDriveCredentialSnapshot),
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct StoragePolicyTempCleanupTarget {
     pub temp_key: String,
@@ -412,8 +375,6 @@ pub struct StoragePolicyTempCleanupTarget {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) struct StoragePolicyTempCleanupTaskPayload {
     pub policy: StoragePolicyCleanupPolicySnapshot,
-    // TODO(#328): make cleanup snapshot requirements part of backend driver
-    // capability metadata instead of extending this enum one driver at a time.
     #[serde(default)]
     pub driver_snapshot: Option<StoragePolicyCleanupDriverSnapshot>,
     /// Deprecated legacy OneDrive cleanup snapshot. New tasks store this under

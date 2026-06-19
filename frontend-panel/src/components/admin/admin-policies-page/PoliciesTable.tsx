@@ -21,10 +21,9 @@ import {
 } from "@/lib/constants";
 import type { SortOrder } from "@/lib/pagination";
 import type { AdminPolicySortBy } from "@/types/adminSort";
-import type { StoragePolicy } from "@/types/api";
+import type { StorageConnectorDescriptor, StoragePolicy } from "@/types/api";
 import {
 	getPolicyDriverBadgeClass,
-	getPolicyDriverLabelKey,
 	PROTECTED_POLICY_ID,
 } from "./policyPresentation";
 
@@ -37,6 +36,7 @@ interface PoliciesTableProps {
 	remoteNodeNameById: Map<number, string>;
 	sortBy: AdminPolicySortBy;
 	sortOrder: SortOrder;
+	storageDriverDescriptors: StorageConnectorDescriptor[];
 	onSortChange: (sortBy: AdminPolicySortBy, sortOrder: SortOrder) => void;
 }
 
@@ -50,8 +50,19 @@ export function PoliciesTable({
 	remoteNodeNameById,
 	sortBy,
 	sortOrder,
+	storageDriverDescriptors,
 }: PoliciesTableProps) {
 	const { t } = useTranslation("admin");
+	const descriptorByDriverType = useMemo(
+		() =>
+			new Map(
+				storageDriverDescriptors.map((descriptor) => [
+					descriptor.driver_type,
+					descriptor,
+				]),
+			),
+		[storageDriverDescriptors],
+	);
 	const headerRow = useMemo(
 		() => (
 			<TableHeader>
@@ -129,6 +140,38 @@ export function PoliciesTable({
 				const deleteLabel = isDeleting
 					? t("policy_deleting")
 					: t("delete_policy");
+				const descriptor = descriptorByDriverType.get(policy.driver_type);
+				const driverLabel = descriptor?.ui
+					? t(descriptor.ui.label_key)
+					: policy.driver_type;
+				const basePathEmptyDisplay = descriptor?.ui
+					? translateStorageConnectorUiValue(
+							descriptor.ui.base_path_empty_display,
+							t,
+						)
+					: t("core:root");
+				const showsEndpoint = descriptor
+					? descriptor.fields.some(
+							(field) =>
+								field.scope === "connection" && field.name === "endpoint",
+						)
+					: Boolean(policy.endpoint);
+				const showsRemoteNode = descriptor
+					? descriptor.fields.some(
+							(field) =>
+								field.scope === "remote_node_binding" &&
+								field.name === "remote_node_id",
+						)
+					: policy.remote_node_id != null;
+				const endpointOrPath = showsEndpoint
+					? policy.endpoint
+					: policy.base_path || basePathEmptyDisplay;
+				const bucketOrBinding = showsRemoteNode
+					? policy.remote_node_id != null
+						? (remoteNodeNameById.get(policy.remote_node_id) ??
+							`#${policy.remote_node_id}`)
+						: "-"
+					: policy.bucket || "-";
 
 				return (
 					<TableRow
@@ -165,30 +208,21 @@ export function PoliciesTable({
 									variant="outline"
 									className={getPolicyDriverBadgeClass(policy.driver_type)}
 								>
-									{t(getPolicyDriverLabelKey(policy.driver_type))}
+									{driverLabel}
 								</Badge>
 							</div>
 						</TableCell>
 						<TableCell>
 							<div className={ADMIN_TABLE_TEXT_CELL_CLASS}>
 								<span className="truncate text-xs font-mono text-muted-foreground">
-									{policy.driver_type === "local"
-										? policy.base_path || "./data"
-										: policy.driver_type === "remote"
-											? policy.base_path || t("core:root")
-											: policy.endpoint}
+									{endpointOrPath}
 								</span>
 							</div>
 						</TableCell>
 						<TableCell>
 							<div className={ADMIN_TABLE_TEXT_CELL_CLASS}>
 								<span className="truncate text-xs text-muted-foreground">
-									{policy.driver_type === "remote"
-										? policy.remote_node_id != null
-											? (remoteNodeNameById.get(policy.remote_node_id) ??
-												`#${policy.remote_node_id}`)
-											: "-"
-										: policy.bucket || "-"}
+									{bucketOrBinding}
 								</span>
 							</div>
 						</TableCell>
@@ -233,4 +267,11 @@ export function PoliciesTable({
 			}}
 		/>
 	);
+}
+
+function translateStorageConnectorUiValue(
+	value: string,
+	t: (key: string) => string,
+) {
+	return t(value);
 }

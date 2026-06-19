@@ -4,7 +4,9 @@ use std::{fmt, sync::Arc};
 use tokio::sync::Mutex;
 
 use crate::db::repository::storage_policy_credential_repo;
-use crate::entities::{storage_policy, storage_policy_credential};
+use crate::entities::{
+    storage_connector_application_config, storage_policy, storage_policy_credential,
+};
 use crate::errors::{AsterError, Result};
 use crate::storage::drivers::onedrive::MicrosoftGraphAccessTokenProvider;
 use crate::storage::error::{StorageErrorKind, storage_driver_error};
@@ -18,8 +20,7 @@ use super::audit::{
     StorageCredentialOauthAuditDetails, write_storage_credential_oauth_audit,
 };
 use super::microsoft::{
-    MicrosoftTokenResponse, decrypt_stored_client_secret, metadata_string, parse_metadata,
-    refresh_microsoft_graph_token,
+    MicrosoftTokenResponse, decrypt_application_client_secret, refresh_microsoft_graph_token,
 };
 use super::{crypto, normalize_optional_string, normalize_scopes, scopes_to_json};
 
@@ -108,6 +109,7 @@ pub(crate) fn build_microsoft_graph_credential_token_provider(
     encryption_key: String,
     policy: &storage_policy::Model,
     credential: &storage_policy_credential::Model,
+    application_config: &storage_connector_application_config::Model,
     cloud: MicrosoftGraphCloud,
 ) -> Result<Arc<dyn MicrosoftGraphAccessTokenProvider>> {
     build_microsoft_graph_credential_token_provider_with_refresher(
@@ -115,6 +117,7 @@ pub(crate) fn build_microsoft_graph_credential_token_provider(
         encryption_key,
         policy,
         credential,
+        application_config,
         cloud,
         Arc::new(DefaultMicrosoftGraphTokenRefresher),
     )
@@ -145,32 +148,28 @@ pub(super) fn build_microsoft_graph_cleanup_token_provider_with_refresher(
         "access",
         &snapshot.access_token_ciphertext,
     )?;
-    let client_id = normalize_optional_string(Some(policy.access_key.clone()))
-        .or_else(|| {
-            snapshot
-                .client_id
-                .and_then(|value| normalize_optional_string(Some(value)))
-        })
+    let client_id = snapshot
+        .client_id
+        .and_then(|value| normalize_optional_string(Some(value)))
         .ok_or_else(|| {
             storage_driver_error(
                 StorageErrorKind::Auth,
                 "storage cleanup credential is missing Microsoft Graph client_id snapshot",
             )
         })?;
-    let client_secret = match normalize_optional_string(Some(policy.secret_key.clone())) {
-        Some(client_secret) => Some(client_secret),
-        None => snapshot
-            .client_secret_ciphertext
-            .and_then(|value| normalize_optional_string(Some(value)))
-            .map(|ciphertext| decrypt_stored_client_secret(&encryption_key, policy.id, &ciphertext))
-            .transpose()?,
-    }
-    .ok_or_else(|| {
-        storage_driver_error(
-            StorageErrorKind::Auth,
-            "storage cleanup credential is missing Microsoft Graph client_secret snapshot",
-        )
-    })?;
+    let client_secret = snapshot
+        .client_secret_ciphertext
+        .and_then(|value| normalize_optional_string(Some(value)))
+        .map(|ciphertext| {
+            decrypt_application_client_secret(&encryption_key, policy.id, &ciphertext)
+        })
+        .transpose()?
+        .ok_or_else(|| {
+            storage_driver_error(
+                StorageErrorKind::Auth,
+                "storage cleanup credential is missing Microsoft Graph client_secret snapshot",
+            )
+        })?;
     Ok(Arc::new(MicrosoftGraphCleanupTokenProvider {
         encryption_key,
         policy_id: policy.id,
@@ -213,10 +212,18 @@ pub(super) fn build_microsoft_graph_credential_token_provider_with_refresher(
     encryption_key: String,
     policy: &storage_policy::Model,
     credential: &storage_policy_credential::Model,
+    application_config: &storage_connector_application_config::Model,
     cloud: MicrosoftGraphCloud,
     token_refresher: Arc<dyn MicrosoftGraphTokenRefresher>,
 ) -> Result<Arc<dyn MicrosoftGraphAccessTokenProvider>> {
-    let metadata = parse_metadata(&credential.metadata);
+    debug_assert_eq!(
+        policy.id, credential.policy_id,
+        "Microsoft Graph credential must belong to the supplied storage policy"
+    );
+    debug_assert_eq!(
+        policy.id, application_config.policy_id,
+        "Microsoft Graph application config must belong to the supplied storage policy"
+    );
     let access_token_ciphertext =
         credential
             .access_token_ciphertext
@@ -233,42 +240,39 @@ pub(super) fn build_microsoft_graph_credential_token_provider_with_refresher(
         "access",
         access_token_ciphertext,
     )?;
-    let client_id = normalize_optional_string(Some(policy.access_key.clone()))
-        .or_else(|| {
-            metadata
-                .as_ref()
-                .and_then(|metadata| metadata_string(metadata, "client_id"))
-        })
+    let client_id = application_config
+        .client_id
+        .clone()
+        .and_then(|value| normalize_optional_string(Some(value)))
         .ok_or_else(|| {
             storage_driver_error(
                 StorageErrorKind::Auth,
-                "storage credential is missing Microsoft Graph client_id; save the OneDrive policy application settings and reauthorize",
+                "storage connector application config is missing Microsoft Graph client_id; save the OneDrive policy application settings",
             )
         })?;
-    let client_secret = match normalize_optional_string(Some(policy.secret_key.clone())) {
-        Some(client_secret) => Some(client_secret),
-        None => metadata
-            .as_ref()
-            .and_then(|metadata| metadata_string(metadata, "client_secret_ciphertext"))
-            .map(|ciphertext| {
-                decrypt_stored_client_secret(&encryption_key, credential.policy_id, &ciphertext)
-            })
-            .transpose()?,
-    };
-    let client_secret = client_secret.ok_or_else(|| {
-        storage_driver_error(
-            StorageErrorKind::Auth,
-            "storage credential is missing Microsoft Graph client_secret; save the OneDrive policy application settings and reauthorize",
-        )
-    })?;
+    let client_secret = application_config
+        .client_secret_ciphertext
+        .clone()
+        .and_then(|value| normalize_optional_string(Some(value)))
+        .map(|ciphertext| {
+            decrypt_application_client_secret(&encryption_key, credential.policy_id, &ciphertext)
+        })
+        .transpose()?
+        .ok_or_else(|| {
+            storage_driver_error(
+                StorageErrorKind::Auth,
+                "storage connector application config is missing Microsoft Graph client_secret; save the OneDrive policy application settings",
+            )
+        })?;
     Ok(Arc::new(MicrosoftGraphCredentialTokenProvider {
         db,
         encryption_key,
         policy_id: credential.policy_id,
         cloud,
-        tenant: credential
+        tenant: application_config
             .tenant_id
             .clone()
+            .or_else(|| credential.tenant_id.clone())
             .filter(|tenant| !tenant.trim().is_empty())
             .unwrap_or_else(|| "common".to_string()),
         client_id,

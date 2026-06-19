@@ -4,6 +4,8 @@
 //! `crate::storage::traits::*` 深路径只保留给 storage 内部实现层，用来强调 trait
 //! 的定义来源或避免驱动实现文件中的命名歧义。
 
+pub mod connector_descriptor;
+pub mod connectors;
 pub mod drivers;
 pub mod error;
 mod metrics_driver;
@@ -13,12 +15,24 @@ pub mod registry;
 pub mod remote_protocol;
 pub mod traits;
 
+pub use connector_descriptor::{
+    StorageConnectorActionDescriptor, StorageConnectorActionEndpoint, StorageConnectorActionKind,
+    StorageConnectorAffordanceAction, StorageConnectorCapabilities, StorageConnectorCredentialMode,
+    StorageConnectorDescriptor, StorageConnectorDescriptorProvider,
+    StorageConnectorFieldDescriptor, StorageConnectorFieldKind, StorageConnectorFieldScope,
+    StorageConnectorUploadWorkflows, StoragePolicyExecutableAction,
+};
+pub use connectors::{
+    ExecuteDraftStorageConnectorActionInput, ExecuteSavedStorageConnectorActionInput,
+    MicrosoftGraphApplicationConfigInput, StorageConnectorActionResult,
+    StorageConnectorApplicationConfigInput, StorageConnectorConnectionInput,
+    TencentCosCorsConfigResult,
+};
 pub use error::StorageErrorKind;
 pub use policy_snapshot::PolicySnapshot;
 pub use registry::DriverRegistry;
 pub use traits::driver::{
     BlobMetadata, PresignedDownloadOptions, StorageDriver, StoragePathVisitor,
-    driver_type_supports_native_media_metadata, driver_type_supports_native_thumbnail,
 };
 pub use traits::{
     ListStorageDriver, LocalPathStorageDriver, MultipartStorageDriver, NativeMediaMetadataRequest,

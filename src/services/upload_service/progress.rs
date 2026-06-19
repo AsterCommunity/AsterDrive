@@ -38,8 +38,8 @@ async fn get_progress_impl(
 
     let chunks_on_disk = if session.status == UploadSessionStatus::Presigned {
         match (
-            session.s3_temp_key.as_deref(),
-            session.s3_multipart_id.as_deref(),
+            session.object_temp_key.as_deref(),
+            session.object_multipart_id.as_deref(),
         ) {
             (Some(temp_key), Some(multipart_id)) => {
                 let policy = state
@@ -53,7 +53,7 @@ async fn get_progress_impl(
             }
             _ => scan_received_chunks(state, &session.id).await,
         }
-    } else if session.s3_multipart_id.is_some() {
+    } else if session.object_multipart_id.is_some() {
         let policy = state
             .policy_snapshot()
             .get_policy_or_err(session.policy_id)?;
@@ -96,7 +96,7 @@ fn is_relay_multipart_policy(policy: &crate::entities::storage_policy::Model) ->
 
 fn recoverable_mode_for_session(session: &upload_session::Model) -> UploadMode {
     if session.status == UploadSessionStatus::Presigned {
-        if session.s3_multipart_id.is_some() {
+        if session.object_multipart_id.is_some() {
             return UploadMode::PresignedMultipart;
         }
         return UploadMode::Presigned;
@@ -220,14 +220,17 @@ async fn presign_parts_impl(
     }
     validate_presign_part_numbers(&session, &part_numbers)?;
 
-    let multipart_id = session.s3_multipart_id.as_deref().ok_or_else(|| {
+    let multipart_id = session.object_multipart_id.as_deref().ok_or_else(|| {
         validation_error_with_code(
             ApiErrorCode::UploadChunkSessionInvalid,
             "not a multipart upload session",
         )
     })?;
-    let temp_key = session.s3_temp_key.as_deref().ok_or_else(|| {
-        validation_error_with_code(ApiErrorCode::UploadSessionCorrupted, "missing s3_temp_key")
+    let temp_key = session.object_temp_key.as_deref().ok_or_else(|| {
+        validation_error_with_code(
+            ApiErrorCode::UploadSessionCorrupted,
+            "missing object_temp_key",
+        )
     })?;
 
     let policy = state

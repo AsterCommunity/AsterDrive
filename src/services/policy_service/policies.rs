@@ -5,181 +5,22 @@ use sea_orm::{ActiveModelTrait, Set};
 
 use crate::api::api_error_code::ApiErrorCode;
 use crate::api::pagination::{AdminPolicySortBy, OffsetPage, SortOrder, load_offset_page};
-use crate::config::site_url;
-use crate::db::repository::{
-    file_repo, managed_follower_repo, policy_group_repo, policy_repo, upload_session_repo,
-};
+use crate::db::repository::{file_repo, policy_group_repo, policy_repo, upload_session_repo};
 use crate::entities::storage_policy;
 use crate::errors::{AsterError, MapAsterErr, Result, validation_error_with_code};
 use crate::runtime::{RemoteProtocolRuntimeState, SharedRuntimeState, TaskRuntimeState};
-use crate::storage::drivers::azure_blob::AzureBlobDriver;
-use crate::storage::drivers::tencent_cos::TencentCosDriver;
-use crate::types::{
-    DriverType, StoragePolicyOptions, StoredStoragePolicyAllowedTypes, parse_storage_policy_options,
-};
+use crate::types::{DriverType, parse_storage_policy_options};
 
 use super::models::{
-    ConfigureTencentCosCorsInput, CreateStoragePolicyInput, ExecuteDraftStoragePolicyActionInput,
+    CreateStoragePolicyInput, ExecuteDraftStoragePolicyActionInput,
     ExecuteSavedStoragePolicyActionInput, PromoteS3CompatiblePolicyDriverInput, StoragePolicy,
-    StoragePolicyActionResult, StoragePolicyActionType, StoragePolicyCapacityInfo,
-    StoragePolicyConnectionInput, TencentCosCorsConfigResult, UpdateStoragePolicyInput,
+    StoragePolicyActionResult, StoragePolicyCapacityInfo, StoragePolicyConnectionInput,
+    UpdateStoragePolicyInput,
 };
 use super::shared::{
     SYSTEM_STORAGE_POLICY_ID, ensure_singleton_group_for_policy, lock_default_group_assignment,
-    normalize_connection_fields, serialize_allowed_types, serialize_options,
-    validate_remote_binding,
+    serialize_allowed_types, serialize_options,
 };
-
-fn driver_type_name(driver_type: DriverType) -> &'static str {
-    match driver_type {
-        DriverType::Local => "local",
-        DriverType::S3 => "s3",
-        DriverType::AzureBlob => "azure_blob",
-        DriverType::TencentCos => "tencent_cos",
-        DriverType::Remote => "remote",
-        DriverType::OneDrive => "onedrive",
-    }
-}
-
-fn storage_policy_credential_label(driver_type: DriverType) -> &'static str {
-    match driver_type {
-        DriverType::S3 => "S3-compatible",
-        DriverType::AzureBlob => "Azure Blob",
-        _ => driver_type_name(driver_type),
-    }
-}
-
-fn ensure_storage_native_thumbnail_supported(
-    driver_type: DriverType,
-    options: &StoragePolicyOptions,
-) -> Result<()> {
-    if !options.uses_storage_native_thumbnail() {
-        return Ok(());
-    }
-
-    if crate::storage::driver_type_supports_native_thumbnail(driver_type) {
-        return Ok(());
-    }
-
-    Err(validation_error_with_code(
-        ApiErrorCode::PolicyNativeThumbnailUnsupported,
-        format!(
-            "storage policy driver '{}' does not expose storage-native thumbnail processing",
-            driver_type_name(driver_type),
-        ),
-    ))
-}
-
-fn is_allowed_s3_compatible_promotion(source: DriverType, target: DriverType) -> bool {
-    // Promotion is an in-place metadata switch, not an object copy. Keep this
-    // whitelist explicit so future OSS/OBS-style drivers must add their own
-    // validation and object-compatibility checks before the UI exposes them.
-    matches!((source, target), (DriverType::S3, DriverType::TencentCos))
-}
-
-fn validate_connection_secret(value: &str, field: &str, driver: &str) -> Result<()> {
-    if value.trim().is_empty() {
-        let api_code = match field {
-            "access_key" => ApiErrorCode::PolicyStorageAccessKeyRequired,
-            "secret_key" => ApiErrorCode::PolicyStorageSecretKeyRequired,
-            _ => ApiErrorCode::BadRequest,
-        };
-        return Err(validation_error_with_code(
-            api_code,
-            format!("{field} is required for {driver} storage policies"),
-        ));
-    }
-    Ok(())
-}
-
-fn validate_connection_credentials(
-    driver_type: DriverType,
-    access_key: &str,
-    secret_key: &str,
-) -> Result<()> {
-    match driver_type {
-        DriverType::S3 | DriverType::TencentCos | DriverType::AzureBlob => {
-            let driver = storage_policy_credential_label(driver_type);
-            validate_connection_secret(access_key, "access_key", driver)?;
-            validate_connection_secret(secret_key, "secret_key", driver)?;
-        }
-        DriverType::Local | DriverType::Remote | DriverType::OneDrive => {}
-    }
-    Ok(())
-}
-
-fn ensure_onedrive_options_supported(
-    driver_type: DriverType,
-    options: &StoragePolicyOptions,
-) -> Result<()> {
-    let has_onedrive_options = options.onedrive_cloud.is_some()
-        || options.onedrive_account_mode.is_some()
-        || options.onedrive_tenant.is_some()
-        || options.onedrive_drive_id.is_some()
-        || options.onedrive_root_item_id.is_some()
-        || options.onedrive_site_id.is_some()
-        || options.onedrive_group_id.is_some();
-    if driver_type != DriverType::OneDrive {
-        if has_onedrive_options {
-            return Err(validation_error_with_code(
-                ApiErrorCode::PolicyOneDriveOptionsUnsupported,
-                "OneDrive options are only valid for OneDrive storage policies",
-            ));
-        }
-        return Ok(());
-    }
-
-    if options.onedrive_account_mode.is_none() {
-        return Err(validation_error_with_code(
-            ApiErrorCode::PolicyOneDriveAccountModeRequired,
-            "OneDrive storage policies require onedrive_account_mode",
-        ));
-    }
-    if options.onedrive_cloud == Some(crate::types::MicrosoftGraphCloud::China)
-        && options.onedrive_account_mode == Some(crate::types::OneDriveAccountMode::Personal)
-    {
-        return Err(validation_error_with_code(
-            ApiErrorCode::PolicyOneDrivePersonalChinaCloudUnsupported,
-            "personal OneDrive accounts must use the global Microsoft Graph cloud",
-        ));
-    }
-    if options.onedrive_account_mode == Some(crate::types::OneDriveAccountMode::SharepointSite)
-        && options.onedrive_drive_id.is_none()
-        && options.onedrive_site_id.is_none()
-    {
-        return Err(validation_error_with_code(
-            ApiErrorCode::PolicyOneDriveSharePointSiteRequired,
-            "OneDrive sharepoint_site policies require onedrive_site_id when onedrive_drive_id is not set",
-        ));
-    }
-    if options.onedrive_account_mode == Some(crate::types::OneDriveAccountMode::SharepointSite)
-        && options.onedrive_group_id.is_some()
-    {
-        return Err(validation_error_with_code(
-            ApiErrorCode::PolicyOneDriveOptionsUnsupported,
-            "onedrive_group_id is only valid for OneDrive group_drive policies",
-        ));
-    }
-    if options.onedrive_account_mode == Some(crate::types::OneDriveAccountMode::GroupDrive)
-        && options.onedrive_drive_id.is_none()
-        && options.onedrive_group_id.is_none()
-    {
-        return Err(validation_error_with_code(
-            ApiErrorCode::PolicyOneDriveGroupRequired,
-            "OneDrive group_drive policies require onedrive_group_id when onedrive_drive_id is not set",
-        ));
-    }
-    if options.onedrive_account_mode == Some(crate::types::OneDriveAccountMode::GroupDrive)
-        && options.onedrive_site_id.is_some()
-    {
-        return Err(validation_error_with_code(
-            ApiErrorCode::PolicyOneDriveOptionsUnsupported,
-            "onedrive_site_id is only valid for OneDrive sharepoint_site policies",
-        ));
-    }
-
-    Ok(())
-}
 
 pub async fn list_paginated(
     state: &impl SharedRuntimeState,
@@ -232,17 +73,17 @@ pub(crate) async fn capacity_info_or_status(
         {
             crate::storage::StorageCapacityInfo::unsupported(format!(
                 "{}_driver",
-                driver_type_name(driver_type)
+                driver_type.as_str()
             ))
         }
         Err(error) => {
             tracing::warn!(
-                driver_type = driver_type_name(driver_type),
+                driver_type = driver_type.as_str(),
                 "storage capacity observability failed: {error}"
             );
             crate::storage::StorageCapacityInfo::unavailable(format!(
                 "{}_driver",
-                driver_type_name(driver_type)
+                driver_type.as_str()
             ))
         }
     }
@@ -260,7 +101,11 @@ pub async fn create(
         is_default,
         allowed_types,
         options,
+        application_config,
     } = input;
+    let connection =
+        crate::storage::connectors::normalize_policy_connection(state.writer_db(), connection)
+            .await?;
     let StoragePolicyConnectionInput {
         driver_type,
         endpoint,
@@ -270,18 +115,15 @@ pub async fn create(
         base_path,
         remote_node_id,
         options: _,
-    } = connection;
-    let (endpoint, bucket) = normalize_connection_fields(driver_type, &endpoint, &bucket)?;
-    validate_connection_credentials(driver_type, &access_key, &secret_key)?;
-    let remote_node_id =
-        validate_remote_binding(state.writer_db(), driver_type, remote_node_id).await?;
+    } = crate::storage::connectors::prepare_connection_for_storage(
+        connection,
+        &application_config,
+    )?;
     let allowed_types = allowed_types.unwrap_or_default();
     let options = options.unwrap_or_default().normalized();
     let serialized_options = serialize_options(&options)?;
     let chunk_size = chunk_size.unwrap_or(5_242_880);
-    ensure_storage_native_thumbnail_supported(driver_type, &options)?;
-    ensure_onedrive_options_supported(driver_type, &options)?;
-    ensure_remote_transport_supports_policy_options(
+    crate::storage::connectors::validate_policy_options(
         state.writer_db(),
         driver_type,
         remote_node_id,
@@ -310,6 +152,15 @@ pub async fn create(
         ..Default::default()
     };
     let result = policy_repo::create(&txn, model).await?;
+    crate::storage::connectors::persist_application_config(
+        &txn,
+        driver_type,
+        &state.config().auth.storage_credential_secret_key,
+        result.id,
+        &options,
+        application_config,
+    )
+    .await?;
     if is_default {
         lock_default_group_assignment(&txn).await?;
         policy_repo::set_only_default(&txn, result.id).await?;
@@ -319,12 +170,13 @@ pub async fn create(
     crate::db::transaction::commit(txn).await?;
     state.policy_snapshot().reload(state.writer_db()).await?;
     crate::services::config_service::invalidate_public_thumbnail_support_cache();
+    crate::services::config_service::invalidate_public_media_data_support_cache();
     policy_repo::find_by_id(state.writer_db(), result.id)
         .await
         .map(Into::into)
 }
 
-pub async fn delete(state: &impl TaskRuntimeState, id: i64, force: bool) -> Result<()> {
+pub async fn delete(state: &(impl TaskRuntimeState + Sync), id: i64, force: bool) -> Result<()> {
     let policy = policy_repo::find_by_id(state.writer_db(), id).await?;
     tracing::debug!(
         policy_id = id,
@@ -417,6 +269,7 @@ pub async fn delete(state: &impl TaskRuntimeState, id: i64, force: bool) -> Resu
     state.driver_registry().invalidate(id);
     state.policy_snapshot().reload(state.writer_db()).await?;
     crate::services::config_service::invalidate_public_thumbnail_support_cache();
+    crate::services::config_service::invalidate_public_media_data_support_cache();
     tracing::info!(
         policy_id = id,
         policy_name = %policy.name,
@@ -444,6 +297,7 @@ pub async fn update(
         is_default,
         allowed_types,
         options,
+        application_config,
     } = input;
     let txn = crate::db::transaction::begin(state.writer_db()).await?;
     let existing = policy_repo::find_by_id(&txn, id).await?;
@@ -451,6 +305,7 @@ pub async fn update(
     let existing_bucket = existing.bucket.clone();
     let existing_access_key = existing.access_key.clone();
     let existing_secret_key = existing.secret_key.clone();
+    let existing_driver_type = existing.driver_type;
     let existing_remote_node_id = existing.remote_node_id;
     let existing_options = parse_storage_policy_options(existing.options.as_ref());
     let final_endpoint = endpoint.unwrap_or_else(|| existing_endpoint.clone());
@@ -461,23 +316,38 @@ pub async fn update(
     let final_secret_key = secret_key
         .clone()
         .unwrap_or_else(|| existing_secret_key.clone());
-    let (normalized_endpoint, normalized_bucket) =
-        normalize_connection_fields(existing.driver_type, &final_endpoint, &final_bucket)?;
-    validate_connection_credentials(existing.driver_type, &final_access_key, &final_secret_key)?;
-    let normalized_remote_node_id = validate_remote_binding(
+    let final_base_path = base_path
+        .clone()
+        .unwrap_or_else(|| existing.base_path.clone());
+    let normalized_connection = crate::storage::connectors::normalize_policy_connection(
         &txn,
-        existing.driver_type,
-        remote_node_id.or(existing.remote_node_id),
+        StoragePolicyConnectionInput {
+            driver_type: existing_driver_type,
+            endpoint: final_endpoint,
+            bucket: final_bucket,
+            access_key: final_access_key,
+            secret_key: final_secret_key,
+            base_path: final_base_path,
+            remote_node_id: remote_node_id.or(existing.remote_node_id),
+            options: existing_options.clone(),
+        },
     )
     .await?;
+    let normalized_connection = crate::storage::connectors::prepare_connection_for_storage(
+        normalized_connection,
+        &application_config,
+    )?;
+    let normalized_endpoint = normalized_connection.endpoint.clone();
+    let normalized_bucket = normalized_connection.bucket.clone();
+    let normalized_access_key = normalized_connection.access_key.clone();
+    let normalized_secret_key = normalized_connection.secret_key.clone();
+    let normalized_remote_node_id = normalized_connection.remote_node_id;
     let options_provided = options.is_some();
     let final_options = options.unwrap_or(existing_options).normalized();
     let serialized_final_options = serialize_options(&final_options)?;
-    ensure_storage_native_thumbnail_supported(existing.driver_type, &final_options)?;
-    ensure_onedrive_options_supported(existing.driver_type, &final_options)?;
-    ensure_remote_transport_supports_policy_options(
+    crate::storage::connectors::validate_policy_options(
         &txn,
-        existing.driver_type,
+        existing_driver_type,
         normalized_remote_node_id,
         &final_options,
     )
@@ -507,11 +377,11 @@ pub async fn update(
     if normalized_bucket != existing_bucket {
         active.bucket = Set(normalized_bucket);
     }
-    if let Some(v) = access_key {
-        active.access_key = Set(v);
+    if normalized_access_key != existing_access_key {
+        active.access_key = Set(normalized_access_key);
     }
-    if let Some(v) = secret_key {
-        active.secret_key = Set(v);
+    if normalized_secret_key != existing_secret_key {
+        active.secret_key = Set(normalized_secret_key);
     }
     if let Some(v) = base_path {
         active.base_path = Set(v);
@@ -540,6 +410,16 @@ pub async fn update(
         .await
         .map_aster_err(AsterError::database_operation)?;
 
+    crate::storage::connectors::persist_application_config(
+        &txn,
+        existing_driver_type,
+        &state.config().auth.storage_credential_secret_key,
+        result.id,
+        &final_options,
+        application_config,
+    )
+    .await?;
+
     if is_default == Some(true) {
         lock_default_group_assignment(&txn).await?;
         policy_repo::set_only_default(&txn, result.id).await?;
@@ -555,6 +435,7 @@ pub async fn update(
     state.driver_registry().invalidate(id);
     state.policy_snapshot().reload(state.writer_db()).await?;
     crate::services::config_service::invalidate_public_thumbnail_support_cache();
+    crate::services::config_service::invalidate_public_media_data_support_cache();
 
     policy_repo::find_by_id(state.writer_db(), result.id)
         .await
@@ -567,24 +448,29 @@ pub async fn promote_s3_compatible_driver(
     input: PromoteS3CompatiblePolicyDriverInput,
 ) -> Result<StoragePolicy> {
     let existing = policy_repo::find_by_id(state.writer_db(), id).await?;
-    if existing.driver_type != DriverType::S3 {
-        return Err(validation_error_with_code(
-            ApiErrorCode::PolicyPromotionSourceUnsupported,
-            "only generic S3-compatible policies can be promoted",
-        ));
-    }
-    if !is_allowed_s3_compatible_promotion(existing.driver_type, input.target_driver_type) {
-        return Err(validation_error_with_code(
-            ApiErrorCode::PolicyPromotionTargetUnsupported,
-            format!(
-                "promoting S3-compatible policy to '{}' is not supported",
-                driver_type_name(input.target_driver_type),
-            ),
-        ));
-    }
+    crate::storage::connectors::validate_driver_promotion_source(existing.driver_type)?;
+    crate::storage::connectors::validate_driver_promotion_target(
+        existing.driver_type,
+        input.target_driver_type,
+    )?;
 
-    let (normalized_endpoint, normalized_bucket) =
-        normalize_connection_fields(input.target_driver_type, &input.endpoint, &input.bucket)?;
+    let existing_options = parse_storage_policy_options(existing.options.as_ref());
+    let normalized_connection = crate::storage::connectors::normalize_policy_connection(
+        state.writer_db(),
+        StoragePolicyConnectionInput {
+            driver_type: input.target_driver_type,
+            endpoint: input.endpoint,
+            bucket: input.bucket,
+            access_key: existing.access_key.clone(),
+            secret_key: existing.secret_key.clone(),
+            base_path: existing.base_path.clone(),
+            remote_node_id: existing.remote_node_id,
+            options: existing_options,
+        },
+    )
+    .await?;
+    let normalized_endpoint = normalized_connection.endpoint;
+    let normalized_bucket = normalized_connection.bucket;
     if normalized_bucket != existing.bucket {
         return Err(validation_error_with_code(
             ApiErrorCode::PolicyPromotionBucketChangeDenied,
@@ -633,6 +519,7 @@ pub async fn promote_s3_compatible_driver(
     state.driver_registry().invalidate(id);
     state.policy_snapshot().reload(state.writer_db()).await?;
     crate::services::config_service::invalidate_public_thumbnail_support_cache();
+    crate::services::config_service::invalidate_public_media_data_support_cache();
 
     policy_repo::find_by_id(state.writer_db(), id)
         .await
@@ -643,18 +530,7 @@ async fn validate_s3_compatible_promotion_candidate(
     state: &impl SharedRuntimeState,
     candidate_policy: &storage_policy::Model,
 ) -> Result<()> {
-    match candidate_policy.driver_type {
-        DriverType::TencentCos => TencentCosDriver::validate_policy(candidate_policy)?,
-        target => {
-            return Err(validation_error_with_code(
-                ApiErrorCode::PolicyPromotionTargetUnsupported,
-                format!(
-                    "promoting S3-compatible policy to '{}' is not supported",
-                    driver_type_name(target),
-                ),
-            ));
-        }
-    }
+    crate::storage::connectors::validate_driver_promotion_candidate(candidate_policy)?;
 
     verify_s3_compatible_promotion_sample(state, candidate_policy).await
 }
@@ -698,458 +574,274 @@ async fn verify_s3_compatible_promotion_sample(
     Ok(())
 }
 
-pub async fn test_default_connection<S: SharedRuntimeState>(state: &S) -> Result<()> {
+pub async fn test_default_connection<S: SharedRuntimeState + Sync>(state: &S) -> Result<()> {
     let policy = state
         .policy_snapshot()
         .system_default_policy()
         .ok_or_else(|| {
             AsterError::storage_policy_not_found("system default storage policy not found")
         })?;
-    let driver = state.driver_registry().get_driver(&policy)?;
-    probe_storage_driver(driver.as_ref(), "default storage readiness probe failed").await
+    crate::storage::connectors::test_saved_connection(state, &policy).await
 }
 
-pub async fn test_connection<S: SharedRuntimeState>(state: &S, id: i64) -> Result<()> {
+pub async fn test_connection<S: SharedRuntimeState + Sync>(state: &S, id: i64) -> Result<()> {
     let policy = policy_repo::find_by_id(state.writer_db(), id).await?;
-    let driver = state.driver_registry().get_driver(&policy)?;
-    probe_storage_driver(driver.as_ref(), "write test failed").await
+    crate::storage::connectors::test_saved_connection(state, &policy).await
 }
 
-pub async fn test_connection_params<S: RemoteProtocolRuntimeState>(
+pub async fn test_connection_params<S: RemoteProtocolRuntimeState + Sync>(
     state: &S,
     input: StoragePolicyConnectionInput,
 ) -> Result<()> {
-    use crate::storage::drivers::local::LocalDriver;
-    use crate::storage::drivers::s3::S3Driver;
-
-    let StoragePolicyConnectionInput {
-        driver_type,
-        endpoint,
-        bucket,
-        access_key,
-        secret_key,
-        base_path,
-        remote_node_id,
-        options,
-    } = input;
-    let (endpoint, bucket) = normalize_connection_fields(driver_type, &endpoint, &bucket)?;
-    validate_connection_credentials(driver_type, &access_key, &secret_key)?;
-    let remote_node_id =
-        validate_remote_binding(state.writer_db(), driver_type, remote_node_id).await?;
-    let options = options.normalized();
-    ensure_onedrive_options_supported(driver_type, &options)?;
-
-    let fake_policy = storage_policy::Model {
-        id: 0,
-        name: String::new(),
-        driver_type,
-        endpoint,
-        bucket,
-        access_key,
-        secret_key,
-        base_path,
-        remote_node_id,
-        max_file_size: 0,
-        allowed_types: StoredStoragePolicyAllowedTypes::empty(),
-        options: serialize_options(&options)?,
-        is_default: false,
-        chunk_size: 0,
-        created_at: chrono::Utc::now(),
-        updated_at: chrono::Utc::now(),
-    };
-
-    let driver: Box<dyn crate::storage::StorageDriver> = match driver_type {
-        DriverType::Local => Box::new(LocalDriver::new(&fake_policy)?),
-        DriverType::Remote => {
-            let remote_node_id = remote_node_id
-                .expect("validate_remote_binding must require remote_node_id for remote policies");
-            let remote_node =
-                managed_follower_repo::find_by_id(state.writer_db(), remote_node_id).await?;
-            Box::new(
-                state
-                    .remote_protocol()
-                    .driver_for_policy(&fake_policy, &remote_node)?,
-            )
-        }
-        DriverType::S3 => Box::new(S3Driver::new(&fake_policy)?),
-        DriverType::AzureBlob => Box::new(AzureBlobDriver::new(&fake_policy)?),
-        DriverType::TencentCos => Box::new(TencentCosDriver::new(&fake_policy)?),
-        DriverType::OneDrive => {
-            // OneDrive credentials are OAuth records bound to a saved policy id.
-            // A draft policy uses id=0 here, so there is no authorization context
-            // to reuse for a real Microsoft Graph probe.
-            return Err(validation_error_with_code(
-                ApiErrorCode::PolicyActionUnsupported,
-                "OneDrive draft connection tests require a saved storage policy with completed Microsoft Graph authorization; use the saved policy connection test after authorization",
-            ));
-        }
-    };
-
-    probe_storage_driver(driver.as_ref(), "connection test failed").await
+    crate::storage::connectors::test_draft_connection(state, input).await
 }
 
-pub async fn configure_tencent_cos_cors_for_policy<S: SharedRuntimeState>(
-    state: &S,
-    id: i64,
-) -> Result<TencentCosCorsConfigResult> {
-    let policy = policy_repo::find_by_id(state.writer_db(), id).await?;
-    if policy.driver_type != DriverType::TencentCos {
-        return Err(validation_error_with_code(
-            ApiErrorCode::PolicyActionUnsupported,
-            "storage policy action 'configure_tencent_cos_cors' only supports Tencent COS storage policies",
-        ));
-    }
-    let origins = resolve_cos_cors_allowed_origins(state)?;
-    let driver = TencentCosDriver::new(&policy)?;
-    driver
-        .configure_asterdrive_cors(&origins)
-        .await
-        .map(Into::into)
-}
-
-pub async fn configure_tencent_cos_cors<S: RemoteProtocolRuntimeState>(
-    state: &S,
-    input: ConfigureTencentCosCorsInput,
-) -> Result<TencentCosCorsConfigResult> {
-    let ConfigureTencentCosCorsInput { connection } = input;
-    let fake_policy = build_connection_test_policy(state, connection).await?;
-    if fake_policy.driver_type != DriverType::TencentCos {
-        return Err(validation_error_with_code(
-            ApiErrorCode::PolicyActionUnsupported,
-            "storage policy action 'configure_tencent_cos_cors' only supports Tencent COS storage policies",
-        ));
-    }
-    let origins = resolve_cos_cors_allowed_origins(state)?;
-    let driver = TencentCosDriver::new(&fake_policy)?;
-    driver
-        .configure_asterdrive_cors(&origins)
-        .await
-        .map(Into::into)
-}
-
-async fn merge_draft_action_saved_credentials<S: SharedRuntimeState>(
-    state: &S,
-    policy_id: Option<i64>,
-    mut connection: StoragePolicyConnectionInput,
-) -> Result<StoragePolicyConnectionInput> {
-    if (connection.access_key.trim().is_empty() || connection.secret_key.trim().is_empty())
-        && let Some(policy_id) = policy_id
-    {
-        let saved = policy_repo::find_by_id(state.reader_db(), policy_id).await?;
-        if saved.driver_type != connection.driver_type {
-            return Err(validation_error_with_code(
-                ApiErrorCode::PolicyActionParameterInvalid,
-                format!(
-                    "draft storage policy action driver '{}' does not match saved policy driver '{}'",
-                    driver_type_name(connection.driver_type),
-                    driver_type_name(saved.driver_type),
-                ),
-            ));
-        }
-        if connection.access_key.trim().is_empty() {
-            connection.access_key = saved.access_key;
-        }
-        if connection.secret_key.trim().is_empty() {
-            connection.secret_key = saved.secret_key;
-        }
-    }
-    Ok(connection)
-}
-
-pub async fn execute_saved_action<S: SharedRuntimeState>(
+pub async fn execute_saved_action<S: SharedRuntimeState + Sync>(
     state: &S,
     id: i64,
     input: ExecuteSavedStoragePolicyActionInput,
 ) -> Result<StoragePolicyActionResult> {
-    match input.action {
-        StoragePolicyActionType::ConfigureTencentCosCors => {
-            let result = configure_tencent_cos_cors_for_policy(state, id).await?;
-            Ok(StoragePolicyActionResult {
-                action: input.action,
-                tencent_cos_cors: Some(result),
-            })
-        }
-    }
+    let policy = policy_repo::find_by_id(state.writer_db(), id).await?;
+    crate::storage::connectors::execute_saved_action(state, &policy, input.action).await
 }
 
-pub async fn execute_draft_action<S: RemoteProtocolRuntimeState>(
+pub async fn execute_draft_action<S: RemoteProtocolRuntimeState + Sync>(
     state: &S,
     input: ExecuteDraftStoragePolicyActionInput,
 ) -> Result<StoragePolicyActionResult> {
-    match input.action {
-        StoragePolicyActionType::ConfigureTencentCosCors => {
-            let connection =
-                merge_draft_action_saved_credentials(state, input.policy_id, input.connection)
-                    .await?;
-            let result =
-                configure_tencent_cos_cors(state, ConfigureTencentCosCorsInput { connection })
-                    .await?;
-            Ok(StoragePolicyActionResult {
-                action: input.action,
-                tencent_cos_cors: Some(result),
-            })
-        }
-    }
-}
-
-async fn ensure_remote_transport_supports_policy_options<C: sea_orm::ConnectionTrait>(
-    db: &C,
-    driver_type: DriverType,
-    remote_node_id: Option<i64>,
-    options: &crate::types::StoragePolicyOptions,
-) -> Result<()> {
-    if driver_type != DriverType::Remote {
-        return Ok(());
-    }
-    let Some(remote_node_id) = remote_node_id else {
-        return Ok(());
-    };
-    let remote_node = managed_follower_repo::find_by_id(db, remote_node_id).await?;
-    if remote_node
-        .transport_mode
-        .resolves_to_reverse_tunnel(&remote_node.base_url)
-        && (options.effective_remote_download_strategy()
-            == crate::types::RemoteDownloadStrategy::Presigned
-            || options.effective_remote_upload_strategy()
-                == crate::types::RemoteUploadStrategy::Presigned)
-    {
-        return Err(validation_error_with_code(
-            ApiErrorCode::PolicyRemoteNodeTransferStrategyUnsupported,
-            "reverse tunnel remote nodes do not support presigned browser transfer strategies",
-        ));
-    }
-    Ok(())
-}
-
-async fn build_connection_test_policy<S: RemoteProtocolRuntimeState>(
-    state: &S,
-    input: StoragePolicyConnectionInput,
-) -> Result<storage_policy::Model> {
-    let StoragePolicyConnectionInput {
-        driver_type,
-        endpoint,
-        bucket,
-        access_key,
-        secret_key,
-        base_path,
-        remote_node_id,
-        options,
-    } = input;
-    let (endpoint, bucket) = normalize_connection_fields(driver_type, &endpoint, &bucket)?;
-    validate_connection_credentials(driver_type, &access_key, &secret_key)?;
-    let remote_node_id =
-        validate_remote_binding(state.writer_db(), driver_type, remote_node_id).await?;
-    let options = options.normalized();
-    ensure_onedrive_options_supported(driver_type, &options)?;
-
-    Ok(storage_policy::Model {
-        id: 0,
-        name: String::new(),
-        driver_type,
-        endpoint,
-        bucket,
-        access_key,
-        secret_key,
-        base_path,
-        remote_node_id,
-        max_file_size: 0,
-        allowed_types: StoredStoragePolicyAllowedTypes::empty(),
-        options: serialize_options(&options)?,
-        is_default: false,
-        chunk_size: 0,
-        created_at: chrono::Utc::now(),
-        updated_at: chrono::Utc::now(),
-    })
-}
-
-fn resolve_cos_cors_allowed_origins(state: &impl SharedRuntimeState) -> Result<Vec<String>> {
-    let origins = site_url::public_site_urls(state.runtime_config());
-    if origins.is_empty() {
-        return Err(validation_error_with_code(
-            ApiErrorCode::PolicyActionParameterRequired,
-            "public_site_url must be configured before configuring COS CORS",
-        ));
-    }
-    Ok(origins)
-}
-
-impl From<crate::storage::drivers::tencent_cos::cors::TencentCosCorsApplyResult>
-    for TencentCosCorsConfigResult
-{
-    fn from(value: crate::storage::drivers::tencent_cos::cors::TencentCosCorsApplyResult) -> Self {
-        Self {
-            rule_id: value.rule_id,
-            allowed_origins: value.allowed_origins,
-            request_id: value.request_id,
-            preserved_rule_count: value.preserved_rule_count,
-            replaced_existing_rule: value.replaced_existing_rule,
-            response_vary: value.response_vary,
-        }
-    }
-}
-
-async fn probe_storage_driver(
-    driver: &dyn crate::storage::StorageDriver,
-    write_error_context: &'static str,
-) -> Result<()> {
-    let test_path = format!("_aster_connection_test-{}", uuid::Uuid::new_v4());
-    driver
-        .put(&test_path, b"ok")
-        .await
-        .map_aster_err_ctx(write_error_context, AsterError::storage_driver_error)?;
-    driver
-        .delete(&test_path)
-        .await
-        .inspect_err(|error| {
-            tracing::warn!(path = %test_path, "failed to clean up connection test file: {error}");
-        })
-        .map_aster_err_ctx(
-            "connection test cleanup failed",
-            AsterError::storage_driver_error,
-        )?;
-    Ok(())
+    crate::storage::connectors::execute_draft_action(state, input).await
 }
 
 #[cfg(test)]
 mod tests {
-    use super::ensure_onedrive_options_supported;
-    use crate::api::api_error_code::ApiErrorCode;
-    use crate::types::{
-        DriverType, MicrosoftGraphCloud, OneDriveAccountMode, StoragePolicyOptions,
+    use super::*;
+    use crate::config::{CacheConfig, Config, DatabaseConfig, RuntimeConfig};
+    use crate::db;
+    use crate::db::repository::{
+        storage_connector_application_config_repo, storage_policy_credential_repo,
     };
+    use crate::storage::{DriverRegistry, PolicySnapshot};
+    use crate::types::{
+        MicrosoftGraphCloud, OneDriveAccountMode, StorageCredentialKind, StorageCredentialProvider,
+        StoragePolicyOptions, StoredStoragePolicyAllowedTypes,
+    };
+    use migration::Migrator;
+    use sea_orm::ActiveValue::Set;
+    use std::sync::Arc;
 
-    #[test]
-    fn onedrive_options_are_rejected_for_non_onedrive_policy() {
-        let options = StoragePolicyOptions {
+    async fn setup_state(encryption_key: &str) -> crate::runtime::PrimaryAppState {
+        let db = db::connect_with_metrics(
+            &DatabaseConfig {
+                url: "sqlite::memory:".to_string(),
+                pool_size: 1,
+                retry_count: 0,
+            },
+            crate::metrics_core::NoopMetrics::arc(),
+        )
+        .await
+        .expect("policy service test DB should connect");
+        Migrator::up(&db, None)
+            .await
+            .expect("policy service migrations should succeed");
+        let runtime_config = Arc::new(RuntimeConfig::new());
+        let cache = crate::cache::create_cache(&CacheConfig {
+            enabled: false,
+            backend: "memory".to_string(),
+            ..Default::default()
+        })
+        .await;
+        let mut config = Config::default();
+        config.auth.storage_credential_secret_key = encryption_key.to_string();
+        let (storage_change_tx, _) = tokio::sync::broadcast::channel(
+            crate::services::storage_change_service::STORAGE_CHANGE_CHANNEL_CAPACITY,
+        );
+        let share_download_rollback =
+            crate::services::share_service::spawn_detached_share_download_rollback_queue(
+                db.clone(),
+                crate::config::operations::share_download_rollback_queue_capacity(&runtime_config),
+            );
+
+        crate::runtime::PrimaryAppState {
+            db_handles: crate::db::DbHandles::single(db),
+            driver_registry: Arc::new(DriverRegistry::noop()),
+            runtime_config: runtime_config.clone(),
+            policy_snapshot: Arc::new(PolicySnapshot::new()),
+            config: Arc::new(config),
+            cache,
+            metrics: crate::metrics_core::NoopMetrics::arc(),
+            mail_sender: crate::services::mail_service::runtime_sender(runtime_config),
+            storage_change_tx,
+            share_download_rollback,
+            background_task_dispatch_wakeup:
+                crate::runtime::PrimaryAppState::new_background_task_dispatch_wakeup(),
+            remote_protocol: crate::runtime::PrimaryAppState::new_remote_protocol(),
+        }
+    }
+
+    fn onedrive_options() -> StoragePolicyOptions {
+        StoragePolicyOptions {
+            onedrive_cloud: Some(MicrosoftGraphCloud::Global),
             onedrive_account_mode: Some(OneDriveAccountMode::WorkOrSchool),
-            onedrive_drive_id: Some("drive".to_string()),
+            onedrive_tenant: Some("common".to_string()),
             onedrive_root_item_id: Some("root".to_string()),
             ..Default::default()
-        };
+        }
+    }
 
-        let error = ensure_onedrive_options_supported(DriverType::S3, &options).unwrap_err();
+    #[tokio::test]
+    async fn create_onedrive_policy_stores_app_config_outside_legacy_key_fields() {
+        let encryption_key = "storage-token-test-master-key-32bytes";
+        let state = setup_state(encryption_key).await;
 
+        let policy = create(
+            &state,
+            CreateStoragePolicyInput {
+                name: "OneDrive".to_string(),
+                connection: StoragePolicyConnectionInput {
+                    driver_type: DriverType::OneDrive,
+                    endpoint: String::new(),
+                    bucket: String::new(),
+                    access_key: "legacy-client-id".to_string(),
+                    secret_key: "legacy-client-secret".to_string(),
+                    base_path: String::new(),
+                    remote_node_id: None,
+                    options: StoragePolicyOptions::default(),
+                },
+                max_file_size: 0,
+                chunk_size: Some(5_242_880),
+                is_default: false,
+                allowed_types: None,
+                options: Some(onedrive_options()),
+                application_config: crate::storage::StorageConnectorApplicationConfigInput {
+                    microsoft_graph: Some(crate::storage::MicrosoftGraphApplicationConfigInput {
+                        client_id: Some("metadata-client-id".to_string()),
+                        client_secret: Some("metadata-client-secret".to_string()),
+                        ..Default::default()
+                    }),
+                },
+            },
+        )
+        .await
+        .expect("OneDrive policy should create");
+
+        let stored = policy_repo::find_by_id(state.writer_db(), policy.id)
+            .await
+            .expect("policy should load");
+        assert_eq!(stored.access_key, "");
+        assert_eq!(stored.secret_key, "");
+
+        let application_config =
+            storage_connector_application_config_repo::find_by_policy_provider(
+                state.writer_db(),
+                policy.id,
+                StorageCredentialProvider::MicrosoftGraph,
+            )
+            .await
+            .expect("application config lookup should succeed")
+            .expect("application config should exist");
         assert_eq!(
-            error.api_error_code(),
-            ApiErrorCode::PolicyOneDriveOptionsUnsupported
+            application_config.client_id,
+            Some("metadata-client-id".to_string())
         );
+        assert!(application_config.client_secret_ciphertext.is_some());
+
+        let credential = storage_policy_credential_repo::find_by_policy_provider_kind(
+            state.writer_db(),
+            policy.id,
+            StorageCredentialProvider::MicrosoftGraph,
+            StorageCredentialKind::OauthDelegated,
+        )
+        .await
+        .expect("credential lookup should succeed");
         assert!(
-            error
-                .to_string()
-                .contains("OneDrive options are only valid for OneDrive")
+            credential.is_none(),
+            "saving connector app config must not create an OAuth authorization credential"
         );
     }
 
-    #[test]
-    fn onedrive_policy_accepts_automatic_default_drive() {
-        let options = StoragePolicyOptions {
-            onedrive_account_mode: Some(OneDriveAccountMode::WorkOrSchool),
-            ..Default::default()
-        };
+    #[tokio::test]
+    async fn update_onedrive_policy_clears_legacy_keys_and_writes_app_config_metadata() {
+        let encryption_key = "storage-token-test-master-key-32bytes";
+        let state = setup_state(encryption_key).await;
+        let now = Utc::now();
+        let policy = policy_repo::create(
+            state.writer_db(),
+            storage_policy::ActiveModel {
+                name: Set("OneDrive".to_string()),
+                driver_type: Set(DriverType::OneDrive),
+                endpoint: Set(String::new()),
+                bucket: Set(String::new()),
+                access_key: Set("old-client-id".to_string()),
+                secret_key: Set("old-client-secret".to_string()),
+                base_path: Set(String::new()),
+                remote_node_id: Set(None),
+                max_file_size: Set(0),
+                allowed_types: Set(StoredStoragePolicyAllowedTypes::empty()),
+                options: Set(
+                    crate::types::serialize_storage_policy_options(&onedrive_options())
+                        .expect("options should serialize"),
+                ),
+                is_default: Set(false),
+                chunk_size: Set(5_242_880),
+                created_at: Set(now),
+                updated_at: Set(now),
+                ..Default::default()
+            },
+        )
+        .await
+        .expect("policy should insert");
 
-        ensure_onedrive_options_supported(DriverType::OneDrive, &options)
-            .expect("work or school OneDrive resolves the default drive during authorization");
-    }
+        update(
+            &state,
+            policy.id,
+            UpdateStoragePolicyInput {
+                access_key: Some("ignored-client-id".to_string()),
+                secret_key: Some("ignored-client-secret".to_string()),
+                application_config: crate::storage::StorageConnectorApplicationConfigInput {
+                    microsoft_graph: Some(crate::storage::MicrosoftGraphApplicationConfigInput {
+                        client_id: Some("metadata-client-id".to_string()),
+                        client_secret: Some("metadata-client-secret".to_string()),
+                        ..Default::default()
+                    }),
+                },
+                ..Default::default()
+            },
+        )
+        .await
+        .expect("OneDrive policy should update");
 
-    #[test]
-    fn onedrive_policy_requires_account_mode() {
-        let options = StoragePolicyOptions {
-            onedrive_root_item_id: Some("root".to_string()),
-            ..Default::default()
-        };
+        let stored = policy_repo::find_by_id(state.writer_db(), policy.id)
+            .await
+            .expect("policy should load");
+        assert_eq!(stored.access_key, "");
+        assert_eq!(stored.secret_key, "");
 
-        let error = ensure_onedrive_options_supported(DriverType::OneDrive, &options).unwrap_err();
-
+        let application_config =
+            storage_connector_application_config_repo::find_by_policy_provider(
+                state.writer_db(),
+                policy.id,
+                StorageCredentialProvider::MicrosoftGraph,
+            )
+            .await
+            .expect("application config lookup should succeed")
+            .expect("application config should exist");
         assert_eq!(
-            error.api_error_code(),
-            ApiErrorCode::PolicyOneDriveAccountModeRequired
+            application_config.client_id,
+            Some("metadata-client-id".to_string())
         );
+        assert!(application_config.client_secret_ciphertext.is_some());
+
+        let credential = storage_policy_credential_repo::find_by_policy_provider_kind(
+            state.writer_db(),
+            policy.id,
+            StorageCredentialProvider::MicrosoftGraph,
+            StorageCredentialKind::OauthDelegated,
+        )
+        .await
+        .expect("credential lookup should succeed");
         assert!(
-            error
-                .to_string()
-                .contains("OneDrive storage policies require onedrive_account_mode")
+            credential.is_none(),
+            "updating connector app config must not create an OAuth authorization credential"
         );
-    }
-
-    #[test]
-    fn onedrive_policy_rejects_personal_china_cloud() {
-        let options = StoragePolicyOptions {
-            onedrive_cloud: Some(MicrosoftGraphCloud::China),
-            onedrive_account_mode: Some(OneDriveAccountMode::Personal),
-            ..Default::default()
-        };
-
-        let error = ensure_onedrive_options_supported(DriverType::OneDrive, &options).unwrap_err();
-
-        assert_eq!(
-            error.api_error_code(),
-            ApiErrorCode::PolicyOneDrivePersonalChinaCloudUnsupported
-        );
-        assert!(error.to_string().contains("global Microsoft Graph cloud"));
-    }
-
-    #[test]
-    fn onedrive_sharepoint_site_requires_site_id_without_drive_id() {
-        let options = StoragePolicyOptions {
-            onedrive_account_mode: Some(OneDriveAccountMode::SharepointSite),
-            ..Default::default()
-        };
-
-        let error = ensure_onedrive_options_supported(DriverType::OneDrive, &options).unwrap_err();
-
-        assert_eq!(
-            error.api_error_code(),
-            ApiErrorCode::PolicyOneDriveSharePointSiteRequired
-        );
-        assert!(error.to_string().contains("onedrive_site_id"));
-    }
-
-    #[test]
-    fn onedrive_group_drive_requires_group_id_without_drive_id() {
-        let options = StoragePolicyOptions {
-            onedrive_account_mode: Some(OneDriveAccountMode::GroupDrive),
-            ..Default::default()
-        };
-
-        let error = ensure_onedrive_options_supported(DriverType::OneDrive, &options).unwrap_err();
-
-        assert_eq!(
-            error.api_error_code(),
-            ApiErrorCode::PolicyOneDriveGroupRequired
-        );
-        assert!(error.to_string().contains("onedrive_group_id"));
-    }
-
-    #[test]
-    fn onedrive_modes_reject_other_mode_target_ids() {
-        let options = StoragePolicyOptions {
-            onedrive_account_mode: Some(OneDriveAccountMode::SharepointSite),
-            onedrive_site_id: Some("site".to_string()),
-            onedrive_group_id: Some("group".to_string()),
-            ..Default::default()
-        };
-
-        let error = ensure_onedrive_options_supported(DriverType::OneDrive, &options).unwrap_err();
-
-        assert_eq!(
-            error.api_error_code(),
-            ApiErrorCode::PolicyOneDriveOptionsUnsupported
-        );
-        assert!(error.to_string().contains("onedrive_group_id"));
-
-        let options = StoragePolicyOptions {
-            onedrive_account_mode: Some(OneDriveAccountMode::GroupDrive),
-            onedrive_site_id: Some("site".to_string()),
-            onedrive_group_id: Some("group".to_string()),
-            ..Default::default()
-        };
-
-        let error = ensure_onedrive_options_supported(DriverType::OneDrive, &options).unwrap_err();
-
-        assert_eq!(
-            error.api_error_code(),
-            ApiErrorCode::PolicyOneDriveOptionsUnsupported
-        );
-        assert!(error.to_string().contains("onedrive_site_id"));
     }
 }

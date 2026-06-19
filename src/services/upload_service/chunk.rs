@@ -2,7 +2,7 @@
 //!
 //! 这里处理两类“已经进入分片模式”的 session：
 //! - 服务端本地暂存 chunk 文件
-//! - 服务端 relay 到 S3 multipart，并把 ETag 记入 upload_session_parts
+//! - 服务端 relay 到 object-storage multipart，并把 ETag 记入 upload_session_parts
 
 use bytes::Bytes;
 use chrono::Utc;
@@ -483,8 +483,8 @@ async fn upload_chunk_impl(
     }
 
     if let (Some(temp_key), Some(multipart_id)) = (
-        session.s3_temp_key.as_deref(),
-        session.s3_multipart_id.as_deref(),
+        session.object_temp_key.as_deref(),
+        session.object_multipart_id.as_deref(),
     ) {
         let s3_part_number = chunk_number + 1;
 
@@ -683,8 +683,8 @@ async fn upload_chunk_payload_impl(
     let expected_size = expected_chunk_size_for_upload(&session, chunk_number)?;
 
     if let (Some(temp_key), Some(multipart_id)) = (
-        session.s3_temp_key.as_deref(),
-        session.s3_multipart_id.as_deref(),
+        session.object_temp_key.as_deref(),
+        session.object_multipart_id.as_deref(),
     ) {
         let s3_part_number = chunk_number + 1;
 

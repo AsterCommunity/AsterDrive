@@ -3,15 +3,15 @@
 //! 这里把各种“临时上传状态”收口成正式文件：
 //! - 本地 chunk 文件组装
 //! - presigned 单文件确认
-//! - presigned multipart 完成
-//! - relay multipart 完成
+//! - presigned object multipart 完成
+//! - relay object multipart 完成
 //!
 //! 目标都是在最后统一落到 `workspace_storage_service` 的文件创建语义上。
 
 mod audit;
 mod chunked;
+mod object_multipart;
 mod plan;
-mod s3;
 #[cfg(test)]
 mod tests;
 
@@ -30,8 +30,10 @@ use self::audit::{
     CompleteUploadHints, complete_upload_impl_with_audit, should_log_upload_completion,
 };
 use self::chunked::complete_chunked_upload_with_actor_username;
+use self::object_multipart::{
+    complete_presigned_multipart, complete_presigned_upload, complete_relay_multipart,
+};
 use self::plan::{CompletionPlan, completion_plan_label, determine_completion_plan};
-use self::s3::{complete_presigned_upload, complete_s3_multipart, complete_s3_relay_multipart};
 
 const UNRESOLVED_UPLOAD_ACTOR_USERNAME: &str = "<unresolved>";
 
@@ -71,10 +73,10 @@ async fn complete_upload_impl_with_hints(
             complete_presigned_upload(state, session, hints.actor_username).await
         }
         CompletionPlan::CompletePresignedMultipart { parts } => {
-            complete_s3_multipart(state, session, parts, hints.actor_username).await
+            complete_presigned_multipart(state, session, parts, hints.actor_username).await
         }
         CompletionPlan::CompleteRelayMultipart => {
-            complete_s3_relay_multipart(state, session, hints.actor_username).await
+            complete_relay_multipart(state, session, hints.actor_username).await
         }
         CompletionPlan::AssembleChunks => {
             complete_chunked_upload_with_actor_username(state, session, hints.actor_username).await

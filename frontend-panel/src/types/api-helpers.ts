@@ -155,6 +155,8 @@ export const ApiErrorCode = {
 		"policy.onedrive_sharepoint_site_required",
 	PolicyOneDriveGroupRequired: "policy.onedrive_group_required",
 	PolicyNativeThumbnailUnsupported: "policy.native_thumbnail_unsupported",
+	PolicyNativeMediaMetadataUnsupported:
+		"policy.native_media_metadata_unsupported",
 	PolicyPromotionSourceUnsupported: "policy.promotion_source_unsupported",
 	PolicyPromotionTargetUnsupported: "policy.promotion_target_unsupported",
 	PolicyPromotionBucketChangeDenied: "policy.promotion_bucket_change_denied",

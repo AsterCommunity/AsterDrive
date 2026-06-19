@@ -1,6 +1,10 @@
 //! StorageDriver 扩展 trait
 //!
 //! 将可选能力从核心 StorageDriver 分离，避免每个驱动被迫实现不需要的功能。
+//!
+//! 判断一项能力放哪儿时，先问一句：它是不是“已配置存储上的运行期对象能力”？
+//! 如果是，放在这里并通过 `StorageDriver::as_xxx()` 暴露；如果是管理端字段、
+//! OAuth、连接测试、策略动作或前端可见能力声明，应该放到 connector/descriptor。
 
 use crate::errors::Result;
 use crate::storage::traits::driver::{PresignedDownloadOptions, StoragePathVisitor};
@@ -36,6 +40,44 @@ pub struct StorageCapacityInfo {
     pub observed_at: DateTime<Utc>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProviderResumableUploadCapabilities {
+    /// Provider 标识，例如 `microsoft_graph`。
+    pub provider: &'static str,
+    /// 面向日志/诊断的 session 名称，例如 `upload_session`。
+    pub session_label: &'static str,
+    /// Provider 接受的最小分片大小。
+    pub min_fragment_size: usize,
+    /// 后端默认使用的分片大小。
+    pub default_fragment_size: usize,
+    /// Provider 或当前实现允许的最大分片大小。
+    pub max_fragment_size: usize,
+    /// 分片边界对齐要求。Microsoft Graph 这类 provider 通常有固定对齐规则。
+    pub fragment_alignment: usize,
+    /// 小文件可绕过 resumable session 的大小上限。
+    pub max_simple_upload_size: Option<u64>,
+    /// 是否允许浏览器直接拿 provider session 上传。false 表示 session 留在后端内部。
+    pub frontend_direct_upload: bool,
+    /// Provider 是否在最后一个 range/fragment 接收后隐式完成 upload session。
+    pub implicit_completion: bool,
+    /// 当前 driver 是否暴露 provider-native session abort 能力给上层。
+    pub abort_supported: bool,
+    /// 当前 driver 是否暴露 provider-native session status/query 能力给上层。
+    pub status_query_supported: bool,
+}
+
+/// Provider-native resumable upload support.
+///
+/// 这个 trait 只描述 provider 自己的 resumable/session 上传能力，不给 upload
+/// service 暴露“创建 session / 上传 range / complete session”的通用协议。
+///
+/// 它故意和 S3-compatible multipart 分开：S3 multipart 是 upload service 可直接
+/// 编排的对象存储契约；Microsoft Graph 这类 provider 的 upload session 由具体
+/// driver 封装，上层通常仍然只通过 `StreamUploadDriver::put_reader()` 写入。
+pub trait ProviderResumableUploadDriver: Send + Sync {
+    fn provider_resumable_upload_capabilities(&self) -> ProviderResumableUploadCapabilities;
+}
+
 impl StorageCapacityInfo {
     pub fn unsupported(source: impl Into<String>) -> Self {
         Self {
@@ -60,7 +102,10 @@ impl StorageCapacityInfo {
     }
 }
 
-/// Presigned URL 支持（S3/R2/OSS/remote follower 等）
+/// Presigned URL 支持（S3/R2/OSS/remote follower 等）。
+///
+/// 这是运行期能力：调用者已经有一个 driver，只是询问它能不能给对象生成临时 URL。
+/// 是否在 UI 中显示 presigned 选项，应由 connector descriptor 的 capability 决定。
 #[async_trait]
 pub trait PresignedStorageDriver: Send + Sync {
     /// 生成临时下载 URL
@@ -93,7 +138,10 @@ pub trait PresignedStorageDriver: Send + Sync {
     }
 }
 
-/// 路径列举支持（用于后台维护任务）
+/// 路径列举支持（用于后台维护任务）。
+///
+/// 该能力面向维护/审计任务，不代表用户文件列表 API。用户可见的目录树应走业务
+/// 数据库和权限模型，不应直接把底层对象 key 列表暴露出去。
 #[async_trait]
 pub trait ListStorageDriver: Send + Sync {
     /// 列出当前策略下的对象路径（相对路径）。
@@ -117,7 +165,10 @@ pub trait ListStorageDriver: Send + Sync {
     }
 }
 
-/// 流式直传支持（避免本地临时文件）
+/// 流式直传支持（避免本地临时文件）。
+///
+/// upload service、WebDAV 等上层只依赖这个抽象把 reader 写入对象。具体 driver
+/// 可以在内部使用 provider-native session、对象存储 streaming body 或临时文件。
 #[async_trait]
 pub trait StreamUploadDriver: Send + Sync {
     /// 从 reader 流式写入存储
@@ -137,7 +188,10 @@ pub trait StreamUploadDriver: Send + Sync {
     async fn put_file(&self, storage_path: &str, local_path: &str) -> Result<String>;
 }
 
-/// 本地路径暴露（仅用于把底层文件路径安全交给受控的外部命令）
+/// 本地路径暴露（仅用于把底层文件路径安全交给受控的外部命令）。
+///
+/// 这个 trait 只适合真正落在本机文件系统上的 driver。远端对象存储不要返回下载后
+/// 的临时路径来伪装该能力，否则调用方会误以为可以做零拷贝本地操作。
 pub trait LocalPathStorageDriver: Send + Sync {
     /// 解析某个存储对象在本机文件系统上的真实绝对路径。
     fn resolve_local_path(&self, path: &str) -> Result<PathBuf>;
@@ -151,7 +205,10 @@ pub struct NativeThumbnailRequest {
     pub max_height: u32,
 }
 
-/// 存储侧原生缩略图支持（OneDrive / 数据万象 / 对象存储图片处理等）
+/// 存储侧原生缩略图支持（OneDrive / 数据万象 / 对象存储图片处理等）。
+///
+/// 返回 `Some` 表示 provider 已经生成可用结果；返回 `None` 表示该对象应回退到
+/// AsterDrive 自己的缩略图流水线。
 #[async_trait]
 pub trait NativeThumbnailStorageDriver: Send + Sync {
     /// 返回 `None` 表示该驱动当前不支持这个对象或 MIME 的原生缩略图能力。
@@ -178,6 +235,9 @@ pub struct NativeMediaMetadataResult {
 }
 
 /// 存储侧原生媒体信息解析支持（COS CI videoinfo 等）。
+///
+/// 这表示 provider 能直接解析媒体元数据，不表示所有 MIME / metadata kind 都支持。
+/// 不支持当前对象时返回 `None`，让上层回退到本地解析。
 #[async_trait]
 pub trait NativeMediaMetadataStorageDriver: Send + Sync {
     /// 返回 `None` 表示该驱动当前不支持这个对象、MIME 或 metadata kind。
