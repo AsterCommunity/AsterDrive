@@ -304,6 +304,12 @@ async fn cleanup_completed_session_stale_temp_object(
                 Ok(()) => {
                     return delete_completed_stale_temp_object(&*driver, session, temp_key).await;
                 }
+                Err(err)
+                    if err.storage_error_kind()
+                        == Some(crate::storage::StorageErrorKind::NotFound) =>
+                {
+                    return delete_completed_stale_temp_object(&*driver, session, temp_key).await;
+                }
                 Err(err) => {
                     if attempt == MULTIPART_ABORT_MAX_ATTEMPTS {
                         tracing::warn!(

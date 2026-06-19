@@ -9,12 +9,14 @@ pub use actions::{
     ConfigActionResult, ConfigActionType, ExecuteConfigActionInput, MAIL_CONFIG_ACTION_KEY,
     execute_action_with_audit,
 };
-pub(crate) use public::invalidate_public_thumbnail_support_cache;
 pub use public::{
     PUBLIC_CONFIG_CACHE_CONTROL, PublicBranding, PublicCustomConfig, PublicFrontendConfig,
     PublicFrontendMediaConfig, get_public_branding, get_public_custom_config,
     get_public_frontend_config, get_public_media_data_support, get_public_preview_apps,
     get_public_thumbnail_support,
+};
+pub(crate) use public::{
+    invalidate_public_media_data_support_cache, invalidate_public_thumbnail_support_cache,
 };
 pub use schema::{
     ConfigSchemaItem, ConfigSchemaOption, TemplateVariableGroup, TemplateVariableItem, get_schema,

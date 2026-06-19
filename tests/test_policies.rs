@@ -145,10 +145,7 @@ async fn test_admin_storage_driver_descriptors_expose_capability_matrix() {
         onedrive["upload_workflows"]["simple_upload_capabilities"]["max_provider_single_request_size"],
         250_000_000
     );
-    assert_eq!(
-        onedrive["upload_workflows"]["object_multipart_upload_capabilities"].is_null(),
-        true
-    );
+    assert!(onedrive["upload_workflows"]["object_multipart_upload_capabilities"].is_null());
 
     let s3 = descriptor("s3");
     assert!(s3["actions"].as_array().expect("s3 actions").iter().any(

@@ -220,6 +220,10 @@ pub(super) fn build_microsoft_graph_credential_token_provider_with_refresher(
         policy.id, credential.policy_id,
         "Microsoft Graph credential must belong to the supplied storage policy"
     );
+    debug_assert_eq!(
+        policy.id, application_config.policy_id,
+        "Microsoft Graph application config must belong to the supplied storage policy"
+    );
     let access_token_ciphertext =
         credential
             .access_token_ciphertext

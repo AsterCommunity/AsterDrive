@@ -1073,7 +1073,7 @@ async fn preuploaded_quota_failure_cleans_local_blob() {
     let temp_file = temp_root.join("quota-fail-preuploaded.bin");
     tokio::fs::write(&temp_file, payload).await.unwrap();
 
-    let prepared = prepare_non_dedup_blob_upload(&policy, payload.len() as i64);
+    let prepared = prepare_non_dedup_blob_upload(&policy, payload.len() as i64).unwrap();
     upload_temp_file_to_prepared_blob(driver.as_ref(), &prepared, &temp_file.to_string_lossy())
         .await
         .unwrap();

@@ -19,14 +19,26 @@ async fn setup_current_schema() -> sea_orm::DatabaseConnection {
     db
 }
 
-fn steps_to_roll_back_allow_shared_webdav_locks() -> u32 {
+fn steps_to_roll_back_migration(migration_name: &str) -> u32 {
     let migrations = CurrentMigrator::migrations();
     let position = migrations
         .iter()
-        .position(|migration| migration.name() == ALLOW_SHARED_WEBDAV_LOCKS_MIGRATION)
-        .expect("allow shared WebDAV locks migration should be registered");
+        .position(|migration| migration.name() == migration_name)
+        .unwrap_or_else(|| panic!("{migration_name} migration should be registered"));
     u32::try_from(migrations.len() - position)
         .expect("migration rollback step count should fit u32")
+}
+
+fn steps_to_roll_back_allow_shared_webdav_locks() -> u32 {
+    steps_to_roll_back_migration(ALLOW_SHARED_WEBDAV_LOCKS_MIGRATION)
+}
+
+fn steps_to_roll_back_upload_session_object_fields() -> u32 {
+    steps_to_roll_back_migration(RENAME_UPLOAD_SESSION_OBJECT_FIELDS_MIGRATION)
+}
+
+fn steps_to_roll_back_storage_connector_application_configs() -> u32 {
+    steps_to_roll_back_migration(ADD_STORAGE_CONNECTOR_APPLICATION_CONFIGS_MIGRATION)
 }
 
 async fn roll_back_allow_shared_webdav_locks(
@@ -106,12 +118,11 @@ fn has_column(columns: &[String], expected: &str) -> bool {
 
 #[tokio::test]
 async fn storage_connector_application_config_migration_adds_canonical_config_table() {
-    assert_eq!(
-        CurrentMigrator::migrations()
-            .last()
-            .expect("application config migration should be registered")
-            .name(),
-        ADD_STORAGE_CONNECTOR_APPLICATION_CONFIGS_MIGRATION
+    assert!(
+        CurrentMigrator::migrations().iter().any(
+            |migration| migration.name() == ADD_STORAGE_CONNECTOR_APPLICATION_CONFIGS_MIGRATION
+        ),
+        "application config migration should be registered"
     );
 
     let db = setup_current_schema().await;
@@ -135,17 +146,23 @@ async fn storage_connector_application_config_migration_adds_canonical_config_ta
         assert!(has_column(&current_columns, expected), "missing {expected}");
     }
 
-    CurrentMigrator::down(&db, Some(1))
-        .await
-        .expect("application config migration should roll back");
+    CurrentMigrator::down(
+        &db,
+        Some(steps_to_roll_back_storage_connector_application_configs()),
+    )
+    .await
+    .expect("application config migration should roll back");
     assert!(
         !sqlite_table_exists(&db, "storage_connector_application_configs").await,
         "rollback should remove storage_connector_application_configs"
     );
 
-    CurrentMigrator::up(&db, Some(1))
-        .await
-        .expect("application config migration should reapply");
+    CurrentMigrator::up(
+        &db,
+        Some(steps_to_roll_back_storage_connector_application_configs()),
+    )
+    .await
+    .expect("application config migration should reapply");
     assert!(
         sqlite_table_exists(&db, "storage_connector_application_configs").await,
         "reapply should recreate storage_connector_application_configs"
@@ -168,7 +185,7 @@ async fn upload_session_object_field_migration_renames_legacy_columns() {
     assert!(!has_column(&current_columns, "s3_temp_key"));
     assert!(!has_column(&current_columns, "s3_multipart_id"));
 
-    CurrentMigrator::down(&db, Some(1))
+    CurrentMigrator::down(&db, Some(steps_to_roll_back_upload_session_object_fields()))
         .await
         .expect("object field rename migration should roll back");
     let rolled_back_columns = sqlite_table_columns(&db, "upload_sessions").await;
@@ -177,7 +194,7 @@ async fn upload_session_object_field_migration_renames_legacy_columns() {
     assert!(!has_column(&rolled_back_columns, "object_temp_key"));
     assert!(!has_column(&rolled_back_columns, "object_multipart_id"));
 
-    CurrentMigrator::up(&db, Some(1))
+    CurrentMigrator::up(&db, Some(steps_to_roll_back_upload_session_object_fields()))
         .await
         .expect("object field rename migration should reapply");
     let reapplied_columns = sqlite_table_columns(&db, "upload_sessions").await;

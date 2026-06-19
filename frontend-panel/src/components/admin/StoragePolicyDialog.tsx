@@ -46,6 +46,8 @@ interface StoragePolicyDialogProps {
 	form: PolicyFormData;
 	storageDriverDescriptor: StorageConnectorDescriptor | null;
 	storageDriverDescriptors: StorageConnectorDescriptor[];
+	storageDriverDescriptorsError: string | null;
+	storageDriverDescriptorsLoading: boolean;
 	policyCapacity: StoragePolicyCapacityInfo | null;
 	policyCapacityLoading: boolean;
 	storageCredentials: StoragePolicyCredentialInfo[];
@@ -118,6 +120,8 @@ function useStoragePolicyDialogContent({
 	form,
 	storageDriverDescriptor,
 	storageDriverDescriptors,
+	storageDriverDescriptorsError,
+	storageDriverDescriptorsLoading,
 	policyCapacity,
 	policyCapacityLoading,
 	storageCredentials,
@@ -471,6 +475,8 @@ function useStoragePolicyDialogContent({
 				]
 			: []),
 	];
+	const driverOptionsError =
+		storageOptions.length === 0 ? storageDriverDescriptorsError : null;
 	useEffect(() => {
 		if (!open || !isCreateMode) {
 			previousCreateStepRef.current = 0;
@@ -516,6 +522,10 @@ function useStoragePolicyDialogContent({
 								currentStorageOption={currentStorageOption}
 								endpointValidationMessage={createEndpointError}
 								form={form}
+								storageDriverDescriptorsError={driverOptionsError}
+								storageDriverDescriptorsLoading={
+									storageDriverDescriptorsLoading && storageOptions.length === 0
+								}
 								storageDriverDescriptor={storageDriverDescriptor}
 								onCreateStepChange={onCreateStepChange}
 								onDriverTypeChange={onDriverTypeChange}
@@ -790,7 +800,9 @@ function storagePolicyDriverOptionFromUi(
 		title: t(ui.label_key),
 		description: t(ui.description_key),
 		iconSrc: ui.icon_src ?? undefined,
-		iconName: ui.icon_name === "Globe" ? "Globe" : undefined,
+		iconName:
+			(ui.icon_name as StoragePolicyDriverOption["iconName"] | null) ??
+			undefined,
 	};
 }
 
@@ -811,5 +823,5 @@ export function translateStorageConnectorUiValue(
 	value: string,
 	t: (key: string) => string,
 ) {
-	return value.includes(":") ? t(value) : value;
+	return t(value);
 }

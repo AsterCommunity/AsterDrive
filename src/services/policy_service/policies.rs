@@ -170,6 +170,7 @@ pub async fn create(
     crate::db::transaction::commit(txn).await?;
     state.policy_snapshot().reload(state.writer_db()).await?;
     crate::services::config_service::invalidate_public_thumbnail_support_cache();
+    crate::services::config_service::invalidate_public_media_data_support_cache();
     policy_repo::find_by_id(state.writer_db(), result.id)
         .await
         .map(Into::into)
@@ -268,6 +269,7 @@ pub async fn delete(state: &(impl TaskRuntimeState + Sync), id: i64, force: bool
     state.driver_registry().invalidate(id);
     state.policy_snapshot().reload(state.writer_db()).await?;
     crate::services::config_service::invalidate_public_thumbnail_support_cache();
+    crate::services::config_service::invalidate_public_media_data_support_cache();
     tracing::info!(
         policy_id = id,
         policy_name = %policy.name,
@@ -433,6 +435,7 @@ pub async fn update(
     state.driver_registry().invalidate(id);
     state.policy_snapshot().reload(state.writer_db()).await?;
     crate::services::config_service::invalidate_public_thumbnail_support_cache();
+    crate::services::config_service::invalidate_public_media_data_support_cache();
 
     policy_repo::find_by_id(state.writer_db(), result.id)
         .await
@@ -516,6 +519,7 @@ pub async fn promote_s3_compatible_driver(
     state.driver_registry().invalidate(id);
     state.policy_snapshot().reload(state.writer_db()).await?;
     crate::services::config_service::invalidate_public_thumbnail_support_cache();
+    crate::services::config_service::invalidate_public_media_data_support_cache();
 
     policy_repo::find_by_id(state.writer_db(), id)
         .await

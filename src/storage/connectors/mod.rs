@@ -699,7 +699,7 @@ static CONNECTOR_REGISTRATIONS: &[StorageConnectorRegistration] = &[
     StorageConnectorRegistration {
         driver_type: DriverType::Remote,
         connector: BuiltinStorageConnector::Remote,
-        cleanup_snapshot_required: false,
+        cleanup_snapshot_required: true,
     },
     StorageConnectorRegistration {
         driver_type: DriverType::OneDrive,

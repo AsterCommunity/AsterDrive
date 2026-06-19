@@ -174,7 +174,8 @@ impl AsterDavFile {
                     .map_err(|_| FsError::GeneralFailure)?;
                 let _stream_driver = driver.as_stream_upload().ok_or(FsError::GeneralFailure)?;
                 let prepared_upload =
-                    workspace_storage_service::prepare_non_dedup_blob_upload(&policy, size_hint);
+                    workspace_storage_service::prepare_non_dedup_blob_upload(&policy, size_hint)
+                        .map_err(|_| FsError::GeneralFailure)?;
                 let storage_path = prepared_upload.storage_path().to_string();
                 let (writer, reader) = tokio::io::duplex(RELAY_DIRECT_BUFFER_SIZE);
                 let driver_for_task = driver.clone();

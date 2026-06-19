@@ -112,8 +112,8 @@ pub(crate) struct StoragePolicyCleanupRemoteNodeSnapshot {
     pub base_url: String,
     #[serde(default)]
     pub transport_mode: RemoteNodeTransportMode,
-    pub access_key: String,
-    pub secret_key: String,
+    pub access_key_ciphertext: String,
+    pub secret_key_ciphertext: String,
     #[serde(default)]
     pub last_capabilities: String,
 }

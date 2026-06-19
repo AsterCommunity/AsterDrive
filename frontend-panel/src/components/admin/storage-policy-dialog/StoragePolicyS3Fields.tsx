@@ -188,6 +188,8 @@ function isFieldVisibleForDriver(
 	const visibleDriverTypes = field.visible_when_driver_types ?? [];
 	return (
 		visibleDriverTypes.length === 0 ||
-		visibleDriverTypes.includes(driverType as never)
+		visibleDriverTypes.includes(
+			driverType as (typeof visibleDriverTypes)[number],
+		)
 	);
 }

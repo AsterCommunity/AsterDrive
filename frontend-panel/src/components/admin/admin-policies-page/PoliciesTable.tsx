@@ -150,16 +150,23 @@ export function PoliciesTable({
 							t,
 						)
 					: t("core:root");
-				const endpointOrPath = descriptor?.fields.some(
-					(field) => field.scope === "connection" && field.name === "endpoint",
-				)
+				const showsEndpoint = descriptor
+					? descriptor.fields.some(
+							(field) =>
+								field.scope === "connection" && field.name === "endpoint",
+						)
+					: Boolean(policy.endpoint);
+				const showsRemoteNode = descriptor
+					? descriptor.fields.some(
+							(field) =>
+								field.scope === "remote_node_binding" &&
+								field.name === "remote_node_id",
+						)
+					: policy.remote_node_id != null;
+				const endpointOrPath = showsEndpoint
 					? policy.endpoint
 					: policy.base_path || basePathEmptyDisplay;
-				const bucketOrBinding = descriptor?.fields.some(
-					(field) =>
-						field.scope === "remote_node_binding" &&
-						field.name === "remote_node_id",
-				)
+				const bucketOrBinding = showsRemoteNode
 					? policy.remote_node_id != null
 						? (remoteNodeNameById.get(policy.remote_node_id) ??
 							`#${policy.remote_node_id}`)
@@ -266,5 +273,5 @@ function translateStorageConnectorUiValue(
 	value: string,
 	t: (key: string) => string,
 ) {
-	return value.includes(":") ? t(value) : value;
+	return t(value);
 }

@@ -196,6 +196,22 @@ pub(super) fn validate_onedrive_options(
             "onedrive_site_id is only valid for OneDrive sharepoint_site policies",
         ));
     }
+    if options.onedrive_account_mode == Some(crate::types::OneDriveAccountMode::Personal)
+        && (options.onedrive_site_id.is_some() || options.onedrive_group_id.is_some())
+    {
+        return Err(validation_error_with_code(
+            ApiErrorCode::PolicyOneDriveOptionsUnsupported,
+            "personal OneDrive policies do not accept onedrive_site_id or onedrive_group_id",
+        ));
+    }
+    if options.onedrive_account_mode == Some(crate::types::OneDriveAccountMode::WorkOrSchool)
+        && (options.onedrive_site_id.is_some() || options.onedrive_group_id.is_some())
+    {
+        return Err(validation_error_with_code(
+            ApiErrorCode::PolicyOneDriveOptionsUnsupported,
+            "work_or_school OneDrive policies do not accept onedrive_site_id or onedrive_group_id",
+        ));
+    }
     Ok(())
 }
 

@@ -276,6 +276,7 @@ async fn start_microsoft_graph_authorization(
     input: Option<MicrosoftGraphAuthorizationInput>,
 ) -> Result<StorageAuthorizationStartResponse> {
     let input = input.unwrap_or_default();
+    reject_unsaved_microsoft_graph_authorization_overrides(&input)?;
     let policy_id = policy.id;
     let existing_credential = storage_policy_credential_repo::find_by_policy_provider_kind(
         state.writer_db(),
@@ -438,6 +439,22 @@ async fn start_microsoft_graph_authorization(
             scopes,
         }),
     })
+}
+
+fn reject_unsaved_microsoft_graph_authorization_overrides(
+    input: &MicrosoftGraphAuthorizationInput,
+) -> Result<()> {
+    if input.cloud.is_some()
+        || normalize_optional_string(input.tenant.clone()).is_some()
+        || normalize_optional_string(input.client_id.clone()).is_some()
+        || normalize_optional_string(input.client_secret.clone()).is_some()
+        || input.scopes.is_some()
+    {
+        return Err(AsterError::validation_error(
+            "Microsoft Graph authorization overrides must be saved to storage connector application config before starting authorization",
+        ));
+    }
+    Ok(())
 }
 
 pub async fn finish_authorization_callback(
@@ -808,8 +825,6 @@ async fn finish_microsoft_graph_callback(
         access_token_ciphertext: Set(Some(access_token_ciphertext)),
         refresh_token_ciphertext: Set(refresh_token_ciphertext),
         metadata: Set(storage_credential_metadata(StorageCredentialMetadataInput {
-            encryption_key,
-            policy_id,
             cloud: context.cloud,
             drive_id: &location.drive_id,
             root_item_id: &root_item.id,

@@ -13,6 +13,9 @@ use crate::types::{
     parse_storage_policy_options,
 };
 
+const OBJECT_STORAGE_LARGE_UPLOAD_SIZE: i64 = 5_242_881;
+const ONEDRIVE_MAX_SIMPLE_UPLOAD_SIZE: u64 = 250_000_000;
+
 #[test]
 fn descriptors_cover_every_storage_driver() {
     let descriptors = list_storage_driver_descriptors();
@@ -283,7 +286,7 @@ fn onedrive_descriptor_requires_saved_authorized_connection_test() {
     assert_eq!(upload_capabilities.max_fragment_size, 50 * 1024 * 1024);
     assert_eq!(
         upload_capabilities.max_simple_upload_size,
-        Some(250_000_000)
+        Some(ONEDRIVE_MAX_SIMPLE_UPLOAD_SIZE)
     );
     assert!(!upload_capabilities.frontend_direct_upload);
     assert!(upload_capabilities.implicit_completion);
@@ -630,6 +633,38 @@ fn onedrive_connector_modes_reject_other_mode_target_ids() {
 }
 
 #[test]
+fn onedrive_connector_personal_and_work_modes_reject_site_and_group_ids() {
+    for mode in [
+        OneDriveAccountMode::Personal,
+        OneDriveAccountMode::WorkOrSchool,
+    ] {
+        let options = StoragePolicyOptions {
+            onedrive_account_mode: Some(mode),
+            onedrive_site_id: Some("site".to_string()),
+            ..Default::default()
+        };
+        let error = common::validate_onedrive_options(&options).unwrap_err();
+        assert_eq!(
+            error.api_error_code(),
+            ApiErrorCode::PolicyOneDriveOptionsUnsupported
+        );
+        assert!(error.to_string().contains("onedrive_site_id"));
+
+        let options = StoragePolicyOptions {
+            onedrive_account_mode: Some(mode),
+            onedrive_group_id: Some("group".to_string()),
+            ..Default::default()
+        };
+        let error = common::validate_onedrive_options(&options).unwrap_err();
+        assert_eq!(
+            error.api_error_code(),
+            ApiErrorCode::PolicyOneDriveOptionsUnsupported
+        );
+        assert!(error.to_string().contains("onedrive_group_id"));
+    }
+}
+
+#[test]
 fn connector_action_endpoint_gate_rejects_non_endpoint_actions() {
     let onedrive = OneDriveConnector::storage_connector_descriptor();
 
@@ -718,6 +753,22 @@ fn local_policy_resolves_direct_and_chunked_modes() {
         StorageConnectorChunkedCompletion::AssembleLocalChunks
     );
     assert!(!presigned_download_enabled(&policy));
+}
+
+#[test]
+fn non_local_upload_transports_expose_opaque_blob_hash_prefix() {
+    for transport in [
+        StorageConnectorUploadTransport::ObjectStorage(S3UploadStrategy::RelayStream),
+        StorageConnectorUploadTransport::ObjectStorage(S3UploadStrategy::Presigned),
+        StorageConnectorUploadTransport::Remote(RemoteUploadStrategy::RelayStream),
+        StorageConnectorUploadTransport::Remote(RemoteUploadStrategy::Presigned),
+        StorageConnectorUploadTransport::StreamUpload,
+    ] {
+        assert!(
+            transport.opaque_blob_hash_prefix().is_some(),
+            "{transport:?} must declare an opaque blob hash prefix"
+        );
+    }
 }
 
 #[test]
@@ -1101,7 +1152,7 @@ fn assert_upload_workflow_alignment(
     expected: ExpectedUploadWorkflow,
 ) {
     let large_upload_size = match expected.transport {
-        StorageConnectorUploadTransport::ObjectStorage(_) => 5_242_881,
+        StorageConnectorUploadTransport::ObjectStorage(_) => OBJECT_STORAGE_LARGE_UPLOAD_SIZE,
         StorageConnectorUploadTransport::Local
         | StorageConnectorUploadTransport::Remote(_)
         | StorageConnectorUploadTransport::StreamUpload => 2048,
@@ -1119,7 +1170,7 @@ fn assert_upload_workflow_alignment(
             .simple_upload_capabilities
             .max_provider_single_request_size,
         if driver_type == DriverType::OneDrive {
-            Some(250_000_000)
+            Some(ONEDRIVE_MAX_SIMPLE_UPLOAD_SIZE)
         } else {
             None
         },

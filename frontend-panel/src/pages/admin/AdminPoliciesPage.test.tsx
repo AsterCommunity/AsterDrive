@@ -14,6 +14,7 @@ import {
 } from "@/lib/adminStorageDriverDescriptors";
 import AdminPoliciesPage from "@/pages/admin/AdminPoliciesPage";
 import { ApiError } from "@/services/http";
+import type { StorageConnectorFieldDescriptor } from "@/types/api";
 import { ApiErrorCode } from "@/types/api-helpers";
 
 const mockState = vi.hoisted(() => ({
@@ -580,25 +581,7 @@ vi.mock("@/services/adminService", () => ({
 	},
 }));
 
-type TestStorageFieldDescriptor = {
-	help_key?: string;
-	invalid_protocol_message_key?: string;
-	kind: "text" | "secret" | "select" | "boolean" | "number";
-	label_key: string;
-	name: string;
-	options?: string[];
-	placeholder?: string;
-	required: boolean;
-	required_message_key?: string;
-	scope:
-		| "connection"
-		| "policy_options"
-		| "application_credential"
-		| "remote_node_binding";
-	secret: boolean;
-	trim_on_blur?: boolean;
-	visible_when_driver_types?: string[];
-};
+type TestStorageFieldDescriptor = StorageConnectorFieldDescriptor;
 
 function createPolicy(overrides: Record<string, unknown> = {}) {
 	return {

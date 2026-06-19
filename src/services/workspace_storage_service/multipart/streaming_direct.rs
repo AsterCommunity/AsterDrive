@@ -43,7 +43,7 @@ pub(super) async fn upload_streaming_direct(
 
     check_quota(state.writer_db(), scope, declared_size).await?;
     let driver = state.driver_registry().get_driver(policy)?;
-    let prepared_upload = prepare_non_dedup_blob_upload(policy, declared_size);
+    let prepared_upload = prepare_non_dedup_blob_upload(policy, declared_size)?;
     let storage_path = prepared_upload.storage_path().to_string();
 
     while let Some(field) = payload.next().await {

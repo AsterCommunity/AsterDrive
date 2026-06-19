@@ -55,7 +55,7 @@ import type { UserInfo, ShareInfo, StoragePolicy } from "@/types/api";
 - 安装新组件用 `bunx shadcn@latest add <component>`
 
 ### 路由结构
-```
+```text
 /login          — LoginPage (LoginGuard)
 /               — FileBrowserPage (ProtectedRoute)
 /admin/*        — Admin 页面 (AdminRoute, admin only)
@@ -96,7 +96,7 @@ import type { UserInfo, ShareInfo, StoragePolicy } from "@/types/api";
 - `useSelectionShortcuts` — 批量选择快捷键
 
 ### 前端目录
-```
+```text
 src/
 ├── components/
 │   ├── admin/      UserDetailDialog
@@ -149,7 +149,7 @@ src/
 ## i18n 国际化
 
 ### Namespace 分层
-```
+```text
 src/i18n/locales/{zh,en}/
 ├── core/            # [初始加载] 通用 UI：按钮、表头、状态、主题/语言、确认弹窗
 ├── files/           # [初始加载] 文件浏览器：上传、批量操作、回收站、预览、排序、文件信息

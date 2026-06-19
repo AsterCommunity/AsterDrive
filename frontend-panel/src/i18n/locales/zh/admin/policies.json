@@ -63,6 +63,7 @@
 	"policy_capacity_total": "总量 {{total}}",
 	"policy_capacity_unsupported_desc": "当前驱动不暴露底层存储容量信息。",
 	"policy_capacity_unavailable_desc": "当前暂时无法获取底层存储容量信息。",
+	"policy_driver_options_load_failed": "无法加载存储驱动选项，请刷新后重试。",
 	"policy_migration_submit": "创建迁移任务",
 	"policy_migration_creating": "创建中...",
 	"policy_migration_created": "迁移任务 #{{id}} 已创建",

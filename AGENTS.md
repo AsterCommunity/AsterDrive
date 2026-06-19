@@ -113,7 +113,7 @@ bun run test:e2e
 { "code": "success", "msg": "", "data": { } }
 ```
 
-失败使用稳定字符串错误码，定义在 `src/api/error_code.rs` 的 `AsterErrorCode`。内部错误类型是 `src/errors.rs` 的 `AsterError`，通过 `ResponseError` 统一转 HTTP 响应和日志。
+失败使用稳定字符串错误码，定义在 `src/api/api_error_code.rs` 的 `AsterErrorCode`。内部错误类型是 `src/errors.rs` 的 `AsterError`，通过 `ResponseError` 统一转 HTTP 响应和日志。
 
 新增项目 API 应继续使用这套 envelope 和错误码体系。例外包括：
 

@@ -38,30 +38,33 @@ impl PreparedNonDedupBlobUpload {
 pub(crate) fn prepare_non_dedup_blob_upload(
     policy: &crate::entities::storage_policy::Model,
     size: i64,
-) -> PreparedNonDedupBlobUpload {
+) -> Result<PreparedNonDedupBlobUpload> {
     match crate::storage::connectors::resolve_policy_upload_transport(policy) {
         StorageConnectorUploadTransport::Local => {
             let blob_key = crate::utils::id::new_short_token();
-            PreparedNonDedupBlobUpload::Local {
+            Ok(PreparedNonDedupBlobUpload::Local {
                 base_path: crate::storage::drivers::local::effective_base_path(policy),
                 storage_path: crate::utils::storage_path_from_blob_key(&blob_key),
                 blob_key,
                 size,
                 policy_id: policy.id,
-            }
+            })
         }
         transport => {
             let upload_id = crate::utils::id::new_uuid();
-            let hash_prefix = transport
-                .opaque_blob_hash_prefix()
-                .expect("non-local upload transports must declare an opaque blob hash prefix");
-            PreparedNonDedupBlobUpload::Opaque {
+            let hash_prefix = transport.opaque_blob_hash_prefix().ok_or_else(|| {
+                AsterError::validation_error(format!(
+                    "storage policy driver '{}' cannot prepare opaque blob uploads without an opaque hash prefix",
+                    policy.driver_type.as_str()
+                ))
+            })?;
+            Ok(PreparedNonDedupBlobUpload::Opaque {
                 storage_path: format!("files/{upload_id}"),
                 upload_id,
                 hash_prefix,
                 size,
                 policy_id: policy.id,
-            }
+            })
         }
     }
 }

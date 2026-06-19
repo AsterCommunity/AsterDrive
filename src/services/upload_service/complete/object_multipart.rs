@@ -225,7 +225,7 @@ async fn finalize_opaque_upload_session(
         state,
         workspace_storage_service::FinalizeUploadSessionFileParams {
             session,
-            file_hash: &format!("{}-{}", opaque_blob_hash_prefix(policy), session.id),
+            file_hash: &format!("{}-{}", opaque_blob_hash_prefix(policy)?, session.id),
             size,
             policy_id: policy.id,
             storage_path,
@@ -236,10 +236,18 @@ async fn finalize_opaque_upload_session(
     .await
 }
 
-fn opaque_blob_hash_prefix(policy: &storage_policy::Model) -> &'static str {
+fn opaque_blob_hash_prefix(policy: &storage_policy::Model) -> Result<&'static str> {
     workspace_storage_service::resolve_policy_upload_transport(policy)
         .opaque_blob_hash_prefix()
-        .expect("presigned or multipart completion requires an opaque blob hash prefix")
+        .ok_or_else(|| {
+            upload_assembly_error_with_code(
+                ApiErrorCode::UploadSessionCorrupted,
+                format!(
+                    "storage policy driver '{}' cannot finalize opaque upload sessions without an opaque hash prefix",
+                    policy.driver_type.as_str()
+                ),
+            )
+        })
 }
 
 fn presigned_final_storage_path() -> String {

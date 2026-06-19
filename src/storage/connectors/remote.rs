@@ -8,6 +8,7 @@ use crate::db::repository::managed_follower_repo;
 use crate::entities::{managed_follower, storage_policy};
 use crate::errors::{AsterError, Result, validation_error_with_code};
 use crate::runtime::{RemoteProtocolRuntimeState, SharedRuntimeState};
+use crate::services::storage_credential_service::crypto;
 use crate::storage::StorageDriver;
 use crate::storage::connector_descriptor::{
     StorageConnectorCapabilities, StorageConnectorCredentialMode, StorageConnectorDescriptor,
@@ -190,9 +191,12 @@ impl StorageConnector for RemoteConnector {
         state: &S,
         policy: &storage_policy::Model,
     ) -> Result<Box<dyn StorageDriver>> {
-        let remote_node_id = policy
-            .remote_node_id
-            .expect("remote connector validation must require remote_node_id");
+        let remote_node_id = policy.remote_node_id.ok_or_else(|| {
+            validation_error_with_code(
+                ApiErrorCode::PolicyRemoteNodeRequired,
+                "remote storage policy requires remote_node_id",
+            )
+        })?;
         let remote_node =
             managed_follower_repo::find_by_id(state.writer_db(), remote_node_id).await?;
         Ok(Box::new(
@@ -223,14 +227,27 @@ impl RemoteConnector {
             AsterError::validation_error("remote storage policy requires remote_node_id")
         })?;
         let remote = managed_follower_repo::find_by_id(state.writer_db(), remote_node_id).await?;
+        let encryption_key = &state.config().auth.storage_credential_secret_key;
         Ok(Some(StoragePolicyCleanupDriverSnapshot::RemoteNode(
             StoragePolicyCleanupRemoteNodeSnapshot {
                 id: remote.id,
                 name: remote.name,
                 base_url: remote.base_url,
                 transport_mode: remote.transport_mode,
-                access_key: remote.access_key,
-                secret_key: remote.secret_key,
+                access_key_ciphertext: encrypt_remote_snapshot_secret(
+                    encryption_key,
+                    policy.id,
+                    remote.id,
+                    "access_key",
+                    &remote.access_key,
+                )?,
+                secret_key_ciphertext: encrypt_remote_snapshot_secret(
+                    encryption_key,
+                    policy.id,
+                    remote.id,
+                    "secret_key",
+                    &remote.secret_key,
+                )?,
                 last_capabilities: remote.last_capabilities,
             },
         )))
@@ -242,12 +259,25 @@ impl RemoteConnector {
         snapshots: StoragePolicyCleanupSnapshots<'_>,
     ) -> Result<Arc<dyn StorageDriver>> {
         let remote = remote_snapshot_from_cleanup_input(snapshots)?;
+        let encryption_key = &state.config().auth.storage_credential_secret_key;
         let follower = managed_follower::Model {
             id: remote.id,
             name: remote.name.clone(),
             base_url: remote.base_url.clone(),
-            access_key: remote.access_key.clone(),
-            secret_key: remote.secret_key.clone(),
+            access_key: decrypt_remote_snapshot_secret(
+                encryption_key,
+                policy.id,
+                remote.id,
+                "access_key",
+                &remote.access_key_ciphertext,
+            )?,
+            secret_key: decrypt_remote_snapshot_secret(
+                encryption_key,
+                policy.id,
+                remote.id,
+                "secret_key",
+                &remote.secret_key_ciphertext,
+            )?,
             is_enabled: true,
             transport_mode: remote.transport_mode,
             last_capabilities: remote_capabilities_from_snapshot_or_current(state, remote).await?,
@@ -278,6 +308,41 @@ fn remote_snapshot_from_cleanup_input(
             AsterError::validation_error("remote storage policy cleanup missing remote snapshot")
         }),
     }
+}
+
+fn remote_snapshot_secret_aad(policy_id: i64, remote_node_id: i64, field: &str) -> String {
+    // Cleanup tasks are durable background payloads. Bind encrypted remote-node
+    // credentials to the deleted policy and node so copied payloads cannot be
+    // replayed under another cleanup task.
+    format!("storage_policy_cleanup:{policy_id}:remote_node:{remote_node_id}:{field}")
+}
+
+fn encrypt_remote_snapshot_secret(
+    encryption_key: &str,
+    policy_id: i64,
+    remote_node_id: i64,
+    field: &str,
+    plaintext: &str,
+) -> Result<String> {
+    crypto::encrypt_token(
+        encryption_key,
+        remote_snapshot_secret_aad(policy_id, remote_node_id, field).as_bytes(),
+        plaintext,
+    )
+}
+
+fn decrypt_remote_snapshot_secret(
+    encryption_key: &str,
+    policy_id: i64,
+    remote_node_id: i64,
+    field: &str,
+    ciphertext: &str,
+) -> Result<String> {
+    crypto::decrypt_token(
+        encryption_key,
+        remote_snapshot_secret_aad(policy_id, remote_node_id, field).as_bytes(),
+        ciphertext,
+    )
 }
 
 async fn remote_capabilities_from_snapshot_or_current(

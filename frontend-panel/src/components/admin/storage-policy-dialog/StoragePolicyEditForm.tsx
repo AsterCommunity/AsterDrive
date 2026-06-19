@@ -606,7 +606,7 @@ function translateStorageConnectorUiValue(
 	value: string,
 	t: (key: string) => string,
 ) {
-	return value.includes(":") ? t(value) : value;
+	return t(value);
 }
 
 function S3DriverPromotionPanel({

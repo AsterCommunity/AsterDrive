@@ -67,7 +67,7 @@ async fn merge_draft_action_saved_credentials<S: SharedRuntimeState + ?Sized>(
     if (connection.access_key.trim().is_empty() || connection.secret_key.trim().is_empty())
         && let Some(policy_id) = policy_id
     {
-        let saved = policy_repo::find_by_id(state.reader_db(), policy_id).await?;
+        let saved = policy_repo::find_by_id(state.writer_db(), policy_id).await?;
         if saved.driver_type != connection.driver_type {
             return Err(validation_error_with_code(
                 ApiErrorCode::PolicyActionParameterInvalid,

@@ -32,6 +32,7 @@ import {
 	supportsRemoteNodeBinding,
 	supportsS3TransferStrategy,
 	supportsSavedConnectionTest,
+	supportsStorageCredentialLifecycle,
 	supportsStorageNativeProcessing,
 	supportsStoragePolicyAction,
 } from "@/components/admin/storagePolicyDialogShared";
@@ -215,7 +216,7 @@ function normalizePolicyComparableForm(
 		descriptor != null
 			? supportsOneDrivePolicyOptions(descriptor) ||
 				supportsMicrosoftGraphApplicationConfig(descriptor)
-			: normalized.driver_type === "one_drive";
+			: hasMicrosoftGraphFormFields(normalized);
 
 	if (!usesMicrosoftGraph) {
 		const {
@@ -240,6 +241,20 @@ function normalizePolicyComparableForm(
 	const { application_credentials: _applicationCredentials, ...comparable } =
 		normalized;
 	return comparable;
+}
+
+function hasMicrosoftGraphFormFields(form: PolicyFormData) {
+	const microsoftGraph = microsoftGraphCredentials(form);
+	return (
+		Boolean(form.onedrive_account_mode) ||
+		Boolean(form.onedrive_cloud) ||
+		Boolean(form.onedrive_tenant.trim()) ||
+		Boolean(form.onedrive_drive_id.trim()) ||
+		Boolean(form.onedrive_root_item_id.trim()) ||
+		Boolean(microsoftGraph.client_id.trim()) ||
+		Boolean(microsoftGraph.client_secret.trim()) ||
+		Boolean(microsoftGraph.scopes.trim())
+	);
 }
 
 function useAdminPoliciesPageContent() {
@@ -313,6 +328,10 @@ function useAdminPoliciesPageContent() {
 	const [storageDriverDescriptors, setStorageDriverDescriptors] = useState<
 		StorageConnectorDescriptor[]
 	>(() => readAdminStorageDriverDescriptors() ?? []);
+	const [storageDriverDescriptorsLoading, setStorageDriverDescriptorsLoading] =
+		useState(() => readAdminStorageDriverDescriptors() == null);
+	const [storageDriverDescriptorsError, setStorageDriverDescriptorsError] =
+		useState<string | null>(null);
 	const [form, setForm] = useState<PolicyFormData>(emptyForm);
 	const [submitting, setSubmitting] = useState(false);
 
@@ -374,7 +393,7 @@ function useAdminPoliciesPageContent() {
 		currentStorageDriverDescriptor?.authorization_provider ?? null;
 	const isMicrosoftGraphAuthorizationProvider =
 		currentAuthorizationProvider === MICROSOFT_GRAPH_PROVIDER;
-	const getS3CompatiblePromotionDriverLabel = (driverType: "tencent_cos") => {
+	const getS3CompatiblePromotionDriverLabel = (driverType: DriverType) => {
 		const descriptor = getStorageDriverDescriptor(
 			storageDriverDescriptors,
 			driverType,
@@ -472,22 +491,33 @@ function useAdminPoliciesPageContent() {
 	useEffect(() => {
 		let active = true;
 
+		setStorageDriverDescriptorsLoading(true);
+		setStorageDriverDescriptorsError(null);
 		void loadAdminStorageDriverDescriptors()
 			.then((descriptors) => {
 				if (active) {
 					setStorageDriverDescriptors(descriptors);
+					setStorageDriverDescriptorsError(null);
 				}
 			})
 			.catch((error) => {
 				if (active) {
+					setStorageDriverDescriptorsError(
+						t("policy_driver_options_load_failed"),
+					);
 					handleApiError(error);
+				}
+			})
+			.finally(() => {
+				if (active) {
+					setStorageDriverDescriptorsLoading(false);
 				}
 			});
 
 		return () => {
 			active = false;
 		};
-	}, []);
+	}, [t]);
 
 	const refreshRemoteNodeLookup = useCallback(
 		async (options?: { force?: boolean }) => {
@@ -660,7 +690,7 @@ function useAdminPoliciesPageContent() {
 				storageDriverDescriptors,
 				driverType,
 			);
-			if (!supportsApplicationCredentials(descriptor)) {
+			if (!supportsStorageCredentialLifecycle(descriptor)) {
 				setStorageCredentials([]);
 				setStorageCredentialsLoading(false);
 				return;
@@ -1032,7 +1062,7 @@ function useAdminPoliciesPageContent() {
 					buildCreatePolicyPayload(currentForm, descriptor),
 				);
 				invalidateAdminPolicyLookup();
-				if (supportsApplicationCredentials(descriptor)) {
+				if (supportsStorageCredentialLifecycle(descriptor)) {
 					setEditingId(created.id);
 					setEditingPolicy(created);
 					setForm(getPolicyForm(created));
@@ -1643,6 +1673,8 @@ function useAdminPoliciesPageContent() {
 					form={form}
 					storageDriverDescriptor={currentStorageDriverDescriptor}
 					storageDriverDescriptors={storageDriverDescriptors}
+					storageDriverDescriptorsError={storageDriverDescriptorsError}
+					storageDriverDescriptorsLoading={storageDriverDescriptorsLoading}
 					policyCapacity={policyCapacity}
 					policyCapacityLoading={policyCapacityLoading}
 					storageCredentials={storageCredentials}

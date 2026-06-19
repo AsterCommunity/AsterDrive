@@ -899,6 +899,47 @@ async fn microsoft_graph_authorization_requires_secret_when_metadata_is_missing_
     assert!(error.to_string().contains("client_secret is required"));
 }
 
+#[tokio::test]
+async fn microsoft_graph_authorization_rejects_unsaved_application_overrides() {
+    let db = setup_db().await;
+    let encryption_key = "storage-token-test-master-key-32bytes";
+    let policy = create_onedrive_policy(&db, "", "").await;
+    upsert_microsoft_graph_application_config(
+        &db,
+        encryption_key,
+        policy.id,
+        MicrosoftGraphApplicationConfigInput {
+            client_id: Some("saved-client-id".to_string()),
+            client_secret: Some("saved-client-secret".to_string()),
+            ..Default::default()
+        },
+    )
+    .await
+    .expect("app config should save");
+    let state = build_oauth_test_state(db, encryption_key).await;
+    let req = actix_web::test::TestRequest::default()
+        .uri("https://drive.example.test/admin")
+        .to_http_request();
+
+    let error = start_authorization(
+        &state,
+        &req,
+        policy.id,
+        1,
+        StorageAuthorizationStartInput {
+            provider: StorageCredentialProvider::MicrosoftGraph,
+            microsoft_graph: Some(MicrosoftGraphAuthorizationInput {
+                client_id: Some("unsaved-client-id".to_string()),
+                ..Default::default()
+            }),
+        },
+    )
+    .await
+    .expect_err("authorization should reject unsaved app config overrides");
+
+    assert!(error.to_string().contains("must be saved"));
+}
+
 #[test]
 fn microsoft_authorization_url_uses_selected_cloud_and_pkce() {
     let url = microsoft_authorization_url(
@@ -1123,10 +1164,7 @@ fn storage_credential_oauth_audit_details_omit_absent_optional_fields() {
 
 #[test]
 fn storage_metadata_contains_authorization_result_without_application_secret() {
-    let key = "storage-token-test-master-key-32bytes";
     let metadata = storage_credential_metadata(StorageCredentialMetadataInput {
-        encryption_key: key,
-        policy_id: 42,
         cloud: MicrosoftGraphCloud::Global,
         drive_id: "drive-id",
         root_item_id: "root",

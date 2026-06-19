@@ -21,14 +21,9 @@ import type { PolicyFormData } from "./formTypes";
 import { getPolicyForm } from "./formTypes";
 import { buildPolicyOptions } from "./storagePolicyOptions";
 
-export type S3CompatiblePromotionDriverType = Extract<
-	DriverType,
-	"tencent_cos"
->;
-
 export interface S3CompatibleDriverPromotionTarget {
 	driverLabel: string;
-	driverType: S3CompatiblePromotionDriverType;
+	driverType: DriverType;
 }
 
 export function parseRemoteNodeId(value: string): number | undefined {
@@ -74,7 +69,7 @@ export function getS3CompatibleDriverPromotionTarget(
 		endpoint: string;
 	} | null,
 	sourceDescriptor: StorageConnectorDescriptor | null | undefined,
-	getDriverLabel: (driverType: S3CompatiblePromotionDriverType) => string,
+	getDriverLabel: (driverType: DriverType) => string,
 ): S3CompatibleDriverPromotionTarget | null {
 	if (policy == null || sourceDescriptor?.driver_type !== policy.driver_type) {
 		return null;
@@ -91,8 +86,7 @@ export function getS3CompatibleDriverPromotionTarget(
 				endpointHostMatchesRule(host, rule),
 			)
 		) {
-			const driverType =
-				recommendation.target_driver_type as S3CompatiblePromotionDriverType;
+			const driverType = recommendation.target_driver_type;
 			return {
 				driverLabel: getDriverLabel(driverType),
 				driverType,
@@ -198,7 +192,13 @@ export function hasConnectionFieldChanges(
 		);
 	}
 
-	if (shouldUseRemoteNodeBinding(normalizedForm.driver_type, descriptor)) {
+	if (
+		shouldUseRemoteNodeBinding(
+			descriptor,
+			normalizedForm.remote_node_id,
+			editingPolicy.remote_node_id,
+		)
+	) {
 		return (
 			parseRemoteNodeId(normalizedForm.remote_node_id) !==
 				editingPolicy.remote_node_id ||
@@ -291,10 +291,11 @@ function shouldUseMicrosoftGraphConfig(
 }
 
 function shouldUseRemoteNodeBinding(
-	driverType: DriverType,
-	descriptor?: StorageConnectorDescriptor | null,
+	descriptor: StorageConnectorDescriptor | null | undefined,
+	formRemoteNodeId: string,
+	policyRemoteNodeId: number | null | undefined,
 ) {
 	return descriptor
 		? supportsRemoteNodeBinding(descriptor)
-		: driverType === "remote";
+		: formRemoteNodeId.trim().length > 0 || policyRemoteNodeId != null;
 }

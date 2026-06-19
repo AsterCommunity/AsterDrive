@@ -44,8 +44,6 @@ struct MicrosoftTokenError {
 }
 
 pub(crate) struct StorageCredentialMetadataInput<'a> {
-    pub(crate) encryption_key: &'a str,
-    pub(crate) policy_id: i64,
     pub(crate) cloud: MicrosoftGraphCloud,
     pub(crate) drive_id: &'a str,
     pub(crate) root_item_id: &'a str,
@@ -62,7 +60,6 @@ pub(crate) fn storage_credential_metadata(
         "drive_id": input.drive_id,
         "root_item_id": input.root_item_id,
     });
-    let _ = (input.encryption_key, input.policy_id);
     if let Some(root_item_name) = input.root_item_name {
         metadata["root_item_name"] = serde_json::Value::String(root_item_name.to_string());
     }

@@ -8,5 +8,6 @@ describe("policyPresentation", () => {
 		expect(getPolicyDriverBadgeClass("tencent_cos")).toContain("text-cyan-700");
 		expect(getPolicyDriverBadgeClass("azure_blob")).toContain("text-sky-700");
 		expect(getPolicyDriverBadgeClass("remote")).toContain("text-amber-600");
+		expect(getPolicyDriverBadgeClass("one_drive")).toContain("text-blue-700");
 	});
 });

@@ -97,6 +97,17 @@ export function supportsApplicationCredentials(
 	);
 }
 
+export function supportsStorageCredentialLifecycle(
+	descriptor: StorageConnectorDescriptor | null | undefined,
+) {
+	return (
+		supportsStorageAuthorizationAction(descriptor) ||
+		supportsCredentialValidationAction(descriptor) ||
+		descriptor?.credential_mode === "oauth_delegated" ||
+		descriptor?.authorization_provider != null
+	);
+}
+
 export function supportsMicrosoftGraphApplicationConfig(
 	descriptor: StorageConnectorDescriptor | null | undefined,
 ) {

@@ -58,6 +58,8 @@ interface StoragePolicyCreateWizardProps {
 	currentStorageOption: StoragePolicyDriverOption;
 	endpointValidationMessage: string | null;
 	form: PolicyFormData;
+	storageDriverDescriptorsError: string | null;
+	storageDriverDescriptorsLoading: boolean;
 	storageDriverDescriptor: StorageConnectorDescriptor | null;
 	onCreateStepChange: (step: number) => void;
 	onDriverTypeChange: (driverType: DriverType) => void;
@@ -83,6 +85,8 @@ export function StoragePolicyCreateWizard({
 	currentStorageOption,
 	endpointValidationMessage,
 	form,
+	storageDriverDescriptorsError,
+	storageDriverDescriptorsLoading,
 	storageDriverDescriptor,
 	onCreateStepChange,
 	onDriverTypeChange,
@@ -129,7 +133,12 @@ export function StoragePolicyCreateWizard({
 								form={form}
 								onCreateStepChange={onCreateStepChange}
 								onDriverTypeChange={onDriverTypeChange}
+								storageDriverDescriptorsError={storageDriverDescriptorsError}
+								storageDriverDescriptorsLoading={
+									storageDriverDescriptorsLoading
+								}
 								storageOptions={storageOptions}
+								t={t}
 							/>
 						) : createStep === 1 ? (
 							<ConnectionStep
@@ -256,15 +265,38 @@ interface DriverSelectionStepProps {
 	form: PolicyFormData;
 	onCreateStepChange: (step: number) => void;
 	onDriverTypeChange: (driverType: DriverType) => void;
+	storageDriverDescriptorsError: string | null;
+	storageDriverDescriptorsLoading: boolean;
 	storageOptions: StoragePolicyDriverOption[];
+	t: Translate;
 }
 
 function DriverSelectionStep({
 	form,
 	onCreateStepChange,
 	onDriverTypeChange,
+	storageDriverDescriptorsError,
+	storageDriverDescriptorsLoading,
 	storageOptions,
+	t,
 }: DriverSelectionStepProps) {
+	if (storageDriverDescriptorsLoading) {
+		return (
+			<div className="flex min-h-32 items-center justify-center gap-2 rounded-lg border border-dashed border-border text-sm text-muted-foreground">
+				<Icon name="Spinner" className="size-4 animate-spin" />
+				<span>{t("core:loading")}</span>
+			</div>
+		);
+	}
+
+	if (storageDriverDescriptorsError != null) {
+		return (
+			<div className="rounded-lg border border-destructive/40 bg-destructive/5 p-4 text-sm text-destructive">
+				{storageDriverDescriptorsError}
+			</div>
+		);
+	}
+
 	return (
 		<div>
 			<div className="grid gap-3 md:grid-cols-2">

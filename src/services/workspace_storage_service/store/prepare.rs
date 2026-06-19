@@ -194,7 +194,7 @@ async fn build_temp_blob_plan(
 
     Ok(TempBlobPlan::Preuploaded(prepare_non_dedup_blob_upload(
         policy, size,
-    )))
+    )?))
 }
 
 async fn compute_dedup_target(

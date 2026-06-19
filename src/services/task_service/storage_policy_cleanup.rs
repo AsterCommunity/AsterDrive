@@ -51,7 +51,10 @@ pub(crate) async fn create_storage_policy_temp_cleanup_task(
 
     let driver_snapshot = cleanup_snapshot_for_policy(state, policy).await?;
     if !can_create_cleanup_task_with_snapshot(policy.driver_type, &driver_snapshot) {
-        return Ok(None);
+        return Err(AsterError::validation_error(format!(
+            "storage policy #{} requires a cleanup driver snapshot, but none was available",
+            policy.id
+        )));
     }
 
     let payload = StoragePolicyTempCleanupTaskPayload {
@@ -359,6 +362,7 @@ mod tests {
     use super::*;
     use crate::storage::connectors::{
         StoragePolicyCleanupDriverSnapshot, StoragePolicyCleanupOneDriveCredentialSnapshot,
+        StoragePolicyCleanupRemoteNodeSnapshot,
     };
 
     #[test]
@@ -386,6 +390,28 @@ mod tests {
         assert!(can_create_cleanup_task_with_snapshot(
             crate::types::DriverType::OneDrive,
             &Some(StoragePolicyCleanupDriverSnapshot::MicrosoftGraph(snapshot))
+        ));
+    }
+
+    #[test]
+    fn remote_cleanup_task_requires_driver_snapshot() {
+        assert!(!can_create_cleanup_task_with_snapshot(
+            crate::types::DriverType::Remote,
+            &None
+        ));
+
+        let snapshot = StoragePolicyCleanupRemoteNodeSnapshot {
+            id: 7,
+            name: "edge".to_string(),
+            base_url: "https://edge.example.test".to_string(),
+            transport_mode: crate::types::RemoteNodeTransportMode::Direct,
+            access_key_ciphertext: "access".to_string(),
+            secret_key_ciphertext: "secret".to_string(),
+            last_capabilities: "{}".to_string(),
+        };
+        assert!(can_create_cleanup_task_with_snapshot(
+            crate::types::DriverType::Remote,
+            &Some(StoragePolicyCleanupDriverSnapshot::RemoteNode(snapshot))
         ));
     }
 }

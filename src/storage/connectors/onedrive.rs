@@ -440,8 +440,6 @@ impl StorageConnector for OneDriveConnector {
         let root_item = location.root_item;
         let metadata = crate::services::storage_credential_service::storage_credential_metadata(
             crate::services::storage_credential_service::StorageCredentialMetadataInput {
-                encryption_key: &config.auth.storage_credential_secret_key,
-                policy_id: credential.policy_id,
                 cloud: options.effective_onedrive_cloud(),
                 drive_id: &location.drive_id,
                 root_item_id: &root_item.id,

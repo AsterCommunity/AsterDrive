@@ -148,7 +148,7 @@ pub(crate) async fn create_empty(
         }
         blob.model
     } else {
-        let prepared = prepare_non_dedup_blob_upload(&policy, EMPTY_SIZE);
+        let prepared = prepare_non_dedup_blob_upload(&policy, EMPTY_SIZE)?;
         let blob = persist_preuploaded_blob(&txn, &prepared).await?;
         driver.put(&blob.storage_path, &[]).await?;
         blob

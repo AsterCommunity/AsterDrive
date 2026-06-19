@@ -30,6 +30,8 @@ interface PolicyDialogsProps {
 	form: PolicyFormData;
 	storageDriverDescriptor: StorageConnectorDescriptor | null;
 	storageDriverDescriptors: StorageConnectorDescriptor[];
+	storageDriverDescriptorsError: string | null;
+	storageDriverDescriptorsLoading: boolean;
 	policyCapacity: StoragePolicyCapacityInfo | null;
 	policyCapacityLoading: boolean;
 	storageCredentials: StoragePolicyCredentialInfo[];
@@ -86,6 +88,8 @@ export function PolicyDialogs({
 	form,
 	storageDriverDescriptor,
 	storageDriverDescriptors,
+	storageDriverDescriptorsError,
+	storageDriverDescriptorsLoading,
 	policyCapacity,
 	policyCapacityLoading,
 	storageCredentials,
@@ -149,6 +153,8 @@ export function PolicyDialogs({
 				form={form}
 				storageDriverDescriptor={storageDriverDescriptor}
 				storageDriverDescriptors={storageDriverDescriptors}
+				storageDriverDescriptorsError={storageDriverDescriptorsError}
+				storageDriverDescriptorsLoading={storageDriverDescriptorsLoading}
 				policyCapacity={policyCapacity}
 				policyCapacityLoading={policyCapacityLoading}
 				storageCredentials={storageCredentials}

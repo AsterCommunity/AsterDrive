@@ -15,6 +15,21 @@ import {
 } from "./storagePolicyApplicationConfig";
 import { buildPolicyOptions } from "./storagePolicyOptions";
 
+function parseOptionalFiniteNumber(value: string): number | undefined {
+	const trimmed = value.trim();
+	if (!trimmed) {
+		return undefined;
+	}
+
+	const parsed = Number(trimmed);
+	return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+function parseOptionalChunkSizeBytes(value: string): number {
+	const parsed = parseOptionalFiniteNumber(value);
+	return parsed == null ? 0 : parsed * 1024 * 1024;
+}
+
 export function buildPolicyTestPayload(
 	form: PolicyFormData,
 	descriptor?: StorageConnectorDescriptor | null,
@@ -74,12 +89,8 @@ export function buildCreatePolicyPayload(
 		secret_key: usesApplicationConfig ? "" : normalizedForm.secret_key,
 		base_path: normalizedForm.base_path,
 		remote_node_id: parseRemoteNodeId(normalizedForm.remote_node_id),
-		max_file_size: normalizedForm.max_file_size
-			? Number(normalizedForm.max_file_size)
-			: undefined,
-		chunk_size: normalizedForm.chunk_size
-			? Number(normalizedForm.chunk_size) * 1024 * 1024
-			: 0,
+		max_file_size: parseOptionalFiniteNumber(normalizedForm.max_file_size),
+		chunk_size: parseOptionalChunkSizeBytes(normalizedForm.chunk_size),
 		is_default: normalizedForm.is_default,
 		options: buildPolicyOptions(normalizedForm, descriptor),
 	};
@@ -104,12 +115,8 @@ export function buildUpdatePolicyPayload(
 		bucket: normalizedForm.bucket,
 		base_path: normalizedForm.base_path,
 		remote_node_id: parseRemoteNodeId(normalizedForm.remote_node_id),
-		max_file_size: normalizedForm.max_file_size
-			? Number(normalizedForm.max_file_size)
-			: undefined,
-		chunk_size: normalizedForm.chunk_size
-			? Number(normalizedForm.chunk_size) * 1024 * 1024
-			: 0,
+		max_file_size: parseOptionalFiniteNumber(normalizedForm.max_file_size),
+		chunk_size: parseOptionalChunkSizeBytes(normalizedForm.chunk_size),
 		is_default: normalizedForm.is_default,
 		options: buildPolicyOptions(normalizedForm, descriptor),
 	};
