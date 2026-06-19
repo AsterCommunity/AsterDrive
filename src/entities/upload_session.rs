@@ -27,8 +27,10 @@ pub struct Model {
     pub folder_id: Option<i64>,
     pub policy_id: i64,
     pub status: UploadSessionStatus,
-    pub s3_temp_key: Option<String>,
-    pub s3_multipart_id: Option<String>,
+    /// Driver-agnostic temporary object key used by object/presigned multipart upload flows.
+    pub object_temp_key: Option<String>,
+    /// Driver-agnostic multipart upload id; empty for direct/stream upload transports.
+    pub object_multipart_id: Option<String>,
     /// 上传完成后关联的文件 ID（用于幂等重试）
     pub file_id: Option<i64>,
     #[cfg_attr(all(debug_assertions, feature = "openapi"), schema(value_type = String))]

@@ -17,7 +17,7 @@ use crate::entities::storage_policy;
 use crate::errors::{AsterError, Result};
 use crate::storage::error::{StorageErrorKind, storage_driver_error};
 use crate::storage::object_key;
-use crate::types::effective_s3_multipart_chunk_size;
+use crate::types::effective_object_multipart_chunk_size;
 use crate::utils::net::is_loopback_host;
 
 const AZURE_STORAGE_VERSION: &str = "2023-11-03";
@@ -94,7 +94,7 @@ impl AzureBlobDriver {
             account_key: policy.secret_key.trim().to_string(),
             container: normalized.container,
             base_path: policy.base_path.clone(),
-            chunk_size: effective_s3_multipart_chunk_size(policy.chunk_size),
+            chunk_size: effective_object_multipart_chunk_size(policy.chunk_size),
         })
     }
 
@@ -402,7 +402,7 @@ mod tests {
     use crate::entities::storage_policy;
     use crate::types::{
         DriverType, StoredStoragePolicyAllowedTypes, StoredStoragePolicyOptions,
-        effective_s3_multipart_chunk_size,
+        effective_object_multipart_chunk_size,
     };
 
     fn sample_policy() -> storage_policy::Model {
@@ -469,7 +469,7 @@ mod tests {
         assert_eq!(driver.endpoint, "https://acct.blob.core.windows.net");
         assert_eq!(driver.container, "photos");
         assert_eq!(driver.account_name, "account-name");
-        assert_eq!(driver.chunk_size, effective_s3_multipart_chunk_size(1));
+        assert_eq!(driver.chunk_size, effective_object_multipart_chunk_size(1));
     }
 
     #[test]
@@ -536,7 +536,7 @@ mod tests {
     #[test]
     fn chunk_size_respects_configured_minimum_and_azure_block_limits() {
         let driver = AzureBlobDriver::new(&sample_policy()).expect("valid Azure driver");
-        let configured = effective_s3_multipart_chunk_size(1);
+        let configured = effective_object_multipart_chunk_size(1);
         let configured_u64 = u64::try_from(configured).expect("configured chunk size");
 
         assert_eq!(

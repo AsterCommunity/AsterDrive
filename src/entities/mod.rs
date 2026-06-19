@@ -27,6 +27,7 @@ pub mod mfa_totp_setup_flow;
 pub mod passkey;
 pub mod resource_lock;
 pub mod share;
+pub mod storage_connector_application_config;
 pub mod storage_migration_checkpoint;
 pub mod storage_policy;
 pub mod storage_policy_authorization_flow;

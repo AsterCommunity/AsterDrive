@@ -5052,6 +5052,7 @@ export interface components {
         CreatePolicyReq: {
             access_key?: string | null;
             allowed_types?: string[] | null;
+            application_config?: null | components["schemas"]["StorageConnectorApplicationConfigInput"];
             base_path?: string | null;
             bucket?: string | null;
             /** Format: int64 */
@@ -5061,7 +5062,6 @@ export interface components {
             is_default?: boolean | null;
             /** Format: int64 */
             max_file_size?: number | null;
-            application_config?: null | components["schemas"]["StorageConnectorApplicationConfigInput"];
             name: string;
             options?: null | components["schemas"]["StoragePolicyOptions"];
             /** Format: int64 */
@@ -5843,6 +5843,13 @@ export interface components {
         MicrosoftExternalAuthProviderOptions: {
             tenant: string;
         };
+        MicrosoftGraphApplicationConfigInput: {
+            client_id?: string | null;
+            client_secret?: string | null;
+            cloud?: null | components["schemas"]["MicrosoftGraphCloud"];
+            scopes?: string[] | null;
+            tenant?: string | null;
+        };
         MicrosoftGraphAuthorizationContext: {
             client_id: string;
             client_secret_configured: boolean;
@@ -5851,13 +5858,6 @@ export interface components {
             tenant: string;
         };
         MicrosoftGraphAuthorizationInput: {
-            client_id?: string | null;
-            client_secret?: string | null;
-            cloud?: null | components["schemas"]["MicrosoftGraphCloud"];
-            scopes?: string[] | null;
-            tenant?: string | null;
-        };
-        MicrosoftGraphApplicationConfigInput: {
             client_id?: string | null;
             client_secret?: string | null;
             cloud?: null | components["schemas"]["MicrosoftGraphCloud"];
@@ -6507,6 +6507,7 @@ export interface components {
         PatchPolicyReq: {
             access_key?: string | null;
             allowed_types?: string[] | null;
+            application_config?: null | components["schemas"]["StorageConnectorApplicationConfigInput"];
             base_path?: string | null;
             bucket?: string | null;
             /** Format: int64 */
@@ -6515,7 +6516,6 @@ export interface components {
             is_default?: boolean | null;
             /** Format: int64 */
             max_file_size?: number | null;
-            application_config?: null | components["schemas"]["StorageConnectorApplicationConfigInput"];
             name?: string | null;
             options?: null | components["schemas"]["StoragePolicyOptions"];
             /** Format: int64 */
@@ -7130,14 +7130,18 @@ export interface components {
             /** Format: int64 */
             team_id: number;
         };
-        /** @enum {string} */
-        StorageConnectorAction: "configure_tencent_cos_cors" | "start_authorization" | "validate_credential" | "test_draft_connection" | "test_saved_connection";
         StorageConnectorActionDescriptor: {
-            action: components["schemas"]["StorageConnectorAction"];
+            affordance_action?: null | components["schemas"]["StorageConnectorAffordanceAction"];
+            /** @description 该 action 可通过哪些后端 endpoint 执行。 */
             endpoints?: components["schemas"]["StorageConnectorActionEndpoint"][];
+            /** @description 用于把 action 归类到授权、连接测试、policy action 等入口。 */
             kind: components["schemas"]["StorageConnectorActionKind"];
+            /** @description true 表示该动作会修改 provider 远端状态。 */
             mutates_remote_state: boolean;
+            policy_action?: null | components["schemas"]["StoragePolicyExecutableAction"];
+            /** @description true 表示执行前必须存在可用授权凭据。 */
             requires_authorization: boolean;
+            /** @description true 表示必须先保存 policy，draft 参数不能执行。 */
             requires_saved_policy: boolean;
         };
         /** @enum {string} */
@@ -7148,39 +7152,119 @@ export interface components {
             action: components["schemas"]["StoragePolicyExecutableAction"];
             tencent_cos_cors?: null | components["schemas"]["TencentCosCorsConfigResult"];
         };
+        /** @enum {string} */
+        StorageConnectorAffordanceAction: "start_authorization" | "validate_credential" | "test_draft_connection" | "test_saved_connection";
         StorageConnectorApplicationConfigInput: {
             microsoft_graph?: null | components["schemas"]["MicrosoftGraphApplicationConfigInput"];
         };
         StorageConnectorCapabilities: {
+            /** @description 是否支持容量观测。 */
             capacity: boolean;
+            /** @description 是否支持高效 range read。 */
             efficient_range: boolean;
+            /** @description 是否支持底层对象路径列举。 */
             list: boolean;
+            /** @description 是否支持 presigned download。 */
             presigned_download: boolean;
+            /** @description 是否需要或支持 remote node 绑定。 */
             remote_node_binding: boolean;
+            /** @description 是否暴露 S3-compatible upload/download strategy 选项。 */
             s3_transfer_strategy: boolean;
+            /** @description 是否支持 provider/storage-native media metadata。 */
             storage_native_media_metadata: boolean;
+            /** @description 是否支持 provider/storage-native thumbnail。 */
             storage_native_thumbnail: boolean;
         };
         /** @enum {string} */
         StorageConnectorCredentialMode: "none" | "static_secret" | "remote_node" | "oauth_delegated";
         StorageConnectorFieldDescriptor: {
+            /** @description 可选 help 文案 key。 */
+            help_key?: string | null;
+            /** @description endpoint 协议不合法时的前端文案 key。 */
+            invalid_protocol_message_key?: string | null;
+            /** @description 前端可用的基础控件类型。 */
             kind: components["schemas"]["StorageConnectorFieldKind"];
+            /** @description 前端本地化 label key。默认通常等于 `name`。 */
+            label_key: string;
+            /** @description 提交 payload 中的字段名。 */
             name: string;
+            /** @description select/radio 等枚举控件的稳定取值。 */
             options?: string[];
+            /** @description 可选 placeholder，本地化策略由前端决定。 */
+            placeholder?: string | null;
+            /** @description 是否必填。复杂条件校验仍由 connector/service 做最终裁决。 */
             required: boolean;
+            /** @description 字段必填校验失败时的前端文案 key。 */
+            required_message_key?: string | null;
+            /** @description 字段进入哪个配置域。 */
             scope: components["schemas"]["StorageConnectorFieldScope"];
+            /** @description 是否是敏感字段，前端应按 secret input 处理，后端不应明文回显。 */
             secret: boolean;
+            /** @description true 表示该字段失焦时前端可以安全 trim。 */
+            trim_on_blur?: boolean;
+            /** @description 同一字段只对部分 driver 可见时使用。为空表示不额外限制。 */
+            visible_when_driver_types?: components["schemas"]["DriverType"][];
         };
         /** @enum {string} */
         StorageConnectorFieldKind: "text" | "secret" | "select" | "boolean" | "number";
         /** @enum {string} */
         StorageConnectorFieldScope: "connection" | "policy_options" | "application_credential" | "remote_node_binding";
+        StorageConnectorProviderResumableUploadCapabilities: {
+            /** @description 后端默认使用的分片大小。 */
+            default_fragment_size: number;
+            /** @description 分片边界对齐要求。 */
+            fragment_alignment: number;
+            /** @description 是否允许浏览器直接拿 provider session 上传。 */
+            frontend_direct_upload: boolean;
+            /** @description Provider 或当前实现允许的最大分片大小。 */
+            max_fragment_size: number;
+            /**
+             * Format: int64
+             * @description 小文件可绕过 resumable session 的大小上限。
+             */
+            max_simple_upload_size?: number | null;
+            /** @description Provider 接受的最小分片大小。 */
+            min_fragment_size: number;
+            /** @description Provider 标识，例如 `microsoft_graph`。 */
+            provider: string;
+            /** @description 面向 UI/诊断的 session 名称，例如 `Microsoft Graph upload session`。 */
+            session_label: string;
+        };
+        StorageConnectorUiDescriptor: {
+            /** @description base_path 为空时展示的 fallback 文案。 */
+            base_path_empty_display: string;
+            /** @description base_path input placeholder。 */
+            base_path_placeholder: string;
+            /** @description 创建向导配置步骤说明 key。 */
+            config_step_description_key: string;
+            /** @description 创建向导配置步骤标题 key。 */
+            config_step_title_key: string;
+            /** @description 前端 i18n description key。 */
+            description_key: string;
+            /** @description 编辑页上下文说明 key。 */
+            edit_context_key: string;
+            /** @description 创建向导右侧 helper 文案 key。 */
+            helper_key: string;
+            /** @description icon 库名称兜底。 */
+            icon_name?: string | null;
+            /** @description driver 选择卡片/上下文条图标资源。 */
+            icon_src?: string | null;
+            /** @description 前端 i18n label key。 */
+            label_key: string;
+        };
         StorageConnectorUploadWorkflows: {
+            /** @description 是否允许前端直接拿 provider-native session 上传。 */
             frontend_direct_provider_resumable_upload: boolean;
+            /** @description 支持对象存储 multipart/block upload 语义。 */
             object_multipart_upload: boolean;
+            /** @description 支持浏览器/客户端使用 presigned URL 直传。 */
             presigned_upload: boolean;
+            /** @description 支持 provider-native resumable/session upload。 */
             provider_resumable_upload: boolean;
+            provider_resumable_upload_capabilities?: null | components["schemas"]["StorageConnectorProviderResumableUploadCapabilities"];
+            /** @description 后端/客户端可以用单请求写入小对象。 */
             simple_upload: boolean;
+            /** @description 后端可以通过 `StreamUploadDriver` 把 reader 写入 provider。 */
             stream_upload: boolean;
         };
         /**
@@ -7918,12 +8002,14 @@ export interface components {
              */
             frontend_client_id?: string | null;
             id: string;
+            /** @description Driver-agnostic multipart upload id; empty for direct/stream upload transports. */
+            object_multipart_id?: string | null;
+            /** @description Driver-agnostic temporary object key used by object/presigned multipart upload flows. */
+            object_temp_key?: string | null;
             /** Format: int64 */
             policy_id: number;
             /** Format: int32 */
             received_count: number;
-            s3_multipart_id?: string | null;
-            s3_temp_key?: string | null;
             status: components["schemas"]["UploadSessionStatus"];
             /** Format: int64 */
             team_id?: number | null;
@@ -9882,17 +9968,36 @@ export interface operations {
                     "application/json": {
                         code: components["schemas"]["ApiErrorCode"];
                         data?: {
+                            /** @description 管理端/服务端可执行动作声明。 */
                             actions: components["schemas"]["StorageConnectorActionDescriptor"][];
+                            /** @description 授权 provider，例如 `microsoft_graph`。 */
                             authorization_provider?: string | null;
+                            /** @description 存储对象能力。 */
                             capabilities: components["schemas"]["StorageConnectorCapabilities"];
+                            /** @description connector 的主要凭据模式。 */
                             credential_mode: components["schemas"]["StorageConnectorCredentialMode"];
+                            /** @description 人类可读说明。 */
                             description: string;
+                            /** @description 持久化到 policy 的 driver type。 */
                             driver_type: components["schemas"]["DriverType"];
+                            /** @description 当前部署是否启用该 connector。 */
                             enabled: boolean;
+                            /** @description 管理端配置字段声明。 */
                             fields: components["schemas"]["StorageConnectorFieldDescriptor"][];
+                            /** @description 人类可读名称。 */
                             label: string;
+                            /** @description 用于开发追踪的相关 issue 编号，不参与业务逻辑。 */
                             related_issues?: number[];
+                            /** @description 是否需要额外授权才能成为可用 policy。 */
                             requires_authorization: boolean;
+                            /**
+                             * @description 管理端展示元数据。
+                             *
+                             *     这类 label/icon/helper 虽然最终由前端渲染，但语义上属于 connector：
+                             *     新 connector 不应该要求前端再维护一份 driver 展示矩阵。
+                             */
+                            ui: components["schemas"]["StorageConnectorUiDescriptor"];
+                            /** @description 上传工作流能力。 */
                             upload_workflows: components["schemas"]["StorageConnectorUploadWorkflows"];
                         }[];
                         error?: null | components["schemas"]["ApiErrorInfo"];

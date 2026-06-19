@@ -125,7 +125,7 @@ describe("AdminAboutPage", () => {
 		).toHaveAttribute("href", "https://drive.astercosm.com/");
 		expect(
 			screen.getByRole("link", { name: /about_view_repository/i }),
-		).toHaveAttribute("href", "https://github.com/AptS-1547/AsterDrive");
+		).toHaveAttribute("href", "https://github.com/AsterCommunity/AsterDrive");
 	});
 
 	it("loads backend version and build time from admin system info", async () => {

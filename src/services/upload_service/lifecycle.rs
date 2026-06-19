@@ -108,7 +108,7 @@ async fn cleanup_remote_upload_state(
     state: &impl SharedRuntimeState,
     session: &upload_session::Model,
 ) -> UploadRemoteCleanupOutcome {
-    let Some(temp_key) = session.s3_temp_key.as_deref() else {
+    let Some(temp_key) = session.object_temp_key.as_deref() else {
         return UploadRemoteCleanupOutcome::Complete;
     };
 
@@ -134,7 +134,7 @@ async fn cleanup_remote_upload_state(
         }
     };
 
-    if let Some(multipart_id) = session.s3_multipart_id.as_deref() {
+    if let Some(multipart_id) = session.object_multipart_id.as_deref() {
         if let Some(multipart) = driver.as_multipart()
             && let Err(error) = multipart
                 .abort_multipart_upload(temp_key, multipart_id)
@@ -187,12 +187,12 @@ async fn cancel_upload_impl(state: &PrimaryAppState, session: upload_session::Mo
         upload_id,
         status = ?session.status,
         policy_id = session.policy_id,
-        has_temp_key = session.s3_temp_key.is_some(),
-        has_multipart_id = session.s3_multipart_id.is_some(),
+        has_temp_key = session.object_temp_key.is_some(),
+        has_multipart_id = session.object_multipart_id.is_some(),
         "canceling upload session"
     );
 
-    let defer_active_multipart_cleanup = session.s3_multipart_id.is_some()
+    let defer_active_multipart_cleanup = session.object_multipart_id.is_some()
         && matches!(session.status, UploadSessionStatus::Assembling);
     if defer_active_multipart_cleanup {
         defer_upload_session_cleanup(
@@ -241,12 +241,12 @@ pub async fn cancel_upload_for_team(
 
 fn upload_session_mode_label(session: &upload_session::Model) -> &'static str {
     if session.status == UploadSessionStatus::Presigned {
-        if session.s3_multipart_id.is_some() {
+        if session.object_multipart_id.is_some() {
             return "presigned_multipart";
         }
         return "presigned";
     }
-    if session.s3_multipart_id.is_some() {
+    if session.object_multipart_id.is_some() {
         return "presigned_multipart";
     }
     "chunked"
@@ -268,9 +268,9 @@ pub async fn force_cleanup_by_policy(
     let mut result = ForceCleanupByPolicyResult::default();
 
     for session in &sessions {
-        if let Some(temp_key) = session.s3_temp_key.as_ref() {
+        if let Some(temp_key) = session.object_temp_key.as_ref() {
             result.deferred_temp_keys.push(temp_key.clone());
-            if let Some(multipart_id) = session.s3_multipart_id.as_ref() {
+            if let Some(multipart_id) = session.object_multipart_id.as_ref() {
                 result
                     .deferred_multipart_uploads
                     .push((temp_key.clone(), multipart_id.clone()));

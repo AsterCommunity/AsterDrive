@@ -11,8 +11,8 @@ use crate::services::audit_service::{self, AuditContext};
 use crate::types::DriverType;
 
 pub use crate::storage::{
-    StorageConnectorAction, StorageConnectorActionDescriptor, StorageConnectorActionEndpoint,
-    StorageConnectorActionKind, StorageConnectorCapabilities, StorageConnectorCredentialMode,
+    StorageConnectorActionDescriptor, StorageConnectorActionEndpoint, StorageConnectorActionKind,
+    StorageConnectorAffordanceAction, StorageConnectorCapabilities, StorageConnectorCredentialMode,
     StorageConnectorFieldDescriptor, StorageConnectorFieldKind, StorageConnectorFieldScope,
     StorageConnectorUploadWorkflows, StoragePolicyExecutableAction,
 };

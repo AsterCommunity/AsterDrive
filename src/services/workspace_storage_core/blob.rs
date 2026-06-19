@@ -40,25 +40,7 @@ fn is_content_sha256_blob_key(blob_key: &str) -> bool {
     blob_key.len() == 64 && blob_key.bytes().all(|byte| byte.is_ascii_hexdigit())
 }
 
-pub(crate) async fn create_s3_nondedup_blob<C: ConnectionTrait>(
-    db: &C,
-    size: i64,
-    policy_id: i64,
-    upload_id: &str,
-) -> Result<file_blob::Model> {
-    create_opaque_nondedup_blob(db, size, policy_id, "s3", upload_id).await
-}
-
-pub(crate) async fn create_remote_nondedup_blob<C: ConnectionTrait>(
-    db: &C,
-    size: i64,
-    policy_id: i64,
-    upload_id: &str,
-) -> Result<file_blob::Model> {
-    create_opaque_nondedup_blob(db, size, policy_id, "remote", upload_id).await
-}
-
-async fn create_opaque_nondedup_blob<C: ConnectionTrait>(
+pub(crate) async fn create_opaque_nondedup_blob<C: ConnectionTrait>(
     db: &C,
     size: i64,
     policy_id: i64,

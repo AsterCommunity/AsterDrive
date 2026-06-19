@@ -27,8 +27,9 @@ pub use oauth::{
 pub use crate::storage::MicrosoftGraphApplicationConfigInput;
 
 pub(crate) use oauth::{
-    MicrosoftGraphCleanupTokenSnapshot, build_microsoft_graph_cleanup_token_provider,
-    build_microsoft_graph_credential_token_provider, upsert_microsoft_graph_application_config,
+    MicrosoftGraphCleanupTokenSnapshot, StorageCredentialMetadataInput,
+    build_microsoft_graph_cleanup_token_provider, build_microsoft_graph_credential_token_provider,
+    storage_credential_metadata, upsert_microsoft_graph_application_config,
 };
 
 const FLOW_TTL_SECS: u64 = 300;

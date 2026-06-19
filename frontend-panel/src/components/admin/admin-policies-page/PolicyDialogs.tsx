@@ -29,6 +29,7 @@ interface PolicyDialogsProps {
 	endpointValidationMessage: string | null;
 	form: PolicyFormData;
 	storageDriverDescriptor: StorageConnectorDescriptor | null;
+	storageDriverDescriptors: StorageConnectorDescriptor[];
 	policyCapacity: StoragePolicyCapacityInfo | null;
 	policyCapacityLoading: boolean;
 	storageCredentials: StoragePolicyCredentialInfo[];
@@ -84,6 +85,7 @@ export function PolicyDialogs({
 	endpointValidationMessage,
 	form,
 	storageDriverDescriptor,
+	storageDriverDescriptors,
 	policyCapacity,
 	policyCapacityLoading,
 	storageCredentials,
@@ -146,6 +148,7 @@ export function PolicyDialogs({
 				mode={editMode ? "edit" : "create"}
 				form={form}
 				storageDriverDescriptor={storageDriverDescriptor}
+				storageDriverDescriptors={storageDriverDescriptors}
 				policyCapacity={policyCapacity}
 				policyCapacityLoading={policyCapacityLoading}
 				storageCredentials={storageCredentials}

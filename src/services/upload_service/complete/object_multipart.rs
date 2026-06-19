@@ -2,7 +2,7 @@ use chrono::Utc;
 
 use crate::api::api_error_code::ApiErrorCode;
 use crate::db::repository::upload_session_part_repo;
-use crate::entities::{file, upload_session};
+use crate::entities::{file, storage_policy, upload_session};
 use crate::errors::{AsterError, Result, upload_assembly_error_with_code};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::upload_service::shared::{
@@ -23,15 +23,20 @@ pub(super) async fn complete_presigned_upload(
     // presigned 单文件的 complete 阶段，本质是“确认对象存在且大小正确”，
     // 然后把 temp_key 直接认领成正式 blob。
     let db = state.writer_db();
-    let temp_key = session.s3_temp_key.as_deref().ok_or_else(|| {
-        upload_assembly_error_with_code(ApiErrorCode::UploadSessionCorrupted, "missing s3_temp_key")
+    // Historical column name: this key is used by any presigned single-object
+    // upload transport, not only S3-compatible drivers.
+    let temp_key = session.object_temp_key.as_deref().ok_or_else(|| {
+        upload_assembly_error_with_code(
+            ApiErrorCode::UploadSessionCorrupted,
+            "missing object_temp_key",
+        )
     })?;
 
     let policy = state
         .policy_snapshot()
         .get_policy_or_err(session.policy_id)?;
     let driver = state.driver_registry().get_driver(&policy)?;
-    let actual_size = ensure_uploaded_s3_object_size(
+    let actual_size = ensure_uploaded_object_size(
         driver.as_ref(),
         temp_key,
         session.total_size,
@@ -59,10 +64,10 @@ pub(super) async fn complete_presigned_upload(
                     actual_size,
                 )
                 .await?;
-            let file = match finalize_s3_upload_session(
+            let file = match finalize_opaque_upload_session(
                 state,
                 &session,
-                policy.id,
+                &policy,
                 &final_key,
                 actual_size,
                 actor_username,
@@ -97,14 +102,14 @@ pub(super) async fn complete_presigned_upload(
     .await
 }
 
-/// 完成 presigned multipart 上传：complete multipart → 直接建文件记录
-pub(super) async fn complete_s3_multipart(
+/// 完成 presigned object multipart 上传：complete multipart → 直接建文件记录
+pub(super) async fn complete_presigned_multipart(
     state: &PrimaryAppState,
     session: upload_session::Model,
     parts: Vec<(i32, String)>,
     actor_username: Option<&str>,
 ) -> Result<file::Model> {
-    complete_s3_multipart_upload_session(
+    complete_object_multipart_upload_session(
         state,
         session,
         UploadSessionStatus::Presigned,
@@ -116,7 +121,7 @@ pub(super) async fn complete_s3_multipart(
 }
 
 /// 完成 relay multipart 上传：直接使用服务端保存的 parts 完成 multipart。
-pub(super) async fn complete_s3_relay_multipart(
+pub(super) async fn complete_relay_multipart(
     state: &PrimaryAppState,
     session: upload_session::Model,
     actor_username: Option<&str>,
@@ -152,7 +157,7 @@ pub(super) async fn complete_s3_relay_multipart(
         .into_iter()
         .map(|part| (part.part_number, part.etag))
         .collect();
-    complete_s3_multipart_upload_session(
+    complete_object_multipart_upload_session(
         state,
         session,
         UploadSessionStatus::Uploading,
@@ -163,7 +168,7 @@ pub(super) async fn complete_s3_relay_multipart(
     .await
 }
 
-async fn ensure_uploaded_s3_object_size(
+async fn ensure_uploaded_object_size(
     driver: &dyn StorageDriver,
     temp_key: &str,
     declared_size: i64,
@@ -206,10 +211,10 @@ async fn ensure_uploaded_s3_object_size(
     Ok(actual_size)
 }
 
-async fn finalize_s3_upload_session(
+async fn finalize_opaque_upload_session(
     state: &PrimaryAppState,
     session: &upload_session::Model,
-    policy_id: i64,
+    policy: &storage_policy::Model,
     storage_path: &str,
     size: i64,
     actor_username: Option<&str>,
@@ -220,15 +225,21 @@ async fn finalize_s3_upload_session(
         state,
         workspace_storage_service::FinalizeUploadSessionFileParams {
             session,
-            file_hash: &format!("s3-{}", session.id),
+            file_hash: &format!("{}-{}", opaque_blob_hash_prefix(policy), session.id),
             size,
-            policy_id,
+            policy_id: policy.id,
             storage_path,
             now: Utc::now(),
             actor_username,
         },
     )
     .await
+}
+
+fn opaque_blob_hash_prefix(policy: &storage_policy::Model) -> &'static str {
+    workspace_storage_service::resolve_policy_upload_transport(policy)
+        .opaque_blob_hash_prefix()
+        .expect("presigned or multipart completion requires an opaque blob hash prefix")
 }
 
 fn presigned_final_storage_path() -> String {
@@ -243,7 +254,7 @@ async fn copy_presigned_object_to_final_key(
 ) -> Result<(String, i64)> {
     let requested_final_key = presigned_final_storage_path();
     let final_key = driver.copy_object(temp_key, &requested_final_key).await?;
-    let final_size = ensure_uploaded_s3_object_size(
+    let final_size = ensure_uploaded_object_size(
         driver,
         &final_key,
         declared_size,
@@ -262,7 +273,7 @@ async fn copy_presigned_object_to_final_key(
     Ok((final_key, final_size))
 }
 
-async fn complete_s3_multipart_upload_session(
+async fn complete_object_multipart_upload_session(
     state: &PrimaryAppState,
     session: upload_session::Model,
     expected_status: UploadSessionStatus,
@@ -271,13 +282,18 @@ async fn complete_s3_multipart_upload_session(
     actor_username: Option<&str>,
 ) -> Result<file::Model> {
     let db = state.writer_db();
-    let temp_key = session.s3_temp_key.as_deref().ok_or_else(|| {
-        upload_assembly_error_with_code(ApiErrorCode::UploadSessionCorrupted, "missing s3_temp_key")
-    })?;
-    let multipart_id = session.s3_multipart_id.as_deref().ok_or_else(|| {
+    // Historical column names: object multipart support is shared by S3-like
+    // drivers and remote providers even though the DB fields still say `s3`.
+    let temp_key = session.object_temp_key.as_deref().ok_or_else(|| {
         upload_assembly_error_with_code(
             ApiErrorCode::UploadSessionCorrupted,
-            "missing s3_multipart_id",
+            "missing object_temp_key",
+        )
+    })?;
+    let multipart_id = session.object_multipart_id.as_deref().ok_or_else(|| {
+        upload_assembly_error_with_code(
+            ApiErrorCode::UploadSessionCorrupted,
+            "missing object_multipart_id",
         )
     })?;
 
@@ -355,7 +371,7 @@ async fn complete_s3_multipart_upload_session(
                 // 远端节点可能已经完成了 multipart，但最终响应在返回前丢了。
                 // 这时继续按已落盘对象收尾，避免把可恢复的上传直接打成 failed。
                 if upload_completion_error_is_retryable(&error)
-                    && let Ok(actual_size) = ensure_uploaded_s3_object_size(
+                    && let Ok(actual_size) = ensure_uploaded_object_size(
                         driver_ref,
                         temp_key,
                         session.total_size,
@@ -363,10 +379,10 @@ async fn complete_s3_multipart_upload_session(
                     )
                     .await
                 {
-                    return finalize_s3_upload_session(
+                    return finalize_opaque_upload_session(
                         state,
                         &session,
-                        policy.id,
+                        &policy,
                         temp_key,
                         actual_size,
                         actor_username,
@@ -376,7 +392,7 @@ async fn complete_s3_multipart_upload_session(
                 return Err(error);
             }
 
-            let actual_size = ensure_uploaded_s3_object_size(
+            let actual_size = ensure_uploaded_object_size(
                 driver_ref,
                 temp_key,
                 session.total_size,
@@ -384,10 +400,10 @@ async fn complete_s3_multipart_upload_session(
             )
             .await?;
 
-            finalize_s3_upload_session(
+            finalize_opaque_upload_session(
                 state,
                 &session,
-                policy.id,
+                &policy,
                 temp_key,
                 actual_size,
                 actor_username,
@@ -686,8 +702,8 @@ mod tests {
             folder_id: None,
             policy_id: 1,
             status: crate::types::UploadSessionStatus::Assembling,
-            s3_temp_key: Some("temp".to_string()),
-            s3_multipart_id: Some("multipart".to_string()),
+            object_temp_key: Some("temp".to_string()),
+            object_multipart_id: Some("multipart".to_string()),
             file_id: None,
             created_at: chrono::Utc::now(),
             expires_at: chrono::Utc::now(),

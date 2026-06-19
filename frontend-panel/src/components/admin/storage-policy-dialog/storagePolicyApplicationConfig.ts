@@ -2,23 +2,22 @@ import type {
 	CreatePolicyRequest,
 	DriverType,
 	MicrosoftGraphCloud,
-	OneDriveAccountMode,
+	StorageConnectorDescriptor,
 } from "@/types/api";
+import type { StorageApplicationCredentialForm } from "./applicationCredentials";
 
 export interface StorageApplicationConfigForm {
 	driver_type: DriverType;
 	onedrive_cloud: MicrosoftGraphCloud;
-	onedrive_account_mode: OneDriveAccountMode;
 	onedrive_tenant: string;
-	onedrive_client_id: string;
-	onedrive_client_secret: string;
-	onedrive_scopes: string;
+	application_credentials: StorageApplicationCredentialForm;
 }
 
 export function buildStorageApplicationConfig(
 	form: StorageApplicationConfigForm,
+	descriptor?: StorageConnectorDescriptor | null,
 ): CreatePolicyRequest["application_config"] | undefined {
-	if (form.driver_type !== "one_drive") {
+	if (!supportsMicrosoftGraphApplicationConfig(form, descriptor)) {
 		return undefined;
 	}
 	return {
@@ -26,15 +25,32 @@ export function buildStorageApplicationConfig(
 	};
 }
 
+function supportsMicrosoftGraphApplicationConfig(
+	form: StorageApplicationConfigForm,
+	descriptor?: StorageConnectorDescriptor | null,
+) {
+	if (descriptor) {
+		return descriptor.fields.some(
+			(field) =>
+				field.scope === "application_credential" && field.name === "client_id",
+		);
+	}
+
+	// Fallback only covers the pre-descriptor loading window. Once descriptors
+	// are available, the concrete connector owns the application config shape.
+	return form.driver_type === "one_drive";
+}
+
 function buildMicrosoftGraphApplicationConfig(
 	form: StorageApplicationConfigForm,
 ) {
-	const scopes = parseMicrosoftGraphScopes(form.onedrive_scopes);
+	const microsoftGraph = form.application_credentials.microsoft_graph;
+	const scopes = parseMicrosoftGraphScopes(microsoftGraph?.scopes ?? "");
 	return {
-		cloud: form.onedrive_cloud,
-		tenant: form.onedrive_tenant || undefined,
-		client_id: form.onedrive_client_id || undefined,
-		client_secret: form.onedrive_client_secret || undefined,
+		cloud: microsoftGraph?.cloud ?? form.onedrive_cloud,
+		tenant: microsoftGraph?.tenant || form.onedrive_tenant || undefined,
+		client_id: microsoftGraph?.client_id || undefined,
+		client_secret: microsoftGraph?.client_secret || undefined,
 		scopes: scopes.length > 0 ? scopes : undefined,
 	};
 }

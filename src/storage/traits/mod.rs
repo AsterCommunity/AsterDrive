@@ -8,7 +8,7 @@ pub use driver::{BlobMetadata, PresignedDownloadOptions, StorageDriver, StorageP
 pub use extensions::{
     ListStorageDriver, LocalPathStorageDriver, NativeMediaMetadataRequest,
     NativeMediaMetadataResult, NativeMediaMetadataStorageDriver, NativeThumbnailRequest,
-    NativeThumbnailStorageDriver, PresignedStorageDriver, StorageCapacityInfo,
-    StorageCapacityStatus, StreamUploadDriver,
+    NativeThumbnailStorageDriver, PresignedStorageDriver, ProviderResumableUploadCapabilities,
+    ProviderResumableUploadDriver, StorageCapacityInfo, StorageCapacityStatus, StreamUploadDriver,
 };
 pub use multipart::{MultipartStorageDriver, UploadedMultipartPart};

@@ -28,7 +28,7 @@ pub(crate) use crate::services::workspace_storage_core::{
     FinalizeUploadSessionFileParams, VerifiedFolderPolicyHint, check_quota,
     create_exact_file_from_blob, create_exact_file_from_blob_with_actor_username,
     create_new_file_from_blob, create_new_file_from_blob_with_actor_username,
-    create_nondedup_blob_with_key, create_remote_nondedup_blob, create_s3_nondedup_blob,
+    create_nondedup_blob_with_key, create_opaque_nondedup_blob,
     ensure_policy_available_for_folder_binding, ensure_upload_parent_path,
     finalize_upload_session_blob_with_actor_username, finalize_upload_session_file,
     load_storage_limits, local_content_dedup_enabled, parse_relative_upload_path,

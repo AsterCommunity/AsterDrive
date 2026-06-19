@@ -1,7 +1,3 @@
-import type {
-	RemoteDownloadStrategy,
-	RemoteUploadStrategy,
-} from "@/components/admin/storagePolicyDialogShared";
 import { Label } from "@/components/ui/label";
 import {
 	Select,
@@ -10,7 +6,11 @@ import {
 	SelectTrigger,
 	SelectValue,
 } from "@/components/ui/select";
-import type { RemoteNodeInfo } from "@/types/api";
+import type {
+	RemoteDownloadStrategy,
+	RemoteNodeInfo,
+	RemoteUploadStrategy,
+} from "@/types/api";
 import type {
 	SelectOption,
 	SharedFieldProps,

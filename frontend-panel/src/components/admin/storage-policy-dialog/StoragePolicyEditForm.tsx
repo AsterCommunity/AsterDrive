@@ -19,20 +19,6 @@ import {
 	StorageNativeProcessingField,
 	type StoragePolicyDriverOption,
 } from "@/components/admin/StoragePolicyDialogFields";
-import {
-	isObjectStorageDriver,
-	isOneDriveDriver,
-	type PolicyFormData,
-	supportsApplicationCredentials,
-	supportsContentDedupPolicyOption,
-	supportsCredentialValidationAction,
-	supportsObjectStorageConnection,
-	supportsOneDrivePolicyOptions,
-	supportsRemoteNodeBinding,
-	supportsS3TransferStrategy,
-	supportsStorageAuthorizationAction,
-	supportsStorageNativeProcessing,
-} from "@/components/admin/storagePolicyDialogShared";
 import { AnimatedCollapsible } from "@/components/common/AnimatedCollapsible";
 import { InlineConfirm } from "@/components/common/ManagerDialogShell";
 import { Badge } from "@/components/ui/badge";
@@ -47,6 +33,18 @@ import type {
 	StoragePolicyCapacityInfo,
 	StoragePolicyCredentialInfo,
 } from "@/types/api";
+import {
+	supportsApplicationCredentials,
+	supportsContentDedupPolicyOption,
+	supportsCredentialValidationAction,
+	supportsObjectStorageConnection,
+	supportsOneDrivePolicyOptions,
+	supportsRemoteNodeBinding,
+	supportsS3TransferStrategy,
+	supportsStorageAuthorizationAction,
+	supportsStorageNativeProcessing,
+} from "./descriptorPredicates";
+import type { PolicyFormData } from "./formTypes";
 import type { StoragePolicyFieldChangeHandler } from "./StoragePolicyDialogTypes";
 
 interface StoragePolicyEditFormProps {
@@ -168,6 +166,7 @@ export function StoragePolicyEditForm({
 				currentDriverBadgeClass={currentDriverBadgeClass}
 				currentStorageOption={currentStorageOption}
 				form={form}
+				storageDriverDescriptor={storageDriverDescriptor}
 				policyCapacity={policyCapacity}
 				policyCapacityLoading={policyCapacityLoading}
 				t={t}
@@ -188,6 +187,7 @@ export function StoragePolicyEditForm({
 						/>
 						<PolicyBasePathField
 							form={form}
+							storageDriverDescriptor={storageDriverDescriptor}
 							t={t}
 							onFieldChange={onFieldChange}
 						/>
@@ -206,6 +206,7 @@ export function StoragePolicyEditForm({
 								bucketError={createBucketError}
 								endpointValidationMessage={endpointValidationMessage}
 								isCreateMode={false}
+								storageDriverDescriptor={storageDriverDescriptor}
 								t={t}
 								onFieldChange={onFieldChange}
 								onSyncNormalizedS3Form={onSyncNormalizedS3Form}
@@ -224,12 +225,7 @@ export function StoragePolicyEditForm({
 									/>
 								) : null}
 							</AnimatedCollapsible>
-							<AnimatedCollapsible
-								open={
-									form.driver_type === "tencent_cos" &&
-									canConfigureTencentCosCors
-								}
-							>
+							<AnimatedCollapsible open={canConfigureTencentCosCors}>
 								<TencentCosCorsPanel
 									confirmOpen={cosCorsConfirmOpen}
 									submitting={cosCorsSubmitting}
@@ -464,6 +460,7 @@ function PolicyEditContextBar({
 	currentDriverBadgeClass,
 	currentStorageOption,
 	form,
+	storageDriverDescriptor,
 	policyCapacity,
 	policyCapacityLoading,
 	t,
@@ -471,6 +468,7 @@ function PolicyEditContextBar({
 	currentDriverBadgeClass: string;
 	currentStorageOption: StoragePolicyDriverOption;
 	form: PolicyFormData;
+	storageDriverDescriptor: StorageConnectorDescriptor | null;
 	policyCapacity: StoragePolicyCapacityInfo | null;
 	policyCapacityLoading: boolean;
 	t: (key: string, values?: Record<string, number | string>) => string;
@@ -481,7 +479,10 @@ function PolicyEditContextBar({
 	const displayName = form.name.trim() || t("new_policy");
 	const displayBasePath =
 		form.base_path.trim() ||
-		(form.driver_type === "local" ? "./data" : t("core:root"));
+		translateStorageConnectorUiValue(
+			storageDriverDescriptor?.ui?.base_path_empty_display ?? "core:root",
+			t,
+		);
 	const capacityStatus = policyCapacityLoading
 		? t("policy_capacity_checking")
 		: capacity
@@ -506,6 +507,9 @@ function PolicyEditContextBar({
 					total: formatBytes(capacity.total_bytes),
 				})
 			: null;
+	const contextDescriptionKey =
+		storageDriverDescriptor?.ui?.edit_context_key ??
+		getPolicyEditContextDescriptionKey(storageDriverDescriptor);
 
 	return (
 		<section
@@ -548,15 +552,7 @@ function PolicyEditContextBar({
 						{t("base_path")}: {displayBasePath}
 					</p>
 					<p className="mt-1 text-sm leading-6 text-muted-foreground">
-						{isObjectStorageDriver(form.driver_type)
-							? form.driver_type === "azure_blob"
-								? t("policy_edit_context_azure_blob_desc")
-								: t("policy_edit_context_s3_desc")
-							: form.driver_type === "remote"
-								? t("policy_edit_context_remote_desc")
-								: isOneDriveDriver(form.driver_type)
-									? t("policy_edit_context_onedrive_desc")
-									: t("policy_edit_context_local_desc")}
+						{t(contextDescriptionKey)}
 					</p>
 				</div>
 
@@ -586,6 +582,31 @@ function PolicyEditContextBar({
 			</div>
 		</section>
 	);
+}
+
+function getPolicyEditContextDescriptionKey(
+	descriptor: StorageConnectorDescriptor | null,
+) {
+	if (supportsObjectStorageConnection(descriptor)) {
+		return "policy_edit_context_s3_desc";
+	}
+	if (supportsRemoteNodeBinding(descriptor)) {
+		return "policy_edit_context_remote_desc";
+	}
+	if (
+		supportsApplicationCredentials(descriptor) ||
+		supportsOneDrivePolicyOptions(descriptor)
+	) {
+		return "policy_edit_context_onedrive_desc";
+	}
+	return "policy_edit_context_local_desc";
+}
+
+function translateStorageConnectorUiValue(
+	value: string,
+	t: (key: string) => string,
+) {
+	return value.includes(":") ? t(value) : value;
 }
 
 function S3DriverPromotionPanel({

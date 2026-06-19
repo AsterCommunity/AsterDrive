@@ -1,6 +1,10 @@
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ADMIN_CONTROL_HEIGHT_CLASS } from "@/lib/constants";
+import {
+	microsoftGraphCredentials,
+	updateMicrosoftGraphCredentials,
+} from "./applicationCredentials";
 import type { SharedFieldProps } from "./StoragePolicyFieldTypes";
 
 export function OneDriveApplicationFields({
@@ -19,6 +23,7 @@ export function OneDriveApplicationFields({
 }) {
 	const clientIdErrorId = "onedrive_client_id_error";
 	const clientSecretErrorId = "onedrive_client_secret_error";
+	const microsoftGraph = microsoftGraphCredentials(form);
 
 	return (
 		<div className="grid gap-4 md:grid-cols-2">
@@ -26,9 +31,14 @@ export function OneDriveApplicationFields({
 				<Label htmlFor="onedrive_client_id">{t("onedrive_client_id")}</Label>
 				<Input
 					id="onedrive_client_id"
-					value={form.onedrive_client_id}
+					value={microsoftGraph.client_id}
 					onChange={(event) =>
-						onFieldChange("onedrive_client_id", event.target.value)
+						onFieldChange(
+							"application_credentials",
+							updateMicrosoftGraphCredentials(form, {
+								client_id: event.target.value,
+							}),
+						)
 					}
 					aria-invalid={showValidation && clientIdError ? true : undefined}
 					aria-describedby={
@@ -56,9 +66,14 @@ export function OneDriveApplicationFields({
 				<Input
 					id="onedrive_client_secret"
 					type="password"
-					value={form.onedrive_client_secret}
+					value={microsoftGraph.client_secret}
 					onChange={(event) =>
-						onFieldChange("onedrive_client_secret", event.target.value)
+						onFieldChange(
+							"application_credentials",
+							updateMicrosoftGraphCredentials(form, {
+								client_secret: event.target.value,
+							}),
+						)
 					}
 					aria-invalid={showValidation && clientSecretError ? true : undefined}
 					aria-describedby={

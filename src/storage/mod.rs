@@ -16,8 +16,8 @@ pub mod remote_protocol;
 pub mod traits;
 
 pub use connector_descriptor::{
-    StorageConnectorAction, StorageConnectorActionDescriptor, StorageConnectorActionEndpoint,
-    StorageConnectorActionKind, StorageConnectorCapabilities, StorageConnectorCredentialMode,
+    StorageConnectorActionDescriptor, StorageConnectorActionEndpoint, StorageConnectorActionKind,
+    StorageConnectorAffordanceAction, StorageConnectorCapabilities, StorageConnectorCredentialMode,
     StorageConnectorDescriptor, StorageConnectorDescriptorProvider,
     StorageConnectorFieldDescriptor, StorageConnectorFieldKind, StorageConnectorFieldScope,
     StorageConnectorUploadWorkflows, StoragePolicyExecutableAction,

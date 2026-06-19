@@ -613,7 +613,9 @@ mod tests {
     use super::*;
     use crate::config::{CacheConfig, Config, DatabaseConfig, RuntimeConfig};
     use crate::db;
-    use crate::db::repository::storage_policy_credential_repo;
+    use crate::db::repository::{
+        storage_connector_application_config_repo, storage_policy_credential_repo,
+    };
     use crate::storage::{DriverRegistry, PolicySnapshot};
     use crate::types::{
         MicrosoftGraphCloud, OneDriveAccountMode, StorageCredentialKind, StorageCredentialProvider,
@@ -724,6 +726,21 @@ mod tests {
         assert_eq!(stored.access_key, "");
         assert_eq!(stored.secret_key, "");
 
+        let application_config =
+            storage_connector_application_config_repo::find_by_policy_provider(
+                state.writer_db(),
+                policy.id,
+                StorageCredentialProvider::MicrosoftGraph,
+            )
+            .await
+            .expect("application config lookup should succeed")
+            .expect("application config should exist");
+        assert_eq!(
+            application_config.client_id,
+            Some("metadata-client-id".to_string())
+        );
+        assert!(application_config.client_secret_ciphertext.is_some());
+
         let credential = storage_policy_credential_repo::find_by_policy_provider_kind(
             state.writer_db(),
             policy.id,
@@ -731,12 +748,11 @@ mod tests {
             StorageCredentialKind::OauthDelegated,
         )
         .await
-        .expect("credential lookup should succeed")
-        .expect("credential config should exist");
-        let metadata: serde_json::Value =
-            serde_json::from_str(&credential.metadata).expect("metadata should parse");
-        assert_eq!(metadata["client_id"], "metadata-client-id");
-        assert_eq!(metadata["client_secret_configured"], true);
+        .expect("credential lookup should succeed");
+        assert!(
+            credential.is_none(),
+            "saving connector app config must not create an OAuth authorization credential"
+        );
     }
 
     #[tokio::test]
@@ -796,6 +812,21 @@ mod tests {
         assert_eq!(stored.access_key, "");
         assert_eq!(stored.secret_key, "");
 
+        let application_config =
+            storage_connector_application_config_repo::find_by_policy_provider(
+                state.writer_db(),
+                policy.id,
+                StorageCredentialProvider::MicrosoftGraph,
+            )
+            .await
+            .expect("application config lookup should succeed")
+            .expect("application config should exist");
+        assert_eq!(
+            application_config.client_id,
+            Some("metadata-client-id".to_string())
+        );
+        assert!(application_config.client_secret_ciphertext.is_some());
+
         let credential = storage_policy_credential_repo::find_by_policy_provider_kind(
             state.writer_db(),
             policy.id,
@@ -803,11 +834,10 @@ mod tests {
             StorageCredentialKind::OauthDelegated,
         )
         .await
-        .expect("credential lookup should succeed")
-        .expect("credential config should exist");
-        let metadata: serde_json::Value =
-            serde_json::from_str(&credential.metadata).expect("metadata should parse");
-        assert_eq!(metadata["client_id"], "metadata-client-id");
-        assert_eq!(metadata["client_secret_configured"], true);
+        .expect("credential lookup should succeed");
+        assert!(
+            credential.is_none(),
+            "updating connector app config must not create an OAuth authorization credential"
+        );
     }
 }

@@ -33,7 +33,7 @@ describe("storagePolicyDialogShared", () => {
 	const descriptor = {
 		actions: [
 			{
-				action: "test_saved_connection",
+				affordance_action: "test_saved_connection",
 				endpoints: ["test_policy_connection"],
 				kind: "connection_test",
 				mutates_remote_state: false,
@@ -129,8 +129,11 @@ describe("storagePolicyDialogShared", () => {
 		} as never;
 		const onedriveDescriptor = {
 			actions: [
-				{ action: "start_authorization", kind: "authorization" },
-				{ action: "validate_credential", kind: "credential_validation" },
+				{ affordance_action: "start_authorization", kind: "authorization" },
+				{
+					affordance_action: "validate_credential",
+					kind: "credential_validation",
+				},
 			],
 			capabilities: {
 				remote_node_binding: false,
@@ -298,9 +301,15 @@ describe("storagePolicyDialogShared", () => {
 			onedrive_root_item_id: "",
 			onedrive_site_id: "",
 			onedrive_group_id: "",
-			onedrive_client_id: "",
-			onedrive_client_secret: "",
-			onedrive_scopes: "",
+			application_credentials: {
+				microsoft_graph: {
+					cloud: "global",
+					tenant: "common",
+					client_id: "",
+					client_secret: "",
+					scopes: "",
+				},
+			},
 			storage_native_processing_enabled: true,
 			storage_native_media_metadata_enabled: false,
 			thumbnail_processor: "storage_native",
@@ -414,17 +423,29 @@ describe("storagePolicyDialogShared", () => {
 			onedrive_drive_id: "drive-1",
 			onedrive_root_item_id: "root-item-1",
 			onedrive_site_id: "site-1",
-			onedrive_client_id: "",
-			onedrive_client_secret: "",
-			onedrive_scopes: "",
+			application_credentials: {
+				microsoft_graph: {
+					cloud: "china",
+					tenant: "contoso.partner.onmschina.cn",
+					client_id: "",
+					client_secret: "",
+					scopes: "",
+				},
+			},
 		});
 
 		expect(
 			buildCreatePolicyPayload({
 				...form,
-				onedrive_client_id: "client-id",
-				onedrive_client_secret: "secret",
-				onedrive_scopes: "Files.ReadWrite.All offline_access",
+				application_credentials: {
+					microsoft_graph: {
+						cloud: "china",
+						tenant: "contoso.partner.onmschina.cn",
+						client_id: "client-id",
+						client_secret: "secret",
+						scopes: "Files.ReadWrite.All offline_access",
+					},
+				},
 			}),
 		).toMatchObject({
 			access_key: "",
@@ -451,8 +472,15 @@ describe("storagePolicyDialogShared", () => {
 		expect(
 			buildUpdatePolicyPayload({
 				...form,
-				onedrive_client_id: "new-client-id",
-				onedrive_client_secret: "new-secret",
+				application_credentials: {
+					microsoft_graph: {
+						cloud: "china",
+						tenant: "contoso.partner.onmschina.cn",
+						client_id: "new-client-id",
+						client_secret: "new-secret",
+						scopes: "",
+					},
+				},
 			}),
 		).toMatchObject({
 			application_config: {
@@ -618,20 +646,38 @@ describe("storagePolicyDialogShared", () => {
 			storage_native_media_metadata_enabled: false,
 			media_metadata_extensions: [],
 		};
+		const azureDescriptor = {
+			fields: [
+				{
+					invalid_protocol_message_key:
+						"azure_blob_endpoint_protocol_required_error",
+					name: "endpoint",
+					scope: "connection",
+				},
+				{ name: "bucket", scope: "connection" },
+				{ name: "access_key", scope: "connection" },
+				{ name: "secret_key", scope: "connection" },
+			],
+			upload_workflows: {
+				object_multipart_upload: true,
+			},
+		} as never;
 
-		expect(getEndpointValidationMessage(baseForm, t)).toBe(
+		expect(getEndpointValidationMessage(baseForm, t, azureDescriptor)).toBe(
 			"azure_blob_endpoint_protocol_required_error",
 		);
 		expect(
 			getEndpointValidationMessage(
 				{ ...baseForm, endpoint: "https://acct.blob.core.windows.net" },
 				t,
+				azureDescriptor,
 			),
 		).toBeNull();
 		expect(
 			getEndpointValidationMessage(
 				{ ...baseForm, endpoint: "ftp://acct.blob.core.windows.net" },
 				t,
+				azureDescriptor,
 			),
 		).toBe("azure_blob_endpoint_protocol_required_error");
 		expect(
@@ -967,6 +1013,154 @@ describe("storagePolicyDialogShared", () => {
 			thumbnail_processor: "storage_native",
 			thumbnail_extensions: ["png", "jpg"],
 		});
+	});
+
+	it("serializes policy options from connector descriptor fields when descriptors are present", () => {
+		const remoteForm = {
+			name: "Remote",
+			driver_type: "remote" as const,
+			endpoint: "",
+			bucket: "",
+			access_key: "",
+			secret_key: "",
+			base_path: "",
+			remote_node_id: "9",
+			max_file_size: "",
+			chunk_size: "5",
+			is_default: false,
+			content_dedup: true,
+			remote_download_strategy: "presigned" as const,
+			remote_upload_strategy: "presigned" as const,
+			s3_upload_strategy: "presigned" as const,
+			s3_download_strategy: "presigned" as const,
+			storage_native_processing_enabled: false,
+			thumbnail_processor: null,
+			thumbnail_extensions: [],
+		};
+		const remoteDescriptor = {
+			fields: [
+				{ name: "remote_download_strategy", scope: "policy_options" },
+				{ name: "remote_upload_strategy", scope: "policy_options" },
+			],
+		} as never;
+		const descriptorWithoutRemoteUpload = {
+			fields: [{ name: "remote_download_strategy", scope: "policy_options" }],
+		} as never;
+
+		expect(
+			buildCreatePolicyPayload(remoteForm, remoteDescriptor).options,
+		).toEqual({
+			remote_download_strategy: "presigned",
+			remote_upload_strategy: "presigned",
+		});
+		expect(
+			buildCreatePolicyPayload(remoteForm, descriptorWithoutRemoteUpload)
+				.options,
+		).toEqual({
+			remote_download_strategy: "presigned",
+		});
+
+		const s3Form = {
+			...remoteForm,
+			driver_type: "s3" as const,
+			endpoint: "https://s3.example.com",
+			bucket: "bucket",
+			access_key: "AKID",
+			secret_key: "SECRET",
+			remote_node_id: "",
+			s3_path_style: false,
+		};
+		const s3Descriptor = {
+			fields: [
+				{ name: "s3_upload_strategy", scope: "policy_options" },
+				{ name: "s3_download_strategy", scope: "policy_options" },
+				{ name: "s3_path_style", scope: "policy_options" },
+			],
+		} as never;
+		const azureDescriptor = {
+			fields: [
+				{ name: "s3_upload_strategy", scope: "policy_options" },
+				{ name: "s3_download_strategy", scope: "policy_options" },
+			],
+		} as never;
+
+		expect(buildCreatePolicyPayload(s3Form, s3Descriptor).options).toEqual({
+			s3_upload_strategy: "presigned",
+			s3_download_strategy: "presigned",
+			s3_path_style: false,
+		});
+		expect(buildCreatePolicyPayload(s3Form, azureDescriptor).options).toEqual({
+			s3_upload_strategy: "presigned",
+			s3_download_strategy: "presigned",
+		});
+	});
+
+	it("uses application credential descriptor fields for Microsoft Graph app config", () => {
+		const form = {
+			name: "Graph",
+			driver_type: "one_drive" as const,
+			endpoint: "",
+			bucket: "",
+			access_key: "legacy",
+			secret_key: "legacy-secret",
+			base_path: "",
+			remote_node_id: "",
+			max_file_size: "",
+			chunk_size: "5",
+			is_default: false,
+			content_dedup: false,
+			remote_download_strategy: "relay_stream" as const,
+			remote_upload_strategy: "relay_stream" as const,
+			s3_upload_strategy: "relay_stream" as const,
+			s3_download_strategy: "relay_stream" as const,
+			onedrive_cloud: "global" as const,
+			onedrive_account_mode: "work_or_school" as const,
+			onedrive_tenant: " common ",
+			onedrive_drive_id: "",
+			onedrive_root_item_id: "",
+			onedrive_site_id: "",
+			onedrive_group_id: "",
+			application_credentials: {
+				microsoft_graph: {
+					cloud: "global" as const,
+					tenant: " common ",
+					client_id: " client-id ",
+					client_secret: " secret ",
+					scopes: "Files.ReadWrite.All Files.ReadWrite.All",
+				},
+			},
+			storage_native_processing_enabled: false,
+			thumbnail_processor: null,
+			thumbnail_extensions: [],
+		};
+		const descriptor = {
+			fields: [
+				{ name: "client_id", scope: "application_credential" },
+				{ name: "account_mode", scope: "policy_options" },
+			],
+		} as never;
+
+		expect(buildCreatePolicyPayload(form, descriptor)).toMatchObject({
+			access_key: "",
+			secret_key: "",
+			application_config: {
+				microsoft_graph: {
+					client_id: "client-id",
+					client_secret: "secret",
+					tenant: "common",
+					scopes: ["Files.ReadWrite.All"],
+				},
+			},
+			options: {
+				onedrive_cloud: "global",
+				onedrive_account_mode: "work_or_school",
+				onedrive_tenant: "common",
+				onedrive_root_item_id: "root",
+			},
+		});
+		expect(
+			buildCreatePolicyPayload(form, { fields: [] } as never),
+		).not.toHaveProperty("application_config");
 	});
 
 	it("keeps storage-native thumbnail suffixes independent per policy", () => {

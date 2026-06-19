@@ -580,6 +580,26 @@ vi.mock("@/services/adminService", () => ({
 	},
 }));
 
+type TestStorageFieldDescriptor = {
+	help_key?: string;
+	invalid_protocol_message_key?: string;
+	kind: "text" | "secret" | "select" | "boolean" | "number";
+	label_key: string;
+	name: string;
+	options?: string[];
+	placeholder?: string;
+	required: boolean;
+	required_message_key?: string;
+	scope:
+		| "connection"
+		| "policy_options"
+		| "application_credential"
+		| "remote_node_binding";
+	secret: boolean;
+	trim_on_blur?: boolean;
+	visible_when_driver_types?: string[];
+};
+
 function createPolicy(overrides: Record<string, unknown> = {}) {
 	return {
 		allowed_types: [],
@@ -600,43 +620,187 @@ function createPolicy(overrides: Record<string, unknown> = {}) {
 	};
 }
 
-const objectStorageConnectionFields = [
-	{
-		kind: "text",
-		name: "endpoint",
-		required: true,
-		scope: "connection",
-		secret: false,
-	},
-	{
-		kind: "text",
-		name: "bucket",
-		required: true,
-		scope: "connection",
-		secret: false,
-	},
-	{
-		kind: "text",
-		name: "access_key",
-		required: true,
-		scope: "connection",
-		secret: false,
-	},
-	{
-		kind: "secret",
-		name: "secret_key",
-		required: true,
-		scope: "connection",
-		secret: true,
-	},
-	{
-		kind: "text",
-		name: "base_path",
+function fieldDescriptor(
+	name: string,
+	scope: TestStorageFieldDescriptor["scope"],
+	kind: TestStorageFieldDescriptor["kind"],
+	overrides: Partial<TestStorageFieldDescriptor> = {},
+): TestStorageFieldDescriptor {
+	return {
+		kind,
+		label_key: name,
+		name,
 		required: false,
-		scope: "connection",
-		secret: false,
-	},
+		scope,
+		secret: kind === "secret",
+		...overrides,
+	};
+}
+
+function objectStorageConnectionFields(
+	driverType: "s3" | "tencent_cos" | "azure_blob",
+) {
+	const endpointDisplayByDriver = {
+		azure_blob: {
+			help_key: "azure_blob_endpoint_hint",
+			placeholder: "https://<account>.blob.core.windows.net",
+		},
+		s3: {
+			help_key: "s3_endpoint_hint",
+			placeholder: "https://s3.amazonaws.com",
+		},
+		tencent_cos: {
+			help_key: "cos_endpoint_hint",
+			placeholder: "https://<bucket-appid>.cos.<region>.myqcloud.com",
+		},
+	} satisfies Record<
+		typeof driverType,
+		Pick<TestStorageFieldDescriptor, "help_key" | "placeholder">
+	>;
+
+	return [
+		fieldDescriptor("endpoint", "connection", "text", {
+			...endpointDisplayByDriver[driverType],
+			invalid_protocol_message_key:
+				driverType === "azure_blob"
+					? "azure_blob_endpoint_protocol_required_error"
+					: "s3_endpoint_protocol_required_error",
+			required: true,
+		}),
+		fieldDescriptor("bucket", "connection", "text", {
+			required: true,
+			required_message_key:
+				driverType === "azure_blob"
+					? "policy_wizard_container_required"
+					: "policy_wizard_bucket_required",
+		}),
+		fieldDescriptor("access_key", "connection", "text", {
+			label_key:
+				driverType === "azure_blob" ? "azure_blob_account_name" : "access_key",
+			required: true,
+			trim_on_blur: driverType === "azure_blob",
+		}),
+		fieldDescriptor("secret_key", "connection", "secret", {
+			label_key:
+				driverType === "azure_blob" ? "azure_blob_account_key" : "secret_key",
+			required: true,
+		}),
+		fieldDescriptor("base_path", "connection", "text"),
+	];
+}
+
+const objectStoragePolicyOptionFields = [
+	fieldDescriptor("s3_upload_strategy", "policy_options", "select", {
+		options: ["relay_stream", "presigned"],
+		required: true,
+	}),
+	fieldDescriptor("s3_download_strategy", "policy_options", "select", {
+		options: ["relay_stream", "presigned"],
+		required: true,
+	}),
 ] as const;
+
+const s3PolicyOptionFields = [
+	...objectStoragePolicyOptionFields,
+	fieldDescriptor("s3_path_style", "policy_options", "boolean", {
+		help_key: "s3_path_style_desc",
+		visible_when_driver_types: ["s3"],
+	}),
+] as const;
+
+const remotePolicyOptionFields = [
+	fieldDescriptor("remote_download_strategy", "policy_options", "select", {
+		options: ["relay_stream", "presigned"],
+		required: true,
+	}),
+	fieldDescriptor("remote_upload_strategy", "policy_options", "select", {
+		options: ["relay_stream", "presigned"],
+		required: true,
+	}),
+] as const;
+
+function storageConnectorUi(driverType: string) {
+	const sharedObjectStorageUi = {
+		base_path_empty_display: "core:root",
+		base_path_placeholder: "tenant/prefix",
+		config_step_title_key: "policy_wizard_step_connection_title",
+		edit_context_key: "policy_edit_context_s3_desc",
+	};
+
+	switch (driverType) {
+		case "local":
+			return {
+				base_path_empty_display: "./data",
+				base_path_placeholder: "./data",
+				config_step_description_key: "policy_wizard_step_local_desc",
+				config_step_title_key: "policy_wizard_step_local_title",
+				description_key: "policy_wizard_local_storage_desc",
+				edit_context_key: "policy_edit_context_local_desc",
+				helper_key: "policy_wizard_local_helper",
+				icon_name: null,
+				icon_src: "/static/asterdrive/asterdrive-dark.svg",
+				label_key: "driver_type_local",
+			};
+		case "remote":
+			return {
+				base_path_empty_display: "core:root",
+				base_path_placeholder: "workspace/path",
+				config_step_description_key: "policy_wizard_step_remote_desc",
+				config_step_title_key: "policy_wizard_step_remote_title",
+				description_key: "policy_wizard_remote_storage_desc",
+				edit_context_key: "policy_edit_context_remote_desc",
+				helper_key: "policy_wizard_remote_helper",
+				icon_name: null,
+				icon_src: "/static/storage/asterdrive-node.svg",
+				label_key: "driver_type_remote",
+			};
+		case "tencent_cos":
+			return {
+				...sharedObjectStorageUi,
+				config_step_description_key:
+					"policy_wizard_step_tencent_cos_connection_desc",
+				description_key: "policy_wizard_tencent_cos_storage_desc",
+				helper_key: "policy_wizard_tencent_cos_helper",
+				icon_name: null,
+				icon_src: "/static/storage/tencent-cloud-cos.webp",
+				label_key: "driver_type_tencent_cos",
+			};
+		case "azure_blob":
+			return {
+				...sharedObjectStorageUi,
+				config_step_description_key:
+					"policy_wizard_step_azure_blob_connection_desc",
+				description_key: "policy_wizard_azure_blob_storage_desc",
+				helper_key: "policy_wizard_azure_blob_helper",
+				icon_name: null,
+				icon_src: "/static/storage/azure-blob.svg",
+				label_key: "driver_type_azure_blob",
+			};
+		case "one_drive":
+			return {
+				base_path_empty_display: "policy_base_path_root",
+				base_path_placeholder: "Documents/Projects",
+				config_step_description_key: "policy_wizard_step_onedrive_desc",
+				config_step_title_key: "policy_wizard_step_onedrive_title",
+				description_key: "policy_wizard_onedrive_storage_desc",
+				edit_context_key: "policy_edit_context_onedrive_desc",
+				helper_key: "policy_wizard_onedrive_helper",
+				icon_name: null,
+				icon_src: "/static/storage/onedrive.svg",
+				label_key: "driver_type_onedrive",
+			};
+		default:
+			return {
+				...sharedObjectStorageUi,
+				config_step_description_key: "policy_wizard_step_connection_desc",
+				description_key: "policy_wizard_s3_storage_desc",
+				helper_key: "policy_wizard_s3_helper",
+				icon_name: null,
+				icon_src: "/static/storage/s3.svg",
+				label_key: "driver_type_s3",
+			};
+	}
+}
 
 function createStorageDriverDescriptor(
 	driverType: string,
@@ -644,7 +808,7 @@ function createStorageDriverDescriptor(
 ) {
 	const defaultActions = [
 		{
-			action: "test_draft_connection",
+			affordance_action: "test_draft_connection",
 			endpoints: ["test_policy_params"],
 			kind: "connection_test",
 			mutates_remote_state: false,
@@ -652,7 +816,7 @@ function createStorageDriverDescriptor(
 			requires_saved_policy: false,
 		},
 		{
-			action: "test_saved_connection",
+			affordance_action: "test_saved_connection",
 			endpoints: ["test_policy_connection"],
 			kind: "connection_test",
 			mutates_remote_state: false,
@@ -682,6 +846,7 @@ function createStorageDriverDescriptor(
 		label: driverType,
 		related_issues: [328],
 		requires_authorization: false,
+		ui: storageConnectorUi(driverType),
 		upload_workflows: {
 			frontend_direct_provider_resumable_upload: false,
 			object_multipart_upload: false,
@@ -734,6 +899,7 @@ function createStorageDriverDescriptors() {
 					scope: "connection",
 					secret: false,
 				},
+				...remotePolicyOptionFields,
 			],
 			upload_workflows: {
 				...createStorageDriverDescriptor("remote").upload_workflows,
@@ -747,7 +913,7 @@ function createStorageDriverDescriptors() {
 				presigned_download: true,
 				s3_transfer_strategy: true,
 			},
-			fields: objectStorageConnectionFields,
+			fields: [...objectStorageConnectionFields("s3"), ...s3PolicyOptionFields],
 			upload_workflows: {
 				...createStorageDriverDescriptor("s3").upload_workflows,
 				object_multipart_upload: true,
@@ -757,7 +923,7 @@ function createStorageDriverDescriptors() {
 		createStorageDriverDescriptor("tencent_cos", {
 			actions: [
 				{
-					action: "test_draft_connection",
+					affordance_action: "test_draft_connection",
 					endpoints: ["test_policy_params"],
 					kind: "connection_test",
 					mutates_remote_state: false,
@@ -765,7 +931,7 @@ function createStorageDriverDescriptors() {
 					requires_saved_policy: false,
 				},
 				{
-					action: "test_saved_connection",
+					affordance_action: "test_saved_connection",
 					endpoints: ["test_policy_connection"],
 					kind: "connection_test",
 					mutates_remote_state: false,
@@ -773,7 +939,7 @@ function createStorageDriverDescriptors() {
 					requires_saved_policy: true,
 				},
 				{
-					action: "configure_tencent_cos_cors",
+					policy_action: "configure_tencent_cos_cors",
 					endpoints: [
 						"execute_draft_storage_policy_action",
 						"execute_saved_storage_policy_action",
@@ -791,7 +957,10 @@ function createStorageDriverDescriptors() {
 				storage_native_media_metadata: true,
 				storage_native_thumbnail: true,
 			},
-			fields: objectStorageConnectionFields,
+			fields: [
+				...objectStorageConnectionFields("tencent_cos"),
+				...objectStoragePolicyOptionFields,
+			],
 			upload_workflows: {
 				...createStorageDriverDescriptor("tencent_cos").upload_workflows,
 				object_multipart_upload: true,
@@ -804,7 +973,10 @@ function createStorageDriverDescriptors() {
 				presigned_download: true,
 				s3_transfer_strategy: true,
 			},
-			fields: objectStorageConnectionFields,
+			fields: [
+				...objectStorageConnectionFields("azure_blob"),
+				...objectStoragePolicyOptionFields,
+			],
 			upload_workflows: {
 				...createStorageDriverDescriptor("azure_blob").upload_workflows,
 				object_multipart_upload: true,
@@ -814,7 +986,7 @@ function createStorageDriverDescriptors() {
 		createStorageDriverDescriptor("one_drive", {
 			actions: [
 				{
-					action: "start_authorization",
+					affordance_action: "start_authorization",
 					endpoints: ["start_storage_authorization"],
 					kind: "authorization",
 					mutates_remote_state: false,
@@ -822,7 +994,7 @@ function createStorageDriverDescriptors() {
 					requires_saved_policy: true,
 				},
 				{
-					action: "validate_credential",
+					affordance_action: "validate_credential",
 					endpoints: ["validate_storage_policy_credential"],
 					kind: "credential_validation",
 					mutates_remote_state: false,
@@ -830,7 +1002,7 @@ function createStorageDriverDescriptors() {
 					requires_saved_policy: true,
 				},
 				{
-					action: "test_saved_connection",
+					affordance_action: "test_saved_connection",
 					endpoints: ["test_policy_connection"],
 					kind: "connection_test",
 					mutates_remote_state: false,
@@ -849,31 +1021,17 @@ function createStorageDriverDescriptors() {
 			},
 			credential_mode: "oauth_delegated",
 			fields: [
-				{
-					kind: "text",
-					name: "client_id",
+				fieldDescriptor("client_id", "application_credential", "text", {
 					required: true,
-					scope: "application_credential",
-					secret: false,
-				},
-				{
-					kind: "secret",
-					name: "client_secret",
+				}),
+				fieldDescriptor("client_secret", "application_credential", "secret", {
 					required: true,
-					scope: "application_credential",
-					secret: true,
-				},
-				{
-					kind: "select",
-					name: "cloud",
+				}),
+				fieldDescriptor("cloud", "policy_options", "select", {
 					options: ["global", "china"],
 					required: true,
-					scope: "policy_options",
-					secret: false,
-				},
-				{
-					kind: "select",
-					name: "account_mode",
+				}),
+				fieldDescriptor("account_mode", "policy_options", "select", {
 					options: [
 						"personal",
 						"work_or_school",
@@ -881,44 +1039,12 @@ function createStorageDriverDescriptors() {
 						"group_drive",
 					],
 					required: true,
-					scope: "policy_options",
-					secret: false,
-				},
-				{
-					kind: "text",
-					name: "tenant",
-					required: false,
-					scope: "policy_options",
-					secret: false,
-				},
-				{
-					kind: "text",
-					name: "drive_id",
-					required: false,
-					scope: "policy_options",
-					secret: false,
-				},
-				{
-					kind: "text",
-					name: "root_item_id",
-					required: false,
-					scope: "policy_options",
-					secret: false,
-				},
-				{
-					kind: "text",
-					name: "site_id",
-					required: false,
-					scope: "policy_options",
-					secret: false,
-				},
-				{
-					kind: "text",
-					name: "group_id",
-					required: false,
-					scope: "policy_options",
-					secret: false,
-				},
+				}),
+				fieldDescriptor("tenant", "policy_options", "text"),
+				fieldDescriptor("drive_id", "policy_options", "text"),
+				fieldDescriptor("root_item_id", "policy_options", "text"),
+				fieldDescriptor("site_id", "policy_options", "text"),
+				fieldDescriptor("group_id", "policy_options", "text"),
 			],
 			requires_authorization: true,
 		}),

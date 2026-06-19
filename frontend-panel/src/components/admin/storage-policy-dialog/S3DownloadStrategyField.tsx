@@ -1,4 +1,4 @@
-import type { S3DownloadStrategy } from "@/components/admin/storagePolicyDialogShared";
+import type { S3DownloadStrategy } from "@/types/api";
 import type { SelectOption, SharedFieldProps } from "./StoragePolicyFieldTypes";
 import { StrategySelectField } from "./StoragePolicyStrategyFields";
 

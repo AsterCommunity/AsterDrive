@@ -1,4 +1,4 @@
-import type { PolicyFormData } from "../storagePolicyDialogShared";
+import type { PolicyFormData } from "./formTypes";
 
 export interface StoragePolicyDialogStep {
 	description: string;

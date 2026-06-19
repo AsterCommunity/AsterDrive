@@ -1,8 +1,8 @@
 use super::*;
 use crate::api::api_error_code::ApiErrorCode;
 use crate::storage::connector_descriptor::{
-    StorageConnectorAction, StorageConnectorActionKind, StorageConnectorDescriptorProvider,
-    StoragePolicyExecutableAction,
+    StorageConnectorActionKind, StorageConnectorAffordanceAction,
+    StorageConnectorDescriptorProvider, StorageConnectorFieldScope, StoragePolicyExecutableAction,
 };
 use chrono::Utc;
 
@@ -36,6 +36,73 @@ fn descriptors_cover_every_storage_driver() {
 }
 
 #[test]
+fn descriptors_expose_connector_owned_ui_metadata() {
+    let descriptors = list_storage_driver_descriptors();
+
+    for descriptor in descriptors {
+        assert!(
+            !descriptor.ui.label_key.trim().is_empty(),
+            "{:?} missing label key",
+            descriptor.driver_type
+        );
+        assert!(
+            !descriptor.ui.description_key.trim().is_empty(),
+            "{:?} missing description key",
+            descriptor.driver_type
+        );
+        assert!(
+            !descriptor.ui.helper_key.trim().is_empty(),
+            "{:?} missing create helper key",
+            descriptor.driver_type
+        );
+        assert!(
+            !descriptor.ui.edit_context_key.trim().is_empty(),
+            "{:?} missing edit context key",
+            descriptor.driver_type
+        );
+        assert!(
+            descriptor.ui.icon_src.is_some() || descriptor.ui.icon_name.is_some(),
+            "{:?} should declare a visual affordance",
+            descriptor.driver_type
+        );
+    }
+
+    let local = storage_driver_descriptor(DriverType::Local);
+    assert_eq!(local.ui.label_key, "driver_type_local");
+    assert_eq!(
+        local.ui.config_step_title_key,
+        "policy_wizard_step_local_title"
+    );
+    assert_eq!(
+        local.ui.config_step_description_key,
+        "policy_wizard_step_local_desc"
+    );
+    assert_eq!(local.ui.base_path_empty_display, "./data");
+    assert_eq!(local.ui.base_path_placeholder, "./data");
+
+    let azure = storage_driver_descriptor(DriverType::AzureBlob);
+    assert_eq!(azure.ui.label_key, "driver_type_azure_blob");
+    assert_eq!(azure.ui.helper_key, "policy_wizard_azure_blob_helper");
+    assert_eq!(
+        azure.ui.config_step_description_key,
+        "policy_wizard_step_azure_blob_connection_desc"
+    );
+    assert_eq!(
+        azure.ui.edit_context_key,
+        "policy_edit_context_azure_blob_desc"
+    );
+    assert_eq!(azure.ui.base_path_empty_display, "core:root");
+
+    let onedrive = storage_driver_descriptor(DriverType::OneDrive);
+    assert_eq!(onedrive.ui.label_key, "driver_type_onedrive");
+    assert_eq!(onedrive.ui.helper_key, "policy_wizard_onedrive_helper");
+    assert_eq!(
+        onedrive.ui.config_step_title_key,
+        "policy_wizard_step_onedrive_title"
+    );
+}
+
+#[test]
 fn connector_registry_covers_every_builtin_storage_driver() {
     for driver_type in [
         DriverType::Local,
@@ -58,11 +125,89 @@ fn local_descriptor_declares_content_dedup_policy_option() {
 
     assert!(descriptor.fields.iter().any(|field| {
         field.name == "content_dedup"
-            && field.scope
-                == crate::storage::connector_descriptor::StorageConnectorFieldScope::PolicyOptions
+            && field.scope == StorageConnectorFieldScope::PolicyOptions
             && field.kind
                 == crate::storage::connector_descriptor::StorageConnectorFieldKind::Boolean
     }));
+}
+
+#[test]
+fn transfer_strategy_policy_options_are_declared_by_descriptors() {
+    let s3 = storage_driver_descriptor(DriverType::S3);
+    assert!(has_policy_option(&s3, "s3_upload_strategy"));
+    assert!(has_policy_option(&s3, "s3_download_strategy"));
+    assert!(has_policy_option(&s3, "s3_path_style"));
+
+    let azure_blob = storage_driver_descriptor(DriverType::AzureBlob);
+    assert!(has_policy_option(&azure_blob, "s3_upload_strategy"));
+    assert!(has_policy_option(&azure_blob, "s3_download_strategy"));
+    assert!(!has_policy_option(&azure_blob, "s3_path_style"));
+
+    let remote = storage_driver_descriptor(DriverType::Remote);
+    assert!(has_policy_option(&remote, "remote_download_strategy"));
+    assert!(has_policy_option(&remote, "remote_upload_strategy"));
+}
+
+#[test]
+fn object_storage_connection_field_display_metadata_is_connector_owned() {
+    let s3 = storage_driver_descriptor(DriverType::S3);
+    let s3_endpoint = field(&s3, "endpoint");
+    assert_eq!(s3_endpoint.label_key, "endpoint");
+    assert_eq!(
+        s3_endpoint.placeholder.as_deref(),
+        Some("https://s3.amazonaws.com")
+    );
+    assert_eq!(s3_endpoint.help_key.as_deref(), Some("s3_endpoint_hint"));
+    let s3_path_style = field(&s3, "s3_path_style");
+    assert_eq!(s3_path_style.label_key, "s3_path_style");
+    assert_eq!(
+        s3_path_style.help_key.as_deref(),
+        Some("s3_path_style_desc")
+    );
+    assert_eq!(
+        s3_path_style.visible_when_driver_types,
+        vec![DriverType::S3]
+    );
+
+    let azure_blob = storage_driver_descriptor(DriverType::AzureBlob);
+    assert_eq!(
+        field(&azure_blob, "endpoint").placeholder.as_deref(),
+        Some("https://<account>.blob.core.windows.net")
+    );
+    assert_eq!(
+        field(&azure_blob, "endpoint").help_key.as_deref(),
+        Some("azure_blob_endpoint_hint")
+    );
+    assert_eq!(
+        field(&azure_blob, "endpoint")
+            .invalid_protocol_message_key
+            .as_deref(),
+        Some("azure_blob_endpoint_protocol_required_error")
+    );
+    assert_eq!(
+        field(&azure_blob, "access_key").label_key,
+        "azure_blob_account_name"
+    );
+    assert!(field(&azure_blob, "access_key").trim_on_blur);
+    assert_eq!(
+        field(&azure_blob, "secret_key").label_key,
+        "azure_blob_account_key"
+    );
+    assert_eq!(
+        field(&azure_blob, "bucket").required_message_key.as_deref(),
+        Some("policy_wizard_container_required")
+    );
+
+    let tencent_cos = storage_driver_descriptor(DriverType::TencentCos);
+    assert_eq!(
+        field(&tencent_cos, "endpoint").placeholder.as_deref(),
+        Some("https://<bucket-appid>.cos.<region>.myqcloud.com")
+    );
+    assert_eq!(
+        field(&tencent_cos, "endpoint").help_key.as_deref(),
+        Some("cos_endpoint_hint")
+    );
+    assert!(!has_policy_option(&tencent_cos, "s3_path_style"));
 }
 
 #[test]
@@ -74,14 +219,14 @@ fn onedrive_descriptor_requires_saved_authorized_connection_test() {
         Some("microsoft_graph")
     );
     assert!(!descriptor.actions.iter().any(|action| {
-        action.action == StorageConnectorAction::TestDraftConnection
+        action.affordance_action == Some(StorageConnectorAffordanceAction::TestDraftConnection)
             && action.kind == StorageConnectorActionKind::ConnectionTest
     }));
     let saved_connection_test = descriptor
         .actions
         .iter()
         .find(|action| {
-            action.action == StorageConnectorAction::TestSavedConnection
+            action.affordance_action == Some(StorageConnectorAffordanceAction::TestSavedConnection)
                 && action.kind == StorageConnectorActionKind::ConnectionTest
         })
         .expect("saved connection test action");
@@ -91,6 +236,30 @@ fn onedrive_descriptor_requires_saved_authorized_connection_test() {
     assert!(descriptor.upload_workflows.stream_upload);
     assert!(!descriptor.upload_workflows.object_multipart_upload);
     assert!(descriptor.upload_workflows.provider_resumable_upload);
+    assert!(
+        !descriptor
+            .upload_workflows
+            .frontend_direct_provider_resumable_upload
+    );
+    let upload_capabilities = descriptor
+        .upload_workflows
+        .provider_resumable_upload_capabilities
+        .as_ref()
+        .expect("OneDrive should describe provider-native upload session semantics");
+    assert_eq!(upload_capabilities.provider, "microsoft_graph");
+    assert_eq!(
+        upload_capabilities.session_label,
+        "Microsoft Graph upload session"
+    );
+    assert_eq!(upload_capabilities.min_fragment_size, 320 * 1024);
+    assert_eq!(upload_capabilities.fragment_alignment, 320 * 1024);
+    assert_eq!(upload_capabilities.default_fragment_size, 10 * 1024 * 1024);
+    assert_eq!(upload_capabilities.max_fragment_size, 50 * 1024 * 1024);
+    assert_eq!(
+        upload_capabilities.max_simple_upload_size,
+        Some(250_000_000)
+    );
+    assert!(!upload_capabilities.frontend_direct_upload);
 }
 
 #[test]
@@ -185,11 +354,38 @@ fn credential_validation_support_is_declared_by_connector_action() {
 }
 
 #[test]
+fn runtime_credential_requirement_is_connector_owned() {
+    for driver_type in [
+        DriverType::Local,
+        DriverType::S3,
+        DriverType::AzureBlob,
+        DriverType::TencentCos,
+        DriverType::Remote,
+    ] {
+        assert_eq!(
+            runtime_credential_requirement(driver_type),
+            None,
+            "{driver_type:?} should not require delegated runtime credential loading"
+        );
+    }
+
+    let onedrive = runtime_credential_requirement(DriverType::OneDrive)
+        .expect("OneDrive should declare Microsoft Graph runtime credentials");
+    assert_eq!(onedrive.provider, StorageCredentialProvider::MicrosoftGraph);
+    assert_eq!(
+        onedrive.credential_kind,
+        StorageCredentialKind::OauthDelegated
+    );
+    assert!(onedrive.requires_application_config);
+    assert!(onedrive.requires_authorization);
+}
+
+#[test]
 fn tencent_cos_descriptor_exposes_cors_action() {
     let descriptor = storage_driver_descriptor(DriverType::TencentCos);
 
-    assert!(descriptor.actions.iter().any(|action| action.action
-        == StorageConnectorAction::ConfigureTencentCosCors
+    assert!(descriptor.actions.iter().any(|action| action.policy_action
+        == Some(StoragePolicyExecutableAction::ConfigureTencentCosCors)
         && action.kind == StorageConnectorActionKind::PolicyAction
         && action.mutates_remote_state));
     assert!(descriptor.capabilities.s3_transfer_strategy);
@@ -409,7 +605,7 @@ fn connector_action_endpoint_gate_rejects_non_endpoint_actions() {
     let onedrive = OneDriveConnector::storage_connector_descriptor();
 
     assert!(onedrive.actions.iter().any(|action| {
-        action.action == StorageConnectorAction::StartAuthorization
+        action.affordance_action == Some(StorageConnectorAffordanceAction::StartAuthorization)
             && action.kind == StorageConnectorActionKind::Authorization
     }));
     assert!(
@@ -453,6 +649,24 @@ fn mock_policy(driver_type: DriverType, chunk_size: i64, options: &str) -> stora
     }
 }
 
+fn has_policy_option(descriptor: &crate::storage::StorageConnectorDescriptor, name: &str) -> bool {
+    descriptor
+        .fields
+        .iter()
+        .any(|field| field.scope == StorageConnectorFieldScope::PolicyOptions && field.name == name)
+}
+
+fn field<'a>(
+    descriptor: &'a crate::storage::StorageConnectorDescriptor,
+    name: &str,
+) -> &'a crate::storage::StorageConnectorFieldDescriptor {
+    descriptor
+        .fields
+        .iter()
+        .find(|field| field.name == name)
+        .unwrap_or_else(|| panic!("descriptor field '{name}' should exist"))
+}
+
 #[test]
 fn local_policy_resolves_direct_and_chunked_modes() {
     let policy = mock_policy(DriverType::Local, 1024, "{}");
@@ -469,6 +683,11 @@ fn local_policy_resolves_direct_and_chunked_modes() {
     );
     assert!(!transport.supports_streaming_direct_upload(&policy, 100));
     assert!(!transport.uses_relay_multipart_tracking());
+    assert_eq!(transport.opaque_blob_hash_prefix(), None);
+    assert_eq!(
+        transport.chunked_completion(),
+        StorageConnectorChunkedCompletion::AssembleLocalChunks
+    );
     assert!(!presigned_download_enabled(&policy));
 }
 
@@ -520,6 +739,11 @@ fn s3_relay_stream_uses_effective_chunk_size_and_relay_tracking() {
     assert!(transport.supports_streaming_direct_upload(&policy, 1024));
     assert!(!transport.supports_streaming_direct_upload(&policy, 5_242_881));
     assert!(transport.uses_relay_multipart_tracking());
+    assert_eq!(transport.opaque_blob_hash_prefix(), Some("s3"));
+    assert_eq!(
+        transport.chunked_completion(),
+        StorageConnectorChunkedCompletion::AssembleLocalChunks
+    );
 }
 
 #[test]
@@ -545,6 +769,11 @@ fn s3_presigned_uses_presigned_modes() {
     );
     assert!(!transport.supports_streaming_direct_upload(&policy, 1024));
     assert!(!transport.uses_relay_multipart_tracking());
+    assert_eq!(transport.opaque_blob_hash_prefix(), Some("s3"));
+    assert_eq!(
+        transport.chunked_completion(),
+        StorageConnectorChunkedCompletion::AssembleLocalChunks
+    );
 }
 
 #[test]
@@ -572,6 +801,10 @@ fn azure_blob_relay_stream_uses_object_storage_transport_modes() {
     assert!(transport.supports_streaming_direct_upload(&policy, 1024));
     assert!(!transport.supports_streaming_direct_upload(&policy, 5_242_881));
     assert!(transport.uses_relay_multipart_tracking());
+    assert_eq!(
+        transport.chunked_completion(),
+        StorageConnectorChunkedCompletion::AssembleLocalChunks
+    );
 }
 
 #[test]
@@ -652,6 +885,11 @@ fn remote_relay_stream_uses_direct_and_chunked_modes() {
     );
     assert!(transport.supports_streaming_direct_upload(&policy, 100));
     assert!(transport.uses_relay_multipart_tracking());
+    assert_eq!(transport.opaque_blob_hash_prefix(), Some("remote"));
+    assert_eq!(
+        transport.chunked_completion(),
+        StorageConnectorChunkedCompletion::RelayLocalChunksToStreamUpload
+    );
 }
 
 #[test]
@@ -677,6 +915,11 @@ fn remote_presigned_keeps_presigned_init_but_allows_server_streaming_fast_path()
     );
     assert!(transport.supports_streaming_direct_upload(&policy, 100));
     assert!(!transport.uses_relay_multipart_tracking());
+    assert_eq!(transport.opaque_blob_hash_prefix(), Some("remote"));
+    assert_eq!(
+        transport.chunked_completion(),
+        StorageConnectorChunkedCompletion::RelayLocalChunksToStreamUpload
+    );
 }
 
 #[test]
@@ -684,7 +927,7 @@ fn onedrive_uses_server_relay_without_presigned_or_multipart_tracking() {
     let policy = mock_policy(DriverType::OneDrive, 1024, "{}");
     let transport = resolve_policy_upload_transport(&policy);
 
-    assert_eq!(transport, StorageConnectorUploadTransport::OneDrive);
+    assert_eq!(transport, StorageConnectorUploadTransport::StreamUpload);
     assert_eq!(
         transport.resolve_init_mode(&policy, 1024),
         UploadMode::Direct
@@ -694,5 +937,207 @@ fn onedrive_uses_server_relay_without_presigned_or_multipart_tracking() {
         UploadMode::Chunked
     );
     assert!(transport.supports_streaming_direct_upload(&policy, 1024));
+    assert!(!transport.supports_streaming_direct_upload(&policy, 0));
     assert!(!transport.uses_relay_multipart_tracking());
+    assert_eq!(transport.opaque_blob_hash_prefix(), Some("provider"));
+    assert_eq!(
+        transport.chunked_completion(),
+        StorageConnectorChunkedCompletion::RelayLocalChunksToStreamUpload
+    );
+}
+
+#[test]
+fn upload_workflow_descriptors_match_default_connector_transports() {
+    assert_upload_workflow_alignment(
+        DriverType::Local,
+        "{}",
+        ExpectedUploadWorkflow {
+            transport: StorageConnectorUploadTransport::Local,
+            object_multipart: false,
+            provider_resumable: false,
+            presigned: false,
+            frontend_direct_provider_resumable: false,
+            small_mode: UploadMode::Direct,
+            large_mode: UploadMode::Chunked,
+            chunked_completion: StorageConnectorChunkedCompletion::AssembleLocalChunks,
+        },
+    );
+    for driver_type in [
+        DriverType::S3,
+        DriverType::AzureBlob,
+        DriverType::TencentCos,
+    ] {
+        assert_upload_workflow_alignment(
+            driver_type,
+            r#"{"s3_upload_strategy":"relay_stream"}"#,
+            ExpectedUploadWorkflow {
+                transport: StorageConnectorUploadTransport::ObjectStorage(
+                    S3UploadStrategy::RelayStream,
+                ),
+                object_multipart: true,
+                provider_resumable: false,
+                presigned: true,
+                frontend_direct_provider_resumable: false,
+                small_mode: UploadMode::Direct,
+                large_mode: UploadMode::Chunked,
+                chunked_completion: StorageConnectorChunkedCompletion::AssembleLocalChunks,
+            },
+        );
+    }
+    assert_upload_workflow_alignment(
+        DriverType::Remote,
+        r#"{"remote_upload_strategy":"relay_stream"}"#,
+        ExpectedUploadWorkflow {
+            transport: StorageConnectorUploadTransport::Remote(RemoteUploadStrategy::RelayStream),
+            object_multipart: true,
+            provider_resumable: false,
+            presigned: true,
+            frontend_direct_provider_resumable: false,
+            small_mode: UploadMode::Direct,
+            large_mode: UploadMode::Chunked,
+            chunked_completion: StorageConnectorChunkedCompletion::RelayLocalChunksToStreamUpload,
+        },
+    );
+    assert_upload_workflow_alignment(
+        DriverType::OneDrive,
+        "{}",
+        ExpectedUploadWorkflow {
+            transport: StorageConnectorUploadTransport::StreamUpload,
+            object_multipart: false,
+            provider_resumable: true,
+            presigned: false,
+            frontend_direct_provider_resumable: false,
+            small_mode: UploadMode::Direct,
+            large_mode: UploadMode::Chunked,
+            chunked_completion: StorageConnectorChunkedCompletion::RelayLocalChunksToStreamUpload,
+        },
+    );
+}
+
+#[test]
+fn upload_workflow_descriptors_match_presigned_connector_transports() {
+    for driver_type in [
+        DriverType::S3,
+        DriverType::AzureBlob,
+        DriverType::TencentCos,
+    ] {
+        assert_upload_workflow_alignment(
+            driver_type,
+            r#"{"s3_upload_strategy":"presigned"}"#,
+            ExpectedUploadWorkflow {
+                transport: StorageConnectorUploadTransport::ObjectStorage(
+                    S3UploadStrategy::Presigned,
+                ),
+                object_multipart: true,
+                provider_resumable: false,
+                presigned: true,
+                frontend_direct_provider_resumable: false,
+                small_mode: UploadMode::Presigned,
+                large_mode: UploadMode::PresignedMultipart,
+                chunked_completion: StorageConnectorChunkedCompletion::AssembleLocalChunks,
+            },
+        );
+    }
+    assert_upload_workflow_alignment(
+        DriverType::Remote,
+        r#"{"remote_upload_strategy":"presigned"}"#,
+        ExpectedUploadWorkflow {
+            transport: StorageConnectorUploadTransport::Remote(RemoteUploadStrategy::Presigned),
+            object_multipart: true,
+            provider_resumable: false,
+            presigned: true,
+            frontend_direct_provider_resumable: false,
+            small_mode: UploadMode::Presigned,
+            large_mode: UploadMode::PresignedMultipart,
+            chunked_completion: StorageConnectorChunkedCompletion::RelayLocalChunksToStreamUpload,
+        },
+    );
+}
+
+#[derive(Debug, Clone, Copy)]
+struct ExpectedUploadWorkflow {
+    transport: StorageConnectorUploadTransport,
+    object_multipart: bool,
+    provider_resumable: bool,
+    presigned: bool,
+    frontend_direct_provider_resumable: bool,
+    small_mode: UploadMode,
+    large_mode: UploadMode,
+    chunked_completion: StorageConnectorChunkedCompletion,
+}
+
+fn assert_upload_workflow_alignment(
+    driver_type: DriverType,
+    options: &str,
+    expected: ExpectedUploadWorkflow,
+) {
+    let large_upload_size = match expected.transport {
+        StorageConnectorUploadTransport::ObjectStorage(_) => 5_242_881,
+        StorageConnectorUploadTransport::Local
+        | StorageConnectorUploadTransport::Remote(_)
+        | StorageConnectorUploadTransport::StreamUpload => 2048,
+    };
+    let descriptor = storage_driver_descriptor(driver_type);
+    let workflows = descriptor.upload_workflows;
+    assert!(
+        workflows.simple_upload,
+        "{driver_type:?} should expose simple upload because every built-in connector accepts small direct uploads"
+    );
+    assert!(
+        workflows.stream_upload,
+        "{driver_type:?} should expose server-mediated stream upload"
+    );
+    assert_eq!(
+        workflows.object_multipart_upload, expected.object_multipart,
+        "{driver_type:?} descriptor object multipart workflow drifted from upload transport"
+    );
+    assert_eq!(
+        workflows.provider_resumable_upload, expected.provider_resumable,
+        "{driver_type:?} descriptor provider resumable workflow drifted from upload transport"
+    );
+    assert_eq!(
+        workflows.provider_resumable_upload_capabilities.is_some(),
+        expected.provider_resumable,
+        "{driver_type:?} descriptor provider resumable detail drifted from provider resumable workflow"
+    );
+    assert_eq!(
+        workflows.presigned_upload, expected.presigned,
+        "{driver_type:?} descriptor presigned workflow drifted from upload transport"
+    );
+    assert_eq!(
+        workflows.frontend_direct_provider_resumable_upload,
+        expected.frontend_direct_provider_resumable,
+        "{driver_type:?} descriptor frontend provider resumable workflow drifted from upload transport"
+    );
+
+    let policy = mock_policy(driver_type, 1024, options);
+    let transport = resolve_policy_upload_transport(&policy);
+    assert_eq!(
+        transport, expected.transport,
+        "{driver_type:?} runtime upload transport drifted from descriptor expectation"
+    );
+    assert_eq!(
+        transport.resolve_init_mode(&policy, 100),
+        expected.small_mode,
+        "{driver_type:?} small upload mode is inconsistent with workflow descriptor"
+    );
+    assert_eq!(
+        transport.resolve_init_mode(&policy, large_upload_size),
+        expected.large_mode,
+        "{driver_type:?} large upload mode is inconsistent with workflow descriptor"
+    );
+    assert_eq!(
+        transport.chunked_completion(),
+        expected.chunked_completion,
+        "{driver_type:?} chunked completion strategy is inconsistent with upload transport"
+    );
+    assert_eq!(
+        matches!(
+            transport,
+            StorageConnectorUploadTransport::ObjectStorage(_)
+                | StorageConnectorUploadTransport::Remote(_)
+        ),
+        expected.object_multipart || expected.presigned,
+        "{driver_type:?} descriptor should only claim object/presigned workflows for transports with upload sessions"
+    );
 }

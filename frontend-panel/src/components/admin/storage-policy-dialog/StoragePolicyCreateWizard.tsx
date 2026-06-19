@@ -21,18 +21,6 @@ import {
 	type StoragePolicyDriverOption,
 	type Translate,
 } from "@/components/admin/StoragePolicyDialogFields";
-import {
-	isObjectStorageDriver,
-	isOneDriveDriver,
-	type PolicyFormData,
-	supportsApplicationCredentials,
-	supportsContentDedupPolicyOption,
-	supportsObjectStorageConnection,
-	supportsOneDrivePolicyOptions,
-	supportsRemoteNodeBinding,
-	supportsS3TransferStrategy,
-	supportsStorageNativeProcessing,
-} from "@/components/admin/storagePolicyDialogShared";
 import { AnimatedCollapsible } from "@/components/common/AnimatedCollapsible";
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
@@ -42,6 +30,16 @@ import type {
 	RemoteNodeInfo,
 	StorageConnectorDescriptor,
 } from "@/types/api";
+import {
+	supportsApplicationCredentials,
+	supportsContentDedupPolicyOption,
+	supportsObjectStorageConnection,
+	supportsOneDrivePolicyOptions,
+	supportsRemoteNodeBinding,
+	supportsS3TransferStrategy,
+	supportsStorageNativeProcessing,
+} from "./descriptorPredicates";
+import type { PolicyFormData } from "./formTypes";
 import type {
 	StoragePolicyDialogStep,
 	StoragePolicyFieldChangeHandler,
@@ -369,7 +367,12 @@ function ConnectionStep({
 					t={t}
 					onFieldChange={onFieldChange}
 				/>
-				<PolicyBasePathField form={form} t={t} onFieldChange={onFieldChange} />
+				<PolicyBasePathField
+					form={form}
+					storageDriverDescriptor={storageDriverDescriptor}
+					t={t}
+					onFieldChange={onFieldChange}
+				/>
 				{canUseObjectStorageConnection ? (
 					<S3ConnectionFields
 						form={form}
@@ -377,6 +380,7 @@ function ConnectionStep({
 						endpointValidationMessage={endpointValidationMessage}
 						isCreateMode
 						showCreateValidation
+						storageDriverDescriptor={storageDriverDescriptor}
 						t={t}
 						onFieldChange={onFieldChange}
 						onSyncNormalizedS3Form={onSyncNormalizedS3Form}
@@ -407,6 +411,7 @@ function ConnectionStep({
 			<DriverHelperPanel
 				currentStorageOption={currentStorageOption}
 				driverType={form.driver_type}
+				storageDriverDescriptor={storageDriverDescriptor}
 				s3CompatibleDriverSuggestionTargetLabel={
 					s3CompatibleDriverSuggestionTargetLabel
 				}
@@ -422,6 +427,7 @@ function ConnectionStep({
 interface DriverHelperPanelProps {
 	currentStorageOption: StoragePolicyDriverOption;
 	driverType: DriverType;
+	storageDriverDescriptor: StorageConnectorDescriptor | null;
 	s3CompatibleDriverSuggestionTargetLabel: string | null;
 	onApplyS3CompatibleDriverSuggestion: () => void;
 	t: Translate;
@@ -430,6 +436,7 @@ interface DriverHelperPanelProps {
 function DriverHelperPanel({
 	currentStorageOption,
 	driverType,
+	storageDriverDescriptor,
 	s3CompatibleDriverSuggestionTargetLabel,
 	onApplyS3CompatibleDriverSuggestion,
 	t,
@@ -446,6 +453,7 @@ function DriverHelperPanel({
 	const renderedSuggestionTargetLabel =
 		s3CompatibleDriverSuggestionTargetLabel ??
 		renderedS3CompatibleDriverSuggestionTargetLabelRef.current;
+	const helperKey = getDriverHelperKey(storageDriverDescriptor);
 
 	return (
 		<div className="rounded-3xl border border-border/70 bg-muted/20 p-5">
@@ -464,17 +472,7 @@ function DriverHelperPanel({
 				{currentStorageOption.description}
 			</p>
 			<p className="mt-4 text-xs leading-5 text-muted-foreground">
-				{isObjectStorageDriver(driverType)
-					? driverType === "tencent_cos"
-						? t("policy_wizard_tencent_cos_helper")
-						: driverType === "azure_blob"
-							? t("policy_wizard_azure_blob_helper")
-							: t("policy_wizard_s3_helper")
-					: driverType === "remote"
-						? t("policy_wizard_remote_helper")
-						: isOneDriveDriver(driverType)
-							? t("policy_wizard_onedrive_helper")
-							: t("policy_wizard_local_helper")}
+				{t(helperKey)}
 			</p>
 			<AnimatedCollapsible
 				open={showSpecializedDriverSuggestion}
@@ -508,6 +506,31 @@ function DriverHelperPanel({
 			</AnimatedCollapsible>
 		</div>
 	);
+}
+
+function getDriverHelperKey(descriptor: StorageConnectorDescriptor | null) {
+	if (descriptor?.ui?.helper_key) {
+		return descriptor.ui.helper_key;
+	}
+	if (supportsObjectStorageConnection(descriptor)) {
+		const endpointField = descriptor?.fields.find(
+			(field) => field.scope === "connection" && field.name === "endpoint",
+		);
+		if (endpointField?.help_key) {
+			return endpointField.help_key;
+		}
+		return "policy_wizard_s3_helper";
+	}
+	if (supportsRemoteNodeBinding(descriptor)) {
+		return "policy_wizard_remote_helper";
+	}
+	if (
+		supportsApplicationCredentials(descriptor) ||
+		supportsOneDrivePolicyOptions(descriptor)
+	) {
+		return "policy_wizard_onedrive_helper";
+	}
+	return "policy_wizard_local_helper";
 }
 
 interface BehaviorStepProps {

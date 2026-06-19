@@ -97,12 +97,14 @@ async fn test_admin_storage_driver_descriptors_expose_capability_matrix() {
     assert_eq!(onedrive["authorization_provider"], "microsoft_graph");
     let onedrive_actions = onedrive["actions"].as_array().expect("onedrive actions");
     assert!(!onedrive_actions.iter().any(|action| {
-        action["action"] == "test_draft_connection" && action["kind"] == "connection_test"
+        action["affordance_action"] == "test_draft_connection"
+            && action["kind"] == "connection_test"
     }));
     let saved_onedrive_test = onedrive_actions
         .iter()
         .find(|action| {
-            action["action"] == "test_saved_connection" && action["kind"] == "connection_test"
+            action["affordance_action"] == "test_saved_connection"
+                && action["kind"] == "connection_test"
         })
         .expect("onedrive saved connection test action");
     assert_eq!(saved_onedrive_test["requires_saved_policy"], true);
@@ -120,16 +122,32 @@ async fn test_admin_storage_driver_descriptors_expose_capability_matrix() {
         onedrive["upload_workflows"]["frontend_direct_provider_resumable_upload"],
         false
     );
-    let s3 = descriptor("s3");
-    assert!(
-        s3["actions"]
-            .as_array()
-            .expect("s3 actions")
-            .iter()
-            .any(|action| action["action"] == "test_draft_connection"
-                && action["kind"] == "connection_test")
+    let onedrive_resumable =
+        &onedrive["upload_workflows"]["provider_resumable_upload_capabilities"];
+    assert_eq!(onedrive_resumable["provider"], "microsoft_graph");
+    assert_eq!(
+        onedrive_resumable["session_label"],
+        "Microsoft Graph upload session"
     );
+    assert_eq!(onedrive_resumable["min_fragment_size"], 320 * 1024);
+    assert_eq!(onedrive_resumable["fragment_alignment"], 320 * 1024);
+    assert_eq!(
+        onedrive_resumable["default_fragment_size"],
+        10 * 1024 * 1024
+    );
+    assert_eq!(onedrive_resumable["max_fragment_size"], 50 * 1024 * 1024);
+    assert_eq!(onedrive_resumable["max_simple_upload_size"], 250_000_000);
+    assert_eq!(onedrive_resumable["frontend_direct_upload"], false);
+    let s3 = descriptor("s3");
+    assert!(s3["actions"].as_array().expect("s3 actions").iter().any(
+        |action| action["affordance_action"] == "test_draft_connection"
+            && action["kind"] == "connection_test"
+    ));
     assert_eq!(s3["upload_workflows"]["object_multipart_upload"], true);
+    assert!(
+        s3["upload_workflows"]["provider_resumable_upload_capabilities"].is_null(),
+        "S3 object multipart should not advertise provider-native resumable semantics"
+    );
     assert_eq!(s3["capabilities"]["storage_native_thumbnail"], false);
 
     let azure_blob = descriptor("azure_blob");
@@ -152,10 +170,33 @@ async fn test_admin_storage_driver_descriptors_expose_capability_matrix() {
             .as_array()
             .expect("cos actions")
             .iter()
-            .any(|action| action["action"] == "configure_tencent_cos_cors"
-                && action["kind"] == "policy_action"
-                && action["mutates_remote_state"] == true)
+            .any(
+                |action| action["policy_action"] == "configure_tencent_cos_cors"
+                    && action["kind"] == "policy_action"
+                    && action["mutates_remote_state"] == true
+            )
     );
+    let cos_endpoint = tencent_cos["fields"]
+        .as_array()
+        .expect("cos fields")
+        .iter()
+        .find(|field| field["name"] == "endpoint")
+        .expect("cos endpoint field");
+    assert_eq!(cos_endpoint["label_key"], "endpoint");
+    assert_eq!(
+        cos_endpoint["placeholder"],
+        "https://<bucket-appid>.cos.<region>.myqcloud.com"
+    );
+    assert_eq!(cos_endpoint["help_key"], "cos_endpoint_hint");
+    let s3_path_style = s3["fields"]
+        .as_array()
+        .expect("s3 fields")
+        .iter()
+        .find(|field| field["name"] == "s3_path_style")
+        .expect("s3 path style field");
+    assert_eq!(s3_path_style["label_key"], "s3_path_style");
+    assert_eq!(s3_path_style["help_key"], "s3_path_style_desc");
+    assert_eq!(s3_path_style["visible_when_driver_types"][0], "s3");
 
     let local = descriptor("local");
     assert_eq!(local["upload_workflows"]["object_multipart_upload"], false);
@@ -268,7 +309,7 @@ struct PolicyUploadSessionSpec<'a> {
     upload_id: &'a str,
     policy_id: i64,
     user_id: i64,
-    s3_temp_key: Option<&'a str>,
+    object_temp_key: Option<&'a str>,
     status: Option<aster_drive::types::UploadSessionStatus>,
     expires_at: Option<chrono::DateTime<Utc>>,
 }
@@ -298,8 +339,8 @@ async fn create_policy_upload_session(
             status: Set(spec
                 .status
                 .unwrap_or(aster_drive::types::UploadSessionStatus::Uploading)),
-            s3_temp_key: Set(spec.s3_temp_key.map(str::to_string)),
-            s3_multipart_id: Set(None),
+            object_temp_key: Set(spec.object_temp_key.map(str::to_string)),
+            object_multipart_id: Set(None),
             file_id: Set(None),
             created_at: Set(now),
             expires_at: Set(spec.expires_at.unwrap_or(now + Duration::hours(1))),
@@ -350,6 +391,7 @@ async fn test_user_default_policy_switch_updates_snapshot_immediately() {
             is_default: false,
             allowed_types: None,
             options: None,
+            application_config: Default::default(),
         },
     )
     .await
@@ -565,6 +607,7 @@ async fn test_policy_promotes_generic_s3_policy_to_tencent_cos() {
                 s3_path_style: Some(false),
                 ..Default::default()
             }),
+            application_config: Default::default(),
         },
     )
     .await
@@ -639,6 +682,7 @@ async fn test_policy_promote_s3_driver_rejects_bucket_change() {
             is_default: false,
             allowed_types: None,
             options: None,
+            application_config: Default::default(),
         },
     )
     .await
@@ -703,6 +747,7 @@ async fn test_policy_promote_s3_driver_rejects_non_generic_s3_source() {
             is_default: false,
             allowed_types: None,
             options: None,
+            application_config: Default::default(),
         },
     )
     .await
@@ -763,6 +808,7 @@ async fn test_policy_promote_s3_driver_rejects_unsupported_target() {
             is_default: false,
             allowed_types: None,
             options: None,
+            application_config: Default::default(),
         },
     )
     .await
@@ -828,6 +874,7 @@ async fn test_policy_promote_s3_driver_rejects_active_upload_sessions() {
             is_default: false,
             allowed_types: None,
             options: None,
+            application_config: Default::default(),
         },
     )
     .await
@@ -844,7 +891,7 @@ async fn test_policy_promote_s3_driver_rejects_active_upload_sessions() {
             upload_id: &upload_id,
             policy_id: policy.id,
             user_id: user.id,
-            s3_temp_key: None,
+            object_temp_key: None,
             status: None,
             expires_at: None,
         },
@@ -907,6 +954,7 @@ async fn test_policy_promote_s3_driver_ignores_expired_upload_sessions() {
             is_default: false,
             allowed_types: None,
             options: None,
+            application_config: Default::default(),
         },
     )
     .await
@@ -923,7 +971,7 @@ async fn test_policy_promote_s3_driver_ignores_expired_upload_sessions() {
             upload_id: &upload_id,
             policy_id: policy.id,
             user_id: user.id,
-            s3_temp_key: None,
+            object_temp_key: None,
             status: None,
             expires_at: Some(Utc::now() - Duration::hours(1)),
         },
@@ -1004,7 +1052,7 @@ async fn test_policy_delete_rejects_upload_sessions_unless_forced() {
             upload_id: &upload_id,
             policy_id,
             user_id: user.id,
-            s3_temp_key: None,
+            object_temp_key: None,
             status: None,
             expires_at: None,
         },
@@ -1111,7 +1159,7 @@ async fn test_policy_force_delete_schedules_late_temp_object_cleanup() {
             upload_id: &upload_id,
             policy_id,
             user_id: user.id,
-            s3_temp_key: Some(&temp_key),
+            object_temp_key: Some(&temp_key),
             status: None,
             expires_at: None,
         },
@@ -1218,6 +1266,7 @@ async fn test_policy_force_delete_still_rejects_blob_references() {
             is_default: false,
             allowed_types: None,
             options: None,
+            application_config: Default::default(),
         },
     )
     .await
@@ -2522,6 +2571,7 @@ async fn test_resolve_policy_fails_when_policy_group_has_no_matching_rule() {
             is_default: false,
             allowed_types: None,
             options: None,
+            application_config: Default::default(),
         },
     )
     .await

@@ -137,8 +137,8 @@ struct UploadSessionSpec<'a> {
     total_chunks: i32,
     received_count: i32,
     policy_id: Option<i64>,
-    s3_temp_key: Option<&'a str>,
-    s3_multipart_id: Option<&'a str>,
+    object_temp_key: Option<&'a str>,
+    object_multipart_id: Option<&'a str>,
     file_id: Option<i64>,
 }
 
@@ -155,8 +155,8 @@ impl<'a> UploadSessionSpec<'a> {
             total_chunks: 0,
             received_count: 0,
             policy_id: None,
-            s3_temp_key: None,
-            s3_multipart_id: None,
+            object_temp_key: None,
+            object_multipart_id: None,
             file_id: None,
         }
     }
@@ -172,9 +172,13 @@ impl<'a> UploadSessionSpec<'a> {
         self
     }
 
-    fn s3(mut self, s3_temp_key: Option<&'a str>, s3_multipart_id: Option<&'a str>) -> Self {
-        self.s3_temp_key = s3_temp_key;
-        self.s3_multipart_id = s3_multipart_id;
+    fn object_upload(
+        mut self,
+        object_temp_key: Option<&'a str>,
+        object_multipart_id: Option<&'a str>,
+    ) -> Self {
+        self.object_temp_key = object_temp_key;
+        self.object_multipart_id = object_multipart_id;
         self
     }
 
@@ -213,8 +217,8 @@ async fn create_upload_session(
             folder_id: Set(None),
             policy_id: Set(policy_id),
             status: Set(spec.status),
-            s3_temp_key: Set(spec.s3_temp_key.map(str::to_string)),
-            s3_multipart_id: Set(spec.s3_multipart_id.map(str::to_string)),
+            object_temp_key: Set(spec.object_temp_key.map(str::to_string)),
+            object_multipart_id: Set(spec.object_multipart_id.map(str::to_string)),
             file_id: Set(spec.file_id),
             created_at: Set(now),
             expires_at: Set(spec.expires_at),
@@ -259,8 +263,8 @@ async fn test_upload_session_try_create_reports_id_conflict() {
         folder_id: Set(None),
         policy_id: Set(policy.id),
         status: Set(aster_drive::types::UploadSessionStatus::Uploading),
-        s3_temp_key: Set(None),
-        s3_multipart_id: Set(None),
+        object_temp_key: Set(None),
+        object_multipart_id: Set(None),
         file_id: Set(None),
         created_at: Set(now),
         expires_at: Set(now + chrono::Duration::hours(1)),
@@ -320,8 +324,8 @@ async fn test_upload_session_try_create_preserves_non_id_unique_conflict() {
         folder_id: Set(None),
         policy_id: Set(policy.id),
         status: Set(aster_drive::types::UploadSessionStatus::Uploading),
-        s3_temp_key: Set(None),
-        s3_multipart_id: Set(None),
+        object_temp_key: Set(None),
+        object_multipart_id: Set(None),
         file_id: Set(None),
         created_at: Set(now),
         expires_at: Set(now + chrono::Duration::hours(1)),
@@ -2288,7 +2292,7 @@ async fn test_complete_upload_keeps_presigned_multipart_session_retryable_after_
         )
         .chunks(2, 0)
         .policy(remote_policy.id)
-        .s3(
+        .object_upload(
             Some("upload/data/files/presigned-retry-temp"),
             Some("presigned-retry-multipart"),
         ),
@@ -2476,7 +2480,7 @@ async fn test_upload_service_complete_presigned_multipart_requires_parts() {
             chrono::Utc::now() + chrono::Duration::hours(1),
         )
         .chunks(2, 0)
-        .s3(Some("files/temp-key"), Some("multipart-id")),
+        .object_upload(Some("files/temp-key"), Some("multipart-id")),
     )
     .await;
 
@@ -2584,8 +2588,8 @@ async fn test_upload_service_get_progress_uses_db_parts_for_terminal_relay_multi
                 folder_id: Set(None),
                 policy_id: Set(relay_policy.id),
                 status: Set(status),
-                s3_temp_key: Set(Some(format!("files/{upload_id}"))),
-                s3_multipart_id: Set(Some(format!("multipart-{status_name}"))),
+                object_temp_key: Set(Some(format!("files/{upload_id}"))),
+                object_multipart_id: Set(Some(format!("multipart-{status_name}"))),
                 file_id: Set(None),
                 created_at: Set(now),
                 expires_at: Set(now + chrono::Duration::hours(1)),
@@ -2703,7 +2707,7 @@ async fn test_upload_service_presign_parts_rejects_non_multipart_session() {
             chrono::Utc::now() + chrono::Duration::hours(1),
         )
         .chunks(1, 0)
-        .s3(Some("files/temp-key"), None),
+        .object_upload(Some("files/temp-key"), None),
     )
     .await;
 
@@ -2736,7 +2740,7 @@ async fn test_upload_service_presign_parts_validates_part_number_batch() {
             chrono::Utc::now() + chrono::Duration::hours(1),
         )
         .chunks(3, 0)
-        .s3(Some("files/temp-key"), Some("multipart-id")),
+        .object_upload(Some("files/temp-key"), Some("multipart-id")),
     )
     .await;
 
@@ -2878,7 +2882,7 @@ async fn test_upload_service_cleanup_expired_keeps_remote_sessions_when_storage_
         )
         .chunks(2, 1)
         .policy(remote_policy.id)
-        .s3(
+        .object_upload(
             Some("upload/data/files/cleanup-remote-temp"),
             Some("cleanup-remote-multipart"),
         ),
@@ -2970,11 +2974,11 @@ async fn test_cancel_upload_aborts_presigned_multipart_session_on_rustfs() {
         .await
         .unwrap();
     let temp_key = session
-        .s3_temp_key
+        .object_temp_key
         .clone()
         .expect("multipart session should store temp key");
     let multipart_id = session
-        .s3_multipart_id
+        .object_multipart_id
         .clone()
         .expect("multipart session should store multipart id");
     let object_key =
@@ -3074,7 +3078,7 @@ async fn test_cancel_upload_keeps_remote_session_when_object_cleanup_is_unavaila
         )
         .chunks(2, 0)
         .policy(remote_policy.id)
-        .s3(Some("upload/data/files/cancel-remote-temp"), None),
+        .object_upload(Some("upload/data/files/cancel-remote-temp"), None),
     )
     .await;
 
@@ -3136,7 +3140,7 @@ async fn test_upload_chunk_returns_session_expired_for_failed_multipart_session(
             chrono::Utc::now() + chrono::Duration::hours(1),
         )
         .chunks(2, 0)
-        .s3(Some("files/temp-key"), Some("multipart-id")),
+        .object_upload(Some("files/temp-key"), Some("multipart-id")),
     )
     .await;
 
@@ -3236,7 +3240,7 @@ async fn test_presigned_upload_s3_e2e() {
         aster_drive::db::repository::upload_session_repo::find_by_id(state.writer_db(), &upload_id)
             .await
             .unwrap();
-    let temp_key = completed_session.s3_temp_key.unwrap();
+    let temp_key = completed_session.object_temp_key.unwrap();
     let blob =
         aster_drive::db::repository::file_repo::find_blob_by_id(state.writer_db(), file.blob_id)
             .await
@@ -3353,7 +3357,7 @@ async fn test_force_delete_policy_cleans_late_s3_presigned_put_e2e() {
         .await
         .unwrap();
     let temp_key = session
-        .s3_temp_key
+        .object_temp_key
         .clone()
         .expect("presigned upload session should store temp key");
     let object_key = format!("uploads/{temp_key}");

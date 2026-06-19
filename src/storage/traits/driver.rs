@@ -1,4 +1,8 @@
 //! 存储子模块：`driver`。
+//!
+//! 这一层只描述“一个已经配置好的存储后端如何读写对象”。连接参数如何校验、
+//! 管理端表单显示哪些字段、OAuth 怎么授权、连接测试是否需要保存 policy，都不
+//! 属于 `StorageDriver`，应放在 `storage::connectors` 和 connector descriptor。
 
 use crate::errors::{AsterError, MapAsterErr, Result};
 use async_trait::async_trait;
@@ -27,6 +31,9 @@ pub trait StoragePathVisitor: Send {
 /// - 最小接口：仅包含所有存储类型必须实现的基础操作
 /// - 默认实现：copy_object 提供基于 get+put 的通用实现，驱动可覆盖优化
 /// - 扩展能力：通过 as_xxx() 方法暴露可选 trait，避免强制实现
+///
+/// 这不是配置层 trait。实现者应该假设 endpoint、bucket、凭据、OAuth token 等
+/// 已经由 connector / registry 准备好；这里负责的是对既定存储空间执行对象操作。
 #[async_trait]
 pub trait StorageDriver: Send + Sync {
     /// 写入文件，返回最终存储路径
@@ -107,6 +114,9 @@ pub trait StorageDriver: Send + Sync {
 
     // =========================================================================
     // 扩展能力查询（返回 Option<&dyn Trait>，不支持的驱动返回 None）
+    //
+    // 新能力优先考虑放在独立 extension trait 中，再通过 as_xxx() 暴露。只有当
+    // 所有存储后端都必须支持该能力时，才应该把方法直接加到 StorageDriver。
     // =========================================================================
 
     /// 获取 presigned URL 支持
@@ -125,8 +135,21 @@ pub trait StorageDriver: Send + Sync {
 
     /// 获取流式直传支持
     ///
-    /// S3 支持原生流式上传；本地存储基于临时文件提供通用实现。
+    /// 调用方只关心“能否把 reader 写入目标对象”。具体 driver 内部可以选择原生
+    /// 流式 API、临时文件、或 provider-native upload session。
     fn as_stream_upload(&self) -> Option<&dyn super::extensions::StreamUploadDriver> {
+        None
+    }
+
+    /// 获取 provider-native resumable/session upload 支持。
+    ///
+    /// 该能力描述具体云厂商自己的 resumable upload/session 协议，例如
+    /// Microsoft Graph upload session。它不等同于对象存储 multipart：
+    /// 调用方仍通过通用 `StreamUploadDriver` 写入，session 创建、分片对齐
+    /// 和重试边界由具体 driver 自己封装。
+    fn as_provider_resumable_upload(
+        &self,
+    ) -> Option<&dyn super::extensions::ProviderResumableUploadDriver> {
         None
     }
 
@@ -164,9 +187,11 @@ pub trait StorageDriver: Send + Sync {
         ))
     }
 
-    /// 获取 multipart upload 支持（S3 特有）
+    /// 获取 object-storage multipart upload 支持。
     ///
-    /// 通过 downcast 获取 MultipartStorageDriver，用于分片上传。
+    /// 这里的 multipart 是 S3/Azure Blob/COS 这类对象存储语义：upload_id、
+    /// part_number、ETag、显式 complete/abort。不要用它表示 OneDrive /
+    /// Microsoft Graph upload session；那类能力属于 `as_provider_resumable_upload()`。
     fn as_multipart(&self) -> Option<&dyn super::multipart::MultipartStorageDriver> {
         None
     }
@@ -274,6 +299,7 @@ mod tests {
         assert!(driver.as_presigned().is_none());
         assert!(driver.as_list().is_none());
         assert!(driver.as_stream_upload().is_none());
+        assert!(driver.as_provider_resumable_upload().is_none());
         assert!(driver.as_local_path().is_none());
         assert!(driver.as_native_thumbnail().is_none());
         assert!(driver.as_multipart().is_none());

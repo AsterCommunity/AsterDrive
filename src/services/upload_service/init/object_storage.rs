@@ -18,7 +18,7 @@ use super::context::{
     direct_upload_response, init_multipart_session_with_retry, try_persist_upload_session,
 };
 
-pub(super) async fn init_s3_upload(
+pub(super) async fn init_object_storage_upload(
     state: &PrimaryAppState,
     ctx: &InitUploadContext,
 ) -> Result<Option<InitUploadResponse>> {
@@ -27,16 +27,18 @@ pub(super) async fn init_s3_upload(
         return Ok(None);
     };
     match strategy {
-        S3UploadStrategy::Presigned => init_presigned_s3_upload(state, ctx, transport)
+        S3UploadStrategy::Presigned => init_presigned_object_storage_upload(state, ctx, transport)
             .await
             .map(Some),
-        S3UploadStrategy::RelayStream => init_relay_stream_s3_upload(state, ctx, transport)
-            .await
-            .map(Some),
+        S3UploadStrategy::RelayStream => {
+            init_relay_stream_object_storage_upload(state, ctx, transport)
+                .await
+                .map(Some)
+        }
     }
 }
 
-async fn init_presigned_s3_upload(
+async fn init_presigned_object_storage_upload(
     state: &PrimaryAppState,
     ctx: &InitUploadContext,
     transport: PolicyUploadTransport,
@@ -47,7 +49,7 @@ async fn init_presigned_s3_upload(
     // 小文件 presigned：客户端直接 PUT 到最终 temp object，不经过服务端 relay，
     // 也不需要 chunk bookkeeping。
     if transport.resolve_init_mode(&ctx.policy, ctx.total_size) == UploadMode::Presigned {
-        return init_presigned_s3_single_upload(state, ctx, driver.as_ref()).await;
+        return init_presigned_object_storage_single_upload(state, ctx, driver.as_ref()).await;
     }
 
     // 大文件 presigned multipart：服务端仍然不接管数据流，但必须保留 session，
@@ -76,7 +78,7 @@ async fn init_presigned_s3_upload(
     .await
 }
 
-async fn init_presigned_s3_single_upload(
+async fn init_presigned_object_storage_single_upload(
     state: &PrimaryAppState,
     ctx: &InitUploadContext,
     driver: &dyn crate::storage::StorageDriver,
@@ -96,8 +98,8 @@ async fn init_presigned_s3_single_upload(
                 policy_id: ctx.policy.id,
                 frontend_client_id: ctx.frontend_client_id.as_deref(),
                 status: UploadSessionStatus::Presigned,
-                s3_temp_key: Some(&temp_key),
-                s3_multipart_id: None,
+                object_temp_key: Some(&temp_key),
+                object_multipart_id: None,
                 expires_at: Utc::now() + Duration::hours(1),
             },
         )
@@ -142,7 +144,7 @@ async fn init_presigned_s3_single_upload(
     .await
 }
 
-async fn init_relay_stream_s3_upload(
+async fn init_relay_stream_object_storage_upload(
     state: &PrimaryAppState,
     ctx: &InitUploadContext,
     transport: PolicyUploadTransport,
@@ -161,7 +163,7 @@ async fn init_relay_stream_s3_upload(
         return Ok(direct_upload_response());
     }
 
-    // relay_stream + 大文件：客户端仍然分片传给服务端，服务端再逐片上传到 S3 multipart。
+    // relay_stream + 大文件：客户端仍然分片传给服务端，服务端再逐片上传到对象存储 multipart。
     let multipart = state.driver_registry().get_multipart_driver(&ctx.policy)?;
     let total_chunks =
         numbers::calc_total_chunks(ctx.total_size, chunk_size, "relay multipart upload")?;

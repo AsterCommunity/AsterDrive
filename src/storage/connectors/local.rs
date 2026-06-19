@@ -9,6 +9,7 @@ use crate::storage::connector_descriptor::{
     StorageConnectorDescriptorProvider, StorageConnectorFieldKind, StorageConnectorFieldScope,
     StorageConnectorUploadWorkflows, draft_connection_test_action_descriptor,
     saved_connection_test_action_descriptor, storage_connector_field,
+    storage_connector_ui_descriptor,
 };
 use crate::storage::drivers::local::LocalDriver;
 use crate::types::DriverType;
@@ -24,6 +25,18 @@ impl StorageConnectorDescriptorProvider for LocalConnector {
             enabled: true,
             label: "Local filesystem".to_string(),
             description: "Server-local filesystem storage policy".to_string(),
+            ui: storage_connector_ui_descriptor(
+                "driver_type_local",
+                "policy_wizard_local_storage_desc",
+                Some("/static/asterdrive/asterdrive-dark.svg"),
+                None,
+                "policy_wizard_local_helper",
+                "policy_wizard_step_local_title",
+                "policy_wizard_step_local_desc",
+                "policy_edit_context_local_desc",
+                "./data",
+                "./data",
+            ),
             credential_mode: StorageConnectorCredentialMode::None,
             requires_authorization: false,
             authorization_provider: None,
@@ -44,6 +57,7 @@ impl StorageConnectorDescriptorProvider for LocalConnector {
                 provider_resumable_upload: false,
                 presigned_upload: false,
                 frontend_direct_provider_resumable_upload: false,
+                provider_resumable_upload_capabilities: None,
             },
             fields: vec![
                 storage_connector_field(

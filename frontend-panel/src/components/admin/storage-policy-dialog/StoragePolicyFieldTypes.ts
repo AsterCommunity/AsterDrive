@@ -1,5 +1,5 @@
-import type { PolicyFormData } from "@/components/admin/storagePolicyDialogShared";
 import type { DriverType } from "@/types/api";
+import type { PolicyFormData } from "./formTypes";
 
 export interface StoragePolicyDriverOption {
 	description: string;

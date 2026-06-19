@@ -1,6 +1,7 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import { emptyForm } from "@/components/admin/storagePolicyDialogShared";
+import type { StorageConnectorDescriptor } from "@/types/api";
+import { emptyForm } from "./formTypes";
 import {
 	DefaultPolicyToggle,
 	LimitsFields,
@@ -12,6 +13,11 @@ import {
 import type { Translate } from "./StoragePolicyFieldTypes";
 
 const t: Translate = (key) => key;
+const localDescriptor = {
+	ui: {
+		base_path_placeholder: "./data",
+	},
+} as StorageConnectorDescriptor;
 
 vi.mock("@/components/ui/input", () => ({
 	Input: ({
@@ -98,7 +104,12 @@ describe("StoragePolicyBasicFields", () => {
 					showCreateValidation
 					t={t}
 				/>
-				<PolicyBasePathField form={form} onFieldChange={onFieldChange} t={t} />
+				<PolicyBasePathField
+					form={form}
+					onFieldChange={onFieldChange}
+					storageDriverDescriptor={localDescriptor}
+					t={t}
+				/>
 				<LocalContentDedupField
 					form={form}
 					onFieldChange={onFieldChange}

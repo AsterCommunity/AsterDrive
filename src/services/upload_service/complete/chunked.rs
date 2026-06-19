@@ -11,7 +11,10 @@ use crate::services::upload_service::shared::{
 };
 use crate::services::workspace_storage_service::{self, PreparedNonDedupBlobUpload};
 use crate::storage::StorageDriver;
-use crate::types::{DriverType, UploadSessionStatus};
+use crate::storage::connectors::{
+    StorageConnectorChunkedCompletion, resolve_policy_upload_transport,
+};
+use crate::types::UploadSessionStatus;
 use crate::utils::numbers::usize_to_i64;
 use crate::utils::paths;
 use tokio::io::AsyncReadExt;
@@ -69,8 +72,10 @@ async fn finalize_chunked_upload_session(
     driver: &dyn StorageDriver,
     actor_username: Option<&str>,
 ) -> Result<file::Model> {
-    if policy.driver_type == DriverType::Remote {
-        return finalize_remote_chunked_upload_session(
+    if resolve_policy_upload_transport(policy).chunked_completion()
+        == StorageConnectorChunkedCompletion::RelayLocalChunksToStreamUpload
+    {
+        return finalize_stream_relay_chunked_upload_session(
             state,
             session,
             policy,
@@ -118,7 +123,7 @@ async fn finalize_chunked_upload_session(
     })
 }
 
-async fn finalize_remote_chunked_upload_session(
+async fn finalize_stream_relay_chunked_upload_session(
     state: &PrimaryAppState,
     session: &upload_session::Model,
     policy: &storage_policy::Model,
@@ -150,7 +155,7 @@ async fn finalize_remote_chunked_upload_session(
     let relay_result = relay_task.await.map_err(|error| {
         upload_assembly_error_with_code(
             ApiErrorCode::UploadChunkRelayFailed,
-            format!("remote chunk relay task failed: {error}"),
+            format!("stream chunk relay task failed: {error}"),
         )
     })?;
 
@@ -175,7 +180,7 @@ async fn finalize_remote_chunked_upload_session(
                 size = session.total_size,
                 upload_elapsed_ms,
                 persist_elapsed_ms = persist_started_at.elapsed().as_millis(),
-                "remote chunked upload finalized"
+                "stream relay chunked upload finalized"
             );
         })
 }
@@ -209,7 +214,7 @@ async fn stream_local_chunks_into_writer(
                 break;
             }
             writer.write_all(&buffer[..read]).await.map_aster_err_ctx(
-                "relay remote chunk",
+                "relay upload chunk",
                 |message| {
                     upload_assembly_error_with_code(ApiErrorCode::UploadChunkRelayFailed, message)
                 },
@@ -220,7 +225,7 @@ async fn stream_local_chunks_into_writer(
     writer
         .shutdown()
         .await
-        .map_aster_err_ctx("shutdown remote chunk relay", |message| {
+        .map_aster_err_ctx("shutdown stream chunk relay", |message| {
             upload_assembly_error_with_code(ApiErrorCode::UploadChunkRelayFailed, message)
         })?;
     Ok(())

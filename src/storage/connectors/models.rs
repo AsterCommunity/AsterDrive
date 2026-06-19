@@ -2,8 +2,14 @@ use serde::{Deserialize, Serialize};
 #[cfg(all(debug_assertions, feature = "openapi"))]
 use utoipa::ToSchema;
 
+use std::sync::Arc;
+
 use crate::storage::StoragePolicyExecutableAction;
-use crate::types::{DriverType, MicrosoftGraphCloud, RemoteNodeTransportMode};
+use crate::storage::drivers::onedrive::MicrosoftGraphAccessTokenProvider;
+use crate::types::{
+    DriverType, MicrosoftGraphCloud, RemoteNodeTransportMode, StorageCredentialKind,
+    StorageCredentialProvider,
+};
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
@@ -37,6 +43,35 @@ pub struct StorageConnectorConnectionInput {
     pub base_path: String,
     pub remote_node_id: Option<i64>,
     pub options: crate::types::StoragePolicyOptions,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct StorageConnectorCredentialRequirement {
+    pub provider: StorageCredentialProvider,
+    pub credential_kind: StorageCredentialKind,
+    pub requires_application_config: bool,
+    pub requires_authorization: bool,
+}
+
+#[derive(Clone)]
+pub(crate) struct OneDriveCredentialRuntime {
+    pub token_provider: Arc<dyn MicrosoftGraphAccessTokenProvider>,
+    pub drive_id: Option<String>,
+    pub root_item_id: Option<String>,
+}
+
+#[derive(Clone)]
+pub(crate) enum StorageConnectorRuntimeCredential {
+    MicrosoftGraph(OneDriveCredentialRuntime),
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct StorageCredentialValidationOutcome {
+    pub account_label: Option<String>,
+    pub subject: Option<String>,
+    pub metadata: String,
+    pub root_item_id: String,
+    pub root_item_name: Option<String>,
 }
 
 #[derive(Debug, Clone)]

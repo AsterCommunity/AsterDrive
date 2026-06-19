@@ -19,8 +19,8 @@ fn mock_session(status: UploadSessionStatus) -> upload_session::Model {
         folder_id: None,
         policy_id: 1,
         status,
-        s3_temp_key: None,
-        s3_multipart_id: None,
+        object_temp_key: None,
+        object_multipart_id: None,
         file_id: None,
         created_at: chrono::Utc::now(),
         updated_at: chrono::Utc::now(),
@@ -53,7 +53,7 @@ fn determine_completion_plan_rejects_expired_active_session() {
 #[test]
 fn determine_completion_plan_requires_parts_for_presigned_multipart() {
     let mut session = mock_session(UploadSessionStatus::Presigned);
-    session.s3_multipart_id = Some("mp-1".to_string());
+    session.object_multipart_id = Some("mp-1".to_string());
 
     let err =
         determine_completion_plan(&session, None).expect_err("multipart complete needs parts");

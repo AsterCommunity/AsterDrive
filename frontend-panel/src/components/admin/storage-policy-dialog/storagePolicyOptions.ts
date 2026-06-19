@@ -6,6 +6,7 @@ import type {
 	RemoteUploadStrategy,
 	S3DownloadStrategy,
 	S3UploadStrategy,
+	StorageConnectorDescriptor,
 	StoragePolicyOptions,
 } from "@/types/api";
 
@@ -65,11 +66,54 @@ export function getEffectiveRemoteUploadStrategy(
 
 export function buildPolicyOptions(
 	form: StoragePolicyOptionsForm,
+	descriptor?: StorageConnectorDescriptor | null,
 ): StoragePolicyOptions {
+	if (descriptor) {
+		return {
+			...buildDescriptorPolicyOptions(form, descriptor),
+			...buildStorageNativeOptions(form),
+		};
+	}
+
 	return {
 		...(POLICY_OPTION_SERIALIZERS[form.driver_type]?.(form) ?? {}),
 		...buildStorageNativeOptions(form),
 	};
+}
+
+function buildDescriptorPolicyOptions(
+	form: StoragePolicyOptionsForm,
+	descriptor: StorageConnectorDescriptor,
+): StoragePolicyOptions {
+	const hasOption = (name: string) =>
+		descriptor.fields.some(
+			(field) => field.scope === "policy_options" && field.name === name,
+		);
+	const options: StoragePolicyOptions = {};
+
+	if (hasOption("content_dedup") && form.content_dedup) {
+		options.content_dedup = true;
+	}
+	if (hasOption("remote_download_strategy")) {
+		options.remote_download_strategy = form.remote_download_strategy;
+	}
+	if (hasOption("remote_upload_strategy")) {
+		options.remote_upload_strategy = form.remote_upload_strategy;
+	}
+	if (hasOption("s3_upload_strategy")) {
+		options.s3_upload_strategy = form.s3_upload_strategy;
+	}
+	if (hasOption("s3_download_strategy")) {
+		options.s3_download_strategy = form.s3_download_strategy;
+	}
+	if (hasOption("s3_path_style") && form.s3_path_style === false) {
+		options.s3_path_style = false;
+	}
+	if (hasOption("account_mode")) {
+		Object.assign(options, buildOneDrivePolicyOptions(form));
+	}
+
+	return options;
 }
 
 const POLICY_OPTION_SERIALIZERS: Partial<

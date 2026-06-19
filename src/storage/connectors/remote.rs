@@ -14,6 +14,7 @@ use crate::storage::connector_descriptor::{
     StorageConnectorDescriptorProvider, StorageConnectorFieldKind, StorageConnectorFieldScope,
     StorageConnectorUploadWorkflows, draft_connection_test_action_descriptor,
     saved_connection_test_action_descriptor, storage_connector_field,
+    storage_connector_field_with_options, storage_connector_ui_descriptor,
 };
 use crate::types::{DriverType, RemoteNodeTransportMode, parse_storage_policy_options};
 
@@ -33,6 +34,18 @@ impl StorageConnectorDescriptorProvider for RemoteConnector {
             enabled: true,
             label: "Remote node".to_string(),
             description: "Remote follower node storage policy".to_string(),
+            ui: storage_connector_ui_descriptor(
+                "driver_type_remote",
+                "policy_wizard_remote_storage_desc",
+                Some("/static/storage/asterdrive-node.svg"),
+                None,
+                "policy_wizard_remote_helper",
+                "policy_wizard_step_remote_title",
+                "policy_wizard_step_remote_desc",
+                "policy_edit_context_remote_desc",
+                "core:root",
+                "tenant/prefix",
+            ),
             credential_mode: StorageConnectorCredentialMode::RemoteNode,
             requires_authorization: false,
             authorization_provider: None,
@@ -53,6 +66,7 @@ impl StorageConnectorDescriptorProvider for RemoteConnector {
                 provider_resumable_upload: false,
                 presigned_upload: true,
                 frontend_direct_provider_resumable_upload: false,
+                provider_resumable_upload_capabilities: None,
             },
             fields: vec![
                 storage_connector_field(
@@ -68,6 +82,22 @@ impl StorageConnectorDescriptorProvider for RemoteConnector {
                     StorageConnectorFieldKind::Text,
                     false,
                     false,
+                ),
+                storage_connector_field_with_options(
+                    "remote_download_strategy",
+                    StorageConnectorFieldScope::PolicyOptions,
+                    StorageConnectorFieldKind::Select,
+                    true,
+                    false,
+                    vec!["relay_stream", "presigned"],
+                ),
+                storage_connector_field_with_options(
+                    "remote_upload_strategy",
+                    StorageConnectorFieldScope::PolicyOptions,
+                    StorageConnectorFieldKind::Select,
+                    true,
+                    false,
+                    vec!["relay_stream", "presigned"],
                 ),
             ],
             actions: vec![

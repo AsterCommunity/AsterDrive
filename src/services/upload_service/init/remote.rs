@@ -137,8 +137,8 @@ async fn init_remote_presigned_single_upload(
                 policy_id: ctx.policy.id,
                 frontend_client_id: ctx.frontend_client_id.as_deref(),
                 status: UploadSessionStatus::Presigned,
-                s3_temp_key: Some(&temp_key),
-                s3_multipart_id: None,
+                object_temp_key: Some(&temp_key),
+                object_multipart_id: None,
                 expires_at: Utc::now() + Duration::hours(1),
             },
         )

@@ -277,9 +277,9 @@ pub async fn list_temp_keys_by_policy<C: ConnectionTrait>(
 ) -> Result<Vec<String>> {
     let keys = UploadSession::find()
         .select_only()
-        .column(upload_session::Column::S3TempKey)
+        .column(upload_session::Column::ObjectTempKey)
         .filter(upload_session::Column::PolicyId.eq(policy_id))
-        .filter(upload_session::Column::S3TempKey.is_not_null())
+        .filter(upload_session::Column::ObjectTempKey.is_not_null())
         .into_tuple::<Option<String>>()
         .all(db)
         .await

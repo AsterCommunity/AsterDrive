@@ -39,6 +39,7 @@ pub use self::ui::{
 const COPY_TABLE_ORDER: &[&str] = &[
     "managed_followers",
     "storage_policies",
+    "storage_connector_application_configs",
     "storage_policy_credentials",
     "storage_policy_groups",
     "storage_policy_group_items",

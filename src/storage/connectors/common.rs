@@ -5,7 +5,7 @@ use crate::api::api_error_code::ApiErrorCode;
 use crate::entities::storage_policy;
 use crate::errors::{AsterError, MapAsterErr, Result, validation_error_with_code};
 use crate::storage::connector_descriptor::{
-    StorageConnectorAction, StorageConnectorActionKind, StorageConnectorDescriptor,
+    StorageConnectorActionKind, StorageConnectorAffordanceAction, StorageConnectorDescriptor,
     StoragePolicyExecutableAction,
 };
 use crate::storage::drivers::s3_config::{S3ConfigError, normalize_s3_endpoint_and_bucket};
@@ -233,7 +233,7 @@ pub(super) fn ensure_policy_action_supported(
 ) -> Result<()> {
     if descriptor.actions.iter().any(|descriptor_action| {
         descriptor_action.kind == StorageConnectorActionKind::PolicyAction
-            && descriptor_action.action.as_str() == action.as_str()
+            && descriptor_action.policy_action == Some(action)
     }) {
         return Ok(());
     }
@@ -258,7 +258,7 @@ pub(super) fn unsupported_draft_connection_test_error(
     descriptor: StorageConnectorDescriptor,
 ) -> AsterError {
     if descriptor.actions.iter().any(|action| {
-        action.action == StorageConnectorAction::TestSavedConnection
+        action.affordance_action == Some(StorageConnectorAffordanceAction::TestSavedConnection)
             && action.kind == StorageConnectorActionKind::ConnectionTest
             && action.requires_saved_policy
             && action.requires_authorization
