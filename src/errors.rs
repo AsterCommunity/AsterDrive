@@ -386,7 +386,7 @@ impl AsterError {
 
     fn client_message(&self) -> String {
         if matches!(self, Self::StorageDriverError(_)) {
-            return sanitize_storage_driver_client_message(self.message());
+            return self.error_type().to_string();
         }
         match self.response_log_level() {
             ResponseLogLevel::Error => self.error_type().to_string(),
@@ -1040,7 +1040,7 @@ mod tests {
     }
 
     #[actix_web::test]
-    async fn storage_transient_error_response_includes_specific_code_and_details() {
+    async fn storage_transient_error_response_redacts_details_but_keeps_specific_code() {
         let err = storage_driver_error(StorageErrorKind::Transient, "remote timeout");
         let response = actix_web::ResponseError::error_response(&err);
 
@@ -1053,7 +1053,7 @@ mod tests {
             serde_json::from_slice(&body).expect("response body should be valid json");
 
         assert_eq!(payload["code"], "storage.transient");
-        assert_eq!(payload["msg"], "remote timeout");
+        assert_eq!(payload["msg"], "Storage Driver Error");
         assert_eq!(payload["error"]["retryable"], true);
         assert!(payload["error"].get("code").is_none());
         assert!(payload["error"].get("internal_code").is_none());
@@ -1073,7 +1073,7 @@ mod tests {
             serde_json::from_slice(&body).expect("response body should be valid json");
 
         assert_eq!(payload["code"], "storage.permission");
-        assert_eq!(payload["msg"], "access denied");
+        assert_eq!(payload["msg"], "Storage Driver Error");
         assert_eq!(payload["error"]["retryable"], false);
         assert!(payload["error"].get("code").is_none());
         assert!(payload["error"].get("internal_code").is_none());
@@ -1082,7 +1082,7 @@ mod tests {
     }
 
     #[actix_web::test]
-    async fn storage_driver_client_message_preserves_details_but_redacts_secrets() {
+    async fn storage_driver_error_response_redacts_details() {
         let err = storage_driver_error(
             StorageErrorKind::Misconfigured,
             "Azure Blob failed for https://acct.blob.core.windows.net/container/file.txt?sig=topsecret&sp=rw AccountKey=supersecret;EndpointSuffix=core.windows.net",
@@ -1094,17 +1094,16 @@ mod tests {
             .expect("response body should read");
         let payload: serde_json::Value =
             serde_json::from_slice(&body).expect("response body should be valid json");
-        let msg = payload["msg"].as_str().expect("msg should be string");
 
-        assert!(msg.contains("Azure Blob failed"));
-        assert!(msg.contains("https://acct.blob.core.windows.net/container/file.txt"));
-        assert!(msg.contains("sig="));
-        assert!(msg.contains("redacted"));
-        assert!(msg.contains("sp=rw"));
-        assert!(msg.contains("AccountKey=[redacted]"));
-        assert!(!msg.contains("topsecret"));
-        assert!(!msg.contains("supersecret"));
+        assert_eq!(payload["msg"], "Storage Driver Error");
+        assert_eq!(
+            err.message(),
+            "Azure Blob failed for https://acct.blob.core.windows.net/container/file.txt?sig=topsecret&sp=rw AccountKey=supersecret;EndpointSuffix=core.windows.net"
+        );
+    }
 
+    #[test]
+    fn storage_driver_diagnostic_message_sanitizer_redacts_secrets() {
         let quoted = sanitize_storage_driver_client_message(
             "Azure URL 'https://acct.blob.core.windows.net/file?sig=quotedsecret'.",
         );

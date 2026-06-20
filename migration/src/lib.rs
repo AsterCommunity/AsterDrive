@@ -6,7 +6,9 @@
         clippy::unwrap_used,
         clippy::unreachable,
         clippy::expect_used,
-        clippy::panic
+        clippy::panic,
+        clippy::unimplemented,
+        clippy::todo
     )
 )]
 
@@ -16,6 +18,7 @@ use sea_orm_migration::sea_orm::{
     ConnectionTrait as SeaConnectionTrait, DatabaseConnection, DbBackend, Statement,
 };
 
+mod column;
 mod m20260512_000001_baseline_schema;
 mod m20260515_000001_add_passkeys;
 mod m20260517_000001_add_external_auth;

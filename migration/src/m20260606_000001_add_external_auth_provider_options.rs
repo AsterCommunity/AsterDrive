@@ -1,5 +1,6 @@
 //! Add provider-specific options JSON for external auth providers.
 
+use crate::column::json_text_column_with_default_for_supported_backends;
 use sea_orm_migration::prelude::*;
 use sea_orm_migration::sea_orm::{ConnectionTrait, DbBackend};
 
@@ -32,20 +33,16 @@ impl MigrationTrait for Migration {
 }
 
 async fn add_provider_options_column(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
-    let mut options = ColumnDef::new(ExternalAuthProviders::Options);
-    options.text();
-
-    if manager.get_database_backend() == DbBackend::MySql {
-        options.null();
-    } else {
-        options.not_null().default("{}");
-    }
+    let options = json_text_column_with_default_for_supported_backends(
+        manager,
+        ExternalAuthProviders::Options,
+    );
 
     manager
         .alter_table(
             Table::alter()
                 .table(ExternalAuthProviders::Table)
-                .add_column(options.to_owned())
+                .add_column(options)
                 .to_owned(),
         )
         .await

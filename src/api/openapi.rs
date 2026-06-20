@@ -651,6 +651,8 @@ use utoipa::{Modify, OpenApi};
             crate::services::preview_app_service::PublicPreviewAppsConfig,
             crate::services::policy_service::StoragePolicy,
             crate::services::policy_service::StoragePolicyActionResult,
+            crate::services::policy_service::StoragePolicyDiagnostic,
+            crate::services::policy_service::StoragePolicyProbeResult,
             crate::services::policy_service::TencentCosCorsConfigResult,
             crate::services::policy_service::StoragePolicyGroupItemInfo,
             crate::services::policy_service::StoragePolicyGroupInfo,

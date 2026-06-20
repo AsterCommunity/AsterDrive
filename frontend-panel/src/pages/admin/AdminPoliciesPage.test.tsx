@@ -1912,6 +1912,77 @@ describe("AdminPoliciesPage", () => {
 		expect(mockState.toastSuccess).toHaveBeenCalledWith("policy_created");
 	});
 
+	it("shows admin diagnostic details when a connection probe returns ok false", async () => {
+		mockState.testParams.mockResolvedValueOnce({
+			diagnostic: {
+				api_code: "storage.misconfigured",
+				kind: "misconfigured",
+				message: "connection test failed: /tmp/private/secret.txt",
+				retryable: false,
+			},
+			ok: false,
+		});
+		render(<AdminPoliciesPage />);
+
+		openCreateWizard();
+
+		fireEvent.change(screen.getByLabelText("core:name"), {
+			target: { value: "Broken Local" },
+		});
+		fireEvent.change(screen.getByLabelText("base_path"), {
+			target: { value: "/tmp/private" },
+		});
+		advanceCreateWizardToRulesStep();
+
+		fireEvent.click(screen.getByRole("button", { name: /test_connection/i }));
+
+		await waitFor(() => {
+			expect(mockState.testParams).toHaveBeenCalledWith({
+				access_key: undefined,
+				base_path: "/tmp/private",
+				bucket: undefined,
+				driver_type: "local",
+				endpoint: undefined,
+				options: {},
+				remote_node_id: undefined,
+				secret_key: undefined,
+			});
+		});
+		expect(mockState.toastError).toHaveBeenCalledWith(
+			"connection test failed: /tmp/private/secret.txt",
+		);
+		expect(mockState.toastSuccess).not.toHaveBeenCalledWith(
+			"connection_success",
+		);
+	});
+
+	it("falls back to a generic connection failure message without diagnostics", async () => {
+		mockState.testParams.mockResolvedValueOnce({
+			ok: false,
+		});
+		render(<AdminPoliciesPage />);
+
+		openCreateWizard();
+
+		fireEvent.change(screen.getByLabelText("core:name"), {
+			target: { value: "Broken Local" },
+		});
+		fireEvent.change(screen.getByLabelText("base_path"), {
+			target: { value: "/tmp/private" },
+		});
+		advanceCreateWizardToRulesStep();
+
+		fireEvent.click(screen.getByRole("button", { name: /test_connection/i }));
+
+		await waitFor(() => {
+			expect(mockState.testParams).toHaveBeenCalled();
+		});
+		expect(mockState.toastError).toHaveBeenCalledWith("connection_failed");
+		expect(mockState.toastSuccess).not.toHaveBeenCalledWith(
+			"connection_success",
+		);
+	});
+
 	it("creates a local policy without policy-level media processor overrides", async () => {
 		render(<AdminPoliciesPage />);
 

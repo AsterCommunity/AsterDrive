@@ -7148,10 +7148,6 @@ export interface components {
         StorageConnectorActionEndpoint: "execute_draft_storage_policy_action" | "execute_saved_storage_policy_action" | "start_storage_authorization" | "validate_storage_policy_credential" | "test_policy_params" | "test_policy_connection";
         /** @enum {string} */
         StorageConnectorActionKind: "policy_action" | "authorization" | "credential_validation" | "connection_test";
-        StorageConnectorActionResult: {
-            action: components["schemas"]["StoragePolicyExecutableAction"];
-            tencent_cos_cors?: null | components["schemas"]["TencentCosCorsConfigResult"];
-        };
         /** @enum {string} */
         StorageConnectorAffordanceAction: "start_authorization" | "validate_credential" | "test_draft_connection" | "test_saved_connection";
         StorageConnectorApplicationConfigInput: {
@@ -7371,6 +7367,12 @@ export interface components {
             remote_node_id?: number | null;
             updated_at: string;
         };
+        StoragePolicyActionResult: {
+            action: components["schemas"]["StoragePolicyExecutableAction"];
+            diagnostic?: null | components["schemas"]["StoragePolicyDiagnostic"];
+            ok: boolean;
+            tencent_cos_cors?: null | components["schemas"]["TencentCosCorsConfigResult"];
+        };
         StoragePolicyCredentialInfo: {
             account_label?: string | null;
             authorized_at?: string | null;
@@ -7395,6 +7397,12 @@ export interface components {
             credential: components["schemas"]["StoragePolicyCredentialInfo"];
             root_item_id: string;
             root_item_name?: string | null;
+        };
+        StoragePolicyDiagnostic: {
+            api_code: components["schemas"]["ApiErrorCode"];
+            kind: string;
+            message: string;
+            retryable: boolean;
         };
         /** @enum {string} */
         StoragePolicyExecutableAction: "configure_tencent_cos_cors";
@@ -7516,6 +7524,10 @@ export interface components {
             storage_native_processing_enabled?: boolean | null;
             thumbnail_extensions?: string[];
             thumbnail_processor?: null | components["schemas"]["MediaProcessorKind"];
+        };
+        StoragePolicyProbeResult: {
+            diagnostic?: null | components["schemas"]["StoragePolicyDiagnostic"];
+            ok: boolean;
         };
         StoragePolicySummaryInfo: {
             driver_type: components["schemas"]["DriverType"];
@@ -9916,6 +9928,8 @@ export interface operations {
                         code: components["schemas"]["ApiErrorCode"];
                         data?: {
                             action: components["schemas"]["StoragePolicyExecutableAction"];
+                            diagnostic?: null | components["schemas"]["StoragePolicyDiagnostic"];
+                            ok: boolean;
                             tencent_cos_cors?: null | components["schemas"]["TencentCosCorsConfigResult"];
                         };
                         error?: null | components["schemas"]["ApiErrorInfo"];
@@ -10104,9 +10118,19 @@ export interface operations {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    "application/json": {
+                        code: components["schemas"]["ApiErrorCode"];
+                        data?: {
+                            diagnostic?: null | components["schemas"]["StoragePolicyDiagnostic"];
+                            ok: boolean;
+                        };
+                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        msg: string;
+                    };
+                };
             };
-            /** @description Connection failed */
+            /** @description Connection request rejected */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -10332,6 +10356,8 @@ export interface operations {
                         code: components["schemas"]["ApiErrorCode"];
                         data?: {
                             action: components["schemas"]["StoragePolicyExecutableAction"];
+                            diagnostic?: null | components["schemas"]["StoragePolicyDiagnostic"];
+                            ok: boolean;
                             tencent_cos_cors?: null | components["schemas"]["TencentCosCorsConfigResult"];
                         };
                         error?: null | components["schemas"]["ApiErrorInfo"];
@@ -10395,6 +10421,7 @@ export interface operations {
                             /** Format: int64 */
                             blob_total_bytes: number;
                             capacity: components["schemas"]["StorageCapacityInfo"];
+                            diagnostic?: null | components["schemas"]["StoragePolicyDiagnostic"];
                             driver_type: components["schemas"]["DriverType"];
                             /** Format: int64 */
                             policy_id: number;
@@ -10719,9 +10746,19 @@ export interface operations {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    "application/json": {
+                        code: components["schemas"]["ApiErrorCode"];
+                        data?: {
+                            diagnostic?: null | components["schemas"]["StoragePolicyDiagnostic"];
+                            ok: boolean;
+                        };
+                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        msg: string;
+                    };
+                };
             };
-            /** @description Connection failed */
+            /** @description Connection request rejected */
             400: {
                 headers: {
                     [name: string]: unknown;

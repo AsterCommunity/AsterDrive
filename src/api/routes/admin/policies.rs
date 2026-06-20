@@ -321,6 +321,16 @@ pub async fn get_policy_capacity(
     Ok(HttpResponse::Ok().json(ApiResponse::ok(capacity)))
 }
 
+fn storage_policy_probe_response(result: policy_service::StoragePolicyProbeResult) -> HttpResponse {
+    HttpResponse::Ok().json(ApiResponse::ok(result))
+}
+
+fn storage_policy_action_response(
+    result: policy_service::StoragePolicyActionResult,
+) -> HttpResponse {
+    HttpResponse::Ok().json(ApiResponse::ok(result))
+}
+
 #[api_docs_macros::path(
     patch,
     path = "/api/v1/admin/policies/{id}",
@@ -419,9 +429,9 @@ pub async fn delete_policy(
     operation_id = "test_policy_connection",
     params(("id" = i64, Path, description = "Policy ID")),
     responses(
-        (status = 200, description = "Connection successful"),
+        (status = 200, description = "Connection successful", body = inline(ApiResponse<policy_service::StoragePolicyProbeResult>)),
+        (status = 400, description = "Connection request rejected"),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
-        (status = 400, description = "Connection failed"),
     ),
     security(("bearer" = [])),
 )]
@@ -429,8 +439,8 @@ pub async fn test_policy_connection(
     state: web::Data<PrimaryAppState>,
     path: web::Path<i64>,
 ) -> Result<HttpResponse> {
-    policy_service::test_connection(state.get_ref(), *path).await?;
-    Ok(HttpResponse::Ok().json(ApiResponse::<()>::ok_empty()))
+    let result = policy_service::probe_connection(state.get_ref(), *path).await?;
+    Ok(storage_policy_probe_response(result))
 }
 
 #[api_docs_macros::path(
@@ -440,9 +450,9 @@ pub async fn test_policy_connection(
     operation_id = "test_policy_params",
     request_body = TestPolicyParamsReq,
     responses(
-        (status = 200, description = "Connection successful"),
+        (status = 200, description = "Connection successful", body = inline(ApiResponse<policy_service::StoragePolicyProbeResult>)),
+        (status = 400, description = "Connection request rejected"),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
-        (status = 400, description = "Connection failed"),
     ),
     security(("bearer" = [])),
 )]
@@ -451,8 +461,9 @@ pub async fn test_policy_params(
     body: web::Json<TestPolicyParamsReq>,
 ) -> Result<HttpResponse> {
     validate_request(&*body)?;
-    policy_service::test_connection_params(state.get_ref(), body.into_inner().into()).await?;
-    Ok(HttpResponse::Ok().json(ApiResponse::<()>::ok_empty()))
+    let result =
+        policy_service::probe_connection_params(state.get_ref(), body.into_inner().into()).await?;
+    Ok(storage_policy_probe_response(result))
 }
 
 #[api_docs_macros::path(
@@ -487,7 +498,7 @@ pub async fn execute_saved_storage_policy_action(
         &ctx,
     )
     .await?;
-    Ok(HttpResponse::Ok().json(ApiResponse::ok(result)))
+    Ok(storage_policy_action_response(result))
 }
 
 #[api_docs_macros::path(
@@ -518,7 +529,7 @@ pub async fn execute_draft_storage_policy_action(
         &ctx,
     )
     .await?;
-    Ok(HttpResponse::Ok().json(ApiResponse::ok(result)))
+    Ok(storage_policy_action_response(result))
 }
 
 #[api_docs_macros::path(

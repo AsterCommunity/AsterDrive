@@ -1,5 +1,6 @@
 //! Add canonical connector application config storage separate from OAuth credentials.
 
+use crate::column::json_text_column_with_default_for_supported_backends;
 use sea_orm_migration::prelude::*;
 
 #[derive(DeriveMigrationName)]
@@ -44,12 +45,10 @@ impl MigrationTrait for Migration {
                             .text()
                             .null(),
                     )
-                    .col(
-                        ColumnDef::new(StorageConnectorApplicationConfigs::Metadata)
-                            .text()
-                            .not_null()
-                            .default("{}"),
-                    )
+                    .col(json_text_column_with_default_for_supported_backends(
+                        manager,
+                        StorageConnectorApplicationConfigs::Metadata,
+                    ))
                     .col(
                         crate::time::utc_date_time_column(
                             manager,

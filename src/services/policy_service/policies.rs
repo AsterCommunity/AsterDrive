@@ -15,7 +15,7 @@ use super::models::{
     CreateStoragePolicyInput, ExecuteDraftStoragePolicyActionInput,
     ExecuteSavedStoragePolicyActionInput, PromoteS3CompatiblePolicyDriverInput, StoragePolicy,
     StoragePolicyActionResult, StoragePolicyCapacityInfo, StoragePolicyConnectionInput,
-    UpdateStoragePolicyInput,
+    StoragePolicyDiagnostic, StoragePolicyProbeResult, UpdateStoragePolicyInput,
 };
 use super::shared::{
     SYSTEM_STORAGE_POLICY_ID, ensure_singleton_group_for_policy, lock_default_group_assignment,
@@ -51,40 +51,50 @@ pub async fn capacity_info(
     let policy = policy_repo::find_by_id(state.reader_db(), id).await?;
     let driver = state.driver_registry().get_driver(&policy)?;
     let blob_summary = file_repo::summarize_blobs_by_policy(state.reader_db(), policy.id).await?;
-    let capacity = capacity_info_or_status(driver.as_ref(), policy.driver_type).await;
+    let (capacity, diagnostic) = capacity_info_or_status(driver.as_ref(), policy.driver_type).await;
     Ok(StoragePolicyCapacityInfo {
         policy_id: policy.id,
         driver_type: policy.driver_type,
         blob_count: blob_summary.count,
         blob_total_bytes: blob_summary.total_size,
         capacity,
+        diagnostic,
     })
 }
 
 pub(crate) async fn capacity_info_or_status(
     driver: &dyn crate::storage::StorageDriver,
     driver_type: DriverType,
-) -> crate::storage::StorageCapacityInfo {
+) -> (
+    crate::storage::StorageCapacityInfo,
+    Option<StoragePolicyDiagnostic>,
+) {
     match driver.capacity_info().await {
-        Ok(capacity) => capacity,
+        Ok(capacity) => (capacity, None),
         Err(error)
             if error.storage_error_kind()
                 == Some(crate::storage::StorageErrorKind::Unsupported) =>
         {
-            crate::storage::StorageCapacityInfo::unsupported(format!(
-                "{}_driver",
-                driver_type.as_str()
-            ))
+            (
+                crate::storage::StorageCapacityInfo::unsupported(format!(
+                    "{}_driver",
+                    driver_type.as_str()
+                )),
+                StoragePolicyDiagnostic::from_error(&error),
+            )
         }
         Err(error) => {
             tracing::warn!(
                 driver_type = driver_type.as_str(),
                 "storage capacity observability failed: {error}"
             );
-            crate::storage::StorageCapacityInfo::unavailable(format!(
-                "{}_driver",
-                driver_type.as_str()
-            ))
+            (
+                crate::storage::StorageCapacityInfo::unavailable(format!(
+                    "{}_driver",
+                    driver_type.as_str()
+                )),
+                StoragePolicyDiagnostic::from_error(&error),
+            )
         }
     }
 }
@@ -589,11 +599,45 @@ pub async fn test_connection<S: SharedRuntimeState + Sync>(state: &S, id: i64) -
     crate::storage::connectors::test_saved_connection(state, &policy).await
 }
 
+pub async fn probe_connection<S: SharedRuntimeState + Sync>(
+    state: &S,
+    id: i64,
+) -> Result<StoragePolicyProbeResult> {
+    match test_connection(state, id).await {
+        Ok(()) => Ok(StoragePolicyProbeResult {
+            ok: true,
+            diagnostic: None,
+        }),
+        Err(error) if error.storage_error_kind().is_some() => Ok(StoragePolicyProbeResult {
+            ok: false,
+            diagnostic: StoragePolicyDiagnostic::from_error(&error),
+        }),
+        Err(error) => Err(error),
+    }
+}
+
 pub async fn test_connection_params<S: RemoteProtocolRuntimeState + Sync>(
     state: &S,
     input: StoragePolicyConnectionInput,
 ) -> Result<()> {
     crate::storage::connectors::test_draft_connection(state, input).await
+}
+
+pub async fn probe_connection_params<S: RemoteProtocolRuntimeState + Sync>(
+    state: &S,
+    input: StoragePolicyConnectionInput,
+) -> Result<StoragePolicyProbeResult> {
+    match test_connection_params(state, input).await {
+        Ok(()) => Ok(StoragePolicyProbeResult {
+            ok: true,
+            diagnostic: None,
+        }),
+        Err(error) if error.storage_error_kind().is_some() => Ok(StoragePolicyProbeResult {
+            ok: false,
+            diagnostic: StoragePolicyDiagnostic::from_error(&error),
+        }),
+        Err(error) => Err(error),
+    }
 }
 
 pub async fn execute_saved_action<S: SharedRuntimeState + Sync>(
@@ -602,14 +646,18 @@ pub async fn execute_saved_action<S: SharedRuntimeState + Sync>(
     input: ExecuteSavedStoragePolicyActionInput,
 ) -> Result<StoragePolicyActionResult> {
     let policy = policy_repo::find_by_id(state.writer_db(), id).await?;
-    crate::storage::connectors::execute_saved_action(state, &policy, input.action).await
+    crate::storage::connectors::execute_saved_action(state, &policy, input.action)
+        .await
+        .map(Into::into)
 }
 
 pub async fn execute_draft_action<S: RemoteProtocolRuntimeState + Sync>(
     state: &S,
     input: ExecuteDraftStoragePolicyActionInput,
 ) -> Result<StoragePolicyActionResult> {
-    crate::storage::connectors::execute_draft_action(state, input).await
+    crate::storage::connectors::execute_draft_action(state, input)
+        .await
+        .map(Into::into)
 }
 
 #[cfg(test)]
@@ -620,14 +668,20 @@ mod tests {
     use crate::db::repository::{
         storage_connector_application_config_repo, storage_policy_credential_repo,
     };
+    use crate::errors::Result;
+    use crate::storage::error::storage_driver_error;
+    use crate::storage::traits::driver::{BlobMetadata, StorageDriver};
+    use crate::storage::traits::extensions::{StorageCapacityInfo, StorageCapacityStatus};
     use crate::storage::{DriverRegistry, PolicySnapshot};
     use crate::types::{
         MicrosoftGraphCloud, OneDriveAccountMode, StorageCredentialKind, StorageCredentialProvider,
         StoragePolicyOptions, StoredStoragePolicyAllowedTypes,
     };
+    use async_trait::async_trait;
     use migration::Migrator;
     use sea_orm::ActiveValue::Set;
     use std::sync::Arc;
+    use tokio::io::AsyncRead;
 
     async fn setup_state(encryption_key: &str) -> crate::runtime::PrimaryAppState {
         let db = db::connect_with_metrics(
@@ -686,6 +740,82 @@ mod tests {
             onedrive_root_item_id: Some("root".to_string()),
             ..Default::default()
         }
+    }
+
+    struct CapacityErrorDriver {
+        error: AsterError,
+    }
+
+    #[async_trait]
+    impl StorageDriver for CapacityErrorDriver {
+        async fn put(&self, _path: &str, _data: &[u8]) -> Result<String> {
+            unimplemented!("capacity tests only call capacity_info")
+        }
+
+        async fn get(&self, _path: &str) -> Result<Vec<u8>> {
+            unimplemented!("capacity tests only call capacity_info")
+        }
+
+        async fn get_stream(&self, _path: &str) -> Result<Box<dyn AsyncRead + Unpin + Send>> {
+            unimplemented!("capacity tests only call capacity_info")
+        }
+
+        async fn delete(&self, _path: &str) -> Result<()> {
+            unimplemented!("capacity tests only call capacity_info")
+        }
+
+        async fn exists(&self, _path: &str) -> Result<bool> {
+            unimplemented!("capacity tests only call capacity_info")
+        }
+
+        async fn metadata(&self, _path: &str) -> Result<BlobMetadata> {
+            unimplemented!("capacity tests only call capacity_info")
+        }
+
+        async fn capacity_info(&self) -> Result<StorageCapacityInfo> {
+            Err(self.error.clone())
+        }
+    }
+
+    #[tokio::test]
+    async fn capacity_info_or_status_maps_unsupported_to_diagnostic_payload() {
+        let driver = CapacityErrorDriver {
+            error: storage_driver_error(
+                crate::storage::StorageErrorKind::Unsupported,
+                "storage driver does not support capacity observability",
+            ),
+        };
+
+        let (capacity, diagnostic) = capacity_info_or_status(&driver, DriverType::S3).await;
+
+        assert_eq!(capacity.status, StorageCapacityStatus::Unsupported);
+        assert_eq!(capacity.source, "s3_driver");
+        let diagnostic = diagnostic.expect("unsupported capacity error should be diagnostic");
+        assert_eq!(diagnostic.kind, "unsupported");
+        assert_eq!(
+            diagnostic.message,
+            "storage driver does not support capacity observability"
+        );
+        assert!(!diagnostic.retryable);
+    }
+
+    #[tokio::test]
+    async fn capacity_info_or_status_maps_storage_failures_to_unavailable_diagnostic_payload() {
+        let driver = CapacityErrorDriver {
+            error: storage_driver_error(
+                crate::storage::StorageErrorKind::Transient,
+                "capacity probe timed out",
+            ),
+        };
+
+        let (capacity, diagnostic) = capacity_info_or_status(&driver, DriverType::Local).await;
+
+        assert_eq!(capacity.status, StorageCapacityStatus::Unavailable);
+        assert_eq!(capacity.source, "local_driver");
+        let diagnostic = diagnostic.expect("storage capacity error should be diagnostic");
+        assert_eq!(diagnostic.kind, "transient");
+        assert_eq!(diagnostic.message, "capacity probe timed out");
+        assert!(diagnostic.retryable);
     }
 
     #[tokio::test]
