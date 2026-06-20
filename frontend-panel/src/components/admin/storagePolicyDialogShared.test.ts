@@ -680,6 +680,19 @@ describe("storage policy dialog helper modules", () => {
 			getEndpointValidationMessage(
 				{
 					...baseForm,
+					endpoint: "ftp://s3.example.com",
+					bucket: "",
+					access_key: "",
+					secret_key: "",
+				},
+				t,
+				null,
+			),
+		).toBe("s3_endpoint_protocol_required_error");
+		expect(
+			getEndpointValidationMessage(
+				{
+					...baseForm,
 					driver_type: "remote",
 					endpoint: "edge-node-without-protocol",
 					bucket: "",

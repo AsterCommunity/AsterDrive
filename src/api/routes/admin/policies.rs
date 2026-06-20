@@ -429,7 +429,7 @@ pub async fn delete_policy(
     operation_id = "test_policy_connection",
     params(("id" = i64, Path, description = "Policy ID")),
     responses(
-        (status = 200, description = "Connection successful", body = inline(ApiResponse<policy_service::StoragePolicyProbeResult>)),
+        (status = 200, description = "Connection probe completed", body = inline(ApiResponse<policy_service::StoragePolicyProbeResult>)),
         (status = 400, description = "Connection request rejected"),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
     ),
@@ -450,7 +450,7 @@ pub async fn test_policy_connection(
     operation_id = "test_policy_params",
     request_body = TestPolicyParamsReq,
     responses(
-        (status = 200, description = "Connection successful", body = inline(ApiResponse<policy_service::StoragePolicyProbeResult>)),
+        (status = 200, description = "Connection probe completed", body = inline(ApiResponse<policy_service::StoragePolicyProbeResult>)),
         (status = 400, description = "Connection request rejected"),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
     ),

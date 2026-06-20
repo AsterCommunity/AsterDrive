@@ -1,6 +1,6 @@
 //! Add canonical connector application config storage separate from OAuth credentials.
 
-use crate::column::json_text_column_with_default_for_supported_backends;
+use crate::column::json_text_column_for_final_schema;
 use sea_orm_migration::prelude::*;
 
 #[derive(DeriveMigrationName)]
@@ -45,7 +45,7 @@ impl MigrationTrait for Migration {
                             .text()
                             .null(),
                     )
-                    .col(json_text_column_with_default_for_supported_backends(
+                    .col(json_text_column_for_final_schema(
                         manager,
                         StorageConnectorApplicationConfigs::Metadata,
                     ))

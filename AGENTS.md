@@ -75,7 +75,7 @@ bun run test
 bun run test:e2e
 ```
 
-跑单元测试时优先缩小范围，避免没必要地编译全包。批量修复后再跑 `cargo check` 和相关测试。改动 OpenAPI schema 后先跑 `cargo test --features openapi --test generate_openapi`，再到 `frontend-panel/` 跑 `bun run generate-api`。
+跑 Rust 单元/集成测试时必须优先缩小范围，使用 `cargo test --lib <filter>` 或 `cargo test --test <test_name> <filter>`，不要直接跑无目标的大范围 `cargo test <filter>` 把全包编译时间炸开。批量修复后再跑 `cargo check` 和相关测试。改动 OpenAPI schema 后先跑 `cargo test --features openapi --test generate_openapi`，再到 `frontend-panel/` 跑 `bun run generate-api`。
 
 ## 当前核心能力
 
@@ -182,6 +182,7 @@ bun run test:e2e
 - 后端 schema 类型从生成 SDK 和 `@/types/api.ts` 导入，禁止手写重复接口类型。
 - `src/services/api.generated.ts` 是生成文件，不要手动修改。
 - API 调用统一通过 `src/services/http.ts` 和现有 service 层，不要在组件里裸写 axios/fetch。
+- 存储策略 UI 不能用前端 `driver_type` 白名单/矩阵推断连接测试、字段、上传、授权、远端绑定、S3 传输、原生处理等能力；优先使用后端 storage connector descriptor/capabilities/fields/actions。descriptor 缺失时只能做保守兜底，不能重新引入 S3/Azure/COS/Remote/OneDrive 这类硬编码能力表。
 - 图标优先用 `src/components/common/Icon` 或项目已有封装，不要手写 SVG。
 - 新页面和新组件优先复用 `src/components/common/`、`src/components/ui/`、`src/hooks/`、`src/lib/` 的公共模块。
 - 新增翻译按 namespace 分层放到 `src/i18n/locales/{zh,en}/`，不要把文案硬编码在组件里。

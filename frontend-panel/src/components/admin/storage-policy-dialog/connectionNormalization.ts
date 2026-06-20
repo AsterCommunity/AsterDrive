@@ -298,11 +298,17 @@ function hasObjectStorageConnectionFields(
 	editingPolicy?: StoragePolicy | null,
 ) {
 	return Boolean(
-		hasText(form.bucket) ||
+		hasEndpointUrlScheme(form.endpoint) ||
+			hasText(form.bucket) ||
 			hasText(form.access_key) ||
 			hasText(form.secret_key) ||
+			hasEndpointUrlScheme(editingPolicy?.endpoint) ||
 			hasText(editingPolicy?.bucket),
 	);
+}
+
+function hasEndpointUrlScheme(endpoint?: string | null) {
+	return /^[a-z][a-z0-9+.-]*:/i.test(endpoint?.trim() ?? "");
 }
 
 function hasExplicitMicrosoftGraphFields(form: PolicyFormData) {

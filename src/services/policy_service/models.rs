@@ -6,6 +6,8 @@ use utoipa::ToSchema;
 
 use crate::api::api_error_code::ApiErrorCode;
 use crate::entities::storage_policy;
+use crate::errors::sanitize_storage_driver_client_message;
+use crate::storage::error::storage_driver_error_display_message;
 use crate::types::{
     DriverType, StoragePolicyOptions, parse_storage_policy_allowed_types,
     parse_storage_policy_options,
@@ -26,10 +28,14 @@ impl StoragePolicyDiagnostic {
         Some(Self {
             api_code: error.api_error_code(),
             kind: kind.as_str().to_string(),
-            message: error.message().to_string(),
+            message: storage_policy_diagnostic_message(error),
             retryable: error.api_error_info().retryable,
         })
     }
+}
+
+fn storage_policy_diagnostic_message(error: &crate::errors::AsterError) -> String {
+    sanitize_storage_driver_client_message(storage_driver_error_display_message(error.message()))
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -247,10 +253,10 @@ mod tests {
     use crate::storage::error::storage_driver_error;
 
     #[test]
-    fn storage_policy_diagnostic_keeps_admin_storage_details() {
+    fn storage_policy_diagnostic_sanitizes_admin_storage_details() {
         let error = storage_driver_error(
             StorageErrorKind::Permission,
-            "read file: /tmp/private/secret.txt",
+            "Azure Blob failed for https://acct.blob.core.windows.net/file?sig=topsecret AccountKey=supersecret;EndpointSuffix=core.windows.net",
         );
 
         let diagnostic =
@@ -258,7 +264,10 @@ mod tests {
 
         assert_eq!(diagnostic.api_code, ApiErrorCode::StoragePermission);
         assert_eq!(diagnostic.kind, "permission");
-        assert_eq!(diagnostic.message, "read file: /tmp/private/secret.txt");
+        assert!(diagnostic.message.contains("sig=[redacted]"));
+        assert!(diagnostic.message.contains("AccountKey=[redacted]"));
+        assert!(!diagnostic.message.contains("topsecret"));
+        assert!(!diagnostic.message.contains("supersecret"));
         assert!(!diagnostic.retryable);
     }
 

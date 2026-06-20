@@ -1018,10 +1018,10 @@ function useAdminPoliciesPageContent() {
 					)
 				: await adminPolicyService.testConnection(editingId);
 
-			if (result?.ok === false) {
+			if (result == null || result.ok === false) {
 				setValidatedConnectionKey(null);
 				if (showFailureError) {
-					toast.error(result.diagnostic?.message ?? t("connection_failed"));
+					toast.error(result?.diagnostic?.message ?? t("connection_failed"));
 				}
 				return false;
 			}

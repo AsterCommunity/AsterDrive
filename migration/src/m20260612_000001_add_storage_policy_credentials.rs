@@ -1,6 +1,6 @@
 //! Add generic OAuth-managed storage policy credentials and authorization flows.
 
-use crate::column::json_text_column_with_default_for_supported_backends;
+use crate::column::json_text_column_for_final_schema;
 use sea_orm_migration::prelude::*;
 
 #[derive(DeriveMigrationName)]
@@ -79,7 +79,7 @@ async fn create_storage_policy_credentials(manager: &SchemaManager<'_>) -> Resul
                         .text()
                         .null(),
                 )
-                .col(json_text_column_with_default_for_supported_backends(
+                .col(json_text_column_for_final_schema(
                     manager,
                     StoragePolicyCredentials::Metadata,
                 ))
@@ -184,7 +184,7 @@ async fn create_storage_policy_authorization_flows(
                         .text()
                         .not_null(),
                 )
-                .col(json_text_column_with_default_for_supported_backends(
+                .col(json_text_column_for_final_schema(
                     manager,
                     StoragePolicyAuthorizationFlows::Context,
                 ))

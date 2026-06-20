@@ -51,12 +51,16 @@ fn policy_action_audit_details(
     action: StoragePolicyActionType,
     driver_type: DriverType,
     used_draft_values: bool,
+    diagnostic: Option<&StoragePolicyDiagnostic>,
 ) -> Option<serde_json::Value> {
     audit_service::details(audit_service::StoragePolicyActionAuditDetails {
         action: action.as_str(),
         driver_type: driver_type.as_str(),
         used_draft_values,
         mutates_remote_state: action.mutates_remote_state(),
+        diagnostic_kind: diagnostic.map(|diagnostic| diagnostic.kind.as_str()),
+        diagnostic_api_code: diagnostic.map(|diagnostic| diagnostic.api_code.as_str()),
+        diagnostic_retryable: diagnostic.map(|diagnostic| diagnostic.retryable),
     })
 }
 
@@ -158,9 +162,6 @@ pub async fn execute_saved_action_with_audit(
         },
         Err(error) => return Err(error),
     };
-    if result.diagnostic.is_some() {
-        return Ok(result);
-    }
     audit_service::log_with_details(
         state,
         audit_ctx,
@@ -168,7 +169,14 @@ pub async fn execute_saved_action_with_audit(
         crate::services::audit_service::AuditEntityType::StoragePolicy,
         Some(policy.id),
         Some(&policy.name),
-        || policy_action_audit_details(action, policy.driver_type, false),
+        || {
+            policy_action_audit_details(
+                action,
+                policy.driver_type,
+                false,
+                result.diagnostic.as_ref(),
+            )
+        },
     )
     .await;
     Ok(result)
@@ -191,9 +199,6 @@ pub async fn execute_draft_action_with_audit(
         },
         Err(error) => return Err(error),
     };
-    if result.diagnostic.is_some() {
-        return Ok(result);
-    }
     audit_service::log_with_details(
         state,
         audit_ctx,
@@ -201,7 +206,7 @@ pub async fn execute_draft_action_with_audit(
         crate::services::audit_service::AuditEntityType::StoragePolicy,
         None,
         None,
-        || policy_action_audit_details(action, driver_type, true),
+        || policy_action_audit_details(action, driver_type, true, result.diagnostic.as_ref()),
     )
     .await;
     Ok(result)

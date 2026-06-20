@@ -84,9 +84,16 @@ pub(crate) async fn capacity_info_or_status(
             )
         }
         Err(error) => {
+            let kind = error
+                .storage_error_kind()
+                .map(|kind| kind.as_str())
+                .unwrap_or("unknown");
+            let api_code = error.api_error_code().as_str();
             tracing::warn!(
                 driver_type = driver_type.as_str(),
-                "storage capacity observability failed: {error}"
+                kind,
+                api_code,
+                "storage capacity observability failed"
             );
             (
                 crate::storage::StorageCapacityInfo::unavailable(format!(
@@ -749,27 +756,27 @@ mod tests {
     #[async_trait]
     impl StorageDriver for CapacityErrorDriver {
         async fn put(&self, _path: &str, _data: &[u8]) -> Result<String> {
-            unimplemented!("capacity tests only call capacity_info")
+            Err(self.error.clone())
         }
 
         async fn get(&self, _path: &str) -> Result<Vec<u8>> {
-            unimplemented!("capacity tests only call capacity_info")
+            Err(self.error.clone())
         }
 
         async fn get_stream(&self, _path: &str) -> Result<Box<dyn AsyncRead + Unpin + Send>> {
-            unimplemented!("capacity tests only call capacity_info")
+            Err(self.error.clone())
         }
 
         async fn delete(&self, _path: &str) -> Result<()> {
-            unimplemented!("capacity tests only call capacity_info")
+            Err(self.error.clone())
         }
 
         async fn exists(&self, _path: &str) -> Result<bool> {
-            unimplemented!("capacity tests only call capacity_info")
+            Err(self.error.clone())
         }
 
         async fn metadata(&self, _path: &str) -> Result<BlobMetadata> {
-            unimplemented!("capacity tests only call capacity_info")
+            Err(self.error.clone())
         }
 
         async fn capacity_info(&self) -> Result<StorageCapacityInfo> {
