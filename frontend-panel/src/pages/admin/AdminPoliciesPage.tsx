@@ -7,23 +7,15 @@ import { PoliciesTable } from "@/components/admin/admin-policies-page/PoliciesTa
 import { PolicyDialogs } from "@/components/admin/admin-policies-page/PolicyDialogs";
 import { PROTECTED_POLICY_ID } from "@/components/admin/admin-policies-page/policyPresentation";
 import { StoragePolicyMigrationDialog } from "@/components/admin/admin-policies-page/StoragePolicyMigrationDialog";
-import { MICROSOFT_GRAPH_PROVIDER } from "@/components/admin/storage-policy-dialog/onedriveFieldUtils";
+import { microsoftGraphCredentials } from "@/components/admin/storage-policy-dialog/applicationCredentials";
 import {
-	buildCreatePolicyPayload,
-	buildPolicyTestPayload,
-	buildTencentCosCorsPayload,
-	buildUpdatePolicyPayload,
-	DEFAULT_STORAGE_NATIVE_THUMBNAIL_EXTENSIONS,
-	emptyForm,
 	getEndpointValidationMessage,
 	getPolicyConnectionTestKey,
-	getPolicyForm,
 	getS3CompatibleDriverPromotionTarget,
 	hasConnectionFieldChanges,
-	microsoftGraphCredentials,
 	normalizePolicyForm,
-	type PolicyFormData,
-	parseMicrosoftGraphScopes,
+} from "@/components/admin/storage-policy-dialog/connectionNormalization";
+import {
 	supportsApplicationCredentials,
 	supportsDraftConnectionTest,
 	supportsMicrosoftGraphApplicationConfig,
@@ -35,7 +27,21 @@ import {
 	supportsStorageCredentialLifecycle,
 	supportsStorageNativeProcessing,
 	supportsStoragePolicyAction,
-} from "@/components/admin/storagePolicyDialogShared";
+} from "@/components/admin/storage-policy-dialog/descriptorPredicates";
+import {
+	DEFAULT_STORAGE_NATIVE_THUMBNAIL_EXTENSIONS,
+	emptyForm,
+	getPolicyForm,
+	type PolicyFormData,
+} from "@/components/admin/storage-policy-dialog/formTypes";
+import { MICROSOFT_GRAPH_PROVIDER } from "@/components/admin/storage-policy-dialog/onedriveFieldUtils";
+import {
+	buildCreatePolicyPayload,
+	buildPolicyTestPayload,
+	buildTencentCosCorsPayload,
+	buildUpdatePolicyPayload,
+	parseMicrosoftGraphScopes,
+} from "@/components/admin/storage-policy-dialog/payloadBuilders";
 import { AdminLayout } from "@/components/layout/AdminLayout";
 import { AdminPageHeader } from "@/components/layout/AdminPageHeader";
 import { AdminPageShell } from "@/components/layout/AdminPageShell";
@@ -1006,12 +1012,18 @@ function useAdminPoliciesPageContent() {
 		}
 
 		try {
-			if (shouldUseParamTest) {
-				await adminPolicyService.testParams(
-					buildPolicyTestPayload(currentForm, descriptor),
-				);
-			} else {
-				await adminPolicyService.testConnection(editingId);
+			const result = shouldUseParamTest
+				? await adminPolicyService.testParams(
+						buildPolicyTestPayload(currentForm, descriptor),
+					)
+				: await adminPolicyService.testConnection(editingId);
+
+			if (result == null || result.ok === false) {
+				setValidatedConnectionKey(null);
+				if (showFailureError) {
+					toast.error(result?.diagnostic?.message ?? t("connection_failed"));
+				}
+				return false;
 			}
 
 			if (

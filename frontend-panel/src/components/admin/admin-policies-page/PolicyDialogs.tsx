@@ -1,6 +1,6 @@
 import { useTranslation } from "react-i18next";
 import { StoragePolicyDialog } from "@/components/admin/StoragePolicyDialog";
-import type { PolicyFormData } from "@/components/admin/storagePolicyDialogShared";
+import type { PolicyFormData } from "@/components/admin/storage-policy-dialog/formTypes";
 import type { ConfirmDialogProps } from "@/components/common/ConfirmDialog";
 import { ConfirmDialog } from "@/components/common/ConfirmDialog";
 import type {

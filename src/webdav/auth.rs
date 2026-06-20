@@ -260,10 +260,6 @@ mod tests {
     use std::sync::Arc;
 
     async fn build_auth_test_state() -> PrimaryAppState {
-        build_auth_test_state_with_cache(false).await
-    }
-
-    async fn build_auth_test_state_with_cache(cache_enabled: bool) -> PrimaryAppState {
         let db = crate::db::connect_with_metrics(
             &DatabaseConfig {
                 url: "sqlite::memory:".to_string(),
@@ -279,11 +275,7 @@ mod tests {
             .expect("webdav auth test migrations should succeed");
 
         let runtime_config = Arc::new(RuntimeConfig::new());
-        let cache = cache::create_cache(&CacheConfig {
-            enabled: cache_enabled,
-            ..Default::default()
-        })
-        .await;
+        let cache = cache::create_cache(&CacheConfig::default()).await;
         let (storage_change_tx, _) = tokio::sync::broadcast::channel(
             crate::services::storage_change_service::STORAGE_CHANGE_CHANNEL_CAPACITY,
         );
@@ -422,7 +414,7 @@ mod tests {
 
     #[actix_web::test]
     async fn cached_basic_auth_rechecks_account_active_state() {
-        let state = build_auth_test_state_with_cache(true).await;
+        let state = build_auth_test_state().await;
         let (username, password, _, _) = seed_webdav_account(&state).await;
 
         authenticate_webdav(&basic_headers(&username, &password), &state)
@@ -452,7 +444,7 @@ mod tests {
 
     #[actix_web::test]
     async fn cached_basic_auth_rechecks_current_password_hash() {
-        let state = build_auth_test_state_with_cache(true).await;
+        let state = build_auth_test_state().await;
         let (username, password, _, _) = seed_webdav_account(&state).await;
 
         authenticate_webdav(&basic_headers(&username, &password), &state)

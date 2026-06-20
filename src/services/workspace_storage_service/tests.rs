@@ -817,7 +817,6 @@ async fn build_test_state() -> (PrimaryAppState, PathBuf, storage_policy::Model,
 
     let runtime_config = Arc::new(RuntimeConfig::new());
     let cache = cache::create_cache(&CacheConfig {
-        enabled: false,
         ..Default::default()
     })
     .await;

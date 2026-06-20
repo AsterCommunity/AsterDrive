@@ -248,7 +248,6 @@ mod tests {
         Migrator::up(&db, None).await.unwrap();
 
         let cache = crate::cache::create_cache(&CacheConfig {
-            enabled: false,
             ..Default::default()
         })
         .await;

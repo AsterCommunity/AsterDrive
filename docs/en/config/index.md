@@ -101,7 +101,7 @@ One-time bootstrap inputs such as enrollment tokens can be removed after success
 | [server](/en/config/server) | Listen address, port, worker count, temporary directories, node mode, follower ingress root |
 | [database](/en/config/database) | Database connection, connection pool, startup retries |
 | [auth](/en/config/auth) | Login signing secret, MFA encryption key, first plain-HTTP bootstrap |
-| [cache](/en/config/cache) | Memory cache / Redis / disable cache |
+| [cache](/en/config/cache) | Memory cache / Redis |
 | [logging](/en/config/logging) | Log level, format, output file, rotation |
 | [webdav](/en/config/webdav) | WebDAV path prefix and hard upload size limit |
 | `[network_trust]` | Trusted reverse proxy addresses, affecting real client IP detection |

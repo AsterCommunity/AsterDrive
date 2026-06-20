@@ -2304,7 +2304,6 @@ async fn setup_internal_hmac_binding_state(
 ) -> (aster_drive::runtime::PrimaryAppState, String, String) {
     let mut provider_state = common::setup().await;
     provider_state.cache = aster_drive::cache::create_cache(&aster_drive::config::CacheConfig {
-        enabled: true,
         backend: "memory".to_string(),
         redis_url: String::new(),
         default_ttl: 60,

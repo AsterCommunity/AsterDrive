@@ -19,7 +19,6 @@ mfa_secret_key = "change-me-in-production-mfa"
 bootstrap_insecure_cookies = false  # 仅首次初始化 auth_cookie_secure 时生效；纯 HTTP 首启可临时设为 true
 
 [cache]
-enabled = true
 backend = "memory"   # "memory" | "redis"
 redis_url = ""
 default_ttl = 3600

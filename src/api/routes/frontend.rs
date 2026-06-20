@@ -291,7 +291,6 @@ mod tests {
             .expect("frontend test DB should migrate");
 
         let cache = crate::cache::create_cache(&CacheConfig {
-            enabled: false,
             ..Default::default()
         })
         .await;

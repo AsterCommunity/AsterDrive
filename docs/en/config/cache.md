@@ -7,7 +7,6 @@ Not sure whether to introduce Redis? Most single-node deployments do not need it
 
 ```toml
 [cache]
-enabled = true
 backend = "memory"
 redis_url = ""
 default_ttl = 3600
@@ -24,7 +23,6 @@ For single-node, NAS, personal, or small-team deployments, the memory cache is e
 
 | Option | Default | Purpose |
 | --- | --- | --- |
-| `enabled` | `true` | Whether to enable cache |
 | `backend` | `"memory"` | `memory` or `redis` |
 | `redis_url` | `""` | Redis connection URL, used only when `backend = "redis"` |
 | `default_ttl` | `3600` | Default TTL in seconds |
@@ -35,19 +33,9 @@ If `backend` is set to `redis` but Redis cannot be reached, AsterDrive will **au
 
 The service usually will not fail to start just because Redis is temporarily unavailable, but cache will no longer be shared across instances.
 
-## Disable Cache
-
-```toml
-[cache]
-enabled = false
-```
-
-After disabling cache, the service still runs normally. Some queries and reads simply stop hitting cache. This is a useful comparison switch **when investigating performance issues**.
-
 ## Environment Variables
 
 ```bash
-ASTER__CACHE__ENABLED=true
 ASTER__CACHE__BACKEND=memory
 ASTER__CACHE__REDIS_URL=redis://127.0.0.1:6379/0
 ASTER__CACHE__DEFAULT_TTL=3600

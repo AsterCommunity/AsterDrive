@@ -101,7 +101,7 @@ ASTER__WEBDAV__PREFIX=/dav
 | [server](/config/server) | 监听地址、端口、线程数、临时目录、节点模式、follower 接收根目录 |
 | [database](/config/database) | 数据库连接、连接池、启动重试 |
 | [auth](/config/auth) | 登录签名密钥、MFA 加密密钥、首次纯 HTTP 引导 |
-| [cache](/config/cache) | 内存缓存 / Redis / 关闭缓存 |
+| [cache](/config/cache) | 内存缓存 / Redis |
 | [logging](/config/logging) | 日志级别、格式、输出文件、轮转 |
 | [webdav](/config/webdav) | WebDAV 路径前缀、上传体积硬上限 |
 | `[network_trust]` | 受信任的反向代理地址，影响真实客户端 IP 判定 |

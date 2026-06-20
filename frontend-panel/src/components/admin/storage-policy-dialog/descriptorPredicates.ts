@@ -1,26 +1,9 @@
 import type {
-	DriverType,
 	StorageConnectorActionKind,
 	StorageConnectorAffordanceAction,
 	StorageConnectorDescriptor,
 	StoragePolicyExecutableAction,
 } from "@/types/api";
-
-export function isS3CompatibleDriver(driverType: DriverType) {
-	return driverType === "s3" || driverType === "tencent_cos";
-}
-
-export function isObjectStorageDriver(driverType: DriverType) {
-	return (
-		driverType === "s3" ||
-		driverType === "tencent_cos" ||
-		driverType === "azure_blob"
-	);
-}
-
-export function isOneDriveDriver(driverType: DriverType) {
-	return driverType === "one_drive";
-}
 
 export function descriptorHasField(
 	descriptor: StorageConnectorDescriptor | null | undefined,

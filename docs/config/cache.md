@@ -7,7 +7,6 @@
 
 ```toml
 [cache]
-enabled = true
 backend = "memory"
 redis_url = ""
 default_ttl = 3600
@@ -24,7 +23,6 @@ default_ttl = 3600
 
 | 选项 | 默认值 | 作用 |
 | --- | --- | --- |
-| `enabled` | `true` | 是否启用缓存 |
 | `backend` | `"memory"` | `memory` 或 `redis` |
 | `redis_url` | `""` | Redis 连接地址，仅 `backend = "redis"` 时使用 |
 | `default_ttl` | `3600` | 默认 TTL，单位秒 |
@@ -35,19 +33,9 @@ default_ttl = 3600
 
 服务一般不会因为 Redis 暂时不可用就直接起不来——但多实例之间也就不再共享缓存了。
 
-## 关闭缓存
-
-```toml
-[cache]
-enabled = false
-```
-
-关掉之后服务仍能正常运行，只是部分查询和读取不再命中缓存。**性能问题排查时**这是一个有用的对照开关。
-
 ## 对应环境变量
 
 ```bash
-ASTER__CACHE__ENABLED=true
 ASTER__CACHE__BACKEND=memory
 ASTER__CACHE__REDIS_URL=redis://127.0.0.1:6379/0
 ASTER__CACHE__DEFAULT_TTL=3600

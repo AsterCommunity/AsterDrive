@@ -109,6 +109,12 @@ pub struct StoragePolicyActionAuditDetails<'a> {
     pub driver_type: &'a str,
     pub used_draft_values: bool,
     pub mutates_remote_state: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub diagnostic_kind: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub diagnostic_api_code: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub diagnostic_retryable: Option<bool>,
 }
 
 #[derive(Serialize)]

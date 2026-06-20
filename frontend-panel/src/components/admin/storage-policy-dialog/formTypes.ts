@@ -79,15 +79,12 @@ export function getPolicyForm(policy: StoragePolicy): PolicyFormData {
 				? String(Math.round(policy.chunk_size / 1024 / 1024))
 				: "5",
 		is_default: policy.is_default,
-		content_dedup:
-			policy.driver_type === "local" && options.content_dedup === true,
+		content_dedup: options.content_dedup === true,
 		remote_download_strategy: getEffectiveRemoteDownloadStrategy(options),
 		remote_upload_strategy: getEffectiveRemoteUploadStrategy(options),
 		s3_upload_strategy: getEffectiveS3UploadStrategy(options),
 		s3_download_strategy: getEffectiveS3DownloadStrategy(options),
-		...(policy.driver_type === "s3"
-			? { s3_path_style: getEffectiveS3PathStyle(options) }
-			: {}),
+		s3_path_style: getEffectiveS3PathStyle(options),
 		onedrive_cloud: options.onedrive_cloud ?? "global",
 		onedrive_account_mode: options.onedrive_account_mode ?? "work_or_school",
 		onedrive_tenant: options.onedrive_tenant ?? "common",

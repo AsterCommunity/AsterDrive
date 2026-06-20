@@ -52,7 +52,6 @@ async fn build_dispatch_test_db() -> sea_orm::DatabaseConnection {
 async fn build_dispatch_test_state() -> crate::runtime::PrimaryAppState {
     let db = build_dispatch_test_db().await;
     let cache = crate::cache::create_cache(&crate::config::CacheConfig {
-        enabled: false,
         ..Default::default()
     })
     .await;

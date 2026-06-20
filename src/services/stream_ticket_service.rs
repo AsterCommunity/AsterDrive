@@ -206,23 +206,19 @@ async fn store_ticket(
     payload: &StreamTicketPayload,
     ttl_secs: u64,
 ) -> Result<()> {
-    if state.config().cache.enabled {
-        state.cache().set(cache_key, payload, Some(ttl_secs)).await;
-        if state
-            .cache()
-            .get::<StreamTicketPayload>(cache_key)
-            .await
-            .is_some()
-        {
-            return Ok(());
-        }
-
-        tracing::warn!(
-            key = %cache_key,
-            "stream ticket cache backend did not persist entry; falling back to local cache"
-        );
+    state.cache().set(cache_key, payload, Some(ttl_secs)).await;
+    if state
+        .cache()
+        .get::<StreamTicketPayload>(cache_key)
+        .await
+        .is_some()
+    {
+        return Ok(());
     }
 
+    tracing::warn!(
+        "stream ticket cache backend did not persist entry; falling back to local cache"
+    );
     FALLBACK_STREAM_TICKETS
         .insert(cache_key.to_string(), payload.clone())
         .await;
@@ -233,9 +229,7 @@ async fn load_ticket(
     state: &impl SharedRuntimeState,
     cache_key: &str,
 ) -> Option<StreamTicketPayload> {
-    if state.config().cache.enabled
-        && let Some(payload) = state.cache().get::<StreamTicketPayload>(cache_key).await
-    {
+    if let Some(payload) = state.cache().get::<StreamTicketPayload>(cache_key).await {
         return Some(payload);
     }
 
@@ -243,9 +237,7 @@ async fn load_ticket(
 }
 
 async fn delete_ticket(state: &impl SharedRuntimeState, cache_key: &str) {
-    if state.config().cache.enabled {
-        state.cache().delete(cache_key).await;
-    }
+    state.cache().delete(cache_key).await;
     FALLBACK_STREAM_TICKETS.remove(cache_key).await;
 }
 

@@ -1313,7 +1313,6 @@ mod tests {
 
         let runtime_config = Arc::new(crate::config::RuntimeConfig::new());
         let cache = cache::create_cache(&CacheConfig {
-            enabled: false,
             ..Default::default()
         })
         .await;

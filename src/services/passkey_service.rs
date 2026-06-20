@@ -326,10 +326,9 @@ async fn take_registration_challenge(
 ) -> Result<PasskeyRegistrationChallenge> {
     let key = registration_cache_key(flow_id);
     let challenge =
-        state.cache().get(&key).await.ok_or_else(|| {
+        state.cache().take(&key).await.ok_or_else(|| {
             AsterError::auth_token_invalid("passkey registration challenge expired")
         })?;
-    state.cache().delete(&key).await;
     Ok(challenge)
 }
 
@@ -355,10 +354,9 @@ async fn take_login_challenge(
     let key = login_cache_key(flow_id);
     let challenge = state
         .cache()
-        .get(&key)
+        .take(&key)
         .await
         .ok_or_else(|| AsterError::auth_token_invalid("passkey login challenge expired"))?;
-    state.cache().delete(&key).await;
     Ok(challenge)
 }
 

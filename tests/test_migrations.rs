@@ -8,6 +8,7 @@ const RENAME_UPLOAD_SESSION_OBJECT_FIELDS_MIGRATION: &str =
     "m20260618_000001_rename_upload_session_object_fields";
 const ADD_STORAGE_CONNECTOR_APPLICATION_CONFIGS_MIGRATION: &str =
     "m20260619_000001_add_storage_connector_application_configs";
+const ENFORCE_JSON_TEXT_NOT_NULL_MIGRATION: &str = "m20260620_000001_enforce_json_text_not_null";
 
 async fn setup_current_schema() -> sea_orm::DatabaseConnection {
     let db = Database::connect("sqlite::memory:")
@@ -112,8 +113,56 @@ async fn sqlite_table_exists(db: &DatabaseConnection, table_name: &str) -> bool 
     .is_some()
 }
 
+async fn sqlite_column_is_not_null(
+    db: &DatabaseConnection,
+    table_name: &str,
+    column_name: &str,
+) -> bool {
+    db.query_all_raw(Statement::from_string(
+        DbBackend::Sqlite,
+        format!("PRAGMA table_info('{table_name}')"),
+    ))
+    .await
+    .expect("sqlite table column metadata should load")
+    .into_iter()
+    .find_map(|row| {
+        let name = row
+            .try_get_by_index::<String>(1)
+            .expect("sqlite PRAGMA table_info row should include column name");
+        (name == column_name).then(|| {
+            row.try_get_by_index::<i32>(3)
+                .expect("sqlite PRAGMA table_info row should include notnull flag")
+                != 0
+        })
+    })
+    .unwrap_or(false)
+}
+
 fn has_column(columns: &[String], expected: &str) -> bool {
     columns.iter().any(|column| column == expected)
+}
+
+#[tokio::test]
+async fn json_text_columns_are_not_null_in_current_schema() {
+    assert!(
+        CurrentMigrator::migrations()
+            .iter()
+            .any(|migration| migration.name() == ENFORCE_JSON_TEXT_NOT_NULL_MIGRATION),
+        "JSON text constraint migration should be registered"
+    );
+
+    let db = setup_current_schema().await;
+    for (table, column) in [
+        ("external_auth_providers", "options"),
+        ("storage_policy_credentials", "metadata"),
+        ("storage_policy_authorization_flows", "context"),
+        ("storage_connector_application_configs", "metadata"),
+    ] {
+        assert!(
+            sqlite_column_is_not_null(&db, table, column).await,
+            "{table}.{column} should be NOT NULL"
+        );
+    }
 }
 
 #[tokio::test]

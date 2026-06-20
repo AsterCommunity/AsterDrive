@@ -196,7 +196,6 @@ async fn build_oauth_test_state(
         r#"["https://drive.example.test"]"#,
     ));
     let cache = crate::cache::create_cache(&crate::config::CacheConfig {
-        enabled: false,
         backend: "memory".to_string(),
         ..Default::default()
     })

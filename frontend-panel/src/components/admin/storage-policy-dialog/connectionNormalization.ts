@@ -10,8 +10,6 @@ import {
 	updateMicrosoftGraphCredentials,
 } from "./applicationCredentials";
 import {
-	isObjectStorageDriver,
-	isOneDriveDriver,
 	supportsMicrosoftGraphApplicationConfig,
 	supportsObjectStorageConnection,
 	supportsOneDrivePolicyOptions,
@@ -102,11 +100,11 @@ export function normalizePolicyForm(
 	descriptor?: StorageConnectorDescriptor | null,
 ): PolicyFormData {
 	const shouldNormalizeObjectStorage = shouldUseObjectStorageConnection(
-		form.driver_type,
+		form,
 		descriptor,
 	);
 	const shouldNormalizeMicrosoftGraph = shouldUseMicrosoftGraphConfig(
-		form.driver_type,
+		form,
 		descriptor,
 	);
 
@@ -181,7 +179,7 @@ export function hasConnectionFieldChanges(
 	}
 
 	if (
-		shouldUseObjectStorageConnection(normalizedForm.driver_type, descriptor)
+		shouldUseObjectStorageConnection(normalizedForm, descriptor, editingPolicy)
 	) {
 		return (
 			normalizedForm.endpoint !== editingPolicy.endpoint ||
@@ -200,7 +198,9 @@ export function hasConnectionFieldChanges(
 		);
 	}
 
-	if (shouldUseMicrosoftGraphConfig(normalizedForm.driver_type, descriptor)) {
+	if (
+		shouldUseMicrosoftGraphConfig(normalizedForm, descriptor, editingPolicy)
+	) {
 		return (
 			normalizedForm.base_path !== editingPolicy.base_path ||
 			JSON.stringify(buildPolicyOptions(normalizedForm, descriptor)) !==
@@ -234,11 +234,11 @@ export function getEndpointValidationMessage(
 	t: (key: string) => string,
 	descriptor?: StorageConnectorDescriptor | null,
 ) {
-	const shouldValidateEndpoint = shouldUseObjectStorageConnection(
-		form.driver_type,
-		descriptor,
-	);
-	if (!shouldValidateEndpoint) {
+	if (
+		descriptor
+			? !supportsObjectStorageConnection(descriptor)
+			: !hasObjectStorageConnectionFields(form)
+	) {
 		return null;
 	}
 
@@ -266,26 +266,82 @@ export function getEndpointValidationMessage(
 }
 
 function shouldUseObjectStorageConnection(
-	driverType: DriverType,
+	form: PolicyFormData,
 	descriptor?: StorageConnectorDescriptor | null,
+	editingPolicy?: StoragePolicy | null,
 ) {
 	return descriptor
 		? supportsObjectStorageConnection(descriptor)
-		: isObjectStorageDriver(driverType);
+		: hasObjectStorageConnectionFields(form, editingPolicy);
 }
 
 function shouldUseMicrosoftGraphConfig(
-	driverType: DriverType,
+	form: PolicyFormData,
 	descriptor?: StorageConnectorDescriptor | null,
+	editingPolicy?: StoragePolicy | null,
 ) {
 	return descriptor
 		? supportsOneDrivePolicyOptions(descriptor) ||
 				supportsMicrosoftGraphApplicationConfig(descriptor)
-		: isOneDriveDriver(driverType);
+		: hasExplicitMicrosoftGraphFields(form) ||
+				hasMicrosoftGraphPolicyOptions(editingPolicy);
 }
 
 function shouldUseRemoteNodeBinding(
 	descriptor: StorageConnectorDescriptor | null | undefined,
 ) {
 	return descriptor ? supportsRemoteNodeBinding(descriptor) : false;
+}
+
+function hasObjectStorageConnectionFields(
+	form: PolicyFormData,
+	editingPolicy?: StoragePolicy | null,
+) {
+	return Boolean(
+		hasEndpointUrlScheme(form.endpoint) ||
+			hasText(form.bucket) ||
+			hasText(form.access_key) ||
+			hasText(form.secret_key) ||
+			hasEndpointUrlScheme(editingPolicy?.endpoint) ||
+			hasText(editingPolicy?.bucket),
+	);
+}
+
+function hasEndpointUrlScheme(endpoint?: string | null) {
+	return /^[a-z][a-z0-9+.-]*:/i.test(endpoint?.trim() ?? "");
+}
+
+function hasExplicitMicrosoftGraphFields(form: PolicyFormData) {
+	const microsoftGraph = microsoftGraphCredentials(form);
+	const tenant = form.onedrive_tenant?.trim();
+	return Boolean(
+		(form.onedrive_account_mode != null &&
+			form.onedrive_account_mode !== "work_or_school") ||
+			(form.onedrive_cloud != null && form.onedrive_cloud !== "global") ||
+			(tenant != null && tenant !== "" && tenant !== "common") ||
+			hasText(form.onedrive_drive_id) ||
+			hasText(form.onedrive_root_item_id) ||
+			hasText(form.onedrive_site_id) ||
+			hasText(form.onedrive_group_id) ||
+			hasText(microsoftGraph.client_id) ||
+			hasText(microsoftGraph.client_secret) ||
+			hasText(microsoftGraph.scopes),
+	);
+}
+
+function hasMicrosoftGraphPolicyOptions(policy?: StoragePolicy | null) {
+	const options = policy?.options;
+	return Boolean(
+		options?.onedrive_account_mode ||
+			options?.onedrive_cloud ||
+			options?.onedrive_tenant ||
+			options?.onedrive_drive_id ||
+			options?.onedrive_root_item_id ||
+			options?.onedrive_site_id ||
+			options?.onedrive_group_id,
+	);
+}
+
+function hasText(value: string | null | undefined) {
+	return Boolean(value?.trim());
 }

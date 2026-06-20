@@ -3650,9 +3650,8 @@ async fn test_unauthorized_access() {
 /// 用户状态缓存：正常认证 → 连续请求不应查 DB（通过 MemoryCache 验证）
 #[actix_web::test]
 async fn test_user_status_cached_in_auth_middleware() {
-    // 用 MemoryCache 替代默认 NoopCache
+    // 明确使用 MemoryCache 验证认证缓存命中。
     let cache_config = aster_drive::config::CacheConfig {
-        enabled: true,
         backend: "memory".to_string(),
         default_ttl: 60,
         ..Default::default()
@@ -3700,7 +3699,6 @@ async fn test_user_status_cached_in_auth_middleware() {
 #[actix_web::test]
 async fn test_disable_user_invalidates_status_cache() {
     let cache_config = aster_drive::config::CacheConfig {
-        enabled: true,
         backend: "memory".to_string(),
         default_ttl: 60,
         ..Default::default()

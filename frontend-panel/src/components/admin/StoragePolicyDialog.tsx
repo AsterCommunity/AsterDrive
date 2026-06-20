@@ -2,9 +2,8 @@ import { useEffect, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { getPolicyDriverBadgeClass } from "@/components/admin/admin-policies-page/policyPresentation";
 import type { StoragePolicyDriverOption } from "@/components/admin/StoragePolicyDialogFields";
+import { microsoftGraphCredentials } from "@/components/admin/storage-policy-dialog/applicationCredentials";
 import {
-	microsoftGraphCredentials,
-	type PolicyFormData,
 	supportsApplicationCredentials,
 	supportsContentDedupPolicyOption,
 	supportsDraftConnectionTest,
@@ -14,7 +13,8 @@ import {
 	supportsS3TransferStrategy,
 	supportsSavedConnectionTest,
 	supportsStorageNativeProcessing,
-} from "@/components/admin/storagePolicyDialogShared";
+} from "@/components/admin/storage-policy-dialog/descriptorPredicates";
+import type { PolicyFormData } from "@/components/admin/storage-policy-dialog/formTypes";
 import { InlineConfirm } from "@/components/common/ManagerDialogShell";
 import { Button } from "@/components/ui/button";
 import {

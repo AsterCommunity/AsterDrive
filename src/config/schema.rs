@@ -183,8 +183,6 @@ impl AuthConfig {
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct CacheConfig {
-    #[serde(default = "CacheConfig::default_enabled")]
-    pub enabled: bool,
     #[serde(default = "CacheConfig::default_backend")]
     pub backend: String, // "memory" | "redis"
     #[serde(default)]
@@ -196,7 +194,6 @@ pub struct CacheConfig {
 impl Default for CacheConfig {
     fn default() -> Self {
         Self {
-            enabled: Self::default_enabled(),
             backend: Self::default_backend(),
             redis_url: String::new(),
             default_ttl: Self::default_ttl(),
@@ -205,9 +202,6 @@ impl Default for CacheConfig {
 }
 
 impl CacheConfig {
-    fn default_enabled() -> bool {
-        true
-    }
     fn default_backend() -> String {
         "memory".to_string()
     }

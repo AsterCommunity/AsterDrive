@@ -1,17 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
-	buildCreatePolicyPayload,
-	buildPolicyTestPayload,
-	buildTencentCosCorsPayload,
-	buildUpdatePolicyPayload,
 	getEndpointValidationMessage,
 	getPolicyConnectionTestKey,
-	getPolicyForm,
 	getS3CompatibleDriverPromotionTarget,
 	hasConnectionFieldChanges,
-	isObjectStorageDriver,
-	isS3CompatibleDriver,
 	normalizePolicyForm,
+} from "@/components/admin/storage-policy-dialog/connectionNormalization";
+import {
 	supportsApplicationCredentials,
 	supportsContentDedupPolicyOption,
 	supportsCredentialValidationAction,
@@ -24,10 +19,17 @@ import {
 	supportsStorageAuthorizationAction,
 	supportsStorageNativeProcessing,
 	supportsStoragePolicyAction,
-} from "@/components/admin/storagePolicyDialogShared";
+} from "@/components/admin/storage-policy-dialog/descriptorPredicates";
+import { getPolicyForm } from "@/components/admin/storage-policy-dialog/formTypes";
+import {
+	buildCreatePolicyPayload,
+	buildPolicyTestPayload,
+	buildTencentCosCorsPayload,
+	buildUpdatePolicyPayload,
+} from "@/components/admin/storage-policy-dialog/payloadBuilders";
 import type { StoragePolicy } from "@/types/api";
 
-describe("storagePolicyDialogShared", () => {
+describe("storage policy dialog helper modules", () => {
 	const t = (key: string) => key;
 	const descriptor = {
 		actions: [
@@ -136,10 +138,6 @@ describe("storagePolicyDialogShared", () => {
 		expect(
 			getS3CompatibleDriverPromotionTarget(null, s3Descriptor, labelFor),
 		).toBeNull();
-		expect(isS3CompatibleDriver("s3")).toBe(true);
-		expect(isS3CompatibleDriver("tencent_cos")).toBe(true);
-		expect(isS3CompatibleDriver("azure_blob")).toBe(false);
-		expect(isObjectStorageDriver("azure_blob")).toBe(true);
 	});
 
 	it("uses backend storage driver descriptors as feature gate source", () => {
@@ -332,6 +330,7 @@ describe("storagePolicyDialogShared", () => {
 			remote_upload_strategy: "relay_stream",
 			s3_upload_strategy: "relay_stream",
 			s3_download_strategy: "relay_stream",
+			s3_path_style: true,
 			onedrive_cloud: "global",
 			onedrive_account_mode: "work_or_school",
 			onedrive_tenant: "common",
@@ -392,8 +391,8 @@ describe("storagePolicyDialogShared", () => {
 			is_default: false,
 			options: {
 				s3_upload_strategy: "presigned",
-				s3_download_strategy: "relay_stream",
 			},
+			remote_node_id: undefined,
 		});
 
 		expect(
@@ -420,8 +419,6 @@ describe("storagePolicyDialogShared", () => {
 				thumbnail_extensions: [],
 			}).options,
 		).toEqual({
-			s3_upload_strategy: "relay_stream",
-			s3_download_strategy: "relay_stream",
 			s3_path_style: false,
 		});
 	});
@@ -683,8 +680,22 @@ describe("storagePolicyDialogShared", () => {
 			getEndpointValidationMessage(
 				{
 					...baseForm,
+					endpoint: "ftp://s3.example.com",
+					bucket: "",
+					access_key: "",
+					secret_key: "",
+				},
+				t,
+				null,
+			),
+		).toBe("s3_endpoint_protocol_required_error");
+		expect(
+			getEndpointValidationMessage(
+				{
+					...baseForm,
 					driver_type: "remote",
 					endpoint: "edge-node-without-protocol",
+					bucket: "",
 				},
 				t,
 			),
@@ -841,9 +852,9 @@ describe("storagePolicyDialogShared", () => {
 			chunk_size: 5 * 1024 * 1024,
 			is_default: true,
 			options: {
-				s3_upload_strategy: "relay_stream",
 				s3_download_strategy: "presigned",
 			},
+			remote_node_id: undefined,
 		});
 	});
 
@@ -968,7 +979,7 @@ describe("storagePolicyDialogShared", () => {
 			is_default: false,
 			options: {
 				s3_upload_strategy: "presigned",
-				s3_download_strategy: "relay_stream",
+				s3_path_style: false,
 			},
 		});
 		expect(normalizePolicyForm(azureForm)).toEqual({
@@ -989,7 +1000,7 @@ describe("storagePolicyDialogShared", () => {
 				remote_node_id: undefined,
 				options: {
 					s3_upload_strategy: "presigned",
-					s3_download_strategy: "relay_stream",
+					s3_path_style: false,
 				},
 			}),
 		);
@@ -1256,8 +1267,6 @@ describe("storagePolicyDialogShared", () => {
 		};
 
 		expect(buildCreatePolicyPayload(baseForm).options).toEqual({
-			s3_upload_strategy: "relay_stream",
-			s3_download_strategy: "relay_stream",
 			storage_native_processing_enabled: true,
 			thumbnail_processor: "storage_native",
 			thumbnail_extensions: ["png", "jpg"],
@@ -1269,8 +1278,6 @@ describe("storagePolicyDialogShared", () => {
 				thumbnail_extensions: ["webp", "gif"],
 			}).options,
 		).toEqual({
-			s3_upload_strategy: "relay_stream",
-			s3_download_strategy: "relay_stream",
 			storage_native_processing_enabled: true,
 			thumbnail_processor: "storage_native",
 			thumbnail_extensions: ["webp", "gif"],
@@ -1302,10 +1309,7 @@ describe("storagePolicyDialogShared", () => {
 			media_metadata_extensions: ["mp4"],
 		});
 
-		expect(payload.options).toEqual({
-			s3_upload_strategy: "relay_stream",
-			s3_download_strategy: "relay_stream",
-		});
+		expect(payload.options).toEqual({});
 	});
 
 	it("preserves storage-native media metadata switch with empty suffixes", () => {
@@ -1334,8 +1338,6 @@ describe("storagePolicyDialogShared", () => {
 		});
 
 		expect(payload.options).toEqual({
-			s3_upload_strategy: "relay_stream",
-			s3_download_strategy: "relay_stream",
 			storage_native_processing_enabled: true,
 			thumbnail_processor: "storage_native",
 			thumbnail_extensions: ["jpg"],

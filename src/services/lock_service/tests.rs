@@ -136,7 +136,6 @@ async fn build_lock_test_state() -> (PrimaryAppState, user::Model, file::Model) 
 
     let runtime_config = Arc::new(RuntimeConfig::new());
     let cache = cache::create_cache(&CacheConfig {
-        enabled: false,
         ..Default::default()
     })
     .await;

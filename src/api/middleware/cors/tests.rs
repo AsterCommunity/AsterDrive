@@ -68,7 +68,6 @@ async fn test_state(configs: &[(&str, &str)]) -> PrimaryAppState {
     }
 
     let cache = cache::create_cache(&CacheConfig {
-        enabled: false,
         ..Default::default()
     })
     .await;

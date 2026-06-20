@@ -961,7 +961,6 @@ mod tests {
             .unwrap();
 
         let cache = crate::cache::create_cache(&crate::config::CacheConfig {
-            enabled: false,
             ..Default::default()
         })
         .await;

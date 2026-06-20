@@ -3003,6 +3003,9 @@ async fn test_policy_connection_endpoints_for_local_driver() {
         .to_request();
     let resp = test::call_service(&app, req).await;
     assert_eq!(resp.status(), 200);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(body["data"]["ok"], true);
+    assert!(body["data"].get("diagnostic").is_none());
     assert!(!std::path::Path::new(&format!("{stored_base_path}/_aster_connection_test")).exists());
 
     let temp_base_path = format!("/tmp/test-policy-params-{}", uuid::Uuid::new_v4());
@@ -3017,7 +3020,88 @@ async fn test_policy_connection_endpoints_for_local_driver() {
         .to_request();
     let resp = test::call_service(&app, req).await;
     assert_eq!(resp.status(), 200);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(body["data"]["ok"], true);
+    assert!(body["data"].get("diagnostic").is_none());
     assert!(!std::path::Path::new(&format!("{temp_base_path}/_aster_connection_test")).exists());
+}
+
+#[actix_web::test]
+async fn test_policy_connection_failures_return_admin_diagnostic_payload() {
+    let state = common::setup().await;
+    let app = create_test_app!(state);
+    let (token, _) = register_and_login!(app);
+
+    let blocked_base_path = format!("/tmp/test-policy-probe-file-{}", uuid::Uuid::new_v4());
+    tokio::fs::write(&blocked_base_path, b"not a directory")
+        .await
+        .expect("probe fixture file should be written");
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/admin/policies/test")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({
+            "driver_type": "local",
+            "base_path": blocked_base_path
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(body["code"], ApiErrorCode::Success.as_str());
+    assert_eq!(body["msg"], "");
+    assert_eq!(body["data"]["ok"], false);
+    assert!(body["data"]["diagnostic"]["api_code"].as_str().is_some());
+    assert!(body["data"]["diagnostic"]["kind"].as_str().is_some());
+    assert!(body["data"]["diagnostic"]["retryable"].as_bool().is_some());
+    assert!(body.get("error").is_none());
+    let diagnostic_message = body["data"]["diagnostic"]["message"]
+        .as_str()
+        .expect("storage probe diagnostic should include the driver message");
+    assert!(diagnostic_message.contains("connection test failed"));
+    assert_ne!(diagnostic_message, "Storage Driver Error");
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/admin/policies")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({
+            "name": "Saved Probe Failure Policy",
+            "driver_type": "local",
+            "base_path": blocked_base_path,
+            "max_file_size": 0,
+            "is_default": false
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 201);
+    let body: Value = test::read_body_json(resp).await;
+    let policy_id = body["data"]["id"].as_i64().unwrap();
+
+    let req = test::TestRequest::post()
+        .uri(&format!("/api/v1/admin/policies/{policy_id}/test"))
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(body["code"], ApiErrorCode::Success.as_str());
+    assert_eq!(body["msg"], "");
+    assert_eq!(body["data"]["ok"], false);
+    assert_eq!(body["data"]["diagnostic"]["kind"], "misconfigured");
+    assert_eq!(
+        body["data"]["diagnostic"]["api_code"],
+        ApiErrorCode::StorageMisconfigured.as_str()
+    );
+    assert_eq!(body["data"]["diagnostic"]["retryable"], false);
+    assert!(body.get("error").is_none());
+    let diagnostic_message = body["data"]["diagnostic"]["message"]
+        .as_str()
+        .expect("saved storage probe diagnostic should include the driver message");
+    assert!(diagnostic_message.contains("write test failed"));
+    assert_ne!(diagnostic_message, "Storage Driver Error");
 }
 
 #[actix_web::test]
@@ -3048,6 +3132,8 @@ async fn test_policy_params_rejects_onedrive_draft_connection_test() {
         body["msg"],
         "storage policy driver 'onedrive' requires a saved storage policy with completed authorization; use the saved policy connection test after authorization"
     );
+    assert!(body.get("data").is_none());
+    assert_eq!(body["error"]["retryable"], false);
 }
 
 #[actix_web::test]
@@ -3094,7 +3180,7 @@ async fn test_tencent_cos_cors_config_rejects_invalid_inputs_with_stable_codes()
         .insert_header(("Cookie", common::access_cookie_header(&token)))
         .insert_header(common::csrf_header_for(&token))
         .set_json(serde_json::json!({
-            "action": "start_authorization",
+            "action": "configure_tencent_cos_cors",
             "driver_type": "one_drive",
             "base_path": "draft-root"
         }))
@@ -3105,7 +3191,7 @@ async fn test_tencent_cos_cors_config_rejects_invalid_inputs_with_stable_codes()
     assert_eq!(body["code"], ApiErrorCode::PolicyActionUnsupported.as_str());
     assert_eq!(
         body["msg"],
-        "storage policy action 'start_authorization' is not supported for onedrive storage policies"
+        "storage policy action 'configure_tencent_cos_cors' is not supported for onedrive storage policies"
     );
 
     let req = test::TestRequest::post()

@@ -290,7 +290,6 @@ async fn test_file_direct_link_supports_public_access_force_download_and_file_re
 async fn test_file_preview_link_supports_public_inline_access_and_usage_limit() {
     let mut state = common::setup().await;
     state.cache = aster_drive::cache::create_cache(&aster_drive::config::CacheConfig {
-        enabled: true,
         ..Default::default()
     })
     .await;
@@ -365,7 +364,6 @@ async fn test_file_download_honors_single_range_header() {
 async fn test_file_preview_link_honors_single_range_header() {
     let mut state = common::setup().await;
     state.cache = aster_drive::cache::create_cache(&aster_drive::config::CacheConfig {
-        enabled: true,
         ..Default::default()
     })
     .await;
@@ -568,7 +566,6 @@ async fn test_dangerous_html_direct_link_stays_inline_with_csp_sandbox() {
 async fn test_dangerous_svg_preview_link_stays_inline_with_csp_sandbox() {
     let mut state = common::setup().await;
     state.cache = aster_drive::cache::create_cache(&aster_drive::config::CacheConfig {
-        enabled: true,
         ..Default::default()
     })
     .await;

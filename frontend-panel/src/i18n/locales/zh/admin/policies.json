@@ -11,6 +11,7 @@
 	"confirm_delete_policy": "确定要删除此存储策略？",
 	"test_connection": "测试连接",
 	"connection_success": "连接成功",
+	"connection_failed": "连接失败",
 	"new_policy": "新建策略",
 	"policy_migration_action": "迁移数据",
 	"policy_migration_title": "迁移存储策略数据",

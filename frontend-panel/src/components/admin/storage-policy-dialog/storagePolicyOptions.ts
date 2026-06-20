@@ -32,10 +32,6 @@ export interface StoragePolicyOptionsForm {
 	media_metadata_extensions?: string[];
 }
 
-type PolicyOptionsSerializer = (
-	form: StoragePolicyOptionsForm,
-) => StoragePolicyOptions;
-
 export function getEffectiveS3UploadStrategy(
 	options: StoragePolicyOptions,
 ): S3UploadStrategy {
@@ -76,7 +72,7 @@ export function buildPolicyOptions(
 	}
 
 	return {
-		...(POLICY_OPTION_SERIALIZERS[form.driver_type]?.(form) ?? {}),
+		...buildPolicyOptionsFallback(form),
 		...buildStorageNativeOptions(form),
 	};
 }
@@ -116,41 +112,30 @@ function buildDescriptorPolicyOptions(
 	return options;
 }
 
-const POLICY_OPTION_SERIALIZERS: Partial<
-	Record<DriverType, PolicyOptionsSerializer>
-> = {
-	local: buildLocalPolicyOptions,
-	remote: buildRemotePolicyOptions,
-	s3: buildObjectStoragePolicyOptions,
-	tencent_cos: buildObjectStoragePolicyOptions,
-	azure_blob: buildObjectStoragePolicyOptions,
-	one_drive: buildOneDrivePolicyOptions,
-};
-
-function buildLocalPolicyOptions(
+function buildPolicyOptionsFallback(
 	form: StoragePolicyOptionsForm,
 ): StoragePolicyOptions {
-	return form.content_dedup ? { content_dedup: true } : {};
-}
-
-function buildRemotePolicyOptions(
-	form: StoragePolicyOptionsForm,
-): StoragePolicyOptions {
-	return {
-		remote_download_strategy: form.remote_download_strategy,
-		remote_upload_strategy: form.remote_upload_strategy,
-	};
-}
-
-function buildObjectStoragePolicyOptions(
-	form: StoragePolicyOptionsForm,
-): StoragePolicyOptions {
-	const options: StoragePolicyOptions = {
-		s3_upload_strategy: form.s3_upload_strategy,
-		s3_download_strategy: form.s3_download_strategy,
-	};
-	if (form.driver_type === "s3" && form.s3_path_style === false) {
+	const options: StoragePolicyOptions = {};
+	if (form.content_dedup) {
+		options.content_dedup = true;
+	}
+	if (form.remote_download_strategy !== "relay_stream") {
+		options.remote_download_strategy = form.remote_download_strategy;
+	}
+	if (form.remote_upload_strategy !== "relay_stream") {
+		options.remote_upload_strategy = form.remote_upload_strategy;
+	}
+	if (form.s3_upload_strategy !== "relay_stream") {
+		options.s3_upload_strategy = form.s3_upload_strategy;
+	}
+	if (form.s3_download_strategy !== "relay_stream") {
+		options.s3_download_strategy = form.s3_download_strategy;
+	}
+	if (form.s3_path_style === false) {
 		options.s3_path_style = false;
+	}
+	if (hasOneDrivePolicyOptionValues(form)) {
+		Object.assign(options, buildOneDrivePolicyOptions(form));
 	}
 	return options;
 }
@@ -159,14 +144,14 @@ function buildOneDrivePolicyOptions(
 	form: StoragePolicyOptionsForm,
 ): StoragePolicyOptions {
 	const options: StoragePolicyOptions = {
-		onedrive_cloud: form.onedrive_cloud,
-		onedrive_account_mode: form.onedrive_account_mode,
+		onedrive_cloud: form.onedrive_cloud ?? "global",
+		onedrive_account_mode: form.onedrive_account_mode ?? "work_or_school",
 	};
-	const tenant = form.onedrive_tenant.trim();
-	const driveId = form.onedrive_drive_id.trim();
-	const rootItemId = form.onedrive_root_item_id.trim();
-	const siteId = form.onedrive_site_id.trim();
-	const groupId = form.onedrive_group_id.trim();
+	const tenant = form.onedrive_tenant?.trim() ?? "";
+	const driveId = form.onedrive_drive_id?.trim() ?? "";
+	const rootItemId = form.onedrive_root_item_id?.trim() ?? "";
+	const siteId = form.onedrive_site_id?.trim() ?? "";
+	const groupId = form.onedrive_group_id?.trim() ?? "";
 	if (tenant) {
 		options.onedrive_tenant = tenant;
 	}
@@ -181,6 +166,24 @@ function buildOneDrivePolicyOptions(
 		options.onedrive_group_id = groupId;
 	}
 	return options;
+}
+
+function hasOneDrivePolicyOptionValues(form: StoragePolicyOptionsForm) {
+	const tenant = form.onedrive_tenant?.trim();
+	return Boolean(
+		(form.onedrive_account_mode != null &&
+			form.onedrive_account_mode !== "work_or_school") ||
+			(form.onedrive_cloud != null && form.onedrive_cloud !== "global") ||
+			(tenant != null && tenant !== "" && tenant !== "common") ||
+			hasText(form.onedrive_drive_id) ||
+			hasText(form.onedrive_root_item_id) ||
+			hasText(form.onedrive_site_id) ||
+			hasText(form.onedrive_group_id),
+	);
+}
+
+function hasText(value: string | null | undefined) {
+	return Boolean(value?.trim());
 }
 
 function buildStorageNativeOptions(

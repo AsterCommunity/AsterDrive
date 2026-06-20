@@ -206,11 +206,12 @@ async fn build_storage_policy_migration_preflight(
         input.target_policy_id,
     )
     .await?;
-    let target_capacity = crate::services::policy_service::capacity_info_or_status(
-        target_driver.as_ref(),
-        target_policy.driver_type,
-    )
-    .await;
+    let (target_capacity, _target_capacity_diagnostic) =
+        crate::services::policy_service::capacity_info_or_status(
+            target_driver.as_ref(),
+            target_policy.driver_type,
+        )
+        .await;
     let target_capacity_check =
         migration_capacity_check(&target_capacity, missing_summary.total_size);
     let warnings = match target_capacity_check {

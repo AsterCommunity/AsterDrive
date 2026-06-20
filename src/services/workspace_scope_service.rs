@@ -569,7 +569,6 @@ mod tests {
             .expect("test database should migrate");
 
         let cache = cache::create_cache(&CacheConfig {
-            enabled: true,
             backend: "memory".to_string(),
             ..Default::default()
         })

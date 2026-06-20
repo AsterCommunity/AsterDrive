@@ -4,11 +4,47 @@ use serde::{Deserialize, Serialize};
 #[cfg(all(debug_assertions, feature = "openapi"))]
 use utoipa::ToSchema;
 
+use crate::api::api_error_code::ApiErrorCode;
 use crate::entities::storage_policy;
+use crate::errors::sanitize_storage_driver_client_message;
+use crate::storage::error::storage_driver_error_display_message;
 use crate::types::{
     DriverType, StoragePolicyOptions, parse_storage_policy_allowed_types,
     parse_storage_policy_options,
 };
+
+#[derive(Debug, Clone, Serialize)]
+#[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
+pub struct StoragePolicyDiagnostic {
+    pub api_code: ApiErrorCode,
+    pub kind: String,
+    pub message: String,
+    pub retryable: bool,
+}
+
+impl StoragePolicyDiagnostic {
+    pub fn from_error(error: &crate::errors::AsterError) -> Option<Self> {
+        let kind = error.storage_error_kind()?;
+        Some(Self {
+            api_code: error.api_error_code(),
+            kind: kind.as_str().to_string(),
+            message: storage_policy_diagnostic_message(error),
+            retryable: error.api_error_info().retryable,
+        })
+    }
+}
+
+fn storage_policy_diagnostic_message(error: &crate::errors::AsterError) -> String {
+    sanitize_storage_driver_client_message(storage_driver_error_display_message(error.message()))
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
+pub struct StoragePolicyProbeResult {
+    pub ok: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub diagnostic: Option<StoragePolicyDiagnostic>,
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
@@ -82,6 +118,8 @@ pub struct StoragePolicyCapacityInfo {
     pub blob_count: i64,
     pub blob_total_bytes: i64,
     pub capacity: crate::storage::StorageCapacityInfo,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub diagnostic: Option<StoragePolicyDiagnostic>,
 }
 
 pub type StoragePolicyActionType = crate::storage::StoragePolicyExecutableAction;
@@ -90,8 +128,29 @@ pub type ExecuteSavedStoragePolicyActionInput =
 pub type ExecuteDraftStoragePolicyActionInput =
     crate::storage::ExecuteDraftStorageConnectorActionInput;
 pub type StoragePolicyConnectionInput = crate::storage::StorageConnectorConnectionInput;
-pub type StoragePolicyActionResult = crate::storage::StorageConnectorActionResult;
 pub type TencentCosCorsConfigResult = crate::storage::TencentCosCorsConfigResult;
+
+#[derive(Debug, Clone, Serialize)]
+#[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
+pub struct StoragePolicyActionResult {
+    pub ok: bool,
+    pub action: StoragePolicyActionType,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tencent_cos_cors: Option<TencentCosCorsConfigResult>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub diagnostic: Option<StoragePolicyDiagnostic>,
+}
+
+impl From<crate::storage::StorageConnectorActionResult> for StoragePolicyActionResult {
+    fn from(value: crate::storage::StorageConnectorActionResult) -> Self {
+        Self {
+            ok: true,
+            action: value.action,
+            tencent_cos_cors: value.tencent_cos_cors,
+            diagnostic: None,
+        }
+    }
+}
 
 impl From<storage_policy::Model> for StoragePolicy {
     fn from(model: storage_policy::Model) -> Self {
@@ -185,7 +244,52 @@ pub struct UpdateStoragePolicyGroupInput {
 
 #[cfg(test)]
 mod tests {
-    use super::{StoragePolicyActionResult, StoragePolicyActionType, TencentCosCorsConfigResult};
+    use super::{
+        StoragePolicyActionResult, StoragePolicyActionType, StoragePolicyDiagnostic,
+        TencentCosCorsConfigResult,
+    };
+    use crate::api::api_error_code::ApiErrorCode;
+    use crate::storage::StorageErrorKind;
+    use crate::storage::error::storage_driver_error;
+
+    #[test]
+    fn storage_policy_diagnostic_sanitizes_admin_storage_details() {
+        let error = storage_driver_error(
+            StorageErrorKind::Permission,
+            "Azure Blob failed for https://acct.blob.core.windows.net/file?sig=topsecret AccountKey=supersecret;EndpointSuffix=core.windows.net",
+        );
+
+        let diagnostic =
+            StoragePolicyDiagnostic::from_error(&error).expect("storage errors are diagnostic");
+
+        assert_eq!(diagnostic.api_code, ApiErrorCode::StoragePermission);
+        assert_eq!(diagnostic.kind, "permission");
+        assert!(diagnostic.message.contains("sig=[redacted]"));
+        assert!(diagnostic.message.contains("AccountKey=[redacted]"));
+        assert!(!diagnostic.message.contains("topsecret"));
+        assert!(!diagnostic.message.contains("supersecret"));
+        assert!(!diagnostic.retryable);
+    }
+
+    #[test]
+    fn storage_policy_diagnostic_marks_retryable_storage_errors() {
+        let error = storage_driver_error(StorageErrorKind::Transient, "provider timed out");
+
+        let diagnostic =
+            StoragePolicyDiagnostic::from_error(&error).expect("storage errors are diagnostic");
+
+        assert_eq!(diagnostic.api_code, ApiErrorCode::StorageTransient);
+        assert_eq!(diagnostic.kind, "transient");
+        assert_eq!(diagnostic.message, "provider timed out");
+        assert!(diagnostic.retryable);
+    }
+
+    #[test]
+    fn storage_policy_diagnostic_ignores_non_storage_errors() {
+        let error = crate::errors::AsterError::validation_error("bad request");
+
+        assert!(StoragePolicyDiagnostic::from_error(&error).is_none());
+    }
 
     #[test]
     fn storage_policy_action_type_uses_stable_snake_case_wire_value() {
@@ -207,19 +311,24 @@ mod tests {
     #[test]
     fn storage_policy_action_result_omits_unrelated_payloads() {
         let empty_payload = StoragePolicyActionResult {
+            ok: true,
             action: StoragePolicyActionType::ConfigureTencentCosCors,
             tencent_cos_cors: None,
+            diagnostic: None,
         };
 
         let value = serde_json::to_value(empty_payload).expect("serialize empty payload");
 
+        assert_eq!(value["ok"], true);
         assert_eq!(value["action"], "configure_tencent_cos_cors");
         assert!(value.get("tencent_cos_cors").is_none());
+        assert!(value.get("diagnostic").is_none());
     }
 
     #[test]
     fn storage_policy_action_result_serializes_tencent_cos_cors_payload() {
         let result = StoragePolicyActionResult {
+            ok: true,
             action: StoragePolicyActionType::ConfigureTencentCosCors,
             tencent_cos_cors: Some(TencentCosCorsConfigResult {
                 rule_id: "asterdrive-presigned-access".to_string(),
@@ -232,6 +341,7 @@ mod tests {
                 replaced_existing_rule: true,
                 response_vary: true,
             }),
+            diagnostic: None,
         };
 
         let value = serde_json::to_value(result).expect("serialize COS payload");
@@ -249,5 +359,34 @@ mod tests {
         assert_eq!(value["tencent_cos_cors"]["preserved_rule_count"], 2);
         assert_eq!(value["tencent_cos_cors"]["replaced_existing_rule"], true);
         assert_eq!(value["tencent_cos_cors"]["response_vary"], true);
+    }
+
+    #[test]
+    fn storage_policy_action_result_serializes_diagnostic_failure_payload() {
+        let diagnostic = StoragePolicyDiagnostic {
+            api_code: ApiErrorCode::StorageMisconfigured,
+            kind: "misconfigured".to_string(),
+            message: "connection test failed: local base path is not a directory".to_string(),
+            retryable: false,
+        };
+        let result = StoragePolicyActionResult {
+            ok: false,
+            action: StoragePolicyActionType::ConfigureTencentCosCors,
+            tencent_cos_cors: None,
+            diagnostic: Some(diagnostic),
+        };
+
+        let value = serde_json::to_value(result).expect("serialize diagnostic payload");
+
+        assert_eq!(value["ok"], false);
+        assert_eq!(value["action"], "configure_tencent_cos_cors");
+        assert_eq!(value["diagnostic"]["api_code"], "storage.misconfigured");
+        assert_eq!(value["diagnostic"]["kind"], "misconfigured");
+        assert_eq!(
+            value["diagnostic"]["message"],
+            "connection test failed: local base path is not a directory"
+        );
+        assert_eq!(value["diagnostic"]["retryable"], false);
+        assert!(value.get("tencent_cos_cors").is_none());
     }
 }

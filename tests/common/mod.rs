@@ -887,7 +887,6 @@ pub async fn setup() -> PrimaryAppState {
 pub async fn setup_with_memory_cache() -> PrimaryAppState {
     let base = setup().await;
     let cache_config = aster_drive::config::CacheConfig {
-        enabled: true,
         backend: "memory".to_string(),
         default_ttl: 60,
         ..Default::default()
@@ -1126,11 +1125,8 @@ pub async fn setup_with_database_url(database_url: &str) -> PrimaryAppState {
     .await
     .unwrap();
 
-    // 测试用 NoopCache
-    let cache_config = aster_drive::config::CacheConfig {
-        enabled: false,
-        ..Default::default()
-    };
+    // 测试用内存缓存。
+    let cache_config = aster_drive::config::CacheConfig::default();
     let cache = aster_drive::cache::create_cache(&cache_config).await;
 
     // 初始化全局 config（WebDAV file.rs 内部调 get_config() 需要）

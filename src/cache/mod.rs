@@ -1,7 +1,6 @@
 //! 缓存抽象与实现导出。
 
 mod memory;
-mod noop;
 mod redis_cache;
 mod reservation;
 
@@ -31,9 +30,15 @@ pub trait CacheBackend: Send + Sync {
     fn backend_name(&self) -> &'static str;
     async fn health_check(&self) -> Result<()>;
     async fn get_bytes(&self, key: &str) -> Option<Vec<u8>>;
+    async fn take_bytes(&self, key: &str) -> Option<Vec<u8>>;
     async fn set_bytes(&self, key: &str, value: Vec<u8>, ttl_secs: Option<u64>);
     async fn set_bytes_if_absent(&self, key: &str, value: Vec<u8>, ttl_secs: Option<u64>) -> bool;
     async fn delete(&self, key: &str);
+    async fn delete_many(&self, keys: &[String]) {
+        for key in keys {
+            self.delete(key).await;
+        }
+    }
     async fn invalidate_prefix(&self, prefix: &str);
 }
 
@@ -50,6 +55,11 @@ pub trait CacheExt {
         value: &T,
         ttl_secs: Option<u64>,
     ) -> impl std::future::Future<Output = ()> + Send;
+
+    fn take<T: DeserializeOwned + Send>(
+        &self,
+        key: &str,
+    ) -> impl std::future::Future<Output = Option<T>> + Send;
 }
 
 impl CacheExt for dyn CacheBackend {
@@ -63,15 +73,15 @@ impl CacheExt for dyn CacheBackend {
             self.set_bytes(key, bytes, ttl_secs).await;
         }
     }
+
+    async fn take<T: DeserializeOwned + Send>(&self, key: &str) -> Option<T> {
+        let bytes = self.take_bytes(key).await?;
+        serde_json::from_slice(&bytes).ok()
+    }
 }
 
 /// 根据配置创建缓存后端
 pub async fn create_cache(config: &CacheConfig) -> Arc<dyn CacheBackend> {
-    if !config.enabled {
-        tracing::info!("cache disabled");
-        return Arc::new(noop::NoopCache::new(config.default_ttl));
-    }
-
     match config.backend.as_str() {
         "redis" => {
             match redis_cache::RedisCache::new(&config.redis_url, config.default_ttl).await {

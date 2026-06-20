@@ -414,7 +414,6 @@ async fn log_writes_synchronously_without_global_manager() {
         .await
         .expect("runtime config should load");
     let cache = crate::cache::create_cache(&crate::config::CacheConfig {
-        enabled: false,
         ..Default::default()
     })
     .await;
@@ -475,7 +474,6 @@ async fn follower_state_can_record_allowed_audit_log() {
         .await
         .expect("runtime config should load");
     let cache = crate::cache::create_cache(&crate::config::CacheConfig {
-        enabled: false,
         ..Default::default()
     })
     .await;
@@ -529,7 +527,6 @@ async fn log_with_details_skips_details_when_action_scope_excludes_action() {
         updated_by: None,
     });
     let cache = crate::cache::create_cache(&crate::config::CacheConfig {
-        enabled: false,
         ..Default::default()
     })
     .await;

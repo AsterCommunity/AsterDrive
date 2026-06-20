@@ -5,7 +5,7 @@ mod models;
 mod policies;
 mod shared;
 
-use crate::errors::Result;
+use crate::errors::{AsterError, Result};
 use crate::runtime::{RemoteProtocolRuntimeState, SharedRuntimeState, TaskRuntimeState};
 use crate::services::audit_service::{self, AuditContext};
 use crate::types::DriverType;
@@ -25,15 +25,16 @@ pub use models::{
     ExecuteDraftStoragePolicyActionInput, ExecuteSavedStoragePolicyActionInput,
     PolicyGroupAssignmentMigrationResult, PromoteS3CompatiblePolicyDriverInput, StoragePolicy,
     StoragePolicyActionResult, StoragePolicyActionType, StoragePolicyCapacityInfo,
-    StoragePolicyConnectionInput, StoragePolicyGroupInfo, StoragePolicyGroupItemInfo,
-    StoragePolicyGroupItemInput, StoragePolicySummaryInfo, TencentCosCorsConfigResult,
-    UpdateStoragePolicyGroupInput, UpdateStoragePolicyInput,
+    StoragePolicyConnectionInput, StoragePolicyDiagnostic, StoragePolicyGroupInfo,
+    StoragePolicyGroupItemInfo, StoragePolicyGroupItemInput, StoragePolicyProbeResult,
+    StoragePolicySummaryInfo, TencentCosCorsConfigResult, UpdateStoragePolicyGroupInput,
+    UpdateStoragePolicyInput,
 };
 pub(crate) use policies::capacity_info_or_status;
 pub use policies::{
     capacity_info, create, delete, execute_draft_action, execute_saved_action, get, list_paginated,
-    promote_s3_compatible_driver, test_connection, test_connection_params, test_default_connection,
-    update,
+    probe_connection, probe_connection_params, promote_s3_compatible_driver, test_connection,
+    test_connection_params, test_default_connection, update,
 };
 
 fn policy_audit_details(policy: &StoragePolicy) -> Option<serde_json::Value> {
@@ -50,12 +51,16 @@ fn policy_action_audit_details(
     action: StoragePolicyActionType,
     driver_type: DriverType,
     used_draft_values: bool,
+    diagnostic: Option<&StoragePolicyDiagnostic>,
 ) -> Option<serde_json::Value> {
     audit_service::details(audit_service::StoragePolicyActionAuditDetails {
         action: action.as_str(),
         driver_type: driver_type.as_str(),
         used_draft_values,
         mutates_remote_state: action.mutates_remote_state(),
+        diagnostic_kind: diagnostic.map(|diagnostic| diagnostic.kind.as_str()),
+        diagnostic_api_code: diagnostic.map(|diagnostic| diagnostic.api_code.as_str()),
+        diagnostic_retryable: diagnostic.map(|diagnostic| diagnostic.retryable),
     })
 }
 
@@ -147,7 +152,16 @@ pub async fn execute_saved_action_with_audit(
 ) -> Result<StoragePolicyActionResult> {
     let policy = get(state, id).await?;
     let action = input.action;
-    let result = execute_saved_action(state, id, input).await?;
+    let result = match execute_saved_action(state, id, input).await {
+        Ok(result) => result,
+        Err(error @ AsterError::StorageDriverError(_)) => StoragePolicyActionResult {
+            ok: false,
+            action,
+            tencent_cos_cors: None,
+            diagnostic: StoragePolicyDiagnostic::from_error(&error),
+        },
+        Err(error) => return Err(error),
+    };
     audit_service::log_with_details(
         state,
         audit_ctx,
@@ -155,7 +169,14 @@ pub async fn execute_saved_action_with_audit(
         crate::services::audit_service::AuditEntityType::StoragePolicy,
         Some(policy.id),
         Some(&policy.name),
-        || policy_action_audit_details(action, policy.driver_type, false),
+        || {
+            policy_action_audit_details(
+                action,
+                policy.driver_type,
+                false,
+                result.diagnostic.as_ref(),
+            )
+        },
     )
     .await;
     Ok(result)
@@ -168,7 +189,16 @@ pub async fn execute_draft_action_with_audit(
 ) -> Result<StoragePolicyActionResult> {
     let action = input.action;
     let driver_type = input.connection.driver_type;
-    let result = execute_draft_action(state, input).await?;
+    let result = match execute_draft_action(state, input).await {
+        Ok(result) => result,
+        Err(error @ AsterError::StorageDriverError(_)) => StoragePolicyActionResult {
+            ok: false,
+            action,
+            tencent_cos_cors: None,
+            diagnostic: StoragePolicyDiagnostic::from_error(&error),
+        },
+        Err(error) => return Err(error),
+    };
     audit_service::log_with_details(
         state,
         audit_ctx,
@@ -176,7 +206,7 @@ pub async fn execute_draft_action_with_audit(
         crate::services::audit_service::AuditEntityType::StoragePolicy,
         None,
         None,
-        || policy_action_audit_details(action, driver_type, true),
+        || policy_action_audit_details(action, driver_type, true, result.diagnostic.as_ref()),
     )
     .await;
     Ok(result)

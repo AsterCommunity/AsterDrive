@@ -17,7 +17,7 @@ export function microsoftGraphCredentials(
 	form: PolicyFormData,
 ): MicrosoftGraphCredentialForm {
 	return (
-		form.application_credentials.microsoft_graph ?? {
+		form.application_credentials?.microsoft_graph ?? {
 			cloud: form.onedrive_cloud,
 			tenant: form.onedrive_tenant,
 			client_id: "",

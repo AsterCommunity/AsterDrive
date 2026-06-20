@@ -11,6 +11,7 @@
 	"confirm_delete_policy": "Are you sure you want to delete this policy?",
 	"test_connection": "Test Connection",
 	"connection_success": "Connection successful",
+	"connection_failed": "Connection failed",
 	"new_policy": "New Policy",
 	"policy_migration_action": "Migrate Data",
 	"policy_migration_title": "Migrate Storage Policy Data",

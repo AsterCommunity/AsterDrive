@@ -82,6 +82,7 @@ import type {
 	StoragePolicyGroupPage,
 	StoragePolicyMigrationDryRun,
 	StoragePolicyPage,
+	StoragePolicyProbeResult,
 	SystemConfig,
 	SystemConfigPage,
 	SystemConfigVisibility,
@@ -332,10 +333,11 @@ export const adminPolicyService = {
 			}),
 		),
 
-	testConnection: (id: number) => api.post<void>(`/admin/policies/${id}/test`),
+	testConnection: (id: number) =>
+		api.post<StoragePolicyProbeResult>(`/admin/policies/${id}/test`),
 
 	testParams: (data: TestPolicyParamsRequest) =>
-		api.post<void>("/admin/policies/test", data),
+		api.post<StoragePolicyProbeResult>("/admin/policies/test", data),
 
 	executeDraftPolicyAction: (data: ExecuteDraftStoragePolicyActionRequest) =>
 		api.post<StoragePolicyActionResult>("/admin/policies/action", data),

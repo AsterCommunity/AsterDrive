@@ -49,6 +49,11 @@ import type { UserInfo, ShareInfo, StoragePolicy } from "@/types/api";
 - 401 自动 refresh token（拦截器处理）
 - 所有请求带 `withCredentials: true`（HttpOnly cookie 认证）
 
+### 存储策略能力
+- 存储策略 UI 的连接测试、字段显示、上传工作流、授权入口、远端节点绑定、S3 传输策略、存储原生处理、driver action 可用性等能力判断，必须优先来自后端 storage connector descriptor 的 `capabilities`、`fields`、`upload_workflows`、`actions`、`connection_tests` 等元数据。
+- 不要在前端新增 `driver_type === "s3" || driver_type === "azure_blob" || ...` 这类白名单/矩阵来推断能力。已有临时兜底也只能用于 descriptor 缺失时的保守兼容，不能扩大成新的事实来源。
+- descriptor 缺失时，如果必须根据表单内容做兼容判断，只能使用字段是否存在、用户是否实际填写了相关字段、URL scheme 这类局部信号；不要把 S3/Azure/COS/Remote/OneDrive 的能力关系重新硬编码回前端。
+
 ### 组件库
 - shadcn/ui (Base UI 底层)，用 `render` prop 而非 `asChild`
 - 用 `@/components/ui/` 下的组件

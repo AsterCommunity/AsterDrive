@@ -95,7 +95,6 @@ async fn setup_state() -> TestFollowerState {
         ..Default::default()
     });
     let cache = crate::cache::create_cache(&crate::config::CacheConfig {
-        enabled: false,
         ..Default::default()
     })
     .await;

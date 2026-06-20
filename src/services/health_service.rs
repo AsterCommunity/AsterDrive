@@ -254,10 +254,6 @@ async fn check_cache_backend(
 ) -> HealthComponentReport {
     let active_backend = cache.backend_name();
 
-    if !config.enabled {
-        return HealthComponentReport::healthy("cache", "cache is disabled by configuration");
-    }
-
     if let Err(error) = cache.health_check().await {
         return HealthComponentReport::unhealthy(
             "cache",
@@ -358,6 +354,10 @@ mod tests {
         }
 
         async fn get_bytes(&self, _key: &str) -> Option<Vec<u8>> {
+            None
+        }
+
+        async fn take_bytes(&self, _key: &str) -> Option<Vec<u8>> {
             None
         }
 
@@ -479,26 +479,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn cache_report_is_healthy_when_cache_is_disabled() {
-        let config = CacheConfig {
-            enabled: false,
-            backend: "redis".to_string(),
-            redis_url: "redis://example.com:6379/0".to_string(),
-            default_ttl: 60,
-        };
-        let cache = FakeCache::new("noop");
-
-        let report = check_cache_backend(&config, &cache).await;
-
-        assert_eq!(report.name, "cache");
-        assert_eq!(report.status, HealthStatus::Healthy);
-        assert_eq!(report.message, "cache is disabled by configuration");
-    }
-
-    #[tokio::test]
     async fn cache_report_is_degraded_when_configured_backend_falls_back() {
         let config = CacheConfig {
-            enabled: true,
             backend: "redis".to_string(),
             redis_url: "redis://example.com:6379/0".to_string(),
             default_ttl: 60,
@@ -518,7 +500,6 @@ mod tests {
     #[tokio::test]
     async fn cache_report_is_unhealthy_when_backend_probe_fails() {
         let config = CacheConfig {
-            enabled: true,
             backend: "redis".to_string(),
             redis_url: "redis://example.com:6379/0".to_string(),
             default_ttl: 60,

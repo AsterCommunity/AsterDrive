@@ -226,7 +226,6 @@ async fn build_download_test_state(
 
     let runtime_config = Arc::new(RuntimeConfig::new());
     let cache = cache::create_cache(&CacheConfig {
-        enabled: false,
         ..Default::default()
     })
     .await;
