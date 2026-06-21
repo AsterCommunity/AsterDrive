@@ -963,10 +963,9 @@ describe("FilePreviewDialog", () => {
 		expect(
 			await screen.findByRole("img", { name: "r2-image.png" }),
 		).toHaveAttribute("data-preview-path", "");
-		expect(screen.getByRole("img", { name: "r2-image.png" })).not.toHaveAttribute(
-			"data-preview-path",
-			"/files/7/download",
-		);
+		expect(
+			screen.getByRole("img", { name: "r2-image.png" }),
+		).not.toHaveAttribute("data-preview-path", "/files/7/download");
 		expect(previewLinkFactory).toHaveBeenCalledTimes(1);
 
 		resolvePreviewLink({

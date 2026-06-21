@@ -6,8 +6,32 @@ export function joinApiUrl(base: string, path: string) {
 	return `${normalizedBase}${normalizedPath}`;
 }
 
+function isConfiguredApiUrl(path: string) {
+	if (!/^https?:\/\//i.test(path)) return false;
+
+	try {
+		const resourceUrl = new URL(path);
+		const baseUrl = /^https?:\/\//i.test(config.apiBaseUrl)
+			? new URL(config.apiBaseUrl)
+			: typeof window !== "undefined"
+				? new URL(config.apiBaseUrl, window.location.origin)
+				: null;
+		if (!baseUrl || resourceUrl.origin !== baseUrl.origin) return false;
+
+		const basePath = baseUrl.pathname.replace(/\/+$/, "") || "/";
+		return (
+			basePath === "/" ||
+			resourceUrl.pathname === basePath ||
+			resourceUrl.pathname.startsWith(`${basePath}/`)
+		);
+	} catch {
+		return false;
+	}
+}
+
 export function isExternalResourceUrl(path: string) {
-	return /^(?:https?:\/\/|blob:)/i.test(path);
+	if (/^blob:/i.test(path)) return true;
+	return /^https?:\/\//i.test(path) && !isConfiguredApiUrl(path);
 }
 
 export function normalizeApiResourcePath(path: string) {

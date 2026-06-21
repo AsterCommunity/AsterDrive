@@ -25,11 +25,16 @@ use crate::storage::{DriverRegistry, PolicySnapshot, StorageDriver};
 use crate::types::{
     DriverType, StoredStoragePolicyAllowedTypes, StoredStoragePolicyOptions, UserRole, UserStatus,
 };
+use crate::utils::numbers::usize_to_i64;
 
 use super::build::build_download_outcome_with_disposition_and_range;
 use super::response::outcome_to_response;
 use super::streaming::AbortAwareStream;
 use super::types::DownloadOutcome;
+
+fn payload_len_i64(payload: &[u8]) -> i64 {
+    usize_to_i64(payload.len(), "payload_len").expect("test payload length should fit in i64")
+}
 
 #[tokio::test]
 async fn abort_aware_stream_disarms_hook_on_clean_eof() {
@@ -412,7 +417,7 @@ async fn build_stream_response_uses_get_stream_instead_of_get() {
     let driver = CountingStreamDriver::new(payload.clone());
     let get_calls = driver.get_calls.clone();
     let get_stream_calls = driver.get_stream_calls.clone();
-    let (state, file, blob, _) = build_download_test_state(driver, payload.len() as i64).await;
+    let (state, file, blob, _) = build_download_test_state(driver, payload_len_i64(&payload)).await;
 
     let outcome = build_download_outcome_with_disposition_and_range(
         &state,
@@ -455,7 +460,7 @@ async fn attachment_download_redirects_to_presigned_url_with_attachment_disposit
     let get_stream_calls = base_driver.get_stream_calls.clone();
     let (state, file, blob, _) = build_download_test_state_with_policy(
         base_driver.with_presigned(),
-        payload.len() as i64,
+        payload_len_i64(&payload),
         DriverType::S3,
         presigned_download_options(),
         "text/plain",
@@ -505,7 +510,7 @@ async fn safe_inline_preview_redirects_to_presigned_url_with_inline_disposition(
     let get_stream_calls = base_driver.get_stream_calls.clone();
     let (state, file, blob, _) = build_download_test_state_with_policy(
         base_driver.with_presigned(),
-        payload.len() as i64,
+        payload_len_i64(&payload),
         DriverType::S3,
         presigned_download_options(),
         "image/webp",
@@ -555,7 +560,7 @@ async fn sandboxed_inline_preview_does_not_redirect_to_presigned_storage() {
     let get_stream_calls = base_driver.get_stream_calls.clone();
     let (state, file, blob, _) = build_download_test_state_with_policy(
         base_driver.with_presigned(),
-        payload.len() as i64,
+        payload_len_i64(&payload),
         DriverType::S3,
         presigned_download_options(),
         "text/html",

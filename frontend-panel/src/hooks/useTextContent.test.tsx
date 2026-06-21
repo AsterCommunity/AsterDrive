@@ -14,9 +14,8 @@ vi.mock("@/services/http", () => ({
 }));
 
 vi.mock("@/lib/apiUrl", async () => {
-	const actual = await vi.importActual<typeof import("@/lib/apiUrl")>(
-		"@/lib/apiUrl",
-	);
+	const actual =
+		await vi.importActual<typeof import("@/lib/apiUrl")>("@/lib/apiUrl");
 	return actual;
 });
 

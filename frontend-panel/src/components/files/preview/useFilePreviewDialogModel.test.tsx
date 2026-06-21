@@ -273,9 +273,7 @@ describe("useFilePreviewDialogModel", () => {
 		const { result } = renderModel({ file: audioFile, openMode: "direct" });
 
 		expect(result.current.resolvedDownloadPath).toBe("/files/7/download");
-		expect(result.current.resolvedContentPreviewPath).toBe(
-			"/files/7/download",
-		);
+		expect(result.current.resolvedContentPreviewPath).toBe("/files/7/download");
 		expect(result.current.resolvedImagePreviewPath).toBe(
 			"/files/7/image-preview",
 		);

@@ -53,6 +53,24 @@ describe("resolveApiResourceUrl", () => {
 		);
 	});
 
+	it("keeps credentials for absolute resource URLs under the configured API base", () => {
+		vi.spyOn(appConfig.config, "apiBaseUrl", "get").mockReturnValue(
+			"https://api.example.com/api/v1",
+		);
+
+		expect(
+			isExternalResourceUrl("https://api.example.com/api/v1/files/7/download"),
+		).toBe(false);
+		expect(
+			shouldSendResourceCredentials(
+				"https://api.example.com/api/v1/files/7/download",
+			),
+		).toBe(true);
+		expect(
+			shouldSendResourceCredentials("https://cdn.example.com/files/7/download"),
+		).toBe(false);
+	});
+
 	it("classifies resource paths consistently for auth probing", () => {
 		expect(isExternalResourceUrl("https://cdn.example.com/file.pdf")).toBe(
 			true,

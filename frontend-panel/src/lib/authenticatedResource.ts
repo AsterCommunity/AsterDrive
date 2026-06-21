@@ -1,4 +1,7 @@
-import { resolveApiResourceUrl, shouldSendResourceCredentials } from "@/lib/apiUrl";
+import {
+	resolveApiResourceUrl,
+	shouldSendResourceCredentials,
+} from "@/lib/apiUrl";
 import { isSessionAuthFailure } from "@/lib/authErrors";
 import { logger } from "@/lib/logger";
 import { useAuthStore } from "@/stores/authStore";
