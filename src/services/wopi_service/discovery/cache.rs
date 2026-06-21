@@ -15,14 +15,21 @@ use super::types::{CachedWopiDiscovery, WopiDiscovery};
 static DISCOVERY_CACHE: LazyLock<Cache<String, CachedWopiDiscovery>> =
     LazyLock::new(|| Cache::builder().max_capacity(128).build());
 
-static DISCOVERY_CLIENT: LazyLock<reqwest::Client> = LazyLock::new(build_discovery_client);
+static DISCOVERY_CLIENT: LazyLock<std::result::Result<reqwest::Client, String>> =
+    LazyLock::new(build_discovery_client);
 
-fn build_discovery_client() -> reqwest::Client {
+fn build_discovery_client() -> std::result::Result<reqwest::Client, String> {
+    build_discovery_client_with_user_agent(OUTBOUND_HTTP_USER_AGENT)
+}
+
+fn build_discovery_client_with_user_agent(
+    user_agent: &str,
+) -> std::result::Result<reqwest::Client, String> {
     reqwest::Client::builder()
         .timeout(StdDuration::from_secs(5))
-        .user_agent(OUTBOUND_HTTP_USER_AGENT)
+        .user_agent(user_agent)
         .build()
-        .expect("wopi discovery client should initialize")
+        .map_err(|error| error.to_string())
 }
 
 pub(super) async fn load_discovery(
@@ -36,14 +43,16 @@ pub(super) async fn load_discovery(
         return Ok(cached.discovery.clone());
     }
 
-    let response = match DISCOVERY_CLIENT
-        .get(discovery_url)
-        .send()
-        .await
-        .map_aster_err_ctx(
-            "failed to fetch WOPI discovery",
-            AsterError::validation_error,
-        ) {
+    let client = DISCOVERY_CLIENT.as_ref().map_err(|error| {
+        AsterError::internal_error(format!(
+            "failed to initialize WOPI discovery client: {error}"
+        ))
+    })?;
+
+    let response = match client.get(discovery_url).send().await.map_aster_err_ctx(
+        "failed to fetch WOPI discovery",
+        AsterError::validation_error,
+    ) {
         Ok(response) => response,
         Err(error) => {
             if let Some(cached) = cached.as_ref() {
@@ -111,7 +120,7 @@ fn discovery_cache_ttl(runtime_config: &crate::config::RuntimeConfig) -> Duratio
 
 #[cfg(test)]
 mod tests {
-    use super::build_discovery_client;
+    use super::{build_discovery_client, build_discovery_client_with_user_agent};
     use crate::utils::OUTBOUND_HTTP_USER_AGENT;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
@@ -151,6 +160,7 @@ mod tests {
         });
 
         build_discovery_client()
+            .expect("discovery client should build")
             .get(format!("http://{addr}/hosting/discovery"))
             .send()
             .await
@@ -166,5 +176,16 @@ mod tests {
             .expect("user-agent header should be present");
 
         assert_eq!(user_agent, OUTBOUND_HTTP_USER_AGENT);
+    }
+
+    #[test]
+    fn discovery_client_reports_invalid_user_agent() {
+        let error = build_discovery_client_with_user_agent("bad\r\nuser-agent")
+            .expect_err("invalid user-agent should fail client construction");
+
+        assert!(
+            error.contains("header") || error.contains("builder"),
+            "unexpected client build error: {error}"
+        );
     }
 }

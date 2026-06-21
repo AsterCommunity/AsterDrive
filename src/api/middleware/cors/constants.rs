@@ -1,5 +1,7 @@
 //! CORS 中间件子模块：`constants`。
 
+use std::sync::LazyLock;
+
 pub(super) const ALLOWED_METHODS: &[&str] = &[
     "GET",
     "POST",
@@ -38,6 +40,12 @@ pub(super) const ALLOWED_HEADERS: &[&str] = &[
     "x-wopi-suggestedtarget",
 ];
 
+pub(super) static ALLOWED_HEADERS_VALUE: LazyLock<String> =
+    LazyLock::new(|| ALLOWED_HEADERS.join(", "));
+
+pub(super) static ALLOWED_METHODS_VALUE: LazyLock<String> =
+    LazyLock::new(|| ALLOWED_METHODS.join(", "));
+
 pub(super) const EXPOSE_HEADERS: &[&str] = &[
     "accept-ranges",
     "content-length",
@@ -51,3 +59,6 @@ pub(super) const EXPOSE_HEADERS: &[&str] = &[
     "x-wopi-lockfailurereason",
     "x-wopi-validrelativetarget",
 ];
+
+pub(super) static EXPOSE_HEADERS_VALUE: LazyLock<String> =
+    LazyLock::new(|| EXPOSE_HEADERS.join(", "));

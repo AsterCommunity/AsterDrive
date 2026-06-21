@@ -493,9 +493,10 @@ pub async fn audit_folder_tree<C: ConnectionTrait>(db: &C) -> Result<Vec<FolderT
     let mut issues = Vec::new();
 
     for &folder_id in &ordered_folder_ids {
-        let folder = folder_by_id
-            .get(&folder_id)
-            .expect("folder must exist in audit map");
+        let Some(folder) = folder_by_id.get(&folder_id) else {
+            tracing::warn!(folder_id, "folder missing from integrity audit map");
+            continue;
+        };
         if let Some(parent_id) = folder.parent_id {
             match folder_by_id.get(&parent_id) {
                 Some(parent)

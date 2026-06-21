@@ -64,18 +64,21 @@ pub fn decrypt_secret(master_key: &str, aad: &[u8], ciphertext: &str) -> Result<
         ));
     }
 
+    let nonce = nonce
+        .ok_or_else(|| AsterError::database_operation("invalid MFA secret ciphertext format"))?;
+    let encrypted = encrypted
+        .ok_or_else(|| AsterError::database_operation("invalid MFA secret ciphertext format"))?;
+
     let nonce = URL_SAFE_NO_PAD
-        .decode(nonce.expect("checked nonce"))
+        .decode(nonce)
         .map_aster_err_ctx("invalid MFA secret nonce", AsterError::database_operation)?;
     let nonce: [u8; 12] = nonce
         .try_into()
         .map_err(|_| AsterError::database_operation("invalid MFA secret nonce length"))?;
-    let encrypted = URL_SAFE_NO_PAD
-        .decode(encrypted.expect("checked ciphertext"))
-        .map_aster_err_ctx(
-            "invalid MFA secret ciphertext",
-            AsterError::database_operation,
-        )?;
+    let encrypted = URL_SAFE_NO_PAD.decode(encrypted).map_aster_err_ctx(
+        "invalid MFA secret ciphertext",
+        AsterError::database_operation,
+    )?;
     let nonce = Nonce::from_slice(&nonce);
     cipher(master_key)?
         .decrypt(

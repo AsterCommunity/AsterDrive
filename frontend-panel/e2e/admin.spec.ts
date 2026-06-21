@@ -84,7 +84,7 @@ test.describe
 			const createDialog = dialogByTitle(page, "Create Policy");
 			await expect(createDialog).toBeVisible();
 			await createDialog.getByRole("button", { name: "Local" }).click();
-			await createDialog.getByRole("button", { name: "Next" }).click();
+			await expect(createDialog.locator("#name")).toBeVisible();
 			await createDialog.locator("#name").fill(policyName);
 			await createDialog.locator("#base_path").fill(initialBasePath);
 			await createDialog

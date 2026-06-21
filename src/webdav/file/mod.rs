@@ -155,7 +155,16 @@ impl AsterDavFile {
                 )
             } else if workspace_storage_service::streaming_direct_upload_eligible(
                 &policy, size_hint,
-            ) {
+            )
+            .map_err(|error| {
+                tracing::warn!(
+                    policy_id = policy.id,
+                    driver_type = %policy.driver_type.as_str(),
+                    error = %error,
+                    "failed to resolve WebDAV streaming direct upload eligibility"
+                );
+                FsError::GeneralFailure
+            })? {
                 if policy.max_file_size > 0 && size_hint > policy.max_file_size {
                     return Err(FsError::TooLarge);
                 }
@@ -189,9 +198,11 @@ impl AsterDavFile {
                 let storage_path_clone = storage_path.clone();
                 let size_clone = size_hint;
                 let upload_task = tokio::spawn(async move {
-                    let stream_driver = driver_for_task
-                        .as_stream_upload()
-                        .expect("stream driver should be available");
+                    let Some(stream_driver) = driver_for_task.as_stream_upload() else {
+                        return Err(crate::errors::AsterError::storage_driver_error(
+                            "stream upload driver is not available",
+                        ));
+                    };
                     stream_driver
                         .put_reader(&storage_path_clone, Box::new(reader), size_clone)
                         .await

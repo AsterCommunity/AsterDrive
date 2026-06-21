@@ -245,7 +245,7 @@ fn encode_shared_session(
     secret: &str,
 ) -> Result<String> {
     let payload_segment = encode_payload(payload)?;
-    let signature = sign_shared_payload(share, file, &payload_segment, secret);
+    let signature = sign_shared_payload(share, file, &payload_segment, secret)?;
     Ok(format!("{payload_segment}.{signature}"))
 }
 
@@ -370,12 +370,12 @@ fn sign_shared_payload(
     file: &file::Model,
     payload_segment: &str,
     secret: &str,
-) -> String {
+) -> Result<String> {
     use hmac::Mac;
-    let digest = shared_payload_mac(share, file, payload_segment, secret)
+    let digest = shared_payload_mac(share, file, payload_segment, secret)?
         .finalize()
         .into_bytes();
-    base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(digest)
+    Ok(base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(digest))
 }
 
 fn shared_payload_mac(
@@ -383,10 +383,12 @@ fn shared_payload_mac(
     file: &file::Model,
     payload_segment: &str,
     secret: &str,
-) -> hmac::Hmac<sha2::Sha256> {
+) -> Result<hmac::Hmac<sha2::Sha256>> {
     use hmac::{Hmac, KeyInit, Mac};
-    let mut mac = <Hmac<sha2::Sha256> as KeyInit>::new_from_slice(secret.as_bytes())
-        .expect("HMAC accepts any key length");
+    let mut mac =
+        <Hmac<sha2::Sha256> as KeyInit>::new_from_slice(secret.as_bytes()).map_err(|error| {
+            AsterError::internal_error(format!("failed to initialize HMAC: {error}"))
+        })?;
     mac.update(b"share_stream_session:");
     mac.update(share.token.as_bytes());
     mac.update(b":");
@@ -395,7 +397,7 @@ fn shared_payload_mac(
     mac.update(file.id.to_string().as_bytes());
     mac.update(b":");
     mac.update(payload_segment.as_bytes());
-    mac
+    Ok(mac)
 }
 
 fn verify_shared_payload(
@@ -410,8 +412,7 @@ fn verify_shared_payload(
         return false;
     };
     shared_payload_mac(share, file, payload_segment, secret)
-        .verify_slice(&decoded)
-        .is_ok()
+        .is_ok_and(|mac| mac.verify_slice(&decoded).is_ok())
 }
 
 async fn ensure_counted_once(

@@ -39,7 +39,7 @@ pub(crate) fn prepare_non_dedup_blob_upload(
     policy: &crate::entities::storage_policy::Model,
     size: i64,
 ) -> Result<PreparedNonDedupBlobUpload> {
-    match crate::storage::connectors::resolve_policy_upload_transport(policy) {
+    match crate::storage::connectors::resolve_policy_upload_transport(policy)? {
         StorageConnectorUploadTransport::Local => {
             let blob_key = crate::utils::id::new_short_token();
             Ok(PreparedNonDedupBlobUpload::Local {

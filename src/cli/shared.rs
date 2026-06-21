@@ -70,9 +70,11 @@ where
 {
     let envelope = SuccessEnvelope { ok: true, data };
     if pretty {
-        serde_json::to_string_pretty(&envelope).expect("success envelope to serialize")
+        serde_json::to_string_pretty(&envelope)
+            .unwrap_or_else(|error| render_serialization_error(error, true))
     } else {
-        serde_json::to_string(&envelope).expect("success envelope to serialize")
+        serde_json::to_string(&envelope)
+            .unwrap_or_else(|error| render_serialization_error(error, false))
     }
 }
 
@@ -86,9 +88,28 @@ pub(super) fn render_error_json(err: &AsterError, pretty: bool) -> String {
         },
     };
     if pretty {
-        serde_json::to_string_pretty(&envelope).expect("error envelope to serialize")
+        serde_json::to_string_pretty(&envelope)
+            .unwrap_or_else(|error| render_serialization_error(error, true))
     } else {
-        serde_json::to_string(&envelope).expect("error envelope to serialize")
+        serde_json::to_string(&envelope)
+            .unwrap_or_else(|error| render_serialization_error(error, false))
+    }
+}
+
+pub(super) fn render_serialization_error(error: serde_json::Error, pretty: bool) -> String {
+    let message = format!("failed to serialize CLI envelope: {error}");
+    let fallback = ErrorEnvelope {
+        ok: false,
+        error: ErrorPayload {
+            code: "serialization_error",
+            error_type: "internal",
+            message: &message,
+        },
+    };
+    if pretty {
+        serde_json::to_string_pretty(&fallback).unwrap_or_default()
+    } else {
+        serde_json::to_string(&fallback).unwrap_or_default()
     }
 }
 

@@ -743,29 +743,26 @@ pub fn list_storage_driver_descriptors() -> Vec<StorageConnectorDescriptor> {
         .collect()
 }
 
-pub fn storage_driver_descriptor(driver_type: DriverType) -> StorageConnectorDescriptor {
-    connector_for(driver_type)
-        .expect("storage connector must be registered for every built-in driver")
-        .connector
-        .descriptor()
+pub fn storage_driver_descriptor(driver_type: DriverType) -> Result<StorageConnectorDescriptor> {
+    Ok(connector_for(driver_type)?.connector.descriptor())
 }
 
-pub fn storage_connector_supports_native_thumbnail(driver_type: DriverType) -> bool {
-    storage_driver_descriptor(driver_type)
+pub fn storage_connector_supports_native_thumbnail(driver_type: DriverType) -> Result<bool> {
+    Ok(storage_driver_descriptor(driver_type)?
         .capabilities
-        .storage_native_thumbnail
+        .storage_native_thumbnail)
 }
 
-pub fn storage_connector_supports_native_media_metadata(driver_type: DriverType) -> bool {
-    storage_driver_descriptor(driver_type)
+pub fn storage_connector_supports_native_media_metadata(driver_type: DriverType) -> Result<bool> {
+    Ok(storage_driver_descriptor(driver_type)?
         .capabilities
-        .storage_native_media_metadata
+        .storage_native_media_metadata)
 }
 
 pub fn storage_authorization_provider(
     driver_type: DriverType,
 ) -> Result<Option<StorageCredentialProvider>> {
-    Ok(storage_driver_descriptor(driver_type)
+    Ok(storage_driver_descriptor(driver_type)?
         .authorization_provider
         .as_deref()
         .and_then(StorageCredentialProvider::parse))
@@ -775,7 +772,7 @@ pub fn ensure_storage_authorization_supported(
     driver_type: DriverType,
     provider: StorageCredentialProvider,
 ) -> Result<StorageCredentialKind> {
-    let descriptor = storage_driver_descriptor(driver_type);
+    let descriptor = storage_driver_descriptor(driver_type)?;
     let starts_authorization = descriptor.actions.iter().any(|action| {
         action.affordance_action == Some(StorageConnectorAffordanceAction::StartAuthorization)
             && action.kind == StorageConnectorActionKind::Authorization
@@ -800,7 +797,7 @@ pub fn ensure_storage_credential_validation_supported(
     driver_type: DriverType,
     provider: StorageCredentialProvider,
 ) -> Result<StorageCredentialKind> {
-    let descriptor = storage_driver_descriptor(driver_type);
+    let descriptor = storage_driver_descriptor(driver_type)?;
     let validates_credential = descriptor.actions.iter().any(|action| {
         action.affordance_action == Some(StorageConnectorAffordanceAction::ValidateCredential)
             && action.kind == StorageConnectorActionKind::CredentialValidation
@@ -906,7 +903,7 @@ pub async fn execute_draft_action<S: RemoteProtocolRuntimeState + Sync>(
 }
 
 pub fn validate_driver_promotion_source(source: DriverType) -> Result<()> {
-    if !storage_driver_descriptor(source)
+    if !storage_driver_descriptor(source)?
         .driver_recommendations
         .is_empty()
     {
@@ -919,7 +916,7 @@ pub fn validate_driver_promotion_source(source: DriverType) -> Result<()> {
 }
 
 pub fn validate_driver_promotion_target(source: DriverType, target: DriverType) -> Result<()> {
-    if storage_driver_descriptor(source)
+    if storage_driver_descriptor(source)?
         .driver_recommendations
         .iter()
         .any(|recommendation| recommendation.target_driver_type == target)
@@ -943,27 +940,24 @@ pub fn validate_driver_promotion_candidate(policy: &storage_policy::Model) -> Re
 
 pub fn resolve_policy_upload_transport(
     policy: &storage_policy::Model,
-) -> StorageConnectorUploadTransport {
-    connector_for(policy.driver_type)
-        .expect("storage connector must be registered for every built-in driver")
+) -> Result<StorageConnectorUploadTransport> {
+    Ok(connector_for(policy.driver_type)?
         .connector
-        .upload_transport(policy)
+        .upload_transport(policy))
 }
 
-pub fn presigned_download_enabled(policy: &storage_policy::Model) -> bool {
-    connector_for(policy.driver_type)
-        .expect("storage connector must be registered for every built-in driver")
+pub fn presigned_download_enabled(policy: &storage_policy::Model) -> Result<bool> {
+    Ok(connector_for(policy.driver_type)?
         .connector
-        .presigned_download_enabled(policy)
+        .presigned_download_enabled(policy))
 }
 
 pub(crate) fn runtime_credential_requirement(
     driver_type: DriverType,
-) -> Option<StorageConnectorCredentialRequirement> {
-    connector_for(driver_type)
-        .expect("storage connector must be registered for every built-in driver")
+) -> Result<Option<StorageConnectorCredentialRequirement>> {
+    Ok(connector_for(driver_type)?
         .connector
-        .runtime_credential_requirement()
+        .runtime_credential_requirement())
 }
 
 pub(crate) async fn load_runtime_credential(
@@ -1002,8 +996,9 @@ pub(crate) async fn validate_credential(
 pub fn streaming_direct_upload_eligible(
     policy: &storage_policy::Model,
     declared_size: i64,
-) -> bool {
-    resolve_policy_upload_transport(policy).supports_streaming_direct_upload(policy, declared_size)
+) -> Result<bool> {
+    Ok(resolve_policy_upload_transport(policy)?
+        .supports_streaming_direct_upload(policy, declared_size))
 }
 
 pub(crate) async fn cleanup_snapshot_for_policy<S: SharedRuntimeState + Sync>(

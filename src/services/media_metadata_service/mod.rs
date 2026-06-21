@@ -489,7 +489,10 @@ async fn extract_video_metadata(
     let source =
         prepare_media_metadata_source(state, blob, source_file_name, source_mime_type, false)
             .await?;
-    let path = source.path().to_path_buf();
+    let path = source
+        .path()
+        .ok_or_else(|| AsterError::internal_error("video metadata source has no local path"))?
+        .to_path_buf();
     let video_metadata =
         tokio::task::spawn_blocking(move || parse_video_metadata_from_path(&command, &path))
             .await

@@ -293,6 +293,10 @@ impl AsterError {
             | Self::FileTypeNotAllowed(_)
             | Self::UnsupportedDriver(_) => StatusCode::BAD_REQUEST,
 
+            Self::FileUploadFailed(_) if file_upload_failure_is_client_error(self) => {
+                StatusCode::BAD_REQUEST
+            }
+
             Self::PayloadTooLarge(_) => StatusCode::PAYLOAD_TOO_LARGE,
 
             Self::ChunkUploadFailed(_) if chunk_upload_failure_is_client_error(self) => {
@@ -676,6 +680,13 @@ fn chunk_upload_failure_is_client_error(error: &AsterError) -> bool {
     )
 }
 
+fn file_upload_failure_is_client_error(error: &AsterError) -> bool {
+    matches!(
+        error.api_error_code_override(),
+        Some(ApiErrorCode::UploadFieldReadFailed | ApiErrorCode::AvatarUploadReadFailed)
+    )
+}
+
 fn map_display_error<E: std::fmt::Display + 'static>(
     err: E,
     ctx: Option<&str>,
@@ -804,6 +815,17 @@ mod tests {
         let err = AsterError::thumbnail_generation_failed("decode failed");
         assert_eq!(err.http_status(), StatusCode::INTERNAL_SERVER_ERROR);
         assert_eq!(err.response_log_level(), ResponseLogLevel::Error);
+    }
+
+    #[test]
+    fn multipart_read_failures_map_to_bad_request() {
+        let err = file_upload_error_with_code(ApiErrorCode::UploadFieldReadFailed, "overflow");
+        assert_eq!(err.http_status(), StatusCode::BAD_REQUEST);
+        assert_eq!(err.response_log_level(), ResponseLogLevel::Warn);
+
+        let err = file_upload_error_with_code(ApiErrorCode::AvatarUploadReadFailed, "overflow");
+        assert_eq!(err.http_status(), StatusCode::BAD_REQUEST);
+        assert_eq!(err.response_log_level(), ResponseLogLevel::Warn);
     }
 
     #[test]

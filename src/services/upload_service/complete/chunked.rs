@@ -72,7 +72,7 @@ async fn finalize_chunked_upload_session(
     driver: &dyn StorageDriver,
     actor_username: Option<&str>,
 ) -> Result<file::Model> {
-    if resolve_policy_upload_transport(policy).chunked_completion()
+    if resolve_policy_upload_transport(policy)?.chunked_completion()
         == StorageConnectorChunkedCompletion::RelayLocalChunksToStreamUpload
     {
         return finalize_stream_relay_chunked_upload_session(

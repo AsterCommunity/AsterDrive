@@ -89,6 +89,7 @@ impl KeyExtractor for AsterIpKeyExtractor {
 }
 
 /// 根据 tier 配置创建 Governor 实例
+#[allow(clippy::expect_used)]
 pub fn build_governor(
     tier: &RateLimitTier,
     trusted_proxies: &[String],

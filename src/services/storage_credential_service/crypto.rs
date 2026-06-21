@@ -77,21 +77,24 @@ pub fn decrypt_token(master_key: &str, aad: &[u8], ciphertext: &str) -> Result<S
         ));
     }
 
-    let nonce = URL_SAFE_NO_PAD
-        .decode(nonce.expect("checked nonce"))
-        .map_aster_err_ctx(
-            "invalid storage credential token nonce",
-            AsterError::database_operation,
-        )?;
+    let nonce = nonce.ok_or_else(|| {
+        AsterError::database_operation("invalid storage credential token ciphertext format")
+    })?;
+    let encrypted = encrypted.ok_or_else(|| {
+        AsterError::database_operation("invalid storage credential token ciphertext format")
+    })?;
+
+    let nonce = URL_SAFE_NO_PAD.decode(nonce).map_aster_err_ctx(
+        "invalid storage credential token nonce",
+        AsterError::database_operation,
+    )?;
     let nonce: [u8; 12] = nonce.try_into().map_err(|_| {
         AsterError::database_operation("invalid storage credential token nonce length")
     })?;
-    let encrypted = URL_SAFE_NO_PAD
-        .decode(encrypted.expect("checked ciphertext"))
-        .map_aster_err_ctx(
-            "invalid storage credential token ciphertext",
-            AsterError::database_operation,
-        )?;
+    let encrypted = URL_SAFE_NO_PAD.decode(encrypted).map_aster_err_ctx(
+        "invalid storage credential token ciphertext",
+        AsterError::database_operation,
+    )?;
     let nonce = Nonce::from_slice(&nonce);
     let plaintext = cipher(master_key)?
         .decrypt(

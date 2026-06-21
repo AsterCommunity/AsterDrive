@@ -110,18 +110,17 @@ impl ExternalAuthProviderDriver for GitHubProviderDriver {
             return Err(AsterError::validation_error("client_id is required"));
         }
         let provider = github_oauth2_config(provider);
-        let authorization_url = provider
-            .authorization_url
-            .as_deref()
-            .expect("GitHub authorization URL should be set");
+        let authorization_url = provider.authorization_url.as_deref().ok_or_else(|| {
+            AsterError::internal_error("GitHub authorization URL is not configured")
+        })?;
         let token_url = provider
             .token_url
             .as_deref()
-            .expect("GitHub token URL should be set");
+            .ok_or_else(|| AsterError::internal_error("GitHub token URL is not configured"))?;
         let userinfo_url = provider
             .userinfo_url
             .as_deref()
-            .expect("GitHub userinfo URL should be set");
+            .ok_or_else(|| AsterError::internal_error("GitHub userinfo URL is not configured"))?;
         validate_url(
             authorization_url,
             "authorization_url",

@@ -19,6 +19,10 @@ use crate::types::{
 const OBJECT_STORAGE_LARGE_UPLOAD_SIZE: i64 = 5_242_881;
 const ONEDRIVE_MAX_SIMPLE_UPLOAD_SIZE: u64 = 250_000_000;
 
+fn descriptor(driver_type: DriverType) -> StorageConnectorDescriptor {
+    storage_driver_descriptor(driver_type).expect("storage connector descriptor should resolve")
+}
+
 async fn setup_connector_test_db() -> sea_orm::DatabaseConnection {
     let db = crate::db::connect_with_metrics(
         &DatabaseConfig {
@@ -201,7 +205,7 @@ fn descriptors_expose_connector_owned_ui_metadata() {
         );
     }
 
-    let local = storage_driver_descriptor(DriverType::Local);
+    let local = descriptor(DriverType::Local);
     assert_eq!(local.ui.label_key, "driver_type_local");
     assert_eq!(
         local.ui.config_step_title_key,
@@ -214,7 +218,7 @@ fn descriptors_expose_connector_owned_ui_metadata() {
     assert_eq!(local.ui.base_path_empty_display, "./data");
     assert_eq!(local.ui.base_path_placeholder, "./data");
 
-    let azure = storage_driver_descriptor(DriverType::AzureBlob);
+    let azure = descriptor(DriverType::AzureBlob);
     assert_eq!(azure.ui.label_key, "driver_type_azure_blob");
     assert_eq!(azure.ui.helper_key, "policy_wizard_azure_blob_helper");
     assert_eq!(
@@ -227,7 +231,7 @@ fn descriptors_expose_connector_owned_ui_metadata() {
     );
     assert_eq!(azure.ui.base_path_empty_display, "core:root");
 
-    let onedrive = storage_driver_descriptor(DriverType::OneDrive);
+    let onedrive = descriptor(DriverType::OneDrive);
     assert_eq!(onedrive.ui.label_key, "driver_type_onedrive");
     assert_eq!(onedrive.ui.helper_key, "policy_wizard_onedrive_helper");
     assert_eq!(
@@ -255,7 +259,7 @@ fn connector_registry_covers_every_builtin_storage_driver() {
 
 #[test]
 fn local_descriptor_declares_content_dedup_policy_option() {
-    let descriptor = storage_driver_descriptor(DriverType::Local);
+    let descriptor = descriptor(DriverType::Local);
 
     assert!(descriptor.fields.iter().any(|field| {
         field.name == "content_dedup"
@@ -267,24 +271,33 @@ fn local_descriptor_declares_content_dedup_policy_option() {
 
 #[test]
 fn transfer_strategy_policy_options_are_declared_by_descriptors() {
-    let s3 = storage_driver_descriptor(DriverType::S3);
+    let s3 = descriptor(DriverType::S3);
     assert!(has_policy_option(&s3, "s3_upload_strategy"));
     assert!(has_policy_option(&s3, "s3_download_strategy"));
     assert!(has_policy_option(&s3, "s3_path_style"));
 
-    let azure_blob = storage_driver_descriptor(DriverType::AzureBlob);
+    let azure_blob = descriptor(DriverType::AzureBlob);
     assert!(has_policy_option(&azure_blob, "s3_upload_strategy"));
     assert!(has_policy_option(&azure_blob, "s3_download_strategy"));
     assert!(!has_policy_option(&azure_blob, "s3_path_style"));
 
-    let remote = storage_driver_descriptor(DriverType::Remote);
+    let remote = descriptor(DriverType::Remote);
     assert!(has_policy_option(&remote, "remote_download_strategy"));
     assert!(has_policy_option(&remote, "remote_upload_strategy"));
 }
 
 #[test]
 fn object_storage_connection_field_display_metadata_is_connector_owned() {
-    let s3 = storage_driver_descriptor(DriverType::S3);
+    let s3 = descriptor(DriverType::S3);
+    assert_eq!(s3.ui.label_key, "driver_type_s3");
+    assert_eq!(s3.ui.helper_key, "policy_wizard_s3_helper");
+    assert_eq!(
+        s3.ui.config_step_description_key,
+        "policy_wizard_step_connection_desc"
+    );
+    assert_eq!(s3.ui.edit_context_key, "policy_edit_context_s3_desc");
+    assert_eq!(s3.ui.base_path_empty_display, "core:root");
+    assert_eq!(s3.ui.base_path_placeholder, "tenant/prefix");
     let s3_endpoint = field(&s3, "endpoint");
     assert_eq!(s3_endpoint.label_key, "endpoint");
     assert_eq!(
@@ -292,6 +305,17 @@ fn object_storage_connection_field_display_metadata_is_connector_owned() {
         Some("https://s3.amazonaws.com")
     );
     assert_eq!(s3_endpoint.help_key.as_deref(), Some("s3_endpoint_hint"));
+    assert_eq!(
+        s3_endpoint.invalid_protocol_message_key.as_deref(),
+        Some("s3_endpoint_protocol_required_error")
+    );
+    assert_eq!(
+        field(&s3, "bucket").required_message_key.as_deref(),
+        Some("policy_wizard_bucket_required")
+    );
+    assert_eq!(field(&s3, "access_key").label_key, "access_key");
+    assert!(!field(&s3, "access_key").trim_on_blur);
+    assert_eq!(field(&s3, "secret_key").label_key, "secret_key");
     let s3_path_style = field(&s3, "s3_path_style");
     assert_eq!(s3_path_style.label_key, "s3_path_style");
     assert_eq!(
@@ -303,7 +327,7 @@ fn object_storage_connection_field_display_metadata_is_connector_owned() {
         vec![DriverType::S3]
     );
 
-    let azure_blob = storage_driver_descriptor(DriverType::AzureBlob);
+    let azure_blob = descriptor(DriverType::AzureBlob);
     assert_eq!(
         field(&azure_blob, "endpoint").placeholder.as_deref(),
         Some("https://<account>.blob.core.windows.net")
@@ -332,7 +356,20 @@ fn object_storage_connection_field_display_metadata_is_connector_owned() {
         Some("policy_wizard_container_required")
     );
 
-    let tencent_cos = storage_driver_descriptor(DriverType::TencentCos);
+    let tencent_cos = descriptor(DriverType::TencentCos);
+    assert_eq!(tencent_cos.ui.label_key, "driver_type_tencent_cos");
+    assert_eq!(
+        tencent_cos.ui.helper_key,
+        "policy_wizard_tencent_cos_helper"
+    );
+    assert_eq!(
+        tencent_cos.ui.config_step_description_key,
+        "policy_wizard_step_tencent_cos_connection_desc"
+    );
+    assert_eq!(
+        tencent_cos.ui.edit_context_key,
+        "policy_edit_context_s3_desc"
+    );
     assert_eq!(
         field(&tencent_cos, "endpoint").placeholder.as_deref(),
         Some("https://<bucket-appid>.cos.<region>.myqcloud.com")
@@ -341,12 +378,50 @@ fn object_storage_connection_field_display_metadata_is_connector_owned() {
         field(&tencent_cos, "endpoint").help_key.as_deref(),
         Some("cos_endpoint_hint")
     );
+    assert_eq!(
+        field(&tencent_cos, "endpoint")
+            .invalid_protocol_message_key
+            .as_deref(),
+        Some("s3_endpoint_protocol_required_error")
+    );
+    assert_eq!(
+        field(&tencent_cos, "bucket")
+            .required_message_key
+            .as_deref(),
+        Some("policy_wizard_bucket_required")
+    );
+    assert_eq!(field(&tencent_cos, "access_key").label_key, "access_key");
+    assert!(!field(&tencent_cos, "access_key").trim_on_blur);
+    assert_eq!(field(&tencent_cos, "secret_key").label_key, "secret_key");
     assert!(!has_policy_option(&tencent_cos, "s3_path_style"));
 }
 
 #[test]
+fn object_storage_multipart_etag_requirements_are_connector_owned() {
+    for (driver_type, expected_etag_required) in [
+        (DriverType::S3, true),
+        (DriverType::TencentCos, true),
+        (DriverType::Remote, true),
+        (DriverType::AzureBlob, false),
+    ] {
+        let descriptor = descriptor(driver_type);
+        let capabilities = descriptor
+            .upload_workflows
+            .object_multipart_upload_capabilities
+            .as_ref()
+            .unwrap_or_else(|| {
+                panic!("{driver_type:?} should declare object multipart capabilities")
+            });
+        assert_eq!(
+            capabilities.presigned_part_etag_required, expected_etag_required,
+            "{driver_type:?} presigned part ETag requirement should be declared by its connector"
+        );
+    }
+}
+
+#[test]
 fn s3_descriptor_declares_connector_owned_endpoint_driver_recommendation() {
-    let s3 = storage_driver_descriptor(DriverType::S3);
+    let s3 = descriptor(DriverType::S3);
     let recommendation = s3
         .driver_recommendations
         .iter()
@@ -366,13 +441,13 @@ fn s3_descriptor_declares_connector_owned_endpoint_driver_recommendation() {
             .any(|rule| rule.ends_with.as_deref() == Some(".myqcloud.com"))
     );
 
-    let tencent_cos = storage_driver_descriptor(DriverType::TencentCos);
+    let tencent_cos = descriptor(DriverType::TencentCos);
     assert!(tencent_cos.driver_recommendations.is_empty());
 }
 
 #[test]
 fn onedrive_descriptor_requires_saved_authorized_connection_test() {
-    let descriptor = storage_driver_descriptor(DriverType::OneDrive);
+    let descriptor = descriptor(DriverType::OneDrive);
 
     assert_eq!(
         descriptor.authorization_provider.as_deref(),
@@ -526,13 +601,15 @@ fn runtime_credential_requirement_is_connector_owned() {
         DriverType::Remote,
     ] {
         assert_eq!(
-            runtime_credential_requirement(driver_type),
+            runtime_credential_requirement(driver_type)
+                .expect("runtime credential requirement should resolve"),
             None,
             "{driver_type:?} should not require delegated runtime credential loading"
         );
     }
 
     let onedrive = runtime_credential_requirement(DriverType::OneDrive)
+        .expect("runtime credential requirement should resolve")
         .expect("OneDrive should declare Microsoft Graph runtime credentials");
     assert_eq!(onedrive.provider, StorageCredentialProvider::MicrosoftGraph);
     assert_eq!(
@@ -545,7 +622,7 @@ fn runtime_credential_requirement_is_connector_owned() {
 
 #[test]
 fn tencent_cos_descriptor_exposes_cors_action() {
-    let descriptor = storage_driver_descriptor(DriverType::TencentCos);
+    let descriptor = descriptor(DriverType::TencentCos);
 
     assert!(descriptor.actions.iter().any(|action| action.policy_action
         == Some(StoragePolicyExecutableAction::ConfigureTencentCosCors)
@@ -556,16 +633,22 @@ fn tencent_cos_descriptor_exposes_cors_action() {
 
 #[test]
 fn storage_native_support_is_declared_by_connector_capabilities() {
-    assert!(!storage_connector_supports_native_thumbnail(DriverType::S3));
-    assert!(!storage_connector_supports_native_media_metadata(
-        DriverType::S3
-    ));
-    assert!(storage_connector_supports_native_thumbnail(
-        DriverType::TencentCos
-    ));
-    assert!(storage_connector_supports_native_media_metadata(
-        DriverType::TencentCos
-    ));
+    assert!(
+        !storage_connector_supports_native_thumbnail(DriverType::S3)
+            .expect("native thumbnail support should resolve")
+    );
+    assert!(
+        !storage_connector_supports_native_media_metadata(DriverType::S3)
+            .expect("native media metadata support should resolve")
+    );
+    assert!(
+        storage_connector_supports_native_thumbnail(DriverType::TencentCos)
+            .expect("native thumbnail support should resolve")
+    );
+    assert!(
+        storage_connector_supports_native_media_metadata(DriverType::TencentCos)
+            .expect("native media metadata support should resolve")
+    );
 }
 
 #[test]
@@ -577,11 +660,9 @@ fn unsupported_storage_native_media_metadata_is_rejected() {
         ..Default::default()
     };
 
-    let error = common::ensure_storage_native_processing_supported(
-        storage_driver_descriptor(DriverType::S3),
-        &options,
-    )
-    .unwrap_err();
+    let error =
+        common::ensure_storage_native_processing_supported(descriptor(DriverType::S3), &options)
+            .unwrap_err();
 
     assert_eq!(
         error.api_error_code(),
@@ -865,7 +946,8 @@ fn field<'a>(
 #[test]
 fn local_policy_resolves_direct_and_chunked_modes() {
     let policy = mock_policy(DriverType::Local, 1024, "{}");
-    let transport = resolve_policy_upload_transport(&policy);
+    let transport =
+        resolve_policy_upload_transport(&policy).expect("upload transport should resolve");
 
     assert_eq!(transport, StorageConnectorUploadTransport::Local);
     assert_eq!(
@@ -883,7 +965,9 @@ fn local_policy_resolves_direct_and_chunked_modes() {
         transport.chunked_completion(),
         StorageConnectorChunkedCompletion::AssembleLocalChunks
     );
-    assert!(!presigned_download_enabled(&policy));
+    assert!(
+        !presigned_download_enabled(&policy).expect("presigned download support should resolve")
+    );
 }
 
 #[test]
@@ -920,9 +1004,13 @@ fn presigned_download_policy_is_connector_owned() {
         r#"{"s3_download_strategy":"relay_stream"}"#,
     );
 
-    assert!(presigned_download_enabled(&s3));
-    assert!(presigned_download_enabled(&remote));
-    assert!(!presigned_download_enabled(&relay_s3));
+    assert!(presigned_download_enabled(&s3).expect("presigned download support should resolve"));
+    assert!(
+        presigned_download_enabled(&remote).expect("presigned download support should resolve")
+    );
+    assert!(
+        !presigned_download_enabled(&relay_s3).expect("presigned download support should resolve")
+    );
 }
 
 #[test]
@@ -932,7 +1020,8 @@ fn s3_relay_stream_uses_effective_chunk_size_and_relay_tracking() {
         1_048_576,
         r#"{"s3_upload_strategy":"relay_stream"}"#,
     );
-    let transport = resolve_policy_upload_transport(&policy);
+    let transport =
+        resolve_policy_upload_transport(&policy).expect("upload transport should resolve");
 
     assert_eq!(
         transport,
@@ -964,7 +1053,8 @@ fn s3_presigned_uses_presigned_modes() {
         1024,
         r#"{"s3_upload_strategy":"presigned"}"#,
     );
-    let transport = resolve_policy_upload_transport(&policy);
+    let transport =
+        resolve_policy_upload_transport(&policy).expect("upload transport should resolve");
 
     assert_eq!(
         transport,
@@ -994,7 +1084,8 @@ fn azure_blob_relay_stream_uses_object_storage_transport_modes() {
         1_048_576,
         r#"{"s3_upload_strategy":"relay_stream"}"#,
     );
-    let transport = resolve_policy_upload_transport(&policy);
+    let transport =
+        resolve_policy_upload_transport(&policy).expect("upload transport should resolve");
 
     assert_eq!(
         transport,
@@ -1025,7 +1116,8 @@ fn azure_blob_presigned_uses_object_storage_presigned_modes() {
         1024,
         r#"{"s3_upload_strategy":"presigned"}"#,
     );
-    let transport = resolve_policy_upload_transport(&policy);
+    let transport =
+        resolve_policy_upload_transport(&policy).expect("upload transport should resolve");
 
     assert_eq!(
         transport,
@@ -1055,7 +1147,8 @@ fn tencent_cos_presigned_uses_object_storage_presigned_modes() {
         1024,
         r#"{"s3_upload_strategy":"presigned"}"#,
     );
-    let transport = resolve_policy_upload_transport(&policy);
+    let transport =
+        resolve_policy_upload_transport(&policy).expect("upload transport should resolve");
 
     assert_eq!(
         transport,
@@ -1080,7 +1173,8 @@ fn remote_relay_stream_uses_direct_and_chunked_modes() {
         1024,
         r#"{"remote_upload_strategy":"relay_stream"}"#,
     );
-    let transport = resolve_policy_upload_transport(&policy);
+    let transport =
+        resolve_policy_upload_transport(&policy).expect("upload transport should resolve");
 
     assert_eq!(
         transport,
@@ -1110,7 +1204,8 @@ fn remote_presigned_keeps_presigned_init_but_allows_server_streaming_fast_path()
         1024,
         r#"{"remote_upload_strategy":"presigned"}"#,
     );
-    let transport = resolve_policy_upload_transport(&policy);
+    let transport =
+        resolve_policy_upload_transport(&policy).expect("upload transport should resolve");
 
     assert_eq!(
         transport,
@@ -1136,7 +1231,8 @@ fn remote_presigned_keeps_presigned_init_but_allows_server_streaming_fast_path()
 #[test]
 fn onedrive_uses_server_relay_without_presigned_or_multipart_tracking() {
     let policy = mock_policy(DriverType::OneDrive, 1024, "{}");
-    let transport = resolve_policy_upload_transport(&policy);
+    let transport =
+        resolve_policy_upload_transport(&policy).expect("upload transport should resolve");
 
     assert_eq!(transport, StorageConnectorUploadTransport::StreamUpload);
     assert_eq!(
@@ -1288,7 +1384,7 @@ fn assert_upload_workflow_alignment(
         | StorageConnectorUploadTransport::Remote(_)
         | StorageConnectorUploadTransport::StreamUpload => 2048,
     };
-    let descriptor = storage_driver_descriptor(driver_type);
+    let descriptor = descriptor(driver_type);
     let workflows = descriptor.upload_workflows;
     assert!(
         workflows.simple_upload,
@@ -1357,7 +1453,8 @@ fn assert_upload_workflow_alignment(
     );
 
     let policy = mock_policy(driver_type, 1024, options);
-    let transport = resolve_policy_upload_transport(&policy);
+    let transport =
+        resolve_policy_upload_transport(&policy).expect("upload transport should resolve");
     assert_eq!(
         transport, expected.transport,
         "{driver_type:?} runtime upload transport drifted from descriptor expectation"

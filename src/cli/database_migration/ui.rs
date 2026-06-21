@@ -12,6 +12,7 @@ use crate::errors::AsterError;
 use crate::utils::numbers::{u64_to_usize, u128_to_u64, usize_to_u64};
 
 use super::{DatabaseMigrationReport, MigrationMode, PROGRESS_ENV, TablePlan};
+use crate::cli::shared::render_serialization_error;
 
 const PROGRESS_BAR_WIDTH: usize = 28;
 
@@ -77,14 +78,14 @@ pub fn render_database_migration_success(
                 ok: true,
                 data: report,
             })
-            .expect("database migration success envelope to serialize")
+            .unwrap_or_else(|error| render_serialization_error(error, false))
         }
         ResolvedDatabaseMigrateOutputFormat::PrettyJson => {
             serde_json::to_string_pretty(&DatabaseMigrationSuccessEnvelope {
                 ok: true,
                 data: report,
             })
-            .expect("database migration success envelope to serialize")
+            .unwrap_or_else(|error| render_serialization_error(error, true))
         }
         ResolvedDatabaseMigrateOutputFormat::Human => render_database_migration_human(report),
     }
@@ -105,7 +106,7 @@ pub fn render_database_migration_error(
                     message: err.message(),
                 },
             })
-            .expect("database migration error envelope to serialize")
+            .unwrap_or_else(|error| render_serialization_error(error, false))
         }
         ResolvedDatabaseMigrateOutputFormat::PrettyJson => {
             serde_json::to_string_pretty(&DatabaseMigrationErrorEnvelope {
@@ -116,7 +117,7 @@ pub fn render_database_migration_error(
                     message: err.message(),
                 },
             })
-            .expect("database migration error envelope to serialize")
+            .unwrap_or_else(|error| render_serialization_error(error, true))
         }
         ResolvedDatabaseMigrateOutputFormat::Human => {
             let palette = TerminalPalette::stdout();

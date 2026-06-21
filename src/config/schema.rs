@@ -342,26 +342,26 @@ impl RateLimitConfig {
     }
     fn default_auth() -> RateLimitTier {
         RateLimitTier {
-            seconds_per_request: NonZeroU64::new(2).expect("rate limit default must be non-zero"),
-            burst_size: NonZeroU32::new(5).expect("rate limit default must be non-zero"),
+            seconds_per_request: nonzero_u64_or_min(2),
+            burst_size: nonzero_u32_or_min(5),
         }
     }
     fn default_public() -> RateLimitTier {
         RateLimitTier {
-            seconds_per_request: NonZeroU64::new(1).expect("rate limit default must be non-zero"),
-            burst_size: NonZeroU32::new(30).expect("rate limit default must be non-zero"),
+            seconds_per_request: nonzero_u64_or_min(1),
+            burst_size: nonzero_u32_or_min(30),
         }
     }
     fn default_api() -> RateLimitTier {
         RateLimitTier {
-            seconds_per_request: NonZeroU64::new(1).expect("rate limit default must be non-zero"),
-            burst_size: NonZeroU32::new(120).expect("rate limit default must be non-zero"),
+            seconds_per_request: nonzero_u64_or_min(1),
+            burst_size: nonzero_u32_or_min(120),
         }
     }
     fn default_write() -> RateLimitTier {
         RateLimitTier {
-            seconds_per_request: NonZeroU64::new(2).expect("rate limit default must be non-zero"),
-            burst_size: NonZeroU32::new(10).expect("rate limit default must be non-zero"),
+            seconds_per_request: nonzero_u64_or_min(2),
+            burst_size: nonzero_u32_or_min(10),
         }
     }
 }
@@ -385,9 +385,17 @@ impl Default for RateLimitTier {
 
 impl RateLimitTier {
     fn default_seconds() -> NonZeroU64 {
-        NonZeroU64::new(1).expect("rate limit default must be non-zero")
+        nonzero_u64_or_min(1)
     }
     fn default_burst() -> NonZeroU32 {
-        NonZeroU32::new(60).expect("rate limit default must be non-zero")
+        nonzero_u32_or_min(60)
     }
+}
+
+fn nonzero_u64_or_min(value: u64) -> NonZeroU64 {
+    NonZeroU64::new(value).unwrap_or(NonZeroU64::MIN)
+}
+
+fn nonzero_u32_or_min(value: u32) -> NonZeroU32 {
+    NonZeroU32::new(value).unwrap_or(NonZeroU32::MIN)
 }

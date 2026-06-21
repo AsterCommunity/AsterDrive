@@ -20,8 +20,6 @@ pub(crate) use finalize::{
     FinalizeUploadSessionFileParams, finalize_upload_session_blob_with_actor_username,
     finalize_upload_session_file,
 };
-#[allow(unused_imports)]
-pub(crate) use path::{ParsedUploadPath, ResolvedUploadParent};
 pub(crate) use path::{ensure_upload_parent_path, parse_relative_upload_path};
 pub(crate) use policy::{
     VerifiedFolderPolicyHint, ensure_policy_available_for_folder_binding, load_storage_limits,

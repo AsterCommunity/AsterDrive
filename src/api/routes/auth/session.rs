@@ -141,7 +141,9 @@ pub async fn get_storage_events(
     let visible_team_ids =
         revalidate_storage_event_stream(state.get_ref(), user_id, session_version, true)
             .await?
-            .expect("visible teams should be loaded on initial SSE auth check");
+            .ok_or_else(|| {
+                AsterError::internal_error("visible teams missing after SSE auth check")
+            })?;
     let mut rx = state.get_ref().storage_change_tx().subscribe();
 
     let stream = async_stream::stream! {

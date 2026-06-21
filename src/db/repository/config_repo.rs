@@ -298,8 +298,10 @@ where
         }
     }
 
-    serde_json::to_string_pretty(&config)
-        .expect("bootstrapped media processing registry should serialize")
+    serde_json::to_string_pretty(&config).unwrap_or_else(|error| {
+        tracing::warn!(%error, "failed to serialize bootstrapped media processing registry");
+        media_processing::default_media_processing_registry_json()
+    })
 }
 
 fn bootstrap_enabled_media_processors<F>(get_env: &F) -> Vec<MediaProcessorKind>

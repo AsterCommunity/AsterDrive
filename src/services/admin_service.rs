@@ -543,7 +543,7 @@ fn parse_timezone(timezone_name: &str) -> Result<Tz> {
 fn start_of_local_day(date: NaiveDate, timezone: Tz) -> Result<DateTimeUtc> {
     let naive = date
         .and_hms_opt(0, 0, 0)
-        .expect("start of day should always be valid");
+        .ok_or_else(|| AsterError::validation_error("invalid local day start"))?;
     match timezone.from_local_datetime(&naive) {
         LocalResult::Single(dt) => Ok(dt.with_timezone(&Utc)),
         LocalResult::Ambiguous(earliest, _) => Ok(earliest.with_timezone(&Utc)),

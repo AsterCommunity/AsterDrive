@@ -23,13 +23,10 @@ where
 }
 
 pub(super) fn now_ms() -> i64 {
-    i64::try_from(
-        SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("system clock should be after unix epoch")
-            .as_millis(),
-    )
-    .expect("timestamp milliseconds should fit into i64")
+    let millis = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |duration| duration.as_millis());
+    i64::try_from(millis).unwrap_or(i64::MAX)
 }
 
 pub(super) fn parse_bool(value: &str) -> Option<bool> {

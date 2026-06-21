@@ -6,8 +6,9 @@ use crate::errors::Result;
 use crate::runtime::RemoteProtocolRuntimeState;
 use crate::storage::StorageDriver;
 use crate::storage::connector_descriptor::{
+    ObjectStorageConnectorDescriptorInput, ObjectStorageFieldDescriptorInput,
     StorageConnectorDescriptor, StorageConnectorDescriptorProvider,
-    object_storage_connector_descriptor,
+    StorageConnectorUiDescriptorInput, object_storage_connector_descriptor,
 };
 use crate::storage::drivers::azure_blob::{AzureBlobConfigError, AzureBlobDriver};
 use crate::types::{DriverType, parse_storage_policy_options};
@@ -19,13 +20,36 @@ pub struct AzureBlobConnector;
 
 impl StorageConnectorDescriptorProvider for AzureBlobConnector {
     fn storage_connector_descriptor() -> StorageConnectorDescriptor {
-        object_storage_connector_descriptor(
-            DriverType::AzureBlob,
-            "Azure Blob Storage",
-            "Azure Blob block blob storage policy",
-            false,
-            vec![328, 329],
-        )
+        object_storage_connector_descriptor(ObjectStorageConnectorDescriptorInput {
+            driver_type: DriverType::AzureBlob,
+            label: "Azure Blob Storage",
+            description: "Azure Blob block blob storage policy",
+            ui: StorageConnectorUiDescriptorInput {
+                label_key: "driver_type_azure_blob",
+                description_key: "policy_wizard_azure_blob_storage_desc",
+                icon_src: Some("/static/storage/azure-blob.svg"),
+                icon_name: None,
+                helper_key: "policy_wizard_azure_blob_helper",
+                config_step_title_key: "policy_wizard_step_connection_title",
+                config_step_description_key: "policy_wizard_step_azure_blob_connection_desc",
+                edit_context_key: "policy_edit_context_azure_blob_desc",
+                base_path_empty_display: "core:root",
+                base_path_placeholder: "tenant/prefix",
+            },
+            fields: ObjectStorageFieldDescriptorInput {
+                endpoint_placeholder: "https://<account>.blob.core.windows.net",
+                endpoint_help_key: "azure_blob_endpoint_hint",
+                endpoint_protocol_error_key: "azure_blob_endpoint_protocol_required_error",
+                bucket_required_message_key: "policy_wizard_container_required",
+                access_key_label_key: "azure_blob_account_name",
+                secret_key_label_key: "azure_blob_account_key",
+                access_key_trim_on_blur: true,
+            },
+            include_s3_path_style: false,
+            presigned_part_etag_required: false,
+            storage_native_processing: false,
+            related_issues: vec![328, 329],
+        })
     }
 }
 

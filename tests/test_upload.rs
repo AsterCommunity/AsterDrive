@@ -705,6 +705,18 @@ fn build_multipart_payload(filename: &str, data: &[u8]) -> (String, Vec<u8>) {
     (boundary, payload)
 }
 
+fn build_malformed_multipart_headers_over_parser_buffer() -> (String, Vec<u8>) {
+    let boundary = format!(
+        "----AsterMalformedBoundary{}",
+        uuid::Uuid::new_v4().simple()
+    );
+    let mut payload = Vec::new();
+    payload.extend_from_slice(format!("--{boundary}\r\n").as_bytes());
+    payload.extend_from_slice(b"X-Long: ");
+    payload.extend_from_slice(&vec![b'a'; 70 * 1024]);
+    (boundary, payload)
+}
+
 async fn store_temp_file_in_personal_space(
     state: &aster_drive::runtime::PrimaryAppState,
     user_id: i64,
@@ -1181,6 +1193,36 @@ async fn test_init_upload_validates_filename_and_total_size() {
     assert_eq!(resp.status(), 400);
     let body: Value = test::read_body_json(resp).await;
     assert_eq!(body["msg"], "total_size cannot be negative");
+}
+
+#[actix_web::test]
+async fn test_malformed_multipart_headers_returns_upload_error_contract() {
+    let state = common::setup().await;
+    let app = create_test_app!(state);
+    let (token, _) = register_and_login!(app);
+
+    let (boundary, payload) = build_malformed_multipart_headers_over_parser_buffer();
+    let req = test::TestRequest::post()
+        .uri("/api/v1/files/upload")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .insert_header((
+            "Content-Type",
+            format!("multipart/form-data; boundary={boundary}"),
+        ))
+        .set_payload(payload)
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    let status = resp.status();
+    let body_bytes = test::read_body(resp).await;
+    assert_eq!(
+        status,
+        actix_web::http::StatusCode::BAD_REQUEST,
+        "unexpected status body: {}",
+        String::from_utf8_lossy(&body_bytes)
+    );
+    let body: Value = serde_json::from_slice(&body_bytes).unwrap();
+    assert_upload_error_contract(&body, ApiErrorCode::UploadFieldReadFailed.as_str());
 }
 
 #[actix_web::test]

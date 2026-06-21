@@ -63,7 +63,7 @@ fn read_positive_i64(runtime_config: &RuntimeConfig, key: &str, default: u64) ->
     let value = read_positive_u64(runtime_config, key, default);
     i64::try_from(value).unwrap_or_else(|_| {
         tracing::warn!(key, value, "runtime WOPI config exceeds i64; using default");
-        i64::try_from(default).expect("WOPI default TTL should fit in i64")
+        i64::try_from(default).unwrap_or(i64::MAX)
     })
 }
 

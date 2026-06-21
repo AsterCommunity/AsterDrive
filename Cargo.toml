@@ -70,8 +70,8 @@ jemalloc-profiling = ["jemalloc-stats", "tikv-jemallocator/profiling"]
 [dependencies]
 actix-governor = "0.10"
 actix-http = "3"
-actix-multipart = "0.7"
-actix-web = { version = "4.13.0", features = ["compress-brotli", "compress-gzip"] }
+actix-multipart = "0.8"
+actix-web = { version = "4.14.0", features = ["compress-brotli", "compress-gzip"] }
 actix-ws = "0.4"
 aes-gcm = "0.10"
 api-docs-macros = { path = "api-docs-macros" }

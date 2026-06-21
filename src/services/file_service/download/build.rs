@@ -142,7 +142,7 @@ pub(crate) async fn build_download_outcome_with_disposition_and_range(
 
     let policy = state.policy_snapshot().get_policy_or_err(blob.policy_id)?;
     let should_presign = disposition == DownloadDisposition::Attachment
-        && crate::storage::connectors::presigned_download_enabled(&policy);
+        && crate::storage::connectors::presigned_download_enabled(&policy)?;
 
     if should_presign {
         // 只有"附件下载 + 存储驱动支持 + 策略允许"才走 presigned redirect。

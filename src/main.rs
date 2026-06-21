@@ -16,6 +16,7 @@ use actix_web::{App, HttpServer, web};
 use aster_drive::runtime::SharedRuntimeState;
 #[cfg(feature = "cli")]
 use clap::{Parser, Subcommand};
+use std::io;
 use tokio_util::sync::CancellationToken;
 
 const HTTP_SHUTDOWN_TIMEOUT_SECS: u64 = 8;
@@ -203,19 +204,19 @@ async fn main() -> std::io::Result<()> {
 
     let bootstrap_config_path =
         aster_drive::services::node_enrollment_service::prepare_follower_bootstrap_config()
-            .expect("failed to prepare follower bootstrap config");
+            .map_err(io_other)?;
 
     // 1. 加载配置（会自动创建 data/config.toml）
-    aster_drive::config::init_config().expect("failed to load config");
+    aster_drive::config::init_config().map_err(io_other)?;
     let cfg = aster_drive::config::get_config();
     let runtime_mode = aster_drive::config::node_mode::start_mode(cfg.as_ref());
     if let Some(config_path) = bootstrap_config_path.as_ref()
         && runtime_mode != aster_drive::config::node_mode::NodeRuntimeMode::Follower
     {
-        panic!(
+        return Err(io_other(format!(
             "before bootstrapping this node from remote enrollment env, set [server].start_mode = \"follower\" in {} and restart",
             config_path.display()
-        );
+        )));
     }
 
     // 2. 初始化日志（基于配置）
@@ -234,16 +235,20 @@ async fn main() -> std::io::Result<()> {
         aster_drive::config::node_mode::NodeRuntimeMode::Primary => {
             let prepared = aster_drive::runtime::startup::prepare_primary()
                 .await
-                .expect("startup failed");
+                .map_err(io_other)?;
             run_primary_http_server(prepared).await
         }
         aster_drive::config::node_mode::NodeRuntimeMode::Follower => {
             let prepared = aster_drive::runtime::startup::prepare_follower()
                 .await
-                .expect("startup failed");
+                .map_err(io_other)?;
             run_follower_http_server(prepared).await
         }
     }
+}
+
+fn io_other(error: impl std::fmt::Display) -> io::Error {
+    io::Error::other(error.to_string())
 }
 
 async fn run_primary_http_server(

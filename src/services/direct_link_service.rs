@@ -188,8 +188,10 @@ fn file_scope_signature(file: &file::Model) -> Result<String> {
 
 fn direct_link_mac(file: &file::Model, secret: &str) -> Result<hmac::Hmac<sha2::Sha256>> {
     use hmac::{Hmac, KeyInit, Mac};
-    let mut mac = <Hmac<sha2::Sha256> as KeyInit>::new_from_slice(secret.as_bytes())
-        .expect("HMAC accepts any key length");
+    let mut mac =
+        <Hmac<sha2::Sha256> as KeyInit>::new_from_slice(secret.as_bytes()).map_err(|error| {
+            AsterError::internal_error(format!("failed to initialize HMAC: {error}"))
+        })?;
     // v2 direct links use HMAC-SHA256 instead of the old truncated SHA256
     // construction. The message includes a purpose string, scope, and file id
     // so the same JWT secret cannot accidentally sign another token family.

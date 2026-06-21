@@ -163,7 +163,7 @@ pub async fn execute_config_command(
                 match command {
                     ConfigCommand::List => ConfigCommandKind::List,
                     ConfigCommand::Export => ConfigCommandKind::Export,
-                    _ => unreachable!("list/export match already narrowed"),
+                    _ => ConfigCommandKind::List,
                 },
                 configs,
             ))
@@ -185,10 +185,9 @@ pub async fn execute_config_command(
                     value: parse_cli_config_value(&args.key, &args.value)?,
                 }],
             )?;
-            let normalized_item = normalized
-                .into_iter()
-                .next()
-                .expect("single entry normalization should return one item");
+            let normalized_item = normalized.into_iter().next().ok_or_else(|| {
+                AsterError::internal_error("single config entry normalization returned no item")
+            })?;
             let saved = config_repo::upsert_with_actor(
                 &db,
                 &normalized_item.key,

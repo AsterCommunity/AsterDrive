@@ -7,7 +7,9 @@ use crate::errors::{Result, validation_error_with_code};
 use crate::runtime::{RemoteProtocolRuntimeState, SharedRuntimeState};
 use crate::storage::StorageDriver;
 use crate::storage::connector_descriptor::{
-    StorageConnectorDescriptor, StorageConnectorDescriptorProvider, StoragePolicyExecutableAction,
+    ObjectStorageConnectorDescriptorInput, ObjectStorageFieldDescriptorInput,
+    StorageConnectorDescriptor, StorageConnectorDescriptorProvider,
+    StorageConnectorUiDescriptorInput, StoragePolicyExecutableAction,
     object_storage_connector_descriptor, policy_action_descriptor,
 };
 use crate::storage::drivers::tencent_cos::TencentCosDriver;
@@ -26,13 +28,37 @@ pub struct TencentCosConnector;
 
 impl StorageConnectorDescriptorProvider for TencentCosConnector {
     fn storage_connector_descriptor() -> StorageConnectorDescriptor {
-        let mut descriptor = object_storage_connector_descriptor(
-            DriverType::TencentCos,
-            "Tencent COS",
-            "Tencent Cloud COS object storage policy",
-            true,
-            vec![328, 329],
-        );
+        let mut descriptor =
+            object_storage_connector_descriptor(ObjectStorageConnectorDescriptorInput {
+                driver_type: DriverType::TencentCos,
+                label: "Tencent COS",
+                description: "Tencent Cloud COS object storage policy",
+                ui: StorageConnectorUiDescriptorInput {
+                    label_key: "driver_type_tencent_cos",
+                    description_key: "policy_wizard_tencent_cos_storage_desc",
+                    icon_src: Some("/static/storage/tencent-cloud-cos.webp"),
+                    icon_name: None,
+                    helper_key: "policy_wizard_tencent_cos_helper",
+                    config_step_title_key: "policy_wizard_step_connection_title",
+                    config_step_description_key: "policy_wizard_step_tencent_cos_connection_desc",
+                    edit_context_key: "policy_edit_context_s3_desc",
+                    base_path_empty_display: "core:root",
+                    base_path_placeholder: "tenant/prefix",
+                },
+                fields: ObjectStorageFieldDescriptorInput {
+                    endpoint_placeholder: "https://<bucket-appid>.cos.<region>.myqcloud.com",
+                    endpoint_help_key: "cos_endpoint_hint",
+                    endpoint_protocol_error_key: "s3_endpoint_protocol_required_error",
+                    bucket_required_message_key: "policy_wizard_bucket_required",
+                    access_key_label_key: "access_key",
+                    secret_key_label_key: "secret_key",
+                    access_key_trim_on_blur: false,
+                },
+                include_s3_path_style: false,
+                presigned_part_etag_required: true,
+                storage_native_processing: true,
+                related_issues: vec![328, 329],
+            });
         descriptor.actions.push(policy_action_descriptor(
             StoragePolicyExecutableAction::ConfigureTencentCosCors,
         ));

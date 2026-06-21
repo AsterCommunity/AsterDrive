@@ -166,6 +166,7 @@ fn ip_subnet(ip: IpAddr) -> String {
     }
 }
 
+#[allow(clippy::expect_used)]
 fn share_cookie_mac(
     token: &str,
     binding: &ShareCookieBinding,

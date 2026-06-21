@@ -94,7 +94,7 @@ pub(crate) async fn upload_with_hints(
             declared_size,
         )
         .await?;
-        if streaming_direct_upload_eligible(&policy, declared_size) {
+        if streaming_direct_upload_eligible(&policy, declared_size)? {
             tracing::debug!(
                 scope = ?scope,
                 folder_id = effective_folder_id,

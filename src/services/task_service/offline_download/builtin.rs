@@ -58,7 +58,9 @@ impl OfflineDownloadEngine for BuiltinHttpOfflineDownloadEngine {
             biased;
             shutdown = context.shutdown_requested() => {
                 shutdown?;
-                unreachable!("shutdown_requested only resolves when shutdown is requested");
+                return Err(AsterError::storage_driver_error(
+                    "transient: offline download stopped during shutdown",
+                ));
             }
             response = client.get(request.url.clone()).send() => response,
         }
@@ -101,7 +103,9 @@ impl OfflineDownloadEngine for BuiltinHttpOfflineDownloadEngine {
                 biased;
                 shutdown = context.shutdown_requested() => {
                     shutdown?;
-                    unreachable!("shutdown_requested only resolves when shutdown is requested");
+                    return Err(AsterError::storage_driver_error(
+                        "transient: offline download interrupted during shutdown",
+                    ));
                 }
                 chunk = stream.next() => chunk,
             };

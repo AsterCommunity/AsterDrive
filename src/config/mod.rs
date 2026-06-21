@@ -44,6 +44,7 @@ pub fn init_config() -> crate::errors::Result<()> {
     Ok(())
 }
 
+#[allow(clippy::expect_used)]
 pub fn get_config() -> Arc<Config> {
     CONFIG
         .get()

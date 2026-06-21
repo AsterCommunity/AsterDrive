@@ -56,13 +56,11 @@ pub(super) enum PreparedMediaMetadataSource {
 }
 
 impl PreparedMediaMetadataSource {
-    pub(super) fn path(&self) -> &Path {
+    pub(super) fn path(&self) -> Option<&Path> {
         match self {
-            Self::Local(path) => path.as_path(),
-            Self::Temp(guard) => guard.path(),
-            Self::Range(_) => {
-                unreachable!("range-backed media metadata source does not have a local path")
-            }
+            Self::Local(path) => Some(path.as_path()),
+            Self::Temp(guard) => Some(guard.path()),
+            Self::Range(_) => None,
         }
     }
 }

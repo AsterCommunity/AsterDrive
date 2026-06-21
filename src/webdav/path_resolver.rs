@@ -330,12 +330,10 @@ pub(crate) async fn resolve_path_in_scope<C: ConnectionTrait>(
     let folders = resolve_folder_chain(db, scope, root_folder_id, &segments).await?;
 
     if folders.len() == segments.len() {
-        return Ok(ResolvedNode::Folder(
-            folders
-                .last()
-                .cloned()
-                .expect("non-empty path must have a last segment"),
-        ));
+        let Some(folder) = folders.last().cloned() else {
+            return Err(FsError::NotFound);
+        };
+        return Ok(ResolvedNode::Folder(folder));
     }
 
     // Only the last segment may be a file; anything earlier must have resolved as a folder chain.
@@ -344,9 +342,9 @@ pub(crate) async fn resolve_path_in_scope<C: ConnectionTrait>(
     }
 
     let current_parent = folders.last().map(|folder| folder.id).or(root_folder_id);
-    let last = segments
-        .last()
-        .expect("non-empty path must have a last segment");
+    let Some(last) = segments.last() else {
+        return Err(FsError::NotFound);
+    };
 
     let file = match scope {
         WorkspaceStorageScope::Personal { user_id } => {

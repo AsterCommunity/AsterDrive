@@ -5,8 +5,10 @@ use crate::errors::Result;
 use crate::runtime::RemoteProtocolRuntimeState;
 use crate::storage::StorageDriver;
 use crate::storage::connector_descriptor::{
-    StorageConnectorDescriptor, StorageConnectorDescriptorProvider, endpoint_driver_recommendation,
-    endpoint_host_rule, object_storage_connector_descriptor,
+    ObjectStorageConnectorDescriptorInput, ObjectStorageFieldDescriptorInput,
+    StorageConnectorDescriptor, StorageConnectorDescriptorProvider,
+    StorageConnectorUiDescriptorInput, endpoint_driver_recommendation, endpoint_host_rule,
+    object_storage_connector_descriptor,
 };
 use crate::storage::drivers::s3::S3Driver;
 use crate::types::{DriverType, parse_storage_policy_options};
@@ -18,13 +20,37 @@ pub struct S3Connector;
 
 impl StorageConnectorDescriptorProvider for S3Connector {
     fn storage_connector_descriptor() -> StorageConnectorDescriptor {
-        let mut descriptor = object_storage_connector_descriptor(
-            DriverType::S3,
-            "S3-compatible object storage",
-            "S3-compatible object storage policy",
-            false,
-            vec![328, 329],
-        );
+        let mut descriptor =
+            object_storage_connector_descriptor(ObjectStorageConnectorDescriptorInput {
+                driver_type: DriverType::S3,
+                label: "S3-compatible object storage",
+                description: "S3-compatible object storage policy",
+                ui: StorageConnectorUiDescriptorInput {
+                    label_key: "driver_type_s3",
+                    description_key: "policy_wizard_s3_storage_desc",
+                    icon_src: Some("/static/storage/amazon-s3.svg"),
+                    icon_name: None,
+                    helper_key: "policy_wizard_s3_helper",
+                    config_step_title_key: "policy_wizard_step_connection_title",
+                    config_step_description_key: "policy_wizard_step_connection_desc",
+                    edit_context_key: "policy_edit_context_s3_desc",
+                    base_path_empty_display: "core:root",
+                    base_path_placeholder: "tenant/prefix",
+                },
+                fields: ObjectStorageFieldDescriptorInput {
+                    endpoint_placeholder: "https://s3.amazonaws.com",
+                    endpoint_help_key: "s3_endpoint_hint",
+                    endpoint_protocol_error_key: "s3_endpoint_protocol_required_error",
+                    bucket_required_message_key: "policy_wizard_bucket_required",
+                    access_key_label_key: "access_key",
+                    secret_key_label_key: "secret_key",
+                    access_key_trim_on_blur: false,
+                },
+                include_s3_path_style: true,
+                presigned_part_etag_required: true,
+                storage_native_processing: false,
+                related_issues: vec![328, 329],
+            });
         descriptor
             .driver_recommendations
             .push(endpoint_driver_recommendation(

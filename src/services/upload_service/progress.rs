@@ -57,7 +57,7 @@ async fn get_progress_impl(
         let policy = state
             .policy_snapshot()
             .get_policy_or_err(session.policy_id)?;
-        if is_relay_multipart_policy(&policy) {
+        if is_relay_multipart_policy(&policy)? {
             upload_session_part_repo::list_part_numbers(state.reader_db(), &session.id)
                 .await?
                 .into_iter()
@@ -90,8 +90,8 @@ async fn get_progress_impl(
     Ok(progress)
 }
 
-fn is_relay_multipart_policy(policy: &crate::entities::storage_policy::Model) -> bool {
-    resolve_policy_upload_transport(policy).uses_relay_multipart_tracking()
+fn is_relay_multipart_policy(policy: &crate::entities::storage_policy::Model) -> Result<bool> {
+    Ok(resolve_policy_upload_transport(policy)?.uses_relay_multipart_tracking())
 }
 
 fn recoverable_mode_for_session(session: &upload_session::Model) -> UploadMode {

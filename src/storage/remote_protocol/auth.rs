@@ -49,6 +49,7 @@ pub fn sign_internal_request(
     hex::encode(digest)
 }
 
+#[allow(clippy::expect_used)]
 pub(crate) fn internal_request_mac(
     secret_key: &str,
     method: &str,
@@ -73,6 +74,7 @@ pub(crate) fn internal_request_mac(
     mac
 }
 
+#[allow(clippy::expect_used)]
 pub fn sign_presigned_request(
     secret_key: &str,
     method: &str,

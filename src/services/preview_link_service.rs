@@ -394,7 +394,7 @@ fn sign_shared_payload(
     secret: &str,
 ) -> Result<String> {
     use hmac::Mac;
-    let digest = shared_payload_mac(share, file, payload_segment, secret)
+    let digest = shared_payload_mac(share, file, payload_segment, secret)?
         .finalize()
         .into_bytes();
     Ok(base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(digest))
@@ -406,8 +406,10 @@ fn file_payload_mac(
     secret: &str,
 ) -> Result<hmac::Hmac<sha2::Sha256>> {
     use hmac::{Hmac, KeyInit, Mac};
-    let mut mac = <Hmac<sha2::Sha256> as KeyInit>::new_from_slice(secret.as_bytes())
-        .expect("HMAC accepts any key length");
+    let mut mac =
+        <Hmac<sha2::Sha256> as KeyInit>::new_from_slice(secret.as_bytes()).map_err(|error| {
+            AsterError::internal_error(format!("failed to initialize HMAC: {error}"))
+        })?;
     mac.update(b"preview_link:file:");
     mac.update(file_scope_signature(file)?.as_bytes());
     mac.update(b":");
@@ -422,10 +424,12 @@ fn shared_payload_mac(
     file: &file::Model,
     payload_segment: &str,
     secret: &str,
-) -> hmac::Hmac<sha2::Sha256> {
+) -> Result<hmac::Hmac<sha2::Sha256>> {
     use hmac::{Hmac, KeyInit, Mac};
-    let mut mac = <Hmac<sha2::Sha256> as KeyInit>::new_from_slice(secret.as_bytes())
-        .expect("HMAC accepts any key length");
+    let mut mac =
+        <Hmac<sha2::Sha256> as KeyInit>::new_from_slice(secret.as_bytes()).map_err(|error| {
+            AsterError::internal_error(format!("failed to initialize HMAC: {error}"))
+        })?;
     mac.update(b"preview_link:share:");
     mac.update(share.token.as_bytes());
     mac.update(b":");
@@ -434,7 +438,7 @@ fn shared_payload_mac(
     mac.update(file.id.to_string().as_bytes());
     mac.update(b":");
     mac.update(payload_segment.as_bytes());
-    mac
+    Ok(mac)
 }
 
 fn verify_file_payload(
@@ -463,7 +467,7 @@ fn verify_shared_payload(
     let decoded = base64::engine::general_purpose::URL_SAFE_NO_PAD
         .decode(signature)
         .map_aster_err_with(|| AsterError::share_not_found("invalid preview link token"))?;
-    Ok(shared_payload_mac(share, file, payload_segment, secret)
+    Ok(shared_payload_mac(share, file, payload_segment, secret)?
         .verify_slice(&decoded)
         .is_ok())
 }

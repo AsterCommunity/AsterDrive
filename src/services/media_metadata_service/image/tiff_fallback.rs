@@ -829,7 +829,7 @@ where
 }
 
 fn usize_to_u64(value: usize) -> u64 {
-    u64::try_from(value).expect("TIFF fallback constant should fit u64")
+    u64::try_from(value).unwrap_or(u64::MAX)
 }
 
 fn apply_tiff_entry(

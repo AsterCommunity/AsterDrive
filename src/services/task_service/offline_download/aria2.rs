@@ -247,7 +247,7 @@ impl Aria2OfflineDownloadEngine {
                 biased;
                 shutdown = context.shutdown_requested() => {
                     shutdown?;
-                    unreachable!("shutdown_requested only resolves when shutdown is requested");
+                    continue;
                 }
                 status = self.client.tell_status(gid) => status,
             };

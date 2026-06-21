@@ -11,8 +11,9 @@ use crate::runtime::{RemoteProtocolRuntimeState, SharedRuntimeState};
 use crate::services::storage_credential_service::crypto;
 use crate::storage::StorageDriver;
 use crate::storage::connector_descriptor::{
-    StorageConnectorCapabilities, StorageConnectorCredentialMode, StorageConnectorDescriptor,
-    StorageConnectorDescriptorProvider, StorageConnectorFieldKind, StorageConnectorFieldScope,
+    ObjectMultipartUploadCapabilitiesInput, StorageConnectorCapabilities,
+    StorageConnectorCredentialMode, StorageConnectorDescriptor, StorageConnectorDescriptorProvider,
+    StorageConnectorFieldKind, StorageConnectorFieldScope, StorageConnectorUiDescriptorInput,
     StorageConnectorUploadWorkflows, draft_connection_test_action_descriptor,
     object_multipart_upload_capabilities, saved_connection_test_action_descriptor,
     server_relay_simple_upload_capabilities, storage_connector_field,
@@ -36,18 +37,18 @@ impl StorageConnectorDescriptorProvider for RemoteConnector {
             enabled: true,
             label: "Remote node".to_string(),
             description: "Remote follower node storage policy".to_string(),
-            ui: storage_connector_ui_descriptor(
-                "driver_type_remote",
-                "policy_wizard_remote_storage_desc",
-                Some("/static/storage/asterdrive-node.svg"),
-                None,
-                "policy_wizard_remote_helper",
-                "policy_wizard_step_remote_title",
-                "policy_wizard_step_remote_desc",
-                "policy_edit_context_remote_desc",
-                "core:root",
-                "tenant/prefix",
-            ),
+            ui: storage_connector_ui_descriptor(StorageConnectorUiDescriptorInput {
+                label_key: "driver_type_remote",
+                description_key: "policy_wizard_remote_storage_desc",
+                icon_src: Some("/static/storage/asterdrive-node.svg"),
+                icon_name: None,
+                helper_key: "policy_wizard_remote_helper",
+                config_step_title_key: "policy_wizard_step_remote_title",
+                config_step_description_key: "policy_wizard_step_remote_desc",
+                edit_context_key: "policy_edit_context_remote_desc",
+                base_path_empty_display: "core:root",
+                base_path_placeholder: "tenant/prefix",
+            }),
             credential_mode: StorageConnectorCredentialMode::RemoteNode,
             requires_authorization: false,
             authorization_provider: None,
@@ -67,7 +68,9 @@ impl StorageConnectorDescriptorProvider for RemoteConnector {
                 stream_upload: true,
                 object_multipart_upload: true,
                 object_multipart_upload_capabilities: Some(object_multipart_upload_capabilities(
-                    DriverType::Remote,
+                    ObjectMultipartUploadCapabilitiesInput {
+                        presigned_part_etag_required: true,
+                    },
                 )),
                 provider_resumable_upload: false,
                 presigned_upload: true,

@@ -185,10 +185,20 @@ impl DriverRegistry {
                     continue;
                 }
             };
-            let Some(requirement) =
-                crate::storage::connectors::runtime_credential_requirement(policy.driver_type)
-            else {
-                continue;
+            let requirement = match crate::storage::connectors::runtime_credential_requirement(
+                policy.driver_type,
+            ) {
+                Ok(Some(requirement)) => requirement,
+                Ok(None) => continue,
+                Err(error) => {
+                    tracing::warn!(
+                        policy_id = policy.id,
+                        driver_type = %policy.driver_type.as_str(),
+                        error = %error,
+                        "skipping storage credential reload because connector lookup failed"
+                    );
+                    continue;
+                }
             };
             if credential.provider != requirement.provider
                 || credential.credential_kind != requirement.credential_kind

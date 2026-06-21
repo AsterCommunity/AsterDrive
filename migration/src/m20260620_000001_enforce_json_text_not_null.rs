@@ -101,6 +101,7 @@ async fn modify_json_text_nullability(
 }
 
 #[derive(DeriveIden, Clone, Copy)]
+#[allow(clippy::enum_variant_names)]
 enum JsonTextTable {
     StoragePolicyCredentials,
     StoragePolicyAuthorizationFlows,

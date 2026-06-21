@@ -117,8 +117,17 @@ pub fn default_public_preview_apps() -> PublicPreviewAppsConfig {
 }
 
 pub fn default_public_preview_apps_json() -> String {
-    serde_json::to_string_pretty(&default_public_preview_apps())
-        .expect("default preview apps config should serialize")
+    serde_json::to_string_pretty(&default_public_preview_apps()).unwrap_or_else(|error| {
+        tracing::warn!(%error, "failed to serialize default preview apps config");
+        serde_json::to_string(&PublicPreviewAppsConfig {
+            version: PREVIEW_APPS_VERSION,
+            apps: Vec::new(),
+        })
+        .unwrap_or_else(|fallback_error| {
+            tracing::error!(%fallback_error, "failed to serialize fallback preview apps config");
+            "{}".to_string()
+        })
+    })
 }
 
 fn builtin_app(

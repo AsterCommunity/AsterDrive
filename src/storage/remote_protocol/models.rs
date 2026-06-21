@@ -1,5 +1,4 @@
 use crate::api::api_error_code::ApiErrorCode;
-use crate::api::response::ApiErrorInfo;
 use crate::errors::Result;
 use crate::storage::StorageCapacityInfo;
 use crate::storage::error::{StorageErrorKind, storage_driver_error};
@@ -563,6 +562,4 @@ pub(super) struct ApiEnvelope<T> {
     pub(super) code: ApiErrorCode,
     pub(super) msg: String,
     pub(super) data: Option<T>,
-    #[allow(dead_code)]
-    pub(super) error: Option<ApiErrorInfo>,
 }

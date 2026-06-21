@@ -16,7 +16,6 @@ use std::collections::{BTreeSet, HashMap, HashSet};
 use std::rc::Rc;
 
 use crate::api::api_error_code::ApiErrorCode;
-use crate::api::constants::HOUR_SECS;
 use crate::errors::{AsterError, MapAsterErr, Result as AsterResult, validation_error_with_code};
 use crate::runtime::FollowerAppState;
 use crate::storage::remote_protocol::{
@@ -271,8 +270,7 @@ fn apply_preflight_headers(headers: &mut HeaderMap) {
     );
     headers.insert(
         header::ACCESS_CONTROL_MAX_AGE,
-        HeaderValue::from_str(&HOUR_SECS.to_string())
-            .expect("CORS max age should always be a valid header value"),
+        HeaderValue::from_static("3600"),
     );
     let _ = ensure_vary(headers, "Access-Control-Request-Method");
     let _ = ensure_vary(headers, "Access-Control-Request-Headers");
