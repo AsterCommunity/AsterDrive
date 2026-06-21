@@ -430,8 +430,7 @@ async fn ensure_counted_once(
             None => {}
         }
 
-        let pending = encode_marker_state(CountMarkerState::Pending)?;
-        if cache::reserve_count_marker(state, session_token, pending, ttl_secs).await {
+        if cache::reserve_count_marker(state, session_token, ttl_secs).await? {
             return Ok(CountReservation::Reserved);
         }
 
@@ -449,16 +448,7 @@ async fn mark_counted(
     payload: &ShareStreamSessionPayload,
 ) -> Result<()> {
     let ttl_secs = ttl_seconds(payload)?;
-    let counted = CountMarkerState::Counted;
-    cache::store_count_marker(
-        state,
-        session_token,
-        counted,
-        encode_marker_state(counted)?,
-        ttl_secs,
-    )
-    .await;
-    Ok(())
+    cache::store_count_marker(state, session_token, CountMarkerState::Counted, ttl_secs).await
 }
 
 async fn count_marker_state(
@@ -479,13 +469,6 @@ fn ttl_seconds(payload: &ShareStreamSessionPayload) -> Result<u64> {
     }
     u64::try_from(remaining).map_aster_err_ctx(
         "share stream session ttl conversion failed",
-        AsterError::internal_error,
-    )
-}
-
-fn encode_marker_state(state: CountMarkerState) -> Result<Vec<u8>> {
-    serde_json::to_vec(&state).map_aster_err_ctx(
-        "failed to encode share stream count marker",
         AsterError::internal_error,
     )
 }

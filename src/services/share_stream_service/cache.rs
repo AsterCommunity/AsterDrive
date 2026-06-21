@@ -7,6 +7,7 @@ use moka::future::Cache;
 
 use crate::cache::CacheExt;
 use crate::config::operations;
+use crate::errors::{AsterError, MapAsterErr, Result};
 use crate::runtime::SharedRuntimeState;
 
 use super::CountMarkerState;
@@ -48,10 +49,10 @@ pub(super) async fn load_count_marker(
 pub(super) async fn reserve_count_marker(
     state: &impl SharedRuntimeState,
     session_token: &str,
-    encoded_pending: Vec<u8>,
     ttl_secs: u64,
-) -> bool {
+) -> Result<bool> {
     let key = counted_cache_key(session_token);
+    let encoded_pending = encode_marker_state(CountMarkerState::Pending)?;
     if state
         .cache()
         .set_bytes_if_absent(&key, encoded_pending, Some(ttl_secs))
@@ -60,24 +61,25 @@ pub(super) async fn reserve_count_marker(
         FALLBACK_COUNTED_SESSIONS
             .insert(key, CountMarkerState::Pending)
             .await;
-        return true;
+        return Ok(true);
     }
-    false
+    Ok(false)
 }
 
 pub(super) async fn store_count_marker(
     state: &impl SharedRuntimeState,
     session_token: &str,
     marker: CountMarkerState,
-    encoded_marker: Vec<u8>,
     ttl_secs: u64,
-) {
+) -> Result<()> {
     let key = counted_cache_key(session_token);
+    let encoded_marker = encode_marker_state(marker)?;
     FALLBACK_COUNTED_SESSIONS.insert(key.clone(), marker).await;
     state
         .cache()
         .set_bytes(&key, encoded_marker, Some(ttl_secs))
         .await;
+    Ok(())
 }
 
 pub(super) async fn delete_count_marker(state: &impl SharedRuntimeState, session_token: &str) {
@@ -86,27 +88,25 @@ pub(super) async fn delete_count_marker(state: &impl SharedRuntimeState, session
     FALLBACK_COUNTED_SESSIONS.remove(&key).await;
 }
 
+fn encode_marker_state(state: CountMarkerState) -> Result<Vec<u8>> {
+    serde_json::to_vec(&state).map_aster_err_ctx(
+        "failed to encode share stream count marker",
+        AsterError::internal_error,
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::cache::CacheExt;
     use crate::runtime::test_support::CacheOnlyState;
 
-    fn encoded(marker: CountMarkerState) -> Vec<u8> {
-        serde_json::to_vec(&marker).expect("marker should serialize")
-    }
-
     #[tokio::test]
     async fn count_marker_reservation_is_single_use_and_delete_clears_it() {
         let state = CacheOnlyState::new().await;
 
-        assert!(
-            reserve_count_marker(&state, "session-a", encoded(CountMarkerState::Pending), 60).await
-        );
-        assert!(
-            !reserve_count_marker(&state, "session-a", encoded(CountMarkerState::Pending), 60)
-                .await
-        );
+        assert!(reserve_count_marker(&state, "session-a", 60).await.unwrap());
+        assert!(!reserve_count_marker(&state, "session-a", 60).await.unwrap());
         assert_eq!(
             load_count_marker(&state, "session-a").await,
             Some(CountMarkerState::Pending)
@@ -139,15 +139,9 @@ mod tests {
     #[tokio::test]
     async fn storing_counted_updates_primary_and_fallback() {
         let state = CacheOnlyState::new().await;
-
-        store_count_marker(
-            &state,
-            "session-counted",
-            CountMarkerState::Counted,
-            encoded(CountMarkerState::Counted),
-            60,
-        )
-        .await;
+        store_count_marker(&state, "session-counted", CountMarkerState::Counted, 60)
+            .await
+            .unwrap();
 
         assert_eq!(
             load_count_marker(&state, "session-counted").await,
