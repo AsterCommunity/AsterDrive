@@ -321,7 +321,13 @@ impl RemoteTransport for ReverseTunnelTransport {
                 .await
             {
                 Ok(response) => return Ok(RemoteTransportResponse::TunnelStream(response)),
-                Err(error) if should_fallback_stream_error_to_poll(error.message()) => {}
+                Err(error) if should_fallback_stream_error_to_poll(error.message()) => {
+                    tracing::warn!(
+                        remote_node_id = self.remote_node.id,
+                        error = %error,
+                        "reverse tunnel stream transport failed; falling back to poll mode"
+                    );
+                }
                 Err(error) => return Err(error),
             }
         }
