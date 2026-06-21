@@ -92,19 +92,22 @@ impl From<PatchPolicyReq> for policy_service::UpdateStoragePolicyInput {
     }
 }
 
-impl From<TestPolicyParamsReq> for policy_service::StoragePolicyConnectionInput {
+impl From<TestPolicyParamsReq> for policy_service::TestDraftStoragePolicyConnectionInput {
     fn from(value: TestPolicyParamsReq) -> Self {
-        PolicyConnectionInputParts {
-            driver_type: value.driver_type,
-            endpoint: value.endpoint,
-            bucket: value.bucket,
-            access_key: value.access_key,
-            secret_key: value.secret_key,
-            base_path: value.base_path,
-            remote_node_id: value.remote_node_id,
-            options: value.options.unwrap_or_default(),
+        Self {
+            policy_id: value.policy_id,
+            connection: PolicyConnectionInputParts {
+                driver_type: value.driver_type,
+                endpoint: value.endpoint,
+                bucket: value.bucket,
+                access_key: value.access_key,
+                secret_key: value.secret_key,
+                base_path: value.base_path,
+                remote_node_id: value.remote_node_id,
+                options: value.options.unwrap_or_default(),
+            }
+            .into(),
         }
-        .into()
     }
 }
 

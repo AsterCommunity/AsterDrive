@@ -15,7 +15,7 @@ use super::models::{
     CreateStoragePolicyInput, ExecuteDraftStoragePolicyActionInput,
     ExecuteSavedStoragePolicyActionInput, PromoteS3CompatiblePolicyDriverInput, StoragePolicy,
     StoragePolicyActionResult, StoragePolicyCapacityInfo, StoragePolicyConnectionInput,
-    StoragePolicyDiagnostic, UpdateStoragePolicyInput,
+    StoragePolicyDiagnostic, TestDraftStoragePolicyConnectionInput, UpdateStoragePolicyInput,
 };
 use super::shared::{
     SYSTEM_STORAGE_POLICY_ID, ensure_singleton_group_for_policy, lock_default_group_assignment,
@@ -608,7 +608,7 @@ pub async fn test_connection<S: SharedRuntimeState + Sync>(state: &S, id: i64) -
 
 pub async fn test_connection_params<S: RemoteProtocolRuntimeState + Sync>(
     state: &S,
-    input: StoragePolicyConnectionInput,
+    input: TestDraftStoragePolicyConnectionInput,
 ) -> Result<()> {
     crate::storage::connectors::test_draft_connection(state, input).await
 }

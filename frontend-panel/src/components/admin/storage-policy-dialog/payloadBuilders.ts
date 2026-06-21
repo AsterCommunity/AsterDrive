@@ -33,10 +33,12 @@ function parseOptionalChunkSizeBytes(value: string): number {
 export function buildPolicyTestPayload(
 	form: PolicyFormData,
 	descriptor?: StorageConnectorDescriptor | null,
+	policyId?: number | null,
 ) {
 	const normalizedForm = normalizePolicyForm(form, descriptor);
 
 	return {
+		...(policyId != null ? { policy_id: policyId } : {}),
 		driver_type: normalizedForm.driver_type,
 		endpoint: normalizedForm.endpoint || undefined,
 		bucket: normalizedForm.bucket || undefined,

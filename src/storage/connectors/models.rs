@@ -86,6 +86,12 @@ pub struct ExecuteDraftStorageConnectorActionInput {
     pub connection: StorageConnectorConnectionInput,
 }
 
+#[derive(Debug, Clone)]
+pub struct TestDraftStorageConnectorConnectionInput {
+    pub policy_id: Option<i64>,
+    pub connection: StorageConnectorConnectionInput,
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct TencentCosCorsConfigResult {

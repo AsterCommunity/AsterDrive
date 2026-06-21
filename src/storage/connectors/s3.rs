@@ -52,6 +52,10 @@ impl StorageConnector for S3Connector {
         validate_static_secret_credentials(input, "S3-compatible")
     }
 
+    fn supports_saved_draft_credentials() -> bool {
+        true
+    }
+
     async fn build_draft_driver<S: RemoteProtocolRuntimeState + Sync + ?Sized>(
         state: &S,
         policy: &storage_policy::Model,

@@ -46,7 +46,7 @@ pub use models::{
     ExecuteDraftStorageConnectorActionInput, ExecuteSavedStorageConnectorActionInput,
     MicrosoftGraphApplicationConfigInput, StorageConnectorActionResult,
     StorageConnectorApplicationConfigInput, StorageConnectorConnectionInput,
-    TencentCosCorsConfigResult,
+    TencentCosCorsConfigResult, TestDraftStorageConnectorConnectionInput,
 };
 pub(crate) use models::{
     StorageConnectorCredentialRequirement, StorageConnectorRuntimeCredential,
@@ -75,6 +75,11 @@ trait StorageConnector: StorageConnectorDescriptorProvider + Send + Sync + Sized
     /// 例如静态密钥型 connector 要求 access key / secret key 非空；OAuth delegated
     /// 型 connector 可以把 app credential 放到 `application_config`，不一定使用这俩字段。
     fn validate_connection_credentials(input: &StorageConnectorConnectionInput) -> Result<()>;
+
+    /// draft 连接测试时，是否允许在 access/secret 留空时回填已保存 policy 的静态凭据。
+    fn supports_saved_draft_credentials() -> bool {
+        false
+    }
 
     /// 将管理端提交的连接字段转换成 `storage_policies` 表里的通用存储字段。
     ///
@@ -224,15 +229,26 @@ trait StorageConnector: StorageConnectorDescriptorProvider + Send + Sync + Sized
     /// 对未保存参数执行连接测试。默认实现会先通过 descriptor 检查该 connector 是否支持。
     async fn test_draft_connection<S: RemoteProtocolRuntimeState + Sync + ?Sized>(
         state: &S,
-        input: StorageConnectorConnectionInput,
+        input: TestDraftStorageConnectorConnectionInput,
     ) -> Result<()> {
         if !Self::storage_connector_supports_draft_connection_test() {
             return Err(common::unsupported_draft_connection_test_error(
                 Self::storage_connector_descriptor(),
             ));
         }
+        let connection = if Self::supports_saved_draft_credentials() {
+            common::merge_saved_static_credentials_for_draft(
+                state.writer_db(),
+                input.policy_id,
+                input.connection,
+                "draft storage policy connection test",
+            )
+            .await?
+        } else {
+            input.connection
+        };
         let policy =
-            common::build_connection_test_policy::<Self, _>(state.writer_db(), input).await?;
+            common::build_connection_test_policy::<Self, _>(state.writer_db(), connection).await?;
         let driver = Self::build_draft_driver(state, &policy).await?;
         common::probe_storage_driver(driver.as_ref(), "connection test failed").await
     }
@@ -467,7 +483,7 @@ impl BuiltinStorageConnector {
     async fn test_draft_connection<S: RemoteProtocolRuntimeState + Sync + ?Sized>(
         self,
         state: &S,
-        input: StorageConnectorConnectionInput,
+        input: TestDraftStorageConnectorConnectionInput,
     ) -> Result<()> {
         match self {
             Self::Local => LocalConnector::test_draft_connection(state, input).await,
@@ -851,9 +867,9 @@ pub async fn persist_application_config<C: ConnectionTrait + Sync>(
 
 pub async fn test_draft_connection<S: RemoteProtocolRuntimeState + Sync>(
     state: &S,
-    input: StorageConnectorConnectionInput,
+    input: TestDraftStorageConnectorConnectionInput,
 ) -> Result<()> {
-    let connector = connector_for(input.driver_type)?;
+    let connector = connector_for(input.connection.driver_type)?;
     connector
         .connector
         .test_draft_connection(state, input)

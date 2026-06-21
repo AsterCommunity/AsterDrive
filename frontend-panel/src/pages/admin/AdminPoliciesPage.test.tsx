@@ -3485,6 +3485,7 @@ describe("AdminPoliciesPage", () => {
 					s3_download_strategy: "relay_stream",
 					s3_upload_strategy: "relay_stream",
 				},
+				policy_id: 7,
 				remote_node_id: undefined,
 				secret_key: "NEWSECRET",
 			});
@@ -4145,6 +4146,7 @@ describe("AdminPoliciesPage", () => {
 					s3_download_strategy: "relay_stream",
 					s3_upload_strategy: "relay_stream",
 				},
+				policy_id: 9,
 				remote_node_id: undefined,
 				secret_key: "NEWSECRET",
 			});

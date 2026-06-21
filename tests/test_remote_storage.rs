@@ -3478,15 +3478,18 @@ async fn test_reverse_tunnel_policy_connection_test_uses_tunnel_registry() {
 
     policy_service::test_connection_params(
         &consumer_state,
-        policy_service::StoragePolicyConnectionInput {
-            driver_type: DriverType::Remote,
-            endpoint: String::new(),
-            bucket: String::new(),
-            access_key: String::new(),
-            secret_key: String::new(),
-            base_path: "reverse-policy-test".to_string(),
-            remote_node_id: Some(consumer_node.id),
-            options: Default::default(),
+        policy_service::TestDraftStoragePolicyConnectionInput {
+            policy_id: None,
+            connection: policy_service::StoragePolicyConnectionInput {
+                driver_type: DriverType::Remote,
+                endpoint: String::new(),
+                bucket: String::new(),
+                access_key: String::new(),
+                secret_key: String::new(),
+                base_path: "reverse-policy-test".to_string(),
+                remote_node_id: Some(consumer_node.id),
+                options: Default::default(),
+            },
         },
     )
     .await

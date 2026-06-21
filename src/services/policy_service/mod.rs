@@ -27,13 +27,14 @@ pub use models::{
     StoragePolicyActionResult, StoragePolicyActionType, StoragePolicyCapacityInfo,
     StoragePolicyConnectionInput, StoragePolicyDiagnostic, StoragePolicyGroupInfo,
     StoragePolicyGroupItemInfo, StoragePolicyGroupItemInput, StoragePolicySummaryInfo,
-    TencentCosCorsConfigResult, UpdateStoragePolicyGroupInput, UpdateStoragePolicyInput,
+    TencentCosCorsConfigResult, TestDraftStoragePolicyConnectionInput,
+    UpdateStoragePolicyGroupInput, UpdateStoragePolicyInput,
 };
 pub(crate) use policies::capacity_info_or_status;
 pub use policies::{
-    capacity_info, create, delete, execute_draft_action, execute_saved_action, get,
-    list_paginated, promote_s3_compatible_driver, test_connection, test_connection_params,
-    test_default_connection, update,
+    capacity_info, create, delete, execute_draft_action, execute_saved_action, get, list_paginated,
+    promote_s3_compatible_driver, test_connection, test_connection_params, test_default_connection,
+    update,
 };
 
 fn policy_audit_details(policy: &StoragePolicy) -> Option<serde_json::Value> {
@@ -167,14 +168,7 @@ pub async fn execute_saved_action_with_audit(
         crate::services::audit_service::AuditEntityType::StoragePolicy,
         Some(policy.id),
         Some(&policy.name),
-        || {
-            policy_action_audit_details(
-                action,
-                policy.driver_type,
-                false,
-                diagnostic,
-            )
-        },
+        || policy_action_audit_details(action, policy.driver_type, false, diagnostic),
     )
     .await;
     result

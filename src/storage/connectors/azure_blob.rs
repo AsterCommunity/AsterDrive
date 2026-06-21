@@ -56,6 +56,10 @@ impl StorageConnector for AzureBlobConnector {
         validate_static_secret_credentials(input, "Azure Blob")
     }
 
+    fn supports_saved_draft_credentials() -> bool {
+        true
+    }
+
     async fn build_draft_driver<S: RemoteProtocolRuntimeState + Sync + ?Sized>(
         state: &S,
         policy: &storage_policy::Model,

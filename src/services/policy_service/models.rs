@@ -23,28 +23,20 @@ pub struct StoragePolicyDiagnostic {
 
 impl StoragePolicyDiagnostic {
     pub fn from_error(error: &crate::errors::AsterError) -> Option<Self> {
-        ApiErrorDiagnostic::from_error(error).map(Into::into)
+        ApiErrorDiagnostic::from_error(error).map(|diagnostic| Self {
+            api_code: error.api_error_code(),
+            kind: diagnostic.kind,
+            message: diagnostic.message,
+            retryable: error.api_error_retryable(),
+        })
     }
 }
 
 impl From<StoragePolicyDiagnostic> for ApiErrorDiagnostic {
     fn from(value: StoragePolicyDiagnostic) -> Self {
         Self {
-            api_code: value.api_code,
             kind: value.kind,
             message: value.message,
-            retryable: value.retryable,
-        }
-    }
-}
-
-impl From<ApiErrorDiagnostic> for StoragePolicyDiagnostic {
-    fn from(value: ApiErrorDiagnostic) -> Self {
-        Self {
-            api_code: value.api_code,
-            kind: value.kind,
-            message: value.message,
-            retryable: value.retryable,
         }
     }
 }
@@ -131,6 +123,8 @@ pub type ExecuteSavedStoragePolicyActionInput =
 pub type ExecuteDraftStoragePolicyActionInput =
     crate::storage::ExecuteDraftStorageConnectorActionInput;
 pub type StoragePolicyConnectionInput = crate::storage::StorageConnectorConnectionInput;
+pub type TestDraftStoragePolicyConnectionInput =
+    crate::storage::TestDraftStorageConnectorConnectionInput;
 pub type TencentCosCorsConfigResult = crate::storage::TencentCosCorsConfigResult;
 
 #[derive(Debug, Clone, Serialize)]
@@ -363,5 +357,4 @@ mod tests {
         assert_eq!(value["tencent_cos_cors"]["replaced_existing_rule"], true);
         assert_eq!(value["tencent_cos_cors"]["response_vary"], true);
     }
-
 }

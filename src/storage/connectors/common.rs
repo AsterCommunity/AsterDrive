@@ -2,6 +2,7 @@ use chrono::Utc;
 use sea_orm::ConnectionTrait;
 
 use crate::api::api_error_code::ApiErrorCode;
+use crate::db::repository::policy_repo;
 use crate::entities::storage_policy;
 use crate::errors::{AsterError, MapAsterErr, Result, validation_error_with_code};
 use crate::storage::connector_descriptor::{
@@ -72,6 +73,43 @@ where
         created_at: Utc::now(),
         updated_at: Utc::now(),
     })
+}
+
+pub(super) async fn merge_saved_static_credentials_for_draft<C>(
+    db: &C,
+    policy_id: Option<i64>,
+    mut connection: StorageConnectorConnectionInput,
+    context: &str,
+) -> Result<StorageConnectorConnectionInput>
+where
+    C: ConnectionTrait + Sync,
+{
+    if !connection.access_key.trim().is_empty() && !connection.secret_key.trim().is_empty() {
+        return Ok(connection);
+    }
+
+    let Some(policy_id) = policy_id else {
+        return Ok(connection);
+    };
+
+    let saved = policy_repo::find_by_id(db, policy_id).await?;
+    if saved.driver_type != connection.driver_type {
+        return Err(validation_error_with_code(
+            ApiErrorCode::PolicyActionParameterInvalid,
+            format!(
+                "{context} driver '{}' does not match saved policy driver '{}'",
+                connection.driver_type.as_str(),
+                saved.driver_type.as_str(),
+            ),
+        ));
+    }
+    if connection.access_key.trim().is_empty() {
+        connection.access_key = saved.access_key;
+    }
+    if connection.secret_key.trim().is_empty() {
+        connection.secret_key = saved.secret_key;
+    }
+    Ok(connection)
 }
 
 pub(super) fn normalize_s3_connection_fields(

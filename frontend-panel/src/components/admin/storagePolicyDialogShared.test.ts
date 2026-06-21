@@ -934,6 +934,37 @@ describe("storage policy dialog helper modules", () => {
 				remote_upload_strategy: "presigned",
 			},
 		});
+
+		expect(
+			buildPolicyTestPayload(
+				{
+					name: "Remote Edge",
+					driver_type: "remote",
+					endpoint: "",
+					bucket: "",
+					access_key: "",
+					secret_key: "",
+					base_path: "tenant-a/uploads",
+					remote_node_id: "9",
+					max_file_size: "",
+					chunk_size: "4",
+					is_default: false,
+					content_dedup: false,
+					remote_download_strategy: "presigned",
+					remote_upload_strategy: "presigned",
+					s3_upload_strategy: "relay_stream",
+					s3_download_strategy: "relay_stream",
+					storage_native_processing_enabled: false,
+					thumbnail_processor: null,
+					thumbnail_extensions: [],
+				},
+				null,
+				34,
+			),
+		).toMatchObject({
+			policy_id: 34,
+			driver_type: "remote",
+		});
 	});
 
 	it("builds Azure Blob payloads with object-storage options but without S3 path style", () => {

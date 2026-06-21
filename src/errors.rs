@@ -274,7 +274,7 @@ impl AsterError {
         }
     }
 
-    fn api_error_retryable(&self) -> bool {
+    pub(crate) fn api_error_retryable(&self) -> bool {
         match self {
             Self::RateLimited(_) | Self::UploadAssembling(_) => true,
             Self::StorageDriverError(_) => matches!(
@@ -400,12 +400,10 @@ impl ApiErrorDiagnostic {
     pub fn from_error(error: &AsterError) -> Option<Self> {
         let kind = error.storage_error_kind()?;
         Some(Self {
-            api_code: error.api_error_code(),
             kind: kind.as_str().to_string(),
             message: sanitize_storage_driver_client_message(storage_driver_error_display_message(
                 error.message(),
             )),
-            retryable: error.api_error_retryable(),
         })
     }
 }
@@ -1074,10 +1072,10 @@ mod tests {
         assert_eq!(payload["code"], "storage.transient");
         assert_eq!(payload["msg"], "Storage Driver Error");
         assert_eq!(payload["error"]["retryable"], true);
-        assert_eq!(payload["error"]["diagnostic"]["api_code"], "storage.transient");
         assert_eq!(payload["error"]["diagnostic"]["kind"], "transient");
         assert_eq!(payload["error"]["diagnostic"]["message"], "remote timeout");
-        assert_eq!(payload["error"]["diagnostic"]["retryable"], true);
+        assert!(payload["error"]["diagnostic"].get("api_code").is_none());
+        assert!(payload["error"]["diagnostic"].get("retryable").is_none());
         assert!(payload["error"].get("code").is_none());
         assert!(payload["error"].get("internal_code").is_none());
         assert!(payload["error"].get("subcode").is_none());
@@ -1098,10 +1096,10 @@ mod tests {
         assert_eq!(payload["code"], "storage.permission");
         assert_eq!(payload["msg"], "Storage Driver Error");
         assert_eq!(payload["error"]["retryable"], false);
-        assert_eq!(payload["error"]["diagnostic"]["api_code"], "storage.permission");
         assert_eq!(payload["error"]["diagnostic"]["kind"], "permission");
         assert_eq!(payload["error"]["diagnostic"]["message"], "access denied");
-        assert_eq!(payload["error"]["diagnostic"]["retryable"], false);
+        assert!(payload["error"]["diagnostic"].get("api_code").is_none());
+        assert!(payload["error"]["diagnostic"].get("retryable").is_none());
         assert!(payload["error"].get("code").is_none());
         assert!(payload["error"].get("internal_code").is_none());
         assert!(payload["error"].get("subcode").is_none());

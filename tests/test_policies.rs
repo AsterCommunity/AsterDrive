@@ -3053,9 +3053,9 @@ async fn test_policy_connection_failures_return_admin_diagnostic_payload() {
     assert_eq!(body["msg"], "Storage Driver Error");
     assert!(body.get("data").is_none());
     assert!(body["error"]["retryable"].as_bool().is_some());
-    assert!(body["error"]["diagnostic"]["api_code"].as_str().is_some());
     assert!(body["error"]["diagnostic"]["kind"].as_str().is_some());
-    assert!(body["error"]["diagnostic"]["retryable"].as_bool().is_some());
+    assert!(body["error"]["diagnostic"].get("api_code").is_none());
+    assert!(body["error"]["diagnostic"].get("retryable").is_none());
     let diagnostic_message = body["error"]["diagnostic"]["message"]
         .as_str()
         .expect("storage probe diagnostic should include the driver message");
@@ -3091,11 +3091,8 @@ async fn test_policy_connection_failures_return_admin_diagnostic_payload() {
     assert_eq!(body["msg"], "Storage Driver Error");
     assert!(body.get("data").is_none());
     assert_eq!(body["error"]["diagnostic"]["kind"], "misconfigured");
-    assert_eq!(
-        body["error"]["diagnostic"]["api_code"],
-        ApiErrorCode::StorageMisconfigured.as_str()
-    );
-    assert_eq!(body["error"]["diagnostic"]["retryable"], false);
+    assert!(body["error"]["diagnostic"].get("api_code").is_none());
+    assert!(body["error"]["diagnostic"].get("retryable").is_none());
     let diagnostic_message = body["error"]["diagnostic"]["message"]
         .as_str()
         .expect("saved storage probe diagnostic should include the driver message");
@@ -3280,6 +3277,50 @@ async fn test_tencent_cos_cors_draft_action_reuses_saved_credentials_when_blank(
         body["code"],
         ApiErrorCode::PolicyActionParameterRequired.as_str(),
         "blank draft credentials should be filled from saved policy before action-specific validation"
+    );
+}
+
+#[actix_web::test]
+async fn test_policy_params_reuses_saved_credentials_when_blank() {
+    let state = common::setup().await;
+    let app = create_test_app!(state);
+    let (token, _) = register_and_login!(app);
+    let cos_policy_id =
+        create_tencent_cos_policy_via_admin(&app, &token, "COS Draft Test Reuse").await;
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/admin/policies/test")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({
+            "policy_id": cos_policy_id,
+            "driver_type": "tencent_cos",
+            "endpoint": "https://cos.ap-guangzhou.myqcloud.com",
+            "bucket": "media-draft-1250000000",
+            "access_key": "",
+            "secret_key": "",
+            "options": {
+                "onedrive_account_mode": "work_or_school"
+            }
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 400);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(
+        body["code"],
+        ApiErrorCode::PolicyOneDriveOptionsUnsupported.as_str(),
+        "blank draft credentials should be filled from the saved policy before connector option validation"
+    );
+    assert_ne!(
+        body["code"],
+        ApiErrorCode::PolicyStorageAccessKeyRequired.as_str(),
+        "blank draft access_key should be filled from the saved policy before connector option validation"
+    );
+    assert_ne!(
+        body["code"],
+        ApiErrorCode::PolicyStorageSecretKeyRequired.as_str(),
+        "blank draft secret_key should be filled from the saved policy before connector option validation"
     );
 }
 

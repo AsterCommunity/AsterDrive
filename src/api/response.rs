@@ -18,10 +18,8 @@ pub struct ApiErrorInfo {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct ApiErrorDiagnostic {
-    pub api_code: ApiErrorCode,
     pub kind: String,
     pub message: String,
-    pub retryable: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]

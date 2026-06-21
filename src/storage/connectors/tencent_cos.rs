@@ -2,7 +2,6 @@ use async_trait::async_trait;
 
 use crate::api::api_error_code::ApiErrorCode;
 use crate::config::site_url;
-use crate::db::repository::policy_repo;
 use crate::entities::storage_policy;
 use crate::errors::{Result, validation_error_with_code};
 use crate::runtime::{RemoteProtocolRuntimeState, SharedRuntimeState};
@@ -62,30 +61,15 @@ async fn configure_tencent_cos_cors_for_policy<S: SharedRuntimeState + ?Sized>(
 async fn merge_draft_action_saved_credentials<S: SharedRuntimeState + ?Sized>(
     state: &S,
     policy_id: Option<i64>,
-    mut connection: StorageConnectorConnectionInput,
+    connection: StorageConnectorConnectionInput,
 ) -> Result<StorageConnectorConnectionInput> {
-    if (connection.access_key.trim().is_empty() || connection.secret_key.trim().is_empty())
-        && let Some(policy_id) = policy_id
-    {
-        let saved = policy_repo::find_by_id(state.writer_db(), policy_id).await?;
-        if saved.driver_type != connection.driver_type {
-            return Err(validation_error_with_code(
-                ApiErrorCode::PolicyActionParameterInvalid,
-                format!(
-                    "draft storage policy action driver '{}' does not match saved policy driver '{}'",
-                    connection.driver_type.as_str(),
-                    saved.driver_type.as_str(),
-                ),
-            ));
-        }
-        if connection.access_key.trim().is_empty() {
-            connection.access_key = saved.access_key;
-        }
-        if connection.secret_key.trim().is_empty() {
-            connection.secret_key = saved.secret_key;
-        }
-    }
-    Ok(connection)
+    super::common::merge_saved_static_credentials_for_draft(
+        state.writer_db(),
+        policy_id,
+        connection,
+        "draft storage policy action",
+    )
+    .await
 }
 
 fn resolve_cos_cors_allowed_origins(
@@ -113,6 +97,10 @@ impl StorageConnector for TencentCosConnector {
 
     fn validate_connection_credentials(input: &StorageConnectorConnectionInput) -> Result<()> {
         validate_static_secret_credentials(input, "tencent_cos")
+    }
+
+    fn supports_saved_draft_credentials() -> bool {
+        true
     }
 
     async fn build_draft_driver<S: RemoteProtocolRuntimeState + Sync + ?Sized>(

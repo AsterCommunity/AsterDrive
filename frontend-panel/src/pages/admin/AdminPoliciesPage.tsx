@@ -1014,7 +1014,7 @@ function useAdminPoliciesPageContent() {
 		try {
 			if (shouldUseParamTest) {
 				await adminPolicyService.testParams(
-					buildPolicyTestPayload(currentForm, descriptor),
+					buildPolicyTestPayload(currentForm, descriptor, editingId),
 				);
 			} else {
 				await adminPolicyService.testConnection(editingId);

@@ -26,7 +26,7 @@ pub use connectors::{
     ExecuteDraftStorageConnectorActionInput, ExecuteSavedStorageConnectorActionInput,
     MicrosoftGraphApplicationConfigInput, StorageConnectorActionResult,
     StorageConnectorApplicationConfigInput, StorageConnectorConnectionInput,
-    TencentCosCorsConfigResult,
+    TencentCosCorsConfigResult, TestDraftStorageConnectorConnectionInput,
 };
 pub use error::StorageErrorKind;
 pub use policy_snapshot::PolicySnapshot;
