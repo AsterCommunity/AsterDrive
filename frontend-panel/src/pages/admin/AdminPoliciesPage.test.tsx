@@ -2297,13 +2297,6 @@ describe("AdminPoliciesPage", () => {
 			await waitFor(() => {
 				expect(mockState.startStorageAuthorization).toHaveBeenCalledWith(99, {
 					provider: "microsoft_graph",
-					microsoft_graph: {
-						cloud: "global",
-						tenant: "common",
-						client_id: undefined,
-						client_secret: undefined,
-						scopes: undefined,
-					},
 				});
 			});
 			expect(openSpy).toHaveBeenCalledWith(
@@ -3163,13 +3156,6 @@ describe("AdminPoliciesPage", () => {
 			await waitFor(() => {
 				expect(mockState.startStorageAuthorization).toHaveBeenCalledWith(12, {
 					provider: "microsoft_graph",
-					microsoft_graph: {
-						cloud: "global",
-						tenant: "common",
-						client_id: undefined,
-						client_secret: undefined,
-						scopes: undefined,
-					},
 				});
 			});
 			expect(openSpy).toHaveBeenCalledWith(
@@ -3179,6 +3165,108 @@ describe("AdminPoliciesPage", () => {
 		} finally {
 			openSpy.mockRestore();
 		}
+	});
+
+	it("starts OneDrive authorization without draft Microsoft Graph overrides", async () => {
+		const openedWindow = { opener: {} } as Window;
+		const openSpy = vi.spyOn(window, "open").mockReturnValue(openedWindow);
+		mockState.items = [
+			createPolicy({
+				id: 12,
+				name: "Override Guard OneDrive",
+				driver_type: "one_drive",
+				options: {
+					onedrive_account_mode: "work_or_school",
+					onedrive_cloud: "global",
+					onedrive_root_item_id: "root",
+					onedrive_tenant: "common",
+				},
+			}),
+		];
+		mockState.listStorageCredentials.mockResolvedValue([]);
+		try {
+			render(<AdminPoliciesPage />);
+
+			openEditPolicy("Override Guard OneDrive");
+			await screen.findByText("onedrive_credential_status_missing");
+
+			fireEvent.change(screen.getByLabelText("onedrive_client_id"), {
+				target: { value: "draft-client-id" },
+			});
+			fireEvent.change(screen.getByLabelText("onedrive_client_secret"), {
+				target: { value: "draft-client-secret" },
+			});
+			fireEvent.click(screen.getByRole("button", { name: /save_changes/i }));
+
+			await waitFor(() => {
+				expect(mockState.update).toHaveBeenCalledWith(
+					12,
+					expect.objectContaining({
+						application_config: {
+							microsoft_graph: expect.objectContaining({
+								client_id: "draft-client-id",
+								client_secret: "draft-client-secret",
+							}),
+						},
+					}),
+				);
+			});
+
+			fireEvent.click(
+				screen.getByRole("button", { name: /onedrive_authorize_action/ }),
+			);
+
+			await waitFor(() => {
+				expect(mockState.startStorageAuthorization).toHaveBeenCalledWith(12, {
+					provider: "microsoft_graph",
+				});
+			});
+			expect(
+				mockState.startStorageAuthorization.mock.calls[0]?.[1],
+			).not.toHaveProperty("microsoft_graph");
+			expect(openSpy).toHaveBeenCalledWith(
+				"https://login.example.test/authorize",
+				"_blank",
+			);
+		} finally {
+			openSpy.mockRestore();
+		}
+	});
+
+	it("requires saving changed OneDrive authorization context before starting authorization", async () => {
+		mockState.items = [
+			createPolicy({
+				id: 12,
+				name: "Changed OneDrive",
+				driver_type: "one_drive",
+				options: {
+					onedrive_account_mode: "work_or_school",
+					onedrive_cloud: "global",
+					onedrive_root_item_id: "root",
+					onedrive_tenant: "common",
+				},
+			}),
+		];
+		mockState.listStorageCredentials.mockResolvedValue([]);
+
+		render(<AdminPoliciesPage />);
+
+		openEditPolicy("Changed OneDrive");
+		await screen.findByText("onedrive_credential_status_missing");
+		fireEvent.click(
+			screen.getByRole("button", { name: /onedrive_advanced_target/ }),
+		);
+		fireEvent.change(screen.getByLabelText("onedrive_drive_id"), {
+			target: { value: "drive-2" },
+		});
+		fireEvent.click(
+			screen.getByRole("button", { name: /onedrive_authorize_action/ }),
+		);
+
+		expect(mockState.toastError).toHaveBeenCalledWith(
+			"onedrive_save_before_authorize",
+		);
+		expect(mockState.startStorageAuthorization).not.toHaveBeenCalled();
 	});
 
 	it("requires saving changed OneDrive settings before validating credentials", async () => {

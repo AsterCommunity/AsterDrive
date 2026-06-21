@@ -40,7 +40,6 @@ import {
 	buildPolicyTestPayload,
 	buildTencentCosCorsPayload,
 	buildUpdatePolicyPayload,
-	parseMicrosoftGraphScopes,
 } from "@/components/admin/storage-policy-dialog/payloadBuilders";
 import { AdminLayout } from "@/components/layout/AdminLayout";
 import { AdminPageHeader } from "@/components/layout/AdminPageHeader";
@@ -1302,23 +1301,12 @@ function useAdminPoliciesPageContent() {
 			toast.error(t("onedrive_save_before_authorize"));
 			return;
 		}
-		const currentForm = normalizePolicyForm(form);
-		const microsoftGraph = microsoftGraphCredentials(currentForm);
-		const scopes = parseMicrosoftGraphScopes(microsoftGraph.scopes);
-
 		void runWithStorageAuthorization(async () => {
 			try {
 				const result = await adminPolicyService.startStorageAuthorization(
 					editingId,
 					{
 						provider: MICROSOFT_GRAPH_PROVIDER,
-						microsoft_graph: {
-							cloud: currentForm.onedrive_cloud,
-							tenant: currentForm.onedrive_tenant || undefined,
-							client_id: microsoftGraph.client_id || undefined,
-							client_secret: microsoftGraph.client_secret || undefined,
-							scopes: scopes.length > 0 ? scopes : undefined,
-						},
 					},
 				);
 				toast.success(t("onedrive_authorization_started"));
