@@ -237,7 +237,7 @@ async fn finalize_opaque_upload_session(
 }
 
 fn opaque_blob_hash_prefix(policy: &storage_policy::Model) -> Result<&'static str> {
-    workspace_storage_service::resolve_policy_upload_transport(policy)
+    workspace_storage_service::resolve_policy_upload_transport(policy)?
         .opaque_blob_hash_prefix()
         .ok_or_else(|| {
             upload_assembly_error_with_code(

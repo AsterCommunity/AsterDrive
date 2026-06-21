@@ -109,7 +109,7 @@ pub async fn get_custom_config(
     ),
 )]
 pub async fn get_thumbnail_support(state: web::Data<PrimaryAppState>) -> Result<HttpResponse> {
-    let support = config_service::get_public_thumbnail_support(state.get_ref()).await;
+    let support = config_service::get_public_thumbnail_support(state.get_ref()).await?;
     Ok(public_config_response(support))
 }
 
@@ -123,7 +123,7 @@ pub async fn get_thumbnail_support(state: web::Data<PrimaryAppState>) -> Result<
     ),
 )]
 pub async fn get_media_data_support(state: web::Data<PrimaryAppState>) -> Result<HttpResponse> {
-    let support = config_service::get_public_media_data_support(state.get_ref()).await;
+    let support = config_service::get_public_media_data_support(state.get_ref()).await?;
     Ok(public_config_response(support))
 }
 

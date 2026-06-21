@@ -120,17 +120,17 @@ pub async fn get_public_custom_config(
 
 pub async fn get_public_media_data_support(
     state: &impl SharedRuntimeState,
-) -> media_processing::PublicMediaDataSupport {
+) -> Result<media_processing::PublicMediaDataSupport> {
     let cache_key = public_media_data_support_cache_key(state);
     if let Some(cached) = PUBLIC_MEDIA_DATA_SUPPORT_CACHE.get(&cache_key).await {
-        return cached;
+        return Ok(cached);
     }
 
-    let support = build_public_media_data_support(state);
+    let support = build_public_media_data_support(state)?;
     PUBLIC_MEDIA_DATA_SUPPORT_CACHE
         .insert(cache_key, support.clone())
         .await;
-    support
+    Ok(support)
 }
 
 pub(crate) fn invalidate_public_media_data_support_cache() {
@@ -139,17 +139,17 @@ pub(crate) fn invalidate_public_media_data_support_cache() {
 
 pub async fn get_public_thumbnail_support(
     state: &impl SharedRuntimeState,
-) -> media_processing::PublicThumbnailSupport {
+) -> Result<media_processing::PublicThumbnailSupport> {
     let cache_key = public_thumbnail_support_cache_key(state);
     if let Some(cached) = PUBLIC_THUMBNAIL_SUPPORT_CACHE.get(&cache_key).await {
-        return cached;
+        return Ok(cached);
     }
 
-    let support = build_public_thumbnail_support(state);
+    let support = build_public_thumbnail_support(state)?;
     PUBLIC_THUMBNAIL_SUPPORT_CACHE
         .insert(cache_key, support.clone())
         .await;
-    support
+    Ok(support)
 }
 
 pub(crate) fn invalidate_public_thumbnail_support_cache() {
@@ -158,7 +158,7 @@ pub(crate) fn invalidate_public_thumbnail_support_cache() {
 
 fn build_public_thumbnail_support(
     state: &impl SharedRuntimeState,
-) -> media_processing::PublicThumbnailSupport {
+) -> Result<media_processing::PublicThumbnailSupport> {
     let mut support = media_processing::public_thumbnail_support(state.runtime_config());
     let mut image_thumbnail_extensions = support
         .image_thumbnail
@@ -177,7 +177,7 @@ fn build_public_thumbnail_support(
         // may scan every policy, and constructing drivers would warm remote clients.
         if crate::storage::connectors::storage_connector_supports_native_thumbnail(
             policy.driver_type,
-        ) {
+        )? {
             image_thumbnail_extensions.extend(options.thumbnail_extensions);
         }
     }
@@ -185,15 +185,15 @@ fn build_public_thumbnail_support(
     support.image_thumbnail.enabled = !image_thumbnail_extensions.is_empty();
     support.image_thumbnail.extensions = image_thumbnail_extensions.into_iter().collect();
     support.image_preview = support.image_thumbnail.clone();
-    support
+    Ok(support)
 }
 
 fn build_public_media_data_support(
     state: &impl SharedRuntimeState,
-) -> media_processing::PublicMediaDataSupport {
+) -> Result<media_processing::PublicMediaDataSupport> {
     let mut support = media_processing::public_media_data_support(state.runtime_config());
     if !support.enabled {
-        return support;
+        return Ok(support);
     }
 
     let mut storage_native_extensions = BTreeSet::new();
@@ -209,13 +209,13 @@ fn build_public_media_data_support(
         // truth for static support without instantiating policy drivers.
         if crate::storage::connectors::storage_connector_supports_native_media_metadata(
             policy.driver_type,
-        ) {
+        )? {
             storage_native_extensions.extend(options.media_metadata_extensions);
         }
     }
 
     if storage_native_extensions.is_empty() {
-        return support;
+        return Ok(support);
     }
 
     // Public support is a capability union: an extension listed here means at
@@ -228,7 +228,7 @@ fn build_public_media_data_support(
         &mut support.kinds.video,
         &storage_native_extensions,
     );
-    support
+    Ok(support)
 }
 
 fn merge_storage_native_media_metadata_support(

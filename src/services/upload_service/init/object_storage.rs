@@ -22,7 +22,7 @@ pub(super) async fn init_object_storage_upload(
     state: &PrimaryAppState,
     ctx: &InitUploadContext,
 ) -> Result<Option<InitUploadResponse>> {
-    let transport = resolve_policy_upload_transport(&ctx.policy);
+    let transport = resolve_policy_upload_transport(&ctx.policy)?;
     let PolicyUploadTransport::ObjectStorage(strategy) = transport else {
         return Ok(None);
     };

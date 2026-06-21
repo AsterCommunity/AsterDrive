@@ -155,7 +155,16 @@ impl AsterDavFile {
                 )
             } else if workspace_storage_service::streaming_direct_upload_eligible(
                 &policy, size_hint,
-            ) {
+            )
+            .map_err(|error| {
+                tracing::warn!(
+                    policy_id = policy.id,
+                    driver_type = %policy.driver_type.as_str(),
+                    error = %error,
+                    "failed to resolve WebDAV streaming direct upload eligibility"
+                );
+                FsError::GeneralFailure
+            })? {
                 if policy.max_file_size > 0 && size_hint > policy.max_file_size {
                     return Err(FsError::TooLarge);
                 }

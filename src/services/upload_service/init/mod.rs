@@ -86,7 +86,7 @@ async fn init_upload_for_scope(
         params.frontend_client_id,
     )
     .await?;
-    let transport = resolve_policy_upload_transport(&ctx.policy);
+    let transport = resolve_policy_upload_transport(&ctx.policy)?;
 
     if ctx.total_size == 0 {
         tracing::debug!(
