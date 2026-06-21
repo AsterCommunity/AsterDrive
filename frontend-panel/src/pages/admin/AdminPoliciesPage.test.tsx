@@ -1958,7 +1958,7 @@ describe("AdminPoliciesPage", () => {
 		);
 	});
 
-	it("falls back to the API error message without diagnostics", async () => {
+	it("calls handleApiError when connection test fails without diagnostics", async () => {
 		const error = new ApiError(
 			ApiErrorCode.StorageMisconfigured,
 			"Storage Driver Error",

@@ -1,10 +1,13 @@
 use super::*;
 use crate::api::api_error_code::ApiErrorCode;
+use crate::config::DatabaseConfig;
 use crate::storage::connector_descriptor::{
     StorageConnectorActionKind, StorageConnectorAffordanceAction,
     StorageConnectorDescriptorProvider, StorageConnectorFieldScope, StoragePolicyExecutableAction,
 };
 use chrono::Utc;
+use migration::Migrator;
+use sea_orm::ActiveValue::Set;
 
 use crate::entities::storage_policy;
 use crate::types::{
@@ -15,6 +18,134 @@ use crate::types::{
 
 const OBJECT_STORAGE_LARGE_UPLOAD_SIZE: i64 = 5_242_881;
 const ONEDRIVE_MAX_SIMPLE_UPLOAD_SIZE: u64 = 250_000_000;
+
+async fn setup_connector_test_db() -> sea_orm::DatabaseConnection {
+    let db = crate::db::connect_with_metrics(
+        &DatabaseConfig {
+            url: "sqlite::memory:".to_string(),
+            pool_size: 1,
+            retry_count: 0,
+        },
+        crate::metrics_core::NoopMetrics::arc(),
+    )
+    .await
+    .expect("connector test DB should connect");
+    Migrator::up(&db, None)
+        .await
+        .expect("connector test migrations should succeed");
+    db
+}
+
+async fn create_saved_connector_policy(
+    db: &sea_orm::DatabaseConnection,
+    driver_type: DriverType,
+) -> storage_policy::Model {
+    let now = Utc::now();
+    crate::db::repository::policy_repo::create(
+        db,
+        storage_policy::ActiveModel {
+            name: Set(format!("Saved {}", driver_type.as_str())),
+            driver_type: Set(driver_type),
+            endpoint: Set(match driver_type {
+                DriverType::AzureBlob => "https://acct.blob.core.windows.net".to_string(),
+                DriverType::S3 | DriverType::TencentCos => "https://s3.example.test".to_string(),
+                _ => String::new(),
+            }),
+            bucket: Set("archive".to_string()),
+            access_key: Set("saved-access".to_string()),
+            secret_key: Set("saved-secret".to_string()),
+            base_path: Set("tenant-a".to_string()),
+            remote_node_id: Set(None),
+            max_file_size: Set(0),
+            allowed_types: Set(StoredStoragePolicyAllowedTypes::empty()),
+            options: Set(crate::types::StoredStoragePolicyOptions::empty()),
+            is_default: Set(false),
+            chunk_size: Set(5_242_880),
+            created_at: Set(now),
+            updated_at: Set(now),
+            ..Default::default()
+        },
+    )
+    .await
+    .expect("saved connector policy should insert")
+}
+
+fn draft_connection(driver_type: DriverType) -> StorageConnectorConnectionInput {
+    StorageConnectorConnectionInput {
+        driver_type,
+        endpoint: match driver_type {
+            DriverType::AzureBlob => "https://acct.blob.core.windows.net".to_string(),
+            DriverType::S3 | DriverType::TencentCos => "https://s3.example.test".to_string(),
+            _ => String::new(),
+        },
+        bucket: "archive".to_string(),
+        access_key: String::new(),
+        secret_key: String::new(),
+        base_path: "tenant-b".to_string(),
+        remote_node_id: None,
+        options: StoragePolicyOptions::default(),
+    }
+}
+
+async fn assert_saved_credentials_merge_for_driver(driver_type: DriverType) {
+    let db = setup_connector_test_db().await;
+    let saved = create_saved_connector_policy(&db, driver_type).await;
+
+    let merged = common::merge_saved_static_credentials_for_draft(
+        &db,
+        Some(saved.id),
+        draft_connection(driver_type),
+        "draft storage policy connection test",
+    )
+    .await
+    .expect("blank draft credentials should merge from saved policy");
+
+    assert_eq!(merged.access_key, "saved-access");
+    assert_eq!(merged.secret_key, "saved-secret");
+}
+
+async fn assert_saved_credentials_driver_mismatch_for_driver(driver_type: DriverType) {
+    let db = setup_connector_test_db().await;
+    let saved = create_saved_connector_policy(&db, DriverType::Local).await;
+
+    let error = common::merge_saved_static_credentials_for_draft(
+        &db,
+        Some(saved.id),
+        draft_connection(driver_type),
+        "draft storage policy connection test",
+    )
+    .await
+    .expect_err("saved policy with a different driver should be rejected");
+
+    assert_eq!(
+        error.api_error_code(),
+        ApiErrorCode::PolicyActionParameterInvalid
+    );
+}
+
+#[tokio::test]
+async fn s3_draft_connection_can_merge_saved_credentials() {
+    assert!(S3Connector::supports_saved_draft_credentials());
+    assert_saved_credentials_merge_for_driver(DriverType::S3).await;
+}
+
+#[tokio::test]
+async fn s3_draft_connection_rejects_saved_credential_driver_mismatch() {
+    assert!(S3Connector::supports_saved_draft_credentials());
+    assert_saved_credentials_driver_mismatch_for_driver(DriverType::S3).await;
+}
+
+#[tokio::test]
+async fn azure_blob_draft_connection_can_merge_saved_credentials() {
+    assert!(AzureBlobConnector::supports_saved_draft_credentials());
+    assert_saved_credentials_merge_for_driver(DriverType::AzureBlob).await;
+}
+
+#[tokio::test]
+async fn azure_blob_draft_connection_rejects_saved_credential_driver_mismatch() {
+    assert!(AzureBlobConnector::supports_saved_draft_credentials());
+    assert_saved_credentials_driver_mismatch_for_driver(DriverType::AzureBlob).await;
+}
 
 #[test]
 fn descriptors_cover_every_storage_driver() {

@@ -86,7 +86,7 @@ pub struct ExecuteDraftStorageConnectorActionInput {
     pub connection: StorageConnectorConnectionInput,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct TestDraftStorageConnectorConnectionInput {
     pub policy_id: Option<i64>,
     pub connection: StorageConnectorConnectionInput,

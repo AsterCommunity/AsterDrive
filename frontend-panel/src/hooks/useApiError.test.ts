@@ -140,6 +140,7 @@ describe("handleApiError", () => {
 
 	it("prefers diagnostic messages from ApiError details", async () => {
 		const { handleApiError } = await import("@/hooks/useApiError");
+		const diagnosticMessage = "connection test failed";
 
 		handleApiError(
 			new mockState.ApiError(
@@ -147,15 +148,13 @@ describe("handleApiError", () => {
 				"Storage Driver Error",
 				{
 					diagnostic: {
-						message: "connection test failed: /tmp/private/secret.txt",
+						message: diagnosticMessage,
 					},
 				},
 			),
 		);
 
-		expect(mockState.toastError).toHaveBeenCalledWith(
-			"connection test failed: /tmp/private/secret.txt",
-		);
+		expect(mockState.toastError).toHaveBeenCalledWith(diagnosticMessage);
 	});
 
 	it("falls back to unexpected error text for blank ApiError messages", async () => {
