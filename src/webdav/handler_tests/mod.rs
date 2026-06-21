@@ -7,8 +7,8 @@ use crate::services::{mail_service, policy_service};
 use crate::storage::BlobMetadata;
 use crate::storage::{DriverRegistry, PolicySnapshot, StorageDriver, StreamUploadDriver};
 use crate::types::{
-    DriverType, S3UploadStrategy, StoragePolicyOptions, StoredStoragePolicyAllowedTypes, UserRole,
-    UserStatus, serialize_storage_policy_options,
+    DriverType, ObjectStorageUploadStrategy, StoragePolicyOptions, StoredStoragePolicyAllowedTypes,
+    UserRole, UserStatus, serialize_storage_policy_options,
 };
 use crate::webdav::dav::{DavLock, DavLockError, DavLockSystem, LsFuture};
 use crate::webdav::fs::AsterDavFs;
@@ -707,7 +707,7 @@ async fn handle_put_with_content_length_uses_direct_s3_stream_upload() {
     let put_file_calls = driver.put_file_calls.clone();
     let put_reader_calls = driver.put_reader_calls.clone();
     let options = serialize_storage_policy_options(&StoragePolicyOptions {
-        s3_upload_strategy: Some(S3UploadStrategy::RelayStream),
+        object_storage_upload_strategy: Some(ObjectStorageUploadStrategy::RelayStream),
         ..Default::default()
     })
     .expect("direct upload policy options should serialize");

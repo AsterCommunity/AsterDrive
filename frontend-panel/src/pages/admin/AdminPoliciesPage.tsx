@@ -20,9 +20,9 @@ import {
 	supportsDraftConnectionTest,
 	supportsMicrosoftGraphApplicationConfig,
 	supportsObjectStorageConnection,
+	supportsObjectStorageTransferStrategy,
 	supportsOneDrivePolicyOptions,
 	supportsRemoteNodeBinding,
-	supportsS3TransferStrategy,
 	supportsSavedConnectionTest,
 	supportsStorageCredentialLifecycle,
 	supportsStorageNativeProcessing,
@@ -877,7 +877,7 @@ function useAdminPoliciesPageContent() {
 					media_metadata_extensions: nextSupportsStorageNativeProcessing
 						? (prev.media_metadata_extensions ?? [])
 						: [],
-					...(supportsS3TransferStrategy(nextDriverDescriptor)
+					...(supportsObjectStorageTransferStrategy(nextDriverDescriptor)
 						? { s3_path_style: previousS3PathStyle ?? true }
 						: {}),
 				};
@@ -935,8 +935,8 @@ function useAdminPoliciesPageContent() {
 					media_metadata_extensions: [],
 					remote_download_strategy: "relay_stream",
 					remote_upload_strategy: "relay_stream",
-					s3_upload_strategy: "relay_stream",
-					s3_download_strategy: "relay_stream",
+					object_storage_upload_strategy: "relay_stream",
+					object_storage_download_strategy: "relay_stream",
 				};
 			}
 
@@ -955,8 +955,8 @@ function useAdminPoliciesPageContent() {
 				media_metadata_extensions: [],
 				remote_download_strategy: "relay_stream",
 				remote_upload_strategy: "relay_stream",
-				s3_upload_strategy: "relay_stream",
-				s3_download_strategy: "relay_stream",
+				object_storage_upload_strategy: "relay_stream",
+				object_storage_download_strategy: "relay_stream",
 			};
 		});
 	};
@@ -1717,7 +1717,7 @@ function useAdminPoliciesPageContent() {
 					onCreateBack={handleCreateBack}
 					onCreateStepChange={handleCreateStepChange}
 					onCreateNext={handleCreateNext}
-					onSyncNormalizedS3Form={syncNormalizedPolicyForm}
+					onSyncNormalizedObjectStorageForm={syncNormalizedPolicyForm}
 				/>
 				<StoragePolicyMigrationDialog
 					dryRun={migrationDryRun}

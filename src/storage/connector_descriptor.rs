@@ -307,8 +307,8 @@ pub struct StorageConnectorCapabilities {
     pub storage_native_media_metadata: bool,
     /// 是否需要或支持 remote node 绑定。
     pub remote_node_binding: bool,
-    /// 是否暴露 S3-compatible upload/download strategy 选项。
-    pub s3_transfer_strategy: bool,
+    /// 是否暴露对象存储 upload/download strategy 选项。
+    pub object_storage_transfer_strategy: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -528,7 +528,7 @@ pub(crate) fn object_storage_connector_descriptor(
             false,
         ),
         storage_connector_field_with_options(
-            "s3_upload_strategy",
+            "object_storage_upload_strategy",
             StorageConnectorFieldScope::PolicyOptions,
             StorageConnectorFieldKind::Select,
             true,
@@ -536,7 +536,7 @@ pub(crate) fn object_storage_connector_descriptor(
             vec!["relay_stream", "presigned"],
         ),
         storage_connector_field_with_options(
-            "s3_download_strategy",
+            "object_storage_download_strategy",
             StorageConnectorFieldScope::PolicyOptions,
             StorageConnectorFieldKind::Select,
             true,
@@ -580,7 +580,7 @@ pub(crate) fn object_storage_connector_descriptor(
             storage_native_thumbnail: input.storage_native_processing,
             storage_native_media_metadata: input.storage_native_processing,
             remote_node_binding: false,
-            s3_transfer_strategy: true,
+            object_storage_transfer_strategy: true,
         },
         upload_workflows: StorageConnectorUploadWorkflows {
             simple_upload: true,

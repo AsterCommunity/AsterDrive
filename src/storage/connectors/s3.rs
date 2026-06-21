@@ -11,7 +11,7 @@ use crate::storage::connector_descriptor::{
     object_storage_connector_descriptor,
 };
 use crate::storage::drivers::s3::S3Driver;
-use crate::types::{DriverType, parse_storage_policy_options};
+use crate::types::{DriverType, ObjectStorageDownloadStrategy, parse_storage_policy_options};
 
 use super::common::{normalize_s3_connection_fields, validate_static_secret_credentials};
 use super::{StorageConnector, StorageConnectorConnectionInput, StorageConnectorUploadTransport};
@@ -20,8 +20,8 @@ pub struct S3Connector;
 
 impl StorageConnectorDescriptorProvider for S3Connector {
     fn storage_connector_descriptor() -> StorageConnectorDescriptor {
-        let mut descriptor =
-            object_storage_connector_descriptor(ObjectStorageConnectorDescriptorInput {
+        let mut descriptor = object_storage_connector_descriptor(
+            ObjectStorageConnectorDescriptorInput {
                 driver_type: DriverType::S3,
                 label: "S3-compatible object storage",
                 description: "S3-compatible object storage policy",
@@ -30,10 +30,10 @@ impl StorageConnectorDescriptorProvider for S3Connector {
                     description_key: "policy_wizard_s3_storage_desc",
                     icon_src: Some("/static/storage/amazon-s3.svg"),
                     icon_name: None,
-                    helper_key: "policy_wizard_s3_helper",
+                    helper_key: "policy_wizard_object_storage_helper",
                     config_step_title_key: "policy_wizard_step_connection_title",
-                    config_step_description_key: "policy_wizard_step_connection_desc",
-                    edit_context_key: "policy_edit_context_s3_desc",
+                    config_step_description_key: "policy_wizard_step_object_storage_connection_desc",
+                    edit_context_key: "policy_edit_context_object_storage_desc",
                     base_path_empty_display: "core:root",
                     base_path_placeholder: "tenant/prefix",
                 },
@@ -50,7 +50,8 @@ impl StorageConnectorDescriptorProvider for S3Connector {
                 presigned_part_etag_required: true,
                 storage_native_processing: false,
                 related_issues: vec![328, 329],
-            });
+            },
+        );
         descriptor
             .driver_recommendations
             .push(endpoint_driver_recommendation(
@@ -92,11 +93,14 @@ impl StorageConnector for S3Connector {
 
     fn upload_transport(policy: &storage_policy::Model) -> StorageConnectorUploadTransport {
         let options = parse_storage_policy_options(policy.options.as_ref());
-        StorageConnectorUploadTransport::ObjectStorage(options.effective_s3_upload_strategy())
+        StorageConnectorUploadTransport::ObjectStorage(
+            options.effective_object_storage_upload_strategy(),
+        )
     }
 
     fn presigned_download_enabled(policy: &storage_policy::Model) -> bool {
         let options = parse_storage_policy_options(policy.options.as_ref());
-        options.effective_s3_download_strategy() == crate::types::S3DownloadStrategy::Presigned
+        options.effective_object_storage_download_strategy()
+            == ObjectStorageDownloadStrategy::Presigned
     }
 }

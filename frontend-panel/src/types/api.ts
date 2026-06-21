@@ -337,7 +337,8 @@ export type RemoteUploadStrategy =
 	components["schemas"]["RemoteUploadStrategy"];
 export type ResourceLockOwnerInfo =
 	components["schemas"]["ResourceLockOwnerInfo"];
-export type S3UploadStrategy = components["schemas"]["S3UploadStrategy"];
+export type ObjectStorageUploadStrategy =
+	components["schemas"]["ObjectStorageUploadStrategy"];
 export type StoragePolicyOptions =
 	components["schemas"]["StoragePolicyOptions"];
 export type OneDriveAccountMode = components["schemas"]["OneDriveAccountMode"];
@@ -415,7 +416,8 @@ export type OfflineDownloadTaskPayloadInfo =
 	components["schemas"]["OfflineDownloadTaskPayloadInfo"];
 export type OfflineDownloadTaskResult =
 	components["schemas"]["OfflineDownloadTaskResult"];
-export type S3DownloadStrategy = components["schemas"]["S3DownloadStrategy"];
+export type ObjectStorageDownloadStrategy =
+	components["schemas"]["ObjectStorageDownloadStrategy"];
 export type StoragePolicySummaryInfo =
 	components["schemas"]["StoragePolicySummaryInfo"];
 export type StoragePolicyGroupItem =

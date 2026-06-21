@@ -1,21 +1,21 @@
 import type {
 	DriverType,
 	MicrosoftGraphCloud,
+	ObjectStorageDownloadStrategy,
+	ObjectStorageUploadStrategy,
 	OneDriveAccountMode,
 	RemoteDownloadStrategy,
 	RemoteUploadStrategy,
-	S3DownloadStrategy,
-	S3UploadStrategy,
 	StoragePolicy,
 	StoragePolicyOptions,
 } from "@/types/api";
 import type { StorageApplicationCredentialForm } from "./applicationCredentials";
 import {
+	getEffectiveObjectStorageDownloadStrategy,
+	getEffectiveObjectStorageUploadStrategy,
 	getEffectiveRemoteDownloadStrategy,
 	getEffectiveRemoteUploadStrategy,
-	getEffectiveS3DownloadStrategy,
 	getEffectiveS3PathStyle,
-	getEffectiveS3UploadStrategy,
 } from "./storagePolicyOptions";
 
 export const DEFAULT_STORAGE_NATIVE_THUMBNAIL_EXTENSIONS = [
@@ -41,8 +41,8 @@ export interface PolicyFormData {
 	content_dedup: boolean;
 	remote_download_strategy: RemoteDownloadStrategy;
 	remote_upload_strategy: RemoteUploadStrategy;
-	s3_upload_strategy: S3UploadStrategy;
-	s3_download_strategy: S3DownloadStrategy;
+	object_storage_upload_strategy: ObjectStorageUploadStrategy;
+	object_storage_download_strategy: ObjectStorageDownloadStrategy;
 	s3_path_style?: boolean;
 	onedrive_cloud: MicrosoftGraphCloud;
 	onedrive_account_mode: OneDriveAccountMode;
@@ -82,8 +82,10 @@ export function getPolicyForm(policy: StoragePolicy): PolicyFormData {
 		content_dedup: options.content_dedup === true,
 		remote_download_strategy: getEffectiveRemoteDownloadStrategy(options),
 		remote_upload_strategy: getEffectiveRemoteUploadStrategy(options),
-		s3_upload_strategy: getEffectiveS3UploadStrategy(options),
-		s3_download_strategy: getEffectiveS3DownloadStrategy(options),
+		object_storage_upload_strategy:
+			getEffectiveObjectStorageUploadStrategy(options),
+		object_storage_download_strategy:
+			getEffectiveObjectStorageDownloadStrategy(options),
 		s3_path_style: getEffectiveS3PathStyle(options),
 		onedrive_cloud: options.onedrive_cloud ?? "global",
 		onedrive_account_mode: options.onedrive_account_mode ?? "work_or_school",
@@ -136,8 +138,8 @@ export const emptyForm: PolicyFormData = {
 	content_dedup: false,
 	remote_download_strategy: "relay_stream",
 	remote_upload_strategy: "relay_stream",
-	s3_upload_strategy: "relay_stream",
-	s3_download_strategy: "relay_stream",
+	object_storage_upload_strategy: "relay_stream",
+	object_storage_download_strategy: "relay_stream",
 	s3_path_style: true,
 	onedrive_cloud: "global",
 	onedrive_account_mode: "work_or_school",

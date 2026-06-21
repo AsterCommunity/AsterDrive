@@ -40,7 +40,7 @@ AsterDrive is a good fit when you want:
 - a single self-hosted service with embedded frontend assets
 - SQLite out of the box, with optional PostgreSQL / MySQL later
 - local filesystem, S3-compatible object storage, or remote AsterDrive follower-node storage
-- upload strategies for both small files and large objects: direct, resumable chunked, S3 presigned, and S3 multipart
+- upload strategies for both small files and large objects: direct, resumable chunked, object-storage presigned, and object-storage multipart
 - personal and team workspaces with quotas, shares, trash, tasks, audit logs, and storage policy groups
 - WebDAV access with independent accounts and scoped root folders
 - Office preview/editing through external WOPI services such as OnlyOffice or Collabora
@@ -58,7 +58,7 @@ AsterDrive is probably not the right first choice when you need:
 
 - **File safety first** - trash, version history, locks, quota checks, and cleanup tasks are part of the core workflow, not decorative extras.
 - **Storage control** - policies can route uploads to local storage, S3-compatible storage, or remote follower nodes by user, team, and file size.
-- **Large-file paths** - the backend negotiates direct uploads, chunked uploads, S3 presigned uploads, and S3 multipart uploads based on policy and object size.
+- **Large-file paths** - the backend negotiates direct uploads, chunked uploads, object-storage presigned uploads, and object-storage multipart uploads based on policy and object size.
 - **Interoperability without sprawl** - WebDAV and WOPI cover practical client and Office workflows without turning the project into an all-in-one cloud suite.
 - **Operations built in** - health checks, runtime configuration, audit logs, background tasks, storage tests, `doctor`, and migration commands are first-class features.
 - **Hackable core** - Rust backend, React frontend, SeaORM migrations, explicit error codes, API docs, and clear service/repository boundaries.
@@ -164,7 +164,7 @@ On first startup, AsterDrive will automatically:
 - local storage, S3-compatible storage, and remote follower-node storage policies
 - policy groups that route uploads by user, team, and file size
 - optional local-only blob deduplication using SHA-256 and reference counting
-- S3 upload/download strategies: `relay_stream`, `presigned`, and multipart uploads
+- object-storage upload/download strategies: `relay_stream`, `presigned`, and multipart uploads
 - remote-node upload/download strategies: `relay_stream` and `presigned`
 - streaming upload/download paths where the selected strategy allows it
 

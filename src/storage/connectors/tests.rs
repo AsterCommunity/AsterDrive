@@ -11,7 +11,7 @@ use sea_orm::ActiveValue::Set;
 
 use crate::entities::storage_policy;
 use crate::types::{
-    MicrosoftGraphCloud, OneDriveAccountMode, RemoteUploadStrategy, S3UploadStrategy,
+    MicrosoftGraphCloud, ObjectStorageUploadStrategy, OneDriveAccountMode, RemoteUploadStrategy,
     StoragePolicyOptions, StoredStoragePolicyAllowedTypes, UploadMode,
     parse_storage_policy_options,
 };
@@ -272,13 +272,19 @@ fn local_descriptor_declares_content_dedup_policy_option() {
 #[test]
 fn transfer_strategy_policy_options_are_declared_by_descriptors() {
     let s3 = descriptor(DriverType::S3);
-    assert!(has_policy_option(&s3, "s3_upload_strategy"));
-    assert!(has_policy_option(&s3, "s3_download_strategy"));
+    assert!(has_policy_option(&s3, "object_storage_upload_strategy"));
+    assert!(has_policy_option(&s3, "object_storage_download_strategy"));
     assert!(has_policy_option(&s3, "s3_path_style"));
 
     let azure_blob = descriptor(DriverType::AzureBlob);
-    assert!(has_policy_option(&azure_blob, "s3_upload_strategy"));
-    assert!(has_policy_option(&azure_blob, "s3_download_strategy"));
+    assert!(has_policy_option(
+        &azure_blob,
+        "object_storage_upload_strategy"
+    ));
+    assert!(has_policy_option(
+        &azure_blob,
+        "object_storage_download_strategy"
+    ));
     assert!(!has_policy_option(&azure_blob, "s3_path_style"));
 
     let remote = descriptor(DriverType::Remote);
@@ -290,12 +296,15 @@ fn transfer_strategy_policy_options_are_declared_by_descriptors() {
 fn object_storage_connection_field_display_metadata_is_connector_owned() {
     let s3 = descriptor(DriverType::S3);
     assert_eq!(s3.ui.label_key, "driver_type_s3");
-    assert_eq!(s3.ui.helper_key, "policy_wizard_s3_helper");
+    assert_eq!(s3.ui.helper_key, "policy_wizard_object_storage_helper");
     assert_eq!(
         s3.ui.config_step_description_key,
-        "policy_wizard_step_connection_desc"
+        "policy_wizard_step_object_storage_connection_desc"
     );
-    assert_eq!(s3.ui.edit_context_key, "policy_edit_context_s3_desc");
+    assert_eq!(
+        s3.ui.edit_context_key,
+        "policy_edit_context_object_storage_desc"
+    );
     assert_eq!(s3.ui.base_path_empty_display, "core:root");
     assert_eq!(s3.ui.base_path_placeholder, "tenant/prefix");
     let s3_endpoint = field(&s3, "endpoint");
@@ -368,7 +377,7 @@ fn object_storage_connection_field_display_metadata_is_connector_owned() {
     );
     assert_eq!(
         tencent_cos.ui.edit_context_key,
-        "policy_edit_context_s3_desc"
+        "policy_edit_context_object_storage_desc"
     );
     assert_eq!(
         field(&tencent_cos, "endpoint").placeholder.as_deref(),
@@ -628,7 +637,7 @@ fn tencent_cos_descriptor_exposes_cors_action() {
         == Some(StoragePolicyExecutableAction::ConfigureTencentCosCors)
         && action.kind == StorageConnectorActionKind::PolicyAction
         && action.mutates_remote_state));
-    assert!(descriptor.capabilities.s3_transfer_strategy);
+    assert!(descriptor.capabilities.object_storage_transfer_strategy);
 }
 
 #[test]
@@ -973,8 +982,8 @@ fn local_policy_resolves_direct_and_chunked_modes() {
 #[test]
 fn non_local_upload_transports_expose_opaque_blob_hash_prefix() {
     for transport in [
-        StorageConnectorUploadTransport::ObjectStorage(S3UploadStrategy::RelayStream),
-        StorageConnectorUploadTransport::ObjectStorage(S3UploadStrategy::Presigned),
+        StorageConnectorUploadTransport::ObjectStorage(ObjectStorageUploadStrategy::RelayStream),
+        StorageConnectorUploadTransport::ObjectStorage(ObjectStorageUploadStrategy::Presigned),
         StorageConnectorUploadTransport::Remote(RemoteUploadStrategy::RelayStream),
         StorageConnectorUploadTransport::Remote(RemoteUploadStrategy::Presigned),
         StorageConnectorUploadTransport::StreamUpload,
@@ -991,7 +1000,7 @@ fn presigned_download_policy_is_connector_owned() {
     let s3 = mock_policy(
         DriverType::S3,
         1024,
-        r#"{"s3_download_strategy":"presigned"}"#,
+        r#"{"object_storage_download_strategy":"presigned"}"#,
     );
     let remote = mock_policy(
         DriverType::Remote,
@@ -1001,7 +1010,7 @@ fn presigned_download_policy_is_connector_owned() {
     let relay_s3 = mock_policy(
         DriverType::S3,
         1024,
-        r#"{"s3_download_strategy":"relay_stream"}"#,
+        r#"{"object_storage_download_strategy":"relay_stream"}"#,
     );
 
     assert!(presigned_download_enabled(&s3).expect("presigned download support should resolve"));
@@ -1018,14 +1027,14 @@ fn s3_relay_stream_uses_effective_chunk_size_and_relay_tracking() {
     let policy = mock_policy(
         DriverType::S3,
         1_048_576,
-        r#"{"s3_upload_strategy":"relay_stream"}"#,
+        r#"{"object_storage_upload_strategy":"relay_stream"}"#,
     );
     let transport =
         resolve_policy_upload_transport(&policy).expect("upload transport should resolve");
 
     assert_eq!(
         transport,
-        StorageConnectorUploadTransport::ObjectStorage(S3UploadStrategy::RelayStream)
+        StorageConnectorUploadTransport::ObjectStorage(ObjectStorageUploadStrategy::RelayStream)
     );
     assert_eq!(transport.effective_chunk_size(&policy), 5_242_880);
     assert_eq!(
@@ -1051,14 +1060,14 @@ fn s3_presigned_uses_presigned_modes() {
     let policy = mock_policy(
         DriverType::S3,
         1024,
-        r#"{"s3_upload_strategy":"presigned"}"#,
+        r#"{"object_storage_upload_strategy":"presigned"}"#,
     );
     let transport =
         resolve_policy_upload_transport(&policy).expect("upload transport should resolve");
 
     assert_eq!(
         transport,
-        StorageConnectorUploadTransport::ObjectStorage(S3UploadStrategy::Presigned)
+        StorageConnectorUploadTransport::ObjectStorage(ObjectStorageUploadStrategy::Presigned)
     );
     assert_eq!(
         transport.resolve_init_mode(&policy, 5_242_880),
@@ -1082,14 +1091,14 @@ fn azure_blob_relay_stream_uses_object_storage_transport_modes() {
     let policy = mock_policy(
         DriverType::AzureBlob,
         1_048_576,
-        r#"{"s3_upload_strategy":"relay_stream"}"#,
+        r#"{"object_storage_upload_strategy":"relay_stream"}"#,
     );
     let transport =
         resolve_policy_upload_transport(&policy).expect("upload transport should resolve");
 
     assert_eq!(
         transport,
-        StorageConnectorUploadTransport::ObjectStorage(S3UploadStrategy::RelayStream)
+        StorageConnectorUploadTransport::ObjectStorage(ObjectStorageUploadStrategy::RelayStream)
     );
     assert_eq!(transport.effective_chunk_size(&policy), 5_242_880);
     assert_eq!(
@@ -1114,14 +1123,14 @@ fn azure_blob_presigned_uses_object_storage_presigned_modes() {
     let policy = mock_policy(
         DriverType::AzureBlob,
         1024,
-        r#"{"s3_upload_strategy":"presigned"}"#,
+        r#"{"object_storage_upload_strategy":"presigned"}"#,
     );
     let transport =
         resolve_policy_upload_transport(&policy).expect("upload transport should resolve");
 
     assert_eq!(
         transport,
-        StorageConnectorUploadTransport::ObjectStorage(S3UploadStrategy::Presigned)
+        StorageConnectorUploadTransport::ObjectStorage(ObjectStorageUploadStrategy::Presigned)
     );
     assert_eq!(
         transport.resolve_init_mode(&policy, 5_242_880),
@@ -1137,22 +1146,22 @@ fn azure_blob_presigned_uses_object_storage_presigned_modes() {
 
 #[test]
 fn tencent_cos_presigned_uses_object_storage_presigned_modes() {
-    let options = parse_storage_policy_options(r#"{"s3_upload_strategy":"presigned"}"#);
+    let options = parse_storage_policy_options(r#"{"object_storage_upload_strategy":"presigned"}"#);
     assert_eq!(
-        options.effective_s3_upload_strategy(),
-        S3UploadStrategy::Presigned
+        options.effective_object_storage_upload_strategy(),
+        ObjectStorageUploadStrategy::Presigned
     );
     let policy = mock_policy(
         DriverType::TencentCos,
         1024,
-        r#"{"s3_upload_strategy":"presigned"}"#,
+        r#"{"object_storage_upload_strategy":"presigned"}"#,
     );
     let transport =
         resolve_policy_upload_transport(&policy).expect("upload transport should resolve");
 
     assert_eq!(
         transport,
-        StorageConnectorUploadTransport::ObjectStorage(S3UploadStrategy::Presigned)
+        StorageConnectorUploadTransport::ObjectStorage(ObjectStorageUploadStrategy::Presigned)
     );
     assert_eq!(
         transport.resolve_init_mode(&policy, 5_242_880),
@@ -1276,10 +1285,10 @@ fn upload_workflow_descriptors_match_default_connector_transports() {
     ] {
         assert_upload_workflow_alignment(
             driver_type,
-            r#"{"s3_upload_strategy":"relay_stream"}"#,
+            r#"{"object_storage_upload_strategy":"relay_stream"}"#,
             ExpectedUploadWorkflow {
                 transport: StorageConnectorUploadTransport::ObjectStorage(
-                    S3UploadStrategy::RelayStream,
+                    ObjectStorageUploadStrategy::RelayStream,
                 ),
                 object_multipart: true,
                 provider_resumable: false,
@@ -1330,10 +1339,10 @@ fn upload_workflow_descriptors_match_presigned_connector_transports() {
     ] {
         assert_upload_workflow_alignment(
             driver_type,
-            r#"{"s3_upload_strategy":"presigned"}"#,
+            r#"{"object_storage_upload_strategy":"presigned"}"#,
             ExpectedUploadWorkflow {
                 transport: StorageConnectorUploadTransport::ObjectStorage(
-                    S3UploadStrategy::Presigned,
+                    ObjectStorageUploadStrategy::Presigned,
                 ),
                 object_multipart: true,
                 provider_resumable: false,

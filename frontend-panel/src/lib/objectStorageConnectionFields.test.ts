@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { normalizeS3ConnectionFields } from "@/lib/s3Endpoint";
+import { normalizeObjectStorageConnectionFields } from "@/lib/objectStorageConnectionFields";
 
-describe("normalizeS3ConnectionFields", () => {
+describe("normalizeObjectStorageConnectionFields", () => {
 	it("trims endpoint and bucket without provider-specific rewriting", () => {
 		expect(
-			normalizeS3ConnectionFields(
+			normalizeObjectStorageConnectionFields(
 				" https://s3.example.test/custom/path ",
 				" archive ",
 			),
@@ -16,7 +16,7 @@ describe("normalizeS3ConnectionFields", () => {
 
 	it("preserves custom endpoint paths", () => {
 		expect(
-			normalizeS3ConnectionFields(
+			normalizeObjectStorageConnectionFields(
 				"https://s3.example.com/custom/path",
 				"archive",
 			),

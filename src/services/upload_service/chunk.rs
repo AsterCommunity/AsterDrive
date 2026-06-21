@@ -311,7 +311,7 @@ async fn upload_multipart_part_payload(
     multipart: &(dyn crate::storage::MultipartStorageDriver + Send + Sync),
     temp_key: &str,
     multipart_id: &str,
-    s3_part_number: i32,
+    object_part_number: i32,
     payload: actix_web::web::Payload,
     expected_size: i64,
     chunk_number: i32,
@@ -321,7 +321,7 @@ async fn upload_multipart_part_payload(
     let upload_future = multipart.upload_multipart_part_reader(
         temp_key,
         multipart_id,
-        s3_part_number,
+        object_part_number,
         Box::new(reader),
         expected_size,
     );
@@ -486,16 +486,16 @@ async fn upload_chunk_impl(
         session.object_temp_key.as_deref(),
         session.object_multipart_id.as_deref(),
     ) {
-        let s3_part_number = chunk_number + 1;
+        let object_part_number = chunk_number + 1;
 
-        // relay multipart 下，先 claim part 再上传到 S3。
+        // relay multipart 下，先 claim part 再上传到对象存储。
         // 否则并发重试会把同一个 part 号重复上传，最后谁的 ETag 留库就会变得不确定。
-        if !upload_session_part_repo::try_claim_part(db, upload_id, s3_part_number).await? {
+        if !upload_session_part_repo::try_claim_part(db, upload_id, object_part_number).await? {
             let updated = upload_session_repo::find_by_id(db, upload_id).await?;
             tracing::debug!(
                 upload_id,
                 chunk_number,
-                part_number = s3_part_number,
+                part_number = object_part_number,
                 received_count = updated.received_count,
                 total_chunks = updated.total_chunks,
                 "skipping already claimed relay multipart part"
@@ -511,7 +511,7 @@ async fn upload_chunk_impl(
             .get_policy_or_err(session.policy_id)?;
         let multipart = state.driver_registry().get_multipart_driver(&policy)?;
         let etag = match multipart
-            .upload_multipart_part_bytes(temp_key, multipart_id, s3_part_number, data)
+            .upload_multipart_part_bytes(temp_key, multipart_id, object_part_number, data)
             .await
         {
             Ok(etag) => etag,
@@ -519,13 +519,13 @@ async fn upload_chunk_impl(
                 if let Err(cleanup_err) = upload_session_part_repo::delete_by_upload_and_part(
                     db,
                     upload_id,
-                    s3_part_number,
+                    object_part_number,
                 )
                 .await
                 {
                     tracing::warn!(
                         upload_id,
-                        part_number = s3_part_number,
+                        part_number = object_part_number,
                         "failed to release relay multipart part claim after upload error: {cleanup_err}"
                     );
                 }
@@ -535,10 +535,16 @@ async fn upload_chunk_impl(
 
         let txn = crate::db::transaction::begin(db).await?;
         let finalize_result = async {
-            // S3 上传成功以后，必须把 part 元数据和 received_count 放在同一事务里提交；
+            // 对象存储 part 上传成功以后，必须把 part 元数据和 received_count 放在同一事务里提交；
             // 否则 complete 阶段会看到“不完整的 part 清单”。
-            upload_session_part_repo::upsert_part(&txn, upload_id, s3_part_number, &etag, data_len)
-                .await?;
+            upload_session_part_repo::upsert_part(
+                &txn,
+                upload_id,
+                object_part_number,
+                &etag,
+                data_len,
+            )
+            .await?;
             increment_session_received_count(&txn, upload_id).await?;
             crate::db::transaction::commit(txn).await?;
             Ok::<(), AsterError>(())
@@ -546,13 +552,16 @@ async fn upload_chunk_impl(
         .await;
 
         if let Err(err) = finalize_result {
-            if let Err(cleanup_err) =
-                upload_session_part_repo::delete_by_upload_and_part(db, upload_id, s3_part_number)
-                    .await
+            if let Err(cleanup_err) = upload_session_part_repo::delete_by_upload_and_part(
+                db,
+                upload_id,
+                object_part_number,
+            )
+            .await
             {
                 tracing::warn!(
                     upload_id,
-                    part_number = s3_part_number,
+                    part_number = object_part_number,
                     "failed to release relay multipart part claim after DB finalize error: {cleanup_err}"
                 );
             }
@@ -563,7 +572,7 @@ async fn upload_chunk_impl(
         tracing::debug!(
             upload_id,
             chunk_number,
-            part_number = s3_part_number,
+            part_number = object_part_number,
             received_count = updated.received_count,
             total_chunks = updated.total_chunks,
             "stored relay multipart chunk"
@@ -686,15 +695,15 @@ async fn upload_chunk_payload_impl(
         session.object_temp_key.as_deref(),
         session.object_multipart_id.as_deref(),
     ) {
-        let s3_part_number = chunk_number + 1;
+        let object_part_number = chunk_number + 1;
 
-        if !upload_session_part_repo::try_claim_part(db, upload_id, s3_part_number).await? {
+        if !upload_session_part_repo::try_claim_part(db, upload_id, object_part_number).await? {
             drain_chunk_payload_exact_size(&mut payload, expected_size, chunk_number).await?;
             let updated = upload_session_repo::find_by_id(db, upload_id).await?;
             tracing::debug!(
                 upload_id,
                 chunk_number,
-                part_number = s3_part_number,
+                part_number = object_part_number,
                 received_count = updated.received_count,
                 total_chunks = updated.total_chunks,
                 "skipping already claimed relay multipart part"
@@ -713,7 +722,7 @@ async fn upload_chunk_payload_impl(
             multipart.as_ref(),
             temp_key,
             multipart_id,
-            s3_part_number,
+            object_part_number,
             payload,
             expected_size,
             chunk_number,
@@ -725,13 +734,13 @@ async fn upload_chunk_payload_impl(
                 if let Err(cleanup_err) = upload_session_part_repo::delete_by_upload_and_part(
                     db,
                     upload_id,
-                    s3_part_number,
+                    object_part_number,
                 )
                 .await
                 {
                     tracing::warn!(
                         upload_id,
-                        part_number = s3_part_number,
+                        part_number = object_part_number,
                         "failed to release relay multipart part claim after upload error: {cleanup_err}"
                     );
                 }
@@ -744,7 +753,7 @@ async fn upload_chunk_payload_impl(
             upload_session_part_repo::upsert_part(
                 &txn,
                 upload_id,
-                s3_part_number,
+                object_part_number,
                 &etag,
                 expected_size,
             )
@@ -756,13 +765,16 @@ async fn upload_chunk_payload_impl(
         .await;
 
         if let Err(err) = finalize_result {
-            if let Err(cleanup_err) =
-                upload_session_part_repo::delete_by_upload_and_part(db, upload_id, s3_part_number)
-                    .await
+            if let Err(cleanup_err) = upload_session_part_repo::delete_by_upload_and_part(
+                db,
+                upload_id,
+                object_part_number,
+            )
+            .await
             {
                 tracing::warn!(
                     upload_id,
-                    part_number = s3_part_number,
+                    part_number = object_part_number,
                     "failed to release relay multipart part claim after DB finalize error: {cleanup_err}"
                 );
             }
@@ -773,7 +785,7 @@ async fn upload_chunk_payload_impl(
         tracing::debug!(
             upload_id,
             chunk_number,
-            part_number = s3_part_number,
+            part_number = object_part_number,
             received_count = updated.received_count,
             total_chunks = updated.total_chunks,
             "stored relay multipart chunk"

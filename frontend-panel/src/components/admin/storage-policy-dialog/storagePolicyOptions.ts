@@ -1,11 +1,11 @@
 import type {
 	DriverType,
 	MicrosoftGraphCloud,
+	ObjectStorageDownloadStrategy,
+	ObjectStorageUploadStrategy,
 	OneDriveAccountMode,
 	RemoteDownloadStrategy,
 	RemoteUploadStrategy,
-	S3DownloadStrategy,
-	S3UploadStrategy,
 	StorageConnectorDescriptor,
 	StoragePolicyOptions,
 } from "@/types/api";
@@ -15,8 +15,8 @@ export interface StoragePolicyOptionsForm {
 	content_dedup: boolean;
 	remote_download_strategy: RemoteDownloadStrategy;
 	remote_upload_strategy: RemoteUploadStrategy;
-	s3_upload_strategy: S3UploadStrategy;
-	s3_download_strategy: S3DownloadStrategy;
+	object_storage_upload_strategy: ObjectStorageUploadStrategy;
+	object_storage_download_strategy: ObjectStorageDownloadStrategy;
 	s3_path_style?: boolean;
 	onedrive_cloud: MicrosoftGraphCloud;
 	onedrive_account_mode: OneDriveAccountMode;
@@ -32,16 +32,31 @@ export interface StoragePolicyOptionsForm {
 	media_metadata_extensions?: string[];
 }
 
-export function getEffectiveS3UploadStrategy(
+type LegacyStoragePolicyOptions = StoragePolicyOptions & {
+	s3_upload_strategy?: ObjectStorageUploadStrategy | null;
+	s3_download_strategy?: ObjectStorageDownloadStrategy | null;
+};
+
+export function getEffectiveObjectStorageUploadStrategy(
 	options: StoragePolicyOptions,
-): S3UploadStrategy {
-	return options.s3_upload_strategy ?? "relay_stream";
+): ObjectStorageUploadStrategy {
+	const legacyOptions = options as LegacyStoragePolicyOptions;
+	return (
+		options.object_storage_upload_strategy ??
+		legacyOptions.s3_upload_strategy ??
+		"relay_stream"
+	);
 }
 
-export function getEffectiveS3DownloadStrategy(
+export function getEffectiveObjectStorageDownloadStrategy(
 	options: StoragePolicyOptions,
-): S3DownloadStrategy {
-	return options.s3_download_strategy ?? "relay_stream";
+): ObjectStorageDownloadStrategy {
+	const legacyOptions = options as LegacyStoragePolicyOptions;
+	return (
+		options.object_storage_download_strategy ??
+		legacyOptions.s3_download_strategy ??
+		"relay_stream"
+	);
 }
 
 export function getEffectiveS3PathStyle(options: StoragePolicyOptions) {
@@ -96,11 +111,19 @@ function buildDescriptorPolicyOptions(
 	if (hasOption("remote_upload_strategy")) {
 		options.remote_upload_strategy = form.remote_upload_strategy;
 	}
-	if (hasOption("s3_upload_strategy")) {
-		options.s3_upload_strategy = form.s3_upload_strategy;
+	if (
+		hasOption("object_storage_upload_strategy") ||
+		hasOption("s3_upload_strategy")
+	) {
+		options.object_storage_upload_strategy =
+			form.object_storage_upload_strategy;
 	}
-	if (hasOption("s3_download_strategy")) {
-		options.s3_download_strategy = form.s3_download_strategy;
+	if (
+		hasOption("object_storage_download_strategy") ||
+		hasOption("s3_download_strategy")
+	) {
+		options.object_storage_download_strategy =
+			form.object_storage_download_strategy;
 	}
 	if (hasOption("s3_path_style") && form.s3_path_style === false) {
 		options.s3_path_style = false;
@@ -125,11 +148,13 @@ function buildPolicyOptionsFallback(
 	if (form.remote_upload_strategy !== "relay_stream") {
 		options.remote_upload_strategy = form.remote_upload_strategy;
 	}
-	if (form.s3_upload_strategy !== "relay_stream") {
-		options.s3_upload_strategy = form.s3_upload_strategy;
+	if (form.object_storage_upload_strategy !== "relay_stream") {
+		options.object_storage_upload_strategy =
+			form.object_storage_upload_strategy;
 	}
-	if (form.s3_download_strategy !== "relay_stream") {
-		options.s3_download_strategy = form.s3_download_strategy;
+	if (form.object_storage_download_strategy !== "relay_stream") {
+		options.object_storage_download_strategy =
+			form.object_storage_download_strategy;
 	}
 	if (form.s3_path_style === false) {
 		options.s3_path_style = false;

@@ -1,7 +1,7 @@
 import {
 	CHUNK_PROCESSING_PROGRESS,
 	getProcessingProgress,
-	S3_PROCESSING_PROGRESS,
+	SERVER_FINALIZE_PROGRESS,
 	type UploadMode,
 } from "@/components/files/uploadResume";
 import { getApiErrorMessage } from "@/hooks/useApiError";
@@ -237,7 +237,7 @@ export function createResumableUploadRunners({
 			totalChunks,
 			completedChunks: completedSet.size,
 			progress: Math.round(
-				(completedSet.size / totalChunks) * S3_PROCESSING_PROGRESS,
+				(completedSet.size / totalChunks) * SERVER_FINALIZE_PROGRESS,
 			),
 			uploadedBytes: [...completedSet].reduce(
 				(total, partNumber) => total + getPartSize(partNumber),
@@ -318,7 +318,7 @@ export function createResumableUploadRunners({
 			items: queue,
 			getItemSize: getPartSize,
 			processingProgress: getProcessingProgress(task.mode),
-			progressScale: S3_PROCESSING_PROGRESS,
+			progressScale: SERVER_FINALIZE_PROGRESS,
 			task,
 			totalItems: totalChunks,
 			totalBytes: file.size,

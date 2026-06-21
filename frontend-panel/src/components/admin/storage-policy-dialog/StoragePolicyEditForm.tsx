@@ -4,6 +4,9 @@ import {
 	DefaultPolicyToggle,
 	LimitsFields,
 	LocalContentDedupField,
+	ObjectStorageConnectionFields,
+	ObjectStorageDownloadStrategyField,
+	ObjectStorageUploadStrategyField,
 	OneDriveConnectionFields,
 	OneDriveCredentialPanel,
 	PolicyBasePathField,
@@ -13,9 +16,6 @@ import {
 	RemoteNodeField,
 	RemoteRulesHelper,
 	RemoteUploadStrategyField,
-	S3ConnectionFields,
-	S3DownloadStrategyField,
-	S3UploadStrategyField,
 	StorageNativeProcessingField,
 	type StoragePolicyDriverOption,
 } from "@/components/admin/StoragePolicyDialogFields";
@@ -38,9 +38,9 @@ import {
 	supportsContentDedupPolicyOption,
 	supportsCredentialValidationAction,
 	supportsObjectStorageConnection,
+	supportsObjectStorageTransferStrategy,
 	supportsOneDrivePolicyOptions,
 	supportsRemoteNodeBinding,
-	supportsS3TransferStrategy,
 	supportsStorageAuthorizationAction,
 	supportsStorageNativeProcessing,
 } from "./descriptorPredicates";
@@ -79,7 +79,7 @@ interface StoragePolicyEditFormProps {
 	onStartStorageAuthorization: () => void;
 	onValidateStorageCredential: () => void;
 	onRequestS3DriverPromotion: () => void;
-	onSyncNormalizedS3Form: () => void;
+	onSyncNormalizedObjectStorageForm: () => void;
 	remoteNodes: RemoteNodeInfo[];
 }
 
@@ -115,7 +115,7 @@ export function StoragePolicyEditForm({
 	onStartStorageAuthorization,
 	onValidateStorageCredential,
 	onRequestS3DriverPromotion,
-	onSyncNormalizedS3Form,
+	onSyncNormalizedObjectStorageForm,
 	remoteNodes,
 }: StoragePolicyEditFormProps) {
 	const { t } = useTranslation("admin");
@@ -143,9 +143,8 @@ export function StoragePolicyEditForm({
 	);
 	const canUseOneDriveConnection =
 		canUseApplicationCredentials || canUseOneDrivePolicyOptions;
-	const canUseS3TransferStrategy = supportsS3TransferStrategy(
-		storageDriverDescriptor,
-	);
+	const canUseObjectStorageTransferStrategy =
+		supportsObjectStorageTransferStrategy(storageDriverDescriptor);
 	const canUseContentDedupPolicyOption = supportsContentDedupPolicyOption(
 		storageDriverDescriptor,
 	);
@@ -201,7 +200,7 @@ export function StoragePolicyEditForm({
 							description={t("policy_editor_connection_desc")}
 						/>
 						<div className="space-y-4">
-							<S3ConnectionFields
+							<ObjectStorageConnectionFields
 								form={form}
 								bucketError={createBucketError}
 								endpointValidationMessage={endpointValidationMessage}
@@ -209,7 +208,9 @@ export function StoragePolicyEditForm({
 								storageDriverDescriptor={storageDriverDescriptor}
 								t={t}
 								onFieldChange={onFieldChange}
-								onSyncNormalizedS3Form={onSyncNormalizedS3Form}
+								onSyncNormalizedObjectStorageForm={
+									onSyncNormalizedObjectStorageForm
+								}
 							/>
 							<AnimatedCollapsible open={s3DriverPromotionTargetLabel != null}>
 								{renderedPromotionTargetLabel ? (
@@ -296,14 +297,14 @@ export function StoragePolicyEditForm({
 						description={t("policy_editor_rules_desc")}
 					/>
 					<div className="space-y-4">
-						{canUseS3TransferStrategy ? (
+						{canUseObjectStorageTransferStrategy ? (
 							<>
-								<S3UploadStrategyField
+								<ObjectStorageUploadStrategyField
 									form={form}
 									t={t}
 									onFieldChange={onFieldChange}
 								/>
-								<S3DownloadStrategyField
+								<ObjectStorageDownloadStrategyField
 									form={form}
 									t={t}
 									onFieldChange={onFieldChange}
@@ -374,8 +375,8 @@ function TencentCosCorsPanel({
 	onConfirm: () => void;
 }) {
 	const directAccessEnabled =
-		form.s3_upload_strategy === "presigned" ||
-		form.s3_download_strategy === "presigned";
+		form.object_storage_upload_strategy === "presigned" ||
+		form.object_storage_download_strategy === "presigned";
 
 	return (
 		<div className="rounded-lg border border-sky-500/25 bg-sky-500/5 p-3">
@@ -588,7 +589,7 @@ function getPolicyEditContextDescriptionKey(
 	descriptor: StorageConnectorDescriptor | null,
 ) {
 	if (supportsObjectStorageConnection(descriptor)) {
-		return "policy_edit_context_s3_desc";
+		return "policy_edit_context_object_storage_desc";
 	}
 	if (supportsRemoteNodeBinding(descriptor)) {
 		return "policy_edit_context_remote_desc";

@@ -5904,6 +5904,16 @@ export interface components {
             view_count: number;
         };
         /**
+         * @description Object-storage download transfer strategy.
+         * @enum {string}
+         */
+        ObjectStorageDownloadStrategy: "relay_stream" | "presigned";
+        /**
+         * @description Object-storage upload transfer strategy.
+         * @enum {string}
+         */
+        ObjectStorageUploadStrategy: "relay_stream" | "presigned";
+        /**
          * @description Presentation-safe offline download payload used by task list views.
          *
          *     `OfflineDownloadTaskPayloadInfo` is derived from `OfflineDownloadTaskPayload`;
@@ -6938,16 +6948,6 @@ export interface components {
             summary?: string | null;
             system_health?: null | components["schemas"]["RuntimeSystemHealthResult"];
         };
-        /**
-         * @description S3 下载传输策略（存储策略 options JSON）
-         * @enum {string}
-         */
-        S3DownloadStrategy: "relay_stream" | "presigned";
-        /**
-         * @description S3 上传传输策略（存储策略 options JSON）
-         * @enum {string}
-         */
-        S3UploadStrategy: "relay_stream" | "presigned";
         SearchParams: {
             /** @description Filter by file category (image, video, audio, document, spreadsheet, presentation, archive, code, other) */
             category?: string | null;
@@ -7166,12 +7166,12 @@ export interface components {
             efficient_range: boolean;
             /** @description 是否支持底层对象路径列举。 */
             list: boolean;
+            /** @description 是否暴露对象存储 upload/download strategy 选项。 */
+            object_storage_transfer_strategy: boolean;
             /** @description 是否支持 presigned download。 */
             presigned_download: boolean;
             /** @description 是否需要或支持 remote node 绑定。 */
             remote_node_binding: boolean;
-            /** @description 是否暴露 S3-compatible upload/download strategy 选项。 */
-            s3_transfer_strategy: boolean;
             /** @description 是否支持 provider/storage-native media metadata。 */
             storage_native_media_metadata: boolean;
             /** @description 是否支持 provider/storage-native thumbnail。 */
@@ -7508,6 +7508,8 @@ export interface components {
         StoragePolicyOptions: {
             content_dedup?: boolean | null;
             media_metadata_extensions?: string[];
+            object_storage_download_strategy?: null | components["schemas"]["ObjectStorageDownloadStrategy"];
+            object_storage_upload_strategy?: null | components["schemas"]["ObjectStorageUploadStrategy"];
             onedrive_account_mode?: null | components["schemas"]["OneDriveAccountMode"];
             onedrive_cloud?: null | components["schemas"]["MicrosoftGraphCloud"];
             onedrive_drive_id?: string | null;
@@ -7519,13 +7521,11 @@ export interface components {
             remote_upload_strategy?: null | components["schemas"]["RemoteUploadStrategy"];
             /** Format: int64 */
             s3_connect_timeout_secs?: number | null;
-            s3_download_strategy?: null | components["schemas"]["S3DownloadStrategy"];
             /** Format: int64 */
             s3_operation_timeout_secs?: number | null;
             s3_path_style?: boolean | null;
             /** Format: int64 */
             s3_read_timeout_secs?: number | null;
-            s3_upload_strategy?: null | components["schemas"]["S3UploadStrategy"];
             storage_native_media_metadata_enabled?: boolean | null;
             storage_native_processing_enabled?: boolean | null;
             thumbnail_extensions?: string[];

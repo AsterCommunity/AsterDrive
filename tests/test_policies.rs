@@ -541,7 +541,7 @@ async fn test_policy_crud() {
             "max_file_size": 104857600,
             "chunk_size": 8388608,
             "options": serde_json::json!({
-                "s3_upload_strategy": "presigned",
+                "object_storage_upload_strategy": "presigned",
                 "s3_path_style": false
             })
         }))
@@ -551,7 +551,10 @@ async fn test_policy_crud() {
     let body: Value = test::read_body_json(resp).await;
     assert_eq!(body["data"]["name"], "Test S3");
     assert_eq!(body["data"]["chunk_size"], 8_388_608);
-    assert_eq!(body["data"]["options"]["s3_upload_strategy"], "presigned");
+    assert_eq!(
+        body["data"]["options"]["object_storage_upload_strategy"],
+        "presigned"
+    );
     assert_eq!(body["data"]["options"]["s3_path_style"], false);
     let policy_id = body["data"]["id"].as_i64().unwrap();
 
@@ -603,8 +606,8 @@ async fn test_policy_crud() {
 async fn test_policy_promotes_generic_s3_policy_to_tencent_cos() {
     use aster_drive::services::policy_service;
     use aster_drive::types::{
-        DriverType, S3DownloadStrategy, S3UploadStrategy, StoragePolicyOptions,
-        parse_storage_policy_options,
+        DriverType, ObjectStorageDownloadStrategy, ObjectStorageUploadStrategy,
+        StoragePolicyOptions, parse_storage_policy_options,
     };
 
     let state = common::setup().await;
@@ -631,8 +634,8 @@ async fn test_policy_promotes_generic_s3_policy_to_tencent_cos() {
             is_default: false,
             allowed_types: None,
             options: Some(StoragePolicyOptions {
-                s3_upload_strategy: Some(S3UploadStrategy::Presigned),
-                s3_download_strategy: Some(S3DownloadStrategy::Presigned),
+                object_storage_upload_strategy: Some(ObjectStorageUploadStrategy::Presigned),
+                object_storage_download_strategy: Some(ObjectStorageDownloadStrategy::Presigned),
                 s3_path_style: Some(false),
                 ..Default::default()
             }),
@@ -661,8 +664,14 @@ async fn test_policy_promotes_generic_s3_policy_to_tencent_cos() {
     assert_eq!(body["data"]["driver_type"], "tencent_cos");
     assert_eq!(body["data"]["bucket"], "bucket-1250000000");
     assert_eq!(body["data"]["base_path"], "tenant/prefix");
-    assert_eq!(body["data"]["options"]["s3_upload_strategy"], "presigned");
-    assert_eq!(body["data"]["options"]["s3_download_strategy"], "presigned");
+    assert_eq!(
+        body["data"]["options"]["object_storage_upload_strategy"],
+        "presigned"
+    );
+    assert_eq!(
+        body["data"]["options"]["object_storage_download_strategy"],
+        "presigned"
+    );
     assert_eq!(body["data"]["options"]["s3_path_style"], false);
 
     let stored = aster_drive::db::repository::policy_repo::find_by_id(&db, policy.id)
@@ -673,12 +682,12 @@ async fn test_policy_promotes_generic_s3_policy_to_tencent_cos() {
     assert_eq!(stored.base_path, "tenant/prefix");
     let stored_options = parse_storage_policy_options(stored.options.as_ref());
     assert_eq!(
-        stored_options.effective_s3_upload_strategy(),
-        S3UploadStrategy::Presigned
+        stored_options.effective_object_storage_upload_strategy(),
+        ObjectStorageUploadStrategy::Presigned
     );
     assert_eq!(
-        stored_options.effective_s3_download_strategy(),
-        S3DownloadStrategy::Presigned
+        stored_options.effective_object_storage_download_strategy(),
+        ObjectStorageDownloadStrategy::Presigned
     );
     assert!(!stored_options.effective_s3_path_style());
 }

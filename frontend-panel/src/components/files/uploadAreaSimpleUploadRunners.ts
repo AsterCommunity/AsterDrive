@@ -1,6 +1,6 @@
 import {
 	getProcessingProgress,
-	S3_PROCESSING_PROGRESS,
+	SERVER_FINALIZE_PROGRESS,
 } from "@/components/files/uploadResume";
 import { getApiErrorMessage } from "@/hooks/useApiError";
 import { api } from "@/services/http";
@@ -130,7 +130,7 @@ export function createSimpleUploadRunners({
 				(onCreateXhr) => {
 					const onProgress = (loaded: number, total: number) => {
 						patchTaskThrottled(task.id, {
-							progress: Math.round((loaded / total) * S3_PROCESSING_PROGRESS),
+							progress: Math.round((loaded / total) * SERVER_FINALIZE_PROGRESS),
 							...speedTracker.sample(loaded),
 						});
 					};

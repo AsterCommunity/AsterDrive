@@ -60,7 +60,7 @@ impl StorageConnectorDescriptorProvider for RemoteConnector {
                 storage_native_thumbnail: false,
                 storage_native_media_metadata: false,
                 remote_node_binding: true,
-                s3_transfer_strategy: false,
+                object_storage_transfer_strategy: false,
             },
             upload_workflows: StorageConnectorUploadWorkflows {
                 simple_upload: true,

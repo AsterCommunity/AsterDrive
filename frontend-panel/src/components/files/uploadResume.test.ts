@@ -3,7 +3,7 @@ import {
 	CHUNK_PROCESSING_PROGRESS,
 	getProcessingProgress,
 	getResumePlan,
-	S3_PROCESSING_PROGRESS,
+	SERVER_FINALIZE_PROGRESS,
 } from "@/components/files/uploadResume";
 import type { UploadSessionStatus } from "@/types/api";
 
@@ -46,10 +46,10 @@ describe("uploadResume", () => {
 	it("uses chunk processing progress only for chunked assembly", () => {
 		expect(getProcessingProgress("chunked")).toBe(CHUNK_PROCESSING_PROGRESS);
 		expect(getProcessingProgress("presigned_multipart")).toBe(
-			S3_PROCESSING_PROGRESS,
+			SERVER_FINALIZE_PROGRESS,
 		);
-		expect(getProcessingProgress("presigned")).toBe(S3_PROCESSING_PROGRESS);
-		expect(getProcessingProgress("direct")).toBe(S3_PROCESSING_PROGRESS);
-		expect(getProcessingProgress(null)).toBe(S3_PROCESSING_PROGRESS);
+		expect(getProcessingProgress("presigned")).toBe(SERVER_FINALIZE_PROGRESS);
+		expect(getProcessingProgress("direct")).toBe(SERVER_FINALIZE_PROGRESS);
+		expect(getProcessingProgress(null)).toBe(SERVER_FINALIZE_PROGRESS);
 	});
 });

@@ -4,6 +4,9 @@ import {
 	DefaultPolicyToggle,
 	LimitsFields,
 	LocalContentDedupField,
+	ObjectStorageConnectionFields,
+	ObjectStorageDownloadStrategyField,
+	ObjectStorageUploadStrategyField,
 	OneDriveConnectionFields,
 	PolicyBasePathField,
 	PolicyNameField,
@@ -13,9 +16,6 @@ import {
 	RemoteNodeField,
 	RemoteRulesHelper,
 	RemoteUploadStrategyField,
-	S3ConnectionFields,
-	S3DownloadStrategyField,
-	S3UploadStrategyField,
 	StorageDriverVisual,
 	StorageNativeProcessingField,
 	type StoragePolicyDriverOption,
@@ -34,9 +34,9 @@ import {
 	supportsApplicationCredentials,
 	supportsContentDedupPolicyOption,
 	supportsObjectStorageConnection,
+	supportsObjectStorageTransferStrategy,
 	supportsOneDrivePolicyOptions,
 	supportsRemoteNodeBinding,
-	supportsS3TransferStrategy,
 	supportsStorageNativeProcessing,
 } from "./descriptorPredicates";
 import type { PolicyFormData } from "./formTypes";
@@ -65,7 +65,7 @@ interface StoragePolicyCreateWizardProps {
 	onDriverTypeChange: (driverType: DriverType) => void;
 	onFieldChange: StoragePolicyFieldChangeHandler;
 	onApplyS3CompatibleDriverSuggestion: () => void;
-	onSyncNormalizedS3Form: () => void;
+	onSyncNormalizedObjectStorageForm: () => void;
 	remoteNodes: RemoteNodeInfo[];
 	s3CompatibleDriverSuggestionTargetLabel: string | null;
 	stepAnimationKey: string;
@@ -92,7 +92,7 @@ export function StoragePolicyCreateWizard({
 	onDriverTypeChange,
 	onFieldChange,
 	onApplyS3CompatibleDriverSuggestion,
-	onSyncNormalizedS3Form,
+	onSyncNormalizedObjectStorageForm,
 	remoteNodes,
 	s3CompatibleDriverSuggestionTargetLabel,
 	stepAnimationKey,
@@ -160,7 +160,9 @@ export function StoragePolicyCreateWizard({
 								onApplyS3CompatibleDriverSuggestion={
 									onApplyS3CompatibleDriverSuggestion
 								}
-								onSyncNormalizedS3Form={onSyncNormalizedS3Form}
+								onSyncNormalizedObjectStorageForm={
+									onSyncNormalizedObjectStorageForm
+								}
 								remoteNodes={remoteNodes}
 								t={t}
 							/>
@@ -352,7 +354,7 @@ interface ConnectionStepProps {
 	s3CompatibleDriverSuggestionTargetLabel: string | null;
 	onApplyS3CompatibleDriverSuggestion: () => void;
 	onFieldChange: StoragePolicyFieldChangeHandler;
-	onSyncNormalizedS3Form: () => void;
+	onSyncNormalizedObjectStorageForm: () => void;
 	remoteNodes: RemoteNodeInfo[];
 	t: Translate;
 }
@@ -370,7 +372,7 @@ function ConnectionStep({
 	s3CompatibleDriverSuggestionTargetLabel,
 	onApplyS3CompatibleDriverSuggestion,
 	onFieldChange,
-	onSyncNormalizedS3Form,
+	onSyncNormalizedObjectStorageForm,
 	remoteNodes,
 	t,
 }: ConnectionStepProps) {
@@ -406,7 +408,7 @@ function ConnectionStep({
 					onFieldChange={onFieldChange}
 				/>
 				{canUseObjectStorageConnection ? (
-					<S3ConnectionFields
+					<ObjectStorageConnectionFields
 						form={form}
 						bucketError={createBucketError}
 						endpointValidationMessage={endpointValidationMessage}
@@ -415,7 +417,9 @@ function ConnectionStep({
 						storageDriverDescriptor={storageDriverDescriptor}
 						t={t}
 						onFieldChange={onFieldChange}
-						onSyncNormalizedS3Form={onSyncNormalizedS3Form}
+						onSyncNormalizedObjectStorageForm={
+							onSyncNormalizedObjectStorageForm
+						}
 					/>
 				) : canUseRemoteNodeBinding ? (
 					<RemoteNodeField
@@ -548,7 +552,7 @@ function getDriverHelperKey(descriptor: StorageConnectorDescriptor | null) {
 		if (endpointField?.help_key) {
 			return endpointField.help_key;
 		}
-		return "policy_wizard_s3_helper";
+		return "policy_wizard_object_storage_helper";
 	}
 	if (supportsRemoteNodeBinding(descriptor)) {
 		return "policy_wizard_remote_helper";
@@ -640,15 +644,15 @@ function DriverBehaviorFields({
 	remoteNodes,
 	t,
 }: DriverBehaviorFieldsProps) {
-	if (supportsS3TransferStrategy(storageDriverDescriptor)) {
+	if (supportsObjectStorageTransferStrategy(storageDriverDescriptor)) {
 		return (
 			<div className="space-y-4">
-				<S3UploadStrategyField
+				<ObjectStorageUploadStrategyField
 					form={form}
 					t={t}
 					onFieldChange={onFieldChange}
 				/>
-				<S3DownloadStrategyField
+				<ObjectStorageDownloadStrategyField
 					form={form}
 					t={t}
 					onFieldChange={onFieldChange}

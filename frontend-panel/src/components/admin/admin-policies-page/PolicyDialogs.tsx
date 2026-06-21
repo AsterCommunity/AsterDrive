@@ -72,7 +72,7 @@ interface PolicyDialogsProps {
 	onRequestS3DriverPromotion: () => void;
 	onRunConnectionTest: () => Promise<boolean>;
 	onSubmit: () => void;
-	onSyncNormalizedS3Form: () => void;
+	onSyncNormalizedObjectStorageForm: () => void;
 }
 
 export function PolicyDialogs({
@@ -127,7 +127,7 @@ export function PolicyDialogs({
 	onRequestS3DriverPromotion,
 	onRunConnectionTest,
 	onSubmit,
-	onSyncNormalizedS3Form,
+	onSyncNormalizedObjectStorageForm,
 }: PolicyDialogsProps) {
 	const { t } = useTranslation("admin");
 
@@ -201,7 +201,7 @@ export function PolicyDialogs({
 				onCreateBack={onCreateBack}
 				onCreateStepChange={onCreateStepChange}
 				onCreateNext={onCreateNext}
-				onSyncNormalizedS3Form={onSyncNormalizedS3Form}
+				onSyncNormalizedObjectStorageForm={onSyncNormalizedObjectStorageForm}
 			/>
 		</>
 	);

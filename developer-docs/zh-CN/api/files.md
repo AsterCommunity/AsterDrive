@@ -65,13 +65,13 @@
 
 前端仍然只会看到这四种模式，不会额外出现一个 `relay_stream` 模式。实际传输策略由存储 connector 和策略 options 共同决定：
 
-- `options.s3_upload_strategy`：控制 S3-compatible、Azure Blob、Tencent COS 这类对象存储 connector 的传输策略
+- `options.object_storage_upload_strategy`：控制 S3-compatible、Azure Blob、Tencent COS 这类对象存储 connector 的传输策略
 - `options.remote_upload_strategy`：控制 remote follower 策略
 - OneDrive 使用 Microsoft Graph 原生上传能力，按 connector 暴露的 upload workflow 决定普通上传或 provider resumable upload
 - `relay_stream`：`init` 仍返回 `direct` / `chunked`，但服务端直接把字节流中继到对象存储 / follower，不落本地临时文件
 - `presigned`：`init` 才会返回 `presigned` / `presigned_multipart`
 
-缺省时对象存储和 Remote 上传都会回退为 `relay_stream`。旧配置 `{"presigned_upload":true}` 仍兼容，等价于 `{"s3_upload_strategy":"presigned"}`；旧的 `{"s3_upload_strategy":"proxy_tempfile"}` 会回退为 `relay_stream`。使用预签名模式时，对象存储侧或 follower 内部存储接口还必须配置好浏览器可用的 CORS。Azure Blob 预签名上传使用 SAS URL，客户端必须带 `x-ms-blob-type: BlockBlob`；S3-compatible、Tencent COS 和 Remote multipart part 通常要求回传 ETag。Remote 预签名上传只适用于可直连的远端节点；如果远端节点解析为 reverse tunnel，服务端会拒绝 `remote_upload_strategy = "presigned"` 这类策略组合。
+缺省时对象存储和 Remote 上传都会回退为 `relay_stream`。旧配置 `{"presigned_upload":true}` 和 `{"s3_upload_strategy":"presigned"}` 仍作为兼容输入接受；新客户端应发送 `{"object_storage_upload_strategy":"presigned"}`。旧的 `{"s3_upload_strategy":"proxy_tempfile"}` 会回退为 `relay_stream`。使用预签名模式时，对象存储侧或 follower 内部存储接口还必须配置好浏览器可用的 CORS。Azure Blob 预签名上传使用 SAS URL，客户端必须带 `x-ms-blob-type: BlockBlob`；S3-compatible、Tencent COS 和 Remote multipart part 通常要求回传 ETag。Remote 预签名上传只适用于可直连的远端节点；如果远端节点解析为 reverse tunnel，服务端会拒绝 `remote_upload_strategy = "presigned"` 这类策略组合。
 
 ### 直传、分片和完成阶段
 

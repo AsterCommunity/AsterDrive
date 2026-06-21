@@ -52,10 +52,10 @@ export function supportsRemoteNodeBinding(
 	return descriptor?.capabilities.remote_node_binding === true;
 }
 
-export function supportsS3TransferStrategy(
+export function supportsObjectStorageTransferStrategy(
 	descriptor: StorageConnectorDescriptor | null | undefined,
 ) {
-	return descriptor?.capabilities.s3_transfer_strategy === true;
+	return descriptor?.capabilities.object_storage_transfer_strategy === true;
 }
 
 export function supportsOneDrivePolicyOptions(

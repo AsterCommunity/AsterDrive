@@ -13,7 +13,7 @@ use crate::storage::connector_descriptor::{
     object_storage_connector_descriptor, policy_action_descriptor,
 };
 use crate::storage::drivers::tencent_cos::TencentCosDriver;
-use crate::types::{DriverType, parse_storage_policy_options};
+use crate::types::{DriverType, ObjectStorageDownloadStrategy, parse_storage_policy_options};
 
 use super::common::{
     build_connection_test_policy, ensure_policy_action_supported, normalize_s3_connection_fields,
@@ -41,7 +41,7 @@ impl StorageConnectorDescriptorProvider for TencentCosConnector {
                     helper_key: "policy_wizard_tencent_cos_helper",
                     config_step_title_key: "policy_wizard_step_connection_title",
                     config_step_description_key: "policy_wizard_step_tencent_cos_connection_desc",
-                    edit_context_key: "policy_edit_context_s3_desc",
+                    edit_context_key: "policy_edit_context_object_storage_desc",
                     base_path_empty_display: "core:root",
                     base_path_placeholder: "tenant/prefix",
                 },
@@ -177,11 +177,14 @@ impl StorageConnector for TencentCosConnector {
 
     fn upload_transport(policy: &storage_policy::Model) -> StorageConnectorUploadTransport {
         let options = parse_storage_policy_options(policy.options.as_ref());
-        StorageConnectorUploadTransport::ObjectStorage(options.effective_s3_upload_strategy())
+        StorageConnectorUploadTransport::ObjectStorage(
+            options.effective_object_storage_upload_strategy(),
+        )
     }
 
     fn presigned_download_enabled(policy: &storage_policy::Model) -> bool {
         let options = parse_storage_policy_options(policy.options.as_ref());
-        options.effective_s3_download_strategy() == crate::types::S3DownloadStrategy::Presigned
+        options.effective_object_storage_download_strategy()
+            == ObjectStorageDownloadStrategy::Presigned
     }
 }

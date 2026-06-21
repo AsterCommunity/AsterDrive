@@ -1,5 +1,5 @@
-export { S3DownloadStrategyField } from "@/components/admin/storage-policy-dialog/S3DownloadStrategyField";
-export { S3UploadStrategyField } from "@/components/admin/storage-policy-dialog/S3UploadStrategyField";
+export { ObjectStorageDownloadStrategyField } from "@/components/admin/storage-policy-dialog/ObjectStorageDownloadStrategyField";
+export { ObjectStorageUploadStrategyField } from "@/components/admin/storage-policy-dialog/ObjectStorageUploadStrategyField";
 export {
 	DefaultPolicyToggle,
 	LimitsFields,
@@ -15,6 +15,7 @@ export type {
 	StoragePolicyDriverOption,
 	Translate,
 } from "@/components/admin/storage-policy-dialog/StoragePolicyFieldTypes";
+export { ObjectStorageConnectionFields } from "@/components/admin/storage-policy-dialog/StoragePolicyObjectStorageFields";
 export {
 	OneDriveConnectionFields,
 	OneDriveCredentialPanel,
@@ -25,7 +26,6 @@ export {
 	RemoteRulesHelper,
 	RemoteUploadStrategyField,
 } from "@/components/admin/storage-policy-dialog/StoragePolicyRemoteFields";
-export { S3ConnectionFields } from "@/components/admin/storage-policy-dialog/StoragePolicyS3Fields";
 export {
 	DriverTypeBadge,
 	PolicyCapacityCard,

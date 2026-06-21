@@ -673,14 +673,24 @@ function objectStorageConnectionFields(
 }
 
 const objectStoragePolicyOptionFields = [
-	fieldDescriptor("s3_upload_strategy", "policy_options", "select", {
-		options: ["relay_stream", "presigned"],
-		required: true,
-	}),
-	fieldDescriptor("s3_download_strategy", "policy_options", "select", {
-		options: ["relay_stream", "presigned"],
-		required: true,
-	}),
+	fieldDescriptor(
+		"object_storage_upload_strategy",
+		"policy_options",
+		"select",
+		{
+			options: ["relay_stream", "presigned"],
+			required: true,
+		},
+	),
+	fieldDescriptor(
+		"object_storage_download_strategy",
+		"policy_options",
+		"select",
+		{
+			options: ["relay_stream", "presigned"],
+			required: true,
+		},
+	),
 ] as const;
 
 const s3PolicyOptionFields = [
@@ -707,7 +717,7 @@ function storageConnectorUi(driverType: string) {
 		base_path_empty_display: "core:root",
 		base_path_placeholder: "tenant/prefix",
 		config_step_title_key: "policy_wizard_step_connection_title",
-		edit_context_key: "policy_edit_context_s3_desc",
+		edit_context_key: "policy_edit_context_object_storage_desc",
 	};
 
 	switch (driverType) {
@@ -775,9 +785,10 @@ function storageConnectorUi(driverType: string) {
 		default:
 			return {
 				...sharedObjectStorageUi,
-				config_step_description_key: "policy_wizard_step_connection_desc",
+				config_step_description_key:
+					"policy_wizard_step_object_storage_connection_desc",
 				description_key: "policy_wizard_s3_storage_desc",
-				helper_key: "policy_wizard_s3_helper",
+				helper_key: "policy_wizard_object_storage_helper",
 				icon_name: null,
 				icon_src: "/static/storage/s3.svg",
 				label_key: "driver_type_s3",
@@ -817,7 +828,7 @@ function createStorageDriverDescriptor(
 			list: true,
 			presigned_download: false,
 			remote_node_binding: false,
-			s3_transfer_strategy: false,
+			object_storage_transfer_strategy: false,
 			storage_native_media_metadata: false,
 			storage_native_thumbnail: false,
 		},
@@ -895,7 +906,7 @@ function createStorageDriverDescriptors() {
 			capabilities: {
 				...createStorageDriverDescriptor("s3").capabilities,
 				presigned_download: true,
-				s3_transfer_strategy: true,
+				object_storage_transfer_strategy: true,
 			},
 			driver_recommendations: [
 				{
@@ -946,7 +957,7 @@ function createStorageDriverDescriptors() {
 			capabilities: {
 				...createStorageDriverDescriptor("tencent_cos").capabilities,
 				presigned_download: true,
-				s3_transfer_strategy: true,
+				object_storage_transfer_strategy: true,
 				storage_native_media_metadata: true,
 				storage_native_thumbnail: true,
 			},
@@ -964,7 +975,7 @@ function createStorageDriverDescriptors() {
 			capabilities: {
 				...createStorageDriverDescriptor("azure_blob").capabilities,
 				presigned_download: true,
-				s3_transfer_strategy: true,
+				object_storage_transfer_strategy: true,
 			},
 			fields: [
 				...objectStorageConnectionFields("azure_blob"),
@@ -2048,7 +2059,7 @@ describe("AdminPoliciesPage", () => {
 						...descriptor,
 						capabilities: {
 							...descriptor.capabilities,
-							s3_transfer_strategy: false,
+							object_storage_transfer_strategy: false,
 						},
 						fields: descriptor.fields.filter(
 							(field) => field.name !== "bucket",
@@ -2078,7 +2089,7 @@ describe("AdminPoliciesPage", () => {
 			screen.queryByText("policy_wizard_bucket_required"),
 		).not.toBeInTheDocument();
 		expect(
-			screen.queryByLabelText("s3_upload_strategy"),
+			screen.queryByLabelText("object_storage_upload_strategy"),
 		).not.toBeInTheDocument();
 		expect(screen.queryByLabelText("content_dedup")).not.toBeInTheDocument();
 	});
@@ -2451,8 +2462,8 @@ describe("AdminPoliciesPage", () => {
 				driver_type: "s3",
 				endpoint: "https://s3.example.com",
 				options: {
-					s3_download_strategy: "relay_stream",
-					s3_upload_strategy: "relay_stream",
+					object_storage_download_strategy: "relay_stream",
+					object_storage_upload_strategy: "relay_stream",
 				},
 				remote_node_id: undefined,
 				secret_key: undefined,
@@ -2526,8 +2537,8 @@ describe("AdminPoliciesPage", () => {
 				endpoint: "https://cos.ap-guangzhou.myqcloud.com",
 				options: {
 					media_metadata_extensions: ["mp4", "mov"],
-					s3_download_strategy: "relay_stream",
-					s3_upload_strategy: "relay_stream",
+					object_storage_download_strategy: "relay_stream",
+					object_storage_upload_strategy: "relay_stream",
 					storage_native_media_metadata_enabled: true,
 					storage_native_processing_enabled: true,
 					thumbnail_extensions: ["png", "jpg", "webp"],
@@ -2550,8 +2561,8 @@ describe("AdminPoliciesPage", () => {
 				name: "COS Media",
 				options: {
 					media_metadata_extensions: ["mp4", "mov"],
-					s3_download_strategy: "relay_stream",
-					s3_upload_strategy: "relay_stream",
+					object_storage_download_strategy: "relay_stream",
+					object_storage_upload_strategy: "relay_stream",
 					storage_native_media_metadata_enabled: true,
 					storage_native_processing_enabled: true,
 					thumbnail_extensions: ["png", "jpg", "webp"],
@@ -2603,8 +2614,8 @@ describe("AdminPoliciesPage", () => {
 				driver_type: "tencent_cos",
 				endpoint: "https://cos.ap-guangzhou.myqcloud.com",
 				options: {
-					s3_download_strategy: "relay_stream",
-					s3_upload_strategy: "relay_stream",
+					object_storage_download_strategy: "relay_stream",
+					object_storage_upload_strategy: "relay_stream",
 				},
 				remote_node_id: undefined,
 				secret_key: "SECRETEXAMPLE",
@@ -2773,8 +2784,8 @@ describe("AdminPoliciesPage", () => {
 				driver_type: "azure_blob",
 				endpoint: "https://acct.blob.core.windows.net",
 				options: {
-					s3_download_strategy: "relay_stream",
-					s3_upload_strategy: "relay_stream",
+					object_storage_download_strategy: "relay_stream",
+					object_storage_upload_strategy: "relay_stream",
 				},
 				remote_node_id: undefined,
 				secret_key: "AZURESECRET",
@@ -2792,8 +2803,8 @@ describe("AdminPoliciesPage", () => {
 				max_file_size: undefined,
 				name: "Azure Archive",
 				options: {
-					s3_download_strategy: "relay_stream",
-					s3_upload_strategy: "relay_stream",
+					object_storage_download_strategy: "relay_stream",
+					object_storage_upload_strategy: "relay_stream",
 				},
 				remote_node_id: undefined,
 				secret_key: "AZURESECRET",
@@ -3508,7 +3519,7 @@ describe("AdminPoliciesPage", () => {
 				bucket: "archive",
 				base_path: "tenant-a",
 				max_file_size: 4096,
-				options: { s3_upload_strategy: "presigned" },
+				options: { object_storage_upload_strategy: "presigned" },
 			}),
 		];
 
@@ -3568,8 +3579,8 @@ describe("AdminPoliciesPage", () => {
 				driver_type: "s3",
 				endpoint: "https://s3.example.com",
 				options: {
-					s3_download_strategy: "relay_stream",
-					s3_upload_strategy: "relay_stream",
+					object_storage_download_strategy: "relay_stream",
+					object_storage_upload_strategy: "relay_stream",
 				},
 				policy_id: 7,
 				remote_node_id: undefined,
@@ -3603,8 +3614,8 @@ describe("AdminPoliciesPage", () => {
 				max_file_size: 4096,
 				name: "Archive S3 Updated",
 				options: {
-					s3_download_strategy: "relay_stream",
-					s3_upload_strategy: "relay_stream",
+					object_storage_download_strategy: "relay_stream",
+					object_storage_upload_strategy: "relay_stream",
 				},
 			}),
 		);
@@ -3623,7 +3634,7 @@ describe("AdminPoliciesPage", () => {
 				bucket: "archive",
 				base_path: "tenant-a",
 				max_file_size: 4096,
-				options: { s3_upload_strategy: "presigned" },
+				options: { object_storage_upload_strategy: "presigned" },
 			}),
 		];
 
@@ -3644,8 +3655,8 @@ describe("AdminPoliciesPage", () => {
 				driver_type: "s3",
 				endpoint: "https://s3-alt.example.com",
 				options: {
-					s3_download_strategy: "relay_stream",
-					s3_upload_strategy: "presigned",
+					object_storage_download_strategy: "relay_stream",
+					object_storage_upload_strategy: "presigned",
 				},
 				policy_id: 8,
 				remote_node_id: undefined,
@@ -3665,8 +3676,8 @@ describe("AdminPoliciesPage", () => {
 				bucket: "media-1250000000",
 				base_path: "tenant-cos",
 				options: {
-					s3_download_strategy: "presigned",
-					s3_upload_strategy: "presigned",
+					object_storage_download_strategy: "presigned",
+					object_storage_upload_strategy: "presigned",
 				},
 			}),
 		];
@@ -3710,8 +3721,8 @@ describe("AdminPoliciesPage", () => {
 				bucket: "media-1250000000",
 				base_path: "tenant-cos",
 				options: {
-					s3_download_strategy: "presigned",
-					s3_upload_strategy: "presigned",
+					object_storage_download_strategy: "presigned",
+					object_storage_upload_strategy: "presigned",
 				},
 			}),
 		];
@@ -3770,8 +3781,8 @@ describe("AdminPoliciesPage", () => {
 				bucket: "media-1250000000",
 				base_path: "tenant-cos",
 				options: {
-					s3_download_strategy: "presigned",
-					s3_upload_strategy: "presigned",
+					object_storage_download_strategy: "presigned",
+					object_storage_upload_strategy: "presigned",
 				},
 			}),
 		];
@@ -3807,8 +3818,8 @@ describe("AdminPoliciesPage", () => {
 				driver_type: "tencent_cos",
 				endpoint: "https://cos.ap-guangzhou.myqcloud.com",
 				options: {
-					s3_download_strategy: "presigned",
-					s3_upload_strategy: "presigned",
+					object_storage_download_strategy: "presigned",
+					object_storage_upload_strategy: "presigned",
 				},
 				policy_id: 32,
 				remote_node_id: undefined,
@@ -3828,8 +3839,8 @@ describe("AdminPoliciesPage", () => {
 				bucket: "media-1250000000",
 				base_path: "tenant-cos",
 				options: {
-					s3_download_strategy: "presigned",
-					s3_upload_strategy: "presigned",
+					object_storage_download_strategy: "presigned",
+					object_storage_upload_strategy: "presigned",
 				},
 			}),
 		];
@@ -3857,8 +3868,8 @@ describe("AdminPoliciesPage", () => {
 				driver_type: "tencent_cos",
 				endpoint: "https://cos.ap-guangzhou.myqcloud.com",
 				options: {
-					s3_download_strategy: "presigned",
-					s3_upload_strategy: "presigned",
+					object_storage_download_strategy: "presigned",
+					object_storage_upload_strategy: "presigned",
 				},
 				policy_id: 34,
 				remote_node_id: undefined,
@@ -3877,8 +3888,8 @@ describe("AdminPoliciesPage", () => {
 				bucket: "media-1250000000",
 				base_path: "tenant-cos",
 				options: {
-					s3_download_strategy: "presigned",
-					s3_upload_strategy: "presigned",
+					object_storage_download_strategy: "presigned",
+					object_storage_upload_strategy: "presigned",
 					s3_path_style: false,
 				},
 			}),
@@ -3942,8 +3953,8 @@ describe("AdminPoliciesPage", () => {
 				bucket: "draft-bucket",
 				base_path: "tenant-draft",
 				options: {
-					s3_download_strategy: "relay_stream",
-					s3_upload_strategy: "relay_stream",
+					object_storage_download_strategy: "relay_stream",
+					object_storage_upload_strategy: "relay_stream",
 				},
 			}),
 		];
@@ -4114,8 +4125,8 @@ describe("AdminPoliciesPage", () => {
 				driver_type: "s3",
 				endpoint: "http://s3.example.com",
 				options: {
-					s3_download_strategy: "relay_stream",
-					s3_upload_strategy: "relay_stream",
+					object_storage_download_strategy: "relay_stream",
+					object_storage_upload_strategy: "relay_stream",
 				},
 				remote_node_id: undefined,
 				secret_key: undefined,
@@ -4196,7 +4207,7 @@ describe("AdminPoliciesPage", () => {
 				endpoint: "https://s3.example.com",
 				bucket: "legacy-bucket",
 				base_path: "legacy-path",
-				options: { s3_upload_strategy: "presigned" },
+				options: { object_storage_upload_strategy: "presigned" },
 			}),
 		];
 
@@ -4215,8 +4226,8 @@ describe("AdminPoliciesPage", () => {
 				10,
 				expect.objectContaining({
 					options: {
-						s3_download_strategy: "relay_stream",
-						s3_upload_strategy: "presigned",
+						object_storage_download_strategy: "relay_stream",
+						object_storage_upload_strategy: "presigned",
 					},
 				}),
 			);
@@ -4241,7 +4252,7 @@ describe("AdminPoliciesPage", () => {
 				bucket: "relay-bucket",
 				base_path: "tenant-relay",
 				max_file_size: 4096,
-				options: { s3_upload_strategy: "relay_stream" },
+				options: { object_storage_upload_strategy: "relay_stream" },
 			}),
 		];
 
@@ -4271,8 +4282,8 @@ describe("AdminPoliciesPage", () => {
 				driver_type: "s3",
 				endpoint: "https://s3.example.com",
 				options: {
-					s3_download_strategy: "relay_stream",
-					s3_upload_strategy: "relay_stream",
+					object_storage_download_strategy: "relay_stream",
+					object_storage_upload_strategy: "relay_stream",
 				},
 				policy_id: 9,
 				remote_node_id: undefined,
@@ -4302,8 +4313,8 @@ describe("AdminPoliciesPage", () => {
 				max_file_size: 4096,
 				name: "Relay S3",
 				options: {
-					s3_download_strategy: "relay_stream",
-					s3_upload_strategy: "relay_stream",
+					object_storage_download_strategy: "relay_stream",
+					object_storage_upload_strategy: "relay_stream",
 				},
 				secret_key: "NEWSECRET",
 			}),
@@ -4322,7 +4333,7 @@ describe("AdminPoliciesPage", () => {
 				bucket: "direct-put",
 				max_file_size: 0,
 				chunk_size: 0,
-				options: { s3_upload_strategy: "presigned" },
+				options: { object_storage_upload_strategy: "presigned" },
 			}),
 		];
 
@@ -4369,8 +4380,8 @@ describe("AdminPoliciesPage", () => {
 				driver_type: "s3",
 				endpoint: "https://s3.example.com",
 				options: {
-					s3_download_strategy: "relay_stream",
-					s3_upload_strategy: "relay_stream",
+					object_storage_download_strategy: "relay_stream",
+					object_storage_upload_strategy: "relay_stream",
 				},
 				remote_node_id: undefined,
 				secret_key: "BROKENSECRET",
@@ -4399,8 +4410,8 @@ describe("AdminPoliciesPage", () => {
 				max_file_size: undefined,
 				name: "Broken S3",
 				options: {
-					s3_download_strategy: "relay_stream",
-					s3_upload_strategy: "relay_stream",
+					object_storage_download_strategy: "relay_stream",
+					object_storage_upload_strategy: "relay_stream",
 				},
 				remote_node_id: undefined,
 				secret_key: "BROKENSECRET",
@@ -4590,8 +4601,8 @@ describe("AdminPoliciesPage", () => {
 				driver_type: "s3",
 				endpoint: "https://s3.example.com",
 				options: {
-					s3_download_strategy: "relay_stream",
-					s3_upload_strategy: "relay_stream",
+					object_storage_download_strategy: "relay_stream",
+					object_storage_upload_strategy: "relay_stream",
 				},
 				remote_node_id: undefined,
 				secret_key: undefined,

@@ -12,9 +12,9 @@ import {
 	supportsCredentialValidationAction,
 	supportsDraftConnectionTest,
 	supportsObjectStorageConnection,
+	supportsObjectStorageTransferStrategy,
 	supportsOneDrivePolicyOptions,
 	supportsRemoteNodeBinding,
-	supportsS3TransferStrategy,
 	supportsSavedConnectionTest,
 	supportsStorageAuthorizationAction,
 	supportsStorageNativeProcessing,
@@ -46,7 +46,7 @@ describe("storage policy dialog helper modules", () => {
 			remote_node_binding: false,
 			storage_native_media_metadata: false,
 			storage_native_thumbnail: false,
-			s3_transfer_strategy: false,
+			object_storage_transfer_strategy: false,
 		},
 		fields: [],
 		upload_workflows: {
@@ -144,7 +144,7 @@ describe("storage policy dialog helper modules", () => {
 		const objectStorageDescriptor = {
 			capabilities: {
 				remote_node_binding: false,
-				s3_transfer_strategy: true,
+				object_storage_transfer_strategy: true,
 			},
 			fields: [
 				{ name: "endpoint", scope: "connection" },
@@ -199,7 +199,9 @@ describe("storage policy dialog helper modules", () => {
 		).toBe(false);
 		expect(supportsObjectStorageConnection(objectStorageDescriptor)).toBe(true);
 		expect(supportsRemoteNodeBinding(remoteDescriptor)).toBe(true);
-		expect(supportsS3TransferStrategy(objectStorageDescriptor)).toBe(true);
+		expect(supportsObjectStorageTransferStrategy(objectStorageDescriptor)).toBe(
+			true,
+		);
 		expect(supportsOneDrivePolicyOptions(onedriveDescriptor)).toBe(true);
 		expect(supportsContentDedupPolicyOption(contentDedupDescriptor)).toBe(true);
 		expect(supportsStorageAuthorizationAction(onedriveDescriptor)).toBe(true);
@@ -210,7 +212,7 @@ describe("storage policy dialog helper modules", () => {
 		const incompleteObjectStorageDescriptor = {
 			capabilities: {
 				remote_node_binding: false,
-				s3_transfer_strategy: true,
+				object_storage_transfer_strategy: true,
 			},
 			fields: [
 				{ name: "endpoint", scope: "connection" },
@@ -224,7 +226,7 @@ describe("storage policy dialog helper modules", () => {
 		const wrongScopeObjectStorageDescriptor = {
 			capabilities: {
 				remote_node_binding: false,
-				s3_transfer_strategy: true,
+				object_storage_transfer_strategy: true,
 			},
 			fields: [
 				{ name: "endpoint", scope: "policy_options" },
@@ -239,7 +241,7 @@ describe("storage policy dialog helper modules", () => {
 		const noMultipartWorkflowDescriptor = {
 			capabilities: {
 				remote_node_binding: false,
-				s3_transfer_strategy: true,
+				object_storage_transfer_strategy: true,
 			},
 			fields: [
 				{ name: "endpoint", scope: "connection" },
@@ -270,7 +272,7 @@ describe("storage policy dialog helper modules", () => {
 			false,
 		);
 		expect(supportsRemoteNodeBinding(null)).toBe(false);
-		expect(supportsS3TransferStrategy(null)).toBe(false);
+		expect(supportsObjectStorageTransferStrategy(null)).toBe(false);
 		expect(supportsStorageAuthorizationAction(null)).toBe(false);
 		expect(supportsCredentialValidationAction(null)).toBe(false);
 		expect(supportsOneDrivePolicyOptions(applicationCredentialDescriptor)).toBe(
@@ -328,8 +330,8 @@ describe("storage policy dialog helper modules", () => {
 			content_dedup: true,
 			remote_download_strategy: "relay_stream",
 			remote_upload_strategy: "relay_stream",
-			s3_upload_strategy: "relay_stream",
-			s3_download_strategy: "relay_stream",
+			object_storage_upload_strategy: "relay_stream",
+			object_storage_download_strategy: "relay_stream",
 			s3_path_style: true,
 			onedrive_cloud: "global",
 			onedrive_account_mode: "work_or_school",
@@ -372,8 +374,8 @@ describe("storage policy dialog helper modules", () => {
 				content_dedup: false,
 				remote_download_strategy: "relay_stream",
 				remote_upload_strategy: "relay_stream",
-				s3_upload_strategy: "presigned",
-				s3_download_strategy: "relay_stream",
+				object_storage_upload_strategy: "presigned",
+				object_storage_download_strategy: "relay_stream",
 				storage_native_processing_enabled: false,
 				thumbnail_processor: null,
 				thumbnail_extensions: [],
@@ -390,7 +392,7 @@ describe("storage policy dialog helper modules", () => {
 			chunk_size: 6 * 1024 * 1024,
 			is_default: false,
 			options: {
-				s3_upload_strategy: "presigned",
+				object_storage_upload_strategy: "presigned",
 			},
 			remote_node_id: undefined,
 		});
@@ -411,8 +413,8 @@ describe("storage policy dialog helper modules", () => {
 				content_dedup: false,
 				remote_download_strategy: "relay_stream",
 				remote_upload_strategy: "relay_stream",
-				s3_upload_strategy: "relay_stream",
-				s3_download_strategy: "relay_stream",
+				object_storage_upload_strategy: "relay_stream",
+				object_storage_download_strategy: "relay_stream",
 				s3_path_style: false,
 				storage_native_processing_enabled: false,
 				thumbnail_processor: null,
@@ -642,8 +644,8 @@ describe("storage policy dialog helper modules", () => {
 			content_dedup: false,
 			remote_download_strategy: "relay_stream" as const,
 			remote_upload_strategy: "relay_stream" as const,
-			s3_upload_strategy: "relay_stream" as const,
-			s3_download_strategy: "relay_stream" as const,
+			object_storage_upload_strategy: "relay_stream" as const,
+			object_storage_download_strategy: "relay_stream" as const,
 			storage_native_processing_enabled: false,
 			thumbnail_processor: null,
 			thumbnail_extensions: [],
@@ -718,8 +720,8 @@ describe("storage policy dialog helper modules", () => {
 			content_dedup: false,
 			remote_download_strategy: "relay_stream" as const,
 			remote_upload_strategy: "relay_stream" as const,
-			s3_upload_strategy: "presigned" as const,
-			s3_download_strategy: "relay_stream" as const,
+			object_storage_upload_strategy: "presigned" as const,
+			object_storage_download_strategy: "relay_stream" as const,
 			storage_native_processing_enabled: false,
 			thumbnail_processor: null,
 			thumbnail_extensions: [],
@@ -788,8 +790,8 @@ describe("storage policy dialog helper modules", () => {
 			content_dedup: false,
 			remote_download_strategy: "relay_stream" as const,
 			remote_upload_strategy: "relay_stream" as const,
-			s3_upload_strategy: "presigned" as const,
-			s3_download_strategy: "presigned" as const,
+			object_storage_upload_strategy: "presigned" as const,
+			object_storage_download_strategy: "presigned" as const,
 			storage_native_processing_enabled: true,
 			thumbnail_processor: "storage_native" as const,
 			thumbnail_extensions: [" .PNG ", "jpg"],
@@ -808,8 +810,8 @@ describe("storage policy dialog helper modules", () => {
 			base_path: "tenant-a",
 			remote_node_id: undefined,
 			options: {
-				s3_upload_strategy: "presigned",
-				s3_download_strategy: "presigned",
+				object_storage_upload_strategy: "presigned",
+				object_storage_download_strategy: "presigned",
 				storage_native_processing_enabled: true,
 				thumbnail_processor: "storage_native",
 				thumbnail_extensions: ["png", "jpg"],
@@ -837,8 +839,8 @@ describe("storage policy dialog helper modules", () => {
 				content_dedup: false,
 				remote_download_strategy: "relay_stream",
 				remote_upload_strategy: "relay_stream",
-				s3_upload_strategy: "relay_stream",
-				s3_download_strategy: "presigned",
+				object_storage_upload_strategy: "relay_stream",
+				object_storage_download_strategy: "presigned",
 				storage_native_processing_enabled: false,
 				thumbnail_processor: null,
 				thumbnail_extensions: [],
@@ -852,7 +854,7 @@ describe("storage policy dialog helper modules", () => {
 			chunk_size: 5 * 1024 * 1024,
 			is_default: true,
 			options: {
-				s3_download_strategy: "presigned",
+				object_storage_download_strategy: "presigned",
 			},
 			remote_node_id: undefined,
 		});
@@ -875,8 +877,8 @@ describe("storage policy dialog helper modules", () => {
 				content_dedup: false,
 				remote_download_strategy: "presigned",
 				remote_upload_strategy: "presigned",
-				s3_upload_strategy: "relay_stream",
-				s3_download_strategy: "relay_stream",
+				object_storage_upload_strategy: "relay_stream",
+				object_storage_download_strategy: "relay_stream",
 				storage_native_processing_enabled: false,
 				thumbnail_processor: null,
 				thumbnail_extensions: [],
@@ -915,8 +917,8 @@ describe("storage policy dialog helper modules", () => {
 				content_dedup: false,
 				remote_download_strategy: "presigned",
 				remote_upload_strategy: "presigned",
-				s3_upload_strategy: "relay_stream",
-				s3_download_strategy: "relay_stream",
+				object_storage_upload_strategy: "relay_stream",
+				object_storage_download_strategy: "relay_stream",
 				storage_native_processing_enabled: false,
 				thumbnail_processor: null,
 				thumbnail_extensions: [],
@@ -952,8 +954,8 @@ describe("storage policy dialog helper modules", () => {
 					content_dedup: false,
 					remote_download_strategy: "presigned",
 					remote_upload_strategy: "presigned",
-					s3_upload_strategy: "relay_stream",
-					s3_download_strategy: "relay_stream",
+					object_storage_upload_strategy: "relay_stream",
+					object_storage_download_strategy: "relay_stream",
 					storage_native_processing_enabled: false,
 					thumbnail_processor: null,
 					thumbnail_extensions: [],
@@ -983,8 +985,8 @@ describe("storage policy dialog helper modules", () => {
 					content_dedup: false,
 					remote_download_strategy: "presigned",
 					remote_upload_strategy: "presigned",
-					s3_upload_strategy: "relay_stream",
-					s3_download_strategy: "relay_stream",
+					object_storage_upload_strategy: "relay_stream",
+					object_storage_download_strategy: "relay_stream",
 					storage_native_processing_enabled: false,
 					thumbnail_processor: null,
 					thumbnail_extensions: [],
@@ -1011,8 +1013,8 @@ describe("storage policy dialog helper modules", () => {
 			content_dedup: false,
 			remote_download_strategy: "relay_stream" as const,
 			remote_upload_strategy: "relay_stream" as const,
-			s3_upload_strategy: "presigned" as const,
-			s3_download_strategy: "relay_stream" as const,
+			object_storage_upload_strategy: "presigned" as const,
+			object_storage_download_strategy: "relay_stream" as const,
 			s3_path_style: false,
 			storage_native_processing_enabled: false,
 			thumbnail_processor: null,
@@ -1037,7 +1039,7 @@ describe("storage policy dialog helper modules", () => {
 			chunk_size: 8 * 1024 * 1024,
 			is_default: false,
 			options: {
-				s3_upload_strategy: "presigned",
+				object_storage_upload_strategy: "presigned",
 				s3_path_style: false,
 			},
 		});
@@ -1058,7 +1060,7 @@ describe("storage policy dialog helper modules", () => {
 				base_path: "archives",
 				remote_node_id: undefined,
 				options: {
-					s3_upload_strategy: "presigned",
+					object_storage_upload_strategy: "presigned",
 					s3_path_style: false,
 				},
 			}),
@@ -1080,15 +1082,15 @@ describe("storage policy dialog helper modules", () => {
 						max_file_size: null,
 						allowed_types: [],
 						options: {
-							s3_upload_strategy: "presigned",
-							s3_download_strategy: "relay_stream",
+							object_storage_upload_strategy: "presigned",
+							object_storage_download_strategy: "relay_stream",
 						},
 						is_default: false,
 						chunk_size: 8 * 1024 * 1024,
 						created_at: "",
 						updated_at: "",
 					} as StoragePolicy),
-					s3_upload_strategy: "relay_stream",
+					object_storage_upload_strategy: "relay_stream",
 				},
 				{
 					id: 15,
@@ -1103,8 +1105,8 @@ describe("storage policy dialog helper modules", () => {
 					max_file_size: null,
 					allowed_types: [],
 					options: {
-						s3_upload_strategy: "presigned",
-						s3_download_strategy: "relay_stream",
+						object_storage_upload_strategy: "presigned",
+						object_storage_download_strategy: "relay_stream",
 					},
 					is_default: false,
 					chunk_size: 8 * 1024 * 1024,
@@ -1131,8 +1133,8 @@ describe("storage policy dialog helper modules", () => {
 			content_dedup: false,
 			remote_download_strategy: "presigned" as const,
 			remote_upload_strategy: "presigned" as const,
-			s3_upload_strategy: "relay_stream" as const,
-			s3_download_strategy: "relay_stream" as const,
+			object_storage_upload_strategy: "relay_stream" as const,
+			object_storage_download_strategy: "relay_stream" as const,
 			storage_native_processing_enabled: true,
 			thumbnail_processor: "storage_native" as const,
 			thumbnail_extensions: ["png", "jpg"],
@@ -1170,8 +1172,8 @@ describe("storage policy dialog helper modules", () => {
 			content_dedup: true,
 			remote_download_strategy: "presigned" as const,
 			remote_upload_strategy: "presigned" as const,
-			s3_upload_strategy: "presigned" as const,
-			s3_download_strategy: "presigned" as const,
+			object_storage_upload_strategy: "presigned" as const,
+			object_storage_download_strategy: "presigned" as const,
 			storage_native_processing_enabled: false,
 			thumbnail_processor: null,
 			thumbnail_extensions: [],
@@ -1211,26 +1213,39 @@ describe("storage policy dialog helper modules", () => {
 		};
 		const s3Descriptor = {
 			fields: [
-				{ name: "s3_upload_strategy", scope: "policy_options" },
-				{ name: "s3_download_strategy", scope: "policy_options" },
+				{ name: "object_storage_upload_strategy", scope: "policy_options" },
+				{ name: "object_storage_download_strategy", scope: "policy_options" },
 				{ name: "s3_path_style", scope: "policy_options" },
 			],
 		} as never;
 		const azureDescriptor = {
 			fields: [
-				{ name: "s3_upload_strategy", scope: "policy_options" },
-				{ name: "s3_download_strategy", scope: "policy_options" },
+				{ name: "object_storage_upload_strategy", scope: "policy_options" },
+				{ name: "object_storage_download_strategy", scope: "policy_options" },
 			],
 		} as never;
 
 		expect(buildCreatePolicyPayload(s3Form, s3Descriptor).options).toEqual({
-			s3_upload_strategy: "presigned",
-			s3_download_strategy: "presigned",
+			object_storage_upload_strategy: "presigned",
+			object_storage_download_strategy: "presigned",
 			s3_path_style: false,
 		});
 		expect(buildCreatePolicyPayload(s3Form, azureDescriptor).options).toEqual({
-			s3_upload_strategy: "presigned",
-			s3_download_strategy: "presigned",
+			object_storage_upload_strategy: "presigned",
+			object_storage_download_strategy: "presigned",
+		});
+
+		const legacyObjectStorageDescriptor = {
+			fields: [
+				{ name: "s3_upload_strategy", scope: "policy_options" },
+				{ name: "s3_download_strategy", scope: "policy_options" },
+			],
+		} as never;
+		expect(
+			buildCreatePolicyPayload(s3Form, legacyObjectStorageDescriptor).options,
+		).toEqual({
+			object_storage_upload_strategy: "presigned",
+			object_storage_download_strategy: "presigned",
 		});
 	});
 
@@ -1250,8 +1265,8 @@ describe("storage policy dialog helper modules", () => {
 			content_dedup: false,
 			remote_download_strategy: "relay_stream" as const,
 			remote_upload_strategy: "relay_stream" as const,
-			s3_upload_strategy: "relay_stream" as const,
-			s3_download_strategy: "relay_stream" as const,
+			object_storage_upload_strategy: "relay_stream" as const,
+			object_storage_download_strategy: "relay_stream" as const,
 			onedrive_cloud: "global" as const,
 			onedrive_account_mode: "work_or_school" as const,
 			onedrive_tenant: " common ",
@@ -1318,8 +1333,8 @@ describe("storage policy dialog helper modules", () => {
 			content_dedup: false,
 			remote_download_strategy: "relay_stream" as const,
 			remote_upload_strategy: "relay_stream" as const,
-			s3_upload_strategy: "relay_stream" as const,
-			s3_download_strategy: "relay_stream" as const,
+			object_storage_upload_strategy: "relay_stream" as const,
+			object_storage_download_strategy: "relay_stream" as const,
 			storage_native_processing_enabled: true,
 			thumbnail_processor: "storage_native" as const,
 			thumbnail_extensions: [" .PNG ", "jpg", ".png", "../../etc/passwd"],
@@ -1359,8 +1374,8 @@ describe("storage policy dialog helper modules", () => {
 			content_dedup: false,
 			remote_download_strategy: "relay_stream",
 			remote_upload_strategy: "relay_stream",
-			s3_upload_strategy: "relay_stream",
-			s3_download_strategy: "relay_stream",
+			object_storage_upload_strategy: "relay_stream",
+			object_storage_download_strategy: "relay_stream",
 			storage_native_processing_enabled: false,
 			storage_native_media_metadata_enabled: true,
 			thumbnail_processor: "storage_native",
@@ -1387,8 +1402,8 @@ describe("storage policy dialog helper modules", () => {
 			content_dedup: false,
 			remote_download_strategy: "relay_stream",
 			remote_upload_strategy: "relay_stream",
-			s3_upload_strategy: "relay_stream",
-			s3_download_strategy: "relay_stream",
+			object_storage_upload_strategy: "relay_stream",
+			object_storage_download_strategy: "relay_stream",
 			storage_native_processing_enabled: true,
 			storage_native_media_metadata_enabled: true,
 			thumbnail_processor: "storage_native",
@@ -1420,8 +1435,8 @@ describe("storage policy dialog helper modules", () => {
 			content_dedup: false,
 			remote_download_strategy: "relay_stream",
 			remote_upload_strategy: "relay_stream",
-			s3_upload_strategy: "relay_stream",
-			s3_download_strategy: "relay_stream",
+			object_storage_upload_strategy: "relay_stream",
+			object_storage_download_strategy: "relay_stream",
 			storage_native_processing_enabled: true,
 			storage_native_media_metadata_enabled: true,
 			thumbnail_processor: "storage_native",
@@ -1522,8 +1537,8 @@ describe("storage policy dialog helper modules", () => {
 			bucket: "media",
 			base_path: "uploads",
 			options: {
-				s3_download_strategy: "presigned",
-				s3_upload_strategy: "presigned",
+				object_storage_download_strategy: "presigned",
+				object_storage_upload_strategy: "presigned",
 			},
 		} as StoragePolicy;
 		const s3Form = getPolicyForm(s3Policy);

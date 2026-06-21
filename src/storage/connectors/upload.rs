@@ -1,6 +1,7 @@
 use crate::entities::storage_policy;
 use crate::types::{
-    RemoteUploadStrategy, S3UploadStrategy, UploadMode, effective_object_multipart_chunk_size,
+    ObjectStorageUploadStrategy, RemoteUploadStrategy, UploadMode,
+    effective_object_multipart_chunk_size,
 };
 
 /// Connector 对 upload service 暴露的上传传输模型。
@@ -12,7 +13,7 @@ pub enum StorageConnectorUploadTransport {
     /// 本机文件系统写入。
     Local,
     /// S3-compatible / Azure Blob / COS 这类对象存储上传。
-    ObjectStorage(S3UploadStrategy),
+    ObjectStorage(ObjectStorageUploadStrategy),
     /// 通过 remote node 代理上传。
     Remote(RemoteUploadStrategy),
     /// Server-side streaming through `StreamUploadDriver` without exposing a
@@ -48,9 +49,9 @@ impl StorageConnectorUploadTransport {
     pub fn resolve_init_mode(self, policy: &storage_policy::Model, total_size: i64) -> UploadMode {
         let fits_single_request = self.fits_single_request(policy, total_size);
         match (self, fits_single_request) {
-            (Self::ObjectStorage(S3UploadStrategy::Presigned), true)
+            (Self::ObjectStorage(ObjectStorageUploadStrategy::Presigned), true)
             | (Self::Remote(RemoteUploadStrategy::Presigned), true) => UploadMode::Presigned,
-            (Self::ObjectStorage(S3UploadStrategy::Presigned), false)
+            (Self::ObjectStorage(ObjectStorageUploadStrategy::Presigned), false)
             | (Self::Remote(RemoteUploadStrategy::Presigned), false) => {
                 UploadMode::PresignedMultipart
             }
@@ -74,10 +75,10 @@ impl StorageConnectorUploadTransport {
 
         match self {
             Self::Local => false,
-            Self::ObjectStorage(S3UploadStrategy::RelayStream) => {
+            Self::ObjectStorage(ObjectStorageUploadStrategy::RelayStream) => {
                 self.fits_single_request(policy, declared_size)
             }
-            Self::ObjectStorage(S3UploadStrategy::Presigned) => false,
+            Self::ObjectStorage(ObjectStorageUploadStrategy::Presigned) => false,
             Self::Remote(RemoteUploadStrategy::RelayStream)
             | Self::Remote(RemoteUploadStrategy::Presigned) => true,
             Self::StreamUpload => true,
@@ -91,7 +92,7 @@ impl StorageConnectorUploadTransport {
     pub fn uses_relay_multipart_tracking(self) -> bool {
         matches!(
             self,
-            Self::ObjectStorage(S3UploadStrategy::RelayStream)
+            Self::ObjectStorage(ObjectStorageUploadStrategy::RelayStream)
                 | Self::Remote(RemoteUploadStrategy::RelayStream)
         )
     }

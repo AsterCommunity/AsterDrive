@@ -9,7 +9,7 @@ export type UploadMode =
 export type ResumePlan = "upload" | "complete" | "restart";
 
 export const CHUNK_PROCESSING_PROGRESS = 95;
-export const S3_PROCESSING_PROGRESS = 95;
+export const SERVER_FINALIZE_PROGRESS = 95;
 
 export function getResumePlan(
 	mode: UploadMode,
@@ -44,5 +44,5 @@ export function getResumePlan(
 export function getProcessingProgress(mode: UploadMode | null): number {
 	return mode === "chunked"
 		? CHUNK_PROCESSING_PROGRESS
-		: S3_PROCESSING_PROGRESS;
+		: SERVER_FINALIZE_PROGRESS;
 }

@@ -1,4 +1,4 @@
-import { normalizeS3ConnectionFields } from "@/lib/s3Endpoint";
+import { normalizeObjectStorageConnectionFields } from "@/lib/objectStorageConnectionFields";
 import type {
 	DriverType,
 	StorageConnectorDescriptor,
@@ -140,7 +140,10 @@ export function normalizePolicyForm(
 			: normalized;
 	}
 
-	const normalized = normalizeS3ConnectionFields(form.endpoint, form.bucket);
+	const normalized = normalizeObjectStorageConnectionFields(
+		form.endpoint,
+		form.bucket,
+	);
 	const normalizedAccessKey = form.access_key.trim();
 	const normalizedSecretKey = form.secret_key.trim();
 	if (

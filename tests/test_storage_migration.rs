@@ -607,7 +607,7 @@ async fn create_s3_policy(
             max_file_size: Set(0),
             allowed_types: Set(StoredStoragePolicyAllowedTypes::empty()),
             options: Set(StoredStoragePolicyOptions::from(
-                r#"{"s3_upload_strategy":"relay_stream"}"#.to_string(),
+                r#"{"object_storage_upload_strategy":"relay_stream"}"#.to_string(),
             )),
             is_default: Set(false),
             chunk_size: Set(5_242_880),

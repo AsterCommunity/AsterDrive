@@ -8,9 +8,9 @@ import {
 	supportsContentDedupPolicyOption,
 	supportsDraftConnectionTest,
 	supportsObjectStorageConnection,
+	supportsObjectStorageTransferStrategy,
 	supportsOneDrivePolicyOptions,
 	supportsRemoteNodeBinding,
-	supportsS3TransferStrategy,
 	supportsSavedConnectionTest,
 	supportsStorageNativeProcessing,
 } from "@/components/admin/storage-policy-dialog/descriptorPredicates";
@@ -91,7 +91,7 @@ interface StoragePolicyDialogProps {
 	onCreateBack: () => void;
 	onCreateStepChange: (step: number) => void;
 	onCreateNext: () => void;
-	onSyncNormalizedS3Form: () => void;
+	onSyncNormalizedObjectStorageForm: () => void;
 }
 
 interface StorageNativeLabelOptions {
@@ -162,7 +162,7 @@ function useStoragePolicyDialogContent({
 	onCreateBack,
 	onCreateStepChange,
 	onCreateNext,
-	onSyncNormalizedS3Form,
+	onSyncNormalizedObjectStorageForm,
 }: StoragePolicyDialogProps) {
 	const { t } = useTranslation("admin");
 	const isCreateMode = mode === "create";
@@ -184,9 +184,8 @@ function useStoragePolicyDialogContent({
 	);
 	const canUseOneDriveConnection =
 		canUseApplicationCredentials || canUseOneDrivePolicyOptions;
-	const canUseS3TransferStrategy = supportsS3TransferStrategy(
-		storageDriverDescriptor,
-	);
+	const canUseObjectStorageTransferStrategy =
+		supportsObjectStorageTransferStrategy(storageDriverDescriptor);
 	const canUseContentDedupPolicyOption = supportsContentDedupPolicyOption(
 		storageDriverDescriptor,
 	);
@@ -286,11 +285,11 @@ function useStoragePolicyDialogContent({
 	const selectedRemoteNode =
 		remoteNodes.find((node) => String(node.id) === form.remote_node_id) ?? null;
 	const s3UploadStrategyLabel =
-		form.s3_upload_strategy === "relay_stream"
+		form.object_storage_upload_strategy === "relay_stream"
 			? t("upload_strategy_relay_stream")
 			: t("upload_strategy_presigned");
 	const s3DownloadStrategyLabel =
-		form.s3_download_strategy === "relay_stream"
+		form.object_storage_download_strategy === "relay_stream"
 			? t("download_strategy_relay_stream")
 			: t("download_strategy_presigned");
 	const remoteUploadStrategyLabel =
@@ -391,14 +390,14 @@ function useStoragePolicyDialogContent({
 						value: form.endpoint || t("policy_wizard_default_endpoint"),
 					},
 					{ label: t("bucket"), value: form.bucket || "—" },
-					...(canUseS3TransferStrategy
+					...(canUseObjectStorageTransferStrategy
 						? [
 								{
-									label: t("s3_upload_strategy"),
+									label: t("object_storage_upload_strategy"),
 									value: s3UploadStrategyLabel,
 								},
 								{
-									label: t("s3_download_strategy"),
+									label: t("object_storage_download_strategy"),
 									value: s3DownloadStrategyLabel,
 								},
 							]
@@ -533,7 +532,9 @@ function useStoragePolicyDialogContent({
 								onApplyS3CompatibleDriverSuggestion={
 									onApplyS3CompatibleDriverSuggestion
 								}
-								onSyncNormalizedS3Form={onSyncNormalizedS3Form}
+								onSyncNormalizedObjectStorageForm={
+									onSyncNormalizedObjectStorageForm
+								}
 								remoteNodes={remoteNodes}
 								s3CompatibleDriverSuggestionTargetLabel={
 									s3CompatibleDriverSuggestionTargetLabel
@@ -575,7 +576,9 @@ function useStoragePolicyDialogContent({
 								onStartStorageAuthorization={onStartStorageAuthorization}
 								onValidateStorageCredential={onValidateStorageCredential}
 								onRequestS3DriverPromotion={onRequestS3DriverPromotion}
-								onSyncNormalizedS3Form={onSyncNormalizedS3Form}
+								onSyncNormalizedObjectStorageForm={
+									onSyncNormalizedObjectStorageForm
+								}
 								cosCorsConfirmOpen={cosCorsConfirmOpen}
 								canConfigureTencentCosCors={canConfigureTencentCosCors}
 								cosCorsSubmitting={cosCorsSubmitting}
@@ -812,7 +815,8 @@ function fallbackStorageConnectorUi(): StorageConnectorUiDescriptor {
 		description_key: "policy_wizard_step_storage_desc",
 		helper_key: "policy_wizard_step_storage_desc",
 		config_step_title_key: "policy_wizard_step_connection_title",
-		config_step_description_key: "policy_wizard_step_connection_desc",
+		config_step_description_key:
+			"policy_wizard_step_object_storage_connection_desc",
 		edit_context_key: "policy_edit_context_local_desc",
 		base_path_empty_display: "core:root",
 		base_path_placeholder: "tenant/prefix",

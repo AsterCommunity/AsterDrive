@@ -11,7 +11,7 @@ use crate::storage::connector_descriptor::{
     StorageConnectorUiDescriptorInput, object_storage_connector_descriptor,
 };
 use crate::storage::drivers::azure_blob::{AzureBlobConfigError, AzureBlobDriver};
-use crate::types::{DriverType, parse_storage_policy_options};
+use crate::types::{DriverType, ObjectStorageDownloadStrategy, parse_storage_policy_options};
 
 use super::common::validate_static_secret_credentials;
 use super::{StorageConnector, StorageConnectorConnectionInput, StorageConnectorUploadTransport};
@@ -94,11 +94,14 @@ impl StorageConnector for AzureBlobConnector {
 
     fn upload_transport(policy: &storage_policy::Model) -> StorageConnectorUploadTransport {
         let options = parse_storage_policy_options(policy.options.as_ref());
-        StorageConnectorUploadTransport::ObjectStorage(options.effective_s3_upload_strategy())
+        StorageConnectorUploadTransport::ObjectStorage(
+            options.effective_object_storage_upload_strategy(),
+        )
     }
 
     fn presigned_download_enabled(policy: &storage_policy::Model) -> bool {
         let options = parse_storage_policy_options(policy.options.as_ref());
-        options.effective_s3_download_strategy() == crate::types::S3DownloadStrategy::Presigned
+        options.effective_object_storage_download_strategy()
+            == ObjectStorageDownloadStrategy::Presigned
     }
 }

@@ -80,7 +80,7 @@ Current notes:
 - `GET /admin/policies/storage-drivers` returns `StorageConnectorDescriptor` entries. The frontend should use descriptor `capabilities`, `fields`, `upload_workflows`, `actions`, and `credential_mode` to decide forms, connection tests, upload/download strategies, and action affordances instead of maintaining a hard-coded driver capability matrix.
 - create and update both honor request `chunk_size`
 - `options` carries policy-level behavior:
-  - S3-compatible / Azure Blob / Tencent COS object-storage connectors continue to use `s3_upload_strategy` / `s3_download_strategy` for transfer strategy
+  - S3-compatible / Azure Blob / Tencent COS object-storage connectors use `object_storage_upload_strategy` / `object_storage_download_strategy` for transfer strategy. Legacy `s3_upload_strategy` / `s3_download_strategy` JSON remains accepted as a compatibility alias.
   - Remote upload and download strategies through `remote_upload_strategy` / `remote_download_strategy`
   - local `content_dedup`
   - generic S3 path-style addressing through `s3_path_style` (defaults to `true`)
@@ -93,7 +93,7 @@ Current notes:
 - `driver_type = "onedrive"` uses Microsoft Graph OAuth credentials. Save the policy and `application_config.microsoft_graph` before starting authorization.
 - `driver_type = "tencent_cos"` uses the S3-compatible object path for normal reads and writes, validates Tencent COS endpoint shape, and can expose COS CI storage-native thumbnail / image-preview / media-metadata capabilities when the policy opts in
 - built-in Local, S3-compatible, Azure Blob, OneDrive, and Remote drivers do not expose storage-native thumbnail, image-preview, or media-metadata capabilities
-- legacy `{"presigned_upload":true}` remains compatible with S3 presigned upload
+- legacy `{"presigned_upload":true}` remains compatible with object-storage presigned upload
 - `allowed_types` can be managed through REST
 - `driver_type = "remote"` requires `remote_node_id`
 - `PATCH` cannot change `driver_type`

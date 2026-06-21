@@ -1479,7 +1479,7 @@ async fn test_s3_relay_stream_download_e2e() {
         "S3 Relay Download",
         &endpoint,
         bucket,
-        r#"{"s3_download_strategy":"relay_stream"}"#,
+        r#"{"object_storage_download_strategy":"relay_stream"}"#,
         TEST_CHUNK_SIZE as i64,
     )
     .await;
@@ -1546,7 +1546,7 @@ async fn test_s3_presigned_download_redirects_and_share_counts() {
         "S3 Presigned Download",
         &endpoint,
         bucket,
-        r#"{"s3_download_strategy":"presigned"}"#,
+        r#"{"object_storage_download_strategy":"presigned"}"#,
         TEST_CHUNK_SIZE as i64,
     )
     .await;
@@ -2603,7 +2603,7 @@ async fn test_upload_service_get_progress_uses_db_parts_for_terminal_relay_multi
         "Test S3 Relay Progress",
         "http://127.0.0.1:9000",
         "unused-progress-bucket",
-        r#"{"s3_upload_strategy":"relay_stream"}"#,
+        r#"{"object_storage_upload_strategy":"relay_stream"}"#,
         5_242_880,
     )
     .await;
@@ -2988,7 +2988,7 @@ async fn test_cancel_upload_aborts_presigned_multipart_session_on_rustfs() {
         "Cancel Multipart RustFS Policy",
         &endpoint,
         bucket,
-        r#"{"s3_upload_strategy":"presigned"}"#,
+        r#"{"object_storage_upload_strategy":"presigned"}"#,
         TEST_CHUNK_SIZE as i64,
     )
     .await;
@@ -3234,7 +3234,7 @@ async fn test_presigned_upload_s3_e2e() {
         "Test S3 Presigned",
         &endpoint,
         bucket,
-        r#"{"s3_upload_strategy":"presigned"}"#,
+        r#"{"object_storage_upload_strategy":"presigned"}"#,
         5_242_880,
     )
     .await;
@@ -3372,7 +3372,7 @@ async fn test_force_delete_policy_cleans_late_s3_presigned_put_e2e() {
         "Late S3 Presigned Cleanup",
         &endpoint,
         bucket,
-        r#"{"s3_upload_strategy":"presigned"}"#,
+        r#"{"object_storage_upload_strategy":"presigned"}"#,
         5_242_880,
     )
     .await;
@@ -3502,7 +3502,7 @@ async fn test_presigned_multipart_upload_s3_e2e() {
         "Test S3 Multipart",
         &endpoint,
         bucket,
-        r#"{"s3_upload_strategy":"presigned"}"#,
+        r#"{"object_storage_upload_strategy":"presigned"}"#,
         5_242_880,
     )
     .await;
@@ -3627,7 +3627,7 @@ async fn test_create_empty_file_s3_no_dedup() {
         "Test S3 Empty File",
         &endpoint,
         bucket,
-        r#"{"s3_upload_strategy":"presigned"}"#,
+        r#"{"object_storage_upload_strategy":"presigned"}"#,
         5_242_880,
     )
     .await;
@@ -3721,7 +3721,7 @@ async fn test_relay_stream_direct_upload_s3_e2e() {
         "Test S3 Relay Direct",
         &endpoint,
         bucket,
-        r#"{"s3_upload_strategy":"relay_stream"}"#,
+        r#"{"object_storage_upload_strategy":"relay_stream"}"#,
         5_242_880,
     )
     .await;
@@ -3848,7 +3848,7 @@ async fn test_relay_stream_direct_upload_s3_exact_part_size_e2e() {
         "Test S3 Relay Direct Exact Part",
         &endpoint,
         bucket,
-        r#"{"s3_upload_strategy":"relay_stream"}"#,
+        r#"{"object_storage_upload_strategy":"relay_stream"}"#,
         5_242_880,
     )
     .await;
@@ -3989,7 +3989,7 @@ async fn test_relay_stream_chunked_upload_s3_e2e() {
         "Test S3 Relay Chunked",
         &endpoint,
         bucket,
-        r#"{"s3_upload_strategy":"relay_stream"}"#,
+        r#"{"object_storage_upload_strategy":"relay_stream"}"#,
         1_048_576,
     )
     .await;

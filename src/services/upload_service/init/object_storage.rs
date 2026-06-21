@@ -10,7 +10,7 @@ use crate::services::upload_service::shared::{
 use crate::services::workspace_storage_service::{
     PolicyUploadTransport, resolve_policy_upload_transport,
 };
-use crate::types::{S3UploadStrategy, UploadMode, UploadSessionStatus};
+use crate::types::{ObjectStorageUploadStrategy, UploadMode, UploadSessionStatus};
 use crate::utils::numbers;
 
 use super::context::{
@@ -27,10 +27,12 @@ pub(super) async fn init_object_storage_upload(
         return Ok(None);
     };
     match strategy {
-        S3UploadStrategy::Presigned => init_presigned_object_storage_upload(state, ctx, transport)
-            .await
-            .map(Some),
-        S3UploadStrategy::RelayStream => {
+        ObjectStorageUploadStrategy::Presigned => {
+            init_presigned_object_storage_upload(state, ctx, transport)
+                .await
+                .map(Some)
+        }
+        ObjectStorageUploadStrategy::RelayStream => {
             init_relay_stream_object_storage_upload(state, ctx, transport)
                 .await
                 .map(Some)

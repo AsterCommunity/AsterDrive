@@ -1,4 +1,4 @@
-import { normalizeS3ConnectionFields } from "@/lib/s3Endpoint";
+import { normalizeObjectStorageConnectionFields } from "@/lib/objectStorageConnectionFields";
 import type {
 	RemoteCreateIngressProfileRequest,
 	RemoteIngressProfileInfo,
@@ -48,7 +48,10 @@ function normalizeManagedIngressProfileForm(
 		};
 	}
 
-	const normalized = normalizeS3ConnectionFields(form.endpoint, form.bucket);
+	const normalized = normalizeObjectStorageConnectionFields(
+		form.endpoint,
+		form.bucket,
+	);
 	return {
 		...form,
 		name: form.name.trim(),

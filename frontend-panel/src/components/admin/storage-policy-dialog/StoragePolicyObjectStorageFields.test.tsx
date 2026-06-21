@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { DriverType, StorageConnectorDescriptor } from "@/types/api";
 import { emptyForm } from "./formTypes";
 import type { Translate } from "./StoragePolicyFieldTypes";
-import { S3ConnectionFields } from "./StoragePolicyS3Fields";
+import { ObjectStorageConnectionFields } from "./StoragePolicyObjectStorageFields";
 
 const labels: Record<string, string> = {
 	access_key: "Access key",
@@ -85,12 +85,12 @@ vi.mock("@/components/ui/switch", () => ({
 	),
 }));
 
-function renderS3ConnectionFields(
-	form: React.ComponentProps<typeof S3ConnectionFields>["form"],
+function renderObjectStorageConnectionFields(
+	form: React.ComponentProps<typeof ObjectStorageConnectionFields>["form"],
 	onFieldChange = vi.fn(),
 	options: Partial<
 		Pick<
-			React.ComponentProps<typeof S3ConnectionFields>,
+			React.ComponentProps<typeof ObjectStorageConnectionFields>,
 			| "bucketError"
 			| "endpointValidationMessage"
 			| "isCreateMode"
@@ -100,13 +100,13 @@ function renderS3ConnectionFields(
 	> = {},
 ) {
 	render(
-		<S3ConnectionFields
+		<ObjectStorageConnectionFields
 			bucketError={options.bucketError ?? null}
 			endpointValidationMessage={options.endpointValidationMessage ?? null}
 			form={form}
 			isCreateMode={options.isCreateMode ?? true}
 			onFieldChange={onFieldChange}
-			onSyncNormalizedS3Form={vi.fn()}
+			onSyncNormalizedObjectStorageForm={vi.fn()}
 			showCreateValidation={options.showCreateValidation}
 			storageDriverDescriptor={
 				options.storageDriverDescriptor ??
@@ -206,9 +206,9 @@ function objectStorageDescriptor(
 	return { driver_type: driverType, fields } as StorageConnectorDescriptor;
 }
 
-describe("S3ConnectionFields", () => {
+describe("ObjectStorageConnectionFields", () => {
 	it("shows the path-style switch for generic S3 policies", () => {
-		const onFieldChange = renderS3ConnectionFields({
+		const onFieldChange = renderObjectStorageConnectionFields({
 			...emptyForm,
 			driver_type: "s3",
 			s3_path_style: true,
@@ -221,7 +221,7 @@ describe("S3ConnectionFields", () => {
 	});
 
 	it("hides the path-style switch for Tencent COS policies", () => {
-		renderS3ConnectionFields({
+		renderObjectStorageConnectionFields({
 			...emptyForm,
 			driver_type: "tencent_cos",
 		});
@@ -230,7 +230,7 @@ describe("S3ConnectionFields", () => {
 	});
 
 	it("uses Tencent COS endpoint copy without showing the S3 path-style switch", () => {
-		renderS3ConnectionFields({
+		renderObjectStorageConnectionFields({
 			...emptyForm,
 			driver_type: "tencent_cos",
 		});
@@ -244,7 +244,7 @@ describe("S3ConnectionFields", () => {
 	});
 
 	it("uses Azure Blob account labels and edit placeholders", () => {
-		renderS3ConnectionFields(
+		renderObjectStorageConnectionFields(
 			{
 				...emptyForm,
 				driver_type: "azure_blob",
@@ -287,7 +287,7 @@ describe("S3ConnectionFields", () => {
 	});
 
 	it("trims Azure Blob account names on blur", () => {
-		const onFieldChange = renderS3ConnectionFields({
+		const onFieldChange = renderObjectStorageConnectionFields({
 			...emptyForm,
 			driver_type: "azure_blob",
 			access_key: " account-name ",
@@ -299,7 +299,7 @@ describe("S3ConnectionFields", () => {
 	});
 
 	it("does not trim S3 access keys on blur", () => {
-		const onFieldChange = renderS3ConnectionFields({
+		const onFieldChange = renderObjectStorageConnectionFields({
 			...emptyForm,
 			driver_type: "s3",
 			access_key: " s3-key ",

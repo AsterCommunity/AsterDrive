@@ -8,13 +8,13 @@ import type {
 } from "@/types/api";
 import type { SharedFieldProps } from "./StoragePolicyFieldTypes";
 
-export function S3ConnectionFields({
+export function ObjectStorageConnectionFields({
 	bucketError,
 	endpointValidationMessage,
 	form,
 	isCreateMode,
 	onFieldChange,
-	onSyncNormalizedS3Form,
+	onSyncNormalizedObjectStorageForm,
 	showCreateValidation = false,
 	storageDriverDescriptor,
 	t,
@@ -22,7 +22,7 @@ export function S3ConnectionFields({
 	bucketError: string | null;
 	endpointValidationMessage: string | null;
 	isCreateMode: boolean;
-	onSyncNormalizedS3Form: () => void;
+	onSyncNormalizedObjectStorageForm: () => void;
 	showCreateValidation?: boolean;
 	storageDriverDescriptor?: StorageConnectorDescriptor | null;
 }) {
@@ -49,7 +49,7 @@ export function S3ConnectionFields({
 					id="endpoint"
 					value={form.endpoint}
 					onChange={(e) => onFieldChange("endpoint", e.target.value)}
-					onBlur={onSyncNormalizedS3Form}
+					onBlur={onSyncNormalizedObjectStorageForm}
 					aria-invalid={endpointValidationMessage ? true : undefined}
 					className={ADMIN_CONTROL_HEIGHT_CLASS}
 					placeholder={endpointField?.placeholder ?? "https://s3.amazonaws.com"}
