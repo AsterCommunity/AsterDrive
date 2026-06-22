@@ -89,6 +89,21 @@ describe("MusicPreview", () => {
 		).toBeInTheDocument();
 	});
 
+	it("renders loading while the audio preview path is resolving", () => {
+		render(
+			<MusicPreview
+				file={{ name: "track.mp3", mime_type: "audio/mpeg" }}
+				path={null}
+			/>,
+		);
+
+		expect(screen.getByText("loading_preview")).toBeInTheDocument();
+		expect(
+			screen.queryByRole("button", { name: "music_preview_play" }),
+		).not.toBeInTheDocument();
+		expect(mockState.prepareAuthenticatedResource).not.toHaveBeenCalled();
+	});
+
 	it("starts direct music playback through the global player store", async () => {
 		render(
 			<MusicPreview

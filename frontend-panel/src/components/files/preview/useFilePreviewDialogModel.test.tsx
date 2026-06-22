@@ -428,6 +428,68 @@ describe("useFilePreviewDialogModel", () => {
 		});
 	});
 
+	it("does not retry preview-link creation after a failed request while the file stays open", async () => {
+		const previewLinkFactory = vi.fn(async () => {
+			throw new Error("preview link failed");
+		});
+
+		const { rerender, result } = renderModel({
+			openMode: "direct",
+			previewLinkFactory,
+		});
+
+		await waitFor(() => {
+			expect(result.current.resolvedContentPreviewPath).toBe(
+				"/files/7/download",
+			);
+		});
+
+		rerender({
+			open: true,
+			file: file(),
+			onClose: vi.fn(),
+			openMode: "direct",
+			previewLinkFactory,
+			translateFileLabel: (key: string) => `files:${key}`,
+		});
+
+		expect(result.current.resolvedContentPreviewPath).toBe("/files/7/download");
+		expect(previewLinkFactory).toHaveBeenCalledTimes(1);
+	});
+
+	it("does not retry preview-link creation after a ready link while the file stays open", async () => {
+		const previewLinkFactory = vi.fn(async () => ({
+			expires_at: "2026-06-21T22:30:00Z",
+			max_uses: 5,
+			path: "/pv/token/manual.pdf",
+		}));
+
+		const { rerender, result } = renderModel({
+			openMode: "direct",
+			previewLinkFactory,
+		});
+
+		await waitFor(() => {
+			expect(result.current.resolvedContentPreviewPath).toBe(
+				"/pv/token/manual.pdf",
+			);
+		});
+
+		rerender({
+			open: true,
+			file: file(),
+			onClose: vi.fn(),
+			openMode: "direct",
+			previewLinkFactory,
+			translateFileLabel: (key: string) => `files:${key}`,
+		});
+
+		expect(result.current.resolvedContentPreviewPath).toBe(
+			"/pv/token/manual.pdf",
+		);
+		expect(previewLinkFactory).toHaveBeenCalledTimes(1);
+	});
+
 	it("ignores stale preview-link results after file changes", async () => {
 		let resolveFirst!: (value: {
 			expires_at: string;

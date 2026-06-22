@@ -7,8 +7,6 @@ export function joinApiUrl(base: string, path: string) {
 }
 
 function isConfiguredApiUrl(path: string) {
-	if (!/^https?:\/\//i.test(path)) return false;
-
 	try {
 		const resourceUrl = new URL(path);
 		const baseUrl = /^https?:\/\//i.test(config.apiBaseUrl)

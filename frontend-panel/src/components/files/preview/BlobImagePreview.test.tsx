@@ -58,6 +58,23 @@ describe("BlobImagePreview", () => {
 		expect(screen.getByText("loading_preview")).toBeInTheDocument();
 	});
 
+	it("renders loading without fetching while the image preview path is resolving", () => {
+		mockState.useBlobUrl.mockReturnValue({
+			blobUrl: null,
+			error: false,
+			loading: false,
+			retry: mockState.retry,
+		});
+
+		render(<BlobImagePreview file={file} path={null} />);
+
+		expect(mockState.useBlobUrl).toHaveBeenCalledWith(null, {
+			lane: "default",
+		});
+		expect(screen.getByText("loading_preview")).toBeInTheDocument();
+		expect(screen.queryByRole("img")).not.toBeInTheDocument();
+	});
+
 	it("renders the retry state when loading fails", () => {
 		mockState.useBlobUrl.mockReturnValue({
 			blobUrl: null,

@@ -63,6 +63,19 @@ describe("VideoPreview", () => {
 		HTMLMediaElement.prototype.load = vi.fn();
 	});
 
+	it("renders loading while the video preview path is resolving", () => {
+		render(
+			<VideoPreview
+				file={{ name: "clip.mp4", mime_type: "video/mp4" }}
+				path={null}
+			/>,
+		);
+
+		expect(screen.getByText("loading_preview")).toBeInTheDocument();
+		expect(mockState.prepareAuthenticatedResource).not.toHaveBeenCalled();
+		expect(mockState.artplayerInstances).toHaveLength(0);
+	});
+
 	it("prepares and passes the HTTP download URL to Artplayer", async () => {
 		render(
 			<VideoPreview

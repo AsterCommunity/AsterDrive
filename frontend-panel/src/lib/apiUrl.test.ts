@@ -71,6 +71,50 @@ describe("resolveApiResourceUrl", () => {
 		).toBe(false);
 	});
 
+	it("keeps credentials for absolute resource URLs under a relative API base", () => {
+		vi.spyOn(appConfig.config, "apiBaseUrl", "get").mockReturnValue("/api/v1");
+
+		expect(
+			isExternalResourceUrl(
+				`${window.location.origin}/api/v1/files/7/download`,
+			),
+		).toBe(false);
+		expect(
+			shouldSendResourceCredentials(
+				`${window.location.origin}/api/v1/files/7/download`,
+			),
+		).toBe(true);
+	});
+
+	it("treats absolute resource URLs as external when the configured API base cannot be parsed", () => {
+		vi.spyOn(appConfig.config, "apiBaseUrl", "get").mockReturnValue(
+			"https://[invalid",
+		);
+
+		expect(isExternalResourceUrl("https://api.example.com/files/7")).toBe(true);
+		expect(
+			shouldSendResourceCredentials("https://api.example.com/files/7"),
+		).toBe(false);
+	});
+
+	it("treats absolute resource URLs as external with a relative API base outside the browser", () => {
+		const originalWindow = globalThis.window;
+		vi.spyOn(appConfig.config, "apiBaseUrl", "get").mockReturnValue("/api/v1");
+		Reflect.deleteProperty(globalThis, "window");
+
+		try {
+			expect(
+				isExternalResourceUrl("https://api.example.com/api/v1/files/7"),
+			).toBe(true);
+		} finally {
+			Object.defineProperty(globalThis, "window", {
+				configurable: true,
+				value: originalWindow,
+				writable: true,
+			});
+		}
+	});
+
 	it("classifies resource paths consistently for auth probing", () => {
 		expect(isExternalResourceUrl("https://cdn.example.com/file.pdf")).toBe(
 			true,
