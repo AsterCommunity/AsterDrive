@@ -1,7 +1,4 @@
-import {
-	forgetStorageEventEchoes,
-	rememberStorageDeleteEchoes,
-} from "@/lib/storageEventEcho";
+import { beginLocalStorageDeleteMutation } from "@/lib/storageMutationCoordinator";
 import { batchService } from "@/services/batchService";
 import { fileService } from "@/services/fileService";
 import { useWorkspaceStore } from "@/stores/workspaceStore";
@@ -29,14 +26,14 @@ export const createCrudSlice: FileStoreSlice<CrudSlice> = (set, get) => ({
 	},
 
 	deleteFile: async (id) => {
-		const echoIds = rememberStorageDeleteEchoes({
+		const mutation = beginLocalStorageDeleteMutation({
 			workspace: useWorkspaceStore.getState().workspace,
 			fileIds: [id],
 		});
 		try {
 			await fileService.deleteFile(id);
 		} catch (error) {
-			forgetStorageEventEchoes(echoIds);
+			mutation.rollback();
 			throw error;
 		}
 		const next = new Set(get().selectedFileIds);
@@ -46,14 +43,14 @@ export const createCrudSlice: FileStoreSlice<CrudSlice> = (set, get) => ({
 	},
 
 	deleteFolder: async (id) => {
-		const echoIds = rememberStorageDeleteEchoes({
+		const mutation = beginLocalStorageDeleteMutation({
 			workspace: useWorkspaceStore.getState().workspace,
 			folderIds: [id],
 		});
 		try {
 			await fileService.deleteFolder(id);
 		} catch (error) {
-			forgetStorageEventEchoes(echoIds);
+			mutation.rollback();
 			throw error;
 		}
 		const next = new Set(get().selectedFolderIds);

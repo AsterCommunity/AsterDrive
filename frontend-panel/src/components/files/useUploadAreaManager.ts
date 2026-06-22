@@ -8,6 +8,7 @@ import {
 } from "react";
 import { useTranslation } from "react-i18next";
 import { formatBytes } from "@/lib/format";
+import { decideUploadQueueSettledRefresh } from "@/lib/storageMutationCoordinator";
 import {
 	clearDeferredStorageRefresh,
 	consumeDeferredStorageRefresh,
@@ -215,15 +216,18 @@ export function useUploadAreaManager({
 			return;
 		}
 
-		const shouldRefreshCurrentFolder =
-			hasDeferredRefresh ||
-			pendingRefreshFolderIds.has(currentFolderIdRef.current);
+		const refreshDecision = decideUploadQueueSettledRefresh({
+			currentFolderId: currentFolderIdRef.current,
+			hasDeferredRemoteRefresh: hasDeferredRefresh,
+			pendingRefreshFolderIds,
+			storageEventStreamEnabled,
+		});
 		pendingRefreshFolderIdsRef.current = new Set();
 
-		if (pendingRefreshFolderIds.size > 0 && !storageEventStreamEnabled) {
+		if (refreshDecision.refreshPersonalQuota) {
 			void refreshUser({ fields: ["quota"] });
 		}
-		if (shouldRefreshCurrentFolder) {
+		if (refreshDecision.refreshCurrentFolder) {
 			void refresh();
 		}
 	}, [refresh, refreshUser, storageEventStreamEnabled, tasks]);

@@ -11,8 +11,7 @@ import { VersionHistoryDialog } from "@/components/files/VersionHistoryDialog";
 const mockState = vi.hoisted(() => ({
 	deleteVersion: vi.fn(),
 	handleApiError: vi.fn(),
-	invalidateBlobUrl: vi.fn(),
-	invalidateTextContent: vi.fn(),
+	invalidateFileResourceCachesForMutation: vi.fn(),
 	listVersions: vi.fn(),
 	restoreVersion: vi.fn(),
 	toastSuccess: vi.fn(),
@@ -142,14 +141,9 @@ vi.mock("@/hooks/useApiError", () => ({
 	handleApiError: (...args: unknown[]) => mockState.handleApiError(...args),
 }));
 
-vi.mock("@/hooks/useBlobUrl", () => ({
-	invalidateBlobUrl: (...args: unknown[]) =>
-		mockState.invalidateBlobUrl(...args),
-}));
-
-vi.mock("@/hooks/useTextContent", () => ({
-	invalidateTextContent: (...args: unknown[]) =>
-		mockState.invalidateTextContent(...args),
+vi.mock("@/lib/fileResourceCacheInvalidation", () => ({
+	invalidateFileResourceCachesForMutation: (...args: unknown[]) =>
+		mockState.invalidateFileResourceCachesForMutation(...args),
 }));
 
 vi.mock("@/lib/format", () => ({
@@ -187,8 +181,7 @@ describe("VersionHistoryDialog", () => {
 	beforeEach(() => {
 		mockState.deleteVersion.mockReset();
 		mockState.handleApiError.mockReset();
-		mockState.invalidateBlobUrl.mockReset();
-		mockState.invalidateTextContent.mockReset();
+		mockState.invalidateFileResourceCachesForMutation.mockReset();
 		mockState.listVersions.mockReset();
 		mockState.restoreVersion.mockReset();
 		mockState.toastSuccess.mockReset();
@@ -286,15 +279,13 @@ describe("VersionHistoryDialog", () => {
 		await waitFor(() => {
 			expect(mockState.restoreVersion).toHaveBeenCalledWith(10, 11);
 		});
-		expect(mockState.invalidateTextContent).toHaveBeenCalledWith(
-			"/files/10/download",
-		);
-		expect(mockState.invalidateBlobUrl).toHaveBeenCalledWith(
-			"/files/10/download",
-		);
-		expect(mockState.invalidateBlobUrl).toHaveBeenCalledWith(
-			"/files/10/thumbnail",
-		);
+		expect(
+			mockState.invalidateFileResourceCachesForMutation,
+		).toHaveBeenCalledWith({
+			download: "/files/10/download",
+			thumbnail: "/files/10/thumbnail",
+			imagePreview: "/files/10/image-preview",
+		});
 		expect(mockState.toastSuccess).toHaveBeenCalledWith("version_restored");
 		expect(onRestored).toHaveBeenCalledTimes(1);
 	});

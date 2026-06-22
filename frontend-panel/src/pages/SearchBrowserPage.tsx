@@ -21,6 +21,10 @@ import { usePageTitle } from "@/hooks/usePageTitle";
 import { useSelectionShortcuts } from "@/hooks/useSelectionShortcuts";
 import { startAuthenticatedDownload } from "@/lib/authenticatedDownload";
 import { subscribeStorageChange } from "@/lib/storageChangeBus";
+import {
+	beginLocalStorageDeleteMutation,
+	decideVirtualStorageViewRefresh,
+} from "@/lib/storageMutationCoordinator";
 import { workspaceFolderPath, workspaceRootPath } from "@/lib/workspace";
 import { FileBrowserDialogs } from "@/pages/file-browser/FileBrowserDialogs";
 import { FileBrowserToolbar } from "@/pages/file-browser/FileBrowserToolbar";
@@ -177,22 +181,6 @@ function hasSearchCriteria(query: ParsedSearchQuery) {
 	return Boolean(query.q || query.category || query.tagIds);
 }
 
-function tagEventAffectsSearchResults(event: {
-	affected_parent_ids: number[];
-	file_ids: number[];
-	folder_ids: number[];
-	kind: string;
-	root_affected: boolean;
-}) {
-	return (
-		event.kind.startsWith("tag.") &&
-		(event.root_affected ||
-			event.affected_parent_ids.length > 0 ||
-			event.file_ids.length > 0 ||
-			event.folder_ids.length > 0)
-	);
-}
-
 function buildSearchParams(
 	query: ParsedSearchQuery,
 	sortBy: SearchParams["sort_by"],
@@ -337,12 +325,17 @@ export default function SearchBrowserPage() {
 
 	useEffect(() => {
 		return subscribeStorageChange((event) => {
-			if (!tagEventAffectsSearchResults(event)) {
+			if (
+				!decideVirtualStorageViewRefresh(event, {
+					currentWorkspace: workspace,
+					view: "search",
+				})
+			) {
 				return;
 			}
 			void loadSearch(0, "replace");
 		});
-	}, [loadSearch]);
+	}, [loadSearch, workspace]);
 
 	const activeInfoTarget = useMemo<FileBrowserInfoTarget | null>(() => {
 		if (infoTarget?.file) {
@@ -484,6 +477,11 @@ export default function SearchBrowserPage() {
 
 	const handleDelete = useCallback(
 		async (type: "file" | "folder", id: number) => {
+			const mutation = beginLocalStorageDeleteMutation({
+				workspace,
+				fileIds: type === "file" ? [id] : [],
+				folderIds: type === "folder" ? [id] : [],
+			});
 			try {
 				if (type === "file") {
 					await fileService.deleteFile(id);
@@ -493,10 +491,11 @@ export default function SearchBrowserPage() {
 				toast.success(t("files:delete_success"));
 				void loadSearch(0, "replace");
 			} catch (deleteError) {
+				mutation.rollback();
 				handleApiError(deleteError);
 			}
 		},
-		[loadSearch, t],
+		[loadSearch, t, workspace],
 	);
 
 	const handleVersions = useCallback(

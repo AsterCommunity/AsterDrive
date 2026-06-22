@@ -20,8 +20,7 @@ import {
 	TableRow,
 } from "@/components/ui/table";
 import { handleApiError } from "@/hooks/useApiError";
-import { invalidateBlobUrl } from "@/hooks/useBlobUrl";
-import { invalidateTextContent } from "@/hooks/useTextContent";
+import { invalidateFileResourceCachesForMutation } from "@/lib/fileResourceCacheInvalidation";
 import { formatBytes, formatDateTime } from "@/lib/format";
 import { fileService } from "@/services/fileService";
 import type { FileVersion } from "@/types/api";
@@ -140,11 +139,11 @@ export function VersionHistoryDialog({
 		try {
 			dispatch({ type: "restore-start", versionId });
 			await fileService.restoreVersion(fileId, versionId);
-			const downloadPath = fileService.downloadPath(fileId);
-			invalidateTextContent(downloadPath);
-			invalidateBlobUrl(downloadPath);
-			invalidateBlobUrl(fileService.thumbnailPath(fileId));
-			invalidateBlobUrl(fileService.imagePreviewPath(fileId));
+			invalidateFileResourceCachesForMutation({
+				download: fileService.downloadPath(fileId),
+				thumbnail: fileService.thumbnailPath(fileId),
+				imagePreview: fileService.imagePreviewPath(fileId),
+			});
 			toast.success(t("version_restored"));
 			onRestored?.();
 		} catch (e) {

@@ -12,6 +12,7 @@ import { Icon } from "@/components/ui/icon";
 import { useBlobUrl } from "@/hooks/useBlobUrl";
 import { useFileContentResource } from "@/hooks/useFileResource";
 import { canBrowserRenderImage } from "@/lib/browserImageSupport";
+import { derivedFileResource } from "@/lib/fileResource";
 import { formatBytes } from "@/lib/format";
 import { shouldIgnoreKeyboardTarget } from "@/lib/keyboard";
 import type { ResourcePath } from "@/lib/resourceRequest";
@@ -181,16 +182,14 @@ export function ImagePreviewPanel({
 		representation: "original",
 		resolveResourceHandle: resources.resolve,
 	});
-	const backendPreviewResource = useFileContentResource({
-		deliveryMode: "blob_url",
-		downloadPath: resources.paths.download,
-		enabled: hasBackendPreview,
-		fileId: file.id,
-		mimeType: file.mime_type,
-		open: true,
-		representation: "image_preview",
-		resolveResourceHandle: resources.resolve,
-	});
+	const backendPreviewResource =
+		resources.paths.imagePreview && hasBackendPreview
+			? derivedFileResource(resources.paths.imagePreview, {
+					deliveryMode: "blob_url",
+					mimeType: "image/webp",
+					scope: resources.scope,
+				})
+			: null;
 	const {
 		blobUrl: originalBlobUrl,
 		error: originalError,

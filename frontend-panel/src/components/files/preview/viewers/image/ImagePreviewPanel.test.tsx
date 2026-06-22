@@ -118,23 +118,15 @@ function testResources(
 	return {
 		scope: "personal",
 		resolve: async (_fileId, request) => {
-			const isImagePreview = request.representation === "image_preview";
-			const isThumbnail = request.representation === "thumbnail";
-			const path = isImagePreview
-				? `/files/${fileId}/image-preview`
-				: isThumbnail
-					? `/files/${fileId}/thumbnail`
-					: `/files/${fileId}/download?disposition=inline`;
-			return derivedFileResource(path, {
-				cacheKey: isImagePreview
-					? `/files/${fileId}/image-preview`
-					: isThumbnail
-						? `/files/${fileId}/thumbnail`
-						: `/files/${fileId}/download`,
-				deliveryMode: request.delivery_mode,
-				mimeType: isImagePreview || isThumbnail ? "image/webp" : file.mime_type,
-				scope: "personal",
-			});
+			return derivedFileResource(
+				`/files/${fileId}/download?disposition=inline`,
+				{
+					cacheKey: `/files/${fileId}/download`,
+					deliveryMode: request.delivery_mode,
+					mimeType: file.mime_type,
+					scope: "personal",
+				},
+			);
 		},
 		...overrides,
 		paths: {
@@ -596,12 +588,14 @@ describe("ImagePreviewPanel", () => {
 	});
 
 	it("requests the backend image preview for HEIC files without resolving original resources", async () => {
+		const resolve = vi.fn(testResources().resolve);
 		renderPanel({
 			file: {
 				...file,
 				mime_type: "image/heic",
 				name: "photo.heic",
 			},
+			resources: testResources(7, { resolve }),
 		});
 
 		expect(screen.getByText("Preview")).toBeInTheDocument();
@@ -617,6 +611,7 @@ describe("ImagePreviewPanel", () => {
 		expect(
 			screen.queryByRole("button", { name: "Original" }),
 		).not.toBeInTheDocument();
+		expect(resolve).not.toHaveBeenCalled();
 		expect(
 			mockState.useBlobUrl.mock.calls.some(
 				([path]) =>

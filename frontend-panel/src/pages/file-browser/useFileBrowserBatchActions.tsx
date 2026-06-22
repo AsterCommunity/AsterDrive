@@ -16,10 +16,7 @@ import {
 import { handleApiError } from "@/hooks/useApiError";
 import { useConfirmDialog } from "@/hooks/useConfirmDialog";
 import { formatBatchToast } from "@/lib/formatBatchToast";
-import {
-	forgetStorageEventEchoes,
-	rememberStorageDeleteEchoes,
-} from "@/lib/storageEventEcho";
+import { beginLocalStorageDeleteMutation } from "@/lib/storageMutationCoordinator";
 import { batchService } from "@/services/batchService";
 import { useFileStore } from "@/stores/fileStore";
 import { useWorkspaceStore } from "@/stores/workspaceStore";
@@ -117,7 +114,7 @@ export function useFileBrowserBatchActions({
 	}, [count]);
 
 	const handleDelete = useCallback(async () => {
-		const echoIds = rememberStorageDeleteEchoes({
+		const mutation = beginLocalStorageDeleteMutation({
 			workspace: useWorkspaceStore.getState().workspace,
 			fileIds,
 			folderIds,
@@ -135,7 +132,7 @@ export function useFileBrowserBatchActions({
 			clearSelection();
 			await refreshVisibleItems();
 		} catch (err) {
-			forgetStorageEventEchoes(echoIds);
+			mutation.rollback();
 			handleApiError(err);
 		}
 	}, [clearSelection, fileIds, folderIds, refreshVisibleItems, t]);

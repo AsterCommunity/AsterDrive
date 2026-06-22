@@ -8,10 +8,7 @@ import { Icon } from "@/components/ui/icon";
 import { handleApiError } from "@/hooks/useApiError";
 import { useConfirmDialog } from "@/hooks/useConfirmDialog";
 import { formatBatchToast } from "@/lib/formatBatchToast";
-import {
-	forgetStorageEventEchoes,
-	rememberStorageDeleteEchoes,
-} from "@/lib/storageEventEcho";
+import { beginLocalStorageDeleteMutation } from "@/lib/storageMutationCoordinator";
 import { batchService } from "@/services/batchService";
 import type { BreadcrumbItem } from "@/stores/fileStore";
 import { useFileStore } from "@/stores/fileStore";
@@ -49,7 +46,7 @@ export function BatchActionBar({
 	const count = fileIds.length + folderIds.length;
 
 	const handleDelete = async () => {
-		const echoIds = rememberStorageDeleteEchoes({
+		const mutation = beginLocalStorageDeleteMutation({
 			workspace: useWorkspaceStore.getState().workspace,
 			fileIds,
 			folderIds,
@@ -67,7 +64,7 @@ export function BatchActionBar({
 			clearSelection();
 			await refresh();
 		} catch (err) {
-			forgetStorageEventEchoes(echoIds);
+			mutation.rollback();
 			handleApiError(err);
 		}
 	};

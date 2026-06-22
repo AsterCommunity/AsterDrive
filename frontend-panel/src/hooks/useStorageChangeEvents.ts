@@ -1,8 +1,10 @@
 import { useEffect } from "react";
 import { config } from "@/config/app";
-import { invalidateBlobUrl } from "@/hooks/useBlobUrl";
-import { invalidateTextContent } from "@/hooks/useTextContent";
 import { joinApiUrl } from "@/lib/apiUrl";
+import {
+	invalidateAllFileResourceCaches,
+	invalidateFileResourceCachesForMutation,
+} from "@/lib/fileResourceCacheInvalidation";
 import { logger } from "@/lib/logger";
 import { publishStorageChange } from "@/lib/storageChangeBus";
 import {
@@ -10,10 +12,13 @@ import {
 	type StorageChangeEventPayload,
 } from "@/lib/storageEventEcho";
 import {
+	decideRemoteStorageMutation,
+	type StorageUsageRefreshDecision,
+} from "@/lib/storageMutationCoordinator";
+import {
 	deferStorageRefresh,
 	isStorageRefreshGateActive,
 } from "@/lib/storageRefreshGate";
-import type { Workspace } from "@/lib/workspace";
 import { fileService } from "@/services/fileService";
 import { useAuthStore } from "@/stores/authStore";
 import { useFileStore } from "@/stores/fileStore";
@@ -27,58 +32,11 @@ const SSE_RECONNECT_MAX_MS = 30_000;
 const SSE_RECONNECT_FAILURE_LIMIT = 8;
 const SSE_INITIAL_CONNECT_DELAY_MS = 1_500;
 
-function eventMatchesWorkspace(
-	eventWorkspace: StorageChangeEventPayload["workspace"],
-	workspace: Workspace,
-) {
-	if (!eventWorkspace) {
-		return true;
-	}
-	if (workspace.kind === "personal") {
-		return eventWorkspace.kind === "personal";
-	}
-	return (
-		eventWorkspace.kind === "team" &&
-		eventWorkspace.team_id === workspace.teamId
-	);
-}
-
-function shouldRefreshCurrentFolder(event: StorageChangeEventPayload) {
-	if (isVirtualFileBrowserRoute()) {
-		return false;
-	}
-	const { currentFolderId, breadcrumb } = useFileStore.getState();
-	if (event.root_affected && currentFolderId === null) {
-		return true;
-	}
-	if (
-		currentFolderId !== null &&
-		(event.affected_parent_ids.includes(currentFolderId) ||
-			event.folder_ids.includes(currentFolderId))
-	) {
-		return true;
-	}
-	return breadcrumb.some(
-		(item) => item.id !== null && event.folder_ids.includes(item.id),
-	);
-}
-
-function isTagChangeEvent(event: StorageChangeEventPayload) {
-	return event.kind.startsWith("tag.");
-}
-
-function isVirtualFileBrowserRoute() {
+function currentPathname() {
 	if (typeof window === "undefined") {
-		return false;
+		return "";
 	}
-
-	const { pathname } = window.location;
-	return (
-		/(?:^|\/)search$/.test(pathname) ||
-		/(?:^|\/)teams\/\d+\/search$/.test(pathname) ||
-		/(?:^|\/)category\/[^/]+$/.test(pathname) ||
-		/(?:^|\/)teams\/\d+\/category\/[^/]+$/.test(pathname)
-	);
+	return window.location.pathname;
 }
 
 async function refreshCurrentFolder() {
@@ -92,10 +50,11 @@ async function refreshCurrentFolder() {
 
 function invalidatePreviewCaches(fileIds: number[]) {
 	for (const fileId of fileIds) {
-		invalidateTextContent(fileService.downloadPath(fileId));
-		invalidateBlobUrl(fileService.downloadPath(fileId));
-		invalidateBlobUrl(fileService.thumbnailPath(fileId));
-		invalidateBlobUrl(fileService.imagePreviewPath(fileId));
+		invalidateFileResourceCachesForMutation({
+			download: fileService.downloadPath(fileId),
+			thumbnail: fileService.thumbnailPath(fileId),
+			imagePreview: fileService.imagePreviewPath(fileId),
+		});
 	}
 }
 
@@ -107,26 +66,22 @@ function reloadTeamsForCurrentUser() {
 		.catch(() => undefined);
 }
 
-function eventMayChangeStorageUsage(event: StorageChangeEventPayload) {
-	return event.affects_quota;
-}
-
-function refreshStorageUsage(event: StorageChangeEventPayload) {
-	if (!eventMayChangeStorageUsage(event)) {
-		return;
-	}
-
+function refreshStorageUsage(decision: StorageUsageRefreshDecision) {
 	const { refreshUser } = useAuthStore.getState();
-	if (event.kind === "sync.required" || !event.workspace) {
-		void refreshUser();
-		reloadTeamsForCurrentUser();
-		return;
+	switch (decision) {
+		case "none":
+			return;
+		case "personal_quota":
+			void refreshUser({ fields: ["quota"] });
+			return;
+		case "teams":
+			reloadTeamsForCurrentUser();
+			return;
+		case "all":
+			void refreshUser();
+			reloadTeamsForCurrentUser();
+			return;
 	}
-	if (event.workspace.kind === "personal") {
-		void refreshUser({ fields: ["quota"] });
-		return;
-	}
-	reloadTeamsForCurrentUser();
 }
 
 export function useStorageChangeEvents() {
@@ -226,38 +181,43 @@ export function useStorageChangeEvents() {
 					return;
 				}
 
-				refreshStorageUsage(event);
-
 				const workspace = useWorkspaceStore.getState().workspace;
-				if (!eventMatchesWorkspace(event.workspace, workspace)) {
+				const { breadcrumb, currentFolderId } = useFileStore.getState();
+				const decision = decideRemoteStorageMutation(event, {
+					currentWorkspace: workspace,
+					folder: {
+						currentFolderId,
+						breadcrumbFolderIds: breadcrumb.flatMap((item) =>
+							item.id === null ? [] : [item.id],
+						),
+					},
+					isRefreshGateActive: isStorageRefreshGateActive(),
+					pathname: currentPathname(),
+				});
+
+				refreshStorageUsage(decision.refreshStorageUsage);
+
+				if (!decision.publishToWorkspace) {
 					return;
 				}
 
 				publishStorageChange(event);
 
-				if (event.kind === "sync.required") {
-					invalidateBlobUrl();
-					invalidateTextContent();
-					if (!isVirtualFileBrowserRoute()) {
-						if (isStorageRefreshGateActive()) {
-							deferStorageRefresh();
-							return;
-						}
-						void refreshCurrentFolder();
-					}
-					return;
+				if (decision.invalidateAllResourceCaches) {
+					invalidateAllFileResourceCaches();
+				} else {
+					invalidatePreviewCaches(decision.invalidateFileResourceCacheIds);
 				}
 
-				if (!isTagChangeEvent(event)) {
-					invalidatePreviewCaches(event.file_ids);
-				}
-				if (shouldRefreshCurrentFolder(event)) {
-					if (isStorageRefreshGateActive()) {
+				switch (decision.refreshCurrentFolder) {
+					case "defer":
 						deferStorageRefresh();
 						return;
-					}
-					void refreshCurrentFolder();
-					return;
+					case "now":
+						void refreshCurrentFolder();
+						return;
+					case "none":
+						return;
 				}
 			};
 

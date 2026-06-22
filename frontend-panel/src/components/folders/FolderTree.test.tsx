@@ -599,7 +599,8 @@ describe("FolderTree", () => {
 		expect(mockState.fileStore.moveToFolder).toHaveBeenCalledTimes(1);
 	});
 
-	it("refreshes affected parents when a folder-tree-move event is dispatched", async () => {
+	it("refreshes affected parents when a folder storage event is published", async () => {
+		const { publishStorageChange } = await import("@/lib/storageChangeBus");
 		mockState.fileStore.folders = [createFolder(1, "Alpha")];
 		mockState.fileStore.lastFolderContents = {
 			folderId: null,
@@ -635,11 +636,17 @@ describe("FolderTree", () => {
 		mockState.listRoot.mockClear();
 		mockState.listFolder.mockClear();
 
-		document.dispatchEvent(
-			new CustomEvent("folder-tree-move", {
-				detail: { folderIds: [2], targetFolderId: 1 },
-			}),
-		);
+		publishStorageChange({
+			affected_parent_ids: [1],
+			affects_quota: false,
+			at: "2026-06-23T00:00:00Z",
+			file_ids: [],
+			folder_ids: [2],
+			kind: "folder.updated",
+			root_affected: true,
+			storage_delta: null,
+			workspace: { kind: "personal" },
+		});
 
 		await waitFor(() => {
 			expect(mockState.listRoot).toHaveBeenCalledWith({

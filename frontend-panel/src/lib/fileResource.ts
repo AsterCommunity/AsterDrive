@@ -106,6 +106,12 @@ export function derivedFileResource(
 	path: string,
 	options: FileResourceOptions,
 ) {
+	// Derived endpoints are stable AsterDrive representations, not original file
+	// storage access. Thumbnails, music cover thumbnails, backend image previews,
+	// and avatars should be modeled with this local resource contract instead of
+	// POSTing /resource-handle for every render. The resolver is reserved for
+	// original content where storage policy, redirects, credentials, and delivery
+	// mode need backend arbitration.
 	return readyResource({
 		...options,
 		cacheKey: options.cacheKey ?? path,
@@ -174,4 +180,14 @@ export function cachePreviewLinkResource(
 		link,
 		expiresAtMs,
 	});
+}
+
+export function fileResourceCacheKeysForMutation(paths: {
+	download: string;
+	imagePreview?: string;
+	thumbnail?: string;
+}) {
+	return [paths.download, paths.thumbnail, paths.imagePreview].filter(
+		(path): path is string => Boolean(path),
+	);
 }

@@ -15,6 +15,8 @@ import {
 	hasInternalDragData,
 	readInternalDragData,
 } from "@/lib/dragDrop";
+import { subscribeStorageChange } from "@/lib/storageChangeBus";
+import { decideFolderTreeStorageRefresh } from "@/lib/storageMutationCoordinator";
 import {
 	workspaceFolderPath,
 	workspaceKey,
@@ -368,37 +370,24 @@ export function useFolderTreeController({
 	useEffect(() => () => clearHoverExpandTimer(), [clearHoverExpandTimer]);
 
 	useEffect(() => {
-		function onFolderTreeMove(event: Event) {
-			const detail = (
-				event as CustomEvent<{
-					folderIds: number[];
-					targetFolderId: number | null;
-				}>
-			).detail;
-			if (!detail || detail.folderIds.length === 0) return;
-
-			const sourceParentIds = detail.folderIds.map(
-				(folderId) => nodeMap.get(folderId)?.parentId ?? null,
-			);
-			const parentsToRefresh = Array.from(
-				new Set<number | null>([
-					null,
-					...expandedIds,
-					...sourceParentIds,
-					detail.targetFolderId,
-				]),
-			);
+		return subscribeStorageChange((event) => {
+			const parentsToRefresh = decideFolderTreeStorageRefresh(event, {
+				currentWorkspace: workspace,
+				expandedFolderIds: expandedIds,
+				folderParentIdsById: new Map(
+					Array.from(nodeMap.entries(), ([folderId, node]) => [
+						folderId,
+						node.parentId,
+					]),
+				),
+			});
+			if (parentsToRefresh.length === 0) return;
 
 			void Promise.all(
 				parentsToRefresh.map((parentId) => refreshFolderChildren(parentId)),
 			).catch(handleApiError);
-		}
-
-		document.addEventListener("folder-tree-move", onFolderTreeMove);
-		return () => {
-			document.removeEventListener("folder-tree-move", onFolderTreeMove);
-		};
-	}, [expandedIds, nodeMap, refreshFolderChildren]);
+		});
+	}, [expandedIds, nodeMap, refreshFolderChildren, workspace]);
 
 	const ensureFolderExpanded = useCallback(
 		async (folderId: number) => {

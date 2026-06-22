@@ -14,9 +14,9 @@ import {
 } from "@/lib/dragDrop";
 import { formatBatchToast } from "@/lib/formatBatchToast";
 import {
-	forgetStorageEventEchoes,
-	rememberStorageDeleteEchoes,
-} from "@/lib/storageEventEcho";
+	beginLocalStorageDeleteMutation,
+	beginLocalStorageMoveMutation,
+} from "@/lib/storageMutationCoordinator";
 import { batchService } from "@/services/batchService";
 import type { BreadcrumbItem } from "@/stores/fileStore";
 import { useWorkspaceStore } from "@/stores/workspaceStore";
@@ -86,21 +86,24 @@ export function useFileBrowserDragAndDrop({
 			folderIds: number[],
 			targetFolderId: number | null,
 		) => {
+			const mutation = beginLocalStorageMoveMutation({
+				workspace: useWorkspaceStore.getState().workspace,
+				fileIds,
+				folderIds,
+				targetFolderId,
+			});
 			try {
 				setFadingFileIds(createIdSet(fileIds));
 				setFadingFolderIds(createIdSet(folderIds));
 				const result = await moveToFolder(fileIds, folderIds, targetFolderId);
-				document.dispatchEvent(
-					new CustomEvent("folder-tree-move", {
-						detail: { folderIds, targetFolderId },
-					}),
-				);
+				mutation.publish();
 				await new Promise((resolve) =>
 					setTimeout(resolve, FILE_BROWSER_FEEDBACK_DURATION_MS),
 				);
 				clearFadingState();
 				showBatchToast("move", result);
 			} catch (err) {
+				mutation.rollback();
 				clearFadingState();
 				handleApiError(err);
 			}
@@ -209,7 +212,7 @@ export function useFileBrowserDragAndDrop({
 	const handleTrashDrop = useCallback(
 		async ({ fileIds, folderIds }: InternalDragData) => {
 			if (fileIds.length === 0 && folderIds.length === 0) return;
-			const echoIds = rememberStorageDeleteEchoes({
+			const mutation = beginLocalStorageDeleteMutation({
 				workspace: useWorkspaceStore.getState().workspace,
 				fileIds,
 				folderIds,
@@ -226,7 +229,7 @@ export function useFileBrowserDragAndDrop({
 				clearSelection();
 				await refresh();
 			} catch (err) {
-				forgetStorageEventEchoes(echoIds);
+				mutation.rollback();
 				clearFadingState();
 				handleApiError(err);
 			}
