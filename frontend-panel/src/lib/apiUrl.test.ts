@@ -98,7 +98,10 @@ describe("resolveApiResourceUrl", () => {
 	});
 
 	it("treats absolute resource URLs as external with a relative API base outside the browser", () => {
-		const originalWindow = globalThis.window;
+		const originalWindowDescriptor = Object.getOwnPropertyDescriptor(
+			globalThis,
+			"window",
+		);
 		vi.spyOn(appConfig.config, "apiBaseUrl", "get").mockReturnValue("/api/v1");
 		Reflect.deleteProperty(globalThis, "window");
 
@@ -107,11 +110,9 @@ describe("resolveApiResourceUrl", () => {
 				isExternalResourceUrl("https://api.example.com/api/v1/files/7"),
 			).toBe(true);
 		} finally {
-			Object.defineProperty(globalThis, "window", {
-				configurable: true,
-				value: originalWindow,
-				writable: true,
-			});
+			if (originalWindowDescriptor) {
+				Object.defineProperty(globalThis, "window", originalWindowDescriptor);
+			}
 		}
 	});
 
