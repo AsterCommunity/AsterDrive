@@ -25,36 +25,10 @@ permissions:
   contents: read
 
 jobs:
-  build-frontend:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6
-
-      - name: Setup bun
-        uses: oven-sh/setup-bun@v2
-
-      - name: Build frontend
-        working-directory: frontend-panel
-        run: |
-          bun install --frozen-lockfile
-          bun run build
-
-      - uses: actions/upload-artifact@v7
-        with:
-          name: frontend-dist
-          path: frontend-panel/dist
-          retention-days: 1
-
   build:
-    needs: build-frontend
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
-
-      - uses: actions/download-artifact@v8
-        with:
-          name: frontend-dist
-          path: frontend-panel/dist
 
       - name: Setup Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -119,7 +93,6 @@ jobs:
 
   integration-backends:
     name: Integration tests (${{ matrix.backend }})
-    needs: build-frontend
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -131,11 +104,6 @@ jobs:
       TESTCONTAINERS_REUSE_ENABLED: "true"
     steps:
       - uses: actions/checkout@v6
-
-      - uses: actions/download-artifact@v8
-        with:
-          name: frontend-dist
-          path: frontend-panel/dist
 
       - name: Setup Rust toolchain
         uses: dtolnay/rust-toolchain@stable

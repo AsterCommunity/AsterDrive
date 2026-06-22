@@ -614,6 +614,12 @@ export function useBlobUrl(
 	const cacheKey = resource ? resourceCacheKey(resource) : null;
 	const requestPath = resource ? resourceRequestPath(resource) : null;
 	const canonicalEtag = resource ? resourceCanonicalEtag(resource) : null;
+	const shouldIncludeCredentials = resource
+		? resourceCredentials(resource, shouldSendResourceCredentials)
+		: false;
+	const conditionalHeaders = resource
+		? resourceConditionalHeaders(resource)
+		: "allowed";
 
 	const retry = () => {
 		setError(false);
@@ -634,13 +640,8 @@ export function useBlobUrl(
 		const effectiveResource: ResourcePath = {
 			cacheKey,
 			etag: canonicalEtag,
-			credentials:
-				resource && resourceCredentials(resource, shouldSendResourceCredentials)
-					? "include"
-					: "omit",
-			conditionalHeaders: resource
-				? resourceConditionalHeaders(resource)
-				: "allowed",
+			credentials: shouldIncludeCredentials ? "include" : "omit",
+			conditionalHeaders,
 			requestPath,
 		};
 
@@ -683,7 +684,15 @@ export function useBlobUrl(
 			unsubscribe();
 			releaseBlobUrl(cacheKey);
 		};
-	}, [cacheKey, canonicalEtag, lane, requestPath, retryCount]);
+	}, [
+		cacheKey,
+		canonicalEtag,
+		conditionalHeaders,
+		lane,
+		requestPath,
+		retryCount,
+		shouldIncludeCredentials,
+	]);
 
 	return { blob, blobUrl, error, loading, retry };
 }

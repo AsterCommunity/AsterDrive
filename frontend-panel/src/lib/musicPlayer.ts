@@ -154,8 +154,11 @@ export async function buildDirectMusicTrack(
 }
 
 export async function buildDirectMusicQueue(files: MusicFileLike[]) {
-	return Promise.all(
+	const results = await Promise.allSettled(
 		files.filter(isMusicFile).map((file) => buildDirectMusicTrack(file)),
+	);
+	return results.flatMap((result) =>
+		result.status === "fulfilled" ? [result.value] : [],
 	);
 }
 

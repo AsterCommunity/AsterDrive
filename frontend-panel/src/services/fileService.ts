@@ -14,6 +14,7 @@ import type {
 	CreateOfflineDownloadTaskParams,
 	DirectLinkTokenInfo,
 	FileInfo,
+	FileResourceHandleRequest,
 	FileVersion,
 	FolderAncestorItem,
 	FolderContents,
@@ -32,19 +33,6 @@ import {
 import { ApiError, type ApiRequestConfig, api } from "./http";
 
 type ServiceRequestOptions = Pick<ApiRequestConfig, "signal">;
-
-export type FileResourcePurpose = "preview" | "download" | "external_viewer";
-export type FileResourceRepresentation =
-	| "auto"
-	| "original"
-	| "image_preview"
-	| "thumbnail";
-
-export interface FileResourceHandleRequest {
-	purpose: FileResourcePurpose;
-	delivery_mode: FileResourceDeliveryMode;
-	representation?: FileResourceRepresentation;
-}
 
 interface ApiFileResourceHandle {
 	identity: {

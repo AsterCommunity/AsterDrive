@@ -76,7 +76,7 @@ export function usePreviewSessionResources({
 	}, [activeOption, fileId, launchWopiSession]);
 
 	const stableArchiveManifestLoader = useCallback(
-		(options?: { signal?: AbortSignal }) => {
+		(options?: Parameters<ArchiveManifestLoader>[0]) => {
 			const loadManifest = archiveManifestLoaderRef.current;
 			if (!loadManifest) {
 				return Promise.reject(new Error("archive manifest loader unavailable"));

@@ -207,7 +207,10 @@ async fn test_team_file_resource_handle_resolves_team_scoped_paths_and_rejects_p
     );
     assert_eq!(body["data"]["request"]["credentials"], "include");
     assert_eq!(body["data"]["request"]["conditional_headers"], "allowed");
-    assert_eq!(body["data"]["request"]["redirect_policy"], "same_origin_only");
+    assert_eq!(
+        body["data"]["request"]["redirect_policy"],
+        "same_origin_only"
+    );
     assert_eq!(body["data"]["delivery"]["mode"], "blob_url");
     assert_eq!(body["data"]["delivery"]["mime_type"], "image/webp");
 

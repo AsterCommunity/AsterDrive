@@ -30,6 +30,7 @@ pub const FRONTEND_CSP_HEADER: &str = concat!(
     // presigned upload / download 可能直接命中外部对象存储或 remote follower，
     // 这里必须允许浏览器向任意 http(s) 终点发起 XHR/fetch/WebSocket 连接。
     "connect-src 'self' http: https: ws: wss: blob:; ",
+    // 预签名预览 / 流媒体链接可能解析到 blob URL 或外部对象存储媒体资源。
     "media-src 'self' blob: http: https:; ",
     "worker-src 'self' blob:; ",
     "frame-src 'self' http: https:; ",
@@ -46,6 +47,7 @@ pub const FRONTEND_CSP_META: &str = concat!(
     "font-src 'self' data:; ",
     // meta CSP 不能承载 frame-ancestors；该约束仍由响应头版 CSP 生效。
     "connect-src 'self' http: https: ws: wss: blob:; ",
+    // 预签名预览 / 流媒体链接可能解析到 blob URL 或外部对象存储媒体资源。
     "media-src 'self' blob: http: https:; ",
     "worker-src 'self' blob:; ",
     "frame-src 'self' http: https:; ",

@@ -35,7 +35,14 @@ fn create_fallback_files(dist_path: &Path) -> io::Result<()> {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AsterDrive - Frontend Not Built</title>
+    <link rel="icon" type="image/svg+xml" href="%ASTERDRIVE_FAVICON_URL%" />
+    <link rel="apple-touch-icon" href="%ASTERDRIVE_FAVICON_URL%" />
+    <link rel="preload" as="image" href="%ASTERDRIVE_WORDMARK_LIGHT_URL%" media="(min-width: 1024px), (prefers-color-scheme: dark)" />
+    <link rel="preload" as="image" href="%ASTERDRIVE_WORDMARK_DARK_URL%" media="(max-width: 1023px) and (prefers-color-scheme: light)" />
+    <meta name="description" content="%ASTERDRIVE_DESCRIPTION%" />
+    <meta http-equiv="Content-Security-Policy" content="%ASTERDRIVE_CSP%" />
+    <meta name="asterdrive-version" content="%ASTERDRIVE_VERSION%" />
+    <title>%ASTERDRIVE_TITLE% - Frontend Not Built</title>
     <style>
         body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
@@ -61,7 +68,7 @@ fn create_fallback_files(dist_path: &Path) -> io::Result<()> {
     </style>
 </head>
 <body>
-    <h1>AsterDrive</h1>
+    <h1>%ASTERDRIVE_TITLE%</h1>
     <div class="warning">
         <h2>Frontend Not Built</h2>
         <p>The admin panel needs to be built before it can be served.</p>

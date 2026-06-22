@@ -1365,7 +1365,10 @@ mod tests {
         assert_eq!(body["code"], "success");
         let handle: FileResourceHandle =
             serde_json::from_value(body["data"].clone()).expect("resource handle should decode");
-        assert_eq!(handle.identity.cache_key, format!("/files/{}/download", file.id));
+        assert_eq!(
+            handle.identity.cache_key,
+            format!("/files/{}/download", file.id)
+        );
         assert_eq!(handle.identity.scope.as_deref(), Some("personal"));
         assert_eq!(
             handle.request.url,
@@ -1429,8 +1432,8 @@ mod tests {
         assert_eq!(response.status(), StatusCode::OK);
         let body: Value = test::read_body_json(response).await;
         assert_eq!(body["code"], "success");
-        let handle: FileResourceHandle =
-            serde_json::from_value(body["data"].clone()).expect("team resource handle should decode");
+        let handle: FileResourceHandle = serde_json::from_value(body["data"].clone())
+            .expect("team resource handle should decode");
         assert_eq!(
             handle.identity.cache_key,
             format!("/teams/{}/files/{}/thumbnail", team.id, team_file.id)

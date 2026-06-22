@@ -1,8 +1,11 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
 	authenticatedDownloadResource,
+	cachePreviewLinkResource,
+	clearPreviewLinkResourceCache,
 	derivedFileResource,
 	previewLinkResource,
+	readCachedPreviewLinkResource,
 } from "@/lib/fileResource";
 
 describe("fileResource", () => {
@@ -75,5 +78,118 @@ describe("fileResource", () => {
 			expiresAt: "2026-06-23T12:00:00Z",
 			maxUses: 5,
 		});
+	});
+
+	it("evicts expired preview-link cache entries", () => {
+		vi.useFakeTimers();
+		try {
+			vi.setSystemTime(new Date("2026-06-23T12:00:00Z"));
+			cachePreviewLinkResource("/files/7/download", {
+				etag: '"etag-7"',
+				expires_at: "2026-06-23T12:00:20Z",
+				max_uses: 5,
+				path: "/pv/token/report.pdf",
+			});
+
+			expect(
+				readCachedPreviewLinkResource("/files/7/download", {
+					deliveryMode: "blob_url",
+					etag: '"etag-7"',
+				})?.request.url,
+			).toBe("/pv/token/report.pdf");
+
+			vi.setSystemTime(new Date("2026-06-23T12:00:11Z"));
+			expect(
+				readCachedPreviewLinkResource("/files/7/download", {
+					deliveryMode: "blob_url",
+					etag: '"etag-7"',
+				}),
+			).toBeNull();
+
+			vi.setSystemTime(new Date("2026-06-23T12:00:00Z"));
+			expect(
+				readCachedPreviewLinkResource("/files/7/download", {
+					deliveryMode: "blob_url",
+					etag: '"etag-7"',
+				}),
+			).toBeNull();
+		} finally {
+			clearPreviewLinkResourceCache();
+			vi.useRealTimers();
+		}
+	});
+
+	it("reads preview-link cache entries by precise etag", () => {
+		vi.useFakeTimers();
+		try {
+			vi.setSystemTime(new Date("2026-06-23T12:00:00Z"));
+			cachePreviewLinkResource("/files/7/download", {
+				etag: '"etag-7-a"',
+				expires_at: "2026-06-23T12:01:00Z",
+				max_uses: 5,
+				path: "/pv/token-a/report.pdf",
+			});
+			cachePreviewLinkResource("/files/7/download", {
+				etag: '"etag-7-b"',
+				expires_at: "2026-06-23T12:01:00Z",
+				max_uses: 5,
+				path: "/pv/token-b/report.pdf",
+			});
+
+			const resource = readCachedPreviewLinkResource("/files/7/download", {
+				deliveryMode: "blob_url",
+				etag: '"etag-7-b"',
+			});
+
+			expect(resource?.identity.etag).toBe('"etag-7-b"');
+			expect(resource?.request.url).toBe("/pv/token-b/report.pdf");
+		} finally {
+			clearPreviewLinkResourceCache();
+			vi.useRealTimers();
+		}
+	});
+
+	it("treats preview-link cache entries at the skew boundary as unusable", () => {
+		vi.useFakeTimers();
+		try {
+			vi.setSystemTime(new Date("2026-06-23T12:00:00Z"));
+			cachePreviewLinkResource("/files/7/download", {
+				etag: '"etag-boundary"',
+				expires_at: "2026-06-23T12:00:10Z",
+				max_uses: 5,
+				path: "/pv/boundary/report.pdf",
+			});
+
+			expect(
+				readCachedPreviewLinkResource("/files/7/download", {
+					deliveryMode: "blob_url",
+					etag: '"etag-boundary"',
+				}),
+			).toBeNull();
+
+			cachePreviewLinkResource("/files/7/download", {
+				etag: '"etag-usable"',
+				expires_at: "2026-06-23T12:00:11Z",
+				max_uses: 5,
+				path: "/pv/usable/report.pdf",
+			});
+			expect(
+				readCachedPreviewLinkResource("/files/7/download", {
+					deliveryMode: "blob_url",
+					etag: '"etag-usable"',
+				})?.request.url,
+			).toBe("/pv/usable/report.pdf");
+
+			vi.setSystemTime(new Date("2026-06-23T12:00:01Z"));
+			expect(
+				readCachedPreviewLinkResource("/files/7/download", {
+					deliveryMode: "blob_url",
+					etag: '"etag-usable"',
+				}),
+			).toBeNull();
+		} finally {
+			clearPreviewLinkResourceCache();
+			vi.useRealTimers();
+		}
 	});
 });

@@ -132,6 +132,13 @@ export type VerificationPurpose = components["schemas"]["VerificationPurpose"];
 export type FileCategory = components["schemas"]["FileCategory"];
 export type FileInfo = components["schemas"]["FileInfo"];
 export type FileListItem = components["schemas"]["FileListItem"];
+export type FileResourceDeliveryMode =
+	components["schemas"]["FileResourceDeliveryMode"];
+export type FileResourceHandleRequest =
+	components["schemas"]["FileResourceHandleRequest"];
+export type FileResourcePurpose = components["schemas"]["FileResourcePurpose"];
+export type FileResourceRepresentation =
+	components["schemas"]["FileResourceRepresentation"];
 export type FileVersion = components["schemas"]["FileVersion"];
 export type FolderAncestorItem = components["schemas"]["FolderAncestorItem"];
 export type FolderContents = components["schemas"]["FolderContents"];

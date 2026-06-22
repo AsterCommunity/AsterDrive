@@ -604,9 +604,7 @@ export function MusicPlayerHost() {
 		() => (trackResourcePath ? resolveApiResourceUrl(trackResourcePath) : null),
 		[trackResourcePath],
 	);
-	const trackKey = track
-		? `${track.id}:${trackResourcePath ?? track.path}`
-		: null;
+	const trackKey = track?.id ?? null;
 	const progress =
 		duration > 0 && Number.isFinite(duration)
 			? Math.min(100, Math.max(0, (currentTime / duration) * 100))

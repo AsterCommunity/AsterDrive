@@ -57,6 +57,8 @@ export function filePreviewDialogUiReducer(
 					: state.hasConfirmedInitialMode,
 				hasManualExpanded: resetForFile ? false : state.hasManualExpanded,
 				isExpanded: resetForFile ? false : state.isExpanded,
+				isDirty: resetForFile ? false : state.isDirty,
+				confirmOpen: resetForFile ? false : state.confirmOpen,
 				forceOpenMethodChooser: resetForFile
 					? false
 					: state.forceOpenMethodChooser,

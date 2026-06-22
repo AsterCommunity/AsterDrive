@@ -151,7 +151,10 @@ async fn test_file_resource_handle_resolves_same_origin_original_and_default_rep
     );
     assert_eq!(body["data"]["request"]["credentials"], "include");
     assert_eq!(body["data"]["request"]["conditional_headers"], "allowed");
-    assert_eq!(body["data"]["request"]["redirect_policy"], "same_origin_only");
+    assert_eq!(
+        body["data"]["request"]["redirect_policy"],
+        "same_origin_only"
+    );
     assert_eq!(body["data"]["delivery"]["mode"], "blob_url");
     assert_eq!(body["data"]["delivery"]["mime_type"], "text/plain");
 }
@@ -196,7 +199,10 @@ async fn test_file_resource_handle_resolves_thumbnail_representation() {
     );
     assert_eq!(body["data"]["request"]["credentials"], "include");
     assert_eq!(body["data"]["request"]["conditional_headers"], "allowed");
-    assert_eq!(body["data"]["request"]["redirect_policy"], "same_origin_only");
+    assert_eq!(
+        body["data"]["request"]["redirect_policy"],
+        "same_origin_only"
+    );
     assert_eq!(body["data"]["delivery"]["mode"], "blob_url");
     assert_eq!(body["data"]["delivery"]["mime_type"], "image/webp");
 }

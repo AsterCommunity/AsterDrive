@@ -81,6 +81,10 @@ function refreshStorageUsage(decision: StorageUsageRefreshDecision) {
 			void refreshUser();
 			reloadTeamsForCurrentUser();
 			return;
+		default: {
+			const exhaustiveCheck: never = decision;
+			return exhaustiveCheck;
+		}
 	}
 }
 

@@ -10,7 +10,15 @@ describe("filePreviewDialogUiReducer", () => {
 			initialFilePreviewDialogUiState,
 			{ type: "selectOpenMethod", mode: "builtin.markdown" },
 		);
-		const expanded = filePreviewDialogUiReducer(selected, {
+		const dirty = filePreviewDialogUiReducer(selected, {
+			type: "setDirty",
+			isDirty: true,
+		});
+		const confirming = filePreviewDialogUiReducer(dirty, {
+			type: "setConfirmOpen",
+			confirmOpen: true,
+		});
+		const expanded = filePreviewDialogUiReducer(confirming, {
 			type: "setExpanded",
 			expanded: true,
 		});
@@ -22,8 +30,10 @@ describe("filePreviewDialogUiReducer", () => {
 
 		expect(reset).toMatchObject({
 			forceOpenMethodChooser: false,
+			confirmOpen: false,
 			hasConfirmedInitialMode: false,
 			hasManualExpanded: false,
+			isDirty: false,
 			isExpanded: false,
 			mode: "builtin.code",
 		});

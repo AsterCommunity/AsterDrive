@@ -19,6 +19,8 @@ type MockMediaSession = {
 	setPositionState: ReturnType<typeof vi.fn>;
 };
 
+type TestTrackResource = ReturnType<typeof testTrackResource>;
+
 const mockState = vi.hoisted(() => ({
 	clear: vi.fn(),
 	closePanel: vi.fn(),
@@ -77,7 +79,7 @@ const mockState = vi.hoisted(() => ({
 			mimeType: string;
 			name: string;
 			path: string;
-			resource?: unknown;
+			resource?: TestTrackResource;
 			size?: number;
 			thumbnail?: {
 				file: {
@@ -103,9 +105,9 @@ function withTrackResource<
 	Track extends {
 		mimeType: string;
 		path: string;
-		resource?: unknown;
+		resource?: TestTrackResource;
 	},
->(track: Track): Omit<Track, "resource"> & { resource: unknown } {
+>(track: Track): Omit<Track, "resource"> & { resource: TestTrackResource } {
 	return {
 		...track,
 		resource: track.resource ?? testTrackResource(track.path, track.mimeType),
@@ -116,7 +118,7 @@ function installQueue(
 	tracks: Array<{
 		mimeType: string;
 		path: string;
-		resource?: unknown;
+		resource?: TestTrackResource;
 		[key: string]: unknown;
 	}>,
 ) {

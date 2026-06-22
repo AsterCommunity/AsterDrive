@@ -156,6 +156,9 @@ export function readCachedPreviewLinkResource(
 	if (exact && isPreviewLinkUsable(exact)) {
 		return previewLinkResource(downloadPath, exact.link, options);
 	}
+	if (exact) {
+		previewLinkCache.delete(previewLinkCacheKey(downloadPath, options.etag));
+	}
 
 	if (options.etag) return null;
 
@@ -175,7 +178,7 @@ export function cachePreviewLinkResource(
 	link: PreviewLinkInfo,
 ) {
 	const expiresAtMs = previewLinkExpiresAtMs(link);
-	if (expiresAtMs <= 0) return;
+	if (expiresAtMs <= 0 || !isPreviewLinkUsable({ link, expiresAtMs })) return;
 	previewLinkCache.set(previewLinkCacheKey(downloadPath, link.etag), {
 		link,
 		expiresAtMs,

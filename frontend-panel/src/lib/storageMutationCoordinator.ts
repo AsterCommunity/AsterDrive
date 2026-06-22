@@ -252,9 +252,6 @@ export function decideVirtualStorageViewRefresh(
 		}
 		return false;
 	}
-	if (isTagChangeEvent(event)) {
-		return hasResourceReference(event);
-	}
 	return hasResourceReference(event);
 }
 

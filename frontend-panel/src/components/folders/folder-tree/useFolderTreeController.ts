@@ -369,17 +369,23 @@ export function useFolderTreeController({
 
 	useEffect(() => () => clearHoverExpandTimer(), [clearHoverExpandTimer]);
 
+	const folderParentIdsById = useMemo(
+		() =>
+			new Map(
+				Array.from(nodeMap.entries(), ([folderId, node]) => [
+					folderId,
+					node.parentId,
+				]),
+			),
+		[nodeMap],
+	);
+
 	useEffect(() => {
 		return subscribeStorageChange((event) => {
 			const parentsToRefresh = decideFolderTreeStorageRefresh(event, {
 				currentWorkspace: workspace,
 				expandedFolderIds: expandedIds,
-				folderParentIdsById: new Map(
-					Array.from(nodeMap.entries(), ([folderId, node]) => [
-						folderId,
-						node.parentId,
-					]),
-				),
+				folderParentIdsById,
 			});
 			if (parentsToRefresh.length === 0) return;
 
@@ -387,7 +393,7 @@ export function useFolderTreeController({
 				parentsToRefresh.map((parentId) => refreshFolderChildren(parentId)),
 			).catch(handleApiError);
 		});
-	}, [expandedIds, nodeMap, refreshFolderChildren, workspace]);
+	}, [expandedIds, folderParentIdsById, refreshFolderChildren, workspace]);
 
 	const ensureFolderExpanded = useCallback(
 		async (folderId: number) => {

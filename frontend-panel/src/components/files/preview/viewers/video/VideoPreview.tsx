@@ -2,9 +2,8 @@ import Artplayer from "artplayer";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { resolveApiResourceUrl } from "@/lib/apiUrl";
-import { prepareAuthenticatedResource } from "@/lib/authenticatedResource";
 import { logger } from "@/lib/logger";
-import { type ResourcePath, resourceRequestPath } from "@/lib/resourceRequest";
+import type { ResourcePath } from "@/lib/resourceRequest";
 import type { ShareStreamSessionInfo } from "@/types/api";
 import type { PreviewableFileLike } from "../../capabilities/types";
 import { PreviewError } from "../../shared/PreviewError";
@@ -13,6 +12,7 @@ import {
 	PreviewSurface,
 	PreviewSurfaceContent,
 } from "../../shared/PreviewSurface";
+import { useVideoPreviewResource } from "./useVideoPreviewResource";
 
 const DEFAULT_ASPECT_RATIO = 16 / 9;
 const DIALOG_CHROME_HEIGHT_REM = 11;
@@ -30,7 +30,6 @@ interface VideoStatus {
 	key: string;
 	mediaFailed: boolean;
 	playerFailed: boolean;
-	streamLinkFailed: boolean;
 }
 
 function initialVideoStatus(key: string): VideoStatus {
@@ -39,7 +38,6 @@ function initialVideoStatus(key: string): VideoStatus {
 		key,
 		mediaFailed: false,
 		playerFailed: false,
-		streamLinkFailed: false,
 	};
 }
 
@@ -54,30 +52,17 @@ export function VideoPreview({
 }: VideoPreviewProps) {
 	const { i18n, t } = useTranslation("files");
 	const containerRef = useRef<HTMLDivElement | null>(null);
-	const [resourceState, setResourceState] = useState(() => ({
-		inputs: { createMediaStreamSession, resource },
-		version: 0,
-	}));
-	const [resolvedResource, setResolvedResource] = useState<{
-		key: string;
-		path: string;
-	} | null>(null);
-	const requestPath = resource ? resourceRequestPath(resource) : null;
-	if (
-		resourceState.inputs.resource !== resource ||
-		resourceState.inputs.createMediaStreamSession !== createMediaStreamSession
-	) {
-		setResourceState({
-			inputs: { createMediaStreamSession, resource },
-			version: resourceState.version + 1,
-		});
-	}
-	const currentResourceVersion =
-		resourceState.inputs.resource === resource &&
-		resourceState.inputs.createMediaStreamSession === createMediaStreamSession
-			? resourceState.version
-			: resourceState.version + 1;
-	const resourceKey = `${requestPath}:${createMediaStreamSession ? "stream" : "direct"}:${currentResourceVersion}`;
+	const {
+		error: resourceError,
+		loading: resourceLoading,
+		resolvedPath,
+		resourceKey,
+		retry: retryResource,
+	} = useVideoPreviewResource({
+		createMediaStreamSession,
+		fileName: file.name,
+		resource,
+	});
 	const [status, setStatus] = useState<VideoStatus>(() =>
 		initialVideoStatus(resourceKey),
 	);
@@ -86,10 +71,7 @@ export function VideoPreview({
 			status.key === resourceKey ? status : initialVideoStatus(resourceKey),
 		[status, resourceKey],
 	);
-	const { aspectRatio, mediaFailed, playerFailed, streamLinkFailed } =
-		currentStatus;
-	const resolvedPath =
-		resolvedResource?.key === resourceKey ? resolvedResource.path : null;
+	const { aspectRatio, mediaFailed, playerFailed } = currentStatus;
 	const videoSource = useMemo(
 		() => (resolvedPath ? resolveApiResourceUrl(resolvedPath) : null),
 		[resolvedPath],
@@ -106,48 +88,6 @@ export function VideoPreview({
 		}),
 		[aspectRatio],
 	);
-
-	useEffect(() => {
-		if (!resource || !requestPath) {
-			setResolvedResource(null);
-			return;
-		}
-
-		let cancelled = false;
-
-		const resolveDirectPath = async () => {
-			await prepareAuthenticatedResource(resource);
-			return requestPath;
-		};
-
-		const resolveLink = createMediaStreamSession
-			? async () => (await createMediaStreamSession()).path
-			: resolveDirectPath;
-
-		resolveLink()
-			.then((nextPath) => {
-				if (cancelled) return;
-				setResolvedResource({ key: resourceKey, path: nextPath });
-			})
-			.catch((error) => {
-				if (cancelled) return;
-				logger.warn(
-					createMediaStreamSession
-						? "media stream session creation failed"
-						: "media resource preparation failed",
-					file.name,
-					error,
-				);
-				setStatus({
-					...initialVideoStatus(resourceKey),
-					streamLinkFailed: true,
-				});
-			});
-
-		return () => {
-			cancelled = true;
-		};
-	}, [file.name, resource, requestPath, createMediaStreamSession, resourceKey]);
 
 	useEffect(() => {
 		if (!videoSource) return;
@@ -231,17 +171,17 @@ export function VideoPreview({
 		videoSource,
 	]);
 
-	if (streamLinkFailed || mediaFailed) {
+	if (resourceError || mediaFailed) {
 		return (
 			<PreviewSurface>
 				<PreviewSurfaceContent>
-					<PreviewError />
+					<PreviewError onRetry={resourceError ? retryResource : undefined} />
 				</PreviewSurfaceContent>
 			</PreviewSurface>
 		);
 	}
 
-	if (!videoSource) {
+	if (resourceLoading || !videoSource) {
 		return (
 			<PreviewSurface>
 				<PreviewSurfaceContent>

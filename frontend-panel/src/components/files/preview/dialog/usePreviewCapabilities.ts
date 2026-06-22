@@ -37,15 +37,9 @@ export function usePreviewCapabilities({
 	}, [loadThumbnailSupport, thumbnailSupportLoaded]);
 
 	const baseProfile = useMemo(() => {
-		if (!previewAppsLoaded || !thumbnailSupportLoaded) return null;
+		if (!previewAppsLoaded) return null;
 		return detectFilePreviewProfile(file, previewApps, thumbnailSupport);
-	}, [
-		file,
-		previewApps,
-		previewAppsLoaded,
-		thumbnailSupport,
-		thumbnailSupportLoaded,
-	]);
+	}, [file, previewApps, previewAppsLoaded, thumbnailSupport]);
 
 	const customVideoBrowserOption = useMemo(
 		() => getVideoBrowserOpenWithOption(),

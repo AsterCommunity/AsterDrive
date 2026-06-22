@@ -2,9 +2,9 @@ use std::time::Duration;
 
 use crate::api::dto::files::{
     FileResourceConditionalHeaders, FileResourceCredentials, FileResourceDeliveryInfo,
-    FileResourceDeliveryMode, FileResourceHandle, FileResourceHandleRequest,
-    FileResourceIdentity, FileResourcePurpose, FileResourceRedirectPolicy, FileResourceRequestInfo,
-    FileResourceRepresentation,
+    FileResourceDeliveryMode, FileResourceHandle, FileResourceHandleRequest, FileResourceIdentity,
+    FileResourcePurpose, FileResourceRedirectPolicy, FileResourceRepresentation,
+    FileResourceRequestInfo,
 };
 use crate::db::repository::file_repo;
 use crate::entities::{file, file_blob};
@@ -61,7 +61,7 @@ pub(crate) async fn resolve_file_resource_handle_for_file(
     request: &FileResourceHandleRequest,
     scope: Option<&str>,
 ) -> Result<FileResourceHandle> {
-    let representation = resolve_representation(&file, request);
+    let representation = resolve_representation(file, request);
 
     match representation {
         ResolvedRepresentation::Original => {
@@ -290,10 +290,7 @@ fn with_download_query(path: &str, disposition: &str) -> String {
 }
 
 fn is_image_mime(mime_type: &str) -> bool {
-    mime_type
-        .trim()
-        .to_ascii_lowercase()
-        .starts_with("image/")
+    mime_type.trim().to_ascii_lowercase().starts_with("image/")
 }
 
 fn file_extension(file_name: &str) -> &str {
@@ -337,12 +334,24 @@ fn can_browser_render_image(file: &file::Model) -> bool {
         return false;
     }
 
-    matches!(
+    let browser_renderable_extension = matches!(
         extension.as_str(),
-        "avif" | "bmp" | "dib" | "gif" | "ico" | "jpe" | "jpeg" | "jfif" | "jpg" | "png"
-            | "svg" | "webp"
-    ) || matches!(
-        file.mime_type.trim().to_ascii_lowercase().as_str(),
+        "avif"
+            | "bmp"
+            | "dib"
+            | "gif"
+            | "ico"
+            | "jpe"
+            | "jpeg"
+            | "jfif"
+            | "jpg"
+            | "png"
+            | "svg"
+            | "webp"
+    );
+    let normalized_mime_type = file.mime_type.trim().to_ascii_lowercase();
+    let browser_renderable_mime_type = matches!(
+        normalized_mime_type.as_str(),
         "image/avif"
             | "image/bmp"
             | "image/gif"
@@ -356,7 +365,13 @@ fn can_browser_render_image(file: &file::Model) -> bool {
             | "image/x-icon"
             | "image/x-ms-bmp"
             | "image/x-png"
-    )
+    );
+
+    if normalized_mime_type.starts_with("image/") && !browser_renderable_mime_type {
+        return false;
+    }
+
+    browser_renderable_extension || browser_renderable_mime_type
 }
 
 #[cfg(test)]
@@ -762,6 +777,11 @@ mod tests {
 
         image.mime_type = "image/heic".to_string();
         assert!(!can_browser_render_image(&image));
+
+        image.name = "photo.jpg".to_string();
+        image.mime_type = "image/heic".to_string();
+        image.extension = "jpg".to_string();
+        assert!(!can_browser_render_image(&image));
     }
 
     #[actix_web::test]
@@ -790,8 +810,14 @@ mod tests {
         .await
         .expect("same-origin original handle should resolve");
 
-        assert_eq!(handle.identity.cache_key, "/files/42/download?existing=1#frag");
-        assert_eq!(handle.identity.etag.as_deref(), Some("\"resource-handle-hash\""));
+        assert_eq!(
+            handle.identity.cache_key,
+            "/files/42/download?existing=1#frag"
+        );
+        assert_eq!(
+            handle.identity.etag.as_deref(),
+            Some("\"resource-handle-hash\"")
+        );
         assert_eq!(handle.identity.scope.as_deref(), Some("personal"));
         assert_eq!(
             handle.request.url,
@@ -838,8 +864,14 @@ mod tests {
         .await
         .expect("presigned original handle should resolve");
 
-        assert_eq!(handle.identity.cache_key, "/files/42/download?existing=1#frag");
-        assert_eq!(handle.identity.etag.as_deref(), Some("\"resource-handle-hash\""));
+        assert_eq!(
+            handle.identity.cache_key,
+            "/files/42/download?existing=1#frag"
+        );
+        assert_eq!(
+            handle.identity.etag.as_deref(),
+            Some("\"resource-handle-hash\"")
+        );
         assert_eq!(handle.identity.scope.as_deref(), Some("team"));
         assert_eq!(handle.request.credentials, FileResourceCredentials::Omit);
         assert_eq!(
@@ -853,11 +885,14 @@ mod tests {
         assert_eq!(handle.delivery.mode, FileResourceDeliveryMode::DirectUrl);
         assert_eq!(handle.delivery.mime_type.as_deref(), Some("image/png"));
 
-        let parsed = reqwest::Url::parse(&handle.request.url)
-            .expect("presigned resource URL should parse");
+        let parsed =
+            reqwest::Url::parse(&handle.request.url).expect("presigned resource URL should parse");
         assert_eq!(parsed.scheme(), "https");
         let query = query_pairs(&handle.request.url);
-        assert_eq!(query.get("path").map(String::as_str), Some("objects/resource.bin"));
+        assert_eq!(
+            query.get("path").map(String::as_str),
+            Some("objects/resource.bin")
+        );
         assert_eq!(query.get("expires").map(String::as_str), Some("300"));
         assert_eq!(
             query.get("response-cache-control").map(String::as_str),
@@ -950,7 +985,10 @@ mod tests {
             crate::services::thumbnail_service::CURRENT_IMAGE_PREVIEW_VERSION,
         );
         assert_eq!(handle.identity.cache_key, "/files/42/image-preview");
-        assert_eq!(handle.identity.etag.as_deref(), Some(format!("\"{expected_etag}\"").as_str()));
+        assert_eq!(
+            handle.identity.etag.as_deref(),
+            Some(format!("\"{expected_etag}\"").as_str())
+        );
         assert_eq!(handle.identity.scope.as_deref(), Some("personal"));
         assert_eq!(handle.request.url, "/files/42/image-preview");
         assert_eq!(handle.request.credentials, FileResourceCredentials::Include);
@@ -992,7 +1030,10 @@ mod tests {
         .await
         .expect("auto original image handle should resolve");
 
-        assert_eq!(handle.identity.cache_key, "/files/42/download?existing=1#frag");
+        assert_eq!(
+            handle.identity.cache_key,
+            "/files/42/download?existing=1#frag"
+        );
         assert_eq!(
             handle.request.url,
             "/files/42/download?existing=1&disposition=inline#frag"
@@ -1012,8 +1053,14 @@ mod tests {
         .await;
 
         for (purpose, delivery_mode) in [
-            (FileResourcePurpose::Download, FileResourceDeliveryMode::BlobUrl),
-            (FileResourcePurpose::Preview, FileResourceDeliveryMode::DirectUrl),
+            (
+                FileResourcePurpose::Download,
+                FileResourceDeliveryMode::BlobUrl,
+            ),
+            (
+                FileResourcePurpose::Preview,
+                FileResourceDeliveryMode::DirectUrl,
+            ),
             (
                 FileResourcePurpose::ExternalViewer,
                 FileResourceDeliveryMode::BlobUrl,
@@ -1030,7 +1077,10 @@ mod tests {
             .await
             .expect("non preview blob auto request should keep original");
 
-            assert_eq!(handle.identity.cache_key, "/files/42/download?existing=1#frag");
+            assert_eq!(
+                handle.identity.cache_key,
+                "/files/42/download?existing=1#frag"
+            );
             assert_eq!(
                 handle.request.url,
                 "/files/42/download?existing=1&disposition=inline#frag"
@@ -1072,7 +1122,10 @@ mod tests {
             Some(crate::services::thumbnail_service::CURRENT_THUMBNAIL_VERSION),
         );
         assert_eq!(handle.identity.cache_key, "/files/42/thumbnail");
-        assert_eq!(handle.identity.etag.as_deref(), Some(format!("\"{expected_etag}\"").as_str()));
+        assert_eq!(
+            handle.identity.etag.as_deref(),
+            Some(format!("\"{expected_etag}\"").as_str())
+        );
         assert_eq!(handle.identity.scope.as_deref(), Some("team"));
         assert_eq!(handle.request.url, "/files/42/thumbnail");
         assert_eq!(handle.request.credentials, FileResourceCredentials::Include);
@@ -1113,7 +1166,10 @@ mod tests {
         .await
         .expect_err("text thumbnail handle should fail validation");
 
-        assert!(matches!(error, crate::errors::AsterError::ValidationError(_)));
+        assert!(matches!(
+            error,
+            crate::errors::AsterError::ValidationError(_)
+        ));
         assert!(
             error
                 .message()

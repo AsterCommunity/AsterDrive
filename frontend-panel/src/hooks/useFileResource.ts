@@ -4,18 +4,12 @@ import type {
 	ReadyFileResourceHandle,
 } from "@/lib/resourceRequest";
 import { fileService } from "@/services/fileService";
+import type {
+	FileResourceHandleRequest,
+	FileResourceRepresentation,
+} from "@/types/api";
 
-export type FileResourceRepresentation =
-	| "auto"
-	| "original"
-	| "image_preview"
-	| "thumbnail";
-
-export interface ResolveFileResourceHandleRequest {
-	delivery_mode: FileResourceDeliveryMode;
-	purpose: "preview" | "download" | "external_viewer";
-	representation?: FileResourceRepresentation;
-}
+export type ResolveFileResourceHandleRequest = FileResourceHandleRequest;
 
 export type ResolveFileResourceHandle = (
 	fileId: number,

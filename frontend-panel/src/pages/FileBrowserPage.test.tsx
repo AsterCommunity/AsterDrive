@@ -1955,30 +1955,33 @@ describe("FileBrowserPage", () => {
 		const unsubscribe = subscribeStorageChange((event) => {
 			storageEvents.push(event);
 		});
-		render(<FileBrowserPage />);
 
 		vi.useFakeTimers();
+		try {
+			render(<FileBrowserPage />);
 
-		fireEvent.click(screen.getByRole("button", { name: "move-selection" }));
+			fireEvent.click(screen.getByRole("button", { name: "move-selection" }));
 
-		await Promise.resolve();
-		await Promise.resolve();
-		expect(mockState.store.moveToFolder).toHaveBeenCalledWith([7], [8], 20);
-		await vi.advanceTimersByTimeAsync(FILE_BROWSER_FEEDBACK_DURATION_MS);
-		await Promise.resolve();
-		await Promise.resolve();
-		vi.useRealTimers();
-		unsubscribe();
+			await Promise.resolve();
+			await Promise.resolve();
+			expect(mockState.store.moveToFolder).toHaveBeenCalledWith([7], [8], 20);
+			await vi.advanceTimersByTimeAsync(FILE_BROWSER_FEEDBACK_DURATION_MS);
+			await Promise.resolve();
+			await Promise.resolve();
 
-		expect(storageEvents).toContainEqual(
-			expect.objectContaining({
-				folder_ids: [8],
-				kind: "folder.updated",
-			}),
-		);
-		expect(mockState.toastSuccess).toHaveBeenCalledWith("move:ok", {
-			description: "move:desc",
-		});
+			expect(storageEvents).toContainEqual(
+				expect.objectContaining({
+					folder_ids: [8],
+					kind: "folder.updated",
+				}),
+			);
+			expect(mockState.toastSuccess).toHaveBeenCalledWith("move:ok", {
+				description: "move:desc",
+			});
+		} finally {
+			unsubscribe();
+			vi.useRealTimers();
+		}
 	});
 
 	it("handles trash drops via the layout and refreshes selection and user state", async () => {

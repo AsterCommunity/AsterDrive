@@ -93,7 +93,10 @@ pub fn routes(
         // External viewers and URL-template preview apps that need a browser-addressable short link.
         .route("/{id}/preview-link", web::post().to(get_preview_link))
         // Web preview resolver: authoritative URL/credentials/cache identity for in-app previews.
-        .route("/{id}/resource-handle", web::post().to(resolve_resource_handle))
+        .route(
+            "/{id}/resource-handle",
+            web::post().to(resolve_resource_handle),
+        )
         // Office/WOPI launch session creation.
         .route("/{id}/wopi/open", web::post().to(open_wopi))
         // Browser download and resolver-generated original-content preview entry.

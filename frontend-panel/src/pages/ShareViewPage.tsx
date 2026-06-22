@@ -13,7 +13,7 @@ import { canBrowserRenderImage } from "@/lib/browserImageSupport";
 import { derivedFileResource } from "@/lib/fileResource";
 import { shareService } from "@/services/shareService";
 import { useThumbnailSupportStore } from "@/stores/thumbnailSupportStore";
-import type { FileInfo, FileListItem } from "@/types/api";
+import type { FileInfo, FileListItem, SharePublicInfo } from "@/types/api";
 import { ShareFileView } from "./share-view/ShareFileView";
 import { ShareLoadingSkeleton } from "./share-view/ShareFolderSkeleton";
 import { ShareFolderView } from "./share-view/ShareFolderView";
@@ -30,6 +30,30 @@ const FilePreview = lazy(async () => {
 	const module = await import("@/components/files/FilePreview");
 	return { default: module.FilePreview };
 });
+
+function shareResourcePaths(
+	shareType: SharePublicInfo["share_type"],
+	token: string,
+	fileId?: number,
+) {
+	if (shareType === "file") {
+		return {
+			download: shareService.downloadPath(token),
+			imagePreview: shareService.imagePreviewPath(token),
+			thumbnail: shareService.thumbnailPath(token),
+		};
+	}
+
+	if (typeof fileId !== "number") {
+		throw new Error("share folder file id is required");
+	}
+
+	return {
+		download: shareService.downloadFolderPath(token, fileId),
+		imagePreview: shareService.folderFileImagePreviewPath(token, fileId),
+		thumbnail: shareService.folderFileThumbnailPath(token, fileId),
+	};
+}
 
 export function SharePreviewElement({
 	info,
@@ -96,21 +120,11 @@ export function SharePreviewElement({
 				return Promise.reject(new Error("share resource is unavailable"));
 			}
 
-			const downloadPath =
-				info.share_type === "file"
-					? shareService.downloadPath(token)
-					: shareService.downloadFolderPath(token, retainedPreviewFile.id);
-			const imagePreviewPath =
-				info.share_type === "file"
-					? shareService.imagePreviewPath(token)
-					: shareService.folderFileImagePreviewPath(
-							token,
-							retainedPreviewFile.id,
-						);
-			const thumbnailPath =
-				info.share_type === "file"
-					? shareService.thumbnailPath(token)
-					: shareService.folderFileThumbnailPath(token, retainedPreviewFile.id);
+			const {
+				download: downloadPath,
+				imagePreview: imagePreviewPath,
+				thumbnail: thumbnailPath,
+			} = shareResourcePaths(info.share_type, token, retainedPreviewFile.id);
 			const shouldUseImagePreview =
 				request.representation === "image_preview" ||
 				(request.representation === "auto" &&
@@ -149,21 +163,11 @@ export function SharePreviewElement({
 	);
 	const previewResources = useMemo<FilePreviewResources | null>(() => {
 		if (!retainedPreviewFile || !info) return null;
-		const downloadPath =
-			info.share_type === "file"
-				? shareService.downloadPath(token)
-				: shareService.downloadFolderPath(token, retainedPreviewFile.id);
-		const imagePreviewPath =
-			info.share_type === "file"
-				? shareService.imagePreviewPath(token)
-				: shareService.folderFileImagePreviewPath(
-						token,
-						retainedPreviewFile.id,
-					);
-		const thumbnailPath =
-			info.share_type === "file"
-				? shareService.thumbnailPath(token)
-				: shareService.folderFileThumbnailPath(token, retainedPreviewFile.id);
+		const {
+			download: downloadPath,
+			imagePreview: imagePreviewPath,
+			thumbnail: thumbnailPath,
+		} = shareResourcePaths(info.share_type, token, retainedPreviewFile.id);
 		return {
 			scope: "share",
 			paths: {
