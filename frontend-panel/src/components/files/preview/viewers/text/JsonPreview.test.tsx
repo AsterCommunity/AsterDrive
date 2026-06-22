@@ -1,6 +1,7 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { JsonPreview } from "@/components/files/preview/viewers/text/JsonPreview";
+import { derivedFileResource } from "@/lib/fileResource";
 
 const mockState = vi.hoisted(() => ({
 	reload: vi.fn(),
@@ -55,6 +56,11 @@ vi.mock("@/hooks/useTextContent", () => ({
 	useTextContent: (...args: unknown[]) => mockState.useTextContent(...args),
 }));
 
+const resource = derivedFileResource("/files/data.json", {
+	deliveryMode: "text",
+	scope: "personal",
+});
+
 describe("JsonPreview", () => {
 	beforeEach(() => {
 		mockState.reload.mockReset();
@@ -75,9 +81,9 @@ describe("JsonPreview", () => {
 			reload: mockState.reload,
 		});
 
-		render(<JsonPreview path="/files/data.json" />);
+		render(<JsonPreview resource={resource} />);
 
-		expect(mockState.useTextContent).toHaveBeenCalledWith("/files/data.json");
+		expect(mockState.useTextContent).toHaveBeenCalledWith(resource);
 		expect(screen.getByText("loading_preview")).toBeInTheDocument();
 	});
 
@@ -89,7 +95,7 @@ describe("JsonPreview", () => {
 			reload: mockState.reload,
 		});
 
-		render(<JsonPreview path="/files/data.json" />);
+		render(<JsonPreview resource={resource} />);
 
 		fireEvent.click(screen.getByRole("button", { name: "preview_retry" }));
 
@@ -105,7 +111,7 @@ describe("JsonPreview", () => {
 			reload: mockState.reload,
 		});
 
-		render(<JsonPreview path="/files/data.json" />);
+		render(<JsonPreview resource={resource} />);
 
 		expect(screen.getByText("structured_parse_failed")).toBeInTheDocument();
 	});
@@ -118,7 +124,7 @@ describe("JsonPreview", () => {
 			reload: mockState.reload,
 		});
 
-		const { container } = render(<JsonPreview path="/files/data.json" />);
+		const { container } = render(<JsonPreview resource={resource} />);
 
 		expect(screen.getByText("preview_mode_json")).toBeInTheDocument();
 		expect(screen.getByText("preview_mode_formatted")).toBeInTheDocument();

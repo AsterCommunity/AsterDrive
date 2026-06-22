@@ -50,8 +50,12 @@ vi.mock("@/pages/file-browser/fileBrowserLazy", () => {
 vi.mock("@/services/fileService", () => ({
 	fileService: {
 		createPreviewLink: vi.fn(),
-		getArchivePreview: vi.fn(),
 		createWopiSession: vi.fn(),
+		downloadPath: (id: number) => `/files/${id}/download`,
+		getArchivePreview: vi.fn(),
+		imagePreviewPath: (id: number) => `/files/${id}/image-preview`,
+		resolveResourceHandle: vi.fn(),
+		thumbnailPath: (id: number) => `/files/${id}/thumbnail`,
 	},
 }));
 

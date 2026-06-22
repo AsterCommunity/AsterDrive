@@ -1,6 +1,7 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { MarkdownPreview } from "@/components/files/preview/viewers/text/MarkdownPreview";
+import { derivedFileResource } from "@/lib/fileResource";
 
 const mockState = vi.hoisted(() => ({
 	reload: vi.fn(),
@@ -27,6 +28,11 @@ vi.mock("@/hooks/useTextContent", () => ({
 	useTextContent: (...args: unknown[]) => mockState.useTextContent(...args),
 }));
 
+const resource = derivedFileResource("/files/markdown", {
+	deliveryMode: "text",
+	scope: "personal",
+});
+
 describe("MarkdownPreview", () => {
 	beforeEach(() => {
 		mockState.reload.mockReset();
@@ -47,9 +53,9 @@ describe("MarkdownPreview", () => {
 			reload: mockState.reload,
 		});
 
-		render(<MarkdownPreview path="/files/markdown" />);
+		render(<MarkdownPreview resource={resource} />);
 
-		expect(mockState.useTextContent).toHaveBeenCalledWith("/files/markdown");
+		expect(mockState.useTextContent).toHaveBeenCalledWith(resource);
 		expect(screen.getByText("loading_preview")).toBeInTheDocument();
 	});
 
@@ -61,7 +67,7 @@ describe("MarkdownPreview", () => {
 			reload: mockState.reload,
 		});
 
-		render(<MarkdownPreview path="/files/markdown" />);
+		render(<MarkdownPreview resource={resource} />);
 
 		fireEvent.click(screen.getByRole("button", { name: "preview_retry" }));
 
@@ -77,7 +83,7 @@ describe("MarkdownPreview", () => {
 			reload: mockState.reload,
 		});
 
-		const { container } = render(<MarkdownPreview path="/files/markdown" />);
+		const { container } = render(<MarkdownPreview resource={resource} />);
 
 		expect(screen.getByText("preview_mode_markdown")).toBeInTheDocument();
 		expect(screen.getByText("preview_mode_rendered")).toBeInTheDocument();

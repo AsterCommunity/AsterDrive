@@ -2,6 +2,7 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import Papa from "papaparse";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { CsvTablePreview } from "@/components/files/preview/viewers/text/CsvTablePreview";
+import { derivedFileResource } from "@/lib/fileResource";
 
 const mockState = vi.hoisted(() => ({
 	reload: vi.fn(),
@@ -24,6 +25,11 @@ vi.mock("@/hooks/useTextContent", () => ({
 	useTextContent: (...args: unknown[]) => mockState.useTextContent(...args),
 }));
 
+const resource = derivedFileResource("/files/table.csv", {
+	deliveryMode: "text",
+	scope: "personal",
+});
+
 describe("CsvTablePreview", () => {
 	beforeEach(() => {
 		mockState.reload.mockReset();
@@ -44,9 +50,9 @@ describe("CsvTablePreview", () => {
 			reload: mockState.reload,
 		});
 
-		render(<CsvTablePreview path="/files/table.csv" delimiter="," />);
+		render(<CsvTablePreview resource={resource} delimiter="," />);
 
-		expect(mockState.useTextContent).toHaveBeenCalledWith("/files/table.csv");
+		expect(mockState.useTextContent).toHaveBeenCalledWith(resource);
 		expect(screen.getByText("files:loading_preview")).toBeInTheDocument();
 	});
 
@@ -58,7 +64,7 @@ describe("CsvTablePreview", () => {
 			reload: mockState.reload,
 		});
 
-		render(<CsvTablePreview path="/files/table.csv" delimiter="," />);
+		render(<CsvTablePreview resource={resource} delimiter="," />);
 
 		fireEvent.click(screen.getByRole("button", { name: "preview_retry" }));
 
@@ -74,7 +80,7 @@ describe("CsvTablePreview", () => {
 			reload: mockState.reload,
 		});
 
-		render(<CsvTablePreview path="/files/table.csv" delimiter="," />);
+		render(<CsvTablePreview resource={resource} delimiter="," />);
 
 		expect(screen.getByText("files:table_parse_failed")).toBeInTheDocument();
 	});
@@ -87,7 +93,7 @@ describe("CsvTablePreview", () => {
 			reload: mockState.reload,
 		});
 
-		render(<CsvTablePreview path="/files/table.csv" delimiter="," />);
+		render(<CsvTablePreview resource={resource} delimiter="," />);
 
 		expect(screen.getByText("column 1")).toBeInTheDocument();
 		expect(screen.getByText("Role")).toBeInTheDocument();
@@ -104,7 +110,7 @@ describe("CsvTablePreview", () => {
 		});
 		const parseSpy = vi.spyOn(Papa, "parse");
 
-		render(<CsvTablePreview path="/files/table.csv" delimiter="auto" />);
+		render(<CsvTablePreview resource={resource} delimiter="auto" />);
 
 		expect(parseSpy).toHaveBeenCalledWith(
 			"name;role\nAster;admin",
@@ -132,7 +138,7 @@ describe("CsvTablePreview", () => {
 		});
 		const parseSpy = vi.spyOn(Papa, "parse");
 
-		render(<CsvTablePreview path="/files/table.tsv" delimiter={"\t"} />);
+		render(<CsvTablePreview resource={resource} delimiter={"\t"} />);
 
 		expect(parseSpy).toHaveBeenCalledWith(
 			rows.join("\n"),

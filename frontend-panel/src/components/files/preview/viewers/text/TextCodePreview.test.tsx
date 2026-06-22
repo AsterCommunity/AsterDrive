@@ -1,6 +1,7 @@
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { TextCodePreview } from "@/components/files/preview/viewers/text/TextCodePreview";
+import { derivedFileResource } from "@/lib/fileResource";
 
 const mockState = vi.hoisted(() => ({
 	cancelEditing: vi.fn(),
@@ -102,6 +103,10 @@ const file = {
 	name: "notes.ts",
 	mime_type: "text/typescript",
 };
+const resource = derivedFileResource("/files/7/content", {
+	deliveryMode: "text",
+	scope: "personal",
+});
 
 function createSessionState(
 	overrides: Partial<ReturnType<typeof mockState.useFileEditorSession>> = {},
@@ -159,7 +164,7 @@ describe("TextCodePreview", () => {
 			reload: mockState.reload,
 		});
 
-		render(<TextCodePreview file={file} path="/files/7/content" />);
+		render(<TextCodePreview file={file} resource={resource} />);
 
 		expect(screen.getByText("loading_preview")).toBeInTheDocument();
 	});
@@ -173,7 +178,7 @@ describe("TextCodePreview", () => {
 			reload: mockState.reload,
 		});
 
-		render(<TextCodePreview file={file} path="/files/7/content" />);
+		render(<TextCodePreview file={file} resource={resource} />);
 
 		fireEvent.click(screen.getByRole("button", { name: /preview_retry/ }));
 
@@ -187,12 +192,12 @@ describe("TextCodePreview", () => {
 		render(
 			<TextCodePreview
 				file={file}
-				path="/files/7/content"
+				resource={resource}
 				onDirtyChange={onDirtyChange}
 			/>,
 		);
 
-		expect(mockState.useTextContent).toHaveBeenCalledWith("/files/7/content");
+		expect(mockState.useTextContent).toHaveBeenCalledWith(resource);
 		expect(mockState.useFileEditorSession).toHaveBeenCalledWith(
 			expect.objectContaining({
 				fileId: 7,
@@ -237,7 +242,7 @@ describe("TextCodePreview", () => {
 		render(
 			<TextCodePreview
 				file={file}
-				path="/files/7/content"
+				resource={resource}
 				onDirtyChange={onDirtyChange}
 			/>,
 		);
@@ -269,7 +274,7 @@ describe("TextCodePreview", () => {
 
 	it("hides edit controls when the preview is read-only", () => {
 		render(
-			<TextCodePreview file={file} path="/files/7/content" editable={false} />,
+			<TextCodePreview file={file} resource={resource} editable={false} />,
 		);
 
 		expect(screen.queryByText("edit")).not.toBeInTheDocument();
@@ -282,7 +287,7 @@ describe("TextCodePreview", () => {
 		render(
 			<TextCodePreview
 				file={file}
-				path="/files/7/content"
+				resource={resource}
 				onFileUpdated={onFileUpdated}
 			/>,
 		);

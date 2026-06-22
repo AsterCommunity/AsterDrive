@@ -1,6 +1,7 @@
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { PdfPreview } from "@/components/files/preview/viewers/pdf/PdfPreview";
+import { derivedFileResource } from "@/lib/fileResource";
 
 const mockState = vi.hoisted(() => ({
 	documentBlob: new Blob(["%PDF"]),
@@ -131,6 +132,15 @@ vi.mock("@/lib/authenticatedDownload", () => ({
 		mockState.startAuthenticatedDownload(...args),
 }));
 
+const apiResource = derivedFileResource("/api/files/1/download", {
+	deliveryMode: "blob_url",
+	scope: "personal",
+});
+const workspaceResource = derivedFileResource("/files/1/download", {
+	deliveryMode: "blob_url",
+	scope: "personal",
+});
+
 describe("PdfPreview", () => {
 	beforeEach(() => {
 		mockState.documentProps = null;
@@ -156,10 +166,10 @@ describe("PdfPreview", () => {
 	});
 
 	it("loads the PDF through a blob URL and passes streaming options to the document loader", () => {
-		render(<PdfPreview path="/api/files/1/download" fileName="manual.pdf" />);
+		render(<PdfPreview resource={apiResource} fileName="manual.pdf" />);
 
 		expect(screen.getByTestId("pdf-document")).toBeInTheDocument();
-		expect(mockState.useBlobUrl).toHaveBeenCalledWith("/api/files/1/download", {
+		expect(mockState.useBlobUrl).toHaveBeenCalledWith(apiResource, {
 			lane: "preview",
 		});
 		expect(mockState.documentProps).toMatchObject({
@@ -175,16 +185,16 @@ describe("PdfPreview", () => {
 	});
 
 	it("uses ordinary workspace download paths as the blob fetch key", () => {
-		render(<PdfPreview path="/files/1/download" fileName="manual.pdf" />);
+		render(<PdfPreview resource={workspaceResource} fileName="manual.pdf" />);
 
-		expect(mockState.useBlobUrl).toHaveBeenCalledWith("/files/1/download", {
+		expect(mockState.useBlobUrl).toHaveBeenCalledWith(workspaceResource, {
 			lane: "preview",
 		});
 		expect(mockState.documentProps?.file).toBe(mockState.documentBlob);
 	});
 
 	it("renders only the virtualized page window for long documents", () => {
-		render(<PdfPreview path="/api/files/1/download" fileName="manual.pdf" />);
+		render(<PdfPreview resource={apiResource} fileName="manual.pdf" />);
 
 		const onDocumentLoadSuccess = mockState.documentProps?.onLoadSuccess;
 		if (typeof onDocumentLoadSuccess !== "function") {
@@ -216,7 +226,7 @@ describe("PdfPreview", () => {
 			.spyOn(HTMLAnchorElement.prototype, "click")
 			.mockImplementation(() => undefined);
 		const createElementSpy = vi.spyOn(document, "createElement");
-		render(<PdfPreview path="/files/1/download" fileName="manual.pdf" />);
+		render(<PdfPreview resource={workspaceResource} fileName="manual.pdf" />);
 
 		fireEvent.click(screen.getByLabelText("pdf_open_new_tab"));
 		expect(window.open).toHaveBeenCalledWith(
@@ -245,7 +255,7 @@ describe("PdfPreview", () => {
 			loading: true,
 			retry: vi.fn(),
 		});
-		render(<PdfPreview path="/files/1/download" fileName="manual.pdf" />);
+		render(<PdfPreview resource={workspaceResource} fileName="manual.pdf" />);
 
 		fireEvent.click(screen.getByLabelText("pdf_download"));
 
@@ -268,7 +278,7 @@ describe("PdfPreview", () => {
 			retry,
 		}));
 		const { rerender } = render(
-			<PdfPreview path="/files/1/download" fileName="manual.pdf" />,
+			<PdfPreview resource={workspaceResource} fileName="manual.pdf" />,
 		);
 
 		const onLoadError = mockState.documentProps?.onLoadError;
@@ -281,7 +291,7 @@ describe("PdfPreview", () => {
 		const callsBeforeRetry = mockState.useBlobUrl.mock.calls.length;
 
 		fireEvent.click(screen.getByTestId("preview-retry"));
-		rerender(<PdfPreview path="/files/1/download" fileName="manual.pdf" />);
+		rerender(<PdfPreview resource={workspaceResource} fileName="manual.pdf" />);
 
 		expect(retry).toHaveBeenCalledTimes(1);
 		expect(mockState.useBlobUrl.mock.calls.length).toBeGreaterThan(
@@ -299,7 +309,7 @@ describe("PdfPreview", () => {
 			loading: false,
 			retry,
 		});
-		render(<PdfPreview path="/files/1/download" fileName="manual.pdf" />);
+		render(<PdfPreview resource={workspaceResource} fileName="manual.pdf" />);
 
 		const onLoadError = mockState.documentProps?.onLoadError;
 		if (typeof onLoadError !== "function") {

@@ -1,6 +1,7 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { XmlPreview } from "@/components/files/preview/viewers/text/XmlPreview";
+import { derivedFileResource } from "@/lib/fileResource";
 
 const mockState = vi.hoisted(() => ({
 	reload: vi.fn(),
@@ -27,6 +28,11 @@ vi.mock("@/hooks/useTextContent", () => ({
 	useTextContent: (...args: unknown[]) => mockState.useTextContent(...args),
 }));
 
+const resource = derivedFileResource("/files/data.xml", {
+	deliveryMode: "text",
+	scope: "personal",
+});
+
 describe("XmlPreview", () => {
 	beforeEach(() => {
 		mockState.reload.mockReset();
@@ -47,9 +53,9 @@ describe("XmlPreview", () => {
 			reload: mockState.reload,
 		});
 
-		render(<XmlPreview path="/files/data.xml" mode="formatted" />);
+		render(<XmlPreview resource={resource} mode="formatted" />);
 
-		expect(mockState.useTextContent).toHaveBeenCalledWith("/files/data.xml");
+		expect(mockState.useTextContent).toHaveBeenCalledWith(resource);
 		expect(screen.getByText("loading_preview")).toBeInTheDocument();
 	});
 
@@ -61,7 +67,7 @@ describe("XmlPreview", () => {
 			reload: mockState.reload,
 		});
 
-		render(<XmlPreview path="/files/data.xml" mode="formatted" />);
+		render(<XmlPreview resource={resource} mode="formatted" />);
 
 		fireEvent.click(screen.getByRole("button", { name: "preview_retry" }));
 
@@ -77,14 +83,14 @@ describe("XmlPreview", () => {
 			reload: mockState.reload,
 		});
 
-		render(<XmlPreview path="/files/data.xml" mode="formatted" />);
+		render(<XmlPreview resource={resource} mode="formatted" />);
 
 		expect(screen.getByText("structured_parse_failed")).toBeInTheDocument();
 	});
 
 	it("formats valid XML content", () => {
 		const { container } = render(
-			<XmlPreview path="/files/data.xml" mode="formatted" />,
+			<XmlPreview resource={resource} mode="formatted" />,
 		);
 
 		expect(screen.getByText("preview_mode_xml")).toBeInTheDocument();
