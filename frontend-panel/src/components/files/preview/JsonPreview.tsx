@@ -15,12 +15,12 @@ import {
 import { withScopedPrismClassName } from "./prismClassNames";
 
 interface JsonPreviewProps {
-	path: ResourcePath;
+	resource: ResourcePath;
 }
 
-export function JsonPreview({ path }: JsonPreviewProps) {
+export function JsonPreview({ resource }: JsonPreviewProps) {
 	const { t } = useTranslation("files");
-	const { content, loading, error, reload } = useTextContent(path);
+	const { content, loading, error, reload } = useTextContent(resource);
 
 	const formatted = useMemo(() => {
 		if (!content) return null;

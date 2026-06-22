@@ -111,6 +111,34 @@ describe("prepareAuthenticatedResource", () => {
 		expect(mockState.fetch).not.toHaveBeenCalled();
 	});
 
+	it("skips resolved resources that explicitly omit credentials", async () => {
+		const { prepareAuthenticatedResource } = await import(
+			"@/lib/authenticatedResource"
+		);
+
+		await prepareAuthenticatedResource({
+			kind: "ready",
+			identity: {
+				cacheKey: "/files/7/download",
+				etag: '"hash"',
+				scope: "personal",
+			},
+			request: {
+				url: "https://objects.example.test/file.mp3?signature=abc",
+				credentials: "omit",
+				conditionalHeaders: "forbidden",
+				redirectPolicy: "may_cross_origin",
+			},
+			delivery: {
+				mode: "direct_url",
+				mimeType: "audio/mpeg",
+			},
+		});
+
+		expect(mockState.ensureFreshSession).not.toHaveBeenCalled();
+		expect(mockState.fetch).not.toHaveBeenCalled();
+	});
+
 	it("refreshes once and retries when the probe sees a missing access token", async () => {
 		const events: string[] = [];
 		mockState.fetch

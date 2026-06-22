@@ -50,7 +50,7 @@ describe("BlobImagePreview", () => {
 			retry: mockState.retry,
 		});
 
-		render(<BlobImagePreview file={file} path="/files/1" />);
+		render(<BlobImagePreview file={file} resource="/files/1" />);
 
 		expect(mockState.useBlobUrl).toHaveBeenCalledWith("/files/1", {
 			lane: "default",
@@ -66,7 +66,7 @@ describe("BlobImagePreview", () => {
 			retry: mockState.retry,
 		});
 
-		render(<BlobImagePreview file={file} path={null} />);
+		render(<BlobImagePreview file={file} resource={null} />);
 
 		expect(mockState.useBlobUrl).toHaveBeenCalledWith(null, {
 			lane: "default",
@@ -83,7 +83,7 @@ describe("BlobImagePreview", () => {
 			retry: mockState.retry,
 		});
 
-		render(<BlobImagePreview file={file} path="/files/1" />);
+		render(<BlobImagePreview file={file} resource="/files/1" />);
 
 		const alert = screen.getByRole("alert");
 		fireEvent.click(screen.getByRole("button", { name: "preview_retry" }));
@@ -107,7 +107,7 @@ describe("BlobImagePreview", () => {
 			retry: mockState.retry,
 		});
 
-		render(<BlobImagePreview file={file} fillContainer path="/files/1" />);
+		render(<BlobImagePreview file={file} fillContainer resource="/files/1" />);
 
 		const alert = screen.getByRole("alert");
 		const retryButton = screen.getByRole("button", { name: "preview_retry" });
@@ -136,14 +136,14 @@ describe("BlobImagePreview", () => {
 			retry: mockState.retry,
 		});
 
-		render(<BlobImagePreview file={file} path="/files/1" />);
+		render(<BlobImagePreview file={file} resource="/files/1" />);
 
 		expect(screen.getByText("loading_preview")).toBeInTheDocument();
 		expect(screen.queryByText("preview_load_failed")).not.toBeInTheDocument();
 	});
 
 	it("renders an image preview with the file name as alt text", () => {
-		render(<BlobImagePreview file={file} path="/files/1" />);
+		render(<BlobImagePreview file={file} resource="/files/1" />);
 
 		const image = screen.getByRole("img", { name: "preview.png" });
 
@@ -161,7 +161,7 @@ describe("BlobImagePreview", () => {
 		render(
 			<BlobImagePreview
 				file={{ name: "logo.svg", mime_type: "image/svg+xml" }}
-				path="/files/svg"
+				resource="/files/svg"
 			/>,
 		);
 
@@ -180,7 +180,7 @@ describe("BlobImagePreview", () => {
 
 	it("lets expanded image previews fill the available preview surface", () => {
 		render(
-			<BlobImagePreview file={file} fillContainer path="/files/expanded" />,
+			<BlobImagePreview file={file} fillContainer resource="/files/expanded" />,
 		);
 
 		const image = screen.getByRole("img", { name: "preview.png" });
@@ -195,8 +195,8 @@ describe("BlobImagePreview", () => {
 		render(
 			<BlobImagePreview
 				file={file}
-				path="/files/1/download"
-				fallbackPath="/files/1/image-preview"
+				resource="/files/1/download"
+				fallbackResource="/files/1/image-preview"
 			/>,
 		);
 
@@ -222,8 +222,8 @@ describe("BlobImagePreview", () => {
 		render(
 			<BlobImagePreview
 				file={{ name: "capture.nef", mime_type: "image/x-nikon-nef" }}
-				path="/files/1/download"
-				fallbackPath="/files/1/image-preview"
+				resource="/files/1/download"
+				fallbackResource="/files/1/image-preview"
 			/>,
 		);
 
@@ -257,8 +257,8 @@ describe("BlobImagePreview", () => {
 		render(
 			<BlobImagePreview
 				file={{ name: "modern.avif", mime_type: "image/avif" }}
-				path="/files/1/download"
-				fallbackPath="/files/1/image-preview"
+				resource="/files/1/download"
+				fallbackResource="/files/1/image-preview"
 			/>,
 		);
 
@@ -289,19 +289,20 @@ describe("BlobImagePreview", () => {
 		).not.toBeInTheDocument();
 	});
 
-	it("uses the original path for non-renderable formats when no backend preview exists", () => {
+	it("does not request original blobs for non-renderable formats without backend preview", () => {
 		mockState.imagePreviewPreference = "original_first";
 
 		render(
 			<BlobImagePreview
 				file={{ name: "capture.nef", mime_type: "image/x-nikon-nef" }}
-				path="/files/1/download"
+				resource="/files/1/download"
 			/>,
 		);
 
-		expect(mockState.useBlobUrl).toHaveBeenCalledWith("/files/1/download", {
+		expect(mockState.useBlobUrl).toHaveBeenCalledWith(null, {
 			lane: "default",
 		});
+		expect(screen.getByText("preview_load_failed")).toBeInTheDocument();
 		expect(
 			screen.queryByRole("button", { name: "preview_show_original" }),
 		).not.toBeInTheDocument();
@@ -321,8 +322,8 @@ describe("BlobImagePreview", () => {
 		render(
 			<BlobImagePreview
 				file={file}
-				path="/files/1/download"
-				fallbackPath="/files/1/image-preview"
+				resource="/files/1/download"
+				fallbackResource="/files/1/image-preview"
 			/>,
 		);
 
@@ -352,8 +353,8 @@ describe("BlobImagePreview", () => {
 		render(
 			<BlobImagePreview
 				file={file}
-				path="/files/1/download"
-				fallbackPath="/files/1/image-preview"
+				resource="/files/1/download"
+				fallbackResource="/files/1/image-preview"
 			/>,
 		);
 
@@ -372,7 +373,7 @@ describe("BlobImagePreview", () => {
 	it("uses the original path when preview_first has no backend preview path", () => {
 		mockState.imagePreviewPreference = "preview_first";
 
-		render(<BlobImagePreview file={file} path="/files/1/download" />);
+		render(<BlobImagePreview file={file} resource="/files/1/download" />);
 
 		expect(mockState.useBlobUrl).toHaveBeenCalledWith("/files/1/download", {
 			lane: "default",
@@ -404,8 +405,8 @@ describe("BlobImagePreview", () => {
 		const { rerender } = render(
 			<BlobImagePreview
 				file={file}
-				path="/files/1/download"
-				fallbackPath="/files/1/image-preview"
+				resource="/files/1/download"
+				fallbackResource="/files/1/image-preview"
 			/>,
 		);
 
@@ -429,8 +430,8 @@ describe("BlobImagePreview", () => {
 		rerender(
 			<BlobImagePreview
 				file={file}
-				path="/files/1/download"
-				fallbackPath="/files/1/image-preview"
+				resource="/files/1/download"
+				fallbackResource="/files/1/image-preview"
 			/>,
 		);
 
@@ -466,8 +467,8 @@ describe("BlobImagePreview", () => {
 		render(
 			<BlobImagePreview
 				file={file}
-				path="/files/1/download"
-				fallbackPath="/files/1/image-preview"
+				resource="/files/1/download"
+				fallbackResource="/files/1/image-preview"
 			/>,
 		);
 
@@ -526,8 +527,8 @@ describe("BlobImagePreview", () => {
 		const { rerender } = render(
 			<BlobImagePreview
 				file={file}
-				path="/files/1/download"
-				fallbackPath="/files/1/image-preview"
+				resource="/files/1/download"
+				fallbackResource="/files/1/image-preview"
 			/>,
 		);
 
@@ -543,8 +544,8 @@ describe("BlobImagePreview", () => {
 		rerender(
 			<BlobImagePreview
 				file={file}
-				path="/files/1/download"
-				fallbackPath="/files/1/image-preview"
+				resource="/files/1/download"
+				fallbackResource="/files/1/image-preview"
 			/>,
 		);
 
@@ -590,8 +591,8 @@ describe("BlobImagePreview", () => {
 		const { rerender } = render(
 			<BlobImagePreview
 				file={file}
-				path="/files/1/download"
-				fallbackPath="/files/1/image-preview"
+				resource="/files/1/download"
+				fallbackResource="/files/1/image-preview"
 			/>,
 		);
 
@@ -602,8 +603,8 @@ describe("BlobImagePreview", () => {
 		rerender(
 			<BlobImagePreview
 				file={file}
-				path="/files/1/download"
-				fallbackPath="/files/1/image-preview"
+				resource="/files/1/download"
+				fallbackResource="/files/1/image-preview"
 			/>,
 		);
 
@@ -648,8 +649,8 @@ describe("BlobImagePreview", () => {
 		render(
 			<BlobImagePreview
 				file={file}
-				path="/files/1/download"
-				fallbackPath="/files/1/image-preview"
+				resource="/files/1/download"
+				fallbackResource="/files/1/image-preview"
 				source="backend_preview"
 				showOriginalButtonPlacement="none"
 			/>,
@@ -676,8 +677,8 @@ describe("BlobImagePreview", () => {
 		render(
 			<BlobImagePreview
 				file={file}
-				path="/files/1/download"
-				fallbackPath="/files/1/image-preview"
+				resource="/files/1/download"
+				fallbackResource="/files/1/image-preview"
 				source="backend_preview"
 				showOriginalButtonPlacement="none"
 			/>,
@@ -725,8 +726,8 @@ describe("BlobImagePreview", () => {
 		render(
 			<BlobImagePreview
 				file={file}
-				path="/files/1/download"
-				fallbackPath="/files/1/image-preview"
+				resource="/files/1/download"
+				fallbackResource="/files/1/image-preview"
 			/>,
 		);
 
@@ -765,8 +766,8 @@ describe("BlobImagePreview", () => {
 		render(
 			<BlobImagePreview
 				file={file}
-				path="/files/1/download"
-				fallbackPath="/files/1/image-preview"
+				resource="/files/1/download"
+				fallbackResource="/files/1/image-preview"
 			/>,
 		);
 
@@ -806,8 +807,8 @@ describe("BlobImagePreview", () => {
 		render(
 			<BlobImagePreview
 				file={file}
-				path="/files/1/download"
-				fallbackPath="/files/1/image-preview"
+				resource="/files/1/download"
+				fallbackResource="/files/1/image-preview"
 			/>,
 		);
 
@@ -835,8 +836,8 @@ describe("BlobImagePreview", () => {
 		render(
 			<BlobImagePreview
 				file={file}
-				path="/files/1/download"
-				fallbackPath="/files/1/image-preview"
+				resource="/files/1/download"
+				fallbackResource="/files/1/image-preview"
 			/>,
 		);
 
@@ -847,7 +848,7 @@ describe("BlobImagePreview", () => {
 	});
 
 	it("clears image render failure before retrying the selected source", () => {
-		render(<BlobImagePreview file={file} path="/files/1/download" />);
+		render(<BlobImagePreview file={file} resource="/files/1/download" />);
 
 		fireEvent.error(screen.getByRole("img", { name: "preview.png" }));
 		expect(screen.getByText("preview_load_failed")).toBeInTheDocument();
@@ -885,8 +886,8 @@ describe("BlobImagePreview", () => {
 		render(
 			<BlobImagePreview
 				file={{ name: "photo.heic", mime_type: "image/heic" }}
-				path="/files/1/download"
-				fallbackPath="/files/1/image-preview"
+				resource="/files/1/download"
+				fallbackResource="/files/1/image-preview"
 			/>,
 		);
 

@@ -1,11 +1,7 @@
 import { useCallback, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import type { FileBrowserContextValue } from "@/components/files/FileBrowserContext";
-import {
-	buildDirectMusicQueue,
-	hydrateMusicQueueForPlayback,
-	isMusicFile,
-} from "@/lib/musicPlayer";
+import { buildDirectMusicQueue, isMusicFile } from "@/lib/musicPlayer";
 import { workspaceFolderPath } from "@/lib/workspace";
 import type { BreadcrumbItem, BrowserOpenMode } from "@/stores/fileStore";
 import { useMusicPlayerStore } from "@/stores/musicPlayerStore";
@@ -105,15 +101,13 @@ export function useFileBrowserContextValue({
 
 	const playFileAsMusic = useCallback(
 		(file: FileListItem) => {
-			const queue = buildDirectMusicQueue(displayFiles);
-			const activeTrack = queue.find((track) => track.id === `file:${file.id}`);
-			if (!activeTrack) return;
-
-			void hydrateMusicQueueForPlayback(queue, activeTrack.id).then(
-				(hydratedQueue) => {
-					playTracks(hydratedQueue, activeTrack.id);
-				},
-			);
+			void buildDirectMusicQueue(displayFiles).then((queue) => {
+				const activeTrack = queue.find(
+					(track) => track.id === `file:${file.id}`,
+				);
+				if (!activeTrack) return;
+				playTracks(queue, activeTrack.id);
+			});
 		},
 		[displayFiles, playTracks],
 	);

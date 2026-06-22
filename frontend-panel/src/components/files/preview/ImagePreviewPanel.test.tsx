@@ -1,11 +1,26 @@
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import {
+	act,
+	fireEvent,
+	render,
+	screen,
+	waitFor,
+} from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ImagePreviewPanel } from "@/components/files/preview/ImagePreviewPanel";
+import { derivedFileResource } from "@/lib/fileResource";
+import {
+	type ResourcePath,
+	resourceCacheKey,
+	resourceRequestPath,
+} from "@/lib/resourceRequest";
 import type { ImagePreviewSource } from "./BlobImagePreview";
+import type { FilePreviewResources } from "./filePreviewResources";
 
 const mockState = vi.hoisted(() => ({
 	blobProps: null as null | {
+		fallbackResource?: ResourcePath | null;
 		imageStyle?: React.CSSProperties;
+		resource?: ResourcePath | null;
 		source?: ImagePreviewSource;
 	},
 	imagePreviewPreference: "preview_first",
@@ -20,22 +35,28 @@ const mockState = vi.hoisted(() => ({
 
 vi.mock("@/components/files/preview/BlobImagePreview", () => ({
 	BlobImagePreview: ({
+		fallbackResource,
 		imageRef,
 		imageStyle,
 		onImageLoad,
 		onImageRenderError,
+		resource,
 		source,
 		viewportRef,
 	}: {
+		fallbackResource?: ResourcePath | null;
 		imageRef?: React.Ref<HTMLImageElement>;
 		imageStyle?: React.CSSProperties;
 		onImageLoad?: (source: ImagePreviewSource) => void;
 		onImageRenderError?: (source: ImagePreviewSource) => void;
+		resource?: ResourcePath | null;
 		source?: ImagePreviewSource;
 		viewportRef?: React.Ref<HTMLDivElement>;
 	}) => {
 		mockState.blobProps = {
+			fallbackResource,
 			imageStyle,
+			resource,
 			source,
 		};
 		if (mockState.previewError) {
@@ -90,14 +111,52 @@ const file = {
 	size: 2048,
 };
 
+function testResources(
+	fileId = 7,
+	overrides: Partial<FilePreviewResources> = {},
+): FilePreviewResources {
+	return {
+		scope: "personal",
+		resolve: async (_fileId, request) => {
+			const isImagePreview = request.representation === "image_preview";
+			const isThumbnail = request.representation === "thumbnail";
+			const path = isImagePreview
+				? `/files/${fileId}/image-preview`
+				: isThumbnail
+					? `/files/${fileId}/thumbnail`
+					: `/files/${fileId}/download?disposition=inline`;
+			return derivedFileResource(path, {
+				cacheKey: isImagePreview
+					? `/files/${fileId}/image-preview`
+					: isThumbnail
+						? `/files/${fileId}/thumbnail`
+						: `/files/${fileId}/download`,
+				deliveryMode: request.delivery_mode,
+				mimeType: isImagePreview || isThumbnail ? "image/webp" : file.mime_type,
+				scope: "personal",
+			});
+		},
+		...overrides,
+		paths: {
+			download: `/files/${fileId}/download`,
+			imagePreview: `/files/${fileId}/image-preview`,
+			thumbnail: `/files/${fileId}/thumbnail`,
+			...overrides.paths,
+		},
+		actions: {
+			...overrides.actions,
+		},
+	};
+}
+
 function panelProps(
 	overrides: Partial<React.ComponentProps<typeof ImagePreviewPanel>> = {},
 ) {
+	const nextFile = (overrides.file ?? file) as typeof file;
 	return {
-		file,
+		file: nextFile,
 		allOptionsCount: 1,
-		downloadPath: "/files/7/download",
-		imagePreviewPath: "/files/7/image-preview",
+		resources: testResources(nextFile.id),
 		onChooseOpenMethod: vi.fn(),
 		onClose: vi.fn(),
 		chooseOpenMethodLabel: "Choose open method",
@@ -133,15 +192,17 @@ describe("ImagePreviewPanel", () => {
 		mockState.previewLoading = false;
 		mockState.retry.mockReset();
 		mockState.useBlobUrl.mockReset();
-		mockState.useBlobUrl.mockImplementation((path: string | null) => ({
-			blobUrl:
-				path === "/files/7/download"
-					? mockState.originalBlobUrl
-					: "blob:preview",
-			error: path === "/files/7/download" ? mockState.originalError : false,
-			loading: path === "/files/7/download" ? mockState.originalLoading : false,
-			retry: mockState.retry,
-		}));
+		mockState.useBlobUrl.mockImplementation((path: ResourcePath | null) => {
+			const isOriginal = path
+				? resourceCacheKey(path) === "/files/7/download"
+				: false;
+			return {
+				blobUrl: isOriginal ? mockState.originalBlobUrl : "blob:preview",
+				error: isOriginal ? mockState.originalError : false,
+				loading: isOriginal ? mockState.originalLoading : false,
+				retry: mockState.retry,
+			};
+		});
 		Object.defineProperty(HTMLElement.prototype, "setPointerCapture", {
 			configurable: true,
 			value: vi.fn(),
@@ -534,6 +595,38 @@ describe("ImagePreviewPanel", () => {
 		});
 	});
 
+	it("requests the backend image preview for HEIC files without resolving original resources", async () => {
+		renderPanel({
+			file: {
+				...file,
+				mime_type: "image/heic",
+				name: "photo.heic",
+			},
+		});
+
+		expect(screen.getByText("Preview")).toBeInTheDocument();
+		await waitFor(() => {
+			expect(mockState.blobProps?.source).toBe("backend_preview");
+			expect(mockState.blobProps?.resource).toBeNull();
+			expect(
+				resourceRequestPath(
+					mockState.blobProps?.fallbackResource as ResourcePath,
+				),
+			).toBe("/files/7/image-preview");
+		});
+		expect(
+			screen.queryByRole("button", { name: "Original" }),
+		).not.toBeInTheDocument();
+		expect(
+			mockState.useBlobUrl.mock.calls.some(
+				([path]) =>
+					path != null &&
+					typeof path === "object" &&
+					resourceCacheKey(path as ResourcePath) === "/files/7/download",
+			),
+		).toBe(false);
+	});
+
 	it("falls back to the backend preview when an original-first renderable image fails to render", () => {
 		mockState.imagePreviewPreference = "original_first";
 
@@ -553,7 +646,11 @@ describe("ImagePreviewPanel", () => {
 	it("uses the original source when preview-first has no backend preview path", () => {
 		mockState.imagePreviewPreference = "preview_first";
 
-		renderPanel({ imagePreviewPath: undefined });
+		renderPanel({
+			resources: testResources(7, {
+				paths: { imagePreview: undefined },
+			}),
+		});
 
 		expect(screen.getByText("Original")).toBeInTheDocument();
 		expect(mockState.blobProps?.source).toBe("original");
@@ -772,8 +869,6 @@ describe("ImagePreviewPanel", () => {
 			<ImagePreviewPanel
 				{...panelProps({
 					file: { ...file, id: 8, name: "next.png" },
-					downloadPath: "/files/8/download",
-					imagePreviewPath: "/files/8/image-preview",
 				})}
 			/>,
 		);
@@ -820,8 +915,6 @@ describe("ImagePreviewPanel", () => {
 			<ImagePreviewPanel
 				{...panelProps({
 					file: { ...file, id: 8, name: "next.png" },
-					downloadPath: "/files/8/download",
-					imagePreviewPath: "/files/8/image-preview",
 				})}
 			/>,
 		);
@@ -1192,16 +1285,32 @@ describe("ImagePreviewPanel", () => {
 		expect(releasePointerCapture).not.toHaveBeenCalled();
 	});
 
-	it("requests the original and renders loading and success states with collapse animation classes", () => {
+	it("requests the original and renders loading and success states with collapse animation classes", async () => {
 		vi.useFakeTimers();
 		const props = panelProps();
 		const { rerender } = render(<ImagePreviewPanel {...props} />);
 
 		expect(screen.getByText("Preview")).toBeInTheDocument();
 		fireEvent.click(screen.getByRole("button", { name: "Original" }));
-		expect(mockState.useBlobUrl).toHaveBeenLastCalledWith("/files/7/download", {
-			lane: "default",
+		await act(async () => {
+			await Promise.resolve();
 		});
+		expect(
+			mockState.useBlobUrl.mock.calls.some(
+				([path]) =>
+					path != null &&
+					typeof path === "object" &&
+					resourceCacheKey(path as ResourcePath) === "/files/7/download",
+			),
+		).toBe(true);
+		const lastCall = mockState.useBlobUrl.mock.lastCall;
+		expect(lastCall?.[1]).toEqual({ lane: "default" });
+		expect(resourceCacheKey(lastCall?.[0] as ResourcePath)).toBe(
+			"/files/7/download",
+		);
+		expect(resourceRequestPath(lastCall?.[0] as ResourcePath)).toBe(
+			"/files/7/download?disposition=inline",
+		);
 
 		const loadingButton = screen.getByRole("button", { name: "Original" });
 		expect(loadingButton).toBeDisabled();
@@ -1240,11 +1349,21 @@ describe("ImagePreviewPanel", () => {
 		).not.toBeInTheDocument();
 	});
 
-	it("returns the original button to available when original loading fails", () => {
+	it("returns the original button to available when original loading fails", async () => {
 		const props = panelProps();
 		const { rerender } = render(<ImagePreviewPanel {...props} />);
 
 		fireEvent.click(screen.getByRole("button", { name: "Original" }));
+		await waitFor(() => {
+			expect(
+				mockState.useBlobUrl.mock.calls.some(
+					([path]) =>
+						path != null &&
+						typeof path === "object" &&
+						resourceCacheKey(path as ResourcePath) === "/files/7/download",
+				),
+			).toBe(true);
+		});
 		mockState.originalError = true;
 		rerender(<ImagePreviewPanel {...props} />);
 

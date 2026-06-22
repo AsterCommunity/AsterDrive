@@ -60,11 +60,11 @@ type LoadedPage = Parameters<
 >[0];
 
 interface PdfPreviewProps {
-	path: ResourcePath;
+	resource: ResourcePath;
 	fileName?: string;
 }
 
-export function PdfPreview({ path, fileName }: PdfPreviewProps) {
+export function PdfPreview({ resource, fileName }: PdfPreviewProps) {
 	const { t } = useTranslation("files");
 	const {
 		blob: documentBlob,
@@ -72,8 +72,8 @@ export function PdfPreview({ path, fileName }: PdfPreviewProps) {
 		error: documentLoadError,
 		loading: documentLoading,
 		retry: retryDocumentLoad,
-	} = useBlobUrl(path, { lane: "preview" });
-	const downloadPath = resourceRequestPath(path);
+	} = useBlobUrl(resource, { lane: "preview" });
+	const downloadPath = resourceRequestPath(resource);
 	const documentFile = useMemo(
 		() => documentBlob ?? (documentUrl ? { url: documentUrl } : null),
 		[documentBlob, documentUrl],

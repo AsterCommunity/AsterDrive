@@ -23,7 +23,6 @@ export type OpenWithMode = string;
 export type PreviewProviderKind =
 	| "image"
 	| "video"
-	| "audio"
 	| "pdf"
 	| "markdown"
 	| "table"

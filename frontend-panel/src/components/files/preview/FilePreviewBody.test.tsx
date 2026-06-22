@@ -1,11 +1,11 @@
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { FilePreviewBody } from "@/components/files/preview/FilePreviewBody";
+import type { FilePreviewResources } from "@/components/files/preview/filePreviewResources";
 import type { OpenWithOption } from "@/components/files/preview/types";
 
 const mockState = vi.hoisted(() => ({
 	blobImagePreview: vi.fn(),
-	musicPreview: vi.fn(),
 	videoPreview: vi.fn(),
 }));
 
@@ -19,13 +19,6 @@ vi.mock("@/components/files/preview/BlobImagePreview", () => ({
 	BlobImagePreview: (props: unknown) => {
 		mockState.blobImagePreview(props);
 		return <div data-testid="blob-image-preview" />;
-	},
-}));
-
-vi.mock("@/components/files/preview/MusicPreview", () => ({
-	MusicPreview: (props: unknown) => {
-		mockState.musicPreview(props);
-		return <div data-testid="music-preview" />;
 	},
 }));
 
@@ -53,6 +46,22 @@ function option(mode: OpenWithOption["mode"]): OpenWithOption {
 	};
 }
 
+function resources(
+	overrides: Partial<FilePreviewResources> = {},
+): FilePreviewResources {
+	return {
+		scope: "personal",
+		paths: {
+			download: "/files/7/download",
+			imagePreview: "/files/7/image-preview",
+			thumbnail: "/files/7/thumbnail",
+		},
+		resolve: vi.fn(),
+		actions: {},
+		...overrides,
+	};
+}
+
 function renderBody(overrides: Partial<Parameters<typeof FilePreviewBody>[0]>) {
 	return render(
 		<FilePreviewBody
@@ -71,8 +80,8 @@ function renderBody(overrides: Partial<Parameters<typeof FilePreviewBody>[0]>) {
 				options: [option("pdf")],
 			}}
 			previewAppsLoaded
-			contentPreviewPath="/files/7/download"
-			downloadPath="/files/7/download"
+			contentResource="/files/7/download"
+			resources={resources()}
 			getOptionLabel={(item) => item.labelKey}
 			onDirtyChange={vi.fn()}
 			editable
@@ -87,7 +96,7 @@ describe("FilePreviewBody", () => {
 	it("shows loading for pdf previews while the content preview path is resolving", () => {
 		renderBody({
 			activeOption: option("pdf"),
-			contentPreviewPath: null,
+			contentResource: null,
 		});
 
 		expect(screen.getByText("files:loading_preview")).toBeInTheDocument();
@@ -96,7 +105,7 @@ describe("FilePreviewBody", () => {
 	it("shows loading for markdown previews while the content preview path is resolving", () => {
 		renderBody({
 			activeOption: option("markdown"),
-			contentPreviewPath: null,
+			contentResource: null,
 			profile: {
 				category: "markdown",
 				defaultMode: "builtin.markdown",
@@ -117,7 +126,7 @@ describe("FilePreviewBody", () => {
 	] as const)("shows loading for %s previews while the content preview path is resolving", (mode, category) => {
 		renderBody({
 			activeOption: option(mode),
-			contentPreviewPath: null,
+			contentResource: null,
 			formattedCategory: category === "json" ? "json" : "xml",
 			profile: {
 				category,
@@ -135,8 +144,7 @@ describe("FilePreviewBody", () => {
 	it("passes a nullable content path through image previews", () => {
 		renderBody({
 			activeOption: option("image"),
-			contentPreviewPath: null,
-			imagePreviewPath: "/files/7/image-preview",
+			contentResource: null,
 			isExpanded: true,
 			profile: {
 				category: "image",
@@ -151,51 +159,23 @@ describe("FilePreviewBody", () => {
 		expect(screen.getByTestId("blob-image-preview")).toBeInTheDocument();
 		expect(mockState.blobImagePreview).toHaveBeenCalledWith(
 			expect.objectContaining({
-				fallbackPath: "/files/7/image-preview",
 				fillContainer: true,
-				path: null,
-			}),
-		);
-	});
-
-	it("passes a nullable content path through audio previews", () => {
-		const loadMusicBackendMetadata = vi.fn();
-		const mediaStreamLinkFactory = vi.fn();
-
-		renderBody({
-			activeOption: option("audio"),
-			contentPreviewPath: null,
-			loadMusicBackendMetadata,
-			mediaStreamLinkFactory,
-			thumbnailPath: "/files/7/thumbnail",
-			profile: {
-				category: "audio",
-				defaultMode: "builtin.audio",
-				isBlobPreview: true,
-				isEditableText: false,
-				isTextBased: false,
-				options: [option("audio")],
-			},
-		});
-
-		expect(screen.getByTestId("music-preview")).toBeInTheDocument();
-		expect(mockState.musicPreview).toHaveBeenCalledWith(
-			expect.objectContaining({
-				loadBackendMetadata: loadMusicBackendMetadata,
-				mediaStreamLinkFactory,
-				path: null,
-				thumbnailPath: "/files/7/thumbnail",
+				resource: null,
 			}),
 		);
 	});
 
 	it("passes a nullable content path through video previews", () => {
-		const mediaStreamLinkFactory = vi.fn();
+		const createMediaStreamSession = vi.fn();
 
 		renderBody({
 			activeOption: option("video"),
-			contentPreviewPath: null,
-			mediaStreamLinkFactory,
+			contentResource: null,
+			resources: resources({
+				actions: {
+					createMediaStreamSession: createMediaStreamSession,
+				},
+			}),
 			profile: {
 				category: "video",
 				defaultMode: "builtin.video",
@@ -209,8 +189,8 @@ describe("FilePreviewBody", () => {
 		expect(screen.getByTestId("video-preview")).toBeInTheDocument();
 		expect(mockState.videoPreview).toHaveBeenCalledWith(
 			expect.objectContaining({
-				mediaStreamLinkFactory,
-				path: null,
+				createMediaStreamSession,
+				resource: null,
 			}),
 		);
 	});
@@ -218,7 +198,7 @@ describe("FilePreviewBody", () => {
 	it("renders url template previews without requiring a resolved content path", () => {
 		renderBody({
 			activeOption: option("url_template"),
-			contentPreviewPath: null,
+			contentResource: null,
 			profile: {
 				category: "document",
 				defaultMode: "builtin.url_template",
@@ -235,7 +215,7 @@ describe("FilePreviewBody", () => {
 	it("shows unavailable for WOPI previews without a session resource", () => {
 		renderBody({
 			activeOption: option("wopi"),
-			contentPreviewPath: null,
+			contentResource: null,
 			profile: {
 				category: "document",
 				defaultMode: "builtin.wopi",

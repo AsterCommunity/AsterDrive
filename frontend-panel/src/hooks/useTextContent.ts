@@ -4,6 +4,8 @@ import {
 	type ResourcePath,
 	resourceCacheKey,
 	resourceCanonicalEtag,
+	resourceConditionalHeaders,
+	resourceCredentials,
 	resourceRequestPath,
 } from "@/lib/resourceRequest";
 import { api } from "@/services/http";
@@ -76,11 +78,16 @@ async function fetchTextContent(
 	) {
 		return {
 			content: cached.content,
-			etag: cached.etag,
+			etag: cached.etag ?? null,
 		};
 	}
 	const headers: Record<string, string> = {};
-	if (!force && cached?.etag && !canonicalEtag) {
+	if (
+		!force &&
+		cached?.etag &&
+		!canonicalEtag &&
+		resourceConditionalHeaders(resource) === "allowed"
+	) {
 		headers["If-None-Match"] = cached.etag;
 	}
 
@@ -88,7 +95,10 @@ async function fetchTextContent(
 		.get(requestPath, {
 			headers,
 			responseType: "text",
-			withCredentials: shouldSendResourceCredentials(requestPath),
+			withCredentials: resourceCredentials(
+				resource,
+				shouldSendResourceCredentials,
+			),
 			validateStatus: (status) => status === 200 || status === 304,
 		})
 		.then((response) => {
@@ -151,6 +161,13 @@ export function useTextContent(resource: ResourcePath | null) {
 	const cacheKey = resource ? resourceCacheKey(resource) : null;
 	const requestPath = resource ? resourceRequestPath(resource) : null;
 	const canonicalEtag = resource ? resourceCanonicalEtag(resource) : null;
+	const requestCredentials =
+		resource && resourceCredentials(resource, shouldSendResourceCredentials)
+			? "include"
+			: "omit";
+	const requestConditionalHeaders = resource
+		? resourceConditionalHeaders(resource)
+		: "allowed";
 
 	const setContent = useCallback(
 		(value: string | null | ((prev: string | null) => string | null)) => {
@@ -204,6 +221,8 @@ export function useTextContent(resource: ResourcePath | null) {
 			const effectiveResource: ResourcePath = {
 				cacheKey,
 				etag: canonicalEtag,
+				credentials: requestCredentials,
+				conditionalHeaders: requestConditionalHeaders,
 				requestPath,
 			};
 
@@ -233,7 +252,13 @@ export function useTextContent(resource: ResourcePath | null) {
 				}
 			}
 		},
-		[cacheKey, canonicalEtag, requestPath],
+		[
+			cacheKey,
+			canonicalEtag,
+			requestConditionalHeaders,
+			requestCredentials,
+			requestPath,
+		],
 	);
 
 	const reload = useCallback(async () => {

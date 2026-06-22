@@ -17,7 +17,7 @@ import type { PreviewableFileLike } from "./types";
 interface TextCodePreviewProps {
 	file: PreviewableFileLike & { id: number };
 	modeLabel?: string;
-	path: ResourcePath;
+	resource: ResourcePath;
 	onFileUpdated?: () => void;
 	onDirtyChange?: (dirty: boolean) => void;
 	editable?: boolean;
@@ -45,15 +45,15 @@ function useIsDark() {
 export function TextCodePreview({
 	file,
 	modeLabel,
-	path,
+	resource,
 	onFileUpdated,
 	onDirtyChange,
 	editable = true,
 }: TextCodePreviewProps) {
 	const { t } = useTranslation(["core", "files"]);
 	const isDark = useIsDark();
-	const { content, etag, loading, error, reload } = useTextContent(path);
-	const editorKey = resourceCacheKey(path);
+	const { content, etag, loading, error, reload } = useTextContent(resource);
+	const editorKey = resourceCacheKey(resource);
 	const {
 		editing,
 		dirty,

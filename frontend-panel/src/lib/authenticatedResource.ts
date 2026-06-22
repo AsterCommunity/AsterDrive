@@ -4,6 +4,12 @@ import {
 } from "@/lib/apiUrl";
 import { isSessionAuthFailure } from "@/lib/authErrors";
 import { logger } from "@/lib/logger";
+import {
+	type ResourcePath,
+	resourceCacheKey,
+	resourceCredentials,
+	resourceRequestPath,
+} from "@/lib/resourceRequest";
 import { useAuthStore } from "@/stores/authStore";
 
 const AUTHENTICATED_RESOURCE_PROBE_CACHE_MS = 5_000;
@@ -19,13 +25,13 @@ type PrepareAuthenticatedResourceOptions = {
 
 const probeCache = new Map<string, ProbeCacheEntry>();
 
-function shouldProbeAuthenticatedResource(path: string) {
-	return shouldSendResourceCredentials(path);
+function shouldProbeAuthenticatedResource(resource: ResourcePath) {
+	return resourceCredentials(resource, shouldSendResourceCredentials);
 }
 
-function probeCacheKey(path: string) {
+function probeCacheKey(resource: ResourcePath) {
 	const sessionKey = useAuthStore.getState().expiresAt ?? "unknown";
-	return `${sessionKey}:${path}`;
+	return `${sessionKey}:${resourceCacheKey(resource)}`;
 }
 
 function probeStatusError(status: number) {
@@ -82,15 +88,16 @@ function rejectOnAbort<T>(promise: Promise<T>, signal?: AbortSignal) {
 }
 
 export async function prepareAuthenticatedResource(
-	path: string,
+	resource: ResourcePath,
 	options: PrepareAuthenticatedResourceOptions = {},
 ): Promise<void> {
-	if (!shouldProbeAuthenticatedResource(path)) return;
+	if (!shouldProbeAuthenticatedResource(resource)) return;
 
 	await useAuthStore.getState().ensureFreshSession();
 	throwIfAborted(options.signal);
 
-	const cacheKey = probeCacheKey(path);
+	const requestPath = resourceRequestPath(resource);
+	const cacheKey = probeCacheKey(resource);
 	const now = Date.now();
 	const cached = probeCache.get(cacheKey);
 	if (cached && cached.expiresAt > now) {
@@ -104,18 +111,18 @@ export async function prepareAuthenticatedResource(
 	let probe: Promise<void>;
 	probe = (async () => {
 		try {
-			await probeAuthenticatedResource(path, options.signal);
+			await probeAuthenticatedResource(requestPath, options.signal);
 		} catch (error) {
 			if (!isSessionAuthFailure(error)) {
 				throw error;
 			}
 			await useAuthStore.getState().refreshToken();
 			throwIfAborted(options.signal);
-			await probeAuthenticatedResource(path, options.signal);
+			await probeAuthenticatedResource(requestPath, options.signal);
 		}
 	})()
 		.then(() => {
-			const finalCacheKey = probeCacheKey(path);
+			const finalCacheKey = probeCacheKey(resource);
 			if (finalCacheKey !== cacheKey) {
 				probeCache.delete(cacheKey);
 				probeCache.set(finalCacheKey, {
@@ -128,7 +135,7 @@ export async function prepareAuthenticatedResource(
 			if (isSessionAuthFailure(error)) {
 				throw error;
 			}
-			logger.error("authenticated resource probe failed", path, error);
+			logger.error("authenticated resource probe failed", requestPath, error);
 			throw error;
 		});
 

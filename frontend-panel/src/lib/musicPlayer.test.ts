@@ -48,6 +48,26 @@ const mockState = vi.hoisted(() => ({
 	folderFileThumbnailPath: vi.fn(
 		(token: string, fileId: number) => `/s/${token}/files/${fileId}/thumbnail`,
 	),
+	resolveResourceHandle: vi.fn((id: number) =>
+		Promise.resolve({
+			kind: "ready",
+			identity: {
+				cacheKey: `/files/${id}/download`,
+				etag: null,
+				scope: "personal",
+			},
+			request: {
+				url: `/files/${id}/download?disposition=inline`,
+				credentials: "include",
+				conditionalHeaders: "allowed",
+				redirectPolicy: "same_origin_only",
+			},
+			delivery: {
+				mode: "direct_url",
+				mimeType: "audio/mpeg",
+			},
+		}),
+	),
 }));
 
 vi.mock("@/stores/mediaDataSupportStore", () => ({
@@ -61,6 +81,8 @@ vi.mock("@/services/fileService", () => ({
 		downloadPath: (id: number) => mockState.downloadPath(id),
 		getMediaMetadata: (...args: unknown[]) =>
 			mockState.getFileMediaMetadata(...args),
+		resolveResourceHandle: (...args: unknown[]) =>
+			mockState.resolveResourceHandle(...args),
 		thumbnailPath: (id: number) => mockState.thumbnailPath(id),
 	},
 }));
@@ -94,6 +116,7 @@ describe("musicPlayer helpers", () => {
 		mockState.getFileMediaMetadata.mockReset();
 		mockState.getShareFolderFileMediaMetadata.mockReset();
 		mockState.getShareMediaMetadata.mockReset();
+		mockState.resolveResourceHandle.mockClear();
 		mockState.mediaDataSupportStore.config = {
 			enabled: true,
 			kinds: {
@@ -227,8 +250,8 @@ describe("musicPlayer helpers", () => {
 		).toBeNull();
 	});
 
-	it("builds direct queues from only music files", () => {
-		const queue = buildDirectMusicQueue([
+	it("builds direct queues from only music files", async () => {
+		const queue = await buildDirectMusicQueue([
 			{
 				file_category: "audio",
 				id: 1,
@@ -253,7 +276,12 @@ describe("musicPlayer helpers", () => {
 					artists: ["Artist"],
 					title: "Song",
 				},
-				path: "/files/1/download",
+				path: "/files/1/download?disposition=inline",
+				resource: expect.objectContaining({
+					request: expect.objectContaining({
+						url: "/files/1/download?disposition=inline",
+					}),
+				}),
 				thumbnail: {
 					file: {
 						file_category: "audio",
@@ -279,7 +307,7 @@ describe("musicPlayer helpers", () => {
 			version: 1,
 		};
 
-		const [unsupportedExtensionTrack] = buildDirectMusicQueue([
+		const [unsupportedExtensionTrack] = await buildDirectMusicQueue([
 			{
 				file_category: "audio",
 				id: 11,
@@ -288,7 +316,7 @@ describe("musicPlayer helpers", () => {
 				size: 10,
 			},
 		]);
-		const [oversizedTrack] = buildDirectMusicQueue([
+		const [oversizedTrack] = await buildDirectMusicQueue([
 			{
 				file_category: "audio",
 				id: 12,
@@ -318,7 +346,7 @@ describe("musicPlayer helpers", () => {
 			status: "ready",
 		});
 
-		const [track] = buildDirectMusicQueue([
+		const [track] = await buildDirectMusicQueue([
 			{
 				file_category: "audio",
 				id: 13,
@@ -382,7 +410,7 @@ describe("musicPlayer helpers", () => {
 			status: "ready",
 		});
 
-		const [directTrack] = buildDirectMusicQueue([
+		const [directTrack] = await buildDirectMusicQueue([
 			{
 				file_category: "audio",
 				id: 11,
@@ -567,6 +595,7 @@ describe("musicPlayer helpers", () => {
 			mimeType: "audio/mpeg",
 			name: "Song.mp3",
 			path: "/files/1/download",
+			resource: "/files/1/download",
 		};
 
 		await expect(hydrateMusicTrackStreamLink(directTrack)).resolves.toBe(
@@ -583,6 +612,7 @@ describe("musicPlayer helpers", () => {
 			mimeType: "audio/mpeg",
 			name: "Song.mp3",
 			path: "/old",
+			resource: "/old",
 			refreshStreamLink: vi.fn(async () => ({
 				expires_at: "",
 				path: "/new",
@@ -593,6 +623,11 @@ describe("musicPlayer helpers", () => {
 			...track,
 			expiresAt: undefined,
 			path: "/new",
+			resource: expect.objectContaining({
+				request: expect.objectContaining({
+					url: "/new",
+				}),
+			}),
 		});
 	});
 });

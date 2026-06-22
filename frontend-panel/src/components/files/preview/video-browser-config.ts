@@ -238,7 +238,7 @@ export async function resolveUrlTemplateTarget(
 	downloadPath: string,
 	label: string,
 	rawConfig: Record<string, unknown> | null | undefined,
-	createPreviewLink?: (() => Promise<PreviewLinkInfo>) | undefined,
+	createExternalPreviewLink?: (() => Promise<PreviewLinkInfo>) | undefined,
 ): Promise<ResolvedVideoBrowserTarget | null> {
 	const config = parseUrlTemplatePreviewConfig(rawConfig);
 	if (!config) return null;
@@ -250,12 +250,12 @@ export async function resolveUrlTemplateTarget(
 			FILE_PREVIEW_URL_TOKENS.has(token),
 		)
 	) {
-		if (!createPreviewLink) {
+		if (!createExternalPreviewLink) {
 			return null;
 		}
 
 		try {
-			const previewLink = await createPreviewLink();
+			const previewLink = await createExternalPreviewLink();
 			filePreviewUrl = absoluteAppUrl(previewLink.path);
 		} catch {
 			return null;

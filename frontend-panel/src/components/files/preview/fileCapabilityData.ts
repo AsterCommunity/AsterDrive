@@ -372,14 +372,6 @@ export const BUILTIN_PREVIEW_OPTIONS: Record<string, OpenWithOption[]> = {
 			icon: PREVIEW_APP_ICON_URLS.video,
 		},
 	],
-	audio: [
-		{
-			key: "builtin.audio",
-			mode: "audio",
-			labelKey: "open_with_audio",
-			icon: PREVIEW_APP_ICON_URLS.audio,
-		},
-	],
 	pdf: [
 		{
 			key: "builtin.pdf",

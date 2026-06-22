@@ -589,9 +589,9 @@ vi.mock("@/components/files/FilePreview", () => ({
 		imageNavigation,
 		onClose,
 		onFileUpdated,
-		previewLinkFactory,
-		archivePreviewFactory,
-		wopiSessionFactory,
+		createExternalPreviewLink,
+		archiveManifestLoader,
+		launchWopiSession,
 	}: {
 		file: { id: number; name: string };
 		open?: boolean;
@@ -603,9 +603,9 @@ vi.mock("@/components/files/FilePreview", () => ({
 		};
 		onClose: () => void;
 		onFileUpdated?: () => void;
-		previewLinkFactory?: () => unknown;
-		archivePreviewFactory?: () => unknown;
-		wopiSessionFactory?: (appKey: string) => unknown;
+		createExternalPreviewLink?: () => unknown;
+		archiveManifestLoader?: () => unknown;
+		launchWopiSession?: (appKey: string) => unknown;
 	}) =>
 		open ? (
 			<div>
@@ -623,13 +623,13 @@ vi.mock("@/components/files/FilePreview", () => ({
 				<button type="button" onClick={onFileUpdated}>
 					refresh-preview-file
 				</button>
-				<button type="button" onClick={() => previewLinkFactory?.()}>
+				<button type="button" onClick={() => createExternalPreviewLink?.()}>
 					create-preview-link
 				</button>
-				<button type="button" onClick={() => archivePreviewFactory?.()}>
+				<button type="button" onClick={() => archiveManifestLoader?.()}>
 					get-archive-preview
 				</button>
-				<button type="button" onClick={() => wopiSessionFactory?.("office")}>
+				<button type="button" onClick={() => launchWopiSession?.("office")}>
 					create-wopi-session
 				</button>
 				<button

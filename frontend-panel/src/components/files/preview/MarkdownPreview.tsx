@@ -14,12 +14,12 @@ import {
 } from "./PreviewSurface";
 
 interface MarkdownPreviewProps {
-	path: ResourcePath;
+	resource: ResourcePath;
 }
 
-export function MarkdownPreview({ path }: MarkdownPreviewProps) {
+export function MarkdownPreview({ resource }: MarkdownPreviewProps) {
 	const { t } = useTranslation("files");
-	const { content, loading, error, reload } = useTextContent(path);
+	const { content, loading, error, reload } = useTextContent(resource);
 
 	if (loading) {
 		return (

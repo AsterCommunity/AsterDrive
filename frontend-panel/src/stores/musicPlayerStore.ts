@@ -1,5 +1,7 @@
 import { create } from "zustand";
+import { derivedFileResource } from "@/lib/fileResource";
 import { requestMusicPlayerHostMount } from "@/lib/musicPlayerMountSignal";
+import type { ResourcePath } from "@/lib/resourceRequest";
 import type { FileCategory, ShareStreamSessionInfo } from "@/types/api";
 
 export type MusicPlaybackMode = "repeat_queue" | "repeat_one" | "shuffle";
@@ -27,6 +29,7 @@ export interface MusicPlayerTrack {
 	name: string;
 	mimeType: string;
 	path: string;
+	resource: ResourcePath;
 	size?: number;
 	expiresAt?: string;
 	metadata?: MusicTrackMetadata;
@@ -270,6 +273,11 @@ export const useMusicPlayerStore = create<MusicPlayerState>((set) => ({
 								...track,
 								expiresAt: link.expires_at,
 								path: link.path,
+								resource: derivedFileResource(link.path, {
+									deliveryMode: "direct_url",
+									mimeType: track.mimeType,
+									scope: "share",
+								}),
 							}
 						: track,
 				),

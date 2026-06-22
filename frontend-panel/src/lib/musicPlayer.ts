@@ -1,4 +1,6 @@
+import { derivedFileResource } from "@/lib/fileResource";
 import { supportsAudioMediaData } from "@/lib/mediaDataSupport";
+import { resourceRequestPath } from "@/lib/resourceRequest";
 import { fileService } from "@/services/fileService";
 import { shareService } from "@/services/shareService";
 import { useMediaDataSupportStore } from "@/stores/mediaDataSupportStore";
@@ -118,7 +120,14 @@ function audioBackendMetadataLoader(
 	};
 }
 
-export function buildDirectMusicTrack(file: MusicFileLike): MusicPlayerTrack {
+export async function buildDirectMusicTrack(
+	file: MusicFileLike,
+): Promise<MusicPlayerTrack> {
+	const resource = await fileService.resolveResourceHandle(file.id, {
+		delivery_mode: "direct_url",
+		purpose: "preview",
+		representation: "original",
+	});
 	return {
 		id: `file:${file.id}`,
 		loadBackendMetadata: audioBackendMetadataLoader(file, async (signal) =>
@@ -129,7 +138,8 @@ export function buildDirectMusicTrack(file: MusicFileLike): MusicPlayerTrack {
 		metadata: inferMusicMetadata(file),
 		mimeType: file.mime_type,
 		name: file.name,
-		path: fileService.downloadPath(file.id),
+		path: resourceRequestPath(resource),
+		resource,
 		size: file.size,
 		thumbnail: {
 			file: {
@@ -143,9 +153,9 @@ export function buildDirectMusicTrack(file: MusicFileLike): MusicPlayerTrack {
 	};
 }
 
-export function buildDirectMusicQueue(files: MusicFileLike[]) {
-	return files.flatMap((file) =>
-		isMusicFile(file) ? [buildDirectMusicTrack(file)] : [],
+export async function buildDirectMusicQueue(files: MusicFileLike[]) {
+	return Promise.all(
+		files.filter(isMusicFile).map((file) => buildDirectMusicTrack(file)),
 	);
 }
 
@@ -173,6 +183,11 @@ export function buildSingleShareMusicTrack(
 		mimeType: file.mime_type,
 		name: file.name,
 		path: shareService.downloadPath(token),
+		resource: derivedFileResource(shareService.downloadPath(token), {
+			deliveryMode: "direct_url",
+			mimeType: file.mime_type,
+			scope: "share",
+		}),
 		refreshStreamLink: () => shareService.createStreamSession(token),
 		size: file.size,
 		thumbnail: {
@@ -204,6 +219,14 @@ export function buildShareFolderMusicTrack(
 		mimeType: file.mime_type,
 		name: file.name,
 		path: shareService.downloadFolderPath(token, file.id),
+		resource: derivedFileResource(
+			shareService.downloadFolderPath(token, file.id),
+			{
+				deliveryMode: "direct_url",
+				mimeType: file.mime_type,
+				scope: "share",
+			},
+		),
 		refreshStreamLink: () =>
 			shareService.createFolderFileStreamSession(token, file.id),
 		size: file.size,
@@ -238,6 +261,11 @@ export async function hydrateMusicTrackStreamLink(track: MusicPlayerTrack) {
 		...track,
 		expiresAt: link.expires_at || undefined,
 		path: link.path,
+		resource: derivedFileResource(link.path, {
+			deliveryMode: "direct_url",
+			mimeType: track.mimeType,
+			scope: "share",
+		}),
 	};
 }
 

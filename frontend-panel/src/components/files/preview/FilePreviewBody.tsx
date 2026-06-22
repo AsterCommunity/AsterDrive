@@ -1,19 +1,16 @@
 import { lazy, Suspense } from "react";
 import { useTranslation } from "react-i18next";
-import { type ResourcePath, resourceRequestPath } from "@/lib/resourceRequest";
+import type { ResourcePath } from "@/lib/resourceRequest";
 import { normalizeTablePreviewDelimiter } from "@/lib/tablePreview";
-import type { MusicPlayerTrack } from "@/stores/musicPlayerStore";
 import type {
 	ArchiveFilenameEncoding,
 	ArchivePreviewManifest,
 	FileInfo,
 	FileListItem,
-	PreviewLinkInfo,
-	ShareStreamSessionInfo,
 } from "@/types/api";
 import { BlobImagePreview } from "./BlobImagePreview";
 import type { detectFilePreviewProfile } from "./file-capabilities";
-import { MusicPreview } from "./MusicPreview";
+import type { FilePreviewResources } from "./filePreviewResources";
 import { PreviewLoadingState } from "./PreviewLoadingState";
 import { PreviewUnavailable } from "./PreviewUnavailable";
 import type { OpenWithOption } from "./types";
@@ -64,18 +61,13 @@ interface FilePreviewBodyProps {
 	activeOption: OpenWithOption | null;
 	profile: PreviewProfile | null;
 	previewAppsLoaded: boolean;
-	contentPreviewPath: ResourcePath | null;
-	downloadPath: string;
-	imagePreviewPath?: string;
-	thumbnailPath?: string;
+	contentResource: ResourcePath | null;
+	resources: FilePreviewResources;
 	getOptionLabel: (option: OpenWithOption) => string;
-	previewLinkFactory?: () => Promise<PreviewLinkInfo>;
-	archivePreviewFactory?: (options?: {
+	archiveManifestLoader?: (options?: {
 		signal?: AbortSignal;
 		filenameEncoding?: ArchiveFilenameEncoding;
 	}) => Promise<ArchivePreviewManifest>;
-	loadMusicBackendMetadata?: MusicPlayerTrack["loadBackendMetadata"];
-	mediaStreamLinkFactory?: () => Promise<ShareStreamSessionInfo>;
 	wopiSessionResource?: WopiSessionResource | null;
 	onFileUpdated?: () => void;
 	onDirtyChange: (dirty: boolean) => void;
@@ -89,15 +81,10 @@ export function FilePreviewBody({
 	activeOption,
 	profile,
 	previewAppsLoaded,
-	contentPreviewPath,
-	downloadPath,
-	imagePreviewPath,
-	thumbnailPath,
+	contentResource,
+	resources,
 	getOptionLabel,
-	previewLinkFactory,
-	archivePreviewFactory,
-	loadMusicBackendMetadata,
-	mediaStreamLinkFactory,
+	archiveManifestLoader,
 	wopiSessionResource,
 	onFileUpdated,
 	onDirtyChange,
@@ -106,9 +93,6 @@ export function FilePreviewBody({
 	isExpanded,
 }: FilePreviewBodyProps) {
 	const { t } = useTranslation(["files"]);
-	const contentPreviewRequestPath = contentPreviewPath
-		? resourceRequestPath(contentPreviewPath)
-		: null;
 	const previewLoadingState = (
 		<PreviewLoadingState
 			text={t("files:loading_preview")}
@@ -124,10 +108,10 @@ export function FilePreviewBody({
 	}
 
 	if (activeOption.mode === "pdf") {
-		if (!contentPreviewPath) return previewLoadingState;
+		if (!contentResource) return previewLoadingState;
 		return (
 			<Suspense fallback={previewLoadingState}>
-				<PdfPreview path={contentPreviewPath} fileName={file.name} />
+				<PdfPreview resource={contentResource} fileName={file.name} />
 			</Suspense>
 		);
 	}
@@ -137,20 +121,7 @@ export function FilePreviewBody({
 			<BlobImagePreview
 				file={file}
 				fillContainer={isExpanded}
-				path={contentPreviewPath}
-				fallbackPath={imagePreviewPath}
-			/>
-		);
-	}
-
-	if (activeOption.mode === "audio") {
-		return (
-			<MusicPreview
-				file={file}
-				loadBackendMetadata={loadMusicBackendMetadata}
-				path={contentPreviewRequestPath}
-				thumbnailPath={thumbnailPath}
-				mediaStreamLinkFactory={mediaStreamLinkFactory}
+				resource={contentResource}
 			/>
 		);
 	}
@@ -159,8 +130,8 @@ export function FilePreviewBody({
 		return (
 			<VideoPreview
 				file={file}
-				path={contentPreviewRequestPath}
-				mediaStreamLinkFactory={mediaStreamLinkFactory}
+				resource={contentResource}
+				createMediaStreamSession={resources.actions?.createMediaStreamSession}
 			/>
 		);
 	}
@@ -169,11 +140,11 @@ export function FilePreviewBody({
 		return (
 			<UrlTemplatePreview
 				file={file}
-				downloadPath={downloadPath}
+				downloadPath={resources.paths.download}
 				label={getOptionLabel(activeOption)}
 				optionKey={activeOption.key}
 				rawConfig={activeOption.config ?? null}
-				createPreviewLink={previewLinkFactory}
+				createExternalPreviewLink={resources.actions?.createExternalPreviewLink}
 			/>
 		);
 	}
@@ -192,52 +163,52 @@ export function FilePreviewBody({
 	}
 
 	if (activeOption.mode === "markdown") {
-		if (!contentPreviewPath) return previewLoadingState;
+		if (!contentResource) return previewLoadingState;
 		return (
 			<Suspense fallback={previewLoadingState}>
-				<MarkdownPreview path={contentPreviewPath} />
+				<MarkdownPreview resource={contentResource} />
 			</Suspense>
 		);
 	}
 
 	if (activeOption.mode === "table") {
-		if (!contentPreviewPath) return previewLoadingState;
+		if (!contentResource) return previewLoadingState;
 		const delimiter = normalizeTablePreviewDelimiter(
 			activeOption.config?.delimiter,
 		);
 
 		return (
 			<Suspense fallback={previewLoadingState}>
-				<CsvTablePreview path={contentPreviewPath} delimiter={delimiter} />
+				<CsvTablePreview resource={contentResource} delimiter={delimiter} />
 			</Suspense>
 		);
 	}
 
 	if (activeOption.mode === "formatted") {
-		if (!contentPreviewPath) return previewLoadingState;
+		if (!contentResource) return previewLoadingState;
 		if (formattedCategory === "xml") {
 			return (
 				<Suspense fallback={previewLoadingState}>
-					<XmlPreview path={contentPreviewPath} mode="formatted" />
+					<XmlPreview resource={contentResource} mode="formatted" />
 				</Suspense>
 			);
 		}
 
 		return (
 			<Suspense fallback={previewLoadingState}>
-				<JsonPreview path={contentPreviewPath} />
+				<JsonPreview resource={contentResource} />
 			</Suspense>
 		);
 	}
 
 	if (activeOption.mode === "code") {
-		if (!contentPreviewPath) return previewLoadingState;
+		if (!contentResource) return previewLoadingState;
 		return (
 			<Suspense fallback={previewLoadingState}>
 				<TextCodePreview
 					file={file}
 					modeLabel={getOptionLabel(activeOption)}
-					path={contentPreviewPath}
+					resource={contentResource}
 					onFileUpdated={onFileUpdated}
 					onDirtyChange={onDirtyChange}
 					editable={editable}
@@ -249,7 +220,7 @@ export function FilePreviewBody({
 	if (activeOption.mode === "archive") {
 		return (
 			<Suspense fallback={previewLoadingState}>
-				<ArchivePreview loadManifest={archivePreviewFactory} />
+				<ArchivePreview loadManifest={archiveManifestLoader} />
 			</Suspense>
 		);
 	}

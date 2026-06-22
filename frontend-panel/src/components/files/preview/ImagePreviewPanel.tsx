@@ -10,10 +10,11 @@ import {
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
 import { useBlobUrl } from "@/hooks/useBlobUrl";
+import { useFileContentResource } from "@/hooks/useFileResource";
 import { canBrowserRenderImage } from "@/lib/browserImageSupport";
 import { formatBytes } from "@/lib/format";
 import { shouldIgnoreKeyboardTarget } from "@/lib/keyboard";
-import { type ResourcePath, resourceCacheKey } from "@/lib/resourceRequest";
+import type { ResourcePath } from "@/lib/resourceRequest";
 import { cn } from "@/lib/utils";
 import { useFrontendConfigStore } from "@/stores/frontendConfigStore";
 import type { FileInfo, FileListItem } from "@/types/api";
@@ -22,6 +23,7 @@ import {
 	type ImagePreviewSource,
 	type ShowOriginalState,
 } from "./BlobImagePreview";
+import type { FilePreviewResources } from "./filePreviewResources";
 import { useImagePreviewTransform } from "./useImagePreviewTransform";
 
 const ORIGINAL_BUTTON_EXIT_MS = 220;
@@ -91,8 +93,7 @@ function isImagePreviewInteractiveTarget(target: EventTarget | null) {
 interface ImagePreviewPanelProps {
 	file: FileInfo | FileListItem;
 	allOptionsCount: number;
-	downloadPath: ResourcePath | null;
-	imagePreviewPath?: string;
+	resources: FilePreviewResources;
 	nextImageFile?: FileInfo | FileListItem;
 	onChooseOpenMethod: () => void;
 	onClose: () => void;
@@ -113,8 +114,7 @@ interface ImagePreviewPanelProps {
 export function ImagePreviewPanel({
 	file,
 	allOptionsCount,
-	downloadPath,
-	imagePreviewPath,
+	resources,
 	nextImageFile,
 	onChooseOpenMethod,
 	onClose,
@@ -135,7 +135,7 @@ export function ImagePreviewPanel({
 		(state) => state.imagePreviewPreference,
 	);
 	const originalIsBrowserRenderable = canBrowserRenderImage(file);
-	const hasBackendPreview = imagePreviewPath != null;
+	const hasBackendPreview = resources.paths.imagePreview != null;
 	const initialSource =
 		hasBackendPreview &&
 		(imagePreviewPreference === "preview_first" || !originalIsBrowserRenderable)
@@ -164,18 +164,40 @@ export function ImagePreviewPanel({
 	const previewKey = [
 		file.name,
 		file.mime_type,
-		downloadPath ? resourceCacheKey(downloadPath) : "",
-		imagePreviewPath ?? "",
+		resources.paths.download,
+		resources.paths.imagePreview ?? "",
 		imagePreviewPreference,
 	].join(IMAGE_PREVIEW_KEY_SEPARATOR);
 	const requestedOriginal = requestedOriginalKey === previewKey;
+	const shouldResolveOriginalResource =
+		initialSource === "original" || (canRequestOriginal && requestedOriginal);
+	const originalDownloadPath = useFileContentResource({
+		deliveryMode: "blob_url",
+		downloadPath: resources.paths.download,
+		enabled: shouldResolveOriginalResource,
+		fileId: file.id,
+		mimeType: file.mime_type,
+		open: true,
+		representation: "original",
+		resolveResourceHandle: resources.resolve,
+	});
+	const backendPreviewResource = useFileContentResource({
+		deliveryMode: "blob_url",
+		downloadPath: resources.paths.download,
+		enabled: hasBackendPreview,
+		fileId: file.id,
+		mimeType: file.mime_type,
+		open: true,
+		representation: "image_preview",
+		resolveResourceHandle: resources.resolve,
+	});
 	const {
 		blobUrl: originalBlobUrl,
 		error: originalError,
 		loading: originalLoading,
 		retry: retryOriginal,
 	} = useBlobUrl(
-		canRequestOriginal && requestedOriginal ? downloadPath : null,
+		canRequestOriginal && requestedOriginal ? originalDownloadPath : null,
 		{ lane: "default" },
 	);
 	const originalReady =
@@ -344,13 +366,13 @@ export function ImagePreviewPanel({
 
 			<ImagePreviewTransformLayer
 				key={activeImageRenderKey}
-				downloadPath={downloadPath}
+				originalDownloadPath={originalDownloadPath}
+				backendPreviewResource={backendPreviewResource}
 				effectiveShowOriginalState={effectiveShowOriginalState}
 				effectiveSource={effectiveSource}
 				file={file}
 				fitToWindowLabel={fitToWindowLabel}
 				imageGesturesEnabled={imageGesturesEnabled}
-				imagePreviewPath={imagePreviewPath}
 				originalButtonDisabled={originalButtonDisabled}
 				originalButtonIcon={originalButtonIcon}
 				originalButtonVisible={originalButtonVisible}
@@ -378,13 +400,13 @@ export function ImagePreviewPanel({
 }
 
 function ImagePreviewTransformLayer({
-	downloadPath,
+	originalDownloadPath,
+	backendPreviewResource,
 	effectiveShowOriginalState,
 	effectiveSource,
 	file,
 	fitToWindowLabel,
 	imageGesturesEnabled,
-	imagePreviewPath,
 	originalButtonDisabled,
 	originalButtonIcon,
 	originalButtonVisible,
@@ -399,13 +421,13 @@ function ImagePreviewTransformLayer({
 	onImageLoad,
 	onImageRenderError,
 }: {
-	downloadPath: ResourcePath | null;
+	originalDownloadPath: ResourcePath | null;
+	backendPreviewResource: ResourcePath | null;
 	effectiveShowOriginalState: ShowOriginalState;
 	effectiveSource: ImagePreviewSource;
 	file: FileInfo | FileListItem;
 	fitToWindowLabel: string;
 	imageGesturesEnabled: boolean;
-	imagePreviewPath?: string;
 	originalButtonDisabled: boolean;
 	originalButtonIcon: "Check" | "Eye" | "Spinner";
 	originalButtonVisible: boolean;
@@ -511,8 +533,8 @@ function ImagePreviewTransformLayer({
 					<BlobImagePreview
 						file={file}
 						fillContainer
-						path={downloadPath}
-						fallbackPath={imagePreviewPath}
+						resource={originalDownloadPath}
+						fallbackResource={backendPreviewResource}
 						imageRef={imageRef}
 						viewportRef={viewportRef}
 						source={effectiveSource}

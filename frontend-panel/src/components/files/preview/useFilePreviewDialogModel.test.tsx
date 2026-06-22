@@ -1,7 +1,13 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { ResourceRequest } from "@/lib/resourceRequest";
+import {
+	type ResourcePath,
+	resourceCacheKey,
+	resourceCanonicalEtag,
+	resourceRequestPath,
+} from "@/lib/resourceRequest";
 import type { FileListItem, MediaMetadataInfo } from "@/types/api";
+import type { FilePreviewResources } from "./filePreviewResources";
 import type { FilePreviewProfile, OpenWithOption } from "./types";
 import { useFilePreviewDialogModel } from "./useFilePreviewDialogModel";
 
@@ -37,16 +43,32 @@ const wopiOption: OpenWithOption = {
 	mode: "wopi",
 };
 
-function previewResource(
-	requestPath: string,
-	cacheKey = "/files/7/download",
-	etag = '"etag-preview"',
-): ResourceRequest {
-	return {
-		cacheKey,
-		etag,
-		requestPath,
-	};
+function expectResourcePath(
+	resource: ResourcePath | null,
+	expected: {
+		cacheKey: string;
+		deliveryMode?: string;
+		etag?: string | null;
+		requestPath: string;
+	},
+) {
+	expect(resource).not.toBeNull();
+	expect(resourceCacheKey(resource as ResourcePath)).toBe(expected.cacheKey);
+	expect(resourceRequestPath(resource as ResourcePath)).toBe(
+		expected.requestPath,
+	);
+	expect(resourceCanonicalEtag(resource as ResourcePath)).toBe(
+		expected.etag ?? null,
+	);
+	if (
+		resource &&
+		typeof resource === "object" &&
+		"kind" in resource &&
+		resource.kind === "ready" &&
+		expected.deliveryMode
+	) {
+		expect(resource.delivery.mode).toBe(expected.deliveryMode);
+	}
 }
 
 const mockState = vi.hoisted(() => ({
@@ -63,6 +85,41 @@ const mockState = vi.hoisted(() => ({
 	),
 	getMediaMetadata: vi.fn(),
 	imagePreviewPath: vi.fn((fileId: number) => `/files/${fileId}/image-preview`),
+	resolveResourceHandle: vi.fn(
+		async (
+			fileId: number,
+			request: { delivery_mode: string; representation?: string },
+		) => {
+			const isImagePreview = request.representation === "image_preview";
+			const isThumbnail = request.representation === "thumbnail";
+			const requestPath = isImagePreview
+				? `/files/${fileId}/image-preview`
+				: isThumbnail
+					? `/files/${fileId}/thumbnail`
+					: `/files/${fileId}/download?disposition=inline`;
+			return {
+				kind: "ready",
+				identity: {
+					cacheKey: isImagePreview
+						? `/files/${fileId}/image-preview`
+						: isThumbnail
+							? `/files/${fileId}/thumbnail`
+							: `/files/${fileId}/download`,
+					etag: null,
+					scope: "personal",
+				},
+				request: {
+					url: requestPath,
+					credentials: "include",
+					conditionalHeaders: "allowed",
+					redirectPolicy: "same_origin_only",
+				},
+				delivery: {
+					mode: request.delivery_mode,
+				},
+			};
+		},
+	),
 	mediaDataSupportStore: {
 		config: {
 			enabled: true,
@@ -108,6 +165,8 @@ vi.mock("@/services/fileService", () => ({
 			mockState.getMediaMetadata(...args),
 		imagePreviewPath: (...args: unknown[]) =>
 			mockState.imagePreviewPath(...args),
+		resolveResourceHandle: (...args: unknown[]) =>
+			mockState.resolveResourceHandle(...args),
 		thumbnailPath: (...args: unknown[]) => mockState.thumbnailPath(...args),
 	},
 }));
@@ -179,10 +238,21 @@ function renderModel(
 	overrides: Partial<Parameters<typeof useFilePreviewDialogModel>[0]> = {},
 ) {
 	const onClose = vi.fn();
+	const resources: FilePreviewResources = overrides.resources ?? {
+		scope: "personal",
+		paths: {
+			download: "/files/7/download",
+			imagePreview: "/files/7/image-preview",
+			thumbnail: "/files/7/thumbnail",
+		},
+		resolve: mockState.resolveResourceHandle,
+		actions: {},
+	};
 	const props = {
 		open: true,
 		file: file(),
 		onClose,
+		resources,
 		translateFileLabel: (key: string) => `files:${key}`,
 		...overrides,
 	};
@@ -193,6 +263,47 @@ function renderModel(
 	return { ...hook, onClose };
 }
 
+function modelProps(
+	overrides: Partial<Parameters<typeof useFilePreviewDialogModel>[0]> = {},
+) {
+	return {
+		open: true,
+		file: file(),
+		onClose: vi.fn(),
+		resources: {
+			scope: "personal",
+			paths: {
+				download: "/files/7/download",
+				imagePreview: "/files/7/image-preview",
+				thumbnail: "/files/7/thumbnail",
+			},
+			resolve: mockState.resolveResourceHandle,
+			actions: {},
+		} satisfies FilePreviewResources,
+		translateFileLabel: (key: string) => `files:${key}`,
+		...overrides,
+	};
+}
+
+function testResources(
+	overrides: Partial<FilePreviewResources> = {},
+): FilePreviewResources {
+	return {
+		scope: "personal",
+		paths: {
+			download: "/files/7/download",
+			imagePreview: "/files/7/image-preview",
+			thumbnail: "/files/7/thumbnail",
+			...overrides.paths,
+		},
+		resolve: mockState.resolveResourceHandle,
+		...overrides,
+		actions: {
+			...overrides.actions,
+		},
+	};
+}
+
 describe("useFilePreviewDialogModel", () => {
 	beforeEach(() => {
 		mockState.backendAudioMetadataToTrackMetadata.mockClear();
@@ -201,6 +312,7 @@ describe("useFilePreviewDialogModel", () => {
 		mockState.downloadPath.mockClear();
 		mockState.getFileExtension.mockClear();
 		mockState.getMediaMetadata.mockReset();
+		mockState.resolveResourceHandle.mockClear();
 		mockState.getMediaMetadata.mockResolvedValue({
 			kind: "audio",
 			metadata: {
@@ -250,7 +362,6 @@ describe("useFilePreviewDialogModel", () => {
 
 		const { result } = renderModel();
 
-		expect(mockState.mediaDataSupportStore.load).toHaveBeenCalledTimes(1);
 		expect(mockState.previewAppStore.load).toHaveBeenCalledTimes(1);
 		expect(mockState.thumbnailSupportStore.load).toHaveBeenCalledTimes(1);
 		expect(result.current.profile).toBeNull();
@@ -258,7 +369,7 @@ describe("useFilePreviewDialogModel", () => {
 		expect(result.current.showOpenMethodChooser).toBe(false);
 	});
 
-	it("uses default service paths and derives backend audio metadata loaders", async () => {
+	it("does not resolve content resources for audio files in the preview dialog", async () => {
 		const audioFile = file({
 			extension: "mp3",
 			file_category: "audio",
@@ -286,27 +397,16 @@ describe("useFilePreviewDialogModel", () => {
 		const { result } = renderModel({ file: audioFile, openMode: "direct" });
 
 		expect(result.current.resolvedDownloadPath).toBe("/files/7/download");
-		expect(result.current.resolvedContentPreviewPath).toBe("/files/7/download");
+		expect(result.current.resolvedContentPreviewPath).toBeNull();
 		expect(result.current.resolvedImagePreviewPath).toBe(
 			"/files/7/image-preview",
 		);
 		expect(result.current.resolvedThumbnailPath).toBe("/files/7/thumbnail");
-		expect(result.current.resolvedLoadMusicBackendMetadata).toBeTypeOf(
-			"function",
-		);
-
-		const metadata = await result.current.resolvedLoadMusicBackendMetadata?.(
-			new AbortController().signal,
-		);
-
-		expect(mockState.getMediaMetadata).toHaveBeenCalledWith(7, {
-			signal: expect.any(AbortSignal),
-		});
-		expect(metadata).toEqual({ title: "Backend Song" });
+		expect(mockState.getMediaMetadata).not.toHaveBeenCalled();
 	});
 
-	it("uses preview-link paths for read-only content previews", async () => {
-		const previewLinkFactory = vi.fn(async () => ({
+	it("resolves read-only content previews through the resource resolver", async () => {
+		const createExternalPreviewLink = vi.fn(async () => ({
 			etag: '"etag-manual"',
 			expires_at: "2026-06-21T22:30:00Z",
 			max_uses: 5,
@@ -331,271 +431,301 @@ describe("useFilePreviewDialogModel", () => {
 				name: "manual.pdf",
 			}),
 			openMode: "direct",
-			previewLinkFactory,
+			resources: {
+				scope: "personal",
+				paths: {
+					download: "/files/7/download",
+					imagePreview: "/files/7/image-preview",
+					thumbnail: "/files/7/thumbnail",
+				},
+				resolve: mockState.resolveResourceHandle,
+				actions: {
+					createExternalPreviewLink: createExternalPreviewLink,
+				},
+			},
 		});
 
 		expect(result.current.resolvedContentPreviewPath).toBeNull();
 		await waitFor(() => {
-			expect(result.current.resolvedContentPreviewPath).toEqual(
-				previewResource(
-					"/pv/token/manual.pdf",
-					"/files/7/download",
-					'"etag-manual"',
-				),
-			);
+			expectResourcePath(result.current.resolvedContentPreviewPath, {
+				cacheKey: "/files/7/download",
+				deliveryMode: "blob_url",
+				requestPath: "/files/7/download?disposition=inline",
+			});
 		});
 		expect(result.current.resolvedDownloadPath).toBe("/files/7/download");
-		expect(previewLinkFactory).toHaveBeenCalledTimes(1);
+		expect(createExternalPreviewLink).not.toHaveBeenCalled();
 	});
 
-	it("reuses the in-flight preview-link request when parent callbacks change", async () => {
-		let resolvePreviewLink!: (value: {
-			etag: string;
-			expires_at: string;
-			max_uses: number;
-			path: string;
-		}) => void;
-		const previewLinkPromise = new Promise<{
-			etag: string;
-			expires_at: string;
-			max_uses: number;
-			path: string;
-		}>((resolve) => {
-			resolvePreviewLink = resolve;
+	it("reuses the in-flight resource request when parent callbacks change", async () => {
+		let resolveResource!: (
+			value: Awaited<ReturnType<typeof mockState.resolveResourceHandle>>,
+		) => void;
+		const resourcePromise = new Promise<
+			Awaited<ReturnType<typeof mockState.resolveResourceHandle>>
+		>((resolve) => {
+			resolveResource = resolve;
 		});
-		const firstPreviewLinkFactory = vi.fn(() => previewLinkPromise);
-		const secondPreviewLinkFactory = vi.fn(() => previewLinkPromise);
+		const firstResolve = vi.fn(() => resourcePromise);
+		const secondResolve = vi.fn(() => resourcePromise);
 
 		const { rerender, result } = renderModel({
 			openMode: "direct",
-			previewLinkFactory: firstPreviewLinkFactory,
+			resources: {
+				scope: "personal",
+				paths: {
+					download: "/files/7/download",
+					imagePreview: "/files/7/image-preview",
+					thumbnail: "/files/7/thumbnail",
+				},
+				resolve: firstResolve,
+				actions: {},
+			},
 		});
 
-		rerender({
-			open: true,
-			file: file(),
-			onClose: vi.fn(),
-			openMode: "direct",
-			previewLinkFactory: secondPreviewLinkFactory,
-			translateFileLabel: (key: string) => `files:${key}`,
-		});
+		rerender(
+			modelProps({
+				openMode: "direct",
+				resources: {
+					scope: "personal",
+					paths: {
+						download: "/files/7/download",
+						imagePreview: "/files/7/image-preview",
+						thumbnail: "/files/7/thumbnail",
+					},
+					resolve: secondResolve,
+					actions: {},
+				},
+			}),
+		);
 
 		expect(result.current.resolvedContentPreviewPath).toBeNull();
-		expect(firstPreviewLinkFactory).toHaveBeenCalledTimes(1);
-		expect(secondPreviewLinkFactory).not.toHaveBeenCalled();
+		expect(firstResolve).toHaveBeenCalledTimes(1);
+		expect(secondResolve).not.toHaveBeenCalled();
 
-		resolvePreviewLink({
-			etag: '"etag-notes"',
-			expires_at: "2026-06-21T22:30:00Z",
-			max_uses: 5,
-			path: "/pv/token/notes.md",
+		resolveResource({
+			kind: "ready",
+			identity: {
+				cacheKey: "/files/7/download",
+				etag: '"etag-notes"',
+				scope: "personal",
+			},
+			request: {
+				url: "/files/7/download?disposition=inline",
+				credentials: "include",
+				conditionalHeaders: "allowed",
+				redirectPolicy: "same_origin_only",
+			},
+			delivery: {
+				mode: "text",
+			},
 		});
 
 		await waitFor(() => {
-			expect(result.current.resolvedContentPreviewPath).toEqual(
-				previewResource(
-					"/pv/token/notes.md",
-					"/files/7/download",
-					'"etag-notes"',
-				),
-			);
+			expectResourcePath(result.current.resolvedContentPreviewPath, {
+				cacheKey: "/files/7/download",
+				deliveryMode: "text",
+				etag: '"etag-notes"',
+				requestPath: "/files/7/download?disposition=inline",
+			});
 		});
-		expect(firstPreviewLinkFactory).toHaveBeenCalledTimes(1);
-		expect(secondPreviewLinkFactory).not.toHaveBeenCalled();
+		expect(firstResolve).toHaveBeenCalledTimes(1);
+		expect(secondResolve).not.toHaveBeenCalled();
 	});
 
-	it("clears content preview paths while the kept-mounted dialog is closing", async () => {
-		const previewLinkFactory = vi.fn(async () => ({
-			etag: '"etag-notes"',
-			expires_at: "2026-06-21T22:30:00Z",
-			max_uses: 5,
-			path: "/pv/token/notes.md",
-		}));
+	it("clears content preview resources while the kept-mounted dialog is closing", async () => {
 		const { rerender, result } = renderModel({
 			openMode: "direct",
-			previewLinkFactory,
 		});
 
 		await waitFor(() => {
-			expect(result.current.resolvedContentPreviewPath).toEqual(
-				previewResource(
-					"/pv/token/notes.md",
-					"/files/7/download",
-					'"etag-notes"',
-				),
-			);
+			expectResourcePath(result.current.resolvedContentPreviewPath, {
+				cacheKey: "/files/7/download",
+				deliveryMode: "text",
+				requestPath: "/files/7/download?disposition=inline",
+			});
 		});
 
-		rerender({
-			open: false,
-			file: file(),
-			onClose: vi.fn(),
-			openMode: "direct",
-			previewLinkFactory,
-			translateFileLabel: (key: string) => `files:${key}`,
-		});
+		rerender(
+			modelProps({
+				open: false,
+				file: file(),
+				onClose: vi.fn(),
+				openMode: "direct",
+			}),
+		);
 
 		expect(result.current.resolvedContentPreviewPath).toBeNull();
 		expect(result.current.resolvedDownloadPath).toBe("/files/7/download");
-		expect(previewLinkFactory).toHaveBeenCalledTimes(1);
+		expect(mockState.resolveResourceHandle).toHaveBeenCalledTimes(1);
 	});
 
-	it("falls back to authenticated download paths when preview-link creation fails", async () => {
-		const previewLinkFactory = vi.fn(async () => {
-			throw new Error("preview link failed");
+	it("keeps content preview unresolved when the resource resolver fails", async () => {
+		const resolve = vi.fn(async () => {
+			throw new Error("resource resolve failed");
 		});
 
 		const { result } = renderModel({
 			openMode: "direct",
-			previewLinkFactory,
+			resources: testResources({ resolve }),
 		});
 
 		await waitFor(() => {
-			expect(previewLinkFactory).toHaveBeenCalledTimes(1);
-			expect(result.current.resolvedContentPreviewPath).toBe(
-				"/files/7/download",
-			);
+			expect(resolve).toHaveBeenCalledTimes(1);
 		});
+		expect(result.current.resolvedContentPreviewPath).toBeNull();
 	});
 
-	it("does not retry preview-link creation after a failed request while the file stays open", async () => {
-		const previewLinkFactory = vi.fn(async () => {
-			throw new Error("preview link failed");
+	it("does not retry resource resolution after a failed request while the file stays open", async () => {
+		const resolve = vi.fn(async () => {
+			throw new Error("resource resolve failed");
 		});
 
 		const { rerender, result } = renderModel({
 			openMode: "direct",
-			previewLinkFactory,
+			resources: testResources({ resolve }),
 		});
 
 		await waitFor(() => {
-			expect(result.current.resolvedContentPreviewPath).toBe(
-				"/files/7/download",
-			);
+			expect(resolve).toHaveBeenCalledTimes(1);
 		});
+		expect(result.current.resolvedContentPreviewPath).toBeNull();
 
-		rerender({
-			open: true,
-			file: file(),
-			onClose: vi.fn(),
-			openMode: "direct",
-			previewLinkFactory,
-			translateFileLabel: (key: string) => `files:${key}`,
-		});
-
-		expect(result.current.resolvedContentPreviewPath).toBe("/files/7/download");
-		expect(previewLinkFactory).toHaveBeenCalledTimes(1);
-	});
-
-	it("does not retry preview-link creation after a ready link while the file stays open", async () => {
-		const previewLinkFactory = vi.fn(async () => ({
-			etag: '"etag-manual"',
-			expires_at: "2026-06-21T22:30:00Z",
-			max_uses: 5,
-			path: "/pv/token/manual.pdf",
-		}));
-
-		const { rerender, result } = renderModel({
-			openMode: "direct",
-			previewLinkFactory,
-		});
-
-		await waitFor(() => {
-			expect(result.current.resolvedContentPreviewPath).toEqual(
-				previewResource(
-					"/pv/token/manual.pdf",
-					"/files/7/download",
-					'"etag-manual"',
-				),
-			);
-		});
-
-		rerender({
-			open: true,
-			file: file(),
-			onClose: vi.fn(),
-			openMode: "direct",
-			previewLinkFactory,
-			translateFileLabel: (key: string) => `files:${key}`,
-		});
-
-		expect(result.current.resolvedContentPreviewPath).toEqual(
-			previewResource(
-				"/pv/token/manual.pdf",
-				"/files/7/download",
-				'"etag-manual"',
-			),
+		rerender(
+			modelProps({
+				open: true,
+				file: file(),
+				onClose: vi.fn(),
+				openMode: "direct",
+				resources: testResources({ resolve }),
+			}),
 		);
-		expect(previewLinkFactory).toHaveBeenCalledTimes(1);
+
+		expect(result.current.resolvedContentPreviewPath).toBeNull();
+		expect(resolve).toHaveBeenCalledTimes(1);
 	});
 
-	it("ignores stale preview-link results after file changes", async () => {
-		let resolveFirst!: (value: {
-			etag: string;
-			expires_at: string;
-			max_uses: number;
-			path: string;
-		}) => void;
-		const firstPromise = new Promise<{
-			etag: string;
-			expires_at: string;
-			max_uses: number;
-			path: string;
-		}>((resolve) => {
+	it("does not retry resource resolution after a ready resource while the file stays open", async () => {
+		const resolve = vi.fn(mockState.resolveResourceHandle);
+
+		const { rerender, result } = renderModel({
+			openMode: "direct",
+			resources: testResources({ resolve }),
+		});
+
+		await waitFor(() => {
+			expectResourcePath(result.current.resolvedContentPreviewPath, {
+				cacheKey: "/files/7/download",
+				deliveryMode: "text",
+				requestPath: "/files/7/download?disposition=inline",
+			});
+		});
+
+		rerender(
+			modelProps({
+				open: true,
+				file: file(),
+				onClose: vi.fn(),
+				openMode: "direct",
+				resources: testResources({ resolve }),
+			}),
+		);
+
+		expectResourcePath(result.current.resolvedContentPreviewPath, {
+			cacheKey: "/files/7/download",
+			deliveryMode: "text",
+			requestPath: "/files/7/download?disposition=inline",
+		});
+		expect(resolve).toHaveBeenCalledTimes(1);
+	});
+
+	it("ignores stale resource resolver results after file changes", async () => {
+		let resolveFirst!: (
+			value: Awaited<ReturnType<typeof mockState.resolveResourceHandle>>,
+		) => void;
+		const firstPromise = new Promise<
+			Awaited<ReturnType<typeof mockState.resolveResourceHandle>>
+		>((resolve) => {
 			resolveFirst = resolve;
 		});
-		const previewLinkFactory = vi
+		const resolve = vi
 			.fn()
 			.mockReturnValueOnce(firstPromise)
 			.mockResolvedValueOnce({
-				etag: '"etag-next"',
-				expires_at: "2026-06-21T22:31:00Z",
-				max_uses: 5,
-				path: "/pv/token-2/next.pdf",
+				kind: "ready",
+				identity: {
+					cacheKey: "/files/8/download",
+					etag: '"etag-next"',
+					scope: "personal",
+				},
+				request: {
+					url: "/files/8/download?disposition=inline",
+					credentials: "include",
+					conditionalHeaders: "allowed",
+					redirectPolicy: "same_origin_only",
+				},
+				delivery: {
+					mode: "text",
+				},
 			});
 
 		const { rerender, result } = renderModel({
 			file: file({ id: 7, name: "manual.pdf" }),
 			openMode: "direct",
-			previewLinkFactory,
+			resources: testResources({ resolve }),
 		});
 
-		rerender({
-			open: true,
-			file: file({ id: 8, name: "next.pdf" }),
-			onClose: vi.fn(),
-			openMode: "direct",
-			previewLinkFactory,
-			translateFileLabel: (key: string) => `files:${key}`,
-		});
+		rerender(
+			modelProps({
+				open: true,
+				file: file({ id: 8, name: "next.pdf" }),
+				onClose: vi.fn(),
+				openMode: "direct",
+				resources: testResources({
+					paths: {
+						download: "/files/8/download",
+						imagePreview: "/files/8/image-preview",
+						thumbnail: "/files/8/thumbnail",
+					},
+					resolve,
+				}),
+			}),
+		);
 
 		resolveFirst({
-			etag: '"etag-manual"',
-			expires_at: "2026-06-21T22:30:00Z",
-			max_uses: 5,
-			path: "/pv/token-1/manual.pdf",
+			kind: "ready",
+			identity: {
+				cacheKey: "/files/7/download",
+				etag: '"etag-manual"',
+				scope: "personal",
+			},
+			request: {
+				url: "/files/7/download?disposition=inline",
+				credentials: "include",
+				conditionalHeaders: "allowed",
+				redirectPolicy: "same_origin_only",
+			},
+			delivery: {
+				mode: "text",
+			},
 		});
 
 		await waitFor(() => {
-			expect(result.current.resolvedContentPreviewPath).toEqual(
-				previewResource(
-					"/pv/token-2/next.pdf",
-					"/files/8/download",
-					'"etag-next"',
-				),
-			);
+			expectResourcePath(result.current.resolvedContentPreviewPath, {
+				cacheKey: "/files/8/download",
+				deliveryMode: "text",
+				etag: '"etag-next"',
+				requestPath: "/files/8/download?disposition=inline",
+			});
 		});
-		expect(result.current.resolvedContentPreviewPath).not.toEqual(
-			previewResource(
-				"/pv/token-1/manual.pdf",
-				"/files/7/download",
-				'"etag-manual"',
+		expect(
+			resourceRequestPath(
+				result.current.resolvedContentPreviewPath as ResourcePath,
 			),
-		);
+		).not.toBe("/files/7/download?disposition=inline");
 	});
 
-	it("prefers explicit metadata loaders over generated audio metadata loaders", async () => {
-		const loadMusicBackendMetadata = vi.fn(async () => ({ title: "Manual" }));
+	it("does not expose audio metadata loaders from the preview dialog model", async () => {
 		const audioFile = file({
 			extension: "mp3",
 			file_category: "audio",
@@ -605,15 +735,9 @@ describe("useFilePreviewDialogModel", () => {
 
 		const { result } = renderModel({
 			file: audioFile,
-			loadMusicBackendMetadata,
 		});
 
-		expect(result.current.resolvedLoadMusicBackendMetadata).toBe(
-			loadMusicBackendMetadata,
-		);
-		expect(await result.current.resolvedLoadMusicBackendMetadata?.()).toEqual({
-			title: "Manual",
-		});
+		expect(result.current.resolvedContentPreviewPath).toBeNull();
 		expect(mockState.getMediaMetadata).not.toHaveBeenCalled();
 	});
 
@@ -652,7 +776,9 @@ describe("useFilePreviewDialogModel", () => {
 		);
 
 		const { rerender, result } = renderModel({
-			archivePreviewFactory: initialArchiveFactory,
+			resources: testResources({
+				actions: { loadArchiveManifest: initialArchiveFactory },
+			}),
 		});
 
 		expect(result.current.hiddenOptions.map((option) => option.key)).toEqual([
@@ -666,18 +792,21 @@ describe("useFilePreviewDialogModel", () => {
 			expect(result.current.activeOption?.mode).toBe("archive");
 		});
 		expect(result.current.showAllOpenMethods).toBe(true);
-		expect(result.current.activeArchivePreviewFactory).toBeTypeOf("function");
+		expect(result.current.activeArchiveManifestLoader).toBeTypeOf("function");
 
-		rerender({
-			open: true,
-			file: file(),
-			onClose: vi.fn(),
-			archivePreviewFactory: latestArchiveFactory,
-			translateFileLabel: (key: string) => `files:${key}`,
-		});
+		rerender(
+			modelProps({
+				open: true,
+				file: file(),
+				onClose: vi.fn(),
+				resources: testResources({
+					actions: { loadArchiveManifest: latestArchiveFactory },
+				}),
+			}),
+		);
 
 		await expect(
-			result.current.activeArchivePreviewFactory?.({
+			result.current.activeArchiveManifestLoader?.({
 				signal: new AbortController().signal,
 			}),
 		).resolves.toEqual({ entries: [{ name: "new.txt" }] });
@@ -688,7 +817,7 @@ describe("useFilePreviewDialogModel", () => {
 	});
 
 	it("opens WOPI methods only when a session factory is available", async () => {
-		const wopiSessionFactory = vi.fn(async (appKey: string) => ({
+		const launchWopiSession = vi.fn(async (appKey: string) => ({
 			app_key: appKey,
 			expires_at: "2026-01-01T00:00:00Z",
 			launch_url: "https://office.example/launch",
@@ -701,15 +830,19 @@ describe("useFilePreviewDialogModel", () => {
 			}),
 		);
 
-		const { result } = renderModel({ wopiSessionFactory });
+		const { result } = renderModel({
+			resources: testResources({
+				actions: { launchWopiSession: launchWopiSession },
+			}),
+		});
 
 		expect(result.current.activeMode).toBe("onlyoffice");
 		expect(result.current.usesInnerScroll).toBe(true);
 		expect(result.current.fillsViewportHeight).toBe(true);
-		await expect(result.current.wopiSessionFactory?.()).resolves.toMatchObject({
+		await expect(result.current.launchWopiSession?.()).resolves.toMatchObject({
 			app_key: "onlyoffice",
 		});
-		expect(wopiSessionFactory).toHaveBeenCalledWith("onlyoffice");
+		expect(launchWopiSession).toHaveBeenCalledWith("onlyoffice");
 	});
 
 	it("uses new-tab embedded options without forcing inner scroll or viewport height", () => {
@@ -989,13 +1122,14 @@ describe("useFilePreviewDialogModel", () => {
 		});
 		expect(result.current.isExpanded).toBe(true);
 
-		rerender({
-			open: true,
-			file: file({ id: 8, name: "next.md" }),
-			onClose: vi.fn(),
-			openMode: "direct",
-			translateFileLabel: (key: string) => `files:${key}`,
-		});
+		rerender(
+			modelProps({
+				open: true,
+				file: file({ id: 8, name: "next.md" }),
+				onClose: vi.fn(),
+				openMode: "direct",
+			}),
+		);
 		expect(result.current.isExpanded).toBe(false);
 	});
 

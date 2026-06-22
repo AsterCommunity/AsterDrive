@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next";
 import { resolveApiResourceUrl } from "@/lib/apiUrl";
 import { prepareAuthenticatedResource } from "@/lib/authenticatedResource";
 import { logger } from "@/lib/logger";
+import { type ResourcePath, resourceRequestPath } from "@/lib/resourceRequest";
 import type { ShareStreamSessionInfo } from "@/types/api";
 import { PreviewError } from "./PreviewError";
 import { PreviewLoadingState } from "./PreviewLoadingState";
@@ -17,8 +18,8 @@ const VIDEO_CONTENT_CLASS = "flex items-center justify-center bg-zinc-950";
 
 interface VideoPreviewProps {
 	file: PreviewableFileLike;
-	mediaStreamLinkFactory?: () => Promise<ShareStreamSessionInfo>;
-	path: string | null;
+	createMediaStreamSession?: () => Promise<ShareStreamSessionInfo>;
+	resource: ResourcePath | null;
 }
 
 interface VideoStatus {
@@ -45,34 +46,35 @@ function getPlayerLanguage(language: string) {
 
 export function VideoPreview({
 	file,
-	mediaStreamLinkFactory,
-	path,
+	createMediaStreamSession,
+	resource,
 }: VideoPreviewProps) {
 	const { i18n, t } = useTranslation("files");
 	const containerRef = useRef<HTMLDivElement | null>(null);
 	const [resourceState, setResourceState] = useState(() => ({
-		inputs: { mediaStreamLinkFactory, path },
+		inputs: { createMediaStreamSession, resource },
 		version: 0,
 	}));
 	const [resolvedResource, setResolvedResource] = useState<{
 		key: string;
 		path: string;
 	} | null>(null);
+	const requestPath = resource ? resourceRequestPath(resource) : null;
 	if (
-		resourceState.inputs.path !== path ||
-		resourceState.inputs.mediaStreamLinkFactory !== mediaStreamLinkFactory
+		resourceState.inputs.resource !== resource ||
+		resourceState.inputs.createMediaStreamSession !== createMediaStreamSession
 	) {
 		setResourceState({
-			inputs: { mediaStreamLinkFactory, path },
+			inputs: { createMediaStreamSession, resource },
 			version: resourceState.version + 1,
 		});
 	}
 	const currentResourceVersion =
-		resourceState.inputs.path === path &&
-		resourceState.inputs.mediaStreamLinkFactory === mediaStreamLinkFactory
+		resourceState.inputs.resource === resource &&
+		resourceState.inputs.createMediaStreamSession === createMediaStreamSession
 			? resourceState.version
 			: resourceState.version + 1;
-	const resourceKey = `${path}:${mediaStreamLinkFactory ? "stream" : "direct"}:${currentResourceVersion}`;
+	const resourceKey = `${requestPath}:${createMediaStreamSession ? "stream" : "direct"}:${currentResourceVersion}`;
 	const [status, setStatus] = useState<VideoStatus>(() =>
 		initialVideoStatus(resourceKey),
 	);
@@ -103,7 +105,7 @@ export function VideoPreview({
 	);
 
 	useEffect(() => {
-		if (!path) {
+		if (!resource || !requestPath) {
 			setResolvedResource(null);
 			return;
 		}
@@ -111,12 +113,12 @@ export function VideoPreview({
 		let cancelled = false;
 
 		const resolveDirectPath = async () => {
-			await prepareAuthenticatedResource(path);
-			return path;
+			await prepareAuthenticatedResource(resource);
+			return requestPath;
 		};
 
-		const resolveLink = mediaStreamLinkFactory
-			? async () => (await mediaStreamLinkFactory()).path
+		const resolveLink = createMediaStreamSession
+			? async () => (await createMediaStreamSession()).path
 			: resolveDirectPath;
 
 		resolveLink()
@@ -127,7 +129,7 @@ export function VideoPreview({
 			.catch((error) => {
 				if (cancelled) return;
 				logger.warn(
-					mediaStreamLinkFactory
+					createMediaStreamSession
 						? "media stream session creation failed"
 						: "media resource preparation failed",
 					file.name,
@@ -142,7 +144,7 @@ export function VideoPreview({
 		return () => {
 			cancelled = true;
 		};
-	}, [file.name, path, mediaStreamLinkFactory, resourceKey]);
+	}, [file.name, resource, requestPath, createMediaStreamSession, resourceKey]);
 
 	useEffect(() => {
 		if (!videoSource) return;

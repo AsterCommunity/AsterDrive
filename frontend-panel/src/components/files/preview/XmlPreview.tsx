@@ -14,13 +14,13 @@ import {
 } from "./PreviewSurface";
 
 interface XmlPreviewProps {
-	path: ResourcePath;
+	resource: ResourcePath;
 	mode: "formatted";
 }
 
-export function XmlPreview({ path }: XmlPreviewProps) {
+export function XmlPreview({ resource }: XmlPreviewProps) {
 	const { t } = useTranslation("files");
-	const { content, loading, error, reload } = useTextContent(path);
+	const { content, loading, error, reload } = useTextContent(resource);
 
 	const formatted = useMemo(() => {
 		if (!content) return null;

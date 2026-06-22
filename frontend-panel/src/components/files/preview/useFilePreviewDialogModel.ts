@@ -6,25 +6,16 @@ import {
 	useRef,
 	useState,
 } from "react";
-import { supportsAudioMediaData } from "@/lib/mediaDataSupport";
-import type { ResourceRequest } from "@/lib/resourceRequest";
-import { fileService } from "@/services/fileService";
-import { useMediaDataSupportStore } from "@/stores/mediaDataSupportStore";
-import type { MusicPlayerTrack } from "@/stores/musicPlayerStore";
+import { useFileContentResource } from "@/hooks/useFileResource";
+import type { FileResourceDeliveryMode } from "@/lib/resourceRequest";
 import { usePreviewAppStore } from "@/stores/previewAppStore";
 import { useThumbnailSupportStore } from "@/stores/thumbnailSupportStore";
-import type {
-	ArchivePreviewManifest,
-	FileInfo,
-	FileListItem,
-	PreviewLinkInfo,
-	ShareStreamSessionInfo,
-	WopiLaunchSession,
-} from "@/types/api";
+import type { FileInfo, FileListItem } from "@/types/api";
 import {
 	detectFilePreviewProfile,
 	getFileExtension,
 } from "./file-capabilities";
+import type { FilePreviewResources } from "./filePreviewResources";
 import { resolveOpenWithOptionLabel } from "./openWithLabel";
 import type { OpenWithMode, OpenWithOption } from "./types";
 import { getVideoBrowserOpenWithOption } from "./video-browser-config";
@@ -37,36 +28,14 @@ const PREVIEW_DIALOG_OPEN_ANIMATION_MS = 120;
 // Matches Tailwind's md breakpoint boundary.
 const MOBILE_PREVIEW_MEDIA_QUERY = "(max-width: 767px)";
 
-type PreviewLinkState = {
-	fileId: number;
-	previewLink: PreviewLinkInfo | null;
-	status: "idle" | "loading" | "ready" | "failed";
-};
-
-type ContentPreviewResourceInput = {
-	downloadPath: string;
-	fileId: number;
-	open: boolean;
-	previewLinkFactory?: FilePreviewDialogProps["previewLinkFactory"];
-};
-
 export interface FilePreviewDialogProps {
 	open: boolean;
 	file: FileInfo | FileListItem;
 	onClose: () => void;
 	onOpenChangeComplete?: (open: boolean) => void;
 	onFileUpdated?: () => void;
-	downloadPath?: string;
-	imagePreviewPath?: string;
-	thumbnailPath?: string;
 	editable?: boolean;
-	previewLinkFactory?: () => Promise<PreviewLinkInfo>;
-	archivePreviewFactory?: (options?: {
-		signal?: AbortSignal;
-	}) => Promise<ArchivePreviewManifest>;
-	loadMusicBackendMetadata?: MusicPlayerTrack["loadBackendMetadata"];
-	mediaStreamLinkFactory?: () => Promise<ShareStreamSessionInfo>;
-	wopiSessionFactory?: (appKey: string) => Promise<WopiLaunchSession>;
+	resources: FilePreviewResources;
 	imageNavigation?: {
 		nextFile?: FileInfo | FileListItem;
 		onNavigate: (file: FileInfo | FileListItem) => void;
@@ -207,6 +176,22 @@ function getEmbeddedOptionMode(option: OpenWithOption | null) {
 	return option.config?.mode === "new_tab" ? "new_tab" : "iframe";
 }
 
+function contentPreviewDeliveryMode(
+	option: OpenWithOption | null,
+): FileResourceDeliveryMode {
+	switch (option?.mode) {
+		case "video":
+			return "direct_url";
+		case "markdown":
+		case "table":
+		case "formatted":
+		case "code":
+			return "text";
+		default:
+			return "blob_url";
+	}
+}
+
 function useMediaQuery(query: string) {
 	const [matches, setMatches] = useState(() =>
 		typeof window.matchMedia === "function"
@@ -234,127 +219,12 @@ function useMediaQuery(query: string) {
 	return matches;
 }
 
-function useContentPreviewResourcePath({
-	downloadPath,
-	fileId,
-	open,
-	previewLinkFactory,
-}: ContentPreviewResourceInput) {
-	const previewLinkFactoryRef = useRef(previewLinkFactory);
-	const hasPreviewLinkFactory = Boolean(previewLinkFactory);
-	const [previewLinkState, setPreviewLinkState] = useState<PreviewLinkState>(
-		() => ({
-			fileId,
-			previewLink: null,
-			status: "idle",
-		}),
-	);
-	const previewLinkRequestRef = useRef<{
-		fileId: number;
-		promise: Promise<PreviewLinkInfo>;
-	} | null>(null);
-
-	useEffect(() => {
-		previewLinkFactoryRef.current = previewLinkFactory;
-	}, [previewLinkFactory]);
-
-	useEffect(() => {
-		if (!open || !hasPreviewLinkFactory) {
-			previewLinkRequestRef.current = null;
-			setPreviewLinkState((current) =>
-				current.fileId === fileId &&
-				current.status === "idle" &&
-				current.previewLink === null
-					? current
-					: {
-							fileId,
-							previewLink: null,
-							status: "idle",
-						},
-			);
-			return;
-		}
-
-		let cancelled = false;
-		const factory = previewLinkFactoryRef.current;
-		if (!factory) return;
-
-		setPreviewLinkState((current) => {
-			if (
-				current.fileId === fileId &&
-				(current.status === "ready" || current.status === "failed")
-			) {
-				return current;
-			}
-			if (current.fileId === fileId && current.status === "loading") {
-				return current;
-			}
-			return {
-				fileId,
-				previewLink: null,
-				status: "loading",
-			};
-		});
-
-		let request = previewLinkRequestRef.current;
-		if (!request || request.fileId !== fileId) {
-			request = {
-				fileId,
-				promise: factory(),
-			};
-			previewLinkRequestRef.current = request;
-		}
-
-		request.promise
-			.then((previewLink) => {
-				if (cancelled || previewLinkRequestRef.current !== request) return;
-				setPreviewLinkState({
-					fileId,
-					previewLink,
-					status: "ready",
-				});
-			})
-			.catch(() => {
-				if (cancelled || previewLinkRequestRef.current !== request) return;
-				setPreviewLinkState({
-					fileId,
-					previewLink: null,
-					status: "failed",
-				});
-			});
-
-		return () => {
-			cancelled = true;
-		};
-	}, [fileId, hasPreviewLinkFactory, open]);
-
-	if (!open) return null;
-	if (!hasPreviewLinkFactory) return downloadPath;
-	if (previewLinkState.fileId !== fileId) return null;
-	if (previewLinkState.status === "ready" && previewLinkState.previewLink) {
-		return {
-			cacheKey: downloadPath,
-			etag: previewLinkState.previewLink.etag,
-			requestPath: previewLinkState.previewLink.path,
-		} satisfies ResourceRequest;
-	}
-	if (previewLinkState.status === "failed") return downloadPath;
-	return null;
-}
-
 export function useFilePreviewDialogModel({
 	open,
 	file,
 	onClose,
-	downloadPath,
-	imagePreviewPath,
-	thumbnailPath,
 	editable = true,
-	previewLinkFactory,
-	archivePreviewFactory,
-	loadMusicBackendMetadata,
-	mediaStreamLinkFactory,
-	wopiSessionFactory,
+	resources,
 	openMode = "auto",
 	language,
 	translateFileLabel,
@@ -368,45 +238,14 @@ export function useFilePreviewDialogModel({
 		(state) => state.isLoaded,
 	);
 	const loadThumbnailSupport = useThumbnailSupportStore((state) => state.load);
-	const mediaDataSupport = useMediaDataSupportStore((state) => state.config);
-	const mediaDataSupportLoaded = useMediaDataSupportStore(
-		(state) => state.isLoaded,
-	);
-	const loadMediaDataSupport = useMediaDataSupportStore((state) => state.load);
-	const resolvedDownloadPath =
-		downloadPath ?? fileService.downloadPath(file.id);
-	const resolvedImagePreviewPath =
-		imagePreviewPath ?? fileService.imagePreviewPath(file.id);
-	const resolvedThumbnailPath =
-		thumbnailPath ?? fileService.thumbnailPath(file.id);
-	const canRequestAudioMetadata =
-		mediaDataSupportLoaded && supportsAudioMediaData(file, mediaDataSupport);
-	const resolvedLoadMusicBackendMetadata =
-		loadMusicBackendMetadata ??
-		(canRequestAudioMetadata
-			? (signal?: AbortSignal) =>
-					import("@/lib/musicPlayer").then(
-						({ backendAudioMetadataToTrackMetadata }) =>
-							fileService
-								.getMediaMetadata(file.id, { signal })
-								.then((metadata) =>
-									backendAudioMetadataToTrackMetadata(metadata),
-								),
-					)
-			: undefined);
-	const resolvedContentPreviewPath = useContentPreviewResourcePath({
-		downloadPath: resolvedDownloadPath,
-		fileId: file.id,
-		open,
-		previewLinkFactory,
-	});
-
-	useEffect(() => {
-		if (!mediaDataSupportLoaded) {
-			void loadMediaDataSupport();
-		}
-	}, [loadMediaDataSupport, mediaDataSupportLoaded]);
-
+	const resolvedDownloadPath = resources.paths.download;
+	const resolvedImagePreviewPath = resources.paths.imagePreview;
+	const resolvedThumbnailPath = resources.paths.thumbnail;
+	const archiveManifestLoader = resources.actions?.loadArchiveManifest;
+	const createMediaStreamSession = resources.actions?.createMediaStreamSession;
+	const createExternalPreviewLink =
+		resources.actions?.createExternalPreviewLink;
+	const launchWopiSession = resources.actions?.launchWopiSession;
 	useEffect(() => {
 		if (previewAppsLoaded) return;
 		void loadPreviewApps();
@@ -457,9 +296,9 @@ export function useFilePreviewDialogModel({
 
 	const isOptionAvailable = useCallback(
 		(option: OpenWithOption) =>
-			(option.mode !== "wopi" || Boolean(wopiSessionFactory)) &&
-			(option.mode !== "archive" || Boolean(archivePreviewFactory)),
-		[archivePreviewFactory, wopiSessionFactory],
+			(option.mode !== "wopi" || Boolean(launchWopiSession)) &&
+			(option.mode !== "archive" || Boolean(archiveManifestLoader)),
+		[archiveManifestLoader, launchWopiSession],
 	);
 
 	const allOptions = useMemo(
@@ -508,16 +347,20 @@ export function useFilePreviewDialogModel({
 
 	const [state, dispatch] = useReducer(dialogStateReducer, initialDialogState);
 	const previousFileIdRef = useRef(file.id);
-	const archivePreviewFactoryRef = useRef(archivePreviewFactory);
+	const archiveManifestLoaderRef = useRef(archiveManifestLoader);
 	const wopiResourceRef = useRef<{
-		factory: FilePreviewDialogProps["wopiSessionFactory"];
+		launcher: FilePreviewResources["actions"] extends infer Actions
+			? Actions extends { launchWopiSession?: infer Launcher }
+				? Launcher
+				: never
+			: never;
 		key: string;
 		resource: WopiSessionResource;
 	} | null>(null);
 
 	useEffect(() => {
-		archivePreviewFactoryRef.current = archivePreviewFactory;
-	}, [archivePreviewFactory]);
+		archiveManifestLoaderRef.current = archiveManifestLoader;
+	}, [archiveManifestLoader]);
 
 	useEffect(() => {
 		const hasFileChanged = previousFileIdRef.current !== file.id;
@@ -546,56 +389,72 @@ export function useFilePreviewDialogModel({
 		if (!profile || !activeMode) return null;
 		return allOptions.find((option) => option.key === activeMode) ?? null;
 	}, [activeMode, allOptions, profile]);
+	const contentPreviewNeedsOriginal =
+		activeOption?.mode === "pdf" ||
+		activeOption?.mode === "video" ||
+		activeOption?.mode === "markdown" ||
+		activeOption?.mode === "table" ||
+		activeOption?.mode === "formatted" ||
+		activeOption?.mode === "code";
+	const resolvedContentPreviewPath = useFileContentResource({
+		deliveryMode: contentPreviewDeliveryMode(activeOption),
+		downloadPath: resolvedDownloadPath,
+		enabled: contentPreviewNeedsOriginal,
+		fileId: file.id,
+		mimeType: file.mime_type,
+		open,
+		resolveResourceHandle: resources.resolve,
+	});
 
 	const getOptionLabel = useCallback(
 		(option: OpenWithOption) =>
 			resolveOpenWithOptionLabel(option, language, translateFileLabel),
 		[language, translateFileLabel],
 	);
-	const activeWopiSessionFactory = useCallback(() => {
-		if (activeOption?.mode !== "wopi" || !wopiSessionFactory) {
-			return Promise.reject(new Error("wopi session factory unavailable"));
+	const activeWopiSessionLauncher = useCallback(() => {
+		if (activeOption?.mode !== "wopi" || !launchWopiSession) {
+			return Promise.reject(new Error("wopi session launcher unavailable"));
 		}
 
-		return wopiSessionFactory(activeOption.key);
-	}, [activeOption, wopiSessionFactory]);
+		return launchWopiSession(activeOption.key);
+	}, [activeOption, launchWopiSession]);
 	const activeWopiSessionResource = useMemo(() => {
-		if (activeOption?.mode !== "wopi" || !wopiSessionFactory) {
+		if (activeOption?.mode !== "wopi" || !launchWopiSession) {
 			return null;
 		}
 
 		const resourceKey = `${file.id}:${activeOption.key}`;
 		if (
 			wopiResourceRef.current?.key === resourceKey &&
-			wopiResourceRef.current.factory === wopiSessionFactory
+			wopiResourceRef.current.launcher === launchWopiSession
 		) {
 			return wopiResourceRef.current.resource;
 		}
 
 		const resource = createWopiSessionResource(() =>
-			wopiSessionFactory(activeOption.key),
+			launchWopiSession(activeOption.key),
 		);
 		wopiResourceRef.current = {
-			factory: wopiSessionFactory,
 			key: resourceKey,
+			launcher: launchWopiSession,
 			resource,
 		};
 		return resource;
-	}, [activeOption, file.id, wopiSessionFactory]);
-	const stableArchivePreviewFactory = useCallback(
+	}, [activeOption, file.id, launchWopiSession]);
+	const stableArchiveManifestLoader = useCallback(
 		(options?: { signal?: AbortSignal }) => {
-			const factory = archivePreviewFactoryRef.current;
-			if (!factory) {
-				return Promise.reject(new Error("archive preview factory unavailable"));
+			const loadManifest = archiveManifestLoaderRef.current;
+			if (!loadManifest) {
+				return Promise.reject(new Error("archive manifest loader unavailable"));
 			}
 
-			return factory(options);
+			return loadManifest(options);
 		},
 		[],
 	);
-	const activeArchivePreviewFactory =
-		open && activeOption?.mode === "archive" && archivePreviewFactory
-			? stableArchivePreviewFactory
+	const activeArchiveManifestLoader =
+		open && activeOption?.mode === "archive" && archiveManifestLoader
+			? stableArchiveManifestLoader
 			: undefined;
 	const hasMultipleVisibleOpenMethods = visibleOptions.length > 1;
 	const showOpenMethodChooser =
@@ -710,7 +569,7 @@ export function useFilePreviewDialogModel({
 			: "json";
 
 	return {
-		activeArchivePreviewFactory,
+		activeArchiveManifestLoader,
 		activeMode,
 		activeOption,
 		allOptions,
@@ -736,8 +595,8 @@ export function useFilePreviewDialogModel({
 		resolvedContentPreviewPath,
 		resolvedDownloadPath,
 		resolvedImagePreviewPath,
-		resolvedLoadMusicBackendMetadata,
 		resolvedThumbnailPath,
+		resources,
 		setConfirmOpen: (nextOpen: boolean) =>
 			dispatch({ type: "setConfirmOpen", open: nextOpen }),
 		setIsDirty: (dirty: boolean) => dispatch({ type: "setDirty", dirty }),
@@ -745,12 +604,12 @@ export function useFilePreviewDialogModel({
 		showOpenMethodChooser,
 		usesInnerScroll,
 		visibleOptions,
-		wopiSessionFactory: wopiSessionFactory ? activeWopiSessionFactory : null,
+		launchWopiSession: launchWopiSession ? activeWopiSessionLauncher : null,
 		wopiSessionResource: activeWopiSessionResource,
 		onShowAllOpenMethods: () =>
 			dispatch({ type: "setShowAllOpenMethods", open: true }),
 		confirmOpen: state.confirmOpen,
-		mediaStreamLinkFactory,
-		previewLinkFactory,
+		createMediaStreamSession,
+		createExternalPreviewLink,
 	};
 }

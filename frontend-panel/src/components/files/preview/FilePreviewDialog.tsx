@@ -17,15 +17,8 @@ export function FilePreviewDialog({
 	onClose,
 	onOpenChangeComplete,
 	onFileUpdated,
-	downloadPath,
-	imagePreviewPath,
-	thumbnailPath,
 	editable = true,
-	previewLinkFactory,
-	archivePreviewFactory,
-	loadMusicBackendMetadata,
-	mediaStreamLinkFactory,
-	wopiSessionFactory,
+	resources,
 	imageNavigation,
 	openMode = "auto",
 }: FilePreviewDialogProps) {
@@ -38,15 +31,8 @@ export function FilePreviewDialog({
 		open,
 		file,
 		onClose,
-		downloadPath,
-		imagePreviewPath,
-		thumbnailPath,
 		editable,
-		previewLinkFactory,
-		archivePreviewFactory,
-		loadMusicBackendMetadata,
-		mediaStreamLinkFactory,
-		wopiSessionFactory,
+		resources,
 		openMode,
 		language: i18n?.language,
 		translateFileLabel,
@@ -91,8 +77,7 @@ export function FilePreviewDialog({
 						<ImagePreviewPanel
 							file={file}
 							allOptionsCount={model.allOptions.length}
-							downloadPath={model.resolvedContentPreviewPath}
-							imagePreviewPath={model.resolvedImagePreviewPath}
+							resources={model.resources}
 							onChooseOpenMethod={model.handleOpenMethodPickerOpen}
 							onClose={model.closeWithGuard}
 							previousImageFile={imageNavigation?.previousFile}
@@ -118,17 +103,10 @@ export function FilePreviewDialog({
 									activeOption={model.activeOption}
 									profile={model.profile}
 									previewAppsLoaded={model.previewAppsLoaded}
-									contentPreviewPath={model.resolvedContentPreviewPath}
-									downloadPath={model.resolvedDownloadPath}
-									imagePreviewPath={model.resolvedImagePreviewPath}
-									thumbnailPath={model.resolvedThumbnailPath}
+									contentResource={model.resolvedContentPreviewPath}
+									resources={model.resources}
 									getOptionLabel={model.getOptionLabel}
-									previewLinkFactory={previewLinkFactory}
-									archivePreviewFactory={model.activeArchivePreviewFactory}
-									loadMusicBackendMetadata={
-										model.resolvedLoadMusicBackendMetadata
-									}
-									mediaStreamLinkFactory={mediaStreamLinkFactory}
+									archiveManifestLoader={model.activeArchiveManifestLoader}
 									wopiSessionResource={model.wopiSessionResource}
 									onFileUpdated={onFileUpdated}
 									onDirtyChange={model.setIsDirty}

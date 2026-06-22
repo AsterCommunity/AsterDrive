@@ -26,6 +26,7 @@ import { resolveApiResourceUrl } from "@/lib/apiUrl";
 import { prepareAuthenticatedResource } from "@/lib/authenticatedResource";
 import { formatBytes } from "@/lib/format";
 import { logger } from "@/lib/logger";
+import { resourceRequestPath } from "@/lib/resourceRequest";
 import { supportsThumbnailExtension } from "@/lib/thumbnailSupport";
 import { cn } from "@/lib/utils";
 import { ApiPendingError } from "@/services/http";
@@ -584,7 +585,8 @@ export function MusicPlayerHost() {
 		latestTrackIdRef.current = track?.id ?? null;
 	}, [track?.id]);
 	const source = useMemo(
-		() => (track ? resolveApiResourceUrl(track.path) : null),
+		() =>
+			track ? resolveApiResourceUrl(resourceRequestPath(track.resource)) : null,
 		[track],
 	);
 	const trackKey = track ? `${track.id}:${track.path}` : null;
@@ -1002,14 +1004,14 @@ export function MusicPlayerHost() {
 		let cancelled = false;
 		const trackId = track.id;
 		const trackName = track.name;
-		const trackPath = track.path;
+		const trackResource = track.resource;
 		const controller = new AbortController();
 		let prepared = false;
 		playbackPreparationFailedRef.current = false;
 		playbackPreparationPendingRef.current = true;
 		void (async () => {
 			try {
-				await prepareAuthenticatedResource(trackPath, {
+				await prepareAuthenticatedResource(trackResource, {
 					signal: controller.signal,
 				});
 				if (cancelled || latestTrackIdRef.current !== trackId) return;

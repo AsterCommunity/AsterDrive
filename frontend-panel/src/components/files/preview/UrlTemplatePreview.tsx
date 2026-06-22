@@ -19,7 +19,7 @@ import {
 } from "./video-browser-config";
 
 interface UrlTemplatePreviewProps {
-	createPreviewLink?: () => Promise<PreviewLinkInfo>;
+	createExternalPreviewLink?: () => Promise<PreviewLinkInfo>;
 	downloadPath: string;
 	file: VideoBrowserFileContext;
 	label: string;
@@ -38,7 +38,7 @@ interface UrlTemplatePreviewState {
 }
 
 interface UrlTemplatePreviewRequestKey {
-	createPreviewLink: UrlTemplatePreviewProps["createPreviewLink"];
+	createExternalPreviewLink: UrlTemplatePreviewProps["createExternalPreviewLink"];
 	downloadPath: string;
 	file: VideoBrowserFileContext;
 	label: string;
@@ -71,7 +71,7 @@ function UrlTemplatePreviewStatePane({
 }
 
 export function UrlTemplatePreview({
-	createPreviewLink,
+	createExternalPreviewLink,
 	downloadPath,
 	file,
 	label,
@@ -82,8 +82,8 @@ export function UrlTemplatePreview({
 	const [previewState, setPreviewState] =
 		useState<UrlTemplatePreviewState | null>(null);
 	const requestKey = useMemo<UrlTemplatePreviewRequestKey>(
-		() => ({ createPreviewLink, downloadPath, file, label, rawConfig }),
-		[createPreviewLink, downloadPath, file, label, rawConfig],
+		() => ({ createExternalPreviewLink, downloadPath, file, label, rawConfig }),
+		[createExternalPreviewLink, downloadPath, file, label, rawConfig],
 	);
 
 	useEffect(() => {
@@ -94,7 +94,7 @@ export function UrlTemplatePreview({
 			downloadPath,
 			label,
 			rawConfig,
-			createPreviewLink,
+			createExternalPreviewLink,
 		)
 			.then((resolvedTarget) => {
 				if (cancelled) return;
@@ -108,7 +108,14 @@ export function UrlTemplatePreview({
 		return () => {
 			cancelled = true;
 		};
-	}, [createPreviewLink, downloadPath, file, label, rawConfig, requestKey]);
+	}, [
+		createExternalPreviewLink,
+		downloadPath,
+		file,
+		label,
+		rawConfig,
+		requestKey,
+	]);
 
 	const isLoading = previewState?.requestKey !== requestKey;
 	const target = isLoading ? null : previewState.target;

@@ -1,6 +1,10 @@
 import { config } from "@/config/app";
 import { joinApiUrl } from "@/lib/apiUrl";
 import { absoluteAppUrl } from "@/lib/publicSiteUrl";
+import type {
+	FileResourceDeliveryMode,
+	ReadyFileResourceHandle,
+} from "@/lib/resourceRequest";
 import { buildWorkspacePath, type Workspace } from "@/lib/workspace";
 import { bindWorkspaceService } from "@/stores/workspaceStore";
 import type {
@@ -28,6 +32,60 @@ import {
 import { ApiError, type ApiRequestConfig, api } from "./http";
 
 type ServiceRequestOptions = Pick<ApiRequestConfig, "signal">;
+
+export type FileResourcePurpose = "preview" | "download" | "external_viewer";
+export type FileResourceRepresentation =
+	| "auto"
+	| "original"
+	| "image_preview"
+	| "thumbnail";
+
+export interface FileResourceHandleRequest {
+	purpose: FileResourcePurpose;
+	delivery_mode: FileResourceDeliveryMode;
+	representation?: FileResourceRepresentation;
+}
+
+interface ApiFileResourceHandle {
+	identity: {
+		cache_key: string;
+		etag?: string | null;
+		scope?: "personal" | "team" | "share" | null;
+	};
+	request: {
+		url: string;
+		credentials: "include" | "omit";
+		conditional_headers: "allowed" | "forbidden";
+		redirect_policy: "same_origin_only" | "may_cross_origin";
+	};
+	delivery: {
+		mode: FileResourceDeliveryMode;
+		mime_type?: string | null;
+	};
+}
+
+function toReadyFileResourceHandle(
+	handle: ApiFileResourceHandle,
+): ReadyFileResourceHandle {
+	return {
+		kind: "ready",
+		identity: {
+			cacheKey: handle.identity.cache_key,
+			etag: handle.identity.etag ?? null,
+			scope: handle.identity.scope ?? undefined,
+		},
+		request: {
+			url: handle.request.url,
+			credentials: handle.request.credentials,
+			conditionalHeaders: handle.request.conditional_headers,
+			redirectPolicy: handle.request.redirect_policy,
+		},
+		delivery: {
+			mode: handle.delivery.mode,
+			mimeType: handle.delivery.mime_type ?? undefined,
+		},
+	};
+}
 
 function encodeFileName(fileName: string) {
 	return encodeURIComponent(fileName);
@@ -98,6 +156,14 @@ export function createFileService(workspace: Workspace) {
 			api.post<PreviewLinkInfo>(
 				buildWorkspacePath(workspace, `/files/${id}/preview-link`),
 			),
+
+		resolveResourceHandle: (id: number, data: FileResourceHandleRequest) =>
+			api
+				.post<ApiFileResourceHandle>(
+					buildWorkspacePath(workspace, `/files/${id}/resource-handle`),
+					data,
+				)
+				.then(toReadyFileResourceHandle),
 
 		createWopiSession: (id: number, appKey: string) =>
 			api.post<WopiLaunchSession>(

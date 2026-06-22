@@ -6,36 +6,39 @@ vi.mock("@/components/files/preview/FilePreviewDialog", () => ({
 	FilePreviewDialog: ({
 		open,
 		file,
-		downloadPath,
-		imagePreviewPath,
 		editable,
-		previewLinkFactory,
-		mediaStreamLinkFactory,
-		wopiSessionFactory,
+		resources,
 		imageNavigation,
 	}: {
 		open: boolean;
 		file: { name: string };
-		downloadPath?: string;
-		imagePreviewPath?: string;
 		editable?: boolean;
-		previewLinkFactory?: () => Promise<unknown>;
-		mediaStreamLinkFactory?: () => Promise<unknown>;
-		wopiSessionFactory?: (appKey: string) => Promise<unknown>;
+		resources?: {
+			paths: { download: string; imagePreview?: string };
+			actions?: {
+				createExternalPreviewLink?: () => Promise<unknown>;
+				createMediaStreamSession?: () => Promise<unknown>;
+				launchWopiSession?: (appKey: string) => Promise<unknown>;
+			};
+		};
 		imageNavigation?: { onNavigate: (file: unknown) => void };
 	}) => (
 		<div
 			data-testid="preview-dialog"
 			data-open={String(open)}
 			data-file-name={file.name}
-			data-download-path={downloadPath ?? ""}
-			data-image-preview-path={imagePreviewPath ?? ""}
+			data-download-path={resources?.paths.download ?? ""}
+			data-image-preview-path={resources?.paths.imagePreview ?? ""}
 			data-editable={String(Boolean(editable))}
-			data-has-preview-link-factory={String(Boolean(previewLinkFactory))}
-			data-has-media-stream-link-factory={String(
-				Boolean(mediaStreamLinkFactory),
+			data-has-preview-link-factory={String(
+				Boolean(resources?.actions?.createExternalPreviewLink),
 			)}
-			data-has-wopi-session-factory={String(Boolean(wopiSessionFactory))}
+			data-has-media-stream-link-factory={String(
+				Boolean(resources?.actions?.createMediaStreamSession),
+			)}
+			data-has-wopi-session-factory={String(
+				Boolean(resources?.actions?.launchWopiSession),
+			)}
 			data-has-image-navigation={String(Boolean(imageNavigation))}
 		/>
 	),
@@ -49,12 +52,20 @@ describe("FilePreview", () => {
 				open
 				onClose={vi.fn()}
 				onFileUpdated={vi.fn()}
-				downloadPath="/files/7/download"
-				imagePreviewPath="/files/7/image-preview"
 				editable
-				previewLinkFactory={async () => ({})}
-				mediaStreamLinkFactory={async () => ({})}
-				wopiSessionFactory={async () => ({})}
+				resources={{
+					scope: "personal",
+					paths: {
+						download: "/files/7/download",
+						imagePreview: "/files/7/image-preview",
+					},
+					resolve: vi.fn(),
+					actions: {
+						createExternalPreviewLink: async () => ({}) as never,
+						createMediaStreamSession: async () => ({}) as never,
+						launchWopiSession: async () => ({}) as never,
+					},
+				}}
 				imageNavigation={{
 					previousFile: { id: 6, name: "previous.png" } as never,
 					nextFile: { id: 8, name: "next.png" } as never,

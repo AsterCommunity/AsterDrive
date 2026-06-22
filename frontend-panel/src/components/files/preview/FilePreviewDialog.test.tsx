@@ -7,11 +7,45 @@ import {
 	resourceCanonicalEtag,
 	resourceRequestPath,
 } from "@/lib/resourceRequest";
+import type { FilePreviewResources } from "./filePreviewResources";
 
 const mockState = vi.hoisted(() => ({
 	downloadPath: vi.fn((fileId: number) => `/files/${fileId}/download`),
 	getMediaMetadata: vi.fn(),
 	imagePreviewPath: vi.fn((fileId: number) => `/files/${fileId}/image-preview`),
+	resolveResourceHandle: vi.fn(
+		async (
+			fileId: number,
+			request: { delivery_mode: string; representation?: string },
+		) => {
+			const basePath =
+				request.representation === "image_preview"
+					? `/files/${fileId}/image-preview`
+					: request.representation === "thumbnail"
+						? `/files/${fileId}/thumbnail`
+						: `/files/${fileId}/download?disposition=inline`;
+			return {
+				kind: "ready",
+				identity: {
+					cacheKey:
+						request.representation === "image_preview"
+							? `/files/${fileId}/image-preview`
+							: `/files/${fileId}/download`,
+					etag: null,
+					scope: "personal",
+				},
+				request: {
+					url: basePath,
+					credentials: "include",
+					conditionalHeaders: "allowed",
+					redirectPolicy: "same_origin_only",
+				},
+				delivery: {
+					mode: request.delivery_mode,
+				},
+			};
+		},
+	),
 	thumbnailPath: vi.fn((fileId: number) => `/files/${fileId}/thumbnail`),
 	profile: {
 		category: "markdown",
@@ -112,7 +146,7 @@ vi.mock("@/components/files/FileThumbnail", () => ({
 		<span
 			data-testid="file-thumbnail"
 			data-file-name={file.name}
-			data-thumbnail-path={thumbnailPath ?? ""}
+			data-thumbnail-resource={thumbnailPath ?? ""}
 		/>
 	),
 }));
@@ -199,6 +233,8 @@ vi.mock("@/services/fileService", () => ({
 			mockState.getMediaMetadata(...args),
 		imagePreviewPath: (...args: unknown[]) =>
 			mockState.imagePreviewPath(...args),
+		resolveResourceHandle: (...args: unknown[]) =>
+			mockState.resolveResourceHandle(...args),
 		thumbnailPath: (...args: unknown[]) => mockState.thumbnailPath(...args),
 	},
 }));
@@ -224,71 +260,45 @@ vi.mock("@/stores/thumbnailSupportStore", () => ({
 vi.mock("@/components/files/preview/BlobImagePreview", () => ({
 	BlobImagePreview: ({
 		file,
-		fallbackPath,
+		fallbackResource,
 		fillContainer,
-		path,
+		resource,
 	}: {
 		file: { name: string };
-		fallbackPath?: string;
+		fallbackResource?: ResourcePath | null;
 		fillContainer?: boolean;
-		path: ResourcePath | null;
+		resource: ResourcePath | null;
 	}) => (
 		<img
 			alt={file.name}
-			data-cache-key={path ? resourceCacheKey(path) : ""}
-			data-preview-etag={path ? (resourceCanonicalEtag(path) ?? "") : ""}
-			data-fallback-path={fallbackPath ?? ""}
+			data-cache-key={resource ? resourceCacheKey(resource) : ""}
+			data-preview-etag={
+				resource ? (resourceCanonicalEtag(resource) ?? "") : ""
+			}
+			data-fallback-resource={
+				fallbackResource ? resourceRequestPath(fallbackResource) : ""
+			}
 			data-fill-container={String(Boolean(fillContainer))}
-			data-preview-path={path ? resourceRequestPath(path) : ""}
-			src={path ? `blob:${resourceRequestPath(path)}` : "blob:loading"}
+			data-preview-resource={resource ? resourceRequestPath(resource) : ""}
+			src={resource ? `blob:${resourceRequestPath(resource)}` : "blob:loading"}
 		/>
-	),
-}));
-
-vi.mock("@/components/files/preview/MusicPreview", () => ({
-	MusicPreview: ({
-		loadBackendMetadata,
-		mediaStreamLinkFactory,
-		path,
-		thumbnailPath,
-	}: {
-		loadBackendMetadata?: (signal?: AbortSignal) => Promise<unknown>;
-		mediaStreamLinkFactory?: () => Promise<unknown>;
-		path: string;
-		thumbnailPath?: string;
-	}) => (
-		<div>
-			<div
-				data-has-media-stream-link-factory={String(
-					Boolean(mediaStreamLinkFactory),
-				)}
-				data-has-load-backend-metadata={String(Boolean(loadBackendMetadata))}
-				data-thumbnail-path={thumbnailPath ?? ""}
-			>{`music:${path}`}</div>
-			<button
-				type="button"
-				onClick={() => void loadBackendMetadata?.(new AbortController().signal)}
-			>
-				load-backend-metadata
-			</button>
-		</div>
 	),
 }));
 
 vi.mock("@/components/files/preview/UrlTemplatePreview", () => ({
 	UrlTemplatePreview: ({
-		createPreviewLink,
+		createExternalPreviewLink,
 		downloadPath,
 		label,
 		rawConfig,
 	}: {
-		createPreviewLink?: (() => Promise<unknown>) | undefined;
+		createExternalPreviewLink?: (() => Promise<unknown>) | undefined;
 		downloadPath: string;
 		label: string;
 		rawConfig: Record<string, unknown> | null | undefined;
 	}) => (
 		<div>
-			{`url-template:${label}:${downloadPath}:${String(rawConfig?.url_template ?? "")}:${String(Boolean(createPreviewLink))}`}
+			{`url-template:${label}:${downloadPath}:${String(rawConfig?.url_template ?? "")}:${String(Boolean(createExternalPreviewLink))}`}
 		</div>
 	),
 }));
@@ -333,17 +343,17 @@ vi.mock("@/components/files/preview/PreviewUnavailable", () => ({
 
 vi.mock("@/components/files/preview/VideoPreview", () => ({
 	VideoPreview: ({
-		mediaStreamLinkFactory,
-		path,
+		createMediaStreamSession,
+		resource,
 	}: {
-		mediaStreamLinkFactory?: () => Promise<unknown>;
-		path: string;
+		createMediaStreamSession?: () => Promise<unknown>;
+		resource: ResourcePath | null;
 	}) => (
 		<div
 			data-has-media-stream-link-factory={String(
-				Boolean(mediaStreamLinkFactory),
+				Boolean(createMediaStreamSession),
 			)}
-		>{`video:${path}`}</div>
+		>{`video:${resource ? resourceRequestPath(resource) : ""}`}</div>
 	),
 }));
 
@@ -372,54 +382,58 @@ vi.mock("@/components/files/preview/UnsavedChangesGuard", () => ({
 
 vi.mock("@/components/files/preview/PdfPreview", () => ({
 	PdfPreview: ({
-		path,
+		resource,
 		fileName,
 	}: {
-		path: ResourcePath;
+		resource: ResourcePath;
 		fileName: string;
-	}) => <div>{`pdf:${fileName}:${resourceRequestPath(path)}`}</div>,
+	}) => <div>{`pdf:${fileName}:${resourceRequestPath(resource)}`}</div>,
 }));
 
 vi.mock("@/components/files/preview/MarkdownPreview", () => ({
-	MarkdownPreview: ({ path }: { path: ResourcePath }) => (
-		<div>{`markdown:${resourceRequestPath(path)}`}</div>
+	MarkdownPreview: ({ resource }: { resource: ResourcePath }) => (
+		<div>{`markdown:${resourceRequestPath(resource)}`}</div>
 	),
 }));
 
 vi.mock("@/components/files/preview/CsvTablePreview", () => ({
 	CsvTablePreview: ({
-		path,
+		resource,
 		delimiter,
 	}: {
-		path: ResourcePath;
+		resource: ResourcePath;
 		delimiter: string;
-	}) => <div>{`table:${delimiter}:${resourceRequestPath(path)}`}</div>,
+	}) => <div>{`table:${delimiter}:${resourceRequestPath(resource)}`}</div>,
 }));
 
 vi.mock("@/components/files/preview/JsonPreview", () => ({
-	JsonPreview: ({ path }: { path: ResourcePath }) => (
-		<div>{`json:${resourceRequestPath(path)}`}</div>
+	JsonPreview: ({ resource }: { resource: ResourcePath }) => (
+		<div>{`json:${resourceRequestPath(resource)}`}</div>
 	),
 }));
 
 vi.mock("@/components/files/preview/XmlPreview", () => ({
-	XmlPreview: ({ path, mode }: { path: ResourcePath; mode: string }) => (
-		<div>{`xml:${mode}:${resourceRequestPath(path)}`}</div>
-	),
+	XmlPreview: ({
+		resource,
+		mode,
+	}: {
+		resource: ResourcePath;
+		mode: string;
+	}) => <div>{`xml:${mode}:${resourceRequestPath(resource)}`}</div>,
 }));
 
 vi.mock("@/components/files/preview/TextCodePreview", () => ({
 	TextCodePreview: ({
-		path,
+		resource,
 		editable,
 		onDirtyChange,
 	}: {
-		path: ResourcePath;
+		resource: ResourcePath;
 		editable: boolean;
 		onDirtyChange: (dirty: boolean) => void;
 	}) => (
 		<div>
-			<div>{`code:${resourceRequestPath(path)}:${String(editable)}`}</div>
+			<div>{`code:${resourceRequestPath(resource)}:${String(editable)}`}</div>
 			<button type="button" onClick={() => onDirtyChange(true)}>
 				mark-dirty
 			</button>
@@ -432,29 +446,47 @@ function renderDialog(
 ) {
 	const onClose = vi.fn();
 	const onFileUpdated = vi.fn();
-	const imagePreviewPath =
-		overrides.imagePreviewPath ?? "/files/7/image-preview";
+	const file = (overrides.file ?? {
+		id: 7,
+		mime_type: "text/markdown",
+		name: "notes.md",
+		size: 128,
+	}) as React.ComponentProps<typeof FilePreviewDialog>["file"];
+	const resources = overrides.resources ?? testResources(file.id);
 
 	render(
 		<FilePreviewDialog
 			open
-			file={
-				{
-					id: 7,
-					mime_type: "text/markdown",
-					name: "notes.md",
-					size: 128,
-				} as never
-			}
+			file={file}
 			onClose={onClose}
 			onFileUpdated={onFileUpdated}
-			imagePreviewPath={imagePreviewPath}
+			resources={resources}
 			editable
 			{...overrides}
 		/>,
 	);
 
 	return { onClose, onFileUpdated };
+}
+
+function testResources(
+	fileId = 7,
+	overrides: Partial<FilePreviewResources> = {},
+): FilePreviewResources {
+	return {
+		scope: "personal",
+		resolve: mockState.resolveResourceHandle,
+		...overrides,
+		paths: {
+			download: `/files/${fileId}/download`,
+			imagePreview: `/files/${fileId}/image-preview`,
+			thumbnail: `/files/${fileId}/thumbnail`,
+			...overrides.paths,
+		},
+		actions: {
+			...overrides.actions,
+		},
+	};
 }
 
 async function chooseOpenMethod(name: string) {
@@ -470,6 +502,7 @@ describe("FilePreviewDialog", () => {
 	beforeEach(() => {
 		mockState.downloadPath.mockClear();
 		mockState.getMediaMetadata.mockReset();
+		mockState.resolveResourceHandle.mockClear();
 		mockState.mediaDataSupportStore.isLoaded = true;
 		mockState.mediaDataSupportStore.load.mockReset();
 		mockState.imagePreviewPath.mockClear();
@@ -514,12 +547,12 @@ describe("FilePreviewDialog", () => {
 	it("uses the default open method and the default download path", async () => {
 		renderDialog();
 
-		expect(mockState.downloadPath).toHaveBeenCalledWith(7);
+		expect(mockState.downloadPath).not.toHaveBeenCalled();
 		expect(screen.getByText("files:choose_open_method")).toBeInTheDocument();
 		expect(screen.getByText("notes.md")).toBeInTheDocument();
 		expect(screen.getByText("bytes:128")).toBeInTheDocument();
 		expect(screen.getByTestId("file-thumbnail")).toHaveAttribute(
-			"data-thumbnail-path",
+			"data-thumbnail-resource",
 			"/files/7/thumbnail",
 		);
 		expect(
@@ -530,7 +563,7 @@ describe("FilePreviewDialog", () => {
 		).toContain("border-primary");
 		await chooseOpenMethod("files:mode_markdown");
 		expect(
-			await screen.findByText("markdown:/files/7/download"),
+			await screen.findByText("markdown:/files/7/download?disposition=inline"),
 		).toBeInTheDocument();
 	});
 
@@ -538,7 +571,7 @@ describe("FilePreviewDialog", () => {
 		renderDialog();
 
 		await chooseOpenMethod("files:mode_code");
-		await screen.findByText("code:/files/7/download:true");
+		await screen.findByText("code:/files/7/download?disposition=inline:true");
 		expect(
 			screen.getByTestId("dialog-content").className.split(/\s+/),
 		).toContain("h-[90vh]");
@@ -549,12 +582,12 @@ describe("FilePreviewDialog", () => {
 
 		await chooseOpenMethod("files:mode_code");
 		expect(
-			await screen.findByText("code:/files/7/download:true"),
+			await screen.findByText("code:/files/7/download?disposition=inline:true"),
 		).toBeInTheDocument();
 		expect(screen.queryByText("files:mode_markdown")).not.toBeInTheDocument();
 	});
 
-	it("opens directly in picker mode when there is only one available app", async () => {
+	it("does not render audio inside the file preview dialog", async () => {
 		mockState.profile = {
 			category: "audio",
 			defaultMode: "builtin.audio",
@@ -584,10 +617,9 @@ describe("FilePreviewDialog", () => {
 		expect(
 			screen.queryByRole("heading", { name: "files:choose_open_method" }),
 		).not.toBeInTheDocument();
-		expect(await screen.findByText("music:/files/8/download")).toHaveAttribute(
-			"data-has-media-stream-link-factory",
-			"false",
-		);
+		expect(await screen.findByText("preview-unavailable")).toBeInTheDocument();
+		expect(screen.queryByText(/music:/)).not.toBeInTheDocument();
+		expect(mockState.getMediaMetadata).not.toHaveBeenCalled();
 	});
 
 	it("always shows the more-open-methods button while the chooser is visible", () => {
@@ -633,7 +665,7 @@ describe("FilePreviewDialog", () => {
 			screen.queryByRole("heading", { name: "files:choose_open_method" }),
 		).not.toBeInTheDocument();
 		expect(
-			await screen.findByText("code:/files/7/download:true"),
+			await screen.findByText("code:/files/7/download?disposition=inline:true"),
 		).toBeInTheDocument();
 
 		fireEvent.click(
@@ -654,7 +686,7 @@ describe("FilePreviewDialog", () => {
 		expect(screen.getByText("files:mode_markdown")).toBeInTheDocument();
 		await chooseOpenMethod("files:mode_markdown");
 		expect(
-			await screen.findByText("markdown:/files/7/download"),
+			await screen.findByText("markdown:/files/7/download?disposition=inline"),
 		).toBeInTheDocument();
 	});
 
@@ -662,7 +694,7 @@ describe("FilePreviewDialog", () => {
 		const { onClose } = renderDialog();
 
 		await chooseOpenMethod("files:mode_code");
-		await screen.findByText("code:/files/7/download:true");
+		await screen.findByText("code:/files/7/download?disposition=inline:true");
 		fireEvent.click(screen.getByRole("button", { name: "mark-dirty" }));
 		fireEvent.click(screen.getByRole("button", { name: "core:close" }));
 
@@ -801,23 +833,26 @@ describe("FilePreviewDialog", () => {
 				name: "clip.mp4",
 				size: 2048,
 			} as never,
-			mediaStreamLinkFactory: async () => ({
-				expires_at: "2026-01-01T00:00:00Z",
-				path: "/api/v1/s/share/stream/session/clip.mp4",
+			resources: testResources(7, {
+				actions: {
+					createMediaStreamSession: async () => ({
+						expires_at: "2026-01-01T00:00:00Z",
+						path: "/api/v1/s/share/stream/session/clip.mp4",
+					}),
+				},
 			}),
 		});
 
-		await screen.findByText("video:/files/7/download");
-		expect(screen.getByText("video:/files/7/download")).toHaveAttribute(
-			"data-has-media-stream-link-factory",
-			"true",
-		);
+		await screen.findByText("video:/files/7/download?disposition=inline");
+		expect(
+			screen.getByText("video:/files/7/download?disposition=inline"),
+		).toHaveAttribute("data-has-media-stream-link-factory", "true");
 		const classes = screen.getByTestId("dialog-content").className.split(/\s+/);
 		expect(classes).toContain("max-h-[90vh]");
 		expect(classes).not.toContain("h-[90vh]");
 	});
 
-	it("routes builtin audio previews through the streaming media preview", async () => {
+	it("does not route builtin audio previews through the dialog media preview", async () => {
 		mockState.profile = {
 			category: "audio",
 			defaultMode: "builtin.audio",
@@ -841,34 +876,19 @@ describe("FilePreviewDialog", () => {
 				name: "track.mp3",
 				size: 4096,
 			} as never,
-			mediaStreamLinkFactory: async () => ({
-				expires_at: "2026-01-01T00:00:00Z",
-				path: "/api/v1/s/share/stream/session/track.mp3",
+			resources: testResources(8, {
+				actions: {
+					createMediaStreamSession: async () => ({
+						expires_at: "2026-01-01T00:00:00Z",
+						path: "/api/v1/s/share/stream/session/track.mp3",
+					}),
+				},
 			}),
 		});
 
-		await screen.findByText("music:/files/8/download");
-		expect(document.querySelector('img[src^="blob:"]')).toBeNull();
-		expect(screen.getByText("music:/files/8/download")).toHaveAttribute(
-			"data-has-media-stream-link-factory",
-			"true",
-		);
-		expect(screen.getByText("music:/files/8/download")).toHaveAttribute(
-			"data-has-load-backend-metadata",
-			"true",
-		);
-		expect(screen.getByText("music:/files/8/download")).toHaveAttribute(
-			"data-thumbnail-path",
-			"/files/8/thumbnail",
-		);
-		fireEvent.click(
-			screen.getByRole("button", { name: "load-backend-metadata" }),
-		);
-		await waitFor(() => {
-			expect(mockState.getMediaMetadata).toHaveBeenCalledWith(8, {
-				signal: expect.any(AbortSignal),
-			});
-		});
+		expect(await screen.findByText("preview-unavailable")).toBeInTheDocument();
+		expect(screen.queryByText(/music:/)).not.toBeInTheDocument();
+		expect(mockState.getMediaMetadata).not.toHaveBeenCalled();
 		expect(
 			screen.getByTestId("dialog-content").className.split(/\s+/),
 		).not.toContain("h-[90vh]");
@@ -912,7 +932,7 @@ describe("FilePreviewDialog", () => {
 
 		expect(
 			await screen.findByRole("img", { name: "tall-image.png" }),
-		).toHaveAttribute("src", "blob:/files/7/download");
+		).toHaveAttribute("src", "blob:/files/7/download?disposition=inline");
 		expect(screen.getByRole("img", { name: "tall-image.png" })).toHaveAttribute(
 			"data-fill-container",
 			"true",
@@ -932,7 +952,7 @@ describe("FilePreviewDialog", () => {
 		);
 	});
 
-	it("waits for preview-link before loading image preview content", async () => {
+	it("resolves image preview content through the resource resolver", async () => {
 		mockState.profile = {
 			category: "image",
 			defaultMode: "builtin.image",
@@ -948,24 +968,6 @@ describe("FilePreviewDialog", () => {
 				},
 			],
 		};
-		let resolvePreviewLink!: (value: {
-			etag: string;
-			expires_at: string;
-			max_uses: number;
-			path: string;
-		}) => void;
-		const previewLinkFactory = vi.fn(
-			() =>
-				new Promise<{
-					etag: string;
-					expires_at: string;
-					max_uses: number;
-					path: string;
-				}>((resolve) => {
-					resolvePreviewLink = resolve;
-				}),
-		);
-
 		renderDialog({
 			file: {
 				id: 7,
@@ -973,28 +975,13 @@ describe("FilePreviewDialog", () => {
 				name: "r2-image.png",
 				size: 2048,
 			} as never,
-			previewLinkFactory,
 		});
 
-		expect(
-			await screen.findByRole("img", { name: "r2-image.png" }),
-		).toHaveAttribute("data-preview-path", "");
-		expect(
-			screen.getByRole("img", { name: "r2-image.png" }),
-		).not.toHaveAttribute("data-preview-path", "/files/7/download");
-		expect(previewLinkFactory).toHaveBeenCalledTimes(1);
-
-		resolvePreviewLink({
-			etag: '"etag-r2-image"',
-			expires_at: "2026-06-21T22:30:00Z",
-			max_uses: 5,
-			path: "/pv/token/r2-image.png",
-		});
-
+		const image = await screen.findByRole("img", { name: "r2-image.png" });
 		await waitFor(() => {
-			expect(screen.getByRole("img", { name: "r2-image.png" })).toHaveAttribute(
-				"data-preview-path",
-				"/pv/token/r2-image.png",
+			expect(image).toHaveAttribute(
+				"data-preview-resource",
+				"/files/7/download?disposition=inline",
 			);
 			expect(screen.getByRole("img", { name: "r2-image.png" })).toHaveAttribute(
 				"data-cache-key",
@@ -1002,10 +989,14 @@ describe("FilePreviewDialog", () => {
 			);
 			expect(screen.getByRole("img", { name: "r2-image.png" })).toHaveAttribute(
 				"data-preview-etag",
-				'"etag-r2-image"',
+				"",
 			);
 		});
-		expect(previewLinkFactory).toHaveBeenCalledTimes(1);
+		expect(mockState.resolveResourceHandle).toHaveBeenCalledWith(7, {
+			delivery_mode: "blob_url",
+			purpose: "preview",
+			representation: "original",
+		});
 	});
 
 	it("keeps image previews fullscreen without a windowed restore control", async () => {
@@ -1096,7 +1087,7 @@ describe("FilePreviewDialog", () => {
 		).not.toBeInTheDocument();
 		expect(
 			await screen.findByRole("img", { name: "logo.svg" }),
-		).toHaveAttribute("src", "blob:/files/7/download");
+		).toHaveAttribute("src", "blob:/files/7/download?disposition=inline");
 
 		fireEvent.click(
 			screen.getByRole("button", { name: "files:choose_open_method" }),
@@ -1106,7 +1097,7 @@ describe("FilePreviewDialog", () => {
 		).toBeInTheDocument();
 		await chooseOpenMethod("files:mode_code");
 		expect(
-			await screen.findByText("code:/files/7/download:true"),
+			await screen.findByText("code:/files/7/download?disposition=inline:true"),
 		).toBeInTheDocument();
 	});
 
@@ -1141,12 +1132,16 @@ describe("FilePreviewDialog", () => {
 				name: "report.docx",
 				size: 2048,
 			} as never,
-			previewLinkFactory: vi.fn(async () => ({
-				etag: '"etag-report"',
-				expires_at: "2026-04-08T12:00:00Z",
-				max_uses: 5,
-				path: "/pv/token/report.docx",
-			})),
+			resources: testResources(7, {
+				actions: {
+					createExternalPreviewLink: vi.fn(async () => ({
+						etag: '"etag-report"',
+						expires_at: "2026-04-08T12:00:00Z",
+						max_uses: 5,
+						path: "/pv/token/report.docx",
+					})),
+				},
+			}),
 		});
 
 		expect(
@@ -1189,7 +1184,9 @@ describe("FilePreviewDialog", () => {
 		});
 
 		expect(
-			await screen.findByText("table:auto:/files/7/download"),
+			await screen.findByText(
+				"table:auto:/files/7/download?disposition=inline",
+			),
 		).toBeInTheDocument();
 	});
 
@@ -1265,11 +1262,15 @@ describe("FilePreviewDialog", () => {
 				name: "report.docx",
 				size: 2048,
 			} as never,
-			wopiSessionFactory: vi.fn(async () => ({
-				access_token: "token-1",
-				access_token_ttl: 600,
-				action_url: "https://office.example.com/wopi/files/7",
-			})),
+			resources: testResources(7, {
+				actions: {
+					launchWopiSession: vi.fn(async () => ({
+						access_token: "token-1",
+						access_token_ttl: 600,
+						action_url: "https://office.example.com/wopi/files/7",
+					})),
+				},
+			}),
 		});
 
 		expect(

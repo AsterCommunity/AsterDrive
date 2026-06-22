@@ -8,6 +8,7 @@ import {
 } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { MusicPlayerHost } from "@/components/music/MusicPlayerHost";
+import { derivedFileResource } from "@/lib/fileResource";
 import { ApiPendingError } from "@/services/http";
 import type { MusicPlaybackMode } from "@/stores/musicPlayerStore";
 
@@ -76,6 +77,7 @@ const mockState = vi.hoisted(() => ({
 			mimeType: string;
 			name: string;
 			path: string;
+			resource?: unknown;
 			size?: number;
 			thumbnail?: {
 				file: {
@@ -89,6 +91,37 @@ const mockState = vi.hoisted(() => ({
 		}>,
 	},
 }));
+
+function testTrackResource(path: string, mimeType = "audio/mpeg") {
+	return derivedFileResource(path, {
+		deliveryMode: "direct_url",
+		mimeType,
+	});
+}
+
+function withTrackResource<
+	Track extends {
+		mimeType: string;
+		path: string;
+		resource?: unknown;
+	},
+>(track: Track): Omit<Track, "resource"> & { resource: unknown } {
+	return {
+		...track,
+		resource: track.resource ?? testTrackResource(track.path, track.mimeType),
+	};
+}
+
+function installQueue(
+	tracks: Array<{
+		mimeType: string;
+		path: string;
+		resource?: unknown;
+		[key: string]: unknown;
+	}>,
+) {
+	mockState.state.queue = tracks.map((track) => withTrackResource(track));
+}
 
 vi.mock("react-i18next", () => ({
 	useTranslation: () => ({
@@ -125,6 +158,7 @@ vi.mock("@/stores/musicPlayerStore", () => ({
 	) =>
 		selector({
 			...mockState.state,
+			queue: mockState.state.queue.map((track) => withTrackResource(track)),
 			clear: mockState.clear,
 			closePanel: mockState.closePanel,
 			openPanel: mockState.openPanel,
@@ -182,7 +216,7 @@ vi.mock("@/components/files/FileThumbnail", () => ({
 
 function setQueue() {
 	mockState.state.activeTrackId = "track-1";
-	mockState.state.queue = [
+	installQueue([
 		{
 			id: "track-1",
 			metadata: { artist: "Artist One", title: "Track One" },
@@ -217,7 +251,7 @@ function setQueue() {
 				path: "/files/8/thumbnail",
 			},
 		},
-	];
+	]);
 }
 
 function getQueuedTracks() {
@@ -1002,7 +1036,14 @@ describe("MusicPlayerHost", () => {
 
 		await waitFor(() => {
 			expect(mockState.prepareAuthenticatedResource).toHaveBeenCalledWith(
-				"/files/7/download",
+				expect.objectContaining({
+					identity: expect.objectContaining({
+						cacheKey: "/files/7/download",
+					}),
+					request: expect.objectContaining({
+						url: "/files/7/download",
+					}),
+				}),
 				expect.objectContaining({ signal: expect.any(AbortSignal) }),
 			);
 		});
@@ -1016,6 +1057,59 @@ describe("MusicPlayerHost", () => {
 			expect(HTMLMediaElement.prototype.play).toHaveBeenCalledTimes(1);
 		});
 		expect(order).toEqual(["prepare", "load", "play"]);
+	});
+
+	it("uses a resolved presigned resource for playback preparation and source", async () => {
+		const presignedResource = {
+			kind: "ready",
+			identity: {
+				cacheKey: "/files/7/download",
+				etag: '"hash"',
+				scope: "personal",
+			},
+			request: {
+				url: "https://objects.example.test/track-one.mp3?signature=abc",
+				credentials: "omit",
+				conditionalHeaders: "forbidden",
+				redirectPolicy: "may_cross_origin",
+			},
+			delivery: {
+				mode: "direct_url",
+				mimeType: "audio/mpeg",
+			},
+		} as const;
+		setQueue();
+		const firstTrack = mockState.state.queue[0];
+		if (!firstTrack) {
+			throw new Error("expected first queued track");
+		}
+		mockState.state.queue[0] = {
+			...firstTrack,
+			resource: presignedResource,
+		};
+		mockState.state.playRequested = true;
+		mockState.state.playRequestVersion = 1;
+
+		render(<MusicPlayerHost />);
+
+		await waitFor(() => {
+			expect(mockState.prepareAuthenticatedResource).toHaveBeenCalledWith(
+				presignedResource,
+				expect.objectContaining({ signal: expect.any(AbortSignal) }),
+			);
+		});
+		const audio = document.querySelector("audio");
+		if (!audio) {
+			throw new Error("audio element not found");
+		}
+		expect(audio).toHaveAttribute(
+			"src",
+			"https://objects.example.test/track-one.mp3?signature=abc",
+		);
+		expect(mockState.prepareAuthenticatedResource).not.toHaveBeenCalledWith(
+			"/files/7/download",
+			expect.anything(),
+		);
 	});
 
 	it("does not hand a protected download source to audio when preparation fails", async () => {
@@ -1058,7 +1152,14 @@ describe("MusicPlayerHost", () => {
 		}
 		await waitFor(() => {
 			expect(mockState.prepareAuthenticatedResource).toHaveBeenCalledWith(
-				"/files/7/download",
+				expect.objectContaining({
+					identity: expect.objectContaining({
+						cacheKey: "/files/7/download",
+					}),
+					request: expect.objectContaining({
+						url: "/files/7/download",
+					}),
+				}),
 				expect.objectContaining({ signal: expect.any(AbortSignal) }),
 			);
 		});

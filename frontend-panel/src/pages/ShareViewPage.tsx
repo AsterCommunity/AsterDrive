@@ -1,16 +1,17 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { useParams } from "react-router-dom";
+import type { FilePreviewResources } from "@/components/files/preview/filePreviewResources";
 import {
 	getImagePreviewNavigation,
 	type ImagePreviewNavigation,
 } from "@/components/files/preview/imagePreviewNavigation";
+import type { ResolveFileResourceHandle } from "@/hooks/useFileResource";
 import { usePageTitle } from "@/hooks/usePageTitle";
 import { useRetainedDialogValue } from "@/hooks/useRetainedDialogValue";
-import { supportsAudioMediaData } from "@/lib/mediaDataSupport";
-import { backendAudioMetadataToTrackMetadata } from "@/lib/musicPlayer";
+import { canBrowserRenderImage } from "@/lib/browserImageSupport";
+import { derivedFileResource } from "@/lib/fileResource";
 import { shareService } from "@/services/shareService";
-import { useMediaDataSupportStore } from "@/stores/mediaDataSupportStore";
 import { useThumbnailSupportStore } from "@/stores/thumbnailSupportStore";
 import type { FileInfo, FileListItem } from "@/types/api";
 import { ShareFileView } from "./share-view/ShareFileView";
@@ -46,23 +47,12 @@ export function SharePreviewElement({
 	onClose: () => void;
 	onPreviewNavigate: (file: FileInfo | FileListItem) => void;
 }) {
-	const mediaDataSupport = useMediaDataSupportStore((state) => state.config);
-	const mediaDataSupportLoaded = useMediaDataSupportStore(
-		(state) => state.isLoaded,
-	);
-	const loadMediaDataSupport = useMediaDataSupportStore((state) => state.load);
 	const {
 		retainedValue: retainedPreviewFile,
 		handleOpenChangeComplete: handlePreviewOpenChangeComplete,
 	} = useRetainedDialogValue(previewFile, previewFile !== null);
 
-	useEffect(() => {
-		if (!mediaDataSupportLoaded) {
-			void loadMediaDataSupport();
-		}
-	}, [loadMediaDataSupport, mediaDataSupportLoaded]);
-
-	const createPreviewLink = useCallback(() => {
+	const createExternalPreviewLink = useCallback(() => {
 		if (!retainedPreviewFile || !info) {
 			return Promise.reject(new Error("share preview link is unavailable"));
 		}
@@ -71,7 +61,7 @@ export function SharePreviewElement({
 			: shareService.createFolderFilePreviewLink(token, retainedPreviewFile.id);
 	}, [info, retainedPreviewFile, token]);
 
-	const loadArchivePreview = useCallback(
+	const loadArchiveManifest = useCallback(
 		(options?: Parameters<typeof shareService.getArchivePreview>[1]) => {
 			if (!retainedPreviewFile || !info) {
 				return Promise.reject(
@@ -89,25 +79,7 @@ export function SharePreviewElement({
 		[info, retainedPreviewFile, token],
 	);
 
-	const loadMusicBackendMetadata = useCallback(
-		(signal?: AbortSignal) => {
-			if (!retainedPreviewFile || !info) {
-				return Promise.reject(new Error("share media metadata is unavailable"));
-			}
-			return info.share_type === "file"
-				? shareService
-						.getMediaMetadata(token, { signal })
-						.then((metadata) => backendAudioMetadataToTrackMetadata(metadata))
-				: shareService
-						.getFolderFileMediaMetadata(token, retainedPreviewFile.id, {
-							signal,
-						})
-						.then((metadata) => backendAudioMetadataToTrackMetadata(metadata));
-		},
-		[info, retainedPreviewFile, token],
-	);
-
-	const createMediaStreamLink = useCallback(() => {
+	const createMediaStreamSession = useCallback(() => {
 		if (!retainedPreviewFile || !info) {
 			return Promise.reject(new Error("share media stream is unavailable"));
 		}
@@ -118,6 +90,52 @@ export function SharePreviewElement({
 					retainedPreviewFile.id,
 				);
 	}, [info, retainedPreviewFile, token]);
+	const resolveShareResourceHandle = useCallback<ResolveFileResourceHandle>(
+		(_fileId, request) => {
+			if (!retainedPreviewFile || !info) {
+				return Promise.reject(new Error("share resource is unavailable"));
+			}
+
+			const downloadPath =
+				info.share_type === "file"
+					? shareService.downloadPath(token)
+					: shareService.downloadFolderPath(token, retainedPreviewFile.id);
+			const imagePreviewPath =
+				info.share_type === "file"
+					? shareService.imagePreviewPath(token)
+					: shareService.folderFileImagePreviewPath(
+							token,
+							retainedPreviewFile.id,
+						);
+			const thumbnailPath =
+				info.share_type === "file"
+					? shareService.thumbnailPath(token)
+					: shareService.folderFileThumbnailPath(token, retainedPreviewFile.id);
+			const shouldUseImagePreview =
+				request.representation === "image_preview" ||
+				(request.representation === "auto" &&
+					request.delivery_mode === "blob_url" &&
+					retainedPreviewFile.mime_type?.startsWith("image/") &&
+					!canBrowserRenderImage(retainedPreviewFile));
+			const resourcePath = shouldUseImagePreview
+				? imagePreviewPath
+				: request.representation === "thumbnail"
+					? thumbnailPath
+					: downloadPath;
+
+			return Promise.resolve(
+				derivedFileResource(resourcePath, {
+					deliveryMode: request.delivery_mode,
+					mimeType:
+						resourcePath === imagePreviewPath || resourcePath === thumbnailPath
+							? "image/webp"
+							: retainedPreviewFile.mime_type,
+					scope: "share",
+				}),
+			);
+		},
+		[info, retainedPreviewFile, token],
+	);
 	const filePreviewImageNavigation = useMemo(
 		() =>
 			imageNavigation
@@ -129,8 +147,48 @@ export function SharePreviewElement({
 				: undefined,
 		[imageNavigation, onPreviewNavigate],
 	);
+	const previewResources = useMemo<FilePreviewResources | null>(() => {
+		if (!retainedPreviewFile || !info) return null;
+		const downloadPath =
+			info.share_type === "file"
+				? shareService.downloadPath(token)
+				: shareService.downloadFolderPath(token, retainedPreviewFile.id);
+		const imagePreviewPath =
+			info.share_type === "file"
+				? shareService.imagePreviewPath(token)
+				: shareService.folderFileImagePreviewPath(
+						token,
+						retainedPreviewFile.id,
+					);
+		const thumbnailPath =
+			info.share_type === "file"
+				? shareService.thumbnailPath(token)
+				: shareService.folderFileThumbnailPath(token, retainedPreviewFile.id);
+		return {
+			scope: "share",
+			paths: {
+				download: downloadPath,
+				imagePreview: imagePreviewPath,
+				thumbnail: thumbnailPath,
+			},
+			resolve: resolveShareResourceHandle,
+			actions: {
+				createExternalPreviewLink,
+				loadArchiveManifest,
+				createMediaStreamSession,
+			},
+		};
+	}, [
+		createExternalPreviewLink,
+		createMediaStreamSession,
+		info,
+		loadArchiveManifest,
+		resolveShareResourceHandle,
+		retainedPreviewFile,
+		token,
+	]);
 
-	if (!retainedPreviewFile) {
+	if (!retainedPreviewFile || !previewResources) {
 		return null;
 	}
 
@@ -141,37 +199,8 @@ export function SharePreviewElement({
 				open={previewFile !== null}
 				onClose={onClose}
 				onOpenChangeComplete={handlePreviewOpenChangeComplete}
-				downloadPath={
-					info?.share_type === "file"
-						? shareService.downloadPath(token)
-						: shareService.downloadFolderPath(token, retainedPreviewFile.id)
-				}
-				imagePreviewPath={
-					info?.share_type === "file"
-						? shareService.imagePreviewPath(token)
-						: shareService.folderFileImagePreviewPath(
-								token,
-								retainedPreviewFile.id,
-							)
-				}
-				thumbnailPath={
-					info?.share_type === "file"
-						? shareService.thumbnailPath(token)
-						: shareService.folderFileThumbnailPath(
-								token,
-								retainedPreviewFile.id,
-							)
-				}
 				editable={false}
-				previewLinkFactory={createPreviewLink}
-				archivePreviewFactory={loadArchivePreview}
-				loadMusicBackendMetadata={
-					mediaDataSupportLoaded &&
-					supportsAudioMediaData(retainedPreviewFile, mediaDataSupport)
-						? loadMusicBackendMetadata
-						: undefined
-				}
-				mediaStreamLinkFactory={createMediaStreamLink}
+				resources={previewResources}
 				imageNavigation={filePreviewImageNavigation}
 			/>
 		</Suspense>

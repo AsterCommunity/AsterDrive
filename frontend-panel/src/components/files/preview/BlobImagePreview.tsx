@@ -13,14 +13,14 @@ import type { PreviewableFileLike } from "./types";
 
 interface BlobImagePreviewProps {
 	file: PreviewableFileLike;
-	fallbackPath?: string;
+	fallbackResource?: ResourcePath | null;
 	fillContainer?: boolean;
 	imageClassName?: string;
 	imageRef?: Ref<HTMLImageElement>;
 	imageStyle?: CSSProperties;
 	onImageLoad?: (source: ImagePreviewSource) => void;
 	onImageRenderError?: (source: ImagePreviewSource) => void;
-	path: ResourcePath | null;
+	resource: ResourcePath | null;
 	source?: ImagePreviewSource;
 	showOriginalButtonPlacement?: "inline" | "none";
 	viewportClassName?: string;
@@ -39,14 +39,14 @@ export type ShowOriginalState = "hidden" | "available" | "loading" | "success";
 
 export function BlobImagePreview({
 	file,
-	fallbackPath,
+	fallbackResource,
 	fillContainer = false,
 	imageClassName: imageClassNameProp,
 	imageRef,
 	imageStyle,
 	onImageLoad,
 	onImageRenderError,
-	path,
+	resource,
 	source,
 	showOriginalButtonPlacement = "inline",
 	viewportClassName,
@@ -56,10 +56,11 @@ export function BlobImagePreview({
 	const imagePreviewPreference = useFrontendConfigStore(
 		(state) => state.imagePreviewPreference,
 	);
-	const pathKey = path ? resourceRequestPath(path) : "";
-	const previewKey = `${file.name}\u0000${file.mime_type}\u0000${pathKey}\u0000${
-		fallbackPath ?? ""
-	}\u0000${imagePreviewPreference}`;
+	const pathKey = resource ? resourceRequestPath(resource) : "";
+	const fallbackResourceKey = fallbackResource
+		? resourceRequestPath(fallbackResource)
+		: "";
+	const previewKey = `${file.name}\u0000${file.mime_type}\u0000${pathKey}\u0000${fallbackResourceKey}\u0000${imagePreviewPreference}`;
 	const [requestedOriginalKey, setRequestedOriginalKey] = useState<
 		string | null
 	>(null);
@@ -72,8 +73,9 @@ export function BlobImagePreview({
 	const requestedOriginal = requestedOriginalKey === previewKey;
 	const originalRenderedSuccessfully = renderedOriginalKey === previewKey;
 	const originalRenderFailed = failedOriginalKey === previewKey;
-	const hasBackendPreview = fallbackPath != null;
+	const hasBackendPreview = fallbackResource != null;
 	const originalIsBrowserRenderable = canBrowserRenderImage(file);
+	const isControlledSource = source != null;
 	const canShowOriginal =
 		imagePreviewPreference === "preview_first" &&
 		hasBackendPreview &&
@@ -84,9 +86,10 @@ export function BlobImagePreview({
 		(imagePreviewPreference === "preview_first" || !originalIsBrowserRenderable)
 			? "backend_preview"
 			: "original");
-	const isControlledSource = source != null;
+	const originalCanBeDisplayed =
+		originalIsBrowserRenderable || isControlledSource;
 	const shouldLoadOriginal =
-		path != null &&
+		resource != null &&
 		!isControlledSource &&
 		canShowOriginal &&
 		baseSource === "backend_preview" &&
@@ -96,19 +99,19 @@ export function BlobImagePreview({
 		error: originalError,
 		loading: originalLoading,
 		retry: retryOriginal,
-	} = useBlobUrl(shouldLoadOriginal ? path : null, {
+	} = useBlobUrl(shouldLoadOriginal ? resource : null, {
 		lane: "default",
 	});
 	const originalReady =
 		shouldLoadOriginal && originalBlobUrl && !originalLoading && !originalError;
 	const shouldFallbackOriginalRenderToPreview =
-		path != null &&
+		resource != null &&
 		!isControlledSource &&
 		baseSource === "original" &&
 		originalRenderFailed &&
 		hasBackendPreview;
 	const shouldPromoteReadyOriginal =
-		path != null &&
+		resource != null &&
 		!isControlledSource &&
 		baseSource === "backend_preview" &&
 		originalReady &&
@@ -120,11 +123,15 @@ export function BlobImagePreview({
 				? "original"
 				: baseSource;
 	const displayPath: ResourcePath | null =
-		path == null
-			? null
-			: displaySource === "backend_preview"
-				? (fallbackPath ?? null)
-				: path;
+		displaySource === "backend_preview"
+			? (fallbackResource ?? null)
+			: resource == null
+				? null
+				: originalCanBeDisplayed
+					? resource
+					: null;
+	const originalUnsupported =
+		displaySource === "original" && resource != null && !originalCanBeDisplayed;
 	const { blobUrl, error, loading, retry } = useBlobUrl(displayPath, {
 		lane: displaySource === "backend_preview" ? "preview" : "default",
 	});
@@ -134,7 +141,7 @@ export function BlobImagePreview({
 	const imageRenderKey = `${previewKey}\u0000${displaySource}`;
 	const imageRenderFailed = imageRenderFailedKey === imageRenderKey;
 	const canRequestOriginal =
-		path != null &&
+		resource != null &&
 		!isControlledSource &&
 		canShowOriginal &&
 		baseSource === "backend_preview" &&
@@ -225,10 +232,10 @@ export function BlobImagePreview({
 	// error, or after imageRenderFailed, but keep a safe loading state if future
 	// state combinations violate that invariant.
 	const content =
-		loading || (!error && !blobUrl) ? (
-			<PreviewLoadingState text={t("loading_preview")} className="h-full" />
-		) : error || imageRenderFailed ? (
+		originalUnsupported || error || imageRenderFailed ? (
 			<PreviewError appearance="dark" onRetry={handleRetry} />
+		) : loading || !blobUrl ? (
+			<PreviewLoadingState text={t("loading_preview")} className="h-full" />
 		) : readyBlobUrl ? (
 			<div ref={viewportRef} className={imageContainerClass}>
 				<img

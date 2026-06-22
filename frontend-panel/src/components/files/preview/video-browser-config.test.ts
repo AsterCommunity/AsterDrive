@@ -96,7 +96,7 @@ describe("video browser config", () => {
 	});
 
 	it("resolves file preview links when the url template needs file_preview_url", async () => {
-		const createPreviewLink = vi.fn(async () => ({
+		const createExternalPreviewLink = vi.fn(async () => ({
 			etag: '"etag-report"',
 			expires_at: "2026-04-11T12:00:00Z",
 			max_uses: 1,
@@ -119,10 +119,10 @@ describe("video browser config", () => {
 				url_template:
 					"https://view.officeapps.live.com/op/embed.aspx?src={{file_preview_url}}",
 			},
-			createPreviewLink,
+			createExternalPreviewLink,
 		);
 
-		expect(createPreviewLink).toHaveBeenCalledTimes(1);
+		expect(createExternalPreviewLink).toHaveBeenCalledTimes(1);
 		expect(target).toEqual({
 			label: "Microsoft Viewer",
 			mode: "iframe",

@@ -23,15 +23,15 @@ import {
 } from "./PreviewSurface";
 
 interface CsvTablePreviewProps {
-	path: ResourcePath;
+	resource: ResourcePath;
 	delimiter: TablePreviewDelimiterValue;
 }
 
 const MAX_ROWS = 500;
 
-export function CsvTablePreview({ path, delimiter }: CsvTablePreviewProps) {
+export function CsvTablePreview({ resource, delimiter }: CsvTablePreviewProps) {
 	const { t } = useTranslation(["core", "files"]);
-	const { content, loading, error, reload } = useTextContent(path);
+	const { content, loading, error, reload } = useTextContent(resource);
 
 	const parsed = useMemo(() => {
 		if (!content) return null;

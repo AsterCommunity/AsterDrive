@@ -194,11 +194,11 @@ function detectBuiltinFilePreviewProfile(
 	if (typeInfo.category === "audio") {
 		return {
 			category: "audio",
-			isBlobPreview: true,
+			isBlobPreview: false,
 			isTextBased: false,
 			isEditableText: false,
-			defaultMode: "builtin.audio",
-			options: BUILTIN_PREVIEW_OPTIONS.audio,
+			defaultMode: null,
+			options: [],
 		};
 	}
 	if (typeInfo.category === "pdf") {
@@ -469,8 +469,6 @@ function getConfiguredPreviewMode(
 			return "image";
 		case "builtin.video":
 			return "video";
-		case "builtin.audio":
-			return "audio";
 		case "builtin.pdf":
 			return "pdf";
 		case "builtin.markdown":

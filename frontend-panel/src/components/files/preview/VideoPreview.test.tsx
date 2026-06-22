@@ -67,7 +67,7 @@ describe("VideoPreview", () => {
 		render(
 			<VideoPreview
 				file={{ name: "clip.mp4", mime_type: "video/mp4" }}
-				path={null}
+				resource={null}
 			/>,
 		);
 
@@ -80,7 +80,7 @@ describe("VideoPreview", () => {
 		render(
 			<VideoPreview
 				file={{ name: "clip.mp4", mime_type: "video/mp4" }}
-				path="/files/7/download"
+				resource="/files/7/download"
 			/>,
 		);
 
@@ -105,7 +105,7 @@ describe("VideoPreview", () => {
 		render(
 			<VideoPreview
 				file={{ name: "clip.mp4", mime_type: "video/mp4" }}
-				path="/pv/token/clip.mp4"
+				resource="/pv/token/clip.mp4"
 			/>,
 		);
 
@@ -119,7 +119,7 @@ describe("VideoPreview", () => {
 	});
 
 	it("creates a stream session before initializing Artplayer when provided", async () => {
-		const mediaStreamLinkFactory = vi.fn(async () => ({
+		const createMediaStreamSession = vi.fn(async () => ({
 			expires_at: "2026-01-01T00:00:00Z",
 			path: "/api/v1/s/share-token/stream/session-token/clip.mp4",
 		}));
@@ -127,8 +127,8 @@ describe("VideoPreview", () => {
 		render(
 			<VideoPreview
 				file={{ name: "clip.mp4", mime_type: "video/mp4" }}
-				path="/s/share-token/download"
-				mediaStreamLinkFactory={mediaStreamLinkFactory}
+				resource="/s/share-token/download"
+				createMediaStreamSession={createMediaStreamSession}
 			/>,
 		);
 
@@ -136,7 +136,7 @@ describe("VideoPreview", () => {
 		await waitFor(() => {
 			expect(mockState.artplayerInstances).toHaveLength(1);
 		});
-		expect(mediaStreamLinkFactory).toHaveBeenCalledTimes(1);
+		expect(createMediaStreamSession).toHaveBeenCalledTimes(1);
 		expect(mockState.artplayerInstances[0].options.url).toBe(
 			"/api/v1/s/share-token/stream/session-token/clip.mp4",
 		);
@@ -144,15 +144,15 @@ describe("VideoPreview", () => {
 
 	it("renders loading while creating a stream session and an error when creation fails", async () => {
 		const streamError = new Error("stream failed");
-		const mediaStreamLinkFactory = vi.fn(async () => {
+		const createMediaStreamSession = vi.fn(async () => {
 			throw streamError;
 		});
 
 		render(
 			<VideoPreview
 				file={{ name: "clip.mp4", mime_type: "video/mp4" }}
-				path="/s/share-token/download"
-				mediaStreamLinkFactory={mediaStreamLinkFactory}
+				resource="/s/share-token/download"
+				createMediaStreamSession={createMediaStreamSession}
 			/>,
 		);
 
@@ -171,7 +171,7 @@ describe("VideoPreview", () => {
 		render(
 			<VideoPreview
 				file={{ name: "clip.mp4", mime_type: "video/mp4" }}
-				path="/throw-player"
+				resource="/throw-player"
 			/>,
 		);
 
@@ -191,7 +191,7 @@ describe("VideoPreview", () => {
 		render(
 			<VideoPreview
 				file={{ name: "clip.mp4", mime_type: "video/mp4" }}
-				path="/files/7/download"
+				resource="/files/7/download"
 			/>,
 		);
 
@@ -211,7 +211,7 @@ describe("VideoPreview", () => {
 		render(
 			<VideoPreview
 				file={{ name: "clip.mp4", mime_type: "video/mp4" }}
-				path="/files/7/download"
+				resource="/files/7/download"
 			/>,
 		);
 
