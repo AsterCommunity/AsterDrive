@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useFileEditorSession } from "@/hooks/useFileEditorSession";
 import { useTextContent } from "@/hooks/useTextContent";
-import { type ResourcePath, resourceRequestPath } from "@/lib/resourceRequest";
+import { type ResourcePath, resourceCacheKey } from "@/lib/resourceRequest";
 import {
 	CodePreviewEditor,
 	type CodePreviewEditorMountHandler,
@@ -53,7 +53,7 @@ export function TextCodePreview({
 	const { t } = useTranslation(["core", "files"]);
 	const isDark = useIsDark();
 	const { content, etag, loading, error, reload } = useTextContent(path);
-	const editorKey = resourceRequestPath(path);
+	const editorKey = resourceCacheKey(path);
 	const {
 		editing,
 		dirty,

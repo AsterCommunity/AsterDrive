@@ -620,7 +620,7 @@ export function useBlobUrl(
 		const effectiveResource: ResourcePath = {
 			cacheKey,
 			etag: canonicalEtag,
-			requestPath: requestPath ?? cacheKey,
+			requestPath,
 		};
 
 		const unsubscribe = subscribeBlobUrlInvalidation(cacheKey, () => {

@@ -59,6 +59,7 @@ const mockState = vi.hoisted(() => ({
 	downloadPath: vi.fn((token: string) => `/s/${token}/download`),
 	createFolderFilePreviewLink: vi.fn((token: string, fileId: number) =>
 		Promise.resolve({
+			etag: '"etag-share"',
 			expires_at: "2026-01-01T00:00:00Z",
 			max_uses: 1,
 			path: `/pv/${token}/files/${fileId}`,

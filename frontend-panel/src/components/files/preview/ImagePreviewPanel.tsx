@@ -13,7 +13,7 @@ import { useBlobUrl } from "@/hooks/useBlobUrl";
 import { canBrowserRenderImage } from "@/lib/browserImageSupport";
 import { formatBytes } from "@/lib/format";
 import { shouldIgnoreKeyboardTarget } from "@/lib/keyboard";
-import { type ResourcePath, resourceRequestPath } from "@/lib/resourceRequest";
+import { type ResourcePath, resourceCacheKey } from "@/lib/resourceRequest";
 import { cn } from "@/lib/utils";
 import { useFrontendConfigStore } from "@/stores/frontendConfigStore";
 import type { FileInfo, FileListItem } from "@/types/api";
@@ -164,7 +164,7 @@ export function ImagePreviewPanel({
 	const previewKey = [
 		file.name,
 		file.mime_type,
-		downloadPath ? resourceRequestPath(downloadPath) : "",
+		downloadPath ? resourceCacheKey(downloadPath) : "",
 		imagePreviewPath ?? "",
 		imagePreviewPreference,
 	].join(IMAGE_PREVIEW_KEY_SEPARATOR);

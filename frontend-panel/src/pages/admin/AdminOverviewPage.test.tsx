@@ -499,9 +499,13 @@ describe("AdminOverviewPage", () => {
 		expect(screen.getByText("@root")).toBeInTheDocument();
 		expect(screen.getByText("audit_user")).toHaveClass("w-[180px]");
 		expect(
-			screen
-				.getAllByTestId("mock-table")
-				.some((table) => table.className.includes("min-w-[760px] table-fixed")),
+			screen.getAllByTestId("mock-table").some((table) => {
+				const { className } = table;
+				return (
+					className.includes("min-w-[760px]") &&
+					className.includes("table-fixed")
+				);
+			}),
 		).toBe(true);
 		expect(screen.getAllByText("File").length).toBeGreaterThan(0);
 		expect(screen.getByText("Trash cleanup")).toBeInTheDocument();
