@@ -2169,6 +2169,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/files/{id}/resource-handle": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["resolve_file_resource_handle"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/files/{id}/thumbnail": {
         parameters: {
             query?: never;
@@ -3443,6 +3459,22 @@ export interface paths {
         get?: never;
         put?: never;
         post: operations["create_team_file_preview_link"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/teams/{team_id}/files/{id}/resource-handle": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["resolve_team_file_resource_handle"];
         delete?: never;
         options?: never;
         head?: never;
@@ -5408,6 +5440,43 @@ export interface components {
             /** Format: int64 */
             folder_id?: number | null;
             relative_path?: string | null;
+        };
+        /** @enum {string} */
+        FileResourceConditionalHeaders: "allowed" | "forbidden";
+        /** @enum {string} */
+        FileResourceCredentials: "include" | "omit";
+        FileResourceDeliveryInfo: {
+            mime_type?: string | null;
+            mode: components["schemas"]["FileResourceDeliveryMode"];
+        };
+        /** @enum {string} */
+        FileResourceDeliveryMode: "blob_url" | "text" | "direct_url" | "media_stream" | "iframe_session" | "manifest";
+        FileResourceHandle: {
+            delivery: components["schemas"]["FileResourceDeliveryInfo"];
+            identity: components["schemas"]["FileResourceIdentity"];
+            request: components["schemas"]["FileResourceRequestInfo"];
+        };
+        FileResourceHandleRequest: {
+            delivery_mode: components["schemas"]["FileResourceDeliveryMode"];
+            purpose: components["schemas"]["FileResourcePurpose"];
+            representation?: components["schemas"]["FileResourceRepresentation"];
+        };
+        FileResourceIdentity: {
+            cache_key: string;
+            etag?: string | null;
+            scope?: string | null;
+        };
+        /** @enum {string} */
+        FileResourcePurpose: "preview" | "download" | "external_viewer";
+        /** @enum {string} */
+        FileResourceRedirectPolicy: "same_origin_only" | "may_cross_origin";
+        /** @enum {string} */
+        FileResourceRepresentation: "auto" | "original" | "image_preview" | "thumbnail";
+        FileResourceRequestInfo: {
+            conditional_headers: components["schemas"]["FileResourceConditionalHeaders"];
+            credentials: components["schemas"]["FileResourceCredentials"];
+            redirect_policy: components["schemas"]["FileResourceRedirectPolicy"];
+            url: string;
         };
         /** @description Search result file item (includes blob size from JOIN) */
         FileSearchItem: {
@@ -17534,6 +17603,63 @@ export interface operations {
             };
         };
     };
+    resolve_file_resource_handle: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description File ID */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FileResourceHandleRequest"];
+            };
+        };
+        responses: {
+            /** @description Resolved file resource handle */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        code: components["schemas"]["ApiErrorCode"];
+                        data?: {
+                            delivery: components["schemas"]["FileResourceDeliveryInfo"];
+                            identity: components["schemas"]["FileResourceIdentity"];
+                            request: components["schemas"]["FileResourceRequestInfo"];
+                        };
+                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        msg: string;
+                    };
+                };
+            };
+            /** @description Invalid resource handle request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description File not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     get_thumbnail: {
         parameters: {
             query?: never;
@@ -23356,6 +23482,72 @@ export interface operations {
                         msg: string;
                     };
                 };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description File not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    resolve_team_file_resource_handle: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Team ID */
+                team_id: number;
+                /** @description File ID */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FileResourceHandleRequest"];
+            };
+        };
+        responses: {
+            /** @description Resolved team file resource handle */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        code: components["schemas"]["ApiErrorCode"];
+                        data?: {
+                            delivery: components["schemas"]["FileResourceDeliveryInfo"];
+                            identity: components["schemas"]["FileResourceIdentity"];
+                            request: components["schemas"]["FileResourceRequestInfo"];
+                        };
+                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        msg: string;
+                    };
+                };
+            };
+            /** @description Invalid resource handle request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Unauthorized */
             401: {

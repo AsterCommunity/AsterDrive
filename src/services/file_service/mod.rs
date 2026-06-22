@@ -6,6 +6,7 @@ mod deletion;
 mod download;
 mod lock;
 mod metadata;
+mod resource_handle;
 mod thumbnail;
 mod transfer;
 
@@ -54,6 +55,7 @@ pub use metadata::{get_info, move_file, update};
 pub(crate) use metadata::{
     get_info_in_scope, get_info_with_storage_used_in_scope, update_in_scope,
 };
+pub(crate) use resource_handle::{FileResourcePathSet, resolve_file_resource_handle};
 pub use thumbnail::{ImagePreviewResult, ThumbnailResult, get_thumbnail_data};
 pub(crate) use thumbnail::{
     get_image_preview_data_in_scope, get_thumbnail_data_in_scope, image_preview_for_file,

@@ -30,7 +30,7 @@ pub const FRONTEND_CSP_HEADER: &str = concat!(
     // presigned upload / download 可能直接命中外部对象存储或 remote follower，
     // 这里必须允许浏览器向任意 http(s) 终点发起 XHR/fetch/WebSocket 连接。
     "connect-src 'self' http: https: ws: wss: blob:; ",
-    "media-src 'self' blob:; ",
+    "media-src 'self' blob: http: https:; ",
     "worker-src 'self' blob:; ",
     "frame-src 'self' http: https:; ",
     "manifest-src 'self'"
@@ -46,7 +46,7 @@ pub const FRONTEND_CSP_META: &str = concat!(
     "font-src 'self' data:; ",
     // meta CSP 不能承载 frame-ancestors；该约束仍由响应头版 CSP 生效。
     "connect-src 'self' http: https: ws: wss: blob:; ",
-    "media-src 'self' blob:; ",
+    "media-src 'self' blob: http: https:; ",
     "worker-src 'self' blob:; ",
     "frame-src 'self' http: https:; ",
     "manifest-src 'self'"
@@ -363,6 +363,25 @@ mod tests {
                 .get(header::CACHE_CONTROL)
                 .and_then(|value| value.to_str().ok()),
             Some("no-cache")
+        );
+    }
+
+    #[actix_web::test]
+    async fn index_csp_allows_external_presigned_media_sources() {
+        let app = frontend_test_app().await;
+        let req = test::TestRequest::get().uri("/").to_request();
+
+        let resp = test::call_service(&app, req).await;
+
+        assert_eq!(resp.status(), StatusCode::OK);
+        let csp = resp
+            .headers()
+            .get(header::CONTENT_SECURITY_POLICY)
+            .and_then(|value| value.to_str().ok())
+            .expect("index response should include CSP header");
+        assert!(
+            csp.contains("media-src 'self' blob: http: https:;"),
+            "frontend CSP should allow presigned audio/video media URLs, got {csp}"
         );
     }
 

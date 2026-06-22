@@ -1,6 +1,6 @@
 //! File-related DTOs: mutations, upload, access, and versioning.
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 #[cfg(all(debug_assertions, feature = "openapi"))]
 use utoipa::{IntoParams, ToSchema};
 use validator::Validate;
@@ -45,6 +45,106 @@ pub struct ArchivePreviewQuery {
 )]
 pub struct DownloadQuery {
     pub disposition: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+#[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
+pub enum FileResourcePurpose {
+    Preview,
+    Download,
+    ExternalViewer,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+#[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
+pub enum FileResourceDeliveryMode {
+    BlobUrl,
+    Text,
+    DirectUrl,
+    MediaStream,
+    IframeSession,
+    Manifest,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+#[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
+pub enum FileResourceRepresentation {
+    Auto,
+    Original,
+    ImagePreview,
+    Thumbnail,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+#[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
+pub enum FileResourceCredentials {
+    Include,
+    Omit,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+#[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
+pub enum FileResourceConditionalHeaders {
+    Allowed,
+    Forbidden,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+#[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
+pub enum FileResourceRedirectPolicy {
+    SameOriginOnly,
+    MayCrossOrigin,
+}
+
+#[derive(Deserialize)]
+#[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
+pub struct FileResourceHandleRequest {
+    pub purpose: FileResourcePurpose,
+    pub delivery_mode: FileResourceDeliveryMode,
+    #[serde(default = "default_file_resource_representation")]
+    pub representation: FileResourceRepresentation,
+}
+
+fn default_file_resource_representation() -> FileResourceRepresentation {
+    FileResourceRepresentation::Auto
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
+pub struct FileResourceIdentity {
+    pub cache_key: String,
+    pub etag: Option<String>,
+    pub scope: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
+pub struct FileResourceRequestInfo {
+    pub url: String,
+    pub credentials: FileResourceCredentials,
+    pub conditional_headers: FileResourceConditionalHeaders,
+    pub redirect_policy: FileResourceRedirectPolicy,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
+pub struct FileResourceDeliveryInfo {
+    pub mode: FileResourceDeliveryMode,
+    pub mime_type: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
+pub struct FileResourceHandle {
+    pub identity: FileResourceIdentity,
+    pub request: FileResourceRequestInfo,
+    pub delivery: FileResourceDeliveryInfo,
 }
 
 /// Patch (partial update) a file.

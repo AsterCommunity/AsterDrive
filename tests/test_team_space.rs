@@ -140,6 +140,107 @@ async fn set_default_policy_chunk_size(
 }
 
 #[actix_web::test]
+async fn test_team_file_resource_handle_resolves_team_scoped_paths_and_rejects_personal_file() {
+    let state = common::setup().await;
+    let db = state.writer_db().clone();
+    let mail_sender = state.mail_sender.clone();
+    let app = create_test_app!(state);
+
+    let _owner_id = register_user!(
+        app,
+        db,
+        mail_sender,
+        "teamresown",
+        "teamresown@example.com",
+        "password123"
+    );
+    let owner_token = login_user!(app, "teamresown", "password123");
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/teams")
+        .insert_header(("Cookie", common::access_cookie_header(&owner_token)))
+        .insert_header(common::csrf_header_for(&owner_token))
+        .set_json(serde_json::json!({ "name": "Team Resource Handles" }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 201);
+    let body: Value = test::read_body_json(resp).await;
+    let team_id = body["data"]["id"].as_i64().unwrap();
+
+    let req = multipart_request_with_mime!(
+        &format!("/api/v1/teams/{team_id}/files/upload"),
+        &owner_token,
+        "team-resource.png",
+        "png-ish",
+        "image/png",
+    );
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 201);
+    let body: Value = test::read_body_json(resp).await;
+    let team_file_id = body["data"]["id"].as_i64().unwrap();
+
+    let req = test::TestRequest::post()
+        .uri(&format!(
+            "/api/v1/teams/{team_id}/files/{team_file_id}/resource-handle"
+        ))
+        .insert_header(("Cookie", common::access_cookie_header(&owner_token)))
+        .insert_header(common::csrf_header_for(&owner_token))
+        .set_json(serde_json::json!({
+            "purpose": "preview",
+            "delivery_mode": "blob_url",
+            "representation": "thumbnail"
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+
+    assert_eq!(resp.status(), 200);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(body["code"], "success");
+    assert_eq!(
+        body["data"]["identity"]["cache_key"],
+        format!("/teams/{team_id}/files/{team_file_id}/thumbnail")
+    );
+    assert_eq!(body["data"]["identity"]["scope"], "team");
+    assert_eq!(
+        body["data"]["request"]["url"],
+        format!("/teams/{team_id}/files/{team_file_id}/thumbnail")
+    );
+    assert_eq!(body["data"]["request"]["credentials"], "include");
+    assert_eq!(body["data"]["request"]["conditional_headers"], "allowed");
+    assert_eq!(body["data"]["request"]["redirect_policy"], "same_origin_only");
+    assert_eq!(body["data"]["delivery"]["mode"], "blob_url");
+    assert_eq!(body["data"]["delivery"]["mime_type"], "image/webp");
+
+    let req = multipart_request!(
+        "/api/v1/files/upload",
+        &owner_token,
+        "personal-resource.txt",
+        "personal"
+    );
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 201);
+    let body: Value = test::read_body_json(resp).await;
+    let personal_file_id = body["data"]["id"].as_i64().unwrap();
+
+    let req = test::TestRequest::post()
+        .uri(&format!(
+            "/api/v1/teams/{team_id}/files/{personal_file_id}/resource-handle"
+        ))
+        .insert_header(("Cookie", common::access_cookie_header(&owner_token)))
+        .insert_header(common::csrf_header_for(&owner_token))
+        .set_json(serde_json::json!({
+            "purpose": "preview",
+            "delivery_mode": "blob_url"
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+
+    assert_eq!(resp.status(), 403);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(body["code"], "workspace.scope_denied");
+}
+
+#[actix_web::test]
 async fn test_team_space_upload_browse_download_and_personal_separation() {
     let state = common::setup().await;
     let db = state.writer_db().clone();

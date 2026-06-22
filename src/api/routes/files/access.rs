@@ -1,6 +1,8 @@
 //! 文件 API 路由：`access`。
 
-use crate::api::dto::files::{ArchivePreviewQuery, DownloadQuery, OpenWopiRequest};
+use crate::api::dto::files::{
+    ArchivePreviewQuery, DownloadQuery, FileResourceHandleRequest, OpenWopiRequest,
+};
 use crate::api::response::ApiResponse;
 use crate::api::routes::team_scope;
 use crate::errors::Result;
@@ -155,6 +157,43 @@ pub async fn get_preview_link(
             user_id: claims.user_id,
         },
         *path,
+    )
+    .await
+}
+
+#[api_docs_macros::path(
+    post,
+    path = "/api/v1/files/{id}/resource-handle",
+    tag = "files",
+    operation_id = "resolve_file_resource_handle",
+    params(("id" = i64, Path, description = "File ID")),
+    request_body = FileResourceHandleRequest,
+    responses(
+        (status = 200, description = "Resolved file resource handle", body = inline(ApiResponse<crate::api::dto::files::FileResourceHandle>)),
+        (status = 400, description = "Invalid resource handle request"),
+        (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
+        (status = 404, description = "File not found"),
+    ),
+    security(("bearer" = [])),
+)]
+pub async fn resolve_resource_handle(
+    state: web::Data<PrimaryAppState>,
+    claims: web::ReqData<Claims>,
+    path: web::Path<i64>,
+    body: web::Json<FileResourceHandleRequest>,
+) -> Result<HttpResponse> {
+    resource_handle_response(
+        state.get_ref(),
+        WorkspaceStorageScope::Personal {
+            user_id: claims.user_id,
+        },
+        *path,
+        file_service::FileResourcePathSet {
+            download: format!("/files/{}/download", *path),
+            image_preview: format!("/files/{}/image-preview", *path),
+            thumbnail: format!("/files/{}/thumbnail", *path),
+        },
+        &body,
     )
     .await
 }
@@ -466,6 +505,46 @@ pub(crate) async fn team_get_preview_link(
 
 #[api_docs_macros::path(
     post,
+    path = "/api/v1/teams/{team_id}/files/{id}/resource-handle",
+    tag = "teams",
+    operation_id = "resolve_team_file_resource_handle",
+    params(
+        ("team_id" = i64, Path, description = "Team ID"),
+        ("id" = i64, Path, description = "File ID")
+    ),
+    request_body = FileResourceHandleRequest,
+    responses(
+        (status = 200, description = "Resolved team file resource handle", body = inline(ApiResponse<crate::api::dto::files::FileResourceHandle>)),
+        (status = 400, description = "Invalid resource handle request"),
+        (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
+        (status = 403, description = "Forbidden"),
+        (status = 404, description = "File not found"),
+    ),
+    security(("bearer" = [])),
+)]
+pub(crate) async fn team_resolve_resource_handle(
+    state: web::Data<PrimaryAppState>,
+    claims: web::ReqData<Claims>,
+    path: web::Path<(i64, i64)>,
+    body: web::Json<FileResourceHandleRequest>,
+) -> Result<HttpResponse> {
+    let (team_id, file_id) = path.into_inner();
+    resource_handle_response(
+        state.get_ref(),
+        team_scope(team_id, claims.user_id),
+        file_id,
+        file_service::FileResourcePathSet {
+            download: format!("/teams/{team_id}/files/{file_id}/download"),
+            image_preview: format!("/teams/{team_id}/files/{file_id}/image-preview"),
+            thumbnail: format!("/teams/{team_id}/files/{file_id}/thumbnail"),
+        },
+        &body,
+    )
+    .await
+}
+
+#[api_docs_macros::path(
+    post,
     path = "/api/v1/teams/{team_id}/files/{id}/wopi/open",
     tag = "teams",
     operation_id = "open_team_file_with_wopi",
@@ -654,6 +733,18 @@ pub(crate) async fn get_file_response(
 ) -> Result<HttpResponse> {
     let file = file_service::get_info_with_storage_used_in_scope(state, scope, file_id).await?;
     Ok(HttpResponse::Ok().json(ApiResponse::ok(file)))
+}
+
+pub(crate) async fn resource_handle_response(
+    state: &PrimaryAppState,
+    scope: WorkspaceStorageScope,
+    file_id: i64,
+    paths: file_service::FileResourcePathSet,
+    request: &FileResourceHandleRequest,
+) -> Result<HttpResponse> {
+    let handle =
+        file_service::resolve_file_resource_handle(state, scope, file_id, paths, request).await?;
+    Ok(HttpResponse::Ok().json(ApiResponse::ok(handle)))
 }
 
 pub(crate) async fn archive_preview_response(
@@ -967,10 +1058,15 @@ pub(crate) fn thumbnail_response(
 #[cfg(test)]
 mod tests {
     use super::{image_preview_response, thumbnail_response};
+    use crate::api::dto::files::{
+        FileResourceConditionalHeaders, FileResourceCredentials, FileResourceDeliveryMode,
+        FileResourceHandle, FileResourcePurpose, FileResourceRedirectPolicy,
+        FileResourceRepresentation,
+    };
     use crate::cache;
     use crate::config::{CacheConfig, Config, DatabaseConfig, RateLimitConfig, RuntimeConfig};
     use crate::db::repository::{background_task_repo, file_repo};
-    use crate::entities::{file, file_blob, storage_policy, user};
+    use crate::entities::{file, file_blob, storage_policy, team, team_member, user};
     use crate::runtime::{PrimaryAppState, SharedRuntimeState};
     use crate::services::file_service::{ImagePreviewResult, ThumbnailResult};
     use crate::services::{auth_service, mail_service, media_processing_service};
@@ -979,7 +1075,7 @@ mod tests {
     use crate::storage::{DriverRegistry, PolicySnapshot};
     use crate::types::{
         BackgroundTaskKind, BackgroundTaskStatus, DriverType, StoredStoragePolicyAllowedTypes,
-        StoredStoragePolicyOptions, UserRole, UserStatus,
+        StoredStoragePolicyOptions, TeamMemberRole, UserRole, UserStatus,
     };
     use actix_web::body;
     use actix_web::http::{StatusCode, header};
@@ -989,6 +1085,7 @@ mod tests {
     use image::{ColorType, ImageEncoder};
     use migration::Migrator;
     use sea_orm::{ActiveModelTrait, Set};
+    use serde_json::Value;
     use std::io::Cursor;
     use std::sync::Arc;
 
@@ -1176,6 +1273,184 @@ mod tests {
             .await
             .expect("image preview route access token should issue")
             .0
+    }
+
+    async fn create_team_scoped_file(
+        state: &PrimaryAppState,
+        owner: &user::Model,
+        original_file: &file::Model,
+    ) -> (team::Model, file::Model) {
+        let now = Utc::now();
+        let team = team::ActiveModel {
+            name: Set("Resource Handle Route Team".to_string()),
+            description: Set(String::new()),
+            created_by: Set(owner.id),
+            storage_used: Set(0),
+            storage_quota: Set(0),
+            policy_group_id: Set(None),
+            created_at: Set(now),
+            updated_at: Set(now),
+            archived_at: Set(None),
+            ..Default::default()
+        }
+        .insert(state.writer_db())
+        .await
+        .expect("resource handle route team should insert");
+        team_member::ActiveModel {
+            team_id: Set(team.id),
+            user_id: Set(owner.id),
+            role: Set(TeamMemberRole::Owner),
+            created_at: Set(now),
+            updated_at: Set(now),
+            ..Default::default()
+        }
+        .insert(state.writer_db())
+        .await
+        .expect("resource handle route team membership should insert");
+        let team_file = file_repo::create(
+            state.writer_db(),
+            file::ActiveModel {
+                name: Set("team-source.png".to_string()),
+                folder_id: Set(None),
+                team_id: Set(Some(team.id)),
+                blob_id: Set(original_file.blob_id),
+                size: Set(original_file.size),
+                owner_user_id: Set(None),
+                created_by_user_id: Set(Some(owner.id)),
+                created_by_username: Set(owner.username.clone()),
+                mime_type: Set("image/png".to_string()),
+                created_at: Set(now),
+                updated_at: Set(now),
+                deleted_at: Set(None),
+                is_locked: Set(false),
+                ..Default::default()
+            },
+        )
+        .await
+        .expect("resource handle route team file should insert");
+
+        (team, team_file)
+    }
+
+    #[actix_web::test]
+    async fn resolve_resource_handle_route_defaults_representation_to_auto() {
+        let (state, user, file) = build_image_preview_route_state().await;
+        let token = access_token_for(&state, &user).await;
+        let app = test::init_service(App::new().app_data(web::Data::new(state.clone())).service(
+            web::scope("/api/v1").service(crate::api::routes::files::routes(
+                &RateLimitConfig {
+                    enabled: false,
+                    ..Default::default()
+                },
+                &crate::config::NetworkTrustConfig::default(),
+            )),
+        ))
+        .await;
+
+        let response = test::call_service(
+            &app,
+            test::TestRequest::post()
+                .uri(&format!("/api/v1/files/{}/resource-handle", file.id))
+                .insert_header((header::AUTHORIZATION, format!("Bearer {token}")))
+                .set_json(serde_json::json!({
+                    "purpose": "preview",
+                    "delivery_mode": "blob_url"
+                }))
+                .to_request(),
+        )
+        .await;
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let body: Value = test::read_body_json(response).await;
+        assert_eq!(body["code"], "success");
+        let handle: FileResourceHandle =
+            serde_json::from_value(body["data"].clone()).expect("resource handle should decode");
+        assert_eq!(handle.identity.cache_key, format!("/files/{}/download", file.id));
+        assert_eq!(handle.identity.scope.as_deref(), Some("personal"));
+        assert_eq!(
+            handle.request.url,
+            format!("/files/{}/download?disposition=inline", file.id)
+        );
+        assert_eq!(handle.request.credentials, FileResourceCredentials::Include);
+        assert_eq!(
+            handle.request.conditional_headers,
+            FileResourceConditionalHeaders::Allowed
+        );
+        assert_eq!(
+            handle.request.redirect_policy,
+            FileResourceRedirectPolicy::SameOriginOnly
+        );
+        assert_eq!(handle.delivery.mode, FileResourceDeliveryMode::BlobUrl);
+        assert_eq!(handle.delivery.mime_type.as_deref(), Some("image/png"));
+
+        let decoded: crate::api::dto::files::FileResourceHandleRequest =
+            serde_json::from_value(serde_json::json!({
+                "purpose": "preview",
+                "delivery_mode": "blob_url"
+            }))
+            .expect("request without representation should deserialize");
+        assert_eq!(decoded.purpose, FileResourcePurpose::Preview);
+        assert_eq!(decoded.representation, FileResourceRepresentation::Auto);
+    }
+
+    #[actix_web::test]
+    async fn team_resolve_resource_handle_route_uses_team_paths_and_scope() {
+        let (state, user, source_file) = build_image_preview_route_state().await;
+        let (team, team_file) = create_team_scoped_file(&state, &user, &source_file).await;
+        let token = access_token_for(&state, &user).await;
+        let app = test::init_service(App::new().app_data(web::Data::new(state.clone())).service(
+            web::scope("/api/v1").service(crate::api::routes::teams::routes(
+                &RateLimitConfig {
+                    enabled: false,
+                    ..Default::default()
+                },
+                &crate::config::NetworkTrustConfig::default(),
+            )),
+        ))
+        .await;
+
+        let response = test::call_service(
+            &app,
+            test::TestRequest::post()
+                .uri(&format!(
+                    "/api/v1/teams/{}/files/{}/resource-handle",
+                    team.id, team_file.id
+                ))
+                .insert_header((header::AUTHORIZATION, format!("Bearer {token}")))
+                .set_json(serde_json::json!({
+                    "purpose": "preview",
+                    "delivery_mode": "blob_url",
+                    "representation": "thumbnail"
+                }))
+                .to_request(),
+        )
+        .await;
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let body: Value = test::read_body_json(response).await;
+        assert_eq!(body["code"], "success");
+        let handle: FileResourceHandle =
+            serde_json::from_value(body["data"].clone()).expect("team resource handle should decode");
+        assert_eq!(
+            handle.identity.cache_key,
+            format!("/teams/{}/files/{}/thumbnail", team.id, team_file.id)
+        );
+        assert_eq!(handle.identity.scope.as_deref(), Some("team"));
+        assert_eq!(
+            handle.request.url,
+            format!("/teams/{}/files/{}/thumbnail", team.id, team_file.id)
+        );
+        assert_eq!(handle.request.credentials, FileResourceCredentials::Include);
+        assert_eq!(
+            handle.request.conditional_headers,
+            FileResourceConditionalHeaders::Allowed
+        );
+        assert_eq!(
+            handle.request.redirect_policy,
+            FileResourceRedirectPolicy::SameOriginOnly
+        );
+        assert_eq!(handle.delivery.mode, FileResourceDeliveryMode::BlobUrl);
+        assert_eq!(handle.delivery.mime_type.as_deref(), Some("image/webp"));
     }
 
     #[actix_web::test]

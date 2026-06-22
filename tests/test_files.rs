@@ -117,6 +117,91 @@ fn upload_payload(filename: &str, content: &str) -> String {
 }
 
 #[actix_web::test]
+async fn test_file_resource_handle_resolves_same_origin_original_and_default_representation() {
+    let state = common::setup().await;
+    let app = create_test_app!(state);
+    let (token, _) = register_and_login!(app);
+
+    let file_id = upload_test_file_with_content!(app, token, "resource-note.txt", "hello handle");
+
+    let req = test::TestRequest::post()
+        .uri(&format!("/api/v1/files/{file_id}/resource-handle"))
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({
+            "purpose": "preview",
+            "delivery_mode": "blob_url"
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(body["code"], "success");
+    assert_eq!(
+        body["data"]["identity"]["cache_key"],
+        format!("/files/{file_id}/download")
+    );
+    assert_eq!(body["data"]["identity"]["scope"], "personal");
+    let etag = body["data"]["identity"]["etag"].as_str().unwrap();
+    assert!(etag.starts_with('"') && etag.ends_with('"'));
+    assert_eq!(
+        body["data"]["request"]["url"],
+        format!("/files/{file_id}/download?disposition=inline")
+    );
+    assert_eq!(body["data"]["request"]["credentials"], "include");
+    assert_eq!(body["data"]["request"]["conditional_headers"], "allowed");
+    assert_eq!(body["data"]["request"]["redirect_policy"], "same_origin_only");
+    assert_eq!(body["data"]["delivery"]["mode"], "blob_url");
+    assert_eq!(body["data"]["delivery"]["mime_type"], "text/plain");
+}
+
+#[actix_web::test]
+async fn test_file_resource_handle_resolves_thumbnail_representation() {
+    let state = common::setup().await;
+    let app = create_test_app!(state);
+    let (token, _) = register_and_login!(app);
+
+    let file_id = upload_test_file_with_name_and_mime!(
+        app,
+        token,
+        "resource-image.png",
+        "image/png",
+        "png-ish"
+    );
+
+    let req = test::TestRequest::post()
+        .uri(&format!("/api/v1/files/{file_id}/resource-handle"))
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({
+            "purpose": "preview",
+            "delivery_mode": "blob_url",
+            "representation": "thumbnail"
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(body["code"], "success");
+    assert_eq!(
+        body["data"]["identity"]["cache_key"],
+        format!("/files/{file_id}/thumbnail")
+    );
+    assert_eq!(body["data"]["identity"]["scope"], "personal");
+    assert_eq!(
+        body["data"]["request"]["url"],
+        format!("/files/{file_id}/thumbnail")
+    );
+    assert_eq!(body["data"]["request"]["credentials"], "include");
+    assert_eq!(body["data"]["request"]["conditional_headers"], "allowed");
+    assert_eq!(body["data"]["request"]["redirect_policy"], "same_origin_only");
+    assert_eq!(body["data"]["delivery"]["mode"], "blob_url");
+    assert_eq!(body["data"]["delivery"]["mime_type"], "image/webp");
+}
+
+#[actix_web::test]
 async fn test_file_upload_download_delete() {
     let state = common::setup().await;
     let app = create_test_app!(state);
