@@ -1,6 +1,6 @@
 //! 文件 API 路由：`access`。
 
-use crate::api::dto::files::{ArchivePreviewQuery, OpenWopiRequest};
+use crate::api::dto::files::{ArchivePreviewQuery, DownloadQuery, OpenWopiRequest};
 use crate::api::response::ApiResponse;
 use crate::api::routes::team_scope;
 use crate::errors::Result;
@@ -19,6 +19,18 @@ use actix_web::{HttpRequest, HttpResponse, web};
 fn request_origin_parts(req: &HttpRequest) -> (String, String) {
     let conn = req.connection_info();
     (conn.scheme().to_string(), conn.host().to_string())
+}
+
+pub(crate) fn download_disposition_from_query(
+    query: &DownloadQuery,
+) -> Result<file_service::DownloadDisposition> {
+    match query.disposition.as_deref() {
+        None | Some("") | Some("attachment") => Ok(file_service::DownloadDisposition::Attachment),
+        Some("inline") => Ok(file_service::DownloadDisposition::Inline),
+        Some(value) => Err(crate::errors::AsterError::validation_error(format!(
+            "unsupported download disposition '{value}', expected inline or attachment"
+        ))),
+    }
 }
 
 #[api_docs_macros::path(
@@ -186,7 +198,7 @@ pub async fn open_wopi(
     path = "/api/v1/files/{id}/download",
     tag = "files",
     operation_id = "download_file",
-    params(("id" = i64, Path, description = "File ID")),
+    params(("id" = i64, Path, description = "File ID"), DownloadQuery),
     responses(
         (status = 200, description = "File content"),
         (status = 206, description = "Partial file content"),
@@ -200,6 +212,7 @@ pub async fn download(
     claims: web::ReqData<Claims>,
     req: HttpRequest,
     path: web::Path<i64>,
+    query: web::Query<DownloadQuery>,
 ) -> Result<HttpResponse> {
     download_response(
         state.get_ref(),
@@ -209,6 +222,7 @@ pub async fn download(
             user_id: claims.user_id,
         },
         *path,
+        download_disposition_from_query(&query)?,
     )
     .await
 }
@@ -602,7 +616,8 @@ pub(crate) async fn team_get_media_metadata(
     operation_id = "download_team_file",
     params(
         ("team_id" = i64, Path, description = "Team ID"),
-        ("id" = i64, Path, description = "File ID")
+        ("id" = i64, Path, description = "File ID"),
+        DownloadQuery
     ),
     responses(
         (status = 200, description = "Team file content"),
@@ -618,6 +633,7 @@ pub(crate) async fn team_download(
     claims: web::ReqData<Claims>,
     req: HttpRequest,
     path: web::Path<(i64, i64)>,
+    query: web::Query<DownloadQuery>,
 ) -> Result<HttpResponse> {
     let (team_id, file_id) = path.into_inner();
     download_response(
@@ -626,6 +642,7 @@ pub(crate) async fn team_download(
         &req,
         team_scope(team_id, claims.user_id),
         file_id,
+        download_disposition_from_query(&query)?,
     )
     .await
 }
@@ -810,6 +827,7 @@ pub(crate) async fn download_response(
     req: &HttpRequest,
     scope: WorkspaceStorageScope,
     file_id: i64,
+    disposition: file_service::DownloadDisposition,
 ) -> Result<HttpResponse> {
     let if_none_match = req
         .headers()
@@ -822,6 +840,7 @@ pub(crate) async fn download_response(
         state,
         scope,
         file,
+        disposition,
         if_none_match,
         range,
         &ctx,

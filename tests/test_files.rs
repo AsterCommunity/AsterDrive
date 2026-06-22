@@ -287,6 +287,97 @@ async fn test_file_direct_link_supports_public_access_force_download_and_file_re
 }
 
 #[actix_web::test]
+async fn test_file_download_supports_disposition_query() {
+    let state = common::setup().await;
+    let app = create_test_app!(state);
+
+    let (token, _) = register_and_login!(app);
+    let file_id = upload_test_file_named!(app, token, "inline report.txt");
+
+    let req = test::TestRequest::get()
+        .uri(&format!("/api/v1/files/{file_id}/download"))
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), StatusCode::OK);
+    assert_eq!(
+        resp.headers().get(header::CONTENT_DISPOSITION).unwrap(),
+        "attachment; filename*=UTF-8''inline%20report.txt"
+    );
+
+    let req = test::TestRequest::get()
+        .uri(&format!(
+            "/api/v1/files/{file_id}/download?disposition=inline"
+        ))
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), StatusCode::OK);
+    assert_eq!(
+        resp.headers().get(header::CONTENT_DISPOSITION).unwrap(),
+        "inline; filename*=UTF-8''inline%20report.txt"
+    );
+
+    let req = test::TestRequest::get()
+        .uri(&format!(
+            "/api/v1/files/{file_id}/download?disposition=attachment"
+        ))
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), StatusCode::OK);
+    assert_eq!(
+        resp.headers().get(header::CONTENT_DISPOSITION).unwrap(),
+        "attachment; filename*=UTF-8''inline%20report.txt"
+    );
+
+    let req = test::TestRequest::get()
+        .uri(&format!(
+            "/api/v1/files/{file_id}/download?disposition=sideways"
+        ))
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+}
+
+#[actix_web::test]
+async fn test_file_download_inline_dangerous_mime_keeps_csp_sandbox() {
+    let state = common::setup().await;
+    let app = create_test_app!(state);
+
+    let (token, _) = register_and_login!(app);
+    let file_id = upload_test_file_with_name_and_mime!(
+        app,
+        token,
+        "dangerous-download.html",
+        "text/html",
+        "<!doctype html><script>alert(1)</script>"
+    );
+
+    let req = test::TestRequest::get()
+        .uri(&format!(
+            "/api/v1/files/{file_id}/download?disposition=inline"
+        ))
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), StatusCode::OK);
+    assert_eq!(
+        resp.headers().get(header::CONTENT_DISPOSITION).unwrap(),
+        "inline; filename*=UTF-8''dangerous%2Ddownload.html"
+    );
+    assert_eq!(
+        resp.headers().get("Content-Security-Policy").unwrap(),
+        "sandbox"
+    );
+    assert_eq!(
+        resp.headers().get("X-Content-Type-Options").unwrap(),
+        "nosniff"
+    );
+}
+
+#[actix_web::test]
 async fn test_file_preview_link_supports_public_inline_access_and_usage_limit() {
     let mut state = common::setup().await;
     state.cache = aster_drive::cache::create_cache(&aster_drive::config::CacheConfig {

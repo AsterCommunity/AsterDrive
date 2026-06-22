@@ -304,13 +304,30 @@ pub async fn download_shared_file_with_range(
     if_none_match: Option<&str>,
     range: Option<ResolvedDownloadRange>,
 ) -> Result<file_service::DownloadOutcome> {
+    download_shared_file_with_disposition_and_range(
+        state,
+        token,
+        file_service::DownloadDisposition::Attachment,
+        if_none_match,
+        range,
+    )
+    .await
+}
+
+pub(crate) async fn download_shared_file_with_disposition_and_range(
+    state: &PrimaryAppState,
+    token: &str,
+    disposition: file_service::DownloadDisposition,
+    if_none_match: Option<&str>,
+    range: Option<ResolvedDownloadRange>,
+) -> Result<file_service::DownloadOutcome> {
     let share = load_valid_share(state, token).await?;
     let file = load_share_file_resource(state, &share).await?;
     download_share_resource_with_disposition(
         state,
         &share,
         &file,
-        file_service::DownloadDisposition::Attachment,
+        disposition,
         if_none_match,
         range,
     )
@@ -324,12 +341,31 @@ pub async fn download_shared_folder_file_with_range(
     if_none_match: Option<&str>,
     range: Option<ResolvedDownloadRange>,
 ) -> Result<file_service::DownloadOutcome> {
+    download_shared_folder_file_with_disposition_and_range(
+        state,
+        token,
+        file_id,
+        file_service::DownloadDisposition::Attachment,
+        if_none_match,
+        range,
+    )
+    .await
+}
+
+pub(crate) async fn download_shared_folder_file_with_disposition_and_range(
+    state: &PrimaryAppState,
+    token: &str,
+    file_id: i64,
+    disposition: file_service::DownloadDisposition,
+    if_none_match: Option<&str>,
+    range: Option<ResolvedDownloadRange>,
+) -> Result<file_service::DownloadOutcome> {
     let (share, file) = load_shared_folder_file_target(state, token, file_id).await?;
     download_share_resource_with_disposition(
         state,
         &share,
         &file,
-        file_service::DownloadDisposition::Attachment,
+        disposition,
         if_none_match,
         range,
     )

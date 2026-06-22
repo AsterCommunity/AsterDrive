@@ -218,6 +218,7 @@ pub(crate) async fn download_in_scope_with_file_and_audit(
     state: &PrimaryAppState,
     scope: WorkspaceStorageScope,
     file: crate::entities::file::Model,
+    disposition: DownloadDisposition,
     if_none_match: Option<&str>,
     range: Option<download::range::ResolvedDownloadRange>,
     audit_ctx: &AuditContext,
@@ -237,6 +238,7 @@ pub(crate) async fn download_in_scope_with_file_and_audit(
             Some(file),
             if_none_match,
             range,
+            disposition,
         ),
     )
     .await?;

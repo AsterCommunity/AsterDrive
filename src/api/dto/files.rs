@@ -37,6 +37,16 @@ pub struct ArchivePreviewQuery {
     pub filename_encoding: crate::types::ArchiveFilenameEncoding,
 }
 
+/// Query parameters for file content downloads.
+#[derive(Deserialize)]
+#[cfg_attr(
+    all(debug_assertions, feature = "openapi"),
+    derive(IntoParams, ToSchema)
+)]
+pub struct DownloadQuery {
+    pub disposition: Option<String>,
+}
+
 /// Patch (partial update) a file.
 #[derive(Deserialize, Validate)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]

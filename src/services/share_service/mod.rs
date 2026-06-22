@@ -47,9 +47,11 @@ pub(crate) use cache::{
     invalidate_active_share_target_cache_for_scope, invalidate_all_share_token_record_cache,
 };
 pub(crate) use content::{
-    load_preview_shared_file, load_preview_shared_folder_file,
-    load_shared_file_ignoring_download_limit, load_shared_folder_file_ignoring_download_limit,
-    reserve_share_download_count, rollback_share_download_count,
+    download_shared_file_with_disposition_and_range,
+    download_shared_folder_file_with_disposition_and_range, load_preview_shared_file,
+    load_preview_shared_folder_file, load_shared_file_ignoring_download_limit,
+    load_shared_folder_file_ignoring_download_limit, reserve_share_download_count,
+    rollback_share_download_count,
 };
 pub(crate) use management::{
     batch_delete_shares_in_scope, create_share_in_scope, delete_share_in_scope,

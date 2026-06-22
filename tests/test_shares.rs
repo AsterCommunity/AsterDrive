@@ -154,6 +154,30 @@ async fn test_shares_crud() {
         .to_request();
     let resp = test::call_service(&app, req).await;
     assert_eq!(resp.status(), 200);
+    assert_eq!(
+        resp.headers().get(header::CONTENT_DISPOSITION).unwrap(),
+        "attachment; filename*=UTF-8''test.txt"
+    );
+
+    let req = test::TestRequest::get()
+        .uri(&format!(
+            "/api/v1/s/{share_token}/download?disposition=inline"
+        ))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+    assert_eq!(
+        resp.headers().get(header::CONTENT_DISPOSITION).unwrap(),
+        "inline; filename*=UTF-8''test.txt"
+    );
+
+    let req = test::TestRequest::get()
+        .uri(&format!(
+            "/api/v1/s/{share_token}/download?disposition=sideways"
+        ))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
 
     // 删除分享
     let req = test::TestRequest::delete()

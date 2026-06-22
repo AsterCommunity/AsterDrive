@@ -17149,7 +17149,9 @@ export interface operations {
     };
     download_file: {
         parameters: {
-            query?: never;
+            query?: {
+                disposition?: string | null;
+            };
             header?: never;
             path: {
                 /** @description File ID */
@@ -18941,7 +18943,9 @@ export interface operations {
     };
     download_shared_file: {
         parameters: {
-            query?: never;
+            query?: {
+                disposition?: string | null;
+            };
             header?: never;
             path: {
                 /** @description Share token */
@@ -19069,7 +19073,9 @@ export interface operations {
     };
     download_shared_folder_file: {
         parameters: {
-            query?: never;
+            query?: {
+                disposition?: string | null;
+            };
             header?: never;
             path: {
                 /** @description Share token */
@@ -22935,7 +22941,9 @@ export interface operations {
     };
     download_team_file: {
         parameters: {
-            query?: never;
+            query?: {
+                disposition?: string | null;
+            };
             header?: never;
             path: {
                 /** @description Team ID */

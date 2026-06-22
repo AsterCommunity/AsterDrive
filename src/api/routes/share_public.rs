@@ -2,7 +2,7 @@
 
 use crate::api::api_error_code::ApiErrorCode;
 use crate::api::dto::batch::ArchiveDownloadReq;
-use crate::api::dto::files::ArchivePreviewQuery;
+use crate::api::dto::files::{ArchivePreviewQuery, DownloadQuery};
 use crate::api::dto::share_public::DirectLinkQuery;
 pub use crate::api::dto::share_public::VerifyPasswordReq;
 use crate::api::dto::validate_request;
@@ -499,10 +499,10 @@ fn ensure_share_archive_download_enabled(state: &PrimaryAppState) -> Result<()> 
 
 #[api_docs_macros::path(
     get,
-    path = "/api/v1/s/{token}/download",
-    tag = "shares",
-    operation_id = "download_shared_file",
-    params(("token" = String, Path, description = "Share token")),
+	path = "/api/v1/s/{token}/download",
+	tag = "shares",
+	operation_id = "download_shared_file",
+	params(("token" = String, Path, description = "Share token"), DownloadQuery),
     responses(
         (status = 200, description = "File content"),
         (status = 206, description = "Partial file content"),
@@ -513,6 +513,7 @@ fn ensure_share_archive_download_enabled(state: &PrimaryAppState) -> Result<()> 
 pub async fn download_shared(
     state: web::Data<PrimaryAppState>,
     path: web::Path<String>,
+    query: web::Query<DownloadQuery>,
     req: actix_web::HttpRequest,
 ) -> Result<HttpResponse> {
     check_share_cookie(state.get_ref(), &req, path.as_str()).await?;
@@ -523,9 +524,10 @@ pub async fn download_shared(
         state.get_ref(),
         "share",
         has_range,
-        share_service::download_shared_file_with_range(
+        share_service::download_shared_file_with_disposition_and_range(
             state.get_ref(),
             &path,
+            files::access::download_disposition_from_query(&query)?,
             req.headers()
                 .get("If-None-Match")
                 .and_then(|v| v.to_str().ok()),
@@ -648,10 +650,11 @@ pub async fn stream_shared_video(
     path = "/api/v1/s/{token}/files/{file_id}/download",
     tag = "shares",
     operation_id = "download_shared_folder_file",
-    params(
-        ("token" = String, Path, description = "Share token"),
-        ("file_id" = i64, Path, description = "File ID inside shared folder")
-    ),
+	params(
+		("token" = String, Path, description = "Share token"),
+		("file_id" = i64, Path, description = "File ID inside shared folder"),
+		DownloadQuery
+	),
     responses(
         (status = 200, description = "File content"),
         (status = 206, description = "Partial file content"),
@@ -662,6 +665,7 @@ pub async fn stream_shared_video(
 pub async fn download_shared_folder_file_handler(
     state: web::Data<PrimaryAppState>,
     path: web::Path<(String, i64)>,
+    query: web::Query<DownloadQuery>,
     req: actix_web::HttpRequest,
 ) -> Result<HttpResponse> {
     let (token, file_id) = path.into_inner();
@@ -673,10 +677,11 @@ pub async fn download_shared_folder_file_handler(
         state.get_ref(),
         "share",
         has_range,
-        share_service::download_shared_folder_file_with_range(
+        share_service::download_shared_folder_file_with_disposition_and_range(
             state.get_ref(),
             &token,
             file_id,
+            files::access::download_disposition_from_query(&query)?,
             req.headers()
                 .get("If-None-Match")
                 .and_then(|v| v.to_str().ok()),

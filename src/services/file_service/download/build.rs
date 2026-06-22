@@ -24,6 +24,7 @@ pub(crate) async fn download_in_scope_with_range_and_file(
     file: Option<file::Model>,
     if_none_match: Option<&str>,
     range: Option<ResolvedDownloadRange>,
+    disposition: DownloadDisposition,
 ) -> Result<DownloadOutcome> {
     tracing::debug!(
         scope = ?scope,
@@ -37,7 +38,15 @@ pub(crate) async fn download_in_scope_with_range_and_file(
         None => get_info_in_scope(state, scope, id).await?,
     };
     let blob = file_repo::find_blob_by_id(state.reader_db(), file.blob_id).await?;
-    build_download_outcome(state, &file, &blob, if_none_match, range).await
+    build_download_outcome_with_disposition_and_range(
+        state,
+        &file,
+        &blob,
+        disposition,
+        if_none_match,
+        range,
+    )
+    .await
 }
 
 /// 下载文件（流式，不全量缓冲）
@@ -54,6 +63,7 @@ pub async fn download(
         None,
         if_none_match,
         None,
+        DownloadDisposition::Attachment,
     )
     .await
 }
@@ -88,24 +98,6 @@ async fn build_stream_outcome(
     range: Option<ResolvedDownloadRange>,
 ) -> Result<DownloadOutcome> {
     build_stream_outcome_with_disposition_and_range(
-        state,
-        file,
-        blob,
-        DownloadDisposition::Attachment,
-        if_none_match,
-        range,
-    )
-    .await
-}
-
-async fn build_download_outcome(
-    state: &PrimaryAppState,
-    file: &file::Model,
-    blob: &file_blob::Model,
-    if_none_match: Option<&str>,
-    range: Option<ResolvedDownloadRange>,
-) -> Result<DownloadOutcome> {
-    build_download_outcome_with_disposition_and_range(
         state,
         file,
         blob,
