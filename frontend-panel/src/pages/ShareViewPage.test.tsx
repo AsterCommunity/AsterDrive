@@ -10,6 +10,7 @@ import { FOLDER_LIMIT } from "@/lib/constants";
 import ShareViewPage, { SharePreviewElement } from "@/pages/ShareViewPage";
 import { ApiError } from "@/services/http";
 import { useFileStore } from "@/stores/fileStore";
+import type { FileResourceHandleRequest } from "@/types/api";
 import { ApiErrorCode } from "@/types/api-helpers";
 
 const TEST_SHARE_PASSWORD = "TEST_PASSWORD";
@@ -20,7 +21,7 @@ interface CapturedPreviewFactories {
 	createExternalPreviewLink?: () => Promise<unknown>;
 	resolve?: (
 		fileId: number,
-		request: Record<string, string>,
+		request: FileResourceHandleRequest,
 	) => Promise<unknown>;
 }
 
@@ -362,7 +363,7 @@ vi.mock("@/components/files/FilePreview", () => ({
 			};
 			resolve?: (
 				fileId: number,
-				request: Record<string, string>,
+				request: FileResourceHandleRequest,
 			) => Promise<unknown>;
 			actions?: {
 				loadArchiveManifest?: () => Promise<unknown>;

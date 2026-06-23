@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { prepareAuthenticatedResource } from "@/lib/authenticatedResource";
 import { logger } from "@/lib/logger";
 import { type ResourcePath, resourceRequestPath } from "@/lib/resourceRequest";
@@ -20,6 +20,8 @@ export function useVideoPreviewResource({
 	fileName,
 	resource,
 }: UseVideoPreviewResourceOptions) {
+	const inputIdentityRef = useRef({ createMediaStreamSession, resource });
+	const [inputIdentityVersion, setInputIdentityVersion] = useState(0);
 	const [retryCount, setRetryCount] = useState(0);
 	const [resolvedResource, setResolvedResource] = useState<{
 		key: string;
@@ -29,12 +31,23 @@ export function useVideoPreviewResource({
 
 	const requestPath = resource ? resourceRequestPath(resource) : null;
 	const resourceMode = createMediaStreamSession ? "stream" : "direct";
-	const resourceKey = `${requestPath}:${resourceMode}:${retryCount}`;
+	const inputIdentityChanged =
+		inputIdentityRef.current.resource !== resource ||
+		inputIdentityRef.current.createMediaStreamSession !==
+			createMediaStreamSession;
+	const resourceKey = `${requestPath}:${resourceMode}:${inputIdentityVersion}:${retryCount}`;
 	const resolvedPath =
 		resolvedResource?.key === resourceKey ? resolvedResource.path : null;
 
 	useEffect(() => {
+		if (!inputIdentityChanged) return;
+		inputIdentityRef.current = { createMediaStreamSession, resource };
+		setInputIdentityVersion((version) => version + 1);
+	}, [createMediaStreamSession, inputIdentityChanged, resource]);
+
+	useEffect(() => {
 		setError(null);
+		if (inputIdentityChanged) return;
 		if (!resource || !requestPath) {
 			setResolvedResource(null);
 			return;
@@ -69,7 +82,14 @@ export function useVideoPreviewResource({
 		return () => {
 			cancelled = true;
 		};
-	}, [fileName, resource, requestPath, createMediaStreamSession, resourceKey]);
+	}, [
+		createMediaStreamSession,
+		fileName,
+		inputIdentityChanged,
+		requestPath,
+		resource,
+		resourceKey,
+	]);
 
 	const retry = useCallback(() => {
 		setRetryCount((count) => count + 1);
